@@ -293,6 +293,47 @@ collapsed or skipped, and no stage may persist an ineligible record.
 
 ---
 
+## 10.1. Privacy-safe bounded dry-run classifier (BR-SOURCE-10E)
+
+BR-SOURCE-10E implements the **first bounded, offline classifier** of the
+`→ bounded privacy-safe dry-run` stage above. It is a **separate, explicit mode**
+that does **not** replace the BR-SOURCE-7 hard-block dry-run and **authorizes
+nothing** (no import, no Supabase write, no runtime, no Agent 1).
+
+- **Module:** `br-receita-cnpj-privacy-safe-classifier.ts`
+  (`runBrReceitaCnpjPrivacySafeClassifier`).
+- **Runner:** `scripts/source-catalog/run-br-receita-cnpj-privacy-safe-dry-run.ts`
+  (see runbook § 11.1 for the command).
+
+**Hard-block dry-run vs privacy-safe classifier.** The BR-SOURCE-7 dry-run
+(`run-br-receita-cnpj-local-dry-run.ts`) **aborts** the whole run the instant a
+sampled cell trips the coarse anti-PII digit-run guard
+(`sample_row_forbidden_value_detected`, `ok: false`). That guard is preserved and
+must not be bypassed. The classifier instead reads the same bounded sample and
+turns that same finding into a **per-record eligibility count** — it keeps running
+and reports how much of the sample is excluded, eligible, or held. A caller chooses
+one mode or the other; neither weakens the other.
+
+**What it produces.** Only **aggregated, sanitized metrics** (§ 9): per-file and
+total `classification_counts` keyed by the § 7 statuses, `exclusion_counts_by_reason`
+keyed by machine reason codes, `sample_rows_seen`, `files_*`, `sha256` 12-char
+prefixes, and an all-false safety block. It never emits a row, a cell value, a full
+CNPJ, a CPF, an email, a phone, or an address. The candidate-persistible-field
+scanner (§ 8) runs only on the fields a future import would persist, so a
+phone-length run inside a stripped contact column does **not** exclude a record,
+while a CPF-length token in a persistible field does (`excluded_person_or_pii_risk`).
+
+**What it does not do.** It does **not** resolve the empresas ↔ estabelecimentos
+join, produce an importable snapshot, decide full-CNPJ persistence, or mark any
+record eligible on its own authority. **Nothing is `eligible_for_future_import`**
+unless a legal-nature policy is injected (the runner injects none), because § 11
+below leaves the eligible-natureza allowlist, MEI policy, and full-CNPJ persistence
+undecided. Fail-closed, a clean company row therefore lands in `needs_legal_review`.
+The classifier is **observational**: it quantifies the § 2 stop condition, it does
+not lift it.
+
+---
+
 ## 11. Open legal / privacy questions
 
 These decisions are **unresolved** and block a privacy-safe import implementation. Each
@@ -320,7 +361,10 @@ implementation may proceed.
 ## 12. Flags
 
 ```
-OPS_BR_PRIVACY_SAFE_IMPORT_ELIGIBILITY_DESIGN_OFFICIAL = true   (only after this document merges)
+OPS_BR_PRIVACY_SAFE_IMPORT_ELIGIBILITY_DESIGN_OFFICIAL = true   (after the 10D document merged)
+
+OPS_BR_PRIVACY_SAFE_BOUNDED_DRY_RUN_CLASSIFIER_PR_READY = true  (BR-SOURCE-10E — classifier merged as a PR)
+OPS_BR_PRIVACY_SAFE_BOUNDED_DRY_RUN_CLASSIFIER_OFFICIAL = false (not an operational authorization)
 
 OPS_BR_READY_FOR_IMPORT             = false
 OPS_BR_READY_FOR_PRODUCTION_IMPORT  = false

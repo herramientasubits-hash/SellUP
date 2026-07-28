@@ -366,6 +366,47 @@ Save the JSON output under `reports/` for the record.
 
 ---
 
+## 11.1. Privacy-safe bounded dry-run classifier (BR-SOURCE-10E)
+
+The § 11 dry-run **hard-blocks** the whole run the moment a sampled cell trips the
+anti-PII digit-run guard (`sample_row_forbidden_value_detected`). That is correct
+and must not be bypassed. The **privacy-safe classifier** is a **separate, explicit
+mode** that reads the same bounded sample but, instead of aborting, turns each
+finding into a **per-record eligibility count** against the BR-SOURCE-10D contract.
+It never prints a row, a value, a full CNPJ, a CPF, an email, a phone, or an
+address — only aggregated counts. It **does not** replace the § 11 dry-run, and it
+**authorizes nothing** (no import, no runtime, no Agent 1).
+
+```bash
+node --import tsx scripts/source-catalog/run-br-receita-cnpj-privacy-safe-dry-run.ts \
+  --manifest ~/Downloads/sellup-source-data/br/receita-cnpj/<YYYY-MM>/manifest.headerless.json \
+  --allow-local-manifest \
+  --format json \
+  --strict \
+  --max-sample-rows 5
+```
+
+It requires `--manifest` + `--allow-local-manifest`, a **local `.json`** manifest,
+and every accepted file to be `official_headerless` (this is the real-file
+classifier). `--max-sample-rows` above 20, a URL manifest, or any forbidden
+ingestion / full-scan flag is rejected with
+`BRSOURCE10E_FORBIDDEN_PRIVACY_MODE` before it runs. By default the run stays
+`ok: true` even when records are excluded (exclusion is expected); pass
+`--fail-on-any-excluded` to flip that. A structural anomaly, a leak, a manifest
+failure, or a non-headerless file makes it `ok: false`.
+
+Each row resolves to exactly one status (BR-SOURCE-10D § 7):
+`eligible_for_future_import`, `excluded_person_or_pii_risk`,
+`excluded_forbidden_file_family`, `excluded_forbidden_token`,
+`excluded_unsupported_legal_nature`, `excluded_guard_triggered`, or
+`needs_legal_review`. **Nothing can be marked eligible today** unless a legal-nature
+policy is injected (the runner injects none), because BR-SOURCE-10D § 11 leaves the
+eligible-natureza allowlist, MEI policy, and full-CNPJ persistence undecided — so a
+clean company row falls, fail-closed, to `needs_legal_review`. Save the JSON output
+under `reports/` for the record.
+
+---
+
 ## 12. Expected safe outputs
 
 Both runners emit only a **sanitized report**:
@@ -449,4 +490,5 @@ Completing this runbook does **not** authorize:
 | **BR-SOURCE-10B** | Import **design only**, if QA passes. | Explicit approval; no writes. |
 | **BR-SOURCE-10C** | Headerless real-file support (manifest validates; real dry-run blocked by PII guard). | Merged (PR #142). |
 | **BR-SOURCE-10D** | Privacy-safe import eligibility **design** (docs-only). | Merged design; authorizes no import. |
-| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + explicit approval first. |
+| **BR-SOURCE-10E** | Privacy-safe bounded dry-run **classifier** (§ 11.1): aggregate eligibility counts, no rows, no values. | Additive to the § 11 hard-block; authorizes no import. |
+| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + explicit approval first. |
