@@ -89,3 +89,17 @@ jobs:
       # Deterministic: no env activation, no provider calls, no real DB.
       - name: Run Apollo provider attempts tests
         run: npm run test:apollo-provider-attempts
+
+      # Q3F-5BB.11F.2 — Apollo per-candidate provider_trace + source_trace.
+      # Guards that each inserted candidate row carries an additive
+      # metadata.source_provider='apollo', metadata.provider_trace (attempt_index=0,
+      # cost null/null) and source_trace.sourceProvider='apollo' ONLY for Apollo
+      # company discovery (web_search_provider='apollo_organizations') AND only when
+      # 11E already stamped provider_routing; that Tavily/mock candidate rows stay
+      # byte-for-byte unchanged (no source_trace/provider_trace/source_provider);
+      # that a provider mismatch fails closed (ProviderMetadataConsistencyError);
+      # and that the pure helper stays free of Supabase/env/fetch/provider/
+      # contact-enrichment/phone-reveal. Deterministic: no env activation, no
+      # provider calls, no real DB.
+      - name: Run Apollo candidate provider trace tests
+        run: npm run test:apollo-candidate-provider-trace
