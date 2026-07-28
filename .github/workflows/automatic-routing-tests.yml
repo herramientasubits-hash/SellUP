@@ -58,3 +58,12 @@ jobs:
       # candidate source_provider stays consistent with source_trace.sourceProvider.
       - name: Run provider routing metadata tests
         run: npm run test:provider-routing-metadata
+
+      # Q3F-5BB.11D — Lusha ⇄ provider-routing OBSERVATIONAL wiring. Guards that
+      # the live Lusha flow stamps additive routing metadata (provider_routing /
+      # provider_attempts / provider_trace) without ever selecting Apollo/Tavily,
+      # keeps the flag guard authoritative (flag OFF ⇒ no routing plan runs), and
+      # never coerces unknown cost to 0. Deterministic: no env, no provider calls,
+      # no DB.
+      - name: Run Lusha provider routing wiring tests
+        run: npm run test:lusha-provider-routing-wiring
