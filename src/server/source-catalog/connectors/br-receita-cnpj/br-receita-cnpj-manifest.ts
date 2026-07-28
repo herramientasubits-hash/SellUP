@@ -49,6 +49,20 @@ export type BrReceitaCnpjAllowedExtension = (typeof BR_RECEITA_CNPJ_ALLOWED_EXTE
 export type BrReceitaCnpjManifestEncoding = 'latin1' | 'utf8';
 export type BrReceitaCnpjManifestDelimiter = ',' | ';';
 
+/**
+ * How a file's layout is validated:
+ *   - `header` (default): the first line is a header row validated by column
+ *     NAMES (synthetic fixtures, and any prepared file that keeps a header).
+ *   - `official_headerless`: the first line is a DATA row (the real Receita CNPJ
+ *     open-data files ship with no header) — validated by positional column
+ *     COUNT against the official layout, never by header names.
+ * The mode is always EXPLICIT (per file, or a manifest-level default); it is
+ * never inferred from the file's content.
+ */
+export const BR_RECEITA_CNPJ_LAYOUT_MODES = ['header', 'official_headerless'] as const;
+export type BrReceitaCnpjManifestLayoutMode = (typeof BR_RECEITA_CNPJ_LAYOUT_MODES)[number];
+export const BR_RECEITA_CNPJ_DEFAULT_LAYOUT_MODE: BrReceitaCnpjManifestLayoutMode = 'header';
+
 /** One described file within a manifest. `path` is ALWAYS local + relative. */
 export interface BrReceitaCnpjManifestFile {
   fileType: BrReceitaCnpjManifestFileType;
@@ -58,6 +72,8 @@ export interface BrReceitaCnpjManifestFile {
   expectedSizeBytes?: number;
   encoding?: BrReceitaCnpjManifestEncoding;
   delimiter?: BrReceitaCnpjManifestDelimiter;
+  /** Per-file layout mode; overrides the manifest-level default when present. */
+  layoutMode?: BrReceitaCnpjManifestLayoutMode;
 }
 
 /** The manifest document shape (validated structurally at read time). */
@@ -68,6 +84,8 @@ export interface BrReceitaCnpjManifest {
   /** Monthly period tag, format `YYYY-MM`. */
   sourcePeriod: string;
   mode: typeof BR_RECEITA_CNPJ_MANIFEST_MODE;
+  /** Optional manifest-level layout mode applied to every file lacking its own. */
+  layoutMode?: BrReceitaCnpjManifestLayoutMode;
   files: BrReceitaCnpjManifestFile[];
 }
 
@@ -83,6 +101,7 @@ export type BrReceitaCnpjManifestReasonCode =
   | 'manifest_country_invalid'
   | 'source_year_invalid'
   | 'source_period_invalid'
+  | 'layout_mode_invalid'
   | 'required_file_missing'
   | 'duplicate_file_type'
   | 'forbidden_file_type'
@@ -97,12 +116,18 @@ export type BrReceitaCnpjManifestReasonCode =
   | 'header_validation_failed'
   | 'forbidden_header'
   | 'dangerous_unknown_header'
+  | 'headerless_empty_file'
+  | 'headerless_column_count_mismatch'
   | 'path_traversal_blocked'
   | 'header_read_limit_exceeded'
   // Catch-all.
   | 'unexpected_error';
 
-export type BrReceitaCnpjManifestLayoutValidation = 'passed' | 'failed' | 'skipped';
+export type BrReceitaCnpjManifestLayoutValidation =
+  | 'passed'
+  | 'passed_headerless'
+  | 'failed'
+  | 'skipped';
 export type BrReceitaCnpjManifestFileStatus = 'accepted' | 'rejected';
 
 /** A sanitized per-file report. Carries NO full path, NO CNPJ, NO row content. */
@@ -115,6 +140,8 @@ export interface BrReceitaCnpjManifestFileReport {
   /** Non-reversible SHA-256 truncated to 12 hex chars. */
   sha256Hash12?: string;
   layoutValidation: BrReceitaCnpjManifestLayoutValidation;
+  /** The resolved layout mode applied to this file (`header` / `official_headerless`). */
+  layoutMode?: BrReceitaCnpjManifestLayoutMode;
   status: BrReceitaCnpjManifestFileStatus;
   reasonCode?: BrReceitaCnpjManifestReasonCode;
 }

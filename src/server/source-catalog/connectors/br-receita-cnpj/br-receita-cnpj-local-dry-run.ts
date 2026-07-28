@@ -76,7 +76,7 @@ export type BrReceitaCnpjLocalDryRunReasonCode =
 
 // ─── Result shapes ─────────────────────────────────────────────────────────────
 
-export type BrReceitaCnpjDryRunLayoutValidation = 'passed' | 'failed' | 'skipped';
+export type BrReceitaCnpjDryRunLayoutValidation = 'passed' | 'passed_headerless' | 'failed' | 'skipped';
 export type BrReceitaCnpjDryRunSampleValidation = 'passed' | 'failed' | 'skipped';
 export type BrReceitaCnpjDryRunFileStatus = 'accepted' | 'rejected';
 

@@ -143,6 +143,20 @@ const SAFETY_ALL_FALSE: ManifestRunnerSafety = {
   live_prospect_generation: false,
 };
 
+/** A sanitized per-file line in the report. No full path, no row content. */
+export interface ManifestRunnerFileReport {
+  readonly file_type: string;
+  readonly safe_file_label: string;
+  readonly extension: string;
+  readonly size_bytes?: number;
+  /** Non-reversible SHA-256 truncated to 12 hex chars. */
+  readonly sha256_hash_12?: string;
+  readonly layout_mode?: string;
+  readonly layout_validation: string;
+  readonly status: string;
+  readonly reason_code?: string;
+}
+
 /** The sanitized, printable report. No full CNPJ, no full path, no row content. */
 export interface ManifestRunnerReport {
   readonly mode: 'local_manifest_validation';
@@ -157,6 +171,8 @@ export interface ManifestRunnerReport {
   readonly layout_validation: 'passed' | 'failed';
   /** Non-reversible 12-hex file hashes. */
   readonly file_hashes: string[];
+  /** Sanitized per-file detail (type, label, layout mode/validation, status). */
+  readonly file_reports: ManifestRunnerFileReport[];
   readonly rejection_reasons: string[];
   readonly safety: ManifestRunnerSafety;
 }
@@ -357,6 +373,21 @@ export function buildManifestRunnerReport(
     }
   }
 
+  const fileReports: ManifestRunnerFileReport[] = result.fileReports.map((r) => {
+    const entry: ManifestRunnerFileReport = {
+      file_type: r.fileType,
+      safe_file_label: r.safeFileLabel,
+      extension: r.extension,
+      layout_validation: r.layoutValidation,
+      status: r.status,
+    };
+    if (r.sizeBytes !== undefined) (entry as { size_bytes?: number }).size_bytes = r.sizeBytes;
+    if (r.sha256Hash12 !== undefined) (entry as { sha256_hash_12?: string }).sha256_hash_12 = r.sha256Hash12;
+    if (r.layoutMode !== undefined) (entry as { layout_mode?: string }).layout_mode = r.layoutMode;
+    if (r.reasonCode !== undefined) (entry as { reason_code?: string }).reason_code = r.reasonCode;
+    return entry;
+  });
+
   return {
     mode: 'local_manifest_validation',
     fixture: options.source === 'fixture' ? SYNTHETIC_MANIFEST_FIXTURE : 'local-manifest',
@@ -369,6 +400,7 @@ export function buildManifestRunnerReport(
     files_rejected: result.filesRejected,
     layout_validation: layoutFailed ? 'failed' : 'passed',
     file_hashes: fileHashes,
+    file_reports: fileReports,
     rejection_reasons: rejectionReasons,
     safety: SAFETY_ALL_FALSE,
   };
@@ -401,6 +433,18 @@ export function formatReportText(report: ManifestRunnerReport): string {
   lines.push(`files_rejected: ${report.files_rejected}`);
   lines.push(`layout_validation: ${report.layout_validation}`);
   lines.push(`file_hashes: [${report.file_hashes.join(', ')}]`);
+  lines.push('file_reports:');
+  for (const fr of report.file_reports) {
+    const parts = [
+      `type=${fr.file_type}`,
+      `label=${fr.safe_file_label}`,
+      `layout_mode=${fr.layout_mode ?? 'header'}`,
+      `layout_validation=${fr.layout_validation}`,
+      `status=${fr.status}`,
+    ];
+    if (fr.reason_code !== undefined) parts.push(`reason=${fr.reason_code}`);
+    lines.push(`  - ${parts.join(' ')}`);
+  }
   lines.push(`rejection_reasons: [${report.rejection_reasons.join(', ')}]`);
   lines.push('safety:');
   for (const [key, value] of Object.entries(report.safety)) {

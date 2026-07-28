@@ -247,6 +247,7 @@ period, sizes, and hashes; add optional files only if you downloaded them.
   "sourceYear": 2026,
   "sourcePeriod": "YYYY-MM",
   "mode": "local_manifest_validation",
+  "layoutMode": "official_headerless",
   "files": [
     {
       "fileType": "empresas",
@@ -277,6 +278,27 @@ Notes:
 - `encoding` is `latin1` or `utf8`; `delimiter` is `;` or `,`. Receita bulk files
   are commonly `latin1` with `;` — confirm against your download.
 - Add `simples` / `cnaes` / `municipios` / `naturezas` entries only if present.
+
+### 8.1 Header vs headerless layout (`layoutMode`)
+
+The **real** Receita CNPJ open-data files ship **without a header row** — the very
+first line is already a data row. Set `layoutMode` so the validator checks them by
+their official positional **column count** instead of treating the first line as
+headers:
+
+- `"layoutMode": "official_headerless"` — the first line is a **data** row; the
+  validator confirms it has the official column count for the file type
+  (`empresas` 7, `estabelecimentos` 30, `simples` 7, `cnaes` 2, `municipios` 2,
+  `naturezas` 2) and never reads it as headers.
+- `"layoutMode": "header"` (the default when omitted) — the first line is a
+  **header** row validated by column names. Use this only for a prepared file that
+  keeps a header line.
+
+The mode is **always explicit** and is never inferred from the file contents. Set
+it once at the top level (`layoutMode`) to apply it to every file, or per file to
+override the default. For the real Receita download, use `official_headerless`. An
+unknown value is rejected fail-closed (`layout_mode_invalid`); a wrong column count
+is `headerless_column_count_mismatch`; an empty file is `headerless_empty_file`.
 
 ---
 
@@ -351,8 +373,18 @@ Both runners emit only a **sanitized report**:
 - file types and safe file labels (basename only, never a full path);
 - byte sizes;
 - a SHA-256 truncated to a 12-character prefix (`sha256Hash12`);
-- layout / header validation status (`passed` / `failed` / `skipped`);
+- layout / header validation status (`passed` / `passed_headerless` / `failed` /
+  `skipped`) and the resolved `layout_mode` per file;
 - for the dry-run, bounded **sample row counts** only.
+
+> **Headerless dry-run note.** The dry-run still applies a row-level safety guard:
+> if a sampled row contains an 11-digit run (CPF length) or a 14-digit run (full
+> CNPJ), it is rejected (`sample_row_forbidden_value_detected`) and the dry-run
+> reports `ok: false`. This is expected and **must not be bypassed** — real
+> `empresas` records for individual entrepreneurs can carry a CPF-length value in
+> the company-name field, which the BR legal / privacy decision excludes. A
+> headerless **manifest validation** can pass while the **dry-run** is blocked for
+> this reason; that is a legitimate stop condition (§ 13), not a tooling bug.
 
 The output never contains:
 
