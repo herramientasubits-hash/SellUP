@@ -377,6 +377,35 @@ export function mergeProviderRoutingBatchMetadata(
   };
 }
 
+/**
+ * Q3F-5BB.11F.1 — NARROW additive merge: attach `provider_attempts[]` ONLY.
+ *
+ * Unlike `mergeProviderRoutingBatchMetadata`, this helper NEVER touches
+ * `provider_routing` (or any other existing key). It exists for the batch-level
+ * attempts seam where the routing DECISION was already stamped upstream (11E)
+ * and this slice only needs to add the per-provider attempt record without
+ * re-deriving or re-writing the routing block.
+ *
+ * Pure & immutable: the input metadata is never mutated; a fresh object (and a
+ * fresh, deep-copied attempts array) is returned. If `attempts` is empty /
+ * undefined the metadata is returned preserved — the `provider_attempts` key is
+ * NOT added, so a no-op stays byte-for-byte. `null`/unknown counts inside the
+ * attempts are preserved exactly (never coerced to 0).
+ */
+export function mergeProviderAttemptsBatchMetadata(
+  existingMetadata: Record<string, unknown> | null | undefined,
+  attempts: readonly ProviderAttemptMetadata[] | null | undefined,
+): Record<string, unknown> {
+  const preserved = { ...(existingMetadata ?? {}) };
+  if (!attempts || attempts.length === 0) {
+    return preserved;
+  }
+  return {
+    ...preserved,
+    [BATCH_PROVIDER_ATTEMPTS_KEY]: attempts.map((a) => ({ ...a })),
+  };
+}
+
 /** A candidate's routing-relevant columns (both preserved additively). */
 export interface CandidateProviderMetadataInput {
   metadata?: Record<string, unknown> | null;
