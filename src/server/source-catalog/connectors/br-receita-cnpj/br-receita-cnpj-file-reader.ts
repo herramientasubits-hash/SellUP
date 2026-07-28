@@ -159,6 +159,34 @@ export class BrReceitaCnpjRowLimitError extends BrReceitaCnpjFileReaderError {
   }
 }
 
+/**
+ * A file validated in `official_headerless` mode is empty — no first (data) line
+ * could be read to count columns.
+ */
+export class BrReceitaCnpjEmptyFileError extends BrReceitaCnpjFileReaderError {
+  constructor(file: string) {
+    super(`empty file "${file}" (no line found for headerless layout validation)`);
+    this.name = 'BrReceitaCnpjEmptyFileError';
+  }
+}
+
+/**
+ * A headerless file's first (data) line has a column count that does not match
+ * the official positional layout for its file type.
+ */
+export class BrReceitaCnpjHeaderlessColumnCountError extends BrReceitaCnpjFileReaderError {
+  readonly expectedColumns: number;
+  readonly actualColumns: number;
+  constructor(file: string, expectedColumns: number, actualColumns: number) {
+    super(
+      `headerless column count mismatch in "${file}": expected ${expectedColumns}, got ${actualColumns}`,
+    );
+    this.name = 'BrReceitaCnpjHeaderlessColumnCountError';
+    this.expectedColumns = expectedColumns;
+    this.actualColumns = actualColumns;
+  }
+}
+
 // ─── Header configuration (per file) ──────────────────────────────────────────
 
 interface FileHeaderConfig {
@@ -263,6 +291,51 @@ const FILE_HEADER_CONFIGS: Record<BrReceitaCnpjLayoutFileType, FileHeaderConfig>
   municipios: MUNICIPIOS_CONFIG,
   naturezas: NATUREZAS_CONFIG,
 };
+
+/**
+ * Official positional column count per layout file type — the source of truth for
+ * validating the REAL Receita CNPJ open-data files, which ship WITHOUT a header
+ * row and must be checked by column layout, not by header names.
+ *
+ * These counts come from the official Receita Federal CNPJ layout ("metadados")
+ * documented as the binding layout authority in
+ * `docs/source-catalog/br-receita-cnpj-data-contract.md` (§ 1–2). Each is
+ * cross-checked against the recognized header set in `FILE_HEADER_CONFIGS` above:
+ * for `empresas` (7), `estabelecimentos` (30), `simples` (7), `cnaes` (2) and
+ * `naturezas` (2) the official count equals the recognized-header-set size. The
+ * one deliberate difference is `municipios`: the official layout is 2 positional
+ * columns (`codigo`, `descricao`), while the header config additionally tolerates
+ * an optional `uf` column for synthetic fixtures — so the official count is fixed
+ * here at 2, NOT derived from the (size-3) header set.
+ *
+ * SOCIOS / QSA / CPF are intentionally absent — they are never a valid layout.
+ */
+export const BR_RECEITA_CNPJ_OFFICIAL_HEADERLESS_COLUMN_COUNTS: Record<
+  BrReceitaCnpjLayoutFileType,
+  number
+> = {
+  empresas: 7,
+  estabelecimentos: 30,
+  simples: 7,
+  cnaes: 2,
+  municipios: 2,
+  naturezas: 2,
+};
+
+/**
+ * Returns the official positional column count for a layout file type. Throws for
+ * an unrecognized type so a headerless file whose layout cannot be mapped fails
+ * closed instead of being silently accepted.
+ */
+export function getBrReceitaCnpjOfficialColumnCount(fileType: BrReceitaCnpjLayoutFileType): number {
+  const expected = BR_RECEITA_CNPJ_OFFICIAL_HEADERLESS_COLUMN_COUNTS[fileType];
+  if (expected === undefined) {
+    throw new BrReceitaCnpjFileReaderError(
+      `no official headerless column count is defined for file type "${fileType}"`,
+    );
+  }
+  return expected;
+}
 
 // ─── CSV parsing (minimal, dependency-free, no streaming) ─────────────────────
 
@@ -405,6 +478,72 @@ export function validateBrReceitaCnpjHeaderCells(
     throw new BrReceitaCnpjFileReaderError(`unrecognized layout file type "${fileType}"`);
   }
   validateHeaderCells(options.fileLabel ?? fileType, headerCells, config, options.strict ?? false);
+}
+
+/**
+ * Counts the columns in a single delimited line, respecting double-quoted fields
+ * (with `""` escapes) so an embedded delimiter inside a quoted value is NOT
+ * counted as a separator. The official Receita files quote every field and use
+ * `;`, so a naive `split(delimiter)` would over-count any value that contains the
+ * delimiter — this counter does not. Returns 0 for an empty line.
+ */
+export function countBrReceitaCnpjDelimitedColumns(line: string, delimiter: string): number {
+  if (delimiter.length !== 1) {
+    throw new BrReceitaCnpjFileReaderError(`delimiter must be a single character, got "${delimiter}"`);
+  }
+  const trimmed = line.replace(/\r$/, '');
+  if (trimmed.length === 0) return 0;
+
+  let columns = 1;
+  let inQuotes = false;
+  for (let i = 0; i < trimmed.length; i++) {
+    const c = trimmed[i]!;
+    if (c === '"') {
+      if (inQuotes && trimmed[i + 1] === '"') {
+        i += 1; // skip an escaped quote
+        continue;
+      }
+      inQuotes = !inQuotes;
+    } else if (c === delimiter && !inQuotes) {
+      columns += 1;
+    }
+  }
+  return columns;
+}
+
+export interface BrReceitaCnpjHeaderlessLineValidation {
+  readonly columnCount: number;
+  readonly expectedColumnCount: number;
+}
+
+/**
+ * Validates the FIRST (data) line of a headerless official Receita CNPJ file by
+ * its positional column count — the real files ship with NO header row, so the
+ * first line must NOT be treated as headers. Fail-closed and never surfaces the
+ * line's content: it only counts columns (quote-aware) and compares against the
+ * official layout for the file type. Exposed so the manifest validator can
+ * layout-check a real headerless file with a minimal, controlled read.
+ *
+ * @throws {BrReceitaCnpjEmptyFileError} when the file/line is empty (0 columns).
+ * @throws {BrReceitaCnpjHeaderlessColumnCountError} on a column-count mismatch.
+ * @throws {BrReceitaCnpjFileReaderError} for an unrecognized layout file type.
+ */
+export function validateBrReceitaCnpjHeaderlessFirstLine(
+  fileType: BrReceitaCnpjLayoutFileType,
+  rawFirstLine: string,
+  delimiter: string,
+  options: { fileLabel?: string } = {},
+): BrReceitaCnpjHeaderlessLineValidation {
+  const label = options.fileLabel ?? fileType;
+  const expectedColumnCount = getBrReceitaCnpjOfficialColumnCount(fileType);
+  const columnCount = countBrReceitaCnpjDelimitedColumns(rawFirstLine, delimiter);
+  if (columnCount === 0) {
+    throw new BrReceitaCnpjEmptyFileError(label);
+  }
+  if (columnCount !== expectedColumnCount) {
+    throw new BrReceitaCnpjHeaderlessColumnCountError(label, expectedColumnCount, columnCount);
+  }
+  return { columnCount, expectedColumnCount };
 }
 
 /**

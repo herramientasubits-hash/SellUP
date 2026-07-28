@@ -26,21 +26,27 @@ import * as path from 'node:path';
 
 import {
   BR_RECEITA_CNPJ_FORBIDDEN_TOKENS,
+  BrReceitaCnpjEmptyFileError,
   BrReceitaCnpjForbiddenColumnError,
+  BrReceitaCnpjHeaderlessColumnCountError,
   BrReceitaCnpjMissingHeaderError,
   BrReceitaCnpjUnknownColumnError,
   validateBrReceitaCnpjHeaderCells,
+  validateBrReceitaCnpjHeaderlessFirstLine,
   type BrReceitaCnpjLayoutFileType,
 } from './br-receita-cnpj-file-reader';
 import {
   BR_RECEITA_CNPJ_ALLOWED_EXTENSIONS,
   BR_RECEITA_CNPJ_ALLOWED_FILE_TYPES,
+  BR_RECEITA_CNPJ_DEFAULT_LAYOUT_MODE,
+  BR_RECEITA_CNPJ_LAYOUT_MODES,
   BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE,
   BR_RECEITA_CNPJ_MANIFEST_MODE,
   BR_RECEITA_CNPJ_MANIFEST_SOURCE_KEY,
   BR_RECEITA_CNPJ_REQUIRED_FILE_TYPES,
   type BrReceitaCnpjManifestEncoding,
   type BrReceitaCnpjManifestFileReport,
+  type BrReceitaCnpjManifestLayoutMode,
   type BrReceitaCnpjManifestReasonCode,
   type BrReceitaCnpjManifestSafety,
   type BrReceitaCnpjManifestValidationResult,
@@ -152,10 +158,15 @@ function sha256HexOfFile(filePath: string): Promise<string> {
 }
 
 type HeaderReadOutcome =
-  | { readonly kind: 'line'; readonly cells: string[] }
+  | { readonly kind: 'line'; readonly cells: string[]; readonly raw: string }
   | { readonly kind: 'limit_exceeded' };
 
-/** Reads ONLY the first (bounded) header line, then splits it by the delimiter. */
+/**
+ * Reads ONLY the first (bounded) line of a file. Returns both the naive
+ * delimiter-split cells (used by header-name validation) and the raw line string
+ * (used by headerless, quote-aware column counting). Never reads past the header
+ * byte cap.
+ */
 async function readHeaderCells(
   filePath: string,
   encoding: BrReceitaCnpjManifestEncoding,
@@ -175,7 +186,7 @@ async function readHeaderCells(
       // read, or the header is longer than the allowed prefix.
       if (bytesRead < maxHeaderBytes) {
         const line = slice.toString(bufferEncoding).replace(/\r$/, '');
-        return { kind: 'line', cells: line.split(delimiter) };
+        return { kind: 'line', cells: line.split(delimiter), raw: line };
       }
       return { kind: 'limit_exceeded' };
     }
@@ -183,7 +194,7 @@ async function readHeaderCells(
     let end = newlineIndex;
     if (end > 0 && slice[end - 1] === 0x0d) end -= 1; // strip trailing '\r'
     const line = slice.subarray(0, end).toString(bufferEncoding);
-    return { kind: 'line', cells: line.split(delimiter) };
+    return { kind: 'line', cells: line.split(delimiter), raw: line };
   } finally {
     await fh.close();
   }
@@ -200,6 +211,26 @@ interface ResolvedManifestFile {
   readonly expectedSizeBytes?: number;
   readonly encoding: BrReceitaCnpjManifestEncoding;
   readonly delimiter: string;
+  readonly layoutMode: BrReceitaCnpjManifestLayoutMode;
+}
+
+/**
+ * Resolves + validates an EXPLICIT layout mode value. `undefined` falls back to
+ * the provided default; any other non-mode value is a fail-closed rejection
+ * (never silently coerced).
+ */
+function resolveLayoutMode(
+  value: unknown,
+  fallback: BrReceitaCnpjManifestLayoutMode,
+): BrReceitaCnpjManifestLayoutMode {
+  if (value === undefined) return fallback;
+  if (
+    typeof value === 'string' &&
+    (BR_RECEITA_CNPJ_LAYOUT_MODES as readonly string[]).includes(value)
+  ) {
+    return value as BrReceitaCnpjManifestLayoutMode;
+  }
+  throw new ManifestStructuralError('layout_mode_invalid');
 }
 
 interface ParsedManifest {
@@ -251,6 +282,9 @@ function parseManifestDocument(raw: string, maxFiles: number): ParsedManifest {
     throw new ManifestStructuralError('too_many_files');
   }
 
+  // Manifest-level layout mode (optional) becomes the per-file default.
+  const manifestLayoutMode = resolveLayoutMode(doc.layoutMode, BR_RECEITA_CNPJ_DEFAULT_LAYOUT_MODE);
+
   const allowedTypes = new Set<string>(BR_RECEITA_CNPJ_ALLOWED_FILE_TYPES);
   const seenTypes = new Set<string>();
   const files: ResolvedManifestFile[] = [];
@@ -283,6 +317,7 @@ function parseManifestDocument(raw: string, maxFiles: number): ParsedManifest {
         typeof entry.expectedSizeBytes === 'number' ? entry.expectedSizeBytes : undefined,
       encoding: entry.encoding === 'latin1' ? 'latin1' : 'utf8',
       delimiter: entry.delimiter === ';' ? ';' : ',',
+      layoutMode: resolveLayoutMode(entry.layoutMode, manifestLayoutMode),
     });
   }
 
@@ -304,6 +339,12 @@ function mapHeaderError(err: unknown): BrReceitaCnpjManifestReasonCode {
   return 'header_validation_failed';
 }
 
+function mapHeaderlessError(err: unknown): BrReceitaCnpjManifestReasonCode {
+  if (err instanceof BrReceitaCnpjEmptyFileError) return 'headerless_empty_file';
+  if (err instanceof BrReceitaCnpjHeaderlessColumnCountError) return 'headerless_column_count_mismatch';
+  return 'header_validation_failed';
+}
+
 async function validateManifestFile(
   file: ResolvedManifestFile,
   manifestDir: string,
@@ -316,6 +357,7 @@ async function validateManifestFile(
     safeFileLabel: file.safeFileLabel,
     extension: file.extension,
     layoutValidation: 'skipped',
+    layoutMode: file.layoutMode,
     status: 'accepted',
   };
   const reject = (reasonCode: BrReceitaCnpjManifestReasonCode): BrReceitaCnpjManifestFileReport => ({
@@ -375,6 +417,26 @@ async function validateManifestFile(
   if (outcome.kind === 'limit_exceeded') {
     return { ...report, layoutValidation: 'failed', status: 'rejected', reasonCode: 'header_read_limit_exceeded' };
   }
+
+  // Headerless official files: validate the first (data) line by positional
+  // column COUNT — never treat it as headers.
+  if (file.layoutMode === 'official_headerless') {
+    try {
+      validateBrReceitaCnpjHeaderlessFirstLine(file.fileType, outcome.raw, file.delimiter, {
+        fileLabel: file.safeFileLabel,
+      });
+    } catch (err) {
+      return {
+        ...report,
+        layoutValidation: 'failed',
+        status: 'rejected',
+        reasonCode: mapHeaderlessError(err),
+      };
+    }
+    return { ...report, layoutValidation: 'passed_headerless', status: 'accepted' };
+  }
+
+  // Header mode (default): validate the first line by column NAMES.
   try {
     validateBrReceitaCnpjHeaderCells(file.fileType, outcome.cells, {
       strict: options.strict,
