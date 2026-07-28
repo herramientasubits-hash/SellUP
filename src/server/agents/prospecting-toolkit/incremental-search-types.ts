@@ -85,6 +85,16 @@ export type IncrementalSearchInput = {
    * Se persiste en el metadata del batch como snapshot y puede influir en queries.
    */
   additionalCriteria?: string | null;
+
+  /**
+   * Q3F-5BB.11E — ADITIVO / OBSERVACIONAL. Metadata extra provista server-side
+   * (p.ej. `{ provider_routing }`) que el pipeline reenvía tal cual al writer
+   * para que aterrice en `prospect_batches.metadata` de forma ADITIVA (nunca
+   * pisa las claves de diagnóstico internas del pipeline). No influye en las
+   * queries ni en la selección de proveedor. Interno — nunca controlado por el
+   * cliente. Omitido = comportamiento byte-for-byte previo a 11E.
+   */
+  extraBatchMetadata?: Record<string, unknown> | null;
 };
 
 // ─── Round metadata ───────────────────────────────────────────────────────────

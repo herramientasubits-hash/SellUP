@@ -26,6 +26,12 @@ export const WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES = 10;
 export type WizardApolloInput = {
   resolved: ResolvedWizardExecution;
   reservedBatchId: string;
+  /**
+   * Q3F-5BB.11E — ADITIVO / OBSERVACIONAL. Metadata extra (p.ej.
+   * `{ provider_routing }`) que se reenvía tal cual al pipeline para aterrizar
+   * de forma aditiva en el metadata del batch. No cambia queries ni proveedor.
+   */
+  extraBatchMetadata?: Record<string, unknown> | null;
 };
 
 export type WizardApolloRunner = (input: WizardApolloInput) => Promise<IncrementalSearchOutput>;
@@ -60,6 +66,8 @@ export async function runWizardApolloSearch(
     triggeredByUserId: input.resolved.userId,
     ownerId: input.resolved.userId,
     dryRun: false,
+    // Q3F-5BB.11E — reenvía la metadata observacional (provider_routing) al writer.
+    extraBatchMetadata: input.extraBatchMetadata ?? null,
     usageInputContext: {
       batchId: input.reservedBatchId,
       triggeredByUserId: input.resolved.userId,

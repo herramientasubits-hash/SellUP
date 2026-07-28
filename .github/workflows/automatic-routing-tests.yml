@@ -67,3 +67,13 @@ jobs:
       # no DB.
       - name: Run Lusha provider routing wiring tests
         run: npm run test:lusha-provider-routing-wiring
+
+      # Q3F-5BB.11E — Apollo ⇄ provider-routing OBSERVATIONAL wiring. Guards that
+      # the Agent 1 wizard, when the double gate has already selected Apollo
+      # company discovery, stamps additive provider_routing metadata
+      # (intended=default_ai, selected=apollo) without adding a fallback, without
+      # ever diverting to Lusha (10C3), and without touching phone/contact
+      # enrichment; and that Apollo OFF (default_ai → Tavily/null) is not unsafe.
+      # Deterministic: no env activation, no provider calls, no DB.
+      - name: Run Apollo provider routing wiring tests
+        run: npm run test:apollo-provider-routing-wiring

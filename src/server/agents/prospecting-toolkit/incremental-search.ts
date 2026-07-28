@@ -1145,6 +1145,11 @@ export async function runIncrementalProspectingSearch(
         dryRun: false,
         targetPersistibleCandidates: targetPersistibleCandidates,
         extraBatchMetadata: {
+          // Q3F-5BB.11E — ADITIVO: caller-provided metadata (p.ej. provider_routing)
+          // se esparce PRIMERO para que cualquier clave de diagnóstico interna del
+          // pipeline (definida abajo) gane ante una colisión. provider_routing es
+          // una clave nueva ⇒ se agrega sin pisar nada. Omitido ⇒ no aporta claves.
+          ...(input.extraBatchMetadata ?? {}),
           incremental_search: metadataForNestedStorage as Record<string, unknown>,
           search_plan: incrementalSearchPlan as Record<string, unknown>,
           search_mode: 'incremental_multi_round',
