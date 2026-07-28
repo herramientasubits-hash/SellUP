@@ -334,6 +334,60 @@ not lift it.
 
 ---
 
+## 10.2. Eligibility & legal-nature calibration (BR-SOURCE-10F)
+
+BR-SOURCE-10F **calibrates** the BR-SOURCE-10E classifier so that structurally
+non-company rows stop inflating `needs_legal_review`, while keeping every import,
+runtime, and Agent 1 path blocked. It adds a pure, dependency-injected rule module
+(`br-receita-cnpj-eligibility-rules.ts`) and extends the classifier's sanitized
+output; it changes **no** operational authorization.
+
+**Legal nature is a classification SIGNAL, not an import authorization.** The eligible
+allowlist remains legally UNDECIDED (§ 11 open question #2), so the classifier ships
+with **no default eligible-natureza set**: with no injected policy — which is exactly
+what the runner uses — every company legal nature still resolves to
+`needs_legal_review` and **nothing is `eligible_for_future_import`**. A caller (a
+synthetic test, or a future legal GO) may inject the eligible / risky / MEI code
+sets; membership is **conservative and expandable only with an explicit legal/privacy
+approval**. The calibration can *reduce* `needs_legal_review`; it can never *activate*
+an import.
+
+**Conservative risk classes (docs § 4 / § 8).** `classifyLegalNatureRiskClass` maps an
+already-extracted legal-nature CODE (never a value) to one of five conceptual buckets:
+`allowed_commercial_organization`, `blocked_person_or_individual`,
+`blocked_risky_or_unsupported`, `needs_legal_review`, `not_applicable_lookup`.
+Exclusions are **floors, not ceilings** (§ 3): a policy may only *widen* the block
+sets. MEI / empresário individual natures now **exclude** by default
+(`excluded_person_or_pii_risk`) rather than holding — consistent with § 4 ("MEI …
+excluded unless a future, explicit legal/privacy decision authorizes them").
+
+**Where the safe reduction comes from (structural, not legal).** Two calibrated,
+non-importable holds replace the previous catch-all `needs_legal_review`:
+
+- **Reference lookups are not companies.** `cnaes` / `municipios` / `naturezas` rows
+  are `not_applicable_lookup` — a catalog row is structurally not a company candidate,
+  not an open legal question. They remain **non-importable**.
+- **Establishments still require the empresas join.** An establishment sampled in
+  isolation carries no natureza jurídica, so its eligibility cannot be affirmed; it is
+  `pending_company_join_context` (reason
+  `establishment_requires_company_join_context`) — a data-completeness hold, **not** a
+  legal question, and **still non-importable on its own**.
+
+`needs_legal_review` is thereby reserved for a genuine, undecided company legal nature.
+
+**Extended sanitized output (§ 9 preserved).** The classifier now also emits
+`legal_nature_classification_counts` (keyed by the five risk classes) and
+`positive_company_signal_counts` (`commercial_legal_nature`, `company_name_present`,
+`establishment_requires_join_context`) — **aggregate counts only**. No raw legal-nature
+label, razão social, trade name, address, contact, full CNPJ, or CPF is ever emitted.
+
+**What stays blocked (unchanged).** Import, production import, Supabase writes,
+migrations, runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect
+generation all remain **blocked**. This is an observational calibration of the § 2
+stop condition; it does not lift it.
+
+---
+
 ## 11. Open legal / privacy questions
 
 These decisions are **unresolved** and block a privacy-safe import implementation. Each
@@ -365,6 +419,9 @@ OPS_BR_PRIVACY_SAFE_IMPORT_ELIGIBILITY_DESIGN_OFFICIAL = true   (after the 10D d
 
 OPS_BR_PRIVACY_SAFE_BOUNDED_DRY_RUN_CLASSIFIER_PR_READY = true  (BR-SOURCE-10E — classifier merged as a PR)
 OPS_BR_PRIVACY_SAFE_BOUNDED_DRY_RUN_CLASSIFIER_OFFICIAL = false (not an operational authorization)
+
+OPS_BR_LEGAL_NATURE_ELIGIBILITY_CALIBRATION_PR_READY = true   (BR-SOURCE-10F — calibration opened as a PR)
+OPS_BR_LEGAL_NATURE_ELIGIBILITY_CALIBRATION_OFFICIAL = false  (not an operational authorization)
 
 OPS_BR_READY_FOR_IMPORT             = false
 OPS_BR_READY_FOR_PRODUCTION_IMPORT  = false

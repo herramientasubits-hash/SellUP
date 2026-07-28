@@ -153,6 +153,8 @@ export interface PrivacyRunnerFileReport {
   readonly sample_rows_seen: number;
   readonly classification_counts: Record<string, number>;
   readonly exclusion_counts_by_reason: Record<string, number>;
+  readonly legal_nature_classification_counts: Record<string, number>;
+  readonly positive_company_signal_counts: Record<string, number>;
   readonly sha256_hash12?: string;
 }
 
@@ -173,6 +175,8 @@ export interface PrivacyRunnerReport {
   readonly sample_rows_seen: number;
   readonly classification_counts: Record<string, number>;
   readonly exclusion_counts_by_reason: Record<string, number>;
+  readonly legal_nature_classification_counts: Record<string, number>;
+  readonly positive_company_signal_counts: Record<string, number>;
   readonly file_reports: PrivacyRunnerFileReport[];
   readonly rejection_reasons: string[];
   readonly full_dataset_processed: false;
@@ -386,6 +390,8 @@ export function buildPrivacyRunnerReport(
     sample_rows_seen: result.sampleRowsSeen,
     classification_counts: { ...result.classificationCounts },
     exclusion_counts_by_reason: { ...result.exclusionCountsByReason },
+    legal_nature_classification_counts: { ...result.legalNatureClassificationCounts },
+    positive_company_signal_counts: { ...result.positiveCompanySignalCounts },
     file_reports: result.fileReports.map((r) => ({
       file_type: r.fileType,
       safe_file_label: r.safeFileLabel,
@@ -394,6 +400,8 @@ export function buildPrivacyRunnerReport(
       sample_rows_seen: r.sampleRowsSeen,
       classification_counts: { ...r.classificationCounts },
       exclusion_counts_by_reason: { ...r.exclusionCountsByReason },
+      legal_nature_classification_counts: { ...r.legalNatureClassificationCounts },
+      positive_company_signal_counts: { ...r.positiveCompanySignalCounts },
       ...(r.sha256Hash12 !== undefined ? { sha256_hash12: r.sha256Hash12 } : {}),
     })),
     rejection_reasons: result.rejectionReasons,
@@ -447,6 +455,14 @@ export function formatReportText(report: PrivacyRunnerReport): string {
   }
   lines.push('exclusion_counts_by_reason:');
   for (const [key, value] of Object.entries(report.exclusion_counts_by_reason)) {
+    lines.push(`  ${key}: ${value}`);
+  }
+  lines.push('legal_nature_classification_counts:');
+  for (const [key, value] of Object.entries(report.legal_nature_classification_counts)) {
+    lines.push(`  ${key}: ${value}`);
+  }
+  lines.push('positive_company_signal_counts:');
+  for (const [key, value] of Object.entries(report.positive_company_signal_counts)) {
     lines.push(`  ${key}: ${value}`);
   }
   lines.push(`rejection_reasons: [${report.rejection_reasons.join(', ')}]`);

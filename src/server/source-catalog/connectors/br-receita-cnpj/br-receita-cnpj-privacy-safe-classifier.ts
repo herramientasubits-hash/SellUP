@@ -39,6 +39,18 @@ import {
   type BrReceitaCnpjLayoutFileType,
 } from './br-receita-cnpj-file-reader';
 import {
+  BR_RECEITA_COMPANY_FAMILIES,
+  BR_RECEITA_REFERENCE_FAMILIES,
+  classifyLegalNatureRiskClass,
+  emptyLegalNatureClassificationCounts,
+  emptyPositiveCompanySignalCounts,
+  type BrReceitaCnpjLegalNaturePolicy,
+  type BrReceitaLegalNatureClassificationCounts,
+  type BrReceitaLegalNatureRiskClass,
+  type BrReceitaPositiveCompanySignal,
+  type BrReceitaPositiveCompanySignalCounts,
+} from './br-receita-cnpj-eligibility-rules';
+import {
   BR_RECEITA_CNPJ_ALLOWED_EXTENSIONS,
   BR_RECEITA_CNPJ_ALLOWED_FILE_TYPES,
   BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE,
@@ -77,17 +89,7 @@ const CNPJ_LIKE_MIN_DIGIT_RUN = 14;
 /** The at-sign marks an email — a personal-contact signal. Placeholder token only. */
 const EMAIL_MARKER = String.fromCharCode(64);
 
-// ─── Family classification ─────────────────────────────────────────────────────
-
-/** Company-grain families whose rows are candidate company records. */
-const COMPANY_FAMILIES: ReadonlySet<string> = new Set(['empresas', 'estabelecimentos']);
-/** Reference / regime families — catalog rows, never a company candidate. */
-const REFERENCE_FAMILIES: ReadonlySet<string> = new Set([
-  'simples',
-  'cnaes',
-  'municipios',
-  'naturezas',
-]);
+// ─── Family classification (families live in the shared eligibility-rules module) ─
 
 /**
  * ESTABELECIMENTOS official positional layout (30 columns). Contact and
@@ -104,12 +106,22 @@ const ESTABELECIMENTOS_CONTACT_ADDRESS_INDICES: ReadonlySet<number> = new Set([
   13, 14, 15, 16, 17, 18, 21, 22, 23, 24, 25, 26, 27,
 ]);
 
+/** EMPRESAS positional index of razão social (company name — presence signal only). */
+const EMPRESAS_RAZAO_SOCIAL_INDEX = 1;
 /** EMPRESAS positional index of natureza jurídica (legal nature code). */
 const EMPRESAS_NATUREZA_JURIDICA_INDEX = 2;
 
 // ─── Statuses & reasons ─────────────────────────────────────────────────────────
 
-/** The seven eligibility statuses (docs § 7). Exactly one is assigned per record. */
+/**
+ * The eligibility statuses (docs § 7, calibrated by BR-SOURCE-10F). Exactly one is
+ * assigned per record. Only `eligible_for_future_import` may ever reach a future,
+ * separately-approved writer; every other status is non-importable. BR-SOURCE-10F
+ * adds two NON-importable holds so that structurally-non-company rows no longer
+ * inflate `needs_legal_review` (which stays reserved for a genuine open legal
+ * question): `not_applicable_lookup` (reference/regime catalog rows) and
+ * `pending_company_join_context` (an establishment awaiting its empresas join).
+ */
 export type BrReceitaPrivacyEligibilityStatus =
   | 'eligible_for_future_import'
   | 'excluded_person_or_pii_risk'
@@ -117,7 +129,9 @@ export type BrReceitaPrivacyEligibilityStatus =
   | 'excluded_forbidden_token'
   | 'excluded_unsupported_legal_nature'
   | 'excluded_guard_triggered'
-  | 'needs_legal_review';
+  | 'needs_legal_review'
+  | 'not_applicable_lookup'
+  | 'pending_company_join_context';
 
 export const BR_RECEITA_PRIVACY_ELIGIBILITY_STATUSES: readonly BrReceitaPrivacyEligibilityStatus[] = [
   'eligible_for_future_import',
@@ -127,9 +141,18 @@ export const BR_RECEITA_PRIVACY_ELIGIBILITY_STATUSES: readonly BrReceitaPrivacyE
   'excluded_unsupported_legal_nature',
   'excluded_guard_triggered',
   'needs_legal_review',
+  'not_applicable_lookup',
+  'pending_company_join_context',
 ];
 
-/** Machine reason codes (no personal value is ever embedded). */
+/**
+ * Machine reason codes (no personal value is ever embedded). BR-SOURCE-10F adds
+ * `establishment_requires_company_join_context` — the honest reason an
+ * establishment sampled in isolation is held (it carries no natureza jurídica, so
+ * its eligibility cannot be affirmed without the empresas join). The legacy
+ * `insufficient_positive_company_signal` is retained for back-compat but is no
+ * longer emitted (establishments now use the join-context reason).
+ */
 export type BrReceitaPrivacyEligibilityReason =
   | 'forbidden_file_family'
   | 'cpf_like_token_detected'
@@ -139,6 +162,7 @@ export type BrReceitaPrivacyEligibilityReason =
   | 'mei_or_individual_entrepreneur_signal'
   | 'sample_structure_guard_triggered'
   | 'structure_only_non_company_lookup'
+  | 'establishment_requires_company_join_context'
   | 'insufficient_positive_company_signal'
   | 'unknown_requires_legal_review'
   | 'passed_all_eligibility_checks';
@@ -152,6 +176,7 @@ export const BR_RECEITA_PRIVACY_ELIGIBILITY_REASONS: readonly BrReceitaPrivacyEl
   'mei_or_individual_entrepreneur_signal',
   'sample_structure_guard_triggered',
   'structure_only_non_company_lookup',
+  'establishment_requires_company_join_context',
   'insufficient_positive_company_signal',
   'unknown_requires_legal_review',
   'passed_all_eligibility_checks',
@@ -172,19 +197,40 @@ function emptyExclusionReasonCounts(): ExclusionReasonCounts {
   return counts;
 }
 
-/** Reason → status map. `passed_all_eligibility_checks` is the only eligible verdict. */
+/**
+ * Reason → status map. `passed_all_eligibility_checks` is the only eligible
+ * verdict. BR-SOURCE-10F calibration (all changes strictly more conservative or
+ * import-neutral):
+ *   - `mei_or_individual_entrepreneur_signal` now EXCLUDES (`excluded_person_or_pii_risk`)
+ *     instead of holding — MEI / empresário individual are natural-person-equivalent
+ *     and excluded by default (docs § 4); a legal GO may later re-admit them.
+ *   - `structure_only_non_company_lookup` now maps to `not_applicable_lookup` — a
+ *     catalog row is structurally not a company candidate, not an open legal question.
+ *   - `establishment_requires_company_join_context` maps to `pending_company_join_context`.
+ * `needs_legal_review` stays reserved for a genuine undecided legal nature.
+ */
 const REASON_TO_STATUS: Record<BrReceitaPrivacyEligibilityReason, BrReceitaPrivacyEligibilityStatus> = {
   forbidden_file_family: 'excluded_forbidden_file_family',
   cpf_like_token_detected: 'excluded_person_or_pii_risk',
   contact_or_address_personal_data_signal: 'excluded_person_or_pii_risk',
   cnpj_like_token_detected_outside_identity: 'excluded_forbidden_token',
   unsupported_or_risky_legal_nature: 'excluded_unsupported_legal_nature',
-  mei_or_individual_entrepreneur_signal: 'needs_legal_review',
+  mei_or_individual_entrepreneur_signal: 'excluded_person_or_pii_risk',
   sample_structure_guard_triggered: 'excluded_guard_triggered',
-  structure_only_non_company_lookup: 'needs_legal_review',
+  structure_only_non_company_lookup: 'not_applicable_lookup',
+  establishment_requires_company_join_context: 'pending_company_join_context',
   insufficient_positive_company_signal: 'needs_legal_review',
   unknown_requires_legal_review: 'needs_legal_review',
   passed_all_eligibility_checks: 'eligible_for_future_import',
+};
+
+/** Legal-nature risk class → the classifier's per-record reason code. */
+const RISK_CLASS_TO_REASON: Record<BrReceitaLegalNatureRiskClass, BrReceitaPrivacyEligibilityReason> = {
+  allowed_commercial_organization: 'passed_all_eligibility_checks',
+  blocked_person_or_individual: 'mei_or_individual_entrepreneur_signal',
+  blocked_risky_or_unsupported: 'unsupported_or_risky_legal_nature',
+  needs_legal_review: 'unknown_requires_legal_review',
+  not_applicable_lookup: 'structure_only_non_company_lookup',
 };
 
 // ─── Eligibility policy (dependency-injected; UNSET by default = fail-closed) ──
@@ -195,15 +241,11 @@ const REASON_TO_STATUS: Record<BrReceitaPrivacyEligibilityReason, BrReceitaPriva
  * `needs_legal_review`, because docs § 11 leaves the eligible-natureza allowlist,
  * MEI policy, and full-CNPJ persistence UNDECIDED. A test may inject a synthetic
  * policy to exercise the eligible branch; the policy authorizes nothing at runtime.
+ *
+ * BR-SOURCE-10F: the code-set shape now lives in the shared eligibility-rules
+ * module; this alias preserves the public classifier name.
  */
-export interface BrReceitaCnpjPrivacyEligibilityPolicy {
-  /** natureza jurídica codes affirmatively on the eligible-commercial allowlist. */
-  readonly eligibleLegalNatureCodes?: ReadonlySet<string>;
-  /** natureza jurídica codes that are natural-person-risk / out of scope. */
-  readonly riskyLegalNatureCodes?: ReadonlySet<string>;
-  /** natureza jurídica codes flagged as MEI / empresário individual (held). */
-  readonly meiIndividualLegalNatureCodes?: ReadonlySet<string>;
-}
+export type BrReceitaCnpjPrivacyEligibilityPolicy = BrReceitaCnpjLegalNaturePolicy;
 
 // ─── Options / result shapes ─────────────────────────────────────────────────
 
@@ -266,6 +308,8 @@ export interface BrReceitaCnpjPrivacyFileReport {
   sampleRowsSeen: number;
   classificationCounts: ClassificationCounts;
   exclusionCountsByReason: ExclusionReasonCounts;
+  legalNatureClassificationCounts: BrReceitaLegalNatureClassificationCounts;
+  positiveCompanySignalCounts: BrReceitaPositiveCompanySignalCounts;
   sha256Hash12?: string;
 }
 
@@ -285,6 +329,8 @@ export interface BrReceitaCnpjPrivacyClassificationResult {
   sampleRowsSeen: number;
   classificationCounts: ClassificationCounts;
   exclusionCountsByReason: ExclusionReasonCounts;
+  legalNatureClassificationCounts: BrReceitaLegalNatureClassificationCounts;
+  positiveCompanySignalCounts: BrReceitaPositiveCompanySignalCounts;
   fileReports: BrReceitaCnpjPrivacyFileReport[];
   fullDatasetProcessed: false;
   importExecuted: false;
@@ -539,18 +585,31 @@ function isPersistibleIndex(fileType: BrReceitaCnpjLayoutFileType, index: number
 }
 
 function familyOf(fileType: BrReceitaCnpjManifestFileType | 'unknown'): BrReceitaCnpjPrivacyFileFamily {
-  if (COMPANY_FAMILIES.has(fileType)) return 'company';
-  if (REFERENCE_FAMILIES.has(fileType)) return 'reference';
+  if (BR_RECEITA_COMPANY_FAMILIES.has(fileType)) return 'company';
+  if (BR_RECEITA_REFERENCE_FAMILIES.has(fileType)) return 'reference';
   return 'unknown';
 }
 
 // ─── Per-row classification ─────────────────────────────────────────────────────
 
 /**
- * Classifies a single sampled row into exactly one eligibility reason (which maps
- * to a status). Allowlist-first and most-sensitive-first: person/PII outranks
- * token, which outranks legal-nature, which outranks guard, which outranks the
- * held/eligible verdicts. NEVER returns a value — only a reason code.
+ * The full per-row verdict: a reason (→ status), the legal-nature risk class where
+ * a determination is meaningful, and any positive company signals observed. All
+ * three are machine values — a row, cell value, full CNPJ, or CPF is NEVER carried.
+ */
+interface RowClassification {
+  readonly reason: BrReceitaPrivacyEligibilityReason;
+  readonly legalNatureRiskClass?: BrReceitaLegalNatureRiskClass;
+  readonly positiveSignals: readonly BrReceitaPositiveCompanySignal[];
+}
+
+/**
+ * Classifies a single sampled row. Allowlist-first and most-sensitive-first:
+ * person/PII outranks token, which outranks legal-nature/structure. A legal-nature
+ * risk class is attached only where it is meaningful (an `empresas` row that
+ * reaches the legal-nature stage, or a reference lookup); positive signals are
+ * recorded only on rows not pre-empted by a PII/token/guard exclusion. NEVER
+ * returns a value — only machine codes.
  */
 function classifyRow(
   fileType: BrReceitaCnpjLayoutFileType,
@@ -558,10 +617,10 @@ function classifyRow(
   cells: readonly string[],
   expectedColumns: number,
   policy: BrReceitaCnpjPrivacyEligibilityPolicy | undefined,
-): BrReceitaPrivacyEligibilityReason {
+): RowClassification {
   // 1) Structural anomaly (a sampled row that does not match the official layout).
   if (cells.length !== expectedColumns) {
-    return 'sample_structure_guard_triggered';
+    return { reason: 'sample_structure_guard_triggered', positiveSignals: [] };
   }
 
   // 2) Persistible-field PII scan (most sensitive first).
@@ -570,44 +629,51 @@ function classifyRow(
     if (!isPersistibleIndex(fileType, i)) continue;
     const cell = cells[i]!;
     if (cell.includes(EMAIL_MARKER)) {
-      return 'contact_or_address_personal_data_signal';
+      return { reason: 'contact_or_address_personal_data_signal', positiveSignals: [] };
     }
     const run = maxDigitRun(cell);
     if (run >= CPF_LIKE_MIN_DIGIT_RUN && run < CNPJ_LIKE_MIN_DIGIT_RUN) {
-      return 'cpf_like_token_detected';
+      return { reason: 'cpf_like_token_detected', positiveSignals: [] };
     }
     if (run >= CNPJ_LIKE_MIN_DIGIT_RUN) {
       hasForbiddenToken = true;
     }
   }
   if (hasForbiddenToken) {
-    return 'cnpj_like_token_detected_outside_identity';
+    return { reason: 'cnpj_like_token_detected_outside_identity', positiveSignals: [] };
   }
 
   // 3) Reference / regime families are catalog rows, never a company candidate.
   if (family !== 'company') {
-    return 'structure_only_non_company_lookup';
+    return {
+      reason: 'structure_only_non_company_lookup',
+      legalNatureRiskClass: 'not_applicable_lookup',
+      positiveSignals: [],
+    };
   }
 
   // 4) Legal-nature assessment (empresas only — natureza jurídica lives there).
   if (fileType === 'empresas') {
+    const razao = (cells[EMPRESAS_RAZAO_SOCIAL_INDEX] ?? '').trim();
     const natureza = (cells[EMPRESAS_NATUREZA_JURIDICA_INDEX] ?? '').trim();
-    if (policy?.riskyLegalNatureCodes?.has(natureza)) {
-      return 'unsupported_or_risky_legal_nature';
-    }
-    if (policy?.meiIndividualLegalNatureCodes?.has(natureza)) {
-      return 'mei_or_individual_entrepreneur_signal';
-    }
-    if (policy?.eligibleLegalNatureCodes?.has(natureza)) {
-      return 'passed_all_eligibility_checks';
-    }
-    // No policy, or an unlisted natureza → held pending the docs § 11 legal GO.
-    return 'unknown_requires_legal_review';
+    const riskClass = classifyLegalNatureRiskClass(natureza, policy);
+    const positiveSignals: BrReceitaPositiveCompanySignal[] = [];
+    if (razao.length > 0) positiveSignals.push('company_name_present');
+    if (riskClass === 'allowed_commercial_organization') positiveSignals.push('commercial_legal_nature');
+    return {
+      reason: RISK_CLASS_TO_REASON[riskClass],
+      legalNatureRiskClass: riskClass,
+      positiveSignals,
+    };
   }
 
   // 5) estabelecimentos in isolation carries no natureza jurídica — eligibility
   // cannot be affirmed without the empresas join, so it is held (allowlist-first).
-  return 'insufficient_positive_company_signal';
+  // This is a data-completeness hold, NOT an open legal question.
+  return {
+    reason: 'establishment_requires_company_join_context',
+    positiveSignals: ['establishment_requires_join_context'],
+  };
 }
 
 // ─── File report assembly ───────────────────────────────────────────────────────
@@ -621,21 +687,39 @@ function baseFileReport(v: BrReceitaCnpjManifestFileReport): BrReceitaCnpjPrivac
     sampleRowsSeen: 0,
     classificationCounts: emptyClassificationCounts(),
     exclusionCountsByReason: emptyExclusionReasonCounts(),
+    legalNatureClassificationCounts: emptyLegalNatureClassificationCounts(),
+    positiveCompanySignalCounts: emptyPositiveCompanySignalCounts(),
   };
   if (v.sha256Hash12 !== undefined) report.sha256Hash12 = v.sha256Hash12;
   return report;
 }
 
+interface ClassifierTotals {
+  counts: ClassificationCounts;
+  reasons: ExclusionReasonCounts;
+  legalNature: BrReceitaLegalNatureClassificationCounts;
+  signals: BrReceitaPositiveCompanySignalCounts;
+}
+
 function record(
   report: BrReceitaCnpjPrivacyFileReport,
-  totals: { counts: ClassificationCounts; reasons: ExclusionReasonCounts },
-  reason: BrReceitaPrivacyEligibilityReason,
+  totals: ClassifierTotals,
+  rc: RowClassification,
 ): void {
-  const status = REASON_TO_STATUS[reason];
+  const status = REASON_TO_STATUS[rc.reason];
   report.classificationCounts[status] += 1;
-  report.exclusionCountsByReason[reason] += 1;
+  report.exclusionCountsByReason[rc.reason] += 1;
   totals.counts[status] += 1;
-  totals.reasons[reason] += 1;
+  totals.reasons[rc.reason] += 1;
+
+  if (rc.legalNatureRiskClass !== undefined) {
+    report.legalNatureClassificationCounts[rc.legalNatureRiskClass] += 1;
+    totals.legalNature[rc.legalNatureRiskClass] += 1;
+  }
+  for (const signal of rc.positiveSignals) {
+    report.positiveCompanySignalCounts[signal] += 1;
+    totals.signals[signal] += 1;
+  }
 }
 
 // ─── Public entry point ─────────────────────────────────────────────────────────
@@ -697,6 +781,8 @@ export async function runBrReceitaCnpjPrivacySafeClassifier(
       sampleRowsSeen: 0,
       classificationCounts: emptyClassificationCounts(),
       exclusionCountsByReason: emptyExclusionReasonCounts(),
+      legalNatureClassificationCounts: emptyLegalNatureClassificationCounts(),
+      positiveCompanySignalCounts: emptyPositiveCompanySignalCounts(),
       fileReports: validation.fileReports.map(baseFileReport),
       rejectionReasons,
     };
@@ -714,6 +800,8 @@ export async function runBrReceitaCnpjPrivacySafeClassifier(
       sampleRowsSeen: 0,
       classificationCounts: emptyClassificationCounts(),
       exclusionCountsByReason: emptyExclusionReasonCounts(),
+      legalNatureClassificationCounts: emptyLegalNatureClassificationCounts(),
+      positiveCompanySignalCounts: emptyPositiveCompanySignalCounts(),
       fileReports: validation.fileReports.map(baseFileReport),
       rejectionReasons: nonHeaderless.map((r) => `${r.fileType}:layout_mode_not_official_headerless`),
     };
@@ -723,7 +811,12 @@ export async function runBrReceitaCnpjPrivacySafeClassifier(
   const descriptorByType = new Map<string, ClassifierFileDescriptor>();
   for (const d of descriptors) descriptorByType.set(d.fileType, d);
 
-  const totals = { counts: emptyClassificationCounts(), reasons: emptyExclusionReasonCounts() };
+  const totals: ClassifierTotals = {
+    counts: emptyClassificationCounts(),
+    reasons: emptyExclusionReasonCounts(),
+    legalNature: emptyLegalNatureClassificationCounts(),
+    signals: emptyPositiveCompanySignalCounts(),
+  };
   const fileReports: BrReceitaCnpjPrivacyFileReport[] = [];
   const rejectionReasons: string[] = [];
   let sampleRowsSeen = 0;
@@ -765,8 +858,8 @@ export async function runBrReceitaCnpjPrivacySafeClassifier(
       report.sampleRowsSeen += 1;
       sampleRowsSeen += 1;
       const cells = splitDelimitedCells(line, descriptor.delimiter);
-      const reason = classifyRow(fileType, family, cells, expectedColumns, options.eligibilityPolicy);
-      record(report, totals, reason);
+      const rc = classifyRow(fileType, family, cells, expectedColumns, options.eligibilityPolicy);
+      record(report, totals, rc);
     }
     fileReports.push(report);
   }
@@ -789,6 +882,8 @@ export async function runBrReceitaCnpjPrivacySafeClassifier(
     sampleRowsSeen,
     classificationCounts: totals.counts,
     exclusionCountsByReason: totals.reasons,
+    legalNatureClassificationCounts: totals.legalNature,
+    positiveCompanySignalCounts: totals.signals,
     fileReports,
     rejectionReasons,
   };
