@@ -212,6 +212,7 @@
     "test:agent2a:phone-reveal-schema": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-phone-reveal-audit-schema-3d2.test.ts src/modules/contact-enrichment/__tests__/candidate-phone-reveal-async-schema.test.ts",
     "test:agent2a:phone-reveal-action": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-reveal-action-3d3.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-async15.test.ts",
     "test:agent2a:phone-reveal-recovery": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-reveal-recovery-core.test.ts",
+    "test:agent2a:phone-reveal-recovery-runtime": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-reveal-recovery-runtime.test.ts",
     "test:agent2a:phone-reveal-ui": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-reveal-ui-3d4.test.tsx src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-reveal-ui-3d4-static.test.ts src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-reveal-ui-3d6b.test.tsx src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-reveal-ui-3d6b-static.test.ts"
   },
   "dependencies": {

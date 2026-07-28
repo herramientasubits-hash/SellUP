@@ -469,3 +469,28 @@ export async function startApolloPhoneReveal(
     trace: interpretation.trace,
   };
 }
+
+// ============================================================
+// Phone reveal — RECOVERY del resultado (GET webhook_result)
+// GET https://api.apollo.io/api/v1/webhook_result/{apollo_http_request_id}
+//
+// Recupera el payload que un webhook perdido habría entregado. NO crea un reveal,
+// NO llama a /people/match y NO consume créditos nuevos: solo lee un resultado ya
+// producido. `recoveryRequestId` es el request_id top-level / x-http-request-id
+// (signed 64-bit int como string, p.ej. `-4594297923800105423`), NUNCA el
+// phone_enrichment.request_id (ese devuelve 404 aquí).
+//
+// Auth: X-Api-Key (requiere scope `webhook_result_read` o Master key) → 401/403.
+// Este helper es de bajo nivel: devuelve solo el status HTTP y el body parseado
+// (o null). NO clasifica, NO imprime el body y NO extrae PII: el caller
+// (runtime admin-gated) mapea el status con `classifyWebhookResultHttpStatus` y
+// pasa el payload al recovery core. NADIE lo cablea automáticamente (no hay job).
+// ============================================================
+
+export async function fetchApolloPhoneRevealWebhookResult(
+  recoveryRequestId: string,
+): Promise<{ status: number; body: unknown }> {
+  const path = `/api/v1/webhook_result/${encodeURIComponent(recoveryRequestId)}`;
+  const result = await apolloFetch<unknown>(path, { method: 'GET' });
+  return { status: result.status, body: result.ok ? (result.data ?? null) : null };
+}
