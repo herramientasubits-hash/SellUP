@@ -8,6 +8,7 @@
 
 **Related documents:**
 - Full join dry-run technical design — [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md)
+- Full join approval gates checklist — [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
 - Privacy-safe import eligibility design — [`br-receita-cnpj-privacy-safe-import-eligibility-design.md`](./br-receita-cnpj-privacy-safe-import-eligibility-design.md)
 - Import & staging persistence contract — [`br-receita-cnpj-import-staging-contract.md`](./br-receita-cnpj-import-staging-contract.md)
 - Manual download & local prep runbook — [`br-receita-cnpj-manual-download-local-prep-runbook.md`](./br-receita-cnpj-manual-download-local-prep-runbook.md)
@@ -321,6 +322,16 @@ GATE-8  No Supabase / import / runtime / Agent 1 guarantee (the dry-run writes n
 No gate may be skipped or collapsed. A full join dry-run that cannot satisfy every gate does
 not run.
 
+> **Update (BR-SOURCE-10K).** These eight gates have since been turned into a formal, approvable
+> checklist — [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
+> — defining per gate the required evidence, the approver role, the pass / fail criteria, the block
+> conditions, the expected artifacts, the flag each gate governs, and what each approval does and
+> does not unlock; plus a gate status model, a dependency graph, an approval-evidence template, and
+> a GO / NO-GO matrix. That checklist is docs-only and **approves no gate**: all eight remain
+> `not_started`, so the matrix reads NO-GO. It implements no runner, decides no identity grain, and
+> authorizes **no** full join execution, import, Supabase write, migration, runtime, or Agent 1
+> integration.
+
 ---
 
 ## 10. Required future report
@@ -432,6 +443,11 @@ full-join readiness dry-run under the envelope in § 4.
 > **decides no identity grain** and authorizes **no** dry-run, import, Supabase write, migration,
 > runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10K — full join
 > dry-run approval gates checklist**.
+>
+> **Update:** BR-SOURCE-10K has since landed as that docs-only checklist —
+> [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
+> — which makes the § 9 gates concretely approvable without approving any of them. Its recommended
+> successor is **BR-SOURCE-10L — full join dry-run gate evidence packet**.
 
 This is a **recommendation, not an execution**: BR-SOURCE-10I opens no such milestone and
 authorizes nothing further.

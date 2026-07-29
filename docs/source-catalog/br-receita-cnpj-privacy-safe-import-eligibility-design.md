@@ -538,6 +538,30 @@ runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation al
 
 ---
 
+## 10.7. Full join approval gates checklist (BR-SOURCE-10K)
+
+BR-SOURCE-10K converts the GATE-1 … GATE-8 conditions into a docs-only **formal approval
+checklist**: per gate, the required evidence, the approver role, the pass / fail criteria, the block
+conditions, the expected artifacts, the flag it governs, and what each approval does and does not
+unlock — plus a gate status model, a dependency graph, an approval-evidence template, and a global
+GO / NO-GO matrix.
+
+Two gates bear directly on this design's open questions (§ 11): **GATE-1** must record the
+legal/privacy basis for full local processing — including whether `full_dataset_processed = true` is
+acceptable for a dry-run at all — and **GATE-3** must freeze the post-join field allowlist,
+resolving whether `normalized_tax_id`, sanitized `legal_name` / `trade_name`, and
+`capital_social_value` may survive. 10K restates and never widens the field-survival and eligibility
+rules in this design (§ 4–§ 8), **approves no gate** (all eight remain `not_started`, so the matrix
+reads NO-GO), adds **no runner and no command**, **decides no identity grain**, and authorizes **no**
+dry-run, import, Supabase write, migration, runtime, or Agent 1 integration. See
+[`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md).
+
+**What stays blocked (unchanged).** Import, production import, Supabase writes, migrations,
+runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation all remain
+**blocked**.
+
+---
+
 ## 11. Open legal / privacy questions
 
 These decisions are **unresolved** and block a privacy-safe import implementation. Each
