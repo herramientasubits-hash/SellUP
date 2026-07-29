@@ -17,7 +17,16 @@
 --     (`normalized_phone` / `phone_type` set to NULL) plus a PII-free tombstone
 --     (`suppressed_at` / `suppression_reason` / `suppressed_by`). A CHECK makes
 --     "suppressed but still holding a phone" unrepresentable. The tombstone row
---     stays so a future reveal for that person/account stays blocked.
+--     stays so a future reveal for that person/account stays blocked, and it is
+--     INSERTED when no cache row exists (a DSAR on an empty cache must still
+--     block future hits and future automatic reveals).
+--   * SUPPRESSION REASON IS A CLOSED VOCABULARY — `suppression_reason` is
+--     CHECK-constrained to a small set of machine codes, never free text, so a
+--     privacy record cannot become a place where PII is typed in by hand.
+--   * DURABLE, PII-FREE SUPPRESSION AUDIT — `phone_reveal_suppression_audit`
+--     records each erasure with the person id only as a SHA-256 hash, plus the
+--     reason code and the counts of rows actually updated. No column of that
+--     table can hold a phone, email, name or linkedin.
 --   * ONLY REVEALED PHONES ARE CACHED — `phone_source` is constrained to
 --     'apollo_reveal'; a cache hit can never be re-cached.
 --   * APOLLO ONLY — `provider` is constrained to 'apollo'. No Lusha, ever.
@@ -104,7 +113,20 @@ CREATE TABLE IF NOT EXISTS public.phone_reveal_cache (
 
   -- Tombstone. Never contains a phone (enforced by the CHECK below).
   suppressed_at                 timestamptz NULL,
-  suppression_reason            text        NULL,
+  -- Closed vocabulary, NOT free text: a privacy record must not become a place
+  -- where the data subject's name / phone / email gets typed in by hand.
+  suppression_reason            text        NULL
+    CONSTRAINT phone_reveal_cache_suppression_reason_check
+    CHECK (
+      suppression_reason IS NULL
+      OR suppression_reason IN (
+        'dsar_erasure_request',
+        'do_not_contact_request',
+        'legal_privacy_request',
+        'admin_privacy_correction',
+        'test_synthetic'
+      )
+    ),
   suppressed_by                 uuid        NULL
     REFERENCES public.internal_users(id) ON DELETE SET NULL,
 
@@ -176,7 +198,89 @@ BEGIN
   END IF;
 END $$;
 
--- ── 6. Widen contacts.phone_source with 'apollo_cache' ─────────────
+-- ── 6. Durable suppression audit ───────────────────────────────────
+-- A DSAR erasure has to leave a trace that survives a process restart, so the
+-- suppression audit is a TABLE and not a log line. It is deliberately PII-free:
+-- the Apollo person id is stored only as a SHA-256 hash, the reason is a closed
+-- vocabulary, and there is no column that could hold a phone, email, name or
+-- linkedin. It records what was actually cleared (counts of rows the database
+-- reported as updated), never the values that were cleared.
+
+CREATE TABLE IF NOT EXISTS public.phone_reveal_suppression_audit (
+  id                       uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  provider                 text        NOT NULL DEFAULT 'apollo'
+    CONSTRAINT phone_reveal_suppression_audit_provider_check
+    CHECK (provider IN ('apollo')),
+
+  -- SHA-256 (hex) of the Apollo person id. Lets two events about the same person
+  -- be correlated WITHOUT publishing the provider identifier.
+  provider_person_id_hash  text        NOT NULL
+    CONSTRAINT phone_reveal_suppression_audit_hash_check
+    CHECK (provider_person_id_hash ~ '^[0-9a-f]{64}$'),
+
+  account_id               uuid        NOT NULL
+    REFERENCES public.accounts(id) ON DELETE CASCADE,
+  country_code             text        NULL
+    CONSTRAINT phone_reveal_suppression_audit_country_code_check
+    CHECK (country_code IS NULL OR country_code ~ '^[A-Z]{2}$'),
+
+  actor_user_id            uuid        NULL
+    REFERENCES public.internal_users(id) ON DELETE SET NULL,
+
+  -- Same closed vocabulary as phone_reveal_cache.suppression_reason.
+  reason_code              text        NOT NULL
+    CONSTRAINT phone_reveal_suppression_audit_reason_code_check
+    CHECK (
+      reason_code IN (
+        'dsar_erasure_request',
+        'do_not_contact_request',
+        'legal_privacy_request',
+        'admin_privacy_correction',
+        'test_synthetic'
+      )
+    ),
+
+  -- Counts of rows the database actually reported as updated (never the plan).
+  candidates_cleared       integer     NOT NULL DEFAULT 0
+    CONSTRAINT phone_reveal_suppression_audit_candidates_check
+    CHECK (candidates_cleared >= 0),
+  contacts_cleared         integer     NOT NULL DEFAULT 0
+    CONSTRAINT phone_reveal_suppression_audit_contacts_check
+    CHECK (contacts_cleared >= 0),
+  cache_rows_suppressed    integer     NOT NULL DEFAULT 0
+    CONSTRAINT phone_reveal_suppression_audit_cache_rows_check
+    CHECK (cache_rows_suppressed >= 0),
+  tombstone_created        boolean     NOT NULL DEFAULT false,
+
+  created_at               timestamptz NOT NULL DEFAULT now(),
+  metadata                 jsonb       NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS phone_reveal_suppression_audit_person_account_idx
+  ON public.phone_reveal_suppression_audit
+    (provider, provider_person_id_hash, account_id, created_at DESC);
+
+-- Service-role only, same reasoning as the cache table: this is privacy
+-- machinery, not application data. No policy for authenticated = no access.
+
+ALTER TABLE public.phone_reveal_suppression_audit ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'phone_reveal_suppression_audit'
+      AND policyname = 'service_role_all_phone_reveal_suppression_audit'
+  ) THEN
+    CREATE POLICY "service_role_all_phone_reveal_suppression_audit"
+      ON public.phone_reveal_suppression_audit FOR ALL TO service_role
+      USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+-- ── 7. Widen contacts.phone_source with 'apollo_cache' ─────────────
 -- A phone reused from the cache must stay distinguishable from a fresh reveal
 -- all the way to the official contact. The constraint is replaced by a strictly
 -- WIDER version (same values + 'apollo_cache') and stays NOT VALID, so no
@@ -206,7 +310,19 @@ BEGIN
     ) NOT VALID;
 END $$;
 
--- ── 7. Comments ────────────────────────────────────────────────────
+-- ── 8. Comments ────────────────────────────────────────────────────
+
+COMMENT ON TABLE public.phone_reveal_suppression_audit IS
+  'APOLLO-PHONE-CACHE-1b — durable, PII-free audit of phone suppression (DSAR erasure). The Apollo person id is stored only as a SHA-256 hash; the reason is a closed vocabulary; the counts are the rows the database actually reported as updated. No column can hold a phone, email, name or linkedin. Service-role only.';
+
+COMMENT ON COLUMN public.phone_reveal_suppression_audit.provider_person_id_hash IS
+  'SHA-256 (hex) of the Apollo person id. Correlates events about the same person without publishing the provider identifier.';
+
+COMMENT ON COLUMN public.phone_reveal_suppression_audit.reason_code IS
+  'Closed vocabulary, mirrors phone_reveal_cache.suppression_reason. Free text is deliberately not allowed: a privacy record must not become a copy of the data it erased.';
+
+COMMENT ON COLUMN public.phone_reveal_suppression_audit.tombstone_created IS
+  'true when no cache row existed and a phone-free tombstone was inserted, so the DSAR still blocks future cache hits and future automatic reveals.';
 
 COMMENT ON TABLE public.phone_reveal_cache IS
   'APOLLO-PHONE-CACHE-1b — cache of Apollo phone reveals already paid for, keyed by Apollo person id and scoped to ONE account. Reuse policy: TTL 90 days, same account only, same country only, unknown country = no reuse. Suppression is a hard delete of the phone plus a PII-free tombstone that blocks both future cache hits and future automatic reveals. Service-role only; starts empty (no backfill).';

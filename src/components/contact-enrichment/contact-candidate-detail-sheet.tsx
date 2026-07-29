@@ -446,6 +446,29 @@ export function ContactCandidateDetailSheet({
         toast.warning('Este teléfono ya fue revelado.');
         void reloadCandidate();
         return;
+      // APOLLO-PHONE-CACHE-1b: éxito terminal servido desde un reveal ya pagado.
+      // No hay webhook que esperar y no se cobraron créditos, así que el
+      // candidato se recarga de inmediato para mostrar el número.
+      case 'revealed_from_cache':
+        toast.success('Teléfono obtenido de una revelación previa. Sin costo adicional.');
+        setPhoneRevealNotice('Reutilizado de una revelación anterior (sin costo).');
+        void reloadCandidate();
+        return;
+      // APOLLO-PHONE-CACHE-1b: bloqueo seguro por supresión (DSAR). No es un
+      // fallo genérico y NO se llamó a Apollo: el mensaje tiene que decir por qué.
+      case 'blocked_suppressed':
+        toast.warning('Existe una supresión registrada para este teléfono.');
+        setPhoneRevealError(
+          'No se puede revelar este teléfono porque existe una supresión registrada.',
+        );
+        return;
+      // APOLLO-PHONE-CACHE-1b (FIX H4): no se pudo verificar la caché, así que no
+      // se llamó a Apollo (podría existir una supresión no vista). Reintentable.
+      case 'cache_unavailable':
+        setPhoneRevealError(
+          'No fue posible verificar el estado de la caché de teléfonos. No se hizo ningún cargo; intenta de nuevo en unos minutos.',
+        );
+        return;
       case 'do_not_contact':
         toast.warning('Este candidato/contacto está marcado como no contactar.');
         setPhoneRevealError('Este candidato está marcado como no contactar.');

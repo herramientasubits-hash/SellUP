@@ -325,6 +325,13 @@ export async function revealCandidatePhoneAction(
     lookupPhoneCache: readPhoneCacheEntry,
     touchPhoneCacheEntry,
 
+    // FIX H4: un fallo de la búsqueda en caché se registra con el mensaje del
+    // driver y NADA más — sin teléfono, sin id de persona, sin datos del
+    // contacto. El core ya devolvió `cache_unavailable` sin llamar a Apollo.
+    onCacheLookupUnavailable: (message: string): void => {
+      console.error('[phone-cache] cache lookup unavailable:', message);
+    },
+
     persistCacheHit: async (
       candidateId,
       patch: RevealCacheHitPersistencePatch,

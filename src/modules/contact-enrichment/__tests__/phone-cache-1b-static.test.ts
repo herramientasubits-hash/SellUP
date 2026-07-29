@@ -24,6 +24,10 @@ import {
   APOLLO_PHONE_CACHE_FLAG,
   isApolloPhoneCacheEnabled,
 } from '@/lib/feature-flags.server';
+import {
+  PHONE_CACHE_SUPPRESSION_AUDIT_TABLE,
+  PHONE_CACHE_SUPPRESSION_REASON_CODES,
+} from '../phone-cache-suppression-core';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // __tests__ → contact-enrichment → modules → src → repo root
@@ -175,6 +179,94 @@ describe('CACHE-1b migración 099 — sin datos, sin backfill, sin PII', () => {
       assert.match(sql, new RegExp(`'${value}'`));
     }
     assert.match(sql, /ADD CONSTRAINT contacts_phone_source_check[\s\S]*?NOT VALID/i);
+  });
+});
+
+// ── FIX M5: motivo de supresión = vocabulario cerrado ──────────
+
+describe('CACHE-1b migración 099 — FIX M5 motivo de supresión acotado', () => {
+  const sql = stripSqlComments(readRepo(MIGRATION_REL));
+
+  it('suppression_reason está restringido por CHECK a la allowlist', () => {
+    assert.match(sql, /phone_reveal_cache_suppression_reason_check/);
+    for (const code of PHONE_CACHE_SUPPRESSION_REASON_CODES) {
+      assert.match(sql, new RegExp(`'${code}'`), `falta el código ${code}`);
+    }
+  });
+
+  it('el vocabulario del CHECK de la caché y el del core coinciden', () => {
+    const block = sql.match(
+      /phone_reveal_cache_suppression_reason_check[\s\S]*?\)\s*\)/,
+    );
+    assert.ok(block, 'no se encontró el CHECK del motivo');
+    const codes = [...(block[0].matchAll(/'([a-z_]+)'/g))].map((m) => m[1]).sort();
+    assert.deepEqual(codes, [...PHONE_CACHE_SUPPRESSION_REASON_CODES].sort());
+  });
+});
+
+// ── FIX H3: auditoría durable sin PII ──────────────────────────
+
+describe('CACHE-1b migración 099 — FIX H3 tabla de auditoría durable', () => {
+  const sql = stripSqlComments(readRepo(MIGRATION_REL));
+
+  it('crea phone_reveal_suppression_audit de forma idempotente', () => {
+    assert.match(
+      sql,
+      /CREATE TABLE IF NOT EXISTS\s+public\.phone_reveal_suppression_audit/i,
+    );
+    assert.equal(PHONE_CACHE_SUPPRESSION_AUDIT_TABLE, 'phone_reveal_suppression_audit');
+  });
+
+  it('el person id solo cabe hasheado (SHA-256 hex, 64 chars)', () => {
+    assert.match(sql, /provider_person_id_hash\s+text\s+NOT NULL/i);
+    assert.match(sql, /provider_person_id_hash\s*~\s*'\^\[0-9a-f\]\{64\}\$'/i);
+  });
+
+  it('no existe ninguna columna capaz de guardar PII', () => {
+    const table = sql.slice(
+      sql.search(/CREATE TABLE IF NOT EXISTS\s+public\.phone_reveal_suppression_audit/i),
+    );
+    const definition = table.slice(0, table.indexOf(');'));
+    for (const banned of [
+      'phone',
+      'email',
+      'linkedin',
+      'full_name',
+      'first_name',
+      'last_name',
+      'raw',
+    ]) {
+      assert.equal(
+        new RegExp(`^\\s*${banned}`, 'im').test(definition),
+        false,
+        `la auditoría no debe tener columna ${banned}`,
+      );
+    }
+    // `provider_person_id` en claro tampoco: solo el hash.
+    assert.equal(/provider_person_id\s+text/i.test(definition), false);
+  });
+
+  it('reason_code usa la misma allowlist cerrada', () => {
+    assert.match(sql, /phone_reveal_suppression_audit_reason_code_check/);
+  });
+
+  it('registra conteos y si el tombstone se creó de cero', () => {
+    for (const column of [
+      'candidates_cleared',
+      'contacts_cleared',
+      'cache_rows_suppressed',
+      'tombstone_created',
+    ]) {
+      assert.match(sql, new RegExp(column), `falta la columna ${column}`);
+    }
+  });
+
+  it('la auditoría es service-role only (RLS habilitada, sin authenticated)', () => {
+    assert.match(
+      sql,
+      /ALTER TABLE public\.phone_reveal_suppression_audit ENABLE ROW LEVEL SECURITY/i,
+    );
+    assert.match(sql, /service_role_all_phone_reveal_suppression_audit/);
   });
 });
 
@@ -338,5 +430,117 @@ describe('CACHE-1b — los módulos de caché no imprimen PII', () => {
     const src = readRepo('src/modules/contact-enrichment/phone-cache-core.ts');
     assert.match(src, /provider_person_id_hash:\s*string/);
     assert.equal(/provider_person_id:\s*string;/.test(src.split('PhoneCacheHitUsageLogEntry')[1] ?? ''), false);
+  });
+});
+
+// ── FIX M4: sin filtro JSON path no probado ────────────────────
+
+describe('CACHE-1b — FIX M4 descubrimiento de contactos sin filtro JSON', () => {
+  const suppression = readRepo(
+    'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
+  );
+
+  it('no usa `metadata->>source_candidate_id` como filtro de PostgREST', () => {
+    assert.equal(/metadata->>/.test(suppression), false);
+  });
+
+  it('descubre los contactos por id (columna real, indexada)', () => {
+    assert.match(suppression, /\.in\('id',\s*linkedContactIds\)/);
+    assert.match(suppression, /\.eq\('account_id',\s*tombstone\.accountId\)/);
+  });
+
+  it('el UPDATE de contacts repite el filtro de procedencia (FIX M1)', () => {
+    assert.match(
+      suppression,
+      /\.in\('phone_source',\s*\['apollo_reveal',\s*'apollo_cache'\]\)/,
+    );
+  });
+
+  it('el UPDATE de contacts sigue acotado por cuenta', () => {
+    // El UPDATE de contacts y la lectura previa usan la MISMA cuenta validada.
+    const updateBlock = suppression.match(
+      /\.from\('contacts'\)\s*\n\s*\.update\(patch\)([\s\S]*?)\.select\('id'\)/,
+    );
+    assert.ok(updateBlock, 'no se encontró el UPDATE de contacts');
+    assert.match(updateBlock[1], /\.eq\('account_id',\s*tombstone\.accountId\)/);
+  });
+
+  it('el tombstone se escribe ANTES de leer candidatos o contactos', () => {
+    const tombstoneAt = suppression.search(/\.update\(tombstone\.cacheEntryPatch\)/);
+    const candidateReadAt = suppression.search(
+      /\.eq\('apollo_person_id',\s*tombstone\.providerPersonId\)/,
+    );
+    const contactReadAt = suppression.search(/\.in\('id',\s*linkedContactIds\)/);
+    assert.notEqual(tombstoneAt, -1);
+    assert.ok(tombstoneAt < candidateReadAt, 'el tombstone debe precederse a la lectura de candidatos');
+    assert.ok(tombstoneAt < contactReadAt, 'el tombstone debe precederse a la lectura de contactos');
+  });
+
+  it('un fallo de lectura de candidatos/contactos NO impide el tombstone', () => {
+    // Las lecturas registran failureCode en vez de lanzar, así que el tombstone
+    // ya escrito sobrevive y la supresión se reporta como incompleta.
+    assert.match(suppression, /suppression candidate read failed/);
+    assert.match(suppression, /suppression contact read failed/);
+    assert.equal(/throw new Error\(candidateError\.message\)/.test(suppression), false);
+    assert.equal(/throw new Error\(contactError\.message\)/.test(suppression), false);
+  });
+});
+
+// ── FIX H2: la UI mapea los estados nuevos ─────────────────────
+
+describe('CACHE-1b — FIX H2 estados nuevos mapeados en la UI', () => {
+  const sheet = readRepo(
+    'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
+  );
+
+  /** Cuerpo de un `case '<status>':` dentro de applyPhoneRevealResult. */
+  function caseBody(status: string): string {
+    const match = sheet.match(
+      new RegExp(`case '${status}':([\\s\\S]*?)return;`),
+    );
+    return match ? match[1] : '';
+  }
+
+  it('revealed_from_cache es un caso explícito, no cae en el default de error', () => {
+    const body = caseBody('revealed_from_cache');
+    assert.notEqual(body, '', 'falta el case revealed_from_cache');
+    assert.equal(/setPhoneRevealError/.test(body), false);
+  });
+
+  it('revealed_from_cache muestra éxito y recarga el candidato', () => {
+    const body = caseBody('revealed_from_cache');
+    assert.match(body, /toast\.success/);
+    assert.match(body, /reloadCandidate\(\)/);
+  });
+
+  it('blocked_suppressed explica la supresión y no es un fallo genérico', () => {
+    const body = caseBody('blocked_suppressed');
+    assert.notEqual(body, '', 'falta el case blocked_suppressed');
+    assert.match(body, /supresión registrada/);
+    assert.equal(/reloadCandidate\(\)/.test(body), false);
+  });
+
+  it('cache_unavailable da un mensaje operativo seguro y reintentable', () => {
+    const body = caseBody('cache_unavailable');
+    assert.notEqual(body, '', 'falta el case cache_unavailable');
+    assert.match(body, /setPhoneRevealError/);
+    assert.match(body, /intenta de nuevo/i);
+  });
+
+  it('los mensajes nuevos no exponen teléfono, email ni linkedin', () => {
+    for (const status of [
+      'revealed_from_cache',
+      'blocked_suppressed',
+      'cache_unavailable',
+    ]) {
+      const body = caseBody(status);
+      for (const banned of ['phoneNumber', 'phoneMeta?.number', 'email', 'linkedin']) {
+        assert.equal(
+          body.includes(banned),
+          false,
+          `el case ${status} no debe exponer ${banned}`,
+        );
+      }
+    }
   });
 });

@@ -396,6 +396,13 @@ export interface RevealCandidatePhoneDeps {
    * no se inyecta se registra 'unavailable' — nunca el id en claro.
    */
   hashProviderPersonId?: (personId: string) => string;
+  /**
+   * Notifica que la búsqueda en caché no se pudo completar (APOLLO-PHONE-CACHE-1b,
+   * FIX H4). Recibe SOLO un mensaje mecánico del driver: nunca teléfono, id de
+   * persona, email, nombre ni linkedin. El core es puro, así que el logging real
+   * lo hace el wrapper.
+   */
+  onCacheLookupUnavailable?: (message: string) => void;
 }
 
 // ── Resultado de la acción ─────────────────────────────────────
@@ -425,6 +432,10 @@ export type RevealCandidatePhoneStatus =
   // APOLLO-PHONE-CACHE-1b: existe un tombstone de supresión para esta persona
   // en esta cuenta. Bloquea el hit Y el reveal automático. No se llama a Apollo.
   | 'blocked_suppressed'
+  // APOLLO-PHONE-CACHE-1b (FIX H4): la caché no se pudo consultar. Fail-closed:
+  // NO se llama a Apollo, porque un tombstone de supresión podría existir y no
+  // haber sido visto. 0 créditos, sin teléfono, reintentable.
+  | 'cache_unavailable'
   | 'error';
 
 export interface RevealCandidatePhoneResult {
@@ -821,7 +832,25 @@ async function tryServeFromPhoneCache(args: {
     countryCode,
   };
 
-  const found = await deps.lookupPhoneCache(key);
+  // FIX H4: la lectura de caché puede fallar (tabla ausente, timeout, error de
+  // Postgres). NO se puede degradar a "miss" y llamar a Apollo: un tombstone de
+  // supresión podría existir sin haber sido visto, y revelar de nuevo violaría la
+  // supresión además de gastar créditos. Fail-closed y reintentable.
+  let found: PhoneCacheEntry | null;
+  try {
+    found = await deps.lookupPhoneCache(key);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown error';
+    deps.onCacheLookupUnavailable?.(message);
+    return {
+      ok: false,
+      status: 'cache_unavailable',
+      requestAccepted: false,
+      errorCode: 'cache_unavailable',
+      servedFromCache: false,
+    };
+  }
+
   const evaluation = evaluatePhoneCacheLookup(key, found, deps.nowIso);
 
   // Tombstone: bloquea el hit Y el reveal automático. No se llama a Apollo y no

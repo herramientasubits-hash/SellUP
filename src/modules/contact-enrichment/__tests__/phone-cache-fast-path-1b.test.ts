@@ -494,3 +494,78 @@ describe('CACHE-1b fast path — gates heredados del reveal', () => {
     assert.equal(captured.apolloCalls.length, 0);
   });
 });
+
+// ── 6. FIX H4: la búsqueda de caché falla ──────────────────────
+// Si la lectura de caché lanza (tabla ausente, timeout, error de Postgres) NO se
+// puede degradar a "miss" y llamar a Apollo: podría existir un tombstone de
+// supresión no visto, así que revelar de nuevo violaría la supresión además de
+// gastar créditos. El resultado es un estado seguro y reintentable.
+
+describe('CACHE-1b fast path — FIX H4 la caché no está disponible', () => {
+  const boom = async (): Promise<never> => {
+    throw new Error('relation "phone_reveal_cache" does not exist');
+  };
+
+  it('no lanza: devuelve el estado seguro cache_unavailable', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ lookupPhoneCache: boom }),
+    );
+    assert.equal(result.status, 'cache_unavailable');
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCode, 'cache_unavailable');
+    assert.equal(result.servedFromCache, false);
+  });
+
+  it('NO llama a Apollo (fail-closed: podría haber una supresión no vista)', async () => {
+    await runRevealCandidatePhone(VALID_INPUT, deps({ lookupPhoneCache: boom }));
+    assert.equal(captured.apolloCalls.length, 0);
+  });
+
+  it('no consume créditos, no persiste y no revela teléfono', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ lookupPhoneCache: boom }),
+    );
+    assert.equal(captured.cacheHitPatches.length, 0);
+    assert.equal(captured.cacheHitLogs.length, 0);
+    assert.equal(captured.startPatches.length, 0);
+    assert.equal(captured.startLogs.length, 0);
+    assert.equal(captured.touches.length, 0);
+    assert.equal(JSON.stringify(result).includes(FAKE_PHONE), false);
+  });
+
+  it('notifica el fallo con el mensaje del driver y SIN PII', async () => {
+    const notified: string[] = [];
+    await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({
+        lookupPhoneCache: boom,
+        onCacheLookupUnavailable: (message) => notified.push(message),
+      }),
+    );
+    assert.equal(notified.length, 1);
+    const message = notified[0] ?? '';
+    for (const banned of [FAKE_PHONE, PERSON_ID, 'contacto@empresa-ejemplo.test']) {
+      assert.equal(message.includes(banned), false, `el log no debe incluir ${banned}`);
+    }
+  });
+
+  it('sin notificador cableado tampoco lanza', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ lookupPhoneCache: boom, onCacheLookupUnavailable: undefined }),
+    );
+    assert.equal(result.status, 'cache_unavailable');
+    assert.equal(captured.apolloCalls.length, 0);
+  });
+
+  it('con el flag de caché APAGADO un fallo de caché es imposible: reveal normal', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ cacheEnabled: false, lookupPhoneCache: boom }),
+    );
+    assert.equal(result.status, 'requested');
+    assert.equal(captured.apolloCalls.length, 1);
+  });
+});
