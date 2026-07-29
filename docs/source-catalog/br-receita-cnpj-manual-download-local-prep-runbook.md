@@ -520,6 +520,19 @@ All of those remain **blocked**; this dry-run authorizes none of them.
 
 ---
 
+### 11.5. Full join import-readiness design (BR-SOURCE-10I)
+
+Because BR-SOURCE-10H showed a bounded scan does **not** recover representative company
+context, the next step is a **contract**, not more execution. BR-SOURCE-10I is a **docs-only
+readiness design** that defines the conditions for a future full local join — the allowed
+local processing envelope, join-key treatment, post-join field survival contract, the
+record-identity decision gate, and the required future gates (GATE-1 … GATE-8). There is **no
+new runner and no new command** for it. It **decides no identity grain** and authorizes **no**
+dry-run, import, Supabase write, migration, runtime, or Agent 1 integration. See design
+[`br-receita-cnpj-full-join-import-readiness-design.md`](./br-receita-cnpj-full-join-import-readiness-design.md).
+
+---
+
 ## 12. Expected safe outputs
 
 Both runners emit only a **sanitized report**:
@@ -606,4 +619,6 @@ Completing this runbook does **not** authorize:
 | **BR-SOURCE-10E** | Privacy-safe bounded dry-run **classifier** (§ 11.1): aggregate eligibility counts, no rows, no values. | Additive to the § 11 hard-block; authorizes no import. |
 | **BR-SOURCE-10F** | Eligibility & legal-nature **calibration** (§ 11.2): lookups → `not_applicable_lookup`, establishments → `pending_company_join_context`, MEI/EI excluded; adds risk-class & positive-signal counts. | Legal nature is a signal, not an authorization; authorizes no import. |
 | **BR-SOURCE-10G** | Company↔establishment bounded **join dry-run** (§ 11.3): associates establishments to company context by a structural, in-memory-only join id; aggregate join metrics, no rows, no values, no join keys. | Bounded sample only; establishments stay non-importable; authorizes no import. |
-| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + join dry-run (10G) + explicit approval first. |
+| **BR-SOURCE-10H** | Bounded join **coverage strategy** (§ 11.4): adds `establishment_keys_then_company_probe`; `coverage_is_representative` always false. | Bounded coverage probe only; authorizes no import. |
+| **BR-SOURCE-10I** | Full join **import-readiness design** (docs-only): defines the conditions, envelope, join-key treatment, field survival contract, identity-grain decision gate, and required future gates for a future full local join. | Docs-only; decides no identity grain; authorizes no dry-run, import, Supabase write, runtime, or Agent 1. |
+| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + join dry-run (10G) + coverage strategy (10H) + full-join readiness design (10I) + explicit approval first. |

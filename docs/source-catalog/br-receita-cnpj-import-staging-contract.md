@@ -432,6 +432,18 @@ BR-SOURCE-6 should still perform **no Supabase writes** unless explicitly author
 > and open legal/privacy questions) is defined in
 > [`br-receita-cnpj-privacy-safe-import-eligibility-design.md`](./br-receita-cnpj-privacy-safe-import-eligibility-design.md).
 > Import, production import, runtime, and live prospect generation remain **blocked**.
+>
+> **Full join readiness (BR-SOURCE-10I).** The parser-to-snapshot mapping in § 10 joins
+> `empresas` + `estabelecimentos` by `cnpj_root` (`cnpj_basico`). The bounded join dry-runs
+> (BR-SOURCE-10G/10H) confirmed that overlap is **not** representative in a bounded sample, so a
+> future import would first require a **full join** (or an approved equivalent). The conditions
+> for that — allowed local processing envelope, join-key treatment, post-join field survival
+> contract, the still-open **record-identity grain decision** (which interacts with the § 4 grain
+> and the § 11 physical-index reconciliation here), the eligibility rules after a join, and the
+> required future gates — are defined, docs-only, in
+> [`br-receita-cnpj-full-join-import-readiness-design.md`](./br-receita-cnpj-full-join-import-readiness-design.md).
+> That design **decides no grain** and authorizes **no** dry-run, import, Supabase write,
+> migration, runtime, or Agent 1 integration.
 
 ---
 

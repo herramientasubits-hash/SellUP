@@ -491,6 +491,30 @@ runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation al
 
 ---
 
+## 10.5. Full join import-readiness design (BR-SOURCE-10I)
+
+BR-SOURCE-10H confirmed that a bounded scan does **not** recover representative company
+context (`coverage_is_representative = false`; `joined_with_sampled_company_context = 0`), so
+the honest next step is **not** wider execution but a **contract** for what a future full join
+would require. BR-SOURCE-10I is that **docs-only readiness design**: it defines the allowed
+future local processing envelope, the join-key treatment, the post-join field survival
+contract (prohibited / temporary-technical / candidate-persistible), the record-identity
+decision gate, the eligibility rules after a join, the required future gates
+(GATE-1 … GATE-8), and the required aggregated report shape.
+
+Load-bearing distinctions it fixes: a **full join ≠ a full import** (a completed join only
+*measures* eligibility), and even a future dry-run reporting `full_dataset_processed = true`
+must keep `import_executed = false`. It **decides nothing** about the identity grain (that is a
+mandatory future gate) and authorizes **no** execution, dry-run, Supabase write, migration,
+runtime, or Agent 1 integration. See
+[`br-receita-cnpj-full-join-import-readiness-design.md`](./br-receita-cnpj-full-join-import-readiness-design.md).
+
+**What stays blocked (unchanged).** Import, production import, Supabase writes, migrations,
+runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation all remain
+**blocked**.
+
+---
+
 ## 11. Open legal / privacy questions
 
 These decisions are **unresolved** and block a privacy-safe import implementation. Each
@@ -528,6 +552,9 @@ OPS_BR_LEGAL_NATURE_ELIGIBILITY_CALIBRATION_OFFICIAL = false  (not an operationa
 
 OPS_BR_COMPANY_ESTABLISHMENT_JOIN_DRY_RUN_PR_READY = true   (BR-SOURCE-10G — bounded join dry-run opened as a PR)
 OPS_BR_COMPANY_ESTABLISHMENT_JOIN_DRY_RUN_OFFICIAL = false  (not an operational authorization)
+
+OPS_BR_FULL_JOIN_IMPORT_READINESS_DESIGN_PR_READY = true    (BR-SOURCE-10I — full join readiness design opened as a docs-only PR)
+OPS_BR_FULL_JOIN_IMPORT_READINESS_DESIGN_OFFICIAL = false   (not an operational authorization)
 
 OPS_BR_READY_FOR_IMPORT             = false
 OPS_BR_READY_FOR_PRODUCTION_IMPORT  = false
