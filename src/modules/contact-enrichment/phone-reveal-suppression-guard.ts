@@ -1,5 +1,5 @@
 // Agente 2A — Apollo Phone Reveal: guarda de SUPRESIÓN EN VUELO
-// (APOLLO-PHONE-CACHE-1b, FIX 3)
+// (APOLLO-PHONE-CACHE-1b, FIX 3; alerta de "no evaluable" en FIX 4)
 //
 // FIX 2 hizo que el START del reveal consulte el tombstone ANTES de llamar a
 // Apollo, con `ENABLE_APOLLO_PHONE_CACHE` encendido o apagado. Quedaba un hueco:
@@ -37,6 +37,11 @@ import {
 } from './phone-cache-core';
 import { normalizeApolloPersonId } from '@/server/integrations/apollo-person-id';
 import { redactDriverMessage } from './phone-reveal-core';
+import {
+  notEvaluableAuditState,
+  type PhoneSuppressionAuditState,
+  type PhoneSuppressionNotEvaluableReason,
+} from './phone-reveal-suppression-audit';
 
 // ── Códigos persistidos / registrados ──────────────────────────
 
@@ -65,9 +70,13 @@ export const SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE =
 
 // ── Evaluación ─────────────────────────────────────────────────
 
+/**
+ * Alias del motivo definido en `phone-reveal-suppression-audit.ts`. El vocabulario
+ * de auditoría vive allí (FIX 4) para que el START pueda emitir el mismo evento
+ * sin crear un ciclo de imports con este módulo, que sí depende del core.
+ */
 export type InFlightSuppressionNotEvaluableReason =
-  | 'missing_provider_person_id'
-  | 'missing_account_id';
+  PhoneSuppressionNotEvaluableReason;
 
 export type InFlightSuppressionEvaluation =
   /** Clave resuelta, tombstone consultado, no hay supresión ⇒ persistir normal. */
@@ -84,16 +93,11 @@ export type InFlightSuppressionLookup = (
 ) => Promise<PhoneCacheSuppressionState | null>;
 
 /**
- * Etiqueta PII-free del resultado, para `provider_usage_logs`. Deja rastro
- * auditable de que la comprobación se hizo (y de por qué no se pudo hacer)
- * SIN publicar el person id, la cuenta ni ningún dato del contacto.
+ * Etiqueta PII-free del resultado, para `provider_usage_logs`. Alias del tipo
+ * definido en el módulo de auditoría (FIX 4), que es el único sitio donde vive
+ * este vocabulario.
  */
-export type InFlightSuppressionAuditState =
-  | 'checked_not_suppressed'
-  | 'blocked_suppressed'
-  | 'not_evaluable_missing_provider_person_id'
-  | 'not_evaluable_missing_account_id'
-  | 'check_unavailable';
+export type InFlightSuppressionAuditState = PhoneSuppressionAuditState;
 
 function cleanText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
@@ -190,8 +194,29 @@ export function describeInFlightSuppression(
       return 'check_unavailable';
     case 'not_evaluable':
     default:
-      return evaluation.reason === 'missing_account_id'
-        ? 'not_evaluable_missing_account_id'
-        : 'not_evaluable_missing_provider_person_id';
+      return notEvaluableAuditState(evaluation.reason);
   }
 }
+
+// ── Alerta de "no evaluable" (APOLLO-PHONE-CACHE-1b, FIX 4) ─────
+//
+// El límite documentado en la cabecera — sin Apollo person id (o sin cuenta) no
+// hay clave con la que emparejar un tombstone — se mantiene tal cual: NO se
+// empareja por teléfono, email, nombre ni LinkedIn, y NO se rellena el id que
+// falta. Lo que FIX 4 añade es que el caso deje de ser INVISIBLE: se emite un
+// evento de auditoría PII-free, con la MISMA forma en las tres fases.
+//
+// Ese evento vive en `phone-reveal-suppression-audit.ts`, no aquí, porque el
+// START también lo emite y este módulo importa del core del START: definirlo
+// aquí crearía un ciclo de imports. Se re-exporta para que quien ya use la
+// guarda no tenga que conocer los dos módulos.
+
+export {
+  buildPhoneSuppressionNotEvaluableEvent,
+  notEvaluableAuditState,
+  reportPhoneSuppressionNotEvaluable,
+  type PhoneSuppressionCheckPhase,
+  type PhoneSuppressionNotEvaluableEvent,
+  type PhoneSuppressionNotEvaluableSink,
+  type PhoneSuppressionNotEvaluableState,
+} from './phone-reveal-suppression-audit';

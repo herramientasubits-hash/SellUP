@@ -71,6 +71,10 @@ import {
   type InFlightSuppressionAuditState,
   type InFlightSuppressionLookup,
 } from './phone-reveal-suppression-guard';
+import {
+  reportPhoneSuppressionNotEvaluable,
+  type PhoneSuppressionNotEvaluableSink,
+} from './phone-reveal-suppression-audit';
 import type {
   ContactCandidateEnrichmentMetadata,
   ContactCandidatePhoneMetadata,
@@ -296,6 +300,13 @@ export interface RecoverApolloPhoneRevealDeps {
    * nunca teléfono, person id, email, nombre ni linkedin.
    */
   onSuppressionCheckUnavailable?: (message: string) => void;
+  /**
+   * Notifica que la supresión no se pudo EVALUAR (FIX 4): sin Apollo person id
+   * resoluble o sin cuenta no existe clave con la que emparejar un tombstone. El
+   * teléfono recuperado se persiste igual — no se bloquea por inferencia — pero el
+   * caso queda registrado con un evento de forma CERRADA y sin PII.
+   */
+  onSuppressionNotEvaluable?: PhoneSuppressionNotEvaluableSink;
 }
 
 // ── Resultado (sin PII) ────────────────────────────────────────
@@ -549,6 +560,20 @@ async function handleRecoveredPayload(args: {
       lookup: deps.lookupPhoneCacheSuppression,
     });
     const suppressionState = describeInFlightSuppression(suppression);
+
+    // FIX 4 — no EVALUABLE (sin person id resoluble o sin cuenta): la política no
+    // cambia — no hay fuzzy matching por teléfono/email/nombre/LinkedIn y el
+    // teléfono recuperado se persiste igual — pero el caso se registra en vez de
+    // quedar invisible. Es un efecto de auditoría: no bloquea ni desbloquea nada.
+    if (suppression.kind === 'not_evaluable') {
+      reportPhoneSuppressionNotEvaluable({
+        phase: 'recovery',
+        reason: suppression.reason,
+        candidateId: candidate.id,
+        accountId: candidate.accountId,
+        sink: deps.onSuppressionNotEvaluable,
+      });
+    }
 
     // No verificable ⇒ fail-closed por el camino NO terminal que ya existe: solo
     // se marca `phone_reveal_last_checked_at`, el status sigue en vuelo y el mismo

@@ -279,6 +279,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           message,
         );
       },
+      // FIX 4: la comprobación no se pudo EVALUAR (sin person id resoluble o sin
+      // cuenta). No se empareja por otros datos ni se rellena el id que falta; el
+      // caso se registra con un evento de forma cerrada y sin PII.
+      onSuppressionNotEvaluable: (event) => {
+        console.warn(
+          '[phone-reveal-webhook] suppression not evaluable:',
+          event,
+        );
+      },
     },
   );
 

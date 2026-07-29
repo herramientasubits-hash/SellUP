@@ -328,6 +328,13 @@ export async function revealCandidatePhoneAction(
     onSuppressionCheckUnavailable: (message: string): void => {
       console.error('[phone-cache] suppression check unavailable:', message);
     },
+    // FIX 4: sin Apollo person id resoluble (o sin cuenta) la supresión NO se
+    // puede evaluar. El reveal continúa —no se empareja por otros datos ni se
+    // rellena el id que falta—, pero el caso se registra para que sea visible. El
+    // evento tiene forma cerrada y sin PII: fase, estado, candidato y cuenta.
+    onSuppressionNotEvaluable: (event): void => {
+      console.warn('[phone-cache] suppression not evaluable:', event);
+    },
 
     // ── Fast path de caché (APOLLO-PHONE-CACHE-1b) ─────────────
     // Con ENABLE_APOLLO_PHONE_CACHE apagado (default de producción) el core no
