@@ -13,7 +13,18 @@ import {
   buildIncrementalSearchInputFromCTAInput,
   buildWriterPipelineCTABatchMetadata,
 } from '@/server/agents/prospecting-toolkit/prospect-cta-bridge';
-import { isPostApprovalSourceEnrichmentEnabled, isCommercialScopeEnabled } from '@/lib/feature-flags.server';
+import {
+  isPostApprovalSourceEnrichmentEnabled,
+  isCommercialScopeEnabled,
+  isLegacyApolloProspectGenerationEnabled,
+  isApolloCompanySearchEnabled,
+} from '@/lib/feature-flags.server';
+import {
+  evaluateLegacyApolloPathGate,
+  buildLegacyPathBlockedResult,
+  logLegacyPathBlocked,
+  type LegacyPathBlockedReason,
+} from './legacy-apollo-path-gate';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import { triggerPostApprovalEnrichment } from '@/server/prospect-batches/post-approval-enrichment-trigger';
 import { mergePeruSunatMetadataIntoAccountMetadata } from '@/server/prospect-batches/peru-sunat-metadata-merge';
@@ -171,6 +182,43 @@ async function requireAdmin(): Promise<{ internalUserId: string }> {
   }
 
   return { internalUserId: internalUser.id };
+}
+
+/**
+ * A1-LEGACY-PATH-FENCE-1 — non-throwing admin probe for the legacy capability
+ * gate.
+ *
+ * `requireAdmin` above redirects or throws, which is right for admin screens but
+ * wrong here: the legacy gate must return a typed blocked result so the caller
+ * can render a safe state, and it must never surface an authorization detail to
+ * the client. Returns a boolean only — never the role, never the user id.
+ */
+async function resolveIsAdminForLegacyGate(): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    const { data: internalUser } = await supabase
+      .from('internal_users')
+      .select('id, role_id')
+      .eq('auth_user_id', user.id)
+      .eq('access_status', 'active')
+      .single();
+
+    if (!internalUser) return false;
+
+    const { data: role } = await supabase
+      .from('roles')
+      .select('key')
+      .eq('id', internalUser.role_id)
+      .single();
+
+    return role?.key === 'admin';
+  } catch {
+    // Fail-closed: an unreadable role is not an admin.
+    return false;
+  }
 }
 
 // ── Utilidades ────────────────────────────────────────────────
@@ -2347,6 +2395,13 @@ export interface GenerateAIBatchResult {
   message?: string;
   omittedCandidatesCount?: number;
   usefulCandidatesCount?: number;
+  /**
+   * A1-LEGACY-PATH-FENCE-1 — present and true when the legacy path gate refused
+   * to run. Zero batch, zero agent run, zero provider call, zero credits.
+   */
+  blocked?: boolean;
+  /** Static reason code for a blocked legacy invocation. No PII. */
+  blockedReason?: LegacyPathBlockedReason;
 }
 
 export async function runProspectPreflight(params: {
@@ -2383,6 +2438,29 @@ export async function generateAIProspectBatch(
   const minTargetCount = (isColombia || isChileInput) ? 5 : 10;
   if (input.targetCount < minTargetCount || input.targetCount > MVP_MAX_CANDIDATES) {
     throw new Error(`La cantidad debe estar entre ${minTargetCount} y ${MVP_MAX_CANDIDATES}`);
+  }
+
+  // ── A1-LEGACY-PATH-FENCE-1: legacy capability gate (P0) ────────────────────
+  // This action is the legacy Agente 1 CTA surface. Its only runtime caller was
+  // the legacy form, which the experience resolver no longer selects — but the
+  // action is a server action, so it stays directly invocable. The gate below is
+  // therefore the authoritative defence, and it MUST run before the first write:
+  // everything after this point creates batches, agent runs, provider calls and
+  // usage logs.
+  //
+  // `impliesApollo` mirrors the branch selection immediately below: the writer
+  // pipeline runs on Tavily, the legacy path calls Apollo.
+  const legacyGate = await evaluateLegacyApolloPathGate(
+    { impliesApollo: !isWriterPipelineCTAEnabled() },
+    {
+      isAdmin: resolveIsAdminForLegacyGate,
+      isLegacyCapabilityEnabled: isLegacyApolloProspectGenerationEnabled,
+      isApolloCompanySearchEnabled,
+      logBlocked: logLegacyPathBlocked,
+    },
+  );
+  if (!legacyGate.allowed) {
+    return buildLegacyPathBlockedResult(legacyGate.reason);
   }
 
   // ── Feature flag: writer pipeline (flujo B) ────────────────────────────────
