@@ -136,6 +136,32 @@ const buttonByText = (text: string) =>
     | HTMLButtonElement
     | undefined;
 
+// ── Q3F-5BB.11K-FIX helpers: the discard motive is now mandatory ─────────────
+const OUT_OF_SEGMENT_LABEL = 'Fuera del segmento objetivo';
+const OTHER_LABEL = 'Otro motivo';
+
+const confirmDiscardButton = () =>
+  screen.getByRole('button', { name: /Confirmar descarte/ }) as HTMLButtonElement;
+
+/** Selects a predefined motive inside the open inline discard panel. */
+function pickReason(label: string): void {
+  fireEvent.click(buttonByText(label)!);
+}
+
+/** Types free-text notes / a custom motive inside the open inline panel. */
+function typeReasonNotes(text: string): void {
+  const textarea = screen.getByLabelText(
+    /Motivo personalizado|Notas adicionales \(opcional\)/,
+  ) as HTMLTextAreaElement;
+  fireEvent.change(textarea, { target: { value: text } });
+}
+
+/** Opens the panel and arms a valid predefined motive — the common happy path. */
+function openDiscardWithReason(): void {
+  fireEvent.click(buttonByText('Descartar')!);
+  pickReason(OUT_OF_SEGMENT_LABEL);
+}
+
 describe('ProspectReviewActions — discard gating', () => {
   it('enables Descartar for needs_review + production', () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
@@ -189,15 +215,15 @@ describe('ProspectReviewActions — discard inline confirmation flow', () => {
     assert.ok(buttonByText('Descartar'));
   });
 
-  it('Confirmar descarte calls the discard wrapper exactly once with the id + source', async () => {
+  it('Confirmar descarte calls the discard wrapper exactly once with the id + source + reason', async () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
-    fireEvent.click(buttonByText('Descartar')!);
-    fireEvent.click(screen.getByRole('button', { name: /Confirmar descarte/ }));
+    openDiscardWithReason();
+    fireEvent.click(confirmDiscardButton());
 
     await waitFor(() => assert.equal(mockDiscard.mock.callCount(), 1));
     const [id, opts] = mockDiscard.mock.calls[0].arguments;
     assert.equal(id, 'cand-1');
-    assert.deepEqual(opts, { source: 'prospectos_drawer' });
+    assert.deepEqual(opts, { source: 'prospectos_drawer', reason: OUT_OF_SEGMENT_LABEL });
     await waitFor(() => assert.equal(mockRefresh.mock.callCount(), 1));
     // Never approves as a side effect of discarding.
     assert.equal(mockApprove.mock.callCount(), 0);
@@ -205,8 +231,8 @@ describe('ProspectReviewActions — discard inline confirmation flow', () => {
 
   it('on ok, closes the confirmation and refreshes (success path)', async () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
-    fireEvent.click(buttonByText('Descartar')!);
-    fireEvent.click(screen.getByRole('button', { name: /Confirmar descarte/ }));
+    openDiscardWithReason();
+    fireEvent.click(confirmDiscardButton());
 
     await waitFor(() => assert.equal(mockDiscard.mock.callCount(), 1));
     await waitFor(() => assert.equal(mockRefresh.mock.callCount(), 1));
@@ -218,13 +244,150 @@ describe('ProspectReviewActions — discard inline confirmation flow', () => {
   it('on failure, keeps the confirmation open and does NOT refresh (error path)', async () => {
     mockDiscard.mock.mockImplementationOnce(async () => ({ ok: false, reason: 'discard_failed' }));
     render(<ProspectReviewActions candidate={candidate({})} />);
-    fireEvent.click(buttonByText('Descartar')!);
-    fireEvent.click(screen.getByRole('button', { name: /Confirmar descarte/ }));
+    openDiscardWithReason();
+    fireEvent.click(confirmDiscardButton());
 
     await waitFor(() => assert.equal(mockDiscard.mock.callCount(), 1));
     // No navigation refresh on failure; the confirmation stays open for retry.
     assert.equal(mockRefresh.mock.callCount(), 0);
     assert.ok(screen.getByText('¿Descartar prospecto?'));
+  });
+});
+
+// ── Q3F-5BB.11K-FIX — mandatory traceable motive ─────────────────────────────
+
+describe('ProspectReviewActions — discard requires a traceable motive', () => {
+  it('opening the panel shows the motive instruction, the catalog and the notes field', () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    fireEvent.click(buttonByText('Descartar')!);
+
+    assert.ok(screen.getByText('Selecciona el motivo para conservar trazabilidad del descarte.'));
+    assert.ok(buttonByText(OUT_OF_SEGMENT_LABEL), 'predefined reasons must be offered');
+    assert.ok(buttonByText(OTHER_LABEL), '"Otro motivo" must be offered');
+    assert.ok(screen.getByLabelText(/Notas adicionales \(opcional\)/));
+  });
+
+  it('Confirmar descarte is DISABLED until a motive is provided', () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    fireEvent.click(buttonByText('Descartar')!);
+    assert.equal(confirmDiscardButton().disabled, true);
+    assert.equal(mockDiscard.mock.callCount(), 0);
+  });
+
+  it('clicking the disabled confirm never calls the wrapper', () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    fireEvent.click(buttonByText('Descartar')!);
+    fireEvent.click(confirmDiscardButton());
+    assert.equal(mockDiscard.mock.callCount(), 0);
+  });
+
+  it('selecting a predefined motive enables confirm and sends the label', async () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    fireEvent.click(buttonByText('Descartar')!);
+    pickReason(OUT_OF_SEGMENT_LABEL);
+    assert.equal(confirmDiscardButton().disabled, false);
+
+    fireEvent.click(confirmDiscardButton());
+    await waitFor(() => assert.equal(mockDiscard.mock.callCount(), 1));
+    assert.equal(mockDiscard.mock.calls[0].arguments[1]?.reason, OUT_OF_SEGMENT_LABEL);
+  });
+
+  it('composes "<label>: <notas>" when additional notes are provided', async () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    fireEvent.click(buttonByText('Descartar')!);
+    pickReason(OUT_OF_SEGMENT_LABEL);
+    typeReasonNotes('  no atiende sector salud  ');
+
+    fireEvent.click(confirmDiscardButton());
+    await waitFor(() => assert.equal(mockDiscard.mock.callCount(), 1));
+    assert.equal(
+      mockDiscard.mock.calls[0].arguments[1]?.reason,
+      `${OUT_OF_SEGMENT_LABEL}: no atiende sector salud`,
+    );
+  });
+
+  it('"Otro motivo" requires free text: confirm stays disabled until it is typed', async () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    fireEvent.click(buttonByText('Descartar')!);
+    pickReason(OTHER_LABEL);
+    // The label switches to the custom-motive copy and confirm is still blocked.
+    assert.ok(screen.getByLabelText(/Motivo personalizado/));
+    assert.equal(confirmDiscardButton().disabled, true);
+
+    typeReasonNotes('ab'); // below the 3-character minimum
+    assert.equal(confirmDiscardButton().disabled, true);
+
+    typeReasonNotes('Entidad sin ánimo de lucro fuera de alcance');
+    assert.equal(confirmDiscardButton().disabled, false);
+
+    fireEvent.click(confirmDiscardButton());
+    await waitFor(() => assert.equal(mockDiscard.mock.callCount(), 1));
+    assert.equal(
+      mockDiscard.mock.calls[0].arguments[1]?.reason,
+      'Entidad sin ánimo de lucro fuera de alcance',
+    );
+  });
+
+  it('always sends a NON-EMPTY reason (never null / undefined / blank)', async () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    openDiscardWithReason();
+    fireEvent.click(confirmDiscardButton());
+
+    await waitFor(() => assert.equal(mockDiscard.mock.callCount(), 1));
+    const reason = mockDiscard.mock.calls[0].arguments[1]?.reason;
+    assert.equal(typeof reason, 'string');
+    assert.ok((reason as string).trim().length >= 3);
+  });
+
+  it('Cancelar clears the motive: reopening the panel starts blank', () => {
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    fireEvent.click(buttonByText('Descartar')!);
+    pickReason(OUT_OF_SEGMENT_LABEL);
+    typeReasonNotes('contexto que no debe persistir');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    assert.equal(mockDiscard.mock.callCount(), 0);
+
+    fireEvent.click(buttonByText('Descartar')!);
+    const textarea = screen.getByLabelText(/Notas adicionales \(opcional\)/) as HTMLTextAreaElement;
+    assert.equal(textarea.value, '');
+    assert.equal(confirmDiscardButton().disabled, true, 'no motive carried over');
+  });
+
+  it('a failed discard KEEPS the panel open with the typed motive intact', async () => {
+    mockDiscard.mock.mockImplementationOnce(async () => ({ ok: false, reason: 'invalid_reason' }));
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    fireEvent.click(buttonByText('Descartar')!);
+    pickReason(OUT_OF_SEGMENT_LABEL);
+    typeReasonNotes('detalle a conservar');
+    fireEvent.click(confirmDiscardButton());
+
+    await waitFor(() => assert.equal(mockDiscard.mock.callCount(), 1));
+    assert.equal(mockRefresh.mock.callCount(), 0);
+    assert.ok(screen.getByText('¿Descartar prospecto?'));
+    const textarea = screen.getByLabelText(/Notas adicionales \(opcional\)/) as HTMLTextAreaElement;
+    assert.equal(textarea.value, 'detalle a conservar');
+  });
+
+  it('does not double-submit while the discard is in flight', async () => {
+    let resolveDiscard: ((r: { ok: true; status: 'discarded' }) => void) | undefined;
+    mockDiscard.mock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDiscard = resolve as (r: { ok: true; status: 'discarded' }) => void;
+        }),
+    );
+
+    render(<ProspectReviewActions candidate={candidate({})} />);
+    openDiscardWithReason();
+    fireEvent.click(confirmDiscardButton());
+    await waitFor(() => assert.equal(mockDiscard.mock.callCount(), 1));
+    // In flight: the confirm button is disabled, further clicks are inert.
+    await waitFor(() => assert.equal(confirmDiscardButton().disabled, true));
+    fireEvent.click(confirmDiscardButton());
+    assert.equal(mockDiscard.mock.callCount(), 1);
+
+    resolveDiscard?.({ ok: true, status: 'discarded' });
+    await waitFor(() => assert.equal(mockRefresh.mock.callCount(), 1));
   });
 });
 
@@ -241,6 +404,8 @@ describe('ProspectReviewActions — discardAutoConfirm (row menu / context menu 
     assert.ok(screen.getByText('¿Descartar prospecto?'));
     assert.equal(mockDiscard.mock.callCount(), 0, 'never discards directly');
     assert.equal(onConsumed.mock.callCount(), 1);
+    // Q3F-5BB.11K-FIX — the armed panel still requires a motive before it can fire.
+    assert.equal(confirmDiscardButton().disabled, true);
   });
 
   it('does NOT arm the confirmation when ineligible, but still consumes the intent', () => {

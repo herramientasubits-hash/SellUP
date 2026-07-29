@@ -14,6 +14,8 @@
 //     approve wrappers, stronger than the legacy requireActiveUser.
 //   - Prospectos eligibility contract (clean production, needs_review, with a
 //     controlled idempotent no-op for an already-discarded row).
+//   - Q3F-5BB.11K-FIX: a REQUIRED, server-validated traceable reason — the
+//     Prospectos surface can no longer land a discard with `review_notes = null`.
 //   - then DELEGATES the actual status write + audit to `discardCandidate`.
 //
 // This file performs NO write of its own (no insert/update/upsert/delete/rpc) —
@@ -30,6 +32,7 @@ import {
   evaluateDiscardEligibility,
   type DiscardRejectReason,
 } from './discard-eligibility';
+import { validateDiscardReason } from './discard-reason';
 
 // Prospectos lives at /accounts?tab=prospectos; the legacy review queue mirrors
 // review decisions too. Discarding drops the row out of pendientes on both.
@@ -44,7 +47,13 @@ export type DiscardSource =
   | 'prospectos_selection_bar';
 
 export interface DiscardActionOptions {
-  /** Optional human reason, persisted to review_notes by the canonical action. */
+  /**
+   * Human reason, persisted to review_notes by the canonical action.
+   * Q3F-5BB.11K-FIX — REQUIRED on this hardened path: a discard from Prospectos
+   * without a traceable motive is rejected as `invalid_reason` before any read
+   * or write. The canonical mutation keeps its own reason parameter OPTIONAL, so
+   * Route B — the legacy batch-detail dialog — stays untouched.
+   */
   reason?: string;
   source?: DiscardSource;
 }
@@ -57,6 +66,7 @@ export type DiscardActionResult =
       reason:
         | 'not_found'
         | 'not_allowed'
+        | 'invalid_reason'
         | DiscardRejectReason
         | 'discard_failed'
         | 'unexpected_error';
@@ -65,7 +75,8 @@ export type DiscardActionResult =
 
 /**
  * Discards a single clean-production candidate from the Prospectos surface.
- * Admin only. Validates the Prospectos eligibility contract before DELEGATING
+ * Admin only. Requires a traceable `options.reason` (validated server-side).
+ * Validates the Prospectos eligibility contract before DELEGATING
  * the status write + audit to the canonical `discardCandidate`. All failure
  * modes resolve to a typed result — the UI renders a friendly message instead
  * of crashing. Requires explicit human decision (the caller confirms first).
@@ -84,7 +95,17 @@ export async function discardPendingReviewCandidateAction(
       return { ok: false, reason: 'not_found' };
     }
 
-    // 3. Read the minimal state needed to gate. Session client (RLS-scoped),
+    // 3. Q3F-5BB.11K-FIX — traceable motive REQUIRED, validated server-side
+    //    BEFORE any read and long before the mutation. The client validates the
+    //    same contract with the same pure helper, but the server never trusts
+    //    it: an absent / blank / too-short / oversized / non-string reason is
+    //    rejected fail-closed. The NORMALIZED value is what gets persisted.
+    const validatedReason = validateDiscardReason(options.reason);
+    if (!validatedReason.ok) {
+      return { ok: false, reason: 'invalid_reason' };
+    }
+
+    // 4. Read the minimal state needed to gate. Session client (RLS-scoped),
     //    read-only — never a parallel write. The canonical action re-reads and
     //    re-validates itself; this is only the Prospectos gate.
     const supabase = await createClient();
@@ -100,7 +121,7 @@ export async function discardPendingReviewCandidateAction(
     }
     if (!current) return { ok: false, reason: 'not_found' };
 
-    // 4. Evaluate the pure Prospectos discard eligibility policy.
+    // 5. Evaluate the pure Prospectos discard eligibility policy.
     const decision = evaluateDiscardEligibility({
       status: current.status,
       recordOrigin: current.record_origin,
@@ -119,19 +140,20 @@ export async function discardPendingReviewCandidateAction(
       return { ok: false, reason: decision.reason };
     }
 
-    // 5. Delegate the status write + audit to the canonical discardCandidate.
+    // 6. Delegate the status write + audit to the canonical discardCandidate.
     //    (needs_review → discarded, review_notes, reviewed_by/reviewed_at,
     //    candidate_discarded audit.) The canonical action THROWS on failure, so
     //    a thrown error maps to the controlled `discard_failed` result rather
-    //    than crashing the caller.
+    //    than crashing the caller. The VALIDATED/normalized reason is what
+    //    reaches review_notes + the audit trail.
     try {
-      await discardCandidate(candidateId, options.reason);
+      await discardCandidate(candidateId, validatedReason.reason);
     } catch (delegateErr) {
       console.error('[prospect-review] discard delegation failed:', delegateErr);
       return { ok: false, reason: 'discard_failed' };
     }
 
-    // 6. Refresh so the row drops out of pendientes (no longer needs_review).
+    // 7. Refresh so the row drops out of pendientes (no longer needs_review).
     revalidatePath(ACCOUNTS_PATH);
     revalidatePath(REVIEW_QUEUE_PATH);
     return { ok: true, status: 'discarded' };
