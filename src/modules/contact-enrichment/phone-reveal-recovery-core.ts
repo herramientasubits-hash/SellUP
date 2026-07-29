@@ -45,6 +45,7 @@ import {
 } from '@/server/agents/contact-enrichment-toolkit/phone-classification';
 import {
   collectWebhookPhoneNumbers,
+  extractWebhookPersonId,
   sumWebhookCredits,
   type ApolloPhoneRevealWebhookPayload,
   type ApolloWebhookPhoneNumber,
@@ -148,6 +149,14 @@ export interface RecoveryPersistencePatch {
   phone_processing_basis?: PhoneProcessingBasis;
   /** Siempre presente: marca de la última verificación de recuperación. */
   phone_reveal_last_checked_at: string;
+  /**
+   * Apollo person id VALIDADO (24 hex) del payload recuperado
+   * (APOLLO-PHONE-CACHE-1a): de `people[0].id` o `person.id`. null si
+   * ausente/inválido/otro proveedor. El wrapper sólo escribe la columna cuando es
+   * truthy (no la fuerza ni sobrescribe con null). Id opaco de correlación, NO
+   * PII. No cachea ni sirve teléfono.
+   */
+  apollo_person_id?: string | null;
 }
 
 // ── Usage-log de recuperación (SIN PII) ────────────────────────
@@ -437,6 +446,9 @@ async function handleRecoveredPayload(args: {
   const rawPhones = collectWebhookPhoneNumbers(payload);
   const credits = sumWebhookCredits(rawPhones);
   const best = pickBestApolloPhone(rawPhones.map(webhookPhoneToApolloPhone));
+  // Apollo person id (APOLLO-PHONE-CACHE-1a): se captura si el payload recuperado
+  // lo trae válido; el wrapper sólo escribe la columna cuando es truthy. No caché.
+  const apolloPersonId = extractWebhookPersonId(payload);
 
   if (best) {
     const revealed: ClassifiedPhone = { ...best, source: 'apollo_reveal' };
@@ -461,6 +473,7 @@ async function handleRecoveredPayload(args: {
       phone_reveal_error_code: null,
       // Conserva la base existente; solo la fija si la fila en vuelo no la tenía.
       phone_processing_basis: normalizeBasis(candidate.phoneProcessingBasis),
+      apollo_person_id: apolloPersonId,
     };
     await deps.persist(candidate.id, patch);
     await deps.logUsage(
@@ -495,6 +508,8 @@ async function handleRecoveredPayload(args: {
     phone_reveal_provider: PHONE_REVEAL_PROVIDER,
     phone_reveal_cost_credits: credits,
     phone_reveal_error_code: null,
+    // null si el payload no trae person id (no se fuerza); el wrapper no escribe.
+    apollo_person_id: apolloPersonId,
   };
   await deps.persist(candidate.id, patch);
   await deps.logUsage(

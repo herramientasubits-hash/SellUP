@@ -23,6 +23,8 @@
 // Nunca extrae ni expone teléfonos, emails, linkedin, nombres ni el body crudo:
 // sólo el handle async (id opaco de correlación) y metadata técnica de traza.
 
+import { normalizeApolloPersonId } from './apollo-person-id';
+
 // ── Nombres de header (traza técnica, no PII) ──────────────────
 
 /** Header propio de SellUp: UUID de correlación por intento (server-side). */
@@ -92,8 +94,17 @@ export interface ApolloPhoneRevealTraceMetadata {
   apollo_phone_enrichment_status: string | null;
   /** true si Apollo resolvió a una Apollo Person (sólo presencia). */
   apollo_person_present: boolean;
-  /** true si esa Apollo Person trae id (sólo presencia; el id no se guarda). */
+  /** true si esa Apollo Person trae id (sólo presencia; independiente de validez). */
   apollo_person_id_present: boolean;
+  /**
+   * Apollo person id VALIDADO (MongoDB ObjectId, 24 hex) cuando `person.id` es un
+   * id Apollo real; null si ausente, inválido o de otro proveedor (p.ej. Lusha
+   * `v1.<token>`). Id opaco de correlación, NO PII. Prerrequisito reutilizable
+   * (APOLLO-PHONE-CACHE-1a): el START core lo persiste como
+   * `contact_enrichment_candidates.apollo_person_id`. Distinto de
+   * `apollo_person_id_present`, que sólo refleja presencia cruda del campo.
+   */
+  apollo_person_id?: string | null;
   /** true si el body trae request_id top-level (traza HTTP, no handle async). */
   apollo_top_level_request_id_present: boolean;
   /**
@@ -192,6 +203,8 @@ export function interpretApolloPhoneRevealStartResponse(args: {
   const person = body?.person ?? null;
   const personPresent = !!person && typeof person === 'object';
   const personIdPresent = personPresent ? !!cleanText(person?.id) : false;
+  // Id Apollo VALIDADO (24 hex; rechaza vacío / Lusha v1.* / cualquier no-Apollo).
+  const apolloPersonId = personPresent ? normalizeApolloPersonId(person?.id) : null;
 
   const topLevelRequestId = cleanText(body?.request_id);
   const headerHttpRequestId = cleanText(args.getHeader(APOLLO_HTTP_REQUEST_ID_HEADER));
@@ -215,6 +228,7 @@ export function interpretApolloPhoneRevealStartResponse(args: {
     apollo_phone_enrichment_status: enrichmentStatus,
     apollo_person_present: personPresent,
     apollo_person_id_present: personIdPresent,
+    apollo_person_id: apolloPersonId,
     apollo_top_level_request_id_present: !!topLevelRequestId,
     // Header preferido; el request_id top-level del body es la misma traza HTTP.
     apollo_http_request_id: headerHttpRequestId ?? topLevelRequestId,
