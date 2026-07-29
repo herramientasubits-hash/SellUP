@@ -140,6 +140,11 @@ function startDeps(
     logUsage: async (entry) => {
       cap.logs.push(entry);
     },
+    // APOLLO-PHONE-CACHE-1b (FIX 2): el reveal comprueba SIEMPRE si hay una
+    // supresión registrada, con el flag de caché encendido o apagado. Sin esta
+    // dep el core es fail-closed y no llamaría a Apollo. `null` = tabla
+    // consultable y sin tombstone para esta persona/cuenta.
+    lookupPhoneCacheSuppression: async () => null,
   };
 }
 

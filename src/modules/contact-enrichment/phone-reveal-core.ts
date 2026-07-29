@@ -45,6 +45,7 @@ import { normalizeApolloPersonId } from '@/server/integrations/apollo-person-id'
 import {
   buildPhoneCacheHitUsageLog,
   evaluatePhoneCacheLookup,
+  evaluatePhoneCacheSuppressionState,
   resolvePhoneCachePersonId,
   resolvePhoneCacheCountryCode,
   PHONE_CACHE_HIT_CREDITS,
@@ -53,6 +54,8 @@ import {
   type PhoneCacheEntry,
   type PhoneCacheHitUsageLogEntry,
   type PhoneCacheLookupKey,
+  type PhoneCacheSuppressionLookupKey,
+  type PhoneCacheSuppressionState,
 } from './phone-cache-core';
 import type {
   ContactCandidateEnrichmentMetadata,
@@ -362,15 +365,40 @@ export interface RevealCandidatePhoneDeps {
   /** Registra el uso/costo en provider_usage_logs (metadata sin PII). */
   logUsage: (entry: PhoneRevealUsageLogEntry) => Promise<void>;
 
+  // ── Cumplimiento de SUPRESIÓN (APOLLO-PHONE-CACHE-1b, FIX 2) ──
+  // A diferencia del fast path, esto NO depende de `cacheEnabled`: el flag
+  // gobierna la REUTILIZACIÓN de un teléfono cacheado, nunca el cumplimiento de
+  // una supresión ya registrada.
+
+  /**
+   * Busca el tombstone de (provider, person, MISMA cuenta). Se invoca SIEMPRE que
+   * el candidato tenga Apollo person id y cuenta, con el flag de caché encendido o
+   * apagado, y ANTES de cualquier llamada a Apollo.
+   *
+   * Debe LANZAR si la lectura no se puede completar: el core lo traduce a
+   * `suppression_check_unavailable` y no llama al proveedor. Si la dep no está
+   * cableada el reveal también se detiene — no hay reveal sin comprobación de
+   * supresión.
+   */
+  lookupPhoneCacheSuppression?: (
+    key: PhoneCacheSuppressionLookupKey,
+  ) => Promise<PhoneCacheSuppressionState | null>;
+  /**
+   * Notifica que la supresión no se pudo verificar. Recibe SOLO un mensaje
+   * mecánico: nunca teléfono, person id, email, nombre ni linkedin.
+   */
+  onSuppressionCheckUnavailable?: (message: string) => void;
+
   // ── Fast path de caché (APOLLO-PHONE-CACHE-1b) ───────────────
   // TODAS estas deps son OPCIONALES. Con `cacheEnabled` en false/undefined
-  // (default de producción) el core NO las invoca y el comportamiento es
-  // idéntico al de antes de la caché.
+  // (default de producción) el core NO las invoca: no se reutiliza ningún
+  // teléfono y el camino Apollo es el de antes de la caché. La comprobación de
+  // supresión de más arriba sí corre.
 
   /**
    * Valor del flag ENABLE_APOLLO_PHONE_CACHE resuelto por el wrapper. Default
-   * false (fail-closed): sin él no se lee caché y el reveal sigue el camino
-   * Apollo normal.
+   * false (fail-closed): sin él no se REUTILIZA ningún teléfono cacheado y el
+   * reveal sigue el camino Apollo normal. NO gobierna la supresión.
    */
   cacheEnabled?: boolean;
   /**
@@ -431,10 +459,16 @@ export type RevealCandidatePhoneStatus =
   | 'revealed_from_cache'
   // APOLLO-PHONE-CACHE-1b: existe un tombstone de supresión para esta persona
   // en esta cuenta. Bloquea el hit Y el reveal automático. No se llama a Apollo.
+  // Se emite con ENABLE_APOLLO_PHONE_CACHE encendido o apagado (FIX 2).
   | 'blocked_suppressed'
+  // APOLLO-PHONE-CACHE-1b (FIX 2): la SUPRESIÓN no se pudo verificar (tabla
+  // ausente, timeout, dep no cableada). Fail-closed: NO se llama a Apollo, porque
+  // podría existir un tombstone sin haber sido visto. Independiente del flag de
+  // caché. 0 créditos, sin teléfono, reintentable.
+  | 'suppression_check_unavailable'
   // APOLLO-PHONE-CACHE-1b (FIX H4): la caché no se pudo consultar. Fail-closed:
-  // NO se llama a Apollo, porque un tombstone de supresión podría existir y no
-  // haber sido visto. 0 créditos, sin teléfono, reintentable.
+  // NO se llama a Apollo. Solo alcanzable con el flag de caché encendido (con el
+  // flag apagado no hay lectura de caché que pueda fallar). 0 créditos.
   | 'cache_unavailable'
   | 'error';
 
@@ -620,12 +654,25 @@ export async function runRevealCandidatePhone(
 
   const nextAttempt = (candidate.phoneRevealAttemptCount ?? 0) + 1;
 
-  // 13b. FAST PATH DE CACHÉ (APOLLO-PHONE-CACHE-1b). Corre DESPUÉS de todos los
+  // 13b. CUMPLIMIENTO DE SUPRESIÓN (APOLLO-PHONE-CACHE-1b, FIX 2). Corre DESPUÉS
+  //      de todos los gates fail-closed y ANTES de cualquier llamada a Apollo,
+  //      con el flag de caché ENCENDIDO O APAGADO. `ENABLE_APOLLO_PHONE_CACHE`
+  //      decide si se REUTILIZA un teléfono ya pagado; no puede decidir si se
+  //      respeta una supresión ya registrada. Sin esta comprobación, un tombstone
+  //      escrito mientras el flag estaba encendido dejaría de bloquear en cuanto
+  //      el flag se apagase, y el reveal manual volvería a traer el número.
+  const suppressionOutcome = await enforcePhoneRevealSuppression({
+    candidate,
+    deps,
+  });
+  if (suppressionOutcome) return suppressionOutcome;
+
+  // 13c. FAST PATH DE CACHÉ (APOLLO-PHONE-CACHE-1b). Corre DESPUÉS de todos los
   //      gates fail-closed (flag de reveal, rol, candidato, sin teléfono, no en
   //      vuelo, base de tratamiento, confirmación de costo, do-not-contact,
-  //      identidad suficiente) y ANTES de cualquier llamada a Apollo. Con
-  //      `cacheEnabled` en false — el default de producción — este bloque no se
-  //      ejecuta y el comportamiento es idéntico al de antes de la caché.
+  //      identidad suficiente, supresión) y ANTES de cualquier llamada a Apollo.
+  //      Con `cacheEnabled` en false — el default de producción — este bloque no
+  //      se ejecuta y ningún teléfono se reutiliza.
   const cacheOutcome = await tryServeFromPhoneCache({
     candidate,
     candidateId,
@@ -771,11 +818,89 @@ export async function runRevealCandidatePhone(
   return { ok: true, status: 'requested', requestAccepted: true, errorCode: null };
 }
 
+// ── Cumplimiento de supresión (APOLLO-PHONE-CACHE-1b, FIX 2) ───
+
+/**
+ * Comprueba el tombstone de supresión ANTES de llamar a Apollo, con
+ * independencia de `ENABLE_APOLLO_PHONE_CACHE`. Devuelve:
+ *   * `blocked_suppressed` — existe supresión para (apollo, persona, cuenta): no
+ *     se llama a Apollo, no se gastan créditos y no se revela teléfono;
+ *   * `suppression_check_unavailable` — la comprobación no se pudo hacer (dep no
+ *     cableada o lectura fallida): tampoco se llama a Apollo, porque "no pude
+ *     comprobarlo" no equivale a "no está suprimido". Reintentable, 0 créditos;
+ *   * `null` — no hay supresión (o no existe clave posible) y el reveal continúa.
+ *
+ * Límite conocido y deliberado: el tombstone se identifica por Apollo person id +
+ * cuenta, la misma clave con la que se escribe. Un candidato sin `apollo_person_id`
+ * resoluble o sin cuenta no puede emparejarse con ninguna supresión registrada, así
+ * que continúa por el camino Apollo normal. No se intenta emparejar por
+ * teléfono/email/nombre: un match difuso aquí sería un bloqueo (o un no-bloqueo)
+ * decidido por inferencia. El país NO entra en la clave: una supresión bloquea a
+ * esa persona en esa cuenta aunque el país del candidato cambie o sea desconocido.
+ */
+async function enforcePhoneRevealSuppression(args: {
+  candidate: RevealCandidateRecord;
+  deps: RevealCandidatePhoneDeps;
+}): Promise<RevealCandidatePhoneResult | null> {
+  const { candidate, deps } = args;
+
+  const personId = resolvePhoneCachePersonId({
+    apolloPersonId: candidate.apolloPersonId ?? null,
+    sourceProvider: candidate.source ?? null,
+    sourceContactId: candidate.sourceContactId,
+  });
+  const accountId = cleanText(candidate.accountId);
+  // Sin clave no puede existir tombstone alguno que consultar.
+  if (!personId || !accountId) return null;
+
+  const unavailable = (message: string): RevealCandidatePhoneResult => {
+    deps.onSuppressionCheckUnavailable?.(message);
+    return {
+      ok: false,
+      status: 'suppression_check_unavailable',
+      requestAccepted: false,
+      errorCode: 'suppression_check_unavailable',
+      servedFromCache: false,
+    };
+  };
+
+  // Dep ausente = wiring incompleto. Fail-closed: no hay reveal sin comprobación
+  // de supresión, ni siquiera con el flag de caché apagado.
+  if (!deps.lookupPhoneCacheSuppression) {
+    return unavailable('suppression lookup not wired');
+  }
+
+  let state: PhoneCacheSuppressionState | null;
+  try {
+    state = await deps.lookupPhoneCacheSuppression({
+      provider: PHONE_CACHE_PROVIDER,
+      providerPersonId: personId,
+      accountId,
+    });
+  } catch (err) {
+    return unavailable(err instanceof Error ? err.message : 'unknown error');
+  }
+
+  if (evaluatePhoneCacheSuppressionState(state) === 'suppressed') {
+    return {
+      ok: false,
+      status: 'blocked_suppressed',
+      requestAccepted: false,
+      errorCode: null,
+      servedFromCache: false,
+    };
+  }
+
+  return null;
+}
+
 // ── Fast path de caché (APOLLO-PHONE-CACHE-1b) ─────────────────
 
 /**
  * Intenta servir el teléfono desde un reveal Apollo ya pagado en vez de llamar
- * al proveedor. Devuelve:
+ * al proveedor. Corre DESPUÉS de `enforcePhoneRevealSuppression`, así que cuando
+ * llega aquí ya se sabe que no hay supresión; su propio chequeo de tombstone se
+ * conserva como defensa en profundidad. Devuelve:
  *   * `RevealCandidatePhoneResult` cuando decide el desenlace — hit servido
  *     (`revealed_from_cache`) o tombstone que bloquea (`blocked_suppressed`);
  *   * `null` cuando NO decide nada y el reveal debe continuar por Apollo

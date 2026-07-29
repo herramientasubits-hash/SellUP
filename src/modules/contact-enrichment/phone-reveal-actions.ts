@@ -37,6 +37,7 @@ import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import {
   hashProviderPersonId,
   readPhoneCacheEntry,
+  readPhoneCacheSuppression,
   touchPhoneCacheEntry,
 } from './phone-cache-store';
 import type { PhoneCacheHitUsageLogEntry } from './phone-cache-core';
@@ -316,10 +317,22 @@ export async function revealCandidatePhoneAction(
       });
     },
 
+    // ── Cumplimiento de supresión (FIX 2) ──────────────────────
+    // Se cablea SIEMPRE, fuera del flag: `ENABLE_APOLLO_PHONE_CACHE` decide si se
+    // REUTILIZA un teléfono ya pagado, no si se respeta una supresión registrada.
+    // La lectura pide solo `suppressed_at`, así que con el flag apagado se
+    // comprueba el tombstone sin leer ningún teléfono. Requiere la migración 099
+    // aplicada: sin la tabla, la comprobación falla y el reveal se detiene
+    // (fail-closed, 0 créditos) en vez de saltarse la supresión.
+    lookupPhoneCacheSuppression: readPhoneCacheSuppression,
+    onSuppressionCheckUnavailable: (message: string): void => {
+      console.error('[phone-cache] suppression check unavailable:', message);
+    },
+
     // ── Fast path de caché (APOLLO-PHONE-CACHE-1b) ─────────────
     // Con ENABLE_APOLLO_PHONE_CACHE apagado (default de producción) el core no
-    // invoca ninguna de estas deps: cero lecturas de caché, cero escrituras, y
-    // el camino Apollo queda exactamente como antes de este hito.
+    // invoca ninguna de estas deps: cero reutilización de teléfonos, cero
+    // escrituras de caché, y el camino Apollo queda como antes de este hito.
     cacheEnabled: isApolloPhoneCacheEnabled(),
     hashProviderPersonId,
     lookupPhoneCache: readPhoneCacheEntry,

@@ -24,9 +24,11 @@
 //     blocks both a future cache hit and a future automatic reveal. If no cache
 //     row exists, the tombstone is INSERTED (FIX B2) so an empty cache does not
 //     turn a DSAR into a no-op.
-//   * Contacts are only touched when the link is of provable provenance (or an
-//     exact duplicate by email/linkedin) AND the stored phone came from an
-//     Apollo reveal/cache hit (FIX B1 / FIX M1). A name-only match never erases.
+//   * Contacts are only touched when the contact ITSELF proves it was
+//     created/promoted from one of the suppressed candidates
+//     (`contacts.metadata.source_candidate_id`) AND the stored phone came from an
+//     Apollo reveal/cache hit (FIX 1 / FIX M1). A duplicate match — by name,
+//     email or linkedin — never erases a contact in v1.
 //   * Every write is counted from the rows the database actually returned, so
 //     the durable audit reflects reality and not the plan (FIX M2).
 //   * Never returns or logs a phone/email/name/linkedin — only counts and ids.
@@ -119,27 +121,23 @@ async function resolveActor(): Promise<{
   return { internalUserId: internalUser.id as string, roleKey };
 }
 
-// ── Lectura de evidencia del vínculo (sin PII) ──────────────────
+// ── Lectura del id de contacto para DESCUBRIR filas (sin PII) ───
 
 /**
- * Extrae de `enrichment_metadata.review` la evidencia que decide si el FK
- * `matched_contacts_id` es de procedencia probada. Solo lee dos campos
- * mecánicos: `matched_by` ('email' | 'linkedin' | 'name') y
- * `created_contact_id`. No lee ni copia nombre, email ni teléfono.
+ * Extrae `enrichment_metadata.review.created_contact_id`: el id del contacto que
+ * la aprobación creó desde este candidato. Se usa SOLO para localizar filas de
+ * `contacts` que merezca la pena inspeccionar; la autorización del borrado la da
+ * después la metadata del propio contacto (FIX 1). No lee nombre, email ni
+ * teléfono, y ya NO lee `matched_by` ni `duplicate_status`: en v1 la evidencia de
+ * duplicado no autoriza borrar nada, así que leerla solo invitaría a confusión.
  */
-function readReviewLinkEvidence(
+function readCreatedContactId(
   metadata: ContactCandidateEnrichmentMetadata | null,
-): { matchedBy: string | null; createdContactId: string | null } {
+): string | null {
   const review = (metadata as Record<string, unknown> | null)?.review;
-  if (!review || typeof review !== 'object') {
-    return { matchedBy: null, createdContactId: null };
-  }
-  const r = review as Record<string, unknown>;
-  return {
-    matchedBy: typeof r.matched_by === 'string' ? r.matched_by : null,
-    createdContactId:
-      typeof r.created_contact_id === 'string' ? r.created_contact_id : null,
-  };
+  if (!review || typeof review !== 'object') return null;
+  const created = (review as Record<string, unknown>).created_contact_id;
+  return typeof created === 'string' ? created : null;
 }
 
 // ── Server Action ──────────────────────────────────────────────
@@ -155,7 +153,7 @@ function readReviewLinkEvidence(
  *      cargar candidatos o contactos no pueda dejar la persona sin bloquear
  *      (FIX B2 / FIX M4). Se inserta si no existía fila.
  *   2. los candidatos que llevan ese Apollo person id en esa cuenta.
- *   3. los contactos oficiales con vínculo de procedencia probada.
+ *   3. los contactos oficiales creados/promovidos desde esos candidatos.
  *   4. la auditoría durable — SIEMPRE se intenta, incluso si un paso anterior
  *      falló, para que quede constancia de la supresión parcial.
  *
@@ -241,7 +239,7 @@ export async function suppressPhoneCacheEntryAction(
   const { data: candidateRows, error: candidateError } = await admin
     .from('contact_enrichment_candidates')
     .select(
-      `id, enrichment_run_id, status, duplicate_status, enrichment_metadata,
+      `id, enrichment_run_id, enrichment_metadata,
        matched_contacts_id, run:contact_enrichment_runs ( account_id )`,
     )
     .eq('apollo_person_id', tombstone.providerPersonId);
@@ -259,15 +257,11 @@ export async function suppressPhoneCacheEntryAction(
       | undefined;
     const enrichmentMetadata =
       (r.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {};
-    const evidence = readReviewLinkEvidence(enrichmentMetadata);
     return {
       id: r.id as string,
       accountId: run?.account_id ?? null,
       enrichmentRunId: (r.enrichment_run_id as string | null) ?? null,
-      status: (r.status as string | null) ?? null,
-      duplicateStatus: (r.duplicate_status as string | null) ?? null,
-      matchedBy: evidence.matchedBy,
-      createdContactId: evidence.createdContactId,
+      createdContactId: readCreatedContactId(enrichmentMetadata),
       enrichmentMetadata,
       matchedContactId: (r.matched_contacts_id as string | null) ?? null,
     };
@@ -278,9 +272,9 @@ export async function suppressPhoneCacheEntryAction(
   //     `review.created_contact_id`), NUNCA por un filtro JSON path sobre
   //     `contacts.metadata` (FIX M4: ese filtro no está probado contra la DB
   //     real). El camino de aprobación escribe ambos con el MISMO id, así que la
-  //     cobertura es la misma; `metadata.source_candidate_id` se sigue leyendo,
-  //     pero solo para CONFIRMAR la procedencia, no para descubrir filas. No se
-  //     hace matching difuso por teléfono/email/nombre en ningún caso.
+  //     cobertura es la misma; `metadata.source_candidate_id` se lee de la fila ya
+  //     cargada y es lo ÚNICO que autoriza el borrado (FIX 1). No se hace
+  //     matching difuso por teléfono/email/nombre en ningún caso.
   const linkedContactIds = [
     ...new Set(
       candidates

@@ -36,6 +36,25 @@ function readRepo(rel: string): string {
   return readFileSync(join(REPO_ROOT, rel), 'utf8');
 }
 
+/**
+ * Cuerpo COMPLETO de una función top-level: desde su declaración hasta la llave
+ * de cierre en columna 0 seguida de línea en blanco. Un `\n}` simple no sirve: un
+ * bloque de parámetros desestructurados ya cierra con `}` al inicio de línea y
+ * truncaría el cuerpo justo antes de lo que hay que verificar.
+ */
+function functionBody(source: string, declaration: RegExp): string {
+  const start = source.search(declaration);
+  assert.notEqual(start, -1, `no se encontró ${String(declaration)}`);
+  const end = source.indexOf('\n}\n\n', start);
+  assert.notEqual(end, -1, 'no se encontró el cierre de la función');
+  return source.slice(start, end);
+}
+
+/** Quita comentarios TS/JS para comparar CAPACIDAD, no documentación. */
+function stripJsComments(raw: string): string {
+  return raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+}
+
 const MIGRATION_REL = 'supabase/migrations/099_apollo_phone_reveal_cache.sql';
 
 function stripSqlComments(raw: string): string {
@@ -634,11 +653,23 @@ describe('CACHE-1b — FIX H2 estados nuevos mapeados en la UI', () => {
     assert.match(body, /intenta de nuevo/i);
   });
 
+  it('suppression_check_unavailable es explícito, seguro y reintentable (FIX 2)', () => {
+    const body = caseBody('suppression_check_unavailable');
+    assert.notEqual(body, '', 'falta el case suppression_check_unavailable');
+    assert.match(body, /setPhoneRevealError/);
+    assert.match(body, /supresión/i);
+    assert.match(body, /intenta de nuevo/i);
+    // No es un éxito: no recarga el candidato ni muestra un toast de éxito.
+    assert.equal(/reloadCandidate\(\)/.test(body), false);
+    assert.equal(/toast\.success/.test(body), false);
+  });
+
   it('los mensajes nuevos no exponen teléfono, email ni linkedin', () => {
     for (const status of [
       'revealed_from_cache',
       'blocked_suppressed',
       'cache_unavailable',
+      'suppression_check_unavailable',
     ]) {
       const body = caseBody(status);
       for (const banned of ['phoneNumber', 'phoneMeta?.number', 'email', 'linkedin']) {
@@ -649,5 +680,150 @@ describe('CACHE-1b — FIX H2 estados nuevos mapeados en la UI', () => {
         );
       }
     }
+  });
+});
+
+// ── FIX 1: la supresión de contacts exige procedencia probada ────
+
+describe('CACHE-1b — FIX 1 solo procedencia creado/promovido borra contacts', () => {
+  const core = readRepo(
+    'src/modules/contact-enrichment/phone-cache-suppression-core.ts',
+  );
+  const actions = readRepo(
+    'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
+  );
+
+  it('el nivel `strong_duplicate` ya no existe en el core', () => {
+    // Ni en el código ni en los comentarios: la documentación no debe seguir
+    // afirmando que un duplicado fuerte es erase-safe.
+    assert.equal(/strong_duplicate/.test(core), false);
+    assert.equal(/strong_duplicate/.test(actions), false);
+  });
+
+  it('la fuerza del vínculo solo admite provenance_proven o weak', () => {
+    const union = core.match(
+      /export type CandidateContactLinkStrength =([\s\S]*?);/,
+    );
+    assert.ok(union, 'no se encontró el tipo de fuerza de vínculo');
+    const values = [...union[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
+    assert.deepEqual(values, ['provenance_proven', 'weak']);
+  });
+
+  it('la decisión de borrado NO lee evidencia de duplicado', () => {
+    // duplicate_status / matched_by ya no participan: identifican a la persona,
+    // no demuestran que este candidato pusiera el teléfono en esa fila.
+    const code = stripJsComments(core);
+    assert.equal(/duplicateStatus/.test(code), false);
+    assert.equal(/matchedBy/.test(code), false);
+    assert.equal(/exact_duplicate/.test(code), false);
+    assert.equal(/possible_duplicate/.test(code), false);
+  });
+
+  it('la acción tampoco consulta duplicate_status ni matched_by en la DB', () => {
+    // Se comparan solo instrucciones: los comentarios explican qué dejó de
+    // leerse y mencionarlo ahí no es una capacidad.
+    const code = stripJsComments(actions);
+    assert.equal(/duplicate_status/.test(code), false);
+    assert.equal(/matched_by/.test(code), false);
+  });
+
+  it('el resolver exige metadata.source_candidate_id del propio contacto', () => {
+    const body = functionBody(
+      core,
+      /export function resolveContactErasureProvenance\(/,
+    );
+    assert.match(body, /sourceCandidateId/);
+    assert.match(body, /suppressedCandidateIds\.has\(sourceCandidateId\)/);
+  });
+
+  it('sigue sin existir matching difuso por teléfono, email o nombre', () => {
+    // Solo construcciones de código: `fuzzy` aparece en la prosa que explica
+    // precisamente que NO se usa, así que buscarlo daría un falso positivo.
+    for (const banned of ['levenshtein', 'similarity', '\\.ilike\\(', '\\.like\\(']) {
+      assert.equal(
+        new RegExp(banned, 'i').test(core + actions),
+        false,
+        `no debe aparecer ${banned}`,
+      );
+    }
+  });
+});
+
+// ── FIX 2: la supresión no depende del flag de caché ────────────
+
+describe('CACHE-1b — FIX 2 el tombstone se comprueba con el flag apagado', () => {
+  const revealActions = readRepo(
+    'src/modules/contact-enrichment/phone-reveal-actions.ts',
+  );
+  const revealCore = readRepo('src/modules/contact-enrichment/phone-reveal-core.ts');
+  const store = readRepo('src/modules/contact-enrichment/phone-cache-store.ts');
+
+  it('el wrapper cablea la comprobación SIEMPRE, no detrás del flag', () => {
+    assert.match(revealActions, /lookupPhoneCacheSuppression:\s*readPhoneCacheSuppression/);
+    // El flag solo alimenta `cacheEnabled` (reutilización), nunca la supresión.
+    const flagUses = [...revealActions.matchAll(/isApolloPhoneCacheEnabled\(\)/g)];
+    assert.equal(flagUses.length, 1);
+    assert.match(revealActions, /cacheEnabled:\s*isApolloPhoneCacheEnabled\(\)/);
+  });
+
+  it('la comprobación corre ANTES del fast path de caché y de Apollo', () => {
+    const suppressionAt = revealCore.search(/enforcePhoneRevealSuppression\(\{/);
+    const cacheAt = revealCore.search(/tryServeFromPhoneCache\(\{/);
+    const apolloAt = revealCore.search(/await deps\.startRevealViaApollo/);
+    assert.notEqual(suppressionAt, -1);
+    assert.ok(suppressionAt < cacheAt, 'la supresión debe preceder al fast path');
+    assert.ok(suppressionAt < apolloAt, 'la supresión debe preceder a Apollo');
+  });
+
+  it('la comprobación NO está condicionada por cacheEnabled', () => {
+    const body = functionBody(
+      revealCore,
+      /async function enforcePhoneRevealSuppression\(/,
+    );
+    // Sanity: el cuerpo capturado llega hasta el final real de la función.
+    assert.match(body, /return null;/);
+    assert.equal(/cacheEnabled/.test(body), false);
+  });
+
+  it('la lectura del tombstone no pide el teléfono (flag OFF ⇒ 0 números leídos)', () => {
+    const body = functionBody(
+      store,
+      /export async function readPhoneCacheSuppression\(/,
+    );
+    assert.match(body, /\.select\('suppressed_at'\)/);
+    assert.equal(/normalized_phone/.test(body), false);
+    assert.equal(/phone_type/.test(body), false);
+  });
+
+  it('la clave del tombstone no incluye país (no se puede esquivar por país)', () => {
+    const key = revealCore.match(/export interface PhoneCacheSuppressionLookupKey/);
+    assert.equal(key, null, 'la clave vive en phone-cache-core, no en el reveal');
+    const cacheCore = readRepo('src/modules/contact-enrichment/phone-cache-core.ts');
+    const block = cacheCore.match(
+      /export interface PhoneCacheSuppressionLookupKey \{([\s\S]*?)\}/,
+    );
+    assert.ok(block, 'no se encontró PhoneCacheSuppressionLookupKey');
+    assert.equal(/countryCode/.test(block[1]), false);
+    assert.match(block[1], /providerPersonId/);
+    assert.match(block[1], /accountId/);
+  });
+
+  it('un fallo de la comprobación no puede degradar a "no suprimido"', () => {
+    const body = functionBody(
+      revealCore,
+      /async function enforcePhoneRevealSuppression\(/,
+    );
+    // El catch devuelve el estado seguro; nunca `return null` (que continuaría).
+    assert.match(body, /catch[\s\S]*?return unavailable\(/);
+    assert.match(body, /suppression_check_unavailable/);
+    // Y la dep ausente también corta: no hay reveal sin comprobar la supresión.
+    assert.match(body, /if \(!deps\.lookupPhoneCacheSuppression\)[\s\S]*?return unavailable\(/);
+  });
+
+  it('la acción de supresión sigue sin estar gateada por el flag de caché', () => {
+    const suppression = readRepo(
+      'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
+    );
+    assert.equal(/isApolloPhoneCacheEnabled/.test(suppression), false);
   });
 });

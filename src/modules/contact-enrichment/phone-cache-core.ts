@@ -15,7 +15,10 @@
 //   * Lawful processing basis is mandatory on a cache hit too — a hit is a new
 //     use of personal data, not a free read.
 //   * A tombstone (suppression) blocks BOTH the cache hit AND the automatic
-//     reveal that would otherwise follow the miss.
+//     reveal that would otherwise follow the miss. The tombstone check does NOT
+//     depend on ENABLE_APOLLO_PHONE_CACHE (FIX 2): that flag governs REUSE of a
+//     cached number, never compliance with an erasure. Its key is
+//     (provider, person, account) — country-independent on purpose.
 //   * A cache hit costs 0 credits because NO provider call happens.
 //   * Apollo only. Lusha is never read from, never written to, never cached.
 //   * No bulk: every entry point here is single-candidate.
@@ -158,6 +161,47 @@ export interface PhoneCacheEntry {
   expiresAt: string;
   hitCount: number;
   suppressedAt: string | null;
+}
+
+// ── Comprobación de SUPRESIÓN, independiente del flag (FIX 2) ──
+
+/**
+ * Clave del tombstone. Tiene TRES campos, no cuatro: el país NO entra, porque la
+ * unicidad de la tabla es (provider, provider_person_id, account_id) y una
+ * supresión debe bloquear a esa persona en esa cuenta con independencia del país
+ * que resuelva el candidato. Si el país entrase aquí, un candidato con país
+ * desconocido — o resuelto a otro país — esquivaría el tombstone.
+ */
+export interface PhoneCacheSuppressionLookupKey {
+  provider: typeof PHONE_CACHE_PROVIDER;
+  providerPersonId: string;
+  accountId: string;
+}
+
+/**
+ * Proyección MÍNIMA del tombstone. Deliberadamente no incluye el teléfono: con
+ * `ENABLE_APOLLO_PHONE_CACHE` apagado el reveal comprueba la supresión pero NO
+ * debe leer ningún número, así que la comprobación se hace sobre una fila que no
+ * puede contener dato personal alguno.
+ */
+export interface PhoneCacheSuppressionState {
+  suppressedAt: string | null;
+}
+
+export type PhoneCacheSuppressionStatus = 'suppressed' | 'not_suppressed';
+
+/**
+ * Decide si existe supresión. Sin fila ⇒ nunca se suprimió ⇒ `not_suppressed`.
+ * Una fila con `suppressed_at` ⇒ `suppressed`, y eso bloquea tanto el hit de
+ * caché como el reveal automático. Un FALLO de la lectura no se representa aquí:
+ * lo trata el llamador como "no verificable" (fail-closed, sin llamar a Apollo),
+ * porque "no pude comprobarlo" nunca puede equivaler a "no está suprimido".
+ */
+export function evaluatePhoneCacheSuppressionState(
+  state: PhoneCacheSuppressionState | null,
+): PhoneCacheSuppressionStatus {
+  if (!state) return 'not_suppressed';
+  return cleanText(state.suppressedAt) ? 'suppressed' : 'not_suppressed';
 }
 
 // ── Evaluación de la búsqueda (pura) ───────────────────────────

@@ -16,29 +16,37 @@
 //                                carrying that apollo_person_id in that account.
 //   3. contacts                → phone / mobile_phone / phone_type /
 //                                phone_source / phone_raw_type nulled, ONLY for
-//                                official contacts whose link to those candidates
-//                                is of PROVABLE provenance and whose phone
+//                                official contacts that were CREATED/PROMOTED
+//                                from one of those candidates (provenance proven
+//                                by the contact's own metadata) and whose phone
 //                                actually came from an Apollo reveal/cache hit.
 //
-// ── Why the contact link needs a strength check (FIX B1) ───────────────────
+// ── Why erasing a contact needs CREATED/PROMOTED provenance (FIX 1) ────────
 // `contact_enrichment_candidates.matched_contacts_id` is NOT a proof of
-// provenance on its own. `candidate-review-core.ts` writes it on TWO different
-// paths:
-//   * approval  → the contact was CREATED from this candidate
-//                 (status='approved', review.created_contact_id === the FK), and
+// provenance. `candidate-review-core.ts` writes it on TWO different paths:
+//   * approval  → the contact was CREATED from this candidate; the insert stamps
+//                 `contacts.metadata.source_candidate_id = candidate.id`
+//                 (`buildContactTraceMetadata`), and
 //   * duplicate → the contact is a PRE-EXISTING one matched by email, linkedin
-//                 or, as a last resort, by NAME (`matchedBy: 'name'` ⇒
-//                 duplicate_status='possible_duplicate').
-// Erasing on a name-only match would delete a DIFFERENT person's phone
-// ("José Pérez" vs "Jose Perez"). So the FK is only honoured when it is backed by
-// strong evidence:
-//   * `provenance_proven`  — the contact was created from this candidate, or the
-//                            contact itself carries metadata.source_candidate_id
-//                            pointing back at it; or
-//   * `strong_duplicate`   — duplicate_status='exact_duplicate' AND the match was
-//                            by email or linkedin (never by name).
-// Anything else is `weak` and is NEVER erased. No fuzzy matching on
-// phone/email/name is used or allowed anywhere.
+//                 or, as a last resort, by NAME. On this path only the CANDIDATE
+//                 row is updated: the contact is never written, so it never gets
+//                 a `source_candidate_id` pointing back.
+// v1 therefore requires CREATED/PROMOTED provenance and nothing weaker:
+//
+//     contacts.metadata.source_candidate_id === candidate.id
+//   AND contacts.account_id === the suppressed account
+//   AND contacts.phone_source ∈ (apollo_reveal, apollo_cache)
+//
+// A duplicate match — even an "exact" one by email or linkedin — is NOT accepted
+// as sufficient in v1. It identifies the same *person* with reasonable confidence,
+// but it does not prove that THIS candidate is what put the phone in THAT contact
+// row; the number may predate the reveal, come from another provider, or belong to
+// a row curated by a human. Deleting on that basis destroys third-party data on an
+// inference, which is the opposite of what a privacy operation should do. Weak
+// links are surfaced by the counts (nothing erased) rather than acted upon.
+// `matched_contacts_id` and `review.created_contact_id` are still used, but ONLY
+// to FIND candidate contact rows — never to authorize the delete. No fuzzy
+// matching on phone/email/name is used or allowed anywhere.
 //
 // On top of the link strength, the phone is only erased when its provenance in
 // the contact is an Apollo reveal or an Apollo cache hit (FIX M1): a manually
@@ -207,73 +215,73 @@ export interface SuppressibleCandidate {
   accountId: string | null;
   /** Run del candidato. Se usa para acotar el UPDATE (FIX M2/M3). */
   enrichmentRunId: string | null;
-  /** `status` del candidato ('approved' | 'duplicate' | 'pending_review' | …). */
-  status: string | null;
-  /** `duplicate_status` ('exact_duplicate' | 'possible_duplicate' | …). */
-  duplicateStatus: string | null;
-  /** `enrichment_metadata.review.matched_by`: 'email' | 'linkedin' | 'name'. */
-  matchedBy: string | null;
-  /** `enrichment_metadata.review.created_contact_id`: contacto CREADO de aquí. */
-  createdContactId: string | null;
   enrichmentMetadata: ContactCandidateEnrichmentMetadata;
-  /** Contacto oficial creado/emparejado desde este candidato (FK), si lo hay. */
+  /**
+   * `enrichment_metadata.review.created_contact_id`. SOLO para DESCUBRIR filas de
+   * `contacts`: nunca autoriza por sí mismo el borrado (FIX 1).
+   */
+  createdContactId: string | null;
+  /**
+   * FK `matched_contacts_id`. SOLO para DESCUBRIR filas de `contacts`: apunta
+   * tanto a un contacto creado desde el candidato como a un duplicado
+   * preexistente emparejado por email/linkedin/NOMBRE, así que nunca autoriza
+   * por sí mismo el borrado (FIX 1).
+   */
   matchedContactId: string | null;
 }
 
 export interface SuppressibleContact {
   id: string;
   accountId: string | null;
-  /** candidate id de `contacts.metadata.source_candidate_id`, si existe. */
+  /**
+   * candidate id de `contacts.metadata.source_candidate_id`. ÚNICA prueba de
+   * procedencia aceptada en v1: solo la escribe el INSERT del contacto creado
+   * desde el candidato (`buildContactTraceMetadata`).
+   */
   sourceCandidateId: string | null;
   /** `contacts.phone_source`. Solo apollo_reveal / apollo_cache son borrables. */
   phoneSource: string | null;
 }
 
-// ── Fuerza del vínculo candidato → contacto (FIX B1) ───────────
+// ── Fuerza del vínculo candidato → contacto (FIX 1) ────────────
 
 export type CandidateContactLinkStrength =
-  /** El contacto se creó desde este candidato: procedencia demostrada. */
+  /**
+   * El contacto fue CREADO/PROMOVIDO desde el candidato suprimido y él mismo lo
+   * acredita (`metadata.source_candidate_id`). Único nivel que autoriza borrar.
+   */
   | 'provenance_proven'
-  /** Duplicado exacto por email o linkedin: identidad fuerte. */
-  | 'strong_duplicate'
-  /** Todo lo demás: name-only, possible_duplicate, sin evidencia ⇒ NO se borra. */
+  /**
+   * Todo lo demás: duplicado (exacto o posible, por email, linkedin o nombre),
+   * FK sin respaldo en la metadata del contacto, o sin evidencia alguna. NUNCA
+   * se borra. En v1 no existe un nivel intermedio "erase-safe": un duplicado
+   * identifica a la persona, pero no demuestra que ESTE candidato pusiera el
+   * teléfono en ESA fila.
+   */
   | 'weak';
 
 /**
- * Clasifica el vínculo `matched_contacts_id` según la evidencia persistida. Solo
- * `provenance_proven` y `strong_duplicate` autorizan borrar el teléfono del
- * contacto. Un match por NOMBRE (o un `possible_duplicate`) es siempre `weak`:
- * "José Pérez" y "Jose Perez" pueden ser dos personas distintas y borrar el
- * teléfono de la equivocada sería, en sí mismo, un incidente de privacidad.
+ * Clasifica el vínculo candidato → contacto con la regla estricta de v1: el
+ * contacto solo es borrable si ÉL MISMO acredita haber nacido de un candidato del
+ * conjunto suprimido, vía `contacts.metadata.source_candidate_id`.
+ *
+ * Deliberadamente NO recibe la evidencia de revisión del candidato
+ * (`duplicate_status` / `matched_by` / `created_contact_id`): ninguna de ellas
+ * demuestra procedencia del teléfono, y aceptarlas fue el riesgo residual que
+ * este endurecimiento cierra. Un match por NOMBRE ("José Pérez" vs "Jose Perez")
+ * y un duplicado exacto por email quedan igualados en `weak`, porque en ambos
+ * casos el contacto es una fila preexistente que este candidato nunca escribió.
  */
-export function resolveCandidateContactLinkStrength(
-  candidate: SuppressibleCandidate,
-): CandidateContactLinkStrength {
-  const matched = cleanText(candidate.matchedContactId);
-  if (!matched) return 'weak';
-
-  // Nunca por nombre, nunca un duplicado meramente posible.
-  const matchedBy = cleanText(candidate.matchedBy);
-  if (matchedBy === 'name') return 'weak';
-  if (cleanText(candidate.duplicateStatus) === 'possible_duplicate') return 'weak';
-
-  // 1. El contacto se CREÓ desde este candidato (camino de aprobación).
-  if (
-    cleanText(candidate.status) === 'approved' &&
-    cleanText(candidate.createdContactId) === matched
-  ) {
-    return 'provenance_proven';
-  }
-
-  // 2. Duplicado EXACTO con identificador fuerte (email o linkedin).
-  if (
-    cleanText(candidate.duplicateStatus) === 'exact_duplicate' &&
-    (matchedBy === 'email' || matchedBy === 'linkedin')
-  ) {
-    return 'strong_duplicate';
-  }
-
-  return 'weak';
+export function resolveContactErasureProvenance(args: {
+  contact: SuppressibleContact;
+  /** Ids de los candidatos suprimidos YA acotados a la cuenta de la supresión. */
+  suppressedCandidateIds: ReadonlySet<string>;
+}): CandidateContactLinkStrength {
+  const sourceCandidateId = cleanText(args.contact.sourceCandidateId);
+  if (!sourceCandidateId) return 'weak';
+  return args.suppressedCandidateIds.has(sourceCandidateId)
+    ? 'provenance_proven'
+    : 'weak';
 }
 
 // ── Plan de supresión (resultado puro) ─────────────────────────
@@ -415,9 +423,10 @@ export function buildPhoneCacheTombstoneDecision(
  * Construye el plan de supresión completo. Fail-closed: rol no autorizado, id
  * inválido, cuenta ausente, país no resoluble o motivo fuera de la allowlist ⇒
  * rechazo SIN plan (nada se borra a medias). Solo se incluyen candidatos y
- * contactos de la MISMA cuenta, y los contactos solo cuando el vínculo es de
- * procedencia probada (o duplicado exacto por email/linkedin) Y el teléfono
- * proviene de un reveal/hit Apollo — nunca se borra "por si acaso".
+ * contactos de la MISMA cuenta, y los contactos SOLO cuando ellos mismos
+ * acreditan haber sido creados/promovidos desde uno de esos candidatos
+ * (`metadata.source_candidate_id`) Y su teléfono proviene de un reveal/hit
+ * Apollo — nunca se borra "por si acaso" ni por parecido de identidad (FIX 1).
  */
 export function buildPhoneCacheSuppressionPlan(
   input: PhoneCacheSuppressionInput,
@@ -452,19 +461,6 @@ export function buildPhoneCacheSuppressionPlan(
     } satisfies CandidatePhoneSuppressionPatch,
   }));
 
-  // FIX B1: el FK `matched_contacts_id` solo cuenta cuando la evidencia es
-  // fuerte. Se indexa por contacto la fuerza máxima observada.
-  const fkLinkStrength = new Map<string, Exclude<CandidateContactLinkStrength, 'weak'>>();
-  for (const candidate of scopedCandidates) {
-    const matched = cleanText(candidate.matchedContactId);
-    if (!matched) continue;
-    const strength = resolveCandidateContactLinkStrength(candidate);
-    if (strength === 'weak') continue;
-    if (strength === 'provenance_proven' || !fkLinkStrength.has(matched)) {
-      fkLinkStrength.set(matched, strength);
-    }
-  }
-
   const contactPatches: PhoneCacheSuppressionPlan['contactPatches'] = [];
   const seenContacts = new Set<string>();
   for (const contact of context.contacts) {
@@ -475,12 +471,12 @@ export function buildPhoneCacheSuppressionPlan(
     // FIX M1: nunca se borra un teléfono manual o curado.
     if (!isSuppressibleContactPhoneSource(contact.phoneSource)) continue;
 
-    const sourceCandidateId = cleanText(contact.sourceCandidateId);
-    const provenLinked =
-      sourceCandidateId !== null && candidateIds.has(sourceCandidateId);
-    const strength: CandidateContactLinkStrength = provenLinked
-      ? 'provenance_proven'
-      : (fkLinkStrength.get(contact.id) ?? 'weak');
+    // FIX 1: procedencia CREADO/PROMOVIDO obligatoria. El FK del candidato sirvió
+    // para encontrar esta fila; solo su propia metadata autoriza borrarla.
+    const strength = resolveContactErasureProvenance({
+      contact,
+      suppressedCandidateIds: candidateIds,
+    });
     if (strength === 'weak') continue;
 
     seenContacts.add(contact.id);

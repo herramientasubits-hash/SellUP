@@ -7,8 +7,10 @@
  * un tombstone que bloquee reutilizaciones y reveals futuros.
  *
  * Incluye las regresiones del endurecimiento posterior a la revisión del PR:
- *   * B1 — un vínculo `matched_contacts_id` DÉBIL (name-only /
- *     possible_duplicate) NO puede borrar el teléfono de otra persona.
+ *   * FIX 1 — v1 exige procedencia CREADO/PROMOVIDO
+ *     (`contacts.metadata.source_candidate_id`). Ni `matched_contacts_id`, ni un
+ *     duplicado exacto por email/linkedin, ni un match por nombre bastan para
+ *     borrar el teléfono de un contacto oficial.
  *   * B2 — sin fila de caché previa se crea igualmente un tombstone, que bloquea
  *     hits y reveals automáticos futuros.
  *   * M1 — un teléfono manual o curado NUNCA se borra.
@@ -27,7 +29,7 @@ import {
   buildPhoneCacheSuppressionPlan,
   buildPhoneCacheTombstoneDecision,
   isPhoneCacheSuppressionReasonCode,
-  resolveCandidateContactLinkStrength,
+  resolveContactErasureProvenance,
   stripPhoneFromEnrichmentMetadata,
   PHONE_CACHE_SUPPRESSION_AUTHORIZED_ROLE_KEYS,
   PHONE_CACHE_SUPPRESSION_REASON_CODES,
@@ -59,9 +61,6 @@ function makeCandidate(
     id: 'cand-1',
     accountId: ACCOUNT_A,
     enrichmentRunId: RUN_A,
-    status: 'approved',
-    duplicateStatus: 'no_match',
-    matchedBy: null,
     createdContactId: 'contact-1',
     enrichmentMetadata: {
       relevance: { score: 0.9 },
@@ -90,7 +89,6 @@ function candidates(): SuppressibleCandidate[] {
     makeCandidate(),
     makeCandidate({
       id: 'cand-2',
-      status: 'pending_review',
       createdContactId: null,
       matchedContactId: null,
       enrichmentMetadata: {
@@ -429,116 +427,136 @@ describe('CACHE-1b supresión — hard delete en los tres lugares', () => {
   });
 });
 
-// ── FIX B1: la fuerza del vínculo decide ───────────────────────
+// ── FIX 1: solo procedencia CREADO/PROMOVIDO borra contacts ─────
+// v1 exige que el CONTACTO acredite su propio origen
+// (`contacts.metadata.source_candidate_id` → un candidato del conjunto
+// suprimido). El FK `matched_contacts_id` y `review.created_contact_id` sirven
+// para ENCONTRAR filas; ninguno autoriza el borrado. Un duplicado — exacto o
+// posible, por email, linkedin o nombre — es `weak` y NO borra: identifica a la
+// persona, pero no demuestra que este candidato pusiera el teléfono en esa fila.
 
-describe('CACHE-1b supresión — FIX B1 vínculo de procedencia probable', () => {
-  it('contacto CREADO desde el candidato ⇒ provenance_proven', () => {
-    assert.equal(resolveCandidateContactLinkStrength(makeCandidate()), 'provenance_proven');
-  });
+describe('CACHE-1b supresión — FIX 1 procedencia creado/promovido obligatoria', () => {
+  const ids = (...values: string[]) => new Set(values);
 
-  it('duplicado EXACTO por email ⇒ strong_duplicate', () => {
+  it('metadata.source_candidate_id apunta a un candidato suprimido ⇒ provenance_proven', () => {
     assert.equal(
-      resolveCandidateContactLinkStrength(
-        makeCandidate({
-          status: 'duplicate',
-          duplicateStatus: 'exact_duplicate',
-          matchedBy: 'email',
-          createdContactId: null,
-          matchedContactId: 'contact-dup',
-        }),
-      ),
-      'strong_duplicate',
+      resolveContactErasureProvenance({
+        contact: makeContact({ sourceCandidateId: 'cand-1' }),
+        suppressedCandidateIds: ids('cand-1'),
+      }),
+      'provenance_proven',
     );
   });
 
-  it('duplicado EXACTO por linkedin ⇒ strong_duplicate', () => {
+  it('sin metadata.source_candidate_id ⇒ weak', () => {
     assert.equal(
-      resolveCandidateContactLinkStrength(
-        makeCandidate({
-          status: 'duplicate',
-          duplicateStatus: 'exact_duplicate',
-          matchedBy: 'linkedin',
-          createdContactId: null,
-          matchedContactId: 'contact-dup',
-        }),
-      ),
-      'strong_duplicate',
-    );
-  });
-
-  it('match por NOMBRE ⇒ weak (aunque el duplicate_status dijera exacto)', () => {
-    assert.equal(
-      resolveCandidateContactLinkStrength(
-        makeCandidate({
-          status: 'duplicate',
-          duplicateStatus: 'exact_duplicate',
-          matchedBy: 'name',
-          createdContactId: null,
-          matchedContactId: 'contact-x',
-        }),
-      ),
+      resolveContactErasureProvenance({
+        contact: makeContact({ sourceCandidateId: null }),
+        suppressedCandidateIds: ids('cand-1'),
+      }),
       'weak',
     );
   });
 
-  it('possible_duplicate ⇒ weak', () => {
+  it('metadata.source_candidate_id de OTRO candidato ⇒ weak', () => {
     assert.equal(
-      resolveCandidateContactLinkStrength(
-        makeCandidate({
-          status: 'duplicate',
-          duplicateStatus: 'possible_duplicate',
-          matchedBy: 'email',
-          createdContactId: null,
-          matchedContactId: 'contact-x',
-        }),
-      ),
+      resolveContactErasureProvenance({
+        contact: makeContact({ sourceCandidateId: 'cand-ajeno' }),
+        suppressedCandidateIds: ids('cand-1'),
+      }),
       'weak',
     );
   });
 
-  it('FK sin evidencia (ni aprobado ni duplicado exacto) ⇒ weak', () => {
-    assert.equal(
-      resolveCandidateContactLinkStrength(
-        makeCandidate({
-          status: 'pending_review',
-          duplicateStatus: 'unchecked',
-          matchedBy: null,
-          createdContactId: null,
-          matchedContactId: 'contact-x',
+  it('el tipo de fuerza ya no admite un nivel intermedio erase-safe', () => {
+    // Si alguien reintrodujera `strong_duplicate`, esta aserción lo delataría:
+    // el único valor no-weak posible en v1 es `provenance_proven`.
+    const strengths = new Set<string>();
+    for (const sourceCandidateId of ['cand-1', 'cand-ajeno', null]) {
+      strengths.add(
+        resolveContactErasureProvenance({
+          contact: makeContact({ sourceCandidateId }),
+          suppressedCandidateIds: ids('cand-1'),
         }),
-      ),
-      'weak',
-    );
+      );
+    }
+    assert.deepEqual([...strengths].sort(), ['provenance_proven', 'weak']);
   });
 
-  it('aprobado pero el FK apunta a OTRO contacto que el creado ⇒ weak', () => {
-    assert.equal(
-      resolveCandidateContactLinkStrength(
-        makeCandidate({ createdContactId: 'contact-1', matchedContactId: 'contact-otro' }),
-      ),
-      'weak',
+  it('el FK `matched_contacts_id` NO basta por sí solo para borrar', () => {
+    const result = plan(
+      {},
+      {
+        candidates: [makeCandidate({ matchedContactId: 'contact-fk' })],
+        // El contacto existe y está enlazado por el FK, pero no acredita origen.
+        contacts: [makeContact({ id: 'contact-fk', sourceCandidateId: null })],
+      },
     );
+    assert.deepEqual(clearedContactIds(result), []);
+  });
+
+  /**
+   * REGRESIÓN: duplicado EXACTO por email. En v1 esto ya NO borra el contacto.
+   * El candidato se emparejó con un contacto preexistente que este candidato
+   * nunca escribió: su teléfono puede ser anterior al reveal, venir de otro
+   * proveedor o haberlo tecleado una persona. Se limpia el candidato, no el
+   * contacto ajeno.
+   */
+  it('duplicado EXACTO por email ya NO borra el contacto enlazado (cambio v1)', () => {
+    const result = plan(
+      {},
+      {
+        candidates: [
+          makeCandidate({
+            id: 'cand-dup',
+            createdContactId: null,
+            matchedContactId: 'contact-dup',
+          }),
+        ],
+        contacts: [makeContact({ id: 'contact-dup', sourceCandidateId: null })],
+      },
+    );
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(result.plan.contactPatches, []);
+    // El candidato propio sí se limpia: eso nunca estuvo en duda.
+    assert.equal(result.plan.candidatePatches.length, 1);
+  });
+
+  it('duplicado EXACTO por linkedin tampoco borra el contacto enlazado', () => {
+    const result = plan(
+      {},
+      {
+        candidates: [
+          makeCandidate({
+            id: 'cand-dup-li',
+            createdContactId: null,
+            matchedContactId: 'contact-dup-li',
+          }),
+        ],
+        contacts: [makeContact({ id: 'contact-dup-li', sourceCandidateId: null })],
+      },
+    );
+    assert.deepEqual(clearedContactIds(result), []);
   });
 
   /**
    * REGRESIÓN EXIGIDA: "José Pérez" vs "Jose Perez". Candidato Apollo sin email
    * ni LinkedIn cuyo `matched_contacts_id` se fijó por coincidencia SOLO de
-   * nombre (possible_duplicate). Suprimir a la persona del candidato NO puede
-   * borrar el teléfono del contacto X, que puede ser otra persona distinta.
+   * nombre. Suprimir a la persona del candidato NO puede borrar el teléfono del
+   * contacto X, que puede ser otra persona distinta.
    */
-  it('name-only / possible_duplicate NO borra el teléfono del contacto X', () => {
-    const nameOnlyCandidate = makeCandidate({
-      id: 'cand-jose',
-      status: 'duplicate',
-      duplicateStatus: 'possible_duplicate',
-      matchedBy: 'name',
-      createdContactId: null,
-      matchedContactId: 'contact-x',
-    });
+  it('name-only NO borra el teléfono del contacto X', () => {
     const result = plan(
       {},
       {
-        candidates: [nameOnlyCandidate],
+        candidates: [
+          makeCandidate({
+            id: 'cand-jose',
+            createdContactId: null,
+            matchedContactId: 'contact-x',
+          }),
+        ],
         contacts: [
           // Contacto X: mismo nombre normalizado, otra persona. Su
           // metadata.source_candidate_id NO apunta al candidato suprimido.
@@ -553,28 +571,33 @@ describe('CACHE-1b supresión — FIX B1 vínculo de procedencia probable', () =
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.deepEqual(result.plan.contactPatches, []);
-    // El candidato propio sí se limpia: eso nunca estuvo en duda.
     assert.equal(result.plan.candidatePatches.length, 1);
   });
 
-  it('un duplicado exacto por email SÍ borra el contacto enlazado', () => {
+  it('un contacto CREADO desde el candidato SÍ se borra', () => {
     const result = plan(
       {},
       {
-        candidates: [
-          makeCandidate({
-            id: 'cand-dup',
-            status: 'duplicate',
-            duplicateStatus: 'exact_duplicate',
-            matchedBy: 'email',
-            createdContactId: null,
-            matchedContactId: 'contact-dup',
-          }),
-        ],
-        contacts: [makeContact({ id: 'contact-dup', sourceCandidateId: null })],
+        candidates: [makeCandidate({ id: 'cand-1' })],
+        contacts: [makeContact({ id: 'contact-1', sourceCandidateId: 'cand-1' })],
       },
     );
-    assert.deepEqual(clearedContactIds(result), ['contact-dup']);
+    assert.deepEqual(clearedContactIds(result), ['contact-1']);
+    if (!result.ok) return;
+    assert.equal(result.plan.contactPatches[0]?.linkStrength, 'provenance_proven');
+  });
+
+  it('la procedencia debe apuntar a un candidato DE LA MISMA cuenta', () => {
+    // El contacto acredita origen en cand-other, pero ese candidato es de otra
+    // cuenta y por tanto queda fuera del conjunto suprimido.
+    const result = plan(
+      {},
+      {
+        candidates: [makeCandidate({ id: 'cand-other', accountId: ACCOUNT_B })],
+        contacts: [makeContact({ id: 'contact-1', sourceCandidateId: 'cand-other' })],
+      },
+    );
+    assert.deepEqual(clearedContactIds(result), []);
   });
 });
 
@@ -722,11 +745,8 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
       candidatesCleared: 2,
       contactsCleared: 2,
     });
-    for (const strength of row.metadata.contact_link_strengths) {
-      assert.ok(
-        ['provenance_proven', 'strong_duplicate'].includes(strength),
-        `fuerza inesperada: ${strength}`,
-      );
-    }
+    // En v1 la única fuerza que puede aparecer es `provenance_proven`: nada más
+    // llega a `contactPatches` (FIX 1).
+    assert.deepEqual(row.metadata.contact_link_strengths, ['provenance_proven']);
   });
 });

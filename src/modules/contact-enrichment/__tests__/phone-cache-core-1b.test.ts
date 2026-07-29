@@ -22,6 +22,7 @@ import {
   buildRevealPhoneCacheWriteInput,
   computePhoneCacheExpiresAt,
   evaluatePhoneCacheLookup,
+  evaluatePhoneCacheSuppressionState,
   normalizePhoneCacheCountryCode,
   resolvePhoneCacheCountryCode,
   resolvePhoneCachePersonId,
@@ -481,5 +482,43 @@ describe('CACHE-1b — usage-log del cache hit', () => {
       'reveal_phase',
       'ttl_days',
     ]);
+  });
+});
+
+// ── FIX 2: evaluador de supresión (independiente del flag) ──────
+// Este evaluador es el que el reveal consulta SIEMPRE, con
+// ENABLE_APOLLO_PHONE_CACHE encendido o apagado. Su proyección no incluye
+// teléfono: comprobar una supresión no requiere leer el número.
+
+describe('CACHE-1b — FIX 2 evaluación del tombstone', () => {
+  it('sin fila ⇒ not_suppressed (nunca se suprimió)', () => {
+    assert.equal(evaluatePhoneCacheSuppressionState(null), 'not_suppressed');
+  });
+
+  it('fila sin suppressed_at ⇒ not_suppressed', () => {
+    assert.equal(
+      evaluatePhoneCacheSuppressionState({ suppressedAt: null }),
+      'not_suppressed',
+    );
+  });
+
+  it('fila con suppressed_at ⇒ suppressed', () => {
+    assert.equal(
+      evaluatePhoneCacheSuppressionState({ suppressedAt: '2026-07-20T00:00:00.000Z' }),
+      'suppressed',
+    );
+  });
+
+  it('un suppressed_at en blanco no cuenta como supresión', () => {
+    assert.equal(
+      evaluatePhoneCacheSuppressionState({ suppressedAt: '   ' }),
+      'not_suppressed',
+    );
+  });
+
+  it('la proyección del tombstone no puede transportar teléfono', () => {
+    const state = { suppressedAt: '2026-07-20T00:00:00.000Z' };
+    assert.deepEqual(Object.keys(state), ['suppressedAt']);
+    assert.equal(JSON.stringify(state).includes(FAKE_PHONE), false);
   });
 });

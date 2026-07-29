@@ -26,6 +26,8 @@ import {
   PHONE_CACHE_PROVIDER,
   type PhoneCacheEntry,
   type PhoneCacheLookupKey,
+  type PhoneCacheSuppressionLookupKey,
+  type PhoneCacheSuppressionState,
   type PhoneCacheWriteInput,
   type PhoneCacheWriteSkipReason,
 } from './phone-cache-core';
@@ -89,6 +91,44 @@ export async function readPhoneCacheEntry(
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data ? mapCacheEntry(data as Record<string, unknown>) : null;
+}
+
+/**
+ * Lee SOLO el tombstone de (provider, person, account) — FIX 2.
+ *
+ * Se separa de `readPhoneCacheEntry` a propósito y por dos motivos:
+ *   1. el reveal la ejecuta SIEMPRE, también con `ENABLE_APOLLO_PHONE_CACHE`
+ *      apagado, porque un flag de reutilización no puede desactivar el
+ *      cumplimiento de una supresión; y
+ *   2. el SELECT no pide `normalized_phone` ni `phone_type`, así que con el flag
+ *      apagado el reveal comprueba la supresión SIN leer ningún teléfono. La
+ *      promesa "flag OFF = no se reutilizan números" se mantiene literalmente.
+ *
+ * No filtra por país: la unicidad de la tabla es (provider, person, account) y un
+ * tombstone tiene que bloquear a esa persona en esa cuenta aunque el país del
+ * candidato sea otro o no se pueda resolver.
+ *
+ * LANZA si la lectura falla (tabla ausente, timeout, permisos). El core lo trata
+ * como "no verificable" y NO llama a Apollo: degradarlo a "no suprimido" sería
+ * exactamente el fallo que este endurecimiento cierra.
+ */
+export async function readPhoneCacheSuppression(
+  key: PhoneCacheSuppressionLookupKey,
+): Promise<PhoneCacheSuppressionState | null> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from(PHONE_REVEAL_CACHE_TABLE)
+    .select('suppressed_at')
+    .eq('provider', key.provider)
+    .eq('provider_person_id', key.providerPersonId)
+    .eq('account_id', key.accountId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return {
+    suppressedAt:
+      ((data as Record<string, unknown>).suppressed_at as string | null) ?? null,
+  };
 }
 
 // ── Escritura (best-effort) ────────────────────────────────────

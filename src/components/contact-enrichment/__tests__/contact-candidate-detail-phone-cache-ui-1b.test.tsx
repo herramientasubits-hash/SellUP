@@ -356,3 +356,49 @@ describe('CACHE-1b UI — cache_unavailable es un fallo seguro y reintentable', 
     cleanup();
   });
 });
+
+// ── FIX 2: supresión no verificable = fallo seguro ────────────────────────────
+// Este estado se emite con ENABLE_APOLLO_PHONE_CACHE encendido o apagado: el flag
+// gobierna la reutilización, no el cumplimiento de la supresión. La UI tiene que
+// decir que no hubo cargo y que se puede reintentar, sin caer en el genérico.
+
+describe('CACHE-1b UI — suppression_check_unavailable es un fallo seguro', () => {
+  beforeEach(() => {
+    mockReveal.mock.mockImplementation(async () => ({
+      ok: false,
+      status: 'suppression_check_unavailable',
+      requestAccepted: false,
+      errorCode: 'suppression_check_unavailable',
+      servedFromCache: false,
+    }));
+  });
+
+  it('explica que no se pudo verificar la supresión y que no hubo cargo', async () => {
+    await renderSheet(makeCandidate());
+    await clickReveal();
+    await waitFor(() => {
+      if (screen.queryByText(/supresión registrada/) === null) {
+        throw new Error('mensaje de supresión no verificable no renderizado');
+      }
+    });
+    const message = screen.getByText(/supresión registrada/).textContent ?? '';
+    assert.match(message, /no se hizo ningún cargo/i);
+    assert.match(message, /intenta de nuevo/i);
+    assert.equal(screen.queryByText(GENERIC_ERROR), null);
+    cleanup();
+  });
+
+  it('no recarga el candidato ni muestra el aviso de reutilización', async () => {
+    await renderSheet(makeCandidate());
+    const callsBefore = mockGetById.mock.callCount();
+    await clickReveal();
+    await waitFor(() => {
+      if (screen.queryByText(/supresión registrada/) === null) {
+        throw new Error('mensaje de supresión no verificable no renderizado');
+      }
+    });
+    assert.equal(mockGetById.mock.callCount(), callsBefore);
+    assert.equal(screen.queryByText(REUSE_NOTICE), null);
+    cleanup();
+  });
+});

@@ -7,9 +7,13 @@
  * usage-log, store de caché) se inyectan y se capturan en memoria: cero red,
  * cero Supabase, cero llamadas a proveedor.
  *
- * Invariante central que estas pruebas protegen: **un cache hit NUNCA llama a
- * Apollo**, y **con el flag de caché apagado NUNCA se lee ni se escribe caché**,
- * de modo que el camino Apollo previo a este hito queda intacto.
+ * Invariantes centrales que estas pruebas protegen:
+ *   * un cache hit NUNCA llama a Apollo;
+ *   * con el flag de caché apagado NUNCA se reutiliza un teléfono cacheado, de
+ *     modo que el camino Apollo previo a este hito queda intacto; y
+ *   * FIX 2 — la comprobación de SUPRESIÓN corre igualmente con el flag apagado:
+ *     `ENABLE_APOLLO_PHONE_CACHE` gobierna la reutilización, nunca el
+ *     cumplimiento de una supresión ya registrada.
  */
 
 import { describe, it, beforeEach } from 'node:test';
@@ -29,6 +33,7 @@ import type {
   PhoneCacheEntry,
   PhoneCacheHitUsageLogEntry,
   PhoneCacheLookupKey,
+  PhoneCacheSuppressionLookupKey,
 } from '../phone-cache-core';
 import type { MatchPersonParams } from '@/server/integrations/apollo-client';
 
@@ -98,6 +103,8 @@ const VALID_INPUT: RevealCandidatePhoneInput = {
 interface Captured {
   apolloCalls: MatchPersonParams[];
   cacheLookups: PhoneCacheLookupKey[];
+  /** Comprobaciones de supresión (FIX 2): corren con el flag ON y con el flag OFF. */
+  suppressionLookups: PhoneCacheSuppressionLookupKey[];
   cacheHitPatches: RevealCacheHitPersistencePatch[];
   cacheHitLogs: PhoneCacheHitUsageLogEntry[];
   touches: Array<{ entryId: string; usedAt: string }>;
@@ -111,6 +118,7 @@ beforeEach(() => {
   captured = {
     apolloCalls: [],
     cacheLookups: [],
+    suppressionLookups: [],
     cacheHitPatches: [],
     cacheHitLogs: [],
     touches: [],
@@ -149,6 +157,15 @@ function deps(
     logUsage: async (entry) => {
       captured.startLogs.push(entry);
     },
+    // FIX 2: la comprobación de supresión se cablea SIEMPRE, igual que en el
+    // wrapper de producción, y lee la MISMA fila que la caché (misma tabla, misma
+    // clave sin país) — por eso su estado se deriva de `entryInCache`.
+    lookupPhoneCacheSuppression: async (key) => {
+      captured.suppressionLookups.push(key);
+      return entryInCache
+        ? { suppressedAt: entryInCache.suppressedAt ?? null }
+        : null;
+    },
     cacheEnabled: true,
     lookupPhoneCache: async (key) => {
       captured.cacheLookups.push(key);
@@ -171,7 +188,7 @@ function deps(
 // ── 1. Flag OFF ────────────────────────────────────────────────
 
 describe('CACHE-1b fast path — flag de caché APAGADO', () => {
-  it('no lee caché y sigue el camino Apollo normal', async () => {
+  it('no reutiliza teléfono cacheado y sigue el camino Apollo normal', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       deps({ cacheEnabled: false }),
@@ -183,7 +200,7 @@ describe('CACHE-1b fast path — flag de caché APAGADO', () => {
     assert.equal(captured.apolloCalls.length, 1);
   });
 
-  it('con `cacheEnabled` sin definir tampoco toca la caché', async () => {
+  it('con `cacheEnabled` sin definir tampoco reutiliza caché', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       deps({ cacheEnabled: undefined }),
@@ -567,5 +584,212 @@ describe('CACHE-1b fast path — FIX H4 la caché no está disponible', () => {
     );
     assert.equal(result.status, 'requested');
     assert.equal(captured.apolloCalls.length, 1);
+  });
+});
+
+// ── 7. FIX 2: la supresión NO depende del flag de caché ────────
+// `ENABLE_APOLLO_PHONE_CACHE` decide si se REUTILIZA un teléfono ya pagado. No
+// puede decidir si se respeta una supresión: un tombstone escrito mientras el
+// flag estaba encendido debe seguir bloqueando cuando se apague, o el reveal
+// manual volvería a traer el número que alguien pidió borrar.
+
+describe('CACHE-1b supresión — FIX 2 independiente del flag de caché', () => {
+  const suppressed = cacheEntry({
+    normalizedPhone: null,
+    phoneType: null,
+    suppressedAt: '2026-07-20T00:00:00.000Z',
+  });
+
+  const boomSuppression = async (): Promise<never> => {
+    throw new Error('relation "phone_reveal_cache" does not exist');
+  };
+
+  it('flag OFF + tombstone ⇒ blocked_suppressed y NO se llama a Apollo', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ cacheEnabled: false }, candidate(), suppressed),
+    );
+    assert.equal(result.status, 'blocked_suppressed');
+    assert.equal(result.ok, false);
+    assert.equal(captured.apolloCalls.length, 0);
+    assert.equal(captured.startPatches.length, 0);
+    assert.equal(captured.startLogs.length, 0);
+    // La supresión se comprobó; la caché NO se leyó (flag apagado ⇒ sin reuso).
+    assert.equal(captured.suppressionLookups.length, 1);
+    assert.equal(captured.cacheLookups.length, 0);
+  });
+
+  it('flag ON + tombstone ⇒ blocked_suppressed', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ cacheEnabled: true }, candidate(), suppressed),
+    );
+    assert.equal(result.status, 'blocked_suppressed');
+    assert.equal(captured.apolloCalls.length, 0);
+    assert.equal(captured.cacheHitPatches.length, 0);
+  });
+
+  it('flag OFF + sin tombstone ⇒ reveal Apollo normal', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ cacheEnabled: false }, candidate(), null),
+    );
+    assert.equal(result.status, 'requested');
+    assert.equal(captured.apolloCalls.length, 1);
+    assert.equal(captured.suppressionLookups.length, 1);
+    assert.equal(captured.cacheLookups.length, 0);
+  });
+
+  it('flag OFF NO sirve teléfono aunque exista una entrada viva y no suprimida', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ cacheEnabled: false }, candidate(), cacheEntry()),
+    );
+    assert.equal(result.status, 'requested');
+    assert.equal(captured.cacheHitPatches.length, 0);
+    assert.equal(captured.cacheHitLogs.length, 0);
+    assert.equal(captured.apolloCalls.length, 1);
+    assert.equal(JSON.stringify(result).includes(FAKE_PHONE), false);
+  });
+
+  it('flag OFF + fallo de la comprobación ⇒ no Apollo, error seguro', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ cacheEnabled: false, lookupPhoneCacheSuppression: boomSuppression }),
+    );
+    assert.equal(result.status, 'suppression_check_unavailable');
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCode, 'suppression_check_unavailable');
+    assert.equal(captured.apolloCalls.length, 0);
+    assert.equal(captured.startPatches.length, 0);
+    assert.equal(captured.startLogs.length, 0);
+  });
+
+  it('flag ON + fallo de la comprobación ⇒ tampoco Apollo', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ cacheEnabled: true, lookupPhoneCacheSuppression: boomSuppression }),
+    );
+    assert.equal(result.status, 'suppression_check_unavailable');
+    assert.equal(captured.apolloCalls.length, 0);
+    assert.equal(captured.cacheHitPatches.length, 0);
+  });
+
+  it('dep de supresión NO cableada ⇒ fail-closed, sin Apollo', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ cacheEnabled: false, lookupPhoneCacheSuppression: undefined }),
+    );
+    assert.equal(result.status, 'suppression_check_unavailable');
+    assert.equal(captured.apolloCalls.length, 0);
+  });
+
+  it('el aviso del fallo no contiene PII', async () => {
+    const notified: string[] = [];
+    await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({
+        cacheEnabled: false,
+        lookupPhoneCacheSuppression: boomSuppression,
+        onSuppressionCheckUnavailable: (message) => notified.push(message),
+      }),
+    );
+    assert.equal(notified.length, 1);
+    const message = notified[0] ?? '';
+    for (const banned of [FAKE_PHONE, PERSON_ID, 'contacto@empresa-ejemplo.test', 'Apellido']) {
+      assert.equal(message.includes(banned), false, `el log no debe incluir ${banned}`);
+    }
+  });
+
+  it('sin notificador cableado tampoco lanza', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({
+        cacheEnabled: false,
+        lookupPhoneCacheSuppression: boomSuppression,
+        onSuppressionCheckUnavailable: undefined,
+      }),
+    );
+    assert.equal(result.status, 'suppression_check_unavailable');
+    assert.equal(captured.apolloCalls.length, 0);
+  });
+
+  it('la clave del tombstone NO lleva país (bloquea aunque el país cambie)', async () => {
+    await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ cacheEnabled: false }, candidate(), null),
+    );
+    assert.deepEqual(captured.suppressionLookups[0], {
+      provider: 'apollo',
+      providerPersonId: PERSON_ID,
+      accountId: ACCOUNT_A,
+    });
+  });
+
+  it('PAÍS DESCONOCIDO no esquiva el tombstone (el país no entra en la clave)', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps(
+        { cacheEnabled: true },
+        candidate({ candidateCountry: 'Colombia', runCompanyCountryCode: null }),
+        suppressed,
+      ),
+    );
+    assert.equal(result.status, 'blocked_suppressed');
+    assert.equal(captured.apolloCalls.length, 0);
+    // La caché no se consultó (país desconocido ⇒ sin reuso), la supresión sí.
+    assert.equal(captured.cacheLookups.length, 0);
+    assert.equal(captured.suppressionLookups.length, 1);
+  });
+
+  it('OTRO PAÍS tampoco esquiva el tombstone', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps(
+        { cacheEnabled: true },
+        candidate({ candidateCountry: 'MX', runCompanyCountryCode: 'MX' }),
+        suppressed,
+      ),
+    );
+    assert.equal(result.status, 'blocked_suppressed');
+    assert.equal(captured.apolloCalls.length, 0);
+  });
+
+  it('los gates previos siguen ganando: rol no autorizado ni comprueba supresión', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({
+        cacheEnabled: false,
+        actor: { internalUserId: 'user-bd', roleKey: 'seller_bd' },
+      }),
+    );
+    assert.equal(result.status, 'unauthorized_role');
+    assert.equal(captured.suppressionLookups.length, 0);
+  });
+
+  it('sin Apollo person id no hay tombstone posible: reveal normal', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps(
+        { cacheEnabled: false },
+        candidate({
+          apolloPersonId: LUSHA_ID,
+          source: 'lusha',
+          sourceContactId: LUSHA_ID,
+        }),
+      ),
+    );
+    assert.equal(result.status, 'requested');
+    assert.equal(captured.suppressionLookups.length, 0);
+    assert.equal(captured.apolloCalls.length, 1);
+  });
+
+  it('sin cuenta no hay alcance de supresión: reveal normal', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ cacheEnabled: false }, candidate({ accountId: null })),
+    );
+    assert.equal(result.status, 'requested');
+    assert.equal(captured.suppressionLookups.length, 0);
   });
 });

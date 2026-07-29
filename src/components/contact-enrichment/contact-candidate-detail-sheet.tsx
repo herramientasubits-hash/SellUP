@@ -462,6 +462,15 @@ export function ContactCandidateDetailSheet({
           'No se puede revelar este teléfono porque existe una supresión registrada.',
         );
         return;
+      // APOLLO-PHONE-CACHE-1b (FIX 2): no se pudo verificar si hay una supresión
+      // registrada, así que NO se llamó a Apollo. Ocurre con el flag de caché
+      // encendido o apagado: el flag gobierna la reutilización, no el
+      // cumplimiento de la supresión. Sin cargo y reintentable.
+      case 'suppression_check_unavailable':
+        setPhoneRevealError(
+          'No fue posible verificar si existe una supresión registrada para este teléfono. No se hizo ningún cargo; intenta de nuevo en unos minutos.',
+        );
+        return;
       // APOLLO-PHONE-CACHE-1b (FIX H4): no se pudo verificar la caché, así que no
       // se llamó a Apollo (podría existir una supresión no vista). Reintentable.
       case 'cache_unavailable':
