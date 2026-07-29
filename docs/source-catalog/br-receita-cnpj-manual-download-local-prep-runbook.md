@@ -533,6 +533,21 @@ dry-run, import, Supabase write, migration, runtime, or Agent 1 integration. See
 
 ---
 
+### 11.6. Full join dry-run technical design (BR-SOURCE-10J)
+
+BR-SOURCE-10J lowers the BR-SOURCE-10I readiness **contract** into a **docs-only technical
+design** for a future full local join dry-run: the conceptual execution model, the architecture
+options reviewed (in-memory / streaming two-pass / temporary discardable index, with a
+conservative streaming-first recommendation), the temporary storage envelope, join-key handling,
+field discard timing, the failure cleanup contract, resource limits, and the future CLI and
+aggregate report contracts — plus a mapping of GATE-1 … GATE-8 to concrete technical decisions.
+There is **no new runner and no new command** for it; the future CLI shape it documents does not
+exist and is not created. It **decides no identity grain** and authorizes **no** dry-run, import,
+Supabase write, migration, runtime, or Agent 1 integration. See design
+[`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md).
+
+---
+
 ## 12. Expected safe outputs
 
 Both runners emit only a **sanitized report**:
@@ -621,4 +636,5 @@ Completing this runbook does **not** authorize:
 | **BR-SOURCE-10G** | Company↔establishment bounded **join dry-run** (§ 11.3): associates establishments to company context by a structural, in-memory-only join id; aggregate join metrics, no rows, no values, no join keys. | Bounded sample only; establishments stay non-importable; authorizes no import. |
 | **BR-SOURCE-10H** | Bounded join **coverage strategy** (§ 11.4): adds `establishment_keys_then_company_probe`; `coverage_is_representative` always false. | Bounded coverage probe only; authorizes no import. |
 | **BR-SOURCE-10I** | Full join **import-readiness design** (docs-only): defines the conditions, envelope, join-key treatment, field survival contract, identity-grain decision gate, and required future gates for a future full local join. | Docs-only; decides no identity grain; authorizes no dry-run, import, Supabase write, runtime, or Agent 1. |
-| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + join dry-run (10G) + coverage strategy (10H) + full-join readiness design (10I) + explicit approval first. |
+| **BR-SOURCE-10J** | Full join **dry-run technical design** (§ 11.6, docs-only): lowers the 10I contract into a future execution model, architecture options, temporary storage envelope, join-key handling, field discard timing, cleanup contract, resource limits, and future CLI/report contracts. | Docs-only; no runner, no command; decides no identity grain; authorizes no dry-run, import, Supabase write, runtime, or Agent 1. |
+| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + join dry-run (10G) + coverage strategy (10H) + full-join readiness design (10I) + full-join dry-run technical design (10J) + explicit approval first. |

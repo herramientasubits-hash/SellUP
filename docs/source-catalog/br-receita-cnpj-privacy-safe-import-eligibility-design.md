@@ -515,6 +515,29 @@ runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation al
 
 ---
 
+## 10.6. Full join dry-run technical design (BR-SOURCE-10J)
+
+BR-SOURCE-10J lowers the BR-SOURCE-10I readiness **contract** into a docs-only **technical
+design** for a future full local join dry-run: a conceptual execution model, the architecture
+options reviewed (in-memory / streaming two-pass / temporary discardable index, with a
+conservative streaming-first recommendation), the temporary storage envelope, join-key handling,
+field discard timing, the failure cleanup contract, resource limits, and the future CLI and
+aggregate report contracts, plus a mapping of GATE-1 … GATE-8 to concrete technical decisions.
+
+It restates and never widens the field survival and eligibility rules in this design (§ 4–§ 8):
+a single natural-person / PII signal on either side of a join makes the whole joined record
+ineligible, the join key is technical-only and never printed / returned / hashed / persisted, and
+the only output is aggregated counts. It **decides no identity grain**, adds **no runner and no
+command**, and authorizes **no** dry-run, import, Supabase write, migration, runtime, or Agent 1
+integration. See
+[`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md).
+
+**What stays blocked (unchanged).** Import, production import, Supabase writes, migrations,
+runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation all remain
+**blocked**.
+
+---
+
 ## 11. Open legal / privacy questions
 
 These decisions are **unresolved** and block a privacy-safe import implementation. Each
@@ -554,7 +577,10 @@ OPS_BR_COMPANY_ESTABLISHMENT_JOIN_DRY_RUN_PR_READY = true   (BR-SOURCE-10G — b
 OPS_BR_COMPANY_ESTABLISHMENT_JOIN_DRY_RUN_OFFICIAL = false  (not an operational authorization)
 
 OPS_BR_FULL_JOIN_IMPORT_READINESS_DESIGN_PR_READY = true    (BR-SOURCE-10I — full join readiness design opened as a docs-only PR)
-OPS_BR_FULL_JOIN_IMPORT_READINESS_DESIGN_OFFICIAL = false   (not an operational authorization)
+OPS_BR_FULL_JOIN_IMPORT_READINESS_DESIGN_OFFICIAL = true    (BR-SOURCE-10I merged; official design of record)
+
+OPS_BR_FULL_JOIN_DRY_RUN_TECHNICAL_DESIGN_PR_READY = true   (BR-SOURCE-10J — full join dry-run technical design opened as a docs-only PR)
+OPS_BR_FULL_JOIN_DRY_RUN_TECHNICAL_DESIGN_OFFICIAL = false  (not an operational authorization)
 
 OPS_BR_READY_FOR_IMPORT             = false
 OPS_BR_READY_FOR_PRODUCTION_IMPORT  = false

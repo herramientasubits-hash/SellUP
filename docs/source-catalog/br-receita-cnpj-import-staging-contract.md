@@ -444,6 +444,16 @@ BR-SOURCE-6 should still perform **no Supabase writes** unless explicitly author
 > [`br-receita-cnpj-full-join-import-readiness-design.md`](./br-receita-cnpj-full-join-import-readiness-design.md).
 > That design **decides no grain** and authorizes **no** dry-run, import, Supabase write,
 > migration, runtime, or Agent 1 integration.
+>
+> **Full join dry-run technical design (BR-SOURCE-10J).** The 10I contract has since been lowered
+> into a docs-only **technical design** —
+> [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md)
+> — covering a future execution model, architecture options, temporary storage envelope, join-key
+> handling, field discard timing, cleanup contract, resource limits, and future CLI/report
+> contracts. The still-open **record-identity grain decision** it maps to GATE-4 must be
+> reconciled against the § 4 grain and the § 11 physical-index reconciliation here. 10J adds **no
+> runner and no command**, **decides no grain**, and authorizes **no** dry-run, import, Supabase
+> write, migration, runtime, or Agent 1 integration.
 
 ---
 
