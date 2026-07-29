@@ -373,6 +373,10 @@ const CACHE_MODULES = [
   'src/modules/contact-enrichment/phone-cache-store.ts',
   'src/modules/contact-enrichment/phone-cache-suppression-core.ts',
   'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
+  // FIX 5 — monitoreo de las supresiones no evaluables. Entra aquí para heredar
+  // los tres guards de este bloque: sin Lusha, sin bulk y sin PII en console.
+  'src/modules/contact-enrichment/phone-suppression-monitoring-core.ts',
+  'src/modules/contact-enrichment/phone-suppression-monitoring-queries.ts',
 ];
 
 describe('CACHE-1b — sin Lusha', () => {

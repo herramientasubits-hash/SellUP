@@ -63,6 +63,27 @@ export type PhoneSuppressionNotEvaluableState = Extract<
 >;
 
 /**
+ * Índice exhaustivo de los estados "no evaluable". Es un `Record` sobre la unión
+ * a propósito: si mañana se añade otro motivo `not_evaluable_*` al tipo, `tsc`
+ * falla aquí hasta que se registre, así que la lista de abajo NO puede quedarse
+ * corta en silencio (y con ella, ni el filtro de la consulta de monitoreo ni el
+ * desglose por estado).
+ */
+const NOT_EVALUABLE_STATE_INDEX: Record<PhoneSuppressionNotEvaluableState, true> = {
+  not_evaluable_missing_provider_person_id: true,
+  not_evaluable_missing_account_id: true,
+};
+
+/**
+ * Los estados `not_evaluable_*`, como lista. Único origen para filtrar
+ * `provider_usage_logs` y para desglosar el resumen de monitoreo (FIX 5): así la
+ * consulta usa una allowlist cerrada en vez de un `LIKE 'not_evaluable%'`.
+ */
+export const PHONE_SUPPRESSION_NOT_EVALUABLE_STATES = Object.keys(
+  NOT_EVALUABLE_STATE_INDEX,
+) as readonly PhoneSuppressionNotEvaluableState[];
+
+/**
  * Evento de auditoría. Forma CERRADA: estas cinco claves y ninguna más. Usan
  * snake_case porque es el vocabulario de `provider_usage_logs` (`candidate_id`,
  * `account_id`, `suppression_state`), donde ya viven las etiquetas de supresión
