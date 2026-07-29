@@ -9,10 +9,14 @@
  *
  * This runs the REAL agent function and proves at runtime that:
  *   - flag OFF blocks the direct Apollo call (non-CO/CL countries)
- *   - flag OFF blocks the Colombia RUES→Apollo fallback
  *   - flag OFF logs NO provider usage and estimates NO credits for a call that
  *     never happened, and creates no phantom apollo_company_search step
  *   - flag ON preserves the existing behaviour (Apollo called exactly once)
+ *   - Colombia and Chile never reach Apollo at all, with the flag on or off
+ *
+ * Module mocks use RELATIVE specifiers, not `@/` aliases: under the ESM loader
+ * hooks used on CI, `mock.module('@/lib/…')` resolves relative to THIS file
+ * (`__tests__/@/lib/…`) and throws ERR_MODULE_NOT_FOUND, cancelling the suite.
  *
  * Why a local PostgREST stub instead of mocking @supabase/supabase-js: under
  * tsx's CJS transform, `mock.module` does not intercept that package (the mock
@@ -28,6 +32,26 @@
 import { describe, it, beforeEach, before, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+
+// ── WebSocket shim (Node 20 / CI) ─────────────────────────────────────────────
+// supabase-js builds a RealtimeClient inside createClient() and throws
+// "Node.js 20 detected without native WebSocket support" when `WebSocket` is
+// absent — Node 22+ has it natively, Node 20 (the CI runtime) does not. Nothing in
+// this suite uses Realtime; only PostgREST over HTTP. This stub exists solely to
+// satisfy that constructor check, and would throw loudly if anything actually
+// tried to open a socket.
+if (typeof (globalThis as { WebSocket?: unknown }).WebSocket === 'undefined') {
+  class WebSocketNotSupportedInTests {
+    constructor() {
+      throw new Error('Realtime WebSocket is not available in this test suite');
+    }
+  }
+  Object.defineProperty(globalThis, 'WebSocket', {
+    value: WebSocketNotSupportedInTests,
+    writable: true,
+    configurable: true,
+  });
+}
 
 // ── Spend + write spies ───────────────────────────────────────────────────────
 
@@ -117,11 +141,11 @@ before(async () => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = `http://127.0.0.1:${port}`;
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
 
-  mock.module('@/lib/feature-flags.server', {
+  mock.module('../../../lib/feature-flags.server', {
     namedExports: { isApolloCompanySearchEnabled: () => apolloFlagOn },
   });
 
-  mock.module('@/server/integrations/apollo-client', {
+  mock.module('../../integrations/apollo-client', {
     namedExports: {
       searchApolloOrganizations: async (params: unknown) => {
         apolloSearchCalls.push(params);
@@ -130,13 +154,13 @@ before(async () => {
     },
   });
 
-  mock.module('@/server/integrations/hubspot-company-search', {
+  mock.module('../../integrations/hubspot-company-search', {
     namedExports: {
       checkHubSpotCompanyDuplicate: async () => ({ hasDuplicate: false, skipped: true }),
     },
   });
 
-  mock.module('@/modules/usage-tracking/logging', {
+  mock.module('../../../modules/usage-tracking/logging', {
     namedExports: {
       createAgentRun: async () => ({ id: 'run-1' }),
       updateAgentRun: async (_id: string, patch: Record<string, unknown>) => {
@@ -154,7 +178,7 @@ before(async () => {
     },
   });
 
-  mock.module('@/server/source-catalog/run-source-discovery', {
+  mock.module('../../source-catalog/run-source-discovery', {
     namedExports: {
       runSourceDiscovery: async () => {
         if (ruesShouldThrow) throw new Error('RUES unavailable');

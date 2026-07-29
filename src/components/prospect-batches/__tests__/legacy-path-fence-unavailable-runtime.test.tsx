@@ -67,10 +67,14 @@ let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 // Any call to these is a fence breach, so they are counted rather than stubbed
 // silently. The boundary mock also keeps the server-only imports of actions.ts
 // (supabase/server, next/cache) out of the test process.
+//
+// The specifier is RELATIVE, not a `@/` alias: under the ESM loader hooks used on
+// CI, `mock.module('@/modules/…')` resolves relative to THIS file
+// (`__tests__/@/modules/…`) and throws ERR_MODULE_NOT_FOUND before any test runs.
 let generateCalls = 0;
 let refreshCalls = 0;
 
-mock.module('@/modules/prospect-batches/actions', {
+mock.module('../../../modules/prospect-batches/actions', {
   namedExports: {
     generateAIProspectBatch: async () => {
       generateCalls++;
