@@ -433,6 +433,53 @@ describe('CACHE-1b — los módulos de caché no imprimen PII', () => {
   });
 });
 
+// ── FIX B2: la acción crea el tombstone cuando no había fila ────
+// El core construye la fila; lo que solo se puede comprobar en la acción es el
+// cableado: que el upsert se ejecute cuando el UPDATE no tocó nada, y que su
+// clave de conflicto sea EXACTAMENTE la única de la migración 099 (si divergen,
+// una DSAR sobre caché vacía fallaría en runtime en vez de bloquear).
+
+describe('CACHE-1b — FIX B2 tombstone insertado por la acción', () => {
+  const suppression = readRepo(
+    'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
+  );
+  const ONCONFLICT = 'provider,provider_person_id,account_id';
+
+  it('inserta la fila de tombstone que construyó el core', () => {
+    assert.match(suppression, /\.upsert\(tombstone\.tombstoneInsertRow,/);
+  });
+
+  it('solo inserta cuando el UPDATE del tombstone no tocó ninguna fila', () => {
+    const guardAt = suppression.search(/if \(cacheEntriesSuppressed === 0\) \{/);
+    const upsertAt = suppression.search(/\.upsert\(tombstone\.tombstoneInsertRow,/);
+    assert.notEqual(guardAt, -1, 'falta el guard de "no había fila de caché"');
+    assert.ok(guardAt < upsertAt, 'el upsert debe estar dentro del guard');
+  });
+
+  it('la clave de conflicto coincide con la única de la migración 099', () => {
+    assert.match(suppression, new RegExp(`onConflict:\\s*'${ONCONFLICT}'`));
+    const sql = stripSqlComments(readRepo(MIGRATION_REL));
+    const unique = sql.match(
+      /CREATE UNIQUE INDEX[\s\S]*?ON public\.phone_reveal_cache\s*\(([^)]*)\)/,
+    );
+    assert.ok(unique, 'no se encontró el índice único de la caché');
+    const columns = unique[1]
+      .split(',')
+      .map((c) => c.trim())
+      .join(',');
+    assert.equal(columns, ONCONFLICT);
+  });
+
+  it('tombstoneCreated se deriva de lo que la DB reportó, no del plan', () => {
+    assert.match(suppression, /tombstoneCreated = cacheEntriesSuppressed > 0/);
+  });
+
+  it('un fallo al insertar el tombstone no se reporta como éxito', () => {
+    assert.match(suppression, /suppression tombstone insert failed/);
+    assert.match(suppression, /return failed\('cache_tombstone_failed'\)/);
+  });
+});
+
 // ── FIX M4: sin filtro JSON path no probado ────────────────────
 
 describe('CACHE-1b — FIX M4 descubrimiento de contactos sin filtro JSON', () => {
@@ -483,6 +530,66 @@ describe('CACHE-1b — FIX M4 descubrimiento de contactos sin filtro JSON', () =
     assert.match(suppression, /suppression contact read failed/);
     assert.equal(/throw new Error\(candidateError\.message\)/.test(suppression), false);
     assert.equal(/throw new Error\(contactError\.message\)/.test(suppression), false);
+  });
+});
+
+// ── FIX H3: la auditoría durable se intenta SIEMPRE y su fallo no rompe ──
+// El contrato de la fila (hash, motivo, conteos, sin PII) está probado en
+// phone-cache-suppression-1b.test.ts sobre el core puro. Lo que solo se puede
+// comprobar en la acción es la DURABILIDAD: que se inserte en la tabla, que se
+// intente incluso tras un fallo parcial, y que un error de auditoría no lance.
+
+describe('CACHE-1b — FIX H3 auditoría durable en la acción', () => {
+  const suppression = readRepo(
+    'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
+  );
+
+  it('la auditoría se INSERTA en la tabla durable, no solo se imprime', () => {
+    assert.match(
+      suppression,
+      /\.from\(PHONE_CACHE_SUPPRESSION_AUDIT_TABLE\)\s*\n?\s*\.insert\(auditRow\)/,
+    );
+    // El nombre de la tabla viene del core, nunca de un literal suelto.
+    assert.equal(
+      suppression.includes(`'${PHONE_CACHE_SUPPRESSION_AUDIT_TABLE}'`),
+      false,
+      'la tabla de auditoría debe referenciarse por la constante del core',
+    );
+  });
+
+  it('la supresión no deja console.info como única evidencia DSAR', () => {
+    assert.equal(/console\.info/.test(suppression), false);
+  });
+
+  it('los conteos auditados son los reales, no las longitudes del plan', () => {
+    const call = suppression.match(
+      /buildPhoneCacheSuppressionAuditRow\(\{([\s\S]*?)\}\);/,
+    );
+    assert.ok(call, 'no se encontró la construcción de la fila de auditoría');
+    assert.match(call[1], /candidatesCleared,/);
+    assert.match(call[1], /contactsCleared,/);
+    assert.match(call[1], /hashProviderPersonId\(tombstone\.providerPersonId\)/);
+    // Nunca `plan.candidatePatches.length` / `plan.contactPatches.length`.
+    assert.equal(/PatchesableLength|Patches\.length/.test(call[1]), false);
+  });
+
+  it('la auditoría se intenta también tras un fallo parcial (sin return previo)', () => {
+    const clearsAt = suppression.search(/suppression contact clear failed/);
+    const auditAt = suppression.search(/buildPhoneCacheSuppressionAuditRow\(\{/);
+    assert.notEqual(clearsAt, -1);
+    assert.notEqual(auditAt, -1);
+    assert.ok(clearsAt < auditAt, 'la auditoría debe ir después de los borrados');
+    // Entre el último borrado y la auditoría no puede haber un `return`: si lo
+    // hubiera, una supresión parcial se quedaría sin constancia.
+    const between = suppression.slice(clearsAt, auditAt);
+    assert.equal(/\n\s*return /.test(between), false);
+  });
+
+  it('un fallo de auditoría no lanza: se reporta como audit_write_failed', () => {
+    assert.match(suppression, /suppression audit write failed/);
+    assert.match(suppression, /auditPersisted = false/);
+    assert.match(suppression, /'audit_write_failed'/);
+    assert.equal(/throw new Error\(auditError\.message\)/.test(suppression), false);
   });
 });
 
