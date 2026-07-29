@@ -16,7 +16,10 @@ import {
 import { ExploratorySearchFormV2 } from '@/components/prospect-batches/exploratory-search-form-v2';
 import { ProspectChatWizard } from '@/components/prospect-batches/chat-wizard';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
-import type { GenerateProspectsExperience } from '@/components/prospect-batches/generate-ai-batch-experience';
+import type {
+  GenerateProspectsExperience,
+  GenerateProspectsUnavailableKind,
+} from '@/components/prospect-batches/generate-ai-batch-experience';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
@@ -207,9 +210,28 @@ function getAutoSources(countryCode: string) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+/**
+ * A1-LEGACY-PATH-FENCE-1 (P0): `legacy` is no longer part of
+ * `GenerateProspectsExperience`, so no resolver output can select the legacy
+ * Apollo form. It survives here as an explicit opt-in value — nothing in the
+ * normal degradation path passes it, and the default is `unavailable`, not
+ * `legacy`. Keeping the form body reachable only through a deliberate prop lets
+ * the existing legacy tests and the admin-gated capability keep compiling while
+ * the implicit route stays closed.
+ */
+export type GenerateAIBatchDrawerExperience =
+  | GenerateProspectsExperience
+  | 'legacy';
+
 type GenerateAIBatchDrawerProps = {
-  /** Resolved server-side experience key. Defaults to 'legacy'. */
-  experience?: GenerateProspectsExperience;
+  /**
+   * Resolved server-side experience key. Defaults to 'unavailable' (fail-closed):
+   * a caller that forgets to pass an experience gets the safe explanatory state,
+   * never a billable legacy CTA.
+   */
+  experience?: GenerateAIBatchDrawerExperience;
+  /** Which explanatory state to render when experience is 'unavailable'. */
+  unavailableKind?: GenerateProspectsUnavailableKind | null;
   /** Required when experience is 'exploratory_form_v2' or 'chat_wizard'. */
   catalog?: ActiveIndustryCatalog | null;
   /** When true, the chat wizard will show the real generation CTA. Default false. */
@@ -224,7 +246,7 @@ type GenerateAIBatchDrawerProps = {
   lushaPreviewEnabled?: boolean;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, executionEnabled = false, lushaPreviewEnabled = false }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
@@ -392,6 +414,74 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
     }
   }, [showPreflightResult, drawer.generating, progressSteps.length]);
 
+  // ── Unavailable experience (A1-LEGACY-PATH-FENCE-1, P0) ─────────────────────
+  // Fail-closed UI. Previously each of these conditions rendered the legacy
+  // Apollo form with the same "Generar con IA" CTA, so a user could not tell a
+  // working search from a broken one — and clicking it spent up to 25 Apollo
+  // credits. There is deliberately NO execution CTA on this branch: no legacy
+  // form, no call to generateAIProspectBatch, no provider, no batch, no credits.
+  //
+  // It also covers the defensive case below: an experience that needs a catalog
+  // but was handed a null one renders THIS state rather than falling through to
+  // the legacy form, so "catalog missing" can never reach a billable CTA by any
+  // route.
+  function renderUnavailable(kind: GenerateProspectsUnavailableKind) {
+    const message =
+      kind === 'wizard_disabled'
+        ? 'La búsqueda de empresas no está disponible temporalmente.'
+        : kind === 'catalog_needs_admin'
+          ? 'La configuración de industrias no está disponible. Contacta a un administrador.'
+          : 'No pudimos cargar la configuración de búsqueda. Intenta nuevamente.';
+
+    return (
+      <DrawerShell
+        open={drawer.open}
+        onOpenChange={(v) => !v && handleClose()}
+        trigger={
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 text-xs"
+            onClick={() => updateDrawer('open', true)}
+          >
+            <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
+            Búsqueda no disponible
+          </Button>
+        }
+        title="Búsqueda de empresas no disponible"
+        description="La generación de empresas candidatas no puede ejecutarse en este momento."
+        icon={<AlertCircle className="h-4 w-4 text-muted-foreground" />}
+        size="xl"
+      >
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{message}</AlertDescription>
+        </Alert>
+
+        {/* Retry is offered ONLY for a transient catalog read failure. It reloads
+            the server component so the catalog query runs again — it does not
+            execute discovery, call any provider, create a batch or reserve
+            credits. */}
+        {kind === 'catalog_retryable' ? (
+          <div className="mt-4 flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 text-xs"
+              onClick={() => router.refresh()}
+            >
+              Intentar de nuevo
+            </Button>
+          </div>
+        ) : null}
+      </DrawerShell>
+    );
+  }
+
+  if (experience === 'unavailable') {
+    return renderUnavailable(unavailableKind ?? 'wizard_disabled');
+  }
+
   // Chat wizard experience
   if (experience === 'chat_wizard' && catalog) {
     return (
@@ -437,6 +527,15 @@ export function GenerateAIBatchDrawer({ experience = 'legacy', catalog = null, e
         <ExploratorySearchFormV2 catalog={catalog} onClose={handleClose} />
       </DrawerShell>
     );
+  }
+
+  // A1-LEGACY-PATH-FENCE-1 (P0): everything below renders the legacy Apollo form,
+  // which is now reachable ONLY when a caller opts in explicitly with
+  // experience='legacy'. A catalog-dependent experience that arrived without a
+  // catalog used to fall through to here — the last implicit route to a billable
+  // CTA. It now renders the same fail-closed state as any other missing catalog.
+  if (experience !== 'legacy') {
+    return renderUnavailable('catalog_needs_admin');
   }
 
   return (
