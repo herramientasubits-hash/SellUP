@@ -892,6 +892,20 @@ describe('CACHE-1b — FIX 2 el tombstone se comprueba con el flag apagado', () 
     assert.match(body, /if \(!deps\.lookupPhoneCacheSuppression\)[\s\S]*?return unavailable\(/);
   });
 
+  // FIX H4-c: el catch reenviaba `err.message` en claro al notificador. Postgres
+  // cita los valores de la query en sus errores, así que ese mensaje podía llevar
+  // el providerPersonId (o PII de una fila vecina) hasta el log.
+  it('el fallo de la comprobación se redacta con el redactor compartido (H4-c)', () => {
+    const body = functionBody(
+      revealCore,
+      /async function enforcePhoneRevealSuppression\(/,
+    );
+    assert.match(body, /return unavailable\(redactDriverMessage\(err\)\)/);
+    // Ningún error crudo sobrevive en el bloque de supresión.
+    assert.equal(/err\.message/.test(body), false);
+    assert.equal(/error\.message/.test(body), false);
+  });
+
   it('la acción de supresión sigue sin estar gateada por el flag de caché', () => {
     const suppression = readRepo(
       'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',

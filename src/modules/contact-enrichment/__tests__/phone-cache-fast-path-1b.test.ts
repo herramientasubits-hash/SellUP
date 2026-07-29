@@ -701,6 +701,89 @@ describe('CACHE-1b supresión — FIX 2 independiente del flag de caché', () =>
     }
   });
 
+  /**
+   * FIX H4-c. El caso anterior solo prueba que un mensaje ya inocuo sigue siendo
+   * inocuo. Postgres cita los valores de la query en sus errores de constraint,
+   * así que aquí el driver falla con un mensaje que SÍ lleva PII: el Apollo
+   * person id que se está consultando, un teléfono, un correo y una URL de
+   * LinkedIn. El notificador debe recibirlo redactado.
+   */
+  const piiSuppression = async (): Promise<never> => {
+    throw new Error(
+      'duplicate key value violates unique constraint "phone_reveal_cache_pkey": ' +
+        `Key (provider_person_id, normalized_phone)=(${PERSON_ID}, ${FAKE_PHONE}) ` +
+        'contacto@empresa-ejemplo.test https://www.linkedin.com/in/nombre-apellido-123',
+    );
+  };
+
+  it('un error de driver CON PII llega redactado al notificador (H4-c)', async () => {
+    const notified: string[] = [];
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({
+        cacheEnabled: false,
+        lookupPhoneCacheSuppression: piiSuppression,
+        onSuppressionCheckUnavailable: (message) => notified.push(message),
+      }),
+    );
+
+    assert.equal(notified.length, 1);
+    const message = notified[0] ?? '';
+
+    // Nada de lo sensible sobrevive…
+    for (const banned of [
+      PERSON_ID,
+      FAKE_PHONE,
+      'contacto@empresa-ejemplo.test',
+      'linkedin.com',
+    ]) {
+      assert.equal(
+        message.includes(banned),
+        false,
+        `el aviso de supresión no debe incluir ${banned}`,
+      );
+    }
+    // …y en su lugar quedan los marcadores del redactor compartido.
+    for (const marker of [
+      '[redacted-id]',
+      '[redacted-number]',
+      '[redacted-email]',
+      '[redacted-url]',
+    ]) {
+      assert.equal(message.includes(marker), true, `falta ${marker}`);
+    }
+    // El texto mecánico se conserva: el aviso sigue siendo diagnosticable.
+    assert.match(message, /unique constraint/);
+
+    // Y el fallo sigue siendo fail-closed: 0 Apollo, 0 créditos, 0 escrituras.
+    assert.equal(result.status, 'suppression_check_unavailable');
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCode, 'suppression_check_unavailable');
+    assert.equal(captured.apolloCalls.length, 0);
+    assert.equal(captured.startPatches.length, 0);
+    assert.equal(captured.startLogs.length, 0);
+    assert.equal(captured.cacheHitPatches.length, 0);
+    assert.equal(captured.cacheHitLogs.length, 0);
+    // El resultado devuelto a la UI tampoco lleva el mensaje del driver.
+    assert.equal(JSON.stringify(result).includes(PERSON_ID), false);
+  });
+
+  it('el flag de caché ON no cambia la redacción del fallo (H4-c)', async () => {
+    const notified: string[] = [];
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({
+        cacheEnabled: true,
+        lookupPhoneCacheSuppression: piiSuppression,
+        onSuppressionCheckUnavailable: (message) => notified.push(message),
+      }),
+    );
+    assert.equal(result.status, 'suppression_check_unavailable');
+    assert.equal((notified[0] ?? '').includes(PERSON_ID), false);
+    assert.equal(captured.apolloCalls.length, 0);
+    assert.equal(captured.cacheHitLogs.length, 0);
+  });
+
   it('sin notificador cableado tampoco lanza', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,

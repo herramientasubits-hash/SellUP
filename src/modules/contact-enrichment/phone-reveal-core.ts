@@ -918,7 +918,11 @@ async function enforcePhoneRevealSuppression(args: {
       accountId,
     });
   } catch (err) {
-    return unavailable(err instanceof Error ? err.message : 'unknown error');
+    // FIX H4-c: el mensaje del driver puede citar los valores de la query
+    // (`providerPersonId`, o el teléfono/email de una fila vecina en un error de
+    // constraint). Se redacta con el MISMO redactor que el fast path; el error
+    // crudo nunca sale del core.
+    return unavailable(redactDriverMessage(err));
   }
 
   if (evaluatePhoneCacheSuppressionState(state) === 'suppressed') {
