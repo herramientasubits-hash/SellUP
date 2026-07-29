@@ -36,6 +36,7 @@ import {
   type ApolloPhoneNumber,
   type ClassifiedPhone,
 } from '@/server/agents/contact-enrichment-toolkit/phone-classification';
+import { normalizeApolloPersonId } from '@/server/integrations/apollo-person-id';
 import {
   PHONE_REVEAL_OPERATION_KEY,
   PHONE_REVEAL_PROVIDER,
@@ -71,6 +72,7 @@ export interface ApolloPhoneRevealWebhookPayload {
     phone_numbers?: ApolloWebhookPhoneNumber[] | null;
   } | null;
   people?: Array<{
+    id?: string | null;
     phone_numbers?: ApolloWebhookPhoneNumber[] | null;
   }> | null;
 }
@@ -95,6 +97,13 @@ export interface WebhookRevealPersistencePatch {
   phone_reveal_provider: 'apollo';
   phone_reveal_cost_credits: number | null;
   phone_reveal_error_code: null;
+  /**
+   * Apollo person id VALIDADO (24 hex) del payload (APOLLO-PHONE-CACHE-1a): de
+   * `people[0].id` o `person.id`. null si ausente/inválido/otro proveedor. El
+   * wrapper sólo escribe la columna cuando es truthy (nunca fuerza ni sobrescribe
+   * con null). Id opaco de correlación, NO PII. No cachea ni sirve teléfono.
+   */
+  apollo_person_id?: string | null;
 }
 
 // ── Usage-log terminal (SIN PII) ───────────────────────────────
@@ -235,6 +244,24 @@ export function extractWebhookRequestId(
   );
 }
 
+/**
+ * Extrae el Apollo person id VALIDADO del payload (APOLLO-PHONE-CACHE-1a). Mira
+ * `people[0].id` primero (variante multi-persona) y luego `person.id`. Devuelve
+ * sólo un id Apollo real (24 hex); descarta vacíos, inválidos y de otros
+ * proveedores (p.ej. Lusha `v1.*`). null si no hay ninguno válido. Es un id
+ * opaco de correlación, NO PII: nunca teléfono/email/nombre/linkedin.
+ */
+export function extractWebhookPersonId(
+  payload: ApolloPhoneRevealWebhookPayload | null,
+): string | null {
+  if (!payload) return null;
+  const fromPeople =
+    Array.isArray(payload.people) && payload.people.length > 0
+      ? normalizeApolloPersonId(payload.people[0]?.id)
+      : null;
+  return fromPeople ?? normalizeApolloPersonId(payload.person?.id);
+}
+
 /** Reúne los teléfonos del payload sin importar dónde vengan anidados. */
 export function collectWebhookPhoneNumbers(
   payload: ApolloPhoneRevealWebhookPayload | null,
@@ -338,6 +365,10 @@ export async function runApolloPhoneRevealWebhook(
   const rawPhones = collectWebhookPhoneNumbers(input.payload);
   const credits = sumWebhookCredits(rawPhones);
   const best = pickBestApolloPhone(rawPhones.map(webhookPhoneToApolloPhone));
+  // Apollo person id (APOLLO-PHONE-CACHE-1a): se captura si el payload lo trae
+  // válido; el wrapper sólo escribe la columna cuando es truthy (no la fuerza en
+  // no_phone_found ni sobrescribe con null). Prerrequisito, no caché.
+  const apolloPersonId = extractWebhookPersonId(input.payload);
 
   // 6a. Con teléfono → revealed + apollo_reveal, conserva créditos reales.
   if (best) {
@@ -360,6 +391,7 @@ export async function runApolloPhoneRevealWebhook(
       phone_reveal_provider: PHONE_REVEAL_PROVIDER,
       phone_reveal_cost_credits: credits,
       phone_reveal_error_code: null,
+      apollo_person_id: apolloPersonId,
     };
     await deps.persist(candidate.id, patch);
     await deps.logUsage({
@@ -384,7 +416,9 @@ export async function runApolloPhoneRevealWebhook(
     return { httpStatus: 200, outcome: 'revealed' };
   }
 
-  // 6b. Sin teléfono → no_phone_found, no inventa dato, conserva créditos.
+  // 6b. Sin teléfono → no_phone_found, no inventa dato, conserva créditos. El
+  //     apollo_person_id sólo se propaga si el payload lo trae válido (null si no
+  //     existe: el wrapper NO fuerza ni sobrescribe). No escribe caché.
   const patch: WebhookRevealPersistencePatch = {
     phone_reveal_status: 'no_phone_found',
     phone_reveal_completed_at: deps.nowIso,
@@ -392,6 +426,7 @@ export async function runApolloPhoneRevealWebhook(
     phone_reveal_provider: PHONE_REVEAL_PROVIDER,
     phone_reveal_cost_credits: credits,
     phone_reveal_error_code: null,
+    apollo_person_id: apolloPersonId,
   };
   await deps.persist(candidate.id, patch);
   await deps.logUsage({

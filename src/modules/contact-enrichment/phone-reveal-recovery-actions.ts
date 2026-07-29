@@ -224,6 +224,12 @@ function buildRecoveryCoreDeps(actorUserId: string | null): RecoverApolloPhoneRe
       if (patch.phone_processing_basis !== undefined) {
         update.phone_processing_basis = patch.phone_processing_basis;
       }
+      // Apollo person id (APOLLO-PHONE-CACHE-1a): sólo se escribe cuando el core
+      // extrajo un id Apollo válido del payload recuperado. Nunca fuerza ni
+      // sobrescribe con null/inválido.
+      if (patch.apollo_person_id) {
+        update.apollo_person_id = patch.apollo_person_id;
+      }
       const { error } = await admin
         .from('contact_enrichment_candidates')
         .update(update)

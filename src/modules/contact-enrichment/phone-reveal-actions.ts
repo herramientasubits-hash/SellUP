@@ -268,6 +268,11 @@ export async function revealCandidatePhoneAction(
         phone_processing_basis: patch.phone_processing_basis,
         phone_processing_basis_note: patch.phone_processing_basis_note,
       };
+      // Apollo person id (APOLLO-PHONE-CACHE-1a): sólo se escribe cuando el core
+      // resolvió un id Apollo válido. Nunca sobrescribe uno previo con null/inválido.
+      if (patch.apollo_person_id) {
+        update.apollo_person_id = patch.apollo_person_id;
+      }
       const { error } = await admin
         .from('contact_enrichment_candidates')
         .update(update)
