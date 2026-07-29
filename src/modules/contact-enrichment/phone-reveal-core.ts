@@ -41,6 +41,7 @@ import {
 } from '@/server/agents/contact-enrichment-toolkit/apollo-phone-reveal';
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 import { normalizeRevealSourceProvider } from '@/server/agents/contact-enrichment-toolkit/apollo-phone-reveal';
+import { normalizeApolloPersonId } from '@/server/integrations/apollo-person-id';
 import type {
   ContactCandidateEnrichmentMetadata,
   ContactCandidatePhoneMetadata,
@@ -201,6 +202,15 @@ export interface RevealStartPersistencePatch {
   phone_reveal_attempt_count: number;
   phone_processing_basis: PhoneProcessingBasis;
   phone_processing_basis_note: string | null;
+  /**
+   * Apollo person id VALIDADO (24 hex) resuelto en el START (APOLLO-PHONE-CACHE-1a):
+   * de la traza (`trace.apollo_person_id`) o, como fallback, del
+   * `source_contact_id` SÓLO cuando el candidato es origen Apollo. null si no se
+   * pudo resolver un id Apollo válido (ausente / inválido / Lusha `v1.*`). El
+   * wrapper NUNCA sobrescribe un valor existente con null/inválido (sólo escribe
+   * cuando es truthy). Id opaco de correlación, NO PII.
+   */
+  apollo_person_id: string | null;
 }
 
 // ── Entrada del usage-log (SIN PII) ────────────────────────────
@@ -506,6 +516,9 @@ export async function runRevealCandidatePhone(
       phone_reveal_attempt_count: nextAttempt,
       phone_processing_basis: basis,
       phone_processing_basis_note: note,
+      // START fallido: no hay reveal ⇒ ningún id que persistir. El wrapper no
+      // sobrescribe un apollo_person_id previo con este null.
+      apollo_person_id: null,
     };
     await deps.persist(candidateId, patch);
     await deps.logUsage(
@@ -573,6 +586,15 @@ export async function runRevealCandidatePhone(
   //      request_id. Sin créditos aún (el costo real llega con el webhook). Sin
   //      teléfono todavía.
   const requestId = cleanText(started.requestId);
+  // Apollo person id (APOLLO-PHONE-CACHE-1a): prioriza el id validado de la traza
+  // del START; si no vino, cae al source_contact_id SÓLO cuando el candidato es
+  // origen Apollo (ids de otros proveedores, p.ej. Lusha `v1.*`, se descartan en
+  // el validador). Prerrequisito reutilizable; NO sirve teléfono ni cachea nada.
+  const apolloPersonId =
+    normalizeApolloPersonId(started.trace?.apollo_person_id ?? null) ??
+    (normalizeRevealSourceProvider(candidate.source) === PHONE_REVEAL_PROVIDER
+      ? normalizeApolloPersonId(candidate.sourceContactId)
+      : null);
   const patch: RevealStartPersistencePatch = {
     phone_reveal_status: 'requested',
     phone_reveal_request_id: requestId,
@@ -586,6 +608,7 @@ export async function runRevealCandidatePhone(
     phone_reveal_attempt_count: nextAttempt,
     phone_processing_basis: basis,
     phone_processing_basis_note: note,
+    apollo_person_id: apolloPersonId,
   };
   await deps.persist(candidateId, patch);
   await deps.logUsage(

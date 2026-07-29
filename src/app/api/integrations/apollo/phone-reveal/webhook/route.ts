@@ -218,6 +218,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         if (patch.enrichment_metadata !== undefined) {
           update.enrichment_metadata = patch.enrichment_metadata;
         }
+        // Apollo person id (APOLLO-PHONE-CACHE-1a): sólo se escribe cuando el core
+        // extrajo un id Apollo válido del payload. Nunca fuerza ni sobrescribe con
+        // null/inválido.
+        if (patch.apollo_person_id) {
+          update.apollo_person_id = patch.apollo_person_id;
+        }
         const { error } = await admin
           .from('contact_enrichment_candidates')
           .update(update)

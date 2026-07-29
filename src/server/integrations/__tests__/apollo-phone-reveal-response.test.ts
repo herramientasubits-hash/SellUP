@@ -257,6 +257,8 @@ describe('ASYNC-15 — metadata de traza sin PII', () => {
       'apollo_phone_enrichment_status',
       'apollo_person_present',
       'apollo_person_id_present',
+      // APOLLO-PHONE-CACHE-1a: id Apollo validado (24 hex) o null; opaco, no PII.
+      'apollo_person_id',
       'apollo_top_level_request_id_present',
       'apollo_http_request_id',
       'apollo_transaction_id',

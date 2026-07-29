@@ -262,6 +262,14 @@ export interface ContactCandidatePhoneRevealAudit {
   phone_reveal_webhook_received_at?: string | null;
   phone_reveal_attempt_count?: number | null;
   phone_reveal_last_checked_at?: string | null;
+  // ── Apollo person id (APOLLO-PHONE-CACHE-1a, migración 098) ──
+  /**
+   * Apollo person id (MongoDB ObjectId, 24 hex) resuelto durante el reveal
+   * (start/webhook/recovery). Id opaco de correlación, NO PII. Prerrequisito
+   * técnico reutilizable para una FUTURA caché de teléfonos Apollo; este hito no
+   * construye ni sirve caché. Nunca un id Lusha `v1.<token>`.
+   */
+  apollo_person_id?: string | null;
 }
 
 export interface ContactCandidateEnrichmentMetadata {
