@@ -7,6 +7,7 @@
 **Last reviewed:** 2026-07-29
 
 **Related documents:**
+- Full join dry-run technical design — [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md)
 - Privacy-safe import eligibility design — [`br-receita-cnpj-privacy-safe-import-eligibility-design.md`](./br-receita-cnpj-privacy-safe-import-eligibility-design.md)
 - Import & staging persistence contract — [`br-receita-cnpj-import-staging-contract.md`](./br-receita-cnpj-import-staging-contract.md)
 - Manual download & local prep runbook — [`br-receita-cnpj-manual-download-local-prep-runbook.md`](./br-receita-cnpj-manual-download-local-prep-runbook.md)
@@ -417,11 +418,20 @@ OPS_BR_HEADERLESS_REAL_FILE_SUPPORT_OFFICIAL             = true
 
 ## 13. Recommended next hito after 10I
 
-**BR-SOURCE-10J — Full join dry-run technical design review** (or equivalent): a design/review
+**BR-SOURCE-10J — Full join dry-run technical design** (or equivalent): a design/review
 milestone that works through GATE-1 … GATE-8 (§ 9) and the identity-grain decision (§ 7),
 **still authorizing no execution, no Supabase write, no runtime, and no Agent 1**. Only after
 those gates are satisfied and recorded could a future, separately-approved hito run an actual
 full-join readiness dry-run under the envelope in § 4.
+
+> **Update:** BR-SOURCE-10J has since landed as an official, docs-only technical design —
+> [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md).
+> It lowers this contract into an executable-in-the-future design (execution model, architecture
+> options, temporary storage envelope, join-key handling, field discard timing, cleanup contract,
+> resource limits, future CLI/report contracts, and the GATE-1 … GATE-8 mapping), and it still
+> **decides no identity grain** and authorizes **no** dry-run, import, Supabase write, migration,
+> runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10K — full join
+> dry-run approval gates checklist**.
 
 This is a **recommendation, not an execution**: BR-SOURCE-10I opens no such milestone and
 authorizes nothing further.
