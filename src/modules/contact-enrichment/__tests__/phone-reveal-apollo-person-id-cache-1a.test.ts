@@ -287,6 +287,12 @@ function webhookDeps(
     logUsage: async (entry) => {
       cap.logs.push(entry);
     },
+    // FIX 3: cuando llega un teléfono la comprobación de supresión en vuelo es
+    // OBLIGATORIA, así que estas pruebas de CACHE-1a la cablean como "sin
+    // tombstone" para aislar lo que miden (la captura del apollo_person_id). Sin
+    // la dep el core es fail-closed (`suppression_check_unavailable`) y no
+    // persiste nada; ese comportamiento se prueba en el suite de FIX 3.
+    lookupPhoneCacheSuppression: async () => null,
   };
 }
 
@@ -422,6 +428,9 @@ function recoveryDeps(
     logUsage: async (entry) => {
       cap.logs.push(entry);
     },
+    // FIX 3: igual que en el webhook — sin tombstone, para aislar la captura del
+    // apollo_person_id del cumplimiento de la supresión.
+    lookupPhoneCacheSuppression: async () => null,
   };
 }
 
