@@ -7,6 +7,7 @@
 **Last reviewed:** 2026-07-29
 
 **Related documents:**
+- Full join gate evidence packet — [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md)
 - Full join dry-run technical design — [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md)
 - Full join import-readiness design (contract) — [`br-receita-cnpj-full-join-import-readiness-design.md`](./br-receita-cnpj-full-join-import-readiness-design.md)
 - Privacy-safe import eligibility design — [`br-receita-cnpj-privacy-safe-import-eligibility-design.md`](./br-receita-cnpj-privacy-safe-import-eligibility-design.md)
@@ -137,6 +138,15 @@ Rules governing status:
 - **`approved` is scoped and revocable.** An approval is bounded by the restrictions recorded with
   it; changing the subject re-opens the gate.
 - **`superseded` requires an explicit successor.** A gate may not drift out of force silently.
+
+> **Update (BR-SOURCE-10L).** The evidence packet —
+> [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md)
+> — introduces a **separate, parallel, non-authoritative** vocabulary for how complete a gate's
+> evidence is (`evidence_not_collected` … `evidence_complete_for_review`, plus blocked variants). Those
+> statuses are **not** gate statuses: the model above remains the only authoritative one, and only the
+> named approver may set it. In particular, `evidence_complete_for_review` is **not**
+> `ready_for_review`, and a gate holding complete-but-unreviewed evidence stays `not_started` here. As
+> of 10L, all eight gates hold `partial_evidence_collected` and remain `not_started`.
 
 ---
 
@@ -918,6 +928,18 @@ integration.
 
 This is a **recommendation, not an execution**: BR-SOURCE-10K opens no such milestone and
 authorizes nothing further.
+
+> **Update:** BR-SOURCE-10L has since landed as that docs-only evidence packet —
+> [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md).
+> Per gate it records the evidence that already exists (with document and section pointers), the
+> evidence that is still missing, the owner role the missing evidence must come from, the pending
+> decision that blocks the gate, and the artifacts required to reach `ready_for_review` — plus a
+> cross-gate gap map, a per-gate readiness matrix, and a global GO / NO-GO. It **approves no gate**:
+> all eight remain `not_started` with `partial_evidence_collected`, so the § 15 matrix still reads
+> **NO-GO**, and no full-join runner code may be written. It adds no runner and no command, decides no
+> identity grain, field allowlist, or storage envelope, and authorizes **no** dry-run, import,
+> Supabase write, migration, runtime, or Agent 1 integration. Its recommended successor is
+> **BR-SOURCE-10M — full join field allowlist decision record** (GATE-3, docs-only).
 
 ---
 

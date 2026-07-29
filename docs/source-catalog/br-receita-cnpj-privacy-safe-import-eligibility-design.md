@@ -562,6 +562,33 @@ runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation al
 
 ---
 
+## 10.8. Full join gate evidence packet (BR-SOURCE-10L)
+
+BR-SOURCE-10L is a docs-only **evidence packet** for GATE-1 … GATE-8: per gate it records the
+evidence that already exists (with document and section pointers), the evidence still missing, the
+owner role that missing evidence must come from, the pending decision that blocks the gate, and the
+artifacts required to reach `ready_for_review` — plus a cross-gate gap map and a global GO / NO-GO.
+
+It maps this design's § 11 open questions directly onto gates, and finds that they are still the
+binding blockers: **GATE-1** has no recorded legal/privacy determination for full local processing
+(and the licence-variant question in the review package § 3 is unresolved in recorded form, so
+question #6 stands), while **GATE-3** cannot be reviewed until questions #1 (full-CNPJ /
+`normalized_tax_id` persistence), #4 (address granularity), and #5 (minimal `raw_data`) are decided —
+alongside the sanitized `legal_name` / `trade_name` and `capital_social_value` decisions. Question #2
+(eligible legal natures) and #3 (MEI / EI) remain open and continue to hold ambiguous records in
+`needs_legal_review` exactly as § 11 states. 10L restates and never widens the field-survival and
+eligibility rules in this design (§ 4–§ 8), **approves no gate** (all eight remain `not_started`, each
+holding `partial_evidence_collected`, so the matrix reads NO-GO), adds **no runner and no command**,
+**decides no identity grain, field allowlist, or storage envelope**, and authorizes **no** dry-run,
+import, Supabase write, migration, runtime, or Agent 1 integration. See
+[`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md).
+
+**What stays blocked (unchanged).** Import, production import, Supabase writes, migrations,
+runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation all remain
+**blocked**.
+
+---
+
 ## 11. Open legal / privacy questions
 
 These decisions are **unresolved** and block a privacy-safe import implementation. Each

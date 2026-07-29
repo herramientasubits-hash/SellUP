@@ -8,6 +8,7 @@
 
 **Related documents:**
 - Full join approval gates checklist — [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
+- Full join gate evidence packet — [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md)
 - Full join import-readiness design (contract) — [`br-receita-cnpj-full-join-import-readiness-design.md`](./br-receita-cnpj-full-join-import-readiness-design.md)
 - Privacy-safe import eligibility design — [`br-receita-cnpj-privacy-safe-import-eligibility-design.md`](./br-receita-cnpj-privacy-safe-import-eligibility-design.md)
 - Import & staging persistence contract — [`br-receita-cnpj-import-staging-contract.md`](./br-receita-cnpj-import-staging-contract.md)
@@ -685,6 +686,17 @@ authorizes nothing further.
 > identity grain**, and authorizes **no** dry-run, import, Supabase write, migration, runtime, or
 > Agent 1 integration. Its recommended successor is **BR-SOURCE-10L — full join dry-run gate
 > evidence packet**.
+>
+> **Update:** BR-SOURCE-10L has since landed as that docs-only evidence packet —
+> [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md).
+> It maps, per gate, the evidence that already exists against this design's sections and the evidence
+> still missing — notably that every `TBD_BY_GATE_2_STORAGE_ENVELOPE` ceiling in § 10 is still a
+> placeholder with no measurement behind it, that the § 12 report schema cannot be frozen while
+> GATE-3 and GATE-4 are open, and that the § 15 assertions are obligations rather than an existing
+> test suite. It **approves no gate**: all eight remain `not_started`, and the three § 12 contract
+> markers stay `not_decided` / `not_approved`. It adds no runner and no command and authorizes **no**
+> dry-run, import, Supabase write, migration, runtime, or Agent 1 integration. Its recommended
+> successor is **BR-SOURCE-10M — full join field allowlist decision record** (GATE-3, docs-only).
 
 ---
 
