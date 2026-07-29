@@ -152,6 +152,24 @@ This shape is exactly the `BrReceitaCnpjSnapshotRow` already produced by the mer
 
 Excluded from any snapshot (see §§ 15–16): SOCIOS/QSA/CPF, telefone/fax/correio_eletronico/DDD, and fine-grained address (logradouro/numero/complemento/bairro/cep).
 
+> **Update (BR-SOURCE-10M).** The docs-only field allowlist decision record —
+> [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
+> — **proposes** (and does not approve) a stricter posture than the placeholder payload above for the
+> **full-join** context, and raises two items against this section that the GATE-3 approvers must close:
+>
+> - **Structural CNPJ components** (`cnpj_root` / `cnpj_order` / `cnpj_dv` in the illustrative payload)
+>   are categorised as **temporary technical only** — parse-time in memory, never output, never
+>   persisted. Any future `raw_data` allowlist that reintroduces them would be a widening GATE-3 does
+>   not permit.
+> - **Raw `tax_id`** (§ 5) is listed here and in the eligibility design § 5 table, but is **omitted**
+>   from the 10I § 6.3 candidate list that GATE-3's allowlist must derive from and never exceed. The
+>   record therefore treats it as `needs_legal_review` and excludes it from the candidate list, leaving
+>   the reconciliation to the approvers.
+>
+> That record also proposes `raw_data` **prohibited by default** for the full-join context. **GATE-3
+> remains `not_started` / not approved**, this section is unchanged in force, and nothing there
+> authorizes an import, a Supabase write, a migration, runtime, or Agent 1 integration.
+
 ---
 
 ## 7. Source year and source period strategy
