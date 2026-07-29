@@ -7,6 +7,7 @@
 **Last reviewed:** 2026-07-29
 
 **Related documents:**
+- Full join field allowlist decision record (GATE-3 proposal) — [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
 - Full join gate evidence packet — [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md)
 - Full join dry-run technical design — [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md)
 - Full join import-readiness design (contract) — [`br-receita-cnpj-full-join-import-readiness-design.md`](./br-receita-cnpj-full-join-import-readiness-design.md)
@@ -377,6 +378,24 @@ the report may carry; sets `field_allowlist_version`.
 
 - Persistence of any kind — an approved allowlist is a *target*, not a writer authorization.
 - Widening the eligibility design's § 5 allowlist.
+
+> **Update (BR-SOURCE-10M).** A docs-only **decision record proposing** this gate's allowlist has
+> landed: [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md).
+> It supplies the *Required evidence* items above as a **proposal for the joint owners** — a
+> six-category field lifecycle model, a closed forbidden-always list, the temporary-technical-only and
+> classification-signal-only categories, a candidate aggregate-report field list, the
+> candidate-future-persistible list (derived from 10I § 6.3 and never wider), a `needs_legal_review`
+> label on every genuinely open field, `raw_data` **prohibited by default**, and a field decision
+> matrix. It also raises two items the approvers must close explicitly: raw `tax_id` (listed in the
+> eligibility design § 5 table but **absent** from 10I § 6.3, so treated as `needs_legal_review` and
+> excluded from the candidate list) and file-level `file_hashes` in reports.
+>
+> **This gate is still `not_started`.** The record's own status is `proposed_for_owner_review`; it
+> assigns **no** `field_allowlist_version` (the 10J § 12 marker stays `"not_approved"`), it is not a
+> submission, and per § 3 and § 4 above only the product / data owner and legal/privacy owner jointly
+> may approve — recorded with the § 14 template, never inside that record. It writes no code, decides
+> no identity grain, freezes no report schema, and authorizes **no** dry-run, import, Supabase write,
+> migration, runtime, or Agent 1 integration.
 
 ---
 
@@ -940,6 +959,16 @@ authorizes nothing further.
 > identity grain, field allowlist, or storage envelope, and authorizes **no** dry-run, import,
 > Supabase write, migration, runtime, or Agent 1 integration. Its recommended successor is
 > **BR-SOURCE-10M — full join field allowlist decision record** (GATE-3, docs-only).
+>
+> **Update:** BR-SOURCE-10M has since landed as that docs-only decision record —
+> [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
+> — proposing the § 7 GATE-3 allowlist for the joint owners' review (see the update note in § 7). It
+> **approves no gate**: its status is `proposed_for_owner_review`, all eight gates remain
+> `not_started`, no `field_allowlist_version` is assigned, and the § 15 matrix still reads **NO-GO**, so
+> no full-join runner code may be written. It adds no runner and no command, decides no identity grain
+> and no storage envelope, freezes no report schema, and authorizes **no** dry-run, import, Supabase
+> write, migration, runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10N —
+> full join identity grain decision record** (GATE-4, docs-only).
 
 ---
 

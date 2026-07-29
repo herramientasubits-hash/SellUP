@@ -7,6 +7,7 @@
 **Last reviewed:** 2026-07-29
 
 **Related documents:**
+- Full join field allowlist decision record (GATE-3 proposal) — [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
 - Full join approval gates checklist — [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
 - Full join gate evidence packet — [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md)
 - Full join import-readiness design (contract) — [`br-receita-cnpj-full-join-import-readiness-design.md`](./br-receita-cnpj-full-join-import-readiness-design.md)
@@ -359,6 +360,25 @@ The report is aggregate-only:
 - join keys;
 - any sample value.
 
+> **Update (BR-SOURCE-10M).** The § 8.1 … § 8.5 categories above have been carried into a docs-only
+> **decision record proposing** the GATE-3 field allowlist —
+> [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
+> — which re-expresses them as a six-category lifecycle model with a per-surface decision matrix
+> (memory / temporary storage / aggregate report / future persistence), labels every open field
+> `needs_legal_review`, and proposes `raw_data` **prohibited by default**. It restates and never widens
+> § 8. Two consequences for this design:
+>
+> - the § 8.3 classification signals are proposed as **bucket-only** — including `capital_social` and
+>   `opened_at`, whose exact values are tracked as needing legal/privacy review;
+> - the § 8.4 report contents are extended with **proposed** additional aggregate fields
+>   (`files_seen`, `rows_seen_by_family`, `official_layout_mode`, `cleanup_status`, `duration_ms`,
+>   per-bucket count families, and controlled `warnings` / `errors` enums). Those are **candidate input
+>   to GATE-5**, not additions to the § 12 schema: per the evidence packet the schema cannot be frozen
+>   while GATE-3 and GATE-4 are open.
+>
+> GATE-3 remains `not_started`, `field_allowlist_version` stays `"not_approved"` in § 12, and that
+> record authorizes **no** dry-run, import, Supabase write, migration, runtime, or Agent 1 integration.
+
 ---
 
 ## 9. Failure cleanup contract
@@ -697,6 +717,17 @@ authorizes nothing further.
 > markers stay `not_decided` / `not_approved`. It adds no runner and no command and authorizes **no**
 > dry-run, import, Supabase write, migration, runtime, or Agent 1 integration. Its recommended
 > successor is **BR-SOURCE-10M — full join field allowlist decision record** (GATE-3, docs-only).
+>
+> **Update:** BR-SOURCE-10M has since landed as that docs-only decision record —
+> [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md).
+> It proposes the GATE-3 allowlist against § 8 (see the update note in § 8), leaves the § 12 markers
+> `field_allowlist_version: "not_approved"`, `record_identity_grain_decision: "not_decided"`, and
+> `temporary_storage_mode: "not_approved"` untouched, and closes none of the § 17 open decision gates:
+> the `normalized_tax_id`, sanitized legal / trade name, and `capital_social` questions are labelled
+> `needs_legal_review`, not resolved. It **approves no gate** (all eight remain `not_started`), adds no
+> runner and no command, decides no identity grain and no storage envelope, and authorizes **no**
+> dry-run, import, Supabase write, migration, runtime, or Agent 1 integration. Its recommended
+> successor is **BR-SOURCE-10N — full join identity grain decision record** (GATE-4, docs-only).
 
 ---
 
