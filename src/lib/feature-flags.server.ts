@@ -230,3 +230,32 @@ export function isApolloPhoneRevealEnabled(): boolean {
     process.env[APOLLO_PHONE_REVEAL_FLAG]?.trim().toLowerCase() === 'true'
   );
 }
+
+// ============================================================
+// Apollo Phone Cache (Agente 2A · APOLLO-PHONE-CACHE-1b)
+// ============================================================
+
+/** Flag name constant for the Apollo phone reveal cache fast path. */
+export const APOLLO_PHONE_CACHE_FLAG = 'ENABLE_APOLLO_PHONE_CACHE';
+
+/**
+ * Returns true when ENABLE_APOLLO_PHONE_CACHE is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Default: false, fail-closed. With the flag OFF (the production default) the
+ * whole APOLLO-PHONE-CACHE-1b path is inert: no cache READ before an Apollo
+ * reveal, no cache WRITE when a reveal/webhook/recovery lands, and therefore no
+ * behavioural change whatsoever versus the pre-cache Apollo reveal — the core
+ * short-circuits before touching the cache store.
+ *
+ * When ON, an Apollo phone reveal that was already paid for can be reused for
+ * the SAME account and the SAME country for 90 days, at 0 credits, with
+ * provenance `apollo_cache` and a mandatory lawful processing basis. Suppression
+ * (hard delete + tombstone) works regardless of this flag so a DSAR is never
+ * blocked by a flag being off.
+ *
+ * This milestone does NOT enable the flag in any environment.
+ */
+export function isApolloPhoneCacheEnabled(): boolean {
+  return process.env[APOLLO_PHONE_CACHE_FLAG]?.trim().toLowerCase() === 'true';
+}

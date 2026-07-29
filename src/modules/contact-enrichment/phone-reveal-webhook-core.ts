@@ -38,6 +38,10 @@ import {
 } from '@/server/agents/contact-enrichment-toolkit/phone-classification';
 import { normalizeApolloPersonId } from '@/server/integrations/apollo-person-id';
 import {
+  buildRevealPhoneCacheWriteInput,
+  type PhoneCacheWriteInput,
+} from './phone-cache-core';
+import {
   PHONE_REVEAL_OPERATION_KEY,
   PHONE_REVEAL_PROVIDER,
 } from './phone-reveal-core';
@@ -84,6 +88,14 @@ export interface WebhookCandidateRecord {
   accountId: string | null;
   enrichmentMetadata: ContactCandidateEnrichmentMetadata;
   phoneRevealStatus: string | null;
+  /**
+   * País del candidato (texto crudo del proveedor) y país ISO-2 de la empresa
+   * del run. Alimentan el alcance de la caché (APOLLO-PHONE-CACHE-1b): si
+   * ninguno resuelve a ISO-2 el reveal simplemente NO se cachea (país
+   * desconocido = no reuso). Opcionales: ausentes ⇒ sin caché.
+   */
+  candidateCountry?: string | null;
+  runCompanyCountryCode?: string | null;
 }
 
 // ── Patch de persistencia terminal (describe el UPDATE) ────────
@@ -158,6 +170,18 @@ export interface ApolloPhoneRevealWebhookDeps {
   ) => Promise<void>;
   /** Registra el uso/costo en provider_usage_logs (metadata sin PII). */
   logUsage: (entry: WebhookUsageLogEntry) => Promise<void>;
+  /**
+   * Cachea el teléfono recién revelado (APOLLO-PHONE-CACHE-1b). OPCIONAL: sin
+   * esta dep — o con ENABLE_APOLLO_PHONE_CACHE apagado, que es lo que el wrapper
+   * comprueba — no se escribe caché y el webhook se comporta exactamente igual
+   * que antes de este hito.
+   *
+   * BEST-EFFORT por contrato: se invoca DESPUÉS de persistir el reveal y su
+   * resultado se ignora, de modo que un fallo de caché no puede perder un
+   * teléfono ya pagado. Solo se llama en el camino `revealed`: nunca en
+   * no_phone_found, nunca en error, nunca en un candidato ya terminal.
+   */
+  cacheRevealedPhone?: (input: PhoneCacheWriteInput) => Promise<unknown>;
 }
 
 // ── Resultado (para que la ruta arme la HTTP response segura) ──
@@ -309,6 +333,43 @@ export function sumWebhookCredits(
   return seen ? total : null;
 }
 
+/**
+ * Escribe el teléfono revelado en la caché sin poder romper el reveal
+ * (APOLLO-PHONE-CACHE-1b). Se llama SOLO en el camino `revealed` y SOLO después
+ * de persistir el candidato. Cualquier excepción se traga aquí de forma acotada:
+ * el teléfono ya está guardado y ya se pagó, así que un fallo de caché no puede
+ * degradarse a pérdida de datos ni a un 500 que haga a Apollo reintentar. El
+ * store subyacente ya registra el error sin PII.
+ */
+async function cacheRevealedPhoneBestEffort(
+  deps: ApolloPhoneRevealWebhookDeps,
+  args: {
+    candidate: WebhookCandidateRecord;
+    phone: string;
+    phoneType: string | null;
+    personId: string | null;
+  },
+): Promise<void> {
+  if (!deps.cacheRevealedPhone) return;
+  try {
+    await deps.cacheRevealedPhone(
+      buildRevealPhoneCacheWriteInput({
+        personId: args.personId,
+        accountId: args.candidate.accountId,
+        candidateCountry: args.candidate.candidateCountry ?? null,
+        runCompanyCountryCode: args.candidate.runCompanyCountryCode ?? null,
+        phone: args.phone,
+        phoneType: args.phoneType,
+        revealedAtIso: deps.nowIso,
+        candidateId: args.candidate.id,
+      }),
+    );
+  } catch {
+    // Silencio deliberado y acotado: la caché es un optimizador, nunca la
+    // fuente de verdad. El error ya quedó registrado (sin PII) en el store.
+  }
+}
+
 // ── Orquestación pura del WEBHOOK ──────────────────────────────
 
 /**
@@ -394,6 +455,15 @@ export async function runApolloPhoneRevealWebhook(
       apollo_person_id: apolloPersonId,
     };
     await deps.persist(candidate.id, patch);
+    // Caché (APOLLO-PHONE-CACHE-1b): solo tras persistir el reveal, solo con
+    // teléfono, y best-effort. Sin person id válido / cuenta / país ISO-2 la
+    // propia decisión de escritura lo descarta con un motivo mecánico.
+    await cacheRevealedPhoneBestEffort(deps, {
+      candidate,
+      phone: revealed.number,
+      phoneType: revealed.type,
+      personId: apolloPersonId,
+    });
     await deps.logUsage({
       operationKey: PHONE_REVEAL_OPERATION_KEY,
       provider: 'apollo',

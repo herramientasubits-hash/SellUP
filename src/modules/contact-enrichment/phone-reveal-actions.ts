@@ -27,16 +27,26 @@
 import { redirect } from 'next/navigation';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
-import { isApolloPhoneRevealEnabled } from '@/lib/feature-flags.server';
+import {
+  isApolloPhoneCacheEnabled,
+  isApolloPhoneRevealEnabled,
+} from '@/lib/feature-flags.server';
 import { startApolloPhoneReveal } from '@/server/integrations/apollo-client';
 import { sanitizeApolloErrorMessage } from './apollo-error-hint';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import {
+  hashProviderPersonId,
+  readPhoneCacheEntry,
+  touchPhoneCacheEntry,
+} from './phone-cache-store';
+import type { PhoneCacheHitUsageLogEntry } from './phone-cache-core';
 import {
   runRevealCandidatePhone,
   type RevealCandidatePhoneInput,
   type RevealCandidatePhoneResult,
   type RevealCandidateRecord,
   type ApolloPhoneRevealStartCallResult,
+  type RevealCacheHitPersistencePatch,
   type RevealStartPersistencePatch,
   type PhoneRevealUsageLogEntry,
 } from './phone-reveal-core';
@@ -102,16 +112,23 @@ async function resolveActorForReveal(): Promise<{
 
 // ── Carga del candidato ────────────────────────────────────────
 
+// `apollo_person_id` (mig. 098) y los dos campos de país alimentan el fast path
+// de caché (APOLLO-PHONE-CACHE-1b). Se leen siempre: son datos que ya estaban en
+// la fila, y con el flag de caché apagado el core simplemente no los usa.
 const REVEAL_CANDIDATE_SELECT = `id, source, source_contact_id, email, linkedin_url,
    first_name, last_name, phone, enrichment_metadata, phone_reveal_status,
-   phone_reveal_attempt_count,
-   run:contact_enrichment_runs ( account_id, company_name )`;
+   phone_reveal_attempt_count, apollo_person_id, country,
+   run:contact_enrichment_runs ( account_id, company_name, company_country_code )`;
 
 function mapRevealCandidate(row: unknown): RevealCandidateRecord {
   const r = row as Record<string, unknown>;
   const runRaw = r.run;
   const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
-    | { account_id: string | null; company_name: string | null }
+    | {
+        account_id: string | null;
+        company_name: string | null;
+        company_country_code: string | null;
+      }
     | null
     | undefined;
   return {
@@ -134,6 +151,11 @@ function mapRevealCandidate(row: unknown): RevealCandidateRecord {
       typeof r.phone_reveal_attempt_count === 'number'
         ? r.phone_reveal_attempt_count
         : 0,
+    // Clave y alcance del fast path de caché (APOLLO-PHONE-CACHE-1b). Inertes
+    // mientras ENABLE_APOLLO_PHONE_CACHE esté apagado.
+    apolloPersonId: (r.apollo_person_id as string | null) ?? null,
+    candidateCountry: (r.country as string | null) ?? null,
+    runCompanyCountryCode: run?.company_country_code ?? null,
   };
 }
 
@@ -290,6 +312,57 @@ export async function revealCandidatePhoneAction(
         error_code: entry.errorCode ?? undefined,
         triggered_by: entry.triggeredBy,
         results_returned: 0,
+        metadata: entry.metadata,
+      });
+    },
+
+    // ── Fast path de caché (APOLLO-PHONE-CACHE-1b) ─────────────
+    // Con ENABLE_APOLLO_PHONE_CACHE apagado (default de producción) el core no
+    // invoca ninguna de estas deps: cero lecturas de caché, cero escrituras, y
+    // el camino Apollo queda exactamente como antes de este hito.
+    cacheEnabled: isApolloPhoneCacheEnabled(),
+    hashProviderPersonId,
+    lookupPhoneCache: readPhoneCacheEntry,
+    touchPhoneCacheEntry,
+
+    persistCacheHit: async (
+      candidateId,
+      patch: RevealCacheHitPersistencePatch,
+    ): Promise<void> => {
+      const { error } = await admin
+        .from('contact_enrichment_candidates')
+        .update({
+          phone: patch.phone,
+          enrichment_metadata: patch.enrichment_metadata,
+          phone_reveal_status: patch.phone_reveal_status,
+          phone_reveal_provider: patch.phone_reveal_provider,
+          phone_reveal_request_id: patch.phone_reveal_request_id,
+          phone_revealed_at: patch.phone_revealed_at,
+          phone_reveal_completed_at: patch.phone_reveal_completed_at,
+          phone_revealed_by: patch.phone_revealed_by,
+          phone_reveal_cost_credits: patch.phone_reveal_cost_credits,
+          phone_reveal_cost_usd: patch.phone_reveal_cost_usd,
+          phone_reveal_error_code: patch.phone_reveal_error_code,
+          phone_reveal_attempt_count: patch.phone_reveal_attempt_count,
+          phone_processing_basis: patch.phone_processing_basis,
+          phone_processing_basis_note: patch.phone_processing_basis_note,
+          apollo_person_id: patch.apollo_person_id,
+        })
+        .eq('id', candidateId);
+      if (error) throw new Error(error.message);
+    },
+
+    logCacheHitUsage: async (entry: PhoneCacheHitUsageLogEntry): Promise<void> => {
+      await logProviderUsage({
+        provider_key: entry.provider,
+        // operation_key propio: NUNCA se mezcla con person_phone_reveal ni con
+        // organizations_search. credits_used = 0 porque no hubo llamada.
+        operation_key: entry.operationKey,
+        credits_used: entry.creditsUsed,
+        estimated_cost_usd: entry.costUsd,
+        status: entry.status,
+        triggered_by: entry.triggeredBy,
+        results_returned: 1,
         metadata: entry.metadata,
       });
     },

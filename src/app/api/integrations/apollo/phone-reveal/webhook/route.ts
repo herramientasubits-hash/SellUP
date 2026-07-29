@@ -28,7 +28,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isApolloPhoneCacheEnabled } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { writePhoneCacheEntry } from '@/modules/contact-enrichment/phone-cache-store';
 import {
   runApolloPhoneRevealWebhook,
   isApolloWebhookTokenAuthorized,
@@ -53,13 +55,16 @@ function getAdminClient() {
   return createClient(url, key);
 }
 
+// `country` + `run.company_country_code` alimentan el alcance de la caché
+// (APOLLO-PHONE-CACHE-1b). Se leen siempre; con el flag de caché apagado no se
+// usan para nada y el webhook se comporta exactamente igual que antes.
 const WEBHOOK_CANDIDATE_SELECT =
-  'id, enrichment_metadata, phone_reveal_status, run:contact_enrichment_runs ( account_id )';
+  'id, enrichment_metadata, phone_reveal_status, country, run:contact_enrichment_runs ( account_id, company_country_code )';
 
 function mapWebhookCandidate(row: Record<string, unknown>): WebhookCandidateRecord {
   const runRaw = row.run;
   const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
-    | { account_id: string | null }
+    | { account_id: string | null; company_country_code: string | null }
     | null
     | undefined;
   return {
@@ -68,6 +73,8 @@ function mapWebhookCandidate(row: Record<string, unknown>): WebhookCandidateReco
     enrichmentMetadata:
       (row.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
     phoneRevealStatus: (row.phone_reveal_status as string | null) ?? null,
+    candidateCountry: (row.country as string | null) ?? null,
+    runCompanyCountryCode: run?.company_country_code ?? null,
   };
 }
 
@@ -240,6 +247,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           metadata: entry.metadata,
         });
       },
+      // Caché del reveal (APOLLO-PHONE-CACHE-1b). El flag se evalúa aquí y se
+      // pasa al store: con ENABLE_APOLLO_PHONE_CACHE apagado (default de
+      // producción) `writePhoneCacheEntry` sale inmediatamente sin leer ni
+      // escribir nada. Nunca lanza: la caché no puede romper el webhook.
+      cacheRevealedPhone: async (cacheInput) =>
+        writePhoneCacheEntry(cacheInput, isApolloPhoneCacheEnabled()),
     },
   );
 

@@ -29,7 +29,9 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { isApolloPhoneCacheEnabled } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { writePhoneCacheEntry } from './phone-cache-store';
 import { fetchApolloPhoneRevealWebhookResult } from '@/server/integrations/apollo-client';
 import {
   classifyWebhookResultHttpStatus,
@@ -99,14 +101,17 @@ async function requireAdminActor(): Promise<RecoveryRuntimeActor> {
 
 // ── Carga del candidato (proyección de recovery) ───────────────
 
+// `apollo_person_id` + los países alimentan la escritura de caché
+// (APOLLO-PHONE-CACHE-1b). Inertes con ENABLE_APOLLO_PHONE_CACHE apagado.
 const RECOVERY_CANDIDATE_SELECT = `id, source, phone, enrichment_metadata,
    phone_reveal_provider, phone_reveal_status, phone_processing_basis,
-   run:contact_enrichment_runs ( account_id )`;
+   apollo_person_id, country,
+   run:contact_enrichment_runs ( account_id, company_country_code )`;
 
 function mapRecoveryCandidate(row: Record<string, unknown>): RecoveryCandidateRecord {
   const runRaw = row.run;
   const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
-    | { account_id: string | null }
+    | { account_id: string | null; company_country_code: string | null }
     | null
     | undefined;
   return {
@@ -119,6 +124,9 @@ function mapRecoveryCandidate(row: Record<string, unknown>): RecoveryCandidateRe
     enrichmentMetadata:
       (row.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
     phoneProcessingBasis: (row.phone_processing_basis as string | null) ?? null,
+    apolloPersonId: (row.apollo_person_id as string | null) ?? null,
+    candidateCountry: (row.country as string | null) ?? null,
+    runCompanyCountryCode: run?.company_country_code ?? null,
   };
 }
 
@@ -249,6 +257,12 @@ function buildRecoveryCoreDeps(actorUserId: string | null): RecoverApolloPhoneRe
         metadata: entry.metadata,
       });
     },
+
+    // Caché del reveal recuperado (APOLLO-PHONE-CACHE-1b). El flag se evalúa
+    // aquí; con ENABLE_APOLLO_PHONE_CACHE apagado el store sale inmediatamente
+    // sin leer ni escribir. Nunca lanza: la caché no puede romper el recovery.
+    cacheRevealedPhone: async (cacheInput) =>
+      writePhoneCacheEntry(cacheInput, isApolloPhoneCacheEnabled()),
   };
 }
 

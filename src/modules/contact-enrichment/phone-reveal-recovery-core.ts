@@ -56,6 +56,11 @@ import {
   type PollFetchResult,
   type PollableCandidateRecord,
 } from './phone-reveal-poll-core';
+import {
+  buildRevealPhoneCacheWriteInput,
+  PHONE_CACHE_HIT_PHONE_SOURCE,
+  type PhoneCacheWriteInput,
+} from './phone-cache-core';
 import { PHONE_REVEAL_OPERATION_KEY, PHONE_REVEAL_PROVIDER } from './phone-reveal-core';
 import type {
   ContactCandidateEnrichmentMetadata,
@@ -103,6 +108,15 @@ export interface RecoveryCandidateRecord {
   enrichmentMetadata: ContactCandidateEnrichmentMetadata;
   /** Base de tratamiento existente; se conserva (no se degrada) en la recuperación. */
   phoneProcessingBasis: PhoneProcessingBasis | string | null;
+  /**
+   * Apollo person id ya persistido (mig. 098) y países del candidato/run.
+   * Alimentan la escritura de caché (APOLLO-PHONE-CACHE-1b) cuando el recovery
+   * recupera un teléfono. Opcionales: si falta alguno el reveal simplemente NO
+   * se cachea (fail-closed: sin id / sin cuenta / sin país ISO-2, no hay caché).
+   */
+  apolloPersonId?: string | null;
+  candidateCountry?: string | null;
+  runCompanyCountryCode?: string | null;
 }
 
 // ── Entrada de la recuperación de UN candidato ─────────────────
@@ -225,6 +239,14 @@ export interface RecoverApolloPhoneRevealDeps {
   persist: (candidateId: string, patch: RecoveryPersistencePatch) => Promise<void>;
   /** Registra el uso en provider_usage_logs (metadata sin PII). */
   logUsage: (entry: RecoveryUsageLogEntry) => Promise<void>;
+  /**
+   * Cachea el teléfono recuperado (APOLLO-PHONE-CACHE-1b). OPCIONAL y
+   * BEST-EFFORT, exactamente igual que en el webhook: se invoca solo en el
+   * camino `revealed`, solo después de persistir, y su resultado se ignora. Sin
+   * esta dep — o con ENABLE_APOLLO_PHONE_CACHE apagado — el recovery se comporta
+   * igual que antes de este hito.
+   */
+  cacheRevealedPhone?: (input: PhoneCacheWriteInput) => Promise<unknown>;
 }
 
 // ── Resultado (sin PII) ────────────────────────────────────────
@@ -341,9 +363,13 @@ export async function recoverApolloPhoneRevealForCandidate(
   if (status === 'error') return toResult('terminal_error_skipped');
 
   // No debe tener ya un teléfono persistido (por columna o por metadata reveal).
+  // `apollo_cache` cuenta igual que `apollo_reveal`: un número servido desde la
+  // caché ya es el resultado final (APOLLO-PHONE-CACHE-1b).
+  const currentPhoneSource = existingPhoneSource(candidate.enrichmentMetadata);
   if (
     cleanText(candidate.existingPhone) ||
-    existingPhoneSource(candidate.enrichmentMetadata) === 'apollo_reveal'
+    currentPhoneSource === 'apollo_reveal' ||
+    currentPhoneSource === PHONE_CACHE_HIT_PHONE_SOURCE
   ) {
     return toResult('already_has_phone');
   }
@@ -476,6 +502,27 @@ async function handleRecoveredPayload(args: {
       apollo_person_id: apolloPersonId,
     };
     await deps.persist(candidate.id, patch);
+    // Caché (APOLLO-PHONE-CACHE-1b): igual que en el webhook — solo tras
+    // persistir, solo con teléfono, best-effort y con la MISMA política.
+    if (deps.cacheRevealedPhone) {
+      try {
+        await deps.cacheRevealedPhone(
+          buildRevealPhoneCacheWriteInput({
+            personId: apolloPersonId ?? candidate.apolloPersonId ?? null,
+            accountId: candidate.accountId,
+            candidateCountry: candidate.candidateCountry ?? null,
+            runCompanyCountryCode: candidate.runCompanyCountryCode ?? null,
+            phone: revealed.number,
+            phoneType: revealed.type,
+            revealedAtIso: deps.nowIso,
+            candidateId: candidate.id,
+          }),
+        );
+      } catch {
+        // Silencio deliberado y acotado: la caché nunca puede tumbar una
+        // recuperación correcta. El store ya registró el error sin PII.
+      }
+    }
     await deps.logUsage(
       buildRecoveryLog({
         candidate,

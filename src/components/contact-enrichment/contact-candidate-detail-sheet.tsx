@@ -135,6 +135,9 @@ const PHONE_TYPE_LABELS: Record<PhoneType, string> = {
 const PHONE_SOURCE_LABELS: Record<PhoneSource, string> = {
   apollo_search: 'Apollo búsqueda',
   apollo_reveal: 'Apollo reveal',
+  // APOLLO-PHONE-CACHE-1b: el operador tiene que poder distinguir de un vistazo
+  // un número reutilizado de uno recién revelado (no se cobraron créditos).
+  apollo_cache: 'Apollo reveal reutilizado',
   lusha_reveal: 'Lusha reveal',
   provider_payload: 'Proveedor',
   manual: 'Manual',
@@ -536,9 +539,13 @@ export function ContactCandidateDetailSheet({
   //  - `no_phone_found` → oculto (sin reintento).
   //  - identidad insuficiente (sin id/email/linkedin) → oculto.
   // El server action revalida todos estos gates de todas formas.
+  // `apollo_cache` cuenta como ya revelado (APOLLO-PHONE-CACHE-1b): el número
+  // reutilizado es definitivo, así que el botón no debe reaparecer y gastar
+  // créditos por un dato que ya tenemos.
   const phoneAlreadyRevealed =
     candidate?.phone_reveal_status === 'revealed' ||
-    phoneMeta?.source === 'apollo_reveal';
+    phoneMeta?.source === 'apollo_reveal' ||
+    phoneMeta?.source === 'apollo_cache';
   const phoneRevealExhausted = candidate?.phone_reveal_status === 'no_phone_found';
   // Reveal ASÍNCRONO en vuelo (APOLLO-PHONE-ASYNC-1): solicitud aceptada,
   // esperando el webhook de Apollo. Oculta el botón y muestra "en proceso".
