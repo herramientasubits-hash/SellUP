@@ -65,3 +65,60 @@ describe('evaluateDiscardEligibility — status conflicts', () => {
     assert.deepEqual(r, { decision: 'reject', reason: 'status_conflict' });
   });
 });
+
+// Q3F-5BB.11K-FIX — the traceable-reason fix must NOT move the policy. The
+// policy is a pure function of (status, record_origin): country, tax_identifier
+// and source_primary are not inputs and can never change the outcome. This is
+// what makes the two CO-without-NIT candidates found in Q3F-5BB.11K-EXECUTE
+// (INC, SYNLAB — omitted from the useful list, yet production + needs_review)
+// discardable with a motive rather than stuck in the queue.
+describe('evaluateDiscardEligibility — policy is unchanged by the reason fix', () => {
+  it('allows discard for production + needs_review (the general defect case)', () => {
+    assert.deepEqual(
+      evaluateDiscardEligibility({
+        status: DISCARD_QUEUE_STATUS,
+        recordOrigin: DISCARD_QUEUE_RECORD_ORIGIN,
+      }),
+      { decision: 'discard' },
+    );
+  });
+
+  it('takes only status + recordOrigin as input (country / NIT / provider are not part of the snapshot)', () => {
+    // Extra fields are structurally ignored — proving the policy cannot branch
+    // on country_code, tax_identifier or source_primary.
+    const withNoise = {
+      status: 'needs_review',
+      recordOrigin: 'production',
+      countryCode: 'CO',
+      taxIdentifier: null,
+      sourcePrimary: 'lusha',
+    } as unknown as Parameters<typeof evaluateDiscardEligibility>[0];
+    assert.deepEqual(evaluateDiscardEligibility(withNoise), { decision: 'discard' });
+  });
+
+  it('is idempotent for an already-discarded row (safe double submit)', () => {
+    assert.deepEqual(
+      evaluateDiscardEligibility({ status: 'discarded', recordOrigin: 'production' }),
+      { decision: 'idempotent' },
+    );
+  });
+
+  it('rejects approved / converted_to_account (never re-routed through discard)', () => {
+    for (const status of ['approved', 'converted_to_account']) {
+      assert.deepEqual(evaluateDiscardEligibility({ status, recordOrigin: 'production' }), {
+        decision: 'reject',
+        reason: 'status_conflict',
+      });
+    }
+  });
+
+  it('rejects every non-production record_origin (unauthorized origins)', () => {
+    for (const recordOrigin of ['sandbox', 'qa', 'test', 'seed', 'demo', '', null]) {
+      assert.deepEqual(
+        evaluateDiscardEligibility({ status: 'needs_review', recordOrigin }),
+        { decision: 'reject', reason: 'not_clean_production' },
+        `origin=${String(recordOrigin)}`,
+      );
+    }
+  });
+});

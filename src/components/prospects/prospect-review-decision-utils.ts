@@ -95,6 +95,9 @@ export const APPROVE_ERROR_MESSAGES: Record<string, string> = {
 export const DISCARD_ERROR_MESSAGES: Record<string, string> = {
   not_allowed: 'No tienes permisos para descartar prospectos.',
   not_found: 'El prospecto ya no está disponible. Actualiza la lista.',
+  // Q3F-5BB.11K-FIX — the server rejected the discard because the traceable
+  // motive was missing / too short / too long.
+  invalid_reason: 'Selecciona un motivo de descarte válido.',
   not_clean_production: 'Este prospecto no pertenece a la cola de producción limpia.',
   status_conflict: 'El prospecto ya cambió de estado. Actualiza la vista.',
   discard_failed: 'El prospecto no pudo descartarse. Actualiza la vista e intenta de nuevo.',

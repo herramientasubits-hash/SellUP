@@ -31,6 +31,13 @@
 //                       (Marcar duplicado / Enviar a enriquecimiento /
 //                       Mantener en revisión), all still disabled.
 //
+// Q3F-5BB.11K-FIX makes the discard MOTIVE mandatory on this surface. The
+// inline discard confirmation now collects a predefined reason (+ optional
+// notes, or a free-text motive under "Otro"), composes it with the exact same
+// semantics as the legacy batch-detail dialog, and blocks "Confirmar descarte"
+// until it validates. The server wrapper re-validates and rejects with
+// `invalid_reason`, so a Prospectos discard can no longer land review_notes=null.
+//
 // Confirmation is INLINE (a panel inside this action zone), NOT a modal
 // stacked over the drawer — this deliberately avoids the overlay-stacking
 // class of bugs that Q3F-5AZ.2C-HF1/HF2/HF3 chased in the AlertDialog path.
@@ -47,6 +54,8 @@ import { useRouter } from 'next/navigation';
 import { CheckCircle2, XCircle, Copy, Sparkles, Clock, ChevronDown, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,6 +75,13 @@ import {
 } from '@/modules/prospect-review/approve-and-convert-actions';
 import { discardPendingReviewCandidateAction } from '@/modules/prospect-review/discard-actions';
 import { markDuplicatePendingReviewCandidateAction } from '@/modules/prospect-review/duplicate-actions';
+import {
+  DISCARD_REASONS,
+  DISCARD_REASON_MAX_LENGTH,
+  composeDiscardReason,
+  validateDiscardReason,
+  type DiscardReasonKey,
+} from '@/modules/prospect-review/discard-reason';
 
 // Copy shared by every not-yet-available action (tooltip + menu hint).
 // Exported so the Prospectos selection action bar (prospects-data-table-client.tsx)
@@ -124,6 +140,17 @@ interface ProspectReviewActionsProps {
 // Future secondary action kept VISIBLE alongside Aprobar (disabled for now).
 export const DISCARD_ACTION = { label: 'Descartar', icon: XCircle } as const;
 
+/**
+ * Q3F-5BB.11K-FIX — inline validation copy for the mandatory discard motive,
+ * keyed by the pure helper's failure code so client and server never disagree
+ * on what "invalid" means.
+ */
+export const DISCARD_REASON_HINTS: Record<'empty' | 'too_short' | 'too_long', string> = {
+  empty: 'Selecciona un motivo o escribe uno personalizado para continuar.',
+  too_short: 'El motivo es demasiado corto para conservar trazabilidad.',
+  too_long: `El motivo no puede exceder ${DISCARD_REASON_MAX_LENGTH} caracteres.`,
+};
+
 // Q3F-5AZ.2G-2 — "Marcar duplicado" is now an ENABLED action (inside "Más
 // acciones") for an eligible candidate. Exported so the Prospectos selection
 // action bar (prospects-data-table-client.tsx) can reuse the exact same
@@ -152,12 +179,24 @@ export function ProspectReviewActions({
   // approve one; only one panel is ever shown at a time (see render below).
   const [discardConfirming, setDiscardConfirming] = React.useState(false);
   const [discarding, setDiscarding] = React.useState(false);
+  // Q3F-5BB.11K-FIX — the discard motive is collected INSIDE the inline panel
+  // (no modal) and is mandatory: the confirm button stays disabled until the
+  // composed reason validates, and the server re-validates it anyway.
+  const [discardReasonKey, setDiscardReasonKey] = React.useState<DiscardReasonKey | ''>('');
+  const [discardReasonText, setDiscardReasonText] = React.useState('');
   // Q3F-5AZ.2G-2 — the mark-duplicate inline confirmation is a third mutually
   // exclusive mode; only one of approve/discard/duplicate panels shows at a time.
   const [duplicateConfirming, setDuplicateConfirming] = React.useState(false);
   const [markingDuplicate, setMarkingDuplicate] = React.useState(false);
 
   const view = resolveReviewDecisionView(candidate);
+
+  // Q3F-5BB.11K-FIX — live motive derivation for the inline discard panel. The
+  // composed value is exactly what the server will receive and re-validate.
+  const composedDiscardReason = composeDiscardReason(discardReasonKey, discardReasonText);
+  const discardReasonValidation = validateDiscardReason(composedDiscardReason);
+  const isOtherDiscardReason = discardReasonKey === 'other';
+  const hasStartedDiscardReason = discardReasonKey !== '' || discardReasonText.trim() !== '';
 
   // Reset both inline confirmations whenever the drawer swaps to another candidate.
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -166,6 +205,9 @@ export function ProspectReviewActions({
     setApproving(false);
     setDiscardConfirming(false);
     setDiscarding(false);
+    // The motive belongs to ONE candidate — never carry it over to the next.
+    setDiscardReasonKey('');
+    setDiscardReasonText('');
     setDuplicateConfirming(false);
     setMarkingDuplicate(false);
   }, [candidate.id]);
@@ -240,16 +282,33 @@ export function ProspectReviewActions({
     }
   }
 
+  // Q3F-5BB.11K-FIX — closes the discard panel AND clears the motive inputs, so
+  // cancelling never leaves a half-written reason armed for the next attempt.
+  function closeDiscardConfirm() {
+    setDiscardConfirming(false);
+    setDiscardReasonKey('');
+    setDiscardReasonText('');
+  }
+
   async function doDiscard() {
     if (discarding) return;
+    // Client-side guard on the SAME pure contract the server enforces. The
+    // button is already disabled without a valid motive; this is the fail-closed
+    // backstop for any programmatic path.
+    const validation = validateDiscardReason(
+      composeDiscardReason(discardReasonKey, discardReasonText),
+    );
+    if (!validation.ok) return;
+
     setDiscarding(true);
     try {
       const result = await discardPendingReviewCandidateAction(candidate.id, {
         source: 'prospectos_drawer',
+        reason: validation.reason,
       });
       if (result.ok) {
         toast.success('Prospecto descartado.');
-        setDiscardConfirming(false);
+        closeDiscardConfirm();
         // Server components refetch: the drawer receives the updated candidate
         // and re-renders this zone (null — terminal) and the status info card
         // in the "Descartado" state.
@@ -354,13 +413,90 @@ export function ProspectReviewActions({
               Este prospecto saldrá de la revisión y no se creará como empresa en SellUp. Podrás
               conservar trazabilidad del descarte.
             </p>
+            <p className="text-xs font-medium text-foreground">
+              Selecciona el motivo para conservar trazabilidad del descarte.
+            </p>
           </div>
+
+          {/* Q3F-5BB.11K-FIX — motive capture, INLINE (no modal / portal / overlay:
+              the drawer stacking bugs of Q3F-5AZ.2C-HF* must not come back). */}
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground" id="discard-reason-label">
+                Motivo de descarte
+              </Label>
+              <div
+                role="group"
+                aria-labelledby="discard-reason-label"
+                className="flex max-h-48 flex-col gap-1.5 overflow-y-auto pr-1"
+              >
+                {DISCARD_REASONS.map((r) => {
+                  const selected = discardReasonKey === r.value;
+                  return (
+                    <button
+                      key={r.value}
+                      type="button"
+                      aria-pressed={selected}
+                      disabled={discarding}
+                      onClick={() => setDiscardReasonKey(r.value)}
+                      className={`rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-60 ${
+                        selected
+                          ? 'border-destructive bg-destructive/10'
+                          : 'border-border/50 bg-card hover:bg-muted/40'
+                      }`}
+                    >
+                      <span
+                        className={`text-xs leading-snug ${
+                          selected ? 'font-medium text-destructive' : 'text-foreground'
+                        }`}
+                      >
+                        {r.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="discard-reason-text" className="text-xs font-medium text-muted-foreground">
+                {isOtherDiscardReason ? 'Motivo personalizado' : 'Notas adicionales (opcional)'}
+              </Label>
+              <Textarea
+                id="discard-reason-text"
+                value={discardReasonText}
+                onChange={(e) => setDiscardReasonText(e.target.value)}
+                disabled={discarding}
+                rows={2}
+                maxLength={DISCARD_REASON_MAX_LENGTH}
+                aria-invalid={!discardReasonValidation.ok}
+                placeholder={
+                  isOtherDiscardReason ? 'Describe el motivo…' : 'Contexto adicional opcional…'
+                }
+                className="min-h-[64px] text-xs"
+              />
+              {discardReasonText.length > DISCARD_REASON_MAX_LENGTH - 100 && (
+                <p className="text-[11px] text-muted-foreground">
+                  {discardReasonText.length} / {DISCARD_REASON_MAX_LENGTH} caracteres
+                </p>
+              )}
+              {/* Only nag once the reviewer has actually started composing — an
+                  untouched panel shows the neutral instruction above instead. */}
+              {!discardReasonValidation.ok && hasStartedDiscardReason && (
+                <p className="text-[11px] font-medium text-destructive">
+                  {DISCARD_REASON_HINTS[discardReasonValidation.code]}
+                </p>
+              )}
+            </div>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <Button
               variant="destructive"
               size="sm"
               onClick={doDiscard}
-              disabled={discarding}
+              disabled={discarding || !discardReasonValidation.ok}
+              title={discardReasonValidation.ok ? undefined : 'Selecciona un motivo de descarte'}
             >
               {discarding ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -373,7 +509,7 @@ export function ProspectReviewActions({
               variant="outline"
               size="sm"
               type="button"
-              onClick={() => setDiscardConfirming(false)}
+              onClick={closeDiscardConfirm}
               disabled={discarding}
             >
               Cancelar
