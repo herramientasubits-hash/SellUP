@@ -9,6 +9,7 @@
 **Related documents:**
 - Full join dry-run technical design — [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md)
 - Full join approval gates checklist — [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
+- Full join gate evidence packet — [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md)
 - Privacy-safe import eligibility design — [`br-receita-cnpj-privacy-safe-import-eligibility-design.md`](./br-receita-cnpj-privacy-safe-import-eligibility-design.md)
 - Import & staging persistence contract — [`br-receita-cnpj-import-staging-contract.md`](./br-receita-cnpj-import-staging-contract.md)
 - Manual download & local prep runbook — [`br-receita-cnpj-manual-download-local-prep-runbook.md`](./br-receita-cnpj-manual-download-local-prep-runbook.md)
@@ -448,6 +449,15 @@ full-join readiness dry-run under the envelope in § 4.
 > [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
 > — which makes the § 9 gates concretely approvable without approving any of them. Its recommended
 > successor is **BR-SOURCE-10L — full join dry-run gate evidence packet**.
+>
+> **Update:** BR-SOURCE-10L has since landed as that docs-only evidence packet —
+> [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md)
+> — which inventories, per § 9 gate, the evidence that already exists and the evidence still missing,
+> including that the § 6.3 candidate field list remains unfrozen and unversioned and that the § 7
+> identity-grain choice (A / B / C / D) is still unrecorded. It **approves no gate**: all eight remain
+> `not_started`, decides no grain and no allowlist, and authorizes **no** dry-run, import, Supabase
+> write, migration, runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10M —
+> full join field allowlist decision record** (GATE-3, docs-only).
 
 This is a **recommendation, not an execution**: BR-SOURCE-10I opens no such milestone and
 authorizes nothing further.

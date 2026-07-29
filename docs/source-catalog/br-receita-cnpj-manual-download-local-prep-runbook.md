@@ -567,6 +567,28 @@ integration. See checklist
 
 ---
 
+### 11.8. Full join gate evidence packet (BR-SOURCE-10L)
+
+BR-SOURCE-10L is a **docs-only evidence packet** for GATE-1 … GATE-8: per gate it records the
+evidence that already exists (with document and section pointers), the evidence still missing, the
+owner role that missing evidence must come from, the pending decision that blocks the gate, and the
+artifacts required to reach `ready_for_review` — plus a cross-gate gap map and a global GO / NO-GO.
+There is **no new runner and no new command** for it.
+
+It **approves no gate**: all eight remain `not_started` (each holding `partial_evidence_collected`),
+so the matrix still reads **NO-GO**, and no full-join runner code may be written. Operator-relevant
+consequence: **GATE-7 is still unapproved and this runbook still contains no full-join procedure** —
+10L records exactly what is missing before one could exist (a preflight that verifies gate status,
+the dry-run confirmation language, a disk / memory command set against ceilings that do not yet
+exist, live monitoring instructions, cleanup verification steps, the report sensitive-scan steps,
+post-run deletion rules, and a final signoff template). Nothing in § 11.1–§ 11.4 changes: the
+bounded runners and their commands are unaffected. 10L decides no identity grain, no field allowlist,
+and no storage envelope, and authorizes **no** dry-run, import, Supabase write, migration, runtime,
+or Agent 1 integration. See packet
+[`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md).
+
+---
+
 ## 12. Expected safe outputs
 
 Both runners emit only a **sanitized report**:
@@ -656,4 +678,6 @@ Completing this runbook does **not** authorize:
 | **BR-SOURCE-10H** | Bounded join **coverage strategy** (§ 11.4): adds `establishment_keys_then_company_probe`; `coverage_is_representative` always false. | Bounded coverage probe only; authorizes no import. |
 | **BR-SOURCE-10I** | Full join **import-readiness design** (docs-only): defines the conditions, envelope, join-key treatment, field survival contract, identity-grain decision gate, and required future gates for a future full local join. | Docs-only; decides no identity grain; authorizes no dry-run, import, Supabase write, runtime, or Agent 1. |
 | **BR-SOURCE-10J** | Full join **dry-run technical design** (§ 11.6, docs-only): lowers the 10I contract into a future execution model, architecture options, temporary storage envelope, join-key handling, field discard timing, cleanup contract, resource limits, and future CLI/report contracts. | Docs-only; no runner, no command; decides no identity grain; authorizes no dry-run, import, Supabase write, runtime, or Agent 1. |
-| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + join dry-run (10G) + coverage strategy (10H) + full-join readiness design (10I) + full-join dry-run technical design (10J) + explicit approval first. |
+| **BR-SOURCE-10K** | Full join **approval gates checklist** (§ 11.7, docs-only): turns GATE-1 … GATE-8 into per-gate approval criteria (evidence, approver role, pass/fail, blockers, artifacts, allows / does-not-allow), plus a gate status model, dependency graph, approval-evidence template, and GO / NO-GO matrix. | Docs-only; no runner, no command; **approves no gate** (all eight `not_started` → NO-GO); authorizes no dry-run, import, Supabase write, runtime, or Agent 1. |
+| **BR-SOURCE-10L** | Full join **gate evidence packet** (§ 11.8, docs-only): per gate, the evidence that exists, the evidence missing, the owner role required, the pending blocking decision, and the artifacts needed to reach `ready_for_review`; plus a cross-gate gap map. | Docs-only; no runner, no command; **approves no gate** (all eight `not_started`, `partial_evidence_collected` → NO-GO); decides no grain, allowlist, or storage envelope; authorizes no dry-run, import, Supabase write, runtime, or Agent 1. |
+| _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + join dry-run (10G) + coverage strategy (10H) + full-join readiness design (10I) + full-join dry-run technical design (10J) + approval gates checklist (10K) + gate evidence packet (10L) + **every gate approved** + explicit approval first. |
