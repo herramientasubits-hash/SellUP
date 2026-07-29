@@ -1543,6 +1543,36 @@ Four caveats attach:
 This is a **recommendation, not an execution**: BR-SOURCE-10O opens no such milestone and authorizes
 nothing further.
 
+> **Update (BR-SOURCE-10PQR).** That successor landed **accelerated** — as one docs-only packet covering
+> the three remaining preparable gates rather than three sequential milestones (10P, 10Q, 10R):
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md).
+> It carries the GATE-6 objective above intact (§ 4, § 5: a thirteen-scenario cleanup matrix, a closed
+> destroyable-artifact class list, a before-creation temporary-artifact ledger, ledger reconciliation as
+> the verification mechanism, and the escalation pair), and adds the GATE-7 runbook **contract** (§ 6,
+> § 7) and the GATE-8 no-write / no-runtime **contract** (§ 8, § 9), plus a readiness table for all eight
+> gates (§ 10).
+>
+> All four caveats above hold, and the packet states each of them itself:
+>
+> - **no gate is approved** — GATE-6, GATE-7, and GATE-8 all remain `not_started` / not approved, each
+>   awaiting its own owner set and its own 10K § 14 entry, and *one document is explicitly not one
+>   approval*;
+> - **the GATE-2 dependency is unresolved and handled conditionally** — the cleanup contract is stated
+>   separately for in-memory-only (`E1`) and approved-ephemeral-disk (`E2`), and two of its assertions are
+>   unenforceable until the envelope is chosen;
+> - **every open item of 10M, 10N, and this record is inherited, not resolved** — the `normalized_tax_id`
+>   survival question, the `raw_data` default, the deferred key construction, indirect identifiability, the
+>   unset `k`, and the unset length ceiling; the unset `k` is what makes a small-cell suppression failure a
+>   **leak-class terminating scenario** there rather than a formatting problem;
+> - **GATE-1 remains the true blocker**, and no verification, cleanup routine, guard, test, runner, or
+>   runbook section is written.
+>
+> Two items of this record are continued there rather than restated: § 13's failure behavior gains its
+> cleanup counterpart (destruction, ordering, and verification), and **§ 12's open question of whether a
+> real local manifest path is sensitive is resolved fail-closed for the cleanup and evidence surfaces
+> only** — those surfaces emit a `directory_class` enum and never a path — without amending this record's
+> or the staging contract's own scope.
+
 ---
 
 ## 21. Safety confirmation

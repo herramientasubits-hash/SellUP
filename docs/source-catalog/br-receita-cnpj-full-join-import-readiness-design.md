@@ -373,6 +373,26 @@ not run.
 > authorizes **no** full join execution, import, Supabase write, migration, runtime, or Agent 1
 > integration.
 
+> **Update (BR-SOURCE-10PQR).** The last three gates above — **GATE-6**, **GATE-7**, and **GATE-8** —
+> now have assembled proposals, in one accelerated docs-only packet:
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md).
+> GATE-6 gains a thirteen-scenario cleanup matrix, a closed destroyable-artifact class list, a
+> temporary-artifact ledger, a verification mechanism, and an escalation owner (§ 4, § 5); GATE-7 gains a
+> runbook **contract** — who may operate, a twenty-two-item preflight, sixteen stop conditions, closed
+> permitted evidence, and twelve operator behavior rules (§ 6, § 7) — while the runbook section itself
+> remains unwritten; GATE-8 gains a closed blocked-surface list, structural enforcement requirements,
+> rejection ordering, an evidence contract, and an enumerated no-write test list (§ 8, § 9). Its § 10
+> readiness table records the standing of all eight gates in one place.
+>
+> With the earlier records for GATE-3 (10M), GATE-4 (10N), and GATE-5 (10O), **five of the eight gates now
+> have an assembled proposal — and zero are approved.** GATE-1 and GATE-2 remain the two gates no document
+> in this series can advance: GATE-1 needs a legal/privacy determination, and GATE-2 needs real
+> measurements plus an architecture choice. The sentence above still governs unchanged: **no gate may be
+> skipped or collapsed, and a full join dry-run that cannot satisfy every gate does not run.** The packet
+> is docs-only, approves no gate, writes no cleanup code, guard, runner, test, or runbook, and authorizes
+> **no** full join execution, import, Supabase write, migration, index change, runtime, or Agent 1
+> integration.
+
 ---
 
 ## 10. Required future report
