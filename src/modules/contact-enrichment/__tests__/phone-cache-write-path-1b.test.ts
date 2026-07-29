@@ -88,6 +88,11 @@ function webhookDeps(
       cacheWrites.push(input);
       return { written: true };
     },
+    // FIX 3: la comprobación de supresión en vuelo es OBLIGATORIA cuando llega un
+    // teléfono, así que estas pruebas de write path la cablean como "sin
+    // tombstone". Sin la dep el core sería fail-closed (`suppression_check_
+    // unavailable`) y no persistiría nada — eso se prueba en el suite de FIX 3.
+    lookupPhoneCacheSuppression: async () => null,
     ...overrides,
   };
 }
@@ -290,6 +295,8 @@ function recoveryDeps(
       cacheWrites.push(input);
       return { written: true };
     },
+    // FIX 3: igual que en el webhook — sin tombstone, para aislar el write path.
+    lookupPhoneCacheSuppression: async () => null,
     ...overrides,
   };
 }

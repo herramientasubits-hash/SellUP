@@ -31,7 +31,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { isApolloPhoneCacheEnabled } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
-import { writePhoneCacheEntry } from './phone-cache-store';
+import { readPhoneCacheSuppression, writePhoneCacheEntry } from './phone-cache-store';
 import { fetchApolloPhoneRevealWebhookResult } from '@/server/integrations/apollo-client';
 import {
   classifyWebhookResultHttpStatus,
@@ -103,9 +103,11 @@ async function requireAdminActor(): Promise<RecoveryRuntimeActor> {
 
 // `apollo_person_id` + los países alimentan la escritura de caché
 // (APOLLO-PHONE-CACHE-1b). Inertes con ENABLE_APOLLO_PHONE_CACHE apagado.
+// `source_contact_id` añade una vía más para emparejar el tombstone de SUPRESIÓN
+// (FIX 3) en candidatos de origen Apollo. Id opaco de correlación, NO PII.
 const RECOVERY_CANDIDATE_SELECT = `id, source, phone, enrichment_metadata,
    phone_reveal_provider, phone_reveal_status, phone_processing_basis,
-   apollo_person_id, country,
+   apollo_person_id, source_contact_id, country,
    run:contact_enrichment_runs ( account_id, company_country_code )`;
 
 function mapRecoveryCandidate(row: Record<string, unknown>): RecoveryCandidateRecord {
@@ -125,6 +127,7 @@ function mapRecoveryCandidate(row: Record<string, unknown>): RecoveryCandidateRe
       (row.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
     phoneProcessingBasis: (row.phone_processing_basis as string | null) ?? null,
     apolloPersonId: (row.apollo_person_id as string | null) ?? null,
+    sourceContactId: (row.source_contact_id as string | null) ?? null,
     candidateCountry: (row.country as string | null) ?? null,
     runCompanyCountryCode: run?.company_country_code ?? null,
   };
@@ -263,6 +266,19 @@ function buildRecoveryCoreDeps(actorUserId: string | null): RecoverApolloPhoneRe
     // sin leer ni escribir. Nunca lanza: la caché no puede romper el recovery.
     cacheRevealedPhone: async (cacheInput) =>
       writePhoneCacheEntry(cacheInput, isApolloPhoneCacheEnabled()),
+
+    // Supresión en vuelo (FIX 3). Sin condicionar al flag de caché: una DSAR
+    // registrada entre el START y este poll tiene que bloquear la persistencia
+    // tardía del teléfono con la caché encendida o apagada. La lectura pide solo
+    // `suppressed_at`, así que con el flag apagado no se lee ningún número. Si
+    // LANZA, el core no persiste teléfono y el candidato sigue recuperable.
+    lookupPhoneCacheSuppression: readPhoneCacheSuppression,
+    onSuppressionCheckUnavailable: (message) => {
+      console.error(
+        '[phone-reveal-recovery] suppression check unavailable:',
+        message,
+      );
+    },
   };
 }
 

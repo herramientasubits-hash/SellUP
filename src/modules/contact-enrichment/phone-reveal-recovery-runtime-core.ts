@@ -138,7 +138,16 @@ function statusForOutcome(
     case 'provider_error_transient':
     case 'invalid_candidate':
     case 'candidate_not_found':
+    // FIX 3: la supresión no se pudo verificar. Condición técnica sin resolver
+    // (no se persistió teléfono, 0 créditos, reintentable) ⇒ `error`, para que el
+    // admin vea que hay algo que arreglar y no lo lea como "nada que hacer".
+    case 'suppression_check_unavailable':
       return 'error';
+    // FIX 3: bloqueado por tombstone. NO es un error: es el resultado correcto de
+    // una supresión vigente. Cae en `skipped` (nada se recuperó, nada falló) por
+    // el default, declarado aquí de forma explícita para que quede intencional.
+    case 'blocked_suppressed':
+      return 'skipped';
     // dry_run_eligible + inelegibles de negocio (ya terminal, sin recovery id, no
     // apollo, ya tiene teléfono, no en vuelo): no se ejecutó nada terminal.
     default:

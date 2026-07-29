@@ -62,6 +62,15 @@ import {
   type PhoneCacheWriteInput,
 } from './phone-cache-core';
 import { PHONE_REVEAL_OPERATION_KEY, PHONE_REVEAL_PROVIDER } from './phone-reveal-core';
+import {
+  describeInFlightSuppression,
+  evaluateInFlightPhoneSuppression,
+  resolveInFlightSuppressionPersonId,
+  SUPPRESSION_BLOCKED_ERROR_CODE,
+  SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+  type InFlightSuppressionAuditState,
+  type InFlightSuppressionLookup,
+} from './phone-reveal-suppression-guard';
 import type {
   ContactCandidateEnrichmentMetadata,
   ContactCandidatePhoneMetadata,
@@ -117,6 +126,13 @@ export interface RecoveryCandidateRecord {
   apolloPersonId?: string | null;
   candidateCountry?: string | null;
   runCompanyCountryCode?: string | null;
+  /**
+   * `source_contact_id` del candidato. Solo se usa como clave de supresión (FIX 3)
+   * cuando el candidato es de origen Apollo; un id de otro proveedor (Lusha
+   * `v1.*`) lo descarta el validador. Opcional: ausente ⇒ una vía menos para
+   * emparejar el tombstone, nunca un bloqueo inferido.
+   */
+  sourceContactId?: string | null;
 }
 
 // ── Entrada de la recuperación de UN candidato ─────────────────
@@ -154,12 +170,17 @@ export interface RecoverApolloPhoneRevealInput {
 export interface RecoveryPersistencePatch {
   phone?: string | null;
   enrichment_metadata?: ContactCandidateEnrichmentMetadata;
-  phone_reveal_status?: 'revealed' | 'no_phone_found';
+  /**
+   * `error` SOLO lo emite el bloqueo por supresión (FIX 3), junto a
+   * `phone_reveal_error_code = 'blocked_suppressed'`. Reutiliza el vocabulario
+   * existente de la columna (mig. 095/097) en vez de añadir un estado nuevo.
+   */
+  phone_reveal_status?: 'revealed' | 'no_phone_found' | 'error';
   phone_reveal_completed_at?: string | null;
   phone_revealed_at?: string | null;
   phone_reveal_provider?: 'apollo';
   phone_reveal_cost_credits?: number | null;
-  phone_reveal_error_code?: null;
+  phone_reveal_error_code?: null | typeof SUPPRESSION_BLOCKED_ERROR_CODE;
   phone_processing_basis?: PhoneProcessingBasis;
   /** Siempre presente: marca de la última verificación de recuperación. */
   phone_reveal_last_checked_at: string;
@@ -182,7 +203,11 @@ export type RecoveryLogRevealStatus =
   | 'pending'
   | 'not_found'
   | 'unauthorized'
-  | 'error';
+  | 'error'
+  // FIX 3: el poll trajo teléfono pero un tombstone impidió persistirlo.
+  | typeof SUPPRESSION_BLOCKED_ERROR_CODE
+  // FIX 3: la supresión no se pudo verificar; nada terminal se persistió.
+  | typeof SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE;
 
 export interface RecoveryUsageLogEntry {
   operationKey: typeof PHONE_REVEAL_OPERATION_KEY;
@@ -213,6 +238,12 @@ export interface RecoveryUsageLogEntry {
     credits_used: number | null;
     /** true si el actor pasó un motivo (el texto NO se guarda). */
     has_reason: boolean;
+    /**
+     * Resultado PII-free de la comprobación de supresión (FIX 3). Presente solo
+     * cuando el poll trajo un teléfono que persistir — el único camino que la
+     * ejecuta. Ausente en pending / 404 / 401 / no_phone_found.
+     */
+    suppression_state?: InFlightSuppressionAuditState;
   };
 }
 
@@ -247,6 +278,24 @@ export interface RecoverApolloPhoneRevealDeps {
    * igual que antes de este hito.
    */
   cacheRevealedPhone?: (input: PhoneCacheWriteInput) => Promise<unknown>;
+
+  // ── Cumplimiento de SUPRESIÓN en vuelo (FIX 3) ────────────────
+  // Igual que en el webhook: NO depende de `ENABLE_APOLLO_PHONE_CACHE`. Un flag de
+  // reutilización no puede desactivar el cumplimiento de una supresión.
+
+  /**
+   * Lee el tombstone de (apollo, persona, MISMA cuenta). Se invoca SIEMPRE que el
+   * poll recupere un teléfono, con el flag de caché encendido o apagado, y ANTES
+   * de persistirlo. Debe LANZAR si la lectura falla: el core lo traduce a
+   * `suppression_check_unavailable`, no persiste teléfono y deja el candidato
+   * recuperable. Dep ausente ⇒ mismo resultado (fail-closed).
+   */
+  lookupPhoneCacheSuppression?: InFlightSuppressionLookup;
+  /**
+   * Notifica que la supresión no se pudo verificar. Mensaje mecánico YA redactado:
+   * nunca teléfono, person id, email, nombre ni linkedin.
+   */
+  onSuppressionCheckUnavailable?: (message: string) => void;
 }
 
 // ── Resultado (sin PII) ────────────────────────────────────────
@@ -267,7 +316,14 @@ export type RecoveryOutcome =
   // Terminales tras el poll:
   | 'revealed'
   | 'no_phone_found'
+  // FIX 3 — el poll trajo teléfono pero existe tombstone: NO se persiste, NO se
+  // cachea, 0 créditos nuevos. Terminal (`error` + `blocked_suppressed`) para que
+  // el propio recovery no lo vuelva a intentar.
+  | 'blocked_suppressed'
   // No terminales (candidato sigue recuperable):
+  // FIX 3 — la supresión no se pudo verificar: sin teléfono, sin caché, el
+  // candidato sigue en vuelo y se puede repolear (0 créditos) más tarde.
+  | 'suppression_check_unavailable'
   | 'still_pending'
   | 'not_found_or_pending_ambiguous'
   | 'possible_missing_webhook_result_read_scope'
@@ -477,6 +533,74 @@ async function handleRecoveredPayload(args: {
   const apolloPersonId = extractWebhookPersonId(payload);
 
   if (best) {
+    // FIX 3 — SUPRESIÓN EN VUELO. El recovery recupera un payload producido hace
+    // tiempo: una DSAR pudo registrarse entre el START y este poll. Se comprueba el
+    // tombstone antes de persistir, con el flag de caché encendido o apagado. Solo
+    // corre en este camino: sin teléfono recuperado no hay número que suprimir, así
+    // que `no_phone_found` y los no terminales quedan idénticos (0 lecturas).
+    const suppression = await evaluateInFlightPhoneSuppression({
+      personId: resolveInFlightSuppressionPersonId({
+        payloadPersonId: apolloPersonId,
+        candidateApolloPersonId: candidate.apolloPersonId ?? null,
+        candidateSource: candidate.source ?? null,
+        candidateSourceContactId: candidate.sourceContactId ?? null,
+      }),
+      accountId: candidate.accountId,
+      lookup: deps.lookupPhoneCacheSuppression,
+    });
+    const suppressionState = describeInFlightSuppression(suppression);
+
+    // No verificable ⇒ fail-closed por el camino NO terminal que ya existe: solo
+    // se marca `phone_reveal_last_checked_at`, el status sigue en vuelo y el mismo
+    // resultado se puede repolear sin gastar créditos.
+    if (suppression.kind === 'check_unavailable') {
+      deps.onSuppressionCheckUnavailable?.(suppression.message);
+      return finalizeNonTerminal({
+        candidate,
+        recoveryRequestId,
+        outcome: 'suppression_check_unavailable',
+        revealStatus: SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+        logStatus: 'error',
+        errorCode: SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+        suppressionState,
+        input,
+        deps,
+      });
+    }
+
+    // Tombstone ⇒ el teléfono recuperado se descarta. NO se escribe `phone`, NO se
+    // toca `enrichment_metadata.phone`, NO se propaga `apollo_person_id` (no se
+    // añade dato nuevo de una persona suprimida) y NO se escribe caché.
+    if (suppression.kind === 'blocked_suppressed') {
+      await deps.persist(candidate.id, {
+        phone_reveal_status: 'error',
+        phone_reveal_completed_at: deps.nowIso,
+        phone_reveal_last_checked_at: deps.nowIso,
+        phone_reveal_provider: PHONE_REVEAL_PROVIDER,
+        phone_reveal_cost_credits: credits,
+        phone_reveal_error_code: SUPPRESSION_BLOCKED_ERROR_CODE,
+      });
+      await deps.logUsage(
+        buildRecoveryLog({
+          candidate,
+          recoveryRequestId,
+          revealStatus: SUPPRESSION_BLOCKED_ERROR_CODE,
+          outcome: 'blocked_suppressed',
+          logStatus: 'success',
+          errorCode: SUPPRESSION_BLOCKED_ERROR_CODE,
+          phonePresent: false,
+          phoneType: null,
+          credits,
+          suppressionState,
+          input,
+        }),
+      );
+      return toResult('blocked_suppressed', {
+        creditsUsed: credits,
+        recoveryRequestIdPresent: true,
+      });
+    }
+
     const revealed: ClassifiedPhone = { ...best, source: 'apollo_reveal' };
     const phoneMetadata: ContactCandidatePhoneMetadata = {
       number: revealed.number,
@@ -534,6 +658,9 @@ async function handleRecoveredPayload(args: {
         phonePresent: true,
         phoneType: revealed.type,
         credits,
+        // FIX 3: constancia de que la comprobación se hizo también cuando el
+        // teléfono sí se persiste.
+        suppressionState,
         input,
       }),
     );
@@ -588,11 +715,22 @@ async function finalizeNonTerminal(args: {
   revealStatus: RecoveryLogRevealStatus;
   logStatus: 'success' | 'error';
   errorCode: string | null;
+  /** Solo lo pasa el camino de supresión no verificable (FIX 3). */
+  suppressionState?: InFlightSuppressionAuditState;
   input: RecoverApolloPhoneRevealInput;
   deps: RecoverApolloPhoneRevealDeps;
 }): Promise<RecoverApolloPhoneRevealResult> {
-  const { candidate, recoveryRequestId, outcome, revealStatus, logStatus, errorCode, input, deps } =
-    args;
+  const {
+    candidate,
+    recoveryRequestId,
+    outcome,
+    revealStatus,
+    logStatus,
+    errorCode,
+    suppressionState,
+    input,
+    deps,
+  } = args;
   // NO se toca el status del candidato (sigue en vuelo, recuperable): solo se
   // marca la última verificación. NUNCA se degrada a no_phone_found ni a error
   // terminal de negocio.
@@ -610,6 +748,7 @@ async function finalizeNonTerminal(args: {
       phonePresent: false,
       phoneType: null,
       credits: null,
+      suppressionState,
       input,
     }),
   );
@@ -628,6 +767,8 @@ function buildRecoveryLog(args: {
   phonePresent: boolean;
   phoneType: string | null;
   credits: number | null;
+  /** Etiqueta PII-free de la comprobación de supresión (FIX 3). Opcional. */
+  suppressionState?: InFlightSuppressionAuditState;
   input: RecoverApolloPhoneRevealInput;
 }): RecoveryUsageLogEntry {
   return {
@@ -650,6 +791,10 @@ function buildRecoveryLog(args: {
       phone_type: args.phoneType,
       credits_used: args.credits,
       has_reason: Boolean(cleanText(args.input.reason)),
+      // Solo se incluye cuando la comprobación llegó a ejecutarse (hubo teléfono).
+      ...(args.suppressionState
+        ? { suppression_state: args.suppressionState }
+        : {}),
     },
   };
 }
@@ -778,7 +923,16 @@ export async function recoverStaleApolloPhoneRevealRequests(
         break;
       case 'possible_missing_webhook_result_read_scope':
       case 'provider_error_transient':
+      // FIX 3: la supresión no se pudo verificar. Es una condición técnica sin
+      // resolver (como un 401/5xx), no un candidato inelegible: cuenta como
+      // `failed` para que salte a la vista, no como `skipped`.
+      case 'suppression_check_unavailable':
         failed += 1;
+        break;
+      // FIX 3: bloqueado por supresión. NO es un fallo — es el resultado correcto
+      // y deseado — y tampoco es una recuperación. Cuenta como `skipped`.
+      case 'blocked_suppressed':
+        skipped += 1;
         break;
       default:
         // Inelegible (ya terminal, sin recovery id, no apollo, etc.).

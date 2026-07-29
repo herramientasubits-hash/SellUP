@@ -532,7 +532,7 @@ function cleanText(value: string | null | undefined): string | null {
  * borran URLs de LinkedIn, correos, ids hexadecimales largos y secuencias de
  * dígitos, y se acota el largo. El error crudo NUNCA sale del core.
  */
-function redactDriverMessage(raw: unknown): string {
+export function redactDriverMessage(raw: unknown): string {
   const text =
     raw instanceof Error ? raw.message : typeof raw === 'string' ? raw : '';
   const trimmed = text.trim();
