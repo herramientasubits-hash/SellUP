@@ -471,11 +471,15 @@ export function ContactCandidateDetailSheet({
           'No fue posible verificar si existe una supresión registrada para este teléfono. No se hizo ningún cargo; intenta de nuevo en unos minutos.',
         );
         return;
-      // APOLLO-PHONE-CACHE-1b (FIX H4): no se pudo verificar la caché, así que no
-      // se llamó a Apollo (podría existir una supresión no vista). Reintentable.
+      // APOLLO-PHONE-CACHE-1b (FIX H4 + H4-b): no se pudo consultar la caché, o
+      // no se pudo persistir el número reutilizado. En ambos casos NO se llamó a
+      // Apollo y no hubo cargo, no hay teléfono nuevo que mostrar y no se recarga
+      // el candidato (no se persistió nada). Reintentable. El mensaje es único a
+      // propósito: el operador no gana nada distinguiendo lectura de escritura, y
+      // el detalle técnico solo viaja al log del servidor, sin PII.
       case 'cache_unavailable':
         setPhoneRevealError(
-          'No fue posible verificar el estado de la caché de teléfonos. No se hizo ningún cargo; intenta de nuevo en unos minutos.',
+          'No fue posible usar la caché de teléfonos. No se hizo ningún cargo; intenta de nuevo en unos minutos.',
         );
         return;
       case 'do_not_contact':

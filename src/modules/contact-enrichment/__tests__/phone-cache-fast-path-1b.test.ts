@@ -793,3 +793,184 @@ describe('CACHE-1b supresión — FIX 2 independiente del flag de caché', () =>
     assert.equal(captured.suppressionLookups.length, 0);
   });
 });
+
+// ── 8. FIX H4-b: los efectos POSTERIORES al hit fallan ─────────
+// El hit ya se decidió (la caché respondió y la entrada es válida). Si a partir
+// de ahí falla la persistencia o el usage-log, nada puede escalar a 500, llamar
+// a Apollo, gastar créditos ni perder el control del estado.
+
+/**
+ * Error de driver realista: Postgres CITA los valores del payload en sus
+ * mensajes, así que este mensaje incluye a propósito el teléfono y el id de
+ * persona. El core tiene que redactarlo antes de entregarlo al notificador.
+ */
+const DRIVER_ERROR_WITH_PII = new Error(
+  `duplicate key value violates unique constraint "cec_phone_key" Key (phone, apollo_person_id)=(${FAKE_PHONE}, ${PERSON_ID}) already exists; contacto@empresa-ejemplo.test`,
+);
+
+describe('CACHE-1b fast path — FIX H4-b la PERSISTENCIA del hit falla', () => {
+  const boomPersist = async (): Promise<never> => {
+    throw DRIVER_ERROR_WITH_PII;
+  };
+
+  it('no lanza: devuelve un estado seguro con errorCode propio', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ persistCacheHit: boomPersist }),
+    );
+    assert.equal(result.status, 'cache_unavailable');
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCode, 'cache_persist_failed');
+    assert.equal(result.servedFromCache, false);
+  });
+
+  it('NO llama a Apollo (no degrada a reveal de proveedor)', async () => {
+    await runRevealCandidatePhone(VALID_INPUT, deps({ persistCacheHit: boomPersist }));
+    assert.equal(captured.apolloCalls.length, 0);
+    assert.equal(captured.startPatches.length, 0);
+    assert.equal(captured.startLogs.length, 0);
+  });
+
+  it('no consume créditos ni registra un hit que no ocurrió', async () => {
+    await runRevealCandidatePhone(VALID_INPUT, deps({ persistCacheHit: boomPersist }));
+    assert.equal(captured.cacheHitLogs.length, 0);
+    assert.equal(captured.touches.length, 0);
+  });
+
+  it('NO devuelve el teléfono si no se pudo persistir', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ persistCacheHit: boomPersist }),
+    );
+    assert.equal(JSON.stringify(result).includes(FAKE_PHONE), false);
+    assert.equal(JSON.stringify(result).includes(PERSON_ID), false);
+  });
+
+  it('notifica el fallo con un mensaje redactado y SIN PII', async () => {
+    const notified: string[] = [];
+    await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({
+        persistCacheHit: boomPersist,
+        onCacheHitPersistFailed: (message) => notified.push(message),
+      }),
+    );
+    assert.equal(notified.length, 1);
+    const message = notified[0] ?? '';
+    for (const banned of [
+      FAKE_PHONE,
+      PERSON_ID,
+      'contacto@empresa-ejemplo.test',
+      'Apellido',
+    ]) {
+      assert.equal(message.includes(banned), false, `el log no debe incluir ${banned}`);
+    }
+    // Sigue siendo diagnosticable: el texto mecánico del constraint sobrevive.
+    assert.match(message, /unique constraint/);
+  });
+
+  it('sin notificador cableado tampoco lanza', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ persistCacheHit: boomPersist, onCacheHitPersistFailed: undefined }),
+    );
+    assert.equal(result.status, 'cache_unavailable');
+    assert.equal(captured.apolloCalls.length, 0);
+  });
+});
+
+describe('CACHE-1b fast path — FIX H4-b el USAGE-LOG del hit falla', () => {
+  const boomLog = async (): Promise<never> => {
+    throw DRIVER_ERROR_WITH_PII;
+  };
+
+  it('el hit ya persistido sigue siendo un éxito', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ logCacheHitUsage: boomLog }),
+    );
+    assert.equal(result.status, 'revealed_from_cache');
+    assert.equal(result.ok, true);
+    assert.equal(result.servedFromCache, true);
+    assert.equal(captured.cacheHitPatches.length, 1);
+  });
+
+  it('NO llama a Apollo ni gasta créditos por un fallo de logging', async () => {
+    await runRevealCandidatePhone(VALID_INPUT, deps({ logCacheHitUsage: boomLog }));
+    assert.equal(captured.apolloCalls.length, 0);
+    assert.equal(captured.startPatches.length, 0);
+    assert.equal(captured.cacheHitPatches[0]?.phone_reveal_cost_credits, 0);
+  });
+
+  it('notifica la pérdida del log con un mensaje redactado y SIN PII', async () => {
+    const notified: string[] = [];
+    await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({
+        logCacheHitUsage: boomLog,
+        onCacheHitUsageLogFailed: (message) => notified.push(message),
+      }),
+    );
+    assert.equal(notified.length, 1);
+    const message = notified[0] ?? '';
+    for (const banned of [FAKE_PHONE, PERSON_ID, 'contacto@empresa-ejemplo.test']) {
+      assert.equal(message.includes(banned), false, `el log no debe incluir ${banned}`);
+    }
+  });
+
+  it('sin notificador cableado tampoco lanza', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ logCacheHitUsage: boomLog, onCacheHitUsageLogFailed: undefined }),
+    );
+    assert.equal(result.status, 'revealed_from_cache');
+  });
+
+  it('el resultado NUNCA transporta el teléfono, ni en este camino', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({ logCacheHitUsage: boomLog }),
+    );
+    assert.equal(JSON.stringify(result).includes(FAKE_PHONE), false);
+  });
+});
+
+describe('CACHE-1b fast path — FIX H4-b ningún efecto del hit escala a 500', () => {
+  it('los TRES efectos posteriores fallando a la vez no lanzan', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({
+        persistCacheHit: async () => {
+          throw DRIVER_ERROR_WITH_PII;
+        },
+        logCacheHitUsage: async () => {
+          throw DRIVER_ERROR_WITH_PII;
+        },
+        touchPhoneCacheEntry: async () => {
+          throw DRIVER_ERROR_WITH_PII;
+        },
+      }),
+    );
+    // La persistencia manda: sin ella no hay teléfono ni hit servido.
+    assert.equal(result.status, 'cache_unavailable');
+    assert.equal(result.errorCode, 'cache_persist_failed');
+    assert.equal(captured.apolloCalls.length, 0);
+  });
+
+  it('persistencia OK + log y telemetría caídos ⇒ hit servido igual', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps({
+        logCacheHitUsage: async () => {
+          throw DRIVER_ERROR_WITH_PII;
+        },
+        touchPhoneCacheEntry: async () => {
+          throw DRIVER_ERROR_WITH_PII;
+        },
+      }),
+    );
+    assert.equal(result.status, 'revealed_from_cache');
+    assert.equal(captured.cacheHitPatches.length, 1);
+    assert.equal(captured.apolloCalls.length, 0);
+  });
+});

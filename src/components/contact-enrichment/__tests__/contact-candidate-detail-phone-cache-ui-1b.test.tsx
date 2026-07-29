@@ -402,3 +402,65 @@ describe('CACHE-1b UI — suppression_check_unavailable es un fallo seguro', () 
     cleanup();
   });
 });
+
+// ── FIX H4-b: la persistencia del hit falló ──────────────────────────────────
+// El core reutiliza `cache_unavailable` con `errorCode = 'cache_persist_failed'`
+// para que la UI no necesite una rama nueva. Lo que se asegura aquí es que ese
+// errorCode NO cambia el trato: mensaje seguro, sin teléfono, sin recarga (no se
+// persistió nada) y sin caer en el default genérico.
+
+describe('CACHE-1b UI — FIX H4-b cache_persist_failed es un fallo seguro', () => {
+  beforeEach(() => {
+    mockReveal.mock.mockImplementation(async () => ({
+      ok: false,
+      status: 'cache_unavailable',
+      requestAccepted: false,
+      errorCode: 'cache_persist_failed',
+      servedFromCache: false,
+    }));
+  });
+
+  async function waitForCacheMessage() {
+    await waitFor(() => {
+      if (screen.queryByText(/caché de teléfonos/) === null) {
+        throw new Error('mensaje de caché no renderizado');
+      }
+    });
+  }
+
+  it('muestra el mensaje seguro y no el default genérico', async () => {
+    await renderSheet(makeCandidate());
+    await clickReveal();
+    await waitForCacheMessage();
+    const message = screen.getByText(/caché de teléfonos/).textContent ?? '';
+    assert.match(message, /no se hizo ningún cargo/i);
+    assert.match(message, /intenta de nuevo/i);
+    assert.equal(screen.queryByText(GENERIC_ERROR), null);
+    cleanup();
+  });
+
+  it('no lo presenta como reutilización exitosa ni como gasto de créditos', async () => {
+    await renderSheet(makeCandidate());
+    await clickReveal();
+    await waitForCacheMessage();
+    assert.equal(screen.queryByText(REUSE_NOTICE), null);
+    cleanup();
+  });
+
+  it('no recarga el candidato: no se persistió nada', async () => {
+    await renderSheet(makeCandidate());
+    const callsBefore = mockGetById.mock.callCount();
+    await clickReveal();
+    await waitForCacheMessage();
+    assert.equal(mockGetById.mock.callCount(), callsBefore);
+    cleanup();
+  });
+
+  it('no filtra el errorCode técnico al operador', async () => {
+    await renderSheet(makeCandidate());
+    await clickReveal();
+    await waitForCacheMessage();
+    assert.equal(screen.queryByText(/cache_persist_failed/), null);
+    cleanup();
+  });
+});

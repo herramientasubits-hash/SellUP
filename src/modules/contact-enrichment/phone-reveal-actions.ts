@@ -345,6 +345,17 @@ export async function revealCandidatePhoneAction(
       console.error('[phone-cache] cache lookup unavailable:', message);
     },
 
+    // FIX H4-b: los efectos posteriores al hit no pueden tumbar la acción. El
+    // core ya devolvió un estado seguro (o mantuvo el hit) y entrega un mensaje
+    // mecánico YA redactado — nunca el error crudo del driver, que puede citar el
+    // teléfono o el id de persona del payload.
+    onCacheHitPersistFailed: (message: string): void => {
+      console.error('[phone-cache] cache hit persistence failed:', message);
+    },
+    onCacheHitUsageLogFailed: (message: string): void => {
+      console.error('[phone-cache] cache hit usage log failed:', message);
+    },
+
     persistCacheHit: async (
       candidateId,
       patch: RevealCacheHitPersistencePatch,

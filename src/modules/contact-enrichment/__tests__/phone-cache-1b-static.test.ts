@@ -452,6 +452,78 @@ describe('CACHE-1b — los módulos de caché no imprimen PII', () => {
   });
 });
 
+// ── FIX H4-b: los efectos posteriores al hit no pueden lanzar ───
+// El fast path decide el hit y DESPUÉS ejecuta tres efectos (persistir, usage-log,
+// telemetría). Si alguno propaga la excepción, escapa del server action y termina
+// en 500 — sin decirle al operador que no se llamó a Apollo ni se cobró nada. Este
+// guard congela la forma: los tres van dentro de try, y ninguno vuelve a quedar
+// como un `await deps.<efecto>(...)` desnudo.
+
+describe('CACHE-1b — FIX H4-b efectos del cache hit acotados', () => {
+  const core = readRepo('src/modules/contact-enrichment/phone-reveal-core.ts');
+
+  /** Bloque completo del fast path, para no mirar el resto del core. */
+  const fastPath =
+    core.split('async function tryServeFromPhoneCache')[1]?.split(
+      '\n// ── Constructor del log de uso',
+    )[0] ?? '';
+
+  it('el fast path existe y se puede inspeccionar', () => {
+    assert.notEqual(fastPath, '', 'no se encontró tryServeFromPhoneCache');
+  });
+
+  it('ningún efecto del hit queda como await desnudo (sin try)', () => {
+    for (const dep of ['persistCacheHit', 'logCacheHitUsage', 'touchPhoneCacheEntry']) {
+      const calls = [...fastPath.matchAll(new RegExp(`deps\\.${dep}\\(`, 'g'))];
+      assert.equal(calls.length, 1, `${dep} debe invocarse exactamente una vez`);
+      // La invocación tiene que estar precedida por un `try {` sin `}` de cierre
+      // intermedio en las líneas inmediatamente anteriores.
+      const before = fastPath.slice(0, calls[0]?.index ?? 0);
+      const lastTry = before.lastIndexOf('try {');
+      assert.notEqual(lastTry, -1, `${dep} no está dentro de un try`);
+      assert.equal(
+        before.slice(lastTry).includes('} catch'),
+        false,
+        `${dep} quedó fuera del try (hay un catch intermedio)`,
+      );
+    }
+  });
+
+  it('un fallo de persistencia devuelve estado seguro y NO llama a Apollo', () => {
+    assert.match(fastPath, /errorCode: 'cache_persist_failed'/);
+    assert.match(fastPath, /status: 'cache_unavailable'/);
+    // El return del catch corta el fast path: nunca cae al START de Apollo.
+    const persistCatch =
+      fastPath.split('deps.persistCacheHit(')[1]?.split('}\n')[0] ?? '';
+    assert.equal(/startRevealViaApollo/.test(persistCatch), false);
+  });
+
+  it('los notificadores reciben un mensaje redactado, nunca el error crudo', () => {
+    for (const notifier of [
+      'onCacheLookupUnavailable',
+      'onCacheHitPersistFailed',
+      'onCacheHitUsageLogFailed',
+    ]) {
+      assert.match(
+        fastPath,
+        new RegExp(`deps\\.${notifier}\\?\\.\\(redactDriverMessage\\(err\\)\\)`),
+        `${notifier} debe pasar por redactDriverMessage`,
+      );
+    }
+    // Y el core no vuelve a filtrar `err.message` en claro dentro del fast path.
+    assert.equal(/err\.message/.test(fastPath), false);
+  });
+
+  it('el redactor borra teléfono, email, id de persona y linkedin', () => {
+    const redactor = core.split('function redactDriverMessage')[1]?.split('\n}')[0] ?? '';
+    assert.notEqual(redactor, '', 'falta redactDriverMessage');
+    assert.match(redactor, /redacted-email/);
+    assert.match(redactor, /redacted-number/);
+    assert.match(redactor, /redacted-id/);
+    assert.match(redactor, /redacted-url/);
+  });
+});
+
 // ── FIX B2: la acción crea el tombstone cuando no había fila ────
 // El core construye la fila; lo que solo se puede comprobar en la acción es el
 // cableado: que el upsert se ejecute cuando el UPDATE no tocó nada, y que su

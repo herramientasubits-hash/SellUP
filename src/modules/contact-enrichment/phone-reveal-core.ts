@@ -431,6 +431,19 @@ export interface RevealCandidatePhoneDeps {
    * lo hace el wrapper.
    */
   onCacheLookupUnavailable?: (message: string) => void;
+  /**
+   * Notifica que la persistencia del cache hit no se pudo completar
+   * (APOLLO-PHONE-CACHE-1b, FIX H4-b). Recibe SOLO un mensaje mecánico YA
+   * redactado por el core: nunca teléfono, email, nombre, linkedin ni id de
+   * persona en claro. El core es puro, así que el logging real lo hace el wrapper.
+   */
+  onCacheHitPersistFailed?: (message: string) => void;
+  /**
+   * Notifica que el usage-log del cache hit falló (APOLLO-PHONE-CACHE-1b, FIX
+   * H4-b). Best-effort: el teléfono ya quedó persistido y el hit NO se revierte.
+   * Mensaje mecánico redactado, sin PII.
+   */
+  onCacheHitUsageLogFailed?: (message: string) => void;
 }
 
 // ── Resultado de la acción ─────────────────────────────────────
@@ -469,6 +482,12 @@ export type RevealCandidatePhoneStatus =
   // APOLLO-PHONE-CACHE-1b (FIX H4): la caché no se pudo consultar. Fail-closed:
   // NO se llama a Apollo. Solo alcanzable con el flag de caché encendido (con el
   // flag apagado no hay lectura de caché que pueda fallar). 0 créditos.
+  //
+  // FIX H4-b: este mismo estado cubre el fallo de la PERSISTENCIA del hit
+  // (`errorCode = 'cache_persist_failed'`). Las garantías para el operador son
+  // idénticas — sin llamada a Apollo, 0 créditos, sin teléfono, reintentable —
+  // así que se reutiliza el estado en vez de ampliar la superficie de la UI. El
+  // errorCode distingue ambos casos en observabilidad.
   | 'cache_unavailable'
   | 'error';
 
@@ -503,6 +522,27 @@ function cleanText(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Deja pasar SOLO texto mecánico de un error de driver (APOLLO-PHONE-CACHE-1b,
+ * FIX H4-b). Postgres cita los valores del payload en sus mensajes de error
+ * (p. ej. `Key (phone)=(+57...)`), y el patch del cache hit contiene el teléfono
+ * y el id de persona: propagar `err.message` en claro filtraría PII al log. Se
+ * borran URLs de LinkedIn, correos, ids hexadecimales largos y secuencias de
+ * dígitos, y se acota el largo. El error crudo NUNCA sale del core.
+ */
+function redactDriverMessage(raw: unknown): string {
+  const text =
+    raw instanceof Error ? raw.message : typeof raw === 'string' ? raw : '';
+  const trimmed = text.trim();
+  if (!trimmed) return 'unknown error';
+  return trimmed
+    .replace(/https?:\/\/\S*linkedin\.com\S*/gi, '[redacted-url]')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted-email]')
+    .replace(/\b[0-9a-f]{16,}\b/gi, '[redacted-id]')
+    .replace(/\+?\d[\d\s().-]{3,}\d/g, '[redacted-number]')
+    .slice(0, 300);
 }
 
 function isValidBasis(value: unknown): value is PhoneProcessingBasis {
@@ -917,6 +957,15 @@ async function enforcePhoneRevealSuppression(args: {
  *
  * Un hit persiste el número con procedencia `apollo_cache`, 0 créditos y la base
  * de tratamiento del operador, y registra `person_phone_cache_hit` sin PII.
+ *
+ * FIX H4-b — ningún efecto posterior al hit puede escalar a 500 ni degradar a
+ * Apollo. Los tres efectos están acotados y NINGUNO propaga la excepción:
+ *   * `persistCacheHit` falla ⇒ `cache_unavailable` / `cache_persist_failed`:
+ *     sin teléfono, sin usage-log, sin telemetría, sin Apollo, 0 créditos,
+ *     reintentable;
+ *   * `logCacheHitUsage` falla ⇒ el hit YA persistido se mantiene exitoso
+ *     (`revealed_from_cache`); solo se notifica la pérdida del log;
+ *   * `touchPhoneCacheEntry` falla ⇒ telemetría no crítica, silencio acotado.
  */
 async function tryServeFromPhoneCache(args: {
   candidate: RevealCandidateRecord;
@@ -965,8 +1014,7 @@ async function tryServeFromPhoneCache(args: {
   try {
     found = await deps.lookupPhoneCache(key);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'unknown error';
-    deps.onCacheLookupUnavailable?.(message);
+    deps.onCacheLookupUnavailable?.(redactDriverMessage(err));
     return {
       ok: false,
       status: 'cache_unavailable',
@@ -1031,25 +1079,52 @@ async function tryServeFromPhoneCache(args: {
     phone_processing_basis_note: note,
     apollo_person_id: personId,
   };
-  await deps.persistCacheHit(candidateId, patch);
+  // FIX H4-b: la persistencia del hit puede fallar (timeout, RLS, columna
+  // ausente, constraint). Un throw aquí escapaba del server action y terminaba
+  // en 500, sin decirle al operador que NO se llamó a Apollo ni se cobró nada.
+  // Fail-closed y reintentable: mismo estado seguro que un fallo de lectura, con
+  // errorCode propio. Sin persistencia NO hubo hit, así que tampoco se emite el
+  // usage-log ni la telemetría de reutilización, y el teléfono no se devuelve.
+  try {
+    await deps.persistCacheHit(candidateId, patch);
+  } catch (err) {
+    deps.onCacheHitPersistFailed?.(redactDriverMessage(err));
+    return {
+      ok: false,
+      status: 'cache_unavailable',
+      requestAccepted: false,
+      errorCode: 'cache_persist_failed',
+      servedFromCache: false,
+    };
+  }
 
-  await deps.logCacheHitUsage(
-    buildPhoneCacheHitUsageLog({
-      candidateId,
-      accountId,
-      cacheEntryId: entry.id,
-      // El id del proveedor NUNCA se registra en claro: si no hay hasher
-      // inyectado se marca 'unavailable' en vez de degradar la garantía.
-      providerPersonIdHash: deps.hashProviderPersonId
-        ? deps.hashProviderPersonId(personId)
-        : 'unavailable',
-      actorUserId: deps.actor.internalUserId,
-      actorRole: deps.actor.roleKey ?? 'unknown',
-      phoneType,
-      originalRevealedAt: entry.originalRevealedAt,
-      processingBasis: basis,
-    }),
-  );
+  // FIX H4-b: el teléfono YA quedó persistido con procedencia `apollo_cache`, 0
+  // créditos y la base de tratamiento del operador. Un fallo del usage-log no
+  // puede revertir eso ni escalar a 500: bloquearía al operador por una
+  // operación gratuita y lo empujaría a reintentar un reveal ya resuelto. El
+  // rastro de auditoría mínimo sobrevive en el candidato (procedencia + base +
+  // 0 créditos); la pérdida se observa por el notificador, sin PII.
+  try {
+    await deps.logCacheHitUsage(
+      buildPhoneCacheHitUsageLog({
+        candidateId,
+        accountId,
+        cacheEntryId: entry.id,
+        // El id del proveedor NUNCA se registra en claro: si no hay hasher
+        // inyectado se marca 'unavailable' en vez de degradar la garantía.
+        providerPersonIdHash: deps.hashProviderPersonId
+          ? deps.hashProviderPersonId(personId)
+          : 'unavailable',
+        actorUserId: deps.actor.internalUserId,
+        actorRole: deps.actor.roleKey ?? 'unknown',
+        phoneType,
+        originalRevealedAt: entry.originalRevealedAt,
+        processingBasis: basis,
+      }),
+    );
+  } catch (err) {
+    deps.onCacheHitUsageLogFailed?.(redactDriverMessage(err));
+  }
 
   // Telemetría de reutilización (last_used_at + hit_count). Best-effort: el hit
   // ya está persistido, así que un fallo aquí no puede revertirlo ni escalar.
