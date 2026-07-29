@@ -1025,6 +1025,38 @@ Three caveats attach:
 This is a **recommendation, not an execution**: BR-SOURCE-10N opens no such milestone and authorizes
 nothing further.
 
+> **Update (BR-SOURCE-10O).** BR-SOURCE-10O has since landed as that successor —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md)
+> — and it delivers each of the four items named above: a proposed report schema (still **not frozen**,
+> for the reason the evidence packet § 9 gives), an **exact closed forbidden-key-name list** with a
+> normalization procedure replacing the 10J § 15 "and equivalents" tail, an **exact closed
+> forbidden-value-pattern list** including the digit-run rules for the three identifier lengths and the
+> email-marker rule, a **logging** sanitization contract, and an **error** sanitization contract. It
+> extends the scope from the report alone to **twelve output surfaces**, and it adds a **small-cell
+> suppression** proposal for a gap none of the predecessors covered.
+>
+> Its § 15 carries this record's grain requirements through to the output surface: no establishment
+> identity value, no root or join key, no `record_identity_key`, and no `normalized_tax_id` on any
+> surface — plus the corollary this record's deferral implies, that a dry-run **constructs no identity
+> key at all**, since a readiness measurement needs none and a value never constructed cannot leak. What
+> the report may carry instead is the aggregate *readiness* signal: how many joined records would have
+> sufficient material to construct a key under the approved grain.
+>
+> It also records a consequence of **option D** worth noting here: because the establishment grain is
+> finer than the root grain, bucket cells are **smaller at the same nominal threshold**, so the grain
+> choice makes small-cell suppression *more* necessary, not less. That is a consequence, not an
+> objection to the grain.
+>
+> Consistent with all three caveats above: **GATE-5 cannot be approved by 10O either** (the security /
+> privacy owner and the test owner approve it, outside the document); it **inherits every open item**
+> here — the `normalized_tax_id` survival question, the indirect-identifiability question, the
+> `raw_data` default, and this record's deferred key construction — and states how it proceeds under
+> each rather than resolving any by preference; and **GATE-1 remains the true blocker**. On the
+> assertion point specifically, 10O does what a docs-only milestone can and says so: it enumerates and
+> stably names the assertions, and it **writes no test**, because a test is code. GATE-4 and GATE-5 both
+> remain `not_started` / not approved, and 10O's recommended successor is **BR-SOURCE-10P — full join
+> failure cleanup decision record** (GATE-6, docs-only).
+
 ---
 
 ## 20. Safety confirmation

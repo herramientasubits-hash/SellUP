@@ -414,6 +414,29 @@ shape (conceptual; values shown as zeros / placeholders — **no real data**):
 > *measure* eligibility is a different act from *persisting* any row. `persisted_rows` is `0` by
 > contract in a readiness dry-run, and the whole `safety` block must be all-false.
 
+> **Update (BR-SOURCE-10O).** The report shape above has been carried into a docs-only **decision
+> record proposing** the GATE-5 output sanitization contract —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md).
+> It restates and never widens this section. Four things it adds:
+>
+> - a **closed aggregate allowlist** — the schema is authoritative in both directions, so a key absent
+>   from the approved list is forbidden rather than merely undocumented;
+> - a **`safety` block extended** with `names_printed`, `identity_keys_printed`,
+>   `record_identity_keys_printed`, `normalized_tax_ids_printed`, `person_data_printed`,
+>   `hashes_of_identifiers_printed`, and `small_cells_disclosed` — all `false` by contract, as
+>   proposals for the approvers to freeze;
+> - the § 5 **join-key rule restated as an output rule** — the root appears on no surface, in no form,
+>   not truncated, not prefixed, not hashed, not as a count key, a bucket label, a file-name component,
+>   or a path segment;
+> - a **small-cell suppression** proposal, for the gap that an aggregate report is not automatically a
+>   non-identifying one: a bucket count of one is a record.
+>
+> The record governs **twelve output surfaces**, not the report alone, and it adds error, logging, and
+> gate-evidence contracts this design does not have. **It freezes nothing:** GATE-5 remains
+> `not_started` / not approved, the schema stays unfrozen while GATE-3 and GATE-4 are open, and it
+> writes no sanitizer and no test and authorizes **no** dry-run, import, Supabase write, migration,
+> index change, runtime, or Agent 1 integration.
+
 ---
 
 ## 11. Explicit non-goals

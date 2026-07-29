@@ -379,6 +379,38 @@ The report is aggregate-only:
 > GATE-3 remains `not_started`, `field_allowlist_version` stays `"not_approved"` in § 12, and that
 > record authorizes **no** dry-run, import, Supabase write, migration, runtime, or Agent 1 integration.
 
+> **Update (BR-SOURCE-10O).** The § 8.4 / § 8.5 report categories above have been carried into a
+> docs-only **decision record proposing** the GATE-5 output sanitization contract —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md).
+> It restates and never widens § 8, and changes the framing in three ways the approvers should see:
+>
+> - **Scope.** § 8.4 / § 8.5 govern *the report*; the record governs **twelve output surfaces** — CLI
+>   stdout, CLI stderr, the JSON report, the human-readable report, logs, error messages, thrown
+>   exceptions, the gate evidence packet, the operator summary, future audit artifacts, future CI/test
+>   output, and screenshots or copied terminal output — with the § 8.5 forbidden set applying
+>   identically to all twelve and no surface-specific exception, debug mode, or operator override.
+> - **Closure.** The § 15 "and equivalents" tail is replaced by a **closed forbidden-key-name list**
+>   with an explicit normalization procedure and per-group matching rule, and by closed value-pattern
+>   rules `VP-1` … `VP-10` — which add a **separator-insensitive** evaluation and a
+>   **longer-than-14-positions** rule to the three inherited digit-run rules, both of which close gaps
+>   that concatenated or formatted identifiers would otherwise walk through. Crucially the record makes
+>   the **allowlist** authoritative: a key absent from the approved aggregate list is forbidden even if
+>   it survives the denylist.
+> - **Coverage.** It adds the three contracts § 8 does not have — an **error and exception**
+>   sanitization contract (sanitize at construction, no interpolation, catch-classify-discard), a
+>   **logging and console** contract (structured-only, closed field set, no per-record log lines), and a
+>   **gate-evidence** contract — plus a **small-cell suppression** proposal for the gap that an
+>   aggregate report is not automatically a non-identifying one.
+>
+> Two deliberate narrowings are flagged there for the approvers rather than adopted here: **no stack
+> emission at all** (§ 15 forbids only errors containing raw rows) and **no cross-tabulations** in a
+> first approved contract.
+>
+> **GATE-5 remains `not_started`.** The § 12 schema is **not frozen** — the evidence packet's finding
+> that it cannot be frozen while GATE-3 and GATE-4 are open still holds — the three contract markers
+> keep their not-decided values, and that record writes no sanitizer and no test and authorizes **no**
+> dry-run, import, Supabase write, migration, index change, runtime, or Agent 1 integration.
+
 ---
 
 ## 9. Failure cleanup contract
@@ -644,6 +676,33 @@ A future implementation must ship with automated assertions that fail the run if
 
 These assertions are the runtime enforcement of GATE-5 (§ 13). A design that cannot express them
 is not ready to implement.
+
+> **Update (BR-SOURCE-10O).** The assertion list above has been carried into the docs-only
+> **decision record proposing** the GATE-5 contract —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md)
+> — where § 5.4 gives each rule a **stable ID** (`OS-A01` … `OS-A46`, with the value-pattern rules
+> named `VP-1` … `VP-10`) so a future suite can be traced to the record one-to-one. Three changes to
+> this list, all narrowing:
+>
+> - the **"forbidden key names (socio / qsa / cpf / telefone / logradouro / …)"** item is closed — the
+>   "…" is replaced by a seven-group enumeration plus a normalization procedure, and an **allowlist**
+>   assertion (`OS-A08`) is added so that a key absent from the approved aggregate list fails even if it
+>   survives the denylist;
+> - the **digit-run** items gain a separator-insensitive evaluation rule and a longer-than-14-positions
+>   rule;
+> - the **"errors do not contain raw rows"** item is proposed as the stricter **no stack emission at
+>   all** (`OS-A34`), because "these frames happen not to carry values" is a property of one failure,
+>   not of the code — flagged there as a deliberate narrowing for the approvers.
+>
+> The record also adds surface assertions for stdout, stderr, the JSON report, the human report and
+> operator summary, logs, gate evidence, audit artifacts, and test fixtures, and error assertions for
+> the sanitize-at-construction boundary.
+>
+> **No test exists, and none is created there.** An assertion catalogue is not a suite: writing it is
+> code, forbidden by the approval-gates checklist § 4 until all eight gates are approved, and placed by
+> its § 9 *Allows* clause in a future, separately approved milestone. Two of the assertions are
+> additionally unenforceable until the approvers supply values — the small-cell threshold (`OS-A19`) and
+> the string-length ceiling (`VP-8`). GATE-5 therefore remains `not_started` / not approved.
 
 ---
 
