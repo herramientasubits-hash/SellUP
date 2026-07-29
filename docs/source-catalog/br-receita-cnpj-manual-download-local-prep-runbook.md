@@ -548,6 +548,25 @@ Supabase write, migration, runtime, or Agent 1 integration. See design
 
 ---
 
+### 11.7. Full join approval gates checklist (BR-SOURCE-10K)
+
+BR-SOURCE-10K converts GATE-1 … GATE-8 into a **docs-only, formal approval checklist**: per gate,
+the required evidence, the approver role, the pass / fail criteria, the block conditions, the
+expected artifacts, the flag it governs, and what each approval does and does not unlock — plus a
+gate status model, a dependency graph, an approval-evidence template, and a global GO / NO-GO
+matrix. There is **no new runner and no new command** for it.
+
+It **approves no gate**: all eight remain `not_started`, so the matrix reads **NO-GO**, and no
+full-join runner code may be written. Operator-relevant consequence: **GATE-7 governs this
+runbook** — the operator preflight, cleanup verification, out-of-repo report location, sensitive
+report scan, post-run deletion rules, and final signoff described in the 10J technical design § 16
+are not yet approved, so no full-join operator procedure is authorized. 10K decides no identity
+grain and authorizes **no** dry-run, import, Supabase write, migration, runtime, or Agent 1
+integration. See checklist
+[`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md).
+
+---
+
 ## 12. Expected safe outputs
 
 Both runners emit only a **sanitized report**:

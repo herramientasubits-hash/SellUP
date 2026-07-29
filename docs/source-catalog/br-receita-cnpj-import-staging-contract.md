@@ -454,6 +454,18 @@ BR-SOURCE-6 should still perform **no Supabase writes** unless explicitly author
 > reconciled against the § 4 grain and the § 11 physical-index reconciliation here. 10J adds **no
 > runner and no command**, **decides no grain**, and authorizes **no** dry-run, import, Supabase
 > write, migration, runtime, or Agent 1 integration.
+>
+> **Full join approval gates checklist (BR-SOURCE-10K).** The GATE-1 … GATE-8 conditions have since
+> been turned into a docs-only, formal approval checklist —
+> [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
+> — with required evidence, approver roles, pass/fail criteria, block conditions, artifacts, a gate
+> status model, a dependency graph, an approval-evidence template, and a GO / NO-GO matrix. Directly
+> relevant here: **GATE-4 (identity grain)** must choose explicitly among options A / B / C / D and
+> reconcile the choice against the § 4 grain and the § 11 physical-index situation of this contract,
+> and **GATE-3 (field allowlist)** must freeze which post-join fields may ever survive. 10K
+> **approves no gate** — all eight remain `not_started` — adds **no runner and no command**,
+> **decides no grain**, and authorizes **no** dry-run, import, Supabase write, migration, runtime,
+> or Agent 1 integration.
 
 ---
 

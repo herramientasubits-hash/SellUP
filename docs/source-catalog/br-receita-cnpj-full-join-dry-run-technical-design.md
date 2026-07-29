@@ -7,6 +7,7 @@
 **Last reviewed:** 2026-07-29
 
 **Related documents:**
+- Full join approval gates checklist — [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
 - Full join import-readiness design (contract) — [`br-receita-cnpj-full-join-import-readiness-design.md`](./br-receita-cnpj-full-join-import-readiness-design.md)
 - Privacy-safe import eligibility design — [`br-receita-cnpj-privacy-safe-import-eligibility-design.md`](./br-receita-cnpj-privacy-safe-import-eligibility-design.md)
 - Import & staging persistence contract — [`br-receita-cnpj-import-staging-contract.md`](./br-receita-cnpj-import-staging-contract.md)
@@ -552,6 +553,15 @@ GATE-8  No Supabase/import/runtime/    → forces the § 11 no-write flags and t
 No gate may be skipped or collapsed. A future full join dry-run that cannot satisfy every gate
 does not run.
 
+> **Update (BR-SOURCE-10K).** This mapping has since been turned into a formal, approvable
+> checklist — [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
+> — which defines, per gate, the required evidence, the approver role, the pass / fail criteria, the
+> expected artifacts, and what each approval does and does not unlock, plus a gate status model, a
+> dependency graph, an approval-evidence template, and a GO / NO-GO matrix. That checklist is
+> docs-only: it **approves no gate** (all eight remain `not_started`), implements no runner, and
+> authorizes **no** full join execution, import, Supabase write, migration, runtime, or Agent 1
+> integration.
+
 ---
 
 ## 14. Record identity decision (still open)
@@ -665,6 +675,16 @@ makes the gates concretely approvable.
 
 This is a **recommendation, not an execution**: BR-SOURCE-10J opens no such milestone and
 authorizes nothing further.
+
+> **Update:** BR-SOURCE-10K has since landed as that docs-only checklist —
+> [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md).
+> It converts GATE-1 … GATE-8 into per-gate approval criteria (evidence, approver role, pass/fail,
+> blockers, artifacts, allows / does-not-allow), adds a gate status model, dependency graph,
+> approval-evidence template, and GO / NO-GO matrix — and it **approves no gate**: all eight remain
+> `not_started`, so the matrix reads NO-GO. It adds **no runner and no command**, **decides no
+> identity grain**, and authorizes **no** dry-run, import, Supabase write, migration, runtime, or
+> Agent 1 integration. Its recommended successor is **BR-SOURCE-10L — full join dry-run gate
+> evidence packet**.
 
 ---
 
