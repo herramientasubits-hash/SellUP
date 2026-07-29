@@ -561,6 +561,34 @@ slack_write          = false
 - Executing the full join.
 - Emitting any report from real data.
 
+> **Update (BR-SOURCE-10O).** A docs-only **decision record proposing** this gate's output
+> sanitization contract has landed —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md).
+> It supplies the *Required evidence* above in proposal form: a candidate aggregate report schema
+> (§ 10), an **exact closed forbidden-key-name list with a normalization and matching rule** (§ 5.2)
+> replacing the "and equivalents" tail above, closed forbidden value-pattern rules `VP-1` … `VP-10`
+> (§ 5.3) including the 8-, 11-, and 14-position digit-run rules, a separator-insensitive rule, a
+> longer-than-14 rule, and the email-marker rule, raw-row / raw-cell rejection, an error and exception
+> sanitization contract (§ 8), a logging and console contract (§ 11), a gate-evidence contract (§ 12),
+> a small-cell suppression proposal (§ 7), and the all-false safety block extended with seven proposed
+> members (§ 10). It widens the *Governs* scope from the report to **twelve output surfaces** (§ 4),
+> and proposes two deliberate narrowings for the approvers: **no stack emission at all** (stricter
+> than 10J § 15) and **no cross-tabulations** in the first approved contract.
+>
+> Against the *Pass criteria*, the record is deliberately explicit about its own limit: § 5.4
+> enumerates and stably names the assertions (`OS-A01` … `OS-A46`, plus `VP-1` … `VP-10`) so a future
+> suite can be traced to them one-to-one, but **it writes no test**, because a test is code and § 4 of
+> this checklist forbids full-join code until all eight gates are approved. It therefore **cannot
+> satisfy the "every rule is an enforceable assertion" criterion on its own**, and says so rather than
+> presenting a catalogue as a suite. Two rules are additionally unenforceable until the approvers
+> supply values: the small-cell threshold `k` (`OS-A19`) and the string-length ceiling (`VP-8`).
+>
+> **GATE-5 remains `not_started` / not approved.** The record's status is
+> `proposed_for_owner_review`, it freezes no report schema (10L § 9's constraint still holds while
+> GATE-3 and GATE-4 are open), it assigns no `output_sanitization_version`, and it creates no
+> sanitizer, test, fixture, runner, or command — nor does it authorize any dry-run, import, Supabase
+> write, migration, index change, runtime, or Agent 1 integration.
+
 ---
 
 ## 10. GATE-6 — Failure cleanup contract
@@ -1002,6 +1030,21 @@ authorizes nothing further.
 > envelope, freezes no report schema, creates no migration, changes no index or physical schema, and
 > authorizes **no** dry-run, import, Supabase write, runtime, or Agent 1 integration. Its recommended
 > successor is **BR-SOURCE-10O — full join output sanitization decision record** (GATE-5, docs-only).
+>
+> **Update:** BR-SOURCE-10O has since landed as that docs-only decision record —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md)
+> — proposing the § 9 GATE-5 output sanitization contract for the joint owners' review (see the update
+> note in § 9). It **approves no gate**: its status is `proposed_for_owner_review`, all eight gates
+> remain `not_started`, no `output_sanitization_version` is assigned, and the § 15 matrix still reads
+> **NO-GO**, so no full-join runner code may be written. It governs **twelve output surfaces** rather
+> than the report alone, closes the forbidden-key-name enumeration, adds closed value-pattern rules, an
+> error/exception sanitization contract, a logging contract, a gate-evidence contract, and a small-cell
+> suppression proposal — and it enumerates named assertions **without writing any test**, since tests
+> are code and § 4 forbids them until all eight gates are approved. It adds no runner, no command, no
+> sanitizer, and no fixture; decides no field allowlist, grain, or storage envelope; freezes no report
+> schema; creates no migration; changes no index or physical schema; and authorizes **no** dry-run,
+> import, Supabase write, runtime, or Agent 1 integration. Its recommended successor is
+> **BR-SOURCE-10P — full join failure cleanup decision record** (GATE-6, docs-only).
 
 ---
 

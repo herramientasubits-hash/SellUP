@@ -709,6 +709,39 @@ Accordingly:
   boundaries, `opened_at` bucket boundaries, and the controlled `warnings` / `errors` enums — must be
   closed by GATE-5** before a report can name them.
 
+> **Update (BR-SOURCE-10O).** The GATE-5 contract this section hands off has since been **proposed** —
+> not approved — in a docs-only decision record:
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md).
+> It takes the § 8 category D list as candidate input, as this section requires, and closes the four
+> items named above **as proposals**: it recommends **against** named municipalities (a municipality
+> with a single matching establishment is a record identifier wearing a place name), and it hands the
+> `capital_social` and `opened_at` boundaries plus the `warnings` / `errors` enums to the approvers with
+> a rule attached — boundaries must be chosen so expected cell sizes clear the small-cell threshold,
+> because a bucket that is always suppressed carries no information and only advertises that something
+> rare exists.
+>
+> Its § 14 states the axis distinction this section implies but does not spell out, and it is the
+> inference most likely to be misread:
+>
+> ```
+> A field being candidate-persistible under 10M does NOT mean it is
+> output-reportable under 10O.
+> ```
+>
+> Three consequences follow for this record's open items, and each is how 10O proceeds under an
+> openness it does not resolve: **`normalized_tax_id` stays out of output** however the § 10
+> `needs_legal_review` item resolves, because that item concerns *persistence*; **sanitized legal and
+> trade names stay out of output** for as long as they remain in category F; and **`raw_data` stays out
+> of output** whatever its § 11 persistence default becomes.
+>
+> It also closes the two enumeration gaps this section names — the forbidden-key-name list (as seven
+> groups plus a normalization procedure, replacing the "and equivalents" tail) and the
+> forbidden-value-pattern list (`VP-1` … `VP-10`) — adds error, logging, and gate-evidence contracts, and
+> adds a **small-cell suppression** mechanism this record did not have. It **does not** freeze the
+> schema: GATE-3 is still open, so the constraint quoted at the top of this section continues to hold,
+> and prose plus a matrix is still not an assertion suite — 10O enumerates and names the assertions but
+> writes no test, because a test is code. GATE-3 and GATE-5 both remain `not_started` / not approved.
+
 ---
 
 ## 14. Relationship to GATE-8 — No-write / no-runtime

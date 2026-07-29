@@ -358,6 +358,27 @@ Required at every layer (parser, reader, runner, future writer, reports):
 
 Mode A allowed (§ 2) does not relax any of the above: full-CNPJ handling stays gated behind masking, logging, and access controls.
 
+> **Update (BR-SOURCE-10O).** The docs-only output sanitization decision record —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md)
+> — raises the **`hash12 for report identifiers`** line above as an explicit **reconciliation item for
+> the GATE-5 approvers** (§ 9.4), and does not amend it. The reason: this section predates the field
+> allowlist record's rule that **no hash, truncation, fingerprint, or other derived value of an
+> identifier may appear anywhere** (10M § 5 — the prohibition is on the *derivation*, not on the
+> *format*), and it is directly contradicted by the approval-gates checklist § 9 fail criterion *"row
+> hashes derived from identifiers or from the join key"*.
+>
+> Under the narrower-rule principle the resolution proposed there is scoped, not sweeping: **no hashed,
+> truncated, or masked identifier may appear in full-join dry-run output**, on any of the twelve
+> surfaces that record enumerates, and `hash12` and `masked_identifier` both appear on its closed
+> forbidden-key-name list for that reason. This section is **not** wrong on its own terms — it governs a
+> future *import* writer's masking and logging policy, not a dry-run's report — but leaving the two
+> unreconciled is how a wider rule gets cited later as precedent, so the approvers are asked to confirm
+> the boundary explicitly rather than infer it.
+>
+> Nothing there changes this contract's rules, authorizes a write, or approves a gate: GATE-5 remains
+> `not_started` / not approved, and import, production import, runtime, and live prospect generation
+> remain **blocked**.
+
 ---
 
 ## 15. SOCIOS/QSA/CPF hard block
@@ -447,6 +468,21 @@ safe sample identifiers only
 ```
 
 No raw rows, no full CNPJ, no personal data in any audit surface.
+
+> **Update (BR-SOURCE-10O).** The docs-only output sanitization decision record —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md)
+> — raises the **`safe sample identifiers only`** line above as the second **reconciliation item for the
+> GATE-5 approvers** (§ 9.4), alongside § 14's `hash12`, and does not amend it. For the future *full
+> join dry-run* the record proposes the narrower rule: audit artifacts carry **no per-record material of
+> any kind, masked or otherwise** (its assertion `OS-A27`), and `sample_identifier` and
+> `safe_sample_identifier` appear on its closed forbidden-key-name list. Its stated reason is
+> retention — an audit surface is designed to persist, so a leak there has the longest half-life of any
+> surface.
+>
+> The scope boundary is the same as § 14's: this section governs a future *import* writer's audit
+> requirements, and the record's rule governs the dry-run's twelve output surfaces. The approvers are
+> asked to confirm the boundary explicitly rather than leave two documents disagreeing. Nothing there
+> changes this contract, authorizes a write, or approves a gate.
 
 ---
 

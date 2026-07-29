@@ -658,6 +658,47 @@ an enforceable assertion rather than prose guidance — 10K § 9 makes that a pa
 No report schema, no assertion suite, no test implementation, and no emission of any report from real
 data.
 
+> **Update (BR-SOURCE-10O).** Six of the seven missing evidence items above have since been
+> **proposed** — not approved — in a docs-only decision record:
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md).
+> Item by item:
+>
+> - **the report schema** — § 10 proposes a candidate JSON shape with an extended all-false safety
+>   block and a fourth contract marker; it is **still not frozen**, because the constraint recorded
+>   here (GATE-3 and GATE-4 open) continues to hold and both predecessor records are themselves
+>   `proposed_for_owner_review`;
+> - **the closed forbidden-key-name list** — § 5.2 supplies it as seven groups plus an explicit
+>   normalization procedure and per-group matching rule, replacing the "and equivalents" tail, and
+>   states that the § 6 **allowlist governs** where the two nets disagree;
+> - **the closed forbidden value-pattern list** — § 5.3 supplies `VP-1` … `VP-10`, including the 8-,
+>   11-, and 14-position digit-run rules, a separator-insensitive rule, a longer-than-14 rule, and the
+>   email-marker rule;
+> - **the logging sanitization contract** — § 11, with structured-only logging, a closed field set, no
+>   interpolation of source-derived variables, and a no-per-record-log-line cardinality rule;
+> - **the error sanitization contract** — § 8, with a sanitized error envelope, a
+>   sanitize-at-construction boundary, and catch-classify-discard handling;
+> - **the enumerated test cases** — § 5.4 names the assertions (`OS-A01` … `OS-A46`) as a traceability
+>   spine, but **no test, fixture, or suite is created**: that remains code, forbidden by 10K § 4 until
+>   all eight gates are approved, and placed by the 10K § 9 *Allows* clause in a future, separately
+>   approved milestone.
+>
+> The seventh item — **owner approval of the assertion suite** — is untouched and unobtainable from a
+> document.
+>
+> The record also widens the reviewed scope from the report to **twelve output surfaces** (§ 4), adds a
+> **small-cell suppression proposal** (§ 7) for a gap not previously covered — that an aggregate report
+> is not automatically a non-identifying one — and raises two **inherited-wording reconciliation
+> items** for the approvers (§ 9.4): the staging contract's `hash12 for report identifiers` and its
+> `safe sample identifiers only`, both of which are wider than 10M § 5 and than 10K § 9's fail
+> criteria, and both of which it resolves for this surface under the narrower-rule principle without
+> amending the staging contract's own import-path scope.
+>
+> **GATE-5 stays `not_started` / not approved** and the evidence packet status stays
+> `partial_evidence_collected`: the schema is not frozen, two rules (`OS-A19` small-cell threshold,
+> `VP-8` length ceiling) are unenforceable until the approvers supply values, and no suite exists.
+> Nothing there authorizes a runner, a sanitizer, a test, a dry-run, an import, a Supabase write, a
+> migration, an index change, runtime, or Agent 1 integration.
+
 ---
 
 ## 10. GATE-6 evidence packet — Failure cleanup contract
@@ -1099,6 +1140,21 @@ nothing further.
 > runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10O — full join output
 > sanitization decision record** (GATE-5, docs-only), which the § 9 finding — that the report schema
 > cannot be frozen while GATE-3 and GATE-4 are open — now makes reachable in proposal form.
+>
+> **Update:** BR-SOURCE-10O has since landed as that successor —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md).
+> It **proposes** the output contract rather than approving it: status `proposed_for_owner_review`,
+> GATE-5 still `not_started` / not approved, no `output_sanitization_version` assigned, the report
+> schema **still not frozen** for the reason § 9 gives, and GATE-1 still the blocker for all execution.
+> It closes six of § 9's seven missing evidence items in proposal form (see the update note in § 9),
+> widens the reviewed scope from the report to twelve output surfaces, adds a small-cell suppression
+> proposal, and raises two inherited-wording reconciliation items. It writes no test and no sanitizer —
+> tests and sanitizers are code — creates no migration, changes no index, and authorizes **no**
+> dry-run, import, Supabase write, runtime, or Agent 1 integration. Its recommended successor is
+> **BR-SOURCE-10P — full join failure cleanup decision record** (GATE-6, docs-only), which the § 13
+> finding — that GATE-6 blocks GATE-7's cleanup-verification steps, and that what must be destroyed is
+> undefined until GATE-2 decides what may exist — makes the next reachable node, reachable only
+> conditionally on the storage envelope.
 
 ---
 
