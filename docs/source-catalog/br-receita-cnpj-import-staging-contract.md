@@ -77,6 +77,29 @@ Clarifications:
 - The **establishment / full 14-position CNPJ is the canonical row grain**. Deduplication is by full CNPJ, never by root, never by name.
 - `record_identity_key` and `normalized_tax_id` carry the same value for this source (`tax:<normalized_tax_id>`), so the record-identity and legacy tax-grain conflict paths agree (data-contract § 6).
 
+> **Update (BR-SOURCE-10N).** The docs-only identity grain decision record —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md)
+> — **proposes** (and does not approve) the GATE-4 grain for the **full-join** context and raises two
+> items against this section that the GATE-4 approvers must close:
+>
+> - **The grain stated here is a documented intention, not a recorded decision.** The record treats it
+>   as such: it recommends **option D** (establishment as the operational unit, company / root as
+>   context — the shape data-contract § 4 already describes), which keeps this section's row grain and
+>   its "root is derivable but never the record identity" rule intact, while adding the company-context
+>   requirement and the read-time-projection rule that the bare grain statement leaves silent. Option B
+>   (root grain) is rejected and option C (dual snapshots) deferred, both on the record.
+> - **The agreement between `record_identity_key` and `normalized_tax_id` is a consequence of the key
+>   construction, not a property of the grain.** The record proposes only a **conceptual** key shape and
+>   **defers** the concrete construction, because one candidate inherits the open `normalized_tax_id`
+>   question (10M § 10, `needs_legal_review`) and the other is a surrogate whose derivation is itself
+>   unapproved. Under the first, the agreement above holds and the existing fiscal unique constraint
+>   remains a valid conflict target; under the second, the two paths **disagree** and a
+>   `record_identity_key` unique index would be required — **a migration**, which nothing in this line
+>   authorizes (see § 11).
+>
+> **GATE-4 remains `not_started` / not approved**, this section is unchanged in force, and nothing there
+> authorizes an import, a Supabase write, a migration, an index change, runtime, or Agent 1 integration.
+
 ---
 
 ## 5. Target persistence model
@@ -253,6 +276,19 @@ Invariants:
 
 Physical-index caveat (must be resolved before BR-SOURCE-6): migration 065 provides a physical unique constraint only on `(source_key, country_code, source_year, normalized_tax_id)`. Migration 087 added `record_identity_key` as nullable, `NOT VALID`, and **not** unique. Before any write, the team must confirm whether the writer upserts on the existing tax-grain unique index (valid for this source, since the two keys agree) or whether a `record_identity_key` unique index must be created first. This is a schema-reconciliation decision, not an implementation authorized here.
 
+> **Update (BR-SOURCE-10N).** The docs-only identity grain decision record —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md)
+> — leaves this caveat **unresolved** and makes the branch explicit: the answer depends on the
+> `record_identity_key` construction, which that record deliberately **defers**. Under the
+> CN1-inheritance construction the two keys agree and the existing fiscal unique constraint remains a
+> valid conflict target, so **no new index is needed**; under a surrogate construction they disagree and
+> a `record_identity_key` unique index would be **required** — which is a **migration**, outside GATE-4
+> entirely (approval-gates checklist § 8 *Does NOT allow*). The record also notes that the two open
+> questions are **coupled**: if the `normalized_tax_id` survival item (10M § 10) resolves to *excluded*,
+> the CN1-inheritance construction becomes unavailable and the index work becomes mandatory. Nothing
+> there creates, drops, alters, or validates an index, and nothing there authorizes a migration, a
+> write, or an import.
+
 ---
 
 ## 12. Validation gates before any write
@@ -321,6 +357,27 @@ Required at every layer (parser, reader, runner, future writer, reports):
 - no personal-data dumps
 
 Mode A allowed (§ 2) does not relax any of the above: full-CNPJ handling stays gated behind masking, logging, and access controls.
+
+> **Update (BR-SOURCE-10O).** The docs-only output sanitization decision record —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md)
+> — raises the **`hash12 for report identifiers`** line above as an explicit **reconciliation item for
+> the GATE-5 approvers** (§ 9.4), and does not amend it. The reason: this section predates the field
+> allowlist record's rule that **no hash, truncation, fingerprint, or other derived value of an
+> identifier may appear anywhere** (10M § 5 — the prohibition is on the *derivation*, not on the
+> *format*), and it is directly contradicted by the approval-gates checklist § 9 fail criterion *"row
+> hashes derived from identifiers or from the join key"*.
+>
+> Under the narrower-rule principle the resolution proposed there is scoped, not sweeping: **no hashed,
+> truncated, or masked identifier may appear in full-join dry-run output**, on any of the twelve
+> surfaces that record enumerates, and `hash12` and `masked_identifier` both appear on its closed
+> forbidden-key-name list for that reason. This section is **not** wrong on its own terms — it governs a
+> future *import* writer's masking and logging policy, not a dry-run's report — but leaving the two
+> unreconciled is how a wider rule gets cited later as precedent, so the approvers are asked to confirm
+> the boundary explicitly rather than infer it.
+>
+> Nothing there changes this contract's rules, authorizes a write, or approves a gate: GATE-5 remains
+> `not_started` / not approved, and import, production import, runtime, and live prospect generation
+> remain **blocked**.
 
 ---
 
@@ -411,6 +468,21 @@ safe sample identifiers only
 ```
 
 No raw rows, no full CNPJ, no personal data in any audit surface.
+
+> **Update (BR-SOURCE-10O).** The docs-only output sanitization decision record —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md)
+> — raises the **`safe sample identifiers only`** line above as the second **reconciliation item for the
+> GATE-5 approvers** (§ 9.4), alongside § 14's `hash12`, and does not amend it. For the future *full
+> join dry-run* the record proposes the narrower rule: audit artifacts carry **no per-record material of
+> any kind, masked or otherwise** (its assertion `OS-A27`), and `sample_identifier` and
+> `safe_sample_identifier` appear on its closed forbidden-key-name list. Its stated reason is
+> retention — an audit surface is designed to persist, so a leak there has the longest half-life of any
+> surface.
+>
+> The scope boundary is the same as § 14's: this section governs a future *import* writer's audit
+> requirements, and the record's rule governs the dry-run's twelve output surfaces. The approvers are
+> asked to confirm the boundary explicitly rather than leave two documents disagreeing. Nothing there
+> changes this contract, authorizes a write, or approves a gate.
 
 ---
 
