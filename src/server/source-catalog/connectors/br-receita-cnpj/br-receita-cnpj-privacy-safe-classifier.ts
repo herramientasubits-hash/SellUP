@@ -75,6 +75,15 @@ export const BR_RECEITA_CNPJ_PRIVACY_MAX_SAMPLE_ROWS_LIMIT = 20 as const;
 export const BR_RECEITA_CNPJ_PRIVACY_DEFAULT_MAX_HEADER_BYTES = 64 * 1024;
 /** Hard ceiling on TOTAL bytes read per file while collecting the sample. */
 export const BR_RECEITA_CNPJ_PRIVACY_MAX_SAMPLE_BYTES = 1 * 1024 * 1024;
+/**
+ * Hard ceiling on TOTAL bytes read per file for a BOUNDED COVERAGE SCAN
+ * (BR-SOURCE-10H). A coverage probe scans more company ROWS than the 20-row sample
+ * (to test whether an establishment's company appears a little deeper in the file),
+ * so it needs a larger — but still HARD-CAPPED — byte budget. This can NEVER read
+ * the full dataset: the row cap (`BR_RECEITA_CNPJ_JOIN_MAX_COMPANY_SCAN_ROWS_LIMIT`)
+ * and this byte cap both bound the read to a tiny prefix of a multi-GB file.
+ */
+export const BR_RECEITA_CNPJ_PRIVACY_MAX_COVERAGE_SCAN_BYTES = 8 * 1024 * 1024;
 
 /**
  * Minimum contiguous-digit run treated as a CPF-shaped natural-person token
@@ -478,6 +487,7 @@ export async function readBoundedSampleLines(
   encoding: BrReceitaCnpjManifestEncoding,
   maxLines: number,
   maxHeaderBytes: number,
+  maxTotalBytes: number = BR_RECEITA_CNPJ_PRIVACY_MAX_SAMPLE_BYTES,
 ): Promise<BoundedSampleOutcome> {
   if (maxLines <= 0) return { lines: [], limitExceeded: false };
   const bufferEncoding: BufferEncoding = encoding === 'latin1' ? 'latin1' : 'utf8';
@@ -489,7 +499,7 @@ export async function readBoundedSampleLines(
     let position = 0;
     const buffer = Buffer.alloc(chunkSize);
 
-    while (bytesRead < BR_RECEITA_CNPJ_PRIVACY_MAX_SAMPLE_BYTES) {
+    while (bytesRead < maxTotalBytes) {
       const { bytesRead: n } = await fh.read(buffer, 0, chunkSize, position);
       if (n === 0) {
         return { lines: splitCompleteLines(text, maxLines, true), limitExceeded: false };
