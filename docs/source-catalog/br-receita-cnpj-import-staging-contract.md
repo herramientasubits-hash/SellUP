@@ -77,6 +77,29 @@ Clarifications:
 - The **establishment / full 14-position CNPJ is the canonical row grain**. Deduplication is by full CNPJ, never by root, never by name.
 - `record_identity_key` and `normalized_tax_id` carry the same value for this source (`tax:<normalized_tax_id>`), so the record-identity and legacy tax-grain conflict paths agree (data-contract § 6).
 
+> **Update (BR-SOURCE-10N).** The docs-only identity grain decision record —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md)
+> — **proposes** (and does not approve) the GATE-4 grain for the **full-join** context and raises two
+> items against this section that the GATE-4 approvers must close:
+>
+> - **The grain stated here is a documented intention, not a recorded decision.** The record treats it
+>   as such: it recommends **option D** (establishment as the operational unit, company / root as
+>   context — the shape data-contract § 4 already describes), which keeps this section's row grain and
+>   its "root is derivable but never the record identity" rule intact, while adding the company-context
+>   requirement and the read-time-projection rule that the bare grain statement leaves silent. Option B
+>   (root grain) is rejected and option C (dual snapshots) deferred, both on the record.
+> - **The agreement between `record_identity_key` and `normalized_tax_id` is a consequence of the key
+>   construction, not a property of the grain.** The record proposes only a **conceptual** key shape and
+>   **defers** the concrete construction, because one candidate inherits the open `normalized_tax_id`
+>   question (10M § 10, `needs_legal_review`) and the other is a surrogate whose derivation is itself
+>   unapproved. Under the first, the agreement above holds and the existing fiscal unique constraint
+>   remains a valid conflict target; under the second, the two paths **disagree** and a
+>   `record_identity_key` unique index would be required — **a migration**, which nothing in this line
+>   authorizes (see § 11).
+>
+> **GATE-4 remains `not_started` / not approved**, this section is unchanged in force, and nothing there
+> authorizes an import, a Supabase write, a migration, an index change, runtime, or Agent 1 integration.
+
 ---
 
 ## 5. Target persistence model
@@ -252,6 +275,19 @@ Invariants:
 - **Annual isolation:** a `source_year` change creates a new annual snapshot row; it does not overwrite the prior year unless a future policy explicitly decides otherwise.
 
 Physical-index caveat (must be resolved before BR-SOURCE-6): migration 065 provides a physical unique constraint only on `(source_key, country_code, source_year, normalized_tax_id)`. Migration 087 added `record_identity_key` as nullable, `NOT VALID`, and **not** unique. Before any write, the team must confirm whether the writer upserts on the existing tax-grain unique index (valid for this source, since the two keys agree) or whether a `record_identity_key` unique index must be created first. This is a schema-reconciliation decision, not an implementation authorized here.
+
+> **Update (BR-SOURCE-10N).** The docs-only identity grain decision record —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md)
+> — leaves this caveat **unresolved** and makes the branch explicit: the answer depends on the
+> `record_identity_key` construction, which that record deliberately **defers**. Under the
+> CN1-inheritance construction the two keys agree and the existing fiscal unique constraint remains a
+> valid conflict target, so **no new index is needed**; under a surrogate construction they disagree and
+> a `record_identity_key` unique index would be **required** — which is a **migration**, outside GATE-4
+> entirely (approval-gates checklist § 8 *Does NOT allow*). The record also notes that the two open
+> questions are **coupled**: if the `normalized_tax_id` survival item (10M § 10) resolves to *excluded*,
+> the CN1-inheritance construction becomes unavailable and the index work becomes mandatory. Nothing
+> there creates, drops, alters, or validates an index, and nothing there authorizes a migration, a
+> write, or an import.
 
 ---
 

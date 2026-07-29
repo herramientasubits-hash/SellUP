@@ -660,6 +660,26 @@ The one thing it does supply: **the closed set of material a `record_identity_ke
 from**, once approved. A key derived from a category A value, or from a category F value before its
 review, would be invalid regardless of which grain GATE-4 picks.
 
+> **Update (BR-SOURCE-10N).** The four options above have since been evaluated in a docs-only
+> **decision record proposing** the GATE-4 grain —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md)
+> — which recommends **option D** (a single operational snapshot: establishment as the operational
+> unit, company / root as context) for owner review, defers option A as superseded by D, rejects
+> option B (it would require the join key to become the record identity, contradicting 10I § 5 and
+> CN1 § 3.3), and defers option C (it needs a second source key or a discriminator column — a
+> migration — and would break the tax-grain invariant). It proposes a **conceptual**
+> `record_identity_key` shape only, and leaves the concrete construction **blocked**: it records
+> explicitly that a hash / truncation / fingerprint surrogate would be a *derived value of an
+> identifier* and therefore **category A under § 5 of this record**, so a surrogate is not
+> automatically the safer option. It also records that the `normalized_tax_id` item in § 10 is
+> **coupled** to the key construction — if that item resolves to *excluded*, the CN1-inheritance
+> construction becomes unavailable and a new unique index (a **migration**) would be required.
+>
+> **GATE-4 (§ 12) is still `not_started` / not approved.** That record's status is
+> `proposed_for_owner_review`, it assigns no `record_identity_grain_decision`, and it decides no field
+> allowlist. It authorizes **no** dry-run, import, Supabase write, migration, index change, runtime,
+> or Agent 1 integration, and it resolves none of the § 10 `needs_legal_review` items.
+
 ---
 
 ## 13. Relationship to GATE-5 — Output sanitization
@@ -955,6 +975,21 @@ Three caveats attach:
 
 This is a **recommendation, not an execution**: BR-SOURCE-10M opens no such milestone and authorizes
 nothing further.
+
+> **Update:** BR-SOURCE-10N has since landed as that docs-only decision record —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md).
+> Consistent with all three caveats above, it **proposes** the grain rather than approving it: its
+> status is `proposed_for_owner_review`, GATE-4 remains `not_started` / not approved, no
+> `record_identity_grain_decision` is assigned, and GATE-1 remains the blocker for all execution. It
+> evaluates all four options on ten axes, recommends **option D** for owner review, and states the
+> consequences for deduplication, enrichment, the future `source_company_snapshots` shape, the
+> unresolved physical index situation, and future Agent 1 consumption. Per the second caveat, it does
+> **not** resolve the § 10 `normalized_tax_id` item: it records how a grain decision proceeds while
+> that item stays `needs_legal_review`, and notes that the item is coupled to the key construction and
+> therefore to whether a migration would ever be needed. It adds no runner and no command and
+> authorizes **no** dry-run, import, Supabase write, migration, index change, runtime, or Agent 1
+> integration. Its recommended successor is **BR-SOURCE-10O — full join output sanitization decision
+> record** (GATE-5, docs-only).
 
 ---
 

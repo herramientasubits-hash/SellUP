@@ -602,6 +602,27 @@ situation (import-staging § 5, § 11) and the full-CNPJ persistence question (e
 § 11 #1). Until GATE-4 records a choice, the future report carries
 `record_identity_grain_decision: "not_decided"` (§ 12).
 
+> **Update (BR-SOURCE-10N).** The four options above have been carried into a docs-only **decision
+> record proposing** the GATE-4 grain —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md)
+> — which evaluates each option on ten axes and recommends **option D** (a single operational
+> snapshot: establishment as the operational unit, company / root as context) for owner review. Option
+> A is deferred as silent on company context and therefore superseded by D; option B is rejected
+> because it would require the join key to become the record identity, against § 7 of this document
+> and 10I § 5; option C is deferred because it would need a second source key or a discriminator column
+> (**a migration**) and would break the tax-grain invariant.
+>
+> On the two reconciliations named above: the record states the index consequence **conditionally** —
+> under the CN1-inheritance key construction the record-identity and legacy fiscal conflict paths agree
+> and no new index is needed, while under a surrogate construction they disagree and a unique index
+> (**a migration**) would be required — and it leaves the full-CNPJ persistence question where 10M left
+> it, at `needs_legal_review`, recording that the two are coupled.
+>
+> **GATE-4 remains `not_started` / not approved**, the report marker stays
+> `record_identity_grain_decision: "not_decided"` (§ 12), and the concrete `record_identity_key`
+> construction stays **deferred**. That record authorizes **no** dry-run, import, Supabase write,
+> migration, index change, runtime, or Agent 1 integration.
+
 ---
 
 ## 15. Security assertions required before future implementation
@@ -728,6 +749,21 @@ authorizes nothing further.
 > runner and no command, decides no identity grain and no storage envelope, and authorizes **no**
 > dry-run, import, Supabase write, migration, runtime, or Agent 1 integration. Its recommended
 > successor is **BR-SOURCE-10N — full join identity grain decision record** (GATE-4, docs-only).
+>
+> **Update:** BR-SOURCE-10N has since landed as that docs-only decision record —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md).
+> It proposes the GATE-4 grain against § 14 (see the update note there), recommending **option D** and
+> recording the rejected and deferred options. It leaves the § 12 markers untouched —
+> `field_allowlist_version: "not_approved"`, `record_identity_grain_decision: "not_decided"`,
+> `temporary_storage_mode: "not_approved"` — and closes none of the § 17 open decision gates: the
+> identity grain is *proposed*, not decided; the `normalized_tax_id` question stays
+> `needs_legal_review`; and the concrete `record_identity_key` construction is explicitly **deferred**.
+> It **approves no gate** (all eight remain `not_started`), adds no runner and no command, decides no
+> field allowlist and no storage envelope, creates no migration and changes no index, and authorizes
+> **no** dry-run, import, Supabase write, runtime, or Agent 1 integration. Its recommended successor is
+> **BR-SOURCE-10O — full join output sanitization decision record** (GATE-5, docs-only), which would
+> replace the § 15 obligations with an enumerated assertion list — still without writing the tests,
+> which are code.
 
 ---
 

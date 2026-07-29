@@ -573,6 +573,25 @@ full-CNPJ) is a *documented intention*, and 10K § 8 explicitly names "we alread
 No grain, no `record_identity_key` construction, no migration, no snapshot write, and no schema
 change.
 
+> **Update (BR-SOURCE-10N).** The missing artifact named above has since been **proposed** — not
+> approved — in a docs-only decision record:
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md).
+> It evaluates all four options explicitly, recommends **option D** (single operational snapshot:
+> establishment as the operational unit, company / root as context) for owner review, defers option A
+> as superseded by D, rejects option B, and defers option C. It addresses each *Evidence missing* item
+> above: the explicit choice (proposed), the deterministic key strategy (**conceptual shape only —
+> the concrete construction is deferred**, with two candidate constructions and their blockers
+> recorded), the deduplication consequences, the enrichment consequences, the Agent 1 consumption
+> impact, the physical-index reconciliation (**conditional**: no new index under the CN1-inheritance
+> construction, a required unique index — i.e. a **migration** — under a surrogate construction), the
+> root-versus-establishment treatment, and the `normalized_tax_id` relationship (which stays
+> `needs_legal_review` per 10M and is recorded as **coupled** to the key construction).
+>
+> **GATE-4 remains `not_started` / not approved** and the evidence packet status for this gate remains
+> `partial_evidence_collected` until the joint approvers accept the submission. The record assigns no
+> `record_identity_grain_decision`, creates no migration, changes no index, writes no snapshot, and
+> authorizes no execution, import, Supabase write, runtime, or Agent 1 integration.
+
 ---
 
 ## 9. GATE-5 evidence packet — Output sanitization contract
@@ -1068,6 +1087,18 @@ nothing further.
 > owners. It adds no runner and no command and authorizes **no** dry-run, import, Supabase write,
 > migration, runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10N — full join
 > identity grain decision record** (GATE-4, docs-only).
+>
+> **Update:** BR-SOURCE-10N has since landed as that successor —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md).
+> It **proposes** the grain rather than approving it: status `proposed_for_owner_review`, GATE-4 still
+> `not_started` / not approved, no `record_identity_grain_decision` assigned, and GATE-1 still the
+> blocker for all execution. It recommends **option D** for owner review, records the rejected and
+> deferred options with their reasons, defers the concrete `record_identity_key` construction, and
+> states the deduplication, enrichment, snapshot-shape, physical-index, and Agent 1 consequences. It
+> creates no migration, changes no index, and authorizes **no** dry-run, import, Supabase write,
+> runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10O — full join output
+> sanitization decision record** (GATE-5, docs-only), which the § 9 finding — that the report schema
+> cannot be frozen while GATE-3 and GATE-4 are open — now makes reachable in proposal form.
 
 ---
 
