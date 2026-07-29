@@ -440,6 +440,57 @@ privacy-safe validation of the § 2 join precondition; it does not lift it.
 
 ---
 
+## 10.4. Bounded join COVERAGE strategy (BR-SOURCE-10H)
+
+BR-SOURCE-10G ran the join over the **first N rows of each file independently**. On the
+real files that produced `joined_with_sampled_company_context = 0` — not an error, but the
+honest confirmation that two linear prefixes almost never overlap, so a first-N-of-each
+sample cannot measure real coverage. BR-SOURCE-10H adds a **coverage-oriented sampling
+strategy** so the dry-run can ask a better question — *how much company context can a
+slightly deeper, still bounded scan recover?* — without ever processing the full dataset
+and without ever printing or persisting an identifier.
+
+**Two explicit strategies, one contract.** The join dry-run now takes a
+`--sampling-strategy`:
+
+- **`first_rows`** — the BR-SOURCE-10G behaviour, and the **default** (backward-compatible,
+  byte-for-byte). Index the first N empresas rows, then join the first M estabelecimentos
+  rows within that index.
+- **`establishment_keys_then_company_probe`** — sample estabelecimentos **first**, collect
+  their structural join keys into an **ephemeral in-memory set**, then scan a **bounded**
+  window of empresas rows (`--max-company-scan-rows`, default **1000**, hard cap **5000**),
+  indexing **only** companies whose key was requested. The scan closes on the first of:
+  every requested key found, the row cap, or a hard byte ceiling.
+
+**The join keys stay in memory.** As in 10G, the structural identifier (`cnpj_basico` /
+raiz) is used **only** as a `Set`/`Map` key held in memory and discarded when the run
+returns. It is **never printed, returned, hashed, persisted, or logged**, and the sanitized
+output additionally reports `establishment_keys_printed: false` and `join_keys_printed:
+false`. Only aggregate counts are ever emitted.
+
+**Coverage metrics (aggregate only).** The probe adds `companies_scanned_for_coverage`,
+`establishment_keys_collected_in_memory`, a `coverage_scan_limit_reached` join reason, and a
+`coverage_summary` block (`establishments_with_company_context_in_bounded_scan`,
+`establishments_without_company_context_in_bounded_scan`, `coverage_scan_limit_reached`,
+`coverage_is_representative`). When a keyed establishment's company is not found before the
+scan hits its cap, the miss is attributed to `coverage_scan_limit_reached` — the honest
+caveat that the company may sit deeper in the file, not that it is absent.
+
+**`coverage_is_representative` is ALWAYS false in this hito.** No full dataset is processed,
+no approved statistical sample is drawn, and no index is persisted, so the result can only
+be read as a **bounded technical coverage probe** — **never** as import readiness, runtime
+readiness, Agent 1 readiness, market coverage, or Brazil-source coverage. The real local
+run (20 establishment keys, scanning 1000 empresas rows) reproduced the 10G finding:
+`coverage_scan_limit_reached = 20`, `companies_indexed_for_join = 0` — a deeper bounded scan
+still does not recover overlap, which is exactly why a **full** join (out of scope here)
+remains the precondition for any import.
+
+**What stays blocked (unchanged).** Import, production import, Supabase writes, migrations,
+runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation all remain
+**blocked**. This milestone measures coverage; it authorizes nothing.
+
+---
+
 ## 11. Open legal / privacy questions
 
 These decisions are **unresolved** and block a privacy-safe import implementation. Each

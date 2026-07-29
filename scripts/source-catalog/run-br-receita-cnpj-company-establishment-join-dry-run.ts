@@ -18,14 +18,24 @@
  *
  * A real LOCAL manifest is accepted ONLY behind `--allow-local-manifest`; a URL
  * manifest, a non-`.json` manifest, `--max-company-rows`/`--max-establishment-rows`
- * > 20, or any forbidden ingestion flag is rejected before the dry-run runs.
- * `--fail-on-any-privacy-exclusion` is opt-in; by default the run stays ok even
- * when records are excluded (only a structural/leak/manifest failure makes it fail).
+ * > 20, `--max-company-scan-rows` above its hard cap, an unrecognized
+ * `--sampling-strategy`, or any forbidden ingestion flag is rejected before the
+ * dry-run runs. `--fail-on-any-privacy-exclusion` is opt-in; by default the run
+ * stays ok even when records are excluded (only a structural/leak/manifest failure
+ * makes it fail).
+ *
+ * BR-SOURCE-10H adds `--sampling-strategy`:
+ *   - `first_rows` (default): the BR-SOURCE-10G first-N-of-each-file behaviour.
+ *   - `establishment_keys_then_company_probe`: sample establishments first, then
+ *     scan a BOUNDED `--max-company-scan-rows` window of empresas for their company
+ *     context. Aggregate coverage metrics only; `coverage_is_representative` is
+ *     always false and it authorizes no import.
  *
  * Usage:
  *   node --import tsx scripts/source-catalog/run-br-receita-cnpj-company-establishment-join-dry-run.ts \
  *     --manifest ./manifest.json --allow-local-manifest --format json --strict \
- *     --max-company-rows 20 --max-establishment-rows 20
+ *     --sampling-strategy establishment_keys_then_company_probe \
+ *     --max-company-rows 20 --max-establishment-rows 20 --max-company-scan-rows 1000
  */
 
 import * as path from 'node:path';
@@ -35,8 +45,13 @@ import {
   BR_RECEITA_CNPJ_PRIVACY_MAX_SAMPLE_ROWS_LIMIT,
 } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-privacy-safe-classifier';
 import {
+  BR_RECEITA_CNPJ_JOIN_DEFAULT_MAX_COMPANY_SCAN_ROWS,
+  BR_RECEITA_CNPJ_JOIN_DEFAULT_SAMPLING_STRATEGY,
+  BR_RECEITA_CNPJ_JOIN_MAX_COMPANY_SCAN_ROWS_LIMIT,
+  BR_RECEITA_CNPJ_JOIN_SAMPLING_STRATEGIES,
   runBrReceitaCnpjCompanyEstablishmentJoinDryRun,
   type BrReceitaCnpjJoinDryRunResult,
+  type BrReceitaCnpjJoinSamplingStrategy,
 } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-company-establishment-join-dry-run';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -98,6 +113,22 @@ export const FORBIDDEN_OUTPUT_KEY_TOKENS = [
   'row_hash',
 ] as const;
 
+/**
+ * Output keys that would be an ARRAY / DUMP of join keys rather than an aggregate
+ * count, blocked by EXACT match (BR-SOURCE-10H). Kept separate from the substring
+ * token list so aggregate COUNT fields such as `establishment_keys_collected_in_memory`
+ * and the boolean `establishment_keys_printed` are still allowed — only a bare
+ * plural dump (`establishment_keys`, `company_keys`, …) is rejected.
+ */
+export const FORBIDDEN_EXACT_OUTPUT_KEYS = [
+  'establishment_keys',
+  'company_keys',
+  'join_keys',
+  'establishment_key_list',
+  'company_key_list',
+  'join_key_list',
+] as const;
+
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 export class ForbiddenJoinRunnerModeError extends Error {
@@ -127,8 +158,10 @@ export interface JoinRunnerOptions {
   readonly manifestPath: string;
   readonly format: JoinRunnerFormat;
   readonly strict: boolean;
+  readonly samplingStrategy: BrReceitaCnpjJoinSamplingStrategy;
   readonly maxCompanyRows: number;
   readonly maxEstablishmentRows: number;
+  readonly maxCompanyScanRows: number;
   readonly failOnAnyPrivacyExclusion: boolean;
 }
 
@@ -144,6 +177,7 @@ export interface JoinRunnerSafety {
   readonly raw_rows_printed: false;
   readonly personal_values_printed: false;
   readonly join_keys_printed: false;
+  readonly establishment_keys_printed: false;
 }
 
 const SAFETY_ALL_FALSE: JoinRunnerSafety = {
@@ -158,7 +192,16 @@ const SAFETY_ALL_FALSE: JoinRunnerSafety = {
   raw_rows_printed: false,
   personal_values_printed: false,
   join_keys_printed: false,
+  establishment_keys_printed: false,
 };
+
+/** Bounded-scan coverage interpretation (never representative in this hito). */
+export interface JoinRunnerCoverageSummary {
+  readonly establishments_with_company_context_in_bounded_scan: number;
+  readonly establishments_without_company_context_in_bounded_scan: number;
+  readonly coverage_scan_limit_reached: boolean;
+  readonly coverage_is_representative: false;
+}
 
 /** The sanitized, printable report. No full CNPJ, no CNPJ básico, no join key. */
 export interface JoinRunnerReport {
@@ -170,16 +213,22 @@ export interface JoinRunnerReport {
   readonly source_period: string;
   readonly manifest_validation: 'passed' | 'failed';
   readonly layout_mode: string;
+  readonly sampling_strategy: string;
   readonly max_company_rows: number;
   readonly max_establishment_rows: number;
+  readonly max_company_scan_rows: number;
   readonly companies_sampled: number;
+  readonly companies_scanned_for_coverage: number;
   readonly companies_indexed_for_join: number;
   readonly companies_excluded_from_join: number;
   readonly establishments_sampled: number;
+  readonly establishment_keys_collected_in_memory: number;
+  readonly establishment_keys_printed: false;
   readonly join_counts: Record<string, number>;
   readonly join_reason_counts: Record<string, number>;
   readonly company_classification_counts: Record<string, number>;
   readonly establishment_classification_counts: Record<string, number>;
+  readonly coverage_summary: JoinRunnerCoverageSummary;
   readonly rejection_reasons: string[];
   readonly full_dataset_processed: false;
   readonly import_executed: false;
@@ -227,6 +276,30 @@ function parseBoundedRows(flag: string, value: string): number {
   return parsed;
 }
 
+function parseCompanyScanRows(value: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new ForbiddenJoinRunnerModeError(
+      `--max-company-scan-rows must be a non-negative integer, got "${value}"`,
+    );
+  }
+  const parsed = Number(value);
+  if (parsed > BR_RECEITA_CNPJ_JOIN_MAX_COMPANY_SCAN_ROWS_LIMIT) {
+    throw new ForbiddenJoinRunnerModeError(
+      `--max-company-scan-rows (${parsed}) exceeds the hard limit of ${BR_RECEITA_CNPJ_JOIN_MAX_COMPANY_SCAN_ROWS_LIMIT}`,
+    );
+  }
+  return parsed;
+}
+
+function parseSamplingStrategy(value: string): BrReceitaCnpjJoinSamplingStrategy {
+  if (!(BR_RECEITA_CNPJ_JOIN_SAMPLING_STRATEGIES as readonly string[]).includes(value)) {
+    throw new ForbiddenJoinRunnerModeError(
+      `--sampling-strategy must be one of: ${BR_RECEITA_CNPJ_JOIN_SAMPLING_STRATEGIES.join(', ')} (got "${value}")`,
+    );
+  }
+  return value as BrReceitaCnpjJoinSamplingStrategy;
+}
+
 /**
  * Parses the join dry-run runner CLI args. Fail-closed: forbidden flags, unknown
  * flags, URL manifests, non-`.json` manifests, bounded-row flags > 20, and a
@@ -237,8 +310,10 @@ export function parseJoinRunnerArgs(argv: string[]): JoinRunnerOptions {
   let allowLocalManifest = false;
   let format: JoinRunnerFormat = 'text';
   let strict = false;
+  let samplingStrategy: BrReceitaCnpjJoinSamplingStrategy | null = null;
   let maxCompanyRows: number | null = null;
   let maxEstablishmentRows: number | null = null;
+  let maxCompanyScanRows: number | null = null;
   let failOnAnyPrivacyExclusion = false;
 
   for (let i = 0; i < argv.length; i++) {
@@ -266,11 +341,17 @@ export function parseJoinRunnerArgs(argv: string[]): JoinRunnerOptions {
       case 'allow-local-manifest':
         allowLocalManifest = true;
         break;
+      case 'sampling-strategy':
+        samplingStrategy = parseSamplingStrategy(takeValue());
+        break;
       case 'max-company-rows':
         maxCompanyRows = parseBoundedRows('max-company-rows', takeValue());
         break;
       case 'max-establishment-rows':
         maxEstablishmentRows = parseBoundedRows('max-establishment-rows', takeValue());
+        break;
+      case 'max-company-scan-rows':
+        maxCompanyScanRows = parseCompanyScanRows(takeValue());
         break;
       case 'fail-on-any-privacy-exclusion':
         failOnAnyPrivacyExclusion = true;
@@ -312,8 +393,10 @@ export function parseJoinRunnerArgs(argv: string[]): JoinRunnerOptions {
     manifestPath: manifest,
     format,
     strict,
+    samplingStrategy: samplingStrategy ?? BR_RECEITA_CNPJ_JOIN_DEFAULT_SAMPLING_STRATEGY,
     maxCompanyRows: maxCompanyRows ?? BR_RECEITA_CNPJ_PRIVACY_DEFAULT_MAX_SAMPLE_ROWS,
     maxEstablishmentRows: maxEstablishmentRows ?? BR_RECEITA_CNPJ_PRIVACY_DEFAULT_MAX_SAMPLE_ROWS,
+    maxCompanyScanRows: maxCompanyScanRows ?? BR_RECEITA_CNPJ_JOIN_DEFAULT_MAX_COMPANY_SCAN_ROWS,
     failOnAnyPrivacyExclusion,
   };
 }
@@ -345,7 +428,13 @@ function keyContainsToken(key: string, token: string): boolean {
 export function assertNoForbiddenKeysInOutput(report: unknown): void {
   const keys: string[] = [];
   collectOutputKeys(report, keys);
+  const exactBlocked = new Set<string>(FORBIDDEN_EXACT_OUTPUT_KEYS);
   for (const key of keys) {
+    if (exactBlocked.has(key.toLowerCase())) {
+      throw new JoinRunnerOutputSanitizationError(
+        `forbidden output key "${key}" (exact-match join-key dump is never emitted)`,
+      );
+    }
     for (const token of FORBIDDEN_OUTPUT_KEY_TOKENS) {
       if (keyContainsToken(key, token)) {
         throw new JoinRunnerOutputSanitizationError(
@@ -393,16 +482,29 @@ export function buildJoinRunnerReport(result: BrReceitaCnpjJoinDryRunResult): Jo
     source_period: result.sourcePeriod,
     manifest_validation: result.manifestValidation,
     layout_mode: result.layoutMode,
+    sampling_strategy: result.samplingStrategy,
     max_company_rows: result.maxCompanyRows,
     max_establishment_rows: result.maxEstablishmentRows,
+    max_company_scan_rows: result.maxCompanyScanRows,
     companies_sampled: result.companiesSampled,
+    companies_scanned_for_coverage: result.companiesScannedForCoverage,
     companies_indexed_for_join: result.companiesIndexedForJoin,
     companies_excluded_from_join: result.companiesExcludedFromJoin,
     establishments_sampled: result.establishmentsSampled,
+    establishment_keys_collected_in_memory: result.establishmentKeysCollectedInMemory,
+    establishment_keys_printed: false,
     join_counts: { ...result.joinCounts },
     join_reason_counts: { ...result.joinReasonCounts },
     company_classification_counts: { ...result.companyClassificationCounts },
     establishment_classification_counts: { ...result.establishmentClassificationCounts },
+    coverage_summary: {
+      establishments_with_company_context_in_bounded_scan:
+        result.coverageSummary.establishmentsWithCompanyContextInBoundedScan,
+      establishments_without_company_context_in_bounded_scan:
+        result.coverageSummary.establishmentsWithoutCompanyContextInBoundedScan,
+      coverage_scan_limit_reached: result.coverageSummary.coverageScanLimitReached,
+      coverage_is_representative: false,
+    },
     rejection_reasons: result.rejectionReasons,
     full_dataset_processed: false,
     import_executed: false,
@@ -420,8 +522,10 @@ export async function runJoinDryRun(options: JoinRunnerOptions): Promise<JoinRun
     manifestPath: options.manifestPath,
     allowLocalManifest: true,
     strict: options.strict,
+    samplingStrategy: options.samplingStrategy,
     maxCompanyRows: options.maxCompanyRows,
     maxEstablishmentRows: options.maxEstablishmentRows,
+    maxCompanyScanRows: options.maxCompanyScanRows,
     failOnAnyPrivacyExclusion: options.failOnAnyPrivacyExclusion,
   });
   return buildJoinRunnerReport(result);
@@ -444,12 +548,19 @@ export function formatReportText(report: JoinRunnerReport): string {
   lines.push(`source_period: ${report.source_period}`);
   lines.push(`manifest_validation: ${report.manifest_validation}`);
   lines.push(`layout_mode: ${report.layout_mode}`);
+  lines.push(`sampling_strategy: ${report.sampling_strategy}`);
   lines.push(`max_company_rows: ${report.max_company_rows}`);
   lines.push(`max_establishment_rows: ${report.max_establishment_rows}`);
+  lines.push(`max_company_scan_rows: ${report.max_company_scan_rows}`);
   lines.push(`companies_sampled: ${report.companies_sampled}`);
+  lines.push(`companies_scanned_for_coverage: ${report.companies_scanned_for_coverage}`);
   lines.push(`companies_indexed_for_join: ${report.companies_indexed_for_join}`);
   lines.push(`companies_excluded_from_join: ${report.companies_excluded_from_join}`);
   lines.push(`establishments_sampled: ${report.establishments_sampled}`);
+  lines.push(
+    `establishment_keys_collected_in_memory: ${report.establishment_keys_collected_in_memory}`,
+  );
+  lines.push(`establishment_keys_printed: ${report.establishment_keys_printed}`);
   lines.push('join_counts:');
   for (const [key, value] of Object.entries(report.join_counts)) {
     lines.push(`  ${key}: ${value}`);
@@ -464,6 +575,10 @@ export function formatReportText(report: JoinRunnerReport): string {
   }
   lines.push('establishment_classification_counts:');
   for (const [key, value] of Object.entries(report.establishment_classification_counts)) {
+    lines.push(`  ${key}: ${value}`);
+  }
+  lines.push('coverage_summary:');
+  for (const [key, value] of Object.entries(report.coverage_summary)) {
     lines.push(`  ${key}: ${value}`);
   }
   lines.push(`rejection_reasons: [${report.rejection_reasons.join(', ')}]`);

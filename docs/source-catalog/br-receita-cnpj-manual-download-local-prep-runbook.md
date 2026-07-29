@@ -484,6 +484,42 @@ generation all stay **blocked**. This dry-run authorizes none of them.
 
 ---
 
+### 11.4. Bounded join COVERAGE strategy (BR-SOURCE-10H)
+
+BR-SOURCE-10G sampled the **first N rows of each file independently**, which on the real
+files gave `joined_with_sampled_company_context = 0` — the honest confirmation that two
+linear prefixes rarely overlap. BR-SOURCE-10H adds a `--sampling-strategy` flag so the same
+dry-run can run a **coverage-oriented probe** (design
+[§ 10.4](./br-receita-cnpj-privacy-safe-import-eligibility-design.md)):
+
+- `first_rows` (default): the BR-SOURCE-10G first-N-of-each behaviour, unchanged.
+- `establishment_keys_then_company_probe`: sample estabelecimentos first, collect their
+  structural join keys **only in memory**, then scan a **bounded** `--max-company-scan-rows`
+  window of empresas (default **1000**, hard cap **5000**) for those keys. The join keys are
+  never printed, returned, hashed, or persisted.
+
+```bash
+node --import tsx scripts/source-catalog/run-br-receita-cnpj-company-establishment-join-dry-run.ts \
+  --manifest ~/Downloads/sellup-source-data/br/receita-cnpj/<YYYY-MM>/manifest.headerless.json \
+  --allow-local-manifest \
+  --format json \
+  --strict \
+  --sampling-strategy establishment_keys_then_company_probe \
+  --max-company-rows 20 \
+  --max-establishment-rows 20 \
+  --max-company-scan-rows 1000
+```
+
+The probe adds `companies_scanned_for_coverage`, `establishment_keys_collected_in_memory`
+(a count only), a `coverage_scan_limit_reached` join reason, and a `coverage_summary` block.
+`coverage_is_representative` is **always false** in this milestone: no full dataset is
+processed, no approved statistical sample is drawn, and no index is persisted, so the result
+is a **bounded technical coverage probe** — never import / production import / runtime /
+Agent 1 / live-prospect-generation readiness, and never market or Brazil-source coverage.
+All of those remain **blocked**; this dry-run authorizes none of them.
+
+---
+
 ## 12. Expected safe outputs
 
 Both runners emit only a **sanitized report**:
