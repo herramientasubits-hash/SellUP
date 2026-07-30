@@ -767,6 +767,44 @@ cleanup matrix is downstream of the storage envelope.
 
 No cleanup implementation, no error-handling code, no runner, and no write path.
 
+> **Update (BR-SOURCE-10PQR).** Every missing evidence item above has since been **proposed** — not
+> approved — in a docs-only decision packet:
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md).
+> Item by item:
+>
+> - **the exact cleanup procedure per failure type** — § 4.4 proposes a thirteen-scenario matrix
+>   (normal completion, sanitizer failure, disk exhaustion, out-of-memory, operator interrupt, process
+>   crash, permission error, manifest validation failure, file-family rejection, gate-preflight failure,
+>   small-cell suppression failure, report-write failure, and cleanup failure itself), each with what is
+>   destroyed, what may survive, how the outcome is verified, and whether it blocks the next run;
+> - **the temporary-artifact manifest** — § 4.6 proposes a **ledger** whose entries are written *before*
+>   each artifact is created, carrying only an artifact class, a directory *class*, an opaque run-scoped
+>   marker, and a state — never a path, file name, key, or row offset;
+> - **the quarantine-versus-delete decision** — § 4.2 recommends **delete**, admits quarantine only
+>   under an approved GATE-2 envelope and never for a source-derived artifact, and treats an artifact
+>   that cannot be deleted as unresolved residue; the decision itself is left to the approvers;
+> - **operator cancellation, out-of-memory, disk-exhaustion, and privacy-assertion behaviours** —
+>   defined as scenarios `S05`, `S04`, `S03`, and `S02` / `S11`, with `S02` and `S11` classified
+>   **leak-class**: the report is destroyed along with the temporaries, and gate evidence resets;
+> - **the verification mechanism** — ledger reconciliation, with `cleanup_verified` requiring every
+>   entry `destroyed`, and `cleanup_unverified` / `cleanup_failed` as non-zero-exit terminal states that
+>   block the next run (§ 4.6, § 4.7). **No verification command is created**: a command is code;
+> - **the escalation owner** — the operator owner and technical owner jointly, plus the privacy owner
+>   for a leak-class outcome, carrying the sanitized cleanup report and nothing else (§ 4.8).
+>
+> It also proposes a closed **destroyable artifact class list** `AC-01` … `AC-12` with a catch-all that
+> fails closed, a **cleanup ordering** that destroys key-bearing memory first, a **cleanup artifact
+> contract** (§ 5) whose report emits a `directory_class` enum rather than any path — resolving 10O § 12's
+> open manifest-path question fail-closed for this surface only — a closed controlled `error_code` list,
+> and an assertion catalogue `FC-A01` … `FC-A24`.
+>
+> **GATE-6 stays `not_started` / not approved** and the evidence packet status stays
+> `partial_evidence_collected`: the contract is stated **conditionally on GATE-2** (what must be
+> destroyed is still bounded by what may exist), `FC-A02` and `FC-A23` are unenforceable until the
+> envelope is chosen, and no cleanup implementation, verification command, or test exists. Nothing there
+> authorizes a runner, a cleanup implementation, a test, a dry-run, an import, a Supabase write, a
+> migration, an index change, runtime, or Agent 1 integration.
+
 ---
 
 ## 11. GATE-7 evidence packet — Operator runbook
@@ -834,6 +872,30 @@ frozen (GATE-5), or a cleanup verification that is undefined (GATE-6).
 
 No operator procedure, and no execution. Even an approved runbook is a *procedure*, never a
 *permission*.
+
+> **Update (BR-SOURCE-10PQR).** The **runbook contract** — not the runbook — has since been **proposed**
+> in a docs-only decision packet:
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md),
+> § 6 and § 7. It proposes who may operate (a named authorized human operator only; **no agent, no
+> automation, no CI runner**, and never "on behalf of" an operator), a twenty-two-item preflight
+> checklist `P-01` … `P-22` with one action and one pass condition each, sixteen non-overridable stop
+> conditions `T-01` … `T-16` (four of them leak-class), a closed list of the evidence an operator may
+> produce and an explicit list of what is forbidden as evidence on every channel, the twelve operator
+> behavior rules that mitigate the residual screenshot / copy-paste risk 10O § 4 surface L recorded as
+> non-machine-detectable, and an assertion catalogue `OR-A01` … `OR-A20`.
+>
+> **The first missing item above — the full join dry-run operator runbook — is still missing, and the
+> packet says so.** It proposes the shape the runbook must take, not the runbook. Four of its own items
+> cannot be performed today: `P-05` (gate status verified) **fails by construction** while any gate is
+> unapproved, `P-12` / `P-13` have no ceilings to check against (GATE-2), and `P-19` has no frozen
+> sanitizer contract (GATE-5). The packet records that as the honest state of the gate rather than
+> presenting an unusable checklist as a completed procedure.
+>
+> **GATE-7 stays `not_started` / not approved** and the evidence packet status stays
+> `partial_evidence_collected`: this runbook still contains no full-join procedure, the three
+> blocking gates named above (GATE-2, GATE-5, GATE-6) are unapproved, and an approved contract would
+> still be a *procedure*, never a *permission*. Nothing there authorizes a manual execution, a runner, a
+> dry-run, an import, a Supabase write, a migration, an index change, runtime, or Agent 1 integration.
 
 ---
 
@@ -910,6 +972,37 @@ defer to the implementation.
 
 No runner, no CLI, no guard implementation, no test, no import, no runtime activation, no Agent 1
 activation, and no Supabase write.
+
+> **Update (BR-SOURCE-10PQR).** The guard **contract** — and the structural note above, taken as a
+> decision to be recorded rather than a caveat — has since been **proposed** in a docs-only decision
+> packet:
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md),
+> § 8 and § 9. It proposes a closed **blocked-surface list** `NB-01` … `NB-20` (Supabase writes,
+> migrations, the named table writes, HubSpot, Slack, providers, runtime routes, Agent 1, hosting and
+> environment changes, flag writes, persistent cache and shared storage, cloud uploads, index and schema
+> changes, and — as a recommendation — **zero network calls**), the structural enforcement requirements
+> (no write-capable client constructed, no service role key present, no Supabase / Agent 1 / HubSpot /
+> Slack / provider module imported transitively, dry-run mode hardcoded and fail-closed), the mandatory
+> and forbidden flag sets restated from 10J § 11, the **rejection ordering** as part of the contract
+> (refusal before any file is opened and before any artifact exists, producing no residue), the evidence
+> contract (§ 9: the all-false boolean block, the zero counters, the controlled `error_code`, and the
+> closed forbidden list — no env values, no secrets, no connection strings, no key material, no real
+> manifest or path, no raw driver messages, no stack traces), and the enumerated no-write test list
+> `NW-A01` … `NW-A28`.
+>
+> On the structural note above, the packet takes an explicit position (§ 8.3): the **contract is
+> approvable now** and the **proofs land with the implementation**, because the proofs are about code
+> that does not exist and 10K § 4 forbids producing them by writing it. It states both failure modes —
+> treating the proofs as prerequisites deadlocks the gate; treating the contract as sufficient for
+> *execution* voids it — and records the split as the thing the approvers must decide, not as something
+> the document may assume. It also states plainly that **GATE-8 approved as a contract does not
+> authorize writing the runner**, because 10K § 12's *Allows* clause is conditional on every other gate
+> being approved, and seven are not.
+>
+> **GATE-8 stays `not_started` / not approved** and the evidence packet status stays
+> `partial_evidence_collected`: no proof exists, no guard exists, no test exists, and the owners have
+> recorded nothing. Nothing there authorizes a runner, a CLI, a guard implementation, a test, an import,
+> a Supabase write, a migration, an index change, runtime activation, or Agent 1 activation.
 
 ---
 
@@ -1155,6 +1248,27 @@ nothing further.
 > finding — that GATE-6 blocks GATE-7's cleanup-verification steps, and that what must be destroyed is
 > undefined until GATE-2 decides what may exist — makes the next reachable node, reachable only
 > conditionally on the storage envelope.
+>
+> **Update:** that successor landed **accelerated**, as one docs-only packet covering the three
+> remaining preparable gates rather than three sequential milestones —
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md)
+> (BR-SOURCE-10PQR: GATE-6 cleanup, GATE-7 operator runbook contract, GATE-8 no-write / no-runtime
+> contract, plus a final readiness packet for all eight gates). It **proposes** all three rather than
+> approving any: status `proposed_for_owner_review`, GATE-6 / GATE-7 / GATE-8 all still `not_started` /
+> not approved, and GATE-1 still the blocker for all execution. Per-gate detail is in the update notes
+> in § 10, § 11, and § 12 above.
+>
+> Three properties of the acceleration are worth recording here, because they are the ones a reader of
+> this packet could get wrong. **One document does not mean one approval:** the three gates have
+> different, partly disjoint approver sets, and each needs its own 10K § 14 entry. **Assembling the
+> remaining gates does not shorten the blocker list:** its § 13 lists all eight approvals, the runner
+> authorization, and a later separate import authorization as still outstanding, and its § 10 records
+> that **five of eight gates now have an assembled proposal and zero are approved**. **GATE-1 and
+> GATE-2 remain the two gates no document in this series can advance** — GATE-1 needs a legal
+> determination and GATE-2 needs measurements — which is why the packet's own recommended successor is
+> **BR-SOURCE-10S — full join gate owner review packet** (owner review producing an operational
+> GO / NO-GO), and why the alternative it names, a runner implementation behind hard no-write guards,
+> is flagged as requiring an explicit override of 10K § 4 by the owners.
 
 ---
 

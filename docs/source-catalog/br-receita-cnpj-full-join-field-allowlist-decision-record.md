@@ -779,6 +779,29 @@ Three reinforcements:
   eligibility; measurement is a different act from persistence, and today neither has a live
   authorization.
 
+> **Update (BR-SOURCE-10PQR).** GATE-8's guard contract has since been **proposed** — not approved — in a
+> docs-only decision packet:
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md),
+> § 8 and § 9. It closes the blocked-surface list (`NB-01` … `NB-20`, naming each write, integration, and
+> side-effect surface individually), requires **structural** enforcement rather than convention (no
+> write-capable client constructed, no service role key present, no Supabase / Agent 1 / HubSpot / Slack /
+> provider module imported transitively, dry-run mode hardcoded and fail-closed), makes rejection ordering
+> part of the contract, and enumerates the no-write test list `NW-A01` … `NW-A28`. The all-false block above
+> is extended and asserted **on every terminating path**, not only on success — including
+> `join_keys_emitted = 0`, `identity_keys_constructed = 0`, and `raw_value_logs = 0`.
+>
+> All three reinforcements above stand unchanged. **GATE-8 remains `not_started` / not approved**; the
+> packet writes no guard, no runner, and no test, and it records explicitly that a GATE-8 approval would
+> be a *contract* whose proofs land with a future implementation — and that even so, it would not authorize
+> writing the runner, because 10K § 12's *Allows* clause is conditional on every other gate being
+> approved. The sentence this section opens with is unaffected: a field allowlist still authorizes no
+> writes, and no allowlisted field may be persisted without a later, separate import authorization.
+>
+> The same packet also proposes GATE-6 (§ 4, § 5) and GATE-7 (§ 6, § 7), which bear on this record in one
+> way worth noting: **category-D aggregate report content is destroyed along with the temporaries** if a
+> sanitization or small-cell suppression assertion trips, so an allowlisted aggregate is not a survivable
+> artifact either.
+
 ---
 
 ## 15. Field decision matrix

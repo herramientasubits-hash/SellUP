@@ -1056,6 +1056,27 @@ nothing further.
 > stably names the assertions, and it **writes no test**, because a test is code. GATE-4 and GATE-5 both
 > remain `not_started` / not approved, and 10O's recommended successor is **BR-SOURCE-10P — full join
 > failure cleanup decision record** (GATE-6, docs-only).
+>
+> **Update (BR-SOURCE-10PQR).** That successor landed **accelerated**, covering the three remaining
+> preparable gates in one docs-only packet —
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md)
+> (GATE-6 cleanup, GATE-7 operator runbook contract, GATE-8 no-write / no-runtime contract, plus a
+> readiness table for all eight gates). Three points bear on this record specifically:
+>
+> - **this record's deferral is carried, not closed.** The `record_identity_key` construction remains
+>   deferred, and the packet's counters assert `identity_keys_constructed = 0` on every terminating path —
+>   the operational form of the corollary above that a dry-run constructs no key at all;
+> - **the no-key-in-a-path rule from § 15 is what shapes the cleanup design.** Because no identity key,
+>   component, or derived value may appear in a file name or a path, the packet's temporary-artifact ledger
+>   and cleanup report carry only artifact **classes** and a `directory_class` enum — never a name, never a
+>   path;
+> - **option D's finer grain keeps mattering downstream.** The same reasoning that makes small-cell
+>   suppression more necessary makes an unsuppressible bucket a **leak-class terminating scenario** there,
+>   destroying the report along with the temporaries.
+>
+> **GATE-4 and the three gates that packet addresses all remain `not_started` / not approved**, its status
+> is `proposed_for_owner_review`, and it authorizes no runner, cleanup implementation, guard, test,
+> runbook, dry-run, import, Supabase write, migration, index change, runtime, or Agent 1 integration.
 
 ---
 
