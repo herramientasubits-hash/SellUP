@@ -551,6 +551,11 @@ describe('FIX 5 — el monitoreo no cambia el comportamiento', () => {
       'src/modules/contact-enrichment/phone-reveal-webhook-core.ts',
       'src/modules/contact-enrichment/phone-reveal-recovery-core.ts',
       'src/modules/contact-enrichment/phone-reveal-recovery-actions.ts',
+      // RECOVERY-CRON-1: el cableado compartido y el disparador programado del
+      // recovery también quedan fuera del camino del monitoreo.
+      'src/modules/contact-enrichment/phone-reveal-recovery-deps.ts',
+      'src/modules/contact-enrichment/phone-reveal-recovery-cron-core.ts',
+      'src/app/api/cron/phone-reveal-recovery/route.ts',
       'src/app/api/integrations/apollo/phone-reveal/webhook/route.ts',
     ]) {
       assert.equal(

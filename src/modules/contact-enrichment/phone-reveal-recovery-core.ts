@@ -843,6 +843,19 @@ export interface StaleRecoveryQuery {
   nowIso: string;
 }
 
+/**
+ * Instante límite de la selección stale: un reveal solo es elegible si su
+ * `phone_reveal_requested_at` es ANTERIOR o igual a este corte. Puro (aritmética
+ * de fechas, sin I/O), exportado para que la query real y sus tests compartan la
+ * misma definición del corte en vez de duplicarla.
+ */
+export function resolveStaleRecoveryCutoffIso(
+  nowIso: string,
+  minAgeMinutes: number,
+): string {
+  return new Date(new Date(nowIso).getTime() - minAgeMinutes * 60_000).toISOString();
+}
+
 export interface RecoverStaleApolloPhoneRevealDeps {
   nowIso: string;
   /**

@@ -375,7 +375,14 @@ describe('Estados de respuesta', () => {
       }
     });
     assert.equal(revealButton(), null);
-    assert.ok(screen.getByText('Apollo puede tardar algunos minutos.'));
+    // RECOVERY-CRON-1: el copy en vuelo dejó de prometer que basta esperar en esta
+    // pantalla; ahora dice que el servidor revisa el resultado. Detalle en
+    // contact-candidate-detail-phone-reveal-stale-ui.test.tsx.
+    assert.ok(
+      (document.body.textContent ?? '')
+        .replace(/\s+/g, ' ')
+        .includes('SellUp revisará automáticamente el resultado'),
+    );
     cleanup();
   });
 

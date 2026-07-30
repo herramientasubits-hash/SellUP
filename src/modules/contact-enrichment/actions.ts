@@ -323,7 +323,7 @@ function firstRun(run: unknown): CandidateRunContext | null {
 const CANDIDATE_SELECT =
   `id, full_name, title, email, linkedin_url, source_contact_id, phone, source, status,
    duplicate_status, confidence, enrichment_metadata, enrichment_run_id, created_at,
-   phone_reveal_status,
+   phone_reveal_status, phone_reveal_last_checked_at,
    run:contact_enrichment_runs ( company_name, company_domain, account_id, hubspot_company_id )`;
 
 /** Mapea una fila cruda de Supabase a la proyección de solo lectura. */
@@ -348,6 +348,8 @@ function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
     created_at: record.created_at as string,
     phone_reveal_status:
       (record.phone_reveal_status as PhoneRevealStatus | null) ?? null,
+    phone_reveal_last_checked_at:
+      (record.phone_reveal_last_checked_at as string | null) ?? null,
     company_name: run?.company_name ?? null,
     company_domain: run?.company_domain ?? null,
     account_id: run?.account_id ?? null,
