@@ -1567,3 +1567,43 @@ BR-SOURCE-11A adds code, tests, a CLI, a package test script and these doc notes
 - merge.
 
 Local WIP (`scratchpad/`) is untouched by any git operation.
+
+---
+
+## 20. BR-SOURCE-11C blocked — carve-out decision question recorded, gates unchanged
+
+BR-SOURCE-11B validated the § 19 scaffold post-merge in synthetic-only mode. BR-SOURCE-11C then
+attempted to enable `local_manifest_dry_run` and was blocked as
+`BRSOURCE11CD — LOCAL_MANIFEST_GUARD_FAILED`.
+
+```text
+11C was blocked because local_manifest_dry_run requires an explicit carve-out or GATE-1/GATE-2
+approval.
+11C-R records the carve-out decision question.
+No gate is approved.
+No real manifest execution is authorized.
+```
+
+The decision question, options, recommendation (Option B — synthetic temp-manifest only),
+boundaries, caps and required evidence are recorded in the docs-only decision record
+[`br-receita-cnpj-local-manifest-dry-run-carveout-decision-record.md`](./br-receita-cnpj-local-manifest-dry-run-carveout-decision-record.md).
+
+### 20.1 Gate status after BR-SOURCE-11C-R — UNCHANGED
+
+```text
+GATE-1 Legal/Privacy                = not_started / not approved
+GATE-2 Temporary storage envelope   = not_started / not approved
+GATE-3 Field allowlist              = not_started / not approved
+GATE-4 Identity grain               = not_started / not approved
+GATE-5 Output sanitization          = not_started / not approved
+GATE-6 Failure cleanup              = not_started / not approved
+GATE-7 Operator runbook             = not_started / not approved
+GATE-8 No-write/no-runtime          = not_started / not approved
+```
+
+A carve-out is **not** a gate approval. Even if the owners subsequently authorize the recommended
+Option B, all eight gates stay `not_started`, GATE-1 and GATE-2 retain sole authority over real
+manifest and real data-file execution, and the record authorizes no dataset import, no Supabase
+write, no migration, no index change, no runtime change and no Agent 1 integration. The § 19.3 flags
+are unchanged except that `FULL_JOIN_RUNNER_READY = true` now that the BR-SOURCE-11A scaffold has
+merged; `FULL_JOIN_EXECUTION_READY` remains `false`.
