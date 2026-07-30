@@ -1691,3 +1691,38 @@ writes, migrations, index changes, runtime integration, Agent 1 integration, pro
 Slack, live generation, and full expansion. Option C (real manifest metadata-only) and Option D
 (bounded real local data-file dry-run) each still require their own separate, explicitly-worded owner
 authorization, recorded in their own milestone — landing Option B advances neither.
+
+---
+
+## 22. BR-SOURCE-11D-META — next decision question recorded, gates unchanged
+
+BR-SOURCE-11D-META defines the next decision question: whether real manifest metadata-only parsing
+can be authorized. It does not authorize real manifest reading by itself. It does not authorize
+data-file execution. It does not approve any gate.
+
+```text
+Subject:  ONE real manifest opened as a control document, metadata only.
+Excluded: opening any referenced file, reading rows, join coverage, import, Supabase, runtime,
+          Agent 1, providers.
+Status:   proposed_for_owner_review — NO-GO.
+```
+
+### 22.1 Gate and flag status after BR-SOURCE-11D-META — UNCHANGED
+
+All eight gates stay `not_started` / not approved, exactly as recorded in § 19.1, § 20.1 and § 21.1.
+Every flag in § 21.3 is unchanged, and the successor record adds only its own docs-only flags, both
+`false` until PR and merge respectively:
+
+```text
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_DECISION_RECORD_PR_READY = false until PR
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_DECISION_RECORD_OFFICIAL = false until merge
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_OPTION_B_AUTHORIZED      = false
+OPS_BR_REAL_LOCAL_MANIFEST_AUTHORIZED                       = false
+OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED              = false
+```
+
+§ 21.4 survives intact: Option D (bounded real local data-file dry-run) still requires its own
+separate, explicitly-worded owner authorization in its own milestone, and landing the metadata-only
+question advances it not at all.
+
+Record: [`br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md`](./br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md).

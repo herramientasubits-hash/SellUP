@@ -720,3 +720,18 @@ GATE-8 No-write/no-runtime          = not_started / not approved
 
 A mechanism existing and now being exercised is still not an approval: the runner reports all eight
 gates `not_approved` on every Option B run, and asserts it in test.
+
+---
+
+## 14. Successor question — BR-SOURCE-11D-META
+
+BR-SOURCE-11D-META defines the next decision question: whether real manifest metadata-only parsing
+can be authorized. It does not authorize real manifest reading by itself. It does not authorize
+data-file execution. It does not approve any gate.
+
+That question is what this record called **Option C** (§ 4, § 11); the successor record relabels it
+as its own **Option B** and carries its own authorization phrase. The phrase spent here —
+`AUTHORIZE OPTION B — SYNTHETIC TEMP-MANIFEST CARVE-OUT ONLY` — authorizes the synthetic
+temp-manifest carve-out only and must not be read as authorizing the successor's Option B.
+
+Record: [`br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md`](./br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md).

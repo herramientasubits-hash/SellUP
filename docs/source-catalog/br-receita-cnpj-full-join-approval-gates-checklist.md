@@ -1208,3 +1208,25 @@ envelope; freezes no report schema; creates no migration and changes no index or
 and authorizes **no** real manifest execution, real data-file execution, dataset import, Supabase
 write, runtime change or Agent 1 integration. Any Option B implementation additionally requires the
 record to be merged **and** an explicit owner authorization phrase, recorded separately.
+
+---
+
+## 21. BR-SOURCE-11D-META — next decision question recorded, no gate approved
+
+BR-SOURCE-11D-META defines the next decision question: whether real manifest metadata-only parsing
+can be authorized. It does not authorize real manifest reading by itself. It does not authorize
+data-file execution. It does not approve any gate.
+
+```text
+11C landed and validated the synthetic temp-manifest carve-out (Option B of 11C-R).
+11D-META records the real-manifest metadata-only question and recommends it as the next option.
+No gate is approved. GATE-1 and GATE-2 retain sole authority over real data-file execution.
+```
+
+All eight gates remain `not_started` per § 15, the § 15 matrix still reads **NO-GO**, and the
+successor record's own status is `proposed_for_owner_review`. A merged question is still a question:
+any implementation additionally requires the record to be merged **and** the explicit owner phrase
+`AUTHORIZE OPTION B — REAL MANIFEST METADATA-ONLY CARVE-OUT`, recorded separately. The phrase already
+spent for the synthetic carve-out does not carry over.
+
+Record: [`br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md`](./br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md).
