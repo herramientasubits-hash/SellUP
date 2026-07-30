@@ -801,8 +801,9 @@ Two consequences follow, and both are load-bearing:
 OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_PR_READY = true   (PR #172)
 OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_OFFICIAL = true   (merged)
 OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_AUTHORIZED          = true   (Option C, BR-SOURCE-11F-IMPL)
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_MERGED              = true   (PR #173)
 OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_PR_READY            = true   (BR-SOURCE-11F-IMPL)
-OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_OFFICIAL            = false  (not merged)
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_OFFICIAL            = true   (merged)
 OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED                 = true   (Option C scope only)
 
 FULL_JOIN_RUNNER_READY                                         = true
@@ -817,6 +818,10 @@ OPS_BR_READY_FOR_RUNTIME                                       = false
 OPS_BR_LIVE_PROSPECT_GENERATION_READY                          = false
 OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED                  = false
 ```
+
+Post-merge correction: BR-SOURCE-11F-IMPL-LAND merged PR #173, making the ultra-bounded
+required-family probe official. This does not approve any gate and does not authorize joins, import,
+Supabase, runtime, or Agent 1.
 
 Carried forward unchanged from the post-11E state, restated so no reader has to infer them:
 
