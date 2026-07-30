@@ -13,6 +13,20 @@
  * second one. That is the load-bearing invariant of the whole carve-out
  * (decision record § 4.3 / § 7.1), and it is asserted by a static test, not by intent.
  *
+ * ── BR-SOURCE-11E: executing the OPERATOR'S manifest ────────────────────────────
+ * BR-SOURCE-11D-META-IMPL implemented the code path but kept an operator's prepared
+ * manifest refused by staging-directory segment and by basename, so the carve-out was
+ * only ever exercised against synthetic documents. BR-SOURCE-11E adds a SECOND, separate
+ * declaration — `realManifestMetadataOnlyExecutionAuthorized` — which waives exactly
+ * those two path denylists and nothing else.
+ *
+ * It is a waiver over WHICH manifest document may be named, never over what is done with
+ * it: the metadata-only authorization is still required (neither flag substitutes for the
+ * other), a URL and a non-`.json` path are still refused, both caps are still required,
+ * the single-descriptor invariant is untouched, and no file the manifest references is
+ * opened or stat-ed. A waived run reports `operatorPreparedManifestAuthorized: true`, so
+ * the runner can refuse a reader that spent an authorization the run never declared.
+ *
  * ── What "metadata-only" means here ─────────────────────────────────────────────
  * The reader parses the manifest and derives SCHEMA-LEVEL facts only: whether a
  * schema version and a source period are present, how the layout mode classifies,
@@ -151,11 +165,15 @@ export const BRAZIL_RECEITA_REAL_MANIFEST_METADATA_FORBIDDEN_PATH_SEGMENTS: read
 ];
 
 /**
- * Manifest FILENAMES that identify a real prepared Receita file set. They stay refused
- * under metadata-only: BR-SOURCE-11D-META-IMPL implements the code path and proves it
- * with synthetic metadata manifests, and executing an operator's real prepared file set
- * is a separate, explicitly-authorized step. Refused by name, whatever directory it
- * sits in.
+ * Manifest FILENAMES that identify a real prepared Receita file set. Refused by name,
+ * whatever directory it sits in — BR-SOURCE-11D-META-IMPL proved the code path with
+ * synthetic metadata manifests only, because naming an operator's prepared file set was
+ * a separate, explicitly-authorized step.
+ *
+ * BR-SOURCE-11E is that step. This list and
+ * `BRAZIL_RECEITA_REAL_MANIFEST_METADATA_FORBIDDEN_PATH_SEGMENTS` are the ONLY two checks
+ * the 11E execution declaration relaxes, and only for the manifest document itself —
+ * never for anything the manifest references.
  */
 export const BRAZIL_RECEITA_REAL_MANIFEST_METADATA_FORBIDDEN_BASENAMES: readonly string[] = [
   'manifest.headerless.json',
@@ -226,6 +244,13 @@ export interface BrazilReceitaRealManifestMetadataScan {
   readonly missingRequiredFamilyCount: number;
   readonly forbiddenFamilyCount: number;
   readonly manifestBytesReadBucket: BrazilReceitaRealManifestBytesBucket;
+  /**
+   * True when this read named an OPERATOR-PREPARED manifest under the BR-SOURCE-11E
+   * execution declaration — i.e. when the staging-segment and prepared-basename checks
+   * were relaxed. Reported so the runner can refuse a reader that relaxed them without
+   * the run declaring it (BR-SOURCE-11E cross-check). Never a path, never a filename.
+   */
+  readonly operatorPreparedManifestAuthorized: boolean;
   /** Structural assertions. Always false: there is no code path that could set them. */
   readonly referencedDataFilesOpened: false;
   readonly referencedDataFilesStatted: false;
@@ -249,6 +274,13 @@ export interface BrazilReceitaRealManifestMetadataReaderOptions {
   readonly manifestPath: string;
   /** The owner's Option B phrase, as a declared boolean. Absent ⇒ the reader refuses. */
   readonly realManifestMetadataOnlyOptionBAuthorized?: boolean;
+  /**
+   * The owner's BR-SOURCE-11E EXECUTION phrase, as a declared boolean. A SEPARATE
+   * authorization: it relaxes the staging-segment and prepared-basename path checks so an
+   * operator's own manifest document can be named, and it relaxes nothing else. It does
+   * not stand in for `realManifestMetadataOnlyOptionBAuthorized`, which is still required.
+   */
+  readonly realManifestMetadataOnlyExecutionAuthorized?: boolean;
   readonly maxManifestBytes?: number;
   readonly maxDeclaredFiles?: number;
   /**
@@ -268,8 +300,16 @@ function looksLikeUrl(value: string): boolean {
  * Refuses a manifest path that is a URL, is not a `.json` document, points into an
  * operator's dataset staging area, or names a real prepared file set. The offending
  * path is NEVER echoed — only the fixed refusal code survives.
+ *
+ * `operatorPreparedAuthorized` is the BR-SOURCE-11E execution declaration. It relaxes the
+ * last two checks — the staging-segment list and the prepared-basename list — and only
+ * those: a URL, a non-`.json` document, and an empty path stay refused on every flag,
+ * because they are not "which manifest" questions at all.
  */
-function assertManifestPathAllowed(manifestPath: unknown): string {
+function assertManifestPathAllowed(
+  manifestPath: unknown,
+  operatorPreparedAuthorized: boolean,
+): string {
   if (typeof manifestPath !== 'string' || manifestPath.trim() === '') {
     throw new BrazilReceitaRealManifestMetadataError('manifest_path_forbidden');
   }
@@ -279,6 +319,8 @@ function assertManifestPathAllowed(manifestPath: unknown): string {
   if (path.extname(manifestPath).toLowerCase() !== MANIFEST_EXTENSION) {
     throw new BrazilReceitaRealManifestMetadataError('manifest_path_forbidden');
   }
+  if (operatorPreparedAuthorized) return manifestPath;
+
   const segments = manifestPath.toLowerCase().split(/[\\/]+/);
   for (const forbidden of BRAZIL_RECEITA_REAL_MANIFEST_METADATA_FORBIDDEN_PATH_SEGMENTS) {
     if (segments.includes(forbidden)) {
@@ -421,6 +463,7 @@ function tallyFamilies(entries: readonly unknown[]): FamilyTally {
 function blockedScan(
   refusalCode: BrazilReceitaRealManifestMetadataErrorCode,
   bucket: BrazilReceitaRealManifestBytesBucket,
+  operatorPreparedManifestAuthorized: boolean,
 ): BrazilReceitaRealManifestMetadataScan {
   const counts: Record<string, number> = {};
   for (const family of BRAZIL_RECEITA_REAL_MANIFEST_METADATA_ALLOWED_FAMILIES) counts[family] = 0;
@@ -437,6 +480,7 @@ function blockedScan(
     missingRequiredFamilyCount: BRAZIL_RECEITA_REAL_MANIFEST_METADATA_REQUIRED_FAMILIES.length,
     forbiddenFamilyCount: 0,
     manifestBytesReadBucket: bucket,
+    operatorPreparedManifestAuthorized,
     referencedDataFilesOpened: false,
     referencedDataFilesStatted: false,
     refusalCode,
@@ -485,7 +529,13 @@ export function createBrazilReceitaRealManifestMetadataReader(
     maxManifestBytes: options.maxManifestBytes as number,
     maxDeclaredFiles: options.maxDeclaredFiles as number,
   });
-  const manifestPath = assertManifestPathAllowed(options.manifestPath);
+  // The 11E declaration is read ONCE, here, and only widens which manifest may be named.
+  const operatorPreparedManifestAuthorized =
+    options.realManifestMetadataOnlyExecutionAuthorized === true;
+  const manifestPath = assertManifestPathAllowed(
+    options.manifestPath,
+    operatorPreparedManifestAuthorized,
+  );
   const builtCaps = {
     maxManifestBytes: options.maxManifestBytes as number,
     maxDeclaredFiles: options.maxDeclaredFiles as number,
@@ -504,7 +554,11 @@ export function createBrazilReceitaRealManifestMetadataReader(
     // The ONE read of the run. No stat, no directory listing, no second descriptor.
     const bounded = readManifestBounded(manifestPath, request.maxManifestBytes);
     if (bounded.overLimit) {
-      return blockedScan('manifest_metadata_cap_exceeded', 'over_limit_blocked');
+      return blockedScan(
+        'manifest_metadata_cap_exceeded',
+        'over_limit_blocked',
+        operatorPreparedManifestAuthorized,
+      );
     }
 
     let parsed: unknown;
@@ -547,6 +601,7 @@ export function createBrazilReceitaRealManifestMetadataReader(
       missingRequiredFamilyCount: tally.missingRequiredFamilyCount,
       forbiddenFamilyCount: tally.forbiddenFamilyCount,
       manifestBytesReadBucket: 'lte_1mb',
+      operatorPreparedManifestAuthorized,
       referencedDataFilesOpened: false,
       referencedDataFilesStatted: false,
       refusalCode: resolveRefusal(tally, layoutMode),

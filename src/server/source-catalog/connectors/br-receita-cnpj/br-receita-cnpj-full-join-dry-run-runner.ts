@@ -44,10 +44,22 @@
  *   (`maxManifestBytes`, `maxDeclaredFiles`) present and within their maxima, and an
  *   injected metadata reader.
  *
- * The two owner phrases are separate, single-scope, and non-transferable, so the two
- * FLAGS are separate too: `optionBCarveoutAuthorized` buys nothing on the metadata path,
- * and `realManifestMetadataOnlyOptionBAuthorized` buys nothing on the synthetic path.
+ * The owner phrases are separate, single-scope, and non-transferable, so the FLAGS are
+ * separate too: `optionBCarveoutAuthorized` buys nothing on the metadata path, and
+ * `realManifestMetadataOnlyOptionBAuthorized` buys nothing on the synthetic path.
  * Anything missing or out of bounds fails closed with a value-free error code.
+ *
+ * ── BR-SOURCE-11E: which manifest DOCUMENT may be named ─────────────────────────
+ * A third flag, `realManifestMetadataOnlyExecutionAuthorized`, records that this run may
+ * name the OPERATOR'S OWN prepared manifest rather than a synthetic one. It is a
+ * WHICH-DOCUMENT authorization and nothing more: it relaxes no cap, opens no referenced
+ * file, reads no row, computes no join, and does not satisfy the metadata gate above.
+ *
+ * The runner resolves no paths, so it cannot enforce the waiver — the reader does. What the
+ * runner enforces is that the two declarations AGREE: a scan reporting
+ * `operatorPreparedManifestAuthorized: true` on a run that did not declare the execution
+ * authorization is refused with `real_manifest_metadata_execution_not_authorized`, and
+ * carries no metadata block.
  *
  * The runner itself stays PURE: it never imports `node:fs` and never opens a file.
  * Reading is delegated to INJECTED reader ports — implemented by
@@ -335,6 +347,12 @@ export interface BrazilReceitaFullJoinRealManifestMetadataScan {
   readonly missingRequiredFamilyCount: number;
   readonly forbiddenFamilyCount: number;
   readonly manifestBytesReadBucket: string;
+  /**
+   * Whether the reader relaxed its staging-segment / prepared-basename path checks under
+   * the BR-SOURCE-11E execution declaration. Optional because a reader written before 11E
+   * cannot state it; absent is read as `false`, which is the fail-closed direction.
+   */
+  readonly operatorPreparedManifestAuthorized?: boolean;
   readonly referencedDataFilesOpened: boolean;
   readonly referencedDataFilesStatted: boolean;
   /** A manifest-CONTENT refusal reported rather than thrown. `null` when acceptable. */
@@ -406,6 +424,18 @@ export interface BrazilReceitaFullJoinDryRunInput {
    * temp-manifest phrase authorizes nothing here, and this one authorizes nothing there.
    */
   readonly realManifestMetadataOnlyOptionBAuthorized?: boolean;
+  /**
+   * The owner's BR-SOURCE-11E EXECUTION authorization, as a declared boolean: this run may
+   * name the OPERATOR'S OWN prepared manifest document instead of a synthetic one.
+   *
+   * A THIRD distinct field, and the narrowest of the three. It widens nothing about what
+   * is done with the manifest — no referenced file, no row, no join, no cap relief — and it
+   * does not stand in for `realManifestMetadataOnlyOptionBAuthorized`, which still gates
+   * the metadata path. The runner does not resolve paths, so this flag buys the CALLER
+   * nothing here; it exists so the report states which authorization was spent, and so a
+   * reader that relaxed its path checks without the run declaring it is REFUSED.
+   */
+  readonly realManifestMetadataOnlyExecutionAuthorized?: boolean;
   /** Required ceiling on the ONE manifest read. */
   readonly maxManifestBytes?: number;
   /** Required ceiling on the declared-entry parse loop. */
@@ -543,7 +573,9 @@ export type BrazilReceitaFullJoinErrorCode =
   | 'real_manifest_metadata_layout_mode_not_authorized'
   | 'real_manifest_metadata_forbidden_family_detected'
   | 'real_manifest_metadata_missing_required_family'
-  | 'real_manifest_metadata_referenced_file_access_detected';
+  | 'real_manifest_metadata_referenced_file_access_detected'
+  // ── Operator-prepared manifest execution (BR-SOURCE-11E) ──
+  | 'real_manifest_metadata_execution_not_authorized';
 
 export interface BrazilReceitaFullJoinReportError {
   readonly error_code: BrazilReceitaFullJoinErrorCode;
@@ -575,6 +607,13 @@ export interface BrazilReceitaFullJoinManifestMetadataReport {
   readonly required_families_present: boolean;
   readonly forbidden_families_present: boolean;
   readonly manifest_bytes_read_bucket: string;
+  /**
+   * Whether the manifest DOCUMENT that was read was an operator-prepared one, named under
+   * the BR-SOURCE-11E execution declaration. Derived from the reader's own report rather
+   * than from the caller's declaration, so this field cannot overclaim: it says a waiver
+   * was spent only when the reader actually spent one. It says nothing about the dataset.
+   */
+  readonly operator_prepared_manifest_authorized: boolean;
   readonly referenced_data_files_opened: false;
   readonly referenced_data_files_statted: false;
   readonly raw_manifest_printed: false;
@@ -591,6 +630,11 @@ export interface BrazilReceitaFullJoinDryRunReport {
   readonly option_b_carveout_authorized: boolean;
   /** Whether the owner's METADATA-ONLY carve-out was declared for THIS run. */
   readonly real_manifest_metadata_only_option_b_authorized: boolean;
+  /**
+   * Whether the owner's BR-SOURCE-11E EXECUTION authorization — naming the operator's own
+   * prepared manifest document — was declared for THIS run. `false` everywhere else.
+   */
+  readonly real_manifest_metadata_only_execution_authorized: boolean;
   readonly source_key: typeof BR_RECEITA_CNPJ_MANIFEST_SOURCE_KEY;
   readonly country_code: typeof BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE;
   /**
@@ -826,6 +870,7 @@ interface RunProvenance {
   readonly manifestTrust: BrazilReceitaFullJoinManifestTrust;
   readonly optionBCarveoutAuthorized: boolean;
   readonly realManifestMetadataOnlyOptionBAuthorized: boolean;
+  readonly realManifestMetadataOnlyExecutionAuthorized: boolean;
 }
 
 interface ReportDraft {
@@ -849,6 +894,8 @@ function assembleReport(draft: ReportDraft): BrazilReceitaFullJoinDryRunReport {
     option_b_carveout_authorized: draft.provenance.optionBCarveoutAuthorized,
     real_manifest_metadata_only_option_b_authorized:
       draft.provenance.realManifestMetadataOnlyOptionBAuthorized,
+    real_manifest_metadata_only_execution_authorized:
+      draft.provenance.realManifestMetadataOnlyExecutionAuthorized,
     source_key: BR_RECEITA_CNPJ_MANIFEST_SOURCE_KEY,
     country_code: BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE,
     source_period: null,
@@ -1177,6 +1224,7 @@ function projectManifestMetadata(
     required_families_present: scan.missingRequiredFamilyCount === 0,
     forbidden_families_present: scan.forbiddenFamilyCount > 0,
     manifest_bytes_read_bucket: scan.manifestBytesReadBucket,
+    operator_prepared_manifest_authorized: scan.operatorPreparedManifestAuthorized === true,
     referenced_data_files_opened: false,
     referenced_data_files_statted: false,
     raw_manifest_printed: false,
@@ -1200,12 +1248,26 @@ const METADATA_REFUSAL_CODES: Readonly<Record<string, BrazilReceitaFullJoinError
  * reader that admits (or is coerced into claiming) it touched a referenced file is
  * refused outright. Returns `null` when the scan is acceptable.
  */
-function validateMetadataScan(scan: unknown): BrazilReceitaFullJoinErrorCode | null {
+function validateMetadataScan(
+  scan: unknown,
+  input: BrazilReceitaFullJoinDryRunInput,
+): BrazilReceitaFullJoinErrorCode | null {
   if (typeof scan !== 'object' || scan === null) return 'real_manifest_metadata_scan_invalid';
   const candidate = scan as Partial<BrazilReceitaFullJoinRealManifestMetadataScan>;
 
   if (candidate.manifestTrust !== BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST) {
     return 'local_manifest_execution_not_authorized';
+  }
+  // BR-SOURCE-11E cross-check. The reader owns the path, so only the reader can report
+  // that it named an OPERATOR-PREPARED manifest. If it did, the RUN must have declared the
+  // execution authorization independently — two declarations that have to agree, so a
+  // reader cannot quietly spend an authorization the caller never claimed. The reverse
+  // (declared but unspent) is not a breach: it is a wider declaration than the run needed.
+  if (
+    candidate.operatorPreparedManifestAuthorized === true &&
+    input.realManifestMetadataOnlyExecutionAuthorized !== true
+  ) {
+    return 'real_manifest_metadata_execution_not_authorized';
   }
   // The load-bearing invariant of the whole carve-out: exactly one path is resolved, and
   // no referenced data file is opened or stat-ed.
@@ -1295,13 +1357,14 @@ function runRealManifestMetadataOnly(
     );
   }
 
-  const refusal = validateMetadataScan(scan);
-  // A structurally-invalid scan carries no reportable metadata; a CONTENT refusal does,
-  // and reporting it as an aggregate is exactly what the carve-out permits.
+  const refusal = validateMetadataScan(scan, input);
+  // A structurally-invalid or UNAUTHORIZED scan carries no reportable metadata; a CONTENT
+  // refusal does, and reporting it as an aggregate is exactly what the carve-out permits.
   const metadata =
     refusal === 'real_manifest_metadata_scan_invalid' ||
     refusal === 'local_manifest_execution_not_authorized' ||
-    refusal === 'real_manifest_metadata_referenced_file_access_detected'
+    refusal === 'real_manifest_metadata_referenced_file_access_detected' ||
+    refusal === 'real_manifest_metadata_execution_not_authorized'
       ? null
       : projectManifestMetadata(scan);
 
@@ -1383,6 +1446,8 @@ export function runBrazilReceitaFullJoinDryRun(
     optionBCarveoutAuthorized: input.optionBCarveoutAuthorized === true,
     realManifestMetadataOnlyOptionBAuthorized:
       input.realManifestMetadataOnlyOptionBAuthorized === true,
+    realManifestMetadataOnlyExecutionAuthorized:
+      input.realManifestMetadataOnlyExecutionAuthorized === true,
   };
 
   // 1) No-write / no-runtime guard. The WHOLE input is handed to the guard (minus the
