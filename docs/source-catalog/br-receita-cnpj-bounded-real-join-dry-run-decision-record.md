@@ -1,8 +1,8 @@
 # BR-SOURCE-11G — Bounded real join dry-run decision record
 
 **Source family:** Brazil — Receita Federal do Brasil (RFB), Cadastro Nacional da Pessoa Jurídica (CNPJ) — Dados Abertos (bulk)
-**Milestone:** BR-SOURCE-11G — Bounded real join dry-run decision record (docs-only)
-**Status:** `proposed_for_owner_review` — **not** a gate approval, and **not** an authorization to execute a real join
+**Milestone:** BR-SOURCE-11G — Bounded real join dry-run decision record (docs-only), executed by BR-SOURCE-11G-IMPL
+**Status:** `option_c_authorized_and_implemented` — **not** a gate approval, and **not** an authorization for join coverage, import, Supabase, runtime, or Agent 1
 **Predecessor:** BR-SOURCE-11F-IMPL-DOCFIX-LAND — `BRSOURCE11FIMPLDOCFIXLANDA — REQUIRED_FAMILY_PROBE_OFFICIAL_DOCFIX_MERGED` (PR #174, `main` HEAD `d6069c3b6f7e72ae0ea38f0c1c5f8defc32c112c`), validated post-merge by BR-SOURCE-11F-IMPL-V — `BRSOURCE11FIMPLVA`
 **Last reviewed:** 2026-07-30
 
@@ -35,27 +35,38 @@
 > download, full-dataset processing, import, a Supabase write, a production write, a migration, an
 > index change, a runtime change, an adapter/validator change, an Agent 1 integration, a provider
 > call, a HubSpot sync, a Slack notification, live generation, full expansion, or merge to an
-> operational state. **This document records a decision question; it decides nothing and executes
-> nothing.**
+> operational state. **§ 1–16 record a decision question; they decide nothing and execute nothing.**
+>
+> **§ 17, added by BR-SOURCE-11G-IMPL, records the answer.** The owner gave the § 12 phrase after
+> this record merged, and Option C — and ONLY Option C — was then implemented and executed once
+> under the § 9 caps. Everything else listed above remains exactly as prohibited as it was: join
+> coverage, additional files, catalog files, ZIPs, dataset download, full-dataset processing, import,
+> Supabase, production writes, migrations, index changes, runtime, Agent 1, providers, HubSpot,
+> Slack, live generation, and every gate.
 
 ---
 
 ## 1. Status
 
 ```text
-Decision record status: proposed_for_owner_review
-Implementation status:  not_authorized
-Execution status:       not_authorized
-Current GO/NO-GO:       NO-GO
+Decision record status: official (merged by BR-SOURCE-11G-LAND, PR #176)
+Option C status:        authorized by the owner phrase in § 12
+Implementation status:  implemented by BR-SOURCE-11G-IMPL (see § 17)
+Execution status:       executed ONCE, ultra-bounded, against the operator's local prepared files
+Current GO/NO-GO:       NO-GO for everything in § 13 — which is everything except Option C itself
 ```
 
-Explicitly:
+> **BR-SOURCE-11G-IMPL implements only the explicitly authorized Option C ultra-bounded in-memory
+> required-family real join probe. It does not authorize join coverage, import, Supabase, runtime,
+> Agent 1, provider calls or production use.**
+
+Explicitly, and still true after the authorization — the RECORD authorizes nothing; the separate
+owner phrase in § 12 authorized exactly one option, and nothing else moved:
 
 ```text
 This record does not approve GATE-1.
 This record does not approve GATE-2.
 This record does not approve any gate.
-This record does not authorize bounded real join execution.
 This record does not authorize join coverage.
 This record does not authorize full dataset execution.
 This record does not authorize import.
@@ -63,6 +74,11 @@ This record does not authorize Supabase writes.
 This record does not authorize runtime.
 This record does not authorize Agent 1.
 ```
+
+The single line that the § 12 phrase changed — "this record does not authorize bounded real join
+execution" — is now scoped precisely: the ULTRA-BOUNDED Option C probe of § 8 and § 9 is authorized
+and implemented (§ 17); bounded real join **coverage** (Option E / BR-SOURCE-11H) and full-join
+execution are not, and remain what GATE-1 and GATE-2 alone can authorize.
 
 Four clarifications, restated because every milestone in this series has shown how easily they are
 conflated:
@@ -952,10 +968,13 @@ Two consequences follow, and both are load-bearing:
 ## 14. Flags
 
 ```text
-OPS_BR_BOUNDED_REAL_JOIN_DRY_RUN_DECISION_RECORD_PR_READY  = false until PR
-OPS_BR_BOUNDED_REAL_JOIN_DRY_RUN_DECISION_RECORD_OFFICIAL  = false until merge
-OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_JOIN_PROBE_AUTHORIZED = false
-OPS_BR_REAL_LOCAL_JOIN_DRY_RUN_AUTHORIZED                  = false
+OPS_BR_BOUNDED_REAL_JOIN_DRY_RUN_DECISION_RECORD_PR_READY  = true (merged)
+OPS_BR_BOUNDED_REAL_JOIN_DRY_RUN_DECISION_RECORD_OFFICIAL  = true
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_JOIN_PROBE_AUTHORIZED = true
+OPS_BR_REAL_LOCAL_JOIN_DRY_RUN_AUTHORIZED                  = true
+
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_REAL_JOIN_PROBE_PR_READY  = true until merge
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_REAL_JOIN_PROBE_OFFICIAL  = false until merge
 
 OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_AUTHORIZED      = true
 OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED             = true
@@ -973,11 +992,18 @@ OPS_BR_LIVE_PROSPECT_GENERATION_READY                      = false
 OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED              = false
 ```
 
-The two `true` values are inherited from BR-SOURCE-11F-IMPL and are **scoped to the 11F Option C
-probe**: opening two required-family files to count columns. Neither is partial credit toward this
-record's Option C, and neither authorizes a join. `FULL_JOIN_RUNNER_READY = true` reflects only that
-the 11A scaffold merged and gained synthetic (11C), metadata-only (11D-META-IMPL, 11E) and
-required-family-probe (11F-IMPL) plumbing; it says nothing about execution readiness.
+The two 11F `true` values are inherited and remain **scoped to the 11F Option C probe**: opening two
+required-family files to count columns. Neither was partial credit toward this record's Option C, and
+neither authorized a join — the two 11G flags above are what did, and only after this record became
+official. `FULL_JOIN_RUNNER_READY = true` reflects only that the 11A scaffold merged and gained
+synthetic (11C), metadata-only (11D-META-IMPL, 11E), required-family-probe (11F-IMPL) and now
+required-family-JOIN-probe (11G-IMPL) plumbing; it says nothing about execution readiness.
+
+`FULL_JOIN_EXECUTION_READY` stays `false` deliberately and is the flag most likely to be
+misread: a bounded probe that compared two 20-row windows in memory is not full-join execution, and
+the join probe does not become one by succeeding. `OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED`
+also stays `false` — no headerless real-file dry-run has passed, because none has been run, because
+none is authorized; a join probe of a bounded prefix is not the dry-run that flag names.
 
 `OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED = false` is worth reading literally: no headerless
 real-file dry-run has passed, because none has been run, because none is authorized. A structural
@@ -1036,6 +1062,13 @@ shortest route to real execution and is unaffected by any option here.
 
 ## 16. Safety confirmation
 
+> **Scope note.** This section describes the BR-SOURCE-11G milestone that produced § 1–16, which was
+> docs-only. The successor milestone BR-SOURCE-11G-IMPL (§ 17) writes code and executed the authorized
+> probe once; § 17.5 restates which of the prohibitions below still hold there. Every item about
+> coverage, additional files, catalogs, ZIPs, download, import, Supabase, migrations, runtime,
+> Agent 1, providers, UI, identity promotion, operator paths, admin bypass, `MEMORY.md` and merge
+> holds in BOTH milestones.
+
 This milestone is **docs-only**. It creates a branch and documentation, and opens a docs-only PR. It
 does **not**:
 
@@ -1075,3 +1108,141 @@ no data dumps, no real CNPJs, no CNPJ básico values, no CPFs, and no partner (s
 reproduced. Local WIP (`scratchpad/`) and the unrelated in-progress work on the main worktree are
 untouched by any git operation: this milestone was prepared in an isolated worktree branched from
 `origin/main`.
+
+---
+
+## 17. BR-SOURCE-11G-IMPL — Option C implemented and executed
+
+The owner gave the § 12 phrase after this record merged:
+
+```text
+AUTHORIZE OPTION C — ULTRA-BOUNDED REQUIRED-FAMILY REAL JOIN PROBE
+```
+
+**BR-SOURCE-11G-IMPL implements only the explicitly authorized Option C ultra-bounded in-memory
+required-family real join probe. It does not authorize join coverage, import, Supabase, runtime,
+Agent 1, provider calls or production use.**
+
+### 17.1 What landed
+
+```text
+A new module — the ONLY module that executes the ultra-bounded real join:
+  src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-required-family-join-probe.ts
+
+A fifth manifest TRUST on the full-join runner, dispatched by its own branch:
+  real_manifest_required_family_join_probe
+
+Two new authorization flags, on two separate axes, neither inferable from the 11F flags:
+  requiredFamilyJoinProbeAuthorized
+  realLocalJoinDryRunAuthorized
+
+Four new caps (the file/byte/row caps are the 11F caps, imported unchanged):
+  maxJoinInputRows <= 40
+  maxJoinKeyValuesInMemory <= 40
+  maxJoinPairsEmitted = 0        (an equality, not a ceiling)
+  maxJoinedRowsPrinted = 0       (an equality, not a ceiling)
+
+Seven new output-sanitizer leak kinds:
+  join_key_payload, joined_row_payload, joined_sample_payload, join_pair_payload,
+  coverage_payload, cnpj_basico_payload, cnpj_completo_payload
+```
+
+The file surface is **unchanged from 11F**: one Empresas file, one Estabelecimentos file, two data
+files per run, the same byte and row ceilings. The only new capability is what happens to one parsed
+field between being read and being discarded (§ 8.1).
+
+### 17.2 How the join key is handled
+
+```text
+ONE field position per row — the shared positional index of the protected technical root key.
+Empresas:        the value is added to a Set capped by maxJoinKeyValuesInMemory; the row is discarded.
+Estabelecimentos: the value is TESTED for membership, counted into a bucket tally, and discarded.
+After the comparison the Set is CLEARED, before any aggregate is assembled.
+```
+
+The § 5 obligations are enforced structurally and asserted by test, including from the error path:
+
+```text
+join_key_values_printed  = false
+join_key_values_retained = false
+join_key_hashes_printed  = false
+join_key_error_leak      = false
+```
+
+A static guard reads the module source and asserts that every refusal carries a fixed CODE and
+nothing else, that the field-reading helper is module-private and never exported, that the bounded
+window is released, and that no `console.*`, template interpolation, hash, coverage arithmetic, or
+`record_identity_key` / `normalized_tax_id` construction exists anywhere in it.
+
+### 17.3 The one executed run, and what it says
+
+The probe was executed ONCE against the operator's own local prepared file set, under the § 9 caps,
+with the full five-authorization chain declared. Aggregate result:
+
+```text
+run_mode                 = local_manifest_dry_run
+manifest_trust           = real_manifest_required_family_join_probe
+files_opened_count       = 2   (empresas: 1, estabelecimentos: 1)
+bytes_read_bucket        = lte_64kb  (both families)
+rows_read_bucket         = lte_20    (both families)
+row_shape                = every row matched the official positional column count
+join_executed            = true
+join_mode                = ultra_bounded_required_family_in_memory
+match_result_bucket      = zero
+matched_rows_bucket      = zero
+unmatched_rows_bucket    = lte_20
+join_coverage_computed   = false
+coverage_claimed         = false
+errors                   = []
+decision_status          = 8/8 not_approved
+```
+
+**Read that `zero` exactly as § 7.1 requires.** Two independently-sharded 20-row prefixes are the
+most likely pair of windows in the whole dataset NOT to overlap, and this run confirms only that:
+
+- the join MECHANISM works on real input — the files opened, decoded, split at the official column
+  count, and the key position parsed and compared without leaking anything;
+- the two bounded prefixes did not overlap.
+
+It is **not** evidence that the dataset does not join, not a coverage figure, not a join rate, not
+GATE-1 or GATE-2 evidence, and **not** a reason to widen the caps and re-run. No re-run at wider caps
+is authorized, and none may be requested on the strength of this outcome.
+
+### 17.4 Validation
+
+```text
+npm run typecheck                            — clean
+npm run test:br-source:11-full-join-runner   — 551 tests, 0 failures
+npm run test:br-source:8-catalog-status      — 32 tests, 0 failures
+npm run test:br-source:10-headerless         — 18 tests, 0 failures
+npm run test:br-source:10-privacy-dry-run    — 15 tests, 0 failures
+npm run test:br-source:10-eligibility-calibration — 14 tests, 0 failures
+npm run test:br-source:10-join-dry-run       — 22 tests, 0 failures
+npm run test:br-source:10-join-coverage      — 15 tests, 0 failures
+synthetic fixture CLI                        — exit 0, aggregate-only, no join-probe block
+authorized real join probe CLI               — exit 0, aggregate-only, output scan clean
+eight fail-closed real invocations           — exit 1 each, empty stdout, code-only stderr
+```
+
+The fail-closed set covers a missing 11G phrase, a missing real-local-join declaration, a missing 11F
+declaration, a join-pair emission attempt, a missing `--strict`, a join cap above its ceiling, an
+`--output` inside the repository, an import/runtime escalation flag, and both probe modes at once.
+Forbidden families (Sócios/QSA/CPF/person), catalog families, archives and ZIP-staging paths are
+refused and asserted against synthetic fixtures whose files are deliberately never written, so "never
+opened" is measured rather than claimed.
+
+### 17.5 What is still blocked
+
+§ 13 survives verbatim. Specifically unchanged by this milestone:
+
+```text
+FULL_JOIN_EXECUTION_READY = false     join coverage           = not authorized
+IMPORT_READY              = false     source_company_snapshots = no writes
+RUNTIME_READY             = false     Supabase / migrations    = untouched
+AGENT1_READY              = false     providers / HubSpot / Slack = untouched
+GATE-1 … GATE-8           = not approved
+```
+
+The authorization is single-milestone and expires with it: the join probe does not become a standing
+runner capability, and a later milestone wanting coverage (BR-SOURCE-11H), catalogs (Option D), or
+import needs its own record and its own phrase.

@@ -1982,3 +1982,70 @@ separately. No phrase already spent in 11C, 11D-META, 11E, or 11F carries over; 
 the data-file probe and was single-milestone by its own terms.
 
 Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).
+
+---
+
+## 27. BR-SOURCE-11G-IMPL — Option C implemented and executed, gates unchanged
+
+```text
+The owner authorized the § 26 record's Option C with the exact phrase
+  AUTHORIZE OPTION C — ULTRA-BOUNDED REQUIRED-FAMILY REAL JOIN PROBE
+BR-SOURCE-11G-IMPL implemented it: a fifth manifest trust, two new authorization flags, four new
+  caps, seven new sanitizer leak kinds, and one module that parses the protected technical join key
+  ephemerally from two capped windows, compares in memory, and discards.
+It executed once against the operator's own local prepared files: two files, 20 rows each,
+  match_result_bucket = zero.
+No gate is approved. GATE-1 and GATE-2 retain sole authority over dataset processing.
+```
+
+**BR-SOURCE-11G-IMPL implements only the explicitly authorized Option C ultra-bounded in-memory
+required-family real join probe. It does not authorize join coverage, import, Supabase, runtime,
+Agent 1, provider calls or production use.**
+
+### 27.1 Gate and flag status after BR-SOURCE-11G-IMPL — UNCHANGED
+
+All eight gates remain `not_started` / not approved. The § 26.1 flag block changes in exactly four
+places, and only for the 11G probe's own flags:
+
+```text
+OPS_BR_BOUNDED_REAL_JOIN_DRY_RUN_DECISION_RECORD_OFFICIAL       = true
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_JOIN_PROBE_AUTHORIZED      = true
+OPS_BR_REAL_LOCAL_JOIN_DRY_RUN_AUTHORIZED                       = true
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_REAL_JOIN_PROBE_PR_READY   = true until merge
+
+FULL_JOIN_EXECUTION_READY                                       = false
+IMPORT_READY                                                    = false
+RUNTIME_READY                                                   = false
+AGENT1_READY                                                    = false
+OPS_BR_READY_FOR_IMPORT                                         = false
+OPS_BR_READY_FOR_PRODUCTION_IMPORT                              = false
+OPS_BR_READY_FOR_RUNTIME                                        = false
+OPS_BR_LIVE_PROSPECT_GENERATION_READY                           = false
+OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED                   = false
+```
+
+### 27.2 What this milestone is and is not, for GATE-5, GATE-6 and GATE-8
+
+The GATE-5 (output sanitization), GATE-6 (failure cleanup) and GATE-8 (no-write/no-runtime)
+*mechanisms* gained coverage: seven new leak kinds including join keys, joined rows, join pairs and
+coverage figures; a fail-closed cleanup plan on every refusal path; and a no-write guard that runs
+before the join gate and refuses any escalation flag. That is mechanism, not approval — the same
+distinction § 19 through § 26 have drawn at every step.
+
+The one genuinely new privacy surface is worth stating plainly for the gate owners: this is the first
+milestone in which SellUp code held an identifier-derived value on purpose. The controls are that the
+value exists only inside a capped in-memory window bounded by the rows the run was allowed to read,
+that the window is released before any aggregate is assembled, that no code path can route it to a
+report, a log, a template or an error message (asserted by static source guard), and that the emitted
+outcome is a three-value bucket rather than a count. GATE-1 remains the owner of whether that is an
+acceptable basis at any larger scale, and nothing here presumes an answer.
+
+### 27.3 What remains blocked
+
+§ 26 and § 25.3 survive: no join coverage figure, ratio or match rate has been computed; no
+`source_company_snapshots` write, migration, index change, runtime hop, Agent 1 call, provider call,
+HubSpot sync or Slack notification has occurred; no dataset has been downloaded or imported. The 11G
+authorization is single-milestone and does not carry to Option D (support catalogs), Option E /
+BR-SOURCE-11H (bounded coverage), or import readiness — each needs its own record and its own phrase.
+
+Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).

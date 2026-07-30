@@ -702,3 +702,135 @@ describe('BR-SOURCE-11F-IMPL required-family probe — sanitizer contract', () =
     assert.ok(findingKinds(result).includes('oversized_numeric_value'));
   });
 });
+
+// ─── BR-SOURCE-11G-IMPL: the required-family JOIN probe report shape ───────────
+
+/**
+ * The aggregate JOIN block a green 11G Option C run produces. Buckets, zeros, class labels and
+ * held-absence `false`s only — the shape the sanitizer must accept unchanged, so a failing
+ * assertion here means the join-probe contract drifted.
+ */
+const JOIN_PROBE_BLOCK = {
+  ...PROBE_BLOCK,
+  // The ONE assertion that flips relative to 11F (11G decision record § 10.1).
+  joins_executed: true,
+  join_probe: {
+    join_executed: true,
+    join_mode: 'ultra_bounded_required_family_in_memory',
+    join_key_values_printed: false,
+    join_key_values_retained: false,
+    join_key_hashes_printed: false,
+    join_key_error_leak: false,
+    joined_rows_printed: false,
+    joined_samples_printed: false,
+    joined_pairs_emitted: 0,
+    coverage_percentage_printed: false,
+    coverage_claimed: false,
+    match_result_bucket: 'one_or_more',
+    matched_rows_bucket: 'lte_20',
+    unmatched_rows_bucket: 'zero',
+  },
+} as const;
+
+/** An opaque synthetic join key. Resembles no real root value and holds no digit run. */
+const JOIN_KEY_LIKE = 'SYN-JOIN-ROOT-A';
+
+describe('BR-SOURCE-11G-IMPL join probe — sanitizer contract', () => {
+  it('accepts the aggregate join-probe block unchanged', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      manifest_trust: 'real_manifest_required_family_join_probe',
+      required_family_join_probe: JOIN_PROBE_BLOCK,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result.findings));
+  });
+
+  it('blocks a JOIN KEY payload with its own kind', () => {
+    for (const key of [
+      'join_key',
+      'joinKeys',
+      'join_key_values',
+      'join_root_key',
+      'cnpj_root',
+      'root_key_value',
+    ]) {
+      const result = sanitizeBrazilReceitaFullJoinReport({ [key]: JOIN_KEY_LIKE });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes('join_key_payload'), key);
+    }
+  });
+
+  it('blocks a declared join-key leak assertion — *_printed: true is not an exemption', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({ join_keys_printed: true });
+    assert.equal(result.ok, false);
+    assert.ok(findingKinds(result).includes('join_key_payload'));
+  });
+
+  it('blocks a joined ROW, a joined SAMPLE and a join PAIR with their own kinds', () => {
+    const cases: ReadonlyArray<readonly [string, unknown, string]> = [
+      ['joined_row', [`${JOIN_KEY_LIKE};SYN-B`], 'joined_row_payload'],
+      ['joinedRecords', [`${JOIN_KEY_LIKE};SYN-B`], 'joined_row_payload'],
+      ['joined_sample', [`${JOIN_KEY_LIKE};SYN-B`], 'joined_sample_payload'],
+      ['join_pairs', [[JOIN_KEY_LIKE, JOIN_KEY_LIKE]], 'join_pair_payload'],
+      ['joined_pairs_emitted', 1, 'join_pair_payload'],
+    ];
+    for (const [key, value, kind] of cases) {
+      const result = sanitizeBrazilReceitaFullJoinReport({ [key]: value });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes(kind), `${key} → ${kind}`);
+    }
+  });
+
+  it('blocks a COVERAGE percentage, ratio, rate or claim', () => {
+    for (const key of [
+      'coverage_percentage',
+      'coverage_ratio',
+      'coverage_rate',
+      'join_rate',
+      'match_rate',
+      'coverage_claimed',
+    ]) {
+      const result = sanitizeBrazilReceitaFullJoinReport({ [key]: 42 });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes('coverage_payload'), key);
+    }
+  });
+
+  it('blocks a CNPJ básico WINDOW and a CNPJ completo payload with their own kinds', () => {
+    const basico = sanitizeBrazilReceitaFullJoinReport({ cnpj_basico_values: [JOIN_KEY_LIKE] });
+    assert.equal(basico.ok, false);
+    assert.ok(findingKinds(basico).includes('cnpj_basico_payload'));
+
+    const completo = sanitizeBrazilReceitaFullJoinReport({ cnpj_completo_payload: JOIN_KEY_LIKE });
+    assert.equal(completo.ok, false);
+    assert.ok(findingKinds(completo).includes('cnpj_completo_payload'));
+  });
+
+  it('leaves the established single-field CNPJ kinds untouched', () => {
+    // The new collection kinds are narrower on purpose: a single field keeps its own kind.
+    const basico = sanitizeBrazilReceitaFullJoinReport({ cnpj_basico: 'anything' });
+    assert.ok(findingKinds(basico).includes('cnpj_basico_key_value'));
+    const printed = sanitizeBrazilReceitaFullJoinReport({ cnpj_basico_printed: true });
+    assert.ok(findingKinds(printed).includes('cnpj_basico_key_value'));
+  });
+
+  it('allows the legitimate bounded-scan and held-absence coverage fields', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      guardrail_counts: { coverage_scan_limit_reached: 1 },
+      join_coverage_computed: false,
+      coverage_claimed: false,
+      coverage_percentage_printed: false,
+      join_keys_printed: false,
+      joined_pairs_emitted: 0,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result.findings));
+  });
+
+  it('blocks a join key that reached a RENDERED error message', () => {
+    // Error paths are an output surface (11G § 5.1): a message carrying an identifier-shaped
+    // value is blocked by the rendered-output check even though the report tree was clean.
+    const rendered = `required_family_join_probe_read_failed: ${CNPJ_BASICO_LIKE}`;
+    const result = sanitizeBrazilReceitaFullJoinRenderedOutput(rendered);
+    assert.equal(result.ok, false);
+    assert.ok(findingKinds(result).includes('cnpj_basico_like'));
+  });
+});

@@ -1560,3 +1560,76 @@ BR-SOURCE-10G/10H join and coverage designs remain designs rather than authoriza
 GATE-2 retain sole authority over dataset processing.
 
 Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).
+
+---
+
+## 31. BR-SOURCE-11G-IMPL — Option C implemented: the ultra-bounded required-family real join probe
+
+The owner authorized the § 30 question's recommended option with the exact phrase
+`AUTHORIZE OPTION C — ULTRA-BOUNDED REQUIRED-FAMILY REAL JOIN PROBE`, after that record merged.
+
+**BR-SOURCE-11G-IMPL implements only the explicitly authorized Option C ultra-bounded in-memory
+required-family real join probe. It does not authorize join coverage, import, Supabase, runtime,
+Agent 1, provider calls or production use.**
+
+### 31.1 What landed
+
+```text
+br-receita-cnpj-required-family-join-probe.ts — the ONLY module that executes the bounded real join
+A fifth manifest trust: real_manifest_required_family_join_probe
+Two new flags: requiredFamilyJoinProbeAuthorized, realLocalJoinDryRunAuthorized
+Four new caps: maxJoinInputRows, maxJoinKeyValuesInMemory,
+               maxJoinPairsEmitted = 0, maxJoinedRowsPrinted = 0
+Seven new sanitizer leak kinds: join_key_payload, joined_row_payload, joined_sample_payload,
+               join_pair_payload, coverage_payload, cnpj_basico_payload, cnpj_completo_payload
+CLI flags: --required-family-join-probe, --required-family-join-probe-authorized,
+           --real-local-join-dry-run-authorized, --max-join-input-rows,
+           --max-join-key-values-in-memory, --max-join-pairs-emitted, --max-joined-rows-printed
+```
+
+The § 7 join-key handling rules of this design are now implemented rather than proposed, at probe
+scale: one field position per row, parsed ephemerally, held in a capped in-memory Set, compared by
+membership, and released before the aggregate is assembled. § 8.5 is enforced by the sanitizer and by
+static source guards: no join key, joined row, joined sample, join pair, hash, coverage percentage or
+coverage claim can reach a report, a log, or an error message.
+
+The § 5 architecture question is untouched. This is not Option A, B or C of § 5 — those describe
+FULL-dataset join architectures. A 20-row-per-file membership test selects no architecture and creates
+no precedent for one; § 5's recommended conservative path remains a proposal for a future milestone.
+
+### 31.2 What it opens, and the one thing that changed
+
+The file surface is identical to § 29 (11F-IMPL): one Empresas file, one Estabelecimentos file, two
+data files per run, ≤ 64 KB and ≤ 20 rows per file, ≤ 128 KB and ≤ 40 rows per run, ≤ 30 s. No catalog
+file, no Sócios/QSA/CPF file, no ZIP, no raw-zip staging area, no additional family, no glob, no
+directory scan.
+
+The single behavioural delta is the assertion pair `joins_executed` / `join_executed`, which is `true`
+on a join-probe run and `false` everywhere else. `join_coverage_computed` and `coverage_claimed`
+remain `false` unconditionally: § 10's resource limits and the coverage prohibition are a refusal, not
+a labelling rule, so a percentage is declined at the input boundary AND blocked at the output one.
+
+### 31.3 The executed run
+
+The probe ran once against the operator's own prepared local file set: two files opened, 20 rows read
+per file, every row matching the official positional column count, `match_result_bucket = zero`.
+
+That `zero` means the two bounded prefixes did not overlap — the single most likely outcome for two
+independently-sharded 20-row windows. It confirms the join mechanism works on real input under caps
+and confirms nothing else. It is not a coverage figure, not a join rate, not evidence about the
+dataset, not GATE-1 or GATE-2 evidence, and not grounds for a wider re-run.
+
+### 31.4 What remains blocked
+
+```text
+FULL_JOIN_EXECUTION_READY = false   IMPORT_READY = false   RUNTIME_READY = false
+AGENT1_READY = false                GATE-1 … GATE-8 = not approved
+join coverage, dataset download, full-dataset processing, source_company_snapshots writes,
+Supabase writes, migrations, index changes, runtime, Agent 1, providers, HubSpot, Slack, UI,
+record_identity_key construction, normalized_tax_id promotion — all unchanged and blocked.
+```
+
+The authorization is single-milestone and expires with it. § 30 remains the record of the question;
+the answer is recorded in that record's § 17.
+
+Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).

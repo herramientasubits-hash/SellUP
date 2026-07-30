@@ -24,8 +24,19 @@
  *   - a `file_name` / `manifest_path` / `basename` key carrying a value — a declared
  *     filename is operator-environment information, and a RELATIVE one would slip past
  *     the absolute-path value pattern below, so it is blocked by key as well;
+ *   - a `join_key` / `joined_row` / `joined_sample` / `join_pair` key carrying a payload —
+ *     from BR-SOURCE-11G-IMPL the required-family JOIN probe is the first code path that ever
+ *     holds the protected technical join key. It may parse one ephemerally and compare it in
+ *     memory; it may never emit it, materialize a joined row, or emit a pair (11G decision
+ *     record § 5, § 8.1);
+ *   - a coverage PERCENTAGE / ratio / rate key carrying a value — `coverageAllowed = false` is
+ *     a refusal rather than a labelling rule (11G § 9.1), so a ratio is blocked at the output
+ *     boundary as well as declined at the input one. Deliberately narrow: the bounded-scan
+ *     guardrail counts and the `coverage_claimed: false` / `join_coverage_computed: false`
+ *     assertions carry nothing and still pass;
  *   - a `record_identity_key`, `normalized_tax_id`, `cnpj_basico`, `cnpj`, or `cpf`
- *     key carrying a real value;
+ *     key carrying a real value, and a `cnpj_basico`/`cnpj_completo` COLLECTION key — the
+ *     shape a bounded key window would take if it were ever written out;
  *   - a `hash` / `fingerprint` / `sha` key carrying a value — hashing an identifier
  *     does not de-identify it, so derived digests are blocked outright;
  *   - a numeric leaf with 8 or more digits. Every legitimate field in this report is
@@ -70,7 +81,15 @@ export type BrazilReceitaFullJoinLeakKind =
   | 'cnpj_basico_key_value'
   | 'identifier_hash_value'
   | 'oversized_numeric_value'
-  | 'filesystem_path_like';
+  | 'filesystem_path_like'
+  // ── BR-SOURCE-11G-IMPL: the join probe is the first code path that holds a JOIN KEY ──
+  | 'join_key_payload'
+  | 'joined_row_payload'
+  | 'joined_sample_payload'
+  | 'join_pair_payload'
+  | 'coverage_payload'
+  | 'cnpj_basico_payload'
+  | 'cnpj_completo_payload';
 
 export const BRAZIL_RECEITA_FULL_JOIN_LEAK_KINDS: readonly BrazilReceitaFullJoinLeakKind[] = [
   'cnpj_completo_like',
@@ -93,6 +112,13 @@ export const BRAZIL_RECEITA_FULL_JOIN_LEAK_KINDS: readonly BrazilReceitaFullJoin
   'identifier_hash_value',
   'oversized_numeric_value',
   'filesystem_path_like',
+  'join_key_payload',
+  'joined_row_payload',
+  'joined_sample_payload',
+  'join_pair_payload',
+  'coverage_payload',
+  'cnpj_basico_payload',
+  'cnpj_completo_payload',
 ];
 
 /** The single aggregate error code surfaced on a report when sanitization fails. */
@@ -242,6 +268,82 @@ const EMPTY_ONLY_KEY_RULES: ReadonlyArray<{
       k.includes('basename') ||
       k.includes('absolutepath'),
     kind: 'declared_filename_payload',
+  },
+  {
+    // BR-SOURCE-11G-IMPL: the join probe is the first code path that ever holds the protected
+    // technical JOIN KEY. It may parse one ephemerally and compare it in memory; it may never
+    // emit it (11G decision record § 5). `join_keys_printed: false` still passes — a `false`
+    // carries nothing — but any populated join-key-shaped key is a leak.
+    matches: (k) =>
+      k.includes('joinkey') ||
+      k.includes('joinkeys') ||
+      k.includes('joinkeyvalue') ||
+      k.includes('joinrootkey') ||
+      k.includes('cnpjroot') ||
+      k.includes('rootkeyvalue'),
+    kind: 'join_key_payload',
+  },
+  {
+    // A joined ROW is a materialization the probe never performs: the join is a membership
+    // test (§ 8.1). A report carrying one has built a record it was never authorized to build.
+    matches: (k) =>
+      k.includes('joinedrow') ||
+      k.includes('joinrow') ||
+      k.includes('joinedrecord') ||
+      k.includes('joinedentity'),
+    kind: 'joined_row_payload',
+  },
+  {
+    // A joined SAMPLE is forbidden outright (§ 9, `samplesAllowed = false`).
+    matches: (k) =>
+      k.includes('joinedsample') ||
+      k.includes('joinsample') ||
+      k.includes('joinedexcerpt') ||
+      k.includes('joinexcerpt'),
+    kind: 'joined_sample_payload',
+  },
+  {
+    // `maxJoinPairsEmitted = 0` is an equality, not a ceiling (§ 9.1), so a populated pair key
+    // — including `joined_pairs_emitted: 1` — is a leak rather than a wider probe.
+    matches: (k) =>
+      k.includes('joinpair') || k.includes('joinedpair') || k.includes('joinmatchpair'),
+    kind: 'join_pair_payload',
+  },
+  {
+    // `coverageAllowed = false` is a REFUSAL, not a labelling rule (§ 9.1): with bounded rows
+    // any ratio is a statement about two prefixes. Deliberately narrow — it must fire on a
+    // percentage, a ratio or a rate, and NOT on the legitimate bounded-scan guardrail counts
+    // (`coverage_scan_limit_reached`) or the held-absence assertions
+    // (`coverage_claimed: false`, `join_coverage_computed: false`), which carry nothing.
+    matches: (k) =>
+      k.includes('coveragepercentage') ||
+      k.includes('coverageratio') ||
+      k.includes('coveragerate') ||
+      k.includes('coveragevalue') ||
+      k.includes('coverageclaim') ||
+      k.includes('joinrate') ||
+      k.includes('matchrate') ||
+      k.includes('joinratio') ||
+      k.includes('matchratio'),
+    kind: 'coverage_payload',
+  },
+  {
+    // A COLLECTION of CNPJ básico / root values — the shape a bounded key window would take if
+    // it were ever written out. Narrower than the `cnpjbasico` key rule below on purpose: a
+    // single `cnpj_basico` field keeps its own established kind, and this one names the
+    // window / list / set shape that only a join probe could produce.
+    matches: (k) =>
+      k.includes('cnpjbasico') &&
+      (k.includes('payload') ||
+        k.includes('values') ||
+        k.includes('list') ||
+        k.includes('window') ||
+        k.includes('set')),
+    kind: 'cnpj_basico_payload',
+  },
+  {
+    matches: (k) => k.includes('cnpjcompleto') || k.includes('cnpjfull') || k.includes('fullcnpj'),
+    kind: 'cnpj_completo_payload',
   },
   { matches: (k) => k.includes('identitykey'), kind: 'record_identity_key_value' },
   { matches: (k) => k.includes('normalizedtaxid'), kind: 'normalized_tax_id_value' },
