@@ -1,6 +1,9 @@
 // Error code → user-facing message map for wizard execution results.
 // Kept in a separate module so tests can import it without a DOM environment.
 
+import { presentProviderSkip } from './wizard-provider-execution-summary';
+import type { WizardApolloSkipReason } from '@/modules/prospect-batches/chat-wizard-execution/wizard-apollo-availability';
+
 export const EXECUTION_ERROR_MESSAGES: Readonly<
   Record<string, { message: string; retryable: boolean }>
 > = {
@@ -26,4 +29,18 @@ const FALLBACK: { message: string; retryable: boolean } = {
 
 export function mapExecutionError(code: string): { message: string; retryable: boolean } {
   return EXECUTION_ERROR_MESSAGES[code] ?? FALLBACK;
+}
+
+/**
+ * A1-APOLLO-WIZARD-1 — mensaje de un proveedor omitido / no disponible.
+ *
+ * Sin motivo se cae al mensaje genérico de PROVIDER_UNAVAILABLE, así que el
+ * comportamiento previo no cambia para quien no pase `skipReason`.
+ */
+export function mapProviderSkip(
+  skipReason: WizardApolloSkipReason | undefined,
+): { message: string; retryable: boolean } {
+  if (!skipReason) return mapExecutionError('PROVIDER_UNAVAILABLE');
+  const presentation = presentProviderSkip(skipReason);
+  return { message: presentation.detail, retryable: presentation.canRetry };
 }

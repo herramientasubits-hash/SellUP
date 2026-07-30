@@ -38,7 +38,7 @@ import { getComposerMode, getComposerPlaceholder } from './wizard-composer-utils
 // ── Error code → user-facing message mapping ──────────────────────────────────
 // Extracted to a separate module so tests can import without a DOM environment.
 
-import { mapExecutionError } from './wizard-execution-error-map';
+import { mapExecutionError, mapProviderSkip } from './wizard-execution-error-map';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -524,7 +524,13 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
           status: result.status,
         });
       } else {
-        const mapped = mapExecutionError(result.code);
+        // A1-APOLLO-WIZARD-1: un proveedor omitido trae su propio motivo, con
+        // mensaje y reintentabilidad precisos; el resto sigue por el mapa de
+        // códigos de siempre.
+        const mapped =
+          result.code === 'PROVIDER_UNAVAILABLE'
+            ? mapProviderSkip(result.providerSkipped?.skipReason)
+            : mapExecutionError(result.code);
         dispatch({
           type: 'EXECUTION_FAILED',
           errorCode: result.code,

@@ -115,6 +115,16 @@ const ORG_NO_NAME: ApolloOrganization = {
   technologies: [], short_description: null, seo_description: null, keywords: [],
 };
 
+/**
+ * Segunda organización sin nombre, con Apollo Organization ID PROPIO.
+ *
+ * A1-APOLLO-WIZARD-1: la respuesta se deduplica por Apollo Organization ID, así
+ * que repetir `ORG_NO_NAME` ya no representa dos registros — representa uno
+ * devuelto dos veces. Para probar «3 crudas, 2 caen en normalización» hacen
+ * falta tres ids distintos.
+ */
+const ORG_NO_NAME_2: ApolloOrganization = { ...ORG_NO_NAME, id: 'noname-002' };
+
 // ─── A. Gate rechaza 3 de 3 ───────────────────────────────────────────────────
 
 describe('A. Apollo raw 3, sector gate rechaza todos — diagnostics completos', () => {
@@ -193,7 +203,7 @@ describe('B. Apollo raw 3, normalization drops 2 (sin nombre), gate pasa 1', () 
   const deps: ApolloOrgsSearchDeps = {
     searchOrgs: async () => ({
       success: true,
-      data: [ORG_NO_NAME, ORG_NO_NAME, toApolloOrg(ORG_EDTECH)],
+      data: [ORG_NO_NAME, ORG_NO_NAME_2, toApolloOrg(ORG_EDTECH)],
     }),
     logUsage: noop,
   };
@@ -322,11 +332,11 @@ describe('L2.9-A. runMultiQueryWebSearch propaga apollo_result_diagnostics', () 
 
 describe('L2.9-B. provider apollo_raw_results_count usa rawOrgs.length, no normalizedResultsCount', () => {
   it('L2.9-B1: cuando normalization drops 2, apollo_raw_results_count = 3 (no 1)', async () => {
-    // Usar fixtures ya definidos arriba: ORG_NO_NAME × 2, ORG_EDTECH × 1
+    // Usar fixtures ya definidos arriba: dos sin nombre (ids distintos) + ORG_EDTECH
     const deps: ApolloOrgsSearchDeps = {
       searchOrgs: async () => ({
         success: true,
-        data: [ORG_NO_NAME, ORG_NO_NAME, toApolloOrg(ORG_EDTECH)],
+        data: [ORG_NO_NAME, ORG_NO_NAME_2, toApolloOrg(ORG_EDTECH)],
       }),
       logUsage: noop,
     };
@@ -381,7 +391,7 @@ describe('L2.9-C. usage log incluye apollo_result_diagnostics', () => {
     const deps: ApolloOrgsSearchDeps = {
       searchOrgs: async () => ({
         success: true,
-        data: [ORG_NO_NAME as unknown as ApolloOrganization, ORG_NO_NAME as unknown as ApolloOrganization, toApolloOrg(ORG_EDTECH)],
+        data: [ORG_NO_NAME as unknown as ApolloOrganization, ORG_NO_NAME_2 as unknown as ApolloOrganization, toApolloOrg(ORG_EDTECH)],
       }),
       logUsage: capturingLog as unknown as typeof import('../apollo-organizations-usage-logging').realLogApolloOrgsUsage,
     };

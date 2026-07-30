@@ -129,6 +129,9 @@ function makeDeps(overrides: Partial<WizardExecutionDeps> = {}): TrackedDeps {
     getActiveUserId: async () => FAKE_USER_ID,
     resolveCatalog:  async (_input: CatalogResolutionInput) => FAKE_CATALOG,
     checkTavilyAvailability: async () => true,
+    // A1-APOLLO-WIZARD-1: el preflight de Apollo falla cerrado, así que las
+    // pruebas que ejercitan la ruta Apollo deben declararlo disponible.
+    checkApolloAvailability: async () => ({ available: true } as const),
     reserveBudget: async (input) => {
       budgetCalls.push(input);
       return { status: 'reserved', reservationId: RESERVATION_A, creditsReserved: 10 } satisfies ReserveBudgetDepResult;
@@ -663,6 +666,9 @@ describe('v1.16K-AG — Apollo provider uses provider-aware credit estimate', ()
     return makeDeps({
       resolveProvider: () => 'apollo_organizations',
       checkTavilyAvailability: async () => false, // not used when Apollo
+      // A1-APOLLO-WIZARD-1: el preflight de Apollo falla cerrado, así que las
+      // pruebas que ejercitan la ruta Apollo deben declararlo disponible.
+      checkApolloAvailability: async () => ({ available: true } as const),
       runApolloPipeline: async () => pipelineOutput,
       ...overrides,
     });
