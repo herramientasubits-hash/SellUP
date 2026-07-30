@@ -740,6 +740,14 @@ describe('cron L2 — candados estáticos', () => {
     assert.equal(crons.length, 1, 'un solo cron declarado en este hito');
     assert.equal(crons[0].path, '/api/cron/phone-reveal-recovery');
     assert.match(crons[0].schedule, /^\S+ \S+ \S+ \S+ \S+$/, 'cron de 5 campos');
+    // El plan de Vercel del proyecto solo admite UN disparo diario: una agenda
+    // sub-diaria hace que Vercel rechace el deployment antes de construir. Si se
+    // sube de plan, cambiar la agenda Y este candado a la vez.
+    assert.match(
+      crons[0].schedule,
+      /^\d+ \d+ \* \* \*$/,
+      'agenda diaria: el plan actual rechaza cadencias sub-diarias',
+    );
     // El worker de enriquecimiento gasta IA: no se agenda aquí.
     const paths = crons.map((c) => c.path);
     assert.ok(!paths.includes('/api/cron/enrich'));

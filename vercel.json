@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/phone-reveal-recovery",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 13 * * *"
     }
   ]
 }

@@ -141,12 +141,32 @@ perdido deje de ser terminal aunque algo de esto vuelva a romperse.
 **Endpoint:** `GET|POST /api/cron/phone-reveal-recovery`
 (sigue el patrón `/api/cron/<nombre>` que ya usa el repo)
 
-**Agenda:** `vercel.json` → `*/15 * * * *` (cada 15 minutos, solo Producción).
+**Agenda:** `vercel.json` → `0 13 * * *` (**una vez al día**, solo Producción).
 
-> **Límite de plan:** en el plan Hobby de Vercel los crons son **diarios** y como
-> máximo 2. Si el proyecto está en Hobby, Vercel rechazará `*/15 * * * *`: bajar a
-> `0 * * * *` (o `0 9 * * *`) o dejar el endpoint como disparo manual. El endpoint
-> funciona igual sin cron: es un HTTP normal con secreto.
+> ### ⚠️ El plan de Vercel limita la frecuencia
+>
+> La primera versión de este hito agendaba `*/15 * * * *` (cada 15 min) y **Vercel
+> rechazó el deployment** antes de construir (duración 0), enlazando a la
+> documentación de *Cron Jobs — usage and pricing*: el plan del proyecto solo
+> permite **un disparo diario** (y máximo 2 crons por proyecto).
+>
+> Por eso la agenda comprometida es diaria. Dos formas de recuperar cadencia real:
+>
+> 1. **Upgrade de plan** → cambiar el `schedule` a `*/15 * * * *` en `vercel.json`
+>    (una línea).
+> 2. **Scheduler externo** (recomendado hoy): el endpoint es un HTTP normal con
+>    secreto, así que n8n / GitHub Actions / cualquier scheduler puede llamarlo con
+>    la cadencia que se quiera:
+>    ```bash
+>    curl -X POST "https://<prod-host>/api/cron/phone-reveal-recovery" \
+>      -H "Authorization: Bearer $CRON_SECRET"
+>    ```
+>    Cada corrida sigue respetando los mismos topes (5 candidatos, 1 GET cada uno,
+>    0 créditos): llamarlo más seguido no relaja ninguna garantía.
+>
+> Con la agenda diaria, un candidato cuyo webhook se pierda se desatasca en ≤24 h
+> en vez de nunca. Es una mejora real, pero **no** sustituye el arreglo del proxy
+> (sección 2), que es lo que hace que el webhook vuelva a aterrizar en minutos.
 
 ### Doble candado para activarlo
 
