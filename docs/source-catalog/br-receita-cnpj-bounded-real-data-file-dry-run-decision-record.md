@@ -2,7 +2,7 @@
 
 **Source family:** Brazil — Receita Federal do Brasil (RFB), Cadastro Nacional da Pessoa Jurídica (CNPJ) — Dados Abertos (bulk)
 **Milestone:** BR-SOURCE-11F — Bounded real data-file dry-run decision record (docs-only)
-**Status:** `proposed_for_owner_review` — **not** a gate approval, and **not** an authorization to open, `stat`, read, sample, or join any real Receita data file
+**Status:** `option_c_authorized_and_implemented` (BR-SOURCE-11F-IMPL) — **not** a gate approval. Option C, and only Option C, was authorized by the owner after this record was merged; every other option in § 5 remains unauthorized
 **Predecessor:** BR-SOURCE-11E-LAND — `BRSOURCE11ELANDA — REAL_MANIFEST_METADATA_ONLY_EXECUTION_MERGED` (PR #170, `main` HEAD `0c58a84deff9a23fd221f69f0df9a07298c0d427`)
 **Last reviewed:** 2026-07-30
 
@@ -18,6 +18,43 @@
 - Full join field allowlist decision record — [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
 - Manual download & local prep runbook — [`br-receita-cnpj-manual-download-local-prep-runbook.md`](./br-receita-cnpj-manual-download-local-prep-runbook.md)
 - Legal/privacy decision record — [`br-receita-cnpj-legal-privacy-decision-record.md`](./br-receita-cnpj-legal-privacy-decision-record.md)
+
+> **BR-SOURCE-11F-IMPL update (2026-07-30).** This record was merged as PR #172 and the owner then
+> authorized exactly one option from § 5:
+>
+> ```text
+> AUTHORIZE OPTION C — ULTRA-BOUNDED REQUIRED-FAMILY REAL DATA-FILE PROBE
+> ```
+>
+> BR-SOURCE-11F-IMPL implements and executes that authorization, and nothing else:
+>
+> - It authorizes only an ultra-bounded required-family probe over **Empresas** and
+>   **Estabelecimentos** — one file each, at most two data files per run, under the § 8 caps.
+> - It does **not** authorize catalog files (`simples`, `cnaes`, `municipios`, `naturezas`): declared
+>   catalog families are counted and never opened.
+> - It does **not** authorize Sócios / QSA / CPF / person files: a declaration is a fail-closed
+>   refusal reported as a count, never a filename, and never followed by a read.
+> - It does **not** authorize joins, join keys, or coverage figures.
+> - It does **not** authorize row samples.
+> - It does **not** authorize identifiers, names, addresses, contacts, filenames, paths, byte offsets,
+>   line numbers tied to values, or hashes in output.
+> - It does **not** approve any gate. All eight remain `not_approved`.
+> - It does **not** authorize import, dataset download, unzipping, or full-dataset processing.
+> - It does **not** authorize Supabase writes, migrations, index changes, or
+>   `source_company_snapshots` writes.
+> - It does **not** authorize runtime, Agent 1, providers, HubSpot, Slack, or UI changes.
+> - The authorization is single-milestone and expires with it: it does not become a standing runner
+>   capability and cannot be inherited by a later milestone without its own phrase (§ 7.1).
+>
+> What the probe actually established, stated at its real strength: the two required-family files an
+> operator-prepared manifest declares can be **opened and parsed structurally** under caps. That is a
+> statement about file structure. It is **not** evidence about coverage, join rates, eligibility,
+> GATE-1, or GATE-2, and it must not be cited as such.
+>
+> Everything below is the original decision record as merged, preserved unchanged apart from this
+> update note, the § 1 status line, and the § 13 flag block.
+
+---
 
 > This document **asks one question and answers nothing**. BR-SOURCE-11E executed a real
 > operator-prepared manifest **as metadata**, and in doing so exhausted everything that can be learned
@@ -761,10 +798,12 @@ Two consequences follow, and both are load-bearing:
 ## 13. Flags
 
 ```text
-OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_PR_READY = false until PR
-OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_OFFICIAL = false until merge
-OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_AUTHORIZED          = false
-OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED                 = false
+OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_PR_READY = true   (PR #172)
+OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_OFFICIAL = true   (merged)
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_AUTHORIZED          = true   (Option C, BR-SOURCE-11F-IMPL)
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_PR_READY            = true   (BR-SOURCE-11F-IMPL)
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_OFFICIAL            = false  (not merged)
+OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED                 = true   (Option C scope only)
 
 FULL_JOIN_RUNNER_READY                                         = true
 FULL_JOIN_EXECUTION_READY                                      = false

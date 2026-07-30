@@ -13,6 +13,11 @@
  *   - a CNPJ básico / raiz (8 continuous digits appearing as a VALUE);
  *   - an email marker, a phone-like token, or a LinkedIn URL;
  *   - a `raw_row` / `rawRows` / `raw_data` key carrying a non-empty payload;
+ *   - a `raw_cell` / `cell_value` / `column_value` key, or a `row_sample` / `sampled_row` key,
+ *     carrying a payload — from BR-SOURCE-11F-IMPL the required-family probe is the first code
+ *     path that ever holds a real ROW and a real CELL. It splits a row to COUNT its fields and
+ *     discards them, and samples are forbidden outright, so either shape reaching a report
+ *     means a value was kept that the probe was only ever allowed to count;
  *   - a `raw_manifest` / `manifest_json` key carrying a payload — from
  *     BR-SOURCE-11D-META-IMPL a real manifest DOCUMENT can be parsed, and echoing it
  *     would leak declared filenames, paths, and the declared period in one step;
@@ -53,6 +58,8 @@ export type BrazilReceitaFullJoinLeakKind =
   | 'phone_like'
   | 'linkedin_url_like'
   | 'raw_row_payload'
+  | 'raw_cell_payload'
+  | 'row_sample_payload'
   | 'raw_data_payload'
   | 'raw_manifest_payload'
   | 'declared_filename_payload'
@@ -73,6 +80,8 @@ export const BRAZIL_RECEITA_FULL_JOIN_LEAK_KINDS: readonly BrazilReceitaFullJoin
   'phone_like',
   'linkedin_url_like',
   'raw_row_payload',
+  'raw_cell_payload',
+  'row_sample_payload',
   'raw_data_payload',
   'raw_manifest_payload',
   'declared_filename_payload',
@@ -181,7 +190,32 @@ const EMPTY_ONLY_KEY_RULES: ReadonlyArray<{
   readonly kind: BrazilReceitaFullJoinLeakKind;
 }> = [
   { matches: (k) => k.includes('rawrow'), kind: 'raw_row_payload' },
-  { matches: (k) => k.includes('rawdata') || k.includes('rawcell'), kind: 'raw_data_payload' },
+  {
+    // BR-SOURCE-11F-IMPL: the required-family probe is the first code path that ever holds a
+    // real CELL, so a cell-shaped key gets its own kind rather than sharing `raw_data`. The
+    // probe splits a row to COUNT fields and discards them; a report that carries one has
+    // kept a value it was only allowed to count.
+    matches: (k) =>
+      k.includes('rawcell') ||
+      k.includes('cellvalue') ||
+      k.includes('cellvalues') ||
+      k.includes('rawfield') ||
+      k.includes('fieldvalue') ||
+      k.includes('columnvalue'),
+    kind: 'raw_cell_payload',
+  },
+  {
+    // A SAMPLE is forbidden outright (decision record § 8: `samplesAllowed = false`), so a
+    // sample-shaped key is a leak even when its payload would have looked innocuous.
+    matches: (k) =>
+      k.includes('rowsample') ||
+      k.includes('samplerow') ||
+      k.includes('sampledrow') ||
+      k.includes('rowexcerpt') ||
+      k.includes('linesample'),
+    kind: 'row_sample_payload',
+  },
+  { matches: (k) => k.includes('rawdata'), kind: 'raw_data_payload' },
   {
     // The manifest may be PARSED; it may never be ECHOED. A report carrying the raw
     // document has leaked declared filenames, paths, and the declared period in one

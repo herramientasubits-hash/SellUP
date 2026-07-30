@@ -1438,3 +1438,102 @@ for a manifest **document** only. No trust level permitting a referenced-file re
 remains absent from the reader, and GATE-1 and GATE-2 retain sole authority over dataset processing.
 
 Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).
+
+---
+
+## 29. BR-SOURCE-11F-IMPL — Option C implemented: the ultra-bounded required-family probe
+
+BR-SOURCE-11F-IMPL implements and executes Option C after explicit owner authorization:
+
+```text
+AUTHORIZE OPTION C — ULTRA-BOUNDED REQUIRED-FAMILY REAL DATA-FILE PROBE
+```
+
+It authorizes only an ultra-bounded required-family probe over Empresas and Estabelecimentos.
+It does not authorize catalog files.
+It does not authorize Socios/QSA/CPF/person files.
+It does not authorize joins.
+It does not authorize row samples.
+It does not authorize identifiers in output.
+It does not approve any gate.
+It does not authorize import.
+It does not authorize Supabase writes.
+It does not authorize runtime or Agent 1.
+
+### 29.1 A FOURTH manifest trust, dispatched separately
+
+`local_manifest_dry_run` now recognizes four trust levels. Each is gated by its own declared flag, and
+none substitutes for another:
+
+```text
+synthetic_temp_manifest_only        — BR-SOURCE-11C Option B. Synthetic workspace, synthetic cells.
+real_manifest_metadata_only         — BR-SOURCE-11D-META-IMPL. Reads ONE manifest DOCUMENT.
+real_manifest_required_family_probe — BR-SOURCE-11F-IMPL. The ONLY trust under which a file the
+                                      manifest REFERENCES is opened at all.
+real_manifest_not_authorized        — everything else. Always refused.
+```
+
+The probe trust is the narrowest, not the widest: it REQUIRES the metadata-only and BR-SOURCE-11E
+declarations in addition to its own `requiredFamilyProbeAuthorized`, because the manifest is still read
+as a control document first. Holding the three earlier authorizations without the Option C phrase buys
+no data-file read; holding the Option C phrase alone unlocks neither of the earlier carve-outs.
+
+### 29.2 What the probe opens, and what it refuses
+
+```text
+Opened:   at most ONE declared file for empresas + at most ONE for estabelecimentos (2 data files max),
+          plus the manifest control document (not a data file, not counted against the file cap).
+Refused:  catalog families (simples, cnaes, municipios, naturezas) — counted, never opened;
+          Socios/QSA/CPF/person families — fail-closed refusal reported as a count;
+          archives (.zip, .gz, .7z, .tar, …) — a byte cap on compressed input is not a cap on content;
+          a ZIP-staging (raw-zips) declared path segment;
+          an absolute or URL declared path;
+          a declared path resolving outside the manifest's own directory.
+```
+
+The declared-DATA-path denylist is deliberately scoped to the ZIP staging area alone. Option C
+authorizes opening the operator's already-EXTRACTED, manifest-declared required-family files, and a
+directory NAME says nothing about whether a file is bounded-readable; an archive stays refused by
+extension wherever it sits. The metadata reader's much longer MANIFEST-document denylist is untouched.
+
+### 29.3 Caps, enforced and asserted
+
+```text
+maxFilesOpened   <= 2        maxRowsPerFile  <= 20      maxTotalRows  <= 40
+maxBytesPerFile  <= 64_000   maxTotalBytes   <= 128_000
+maxManifestBytes <= 1_000_000            maxDeclaredFiles <= 20
+liveness deadline = 30 s     — a FIXED internal ceiling, not a caller-stated cap, so no flag widens it
+```
+
+Every cap is required of the caller (a cap nobody stated is a cap nobody agreed to), is re-enforced at
+read time against the value the probe was built with, and has at least one test that drives real input
+past it. Two ceilings per axis: per-file caps bound one file, total caps bound the run. Reaching
+`maxBytesPerFile` mid-row DROPS that row rather than counting a partial row as valid — the window is a
+bounded prefix, and a cut row is a different row, not a smaller one.
+
+### 29.4 What the probe returns
+
+Aggregate-only, per § 9 of the decision record: `families_attempted`, `files_opened_count`,
+`files_opened_by_family`, `bytes_read_bucket` and `rows_read_bucket` (buckets, never figures),
+`row_shape` (expected official column count + an observed column-count HISTOGRAM + valid/invalid
+counts), `encoding_status`, `delimiter_status`, `headerless_status`, a `selection_class` label, the
+declared forbidden/never-opened family counts, and the held-absence assertions
+(`raw_rows_printed`, `raw_cells_printed`, `identifiers_printed`, `filenames_printed`,
+`absolute_paths_printed`, `hashes_printed`, `joins_executed`, `join_coverage_computed`,
+`full_dataset_processed`, all `false`).
+
+A row is split to COUNT its fields and is then discarded. No field value is retained, compared,
+normalized, returned, logged, stored beyond the loop iteration, or passed to anything other than a
+counter. The output sanitizer gained two leak kinds for exactly this reason — `raw_cell_payload` and
+`row_sample_payload` — because the probe is the first code path that ever holds a real row and a real
+cell.
+
+### 29.5 Gate status after BR-SOURCE-11F-IMPL — UNCHANGED
+
+All eight gates remain `not_approved`. A green probe says the two required-family files an
+operator-prepared manifest declares can be opened and parsed structurally under caps. It is not
+citable as GATE-1 or GATE-2 evidence, or as evidence about the dataset's coverage, join rates, or
+eligibility, and no coverage figure or ratio is emitted even though bounded arithmetic could produce
+one. The authorization is single-milestone and expires with it.
+
+Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).

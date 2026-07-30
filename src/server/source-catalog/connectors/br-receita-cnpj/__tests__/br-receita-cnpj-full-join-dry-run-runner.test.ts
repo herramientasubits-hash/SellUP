@@ -1807,3 +1807,120 @@ describe('BR-SOURCE-11D-META-IMPL CLI — refuses an incomplete metadata-only in
     });
   }
 });
+
+// ─── BR-SOURCE-11F-IMPL: the required-family probe trust, from the runner's side ─
+
+/**
+ * These tests cover what the RUNNER owes the Option C carve-out: the probe trust is
+ * dispatched separately, it is refused without its own authorization, it never leaks into a
+ * run that did not ask for it, and no earlier authorization substitutes for it. The probe
+ * module, the caps and the real bounded read have their own dedicated suite
+ * (`br-receita-cnpj-required-family-probe.test.ts`).
+ */
+describe('BR-SOURCE-11F-IMPL required-family probe trust — runner dispatch', () => {
+  const PROBE_TRUST = 'real_manifest_required_family_probe';
+
+  it('reports no probe block on a synthetic-fixture run', () => {
+    const report = runBrazilReceitaFullJoinDryRun(SAFE_INPUT);
+    assert.equal(report.required_family_probe, null);
+    assert.equal(report.required_family_probe_authorized, false);
+  });
+
+  it('reports no probe block on an Option B synthetic-temp run', () => {
+    const report = runBrazilReceitaFullJoinDryRun({
+      ...OPTION_B_INPUT,
+      localManifestReader: () => syntheticTempScan(),
+    });
+    assert.equal(report.ok, true, JSON.stringify(report.errors));
+    assert.equal(report.required_family_probe, null);
+    assert.equal(report.required_family_probe_authorized, false);
+  });
+
+  it('refuses the probe trust when NO probe authorization is declared', () => {
+    const report = runBrazilReceitaFullJoinDryRun({
+      ...SAFE_INPUT,
+      mode: 'local_manifest_dry_run',
+      manifestTrust: PROBE_TRUST,
+      allowLocalManifest: true,
+      strict: true,
+      outputSanitizationVersion: BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+      maxManifestBytes: BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_MANIFEST_BYTES,
+      maxDeclaredFiles: BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_DECLARED_FILES,
+    } as unknown as BrazilReceitaFullJoinDryRunInput);
+
+    assert.equal(report.ok, false);
+    assert.equal(report.manifest_trust, PROBE_TRUST);
+    assert.equal(report.required_family_probe, null);
+    // The manifest gate runs FIRST: a probe never opens a data file on a run that could not
+    // even read its control document.
+    assert.equal(report.errors[0]!.error_code, 'real_manifest_metadata_only_not_authorized');
+    assert.equal(report.errors[0]!.stage, 'real_manifest_metadata_gate');
+  });
+
+  it('refuses the probe trust when only the EARLIER authorizations are declared', () => {
+    const report = runBrazilReceitaFullJoinDryRun({
+      ...SAFE_INPUT,
+      mode: 'local_manifest_dry_run',
+      manifestTrust: PROBE_TRUST,
+      allowLocalManifest: true,
+      strict: true,
+      optionBCarveoutAuthorized: true,
+      realManifestMetadataOnlyOptionBAuthorized: true,
+      realManifestMetadataOnlyExecutionAuthorized: true,
+      outputSanitizationVersion: BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+      maxManifestBytes: BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_MANIFEST_BYTES,
+      maxDeclaredFiles: BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_DECLARED_FILES,
+      realManifestMetadataReader: () =>
+        ({
+          manifestTrust: BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST,
+          layoutMode: 'official_headerless',
+          schemaVersionPresent: true,
+          sourcePeriodPresent: true,
+          declaredFileCount: 2,
+          declaredFamilyCounts: { empresas: 1, estabelecimentos: 1 },
+          requiredFamilyCount: 2,
+          missingRequiredFamilyCount: 0,
+          forbiddenFamilyCount: 0,
+          manifestBytesReadBucket: 'lte_1mb',
+          operatorPreparedManifestAuthorized: true,
+          referencedDataFilesOpened: false,
+          referencedDataFilesStatted: false,
+          refusalCode: null,
+        }) as BrazilReceitaFullJoinRealManifestMetadataScan,
+    } as unknown as BrazilReceitaFullJoinDryRunInput);
+
+    assert.equal(report.ok, false);
+    assert.deepEqual(report.errors, [
+      { error_code: 'required_family_probe_not_authorized', stage: 'required_family_probe_gate' },
+    ]);
+    // The manifest metadata that explains the refusal is still reported as an aggregate.
+    assert.notEqual(report.manifest_metadata, null);
+    assert.equal(report.required_family_probe, null);
+  });
+
+  it('does not let the probe authorization unlock the Option B or metadata paths', () => {
+    const optionB = runBrazilReceitaFullJoinDryRun({
+      ...SAFE_INPUT,
+      mode: 'local_manifest_dry_run',
+      manifestTrust: BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_TEMP_MANIFEST_TRUST,
+      allowLocalManifest: true,
+      strict: true,
+      requiredFamilyProbeAuthorized: true,
+      outputSanitizationVersion: BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+    } as unknown as BrazilReceitaFullJoinDryRunInput);
+    assert.equal(optionB.ok, false);
+    assert.equal(optionB.errors[0]!.error_code, 'option_b_carveout_not_authorized');
+
+    const metadata = runBrazilReceitaFullJoinDryRun({
+      ...SAFE_INPUT,
+      mode: 'local_manifest_dry_run',
+      manifestTrust: BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST,
+      allowLocalManifest: true,
+      strict: true,
+      requiredFamilyProbeAuthorized: true,
+      outputSanitizationVersion: BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+    } as unknown as BrazilReceitaFullJoinDryRunInput);
+    assert.equal(metadata.ok, false);
+    assert.equal(metadata.errors[0]!.error_code, 'real_manifest_metadata_only_not_authorized');
+  });
+});

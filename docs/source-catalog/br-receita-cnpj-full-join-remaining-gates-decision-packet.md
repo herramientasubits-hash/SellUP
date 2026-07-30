@@ -1870,3 +1870,74 @@ that record to be merged **and** the explicit owner phrase
 phrase already spent in 11C, 11D-META, or 11E carries over.
 
 Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).
+
+---
+
+## 25. BR-SOURCE-11F-IMPL — Option C implemented and executed, gates unchanged
+
+BR-SOURCE-11F-IMPL implements and executes Option C after explicit owner authorization:
+
+```text
+AUTHORIZE OPTION C — ULTRA-BOUNDED REQUIRED-FAMILY REAL DATA-FILE PROBE
+```
+
+It authorizes only an ultra-bounded required-family probe over Empresas and Estabelecimentos.
+It does not authorize catalog files.
+It does not authorize Socios/QSA/CPF/person files.
+It does not authorize joins.
+It does not authorize row samples.
+It does not authorize identifiers in output.
+It does not approve any gate.
+It does not authorize import.
+It does not authorize Supabase writes.
+It does not authorize runtime or Agent 1.
+
+### 25.1 What changed, stated at its real strength
+
+For the first time in the series, files the manifest REFERENCES were opened: one Empresas file and one
+Estabelecimentos file, under the § 8 caps of the decision record (≤ 2 data files, ≤ 64 KB and ≤ 20 rows
+per file, ≤ 128 KB and ≤ 40 rows per run), read only far enough to count columns and classify encoding,
+delimiter and headerless status. Aggregates only: buckets, class labels, a column-count histogram, and
+valid/invalid shape counts.
+
+That establishes **file structure**, and nothing else. It is not coverage, not a join rate, not
+eligibility, and not GATE-1 or GATE-2 evidence.
+
+### 25.2 Gate and flag status after BR-SOURCE-11F-IMPL — UNCHANGED
+
+All eight gates remain `not_started` / not approved. The § 23.2 flag block is unchanged except for the
+record's own flags:
+
+```text
+OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_PR_READY  = true   (PR #172)
+OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_OFFICIAL  = true   (merged)
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_AUTHORIZED           = true   (Option C only)
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_PR_READY             = true
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_OFFICIAL             = false  (not merged)
+OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED                  = true   (Option C scope only)
+
+FULL_JOIN_EXECUTION_READY                                       = false
+IMPORT_READY                                                    = false
+RUNTIME_READY                                                   = false
+AGENT1_READY                                                    = false
+OPS_BR_READY_FOR_IMPORT                                         = false
+OPS_BR_READY_FOR_PRODUCTION_IMPORT                              = false
+OPS_BR_READY_FOR_RUNTIME                                        = false
+OPS_BR_LIVE_PROSPECT_GENERATION_READY                           = false
+OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED                   = false
+```
+
+`OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED` stays `false` deliberately: a structural probe of a
+bounded prefix is not the headerless real-file dry-run that flag names.
+
+### 25.3 What survives verbatim
+
+No catalog file was opened. No Sócios/QSA/CPF/person file was opened. No ZIP was opened. No row, cell,
+identifier, name, address, contact, filename, path, byte offset, line number tied to a value, or hash
+left the probe. No join, join key, or coverage figure was computed. No dataset was downloaded,
+unzipped, or imported. No Supabase write, migration, index change, `source_company_snapshots` write,
+runtime integration, Agent 1 integration, or provider call occurred. No report artifact was written
+into the repository. The Option C authorization is single-milestone and expires with it — it does not
+become a standing runner capability and cannot be inherited without its own phrase.
+
+Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).

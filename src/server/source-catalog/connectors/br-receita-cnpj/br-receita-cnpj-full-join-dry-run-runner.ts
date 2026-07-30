@@ -25,10 +25,18 @@
  *         manifest opened as a CONTROL DOCUMENT and parsed for schema-level metadata.
  *         **No file it references is ever opened or stat-ed**, and no row is read.
  *
- *     Any other trust — including a real manifest offered for EXECUTION — fails closed
- *     with `local_manifest_execution_not_authorized`. Reading a real Receita data file
- *     remains exactly what GATE-1 (legal/privacy) and GATE-2 (temporary storage
- *     envelope) would have to authorize, and neither is approved.
+ *       · BR-SOURCE-11F-IMPL — `real_manifest_required_family_probe`: the ULTRA-BOUNDED
+ *         REQUIRED-FAMILY PROBE. The FIRST and ONLY trust under which a file the manifest
+ *         REFERENCES is opened: one file for `empresas`, one for `estabelecimentos`, under
+ *         the § 8 caps (≤ 2 files, ≤ 64 KB and ≤ 20 rows per file, ≤ 128 KB and ≤ 40 rows
+ *         per run), parsed to COUNT columns and classify shape. No row value, cell,
+ *         identifier, filename, path, hash, or join ever reaches the runner.
+ *
+ *     Any other trust — including a real manifest offered for broader EXECUTION — fails
+ *     closed with `local_manifest_execution_not_authorized`. A wider real-data read remains
+ *     exactly what GATE-1 (legal/privacy) and GATE-2 (temporary storage envelope) would have
+ *     to authorize, and neither is approved: Option C is a single-milestone probe carve-out
+ *     that approves no gate and becomes no standing capability.
  *
  * ── Both carve-outs are NARROW, and neither substitutes for the other ───────────
  * The synthetic-temp branch proceeds only when EVERY one of these holds:
@@ -158,6 +166,7 @@ export type BrazilReceitaFullJoinManifestTrust =
   | 'not_applicable'
   | 'synthetic_temp_manifest_only'
   | 'real_manifest_metadata_only'
+  | 'real_manifest_required_family_probe'
   | 'real_manifest_not_authorized';
 
 /** The only manifest trust level the BR-SOURCE-11C synthetic carve-out authorizes. */
@@ -173,6 +182,20 @@ export const BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_TEMP_MANIFEST_TRUST =
  */
 export const BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST =
   'real_manifest_metadata_only' as const;
+
+/**
+ * The only manifest trust level the BR-SOURCE-11F-IMPL ULTRA-BOUNDED REQUIRED-FAMILY PROBE
+ * authorizes. A FOURTH distinct value gated by a FOURTH distinct flag
+ * (`requiredFamilyProbeAuthorized`): it is the only trust under which a file a manifest
+ * REFERENCES may be opened at all, and then only one file for `empresas` and one for
+ * `estabelecimentos`, under the § 8 caps, for structural classification only.
+ *
+ * It does not stand in for the metadata-only trust and the metadata-only trust does not
+ * stand in for it — but a probe run must ALSO hold the metadata-only and BR-SOURCE-11E
+ * authorizations, because it reads the operator's own manifest as its control document.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_REQUIRED_FAMILY_PROBE_TRUST =
+  'real_manifest_required_family_probe' as const;
 
 /** The default trust for a local manifest whose provenance was not declared. */
 export const BRAZIL_RECEITA_FULL_JOIN_DEFAULT_MANIFEST_TRUST: BrazilReceitaFullJoinManifestTrust =
@@ -384,6 +407,120 @@ export const BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_BYTES_BUCKETS: readonly stri
   'over_limit_blocked',
 ];
 
+// ─── Required-family probe contract (BR-SOURCE-11F-IMPL) ───────────────────────
+
+/**
+ * Hard ceilings for the ULTRA-BOUNDED REQUIRED-FAMILY PROBE (decision record § 8). Every
+ * one is REQUIRED of the caller. Two ceilings per axis, deliberately: the per-file caps
+ * bound one file, the total caps bound the run.
+ *
+ * These numbers carry no implication whatsoever for real-data ceilings, which are a GATE-2
+ * deliverable and are neither proposed nor anticipated here.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_FILES_OPENED = 2 as const;
+export const BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_BYTES_PER_FILE = 64_000 as const;
+export const BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_ROWS_PER_FILE = 20 as const;
+export const BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_TOTAL_ROWS = 40 as const;
+export const BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_TOTAL_BYTES = 128_000 as const;
+
+/** The ONLY families a probe may open. A catalog or person family is never a candidate. */
+export const BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES: readonly string[] = [
+  'empresas',
+  'estabelecimentos',
+];
+
+/** The byte buckets a probe report may state per family. Never a byte figure. */
+export const BRAZIL_RECEITA_FULL_JOIN_PROBE_BYTES_BUCKETS: readonly string[] = [
+  'lte_64kb',
+  'over_limit_blocked',
+];
+
+/** The row buckets a probe report may state per family. Never a row figure. */
+export const BRAZIL_RECEITA_FULL_JOIN_PROBE_ROWS_BUCKETS: readonly string[] = [
+  'lte_20',
+  'over_limit_blocked',
+];
+
+/**
+ * The selection CLASS labels a probe report may state. A green run states `selected`; every
+ * other member explains a refusal by naming the RULE that fired, never the path, the segment,
+ * or the extension that tripped it.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_PROBE_SELECTION_CLASSES: readonly string[] = [
+  'selected',
+  'family_not_declared',
+  'declared_path_missing',
+  'declared_path_absolute_or_url',
+  'declared_path_zip_staging_segment',
+  'declared_path_outside_manifest_directory',
+  'declared_extension_archive',
+  'declared_extension_not_tabular',
+  'file_count_cap_too_small',
+  'not_reached',
+];
+
+/**
+ * What the probe port is asked for. Every cap is passed IN, so the probe enforces at read
+ * time the same bounds the runner enforced at gate time.
+ */
+export interface BrazilReceitaFullJoinRequiredFamilyProbeReadRequest {
+  readonly maxManifestBytes: number;
+  readonly maxDeclaredFiles: number;
+  readonly maxFilesOpened: number;
+  readonly maxBytesPerFile: number;
+  readonly maxRowsPerFile: number;
+  readonly maxTotalRows: number;
+  readonly maxTotalBytes: number;
+}
+
+/** The structural shape observed in one family's bounded window. A histogram plus counts. */
+export interface BrazilReceitaFullJoinRequiredFamilyProbeRowShape {
+  readonly expectedMinColumns: number;
+  readonly observedColumnCountDistribution: Readonly<Record<string, number>>;
+  readonly rowShapeValidCount: number;
+  readonly rowShapeInvalidCount: number;
+}
+
+/**
+ * What the probe port returns: AGGREGATE structure only. No path, no filename, no row, no
+ * cell, no byte figure, no offset, no hash.
+ *
+ * Typed loosely (`string`) on purpose: the probe sits at a trust boundary, so the runner
+ * re-validates the trust level, every family key, every bucket, and above all the
+ * structural `*Retained` / `joinsExecuted` assertions against its own expectations rather
+ * than believing them.
+ */
+export interface BrazilReceitaFullJoinRequiredFamilyProbeScan {
+  readonly manifestTrust: string;
+  readonly familiesAttempted: readonly string[];
+  readonly filesOpenedCount: number;
+  readonly filesOpenedByFamily: Readonly<Record<string, number>>;
+  readonly bytesReadBucket: Readonly<Record<string, string>>;
+  readonly rowsReadBucket: Readonly<Record<string, string>>;
+  readonly rowShape: Readonly<Record<string, BrazilReceitaFullJoinRequiredFamilyProbeRowShape>>;
+  readonly encodingStatus: Readonly<Record<string, string>>;
+  readonly delimiterStatus: Readonly<Record<string, string>>;
+  readonly headerlessStatus: Readonly<Record<string, string>>;
+  readonly forbiddenFamilyCount: number;
+  readonly neverOpenedFamilyCount: number;
+  /** Which selection rule fired. Re-validated against the runner's own allowlist. */
+  readonly selectionClass?: string;
+  readonly rawRowsRetained: boolean;
+  readonly rawCellsRetained: boolean;
+  readonly identifiersRetained: boolean;
+  readonly fileNamesRetained: boolean;
+  readonly absolutePathsRetained: boolean;
+  readonly hashesComputed: boolean;
+  readonly joinsExecuted: boolean;
+  /** A content / environment refusal reported rather than thrown. `null` when acceptable. */
+  readonly refusalCode: string | null;
+}
+
+/** The injected probe port. Called at most ONCE per run, inside a try/catch. */
+export type BrazilReceitaFullJoinRequiredFamilyProbeReader = (
+  request: BrazilReceitaFullJoinRequiredFamilyProbeReadRequest,
+) => BrazilReceitaFullJoinRequiredFamilyProbeScan;
+
 // ─── Input contract ───────────────────────────────────────────────────────────
 
 /**
@@ -442,6 +579,29 @@ export interface BrazilReceitaFullJoinDryRunInput {
   readonly maxDeclaredFiles?: number;
   /** The injected metadata-only port. Absent ⇒ metadata-only mode refuses. */
   readonly realManifestMetadataReader?: BrazilReceitaFullJoinRealManifestMetadataReader;
+
+  // ── Required-family probe carve-out (BR-SOURCE-11F-IMPL). Only meaningful when
+  //    `manifestTrust === 'real_manifest_required_family_probe'`. ──
+  /**
+   * The owner's Option C authorization, as a declared boolean. A FOURTH distinct field: it
+   * is the only one that permits opening a file the manifest REFERENCES, and it permits
+   * nothing about which manifest may be named or what a metadata run may do.
+   *
+   * A probe run must hold all three of `realManifestMetadataOnlyOptionBAuthorized`,
+   * `realManifestMetadataOnlyExecutionAuthorized` and this flag: reading the operator's own
+   * manifest as a control document is a precondition of the probe, not a substitute for it.
+   */
+  readonly requiredFamilyProbeAuthorized?: boolean;
+  /** Required ceiling on how many DATA files may be opened (at most two). */
+  readonly maxFilesOpened?: number;
+  /** Required ceiling on rows parsed per file. */
+  readonly maxRowsPerFile?: number;
+  /** Required ceiling on rows parsed across the whole run. */
+  readonly maxTotalRows?: number;
+  /** Required ceiling on bytes read across the whole run. */
+  readonly maxTotalBytes?: number;
+  /** The injected probe port. Absent ⇒ probe mode refuses (the runner opens nothing). */
+  readonly requiredFamilyProbeReader?: BrazilReceitaFullJoinRequiredFamilyProbeReader;
 
   readonly noWriteMode: true;
   readonly runtimeIntegration: false;
@@ -537,7 +697,10 @@ export type BrazilReceitaFullJoinErrorStage =
   | 'output_sanitization'
   // ── Metadata-only carve-out (BR-SOURCE-11D-META-IMPL) ──
   | 'real_manifest_metadata_gate'
-  | 'real_manifest_metadata_read';
+  | 'real_manifest_metadata_read'
+  // ── Required-family probe carve-out (BR-SOURCE-11F-IMPL) ──
+  | 'required_family_probe_gate'
+  | 'required_family_probe_read';
 
 /** Why the run failed. Fixed machine codes; a raw message is NEVER carried. */
 export type BrazilReceitaFullJoinErrorCode =
@@ -575,7 +738,23 @@ export type BrazilReceitaFullJoinErrorCode =
   | 'real_manifest_metadata_missing_required_family'
   | 'real_manifest_metadata_referenced_file_access_detected'
   // ── Operator-prepared manifest execution (BR-SOURCE-11E) ──
-  | 'real_manifest_metadata_execution_not_authorized';
+  | 'real_manifest_metadata_execution_not_authorized'
+  // ── Required-family probe (BR-SOURCE-11F-IMPL) ──
+  | 'required_family_probe_not_authorized'
+  | 'required_family_probe_caps_required'
+  | 'required_family_probe_cap_exceeded'
+  | 'required_family_probe_reader_required'
+  | 'required_family_probe_read_failed'
+  | 'required_family_probe_scan_invalid'
+  | 'required_family_probe_forbidden_family_detected'
+  | 'required_family_probe_missing_required_family'
+  | 'required_family_probe_file_count_exceeded'
+  | 'required_family_probe_zip_forbidden'
+  | 'required_family_probe_raw_output_detected'
+  | 'required_family_probe_identifier_output_detected'
+  | 'required_family_probe_join_detected'
+  | 'required_family_probe_open_failed'
+  | 'required_family_probe_timeout';
 
 export interface BrazilReceitaFullJoinReportError {
   readonly error_code: BrazilReceitaFullJoinErrorCode;
@@ -620,6 +799,51 @@ export interface BrazilReceitaFullJoinManifestMetadataReport {
   readonly absolute_paths_printed: false;
 }
 
+/**
+ * The AGGREGATE probe block for an ultra-bounded required-family run (decision record § 9).
+ * Every field is a boolean, a count, a class label, a bucket, or a histogram — never a path,
+ * a filename, a row, a cell, a byte figure, an offset, or a hash.
+ *
+ * `null` on every non-probe run. Nothing in this block is citable as GATE-1 or GATE-2
+ * evidence, or as evidence about the dataset's coverage, join rates, or eligibility: a green
+ * probe says two required files parse structurally under caps, and nothing more.
+ */
+export interface BrazilReceitaFullJoinRequiredFamilyProbeReport {
+  readonly families_attempted: readonly string[];
+  /** DATA files opened. The manifest control document is not a data file and is not counted. */
+  readonly files_opened_count: number;
+  readonly files_opened_by_family: Record<string, number>;
+  readonly bytes_read_bucket: Record<string, string>;
+  readonly rows_read_bucket: Record<string, string>;
+  readonly row_shape: Record<
+    string,
+    {
+      readonly expected_min_columns: number;
+      readonly observed_column_count_distribution: Record<string, number>;
+      readonly row_shape_valid_count: number;
+      readonly row_shape_invalid_count: number;
+    }
+  >;
+  readonly encoding_status: Record<string, string>;
+  readonly delimiter_status: Record<string, string>;
+  readonly headerless_status: Record<string, string>;
+  readonly forbidden_family_attempted: false;
+  readonly forbidden_family_declared_count: number;
+  /** `selected` on a green probe. A class label, never a path, a segment or an extension. */
+  readonly selection_class: string;
+  readonly never_opened_family_declared_count: number;
+  /** Held-absence assertions. Structurally always false, stated so a reader can see them. */
+  readonly raw_rows_printed: false;
+  readonly raw_cells_printed: false;
+  readonly identifiers_printed: false;
+  readonly filenames_printed: false;
+  readonly absolute_paths_printed: false;
+  readonly hashes_printed: false;
+  readonly joins_executed: false;
+  readonly join_coverage_computed: false;
+  readonly full_dataset_processed: false;
+}
+
 export interface BrazilReceitaFullJoinDryRunReport {
   readonly ok: boolean;
   readonly mode: typeof BRAZIL_RECEITA_FULL_JOIN_DRY_RUN_MODE;
@@ -635,6 +859,11 @@ export interface BrazilReceitaFullJoinDryRunReport {
    * prepared manifest document — was declared for THIS run. `false` everywhere else.
    */
   readonly real_manifest_metadata_only_execution_authorized: boolean;
+  /**
+   * Whether the owner's Option C authorization — the ultra-bounded required-family probe —
+   * was declared for THIS run. `false` everywhere else.
+   */
+  readonly required_family_probe_authorized: boolean;
   readonly source_key: typeof BR_RECEITA_CNPJ_MANIFEST_SOURCE_KEY;
   readonly country_code: typeof BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE;
   /**
@@ -649,8 +878,13 @@ export interface BrazilReceitaFullJoinDryRunReport {
   readonly eligibility_counts: Record<string, number>;
   readonly join_counts: Record<string, number>;
   readonly guardrail_counts: Record<string, number>;
-  /** Populated ONLY by a real-manifest metadata-only run; `null` everywhere else. */
+  /**
+   * Populated by a real-manifest metadata-only run AND by a required-family probe run (whose
+   * control document is the same manifest); `null` everywhere else.
+   */
   readonly manifest_metadata: BrazilReceitaFullJoinManifestMetadataReport | null;
+  /** Populated ONLY by an ultra-bounded required-family probe run; `null` everywhere else. */
+  readonly required_family_probe: BrazilReceitaFullJoinRequiredFamilyProbeReport | null;
   readonly cleanup: BrazilReceitaFullJoinCleanupReport;
   readonly errors: readonly BrazilReceitaFullJoinReportError[];
 }
@@ -694,6 +928,10 @@ const GUARDRAIL_COUNT_KEYS = [
   // Option B: the bounded per-file read ceiling, and forbidden-family refusals.
   'local_manifest_bytes_cap_applied',
   'local_manifest_forbidden_family_findings',
+  // Option C (BR-SOURCE-11F-IMPL): DATA files opened, and probe refusals. Both are bounded
+  // by the § 8 caps, so neither can become a dataset-scale figure.
+  'required_family_probe_files_opened',
+  'required_family_probe_forbidden_family_findings',
 ] as const;
 
 function zeroCounts(keys: readonly string[]): Record<string, number> {
@@ -871,6 +1109,7 @@ interface RunProvenance {
   readonly optionBCarveoutAuthorized: boolean;
   readonly realManifestMetadataOnlyOptionBAuthorized: boolean;
   readonly realManifestMetadataOnlyExecutionAuthorized: boolean;
+  readonly requiredFamilyProbeAuthorized: boolean;
 }
 
 interface ReportDraft {
@@ -881,6 +1120,7 @@ interface ReportDraft {
   readonly join: Record<string, number>;
   readonly guardrail: Record<string, number>;
   readonly manifestMetadata?: BrazilReceitaFullJoinManifestMetadataReport | null;
+  readonly requiredFamilyProbe?: BrazilReceitaFullJoinRequiredFamilyProbeReport | null;
   readonly cleanup: BrazilReceitaFullJoinCleanupReport;
   readonly errors: readonly BrazilReceitaFullJoinReportError[];
 }
@@ -896,6 +1136,7 @@ function assembleReport(draft: ReportDraft): BrazilReceitaFullJoinDryRunReport {
       draft.provenance.realManifestMetadataOnlyOptionBAuthorized,
     real_manifest_metadata_only_execution_authorized:
       draft.provenance.realManifestMetadataOnlyExecutionAuthorized,
+    required_family_probe_authorized: draft.provenance.requiredFamilyProbeAuthorized,
     source_key: BR_RECEITA_CNPJ_MANIFEST_SOURCE_KEY,
     country_code: BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE,
     source_period: null,
@@ -907,6 +1148,7 @@ function assembleReport(draft: ReportDraft): BrazilReceitaFullJoinDryRunReport {
     join_counts: draft.join,
     guardrail_counts: draft.guardrail,
     manifest_metadata: draft.manifestMetadata ?? null,
+    required_family_probe: draft.requiredFamilyProbe ?? null,
     cleanup: draft.cleanup,
     errors: draft.errors,
   };
@@ -923,11 +1165,13 @@ function failClosedReport(
   sanitizerFindings: number,
   forbiddenFamilyFindings = 0,
   manifestMetadata: BrazilReceitaFullJoinManifestMetadataReport | null = null,
+  probeForbiddenFamilyFindings = 0,
 ): BrazilReceitaFullJoinDryRunReport {
   const guardrail = zeroCounts(GUARDRAIL_COUNT_KEYS);
   guardrail.no_write_guard_violations = guardViolations;
   guardrail.forbidden_output_findings = sanitizerFindings;
   guardrail.local_manifest_forbidden_family_findings = forbiddenFamilyFindings;
+  guardrail.required_family_probe_forbidden_family_findings = probeForbiddenFamilyFindings;
 
   return assembleReport({
     ok: false,
@@ -940,6 +1184,9 @@ function failClosedReport(
     // forbidden family is reported as a count, not silently filtered out. No row count,
     // eligibility figure, or join figure survives a failure.
     manifestMetadata,
+    // A PROBE refusal never reports a probe block: unlike manifest metadata, a partial probe
+    // block would be structure observed from a read that was not allowed to complete.
+    requiredFamilyProbe: null,
     cleanup: planBrazilReceitaFullJoinCleanup({
       sanitizerFailed: sanitizerFindings > 0,
       guardFailed: guardViolations > 0,
@@ -988,7 +1235,8 @@ function buildGuardConfig(input: BrazilReceitaFullJoinDryRunInput): Record<strin
     if (
       key === 'syntheticFixture' ||
       key === 'localManifestReader' ||
-      key === 'realManifestMetadataReader'
+      key === 'realManifestMetadataReader' ||
+      key === 'requiredFamilyProbeReader'
     ) {
       continue;
     }
@@ -1313,6 +1561,93 @@ function validateMetadataScan(
   return null;
 }
 
+// ─── Shared manifest-metadata read (11D-META-IMPL, reused by 11F-IMPL) ─────────
+
+type ManifestMetadataOutcome =
+  | { readonly ok: true; readonly metadata: BrazilReceitaFullJoinManifestMetadataReport }
+  | { readonly ok: false; readonly report: BrazilReceitaFullJoinDryRunReport };
+
+/**
+ * Gates, performs and re-validates the ONE metadata read of the manifest CONTROL DOCUMENT,
+ * and projects it into the report block.
+ *
+ * Shared by the metadata-only run and the required-family probe run, because a probe reads
+ * the very same manifest as its control document and must clear the very same gate to do
+ * so: the probe authorization does not replace the metadata-only authorization, it is added
+ * to it. Every failure path returns a fully-assembled fail-closed report, so neither caller
+ * can accidentally continue past a refusal.
+ */
+function readManifestMetadataBlock(
+  input: BrazilReceitaFullJoinDryRunInput,
+  provenance: RunProvenance,
+): ManifestMetadataOutcome {
+  const gate = evaluateMetadataOnlyGate(input);
+  if (!gate.ok) {
+    return {
+      ok: false,
+      report: failClosedReport(
+        provenance,
+        [{ error_code: gate.code, stage: 'real_manifest_metadata_gate' }],
+        0,
+        0,
+      ),
+    };
+  }
+
+  let scan: BrazilReceitaFullJoinRealManifestMetadataScan;
+  try {
+    // The ONE metadata read of the run. The reader owns the single path it validated; the
+    // runner passes the caps in and never learns a path.
+    scan = input.realManifestMetadataReader!({
+      maxManifestBytes: gate.caps.maxManifestBytes,
+      maxDeclaredFiles: gate.caps.maxDeclaredFiles,
+    });
+  } catch {
+    // The underlying error is DISCARDED: a reader failure could carry a path or a
+    // fragment of the document in its message, so only the fixed stage/code survive.
+    return {
+      ok: false,
+      report: failClosedReport(
+        provenance,
+        [
+          {
+            error_code: 'real_manifest_metadata_read_failed',
+            stage: 'real_manifest_metadata_read',
+          },
+        ],
+        0,
+        0,
+      ),
+    };
+  }
+
+  const refusal = validateMetadataScan(scan, input);
+  // A structurally-invalid or UNAUTHORIZED scan carries no reportable metadata; a CONTENT
+  // refusal does, and reporting it as an aggregate is exactly what the carve-out permits.
+  const metadata =
+    refusal === 'real_manifest_metadata_scan_invalid' ||
+    refusal === 'local_manifest_execution_not_authorized' ||
+    refusal === 'real_manifest_metadata_referenced_file_access_detected' ||
+    refusal === 'real_manifest_metadata_execution_not_authorized'
+      ? null
+      : projectManifestMetadata(scan);
+
+  if (refusal !== null) {
+    return {
+      ok: false,
+      report: failClosedReport(
+        provenance,
+        [{ error_code: refusal, stage: 'real_manifest_metadata_read' }],
+        0,
+        0,
+        metadata?.forbidden_family_count ?? 0,
+        metadata,
+      ),
+    };
+  }
+  return { ok: true, metadata: metadata! };
+}
+
 // ─── Metadata-only run (BR-SOURCE-11D-META-IMPL) ──────────────────────────────
 
 /**
@@ -1328,56 +1663,9 @@ function runRealManifestMetadataOnly(
   input: BrazilReceitaFullJoinDryRunInput,
   provenance: RunProvenance,
 ): BrazilReceitaFullJoinDryRunReport {
-  const gate = evaluateMetadataOnlyGate(input);
-  if (!gate.ok) {
-    return failClosedReport(
-      provenance,
-      [{ error_code: gate.code, stage: 'real_manifest_metadata_gate' }],
-      0,
-      0,
-    );
-  }
-
-  let scan: BrazilReceitaFullJoinRealManifestMetadataScan;
-  try {
-    // The ONE read of the run. The reader owns the single path it validated; the runner
-    // passes the caps in and never learns a path.
-    scan = input.realManifestMetadataReader!({
-      maxManifestBytes: gate.caps.maxManifestBytes,
-      maxDeclaredFiles: gate.caps.maxDeclaredFiles,
-    });
-  } catch {
-    // The underlying error is DISCARDED: a reader failure could carry a path or a
-    // fragment of the document in its message, so only the fixed stage/code survive.
-    return failClosedReport(
-      provenance,
-      [{ error_code: 'real_manifest_metadata_read_failed', stage: 'real_manifest_metadata_read' }],
-      0,
-      0,
-    );
-  }
-
-  const refusal = validateMetadataScan(scan, input);
-  // A structurally-invalid or UNAUTHORIZED scan carries no reportable metadata; a CONTENT
-  // refusal does, and reporting it as an aggregate is exactly what the carve-out permits.
-  const metadata =
-    refusal === 'real_manifest_metadata_scan_invalid' ||
-    refusal === 'local_manifest_execution_not_authorized' ||
-    refusal === 'real_manifest_metadata_referenced_file_access_detected' ||
-    refusal === 'real_manifest_metadata_execution_not_authorized'
-      ? null
-      : projectManifestMetadata(scan);
-
-  if (refusal !== null) {
-    return failClosedReport(
-      provenance,
-      [{ error_code: refusal, stage: 'real_manifest_metadata_read' }],
-      0,
-      0,
-      metadata?.forbidden_family_count ?? 0,
-      metadata,
-    );
-  }
+  const metadataOutcome = readManifestMetadataBlock(input, provenance);
+  if (!metadataOutcome.ok) return metadataOutcome.report;
+  const metadata = metadataOutcome.metadata;
 
   const candidate = assembleReport({
     ok: true,
@@ -1397,6 +1685,412 @@ function runRealManifestMetadataOnly(
 
   // Output sanitization. A leak discards the metadata block too — the report never ships
   // partially-sanitized content, and the offending value is never surfaced.
+  const sanitized = sanitizeBrazilReceitaFullJoinReport(candidate);
+  if (!sanitized.ok) {
+    return failClosedReport(
+      provenance,
+      [{ error_code: BRAZIL_RECEITA_FULL_JOIN_SANITIZER_ERROR_CODE, stage: 'output_sanitization' }],
+      0,
+      sanitized.findings.length,
+    );
+  }
+  return candidate;
+}
+
+// ─── Required-family probe gate (BR-SOURCE-11F-IMPL) ───────────────────────────
+
+/** The five probe caps a required-family probe run must state explicitly. */
+interface RequiredFamilyProbeCaps {
+  readonly maxFilesOpened: number;
+  readonly maxBytesPerFile: number;
+  readonly maxRowsPerFile: number;
+  readonly maxTotalRows: number;
+  readonly maxTotalBytes: number;
+}
+
+type RequiredFamilyProbeGateOutcome =
+  | { readonly ok: true; readonly caps: RequiredFamilyProbeCaps }
+  | { readonly ok: false; readonly code: BrazilReceitaFullJoinErrorCode };
+
+/**
+ * Validates the FULL Option C contract before a single data byte is read. Every condition is
+ * independent and fail-closed.
+ *
+ * Note what this gate does NOT accept as a substitute for anything: the three earlier
+ * authorizations are separate, already-spent phrases for different carve-outs. Option C
+ * REQUIRES the metadata-only and BR-SOURCE-11E declarations in addition to its own, because a
+ * probe reads the operator's manifest as its control document — and holding those two without
+ * `requiredFamilyProbeAuthorized` buys no data-file read at all.
+ */
+function evaluateRequiredFamilyProbeGate(
+  input: BrazilReceitaFullJoinDryRunInput,
+): RequiredFamilyProbeGateOutcome {
+  if (input.allowLocalManifest !== true) {
+    return { ok: false, code: 'allow_local_manifest_required' };
+  }
+  if (input.realManifestMetadataOnlyOptionBAuthorized !== true) {
+    return { ok: false, code: 'real_manifest_metadata_only_not_authorized' };
+  }
+  if (input.realManifestMetadataOnlyExecutionAuthorized !== true) {
+    return { ok: false, code: 'real_manifest_metadata_execution_not_authorized' };
+  }
+  if (input.requiredFamilyProbeAuthorized !== true) {
+    return { ok: false, code: 'required_family_probe_not_authorized' };
+  }
+  if (input.strict !== true) {
+    return { ok: false, code: 'strict_mode_required' };
+  }
+  if (input.productionWrites !== undefined && input.productionWrites !== false) {
+    return { ok: false, code: 'production_writes_requested' };
+  }
+  // GATE-5 is not approved, and a probe run must SAY so rather than omit it.
+  if (input.outputSanitizationVersion !== BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION) {
+    return { ok: false, code: 'output_sanitization_version_not_approved' };
+  }
+
+  const stated = [
+    input.maxFilesOpened,
+    input.maxBytesPerFile,
+    input.maxRowsPerFile,
+    input.maxTotalRows,
+    input.maxTotalBytes,
+  ];
+  if (stated.some((cap) => cap === undefined)) {
+    return { ok: false, code: 'required_family_probe_caps_required' };
+  }
+  const withinBounds =
+    isCapWithin(input.maxFilesOpened, BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_FILES_OPENED) &&
+    isCapWithin(input.maxBytesPerFile, BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_BYTES_PER_FILE) &&
+    isCapWithin(input.maxRowsPerFile, BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_ROWS_PER_FILE) &&
+    isCapWithin(input.maxTotalRows, BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_TOTAL_ROWS) &&
+    isCapWithin(input.maxTotalBytes, BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_TOTAL_BYTES);
+  if (!withinBounds) {
+    return { ok: false, code: 'required_family_probe_cap_exceeded' };
+  }
+  if (typeof input.requiredFamilyProbeReader !== 'function') {
+    return { ok: false, code: 'required_family_probe_reader_required' };
+  }
+  return {
+    ok: true,
+    caps: {
+      maxFilesOpened: input.maxFilesOpened as number,
+      maxBytesPerFile: input.maxBytesPerFile as number,
+      maxRowsPerFile: input.maxRowsPerFile as number,
+      maxTotalRows: input.maxTotalRows as number,
+      maxTotalBytes: input.maxTotalBytes as number,
+    },
+  };
+}
+
+/** Maps a probe-reported refusal onto the runner's own error vocabulary. */
+const REQUIRED_FAMILY_PROBE_REFUSAL_CODES: Readonly<
+  Record<string, BrazilReceitaFullJoinErrorCode>
+> = {
+  required_family_probe_not_authorized: 'required_family_probe_not_authorized',
+  required_family_probe_cap_required: 'required_family_probe_caps_required',
+  required_family_probe_cap_exceeded: 'required_family_probe_cap_exceeded',
+  required_family_probe_missing_required_family: 'required_family_probe_missing_required_family',
+  required_family_probe_forbidden_family: 'required_family_probe_forbidden_family_detected',
+  required_family_probe_file_count_exceeded: 'required_family_probe_file_count_exceeded',
+  required_family_probe_zip_forbidden: 'required_family_probe_zip_forbidden',
+  required_family_probe_raw_output_forbidden: 'required_family_probe_raw_output_detected',
+  required_family_probe_identifier_output_forbidden:
+    'required_family_probe_identifier_output_detected',
+  required_family_probe_join_forbidden: 'required_family_probe_join_detected',
+  required_family_probe_open_failed: 'required_family_probe_open_failed',
+  required_family_probe_read_failed: 'required_family_probe_read_failed',
+  required_family_probe_timeout: 'required_family_probe_timeout',
+};
+
+function isProbeRowShape(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const shape = value as Partial<BrazilReceitaFullJoinRequiredFamilyProbeRowShape>;
+  if (!isCount(shape.expectedMinColumns)) return false;
+  if (!isCount(shape.rowShapeValidCount) || !isCount(shape.rowShapeInvalidCount)) return false;
+  const distribution = shape.observedColumnCountDistribution;
+  if (typeof distribution !== 'object' || distribution === null) return false;
+  return Object.values(distribution).every((count) => isCount(count));
+}
+
+/**
+ * Re-validates what the probe claimed, structurally FIRST and by content second. The probe
+ * sits at a trust boundary, so its declared trust level, its family keys, its buckets, its
+ * counts, and above all its held-absence assertions are checked against the runner's own
+ * expectations — a probe cannot talk its way past the carve-out, and one that admits (or is
+ * coerced into claiming) it retained a row, a cell, an identifier, a filename, a path, a
+ * hash, or a join is refused outright. Returns `null` when the scan is acceptable.
+ */
+function validateRequiredFamilyProbeScan(
+  scan: unknown,
+  caps: RequiredFamilyProbeCaps,
+): BrazilReceitaFullJoinErrorCode | null {
+  if (typeof scan !== 'object' || scan === null) return 'required_family_probe_scan_invalid';
+  const candidate = scan as Partial<BrazilReceitaFullJoinRequiredFamilyProbeScan>;
+
+  if (candidate.manifestTrust !== BRAZIL_RECEITA_FULL_JOIN_REQUIRED_FAMILY_PROBE_TRUST) {
+    return 'local_manifest_execution_not_authorized';
+  }
+  // The load-bearing invariants of the carve-out: nothing regulated is retained, no hash is
+  // derived, and no join is computed. Any of them claimed true refuses the whole run.
+  if (
+    candidate.rawRowsRetained !== false ||
+    candidate.rawCellsRetained !== false ||
+    candidate.identifiersRetained !== false ||
+    candidate.fileNamesRetained !== false ||
+    candidate.absolutePathsRetained !== false
+  ) {
+    return 'required_family_probe_raw_output_detected';
+  }
+  if (candidate.hashesComputed !== false) return 'required_family_probe_identifier_output_detected';
+  if (candidate.joinsExecuted !== false) return 'required_family_probe_join_detected';
+
+  if (!Array.isArray(candidate.familiesAttempted)) return 'required_family_probe_scan_invalid';
+  const forbiddenFamilies = candidate.familiesAttempted.filter(
+    (family) =>
+      typeof family !== 'string' ||
+      !BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES.includes(family),
+  );
+  if (forbiddenFamilies.length > 0) return 'required_family_probe_forbidden_family_detected';
+
+  if (
+    candidate.selectionClass !== undefined &&
+    !BRAZIL_RECEITA_FULL_JOIN_PROBE_SELECTION_CLASSES.includes(candidate.selectionClass)
+  ) {
+    return 'required_family_probe_scan_invalid';
+  }
+  if (!isCount(candidate.filesOpenedCount)) return 'required_family_probe_scan_invalid';
+  if (!isCount(candidate.forbiddenFamilyCount) || !isCount(candidate.neverOpenedFamilyCount)) {
+    return 'required_family_probe_scan_invalid';
+  }
+  if (candidate.forbiddenFamilyCount > 0) {
+    return 'required_family_probe_forbidden_family_detected';
+  }
+
+  // A refusal the probe reported rather than threw. Mapped, never passed through raw.
+  if (candidate.refusalCode !== null && candidate.refusalCode !== undefined) {
+    return (
+      REQUIRED_FAMILY_PROBE_REFUSAL_CODES[candidate.refusalCode] ??
+      'required_family_probe_scan_invalid'
+    );
+  }
+
+  // The per-family maps are re-validated key by key: a key the report never agreed to carry
+  // cannot arrive through a map, and a bucket outside the declared vocabulary is a leak risk
+  // rather than a label.
+  const maps: ReadonlyArray<readonly [unknown, readonly string[]]> = [
+    [candidate.bytesReadBucket, BRAZIL_RECEITA_FULL_JOIN_PROBE_BYTES_BUCKETS],
+    [candidate.rowsReadBucket, BRAZIL_RECEITA_FULL_JOIN_PROBE_ROWS_BUCKETS],
+  ];
+  for (const [map, allowedValues] of maps) {
+    if (typeof map !== 'object' || map === null) return 'required_family_probe_scan_invalid';
+    for (const [family, value] of Object.entries(map as Record<string, unknown>)) {
+      if (!BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES.includes(family)) {
+        return 'required_family_probe_forbidden_family_detected';
+      }
+      if (typeof value !== 'string' || !allowedValues.includes(value)) {
+        return 'required_family_probe_scan_invalid';
+      }
+      if (value !== allowedValues[0]) return 'required_family_probe_cap_exceeded';
+    }
+  }
+  for (const map of [
+    candidate.encodingStatus,
+    candidate.delimiterStatus,
+    candidate.headerlessStatus,
+    candidate.filesOpenedByFamily,
+    candidate.rowShape,
+  ]) {
+    if (typeof map !== 'object' || map === null) return 'required_family_probe_scan_invalid';
+    for (const family of Object.keys(map as Record<string, unknown>)) {
+      if (!BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES.includes(family)) {
+        return 'required_family_probe_forbidden_family_detected';
+      }
+    }
+  }
+  for (const shape of Object.values(candidate.rowShape as Record<string, unknown>)) {
+    if (!isProbeRowShape(shape)) return 'required_family_probe_scan_invalid';
+  }
+
+  // The caps, enforced against the OBSERVED result and not merely against the request.
+  if (candidate.filesOpenedCount > caps.maxFilesOpened) {
+    return 'required_family_probe_file_count_exceeded';
+  }
+  let observedRows = 0;
+  for (const [family, opened] of Object.entries(candidate.filesOpenedByFamily ?? {})) {
+    if (!isCount(opened)) return 'required_family_probe_scan_invalid';
+    if (opened > 1) return 'required_family_probe_file_count_exceeded';
+    const shape = (candidate.rowShape ?? {})[family];
+    if (shape !== undefined) {
+      observedRows += shape.rowShapeValidCount + shape.rowShapeInvalidCount;
+      if (shape.rowShapeValidCount + shape.rowShapeInvalidCount > caps.maxRowsPerFile) {
+        return 'required_family_probe_cap_exceeded';
+      }
+    }
+  }
+  if (observedRows > caps.maxTotalRows) return 'required_family_probe_cap_exceeded';
+  return null;
+}
+
+/**
+ * Projects a validated probe scan into the report block. Only counts, booleans, buckets,
+ * class labels and histograms cross over; the per-family keys are re-filtered against the
+ * runner's own allowlist so a probe cannot introduce a key the report never agreed to carry.
+ */
+function projectRequiredFamilyProbe(
+  scan: BrazilReceitaFullJoinRequiredFamilyProbeScan,
+): BrazilReceitaFullJoinRequiredFamilyProbeReport {
+  const pickStrings = (source: Readonly<Record<string, string>>): Record<string, string> => {
+    const picked: Record<string, string> = {};
+    for (const family of BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES) {
+      const value = source?.[family];
+      if (typeof value === 'string') picked[family] = value;
+    }
+    return picked;
+  };
+
+  const filesOpenedByFamily: Record<string, number> = {};
+  const rowShape: BrazilReceitaFullJoinRequiredFamilyProbeReport['row_shape'] = {};
+  for (const family of BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES) {
+    const opened = scan.filesOpenedByFamily?.[family];
+    filesOpenedByFamily[family] = isCount(opened) ? opened : 0;
+    const shape = scan.rowShape?.[family];
+    if (shape === undefined) continue;
+    const distribution: Record<string, number> = {};
+    for (const [bucket, count] of Object.entries(shape.observedColumnCountDistribution ?? {})) {
+      if (isCount(count)) distribution[bucket] = count;
+    }
+    rowShape[family] = {
+      expected_min_columns: shape.expectedMinColumns,
+      observed_column_count_distribution: distribution,
+      row_shape_valid_count: shape.rowShapeValidCount,
+      row_shape_invalid_count: shape.rowShapeInvalidCount,
+    };
+  }
+
+  return {
+    families_attempted: [...BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES],
+    files_opened_count: scan.filesOpenedCount,
+    files_opened_by_family: filesOpenedByFamily,
+    bytes_read_bucket: pickStrings(scan.bytesReadBucket),
+    rows_read_bucket: pickStrings(scan.rowsReadBucket),
+    row_shape: rowShape,
+    encoding_status: pickStrings(scan.encodingStatus),
+    delimiter_status: pickStrings(scan.delimiterStatus),
+    headerless_status: pickStrings(scan.headerlessStatus),
+    forbidden_family_attempted: false,
+    forbidden_family_declared_count: scan.forbiddenFamilyCount,
+    selection_class: scan.selectionClass ?? 'selected',
+    never_opened_family_declared_count: scan.neverOpenedFamilyCount,
+    raw_rows_printed: false,
+    raw_cells_printed: false,
+    identifiers_printed: false,
+    filenames_printed: false,
+    absolute_paths_printed: false,
+    hashes_printed: false,
+    joins_executed: false,
+    join_coverage_computed: false,
+    full_dataset_processed: false,
+  };
+}
+
+// ─── Required-family probe run (BR-SOURCE-11F-IMPL) ────────────────────────────
+
+/**
+ * Runs the ULTRA-BOUNDED REQUIRED-FAMILY PROBE: the metadata gate and the ONE manifest
+ * control-document read it shares with the metadata-only carve-out, then the probe gate, ONE
+ * injected probe of at most two required-family files, re-validation of what the probe
+ * claimed, and an aggregate report.
+ *
+ * NO row value, cell, or identifier reaches the runner: the probe returns counts, buckets,
+ * class labels and a column-count histogram, so every row/eligibility/join count on the
+ * surrounding report stays zero by construction — this path never reaches the fixture scorer.
+ * The only thing that can be learned is whether the two required files parse structurally
+ * under caps, and that is not evidence about the dataset, its coverage, its join rates, its
+ * eligibility, GATE-1, or GATE-2.
+ */
+function runRequiredFamilyProbe(
+  input: BrazilReceitaFullJoinDryRunInput,
+  provenance: RunProvenance,
+): BrazilReceitaFullJoinDryRunReport {
+  // The manifest is read as a CONTROL DOCUMENT first, under the metadata-only gate: a probe
+  // that could not clear the manifest gate never gets to open a data file.
+  const metadataOutcome = readManifestMetadataBlock(input, provenance);
+  if (!metadataOutcome.ok) return metadataOutcome.report;
+  const metadata = metadataOutcome.metadata;
+
+  const gate = evaluateRequiredFamilyProbeGate(input);
+  if (!gate.ok) {
+    return failClosedReport(
+      provenance,
+      [{ error_code: gate.code, stage: 'required_family_probe_gate' }],
+      0,
+      0,
+      0,
+      metadata,
+    );
+  }
+
+  let scan: BrazilReceitaFullJoinRequiredFamilyProbeScan;
+  try {
+    // The ONE probe of the run. The probe owns the paths it resolved and validated; the
+    // runner passes the caps in and never learns a path.
+    scan = input.requiredFamilyProbeReader!({
+      maxManifestBytes: input.maxManifestBytes as number,
+      maxDeclaredFiles: input.maxDeclaredFiles as number,
+      maxFilesOpened: gate.caps.maxFilesOpened,
+      maxBytesPerFile: gate.caps.maxBytesPerFile,
+      maxRowsPerFile: gate.caps.maxRowsPerFile,
+      maxTotalRows: gate.caps.maxTotalRows,
+      maxTotalBytes: gate.caps.maxTotalBytes,
+    });
+  } catch {
+    // The underlying error is DISCARDED: a probe failure could carry a path or a fragment of
+    // a row in its message, so only the fixed stage/code survive.
+    return failClosedReport(
+      provenance,
+      [{ error_code: 'required_family_probe_read_failed', stage: 'required_family_probe_read' }],
+      0,
+      0,
+      0,
+      metadata,
+    );
+  }
+
+  const refusal = validateRequiredFamilyProbeScan(scan, gate.caps);
+  if (refusal !== null) {
+    return failClosedReport(
+      provenance,
+      [{ error_code: refusal, stage: 'required_family_probe_read' }],
+      0,
+      0,
+      0,
+      metadata,
+      isCount(scan?.forbiddenFamilyCount) ? scan.forbiddenFamilyCount : 0,
+    );
+  }
+
+  const guardrail = zeroCounts(GUARDRAIL_COUNT_KEYS);
+  guardrail.required_family_probe_files_opened = scan.filesOpenedCount;
+
+  const candidate = assembleReport({
+    ok: true,
+    provenance,
+    aggregate: zeroCounts(AGGREGATE_COUNT_KEYS),
+    eligibility: zeroCounts(ELIGIBILITY_COUNT_KEYS),
+    join: zeroCounts(JOIN_COUNT_KEYS),
+    guardrail,
+    manifestMetadata: metadata,
+    requiredFamilyProbe: projectRequiredFamilyProbe(scan),
+    cleanup: planBrazilReceitaFullJoinCleanup({
+      sanitizerFailed: false,
+      guardFailed: false,
+      errorCount: 0,
+    }),
+    errors: [],
+  });
+
+  // Output sanitization. A leak discards the metadata AND the probe block — the report never
+  // ships partially-sanitized content, and the offending value is never surfaced.
   const sanitized = sanitizeBrazilReceitaFullJoinReport(candidate);
   if (!sanitized.ok) {
     return failClosedReport(
@@ -1448,6 +2142,7 @@ export function runBrazilReceitaFullJoinDryRun(
       input.realManifestMetadataOnlyOptionBAuthorized === true,
     realManifestMetadataOnlyExecutionAuthorized:
       input.realManifestMetadataOnlyExecutionAuthorized === true,
+    requiredFamilyProbeAuthorized: input.requiredFamilyProbeAuthorized === true,
   };
 
   // 1) No-write / no-runtime guard. The WHOLE input is handed to the guard (minus the
@@ -1495,6 +2190,17 @@ export function runBrazilReceitaFullJoinDryRun(
     manifestTrust === BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST
   ) {
     return runRealManifestMetadataOnly(input, provenance);
+  }
+
+  // 3c) Option C: the ultra-bounded required-family probe. The only trust under which a file
+  //     the manifest REFERENCES is opened — one per required family, under the § 8 caps, for
+  //     structural classification only. Reads no row VALUE, so it too returns before the
+  //     fixture path.
+  if (
+    requestedMode === 'local_manifest_dry_run' &&
+    manifestTrust === BRAZIL_RECEITA_FULL_JOIN_REQUIRED_FAMILY_PROBE_TRUST
+  ) {
+    return runRequiredFamilyProbe(input, provenance);
   }
 
   let fixture: BrazilReceitaFullJoinSyntheticFixture;
