@@ -18,7 +18,17 @@
  *                                  local manifest as a CONTROL DOCUMENT and reports
  *                                  schema-level metadata only. **No file the manifest
  *                                  references is opened or stat-ed, and no row is read.**
- *                                  Requires --strict and both metadata caps.
+ *                                  Requires --strict and both metadata caps. On its own it
+ *                                  still refuses an operator's staged directory and a real
+ *                                  prepared manifest basename.
+ *   … --real-manifest-metadata-execution
+ *                                  The BR-SOURCE-11E declaration, valid ONLY together with
+ *                                  --real-manifest-metadata-only. Lets the run name the
+ *                                  OPERATOR'S OWN prepared manifest document: it relaxes
+ *                                  the staging-directory and prepared-basename refusals for
+ *                                  --manifest, and NOTHING else. Still one manifest, still
+ *                                  metadata-only, still no referenced file, no row, no
+ *                                  join, no cap relief; --output keeps every refusal.
  *   --manifest <p> --allow-local-manifest
  *                                  Declares REAL local-manifest EXECUTION intent. Still
  *                                  refused by the runner core: a real manifest can never
@@ -33,8 +43,10 @@
  *   - reads a manifest it did not generate itself, EXCEPT the single manifest document
  *     of an explicit `--real-manifest-metadata-only` run.
  *   - accepts a CSV/ZIP payload, a directory, a URL, or a remote location.
- *   - accepts a path under an operator's download or source-data directories.
- *   - accepts a manifest whose basename names a real prepared file set, on any flag.
+ *   - accepts a `--manifest` path under an operator's download or source-data directories,
+ *     or one whose basename names a real prepared file set, UNLESS the run declares
+ *     `--real-manifest-metadata-execution` (BR-SOURCE-11E) — which widens which manifest
+ *     DOCUMENT may be named and nothing else. `--output` keeps both refusals on every flag.
  *   - reads, samples, or counts a row; or computes a join over real data.
  *   - downloads, unzips, imports, executes, or processes the full dataset.
  *   - opens a Supabase client or performs a production/runtime write.
@@ -179,6 +191,11 @@ export interface FullJoinRunnerOptions {
   readonly syntheticTempManifest: boolean;
   /** True for the metadata-only carve-out: ONE real manifest, parsed, no data file read. */
   readonly realManifestMetadataOnly: boolean;
+  /**
+   * True for the BR-SOURCE-11E declaration: the manifest DOCUMENT may be the operator's own
+   * prepared one. Widens which `--manifest` is accepted; widens nothing about the run.
+   */
+  readonly realManifestMetadataExecution: boolean;
   readonly format: FullJoinRunnerFormat;
   readonly strict: boolean;
   readonly maxCompanyRows: number | null;
@@ -272,6 +289,7 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   let syntheticFixture = false;
   let syntheticTempManifest = false;
   let realManifestMetadataOnly = false;
+  let realManifestMetadataExecution = false;
   let manifest: string | null = null;
   let allowLocalManifest = false;
   let format: FullJoinRunnerFormat = 'text';
@@ -311,6 +329,9 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
         break;
       case 'real-manifest-metadata-only':
         realManifestMetadataOnly = true;
+        break;
+      case 'real-manifest-metadata-execution':
+        realManifestMetadataExecution = true;
         break;
       case 'manifest':
         manifest = takeValue();
@@ -379,8 +400,14 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
     if (path.extname(manifest).toLowerCase() !== '.json') {
       throw new ForbiddenFullJoinRunnerModeError('--manifest must point to a local .json manifest');
     }
-    assertNoForbiddenPathSegment('--manifest', manifest);
-    assertNoForbiddenManifestBasename(manifest);
+    // These two refusals — and only these two — are what the BR-SOURCE-11E declaration
+    // relaxes, for the manifest DOCUMENT only. The URL and non-`.json` refusals above hold
+    // on every flag, `--output` below keeps both refusals unconditionally, and nothing the
+    // manifest references is opened or stat-ed on any path.
+    if (!realManifestMetadataExecution) {
+      assertNoForbiddenPathSegment('--manifest', manifest);
+      assertNoForbiddenManifestBasename(manifest);
+    }
   }
 
   const requestedModes = [syntheticFixture, syntheticTempManifest, manifest !== null].filter(
@@ -394,6 +421,15 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   if (requestedModes > 1) {
     throw new ForbiddenFullJoinRunnerModeError(
       '--synthetic-fixture, --synthetic-temp-manifest and --manifest are mutually exclusive — pick exactly one mode',
+    );
+  }
+
+  // BR-SOURCE-11E is a rider on the metadata-only carve-out, never a mode of its own: on
+  // any other invocation it would be a declaration with no carve-out to qualify, so it is
+  // refused here rather than silently ignored.
+  if (realManifestMetadataExecution && !realManifestMetadataOnly) {
+    throw new ForbiddenFullJoinRunnerModeError(
+      '--real-manifest-metadata-execution is only valid together with --real-manifest-metadata-only',
     );
   }
 
@@ -470,6 +506,7 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
     allowLocalManifest: allowLocalManifest || syntheticTempManifest,
     syntheticTempManifest,
     realManifestMetadataOnly,
+    realManifestMetadataExecution,
     format,
     strict,
     maxCompanyRows,
@@ -518,6 +555,9 @@ export function formatReportText(report: BrazilReceitaFullJoinDryRunReport): str
   lines.push(`option_b_carveout_authorized: ${report.option_b_carveout_authorized}`);
   lines.push(
     `real_manifest_metadata_only_option_b_authorized: ${report.real_manifest_metadata_only_option_b_authorized}`,
+  );
+  lines.push(
+    `real_manifest_metadata_only_execution_authorized: ${report.real_manifest_metadata_only_execution_authorized}`,
   );
   lines.push(`source_key: ${report.source_key}`);
   lines.push(`country_code: ${report.country_code}`);
@@ -575,6 +615,8 @@ export function runFullJoinDryRun(
       ? createBrazilReceitaRealManifestMetadataReader({
           manifestPath: options.manifestPath,
           realManifestMetadataOnlyOptionBAuthorized: true,
+          // BR-SOURCE-11E: declared only when the operator asked for it on this invocation.
+          realManifestMetadataOnlyExecutionAuthorized: options.realManifestMetadataExecution,
           maxManifestBytes: options.maxManifestBytes ?? undefined,
           maxDeclaredFiles: options.maxDeclaredFiles ?? undefined,
         })
@@ -601,6 +643,7 @@ export function runFullJoinDryRun(
         ? {
             manifestTrust: BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST,
             realManifestMetadataOnlyOptionBAuthorized: true,
+            realManifestMetadataOnlyExecutionAuthorized: options.realManifestMetadataExecution,
             outputSanitizationVersion: BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
             realManifestMetadataReader: metadataReader,
           }
