@@ -676,9 +676,17 @@ export async function runApolloOrganizationsSearch(
   };
 
   // ── A1-APOLLO-WIZARD-1: búsqueda paginada acotada ───────────────────────────
-  // El presupuesto sale de los guardrails Apollo vigentes; con los defaults
-  // (1 query × 3 resultados) esto es exactamente una página, igual que antes.
-  const paginationBudget = createApolloPaginationBudget({ perPage: cap });
+  // Una invocación de este provider = UNA query = UNA página.
+  //
+  // maxPages se fija en 1 a propósito. El presupuesto entre queries y rondas ya
+  // lo gobierna aguas arriba `AGENT1_APOLLO_MAX_QUERIES_PER_RUN` (cap global
+  // acumulado en incremental-search.ts, v1.16K-AC), y el wizard reserva créditos
+  // como maxQueries × maxResults antes de ejecutar. Derivar maxPages de esa
+  // misma variable multiplicaría el gasto por query (N queries × N páginas) y
+  // dejaría el consumo real por encima de lo reservado — exactamente la causa
+  // raíz que v1.16K-AC cerró. Paginar dentro de una query requiere un
+  // presupuesto propio, no reutilizar el cap de queries.
+  const paginationBudget = createApolloPaginationBudget({ perPage: cap, maxPages: 1 });
   const apolloPageLogs: ApolloPageLogEntry[] = [];
 
   // Transporte: el real por defecto; `searchOrgs` se adapta para no romper a

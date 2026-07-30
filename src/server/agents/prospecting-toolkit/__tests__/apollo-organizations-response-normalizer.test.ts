@@ -66,6 +66,18 @@ describe('A1-APOLLO-WIZARD-1 · normalización de dominios', () => {
   it('sin dominios devuelve un array vacío, no un fallo', () => {
     assert.deepEqual(buildNormalizedDomains(null, null, null), []);
   });
+
+  // ── A1-APOLLO-WIZARD-1R: formas de all_domains que Apollo puede devolver ────
+  it('tolera all_domains omitido, vacío, null y con entradas nulas o basura', () => {
+    assert.deepEqual(buildNormalizedDomains('acme.com', undefined), ['acme.com']);
+    assert.deepEqual(buildNormalizedDomains('acme.com', []), ['acme.com']);
+    assert.deepEqual(buildNormalizedDomains('acme.com', null), ['acme.com']);
+    assert.deepEqual(
+      buildNormalizedDomains('acme.com', [null, undefined, '', '   ', 'localhost', 'ACME.com']),
+      ['acme.com'],
+      'las entradas inválidas se descartan sin desplazar al dominio principal',
+    );
+  });
 });
 
 describe('A1-APOLLO-WIZARD-1 · normalización de respuesta', () => {
@@ -171,6 +183,34 @@ describe('A1-APOLLO-WIZARD-1 · normalización de respuesta', () => {
     assert.equal(result.organizations.length, 1);
     assert.equal(result.organizations[0].name, 'Acme S.A.S');
     assert.equal(result.meta.duplicates_removed_count, 1);
+  });
+
+  // A1-APOLLO-WIZARD-1R: la cara opuesta del dedup — colapsar de más sería
+  // perder una empresa real, no ahorrar una duplicada.
+  it('no colapsa dos organizaciones distintas con ids distintos', () => {
+    const result = normalizeApolloOrganizationsResponse({
+      organizations: [
+        ORG_ACME,
+        { ...ORG_ACME, id: 'org_acme_2', name: 'Acme Andina S.A.S' },
+      ],
+      accounts: [
+        { id: 'acct_x', organization_id: 'org_acme_1', city: 'Medellín' },
+        { id: 'acct_y', organization_id: 'org_acme_2', city: 'Cali' },
+      ],
+    });
+
+    assert.equal(result.organizations.length, 2);
+    assert.deepEqual(
+      result.organizations.map((org) => org.providerReference.providerOrganizationId),
+      ['org_acme_1', 'org_acme_2'],
+    );
+    assert.deepEqual(
+      result.organizations.map((org) => org.providerReference.providerAccountId),
+      ['acct_x', 'acct_y'],
+      'cada organización conserva su propio account id del workspace',
+    );
+    assert.equal(result.meta.duplicates_removed_count, 0);
+    assert.equal(result.meta.accounts_only_count, 0);
   });
 
   it('descarta entradas de organizations sin id', () => {
