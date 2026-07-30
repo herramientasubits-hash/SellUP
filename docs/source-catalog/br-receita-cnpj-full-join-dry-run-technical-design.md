@@ -1038,3 +1038,29 @@ Every digit-length reference, enum member, error code, and JSON value shown abov
 name, a class label, a length rule, a zero, a `false`, or an explicit placeholder — never a real
 value. Synthetic fixture refs are opaque labels that are counted but never emitted. Local WIP
 (`scratchpad/`) is untouched by any git operation.
+
+---
+
+## 23. BR-SOURCE-11C blocked — `local_manifest_dry_run` needs a carve-out or GATE-1/GATE-2
+
+BR-SOURCE-11B validated the merged § 22 scaffold post-merge in synthetic-only mode.
+BR-SOURCE-11C then attempted to enable the § 22.2 `local_manifest_dry_run` mode and was blocked as
+`BRSOURCE11CD — LOCAL_MANIFEST_GUARD_FAILED`.
+
+```text
+11C was blocked because local_manifest_dry_run requires an explicit carve-out or GATE-1/GATE-2
+approval.
+11C-R records the carve-out decision question.
+No gate is approved.
+No real manifest execution is authorized.
+```
+
+The carve-out decision question, its four options, the recommended option (Option B — synthetic
+temp-manifest only), its boundaries and caps, and the evidence required before implementing
+BR-SOURCE-11C are recorded in the docs-only decision record
+[`br-receita-cnpj-local-manifest-dry-run-carveout-decision-record.md`](./br-receita-cnpj-local-manifest-dry-run-carveout-decision-record.md).
+That record is `proposed_for_owner_review`: it approves no gate, all eight gates remain
+`not_started`, and it authorizes no real manifest execution, no real data-file execution, no dataset
+import, no Supabase write, no migration, no runtime change, and no Agent 1 integration. The § 22.2
+behavior described above is therefore unchanged: the runner still refuses with
+`local_manifest_execution_not_authorized` and performs no filesystem read at all.
