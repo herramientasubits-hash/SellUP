@@ -1174,3 +1174,37 @@ It does **not**:
 
 No secrets, no data dumps, no real CNPJs, no CNPJ básico values, no CPFs, and no partner (sócio)
 personal data are reproduced. Local WIP (`scratchpad/`) is untouched by any git operation.
+
+---
+
+## 20. BR-SOURCE-11C blocked — carve-out decision question recorded, no gate approved
+
+BR-SOURCE-11A landed the full join dry-run runner scaffold behind hard no-write / no-runtime guards
+(the § 4 override the owners were warned would be required), and BR-SOURCE-11B validated it
+post-merge in synthetic-only mode. BR-SOURCE-11C then attempted to enable the runner's
+`local_manifest_dry_run` mode and was blocked as `BRSOURCE11CD — LOCAL_MANIFEST_GUARD_FAILED`.
+
+```text
+11C was blocked because local_manifest_dry_run requires an explicit carve-out or GATE-1/GATE-2
+approval.
+11C-R records the carve-out decision question.
+No gate is approved.
+No real manifest execution is authorized.
+```
+
+The decision question, its four options, the recommended option (Option B — synthetic temp-manifest
+carve-out only), the proposed boundaries and caps, and the evidence required before implementing
+BR-SOURCE-11C are recorded in the docs-only decision record
+[`br-receita-cnpj-local-manifest-dry-run-carveout-decision-record.md`](./br-receita-cnpj-local-manifest-dry-run-carveout-decision-record.md).
+
+Three points matter for this checklist. **A carve-out is not a gate approval:** its status is
+`proposed_for_owner_review`, all eight gates remain `not_started` per § 15, the § 15 matrix still
+reads **NO-GO**, and GATE-1 and GATE-2 retain sole authority over any real manifest or real data-file
+execution. **Blockage is the checklist working, not failing:** the guard refused precisely because
+reading a real manifest is the first data-read step beyond synthetic-only execution, which is the
+subject matter of the two least-advanced gates. **The record authorizes nothing on its own:** it
+adds no runner, no command, no test and no fixture; decides no field allowlist, grain or storage
+envelope; freezes no report schema; creates no migration and changes no index or physical schema;
+and authorizes **no** real manifest execution, real data-file execution, dataset import, Supabase
+write, runtime change or Agent 1 integration. Any Option B implementation additionally requires the
+record to be merged **and** an explicit owner authorization phrase, recorded separately.
