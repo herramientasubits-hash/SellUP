@@ -2,6 +2,8 @@
 // client components. The values are resolved at request time by server
 // components and server actions, then sent to the client as plain booleans.
 
+import { isEnvFlagEnabled } from '@/lib/env-flag-parser';
+
 /**
  * Returns true when ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION is "true"
  * (case-insensitive, leading/trailing whitespace ignored).
@@ -157,11 +159,14 @@ export const APOLLO_COMPANY_SEARCH_FLAG = 'ENABLE_APOLLO_COMPANY_SEARCH';
  * When enabled, real Apollo organization searches are wired into Agent 1's
  * discovery pipeline. Must not be enabled until pricing migration is applied
  * and the real Apollo API integration is validated.
+ *
+ * A1-APOLLO-BUDGET-RECONCILIATION-1: routed through the canonical env parser so
+ * this read and wizard-provider-resolver's can never drift apart — the provider
+ * indicator and the code that spends credits must resolve the same flag the
+ * same way. Behaviour is unchanged: only the exact token `true` enables Apollo.
  */
 export function isApolloCompanySearchEnabled(): boolean {
-  return (
-    process.env[APOLLO_COMPANY_SEARCH_FLAG]?.trim().toLowerCase() === 'true'
-  );
+  return isEnvFlagEnabled(process.env[APOLLO_COMPANY_SEARCH_FLAG]);
 }
 
 /** Flag name constant for Apollo Organization Enrichment cascade in Agent 1 (L2.15). */
