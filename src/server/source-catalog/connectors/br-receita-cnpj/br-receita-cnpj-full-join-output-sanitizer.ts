@@ -13,6 +13,12 @@
  *   - a CNPJ básico / raiz (8 continuous digits appearing as a VALUE);
  *   - an email marker, a phone-like token, or a LinkedIn URL;
  *   - a `raw_row` / `rawRows` / `raw_data` key carrying a non-empty payload;
+ *   - a `raw_manifest` / `manifest_json` key carrying a payload — from
+ *     BR-SOURCE-11D-META-IMPL a real manifest DOCUMENT can be parsed, and echoing it
+ *     would leak declared filenames, paths, and the declared period in one step;
+ *   - a `file_name` / `manifest_path` / `basename` key carrying a value — a declared
+ *     filename is operator-environment information, and a RELATIVE one would slip past
+ *     the absolute-path value pattern below, so it is blocked by key as well;
  *   - a `record_identity_key`, `normalized_tax_id`, `cnpj_basico`, `cnpj`, or `cpf`
  *     key carrying a real value;
  *   - a `hash` / `fingerprint` / `sha` key carrying a value — hashing an identifier
@@ -48,6 +54,8 @@ export type BrazilReceitaFullJoinLeakKind =
   | 'linkedin_url_like'
   | 'raw_row_payload'
   | 'raw_data_payload'
+  | 'raw_manifest_payload'
+  | 'declared_filename_payload'
   | 'record_identity_key_value'
   | 'normalized_tax_id_value'
   | 'cnpj_key_value'
@@ -66,6 +74,8 @@ export const BRAZIL_RECEITA_FULL_JOIN_LEAK_KINDS: readonly BrazilReceitaFullJoin
   'linkedin_url_like',
   'raw_row_payload',
   'raw_data_payload',
+  'raw_manifest_payload',
+  'declared_filename_payload',
   'record_identity_key_value',
   'normalized_tax_id_value',
   'cnpj_key_value',
@@ -172,6 +182,33 @@ const EMPTY_ONLY_KEY_RULES: ReadonlyArray<{
 }> = [
   { matches: (k) => k.includes('rawrow'), kind: 'raw_row_payload' },
   { matches: (k) => k.includes('rawdata') || k.includes('rawcell'), kind: 'raw_data_payload' },
+  {
+    // The manifest may be PARSED; it may never be ECHOED. A report carrying the raw
+    // document has leaked declared filenames, paths, and the declared period in one
+    // step, which is why raw-manifest output is forbidden even though the manifest is
+    // the input (BR-SOURCE-11D-META decision record § 4.3).
+    matches: (k) =>
+      k.includes('rawmanifest') ||
+      k.includes('manifestraw') ||
+      k.includes('manifestjson') ||
+      k.includes('manifestdocument') ||
+      k.includes('manifestbody'),
+    kind: 'raw_manifest_payload',
+  },
+  {
+    // A declared FILENAME is operator-environment information, not a class label. A
+    // family label (`empresas`) is reportable; the file it names never is — and a
+    // relative filename would slip past the absolute-path value pattern, so it is
+    // blocked by KEY as well.
+    matches: (k) =>
+      k.includes('filename') ||
+      k.includes('filepath') ||
+      k.includes('manifestpath') ||
+      k.includes('declaredpath') ||
+      k.includes('basename') ||
+      k.includes('absolutepath'),
+    kind: 'declared_filename_payload',
+  },
   { matches: (k) => k.includes('identitykey'), kind: 'record_identity_key_value' },
   { matches: (k) => k.includes('normalizedtaxid'), kind: 'normalized_tax_id_value' },
   { matches: (k) => k.includes('cnpjbasico'), kind: 'cnpj_basico_key_value' },

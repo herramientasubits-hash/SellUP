@@ -1183,3 +1183,133 @@ then, § 24.2's trust check remains the only accepted value and every other mani
 `local_manifest_execution_not_authorized`.
 
 Record: [`br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md`](./br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md).
+
+> **Answered.** The record merged as PR #167 and the owners gave the phrase
+> `AUTHORIZE OPTION B — REAL MANIFEST METADATA-ONLY CARVE-OUT`. § 26 records the implementation.
+
+---
+
+## 26. BR-SOURCE-11D-META-IMPL — real manifest metadata-only parsing implemented
+
+BR-SOURCE-11D-META-IMPL implements metadata-only parsing support after explicit owner
+authorization:
+
+```text
+AUTHORIZE OPTION B — REAL MANIFEST METADATA-ONLY CARVE-OUT
+```
+
+It authorizes only manifest metadata parsing.
+It does not authorize opening referenced Receita data files.
+It does not authorize row reads.
+It does not authorize join coverage.
+It does not approve any gate.
+It does not authorize import.
+It does not authorize Supabase writes.
+It does not authorize runtime or Agent 1.
+
+### 26.1 The second trust level and the second reader port
+
+The § 22.2 gate now dispatches on the declared manifest **trust**, and the two carve-outs are
+independent:
+
+```text
+manifest_trust:
+  not_applicable                — no local manifest involved
+  synthetic_temp_manifest_only  — BR-SOURCE-11C (§ 24). Reads synthetic CSVs it generated.
+  real_manifest_metadata_only   — BR-SOURCE-11D-META-IMPL. Reads ONE manifest DOCUMENT.
+  real_manifest_not_authorized  — refused, as always
+```
+
+Each carve-out is gated by its **own** owner flag, because the two owner phrases are separate,
+single-scope, and non-transferable:
+
+```text
+optionBCarveoutAuthorized                      → synthetic temp-manifest branch only
+realManifestMetadataOnlyOptionBAuthorized      → metadata-only branch only
+```
+
+Neither flag satisfies the other's gate. Holding only the synthetic flag on a metadata-only run
+fails closed with `real_manifest_metadata_only_not_authorized`; holding only the metadata flag on a
+synthetic run fails closed with `option_b_carveout_not_authorized`.
+
+The metadata-only branch **returns before the fixture scorer is reachable**, so every row,
+eligibility, and join count on a metadata-only report is structurally zero.
+
+### 26.2 The metadata-only reader contract
+
+`br-receita-cnpj-real-manifest-metadata-reader.ts` implements the port. Its defining invariant —
+"resolves exactly one path" — is enforced structurally and asserted three ways (static source guard,
+instrumented `node:fs` observation with the referenced files materialized on disk, and the runner's
+own re-validation of the scan's `referenced_data_files_opened` / `_statted` assertions).
+
+```text
+Reads:      the manifest document, once, under maxManifestBytes.
+Never:      stat / lstat / existsSync / readdir / glob / readFile / createReadStream / path.join.
+Bounded:    requests ONE byte beyond the ceiling — an oversized document is REFUSED, never
+            parsed truncated, because a truncated JSON document is a different document.
+Returns:    booleans, counts, and class labels. No path, filename, period value, or raw document.
+```
+
+Caps, both REQUIRED of the caller (a cap nobody stated is a cap nobody agreed to):
+
+```text
+maxManifestBytes  <= 1_000_000
+maxDeclaredFiles  <= 20
+allowedLayoutMode  = official_headerless
+```
+
+Contract breaches **throw** a fixed code; manifest-CONTENT problems are **reported** on the scan so
+the runner can fail closed *and* still emit the aggregate that explains why — a forbidden family is
+reported as a count, never filtered out and never named.
+
+### 26.3 The report block
+
+```text
+manifest_metadata:            null on every non-metadata run
+  schema_version_present:     boolean
+  source_period_present:      boolean          (presence only — never the value)
+  layout_mode:                official_headerless | invalid_or_unsupported | unknown
+  declared_file_count:        number
+  required_family_count:      number
+  missing_required_family_count: number
+  forbidden_family_count:     number           (count only — never a label)
+  declared_family_counts:     allowlisted family keys + "other"
+  required_families_present:  boolean
+  forbidden_families_present: boolean
+  manifest_bytes_read_bucket: lte_1mb | over_limit_blocked   (bucket, never a byte figure)
+  referenced_data_files_opened:  false
+  referenced_data_files_statted: false
+  raw_manifest_printed:          false
+  absolute_paths_printed:        false
+```
+
+### 26.4 Sanitizer additions
+
+The carve-out makes two new output shapes possible, so § 22's sanitizer gained two leak kinds:
+
+```text
+raw_manifest_payload        — a raw_manifest / manifest_json / manifest_document key with a payload.
+                              The manifest may be PARSED; it may never be ECHOED.
+declared_filename_payload   — a file_name / manifest_path / basename key with a value. A RELATIVE
+                              filename holds no absolute-path shape, so the KEY rule is what
+                              catches it.
+```
+
+### 26.5 CLI
+
+```text
+--real-manifest-metadata-only   requires --manifest, --allow-local-manifest, --strict,
+                                --max-manifest-bytes and --max-declared-files.
+```
+
+The real prepared manifest basenames (`manifest.headerless.json`, `manifest.real.json`) stay refused
+on this flag as well as the old ones: the code path is proven with **synthetic** metadata manifests,
+and executing an operator's real prepared file set is a separate operator step.
+
+### 26.6 What this section does NOT establish
+
+No real operator manifest has been read by any SellUp code path. No file referenced by any manifest
+has been opened or stat-ed. No row has been read, parsed, counted, or hashed. No join has been
+computed over real data. **No coverage figure about the real dataset exists**, and a green
+metadata-only run is not citable as GATE-1 or GATE-2 evidence, or as evidence about the dataset's
+coverage, join rates, or eligibility. All eight gates remain `not_started` / not approved.
