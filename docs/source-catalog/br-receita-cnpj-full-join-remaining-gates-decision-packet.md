@@ -1607,3 +1607,87 @@ manifest and real data-file execution, and the record authorizes no dataset impo
 write, no migration, no index change, no runtime change and no Agent 1 integration. The § 19.3 flags
 are unchanged except that `FULL_JOIN_RUNNER_READY = true` now that the BR-SOURCE-11A scaffold has
 merged; `FULL_JOIN_EXECUTION_READY` remains `false`.
+
+---
+
+## 21. BR-SOURCE-11C — Option B authorized and implemented, gates unchanged
+
+BR-SOURCE-11C implements Option B after explicit owner authorization:
+
+```text
+AUTHORIZE OPTION B — SYNTHETIC TEMP-MANIFEST CARVE-OUT ONLY
+```
+
+This authorizes only synthetic temp-manifest plumbing and tests.
+It does not authorize real manifest execution.
+It does not authorize real Receita data-file execution.
+It does not approve any gate.
+It does not authorize import.
+It does not authorize Supabase writes.
+It does not authorize runtime or Agent 1.
+
+### 21.1 Gate status after BR-SOURCE-11C — UNCHANGED
+
+```text
+GATE-1 Legal/Privacy                = not_started / not approved
+GATE-2 Temporary storage envelope   = not_started / not approved
+GATE-3 Field allowlist              = not_started / not approved
+GATE-4 Identity grain               = not_started / not approved
+GATE-5 Output sanitization          = not_started / not approved
+GATE-6 Failure cleanup              = not_started / not approved
+GATE-7 Operator runbook             = not_started / not approved
+GATE-8 No-write/no-runtime          = not_started / not approved
+```
+
+The § 20.1 statement — "a carve-out is not a gate approval" — is now a landed fact rather than a
+forecast. `local_manifest_dry_run` executes, but only against a manifest this codebase generated
+itself from synthetic cells in a temp workspace it owns. GATE-1 and GATE-2 retain **sole** authority
+over real manifest reading and real data-file reading, and every Option B run reports all eight gates
+`not_approved`.
+
+### 21.2 Why no gate moved, mechanism-by-mechanism
+
+The temptation after 11C is to read exercised mechanisms as satisfied gates. They are not:
+
+| Gate | Mechanism exercised in 11C | Why the gate is still `not_started` |
+|------|---------------------------|-------------------------------------|
+| GATE-1 Legal/Privacy | none | No regulated data was read. The bytes read were written by the generator seconds earlier, so the legal/privacy question was never posed, let alone answered. |
+| GATE-2 Temporary storage envelope | a self-created temp workspace, removed after use | An envelope for *synthetic* artifacts is not an envelope for real dataset spill. Size, retention, encryption and location policy for real data remain unwritten. |
+| GATE-3 Field allowlist | none | The synthetic files carry positional MARKERS, not real Receita fields. No real field was classified, so no allowlist was validated. |
+| GATE-4 Identity grain | none | `identity_keys_constructed` stays `false`; no `record_identity_key` or `normalized_tax_id` is built anywhere in the path. |
+| GATE-5 Output sanitization | sanitizer run on the new path, plus a new `filesystem_path_like` rule | `outputSanitizationVersion` is required to be the literal `not_approved` for a run to proceed. Exercising the sanitizer is not approving its version. |
+| GATE-6 Failure cleanup | contained removal of the self-created workspace | The cleanup MODEL still reports `not_executed` / `cleanup_engine_not_authorized`. A generator deleting its own temp directory is not a dataset-scale cleanup engine. |
+| GATE-7 Operator runbook | none | No operator step was performed or documented as executable against real data. |
+| GATE-8 No-write/no-runtime | the guard runs on every Option B run and still fails on any dangerous indicator | Same as § 19.1: the mechanism existing and passing is not the gate being approved. |
+
+### 21.3 Flags after BR-SOURCE-11C
+
+```text
+OPS_BR_LOCAL_MANIFEST_CARVEOUT_OPTION_B_AUTHORIZED       = true
+OPS_BR_OPTION_B_SYNTHETIC_TEMP_MANIFEST_DRY_RUN_PR_READY = true
+OPS_BR_OPTION_B_SYNTHETIC_TEMP_MANIFEST_DRY_RUN_OFFICIAL = false until merge
+
+OPS_BR_REAL_LOCAL_MANIFEST_AUTHORIZED                    = false
+OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED           = false
+
+FULL_JOIN_RUNNER_READY                                   = true
+FULL_JOIN_EXECUTION_READY                                = false
+IMPORT_READY                                             = false
+RUNTIME_READY                                            = false
+AGENT1_READY                                             = false
+
+OPS_BR_READY_FOR_IMPORT                                  = false
+OPS_BR_READY_FOR_PRODUCTION_IMPORT                       = false
+OPS_BR_READY_FOR_RUNTIME                                 = false
+OPS_BR_LIVE_PROSPECT_GENERATION_READY                    = false
+OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED            = false
+```
+
+### 21.4 What remains blocked
+
+Everything in § 13 and § 20.1 survives unchanged: real manifest execution, real data-file dry-run,
+full-dataset processing, full join execution, dataset download, import, Supabase writes, production
+writes, migrations, index changes, runtime integration, Agent 1 integration, provider calls, HubSpot,
+Slack, live generation, and full expansion. Option C (real manifest metadata-only) and Option D
+(bounded real local data-file dry-run) each still require their own separate, explicitly-worded owner
+authorization, recorded in their own milestone — landing Option B advances neither.

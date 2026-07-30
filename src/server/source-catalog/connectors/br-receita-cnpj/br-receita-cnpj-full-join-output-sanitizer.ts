@@ -21,6 +21,9 @@
  *     an aggregate count or a bounded cap, all far below that; a huge number is
  *     therefore either a leaked identifier or a full-dataset-scale count, and both
  *     must fail closed.
+ *   - a FILESYSTEM PATH (an absolute POSIX path, a Windows drive path, or a `file:`
+ *     URL). From BR-SOURCE-11C onward a synthetic temp workspace exists on disk, and a
+ *     temp path still names the operator's machine — so no report may carry one.
  *
  * Safe shapes pass by construction, not by exception: `YYYY-MM` and `2026-07` carry a
  * separator so they hold no 8-digit run; hito labels (`BR-SOURCE-11A`) and
@@ -51,7 +54,8 @@ export type BrazilReceitaFullJoinLeakKind =
   | 'cpf_key_value'
   | 'cnpj_basico_key_value'
   | 'identifier_hash_value'
-  | 'oversized_numeric_value';
+  | 'oversized_numeric_value'
+  | 'filesystem_path_like';
 
 export const BRAZIL_RECEITA_FULL_JOIN_LEAK_KINDS: readonly BrazilReceitaFullJoinLeakKind[] = [
   'cnpj_completo_like',
@@ -69,6 +73,7 @@ export const BRAZIL_RECEITA_FULL_JOIN_LEAK_KINDS: readonly BrazilReceitaFullJoin
   'cnpj_basico_key_value',
   'identifier_hash_value',
   'oversized_numeric_value',
+  'filesystem_path_like',
 ];
 
 /** The single aggregate error code surfaced on a report when sanitization fails. */
@@ -108,6 +113,16 @@ const PHONE_LIKE = /\+\d[\d\s().-]{7,}/;
 const LINKEDIN_LIKE = /linkedin\.[a-z]{2,}/i;
 /** A hex digest of md5 length or beyond — a derived identifier fingerprint. */
 const HEX_DIGEST_LIKE = /(?<![a-f0-9])[a-f0-9]{32,}(?![a-f0-9])/i;
+/**
+ * A filesystem location: an absolute POSIX path of two or more segments, a Windows
+ * drive path, or a `file:` URL. Matters from BR-SOURCE-11C onward, because a synthetic
+ * temp-manifest run is the first time a real path exists anywhere in the process — and
+ * a temp path still names the operator's machine, so no report may ever carry one.
+ * Every legitimate report value (`not_approved`, `official_headerless`, `YYYY-MM`, a
+ * source key, a count) is separator-free, so this cannot fire on a safe shape.
+ */
+const FILESYSTEM_PATH_LIKE =
+  /(?:^|[\s"'(=[,])(?:\/[A-Za-z0-9._-]+){2,}|[A-Za-z]:[\\/][A-Za-z0-9._-]|file:\/\//;
 
 /** Local-part@domain, assembled without a literal marker character in a string. */
 const EMAIL_LIKE = new RegExp(
@@ -128,6 +143,8 @@ const VALUE_PATTERNS: ReadonlyArray<
   [CNPJ_BASICO_CONTINUOUS, 'cnpj_basico_like'],
   [LONG_DIGIT_RUN, 'cnpj_basico_like'],
   [HEX_DIGEST_LIKE, 'identifier_hash_value'],
+  // Last: the tighter identifier kinds above should name a leak before this does.
+  [FILESYSTEM_PATH_LIKE, 'filesystem_path_like'],
 ];
 
 /**

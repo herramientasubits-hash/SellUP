@@ -985,11 +985,13 @@ It does not authorize runtime or Agent 1.
 
 - `synthetic_fixture_only` — the DEFAULT and the only mode that produces metrics. Scores an
   injected or built-in synthetic fixture with zero file I/O.
-- `local_manifest_dry_run` — DECLARED and fully gated, but always refuses in this hito. It first
-  requires `allowLocalManifest: true`, and then still returns
+- `local_manifest_dry_run` — DECLARED and fully gated, and always refuses **as landed in
+  BR-SOURCE-11A**. It first requires `allowLocalManifest: true`, and then still returns
   `local_manifest_execution_not_authorized`, because opening a real local manifest is precisely
   what GATE-1 (legal/privacy) and GATE-2 (temporary storage envelope) would have to authorize.
   **The runner therefore performs no filesystem read at all in BR-SOURCE-11A.**
+  BR-SOURCE-11C later opened this mode for **synthetic temp manifests only**, under the Option B
+  carve-out — see § 24. A REAL manifest is still refused with the same error code.
 
 ### 22.3 Bounded caps
 
@@ -1059,8 +1061,102 @@ The carve-out decision question, its four options, the recommended option (Optio
 temp-manifest only), its boundaries and caps, and the evidence required before implementing
 BR-SOURCE-11C are recorded in the docs-only decision record
 [`br-receita-cnpj-local-manifest-dry-run-carveout-decision-record.md`](./br-receita-cnpj-local-manifest-dry-run-carveout-decision-record.md).
-That record is `proposed_for_owner_review`: it approves no gate, all eight gates remain
-`not_started`, and it authorizes no real manifest execution, no real data-file execution, no dataset
-import, no Supabase write, no migration, no runtime change, and no Agent 1 integration. The § 22.2
-behavior described above is therefore unchanged: the runner still refuses with
-`local_manifest_execution_not_authorized` and performs no filesystem read at all.
+That record approves no gate, all eight gates remain `not_started`, and it authorizes no real
+manifest execution, no real data-file execution, no dataset import, no Supabase write, no migration,
+no runtime change, and no Agent 1 integration. It was subsequently **answered** by the owner in
+favour of Option B; see § 24 for what BR-SOURCE-11C implemented under that answer.
+
+---
+
+## 24. BR-SOURCE-11C — Option B synthetic temp-manifest carve-out implemented
+
+BR-SOURCE-11C implements Option B after explicit owner authorization:
+
+```text
+AUTHORIZE OPTION B — SYNTHETIC TEMP-MANIFEST CARVE-OUT ONLY
+```
+
+This authorizes only synthetic temp-manifest plumbing and tests.
+It does not authorize real manifest execution.
+It does not authorize real Receita data-file execution.
+It does not approve any gate.
+It does not authorize import.
+It does not authorize Supabase writes.
+It does not authorize runtime or Agent 1.
+
+### 24.1 What changed relative to § 22
+
+```text
+run mode:        local_manifest_dry_run now EXECUTES — for synthetic temp manifests only.
+manifest trust:  new report field manifest_trust
+                 ('not_applicable' | 'synthetic_temp_manifest_only' | 'real_manifest_not_authorized').
+carve-out flag:  new report field option_b_carveout_authorized.
+new module:      br-receita-cnpj-synthetic-temp-manifest.ts (the ONLY filesystem owner).
+new CLI mode:    --synthetic-temp-manifest (requires --strict + all four caps).
+sanitizer:       new leak kind filesystem_path_like.
+```
+
+### 24.2 The Option B gate — a conjunction, each condition fail-closed
+
+```text
+allowLocalManifest        === true                             else allow_local_manifest_required
+manifestTrust             === 'synthetic_temp_manifest_only'   else local_manifest_execution_not_authorized
+optionBCarveoutAuthorized === true                             else option_b_carveout_not_authorized
+strict                    === true                             else strict_mode_required
+productionWrites          === false                            else production_writes_requested
+outputSanitizationVersion === 'not_approved' (explicit)        else output_sanitization_version_not_approved
+all four caps stated                                           else local_manifest_caps_required
+all four caps within their maxima                              else local_manifest_cap_exceeded
+localManifestReader injected                                   else local_manifest_reader_required
+```
+
+Trust is evaluated **before** the carve-out authorization, so declaring Option B over a real
+manifest does not widen the carve-out — it is still refused as
+`local_manifest_execution_not_authorized`.
+
+### 24.3 Option B caps — stricter than § 22.3
+
+```text
+maxCompanyRows       stated and <= 20
+maxEstablishmentRows stated and <= 20
+maxCompanyScanRows   stated and <= 1000
+maxBytesPerFile      stated and <= 1_000_000
+```
+
+These are tighter than the § 22.3 synthetic-fixture ceilings on purpose: § 22.3 governs in-memory
+fixtures with no file I/O, whereas these govern a path that performs real reads. Every cap is
+**required** — an omitted cap is refused, never defaulted.
+
+### 24.4 Why the runner core stays pure
+
+The runner does not read files. It declares a **reader port**
+(`BrazilReceitaFullJoinLocalManifestReader`) and receives an implementation by injection; it never
+imports `node:fs` or `node:os`, and a static test asserts that. The only implementation of that port
+is the synthetic generator, which:
+
+- creates its own workspace with `fs.mkdtempSync` under the OS temp root — the location is chosen
+  inside the module and **never returned**, so no caller can supply or learn a path;
+- writes a synthetic manifest plus synthetic **headerless** CSVs whose first line is validated by
+  the official positional column count (`empresas` 7, `estabelecimentos` 30, reference families 2),
+  reusing the file reader's layout authority rather than duplicating it;
+- generates only opaque cells (`SYN_COMP_A`, `SYN_CNAE_A`) — no CNPJ, no CNPJ básico, no CPF, no
+  name, no email, no phone, no address, no LinkedIn URL, and no identifier-length digit run;
+- refuses a SOCIOS / QSA / CPF family request **before** writing anything, via the parser's existing
+  forbidden-token denylist;
+- reads under the per-file byte ceiling, and reports an oversized file as a fail-closed condition
+  rather than truncating it;
+- returns aggregate structure only — no path, no filename, no line, no cell;
+- removes only the directory it created, refusing any other path with no force flag.
+
+The runner then **re-validates** the reader's own claims (trust level, layout mode, every family
+name) against its own allowlists, so a non-compliant reader cannot talk its way past the carve-out.
+
+### 24.5 What § 24 does NOT establish
+
+```text
+No evidence about the real dataset was produced.
+Counts describe cells the generator itself wrote moments earlier.
+Nothing here is citable as GATE-1 or GATE-2 evidence.
+OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED stays false.
+All eight gates remain not_started / not approved.
+```
