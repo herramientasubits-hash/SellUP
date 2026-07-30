@@ -25,6 +25,7 @@ import {
   Loader2,
   Ban,
   AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +54,11 @@ import {
   discardContactCandidate,
 } from '@/modules/contact-enrichment/actions';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
+import { recoverCandidatePhoneRevealNowAction } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-actions';
+// Núcleo PURO de la ventana L3 (sin imports en tiempo de ejecución, por eso es
+// seguro en el bundle cliente): cliente y servidor comparten LA MISMA definición
+// de "ya pasaron 2 min desde la solicitud" y no pueden desincronizarse.
+import { isManualRecoveryRequestWindowOpen } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-core';
 import type {
   PendingContactCandidate,
   ContactRelevanceStatus,
@@ -193,6 +199,14 @@ const PHONE_REVEAL_MAX_CREDITS = 8;
  */
 const PHONE_REVEAL_PROCESSING_BASIS: PhoneProcessingBasis = 'legitimate_interest_b2b';
 
+/**
+ * Copy base del estado en vuelo (RECOVERY-CRON-1). Se declara como constante porque
+ * RECOVERY-L3 lo completa de dos formas según la ventana: con punto final cuando no
+ * se ofrece revisión manual, y con ", o puedes revisarlo ahora." cuando sí.
+ */
+const PHONE_REVEAL_IN_FLIGHT_BASE_COPY =
+  'Apollo puede tardar. SellUp revisará automáticamente el resultado';
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const UNAVAILABLE = 'No disponible';
@@ -285,6 +299,18 @@ export function ContactCandidateDetailSheet({
   // el botón tras re-render; el ref corta una segunda invocación en el mismo tick.
   const revealInFlightRef = React.useRef(false);
 
+  // Revisión manual del resultado (APOLLO-PHONE-RECOVERY-L3). NO inicia un reveal
+  // nuevo: pide al servidor que consulte AHORA el resultado del reveal en vuelo.
+  // Se dispara solo por acto humano — no hay setInterval ni polling automático.
+  const [recoveringPhone, setRecoveringPhone] = React.useState(false);
+  const [phoneRecoveryNotice, setPhoneRecoveryNotice] = React.useState<string | null>(
+    null,
+  );
+  const [phoneRecoveryError, setPhoneRecoveryError] = React.useState<string | null>(
+    null,
+  );
+  const recoverInFlightRef = React.useRef(false);
+
   const busy = approving || rejecting;
 
   React.useEffect(() => {
@@ -331,6 +357,10 @@ export function ContactCandidateDetailSheet({
         setPhoneRevealError(null);
         setPhoneRevealNotice(null);
         revealInFlightRef.current = false;
+        setRecoveringPhone(false);
+        setPhoneRecoveryNotice(null);
+        setPhoneRecoveryError(null);
+        recoverInFlightRef.current = false;
       });
     }
   }, [open, candidateId]);
@@ -539,6 +569,85 @@ export function ContactCandidateDetailSheet({
     }
   }
 
+  // ── Revisión manual del resultado (APOLLO-PHONE-RECOVERY-L3) ───────────────
+  /**
+   * Traduce el resultado seguro de `recoverCandidatePhoneRevealNowAction` a copy en
+   * español. El action NO inicia un reveal nuevo y no devuelve el teléfono: cuando
+   * el resultado es terminal, el refetch silencioso refleja el estado (y el número,
+   * si Apollo lo entregó) con el mismo comportamiento que ya existía.
+   */
+  function applyPhoneRecoveryResult(
+    result: Awaited<ReturnType<typeof recoverCandidatePhoneRevealNowAction>>,
+  ) {
+    switch (result.status) {
+      case 'revealed':
+        toast.success('Teléfono revelado.');
+        void reloadCandidate();
+        return;
+      // El candidato pasa a terminal `no_phone_found`: al recargar, el estado ya
+      // muestra "Teléfono no disponible tras consultar Apollo." No se duplica copy.
+      case 'no_phone_found':
+        void reloadCandidate();
+        return;
+      case 'still_pending':
+        setPhoneRecoveryNotice(
+          result.retryAfterSeconds
+            ? `Apollo aún está procesando el resultado. Apollo sugirió volver a revisar en aproximadamente ${result.retryAfterSeconds} segundos.`
+            : 'Apollo aún está procesando el resultado. Intenta nuevamente más tarde.',
+        );
+        void reloadCandidate();
+        return;
+      // Supresión registrada (DSAR): no es un fallo genérico y no se persistió
+      // ningún teléfono. Mismo mensaje que el camino equivalente del reveal.
+      case 'blocked_suppressed':
+        toast.warning('Existe una supresión registrada para este teléfono.');
+        setPhoneRecoveryError(
+          'No se puede revelar este teléfono porque existe una supresión registrada.',
+        );
+        void reloadCandidate();
+        return;
+      // Todavía no toca (ventana de 2 min o revisión demasiado reciente) o el
+      // candidato dejó de ser elegible entre el render y el clic.
+      case 'not_eligible':
+        setPhoneRecoveryNotice(
+          result.retryAfterSeconds
+            ? `El resultado aún puede estar procesándose. Vuelve a intentarlo en aproximadamente ${result.retryAfterSeconds} segundos.`
+            : 'El resultado aún puede estar procesándose. Vuelve a revisar en unos minutos.',
+        );
+        void reloadCandidate();
+        return;
+      case 'error':
+      default:
+        setPhoneRecoveryError('No pudimos revisar el resultado. Intenta más tarde.');
+    }
+  }
+
+  /**
+   * Pide al servidor revisar AHORA el resultado del reveal en vuelo. Un solo
+   * candidato, una sola invocación por clic: el ref corta un segundo clic en el
+   * mismo tick y el backend aplica además su propia ventana anti-abuso. NO inicia
+   * reveals, NO consume créditos de reveal y NO envía datos del contacto: el
+   * payload es únicamente el id del candidato.
+   */
+  async function handleRecoverPhoneNow() {
+    if (!candidate || recoverInFlightRef.current) return;
+    recoverInFlightRef.current = true;
+    setPhoneRecoveryError(null);
+    setPhoneRecoveryNotice(null);
+    setRecoveringPhone(true);
+    try {
+      const result = await recoverCandidatePhoneRevealNowAction({
+        candidateId: candidate.id,
+      });
+      applyPhoneRecoveryResult(result);
+    } catch {
+      setPhoneRecoveryError('No pudimos revisar el resultado. Intenta más tarde.');
+    } finally {
+      recoverInFlightRef.current = false;
+      setRecoveringPhone(false);
+    }
+  }
+
   const relevance = candidate?.enrichment_metadata?.relevance;
   const relevanceScore = toPercent(relevance?.score);
   const qualityScore = toPercent(relevance?.quality_score);
@@ -592,6 +701,27 @@ export function ContactCandidateDetailSheet({
   // muestra mientras el reveal está en vuelo para que el usuario sepa que hay algo
   // vigilando el caso. NO reactiva el botón ni cambia la elegibilidad.
   const phoneRevealLastCheckedAt = candidate?.phone_reveal_last_checked_at ?? null;
+  // Revisión manual L3 (APOLLO-PHONE-RECOVERY-L3). El CTA solo aparece cuando:
+  //  - el reveal sigue en vuelo (requested / pending),
+  //  - el rol está autorizado (mismo criterio que el reveal; el server revalida),
+  //  - existe id de correlación con el que recuperar el resultado (booleano
+  //    derivado: el id nunca llega al cliente),
+  //  - y ya pasaron al menos 2 min desde la solicitud.
+  // La ventana se evalúa con el MISMO núcleo puro que usa el backend. Se calcula en
+  // el render, sin timers: no hay setInterval ni polling automático — si el usuario
+  // abre el panel antes de los 2 min ve el mensaje de espera, y el CTA aparece la
+  // próxima vez que el panel se renderice (reabrirlo o refrescar el candidato).
+  const phoneRecoveryRequestWindowOpen =
+    phoneRevealInFlight &&
+    isManualRecoveryRequestWindowOpen(
+      candidate?.phone_reveal_requested_at ?? null,
+      new Date().toISOString(),
+    );
+  const canOfferPhoneRecovery =
+    phoneRevealInFlight &&
+    phoneRevealAuthorized === true &&
+    candidate?.phone_reveal_recovery_id_present === true &&
+    phoneRecoveryRequestWindowOpen;
   const canOfferPhoneReveal =
     !!candidate &&
     phoneRevealEnabled === true &&
@@ -835,10 +965,13 @@ export function ContactCandidateDetailSheet({
                             aterrizar nunca; quien cierra el caso es el recovery
                             programado del servidor. Antes decía solo "Apollo puede
                             tardar algunos minutos", lo que hacía pensar que el
-                            spinner se resolvería solo si se esperaba aquí. */}
+                            spinner se resolvería solo si se esperaba aquí.
+                            RECOVERY-L3: cuando la ventana de 2 min ya pasó, el
+                            copy además ofrece revisarlo ahora. */}
                         <span className="text-[11px] text-muted-foreground">
-                          Apollo puede tardar. SellUp revisará automáticamente el
-                          resultado.
+                          {canOfferPhoneRecovery
+                            ? `${PHONE_REVEAL_IN_FLIGHT_BASE_COPY}, o puedes revisarlo ahora.`
+                            : `${PHONE_REVEAL_IN_FLIGHT_BASE_COPY}.`}
                         </span>
                       </span>
                       {phoneRevealLastCheckedAt && (
@@ -846,9 +979,52 @@ export function ContactCandidateDetailSheet({
                           Última revisión: {formatDate(phoneRevealLastCheckedAt)}
                         </p>
                       )}
-                      <p className="text-[11px] text-muted-foreground/70">
-                        Vuelve a abrir el candidato más tarde para ver el resultado.
-                      </p>
+                      {/* Antes de la ventana de 2 min (o sin id de correlación) no
+                          se ofrece revisión manual: solo se explica la espera. */}
+                      {!canOfferPhoneRecovery && (
+                        <>
+                          <p className="text-[11px] text-muted-foreground/70">
+                            El resultado aún puede estar procesándose. Vuelve a revisar
+                            en unos minutos.
+                          </p>
+                          <p className="text-[11px] text-muted-foreground/70">
+                            Vuelve a abrir el candidato más tarde para ver el resultado.
+                          </p>
+                        </>
+                      )}
+                      {/* CTA secundaria de revisión manual (APOLLO-PHONE-RECOVERY-L3).
+                          NO inicia un reveal nuevo: pide al servidor consultar el
+                          resultado ya producido. Un clic = una invocación (el ref y
+                          `recoveringPhone` bloquean el doble clic; el backend además
+                          aplica su ventana anti-abuso). Sin timers ni polling. */}
+                      {canOfferPhoneRecovery && (
+                        <div className="space-y-1.5 pt-0.5">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            disabled={busy || recoveringPhone}
+                            onClick={handleRecoverPhoneNow}
+                          >
+                            {recoveringPhone ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Revisando…
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                Revisar resultado ahora
+                              </>
+                            )}
+                          </Button>
+                          <p className="text-[11px] text-muted-foreground/70">
+                            Consulta el resultado ya solicitado. No inicia una
+                            revelación nueva ni consume créditos de revelación.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                   {phoneRevealExhausted && !phoneRevealInFlight && (
@@ -858,6 +1034,17 @@ export function ContactCandidateDetailSheet({
                   )}
                   {phoneRevealNotice && !phoneRevealInFlight && (
                     <p className="text-[11px] text-muted-foreground">{phoneRevealNotice}</p>
+                  )}
+                  {/* Mensajes de la revisión manual (L3). Viven FUERA del bloque en
+                      vuelo para que sigan visibles cuando el resultado ya cerró el
+                      caso y el candidato deja de estar en `requested`/`pending`. */}
+                  {phoneRecoveryNotice && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {phoneRecoveryNotice}
+                    </p>
+                  )}
+                  {phoneRecoveryError && (
+                    <p className="text-[11px] text-destructive">{phoneRecoveryError}</p>
                   )}
                   {canOfferPhoneReveal && (
                     <div className="space-y-1.5">

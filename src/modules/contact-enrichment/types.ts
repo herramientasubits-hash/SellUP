@@ -343,6 +343,23 @@ export interface PendingContactCandidate {
    * la línea de "última revisión".
    */
   phone_reveal_last_checked_at?: string | null;
+  /**
+   * Momento en que se solicitó el reveal (`phone_reveal_requested_at`). Alimenta la
+   * ventana de la revisión manual L3 (APOLLO-PHONE-RECOVERY-L3): la UI solo ofrece
+   * "Revisar resultado ahora" cuando han pasado al menos 2 min desde la solicitud.
+   *
+   * OPCIONAL a propósito: aditivo, así que las proyecciones y fixtures que no lo
+   * traen siguen siendo válidas y la UI simplemente no ofrece el CTA (fail-closed).
+   */
+  phone_reveal_requested_at?: string | null;
+  /**
+   * `true` si el candidato tiene el id de correlación del reveal
+   * (`phone_reveal_request_id`) persistido. Es un BOOLEANO derivado: el id NUNCA se
+   * proyecta ni se muestra. Sin él no hay nada que recuperar, así que la UI no
+   * ofrece el CTA de revisión manual (APOLLO-PHONE-RECOVERY-L3). El id real de
+   * recuperación (apollo_http_request_id) lo resuelve el servidor del START log.
+   */
+  phone_reveal_recovery_id_present?: boolean;
   // Contexto de empresa (desde el run que originó al candidato)
   company_name: string | null;
   company_domain: string | null;

@@ -92,6 +92,21 @@ export interface ApolloPhoneRevealWebhookPayload {
     id?: string | null;
     phone_numbers?: ApolloWebhookPhoneNumber[] | null;
   }> | null;
+  /**
+   * Señal de "todavía procesando" (APOLLO-PHONE-RECOVERY-L3). Apollo confirmó que
+   * `GET /webhook_result/{request_id}` puede responder con un estado pendiente y un
+   * `retry_after_seconds` en vez del resultado. Campos OPCIONALES y solo de lectura
+   * defensiva: el webhook real nunca los trae y su ausencia deja todo igual. Los
+   * consume el recovery core para NO terminalizar como `no_phone_found` un payload
+   * que solo dice "aún no está listo".
+   */
+  status?: string | null;
+  state?: string | null;
+  retry_after_seconds?: number | string | null;
+  phone_enrichment?: {
+    status?: string | null;
+    retry_after_seconds?: number | string | null;
+  } | null;
 }
 
 // ── Registro mínimo del candidato pendiente ────────────────────
