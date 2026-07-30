@@ -378,7 +378,10 @@ describe('BR-SOURCE-11C output sanitizer — the Option B report shape passes', 
       raw_cell: 'SYN_COMP_A',
     });
     assert.equal(withCell.ok, false);
-    assert.ok(findingKinds(withCell).includes('raw_data_payload'));
+    // BR-SOURCE-11F-IMPL narrowed this from the generic `raw_data_payload` to the dedicated
+    // cell kind: the required-family probe is the first code path that ever holds a real
+    // cell, so a cell-shaped key is named as one. The refusal itself is unchanged.
+    assert.ok(findingKinds(withCell).includes('raw_cell_payload'));
 
     const withPath = sanitizeBrazilReceitaFullJoinReport({
       manifest_trust: 'synthetic_temp_manifest_only',
@@ -570,5 +573,132 @@ describe('BR-SOURCE-11D-META output sanitizer — the metadata-only report shape
       });
       assert.equal(result.ok, false, `${label} must be blocked`);
     }
+  });
+});
+
+// ─── BR-SOURCE-11F-IMPL: the required-family probe report shape ────────────────
+
+/**
+ * The aggregate probe block a green Option C run produces. Every value is a count, a bucket,
+ * a class label, a histogram, or a held-absence `false` — the shape the sanitizer must accept
+ * unchanged, so a failing assertion here means the probe contract drifted.
+ */
+const PROBE_BLOCK = {
+  families_attempted: ['empresas', 'estabelecimentos'],
+  files_opened_count: 2,
+  files_opened_by_family: { empresas: 1, estabelecimentos: 1 },
+  bytes_read_bucket: { empresas: 'lte_64kb', estabelecimentos: 'lte_64kb' },
+  rows_read_bucket: { empresas: 'lte_20', estabelecimentos: 'lte_20' },
+  row_shape: {
+    empresas: {
+      expected_min_columns: 7,
+      observed_column_count_distribution: { '7': 20 },
+      row_shape_valid_count: 20,
+      row_shape_invalid_count: 0,
+    },
+    estabelecimentos: {
+      expected_min_columns: 30,
+      observed_column_count_distribution: { '30': 20 },
+      row_shape_valid_count: 20,
+      row_shape_invalid_count: 0,
+    },
+  },
+  encoding_status: { empresas: 'ok', estabelecimentos: 'ok' },
+  delimiter_status: { empresas: 'semicolon_detected', estabelecimentos: 'semicolon_detected' },
+  headerless_status: { empresas: 'assumed_headerless', estabelecimentos: 'assumed_headerless' },
+  forbidden_family_attempted: false,
+  forbidden_family_declared_count: 0,
+  never_opened_family_declared_count: 3,
+  raw_rows_printed: false,
+  raw_cells_printed: false,
+  identifiers_printed: false,
+  filenames_printed: false,
+  absolute_paths_printed: false,
+  hashes_printed: false,
+  joins_executed: false,
+  join_coverage_computed: false,
+  full_dataset_processed: false,
+} as const;
+
+describe('BR-SOURCE-11F-IMPL required-family probe — sanitizer contract', () => {
+  it('accepts the aggregate probe block unchanged', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      manifest_trust: 'real_manifest_required_family_probe',
+      required_family_probe: PROBE_BLOCK,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result.findings));
+  });
+
+  it('blocks a raw CELL payload with its own kind', () => {
+    for (const key of ['raw_cell', 'rawCells', 'cell_value', 'column_value', 'raw_field']) {
+      const result = sanitizeBrazilReceitaFullJoinReport({ [key]: 'SYN-EMPRESAS-R0-C0' });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes('raw_cell_payload'), key);
+    }
+  });
+
+  it('blocks a row SAMPLE payload with its own kind', () => {
+    for (const key of ['row_sample', 'sampled_rows', 'rowSamples', 'line_sample']) {
+      const result = sanitizeBrazilReceitaFullJoinReport({ [key]: ['SYN-A;SYN-B'] });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes('row_sample_payload'), key);
+    }
+  });
+
+  it('allows an EMPTY cell or sample key (carries nothing)', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      raw_cell: null,
+      cell_value: '',
+      row_sample: [],
+    });
+    assert.equal(result.ok, true);
+  });
+
+  it('blocks a raw row, a filename, a path or a hash smuggled onto a probe report', () => {
+    const smuggled: ReadonlyArray<readonly [string, unknown]> = [
+      ['raw_rows', ['SYN-A;SYN-B']],
+      ['file_name', 'synthetic-empresas.csv'],
+      ['manifest_path', `${TEMP_PATH_LIKE}/manifest.json`],
+      ['row_hash', HEX_DIGEST_LIKE],
+    ];
+    for (const [key, value] of smuggled) {
+      const result = sanitizeBrazilReceitaFullJoinReport({
+        manifest_trust: 'real_manifest_required_family_probe',
+        required_family_probe: { ...PROBE_BLOCK, [key]: value },
+      });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+    }
+  });
+
+  it('blocks an identifier smuggled into a probe status label or distribution key', () => {
+    for (const value of [CNPJ_BASICO_LIKE, CNPJ_LIKE, CPF_LIKE, EMAIL_LIKE, PHONE_LIKE]) {
+      const result = sanitizeBrazilReceitaFullJoinReport({
+        required_family_probe: {
+          ...PROBE_BLOCK,
+          encoding_status: { empresas: value, estabelecimentos: 'ok' },
+        },
+      });
+      assert.equal(result.ok, false);
+    }
+  });
+
+  it('blocks a dataset-scale count masquerading as a probe row count', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      required_family_probe: {
+        ...PROBE_BLOCK,
+        row_shape: {
+          empresas: {
+            expected_min_columns: 7,
+            observed_column_count_distribution: {
+              '7': BRAZIL_RECEITA_FULL_JOIN_MAX_NUMERIC_LEAF + 1,
+            },
+            row_shape_valid_count: 20,
+            row_shape_invalid_count: 0,
+          },
+        },
+      },
+    });
+    assert.equal(result.ok, false);
+    assert.ok(findingKinds(result).includes('oversized_numeric_value'));
   });
 });
