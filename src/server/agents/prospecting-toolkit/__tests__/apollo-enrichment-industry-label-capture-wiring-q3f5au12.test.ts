@@ -55,7 +55,10 @@ const IMPORT_STATEMENTS = MODULE_SOURCE
 
 function makeOrg(overrides: Partial<ApolloOrganization> & Pick<ApolloOrganization, 'id' | 'name'>): ApolloOrganization {
   return {
-    website_url: `https://${overrides.id}.example.com`,
+    // A1-APOLLO-BUDGET-RECONCILIATION-1: website_url is derived from
+    // primary_domain, so a fixture that overrides only primary_domain stays
+    // self-consistent and is not read as an ownership mismatch.
+    website_url: `https://${overrides.primary_domain ?? `${overrides.id}.example.com`}`,
     primary_domain: `${overrides.id}.example.com`,
     linkedin_url: null,
     // Q3F-5AU.12 isolation: search-time industry stays null so the existing
@@ -129,6 +132,18 @@ function makeCaptureCapture(
 // stays silent; the enrichment mock below is what supplies industry data.
 const ORG_SEARCH_BARE = makeOrg({ id: 'bare-co', name: 'Bare Co' });
 
+/**
+ * A1-APOLLO-BUDGET-RECONCILIATION-1: these tests are about label-capture
+ * wiring, but the enrichment they rely on is a PAID call, and paid calls are
+ * now gated. An unmapped sector — including no sector at all — no longer
+ * authorises enrichment, so the requests below declare a mapped one.
+ *
+ * This does not weaken the isolation the file was built for: the Search-side
+ * capture fires on the ORG's industry fields, and ORG_SEARCH_BARE still has
+ * none. Only the request's declared sector changed.
+ */
+const MAPPED_SECTOR_SEARCH_INPUT = { query: 'test', industry: 'Educación' } as const;
+
 function withEnabledEnv(fn: () => void) {
   before(() => {
     process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true';
@@ -156,7 +171,10 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
       };
 
       await runApolloOrganizationsSearch(
-        { query: 'tech Colombia', countryCode: 'CO', industry: 'Technology' },
+        // A1-APOLLO-BUDGET-RECONCILIATION-1: a mapped sector, because paid
+        // enrichment is now gated. The captured label still comes from the
+        // ENRICHED org ('Software'), which is what this test is about.
+        { query: 'tech Colombia', countryCode: 'CO', industry: 'Educación' },
         3,
         { agentRunId: 'run-abc-1' },
         deps,
@@ -182,7 +200,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      await runApolloOrganizationsSearch(MAPPED_SECTOR_SEARCH_INPUT, 3, undefined, deps);
 
       const enrichCalls = calls.filter((c) => c.operationKey === 'organization_enrichment');
       assert.equal(enrichCalls.length, 1);
@@ -204,7 +222,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      await runApolloOrganizationsSearch(MAPPED_SECTOR_SEARCH_INPUT, 3, undefined, deps);
 
       const enrichCalls = calls.filter((c) => c.operationKey === 'organization_enrichment');
       assert.equal(enrichCalls.length, 1);
@@ -247,7 +265,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      await runApolloOrganizationsSearch(MAPPED_SECTOR_SEARCH_INPUT, 3, undefined, deps);
 
       const enrichCalls = calls.filter((c) => c.operationKey === 'organization_enrichment');
       assert.equal(enrichCalls.length, 1);
@@ -295,7 +313,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      await runApolloOrganizationsSearch(MAPPED_SECTOR_SEARCH_INPUT, 3, undefined, deps);
 
       const enrichLogs = logs.filter((l) => l.operation_key === 'organization_enrichment');
       assert.equal(enrichLogs.length, 1, 'organization_enrichment usage log must still be emitted');
@@ -349,7 +367,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
       assert.equal(enrichCalls[0].agentRunId, 'run-xyz-9');
     });
 
-    it('T10b: missing countryCode/industry/agentRunId fall back to null, same as Search-side wiring', async () => {
+    it('T10b: missing countryCode/agentRunId fall back to null, same as Search-side wiring', async () => {
       const enrichedOrg = makeOrg({ id: 'kappa', name: 'Kappa Corp', industry: 'Software' });
       const { calls, captureIndustryLabels } = makeCaptureCapture();
       const deps: ApolloOrgsSearchDeps = {
@@ -359,13 +377,43 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      // A1-APOLLO-BUDGET-RECONCILIATION-1: the industry is no longer omitted
+      // here. Omitting it now means "no sector policy exists", which correctly
+      // blocks the paid enrichment — so it can no longer be used to exercise
+      // the null fallbacks. countryCode and agentRunId still are.
+      await runApolloOrganizationsSearch(MAPPED_SECTOR_SEARCH_INPUT, 3, undefined, deps);
 
       const enrichCalls = calls.filter((c) => c.operationKey === 'organization_enrichment');
       assert.equal(enrichCalls.length, 1);
       assert.equal(enrichCalls[0].countryCode, null);
-      assert.equal(enrichCalls[0].requestedIndustry, null);
+      assert.equal(enrichCalls[0].requestedIndustry, 'Educación');
       assert.equal(enrichCalls[0].agentRunId, null);
+    });
+
+    it('T10c: a request with NO sector performs zero paid enrichments', async () => {
+      // A1-APOLLO-BUDGET-RECONCILIATION-1: "we have no sector mapping" must
+      // never authorise spend. This is the contract T10b used to assume the
+      // opposite of, so it is asserted explicitly rather than left implied.
+      const enrichedOrg = makeOrg({ id: 'mu', name: 'Mu Corp', industry: 'Software' });
+      let enrichCallCount = 0;
+      const { calls, captureIndustryLabels } = makeCaptureCapture();
+      const deps: ApolloOrgsSearchDeps = {
+        searchOrgs: makeSearchSuccess([ORG_SEARCH_BARE]),
+        logUsage: makeLogCapture().logFn,
+        enrichOrg: async () => {
+          enrichCallCount++;
+          return { success: true as const, data: enrichedOrg };
+        },
+        captureIndustryLabels,
+      };
+
+      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+
+      assert.equal(enrichCallCount, 0, 'no sector ⇒ no paid Apollo enrichment call');
+      assert.equal(
+        calls.filter((c) => c.operationKey === 'organization_enrichment').length,
+        0,
+      );
     });
   });
 

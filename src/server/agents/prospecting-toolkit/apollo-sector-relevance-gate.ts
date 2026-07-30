@@ -124,6 +124,68 @@ const SECTOR_SIGNAL_TERMS: Record<string, string[]> = {
     'ed-tech',
   ],
   /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 — Retail y Consumo.
+   *
+   * Señales amplias de retail/consumo. Cualquier subindustria de retail sin
+   * mapping propio cae aquí; `supermercados e hipermercados` (abajo) es la
+   * variante estricta cuando la búsqueda es específicamente de supermercados.
+   */
+  'retail y consumo': [
+    // Español
+    'retail',
+    'comercio',
+    'comercio minorista',
+    'minorista',
+    'tienda',
+    'tiendas',
+    'cadena de tiendas',
+    'supermercado',
+    'supermercados',
+    'hipermercado',
+    'hipermercados',
+    'almacen de cadena',
+    'consumo masivo',
+    // Inglés
+    'retailer',
+    'retail chain',
+    'retail store',
+    'consumer goods',
+    'supermarket',
+    'hypermarket',
+    'grocery',
+    'grocery retail',
+    'grocery store',
+  ],
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 — Supermercados e Hipermercados.
+   *
+   * Señales estrictas: solo pasan operadores de supermercado/hipermercado y
+   * grocery retail. Deliberadamente excluye 'retail' y 'comercio' genéricos,
+   * que dejarían pasar cualquier gran corporación con una línea de retail
+   * (el mismo modo de fallo que Citigroup en Educación, v1.16K-AC).
+   */
+  'supermercados e hipermercados': [
+    // Español
+    'supermercado',
+    'supermercados',
+    'hipermercado',
+    'hipermercados',
+    'autoservicio',
+    'almacen de cadena',
+    'cadena de supermercados',
+    'tienda de descuento',
+    // Inglés
+    'supermarket',
+    'supermarkets',
+    'hypermarket',
+    'hypermarkets',
+    'grocery',
+    'grocery retail',
+    'grocery store',
+    'grocery chain',
+    'retail chain',
+  ],
+  /**
    * Señales estrictas de formación corporativa — solo pasan LMS vendors,
    * corporate training providers y edtech de capacitación empresarial.
    *
@@ -579,5 +641,145 @@ export function applyApolloSectorRelevanceGate(
       rejected_samples: rejectedSamples,
       passed_samples: passedSamples,
     },
+  };
+}
+
+// ─── Fail-closed evaluation for PAID operations ───────────────────────────────
+//
+// A1-APOLLO-BUDGET-RECONCILIATION-1.
+//
+// `applyApolloSectorRelevanceGate` above is the DISPLAY gate: it decides which
+// already-paid search results are worth persisting, and an unmapped sector
+// passes everything through so a missing mapping never silently empties a
+// batch. That passthrough is correct there and stays.
+//
+// It is NOT correct before a PAID operation. Organization Enrichment charges a
+// credit per call, so "we have no mapping for this sector, enrich everything"
+// converts a configuration gap into real spend on candidates nobody vetted.
+// For paid operations the same absence of evidence must fail CLOSED.
+
+/**
+ * Sector relevance verdict for an operation that is about to spend credits.
+ *
+ * `relevant`                       — sector mapped and the candidate matches.
+ * `sector_not_mapped`              — no signal set for this sector/subindustry.
+ * `sector_relevance_unverified`    — the provider DID describe this company's
+ *                                    sector, and none of it matches. Evidence
+ *                                    exists and contradicts. Citigroup in a
+ *                                    supermarket search lands here.
+ * `sector_relevance_indeterminate` — the provider described no sector at all.
+ *                                    Nothing to contradict and nothing to
+ *                                    confirm.
+ *
+ * `unverified` and `not_mapped` must not reach a paid call.
+ * `indeterminate` is deliberately NOT a rejection — see below.
+ */
+export type ApolloPaidSectorRelevanceDecision =
+  | 'relevant'
+  | 'sector_not_mapped'
+  | 'sector_relevance_unverified'
+  | 'sector_relevance_indeterminate';
+
+export type ApolloPaidSectorRelevanceResult = {
+  decision: ApolloPaidSectorRelevanceDecision;
+  /** Terms that matched. Empty for every rejection decision. */
+  matchedTerms: string[];
+  /** True when the stricter subindustry signal set was used. */
+  subindustrySignalUsed: boolean;
+  /** Sector-bearing fields the provider actually supplied for this candidate. */
+  sectorEvidenceFields: string[];
+};
+
+/**
+ * Fields that carry a *sector* claim. Title, snippet and domain are excluded on
+ * purpose: a company name says nothing reliable about its industry, and reading
+ * its absence as "wrong sector" would reject every candidate whose name is not
+ * self-describing.
+ */
+function collectSectorEvidenceFields(result: WebSearchResult): string[] {
+  const meta = result.metadata as Record<string, unknown> | undefined;
+  if (!meta) return [];
+
+  const present: string[] = [];
+  const pushIfString = (value: unknown, field: string) => {
+    if (typeof value === 'string' && value.trim() !== '') present.push(field);
+  };
+  const pushIfNonEmptyArray = (value: unknown, field: string) => {
+    if (Array.isArray(value) && value.some((v) => typeof v === 'string' && v.trim() !== '')) {
+      present.push(field);
+    }
+  };
+
+  pushIfString(meta['industry'], 'industry');
+  pushIfNonEmptyArray(meta['keywords'], 'keywords');
+  pushIfString(meta['short_description'], 'short_description');
+
+  const profile = meta['apollo_profile'] as Record<string, unknown> | undefined;
+  if (profile) {
+    pushIfString(profile['industry'], 'apollo_profile.industry');
+    pushIfNonEmptyArray(profile['industries'], 'apollo_profile.industries');
+    pushIfNonEmptyArray(profile['keywords'], 'apollo_profile.keywords');
+    pushIfNonEmptyArray(profile['organization_keywords'], 'apollo_profile.organization_keywords');
+    pushIfString(profile['short_description'], 'apollo_profile.short_description');
+    pushIfString(profile['seo_description'], 'apollo_profile.seo_description');
+    pushIfString(profile['description'], 'apollo_profile.description');
+  }
+
+  return present;
+}
+
+/**
+ * Evaluates one candidate's sector relevance for a paid operation.
+ *
+ * Fail-closed where failing closed is meaningful:
+ *   - an unmapped sector never authorises spend — there is no policy to apply;
+ *   - a candidate the provider describes as belonging to some *other* sector
+ *     never authorises spend either.
+ *
+ * But absence of evidence is treated as absence, not as contradiction. The
+ * enrichment cascade exists precisely to buy sector evidence for candidates
+ * that have none (its ambiguity-first ordering enriches those FIRST, Q3F-5AV.2).
+ * Rejecting them here for "no evidence" would make the cascade unable to do the
+ * one thing it is for, while blocking nothing Citigroup-shaped: Citigroup is
+ * rejected because Apollo says "banking", not because Apollo says nothing.
+ * Candidates that stay irrelevant after enrichment are still rejected — by the
+ * display gate, which runs on the enriched profile.
+ *
+ * Pure — no side effects, no provider call.
+ */
+export function evaluateApolloSectorRelevanceForPaidOperation(
+  result: WebSearchResult,
+  sector: string | null | undefined,
+  subindustry?: string | null,
+): ApolloPaidSectorRelevanceResult {
+  const subindustrySignals = subindustry ? getSectorSignals(subindustry) : null;
+  const signals = subindustrySignals ?? getSectorSignals(sector);
+  const subindustrySignalUsed = subindustrySignals !== null;
+  const sectorEvidenceFields = collectSectorEvidenceFields(result);
+
+  if (!signals) {
+    return {
+      decision: 'sector_not_mapped',
+      matchedTerms: [],
+      subindustrySignalUsed,
+      sectorEvidenceFields,
+    };
+  }
+
+  const text = extractCandidateText(result);
+  const matchedTerms = findMatchedTerms(text, signals);
+
+  if (matchedTerms.length > 0) {
+    return { decision: 'relevant', matchedTerms, subindustrySignalUsed, sectorEvidenceFields };
+  }
+
+  return {
+    decision:
+      sectorEvidenceFields.length > 0
+        ? 'sector_relevance_unverified'
+        : 'sector_relevance_indeterminate',
+    matchedTerms: [],
+    subindustrySignalUsed,
+    sectorEvidenceFields,
   };
 }

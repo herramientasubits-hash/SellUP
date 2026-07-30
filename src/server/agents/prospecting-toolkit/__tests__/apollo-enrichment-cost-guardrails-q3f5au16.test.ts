@@ -68,7 +68,10 @@ function makeOrg(
   overrides: Partial<ApolloOrganization> & Pick<ApolloOrganization, 'id' | 'name'>,
 ): ApolloOrganization {
   return {
-    website_url: `https://${overrides.id}.example.com`,
+    // A1-APOLLO-BUDGET-RECONCILIATION-1: website_url is derived from
+    // primary_domain, so a fixture that overrides only primary_domain stays
+    // self-consistent and is not read as an ownership mismatch.
+    website_url: `https://${overrides.primary_domain ?? `${overrides.id}.example.com`}`,
     primary_domain: `${overrides.id}.example.com`,
     linkedin_url: null,
     industry: null,

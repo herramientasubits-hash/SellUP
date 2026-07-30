@@ -28,7 +28,12 @@ import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
 
 function makeOrg(overrides: Partial<ApolloOrganization> & Pick<ApolloOrganization, 'id' | 'name'>): ApolloOrganization {
   return {
-    website_url: `https://${overrides.id}.example.com`,
+    // A1-APOLLO-BUDGET-RECONCILIATION-1: website_url is derived from
+    // primary_domain, so a fixture that overrides only primary_domain stays
+    // self-consistent. Real Apollo never reports a website on one registrable
+    // domain and a primary_domain on another; the previous fixed default did,
+    // which made every such fixture look like an ownership mismatch.
+    website_url: `https://${overrides.primary_domain ?? `${overrides.id}.example.com`}`,
     primary_domain: `${overrides.id}.example.com`,
     linkedin_url: null,
     industry: null,
