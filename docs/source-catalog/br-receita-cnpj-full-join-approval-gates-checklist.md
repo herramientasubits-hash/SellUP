@@ -1230,3 +1230,30 @@ any implementation additionally requires the record to be merged **and** the exp
 spent for the synthetic carve-out does not carry over.
 
 Record: [`br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md`](./br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md).
+
+---
+
+## 22. BR-SOURCE-11F — next decision question recorded, no gate approved
+
+BR-SOURCE-11F defines the next decision question: whether an ultra-bounded required-family real
+data-file probe can be authorized. It does not authorize real data-file execution by itself. It does
+not authorize joins. It does not authorize import. It does not approve any gate.
+
+```text
+11D-META's question was answered and implemented, and 11E executed one operator-prepared manifest
+  DOCUMENT metadata-only.
+11F records the bounded real data-file question: may two allowlisted files (empresas,
+  estabelecimentos) be opened under hard caps, read for a tiny bounded prefix, and reported as
+  aggregates only?
+No gate is approved. GATE-1 and GATE-2 retain sole authority over dataset processing.
+```
+
+All eight gates remain `not_started` per § 15, the § 15 matrix still reads **NO-GO**, and the
+successor record's own status is `proposed_for_owner_review`. A merged question is still a question:
+any implementation additionally requires that record to be merged **and** the explicit owner phrase
+`AUTHORIZE OPTION C — ULTRA-BOUNDED REQUIRED-FAMILY REAL DATA-FILE PROBE`, recorded separately. No
+phrase already spent for the synthetic carve-out, for metadata-only parsing, or for the 11E execution
+carries over. § 4's global approval rules are unaffected: a successful bounded probe would be evidence
+about a read path and a file's shape, and is not citable toward the approval of any gate.
+
+Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).
