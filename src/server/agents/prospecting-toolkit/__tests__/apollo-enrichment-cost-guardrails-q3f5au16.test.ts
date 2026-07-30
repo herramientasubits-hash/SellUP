@@ -68,7 +68,12 @@ function makeOrg(
   overrides: Partial<ApolloOrganization> & Pick<ApolloOrganization, 'id' | 'name'>,
 ): ApolloOrganization {
   return {
-    website_url: `https://${overrides.id}.example.com`,
+    // A1-APOLLO-BUDGET-RECONCILIATION-1: website_url se deriva de
+    // primary_domain, para que un fixture que sólo sobreescribe primary_domain
+    // quede consistente consigo mismo. Apollo real nunca reporta el sitio en un
+    // dominio registrable y el primary_domain en otro; el default fijo anterior
+    // sí, y eso hacía que cada fixture así pareciera un ownership mismatch.
+    website_url: `https://${overrides.primary_domain ?? `${overrides.id}.example.com`}`,
     primary_domain: `${overrides.id}.example.com`,
     linkedin_url: null,
     industry: null,
