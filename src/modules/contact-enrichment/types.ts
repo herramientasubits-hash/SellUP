@@ -331,6 +331,18 @@ export interface PendingContactCandidate {
    * enforcement siguen siendo autoridad del server action (PHONE-3D.3).
    */
   phone_reveal_status: PhoneRevealStatus | null;
+  /**
+   * Última vez que SellUp comprobó el resultado de un reveal en vuelo
+   * (APOLLO-PHONE-RECOVERY-CRON-1). Lo escribe el recovery en cada poll. Solo
+   * lectura y solo informativo: la UI lo muestra mientras el estado es
+   * `requested`/`pending` para que el spinner no parezca abandonado. `null`
+   * cuando todavía no se ha hecho ninguna comprobación.
+   *
+   * OPCIONAL a propósito: es aditivo e informativo, así que las proyecciones y
+   * fixtures que no lo traen siguen siendo válidas y la UI simplemente no muestra
+   * la línea de "última revisión".
+   */
+  phone_reveal_last_checked_at?: string | null;
   // Contexto de empresa (desde el run que originó al candidato)
   company_name: string | null;
   company_domain: string | null;

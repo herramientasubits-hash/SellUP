@@ -915,7 +915,9 @@ describe('FIX 4 — contrato estático', () => {
   it('los tres wrappers cablean el sumidero', () => {
     for (const rel of [
       'src/modules/contact-enrichment/phone-reveal-actions.ts',
-      'src/modules/contact-enrichment/phone-reveal-recovery-actions.ts',
+      // RECOVERY-CRON-1: el cableado de deps del recovery vive en
+      // `phone-reveal-recovery-deps.ts`, compartido por el action ADMIN y el cron.
+      'src/modules/contact-enrichment/phone-reveal-recovery-deps.ts',
       'src/app/api/integrations/apollo/phone-reveal/webhook/route.ts',
     ]) {
       assert.match(read(rel), /onSuppressionNotEvaluable/, `${rel} sin sumidero`);
@@ -925,7 +927,9 @@ describe('FIX 4 — contrato estático', () => {
   it('el sumidero del wrapper solo publica el evento, nada del candidato', () => {
     for (const rel of [
       'src/modules/contact-enrichment/phone-reveal-actions.ts',
-      'src/modules/contact-enrichment/phone-reveal-recovery-actions.ts',
+      // RECOVERY-CRON-1: el cableado de deps del recovery vive en
+      // `phone-reveal-recovery-deps.ts`, compartido por el action ADMIN y el cron.
+      'src/modules/contact-enrichment/phone-reveal-recovery-deps.ts',
       'src/app/api/integrations/apollo/phone-reveal/webhook/route.ts',
     ]) {
       const wrapper = read(rel);
