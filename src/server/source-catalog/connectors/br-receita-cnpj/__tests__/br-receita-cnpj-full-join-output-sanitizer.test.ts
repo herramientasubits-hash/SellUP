@@ -1,5 +1,5 @@
 /**
- * BR Receita CNPJ full join OUTPUT SANITIZER — tests (BR-SOURCE-11A).
+ * BR Receita CNPJ full join OUTPUT SANITIZER — tests (BR-SOURCE-11A / 11C).
  *
  * Proves the sanitizer blocks every forbidden output shape and leaks nothing while
  * doing so:
@@ -9,13 +9,18 @@
  *   - `raw_row` / `raw_data` payloads, `record_identity_key`, `normalized_tax_id`,
  *     `cnpj_basico`, `cnpj`, `cpf` values, and identifier hashes;
  *   - oversized numeric leaves (identifier-scale numbers masquerading as counts);
- *   - a `*_printed: true` assertion, which is a DECLARED leak, not an exemption.
+ *   - a `*_printed: true` assertion, which is a DECLARED leak, not an exemption;
+ *   - a FILESYSTEM PATH (BR-SOURCE-11C): an absolute POSIX or Windows path or a
+ *     `file:` URL, in the report tree and in the rendered string alike.
  *
  * It also proves the safe shapes pass: `YYYY-MM` periods, real periods, hito labels,
- * placeholders, small counters, and `*_printed: false` safety assertions.
+ * placeholders, small counters, `*_printed: false` safety assertions, and the Option B
+ * report shape (`manifest_trust`, `option_b_carveout_authorized`, the local-manifest
+ * count keys).
  *
- * 100% synthetic. Every identifier-shaped token is assembled by CONCATENATION, so no
- * 8-/11-/14-digit literal and no e-mail marker literal exists in this source file.
+ * 100% synthetic. Every identifier-shaped token and every path-shaped value is
+ * assembled by CONCATENATION, so no 8-/11-/14-digit literal, no e-mail marker literal,
+ * and no operator location literal exists in this source file.
  */
 
 import assert from 'node:assert/strict';
@@ -282,5 +287,104 @@ describe('BR-SOURCE-11A output sanitizer — rendered output', () => {
       'ok: true\nrun_mode: synthetic_fixture_only\njoined_with_company_context: 2',
     );
     assert.equal(result.ok, true);
+  });
+});
+
+// ─── BR-SOURCE-11C: filesystem paths, and the Option B report shape ───────────
+
+/**
+ * Path-shaped values, assembled so no real operator location lives in this source file.
+ * A synthetic temp workspace is the first time a real path exists in the process at all,
+ * and a temp path still names the operator's machine — so none may reach a report.
+ */
+const TEMP_PATH_LIKE = '/' + 'var' + '/' + 'folders' + '/' + 'synthetic-workspace';
+const HOME_PATH_LIKE = '/' + 'home' + '/' + 'synthetic-operator' + '/' + 'workspace';
+const WINDOWS_PATH_LIKE = 'C:' + '\\' + 'synthetic' + '\\' + 'workspace';
+const FILE_URL_LIKE = 'file:' + '//' + '/synthetic-workspace';
+
+describe('BR-SOURCE-11C output sanitizer — filesystem paths are blocked', () => {
+  const pathCases: ReadonlyArray<readonly [string, string]> = [
+    ['an absolute temp path', TEMP_PATH_LIKE],
+    ['an absolute home path', HOME_PATH_LIKE],
+    ['a Windows drive path', WINDOWS_PATH_LIKE],
+    ['a file: URL', FILE_URL_LIKE],
+  ];
+
+  for (const [label, value] of pathCases) {
+    it(`blocks ${label}`, () => {
+      const result = sanitizeBrazilReceitaFullJoinReport({ note: value });
+      assert.equal(result.ok, false, `${label} must be blocked`);
+      assert.ok(findingKinds(result).includes('filesystem_path_like'));
+    });
+
+    it(`blocks ${label} in a RENDERED report too`, () => {
+      const result = sanitizeBrazilReceitaFullJoinRenderedOutput(`workspace: ${value}`);
+      assert.equal(result.ok, false);
+      assert.equal(result.findings[0]?.path, '<rendered>');
+    });
+  }
+
+  it('never echoes the offending path in a finding', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({ workspace: TEMP_PATH_LIKE });
+    assert.equal(result.ok, false);
+    assert.ok(!JSON.stringify(result).includes('synthetic-workspace'));
+  });
+
+  it('does not mistake a formatted CNPJ, a period, or a version for a path', () => {
+    // The formatted-CNPJ shape carries a slash but is reported as the TIGHTER kind.
+    const cnpj = sanitizeBrazilReceitaFullJoinReport({ note: CNPJ_FORMATTED_LIKE });
+    assert.equal(findingKinds(cnpj)[0], 'cnpj_completo_like');
+    const safe = sanitizeBrazilReceitaFullJoinReport({
+      source_period: '2026-07',
+      layout_mode: 'official_headerless',
+      version: 'v0.1',
+      ratio_label: 'rows_per_family',
+    });
+    assert.equal(safe.ok, true);
+    assert.deepEqual(safe.findings, []);
+  });
+});
+
+describe('BR-SOURCE-11C output sanitizer — the Option B report shape passes', () => {
+  it('allows the manifest-trust and carve-out fields', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      run_mode: 'local_manifest_dry_run',
+      manifest_trust: 'synthetic_temp_manifest_only',
+      option_b_carveout_authorized: true,
+      source_period: null,
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.findings, []);
+  });
+
+  it('allows the Option B aggregate and guardrail count keys', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      aggregate_counts: {
+        local_manifest_files_scanned: 6,
+        local_manifest_families_scanned: 5,
+      },
+      guardrail_counts: {
+        local_manifest_bytes_cap_applied: 1,
+        local_manifest_forbidden_family_findings: 0,
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.findings, []);
+  });
+
+  it('still blocks a raw cell or a filename smuggled onto an Option B report', () => {
+    const withCell = sanitizeBrazilReceitaFullJoinReport({
+      manifest_trust: 'synthetic_temp_manifest_only',
+      raw_cell: 'SYN_COMP_A',
+    });
+    assert.equal(withCell.ok, false);
+    assert.ok(findingKinds(withCell).includes('raw_data_payload'));
+
+    const withPath = sanitizeBrazilReceitaFullJoinReport({
+      manifest_trust: 'synthetic_temp_manifest_only',
+      scanned_file: `${TEMP_PATH_LIKE}/synthetic-empresas.csv`,
+    });
+    assert.equal(withPath.ok, false);
+    assert.ok(findingKinds(withPath).includes('filesystem_path_like'));
   });
 });

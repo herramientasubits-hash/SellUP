@@ -1,33 +1,47 @@
 /**
- * BR Receita CNPJ — FULL JOIN dry-run runner CLI (BR-SOURCE-11A).
+ * BR Receita CNPJ — FULL JOIN dry-run runner CLI (BR-SOURCE-11A / 11C Option B).
  *
  * A safe, local, no-write/no-runtime entry point to the full-join dry-run scaffold.
  * It prints ONLY the sanitized, aggregate report produced by the runner core.
  *
  * ── Modes ───────────────────────────────────────────────────────────────────────
- *   --synthetic-fixture            The ONLY mode that produces metrics. Scores the
- *                                  built-in synthetic fixture with zero file I/O.
+ *   --synthetic-fixture            Scores the built-in synthetic fixture in memory,
+ *                                  with zero file I/O.
+ *   --synthetic-temp-manifest      The BR-SOURCE-11C Option B carve-out. GENERATES a
+ *                                  synthetic manifest and synthetic headerless CSVs in
+ *                                  a temp workspace this tool creates, runs the local
+ *                                  manifest dry-run against ONLY those files, and
+ *                                  removes the workspace afterwards. Requires --strict
+ *                                  and all four bounded caps.
  *   --manifest <p> --allow-local-manifest
- *                                  Declares local-manifest intent. Caps still apply,
- *                                  and the runner core still refuses (GATE-1/GATE-2
- *                                  are not approved), so NO file is ever opened.
+ *                                  Declares REAL local-manifest intent. Still refused
+ *                                  by the runner core: a real manifest can never carry
+ *                                  synthetic-temp trust, and GATE-1/GATE-2 are not
+ *                                  approved — so NO real file is ever opened.
  *
- * One of the two must be requested explicitly: a bare invocation is a fail-closed
+ * Exactly one mode must be requested explicitly: a bare invocation is a fail-closed
  * usage error, never a silent default run.
  *
  * ── This CLI NEVER ──────────────────────────────────────────────────────────────
+ *   - reads a manifest, CSV, or directory it did not generate itself.
  *   - accepts a CSV/ZIP payload, a directory, a URL, or a remote location.
- *   - accepts a path under the operator's own download directories.
+ *   - accepts a path under an operator's download or source-data directories.
  *   - downloads, unzips, imports, executes, or processes the full dataset.
  *   - opens a Supabase client or performs a production/runtime write.
  *   - touches Agent 1, providers, HubSpot, or Slack.
  *   - echoes the manifest, a filesystem path, a raw error message, or a stack trace.
  *   - prints a row, a full CNPJ, a CNPJ básico, a CPF, a name, or a join key.
  *   - writes a report that failed sanitization.
+ *   - leaves its synthetic temp workspace behind (cleanup runs in a `finally`).
  *
  * Usage:
  *   node --import tsx scripts/source-catalog/run-br-receita-cnpj-full-join-dry-run.ts \
  *     --synthetic-fixture --format json --strict
+ *
+ *   node --import tsx scripts/source-catalog/run-br-receita-cnpj-full-join-dry-run.ts \
+ *     --synthetic-temp-manifest --format json --strict \
+ *     --max-company-rows 20 --max-establishment-rows 20 \
+ *     --max-company-scan-rows 1000 --max-bytes-per-file 1000000
  */
 
 import * as fs from 'node:fs';
@@ -35,11 +49,15 @@ import * as path from 'node:path';
 
 import {
   BRAZIL_RECEITA_FULL_JOIN_MAX_SYNTHETIC_ROWS,
+  BRAZIL_RECEITA_FULL_JOIN_OPTION_B_MAX_BYTES_PER_FILE,
+  BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+  BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_TEMP_MANIFEST_TRUST,
   runBrazilReceitaFullJoinDryRun,
   type BrazilReceitaFullJoinDryRunReport,
   type BrazilReceitaFullJoinRunMode,
 } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-dry-run-runner';
 import { sanitizeBrazilReceitaFullJoinRenderedOutput } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-output-sanitizer';
+import { createBrazilReceitaSyntheticTempManifest } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-synthetic-temp-manifest';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -77,9 +95,9 @@ export const FORBIDDEN_FLAGS = [
 ] as const;
 
 /**
- * Directory names that indicate an operator's real downloaded dataset. A `--manifest`
- * or `--output` path containing one of these is refused outright, before the runner
- * core is even consulted.
+ * Directory names that indicate an operator's real downloaded / staged dataset. A
+ * `--manifest` or `--output` path containing one of these is refused outright, before
+ * the runner core is even consulted.
  */
 export const FORBIDDEN_PATH_SEGMENTS = [
   'downloads',
@@ -87,6 +105,22 @@ export const FORBIDDEN_PATH_SEGMENTS = [
   'descargas',
   'dados_abertos',
   'dados-abertos',
+  'sellup-source-data',
+  'sellup_source_data',
+  'raw-zips',
+  'raw_zips',
+  'extracted',
+  'manifest-input',
+  'manifest_input',
+] as const;
+
+/**
+ * Manifest FILENAMES that identify a real prepared Receita file set. Refused by name,
+ * independently of the directory it sits in.
+ */
+export const FORBIDDEN_MANIFEST_BASENAMES = [
+  'manifest.headerless.json',
+  'manifest.real.json',
 ] as const;
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
@@ -118,11 +152,14 @@ export interface FullJoinRunnerOptions {
   readonly runMode: BrazilReceitaFullJoinRunMode;
   readonly manifestPath: string | null;
   readonly allowLocalManifest: boolean;
+  /** True for the Option B carve-out: a self-generated synthetic temp workspace. */
+  readonly syntheticTempManifest: boolean;
   readonly format: FullJoinRunnerFormat;
   readonly strict: boolean;
   readonly maxCompanyRows: number | null;
   readonly maxEstablishmentRows: number | null;
   readonly maxCompanyScanRows: number | null;
+  readonly maxBytesPerFile: number | null;
   readonly outputPath: string | null;
 }
 
@@ -164,19 +201,38 @@ export function assertNoForbiddenPathSegment(label: string, value: string): void
   }
 }
 
-function parsePositiveInteger(flag: string, value: string): number {
+/**
+ * Refuses a manifest whose FILENAME identifies a real prepared Receita file set. The
+ * path is never echoed — only the basename class that tripped the check.
+ */
+export function assertNoForbiddenManifestBasename(value: string): void {
+  const basename = path.basename(value).toLowerCase();
+  for (const forbidden of FORBIDDEN_MANIFEST_BASENAMES) {
+    if (basename === forbidden) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        `--manifest names a real prepared file set ("${forbidden}") — this runner never opens one`,
+      );
+    }
+  }
+}
+
+function parseBoundedInteger(flag: string, value: string, ceiling: number): number {
   if (!/^\d+$/.test(value)) {
     throw new ForbiddenFullJoinRunnerModeError(
       `--${flag} must be a non-negative integer, got "${value}"`,
     );
   }
   const parsed = Number(value);
-  if (parsed > BRAZIL_RECEITA_FULL_JOIN_MAX_SYNTHETIC_ROWS) {
+  if (parsed > ceiling) {
     throw new ForbiddenFullJoinRunnerModeError(
       `--${flag} (${parsed}) is far beyond any bounded dry-run window`,
     );
   }
   return parsed;
+}
+
+function parsePositiveInteger(flag: string, value: string): number {
+  return parseBoundedInteger(flag, value, BRAZIL_RECEITA_FULL_JOIN_MAX_SYNTHETIC_ROWS);
 }
 
 /**
@@ -187,6 +243,7 @@ function parsePositiveInteger(flag: string, value: string): number {
  */
 export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   let syntheticFixture = false;
+  let syntheticTempManifest = false;
   let manifest: string | null = null;
   let allowLocalManifest = false;
   let format: FullJoinRunnerFormat = 'text';
@@ -194,6 +251,7 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   let maxCompanyRows: number | null = null;
   let maxEstablishmentRows: number | null = null;
   let maxCompanyScanRows: number | null = null;
+  let maxBytesPerFile: number | null = null;
   let outputPath: string | null = null;
 
   for (let i = 0; i < argv.length; i++) {
@@ -218,6 +276,9 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
       case 'synthetic-fixture':
         syntheticFixture = true;
         break;
+      case 'synthetic-temp-manifest':
+        syntheticTempManifest = true;
+        break;
       case 'manifest':
         manifest = takeValue();
         break;
@@ -232,6 +293,13 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
         break;
       case 'max-company-scan-rows':
         maxCompanyScanRows = parsePositiveInteger('max-company-scan-rows', takeValue());
+        break;
+      case 'max-bytes-per-file':
+        maxBytesPerFile = parseBoundedInteger(
+          'max-bytes-per-file',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_OPTION_B_MAX_BYTES_PER_FILE,
+        );
         break;
       case 'output':
         outputPath = takeValue();
@@ -265,17 +333,42 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
       throw new ForbiddenFullJoinRunnerModeError('--manifest must point to a local .json manifest');
     }
     assertNoForbiddenPathSegment('--manifest', manifest);
+    assertNoForbiddenManifestBasename(manifest);
   }
 
-  if (manifest === null && !syntheticFixture) {
+  const requestedModes = [syntheticFixture, syntheticTempManifest, manifest !== null].filter(
+    Boolean,
+  ).length;
+  if (requestedModes === 0) {
     throw new ForbiddenFullJoinRunnerModeError(
-      '--synthetic-fixture is required (or --manifest <path> --allow-local-manifest to declare local-manifest intent, which this hito still refuses)',
+      '--synthetic-fixture or --synthetic-temp-manifest is required (--manifest <path> --allow-local-manifest declares REAL local-manifest intent, which the runner core still refuses)',
     );
   }
-  if (manifest !== null && syntheticFixture) {
+  if (requestedModes > 1) {
     throw new ForbiddenFullJoinRunnerModeError(
-      '--synthetic-fixture and --manifest are mutually exclusive — pick exactly one mode',
+      '--synthetic-fixture, --synthetic-temp-manifest and --manifest are mutually exclusive — pick exactly one mode',
     );
+  }
+
+  if (syntheticTempManifest) {
+    // Option B is strict-only and fully-capped: a lenient or uncapped synthetic
+    // temp-manifest run does not exist, so the omission is refused HERE, before the
+    // workspace is created and before the runner core is consulted.
+    if (!strict) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--synthetic-temp-manifest requires --strict — the Option B carve-out has no lenient mode',
+      );
+    }
+    const missing: string[] = [];
+    if (maxCompanyRows === null) missing.push('--max-company-rows');
+    if (maxEstablishmentRows === null) missing.push('--max-establishment-rows');
+    if (maxCompanyScanRows === null) missing.push('--max-company-scan-rows');
+    if (maxBytesPerFile === null) missing.push('--max-bytes-per-file');
+    if (missing.length > 0) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        `--synthetic-temp-manifest requires every bounded cap (missing: ${missing.join(', ')})`,
+      );
+    }
   }
 
   if (outputPath !== null) {
@@ -291,14 +384,19 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   }
 
   return {
-    runMode: manifest !== null ? 'local_manifest_dry_run' : 'synthetic_fixture_only',
+    runMode:
+      manifest !== null || syntheticTempManifest
+        ? 'local_manifest_dry_run'
+        : 'synthetic_fixture_only',
     manifestPath: manifest,
-    allowLocalManifest,
+    allowLocalManifest: allowLocalManifest || syntheticTempManifest,
+    syntheticTempManifest,
     format,
     strict,
     maxCompanyRows,
     maxEstablishmentRows,
     maxCompanyScanRows,
+    maxBytesPerFile,
     outputPath,
   };
 }
@@ -331,10 +429,12 @@ function renderCounts(label: string, counts: Record<string, number>, lines: stri
 
 export function formatReportText(report: BrazilReceitaFullJoinDryRunReport): string {
   const lines: string[] = [];
-  lines.push('Brazil Receita CNPJ full join dry-run (BR-SOURCE-11A scaffold)');
+  lines.push('Brazil Receita CNPJ full join dry-run (BR-SOURCE-11A / 11C Option B scaffold)');
   lines.push(`ok: ${report.ok}`);
   lines.push(`mode: ${report.mode}`);
   lines.push(`run_mode: ${report.run_mode}`);
+  lines.push(`manifest_trust: ${report.manifest_trust}`);
+  lines.push(`option_b_carveout_authorized: ${report.option_b_carveout_authorized}`);
   lines.push(`source_key: ${report.source_key}`);
   lines.push(`country_code: ${report.country_code}`);
   lines.push(`source_period: ${report.source_period ?? 'null'}`);
@@ -368,25 +468,49 @@ export function formatReportText(report: BrazilReceitaFullJoinDryRunReport): str
 export function runFullJoinDryRun(
   options: FullJoinRunnerOptions,
 ): BrazilReceitaFullJoinDryRunReport {
-  return runBrazilReceitaFullJoinDryRun({
-    mode: options.runMode,
-    // The manifest is DECLARED, never opened: the core refuses local-manifest mode.
-    ...(options.manifestPath !== null ? { manifest: { declared: true } } : {}),
-    allowLocalManifest: options.allowLocalManifest,
-    ...(options.maxCompanyRows !== null ? { maxCompanyRows: options.maxCompanyRows } : {}),
-    ...(options.maxEstablishmentRows !== null
-      ? { maxEstablishmentRows: options.maxEstablishmentRows }
-      : {}),
-    ...(options.maxCompanyScanRows !== null
-      ? { maxCompanyScanRows: options.maxCompanyScanRows }
-      : {}),
-    noWriteMode: true,
-    runtimeIntegration: false,
-    agent1Integration: false,
-    supabaseWrite: false,
-    providerCalls: false,
-    importExecuted: false,
-  });
+  // Option B: GENERATE a synthetic temp workspace, read only that, and release it. The
+  // workspace path is chosen by the generator, so this CLI never holds one.
+  const workspace = options.syntheticTempManifest
+    ? createBrazilReceitaSyntheticTempManifest()
+    : null;
+
+  try {
+    return runBrazilReceitaFullJoinDryRun({
+      mode: options.runMode,
+      // A REAL manifest is DECLARED, never opened: the core refuses it because a real
+      // manifest can never carry synthetic-temp trust.
+      ...(options.manifestPath !== null ? { manifest: { declared: true } } : {}),
+      allowLocalManifest: options.allowLocalManifest,
+      ...(workspace !== null
+        ? {
+            manifestTrust: BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_TEMP_MANIFEST_TRUST,
+            optionBCarveoutAuthorized: true,
+            outputSanitizationVersion: BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+            localManifestReader: workspace.read,
+          }
+        : {}),
+      strict: options.strict,
+      ...(options.maxCompanyRows !== null ? { maxCompanyRows: options.maxCompanyRows } : {}),
+      ...(options.maxEstablishmentRows !== null
+        ? { maxEstablishmentRows: options.maxEstablishmentRows }
+        : {}),
+      ...(options.maxCompanyScanRows !== null
+        ? { maxCompanyScanRows: options.maxCompanyScanRows }
+        : {}),
+      ...(options.maxBytesPerFile !== null ? { maxBytesPerFile: options.maxBytesPerFile } : {}),
+      noWriteMode: true,
+      runtimeIntegration: false,
+      agent1Integration: false,
+      supabaseWrite: false,
+      providerCalls: false,
+      importExecuted: false,
+      productionWrites: false,
+    });
+  } finally {
+    // Cleanup runs on EVERY path, including a thrown error: a synthetic workspace never
+    // outlives its run. `dispose` only ever removes the directory it created itself.
+    workspace?.dispose();
+  }
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────

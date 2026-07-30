@@ -2,7 +2,7 @@
 
 **Source family:** Brazil — Receita Federal do Brasil (RFB), Cadastro Nacional da Pessoa Jurídica (CNPJ) — Dados Abertos (bulk)
 **Milestone:** BR-SOURCE-11C-R — Local manifest dry-run carve-out decision record (docs-only)
-**Status:** Official decision record of record (docs-only) — `proposed_for_owner_review`; **not** a gate approval, and **not** a build/import/dry-run/execution/migration authorization
+**Status:** Official decision record of record — **Option B AUTHORIZED and IMPLEMENTED** in BR-SOURCE-11C (see § 13); still **not** a gate approval, and **not** a real-manifest / real-data-file / import / execution / migration authorization
 **Predecessor:** BR-SOURCE-11A-LAND — `BRSOURCE11ALANDA — FULL_JOIN_DRY_RUN_RUNNER_SCAFFOLD_MERGED` (PR #163, `main` HEAD `93bf94538d030eaed2536ab54319e101fc839cb4`), validated post-merge by BR-SOURCE-11B — `BRSOURCE11BA — POST_MERGE_SYNTHETIC_RUNNER_VALIDATION_PASSED`
 **Blocked milestone this record addresses:** BR-SOURCE-11C — `BRSOURCE11CD — LOCAL_MANIFEST_GUARD_FAILED`
 **Last reviewed:** 2026-07-30
@@ -18,24 +18,28 @@
 - Manual download & local prep runbook — [`br-receita-cnpj-manual-download-local-prep-runbook.md`](./br-receita-cnpj-manual-download-local-prep-runbook.md)
 - Legal/privacy decision record — [`br-receita-cnpj-legal-privacy-decision-record.md`](./br-receita-cnpj-legal-privacy-decision-record.md)
 
-> This document is a **decision record proposed for owner review**. It records why BR-SOURCE-11C was
-> blocked, states the decision question that blockage raises, enumerates the available options, and
-> recommends one. It **approves no gate**, moves no gate out of `not_started`, and substitutes for no
-> named approver. Nothing here authorizes — and nothing here should be read as authorizing — real
-> manifest reading, real data-file reading, a dataset download, full-dataset processing, full join
-> execution, import, a Supabase write, a production write, a migration, an index change, a runtime
-> change, an adapter/validator change, an Agent 1 integration, a provider call, a HubSpot sync, a
-> Slack notification, live generation, full expansion, or merge to an operational state.
-> **This document records a decision question; it authorizes no execution.**
+> This document is the **decision record of record**. § 1–12 record why BR-SOURCE-11C was blocked,
+> the decision question that blockage raised, the options, and the recommendation. § 13 records the
+> owner's answer — **Option B authorized** — and what BR-SOURCE-11C implemented under it.
+>
+> The Option B authorization covers **synthetic temp-manifest plumbing and its tests, and nothing
+> else**. It **approves no gate** and moves no gate out of `not_started`. Nothing here authorizes —
+> and nothing here should be read as authorizing — real manifest reading, real data-file reading, a
+> dataset download, full-dataset processing, full join execution, import, a Supabase write, a
+> production write, a migration, an index change, a runtime change, an adapter/validator change, an
+> Agent 1 integration, a provider call, a HubSpot sync, a Slack notification, live generation, full
+> expansion, or merge to an operational state.
+> **Option B is authorized; real execution is not.**
 
 ---
 
 ## 1. Status
 
 ```text
-Decision record status: proposed_for_owner_review
-Implementation status:  not_authorized
-Current GO/NO-GO:       NO-GO
+Decision record status: merged_and_official
+Owner decision:         OPTION B AUTHORIZED (phrase received — see § 8, § 13)
+Implementation status:  implemented in BR-SOURCE-11C (synthetic temp-manifest only)
+Current GO/NO-GO:       GO for Option B only — NO-GO for everything else
 ```
 
 Explicitly:
@@ -45,20 +49,27 @@ This record does not approve GATE-1.
 This record does not approve GATE-2.
 This record does not approve any gate.
 This record does not authorize real manifest execution.
+This record does not authorize real data-file dry-run.
 This record does not authorize dataset import.
 This record does not authorize Supabase writes.
 This record does not authorize runtime or Agent 1.
 ```
 
-This record is **docs-only**. It adds no runner, no script, no test, no fixture, no package change,
-no migration, no index change, and no UI change. It is a written decision question addressed to the
-gate owners, and it becomes official only when merged — and even then it authorizes nothing until an
-owner supplies the explicit authorization phrase recorded in § 8.
+The Option B authorization is **narrow by construction**: it authorizes synthetic temp-manifest
+plumbing and its tests, and nothing else. See § 13 for what was implemented under it, and § 9 for
+the list of things that an Option B authorization deliberately leaves blocked.
+
+§ 1–12 of this record were landed **docs-only** (BR-SOURCE-11C-R): they added no runner, no script,
+no test, no fixture, no package change, no migration, no index change, and no UI change. The code
+described in § 13 was written separately, in BR-SOURCE-11C, **after** the owner supplied the explicit
+authorization phrase recorded in § 8. § 12 documents the safety envelope of the docs-only landing;
+the implementation's own envelope is recorded in § 13 and in the BR-SOURCE-11C PR.
 
 Two further clarifications, because past milestones have shown how easily these are conflated:
 
-- **A merged decision record is not an authorization.** Merging this document makes the *question*
-  official. It does not answer the question. The answer is the owner phrase in § 8, given separately.
+- **A merged decision record is not an authorization.** Merging § 1–12 made the *question* official;
+  it did not answer it. The answer was the owner phrase in § 8, given separately — and that phrase
+  authorized Option B alone, not Option C, not Option D, and no gate.
 - **A mechanism existing in code is not an approval.** BR-SOURCE-11A already landed the no-write
   guard, the output sanitizer, and the failure-cleanup model. Those are the *mechanisms* of GATE-8,
   GATE-5, and GATE-6 respectively; all three gates remain `not_started` / not approved, exactly as
@@ -511,9 +522,11 @@ Two consequences follow, and both are load-bearing:
 ## 10. Flags
 
 ```text
-OPS_BR_LOCAL_MANIFEST_CARVEOUT_DECISION_RECORD_PR_READY  = false until PR
-OPS_BR_LOCAL_MANIFEST_CARVEOUT_DECISION_RECORD_OFFICIAL  = false until merge
-OPS_BR_LOCAL_MANIFEST_CARVEOUT_OPTION_B_AUTHORIZED       = false
+OPS_BR_LOCAL_MANIFEST_CARVEOUT_DECISION_RECORD_PR_READY  = true
+OPS_BR_LOCAL_MANIFEST_CARVEOUT_DECISION_RECORD_OFFICIAL  = true
+OPS_BR_LOCAL_MANIFEST_CARVEOUT_OPTION_B_AUTHORIZED       = true
+OPS_BR_OPTION_B_SYNTHETIC_TEMP_MANIFEST_DRY_RUN_PR_READY = true
+OPS_BR_OPTION_B_SYNTHETIC_TEMP_MANIFEST_DRY_RUN_OFFICIAL = false until merge
 OPS_BR_REAL_LOCAL_MANIFEST_AUTHORIZED                    = false
 OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED           = false
 
@@ -610,3 +623,100 @@ never a real value and never a real location. No secrets, no data dumps, no real
 básico values, no CPFs, and no partner (sócio) personal data are reproduced. Local WIP
 (`scratchpad/`) and the unrelated in-progress work on the main worktree are untouched by any git
 operation: this milestone was prepared in an isolated worktree branched from `origin/main`.
+
+---
+
+## 13. BR-SOURCE-11C implementation record — Option B, and only Option B
+
+BR-SOURCE-11C implements Option B after explicit owner authorization:
+
+```text
+AUTHORIZE OPTION B — SYNTHETIC TEMP-MANIFEST CARVE-OUT ONLY
+```
+
+This authorizes only synthetic temp-manifest plumbing and tests.
+It does not authorize real manifest execution.
+It does not authorize real Receita data-file execution.
+It does not approve any gate.
+It does not authorize import.
+It does not authorize Supabase writes.
+It does not authorize runtime or Agent 1.
+
+### 13.1 What was implemented
+
+```text
+runner:     local_manifest_dry_run runs ONLY behind the full Option B gate.
+generator:  br-receita-cnpj-synthetic-temp-manifest.ts creates its OWN temp workspace,
+            writes a synthetic manifest + synthetic headerless CSVs, reads only those,
+            and removes only the directory it created.
+CLI:        --synthetic-temp-manifest (requires --strict and all four caps).
+sanitizer:  new filesystem_path_like leak kind — no report may carry a path.
+cleanup:    a declared synthetic workspace is a COUNTED artifact forcing cleanup.
+```
+
+The gate is a conjunction; every condition is independently fail-closed:
+
+```text
+allowLocalManifest          === true
+manifestTrust               === 'synthetic_temp_manifest_only'
+optionBCarveoutAuthorized   === true
+strict                      === true
+productionWrites            === false
+outputSanitizationVersion   === 'not_approved'   (explicit, not omitted)
+maxCompanyRows              stated and <= 20
+maxEstablishmentRows        stated and <= 20
+maxCompanyScanRows          stated and <= 1000
+maxBytesPerFile             stated and <= 1_000_000
+localManifestReader         injected
+```
+
+A missing cap is refused as `local_manifest_caps_required`, an out-of-bounds cap as
+`local_manifest_cap_exceeded` — a cap the caller never stated is a cap nobody agreed to, so it is
+never defaulted.
+
+### 13.2 Why a real manifest still cannot be read
+
+Three independent structural reasons, not one policy check:
+
+1. **Trust is checked before authorization.** A manifest whose declared trust is not
+   `synthetic_temp_manifest_only` is refused as `local_manifest_execution_not_authorized`, whatever
+   else the caller declares — including a declared Option B carve-out.
+2. **The runner core owns no filesystem.** It never imports `node:fs`/`node:os` and opens nothing.
+   Reading is delegated to an injected reader port, and the ONLY implementation of that port is the
+   synthetic generator.
+3. **The generator accepts no path.** Its workspace location is chosen inside the module
+   (`fs.mkdtempSync` under the OS temp root) and is never returned. There is no parameter, flag, or
+   environment variable through which a caller can point it at a real location — the § 6.1 boundary
+   ("not addressable by a caller") holds for the controlled CLI exactly as it does for a test.
+
+The CLI additionally refuses `manifest.headerless.json` by basename, and refuses any path containing
+`downloads`, `descargas`, `dados_abertos`, `sellup-source-data`, `raw-zips`, `extracted`, or
+`manifest-input` — as denylist labels for a static guard, never as usable locations.
+
+### 13.3 What this implementation proves, and what it does not
+
+```text
+Proves:      the manifest-reading PLUMBING works and is bounded, sanitized and cleaned up.
+Proves NOT:  anything at all about the real dataset.
+```
+
+Per § 6.1 ("no production evidence claims"): this milestone produced **no** evidence about the real
+Receita dataset. Its counts describe cells the generator itself wrote moments earlier. Nothing
+measured here is citable as GATE-1 or GATE-2 evidence, and nothing here speaks to real coverage,
+real join rates, or real eligibility. `OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED` stays `false`.
+
+### 13.4 Gate status after BR-SOURCE-11C — UNCHANGED
+
+```text
+GATE-1 Legal/Privacy                = not_started / not approved
+GATE-2 Temporary storage envelope   = not_started / not approved
+GATE-3 Field allowlist              = not_started / not approved
+GATE-4 Identity grain               = not_started / not approved
+GATE-5 Output sanitization          = not_started / not approved
+GATE-6 Failure cleanup              = not_started / not approved
+GATE-7 Operator runbook             = not_started / not approved
+GATE-8 No-write/no-runtime          = not_started / not approved
+```
+
+A mechanism existing and now being exercised is still not an approval: the runner reports all eight
+gates `not_approved` on every Option B run, and asserts it in test.
