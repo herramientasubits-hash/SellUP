@@ -162,7 +162,244 @@ const SECTOR_SIGNAL_TERMS: Record<string, string[]> = {
     'e-learning',
     'blended learning',
   ],
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 (§8) — broad retail & consumer signals.
+   *
+   * Added because 'Retail y Consumo' had no mapping, so the gate resolved to
+   * `passthrough` and every Apollo result was accepted without sector evidence —
+   * including Citigroup and a mail provider. An unmapped sector must no longer be
+   * an implicit "everything is relevant".
+   */
+  'retail y consumo': [
+    // Español
+    //
+    // Deliberadamente SIN el token suelto 'retail': 'retail' es substring de
+    // 'retail banking', así que admitiría a Citigroup en una búsqueda de retail —
+    // exactamente el falso positivo que este gate existe para cerrar.
+    // 'retailer' / 'retail chain' / 'retail store' expresan lo mismo sin la
+    // colisión. Tampoco 'comercial' ni 'comercio' sueltos: aparecen en casi
+    // cualquier descripción corporativa en español y no son evidencia sectorial.
+    'comercio minorista',
+    'comercio al detal',
+    'comercio al por menor',
+    'tienda por departamento',
+    'cadena de tiendas',
+    'almacenes',
+    'supermercado',
+    'supermercados',
+    'hipermercado',
+    'hipermercados',
+    'minimercado',
+    'autoservicio',
+    'mayorista',
+    'distribuidor',
+    'distribucion',
+    'consumo masivo',
+    'gran consumo',
+    'bienes de consumo',
+    // Inglés
+    'retailer',
+    'retail chain',
+    'retail store',
+    'department store',
+    'supermarket',
+    'hypermarket',
+    'grocery',
+    'grocery retail',
+    'grocery store',
+    'convenience store',
+    'ecommerce',
+    'e-commerce',
+    'consumer goods',
+    'fmcg',
+    'wholesale',
+    'wholesaler',
+  ],
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 (§8) — the subindustry actually exercised
+   * in A1-APOLLO-LIVE-QA-1. Stricter than the parent sector: a generic retailer
+   * or an ecommerce shop is not a supermarket chain, so the broad `retail` /
+   * `ecommerce` tokens are deliberately absent here.
+   */
+  'supermercados e hipermercados': [
+    // Español
+    'supermercado',
+    'supermercados',
+    'hipermercado',
+    'hipermercados',
+    'minimercado',
+    'minimercados',
+    'autoservicio',
+    'tienda de barrio',
+    'cadena de supermercados',
+    'grandes superficies',
+    'canasta familiar',
+    'abarrotes',
+    'viveres',
+    // Inglés
+    'supermarket',
+    'supermarkets',
+    'supermarket chain',
+    'hypermarket',
+    'hypermarkets',
+    'grocery',
+    'grocery retail',
+    'grocery store',
+    'grocery chain',
+    'grocer',
+    'food retail',
+    'food retailer',
+    'convenience store',
+  ],
 };
+
+// ─── Evidencia sectorial BARATA (pre-enrichment) ──────────────────────────────
+//
+// A1-APOLLO-BUDGET-RECONCILIATION-1 (§8).
+//
+// El gate principal de este archivo corre DESPUÉS del enriquecimiento pagado y
+// puede leer `apollo_profile`. Esta función es su equivalente barato: decide con
+// señales que ya están disponibles sin gastar un crédito — nombre, dominio, URL,
+// slug de LinkedIn, industry/keywords que el search ya trajo y etiquetas de la
+// consulta. Se usa para decidir si vale la pena PAGAR el enrichment.
+//
+// Fail-closed para gasto: sin mapping de sector, o sin evidencia, no se paga.
+
+/** Resultado de la evaluación barata. */
+export type CheapSectorEvidenceOutcome =
+  /** Hay evidencia sectorial suficiente en campos gratuitos. */
+  | 'relevant'
+  /** Hay mapping, pero ninguna señal apareció. */
+  | 'unverified'
+  /** Ni el sector ni la subindustria tienen mapping de señales. */
+  | 'sector_not_mapped';
+
+export type CheapSectorEvidenceResult = {
+  outcome: CheapSectorEvidenceOutcome;
+  /** Detalle seguro para logs: términos encontrados o la razón de la ausencia. */
+  detail: string;
+  matchedTerms: string[];
+  /** True cuando se usaron señales de subindustria (más estrictas). */
+  subindustrySignalUsed: boolean;
+};
+
+export type CheapSectorEvidenceInput = {
+  sector: string | null | undefined;
+  subindustry: string | null | undefined;
+  name: string | null | undefined;
+  domain: string | null | undefined;
+  url: string | null | undefined;
+  linkedinUrl: string | null | undefined;
+  /** industry ya presente en el resultado del search (sin enrichment). */
+  industryHints?: readonly string[];
+  /** keywords/description ya presentes en el resultado del search. */
+  keywordHints?: readonly string[];
+  /** Etiquetas derivadas de la consulta que originó el resultado. */
+  queryTags?: readonly string[];
+};
+
+/**
+ * Normaliza texto para matching: minúsculas, sin acentos y con cualquier
+ * separador (guiones, puntos, barras) convertido en espacio, de modo que
+ * `supermercados-exito.com` o `/company/grupo_supermercados` también coincidan.
+ * Se preservan además los espacios simples para que las frases multi-palabra
+ * ('grocery retail') puedan compararse.
+ */
+function normalizeEvidenceText(parts: readonly (string | null | undefined)[]): string {
+  return parts
+    .filter((part): part is string => typeof part === 'string' && part.trim() !== '')
+    .join(' ')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Normaliza un término de señal al mismo espacio que `normalizeEvidenceText`. */
+function normalizeSignalTerm(term: string): string {
+  return term
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * ¿Hay evidencia sectorial suficiente para justificar un enrichment pagado?
+ *
+ * Nunca lanza. `sector_not_mapped` y `unverified` son ambos "no pagar", pero se
+ * distinguen porque significan cosas distintas: falta cobertura de catálogo
+ * frente a candidato fuera de sector.
+ */
+export function hasCheapSectorEvidence(
+  input: CheapSectorEvidenceInput,
+): CheapSectorEvidenceResult {
+  const subindustrySignals = input.subindustry ? getSectorSignals(input.subindustry) : null;
+  const sectorSignals = getSectorSignals(input.sector);
+  const signals = subindustrySignals ?? sectorSignals;
+  const subindustrySignalUsed = subindustrySignals !== null;
+
+  if (!signals) {
+    return {
+      outcome: 'sector_not_mapped',
+      detail: 'no_signal_mapping_for_sector_or_subindustry',
+      matchedTerms: [],
+      subindustrySignalUsed: false,
+    };
+  }
+
+  // Slug de LinkedIn: sólo la parte del identificador, nunca la URL completa.
+  let linkedinSlug: string | null = null;
+  if (typeof input.linkedinUrl === 'string' && input.linkedinUrl.trim() !== '') {
+    const match = /\/company\/([^/?#]+)/.exec(input.linkedinUrl);
+    linkedinSlug = match?.[1] ?? input.linkedinUrl;
+  }
+
+  const text = normalizeEvidenceText([
+    input.name,
+    input.domain,
+    input.url,
+    linkedinSlug,
+    ...(input.industryHints ?? []),
+    ...(input.keywordHints ?? []),
+    ...(input.queryTags ?? []),
+  ]);
+
+  const matchedTerms = signals.filter((term) => {
+    const normalizedTerm = normalizeSignalTerm(term);
+    return normalizedTerm !== '' && text.includes(normalizedTerm);
+  });
+
+  if (matchedTerms.length > 0) {
+    return {
+      outcome: 'relevant',
+      detail: matchedTerms.slice(0, 5).join(','),
+      matchedTerms,
+      subindustrySignalUsed,
+    };
+  }
+
+  return {
+    outcome: 'unverified',
+    detail: 'no_free_signal_match',
+    matchedTerms: [],
+    subindustrySignalUsed,
+  };
+}
+
+/**
+ * Mappings a los que aplica la exclusión buyer/vendor definida arriba.
+ *
+ * BUYER_INDUSTRY_EXCLUSION responde a "¿es comprador de formación corporativa en
+ * vez de vendedor?" y VENDOR_PRODUCT_SIGNALS sólo contiene señales de LMS/edtech.
+ * Esa pregunta únicamente tiene sentido para el gate de formación corporativa;
+ * aplicarla a otros mappings rechaza candidatos legítimos (ver §9).
+ */
+const BUYER_EXCLUSION_SECTOR_KEYS: ReadonlySet<string> = new Set(['formacion corporativa']);
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -224,16 +461,51 @@ function normalizeSector(sector: string): string {
     .replace(/\p{M}/gu, '');
 }
 
+/**
+ * Conjunto de señales resuelto para un sector/subindustria, junto con la CLAVE
+ * del mapping que lo produjo.
+ *
+ * A1-APOLLO-BUDGET-RECONCILIATION-1: la clave es necesaria porque hay reglas
+ * (la exclusión buyer/vendor) que sólo son válidas para un mapping concreto y
+ * no para "cualquier subindustria mapeada".
+ */
+export type ApolloSectorSignalSet = {
+  key: string;
+  signals: readonly string[];
+};
+
 /** Busca las señales configuradas para un sector dado. Null si no mapeado. */
-function getSectorSignals(sector: string | null | undefined): string[] | null {
+function getSectorSignalSet(sector: string | null | undefined): ApolloSectorSignalSet | null {
   if (!sector?.trim()) return null;
   const normalized = normalizeSector(sector);
   for (const [key, signals] of Object.entries(SECTOR_SIGNAL_TERMS)) {
     if (normalized.includes(key) || key.includes(normalized)) {
-      return signals;
+      return { key, signals };
     }
   }
   return null;
+}
+
+/** Compatibilidad interna: sólo las señales, sin la clave. */
+function getSectorSignals(sector: string | null | undefined): readonly string[] | null {
+  return getSectorSignalSet(sector)?.signals ?? null;
+}
+
+/**
+ * Resolución compartida de señales sectoriales: subindustria primero (más
+ * específica), sector como fallback. `null` = ni sector ni subindustria tienen
+ * mapping.
+ *
+ * Exportada para que el gate de elegibilidad de enrichment pagado
+ * (apollo-enrichment-eligibility-gate.ts) use EXACTAMENTE la misma resolución
+ * que el filtro post-enrichment de este archivo. Si divergieran, se podría pagar
+ * un enrichment por un candidato que el filtro final va a descartar.
+ */
+export function resolveApolloSectorSignalSet(
+  sector: string | null | undefined,
+  subindustry: string | null | undefined,
+): ApolloSectorSignalSet | null {
+  return (subindustry ? getSectorSignalSet(subindustry) : null) ?? getSectorSignalSet(sector);
 }
 
 /**
@@ -313,7 +585,7 @@ function extractCandidateText(result: WebSearchResult): string {
  * Evalúa qué señales sectoriales aparecen en el texto del candidato.
  * Retorna los términos encontrados (vacío = sin evidencia).
  */
-function findMatchedTerms(text: string, signals: string[]): string[] {
+function findMatchedTerms(text: string, signals: readonly string[]): string[] {
   return signals.filter(term => text.includes(term.toLowerCase()));
 }
 
@@ -465,7 +737,8 @@ export function applyApolloSectorRelevanceGate(
     };
   }
 
-  const signals = subindustrySignals ?? sectorSignals;
+  const signalSet = resolveApolloSectorSignalSet(sector, subindustry);
+  const signals = signalSet?.signals ?? null;
 
   // Sin mapping (ni sector ni subindustria) → passthrough sin bloquear
   if (!signals) {
@@ -494,8 +767,20 @@ export function applyApolloSectorRelevanceGate(
   const rejectedSamples: ApolloSectorGateSample[] = [];
   const passedSamples: ApolloSectorGateSample[] = [];
 
-  // L2.14: buyer exclusion activa solo para gate estricto de subindustria
-  const buyerExclusionActive = subindustrySignalUsed;
+  // L2.14: buyer exclusion activa solo para el gate estricto de subindustria.
+  //
+  // A1-APOLLO-BUDGET-RECONCILIATION-1 — corrección de alcance: antes bastaba con
+  // que hubiera CUALQUIER mapping de subindustria. La exclusión pregunta "¿esta
+  // empresa es COMPRADORA de formación en vez de vendedora?" y su lista de
+  // industrias incluye 'retail', 'food' y 'consumer goods'; sus señales de
+  // salvación (VENDOR_PRODUCT_SIGNALS) son todas de LMS/edtech. Aplicada al gate
+  // de 'supermercados e hipermercados' (§9) rechazaría a TODOS los supermercados
+  // reales: industria 'retail' y ningún producto LMS. La exclusión queda acotada
+  // al mapping para el que fue escrita.
+  const buyerExclusionActive =
+    subindustrySignalUsed &&
+    signalSet !== null &&
+    BUYER_EXCLUSION_SECTOR_KEYS.has(signalSet.key);
 
   for (const result of results) {
     const text = extractCandidateText(result);

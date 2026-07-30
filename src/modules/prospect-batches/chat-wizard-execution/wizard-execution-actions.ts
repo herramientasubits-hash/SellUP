@@ -69,6 +69,27 @@ import {
 } from './wizard-budget-reconciliation';
 import { estimateCreditsForProvider } from './wizard-budget-estimate';
 import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
+// A1-APOLLO-BUDGET-RECONCILIATION-1 — correlation-based reconciliation. The old
+// reader only looked at Tavily's `multi_query_web_search`, so every Apollo run
+// reconciled against zero rows and fell back to "confirm the reservation".
+import {
+  buildWizardRunCorrelation,
+  MissingRunCorrelationError,
+  type WizardRunCorrelation,
+} from './wizard-run-correlation';
+import {
+  readRunUsageLogs,
+  reconcileRunCredits,
+  type ReadRunUsageLogsResult,
+  type RunUsageLogDbClient,
+} from './wizard-run-reconciliation';
+import type { RunEconomicSummary } from './wizard-economic-contract';
+import {
+  resolveReconcilableOperationKeys,
+  type RunReconciliationOutcomeRecord,
+  recordWizardReservationReconciliation,
+  type ReservationMetadataDbClient,
+} from './wizard-reconciliation-audit';
 
 // ── Dependency injection boundary ─────────────────────────────────────────────
 // All I/O dependencies are injected here. The public server action provides real
@@ -107,6 +128,18 @@ export type WizardExecutionDeps = {
     reason?: string | null;
   }) => Promise<ReleaseWizardCreditsOutput>;
   readConsumedCredits: (batchId: string) => Promise<number | null>;
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1: reads every usage log attributable to the
+   * run by correlation id (never by timestamp) for the provider's reconcilable
+   * operations. Optional so existing Tavily-only tests keep working; the real
+   * action always provides it.
+   */
+  readRunUsageLogs?: (
+    correlation: WizardRunCorrelation,
+    operationKeys: readonly string[],
+  ) => Promise<ReadRunUsageLogsResult>;
+  /** Persists the reconciliation outcome for administrative traceability. */
+  recordReconciliationOutcome?: (record: RunReconciliationOutcomeRecord) => Promise<void>;
   // Existing
   reserveSlot: (input: WizardExecutionReservationInput) => Promise<WizardExecutionReservationResult>;
   runTavilyPipeline: WizardTavilyRunner;
@@ -243,6 +276,19 @@ export async function executeProspectWizardGenerationAction(
 
     readConsumedCredits: (batchId) =>
       readWizardConsumedCreditsFromDb(batchId, supabase as unknown as ConsumedCreditsDbClient),
+
+    // Reads through the service-role client: provider_usage_logs is written by the
+    // admin client, and the reconciliation must see every row it wrote.
+    readRunUsageLogs: (correlation, operationKeys) =>
+      readRunUsageLogs(correlation, budgetClient as unknown as RunUsageLogDbClient, {
+        operationKeys,
+      }),
+
+    recordReconciliationOutcome: (record) =>
+      recordWizardReservationReconciliation(
+        record,
+        budgetClient as unknown as ReservationMetadataDbClient,
+      ),
 
     reserveSlot: (input) =>
       reserveWizardExecutionSlot(input, supabase as unknown as IdempotencyDbClient),
@@ -551,8 +597,122 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 11. Execute discovery pipeline (Tavily or Apollo) using the reserved batchId as anchor
+  // 10-bis. A1-APOLLO-BUDGET-RECONCILIATION-1 — build the run correlation BEFORE
+  // the first paid provider call. clientRequestId + batchId + reservationId are all
+  // known at this point, which is exactly why reconciliation never has to fall back
+  // to matching `created_at`. agentRunId stays null here and that is fine by contract.
   const reservedBatchId = reservation.batchId;
+  const reconcilableOperationKeys = resolveReconcilableOperationKeys(discoveryProvider);
+
+  let runCorrelation: WizardRunCorrelation | null = null;
+  try {
+    runCorrelation = buildWizardRunCorrelation({
+      clientRequestId: req.clientRequestId,
+      batchId: reservedBatchId,
+      reservationId,
+      agentRunId: null,
+      wizardRunId: null,
+      provider: discoveryProvider,
+    });
+  } catch (error: unknown) {
+    // Fail-closed on identity: a run we could not reconcile must not spend. This
+    // releases the budget and runs no provider call, so zero credits are consumed.
+    if (error instanceof MissingRunCorrelationError) {
+      if (budgetWasNew) {
+        await deps
+          .releaseBudget({
+            reservationId,
+            batchId: reservedBatchId,
+            reason: `missing_run_correlation:${error.missingFields.join(',')}`,
+          })
+          .catch(() => undefined);
+      }
+      await deps.markBatchFailed(reservedBatchId, 'pipeline_error').catch(() => undefined);
+      return {
+        ok: false,
+        code: 'GENERATION_FAILED',
+        message: 'No se pudo establecer la trazabilidad económica de la ejecución.',
+        retryable: false,
+      };
+    }
+    throw error;
+  }
+
+  /**
+   * Reconciles the run and confirms the reservation with the resulting amount.
+   *
+   * Search and enrichment reconcile against the SAME reservation. Recorded spend
+   * above the reservation is preserved and flagged rather than clamped down. When
+   * the new correlation reader is unavailable (older injected deps), it degrades to
+   * the legacy conservative behaviour instead of silently confirming zero.
+   */
+  const reconcileAndConfirm = async (
+    correlation: WizardRunCorrelation,
+    executionFailed: boolean,
+  ): Promise<{
+    confirmed: boolean;
+    reconciliationState: RunEconomicSummary['reconciliationState'] | null;
+    anomalies: readonly string[];
+  }> => {
+    const reader = deps.readRunUsageLogs;
+
+    if (!reader) {
+      // Legacy path: single-value reader, conservative fallback to the reservation.
+      const consumed = await deps.readConsumedCredits(correlation.batchId).catch(() => null);
+      const toConfirm = consumed !== null && consumed > 0 ? consumed : creditsReserved;
+      try {
+        await deps.confirmBudget({
+          reservationId: correlation.reservationId,
+          actualCreditsConsumed: toConfirm,
+          batchId: correlation.batchId,
+        });
+        return { confirmed: true, reconciliationState: null, anomalies: [] };
+      } catch {
+        return { confirmed: false, reconciliationState: null, anomalies: [] };
+      }
+    }
+
+    const logsRead = await reader(correlation, reconcilableOperationKeys).catch(
+      (error: unknown): ReadRunUsageLogsResult => ({
+        status: 'unavailable',
+        reason: error instanceof Error ? error.message.slice(0, 200) : 'usage_log_read_failed',
+      }),
+    );
+
+    const reconciled = reconcileRunCredits({
+      estimatedCredits: creditsReserved,
+      logsRead,
+      executionFailed,
+    });
+
+    let confirmed = true;
+    try {
+      await deps.confirmBudget({
+        reservationId: correlation.reservationId,
+        actualCreditsConsumed: reconciled.summary.creditsToConfirm,
+        batchId: correlation.batchId,
+      });
+    } catch {
+      confirmed = false;
+    }
+
+    await deps
+      .recordReconciliationOutcome?.({
+        correlation,
+        summary: reconciled.summary,
+        operationKeys: reconcilableOperationKeys,
+        usageLogsUnavailableReason: reconciled.usageLogsUnavailableReason,
+      })
+      .catch(() => undefined);
+
+    return {
+      confirmed,
+      reconciliationState: reconciled.summary.reconciliationState,
+      anomalies: reconciled.summary.anomalies,
+    };
+  };
+
+  // 11. Execute discovery pipeline (Tavily or Apollo) using the reserved batchId as anchor
   let pipelineResult: IncrementalSearchOutput;
   try {
     if (discoveryProvider === 'apollo_organizations') {
@@ -570,10 +730,9 @@ export async function executeProspectWizardGeneration(
       pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });
     }
   } catch {
-    // Reconcile conservatively — Tavily may have partially executed
-    const consumed = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
-    const toConfirm = (consumed !== null && consumed > 0) ? consumed : creditsReserved;
-    await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
+    // Reconcile by correlation — the pipeline may have partially executed and
+    // already spent real credits, so this must never assume zero.
+    await reconcileAndConfirm(runCorrelation, true).catch(() => undefined);
     await deps.markBatchFailed(reservedBatchId, 'pipeline_error').catch(() => undefined);
     return {
       ok: false,
@@ -585,9 +744,7 @@ export async function executeProspectWizardGeneration(
 
   // 12. Verify batchId consistency — pipeline must return the exact same batchId we reserved
   if (pipelineResult.batchId !== reservedBatchId) {
-    const consumed = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
-    const toConfirm = (consumed !== null && consumed > 0) ? consumed : creditsReserved;
-    await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
+    await reconcileAndConfirm(runCorrelation, true).catch(() => undefined);
     await deps.markBatchFailed(reservedBatchId, 'batchid_mismatch').catch(() => undefined);
     return {
       ok: false,
@@ -597,22 +754,15 @@ export async function executeProspectWizardGeneration(
     };
   }
 
-  // 13. Reconcile credits — confirm actual consumed (partial or full)
-  const consumedCredits = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
-  // Conservative: if 0 or null, confirm full reserved amount (logging may have failed)
-  const actualToConfirm = (consumedCredits !== null && consumedCredits > 0) ? consumedCredits : creditsReserved;
-
-  let reconciliationFailed = false;
-  try {
-    await deps.confirmBudget({
-      reservationId,
-      actualCreditsConsumed: actualToConfirm,
-      batchId: reservedBatchId,
-    });
-  } catch {
-    // Generation succeeded — do NOT convert to failure. Log warning internally.
-    reconciliationFailed = true;
-  }
+  // 13. Reconcile credits by correlation — search AND enrichment against the same
+  // reservation. An overspend is preserved and surfaced, never hidden.
+  const reconciliation = await reconcileAndConfirm(runCorrelation, false).catch(() => ({
+    confirmed: false,
+    reconciliationState: null,
+    anomalies: [] as readonly string[],
+  }));
+  // Generation succeeded — a reconciliation problem must NOT convert it to a failure.
+  const reconciliationFailed = !reconciliation.confirmed;
 
   // 14. Success
   const hasNewCandidates = (pipelineResult.candidatesCreated ?? 0) > 0;
@@ -632,6 +782,10 @@ export async function executeProspectWizardGeneration(
     targetPersistibleCandidates,
     targetReached,
     ...(reconciliationFailed ? { reconciliationWarning: 'BUDGET_RECONCILIATION_FAILED' as const } : {}),
+    ...(reconciliation.reconciliationState !== null
+      ? { reconciliationState: reconciliation.reconciliationState }
+      : {}),
+    ...(reconciliation.anomalies.length > 0 ? { budgetAnomalies: reconciliation.anomalies } : {}),
     ...(noveltyExhausted ? { noveltyExhausted: true as const } : {}),
   };
 }

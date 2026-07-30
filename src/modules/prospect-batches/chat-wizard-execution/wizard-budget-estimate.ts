@@ -9,11 +9,27 @@
  * provider, causing Apollo executions with available=12 to be blocked even when the
  * actual Apollo ceiling was only 3 credits (1 query × 3 results).
  *
+ * A1-APOLLO-BUDGET-RECONCILIATION-1 (§5): that Apollo ceiling covered ONLY
+ * `organizations_search`. `organization_enrichment` charges its own credits and was
+ * outside the reservation, so the controlled-pilot configuration reserved 3 and
+ * recorded 4 (batch 7a75df68-aaa2-4558-9118-0846486a3e97). The estimate now covers
+ * every Apollo operation the run can register, derived from the shared pricing
+ * module — the `3 + 1` is never hardcoded here.
+ *
  * Server-only. Never import from client components.
  */
 
 import { estimateWizardAdaptiveMaxCredits } from './wizard-budget-reconciliation';
 import type { WizardDiscoveryProviderKey } from './wizard-provider-resolver';
+import {
+  isApolloOrganizationEnrichmentCascadeEnabled,
+  resolveApolloMaxEnrichmentsPerRun,
+} from '@/lib/feature-flags.server';
+import {
+  resolveApolloRunReservationBreakdown,
+  toApolloReservationBreakdownMetadata,
+  type ApolloRunReservationBreakdown,
+} from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
 
 // Re-exported so callers don't need to import apollo-cost-guardrails directly.
 import {
@@ -25,8 +41,18 @@ import {
   APOLLO_MAX_RESULTS_HARD_CAP,
 } from '@/server/agents/prospecting-toolkit/apollo-cost-guardrails';
 
-// Apollo charges 1 credit per result returned (not per query issued).
-const APOLLO_CREDITS_PER_RESULT = 1;
+/**
+ * Resolves the full Apollo reservation ceiling from live caps and flags.
+ * Single place where env-configured caps meet the shared pricing table.
+ */
+export function resolveApolloWizardReservationBreakdown(): ApolloRunReservationBreakdown {
+  return resolveApolloRunReservationBreakdown({
+    maxQueriesPerRun: resolveApolloMaxQueriesPerRun(),
+    maxResultsPerQuery: resolveApolloMaxResultsPerQuery(),
+    maxEnrichmentsPerRun: resolveApolloMaxEnrichmentsPerRun(),
+    enrichmentCascadeEnabled: isApolloOrganizationEnrichmentCascadeEnabled(),
+  });
+}
 
 export type WizardBudgetValidationResult = {
   provider: WizardDiscoveryProviderKey;
@@ -36,6 +62,11 @@ export type WizardBudgetValidationResult = {
   apolloMaxQueriesPerRun: number | null;
   /** Resolved Apollo results cap (only meaningful when provider = apollo_organizations) */
   apolloMaxResultsPerQuery: number | null;
+  /**
+   * Full per-operation reservation breakdown. Non-null only for Apollo, where the
+   * estimate covers `organizations_search` AND `organization_enrichment`.
+   */
+  apolloReservationBreakdown: ApolloRunReservationBreakdown | null;
   availableCredits: number;
   maxCreditsPerExecution: number;
   passed: boolean;
@@ -51,9 +82,12 @@ export type WizardBudgetEstimateInput = {
 /**
  * Returns a provider-aware budget validation result for wizard preflight.
  *
- * For Apollo: estimate = resolvedMaxQueries × resolvedMaxResults × 1 credit/result.
- *   Hard caps apply: queries ≤ 3, results ≤ 5 → ceiling 15 credits.
- *   Defaults: 1 query × 3 results = 3 credits.
+ * For Apollo: estimate = search ceiling + enrichment ceiling, both taken from
+ *   apollo-operation-pricing:
+ *     search     = resolvedMaxQueries × resolvedMaxResults × 1 credit/result
+ *     enrichment = resolvedMaxEnrichments × 1 credit/call, or 0 when the cascade is off
+ *   Hard caps apply: queries ≤ 3, results ≤ 5 → search ceiling 15 credits.
+ *   Controlled-pilot defaults (1 query × 3 results, 1 enrichment, cascade on) = 4 credits.
  *
  * For Tavily: estimate = estimateWizardAdaptiveMaxCredits() = 20.
  *
@@ -68,13 +102,14 @@ export function resolveWizardExecutionCreditEstimate(
   let estimateSource: WizardBudgetValidationResult['estimateSource'];
   let apolloMaxQueriesPerRun: number | null = null;
   let apolloMaxResultsPerQuery: number | null = null;
+  let apolloReservationBreakdown: ApolloRunReservationBreakdown | null = null;
 
   if (provider === 'apollo_organizations') {
-    const queries = resolveApolloMaxQueriesPerRun();
-    const results = resolveApolloMaxResultsPerQuery();
-    apolloMaxQueriesPerRun = queries;
-    apolloMaxResultsPerQuery = results;
-    estimatedCredits = queries * results * APOLLO_CREDITS_PER_RESULT;
+    const breakdown = resolveApolloWizardReservationBreakdown();
+    apolloMaxQueriesPerRun = breakdown.derivedFrom.maxQueriesPerRun;
+    apolloMaxResultsPerQuery = breakdown.derivedFrom.maxResultsPerQuery;
+    apolloReservationBreakdown = breakdown;
+    estimatedCredits = breakdown.totalReservedCredits;
     estimateSource = 'apollo_cost_guardrails';
   } else {
     estimatedCredits = estimateWizardAdaptiveMaxCredits();
@@ -89,6 +124,7 @@ export function resolveWizardExecutionCreditEstimate(
       estimateSource,
       apolloMaxQueriesPerRun,
       apolloMaxResultsPerQuery,
+      apolloReservationBreakdown,
       availableCredits,
       maxCreditsPerExecution,
       passed: false,
@@ -103,6 +139,7 @@ export function resolveWizardExecutionCreditEstimate(
       estimateSource,
       apolloMaxQueriesPerRun,
       apolloMaxResultsPerQuery,
+      apolloReservationBreakdown,
       availableCredits,
       maxCreditsPerExecution,
       passed: false,
@@ -116,6 +153,7 @@ export function resolveWizardExecutionCreditEstimate(
     estimateSource,
     apolloMaxQueriesPerRun,
     apolloMaxResultsPerQuery,
+    apolloReservationBreakdown,
     availableCredits,
     maxCreditsPerExecution,
     passed: true,
@@ -131,6 +169,8 @@ export type WizardBudgetValidationMetadata = {
   estimate_source: string;
   apollo_max_queries_per_run: number | null;
   apollo_max_results_per_query: number | null;
+  /** Per-operation reservation detail; null for non-Apollo providers. */
+  apollo_reservation_breakdown: Record<string, number | string | boolean> | null;
   available_credits: number;
   max_credits_per_execution: number;
   passed: boolean;
@@ -150,6 +190,9 @@ export function toWizardBudgetValidationMetadata(
     estimate_source: result.estimateSource,
     apollo_max_queries_per_run: result.apolloMaxQueriesPerRun,
     apollo_max_results_per_query: result.apolloMaxResultsPerQuery,
+    apollo_reservation_breakdown: result.apolloReservationBreakdown
+      ? toApolloReservationBreakdownMetadata(result.apolloReservationBreakdown)
+      : null,
     available_credits: result.availableCredits,
     max_credits_per_execution: result.maxCreditsPerExecution,
     passed: result.passed,
@@ -160,14 +203,14 @@ export function toWizardBudgetValidationMetadata(
 /**
  * Returns just the estimated credit count for a provider.
  * Convenience wrapper for callers that only need the number (e.g., the wizard action).
+ *
+ * For Apollo this is the FULL ceiling (search + enrichment) — the same number
+ * `resolveWizardExecutionCreditEstimate` reports, so the pre-flight check and the
+ * actual reservation can never disagree.
  */
 export function estimateCreditsForProvider(provider: WizardDiscoveryProviderKey): number {
   if (provider === 'apollo_organizations') {
-    return (
-      resolveApolloMaxQueriesPerRun() *
-      resolveApolloMaxResultsPerQuery() *
-      APOLLO_CREDITS_PER_RESULT
-    );
+    return resolveApolloWizardReservationBreakdown().totalReservedCredits;
   }
   return estimateWizardAdaptiveMaxCredits();
 }

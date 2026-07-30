@@ -106,7 +106,13 @@ export type EnrichmentSkipReason =
   | 'missing_domain'
   | 'cap_reached'
   | 'enrichment_failed'
-  | 'cascade_disabled';
+  | 'cascade_disabled'
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 (§7): a cheap, deterministic gate refused
+   * the candidate BEFORE any paid call. The candidate is not discarded — it simply
+   * continues unenriched, having cost zero credits.
+   */
+  | 'eligibility_blocked';
 
 /**
  * Q3F-5AV.2: bucket de priorización interna para selección de enrichment.
