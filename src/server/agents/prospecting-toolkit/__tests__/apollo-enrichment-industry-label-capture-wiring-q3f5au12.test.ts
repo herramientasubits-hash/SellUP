@@ -156,7 +156,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
       };
 
       await runApolloOrganizationsSearch(
-        { query: 'tech Colombia', countryCode: 'CO', industry: 'Technology' },
+        { query: 'tech Colombia', countryCode: 'CO', industry: 'Educación' },
         3,
         { agentRunId: 'run-abc-1' },
         deps,
@@ -182,7 +182,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, deps);
 
       const enrichCalls = calls.filter((c) => c.operationKey === 'organization_enrichment');
       assert.equal(enrichCalls.length, 1);
@@ -204,7 +204,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, deps);
 
       const enrichCalls = calls.filter((c) => c.operationKey === 'organization_enrichment');
       assert.equal(enrichCalls.length, 1);
@@ -225,7 +225,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, deps);
 
       const enrichCalls = calls.filter((c) => c.operationKey === 'organization_enrichment');
       assert.equal(enrichCalls.length, 0, 'capture must not be called when enrichment carries no industry evidence');
@@ -247,7 +247,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, deps);
 
       const enrichCalls = calls.filter((c) => c.operationKey === 'organization_enrichment');
       assert.equal(enrichCalls.length, 1);
@@ -276,8 +276,8 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         enrichOrg: makeEnrichSuccess(enrichedOrg),
       };
 
-      const outWithFailedCapture = await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, depsWithCapture);
-      const outBaseline = await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, depsWithoutCapture);
+      const outWithFailedCapture = await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, depsWithCapture);
+      const outBaseline = await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, depsWithoutCapture);
 
       assert.deepEqual(outWithFailedCapture.results, outBaseline.results);
       assert.equal(outWithFailedCapture.resultsCount, outBaseline.resultsCount);
@@ -295,7 +295,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, deps);
 
       const enrichLogs = logs.filter((l) => l.operation_key === 'organization_enrichment');
       assert.equal(enrichLogs.length, 1, 'organization_enrichment usage log must still be emitted');
@@ -316,7 +316,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
       let threw = false;
       let out;
       try {
-        out = await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+        out = await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, deps);
       } catch {
         threw = true;
       }
@@ -359,13 +359,43 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      // A1-APOLLO-BUDGET-RECONCILIATION-1 (§8): sin sector con mapping NO se paga
+      // enrichment, así que ya no es posible ejercitar "industry ausente" en la
+      // ruta de enrichment — son requisitos mutuamente excluyentes. El contrato que
+      // esta prueba protege (un valor ausente viaja como null, nunca fabricado) se
+      // verifica con el sector presente y countryCode/agentRunId ausentes.
+      await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, deps);
 
       const enrichCalls = calls.filter((c) => c.operationKey === 'organization_enrichment');
       assert.equal(enrichCalls.length, 1);
-      assert.equal(enrichCalls[0].countryCode, null);
-      assert.equal(enrichCalls[0].requestedIndustry, null);
-      assert.equal(enrichCalls[0].agentRunId, null);
+      assert.equal(enrichCalls[0].countryCode, null, 'countryCode ausente → null');
+      assert.equal(enrichCalls[0].agentRunId, null, 'agentRunId ausente → null');
+      assert.equal(enrichCalls[0].requestedIndustry, 'Educación');
+    });
+
+    it('T10c: sector sin mapping → 0 enrichment pagado y 0 captura de enrichment (§8)', async () => {
+      const enrichedOrg = makeOrg({ id: 'theta', name: 'Theta Corp', industry: 'Software' });
+      const { calls, captureIndustryLabels } = makeCaptureCapture();
+      let enrichCallCount = 0;
+      const deps: ApolloOrgsSearchDeps = {
+        searchOrgs: makeSearchSuccess([ORG_SEARCH_BARE]),
+        logUsage: makeLogCapture().logFn,
+        enrichOrg: async () => {
+          enrichCallCount += 1;
+          return { success: true as const, data: enrichedOrg };
+        },
+        captureIndustryLabels,
+      };
+
+      // Sin `industry` no hay mapping sectorial ⇒ el gate barato bloquea el gasto.
+      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+
+      assert.equal(enrichCallCount, 0, 'ningún crédito de enrichment sin sector mapeado');
+      assert.equal(
+        calls.filter((c) => c.operationKey === 'organization_enrichment').length,
+        0,
+        'sin llamada real no hay captura de enrichment',
+      );
     });
   });
 
@@ -386,7 +416,7 @@ describe('Q3F-5AU.12 — Apollo organization enrichment: raw industry label capt
         captureIndustryLabels,
       };
 
-      await runApolloOrganizationsSearch({ query: 'test' }, 3, undefined, deps);
+      await runApolloOrganizationsSearch({ query: 'test', industry: 'Educación' }, 3, undefined, deps);
 
       assert.equal(enrichCalled, false, 'enrichOrg must not be called when cascade flag is OFF');
       const enrichCalls = calls.filter((c) => c.operationKey === 'organization_enrichment');

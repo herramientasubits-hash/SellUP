@@ -16,6 +16,7 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
+import { parseBooleanEnvFlag } from '@/lib/env-flag-parser';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -52,6 +53,59 @@ export type ApolloOrgsUsageContext = {
    * logging a fabricated cost.
    */
   organizationEnrichmentUnitCostUsd?: number | null;
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 (§3): pre-built, secret-free correlation
+   * block (`clientRequestId` + `batchId` + `reservationId`, plus the nullable
+   * `wizardRunId` / `agentRunId`). Travels as a plain object so the prospecting
+   * toolkit never has to import the wizard module.
+   *
+   * Absent for callers outside the wizard (diagnostics, benchmarks): those runs
+   * keep `batch_id`-only traceability exactly as before.
+   */
+  runCorrelation?: Record<string, string | null> | null;
+  /** Identity keys already enriched earlier in this run (cross-query). */
+  processedIdentityKeys?: ReadonlySet<string>;
+  /** Identity keys under a recent-activity cooldown. */
+  identityCooldownKeys?: ReadonlySet<string>;
+};
+
+/**
+ * A1-APOLLO-BUDGET-RECONCILIATION-1 (§3) — flag that authorises writing the
+ * additive correlation COLUMNS introduced by migration 100.
+ *
+ * MUST stay off until that migration is applied: a PostgREST insert naming a
+ * column that does not exist fails, and a failed usage-log insert AFTER a real
+ * Apollo call means real credits with no record. While it is off, the same
+ * identifiers are still persisted inside `metadata.run_correlation`, which needs
+ * no schema change — so reconciliation works today either way.
+ */
+export const PROVIDER_USAGE_CORRELATION_COLUMNS_FLAG =
+  'ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS';
+
+export function areProviderUsageCorrelationColumnsEnabled(): boolean {
+  return parseBooleanEnvFlag(process.env[PROVIDER_USAGE_CORRELATION_COLUMNS_FLAG]);
+}
+
+/**
+ * Usage-log input plus the optional additive-column payload.
+ * `correlationColumns` is written ONLY when the flag above is on.
+ */
+export type ApolloOrgsUsageLogInput = LogProviderUsageInput & {
+  correlationColumns?: Record<string, string | null> | null;
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 (§10): the observability block projected
+   * onto the additive columns of migration 100 (http_status, latency_ms, page,
+   * pagination_*, rate_limit_*, retry_after_seconds, estimated_credits,
+   * recorded_usage_credits). Written under the SAME flag as the correlation
+   * columns, and — like them — the identical data is always persisted inside
+   * `metadata.spend_observability`, which needs no schema change.
+   *
+   * A `null` value means "not measured" and is written as SQL NULL. It is never
+   * coerced to 0.
+   */
+  observabilityColumns?: Record<string, string | number | null> | null;
+  /** `charged` | `not_charged` | `unknown` — never inferred as 0. */
+  billingState?: 'charged' | 'not_charged' | 'unknown' | null;
 };
 
 export type ApolloOrgsUsageLogResult =
@@ -59,6 +113,44 @@ export type ApolloOrgsUsageLogResult =
   | { kind: 'already_logged' }
   | { kind: 'failed'; error: string }
   | { kind: 'skipped_no_supabase' };
+
+/**
+ * Key bajo la que el bloque de correlación viaja dentro de `metadata`.
+ *
+ * Se declara aquí, y no se importa del módulo del wizard, porque el toolkit de
+ * prospecting no debe depender de ese módulo (la correlación llega como objeto
+ * plano justamente por eso). El contrato está fijado por
+ * `RUN_CORRELATION_METADATA_KEY` en wizard-run-correlation.ts y hay un test que
+ * comprueba que ambos coinciden.
+ */
+export const APOLLO_RUN_CORRELATION_METADATA_KEY = 'run_correlation';
+
+/** Columnas aditivas de correlación (migración 100), en orden estable. */
+export const APOLLO_CORRELATION_COLUMN_KEYS = [
+  'reservation_id',
+  'client_request_id',
+  'wizard_run_id',
+  'request_fingerprint',
+  'idempotency_key',
+] as const;
+
+/**
+ * Proyecta el bloque plano de correlación sobre las columnas aditivas.
+ *
+ * Sólo copia las claves que existen como columna; `batch_id`, `agent_run_id` y
+ * `provider` ya son columnas propias o metadata, así que no se duplican aquí.
+ * Devuelve `null` cuando no hay correlación, para que el caller no escriba nada.
+ */
+export function toApolloCorrelationColumns(
+  runCorrelation: Record<string, string | null> | null | undefined,
+): Record<string, string | null> | null {
+  if (runCorrelation === null || runCorrelation === undefined) return null;
+  const columns: Record<string, string | null> = {};
+  for (const key of APOLLO_CORRELATION_COLUMN_KEYS) {
+    if (key in runCorrelation) columns[key] = runCorrelation[key] ?? null;
+  }
+  return Object.keys(columns).length > 0 ? columns : null;
+}
 
 // ─── Helper puro: usage_key ───────────────────────────────────────────────────
 
@@ -99,7 +191,7 @@ function tryGetAdminClient() {
  * real_cost_usd nunca se escribe — permanece NULL hasta conciliación.
  */
 export async function realLogApolloOrgsUsage(
-  input: LogProviderUsageInput,
+  input: ApolloOrgsUsageLogInput,
 ): Promise<ApolloOrgsUsageLogResult> {
   try {
     const admin = tryGetAdminClient();
@@ -127,6 +219,17 @@ export async function realLogApolloOrgsUsage(
       triggered_by_role_key: null,
       triggered_by_group_id: null,
       metadata: input.metadata ?? {},
+      // Additive columns from migration 100 — omitted entirely while the flag is
+      // off so the insert only ever names columns that exist.
+      ...(areProviderUsageCorrelationColumnsEnabled()
+        ? {
+            ...(input.correlationColumns ?? {}),
+            ...(input.observabilityColumns ?? {}),
+            ...(input.billingState !== undefined && input.billingState !== null
+              ? { billing_state: input.billingState }
+              : {}),
+          }
+        : {}),
     });
 
     if (!error) return { kind: 'logged' };

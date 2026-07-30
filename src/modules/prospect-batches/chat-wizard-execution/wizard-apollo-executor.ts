@@ -32,6 +32,13 @@ export type WizardApolloInput = {
    * de forma aditiva en el metadata del batch. No cambia queries ni proveedor.
    */
   extraBatchMetadata?: Record<string, unknown> | null;
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 (§1, §3) — bloque plano de correlación del
+   * run. Se construye ANTES de la primera llamada pagada y viaja hasta el provider
+   * para que cada `provider_usage_logs` de Apollo (search y enrichment) quede atado
+   * a la misma reserva por identificadores estables, nunca por timestamps.
+   */
+  runCorrelation?: Record<string, string | null> | null;
 };
 
 export type WizardApolloRunner = (input: WizardApolloInput) => Promise<IncrementalSearchOutput>;
@@ -72,5 +79,8 @@ export async function runWizardApolloSearch(
       batchId: input.reservedBatchId,
       triggeredByUserId: input.resolved.userId,
     },
+    // A1-APOLLO-BUDGET-RECONCILIATION-1 (§3) — campo propio, fuera de
+    // usageInputContext, que se mantiene agnóstico de proveedor.
+    apolloRunCorrelation: input.runCorrelation ?? null,
   });
 }

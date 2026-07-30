@@ -82,10 +82,13 @@ const MAX_QUERIES_LIMIT = 10;
 type ApolloRoundUsageContext = TavilyUsageContext & {
   remainingEnrichmentBudget?: number;
   organizationEnrichmentUnitCostUsd?: number | null;
+  /** A1-APOLLO-BUDGET-RECONCILIATION-1 (§3): correlación estable del run. */
+  runCorrelation?: Record<string, string | null> | null;
 };
 type ApolloDispatchUsageContext = DispatchUsageContext & {
   remainingEnrichmentBudget?: number;
   organizationEnrichmentUnitCostUsd?: number | null;
+  runCorrelation?: Record<string, string | null> | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -310,6 +313,9 @@ export async function runMultiQueryWebSearch(
             ? {
                 remainingEnrichmentBudget: apolloEnrichmentBudgetRemaining,
                 organizationEnrichmentUnitCostUsd: apolloUsageContext?.organizationEnrichmentUnitCostUsd,
+                // §3: sin esto, el provider escribiría los usage logs sin
+                // correlación y la reconciliación volvería a depender del reloj.
+                runCorrelation: apolloUsageContext?.runCorrelation ?? null,
               }
             : {}),
         }

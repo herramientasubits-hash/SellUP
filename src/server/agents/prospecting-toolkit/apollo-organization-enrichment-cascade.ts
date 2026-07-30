@@ -158,6 +158,23 @@ export type EnrichmentEntryMeta = {
    * o missing_domain.
    */
   pre_enrichment_evidence_fields?: string[];
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1: razón estructurada del gate barato que
+   * impidió pagar este enrichment. Presente sólo con skip_reason
+   * 'eligibility_blocked'.
+   */
+  eligibility_block_reason?: string;
+  /** Detalle libre de valores del bloqueo, seguro para logs. */
+  eligibility_block_detail?: string | null;
+};
+
+/**
+ * A1-APOLLO-BUDGET-RECONCILIATION-1 (§7): veredicto de los gates baratos para un
+ * índice concreto del array de resultados.
+ */
+export type ApolloEnrichmentIneligibility = {
+  reason: string;
+  detail: string | null;
 };
 
 /** Q3F-5AV.2: conteo de candidatos por bucket de priorización — seguro para logs. */
@@ -181,6 +198,14 @@ export type ApolloEnrichmentCascadeMeta = {
   entries: EnrichmentEntryMeta[];
   /** Q3F-5AV.2: conteo de candidatos por bucket de priorización ambiguity-first. */
   bucket_counts: ApolloEnrichmentBucketCounts;
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 (§7): llamadas pagadas que los gates baratos
+   * evitaron, acotadas al cap real. Es el ahorro atribuible al reordenamiento
+   * económico, no el número total de candidatos bloqueados.
+   */
+  eligibility_blocked_count: number;
+  /** Créditos de enrichment NO gastados gracias a los gates baratos. */
+  enrichment_credits_prevented: number;
 };
 
 // ─── Deps inyectables (para tests) ───────────────────────────────────────────
@@ -469,18 +494,34 @@ function analyzeCandidate(result: WebSearchResult, index: number): AnalyzedCandi
 export async function runApolloOrganizationEnrichmentCascade(
   results: WebSearchResult[],
   maxEnrichments: number,
-  deps?: ApolloEnrichmentCascadeDeps
+  deps?: ApolloEnrichmentCascadeDeps,
+  options?: {
+    /**
+     * A1-APOLLO-BUDGET-RECONCILIATION-1 (§7): índices que los gates baratos ya
+     * rechazaron. Nunca reciben una llamada a `enrichOrg`, y tampoco consumen
+     * cap: el presupuesto se reserva para candidatos que sí pueden justificarse.
+     *
+     * Ausente ⇒ comportamiento idéntico al previo a este hito.
+     */
+    ineligibleByIndex?: ReadonlyMap<number, ApolloEnrichmentIneligibility>;
+  },
 ): Promise<{ results: WebSearchResult[]; meta: ApolloEnrichmentCascadeMeta }> {
   const cappedMax = Math.min(maxEnrichments, HARD_MAX_ENRICHMENTS_CAP);
   const enrichFn = deps?.enrichOrg ?? enrichApolloOrganization;
+  const ineligibleByIndex = options?.ineligibleByIndex ?? new Map<number, ApolloEnrichmentIneligibility>();
 
   // Q3F-5AV.2: analizar todos los candidatos primero — cada uno recuerda su
   // índice original para que el array final preserve el orden de entrada.
   const analyzed = results.map((result, index) => analyzeCandidate(result, index));
 
-  const noEvidenceQueue = analyzed.filter(a => a.priorityBucket === 'no_pre_enrichment_evidence');
-  const hasEvidenceQueue = analyzed.filter(a => a.priorityBucket === 'has_pre_enrichment_evidence');
-  const missingDomainCandidates = analyzed.filter(a => a.priorityBucket === 'missing_domain');
+  // Los bloqueados por los gates baratos se apartan ANTES de cualquier cola de
+  // selección, así que no pueden consumir el cap ni llegar a `enrichOrg`.
+  const eligibleAnalyzed = analyzed.filter(a => !ineligibleByIndex.has(a.index));
+  const ineligibleAnalyzed = analyzed.filter(a => ineligibleByIndex.has(a.index));
+
+  const noEvidenceQueue = eligibleAnalyzed.filter(a => a.priorityBucket === 'no_pre_enrichment_evidence');
+  const hasEvidenceQueue = eligibleAnalyzed.filter(a => a.priorityBucket === 'has_pre_enrichment_evidence');
+  const missingDomainCandidates = eligibleAnalyzed.filter(a => a.priorityBucket === 'missing_domain');
 
   // Orden de selección para enrichment: ambiguity-first. Dentro de cada
   // bucket se conserva el orden relativo original (partición estable).
@@ -500,12 +541,28 @@ export async function runApolloOrganizationEnrichmentCascade(
     cap_reached: 0,
     enrichment_failed: 0,
     cascade_disabled: 0,
+    eligibility_blocked: 0,
   };
 
   let attemptedCount = 0;
   let enrichedCount = 0;
   let failedCount = 0;
   const enrichedDomainsSample: string[] = [];
+
+  // Gates baratos: se registran como skip explícito, sin llamada ni crédito.
+  for (const candidate of ineligibleAnalyzed) {
+    const verdict = ineligibleByIndex.get(candidate.index) as ApolloEnrichmentIneligibility;
+    entryByIndex.set(candidate.index, {
+      domain: candidate.domain,
+      enriched: false,
+      skip_reason: 'eligibility_blocked',
+      eligibility_block_reason: verdict.reason,
+      eligibility_block_detail: verdict.detail,
+      priority_bucket: candidate.priorityBucket,
+      priority_reason: candidate.priorityReason,
+    });
+    skippedReasons['eligibility_blocked']++;
+  }
 
   for (const candidate of missingDomainCandidates) {
     entryByIndex.set(candidate.index, {
@@ -598,6 +655,13 @@ export async function runApolloOrganizationEnrichmentCascade(
 
   const totalSkipped = entries.filter(e => !e.enriched).length;
 
+  // Ahorro real: sólo los bloqueos que habrían caído dentro del cap podrían haber
+  // costado un crédito. Más allá del cap la cascada no iba a pagar de todos modos,
+  // así que contarlos exageraría el ahorro.
+  const eligibilityBlockedCount = ineligibleAnalyzed.length;
+  const capHeadroom = Math.max(0, cappedMax - attemptedCount);
+  const enrichmentCreditsPrevented = Math.min(eligibilityBlockedCount, capHeadroom);
+
   const meta: ApolloEnrichmentCascadeMeta = {
     cascade_version: APOLLO_ENRICHMENT_CASCADE_VERSION,
     enabled: true,
@@ -610,6 +674,8 @@ export async function runApolloOrganizationEnrichmentCascade(
     skipped_reasons: skippedReasons,
     entries,
     bucket_counts: bucketCounts,
+    eligibility_blocked_count: eligibilityBlockedCount,
+    enrichment_credits_prevented: enrichmentCreditsPrevented,
   };
 
   return { results: updatedResults, meta };
@@ -631,6 +697,7 @@ export function buildDisabledCascadeMeta(): ApolloEnrichmentCascadeMeta {
       cap_reached: 0,
       enrichment_failed: 0,
       cascade_disabled: 0,
+      eligibility_blocked: 0,
     },
     entries: [],
     bucket_counts: {
@@ -638,5 +705,7 @@ export function buildDisabledCascadeMeta(): ApolloEnrichmentCascadeMeta {
       has_evidence: 0,
       missing_domain: 0,
     },
+    eligibility_blocked_count: 0,
+    enrichment_credits_prevented: 0,
   };
 }

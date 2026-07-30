@@ -37,7 +37,7 @@
 
 import type { WebSearchResult } from './types';
 import { evaluateCountryCompatibility } from './country-compatibility';
-import { evaluateCompanyOwnership } from './company-ownership-gate';
+import { evaluateCompanyOwnership, isBlockedByCompanyOwnership } from './company-ownership-gate';
 import { evaluateExternalPlatformGate } from './external-platform-blocklist';
 import { hasCheapSectorEvidence } from './apollo-sector-relevance-gate';
 
@@ -304,9 +304,26 @@ export function evaluateApolloEnrichmentEligibility(
     }
 
     // 5. The domain does not plausibly belong to the named company.
-    if (facts.name !== null) {
+    //
+    // Applied ONLY when the domain had to be inferred from the result URL.
+    //
+    // `evaluateCompanyOwnership` is a name↔domain SIMILARITY heuristic, written for
+    // Tavily results where the URL is a discovered page that may well belong to
+    // somebody else. Apollo's `primary_domain` is different in kind: it is the
+    // domain Apollo asserts FOR that organization, so dissimilarity between the
+    // legal name and the domain brand is not evidence of a mismatch — it is normal.
+    // Verified against the gate as it stands: `Bancolombia S.A.` /
+    // `grupobancolombia.com` scores `reject`, and `Org One` / `org1.com` likewise.
+    // Using that as a spend gate would refuse to enrich real, in-sector Colombian
+    // companies (holding structures, rebrands, legal-vs-commercial names) to save
+    // at most one credit — a loss of coverage, not a saving.
+    //
+    // When the domain is URL-derived we are back in the Tavily situation and the
+    // heuristic is the right tool, so it still runs there.
+    const domainWasProviderAsserted = normalizeDomain(facts.domain) !== null;
+    if (facts.name !== null && !domainWasProviderAsserted) {
       const ownership = evaluateCompanyOwnership(facts.name, facts.url, domain);
-      if (!ownership.allowed) {
+      if (isBlockedByCompanyOwnership(ownership)) {
         record(
           index,
           'name_domain_ownership_mismatch',
@@ -353,8 +370,36 @@ export function evaluateApolloEnrichmentEligibility(
       continue;
     }
     if (sectorEvidence.outcome === 'unverified') {
-      record(index, 'sector_relevance_unverified', sectorEvidence.detail, identityKey, domain);
-      continue;
+      // Dos estados MUY distintos se esconden aquí, y tratarlos igual rompe una
+      // de las dos mitades del hito:
+      //
+      //   (a) El candidato SÍ trae señales sectoriales gratuitas, pero apuntan a
+      //       otro sector. Citigroup con industry='banking' y keywords
+      //       ['retail banking'] en una búsqueda de supermercados es este caso.
+      //       Pagar un enrichment aquí es gasto perdido: ya sabemos que no encaja.
+      //       → BLOQUEAR (§9).
+      //
+      //   (b) El candidato no trae NINGUNA señal sectorial: Apollo devolvió un
+      //       registro pelado (industry null, keywords vacías, sin descripción).
+      //       No hay evidencia ni a favor ni en contra. Resolver esa ambigüedad es
+      //       precisamente para lo que existe el Organization Enrichment, y es lo
+      //       que la priorización ambiguity-first de Q3F-5AV.2 buscaba financiar.
+      //       Bloquearlo dejaría la cascada sin ningún candidato al que enriquecer,
+      //       el gate sectorial rechazaría después a todos por falta de evidencia,
+      //       y el discovery vía Apollo caería a cero — un fallo funcional, no un
+      //       ahorro.
+      //       → ELEGIBLE.
+      //
+      // El paso §6 se llama "elegibilidad de enrichment", no "certeza sectorial":
+      // el enrichment es el instrumento que produce la evidencia que falta.
+      const hasFreeSectorBearingSignal =
+        facts.industryHints.length > 0 || facts.keywordHints.length > 0;
+
+      if (hasFreeSectorBearingSignal) {
+        record(index, 'sector_relevance_unverified', sectorEvidence.detail, identityKey, domain);
+        continue;
+      }
+      // (b) cae hasta la marca de elegible más abajo.
     }
 
     seenDomains.add(domain);

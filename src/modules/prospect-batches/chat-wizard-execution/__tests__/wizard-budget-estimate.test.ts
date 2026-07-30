@@ -288,6 +288,11 @@ describe('Section F — Metadata contains no secrets', () => {
         'apollo_max_queries_per_run', 'apollo_max_results_per_query',
         'available_credits', 'max_credits_per_execution',
         'passed', 'block_reason',
+        // A1-APOLLO-BUDGET-RECONCILIATION-1 (§5): desglose por operación de la
+        // reserva (search + enrichment). Sólo caps, créditos y la procedencia del
+        // pricing — ninguna credencial ni valor de env crudo. La prueba de "sin
+        // secretos" (F1) sigue corriendo sobre el metadata completo.
+        'apollo_reservation_breakdown',
       ];
       for (const key of keys) {
         assert.ok(allowedKeys.includes(key), `Unexpected metadata key: ${key}`);

@@ -74,6 +74,7 @@ import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 // reconciled against zero rows and fell back to "confirm the reservation".
 import {
   buildWizardRunCorrelation,
+  buildRunCorrelationMetadata,
   MissingRunCorrelationError,
   type WizardRunCorrelation,
 } from './wizard-run-correlation';
@@ -725,6 +726,10 @@ export async function executeProspectWizardGeneration(
         reservedBatchId,
         // Q3F-5BB.11E — additive OBSERVATIONAL routing metadata (never gates).
         extraBatchMetadata: apolloRoutingExtraMetadata,
+        // A1-APOLLO-BUDGET-RECONCILIATION-1 (§1, §3) — every Apollo usage log this
+        // run writes carries these identifiers, so reconciliation can attribute
+        // search AND enrichment to this exact reservation.
+        runCorrelation: buildRunCorrelationMetadata(runCorrelation),
       });
     } else {
       pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });

@@ -43,11 +43,23 @@ import {
   runApolloOrganizationEnrichmentCascade,
   buildDisabledCascadeMeta,
   type ApolloEnrichmentCascadeMeta,
+  type ApolloEnrichmentIneligibility,
   type ApolloIndustryRawFields,
 } from '../apollo-organization-enrichment-cascade';
+// A1-APOLLO-BUDGET-RECONCILIATION-1 — gates baratos previos al enrichment pagado,
+// fuente única de pricing y bloque de observabilidad económica.
+import { evaluateApolloEnrichmentEligibility } from '../apollo-enrichment-eligibility-gate';
+import { creditsForApolloOperation } from '../apollo-operation-pricing';
+import {
+  buildApolloSpendObservability,
+  toProviderUsageObservabilityColumns,
+  SPEND_OBSERVABILITY_METADATA_KEY,
+} from '../apollo-spend-observability';
 import {
   buildApolloOrgsUsageKey,
   realLogApolloOrgsUsage,
+  toApolloCorrelationColumns,
+  APOLLO_RUN_CORRELATION_METADATA_KEY,
   type ApolloOrgsUsageContext,
 } from '../apollo-organizations-usage-logging';
 import {
@@ -646,6 +658,16 @@ export async function runApolloOrganizationsSearch(
 
   const logFn = deps?.logUsage ?? realLogApolloOrgsUsage;
 
+  // A1-APOLLO-BUDGET-RECONCILIATION-1 (§1, §3): la correlación estable del run
+  // viaja en `metadata.run_correlation` (funciona con el esquema actual) y, cuando
+  // la migración 100 esté aplicada y su flag encendido, además como columnas
+  // indexadas. La reconciliación deja de depender de `created_at`.
+  const runCorrelationMetadata = usageContext?.runCorrelation ?? null;
+  const correlationColumns = toApolloCorrelationColumns(runCorrelationMetadata);
+  const correlationMetadataBlock = runCorrelationMetadata !== null
+    ? { [APOLLO_RUN_CORRELATION_METADATA_KEY]: runCorrelationMetadata }
+    : {};
+
   // Q3F-5AU.10S: usage logging failures (e.g. FK violation on batch_id) must
   // stay visible in metadata instead of being silently swallowed. Mirrors the
   // usage_logging_failed pattern already used for Tavily (web-search-tool.ts).
@@ -768,11 +790,27 @@ export async function runApolloOrganizationsSearch(
       error_message: `${classification.category} (billing=${classification.billingState})`.slice(0, 200),
       duration_ms: Date.now() - startMs,
       triggered_by: usageContext?.triggeredByUserId ?? undefined,
+      correlationColumns,
+      // Un fallo terminal no cobra: `not_charged` es un hecho, no una suposición.
+      billingState: isQuota ? 'unknown' : 'not_charged',
       metadata: {
         ...buildUsageMetadata(input, cap, wasCapped, 0, false, usageStatus, apolloParamsSanitized),
         ...toApolloErrorLogMetadata(classification),
+        ...correlationMetadataBlock,
         apollo_pagination: apolloPaginationMetadata,
         apollo_page_logs: apolloPageLogs,
+        [SPEND_OBSERVABILITY_METADATA_KEY]: buildApolloSpendObservability({
+          pageLog: apolloPageLogs.length > 0
+            ? (apolloPageLogs[apolloPageLogs.length - 1] as ApolloPageLogEntry)
+            : null,
+          rateLimit: paginated.lastRateLimit ?? null,
+          paginationTotalPages: paginated.paginationMeta.totalPages,
+          paginationTotalEntries: paginated.paginationMeta.totalEntries,
+          estimatedCredits: paginated.estimatedCredits,
+          recordedUsageCredits: 0,
+          resultsReturned: 0,
+          billingState: isQuota ? 'unknown' : 'not_charged',
+        }),
       },
     }));
 
@@ -852,6 +890,39 @@ export async function runApolloOrganizationsSearch(
   }
   const normalizedResultsCount = mapped.length; // pre-gate count
 
+  // ── A1-APOLLO-BUDGET-RECONCILIATION-1 (§6, §7): gates baratos ANTES de pagar ──
+  //
+  // Orden económico correcto:
+  //   Apollo Search → normalización → GATES BARATOS → elegibilidad de enrichment
+  //   → Apollo Organization Enrichment (pagado) → (aguas abajo: enriquecimiento
+  //   legal → identidad canónica → deduplicación definitiva → persistencia).
+  //
+  // Antes, la cascada pagada corría inmediatamente después del mapping y el gate
+  // sectorial se aplicaba después. Por eso el QA live gastó su único crédito de
+  // enrichment en `falabella.com.pe` con país objetivo CO: un rechazo decidible
+  // gratis, sin red y sin latencia, se evaluaba después del cobro.
+  //
+  // Bloquear el enrichment NUNCA descarta al candidato: sigue al gate sectorial
+  // sin enriquecer. Lo único que cambia es que no se paga por él.
+  const primarySubindustry = input.subindustries?.[0] ?? null;
+  const enrichmentEligibility = evaluateApolloEnrichmentEligibility(mapped, {
+    targetCountryCode: input.countryCode ?? null,
+    sector: input.industry ?? null,
+    subindustry: primarySubindustry,
+    processedIdentityKeys: usageContext?.processedIdentityKeys,
+    identityCooldownKeys: usageContext?.identityCooldownKeys,
+  });
+
+  const ineligibleByIndex = new Map<number, ApolloEnrichmentIneligibility>();
+  for (const decision of enrichmentEligibility.decisions) {
+    if (!decision.eligible && decision.skipReason !== null) {
+      ineligibleByIndex.set(decision.index, {
+        reason: decision.skipReason,
+        detail: decision.detail,
+      });
+    }
+  }
+
   // ── L2.15: Apollo Organization Enrichment cascade ────────────────────────────
   // ENABLE_APOLLO_ORGANIZATION_ENRICHMENT_CASCADE=false (default) → skip, results intactos.
   // ENABLE_APOLLO_ORGANIZATION_ENRICHMENT_CASCADE=true → enriquecer hasta max cap antes del gate.
@@ -875,6 +946,7 @@ export async function runApolloOrganizationsSearch(
       mapped,
       maxEnrichments,
       { enrichOrg: deps?.enrichOrg ?? enrichApolloOrganization },
+      { ineligibleByIndex },
     );
     enrichedMapped = cascadeResult.results;
     enrichmentCascadeMeta = cascadeResult.meta;
@@ -888,15 +960,44 @@ export async function runApolloOrganizationsSearch(
   // L2.13: pasar subindustria primaria para activar señales estrictas de subindustria
   // (ej. 'formacion corporativa' rechaza universidades, solo pasa LMS/corporate training).
   // L2.15: gate recibe enrichedMapped (con apollo_profile más completo si cascade activo).
-  const primarySubindustry = input.subindustries?.[0] ?? null;
+  // `primarySubindustry` se resolvió arriba, antes de los gates baratos, para que la
+  // elegibilidad de enrichment y este filtro usen exactamente la misma subindustria.
   const gateResult = applyApolloSectorRelevanceGate(enrichedMapped, input.industry, 'apollo_organizations', primarySubindustry);
   const filteredMapped = gateResult.passed;
 
   // ── Cálculo de créditos y costo ───────────────────────────────────────────────
   // Créditos basados en resultados retornados por Apollo (antes del gate),
   // porque Apollo ya cobró por la búsqueda.
-  const creditsUsed = Math.min(mapped.length, MAX_APOLLO_ORGANIZATIONS_CREDITS);
+  //
+  // A1-APOLLO-BUDGET-RECONCILIATION-1 (§5): la conversión resultados→créditos sale
+  // de `apollo-operation-pricing`, la MISMA tabla que usa la reserva del wizard, en
+  // vez de multiplicarse aquí a mano. La base es `rawOrgs.length` (lo que Apollo
+  // devolvió y cobró), no `mapped.length`: una organización descartada en
+  // normalización por venir sin nombre se cobró igual, y contarla de menos era
+  // subestimar el gasto real.
+  const creditsUsed = Math.min(
+    creditsForApolloOperation('organizations_search', rawOrgs.length),
+    MAX_APOLLO_ORGANIZATIONS_CREDITS,
+  );
   const estimatedCostUsd = creditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;
+
+  // ── Observabilidad económica (§10) ───────────────────────────────────────────
+  // Un bloque plano por llamada. Toda ausencia queda como null: un 0 fabricado no
+  // se distingue de un 0 real, y `rate_limit_minute_remaining` es justo el campo
+  // donde esa diferencia decide si la cuota está agotada o simplemente no se sabe.
+  const lastPageLog = apolloPageLogs.length > 0
+    ? (apolloPageLogs[apolloPageLogs.length - 1] as ApolloPageLogEntry)
+    : null;
+  const searchObservability = buildApolloSpendObservability({
+    pageLog: lastPageLog,
+    rateLimit: paginated.lastRateLimit ?? null,
+    paginationTotalPages: paginated.paginationMeta.totalPages,
+    paginationTotalEntries: paginated.paginationMeta.totalEntries,
+    httpStatus: null,
+    estimatedCredits: paginated.estimatedCredits,
+    recordedUsageCredits: creditsUsed,
+    resultsReturned: rawOrgs.length,
+  });
 
   // ── L2.9: diagnóstico detallado construido ANTES del log para incluirlo ───────
   // Construir aquí (no después del log) para que provider_usage_logs.metadata
@@ -957,11 +1058,19 @@ export async function runApolloOrganizationsSearch(
     error_message: undefined,
     duration_ms: Date.now() - startMs,
     triggered_by: usageContext?.triggeredByUserId ?? undefined,
+    correlationColumns,
+    observabilityColumns: toProviderUsageObservabilityColumns(searchObservability),
+    billingState: searchObservability.billing_state ?? 'unknown',
     metadata: {
       ...buildUsageMetadata(input, cap, wasCapped, rawOrgs.length, false, 'real', apolloParamsSanitized),
+      ...correlationMetadataBlock,
       apollo_result_diagnostics: apolloResultDiagnostics,
       // L2.15: cascade meta — visible en DB para auditoría
       apollo_enrichment_cascade: enrichmentCascadeMeta,
+      // A1-APOLLO-BUDGET-RECONCILIATION-1 (§7) — por qué NO se pagó cada enrichment.
+      apollo_enrichment_eligibility: enrichmentEligibility.meta,
+      // §10 — observabilidad económica plana, ausencias como null.
+      [SPEND_OBSERVABILITY_METADATA_KEY]: searchObservability,
     },
   }));
 
@@ -980,6 +1089,15 @@ export async function runApolloOrganizationsSearch(
     if (!wasRealCall) continue;
 
     const enrichStatus = entry.enriched ? 'success' : 'error';
+    // §10 — el enrichment cobra 1 crédito por llamada real, tanto si devolvió
+    // datos como si falló después de haberse ejecutado. Sin paginación ni cuota
+    // propias: esos campos quedan null, nunca 0.
+    const enrichmentObservability = buildApolloSpendObservability({
+      estimatedCredits: creditsForApolloOperation('organization_enrichment', 1),
+      recordedUsageCredits: creditsForApolloOperation('organization_enrichment', 1),
+      resultsReturned: entry.enriched ? 1 : 0,
+      billingState: entry.enriched ? 'charged' : 'unknown',
+    });
     const enrichUsageKey = usageContext?.batchId
       ? `organization_enrichment:${usageContext.batchId}:${entry.domain ?? 'unknown'}`
       : `organization_enrichment:no_batch:${entry.domain ?? 'unknown'}:${startMs}`;
@@ -998,11 +1116,18 @@ export async function runApolloOrganizationsSearch(
       error_message: entry.error ? entry.error.slice(0, 200) : undefined,
       duration_ms: undefined,
       triggered_by: usageContext?.triggeredByUserId ?? undefined,
+      correlationColumns,
+      observabilityColumns: toProviderUsageObservabilityColumns(enrichmentObservability),
+      billingState: enrichmentObservability.billing_state ?? 'unknown',
       metadata: {
         domain: entry.domain,
         fields_added: entry.fields_added ?? [],
         cascade_version: enrichmentCascadeMeta.cascade_version,
         pricing_missing_warning: organizationEnrichmentUnitCostUsd === null,
+        ...correlationMetadataBlock,
+        // §10 — un enrichment es una llamada suelta, sin paginación ni cuota
+        // propias: esos campos quedan null en vez de heredar los del search.
+        [SPEND_OBSERVABILITY_METADATA_KEY]: enrichmentObservability,
       },
     }));
   }
@@ -1079,6 +1204,10 @@ export async function runApolloOrganizationsSearch(
       apollo_raw_result_samples_sanitized: rawResultSamples,
       // L2.15: metadata del enrichment cascade (enabled=false cuando flag OFF)
       apollo_enrichment_cascade: enrichmentCascadeMeta,
+      // A1-APOLLO-BUDGET-RECONCILIATION-1 (§7): veredictos de los gates baratos y
+      // cuántas llamadas pagadas evitaron. (§10): observabilidad del search.
+      apollo_enrichment_eligibility: enrichmentEligibility.meta,
+      [SPEND_OBSERVABILITY_METADATA_KEY]: searchObservability,
       // A1-APOLLO-WIZARD-1: paginación, presupuesto, cuota y trazabilidad por página.
       apollo_pagination: apolloPaginationMetadata,
       apollo_page_logs: apolloPageLogs,

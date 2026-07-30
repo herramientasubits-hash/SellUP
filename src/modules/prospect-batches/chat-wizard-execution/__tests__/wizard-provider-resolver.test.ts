@@ -166,9 +166,16 @@ describe('P5: unknown provider value → tavily (default fallback)', () => {
     assert.equal(resolveWizardDiscoveryProvider(), 'tavily');
   });
 
-  it('verbose has reason=default for unknown value', () => {
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 (§11): un valor presente pero no reconocido
+   * ya NO se reporta como 'default'. El proveedor sigue siendo tavily —
+   * invariante intacto — pero la razón lo distingue de "variable ausente", para
+   * que un error de configuración sea visible en diagnósticos en vez de parecer
+   * la configuración por defecto. Nunca habilita Apollo.
+   */
+  it('verbose distingue un valor no reconocido de la ausencia de valor', () => {
     const res = resolveWizardDiscoveryProviderVerbose();
     assert.equal(res.provider, 'tavily');
-    assert.equal(res.reason, 'default');
+    assert.equal(res.reason, 'unrecognized_provider_value');
   });
 });

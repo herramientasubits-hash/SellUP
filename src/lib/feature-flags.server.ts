@@ -2,6 +2,8 @@
 // client components. The values are resolved at request time by server
 // components and server actions, then sent to the client as plain booleans.
 
+import { parseBooleanEnvFlag } from './env-flag-parser';
+
 /**
  * Returns true when ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION is "true"
  * (case-insensitive, leading/trailing whitespace ignored).
@@ -159,9 +161,12 @@ export const APOLLO_COMPANY_SEARCH_FLAG = 'ENABLE_APOLLO_COMPANY_SEARCH';
  * and the real Apollo API integration is validated.
  */
 export function isApolloCompanySearchEnabled(): boolean {
-  return (
-    process.env[APOLLO_COMPANY_SEARCH_FLAG]?.trim().toLowerCase() === 'true'
-  );
+  // A1-APOLLO-BUDGET-RECONCILIATION-1 (§11): resolución vía el parser canónico.
+  // Este flag autoriza gasto real y su valor literal NO es legible desde fuera del
+  // deployment (está declarado `sensitive` en Vercel), así que la interpretación
+  // tiene que ser la misma en todos los consumidores: trim + lowercase + sólo el
+  // token `true` habilita; ausente, vacío o inválido ⇒ apagado (fail-closed).
+  return parseBooleanEnvFlag(process.env[APOLLO_COMPANY_SEARCH_FLAG]);
 }
 
 /** Flag name constant for Apollo Organization Enrichment cascade in Agent 1 (L2.15). */
@@ -182,11 +187,11 @@ export const APOLLO_ORGANIZATION_ENRICHMENT_CASCADE_FLAG =
  * entry (operation_key='organization_enrichment') is confirmed in production.
  */
 export function isApolloOrganizationEnrichmentCascadeEnabled(): boolean {
-  return (
-    process.env[APOLLO_ORGANIZATION_ENRICHMENT_CASCADE_FLAG]
-      ?.trim()
-      .toLowerCase() === 'true'
-  );
+  // §11 — mismo parser canónico que el resto de flags que autorizan gasto. Este en
+  // particular decide si la reserva del wizard debe cubrir créditos de
+  // `organization_enrichment` (§5), así que estimación y ejecución tienen que leerlo
+  // exactamente igual.
+  return parseBooleanEnvFlag(process.env[APOLLO_ORGANIZATION_ENRICHMENT_CASCADE_FLAG]);
 }
 
 /**

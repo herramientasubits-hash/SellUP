@@ -91,6 +91,8 @@ import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/
 type ApolloRoundUsageContext = TavilyUsageContext & {
   remainingEnrichmentBudget?: number;
   organizationEnrichmentUnitCostUsd?: number | null;
+  /** A1-APOLLO-BUDGET-RECONCILIATION-1 (§3): correlación estable del run. */
+  runCorrelation?: Record<string, string | null> | null;
 };
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
@@ -737,6 +739,9 @@ export async function runIncrementalProspectingSearch(
             ? {
                 remainingEnrichmentBudget: Math.max(0, apolloEnrichmentGlobalCap - apolloEnrichmentsExecutedTotal),
                 organizationEnrichmentUnitCostUsd,
+                // §3: la correlación viaja a cada ronda para que TODO usage log de
+                // Apollo (search y enrichment) quede atado a la misma reserva.
+                runCorrelation: input.apolloRunCorrelation ?? null,
               }
             : {}),
         }

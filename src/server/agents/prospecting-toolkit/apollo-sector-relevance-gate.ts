@@ -250,6 +250,9 @@ const SECTOR_SIGNAL_TERMS: Record<string, string[]> = {
     'food retail',
     'food retailer',
     'convenience store',
+    // 'retail chain' sí (cadena de tiendas), 'retail' suelto NO: colisiona con
+    // 'retail banking' y admitiría bancos en una búsqueda de supermercados.
+    'retail chain',
   ],
 };
 
@@ -707,9 +710,10 @@ export function applyApolloSectorRelevanceGate(
   subindustry?: string | null,
 ): ApolloSectorGateResult {
   // Resolver señales: subindustria primero (más específica), sector como fallback.
-  const subindustrySignals = subindustry ? getSectorSignals(subindustry) : null;
-  const sectorSignals = getSectorSignals(sector);
-  const subindustrySignalUsed = !!(subindustrySignals);
+  // La resolución conjunta vive en `resolveApolloSectorSignalSet` (usada más abajo y
+  // compartida con el gate de elegibilidad); aquí sólo hace falta saber si la
+  // subindustria aportó mapping propio, porque eso endurece el gate.
+  const subindustrySignalUsed = (subindustry ? getSectorSignals(subindustry) : null) !== null;
 
   const baseMeta = {
     subindustry: subindustry ?? null,

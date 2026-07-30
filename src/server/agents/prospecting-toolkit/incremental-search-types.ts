@@ -80,6 +80,18 @@ export type IncrementalSearchInput = {
   usageInputContext?: TavilyUsageBaseContext | null;
 
   /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 (§1, §3): bloque plano de correlación del
+   * run (clientRequestId + batchId + reservationId, más wizardRunId/agentRunId
+   * nullables) para que cada usage log de Apollo quede atado a la reserva por
+   * identificadores y no por `created_at`.
+   *
+   * Campo propio en vez de una propiedad extra dentro de `usageInputContext`:
+   * ese tipo es deliberadamente agnóstico de proveedor (Tavily) y no debe crecer
+   * con campos de Apollo. Ausente ⇒ trazabilidad por `batch_id` como antes.
+   */
+  apolloRunCorrelation?: Record<string, string | null> | null;
+
+  /**
    * Criterios adicionales ingresados por el usuario en el wizard.
    * Provisto server-side — nunca controlado por el cliente directamente.
    * Se persiste en el metadata del batch como snapshot y puede influir en queries.
