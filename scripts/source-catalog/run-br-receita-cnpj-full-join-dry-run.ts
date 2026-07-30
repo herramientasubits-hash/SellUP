@@ -13,23 +13,34 @@
  *                                  manifest dry-run against ONLY those files, and
  *                                  removes the workspace afterwards. Requires --strict
  *                                  and all four bounded caps.
+ *   --manifest <p> --allow-local-manifest --real-manifest-metadata-only
+ *                                  The BR-SOURCE-11D-META-IMPL carve-out. Opens ONE real
+ *                                  local manifest as a CONTROL DOCUMENT and reports
+ *                                  schema-level metadata only. **No file the manifest
+ *                                  references is opened or stat-ed, and no row is read.**
+ *                                  Requires --strict and both metadata caps.
  *   --manifest <p> --allow-local-manifest
- *                                  Declares REAL local-manifest intent. Still refused
- *                                  by the runner core: a real manifest can never carry
- *                                  synthetic-temp trust, and GATE-1/GATE-2 are not
- *                                  approved — so NO real file is ever opened.
+ *                                  Declares REAL local-manifest EXECUTION intent. Still
+ *                                  refused by the runner core: a real manifest can never
+ *                                  carry synthetic-temp trust, and GATE-1/GATE-2 are not
+ *                                  approved — so NO file is ever opened.
  *
  * Exactly one mode must be requested explicitly: a bare invocation is a fail-closed
  * usage error, never a silent default run.
  *
  * ── This CLI NEVER ──────────────────────────────────────────────────────────────
- *   - reads a manifest, CSV, or directory it did not generate itself.
+ *   - reads a CSV, a ZIP, or a directory; or any file a manifest references.
+ *   - reads a manifest it did not generate itself, EXCEPT the single manifest document
+ *     of an explicit `--real-manifest-metadata-only` run.
  *   - accepts a CSV/ZIP payload, a directory, a URL, or a remote location.
  *   - accepts a path under an operator's download or source-data directories.
+ *   - accepts a manifest whose basename names a real prepared file set, on any flag.
+ *   - reads, samples, or counts a row; or computes a join over real data.
  *   - downloads, unzips, imports, executes, or processes the full dataset.
  *   - opens a Supabase client or performs a production/runtime write.
  *   - touches Agent 1, providers, HubSpot, or Slack.
- *   - echoes the manifest, a filesystem path, a raw error message, or a stack trace.
+ *   - echoes the manifest, a filesystem path, a filename, a declared period value, a raw
+ *     error message, or a stack trace.
  *   - prints a row, a full CNPJ, a CNPJ básico, a CPF, a name, or a join key.
  *   - writes a report that failed sanitization.
  *   - leaves its synthetic temp workspace behind (cleanup runs in a `finally`).
@@ -42,6 +53,11 @@
  *     --synthetic-temp-manifest --format json --strict \
  *     --max-company-rows 20 --max-establishment-rows 20 \
  *     --max-company-scan-rows 1000 --max-bytes-per-file 1000000
+ *
+ *   node --import tsx scripts/source-catalog/run-br-receita-cnpj-full-join-dry-run.ts \
+ *     --manifest <path-to-manifest-json> --allow-local-manifest \
+ *     --real-manifest-metadata-only --format json --strict \
+ *     --max-manifest-bytes 1000000 --max-declared-files 20
  */
 
 import * as fs from 'node:fs';
@@ -49,8 +65,11 @@ import * as path from 'node:path';
 
 import {
   BRAZIL_RECEITA_FULL_JOIN_MAX_SYNTHETIC_ROWS,
+  BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_DECLARED_FILES,
+  BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_MANIFEST_BYTES,
   BRAZIL_RECEITA_FULL_JOIN_OPTION_B_MAX_BYTES_PER_FILE,
   BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+  BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST,
   BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_TEMP_MANIFEST_TRUST,
   runBrazilReceitaFullJoinDryRun,
   type BrazilReceitaFullJoinDryRunReport,
@@ -58,6 +77,10 @@ import {
 } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-dry-run-runner';
 import { sanitizeBrazilReceitaFullJoinRenderedOutput } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-output-sanitizer';
 import { createBrazilReceitaSyntheticTempManifest } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-synthetic-temp-manifest';
+import {
+  BrazilReceitaRealManifestMetadataError,
+  createBrazilReceitaRealManifestMetadataReader,
+} from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-real-manifest-metadata-reader';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -154,12 +177,16 @@ export interface FullJoinRunnerOptions {
   readonly allowLocalManifest: boolean;
   /** True for the Option B carve-out: a self-generated synthetic temp workspace. */
   readonly syntheticTempManifest: boolean;
+  /** True for the metadata-only carve-out: ONE real manifest, parsed, no data file read. */
+  readonly realManifestMetadataOnly: boolean;
   readonly format: FullJoinRunnerFormat;
   readonly strict: boolean;
   readonly maxCompanyRows: number | null;
   readonly maxEstablishmentRows: number | null;
   readonly maxCompanyScanRows: number | null;
   readonly maxBytesPerFile: number | null;
+  readonly maxManifestBytes: number | null;
+  readonly maxDeclaredFiles: number | null;
   readonly outputPath: string | null;
 }
 
@@ -244,6 +271,7 @@ function parsePositiveInteger(flag: string, value: string): number {
 export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   let syntheticFixture = false;
   let syntheticTempManifest = false;
+  let realManifestMetadataOnly = false;
   let manifest: string | null = null;
   let allowLocalManifest = false;
   let format: FullJoinRunnerFormat = 'text';
@@ -252,6 +280,8 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   let maxEstablishmentRows: number | null = null;
   let maxCompanyScanRows: number | null = null;
   let maxBytesPerFile: number | null = null;
+  let maxManifestBytes: number | null = null;
+  let maxDeclaredFiles: number | null = null;
   let outputPath: string | null = null;
 
   for (let i = 0; i < argv.length; i++) {
@@ -279,6 +309,9 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
       case 'synthetic-temp-manifest':
         syntheticTempManifest = true;
         break;
+      case 'real-manifest-metadata-only':
+        realManifestMetadataOnly = true;
+        break;
       case 'manifest':
         manifest = takeValue();
         break;
@@ -299,6 +332,20 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
           'max-bytes-per-file',
           takeValue(),
           BRAZIL_RECEITA_FULL_JOIN_OPTION_B_MAX_BYTES_PER_FILE,
+        );
+        break;
+      case 'max-manifest-bytes':
+        maxManifestBytes = parseBoundedInteger(
+          'max-manifest-bytes',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_MANIFEST_BYTES,
+        );
+        break;
+      case 'max-declared-files':
+        maxDeclaredFiles = parseBoundedInteger(
+          'max-declared-files',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_DECLARED_FILES,
         );
         break;
       case 'output':
@@ -350,6 +397,37 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
     );
   }
 
+  if (realManifestMetadataOnly) {
+    // The metadata-only carve-out is manifest-bound, strict-only and fully capped: a
+    // metadata-only run without a manifest, without the explicit local-manifest
+    // acknowledgement, without strict, or without both caps does not exist. Every
+    // omission is refused HERE, before the reader is constructed and before the runner
+    // core is consulted.
+    if (manifest === null) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--real-manifest-metadata-only requires --manifest <path> — it reads exactly one manifest document',
+      );
+    }
+    if (!allowLocalManifest) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--real-manifest-metadata-only requires the explicit --allow-local-manifest flag',
+      );
+    }
+    if (!strict) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--real-manifest-metadata-only requires --strict — the metadata-only carve-out has no lenient mode',
+      );
+    }
+    const missingMetadataCaps: string[] = [];
+    if (maxManifestBytes === null) missingMetadataCaps.push('--max-manifest-bytes');
+    if (maxDeclaredFiles === null) missingMetadataCaps.push('--max-declared-files');
+    if (missingMetadataCaps.length > 0) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        `--real-manifest-metadata-only requires every bounded cap (missing: ${missingMetadataCaps.join(', ')})`,
+      );
+    }
+  }
+
   if (syntheticTempManifest) {
     // Option B is strict-only and fully-capped: a lenient or uncapped synthetic
     // temp-manifest run does not exist, so the omission is refused HERE, before the
@@ -391,12 +469,15 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
     manifestPath: manifest,
     allowLocalManifest: allowLocalManifest || syntheticTempManifest,
     syntheticTempManifest,
+    realManifestMetadataOnly,
     format,
     strict,
     maxCompanyRows,
     maxEstablishmentRows,
     maxCompanyScanRows,
     maxBytesPerFile,
+    maxManifestBytes,
+    maxDeclaredFiles,
     outputPath,
   };
 }
@@ -435,6 +516,9 @@ export function formatReportText(report: BrazilReceitaFullJoinDryRunReport): str
   lines.push(`run_mode: ${report.run_mode}`);
   lines.push(`manifest_trust: ${report.manifest_trust}`);
   lines.push(`option_b_carveout_authorized: ${report.option_b_carveout_authorized}`);
+  lines.push(
+    `real_manifest_metadata_only_option_b_authorized: ${report.real_manifest_metadata_only_option_b_authorized}`,
+  );
   lines.push(`source_key: ${report.source_key}`);
   lines.push(`country_code: ${report.country_code}`);
   lines.push(`source_period: ${report.source_period ?? 'null'}`);
@@ -450,6 +534,14 @@ export function formatReportText(report: BrazilReceitaFullJoinDryRunReport): str
   renderCounts('eligibility_counts', report.eligibility_counts, lines);
   renderCounts('join_counts', report.join_counts, lines);
   renderCounts('guardrail_counts', report.guardrail_counts, lines);
+  lines.push(`manifest_metadata: ${report.manifest_metadata === null ? 'null' : ''}`.trimEnd());
+  if (report.manifest_metadata !== null) {
+    for (const [key, value] of Object.entries(report.manifest_metadata)) {
+      if (key === 'declared_family_counts') continue;
+      lines.push(`  ${key}: ${value}`);
+    }
+    renderCounts('  declared_family_counts', report.manifest_metadata.declared_family_counts, lines);
+  }
   lines.push('cleanup:');
   lines.push(`  cleanup_required: ${report.cleanup.cleanup_required}`);
   lines.push(`  cleanup_status: ${report.cleanup.cleanup_status}`);
@@ -474,11 +566,27 @@ export function runFullJoinDryRun(
     ? createBrazilReceitaSyntheticTempManifest()
     : null;
 
+  // Metadata-only: build the single-path reader. The path stays inside the reader's
+  // closure, so this CLI never hands one to the runner core and never reports one. The
+  // reader validates the path and the caps eagerly, so a refused request never opens a
+  // descriptor at all.
+  const metadataReader =
+    options.realManifestMetadataOnly && options.manifestPath !== null
+      ? createBrazilReceitaRealManifestMetadataReader({
+          manifestPath: options.manifestPath,
+          realManifestMetadataOnlyOptionBAuthorized: true,
+          maxManifestBytes: options.maxManifestBytes ?? undefined,
+          maxDeclaredFiles: options.maxDeclaredFiles ?? undefined,
+        })
+      : null;
+
   try {
     return runBrazilReceitaFullJoinDryRun({
       mode: options.runMode,
-      // A REAL manifest is DECLARED, never opened: the core refuses it because a real
-      // manifest can never carry synthetic-temp trust.
+      // A REAL manifest offered for EXECUTION is DECLARED, never opened: the core refuses
+      // it because a real manifest can never carry synthetic-temp trust. Under
+      // metadata-only the manifest DOCUMENT is opened by the injected reader — and
+      // nothing it references ever is.
       ...(options.manifestPath !== null ? { manifest: { declared: true } } : {}),
       allowLocalManifest: options.allowLocalManifest,
       ...(workspace !== null
@@ -489,6 +597,16 @@ export function runFullJoinDryRun(
             localManifestReader: workspace.read,
           }
         : {}),
+      ...(metadataReader !== null
+        ? {
+            manifestTrust: BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST,
+            realManifestMetadataOnlyOptionBAuthorized: true,
+            outputSanitizationVersion: BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+            realManifestMetadataReader: metadataReader,
+          }
+        : {}),
+      ...(options.maxManifestBytes !== null ? { maxManifestBytes: options.maxManifestBytes } : {}),
+      ...(options.maxDeclaredFiles !== null ? { maxDeclaredFiles: options.maxDeclaredFiles } : {}),
       strict: options.strict,
       ...(options.maxCompanyRows !== null ? { maxCompanyRows: options.maxCompanyRows } : {}),
       ...(options.maxEstablishmentRows !== null
@@ -548,8 +666,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     if (!report.ok) process.exitCode = 1;
     if (options.strict && report.cleanup.cleanup_required) process.exitCode = 1;
   } catch (err) {
+    // Only our own sanitized messages are printed. The metadata reader's message is a
+    // fixed refusal CODE and carries no path, filename, or document fragment.
     const message =
-      err instanceof FullJoinRunnerOutputSanitizationError ? err.message : 'BRSOURCE11A_RUN_FAILED';
+      err instanceof FullJoinRunnerOutputSanitizationError ||
+      err instanceof BrazilReceitaRealManifestMetadataError
+        ? err.message
+        : 'BRSOURCE11A_RUN_FAILED';
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   }

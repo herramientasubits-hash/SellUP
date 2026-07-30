@@ -388,3 +388,187 @@ describe('BR-SOURCE-11C output sanitizer — the Option B report shape passes', 
     assert.ok(findingKinds(withPath).includes('filesystem_path_like'));
   });
 });
+
+// ─── BR-SOURCE-11D-META-IMPL: the metadata-only report shape ──────────────────
+
+describe('BR-SOURCE-11D-META output sanitizer — raw manifest output is blocked', () => {
+  const rawManifestKeys = [
+    'raw_manifest',
+    'rawManifest',
+    'RAW-MANIFEST',
+    'manifest_json',
+    'manifestDocument',
+    'manifest_body',
+  ];
+
+  for (const key of rawManifestKeys) {
+    it(`blocks a "${key}" key carrying a payload`, () => {
+      const result = sanitizeBrazilReceitaFullJoinReport({
+        [key]: { sourceKey: 'br_receita_cnpj_dados_abertos', files: [{ fileType: 'empresas' }] },
+      });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes('raw_manifest_payload'));
+    });
+  }
+
+  it('blocks a raw manifest carried as a STRING as well as an object', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      raw_manifest: '{"sourceKey":"br_receita_cnpj_dados_abertos"}',
+    });
+    assert.equal(result.ok, false);
+    assert.ok(findingKinds(result).includes('raw_manifest_payload'));
+  });
+
+  it('never echoes the manifest document in a finding', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      raw_manifest: { sourcePeriod: '2026-07', files: ['synthetic-empresas.csv'] },
+    });
+    assert.equal(result.ok, false);
+    const serialized = JSON.stringify(result);
+    assert.ok(!serialized.includes('sourcePeriod'));
+    assert.ok(!serialized.includes('synthetic-empresas.csv'));
+  });
+
+  it('allows the held-absence assertion raw_manifest_printed: false', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({ raw_manifest_printed: false });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.findings, []);
+  });
+
+  it('blocks raw_manifest_printed: true — a declared leak is not an exemption', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({ raw_manifest_printed: true });
+    assert.equal(result.ok, false);
+    assert.ok(findingKinds(result).includes('raw_manifest_payload'));
+  });
+});
+
+describe('BR-SOURCE-11D-META output sanitizer — declared filenames are blocked', () => {
+  const filenameKeys = [
+    'file_name',
+    'fileName',
+    'declared_file_names',
+    'manifest_path',
+    'declared_path',
+    'basename',
+    'absolute_path',
+    'file_path',
+  ];
+
+  for (const key of filenameKeys) {
+    it(`blocks a "${key}" key carrying a value`, () => {
+      // A RELATIVE filename holds no absolute-path shape, so only the KEY rule catches it.
+      const result = sanitizeBrazilReceitaFullJoinReport({ [key]: 'synthetic-empresas.csv' });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes('declared_filename_payload'));
+    });
+  }
+
+  it('allows the held-absence assertion absolute_paths_printed: false', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({ absolute_paths_printed: false });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.findings, []);
+  });
+
+  it('does not mistake a family label or a count key for a filename', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      declared_file_count: 5,
+      declared_family_counts: { empresas: 1, estabelecimentos: 1, other: 0 },
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.findings, []);
+  });
+});
+
+describe('BR-SOURCE-11D-META output sanitizer — the metadata-only report shape passes', () => {
+  /** The exact block the runner emits for an authorized metadata-only run. */
+  const METADATA_BLOCK = {
+    schema_version_present: true,
+    source_period_present: true,
+    layout_mode: 'official_headerless',
+    declared_file_count: 5,
+    required_family_count: 2,
+    missing_required_family_count: 0,
+    forbidden_family_count: 0,
+    declared_family_counts: {
+      empresas: 1,
+      estabelecimentos: 1,
+      simples: 0,
+      cnaes: 1,
+      municipios: 1,
+      naturezas: 1,
+      other: 0,
+    },
+    required_families_present: true,
+    forbidden_families_present: false,
+    manifest_bytes_read_bucket: 'lte_1mb',
+    referenced_data_files_opened: false,
+    referenced_data_files_statted: false,
+    raw_manifest_printed: false,
+    absolute_paths_printed: false,
+  };
+
+  it('passes the full metadata-only report shape', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      run_mode: 'local_manifest_dry_run',
+      manifest_trust: 'real_manifest_metadata_only',
+      option_b_carveout_authorized: false,
+      real_manifest_metadata_only_option_b_authorized: true,
+      source_period: null,
+      manifest_metadata: METADATA_BLOCK,
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.findings, []);
+  });
+
+  it('passes the over-limit bucket and the metadata-only error codes', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      manifest_metadata: { ...METADATA_BLOCK, manifest_bytes_read_bucket: 'over_limit_blocked' },
+      errors: [
+        { error_code: 'real_manifest_metadata_cap_exceeded', stage: 'real_manifest_metadata_read' },
+        {
+          error_code: 'real_manifest_metadata_forbidden_family_detected',
+          stage: 'real_manifest_metadata_read',
+        },
+      ],
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.findings, []);
+  });
+
+  it('still blocks a manifest path smuggled onto a metadata-only report', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      manifest_trust: 'real_manifest_metadata_only',
+      manifest_metadata: { ...METADATA_BLOCK, manifest_path: `${TEMP_PATH_LIKE}/manifest.json` },
+    });
+    assert.equal(result.ok, false);
+    const kinds = findingKinds(result);
+    assert.ok(kinds.includes('declared_filename_payload') || kinds.includes('filesystem_path_like'));
+  });
+
+  it('still blocks an oversized declared count masquerading as metadata', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      manifest_metadata: {
+        ...METADATA_BLOCK,
+        declared_file_count: BRAZIL_RECEITA_FULL_JOIN_MAX_NUMERIC_LEAF + 1,
+      },
+    });
+    assert.equal(result.ok, false);
+    assert.ok(findingKinds(result).includes('oversized_numeric_value'));
+  });
+
+  it('still blocks an identifier smuggled into a family label', () => {
+    for (const [label, value] of [
+      ['a CNPJ básico', CNPJ_BASICO_LIKE],
+      ['a full CNPJ', CNPJ_LIKE],
+      ['a CPF', CPF_LIKE],
+      ['an email', EMAIL_LIKE],
+      ['a phone', PHONE_LIKE],
+      ['a hex digest', HEX_DIGEST_LIKE],
+    ] as const) {
+      const result = sanitizeBrazilReceitaFullJoinReport({
+        manifest_metadata: { ...METADATA_BLOCK, layout_mode: value },
+      });
+      assert.equal(result.ok, false, `${label} must be blocked`);
+    }
+  });
+});

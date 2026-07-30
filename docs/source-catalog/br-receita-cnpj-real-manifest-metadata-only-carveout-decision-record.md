@@ -2,7 +2,7 @@
 
 **Source family:** Brazil — Receita Federal do Brasil (RFB), Cadastro Nacional da Pessoa Jurídica (CNPJ) — Dados Abertos (bulk)
 **Milestone:** BR-SOURCE-11D-META — Real manifest metadata-only carve-out decision record (docs-only)
-**Status:** `proposed_for_owner_review` — **not** a gate approval, and **not** a real-manifest / real-data-file / import / execution / migration authorization
+**Status:** `official_and_option_b_authorized` — the record is merged and its § 9 owner phrase has been given. Still **not** a gate approval, and **not** a real-data-file / row-read / join-coverage / import / execution / migration authorization
 **Predecessor:** BR-SOURCE-11C-LAND — `BRSOURCE11CLANDA — OPTION_B_SYNTHETIC_TEMP_MANIFEST_DRY_RUN_MERGED` (PR #166, `main` HEAD `5b7b77c0571419d9d62d97db12e0ea4559b79102`), validated post-merge by BR-SOURCE-11C-V — `BRSOURCE11CVA — POST_MERGE_OPTION_B_SYNTHETIC_TEMP_MANIFEST_VALIDATION_PASSED`
 **Last reviewed:** 2026-07-30
 
@@ -18,43 +18,58 @@
 - Manual download & local prep runbook — [`br-receita-cnpj-manual-download-local-prep-runbook.md`](./br-receita-cnpj-manual-download-local-prep-runbook.md)
 - Legal/privacy decision record — [`br-receita-cnpj-legal-privacy-decision-record.md`](./br-receita-cnpj-legal-privacy-decision-record.md)
 
-> This document **asks a question**; it does not answer it. It defines whether a narrow
+> **AMENDED 2026-07-30.** This document originally **asked a question** — whether a narrow
 > real-manifest **metadata-only** carve-out could be authorized as the next step after
-> BR-SOURCE-11C's synthetic temp-manifest carve-out. It **approves no gate**, moves no gate out of
-> `not_started`, and reads **NO-GO** on its own.
+> BR-SOURCE-11C's synthetic temp-manifest carve-out. It was merged as PR #167, and the owners then
+> gave the § 9 phrase `AUTHORIZE OPTION B — REAL MANIFEST METADATA-ONLY CARVE-OUT`. The question is
+> therefore **answered: Option B is authorized**, and § 14 records what was built under it.
 >
-> Nothing here authorizes — and nothing here should be read as authorizing — reading a real
-> manifest, opening any file a manifest points at, reading a real Receita data file, a dataset
+> The body below is preserved as written, so the decision is auditable in the terms it was decided
+> in. Where it reads as an open question or as "not authorized", read § 1 and § 14 for the current
+> state. Sections 4, 7, 8 and 10 are **not** superseded: they are the binding boundaries, caps, and
+> blocked list that the authorization was granted against.
+>
+> The authorization covers **parsing one manifest document, as metadata**. It still **approves no
+> gate**, moves no gate out of `not_started`, and authorizes none of: opening any file a manifest
+> points at, reading a real Receita data file, reading a row, computing join coverage, a dataset
 > download, full-dataset processing, full join execution, import, a Supabase write, a production
 > write, a migration, an index change, a runtime change, an adapter/validator change, an Agent 1
 > integration, a provider call, a HubSpot sync, a Slack notification, live generation, full
 > expansion, or merge to an operational state.
 >
-> **This milestone did not read a real manifest.** No real manifest was opened, parsed, stat-ed,
-> referenced by path, or committed while producing this record.
+> **No real operator manifest has been read by any SellUp code path.** The metadata-only code path is
+> implemented and exercised against **synthetic** manifests that the test suite and the validation
+> step wrote themselves. Executing a real prepared file set remains a separate operator step, and the
+> real prepared basenames stay refused (§ 14.3).
 
 ---
 
 ## 1. Status
 
 ```text
-Decision record status: proposed_for_owner_review
-Implementation status:  not_authorized
-Current GO/NO-GO:       NO-GO
+Decision record status: official (merged as PR #167, main HEAD 1aaab1d)
+Owner authorization:    GIVEN — "AUTHORIZE OPTION B — REAL MANIFEST METADATA-ONLY CARVE-OUT"
+Implementation status:  implemented by BR-SOURCE-11D-META-IMPL (see § 14)
+Current GO/NO-GO:       GO for manifest metadata-only parsing; NO-GO for everything else
 ```
 
-Explicitly:
+Explicitly — and none of this changed when Option B was authorized:
 
 ```text
 This record does not approve GATE-1.
 This record does not approve GATE-2.
 This record does not approve any gate.
-This record does not authorize real manifest metadata reading.
+This record does not authorize opening any file the manifest references.
 This record does not authorize real data-file execution.
+This record does not authorize row reads.
+This record does not authorize join coverage.
 This record does not authorize dataset import.
 This record does not authorize Supabase writes.
 This record does not authorize runtime or Agent 1.
 ```
+
+The owner phrase authorized **manifest metadata parsing and nothing else**. Reading the manifest is
+now permitted; opening what it points at is not, and is not made closer by this authorization.
 
 Three clarifications, because every prior milestone in this series has shown how easily they are
 conflated:
@@ -646,10 +661,12 @@ Two consequences follow, and both are load-bearing:
 ## 11. Flags
 
 ```text
-OPS_BR_REAL_MANIFEST_METADATA_ONLY_DECISION_RECORD_PR_READY = false until PR
-OPS_BR_REAL_MANIFEST_METADATA_ONLY_DECISION_RECORD_OFFICIAL = false until merge
-OPS_BR_REAL_MANIFEST_METADATA_ONLY_OPTION_B_AUTHORIZED      = false
-OPS_BR_REAL_LOCAL_MANIFEST_AUTHORIZED                       = false
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_DECISION_RECORD_PR_READY = true
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_DECISION_RECORD_OFFICIAL = true
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_OPTION_B_AUTHORIZED      = true
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_IMPL_PR_READY            = true   (BR-SOURCE-11D-META-IMPL)
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_IMPL_OFFICIAL            = false  (until that PR merges)
+OPS_BR_REAL_LOCAL_MANIFEST_AUTHORIZED                       = true   (metadata-only; document only)
 OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED              = false
 
 FULL_JOIN_RUNNER_READY                                      = true
@@ -727,6 +744,14 @@ merits — remains the shortest route to real execution and is unaffected by any
 
 ## 13. Safety confirmation
 
+> **Amended by BR-SOURCE-11D-META-IMPL.** The confirmation below describes the original **docs-only**
+> milestone that produced this record, and it remains accurate for that milestone. The implementation
+> milestone (§ 14) does touch code, tests, the CLI, and docs; it opened **one** manifest document per
+> validation run — a **synthetic** manifest it wrote itself — and it still did not open any file a
+> manifest references, read any row, compute any join, import, write to Supabase, create a migration,
+> touch runtime or Agent 1, change UI, edit `MEMORY.md`, approve any gate, or merge. It executed **no**
+> real operator manifest.
+
 This milestone is **docs-only**. It creates a branch and documentation, and opens a docs-only PR. It
 does **not**:
 
@@ -757,3 +782,74 @@ never a real value and never a real location. No secrets, no data dumps, no real
 básico values, no CPFs, and no partner (sócio) personal data are reproduced. Local WIP
 (`scratchpad/`) and the unrelated in-progress work on the main worktree are untouched by any git
 operation: this milestone was prepared in an isolated worktree branched from `origin/main`.
+
+## 14. BR-SOURCE-11D-META-IMPL — what the authorization was spent on
+
+BR-SOURCE-11D-META-IMPL implements metadata-only parsing support after explicit owner
+authorization:
+
+```text
+AUTHORIZE OPTION B — REAL MANIFEST METADATA-ONLY CARVE-OUT
+```
+
+It authorizes only manifest metadata parsing.
+It does not authorize opening referenced Receita data files.
+It does not authorize row reads.
+It does not authorize join coverage.
+It does not approve any gate.
+It does not authorize import.
+It does not authorize Supabase writes.
+It does not authorize runtime or Agent 1.
+
+### 14.1 What landed
+
+| Piece | Where | What it does |
+|---|---|---|
+| Metadata-only reader | `br-receita-cnpj-real-manifest-metadata-reader.ts` (new) | Opens **one** manifest, parses it, returns aggregate metadata. Resolves exactly one path. |
+| Trust level | runner: `real_manifest_metadata_only` | A fourth trust value, distinct from `synthetic_temp_manifest_only`. |
+| Authorization flag | runner: `realManifestMetadataOnlyOptionBAuthorized` | A **separate** flag from `optionBCarveoutAuthorized`; neither satisfies the other's gate. |
+| Caps | `maxManifestBytes ≤ 1_000_000`, `maxDeclaredFiles ≤ 20` | Both REQUIRED of the caller; an omitted cap is refused, never defaulted. |
+| Report block | runner: `manifest_metadata` | Aggregate booleans, counts, and class labels. `null` on every non-metadata run. |
+| CLI flag | `--real-manifest-metadata-only` + `--max-manifest-bytes` + `--max-declared-files` | Requires `--manifest`, `--allow-local-manifest`, `--strict`, and both caps. |
+| Sanitizer | two new leak kinds | `raw_manifest_payload` and `declared_filename_payload` — the two output shapes this carve-out newly makes possible. |
+
+### 14.2 How the § 4.3 / § 7.1 invariant is enforced
+
+"Exactly one path is resolved" is enforced structurally and asserted three ways:
+
+1. **Structurally** — the reader captures the manifest path in a closure, contains a single
+   `fs.openSync` call targeting that path, and never builds a second path (`path.join` and
+   `path.resolve` are absent from the module; only the `fileType` **label** of a declared entry is
+   ever read, never its declared path).
+2. **By static test** — a guard reads the module source and asserts one `openSync`, no
+   `statSync` / `existsSync` / `readdirSync` / `readFileSync` / `createReadStream`, and no path
+   construction.
+3. **By instrumented observation** — the reader's own suite wraps every relevant `node:fs` entry
+   point and asserts that a real run opens exactly one descriptor, on the manifest, and stats and
+   lists nothing — **with the referenced files materialized on disk beside the manifest**, so "it did
+   not open them" is an observation rather than an artefact of their absence.
+
+No `stat` happens anywhere: the byte ceiling is applied to the read itself (one byte beyond the cap
+is requested, and its presence means the document is oversized and is refused rather than parsed
+truncated).
+
+### 14.3 What the implementation deliberately did NOT do
+
+- **It did not execute the operator's real manifest.** The § 8 caps and the § 7 boundaries are
+  implemented and exercised, but only against **synthetic** metadata manifests that the test suite
+  and the validation step wrote themselves, per the § 9.1 test-plan requirement.
+- **It kept `manifest.headerless.json` and `manifest.real.json` refused by basename**, on the new
+  flag as well as the old ones. Executing an operator's real prepared file set is a separate,
+  explicitly-authorized operator step, not something this milestone unlocks by adding a flag.
+- **It read no row, opened no referenced file, and computed no join.** Every row, eligibility, and
+  join count on a metadata-only report is structurally zero: the metadata path returns before the
+  fixture scorer is reachable.
+
+### 14.4 Reporting boundary (§ 4.3, restated as a rule for consumers)
+
+A green metadata-only run is evidence that a manifest is **well-formed**. It is **not** evidence
+about the dataset, its coverage, its join rates, its eligibility, GATE-1, or GATE-2. Any report that
+cites it otherwise is wrong.
+
+---
+
