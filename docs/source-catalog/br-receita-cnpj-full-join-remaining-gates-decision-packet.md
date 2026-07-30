@@ -1834,3 +1834,39 @@ at all, so Option C is not partially implemented either.
 
 Record: [`br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md`](./br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md) § 14.
 Design: [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md) § 26.
+
+---
+
+## 24. BR-SOURCE-11F — next decision question recorded, gates unchanged
+
+BR-SOURCE-11F defines the next decision question: whether an ultra-bounded required-family real
+data-file probe can be authorized. It does not authorize real data-file execution by itself. It does
+not authorize joins. It does not authorize import. It does not approve any gate.
+
+```text
+11E executed one operator-prepared manifest DOCUMENT, metadata-only.
+11F records the bounded real data-file question and recommends its Option C — two allowlisted files
+  (empresas, estabelecimentos), a tiny bounded prefix, aggregate-only output, no join, no samples.
+No gate is approved. GATE-1 and GATE-2 retain sole authority over dataset processing.
+```
+
+### 24.1 Gate and flag status after BR-SOURCE-11F — UNCHANGED
+
+All eight gates remain `not_started` / not approved, and the § 23.2 flag block is unchanged except
+for the record's own two new flags, both `false` until its PR and merge:
+
+```text
+OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_PR_READY  = false until PR
+OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_OFFICIAL  = false until merge
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_AUTHORIZED           = false
+OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED                  = false
+```
+
+§ 23.3 also survives verbatim: no real Receita data file has been opened, no referenced file has been
+opened or stat-ed, no row has been read, no join has been computed, and no coverage figure about the
+real dataset exists. A merged question is still a question — any implementation additionally requires
+that record to be merged **and** the explicit owner phrase
+`AUTHORIZE OPTION C — ULTRA-BOUNDED REQUIRED-FAMILY REAL DATA-FILE PROBE`, recorded separately. No
+phrase already spent in 11C, 11D-META, or 11E carries over.
+
+Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).

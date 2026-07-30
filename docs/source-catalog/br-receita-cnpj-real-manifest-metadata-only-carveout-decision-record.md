@@ -945,3 +945,25 @@ still exactly what reading a real Receita data file would require, and neither i
 
 ---
 
+## 16. BR-SOURCE-11F — the successor question, and what it does not carry over
+
+BR-SOURCE-11F defines the next decision question: whether an ultra-bounded required-family real
+data-file probe can be authorized. It does not authorize real data-file execution by itself. It does
+not authorize joins. It does not authorize import. It does not approve any gate.
+
+Two boundary notes, because 11F is where this record is most likely to be misquoted:
+
+- **This record's § 10 blocked list is untouched by 11F.** Opening a referenced file, reading a row,
+  computing a join, and `stat`-ing a data file all remain blocked today. 11F asks whether a narrow
+  subset of the first two may *later* be authorized under caps; asking is not authorizing.
+- **The option labels do not line up, and must not be conflated.** This record's Option C was
+  "metadata + file `stat`" and its Option D was "bounded real data-file dry-run". 11F's Option C is an
+  ultra-bounded two-family row probe — narrower than this record's Option D, and unrelated to this
+  record's Option C. `stat` is still not authorized anywhere, and the merged reader still contains no
+  `stat` call. Each record enumerates its own options from `A`, so an authorization phrase from one
+  authorizes nothing in the other.
+
+Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).
+
+---
+

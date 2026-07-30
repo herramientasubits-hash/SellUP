@@ -1416,3 +1416,25 @@ downloaded, imported, or processed; no Supabase write, migration, index change, 
 integration, or provider call occurred; no report artifact was written. All eight gates remain
 `not_started` / not approved, and a green metadata-only run is not citable as GATE-1 or GATE-2
 evidence, or as evidence about the dataset's coverage, join rates, or eligibility.
+
+---
+
+## 28. BR-SOURCE-11F — the next decision question, still no real data-file execution
+
+BR-SOURCE-11F defines the next decision question: whether an ultra-bounded required-family real
+data-file probe can be authorized. It does not authorize real data-file execution by itself. It does
+not authorize joins. It does not authorize import. It does not approve any gate.
+
+```text
+11E executed one operator-prepared manifest DOCUMENT, metadata-only (§ 27).
+11F records the question of whether two allowlisted files (empresas, estabelecimentos) may be opened
+  under hard caps, read for a tiny bounded prefix, and reported as aggregates only.
+Its own status is proposed_for_owner_review, and its recommended option requires a separate,
+  exactly-worded owner phrase after it merges.
+```
+
+The § 22.2 `local_manifest_dry_run` mode therefore stays exactly where § 26 and § 27 left it: opened
+for a manifest **document** only. No trust level permitting a referenced-file read exists, `stat`
+remains absent from the reader, and GATE-1 and GATE-2 retain sole authority over dataset processing.
+
+Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).

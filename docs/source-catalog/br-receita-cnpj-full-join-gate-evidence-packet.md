@@ -1324,3 +1324,32 @@ No secrets, no data dumps, no real CNPJs, no CNPJ básico values, no CPFs, and n
 personal data are reproduced. No hash, truncation, or fingerprint derived from any identifier, name,
 or join key appears anywhere in this document. Local WIP (`scratchpad/`) is untouched by any git
 operation.
+
+---
+
+## 21. BR-SOURCE-11F — no new gate evidence, and none anticipated
+
+The BR-SOURCE-11 series (runner scaffold, synthetic carve-outs, real manifest metadata-only, and its
+execution against one operator-prepared manifest document) is recorded in the full join dry-run
+technical design and the remaining gates decision packet. None of it added evidence to any gate in
+this packet, and none of it moved a gate out of `not_started`.
+
+BR-SOURCE-11F defines the next decision question: whether an ultra-bounded required-family real
+data-file probe can be authorized. It does not authorize real data-file execution by itself. It does
+not authorize joins. It does not authorize import. It does not approve any gate.
+
+For this packet specifically, one consequence matters most:
+
+```text
+A future bounded probe, if authorized and green, would be evidence that a read path works and that a
+file's shape matches what was declared.
+It would NOT be GATE-1 evidence, GATE-2 evidence, or evidence about the dataset's coverage, quality,
+join rates, or eligibility, and it may not be entered in this packet as such.
+```
+
+The § 5 … § 12 per-gate evidence packets and the § 13 cross-gate gaps are therefore unchanged, the
+§ 15 decision still reads **NO-GO**, GATE-1 still needs a legal
+determination, GATE-2 still needs measurements, and no evidence row in this packet may cite a bounded
+probe that has neither been authorized nor run.
+
+Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).
