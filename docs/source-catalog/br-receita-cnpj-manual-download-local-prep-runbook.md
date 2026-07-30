@@ -589,6 +589,39 @@ or Agent 1 integration. See packet
 
 ---
 
+### 11.9. Remaining full join gates decision packet (BR-SOURCE-10PQR)
+
+BR-SOURCE-10PQR is a **docs-only decision packet** proposing the three remaining preparable gate
+contracts — **GATE-6** (failure cleanup), **GATE-7** (operator runbook), and **GATE-8** (no-write /
+no-runtime) — plus a readiness table covering all eight gates. It follows the three earlier docs-only
+decision records that proposed GATE-3 (**10M** field allowlist), GATE-4 (**10N** identity grain), and
+GATE-5 (**10O** output sanitization). There is **no new runner and no new command** for any of them.
+
+It **approves no gate**: all eight remain `not_started`, so the matrix still reads **NO-GO**, and no
+full-join runner code may be written. Operator-relevant consequences, stated plainly:
+
+- **GATE-7 is still unapproved, and this runbook still contains no full-join procedure.** 10PQR proposes
+  the *contract* a future runbook section must satisfy — who may operate, the preflight items and their
+  pass conditions, the non-overridable stop conditions, the evidence that may leave the machine, and the
+  operator behavior rules — not the procedure itself. **Nothing in it authorizes a full join run.**
+- **Only a named authorized human operator could ever run it** — never an agent, an automation, or a CI
+  job, and never "on behalf of" an operator.
+- **Four of its own preflight items cannot be performed today**: the gate-status check fails by
+  construction while any gate is unapproved, the disk and memory checks have no GATE-2 ceilings to check
+  against, and the sanitizer check has no frozen GATE-5 contract.
+- **Evidence discipline applies to the operator, not only to the tooling**: no terminal screenshots, no
+  unsanitized copy-paste, no real manifest or local path in any channel, no manual editing of a report to
+  make it pass, and no warning recorded as a pass.
+- **Nothing in § 11.1–§ 11.4 changes**: the bounded runners, their commands, and their safe outputs are
+  unaffected, and § 13's stop conditions and § 14's what-this-does-not-authorize list stand unchanged.
+
+10PQR decides no identity grain, no field allowlist, and no storage envelope; writes no cleanup code,
+guard, runner, test, or runbook section; creates no migration; changes no index; and authorizes **no**
+dry-run, import, Supabase write, runtime, or Agent 1 integration. See packet
+[`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md).
+
+---
+
 ## 12. Expected safe outputs
 
 Both runners emit only a **sanitized report**:
@@ -680,4 +713,6 @@ Completing this runbook does **not** authorize:
 | **BR-SOURCE-10J** | Full join **dry-run technical design** (§ 11.6, docs-only): lowers the 10I contract into a future execution model, architecture options, temporary storage envelope, join-key handling, field discard timing, cleanup contract, resource limits, and future CLI/report contracts. | Docs-only; no runner, no command; decides no identity grain; authorizes no dry-run, import, Supabase write, runtime, or Agent 1. |
 | **BR-SOURCE-10K** | Full join **approval gates checklist** (§ 11.7, docs-only): turns GATE-1 … GATE-8 into per-gate approval criteria (evidence, approver role, pass/fail, blockers, artifacts, allows / does-not-allow), plus a gate status model, dependency graph, approval-evidence template, and GO / NO-GO matrix. | Docs-only; no runner, no command; **approves no gate** (all eight `not_started` → NO-GO); authorizes no dry-run, import, Supabase write, runtime, or Agent 1. |
 | **BR-SOURCE-10L** | Full join **gate evidence packet** (§ 11.8, docs-only): per gate, the evidence that exists, the evidence missing, the owner role required, the pending blocking decision, and the artifacts needed to reach `ready_for_review`; plus a cross-gate gap map. | Docs-only; no runner, no command; **approves no gate** (all eight `not_started`, `partial_evidence_collected` → NO-GO); decides no grain, allowlist, or storage envelope; authorizes no dry-run, import, Supabase write, runtime, or Agent 1. |
+| **BR-SOURCE-10M / 10N / 10O** | Docs-only **decision records** proposing GATE-3 (field allowlist), GATE-4 (identity grain), and GATE-5 (output sanitization) for owner review. | Docs-only; no runner, no command; **approve no gate** (all eight `not_started` → NO-GO); authorize no dry-run, import, Supabase write, runtime, or Agent 1. |
+| **BR-SOURCE-10PQR** | Remaining full join **gates decision packet** (§ 11.9, docs-only): proposes the GATE-6 failure cleanup contract, the GATE-7 operator runbook **contract** (not the runbook), and the GATE-8 no-write / no-runtime contract, plus a readiness table for all eight gates. | Docs-only; no runner, no command, no cleanup code, no guard, no test, **no runbook section**; **approves no gate** (all eight `not_started` → NO-GO); authorizes no dry-run, import, Supabase write, migration, index change, runtime, or Agent 1. |
 | _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + join dry-run (10G) + coverage strategy (10H) + full-join readiness design (10I) + full-join dry-run technical design (10J) + approval gates checklist (10K) + gate evidence packet (10L) + **every gate approved** + explicit approval first. |

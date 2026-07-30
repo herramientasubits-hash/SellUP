@@ -445,6 +445,38 @@ unexpected parser error
 material was destroyed, it reports failure and surfaces the (safe) fact that manual cleanup is
 required — it never reports success with residue on disk.
 
+> **Update (BR-SOURCE-10PQR).** The contract above has been carried into a docs-only **decision packet
+> proposing** the GATE-6 contract —
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md)
+> — where § 4 lowers it from a posture into a **thirteen-scenario matrix** and § 5 gives the sanitized
+> failure summary a shape. The nine failure types above are preserved and extended by four (process
+> crash, permission error, gate-preflight failure, small-cell suppression failure), with disk exhaustion
+> and out-of-memory separated because their cleanup capabilities differ. Additions, all narrowing or
+> clarifying:
+>
+> - a closed **destroyable artifact class list** `AC-01` … `AC-12`, with a catch-all class so that an
+>   unanticipated artifact fails closed as unresolved residue rather than falling through;
+> - a **temporary-artifact ledger** whose entries are written *before* each artifact is created — the
+>   only construction that can verify destruction after a crash, which by definition runs no in-process
+>   cleanup handler;
+> - a **cleanup ordering** that destroys key-bearing memory before any on-disk class, and forbids
+>   skipping a later step because an earlier one failed;
+> - a **best-effort-in-execution / fail-closed-in-reporting** split, making `cleanup_unverified` an
+>   admissible honest outcome under out-of-memory and crash instead of a silent success;
+> - the § 6 envelope treated as **conditional**: the contract is stated separately for in-memory-only
+>   (`E1`) and approved-ephemeral-disk (`E2`), because GATE-2 has chosen neither;
+> - **paths replaced by a `directory_class` enum** in the cleanup report, which is stricter than "errors
+>   reference only the controlled folder" above and resolves 10O § 12's open manifest-path question
+>   fail-closed for this surface only;
+> - **stack emission forbidden entirely**, adopting 10O's `OS-A34` narrowing of the "no stack traces with
+>   row values" rule above;
+> - an assertion catalogue `FC-A01` … `FC-A24`, with `FC-A02` and `FC-A23` explicitly unenforceable until
+>   GATE-2 chooses the envelope.
+>
+> **No cleanup implementation and no verification command are created there.** Both are code, forbidden
+> by the approval-gates checklist § 4 until all eight gates are approved. **GATE-6 remains `not_started` /
+> not approved.**
+
 ---
 
 ## 10. Resource limits
@@ -518,6 +550,34 @@ node --import tsx scripts/source-catalog/run-br-receita-cnpj-full-join-dry-run.t
 Like the existing runners (runbook § 10, § 11), a URL manifest, an out-of-range limit, or any
 forbidden flag must be rejected **before** any file is opened, with a stable
 `BRSOURCE10J_FORBIDDEN_*` code — never after partial processing.
+
+> **Update (BR-SOURCE-10PQR).** The flag sets above have been carried into a docs-only **decision packet
+> proposing** the GATE-8 contract —
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md)
+> — § 8 and § 9, unchanged and unwidened. What it adds around them:
+>
+> - a closed **blocked-surface list** `NB-01` … `NB-20`, naming each write, integration, and side-effect
+>   surface individually rather than as a general no-write posture — including index changes, schema
+>   changes, feature-flag writes, persistent cache and shared storage, and cloud uploads, with **zero
+>   network calls** as a recommendation;
+> - **structural** enforcement requirements rather than convention: no write-capable client constructed,
+>   no service role key present in the environment at all, no Supabase / Agent 1 / HubSpot / Slack /
+>   provider module imported transitively, and dry-run mode hardcoded and fail-closed rather than
+>   defaulted;
+> - **rejection ordering as part of the contract** — a forbidden flag, a URL manifest, an out-of-range
+>   limit, or a missing mandatory flag is refused before any file is opened *and* before any artifact
+>   exists, so a refusal leaves no residue (matched to the cleanup matrix's gate-preflight scenario);
+> - the enumerated no-write test list `NW-A01` … `NW-A28`;
+> - an evidence contract (§ 9) fixing what may be shown as proof — the all-false booleans, the zero
+>   counters including `raw_value_logs`, command names, the controlled `error_code` — and what may never
+>   be: environment values, secrets, connection strings, key material, the real manifest, real paths, raw
+>   driver messages, and stack traces.
+>
+> The packet also records the split 10L § 12 flagged: the **contract is approvable now**, the **proofs
+> land with the implementation**, because they are proofs about code that does not exist and the
+> approval-gates checklist § 4 forbids producing them by writing it. **No runner, CLI, guard, or test is
+> created there, and GATE-8 remains `not_started` / not approved** — its *Allows* clause stays
+> conditional on every other gate being approved, and seven are not.
 
 ---
 
@@ -723,6 +783,26 @@ provide:
 - a **sensitive scan of the report** (no digit runs, no emails, no keys);
 - **post-run deletion rules** for any temporary material;
 - a **final signoff** recorded with the aggregate result only.
+
+> **Update (BR-SOURCE-10PQR).** The requirements above have been carried into a docs-only **decision
+> packet proposing** the GATE-7 **runbook contract** —
+> [`br-receita-cnpj-full-join-remaining-gates-decision-packet.md`](./br-receita-cnpj-full-join-remaining-gates-decision-packet.md),
+> § 6 and § 7. Each obligation above becomes a checklist item with a definite pass condition (`P-01` …
+> `P-22`, gate status first), each failure becomes a non-overridable stop condition (`T-01` … `T-16`,
+> four of them leak-class), and the permitted evidence is closed (aggregate report after the sanitizer,
+> sanitized cleanup report, safety booleans, command names, controlled codes, checklist state,
+> aggregate-only signoff). Two additions the list above did not state: **only a named authorized human
+> operator may execute** — never an agent, an automation, or a CI runner, and never "on behalf of" an
+> operator — and twelve **operator behavior rules** covering the risks no assertion can catch (no
+> terminal screenshots, no unsanitized copy-paste, no real manifests or paths in any channel, no manual
+> editing of a report to make it pass, no warning recorded as a pass, no write-capable credential present
+> at all).
+>
+> **The runbook section itself is still not written**, and four items cannot be performed today: the
+> gate-status item fails by construction while any gate is unapproved, the disk and memory items have no
+> § 10 ceilings to check against (GATE-2), and the sanitizer item has no frozen GATE-5 contract. **GATE-7
+> remains `not_started` / not approved**, and nothing there authorizes a manual execution: an approved
+> contract would define the procedure, never grant the permission.
 
 ---
 
