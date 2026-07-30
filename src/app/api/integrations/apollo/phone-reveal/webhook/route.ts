@@ -28,7 +28,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isApolloPhoneCacheEnabled } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import {
+  readPhoneCacheSuppression,
+  writePhoneCacheEntry,
+} from '@/modules/contact-enrichment/phone-cache-store';
 import {
   runApolloPhoneRevealWebhook,
   isApolloWebhookTokenAuthorized,
@@ -53,13 +58,20 @@ function getAdminClient() {
   return createClient(url, key);
 }
 
+// `country` + `run.company_country_code` alimentan el alcance de la caché
+// (APOLLO-PHONE-CACHE-1b). Se leen siempre; con el flag de caché apagado no se
+// usan para nada y el webhook se comporta exactamente igual que antes.
+// `apollo_person_id` / `source` / `source_contact_id` alimentan la comprobación de
+// SUPRESIÓN en vuelo (FIX 3) cuando el payload del webhook no trae `person.id`.
+// Son ids opacos de correlación, NO PII, y se leen SIEMPRE: la supresión no
+// depende de ENABLE_APOLLO_PHONE_CACHE.
 const WEBHOOK_CANDIDATE_SELECT =
-  'id, enrichment_metadata, phone_reveal_status, run:contact_enrichment_runs ( account_id )';
+  'id, enrichment_metadata, phone_reveal_status, country, apollo_person_id, source, source_contact_id, run:contact_enrichment_runs ( account_id, company_country_code )';
 
 function mapWebhookCandidate(row: Record<string, unknown>): WebhookCandidateRecord {
   const runRaw = row.run;
   const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
-    | { account_id: string | null }
+    | { account_id: string | null; company_country_code: string | null }
     | null
     | undefined;
   return {
@@ -68,6 +80,11 @@ function mapWebhookCandidate(row: Record<string, unknown>): WebhookCandidateReco
     enrichmentMetadata:
       (row.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
     phoneRevealStatus: (row.phone_reveal_status as string | null) ?? null,
+    candidateCountry: (row.country as string | null) ?? null,
+    runCompanyCountryCode: run?.company_country_code ?? null,
+    apolloPersonId: (row.apollo_person_id as string | null) ?? null,
+    source: (row.source as string | null) ?? null,
+    sourceContactId: (row.source_contact_id as string | null) ?? null,
   };
 }
 
@@ -236,9 +253,40 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           operation_key: entry.operationKey,
           credits_used: entry.creditsUsed ?? undefined,
           status: entry.status,
+          // FIX 3: código mecánico del bloqueo / de la comprobación no verificable.
+          error_code: entry.errorCode ?? undefined,
           results_returned: entry.metadata.phone_revealed ? 1 : 0,
           metadata: entry.metadata,
         });
+      },
+      // Caché del reveal (APOLLO-PHONE-CACHE-1b). El flag se evalúa aquí y se
+      // pasa al store: con ENABLE_APOLLO_PHONE_CACHE apagado (default de
+      // producción) `writePhoneCacheEntry` sale inmediatamente sin leer ni
+      // escribir nada. Nunca lanza: la caché no puede romper el webhook.
+      cacheRevealedPhone: async (cacheInput) =>
+        writePhoneCacheEntry(cacheInput, isApolloPhoneCacheEnabled()),
+      // Supresión en vuelo (FIX 3). Se cablea SIN condicionar al flag de caché: una
+      // DSAR registrada mientras el reveal estaba en curso tiene que bloquear la
+      // persistencia tardía del teléfono con la caché encendida o apagada. La
+      // lectura pide solo `suppressed_at`, así que con el flag apagado el webhook
+      // comprueba la supresión SIN leer ningún número. Si LANZA, el core no
+      // persiste teléfono (fail-closed).
+      lookupPhoneCacheSuppression: readPhoneCacheSuppression,
+      // Mensaje ya redactado por el core: nunca teléfono/person id/email/nombre.
+      onSuppressionCheckUnavailable: (message) => {
+        console.error(
+          '[phone-reveal-webhook] suppression check unavailable:',
+          message,
+        );
+      },
+      // FIX 4: la comprobación no se pudo EVALUAR (sin person id resoluble o sin
+      // cuenta). No se empareja por otros datos ni se rellena el id que falta; el
+      // caso se registra con un evento de forma cerrada y sin PII.
+      onSuppressionNotEvaluable: (event) => {
+        console.warn(
+          '[phone-reveal-webhook] suppression not evaluable:',
+          event,
+        );
       },
     },
   );

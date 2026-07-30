@@ -578,12 +578,27 @@ describe('recovery runtime — regresión de contratos existentes', () => {
   it('el START sigue gateado por el flag; el runtime de recovery NO', () => {
     // El START core sí lee el flag (crea reveals nuevos).
     assert.equal(startCoreSrc.includes('flagEnabled'), true);
-    // El webhook route NO gatea funcionalmente la entrega por el flag: no llama a
-    // isApolloPhoneRevealEnabled ni importa feature-flags (por eso sigue
-    // funcionando con el flag OFF). La única aparición del nombre del flag es un
-    // comentario de cabecera, no una lectura.
+    // El webhook route NO gatea la ENTREGA por el flag de reveal: nunca llama a
+    // isApolloPhoneRevealEnabled, por eso sigue funcionando con ese flag OFF.
     assert.equal(/isApolloPhoneRevealEnabled/.test(webhookRouteSrc), false);
-    assert.equal(/from '@\/lib\/feature-flags/.test(webhookRouteSrc), false);
+
+    // APOLLO-PHONE-CACHE-1b: el route sí importa UN flag, pero solo el de caché
+    // (ENABLE_APOLLO_PHONE_CACHE) y solo para decidir si se escribe la caché.
+    // La entrega del teléfono sigue sin depender de ningún flag.
+    const flagImports = [
+      ...webhookRouteSrc.matchAll(/import\s*\{([^}]*)\}\s*from\s*'@\/lib\/feature-flags[^']*'/g),
+    ].flatMap((m) => m[1].split(',').map((s) => s.trim()).filter(Boolean));
+    assert.deepEqual(flagImports, ['isApolloPhoneCacheEnabled']);
+
+    // El flag de caché no puede usarse como early-return del handler: su única
+    // aparición es como argumento de la escritura de caché.
+    const cacheFlagUses = [...webhookRouteSrc.matchAll(/isApolloPhoneCacheEnabled\(\)/g)];
+    assert.equal(cacheFlagUses.length, 1);
+    assert.match(
+      webhookRouteSrc,
+      /writePhoneCacheEntry\(cacheInput,\s*isApolloPhoneCacheEnabled\(\)\)/,
+    );
+    assert.equal(/if\s*\(\s*!?\s*isApolloPhoneCacheEnabled/.test(webhookRouteSrc), false);
   });
 
   it('el guard del id Lusha v1. sigue intacto en el START core', () => {

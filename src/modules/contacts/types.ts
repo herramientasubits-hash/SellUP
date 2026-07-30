@@ -50,6 +50,9 @@ export type ContactPhoneType =
 export type ContactPhoneSource =
   | 'apollo_search'
   | 'apollo_reveal'
+  // APOLLO-PHONE-CACHE-1b — teléfono reutilizado desde la caché de reveals
+  // Apollo. Espejo de PhoneSource y del CHECK de la migración 099.
+  | 'apollo_cache'
   | 'lusha_reveal'
   | 'provider_payload'
   | 'manual'
