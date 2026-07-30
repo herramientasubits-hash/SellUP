@@ -229,6 +229,8 @@
     "test:agent2a:phone-reveal-recovery-cron": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-reveal-recovery-cron-core.test.ts",
     "test:agent2a:phone-reveal-recovery-cron-route": "node --experimental-test-module-mocks --import tsx --test src/app/api/cron/phone-reveal-recovery/__tests__/route.test.ts",
     "test:agent2a:phone-reveal-stale-ui": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-reveal-stale-ui.test.tsx",
+    "test:agent2a:phone-recovery-l3": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-reveal-manual-recovery-core.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-manual-recovery-runtime.test.ts",
+    "test:agent2a:phone-recovery-l3-ui": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-recovery-l3-ui.test.tsx",
     "test:agent2a:phone-reveal-ui": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-reveal-ui-3d4.test.tsx src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-reveal-ui-3d4-static.test.ts src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-reveal-ui-3d6b.test.tsx src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-reveal-ui-3d6b-static.test.ts"
   },
   "dependencies": {
