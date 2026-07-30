@@ -68,6 +68,19 @@ import {
   readWizardConsumedCreditsFromDb,
 } from './wizard-budget-reconciliation';
 import { estimateCreditsForProvider } from './wizard-budget-estimate';
+// A1-APOLLO-BUDGET-RECONCILIATION-1 — correlación del run y reconciliación por proveedor.
+import {
+  buildWizardRunCorrelation,
+  toRunCorrelationMetadata,
+  withResolvedIds,
+  type WizardRunCorrelation,
+} from './wizard-run-correlation';
+import {
+  readWizardRunUsageRows,
+  reconcileWizardRunSpend,
+  type WizardRunReconciliationResult,
+  type WizardRunUsageRowsClient,
+} from './wizard-run-reconciliation';
 import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 
 // ── Dependency injection boundary ─────────────────────────────────────────────
@@ -107,6 +120,26 @@ export type WizardExecutionDeps = {
     reason?: string | null;
   }) => Promise<ReleaseWizardCreditsOutput>;
   readConsumedCredits: (batchId: string) => Promise<number | null>;
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1: reconciliación consciente del proveedor.
+   *
+   * `readConsumedCredits` sólo consultaba la operación de Tavily, así que una
+   * corrida Apollo reconciliaba siempre como "sin filas" y confirmaba la reserva
+   * entera — por eso los 4 créditos reales del lote de QA nunca aparecieron
+   * contra su reserva de 3. Esta dep lee las filas de AMBAS operaciones
+   * facturables de Apollo, las correlaciona por reserva/client request/batch
+   * (nunca por timestamp) y devuelve cuánto confirmar más cualquier anomalía.
+   *
+   * Opcional: sin ella se usa el camino previo, de modo que los callers y tests
+   * que sólo ejercitan Tavily conservan su comportamiento.
+   */
+  reconcileRunSpend?: (input: {
+    batchId: string;
+    correlation: WizardRunCorrelation;
+    discoveryProvider: WizardDiscoveryProviderKey;
+    estimatedCredits: number;
+    reservedCredits: number;
+  }) => Promise<WizardRunReconciliationResult | null>;
   // Existing
   reserveSlot: (input: WizardExecutionReservationInput) => Promise<WizardExecutionReservationResult>;
   runTavilyPipeline: WizardTavilyRunner;
@@ -243,6 +276,30 @@ export async function executeProspectWizardGenerationAction(
 
     readConsumedCredits: (batchId) =>
       readWizardConsumedCreditsFromDb(batchId, supabase as unknown as ConsumedCreditsDbClient),
+    // A1-APOLLO-BUDGET-RECONCILIATION-1 — reconciliación por proveedor.
+    reconcileRunSpend: async ({
+      batchId,
+      correlation,
+      discoveryProvider,
+      estimatedCredits,
+      reservedCredits,
+    }) => {
+      const rows = await readWizardRunUsageRows(
+        batchId,
+        discoveryProvider,
+        supabase as unknown as WizardRunUsageRowsClient,
+      );
+      // null = la consulta falló. "Sin filas" (array vacío) es otro hecho y sí
+      // se reconcilia: puede haber gasto real sin log.
+      if (rows === null) return null;
+      return reconcileWizardRunSpend({
+        correlation,
+        discoveryProvider,
+        estimatedCredits,
+        reservedCredits,
+        rows,
+      });
+    },
 
     reserveSlot: (input) =>
       reserveWizardExecutionSlot(input, supabase as unknown as IdempotencyDbClient),
@@ -479,6 +536,49 @@ export async function executeProspectWizardGeneration(
   const { reservationId, creditsReserved } = budgetResult;
   const budgetWasNew = budgetResult.status === 'reserved';
 
+  // 7b. A1-APOLLO-BUDGET-RECONCILIATION-1 — correlación del run.
+  // Se construye en cuanto existe la reserva: sin ella, dos corridas
+  // concurrentes del mismo lote sólo se distinguirían por timestamp, que no es
+  // una clave de correlación. El batchId se resuelve más abajo (paso 9).
+  let runCorrelation = buildWizardRunCorrelation({
+    userId,
+    clientRequestId: req.clientRequestId,
+    reservationId,
+    providerKey: discoveryProvider,
+    requestSignature: [
+      req.countryCode,
+      catalogResolution.catalog.version,
+      catalogResolution.industry.id,
+      catalogResolution.subindustries.map((s) => s.id).join(','),
+      String(requestedCredits),
+    ].join('|'),
+  });
+
+  /**
+   * Decide cuántos créditos confirmar.
+   *
+   * Prefiere la reconciliación por proveedor; si no está cableada o la consulta
+   * falla, cae al camino previo (lectura Tavily + reserva completa). En todos
+   * los caminos el sesgo es conservador: ante gasto no verificable se confirma
+   * la reserva entera, nunca menos.
+   */
+  const resolveCreditsToConfirm = async (batchId: string): Promise<number> => {
+    if (deps.reconcileRunSpend) {
+      const reconciliation = await deps
+        .reconcileRunSpend({
+          batchId,
+          correlation: withResolvedIds(runCorrelation, { batchId }),
+          discoveryProvider,
+          estimatedCredits: requestedCredits,
+          reservedCredits: creditsReserved,
+        })
+        .catch(() => null);
+      if (reconciliation) return reconciliation.creditsToConfirm;
+    }
+    const consumed = await deps.readConsumedCredits(batchId).catch(() => null);
+    return consumed !== null && consumed > 0 ? consumed : creditsReserved;
+  };
+
   // 8. Build resolved execution context (server-controlled — no client-supplied labels)
   const countryEntry = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
   const countryName = countryEntry?.name ?? req.countryCode;
@@ -553,6 +653,7 @@ export async function executeProspectWizardGeneration(
 
   // 11. Execute discovery pipeline (Tavily or Apollo) using the reserved batchId as anchor
   const reservedBatchId = reservation.batchId;
+  runCorrelation = withResolvedIds(runCorrelation, { batchId: reservedBatchId });
   let pipelineResult: IncrementalSearchOutput;
   try {
     if (discoveryProvider === 'apollo_organizations') {
@@ -565,14 +666,15 @@ export async function executeProspectWizardGeneration(
         reservedBatchId,
         // Q3F-5BB.11E — additive OBSERVATIONAL routing metadata (never gates).
         extraBatchMetadata: apolloRoutingExtraMetadata,
+        // A1-APOLLO-BUDGET-RECONCILIATION-1 — viaja hasta provider_usage_logs.
+        runCorrelation: toRunCorrelationMetadata(runCorrelation),
       });
     } else {
       pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });
     }
   } catch {
-    // Reconcile conservatively — Tavily may have partially executed
-    const consumed = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
-    const toConfirm = (consumed !== null && consumed > 0) ? consumed : creditsReserved;
+    // Reconcile conservatively — the provider may have partially executed
+    const toConfirm = await resolveCreditsToConfirm(reservedBatchId);
     await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
     await deps.markBatchFailed(reservedBatchId, 'pipeline_error').catch(() => undefined);
     return {
@@ -585,8 +687,7 @@ export async function executeProspectWizardGeneration(
 
   // 12. Verify batchId consistency — pipeline must return the exact same batchId we reserved
   if (pipelineResult.batchId !== reservedBatchId) {
-    const consumed = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
-    const toConfirm = (consumed !== null && consumed > 0) ? consumed : creditsReserved;
+    const toConfirm = await resolveCreditsToConfirm(reservedBatchId);
     await deps.confirmBudget({ reservationId, actualCreditsConsumed: toConfirm, batchId: reservedBatchId }).catch(() => undefined);
     await deps.markBatchFailed(reservedBatchId, 'batchid_mismatch').catch(() => undefined);
     return {
@@ -598,9 +699,10 @@ export async function executeProspectWizardGeneration(
   }
 
   // 13. Reconcile credits — confirm actual consumed (partial or full)
-  const consumedCredits = await deps.readConsumedCredits(reservedBatchId).catch(() => null);
-  // Conservative: if 0 or null, confirm full reserved amount (logging may have failed)
-  const actualToConfirm = (consumedCredits !== null && consumedCredits > 0) ? consumedCredits : creditsReserved;
+  // Conservative by construction: unverifiable spend confirms the full
+  // reservation, and a recorded overrun confirms the recorded amount rather
+  // than being clamped back down to what was reserved.
+  const actualToConfirm = await resolveCreditsToConfirm(reservedBatchId);
 
   let reconciliationFailed = false;
   try {

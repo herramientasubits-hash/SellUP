@@ -16,6 +16,11 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
+import { isProviderUsageCorrelationColumnsEnabled } from '@/lib/feature-flags.server';
+import {
+  RUN_CORRELATION_METADATA_KEY,
+  type RunCorrelationMetadata,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -52,6 +57,16 @@ export type ApolloOrgsUsageContext = {
    * logging a fabricated cost.
    */
   organizationEnrichmentUnitCostUsd?: number | null;
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1: correlación del run del wizard.
+   *
+   * Se escribe SIEMPRE en `metadata.run_correlation`, que no requiere cambio de
+   * esquema. Las columnas equivalentes de la migración 100 sólo se escriben con
+   * ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS en true — insertar una columna que
+   * todavía no existe haría fallar el insert entero, y perder el log de uso es
+   * perder justamente el registro de gasto que este hito busca conciliar.
+   */
+  runCorrelation?: RunCorrelationMetadata | null;
 };
 
 export type ApolloOrgsUsageLogResult =
@@ -98,6 +113,30 @@ function tryGetAdminClient() {
  * Manejo de 23505: si usage_key ya existe → already_logged (idempotente, no error).
  * real_cost_usd nunca se escribe — permanece NULL hasta conciliación.
  */
+/**
+ * A1-APOLLO-BUDGET-RECONCILIATION-1: extrae la correlación que el provider dejó
+ * en `metadata.run_correlation` y la proyecta a las columnas de la migración 100.
+ *
+ * Devuelve `{}` cuando el flag está apagado (el caso por defecto, y el único
+ * válido mientras la migración no esté aplicada) o cuando no hay correlación.
+ * `batch_id` no se proyecta: ya es una columna propia del insert.
+ */
+function buildCorrelationColumns(metadata: unknown): Record<string, unknown> {
+  if (!isProviderUsageCorrelationColumnsEnabled()) return {};
+  if (!metadata || typeof metadata !== 'object') return {};
+  const block = (metadata as Record<string, unknown>)[RUN_CORRELATION_METADATA_KEY];
+  if (!block || typeof block !== 'object') return {};
+  const c = block as Partial<RunCorrelationMetadata>;
+  return {
+    reservation_id: c.reservation_id ?? null,
+    client_request_id: c.client_request_id ?? null,
+    wizard_run_id: c.wizard_run_id ?? null,
+    request_fingerprint: c.request_fingerprint ?? null,
+    idempotency_key: c.idempotency_key ?? null,
+    billing_state: c.billing_state ?? null,
+  };
+}
+
 export async function realLogApolloOrgsUsage(
   input: LogProviderUsageInput,
 ): Promise<ApolloOrgsUsageLogResult> {
@@ -106,6 +145,7 @@ export async function realLogApolloOrgsUsage(
     if (!admin) return { kind: 'skipped_no_supabase' };
 
     const { error } = await admin.from('provider_usage_logs').insert({
+      ...buildCorrelationColumns(input.metadata),
       agent_run_id: input.agent_run_id ?? null,
       agent_run_step_id: input.agent_run_step_id ?? null,
       batch_id: input.batch_id ?? null,

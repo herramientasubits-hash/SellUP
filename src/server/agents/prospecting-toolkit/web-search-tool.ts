@@ -29,6 +29,7 @@ import { runMockWebSearch } from './web-search-providers/mock-web-search-provide
 import { runTavilyWebSearch } from './web-search-providers/tavily-web-search-provider';
 import { runGoogleCseWebSearch } from './web-search-providers/google-cse-web-search-provider';
 import { runApolloOrganizationsSearch } from './web-search-providers/apollo-organizations-search-provider';
+import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import { filterNoiseResults } from './noise-filter';
 import { buildCleanMultiQueryDiscoveryQueries } from './query-builder';
 import {
@@ -82,10 +83,14 @@ const MAX_QUERIES_LIMIT = 10;
 type ApolloRoundUsageContext = TavilyUsageContext & {
   remainingEnrichmentBudget?: number;
   organizationEnrichmentUnitCostUsd?: number | null;
+  /** A1-APOLLO-BUDGET-RECONCILIATION-1: correlación del run (Apollo-only). */
+  runCorrelation?: RunCorrelationMetadata | null;
 };
 type ApolloDispatchUsageContext = DispatchUsageContext & {
   remainingEnrichmentBudget?: number;
   organizationEnrichmentUnitCostUsd?: number | null;
+  /** A1-APOLLO-BUDGET-RECONCILIATION-1: correlación del run (Apollo-only). */
+  runCorrelation?: RunCorrelationMetadata | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -310,6 +315,7 @@ export async function runMultiQueryWebSearch(
             ? {
                 remainingEnrichmentBudget: apolloEnrichmentBudgetRemaining,
                 organizationEnrichmentUnitCostUsd: apolloUsageContext?.organizationEnrichmentUnitCostUsd,
+                runCorrelation: apolloUsageContext?.runCorrelation ?? null,
               }
             : {}),
         }
