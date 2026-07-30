@@ -7,6 +7,7 @@
 **Last reviewed:** 2026-07-28
 
 **Related documents:**
+- Full join field allowlist decision record (GATE-3 proposal) — [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
 - Identity grain & data contract — [`br-receita-cnpj-data-contract.md`](./br-receita-cnpj-data-contract.md)
 - Import & staging persistence contract — [`br-receita-cnpj-import-staging-contract.md`](./br-receita-cnpj-import-staging-contract.md)
 - Manual download & local prep runbook — [`br-receita-cnpj-manual-download-local-prep-runbook.md`](./br-receita-cnpj-manual-download-local-prep-runbook.md)
@@ -589,6 +590,47 @@ runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation al
 
 ---
 
+## 10.9. Full join field allowlist decision record (BR-SOURCE-10M)
+
+BR-SOURCE-10M is a docs-only **decision record proposing** the GATE-3 field allowlist for the future
+full join dry-run. Its status is `proposed_for_owner_review`: it assembles the artifact GATE-3 requires
+and submits it for the **product / data owner and legal/privacy owner jointly**, and it **approves
+nothing**.
+
+It defines a six-category field lifecycle model — forbidden always, temporary technical only,
+classification signal only, aggregate report only, candidate future persistible (still blocked), and
+`needs_legal_review` — and places every field family in exactly one category per surface (memory /
+temporary storage / aggregate report / future persistence) in a decision matrix. It **restates and
+never widens** this design's § 4 excluded records, § 5 persistible-field contract, § 6 prohibited
+fields, § 7 statuses, § 8 guard rules, and § 9 aggregate-only reporting.
+
+Its treatment of this design's § 11 open questions is to **label them, not resolve them**: full-CNPJ /
+`normalized_tax_id` persistence (#1), address / municipality granularity (#4), and the minimal
+`raw_data` allowlist (#5) are all recorded as `needs_legal_review`, alongside sanitized `legal_name`,
+sanitized `trade_name`, `capital_social_value` exact-value survival, and `opened_at` exact-value
+survival. Questions #2 (eligible legal natures) and #3 (MEI / EI) stay open and continue to hold
+ambiguous records in `needs_legal_review` exactly as § 11 states, and #6 (production legal review,
+including the unresolved licence variant) is carried as a blocker on any licence-sensitive field. On
+`raw_data` it proposes the stricter of the two permitted options — **prohibited by default** — with a
+future exception available only under a fully enumerated typed allowlist.
+
+It also raises one discrepancy against this design for the approvers rather than resolving it: the
+§ 5 table lists a raw `tax_id` for traceability, while the 10I § 6.3 candidate list — which GATE-3's
+allowlist must be derived from and never be wider than — omits it. Under the narrower-rule principle
+raw `tax_id` is treated as `needs_legal_review` and excluded from the candidate list.
+
+**GATE-3 remains `not_started` / not approved**, no `field_allowlist_version` is assigned, and the
+record decides no identity grain (GATE-4), freezes no report schema (GATE-5), and grants no write
+permission (GATE-8). It adds **no runner and no command** and authorizes **no** dry-run, import,
+Supabase write, migration, runtime, or Agent 1 integration. See
+[`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md).
+
+**What stays blocked (unchanged).** Import, production import, Supabase writes, migrations,
+runtime, Agent 1, HubSpot/Slack, provider calls, and live prospect generation all remain
+**blocked**.
+
+---
+
 ## 11. Open legal / privacy questions
 
 These decisions are **unresolved** and block a privacy-safe import implementation. Each
@@ -610,6 +652,15 @@ requires an explicit legal/privacy determination recorded in the legal decision 
 
 Until each of these is resolved, ambiguous records stay in `needs_legal_review` and no import
 implementation may proceed.
+
+> **Update (BR-SOURCE-10M).** The docs-only field allowlist decision record (§ 10.9) **labels** every
+> field these questions touch — assigning `needs_legal_review` to full-CNPJ / `normalized_tax_id`
+> survival (#1), municipality granularity (#4), the minimal `raw_data` object (#5, proposed
+> **prohibited by default**), licence-sensitive fields (#6), sanitized `legal_name` / `trade_name`,
+> `capital_social` exact value, `opened_at` exact value, and raw `tax_id` — and **resolves none of
+> them**. Labelling satisfies the GATE-3 pass criterion that nothing be left unlabelled; it is not a
+> determination. Every question above remains open, ambiguous records remain in `needs_legal_review`,
+> and no import implementation may proceed.
 
 ---
 

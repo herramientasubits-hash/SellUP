@@ -36,6 +36,7 @@ import type { LinkedInEnrichmentMetadata } from './prospecting-toolkit/types';
 import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/enrichment/tax-identifier-resolution/enrich-with-tax-resolution';
 import { enrichEcBatchWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-ec-batch-with-validated-sources';
 import { isUsefulReviewCandidate } from '@/modules/prospect-batches/types';
+import { isApolloCompanySearchEnabled } from '@/lib/feature-flags.server';
 
 // ============================================================
 // Types
@@ -1499,6 +1500,67 @@ export async function runProspectGenerationAgent(
       status: 'success',
       metadata: { country, industry, targetCount: safeCount, searchDepth },
     });
+
+    // ── A1-LEGACY-PATH-FENCE-1: authoritative Apollo gate (P0) ────────────────
+    // This is the LAST line of defence and the only one that is authoritative for
+    // spend: the legacy Apollo cascade called searchApolloOrganizations directly
+    // and never consulted ENABLE_APOLLO_COMPANY_SEARCH, so the flag that is
+    // supposed to be the kill-switch for Apollo company discovery did not gate
+    // this path at all. One click could spend up to 25 credits with no
+    // reservation, no spend confirmation and no idempotency.
+    //
+    // Placed before the step/logging block rather than only before the call
+    // itself so a skipped call leaves no phantom agent_run_step and no
+    // provider_usage_log for a request that never happened. Nothing between here
+    // and the single searchApolloOrganizations call below can reach Apollo.
+    //
+    // Covers every route into that call. As of this commit the only LIVE route is
+    // direct Apollo for countries other than CO and CL:
+    //   - Chile returns earlier with `chile_preview_no_apollo`.
+    //   - Colombia returns unconditionally from the `isColombia` block above
+    //     (hito 16AK.15E — Apollo does not run as a Colombian fallback), which
+    //     also makes the later `coOfficialFirstMode` RUES→Apollo block
+    //     unreachable today.
+    // Both would still be fenced if that changed: any path that continues past
+    // the country blocks reaches batch creation and then this gate, and there is
+    // no other call site (asserted in legacy-apollo-path-fence-static.test.ts).
+    if (!isApolloCompanySearchEnabled()) {
+      // PII-free: static event name and static gate name only. No query, no
+      // country, no sector, no company, no user id.
+      console.warn(
+        '[agent-1] event=apollo_skipped_flag_off gate=ENABLE_APOLLO_COMPANY_SEARCH apollo_fallback_status=disabled_flag_off',
+      );
+
+      // No credits are estimated and no provider usage is logged: there was no
+      // call to attribute. The flow closes with the existing "Apollo produced no
+      // companies" semantics — an explicit failure, not an invented result.
+      await admin
+        .from('prospect_batches')
+        .update({
+          status: 'failed',
+          metadata: {
+            ...(batch.metadata as Record<string, unknown> ?? {}),
+            apollo_fallback_status: 'disabled_flag_off',
+          },
+        })
+        .eq('id', batch.id);
+
+      await updateAgentRun(agentRun.id, {
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        estimated_cost_usd: totalEstimatedCost,
+        error_message: 'Apollo company search deshabilitado (ENABLE_APOLLO_COMPANY_SEARCH)',
+      });
+
+      return {
+        success: false,
+        batchId: batch.id,
+        agentRunId: agentRun.id,
+        candidatesCreated: 0,
+        estimatedCostUsd: totalEstimatedCost,
+        error: 'La búsqueda de empresas no está disponible.',
+      };
+    }
 
     // ── Step: apollo_company_search ───────────────────────────
     const apolloStepStart = Date.now();

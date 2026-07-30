@@ -13,6 +13,82 @@ export function isProspectChatWizardExecutionEnabled(): boolean {
   );
 }
 
+/** Flag name constant for the Agente 1 conversational "Generar con IA" wizard. */
+export const PROSPECT_CHAT_WIZARD_FLAG = 'ENABLE_PROSPECT_CHAT_WIZARD';
+
+/**
+ * Returns true when ENABLE_PROSPECT_CHAT_WIZARD is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * A1-LEGACY-PATH-FENCE-1 (P0): this flag was previously read in
+ * prospects-module-panel with a strict `process.env.X === 'true'`, so the values
+ * `"TRUE"`, `" true"` and `"true\n"` read as OFF in the panel. Combined with the
+ * old resolver — which degraded to the legacy Apollo form whenever the wizard
+ * looked disabled — a whitespace/case variant in the environment was enough to
+ * silently route a search to legacy Apollo. The flag is declared `sensitive` in
+ * Vercel, so its literal value is not recoverable from outside; the deployed
+ * code must therefore interpret ANY value correctly rather than assume one.
+ * Default: false (absent or invalid value ⇒ OFF, fail-closed).
+ */
+export function isProspectChatWizardEnabled(): boolean {
+  return process.env[PROSPECT_CHAT_WIZARD_FLAG]?.trim().toLowerCase() === 'true';
+}
+
+/** Flag name constant for the catalog-driven exploratory search form (v2). */
+export const EXPLORATORY_SEARCH_FORM_V2_FLAG =
+  'ENABLE_EXPLORATORY_SEARCH_FORM_V2';
+
+/**
+ * Returns true when ENABLE_EXPLORATORY_SEARCH_FORM_V2 is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Same canonical-parser rationale as isProspectChatWizardEnabled.
+ * Default: false, fail-closed.
+ */
+export function isExploratorySearchFormV2Enabled(): boolean {
+  return (
+    process.env[EXPLORATORY_SEARCH_FORM_V2_FLAG]?.trim().toLowerCase() === 'true'
+  );
+}
+
+/** Flag name constant for the legacy Apollo prospect generation capability. */
+export const LEGACY_APOLLO_PROSPECT_GENERATION_FLAG =
+  'ENABLE_LEGACY_APOLLO_PROSPECT_GENERATION';
+
+/**
+ * Returns true when ENABLE_LEGACY_APOLLO_PROSPECT_GENERATION is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * A1-LEGACY-PATH-FENCE-1 (P0) — server-side capability gate for
+ * `generateAIProspectBatch`, the legacy Agente 1 company-discovery action. That
+ * action used to be reachable implicitly: a failed industry catalog load became
+ * `catalog=null`, which the experience resolver turned into `legacy`, which
+ * rendered the legacy form, whose CTA called this action and spent up to 25
+ * Apollo credits per click with no reservation, no spend confirmation and no
+ * idempotency.
+ *
+ * With this flag OFF (the default, and the value in every environment as of this
+ * milestone) the action returns a typed `legacy_path_blocked` result BEFORE any
+ * batch creation, agent run, IA call, provider call, billing or usage logging:
+ * zero writes, zero provider calls, zero credits.
+ *
+ * This is a capability gate, NOT a routing switch: turning it on does not enable
+ * Apollo. The legacy Apollo branch additionally requires
+ * ENABLE_APOLLO_COMPANY_SEARCH (see isApolloCompanySearchEnabled), which is
+ * enforced authoritatively at runtime immediately before each Apollo call.
+ *
+ * Never exposed to the client and never accepted from client-supplied input:
+ * no `source`, `origin` or `legacyAllowed` field can substitute for it.
+ * Must not be enabled in any environment by this milestone.
+ */
+export function isLegacyApolloProspectGenerationEnabled(): boolean {
+  return (
+    process.env[LEGACY_APOLLO_PROSPECT_GENERATION_FLAG]
+      ?.trim()
+      .toLowerCase() === 'true'
+  );
+}
+
 /** Flag name constant for post-approval source enrichment. */
 export const POST_APPROVAL_SOURCE_ENRICHMENT_FLAG =
   'ENABLE_POST_APPROVAL_SOURCE_ENRICHMENT';

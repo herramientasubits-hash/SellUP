@@ -7,7 +7,10 @@ import { Button } from '@/components/ui/button';
 import { CreateCandidateDrawer } from '@/components/prospect-batches/create-candidate-drawer';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
 import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
-import { resolveGenerateProspectsExperience } from '@/components/prospect-batches/generate-ai-batch-experience';
+import {
+  resolveGenerateProspectsExperience,
+  resolveGenerateProspectsUnavailableKind,
+} from '@/components/prospect-batches/generate-ai-batch-experience';
 import { ProspectsDataTableClient } from '@/components/prospects/prospects-data-table-client';
 import { ModuleTabsNav } from '@/components/navigation/module-tabs-nav';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
@@ -22,10 +25,11 @@ import {
   resolveScopeOwnerFilter,
 } from '@/modules/access/commercial-scope-filter-options';
 import type { ProspectCandidateWithReviewer } from '@/modules/prospect-batches/types';
-import { loadActiveCatalog } from '@/modules/industry-catalog/loader';
-import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
+import { resolveCatalogAvailability } from '@/modules/industry-catalog/catalog-availability';
 import {
   isProspectChatWizardExecutionEnabled,
+  isProspectChatWizardEnabled,
+  isExploratorySearchFormV2Enabled,
   isLushaPreviewEnabled,
 } from '@/lib/feature-flags.server';
 
@@ -67,8 +71,14 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   await requireActiveUser();
 
   // Feature flags: read server-side only — never NEXT_PUBLIC_
-  const enableChatWizard = process.env.ENABLE_PROSPECT_CHAT_WIZARD === 'true';
-  const enableV2 = process.env.ENABLE_EXPLORATORY_SEARCH_FORM_V2 === 'true';
+  // A1-LEGACY-PATH-FENCE-1 (P0-1): both flags are parsed through the canonical
+  // server-only helpers (trim + toLowerCase). A strict `=== 'true'` here made
+  // `"TRUE"`, `" true"` and `"true\n"` read as OFF, which — with the old resolver
+  // — silently degraded the search to the legacy Apollo form. Both flags are
+  // declared `sensitive` in Vercel, so their literal values cannot be read from
+  // outside; the deployed code must interpret any value correctly.
+  const enableChatWizard = isProspectChatWizardEnabled();
+  const enableV2 = isExploratorySearchFormV2Enabled();
   // Q3F-5BB.3 / 5BB.3C — Lusha read-only preview lives INSIDE the "Generar con
   // IA" wizard (no standalone button). OFF por defecto (activar en QA/prod).
   // Q3F-5BB.10C3-FIX-1 (P0-1): parse the flag through the canonical server-only
@@ -82,18 +92,26 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   const wizardExecutionEnabled =
     enableChatWizard && isProspectChatWizardExecutionEnabled();
 
-  // Load catalog only when any enhanced experience is on — zero Supabase queries otherwise
-  let catalog: ActiveIndustryCatalog | null = null;
-  if (enableChatWizard || enableV2) {
-    try {
-      catalog = await loadActiveCatalog();
-    } catch {
-      // If catalog fails to load, fall back to legacy form silently
-      catalog = null;
-    }
-  }
+  // Load catalog only when any enhanced experience is on — zero Supabase queries
+  // otherwise (resolveCatalogAvailability returns `disabled` without querying).
+  // A1-LEGACY-PATH-FENCE-1 (P0-2): a failure no longer collapses into `null`. The
+  // old `catch { catalog = null }` made a transient Supabase error
+  // indistinguishable from "no catalog requested", and the resolver turned that
+  // into the legacy Apollo form — a config-read failure one click away from up to
+  // 25 unbudgeted Apollo credits.
+  const availability = await resolveCatalogAvailability(enableChatWizard || enableV2);
+  const catalog = availability.status === 'ready' ? availability.catalog : null;
 
-  const experience = resolveGenerateProspectsExperience(enableChatWizard, enableV2, catalog);
+  const experience = resolveGenerateProspectsExperience(
+    enableChatWizard,
+    enableV2,
+    availability,
+  );
+  const unavailableKind = resolveGenerateProspectsUnavailableKind(
+    enableChatWizard,
+    enableV2,
+    availability,
+  );
 
   const sourceId = params.sourceId ?? null;
 
@@ -156,7 +174,7 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
       tabs={<ModuleTabsNav active="prospectos" />}
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <GenerateAIBatchDrawer experience={experience} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} />
+          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} />
           <ImportCandidatesDrawer>
             <Button variant="outline" size="sm" className="gap-2 text-xs">
               <Upload className="h-3.5 w-3.5" />

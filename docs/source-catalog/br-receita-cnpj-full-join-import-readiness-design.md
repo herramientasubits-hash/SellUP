@@ -7,6 +7,7 @@
 **Last reviewed:** 2026-07-29
 
 **Related documents:**
+- Full join field allowlist decision record (GATE-3 proposal) — [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
 - Full join dry-run technical design — [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md)
 - Full join approval gates checklist — [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
 - Full join gate evidence packet — [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md)
@@ -249,6 +250,23 @@ design § 5 allowlist. It is a *future target*, not a green light to write anyth
 > separately-approved writer would build explicitly (EC SCVS allowlist discipline: build from
 > the allowlist, drop any extra key). No writer is authorized here.
 
+> **Update (BR-SOURCE-10M).** The § 6.1 / § 6.2 / § 6.3 categories above have been carried into a
+> docs-only **decision record proposing** the GATE-3 field allowlist —
+> [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
+> — which expands them into a six-category lifecycle model (adding an explicit classification-signal
+> category, an aggregate-report category, and a `needs_legal_review` category), labels every field
+> family, and proposes `raw_data` **prohibited by default** rather than as a minimal typed allowlist.
+> It restates and never widens § 6: its candidate future-persistible list is derived from § 6.3 and is
+> **narrower** in one respect — raw `tax_id`, which the eligibility design § 5 table lists but § 6.3
+> omits, is treated as `needs_legal_review` and excluded from the candidate list, with the discrepancy
+> raised for the approvers rather than resolved. `normalized_tax_id`, sanitized `legal_name` /
+> `trade_name`, `capital_social_value`, municipality granularity, and `opened_at` exact-value survival
+> all remain undecided.
+>
+> **GATE-3 (§ 9) is still `not_started`.** That record's status is `proposed_for_owner_review`, it
+> assigns no `field_allowlist_version`, and it decides no identity grain (§ 7 / GATE-4 stays open). It
+> authorizes **no** dry-run, import, Supabase write, migration, runtime, or Agent 1 integration.
+
 ---
 
 ## 7. Record identity decision needed
@@ -276,6 +294,28 @@ D. a single snapshot with the establishment as the operational unit and the comp
 > (import-staging § 5, § 11) and the full-CNPJ persistence question (eligibility design § 11 #1).
 > This is left as a **mandatory decision gate (GATE-4, § 9)** for a future hito — it is not
 > decided automatically here.
+
+> **Update (BR-SOURCE-10N).** The four options above have been carried into a docs-only **decision
+> record proposing** the GATE-4 grain —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md)
+> — which recommends **option D** (a single operational snapshot: establishment as the operational
+> unit, company / root as context) for owner review. It defers option A as *silent on company
+> context* — and therefore superseded by D rather than rejected — rejects option B because it would
+> require the join key to become the record identity, contrary to § 5 of this document and to
+> CN1 § 3.3, and defers option C because it would need a second source key or a discriminator column
+> (**a migration**) and would break the tax-grain invariant.
+>
+> On the two reconciliations this section requires: the index situation is addressed **conditionally**
+> (no new index under the CN1-inheritance key construction; a required unique index — **a
+> migration** — under a surrogate construction), and the full-CNPJ persistence question is left where
+> 10M left it, at `needs_legal_review`, with the record noting that it is **coupled** to the key
+> construction. The record therefore proposes a **conceptual** `record_identity_key` shape and leaves
+> the concrete construction **deferred**.
+>
+> **GATE-4 (§ 9) is still `not_started` / not approved.** That record's status is
+> `proposed_for_owner_review`, it assigns no `record_identity_grain_decision`, it does not widen § 6,
+> and it authorizes **no** dry-run, import, Supabase write, migration, index change, runtime, or
+> Agent 1 integration.
 
 ---
 
@@ -374,6 +414,29 @@ shape (conceptual; values shown as zeros / placeholders — **no real data**):
 > *measure* eligibility is a different act from *persisting* any row. `persisted_rows` is `0` by
 > contract in a readiness dry-run, and the whole `safety` block must be all-false.
 
+> **Update (BR-SOURCE-10O).** The report shape above has been carried into a docs-only **decision
+> record proposing** the GATE-5 output sanitization contract —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md).
+> It restates and never widens this section. Four things it adds:
+>
+> - a **closed aggregate allowlist** — the schema is authoritative in both directions, so a key absent
+>   from the approved list is forbidden rather than merely undocumented;
+> - a **`safety` block extended** with `names_printed`, `identity_keys_printed`,
+>   `record_identity_keys_printed`, `normalized_tax_ids_printed`, `person_data_printed`,
+>   `hashes_of_identifiers_printed`, and `small_cells_disclosed` — all `false` by contract, as
+>   proposals for the approvers to freeze;
+> - the § 5 **join-key rule restated as an output rule** — the root appears on no surface, in no form,
+>   not truncated, not prefixed, not hashed, not as a count key, a bucket label, a file-name component,
+>   or a path segment;
+> - a **small-cell suppression** proposal, for the gap that an aggregate report is not automatically a
+>   non-identifying one: a bucket count of one is a record.
+>
+> The record governs **twelve output surfaces**, not the report alone, and it adds error, logging, and
+> gate-evidence contracts this design does not have. **It freezes nothing:** GATE-5 remains
+> `not_started` / not approved, the schema stays unfrozen while GATE-3 and GATE-4 are open, and it
+> writes no sanitizer and no test and authorizes **no** dry-run, import, Supabase write, migration,
+> index change, runtime, or Agent 1 integration.
+
 ---
 
 ## 11. Explicit non-goals
@@ -458,6 +521,28 @@ full-join readiness dry-run under the envelope in § 4.
 > `not_started`, decides no grain and no allowlist, and authorizes **no** dry-run, import, Supabase
 > write, migration, runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10M —
 > full join field allowlist decision record** (GATE-3, docs-only).
+>
+> **Update:** BR-SOURCE-10M has since landed as that docs-only decision record —
+> [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
+> — which **proposes** (never approves) the GATE-3 allowlist against the § 6 field-survival contract
+> (see the update note in § 6.3), states how it constrains but does not decide § 7 / GATE-4, and treats
+> its aggregate-report field list as candidate input to GATE-5. It **approves no gate**: all eight
+> § 9 gates remain `not_started`, no `field_allowlist_version` is assigned, and Brazil stays
+> non-operational. It adds no runner and no command and authorizes **no** dry-run, import, Supabase
+> write, migration, runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10N —
+> full join identity grain decision record** (GATE-4, docs-only).
+>
+> **Update:** BR-SOURCE-10N has since landed as that docs-only decision record —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md)
+> — which **proposes** (never approves) the GATE-4 grain against § 7 (see the update note there),
+> recommending **option D**, recording the rejected and deferred options with their reasons, and
+> **deferring** the concrete `record_identity_key` construction. It restates and does not widen § 5 —
+> the structural root is never a record identity, never persisted, never printed — and it keeps the
+> § 6 categories unchanged. It **approves no gate**: all eight § 9 gates remain `not_started`, no
+> `record_identity_grain_decision` is assigned, and Brazil stays non-operational. It adds no runner and
+> no command, creates no migration, changes no index or physical schema, and authorizes **no** dry-run,
+> import, Supabase write, runtime, or Agent 1 integration. Its recommended successor is
+> **BR-SOURCE-10O — full join output sanitization decision record** (GATE-5, docs-only).
 
 This is a **recommendation, not an execution**: BR-SOURCE-10I opens no such milestone and
 authorizes nothing further.

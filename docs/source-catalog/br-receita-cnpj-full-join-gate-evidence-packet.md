@@ -7,6 +7,7 @@
 **Last reviewed:** 2026-07-29
 
 **Related documents:**
+- Full join field allowlist decision record (GATE-3 proposal) — [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
 - Full join approval gates checklist — [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
 - Full join dry-run technical design — [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md)
 - Full join import-readiness design (contract) — [`br-receita-cnpj-full-join-import-readiness-design.md`](./br-receita-cnpj-full-join-import-readiness-design.md)
@@ -483,6 +484,21 @@ granularity, minimal `raw_data`, capital social) map directly onto allowlist ent
 No field, no allowlist, no denylist, no `raw_data` shape, and no persistence of any kind. An approved
 allowlist would be a *target*, never a writer authorization.
 
+> **Update (BR-SOURCE-10M).** The missing artifact named above has since been **proposed** — not
+> approved — as a docs-only decision record:
+> [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md).
+> It defines a six-category field lifecycle model (forbidden always / temporary technical only /
+> classification signal only / aggregate report only / candidate future persistible still blocked /
+> needs legal-privacy review), labels **every** field family listed under *Evidence missing* above,
+> proposes `raw_data` **prohibited by default**, and raises two reconciliation items the approvers must
+> close explicitly (raw `tax_id`, which 10I § 6.3 omits while the eligibility design § 5 table lists
+> it; and file-level `file_hashes` in reports). Its status is `proposed_for_owner_review`: it assigns
+> **no** approved `field_allowlist_version`, so the 10J § 12 marker stays `"not_approved"`, GATE-3
+> stays `not_started` with `partial_evidence_collected`, and the evidence-missing list above is
+> *addressed as a proposal*, not satisfied. It approves no gate, writes no code, decides no identity
+> grain, freezes no report schema, and authorizes **no** dry-run, import, Supabase write, migration,
+> runtime, or Agent 1 integration.
+
 ---
 
 ## 8. GATE-4 evidence packet — Identity grain
@@ -557,6 +573,25 @@ full-CNPJ) is a *documented intention*, and 10K § 8 explicitly names "we alread
 No grain, no `record_identity_key` construction, no migration, no snapshot write, and no schema
 change.
 
+> **Update (BR-SOURCE-10N).** The missing artifact named above has since been **proposed** — not
+> approved — in a docs-only decision record:
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md).
+> It evaluates all four options explicitly, recommends **option D** (single operational snapshot:
+> establishment as the operational unit, company / root as context) for owner review, defers option A
+> as superseded by D, rejects option B, and defers option C. It addresses each *Evidence missing* item
+> above: the explicit choice (proposed), the deterministic key strategy (**conceptual shape only —
+> the concrete construction is deferred**, with two candidate constructions and their blockers
+> recorded), the deduplication consequences, the enrichment consequences, the Agent 1 consumption
+> impact, the physical-index reconciliation (**conditional**: no new index under the CN1-inheritance
+> construction, a required unique index — i.e. a **migration** — under a surrogate construction), the
+> root-versus-establishment treatment, and the `normalized_tax_id` relationship (which stays
+> `needs_legal_review` per 10M and is recorded as **coupled** to the key construction).
+>
+> **GATE-4 remains `not_started` / not approved** and the evidence packet status for this gate remains
+> `partial_evidence_collected` until the joint approvers accept the submission. The record assigns no
+> `record_identity_grain_decision`, creates no migration, changes no index, writes no snapshot, and
+> authorizes no execution, import, Supabase write, runtime, or Agent 1 integration.
+
 ---
 
 ## 9. GATE-5 evidence packet — Output sanitization contract
@@ -622,6 +657,47 @@ an enforceable assertion rather than prose guidance — 10K § 9 makes that a pa
 
 No report schema, no assertion suite, no test implementation, and no emission of any report from real
 data.
+
+> **Update (BR-SOURCE-10O).** Six of the seven missing evidence items above have since been
+> **proposed** — not approved — in a docs-only decision record:
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md).
+> Item by item:
+>
+> - **the report schema** — § 10 proposes a candidate JSON shape with an extended all-false safety
+>   block and a fourth contract marker; it is **still not frozen**, because the constraint recorded
+>   here (GATE-3 and GATE-4 open) continues to hold and both predecessor records are themselves
+>   `proposed_for_owner_review`;
+> - **the closed forbidden-key-name list** — § 5.2 supplies it as seven groups plus an explicit
+>   normalization procedure and per-group matching rule, replacing the "and equivalents" tail, and
+>   states that the § 6 **allowlist governs** where the two nets disagree;
+> - **the closed forbidden value-pattern list** — § 5.3 supplies `VP-1` … `VP-10`, including the 8-,
+>   11-, and 14-position digit-run rules, a separator-insensitive rule, a longer-than-14 rule, and the
+>   email-marker rule;
+> - **the logging sanitization contract** — § 11, with structured-only logging, a closed field set, no
+>   interpolation of source-derived variables, and a no-per-record-log-line cardinality rule;
+> - **the error sanitization contract** — § 8, with a sanitized error envelope, a
+>   sanitize-at-construction boundary, and catch-classify-discard handling;
+> - **the enumerated test cases** — § 5.4 names the assertions (`OS-A01` … `OS-A46`) as a traceability
+>   spine, but **no test, fixture, or suite is created**: that remains code, forbidden by 10K § 4 until
+>   all eight gates are approved, and placed by the 10K § 9 *Allows* clause in a future, separately
+>   approved milestone.
+>
+> The seventh item — **owner approval of the assertion suite** — is untouched and unobtainable from a
+> document.
+>
+> The record also widens the reviewed scope from the report to **twelve output surfaces** (§ 4), adds a
+> **small-cell suppression proposal** (§ 7) for a gap not previously covered — that an aggregate report
+> is not automatically a non-identifying one — and raises two **inherited-wording reconciliation
+> items** for the approvers (§ 9.4): the staging contract's `hash12 for report identifiers` and its
+> `safe sample identifiers only`, both of which are wider than 10M § 5 and than 10K § 9's fail
+> criteria, and both of which it resolves for this surface under the narrower-rule principle without
+> amending the staging contract's own import-path scope.
+>
+> **GATE-5 stays `not_started` / not approved** and the evidence packet status stays
+> `partial_evidence_collected`: the schema is not frozen, two rules (`OS-A19` small-cell threshold,
+> `VP-8` length ceiling) are unenforceable until the approvers supply values, and no suite exists.
+> Nothing there authorizes a runner, a sanitizer, a test, a dry-run, an import, a Supabase write, a
+> migration, an index change, runtime, or Agent 1 integration.
 
 ---
 
@@ -1038,6 +1114,47 @@ Two caveats attach to that recommendation:
 
 This is a **recommendation, not an execution**: BR-SOURCE-10L opens no such milestone and authorizes
 nothing further.
+
+> **Update:** BR-SOURCE-10M has since landed as that docs-only decision record —
+> [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md).
+> Consistent with both caveats above, it **proposes** the allowlist rather than approving it: its
+> status is `proposed_for_owner_review`, GATE-3 remains `not_started` / not approved, no
+> `field_allowlist_version` is assigned, and GATE-1 remains the blocker for all execution. It records
+> the forbidden-always, temporary-technical-only, classification-signal-only, aggregate-report-only,
+> candidate-future-persistible, and needs-legal-review categories per field family; states the
+> relationship to GATE-4 (it narrows the field universe, it does not choose a grain), GATE-5 (its
+> report fields are candidate input, and several are proposed extensions to the 10J § 12 shape), and
+> GATE-8 (a field allowlist authorizes no write); and proposes a GATE-3 review checklist for the joint
+> owners. It adds no runner and no command and authorizes **no** dry-run, import, Supabase write,
+> migration, runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10N — full join
+> identity grain decision record** (GATE-4, docs-only).
+>
+> **Update:** BR-SOURCE-10N has since landed as that successor —
+> [`br-receita-cnpj-full-join-identity-grain-decision-record.md`](./br-receita-cnpj-full-join-identity-grain-decision-record.md).
+> It **proposes** the grain rather than approving it: status `proposed_for_owner_review`, GATE-4 still
+> `not_started` / not approved, no `record_identity_grain_decision` assigned, and GATE-1 still the
+> blocker for all execution. It recommends **option D** for owner review, records the rejected and
+> deferred options with their reasons, defers the concrete `record_identity_key` construction, and
+> states the deduplication, enrichment, snapshot-shape, physical-index, and Agent 1 consequences. It
+> creates no migration, changes no index, and authorizes **no** dry-run, import, Supabase write,
+> runtime, or Agent 1 integration. Its recommended successor is **BR-SOURCE-10O — full join output
+> sanitization decision record** (GATE-5, docs-only), which the § 9 finding — that the report schema
+> cannot be frozen while GATE-3 and GATE-4 are open — now makes reachable in proposal form.
+>
+> **Update:** BR-SOURCE-10O has since landed as that successor —
+> [`br-receita-cnpj-full-join-output-sanitization-decision-record.md`](./br-receita-cnpj-full-join-output-sanitization-decision-record.md).
+> It **proposes** the output contract rather than approving it: status `proposed_for_owner_review`,
+> GATE-5 still `not_started` / not approved, no `output_sanitization_version` assigned, the report
+> schema **still not frozen** for the reason § 9 gives, and GATE-1 still the blocker for all execution.
+> It closes six of § 9's seven missing evidence items in proposal form (see the update note in § 9),
+> widens the reviewed scope from the report to twelve output surfaces, adds a small-cell suppression
+> proposal, and raises two inherited-wording reconciliation items. It writes no test and no sanitizer —
+> tests and sanitizers are code — creates no migration, changes no index, and authorizes **no**
+> dry-run, import, Supabase write, runtime, or Agent 1 integration. Its recommended successor is
+> **BR-SOURCE-10P — full join failure cleanup decision record** (GATE-6, docs-only), which the § 13
+> finding — that GATE-6 blocks GATE-7's cleanup-verification steps, and that what must be destroyed is
+> undefined until GATE-2 decides what may exist — makes the next reachable node, reachable only
+> conditionally on the storage envelope.
 
 ---
 

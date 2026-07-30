@@ -272,6 +272,9 @@ describe('ProspectReviewActions — approve/discard stay intact alongside mark-d
   it('Descartar still uses the discard wrapper (not the duplicate wrapper)', async () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
     fireEvent.click(buttonByText('Descartar')!);
+    // Q3F-5BB.11K-FIX — the discard motive is mandatory, so the flow now selects
+    // a reason before confirming. Cross-action isolation is what is asserted.
+    fireEvent.click(buttonByText('Fuera del segmento objetivo')!);
     fireEvent.click(screen.getByRole('button', { name: /Confirmar descarte/ }));
     await waitFor(() => assert.equal(mockDiscard.mock.callCount(), 1));
     assert.equal(mockMarkDuplicate.mock.callCount(), 0, 'discarding must never mark a duplicate');
