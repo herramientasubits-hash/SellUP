@@ -37,6 +37,10 @@
 //   * never writes HubSpot, never touches Lusha.
 //   * 404 is NEVER interpreted as "no phone found"; 401/403 is a technical scope
 //     problem, never a business-terminal error — the candidate stays recoverable.
+//   * APOLLO-PHONE-RECOVERY-L3: a 200 body that explicitly says "still processing"
+//     (status/state pending, or a `retry_after_seconds`) and carries NO phone is
+//     NOT the result either — it stays non-terminal instead of being closed as
+//     `no_phone_found`. See `isPendingWebhookResultPayload`.
 
 import {
   pickBestApolloPhone,
@@ -349,6 +353,15 @@ export interface RecoverApolloPhoneRevealResult {
   /** true si se resolvió un recovery id (apollo_http_request_id). Sin PII. */
   recoveryRequestIdPresent: boolean;
   /**
+   * `retry_after_seconds` que Apollo sugirió cuando el resultado todavía se está
+   * procesando (APOLLO-PHONE-RECOVERY-L3). null salvo en `still_pending` y solo si
+   * el payload lo trae numérico y plausible. Es un número de segundos, NO PII.
+   *
+   * OPCIONAL a propósito: es aditivo, así que los stubs y fixtures previos a este
+   * hito siguen satisfaciendo el tipo. `toResult` siempre lo rellena.
+   */
+  retryAfterSeconds?: number | null;
+  /**
    * Categoría del teléfono recuperado (mobile / direct_dial / work / other …) o
    * null. NO es PII: es una etiqueta de tipo, nunca el número. Solo se rellena en
    * el camino `revealed`; null en cualquier otro outcome.
@@ -396,7 +409,71 @@ function toResult(
     creditsUsed: extra.creditsUsed ?? null,
     recoveryRequestIdPresent: extra.recoveryRequestIdPresent ?? false,
     phoneType: extra.phoneType ?? null,
+    retryAfterSeconds: extra.retryAfterSeconds ?? null,
   };
+}
+
+// ── Payload "todavía procesando" (APOLLO-PHONE-RECOVERY-L3) ────
+
+/** Estados que Apollo usa para decir "el resultado aún no está listo". */
+const PENDING_PAYLOAD_STATUSES: readonly string[] = [
+  'pending',
+  'processing',
+  'in_progress',
+  'queued',
+];
+
+/** Tope de `retry_after_seconds` aceptado (1 h). Fuera de rango ⇒ se ignora. */
+const MAX_RETRY_AFTER_SECONDS = 3600;
+
+function normalizeStatusText(value: unknown): string | null {
+  return typeof value === 'string' ? cleanText(value.toLowerCase()) : null;
+}
+
+/**
+ * Extrae `retry_after_seconds` del payload recuperado (raíz o `phone_enrichment`).
+ * Solo acepta enteros positivos y plausibles (≤ 1 h); cualquier otra cosa ⇒ null.
+ * Es un número de segundos: NO es PII y nunca se persiste, solo se devuelve a la UI.
+ */
+export function extractRetryAfterSeconds(
+  payload: ApolloPhoneRevealWebhookPayload | null,
+): number | null {
+  const candidates = [payload?.retry_after_seconds, payload?.phone_enrichment?.retry_after_seconds];
+  for (const raw of candidates) {
+    const value = typeof raw === 'string' ? Number(raw.trim()) : raw;
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    const seconds = Math.floor(value);
+    if (seconds >= 1 && seconds <= MAX_RETRY_AFTER_SECONDS) return seconds;
+  }
+  return null;
+}
+
+/**
+ * ¿El payload recuperado dice explícitamente "todavía procesando"? Apollo confirmó
+ * que `GET /webhook_result/{id}` puede responder 200 con un estado pendiente y un
+ * `retry_after_seconds` en vez del resultado. Sin este guard ese cuerpo se leería
+ * como "resultado entregado sin teléfonos" y se terminalizaría como
+ * `no_phone_found`, cerrando en falso un reveal que sí podía resolverse.
+ *
+ * Deliberadamente ESTRECHO (solo cambia el caso que hoy se decide mal):
+ *   * exige una señal explícita — `status`/`state`/`phone_enrichment.status`
+ *     pendiente, o un `retry_after_seconds` válido;
+ *   * el caller solo lo consulta cuando el payload NO trajo ningún teléfono, así
+ *     que un resultado con número sigue siendo terminal `revealed` sin cambios.
+ */
+export function isPendingWebhookResultPayload(
+  payload: ApolloPhoneRevealWebhookPayload | null,
+): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const statuses = [
+    normalizeStatusText(payload.status),
+    normalizeStatusText(payload.state),
+    normalizeStatusText(payload.phone_enrichment?.status),
+  ];
+  if (statuses.some((s) => s !== null && PENDING_PAYLOAD_STATUSES.includes(s))) {
+    return true;
+  }
+  return extractRetryAfterSeconds(payload) !== null;
 }
 
 // ── Recuperación de UN candidato ───────────────────────────────
@@ -698,8 +775,26 @@ async function handleRecoveredPayload(args: {
     });
   }
 
-  // Payload entregado SIN teléfono: es el resultado real (no un 404 ambiguo) ⇒
-  // no_phone_found terminal, con evidencia clara.
+  // Payload SIN teléfono que dice explícitamente "todavía procesando"
+  // (APOLLO-PHONE-RECOVERY-L3): NO es el resultado, así que no se terminaliza. Se
+  // sella solo `phone_reveal_last_checked_at` y el candidato sigue recuperable, con
+  // el `retry_after_seconds` que Apollo sugirió (si lo trajo) para la UI.
+  if (isPendingWebhookResultPayload(payload)) {
+    return finalizeNonTerminal({
+      candidate,
+      recoveryRequestId,
+      outcome: 'still_pending',
+      revealStatus: 'pending',
+      logStatus: 'success',
+      errorCode: null,
+      retryAfterSeconds: extractRetryAfterSeconds(payload),
+      input,
+      deps,
+    });
+  }
+
+  // Payload entregado SIN teléfono ni señal de pendiente: es el resultado real (no
+  // un 404 ambiguo) ⇒ no_phone_found terminal, con evidencia clara.
   const patch: RecoveryPersistencePatch = {
     phone_reveal_status: 'no_phone_found',
     phone_reveal_completed_at: deps.nowIso,
@@ -742,6 +837,8 @@ async function finalizeNonTerminal(args: {
   errorCode: string | null;
   /** Solo lo pasa el camino de supresión no verificable (FIX 3). */
   suppressionState?: InFlightSuppressionAuditState;
+  /** Solo lo pasa el camino de payload pendiente (L3). Segundos, no PII. */
+  retryAfterSeconds?: number | null;
   input: RecoverApolloPhoneRevealInput;
   deps: RecoverApolloPhoneRevealDeps;
 }): Promise<RecoverApolloPhoneRevealResult> {
@@ -753,6 +850,7 @@ async function finalizeNonTerminal(args: {
     logStatus,
     errorCode,
     suppressionState,
+    retryAfterSeconds,
     input,
     deps,
   } = args;
@@ -777,7 +875,10 @@ async function finalizeNonTerminal(args: {
       input,
     }),
   );
-  return toResult(outcome, { recoveryRequestIdPresent: true });
+  return toResult(outcome, {
+    recoveryRequestIdPresent: true,
+    retryAfterSeconds: retryAfterSeconds ?? null,
+  });
 }
 
 // ── Constructor del log de recovery (sin PII) ──────────────────
