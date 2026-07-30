@@ -1912,8 +1912,9 @@ record's own flags:
 OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_PR_READY  = true   (PR #172)
 OPS_BR_BOUNDED_REAL_DATA_FILE_DRY_RUN_DECISION_RECORD_OFFICIAL  = true   (merged)
 OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_AUTHORIZED           = true   (Option C only)
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_MERGED               = true   (PR #173)
 OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_PR_READY             = true
-OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_OFFICIAL             = false  (not merged)
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_OFFICIAL             = true   (merged)
 OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED                  = true   (Option C scope only)
 
 FULL_JOIN_EXECUTION_READY                                       = false
@@ -1929,6 +1930,10 @@ OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED                   = false
 
 `OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED` stays `false` deliberately: a structural probe of a
 bounded prefix is not the headerless real-file dry-run that flag names.
+
+Post-merge correction: BR-SOURCE-11F-IMPL-LAND merged PR #173, making the ultra-bounded
+required-family probe official. This does not approve any gate and does not authorize joins, import,
+Supabase, runtime, or Agent 1.
 
 ### 25.3 What survives verbatim
 
