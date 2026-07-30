@@ -19,6 +19,7 @@ import type {
 import {
   resolveGenerateProspectsExperience,
 } from '@/components/prospect-batches/generate-ai-batch-experience';
+import type { CatalogAvailability } from '@/modules/industry-catalog/catalog-availability';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 
@@ -58,6 +59,9 @@ const STUB_CATALOG: ActiveIndustryCatalog = {
     },
   ],
 };
+
+/** A successfully loaded catalog, in the availability contract shape. */
+const READY: CatalogAvailability = { status: 'ready', catalog: STUB_CATALOG };
 
 const MSG_CTX: WizardMessageContext = {
   countries: [
@@ -99,30 +103,39 @@ function advanceTo(step: string): ProspectWizardState {
 
 // ── resolveGenerateProspectsExperience ─────────────────────────────────────────
 
+// A1-LEGACY-PATH-FENCE-1: the two `legacy` expectations below were updated to
+// `unavailable`. They encoded the P0 defect — a wizard flag off or a catalog that
+// failed to load resolved to the legacy Apollo form, whose CTA could spend up to
+// 25 Apollo credits per click. Exhaustive coverage of every availability status
+// lives in generate-ai-batch-experience.test.ts.
 describe('resolveGenerateProspectsExperience', () => {
   test('returns chat_wizard when chatWizardEnabled and catalog present', () => {
-    const exp = resolveGenerateProspectsExperience(true, false, STUB_CATALOG);
+    const exp = resolveGenerateProspectsExperience(true, false, READY);
     assert.equal(exp, 'chat_wizard');
   });
 
   test('chat_wizard takes precedence over v2 when both enabled', () => {
-    const exp = resolveGenerateProspectsExperience(true, true, STUB_CATALOG);
+    const exp = resolveGenerateProspectsExperience(true, true, READY);
     assert.equal(exp, 'chat_wizard');
   });
 
   test('returns exploratory_form_v2 when only v2 enabled and catalog present', () => {
-    const exp = resolveGenerateProspectsExperience(false, true, STUB_CATALOG);
+    const exp = resolveGenerateProspectsExperience(false, true, READY);
     assert.equal(exp, 'exploratory_form_v2');
   });
 
-  test('returns legacy when chatWizard flag on but catalog is null', () => {
-    const exp = resolveGenerateProspectsExperience(true, true, null);
-    assert.equal(exp, 'legacy');
+  test('returns unavailable (never legacy) when chatWizard flag on but catalog failed to load', () => {
+    const exp = resolveGenerateProspectsExperience(true, true, {
+      status: 'unavailable',
+      reason: 'query_failed',
+      retryable: true,
+    });
+    assert.equal(exp, 'unavailable');
   });
 
-  test('returns legacy when all flags off', () => {
-    const exp = resolveGenerateProspectsExperience(false, false, STUB_CATALOG);
-    assert.equal(exp, 'legacy');
+  test('returns unavailable (never legacy) when all flags off', () => {
+    const exp = resolveGenerateProspectsExperience(false, false, READY);
+    assert.equal(exp, 'unavailable');
   });
 });
 
@@ -686,7 +699,7 @@ describe('Compatibility — 16AB.35.2.3', () => {
   });
 
   test('C24: V2 experience still resolved when chatWizard disabled', () => {
-    const exp = resolveGenerateProspectsExperience(false, true, STUB_CATALOG);
+    const exp = resolveGenerateProspectsExperience(false, true, READY);
     assert.equal(exp, 'exploratory_form_v2');
   });
 

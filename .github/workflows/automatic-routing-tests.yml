@@ -103,3 +103,19 @@ jobs:
       # provider calls, no real DB.
       - name: Run Apollo candidate provider trace tests
         run: npm run test:apollo-candidate-provider-trace
+
+      # A1-LEGACY-PATH-FENCE-1 — P0 fence against implicit legacy Apollo fallback.
+      # Guards the six defence layers: canonical parsing of the `sensitive` wizard
+      # flags (TRUE/" true"/"true\n" must read as ON, anything else OFF); the typed
+      # catalog availability contract (a failed read can no longer collapse into
+      # `catalog=null`); that NO availability state resolves to the legacy Apollo
+      # experience; that every unavailable UI state renders without a billable CTA
+      # and never calls generateAIProspectBatch; that the server-side capability
+      # gate (admin + ENABLE_LEGACY_APOLLO_PROSPECT_GENERATION, default OFF) runs
+      # BEFORE any batch/agent-run/provider/usage-log write and cannot be unlocked
+      # by client-supplied fields; and that ENABLE_APOLLO_COMPANY_SEARCH is enforced
+      # authoritatively at runtime immediately before the single
+      # searchApolloOrganizations call site. Deterministic: no env activation, no
+      # provider calls, no credits, no real DB (Supabase is a loopback stub).
+      - name: Run A1 legacy Apollo path fence tests
+        run: npm run test:a1-legacy-path-fence
