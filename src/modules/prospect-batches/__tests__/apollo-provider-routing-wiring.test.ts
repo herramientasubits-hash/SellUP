@@ -285,6 +285,9 @@ function makeDeps(
     getActiveUserId: async () => FAKE_USER_ID,
     resolveCatalog: async () => FAKE_CATALOG_RESOLUTION,
     checkTavilyAvailability: async () => true,
+    // A1-APOLLO-WIZARD-1: el preflight de Apollo falla cerrado, así que las
+    // pruebas de la ruta Apollo deben declararlo disponible.
+    checkApolloAvailability: async () => ({ available: true } as const),
     reserveBudget: async () =>
       ({ status: 'reserved', reservationId: FAKE_RESERVATION_ID, creditsReserved: 10 } satisfies ReserveBudgetDepResult),
     confirmBudget: async () => ({ status: 'confirmed' }),

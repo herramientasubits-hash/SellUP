@@ -1,4 +1,5 @@
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
+import type { WizardApolloSkipReason } from './wizard-apollo-availability';
 
 // ── Error codes ───────────────────────────────────────────────────────────────
 
@@ -155,4 +156,16 @@ export type WizardExecutionActionResult =
         | 'BUDGET_RESERVATION_FAILED';
       message: string;
       retryable: boolean;
+      /**
+       * A1-APOLLO-WIZARD-1 — resultado estructurado de proveedor omitido / no
+       * disponible. Presente sólo con code='PROVIDER_UNAVAILABLE'.
+       *
+       * No lleva lote, candidatos ni coste a propósito: un proveedor omitido no
+       * produjo nada y no gastó nada, y la UI no debe poder confundirlo con una
+       * ejecución que sí corrió y volvió vacía.
+       */
+      providerSkipped?: {
+        provider: 'apollo_organizations';
+        skipReason: WizardApolloSkipReason;
+      };
     };
