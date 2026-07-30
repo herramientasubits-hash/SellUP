@@ -957,3 +957,84 @@ It does **not**:
 
 No secrets, no data dumps, no real CNPJs, no CNPJ básico values, no CPFs, and no partner (sócio)
 personal data are reproduced. Local WIP (`scratchpad/`) is untouched by any git operation.
+
+---
+
+## 22. BR-SOURCE-11A — runner scaffold landed (no-write / no-runtime)
+
+BR-SOURCE-11A implements a local no-write/no-runtime runner scaffold with
+synthetic-fixture tests only.
+
+It does not approve any gate.
+It does not authorize real dataset execution.
+It does not authorize import.
+It does not authorize Supabase writes.
+It does not authorize runtime or Agent 1.
+
+### 22.1 What landed
+
+| Module | Responsibility |
+|--------|----------------|
+| `br-receita-cnpj-full-join-dry-run-runner.ts` | Composes the guard, sanitizer and cleanup model into `runBrazilReceitaFullJoinDryRun`, returning an aggregate-only report. Pure: no filesystem, no network, no client. |
+| `br-receita-cnpj-full-join-no-write-guard.ts` | Validates the declared no-write contract AND scans the surrounding config for dangerous indicators (service-role key, Supabase URL, import mode, runtime endpoint, Agent 1 switch, provider API key). Presence alone fails. |
+| `br-receita-cnpj-full-join-output-sanitizer.ts` | Rejects a report carrying a full CNPJ, CNPJ básico, CPF, email, phone, LinkedIn URL, raw row/data payload, identity key, normalized tax id, identifier hash, or an oversized numeric leaf. |
+| `br-receita-cnpj-full-join-cleanup.ts` | Models failure cleanup as an aggregate, path-free plan. No deletion engine is authorized, so a required cleanup reports `not_executed` + `cleanup_engine_not_authorized`. |
+| `scripts/source-catalog/run-br-receita-cnpj-full-join-dry-run.ts` | Safe CLI. Defaults to nothing: `--synthetic-fixture` must be requested explicitly. |
+
+### 22.2 Run modes
+
+- `synthetic_fixture_only` — the DEFAULT and the only mode that produces metrics. Scores an
+  injected or built-in synthetic fixture with zero file I/O.
+- `local_manifest_dry_run` — DECLARED and fully gated, but always refuses in this hito. It first
+  requires `allowLocalManifest: true`, and then still returns
+  `local_manifest_execution_not_authorized`, because opening a real local manifest is precisely
+  what GATE-1 (legal/privacy) and GATE-2 (temporary storage envelope) would have to authorize.
+  **The runner therefore performs no filesystem read at all in BR-SOURCE-11A.**
+
+### 22.3 Bounded caps
+
+Caps are reused from the BR-SOURCE-10G/10H join dry-run so there is a single source of truth:
+sample rows default 5 / hard max 20; the company coverage-scan window defaults to 1000 with a
+hard cap of 5000. A synthetic fixture beyond 10,000 rows is refused as
+`full_dataset_processing_not_allowed`.
+
+### 22.4 Report contract
+
+Aggregate only: `decision_status` (all eight gates `not_approved`), `run_scope` (all false),
+`safety` (all false, including `identity_keys_constructed`), `aggregate_counts`,
+`eligibility_counts`, `join_counts`, `guardrail_counts`, `cleanup`, and `errors`. An error carries
+a fixed `error_code` and `stage` only — never a raw message, a path, or a value. `source_period` is
+`null`: no manifest is opened, so no period is known.
+
+### 22.5 Validation
+
+`test:br-source:11-full-join-runner` (106 tests) plus the full BR-SOURCE-8/10 regression set
+(116 tests) pass; `typecheck` and `eslint` are clean. The safe CLI was exercised in
+synthetic-fixture mode and its fail-closed paths (bare invocation, `--manifest` without
+`--allow-local-manifest`, a download-directory path, a forbidden flag) were each confirmed to
+refuse without touching a file.
+
+### 22.6 Safety confirmation for this hito
+
+BR-SOURCE-11A adds code, tests, a CLI, a package test script and these doc notes. It does **not**:
+
+- download, unzip, or import a dataset;
+- execute the real dataset, open a real manifest, or read any file from the runner core;
+- commit a real manifest, dataset, or report;
+- write to Supabase or perform any production write;
+- create or modify a migration, or create/alter/validate an index;
+- write to `source_company_snapshots`;
+- read any environment variable or construct any client;
+- integrate runtime, Agent 1, HubSpot, Slack, or any provider;
+- change UI;
+- construct or print a `record_identity_key` or `normalized_tax_id`;
+- print a row, a full CNPJ, a CNPJ básico, a CPF, a name, an address, a contact, or a join key;
+- emit a hash, truncation, or fingerprint derived from any identifier;
+- activate Brazil, approve any gate, or mark Brazil ready for import, runtime, or Agent 1;
+- edit `MEMORY.md`;
+- merge.
+
+Every digit-length reference, enum member, error code, and JSON value shown above is a schema
+name, a class label, a length rule, a zero, a `false`, or an explicit placeholder — never a real
+value. Synthetic fixture refs are opaque labels that are counted but never emitted. Local WIP
+(`scratchpad/`) is untouched by any git operation.
