@@ -20,7 +20,19 @@
  *       (validado técnicamente; complementa datos de empresas ya identificadas)
  *
  * Hito v1.16K-Y / Q3F-3.
+ *
+ * A1-APOLLO-BUDGET-RECONCILIATION-1: las dos lecturas de env de abajo usaban
+ * comparación cruda (`=== 'apollo_organizations'`, `!== 'true'`) mientras otros
+ * lectores de las MISMAS variables ya hacían trim + lowercase (ver
+ * isApolloCompanySearchEnabled). Un valor como `" TRUE "` significaba entonces
+ * "encendido" para un módulo y "apagado" para otro, y el indicador de proveedor
+ * podía discrepar del código que gasta créditos. Ambas lecturas pasan ahora por
+ * el parser canónico de `@/lib/env-flag-parser`, que falla cerrado: sólo el
+ * token exacto `true` habilita Apollo; cualquier valor no interpretable deja
+ * Tavily.
  */
+
+import { matchesEnvToken, parseEnvBooleanFlag } from '@/lib/env-flag-parser';
 
 export type WizardDiscoveryProviderKey = 'tavily' | 'apollo_organizations';
 
@@ -50,14 +62,15 @@ export type WizardDiscoveryProviderResolution =
 export function resolveWizardDiscoveryProviderVerbose(): WizardDiscoveryProviderResolution {
   const override = process.env.AGENT1_WIZARD_DISCOVERY_PROVIDER;
 
-  if (override === 'apollo_organizations') {
-    if (process.env.ENABLE_APOLLO_COMPANY_SEARCH !== 'true') {
+  if (matchesEnvToken(override, 'apollo_organizations')) {
+    const companySearchFlag = parseEnvBooleanFlag(process.env.ENABLE_APOLLO_COMPANY_SEARCH);
+    if (!companySearchFlag.enabled) {
       return { provider: 'tavily', reason: 'apollo_flag_off' };
     }
     return { provider: 'apollo_organizations', reason: 'apollo_both_gates_on' };
   }
 
-  if (override === 'tavily') {
+  if (matchesEnvToken(override, 'tavily')) {
     return { provider: 'tavily', reason: 'explicit_tavily' };
   }
 
