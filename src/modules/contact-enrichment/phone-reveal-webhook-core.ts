@@ -38,9 +38,26 @@ import {
 } from '@/server/agents/contact-enrichment-toolkit/phone-classification';
 import { normalizeApolloPersonId } from '@/server/integrations/apollo-person-id';
 import {
+  buildRevealPhoneCacheWriteInput,
+  type PhoneCacheWriteInput,
+} from './phone-cache-core';
+import {
   PHONE_REVEAL_OPERATION_KEY,
   PHONE_REVEAL_PROVIDER,
 } from './phone-reveal-core';
+import {
+  describeInFlightSuppression,
+  evaluateInFlightPhoneSuppression,
+  resolveInFlightSuppressionPersonId,
+  SUPPRESSION_BLOCKED_ERROR_CODE,
+  SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+  type InFlightSuppressionAuditState,
+  type InFlightSuppressionLookup,
+} from './phone-reveal-suppression-guard';
+import {
+  reportPhoneSuppressionNotEvaluable,
+  type PhoneSuppressionNotEvaluableSink,
+} from './phone-reveal-suppression-audit';
 import type {
   ContactCandidateEnrichmentMetadata,
   ContactCandidatePhoneMetadata,
@@ -84,6 +101,23 @@ export interface WebhookCandidateRecord {
   accountId: string | null;
   enrichmentMetadata: ContactCandidateEnrichmentMetadata;
   phoneRevealStatus: string | null;
+  /**
+   * País del candidato (texto crudo del proveedor) y país ISO-2 de la empresa
+   * del run. Alimentan el alcance de la caché (APOLLO-PHONE-CACHE-1b): si
+   * ninguno resuelve a ISO-2 el reveal simplemente NO se cachea (país
+   * desconocido = no reuso). Opcionales: ausentes ⇒ sin caché.
+   */
+  candidateCountry?: string | null;
+  runCompanyCountryCode?: string | null;
+  /**
+   * Apollo person id ya persistido (mig. 098, CACHE-1a) y origen del candidato.
+   * Alimentan la comprobación de SUPRESIÓN en vuelo (FIX 3) cuando el payload del
+   * webhook no trae `person.id`: sin ellos la supresión no se puede evaluar por
+   * falta de clave (`not_evaluable`), nunca se bloquea por inferencia.
+   */
+  apolloPersonId?: string | null;
+  source?: string | null;
+  sourceContactId?: string | null;
 }
 
 // ── Patch de persistencia terminal (describe el UPDATE) ────────
@@ -91,12 +125,17 @@ export interface WebhookCandidateRecord {
 export interface WebhookRevealPersistencePatch {
   phone?: string | null;
   enrichment_metadata?: ContactCandidateEnrichmentMetadata;
-  phone_reveal_status: 'revealed' | 'no_phone_found';
+  /**
+   * `error` SOLO lo emite el bloqueo por supresión (FIX 3), acompañado de
+   * `phone_reveal_error_code = 'blocked_suppressed'`. Se reutiliza el vocabulario
+   * existente de la columna (mig. 095/097) en vez de añadir un estado nuevo.
+   */
+  phone_reveal_status: 'revealed' | 'no_phone_found' | 'error';
   phone_reveal_completed_at: string;
   phone_reveal_webhook_received_at: string;
   phone_reveal_provider: 'apollo';
   phone_reveal_cost_credits: number | null;
-  phone_reveal_error_code: null;
+  phone_reveal_error_code: null | typeof SUPPRESSION_BLOCKED_ERROR_CODE;
   /**
    * Apollo person id VALIDADO (24 hex) del payload (APOLLO-PHONE-CACHE-1a): de
    * `people[0].id` o `person.id`. null si ausente/inválido/otro proveedor. El
@@ -112,13 +151,27 @@ export interface WebhookUsageLogEntry {
   operationKey: typeof PHONE_REVEAL_OPERATION_KEY;
   provider: 'apollo';
   creditsUsed: number | null;
-  status: 'success';
+  status: 'success' | 'error';
+  /** Código mecánico cuando la supresión no se pudo verificar (FIX 3). */
+  errorCode?: string | null;
   metadata: {
     candidate_id: string;
     account_id: string | null;
     provider: 'apollo';
-    reveal_status: 'revealed' | 'no_phone_found';
+    reveal_status:
+      | 'revealed'
+      | 'no_phone_found'
+      // FIX 3: el teléfono llegó pero un tombstone impidió persistirlo.
+      | typeof SUPPRESSION_BLOCKED_ERROR_CODE
+      // FIX 3: la supresión no se pudo verificar; nada se persistió.
+      | typeof SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE;
     reveal_phase: 'webhook';
+    /**
+     * Resultado PII-free de la comprobación de supresión (FIX 3). Presente solo
+     * cuando había teléfono que persistir (es el único camino que la ejecuta);
+     * ausente en `no_phone_found`, donde no hay número que suprimir.
+     */
+    suppression_state?: InFlightSuppressionAuditState;
     /** request_id de correlación del payload (async handle). null si correlacionó por ref. */
     request_id: string | null;
     /** ref opaco del webhook_url usado para correlacionar (null si vino por request_id). */
@@ -158,6 +211,46 @@ export interface ApolloPhoneRevealWebhookDeps {
   ) => Promise<void>;
   /** Registra el uso/costo en provider_usage_logs (metadata sin PII). */
   logUsage: (entry: WebhookUsageLogEntry) => Promise<void>;
+  /**
+   * Cachea el teléfono recién revelado (APOLLO-PHONE-CACHE-1b). OPCIONAL: sin
+   * esta dep — o con ENABLE_APOLLO_PHONE_CACHE apagado, que es lo que el wrapper
+   * comprueba — no se escribe caché y el webhook se comporta exactamente igual
+   * que antes de este hito.
+   *
+   * BEST-EFFORT por contrato: se invoca DESPUÉS de persistir el reveal y su
+   * resultado se ignora, de modo que un fallo de caché no puede perder un
+   * teléfono ya pagado. Solo se llama en el camino `revealed`: nunca en
+   * no_phone_found, nunca en error, nunca en un candidato ya terminal.
+   */
+  cacheRevealedPhone?: (input: PhoneCacheWriteInput) => Promise<unknown>;
+
+  // ── Cumplimiento de SUPRESIÓN en vuelo (FIX 3) ────────────────
+  // NO depende de `ENABLE_APOLLO_PHONE_CACHE`: el flag gobierna la reutilización
+  // de un teléfono cacheado, jamás el cumplimiento de una supresión registrada.
+
+  /**
+   * Lee el tombstone de (apollo, persona, MISMA cuenta). Se invoca SIEMPRE que el
+   * webhook traiga un teléfono que persistir, con el flag de caché encendido o
+   * apagado, y ANTES de escribir cualquier cosa.
+   *
+   * Debe LANZAR si la lectura no se puede completar: el core lo traduce a
+   * `suppression_check_unavailable` y NO persiste el teléfono. Si la dep no está
+   * cableada el resultado es el mismo — no hay persistencia tardía sin
+   * comprobación de supresión.
+   */
+  lookupPhoneCacheSuppression?: InFlightSuppressionLookup;
+  /**
+   * Notifica que la supresión no se pudo verificar. Recibe SOLO un mensaje
+   * mecánico YA redactado: nunca teléfono, person id, email, nombre ni linkedin.
+   */
+  onSuppressionCheckUnavailable?: (message: string) => void;
+  /**
+   * Notifica que la supresión no se pudo EVALUAR (FIX 4): sin Apollo person id
+   * resoluble o sin cuenta no existe clave con la que emparejar un tombstone. El
+   * teléfono se persiste igual — no se bloquea por inferencia — pero el caso queda
+   * registrado con un evento de forma CERRADA y sin PII.
+   */
+  onSuppressionNotEvaluable?: PhoneSuppressionNotEvaluableSink;
 }
 
 // ── Resultado (para que la ruta arme la HTTP response segura) ──
@@ -171,7 +264,19 @@ export type WebhookOutcome =
   | 'unknown_request_id'
   | 'already_terminal'
   | 'revealed'
-  | 'no_phone_found';
+  | 'no_phone_found'
+  // FIX 3 — el teléfono llegó, pero existe un tombstone de supresión para esta
+  // persona en esta cuenta. NO se persiste teléfono, NO se escribe caché, NO se
+  // consumen créditos nuevos. Se cierra terminal (`error` +
+  // `blocked_suppressed`) para que el recovery tampoco vuelva a traerlo.
+  // HTTP 200: la respuesta de Apollo era correcta, el bloqueo es de privacidad.
+  | 'blocked_suppressed'
+  // FIX 3 — la supresión NO se pudo verificar (dep ausente o lectura fallida).
+  // Fail-closed: el teléfono NO se persiste y NO se cachea. NO es terminal: el
+  // candidato sigue en vuelo y el recovery puede repolear el MISMO resultado
+  // (0 créditos) cuando la comprobación vuelva a estar disponible. HTTP 200: un
+  // 4xx/5xx dispararía reintentos de Apollo sin resolver la causa.
+  | 'suppression_check_unavailable';
 
 export interface ApolloPhoneRevealWebhookResult {
   httpStatus: number;
@@ -309,6 +414,43 @@ export function sumWebhookCredits(
   return seen ? total : null;
 }
 
+/**
+ * Escribe el teléfono revelado en la caché sin poder romper el reveal
+ * (APOLLO-PHONE-CACHE-1b). Se llama SOLO en el camino `revealed` y SOLO después
+ * de persistir el candidato. Cualquier excepción se traga aquí de forma acotada:
+ * el teléfono ya está guardado y ya se pagó, así que un fallo de caché no puede
+ * degradarse a pérdida de datos ni a un 500 que haga a Apollo reintentar. El
+ * store subyacente ya registra el error sin PII.
+ */
+async function cacheRevealedPhoneBestEffort(
+  deps: ApolloPhoneRevealWebhookDeps,
+  args: {
+    candidate: WebhookCandidateRecord;
+    phone: string;
+    phoneType: string | null;
+    personId: string | null;
+  },
+): Promise<void> {
+  if (!deps.cacheRevealedPhone) return;
+  try {
+    await deps.cacheRevealedPhone(
+      buildRevealPhoneCacheWriteInput({
+        personId: args.personId,
+        accountId: args.candidate.accountId,
+        candidateCountry: args.candidate.candidateCountry ?? null,
+        runCompanyCountryCode: args.candidate.runCompanyCountryCode ?? null,
+        phone: args.phone,
+        phoneType: args.phoneType,
+        revealedAtIso: deps.nowIso,
+        candidateId: args.candidate.id,
+      }),
+    );
+  } catch {
+    // Silencio deliberado y acotado: la caché es un optimizador, nunca la
+    // fuente de verdad. El error ya quedó registrado (sin PII) en el store.
+  }
+}
+
 // ── Orquestación pura del WEBHOOK ──────────────────────────────
 
 /**
@@ -372,6 +514,103 @@ export async function runApolloPhoneRevealWebhook(
 
   // 6a. Con teléfono → revealed + apollo_reveal, conserva créditos reales.
   if (best) {
+    // FIX 3 — SUPRESIÓN EN VUELO. El reveal es asíncrono, así que una DSAR pudo
+    // registrarse DESPUÉS del START y ANTES de este callback. Se comprueba el
+    // tombstone antes de escribir nada, con el flag de caché encendido o apagado.
+    // Solo se ejecuta en este camino: si Apollo no entregó teléfono no hay número
+    // que suprimir, y el camino `no_phone_found` queda idéntico (0 lecturas).
+    const suppression = await evaluateInFlightPhoneSuppression({
+      personId: resolveInFlightSuppressionPersonId({
+        payloadPersonId: apolloPersonId,
+        candidateApolloPersonId: candidate.apolloPersonId ?? null,
+        candidateSource: candidate.source ?? null,
+        candidateSourceContactId: candidate.sourceContactId ?? null,
+      }),
+      accountId: candidate.accountId,
+      lookup: deps.lookupPhoneCacheSuppression,
+    });
+    const suppressionState = describeInFlightSuppression(suppression);
+
+    // FIX 4 — no EVALUABLE (sin person id resoluble o sin cuenta): la política no
+    // cambia — no hay fuzzy matching por teléfono/email/nombre/LinkedIn y el
+    // teléfono se persiste igual — pero el caso se registra en vez de quedar
+    // invisible. Es un efecto de auditoría: no bloquea ni desbloquea nada.
+    if (suppression.kind === 'not_evaluable') {
+      reportPhoneSuppressionNotEvaluable({
+        phase: 'webhook',
+        reason: suppression.reason,
+        candidateId: candidate.id,
+        accountId: candidate.accountId,
+        sink: deps.onSuppressionNotEvaluable,
+      });
+    }
+
+    // No verificable ⇒ fail-closed. NO se persiste el teléfono y NO se toca el
+    // status: el candidato sigue en vuelo, así que el recovery puede repolear el
+    // MISMO payload sin gastar créditos. Se deja rastro en el usage-log.
+    if (suppression.kind === 'check_unavailable') {
+      deps.onSuppressionCheckUnavailable?.(suppression.message);
+      await deps.logUsage({
+        operationKey: PHONE_REVEAL_OPERATION_KEY,
+        provider: 'apollo',
+        creditsUsed: credits,
+        status: 'error',
+        errorCode: SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+        metadata: {
+          candidate_id: candidate.id,
+          account_id: candidate.accountId,
+          provider: 'apollo',
+          reveal_status: SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+          reveal_phase: 'webhook',
+          suppression_state: suppressionState,
+          request_id: requestId,
+          webhook_ref: ref,
+          correlation_source: correlationSource,
+          phone_revealed: false,
+          phone_type: null,
+          credits_used: credits,
+        },
+      });
+      return { httpStatus: 200, outcome: 'suppression_check_unavailable' };
+    }
+
+    // Tombstone ⇒ el teléfono se descarta. NO se escribe `phone`, NO se toca
+    // `enrichment_metadata.phone`, NO se propaga `apollo_person_id` (no se añade
+    // ningún dato nuevo de una persona suprimida) y NO se escribe caché. Se
+    // cierra terminal para que el recovery no lo vuelva a traer.
+    if (suppression.kind === 'blocked_suppressed') {
+      await deps.persist(candidate.id, {
+        phone_reveal_status: 'error',
+        phone_reveal_completed_at: deps.nowIso,
+        phone_reveal_webhook_received_at: deps.nowIso,
+        phone_reveal_provider: PHONE_REVEAL_PROVIDER,
+        phone_reveal_cost_credits: credits,
+        phone_reveal_error_code: SUPPRESSION_BLOCKED_ERROR_CODE,
+      });
+      await deps.logUsage({
+        operationKey: PHONE_REVEAL_OPERATION_KEY,
+        provider: 'apollo',
+        creditsUsed: credits,
+        status: 'success',
+        errorCode: SUPPRESSION_BLOCKED_ERROR_CODE,
+        metadata: {
+          candidate_id: candidate.id,
+          account_id: candidate.accountId,
+          provider: 'apollo',
+          reveal_status: SUPPRESSION_BLOCKED_ERROR_CODE,
+          reveal_phase: 'webhook',
+          suppression_state: suppressionState,
+          request_id: requestId,
+          webhook_ref: ref,
+          correlation_source: correlationSource,
+          phone_revealed: false,
+          phone_type: null,
+          credits_used: credits,
+        },
+      });
+      return { httpStatus: 200, outcome: 'blocked_suppressed' };
+    }
+
     const revealed: ClassifiedPhone = { ...best, source: 'apollo_reveal' };
     const phoneMetadata: ContactCandidatePhoneMetadata = {
       number: revealed.number,
@@ -394,6 +633,15 @@ export async function runApolloPhoneRevealWebhook(
       apollo_person_id: apolloPersonId,
     };
     await deps.persist(candidate.id, patch);
+    // Caché (APOLLO-PHONE-CACHE-1b): solo tras persistir el reveal, solo con
+    // teléfono, y best-effort. Sin person id válido / cuenta / país ISO-2 la
+    // propia decisión de escritura lo descarta con un motivo mecánico.
+    await cacheRevealedPhoneBestEffort(deps, {
+      candidate,
+      phone: revealed.number,
+      phoneType: revealed.type,
+      personId: apolloPersonId,
+    });
     await deps.logUsage({
       operationKey: PHONE_REVEAL_OPERATION_KEY,
       provider: 'apollo',
@@ -405,6 +653,9 @@ export async function runApolloPhoneRevealWebhook(
         provider: 'apollo',
         reveal_status: 'revealed',
         reveal_phase: 'webhook',
+        // FIX 3: queda constancia de que la comprobación SE HIZO (o de por qué no
+        // era evaluable) también cuando el teléfono sí se persiste.
+        suppression_state: suppressionState,
         request_id: requestId,
         webhook_ref: ref,
         correlation_source: correlationSource,

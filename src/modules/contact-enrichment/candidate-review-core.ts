@@ -301,6 +301,10 @@ const ALLOWED_PHONE_TYPES: readonly PhoneType[] = [
 const ALLOWED_PHONE_SOURCES: readonly PhoneSource[] = [
   'apollo_search',
   'apollo_reveal',
+  // APOLLO-PHONE-CACHE-1b: la procedencia "reutilizado desde caché" debe
+  // sobrevivir a la aprobación. Si no estuviera en la allowlist se normalizaría
+  // a null y el contacto oficial perdería la trazabilidad del reuso.
+  'apollo_cache',
   'lusha_reveal',
   'provider_payload',
   'manual',

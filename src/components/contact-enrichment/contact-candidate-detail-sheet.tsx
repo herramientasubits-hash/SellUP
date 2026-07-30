@@ -135,6 +135,9 @@ const PHONE_TYPE_LABELS: Record<PhoneType, string> = {
 const PHONE_SOURCE_LABELS: Record<PhoneSource, string> = {
   apollo_search: 'Apollo búsqueda',
   apollo_reveal: 'Apollo reveal',
+  // APOLLO-PHONE-CACHE-1b: el operador tiene que poder distinguir de un vistazo
+  // un número reutilizado de uno recién revelado (no se cobraron créditos).
+  apollo_cache: 'Apollo reveal reutilizado',
   lusha_reveal: 'Lusha reveal',
   provider_payload: 'Proveedor',
   manual: 'Manual',
@@ -443,6 +446,42 @@ export function ContactCandidateDetailSheet({
         toast.warning('Este teléfono ya fue revelado.');
         void reloadCandidate();
         return;
+      // APOLLO-PHONE-CACHE-1b: éxito terminal servido desde un reveal ya pagado.
+      // No hay webhook que esperar y no se cobraron créditos, así que el
+      // candidato se recarga de inmediato para mostrar el número.
+      case 'revealed_from_cache':
+        toast.success('Teléfono obtenido de una revelación previa. Sin costo adicional.');
+        setPhoneRevealNotice('Reutilizado de una revelación anterior (sin costo).');
+        void reloadCandidate();
+        return;
+      // APOLLO-PHONE-CACHE-1b: bloqueo seguro por supresión (DSAR). No es un
+      // fallo genérico y NO se llamó a Apollo: el mensaje tiene que decir por qué.
+      case 'blocked_suppressed':
+        toast.warning('Existe una supresión registrada para este teléfono.');
+        setPhoneRevealError(
+          'No se puede revelar este teléfono porque existe una supresión registrada.',
+        );
+        return;
+      // APOLLO-PHONE-CACHE-1b (FIX 2): no se pudo verificar si hay una supresión
+      // registrada, así que NO se llamó a Apollo. Ocurre con el flag de caché
+      // encendido o apagado: el flag gobierna la reutilización, no el
+      // cumplimiento de la supresión. Sin cargo y reintentable.
+      case 'suppression_check_unavailable':
+        setPhoneRevealError(
+          'No fue posible verificar si existe una supresión registrada para este teléfono. No se hizo ningún cargo; intenta de nuevo en unos minutos.',
+        );
+        return;
+      // APOLLO-PHONE-CACHE-1b (FIX H4 + H4-b): no se pudo consultar la caché, o
+      // no se pudo persistir el número reutilizado. En ambos casos NO se llamó a
+      // Apollo y no hubo cargo, no hay teléfono nuevo que mostrar y no se recarga
+      // el candidato (no se persistió nada). Reintentable. El mensaje es único a
+      // propósito: el operador no gana nada distinguiendo lectura de escritura, y
+      // el detalle técnico solo viaja al log del servidor, sin PII.
+      case 'cache_unavailable':
+        setPhoneRevealError(
+          'No fue posible usar la caché de teléfonos. No se hizo ningún cargo; intenta de nuevo en unos minutos.',
+        );
+        return;
       case 'do_not_contact':
         toast.warning('Este candidato/contacto está marcado como no contactar.');
         setPhoneRevealError('Este candidato está marcado como no contactar.');
@@ -536,9 +575,13 @@ export function ContactCandidateDetailSheet({
   //  - `no_phone_found` → oculto (sin reintento).
   //  - identidad insuficiente (sin id/email/linkedin) → oculto.
   // El server action revalida todos estos gates de todas formas.
+  // `apollo_cache` cuenta como ya revelado (APOLLO-PHONE-CACHE-1b): el número
+  // reutilizado es definitivo, así que el botón no debe reaparecer y gastar
+  // créditos por un dato que ya tenemos.
   const phoneAlreadyRevealed =
     candidate?.phone_reveal_status === 'revealed' ||
-    phoneMeta?.source === 'apollo_reveal';
+    phoneMeta?.source === 'apollo_reveal' ||
+    phoneMeta?.source === 'apollo_cache';
   const phoneRevealExhausted = candidate?.phone_reveal_status === 'no_phone_found';
   // Reveal ASÍNCRONO en vuelo (APOLLO-PHONE-ASYNC-1): solicitud aceptada,
   // esperando el webhook de Apollo. Oculta el botón y muestra "en proceso".

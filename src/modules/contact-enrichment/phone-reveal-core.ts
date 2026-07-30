@@ -42,6 +42,26 @@ import {
 import { APOLLO_CONTACT_ENRICHMENT_GUARDRAILS } from '@/lib/apollo-guardrails';
 import { normalizeRevealSourceProvider } from '@/server/agents/contact-enrichment-toolkit/apollo-phone-reveal';
 import { normalizeApolloPersonId } from '@/server/integrations/apollo-person-id';
+import {
+  buildPhoneCacheHitUsageLog,
+  evaluatePhoneCacheLookup,
+  evaluatePhoneCacheSuppressionState,
+  resolvePhoneCachePersonId,
+  resolvePhoneCacheCountryCode,
+  PHONE_CACHE_HIT_CREDITS,
+  PHONE_CACHE_HIT_PHONE_SOURCE,
+  PHONE_CACHE_PROVIDER,
+  type PhoneCacheEntry,
+  type PhoneCacheHitUsageLogEntry,
+  type PhoneCacheLookupKey,
+  type PhoneCacheSuppressionLookupKey,
+  type PhoneCacheSuppressionState,
+} from './phone-cache-core';
+import {
+  reportPhoneSuppressionNotEvaluable,
+  type PhoneSuppressionAuditState,
+  type PhoneSuppressionNotEvaluableSink,
+} from './phone-reveal-suppression-audit';
 import type {
   ContactCandidateEnrichmentMetadata,
   ContactCandidatePhoneMetadata,
@@ -145,6 +165,17 @@ export interface RevealCandidateRecord {
   phoneRevealStatus: string | null;
   /** Nº de intentos previos (migración 097). Default 0 en filas nuevas. */
   phoneRevealAttemptCount?: number | null;
+  /**
+   * Apollo person id ya persistido (columna de la migración 098, CACHE-1a). Es
+   * la clave preferente del fast path de caché (APOLLO-PHONE-CACHE-1b). Opcional:
+   * ausente ⇒ se intenta el fallback por `sourceContactId` cuando el candidato es
+   * origen Apollo, y si tampoco hay id válido el resultado es un cache miss.
+   */
+  apolloPersonId?: string | null;
+  /** País del candidato (texto crudo del proveedor). Alcance de caché. */
+  candidateCountry?: string | null;
+  /** País ISO-2 de la empresa del run. Fallback del alcance de caché. */
+  runCompanyCountryCode?: string | null;
 }
 
 // ── Respuesta del START de Apollo (inyectada) ──────────────────
@@ -213,6 +244,38 @@ export interface RevealStartPersistencePatch {
   apollo_person_id: string | null;
 }
 
+// ── Patch de persistencia del CACHE HIT (APOLLO-PHONE-CACHE-1b) ──
+
+/**
+ * Patch escrito cuando el teléfono se sirve desde la caché en lugar de llamar a
+ * Apollo. A diferencia del START, aquí SÍ se persiste el número (ya estaba
+ * pagado) y el estado queda terminal `revealed` en un solo paso: no hay webhook
+ * que esperar.
+ *
+ * La procedencia es SIEMPRE `apollo_cache`, nunca `apollo_reveal`: un número
+ * reutilizado tiene que ser distinguible de un reveal nuevo en el candidato, en
+ * la UI y en el contacto oficial. El costo es 0 créditos porque no hubo llamada
+ * al proveedor, y la base de tratamiento es obligatoria igual que en el reveal.
+ */
+export interface RevealCacheHitPersistencePatch {
+  phone: string;
+  enrichment_metadata: ContactCandidateEnrichmentMetadata;
+  phone_reveal_status: 'revealed';
+  phone_reveal_provider: 'apollo';
+  phone_reveal_request_id: null;
+  phone_revealed_at: string;
+  phone_reveal_completed_at: string;
+  phone_revealed_by: string;
+  /** Cache hit = 0 créditos: no hubo llamada al proveedor. */
+  phone_reveal_cost_credits: typeof PHONE_CACHE_HIT_CREDITS;
+  phone_reveal_cost_usd: 0;
+  phone_reveal_error_code: null;
+  phone_reveal_attempt_count: number;
+  phone_processing_basis: PhoneProcessingBasis;
+  phone_processing_basis_note: string | null;
+  apollo_person_id: string;
+}
+
 // ── Entrada del usage-log (SIN PII) ────────────────────────────
 
 /**
@@ -235,6 +298,12 @@ export interface PhoneRevealUsageLogEntry {
     provider: 'apollo';
     reveal_status: string;
     reveal_phase: 'start';
+    /**
+     * Desenlace PII-free de la comprobación de supresión (FIX 4). Mismo
+     * vocabulario que el webhook y el recovery: `checked_not_suppressed` o
+     * `not_evaluable_*` cuando no había clave con la que emparejar un tombstone.
+     */
+    suppression_state: PhoneSuppressionAuditState;
     request_id: string | null;
     /** true cuando Apollo devolvió un request_id de correlación (START aceptado). */
     has_request_id: boolean;
@@ -306,6 +375,95 @@ export interface RevealCandidatePhoneDeps {
   ) => Promise<void>;
   /** Registra el uso/costo en provider_usage_logs (metadata sin PII). */
   logUsage: (entry: PhoneRevealUsageLogEntry) => Promise<void>;
+
+  // ── Cumplimiento de SUPRESIÓN (APOLLO-PHONE-CACHE-1b, FIX 2) ──
+  // A diferencia del fast path, esto NO depende de `cacheEnabled`: el flag
+  // gobierna la REUTILIZACIÓN de un teléfono cacheado, nunca el cumplimiento de
+  // una supresión ya registrada.
+
+  /**
+   * Busca el tombstone de (provider, person, MISMA cuenta). Se invoca SIEMPRE que
+   * el candidato tenga Apollo person id y cuenta, con el flag de caché encendido o
+   * apagado, y ANTES de cualquier llamada a Apollo.
+   *
+   * Debe LANZAR si la lectura no se puede completar: el core lo traduce a
+   * `suppression_check_unavailable` y no llama al proveedor. Si la dep no está
+   * cableada el reveal también se detiene — no hay reveal sin comprobación de
+   * supresión.
+   */
+  lookupPhoneCacheSuppression?: (
+    key: PhoneCacheSuppressionLookupKey,
+  ) => Promise<PhoneCacheSuppressionState | null>;
+  /**
+   * Notifica que la supresión no se pudo verificar. Recibe SOLO un mensaje
+   * mecánico: nunca teléfono, person id, email, nombre ni linkedin.
+   */
+  onSuppressionCheckUnavailable?: (message: string) => void;
+  /**
+   * Notifica que la supresión no se pudo EVALUAR (APOLLO-PHONE-CACHE-1b, FIX 4):
+   * sin Apollo person id resoluble o sin cuenta no existe clave con la que
+   * emparejar un tombstone. El reveal continúa igual — no se empareja por
+   * teléfono/email/nombre/linkedin ni se rellena el id que falta — pero el caso
+   * queda registrado en vez de desaparecer en silencio. Recibe un evento de forma
+   * CERRADA y sin PII (ver `phone-reveal-suppression-audit.ts`).
+   */
+  onSuppressionNotEvaluable?: PhoneSuppressionNotEvaluableSink;
+
+  // ── Fast path de caché (APOLLO-PHONE-CACHE-1b) ───────────────
+  // TODAS estas deps son OPCIONALES. Con `cacheEnabled` en false/undefined
+  // (default de producción) el core NO las invoca: no se reutiliza ningún
+  // teléfono y el camino Apollo es el de antes de la caché. La comprobación de
+  // supresión de más arriba sí corre.
+
+  /**
+   * Valor del flag ENABLE_APOLLO_PHONE_CACHE resuelto por el wrapper. Default
+   * false (fail-closed): sin él no se REUTILIZA ningún teléfono cacheado y el
+   * reveal sigue el camino Apollo normal. NO gobierna la supresión.
+   */
+  cacheEnabled?: boolean;
+  /**
+   * Busca la entrada de caché de (provider, person, account). Devuelve también
+   * las entradas SUPRIMIDAS (tombstone) para que el core pueda bloquear: filtrar
+   * la supresión en el store rompería la garantía de bloqueo.
+   */
+  lookupPhoneCache?: (key: PhoneCacheLookupKey) => Promise<PhoneCacheEntry | null>;
+  /** Aplica el UPDATE terminal del cache hit sobre el candidato (service role). */
+  persistCacheHit?: (
+    candidateId: string,
+    patch: RevealCacheHitPersistencePatch,
+  ) => Promise<void>;
+  /** Registra el hit en provider_usage_logs (0 créditos, metadata sin PII). */
+  logCacheHitUsage?: (entry: PhoneCacheHitUsageLogEntry) => Promise<void>;
+  /**
+   * Marca el uso de la entrada (last_used_at + hit_count). NUNCA extiende el
+   * TTL. Best-effort: un fallo aquí no debe romper un hit ya persistido.
+   */
+  touchPhoneCacheEntry?: (cacheEntryId: string, usedAtIso: string) => Promise<void>;
+  /**
+   * Hash del person id para el usage-log (el core es puro y no usa crypto). Si
+   * no se inyecta se registra 'unavailable' — nunca el id en claro.
+   */
+  hashProviderPersonId?: (personId: string) => string;
+  /**
+   * Notifica que la búsqueda en caché no se pudo completar (APOLLO-PHONE-CACHE-1b,
+   * FIX H4). Recibe SOLO un mensaje mecánico del driver: nunca teléfono, id de
+   * persona, email, nombre ni linkedin. El core es puro, así que el logging real
+   * lo hace el wrapper.
+   */
+  onCacheLookupUnavailable?: (message: string) => void;
+  /**
+   * Notifica que la persistencia del cache hit no se pudo completar
+   * (APOLLO-PHONE-CACHE-1b, FIX H4-b). Recibe SOLO un mensaje mecánico YA
+   * redactado por el core: nunca teléfono, email, nombre, linkedin ni id de
+   * persona en claro. El core es puro, así que el logging real lo hace el wrapper.
+   */
+  onCacheHitPersistFailed?: (message: string) => void;
+  /**
+   * Notifica que el usage-log del cache hit falló (APOLLO-PHONE-CACHE-1b, FIX
+   * H4-b). Best-effort: el teléfono ya quedó persistido y el hit NO se revierte.
+   * Mensaje mecánico redactado, sin PII.
+   */
+  onCacheHitUsageLogFailed?: (message: string) => void;
 }
 
 // ── Resultado de la acción ─────────────────────────────────────
@@ -329,6 +487,28 @@ export type RevealCandidatePhoneStatus =
   | 'provider_not_configured'
   // Estado feliz del START asíncrono: solicitud aceptada, esperando webhook.
   | 'requested'
+  // APOLLO-PHONE-CACHE-1b: el teléfono se sirvió desde un reveal ya pagado.
+  // Terminal e inmediato (no hay webhook), 0 créditos, sin llamada a Apollo.
+  | 'revealed_from_cache'
+  // APOLLO-PHONE-CACHE-1b: existe un tombstone de supresión para esta persona
+  // en esta cuenta. Bloquea el hit Y el reveal automático. No se llama a Apollo.
+  // Se emite con ENABLE_APOLLO_PHONE_CACHE encendido o apagado (FIX 2).
+  | 'blocked_suppressed'
+  // APOLLO-PHONE-CACHE-1b (FIX 2): la SUPRESIÓN no se pudo verificar (tabla
+  // ausente, timeout, dep no cableada). Fail-closed: NO se llama a Apollo, porque
+  // podría existir un tombstone sin haber sido visto. Independiente del flag de
+  // caché. 0 créditos, sin teléfono, reintentable.
+  | 'suppression_check_unavailable'
+  // APOLLO-PHONE-CACHE-1b (FIX H4): la caché no se pudo consultar. Fail-closed:
+  // NO se llama a Apollo. Solo alcanzable con el flag de caché encendido (con el
+  // flag apagado no hay lectura de caché que pueda fallar). 0 créditos.
+  //
+  // FIX H4-b: este mismo estado cubre el fallo de la PERSISTENCIA del hit
+  // (`errorCode = 'cache_persist_failed'`). Las garantías para el operador son
+  // idénticas — sin llamada a Apollo, 0 créditos, sin teléfono, reintentable —
+  // así que se reutiliza el estado en vez de ampliar la superficie de la UI. El
+  // errorCode distingue ambos casos en observabilidad.
+  | 'cache_unavailable'
   | 'error';
 
 export interface RevealCandidatePhoneResult {
@@ -341,6 +521,12 @@ export interface RevealCandidatePhoneResult {
   requestAccepted: boolean;
   /** Código de error seguro (sin PII) cuando status = error. */
   errorCode: string | null;
+  /**
+   * true solo cuando el teléfono se sirvió desde la caché (APOLLO-PHONE-CACHE-1b).
+   * El número NUNCA viaja en el resultado: esto es solo una señal booleana para
+   * que la UI sepa que ya hay teléfono persistido sin esperar webhook.
+   */
+  servedFromCache?: boolean;
 }
 
 // ── Helpers puros ──────────────────────────────────────────────
@@ -358,6 +544,27 @@ function cleanText(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * Deja pasar SOLO texto mecánico de un error de driver (APOLLO-PHONE-CACHE-1b,
+ * FIX H4-b). Postgres cita los valores del payload en sus mensajes de error
+ * (p. ej. `Key (phone)=(+57...)`), y el patch del cache hit contiene el teléfono
+ * y el id de persona: propagar `err.message` en claro filtraría PII al log. Se
+ * borran URLs de LinkedIn, correos, ids hexadecimales largos y secuencias de
+ * dígitos, y se acota el largo. El error crudo NUNCA sale del core.
+ */
+export function redactDriverMessage(raw: unknown): string {
+  const text =
+    raw instanceof Error ? raw.message : typeof raw === 'string' ? raw : '';
+  const trimmed = text.trim();
+  if (!trimmed) return 'unknown error';
+  return trimmed
+    .replace(/https?:\/\/\S*linkedin\.com\S*/gi, '[redacted-url]')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted-email]')
+    .replace(/\b[0-9a-f]{16,}\b/gi, '[redacted-id]')
+    .replace(/\+?\d[\d\s().-]{3,}\d/g, '[redacted-number]')
+    .slice(0, 300);
+}
+
 function isValidBasis(value: unknown): value is PhoneProcessingBasis {
   return (
     typeof value === 'string' &&
@@ -372,6 +579,17 @@ function existingPhoneSource(
   const source = phone?.source;
   return typeof source === 'string' ? source : null;
 }
+
+/**
+ * Procedencias que ya representan un teléfono revelado y por tanto bloquean un
+ * segundo reveal. Incluye `apollo_cache` (APOLLO-PHONE-CACHE-1b): un número
+ * servido desde caché es tan definitivo como uno recién revelado — reintentarlo
+ * gastaría créditos por un dato que ya tenemos.
+ */
+const ALREADY_REVEALED_PHONE_SOURCES: readonly string[] = [
+  'apollo_reveal',
+  PHONE_CACHE_HIT_PHONE_SOURCE,
+];
 
 // ── Orquestación pura del START ────────────────────────────────
 
@@ -439,10 +657,13 @@ export async function runRevealCandidatePhone(
   //    cuando hay forma de evaluarlo. `candidate_account_invalid` se conserva en
   //    la unión por compatibilidad, pero ya no se emite.
 
-  // 9. Bloquear re-reveal: ya revelado o ya tiene teléfono de apollo_reveal.
+  // 9. Bloquear re-reveal: ya revelado, o ya tiene teléfono de apollo_reveal /
+  //    apollo_cache (un número servido desde caché también es definitivo).
+  const currentPhoneSource = existingPhoneSource(candidate.enrichmentMetadata);
   if (
     candidate.phoneRevealStatus === 'revealed' ||
-    existingPhoneSource(candidate.enrichmentMetadata) === 'apollo_reveal'
+    (currentPhoneSource !== null &&
+      ALREADY_REVEALED_PHONE_SOURCES.includes(currentPhoneSource))
   ) {
     return fail('already_revealed');
   }
@@ -493,6 +714,42 @@ export async function runRevealCandidatePhone(
 
   const nextAttempt = (candidate.phoneRevealAttemptCount ?? 0) + 1;
 
+  // 13b. CUMPLIMIENTO DE SUPRESIÓN (APOLLO-PHONE-CACHE-1b, FIX 2). Corre DESPUÉS
+  //      de todos los gates fail-closed y ANTES de cualquier llamada a Apollo,
+  //      con el flag de caché ENCENDIDO O APAGADO. `ENABLE_APOLLO_PHONE_CACHE`
+  //      decide si se REUTILIZA un teléfono ya pagado; no puede decidir si se
+  //      respeta una supresión ya registrada. Sin esta comprobación, un tombstone
+  //      escrito mientras el flag estaba encendido dejaría de bloquear en cuanto
+  //      el flag se apagase, y el reveal manual volvería a traer el número.
+  //      FIX 4: la clave se resuelve aquí para que el desenlace de la comprobación
+  //      viaje al usage-log del START (`suppression_state`), igual que ya hacen el
+  //      webhook y el recovery. Sin clave no hay tombstone que consultar y el caso
+  //      queda etiquetado `not_evaluable_*` en lugar de invisible.
+  const suppressionKey = resolveStartSuppressionKey(candidate);
+  const suppressionOutcome = await enforcePhoneRevealSuppression({
+    candidateId,
+    key: suppressionKey,
+    deps,
+  });
+  if (suppressionOutcome) return suppressionOutcome;
+  const suppressionState = describeStartSuppressionAudit(suppressionKey);
+
+  // 13c. FAST PATH DE CACHÉ (APOLLO-PHONE-CACHE-1b). Corre DESPUÉS de todos los
+  //      gates fail-closed (flag de reveal, rol, candidato, sin teléfono, no en
+  //      vuelo, base de tratamiento, confirmación de costo, do-not-contact,
+  //      identidad suficiente, supresión) y ANTES de cualquier llamada a Apollo.
+  //      Con `cacheEnabled` en false — el default de producción — este bloque no
+  //      se ejecuta y ningún teléfono se reutiliza.
+  const cacheOutcome = await tryServeFromPhoneCache({
+    candidate,
+    candidateId,
+    basis,
+    note,
+    nextAttempt,
+    deps,
+  });
+  if (cacheOutcome) return cacheOutcome;
+
   // Cierre común del START fallido: persiste estado `error` (sin tocar el
   // teléfono previo, sin créditos) + usage-log sin PII, y devuelve el resultado
   // de error. Lo comparten TODOS los caminos de fallo del START: error real de
@@ -533,6 +790,7 @@ export async function runRevealCandidatePhone(
         idForwardedToApollo,
         sourceProviderForId,
         trace,
+        suppressionState,
       }),
     );
     return { ok: false, status: 'error', requestAccepted: false, errorCode };
@@ -623,9 +881,350 @@ export async function runRevealCandidatePhone(
       idForwardedToApollo,
       sourceProviderForId,
       trace: started.trace ?? null,
+      suppressionState,
     }),
   );
   return { ok: true, status: 'requested', requestAccepted: true, errorCode: null };
+}
+
+// ── Cumplimiento de supresión (APOLLO-PHONE-CACHE-1b, FIX 2) ───
+
+/**
+ * Clave con la que el START busca el tombstone. Cualquiera de los dos campos en
+ * null significa "no evaluable": no existe supresión que se pueda emparejar.
+ */
+interface StartSuppressionKey {
+  personId: string | null;
+  accountId: string | null;
+}
+
+/**
+ * Resuelve la clave (persona, cuenta) del candidato. Pura y sin efectos: el
+ * person id pasa por el validador Apollo (24 hex), así que un id de otro
+ * proveedor — p. ej. un Lusha `v1.*` — nunca se usa como clave.
+ */
+function resolveStartSuppressionKey(
+  candidate: RevealCandidateRecord,
+): StartSuppressionKey {
+  return {
+    personId: resolvePhoneCachePersonId({
+      apolloPersonId: candidate.apolloPersonId ?? null,
+      sourceProvider: candidate.source ?? null,
+      sourceContactId: candidate.sourceContactId,
+    }),
+    accountId: cleanText(candidate.accountId),
+  };
+}
+
+/**
+ * Etiqueta PII-free del desenlace de la comprobación del START para el usage-log
+ * (FIX 4). Solo se consulta cuando `enforcePhoneRevealSuppression` NO cortó el
+ * flujo, así que con clave completa el tombstone se leyó y no había supresión.
+ */
+function describeStartSuppressionAudit(
+  key: StartSuppressionKey,
+): PhoneSuppressionAuditState {
+  if (!key.personId) return 'not_evaluable_missing_provider_person_id';
+  if (!key.accountId) return 'not_evaluable_missing_account_id';
+  return 'checked_not_suppressed';
+}
+
+/**
+ * Comprueba el tombstone de supresión ANTES de llamar a Apollo, con
+ * independencia de `ENABLE_APOLLO_PHONE_CACHE`. Devuelve:
+ *   * `blocked_suppressed` — existe supresión para (apollo, persona, cuenta): no
+ *     se llama a Apollo, no se gastan créditos y no se revela teléfono;
+ *   * `suppression_check_unavailable` — la comprobación no se pudo hacer (dep no
+ *     cableada o lectura fallida): tampoco se llama a Apollo, porque "no pude
+ *     comprobarlo" no equivale a "no está suprimido". Reintentable, 0 créditos;
+ *   * `null` — no hay supresión (o no existe clave posible) y el reveal continúa.
+ *
+ * Límite conocido y deliberado: el tombstone se identifica por Apollo person id +
+ * cuenta, la misma clave con la que se escribe. Un candidato sin `apollo_person_id`
+ * resoluble o sin cuenta no puede emparejarse con ninguna supresión registrada, así
+ * que continúa por el camino Apollo normal. No se intenta emparejar por
+ * teléfono/email/nombre: un match difuso aquí sería un bloqueo (o un no-bloqueo)
+ * decidido por inferencia. El país NO entra en la clave: una supresión bloquea a
+ * esa persona en esa cuenta aunque el país del candidato cambie o sea desconocido.
+ */
+async function enforcePhoneRevealSuppression(args: {
+  candidateId: string;
+  key: StartSuppressionKey;
+  deps: RevealCandidatePhoneDeps;
+}): Promise<RevealCandidatePhoneResult | null> {
+  const { candidateId, key, deps } = args;
+  const { personId, accountId } = key;
+
+  // Sin clave no puede existir tombstone alguno que consultar. FIX 4: el caso se
+  // AUDITA (evento PII-free) y el reveal continúa; nunca se empareja por
+  // teléfono/email/nombre/linkedin, y no se intenta rellenar el id que falta.
+  if (!personId || !accountId) {
+    reportPhoneSuppressionNotEvaluable({
+      phase: 'start',
+      reason: !personId ? 'missing_provider_person_id' : 'missing_account_id',
+      candidateId,
+      accountId,
+      sink: deps.onSuppressionNotEvaluable,
+    });
+    return null;
+  }
+
+  const unavailable = (message: string): RevealCandidatePhoneResult => {
+    deps.onSuppressionCheckUnavailable?.(message);
+    return {
+      ok: false,
+      status: 'suppression_check_unavailable',
+      requestAccepted: false,
+      errorCode: 'suppression_check_unavailable',
+      servedFromCache: false,
+    };
+  };
+
+  // Dep ausente = wiring incompleto. Fail-closed: no hay reveal sin comprobación
+  // de supresión, ni siquiera con el flag de caché apagado.
+  if (!deps.lookupPhoneCacheSuppression) {
+    return unavailable('suppression lookup not wired');
+  }
+
+  let state: PhoneCacheSuppressionState | null;
+  try {
+    state = await deps.lookupPhoneCacheSuppression({
+      provider: PHONE_CACHE_PROVIDER,
+      providerPersonId: personId,
+      accountId,
+    });
+  } catch (err) {
+    // FIX H4-c: el mensaje del driver puede citar los valores de la query
+    // (`providerPersonId`, o el teléfono/email de una fila vecina en un error de
+    // constraint). Se redacta con el MISMO redactor que el fast path; el error
+    // crudo nunca sale del core.
+    return unavailable(redactDriverMessage(err));
+  }
+
+  if (evaluatePhoneCacheSuppressionState(state) === 'suppressed') {
+    return {
+      ok: false,
+      status: 'blocked_suppressed',
+      requestAccepted: false,
+      errorCode: null,
+      servedFromCache: false,
+    };
+  }
+
+  return null;
+}
+
+// ── Fast path de caché (APOLLO-PHONE-CACHE-1b) ─────────────────
+
+/**
+ * Intenta servir el teléfono desde un reveal Apollo ya pagado en vez de llamar
+ * al proveedor. Corre DESPUÉS de `enforcePhoneRevealSuppression`, así que cuando
+ * llega aquí ya se sabe que no hay supresión; su propio chequeo de tombstone se
+ * conserva como defensa en profundidad. Devuelve:
+ *   * `RevealCandidatePhoneResult` cuando decide el desenlace — hit servido
+ *     (`revealed_from_cache`) o tombstone que bloquea (`blocked_suppressed`);
+ *   * `null` cuando NO decide nada y el reveal debe continuar por Apollo
+ *     (flag de caché apagado, sin deps cableadas, o cualquier miss).
+ *
+ * Reglas de política aplicadas aquí (todas fail-closed, todas ⇒ miss):
+ *   * sin `cacheEnabled` ⇒ ni siquiera se construye la clave (0 lecturas);
+ *   * sin Apollo person id válido (incluido un id Lusha `v1.*`) ⇒ miss;
+ *   * sin `account_id` ⇒ miss (no hay alcance de reutilización posible);
+ *   * sin país ISO-2 resoluble ⇒ miss (país desconocido = no reuso);
+ *   * la búsqueda es SIEMPRE por (provider, person, MISMA cuenta, MISMO país):
+ *     no existe consulta cross-account ni cross-country;
+ *   * entrada expirada (TTL 90d) ⇒ miss, y el hit NUNCA extiende el TTL.
+ *
+ * Un hit persiste el número con procedencia `apollo_cache`, 0 créditos y la base
+ * de tratamiento del operador, y registra `person_phone_cache_hit` sin PII.
+ *
+ * FIX H4-b — ningún efecto posterior al hit puede escalar a 500 ni degradar a
+ * Apollo. Los tres efectos están acotados y NINGUNO propaga la excepción:
+ *   * `persistCacheHit` falla ⇒ `cache_unavailable` / `cache_persist_failed`:
+ *     sin teléfono, sin usage-log, sin telemetría, sin Apollo, 0 créditos,
+ *     reintentable;
+ *   * `logCacheHitUsage` falla ⇒ el hit YA persistido se mantiene exitoso
+ *     (`revealed_from_cache`); solo se notifica la pérdida del log;
+ *   * `touchPhoneCacheEntry` falla ⇒ telemetría no crítica, silencio acotado.
+ */
+async function tryServeFromPhoneCache(args: {
+  candidate: RevealCandidateRecord;
+  candidateId: string;
+  basis: PhoneProcessingBasis;
+  note: string | null;
+  nextAttempt: number;
+  deps: RevealCandidatePhoneDeps;
+}): Promise<RevealCandidatePhoneResult | null> {
+  const { candidate, candidateId, basis, note, nextAttempt, deps } = args;
+
+  // Flag OFF o wiring ausente ⇒ camino Apollo intacto, sin ninguna lectura.
+  if (deps.cacheEnabled !== true) return null;
+  if (!deps.lookupPhoneCache || !deps.persistCacheHit || !deps.logCacheHitUsage) {
+    return null;
+  }
+
+  const personId = resolvePhoneCachePersonId({
+    apolloPersonId: candidate.apolloPersonId ?? null,
+    sourceProvider: candidate.source ?? null,
+    sourceContactId: candidate.sourceContactId,
+  });
+  if (!personId) return null;
+
+  const accountId = cleanText(candidate.accountId);
+  if (!accountId) return null;
+
+  const countryCode = resolvePhoneCacheCountryCode({
+    candidateCountry: candidate.candidateCountry ?? null,
+    runCompanyCountryCode: candidate.runCompanyCountryCode ?? null,
+  });
+  if (!countryCode) return null;
+
+  const key: PhoneCacheLookupKey = {
+    provider: PHONE_CACHE_PROVIDER,
+    providerPersonId: personId,
+    accountId,
+    countryCode,
+  };
+
+  // FIX H4: la lectura de caché puede fallar (tabla ausente, timeout, error de
+  // Postgres). NO se puede degradar a "miss" y llamar a Apollo: un tombstone de
+  // supresión podría existir sin haber sido visto, y revelar de nuevo violaría la
+  // supresión además de gastar créditos. Fail-closed y reintentable.
+  let found: PhoneCacheEntry | null;
+  try {
+    found = await deps.lookupPhoneCache(key);
+  } catch (err) {
+    deps.onCacheLookupUnavailable?.(redactDriverMessage(err));
+    return {
+      ok: false,
+      status: 'cache_unavailable',
+      requestAccepted: false,
+      errorCode: 'cache_unavailable',
+      servedFromCache: false,
+    };
+  }
+
+  const evaluation = evaluatePhoneCacheLookup(key, found, deps.nowIso);
+
+  // Tombstone: bloquea el hit Y el reveal automático. No se llama a Apollo y no
+  // se devuelve teléfono alguno.
+  if (evaluation.outcome === 'blocked_suppressed') {
+    return {
+      ok: false,
+      status: 'blocked_suppressed',
+      requestAccepted: false,
+      errorCode: null,
+      servedFromCache: false,
+    };
+  }
+
+  if (evaluation.outcome !== 'hit' || !evaluation.entry) return null;
+
+  const entry = evaluation.entry;
+  const phone = cleanText(entry.normalizedPhone);
+  // Defensa en profundidad: el evaluador ya exige teléfono, pero nunca
+  // persistimos un hit vacío — ante la duda, reveal normal.
+  if (!phone) return null;
+
+  const phoneType =
+    typeof entry.phoneType === 'string' && entry.phoneType.trim()
+      ? entry.phoneType.trim()
+      : 'unknown';
+
+  const phoneMetadata: ContactCandidatePhoneMetadata = {
+    number: phone,
+    type: phoneType as ContactCandidatePhoneMetadata['type'],
+    // Procedencia distinguible: NUNCA 'apollo_reveal' para un número reutilizado.
+    source: PHONE_CACHE_HIT_PHONE_SOURCE,
+    raw_type: null,
+  };
+
+  const patch: RevealCacheHitPersistencePatch = {
+    phone,
+    enrichment_metadata: {
+      ...candidate.enrichmentMetadata,
+      phone: phoneMetadata,
+    },
+    phone_reveal_status: 'revealed',
+    phone_reveal_provider: PHONE_REVEAL_PROVIDER,
+    phone_reveal_request_id: null,
+    phone_revealed_at: deps.nowIso,
+    phone_reveal_completed_at: deps.nowIso,
+    phone_revealed_by: deps.actor.internalUserId,
+    phone_reveal_cost_credits: PHONE_CACHE_HIT_CREDITS,
+    phone_reveal_cost_usd: 0,
+    phone_reveal_error_code: null,
+    phone_reveal_attempt_count: nextAttempt,
+    phone_processing_basis: basis,
+    phone_processing_basis_note: note,
+    apollo_person_id: personId,
+  };
+  // FIX H4-b: la persistencia del hit puede fallar (timeout, RLS, columna
+  // ausente, constraint). Un throw aquí escapaba del server action y terminaba
+  // en 500, sin decirle al operador que NO se llamó a Apollo ni se cobró nada.
+  // Fail-closed y reintentable: mismo estado seguro que un fallo de lectura, con
+  // errorCode propio. Sin persistencia NO hubo hit, así que tampoco se emite el
+  // usage-log ni la telemetría de reutilización, y el teléfono no se devuelve.
+  try {
+    await deps.persistCacheHit(candidateId, patch);
+  } catch (err) {
+    deps.onCacheHitPersistFailed?.(redactDriverMessage(err));
+    return {
+      ok: false,
+      status: 'cache_unavailable',
+      requestAccepted: false,
+      errorCode: 'cache_persist_failed',
+      servedFromCache: false,
+    };
+  }
+
+  // FIX H4-b: el teléfono YA quedó persistido con procedencia `apollo_cache`, 0
+  // créditos y la base de tratamiento del operador. Un fallo del usage-log no
+  // puede revertir eso ni escalar a 500: bloquearía al operador por una
+  // operación gratuita y lo empujaría a reintentar un reveal ya resuelto. El
+  // rastro de auditoría mínimo sobrevive en el candidato (procedencia + base +
+  // 0 créditos); la pérdida se observa por el notificador, sin PII.
+  try {
+    await deps.logCacheHitUsage(
+      buildPhoneCacheHitUsageLog({
+        candidateId,
+        accountId,
+        cacheEntryId: entry.id,
+        // El id del proveedor NUNCA se registra en claro: si no hay hasher
+        // inyectado se marca 'unavailable' en vez de degradar la garantía.
+        providerPersonIdHash: deps.hashProviderPersonId
+          ? deps.hashProviderPersonId(personId)
+          : 'unavailable',
+        actorUserId: deps.actor.internalUserId,
+        actorRole: deps.actor.roleKey ?? 'unknown',
+        phoneType,
+        originalRevealedAt: entry.originalRevealedAt,
+        processingBasis: basis,
+      }),
+    );
+  } catch (err) {
+    deps.onCacheHitUsageLogFailed?.(redactDriverMessage(err));
+  }
+
+  // Telemetría de reutilización (last_used_at + hit_count). Best-effort: el hit
+  // ya está persistido, así que un fallo aquí no puede revertirlo ni escalar.
+  // NO extiende el TTL.
+  if (deps.touchPhoneCacheEntry) {
+    try {
+      await deps.touchPhoneCacheEntry(entry.id, deps.nowIso);
+    } catch {
+      // Silencio deliberado y acotado: telemetría no crítica. El error real ya
+      // se observa en el store, y propagarlo rompería un reveal correcto.
+    }
+  }
+
+  return {
+    ok: true,
+    status: 'revealed_from_cache',
+    requestAccepted: false,
+    errorCode: null,
+    servedFromCache: true,
+  };
 }
 
 // ── Constructor del log de uso (sin PII) ───────────────────────
@@ -641,6 +1240,7 @@ function buildUsageLogEntry(args: {
   idForwardedToApollo: boolean;
   sourceProviderForId: string | null;
   trace: ApolloPhoneRevealTraceMetadata | null;
+  suppressionState: PhoneSuppressionAuditState;
 }): PhoneRevealUsageLogEntry {
   return {
     operationKey: PHONE_REVEAL_OPERATION_KEY,
@@ -656,6 +1256,9 @@ function buildUsageLogEntry(args: {
       provider: 'apollo',
       reveal_status: args.revealStatus,
       reveal_phase: 'start',
+      // FIX 4: desenlace de la comprobación de supresión. Queda constancia tanto
+      // de que se hizo como de que NO se pudo evaluar (`not_evaluable_*`).
+      suppression_state: args.suppressionState,
       request_id: args.requestId,
       has_request_id: Boolean(args.requestId),
       credits_used: null,

@@ -19,6 +19,10 @@ import {
   Agent1EffectivenessPanel,
   Agent1EffectivenessPanelSkeleton,
 } from './agent1-effectiveness-panel';
+import {
+  PhoneSuppressionNotEvaluablePanel,
+  PhoneSuppressionNotEvaluablePanelSkeleton,
+} from './phone-suppression-monitoring-card';
 import type { Agent1EffectivenessFilters } from '@/modules/agent1-effectiveness';
 import {
   getAiUsageSummary,
@@ -629,6 +633,13 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
       {!isRestricted && (
         <Suspense fallback={<Agent1EffectivenessPanelSkeleton />}>
           <Agent1EffectivenessPanel filters={agent1Filters} />
+        </Suspense>
+      )}
+
+      {/* ── Supresiones no evaluables (APOLLO-PHONE-CACHE-1b) ─ */}
+      {!isRestricted && (
+        <Suspense fallback={<PhoneSuppressionNotEvaluablePanelSkeleton />}>
+          <PhoneSuppressionNotEvaluablePanel />
         </Suspense>
       )}
 

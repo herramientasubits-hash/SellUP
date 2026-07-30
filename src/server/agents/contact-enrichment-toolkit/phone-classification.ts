@@ -35,6 +35,11 @@ export type PhoneType =
 export type PhoneSource =
   | 'apollo_search'
   | 'apollo_reveal'
+  // APOLLO-PHONE-CACHE-1b: teléfono reutilizado de un reveal Apollo ya pagado
+  // (misma cuenta, mismo país, TTL 90d). Deliberadamente distinto de
+  // `apollo_reveal`: un número reutilizado no es un reveal nuevo y debe ser
+  // siempre distinguible en el candidato, en la UI y en el contacto oficial.
+  | 'apollo_cache'
   | 'lusha_reveal'
   | 'provider_payload'
   | 'manual'
