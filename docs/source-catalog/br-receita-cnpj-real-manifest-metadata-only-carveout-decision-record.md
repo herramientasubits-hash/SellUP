@@ -2,7 +2,7 @@
 
 **Source family:** Brazil — Receita Federal do Brasil (RFB), Cadastro Nacional da Pessoa Jurídica (CNPJ) — Dados Abertos (bulk)
 **Milestone:** BR-SOURCE-11D-META — Real manifest metadata-only carve-out decision record (docs-only)
-**Status:** `official_and_option_b_authorized` — the record is merged and its § 9 owner phrase has been given. Still **not** a gate approval, and **not** a real-data-file / row-read / join-coverage / import / execution / migration authorization
+**Status:** `official_and_option_b_authorized_and_executed` — the record is merged, its § 9 owner phrase has been given, and BR-SOURCE-11E executed it metadata-only against one operator-prepared manifest document (§ 15). Still **not** a gate approval, and **not** a real-data-file / row-read / join-coverage / import / migration authorization
 **Predecessor:** BR-SOURCE-11C-LAND — `BRSOURCE11CLANDA — OPTION_B_SYNTHETIC_TEMP_MANIFEST_DRY_RUN_MERGED` (PR #166, `main` HEAD `5b7b77c0571419d9d62d97db12e0ea4559b79102`), validated post-merge by BR-SOURCE-11C-V — `BRSOURCE11CVA — POST_MERGE_OPTION_B_SYNTHETIC_TEMP_MANIFEST_VALIDATION_PASSED`
 **Last reviewed:** 2026-07-30
 
@@ -37,10 +37,11 @@
 > integration, a provider call, a HubSpot sync, a Slack notification, live generation, full
 > expansion, or merge to an operational state.
 >
-> **No real operator manifest has been read by any SellUp code path.** The metadata-only code path is
-> implemented and exercised against **synthetic** manifests that the test suite and the validation
-> step wrote themselves. Executing a real prepared file set remains a separate operator step, and the
-> real prepared basenames stay refused (§ 14.3).
+> **AMENDED AGAIN 2026-07-30 (BR-SOURCE-11E).** Where § 14.3 says no real operator manifest has been
+> read and the real prepared basenames stay refused, read § 15: one operator-prepared manifest
+> **document** has now been executed metadata-only, under a separate declaration that relaxes only
+> which document may be named. Everything else in § 14.3 stands — no referenced file was opened or
+> stat-ed, no row was read, no join was computed, and no gate moved.
 
 ---
 
@@ -49,8 +50,11 @@
 ```text
 Decision record status: official (merged as PR #167, main HEAD 1aaab1d)
 Owner authorization:    GIVEN — "AUTHORIZE OPTION B — REAL MANIFEST METADATA-ONLY CARVE-OUT"
+                        GIVEN — real manifest metadata-only EXECUTION (BR-SOURCE-11E, § 15)
 Implementation status:  implemented by BR-SOURCE-11D-META-IMPL (see § 14)
-Current GO/NO-GO:       GO for manifest metadata-only parsing; NO-GO for everything else
+                        executed against one operator-prepared manifest by BR-SOURCE-11E (§ 15)
+Current GO/NO-GO:       GO for manifest metadata-only parsing, including the operator's own
+                        manifest DOCUMENT; NO-GO for everything else
 ```
 
 Explicitly — and none of this changed when Option B was authorized:
@@ -850,6 +854,94 @@ truncated).
 A green metadata-only run is evidence that a manifest is **well-formed**. It is **not** evidence
 about the dataset, its coverage, its join rates, its eligibility, GATE-1, or GATE-2. Any report that
 cites it otherwise is wrong.
+
+---
+
+## 15. BR-SOURCE-11E — the operator's manifest, executed metadata-only
+
+§ 14.3 held back exactly one thing: the code path was proven, but the operator's own prepared
+manifest stayed refused by staging-directory segment and by basename, so every number in § 14
+described a document the test suite had written moments earlier. BR-SOURCE-11E is the step that
+closes that gap, and only that gap.
+
+```text
+Authorization spent:  real manifest metadata-only EXECUTION (which DOCUMENT may be named)
+Not authorized:       opening a referenced file, a row read, join coverage, a dataset download,
+                      full-dataset processing, import, a Supabase write, a migration, an index
+                      change, a runtime change, an Agent 1 integration, a provider call, a
+                      HubSpot sync, a Slack notification, or any gate approval
+Gates moved:          none. All eight remain not_started / not approved.
+```
+
+### 15.1 What landed
+
+| Piece | Where | What it does |
+|---|---|---|
+| Reader declaration | `realManifestMetadataOnlyExecutionAuthorized` | Relaxes the staging-segment and prepared-basename path lists — nothing else. A URL, a non-`.json` path and an empty path stay refused on it. |
+| Scan field | reader: `operatorPreparedManifestAuthorized` | States whether the waiver was actually SPENT, so the fact travels with the read rather than with the caller's claim. |
+| Runner declaration | `realManifestMetadataOnlyExecutionAuthorized` | Provenance only — the runner resolves no paths. Reported as `real_manifest_metadata_only_execution_authorized`. |
+| Cross-check | runner: `real_manifest_metadata_execution_not_authorized` | A scan that spent the waiver on a run that never declared it is refused, with **no** metadata block and every count zero. |
+| Report field | `manifest_metadata.operator_prepared_manifest_authorized` | Derived from the reader's report, so the block cannot overclaim. |
+| CLI flag | `--real-manifest-metadata-execution` | Valid ONLY with `--real-manifest-metadata-only`. `--output` keeps every refusal it already had. |
+| Tests | `br-receita-cnpj-real-manifest-metadata-execution.test.ts` | 37 tests: what the waiver relaxes, what it does not, the instrumented single-descriptor invariant with referenced files materialized on disk, the runner cross-check, and the CLI surface. |
+
+### 15.2 The three authorizations, still non-transferable
+
+```text
+optionBCarveoutAuthorized                      → synthetic temp manifest only (§ 11)
+realManifestMetadataOnlyOptionBAuthorized      → metadata-only parsing        (§ 14)
+realManifestMetadataOnlyExecutionAuthorized    → which DOCUMENT may be named  (§ 15)
+```
+
+None satisfies another's gate. The 11E flag alone is refused with
+`manifest_metadata_not_authorized` at the reader and `real_manifest_metadata_only_not_authorized`
+at the runner gate; declared on a synthetic-temp run it buys nothing at all.
+
+### 15.3 The executed run
+
+One operator-prepared manifest document, `--strict`, both caps stated, no `--output` (so no artifact
+was written anywhere). Sanitized aggregate result — every field below is a boolean, a count, or a
+class label:
+
+```text
+ok                                    true      exit code 0      errors []
+manifest_trust                        real_manifest_metadata_only
+option_b_carveout_authorized          false
+metadata_only_option_b_authorized     true
+metadata_only_execution_authorized    true
+operator_prepared_manifest_authorized true
+layout_mode                           official_headerless
+schema_version_present                true
+source_period_present                 true      (presence only — the value is never reported)
+declared_file_count                   5
+required_family_count                 2         missing_required_family_count 0
+forbidden_family_count                0         forbidden_families_present    false
+declared_family_counts                empresas 1, estabelecimentos 1, simples 0,
+                                      cnaes 1, municipios 1, naturezas 1, other 0
+manifest_bytes_read_bucket            lte_1mb
+referenced_data_files_opened          false     referenced_data_files_statted false
+raw_manifest_printed                  false     absolute_paths_printed        false
+aggregate / eligibility / join counts all zero
+guardrail_counts                      all zero
+decision_status                       8 × not_approved
+run_scope / safety                    every flag false
+cleanup                               not_needed, 0 artifacts
+```
+
+The manifest itself was **not** committed, and neither was the report: the manifest lives only in the
+operator's own location, and the run wrote nothing.
+
+### 15.4 What § 15 does NOT establish — § 14.4 restated, because it now matters more
+
+The run says the operator's manifest is **well-formed**: five declared files, both required families
+present, no Sócios / QSA / CPF family declared, headerless layout stated. That is a statement about a
+control document.
+
+It is **not** a statement about the dataset. No file the manifest references was opened or stat-ed.
+No row was read, parsed, counted, or hashed. No join was computed, and **no coverage figure about the
+real dataset exists**. Sections 4, 7, 8 and 10 remain the binding boundaries, caps and blocked list;
+§ 15 widened one item in § 7's path policy and nothing else in any of them. GATE-1 and GATE-2 are
+still exactly what reading a real Receita data file would require, and neither is approved.
 
 ---
 

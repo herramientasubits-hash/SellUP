@@ -1304,12 +1304,115 @@ declared_filename_payload   — a file_name / manifest_path / basename key with 
 
 The real prepared manifest basenames (`manifest.headerless.json`, `manifest.real.json`) stay refused
 on this flag as well as the old ones: the code path is proven with **synthetic** metadata manifests,
-and executing an operator's real prepared file set is a separate operator step.
+and executing an operator's real prepared file set is a separate operator step. **Superseded by
+§ 27**, which is that step; without the § 27 declaration this paragraph still holds exactly.
 
 ### 26.6 What this section does NOT establish
 
-No real operator manifest has been read by any SellUp code path. No file referenced by any manifest
-has been opened or stat-ed. No row has been read, parsed, counted, or hashed. No join has been
-computed over real data. **No coverage figure about the real dataset exists**, and a green
-metadata-only run is not citable as GATE-1 or GATE-2 evidence, or as evidence about the dataset's
-coverage, join rates, or eligibility. All eight gates remain `not_started` / not approved.
+No file referenced by any manifest has been opened or stat-ed. No row has been read, parsed, counted,
+or hashed. No join has been computed over real data. **No coverage figure about the real dataset
+exists**, and a green metadata-only run is not citable as GATE-1 or GATE-2 evidence, or as evidence
+about the dataset's coverage, join rates, or eligibility. All eight gates remain `not_started` / not
+approved. (As of § 27 the first sentence of this paragraph — "no real operator manifest has been
+read" — no longer holds for the manifest DOCUMENT; everything else in it does.)
+
+---
+
+## 27. BR-SOURCE-11E — operator-prepared manifest, executed metadata-only
+
+BR-SOURCE-11E spends one narrow declaration on top of § 26: this run may name the **operator's own
+prepared manifest document** instead of a synthetic one.
+
+It authorizes only which manifest DOCUMENT may be named.
+It does not authorize opening referenced Receita data files.
+It does not authorize row reads.
+It does not authorize join coverage.
+It does not relax a cap, `--strict`, or the sanitization declaration.
+It does not approve any gate.
+It does not authorize import, Supabase writes, runtime, or Agent 1.
+
+### 27.1 The third flag, and why it is separate
+
+```text
+reader:  realManifestMetadataOnlyExecutionAuthorized   (which document may be named)
+runner:  realManifestMetadataOnlyExecutionAuthorized   (provenance + cross-check)
+CLI:     --real-manifest-metadata-execution            (valid ONLY with
+                                                        --real-manifest-metadata-only)
+```
+
+Three authorizations now exist, and none substitutes for another: `optionBCarveoutAuthorized`
+(§ 24), `realManifestMetadataOnlyOptionBAuthorized` (§ 26), and this one. The 11E flag alone is
+refused with `manifest_metadata_not_authorized` at the reader and with
+`real_manifest_metadata_only_not_authorized` at the runner gate.
+
+### 27.2 Exactly two checks are relaxed
+
+```text
+relaxed  — the staging-directory segment list, for --manifest only
+relaxed  — the prepared-basename list, for --manifest only
+UNCHANGED — URL refusal, .json requirement, empty-path refusal
+UNCHANGED — both metadata caps (required, and refused above their ceilings)
+UNCHANGED — --strict, the output-sanitization declaration, the forbidden-flag list
+UNCHANGED — --output: both refusals apply on every flag, plus repository containment
+UNCHANGED — one descriptor, on the manifest; no stat, no listing, no second path
+UNCHANGED — forbidden-family, missing-family and layout-mode refusals
+```
+
+### 27.3 The cross-check: two declarations that must agree
+
+The runner resolves no paths, so it cannot enforce the waiver — the reader does. What the runner
+enforces is agreement. The reader reports `operatorPreparedManifestAuthorized`, and:
+
+```text
+scan claims true + run did not declare it  ⇒ real_manifest_metadata_execution_not_authorized
+                                             (ok: false, manifest_metadata: null, counts zero)
+scan claims true + run declared it         ⇒ accepted
+scan claims false + run declared it        ⇒ accepted; the report states declared=true, spent=false
+```
+
+`manifest_metadata.operator_prepared_manifest_authorized` is derived from the **reader's** report,
+never from the caller's declaration, so the block cannot overclaim a waiver that was not spent.
+
+### 27.4 The executed run
+
+One real operator-prepared manifest was executed metadata-only, `--strict`, both caps stated, no
+`--output`. The sanitized aggregate result:
+
+```text
+ok                                    true      exit code 0
+manifest_trust                        real_manifest_metadata_only
+option_b_carveout_authorized          false
+metadata_only_option_b_authorized     true
+metadata_only_execution_authorized    true
+layout_mode                           official_headerless
+schema_version_present                true
+source_period_present                 true      (presence only; the value is not reported)
+declared_file_count                   5
+required_family_count                 2         missing_required_family_count 0
+forbidden_family_count                0         forbidden_families_present    false
+declared_family_counts                empresas 1, estabelecimentos 1, simples 0,
+                                      cnaes 1, municipios 1, naturezas 1, other 0
+manifest_bytes_read_bucket            lte_1mb
+operator_prepared_manifest_authorized true
+referenced_data_files_opened          false     referenced_data_files_statted false
+raw_manifest_printed                  false     absolute_paths_printed        false
+aggregate / eligibility / join counts all zero
+guardrail_counts                      all zero (0 no-write violations, 0 sanitizer findings)
+decision_status                       8 × not_approved
+run_scope / safety                    every flag false
+cleanup                               not_needed, 0 artifacts
+errors                                []
+```
+
+### 27.5 What § 27 does NOT establish
+
+The run says the operator's manifest is **well-formed**: it declares five files, covers both required
+families, declares no Sócios/QSA/CPF family, and states the headerless layout. That is a statement
+about a control document and nothing else.
+
+No file the manifest references was opened or stat-ed. No row was read, parsed, counted, or hashed.
+No join was computed. **No coverage figure about the real dataset exists.** No dataset was
+downloaded, imported, or processed; no Supabase write, migration, index change, runtime hop, Agent 1
+integration, or provider call occurred; no report artifact was written. All eight gates remain
+`not_started` / not approved, and a green metadata-only run is not citable as GATE-1 or GATE-2
+evidence, or as evidence about the dataset's coverage, join rates, or eligibility.
