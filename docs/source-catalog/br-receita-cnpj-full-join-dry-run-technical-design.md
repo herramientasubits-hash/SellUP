@@ -1537,3 +1537,26 @@ eligibility, and no coverage figure or ratio is emitted even though bounded arit
 one. The authorization is single-milestone and expires with it.
 
 Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).
+
+---
+
+## 30. BR-SOURCE-11G — the next decision question, still no real join execution
+
+BR-SOURCE-11G defines the next decision question: whether an ultra-bounded required-family real join
+probe can be authorized. It does not authorize real join execution by itself. It does not authorize
+join coverage. It does not authorize import. It does not approve any gate.
+
+```text
+11F-IMPL opened two required-family files and parsed them structurally (§ 29).
+11G records the question of whether the protected technical join key may be parsed ephemerally from
+  those same two capped windows, compared in memory, and reported as a coarse bucket only.
+Its own status is proposed_for_owner_review, and its recommended option requires a separate,
+  exactly-worded owner phrase after it merges.
+```
+
+Nothing in § 29 changes. The probe's held-absence assertions `joins_executed = false` and
+`join_coverage_computed = false` remain the merged behaviour, no fifth manifest trust exists, the
+BR-SOURCE-10G/10H join and coverage designs remain designs rather than authorizations, and GATE-1 and
+GATE-2 retain sole authority over dataset processing.
+
+Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).

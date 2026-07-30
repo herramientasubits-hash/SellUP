@@ -929,3 +929,25 @@ placeholder — never a real value and never a real location. No secrets, no dat
 no CNPJ básico values, no CPFs, and no partner (sócio) personal data are reproduced. Local WIP
 (`scratchpad/`) and the unrelated in-progress work on the main worktree are untouched by any git
 operation: this milestone was prepared in an isolated worktree branched from `origin/main`.
+
+---
+
+## 16. BR-SOURCE-11G — the successor question, and what it does not inherit
+
+BR-SOURCE-11G defines the next decision question: whether an ultra-bounded required-family real join
+probe can be authorized. It does not authorize real join execution by itself. It does not authorize
+join coverage. It does not authorize import. It does not approve any gate.
+
+Three points matter for *this* record specifically:
+
+- **This record's Option E is 11G's subject, split in two.** § 14 mapped Option E to "BR-SOURCE-11G
+  (new)". That successor record narrows it to a probe (its Option C, recommended) and defers coverage
+  again, to BR-SOURCE-11H.
+- **This record's Option C phrase does not carry over.** It was spent on the required-family
+  *data-file* probe and was single-milestone by § 7.1. The successor's phrase names the **join** probe
+  and differs by two words; neither substitutes for the other.
+- **The § 13 flags stay exactly as written above.** `OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_PROBE_*` and
+  `OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED` remain scoped to opening two files to count
+  columns; they are not partial credit toward a join, and `joins_executed` stayed `false` throughout.
+
+Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).
