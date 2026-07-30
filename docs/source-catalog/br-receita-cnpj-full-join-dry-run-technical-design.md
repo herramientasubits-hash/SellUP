@@ -1160,3 +1160,26 @@ Nothing here is citable as GATE-1 or GATE-2 evidence.
 OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED stays false.
 All eight gates remain not_started / not approved.
 ```
+
+---
+
+## 25. BR-SOURCE-11D-META — the next decision question, still no real input
+
+BR-SOURCE-11D-META defines the next decision question: whether real manifest metadata-only parsing
+can be authorized. It does not authorize real manifest reading by itself. It does not authorize
+data-file execution. It does not approve any gate.
+
+```text
+Option B (11C, § 24) covers synthetic temp-manifest execution only.
+11D-META asks whether ONE real manifest may be opened as a control document — metadata only,
+no referenced file opened, aggregate-only sanitized output.
+Answer pending. No real manifest has been read.
+```
+
+If that question is answered affirmatively, the § 22.2 `local_manifest_dry_run` gate gains a second
+accepted trust level and a second reader-port implementation whose defining invariant is that it
+resolves **exactly one** path — the manifest — with no code path that opens a second file. Until
+then, § 24.2's trust check remains the only accepted value and every other manifest is refused as
+`local_manifest_execution_not_authorized`.
+
+Record: [`br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md`](./br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md).
