@@ -588,6 +588,10 @@ export function ContactCandidateDetailSheet({
   const phoneRevealInFlight =
     candidate?.phone_reveal_status === 'requested' ||
     candidate?.phone_reveal_status === 'pending';
+  // Última comprobación del recovery (RECOVERY-CRON-1). Solo informativa: se
+  // muestra mientras el reveal está en vuelo para que el usuario sepa que hay algo
+  // vigilando el caso. NO reactiva el botón ni cambia la elegibilidad.
+  const phoneRevealLastCheckedAt = candidate?.phone_reveal_last_checked_at ?? null;
   const canOfferPhoneReveal =
     !!candidate &&
     phoneRevealEnabled === true &&
@@ -820,15 +824,32 @@ export function ContactCandidateDetailSheet({
                     <Fallback />
                   )}
                   {phoneRevealInFlight && (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold">
-                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        Revelación en proceso
-                      </Badge>
-                      <span className="text-[11px] text-muted-foreground">
-                        Apollo puede tardar algunos minutos.
+                    <div className="space-y-1">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold">
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          Revelación en proceso
+                        </Badge>
+                        {/* Copy honesto (RECOVERY-CRON-1): el resultado NO llega
+                            por esta pantalla. El webhook de Apollo puede no
+                            aterrizar nunca; quien cierra el caso es el recovery
+                            programado del servidor. Antes decía solo "Apollo puede
+                            tardar algunos minutos", lo que hacía pensar que el
+                            spinner se resolvería solo si se esperaba aquí. */}
+                        <span className="text-[11px] text-muted-foreground">
+                          Apollo puede tardar. SellUp revisará automáticamente el
+                          resultado.
+                        </span>
                       </span>
-                    </span>
+                      {phoneRevealLastCheckedAt && (
+                        <p className="text-[11px] text-muted-foreground/70">
+                          Última revisión: {formatDate(phoneRevealLastCheckedAt)}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground/70">
+                        Vuelve a abrir el candidato más tarde para ver el resultado.
+                      </p>
+                    </div>
                   )}
                   {phoneRevealExhausted && !phoneRevealInFlight && (
                     <p className="text-[11px] text-muted-foreground">

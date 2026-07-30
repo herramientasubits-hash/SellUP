@@ -827,8 +827,11 @@ describe('FIX 3 — contrato estático', () => {
   const webhookRoute = read(
     'src/app/api/integrations/apollo/phone-reveal/webhook/route.ts',
   );
+  // Cableado de deps del recovery. Se extrajo del action a
+  // `phone-reveal-recovery-deps.ts` (RECOVERY-CRON-1) para compartirlo entre el
+  // action ADMIN y el cron programado: el wrapper que cablea la supresión es este.
   const recoveryActions = read(
-    'src/modules/contact-enrichment/phone-reveal-recovery-actions.ts',
+    'src/modules/contact-enrichment/phone-reveal-recovery-deps.ts',
   );
 
   const guardCode = code(guard);

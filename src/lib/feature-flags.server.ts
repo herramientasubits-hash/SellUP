@@ -257,6 +257,39 @@ export function isLushaPhoneRevealEnabled(): false {
 }
 
 // ============================================================
+// Apollo Phone Reveal Recovery L2 cron (Agente 2A · RECOVERY-CRON-1)
+// ============================================================
+
+/** Flag name constant for the scheduled Apollo phone-reveal recovery (L2). */
+export const APOLLO_PHONE_REVEAL_RECOVERY_CRON_FLAG =
+  'ENABLE_APOLLO_PHONE_REVEAL_RECOVERY_CRON';
+
+/**
+ * Returns true when ENABLE_APOLLO_PHONE_REVEAL_RECOVERY_CRON is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Default: false, fail-closed. Gates ONLY the scheduled trigger of the already
+ * merged recovery core (`/api/cron/phone-reveal-recovery`): with the flag OFF the
+ * endpoint authenticates the caller and then returns 200 `disabled` without
+ * selecting candidates, without the Apollo `webhook_result` GET and without any
+ * write. Deploying this milestone therefore starts no polling by itself.
+ *
+ * When ON, each run recovers up to 5 (hard cap 10) Apollo reveals that stayed
+ * in-flight for at least 15 minutes because the webhook never landed, with ONE GET
+ * per candidate per run, no retry loop, no new reveal and 0 new credits — it only
+ * reads a result a previously authorized reveal already produced. Unrelated to
+ * ENABLE_APOLLO_PHONE_REVEAL (which gates the START, i.e. the creation of new
+ * reveals) and to ENABLE_APOLLO_PHONE_CACHE. Suppression tombstones are enforced
+ * inside the recovery core regardless of every one of these flags.
+ */
+export function isApolloPhoneRevealRecoveryCronEnabled(): boolean {
+  return (
+    process.env[APOLLO_PHONE_REVEAL_RECOVERY_CRON_FLAG]?.trim().toLowerCase() ===
+    'true'
+  );
+}
+
+// ============================================================
 // Lusha Company Discovery Preview (Agente 1 · Q3F-5BB.3 / 10C2)
 // ============================================================
 

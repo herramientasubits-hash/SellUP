@@ -497,10 +497,20 @@ describe('recovery runtime — batch', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('recovery runtime — contrato estático', () => {
-  const actionsSrc = readFileSync(
+  // El cableado real del recovery se extrajo del action a
+  // `phone-reveal-recovery-deps.ts` (RECOVERY-CRON-1) para que lo compartan el
+  // action ADMIN y el cron programado. Los invariantes de este bloque son del
+  // CABLEADO, no del archivo: se verifican sobre los dos módulos juntos, así que
+  // los checks negativos ahora cubren también el módulo nuevo.
+  const actionsFileSrc = readFileSync(
     join(REPO_ROOT, 'src/modules/contact-enrichment/phone-reveal-recovery-actions.ts'),
     'utf8',
   );
+  const depsFileSrc = readFileSync(
+    join(REPO_ROOT, 'src/modules/contact-enrichment/phone-reveal-recovery-deps.ts'),
+    'utf8',
+  );
+  const actionsSrc = `${actionsFileSrc}\n${depsFileSrc}`;
   const runtimeSrc = readFileSync(
     join(REPO_ROOT, 'src/modules/contact-enrichment/phone-reveal-recovery-runtime-core.ts'),
     'utf8',
