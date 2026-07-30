@@ -1476,3 +1476,94 @@ document. Every field name, key shape, digit-length reference, enum member, erro
 shown here is a schema name, a class label, a length rule, a zero, a `false`, or an explicit
 placeholder — never a real value. The forbidden key-name references inherited from 10O § 5.2 are
 **column and field names**, not data. Local WIP (`scratchpad/`) is untouched by any git operation.
+
+---
+
+## 19. BR-SOURCE-11A — runner scaffold landed, gates unchanged
+
+BR-SOURCE-11A implements a local no-write/no-runtime runner scaffold with
+synthetic-fixture tests only.
+
+It does not approve any gate.
+It does not authorize real dataset execution.
+It does not authorize import.
+It does not authorize Supabase writes.
+It does not authorize runtime or Agent 1.
+
+### 19.1 Gate status after BR-SOURCE-11A — UNCHANGED
+
+```text
+GATE-1 Legal/Privacy                = not_started / not approved
+GATE-2 Temporary storage envelope   = not_started / not approved
+GATE-3 Field allowlist              = not_started / not approved
+GATE-4 Identity grain               = not_started / not approved
+GATE-5 Output sanitization          = not_started / not approved
+GATE-6 Failure cleanup              = not_started / not approved
+GATE-7 Operator runbook             = not_started / not approved
+GATE-8 No-write/no-runtime          = not_started / not approved
+```
+
+Code existing for a gate's *mechanism* is **not** the gate's approval. BR-SOURCE-11A implements
+the no-write guard (GATE-8's mechanism), the output sanitizer (GATE-5's mechanism), and the
+failure-cleanup model (GATE-6's mechanism); all three remain **not approved**, and the runner
+asserts `not_approved` for all eight gates in every report it emits.
+
+### 19.2 Why the code landed before the approvals
+
+This hito implements code ahead of formal gate approval as a deliberate project-velocity decision.
+That is treated as a **stronger** safety constraint, not a weaker one:
+
+```text
+Code permitted    = local no-write/no-runtime runner, synthetic fixtures, hard guards.
+Real execution    = NOT authorized.
+Import            = NOT authorized.
+Supabase          = NOT authorized.
+Runtime           = NOT authorized.
+Agent 1           = NOT authorized.
+```
+
+The structural consequence is that `local_manifest_dry_run` is declared but always refuses with
+`local_manifest_execution_not_authorized`, so the runner performs **no filesystem read at all**
+until GATE-1 and GATE-2 are approved.
+
+### 19.3 Flags after BR-SOURCE-11A
+
+```text
+OPS_BR_FULL_JOIN_DRY_RUN_RUNNER_SCAFFOLD_PR_READY  = true
+OPS_BR_FULL_JOIN_DRY_RUN_RUNNER_SCAFFOLD_OFFICIAL  = false
+
+FULL_JOIN_RUNNER_READY                             = false   (until merged)
+FULL_JOIN_EXECUTION_READY                          = false
+IMPORT_READY                                       = false
+RUNTIME_READY                                      = false
+AGENT1_READY                                       = false
+
+OPS_BR_READY_FOR_IMPORT                            = false
+OPS_BR_READY_FOR_PRODUCTION_IMPORT                 = false
+OPS_BR_READY_FOR_RUNTIME                           = false
+OPS_BR_LIVE_PROSPECT_GENERATION_READY              = false
+OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED      = false
+```
+
+### 19.4 Safety confirmation for this hito
+
+BR-SOURCE-11A adds code, tests, a CLI, a package test script and these doc notes. It does **not**:
+
+- download, unzip, or import a dataset;
+- execute the real dataset, open a real manifest, or read any file from the runner core;
+- commit a real manifest, dataset, or report;
+- write to Supabase or perform any production write;
+- create or modify a migration, or create/alter/validate an index;
+- write to `source_company_snapshots`;
+- read any environment variable or construct any client;
+- integrate runtime, Agent 1, HubSpot, Slack, or any provider;
+- change UI;
+- construct or print a `record_identity_key` or `normalized_tax_id`;
+- print a row, a full CNPJ, a CNPJ básico, a CPF, a name, an address, a contact, or a join key;
+- emit a hash, truncation, or fingerprint derived from any identifier;
+- use MCP, admin bypass, or self-approval;
+- activate Brazil, approve any gate, or mark Brazil ready for import, runtime, or Agent 1;
+- edit `MEMORY.md`;
+- merge.
+
+Local WIP (`scratchpad/`) is untouched by any git operation.
