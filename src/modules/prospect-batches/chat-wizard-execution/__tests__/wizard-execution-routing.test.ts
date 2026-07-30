@@ -88,6 +88,9 @@ function makeBaseDeps(overrides: Partial<WizardExecutionDeps> = {}): WizardExecu
     getActiveUserId: async () => USER_ID,
     resolveCatalog: async () => CATALOG_RESULT,
     checkTavilyAvailability: async () => true,
+    // A1-APOLLO-WIZARD-1: el preflight de Apollo falla cerrado, así que las
+    // pruebas que ejercitan la ruta Apollo deben declararlo disponible.
+    checkApolloAvailability: async () => ({ available: true } as const),
     reserveBudget: async () => ({ status: 'reserved', reservationId: 'res-001', creditsReserved: 20 }),
     confirmBudget: async () => ({ status: 'confirmed' as const }),
     releaseBudget: async () => ({ status: 'released' as const }),

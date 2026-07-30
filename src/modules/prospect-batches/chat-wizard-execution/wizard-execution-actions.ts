@@ -3,7 +3,10 @@
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
-import { isProspectChatWizardExecutionEnabled } from '@/lib/feature-flags.server';
+import {
+  isProspectChatWizardExecutionEnabled,
+  isApolloCompanySearchEnabled,
+} from '@/lib/feature-flags.server';
 import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
 import { WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
@@ -12,6 +15,16 @@ import type { WizardExecutionActionResult, ResolvedWizardExecution } from './wiz
 import { reserveWizardExecutionSlot } from './wizard-idempotency';
 import type { WizardExecutionReservationInput, WizardExecutionReservationResult, IdempotencyDbClient } from './wizard-idempotency';
 import { isTavilyConfiguredForWizard } from './wizard-availability';
+// A1-APOLLO-WIZARD-1 — preflight de Apollo. Antes, con Apollo seleccionado y
+// sin credencial, la ejecución reservaba presupuesto y lote y sólo entonces el
+// provider devolvía `skipped`; como la reconciliación es conservadora, eso
+// consumía cupo del piloto sin haber llamado nunca a Apollo.
+import {
+  evaluateWizardApolloAvailability,
+  buildWizardApolloSkippedResult,
+  logWizardApolloSkipped,
+  type WizardApolloAvailability,
+} from './wizard-apollo-availability';
 import { runWizardTavilySearch } from './wizard-tavily-executor';
 import type { WizardTavilyRunner, WizardTavilyInput } from './wizard-tavily-executor';
 import { runWizardApolloSearch } from './wizard-apollo-executor';
@@ -32,9 +45,12 @@ import {
 import {
   resolveProviderRoutingPlan,
   buildProviderRoutingMetadata,
+  getProviderDescriptor,
+  DEFAULT_PROVIDER_REGISTRY,
   BATCH_PROVIDER_ROUTING_KEY,
   type ProviderRoutingEnvironment,
 } from '@/modules/prospect-batches/provider-routing';
+import { hasApolloApiKey } from '@/server/services/apollo-connection';
 import { markWizardBatchFailed } from './wizard-batch-failure';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
@@ -68,6 +84,12 @@ export type WizardExecutionDeps = {
   getActiveUserId: () => Promise<string>;
   resolveCatalog: (input: CatalogResolutionInput) => Promise<CatalogResolutionOutput>;
   checkTavilyAvailability: () => Promise<boolean>;
+  /**
+   * A1-APOLLO-WIZARD-1: preflight de Apollo. Se ejecuta ANTES de cualquier
+   * reserva. Opcional para no romper a los tests que sólo ejercitan Tavily; si
+   * falta y Apollo es el proveedor seleccionado, se falla cerrado.
+   */
+  checkApolloAvailability?: () => Promise<WizardApolloAvailability>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
   reserveBudget: (input: {
     userId: string;
@@ -102,6 +124,39 @@ export type WizardExecutionDeps = {
 
 const BOGOTA_TIMEZONE = 'America/Bogota';
 
+/**
+ * A1-APOLLO-WIZARD-1 — rol admitido para discovery de empresas con Apollo.
+ *
+ * Refleja la misma regla que ya gobierna la ruta legacy (`admin`), resuelta
+ * aquí en vez de importarse desde el módulo de acciones de 4k líneas. Falla
+ * cerrado: un rol ilegible no es un rol admitido.
+ */
+async function resolveIsApolloDiscoveryRolePermitted(): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    const { data: internalUser } = await supabase
+      .from('internal_users')
+      .select('id, role_id')
+      .eq('auth_user_id', user.id)
+      .eq('access_status', 'active')
+      .single();
+    if (!internalUser) return false;
+
+    const { data: role } = await supabase
+      .from('roles')
+      .select('key')
+      .eq('id', internalUser.role_id)
+      .single();
+
+    return role?.key === 'admin';
+  } catch {
+    return false;
+  }
+}
+
 // Budget RPC functions (try_reserve_wizard_credits, confirm_wizard_credits, release_wizard_credits)
 // and the wizard_budget_reservations table are REVOKE'd from the `authenticated` role — they require
 // service_role. The user-session client (publishable key) cannot call them.
@@ -127,6 +182,34 @@ export async function executeProspectWizardGenerationAction(
     },
     resolveCatalog: (input) => resolveWizardCatalog(input, supabase),
     checkTavilyAvailability: isTavilyConfiguredForWizard,
+
+    // A1-APOLLO-WIZARD-1 — preflight real. Ninguna comprobación llama a Apollo
+    // ni gasta créditos: sólo verifica flag, capability, rol, presupuesto,
+    // configuración y presencia de credencial.
+    checkApolloAvailability: () =>
+      evaluateWizardApolloAvailability({
+        isFeatureEnabled: isApolloCompanySearchEnabled,
+        // La capability del catálogo debe declarar company discovery viva para
+        // Apollo; un descriptor ausente o inactivo omite el proveedor.
+        isProviderCapabilityAvailable: async () => {
+          const descriptor = getProviderDescriptor(DEFAULT_PROVIDER_REGISTRY, 'apollo');
+          if (!descriptor?.supportsCompanySearch) return false;
+          return resolveRoutingEnvironment() === 'production'
+            ? descriptor.canRunInProduction
+            : descriptor.canRunInPreview;
+        },
+        isRolePermitted: resolveIsApolloDiscoveryRolePermitted,
+        // El tope real lo aplica la reserva atómica de presupuesto (paso 7);
+        // aquí sólo se verifica que exista una estimación positiva que reservar.
+        hasBudgetAvailable: async () =>
+          estimateCreditsForProvider('apollo_organizations') > 0,
+        // Misma señal para ambas: en este repo la conexión Apollo ES la
+        // credencial en Vault. Comprueba presencia; nunca llama a Apollo ni
+        // devuelve el valor de la clave.
+        isProviderConfigured: hasApolloApiKey,
+        hasCredential: hasApolloApiKey,
+        logSkip: logWizardApolloSkipped,
+      }),
 
     reserveBudget: async ({ userId, clientRequestId, requestedCredits }) => {
       const periodStart = getPilotBudgetPeriodStart(BOGOTA_TIMEZONE);
@@ -314,6 +397,47 @@ export async function executeProspectWizardGeneration(
         code: 'GENERATION_FAILED',
         message: 'No se pudo validar el enrutamiento del proveedor de búsqueda.',
         retryable: false,
+      };
+    }
+  }
+
+  // 5a-ter. A1-APOLLO-WIZARD-1 — disponibilidad de Apollo ANTES de reservar
+  // presupuesto o lote. Un proveedor no disponible devuelve un resultado
+  // estructurado de omisión: sin lote, sin candidatos y sin haber tocado el
+  // presupuesto del piloto.
+  if (discoveryProvider === 'apollo_organizations') {
+    const availabilityCheck = deps.checkApolloAvailability;
+    if (!availabilityCheck) {
+      // Fail-closed: sin forma de verificar disponibilidad no se ejecuta Apollo.
+      logWizardApolloSkipped('availability_check_failed');
+      return {
+        ok: false,
+        code: 'PROVIDER_UNAVAILABLE',
+        message: 'No se pudo verificar la disponibilidad del proveedor de búsqueda.',
+        retryable: true,
+        providerSkipped: {
+          provider: 'apollo_organizations',
+          skipReason: 'availability_check_failed',
+        },
+      };
+    }
+
+    const availability = await availabilityCheck();
+    if (!availability.available) {
+      logWizardApolloSkipped(availability.skipReason);
+      return {
+        ok: false,
+        code: 'PROVIDER_UNAVAILABLE',
+        message: buildWizardApolloSkippedResult(availability.skipReason).message,
+        // Sólo tiene sentido reintentar lo que puede cambiar solo; un flag
+        // apagado o un rol no permitido no se arreglan reintentando.
+        retryable:
+          availability.skipReason === 'availability_check_failed' ||
+          availability.skipReason === 'capability_unavailable',
+        providerSkipped: {
+          provider: 'apollo_organizations',
+          skipReason: availability.skipReason,
+        },
       };
     }
   }

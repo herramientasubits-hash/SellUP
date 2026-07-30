@@ -20,6 +20,9 @@ import type {
   GenerateProspectsExperience,
   GenerateProspectsUnavailableKind,
 } from '@/components/prospect-batches/generate-ai-batch-experience';
+// Sólo el tipo: se borra al compilar, así que este componente cliente no arrastra
+// el resolutor (que lee env) ni puede resolver el proveedor por su cuenta.
+import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
@@ -244,9 +247,15 @@ type GenerateAIBatchDrawerProps = {
    * by ENABLE_LUSHA_PREVIEW upstream. Default false → existing IA flow, no Lusha.
    */
   lushaPreviewEnabled?: boolean;
+  /**
+   * A1-APOLLO-WIZARD-1 — proveedor de descubrimiento ya resuelto en el servidor.
+   * Sólo se transporta hasta el wizard para que la UI pueda nombrarlo; este
+   * componente no lo interpreta ni lo deduce. `null` = sin resolución conocida.
+   */
+  discoveryProvider?: WizardDiscoveryProviderKey | null;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, discoveryProvider = null }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
@@ -503,6 +512,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           onClose={handleClose}
           executionEnabled={executionEnabled}
           lushaPreviewEnabled={lushaPreviewEnabled}
+          discoveryProvider={discoveryProvider}
         />
       </DrawerShell>
     );

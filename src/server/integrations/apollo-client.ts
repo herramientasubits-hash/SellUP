@@ -288,6 +288,99 @@ export async function searchApolloOrganizations(
 }
 
 // ============================================================
+// A1-APOLLO-WIZARD-1 — Búsqueda de empresas, una página
+// POST https://api.apollo.io/api/v1/mixed_companies/search
+//
+// Transporte fino para el pipeline moderno del Agente 1. Devuelve el payload
+// crudo, el status y los headers de cuota, y deja la interpretación a los
+// módulos puros (normalizador de respuesta, taxonomía de errores, headers de
+// rate limit) donde sí es testeable.
+//
+// Existe aparte de searchApolloOrganizations a propósito: esa función tiene
+// otros consumidores (contact enrichment, diagnósticos, ruta legacy) cuyo
+// comportamiento este hito no debe alterar.
+//
+// NOTA: consume créditos del plan Apollo. El presupuesto y la paginación los
+// gobierna el llamador; aquí no se reintenta nada.
+// ============================================================
+
+/** Resultado de transporte de una página. Sin interpretación de negocio. */
+export interface ApolloOrganizationsPageResponse {
+  /** True si la respuesta HTTP fue 2xx. */
+  ok: boolean;
+  /** Status HTTP. null si el request nunca llegó a enviarse. */
+  status: number | null;
+  /** True si el request salió del proceso — decide si el cobro es desconocido. */
+  requestSent: boolean;
+  /** True si hubo 2xx pero el cuerpo no era JSON interpretable. */
+  malformedBody: boolean;
+  /** True si el fallo fue timeout / abort. */
+  timedOut: boolean;
+  /** Payload crudo sin normalizar. El normalizador decide precedencia. */
+  payload: unknown;
+  /** Headers de la respuesta — fuente de verdad de la cuota. */
+  headers: Headers | null;
+  /** Cuerpo de error truncado, para diagnóstico. */
+  errorBody?: string;
+}
+
+export async function searchApolloOrganizationsPage(
+  body: Record<string, unknown>,
+): Promise<ApolloOrganizationsPageResponse> {
+  let result: Awaited<ReturnType<typeof apolloFetch<unknown>>>;
+  try {
+    result = await apolloFetch<unknown>('/api/v1/mixed_companies/search', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  } catch (err: unknown) {
+    // El request salió y no volvió: Apollo pudo haberlo procesado y cobrado.
+    // requestSent=true hace que la taxonomía lo marque como cobro desconocido
+    // en lugar de reintentarlo a ciegas.
+    const isAbort =
+      err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
+    return {
+      ok: false,
+      status: null,
+      requestSent: true,
+      malformedBody: false,
+      timedOut: isAbort,
+      payload: undefined,
+      headers: null,
+      errorBody: err instanceof Error ? err.message.slice(0, 500) : 'unknown error',
+    };
+  }
+
+  if (!result.ok) {
+    // apolloFetch devuelve 401 sintético sin headers cuando no hay API key:
+    // en ese caso nada salió a la red y no hay cobro posible.
+    const requestSent = result.headers !== undefined;
+    return {
+      ok: false,
+      status: result.status,
+      requestSent,
+      malformedBody: false,
+      timedOut: false,
+      payload: undefined,
+      headers: result.headers ?? null,
+      errorBody: result.errorBody,
+    };
+  }
+
+  return {
+    ok: true,
+    status: result.status,
+    requestSent: true,
+    // apolloFetch deja data undefined cuando el JSON no parsea. Un 2xx con
+    // cuerpo ilegible es una respuesta malformada, no una búsqueda vacía.
+    malformedBody: result.data === undefined,
+    timedOut: false,
+    payload: result.data,
+    headers: result.headers ?? null,
+  };
+}
+
+// ============================================================
 // Enriquecimiento de empresa
 // GET https://api.apollo.io/api/v1/organizations/enrich
 //

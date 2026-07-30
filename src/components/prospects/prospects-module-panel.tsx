@@ -32,6 +32,10 @@ import {
   isExploratorySearchFormV2Enabled,
   isLushaPreviewEnabled,
 } from '@/lib/feature-flags.server';
+// A1-APOLLO-WIZARD-1 — misma función que enruta la ejecución del wizard
+// (`executeProspectWizardGeneration`, paso 5a). Resolver aquí, en el servidor, es
+// lo que permite que la UI nombre el proveedor real sin deducirlo en el cliente.
+import { resolveWizardDiscoveryProvider } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 
 /**
  * Query params understood by the Prospectos experience.
@@ -91,6 +95,10 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   // canonical server-only helper (normalized: trim + toLowerCase).
   const wizardExecutionEnabled =
     enableChatWizard && isProspectChatWizardExecutionEnabled();
+  // A1-APOLLO-WIZARD-1 (hallazgo QA visual): el wizard no decía con qué proveedor
+  // buscaba. Se resuelve aquí, server-side, con el mismo doble gate que usa la
+  // ejecución; sólo viaja el nombre del proveedor — ni flags, ni env, ni roles.
+  const wizardDiscoveryProvider = resolveWizardDiscoveryProvider();
 
   // Load catalog only when any enhanced experience is on — zero Supabase queries
   // otherwise (resolveCatalogAvailability returns `disabled` without querying).
@@ -174,7 +182,7 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
       tabs={<ModuleTabsNav active="prospectos" />}
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} />
+          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} discoveryProvider={wizardDiscoveryProvider} />
           <ImportCandidatesDrawer>
             <Button variant="outline" size="sm" className="gap-2 text-xs">
               <Upload className="h-3.5 w-3.5" />
