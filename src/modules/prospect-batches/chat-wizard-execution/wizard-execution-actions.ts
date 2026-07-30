@@ -562,6 +562,7 @@ export async function executeProspectWizardGeneration(
    * los caminos el sesgo es conservador: ante gasto no verificable se confirma
    * la reserva entera, nunca menos.
    */
+  let lastReconciliation: WizardRunReconciliationResult | null = null;
   const resolveCreditsToConfirm = async (batchId: string): Promise<number> => {
     if (deps.reconcileRunSpend) {
       const reconciliation = await deps
@@ -573,7 +574,10 @@ export async function executeProspectWizardGeneration(
           reservedCredits: creditsReserved,
         })
         .catch(() => null);
-      if (reconciliation) return reconciliation.creditsToConfirm;
+      if (reconciliation) {
+        lastReconciliation = reconciliation;
+        return reconciliation.creditsToConfirm;
+      }
     }
     const consumed = await deps.readConsumedCredits(batchId).catch(() => null);
     return consumed !== null && consumed > 0 ? consumed : creditsReserved;
@@ -734,6 +738,10 @@ export async function executeProspectWizardGeneration(
     targetPersistibleCandidates,
     targetReached,
     ...(reconciliationFailed ? { reconciliationWarning: 'BUDGET_RECONCILIATION_FAILED' as const } : {}),
+    // A1-APOLLO-BUDGET-RECONCILIATION-1: an overrun must be visible, not just
+    // absorbed. The generation still succeeded — the candidates exist and the
+    // credits were really spent — so this reports; it never fails the run.
+    ...buildReconciliationOutcome(lastReconciliation),
     ...(noveltyExhausted ? { noveltyExhausted: true as const } : {}),
   };
 }
@@ -741,6 +749,32 @@ export async function executeProspectWizardGeneration(
 // ── Public message map ────────────────────────────────────────────────────────
 // Maps pilot guardrail codes to user-facing Spanish messages.
 // Internal: not exported from index.ts — only used within the action.
+
+/**
+ * Projects a reconciliation into the operator-facing outcome fields.
+ *
+ * Returns `{}` when no reconciliation ran (Tavily-only callers, or the legacy
+ * path), so their result shape is unchanged.
+ */
+function buildReconciliationOutcome(
+  reconciliation: WizardRunReconciliationResult | null,
+): {
+  reconciliationState?: 'confirmed' | 'pending_reconciliation' | 'billing_unknown';
+  budgetAnomalies?: readonly string[];
+} {
+  if (!reconciliation) return {};
+
+  const state = reconciliation.anomalies.includes('recorded_usage_exceeds_reservation')
+    ? 'pending_reconciliation'
+    : reconciliation.billingState === 'unknown'
+      ? 'billing_unknown'
+      : 'confirmed';
+
+  return {
+    reconciliationState: state,
+    ...(reconciliation.anomalies.length > 0 ? { budgetAnomalies: reconciliation.anomalies } : {}),
+  };
+}
 
 const GUARDRAIL_MESSAGES: Partial<Record<PilotGuardrailCode, string>> = {
   PILOT_PAUSED:
