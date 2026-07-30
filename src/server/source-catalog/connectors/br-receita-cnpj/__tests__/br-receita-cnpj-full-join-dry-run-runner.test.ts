@@ -40,17 +40,22 @@ import {
   BRAZIL_RECEITA_FULL_JOIN_DEFAULT_RUN_MODE,
   BRAZIL_RECEITA_FULL_JOIN_DRY_RUN_MODE,
   BRAZIL_RECEITA_FULL_JOIN_MAX_SYNTHETIC_ROWS,
+  BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_ALLOWED_FAMILY_KEYS,
+  BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_DECLARED_FILES,
+  BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_MANIFEST_BYTES,
   BRAZIL_RECEITA_FULL_JOIN_OPTION_B_MAX_BYTES_PER_FILE,
   BRAZIL_RECEITA_FULL_JOIN_OPTION_B_MAX_COMPANY_ROWS,
   BRAZIL_RECEITA_FULL_JOIN_OPTION_B_MAX_COMPANY_SCAN_ROWS,
   BRAZIL_RECEITA_FULL_JOIN_OPTION_B_MAX_ESTABLISHMENT_ROWS,
   BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+  BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST,
   BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_TEMP_MANIFEST_TRUST,
   defaultBrazilReceitaFullJoinSyntheticFixture,
   runBrazilReceitaFullJoinDryRun,
   type BrazilReceitaFullJoinDryRunInput,
   type BrazilReceitaFullJoinDryRunReport,
   type BrazilReceitaFullJoinLocalManifestScan,
+  type BrazilReceitaFullJoinRealManifestMetadataScan,
 } from '../br-receita-cnpj-full-join-dry-run-runner';
 import {
   ForbiddenFullJoinRunnerModeError,
@@ -1042,6 +1047,7 @@ const RUNNER_SOURCE_FILES: readonly string[] = [
   path.join(CONNECTOR_DIR, 'br-receita-cnpj-full-join-no-write-guard.ts'),
   path.join(CONNECTOR_DIR, 'br-receita-cnpj-full-join-cleanup.ts'),
   path.join(CONNECTOR_DIR, 'br-receita-cnpj-synthetic-temp-manifest.ts'),
+  path.join(CONNECTOR_DIR, 'br-receita-cnpj-real-manifest-metadata-reader.ts'),
   path.join(SCRIPTS_DIR, 'run-br-receita-cnpj-full-join-dry-run.ts'),
 ];
 
@@ -1140,9 +1146,10 @@ describe('BR-SOURCE-11A runner — static import guards', () => {
     assert.ok(!/readFile|writeFile|createReadStream|mkdtemp|rmSync/.test(runner));
   });
 
-  it('only the synthetic temp-manifest module and the CLI touch the filesystem', () => {
+  it('only the two reader modules and the CLI touch the filesystem', () => {
     const filesystemOwners = new Set([
       'br-receita-cnpj-synthetic-temp-manifest.ts',
+      'br-receita-cnpj-real-manifest-metadata-reader.ts',
       'run-br-receita-cnpj-full-join-dry-run.ts',
     ]);
     for (const file of RUNNER_SOURCE_FILES) {
@@ -1167,4 +1174,636 @@ describe('BR-SOURCE-11A runner — static import guards', () => {
       );
     }
   });
+
+  it('the metadata reader opens exactly one path and never a second file', () => {
+    const source = codeOf(
+      fs.readFileSync(
+        path.join(CONNECTOR_DIR, 'br-receita-cnpj-real-manifest-metadata-reader.ts'),
+        'utf8',
+      ),
+    );
+    // Exactly ONE descriptor, on the captured manifest path — the load-bearing invariant
+    // of the metadata-only carve-out (decision record § 4.3 / § 7.1).
+    assert.equal((source.match(/openSync\s*\(/g) ?? []).length, 1, 'exactly one open call');
+    assert.ok(/fs\.openSync\(\s*manifestPath\s*,/.test(source), 'the open targets the manifest');
+    for (const forbidden of [
+      'statSync',
+      'existsSync',
+      'readdirSync',
+      'readFileSync',
+      'createReadStream',
+      'writeFileSync',
+      'path.join',
+      'path.resolve',
+    ]) {
+      assert.ok(!source.includes(forbidden), `the metadata reader must not use ${forbidden}`);
+    }
+  });
+});
+
+// ─── BR-SOURCE-11D-META-IMPL: the metadata-only carve-out at the runner ───────
+
+/** A compliant metadata scan. Stubbed so the runner's gate is tested in isolation. */
+function metadataScan(
+  overrides: Partial<BrazilReceitaFullJoinRealManifestMetadataScan> = {},
+): BrazilReceitaFullJoinRealManifestMetadataScan {
+  return {
+    manifestTrust: BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST,
+    layoutMode: 'official_headerless',
+    schemaVersionPresent: true,
+    sourcePeriodPresent: true,
+    declaredFileCount: 5,
+    declaredFamilyCounts: {
+      empresas: 1,
+      estabelecimentos: 1,
+      simples: 0,
+      cnaes: 1,
+      municipios: 1,
+      naturezas: 1,
+      other: 0,
+    },
+    requiredFamilyCount: 2,
+    missingRequiredFamilyCount: 0,
+    forbiddenFamilyCount: 0,
+    manifestBytesReadBucket: 'lte_1mb',
+    referencedDataFilesOpened: false,
+    referencedDataFilesStatted: false,
+    refusalCode: null,
+    ...overrides,
+  };
+}
+
+/** The FULL metadata-only contract. Individual tests remove exactly one condition. */
+const METADATA_ONLY_INPUT: BrazilReceitaFullJoinDryRunInput = {
+  ...SAFE_INPUT,
+  mode: 'local_manifest_dry_run',
+  allowLocalManifest: true,
+  manifestTrust: BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST,
+  realManifestMetadataOnlyOptionBAuthorized: true,
+  strict: true,
+  productionWrites: false,
+  outputSanitizationVersion: BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+  maxManifestBytes: BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_MANIFEST_BYTES,
+  maxDeclaredFiles: BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_DECLARED_FILES,
+  realManifestMetadataReader: () => metadataScan(),
+};
+
+function metadataInput(overrides: Record<string, unknown>): BrazilReceitaFullJoinDryRunInput {
+  const merged: Record<string, unknown> = { ...METADATA_ONLY_INPUT, ...overrides };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete merged[key];
+  }
+  return merged as unknown as BrazilReceitaFullJoinDryRunInput;
+}
+
+describe('BR-SOURCE-11D-META-IMPL — an authorized metadata-only run', () => {
+  it('produces an ok report from the injected metadata scan', () => {
+    const report = runBrazilReceitaFullJoinDryRun(METADATA_ONLY_INPUT);
+    assert.equal(report.ok, true);
+    assert.deepEqual(report.errors, []);
+    assert.equal(report.run_mode, 'local_manifest_dry_run');
+    assert.equal(report.manifest_trust, 'real_manifest_metadata_only');
+    assert.equal(report.real_manifest_metadata_only_option_b_authorized, true);
+    // The synthetic temp-manifest carve-out was NOT declared, and is not implied.
+    assert.equal(report.option_b_carveout_authorized, false);
+  });
+
+  it('holds every approval gate at not_approved', () => {
+    const gates = Object.values(runBrazilReceitaFullJoinDryRun(METADATA_ONLY_INPUT).decision_status);
+    assert.equal(gates.length, 8);
+    for (const gate of gates) assert.equal(gate, 'not_approved');
+  });
+
+  it('holds every run_scope flag and every safety assertion at false', () => {
+    const report = runBrazilReceitaFullJoinDryRun(METADATA_ONLY_INPUT);
+    for (const [key, value] of Object.entries(report.run_scope)) {
+      assert.equal(value, false, `run_scope.${key} must be false`);
+    }
+    for (const [key, value] of Object.entries(report.safety)) {
+      assert.equal(value, false, `safety.${key} must be false`);
+    }
+  });
+
+  it('reports the aggregate manifest metadata', () => {
+    const metadata = runBrazilReceitaFullJoinDryRun(METADATA_ONLY_INPUT).manifest_metadata;
+    assert.ok(metadata !== null);
+    assert.equal(metadata.schema_version_present, true);
+    assert.equal(metadata.source_period_present, true);
+    assert.equal(metadata.layout_mode, 'official_headerless');
+    assert.equal(metadata.declared_file_count, 5);
+    assert.equal(metadata.required_family_count, 2);
+    assert.equal(metadata.missing_required_family_count, 0);
+    assert.equal(metadata.forbidden_family_count, 0);
+    assert.equal(metadata.required_families_present, true);
+    assert.equal(metadata.forbidden_families_present, false);
+    assert.equal(metadata.manifest_bytes_read_bucket, 'lte_1mb');
+  });
+
+  it('asserts no referenced data file was opened, statted, or printed', () => {
+    const metadata = runBrazilReceitaFullJoinDryRun(METADATA_ONLY_INPUT).manifest_metadata;
+    assert.ok(metadata !== null);
+    assert.equal(metadata.referenced_data_files_opened, false);
+    assert.equal(metadata.referenced_data_files_statted, false);
+    assert.equal(metadata.raw_manifest_printed, false);
+    assert.equal(metadata.absolute_paths_printed, false);
+  });
+
+  it('reads no row: every row, eligibility and join count stays zero', () => {
+    const report = runBrazilReceitaFullJoinDryRun(METADATA_ONLY_INPUT);
+    for (const [key, value] of Object.entries(report.aggregate_counts)) {
+      assert.equal(value, 0, `aggregate_counts.${key} must be zero — no row is read`);
+    }
+    for (const [key, value] of Object.entries(report.eligibility_counts)) {
+      assert.equal(value, 0, `eligibility_counts.${key} must be zero`);
+    }
+    for (const [key, value] of Object.entries(report.join_counts)) {
+      assert.equal(value, 0, `join_counts.${key} must be zero — no join is computed`);
+    }
+    assert.equal(report.source_period, null);
+  });
+
+  it('keys family counts only under the allowlist, and drops anything else', () => {
+    const report = runBrazilReceitaFullJoinDryRun(
+      metadataInput({
+        realManifestMetadataReader: () =>
+          metadataScan({
+            declaredFamilyCounts: { empresas: 1, estabelecimentos: 1, socios: 3, other: 0 },
+          }),
+      }),
+    );
+    const metadata = report.manifest_metadata;
+    assert.ok(metadata !== null);
+    assert.ok(!Object.keys(metadata.declared_family_counts).includes('socios'));
+    for (const key of Object.keys(metadata.declared_family_counts)) {
+      assert.ok(
+        BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_ALLOWED_FAMILY_KEYS.includes(key),
+        `unexpected family key ${key}`,
+      );
+    }
+  });
+
+  it('emits no forbidden pattern anywhere in the report', () => {
+    assertNoForbiddenOutput(runBrazilReceitaFullJoinDryRun(METADATA_ONLY_INPUT));
+  });
+
+  it('leaves manifest_metadata null on every non-metadata mode', () => {
+    assert.equal(runBrazilReceitaFullJoinDryRun(SAFE_INPUT).manifest_metadata, null);
+    assert.equal(runBrazilReceitaFullJoinDryRun(OPTION_B_INPUT).manifest_metadata, null);
+  });
+});
+
+describe('BR-SOURCE-11D-META-IMPL — an incomplete contract fails closed', () => {
+  const cases: ReadonlyArray<readonly [label: string, overrides: Record<string, unknown>, code: string]> =
+    [
+      ['no allowLocalManifest', { allowLocalManifest: undefined }, 'allow_local_manifest_required'],
+      [
+        'no metadata-only authorization',
+        { realManifestMetadataOnlyOptionBAuthorized: undefined },
+        'real_manifest_metadata_only_not_authorized',
+      ],
+      [
+        'the SYNTHETIC carve-out flag instead of the metadata one',
+        { realManifestMetadataOnlyOptionBAuthorized: undefined, optionBCarveoutAuthorized: true },
+        'real_manifest_metadata_only_not_authorized',
+      ],
+      ['no strict mode', { strict: undefined }, 'strict_mode_required'],
+      ['production writes requested', { productionWrites: true }, 'production_writes_requested'],
+      [
+        'no sanitization version',
+        { outputSanitizationVersion: undefined },
+        'output_sanitization_version_not_approved',
+      ],
+      [
+        'no maxManifestBytes',
+        { maxManifestBytes: undefined },
+        'real_manifest_metadata_caps_required',
+      ],
+      [
+        'no maxDeclaredFiles',
+        { maxDeclaredFiles: undefined },
+        'real_manifest_metadata_caps_required',
+      ],
+      [
+        'maxManifestBytes above its ceiling',
+        { maxManifestBytes: BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_MANIFEST_BYTES + 1 },
+        'real_manifest_metadata_cap_exceeded',
+      ],
+      [
+        'maxDeclaredFiles above its ceiling',
+        { maxDeclaredFiles: BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_DECLARED_FILES + 1 },
+        'real_manifest_metadata_cap_exceeded',
+      ],
+      [
+        'no injected reader',
+        { realManifestMetadataReader: undefined },
+        'real_manifest_metadata_reader_required',
+      ],
+    ];
+
+  for (const [label, overrides, code] of cases) {
+    it(`fails closed with ${label}`, () => {
+      const report = runBrazilReceitaFullJoinDryRun(metadataInput(overrides));
+      assert.equal(report.ok, false);
+      assert.equal(report.errors.length, 1);
+      assert.equal(report.errors[0]!.error_code, code);
+      assert.equal(report.errors[0]!.stage, 'real_manifest_metadata_gate');
+      assert.equal(report.manifest_metadata, null);
+      // No partial metric survives a refusal.
+      for (const value of Object.values(report.aggregate_counts)) assert.equal(value, 0);
+      assert.equal(report.cleanup.cleanup_required, true);
+    });
+  }
+
+  it('refuses the metadata flag on a SYNTHETIC temp-manifest run', () => {
+    // The metadata-only phrase buys nothing on the synthetic path, exactly as the
+    // synthetic phrase buys nothing on the metadata path.
+    const report = runBrazilReceitaFullJoinDryRun(
+      optionBInput({
+        optionBCarveoutAuthorized: undefined,
+        realManifestMetadataOnlyOptionBAuthorized: true,
+      }),
+    );
+    assert.equal(report.ok, false);
+    assert.equal(report.errors[0]!.error_code, 'option_b_carveout_not_authorized');
+  });
+
+  it('still refuses a real manifest offered for EXECUTION', () => {
+    const report = runBrazilReceitaFullJoinDryRun(
+      metadataInput({ manifestTrust: 'real_manifest_not_authorized' }),
+    );
+    assert.equal(report.ok, false);
+    assert.equal(report.errors[0]!.error_code, 'local_manifest_execution_not_authorized');
+    assert.equal(report.manifest_metadata, null);
+  });
+
+  it('never calls the reader when the gate refuses', () => {
+    let calls = 0;
+    runBrazilReceitaFullJoinDryRun(
+      metadataInput({
+        strict: undefined,
+        realManifestMetadataReader: () => {
+          calls += 1;
+          return metadataScan();
+        },
+      }),
+    );
+    assert.equal(calls, 0, 'a refused gate must not reach the reader');
+  });
+
+  it('calls the reader at most once on an authorized run', () => {
+    let calls = 0;
+    runBrazilReceitaFullJoinDryRun(
+      metadataInput({
+        realManifestMetadataReader: () => {
+          calls += 1;
+          return metadataScan();
+        },
+      }),
+    );
+    assert.equal(calls, 1);
+  });
+});
+
+describe('BR-SOURCE-11D-META-IMPL — a non-compliant scan fails closed', () => {
+  const scanCases: ReadonlyArray<
+    readonly [label: string, scan: unknown, code: string, metadataExpected: boolean]
+  > = [
+    ['a non-object scan', 'not-a-scan', 'real_manifest_metadata_scan_invalid', false],
+    [
+      'a mis-declared trust level',
+      metadataScan({ manifestTrust: 'synthetic_temp_manifest_only' }),
+      'local_manifest_execution_not_authorized',
+      false,
+    ],
+    [
+      'an admitted referenced-file open',
+      metadataScan({ referencedDataFilesOpened: true as never }),
+      'real_manifest_metadata_referenced_file_access_detected',
+      false,
+    ],
+    [
+      'an admitted referenced-file stat',
+      metadataScan({ referencedDataFilesStatted: true as never }),
+      'real_manifest_metadata_referenced_file_access_detected',
+      false,
+    ],
+    [
+      'an unrecognized byte bucket',
+      metadataScan({ manifestBytesReadBucket: 'unbounded' }),
+      'real_manifest_metadata_scan_invalid',
+      false,
+    ],
+    [
+      'a non-integer declared count',
+      metadataScan({ declaredFileCount: 1.5 }),
+      'real_manifest_metadata_scan_invalid',
+      false,
+    ],
+    [
+      'an unsupported layout mode',
+      metadataScan({ layoutMode: 'header', refusalCode: 'manifest_layout_unsupported' }),
+      'real_manifest_metadata_layout_mode_not_authorized',
+      true,
+    ],
+    [
+      'an unsupported layout mode the reader forgot to report',
+      metadataScan({ layoutMode: 'header' }),
+      'real_manifest_metadata_layout_mode_not_authorized',
+      true,
+    ],
+    [
+      'a forbidden family',
+      metadataScan({ forbiddenFamilyCount: 2, refusalCode: 'manifest_forbidden_family_detected' }),
+      'real_manifest_metadata_forbidden_family_detected',
+      true,
+    ],
+    [
+      'a forbidden family the reader forgot to report',
+      metadataScan({ forbiddenFamilyCount: 1 }),
+      'real_manifest_metadata_forbidden_family_detected',
+      true,
+    ],
+    [
+      'a missing required family',
+      metadataScan({
+        missingRequiredFamilyCount: 1,
+        requiredFamilyCount: 1,
+        refusalCode: 'manifest_missing_required_family',
+      }),
+      'real_manifest_metadata_missing_required_family',
+      true,
+    ],
+    [
+      'an oversized manifest',
+      metadataScan({
+        manifestBytesReadBucket: 'over_limit_blocked',
+        refusalCode: 'manifest_metadata_cap_exceeded',
+      }),
+      'real_manifest_metadata_cap_exceeded',
+      true,
+    ],
+    [
+      // An unmappable refusal means the reader is not one this runner understands, so the
+      // scan is treated as structurally invalid and nothing from it is reported.
+      'an unrecognized refusal code',
+      metadataScan({ refusalCode: 'something_else' }),
+      'real_manifest_metadata_scan_invalid',
+      false,
+    ],
+  ];
+
+  for (const [label, scan, code, metadataExpected] of scanCases) {
+    it(`fails closed on ${label}`, () => {
+      const report = runBrazilReceitaFullJoinDryRun(
+        metadataInput({
+          realManifestMetadataReader: () => scan as BrazilReceitaFullJoinRealManifestMetadataScan,
+        }),
+      );
+      assert.equal(report.ok, false);
+      assert.equal(report.errors.length, 1);
+      assert.equal(report.errors[0]!.error_code, code);
+      assert.equal(report.errors[0]!.stage, 'real_manifest_metadata_read');
+      // A CONTENT refusal still reports the aggregate that explains it; a structurally
+      // invalid scan carries nothing reportable.
+      assert.equal(report.manifest_metadata !== null, metadataExpected);
+      for (const value of Object.values(report.join_counts)) assert.equal(value, 0);
+      assertNoForbiddenOutput(report);
+    });
+  }
+
+  it('fails closed when the reader throws, without carrying its message', () => {
+    const report = runBrazilReceitaFullJoinDryRun(
+      metadataInput({
+        realManifestMetadataReader: () => {
+          throw new Error('/synthetic/absolute/path/that/must/not/leak.json');
+        },
+      }),
+    );
+    assert.equal(report.ok, false);
+    assert.equal(report.errors[0]!.error_code, 'real_manifest_metadata_read_failed');
+    assert.equal(report.errors[0]!.stage, 'real_manifest_metadata_read');
+    assert.ok(!JSON.stringify(report).includes('must/not/leak'));
+    assertNoForbiddenOutput(report);
+  });
+
+  it('reports a forbidden family as a COUNT and never as a label', () => {
+    const report = runBrazilReceitaFullJoinDryRun(
+      metadataInput({
+        realManifestMetadataReader: () =>
+          metadataScan({
+            forbiddenFamilyCount: 3,
+            refusalCode: 'manifest_forbidden_family_detected',
+          }),
+      }),
+    );
+    assert.equal(report.manifest_metadata?.forbidden_family_count, 3);
+    assert.equal(report.manifest_metadata?.forbidden_families_present, true);
+    assert.equal(report.guardrail_counts.local_manifest_forbidden_family_findings, 3);
+  });
+});
+
+// ─── CLI: the metadata-only argument surface ──────────────────────────────────
+
+const METADATA_CLI_CAPS = [
+  '--max-manifest-bytes',
+  '1000000',
+  '--max-declared-files',
+  '20',
+];
+
+/** A synthetic, non-existent manifest path. Parsing never opens it. */
+const SYNTHETIC_CLI_MANIFEST = path.join('synthetic-root', 'synthetic-metadata-manifest.json');
+
+describe('BR-SOURCE-11D-META-IMPL CLI — accepts a complete metadata-only invocation', () => {
+  it('parses the full metadata-only contract', () => {
+    const options = parseFullJoinRunnerArgs([
+      '--manifest',
+      SYNTHETIC_CLI_MANIFEST,
+      '--allow-local-manifest',
+      '--real-manifest-metadata-only',
+      '--format',
+      'json',
+      '--strict',
+      ...METADATA_CLI_CAPS,
+    ]);
+    assert.equal(options.runMode, 'local_manifest_dry_run');
+    assert.equal(options.realManifestMetadataOnly, true);
+    assert.equal(options.allowLocalManifest, true);
+    assert.equal(options.strict, true);
+    assert.equal(options.maxManifestBytes, 1_000_000);
+    assert.equal(options.maxDeclaredFiles, 20);
+    assert.equal(options.syntheticTempManifest, false);
+  });
+
+  it('leaves realManifestMetadataOnly false on the synthetic modes', () => {
+    assert.equal(parseFullJoinRunnerArgs(['--synthetic-fixture']).realManifestMetadataOnly, false);
+    assert.equal(
+      parseFullJoinRunnerArgs(['--synthetic-temp-manifest', '--strict', ...CLI_CAPS])
+        .realManifestMetadataOnly,
+      false,
+    );
+  });
+});
+
+describe('BR-SOURCE-11D-META-IMPL CLI — refuses an incomplete metadata-only invocation', () => {
+  const refusals: ReadonlyArray<readonly [label: string, argv: readonly string[]]> = [
+    ['no --manifest', ['--real-manifest-metadata-only', '--strict', ...METADATA_CLI_CAPS, '--synthetic-fixture']],
+    [
+      'no --allow-local-manifest',
+      ['--manifest', SYNTHETIC_CLI_MANIFEST, '--real-manifest-metadata-only', '--strict', ...METADATA_CLI_CAPS],
+    ],
+    [
+      'no --strict',
+      [
+        '--manifest',
+        SYNTHETIC_CLI_MANIFEST,
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        ...METADATA_CLI_CAPS,
+      ],
+    ],
+    [
+      'no caps at all',
+      [
+        '--manifest',
+        SYNTHETIC_CLI_MANIFEST,
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        '--strict',
+      ],
+    ],
+    [
+      'only --max-manifest-bytes',
+      [
+        '--manifest',
+        SYNTHETIC_CLI_MANIFEST,
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        '--strict',
+        '--max-manifest-bytes',
+        '1000000',
+      ],
+    ],
+    [
+      'only --max-declared-files',
+      [
+        '--manifest',
+        SYNTHETIC_CLI_MANIFEST,
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        '--strict',
+        '--max-declared-files',
+        '20',
+      ],
+    ],
+    [
+      '--max-manifest-bytes above its ceiling',
+      [
+        '--manifest',
+        SYNTHETIC_CLI_MANIFEST,
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        '--strict',
+        '--max-manifest-bytes',
+        '1000001',
+        '--max-declared-files',
+        '20',
+      ],
+    ],
+    [
+      '--max-declared-files above its ceiling',
+      [
+        '--manifest',
+        SYNTHETIC_CLI_MANIFEST,
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        '--strict',
+        '--max-manifest-bytes',
+        '1000000',
+        '--max-declared-files',
+        '21',
+      ],
+    ],
+    [
+      'a URL manifest',
+      [
+        '--manifest',
+        'https://example.invalid/manifest.json',
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        '--strict',
+        ...METADATA_CLI_CAPS,
+      ],
+    ],
+    [
+      'a non-.json manifest',
+      [
+        '--manifest',
+        path.join('synthetic-root', 'empresas.csv'),
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        '--strict',
+        ...METADATA_CLI_CAPS,
+      ],
+    ],
+    [
+      'a real prepared manifest basename',
+      [
+        '--manifest',
+        path.join('synthetic-root', 'manifest.headerless.json'),
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        '--strict',
+        ...METADATA_CLI_CAPS,
+      ],
+    ],
+    [
+      'a dataset staging directory',
+      [
+        '--manifest',
+        path.join('synthetic-root', 'extracted', 'manifest.json'),
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        '--strict',
+        ...METADATA_CLI_CAPS,
+      ],
+    ],
+    [
+      'combined with --synthetic-temp-manifest',
+      [
+        '--manifest',
+        SYNTHETIC_CLI_MANIFEST,
+        '--allow-local-manifest',
+        '--real-manifest-metadata-only',
+        '--synthetic-temp-manifest',
+        '--strict',
+        ...METADATA_CLI_CAPS,
+      ],
+    ],
+  ];
+
+  for (const [label, argv] of refusals) {
+    it(`refuses ${label}`, () => {
+      assert.throws(() => parseFullJoinRunnerArgs([...argv]), ForbiddenFullJoinRunnerModeError);
+    });
+  }
+
+  for (const flag of ['--import', '--runtime', '--agent1', '--provider']) {
+    it(`refuses ${flag} on a metadata-only invocation`, () => {
+      assert.throws(
+        () =>
+          parseFullJoinRunnerArgs([
+            '--manifest',
+            SYNTHETIC_CLI_MANIFEST,
+            '--allow-local-manifest',
+            '--real-manifest-metadata-only',
+            '--strict',
+            ...METADATA_CLI_CAPS,
+            flag,
+            'anything',
+          ]),
+        ForbiddenFullJoinRunnerModeError,
+      );
+    });
+  }
 });

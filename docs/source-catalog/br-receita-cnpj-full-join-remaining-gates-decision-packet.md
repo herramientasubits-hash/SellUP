@@ -1704,8 +1704,13 @@ data-file execution. It does not approve any gate.
 Subject:  ONE real manifest opened as a control document, metadata only.
 Excluded: opening any referenced file, reading rows, join coverage, import, Supabase, runtime,
           Agent 1, providers.
-Status:   proposed_for_owner_review — NO-GO.
+Status:   proposed_for_owner_review — NO-GO.   [SUPERSEDED — see § 23]
 ```
+
+> **Superseded by § 23.** The record merged and the owners gave the phrase
+> `AUTHORIZE OPTION B — REAL MANIFEST METADATA-ONLY CARVE-OUT`. The `Status` line above and the flag
+> block in § 22.1 record the state *before* that authorization; § 23.2 carries the current flags. The
+> gate status in § 22.1 is unchanged and still current: all eight gates remain `not_started`.
 
 ### 22.1 Gate and flag status after BR-SOURCE-11D-META — UNCHANGED
 
@@ -1726,3 +1731,106 @@ separate, explicitly-worded owner authorization in its own milestone, and landin
 question advances it not at all.
 
 Record: [`br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md`](./br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md).
+
+---
+
+## 23. BR-SOURCE-11D-META-IMPL — metadata-only parsing implemented, gates unchanged
+
+BR-SOURCE-11D-META-IMPL implements metadata-only parsing support after explicit owner
+authorization:
+
+```text
+AUTHORIZE OPTION B — REAL MANIFEST METADATA-ONLY CARVE-OUT
+```
+
+It authorizes only manifest metadata parsing.
+It does not authorize opening referenced Receita data files.
+It does not authorize row reads.
+It does not authorize join coverage.
+It does not approve any gate.
+It does not authorize import.
+It does not authorize Supabase writes.
+It does not authorize runtime or Agent 1.
+
+```text
+Subject:  ONE manifest DOCUMENT parsed for schema-level metadata, under two required caps.
+Excluded: opening any referenced file, stat-ing any referenced file, reading rows, join
+          coverage, import, Supabase, runtime, Agent 1, providers.
+Status:   implemented, PR open for review, NOT merged.
+```
+
+### 23.1 Gate status after BR-SOURCE-11D-META-IMPL — UNCHANGED
+
+```text
+GATE-1 Legal/Privacy                = not_started / not approved
+GATE-2 Temporary storage envelope   = not_started / not approved
+GATE-3 Field allowlist              = not_started / not approved
+GATE-4 Identity grain               = not_started / not approved
+GATE-5 Output sanitization          = not_started / not approved
+GATE-6 Failure cleanup              = not_started / not approved
+GATE-7 Operator runbook             = not_started / not approved
+GATE-8 No-write/no-runtime          = not_started / not approved
+```
+
+The runner's `decision_status` block asserts all eight `not_approved` on a metadata-only report, and
+its `run_scope` block asserts all seven escalations `false`. Both are asserted by test.
+
+**The carve-out is not partial gate credit.** GATE-1 and GATE-2 remain the sole route to real
+data-file execution, and their owners' authority is undiminished — the regulated read is not in the
+metadata-only loop at all.
+
+### 23.2 Flags after BR-SOURCE-11D-META-IMPL
+
+```text
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_DECISION_RECORD_PR_READY = true
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_DECISION_RECORD_OFFICIAL = true
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_OPTION_B_AUTHORIZED      = true
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_IMPL_PR_READY            = true
+OPS_BR_REAL_MANIFEST_METADATA_ONLY_IMPL_OFFICIAL            = false   (until merge)
+OPS_BR_REAL_LOCAL_MANIFEST_AUTHORIZED                       = true    (document only)
+OPS_BR_REAL_LOCAL_DATA_FILE_DRY_RUN_AUTHORIZED              = false
+
+FULL_JOIN_RUNNER_READY                                      = true
+FULL_JOIN_EXECUTION_READY                                   = false
+IMPORT_READY                                                = false
+RUNTIME_READY                                               = false
+AGENT1_READY                                                = false
+
+OPS_BR_READY_FOR_IMPORT                                     = false
+OPS_BR_READY_FOR_PRODUCTION_IMPORT                          = false
+OPS_BR_READY_FOR_RUNTIME                                    = false
+OPS_BR_LIVE_PROSPECT_GENERATION_READY                       = false
+OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED               = false
+```
+
+`OPS_BR_REAL_LOCAL_MANIFEST_AUTHORIZED = true` means exactly one thing: a manifest **document** may
+be parsed. It does not mean a manifest may be *executed*, and it says nothing about the files a
+manifest describes.
+
+### 23.3 No real-dataset evidence exists
+
+Unchanged from § 21 and § 22, and worth restating because this is the first milestone whose code
+*could* open a real manifest:
+
+```text
+No real operator manifest has been read by any SellUp code path.
+No real Receita data file has been opened by any SellUp code path.
+No file referenced by any manifest has been opened or stat-ed.
+No row of Receita data has been read, parsed, counted, or hashed.
+No join has been computed over real data.
+No coverage figure about the real dataset exists.
+```
+
+Every figure the metadata-only path produced describes **synthetic** manifests that the test suite
+and the validation step wrote themselves. A green metadata-only run is evidence that a manifest is
+well-formed — not evidence about the dataset, and not citable for either gate.
+
+### 23.4 Option C and Option D are not advanced
+
+§ 21.4 still survives. Option C (metadata + file `stat`) and Option D (bounded real data-file
+dry-run) each require their own separate, explicitly-worded owner authorization in their own
+milestone. `stat` is explicitly excluded from this carve-out and the reader contains no `stat` call
+at all, so Option C is not partially implemented either.
+
+Record: [`br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md`](./br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md) § 14.
+Design: [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md) § 26.
