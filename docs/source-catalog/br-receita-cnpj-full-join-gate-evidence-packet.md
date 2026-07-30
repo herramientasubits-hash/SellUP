@@ -1353,3 +1353,33 @@ determination, GATE-2 still needs measurements, and no evidence row in this pack
 probe that has neither been authorized nor run.
 
 Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).
+
+---
+
+## 22. BR-SOURCE-11G — no new gate evidence, and none anticipated
+
+BR-SOURCE-11G defines the next decision question: whether an ultra-bounded required-family real join
+probe can be authorized. It does not authorize real join execution by itself. It does not authorize
+join coverage. It does not authorize import. It does not approve any gate.
+
+For this packet specifically, one consequence matters most:
+
+```text
+A future bounded join probe, if authorized and green, would be evidence that a join mechanism runs
+against real input under caps without leaking the protected technical join key.
+It would NOT be GATE-1 evidence, GATE-2 evidence, or evidence about the dataset's coverage, quality,
+join rates, or eligibility, and it may not be entered in this packet as such.
+A `not_reported` result — the most likely outcome over two tiny bounded prefixes — is evidence of
+nothing at all, in either direction.
+```
+
+Two further consequences, because a join touches three gates this packet tracks: the probe persists no
+field (**GATE-3** unchanged), constructs no `record_identity_key` and no `normalized_tax_id`
+(**GATE-4** unchanged), and promotes no output as evidence (**GATE-5** unchanged).
+
+The § 5 … § 12 per-gate evidence packets and the § 13 cross-gate gaps are therefore unchanged, the
+§ 15 decision still reads **NO-GO**, GATE-1 still needs a legal determination, GATE-2 still needs
+measurements, and no evidence row in this packet may cite a bounded join probe that has neither been
+authorized nor run.
+
+Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).

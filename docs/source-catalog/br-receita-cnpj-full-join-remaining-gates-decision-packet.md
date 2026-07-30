@@ -1946,3 +1946,39 @@ into the repository. The Option C authorization is single-milestone and expires 
 become a standing runner capability and cannot be inherited without its own phrase.
 
 Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).
+
+---
+
+## 26. BR-SOURCE-11G — next decision question recorded, gates unchanged
+
+BR-SOURCE-11G defines the next decision question: whether an ultra-bounded required-family real join
+probe can be authorized. It does not authorize real join execution by itself. It does not authorize
+join coverage. It does not authorize import. It does not approve any gate.
+
+```text
+11F-IMPL opened two required-family files and reported structure only.
+11G records the bounded real join question and recommends its Option C — the same two capped windows,
+  the protected technical join key parsed ephemerally in memory, a coarse match bucket, no join key
+  output, no joined rows, no join pairs, no coverage.
+No gate is approved. GATE-1 and GATE-2 retain sole authority over dataset processing.
+```
+
+### 26.1 Gate and flag status after BR-SOURCE-11G — UNCHANGED
+
+All eight gates remain `not_started` / not approved, and the § 25.2 flag block is unchanged except for
+the successor record's own four new flags, all `false`:
+
+```text
+OPS_BR_BOUNDED_REAL_JOIN_DRY_RUN_DECISION_RECORD_PR_READY   = false until PR
+OPS_BR_BOUNDED_REAL_JOIN_DRY_RUN_DECISION_RECORD_OFFICIAL   = false until merge
+OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_JOIN_PROBE_AUTHORIZED  = false
+OPS_BR_REAL_LOCAL_JOIN_DRY_RUN_AUTHORIZED                   = false
+```
+
+§ 25.3 survives verbatim: no join, join key, or coverage figure has been computed. A merged question
+is still a question — any implementation additionally requires that record to be merged **and** the
+explicit owner phrase `AUTHORIZE OPTION C — ULTRA-BOUNDED REQUIRED-FAMILY REAL JOIN PROBE`, recorded
+separately. No phrase already spent in 11C, 11D-META, 11E, or 11F carries over; the 11F phrase names
+the data-file probe and was single-milestone by its own terms.
+
+Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).

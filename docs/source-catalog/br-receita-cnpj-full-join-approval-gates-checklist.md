@@ -1257,3 +1257,32 @@ carries over. § 4's global approval rules are unaffected: a successful bounded 
 about a read path and a file's shape, and is not citable toward the approval of any gate.
 
 Record: [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md).
+
+---
+
+## 23. BR-SOURCE-11G — next decision question recorded, no gate approved
+
+BR-SOURCE-11G defines the next decision question: whether an ultra-bounded required-family real join
+probe can be authorized. It does not authorize real join execution by itself. It does not authorize
+join coverage. It does not authorize import. It does not approve any gate.
+
+```text
+11F's question was answered and implemented, and 11F-IMPL opened two required-family files under caps
+  and reported structure only.
+11G records the bounded real join question: may the protected technical join key be parsed
+  ephemerally from those same two capped windows, compared in memory, and reported as a coarse
+  bucket, with no join key output, no joined rows, no join pairs, and no coverage?
+No gate is approved. GATE-1 and GATE-2 retain sole authority over dataset processing.
+```
+
+All eight gates remain `not_started` per § 15, the § 15 matrix still reads **NO-GO**, and the
+successor record's own status is `proposed_for_owner_review`. A merged question is still a question:
+any implementation additionally requires that record to be merged **and** the explicit owner phrase
+`AUTHORIZE OPTION C — ULTRA-BOUNDED REQUIRED-FAMILY REAL JOIN PROBE`, recorded separately. No phrase
+already spent for the synthetic carve-out, for metadata-only parsing, for the 11E execution, or for
+the 11F data-file probe carries over. § 4's global approval rules are unaffected: a successful bounded
+join probe would be evidence about a join mechanism under caps, and is not citable toward the approval
+of any gate — GATE-3, GATE-4 and GATE-5 in particular remain untouched, since the probe persists no
+field, constructs no identity grain, and promotes no evidence.
+
+Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).
