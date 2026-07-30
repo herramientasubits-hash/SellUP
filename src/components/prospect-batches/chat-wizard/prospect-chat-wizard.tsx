@@ -34,6 +34,16 @@ import {
 } from './wizard-conversation-summary';
 import { WizardChatComposer } from './wizard-chat-composer';
 import { getComposerMode, getComposerPlaceholder } from './wizard-composer-utils';
+// A1-APOLLO-WIZARD-1 — indicador del proveedor de búsqueda. La resolución es del
+// backend (prop `discoveryProvider` + ruta Lusha + omisión reportada por la
+// acción); aquí sólo se reduce y se pinta.
+import { WizardProviderIndicatorRow } from './wizard-provider-indicator';
+import { resolveWizardProviderIndicator } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-indicator';
+import type {
+  WizardIndicatorLushaRoute,
+  WizardIndicatorProviderKey,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-indicator';
+import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 
 // ── Error code → user-facing message mapping ──────────────────────────────────
 // Extracted to a separate module so tests can import without a DOM environment.
@@ -65,9 +75,16 @@ type ProspectChatWizardProps = {
    * "Buscar con IA" search. Gated by ENABLE_LUSHA_PREVIEW upstream. Default false.
    */
   lushaPreviewEnabled?: boolean;
+  /**
+   * A1-APOLLO-WIZARD-1 — proveedor de descubrimiento resuelto EN EL SERVIDOR por
+   * `resolveWizardDiscoveryProvider()`, la misma función que enruta la ejecución.
+   * `null`/ausente = sin resolución conocida; el indicador lo dice en lugar de
+   * asumir un default. El cliente nunca lo deduce de flags ni de env.
+   */
+  discoveryProvider?: WizardDiscoveryProviderKey | null;
 };
 
-export function ProspectChatWizard({ catalog, onClose, executionEnabled = false, lushaPreviewEnabled = false }: ProspectChatWizardProps) {
+export function ProspectChatWizard({ catalog, onClose, executionEnabled = false, lushaPreviewEnabled = false, discoveryProvider = null }: ProspectChatWizardProps) {
   const [state, dispatch] = React.useReducer(
     prospectWizardReducer,
     undefined,
@@ -221,6 +238,26 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
       catalog,
       lushaPreviewEnabled,
     ],
+  );
+
+  // ── Proveedor de búsqueda omitido por el backend ────────────────────────────
+  // Sólo se llena con lo que reporta la acción (`providerSkipped`). Se limpia al
+  // iniciar cada ejecución: una omisión pasada no describe el intento actual.
+  const [skippedProvider, setSkippedProvider] =
+    React.useState<WizardIndicatorProviderKey | null>(null);
+
+  // ── Indicador de proveedor de búsqueda ──────────────────────────────────────
+  // Reducción pura de tres señales del backend: el proveedor resuelto en el
+  // servidor, la ruta efectiva de Lusha (flag de servidor + criterios) y el
+  // proveedor que la acción reportó como omitido.
+  const providerIndicator = React.useMemo(
+    () =>
+      resolveWizardProviderIndicator({
+        serverDiscoveryProvider: discoveryProvider,
+        lushaRoute: lushaCriteria.provider as WizardIndicatorLushaRoute,
+        skippedProvider,
+      }),
+    [discoveryProvider, lushaCriteria.provider, skippedProvider],
   );
 
   // ── Catalog options derived for UI ────────────────────────────────────────
@@ -505,6 +542,9 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
     if (!clientRequestIdRef.current) return;
 
     dispatch({ type: 'BEGIN_EXECUTION' });
+    // Un intento nuevo empieza sin omisión previa: el indicador vuelve al
+    // proveedor resuelto hasta que el backend diga otra cosa.
+    setSkippedProvider(null);
 
     try {
       const result = await executeProspectWizardGenerationAction({
@@ -531,6 +571,11 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
           result.code === 'PROVIDER_UNAVAILABLE'
             ? mapProviderSkip(result.providerSkipped?.skipReason)
             : mapExecutionError(result.code);
+        // El nombre del proveedor omitido se conserva visible; el motivo técnico
+        // NO se muestra: el usuario ve el mensaje funcional ya mapeado.
+        if (result.code === 'PROVIDER_UNAVAILABLE' && result.providerSkipped) {
+          setSkippedProvider(result.providerSkipped.provider);
+        }
         dispatch({
           type: 'EXECUTION_FAILED',
           errorCode: result.code,
@@ -585,20 +630,28 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
     <div className="flex flex-col gap-0 min-h-full">
       {/* Scrollable conversation body */}
       <div ref={scrollContainerRef} className="flex flex-col gap-4 pb-6">
-        {/* Progress indicator */}
-        {showProgress && progressLabel && (
-          <div className="flex items-center gap-3" aria-hidden>
-            <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-su-brand transition-all duration-500"
-                style={{ width: `${progress.percentage}%` }}
-              />
+        {/* Encabezado del contenido: progreso + proveedor de búsqueda.
+            Van en el mismo bloque con separación mínima para que el indicador
+            cueste una línea, no un bloque más en el gap-4 de la conversación.
+            El indicador se mantiene visible en todos los pasos: la barra se
+            oculta al validar, que es justo cuando saber el proveedor importa. */}
+        <div className="flex flex-col gap-1.5">
+          {showProgress && progressLabel && (
+            <div className="flex items-center gap-3" aria-hidden>
+              <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-su-brand transition-all duration-500"
+                  style={{ width: `${progress.percentage}%` }}
+                />
+              </div>
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                {progressLabel}
+              </span>
             </div>
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              {progressLabel}
-            </span>
-          </div>
-        )}
+          )}
+
+          <WizardProviderIndicatorRow indicator={providerIndicator} />
+        </div>
 
         {/* Conversation history */}
         {messages.length > 0 && (

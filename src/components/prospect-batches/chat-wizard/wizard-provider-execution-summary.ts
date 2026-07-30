@@ -12,6 +12,74 @@
  */
 
 import type { WizardApolloSkipReason } from '@/modules/prospect-batches/chat-wizard-execution/wizard-apollo-availability';
+import type {
+  WizardIndicatorProviderKey,
+  WizardProviderIndicator,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-indicator';
+
+// ─── Indicador de proveedor de búsqueda ───────────────────────────────────────
+
+/**
+ * A1-APOLLO-WIZARD-1 — etiqueta discreta del proveedor que correrá la búsqueda.
+ *
+ * Nombres comerciales, nunca claves técnicas: el usuario lee «Apollo», no
+ * `apollo_organizations`. No revela flags, roles, credenciales, variables de
+ * entorno ni el motivo técnico de una omisión.
+ */
+export const PROVIDER_INDICATOR_PREFIX = 'Proveedor de búsqueda';
+
+/** Copy del estado sin resolver. Misma altura que la fila resuelta. */
+export const PROVIDER_INDICATOR_UNRESOLVED_VALUE = 'por definir';
+
+/** Copy del estado no disponible sin proveedor nombrable. */
+export const PROVIDER_INDICATOR_UNAVAILABLE_VALUE = 'no disponible';
+
+/** Aviso funcional cuando hay proveedor nombrado pero no ejecutable. */
+export const PROVIDER_INDICATOR_UNAVAILABLE_NOTICE = 'no disponible en este momento';
+
+const PROVIDER_DISPLAY_NAMES: Record<WizardIndicatorProviderKey, string> = {
+  tavily: 'Tavily',
+  apollo_organizations: 'Apollo',
+  lusha: 'Lusha',
+};
+
+export type ProviderIndicatorPresentation = {
+  /** Prefijo fijo, siempre visible. */
+  prefix: string;
+  /** Nombre comercial, o el copy del estado cuando no hay proveedor nombrable. */
+  value: string;
+  /** Aviso funcional adicional, sin detalle técnico. `null` cuando no aplica. */
+  notice: string | null;
+  /** Texto completo de una sola línea, listo para leer. */
+  label: string;
+};
+
+export function presentProviderIndicator(
+  indicator: WizardProviderIndicator,
+): ProviderIndicatorPresentation {
+  const value =
+    indicator.provider !== null
+      ? PROVIDER_DISPLAY_NAMES[indicator.provider]
+      : indicator.status === 'unavailable'
+        ? PROVIDER_INDICATOR_UNAVAILABLE_VALUE
+        : PROVIDER_INDICATOR_UNRESOLVED_VALUE;
+
+  // El aviso sólo acompaña a un proveedor nombrado: cuando el valor ya dice «no
+  // disponible», repetirlo no agrega información y sí agrega ruido.
+  const notice =
+    indicator.status === 'unavailable' && indicator.provider !== null
+      ? PROVIDER_INDICATOR_UNAVAILABLE_NOTICE
+      : null;
+
+  return {
+    prefix: PROVIDER_INDICATOR_PREFIX,
+    value,
+    notice,
+    label: notice
+      ? `${PROVIDER_INDICATOR_PREFIX}: ${value} · ${notice}`
+      : `${PROVIDER_INDICATOR_PREFIX}: ${value}`,
+  };
+}
 
 // ─── Estado de disponibilidad ─────────────────────────────────────────────────
 
@@ -143,6 +211,13 @@ function formatCount(value: number | null): string {
  * Cuando hay páginas indeterminadas, los créditos se marcan como inciertos:
  * el request salió y la respuesta nunca llegó, así que el proveedor pudo haber
  * cobrado. Decir «0 créditos» ahí sería afirmar algo que no se sabe.
+ *
+ * NO cableado a ningún componente todavía, y a propósito: `WizardExecutionActionResult`
+ * no devuelve ninguna cifra de corrida (páginas, créditos, descartes, duplicados).
+ * Cablearlo hoy pintaría una tabla de «Desconocido» y exigiría exponer cifras
+ * económicas nuevas del servidor al cliente — decisión de producto/gasto aparte.
+ * El indicador de proveedor (`presentProviderIndicator`) y el mensaje de omisión
+ * (`presentProviderSkip`) sí están cableados.
  */
 export function presentProviderRunSummary(
   input: ProviderRunSummaryInput,
