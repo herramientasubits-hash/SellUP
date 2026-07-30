@@ -1924,3 +1924,59 @@ describe('BR-SOURCE-11F-IMPL required-family probe trust — runner dispatch', (
     assert.equal(metadata.errors[0]!.error_code, 'real_manifest_metadata_only_not_authorized');
   });
 });
+
+// ─── BR-SOURCE-11G-IMPL: the join-probe fields on every OTHER path ─────────────
+
+/**
+ * The 11G join-probe carve-out added two provenance flags and one report block. These assert
+ * the additions are INERT everywhere else: an unauthorized run reports them `false` / `null`
+ * rather than omitting them, and a real-manifest trust it does not recognize is still refused.
+ */
+describe('BR Receita full join dry-run — 11G join-probe fields stay inert elsewhere', () => {
+  it('reports the join-probe flags as false and the block as null on a synthetic run', () => {
+    const report = runBrazilReceitaFullJoinDryRun(SAFE_INPUT);
+    assert.equal(report.ok, true);
+    assert.equal(report.required_family_join_probe_authorized, false);
+    assert.equal(report.real_local_join_dry_run_authorized, false);
+    assert.equal(report.required_family_join_probe, null);
+    assert.equal(report.guardrail_counts.required_family_join_probe_files_opened, 0);
+    assert.equal(report.guardrail_counts.required_family_join_probe_forbidden_family_findings, 0);
+  });
+
+  it('refuses the join-probe trust without any of its authorizations, opening nothing', () => {
+    const report = runBrazilReceitaFullJoinDryRun({
+      ...SAFE_INPUT,
+      mode: 'local_manifest_dry_run',
+      manifestTrust: 'real_manifest_required_family_join_probe',
+      allowLocalManifest: true,
+      strict: true,
+      outputSanitizationVersion: BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+    } as unknown as BrazilReceitaFullJoinDryRunInput);
+
+    assert.equal(report.ok, false);
+    assert.equal(report.required_family_join_probe, null);
+    // The manifest gate refuses first: a join probe whose control document cannot be read never
+    // reaches the join gate, let alone a data file.
+    assert.equal(report.errors[0]!.error_code, 'real_manifest_metadata_only_not_authorized');
+  });
+
+  it('keeps the join-probe flags out of the metadata-only and Option B provenance', () => {
+    for (const trust of [
+      BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_TEMP_MANIFEST_TRUST,
+      BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST,
+    ]) {
+      const report = runBrazilReceitaFullJoinDryRun({
+        ...SAFE_INPUT,
+        mode: 'local_manifest_dry_run',
+        manifestTrust: trust,
+        allowLocalManifest: true,
+        strict: true,
+        outputSanitizationVersion: BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
+      } as unknown as BrazilReceitaFullJoinDryRunInput);
+      assert.equal(report.ok, false);
+      assert.equal(report.required_family_join_probe_authorized, false);
+      assert.equal(report.real_local_join_dry_run_authorized, false);
+      assert.equal(report.required_family_join_probe, null);
+    }
+  });
+});
