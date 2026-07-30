@@ -37,6 +37,7 @@ import {
   type ApolloOrganization,
   type EnrichOrganizationParams,
   type ApolloEnrichResult,
+  type SearchOrganizationsParams,
 } from '@/server/integrations/apollo-client';
 import {
   runApolloOrganizationEnrichmentCascade,
@@ -54,6 +55,22 @@ import {
   APOLLO_QUERY_MAPPING_VERSION,
 } from '../apollo-organizations-query-mapping';
 import { resolveApolloMaxResultsPerQuery } from '../apollo-cost-guardrails';
+// A1-APOLLO-WIZARD-1 — paginación acotada, normalización con prioridad de
+// `organizations[]`, taxonomía de errores y lectura de cuota real.
+import { searchApolloOrganizationsPage } from '@/server/integrations/apollo-client';
+import {
+  runApolloOrganizationsPaginatedSearch,
+  type ApolloPageFetchResult,
+  type ApolloPageLogEntry,
+} from '../apollo-organizations-paginated-search';
+import { createApolloPaginationBudget } from '../apollo-organizations-pagination-budget';
+import type { NormalizedApolloOrganization } from '../apollo-organizations-response-normalizer';
+import {
+  toApolloErrorLogMetadata,
+  type ApolloErrorClassification,
+} from '../apollo-organizations-error-taxonomy';
+import { toRateLimitLogMetadata } from '@/server/integrations/apollo-rate-limit-headers';
+import type { ApolloOrganizationsRequestInput } from '../apollo-organizations-request-contract';
 import { applyApolloSectorRelevanceGate } from '../apollo-sector-relevance-gate';
 import { ingestApolloOrganizationIndustryRawLabels } from '@/modules/industry-mapping/apollo-industry-raw-label-ingestion';
 import { normalizeClassificationValue } from '@/modules/prospect-batches/import-classification/catalog-normalization';
@@ -435,6 +452,18 @@ const DRY_RUN_FIXTURE_ORGS: ApolloOrganizationInput[] = [
 
 export type ApolloOrgsSearchDeps = {
   searchOrgs?: typeof searchApolloOrganizations;
+  /**
+   * A1-APOLLO-WIZARD-1: transporte por página. Cuando se omite, se usa
+   * `searchApolloOrganizationsPage` (real). Los tests existentes que inyectan
+   * `searchOrgs` siguen funcionando: se adapta a esta forma.
+   */
+  fetchPage?: (body: Record<string, unknown>) => Promise<ApolloPageFetchResult>;
+  /** Reloj inyectable — sólo tests. */
+  now?: () => number;
+  /** Jitter inyectable ∈ [0,1) — sólo tests. */
+  random?: () => number;
+  /** Espera entre reintentos — los tests la anulan. */
+  sleep?: (ms: number) => Promise<void>;
   logUsage?: typeof realLogApolloOrgsUsage;
   /** L2.15: injectable enrichment fn — for tests only, never call real in production without flag. */
   enrichOrg?: (params: EnrichOrganizationParams) => Promise<ApolloEnrichResult<ApolloOrganization>>;
@@ -444,6 +473,123 @@ export type ApolloOrgsSearchDeps = {
    */
   captureIndustryLabels?: typeof captureProviderIndustryRawLabelObservations;
 };
+
+// ─── A1-APOLLO-WIZARD-1: adaptadores de la ruta paginada ─────────────────────
+
+/**
+ * Adapta el resultado de `searchApolloOrganizations` (forma antigua) a la forma
+ * de página. Existe para que los callers y tests que ya inyectan `searchOrgs`
+ * sigan funcionando sin cambios mientras la ruta real usa el transporte nuevo.
+ */
+function adaptSearchOrgsToPage(
+  result: Awaited<ReturnType<typeof searchApolloOrganizations>>,
+): ApolloPageFetchResult {
+  if (!result.success || result.error) {
+    const status = result.error?.statusCode ?? 500;
+    return {
+      ok: false,
+      status,
+      requestSent: true,
+      malformedBody: false,
+      timedOut: false,
+      payload: undefined,
+      headers: null,
+      errorBody: result.error?.message,
+    };
+  }
+  return {
+    ok: true,
+    status: 200,
+    requestSent: true,
+    malformedBody: false,
+    timedOut: false,
+    // La forma antigua ya colapsó accounts/organizations en `data`. Se entrega
+    // como `organizations` porque es la fuente principal por contrato.
+    payload: {
+      organizations: result.data ?? [],
+      pagination: {
+        page: result.page,
+        per_page: result.per_page,
+        total_entries: result.total,
+      },
+    },
+    headers: null,
+  };
+}
+
+/**
+ * Traduce los params del mapper de query a los filtros tipados del contrato de
+ * request. `page` y `per_page` los gobierna el presupuesto de paginación, no el
+ * mapper, así que se descartan aquí a propósito.
+ */
+function buildPaginatedSearchFilters(
+  params: SearchOrganizationsParams,
+): Omit<ApolloOrganizationsRequestInput, 'page' | 'perPage'> {
+  return {
+    locations: params.organization_locations ?? null,
+    employeeRanges: params.organization_num_employees_ranges ?? null,
+    keywordTags: params.q_organization_keyword_tags ?? null,
+    organizationName: params.q_organization_name ?? null,
+    domainsList: params.q_organization_domains ?? null,
+  };
+}
+
+/**
+ * Convierte la organización normalizada a la forma `ApolloOrganization` que
+ * consumen el gate sectorial, el cascade y los diagnósticos.
+ *
+ * `primary_domain` queda ya normalizado y `all_domains` viaja como alias de
+ * identidad, sin desplazar al dominio principal.
+ */
+function toApolloOrganizationShape(
+  organization: NormalizedApolloOrganization,
+): ApolloOrganization & { all_domains?: string[] } {
+  return {
+    id: organization.providerReference.providerOrganizationId,
+    name: organization.name,
+    website_url: organization.websiteUrl,
+    primary_domain: organization.primaryDomain,
+    all_domains: organization.normalizedDomains,
+    linkedin_url: organization.linkedinUrl,
+    industry: organization.industry,
+    industry_tag_ids: [],
+    employee_count: organization.estimatedNumEmployees,
+    estimated_num_employees: organization.estimatedNumEmployees,
+    city: organization.city,
+    country: organization.country,
+    phone: organization.phone,
+    annual_revenue: null,
+    technologies: organization.technologies,
+    short_description: organization.shortDescription,
+    seo_description: organization.seoDescription,
+    description: organization.description,
+    keywords: organization.keywords,
+    industries: organization.industries,
+    organization_keywords: organization.organizationKeywords,
+  };
+}
+
+/**
+ * Traduce la categoría del error al `skipReason` histórico del provider, para
+ * no romper a los consumidores que ya discriminan por esos códigos.
+ */
+function mapClassificationToLegacySkipReason(
+  classification: ApolloErrorClassification,
+): string {
+  switch (classification.category) {
+    case 'rate_limited':
+      return 'apollo_quota_exceeded';
+    case 'invalid_credential':
+      return 'apollo_auth_error_401';
+    case 'insufficient_plan_or_scope':
+      return 'apollo_auth_error_403';
+    case 'network_timeout':
+    case 'malformed_response':
+      return 'apollo_fetch_exception';
+    default:
+      return 'apollo_api_error';
+  }
+}
 
 // ─── Provider público ─────────────────────────────────────────────────────────
 
@@ -498,7 +644,6 @@ export async function runApolloOrganizationsSearch(
     startMs,
   );
 
-  const searchFn = deps?.searchOrgs ?? searchApolloOrganizations;
   const logFn = deps?.logUsage ?? realLogApolloOrgsUsage;
 
   // Q3F-5AU.10S: usage logging failures (e.g. FK violation on batch_id) must
@@ -530,67 +675,76 @@ export async function runApolloOrganizationsSearch(
     max_results_cap_source: maxResultsCapSource,
   };
 
-  // ── Llamada real a Apollo ────────────────────────────────────────────────────
-  let apolloResult: Awaited<ReturnType<typeof searchApolloOrganizations>>;
-  try {
-    apolloResult = await searchFn(apolloParams);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'unknown error';
-    const usageMeta: ApolloOrganizationsUsageMetadata = {
-      operation_key: 'organizations_search',
-      provider_key: 'apollo',
-      credits_used: 0,
-      estimated_cost_usd: 0,
-      status: 'error',
-    };
+  // ── A1-APOLLO-WIZARD-1: búsqueda paginada acotada ───────────────────────────
+  // Una invocación de este provider = UNA query = UNA página.
+  //
+  // maxPages se fija en 1 a propósito. El presupuesto entre queries y rondas ya
+  // lo gobierna aguas arriba `AGENT1_APOLLO_MAX_QUERIES_PER_RUN` (cap global
+  // acumulado en incremental-search.ts, v1.16K-AC), y el wizard reserva créditos
+  // como maxQueries × maxResults antes de ejecutar. Derivar maxPages de esa
+  // misma variable multiplicaría el gasto por query (N queries × N páginas) y
+  // dejaría el consumo real por encima de lo reservado — exactamente la causa
+  // raíz que v1.16K-AC cerró. Paginar dentro de una query requiere un
+  // presupuesto propio, no reutilizar el cap de queries.
+  const paginationBudget = createApolloPaginationBudget({ perPage: cap, maxPages: 1 });
+  const apolloPageLogs: ApolloPageLogEntry[] = [];
 
-    trackLogResult(await logFn({
-      usage_key: usageKey,
-      provider_key: 'apollo',
-      operation_key: 'organizations_search',
-      batch_id: usageContext?.batchId ?? undefined,
-      agent_run_id: usageContext?.agentRunId ?? undefined,
-      credits_used: 0,
-      results_returned: 0,
-      estimated_cost_usd: 0,
-      status: 'error',
-      error_code: 'apollo_fetch_exception',
-      error_message: msg.slice(0, 200),
-      duration_ms: Date.now() - startMs,
-      triggered_by: usageContext?.triggeredByUserId ?? undefined,
-      metadata: buildUsageMetadata(input, cap, wasCapped, 0, false, 'error', apolloParamsSanitized),
-    }));
+  // Transporte: el real por defecto; `searchOrgs` se adapta para no romper a
+  // los callers y tests que ya lo inyectan.
+  const fetchPage: (body: Record<string, unknown>) => Promise<ApolloPageFetchResult> =
+    deps?.fetchPage
+      ?? (deps?.searchOrgs
+        ? async (body) => adaptSearchOrgsToPage(await deps.searchOrgs!(body as never))
+        : (body) => searchApolloOrganizationsPage(body));
 
-    return {
-      provider: 'apollo_organizations',
-      query: input.query,
-      results: [],
-      resultsCount: 0,
-      skipped: true,
-      skipReason: 'apollo_fetch_exception',
-      estimatedCostUsd: 0,
-      metadata: {
-        dry_run: false,
-        provider_mode: 'real_limited',
-        usage: usageMeta,
-        ...(usageLoggingFailed
-          ? { usage_logging_failed: true, usage_logging_errors: usageLoggingErrors }
-          : {}),
-      },
-    };
-  }
+  const paginated = await runApolloOrganizationsPaginatedSearch(
+    {
+      filters: buildPaginatedSearchFilters(apolloParams),
+      budget: paginationBudget,
+      wizardRunId: usageContext?.batchId ?? `no_batch:${startMs}`,
+      agentRunId: usageContext?.agentRunId ?? null,
+    },
+    {
+      fetchPage,
+      now: deps?.now ?? (() => Date.now()),
+      random: deps?.random ?? Math.random,
+      sleep: deps?.sleep,
+      logPage: (entry) => { apolloPageLogs.push(entry); },
+    },
+  );
 
-  // ── Manejo de respuestas de error Apollo ─────────────────────────────────────
-  if (!apolloResult.success || apolloResult.error) {
-    const statusCode = apolloResult.error?.statusCode ?? 0;
-    const isAuthError = statusCode === 401 || statusCode === 403;
-    const isQuota = statusCode === 429;
+  // Trazabilidad de paginación y cuota — sin secretos, sin PII.
+  const apolloPaginationMetadata = {
+    pages_processed: paginated.pagesProcessed,
+    max_pages: paginationBudget.maxPages,
+    max_credits: paginationBudget.maxCredits,
+    max_candidates: paginationBudget.maxCandidates,
+    per_page: paginationBudget.perPage,
+    timeout_budget_ms: paginationBudget.timeoutBudgetMs,
+    budget_derived_from: paginationBudget.derivedFrom,
+    stop_reason: paginated.stopReason,
+    estimated_credits: paginated.estimatedCredits,
+    total_entries: paginated.paginationMeta.totalEntries,
+    total_pages: paginated.paginationMeta.totalPages,
+    request_fingerprint: paginated.requestFingerprint,
+    indeterminate_pages: paginated.indeterminatePages,
+    rejected_forbidden_params: paginated.rejectedForbiddenParams,
+    rejected_unknown_params: paginated.rejectedUnknownParams,
+    omitted_filters: paginated.omittedFilters,
+    page_outcomes: paginated.pageOutcomes,
+    normalization: paginated.normalizationMeta,
+    rate_limit: paginated.lastRateLimit
+      ? toRateLimitLogMetadata(paginated.lastRateLimit)
+      : null,
+  };
 
+  // Un fallo terminal se reporta como fallo, nunca como búsqueda vacía.
+  if (paginated.terminalError && paginated.organizations.length === 0) {
+    const classification = paginated.terminalError;
+    const isQuota = classification.category === 'rate_limited';
     const usageStatus: ApolloOrganizationsUsageMetadata['status'] = isQuota
       ? 'quota_exceeded'
       : 'error';
-
-    const providerUsageStatus = isQuota ? 'quota_exceeded' as const : 'error' as const;
 
     const usageMeta: ApolloOrganizationsUsageMetadata = {
       operation_key: 'organizations_search',
@@ -609,21 +763,18 @@ export async function runApolloOrganizationsSearch(
       credits_used: 0,
       results_returned: 0,
       estimated_cost_usd: 0,
-      status: providerUsageStatus,
-      error_code: isAuthError
-        ? `apollo_http_${statusCode}`
-        : apolloResult.error?.error ?? 'apollo_api_error',
-      error_message: (apolloResult.error?.message ?? 'Apollo API error').slice(0, 200),
+      status: isQuota ? 'quota_exceeded' : 'error',
+      error_code: classification.code,
+      error_message: `${classification.category} (billing=${classification.billingState})`.slice(0, 200),
       duration_ms: Date.now() - startMs,
       triggered_by: usageContext?.triggeredByUserId ?? undefined,
-      metadata: buildUsageMetadata(input, cap, wasCapped, 0, false, usageStatus, apolloParamsSanitized),
+      metadata: {
+        ...buildUsageMetadata(input, cap, wasCapped, 0, false, usageStatus, apolloParamsSanitized),
+        ...toApolloErrorLogMetadata(classification),
+        apollo_pagination: apolloPaginationMetadata,
+        apollo_page_logs: apolloPageLogs,
+      },
     }));
-
-    const skipReason = isQuota
-      ? 'apollo_quota_exceeded'
-      : isAuthError
-        ? `apollo_auth_error_${statusCode}`
-        : 'apollo_api_error';
 
     return {
       provider: 'apollo_organizations',
@@ -631,12 +782,14 @@ export async function runApolloOrganizationsSearch(
       results: [],
       resultsCount: 0,
       skipped: true,
-      skipReason,
+      skipReason: mapClassificationToLegacySkipReason(classification),
       estimatedCostUsd: 0,
       metadata: {
         dry_run: false,
         provider_mode: 'real_limited',
         usage: usageMeta,
+        apollo_error: toApolloErrorLogMetadata(classification),
+        apollo_pagination: apolloPaginationMetadata,
         ...(usageLoggingFailed
           ? { usage_logging_failed: true, usage_logging_errors: usageLoggingErrors }
           : {}),
@@ -645,7 +798,10 @@ export async function runApolloOrganizationsSearch(
   }
 
   // ── Mapping resultados ───────────────────────────────────────────────────────
-  const rawOrgs = apolloResult.data ?? [];
+  // Se reconstruye la forma que ya consume el resto del provider (gate
+  // sectorial, cascade, diagnósticos), pero con la precedencia correcta de
+  // `organizations[]` y con los dominios ya normalizados.
+  const rawOrgs: ApolloOrganization[] = paginated.organizations.map(toApolloOrganizationShape);
 
   // ── Q3F-5AU.7: best-effort raw industry label observation capture ──────────
   // Reads rawOrgs only — runs before any mapping/enrichment/gate step, so it
@@ -923,6 +1079,14 @@ export async function runApolloOrganizationsSearch(
       apollo_raw_result_samples_sanitized: rawResultSamples,
       // L2.15: metadata del enrichment cascade (enabled=false cuando flag OFF)
       apollo_enrichment_cascade: enrichmentCascadeMeta,
+      // A1-APOLLO-WIZARD-1: paginación, presupuesto, cuota y trazabilidad por página.
+      apollo_pagination: apolloPaginationMetadata,
+      apollo_page_logs: apolloPageLogs,
+      // Un fallo parcial tras haber obtenido resultados queda visible en vez de
+      // desaparecer detrás de un resultado "exitoso".
+      ...(paginated.terminalError
+        ? { apollo_partial_failure: toApolloErrorLogMetadata(paginated.terminalError) }
+        : {}),
       // Q3F-5AU.10S: real Apollo results were returned even if usage logging
       // failed (e.g. FK violation on batch_id) — never block results on this.
       ...(usageLoggingFailed
