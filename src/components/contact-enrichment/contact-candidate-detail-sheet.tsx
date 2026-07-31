@@ -74,6 +74,14 @@ import {
   IDENTITY_TONE_STYLES,
   resolveIdentityDisplay,
 } from './contact-candidate-identity-display';
+// Refresco acotado del candidato mientras el reveal está en vuelo
+// (APOLLO-PHONE-REVEAL-LIVE-REFRESH-1). Política de arranque/parada en el núcleo
+// puro; los timers viven en el hook. NO llama a proveedores ni a recovery.
+import {
+  isPhoneRevealLiveRefreshEligible,
+  PHONE_REVEAL_LIVE_REFRESH_COPY,
+} from './phone-reveal-live-refresh-core';
+import { usePhoneRevealLiveRefresh } from './use-phone-reveal-live-refresh';
 
 // Motivos de rechazo sugeridos (Hito 17A.4B). "Otro" habilita un comentario
 // opcional; el resto se guarda tal cual en review_notes + metadata.review.
@@ -301,7 +309,8 @@ export function ContactCandidateDetailSheet({
 
   // Revisión manual del resultado (APOLLO-PHONE-RECOVERY-L3). NO inicia un reveal
   // nuevo: pide al servidor que consulte AHORA el resultado del reveal en vuelo.
-  // Se dispara solo por acto humano — no hay setInterval ni polling automático.
+  // Se dispara SOLO por acto humano: ningún timer la invoca (el refresco acotado de
+  // LIVE-REFRESH-1 relee el candidato, nunca llama a esta acción).
   const [recoveringPhone, setRecoveringPhone] = React.useState(false);
   const [phoneRecoveryNotice, setPhoneRecoveryNotice] = React.useState<string | null>(
     null,
@@ -310,6 +319,19 @@ export function ContactCandidateDetailSheet({
     null,
   );
   const recoverInFlightRef = React.useRef(false);
+
+  // Refetch silencioso (LIVE-REFRESH-1). `reloadInFlightRef` evita dos refetch
+  // simultáneos y `currentCandidateIdRef` corta el setState tardío cuando el
+  // drawer ya se cerró o cambió de candidato mientras la lectura se resolvía.
+  const reloadInFlightRef = React.useRef<Promise<void> | null>(null);
+  const currentCandidateIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    currentCandidateIdRef.current = open ? candidateId : null;
+    return () => {
+      currentCandidateIdRef.current = null;
+    };
+  }, [open, candidateId]);
 
   const busy = approving || rejecting;
 
@@ -369,14 +391,29 @@ export function ContactCandidateDetailSheet({
    * Refetch silencioso del candidato tras un reveal (no muestra el skeleton del
    * drawer). Reutiliza la misma proyección de solo lectura; si falla, conserva
    * la vista actual. Sirve para reflejar el teléfono recién revelado + su badge.
+   *
+   * LIVE-REFRESH-1: además del reveal y la revisión manual, ahora también lo
+   * dispara el refresco acotado. Por eso deduplica — un segundo llamador se
+   * cuelga del refetch ya en curso en vez de abrir otro — y comprueba que el
+   * drawer siga en el mismo candidato antes de escribir estado.
    */
-  const reloadCandidate = React.useCallback(async () => {
+  const reloadCandidate = React.useCallback(async (): Promise<void> => {
     if (!candidateId) return;
+    const inFlight = reloadInFlightRef.current;
+    if (inFlight) return inFlight;
+    const request = (async () => {
+      try {
+        const fresh = await getPendingContactCandidateById(candidateId);
+        if (fresh && currentCandidateIdRef.current === candidateId) setCandidate(fresh);
+      } catch {
+        // Silencioso: mantenemos la vista actual si el refetch falla.
+      }
+    })();
+    reloadInFlightRef.current = request;
     try {
-      const fresh = await getPendingContactCandidateById(candidateId);
-      if (fresh) setCandidate(fresh);
-    } catch {
-      // Silencioso: mantenemos la vista actual si el refetch falla.
+      await request;
+    } finally {
+      if (reloadInFlightRef.current === request) reloadInFlightRef.current = null;
     }
   }, [candidateId]);
 
@@ -697,6 +734,24 @@ export function ContactCandidateDetailSheet({
   const phoneRevealInFlight =
     candidate?.phone_reveal_status === 'requested' ||
     candidate?.phone_reveal_status === 'pending';
+
+  // Refresco acotado del candidato en vuelo (APOLLO-PHONE-REVEAL-LIVE-REFRESH-1).
+  // El backend ya cierra el reveal por webhook en decenas de segundos; sin esto el
+  // drawer seguía diciendo "Revelación en proceso" hasta recargar la página. Solo
+  // relee el candidato YA abierto: no llama a Apollo, no llama a recovery y no
+  // inicia reveals. Se apaga solo al llegar un estado terminal, al aparecer un
+  // teléfono, al cerrar el drawer, al cambiar de candidato y al agotar su
+  // presupuesto de tiempo (no hay bucle infinito ni setInterval).
+  const liveRefreshEligible = isPhoneRevealLiveRefreshEligible({
+    phoneRevealStatus: candidate?.phone_reveal_status ?? null,
+    hasPhone,
+    busy,
+  });
+  const liveRefreshActive = usePhoneRevealLiveRefresh({
+    enabled: open && !!candidate && liveRefreshEligible,
+    candidateId,
+    reload: reloadCandidate,
+  });
   // Última comprobación del recovery (RECOVERY-CRON-1). Solo informativa: se
   // muestra mientras el reveal está en vuelo para que el usuario sepa que hay algo
   // vigilando el caso. NO reactiva el botón ni cambia la elegibilidad.
@@ -708,9 +763,11 @@ export function ContactCandidateDetailSheet({
   //    derivado: el id nunca llega al cliente),
   //  - y ya pasaron al menos 2 min desde la solicitud.
   // La ventana se evalúa con el MISMO núcleo puro que usa el backend. Se calcula en
-  // el render, sin timers: no hay setInterval ni polling automático — si el usuario
-  // abre el panel antes de los 2 min ve el mensaje de espera, y el CTA aparece la
-  // próxima vez que el panel se renderice (reabrirlo o refrescar el candidato).
+  // el render, sin timer propio: si el usuario abre el panel antes de los 2 min ve
+  // el mensaje de espera, y el CTA aparece la próxima vez que el panel se renderice
+  // (reabrirlo o refrescar el candidato). El refresco acotado de LIVE-REFRESH-1 NO
+  // invoca esta acción: solo relee el candidato, y su presupuesto se agota antes de
+  // los 2 min, así que no puede "abrir" el CTA por su cuenta.
   const phoneRecoveryRequestWindowOpen =
     phoneRevealInFlight &&
     isManualRecoveryRequestWindowOpen(
@@ -974,6 +1031,15 @@ export function ContactCandidateDetailSheet({
                             : `${PHONE_REVEAL_IN_FLIGHT_BASE_COPY}.`}
                         </span>
                       </span>
+                      {/* LIVE-REFRESH-1: mientras el refresco acotado está activo
+                          se dice explícitamente, para que el spinner no parezca
+                          congelado. Es solo informativo: no habilita ninguna
+                          acción nueva ni cambia la elegibilidad del CTA L3. */}
+                      {liveRefreshActive && (
+                        <p className="text-[11px] text-muted-foreground/70">
+                          {PHONE_REVEAL_LIVE_REFRESH_COPY}
+                        </p>
+                      )}
                       {phoneRevealLastCheckedAt && (
                         <p className="text-[11px] text-muted-foreground/70">
                           Última revisión: {formatDate(phoneRevealLastCheckedAt)}
