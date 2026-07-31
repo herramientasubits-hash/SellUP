@@ -1746,3 +1746,14 @@ all unchanged and blocked.
 The authorization is single-milestone and expires with it.
 
 Record: [`br-receita-cnpj-bounded-real-join-coverage-decision-record.md`](./br-receita-cnpj-bounded-real-join-coverage-decision-record.md).
+
+---
+
+## 34. Update (BR-SOURCE-11I)
+
+BR-SOURCE-11I interprets the 11H aggregate-only coverage signal result. It records that
+`match_result_bucket = zero` is a valid bounded-window outcome, not a failure. It does not authorize
+reruns, larger caps, multi-window sampling, exact coverage percentages, import, Supabase, runtime or
+Agent 1. It recommends preparing a future GATE-2 route decision package. It does not approve any
+gate. See
+[`br-receita-cnpj-coverage-signal-interpretation-and-gate2-route-decision-record.md`](./br-receita-cnpj-coverage-signal-interpretation-and-gate2-route-decision-record.md).
