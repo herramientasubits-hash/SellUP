@@ -1383,3 +1383,41 @@ measurements, and no evidence row in this packet may cite a bounded join probe t
 authorized nor run.
 
 Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).
+
+---
+
+## 23. BR-SOURCE-11H — no new gate evidence, and none anticipated
+
+```text
+BR-SOURCE-11H defines the next decision question: whether an ultra-bounded aggregate-only real join
+coverage signal can be authorized.
+It does not authorize coverage execution by itself.
+It does not authorize exact coverage percentages.
+It does not authorize full-dataset denominator claims.
+It does not authorize import.
+It does not approve any gate.
+```
+
+For this packet specifically, one consequence matters most, and it is sharper than § 22's:
+
+```text
+A future bounded coverage signal, if authorized and green, would be evidence that a join mechanism
+produces a coarse outcome class over two bounded windows without leaking the protected technical join
+key or emitting a rate.
+It would NOT be GATE-1 evidence, GATE-2 evidence, or evidence about the dataset's coverage, quality,
+join rates, or eligibility, and it may not be entered in this packet as such.
+A `zero` or `not_reported` result is evidence of nothing at all, in either direction.
+The word "coverage" in that record's own title names a QUESTION, not a measurement.
+```
+
+Two further consequences: the signal persists no field (**GATE-3** unchanged), constructs no
+`record_identity_key` and no `normalized_tax_id` (**GATE-4** unchanged), and promotes no output as
+evidence (**GATE-5** unchanged). The gate this packet must watch is **GATE-2**, which still needs
+measurements — and a bounded-window bucket is not one of them, however much its label may invite a
+reader to file it as such.
+
+The § 5 … § 12 per-gate evidence packets and the § 13 cross-gate gaps are therefore unchanged, the
+§ 15 decision still reads **NO-GO**, GATE-1 still needs a legal determination, and no evidence row in
+this packet may cite a bounded coverage signal that has neither been authorized nor run.
+
+Record: [`br-receita-cnpj-bounded-real-join-coverage-decision-record.md`](./br-receita-cnpj-bounded-real-join-coverage-decision-record.md).

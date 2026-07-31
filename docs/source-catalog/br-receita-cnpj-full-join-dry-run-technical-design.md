@@ -1633,3 +1633,31 @@ The authorization is single-milestone and expires with it. § 30 remains the rec
 the answer is recorded in that record's § 17.
 
 Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).
+
+---
+
+## 32. BR-SOURCE-11H — the next decision question, still no coverage signal
+
+```text
+BR-SOURCE-11H defines the next decision question: whether an ultra-bounded aggregate-only real join
+coverage signal can be authorized.
+It does not authorize coverage execution by itself.
+It does not authorize exact coverage percentages.
+It does not authorize full-dataset denominator claims.
+It does not authorize import.
+It does not approve any gate.
+```
+
+Nothing in § 31 changes. The join probe's `join_coverage_computed = false` and `coverage_claimed =
+false` assertions remain the merged behaviour, the § 31.2 file surface and ceilings are unchanged, no
+sixth manifest trust exists, the § 10 coverage prohibition remains a refusal rather than a labelling
+rule, the BR-SOURCE-10H bounded coverage design remains a design rather than an authorization, and
+GATE-1 and GATE-2 retain sole authority over dataset processing.
+
+One point matters for this design specifically: the successor record proposes raising the byte, row
+and in-memory key-window ceilings (8×, 10×, 10× the § 31.2 values) while leaving the file count,
+family allowlist and aggregate-only discipline untouched. That escalation is a proposal under owner
+review, not a change to anything implemented here, and § 10's resource limits are unaffected until a
+separate, exactly-worded owner phrase naming the coverage signal is given after that record merges.
+
+Record: [`br-receita-cnpj-bounded-real-join-coverage-decision-record.md`](./br-receita-cnpj-bounded-real-join-coverage-decision-record.md).
