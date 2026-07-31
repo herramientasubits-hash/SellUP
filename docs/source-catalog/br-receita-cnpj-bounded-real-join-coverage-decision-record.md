@@ -1321,3 +1321,14 @@ no data dumps, no real CNPJs, no CNPJ básico values, no CPFs, and no partner (s
 reproduced. Local WIP (`scratchpad/`) and the unrelated in-progress work on the main worktree are
 untouched by any git operation: this milestone was prepared in an isolated worktree branched from
 `origin/main`.
+
+---
+
+## 18. Update (BR-SOURCE-11I)
+
+BR-SOURCE-11I interprets the 11H aggregate-only coverage signal result. It records that
+`match_result_bucket = zero` is a valid bounded-window outcome, not a failure. It does not authorize
+reruns, larger caps, multi-window sampling, exact coverage percentages, import, Supabase, runtime or
+Agent 1. It recommends preparing a future GATE-2 route decision package. It does not approve any
+gate. See
+[`br-receita-cnpj-coverage-signal-interpretation-and-gate2-route-decision-record.md`](./br-receita-cnpj-coverage-signal-interpretation-and-gate2-route-decision-record.md).
