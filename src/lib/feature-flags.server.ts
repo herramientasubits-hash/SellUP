@@ -2,6 +2,8 @@
 // client components. The values are resolved at request time by server
 // components and server actions, then sent to the client as plain booleans.
 
+import { isEnvFlagEnabled } from '@/lib/env-flag-parser';
+
 /**
  * Returns true when ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION is "true"
  * (case-insensitive, leading/trailing whitespace ignored).
@@ -158,10 +160,14 @@ export const APOLLO_COMPANY_SEARCH_FLAG = 'ENABLE_APOLLO_COMPANY_SEARCH';
  * discovery pipeline. Must not be enabled until pricing migration is applied
  * and the real Apollo API integration is validated.
  */
+/**
+ * A1-APOLLO-BUDGET-RECONCILIATION-1: routed through the canonical env parser so
+ * this read and wizard-provider-resolver's can never drift apart — the provider
+ * indicator and the code that spends credits must resolve the same flag the
+ * same way. Behaviour is unchanged: only the exact token `true` enables Apollo.
+ */
 export function isApolloCompanySearchEnabled(): boolean {
-  return (
-    process.env[APOLLO_COMPANY_SEARCH_FLAG]?.trim().toLowerCase() === 'true'
-  );
+  return isEnvFlagEnabled(process.env[APOLLO_COMPANY_SEARCH_FLAG]);
 }
 
 /** Flag name constant for Apollo Organization Enrichment cascade in Agent 1 (L2.15). */
@@ -182,11 +188,34 @@ export const APOLLO_ORGANIZATION_ENRICHMENT_CASCADE_FLAG =
  * entry (operation_key='organization_enrichment') is confirmed in production.
  */
 export function isApolloOrganizationEnrichmentCascadeEnabled(): boolean {
-  return (
-    process.env[APOLLO_ORGANIZATION_ENRICHMENT_CASCADE_FLAG]
-      ?.trim()
-      .toLowerCase() === 'true'
-  );
+  // A1-APOLLO-BUDGET-RECONCILIATION-1: same canonical parser as the company
+  // search flag. This flag also drives how many enrichment credits the wizard
+  // reserves, so estimation and execution must read it identically.
+  return isEnvFlagEnabled(process.env[APOLLO_ORGANIZATION_ENRICHMENT_CASCADE_FLAG]);
+}
+
+/**
+ * Flag name constant for writing spend-correlation COLUMNS on
+ * provider_usage_logs (A1-APOLLO-BUDGET-RECONCILIATION-1, migration 100).
+ */
+export const PROVIDER_USAGE_CORRELATION_COLUMNS_FLAG =
+  'ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS';
+
+/**
+ * Returns true when ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS is "true".
+ *
+ * Default: false, and it must stay false until migration 100 has been applied —
+ * writing a column that does not exist fails the whole insert, and usage
+ * logging failing would lose the very spend record this milestone is about.
+ *
+ * The feature does NOT depend on this flag. The same correlation values are
+ * always written to `metadata.run_correlation`, and the reconciliation reads
+ * columns first, metadata second. Turning the flag on after the migration adds
+ * indexable columns for new rows; historic rows keep answering from metadata,
+ * so no backfill is needed.
+ */
+export function isProviderUsageCorrelationColumnsEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[PROVIDER_USAGE_CORRELATION_COLUMNS_FLAG]);
 }
 
 /**

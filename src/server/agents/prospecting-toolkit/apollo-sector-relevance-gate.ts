@@ -124,6 +124,66 @@ const SECTOR_SIGNAL_TERMS: Record<string, string[]> = {
     'ed-tech',
   ],
   /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 — Retail y Consumo (señales amplias).
+   *
+   * NO incluye el token suelto 'retail': es substring de 'retail banking', y con
+   * él Citigroup pasaba una búsqueda de retail — el mismo modo de fallo de
+   * v1.16K-AC. Se usan formas que sólo aparecen en un minorista real
+   * ('retailer', 'retail chain', 'retail store').
+   */
+  'retail y consumo': [
+    // Español
+    'comercio minorista',
+    'minorista',
+    'tienda',
+    'tiendas',
+    'cadena de tiendas',
+    'almacen de cadena',
+    'consumo masivo',
+    'supermercado',
+    'supermercados',
+    'hipermercado',
+    'hipermercados',
+    // Inglés
+    'retailer',
+    'retail chain',
+    'retail store',
+    'consumer goods',
+    'supermarket',
+    'hypermarket',
+    'grocery',
+    'grocery retail',
+    'grocery store',
+  ],
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1 — Supermercados e Hipermercados (estricto).
+   *
+   * Sólo operadores de supermercado/hipermercado y grocery retail. Excluye
+   * deliberadamente 'retail' y 'comercio' genéricos, que dejarían pasar
+   * cualquier gran corporación con una línea de retail.
+   */
+  'supermercados e hipermercados': [
+    // Español
+    'supermercado',
+    'supermercados',
+    'hipermercado',
+    'hipermercados',
+    'autoservicio',
+    'almacen de cadena',
+    'cadena de supermercados',
+    'tienda de descuento',
+    // Inglés
+    'supermarket',
+    'supermarkets',
+    'hypermarket',
+    'hypermarkets',
+    'grocery',
+    'grocery retail',
+    'grocery store',
+    'grocery chain',
+    'retail chain',
+  ],
+  /**
    * Señales estrictas de formación corporativa — solo pasan LMS vendors,
    * corporate training providers y edtech de capacitación empresarial.
    *
@@ -494,8 +554,17 @@ export function applyApolloSectorRelevanceGate(
   const rejectedSamples: ApolloSectorGateSample[] = [];
   const passedSamples: ApolloSectorGateSample[] = [];
 
-  // L2.14: buyer exclusion activa solo para gate estricto de subindustria
-  const buyerExclusionActive = subindustrySignalUsed;
+  // L2.14: buyer exclusion activa solo para gate estricto de subindustria.
+  //
+  // A1-APOLLO-BUDGET-RECONCILIATION-1: además, sólo para el gate al que fue
+  // escrita ('formacion corporativa'). La regla dice "industria compradora +
+  // sin señal de producto LMS ⇒ rechazar", y BUYER_INDUSTRY_EXCLUSION incluye
+  // 'retail'. Aplicada al gate de supermercados rechazaría a TODOS los
+  // supermercados reales: su industria Apollo es 'retail' y ninguno vende un
+  // LMS. La distinción comprador/vendedor sólo tiene sentido cuando lo buscado
+  // ES un vendedor de formación.
+  const buyerExclusionActive =
+    subindustrySignalUsed && signals === SECTOR_SIGNAL_TERMS['formacion corporativa'];
 
   for (const result of results) {
     const text = extractCandidateText(result);
@@ -579,5 +648,149 @@ export function applyApolloSectorRelevanceGate(
       rejected_samples: rejectedSamples,
       passed_samples: passedSamples,
     },
+  };
+}
+
+// ─── Evaluación fail-closed para operaciones PAGADAS ──────────────────────────
+//
+// A1-APOLLO-BUDGET-RECONCILIATION-1.
+//
+// `applyApolloSectorRelevanceGate` es el gate de PRESENTACIÓN: decide qué
+// resultados ya pagados vale la pena persistir, y un sector sin mapping deja
+// pasar todo para que un mapping faltante no vacíe un lote en silencio. Ese
+// passthrough es correcto ahí y se conserva.
+//
+// NO es correcto antes de una operación PAGADA. Organization Enrichment cobra un
+// crédito por llamada, así que "no tengo mapping de este sector, enriquece todo"
+// convierte un hueco de configuración en gasto real sobre candidatos que nadie
+// evaluó. Para operaciones pagadas, la ausencia de política falla CERRADO.
+
+/**
+ * Veredicto de relevancia sectorial para una operación que va a gastar créditos.
+ *
+ * `relevant`
+ *   Sector mapeado y el candidato coincide.
+ *
+ * `sector_not_mapped`
+ *   No hay conjunto de señales para este sector/subindustria. Fail-closed: sin
+ *   política no se autoriza gasto.
+ *
+ * `sector_relevance_contradicted`
+ *   El proveedor SÍ describió el sector de esta empresa y no coincide. Hay
+ *   evidencia y contradice. Citigroup en una búsqueda de supermercados cae aquí.
+ *
+ * `sector_evidence_missing_needs_enrichment`
+ *   El proveedor no describió sector alguno. No hay nada que contradiga ni que
+ *   confirmar, y resolver esa ambigüedad es exactamente para lo que existe el
+ *   enrichment (su orden ambiguity-first enriquece estos candidatos PRIMERO,
+ *   Q3F-5AV.2). Es elegible bajo el cap — deliberadamente NO es un passthrough
+ *   genérico: es un motivo estructurado que dice por qué se paga.
+ */
+export type ApolloPaidSectorRelevanceDecision =
+  | 'relevant'
+  | 'sector_not_mapped'
+  | 'sector_relevance_contradicted'
+  | 'sector_evidence_missing_needs_enrichment';
+
+export type ApolloPaidSectorRelevanceResult = {
+  decision: ApolloPaidSectorRelevanceDecision;
+  /** Términos que coincidieron. Vacío en toda decisión que no sea `relevant`. */
+  matchedTerms: string[];
+  /** True cuando se usó el conjunto estricto de subindustria. */
+  subindustrySignalUsed: boolean;
+  /** Campos con carga sectorial que el proveedor sí entregó. */
+  sectorEvidenceFields: string[];
+};
+
+/**
+ * Campos que contienen una AFIRMACIÓN de sector.
+ *
+ * title, snippet y domain quedan fuera a propósito: el nombre de una empresa no
+ * dice de forma fiable a qué industria pertenece, y leer su ausencia como
+ * "sector equivocado" rechazaría a todo candidato cuyo nombre no se
+ * autodescriba.
+ */
+function collectSectorEvidenceFields(result: WebSearchResult): string[] {
+  const meta = result.metadata as Record<string, unknown> | undefined;
+  if (!meta) return [];
+
+  const present: string[] = [];
+  const pushIfString = (value: unknown, field: string) => {
+    if (typeof value === 'string' && value.trim() !== '') present.push(field);
+  };
+  const pushIfNonEmptyArray = (value: unknown, field: string) => {
+    if (Array.isArray(value) && value.some((v) => typeof v === 'string' && v.trim() !== '')) {
+      present.push(field);
+    }
+  };
+
+  pushIfString(meta['industry'], 'industry');
+  pushIfNonEmptyArray(meta['keywords'], 'keywords');
+  pushIfString(meta['short_description'], 'short_description');
+
+  const profile = meta['apollo_profile'] as Record<string, unknown> | undefined;
+  if (profile) {
+    pushIfString(profile['industry'], 'apollo_profile.industry');
+    pushIfNonEmptyArray(profile['industries'], 'apollo_profile.industries');
+    pushIfNonEmptyArray(profile['keywords'], 'apollo_profile.keywords');
+    pushIfNonEmptyArray(profile['organization_keywords'], 'apollo_profile.organization_keywords');
+    pushIfString(profile['short_description'], 'apollo_profile.short_description');
+    pushIfString(profile['seo_description'], 'apollo_profile.seo_description');
+    pushIfString(profile['description'], 'apollo_profile.description');
+  }
+
+  return present;
+}
+
+/**
+ * Evalúa la relevancia sectorial de un candidato para una operación pagada.
+ *
+ * Falla cerrado donde fallar cerrado significa algo:
+ *   - un sector sin mapping nunca autoriza gasto: no hay política que aplicar;
+ *   - un candidato que el proveedor describe como de OTRO sector tampoco.
+ *
+ * Pero la ausencia de evidencia se trata como ausencia, no como contradicción.
+ * Bloquear ese caso dejaría a la cascada sin candidatos — justo los que existe
+ * para resolver — sin bloquear nada tipo Citigroup: a Citigroup se le rechaza
+ * porque Apollo dice "banking", no porque Apollo no diga nada. Los candidatos
+ * que sigan siendo irrelevantes tras el enrichment los rechaza igualmente el
+ * gate de presentación, que corre sobre el perfil ya enriquecido.
+ *
+ * Puro — sin efectos secundarios, sin llamadas al proveedor.
+ */
+export function evaluateApolloSectorRelevanceForPaidOperation(
+  result: WebSearchResult,
+  sector: string | null | undefined,
+  subindustry?: string | null,
+): ApolloPaidSectorRelevanceResult {
+  const subindustrySignals = subindustry ? getSectorSignals(subindustry) : null;
+  const signals = subindustrySignals ?? getSectorSignals(sector);
+  const subindustrySignalUsed = subindustrySignals !== null;
+  const sectorEvidenceFields = collectSectorEvidenceFields(result);
+
+  if (!signals) {
+    return {
+      decision: 'sector_not_mapped',
+      matchedTerms: [],
+      subindustrySignalUsed,
+      sectorEvidenceFields,
+    };
+  }
+
+  const text = extractCandidateText(result);
+  const matchedTerms = findMatchedTerms(text, signals);
+
+  if (matchedTerms.length > 0) {
+    return { decision: 'relevant', matchedTerms, subindustrySignalUsed, sectorEvidenceFields };
+  }
+
+  return {
+    decision:
+      sectorEvidenceFields.length > 0
+        ? 'sector_relevance_contradicted'
+        : 'sector_evidence_missing_needs_enrichment',
+    matchedTerms: [],
+    subindustrySignalUsed,
+    sectorEvidenceFields,
   };
 }
