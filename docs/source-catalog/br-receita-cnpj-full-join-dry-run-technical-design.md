@@ -1661,3 +1661,88 @@ review, not a change to anything implemented here, and § 10's resource limits a
 separate, exactly-worded owner phrase naming the coverage signal is given after that record merges.
 
 Record: [`br-receita-cnpj-bounded-real-join-coverage-decision-record.md`](./br-receita-cnpj-bounded-real-join-coverage-decision-record.md).
+
+---
+
+## 33. BR-SOURCE-11H-IMPL — the aggregate-only coverage SIGNAL, implemented and executed once
+
+That record merged and the owner gave the phrase, so § 32's question is answered:
+
+```text
+AUTHORIZE OPTION C — ULTRA-BOUNDED AGGREGATE-ONLY REAL JOIN COVERAGE SIGNAL
+```
+
+BR-SOURCE-11H-IMPL implements only the explicitly authorized Option C ultra-bounded aggregate-only
+real join coverage signal. It does not authorize exact percentages, full-dataset denominator claims,
+coverage proof, import, Supabase, runtime, Agent 1, provider calls or production use.
+
+### 33.1 The sixth reading port
+
+A single new module, `br-receita-cnpj-aggregate-join-coverage-signal.ts`, is the only code that
+executes the signal. It is a sibling of the 11F structural probe and the 11G join probe rather than a
+mode flag on either: each carries static guards about its own source, and a shared reader with a mode
+switch would put the flag between a 20-row structural probe and a 200-row value read.
+
+It declares a SIXTH manifest trust, `real_manifest_aggregate_join_coverage_signal`, dispatched by the
+runner exactly like the earlier carve-outs, and gated by TWO new declarations —
+`aggregateOnlyJoinCoverageSignalAuthorized` and `realLocalJoinCoverageSignalAuthorized` — that are
+required IN ADDITION to all five earlier ones and are never inferred from them. The 11G phrase
+authorized a 20-row window and expired with its milestone.
+
+### 33.2 The one widened axis
+
+| Axis | 11F / 11G | 11H-IMPL |
+| --- | --- | --- |
+| Data files opened | 2 (1 per required family) | **unchanged** |
+| Bytes per file | ≤ 64,000 | ≤ 512,000 |
+| Rows per file | ≤ 20 | ≤ 200 |
+| Bytes per run | ≤ 128,000 | ≤ 1,024,000 |
+| Rows per run | ≤ 40 | ≤ 400 |
+| Coverage input rows / key window | ≤ 40 | ≤ 400 |
+| Pairs emitted / rows printed | = 0 | **unchanged (equalities)** |
+| Fields parsed per row | 1 | **unchanged** |
+| Manifest ceiling, families, denylists, layout | — | **unchanged** |
+
+Everything not in that table is byte-for-byte the 11F/11G surface. The shared CLI cap flags now parse
+against the widest ceiling in the tool and each probe mode re-checks its own tighter ceiling, so a
+`--required-family-probe` or `--required-family-join-probe` run that declares the 11H window is
+refused rather than silently widened.
+
+### 33.3 Why the output is a SIGNAL and not a finding
+
+The risk this milestone introduces is not a value escaping — 11G already solved that — it is a bounded
+bucket being restated as a claim. So the block states four structural falses
+(`exact_coverage_percentage_printed`, `full_dataset_denominator_printed`, `coverage_claimed`,
+`production_inference_allowed`) and names the only denominator that exists:
+`denominator_scope = bounded_window_only`. Requests for any of the four are refused at the INPUT
+boundary with their own error codes, and the sanitizer blocks them at the OUTPUT boundary with five
+new kinds (`coverage_signal_exact_percentage_payload`, `coverage_signal_denominator_payload`,
+`coverage_signal_proof_payload`, `coverage_signal_guarantee_payload`,
+`production_inference_payload`). `join_coverage_computed` stays `false` on every path.
+
+### 33.4 The executed run
+
+The signal ran once against the operator's own prepared local file set: two files opened, one per
+required family, both inside the byte and row buckets, `match_result_bucket = zero`.
+
+That `zero` means the two bounded prefixes did not overlap. It is a GREEN result. It confirms the
+mechanism works on real input under the wider caps and confirms nothing else: it is not a coverage
+figure, not a coverage proof, not a coverage guarantee, not a dataset quality score, not evidence
+about the dataset, not GATE-1 or GATE-2 evidence, and not grounds for a wider re-run. A wider window
+is a new decision requiring a new record and a new phrase.
+
+### 33.5 What remains blocked
+
+```text
+FULL_JOIN_EXECUTION_READY = false   IMPORT_READY = false   RUNTIME_READY = false
+AGENT1_READY = false                GATE-1 … GATE-8 = not approved
+exact coverage percentages, full-dataset denominators, coverage proof, coverage guarantees,
+production inference, join coverage computation, dataset download, full-dataset processing,
+source_company_snapshots writes, Supabase writes, migrations, index changes, runtime, Agent 1,
+providers, HubSpot, Slack, UI, record_identity_key construction, normalized_tax_id promotion —
+all unchanged and blocked.
+```
+
+The authorization is single-milestone and expires with it.
+
+Record: [`br-receita-cnpj-bounded-real-join-coverage-decision-record.md`](./br-receita-cnpj-bounded-real-join-coverage-decision-record.md).

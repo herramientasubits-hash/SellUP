@@ -834,3 +834,166 @@ describe('BR-SOURCE-11G-IMPL join probe — sanitizer contract', () => {
     assert.ok(findingKinds(result).includes('cnpj_basico_like'));
   });
 });
+
+// ─── BR-SOURCE-11H-IMPL: the aggregate-only coverage SIGNAL ───────────────────
+
+/**
+ * The coverage-SIGNAL block shape. Identical in spirit to the join-probe block, plus the four
+ * claim-shaped assertions and the bounded denominator scope that make it a SIGNAL: the danger
+ * this milestone introduces is not a value escaping, it is a bounded bucket being restated as a
+ * percentage, a dataset denominator, a proof, a guarantee, or a production inference.
+ */
+const COVERAGE_SIGNAL_BLOCK = {
+  ...PROBE_BLOCK,
+  joins_executed: true,
+  coverage_signal: {
+    coverage_signal_executed: true,
+    coverage_signal_mode: 'ultra_bounded_required_family_aggregate_only',
+    join_key_values_printed: false,
+    join_key_values_retained: false,
+    join_key_hashes_printed: false,
+    join_key_error_leak: false,
+    joined_rows_printed: false,
+    joined_samples_printed: false,
+    joined_pairs_emitted: 0,
+    exact_coverage_percentage_printed: false,
+    full_dataset_denominator_printed: false,
+    coverage_claimed: false,
+    production_inference_allowed: false,
+    denominator_scope: 'bounded_window_only',
+    match_result_bucket: 'one_or_more',
+    matched_rows_bucket: 'lte_200',
+    unmatched_rows_bucket: 'zero',
+  },
+} as const;
+
+describe('BR-SOURCE-11H-IMPL coverage signal — sanitizer contract', () => {
+  it('accepts the aggregate coverage-signal block unchanged', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      manifest_trust: 'real_manifest_aggregate_join_coverage_signal',
+      aggregate_join_coverage_signal_authorized: true,
+      real_local_join_coverage_signal_authorized: true,
+      aggregate_join_coverage_signal: COVERAGE_SIGNAL_BLOCK,
+      guardrail_counts: {
+        aggregate_join_coverage_signal_files_opened: 2,
+        aggregate_join_coverage_signal_forbidden_family_findings: 0,
+      },
+    });
+    assert.equal(result.ok, true, JSON.stringify(result.findings));
+  });
+
+  it('blocks an EXACT coverage figure with its own kind', () => {
+    for (const key of [
+      'exact_coverage',
+      'exact_coverage_percentage',
+      'coverage_signal_percentage',
+      'coverageSignalRatio',
+      'coverage_signal_rate',
+    ]) {
+      const result = sanitizeBrazilReceitaFullJoinReport({ [key]: '41.7' });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(
+        findingKinds(result).includes('coverage_signal_exact_percentage_payload'),
+        `${key} → ${findingKinds(result).join(', ')}`,
+      );
+    }
+  });
+
+  it('blocks a FULL-DATASET denominator, and still allows the bounded denominator SCOPE', () => {
+    for (const key of [
+      'denominator',
+      'full_dataset_denominator',
+      'denominator_value',
+      'datasetDenominator',
+    ]) {
+      const result = sanitizeBrazilReceitaFullJoinReport({ [key]: 66_000_000 });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes('coverage_signal_denominator_payload'), key);
+    }
+    // The one legitimate denominator-shaped key: it names the window that was actually read.
+    const scope = sanitizeBrazilReceitaFullJoinReport({ denominator_scope: 'bounded_window_only' });
+    assert.equal(scope.ok, true, JSON.stringify(scope.findings));
+  });
+
+  it('blocks a coverage PROOF and a coverage GUARANTEE with their own kinds', () => {
+    const cases: ReadonlyArray<readonly [string, string]> = [
+      ['coverage_proof', 'coverage_signal_proof_payload'],
+      ['proof_of_coverage', 'coverage_signal_proof_payload'],
+      ['join_proof', 'coverage_signal_proof_payload'],
+      ['coverage_guarantee', 'coverage_signal_guarantee_payload'],
+      ['guaranteed_coverage', 'coverage_signal_guarantee_payload'],
+      ['join_guarantee', 'coverage_signal_guarantee_payload'],
+    ];
+    for (const [key, kind] of cases) {
+      const result = sanitizeBrazilReceitaFullJoinReport({ [key]: 'established' });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes(kind), `${key} → ${kind}`);
+    }
+  });
+
+  it('blocks a PRODUCTION-READINESS inference with its own kind', () => {
+    for (const key of [
+      'production_inference',
+      'production_readiness',
+      'production_coverage',
+      'ready_for_production',
+      'dataset_quality_score',
+      'full_dataset_coverage',
+    ]) {
+      const result = sanitizeBrazilReceitaFullJoinReport({ [key]: true });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes('production_inference_payload'), key);
+    }
+  });
+
+  it('treats a DECLARED overclaim as a leak — *_printed: true is not an exemption', () => {
+    const percentage = sanitizeBrazilReceitaFullJoinReport({
+      exact_coverage_percentage_printed: true,
+    });
+    assert.equal(percentage.ok, false);
+    assert.ok(findingKinds(percentage).includes('coverage_signal_exact_percentage_payload'));
+
+    const denominator = sanitizeBrazilReceitaFullJoinReport({
+      full_dataset_denominator_printed: true,
+    });
+    assert.equal(denominator.ok, false);
+    assert.ok(findingKinds(denominator).includes('coverage_signal_denominator_payload'));
+  });
+
+  it('allows the 11H held-absence assertions, which carry nothing', () => {
+    const result = sanitizeBrazilReceitaFullJoinReport({
+      exact_coverage_percentage_printed: false,
+      full_dataset_denominator_printed: false,
+      coverage_claimed: false,
+      production_inference_allowed: false,
+      denominator_scope: 'bounded_window_only',
+      run_scope: { production_writes: false, full_dataset_processed: false },
+    });
+    assert.equal(result.ok, true, JSON.stringify(result.findings));
+  });
+
+  it('still blocks every 11G shape on a coverage-signal report', () => {
+    const cases: ReadonlyArray<readonly [string, unknown, string]> = [
+      ['join_key_values', [JOIN_KEY_LIKE], 'join_key_payload'],
+      ['joined_row', [`${JOIN_KEY_LIKE};SYN-B`], 'joined_row_payload'],
+      ['joined_sample', [`${JOIN_KEY_LIKE};SYN-B`], 'joined_sample_payload'],
+      ['join_pairs', [[JOIN_KEY_LIKE, JOIN_KEY_LIKE]], 'join_pair_payload'],
+      ['cnpj_basico_window', [CNPJ_BASICO_LIKE], 'cnpj_basico_payload'],
+      ['cnpj_completo_payload', CNPJ_LIKE, 'cnpj_completo_payload'],
+    ];
+    for (const [key, value, kind] of cases) {
+      const result = sanitizeBrazilReceitaFullJoinReport({
+        aggregate_join_coverage_signal: { ...COVERAGE_SIGNAL_BLOCK, [key]: value },
+      });
+      assert.equal(result.ok, false, `${key} must be blocked`);
+      assert.ok(findingKinds(result).includes(kind), `${key} → ${findingKinds(result).join(', ')}`);
+    }
+  });
+
+  it('blocks an overclaim that reached a RENDERED output', () => {
+    const rendered = `aggregate_join_coverage_signal: coverage is ${CNPJ_BASICO_LIKE} of the dataset`;
+    const result = sanitizeBrazilReceitaFullJoinRenderedOutput(rendered);
+    assert.equal(result.ok, false);
+    assert.ok(findingKinds(result).includes('cnpj_basico_like'));
+  });
+});

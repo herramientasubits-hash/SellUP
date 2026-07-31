@@ -34,6 +34,15 @@
  *     boundary as well as declined at the input one. Deliberately narrow: the bounded-scan
  *     guardrail counts and the `coverage_claimed: false` / `join_coverage_computed: false`
  *     assertions carry nothing and still pass;
+ *   - an EXACT COVERAGE figure, a full-dataset DENOMINATOR, a coverage PROOF, a coverage
+ *     GUARANTEE, or a PRODUCTION-READINESS inference key carrying a value — from
+ *     BR-SOURCE-11H-IMPL the aggregate-only coverage SIGNAL is the first code path whose output
+ *     could overclaim rather than leak, so the restatement of a bounded bucket as a percentage,
+ *     a dataset denominator, a proof, a guarantee or a readiness score is blocked at the output
+ *     boundary as well as declined at the input one. Deliberately narrow: `denominator_scope`
+ *     names the bounded window that was read and still passes, and the held-absence assertions
+ *     (`exact_coverage_percentage_printed: false`, `full_dataset_denominator_printed: false`,
+ *     `production_inference_allowed: false`) carry nothing and still pass;
  *   - a `record_identity_key`, `normalized_tax_id`, `cnpj_basico`, `cnpj`, or `cpf`
  *     key carrying a real value, and a `cnpj_basico`/`cnpj_completo` COLLECTION key — the
  *     shape a bounded key window would take if it were ever written out;
@@ -89,7 +98,13 @@ export type BrazilReceitaFullJoinLeakKind =
   | 'join_pair_payload'
   | 'coverage_payload'
   | 'cnpj_basico_payload'
-  | 'cnpj_completo_payload';
+  | 'cnpj_completo_payload'
+  // ── BR-SOURCE-11H-IMPL: the coverage SIGNAL is the first code path that could overclaim ──
+  | 'coverage_signal_exact_percentage_payload'
+  | 'coverage_signal_denominator_payload'
+  | 'coverage_signal_proof_payload'
+  | 'coverage_signal_guarantee_payload'
+  | 'production_inference_payload';
 
 export const BRAZIL_RECEITA_FULL_JOIN_LEAK_KINDS: readonly BrazilReceitaFullJoinLeakKind[] = [
   'cnpj_completo_like',
@@ -119,6 +134,11 @@ export const BRAZIL_RECEITA_FULL_JOIN_LEAK_KINDS: readonly BrazilReceitaFullJoin
   'coverage_payload',
   'cnpj_basico_payload',
   'cnpj_completo_payload',
+  'coverage_signal_exact_percentage_payload',
+  'coverage_signal_denominator_payload',
+  'coverage_signal_proof_payload',
+  'coverage_signal_guarantee_payload',
+  'production_inference_payload',
 ];
 
 /** The single aggregate error code surfaced on a report when sanitization fails. */
@@ -308,6 +328,58 @@ const EMPTY_ONLY_KEY_RULES: ReadonlyArray<{
     matches: (k) =>
       k.includes('joinpair') || k.includes('joinedpair') || k.includes('joinmatchpair'),
     kind: 'join_pair_payload',
+  },
+  // ── BR-SOURCE-11H-IMPL. The coverage SIGNAL is the first code path whose OUTPUT could
+  //    overclaim rather than leak: the danger is not a value escaping, it is a bounded bucket
+  //    being restated as a percentage, a dataset denominator, a proof, a guarantee, or a
+  //    production inference. These five rules sit BEFORE the generic `coverage_payload` rule so
+  //    the finding names the specific overreach rather than the generic one.
+  {
+    // An EXACT figure. `exact_coverage_percentage_printed: false` is a held-absence assertion and
+    // still passes — a `false` carries nothing — but any populated exact-figure key is an
+    // overclaim: with bounded rows a percentage is a statement about two prefixes.
+    matches: (k) =>
+      k.includes('exactcoverage') ||
+      k.includes('coveragesignalpercentage') ||
+      k.includes('coveragesignalratio') ||
+      k.includes('coveragesignalrate'),
+    kind: 'coverage_signal_exact_percentage_payload',
+  },
+  {
+    // A DENOMINATOR. `denominator_scope` is the one legitimate denominator-shaped key: it names
+    // the bounded window that was actually read, so it is excluded by construction rather than by
+    // luck. Everything else denominator-shaped — a full-dataset denominator, a denominator value,
+    // a denominator count — is a figure this milestone does not have.
+    matches: (k) => k.includes('denominator') && !k.includes('denominatorscope'),
+    kind: 'coverage_signal_denominator_payload',
+  },
+  {
+    // A PROOF. "coverage signal" is the only permitted claim strength; a key that says proof has
+    // upgraded a signal into evidence.
+    matches: (k) =>
+      k.includes('coverageproof') || k.includes('proofofcoverage') || k.includes('joinproof'),
+    kind: 'coverage_signal_proof_payload',
+  },
+  {
+    // A GUARANTEE. Same overreach as a proof, under a different word.
+    matches: (k) =>
+      k.includes('coverageguarantee') ||
+      k.includes('guaranteedcoverage') ||
+      k.includes('joinguarantee'),
+    kind: 'coverage_signal_guarantee_payload',
+  },
+  {
+    // A PRODUCTION INFERENCE. `production_inference_allowed: false` and `production_writes: false`
+    // carry nothing and pass; a populated readiness / quality-score key is a claim about the
+    // dataset that no bounded window can support.
+    matches: (k) =>
+      k.includes('productioninference') ||
+      k.includes('productionreadiness') ||
+      k.includes('productioncoverage') ||
+      k.includes('readyforproduction') ||
+      k.includes('datasetqualityscore') ||
+      k.includes('fulldatasetcoverage'),
+    kind: 'production_inference_payload',
   },
   {
     // `coverageAllowed = false` is a REFUSAL, not a labelling rule (§ 9.1): with bounded rows
