@@ -16,6 +16,12 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
+import { isProviderUsageCorrelationColumnsEnabled } from '@/lib/feature-flags.server';
+import {
+  isMissingProviderUsageCorrelationColumnError,
+  RUN_CORRELATION_METADATA_KEY,
+  type RunCorrelationMetadata,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -52,13 +58,52 @@ export type ApolloOrgsUsageContext = {
    * logging a fabricated cost.
    */
   organizationEnrichmentUnitCostUsd?: number | null;
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1: correlación del run del wizard.
+   *
+   * Se escribe SIEMPRE en `metadata.run_correlation`, que no requiere cambio de
+   * esquema. Las columnas equivalentes de la migración 100 sólo se escriben con
+   * ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS en true — insertar una columna que
+   * todavía no existe haría fallar el insert entero, y perder el log de uso es
+   * perder justamente el registro de gasto que este hito busca conciliar.
+   */
+  runCorrelation?: RunCorrelationMetadata | null;
 };
 
 export type ApolloOrgsUsageLogResult =
-  | { kind: 'logged' }
-  | { kind: 'already_logged' }
+  | { kind: 'logged'; correlationColumnsFallback?: true }
+  | { kind: 'already_logged'; correlationColumnsFallback?: true }
   | { kind: 'failed'; error: string }
   | { kind: 'skipped_no_supabase' };
+
+/** Shape of the DB error this module reasons about. */
+export type ProviderUsageInsertError = { message: string; code?: string };
+
+/**
+ * Minimal insert surface. Narrow on purpose: the real admin client satisfies it,
+ * and a test can satisfy it without a database or a module mock.
+ */
+export type ProviderUsageInsertClient = {
+  from(table: string): {
+    insert(row: Record<string, unknown>): PromiseLike<{ error: ProviderUsageInsertError | null }>;
+  };
+};
+
+export type ApolloOrgsUsageLogDeps = {
+  /** Injected DB client. Defaults to the service-role admin client. */
+  client?: ProviderUsageInsertClient | null;
+  /** Injected sink for the fallback signal. Defaults to console.warn. */
+  warn?: (signal: string, detail: Record<string, unknown>) => void;
+};
+
+/**
+ * Stable signal emitted when the correlation columns turned out not to exist.
+ *
+ * Grep-able on purpose: it is the one observable difference between "the columns
+ * are live" and "the flag is on but migration 100 has not been applied here".
+ */
+export const CORRELATION_COLUMNS_FALLBACK_SIGNAL =
+  'provider_usage_log.correlation_columns_missing.fallback_to_metadata' as const;
 
 // ─── Helper puro: usage_key ───────────────────────────────────────────────────
 
@@ -93,46 +138,127 @@ function tryGetAdminClient() {
 // ─── Logger real ──────────────────────────────────────────────────────────────
 
 /**
- * Inserta un registro en provider_usage_logs para una llamada Apollo organizations_search.
+ * A1-APOLLO-BUDGET-RECONCILIATION-1: extrae la correlación que el provider dejó
+ * en `metadata.run_correlation` y la proyecta a las columnas de la migración 100.
  *
- * Manejo de 23505: si usage_key ya existe → already_logged (idempotente, no error).
- * real_cost_usd nunca se escribe — permanece NULL hasta conciliación.
+ * Devuelve `{}` cuando el flag está apagado (el caso por defecto, y el único
+ * válido mientras la migración no esté aplicada) o cuando no hay correlación.
+ * `batch_id` no se proyecta: ya es una columna propia del insert.
+ */
+export function buildCorrelationColumns(metadata: unknown): Record<string, unknown> {
+  if (!isProviderUsageCorrelationColumnsEnabled()) return {};
+  if (!metadata || typeof metadata !== 'object') return {};
+  const block = (metadata as Record<string, unknown>)[RUN_CORRELATION_METADATA_KEY];
+  if (!block || typeof block !== 'object') return {};
+  const c = block as Partial<RunCorrelationMetadata>;
+  return {
+    reservation_id: c.reservation_id ?? null,
+    client_request_id: c.client_request_id ?? null,
+    wizard_run_id: c.wizard_run_id ?? null,
+    request_fingerprint: c.request_fingerprint ?? null,
+    idempotency_key: c.idempotency_key ?? null,
+    billing_state: c.billing_state ?? null,
+  };
+}
+
+/**
+ * The row as it can always be inserted — every column here predates migration
+ * 100. `metadata` carries the full correlation, so this row alone is enough to
+ * reconcile the run.
+ */
+export function buildProviderUsageLogRow(
+  input: LogProviderUsageInput,
+): Record<string, unknown> {
+  return {
+    agent_run_id: input.agent_run_id ?? null,
+    agent_run_step_id: input.agent_run_step_id ?? null,
+    batch_id: input.batch_id ?? null,
+    usage_key: input.usage_key ?? null,
+    provider_key: input.provider_key,
+    operation_key: input.operation_key,
+    model: input.model ?? null,
+    input_tokens: input.input_tokens ?? 0,
+    output_tokens: input.output_tokens ?? 0,
+    credits_used: input.credits_used ?? null,
+    results_returned: input.results_returned ?? 0,
+    estimated_cost_usd: input.estimated_cost_usd ?? 0,
+    real_cost_usd: null,
+    status: input.status ?? 'success',
+    error_code: input.error_code ?? null,
+    error_message: input.error_message ? input.error_message.slice(0, 500) : null,
+    duration_ms: input.duration_ms ?? null,
+    triggered_by: input.triggered_by ?? null,
+    triggered_by_role_key: null,
+    triggered_by_group_id: null,
+    metadata: input.metadata ?? {},
+  };
+}
+
+function defaultWarn(signal: string, detail: Record<string, unknown>): void {
+  console.warn(signal, detail);
+}
+
+/**
+ * Inserts one provider_usage_logs row, surviving a not-yet-applied migration 100.
+ *
+ * 23505 handling: a usage_key that already exists is `already_logged`, not an
+ * error — that is what makes logging idempotent. `real_cost_usd` is never
+ * written; it stays NULL until an external statement reconciles it.
+ *
+ * Why the retry exists: with the columns flag on but the migration unapplied,
+ * the insert fails on an unknown column and the usage log is lost — losing
+ * precisely the spend record this milestone exists to reconcile, after the
+ * credits were already charged. So a missing correlation column downgrades the
+ * row to its always-insertable form and writes it. The correlation is not lost
+ * either: it is in `metadata.run_correlation` in both shapes.
+ *
+ * What it deliberately does not do:
+ *   - retry any other error (permissions, constraints, connection). Those are
+ *     returned as failures, loudly;
+ *   - retry more than once, or call the provider again. The first insert never
+ *     created a row, and `usage_key` uniqueness catches a genuine duplicate as
+ *     `already_logged`.
  */
 export async function realLogApolloOrgsUsage(
   input: LogProviderUsageInput,
+  deps?: ApolloOrgsUsageLogDeps,
 ): Promise<ApolloOrgsUsageLogResult> {
   try {
-    const admin = tryGetAdminClient();
-    if (!admin) return { kind: 'skipped_no_supabase' };
+    const client = deps?.client ?? (tryGetAdminClient() as ProviderUsageInsertClient | null);
+    if (!client) return { kind: 'skipped_no_supabase' };
 
-    const { error } = await admin.from('provider_usage_logs').insert({
-      agent_run_id: input.agent_run_id ?? null,
-      agent_run_step_id: input.agent_run_step_id ?? null,
-      batch_id: input.batch_id ?? null,
-      usage_key: input.usage_key ?? null,
-      provider_key: input.provider_key,
-      operation_key: input.operation_key,
-      model: input.model ?? null,
-      input_tokens: input.input_tokens ?? 0,
-      output_tokens: input.output_tokens ?? 0,
-      credits_used: input.credits_used ?? null,
-      results_returned: input.results_returned ?? 0,
-      estimated_cost_usd: input.estimated_cost_usd ?? 0,
-      real_cost_usd: null,
-      status: input.status ?? 'success',
-      error_code: input.error_code ?? null,
-      error_message: input.error_message ? input.error_message.slice(0, 500) : null,
-      duration_ms: input.duration_ms ?? null,
-      triggered_by: input.triggered_by ?? null,
-      triggered_by_role_key: null,
-      triggered_by_group_id: null,
-      metadata: input.metadata ?? {},
-    });
+    const baseRow = buildProviderUsageLogRow(input);
+    const correlationColumns = buildCorrelationColumns(input.metadata);
+    const correlationColumnNames = Object.keys(correlationColumns);
+
+    const { error } = await client
+      .from('provider_usage_logs')
+      .insert({ ...correlationColumns, ...baseRow });
 
     if (!error) return { kind: 'logged' };
     if (error.code === '23505') return { kind: 'already_logged' };
 
-    return { kind: 'failed', error: error.message };
+    const canStripCorrelationColumns =
+      correlationColumnNames.length > 0 &&
+      isMissingProviderUsageCorrelationColumnError(error);
+    if (!canStripCorrelationColumns) return { kind: 'failed', error: error.message };
+
+    // Sanitized on purpose: schema-level facts only — no query text, no
+    // organization payload, no credentials, no raw error body.
+    (deps?.warn ?? defaultWarn)(CORRELATION_COLUMNS_FALLBACK_SIGNAL, {
+      provider_key: input.provider_key,
+      operation_key: input.operation_key,
+      error_code: error.code ?? null,
+      stripped_columns: correlationColumnNames,
+      correlation_preserved_in: `metadata.${RUN_CORRELATION_METADATA_KEY}`,
+    });
+
+    const retry = await client.from('provider_usage_logs').insert(baseRow);
+    if (!retry.error) return { kind: 'logged', correlationColumnsFallback: true };
+    if (retry.error.code === '23505') {
+      return { kind: 'already_logged', correlationColumnsFallback: true };
+    }
+    return { kind: 'failed', error: retry.error.message };
   } catch (err: unknown) {
     return {
       kind: 'failed',

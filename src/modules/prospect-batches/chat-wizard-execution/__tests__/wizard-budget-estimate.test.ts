@@ -285,6 +285,9 @@ describe('Section F — Metadata contains no secrets', () => {
       const keys = Object.keys(meta);
       const allowedKeys = [
         'provider', 'estimated_credits', 'estimate_source',
+        // A1-APOLLO-BUDGET-RECONCILIATION-1: search/enrichment credit split.
+        // Caps and pricing identifiers only — never a key, token or query.
+        'apollo_credit_breakdown',
         'apollo_max_queries_per_run', 'apollo_max_results_per_query',
         'available_credits', 'max_credits_per_execution',
         'passed', 'block_reason',

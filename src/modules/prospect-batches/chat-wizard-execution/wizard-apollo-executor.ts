@@ -18,6 +18,7 @@
 import { runIncrementalProspectingSearch } from '@/server/agents/prospecting-toolkit/incremental-search';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
 import type { ResolvedWizardExecution } from './wizard-execution-types';
+import type { RunCorrelationMetadata } from './wizard-run-correlation';
 
 export const WIZARD_APOLLO_TARGET_INTERNAL = 25;
 export const WIZARD_APOLLO_MAX_ROUNDS = 4;
@@ -32,6 +33,13 @@ export type WizardApolloInput = {
    * de forma aditiva en el metadata del batch. No cambia queries ni proveedor.
    */
   extraBatchMetadata?: Record<string, unknown> | null;
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1: correlación del run del wizard, para que
+   * cada provider_usage_logs de Apollo quede atado a la reserva que lo pagó por
+   * identificadores y no por `created_at`. Opcional para no romper a los tests
+   * que sólo ejercitan el pipeline.
+   */
+  runCorrelation?: RunCorrelationMetadata | null;
 };
 
 export type WizardApolloRunner = (input: WizardApolloInput) => Promise<IncrementalSearchOutput>;
@@ -72,5 +80,8 @@ export async function runWizardApolloSearch(
       batchId: input.reservedBatchId,
       triggeredByUserId: input.resolved.userId,
     },
+    // A1-APOLLO-BUDGET-RECONCILIATION-1 — campo propio, no dentro de
+    // usageInputContext, que Tavily comparte y debe seguir siendo agnóstico.
+    apolloRunCorrelation: input.runCorrelation ?? null,
   });
 }

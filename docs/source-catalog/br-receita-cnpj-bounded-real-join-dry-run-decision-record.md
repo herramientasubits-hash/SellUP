@@ -1246,3 +1246,28 @@ GATE-1 … GATE-8           = not approved
 The authorization is single-milestone and expires with it: the join probe does not become a standing
 runner capability, and a later milestone wanting coverage (BR-SOURCE-11H), catalogs (Option D), or
 import needs its own record and its own phrase.
+
+---
+
+## 18. BR-SOURCE-11H — the successor question, still no coverage signal
+
+The § 6 Option E deferral is now written down as its own record.
+
+```text
+BR-SOURCE-11H defines the next decision question: whether an ultra-bounded aggregate-only real join
+coverage signal can be authorized.
+It does not authorize coverage execution by itself.
+It does not authorize exact coverage percentages.
+It does not authorize full-dataset denominator claims.
+It does not authorize import.
+It does not approve any gate.
+```
+
+Nothing in § 17 changes. `join_coverage_computed = false`, `coverage_claimed = false` and
+`coverage_percentage_printed = false` remain the merged behaviour of the join probe; the § 9 caps
+remain the executed ceilings; the § 12 phrase remains spent and single-milestone; and this record's
+`zero` outcome remains what § 7.1 and § 17.3 say it is — not a coverage figure, and not a reason to
+widen anything. Any wider window belongs to the successor record's own owner phrase, which names the
+coverage signal explicitly and is different from the phrase spent here.
+
+Record: [`br-receita-cnpj-bounded-real-join-coverage-decision-record.md`](./br-receita-cnpj-bounded-real-join-coverage-decision-record.md).

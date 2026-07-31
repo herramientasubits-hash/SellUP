@@ -127,6 +127,18 @@ export type WizardExecutionActionResult =
       redirectPath: string;
       /** Present when budget reconciliation failed after a successful generation. */
       reconciliationWarning?: 'BUDGET_RECONCILIATION_FAILED';
+      /**
+       * A1-APOLLO-BUDGET-RECONCILIATION-1: outcome of the spend reconciliation.
+       *
+       * `pending_reconciliation` means recorded spend exceeded the reservation —
+       * the exact 4-against-3 case of the QA batch — and needs administrative
+       * review. `billing_unknown` means part of the spend is indeterminate.
+       * Never turns a successful generation into a failure: the candidates were
+       * produced and the credits were really spent either way.
+       */
+      reconciliationState?: 'confirmed' | 'pending_reconciliation' | 'billing_unknown';
+      /** Structured anomaly codes raised during reconciliation, if any. */
+      budgetAnomalies?: readonly string[];
       /** True when novelty pre-check confirms no new candidates would survive the writer filter. */
       noveltyExhausted?: boolean;
       /** The configured target count of persistible candidates. */
