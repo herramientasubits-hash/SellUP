@@ -8,6 +8,7 @@
 **Last reviewed:** 2026-07-30
 
 **Related documents:**
+- GATE-2 route decision package (BR-SOURCE-11J, docs-only) — [`br-receita-cnpj-gate2-route-decision-package.md`](./br-receita-cnpj-gate2-route-decision-package.md)
 - Bounded real join dry-run decision record (BR-SOURCE-11G, Option C authorized and implemented) — [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md)
 - Bounded real data-file dry-run decision record (BR-SOURCE-11F, Option C authorized and implemented) — [`br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-data-file-dry-run-decision-record.md)
 - Real manifest metadata-only carve-out decision record (BR-SOURCE-11D-META, executed by 11E) — [`br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md`](./br-receita-cnpj-real-manifest-metadata-only-carveout-decision-record.md)
