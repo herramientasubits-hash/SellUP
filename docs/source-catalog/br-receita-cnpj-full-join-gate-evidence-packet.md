@@ -7,6 +7,7 @@
 **Last reviewed:** 2026-07-29
 
 **Related documents:**
+- GATE-2 route decision package (BR-SOURCE-11J, docs-only) — [`br-receita-cnpj-gate2-route-decision-package.md`](./br-receita-cnpj-gate2-route-decision-package.md)
 - Full join field allowlist decision record (GATE-3 proposal) — [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
 - Full join approval gates checklist — [`br-receita-cnpj-full-join-approval-gates-checklist.md`](./br-receita-cnpj-full-join-approval-gates-checklist.md)
 - Full join dry-run technical design — [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md)
@@ -1421,3 +1422,25 @@ The § 5 … § 12 per-gate evidence packets and the § 13 cross-gate gaps are t
 this packet may cite a bounded coverage signal that has neither been authorized nor run.
 
 Record: [`br-receita-cnpj-bounded-real-join-coverage-decision-record.md`](./br-receita-cnpj-bounded-real-join-coverage-decision-record.md).
+
+---
+
+## 24. Update (BR-SOURCE-11I)
+
+BR-SOURCE-11I interprets the 11H aggregate-only coverage signal result. It records that
+`match_result_bucket = zero` is a valid bounded-window outcome, not a failure. It does not authorize
+reruns, larger caps, multi-window sampling, exact coverage percentages, import, Supabase, runtime or
+Agent 1. It recommends preparing a future GATE-2 route decision package. It does not approve any
+gate. See
+[`br-receita-cnpj-coverage-signal-interpretation-and-gate2-route-decision-record.md`](./br-receita-cnpj-coverage-signal-interpretation-and-gate2-route-decision-record.md).
+
+---
+
+## 25. Update (BR-SOURCE-11K)
+
+BR-SOURCE-11K creates the GATE-2 controls and evidence template. It provides a review checklist,
+evidence packet format, fail-closed validation matrix, and owner decision matrix for a future GATE-2
+owner review. It does not approve GATE-2. It does not authorize owner review, broader local
+execution, temp storage, multi-window sampling, exact coverage percentages, import, Supabase writes,
+runtime, or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-gate2-controls-and-evidence-template.md`](./br-receita-cnpj-gate2-controls-and-evidence-template.md).

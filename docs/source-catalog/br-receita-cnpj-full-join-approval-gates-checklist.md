@@ -7,6 +7,7 @@
 **Last reviewed:** 2026-07-29
 
 **Related documents:**
+- GATE-2 route decision package (BR-SOURCE-11J, docs-only) — [`br-receita-cnpj-gate2-route-decision-package.md`](./br-receita-cnpj-gate2-route-decision-package.md)
 - Full join field allowlist decision record (GATE-3 proposal) — [`br-receita-cnpj-full-join-field-allowlist-decision-record.md`](./br-receita-cnpj-full-join-field-allowlist-decision-record.md)
 - Full join gate evidence packet — [`br-receita-cnpj-full-join-gate-evidence-packet.md`](./br-receita-cnpj-full-join-gate-evidence-packet.md)
 - Full join dry-run technical design — [`br-receita-cnpj-full-join-dry-run-technical-design.md`](./br-receita-cnpj-full-join-dry-run-technical-design.md)
@@ -314,6 +315,18 @@ decides whether Option C (a temporary on-disk index) is permitted at all.
 - Creating `source_company_snapshots` rows.
 - Storing any real data inside the repository.
 - Treating a temporary technical artifact as a source snapshot.
+
+> **Update (BR-SOURCE-11K).** A docs-only **controls and evidence template** proposing this gate's
+> review structure has landed —
+> [`br-receita-cnpj-gate2-controls-and-evidence-template.md`](./br-receita-cnpj-gate2-controls-and-evidence-template.md).
+> It supplies a GATE-2 decision summary template, execution-scope / directory / temp-storage / output /
+> error controls templates, an operator checklist, stop conditions, an evidence packet format, and a
+> fail-closed validation matrix for a future owner review to fill in — it fills in none of them itself,
+> assigns no storage option, and replaces none of § 10's numeric placeholders.
+>
+> **GATE-2 remains `not_started` / not approved.** The template's status is `proposed_for_owner_review`;
+> it creates no runner, script, or test, and it authorizes no owner review, broader local execution,
+> temp storage, dry-run, import, Supabase write, migration, runtime, or Agent 1 integration.
 
 ---
 
@@ -1021,6 +1034,13 @@ OPS_BR_READY_FOR_PRODUCTION_IMPORT    = false
 OPS_BR_READY_FOR_RUNTIME              = false
 OPS_BR_LIVE_PROSPECT_GENERATION_READY = false
 ```
+
+> **Update (BR-SOURCE-11I).** BR-SOURCE-11I interprets the 11H aggregate-only coverage signal
+> result. It records that `match_result_bucket = zero` is a valid bounded-window outcome, not a
+> failure. It does not authorize reruns, larger caps, multi-window sampling, exact coverage
+> percentages, import, Supabase, runtime or Agent 1. It recommends preparing a future GATE-2 route
+> decision package. It does not approve any gate. See
+> [`br-receita-cnpj-coverage-signal-interpretation-and-gate2-route-decision-record.md`](./br-receita-cnpj-coverage-signal-interpretation-and-gate2-route-decision-record.md).
 
 Carried forward from BR-SOURCE-10E–10J (unchanged):
 
