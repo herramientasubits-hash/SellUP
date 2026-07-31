@@ -146,6 +146,13 @@ interface ContactCandidatesDataTableClientProps {
   phoneRevealEnabled?: boolean;
   /** true si el rol del actor autenticado puede revelar (resuelto server-side). */
   phoneRevealAuthorized?: boolean;
+  /**
+   * ENABLE_LUSHA_PHONE_REVEAL_FALLBACK resuelto server-side
+   * (LUSHA-PHONE-FALLBACK-1). Se propaga tal cual al detalle del candidato.
+   */
+  lushaPhoneFallbackEnabled?: boolean;
+  /** true si el rol del actor autenticado (admin) puede usar el fallback Lusha. */
+  lushaPhoneFallbackAuthorized?: boolean;
 }
 
 export function ContactCandidatesDataTableClient({
@@ -154,6 +161,8 @@ export function ContactCandidatesDataTableClient({
   scopeFilterOptions,
   phoneRevealEnabled = false,
   phoneRevealAuthorized = false,
+  lushaPhoneFallbackEnabled = false,
+  lushaPhoneFallbackAuthorized = false,
 }: ContactCandidatesDataTableClientProps) {
   // Side panel de detalle (ajuste posterior a 17A.4A): click en fila abre un
   // drawer read-only con el detalle del candidato. Solo lectura — sin acciones.
@@ -387,6 +396,8 @@ export function ContactCandidatesDataTableClient({
       onClose={() => setDetailOpen(false)}
       phoneRevealEnabled={phoneRevealEnabled}
       phoneRevealAuthorized={phoneRevealAuthorized}
+      lushaPhoneFallbackEnabled={lushaPhoneFallbackEnabled}
+      lushaPhoneFallbackAuthorized={lushaPhoneFallbackAuthorized}
     />
     </>
   );

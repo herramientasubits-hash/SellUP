@@ -1,11 +1,16 @@
 /**
- * Static safety guards — LUSHA-PHONE-FALLBACK-1S
+ * Static safety guards — LUSHA-PHONE-FALLBACK-1S scaffold → LUSHA-PHONE-FALLBACK-1 live
  *
- * This scaffold prepares types, an eligibility gate, a status mapper, a
- * mockable client, a local migration draft, a usage-log metadata draft and UI
- * copy for a FUTURE Lusha phone reveal fallback. It must NOT activate any
- * real flow: no caller wires the new client, the old email-only Lusha ban
- * stays intact, and no HubSpot/Apollo code path is touched.
+ * LUSHA-PHONE-FALLBACK-1S prepared types, an eligibility gate, a status
+ * mapper, a mockable client, a local migration draft, a usage-log metadata
+ * draft and UI copy for a FUTURE Lusha phone reveal fallback, with NO caller
+ * wired anywhere. LUSHA-PHONE-FALLBACK-1 wires that scaffold into a real,
+ * flag-gated, admin-only, single-candidate action (see
+ * lusha-phone-fallback-core.ts + lusha-phone-fallback-actions.ts): the "no
+ * live caller" invariant below now describes the SPECIFIC pre-existing files
+ * enumerated, not the whole repo. The invariants that still hold
+ * unconditionally: the old email-only Lusha ban stays intact, and no
+ * HubSpot/Apollo code path is touched by the new client or core.
  *
  * These tests read source files from disk and check invariants. No network,
  * no DB, no providers — mirrors the style of phone-3d1-safety-guards.test.ts.
@@ -73,10 +78,14 @@ describe('LUSHA-PHONE-FALLBACK-1S — enrichLushaContactsV3 stays email-only', (
   });
 });
 
-describe('LUSHA-PHONE-FALLBACK-1S — new scaffold has no live caller', () => {
+describe('LUSHA-PHONE-FALLBACK-1 — pre-existing files never call the low-level client/eligibility functions directly', () => {
   // Files that exist elsewhere in the app and could plausibly wire a live
-  // phone-reveal-fallback action. None of them should reference the new
-  // scaffold's client/eligibility function in this milestone.
+  // phone-reveal-fallback action. None of them should reference the
+  // scaffold's client/eligibility function directly — the ONLY sanctioned
+  // caller is lusha-phone-fallback-core.ts, reached through the dedicated
+  // action wrapper (lusha-phone-fallback-actions.ts). The detail sheet DOES
+  // wire the fallback now (LUSHA-PHONE-FALLBACK-1), but only through that
+  // action wrapper — see the describe block below for that positive check.
   const CALLER_SURFACE_FILES: readonly string[] = [
     'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
     'src/modules/contact-enrichment/phone-reveal-core.ts',
@@ -139,7 +148,7 @@ describe('LUSHA-PHONE-FALLBACK-1S — usage-log draft never writes to the DB', (
   });
 });
 
-describe('LUSHA-PHONE-FALLBACK-1S — UI copy is not wired to a live component', () => {
+describe('LUSHA-PHONE-FALLBACK-1S — UI copy module stays pure', () => {
   const copySource = readRepo(
     'src/components/contact-enrichment/lusha-phone-fallback-copy.ts',
   );
@@ -147,11 +156,63 @@ describe('LUSHA-PHONE-FALLBACK-1S — UI copy is not wired to a live component',
   it('the copy module has no React import', () => {
     assert.equal(/from ['"]react['"]/.test(copySource), false);
   });
+});
 
-  it('the detail sheet does not import the new copy module', () => {
-    const detailSheet = readRepo(
-      'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
-    );
-    assert.equal(detailSheet.includes('lusha-phone-fallback-copy'), false);
+describe('LUSHA-PHONE-FALLBACK-1 — detail sheet is wired ONLY through the dedicated action, never the low-level eligibility/client functions directly', () => {
+  const detailSheet = readRepo(
+    'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
+  );
+
+  it('imports the new copy module (LUSHA-PHONE-FALLBACK-1 wires the button/dialog copy)', () => {
+    assert.ok(detailSheet.includes('lusha-phone-fallback-copy'));
+  });
+
+  it('imports the dedicated server action wrapper', () => {
+    assert.ok(detailSheet.includes('revealCandidatePhoneViaLushaFallbackAction'));
+  });
+
+  it('does NOT call enrichLushaContactPhonesForFallback directly (goes through the action + core)', () => {
+    assert.equal(detailSheet.includes('enrichLushaContactPhonesForFallback'), false);
+  });
+
+  it('does NOT call evaluateLushaPhoneFallbackEligibility directly (goes through the action + core)', () => {
+    assert.equal(detailSheet.includes('evaluateLushaPhoneFallbackEligibility'), false);
+  });
+});
+
+describe('LUSHA-PHONE-FALLBACK-1 — new core/action make no HubSpot / Apollo provider call', () => {
+  const coreSource = readRepo('src/modules/contact-enrichment/lusha-phone-fallback-core.ts');
+  const actionSource = readRepo('src/modules/contact-enrichment/lusha-phone-fallback-actions.ts');
+
+  it('the core never imports HubSpot', () => {
+    // stripComments: the module doc deliberately SAYS "no HubSpot write" to
+    // document the invariant — check actual code, not prose.
+    assert.equal(/hubspot/i.test(stripComments(coreSource)), false);
+  });
+
+  it('the action wrapper never imports HubSpot', () => {
+    assert.equal(/hubspot/i.test(stripComments(actionSource)), false);
+  });
+
+  it('the core never imports an Apollo client/integration module', () => {
+    assert.equal(/from ['"].*apollo/i.test(stripComments(coreSource)), false);
+  });
+
+  it('the action wrapper never imports an Apollo client/integration module', () => {
+    assert.equal(/from ['"].*apollo/i.test(stripComments(actionSource)), false);
+  });
+
+  it('the action wrapper calls the phone-scoped Lusha client, never enrichLushaContactsV3', () => {
+    assert.ok(actionSource.includes('enrichLushaContactPhonesForFallback'));
+    assert.equal(stripComments(actionSource).includes('enrichLushaContactsV3'), false);
+  });
+
+  it('the client is never called with a "search" or waterfallReveal shape', () => {
+    // stripComments: both files deliberately DOCUMENT that waterfallReveal/search
+    // are never used (same "mentions a name to explain what is NOT done"
+    // convention as the mapper's own doc comment) — check actual code, not prose.
+    const code = stripComments(coreSource + actionSource);
+    assert.equal(/waterfallReveal/.test(code), false);
+    assert.equal(/contacts\/search/.test(code), false);
   });
 });

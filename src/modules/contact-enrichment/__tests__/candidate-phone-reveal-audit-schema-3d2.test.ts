@@ -315,9 +315,18 @@ describe('PHONE-3D.2 — no hay server action ni UI de reveal', () => {
   // dedicados (phone-reveal-actions.ts / phone-reveal-core.ts). La invariante de
   // 3D.2 que sigue vigente: la acción no se filtra a otros módulos y la UI de
   // reveal (botón/modal) sigue sin existir en este milestone.
-  it('revealCandidatePhone solo vive en los archivos dedicados de 3D.3', () => {
+  // LUSHA-PHONE-FALLBACK-1 (posterior): revealCandidatePhoneViaLushaFallbackAction
+  // es una acción DISTINTA para un proveedor distinto (Lusha), en sus propios
+  // archivos dedicados — comparte el prefijo por legibilidad, no por ser la misma
+  // acción. Eximida aquí por el mismo motivo que los archivos 3D.3.
+  it('revealCandidatePhone solo vive en los archivos dedicados de 3D.3 / LUSHA-PHONE-FALLBACK-1', () => {
     const modulesDir = join(REPO_ROOT, 'src', 'modules', 'contact-enrichment');
-    const DEDICATED_3D3 = new Set(['phone-reveal-actions.ts', 'phone-reveal-core.ts']);
+    const DEDICATED_3D3 = new Set([
+      'phone-reveal-actions.ts',
+      'phone-reveal-core.ts',
+      'lusha-phone-fallback-actions.ts',
+      'lusha-phone-fallback-core.ts',
+    ]);
     const files = readdirSync(modulesDir).filter((f) => f.endsWith('.ts'));
     for (const f of files) {
       if (DEDICATED_3D3.has(f)) continue;

@@ -12,7 +12,14 @@
  *     ofrece por identidad, no por proveedor de origen.
  *   - Se mantienen los gates de crédito (flag), rol y re-reveal.
  *   - No se debilitan las invariantes de privacidad del cliente (sin process.env,
- *     sin NEXT_PUBLIC, sin console.*, sin bulk, sin Lusha reveal, sin HubSpot).
+ *     sin NEXT_PUBLIC, sin console.*, sin bulk, sin HubSpot).
+ *
+ * LUSHA-PHONE-FALLBACK-1 (posterior): el detalle SÍ ahora ofrece, tras
+ * `no_phone_found` de Apollo, un fallback manual admin-only que llama al
+ * server action dedicado `revealCandidatePhoneViaLushaFallbackAction` (nunca
+ * `isLushaPhoneRevealEnabled` ni un reveal Lusha ad-hoc fuera de ese wrapper).
+ * El test de "no toca Lusha reveal" de más abajo se actualizó para permitir
+ * ESE wrapper específico, no cualquier acceso a Lusha.
  */
 
 import { describe, it } from 'node:test';
@@ -97,11 +104,29 @@ describe('PHONE-3D.6B — invariantes de privacidad/seguridad no debilitadas', (
     assert.equal(/candidateIds|bulkReveal|revealMany|revealAll/i.test(detailSheetCode), false);
   });
 
-  it('no toca Lusha reveal ni escribe/sincroniza HubSpot desde el detalle', () => {
-    // Mostrar el HubSpot Company ID (o el label de fuente `lusha_reveal`) es
-    // legítimo; lo prohibido es habilitar/llamar un reveal Lusha o importar/llamar
-    // integraciones de HubSpot y sincronizar contactos desde el cliente.
-    assert.equal(/isLushaPhoneRevealEnabled|revealCandidatePhoneViaLusha|lushaPhoneReveal/i.test(detailSheetCode), false);
+  it('never touches the old hard-off Lusha phone flag, and only calls Lusha through the dedicated fallback action', () => {
+    // isLushaPhoneRevealEnabled() is the hardcoded `false` ban on the
+    // email-only V3 client — must never be referenced from the client.
+    assert.equal(/isLushaPhoneRevealEnabled/.test(detailSheetCode), false);
+    // LUSHA-PHONE-FALLBACK-1: the ONLY sanctioned Lusha call surface from this
+    // component is the dedicated action wrapper, by its exact name. Any OTHER
+    // "reveal via Lusha"-shaped identifier (ad-hoc, differently named) is
+    // still banned — this asserts the wrapper is used, and nothing else.
+    const lushaRevealMentions = detailSheetCode.match(/revealCandidatePhoneViaLusha\w*/g) ?? [];
+    for (const mention of lushaRevealMentions) {
+      assert.equal(
+        mention,
+        'revealCandidatePhoneViaLushaFallbackAction',
+        `unexpected Lusha reveal call surface: ${mention}`,
+      );
+    }
+    assert.ok(lushaRevealMentions.length > 0, 'expected the dedicated action wrapper to be referenced');
+  });
+
+  it('does not write/sync HubSpot from the detail sheet', () => {
+    // Showing the HubSpot Company ID (or the `lusha_reveal` source label) is
+    // legitimate; forbidden is importing/calling HubSpot integrations or
+    // syncing contacts from the client.
     assert.equal(/from\s+['"]@\/server\/integrations\/hubspot/i.test(detailSheetCode), false);
     assert.equal(/syncHubspot|syncToHubspot|hubspotClient|createHubspot/i.test(detailSheetCode), false);
   });

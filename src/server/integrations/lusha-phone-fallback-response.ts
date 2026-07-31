@@ -31,6 +31,7 @@ export type LushaPhoneFallbackErrorCode =
   | 'rate_limited'
   | 'invalid_contact_id'
   | 'provider_auth_error'
+  | 'provider_permission_error'
   | 'provider_error'
   | 'malformed_provider_response';
 
@@ -78,6 +79,7 @@ function buildErrorMapping(
  *   429 → error / rate_limited   / rate_limited
  *   404 → error / error          / invalid_contact_id
  *   401 → error / error          / provider_auth_error
+ *   403 → error / error          / provider_permission_error (account/plan lacks the entitlement)
  *   5xx → error / error          / provider_error
  *   malformed / unexpected shape → error / error / malformed_provider_response
  *
@@ -93,6 +95,10 @@ export function mapLushaPhoneRevealResponseToInternalStatus(
   if (httpStatus === 429) return buildErrorMapping('rate_limited', 'rate_limited');
   if (httpStatus === 404) return buildErrorMapping('error', 'invalid_contact_id');
   if (httpStatus === 401) return buildErrorMapping('error', 'provider_auth_error');
+  // Account/plan lacks the entitlement for `reveal:["phones"]`. Fail-closed:
+  // never treated as a generic malformed response, so the operator sees a
+  // distinct, actionable code instead of "unexpected shape".
+  if (httpStatus === 403) return buildErrorMapping('error', 'provider_permission_error');
   if (httpStatus >= 500) return buildErrorMapping('error', 'provider_error');
   if (httpStatus !== 200) return buildErrorMapping('error', 'malformed_provider_response');
 

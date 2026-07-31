@@ -55,6 +55,12 @@ import {
 } from '@/modules/contact-enrichment/actions';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
 import { recoverCandidatePhoneRevealNowAction } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-actions';
+// Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1): SOLO tras `no_phone_found` de
+// Apollo, admin-only, un candidato, con confirmación explícita del costo. Este
+// componente nunca llama al cliente Lusha ni evalúa elegibilidad directamente —
+// solo invoca el server action, que revalida todo en el core.
+import { revealCandidatePhoneViaLushaFallbackAction } from '@/modules/contact-enrichment/lusha-phone-fallback-actions';
+import { getLushaPhoneFallbackCopy } from './lusha-phone-fallback-copy';
 // Núcleo PURO de la ventana L3 (sin imports en tiempo de ejecución, por eso es
 // seguro en el bundle cliente): cliente y servidor comparten LA MISMA definición
 // de "ya pasaron 2 min desde la solicitud" y no pueden desincronizarse.
@@ -260,6 +266,17 @@ interface ContactCandidateDetailSheetProps {
    * botón se oculta; el server action revalida el rol de todas formas.
    */
   phoneRevealAuthorized?: boolean;
+  /**
+   * ENABLE_LUSHA_PHONE_REVEAL_FALLBACK resuelto server-side
+   * (LUSHA-PHONE-FALLBACK-1). Con `false` (default de producción) el botón de
+   * fallback Lusha no se renderiza.
+   */
+  lushaPhoneFallbackEnabled?: boolean;
+  /**
+   * `true` solo si el rol del actor autenticado es Administrador. Resuelto
+   * server-side; el server action revalida el rol de todas formas.
+   */
+  lushaPhoneFallbackAuthorized?: boolean;
 }
 
 /**
@@ -275,6 +292,8 @@ export function ContactCandidateDetailSheet({
   onClose,
   phoneRevealEnabled = false,
   phoneRevealAuthorized = false,
+  lushaPhoneFallbackEnabled = false,
+  lushaPhoneFallbackAuthorized = false,
 }: ContactCandidateDetailSheetProps) {
   const router = useRouter();
   const [candidate, setCandidate] = React.useState<PendingContactCandidate | null>(null);
@@ -319,6 +338,20 @@ export function ContactCandidateDetailSheet({
     null,
   );
   const recoverInFlightRef = React.useRef(false);
+
+  // Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1). SÍNCRONO (a diferencia del
+  // reveal Apollo): la respuesta llega en la misma llamada, sin webhook. Exige
+  // confirmación explícita antes de ejecutar (diálogo), nunca one-click.
+  const [showLushaPhoneFallbackConfirm, setShowLushaPhoneFallbackConfirm] =
+    React.useState(false);
+  const [revealingPhoneViaLusha, setRevealingPhoneViaLusha] = React.useState(false);
+  const [lushaPhoneFallbackError, setLushaPhoneFallbackError] = React.useState<
+    string | null
+  >(null);
+  const [lushaPhoneFallbackNotice, setLushaPhoneFallbackNotice] = React.useState<
+    string | null
+  >(null);
+  const lushaFallbackInFlightRef = React.useRef(false);
 
   // Refetch silencioso (LIVE-REFRESH-1). `reloadInFlightRef` evita dos refetch
   // simultáneos y `currentCandidateIdRef` corta el setState tardío cuando el
@@ -685,6 +718,93 @@ export function ContactCandidateDetailSheet({
     }
   }
 
+  // ── Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1) ─────────────────────────
+  /**
+   * Traduce el resultado seguro del server action a copy en español. El
+   * teléfono NUNCA vuelve en el resultado: en éxito (`revealed`) se recarga el
+   * candidato para mostrarlo. La mayoría de los códigos de bloqueo no deberían
+   * alcanzarse desde esta UI (el botón ya los pre-filtra), pero el server
+   * revalida todo — así que se traducen igual, con un mensaje único y seguro
+   * para los casos residuales.
+   */
+  function applyLushaPhoneFallbackResult(
+    result: Awaited<ReturnType<typeof revealCandidatePhoneViaLushaFallbackAction>>,
+  ) {
+    switch (result.status) {
+      case 'revealed':
+        toast.success('Teléfono revelado con Lusha.');
+        setLushaPhoneFallbackNotice(null);
+        void reloadCandidate();
+        return;
+      case 'no_phone_found':
+        setLushaPhoneFallbackNotice('Lusha tampoco encontró un teléfono para este candidato.');
+        void reloadCandidate();
+        return;
+      case 'feature_disabled':
+        setLushaPhoneFallbackError('El fallback de Lusha no está activado.');
+        return;
+      case 'unauthorized_role':
+        setLushaPhoneFallbackError('No tienes permisos para usar el fallback de Lusha.');
+        return;
+      case 'missing_cost_confirmation':
+        setLushaPhoneFallbackError('Debes confirmar el costo para continuar.');
+        return;
+      case 'existing_phone_present':
+        toast.warning('Este candidato ya tiene un teléfono registrado.');
+        void reloadCandidate();
+        return;
+      case 'apollo_not_exhausted':
+      case 'missing_lusha_contact_id':
+      case 'candidate_not_editable':
+      case 'candidate_not_found':
+      case 'invalid_candidate':
+      case 'bulk_not_allowed':
+      case 'waiting_lusha_ticket':
+      case 'lusha_id_reuse_unconfirmed':
+      case 'entitlement_unconfirmed':
+      case 'error':
+      default:
+        setLushaPhoneFallbackError(
+          'No fue posible revelar el teléfono con Lusha. Intenta más tarde.',
+        );
+    }
+  }
+
+  /** Abre el diálogo de confirmación (nunca ejecuta la acción directamente). */
+  function handleLushaPhoneFallback() {
+    setLushaPhoneFallbackError(null);
+    setLushaPhoneFallbackNotice(null);
+    setShowLushaPhoneFallbackConfirm(true);
+  }
+
+  /**
+   * Ejecuta el fallback tras la confirmación explícita del operador. Un
+   * candidato, una sola invocación por clic: el ref corta un segundo clic en
+   * el mismo tick y `revealingPhoneViaLusha` deshabilita el botón tras el
+   * re-render. NUNCA envía teléfono, email, LinkedIn ni payload crudo — solo
+   * el id del candidato y la confirmación de costo.
+   */
+  async function handleConfirmLushaPhoneFallback() {
+    if (!candidate || lushaFallbackInFlightRef.current) return;
+    lushaFallbackInFlightRef.current = true;
+    setRevealingPhoneViaLusha(true);
+    try {
+      const result = await revealCandidatePhoneViaLushaFallbackAction({
+        candidateId: candidate.id,
+        confirmCost: true,
+      });
+      applyLushaPhoneFallbackResult(result);
+    } catch {
+      setLushaPhoneFallbackError(
+        'No fue posible revelar el teléfono con Lusha. Intenta más tarde.',
+      );
+    } finally {
+      lushaFallbackInFlightRef.current = false;
+      setRevealingPhoneViaLusha(false);
+      setShowLushaPhoneFallbackConfirm(false);
+    }
+  }
+
   const relevance = candidate?.enrichment_metadata?.relevance;
   const relevanceScore = toPercent(relevance?.score);
   const qualityScore = toPercent(relevance?.quality_score);
@@ -787,6 +907,26 @@ export function ContactCandidateDetailSheet({
     !phoneAlreadyRevealed &&
     !phoneRevealExhausted &&
     !phoneRevealInFlight;
+
+  // Elegibilidad de UI del fallback Lusha (LUSHA-PHONE-FALLBACK-1). Solo un
+  // pre-filtro visual — el server action revalida todo (incluida la
+  // procedencia real del id) en runLushaPhoneFallbackReveal. Requiere:
+  //  - flag ON + rol admin (resueltos server-side);
+  //  - Apollo ya agotado (`no_phone_found`), nunca mientras esté en vuelo;
+  //  - sin teléfono ya persistido;
+  //  - candidato de origen Lusha con un id propio (un candidato Apollo nunca
+  //    reenvía su id a Lusha — son espacios de id distintos).
+  const hasLushaContactId =
+    candidate?.source === 'lusha' && !!candidate?.source_contact_id?.trim();
+  const canOfferLushaPhoneFallback =
+    !!candidate &&
+    lushaPhoneFallbackEnabled === true &&
+    lushaPhoneFallbackAuthorized === true &&
+    phoneRevealExhausted &&
+    !phoneRevealInFlight &&
+    !hasPhone &&
+    hasLushaContactId;
+  const lushaPhoneFallbackCopy = getLushaPhoneFallbackCopy();
   const companyConsistency =
     (candidate?.enrichment_metadata?.company_consistency as
       | ContactCandidateCompanyConsistency
@@ -1100,6 +1240,35 @@ export function ContactCandidateDetailSheet({
                   )}
                   {phoneRevealNotice && !phoneRevealInFlight && (
                     <p className="text-[11px] text-muted-foreground">{phoneRevealNotice}</p>
+                  )}
+                  {/* Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1). Solo tras
+                      `no_phone_found` de Apollo, admin-only, con diálogo de
+                      confirmación obligatorio (nunca one-click). */}
+                  {canOfferLushaPhoneFallback && (
+                    <div className="space-y-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs"
+                        disabled={busy || revealingPhoneViaLusha}
+                        onClick={handleLushaPhoneFallback}
+                      >
+                        <PhoneCall className="h-3.5 w-3.5" />
+                        {lushaPhoneFallbackCopy.buttonLabel}
+                      </Button>
+                      <p className="text-[11px] text-muted-foreground">
+                        {lushaPhoneFallbackCopy.phoneTypeWarning}
+                      </p>
+                      {lushaPhoneFallbackNotice && (
+                        <p className="text-[11px] text-muted-foreground">
+                          {lushaPhoneFallbackNotice}
+                        </p>
+                      )}
+                      {lushaPhoneFallbackError && (
+                        <p className="text-[11px] text-destructive">{lushaPhoneFallbackError}</p>
+                      )}
+                    </div>
                   )}
                   {/* Mensajes de la revisión manual (L3). Viven FUERA del bloque en
                       vuelo para que sigan visibles cuando el resultado ya cerró el
@@ -1477,6 +1646,50 @@ export function ContactCandidateDetailSheet({
               </>
             ) : (
               'Aprobar de todas formas'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog
+      open={showLushaPhoneFallbackConfirm}
+      onOpenChange={(v) => {
+        if (revealingPhoneViaLusha) return;
+        setShowLushaPhoneFallbackConfirm(v);
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{lushaPhoneFallbackCopy.buttonLabel}</DialogTitle>
+          <DialogDescription>{lushaPhoneFallbackCopy.costConfirmationMessage}</DialogDescription>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          {lushaPhoneFallbackCopy.phoneTypeWarning} Es una acción individual, no masiva.
+        </p>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={revealingPhoneViaLusha}
+            onClick={() => setShowLushaPhoneFallbackConfirm(false)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={revealingPhoneViaLusha}
+            onClick={handleConfirmLushaPhoneFallback}
+          >
+            {revealingPhoneViaLusha ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Revelando…
+              </>
+            ) : (
+              'Confirmar y revelar'
             )}
           </Button>
         </DialogFooter>
