@@ -397,3 +397,46 @@ export const APOLLO_PHONE_CACHE_FLAG = 'ENABLE_APOLLO_PHONE_CACHE';
 export function isApolloPhoneCacheEnabled(): boolean {
   return process.env[APOLLO_PHONE_CACHE_FLAG]?.trim().toLowerCase() === 'true';
 }
+
+// ============================================================
+// Lusha Phone Reveal Fallback — SCAFFOLD ONLY (Agente 2A · LUSHA-PHONE-FALLBACK-1S)
+// ============================================================
+
+/** Flag name constant for the Lusha phone reveal fallback scaffold. */
+export const LUSHA_PHONE_REVEAL_FALLBACK_FLAG =
+  'ENABLE_LUSHA_PHONE_REVEAL_FALLBACK';
+
+/**
+ * Returns true when ENABLE_LUSHA_PHONE_REVEAL_FALLBACK is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Default: false, fail-closed. This flag does NOT replace, weaken or
+ * substitute isLushaPhoneRevealEnabled(): false above — that hard, non-env
+ * ban on phone reveal for the existing V3 email-only client (enrichLushaContactsV3)
+ * stays exactly as-is and is unaffected by this flag in either state.
+ *
+ * This is a SEPARATE flag for a FUTURE, distinct action: a manual,
+ * single-candidate Lusha phone reveal fallback, offered only after Apollo's
+ * own phone reveal already returned `no_phone_found`. It was approved
+ * internally as Legal/Compliance GO, Product GO (manual fallback), Spend GO
+ * (conditioned), single-candidate, non-bulk, non-automatic, no-retry, no
+ * HubSpot write — pending a senior Lusha support ticket confirming three open
+ * questions: whether `v1.`-prefixed ids returned by V3 endpoints are stable
+ * for later reuse, whether `reveal:["phones"]` requires an additional
+ * entitlement, and whether ids can be reused days/weeks after they were
+ * issued. See evaluateLushaPhoneFallbackEligibility in
+ * src/modules/contact-enrichment/lusha-phone-fallback-eligibility.ts, whose
+ * `lushaContactIdReuseConfirmed` / `lushaPhoneEntitlementConfirmed` inputs
+ * represent exactly those two open questions — no real caller can truthfully
+ * pass `true` for either until the ticket resolves, so the fallback cannot
+ * reach `eligible` today regardless of this flag's value.
+ *
+ * NOT configured in any Vercel environment as of LUSHA-PHONE-FALLBACK-1S.
+ * With this flag OFF (the default) every scaffold function that reads it
+ * evaluates to ineligible/disabled before any network call. No route, server
+ * action or UI component reads this flag or this scaffold in this milestone,
+ * so flipping it locally has no live effect either way.
+ */
+export function isLushaPhoneRevealFallbackEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG]);
+}
