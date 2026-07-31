@@ -316,6 +316,18 @@ decides whether Option C (a temporary on-disk index) is permitted at all.
 - Storing any real data inside the repository.
 - Treating a temporary technical artifact as a source snapshot.
 
+> **Update (BR-SOURCE-11K).** A docs-only **controls and evidence template** proposing this gate's
+> review structure has landed —
+> [`br-receita-cnpj-gate2-controls-and-evidence-template.md`](./br-receita-cnpj-gate2-controls-and-evidence-template.md).
+> It supplies a GATE-2 decision summary template, execution-scope / directory / temp-storage / output /
+> error controls templates, an operator checklist, stop conditions, an evidence packet format, and a
+> fail-closed validation matrix for a future owner review to fill in — it fills in none of them itself,
+> assigns no storage option, and replaces none of § 10's numeric placeholders.
+>
+> **GATE-2 remains `not_started` / not approved.** The template's status is `proposed_for_owner_review`;
+> it creates no runner, script, or test, and it authorizes no owner review, broader local execution,
+> temp storage, dry-run, import, Supabase write, migration, runtime, or Agent 1 integration.
+
 ---
 
 ## 7. GATE-3 — Field allowlist approval
