@@ -41,6 +41,21 @@
  *                                  catalog file, no Sócios/QSA/CPF file, no ZIP; keeps no
  *                                  row, cell, identifier, filename, path or hash; computes
  *                                  no join and approves no gate.
+ *   … --required-family-join-probe --required-family-join-probe-authorized
+ *       --real-local-join-dry-run-authorized
+ *                                  The BR-SOURCE-11G-IMPL Option C carve-out, valid ONLY
+ *                                  together with --real-manifest-metadata-only,
+ *                                  --real-manifest-metadata-execution-authorized and
+ *                                  --required-family-probe-authorized, and mutually exclusive
+ *                                  with --required-family-probe. Opens the SAME two files under
+ *                                  the SAME caps, parses ONE field per row — the protected
+ *                                  technical join key — holds it in a capped in-memory window,
+ *                                  compares, and discards. Reports a coarse match BUCKET
+ *                                  (zero | one_or_more | not_reported), where `not_reported` is
+ *                                  a GREEN result. Requires --strict, all five probe caps and
+ *                                  all four join caps. Prints no join key, no joined row, no
+ *                                  joined sample, no join pair, no coverage percentage; makes
+ *                                  no coverage claim; hashes nothing; approves no gate.
  *   --manifest <p> --allow-local-manifest
  *                                  Declares REAL local-manifest EXECUTION intent. Still
  *                                  refused by the runner core: a real manifest can never
@@ -59,7 +74,10 @@
  *     or one whose basename names a real prepared file set, UNLESS the run declares
  *     `--real-manifest-metadata-execution` (BR-SOURCE-11E) — which widens which manifest
  *     DOCUMENT may be named and nothing else. `--output` keeps both refusals on every flag.
- *   - reads, samples, or counts a row; or computes a join over real data.
+ *   - reads, samples, or counts a row, EXCEPT under the two explicit probe carve-outs above.
+ *   - computes a join over real data, EXCEPT the ultra-bounded in-memory membership test of an
+ *     explicit `--required-family-join-probe` run — which emits a bucket, never a key, a joined
+ *     row, a pair, a ratio, or a coverage claim.
  *   - downloads, unzips, imports, executes, or processes the full dataset.
  *   - opens a Supabase client or performs a production/runtime write.
  *   - touches Agent 1, providers, HubSpot, or Slack.
@@ -92,6 +110,10 @@ import {
   BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_DECLARED_FILES,
   BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_MANIFEST_BYTES,
   BRAZIL_RECEITA_FULL_JOIN_OPTION_B_MAX_BYTES_PER_FILE,
+  BRAZIL_RECEITA_FULL_JOIN_JOIN_PROBE_MAX_JOINED_ROWS_PRINTED,
+  BRAZIL_RECEITA_FULL_JOIN_JOIN_PROBE_MAX_JOIN_INPUT_ROWS,
+  BRAZIL_RECEITA_FULL_JOIN_JOIN_PROBE_MAX_JOIN_KEY_VALUES_IN_MEMORY,
+  BRAZIL_RECEITA_FULL_JOIN_JOIN_PROBE_MAX_JOIN_PAIRS_EMITTED,
   BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION,
   BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_BYTES_PER_FILE,
   BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_FILES_OPENED,
@@ -99,6 +121,7 @@ import {
   BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_TOTAL_BYTES,
   BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_TOTAL_ROWS,
   BRAZIL_RECEITA_FULL_JOIN_REAL_MANIFEST_METADATA_ONLY_TRUST,
+  BRAZIL_RECEITA_FULL_JOIN_REQUIRED_FAMILY_JOIN_PROBE_TRUST,
   BRAZIL_RECEITA_FULL_JOIN_REQUIRED_FAMILY_PROBE_TRUST,
   BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_TEMP_MANIFEST_TRUST,
   runBrazilReceitaFullJoinDryRun,
@@ -115,6 +138,10 @@ import {
   BrazilReceitaRequiredFamilyProbeError,
   createBrazilReceitaRequiredFamilyProbe,
 } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-required-family-probe';
+import {
+  BrazilReceitaRequiredFamilyJoinProbeError,
+  createBrazilReceitaRequiredFamilyJoinProbe,
+} from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-required-family-join-probe';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -220,8 +247,18 @@ export interface FullJoinRunnerOptions {
   readonly realManifestMetadataExecution: boolean;
   /** True for the BR-SOURCE-11F-IMPL Option C mode: the ultra-bounded required-family probe. */
   readonly requiredFamilyProbe: boolean;
-  /** True when the owner's Option C phrase was declared on THIS invocation. */
+  /** True when the owner's 11F Option C phrase was declared on THIS invocation. */
   readonly requiredFamilyProbeAuthorized: boolean;
+  /** True for the BR-SOURCE-11G-IMPL Option C mode: the ultra-bounded real JOIN probe. */
+  readonly requiredFamilyJoinProbe: boolean;
+  /** True when the owner's 11G Option C phrase was declared on THIS invocation. */
+  readonly requiredFamilyJoinProbeAuthorized: boolean;
+  /** True when the bounded join against the operator's own local files was declared. */
+  readonly realLocalJoinDryRunAuthorized: boolean;
+  readonly maxJoinInputRows: number | null;
+  readonly maxJoinKeyValuesInMemory: number | null;
+  readonly maxJoinPairsEmitted: number | null;
+  readonly maxJoinedRowsPrinted: number | null;
   readonly maxFilesOpened: number | null;
   readonly maxRowsPerFile: number | null;
   readonly maxTotalRows: number | null;
@@ -322,6 +359,13 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   let realManifestMetadataExecution = false;
   let requiredFamilyProbe = false;
   let requiredFamilyProbeAuthorized = false;
+  let requiredFamilyJoinProbe = false;
+  let requiredFamilyJoinProbeAuthorized = false;
+  let realLocalJoinDryRunAuthorized = false;
+  let maxJoinInputRows: number | null = null;
+  let maxJoinKeyValuesInMemory: number | null = null;
+  let maxJoinPairsEmitted: number | null = null;
+  let maxJoinedRowsPrinted: number | null = null;
   let maxFilesOpened: number | null = null;
   let maxRowsPerFile: number | null = null;
   let maxTotalRows: number | null = null;
@@ -378,6 +422,46 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
         break;
       case 'required-family-probe-authorized':
         requiredFamilyProbeAuthorized = true;
+        break;
+      case 'required-family-join-probe':
+        requiredFamilyJoinProbe = true;
+        break;
+      case 'required-family-join-probe-authorized':
+        requiredFamilyJoinProbeAuthorized = true;
+        break;
+      case 'real-local-join-dry-run-authorized':
+        realLocalJoinDryRunAuthorized = true;
+        break;
+      case 'max-join-input-rows':
+        maxJoinInputRows = parseBoundedInteger(
+          'max-join-input-rows',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_JOIN_PROBE_MAX_JOIN_INPUT_ROWS,
+        );
+        break;
+      case 'max-join-key-values-in-memory':
+        maxJoinKeyValuesInMemory = parseBoundedInteger(
+          'max-join-key-values-in-memory',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_JOIN_PROBE_MAX_JOIN_KEY_VALUES_IN_MEMORY,
+        );
+        break;
+      // The two zero-EQUALITIES. `parseBoundedInteger` with a ceiling of 0 refuses any positive
+      // value outright, so `--max-join-pairs-emitted 1` never reaches the runner: asking for one
+      // pair is an unauthorized capability, not a wider probe (11G § 9.1).
+      case 'max-join-pairs-emitted':
+        maxJoinPairsEmitted = parseBoundedInteger(
+          'max-join-pairs-emitted',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_JOIN_PROBE_MAX_JOIN_PAIRS_EMITTED,
+        );
+        break;
+      case 'max-joined-rows-printed':
+        maxJoinedRowsPrinted = parseBoundedInteger(
+          'max-joined-rows-printed',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_JOIN_PROBE_MAX_JOINED_ROWS_PRINTED,
+        );
         break;
       case 'max-files-opened':
         maxFilesOpened = parseBoundedInteger(
@@ -542,9 +626,19 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   // NARROWEST mode in the tool: it is the only one that opens a file the manifest references,
   // so every precondition is refused HERE, before the probe is constructed and before the
   // runner core is consulted.
-  if (requiredFamilyProbeAuthorized && !requiredFamilyProbe) {
+  // The 11F structural authorization qualifies EITHER probe mode: a join probe opens the same
+  // two files, so it requires the 11F declaration in addition to its own (it is never a
+  // substitute for it). On any other invocation the declaration has no carve-out to qualify.
+  if (requiredFamilyProbeAuthorized && !requiredFamilyProbe && !requiredFamilyJoinProbe) {
     throw new ForbiddenFullJoinRunnerModeError(
-      '--required-family-probe-authorized is only valid together with --required-family-probe',
+      '--required-family-probe-authorized is only valid together with --required-family-probe or --required-family-join-probe',
+    );
+  }
+  // The two probe modes are mutually exclusive: running both would open four data files, which
+  // no authorization in the series permits.
+  if (requiredFamilyProbe && requiredFamilyJoinProbe) {
+    throw new ForbiddenFullJoinRunnerModeError(
+      '--required-family-probe and --required-family-join-probe are mutually exclusive — pick exactly one probe mode',
     );
   }
   if (requiredFamilyProbe) {
@@ -599,6 +693,87 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
     }
   }
 
+  // BR-SOURCE-11G Option C is the NARROWEST mode in the tool: the only one that reads a VALUE
+  // out of a required-family file. Every precondition — five authorizations, the manifest, the
+  // five structural caps and the four join caps — is refused HERE, before the probe is
+  // constructed and before the runner core is consulted.
+  if (requiredFamilyJoinProbeAuthorized && !requiredFamilyJoinProbe) {
+    throw new ForbiddenFullJoinRunnerModeError(
+      '--required-family-join-probe-authorized is only valid together with --required-family-join-probe',
+    );
+  }
+  if (realLocalJoinDryRunAuthorized && !requiredFamilyJoinProbe) {
+    throw new ForbiddenFullJoinRunnerModeError(
+      '--real-local-join-dry-run-authorized is only valid together with --required-family-join-probe',
+    );
+  }
+  if (requiredFamilyJoinProbe) {
+    if (!requiredFamilyJoinProbeAuthorized) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--required-family-join-probe requires the explicit --required-family-join-probe-authorized declaration — the 11G Option C carve-out is never implied',
+      );
+    }
+    if (!realLocalJoinDryRunAuthorized) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--required-family-join-probe requires --real-local-join-dry-run-authorized — executing the bounded join against local files is a separate declaration',
+      );
+    }
+    // The 11F authorization is required IN ADDITION: a join probe opens the same two files, and
+    // the 11G phrase says nothing about opening them.
+    if (!requiredFamilyProbeAuthorized) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--required-family-join-probe requires --required-family-probe-authorized — the 11G phrase does not stand in for the file-opening authorization',
+      );
+    }
+    if (!realManifestMetadataOnly) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--required-family-join-probe requires --real-manifest-metadata-only — the manifest is read as a control document first',
+      );
+    }
+    if (!realManifestMetadataExecution) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--required-family-join-probe requires --real-manifest-metadata-execution-authorized — a join probe reads an operator-prepared file set',
+      );
+    }
+    if (manifest === null) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--required-family-join-probe requires --manifest <path> — it reads exactly one manifest document',
+      );
+    }
+    if (!allowLocalManifest) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--required-family-join-probe requires the explicit --allow-local-manifest flag',
+      );
+    }
+    if (!strict) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--required-family-join-probe requires --strict — the 11G Option C carve-out has no lenient mode',
+      );
+    }
+    const missingJoinCaps: string[] = [];
+    if (maxFilesOpened === null) missingJoinCaps.push('--max-files-opened');
+    if (maxBytesPerFile === null) missingJoinCaps.push('--max-bytes-per-file');
+    if (maxRowsPerFile === null) missingJoinCaps.push('--max-rows-per-file');
+    if (maxTotalRows === null) missingJoinCaps.push('--max-total-rows');
+    if (maxTotalBytes === null) missingJoinCaps.push('--max-total-bytes');
+    if (maxJoinInputRows === null) missingJoinCaps.push('--max-join-input-rows');
+    if (maxJoinKeyValuesInMemory === null) missingJoinCaps.push('--max-join-key-values-in-memory');
+    if (maxJoinPairsEmitted === null) missingJoinCaps.push('--max-join-pairs-emitted');
+    if (maxJoinedRowsPrinted === null) missingJoinCaps.push('--max-joined-rows-printed');
+    if (missingJoinCaps.length > 0) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        `--required-family-join-probe requires every bounded cap (missing: ${missingJoinCaps.join(', ')})`,
+      );
+    }
+    // Shared with Option B, whose ceiling is far wider. A join-probe run re-checks it against
+    // the much tighter Option C ceiling, whatever order the flags arrived in.
+    if ((maxBytesPerFile as number) > BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_BYTES_PER_FILE) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--max-bytes-per-file exceeds the Option C per-file ceiling',
+      );
+    }
+  }
+
   if (syntheticTempManifest) {
     // Option B is strict-only and fully-capped: a lenient or uncapped synthetic
     // temp-manifest run does not exist, so the omission is refused HERE, before the
@@ -644,6 +819,13 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
     realManifestMetadataExecution,
     requiredFamilyProbe,
     requiredFamilyProbeAuthorized,
+    requiredFamilyJoinProbe,
+    requiredFamilyJoinProbeAuthorized,
+    realLocalJoinDryRunAuthorized,
+    maxJoinInputRows,
+    maxJoinKeyValuesInMemory,
+    maxJoinPairsEmitted,
+    maxJoinedRowsPrinted,
     format,
     strict,
     maxCompanyRows,
@@ -699,6 +881,13 @@ export function formatReportText(report: BrazilReceitaFullJoinDryRunReport): str
   );
   lines.push(
     `real_manifest_metadata_only_execution_authorized: ${report.real_manifest_metadata_only_execution_authorized}`,
+  );
+  lines.push(`required_family_probe_authorized: ${report.required_family_probe_authorized}`);
+  lines.push(
+    `required_family_join_probe_authorized: ${report.required_family_join_probe_authorized}`,
+  );
+  lines.push(
+    `real_local_join_dry_run_authorized: ${report.real_local_join_dry_run_authorized}`,
   );
   lines.push(`source_key: ${report.source_key}`);
   lines.push(`country_code: ${report.country_code}`);
@@ -767,6 +956,56 @@ export function formatReportText(report: BrazilReceitaFullJoinDryRunReport): str
     lines.push(`  join_coverage_computed: ${probe.join_coverage_computed}`);
     lines.push(`  full_dataset_processed: ${probe.full_dataset_processed}`);
   }
+  lines.push(
+    `required_family_join_probe: ${report.required_family_join_probe === null ? 'null' : ''}`.trimEnd(),
+  );
+  if (report.required_family_join_probe !== null) {
+    const joinProbe = report.required_family_join_probe;
+    lines.push(`  families_attempted: ${joinProbe.families_attempted.join(', ')}`);
+    lines.push(`  files_opened_count: ${joinProbe.files_opened_count}`);
+    renderCounts('  files_opened_by_family', joinProbe.files_opened_by_family, lines);
+    for (const [label, statuses] of [
+      ['bytes_read_bucket', joinProbe.bytes_read_bucket],
+      ['rows_read_bucket', joinProbe.rows_read_bucket],
+      ['encoding_status', joinProbe.encoding_status],
+      ['delimiter_status', joinProbe.delimiter_status],
+      ['headerless_status', joinProbe.headerless_status],
+    ] as ReadonlyArray<readonly [string, Record<string, string>]>) {
+      lines.push(`  ${label}:`);
+      for (const [family, value] of Object.entries(statuses)) lines.push(`    ${family}: ${value}`);
+    }
+    lines.push('  row_shape:');
+    for (const [family, shape] of Object.entries(joinProbe.row_shape)) {
+      lines.push(`    ${family}:`);
+      lines.push(`      expected_min_columns: ${shape.expected_min_columns}`);
+      renderCounts(
+        '      observed_column_count_distribution',
+        shape.observed_column_count_distribution,
+        lines,
+      );
+      lines.push(`      row_shape_valid_count: ${shape.row_shape_valid_count}`);
+      lines.push(`      row_shape_invalid_count: ${shape.row_shape_invalid_count}`);
+    }
+    lines.push(`  selection_class: ${joinProbe.selection_class}`);
+    lines.push(`  forbidden_family_attempted: ${joinProbe.forbidden_family_attempted}`);
+    lines.push(`  forbidden_family_declared_count: ${joinProbe.forbidden_family_declared_count}`);
+    lines.push(
+      `  never_opened_family_declared_count: ${joinProbe.never_opened_family_declared_count}`,
+    );
+    lines.push('  join_probe:');
+    for (const [key, value] of Object.entries(joinProbe.join_probe)) {
+      lines.push(`    ${key}: ${value}`);
+    }
+    lines.push(`  raw_rows_printed: ${joinProbe.raw_rows_printed}`);
+    lines.push(`  raw_cells_printed: ${joinProbe.raw_cells_printed}`);
+    lines.push(`  identifiers_printed: ${joinProbe.identifiers_printed}`);
+    lines.push(`  filenames_printed: ${joinProbe.filenames_printed}`);
+    lines.push(`  absolute_paths_printed: ${joinProbe.absolute_paths_printed}`);
+    lines.push(`  hashes_printed: ${joinProbe.hashes_printed}`);
+    lines.push(`  joins_executed: ${joinProbe.joins_executed}`);
+    lines.push(`  join_coverage_computed: ${joinProbe.join_coverage_computed}`);
+    lines.push(`  full_dataset_processed: ${joinProbe.full_dataset_processed}`);
+  }
   lines.push('cleanup:');
   lines.push(`  cleanup_required: ${report.cleanup.cleanup_required}`);
   lines.push(`  cleanup_status: ${report.cleanup.cleanup_status}`);
@@ -829,6 +1068,35 @@ export function runFullJoinDryRun(
         })
       : null;
 
+  // BR-SOURCE-11G Option C: build the required-family JOIN probe. It resolves the manifest and
+  // at most two declared required-family paths inside its own closure, and it owns the bounded
+  // in-memory join-key window — so this CLI never holds a path and never holds a key. The probe
+  // validates its five authorizations, its forbidden-output refusals (including any coverage
+  // request), its eleven caps and the manifest path shape eagerly, so a refused request never
+  // opens a descriptor at all.
+  const requiredFamilyJoinProbeReader =
+    options.requiredFamilyJoinProbe && options.manifestPath !== null
+      ? createBrazilReceitaRequiredFamilyJoinProbe({
+          manifestPath: options.manifestPath,
+          requiredFamilyJoinProbeAuthorized: options.requiredFamilyJoinProbeAuthorized,
+          realLocalJoinDryRunAuthorized: options.realLocalJoinDryRunAuthorized,
+          requiredFamilyProbeAuthorized: options.requiredFamilyProbeAuthorized,
+          realManifestMetadataOnlyOptionBAuthorized: options.realManifestMetadataOnly,
+          realManifestMetadataOnlyExecutionAuthorized: options.realManifestMetadataExecution,
+          maxManifestBytes: options.maxManifestBytes ?? undefined,
+          maxDeclaredFiles: options.maxDeclaredFiles ?? undefined,
+          maxFilesOpened: options.maxFilesOpened ?? undefined,
+          maxBytesPerFile: options.maxBytesPerFile ?? undefined,
+          maxRowsPerFile: options.maxRowsPerFile ?? undefined,
+          maxTotalRows: options.maxTotalRows ?? undefined,
+          maxTotalBytes: options.maxTotalBytes ?? undefined,
+          maxJoinInputRows: options.maxJoinInputRows ?? undefined,
+          maxJoinKeyValuesInMemory: options.maxJoinKeyValuesInMemory ?? undefined,
+          maxJoinPairsEmitted: options.maxJoinPairsEmitted ?? undefined,
+          maxJoinedRowsPrinted: options.maxJoinedRowsPrinted ?? undefined,
+        })
+      : null;
+
   try {
     return runBrazilReceitaFullJoinDryRun({
       mode: options.runMode,
@@ -867,6 +1135,36 @@ export function runFullJoinDryRun(
             ...(options.maxRowsPerFile !== null ? { maxRowsPerFile: options.maxRowsPerFile } : {}),
             ...(options.maxTotalRows !== null ? { maxTotalRows: options.maxTotalRows } : {}),
             ...(options.maxTotalBytes !== null ? { maxTotalBytes: options.maxTotalBytes } : {}),
+          }
+        : {}),
+      // BR-SOURCE-11G Option C REPLACES the declared trust in turn — a join-probe run is
+      // dispatched by its own trust — while keeping the metadata reader above, because the
+      // manifest is still read as a control document first. Every other authorization stays
+      // exactly as declared, and the 11F structural declaration is passed through unchanged
+      // because a join probe still needs it to open the two files at all.
+      ...(requiredFamilyJoinProbeReader !== null
+        ? {
+            manifestTrust: BRAZIL_RECEITA_FULL_JOIN_REQUIRED_FAMILY_JOIN_PROBE_TRUST,
+            requiredFamilyProbeAuthorized: options.requiredFamilyProbeAuthorized,
+            requiredFamilyJoinProbeAuthorized: options.requiredFamilyJoinProbeAuthorized,
+            realLocalJoinDryRunAuthorized: options.realLocalJoinDryRunAuthorized,
+            requiredFamilyJoinProbeReader,
+            ...(options.maxFilesOpened !== null ? { maxFilesOpened: options.maxFilesOpened } : {}),
+            ...(options.maxRowsPerFile !== null ? { maxRowsPerFile: options.maxRowsPerFile } : {}),
+            ...(options.maxTotalRows !== null ? { maxTotalRows: options.maxTotalRows } : {}),
+            ...(options.maxTotalBytes !== null ? { maxTotalBytes: options.maxTotalBytes } : {}),
+            ...(options.maxJoinInputRows !== null
+              ? { maxJoinInputRows: options.maxJoinInputRows }
+              : {}),
+            ...(options.maxJoinKeyValuesInMemory !== null
+              ? { maxJoinKeyValuesInMemory: options.maxJoinKeyValuesInMemory }
+              : {}),
+            ...(options.maxJoinPairsEmitted !== null
+              ? { maxJoinPairsEmitted: options.maxJoinPairsEmitted }
+              : {}),
+            ...(options.maxJoinedRowsPrinted !== null
+              ? { maxJoinedRowsPrinted: options.maxJoinedRowsPrinted }
+              : {}),
           }
         : {}),
       ...(options.maxManifestBytes !== null ? { maxManifestBytes: options.maxManifestBytes } : {}),
@@ -935,7 +1233,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     const message =
       err instanceof FullJoinRunnerOutputSanitizationError ||
       err instanceof BrazilReceitaRealManifestMetadataError ||
-      err instanceof BrazilReceitaRequiredFamilyProbeError
+      err instanceof BrazilReceitaRequiredFamilyProbeError ||
+      // The join probe's message is a fixed refusal CODE too: it carries no path, no filename,
+      // no document fragment and — critically — no join key (11G § 5.1).
+      err instanceof BrazilReceitaRequiredFamilyJoinProbeError
         ? err.message
         : 'BRSOURCE11A_RUN_FAILED';
     process.stderr.write(`${message}\n`);
