@@ -149,6 +149,8 @@ describe('enrichLushaContactPhonesForFallback — response parsing', () => {
     if (result.ok) {
       assert.equal(result.candidateStatus, 'revealed');
       assert.equal(result.phoneType, 'unknown');
+      assert.equal(result.phoneNumber, '+000000000');
+      assert.equal(result.creditsCharged, 1);
       assert.equal(result.phonesReturned, 1);
     }
   });
@@ -169,6 +171,66 @@ describe('enrichLushaContactPhonesForFallback — response parsing', () => {
     assert.equal(result.ok, true);
     if (result.ok) {
       assert.equal(result.candidateStatus, 'no_phone_found');
+      assert.equal(result.phoneNumber, null);
+      assert.equal(result.creditsCharged, 0);
+    }
+  });
+
+  test('phone.type "mobile" present → parsed as mobile (LUSHA-PHONE-FALLBACK-1)', async () => {
+    mockFetchOnce(200, {
+      results: [{ phones: [{ number: '+000000000', type: 'mobile' }] }],
+      billing: { creditsCharged: 1 },
+    });
+
+    const result = await enrichLushaContactPhonesForFallback({
+      apiKey: 'test-key',
+      timeoutMs: 1000,
+      contactId: 'v1.abcdef1234567890',
+      allowPhoneReveal: true,
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.phoneNumber, '+000000000');
+      assert.equal(result.phoneType, 'mobile');
+      assert.equal(result.creditsCharged, 1);
+    }
+  });
+
+  test('phone.type present but unrecognized → parsed as other, never silently unknown', async () => {
+    mockFetchOnce(200, {
+      results: [{ phones: [{ number: '+000000000', type: 'fax' }] }],
+      billing: { creditsCharged: 1 },
+    });
+
+    const result = await enrichLushaContactPhonesForFallback({
+      apiKey: 'test-key',
+      timeoutMs: 1000,
+      contactId: 'v1.abcdef1234567890',
+      allowPhoneReveal: true,
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.phoneType, 'other');
+    }
+  });
+
+  test('403 → ok:true with error mapping (provider_permission_error)', async () => {
+    mockFetchOnce(403, {});
+
+    const result = await enrichLushaContactPhonesForFallback({
+      apiKey: 'test-key',
+      timeoutMs: 1000,
+      contactId: 'v1.abcdef1234567890',
+      allowPhoneReveal: true,
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.candidateStatus, 'error');
+      assert.equal(result.errorCode, 'provider_permission_error');
+      assert.equal(result.creditsCharged, null);
     }
   });
 
