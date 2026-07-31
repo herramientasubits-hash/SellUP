@@ -1336,3 +1336,14 @@ successor record engages most directly, because its recommended option raises by
 key-window ceilings — an escalation that record states plainly and does not presume approved.
 
 Record: [`br-receita-cnpj-bounded-real-join-coverage-decision-record.md`](./br-receita-cnpj-bounded-real-join-coverage-decision-record.md).
+
+---
+
+## 25. Update (BR-SOURCE-11L)
+
+BR-SOURCE-11L creates the GATE-2 owner review package. It assembles current evidence, evidence gaps,
+owner questions, decision options, a risk register and required decision fields for a future GATE-2
+decision record. It does not approve GATE-2. It does not authorize a GATE-2 decision, broader local
+execution, temp storage, multi-window sampling, exact percentages, import, Supabase writes, runtime,
+or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-gate2-owner-review-package.md`](./br-receita-cnpj-gate2-owner-review-package.md).
