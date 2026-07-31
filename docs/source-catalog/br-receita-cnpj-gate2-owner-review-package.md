@@ -555,3 +555,10 @@ This document is **docs-only**. It does **not**:
 - merge.
 
 Brazil remains blocked for import, runtime, Agent 1, and live prospect generation.
+
+BR-SOURCE-11M creates the GATE-2 formal decision record.
+It consolidates evidence, gaps, formal options, decision fields, minimum conditions and risk decisions
+for later owner acceptance. It does not approve GATE-2. It does not authorize a GATE-2 decision, limited
+broader local execution, broader local execution, temp storage, multi-window sampling, exact
+percentages, import, Supabase, runtime or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-gate2-formal-decision-record.md`](./br-receita-cnpj-gate2-formal-decision-record.md).
