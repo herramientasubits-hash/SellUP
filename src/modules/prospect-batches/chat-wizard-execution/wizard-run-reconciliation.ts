@@ -29,8 +29,12 @@
 
 import { APOLLO_BILLABLE_OPERATION_KEYS } from '@/server/agents/prospecting-toolkit/apollo-operation-pricing';
 import {
+  isMissingProviderUsageCorrelationColumnError,
   matchUsageRowToRun,
+  readRowCorrelationKeys,
+  PROVIDER_USAGE_CORRELATION_COLUMN_NAMES,
   type CorrelatableUsageRow,
+  type RowCorrelationSource,
   type WizardRunBillingState,
   type WizardRunCorrelation,
 } from './wizard-run-correlation';
@@ -86,7 +90,13 @@ export type WizardRunReconciliationAnomaly =
   /** No usage row matched — logging may have failed after real spend. */
   | 'no_usage_rows_found'
   /** A row of this provider used an operation outside the reconciled set. */
-  | 'unexpected_operation_for_provider';
+  | 'unexpected_operation_for_provider'
+  /**
+   * A matched row's migration-100 column disagrees with its
+   * metadata.run_correlation. Columns win; the disagreement is reported because
+   * it means one of the two writers attributed the spend to the wrong run.
+   */
+  | 'column_metadata_correlation_mismatch';
 
 export type WizardRunReconciliationInput = {
   correlation: WizardRunCorrelation;
@@ -122,6 +132,12 @@ export type WizardRunReconciliationResult = {
   ignoredOperationRowCount: number;
   /** Credits per reconciled operation. Absent operations are omitted. */
   perOperationCredits: Record<string, number>;
+  /**
+   * How the matched rows were correlated. Lets an operator tell "the columns
+   * are live" from "we are still answering out of metadata" without reading the
+   * flag or the migration state.
+   */
+  correlationSources: Record<RowCorrelationSource, number>;
   anomalies: WizardRunReconciliationAnomaly[];
 };
 
@@ -167,12 +183,18 @@ export function reconcileWizardRunSpend(
 
   const anomalies: WizardRunReconciliationAnomaly[] = [];
   const perOperationCredits: Record<string, number> = {};
+  const correlationSources: Record<RowCorrelationSource, number> = {
+    columns: 0,
+    metadata: 0,
+    none: 0,
+  };
 
   let matchedRowCount = 0;
   let foreignRowCount = 0;
   let ignoredOperationRowCount = 0;
   let creditsAreKnown = true;
   let recordedTotal = 0;
+  let sawColumnMetadataMismatch = false;
 
   for (const row of dedupeRows(input.rows)) {
     // Rows of another provider are not this reconciliation's business.
@@ -191,6 +213,10 @@ export function reconcileWizardRunSpend(
       continue;
     }
 
+    const keys = readRowCorrelationKeys(row);
+    correlationSources[keys.correlationSource]++;
+    if (keys.columnMetadataMismatch) sawColumnMetadataMismatch = true;
+
     matchedRowCount++;
 
     const credits = row.credits_used;
@@ -206,6 +232,7 @@ export function reconcileWizardRunSpend(
 
   if (foreignRowCount > 0) anomalies.push('foreign_usage_rows_present');
   if (ignoredOperationRowCount > 0) anomalies.push('unexpected_operation_for_provider');
+  if (sawColumnMetadataMismatch) anomalies.push('column_metadata_correlation_mismatch');
 
   // ── Resolve the three quantities ───────────────────────────────────────────
 
@@ -267,6 +294,7 @@ export function reconcileWizardRunSpend(
     foreignRowCount,
     ignoredOperationRowCount,
     perOperationCredits,
+    correlationSources,
     anomalies,
   };
 }
@@ -288,6 +316,7 @@ export type WizardRunReconciliationMetadata = {
   foreign_row_count: number;
   ignored_operation_row_count: number;
   per_operation_credits: Record<string, number>;
+  correlation_sources: Record<RowCorrelationSource, number>;
   anomalies: WizardRunReconciliationAnomaly[];
 };
 
@@ -308,6 +337,7 @@ export function toWizardRunReconciliationMetadata(
     foreign_row_count: result.foreignRowCount,
     ignored_operation_row_count: result.ignoredOperationRowCount,
     per_operation_credits: result.perOperationCredits,
+    correlation_sources: result.correlationSources,
     anomalies: result.anomalies,
   };
 }
@@ -317,7 +347,10 @@ export const WIZARD_RUN_RECONCILIATION_KEY = 'wizard_run_reconciliation' as cons
 
 // ── DB reader ────────────────────────────────────────────────────────────────
 
-type UsageRowsResult = { data: ReconcilableUsageRow[] | null; error: { message: string } | null };
+type UsageRowsResult = {
+  data: ReconcilableUsageRow[] | null;
+  error: { message: string; code?: string } | null;
+};
 type UsageRowsQuery = PromiseLike<UsageRowsResult> & {
   eq(col: string, val: string): UsageRowsQuery;
   in(col: string, vals: readonly string[]): UsageRowsQuery;
@@ -328,15 +361,28 @@ export type WizardRunUsageRowsClient = {
 };
 
 /**
- * Columns read for reconciliation.
+ * Columns that exist regardless of migration 100.
  *
- * `metadata` is selected because, until migration 100 is applied and
- * ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS is on, the correlation lives there.
- * The new columns are NOT selected: querying a column that does not exist yet
- * would fail the whole read.
+ * `metadata` is always selected: it is the transport that needs no schema
+ * change, and it stays the fallback for every row written before the columns
+ * went live.
+ */
+export const RECONCILIATION_BASE_SELECT_COLUMNS =
+  'provider_key, operation_key, credits_used, usage_key, status, batch_id, metadata';
+
+/**
+ * Columns read for reconciliation, including migration 100's.
+ *
+ * Selecting the new columns is what makes them readable at all — writing them
+ * without reading them would leave them write-only, which is exactly the gap
+ * COND-3 closes. Because the migration is deliberately NOT applied yet, the
+ * reader below treats an undefined-column error on this select as "not migrated
+ * yet" and retries with `RECONCILIATION_BASE_SELECT_COLUMNS`. That keeps the
+ * pre-migration behaviour byte-for-byte identical while making the post-
+ * migration path a flag flip instead of a code change.
  */
 export const RECONCILIATION_SELECT_COLUMNS =
-  'provider_key, operation_key, credits_used, usage_key, status, batch_id, metadata';
+  `${RECONCILIATION_BASE_SELECT_COLUMNS}, ${PROVIDER_USAGE_CORRELATION_COLUMN_NAMES.join(', ')}`;
 
 /**
  * Reads the usage rows of one run, filtered to the reconciled operations of its
@@ -358,13 +404,25 @@ export async function readWizardRunUsageRows(
   const usageProviderKey = resolveUsageProviderKey(discoveryProvider);
   if (!usageProviderKey) return null;
 
-  const { data, error } = await db
-    .from('provider_usage_logs')
-    .select(RECONCILIATION_SELECT_COLUMNS)
-    .eq('batch_id', batchId)
-    .eq('provider_key', usageProviderKey)
-    .in('operation_key', resolveReconciledOperations(usageProviderKey));
+  const operations = resolveReconciledOperations(usageProviderKey);
+  const runQuery = (columns: string) =>
+    db
+      .from('provider_usage_logs')
+      .select(columns)
+      .eq('batch_id', batchId)
+      .eq('provider_key', usageProviderKey)
+      .in('operation_key', operations);
 
-  if (error) return null;
-  return data ?? [];
+  const withColumns = await runQuery(RECONCILIATION_SELECT_COLUMNS);
+  if (!withColumns.error) return withColumns.data ?? [];
+
+  // Only "migration 100 is not applied here" earns a second read. Any other
+  // error — permissions, connection, a genuinely broken query — is returned as a
+  // failure, because retrying with fewer columns cannot fix it and pretending
+  // the read succeeded would reconcile against rows we never saw.
+  if (!isMissingProviderUsageCorrelationColumnError(withColumns.error)) return null;
+
+  const withoutColumns = await runQuery(RECONCILIATION_BASE_SELECT_COLUMNS);
+  if (withoutColumns.error) return null;
+  return withoutColumns.data ?? [];
 }

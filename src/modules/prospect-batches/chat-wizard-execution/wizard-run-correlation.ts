@@ -233,6 +233,56 @@ export function toProviderUsageCorrelationColumns(
   };
 }
 
+/**
+ * Column names added by migration 100, in the migration's own order.
+ *
+ * Single source of truth for both sides of the contract: the writer projects
+ * these onto the insert, the reader selects them, and the missing-column
+ * detector below recognises them. A name that drifts from the migration would
+ * otherwise fail silently on one side only.
+ *
+ * `batch_id` is absent on purpose — it predates this migration and is written
+ * unconditionally.
+ */
+export const PROVIDER_USAGE_CORRELATION_COLUMN_NAMES = [
+  'reservation_id',
+  'client_request_id',
+  'wizard_run_id',
+  'request_fingerprint',
+  'idempotency_key',
+  'billing_state',
+] as const;
+
+export type ProviderUsageCorrelationColumnName =
+  (typeof PROVIDER_USAGE_CORRELATION_COLUMN_NAMES)[number];
+
+/**
+ * Error codes that mean "this column does not exist here".
+ *
+ * `42703` is Postgres `undefined_column`; `PGRST204` is how PostgREST reports a
+ * column absent from its schema cache. Nothing else qualifies — a permission
+ * error, a constraint violation, a broken connection are all real failures.
+ */
+const MISSING_COLUMN_ERROR_CODES: ReadonlySet<string> = new Set(['42703', 'PGRST204']);
+
+/**
+ * True only for "one of migration 100's columns does not exist yet".
+ *
+ * Deliberately narrow on two axes, because the caller reacts by retrying
+ * without those columns and that retry can only fix this one cause:
+ *   - the code must be an undefined-column code;
+ *   - the message must name one of OUR optional columns. A different missing
+ *     column is a real schema defect and must stay loud, not be absorbed by a
+ *     retry that will fail the same way.
+ */
+export function isMissingProviderUsageCorrelationColumnError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  if (typeof code !== 'string' || !MISSING_COLUMN_ERROR_CODES.has(code)) return false;
+  if (typeof message !== 'string' || message === '') return false;
+  return PROVIDER_USAGE_CORRELATION_COLUMN_NAMES.some((column) => message.includes(column));
+}
+
 // ── Row matching ─────────────────────────────────────────────────────────────
 
 /**
@@ -246,8 +296,24 @@ export type CorrelatableUsageRow = {
   reservation_id?: string | null;
   client_request_id?: string | null;
   wizard_run_id?: string | null;
+  request_fingerprint?: string | null;
+  idempotency_key?: string | null;
+  billing_state?: string | null;
   metadata?: unknown;
 };
+
+/**
+ * Where a row's correlation was actually read from.
+ *
+ * `columns`  — at least one migration-100 column carried a value.
+ * `metadata` — no such column did, and `metadata.run_correlation` answered.
+ * `none`     — neither source carried anything.
+ *
+ * `batch_id` deliberately does not influence this: it is a pre-existing column
+ * present on every row, so counting it would report `columns` even for a row
+ * written entirely before migration 100.
+ */
+export type RowCorrelationSource = 'columns' | 'metadata' | 'none';
 
 /** Correlation identifiers of a row, from columns first, metadata second. */
 export type RowCorrelationKeys = {
@@ -255,6 +321,15 @@ export type RowCorrelationKeys = {
   reservationId: string | null;
   clientRequestId: string | null;
   wizardRunId: string | null;
+  correlationSource: RowCorrelationSource;
+  /**
+   * A column and `metadata.run_correlation` disagree on the same field.
+   *
+   * The column value is the one used — but the disagreement is reported rather
+   * than resolved silently, because it means one of the two writers is wrong
+   * about which run this spend belongs to.
+   */
+  columnMetadataMismatch: boolean;
 };
 
 function readMetadataCorrelation(metadata: unknown): Partial<RunCorrelationMetadata> {
@@ -278,13 +353,43 @@ function firstString(...values: unknown[]): string | null {
  * is on, the indexed columns are authoritative. Until then every field comes
  * from metadata, and reconciliation behaves identically.
  */
+/** True when at least one migration-100 column on this row carries a value. */
+function hasCorrelationColumnValue(row: CorrelatableUsageRow): boolean {
+  const record = row as Record<string, unknown>;
+  return PROVIDER_USAGE_CORRELATION_COLUMN_NAMES.some((column) => {
+    const value = record[column];
+    return typeof value === 'string' && value !== '';
+  });
+}
+
+/** True when a column and metadata both answer a field, with different values. */
+function hasColumnMetadataMismatch(
+  row: CorrelatableUsageRow,
+  meta: Partial<RunCorrelationMetadata>,
+): boolean {
+  const record = row as Record<string, unknown>;
+  const metaRecord = meta as Record<string, unknown>;
+  return PROVIDER_USAGE_CORRELATION_COLUMN_NAMES.some((column) => {
+    const columnValue = record[column];
+    const metadataValue = metaRecord[column];
+    if (typeof columnValue !== 'string' || columnValue === '') return false;
+    if (typeof metadataValue !== 'string' || metadataValue === '') return false;
+    return columnValue !== metadataValue;
+  });
+}
+
 export function readRowCorrelationKeys(row: CorrelatableUsageRow): RowCorrelationKeys {
   const meta = readMetadataCorrelation(row.metadata);
+  const fromColumns = hasCorrelationColumnValue(row);
+  const fromMetadata = Object.keys(meta).length > 0;
+
   return {
     batchId: firstString(row.batch_id, meta.batch_id),
     reservationId: firstString(row.reservation_id, meta.reservation_id),
     clientRequestId: firstString(row.client_request_id, meta.client_request_id),
     wizardRunId: firstString(row.wizard_run_id, meta.wizard_run_id),
+    correlationSource: fromColumns ? 'columns' : fromMetadata ? 'metadata' : 'none',
+    columnMetadataMismatch: hasColumnMetadataMismatch(row, meta),
   };
 }
 

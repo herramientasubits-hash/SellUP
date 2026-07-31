@@ -143,6 +143,10 @@ describe('D. Reading correlation keys from columns or metadata', () => {
       reservationId: 'res-1',
       clientRequestId: 'req-abc',
       wizardRunId: 'run-1',
+      // COND-3: the reader also reports which source answered, so an operator
+      // can tell live columns from a metadata fallback without reading the flag.
+      correlationSource: 'columns',
+      columnMetadataMismatch: false,
     });
   });
 
