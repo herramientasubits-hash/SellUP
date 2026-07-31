@@ -78,6 +78,7 @@ import type {
 } from './incremental-search-types';
 import type { SearchStrategyV1 } from './types';
 import type { TavilyUsageContext } from './tavily-usage-logging';
+import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/enrichment/tax-identifier-resolution/enrich-with-tax-resolution';
 
 /**
@@ -91,6 +92,12 @@ import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/
 type ApolloRoundUsageContext = TavilyUsageContext & {
   remainingEnrichmentBudget?: number;
   organizationEnrichmentUnitCostUsd?: number | null;
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1: correlación del run, para que cada
+   * provider_usage_logs de Apollo (search y enrichment) quede atado a la MISMA
+   * reserva por identificadores, y no por `created_at`.
+   */
+  runCorrelation?: RunCorrelationMetadata | null;
 };
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
@@ -737,6 +744,9 @@ export async function runIncrementalProspectingSearch(
             ? {
                 remainingEnrichmentBudget: Math.max(0, apolloEnrichmentGlobalCap - apolloEnrichmentsExecutedTotal),
                 organizationEnrichmentUnitCostUsd,
+                // A1-APOLLO-BUDGET-RECONCILIATION-1 — campo propio, Apollo-only:
+                // `usageInputContext` se mantiene agnóstico de proveedor.
+                runCorrelation: input.apolloRunCorrelation ?? null,
               }
             : {}),
         }

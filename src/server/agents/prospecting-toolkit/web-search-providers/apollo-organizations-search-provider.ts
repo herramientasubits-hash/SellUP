@@ -64,6 +64,15 @@ import {
   type ApolloPageLogEntry,
 } from '../apollo-organizations-paginated-search';
 import { createApolloPaginationBudget } from '../apollo-organizations-pagination-budget';
+// A1-APOLLO-BUDGET-RECONCILIATION-1 — contrato único de observabilidad de gasto
+// y fuente única de pricing.
+import {
+  buildApolloSpendObservabilityRecord,
+  toApolloSpendObservabilityMetadata,
+  APOLLO_SPEND_OBSERVABILITY_KEY,
+} from '../apollo-spend-observability';
+import { creditsForApolloOperation } from '../apollo-operation-pricing';
+import { RUN_CORRELATION_METADATA_KEY } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import type { NormalizedApolloOrganization } from '../apollo-organizations-response-normalizer';
 import {
   toApolloErrorLogMetadata,
@@ -738,6 +747,45 @@ export async function runApolloOrganizationsSearch(
       : null,
   };
 
+  // A1-APOLLO-BUDGET-RECONCILIATION-1 — un único registro de observabilidad de
+  // gasto, construido una vez y persistido por AMBAS rutas. Antes la paginación
+  // y los headers de cuota sólo llegaban a provider_usage_logs en el fallo
+  // terminal: las corridas que sí gastaban eran las que menos podíamos explicar
+  // después. Toda ausencia queda null, nunca 0 — `rate_limit_minute_remaining`
+  // en 0 es cuota agotada; en null es "el proveedor no lo dijo".
+  const lastPageLog = apolloPageLogs.length > 0 ? apolloPageLogs[apolloPageLogs.length - 1] : null;
+  const buildSpendObservability = (
+    resultsReturned: number | null,
+    recordedUsageCredits: number | null,
+  ) =>
+    toApolloSpendObservabilityMetadata(
+      buildApolloSpendObservabilityRecord({
+        // El transporte no expone el status HTTP a esta capa: queda null en vez
+        // de un 200 inventado.
+        httpStatus: null,
+        latencyMs: lastPageLog?.latencyMs ?? null,
+        page: lastPageLog?.page ?? null,
+        perPage: lastPageLog?.perPage ?? paginationBudget.perPage,
+        paginationPage: paginated.paginationMeta.lastPage,
+        paginationTotalPages: paginated.paginationMeta.totalPages,
+        paginationTotalEntries: paginated.paginationMeta.totalEntries,
+        resultsReturned,
+        rateLimit: paginated.lastRateLimit,
+        // El vocabulario por página ('charged' | 'not_charged' | 'unknown') se
+        // traduce al de conciliación: cobrado ⇒ lo registramos nosotros
+        // ('recorded'); no cobrado ⇒ sólo tenemos la estimación; desconocido se
+        // preserva como desconocido y jamás se promueve a confirmado.
+        billingState:
+          lastPageLog?.billingState === 'charged'
+            ? 'recorded'
+            : lastPageLog?.billingState === 'not_charged'
+              ? 'estimated'
+              : 'unknown',
+        estimatedCredits: paginated.estimatedCredits,
+        recordedUsageCredits,
+      }),
+    );
+
   // Un fallo terminal se reporta como fallo, nunca como búsqueda vacía.
   if (paginated.terminalError && paginated.organizations.length === 0) {
     const classification = paginated.terminalError;
@@ -773,6 +821,10 @@ export async function runApolloOrganizationsSearch(
         ...toApolloErrorLogMetadata(classification),
         apollo_pagination: apolloPaginationMetadata,
         apollo_page_logs: apolloPageLogs,
+        [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(0, 0),
+        ...(usageContext?.runCorrelation
+          ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
+          : {}),
       },
     }));
 
@@ -871,10 +923,22 @@ export async function runApolloOrganizationsSearch(
         ? Math.max(0, usageContext.remainingEnrichmentBudget)
         : perCallCap;
     const maxEnrichments = Math.max(0, Math.min(perCallCap, remainingRunBudget));
+    // A1-APOLLO-BUDGET-RECONCILIATION-1: los gates baratos corren ANTES del cap
+    // y antes de cualquier llamada pagada. Un candidato de otro país, con
+    // dominio de correo, de una plataforma externa o de un sector contradicho
+    // deja de costar un crédito para descubrir que no servía. Bloquear el
+    // enrichment NO descarta al candidato: sigue al gate sectorial sin enriquecer.
     const cascadeResult = await runApolloOrganizationEnrichmentCascade(
       mapped,
       maxEnrichments,
       { enrichOrg: deps?.enrichOrg ?? enrichApolloOrganization },
+      {
+        eligibility: {
+          targetCountryCode: input.countryCode ?? null,
+          sector: input.industry ?? null,
+          subindustry: input.subindustries?.[0] ?? null,
+        },
+      },
     );
     enrichedMapped = cascadeResult.results;
     enrichmentCascadeMeta = cascadeResult.meta;
@@ -895,7 +959,18 @@ export async function runApolloOrganizationsSearch(
   // ── Cálculo de créditos y costo ───────────────────────────────────────────────
   // Créditos basados en resultados retornados por Apollo (antes del gate),
   // porque Apollo ya cobró por la búsqueda.
-  const creditsUsed = Math.min(mapped.length, MAX_APOLLO_ORGANIZATIONS_CREDITS);
+  //
+  // A1-APOLLO-BUDGET-RECONCILIATION-1: dos precisiones.
+  //  1) La base es `rawOrgs.length` — lo que Apollo devolvió y cobró — y no
+  //     `mapped.length`. Una organización que se pierde en la normalización
+  //     (sin nombre, error de mapping) ya se pagó; contarla de menos hacía que
+  //     la reconciliación registrara menos gasto del real.
+  //  2) La conversión resultados→créditos sale de apollo-operation-pricing, la
+  //     misma tabla con la que el wizard reservó.
+  const creditsUsed = Math.min(
+    creditsForApolloOperation('organizations_search', rawOrgs.length),
+    MAX_APOLLO_ORGANIZATIONS_CREDITS,
+  );
   const estimatedCostUsd = creditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;
 
   // ── L2.9: diagnóstico detallado construido ANTES del log para incluirlo ───────
@@ -962,6 +1037,15 @@ export async function runApolloOrganizationsSearch(
       apollo_result_diagnostics: apolloResultDiagnostics,
       // L2.15: cascade meta — visible en DB para auditoría
       apollo_enrichment_cascade: enrichmentCascadeMeta,
+      // A1-APOLLO-BUDGET-RECONCILIATION-1: mismo contrato de observabilidad que
+      // la ruta de error terminal — paginación, cuota y latencia también en la
+      // ruta exitosa, que es la que realmente gasta.
+      apollo_pagination: apolloPaginationMetadata,
+      apollo_page_logs: apolloPageLogs,
+      [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(rawOrgs.length, creditsUsed),
+      ...(usageContext?.runCorrelation
+        ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
+        : {}),
     },
   }));
 
@@ -990,7 +1074,9 @@ export async function runApolloOrganizationsSearch(
       operation_key: 'organization_enrichment',
       batch_id: usageContext?.batchId ?? undefined,
       agent_run_id: usageContext?.agentRunId ?? undefined,
-      credits_used: 1,
+      // A1-APOLLO-BUDGET-RECONCILIATION-1: de la misma tabla de pricing con la
+      // que el wizard reservó, en vez de un 1 suelto aquí.
+      credits_used: creditsForApolloOperation('organization_enrichment', 1),
       results_returned: entry.enriched ? 1 : 0,
       estimated_cost_usd: organizationEnrichmentUnitCostUsd,
       status: enrichStatus,
@@ -1003,6 +1089,18 @@ export async function runApolloOrganizationsSearch(
         fields_added: entry.fields_added ?? [],
         cascade_version: enrichmentCascadeMeta.cascade_version,
         pricing_missing_warning: organizationEnrichmentUnitCostUsd === null,
+        // A1-APOLLO-BUDGET-RECONCILIATION-1: misma correlación que el log de
+        // search, para que ambos se aten a la MISMA reserva.
+        ...(usageContext?.runCorrelation
+          ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
+          : {}),
+        [APOLLO_SPEND_OBSERVABILITY_KEY]: toApolloSpendObservabilityMetadata(
+          buildApolloSpendObservabilityRecord({
+            resultsReturned: entry.enriched ? 1 : 0,
+            billingState: 'recorded',
+            recordedUsageCredits: creditsForApolloOperation('organization_enrichment', 1),
+          }),
+        ),
       },
     }));
   }
@@ -1082,6 +1180,8 @@ export async function runApolloOrganizationsSearch(
       // A1-APOLLO-WIZARD-1: paginación, presupuesto, cuota y trazabilidad por página.
       apollo_pagination: apolloPaginationMetadata,
       apollo_page_logs: apolloPageLogs,
+      // A1-APOLLO-BUDGET-RECONCILIATION-1: mismo bloque plano que el usage log.
+      [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(rawOrgs.length, creditsUsed),
       // Un fallo parcial tras haber obtenido resultados queda visible en vez de
       // desaparecer detrás de un resultado "exitoso".
       ...(paginated.terminalError

@@ -11,6 +11,7 @@
 
 import type { ProspectingPipelineCandidate } from './types';
 import type { TavilyUsageBaseContext } from './tavily-usage-logging';
+import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 
 // ─── Input ────────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,16 @@ export type IncrementalSearchInput = {
    * roundNumber se asigna internamente por ronda.
    */
   usageInputContext?: TavilyUsageBaseContext | null;
+
+  /**
+   * A1-APOLLO-BUDGET-RECONCILIATION-1: correlación del run del wizard.
+   *
+   * Campo propio en vez de meterlo dentro de `usageInputContext`, que Tavily
+   * comparte y debe seguir siendo agnóstico de proveedor. Viaja hasta el
+   * provider Apollo para que cada `provider_usage_logs` (organizations_search y
+   * organization_enrichment) quede atado a la MISMA reserva por identificadores.
+   */
+  apolloRunCorrelation?: RunCorrelationMetadata | null;
 
   /**
    * Criterios adicionales ingresados por el usuario en el wizard.
