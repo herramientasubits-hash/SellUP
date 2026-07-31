@@ -1144,9 +1144,12 @@ Three consequences follow, and all are load-bearing:
 
 ```text
 OPS_BR_BOUNDED_REAL_JOIN_COVERAGE_DECISION_RECORD_PR_READY        = false until PR
-OPS_BR_BOUNDED_REAL_JOIN_COVERAGE_DECISION_RECORD_OFFICIAL        = false until merge
-OPS_BR_ULTRA_BOUNDED_AGGREGATE_ONLY_JOIN_COVERAGE_SIGNAL_AUTHORIZED = false
-OPS_BR_REAL_LOCAL_JOIN_COVERAGE_SIGNAL_AUTHORIZED                 = false
+OPS_BR_BOUNDED_REAL_JOIN_COVERAGE_DECISION_RECORD_OFFICIAL        = true
+OPS_BR_ULTRA_BOUNDED_AGGREGATE_ONLY_JOIN_COVERAGE_SIGNAL_AUTHORIZED = true
+OPS_BR_REAL_LOCAL_JOIN_COVERAGE_SIGNAL_AUTHORIZED                 = true
+
+OPS_BR_ULTRA_BOUNDED_AGGREGATE_ONLY_REAL_JOIN_COVERAGE_SIGNAL_PR_READY   = true until merge
+OPS_BR_ULTRA_BOUNDED_AGGREGATE_ONLY_REAL_JOIN_COVERAGE_SIGNAL_OFFICIAL   = false until merge
 
 OPS_BR_ULTRA_BOUNDED_REQUIRED_FAMILY_JOIN_PROBE_AUTHORIZED        = true
 OPS_BR_REAL_LOCAL_JOIN_DRY_RUN_AUTHORIZED                         = true
@@ -1164,6 +1167,47 @@ OPS_BR_READY_FOR_RUNTIME                                          = false
 OPS_BR_LIVE_PROSPECT_GENERATION_READY                             = false
 OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED                     = false
 ```
+
+### 15.0 BR-SOURCE-11H-IMPL — what the Option C authorization actually turned on
+
+The owner gave the phrase, and BR-SOURCE-11H-IMPL implemented it and executed it once:
+
+```text
+AUTHORIZE OPTION C — ULTRA-BOUNDED AGGREGATE-ONLY REAL JOIN COVERAGE SIGNAL
+```
+
+BR-SOURCE-11H-IMPL implements only the explicitly authorized Option C ultra-bounded aggregate-only
+real join coverage signal. It does not authorize exact percentages, full-dataset denominator claims,
+coverage proof, import, Supabase, runtime, Agent 1, provider calls or production use.
+
+What exists now, and nothing more:
+
+- a single new module, `br-receita-cnpj-aggregate-join-coverage-signal.ts`, whose trust level is
+  `real_manifest_aggregate_join_coverage_signal` and whose mode is
+  `ultra_bounded_required_family_aggregate_only`;
+- a sixth runner carve-out, gated by TWO new flags
+  (`aggregateOnlyJoinCoverageSignalAuthorized`, `realLocalJoinCoverageSignalAuthorized`) that are
+  **not** inferable from the 11F or 11G declarations, and required IN ADDITION to all five of them;
+- one widened axis and one only: ≤ 512 KB and ≤ 200 rows per file, ≤ 1,024,000 bytes and ≤ 400 rows
+  per run. The file surface, the family allowlist, the one-field-per-row rule, the never-opened
+  catalog families, the archive/ZIP refusals and the manifest ceilings are unchanged;
+- four coverage caps: `maxCoverageInputRows ≤ 400`, `maxCoverageKeyValuesInMemory ≤ 400`, and
+  `maxCoveragePairsEmitted` / `maxCoverageRowsPrinted` as **equalities at zero**;
+- an output contract in which `exact_coverage_percentage_printed`,
+  `full_dataset_denominator_printed`, `coverage_claimed` and `production_inference_allowed` are
+  structural falses, and `denominator_scope` states the only denominator that exists here:
+  `bounded_window_only`;
+- sanitizer kinds that block the five overclaims at the OUTPUT boundary too:
+  `coverage_signal_exact_percentage_payload`, `coverage_signal_denominator_payload`,
+  `coverage_signal_proof_payload`, `coverage_signal_guarantee_payload`,
+  `production_inference_payload`.
+
+The authorized real signal was executed once, against the operator's own prepared manifest, under
+every cap above. It opened two data files, read a bounded prefix of each, compared join keys in
+memory, released the window, and emitted buckets. `match_result_bucket` came back `zero` — which
+§ 7.1 already defines as a GREEN result and as evidence of nothing: two independently-sharded
+prefixes need not overlap, and a wider window is a new decision requiring a new record and a new
+phrase (§ 14.1).
 
 The three 11G `true` values are inherited and remain **scoped to the 11G Option C probe**: two
 required-family files, ≤ 64 KB and ≤ 20 rows each, a membership test, a three-value bucket. None of

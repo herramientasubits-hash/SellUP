@@ -177,6 +177,7 @@ export type BrazilReceitaFullJoinManifestTrust =
   | 'real_manifest_metadata_only'
   | 'real_manifest_required_family_probe'
   | 'real_manifest_required_family_join_probe'
+  | 'real_manifest_aggregate_join_coverage_signal'
   | 'real_manifest_not_authorized';
 
 /** The only manifest trust level the BR-SOURCE-11C synthetic carve-out authorizes. */
@@ -221,6 +222,21 @@ export const BRAZIL_RECEITA_FULL_JOIN_REQUIRED_FAMILY_PROBE_TRUST =
  */
 export const BRAZIL_RECEITA_FULL_JOIN_REQUIRED_FAMILY_JOIN_PROBE_TRUST =
   'real_manifest_required_family_join_probe' as const;
+
+/**
+ * The only manifest trust level the BR-SOURCE-11H-IMPL ULTRA-BOUNDED AGGREGATE-ONLY REAL JOIN
+ * COVERAGE SIGNAL authorizes. A SIXTH distinct value gated by TWO further distinct flags
+ * (`aggregateOnlyJoinCoverageSignalAuthorized` and `realLocalJoinCoverageSignalAuthorized`): it
+ * is the only trust under which the WIDER 11H window (≤ 512 KB / ≤ 200 rows per file,
+ * ≤ 1,024,000 bytes / ≤ 400 rows per run) may be read at all.
+ *
+ * It does not stand in for the join-probe trust and the join-probe trust does not stand in for
+ * it — but a coverage-signal run must ALSO hold the metadata-only, BR-SOURCE-11E, 11F
+ * structural-probe and 11G join-probe authorizations, because it reads the same manifest as its
+ * control document, opens the same two files, and parses the same protected technical key.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_AGGREGATE_JOIN_COVERAGE_SIGNAL_TRUST =
+  'real_manifest_aggregate_join_coverage_signal' as const;
 
 /** The default trust for a local manifest whose provenance was not declared. */
 export const BRAZIL_RECEITA_FULL_JOIN_DEFAULT_MANIFEST_TRUST: BrazilReceitaFullJoinManifestTrust =
@@ -659,6 +675,152 @@ export type BrazilReceitaFullJoinRequiredFamilyJoinProbeReader = (
   request: BrazilReceitaFullJoinRequiredFamilyJoinProbeReadRequest,
 ) => BrazilReceitaFullJoinRequiredFamilyJoinProbeScan;
 
+// ─── Aggregate-only coverage SIGNAL contract (BR-SOURCE-11H-IMPL) ──────────────
+
+/**
+ * The BYTE and ROW ceilings for the AGGREGATE-ONLY COVERAGE SIGNAL. These are the ONE axis
+ * BR-SOURCE-11H Option C widens relative to 11F/11G, and they are stated as their own constants
+ * so no probe path can pick them up by accident.
+ *
+ * They carry no implication whatsoever for real-data ceilings, which are a GATE-2 deliverable and
+ * are neither proposed nor anticipated here.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_BYTES_PER_FILE = 512_000 as const;
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_ROWS_PER_FILE = 200 as const;
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_TOTAL_ROWS = 400 as const;
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_TOTAL_BYTES = 1_024_000 as const;
+
+/**
+ * The four COVERAGE caps. `MAX_COVERAGE_PAIRS_EMITTED` and `MAX_COVERAGE_ROWS_PRINTED` are
+ * EQUALITIES at zero, not ceilings: a value above zero is not a wider signal, it is a different
+ * and unauthorized capability.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_INPUT_ROWS = 400 as const;
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_KEY_VALUES_IN_MEMORY =
+  400 as const;
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_PAIRS_EMITTED = 0 as const;
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_ROWS_PRINTED = 0 as const;
+
+/** The one coverage-signal mode a scan may declare. A class label, not a strategy switch. */
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MODE =
+  'ultra_bounded_required_family_aggregate_only' as const;
+
+/**
+ * The ONLY denominator scope a coverage-signal report may state. A dataset-scale denominator is
+ * not "a different scope" — it is a figure this milestone does not have, so the allowlist has
+ * exactly one member.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_DENOMINATOR_SCOPE =
+  'bounded_window_only' as const;
+
+/** The byte buckets a coverage-signal report may state per family. Never a byte figure. */
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_BYTES_BUCKETS: readonly string[] = [
+  'lte_512kb',
+  'over_limit_blocked',
+];
+
+/** The row buckets a coverage-signal report may state per family. Never a row figure. */
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_ROWS_BUCKETS: readonly string[] = [
+  'lte_200',
+  'over_limit_blocked',
+];
+
+/**
+ * The coarse match buckets a coverage-signal report may state. `not_reported` is a GREEN outcome,
+ * not an error: two independently-sharded bounded prefixes need not overlap, and a signal that
+ * cannot make a meaningful statement must say so rather than imply zero.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MATCH_RESULT_BUCKETS: readonly string[] = [
+  'zero',
+  'one_or_more',
+  'not_reported',
+];
+
+/** The matched / unmatched row buckets. Bounded by the row cap, so `lte_200` is the widest. */
+export const BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_COVERAGE_ROWS_BUCKETS: readonly string[] = [
+  'zero',
+  'lte_200',
+  'not_reported',
+];
+
+/** What the coverage-signal port is asked for: the 7 structural caps plus the 4 coverage caps. */
+export interface BrazilReceitaFullJoinAggregateJoinCoverageSignalReadRequest {
+  readonly maxManifestBytes: number;
+  readonly maxDeclaredFiles: number;
+  readonly maxFilesOpened: number;
+  readonly maxBytesPerFile: number;
+  readonly maxRowsPerFile: number;
+  readonly maxTotalRows: number;
+  readonly maxTotalBytes: number;
+  readonly maxCoverageInputRows: number;
+  readonly maxCoverageKeyValuesInMemory: number;
+  readonly maxCoveragePairsEmitted: number;
+  readonly maxCoverageRowsPrinted: number;
+}
+
+/**
+ * The coverage block a scan carries. Typed loosely (`string` / `number` / `boolean`) on purpose:
+ * the port sits at a trust boundary, so the runner re-validates the mode, the buckets, the
+ * denominator scope, the zero-equality and every held-absence assertion against its own
+ * expectations rather than believing them.
+ */
+export interface BrazilReceitaFullJoinAggregateJoinCoverageSignalBlock {
+  readonly coverageSignalExecuted: boolean;
+  readonly coverageSignalMode: string;
+  readonly joinKeyValuesPrinted: boolean;
+  readonly joinKeyValuesRetained: boolean;
+  readonly joinKeyHashesPrinted: boolean;
+  readonly joinKeyErrorLeak: boolean;
+  readonly joinedRowsPrinted: boolean;
+  readonly joinedSamplesPrinted: boolean;
+  readonly joinedPairsEmitted: number;
+  readonly exactCoveragePercentagePrinted: boolean;
+  readonly fullDatasetDenominatorPrinted: boolean;
+  readonly coverageClaimed: boolean;
+  readonly productionInferenceAllowed: boolean;
+  readonly denominatorScope: string;
+  readonly matchResultBucket: string;
+  readonly matchedRowsBucket: string;
+  readonly unmatchedRowsBucket: string;
+}
+
+/**
+ * What the coverage-signal port returns: the structural aggregate the probes return, plus the
+ * coverage block. No path, no filename, no row, no cell, no JOIN KEY, no byte figure, no offset,
+ * no hash, no exact figure and no denominator.
+ */
+export interface BrazilReceitaFullJoinAggregateJoinCoverageSignalScan {
+  readonly manifestTrust: string;
+  readonly familiesAttempted: readonly string[];
+  readonly filesOpenedCount: number;
+  readonly filesOpenedByFamily: Readonly<Record<string, number>>;
+  readonly bytesReadBucket: Readonly<Record<string, string>>;
+  readonly rowsReadBucket: Readonly<Record<string, string>>;
+  readonly rowShape: Readonly<Record<string, BrazilReceitaFullJoinRequiredFamilyProbeRowShape>>;
+  readonly encodingStatus: Readonly<Record<string, string>>;
+  readonly delimiterStatus: Readonly<Record<string, string>>;
+  readonly headerlessStatus: Readonly<Record<string, string>>;
+  readonly forbiddenFamilyCount: number;
+  readonly neverOpenedFamilyCount: number;
+  readonly selectionClass?: string;
+  readonly rawRowsRetained: boolean;
+  readonly rawCellsRetained: boolean;
+  readonly identifiersRetained: boolean;
+  readonly fileNamesRetained: boolean;
+  readonly absolutePathsRetained: boolean;
+  readonly hashesComputed: boolean;
+  readonly joinsExecuted: boolean;
+  /** Stays `false` on every path: a bucketed SIGNAL is not a computed coverage figure. */
+  readonly joinCoverageComputed: boolean;
+  readonly coverageSignal: BrazilReceitaFullJoinAggregateJoinCoverageSignalBlock;
+  readonly refusalCode: string | null;
+}
+
+/** The injected coverage-signal port. Called at most ONCE per run, inside a try/catch. */
+export type BrazilReceitaFullJoinAggregateJoinCoverageSignalReader = (
+  request: BrazilReceitaFullJoinAggregateJoinCoverageSignalReadRequest,
+) => BrazilReceitaFullJoinAggregateJoinCoverageSignalScan;
+
 // ─── Input contract ───────────────────────────────────────────────────────────
 
 /**
@@ -774,6 +936,40 @@ export interface BrazilReceitaFullJoinDryRunInput {
   /** The injected join-probe port. Absent ⇒ join-probe mode refuses. */
   readonly requiredFamilyJoinProbeReader?: BrazilReceitaFullJoinRequiredFamilyJoinProbeReader;
 
+  // ── Aggregate-only coverage SIGNAL carve-out (BR-SOURCE-11H-IMPL). Only meaningful when
+  //    `manifestTrust === 'real_manifest_aggregate_join_coverage_signal'`. ──
+  /**
+   * The owner's 11H Option C authorization, as a declared boolean. A SEVENTH distinct field: it
+   * is the only one that permits the WIDER 512 KB / 200-row window, and it permits nothing about
+   * which manifest may be named, what a metadata run may do, how many files may be opened, or
+   * whether a key may be parsed at all.
+   *
+   * It is NOT inferred from `requiredFamilyJoinProbeAuthorized`: the 11G phrase authorized a
+   * 20-row window and expired with its milestone. A coverage-signal run must hold ALL of
+   * `realManifestMetadataOnlyOptionBAuthorized`,
+   * `realManifestMetadataOnlyExecutionAuthorized`, `requiredFamilyProbeAuthorized`,
+   * `requiredFamilyJoinProbeAuthorized`, `realLocalJoinDryRunAuthorized`, this flag AND
+   * `realLocalJoinCoverageSignalAuthorized`.
+   */
+  readonly aggregateOnlyJoinCoverageSignalAuthorized?: boolean;
+  /**
+   * The declaration that THIS run may execute the wider bounded coverage signal against the
+   * operator's own local files. An EIGHTH distinct field, on its own axis: the 11G
+   * `realLocalJoinDryRunAuthorized` declaration covered the 11G window and does not stand in for
+   * this one.
+   */
+  readonly realLocalJoinCoverageSignalAuthorized?: boolean;
+  /** Required ceiling on rows fed to the coverage comparison across the whole run. */
+  readonly maxCoverageInputRows?: number;
+  /** Required ceiling on the bounded in-memory coverage key window. */
+  readonly maxCoverageKeyValuesInMemory?: number;
+  /** Required EQUALITY at zero: a join pair is never emitted. */
+  readonly maxCoveragePairsEmitted?: number;
+  /** Required EQUALITY at zero: a joined row is never printed. */
+  readonly maxCoverageRowsPrinted?: number;
+  /** The injected coverage-signal port. Absent ⇒ coverage-signal mode refuses. */
+  readonly aggregateJoinCoverageSignalReader?: BrazilReceitaFullJoinAggregateJoinCoverageSignalReader;
+
   readonly noWriteMode: true;
   readonly runtimeIntegration: false;
   readonly agent1Integration: false;
@@ -874,7 +1070,10 @@ export type BrazilReceitaFullJoinErrorStage =
   | 'required_family_probe_read'
   // ── Required-family JOIN probe carve-out (BR-SOURCE-11G-IMPL) ──
   | 'required_family_join_probe_gate'
-  | 'required_family_join_probe_read';
+  | 'required_family_join_probe_read'
+  // ── Aggregate-only coverage SIGNAL carve-out (BR-SOURCE-11H-IMPL) ──
+  | 'aggregate_join_coverage_signal_gate'
+  | 'aggregate_join_coverage_signal_read';
 
 /** Why the run failed. Fixed machine codes; a raw message is NEVER carried. */
 export type BrazilReceitaFullJoinErrorCode =
@@ -947,7 +1146,29 @@ export type BrazilReceitaFullJoinErrorCode =
   | 'required_family_join_probe_coverage_detected'
   | 'required_family_join_probe_not_executed'
   | 'required_family_join_probe_open_failed'
-  | 'required_family_join_probe_timeout';
+  | 'required_family_join_probe_timeout'
+  // ── Aggregate-only coverage SIGNAL (BR-SOURCE-11H-IMPL) ──
+  | 'aggregate_join_coverage_signal_not_authorized'
+  | 'real_local_join_coverage_signal_not_authorized'
+  | 'aggregate_join_coverage_signal_caps_required'
+  | 'aggregate_join_coverage_signal_cap_exceeded'
+  | 'aggregate_join_coverage_signal_reader_required'
+  | 'aggregate_join_coverage_signal_read_failed'
+  | 'aggregate_join_coverage_signal_scan_invalid'
+  | 'aggregate_join_coverage_signal_forbidden_family_detected'
+  | 'aggregate_join_coverage_signal_missing_required_family'
+  | 'aggregate_join_coverage_signal_file_count_exceeded'
+  | 'aggregate_join_coverage_signal_zip_forbidden'
+  | 'aggregate_join_coverage_signal_raw_output_detected'
+  | 'aggregate_join_coverage_signal_identifier_output_detected'
+  | 'aggregate_join_coverage_signal_join_output_detected'
+  | 'aggregate_join_coverage_signal_exact_percentage_detected'
+  | 'aggregate_join_coverage_signal_denominator_detected'
+  | 'aggregate_join_coverage_signal_coverage_claim_detected'
+  | 'aggregate_join_coverage_signal_production_inference_detected'
+  | 'aggregate_join_coverage_signal_not_executed'
+  | 'aggregate_join_coverage_signal_open_failed'
+  | 'aggregate_join_coverage_signal_timeout';
 
 export interface BrazilReceitaFullJoinReportError {
   readonly error_code: BrazilReceitaFullJoinErrorCode;
@@ -1105,6 +1326,84 @@ export interface BrazilReceitaFullJoinRequiredFamilyJoinProbeReport {
   readonly full_dataset_processed: false;
 }
 
+/**
+ * The AGGREGATE coverage-SIGNAL block for an ultra-bounded aggregate-only run
+ * (BR-SOURCE-11H-IMPL). Every field is a boolean, a count, a class label, a bucket, or a
+ * histogram — never a path, a filename, a row, a cell, a JOIN KEY, a byte figure, an offset, a
+ * hash, an exact percentage, or a denominator.
+ *
+ * `null` on every non-coverage-signal run, INCLUDING a refusal: a partial coverage block would be
+ * a statement derived from a comparison that was not allowed to complete.
+ *
+ * The four claim-shaped assertions are what make this block a SIGNAL rather than a finding:
+ * `exact_coverage_percentage_printed`, `full_dataset_denominator_printed`, `coverage_claimed` and
+ * `production_inference_allowed` are structural falses, and `denominator_scope` names the only
+ * denominator that exists here — the bounded window that was actually read.
+ *
+ * Nothing in this block is citable as GATE-1 or GATE-2 evidence, as coverage proof, as a coverage
+ * guarantee, as a dataset quality score, or as evidence of readiness for import, runtime, Agent 1
+ * or production. `match_result_bucket = zero` and `= not_reported` are both GREEN results.
+ */
+export interface BrazilReceitaFullJoinAggregateJoinCoverageSignalReport {
+  /** Whether the owner's 11H Option C phrase was declared for THIS run. Always `true` here. */
+  readonly authorized: true;
+  /** Whether the wider local-file execution declaration was made. Always `true` here. */
+  readonly real_local_join_coverage_signal_authorized: true;
+  readonly families_attempted: readonly string[];
+  readonly files_opened_count: number;
+  readonly files_opened_by_family: Record<string, number>;
+  readonly bytes_read_bucket: Record<string, string>;
+  readonly rows_read_bucket: Record<string, string>;
+  readonly row_shape: Record<
+    string,
+    {
+      readonly expected_min_columns: number;
+      readonly observed_column_count_distribution: Record<string, number>;
+      readonly row_shape_valid_count: number;
+      readonly row_shape_invalid_count: number;
+    }
+  >;
+  readonly encoding_status: Record<string, string>;
+  readonly delimiter_status: Record<string, string>;
+  readonly headerless_status: Record<string, string>;
+  readonly forbidden_family_attempted: false;
+  readonly forbidden_family_declared_count: number;
+  readonly selection_class: string;
+  readonly never_opened_family_declared_count: number;
+  /** The signal block. Buckets and held-absence assertions only — no key, no pair, no ratio. */
+  readonly coverage_signal: {
+    readonly coverage_signal_executed: true;
+    readonly coverage_signal_mode: typeof BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MODE;
+    readonly join_key_values_printed: false;
+    readonly join_key_values_retained: false;
+    readonly join_key_hashes_printed: false;
+    readonly join_key_error_leak: false;
+    readonly joined_rows_printed: false;
+    readonly joined_samples_printed: false;
+    readonly joined_pairs_emitted: 0;
+    readonly exact_coverage_percentage_printed: false;
+    readonly full_dataset_denominator_printed: false;
+    readonly coverage_claimed: false;
+    readonly production_inference_allowed: false;
+    readonly denominator_scope: typeof BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_DENOMINATOR_SCOPE;
+    readonly match_result_bucket: string;
+    readonly matched_rows_bucket: string;
+    readonly unmatched_rows_bucket: string;
+  };
+  /** Held-absence assertions. Structurally always false, stated so a reader can see them. */
+  readonly raw_rows_printed: false;
+  readonly raw_cells_printed: false;
+  readonly identifiers_printed: false;
+  readonly filenames_printed: false;
+  readonly absolute_paths_printed: false;
+  readonly hashes_printed: false;
+  /** A bounded in-memory comparison of two capped windows ran. */
+  readonly joins_executed: true;
+  /** Stays `false`: a bucketed signal is not a computed coverage figure. */
+  readonly join_coverage_computed: false;
+  readonly full_dataset_processed: false;
+}
+
 export interface BrazilReceitaFullJoinDryRunReport {
   readonly ok: boolean;
   readonly mode: typeof BRAZIL_RECEITA_FULL_JOIN_DRY_RUN_MODE;
@@ -1135,6 +1434,16 @@ export interface BrazilReceitaFullJoinDryRunReport {
    * was made for THIS run. A separate axis from the phrase above. `false` everywhere else.
    */
   readonly real_local_join_dry_run_authorized: boolean;
+  /**
+   * Whether the owner's 11H Option C authorization — the ultra-bounded AGGREGATE-ONLY real join
+   * coverage SIGNAL — was declared for THIS run. `false` everywhere else.
+   */
+  readonly aggregate_join_coverage_signal_authorized: boolean;
+  /**
+   * Whether the declaration permitting the wider bounded coverage signal against the operator's
+   * own local files was made for THIS run. A separate axis. `false` everywhere else.
+   */
+  readonly real_local_join_coverage_signal_authorized: boolean;
   readonly source_key: typeof BR_RECEITA_CNPJ_MANIFEST_SOURCE_KEY;
   readonly country_code: typeof BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE;
   /**
@@ -1162,6 +1471,12 @@ export interface BrazilReceitaFullJoinDryRunReport {
    * statement derived from a comparison that was not allowed to complete.
    */
   readonly required_family_join_probe: BrazilReceitaFullJoinRequiredFamilyJoinProbeReport | null;
+  /**
+   * Populated ONLY by an ultra-bounded AGGREGATE-ONLY real join coverage SIGNAL run; `null`
+   * everywhere else — including on a refusal, because a partial coverage block would be a
+   * statement derived from a comparison that was not allowed to complete.
+   */
+  readonly aggregate_join_coverage_signal: BrazilReceitaFullJoinAggregateJoinCoverageSignalReport | null;
   readonly cleanup: BrazilReceitaFullJoinCleanupReport;
   readonly errors: readonly BrazilReceitaFullJoinReportError[];
 }
@@ -1215,6 +1530,12 @@ const GUARDRAIL_COUNT_KEYS = [
   // here.
   'required_family_join_probe_files_opened',
   'required_family_join_probe_forbidden_family_findings',
+  // Option C (BR-SOURCE-11H-IMPL): DATA files opened by the coverage SIGNAL, and its refusals.
+  // Both are bounded by the § 11H caps, so neither can become a dataset-scale figure — and
+  // neither is a coverage figure: no matched count, no unmatched count, no percentage and no
+  // denominator is ever counted here.
+  'aggregate_join_coverage_signal_files_opened',
+  'aggregate_join_coverage_signal_forbidden_family_findings',
 ] as const;
 
 function zeroCounts(keys: readonly string[]): Record<string, number> {
@@ -1395,6 +1716,8 @@ interface RunProvenance {
   readonly requiredFamilyProbeAuthorized: boolean;
   readonly requiredFamilyJoinProbeAuthorized: boolean;
   readonly realLocalJoinDryRunAuthorized: boolean;
+  readonly aggregateOnlyJoinCoverageSignalAuthorized: boolean;
+  readonly realLocalJoinCoverageSignalAuthorized: boolean;
 }
 
 interface ReportDraft {
@@ -1407,6 +1730,7 @@ interface ReportDraft {
   readonly manifestMetadata?: BrazilReceitaFullJoinManifestMetadataReport | null;
   readonly requiredFamilyProbe?: BrazilReceitaFullJoinRequiredFamilyProbeReport | null;
   readonly requiredFamilyJoinProbe?: BrazilReceitaFullJoinRequiredFamilyJoinProbeReport | null;
+  readonly aggregateJoinCoverageSignal?: BrazilReceitaFullJoinAggregateJoinCoverageSignalReport | null;
   readonly cleanup: BrazilReceitaFullJoinCleanupReport;
   readonly errors: readonly BrazilReceitaFullJoinReportError[];
 }
@@ -1425,6 +1749,10 @@ function assembleReport(draft: ReportDraft): BrazilReceitaFullJoinDryRunReport {
     required_family_probe_authorized: draft.provenance.requiredFamilyProbeAuthorized,
     required_family_join_probe_authorized: draft.provenance.requiredFamilyJoinProbeAuthorized,
     real_local_join_dry_run_authorized: draft.provenance.realLocalJoinDryRunAuthorized,
+    aggregate_join_coverage_signal_authorized:
+      draft.provenance.aggregateOnlyJoinCoverageSignalAuthorized,
+    real_local_join_coverage_signal_authorized:
+      draft.provenance.realLocalJoinCoverageSignalAuthorized,
     source_key: BR_RECEITA_CNPJ_MANIFEST_SOURCE_KEY,
     country_code: BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE,
     source_period: null,
@@ -1438,6 +1766,7 @@ function assembleReport(draft: ReportDraft): BrazilReceitaFullJoinDryRunReport {
     manifest_metadata: draft.manifestMetadata ?? null,
     required_family_probe: draft.requiredFamilyProbe ?? null,
     required_family_join_probe: draft.requiredFamilyJoinProbe ?? null,
+    aggregate_join_coverage_signal: draft.aggregateJoinCoverageSignal ?? null,
     cleanup: draft.cleanup,
     errors: draft.errors,
   };
@@ -1456,6 +1785,7 @@ function failClosedReport(
   manifestMetadata: BrazilReceitaFullJoinManifestMetadataReport | null = null,
   probeForbiddenFamilyFindings = 0,
   joinProbeForbiddenFamilyFindings = 0,
+  coverageSignalForbiddenFamilyFindings = 0,
 ): BrazilReceitaFullJoinDryRunReport {
   const guardrail = zeroCounts(GUARDRAIL_COUNT_KEYS);
   guardrail.no_write_guard_violations = guardViolations;
@@ -1463,6 +1793,8 @@ function failClosedReport(
   guardrail.local_manifest_forbidden_family_findings = forbiddenFamilyFindings;
   guardrail.required_family_probe_forbidden_family_findings = probeForbiddenFamilyFindings;
   guardrail.required_family_join_probe_forbidden_family_findings = joinProbeForbiddenFamilyFindings;
+  guardrail.aggregate_join_coverage_signal_forbidden_family_findings =
+    coverageSignalForbiddenFamilyFindings;
 
   return assembleReport({
     ok: false,
@@ -1481,6 +1813,9 @@ function failClosedReport(
     // a comparison that was refused.
     requiredFamilyProbe: null,
     requiredFamilyJoinProbe: null,
+    // Nor a coverage SIGNAL block: a partial signal would be a claim about a comparison that was
+    // refused, which is exactly the overreach this milestone is defined against.
+    aggregateJoinCoverageSignal: null,
     cleanup: planBrazilReceitaFullJoinCleanup({
       sanitizerFailed: sanitizerFindings > 0,
       guardFailed: guardViolations > 0,
@@ -1531,7 +1866,8 @@ function buildGuardConfig(input: BrazilReceitaFullJoinDryRunInput): Record<strin
       key === 'localManifestReader' ||
       key === 'realManifestMetadataReader' ||
       key === 'requiredFamilyProbeReader' ||
-      key === 'requiredFamilyJoinProbeReader'
+      key === 'requiredFamilyJoinProbeReader' ||
+      key === 'aggregateJoinCoverageSignalReader'
     ) {
       continue;
     }
@@ -2934,6 +3270,594 @@ function runRequiredFamilyJoinProbe(
   return candidate;
 }
 
+// ─── Aggregate-only coverage SIGNAL gate (BR-SOURCE-11H-IMPL) ──────────────────
+
+/** The nine caps an aggregate-only coverage-signal run must state explicitly. */
+interface AggregateJoinCoverageSignalCaps {
+  readonly maxFilesOpened: number;
+  readonly maxBytesPerFile: number;
+  readonly maxRowsPerFile: number;
+  readonly maxTotalRows: number;
+  readonly maxTotalBytes: number;
+  readonly maxCoverageInputRows: number;
+  readonly maxCoverageKeyValuesInMemory: number;
+  readonly maxCoveragePairsEmitted: number;
+  readonly maxCoverageRowsPrinted: number;
+}
+
+type AggregateJoinCoverageSignalGateOutcome =
+  | { readonly ok: true; readonly caps: AggregateJoinCoverageSignalCaps }
+  | { readonly ok: false; readonly code: BrazilReceitaFullJoinErrorCode };
+
+/**
+ * Validates the FULL 11H Option C contract before a single data byte is read. Every condition is
+ * independent and fail-closed.
+ *
+ * SEVEN authorizations are required, on seven separate axes:
+ *   - `allowLocalManifest` + the metadata-only carve-out: the manifest may be read at all;
+ *   - the BR-SOURCE-11E declaration: the operator's own prepared manifest may be named;
+ *   - `requiredFamilyProbeAuthorized` (11F): the two required-family files may be OPENED;
+ *   - `requiredFamilyJoinProbeAuthorized` (11G): a join key may be PARSED and COMPARED;
+ *   - `realLocalJoinDryRunAuthorized` (11G): that may happen against the operator's local files;
+ *   - `aggregateOnlyJoinCoverageSignalAuthorized` (11H): the WIDER window may be read;
+ *   - `realLocalJoinCoverageSignalAuthorized` (11H): the wider signal may run against local files.
+ *
+ * The last two are checked with their own codes and are never inferred from the first five — the
+ * 11G phrase authorized a 20-row window and expired with its milestone.
+ */
+function evaluateAggregateJoinCoverageSignalGate(
+  input: BrazilReceitaFullJoinDryRunInput,
+): AggregateJoinCoverageSignalGateOutcome {
+  if (input.allowLocalManifest !== true) {
+    return { ok: false, code: 'allow_local_manifest_required' };
+  }
+  if (input.realManifestMetadataOnlyOptionBAuthorized !== true) {
+    return { ok: false, code: 'real_manifest_metadata_only_not_authorized' };
+  }
+  if (input.realManifestMetadataOnlyExecutionAuthorized !== true) {
+    return { ok: false, code: 'real_manifest_metadata_execution_not_authorized' };
+  }
+  if (input.requiredFamilyProbeAuthorized !== true) {
+    return { ok: false, code: 'required_family_probe_not_authorized' };
+  }
+  if (input.requiredFamilyJoinProbeAuthorized !== true) {
+    return { ok: false, code: 'required_family_join_probe_not_authorized' };
+  }
+  if (input.realLocalJoinDryRunAuthorized !== true) {
+    return { ok: false, code: 'real_local_join_dry_run_not_authorized' };
+  }
+  if (input.aggregateOnlyJoinCoverageSignalAuthorized !== true) {
+    return { ok: false, code: 'aggregate_join_coverage_signal_not_authorized' };
+  }
+  if (input.realLocalJoinCoverageSignalAuthorized !== true) {
+    return { ok: false, code: 'real_local_join_coverage_signal_not_authorized' };
+  }
+  if (input.strict !== true) {
+    return { ok: false, code: 'strict_mode_required' };
+  }
+  if (input.productionWrites !== undefined && input.productionWrites !== false) {
+    return { ok: false, code: 'production_writes_requested' };
+  }
+  // GATE-5 is not approved, and a coverage-signal run must SAY so rather than omit it.
+  if (input.outputSanitizationVersion !== BRAZIL_RECEITA_FULL_JOIN_OUTPUT_SANITIZATION_VERSION) {
+    return { ok: false, code: 'output_sanitization_version_not_approved' };
+  }
+
+  const stated = [
+    input.maxFilesOpened,
+    input.maxBytesPerFile,
+    input.maxRowsPerFile,
+    input.maxTotalRows,
+    input.maxTotalBytes,
+    input.maxCoverageInputRows,
+    input.maxCoverageKeyValuesInMemory,
+    input.maxCoveragePairsEmitted,
+    input.maxCoverageRowsPrinted,
+  ];
+  if (stated.some((cap) => cap === undefined)) {
+    return { ok: false, code: 'aggregate_join_coverage_signal_caps_required' };
+  }
+  // The two zero-EQUALITIES first, and with their own code: asking for one join pair is not a
+  // slightly wider signal, it is an unauthorized capability.
+  if (
+    input.maxCoveragePairsEmitted !==
+      BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_PAIRS_EMITTED ||
+    input.maxCoverageRowsPrinted !==
+      BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_ROWS_PRINTED
+  ) {
+    return { ok: false, code: 'aggregate_join_coverage_signal_join_output_detected' };
+  }
+  const withinBounds =
+    isCapWithin(input.maxFilesOpened, BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_FILES_OPENED) &&
+    isCapWithin(input.maxBytesPerFile, BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_BYTES_PER_FILE) &&
+    isCapWithin(input.maxRowsPerFile, BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_ROWS_PER_FILE) &&
+    isCapWithin(input.maxTotalRows, BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_TOTAL_ROWS) &&
+    isCapWithin(input.maxTotalBytes, BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_TOTAL_BYTES) &&
+    isCapWithin(
+      input.maxCoverageInputRows,
+      BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_INPUT_ROWS,
+    ) &&
+    isCapWithin(
+      input.maxCoverageKeyValuesInMemory,
+      BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_KEY_VALUES_IN_MEMORY,
+    );
+  if (!withinBounds) {
+    return { ok: false, code: 'aggregate_join_coverage_signal_cap_exceeded' };
+  }
+  if (typeof input.aggregateJoinCoverageSignalReader !== 'function') {
+    return { ok: false, code: 'aggregate_join_coverage_signal_reader_required' };
+  }
+  return {
+    ok: true,
+    caps: {
+      maxFilesOpened: input.maxFilesOpened as number,
+      maxBytesPerFile: input.maxBytesPerFile as number,
+      maxRowsPerFile: input.maxRowsPerFile as number,
+      maxTotalRows: input.maxTotalRows as number,
+      maxTotalBytes: input.maxTotalBytes as number,
+      maxCoverageInputRows: input.maxCoverageInputRows as number,
+      maxCoverageKeyValuesInMemory: input.maxCoverageKeyValuesInMemory as number,
+      maxCoveragePairsEmitted: input.maxCoveragePairsEmitted as number,
+      maxCoverageRowsPrinted: input.maxCoverageRowsPrinted as number,
+    },
+  };
+}
+
+/** Maps a coverage-signal-reported refusal onto the runner's own error vocabulary. */
+const AGGREGATE_JOIN_COVERAGE_SIGNAL_REFUSAL_CODES: Readonly<
+  Record<string, BrazilReceitaFullJoinErrorCode>
+> = {
+  aggregate_join_coverage_signal_not_authorized: 'aggregate_join_coverage_signal_not_authorized',
+  aggregate_join_coverage_signal_cap_required: 'aggregate_join_coverage_signal_caps_required',
+  aggregate_join_coverage_signal_cap_exceeded: 'aggregate_join_coverage_signal_cap_exceeded',
+  aggregate_join_coverage_signal_missing_required_family:
+    'aggregate_join_coverage_signal_missing_required_family',
+  aggregate_join_coverage_signal_forbidden_family:
+    'aggregate_join_coverage_signal_forbidden_family_detected',
+  aggregate_join_coverage_signal_file_count_exceeded:
+    'aggregate_join_coverage_signal_file_count_exceeded',
+  aggregate_join_coverage_signal_zip_forbidden: 'aggregate_join_coverage_signal_zip_forbidden',
+  aggregate_join_coverage_signal_raw_output_forbidden:
+    'aggregate_join_coverage_signal_raw_output_detected',
+  aggregate_join_coverage_signal_identifier_output_forbidden:
+    'aggregate_join_coverage_signal_identifier_output_detected',
+  aggregate_join_coverage_signal_join_output_forbidden:
+    'aggregate_join_coverage_signal_join_output_detected',
+  aggregate_join_coverage_signal_exact_percentage_forbidden:
+    'aggregate_join_coverage_signal_exact_percentage_detected',
+  aggregate_join_coverage_signal_denominator_forbidden:
+    'aggregate_join_coverage_signal_denominator_detected',
+  aggregate_join_coverage_signal_coverage_claim_forbidden:
+    'aggregate_join_coverage_signal_coverage_claim_detected',
+  aggregate_join_coverage_signal_production_inference_forbidden:
+    'aggregate_join_coverage_signal_production_inference_detected',
+  aggregate_join_coverage_signal_open_failed: 'aggregate_join_coverage_signal_open_failed',
+  aggregate_join_coverage_signal_read_failed: 'aggregate_join_coverage_signal_read_failed',
+  aggregate_join_coverage_signal_timeout: 'aggregate_join_coverage_signal_timeout',
+};
+
+/**
+ * Re-validates the COVERAGE BLOCK a port claimed. Every held-absence assertion is checked against
+ * the runner's own expectation rather than believed: a port that admits (or is coerced into
+ * claiming) it printed a join key, retained one beyond its window, hashed one, leaked one through
+ * an error, printed a joined row or sample, emitted a pair, printed an exact percentage, printed
+ * a full-dataset denominator, claimed coverage, or allowed a production inference is REFUSED
+ * outright.
+ *
+ * The denominator SCOPE is validated against a one-member allowlist for the same reason: a scope
+ * this runner does not recognize is a scope it cannot bound, and an unbounded scope is exactly the
+ * claim this milestone refuses to make.
+ *
+ * Returns `null` when the block is acceptable.
+ */
+function validateAggregateCoverageSignalBlock(block: unknown): BrazilReceitaFullJoinErrorCode | null {
+  if (typeof block !== 'object' || block === null) {
+    return 'aggregate_join_coverage_signal_scan_invalid';
+  }
+  const candidate = block as Partial<BrazilReceitaFullJoinAggregateJoinCoverageSignalBlock>;
+
+  if (candidate.coverageSignalMode !== BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MODE) {
+    return 'aggregate_join_coverage_signal_scan_invalid';
+  }
+  if (
+    candidate.joinKeyValuesPrinted !== false ||
+    candidate.joinKeyValuesRetained !== false ||
+    candidate.joinKeyHashesPrinted !== false ||
+    candidate.joinKeyErrorLeak !== false
+  ) {
+    return 'aggregate_join_coverage_signal_identifier_output_detected';
+  }
+  if (
+    candidate.joinedRowsPrinted !== false ||
+    candidate.joinedSamplesPrinted !== false ||
+    candidate.joinedPairsEmitted !==
+      BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_PAIRS_EMITTED
+  ) {
+    return 'aggregate_join_coverage_signal_join_output_detected';
+  }
+  if (candidate.exactCoveragePercentagePrinted !== false) {
+    return 'aggregate_join_coverage_signal_exact_percentage_detected';
+  }
+  if (
+    candidate.fullDatasetDenominatorPrinted !== false ||
+    candidate.denominatorScope !== BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_DENOMINATOR_SCOPE
+  ) {
+    return 'aggregate_join_coverage_signal_denominator_detected';
+  }
+  if (candidate.coverageClaimed !== false) {
+    return 'aggregate_join_coverage_signal_coverage_claim_detected';
+  }
+  if (candidate.productionInferenceAllowed !== false) {
+    return 'aggregate_join_coverage_signal_production_inference_detected';
+  }
+  if (
+    typeof candidate.matchResultBucket !== 'string' ||
+    !BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MATCH_RESULT_BUCKETS.includes(
+      candidate.matchResultBucket,
+    )
+  ) {
+    return 'aggregate_join_coverage_signal_scan_invalid';
+  }
+  for (const bucket of [candidate.matchedRowsBucket, candidate.unmatchedRowsBucket]) {
+    if (
+      typeof bucket !== 'string' ||
+      !BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_COVERAGE_ROWS_BUCKETS.includes(bucket)
+    ) {
+      return 'aggregate_join_coverage_signal_scan_invalid';
+    }
+  }
+  // A report block is only produced for a run that actually compared two windows. A run that did
+  // not execute the comparison is not an error — but it is not a coverage-signal REPORT either,
+  // so it is surfaced with its own code rather than projected as if a comparison had happened.
+  if (candidate.coverageSignalExecuted !== true) {
+    return 'aggregate_join_coverage_signal_not_executed';
+  }
+  return null;
+}
+
+/**
+ * Re-validates what the coverage-signal port claimed, structurally FIRST and by content second.
+ * The structural half mirrors the 11F/11G validators — trust level, family keys, buckets, counts,
+ * caps, held-absence assertions — against the WIDER 11H bucket vocabulary, and the coverage half
+ * adds the claim-shaped obligations above.
+ */
+function validateAggregateJoinCoverageSignalScan(
+  scan: unknown,
+  caps: AggregateJoinCoverageSignalCaps,
+): BrazilReceitaFullJoinErrorCode | null {
+  if (typeof scan !== 'object' || scan === null) {
+    return 'aggregate_join_coverage_signal_scan_invalid';
+  }
+  const candidate = scan as Partial<BrazilReceitaFullJoinAggregateJoinCoverageSignalScan>;
+
+  if (candidate.manifestTrust !== BRAZIL_RECEITA_FULL_JOIN_AGGREGATE_JOIN_COVERAGE_SIGNAL_TRUST) {
+    return 'local_manifest_execution_not_authorized';
+  }
+  if (
+    candidate.rawRowsRetained !== false ||
+    candidate.rawCellsRetained !== false ||
+    candidate.identifiersRetained !== false ||
+    candidate.fileNamesRetained !== false ||
+    candidate.absolutePathsRetained !== false
+  ) {
+    return 'aggregate_join_coverage_signal_raw_output_detected';
+  }
+  if (candidate.hashesComputed !== false) {
+    return 'aggregate_join_coverage_signal_identifier_output_detected';
+  }
+  // A bucketed SIGNAL is not a computed coverage figure, on any path.
+  if (candidate.joinCoverageComputed !== false) {
+    return 'aggregate_join_coverage_signal_coverage_claim_detected';
+  }
+
+  if (!Array.isArray(candidate.familiesAttempted)) {
+    return 'aggregate_join_coverage_signal_scan_invalid';
+  }
+  const forbiddenFamilies = candidate.familiesAttempted.filter(
+    (family) =>
+      typeof family !== 'string' ||
+      !BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES.includes(family),
+  );
+  if (forbiddenFamilies.length > 0) {
+    return 'aggregate_join_coverage_signal_forbidden_family_detected';
+  }
+
+  if (
+    candidate.selectionClass !== undefined &&
+    !BRAZIL_RECEITA_FULL_JOIN_PROBE_SELECTION_CLASSES.includes(candidate.selectionClass)
+  ) {
+    return 'aggregate_join_coverage_signal_scan_invalid';
+  }
+  if (!isCount(candidate.filesOpenedCount)) return 'aggregate_join_coverage_signal_scan_invalid';
+  if (!isCount(candidate.forbiddenFamilyCount) || !isCount(candidate.neverOpenedFamilyCount)) {
+    return 'aggregate_join_coverage_signal_scan_invalid';
+  }
+  if (candidate.forbiddenFamilyCount > 0) {
+    return 'aggregate_join_coverage_signal_forbidden_family_detected';
+  }
+
+  // A refusal the port reported rather than threw. Mapped, never passed through raw.
+  if (candidate.refusalCode !== null && candidate.refusalCode !== undefined) {
+    return (
+      AGGREGATE_JOIN_COVERAGE_SIGNAL_REFUSAL_CODES[candidate.refusalCode] ??
+      'aggregate_join_coverage_signal_scan_invalid'
+    );
+  }
+
+  const maps: ReadonlyArray<readonly [unknown, readonly string[]]> = [
+    [candidate.bytesReadBucket, BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_BYTES_BUCKETS],
+    [candidate.rowsReadBucket, BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_ROWS_BUCKETS],
+  ];
+  for (const [map, allowedValues] of maps) {
+    if (typeof map !== 'object' || map === null) {
+      return 'aggregate_join_coverage_signal_scan_invalid';
+    }
+    for (const [family, value] of Object.entries(map as Record<string, unknown>)) {
+      if (!BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES.includes(family)) {
+        return 'aggregate_join_coverage_signal_forbidden_family_detected';
+      }
+      if (typeof value !== 'string' || !allowedValues.includes(value)) {
+        return 'aggregate_join_coverage_signal_scan_invalid';
+      }
+      if (value !== allowedValues[0]) return 'aggregate_join_coverage_signal_cap_exceeded';
+    }
+  }
+  for (const map of [
+    candidate.encodingStatus,
+    candidate.delimiterStatus,
+    candidate.headerlessStatus,
+    candidate.filesOpenedByFamily,
+    candidate.rowShape,
+  ]) {
+    if (typeof map !== 'object' || map === null) {
+      return 'aggregate_join_coverage_signal_scan_invalid';
+    }
+    for (const family of Object.keys(map as Record<string, unknown>)) {
+      if (!BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES.includes(family)) {
+        return 'aggregate_join_coverage_signal_forbidden_family_detected';
+      }
+    }
+  }
+  for (const shape of Object.values(candidate.rowShape as Record<string, unknown>)) {
+    if (!isProbeRowShape(shape)) return 'aggregate_join_coverage_signal_scan_invalid';
+  }
+
+  // The caps, enforced against the OBSERVED result and not merely against the request.
+  if (candidate.filesOpenedCount > caps.maxFilesOpened) {
+    return 'aggregate_join_coverage_signal_file_count_exceeded';
+  }
+  let observedRows = 0;
+  for (const [family, opened] of Object.entries(candidate.filesOpenedByFamily ?? {})) {
+    if (!isCount(opened)) return 'aggregate_join_coverage_signal_scan_invalid';
+    if (opened > 1) return 'aggregate_join_coverage_signal_file_count_exceeded';
+    const shape = (candidate.rowShape ?? {})[family];
+    if (shape !== undefined) {
+      observedRows += shape.rowShapeValidCount + shape.rowShapeInvalidCount;
+      if (shape.rowShapeValidCount + shape.rowShapeInvalidCount > caps.maxRowsPerFile) {
+        return 'aggregate_join_coverage_signal_cap_exceeded';
+      }
+    }
+  }
+  if (observedRows > caps.maxTotalRows) return 'aggregate_join_coverage_signal_cap_exceeded';
+
+  // The coverage half. Checked last so a structurally invalid scan never reaches it.
+  const coverageFailure = validateAggregateCoverageSignalBlock(candidate.coverageSignal);
+  if (coverageFailure !== null) return coverageFailure;
+  if (candidate.joinsExecuted !== true) return 'aggregate_join_coverage_signal_not_executed';
+  return null;
+}
+
+/**
+ * Projects a validated coverage-signal scan into the report block. Only counts, booleans, buckets,
+ * class labels and histograms cross over; the per-family keys are re-filtered against the runner's
+ * own allowlist, and the coverage block is REBUILT from three validated bucket labels rather than
+ * spread — so a field the port invented cannot ride along into the report, and no exact figure,
+ * denominator, claim or inference can appear even if the port tried to supply one.
+ */
+function projectAggregateJoinCoverageSignal(
+  scan: BrazilReceitaFullJoinAggregateJoinCoverageSignalScan,
+): BrazilReceitaFullJoinAggregateJoinCoverageSignalReport {
+  const pickStrings = (source: Readonly<Record<string, string>>): Record<string, string> => {
+    const picked: Record<string, string> = {};
+    for (const family of BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES) {
+      const value = source?.[family];
+      if (typeof value === 'string') picked[family] = value;
+    }
+    return picked;
+  };
+
+  const filesOpenedByFamily: Record<string, number> = {};
+  const rowShape: BrazilReceitaFullJoinAggregateJoinCoverageSignalReport['row_shape'] = {};
+  for (const family of BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES) {
+    const opened = scan.filesOpenedByFamily?.[family];
+    filesOpenedByFamily[family] = isCount(opened) ? opened : 0;
+    const shape = scan.rowShape?.[family];
+    if (shape === undefined) continue;
+    const distribution: Record<string, number> = {};
+    for (const [bucket, count] of Object.entries(shape.observedColumnCountDistribution ?? {})) {
+      if (isCount(count)) distribution[bucket] = count;
+    }
+    rowShape[family] = {
+      expected_min_columns: shape.expectedMinColumns,
+      observed_column_count_distribution: distribution,
+      row_shape_valid_count: shape.rowShapeValidCount,
+      row_shape_invalid_count: shape.rowShapeInvalidCount,
+    };
+  }
+
+  return {
+    authorized: true,
+    real_local_join_coverage_signal_authorized: true,
+    families_attempted: [...BRAZIL_RECEITA_FULL_JOIN_PROBE_ALLOWED_FAMILIES],
+    files_opened_count: scan.filesOpenedCount,
+    files_opened_by_family: filesOpenedByFamily,
+    bytes_read_bucket: pickStrings(scan.bytesReadBucket),
+    rows_read_bucket: pickStrings(scan.rowsReadBucket),
+    row_shape: rowShape,
+    encoding_status: pickStrings(scan.encodingStatus),
+    delimiter_status: pickStrings(scan.delimiterStatus),
+    headerless_status: pickStrings(scan.headerlessStatus),
+    forbidden_family_attempted: false,
+    forbidden_family_declared_count: scan.forbiddenFamilyCount,
+    selection_class: scan.selectionClass ?? 'selected',
+    never_opened_family_declared_count: scan.neverOpenedFamilyCount,
+    coverage_signal: {
+      coverage_signal_executed: true,
+      coverage_signal_mode: BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MODE,
+      join_key_values_printed: false,
+      join_key_values_retained: false,
+      join_key_hashes_printed: false,
+      join_key_error_leak: false,
+      joined_rows_printed: false,
+      joined_samples_printed: false,
+      joined_pairs_emitted: 0,
+      exact_coverage_percentage_printed: false,
+      full_dataset_denominator_printed: false,
+      coverage_claimed: false,
+      production_inference_allowed: false,
+      denominator_scope: BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_DENOMINATOR_SCOPE,
+      match_result_bucket: scan.coverageSignal.matchResultBucket,
+      matched_rows_bucket: scan.coverageSignal.matchedRowsBucket,
+      unmatched_rows_bucket: scan.coverageSignal.unmatchedRowsBucket,
+    },
+    raw_rows_printed: false,
+    raw_cells_printed: false,
+    identifiers_printed: false,
+    filenames_printed: false,
+    absolute_paths_printed: false,
+    hashes_printed: false,
+    joins_executed: true,
+    join_coverage_computed: false,
+    full_dataset_processed: false,
+  };
+}
+
+// ─── Aggregate-only coverage SIGNAL run (BR-SOURCE-11H-IMPL) ───────────────────
+
+/**
+ * Runs the ULTRA-BOUNDED AGGREGATE-ONLY REAL JOIN COVERAGE SIGNAL: the metadata gate and the ONE
+ * manifest control-document read it shares with the earlier carve-outs, then the coverage gate,
+ * ONE injected read of at most two required-family files, re-validation of what the port claimed,
+ * and an aggregate report.
+ *
+ * NO row value, cell, identifier or JOIN KEY reaches the runner: the port returns counts, buckets,
+ * class labels, a column-count histogram and three coarse coverage buckets. Every
+ * row/eligibility/join COUNT on the surrounding report stays zero by construction — this path
+ * never reaches the fixture scorer, and the outcome is a bucket rather than a count precisely so
+ * no ratio can be reconstructed from the report.
+ *
+ * The only thing that can be learned is whether the join mechanism finds anything at all in two
+ * capped windows that are materially larger than 11G's. That is a SIGNAL, not coverage proof, not
+ * a coverage guarantee, not a dataset quality score, and not evidence about GATE-1, GATE-2,
+ * import, runtime, Agent 1 or production. `match_result_bucket = zero` and `= not_reported` are
+ * both GREEN results.
+ */
+function runAggregateJoinCoverageSignal(
+  input: BrazilReceitaFullJoinDryRunInput,
+  provenance: RunProvenance,
+): BrazilReceitaFullJoinDryRunReport {
+  // The manifest is read as a CONTROL DOCUMENT first, under the metadata-only gate: a run that
+  // could not clear the manifest gate never gets to open a data file, let alone compare one.
+  const metadataOutcome = readManifestMetadataBlock(input, provenance);
+  if (!metadataOutcome.ok) return metadataOutcome.report;
+  const metadata = metadataOutcome.metadata;
+
+  const gate = evaluateAggregateJoinCoverageSignalGate(input);
+  if (!gate.ok) {
+    return failClosedReport(
+      provenance,
+      [{ error_code: gate.code, stage: 'aggregate_join_coverage_signal_gate' }],
+      0,
+      0,
+      0,
+      metadata,
+    );
+  }
+
+  let scan: BrazilReceitaFullJoinAggregateJoinCoverageSignalScan;
+  try {
+    // The ONE read of the run. The port owns the paths it resolved and validated, and the bounded
+    // key window it built; the runner passes the caps in and never learns either.
+    scan = input.aggregateJoinCoverageSignalReader!({
+      maxManifestBytes: input.maxManifestBytes as number,
+      maxDeclaredFiles: input.maxDeclaredFiles as number,
+      maxFilesOpened: gate.caps.maxFilesOpened,
+      maxBytesPerFile: gate.caps.maxBytesPerFile,
+      maxRowsPerFile: gate.caps.maxRowsPerFile,
+      maxTotalRows: gate.caps.maxTotalRows,
+      maxTotalBytes: gate.caps.maxTotalBytes,
+      maxCoverageInputRows: gate.caps.maxCoverageInputRows,
+      maxCoverageKeyValuesInMemory: gate.caps.maxCoverageKeyValuesInMemory,
+      maxCoveragePairsEmitted: gate.caps.maxCoveragePairsEmitted,
+      maxCoverageRowsPrinted: gate.caps.maxCoverageRowsPrinted,
+    });
+  } catch {
+    // The underlying error is DISCARDED: a failure could carry a path, a fragment of a row, or a
+    // JOIN KEY in its message, so only the fixed stage/code survive.
+    return failClosedReport(
+      provenance,
+      [
+        {
+          error_code: 'aggregate_join_coverage_signal_read_failed',
+          stage: 'aggregate_join_coverage_signal_read',
+        },
+      ],
+      0,
+      0,
+      0,
+      metadata,
+    );
+  }
+
+  const refusal = validateAggregateJoinCoverageSignalScan(scan, gate.caps);
+  if (refusal !== null) {
+    return failClosedReport(
+      provenance,
+      [{ error_code: refusal, stage: 'aggregate_join_coverage_signal_read' }],
+      0,
+      0,
+      0,
+      metadata,
+      0,
+      0,
+      isCount(scan?.forbiddenFamilyCount) ? scan.forbiddenFamilyCount : 0,
+    );
+  }
+
+  const guardrail = zeroCounts(GUARDRAIL_COUNT_KEYS);
+  guardrail.aggregate_join_coverage_signal_files_opened = scan.filesOpenedCount;
+
+  const candidate = assembleReport({
+    ok: true,
+    provenance,
+    aggregate: zeroCounts(AGGREGATE_COUNT_KEYS),
+    eligibility: zeroCounts(ELIGIBILITY_COUNT_KEYS),
+    join: zeroCounts(JOIN_COUNT_KEYS),
+    guardrail,
+    manifestMetadata: metadata,
+    aggregateJoinCoverageSignal: projectAggregateJoinCoverageSignal(scan),
+    cleanup: planBrazilReceitaFullJoinCleanup({
+      sanitizerFailed: false,
+      guardFailed: false,
+      errorCount: 0,
+    }),
+    errors: [],
+  });
+
+  // Output sanitization. A leak discards the metadata AND the coverage block — the report never
+  // ships partially-sanitized content, and the offending value is never surfaced.
+  const sanitized = sanitizeBrazilReceitaFullJoinReport(candidate);
+  if (!sanitized.ok) {
+    return failClosedReport(
+      provenance,
+      [{ error_code: BRAZIL_RECEITA_FULL_JOIN_SANITIZER_ERROR_CODE, stage: 'output_sanitization' }],
+      0,
+      sanitized.findings.length,
+    );
+  }
+  return candidate;
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 /**
@@ -2976,6 +3900,9 @@ export function runBrazilReceitaFullJoinDryRun(
     requiredFamilyProbeAuthorized: input.requiredFamilyProbeAuthorized === true,
     requiredFamilyJoinProbeAuthorized: input.requiredFamilyJoinProbeAuthorized === true,
     realLocalJoinDryRunAuthorized: input.realLocalJoinDryRunAuthorized === true,
+    aggregateOnlyJoinCoverageSignalAuthorized:
+      input.aggregateOnlyJoinCoverageSignalAuthorized === true,
+    realLocalJoinCoverageSignalAuthorized: input.realLocalJoinCoverageSignalAuthorized === true,
   };
 
   // 1) No-write / no-runtime guard. The WHOLE input is handed to the guard (minus the
@@ -3046,6 +3973,19 @@ export function runBrazilReceitaFullJoinDryRun(
     manifestTrust === BRAZIL_RECEITA_FULL_JOIN_REQUIRED_FAMILY_JOIN_PROBE_TRUST
   ) {
     return runRequiredFamilyJoinProbe(input, provenance);
+  }
+
+  // 3e) BR-SOURCE-11H Option C: the ultra-bounded AGGREGATE-ONLY real join COVERAGE SIGNAL. The
+  //     same two files and the same one field position as 11G, in a materially wider bounded
+  //     window (≤ 512 KB / ≤ 200 rows per file, ≤ 1,024,000 bytes / ≤ 400 rows per run), still
+  //     held in a capped in-memory window, compared, and discarded. Reads no row VALUE into the
+  //     report, so it too returns before the fixture path, and every join COUNT on the report
+  //     stays zero: the outcome is a bucket, with no exact figure and no denominator anywhere.
+  if (
+    requestedMode === 'local_manifest_dry_run' &&
+    manifestTrust === BRAZIL_RECEITA_FULL_JOIN_AGGREGATE_JOIN_COVERAGE_SIGNAL_TRUST
+  ) {
+    return runAggregateJoinCoverageSignal(input, provenance);
   }
 
   let fixture: BrazilReceitaFullJoinSyntheticFixture;

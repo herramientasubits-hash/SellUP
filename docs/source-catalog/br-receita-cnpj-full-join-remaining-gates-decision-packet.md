@@ -2064,23 +2064,45 @@ It does not authorize import.
 It does not approve any gate.
 ```
 
-### 28.1 Gate and flag status after BR-SOURCE-11H — UNCHANGED
+### 28.1 Gate and flag status after BR-SOURCE-11H-IMPL — GATES UNCHANGED
 
-All eight gates remain `not_started` / not approved, and the § 27.1 flag block is unchanged except for
-the successor record's own four new flags, all `false`:
+All eight gates remain `not_started` / not approved. The successor record's decision was merged and
+its Option C phrase was subsequently given, so its own flags have moved — and only its own:
 
 ```text
-OPS_BR_BOUNDED_REAL_JOIN_COVERAGE_DECISION_RECORD_PR_READY          = false until PR
-OPS_BR_BOUNDED_REAL_JOIN_COVERAGE_DECISION_RECORD_OFFICIAL          = false until merge
-OPS_BR_ULTRA_BOUNDED_AGGREGATE_ONLY_JOIN_COVERAGE_SIGNAL_AUTHORIZED = false
-OPS_BR_REAL_LOCAL_JOIN_COVERAGE_SIGNAL_AUTHORIZED                   = false
+OPS_BR_BOUNDED_REAL_JOIN_COVERAGE_DECISION_RECORD_OFFICIAL          = true
+OPS_BR_ULTRA_BOUNDED_AGGREGATE_ONLY_JOIN_COVERAGE_SIGNAL_AUTHORIZED = true
+OPS_BR_REAL_LOCAL_JOIN_COVERAGE_SIGNAL_AUTHORIZED                   = true
+
+OPS_BR_ULTRA_BOUNDED_AGGREGATE_ONLY_REAL_JOIN_COVERAGE_SIGNAL_PR_READY = true until merge
+OPS_BR_ULTRA_BOUNDED_AGGREGATE_ONLY_REAL_JOIN_COVERAGE_SIGNAL_OFFICIAL = false until merge
 ```
 
-§ 27.3 survives verbatim: no coverage figure, ratio or match rate has been computed. A merged question
-is still a question — any implementation additionally requires that record to be merged **and** the
-explicit owner phrase `AUTHORIZE OPTION C — ULTRA-BOUNDED AGGREGATE-ONLY REAL JOIN COVERAGE SIGNAL`,
-recorded separately. No phrase already spent in 11C, 11D-META, 11E, 11F or 11G carries over; the 11G
-phrase names the join probe and was single-milestone by its own terms.
+Everything the § 27.1 block holds at `false` stays `false`:
+
+```text
+FULL_JOIN_EXECUTION_READY                                           = false
+IMPORT_READY                                                        = false
+RUNTIME_READY                                                       = false
+AGENT1_READY                                                        = false
+OPS_BR_READY_FOR_IMPORT                                             = false
+OPS_BR_READY_FOR_PRODUCTION_IMPORT                                  = false
+OPS_BR_READY_FOR_RUNTIME                                            = false
+OPS_BR_LIVE_PROSPECT_GENERATION_READY                               = false
+OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED                       = false
+```
+
+BR-SOURCE-11H-IMPL implements only the explicitly authorized Option C ultra-bounded aggregate-only
+real join coverage signal. It does not authorize exact percentages, full-dataset denominator claims,
+coverage proof, import, Supabase, runtime, Agent 1, provider calls or production use.
+
+§ 27.3 survives with one narrow amendment: no coverage figure, ratio, match rate, exact percentage or
+full-dataset denominator has been computed — a bucketed SIGNAL over two bounded windows was, and it is
+none of those things. The phrase that authorized it,
+`AUTHORIZE OPTION C — ULTRA-BOUNDED AGGREGATE-ONLY REAL JOIN COVERAGE SIGNAL`, was single-milestone by
+its own terms and is now spent; no phrase from 11C, 11D-META, 11E, 11F or 11G carried into it, and it
+carries into nothing. A wider window, an exact figure, or a dataset-scale denominator each require a
+new record and a new phrase.
 
 ### 28.2 Why GATE-2 owners should read the successor record directly
 

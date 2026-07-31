@@ -56,6 +56,26 @@
  *                                  all four join caps. Prints no join key, no joined row, no
  *                                  joined sample, no join pair, no coverage percentage; makes
  *                                  no coverage claim; hashes nothing; approves no gate.
+ *   … --aggregate-join-coverage-signal --aggregate-join-coverage-signal-authorized
+ *       --real-local-join-coverage-signal-authorized
+ *                                  The BR-SOURCE-11H-IMPL Option C carve-out, valid ONLY together
+ *                                  with --real-manifest-metadata-only,
+ *                                  --real-manifest-metadata-execution-authorized,
+ *                                  --required-family-probe-authorized,
+ *                                  --required-family-join-probe-authorized and
+ *                                  --real-local-join-dry-run-authorized, and mutually exclusive
+ *                                  with both probe modes. Opens the SAME two files and reads the
+ *                                  SAME one field position per row, in a materially WIDER bounded
+ *                                  window: ≤ 512 KB / ≤ 200 rows per file and ≤ 1,024,000 bytes /
+ *                                  ≤ 400 rows per run. Reports a coarse match SIGNAL
+ *                                  (zero | one_or_more | not_reported), where both `zero` and
+ *                                  `not_reported` are GREEN results. Requires --strict, all five
+ *                                  structural caps and all four coverage caps. Prints no join key,
+ *                                  no joined row, no joined sample, no join pair, NO EXACT
+ *                                  PERCENTAGE and NO FULL-DATASET DENOMINATOR; makes no coverage
+ *                                  claim; states `denominator_scope = bounded_window_only`; infers
+ *                                  nothing about production readiness; hashes nothing; approves no
+ *                                  gate. It is a SIGNAL, never coverage proof or a guarantee.
  *   --manifest <p> --allow-local-manifest
  *                                  Declares REAL local-manifest EXECUTION intent. Still
  *                                  refused by the runner core: a real manifest can never
@@ -106,6 +126,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import {
+  BRAZIL_RECEITA_FULL_JOIN_AGGREGATE_JOIN_COVERAGE_SIGNAL_TRUST,
+  BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_BYTES_PER_FILE,
+  BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_INPUT_ROWS,
+  BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_KEY_VALUES_IN_MEMORY,
+  BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_PAIRS_EMITTED,
+  BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_ROWS_PRINTED,
+  BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_ROWS_PER_FILE,
+  BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_TOTAL_BYTES,
+  BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_TOTAL_ROWS,
   BRAZIL_RECEITA_FULL_JOIN_MAX_SYNTHETIC_ROWS,
   BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_DECLARED_FILES,
   BRAZIL_RECEITA_FULL_JOIN_METADATA_ONLY_MAX_MANIFEST_BYTES,
@@ -142,6 +171,10 @@ import {
   BrazilReceitaRequiredFamilyJoinProbeError,
   createBrazilReceitaRequiredFamilyJoinProbe,
 } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-required-family-join-probe';
+import {
+  BrazilReceitaAggregateJoinCoverageSignalError,
+  createBrazilReceitaAggregateJoinCoverageSignal,
+} from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-aggregate-join-coverage-signal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -259,6 +292,16 @@ export interface FullJoinRunnerOptions {
   readonly maxJoinKeyValuesInMemory: number | null;
   readonly maxJoinPairsEmitted: number | null;
   readonly maxJoinedRowsPrinted: number | null;
+  /** True for the BR-SOURCE-11H-IMPL Option C mode: the aggregate-only coverage SIGNAL. */
+  readonly aggregateJoinCoverageSignal: boolean;
+  /** True when the owner's 11H Option C phrase was declared on THIS invocation. */
+  readonly aggregateJoinCoverageSignalAuthorized: boolean;
+  /** True when the wider bounded signal against the operator's own local files was declared. */
+  readonly realLocalJoinCoverageSignalAuthorized: boolean;
+  readonly maxCoverageInputRows: number | null;
+  readonly maxCoverageKeyValuesInMemory: number | null;
+  readonly maxCoveragePairsEmitted: number | null;
+  readonly maxCoverageRowsPrinted: number | null;
   readonly maxFilesOpened: number | null;
   readonly maxRowsPerFile: number | null;
   readonly maxTotalRows: number | null;
@@ -347,6 +390,38 @@ function parsePositiveInteger(flag: string, value: string): number {
 }
 
 /**
+ * Re-checks the four shared row/byte caps against the TIGHT BR-SOURCE-11F / 11G probe ceilings.
+ *
+ * The flags are shared by three modes with different ceilings, and a cap flag can arrive before
+ * the mode flag that decides which ceiling applies — so parsing accepts the widest ceiling in the
+ * tool and each probe mode narrows it here. Without this, declaring the 11H window on an 11F/11G
+ * invocation would silently widen a probe that no authorization permits to widen.
+ */
+function assertProbeWindowCeilings(
+  mode: string,
+  caps: {
+    readonly maxBytesPerFile: number | null;
+    readonly maxRowsPerFile: number | null;
+    readonly maxTotalRows: number | null;
+    readonly maxTotalBytes: number | null;
+  },
+): void {
+  const checks: ReadonlyArray<readonly [string, number | null, number]> = [
+    ['--max-bytes-per-file', caps.maxBytesPerFile, BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_BYTES_PER_FILE],
+    ['--max-rows-per-file', caps.maxRowsPerFile, BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_ROWS_PER_FILE],
+    ['--max-total-rows', caps.maxTotalRows, BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_TOTAL_ROWS],
+    ['--max-total-bytes', caps.maxTotalBytes, BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_TOTAL_BYTES],
+  ];
+  for (const [flag, value, ceiling] of checks) {
+    if (value !== null && value > ceiling) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        `${flag} exceeds the Option C ceiling for ${mode}`,
+      );
+    }
+  }
+}
+
+/**
  * Parses the CLI args, fail-closed. Forbidden flags, unknown flags, URL manifests,
  * non-`.json` manifests, download-directory paths, a `--manifest` without
  * `--allow-local-manifest`, and a bare invocation with neither mode all throw before
@@ -366,6 +441,13 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   let maxJoinKeyValuesInMemory: number | null = null;
   let maxJoinPairsEmitted: number | null = null;
   let maxJoinedRowsPrinted: number | null = null;
+  let aggregateJoinCoverageSignal = false;
+  let aggregateJoinCoverageSignalAuthorized = false;
+  let realLocalJoinCoverageSignalAuthorized = false;
+  let maxCoverageInputRows: number | null = null;
+  let maxCoverageKeyValuesInMemory: number | null = null;
+  let maxCoveragePairsEmitted: number | null = null;
+  let maxCoverageRowsPrinted: number | null = null;
   let maxFilesOpened: number | null = null;
   let maxRowsPerFile: number | null = null;
   let maxTotalRows: number | null = null;
@@ -463,6 +545,45 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
           BRAZIL_RECEITA_FULL_JOIN_JOIN_PROBE_MAX_JOINED_ROWS_PRINTED,
         );
         break;
+      case 'aggregate-join-coverage-signal':
+        aggregateJoinCoverageSignal = true;
+        break;
+      case 'aggregate-join-coverage-signal-authorized':
+        aggregateJoinCoverageSignalAuthorized = true;
+        break;
+      case 'real-local-join-coverage-signal-authorized':
+        realLocalJoinCoverageSignalAuthorized = true;
+        break;
+      case 'max-coverage-input-rows':
+        maxCoverageInputRows = parseBoundedInteger(
+          'max-coverage-input-rows',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_INPUT_ROWS,
+        );
+        break;
+      case 'max-coverage-key-values-in-memory':
+        maxCoverageKeyValuesInMemory = parseBoundedInteger(
+          'max-coverage-key-values-in-memory',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_KEY_VALUES_IN_MEMORY,
+        );
+        break;
+      // The two zero-EQUALITIES. A ceiling of 0 refuses any positive value outright, so
+      // `--max-coverage-pairs-emitted 1` never reaches the runner.
+      case 'max-coverage-pairs-emitted':
+        maxCoveragePairsEmitted = parseBoundedInteger(
+          'max-coverage-pairs-emitted',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_PAIRS_EMITTED,
+        );
+        break;
+      case 'max-coverage-rows-printed':
+        maxCoverageRowsPrinted = parseBoundedInteger(
+          'max-coverage-rows-printed',
+          takeValue(),
+          BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_COVERAGE_ROWS_PRINTED,
+        );
+        break;
       case 'max-files-opened':
         maxFilesOpened = parseBoundedInteger(
           'max-files-opened',
@@ -470,25 +591,30 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
           BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_FILES_OPENED,
         );
         break;
+      // The three row/byte caps are shared by three modes with DIFFERENT ceilings, and a flag can
+      // arrive before the mode flag that decides which ceiling applies. So parsing accepts the
+      // WIDEST ceiling in the tool (BR-SOURCE-11H's) and each mode block below re-checks the value
+      // against its own, tighter ceiling — whatever order the flags arrived in. A probe run is
+      // therefore bounded exactly as before this milestone.
       case 'max-rows-per-file':
         maxRowsPerFile = parseBoundedInteger(
           'max-rows-per-file',
           takeValue(),
-          BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_ROWS_PER_FILE,
+          BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_ROWS_PER_FILE,
         );
         break;
       case 'max-total-rows':
         maxTotalRows = parseBoundedInteger(
           'max-total-rows',
           takeValue(),
-          BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_TOTAL_ROWS,
+          BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_TOTAL_ROWS,
         );
         break;
       case 'max-total-bytes':
         maxTotalBytes = parseBoundedInteger(
           'max-total-bytes',
           takeValue(),
-          BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_TOTAL_BYTES,
+          BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_TOTAL_BYTES,
         );
         break;
       case 'manifest':
@@ -629,9 +755,14 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   // The 11F structural authorization qualifies EITHER probe mode: a join probe opens the same
   // two files, so it requires the 11F declaration in addition to its own (it is never a
   // substitute for it). On any other invocation the declaration has no carve-out to qualify.
-  if (requiredFamilyProbeAuthorized && !requiredFamilyProbe && !requiredFamilyJoinProbe) {
+  if (
+    requiredFamilyProbeAuthorized &&
+    !requiredFamilyProbe &&
+    !requiredFamilyJoinProbe &&
+    !aggregateJoinCoverageSignal
+  ) {
     throw new ForbiddenFullJoinRunnerModeError(
-      '--required-family-probe-authorized is only valid together with --required-family-probe or --required-family-join-probe',
+      '--required-family-probe-authorized is only valid together with --required-family-probe, --required-family-join-probe or --aggregate-join-coverage-signal',
     );
   }
   // The two probe modes are mutually exclusive: running both would open four data files, which
@@ -639,6 +770,14 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   if (requiredFamilyProbe && requiredFamilyJoinProbe) {
     throw new ForbiddenFullJoinRunnerModeError(
       '--required-family-probe and --required-family-join-probe are mutually exclusive — pick exactly one probe mode',
+    );
+  }
+  // The BR-SOURCE-11H coverage signal is a THIRD mode on the same two files, and it is checked
+  // here — before either probe block validates its own caps — so a two-mode invocation is refused
+  // for what it actually is rather than for whichever cap happened to be missing.
+  if (aggregateJoinCoverageSignal && (requiredFamilyProbe || requiredFamilyJoinProbe)) {
+    throw new ForbiddenFullJoinRunnerModeError(
+      '--aggregate-join-coverage-signal, --required-family-probe and --required-family-join-probe are mutually exclusive — pick exactly one probe mode',
     );
   }
   if (requiredFamilyProbe) {
@@ -683,28 +822,32 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
         `--required-family-probe requires every bounded cap (missing: ${missingProbeCaps.join(', ')})`,
       );
     }
-    // `--max-bytes-per-file` is shared with Option B, whose ceiling is far wider. A probe run
-    // re-checks it against the much tighter Option C ceiling, whatever order the flags arrived
-    // in.
-    if ((maxBytesPerFile as number) > BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_BYTES_PER_FILE) {
-      throw new ForbiddenFullJoinRunnerModeError(
-        '--max-bytes-per-file exceeds the Option C per-file ceiling',
-      );
-    }
+    // The four row/byte caps are shared with Option B and with BR-SOURCE-11H, whose ceilings are
+    // wider. A probe run re-checks every one of them against the much tighter 11F ceilings,
+    // whatever order the flags arrived in.
+    assertProbeWindowCeilings('--required-family-probe', {
+      maxBytesPerFile,
+      maxRowsPerFile,
+      maxTotalRows,
+      maxTotalBytes,
+    });
   }
 
   // BR-SOURCE-11G Option C is the NARROWEST mode in the tool: the only one that reads a VALUE
   // out of a required-family file. Every precondition — five authorizations, the manifest, the
   // five structural caps and the four join caps — is refused HERE, before the probe is
   // constructed and before the runner core is consulted.
-  if (requiredFamilyJoinProbeAuthorized && !requiredFamilyJoinProbe) {
+  // The 11G declarations qualify EITHER the join-probe mode or the BR-SOURCE-11H coverage signal:
+  // the signal parses the same protected technical key, so it requires them in addition to its
+  // own (never as a substitute). On any other invocation they have no carve-out to qualify.
+  if (requiredFamilyJoinProbeAuthorized && !requiredFamilyJoinProbe && !aggregateJoinCoverageSignal) {
     throw new ForbiddenFullJoinRunnerModeError(
-      '--required-family-join-probe-authorized is only valid together with --required-family-join-probe',
+      '--required-family-join-probe-authorized is only valid together with --required-family-join-probe or --aggregate-join-coverage-signal',
     );
   }
-  if (realLocalJoinDryRunAuthorized && !requiredFamilyJoinProbe) {
+  if (realLocalJoinDryRunAuthorized && !requiredFamilyJoinProbe && !aggregateJoinCoverageSignal) {
     throw new ForbiddenFullJoinRunnerModeError(
-      '--real-local-join-dry-run-authorized is only valid together with --required-family-join-probe',
+      '--real-local-join-dry-run-authorized is only valid together with --required-family-join-probe or --aggregate-join-coverage-signal',
     );
   }
   if (requiredFamilyJoinProbe) {
@@ -765,11 +908,106 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
         `--required-family-join-probe requires every bounded cap (missing: ${missingJoinCaps.join(', ')})`,
       );
     }
-    // Shared with Option B, whose ceiling is far wider. A join-probe run re-checks it against
-    // the much tighter Option C ceiling, whatever order the flags arrived in.
-    if ((maxBytesPerFile as number) > BRAZIL_RECEITA_FULL_JOIN_PROBE_MAX_BYTES_PER_FILE) {
+    // Shared with Option B and with BR-SOURCE-11H, whose ceilings are wider. A join-probe run
+    // re-checks every row/byte cap against the much tighter 11F/11G ceilings, whatever order the
+    // flags arrived in: the 11H window is a SEPARATE authorization and never reaches this mode.
+    assertProbeWindowCeilings('--required-family-join-probe', {
+      maxBytesPerFile,
+      maxRowsPerFile,
+      maxTotalRows,
+      maxTotalBytes,
+    });
+  }
+
+  // BR-SOURCE-11H Option C is the WIDEST bounded mode in the tool and the only one that reads a
+  // 512 KB / 200-row window. Every precondition — seven authorizations, the manifest, the five
+  // structural caps and the four coverage caps — is refused HERE, before the port is constructed
+  // and before the runner core is consulted.
+  if (aggregateJoinCoverageSignalAuthorized && !aggregateJoinCoverageSignal) {
+    throw new ForbiddenFullJoinRunnerModeError(
+      '--aggregate-join-coverage-signal-authorized is only valid together with --aggregate-join-coverage-signal',
+    );
+  }
+  if (realLocalJoinCoverageSignalAuthorized && !aggregateJoinCoverageSignal) {
+    throw new ForbiddenFullJoinRunnerModeError(
+      '--real-local-join-coverage-signal-authorized is only valid together with --aggregate-join-coverage-signal',
+    );
+  }
+  if (aggregateJoinCoverageSignal) {
+    if (!aggregateJoinCoverageSignalAuthorized) {
       throw new ForbiddenFullJoinRunnerModeError(
-        '--max-bytes-per-file exceeds the Option C per-file ceiling',
+        '--aggregate-join-coverage-signal requires the explicit --aggregate-join-coverage-signal-authorized declaration — the 11H Option C carve-out is never implied',
+      );
+    }
+    if (!realLocalJoinCoverageSignalAuthorized) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--aggregate-join-coverage-signal requires --real-local-join-coverage-signal-authorized — executing the wider bounded signal against local files is a separate declaration',
+      );
+    }
+    // The 11G authorizations are required IN ADDITION: a coverage signal parses and compares the
+    // same protected technical key, and the 11H phrase says nothing about doing that at all.
+    if (!requiredFamilyJoinProbeAuthorized) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--aggregate-join-coverage-signal requires --required-family-join-probe-authorized — the 11H phrase does not stand in for the key-parsing authorization',
+      );
+    }
+    if (!realLocalJoinDryRunAuthorized) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--aggregate-join-coverage-signal requires --real-local-join-dry-run-authorized — the 11H declaration does not stand in for the 11G one',
+      );
+    }
+    // The 11F authorization is required too: the same two files still have to be opened.
+    if (!requiredFamilyProbeAuthorized) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--aggregate-join-coverage-signal requires --required-family-probe-authorized — the 11H phrase does not stand in for the file-opening authorization',
+      );
+    }
+    if (!realManifestMetadataOnly) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--aggregate-join-coverage-signal requires --real-manifest-metadata-only — the manifest is read as a control document first',
+      );
+    }
+    if (!realManifestMetadataExecution) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--aggregate-join-coverage-signal requires --real-manifest-metadata-execution-authorized — a coverage signal reads an operator-prepared file set',
+      );
+    }
+    if (manifest === null) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--aggregate-join-coverage-signal requires --manifest <path> — it reads exactly one manifest document',
+      );
+    }
+    if (!allowLocalManifest) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--aggregate-join-coverage-signal requires the explicit --allow-local-manifest flag',
+      );
+    }
+    if (!strict) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--aggregate-join-coverage-signal requires --strict — the 11H Option C carve-out has no lenient mode',
+      );
+    }
+    const missingCoverageCaps: string[] = [];
+    if (maxFilesOpened === null) missingCoverageCaps.push('--max-files-opened');
+    if (maxBytesPerFile === null) missingCoverageCaps.push('--max-bytes-per-file');
+    if (maxRowsPerFile === null) missingCoverageCaps.push('--max-rows-per-file');
+    if (maxTotalRows === null) missingCoverageCaps.push('--max-total-rows');
+    if (maxTotalBytes === null) missingCoverageCaps.push('--max-total-bytes');
+    if (maxCoverageInputRows === null) missingCoverageCaps.push('--max-coverage-input-rows');
+    if (maxCoverageKeyValuesInMemory === null) {
+      missingCoverageCaps.push('--max-coverage-key-values-in-memory');
+    }
+    if (maxCoveragePairsEmitted === null) missingCoverageCaps.push('--max-coverage-pairs-emitted');
+    if (maxCoverageRowsPrinted === null) missingCoverageCaps.push('--max-coverage-rows-printed');
+    if (missingCoverageCaps.length > 0) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        `--aggregate-join-coverage-signal requires every bounded cap (missing: ${missingCoverageCaps.join(', ')})`,
+      );
+    }
+    // `--max-bytes-per-file` is shared with Option B, whose ceiling is wider still.
+    if ((maxBytesPerFile as number) > BRAZIL_RECEITA_FULL_JOIN_COVERAGE_SIGNAL_MAX_BYTES_PER_FILE) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--max-bytes-per-file exceeds the BR-SOURCE-11H per-file ceiling',
       );
     }
   }
@@ -826,6 +1064,13 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
     maxJoinKeyValuesInMemory,
     maxJoinPairsEmitted,
     maxJoinedRowsPrinted,
+    aggregateJoinCoverageSignal,
+    aggregateJoinCoverageSignalAuthorized,
+    realLocalJoinCoverageSignalAuthorized,
+    maxCoverageInputRows,
+    maxCoverageKeyValuesInMemory,
+    maxCoveragePairsEmitted,
+    maxCoverageRowsPrinted,
     format,
     strict,
     maxCompanyRows,
@@ -1006,6 +1251,60 @@ export function formatReportText(report: BrazilReceitaFullJoinDryRunReport): str
     lines.push(`  join_coverage_computed: ${joinProbe.join_coverage_computed}`);
     lines.push(`  full_dataset_processed: ${joinProbe.full_dataset_processed}`);
   }
+  lines.push(
+    `aggregate_join_coverage_signal: ${report.aggregate_join_coverage_signal === null ? 'null' : ''}`.trimEnd(),
+  );
+  if (report.aggregate_join_coverage_signal !== null) {
+    const signal = report.aggregate_join_coverage_signal;
+    lines.push(`  authorized: ${signal.authorized}`);
+    lines.push(
+      `  real_local_join_coverage_signal_authorized: ${signal.real_local_join_coverage_signal_authorized}`,
+    );
+    lines.push(`  families_attempted: ${signal.families_attempted.join(', ')}`);
+    lines.push(`  files_opened_count: ${signal.files_opened_count}`);
+    renderCounts('  files_opened_by_family', signal.files_opened_by_family, lines);
+    for (const [label, statuses] of [
+      ['bytes_read_bucket', signal.bytes_read_bucket],
+      ['rows_read_bucket', signal.rows_read_bucket],
+      ['encoding_status', signal.encoding_status],
+      ['delimiter_status', signal.delimiter_status],
+      ['headerless_status', signal.headerless_status],
+    ] as ReadonlyArray<readonly [string, Record<string, string>]>) {
+      lines.push(`  ${label}:`);
+      for (const [family, value] of Object.entries(statuses)) lines.push(`    ${family}: ${value}`);
+    }
+    lines.push('  row_shape:');
+    for (const [family, shape] of Object.entries(signal.row_shape)) {
+      lines.push(`    ${family}:`);
+      lines.push(`      expected_min_columns: ${shape.expected_min_columns}`);
+      renderCounts(
+        '      observed_column_count_distribution',
+        shape.observed_column_count_distribution,
+        lines,
+      );
+      lines.push(`      row_shape_valid_count: ${shape.row_shape_valid_count}`);
+      lines.push(`      row_shape_invalid_count: ${shape.row_shape_invalid_count}`);
+    }
+    lines.push(`  selection_class: ${signal.selection_class}`);
+    lines.push(`  forbidden_family_attempted: ${signal.forbidden_family_attempted}`);
+    lines.push(`  forbidden_family_declared_count: ${signal.forbidden_family_declared_count}`);
+    lines.push(
+      `  never_opened_family_declared_count: ${signal.never_opened_family_declared_count}`,
+    );
+    lines.push('  coverage_signal:');
+    for (const [key, value] of Object.entries(signal.coverage_signal)) {
+      lines.push(`    ${key}: ${value}`);
+    }
+    lines.push(`  raw_rows_printed: ${signal.raw_rows_printed}`);
+    lines.push(`  raw_cells_printed: ${signal.raw_cells_printed}`);
+    lines.push(`  identifiers_printed: ${signal.identifiers_printed}`);
+    lines.push(`  filenames_printed: ${signal.filenames_printed}`);
+    lines.push(`  absolute_paths_printed: ${signal.absolute_paths_printed}`);
+    lines.push(`  hashes_printed: ${signal.hashes_printed}`);
+    lines.push(`  joins_executed: ${signal.joins_executed}`);
+    lines.push(`  join_coverage_computed: ${signal.join_coverage_computed}`);
+    lines.push(`  full_dataset_processed: ${signal.full_dataset_processed}`);
+  }
   lines.push('cleanup:');
   lines.push(`  cleanup_required: ${report.cleanup.cleanup_required}`);
   lines.push(`  cleanup_status: ${report.cleanup.cleanup_status}`);
@@ -1097,6 +1396,38 @@ export function runFullJoinDryRun(
         })
       : null;
 
+  // BR-SOURCE-11H Option C: build the aggregate-only coverage SIGNAL port. It resolves the
+  // manifest and at most two declared required-family paths inside its own closure, and it owns
+  // the bounded in-memory key window — so this CLI never holds a path and never holds a key. The
+  // port validates its seven authorizations, its forbidden-output refusals (including any exact
+  // percentage, denominator, coverage claim or production inference), its eleven caps and the
+  // manifest path shape eagerly, so a refused request never opens a descriptor at all.
+  const aggregateJoinCoverageSignalReader =
+    options.aggregateJoinCoverageSignal && options.manifestPath !== null
+      ? createBrazilReceitaAggregateJoinCoverageSignal({
+          manifestPath: options.manifestPath,
+          aggregateOnlyJoinCoverageSignalAuthorized:
+            options.aggregateJoinCoverageSignalAuthorized,
+          realLocalJoinCoverageSignalAuthorized: options.realLocalJoinCoverageSignalAuthorized,
+          requiredFamilyJoinProbeAuthorized: options.requiredFamilyJoinProbeAuthorized,
+          realLocalJoinDryRunAuthorized: options.realLocalJoinDryRunAuthorized,
+          requiredFamilyProbeAuthorized: options.requiredFamilyProbeAuthorized,
+          realManifestMetadataOnlyOptionBAuthorized: options.realManifestMetadataOnly,
+          realManifestMetadataOnlyExecutionAuthorized: options.realManifestMetadataExecution,
+          maxManifestBytes: options.maxManifestBytes ?? undefined,
+          maxDeclaredFiles: options.maxDeclaredFiles ?? undefined,
+          maxFilesOpened: options.maxFilesOpened ?? undefined,
+          maxBytesPerFile: options.maxBytesPerFile ?? undefined,
+          maxRowsPerFile: options.maxRowsPerFile ?? undefined,
+          maxTotalRows: options.maxTotalRows ?? undefined,
+          maxTotalBytes: options.maxTotalBytes ?? undefined,
+          maxCoverageInputRows: options.maxCoverageInputRows ?? undefined,
+          maxCoverageKeyValuesInMemory: options.maxCoverageKeyValuesInMemory ?? undefined,
+          maxCoveragePairsEmitted: options.maxCoveragePairsEmitted ?? undefined,
+          maxCoverageRowsPrinted: options.maxCoverageRowsPrinted ?? undefined,
+        })
+      : null;
+
   try {
     return runBrazilReceitaFullJoinDryRun({
       mode: options.runMode,
@@ -1164,6 +1495,39 @@ export function runFullJoinDryRun(
               : {}),
             ...(options.maxJoinedRowsPrinted !== null
               ? { maxJoinedRowsPrinted: options.maxJoinedRowsPrinted }
+              : {}),
+          }
+        : {}),
+      // BR-SOURCE-11H Option C REPLACES the declared trust in turn — a coverage-signal run is
+      // dispatched by its own trust — while keeping the metadata reader above, because the
+      // manifest is still read as a control document first. Every other authorization stays
+      // exactly as declared, and the 11F and 11G declarations are passed through unchanged
+      // because a coverage signal still needs them to open the files and to parse a key at all.
+      ...(aggregateJoinCoverageSignalReader !== null
+        ? {
+            manifestTrust: BRAZIL_RECEITA_FULL_JOIN_AGGREGATE_JOIN_COVERAGE_SIGNAL_TRUST,
+            requiredFamilyProbeAuthorized: options.requiredFamilyProbeAuthorized,
+            requiredFamilyJoinProbeAuthorized: options.requiredFamilyJoinProbeAuthorized,
+            realLocalJoinDryRunAuthorized: options.realLocalJoinDryRunAuthorized,
+            aggregateOnlyJoinCoverageSignalAuthorized:
+              options.aggregateJoinCoverageSignalAuthorized,
+            realLocalJoinCoverageSignalAuthorized: options.realLocalJoinCoverageSignalAuthorized,
+            aggregateJoinCoverageSignalReader,
+            ...(options.maxFilesOpened !== null ? { maxFilesOpened: options.maxFilesOpened } : {}),
+            ...(options.maxRowsPerFile !== null ? { maxRowsPerFile: options.maxRowsPerFile } : {}),
+            ...(options.maxTotalRows !== null ? { maxTotalRows: options.maxTotalRows } : {}),
+            ...(options.maxTotalBytes !== null ? { maxTotalBytes: options.maxTotalBytes } : {}),
+            ...(options.maxCoverageInputRows !== null
+              ? { maxCoverageInputRows: options.maxCoverageInputRows }
+              : {}),
+            ...(options.maxCoverageKeyValuesInMemory !== null
+              ? { maxCoverageKeyValuesInMemory: options.maxCoverageKeyValuesInMemory }
+              : {}),
+            ...(options.maxCoveragePairsEmitted !== null
+              ? { maxCoveragePairsEmitted: options.maxCoveragePairsEmitted }
+              : {}),
+            ...(options.maxCoverageRowsPrinted !== null
+              ? { maxCoverageRowsPrinted: options.maxCoverageRowsPrinted }
               : {}),
           }
         : {}),
@@ -1236,7 +1600,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       err instanceof BrazilReceitaRequiredFamilyProbeError ||
       // The join probe's message is a fixed refusal CODE too: it carries no path, no filename,
       // no document fragment and — critically — no join key (11G § 5.1).
-      err instanceof BrazilReceitaRequiredFamilyJoinProbeError
+      err instanceof BrazilReceitaRequiredFamilyJoinProbeError ||
+      // The coverage signal's message is a fixed refusal CODE too: no path, no filename, no
+      // document fragment, no join key, no exact figure and no denominator.
+      err instanceof BrazilReceitaAggregateJoinCoverageSignalError
         ? err.message
         : 'BRSOURCE11A_RUN_FAILED';
     process.stderr.write(`${message}\n`);
