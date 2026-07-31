@@ -1286,3 +1286,33 @@ of any gate — GATE-3, GATE-4 and GATE-5 in particular remain untouched, since 
 field, constructs no identity grain, and promotes no evidence.
 
 Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).
+
+---
+
+## 24. BR-SOURCE-11H — next decision question recorded, no gate approved
+
+```text
+BR-SOURCE-11H defines the next decision question: whether an ultra-bounded aggregate-only real join
+coverage signal can be authorized.
+It does not authorize coverage execution by itself.
+It does not authorize exact coverage percentages.
+It does not authorize full-dataset denominator claims.
+It does not authorize import.
+It does not approve any gate.
+```
+
+All eight gates remain `not_started` per § 15, the § 15 matrix still reads **NO-GO**, and the
+successor record's own status is `proposed_for_owner_review`. A merged question is still a question:
+any implementation additionally requires that record to be merged **and** the explicit owner phrase
+`AUTHORIZE OPTION C — ULTRA-BOUNDED AGGREGATE-ONLY REAL JOIN COVERAGE SIGNAL`, recorded separately.
+No phrase already spent for the synthetic carve-out, for metadata-only parsing, for the 11E execution,
+for the 11F data-file probe, or for the 11G join probe carries over.
+
+§ 4's global approval rules are unaffected: a successful bounded coverage signal would be evidence
+that a join mechanism produces an outcome class over two bounded windows, and is not citable toward
+the approval of any gate. GATE-3, GATE-4 and GATE-5 in particular remain untouched, since the signal
+persists no field, constructs no identity grain, and promotes no evidence. GATE-2 is the gate the
+successor record engages most directly, because its recommended option raises byte, row and in-memory
+key-window ceilings — an escalation that record states plainly and does not presume approved.
+
+Record: [`br-receita-cnpj-bounded-real-join-coverage-decision-record.md`](./br-receita-cnpj-bounded-real-join-coverage-decision-record.md).

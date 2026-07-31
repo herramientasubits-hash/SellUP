@@ -2049,3 +2049,46 @@ authorization is single-milestone and does not carry to Option D (support catalo
 BR-SOURCE-11H (bounded coverage), or import readiness — each needs its own record and its own phrase.
 
 Record: [`br-receita-cnpj-bounded-real-join-dry-run-decision-record.md`](./br-receita-cnpj-bounded-real-join-dry-run-decision-record.md).
+
+---
+
+## 28. BR-SOURCE-11H — next decision question recorded, gates unchanged
+
+```text
+BR-SOURCE-11H defines the next decision question: whether an ultra-bounded aggregate-only real join
+coverage signal can be authorized.
+It does not authorize coverage execution by itself.
+It does not authorize exact coverage percentages.
+It does not authorize full-dataset denominator claims.
+It does not authorize import.
+It does not approve any gate.
+```
+
+### 28.1 Gate and flag status after BR-SOURCE-11H — UNCHANGED
+
+All eight gates remain `not_started` / not approved, and the § 27.1 flag block is unchanged except for
+the successor record's own four new flags, all `false`:
+
+```text
+OPS_BR_BOUNDED_REAL_JOIN_COVERAGE_DECISION_RECORD_PR_READY          = false until PR
+OPS_BR_BOUNDED_REAL_JOIN_COVERAGE_DECISION_RECORD_OFFICIAL          = false until merge
+OPS_BR_ULTRA_BOUNDED_AGGREGATE_ONLY_JOIN_COVERAGE_SIGNAL_AUTHORIZED = false
+OPS_BR_REAL_LOCAL_JOIN_COVERAGE_SIGNAL_AUTHORIZED                   = false
+```
+
+§ 27.3 survives verbatim: no coverage figure, ratio or match rate has been computed. A merged question
+is still a question — any implementation additionally requires that record to be merged **and** the
+explicit owner phrase `AUTHORIZE OPTION C — ULTRA-BOUNDED AGGREGATE-ONLY REAL JOIN COVERAGE SIGNAL`,
+recorded separately. No phrase already spent in 11C, 11D-META, 11E, 11F or 11G carries over; the 11G
+phrase names the join probe and was single-milestone by its own terms.
+
+### 28.2 Why GATE-2 owners should read the successor record directly
+
+Unlike every prior milestone in the BR-SOURCE-11 series, the successor record proposes **raising real
+data ceilings**: 8× bytes per file, 10× rows per file, and a 10× larger in-memory join-key window,
+with the file count, family allowlist, denylists and aggregate-only discipline untouched. That is the
+axis GATE-2 exists to govern. The record neither defines an envelope nor argues that its proposed
+ceilings should become one, and it states explicitly that an owner who prefers the escalation to sit
+*inside* GATE-2's review is choosing its Option A — a supported outcome, not a delay.
+
+Record: [`br-receita-cnpj-bounded-real-join-coverage-decision-record.md`](./br-receita-cnpj-bounded-real-join-coverage-decision-record.md).
