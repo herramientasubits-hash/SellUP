@@ -2126,3 +2126,14 @@ reruns, larger caps, multi-window sampling, exact coverage percentages, import, 
 Agent 1. It recommends preparing a future GATE-2 route decision package. It does not approve any
 gate. See
 [`br-receita-cnpj-coverage-signal-interpretation-and-gate2-route-decision-record.md`](./br-receita-cnpj-coverage-signal-interpretation-and-gate2-route-decision-record.md).
+
+---
+
+## 30. Update (BR-SOURCE-11K)
+
+BR-SOURCE-11K creates the GATE-2 controls and evidence template. It provides a review checklist,
+evidence packet format, fail-closed validation matrix, and owner decision matrix for a future GATE-2
+owner review. It does not approve GATE-2. It does not authorize owner review, broader local
+execution, temp storage, multi-window sampling, exact coverage percentages, import, Supabase writes,
+runtime, or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-gate2-controls-and-evidence-template.md`](./br-receita-cnpj-gate2-controls-and-evidence-template.md).
