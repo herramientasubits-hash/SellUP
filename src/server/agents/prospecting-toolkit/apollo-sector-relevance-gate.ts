@@ -286,11 +286,23 @@ function normalizeSector(sector: string): string {
 
 /** Busca las señales configuradas para un sector dado. Null si no mapeado. */
 function getSectorSignals(sector: string | null | undefined): string[] | null {
+  return getSectorSignalEntry(sector)?.signals ?? null;
+}
+
+/**
+ * A1-APOLLO-TWO-ROUND-QUALITY-1: igual que `getSectorSignals` pero devolviendo
+ * también la CLAVE que coincidió. La clave es lo que permite consultar las
+ * tablas de industria amplia y de industria contradictoria del § 5, que están
+ * indexadas por sector.
+ */
+function getSectorSignalEntry(
+  sector: string | null | undefined,
+): { key: string; signals: string[] } | null {
   if (!sector?.trim()) return null;
   const normalized = normalizeSector(sector);
   for (const [key, signals] of Object.entries(SECTOR_SIGNAL_TERMS)) {
     if (normalized.includes(key) || key.includes(normalized)) {
-      return signals;
+      return { key, signals };
     }
   }
   return null;
@@ -702,6 +714,139 @@ export type ApolloPaidSectorRelevanceResult = {
   sectorEvidenceFields: string[];
 };
 
+// ─── A1-APOLLO-TWO-ROUND-QUALITY-1 § 5 — clasificación de la industria ────────
+//
+// El contrato antiguo tenía dos estados donde hacen falta tres. Cualquier
+// candidato con evidencia sectorial que no coincidiera con las señales estrictas
+// quedaba `sector_relevance_contradicted`, así que un supermercado real cuya
+// única industria declarada por Apollo es la categoría amplia `retail` —el caso
+// habitual— se rechazaba ANTES del enrichment y no podía siquiera competir por
+// resolver su propia ambigüedad. El § 5 lo separa: `retail` no demuestra
+// supermercado, pero tampoco lo contradice.
+
+/**
+ * Industrias AMPLIAS que contienen al sector buscado sin demostrarlo.
+ *
+ * Estar aquí no acepta al candidato: lo mantiene con evidencia insuficiente, que
+ * es el único estado que puede competir por un enrichment.
+ */
+const SECTOR_BROAD_COMPATIBLE_INDUSTRY_TERMS: Record<string, string[]> = {
+  'supermercados e hipermercados': [
+    'retail',
+    'consumer goods',
+    'food',
+    'food and beverage',
+    'food & beverages',
+    'wholesale',
+    'consumer services',
+    'comercio',
+    'consumo',
+  ],
+  'retail y consumo': [
+    'retail',
+    'consumer goods',
+    'consumer services',
+    'wholesale',
+    'food',
+    'comercio',
+    'consumo',
+  ],
+};
+
+/**
+ * Industrias que CONTRADICEN el sector buscado.
+ *
+ * `retail banking` y `commercial banking` aparecen explícitamente: contienen el
+ * substring `retail` y sin nombrarlas la comprobación de industria amplia las
+ * dejaría pasar.
+ */
+const SECTOR_CONTRADICTORY_INDUSTRY_TERMS: Record<string, string[]> = {
+  'supermercados e hipermercados': [
+    'retail banking',
+    'commercial banking',
+    'investment banking',
+    'banking',
+    'financial services',
+    'finance',
+    'insurance',
+    'capital markets',
+    'software',
+    'saas',
+    'information technology',
+    'consulting',
+    'marketplace',
+  ],
+  'retail y consumo': [
+    'retail banking',
+    'commercial banking',
+    'investment banking',
+    'banking',
+    'financial services',
+    'insurance',
+    'capital markets',
+  ],
+};
+
+/** Veredicto sobre la industria que el proveedor DECLARA para el candidato. */
+type DeclaredIndustryClass = 'contradictory' | 'broad_compatible' | 'unclassified';
+
+/**
+ * Industrias declaradas por el proveedor.
+ *
+ * Sólo campos de industria: ni title, ni snippet, ni descripción. La descripción
+ * de un supermercado real menciona con frecuencia "servicios financieros"
+ * (tarjeta propia, crédito de consumo) y leer eso como contradicción rechazaría
+ * justo a los candidatos correctos.
+ */
+function collectDeclaredIndustryTerms(result: WebSearchResult): string[] {
+  const meta = result.metadata as Record<string, unknown> | undefined;
+  if (!meta) return [];
+
+  const terms: string[] = [];
+  const pushString = (value: unknown) => {
+    if (typeof value === 'string' && value.trim() !== '') terms.push(value);
+  };
+  const pushArray = (value: unknown) => {
+    if (Array.isArray(value)) for (const item of value) pushString(item);
+  };
+
+  pushString(meta['industry']);
+  const profile = meta['apollo_profile'] as Record<string, unknown> | undefined;
+  if (profile) {
+    pushString(profile['industry']);
+    pushArray(profile['industries']);
+  }
+  return terms;
+}
+
+/**
+ * Clasifica la industria declarada respecto del sector buscado.
+ *
+ * Lo contradictorio se comprueba primero por precedencia de substring
+ * ('retail banking' ⊃ 'retail'), y basta UNA industria contradictoria para que
+ * el candidato lo sea: una empresa que Apollo describe a la vez como banca y
+ * como retail no es la evidencia de supermercado que autoriza gasto.
+ */
+function classifyDeclaredIndustryForSector(
+  result: WebSearchResult,
+  sectorKey: string,
+): DeclaredIndustryClass {
+  const declared = collectDeclaredIndustryTerms(result).map(normalizeSector);
+  if (declared.length === 0) return 'unclassified';
+
+  const contradictory = SECTOR_CONTRADICTORY_INDUSTRY_TERMS[sectorKey] ?? [];
+  for (const term of contradictory) {
+    if (declared.some((industry) => industry.includes(term))) return 'contradictory';
+  }
+
+  const broad = SECTOR_BROAD_COMPATIBLE_INDUSTRY_TERMS[sectorKey] ?? [];
+  for (const term of broad) {
+    if (declared.some((industry) => industry.includes(term))) return 'broad_compatible';
+  }
+
+  return 'unclassified';
+}
+
 /**
  * Campos que contienen una AFIRMACIÓN de sector.
  *
@@ -763,12 +908,12 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
   sector: string | null | undefined,
   subindustry?: string | null,
 ): ApolloPaidSectorRelevanceResult {
-  const subindustrySignals = subindustry ? getSectorSignals(subindustry) : null;
-  const signals = subindustrySignals ?? getSectorSignals(sector);
-  const subindustrySignalUsed = subindustrySignals !== null;
+  const subindustryEntry = subindustry ? getSectorSignalEntry(subindustry) : null;
+  const entry = subindustryEntry ?? getSectorSignalEntry(sector);
+  const subindustrySignalUsed = subindustryEntry !== null;
   const sectorEvidenceFields = collectSectorEvidenceFields(result);
 
-  if (!signals) {
+  if (!entry) {
     return {
       decision: 'sector_not_mapped',
       matchedTerms: [],
@@ -778,10 +923,42 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
   }
 
   const text = extractCandidateText(result);
-  const matchedTerms = findMatchedTerms(text, signals);
+  const matchedTerms = findMatchedTerms(text, entry.signals);
 
   if (matchedTerms.length > 0) {
     return { decision: 'relevant', matchedTerms, subindustrySignalUsed, sectorEvidenceFields };
+  }
+
+  // A1-APOLLO-TWO-ROUND-QUALITY-1 § 5 — sin señales específicas, la INDUSTRIA
+  // declarada decide, y decide en este orden:
+  //
+  //   contradictoria  → rechazo antes del enrichment (Citigroup: 'retail banking')
+  //   amplia          → evidencia INSUFICIENTE, no contradicción. Un supermercado
+  //                     real cuya única industria Apollo es 'retail' cae aquí y
+  //                     puede competir por un enrichment que resuelva la duda.
+  //   ninguna         → se conserva el criterio previo: hay evidencia sectorial
+  //                     de otro tipo y no coincide ⇒ contradicción.
+  //
+  // El orden importa: 'retail banking' CONTIENE 'retail'. Comprobar primero lo
+  // amplio dejaría pasar a la banca minorista como "supermercado por confirmar",
+  // que es el modo de fallo de v1.16K-AC con otro nombre.
+  const industryClass = classifyDeclaredIndustryForSector(result, entry.key);
+
+  if (industryClass === 'contradictory') {
+    return {
+      decision: 'sector_relevance_contradicted',
+      matchedTerms: [],
+      subindustrySignalUsed,
+      sectorEvidenceFields,
+    };
+  }
+  if (industryClass === 'broad_compatible') {
+    return {
+      decision: 'sector_evidence_missing_needs_enrichment',
+      matchedTerms: [],
+      subindustrySignalUsed,
+      sectorEvidenceFields,
+    };
   }
 
   return {

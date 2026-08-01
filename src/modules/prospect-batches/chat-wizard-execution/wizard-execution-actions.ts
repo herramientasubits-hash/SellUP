@@ -31,6 +31,18 @@ import { runWizardApolloSearch } from './wizard-apollo-executor';
 import type { WizardApolloRunner } from './wizard-apollo-executor';
 import { resolveWizardDiscoveryProvider } from './wizard-provider-resolver';
 import type { WizardDiscoveryProviderKey } from './wizard-provider-resolver';
+// A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — selección de proveedor POR CORRIDA. El
+// núcleo es puro: no lee env ni consulta la base. Las lecturas de entorno y de
+// rol se hacen aquí y se le pasan resueltas.
+import {
+  resolveWizardRunProvider,
+  toExecutableDiscoveryProvider,
+  toRunProviderSelectionMetadata,
+  buildProviderSelectionSignature,
+  RUN_PROVIDER_SELECTION_METADATA_KEY,
+  type WizardRunProviderSelection,
+} from './wizard-run-provider-selection';
+import { isWizardRunProviderOverrideEnabled } from '@/lib/feature-flags.server';
 // Q3F-5BB.11E — OBSERVATIONAL Apollo provider-routing wiring. The adapter is pure
 // (no env, no provider client, no Supabase, no contact-enrichment / phone reveal).
 // The barrel exposes the pure 11B resolver + 11C metadata builder. This produces
@@ -147,6 +159,13 @@ export type WizardExecutionDeps = {
   runApolloPipeline?: WizardApolloRunner;
   // Provider resolver — injectable for tests; defaults to resolveWizardDiscoveryProvider()
   resolveProvider?: () => WizardDiscoveryProviderKey;
+  /**
+   * A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — selección de proveedor por corrida.
+   *
+   * Opcional: sin ella se usa el resolutor por defecto, que reproduce
+   * exactamente el comportamiento previo (predeterminado global, sin override).
+   */
+  resolveRunProviderSelection?: () => WizardRunProviderSelection;
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
 };
 
@@ -308,6 +327,33 @@ export async function executeProspectWizardGenerationAction(
     runApolloPipeline: (apolloInput) => runWizardApolloSearch(apolloInput),
     resolveProvider: resolveWizardDiscoveryProvider,
 
+    // A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — todas las lecturas de entorno y de rol
+    // se hacen aquí; el núcleo que decide es puro.
+    //
+    // El wizard no expone hoy un selector de proveedor al usuario final, y este
+    // hito no lo crea (§ 1). Por eso `requestedProvider` queda deliberadamente
+    // sin origen: el contrato queda listo para un rollout o un benchmark
+    // posterior, y hasta entonces cada corrida resuelve al predeterminado global
+    // igual que antes.
+    resolveRunProviderSelection: () =>
+      resolveWizardRunProvider({
+        requestedProvider: undefined,
+        // Aunque hoy no llegue petición, la autoridad se resuelve igual: cuando
+        // el override se cablee, quién puede pedir ya está decidido server-side
+        // y no depende de nada que venga del cliente.
+        authority: null,
+        runOverrideEnabled: isWizardRunProviderOverrideEnabled(),
+        globalDefaultProvider: resolveWizardDiscoveryProvider(),
+        enabledProviders: {
+          tavily: true,
+          // Kill switch real. Con el flag apagado, ninguna corrida puede usar
+          // Apollo — lo pida quien lo pida.
+          apollo_organizations: isApolloCompanySearchEnabled(),
+          // Sin ruta de ejecución en el wizard de empresas: fail-closed.
+          lusha_companies: false,
+        },
+      }),
+
     markBatchFailed: (batchId, reason) =>
       markWizardBatchFailed(batchId, reason, async (id) => {
         const result = await supabase
@@ -410,7 +456,54 @@ export async function executeProspectWizardGeneration(
   }
 
   // 5a. Resolve discovery provider (server-side, double gate)
-  const discoveryProvider: WizardDiscoveryProviderKey = (deps.resolveProvider ?? resolveWizardDiscoveryProvider)();
+  //
+  // A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — la elección es POR CORRIDA. El
+  // predeterminado global sigue siendo Tavily y no cambia; lo que cambia es que
+  // una corrida autorizada puede fijar otro proveedor sin mover la variable
+  // global de Producción. Se resuelve AQUÍ, antes de estimar créditos y antes de
+  // reservar presupuesto, porque la estimación depende del proveedor: reservar
+  // para Tavily y ejecutar Apollo es exactamente el descuadre que este orden
+  // evita.
+  //
+  // El kill switch manda por encima de todo: con ENABLE_APOLLO_COMPANY_SEARCH
+  // apagado, ninguna corrida puede usar Apollo aunque lo pida un admin.
+  // Sin dep inyectada se conserva EXACTAMENTE el comportamiento previo: el
+  // predeterminado global decide y no hay petición por corrida. Los tests que ya
+  // inyectan `resolveProvider` siguen gobernando la decisión.
+  const runProviderSelection: WizardRunProviderSelection =
+    deps.resolveRunProviderSelection?.() ??
+    resolveWizardRunProvider({
+      authority: null,
+      globalDefaultProvider: (deps.resolveProvider ?? resolveWizardDiscoveryProvider)(),
+      // El resolutor global ya aplicó su doble gate: lo que devuelve es, por
+      // construcción, un proveedor habilitado.
+      enabledProviders: {
+        tavily: true,
+        apollo_organizations: true,
+      },
+    });
+
+  const executableProvider = toExecutableDiscoveryProvider(runProviderSelection);
+  if (executableProvider === null) {
+    // Un proveedor del contrato de routing sin ruta de ejecución en el wizard de
+    // empresas (hoy `lusha_companies`) NO se degrada en silencio a otro: se
+    // detiene sin lote, sin reserva y sin candidatos.
+    return {
+      ok: false,
+      code: 'PROVIDER_UNAVAILABLE',
+      message: 'El proveedor de búsqueda seleccionado no está disponible en este momento.',
+      retryable: false,
+    };
+  }
+  const discoveryProvider: WizardDiscoveryProviderKey = executableProvider;
+
+  // § 1 — los tres campos que cada ejecución debe conservar. Aterrizan de forma
+  // aditiva en el metadata del lote por la costura `extraBatchMetadata` que ya
+  // existe, sin una segunda escritura.
+  const runProviderSelectionMetadata: Record<string, unknown> = {
+    [RUN_PROVIDER_SELECTION_METADATA_KEY]:
+      toRunProviderSelectionMetadata(runProviderSelection),
+  };
 
   // 5a-bis. Q3F-5BB.11E — OBSERVATIONAL provider-routing metadata for Apollo.
   // Runs ONLY when the server-side double gate (resolveWizardDiscoveryProvider)
@@ -445,7 +538,10 @@ export async function executeProspectWizardGeneration(
         fallbackAllowed: false,
         fallbackReason: 'apollo_company_discovery_no_fallback',
       });
-      apolloRoutingExtraMetadata = { [BATCH_PROVIDER_ROUTING_KEY]: routingMetadata };
+      apolloRoutingExtraMetadata = {
+        [BATCH_PROVIDER_ROUTING_KEY]: routingMetadata,
+        ...runProviderSelectionMetadata,
+      };
     } catch {
       // Fail-closed: a routing inconsistency (assert throw) must not run a
       // mis-routed provider. Never falls through to another provider.
@@ -551,6 +647,11 @@ export async function executeProspectWizardGeneration(
       catalogResolution.industry.id,
       catalogResolution.subindustries.map((s) => s.id).join(','),
       String(requestedCredits),
+      // A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — el proveedor de la corrida entra en
+      // la huella. Dos intentos del mismo clientRequestId con proveedores
+      // distintos producen huellas distintas, así que un cambio de proveedor
+      // entre reintentos deja de ser indistinguible del mismo trabajo repetido.
+      buildProviderSelectionSignature(runProviderSelection),
     ].join('|'),
   });
 

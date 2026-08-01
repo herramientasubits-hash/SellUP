@@ -30,7 +30,17 @@ import {
 import {
   isApolloOrganizationEnrichmentCascadeEnabled,
   resolveApolloMaxEnrichmentsPerRun,
+  isApolloTwoRoundDiscoveryEnabled,
 } from '@/lib/feature-flags.server';
+// A1-APOLLO-TWO-ROUND-QUALITY-1 § 10 — presupuesto del peor caso de dos rondas.
+import {
+  estimateApolloTwoRoundBudget,
+  evaluateApolloTwoRoundBudgetPreflight,
+  toApolloTwoRoundBudgetMetadata,
+  BUDGET_EXCEEDED_TWO_ROUND_APOLLO,
+  type ApolloTwoRoundBudgetBreakdown,
+} from '@/server/agents/prospecting-toolkit/apollo-two-round';
+import { resolveApolloTwoRoundConfigValues } from '@/server/agents/prospecting-toolkit/apollo-two-round/env.server';
 
 // Re-exported so callers don't need to import apollo-cost-guardrails directly.
 import {
@@ -59,10 +69,43 @@ export function resolveApolloRunCreditBreakdown(): ApolloRunCreditBreakdown {
   });
 }
 
+/**
+ * A1-APOLLO-TWO-ROUND-QUALITY-1 § 10 — presupuesto de la modalidad de dos
+ * rondas.
+ *
+ * Reserva el PEOR caso permitido (5 + 5 búsqueda + 2 enrichment = 12 con los
+ * defaults), no el caso esperado. Una corrida que no puede cubrir su máximo
+ * autorizado no debe empezar: no existe reserva parcial que la deje sin
+ * cobertura a mitad de la ronda 2.
+ */
+export function resolveApolloTwoRoundCreditEstimate(): {
+  enabled: boolean;
+  breakdown: ApolloTwoRoundBudgetBreakdown | null;
+  estimatedCredits: number | null;
+} {
+  if (!isApolloTwoRoundDiscoveryEnabled()) {
+    return { enabled: false, breakdown: null, estimatedCredits: null };
+  }
+  const breakdown = estimateApolloTwoRoundBudget(resolveApolloTwoRoundConfigValues());
+  return {
+    enabled: true,
+    breakdown,
+    estimatedCredits: breakdown.maximumInternalRecordedCredits,
+  };
+}
+
 export type WizardBudgetValidationResult = {
   provider: WizardDiscoveryProviderKey;
   estimatedCredits: number;
-  estimateSource: 'apollo_cost_guardrails' | 'tavily_adaptive_pipeline';
+  estimateSource:
+    | 'apollo_cost_guardrails'
+    | 'tavily_adaptive_pipeline'
+    | 'apollo_two_round_worst_case';
+  /**
+   * Desglose del peor caso de dos rondas. Null cuando la modalidad está apagada
+   * o el proveedor no es Apollo.
+   */
+  apolloTwoRoundBreakdown: ApolloTwoRoundBudgetBreakdown | null;
   /** Apollo search/enrichment credit split. Null for non-Apollo providers. */
   apolloCreditBreakdown: ApolloRunCreditBreakdown | null;
   /** Resolved Apollo queries cap (only meaningful when provider = apollo_organizations) */
@@ -72,7 +115,12 @@ export type WizardBudgetValidationResult = {
   availableCredits: number;
   maxCreditsPerExecution: number;
   passed: boolean;
-  blockReason: 'exceeds_max_credits_per_execution' | 'insufficient_available_budget' | null;
+  blockReason:
+    | 'exceeds_max_credits_per_execution'
+    | 'insufficient_available_budget'
+    /** § 10 — estado explicativo propio de la modalidad de dos rondas. */
+    | typeof BUDGET_EXCEEDED_TWO_ROUND_APOLLO
+    | null;
 };
 
 export type WizardBudgetEstimateInput = {
@@ -102,8 +150,22 @@ export function resolveWizardExecutionCreditEstimate(
   let apolloMaxQueriesPerRun: number | null = null;
   let apolloMaxResultsPerQuery: number | null = null;
   let apolloCreditBreakdown: ApolloRunCreditBreakdown | null = null;
+  let apolloTwoRoundBreakdown: ApolloTwoRoundBudgetBreakdown | null = null;
 
-  if (provider === 'apollo_organizations') {
+  const twoRound =
+    provider === 'apollo_organizations'
+      ? resolveApolloTwoRoundCreditEstimate()
+      : { enabled: false, breakdown: null, estimatedCredits: null };
+
+  if (provider === 'apollo_organizations' && twoRound.enabled && twoRound.breakdown) {
+    // § 10 — la modalidad de dos rondas tiene su propio peor caso, y es el que
+    // manda: los guardrails legacy describen una corrida de otra forma.
+    apolloTwoRoundBreakdown = twoRound.breakdown;
+    apolloMaxResultsPerQuery = twoRound.breakdown.config.maxResultsPerRound;
+    apolloMaxQueriesPerRun = twoRound.breakdown.config.maxRounds;
+    estimatedCredits = twoRound.breakdown.maximumInternalRecordedCredits;
+    estimateSource = 'apollo_two_round_worst_case';
+  } else if (provider === 'apollo_organizations') {
     apolloCreditBreakdown = resolveApolloRunCreditBreakdown();
     apolloMaxQueriesPerRun = apolloCreditBreakdown.inputs.maxQueriesPerRun;
     apolloMaxResultsPerQuery = apolloCreditBreakdown.inputs.maxResultsPerQuery;
@@ -119,11 +181,27 @@ export function resolveWizardExecutionCreditEstimate(
     estimatedCredits,
     estimateSource,
     apolloCreditBreakdown,
+    apolloTwoRoundBreakdown,
     apolloMaxQueriesPerRun,
     apolloMaxResultsPerQuery,
     availableCredits,
     maxCreditsPerExecution,
   };
+
+  // § 10 — en la modalidad de dos rondas, cualquiera de los dos bloqueos se
+  // reporta con el estado explicativo propio: quien lea el resultado necesita
+  // saber que fue el techo de esta modalidad y no el guardrail legacy.
+  if (twoRound.enabled && apolloTwoRoundBreakdown) {
+    const preflight = evaluateApolloTwoRoundBudgetPreflight({
+      config: apolloTwoRoundBreakdown.config,
+      availableCredits,
+      maxCreditsPerExecution,
+    });
+    if (!preflight.passed) {
+      return { ...base, passed: false, blockReason: preflight.blockReason };
+    }
+    return { ...base, passed: true, blockReason: null };
+  }
 
   // Block precedence: max_per_execution first, then available budget.
   if (estimatedCredits > maxCreditsPerExecution) {
@@ -144,6 +222,8 @@ export type WizardBudgetValidationMetadata = {
   estimated_credits: number;
   estimate_source: string;
   apollo_credit_breakdown: ApolloRunCreditBreakdownMetadata | null;
+  /** § 10 — desglose del peor caso de dos rondas. Null cuando no aplica. */
+  apollo_two_round_budget: Record<string, unknown> | null;
   apollo_max_queries_per_run: number | null;
   apollo_max_results_per_query: number | null;
   available_credits: number;
@@ -166,6 +246,9 @@ export function toWizardBudgetValidationMetadata(
     apollo_credit_breakdown: result.apolloCreditBreakdown
       ? toApolloRunCreditBreakdownMetadata(result.apolloCreditBreakdown)
       : null,
+    apollo_two_round_budget: result.apolloTwoRoundBreakdown
+      ? toApolloTwoRoundBudgetMetadata(result.apolloTwoRoundBreakdown)
+      : null,
     apollo_max_queries_per_run: result.apolloMaxQueriesPerRun,
     apollo_max_results_per_query: result.apolloMaxResultsPerQuery,
     available_credits: result.availableCredits,
@@ -181,6 +264,11 @@ export function toWizardBudgetValidationMetadata(
  */
 export function estimateCreditsForProvider(provider: WizardDiscoveryProviderKey): number {
   if (provider === 'apollo_organizations') {
+    // § 10 — con la modalidad de dos rondas activa se reserva su peor caso, que
+    // incluye la segunda búsqueda y los dos enrichments. Reservar el desglose
+    // legacy dejaría a la ronda 2 sin cobertura.
+    const twoRound = resolveApolloTwoRoundCreditEstimate();
+    if (twoRound.estimatedCredits !== null) return twoRound.estimatedCredits;
     return resolveApolloRunCreditBreakdown().totalReservedCredits;
   }
   return estimateWizardAdaptiveMaxCredits();
