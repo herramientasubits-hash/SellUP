@@ -58,7 +58,12 @@
  *     Lusha, sin retry automático, sin HubSpot, sin bulk.
  *
  * La ruta legacy NO es un atajo para saltarse Apollo: exige evidencia PERSISTIDA del
- * desenlace histórico y se cierra si el candidato ya tuvo cualquier corrida.
+ * desenlace histórico y se cierra en cuanto el candidato pertenece al flujo completo.
+ *
+ * REAUTORIZACIÓN (AGENT2A-PHONE-WATERFALL-2C). Una corrida histórica NO bloquea de
+ * forma indiscriminada una autorización nueva: lo que bloquea es su CLASE, no su
+ * existencia. La distinción vive en `classifyPhoneRevealWaterfallLegacyHistory` y es
+ * la única autoridad, compartida por el servidor y por la UI.
  */
 
 // ── Vocabularios (espejo exacto de los CHECK de la migración 102) ──
@@ -590,13 +595,116 @@ export type PhoneRevealWaterfallLegacyIneligibleReason =
   | 'candidate_not_editable'
   | 'missing_lusha_contact_id'
   | 'active_run_exists'
-  /** Ya hay una corrida del waterfall en el historial: manda el flujo normal de reautorización. */
-  | 'waterfall_run_already_exists'
+  /**
+   * La corrida histórica pertenece al flujo COMPLETO (`full_waterfall`), así que el
+   * candidato no es legacy: su caso lo gobierna el waterfall normal, con Apollo
+   * incluido. La ruta legacy NO puede usarse para saltárselo.
+   */
+  | 'incompatible_historical_run'
+  /**
+   * La corrida legacy anterior YA consiguió teléfono. No hay nada que reautorizar y
+   * volver a llamar a Lusha gastaría créditos repitiendo un resultado ya pagado.
+   */
+  | 'previous_run_revealed_phone'
   | 'create_conflict';
 
 export interface PhoneRevealWaterfallLegacyEligibility {
   eligible: boolean;
   reason: PhoneRevealWaterfallLegacyIneligibleReason | null;
+}
+
+// ── Clasificación del historial de corridas (reautorización) ────
+// (AGENT2A-PHONE-WATERFALL-2C)
+
+/**
+ * Proyección MÍNIMA para clasificar el historial. La cumplen tanto la fila completa
+ * (`PhoneRevealWaterfallRunRecord`) como la vista de auditoría que consume la UI
+ * (`PhoneRevealWaterfallAuditView`), así que servidor y cliente clasifican con la
+ * MISMA función sobre la MISMA fila (las dos leen
+ * `findLatestWaterfallRunForCandidate`) y no puede haber un botón que ofrezca lo que
+ * el servidor rechaza, ni al contrario.
+ */
+export interface PhoneRevealWaterfallHistoricalRun {
+  status: PhoneRevealWaterfallStatus;
+  runMode: PhoneRevealWaterfallRunMode;
+  lushaOutcome: PhoneRevealWaterfallLushaOutcome | null;
+  finalProvider: PhoneRevealWaterfallFinalProvider | null;
+}
+
+/** Por qué el historial permite (o no) una autorización legacy NUEVA. */
+export type PhoneRevealWaterfallLegacyHistoryVerdict =
+  | {
+      reauthorizable: true;
+      /** `no_previous_run` = primera vez; `terminal_legacy_run` = reautorización. */
+      basis: 'no_previous_run' | 'terminal_legacy_run';
+    }
+  | {
+      reauthorizable: false;
+      reason: Extract<
+        PhoneRevealWaterfallLegacyIneligibleReason,
+        'active_run_exists' | 'incompatible_historical_run' | 'previous_run_revealed_phone'
+      >;
+    };
+
+/**
+ * ¿Permite el historial una autorización legacy NUEVA? Clasifica la corrida MÁS
+ * RECIENTE del candidato en las cuatro clases que el contrato distingue, en vez de
+ * rechazar por el simple hecho de que exista historial:
+ *
+ *   1. NO hay corrida               ⇒ primera autorización legacy.
+ *   2. corrida NO terminal          ⇒ `active_run_exists`. Ya hay una autorización
+ *      viva: se usa esa o se espera su cierre. Nunca se abre una segunda en paralelo
+ *      (el índice único parcial lo garantiza además a nivel de escritura).
+ *   3. corrida terminal `full_waterfall` ⇒ `incompatible_historical_run`. El
+ *      candidato pertenece al flujo completo; una corrida suya NO lo convierte en
+ *      legacy y la ruta legacy no es una vía para saltarse Apollo.
+ *   4. corrida terminal `legacy_lusha_only`:
+ *        * si YA reveló teléfono   ⇒ `previous_run_revealed_phone` (nada que
+ *          reautorizar; repetir Lusha pagaría dos veces la misma respuesta);
+ *        * si NO reveló            ⇒ REAUTORIZABLE. Cubre `no_phone_found`, error de
+ *          Lusha, `suppressed`, `suppression_check_unavailable`, autorización vencida
+ *          y cualquier otro cierre sin teléfono. Cada reautorización es una corrida
+ *          NUEVA: id nuevo, `authorized_at` nuevo, tope 5 otra vez y TODOS los gates
+ *          revalidados — incluida la comprobación de supresión/DNC, que se ejecuta de
+ *          cero. El veredicto de privacidad anterior NUNCA se reutiliza como permiso.
+ *
+ * Por qué basta con la corrida MÁS RECIENTE y no hace falta escanear el historial
+ * completo: una corrida legacy solo puede crearse cuando la más reciente es nula o es
+ * legacy terminal, así que por inducción "la más reciente es legacy" implica que TODAS
+ * lo son. Y si en algún momento se añade una `full_waterfall` (el START de Apollo no
+ * consulta el historial, solo la corrida activa), pasa a ser la más reciente y cierra
+ * la ruta legacy desde ese momento — que es exactamente el efecto que exige el punto 3.
+ *
+ * PURA y sin I/O: recibe la fila ya leída.
+ */
+export function classifyPhoneRevealWaterfallLegacyHistory(
+  latestRun: PhoneRevealWaterfallHistoricalRun | null,
+): PhoneRevealWaterfallLegacyHistoryVerdict {
+  if (!latestRun) return { reauthorizable: true, basis: 'no_previous_run' };
+
+  if (!PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(latestRun.status)) {
+    return { reauthorizable: false, reason: 'active_run_exists' };
+  }
+
+  if (latestRun.runMode !== 'legacy_lusha_only') {
+    return { reauthorizable: false, reason: 'incompatible_historical_run' };
+  }
+
+  // "Ya consiguió teléfono" se comprueba por TRES señales independientes y basta una:
+  // el desenlace de Lusha, el proveedor final y el propio status de cierre. Son
+  // redundantes por diseño — una fila anómala en la que solo una de las tres lo diga
+  // debe bloquear igual, porque el error caro es cobrar de nuevo un teléfono ya pagado.
+  if (
+    latestRun.lushaOutcome === 'revealed' ||
+    latestRun.finalProvider === 'lusha' ||
+    latestRun.finalProvider === 'apollo' ||
+    latestRun.status === 'completed_lusha' ||
+    latestRun.status === 'completed_apollo'
+  ) {
+    return { reauthorizable: false, reason: 'previous_run_revealed_phone' };
+  }
+
+  return { reauthorizable: true, basis: 'terminal_legacy_run' };
 }
 
 /**
@@ -672,9 +780,11 @@ export interface StartLegacyPhoneRevealWaterfallDeps {
     candidateId: string,
   ) => Promise<PhoneRevealWaterfallRunRecord | null>;
   /**
-   * Corrida MÁS RECIENTE del candidato, terminal o no. Si ya existe CUALQUIERA, la
-   * ruta legacy no aplica: el candidato ya vivió el waterfall y lo que corresponde
-   * son las reglas normales de reautorización, no una excusa para Apollo.
+   * Corrida MÁS RECIENTE del candidato, terminal o no. Su CLASE decide, vía
+   * `classifyPhoneRevealWaterfallLegacyHistory`, si cabe una autorización nueva: una
+   * corrida activa bloquea, una `full_waterfall` bloquea, y una legacy terminal que no
+   * consiguió teléfono es REAUTORIZABLE (AGENT2A-PHONE-WATERFALL-2C). Su mera
+   * existencia NO bloquea.
    */
   findLatestRun: (
     candidateId: string,
@@ -739,12 +849,15 @@ export async function startLegacyPhoneRevealWaterfall(
   const active = await deps.findActiveRun(candidateId);
   if (active) return { started: false, reason: 'active_run_exists' };
 
-  // Cualquier corrida histórica descalifica la ruta legacy: "legacy" significa
-  // ANTERIOR a la tabla. Si el candidato ya tiene una corrida, su caso lo gobiernan
-  // las reglas normales del waterfall, y dejar entrar la ruta legacy aquí la
-  // convertiría en un atajo para saltarse Apollo indefinidamente.
-  const latest = await deps.findLatestRun(candidateId);
-  if (latest) return { started: false, reason: 'waterfall_run_already_exists' };
+  // El historial se CLASIFICA, no se cuenta (AGENT2A-PHONE-WATERFALL-2C): una corrida
+  // legacy terminal que no consiguió teléfono admite una autorización NUEVA, mientras
+  // que una corrida del flujo completo — o una que ya reveló — la cierra.
+  const historyVerdict = classifyPhoneRevealWaterfallLegacyHistory(
+    await deps.findLatestRun(candidateId),
+  );
+  if (!historyVerdict.reauthorizable) {
+    return { started: false, reason: historyVerdict.reason };
+  }
 
   const runId = await deps.createRun({
     candidateId,

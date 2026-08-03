@@ -76,7 +76,13 @@ import { getPhoneRevealWaterfallAuditAction } from '@/modules/contact-enrichment
 // vía. Esta acción autoriza SOLO la pata Lusha (tope 5) reutilizando el mismo botón y
 // el mismo modal. El servidor revalida flag, rol admin y evidencia persistida.
 import { startLegacyPhoneRevealWaterfallAction } from '@/modules/contact-enrichment/phone-reveal-waterfall-legacy-actions';
-import type { PhoneRevealWaterfallAuditView } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
+// El core del waterfall es PURO por contrato (sin I/O, sin Supabase, sin fetch, sin
+// process.env), así que importar de él una función de clasificación es seguro en el
+// bundle cliente — y es preferible a duplicar la regla de reautorización en la UI.
+import {
+  classifyPhoneRevealWaterfallLegacyHistory,
+  type PhoneRevealWaterfallAuditView,
+} from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
 import {
   formatWaterfallLegCredits,
   getPhoneRevealWaterfallModalCopy,
@@ -1177,6 +1183,12 @@ export function ContactCandidateDetailSheet({
   // Se exige `phone_reveal_provider === 'apollo'`: un `no_phone_found` que ya produjo
   // LUSHA no habilita volver a llamar a Lusha. Y se exige id Lusha propio, porque sin
   // él la pata no existe y pedir 5 créditos sería pedir permiso para nada.
+  //
+  // La clasificación del historial se delega al core PURO (sin I/O, sin imports de
+  // servidor, seguro en el bundle cliente) para no duplicar la regla: duplicarla es lo
+  // que permitiría que el botón y el servidor discreparan.
+  const legacyWaterfallHistory =
+    classifyPhoneRevealWaterfallLegacyHistory(waterfallAudit);
   const canOfferLegacyPhoneWaterfall =
     !!candidate &&
     waterfallActive &&
@@ -1185,14 +1197,16 @@ export function ContactCandidateDetailSheet({
     !phoneRevealInFlight &&
     !hasPhone &&
     hasLushaContactId &&
-    // Solo cuando el candidato NO tiene NINGUNA corrida, ni viva ni cerrada. Es la
-    // misma condición que aplica el servidor, por dos razones distintas:
-    //   * una corrida viva significa que la autorización ya está en curso;
-    //   * una corrida cerrada significa que el candidato ya dejó de ser "legacy"
-    //     (legacy = anterior a la tabla). Sin esto, cada cierre sin teléfono volvería
-    //     a ofrecer el botón y la ruta se convertiría en un reintento ilimitado de
-    //     Lusha a 5 créditos por clic.
-    !waterfallAudit;
+    // El historial se CLASIFICA con la MISMA función pura que aplica el servidor
+    // (AGENT2A-PHONE-WATERFALL-2C), sobre la MISMA fila — las dos leen la corrida más
+    // reciente — así que el botón nunca ofrece lo que el servidor va a rechazar:
+    //   * corrida viva                     ⇒ no se ofrece (autorización en curso);
+    //   * corrida `full_waterfall`         ⇒ no se ofrece (candidato del flujo completo);
+    //   * corrida legacy que YA reveló     ⇒ no se ofrece (nada que reautorizar);
+    //   * corrida legacy terminal sin teléfono ⇒ SÍ se ofrece: el operador puede
+    //     autorizar de nuevo, y sigue costándole un clic y una confirmación nuevos.
+    //     No hay reapertura ni reintento automáticos en ninguna parte de este flujo.
+    legacyWaterfallHistory.reauthorizable;
 
   const waterfallModalCopy = getPhoneRevealWaterfallModalCopy({
     lushaEligible: waterfallLushaEligible,

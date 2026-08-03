@@ -18,7 +18,10 @@
 //   1. Autentica y resuelve el rol del actor (redirige a /login sin usuario).
 //   2. El core revalida TODO server-side: flag, rol admin, evidencia legacy
 //      persistida, sin teléfono, candidato editable, id Lusha propio, sin corrida
-//      activa y sin ninguna corrida histórica.
+//      activa y con un historial que admita una autorización nueva
+//      (AGENT2A-PHONE-WATERFALL-2C: una corrida legacy terminal SIN teléfono es
+//      reautorizable; una del flujo completo, o una que ya reveló, no lo es).
+//      Cada reautorización revalida TODO otra vez, incluida la supresión/DNC.
 //   3. Crea la corrida `legacy_lusha_only` (tope 5) ANTES de cualquier llamada.
 //   4. Continúa con el MISMO core del waterfall: claim atómico, TTL de 24 h,
 //      re-comprobación de supresión/DNC fail-closed y UNA sola llamada a Lusha.

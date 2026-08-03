@@ -470,12 +470,129 @@ describe('WATERFALL-2 UI — cuándo NO se ofrece la ruta legacy', () => {
     assert.equal(revealButtons().length, 0);
   });
 
-  it('corrida ya TERMINAL ⇒ tampoco se ofrece (la ruta legacy es un puente de una sola vez)', async () => {
+  it('corrida FULL_WATERFALL terminal ⇒ no se ofrece la ruta legacy', async () => {
+    // El candidato pertenece al flujo completo. Su corrida no lo vuelve legacy, y esta
+    // ruta no es una vía para saltarse Apollo (AGENT2A-PHONE-WATERFALL-2C).
     mockAudit.mock.mockImplementation(async () =>
-      auditView({ status: 'exhausted', isTerminal: true, finalProvider: 'none' }),
+      auditView({
+        status: 'exhausted',
+        runMode: 'full_waterfall',
+        isTerminal: true,
+        finalProvider: 'none',
+      }),
     );
     await renderSheet(legacyCandidate());
     assert.equal(revealButtons().length, 0);
+    assert.equal(mockLegacyStart.mock.callCount(), 0);
+  });
+
+  it('corrida legacy terminal que YA reveló ⇒ no se ofrece (nada que reautorizar)', async () => {
+    mockAudit.mock.mockImplementation(async () =>
+      auditView({
+        status: 'completed_lusha',
+        isTerminal: true,
+        lushaAttempted: true,
+        lushaOutcome: 'revealed',
+        finalProvider: 'lusha',
+      }),
+    );
+    await renderSheet(legacyCandidate());
+    assert.equal(revealButtons().length, 0);
+    assert.equal(mockLegacyStart.mock.callCount(), 0);
+  });
+});
+
+// ── 2b. Reautorización tras una corrida terminal (AGENT2A-PHONE-WATERFALL-2C) ─
+
+/**
+ * Corrida legacy TERMINAL que no consiguió teléfono. Es el estado en el que el mismo
+ * botón vuelve a estar disponible: nada se reabre ni se reintenta solo — el operador
+ * tiene que volver a hacer clic y volver a confirmar.
+ */
+function terminalLegacyRunWithoutPhone(
+  overrides: Partial<PhoneRevealWaterfallAuditView> = {},
+): PhoneRevealWaterfallAuditView {
+  return auditView({
+    status: 'exhausted',
+    isTerminal: true,
+    lushaAttempted: true,
+    lushaOutcome: 'no_phone_found',
+    lushaCostCredits: 0,
+    lushaCostSource: 'reported',
+    finalProvider: 'none',
+    ...overrides,
+  });
+}
+
+describe('WATERFALL-2C UI — reautorización tras una corrida terminal sin teléfono', () => {
+  beforeEach(() => {
+    mockAudit.mock.mockImplementation(async () => terminalLegacyRunWithoutPhone());
+  });
+
+  it('el MISMO botón vuelve a estar habilitado (uno solo, sin botón separado de Lusha)', async () => {
+    await renderSheet(legacyCandidate());
+    const buttons = revealButtons();
+    assert.equal(buttons.length, 1, 'exactamente un botón "Revelar teléfono"');
+    assert.equal((buttons[0] as HTMLButtonElement).disabled, false);
+    assert.equal(lushaButton(), null, 'no hay botón separado "Revelar teléfono con Lusha"');
+    assert.equal(bodyText().includes('Reintentar Lusha'), false);
+  });
+
+  it('abre el MISMO modal legacy: máximo 5, Apollo no se repite, nunca 13', async () => {
+    await renderSheet(legacyCandidate());
+    await openModal();
+
+    // Una sola superficie de confirmación: un único "Confirmar y revelar". No hay un
+    // segundo modal ni un flujo de confirmación paralelo para la reautorización.
+    assert.equal(
+      screen.getAllByRole('button', { name: 'Confirmar y revelar' }).length,
+      1,
+      'un solo modal de confirmación, no un segundo',
+    );
+    const dialogText = (screen.getByRole('dialog').textContent ?? '').replace(/\s+/g, ' ');
+    assert.ok(/hasta 5 créditos de Lusha/i.test(dialogText), dialogText);
+    assert.equal(/13 créditos/.test(dialogText), false, 'nunca muestra 13');
+    assert.ok(/no volverá a ejecutar Apollo/i.test(dialogText), dialogText);
+    assert.ok(/Solo se intentará Lusha/i.test(dialogText), dialogText);
+    assert.ok(/No garantiza encontrar un teléfono/i.test(dialogText), dialogText);
+    assert.ok(/No crea un contacto oficial/i.test(dialogText), dialogText);
+    assert.ok(/No se escribirá en HubSpot/i.test(dialogText), dialogText);
+  });
+
+  it('exige una confirmación NUEVA: abrir el modal no gasta nada', async () => {
+    await renderSheet(legacyCandidate());
+    await openModal();
+    assert.equal(mockLegacyStart.mock.callCount(), 0, 'abrir el modal no autoriza');
+
+    await act(async () => {
+      fireEvent.click(confirmButton()!);
+    });
+    assert.equal(mockLegacyStart.mock.callCount(), 1, 'solo la confirmación autoriza');
+    // Un candidato por invocación y nunca el reveal de Apollo.
+    assert.deepEqual(mockLegacyStart.mock.calls[0].arguments[0], {
+      candidateId: 'cand-legacy',
+    });
+    assert.equal(mockReveal.mock.callCount(), 0);
+  });
+
+  it('no hay reapertura ni reintento automáticos: sin clic no se autoriza nada', async () => {
+    await renderSheet(legacyCandidate());
+    // El drawer se abrió sobre una corrida terminal sin teléfono y nadie tocó nada.
+    assert.equal(mockLegacyStart.mock.callCount(), 0);
+    assert.equal(mockReveal.mock.callCount(), 0);
+    assert.equal(mockLushaFallback.mock.callCount(), 0);
+    // La confirmación no aparece sola: sin clic no hay "Confirmar y revelar" en pantalla.
+    assert.equal(confirmButton(), null, 'ningún modal de confirmación se abre solo');
+  });
+
+  it('cancelar cierra el modal sin autorizar', async () => {
+    await renderSheet(legacyCandidate());
+    await openModal();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    });
+    assert.equal(mockLegacyStart.mock.callCount(), 0);
+    assert.equal(revealButtons().length, 1, 'el botón sigue disponible');
   });
 });
 

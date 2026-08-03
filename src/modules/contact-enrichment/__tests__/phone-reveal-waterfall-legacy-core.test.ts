@@ -349,9 +349,10 @@ describe('WATERFALL-2 — gates del arranque legacy (flag, rol, corridas)', () =
     assert.equal(drafts.length, 0);
   });
 
-  it('corrida waterfall ANTERIOR (ya terminal) ⇒ la ruta legacy NO aplica', async () => {
-    // "Legacy" significa anterior a la tabla. Si el candidato ya tuvo una corrida,
-    // dejar entrar esta ruta la convertiría en un reintento ilimitado de Lusha.
+  it('corrida FULL_WATERFALL anterior (ya terminal) ⇒ la ruta legacy NO aplica', async () => {
+    // El candidato pertenece al flujo completo: su corrida NO lo convierte en legacy y
+    // esta ruta no puede usarse para saltarse Apollo. La reautorización legacy
+    // (AGENT2A-PHONE-WATERFALL-2C) solo alcanza a corridas `legacy_lusha_only`.
     const { deps, drafts } = startDeps({
       findLatestRun: async () =>
         legacyRun({
@@ -366,7 +367,7 @@ describe('WATERFALL-2 — gates del arranque legacy (flag, rol, corridas)', () =
     );
     assert.equal(
       result.started === false && result.reason,
-      'waterfall_run_already_exists',
+      'incompatible_historical_run',
     );
     assert.equal(drafts.length, 0);
   });

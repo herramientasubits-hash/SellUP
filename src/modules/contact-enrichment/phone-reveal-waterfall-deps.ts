@@ -185,9 +185,16 @@ export async function findActiveWaterfallRunForCandidate(
 }
 
 /**
- * Corrida MÁS RECIENTE del candidato, terminal o no. La usa el bloque de
- * auditoría del drawer: una vez cerrada, la corrida sigue siendo lo que el
- * operador necesita ver ("Apollo intentó, Lusha se omitió por X").
+ * Corrida MÁS RECIENTE del candidato, terminal o no. Dos consumidores, la MISMA fila:
+ *   * el bloque de auditoría del drawer — una vez cerrada, la corrida sigue siendo lo
+ *     que el operador necesita ver ("Apollo intentó, Lusha se omitió por X");
+ *   * el gate de reautorización legacy (AGENT2A-PHONE-WATERFALL-2C), que clasifica su
+ *     CLASE con `classifyPhoneRevealWaterfallLegacyHistory`.
+ *
+ * El desempate por `created_at` importa justo por el segundo: dos corridas del mismo
+ * candidato pueden compartir `authorized_at` al milisegundo (el reloj del proceso tiene
+ * resolución de ms), y sin desempate "la más reciente" quedaría a merced del orden
+ * físico de las filas. La clasificación tiene que ser determinista.
  */
 export async function findLatestWaterfallRunForCandidate(
   candidateId: string,
@@ -198,6 +205,7 @@ export async function findLatestWaterfallRunForCandidate(
     .select(WATERFALL_RUN_SELECT)
     .eq('candidate_id', candidateId)
     .order('authorized_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw new Error(error.message);
