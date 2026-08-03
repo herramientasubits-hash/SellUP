@@ -82,20 +82,12 @@ export function buildApolloTwoRoundOperationKey(
   ]);
 }
 
-/** Metadata de correlación que cada operación añade a la de la corrida. */
-export type ApolloTwoRoundOperationCorrelation = {
-  round_number: number;
-  operation_key: string;
-};
-
-export function toOperationCorrelationMetadata(
-  input: ApolloTwoRoundOperationKeyInput,
-): ApolloTwoRoundOperationCorrelation {
-  return {
-    round_number: input.roundNumber,
-    operation_key: buildApolloTwoRoundOperationKey(input),
-  };
-}
+// CAS-CLOSE § 6: aquí vivía una SEGUNDA proyección de la correlación por
+// operación (`toOperationCorrelationMetadata`), que emitía `operation_key` con el
+// digest dentro — justo la confusión que el § 2 del FINAL-FIX había separado. No
+// tenía llamadores. La proyección canónica es una sola:
+//
+//   buildApolloTwoRoundOperationContext → toApolloTwoRoundOperationContextMetadata
 
 // ─── Contexto de operación (§ 2 del FINAL-FIX) ─────────────────────────────────
 
@@ -220,21 +212,16 @@ export class ApolloTwoRoundOperationLedger {
     this.markIndeterminate(operationKey);
   }
 
-  isCompleted(operationKey: string): boolean {
-    return this.completed.has(operationKey);
-  }
-
-  isIndeterminate(operationKey: string): boolean {
-    return this.indeterminate.has(operationKey);
-  }
-
-  /** Una operación sólo puede ejecutarse si no se completó ni quedó indeterminada. */
+  /**
+   * Una operación sólo puede ejecutarse si no se completó ni quedó indeterminada.
+   *
+   * CAS-CLOSE § 6: es el ÚNICO predicado del ledger. Los tres accesores que había
+   * al lado (`isCompleted`, `isIndeterminate`, `completedCount`) no tenían
+   * llamadores, y exponer "¿está completada?" separado de "¿puede ejecutarse?"
+   * invitaba a decidir un gasto mirando sólo la mitad del estado.
+   */
   canExecute(operationKey: string): boolean {
     return !this.completed.has(operationKey) && !this.indeterminate.has(operationKey);
-  }
-
-  get completedCount(): number {
-    return this.completed.size;
   }
 
   /** Claves completadas, ordenadas. Se devuelven al caller para un reintento. */

@@ -42,3 +42,42 @@ export type ApolloUsageOperationContextMetadata = {
   /** Id de la petición al proveedor cuando existe. Nunca inventado. */
   provider_request_id: string | null;
 };
+
+// ─── Contrato económico de la fila (CAS-CLOSE § 5) ────────────────────────────
+
+/**
+ * Qué modalidad produjo la fila y bajo qué criterio de cobro se escribió.
+ *
+ * Las dos rutas registran el gasto de un Organization Enrichment con criterios
+ * DISTINTOS, y las dos son correctas para su contexto:
+ *
+ *   `apollo_legacy_v1`     — criterio histórico y conservador: un enrichment que
+ *                            salió a la red registra 1 crédito, devolviera datos
+ *                            o fallara después. No se reclasifica hacia atrás.
+ *   `apollo_two_round_v1`  — clasificación por el desenlace OBSERVADO:
+ *                            `charged` (1 crédito), `no_match` (0, hubo respuesta
+ *                            definitiva sin organización), `not_charged` (0, error
+ *                            definitivo antes de facturar) e `indeterminate`
+ *                            (`credits_used` NULL — cobro desconocido, jamás 0).
+ *
+ * Sin este discriminador en la fila, la reconciliación tendría que inferir el
+ * criterio por la forma de la metadata. Es aditivo dentro del JSONB: no hay
+ * migración, no hay backfill y las filas históricas no se tocan.
+ */
+export type ApolloUsageExecutionMode = 'apollo_legacy' | 'apollo_two_round';
+export type ApolloUsageBillingContractVersion = 'apollo_legacy_v1' | 'apollo_two_round_v1';
+
+export type ApolloUsageBillingContractMetadata = {
+  execution_mode: ApolloUsageExecutionMode;
+  billing_contract_version: ApolloUsageBillingContractVersion;
+};
+
+export const APOLLO_LEGACY_BILLING_CONTRACT: ApolloUsageBillingContractMetadata = {
+  execution_mode: 'apollo_legacy',
+  billing_contract_version: 'apollo_legacy_v1',
+};
+
+export const APOLLO_TWO_ROUND_BILLING_CONTRACT: ApolloUsageBillingContractMetadata = {
+  execution_mode: 'apollo_two_round',
+  billing_contract_version: 'apollo_two_round_v1',
+};

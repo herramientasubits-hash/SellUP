@@ -41,7 +41,11 @@ import {
   toApolloSpendObservabilityMetadata,
 } from './apollo-spend-observability';
 import { RUN_CORRELATION_METADATA_KEY } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
-import type { ApolloUsageOperationContextMetadata } from './apollo-usage-operation-context';
+import {
+  APOLLO_LEGACY_BILLING_CONTRACT,
+  type ApolloUsageBillingContractMetadata,
+  type ApolloUsageOperationContextMetadata,
+} from './apollo-usage-operation-context';
 import type {
   RunCorrelationMetadata,
   WizardRunBillingState,
@@ -256,6 +260,14 @@ export type ApolloEnrichmentUsageLogInput = {
    * cierra.
    */
   stampOperationBillingState?: boolean;
+  /**
+   * CAS-CLOSE § 5 — bajo qué contrato económico se escribió esta fila.
+   *
+   * Por defecto el legacy, que es el criterio que esta fila ha tenido siempre:
+   * omitirlo NO cambia la fila más allá de dos claves aditivas, y ningún fixture
+   * que compare el resto de la metadata se rompe.
+   */
+  billingContract?: ApolloUsageBillingContractMetadata;
   /** Contabilidad ya resuelta desde el veredicto de cobro. */
   accounting: ApolloEnrichmentUsageAccounting;
   usageKey: string;
@@ -304,6 +316,9 @@ export function buildApolloEnrichmentUsageLogInput(
       cascade_version: input.cascadeVersion ?? null,
       pricing_missing_warning: (input.unitCostUsd ?? null) === null,
       billing_outcome_billing_state: accounting.billingState,
+      // § 5 — el criterio bajo el que se leyó el cobro, explícito en la fila. Sin
+      // migración: dos claves aditivas dentro del JSONB que ya se escribía.
+      ...(input.billingContract ?? APOLLO_LEGACY_BILLING_CONTRACT),
       ...runCorrelation,
       ...(input.operationContext
         ? {

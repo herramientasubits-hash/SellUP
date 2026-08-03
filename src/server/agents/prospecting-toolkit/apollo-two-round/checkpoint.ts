@@ -42,11 +42,7 @@ import type {
   CheapRejectionReason,
   SecondRoundSkippedReason,
 } from './orchestrator';
-import {
-  createSeenOrganizationRegistry,
-  type NormalizedOrganizationIdentity,
-  type SeenOrganizationRegistry,
-} from './seen-registry';
+import type { NormalizedOrganizationIdentity } from './seen-registry';
 
 /** Clave bajo la que el checkpoint aterriza en `prospect_batches.metadata`. */
 export const APOLLO_TWO_ROUND_CHECKPOINT_KEY = 'apollo_two_round_checkpoint' as const;
@@ -321,6 +317,36 @@ export type ApolloTwoRoundEnrichmentSnapshot = {
   sector_evidence_state: CandidateSectorEvidenceState;
 };
 
+/**
+ * Gasto registrado de UNA operación externa, atado a su identidad económica.
+ *
+ * A1-APOLLO-TWO-ROUND-QUALITY-1-CAS-CLOSE · § 2.
+ *
+ * Antes el gasto de la corrida viajaba SÓLO como un escalar acumulado
+ * (`spend_accounting.recorded_usage_credits`). Un escalar no se puede fusionar:
+ * ante dos checkpoints concurrentes, sumarlos duplica el gasto y quedarse con el
+ * mayor lo esconde. Con el gasto desglosado por `operation_id` la fusión es
+ * aritmética trivial y exacta — una operación se cobró una vez, aparezca en uno o
+ * en los dos documentos.
+ *
+ * `credits` es lo que NUESTRO ledger registró, nunca la factura de Apollo, y
+ * nunca se descuenta: una operación indeterminada conserva los créditos que llegó
+ * a registrar —pudo haberse cobrado— y además levanta `billing_unknown`. Las dos
+ * señales son distintas y las dos hacen falta: la primera alimenta el guard de
+ * presupuesto, la segunda la conciliación manual.
+ */
+export type ApolloTwoRoundRecordedOperationCredit = {
+  operation_id: string;
+  operation_key: 'organizations_search' | 'organization_enrichment';
+  round_number: number;
+  /** `usage_key` de la fila de `provider_usage_logs`, cuando la operación la emite. */
+  usage_key: string | null;
+  /** Créditos que el ledger interno registró para esta operación. Nunca negativo. */
+  credits: number;
+  /** True cuando el cobro real de esta operación no se pudo confirmar. */
+  billing_unknown: boolean;
+};
+
 // ─── El checkpoint ────────────────────────────────────────────────────────────
 
 export type ApolloTwoRoundCheckpointV1 = {
@@ -340,6 +366,14 @@ export type ApolloTwoRoundCheckpointV1 = {
    */
   idempotency_key: string;
   request_fingerprint: string;
+  /**
+   * Corrida del wizard a la que pertenece este documento.
+   *
+   * CAS-CLOSE § 2: la fusión de dos checkpoints NUNCA mezcla dos `wizard_run_id`
+   * distintos. `null` en documentos escritos antes de que el campo existiera; en
+   * ese caso la identidad la siguen probando la clave de idempotencia y la huella.
+   */
+  wizard_run_id: string | null;
   config: ApolloTwoRoundDiscoveryConfig;
   completed_operation_keys: string[];
   indeterminate_operation_keys: string[];
@@ -349,6 +383,8 @@ export type ApolloTwoRoundCheckpointV1 = {
   /** § 5 — organizaciones pagadas y aún sin evaluar. Vacío en una corrida sana. */
   pending_organizations: ApolloTwoRoundPendingOrganizationSnapshot[];
   enrichment_snapshots: ApolloTwoRoundEnrichmentSnapshot[];
+  /** § 2 CAS-CLOSE — gasto desglosado por operación. Fuente de la deduplicación. */
+  recorded_operation_credits: ApolloTwoRoundRecordedOperationCredit[];
   persisted_candidate_ids: string[];
   candidates_persisted: boolean;
   observed_rejection_reasons: CheapRejectionReason[];
@@ -414,27 +450,11 @@ export function toSeenOrganizationKeys(
   return [...keys].sort();
 }
 
-/** Rehidrata el registro desde las claves planas. */
-export function fromSeenOrganizationKeys(
-  keys: readonly string[],
-): SeenOrganizationRegistry {
-  const registry = createSeenOrganizationRegistry();
-  for (const key of keys) {
-    if (typeof key !== 'string') continue;
-    const value = key.slice(4);
-    if (value === '') continue;
-    if (key.startsWith(SEEN_KEY_PREFIX.providerOrganizationId)) {
-      registry.providerOrganizationIds.add(value);
-    } else if (key.startsWith(SEEN_KEY_PREFIX.normalizedDomain)) {
-      registry.normalizedDomains.add(value);
-    } else if (key.startsWith(SEEN_KEY_PREFIX.normalizedLinkedInUrl)) {
-      registry.normalizedLinkedInUrls.add(value);
-    } else if (key.startsWith(SEEN_KEY_PREFIX.canonicalName)) {
-      registry.canonicalNames.add(value);
-    }
-  }
-  return registry;
-}
+// La rehidratación del registro NO vive aquí: el orquestador reconstruye el
+// registro de identidades desde `candidate_snapshots`, que es donde están las
+// identidades completas. Un helper que sólo sabía volver de las claves planas no
+// tenía llamador, y conservarlo invitaba a rehidratar desde una proyección con
+// menos información que la fuente.
 
 // ─── Tamaño y compactación (§ 6) ──────────────────────────────────────────────
 
@@ -542,6 +562,13 @@ export function readCheckpoint(
     enrichment_snapshots: Array.isArray(candidate.enrichment_snapshots)
       ? candidate.enrichment_snapshots
       : [],
+    // Ausente en documentos anteriores al desglose por operación. Vacío es la
+    // lectura honesta: no hay atribución por operación que fusionar, y el escalar
+    // `spend_accounting.recorded_usage_credits` sigue siendo el suelo del gasto.
+    recorded_operation_credits: Array.isArray(candidate.recorded_operation_credits)
+      ? candidate.recorded_operation_credits
+      : [],
+    wizard_run_id: typeof candidate.wizard_run_id === 'string' ? candidate.wizard_run_id : null,
     persisted_candidate_ids: Array.isArray(candidate.persisted_candidate_ids)
       ? candidate.persisted_candidate_ids
       : [],

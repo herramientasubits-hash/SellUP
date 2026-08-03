@@ -106,13 +106,11 @@ export {
   buildApolloTwoRoundOperationKey,
   buildApolloTwoRoundOperationContext,
   buildApolloTwoRoundEnrichmentSubject,
-  toOperationCorrelationMetadata,
   toApolloTwoRoundOperationContextMetadata,
   ApolloTwoRoundOperationLedger,
   type ApolloTwoRoundRunCorrelation,
   type ApolloTwoRoundOperation,
   type ApolloTwoRoundOperationKeyInput,
-  type ApolloTwoRoundOperationCorrelation,
   type ApolloTwoRoundOperationContext,
 } from './idempotency';
 
@@ -123,7 +121,6 @@ export {
   toCandidateEvidenceSnapshot,
   fromCandidateEvidenceSnapshot,
   toSeenOrganizationKeys,
-  fromSeenOrganizationKeys,
   measureCheckpointSerializedBytes,
   compactCheckpointForSize,
   readCheckpoint,
@@ -134,8 +131,20 @@ export {
   type ApolloTwoRoundEnrichmentSnapshot,
   type ApolloTwoRoundEnrichmentStatus,
   type ApolloTwoRoundRankingSignalsSnapshot,
+  type ApolloTwoRoundRecordedOperationCredit,
   type CheckpointCompactionResult,
 } from './checkpoint';
+
+export {
+  mergeApolloTwoRoundCheckpoints,
+  sumRecordedOperationCredits,
+  verifyDurableCheckpointContainsOperation,
+  type ApolloTwoRoundCheckpointMergeRefusal,
+  type ApolloTwoRoundCheckpointMergeResult,
+  type ApolloTwoRoundOperationDurabilityGap,
+  type ApolloTwoRoundOperationDurabilityProbe,
+  type ApolloTwoRoundOperationDurabilityVerdict,
+} from './checkpoint-merge';
 
 export {
   runApolloTwoRoundDiscovery,

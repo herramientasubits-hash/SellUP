@@ -74,6 +74,7 @@ import {
   buildCorrelationColumns,
   buildProviderUsageLogRow,
 } from '../../apollo-organizations-usage-logging';
+import { APOLLO_TWO_ROUND_BILLING_CONTRACT } from '../../apollo-usage-operation-context';
 import { reconcileWizardRunSpend } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-reconciliation';
 import { RUN_CORRELATION_METADATA_KEY } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
@@ -883,6 +884,71 @@ describe('§ 2 · ronda, operación y sujeto quedan diferenciados', () => {
       delete process.env.ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS;
     }
   });
+
+  // ── CAS-CLOSE § 5 · el contrato económico, explícito en la fila ────────────
+
+  test('CAS-CLOSE § 5 — la fila de dos rondas declara su contrato económico', () => {
+    const row = buildApolloEnrichmentUsageLogInput({
+      usageKey: 'organization_enrichment:batch-1:op-1',
+      batchId: CORRELATION.batchId,
+      domain: 'uno.com',
+      billingContract: APOLLO_TWO_ROUND_BILLING_CONTRACT,
+      accounting: resolveApolloEnrichmentUsageAccounting('charged'),
+    });
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+    assert.equal(metadata['execution_mode'], 'apollo_two_round');
+    assert.equal(metadata['billing_contract_version'], 'apollo_two_round_v1');
+  });
+
+  test('CAS-CLOSE § 5 — la fila legacy declara el suyo sin que nadie lo pida', () => {
+    // Omitir el contrato es lo que hace la ruta legacy: su criterio no cambia, y
+    // la fila queda igual salvo por las dos claves aditivas.
+    const row = buildApolloEnrichmentUsageLogInput({
+      usageKey: 'organization_enrichment:batch-1:uno.com',
+      batchId: CORRELATION.batchId,
+      domain: 'uno.com',
+      accounting: resolveApolloEnrichmentUsageAccounting('charged'),
+    });
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+    assert.equal(metadata['execution_mode'], 'apollo_legacy');
+    assert.equal(metadata['billing_contract_version'], 'apollo_legacy_v1');
+  });
+
+  test('CAS-CLOSE § 5 — el contrato NO reescribe el veredicto de cobro', () => {
+    // Los cuatro desenlaces del criterio de dos rondas siguen intactos: el
+    // discriminador dice bajo qué contrato se leyó el cobro, no cuál fue.
+    const outcomes = [
+      ['charged', 1, 'recorded'],
+      ['no_match', 0, 'estimated'],
+      ['not_charged', 0, 'estimated'],
+      ['indeterminate', undefined, 'unknown'],
+    ] as const;
+    for (const [outcome, credits, billingState] of outcomes) {
+      const row = buildApolloEnrichmentUsageLogInput({
+        usageKey: `organization_enrichment:batch-1:${outcome}`,
+        batchId: CORRELATION.batchId,
+        domain: 'uno.com',
+        billingContract: APOLLO_TWO_ROUND_BILLING_CONTRACT,
+        accounting: resolveApolloEnrichmentUsageAccounting(outcome),
+      });
+      assert.equal(row.credits_used, credits, `${outcome}: créditos`);
+      const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+      assert.equal(metadata['billing_outcome_billing_state'], billingState, `${outcome}: estado`);
+      assert.equal(metadata['billing_contract_version'], 'apollo_two_round_v1');
+    }
+  });
+
+  test('CAS-CLOSE § 5 — `indeterminate` deja `credits_used` en NULL, jamás en cero', () => {
+    const row = buildApolloEnrichmentUsageLogInput({
+      usageKey: 'organization_enrichment:batch-1:op-indeterminate',
+      batchId: CORRELATION.batchId,
+      domain: 'uno.com',
+      billingContract: APOLLO_TWO_ROUND_BILLING_CONTRACT,
+      accounting: resolveApolloEnrichmentUsageAccounting('indeterminate'),
+    });
+    assert.equal(row.credits_used, undefined, 'undefined ⇒ columna NULL');
+    assert.notEqual(row.credits_used, 0, 'un cero se leería como cobro confirmado en cero');
+  });
 });
 
 // ─── 12-13 · reconciliación (§ 9) ─────────────────────────────────────────────
@@ -1055,6 +1121,7 @@ describe('§ 7 · el checkpoint no pisa metadata ajena ni se sobrescribe con una
     checkpoint_reason: 'run_completed',
     idempotency_key: CORRELATION.idempotencyKey,
     request_fingerprint: CORRELATION.requestFingerprint,
+    wizard_run_id: CORRELATION.wizardRunId,
     config: defaultApolloTwoRoundConfig(),
     completed_operation_keys: [],
     indeterminate_operation_keys: [],
@@ -1063,6 +1130,7 @@ describe('§ 7 · el checkpoint no pisa metadata ajena ni se sobrescribe con una
     candidate_snapshots: [],
     pending_organizations: [],
     enrichment_snapshots: [],
+    recorded_operation_credits: [],
     persisted_candidate_ids: [],
     candidates_persisted: false,
     observed_rejection_reasons: [],
@@ -1258,6 +1326,7 @@ describe('§ 6 · el snapshot es mínimo, sanitizado y acotado', () => {
       checkpoint_reason: 'run_completed',
       idempotency_key: CORRELATION.idempotencyKey,
       request_fingerprint: CORRELATION.requestFingerprint,
+      wizard_run_id: CORRELATION.wizardRunId,
       config: defaultApolloTwoRoundConfig(),
       completed_operation_keys: ['a', 'b', 'c', 'd'],
       indeterminate_operation_keys: [],
@@ -1295,6 +1364,7 @@ describe('§ 6 · el snapshot es mínimo, sanitizado y acotado', () => {
         evidence: worstCaseEvidence,
       })),
       enrichment_snapshots: [],
+      recorded_operation_credits: [],
       persisted_candidate_ids: Array.from({ length: 5 }, (_, i) => `candidate-${i}`),
       candidates_persisted: true,
       observed_rejection_reasons: [],
@@ -1363,6 +1433,7 @@ describe('§ 6 · el snapshot es mínimo, sanitizado y acotado', () => {
       checkpoint_reason: 'run_completed' as const,
       idempotency_key: CORRELATION.idempotencyKey,
       request_fingerprint: CORRELATION.requestFingerprint,
+      wizard_run_id: CORRELATION.wizardRunId,
       config: defaultApolloTwoRoundConfig(),
       completed_operation_keys: [],
       indeterminate_operation_keys: [],
@@ -1371,6 +1442,7 @@ describe('§ 6 · el snapshot es mínimo, sanitizado y acotado', () => {
       pending_organizations: [],
       candidate_snapshots: [snapshot('vivo', true), snapshot('rechazado', false)],
       enrichment_snapshots: [],
+      recorded_operation_credits: [],
       persisted_candidate_ids: [],
       candidates_persisted: false,
       observed_rejection_reasons: [],

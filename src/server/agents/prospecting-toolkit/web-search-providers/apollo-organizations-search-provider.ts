@@ -60,6 +60,10 @@ import {
   resolveApolloEnrichmentUsageAccounting,
 } from '../apollo-organization-enrichment-usage-log';
 import {
+  APOLLO_LEGACY_BILLING_CONTRACT,
+  APOLLO_TWO_ROUND_BILLING_CONTRACT,
+} from '../apollo-usage-operation-context';
+import {
   buildApolloOrganizationsSearchParams,
   APOLLO_QUERY_MAPPING_VERSION,
 } from '../apollo-organizations-query-mapping';
@@ -701,14 +705,19 @@ export async function runApolloOrganizationsSearch(
     operationContext === null
       ? usageKeyBase
       : `${usageKeyBase}:round_${operationContext.round_number}:${operationContext.operation_id}`;
+  // CAS-CLOSE § 5 — el contrato económico se deriva de la presencia del contexto
+  // de operación, que es exactamente lo que distingue las dos modalidades: sólo la
+  // de dos rondas lo inyecta. No hace falta un segundo parámetro para decir lo que
+  // la entrada ya dice.
   const operationContextMetadata =
     operationContext === null
-      ? {}
+      ? { ...APOLLO_LEGACY_BILLING_CONTRACT }
       : {
           round_number: operationContext.round_number,
           operation_subject: operationContext.operation_subject,
           operation_id: operationContext.operation_id,
           provider_request_id: operationContext.provider_request_id,
+          ...APOLLO_TWO_ROUND_BILLING_CONTRACT,
         };
 
   const logFn = deps?.logUsage ?? realLogApolloOrgsUsage;

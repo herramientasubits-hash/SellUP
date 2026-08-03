@@ -123,7 +123,16 @@ import {
   type ApolloTwoRoundEnrichmentSnapshot,
   type ApolloTwoRoundEnrichmentStatus,
   type ApolloTwoRoundPendingOrganizationSnapshot,
+  type ApolloTwoRoundRecordedOperationCredit,
 } from './checkpoint';
+import {
+  hasUnknownOperationBilling,
+  mergeApolloTwoRoundCheckpoints,
+  mergeRecordedOperationCredits,
+  sumRecordedOperationCredits,
+  verifyDurableCheckpointContainsOperation,
+} from './checkpoint-merge';
+import { APOLLO_TWO_ROUND_BILLING_CONTRACT } from '../apollo-usage-operation-context';
 import {
   readTwoRoundCheckpoint,
   writeTwoRoundCheckpoint,
@@ -171,6 +180,26 @@ export const TWO_ROUND_INDETERMINATE_ANOMALY = 'apollo_operation_indeterminate' 
 
 /** Aviso del § 3 — un checkpoint no se pudo persistir. */
 export const TWO_ROUND_CHECKPOINT_WARNING = 'two_round_checkpoint_persist_failed' as const;
+
+/**
+ * CAS-CLOSE § 1 — otro proceso del MISMO run ganó el compare-and-swap y su
+ * checkpoint YA contenía esta operación, probada campo a campo.
+ *
+ * Es la ÚNICA forma en que un `stale_rejected` puede considerarse durable. Se
+ * emite como aviso para que la corrida deje rastro de que hubo concurrencia real,
+ * no porque haya algo que conciliar.
+ */
+export const TWO_ROUND_CONCURRENT_DURABILITY_SOURCE =
+  'concurrent_checkpoint_already_contains_operation' as const;
+
+/**
+ * Intentos de fusionar sobre el ganador y reintentar el CAS antes de rendirse.
+ *
+ * Acotado a propósito: no es un candado distribuido. Agotarlo NO repite ninguna
+ * llamada al proveedor — degrada la operación a indeterminada, que es el único
+ * desenlace honesto cuando el estado no se pudo dejar recuperable.
+ */
+const MAX_STALE_RESOLUTION_ATTEMPTS = 3;
 
 // ─── Dependencias (inyectables sólo para tests) ───────────────────────────────
 
@@ -424,10 +453,55 @@ export async function runApolloTwoRoundWizardDiscovery(
     .catch(() => null);
 
   const warnings: string[] = [];
-  let recordedUsageCredits = restored?.spend_accounting.recorded_usage_credits ?? 0;
   let budgetAnomalyRaised = false;
   let checkpointVersion = restored?.checkpoint_version ?? 0;
   const checkpointFailures: string[] = [...(restored?.checkpoint_write_failures ?? [])];
+
+  /**
+   * CAS-CLOSE § 2 — el gasto de la corrida, DESGLOSADO por operación.
+   *
+   * Antes era un escalar acumulado, y un escalar no se puede fusionar: ante dos
+   * checkpoints concurrentes, sumarlos duplica el gasto y quedarse con el mayor lo
+   * esconde. Con la atribución por `operation_id` la unión es exacta — una
+   * operación se cobró una vez, aparezca en uno o en los dos documentos.
+   */
+  const recordedCreditsByOperation = new Map<string, ApolloTwoRoundRecordedOperationCredit>();
+  for (const entry of restored?.recorded_operation_credits ?? []) {
+    recordedCreditsByOperation.set(entry.operation_id, { ...entry });
+  }
+  /**
+   * Suelo de gasto heredado de un checkpoint SIN desglose (escrito antes de que
+   * el desglose existiera).
+   *
+   * Sin él, un reintento sobre un checkpoint antiguo empezaría a contar desde cero
+   * y el guard de presupuesto autorizaría llamadas que la reserva ya no sostiene.
+   * Cero cuando el desglose sí está: ahí el detalle ya lo explica todo.
+   */
+  const inheritedCreditFloor =
+    recordedCreditsByOperation.size === 0
+      ? (restored?.spend_accounting.recorded_usage_credits ?? 0)
+      : 0;
+
+  const recordOperationCredits = (
+    operationContext: ApolloTwoRoundOperationContext,
+    observation: { credits: number; billingUnknown: boolean; usageKey: string | null },
+  ): void => {
+    const existing = recordedCreditsByOperation.get(operationContext.operationId) ?? null;
+    // Una operación no se cobra dos veces: si ya está registrada, se conserva la
+    // lectura más restrictiva (crédito mayor, y `billing_unknown` en cuanto
+    // cualquiera de las dos observaciones lo levante).
+    recordedCreditsByOperation.set(operationContext.operationId, {
+      operation_id: operationContext.operationId,
+      operation_key: operationContext.operationKey,
+      round_number: operationContext.roundNumber,
+      usage_key: observation.usageKey ?? existing?.usage_key ?? null,
+      credits: Math.max(existing?.credits ?? 0, observation.credits),
+      billing_unknown: (existing?.billing_unknown ?? false) || observation.billingUnknown,
+    });
+  };
+
+  const recordedUsageCreditsNow = (): number =>
+    inheritedCreditFloor + sumRecordedOperationCredits([...recordedCreditsByOperation.values()]);
 
   // Evidencia mínima por candidato: la del checkpoint más la que las rondas
   // vayan produciendo. Es lo único que se guarda del resultado del proveedor.
@@ -486,11 +560,12 @@ export async function runApolloTwoRoundWizardDiscovery(
    * con excepción perdería los candidatos ya obtenidos y ya pagados.
    */
   const budgetExceeded = (): boolean => {
-    if (recordedUsageCredits <= input.reservedCredits) return false;
+    const recorded = recordedUsageCreditsNow();
+    if (recorded <= input.reservedCredits) return false;
     if (!budgetAnomalyRaised) {
       budgetAnomalyRaised = true;
       warnings.push(
-        `${TWO_ROUND_BUDGET_ANOMALY}: recorded=${recordedUsageCredits} reserved=${input.reservedCredits}`,
+        `${TWO_ROUND_BUDGET_ANOMALY}: recorded=${recorded} reserved=${input.reservedCredits}`,
       );
     }
     return true;
@@ -501,6 +576,162 @@ export async function runApolloTwoRoundWizardDiscovery(
    * escribe. Devuelve `false` si no quedó durable, y el orquestador degrada la
    * operación a indeterminada.
    */
+  /**
+   * CAS-CLOSE § 2 — último documento que se SABE durable.
+   *
+   * Cada intento se construye fusionado sobre él, así que una escritura nuestra
+   * nunca puede borrar lo que un proceso concurrente ya consiguió persistir. Sin
+   * este suelo, tras probar la durabilidad de una operación ajena la siguiente
+   * escritura ganaría el CAS con un documento MÁS ESTRECHO que el almacenado.
+   */
+  let durableFloor: ApolloTwoRoundCheckpointV1 | null = restored;
+
+  const noteCheckpointFailure = (
+    reason: ApolloTwoRoundCheckpointReason,
+    detailCode: string,
+  ): void => {
+    const detail = `${TWO_ROUND_CHECKPOINT_WARNING}:${reason}:${detailCode}`;
+    checkpointFailures.push(detail);
+    if (!warnings.includes(detail)) warnings.push(detail);
+  };
+
+  const buildAttempt = (
+    snapshot: ApolloTwoRoundCheckpointSnapshot,
+    overrides:
+      | {
+          reason?: ApolloTwoRoundCheckpointReason;
+          candidatesPersisted?: boolean;
+          persistedCandidateIds?: string[];
+        }
+      | undefined,
+    version: number,
+  ): ApolloTwoRoundCheckpointV1 => {
+    const local = buildCheckpoint({
+      reason: overrides?.reason ?? snapshot.reason,
+      checkpointVersion: version,
+      correlation: input.correlation,
+      config,
+      resume: snapshot.resume,
+      evidenceByKey,
+      enrichmentSnapshots,
+      recordedOperationCredits: [...recordedCreditsByOperation.values()],
+      candidatesPersisted: overrides?.candidatesPersisted ?? candidatesPersisted,
+      persistedCandidateIds: overrides?.persistedCandidateIds ?? persistedCandidateIds,
+      spendAccounting: buildApolloTwoRoundSpendAccounting({
+        estimatedCredits: budget.maximumInternalRecordedCredits,
+        reservedCredits: input.reservedCredits,
+        recordedUsageCredits: recordedUsageCreditsNow(),
+      }),
+      checkpointWriteFailures: checkpointFailures,
+    });
+    if (durableFloor === null) return local;
+    const merged = mergeApolloTwoRoundCheckpoints(durableFloor, local);
+    // Una fusión rechazada aquí significaría que el suelo pertenece a otra corrida,
+    // que es justo lo que `readCheckpoint` ya excluyó. Se escribe el documento
+    // local antes que abandonar el estado de ESTA ejecución.
+    if (merged.kind === 'refused') return local;
+    return { ...merged.checkpoint, checkpoint_version: version };
+  };
+
+  /** Reabsorbe el gasto y los fallos que un documento ajeno ya declaraba. */
+  const adoptDurableCheckpoint = (durable: ApolloTwoRoundCheckpointV1): void => {
+    durableFloor = durable;
+    checkpointVersion = Math.max(checkpointVersion, durable.checkpoint_version);
+    // Misma regla de deduplicación que la fusión: una operación se cobró una vez.
+    const reconciled = mergeRecordedOperationCredits(
+      [...recordedCreditsByOperation.values()],
+      durable.recorded_operation_credits,
+    );
+    recordedCreditsByOperation.clear();
+    for (const entry of reconciled) recordedCreditsByOperation.set(entry.operation_id, entry);
+    for (const failure of durable.checkpoint_write_failures) {
+      if (!checkpointFailures.includes(failure)) checkpointFailures.push(failure);
+    }
+  };
+
+  /**
+   * CAS-CLOSE § 1 — qué hacer cuando otro proceso del mismo run ganó el CAS.
+   *
+   * `stale_rejected` NO prueba durabilidad por sí solo. Sólo se puede devolver
+   * `true` si el checkpoint ganador contiene EXACTAMENTE esta operación: mismo
+   * `operationId`, mismo estado, mismo resultado recuperable, misma identidad
+   * económica y una versión superior.
+   *
+   * Si no la contiene, la opción A —refusionar sobre el ganador y reintentar el
+   * CAS— es la preferida, porque la fusión de dos checkpoints del mismo run es
+   * inequívoca. Cuando la fusión se rechaza (otra corrida, otra config) o el
+   * documento durable no se puede leer, se cae a la opción B: `false`, que el
+   * orquestador convierte en operación INDETERMINADA y detiene lo dependiente.
+   *
+   * Ninguna de las dos ramas vuelve a llamar a Apollo.
+   */
+  const resolveStaleRejection = async (
+    attempted: ApolloTwoRoundCheckpointV1,
+    snapshot: ApolloTwoRoundCheckpointSnapshot,
+  ): Promise<boolean> => {
+    let current = attempted;
+
+    for (let attempt = 1; attempt <= MAX_STALE_RESOLUTION_ATTEMPTS; attempt++) {
+      const durable = await deps
+        .loadCheckpoint(input.reservedBatchId, runIdentity)
+        .catch(() => null);
+      if (durable === null) {
+        // No se puede probar nada sobre un documento que no se puede leer.
+        noteCheckpointFailure(current.checkpoint_reason, 'durable_checkpoint_unreadable');
+        return false;
+      }
+      adoptDurableCheckpoint(durable);
+
+      const operationContext = snapshot.operationContext;
+      if (operationContext !== null) {
+        const verdict = verifyDurableCheckpointContainsOperation(durable, current, {
+          operationId: operationContext.operationId,
+          operationKey: operationContext.operationKey,
+          roundNumber: operationContext.roundNumber,
+          expectedStatus:
+            snapshot.reason === 'search_round_indeterminate' ||
+            snapshot.reason === 'enrichment_indeterminate'
+              ? 'indeterminate'
+              : 'completed',
+        });
+        if (verdict.durable) {
+          const note = `${TWO_ROUND_CONCURRENT_DURABILITY_SOURCE}:${operationContext.operationId}`;
+          if (!warnings.includes(note)) warnings.push(note);
+          return true;
+        }
+      }
+
+      // Opción A — fusionar sobre el ganador y volver a intentar el CAS.
+      const merged = mergeApolloTwoRoundCheckpoints(durable, current);
+      if (merged.kind === 'refused') {
+        noteCheckpointFailure(current.checkpoint_reason, `merge_refused_${merged.reason}`);
+        return false;
+      }
+      current = {
+        ...merged.checkpoint,
+        checkpoint_version: durable.checkpoint_version + 1,
+      };
+
+      const retry = await deps
+        .saveCheckpoint(input.reservedBatchId, current)
+        .catch((err: unknown) => ({
+          kind: 'failed' as const,
+          reason: err instanceof Error ? err.message : 'checkpoint_write_threw',
+        }));
+      if (retry.kind === 'written') {
+        checkpointVersion = retry.checkpointVersion;
+        durableFloor = { ...current, checkpoint_version: retry.checkpointVersion };
+        return true;
+      }
+      if (retry.kind === 'stale_rejected') continue;
+      noteCheckpointFailure(current.checkpoint_reason, retry.kind);
+      return false;
+    }
+
+    noteCheckpointFailure(current.checkpoint_reason, 'stale_resolution_retries_exhausted');
+    return false;
+  };
+
   const persistCheckpoint = async (
     snapshot: ApolloTwoRoundCheckpointSnapshot,
     overrides?: {
@@ -509,24 +740,7 @@ export async function runApolloTwoRoundWizardDiscovery(
       persistedCandidateIds?: string[];
     },
   ): Promise<boolean> => {
-    checkpointVersion += 1;
-    const checkpoint = buildCheckpoint({
-      reason: overrides?.reason ?? snapshot.reason,
-      checkpointVersion,
-      correlation: input.correlation,
-      config,
-      resume: snapshot.resume,
-      evidenceByKey,
-      enrichmentSnapshots,
-      candidatesPersisted: overrides?.candidatesPersisted ?? candidatesPersisted,
-      persistedCandidateIds: overrides?.persistedCandidateIds ?? persistedCandidateIds,
-      spendAccounting: buildApolloTwoRoundSpendAccounting({
-        estimatedCredits: budget.maximumInternalRecordedCredits,
-        reservedCredits: input.reservedCredits,
-        recordedUsageCredits,
-      }),
-      checkpointWriteFailures: checkpointFailures,
-    });
+    const checkpoint = buildAttempt(snapshot, overrides, checkpointVersion + 1);
 
     const outcome = await deps
       .saveCheckpoint(input.reservedBatchId, checkpoint)
@@ -535,14 +749,14 @@ export async function runApolloTwoRoundWizardDiscovery(
         reason: err instanceof Error ? err.message : 'checkpoint_write_threw',
       }));
 
-    if (outcome.kind === 'written') return true;
-    // Una escritura stale significa que otro intento ya persistió un checkpoint
-    // más nuevo: el estado ESTÁ durable, sólo no lo escribimos nosotros.
-    if (outcome.kind === 'stale_rejected') return true;
+    if (outcome.kind === 'written') {
+      checkpointVersion = outcome.checkpointVersion;
+      durableFloor = { ...checkpoint, checkpoint_version: outcome.checkpointVersion };
+      return true;
+    }
+    if (outcome.kind === 'stale_rejected') return resolveStaleRejection(checkpoint, snapshot);
 
-    const detail = `${TWO_ROUND_CHECKPOINT_WARNING}:${checkpoint.checkpoint_reason}:${outcome.kind}`;
-    checkpointFailures.push(detail);
-    if (!warnings.includes(detail)) warnings.push(detail);
+    noteCheckpointFailure(checkpoint.checkpoint_reason, outcome.kind);
     return false;
   };
 
@@ -588,7 +802,14 @@ export async function runApolloTwoRoundWizardDiscovery(
       searchOutputs.push(output);
 
       const credits = readRecordedSearchCredits(output);
-      recordedUsageCredits += credits;
+      // § 2 CAS-CLOSE — el gasto se atribuye a ESTA operación. Los créditos que el
+      // ledger registró se conservan incluso si el desenlace quedó indeterminado:
+      // la búsqueda pudo haberse cobrado, y descontarlos escondería ese gasto.
+      recordOperationCredits(operationContext, {
+        credits,
+        billingUnknown: readSearchIndeterminacy(output),
+        usageKey: null,
+      });
 
       const organizations = output.results.map((result, index) => {
         const organization = toRawDiscoveredOrganization(result, index + 1);
@@ -755,14 +976,15 @@ export async function runApolloTwoRoundWizardDiscovery(
       // § 1 — UNA fila por enrichment, siempre, con la correlación completa y el
       // contexto de la operación. Se escribe ANTES del checkpoint (§ 3) y nunca
       // vuelve a llamar a Apollo para poder escribirse.
+      const usageKey = buildApolloEnrichmentUsageKey({
+        batchId: input.reservedBatchId,
+        domain: identity.normalizedDomain,
+        operationId: operationContext.operationId,
+        fallbackTimestampMs: 0,
+      });
       const logResult = await deps
         .logEnrichmentUsage({
-          usageKey: buildApolloEnrichmentUsageKey({
-            batchId: input.reservedBatchId,
-            domain: identity.normalizedDomain,
-            operationId: operationContext.operationId,
-            fallbackTimestampMs: 0,
-          }),
+          usageKey,
           batchId: input.reservedBatchId,
           triggeredByUserId: input.triggeredByUserId,
           domain: identity.normalizedDomain,
@@ -773,6 +995,10 @@ export async function runApolloTwoRoundWizardDiscovery(
           runCorrelation: (input.runCorrelationMetadata ?? null) as never,
           operationContext: toApolloTwoRoundOperationContextMetadata(operationContext),
           stampOperationBillingState: true,
+          // § 5 CAS-CLOSE — esta fila se escribió con el criterio de dos rondas,
+          // que clasifica el cobro por el desenlace observado. La ruta legacy
+          // conserva el suyo.
+          billingContract: APOLLO_TWO_ROUND_BILLING_CONTRACT,
           accounting,
         })
         .catch(() => ({ kind: 'failed' as const, error: 'enrichment_usage_log_threw' }));
@@ -781,7 +1007,11 @@ export async function runApolloTwoRoundWizardDiscovery(
       }
 
       const credits = accounting.creditsUsed ?? 0;
-      recordedUsageCredits += credits;
+      recordOperationCredits(operationContext, {
+        credits,
+        billingUnknown: accounting.billingState === 'unknown',
+        usageKey,
+      });
 
       if (outcome === 'indeterminate') {
         recordEnrichmentSnapshot({
@@ -925,6 +1155,14 @@ export async function runApolloTwoRoundWizardDiscovery(
     return resolved;
   };
 
+  // CAS-CLOSE § 1 — otro proceso del MISMO run pudo persistir los candidatos
+  // mientras esta ejecución corría. El suelo durable lo dice, y volver a escribir
+  // los duplicaría en un lote que ya los tiene.
+  if (!candidatesPersisted && durableFloor?.candidates_persisted === true) {
+    candidatesPersisted = true;
+    persistedCandidateIds = [...durableFloor.persisted_candidate_ids];
+  }
+
   const persistableCandidates: ProspectingPipelineCandidate[] = candidatesPersisted
     ? []
     : await resolvePersistableCandidates();
@@ -933,7 +1171,7 @@ export async function runApolloTwoRoundWizardDiscovery(
     runResult,
     budget,
     reservedCredits: input.reservedCredits,
-    recordedUsageCredits,
+    recordedUsageCredits: recordedUsageCreditsNow(),
     budgetAnomalyRaised,
     checkpointFailures,
     candidatesPersisted,
@@ -1149,6 +1387,7 @@ function buildCheckpoint(input: {
   resume: ApolloTwoRoundResumeState;
   evidenceByKey: ReadonlyMap<string, ApolloTwoRoundCandidateEvidenceSnapshot>;
   enrichmentSnapshots: readonly ApolloTwoRoundEnrichmentSnapshot[];
+  recordedOperationCredits: readonly ApolloTwoRoundRecordedOperationCredit[];
   candidatesPersisted: boolean;
   persistedCandidateIds: readonly string[];
   spendAccounting: {
@@ -1171,6 +1410,8 @@ function buildCheckpoint(input: {
     checkpoint_reason: input.reason,
     idempotency_key: input.correlation.idempotencyKey,
     request_fingerprint: input.correlation.requestFingerprint,
+    // § 2 CAS-CLOSE — la fusión NUNCA mezcla dos corridas del wizard.
+    wizard_run_id: input.correlation.wizardRunId,
     config: input.config,
     completed_operation_keys: [...(input.resume.completedOperationKeys ?? [])],
     indeterminate_operation_keys: [...(input.resume.indeterminateOperationKeys ?? [])],
@@ -1204,6 +1445,11 @@ function buildCheckpoint(input: {
       }),
     ),
     enrichment_snapshots: input.enrichmentSnapshots.map((snapshot) => ({ ...snapshot })),
+    // § 2 CAS-CLOSE — gasto por operación, ordenado para que dos procesos del
+    // mismo run produzcan documentos comparables byte a byte.
+    recorded_operation_credits: [...input.recordedOperationCredits]
+      .map((entry) => ({ ...entry }))
+      .sort((a, b) => a.operation_id.localeCompare(b.operation_id)),
     persisted_candidate_ids: [...input.persistedCandidateIds],
     candidates_persisted: input.candidatesPersisted,
     observed_rejection_reasons: [...input.resume.observedRejectionReasons],
@@ -1221,8 +1467,11 @@ function buildCheckpoint(input: {
       confirmed_provider_credits: input.spendAccounting.confirmedProviderCredits,
     },
     checkpoint_write_failures: [...input.checkpointWriteFailures],
+    // § 2 CAS-CLOSE — una operación con el cobro sin confirmar exige conciliación
+    // aunque el orquestador no la haya listado todavía como indeterminada.
     manual_reconciliation_required:
-      (input.resume.indeterminateOperationKeys ?? []).length > 0,
+      (input.resume.indeterminateOperationKeys ?? []).length > 0 ||
+      hasUnknownOperationBilling(input.recordedOperationCredits),
     compacted: false,
   };
 }
