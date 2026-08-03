@@ -1496,3 +1496,13 @@ It does not approve any gate. See
 every field would be produced by a run, and no run is authorized; its post-run validation template is
 explicitly future-only. The GATE-7 evidence gaps recorded in § 11 are unchanged, and no gate moves toward
 `ready_for_review`.
+
+BR-SOURCE-11T creates the cap/input policy authorization package. It documents cap categories, input
+classes, output policy categories, family allow/deny policy, manifest/control-file policy, temp storage
+policy, evidence bucket policy, exact percentage/denominator policy, owner fields, stop conditions and
+future milestone mapping. It does not approve GATE-2. It does not authorize execution, real-data access,
+caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It does not approve any
+gate. See
+[`br-receita-cnpj-cap-input-policy-authorization-package.md`](./br-receita-cnpj-cap-input-policy-authorization-package.md).
+11T adds **no gate evidence** either, and none was anticipated: its § 12 evidence bucket policy is a
+proposed shape for a future evidence packet, not a filled one, and no gate moves toward `ready_for_review`.
