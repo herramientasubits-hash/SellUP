@@ -963,3 +963,21 @@ OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED = false
 Every gate in § 25 remains `not_started / not approved`. 11P approved none of them, and the next milestones
 in § 22 (11Q validation, 11R execution authorization, 11S runbook) each still require their own explicit
 owner authorization.
+
+---
+
+## 30. Update (BR-SOURCE-11R)
+
+BR-SOURCE-11R creates the execution authorization decision record.
+It documents current blockers, owner decision options, required owner fields, minimum conditions before
+execution and before a runbook, evidence requirements, stop conditions, a risk table and future milestone
+mapping. It does not approve GATE-2. It does not authorize execution, real-data access, caps, input roots,
+output roots, temp storage, import, Supabase, runtime or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-execution-authorization-decision-record.md`](./br-receita-cnpj-execution-authorization-decision-record.md).
+
+11R takes the § 29 implementation status as its starting factual state and draws the conclusion that follows
+from it: the scaffold exists, was merged and was validated, and it refuses. The two structural blocks
+recorded in § 29 — a `not_approved` GATE-2 state with an absent authorization phrase, and an all-`null` cap
+ceiling — appear in 11R as the first three of eight non-negotiable blockers, unchanged and unresolved. 11R
+adds no flag, no cap, no input root and no execution permission, and the recommended draft decision it
+carries is to keep execution blocked.
