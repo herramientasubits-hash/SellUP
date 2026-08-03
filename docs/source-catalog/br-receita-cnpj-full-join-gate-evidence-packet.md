@@ -1477,3 +1477,10 @@ sequencing. It does not approve GATE-2. It does not authorize implementation, li
 execution, broader local execution, temp storage, multi-window sampling, exact percentages, import,
 Supabase, runtime or Agent 1. It does not approve any gate. See
 [`br-receita-cnpj-limited-broader-local-execution-implementation-design-package.md`](./br-receita-cnpj-limited-broader-local-execution-implementation-design-package.md).
+
+BR-SOURCE-11R creates the execution authorization decision record.
+It documents current blockers, owner decision options, required owner fields, minimum conditions before
+execution and before a runbook, evidence requirements, stop conditions, a risk table and future milestone
+mapping. It does not approve GATE-2. It does not authorize execution, real-data access, caps, input roots,
+output roots, temp storage, import, Supabase, runtime or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-execution-authorization-decision-record.md`](./br-receita-cnpj-execution-authorization-decision-record.md).
