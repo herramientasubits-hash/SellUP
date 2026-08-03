@@ -770,3 +770,13 @@ The candidate caps in § 8, the access controls in § 9, the temp-storage positi
 controls in § 11 are unchanged by 11S. The runbook's command skeleton carries cap placeholders that name the
 future authorization artifact rather than any value from § 8, and it carries no path-bearing argument at all,
 so nothing in § 9 becomes fillable through it.
+
+BR-SOURCE-11T creates the cap/input policy authorization package. It documents cap categories, input
+classes, output policy categories, family allow/deny policy, manifest/control-file policy, temp storage
+policy, evidence bucket policy, exact percentage/denominator policy, owner fields, stop conditions and
+future milestone mapping. It does not approve GATE-2. It does not authorize execution, real-data access,
+caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It does not approve any
+gate. See
+[`br-receita-cnpj-cap-input-policy-authorization-package.md`](./br-receita-cnpj-cap-input-policy-authorization-package.md).
+The candidate caps in § 8 and the access controls in § 9 remain unchanged by 11T: the package proposes the
+category shape a future decision on those candidates would need, never the candidate values themselves.

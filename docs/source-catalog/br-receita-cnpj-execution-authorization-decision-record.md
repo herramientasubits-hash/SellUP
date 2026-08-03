@@ -750,3 +750,21 @@ It does not approve any gate. See
 the eight blockers in § 6, satisfies none of the § 10 minimum conditions before execution, and produces none
 of the EV-1 … EV-10 evidence in § 12. The § 8 recommended draft decision — Option A, keep execution blocked —
 is unchanged, and 11S carries the same recommendation forward for itself.
+
+---
+
+## 23. Update (BR-SOURCE-11T)
+
+BR-SOURCE-11T creates the cap/input policy authorization package. It documents cap categories, input
+classes, output policy categories, family allow/deny policy, manifest/control-file policy, temp storage
+policy, evidence bucket policy, exact percentage/denominator policy, owner fields, stop conditions and
+future milestone mapping. It does not approve GATE-2. It does not authorize execution, real-data access,
+caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It does not approve any
+gate. See
+[`br-receita-cnpj-cap-input-policy-authorization-package.md`](./br-receita-cnpj-cap-input-policy-authorization-package.md).
+
+11T was written under Option D of this record's § 7, against the § 11S runbook's own required-phrase
+handoff. It changes none of the eight blockers in § 6, satisfies none of the § 10 minimum conditions before
+execution, and produces none of the EV-1 … EV-10 evidence in § 12. The § 8 recommended draft decision —
+Option A, keep execution blocked — is unchanged, and 11T carries the same recommendation forward for itself
+in its own § 19.
