@@ -754,3 +754,19 @@ output roots, temp storage, import, Supabase, runtime or Agent 1. It does not ap
 The candidate caps in § 7–14 of this record are still `proposed_only / not_authorized` after 11P, 11Q and
 11R. The 11P scaffold records an all-`null` cap ceiling precisely so that no candidate cap here is mistaken
 for an authorized one, and 11R lists that absence as a non-negotiable blocker rather than resolving it.
+
+---
+
+## 31. Update (BR-SOURCE-11S)
+
+BR-SOURCE-11S creates the execution runbook.
+It documents roles, checklists, a non-executable command skeleton, stop conditions, an evidence template, an
+incident path, a future validation template and milestone mapping. It does not approve GATE-2. It does not
+authorize execution, real-data access, caps, input roots, temp storage, import, Supabase, runtime or Agent 1.
+It does not approve any gate. See
+[`br-receita-cnpj-execution-runbook.md`](./br-receita-cnpj-execution-runbook.md).
+
+The candidate caps in § 8, the access controls in § 9, the temp-storage position in § 10 and the output
+controls in § 11 are unchanged by 11S. The runbook's command skeleton carries cap placeholders that name the
+future authorization artifact rather than any value from § 8, and it carries no path-bearing argument at all,
+so nothing in § 9 becomes fillable through it.
