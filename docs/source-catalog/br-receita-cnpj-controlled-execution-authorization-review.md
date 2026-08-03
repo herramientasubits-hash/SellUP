@@ -815,3 +815,27 @@ The review's answer to its own question in § 2 is: **No — a sufficient basis 
 controlled execution does not exist, and the current recommendation is NO-GO.** Twelve of eighteen
 prerequisites in § 6 are unsatisfied, fifteen of fifteen blockers in § 7 are present, thirteen of sixteen
 preflight items in § 11 read `no`, and all eighteen stop conditions in § 14 currently hold.
+
+---
+
+## 22. Update (BR-SOURCE-11W-PRECONDITION-OWNER-PACKAGE)
+
+BR-SOURCE-11W-PRECONDITION-OWNER-PACKAGE creates a docs-only readiness package for missing owner decisions
+across GATE-2, GATE-7 and cap/input policy. It does not approve GATE-2. It does not approve GATE-7. It does
+not approve cap/input policy. It does not authorize caps, input roots, output roots, temp storage, controlled
+execution, real-data access, import, Supabase, runtime or Agent 1. Current recommendation remains NO-GO. See
+[`br-receita-cnpj-11w-precondition-owner-package-gate2-gate7-cap-input-readiness.md`](./br-receita-cnpj-11w-precondition-owner-package-gate2-gate7-cap-input-readiness.md).
+
+That package is § 8 Option D — *prepare formal owner approval package for GATE-2/GATE-7/cap policy* —
+carried out at one remove: it inventories what would have to be collected without collecting it, because
+collecting it requires the owner. It flips no row in the § 6 prerequisite table, clears no blocker in § 7,
+and changes no value in the § 11 preflight, which its own § 9 restates with the same thirteen failures. The
+§ 9 recommended draft decision — Option A, keep controlled execution blocked — is unchanged, and the package
+carries the analogous recommendation forward for itself in its own § 15.
+
+Two boundaries are worth stating so the two milestones are not conflated. This package is **not** the 11W
+controlled execution attempt that § 16 conditions and § 17 supplies a phrase for: that phrase remains unused,
+and § 16's instruction stands unchanged — if an 11W execution request arrives, re-run the § 11 preflight
+against the state at that moment and refuse on any `no`. And the package's own next-step phrase points at a
+further docs-only milestone, `AUTHORIZE BR-SOURCE-11X — FORMAL OWNER DECISION RECORDS FOR GATE2 GATE7 CAP
+INPUT`, which would authorize *capturing* owner decisions and never *making* them.

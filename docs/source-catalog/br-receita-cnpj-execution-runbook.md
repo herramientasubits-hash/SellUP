@@ -905,3 +905,29 @@ reviewed`, `Evidence packet template approved` and `Rollback/cleanup expectation
 and `Operator assigned` and `Reviewer assigned` in § 6 remain unfilled — 11V § 6 records both as unsatisfied
 blockers. The § 9 conceptual command skeleton is still structure-only, and the § 17 recommended draft
 decision — Option A, keep runbook blocked — is unchanged.
+
+---
+
+## 26. Update (BR-SOURCE-11W-PRECONDITION-OWNER-PACKAGE)
+
+BR-SOURCE-11W-PRECONDITION-OWNER-PACKAGE creates a docs-only readiness package for missing owner decisions
+across GATE-2, GATE-7 and cap/input policy. It does not approve GATE-2. It does not approve GATE-7. It does
+not approve cap/input policy. It does not authorize caps, input roots, output roots, temp storage, controlled
+execution, real-data access, import, Supabase, runtime or Agent 1. Current recommendation remains NO-GO. See
+[`br-receita-cnpj-11w-precondition-owner-package-gate2-gate7-cap-input-readiness.md`](./br-receita-cnpj-11w-precondition-owner-package-gate2-gate7-cap-input-readiness.md).
+
+**This runbook remains non-executable.** The package changes no item in the § 7 preflight checklist — all
+fourteen still read `no` — and satisfies none of the § 15 decision points before any future run. It fills no
+role in § 6: `Operator assigned` and `Reviewer assigned` remain unfilled, and the package's own § 7 records
+every GATE-7 readiness row as `not_ready` for exactly that reason, since each item in that gate terminates in
+an assignment or a signoff rather than in a written boundary. It leaves § 8's approval checklist blank and
+§ 9's command skeleton structure-only, and the § 17 recommended draft decision — Option A, keep runbook
+blocked — is unchanged.
+
+Three of this runbook's own rules are carried into the package rather than restated differently, which is the
+same anti-drift choice § 24 records for the evidence policy. The § 6 role table supplies the role labels the
+package's § 5 owner decision matrix uses in place of names, including the rule that approvers and implementers
+stay apart and that the code-enforced blockers are not role-clearable. The § 8 field-level rules govern the
+package's § 10 draft form: an input root takes a class label and never a path, and every reference field takes
+an identifier rather than an artifact's contents. And § 11's permitted/forbidden evidence split governs the
+package's § 13 evidence readiness, which reports the bucketed policy as documented but unapproved.
