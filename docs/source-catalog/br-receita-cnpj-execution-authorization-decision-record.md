@@ -840,3 +840,28 @@ implication is invalid rather than generous. Its § 9 also records the arithmeti
 valid records would clear three of the § 6 blockers and leave BLOCKER-8 and the operator, reviewer, incident,
 limited broader local execution and controlled execution attempt items open. § 8's Option F remains the area
 where a unit of effort moves the most, and it still requires its own separate owner phrase.
+
+---
+
+## 27. Update (BR-SOURCE-11Y)
+
+BR-SOURCE-11Y creates an owner decision capture review. It evaluates whether the formal owner decision records
+from 11X are complete and valid. Current result remains NO-GO because owner decisions are not captured,
+required fields remain missing and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11y-owner-decision-capture-review.md`](./br-receita-cnpj-11y-owner-decision-capture-review.md).
+
+**All eight blockers in § 6 remain present**, including BLOCKER-1 and BLOCKER-8, which § 8 identified as
+binding. None of the § 10 minimum conditions before execution is satisfied, none of the § 11 minimum
+conditions before a runbook is satisfied, and none of the EV-1 … EV-10 evidence in § 12 has been produced.
+Every field in § 9 remains blank, and the § 8 recommended draft decision — Option A, keep execution blocked —
+is unchanged.
+
+11Y reviews the 11X records against 11X's own validity rules and finds zero of three captured. It records
+BLOCKER-8 as the reason two GATE-2 record fields are unsatisfiable internally rather than merely unfilled: the
+legal/privacy/security reference has no written determination to cite, and the evidence packet reference has no
+measured disk and memory ceilings, no verifiable cleanup path and no TTL to name. § 8's Option F therefore
+remains the area where a unit of effort moves the most, unchanged by this review and still requiring its own
+separate owner phrase. 11Y's own next-step phrase would authorize only a completion packet, never filling a
+field and never an execution attempt.

@@ -957,3 +957,30 @@ path, and every reference field takes an identifier rather than an artifact's co
 permitted/forbidden evidence split governs the records' evidence fields, which take a bucket class or an
 artifact identifier. 11X also notes that this runbook's preflight cannot pass while GATE-2 is unapproved,
 since its first item verifies gate status — so a valid GATE-7 record cannot precede a valid GATE-2 record.
+
+---
+
+## 28. Update (BR-SOURCE-11Y)
+
+BR-SOURCE-11Y creates an owner decision capture review. It evaluates whether the formal owner decision records
+from 11X are complete and valid. Current result remains NO-GO because owner decisions are not captured,
+required fields remain missing and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11y-owner-decision-capture-review.md`](./br-receita-cnpj-11y-owner-decision-capture-review.md).
+
+**This runbook remains non-executable.** 11Y changes no item in the § 7 preflight checklist — all fourteen
+still read `no` — and satisfies none of the § 15 decision points before any future run. It fills no role in
+§ 6: `Operator assigned` and `Reviewer assigned` remain unfilled, and its § 10 records both assignments as
+`missing / not captured`, noting that no documentation milestone can make either. It leaves § 8's approval
+checklist blank and § 9's command skeleton structure-only, contains no runnable real-data command of its own,
+and the § 17 recommended draft decision — Option A, keep runbook blocked — is unchanged.
+
+Its § 8 reviews all sixteen fields of the 11X GATE-7 record against this runbook's rules and finds every one
+uncaptured. Three findings are anchored here: the § 6 separation rule means a record naming one role for both
+operator and reviewer has a missing required field; the *Sanitizer procedure* field has no upstream artifact to
+cite at all, since no frozen sanitizer contract exists, which distinguishes it from the evidence-capture,
+cleanup and incident fields that point at documented-but-unapproved procedures in § 11, § 12 and § 13; and the
+§ 7 preflight's first item means a valid GATE-7 record cannot precede a valid GATE-2 record, so a submission
+presenting GATE-7 first is out of order rather than ahead. It also carries forward § 7's rule that a failed
+item is a stop and an ambiguous item has failed, as its own *any uncertainty is NO-GO*.

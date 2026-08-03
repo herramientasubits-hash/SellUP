@@ -862,3 +862,26 @@ unchanged — if such a request arrives, re-run the § 11 preflight against the 
 any `no`. And 11X § 8 restates § 12's *operator self-declares approval* risk as an explicit validity rule: a
 filled template inside a docs-only package is an unapproved draft, and three valid records would still leave
 the controlled execution attempt authorization missing.
+
+---
+
+## 24. Update (BR-SOURCE-11Y)
+
+BR-SOURCE-11Y creates an owner decision capture review. It evaluates whether the formal owner decision records
+from 11X are complete and valid. Current result remains NO-GO because owner decisions are not captured,
+required fields remain missing and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11y-owner-decision-capture-review.md`](./br-receita-cnpj-11y-owner-decision-capture-review.md).
+
+It flips no row in the § 6 prerequisite table, clears no blocker in § 7, closes no risk in § 12, and changes
+no value in the § 11 preflight. The § 9 recommended draft decision — Option A, keep controlled execution
+blocked — is unchanged, and 11Y carries the analogous recommendation forward for itself.
+
+11Y is **not** the controlled execution attempt this review conditions and § 17 supplies a phrase for: that
+phrase remains unused, and § 16's instruction stands unchanged — if such a request arrives, re-run the § 11
+preflight against the state at that moment and refuse on any `no`. Its § 11 extends § 12's *synthetic success
+misread as real-data readiness* and *operator self-declares approval* rows into a six-part rule that no
+decision may be inferred from a template, a PR merge, synthetic validation, a runbook, a precondition package
+or the capture review itself — the last clause applying the § 12 hazard to the reviewer rather than only to a
+future operator.
