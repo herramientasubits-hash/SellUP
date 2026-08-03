@@ -724,3 +724,18 @@ Brazil remains blocked for import, runtime, Agent 1 and live prospect generation
 This milestone touched no code, no scripts, no package manifest, no Supabase schema, no migration, no
 runtime path, no Agent 1 path, no provider, and no UI. It opened no real dataset file, read no real
 manifest, processed no row, executed no join, and computed no coverage figure.
+
+---
+
+## 29. Update (BR-SOURCE-11O)
+
+BR-SOURCE-11O creates the limited broader local execution implementation design package.
+It describes proposed architecture, control flow, conceptual CLI/API contract, data-family policy, cap
+model, join handling, output/evidence model, fail-closed design, stop conditions, future test strategy and
+sequencing. It does not approve GATE-2. It does not authorize implementation, limited broader local
+execution, broader local execution, temp storage, multi-window sampling, exact percentages, import,
+Supabase, runtime or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-limited-broader-local-execution-implementation-design-package.md`](./br-receita-cnpj-limited-broader-local-execution-implementation-design-package.md).
+
+The candidate scope, candidate caps, access controls and output controls in § 7–14 of this record remain
+`proposed_only / not_authorized`; 11O designs how they would be enforced, and changes none of them.
