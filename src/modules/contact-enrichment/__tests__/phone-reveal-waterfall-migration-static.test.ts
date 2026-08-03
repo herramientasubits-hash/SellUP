@@ -17,9 +17,12 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+import { readdirSync } from 'node:fs';
+
 import {
   PHONE_REVEAL_WATERFALL_ACTIVE_STATUSES,
   PHONE_REVEAL_WATERFALL_CLAIMABLE_STATUSES,
+  PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS,
   PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES,
 } from '../phone-reveal-waterfall-core';
 
@@ -31,6 +34,37 @@ const migrationSql = readFileSync(
   join(repoRoot, 'supabase/migrations/102_phone_reveal_waterfall_runs.sql'),
   'utf8',
 );
+
+/** Los SIETE constraints de vocabulario que la migración debe dejar validados. */
+const VOCABULARY_CONSTRAINTS = [
+  'phone_reveal_waterfall_runs_status_check',
+  'phone_reveal_waterfall_runs_apollo_outcome_check',
+  'phone_reveal_waterfall_runs_lusha_outcome_check',
+  'phone_reveal_waterfall_runs_final_provider_check',
+  'phone_reveal_waterfall_runs_apollo_cost_source_check',
+  'phone_reveal_waterfall_runs_lusha_cost_source_check',
+  'phone_reveal_waterfall_runs_lusha_skipped_reason_check',
+] as const;
+
+/**
+ * Valores de la lista `IN (...)` del CHECK de `lusha_skipped_reason`, leídos del
+ * SQL. Permite comparar el vocabulario SQL con el de TypeScript en los DOS
+ * sentidos, en vez de solo comprobar que cada valor de TS aparezca en el archivo.
+ */
+function lushaSkippedReasonSqlValues(): string[] {
+  const statement = migrationSql.match(
+    /ADD CONSTRAINT phone_reveal_waterfall_runs_lusha_skipped_reason_check[\s\S]*?;/,
+  );
+  assert.ok(statement, 'no se encontró el ADD CONSTRAINT de lusha_skipped_reason');
+  // Los comentarios `--` del bloque explican la diferencia entre `suppressed` y
+  // `suppression_check_unavailable` y contienen paréntesis y palabras entre
+  // comillas: se eliminan antes de leer los literales del vocabulario.
+  const withoutComments = statement[0]
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('--'))
+    .join('\n');
+  return [...withoutComments.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+}
 
 /**
  * Cuerpo del `CREATE TABLE`: solo las declaraciones de columnas, sin comentarios
@@ -101,26 +135,63 @@ describe('102 — la tabla existe con las columnas del contrato', () => {
   });
 });
 
-describe('102 — vocabularios cerrados, todos NOT VALID', () => {
-  it('cada CHECK de vocabulario se añade NOT VALID', () => {
-    const checks = migrationSql.match(/CHECK \([\s\S]*?\)\s*NOT VALID/g) ?? [];
-    assert.ok(checks.length >= 7, `esperados ≥7 CHECK NOT VALID, hay ${checks.length}`);
-    // Cada constraint de vocabulario, por nombre, debe terminar en NOT VALID: es
-    // el patrón de las migraciones 095/097/100/101 y lo que permite ampliar un
-    // vocabulario después sin revalidar filas históricas.
-    for (const constraint of [
-      'phone_reveal_waterfall_runs_status_check',
-      'phone_reveal_waterfall_runs_apollo_outcome_check',
-      'phone_reveal_waterfall_runs_lusha_outcome_check',
-      'phone_reveal_waterfall_runs_final_provider_check',
-      'phone_reveal_waterfall_runs_apollo_cost_source_check',
-      'phone_reveal_waterfall_runs_lusha_cost_source_check',
-      'phone_reveal_waterfall_runs_lusha_skipped_reason_check',
-    ]) {
-      const block = migrationSql.match(
-        new RegExp(`ADD CONSTRAINT ${constraint}[\\s\\S]*?NOT VALID`),
+describe('102 — vocabularios cerrados, los SIETE validados en la misma migración', () => {
+  it('los 7 constraints de vocabulario existen por nombre', () => {
+    for (const constraint of VOCABULARY_CONSTRAINTS) {
+      assert.ok(
+        migrationSql.includes(`ADD CONSTRAINT ${constraint}`),
+        `falta el constraint ${constraint}`,
       );
-      assert.ok(block, `${constraint} debe añadirse con NOT VALID`);
+    }
+    assert.equal(VOCABULARY_CONSTRAINTS.length, 7);
+  });
+
+  it('ninguno queda NOT VALID (tabla nueva y vacía: no hay nada que revalidar)', () => {
+    // La tabla se crea en esta misma migración y arranca vacía, así que dejar un
+    // CHECK sin validar solo crearía un hueco de enforcement y una tarea pendiente.
+    // Se ignoran los comentarios `--`: la cabecera EXPLICA por qué no se usa NOT
+    // VALID y esa mención no puede contar como un hallazgo.
+    const executableSql = migrationSql
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n');
+    for (const constraint of VOCABULARY_CONSTRAINTS) {
+      const statement = executableSql.match(
+        new RegExp(`ADD CONSTRAINT ${constraint}[\\s\\S]*?;`),
+      );
+      assert.ok(statement, `no se encontró el ADD CONSTRAINT de ${constraint}`);
+      const addsNotValid = /NOT VALID/.test(statement[0]);
+      if (addsNotValid) {
+        // Opción aceptable: se añade NOT VALID pero se valida en ESTA migración.
+        assert.ok(
+          new RegExp(`VALIDATE CONSTRAINT ${constraint}`).test(executableSql),
+          `${constraint} se añade NOT VALID y NO se valida en esta migración`,
+        );
+      }
+    }
+    // Opción elegida: directamente no hay NOT VALID en el SQL ejecutable.
+    assert.equal(
+      /NOT VALID/.test(executableSql),
+      false,
+      'el SQL ejecutable no debe contener NOT VALID',
+    );
+  });
+
+  it('NO existe una migración posterior que valide estos constraints', () => {
+    const migrationsDir = join(repoRoot, 'supabase/migrations');
+    const others = readdirSync(migrationsDir).filter(
+      (file) =>
+        file.endsWith('.sql') && file !== '102_phone_reveal_waterfall_runs.sql',
+    );
+    for (const file of others) {
+      const sql = readFileSync(join(migrationsDir, file), 'utf8');
+      for (const constraint of VOCABULARY_CONSTRAINTS) {
+        assert.equal(
+          sql.includes(constraint),
+          false,
+          `${file} no debe tocar ${constraint}: la 102 ya lo deja validado`,
+        );
+      }
     }
   });
 
@@ -167,6 +238,7 @@ describe('102 — vocabularios cerrados, todos NOT VALID', () => {
       'missing_lusha_contact_id',
       'apollo_revealed',
       'suppressed',
+      'suppression_check_unavailable',
       'dnc',
       'authorization_expired',
       'role_not_allowed',
@@ -176,6 +248,40 @@ describe('102 — vocabularios cerrados, todos NOT VALID', () => {
       'provider_error',
     ]) {
       assert.ok(migrationSql.includes(`'${reason}'`), `falta el motivo ${reason}`);
+    }
+  });
+
+  it('el CHECK de lusha_skipped_reason y el tipo TypeScript son el MISMO conjunto', () => {
+    const sqlValues = lushaSkippedReasonSqlValues();
+    assert.deepEqual(
+      [...sqlValues].sort(),
+      [...PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS].sort(),
+      'el vocabulario SQL y el de TypeScript deben coincidir exactamente',
+    );
+  });
+
+  it('distingue supresión CONFIRMADA de comprobación NO DISPONIBLE', () => {
+    const sqlValues = lushaSkippedReasonSqlValues();
+    assert.ok(sqlValues.includes('suppressed'), 'debe admitir supresión confirmada');
+    assert.ok(
+      sqlValues.includes('suppression_check_unavailable'),
+      'debe admitir "no se pudo verificar" como motivo PROPIO',
+    );
+    assert.notEqual(
+      'suppressed',
+      'suppression_check_unavailable',
+      'son dos motivos distintos, nunca el mismo',
+    );
+  });
+
+  it('un valor arbitrario NO está admitido por el CHECK', () => {
+    const sqlValues = lushaSkippedReasonSqlValues();
+    for (const invented of ['algo_nuevo', 'suppressed_maybe', 'unknown', '']) {
+      assert.equal(
+        sqlValues.includes(invented),
+        false,
+        `${invented} no debe estar en el vocabulario cerrado`,
+      );
     }
   });
 });

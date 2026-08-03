@@ -558,6 +558,69 @@ describe('waterfall UI — estados', () => {
     );
     assert.ok(bodyText().includes('restricción de privacidad'));
   });
+
+  // ── CASO B: la comprobación de supresión no estuvo disponible ────
+
+  it('supresión NO verificable: dice que no se pudo verificar y que Lusha no corrió', async () => {
+    await renderWithAudit(
+      auditView({
+        status: 'error',
+        isTerminal: true,
+        apolloOutcome: 'suppression_check_unavailable',
+        lushaSkippedReason: 'suppression_check_unavailable',
+        lushaAttempted: false,
+        lushaCostCredits: null,
+        lushaCostSource: 'unknown',
+        finalProvider: 'none',
+      }),
+    );
+    const text = bodyText();
+
+    // 1. Dice exactamente qué pasó.
+    assert.ok(text.includes('No se pudo verificar la supresión'), text);
+    assert.ok(text.includes('Lusha no fue ejecutado'), text);
+
+    // 2. NO afirma que el candidato esté suprimido.
+    assert.equal(/suprimid/i.test(text), false, 'no puede decir "suprimido"');
+    assert.equal(
+      text.includes('restricción de privacidad registrada para este contacto'),
+      false,
+      'no puede reusar el copy de supresión confirmada',
+    );
+
+    // 3. No degrada al copy genérico de error.
+    assert.equal(
+      text.includes('No fue posible completar la revelación de teléfono'),
+      false,
+    );
+
+    // 4. Nunca muestra un costo 0 para Lusha: el costo es desconocido.
+    assert.equal(text.includes('0 créditos'), false, 'no puede mostrar costo 0');
+  });
+
+  it('supresión NO verificable: la fila de auditoría de Lusha explica la omisión', async () => {
+    await renderWithAudit(
+      auditView({
+        status: 'error',
+        isTerminal: true,
+        apolloOutcome: 'suppression_check_unavailable',
+        lushaSkippedReason: 'suppression_check_unavailable',
+        lushaAttempted: false,
+        lushaCostCredits: null,
+        lushaCostSource: 'unknown',
+        finalProvider: 'none',
+      }),
+    );
+    const text = bodyText();
+    assert.ok(text.includes('Revelación de teléfono por proveedor'));
+    assert.ok(
+      text.includes('Omitida: no se pudo verificar la supresión'),
+      'la fila de Lusha debe explicar por qué se omitió',
+    );
+    // Proveedor final "Ninguno", y ningún costo de Lusha en 0.
+    assert.ok(text.includes('Ninguno'));
+    assert.equal(text.includes('0 créditos'), false);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -686,6 +749,30 @@ describe('waterfall UI — no aprobar mientras la corrida no sea terminal', () =
       }),
     );
     await renderSheet(lushaCandidate({ phone: '+573001112233' }), {
+      waterfallEnabled: true,
+      waterfallAuthorized: true,
+    });
+    const approve = approveButton();
+    assert.ok(approve);
+    assert.equal((approve as HTMLButtonElement).disabled, false);
+    assert.equal(bodyText().includes('La revelación de teléfono sigue en proceso'), false);
+  });
+
+  it('supresión NO verificable: la corrida ES terminal, así que ya no bloquea aprobar', async () => {
+    // El gate existe para no aprobar mientras se está pagando por un teléfono que
+    // todavía puede llegar. Aquí la corrida se cerró sin gastar la 2ª pata: no hay
+    // nada en vuelo, así que el operador puede decidir. Si quiere el teléfono,
+    // tendrá que AUTORIZAR una revelación nueva.
+    mockAudit.mock.mockImplementation(async () =>
+      auditView({
+        status: 'error',
+        isTerminal: true,
+        apolloOutcome: 'suppression_check_unavailable',
+        lushaSkippedReason: 'suppression_check_unavailable',
+        finalProvider: 'none',
+      }),
+    );
+    await renderSheet(lushaCandidate({ phone_reveal_status: 'no_phone_found' }), {
       waterfallEnabled: true,
       waterfallAuthorized: true,
     });

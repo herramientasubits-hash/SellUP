@@ -56,6 +56,15 @@ export const PHONE_REVEAL_WATERFALL_ERROR_COPY =
 export const PHONE_REVEAL_WATERFALL_BLOCKED_COPY =
   'La revelación se detuvo por una restricción de privacidad registrada para este contacto.';
 
+/**
+ * Cierre por comprobación de supresión NO VERIFICABLE. Es DISTINTO del anterior a
+ * propósito: no se sabe si existe una restricción, solo que no se pudo comprobar.
+ * El copy no puede afirmar que el candidato esté suprimido, tiene que decir que la
+ * verificación no estuvo disponible y que Lusha no se ejecutó.
+ */
+export const PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY =
+  'No se pudo verificar la supresión. Lusha no fue ejecutado. No se hizo ningún cargo por Lusha; puedes autorizar una nueva revelación más tarde.';
+
 /** Gate de aprobación mientras la corrida no es terminal. */
 export const PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY =
   'La revelación de teléfono sigue en proceso.';
@@ -124,6 +133,10 @@ const LUSHA_SKIPPED_REASON_LABELS: Readonly<Record<string, string>> = {
   missing_lusha_contact_id: 'Omitida: el candidato no tiene identificador Lusha reutilizable.',
   apollo_revealed: 'Omitida: Apollo ya entregó el teléfono.',
   suppressed: 'Omitida: existe una restricción de privacidad registrada.',
+  // NO dice "suprimido": la comprobación no se pudo hacer, así que no se sabe si
+  // existe una restricción. Lo único cierto es que Lusha no se ejecutó.
+  suppression_check_unavailable:
+    'Omitida: no se pudo verificar la supresión. Lusha no fue ejecutado.',
   dnc: 'Omitida: el contacto está marcado como no contactar.',
   authorization_expired: 'Omitida: la autorización de costo había vencido.',
   role_not_allowed: 'Omitida: el rol que autorizó no tiene permiso para Lusha.',

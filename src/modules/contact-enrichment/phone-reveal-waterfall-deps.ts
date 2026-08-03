@@ -45,6 +45,7 @@ import {
 } from './lusha-phone-fallback-core';
 import {
   continuePhoneRevealWaterfall,
+  parsePhoneRevealWaterfallLushaSkippedReason,
   PHONE_REVEAL_WATERFALL_ACTIVE_STATUSES,
   PHONE_REVEAL_WATERFALL_AUTHORIZATION_TTL_HOURS,
   PHONE_REVEAL_WATERFALL_CLAIMABLE_STATUSES,
@@ -104,9 +105,12 @@ export function mapWaterfallRun(
       null,
     lushaEligible:
       typeof row.lusha_eligible === 'boolean' ? row.lusha_eligible : null,
-    lushaSkippedReason:
-      (row.lusha_skipped_reason as PhoneRevealWaterfallRunRecord['lushaSkippedReason']) ??
-      null,
+    // Vocabulario cerrado y PARSEADO (no casteado): un valor fuera del contrato
+    // se descarta a null en vez de llegar a la UI o a la auditoría como si fuera
+    // un motivo válido.
+    lushaSkippedReason: parsePhoneRevealWaterfallLushaSkippedReason(
+      row.lusha_skipped_reason,
+    ),
     lushaAttemptedAt: (row.lusha_attempted_at as string | null) ?? null,
     lushaOutcome:
       (row.lusha_outcome as PhoneRevealWaterfallRunRecord['lushaOutcome']) ?? null,

@@ -33,7 +33,10 @@
  *     can still close the Apollo leg, but it can NEVER spend the second leg on a
  *     stale authorization.
  *   * suppression / do-not-contact are re-checked immediately BEFORE the Lusha
- *     leg, fail-closed: an unverifiable check blocks the call.
+ *     leg, fail-closed: an unverifiable check blocks the call. It is recorded as
+ *     `suppression_check_unavailable`, NEVER as `suppressed` — "we could not
+ *     verify" is not the same claim as "this contact is suppressed", and the
+ *     audit must not turn the first into the second.
  *   * no automatic retry, no bulk, no HubSpot write, no candidate approval.
  *   * Apollo and Lusha costs are recorded in SEPARATE columns and are NEVER
  *     summed into one. An unreported cost is `null` + `unknown`, never 0.
@@ -76,18 +79,53 @@ export type PhoneRevealWaterfallFinalProvider = 'apollo' | 'lusha' | 'none';
 /** Confianza sobre el costo. `unknown` ≠ 0: un costo no reportado no es gratis. */
 export type PhoneRevealWaterfallCostSource = 'reported' | 'assumed_cap' | 'unknown';
 
-/** Por qué NO se intentó Lusha. */
+/**
+ * Por qué NO se intentó Lusha. Vocabulario CERRADO y única fuente de los nombres:
+ * el CHECK `phone_reveal_waterfall_runs_lusha_skipped_reason_check` de la
+ * migración 102 se compara contra esta lista en un test estático, en los dos
+ * sentidos, para que no se pueda añadir un motivo en un solo lado.
+ *
+ * `suppressed` y `suppression_check_unavailable` son DELIBERADAMENTE distintos:
+ *   * `suppressed` — la comprobación SÍ se ejecutó y confirmó tombstone/bloqueo.
+ *   * `suppression_check_unavailable` — la comprobación no se pudo completar, así
+ *     que NO se sabe si el candidato está suprimido. Solo se sabe que SellUp no
+ *     pudo verificarlo y, fail-closed, no ejecutó Lusha.
+ * Colapsar el segundo en el primero afirmaría al operador (y a una auditoría de
+ * privacidad) algo que nunca se comprobó, así que son dos motivos separados.
+ */
+export const PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS = [
+  'missing_lusha_contact_id',
+  'apollo_revealed',
+  'suppressed',
+  'suppression_check_unavailable',
+  'dnc',
+  'authorization_expired',
+  'role_not_allowed',
+  'feature_disabled',
+  'already_attempted',
+  'not_needed',
+  'provider_error',
+] as const;
+
 export type PhoneRevealWaterfallLushaSkippedReason =
-  | 'missing_lusha_contact_id'
-  | 'apollo_revealed'
-  | 'suppressed'
-  | 'dnc'
-  | 'authorization_expired'
-  | 'role_not_allowed'
-  | 'feature_disabled'
-  | 'already_attempted'
-  | 'not_needed'
-  | 'provider_error';
+  (typeof PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS)[number];
+
+/**
+ * Parser del vocabulario cerrado. Un valor arbitrario (columna ampliada por otra
+ * rama, fila escrita a mano, driver devolviendo algo inesperado) se descarta a
+ * `null` en vez de viajar a la UI o a la auditoría como si fuera un motivo válido.
+ */
+export function parsePhoneRevealWaterfallLushaSkippedReason(
+  value: unknown,
+): PhoneRevealWaterfallLushaSkippedReason | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return (PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS as readonly string[]).includes(
+    trimmed,
+  )
+    ? (trimmed as PhoneRevealWaterfallLushaSkippedReason)
+    : null;
+}
 
 /** Estados NO terminales: la corrida sigue viva y puede gastar la 2ª pata. */
 export const PHONE_REVEAL_WATERFALL_ACTIVE_STATUSES: readonly PhoneRevealWaterfallStatus[] =
@@ -402,6 +440,38 @@ export interface PhoneRevealWaterfallRunPatch {
 }
 
 /**
+ * Cierre por comprobación de supresión/DNC NO VERIFICABLE. Se usa en los TRES
+ * puntos donde puede ocurrir (START de Apollo, desenlace terminal de Apollo y
+ * re-comprobación previa a Lusha) para que el registro sea idéntico en los tres.
+ *
+ * Propiedades del cierre:
+ *   * `lusha_skipped_reason = 'suppression_check_unavailable'`, NUNCA `suppressed`:
+ *     el motivo específico queda DIRECTAMENTE consultable en su columna, sin
+ *     obligar a leer `error_code` ni metadata secundaria para distinguirlo.
+ *   * `status = 'error'`, que es TERMINAL: la corrida no queda en los estados del
+ *     índice único parcial, así que no bloquea una autorización futura, y no queda
+ *     nada vivo que un disparador posterior (webhook, cron L2, revisión L3) pueda
+ *     retomar ⇒ no hay reintento automático de Lusha con esta autorización.
+ *   * el costo de Lusha se sella `null` + `unknown`: Lusha no se ejecutó y un costo
+ *     desconocido JAMÁS se representa como 0. Que la pata no corrió lo dice
+ *     `lusha_attempted_at IS NULL`, no la columna de costo.
+ *   * el candidato NO se toca aquí (este core solo describe la corrida).
+ */
+function suppressionCheckUnavailablePatch(
+  nowIso: string,
+): PhoneRevealWaterfallRunPatch {
+  return {
+    status: 'error',
+    lushaSkippedReason: 'suppression_check_unavailable',
+    lushaCostCredits: null,
+    lushaCostSource: 'unknown',
+    finalProvider: 'none',
+    completedAt: nowIso,
+    errorCode: 'suppression_check_unavailable',
+  };
+}
+
+/**
  * Traduce el status que devolvió el START de Apollo
  * (`RevealCandidatePhoneStatus`) al patch de la corrida. Se recibe como string
  * a propósito: mantiene este core sin importar el core de Apollo, y cualquier
@@ -446,16 +516,14 @@ export function mapApolloStartStatusToWaterfallPatch(
         errorCode: 'blocked_suppressed',
       };
 
-    // La supresión NO se pudo verificar. Lectura fail-closed: se trata como si
-    // hubiera tombstone, así que la pata Lusha tampoco se gasta.
+    // La supresión NO se pudo verificar. Fail-closed en el EFECTO (la pata Lusha
+    // no se gasta) pero NO en el registro: se anota como
+    // `suppression_check_unavailable`, no como `suppressed`, porque no se sabe si
+    // el candidato está suprimido — solo que no se pudo comprobar.
     case 'suppression_check_unavailable':
       return {
-        status: 'error',
         apolloOutcome: 'suppression_check_unavailable',
-        lushaSkippedReason: 'suppressed',
-        finalProvider: 'none',
-        completedAt: nowIso,
-        errorCode: 'suppression_check_unavailable',
+        ...suppressionCheckUnavailablePatch(nowIso),
       };
 
     case 'cache_unavailable':
@@ -610,15 +678,12 @@ export function decidePhoneRevealWaterfallContinuation(
         errorCode: 'do_not_contact',
       });
 
-    // Fail-closed: no verificar la supresión se lee como supresión.
+    // Fail-closed en el efecto (Lusha no se llama), explícito en el registro: la
+    // comprobación no estuvo disponible, y eso NO es una supresión confirmada.
     case 'suppression_check_unavailable':
       return closeRun({
-        status: 'error',
         apolloOutcome: 'suppression_check_unavailable',
-        lushaSkippedReason: 'suppressed',
-        finalProvider: 'none',
-        completedAt: input.nowIso,
-        errorCode: 'suppression_check_unavailable',
+        ...suppressionCheckUnavailablePatch(input.nowIso),
       });
 
     case 'cache_unavailable':
@@ -719,8 +784,11 @@ export type PhoneRevealWaterfallSuppressionState =
 
 /**
  * Traduce la re-comprobación a decisión. `null` = adelante con Lusha; cualquier
- * otro valor devuelve el patch de cierre. Fail-closed: `check_unavailable`
- * bloquea la llamada igual que un tombstone confirmado.
+ * otro valor devuelve el patch de cierre.
+ *
+ * Fail-closed: `check_unavailable` bloquea la llamada IGUAL que un tombstone
+ * confirmado, pero se REGISTRA distinto (`suppression_check_unavailable` vs
+ * `suppressed`): el efecto es el mismo, la afirmación no.
  */
 export function resolvePhoneRevealWaterfallSuppressionBlock(
   state: PhoneRevealWaterfallSuppressionState,
@@ -747,13 +815,7 @@ export function resolvePhoneRevealWaterfallSuppressionBlock(
       };
     case 'check_unavailable':
     default:
-      return {
-        status: 'error',
-        lushaSkippedReason: 'suppressed',
-        finalProvider: 'none',
-        completedAt: nowIso,
-        errorCode: 'suppression_check_unavailable',
-      };
+      return suppressionCheckUnavailablePatch(nowIso);
   }
 }
 
@@ -995,7 +1057,11 @@ export async function continuePhoneRevealWaterfall(
     });
     return {
       outcome: 'closed_without_lusha',
-      reason: suppressionBlock.errorCode ?? 'suppressed',
+      // `error_code` ya distingue los tres cierres de privacidad
+      // (`blocked_suppressed` | `do_not_contact` | `suppression_check_unavailable`).
+      // El fallback usa el motivo de omisión, NUNCA un 'suppressed' literal: este
+      // camino también cubre "no se pudo verificar", que no es una supresión.
+      reason: suppressionBlock.errorCode ?? suppressionBlock.lushaSkippedReason ?? null,
       lushaCalled: false,
     };
   }

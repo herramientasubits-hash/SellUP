@@ -18,11 +18,14 @@ import {
   resolveWaterfallLushaSkippedLabel,
   resolveWaterfallOutcomeLabel,
   PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS,
+  PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_BUTTON_LABEL,
+  PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY,
   PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS,
 } from '../phone-reveal-waterfall-copy';
 import {
   PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS,
+  PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS,
   PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA,
 } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
 
@@ -110,24 +113,45 @@ describe('copy del waterfall — etiquetas de auditoría', () => {
     assert.equal(resolveWaterfallOutcomeLabel('algo_nuevo'), 'algo_nuevo');
   });
 
-  test('traduce cada motivo de omisión de la pata Lusha', () => {
-    for (const reason of [
-      'missing_lusha_contact_id',
-      'apollo_revealed',
-      'suppressed',
-      'dnc',
-      'authorization_expired',
-      'role_not_allowed',
-      'feature_disabled',
-      'already_attempted',
-      'not_needed',
-      'provider_error',
-    ]) {
+  test('traduce cada motivo de omisión de la pata Lusha (todo el vocabulario cerrado)', () => {
+    // Se recorre la lista del CORE, no una copia: un motivo nuevo sin etiqueta
+    // hace fallar este test en vez de degradar silenciosamente a "Omitida.".
+    for (const reason of PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS) {
       const label = resolveWaterfallLushaSkippedLabel(reason);
       assert.ok(label, `falta etiqueta para ${reason}`);
       assert.ok(label?.startsWith('Omitida'), reason);
+      assert.notEqual(label, 'Omitida.', `${reason} usa el label genérico de fallback`);
     }
     assert.equal(resolveWaterfallLushaSkippedLabel(null), null);
+  });
+
+  test('supresión CONFIRMADA y comprobación NO DISPONIBLE tienen etiquetas distintas', () => {
+    const suppressed = resolveWaterfallLushaSkippedLabel('suppressed');
+    const unverified = resolveWaterfallLushaSkippedLabel('suppression_check_unavailable');
+    assert.notEqual(suppressed, unverified);
+
+    // La confirmada sí puede afirmar que existe una restricción.
+    assert.ok(suppressed?.includes('restricción de privacidad'));
+
+    // La NO disponible no puede afirmarlo: explica que no se pudo verificar y que
+    // Lusha no se ejecutó.
+    assert.ok(unverified?.includes('no se pudo verificar'), unverified ?? '');
+    assert.ok(unverified?.includes('Lusha no fue ejecutado'), unverified ?? '');
+    assert.equal(
+      /suprimid|restricción de privacidad registrada/i.test(unverified ?? ''),
+      false,
+      'no puede decir que el candidato esté suprimido',
+    );
+  });
+
+  test('el copy de estado de "no verificable" no afirma supresión ni muestra costo 0', () => {
+    const copy = PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY;
+    assert.ok(copy.includes('No se pudo verificar la supresión'));
+    assert.ok(copy.includes('Lusha no fue ejecutado'));
+    assert.equal(/suprimid/i.test(copy), false, 'no puede decir "suprimido"');
+    assert.notEqual(copy, PHONE_REVEAL_WATERFALL_BLOCKED_COPY);
+    // Ni un 0 de créditos ni una insinuación de gratuidad numérica.
+    assert.equal(/\b0\b/.test(copy), false, 'no puede mostrar un costo 0');
   });
 
   test('traduce el proveedor final, incluido "ninguno"', () => {

@@ -31,9 +31,14 @@
 --   * reveal a phone, call Apollo/Lusha/HubSpot or spend credits
 --   * contain any phone, email, name, linkedin or provider contact id
 --
--- Safety: strictly additive. Every CHECK is created NOT VALID (nothing to
--- re-validate — the table starts empty — but it keeps the same convention as
--- migrations 095/097/100/101 so a later vocabulary widening is a cheap swap).
+-- Safety: strictly additive. Every CHECK is created VALIDATED (no `NOT VALID`
+-- anywhere), so no follow-up migration is needed to validate them. `NOT VALID` is
+-- the convention of migrations 095/097/100/101 because those widen vocabularies on
+-- tables that already hold historical rows, where scanning them is the expensive
+-- part. This table is BRAND NEW and starts empty: validating on creation costs
+-- nothing and, unlike a NOT VALID constraint, it is enforced for every future row
+-- with no gap and no pending maintenance. A LATER vocabulary widening on this table
+-- may still use NOT VALID — that trade-off returns once there are rows to scan.
 -- Idempotent: CREATE TABLE / INDEX use IF NOT EXISTS and the policy is guarded
 -- via pg_policies, so the migration can be re-run without error.
 --
@@ -108,7 +113,9 @@ CREATE TABLE IF NOT EXISTS public.phone_reveal_waterfall_runs (
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
 
--- ── 2. Closed vocabularies (all NOT VALID) ─────────────────────────
+-- ── 2. Closed vocabularies (all VALIDATED on creation) ─────────────
+-- The seven CHECKs below are added WITHOUT `NOT VALID`, so `convalidated` is true
+-- the moment this migration finishes and nothing else has to be run later.
 
 DO $$
 BEGIN
@@ -141,7 +148,7 @@ BEGIN
           -- authorization, suppression/DNC block, or an ineligible candidate.
           'aborted'
         )
-      ) NOT VALID;
+      );
   END IF;
 
   IF NOT EXISTS (
@@ -162,7 +169,7 @@ BEGIN
           'suppression_check_unavailable',
           'cache_unavailable'
         )
-      ) NOT VALID;
+      );
   END IF;
 
   IF NOT EXISTS (
@@ -178,7 +185,7 @@ BEGIN
           'no_phone_found',
           'error'
         )
-      ) NOT VALID;
+      );
   END IF;
 
   IF NOT EXISTS (
@@ -194,7 +201,7 @@ BEGIN
           'lusha',
           'none'
         )
-      ) NOT VALID;
+      );
   END IF;
 
   -- Same closed vocabulary as
@@ -214,7 +221,7 @@ BEGIN
           'assumed_cap',
           'unknown'
         )
-      ) NOT VALID;
+      );
   END IF;
 
   IF NOT EXISTS (
@@ -230,7 +237,7 @@ BEGIN
           'assumed_cap',
           'unknown'
         )
-      ) NOT VALID;
+      );
   END IF;
 
   IF NOT EXISTS (
@@ -246,9 +253,13 @@ BEGIN
           'missing_lusha_contact_id',
           -- Apollo already produced the phone, so no second leg was needed.
           'apollo_revealed',
-          -- A suppression tombstone blocked it — or the suppression check could
-          -- not be completed, which is read fail-closed as "suppressed".
+          -- A suppression tombstone blocked it. The check RAN and confirmed it.
           'suppressed',
+          -- The check could NOT be completed, so whether the candidate is
+          -- suppressed is UNKNOWN. Lusha was not called (fail-closed), but this is
+          -- deliberately NOT recorded as 'suppressed': the platform must not assert
+          -- a privacy verdict it never obtained.
+          'suppression_check_unavailable',
           'dnc',
           'authorization_expired',
           'role_not_allowed',
@@ -258,7 +269,7 @@ BEGIN
           'not_needed',
           'provider_error'
         )
-      ) NOT VALID;
+      );
   END IF;
 END $$;
 
@@ -309,6 +320,9 @@ COMMENT ON COLUMN public.phone_reveal_waterfall_runs.max_credits_authorized IS
 
 COMMENT ON COLUMN public.phone_reveal_waterfall_runs.apollo_cost_credits IS
   'Credits Apollo reported for its leg. NULL = not reported, never 0 — an unreported cost must not read as a free call. The Lusha leg is recorded separately and the two are NEVER summed into one column.';
+
+COMMENT ON COLUMN public.phone_reveal_waterfall_runs.lusha_skipped_reason IS
+  'Why the Lusha leg was NOT attempted, directly queryable (never hidden inside error_code or metadata). ''suppressed'' means the suppression/DNC check RAN and confirmed a block; ''suppression_check_unavailable'' means the check could not be completed, so the suppression state is UNKNOWN — Lusha was not called (fail-closed) but no privacy verdict was obtained. The two are never collapsed.';
 
 COMMENT ON COLUMN public.phone_reveal_waterfall_runs.lusha_attempted_at IS
   'Set by the atomic claim (UPDATE ... WHERE lusha_attempted_at IS NULL). A claim that updates 0 rows means another trigger already took the Lusha leg, so the caller must NOT call Lusha.';

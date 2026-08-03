@@ -20,6 +20,7 @@ import {
   isPhoneRevealWaterfallRoleAuthorized,
   mapApolloStartStatusToWaterfallPatch,
   mapLushaLegResultToWaterfallPatch,
+  parsePhoneRevealWaterfallLushaSkippedReason,
   resolvePhoneRevealWaterfallCostSource,
   resolvePhoneRevealWaterfallMaxCredits,
   resolvePhoneRevealWaterfallSuppressionBlock,
@@ -28,7 +29,9 @@ import {
   PHONE_REVEAL_WATERFALL_AUTHORIZATION_TTL_HOURS,
   PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS,
   PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS,
+  PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS,
   PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA,
+  PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES,
   type ContinuePhoneRevealWaterfallDeps,
   type PhoneRevealWaterfallCandidateRecord,
   type PhoneRevealWaterfallLushaLegResult,
@@ -304,14 +307,20 @@ describe('waterfall — reconciliación del START de Apollo', () => {
     assert.equal(dnc?.lushaSkippedReason, 'dnc');
   });
 
-  test('supresión no verificable: fail-closed, se lee como suprimida', () => {
+  test('supresión no verificable: fail-closed, pero NO se registra como suprimida', () => {
     const patch = mapApolloStartStatusToWaterfallPatch(
       'suppression_check_unavailable',
       NOW_ISO,
     );
     assert.equal(patch?.status, 'error');
-    assert.equal(patch?.lushaSkippedReason, 'suppressed');
+    // El motivo específico va en su propia columna, no escondido en error_code.
+    assert.equal(patch?.lushaSkippedReason, 'suppression_check_unavailable');
+    assert.notEqual(patch?.lushaSkippedReason, 'suppressed');
     assert.equal(patch?.errorCode, 'suppression_check_unavailable');
+    assert.equal(patch?.finalProvider, 'none');
+    // Lusha no corrió: costo desconocido, JAMÁS 0.
+    assert.equal(patch?.lushaCostCredits, null);
+    assert.equal(patch?.lushaCostSource, 'unknown');
   });
 
   test('cualquier gate desconocido aborta registrando el código (nunca queda activa)', () => {
@@ -393,7 +402,12 @@ describe('waterfall — decisión de continuación', () => {
     assert.equal(dnc.action === 'close' && dnc.patch.lushaSkippedReason, 'dnc');
     const unverifiable = decide({ apolloOutcome: 'suppression_check_unavailable' });
     assert.equal(unverifiable.action === 'close' && unverifiable.patch.status, 'error');
+    // Se cierra sin gastar la 2ª pata, pero SIN afirmar que haya supresión.
     assert.equal(
+      unverifiable.action === 'close' && unverifiable.patch.lushaSkippedReason,
+      'suppression_check_unavailable',
+    );
+    assert.notEqual(
       unverifiable.action === 'close' && unverifiable.patch.lushaSkippedReason,
       'suppressed',
     );
@@ -462,24 +476,104 @@ describe('waterfall — re-comprobación de supresión/DNC', () => {
     assert.equal(resolvePhoneRevealWaterfallSuppressionBlock('clear', NOW_ISO), null);
   });
 
-  test('tombstone y DNC abortan con su motivo propio', () => {
+  // ── CASO A: la comprobación SÍ corrió y confirmó supresión ──────
+
+  test('CASO A · tombstone y DNC abortan con su motivo propio', () => {
     const suppressed = resolvePhoneRevealWaterfallSuppressionBlock(
       'blocked_suppressed',
       NOW_ISO,
     );
     assert.equal(suppressed?.status, 'aborted');
     assert.equal(suppressed?.lushaSkippedReason, 'suppressed');
+    assert.equal(suppressed?.finalProvider, 'none');
+    // La corrida queda TERMINAL ⇒ no bloquea el índice único de corrida activa.
+    assert.ok(
+      PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(suppressed!.status!),
+      'aborted debe ser terminal',
+    );
+    // El costo de Lusha nunca se registra como 0 en un cierre sin llamada.
+    assert.notEqual(suppressed?.lushaCostCredits, 0);
+
     const dnc = resolvePhoneRevealWaterfallSuppressionBlock('do_not_contact', NOW_ISO);
     assert.equal(dnc?.status, 'aborted');
     assert.equal(dnc?.lushaSkippedReason, 'dnc');
+    assert.notEqual(dnc?.lushaCostCredits, 0);
   });
 
-  test('FAIL-CLOSED: no verificable bloquea igual que un tombstone', () => {
+  // ── CASO B: la comprobación NO se pudo completar ────────────────
+
+  test('CASO B · no verificable: bloquea igual, pero se registra como propio', () => {
     const patch = resolvePhoneRevealWaterfallSuppressionBlock('check_unavailable', NOW_ISO);
     assert.notEqual(patch, null);
-    assert.equal(patch?.status, 'error');
+    // Motivo DIRECTAMENTE consultable: no hace falta leer error_code ni metadata.
+    assert.equal(patch?.lushaSkippedReason, 'suppression_check_unavailable');
+    assert.notEqual(
+      patch?.lushaSkippedReason,
+      'suppressed',
+      'no se puede afirmar una supresión que nunca se comprobó',
+    );
     assert.equal(patch?.errorCode, 'suppression_check_unavailable');
     assert.equal(patch?.finalProvider, 'none');
+    // Terminal ⇒ ni bloquea el índice único parcial ni deja algo que reintentar.
+    assert.equal(patch?.status, 'error');
+    assert.ok(
+      PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(patch!.status!),
+      'error debe ser terminal',
+    );
+    assert.equal(patch?.completedAt, NOW_ISO);
+    // Costo Lusha: null + unknown. Nunca 0, porque Lusha no llegó a ejecutarse.
+    assert.equal(patch?.lushaCostCredits, null);
+    assert.equal(patch?.lushaCostSource, 'unknown');
+    // Y no se inventa un desenlace de Lusha: la pata no corrió.
+    assert.equal(patch?.lushaOutcome, undefined);
+  });
+
+  test('CASO B · un estado desconocido cae en el mismo cierre fail-closed', () => {
+    const patch = resolvePhoneRevealWaterfallSuppressionBlock(
+      'algo-que-no-existe' as PhoneRevealWaterfallSuppressionState,
+      NOW_ISO,
+    );
+    assert.equal(patch?.lushaSkippedReason, 'suppression_check_unavailable');
+    assert.equal(patch?.status, 'error');
+  });
+
+  // ── CASO C: vocabulario cerrado ────────────────────────────────
+
+  test('CASO C · `suppressed` y `suppression_check_unavailable` son AMBOS válidos', () => {
+    for (const reason of ['suppressed', 'suppression_check_unavailable']) {
+      assert.ok(
+        (PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS as readonly string[]).includes(
+          reason,
+        ),
+        `${reason} debe estar en el vocabulario cerrado`,
+      );
+      assert.equal(parsePhoneRevealWaterfallLushaSkippedReason(reason), reason);
+    }
+  });
+
+  test('CASO C · un valor arbitrario se rechaza (no viaja como motivo válido)', () => {
+    for (const invalid of [
+      'algo_nuevo',
+      'suppressed_maybe',
+      'SUPPRESSED',
+      '',
+      '   ',
+      null,
+      undefined,
+      42,
+      {},
+    ]) {
+      assert.equal(
+        parsePhoneRevealWaterfallLushaSkippedReason(invalid),
+        null,
+        `${String(invalid)} debe rechazarse`,
+      );
+    }
+    // Con espacios alrededor sí se acepta el valor real (normalización, no laxitud).
+    assert.equal(
+      parsePhoneRevealWaterfallLushaSkippedReason('  suppression_check_unavailable  '),
+      'suppression_check_unavailable',
+    );
   });
 });
 
@@ -724,6 +818,90 @@ describe('waterfall — continuación con claim atómico', () => {
     assert.equal(h.lushaCalls, 0);
     assert.equal(h.claimAttempts, 0);
     assert.equal(h.updates[0].patch.errorCode, 'suppression_check_unavailable');
+    // Y el motivo NO dice "suprimido": nunca se comprobó.
+    assert.equal(
+      h.updates[0].patch.lushaSkippedReason,
+      'suppression_check_unavailable',
+    );
+    assert.notEqual(h.updates[0].patch.lushaSkippedReason, 'suppressed');
+    // El `reason` diagnóstico tampoco puede afirmar supresión.
+    assert.equal(result.reason, 'suppression_check_unavailable');
+  });
+
+  test('CASO B end-to-end · comprobación no disponible: cierre terminal, 0 créditos, sin reintento', async () => {
+    // La dep devuelve explícitamente `check_unavailable` (no lanza): mismo trato.
+    const h = continueHarness({ suppression: 'check_unavailable' });
+    const first = await continuePhoneRevealWaterfall(
+      { candidateId: 'candidate-1', apolloOutcome: 'no_phone_found', apolloCostCredits: 0 },
+      h.deps,
+    );
+
+    // 1. Lusha NO se llama y la pata NO se reclama.
+    assert.equal(first.lushaCalled, false);
+    assert.equal(h.lushaCalls, 0);
+    assert.equal(h.claimAttempts, 0);
+
+    // 2. Un solo UPDATE, sobre la corrida, con el motivo propio.
+    assert.equal(h.updates.length, 1);
+    const patch = h.updates[0].patch;
+    assert.equal(patch.lushaSkippedReason, 'suppression_check_unavailable');
+    assert.equal(patch.errorCode, 'suppression_check_unavailable');
+    assert.equal(patch.finalProvider, 'none');
+    assert.equal(patch.lushaOutcome, undefined, 'Lusha no intentó: sin desenlace');
+
+    // 3. Estado TERMINAL ⇒ no bloquea el índice único parcial de corrida activa.
+    assert.equal(patch.status, 'error');
+    assert.ok(PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(patch.status!));
+
+    // 4. Costo de Lusha desconocido, nunca 0. El de Apollo, en SU columna.
+    assert.equal(patch.lushaCostCredits, null);
+    assert.equal(patch.lushaCostSource, 'unknown');
+    assert.equal(patch.apolloCostCredits, 0);
+    assert.equal(patch.apolloCostSource, 'reported');
+    assert.notEqual(patch.lushaCostCredits, patch.apolloCostCredits);
+
+    // 5. El candidato no se modifica: este core NO tiene ninguna dep de escritura
+    //    de candidatos, así que estructuralmente no puede tocarlo.
+    assert.deepEqual(
+      Object.keys(h.deps).filter((key) => /candidate/i.test(key) && /update|patch|persist|write/i.test(key)),
+      [],
+    );
+
+    // 6. NO hay reintento automático: la MISMA autorización, vuelta a disparar por
+    //    otro trigger (webhook / cron L2 / revisión L3), ya encuentra la corrida
+    //    terminal y no escribe ni llama a nadie.
+    const terminalRun: PhoneRevealWaterfallRunRecord = {
+      ...activeRun(),
+      status: 'error',
+      lushaSkippedReason: 'suppression_check_unavailable',
+      lushaCostCredits: null,
+      lushaCostSource: 'unknown',
+      finalProvider: 'none',
+      completedAt: NOW_ISO,
+      errorCode: 'suppression_check_unavailable',
+    };
+    const retry = continueHarness({ run: terminalRun });
+    const second = await continuePhoneRevealWaterfall(
+      { candidateId: 'candidate-1', apolloOutcome: 'no_phone_found', apolloCostCredits: 0 },
+      retry.deps,
+    );
+    assert.equal(second.outcome, 'noop');
+    assert.equal(second.reason, 'run_already_terminal');
+    assert.equal(retry.lushaCalls, 0);
+    assert.equal(retry.updates.length, 0);
+  });
+
+  test('CASO B · una NUEVA autorización explícita sí puede volver a intentarlo', async () => {
+    // Cerrada la corrida anterior, el operador autoriza otra vez: nace una corrida
+    // nueva (`findActiveRun` la devuelve) y el waterfall vuelve a estar disponible.
+    // Aquí la comprobación ya se puede hacer, así que la pata Lusha corre — una vez.
+    const h = continueHarness({ run: activeRun(), suppression: 'clear' });
+    const result = await continuePhoneRevealWaterfall(
+      { candidateId: 'candidate-1', apolloOutcome: 'no_phone_found', apolloCostCredits: 0 },
+      h.deps,
+    );
+    assert.equal(result.outcome, 'lusha_revealed');
+    assert.equal(h.lushaCalls, 1, 'exactamente una llamada, con la NUEVA autorización');
   });
 
   test('tombstone registrado entre el START y el webhook: 0 llamadas a Lusha', async () => {

@@ -85,6 +85,7 @@ import {
   PHONE_REVEAL_WATERFALL_LUSHA_RUNNING_COPY,
   PHONE_REVEAL_WATERFALL_REVEALED_BY_APOLLO_COPY,
   PHONE_REVEAL_WATERFALL_REVEALED_BY_LUSHA_COPY,
+  PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY,
 } from './phone-reveal-waterfall-copy';
 // Núcleo PURO de la ventana L3 (sin imports en tiempo de ejecución, por eso es
 // seguro en el bundle cliente): cliente y servidor comparten LA MISMA definición
@@ -1056,6 +1057,14 @@ export function ContactCandidateDetailSheet({
     waterfallActive &&
     (waterfallAudit?.status === 'lusha_pending' ||
       waterfallAudit?.status === 'lusha_running');
+  // La comprobación de supresión/DNC no se pudo completar, así que Lusha NO se
+  // ejecutó. Se lee del motivo de omisión de la corrida (no de `error_code`) y
+  // tiene prioridad sobre el copy genérico de error: al operador hay que decirle
+  // que la verificación no estuvo disponible, NUNCA que el candidato está
+  // suprimido — eso no se comprobó.
+  const waterfallSuppressionUnverified =
+    waterfallActive &&
+    waterfallAudit?.lushaSkippedReason === 'suppression_check_unavailable';
   const waterfallInProgress =
     waterfallActive && !!waterfallAudit && !waterfallAudit.isTerminal;
   // Gate de aprobación: mientras la revelación siga viva, aprobar crearía el
@@ -1487,6 +1496,10 @@ export function ContactCandidateDetailSheet({
                             {PHONE_REVEAL_WATERFALL_LUSHA_RUNNING_COPY}
                           </span>
                         </span>
+                      ) : waterfallSuppressionUnverified ? (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                          {PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY}
+                        </p>
                       ) : waterfallAudit.status === 'apollo_in_flight' ? (
                         <p className="text-[11px] text-muted-foreground">
                           {PHONE_REVEAL_WATERFALL_APOLLO_RUNNING_COPY}
