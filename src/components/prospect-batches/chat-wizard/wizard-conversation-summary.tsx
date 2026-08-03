@@ -3,7 +3,6 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, Pencil, RotateCcw, AlertTriangle, XCircle, Loader2, AlertCircle, Sparkles } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
