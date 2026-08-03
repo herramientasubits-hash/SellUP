@@ -87,7 +87,32 @@ import {
   resolveRemainingCostDisplay,
   toCostTruth,
 } from '@/modules/usage-tracking/cost-display';
-import { CostValue } from '@/components/shared/cost-value';
+import {
+  resolveCreditsTotalsDisplay,
+  type CreditsDisplayValue,
+} from '@/modules/usage-tracking/credits-display';
+import { CostValue, CreditsValue } from '@/components/shared/cost-value';
+
+/**
+ * A1-APOLLO-TWO-ROUND-QA-READINESS-1 § 4 — un desglose (por operación o por
+ * usuario) muestra su subtotal CONOCIDO. Si además arrastra operaciones con
+ * consumo indeterminado, el número se marca como parcial en vez de presentarse
+ * como total cerrado.
+ */
+function toBreakdownCreditsDisplay(row: {
+  totalCredits: number;
+  unknownCreditOperations: number;
+  hasUnknownCredits: boolean;
+}): CreditsDisplayValue {
+  return resolveCreditsTotalsDisplay({
+    totals: {
+      knownCreditsTotal: row.totalCredits,
+      unknownCreditOperations: row.unknownCreditOperations,
+      hasUnknownCredits: row.hasUnknownCredits,
+    },
+    formatCredits: (v) => `${v.toLocaleString()} cr`,
+  });
+}
 import { summarizeProviderEffectiveness } from './provider-effectiveness-summary';
 import {
   isEffectivenessSupportedProvider,
@@ -1733,8 +1758,8 @@ function TabConsumo({
         enableSorting: false,
         size: 110,
         cell: ({ row }) => (
-          <div className="text-right text-foreground whitespace-nowrap">
-            {row.original.totalCredits.toLocaleString()} cr
+          <div className="flex justify-end text-foreground whitespace-nowrap">
+            <CreditsValue display={toBreakdownCreditsDisplay(row.original)} />
           </div>
         ),
       },
@@ -1817,8 +1842,8 @@ function TabConsumo({
         enableSorting: false,
         size: 110,
         cell: ({ row }) => (
-          <div className="text-right text-foreground whitespace-nowrap">
-            {row.original.totalCredits.toLocaleString()} cr
+          <div className="flex justify-end text-foreground whitespace-nowrap">
+            <CreditsValue display={toBreakdownCreditsDisplay(row.original)} />
           </div>
         ),
       },
@@ -2077,7 +2102,20 @@ function TabConsumo({
                   <div>
                     <p className="text-[10px] text-muted-foreground/60 mb-0.5">Créditos consumidos</p>
                     <p className="text-xs font-medium text-foreground">
-                      {filteredCredits != null ? filteredCredits.toLocaleString() + ' cr' : '—'}
+                      {filteredCredits == null && !(snapshot?.hasUnknownCredits ?? false) ? (
+                        '—'
+                      ) : (
+                        <CreditsValue
+                          display={resolveCreditsTotalsDisplay({
+                            totals: {
+                              knownCreditsTotal: filteredCredits ?? 0,
+                              unknownCreditOperations: snapshot?.unknownCreditOperations ?? 0,
+                              hasUnknownCredits: snapshot?.hasUnknownCredits ?? false,
+                            },
+                            formatCredits: (v) => `${v.toLocaleString()} cr`,
+                          })}
+                        />
+                      )}
                     </p>
                   </div>
                   <div>

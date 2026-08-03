@@ -287,6 +287,8 @@ function agg(overrides: Partial<ProviderUserConsumptionRow> = {}): ProviderUserC
     email: null,
     provider_calls: 0,
     total_credits_used: 0,
+    unknown_credit_operations: 0,
+    has_unknown_credits: false,
     total_estimated_cost_usd: 0,
     has_unknown_cost: false,
     last_activity_at: null,

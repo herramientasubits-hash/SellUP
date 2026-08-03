@@ -20,7 +20,12 @@ export interface ProviderOperationBreakdownRow {
   successCalls: number;
   /** Reserved for future reconciliation use; not rendered in Q3F-8 UI. */
   errorCalls: number;
+  /** Known-credit subtotal only — see unknownCreditOperations before treating this as a complete total. */
   totalCredits: number;
+  /** Operations whose credit consumption is indeterminate (NULL credits / billing_state unknown). */
+  unknownCreditOperations: number;
+  /** Convenience mirror of unknownCreditOperations > 0. */
+  hasUnknownCredits: boolean;
   totalCostUsd: number;
   /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
   hasUnknownCost: boolean;
@@ -33,14 +38,24 @@ export interface ProviderUserConsumptionBreakdownRow {
   fullName: string | null;
   email: string | null;
   totalCalls: number;
+  /** Known-credit subtotal only — see unknownCreditOperations before treating this as a complete total. */
   totalCredits: number;
+  /** Operations whose credit consumption is indeterminate. */
+  unknownCreditOperations: number;
+  /** Convenience mirror of unknownCreditOperations > 0. */
+  hasUnknownCredits: boolean;
   totalCostUsd: number;
   hasUnknownCost: boolean;
   lastActivityAt: string | null;
 }
 
 export interface ProviderConsumptionSnapshot {
+  /** Known-credit subtotal only — see unknownCreditOperations before treating this as a complete total. */
   totalCredits: number | null;
+  /** Operations whose credit consumption is indeterminate. */
+  unknownCreditOperations: number;
+  /** Convenience mirror of unknownCreditOperations > 0. */
+  hasUnknownCredits: boolean;
   totalCostUsd: number;
   /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
   hasUnknownCost: boolean;

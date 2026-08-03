@@ -3,6 +3,7 @@
 import { Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { CostDisplayValue } from '@/modules/usage-tracking/cost-display';
+import type { CreditsDisplayValue } from '@/modules/usage-tracking/credits-display';
 
 interface CostValueProps {
   display: CostDisplayValue;
@@ -32,4 +33,21 @@ export function CostValue({ display, className }: CostValueProps) {
       </Tooltip>
     </TooltipProvider>
   );
+}
+
+interface CreditsValueProps {
+  display: CreditsDisplayValue;
+  className?: string;
+}
+
+/**
+ * Renders a resolved credit-display value.
+ *
+ * Same contract as CostValue for the same reason: an indeterminate consumption
+ * must be readable as indeterminate, never as a settled number. Kept as its own
+ * export so call sites read as what they show — cost and credits are different
+ * quantities even when they render identically.
+ */
+export function CreditsValue({ display, className }: CreditsValueProps) {
+  return <CostValue display={display} className={className} />;
 }
