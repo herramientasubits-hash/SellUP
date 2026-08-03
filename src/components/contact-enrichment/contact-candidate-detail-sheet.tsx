@@ -60,7 +60,10 @@ import { recoverCandidatePhoneRevealNowAction } from '@/modules/contact-enrichme
 // componente nunca llama al cliente Lusha ni evalúa elegibilidad directamente —
 // solo invoca el server action, que revalida todo en el core.
 import { revealCandidatePhoneViaLushaFallbackAction } from '@/modules/contact-enrichment/lusha-phone-fallback-actions';
-import { getLushaPhoneFallbackCopy } from './lusha-phone-fallback-copy';
+import {
+  getLushaPhoneFallbackCopy,
+  LUSHA_PHONE_FALLBACK_MAX_CREDITS,
+} from './lusha-phone-fallback-copy';
 // Núcleo PURO de la ventana L3 (sin imports en tiempo de ejecución, por eso es
 // seguro en el bundle cliente): cliente y servidor comparten LA MISMA definición
 // de "ya pasaron 2 min desde la solicitud" y no pueden desincronizarse.
@@ -792,6 +795,11 @@ export function ContactCandidateDetailSheet({
       const result = await revealCandidatePhoneViaLushaFallbackAction({
         candidateId: candidate.id,
         confirmCost: true,
+        // Tope que el operador acabó de aceptar en el diálogo (5 créditos,
+        // confirmados por soporte de Lusha). El server revalida el tope contra
+        // LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS y bloquea cualquier valor
+        // menor como `missing_cost_confirmation`.
+        expectedMaxCredits: LUSHA_PHONE_FALLBACK_MAX_CREDITS,
       });
       applyLushaPhoneFallbackResult(result);
     } catch {
@@ -1665,7 +1673,7 @@ export function ContactCandidateDetailSheet({
           <DialogDescription>{lushaPhoneFallbackCopy.costConfirmationMessage}</DialogDescription>
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
-          {lushaPhoneFallbackCopy.phoneTypeWarning} Es una acción individual, no masiva.
+          {lushaPhoneFallbackCopy.phoneTypeWarning}
         </p>
         <DialogFooter>
           <Button
