@@ -440,3 +440,43 @@ export const LUSHA_PHONE_REVEAL_FALLBACK_FLAG =
 export function isLushaPhoneRevealFallbackEnabled(): boolean {
   return isEnvFlagEnabled(process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG]);
 }
+
+// ============================================================
+// Apollo → Lusha phone reveal WATERFALL (Agente 2A · AGENT2A-PHONE-WATERFALL-1)
+// ============================================================
+
+/** Flag name constant for the Apollo → Lusha phone reveal waterfall. */
+export const PHONE_REVEAL_WATERFALL_FLAG = 'ENABLE_PHONE_REVEAL_WATERFALL';
+
+/**
+ * Returns true when ENABLE_PHONE_REVEAL_WATERFALL is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Default: false, fail-closed. NOT configured in any environment as of
+ * AGENT2A-PHONE-WATERFALL-1, and never a NEXT_PUBLIC_* flag: it is resolved
+ * server-side and travels to the client only as a plain boolean prop, exactly
+ * like `isApolloPhoneRevealEnabled` / `isLushaPhoneRevealFallbackEnabled`.
+ *
+ * What it turns on: ONE operator click on "Revelar teléfono" authorizes a
+ * two-leg reveal — Apollo first and, only if Apollo terminates as
+ * `no_phone_found`, Lusha automatically underneath, with no second click and no
+ * second modal. Admin-only; `commercial_manager` keeps the Apollo-only flow.
+ *
+ * What it does NOT change in either state:
+ *   * `isLushaPhoneRevealEnabled(): false` — the hard, non-env ban on phone
+ *     reveal for the V3 email-only client (enrichLushaContactsV3) is untouched.
+ *   * `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` — still the flag that authorizes any
+ *     Lusha phone reveal at all. This flag only automates WHEN that already
+ *     authorized fallback runs; with the fallback flag OFF the Lusha leg is
+ *     `feature_disabled` no matter what this flag says. Both must be ON.
+ *   * `ENABLE_APOLLO_PHONE_REVEAL` — still the flag that authorizes creating an
+ *     Apollo reveal at all.
+ *
+ * With this flag OFF the waterfall path is inert: no run row is created, the
+ * continuation hooks are never wired into the webhook / recovery cores, and the
+ * UI renders exactly the pre-waterfall controls (Apollo reveal + the separate
+ * manual Lusha button when it applies).
+ */
+export function isPhoneRevealWaterfallEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[PHONE_REVEAL_WATERFALL_FLAG]);
+}

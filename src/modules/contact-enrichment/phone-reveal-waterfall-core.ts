@@ -1,0 +1,1098 @@
+/**
+ * phone-reveal-waterfall-core.ts — Pure orchestration of the Apollo → Lusha
+ * phone reveal waterfall (Agente 2A · AGENT2A-PHONE-WATERFALL-1).
+ *
+ * ONE operator click on "Revelar teléfono" authorizes up to TWO provider legs:
+ * Apollo first and, only if Apollo terminated as `no_phone_found`, Lusha
+ * automatically underneath — no second click, no second modal. The whole
+ * authorization lives in one `phone_reveal_waterfall_runs` row (migration 102)
+ * so both legs stay attributable and separately costed.
+ *
+ * PURE: no I/O, no Supabase, no fetch, no process.env, no Date.now(). The run
+ * store, the candidate load, the suppression/DNC re-check and the Lusha call are
+ * all injected, exactly like phone-reveal-core.ts / phone-reveal-webhook-core.ts
+ * / phone-reveal-recovery-core.ts. The resolved flag values arrive as booleans.
+ *
+ * Deliberately dependency-free: this module imports NOTHING from the Apollo or
+ * Lusha cores. The credit constants below are mirrored here and a static test
+ * asserts they still equal their authorities (APOLLO_PHONE_REVEAL_CREDITS and
+ * LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS) — the same convention
+ * lusha-phone-fallback-copy.ts uses for LUSHA_PHONE_FALLBACK_MAX_CREDITS. That
+ * keeps this core importable from anywhere without dragging server modules in,
+ * and removes any import-cycle risk with the two cores that call back into it.
+ *
+ * Contract enforced here (never by a migration):
+ *   * admin-only. `commercial_manager` keeps the Apollo-only flow and never gets
+ *     a run row, so the Lusha leg is structurally unreachable for that role.
+ *   * ONE candidate per run — no bulk, no array input anywhere.
+ *   * the Lusha leg runs AT MOST ONCE per run. The webhook, the recovery cron
+ *     and the manual L3 review can all observe the same Apollo `no_phone_found`;
+ *     the atomic claim on `lusha_attempted_at` is what makes them converge on a
+ *     single call.
+ *   * the authorization expires after 24h. A webhook that lands two days later
+ *     can still close the Apollo leg, but it can NEVER spend the second leg on a
+ *     stale authorization.
+ *   * suppression / do-not-contact are re-checked immediately BEFORE the Lusha
+ *     leg, fail-closed: an unverifiable check blocks the call.
+ *   * no automatic retry, no bulk, no HubSpot write, no candidate approval.
+ *   * Apollo and Lusha costs are recorded in SEPARATE columns and are NEVER
+ *     summed into one. An unreported cost is `null` + `unknown`, never 0.
+ */
+
+// ── Vocabularios (espejo exacto de los CHECK de la migración 102) ──
+
+/** Lifecycle de la corrida completa. */
+export type PhoneRevealWaterfallStatus =
+  | 'authorized'
+  | 'apollo_in_flight'
+  | 'completed_apollo'
+  | 'lusha_pending'
+  | 'lusha_running'
+  | 'completed_lusha'
+  | 'exhausted'
+  | 'error'
+  | 'aborted';
+
+/** Desenlace de la pata Apollo. */
+export type PhoneRevealWaterfallApolloOutcome =
+  | 'revealed'
+  | 'revealed_from_cache'
+  | 'no_phone_found'
+  | 'error'
+  | 'blocked_suppressed'
+  | 'do_not_contact'
+  | 'suppression_check_unavailable'
+  | 'cache_unavailable';
+
+/** Desenlace de la pata Lusha. */
+export type PhoneRevealWaterfallLushaOutcome =
+  | 'revealed'
+  | 'no_phone_found'
+  | 'error';
+
+/** Proveedor que REALMENTE reveló (nunca uno que solo intentó). */
+export type PhoneRevealWaterfallFinalProvider = 'apollo' | 'lusha' | 'none';
+
+/** Confianza sobre el costo. `unknown` ≠ 0: un costo no reportado no es gratis. */
+export type PhoneRevealWaterfallCostSource = 'reported' | 'assumed_cap' | 'unknown';
+
+/** Por qué NO se intentó Lusha. */
+export type PhoneRevealWaterfallLushaSkippedReason =
+  | 'missing_lusha_contact_id'
+  | 'apollo_revealed'
+  | 'suppressed'
+  | 'dnc'
+  | 'authorization_expired'
+  | 'role_not_allowed'
+  | 'feature_disabled'
+  | 'already_attempted'
+  | 'not_needed'
+  | 'provider_error';
+
+/** Estados NO terminales: la corrida sigue viva y puede gastar la 2ª pata. */
+export const PHONE_REVEAL_WATERFALL_ACTIVE_STATUSES: readonly PhoneRevealWaterfallStatus[] =
+  ['authorized', 'apollo_in_flight', 'lusha_pending', 'lusha_running'];
+
+/** Estados terminales: nada más se ejecuta para esa corrida. */
+export const PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES: readonly PhoneRevealWaterfallStatus[] =
+  ['completed_apollo', 'completed_lusha', 'exhausted', 'error', 'aborted'];
+
+/**
+ * Estados desde los que el CLAIM de la pata Lusha es válido. Espejo del `WHERE`
+ * del UPDATE atómico en el store (ver `claimLushaAttempt` en los deps): un claim
+ * solo puede salir de una corrida que sigue esperando (Apollo en vuelo o Lusha
+ * pendiente), nunca de una ya terminal ni de una ya en `lusha_running`.
+ */
+export const PHONE_REVEAL_WATERFALL_CLAIMABLE_STATUSES: readonly PhoneRevealWaterfallStatus[] =
+  ['apollo_in_flight', 'lusha_pending'];
+
+// ── Constantes de autorización y costo ─────────────────────────
+
+/**
+ * Roles autorizados a disparar el waterfall completo: SOLO admin, igual que el
+ * fallback manual de Lusha (LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS) y más
+ * estrecho que el reveal Apollo (que además admite `commercial_manager`). Un
+ * `commercial_manager` conserva el flujo Apollo-only y NO genera corrida.
+ */
+export const PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS: readonly string[] = ['admin'];
+
+/**
+ * Tope de la pata Apollo. Espejo de APOLLO_PHONE_REVEAL_CREDITS (8) en
+ * phone-reveal-core.ts; un test estático verifica que sigan coincidiendo.
+ */
+export const PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS = 8;
+
+/**
+ * Tope de la pata Lusha. Espejo de LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS (5)
+ * en lusha-phone-fallback-core.ts; un test estático verifica la coincidencia.
+ */
+export const PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS = 5;
+
+/** Tope que el operador acepta cuando Lusha es una 2ª pata posible: 8 + 5. */
+export const PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA =
+  PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS + PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS;
+
+/**
+ * Vida útil de la autorización humana. Pasadas 24 h, un webhook tardío puede
+ * cerrar la pata Apollo pero NUNCA gastar la pata Lusha: el operador confirmó un
+ * costo en un momento concreto, no de forma indefinida.
+ */
+export const PHONE_REVEAL_WATERFALL_AUTHORIZATION_TTL_HOURS = 24;
+
+// ── Registros (proyecciones de solo lectura) ───────────────────
+
+/** Fila de `phone_reveal_waterfall_runs` proyectada. PII-free por contrato. */
+export interface PhoneRevealWaterfallRunRecord {
+  id: string;
+  candidateId: string;
+  status: PhoneRevealWaterfallStatus;
+  authorizedAt: string;
+  /** internal_users.id opaco del operador que autorizó. Actor de los dos legs. */
+  authorizedBy: string;
+  authorizedByRole: string | null;
+  maxCreditsAuthorized: number;
+  apolloAttemptedAt: string | null;
+  apolloOutcome: PhoneRevealWaterfallApolloOutcome | null;
+  apolloCostCredits: number | null;
+  apolloCostSource: PhoneRevealWaterfallCostSource | null;
+  lushaEligible: boolean | null;
+  lushaSkippedReason: PhoneRevealWaterfallLushaSkippedReason | null;
+  lushaAttemptedAt: string | null;
+  lushaOutcome: PhoneRevealWaterfallLushaOutcome | null;
+  lushaCostCredits: number | null;
+  lushaCostSource: PhoneRevealWaterfallCostSource | null;
+  finalProvider: PhoneRevealWaterfallFinalProvider | null;
+  completedAt: string | null;
+  errorCode: string | null;
+}
+
+/**
+ * Proyección mínima del candidato para decidir el waterfall. NO incluye
+ * teléfono, email, LinkedIn ni nombre: la decisión solo necesita saber SI ya hay
+ * teléfono, no cuál es.
+ */
+export interface PhoneRevealWaterfallCandidateRecord {
+  id: string;
+  /** `contact_enrichment_candidates.source` crudo ('apollo' | 'lusha' | …). */
+  source: string | null;
+  /** id de contacto del proveedor de origen. Opaco, nunca se imprime. */
+  sourceContactId: string | null;
+  /** true si el candidato YA tiene un teléfono persistido. Nunca el número. */
+  hasPhone: boolean;
+  phoneRevealStatus: string | null;
+}
+
+// ── Elegibilidad de la pata Lusha ──────────────────────────────
+
+export interface PhoneRevealWaterfallLushaLegEligibility {
+  eligible: boolean;
+  /** Motivo cuando NO es elegible. null cuando sí lo es. */
+  skippedReason: PhoneRevealWaterfallLushaSkippedReason | null;
+}
+
+function cleanText(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * ¿Puede este candidato llegar a la pata Lusha? SOLO si tiene un id de contacto
+ * Lusha PROPIO y reutilizable, es decir si su `source` es 'lusha'.
+ *
+ * Un candidato de origen Apollo (o de cualquier otro) NUNCA reenvía su
+ * `source_contact_id` a Lusha: son espacios de id distintos y usar el ajeno es
+ * exactamente la causa raíz del HTTP 422 documentada en el RCA del reveal
+ * asíncrono. Misma regla, sin relajar, que `resolveLushaContactId` en
+ * lusha-phone-fallback-core.ts — aquí solo se anticipa para poder decir al
+ * operador, ANTES de cobrar nada, si el tope es 13 o 8.
+ *
+ * No hay `search`, no hay `waterfallReveal` de Lusha y no hay search-and-enrich:
+ * sin id propio la pata Lusha simplemente no existe.
+ */
+export function evaluatePhoneRevealWaterfallLushaLeg(
+  candidate: Pick<PhoneRevealWaterfallCandidateRecord, 'source' | 'sourceContactId'>,
+): PhoneRevealWaterfallLushaLegEligibility {
+  if (cleanText(candidate.source) !== 'lusha') {
+    return { eligible: false, skippedReason: 'missing_lusha_contact_id' };
+  }
+  if (!cleanText(candidate.sourceContactId)) {
+    return { eligible: false, skippedReason: 'missing_lusha_contact_id' };
+  }
+  return { eligible: true, skippedReason: null };
+}
+
+/**
+ * Tope de créditos que el operador debe aceptar: 13 cuando Lusha es una 2ª pata
+ * posible (Apollo hasta 8 + Lusha 5) y 8 cuando no lo es. Es el UMBRAL de
+ * confirmación, no una predicción del cobro: el costo real de cada pata sale
+ * exclusivamente de lo que reporta cada proveedor.
+ */
+export function resolvePhoneRevealWaterfallMaxCredits(lushaEligible: boolean): number {
+  return lushaEligible
+    ? PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA
+    : PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS;
+}
+
+/**
+ * Confianza del costo a partir de lo que el proveedor reportó. Un número finito
+ * (incluido 0 explícito) es `reported`; la AUSENCIA de dato es `unknown`, nunca
+ * 0 — no reportar no es lo mismo que no cobrar.
+ */
+export function resolvePhoneRevealWaterfallCostSource(
+  credits: number | null | undefined,
+): PhoneRevealWaterfallCostSource {
+  return typeof credits === 'number' && Number.isFinite(credits) ? 'reported' : 'unknown';
+}
+
+/** ¿La autorización humana ya venció? (TTL 24 h desde `authorized_at`). */
+export function isPhoneRevealWaterfallAuthorizationExpired(
+  authorizedAtIso: string,
+  nowIso: string,
+  ttlHours: number = PHONE_REVEAL_WATERFALL_AUTHORIZATION_TTL_HOURS,
+): boolean {
+  const authorizedAt = new Date(authorizedAtIso).getTime();
+  const now = new Date(nowIso).getTime();
+  // Fechas ilegibles ⇒ se trata como vencida (fail-closed: nunca se gasta la
+  // segunda pata sobre una autorización que no se puede fechar).
+  if (!Number.isFinite(authorizedAt) || !Number.isFinite(now)) return true;
+  return now - authorizedAt > ttlHours * 3_600_000;
+}
+
+/** ¿El rol almacenado en la corrida sigue autorizado para el waterfall? */
+export function isPhoneRevealWaterfallRoleAuthorized(roleKey: string | null): boolean {
+  const role = cleanText(roleKey);
+  return !!role && PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS.includes(role);
+}
+
+// ── Arranque: crear la corrida al autorizar el botón ───────────
+
+/** Patch de INSERT de la corrida. Describe la fila; no la escribe. */
+export interface PhoneRevealWaterfallRunDraft {
+  candidateId: string;
+  status: Extract<PhoneRevealWaterfallStatus, 'apollo_in_flight'>;
+  authorizedAt: string;
+  authorizedBy: string;
+  authorizedByRole: string | null;
+  maxCreditsAuthorized: number;
+  apolloAttemptedAt: string;
+  lushaEligible: boolean;
+  /**
+   * `missing_lusha_contact_id` ya en el INSERT cuando el candidato no tiene id
+   * Lusha propio: la corrida nace sabiendo que su 2ª pata es imposible, así que
+   * la auditoría no depende de que alguien lo deduzca después. null cuando la
+   * pata sigue viva (todavía puede terminar en `apollo_revealed`, `suppressed`…).
+   */
+  lushaSkippedReason: PhoneRevealWaterfallLushaSkippedReason | null;
+}
+
+export interface StartPhoneRevealWaterfallInput {
+  candidateId: string;
+}
+
+export interface StartPhoneRevealWaterfallDeps {
+  /** ENABLE_PHONE_REVEAL_WATERFALL ya resuelto por el wrapper. */
+  flagEnabled: boolean;
+  actor: { internalUserId: string; roleKey: string | null };
+  nowIso: string;
+  loadCandidate: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallCandidateRecord | null>;
+  /** Corrida NO terminal existente para el candidato (índice único parcial). */
+  findActiveRun: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallRunRecord | null>;
+  /**
+   * INSERT de la corrida. Devuelve el id, o null si el índice único parcial la
+   * rechazó porque otra corrida activa ganó la carrera (no es un error: significa
+   * que ya hay una autorización viva y el reveal Apollo devolverá
+   * `already_pending`).
+   */
+  createRun: (draft: PhoneRevealWaterfallRunDraft) => Promise<string | null>;
+}
+
+export type StartPhoneRevealWaterfallResult =
+  | {
+      started: true;
+      runId: string;
+      maxCreditsAuthorized: number;
+      lushaEligible: boolean;
+    }
+  | {
+      started: false;
+      reason:
+        | 'feature_disabled'
+        | 'role_not_allowed'
+        | 'invalid_candidate'
+        | 'candidate_not_found'
+        | 'active_run_exists'
+        | 'create_conflict';
+    };
+
+/**
+ * Crea la corrida del waterfall al autorizar el botón. Corre ANTES del START de
+ * Apollo, con todos los gates baratos primero: con el flag apagado o un rol no
+ * admin no se lee el candidato ni se escribe nada, así que el camino Apollo-only
+ * queda exactamente como antes de este hito.
+ *
+ * NO llama a ningún proveedor y NO gasta créditos: solo registra qué autorizó el
+ * operador y hasta cuánto.
+ */
+export async function startPhoneRevealWaterfall(
+  input: StartPhoneRevealWaterfallInput,
+  deps: StartPhoneRevealWaterfallDeps,
+): Promise<StartPhoneRevealWaterfallResult> {
+  if (!deps.flagEnabled) return { started: false, reason: 'feature_disabled' };
+  if (!isPhoneRevealWaterfallRoleAuthorized(deps.actor.roleKey)) {
+    return { started: false, reason: 'role_not_allowed' };
+  }
+
+  const candidateId = cleanText(
+    typeof input.candidateId === 'string' ? input.candidateId : null,
+  );
+  if (!candidateId) return { started: false, reason: 'invalid_candidate' };
+
+  const candidate = await deps.loadCandidate(candidateId);
+  if (!candidate) return { started: false, reason: 'candidate_not_found' };
+
+  // Una sola autorización viva por candidato. Si ya hay una, no se abre otra: el
+  // reveal Apollo devolverá `already_pending` y el operador no paga dos veces.
+  const active = await deps.findActiveRun(candidateId);
+  if (active) return { started: false, reason: 'active_run_exists' };
+
+  const lushaLeg = evaluatePhoneRevealWaterfallLushaLeg(candidate);
+  const maxCreditsAuthorized = resolvePhoneRevealWaterfallMaxCredits(lushaLeg.eligible);
+
+  const runId = await deps.createRun({
+    candidateId,
+    status: 'apollo_in_flight',
+    authorizedAt: deps.nowIso,
+    authorizedBy: deps.actor.internalUserId,
+    authorizedByRole: cleanText(deps.actor.roleKey),
+    maxCreditsAuthorized,
+    apolloAttemptedAt: deps.nowIso,
+    lushaEligible: lushaLeg.eligible,
+    lushaSkippedReason: lushaLeg.skippedReason,
+  });
+  if (!runId) return { started: false, reason: 'create_conflict' };
+
+  return {
+    started: true,
+    runId,
+    maxCreditsAuthorized,
+    lushaEligible: lushaLeg.eligible,
+  };
+}
+
+// ── Reconciliación del START de Apollo con la corrida ──────────
+
+/** Patch de cierre/actualización de la corrida. Describe el UPDATE. */
+export interface PhoneRevealWaterfallRunPatch {
+  status?: PhoneRevealWaterfallStatus;
+  apolloOutcome?: PhoneRevealWaterfallApolloOutcome;
+  apolloCostCredits?: number | null;
+  apolloCostSource?: PhoneRevealWaterfallCostSource;
+  lushaOutcome?: PhoneRevealWaterfallLushaOutcome;
+  lushaCostCredits?: number | null;
+  lushaCostSource?: PhoneRevealWaterfallCostSource;
+  lushaSkippedReason?: PhoneRevealWaterfallLushaSkippedReason | null;
+  finalProvider?: PhoneRevealWaterfallFinalProvider;
+  completedAt?: string | null;
+  errorCode?: string | null;
+}
+
+/**
+ * Traduce el status que devolvió el START de Apollo
+ * (`RevealCandidatePhoneStatus`) al patch de la corrida. Se recibe como string
+ * a propósito: mantiene este core sin importar el core de Apollo, y cualquier
+ * status nuevo cae en el `default` conservador (abortar registrando el código)
+ * en vez de dejar una corrida colgada.
+ *
+ * `null` significa "no toques la corrida": el reveal quedó en vuelo y lo cerrará
+ * el webhook o el recovery.
+ */
+export function mapApolloStartStatusToWaterfallPatch(
+  apolloStartStatus: string,
+  nowIso: string,
+): PhoneRevealWaterfallRunPatch | null {
+  switch (apolloStartStatus) {
+    // Camino feliz del START asíncrono: la corrida sigue en vuelo.
+    case 'requested':
+      return null;
+
+    // Teléfono servido desde un reveal ya pagado: terminal e inmediato, sin
+    // webhook y sin 2ª pata (ya hay número que revelar sería redundante).
+    case 'revealed_from_cache':
+      return {
+        status: 'completed_apollo',
+        apolloOutcome: 'revealed_from_cache',
+        // Un hit de caché no cobra créditos nuevos, y eso SÍ está reportado.
+        apolloCostCredits: 0,
+        apolloCostSource: 'reported',
+        finalProvider: 'apollo',
+        lushaSkippedReason: 'apollo_revealed',
+        completedAt: nowIso,
+        errorCode: null,
+      };
+
+    // Supresión registrada (DSAR): la corrida se cierra SIN gastar la 2ª pata.
+    case 'blocked_suppressed':
+      return {
+        status: 'aborted',
+        apolloOutcome: 'blocked_suppressed',
+        lushaSkippedReason: 'suppressed',
+        finalProvider: 'none',
+        completedAt: nowIso,
+        errorCode: 'blocked_suppressed',
+      };
+
+    // La supresión NO se pudo verificar. Lectura fail-closed: se trata como si
+    // hubiera tombstone, así que la pata Lusha tampoco se gasta.
+    case 'suppression_check_unavailable':
+      return {
+        status: 'error',
+        apolloOutcome: 'suppression_check_unavailable',
+        lushaSkippedReason: 'suppressed',
+        finalProvider: 'none',
+        completedAt: nowIso,
+        errorCode: 'suppression_check_unavailable',
+      };
+
+    case 'cache_unavailable':
+      return {
+        status: 'error',
+        apolloOutcome: 'cache_unavailable',
+        lushaSkippedReason: 'provider_error',
+        finalProvider: 'none',
+        completedAt: nowIso,
+        errorCode: 'cache_unavailable',
+      };
+
+    case 'do_not_contact':
+      return {
+        status: 'aborted',
+        apolloOutcome: 'do_not_contact',
+        lushaSkippedReason: 'dnc',
+        finalProvider: 'none',
+        completedAt: nowIso,
+        errorCode: 'do_not_contact',
+      };
+
+    // Gates del START que impidieron siquiera intentar Apollo (rol, costo,
+    // re-reveal, identidad insuficiente, flag, error real de Apollo…). La
+    // corrida se aborta registrando el código: nunca queda activa bloqueando el
+    // índice único parcial.
+    default:
+      return {
+        status: 'aborted',
+        lushaSkippedReason: 'not_needed',
+        finalProvider: 'none',
+        completedAt: nowIso,
+        errorCode: cleanText(apolloStartStatus) ?? 'apollo_start_failed',
+      };
+  }
+}
+
+// ── Decisión de continuación tras un desenlace terminal Apollo ──
+
+export interface PhoneRevealWaterfallContinuationInput {
+  /** ENABLE_PHONE_REVEAL_WATERFALL ya resuelto. */
+  flagEnabled: boolean;
+  /** ENABLE_LUSHA_PHONE_REVEAL_FALLBACK ya resuelto: sin él no hay pata Lusha. */
+  lushaFallbackFlagEnabled: boolean;
+  nowIso: string;
+  /** Corrida activa del candidato. null ⇒ no hay autorización que gastar. */
+  run: PhoneRevealWaterfallRunRecord | null;
+  /** Desenlace con el que Apollo acabó de terminalizar. */
+  apolloOutcome: PhoneRevealWaterfallApolloOutcome;
+  /** Candidato tras persistir el desenlace Apollo. null ⇒ no evaluable. */
+  candidate: PhoneRevealWaterfallCandidateRecord | null;
+}
+
+/**
+ * Decisión de continuación. `check_suppression` es el ÚNICO camino que sigue
+ * hacia Lusha, y exige aún la re-comprobación de supresión/DNC.
+ */
+export type PhoneRevealWaterfallContinuationDecision =
+  | { action: 'check_suppression' }
+  | {
+      action: 'close';
+      patch: PhoneRevealWaterfallRunPatch;
+    }
+  | {
+      /** No hay nada que hacer y NADA que escribir (idempotente). */
+      action: 'noop';
+      reason:
+        | 'feature_disabled'
+        | 'no_active_run'
+        | 'run_already_terminal'
+        | 'lusha_already_attempted'
+        | 'apollo_not_terminal_no_phone_found';
+    };
+
+function closeRun(
+  patch: PhoneRevealWaterfallRunPatch,
+): PhoneRevealWaterfallContinuationDecision {
+  return { action: 'close', patch };
+}
+
+/**
+ * Decide, de forma PURA y sin I/O, qué hacer cuando Apollo terminalizó. El orden
+ * es barato→caro y fail-closed: todo lo que puede evitar una llamada pagada a
+ * Lusha se evalúa antes, y la re-comprobación de supresión (la única que cuesta
+ * una lectura) se pide de último.
+ *
+ * NO recibe el estado de supresión a propósito: si lo recibiera, el caller
+ * tendría que hacer esa lectura incluso en los casos en los que la decisión ya
+ * estaba tomada (Apollo reveló, autorización vencida, sin id Lusha…).
+ */
+export function decidePhoneRevealWaterfallContinuation(
+  input: PhoneRevealWaterfallContinuationInput,
+): PhoneRevealWaterfallContinuationDecision {
+  if (!input.flagEnabled) return { action: 'noop', reason: 'feature_disabled' };
+
+  const run = input.run;
+  if (!run) return { action: 'noop', reason: 'no_active_run' };
+  if (PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(run.status)) {
+    return { action: 'noop', reason: 'run_already_terminal' };
+  }
+  // Idempotencia entre disparadores: webhook, cron de recovery y revisión manual
+  // L3 pueden ver el MISMO `no_phone_found`. El primero que reclamó la pata deja
+  // `lusha_attempted_at` sellado y los demás no escriben nada.
+  if (run.lushaAttemptedAt !== null) {
+    return { action: 'noop', reason: 'lusha_already_attempted' };
+  }
+
+  // Defensa en profundidad: el rol ya se validó al crear la corrida, pero la
+  // continuación gasta créditos SIN un humano presente, así que se revalida
+  // contra el rol almacenado en la propia autorización.
+  if (!isPhoneRevealWaterfallRoleAuthorized(run.authorizedByRole)) {
+    return closeRun({
+      status: 'aborted',
+      apolloOutcome: input.apolloOutcome,
+      lushaSkippedReason: 'role_not_allowed',
+      finalProvider: 'none',
+      completedAt: input.nowIso,
+      errorCode: 'role_not_allowed',
+    });
+  }
+
+  switch (input.apolloOutcome) {
+    // Apollo entregó el teléfono ⇒ la 2ª pata no se usa nunca.
+    case 'revealed':
+    case 'revealed_from_cache':
+      return closeRun({
+        status: 'completed_apollo',
+        apolloOutcome: input.apolloOutcome,
+        finalProvider: 'apollo',
+        lushaSkippedReason: 'apollo_revealed',
+        completedAt: input.nowIso,
+        errorCode: null,
+      });
+
+    case 'blocked_suppressed':
+      return closeRun({
+        status: 'aborted',
+        apolloOutcome: 'blocked_suppressed',
+        lushaSkippedReason: 'suppressed',
+        finalProvider: 'none',
+        completedAt: input.nowIso,
+        errorCode: 'blocked_suppressed',
+      });
+
+    case 'do_not_contact':
+      return closeRun({
+        status: 'aborted',
+        apolloOutcome: 'do_not_contact',
+        lushaSkippedReason: 'dnc',
+        finalProvider: 'none',
+        completedAt: input.nowIso,
+        errorCode: 'do_not_contact',
+      });
+
+    // Fail-closed: no verificar la supresión se lee como supresión.
+    case 'suppression_check_unavailable':
+      return closeRun({
+        status: 'error',
+        apolloOutcome: 'suppression_check_unavailable',
+        lushaSkippedReason: 'suppressed',
+        finalProvider: 'none',
+        completedAt: input.nowIso,
+        errorCode: 'suppression_check_unavailable',
+      });
+
+    case 'cache_unavailable':
+    case 'error':
+      return closeRun({
+        status: 'error',
+        apolloOutcome: input.apolloOutcome,
+        lushaSkippedReason: 'provider_error',
+        finalProvider: 'none',
+        completedAt: input.nowIso,
+        errorCode:
+          input.apolloOutcome === 'cache_unavailable'
+            ? 'cache_unavailable'
+            : 'apollo_reveal_error',
+      });
+
+    case 'no_phone_found':
+      break;
+
+    default:
+      return { action: 'noop', reason: 'apollo_not_terminal_no_phone_found' };
+  }
+
+  // ── Desde aquí: Apollo terminó en `no_phone_found` ──────────────
+
+  // Si aun así hay teléfono (llegó por otra vía entre la persistencia y este
+  // hook), no se gasta nada más.
+  if (!input.candidate || input.candidate.hasPhone) {
+    return closeRun({
+      status: 'completed_apollo',
+      apolloOutcome: 'no_phone_found',
+      lushaSkippedReason: 'not_needed',
+      finalProvider: input.candidate?.hasPhone ? 'apollo' : 'none',
+      completedAt: input.nowIso,
+      errorCode: input.candidate ? null : 'candidate_not_found',
+    });
+  }
+
+  // La autorización humana caducó: la pata Apollo ya está cerrada, pero la
+  // segunda NO se gasta sobre una confirmación de costo vieja.
+  if (
+    isPhoneRevealWaterfallAuthorizationExpired(run.authorizedAt, input.nowIso)
+  ) {
+    return closeRun({
+      status: 'aborted',
+      apolloOutcome: 'no_phone_found',
+      lushaSkippedReason: 'authorization_expired',
+      finalProvider: 'none',
+      completedAt: input.nowIso,
+      errorCode: 'authorization_expired',
+    });
+  }
+
+  // El fallback Lusha sigue siendo el kill switch de cualquier reveal Lusha:
+  // este flag NO lo sustituye ni lo debilita.
+  if (!input.lushaFallbackFlagEnabled) {
+    return closeRun({
+      status: 'exhausted',
+      apolloOutcome: 'no_phone_found',
+      lushaSkippedReason: 'feature_disabled',
+      finalProvider: 'none',
+      completedAt: input.nowIso,
+      errorCode: null,
+    });
+  }
+
+  // Sin id Lusha propio no hay 2ª pata: se agota aquí, con 0 llamadas a Lusha.
+  const lushaLeg = evaluatePhoneRevealWaterfallLushaLeg(input.candidate);
+  if (!lushaLeg.eligible) {
+    return closeRun({
+      status: 'exhausted',
+      apolloOutcome: 'no_phone_found',
+      lushaSkippedReason: lushaLeg.skippedReason ?? 'missing_lusha_contact_id',
+      finalProvider: 'none',
+      completedAt: input.nowIso,
+      errorCode: null,
+    });
+  }
+
+  // Único camino que continúa. Falta la re-comprobación de supresión/DNC.
+  return { action: 'check_suppression' };
+}
+
+// ── Re-comprobación de supresión / DNC antes de la pata Lusha ──
+
+/**
+ * Estado de la re-comprobación inmediatamente anterior a la llamada Lusha. El
+ * reveal Apollo pudo empezar hace horas: una DSAR o un `do_not_contact` pueden
+ * haberse registrado en el intervalo, y la pata Lusha es una llamada NUEVA a un
+ * proveedor NUEVO, así que se vuelve a comprobar en vez de heredar el veredicto.
+ */
+export type PhoneRevealWaterfallSuppressionState =
+  | 'clear'
+  | 'blocked_suppressed'
+  | 'do_not_contact'
+  /** No se pudo verificar (tabla ausente, timeout, dep no cableada). */
+  | 'check_unavailable';
+
+/**
+ * Traduce la re-comprobación a decisión. `null` = adelante con Lusha; cualquier
+ * otro valor devuelve el patch de cierre. Fail-closed: `check_unavailable`
+ * bloquea la llamada igual que un tombstone confirmado.
+ */
+export function resolvePhoneRevealWaterfallSuppressionBlock(
+  state: PhoneRevealWaterfallSuppressionState,
+  nowIso: string,
+): PhoneRevealWaterfallRunPatch | null {
+  switch (state) {
+    case 'clear':
+      return null;
+    case 'blocked_suppressed':
+      return {
+        status: 'aborted',
+        lushaSkippedReason: 'suppressed',
+        finalProvider: 'none',
+        completedAt: nowIso,
+        errorCode: 'blocked_suppressed',
+      };
+    case 'do_not_contact':
+      return {
+        status: 'aborted',
+        lushaSkippedReason: 'dnc',
+        finalProvider: 'none',
+        completedAt: nowIso,
+        errorCode: 'do_not_contact',
+      };
+    case 'check_unavailable':
+    default:
+      return {
+        status: 'error',
+        lushaSkippedReason: 'suppressed',
+        finalProvider: 'none',
+        completedAt: nowIso,
+        errorCode: 'suppression_check_unavailable',
+      };
+  }
+}
+
+// ── Mapeo del resultado Lusha al patch de la corrida ───────────
+
+/**
+ * Resultado de la pata Lusha tal y como lo entrega el fallback ya existente
+ * (`LushaPhoneFallbackActionResult` + el costo que reportó el proveedor). Se
+ * recibe estructuralmente para no importar el core de Lusha.
+ */
+export interface PhoneRevealWaterfallLushaLegResult {
+  /** `revealed` | `no_phone_found` | cualquier otro ⇒ error. */
+  status: string;
+  /** Créditos reportados por Lusha (billing.creditsCharged). null si no vino. */
+  creditsCharged: number | null;
+  /** Código de error mecánico, sin PII. null en los caminos correctos. */
+  errorCode: string | null;
+}
+
+/**
+ * Cierra la corrida con el resultado de la pata Lusha.
+ *
+ * `revealed` ⇒ `completed_lusha` + `final_provider = 'lusha'`. `no_phone_found`
+ * ⇒ `exhausted` + `final_provider = 'none'` (Lusha intentó, no reveló: NO puede
+ * figurar como proveedor final). Cualquier otro status ⇒ `error`, también con
+ * `final_provider = 'none'`.
+ *
+ * El costo se registra SIEMPRE en las columnas de Lusha, jamás sumado a las de
+ * Apollo, y un costo no reportado queda `null` + `unknown`, nunca 0.
+ */
+export function mapLushaLegResultToWaterfallPatch(
+  result: PhoneRevealWaterfallLushaLegResult,
+  nowIso: string,
+): PhoneRevealWaterfallRunPatch {
+  const lushaCostCredits =
+    typeof result.creditsCharged === 'number' && Number.isFinite(result.creditsCharged)
+      ? result.creditsCharged
+      : null;
+  const lushaCostSource = resolvePhoneRevealWaterfallCostSource(lushaCostCredits);
+
+  if (result.status === 'revealed') {
+    return {
+      status: 'completed_lusha',
+      lushaOutcome: 'revealed',
+      lushaCostCredits,
+      lushaCostSource,
+      finalProvider: 'lusha',
+      completedAt: nowIso,
+      errorCode: null,
+    };
+  }
+
+  if (result.status === 'no_phone_found') {
+    return {
+      status: 'exhausted',
+      lushaOutcome: 'no_phone_found',
+      lushaCostCredits,
+      lushaCostSource,
+      finalProvider: 'none',
+      completedAt: nowIso,
+      errorCode: null,
+    };
+  }
+
+  return {
+    status: 'error',
+    lushaOutcome: 'error',
+    // Un error nunca reporta un costo real: se deja `null` + `unknown`, jamás 0.
+    lushaCostCredits: null,
+    lushaCostSource: 'unknown',
+    finalProvider: 'none',
+    completedAt: nowIso,
+    errorCode: cleanText(result.errorCode) ?? 'lusha_reveal_error',
+  };
+}
+
+// ── Continuación completa (con claim atómico) ──────────────────
+
+export interface ContinuePhoneRevealWaterfallInput {
+  candidateId: string;
+  /** Desenlace con el que Apollo acabó de terminalizar. */
+  apolloOutcome: PhoneRevealWaterfallApolloOutcome;
+  /** Créditos que Apollo reportó en ese desenlace. null si no los reportó. */
+  apolloCostCredits?: number | null;
+}
+
+export interface ContinuePhoneRevealWaterfallDeps {
+  flagEnabled: boolean;
+  lushaFallbackFlagEnabled: boolean;
+  nowIso: string;
+  findActiveRun: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallRunRecord | null>;
+  loadCandidate: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallCandidateRecord | null>;
+  /** Aplica el UPDATE de cierre/actualización de la corrida. */
+  updateRun: (runId: string, patch: PhoneRevealWaterfallRunPatch) => Promise<void>;
+  /**
+   * Re-comprueba supresión + do-not-contact. Solo se invoca cuando la decisión
+   * ya llegó a `check_suppression`. Debe devolver `check_unavailable` (o lanzar,
+   * que el caller traduce a lo mismo) si la lectura no se pudo completar.
+   */
+  checkSuppressionAndDoNotContact: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallSuppressionState>;
+  /**
+   * CLAIM ATÓMICO de la pata Lusha. Debe ser un UPDATE condicional:
+   *   SET lusha_attempted_at = now(), status = 'lusha_running'
+   *   WHERE id = runId
+   *     AND lusha_attempted_at IS NULL
+   *     AND status IN ('apollo_in_flight','lusha_pending')
+   *     AND authorized_at > now() - interval '24 hours'
+   * Devuelve true SOLO si actualizó 1 fila. false ⇒ otro disparador ya tomó la
+   * pata (o la autorización venció en el intervalo) y NO se debe llamar a Lusha.
+   */
+  claimLushaAttempt: (runId: string) => Promise<boolean>;
+  /**
+   * Ejecuta la pata Lusha (fallback ya existente, en modo waterfall). Solo se
+   * invoca DESPUÉS de un claim exitoso. Una sola vez, sin retry.
+   */
+  callLushaLeg: (args: {
+    candidateId: string;
+    runId: string;
+    /** Actor almacenado en la autorización: no hay humano en este momento. */
+    authorizedBy: string;
+    maxCreditsAuthorized: number;
+  }) => Promise<PhoneRevealWaterfallLushaLegResult>;
+}
+
+export type ContinuePhoneRevealWaterfallOutcome =
+  | 'lusha_revealed'
+  | 'lusha_no_phone_found'
+  | 'lusha_error'
+  | 'lusha_claim_lost'
+  | 'closed_without_lusha'
+  | 'noop';
+
+export interface ContinuePhoneRevealWaterfallResult {
+  outcome: ContinuePhoneRevealWaterfallOutcome;
+  /** Motivo PII-free (código mecánico) para diagnóstico. null si no aplica. */
+  reason: string | null;
+  /** true solo si se llegó a llamar a Lusha en esta invocación. */
+  lushaCalled: boolean;
+}
+
+/**
+ * Continúa el waterfall tras un desenlace terminal de Apollo. Es el ÚNICO punto
+ * que puede disparar la pata Lusha, y lo hace como máximo una vez por corrida.
+ *
+ * Se invoca BEST-EFFORT desde el webhook, el cron de recovery y la revisión
+ * manual L3: el caller envuelve la llamada para que un fallo aquí no convierta
+ * un webhook correcto en 5xx (lo que provocaría reintentos de Apollo).
+ *
+ * NUNCA: search de Lusha, waterfallReveal de Lusha, HubSpot, bulk, retry
+ * automático, aprobación de candidato.
+ */
+export async function continuePhoneRevealWaterfall(
+  input: ContinuePhoneRevealWaterfallInput,
+  deps: ContinuePhoneRevealWaterfallDeps,
+): Promise<ContinuePhoneRevealWaterfallResult> {
+  if (!deps.flagEnabled) {
+    return { outcome: 'noop', reason: 'feature_disabled', lushaCalled: false };
+  }
+
+  const candidateId = cleanText(input.candidateId);
+  if (!candidateId) {
+    return { outcome: 'noop', reason: 'invalid_candidate', lushaCalled: false };
+  }
+
+  const run = await deps.findActiveRun(candidateId);
+  // Sin corrida activa no hay autorización que gastar: se sale sin escribir.
+  if (!run) return { outcome: 'noop', reason: 'no_active_run', lushaCalled: false };
+
+  // El candidato solo se lee cuando la corrida sigue viva y la pata Lusha sigue
+  // sin reclamar: cualquier otro caso ya está decidido sin necesitar la fila.
+  const needsCandidate =
+    run.lushaAttemptedAt === null &&
+    !PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(run.status) &&
+    input.apolloOutcome === 'no_phone_found';
+  const candidate = needsCandidate ? await deps.loadCandidate(candidateId) : null;
+
+  const decision = decidePhoneRevealWaterfallContinuation({
+    flagEnabled: deps.flagEnabled,
+    lushaFallbackFlagEnabled: deps.lushaFallbackFlagEnabled,
+    nowIso: deps.nowIso,
+    run,
+    apolloOutcome: input.apolloOutcome,
+    candidate,
+  });
+
+  // Costo de la pata Apollo: se sella en su propia columna en cualquier cierre,
+  // nunca mezclado con el de Lusha.
+  const apolloCostPatch: PhoneRevealWaterfallRunPatch =
+    input.apolloCostCredits === undefined
+      ? {}
+      : {
+          apolloCostCredits:
+            typeof input.apolloCostCredits === 'number' &&
+            Number.isFinite(input.apolloCostCredits)
+              ? input.apolloCostCredits
+              : null,
+          apolloCostSource: resolvePhoneRevealWaterfallCostSource(
+            input.apolloCostCredits,
+          ),
+        };
+
+  if (decision.action === 'noop') {
+    return { outcome: 'noop', reason: decision.reason, lushaCalled: false };
+  }
+
+  if (decision.action === 'close') {
+    await deps.updateRun(run.id, { ...apolloCostPatch, ...decision.patch });
+    return {
+      outcome: 'closed_without_lusha',
+      reason: decision.patch.lushaSkippedReason ?? decision.patch.errorCode ?? null,
+      lushaCalled: false,
+    };
+  }
+
+  // ── Camino hacia Lusha ─────────────────────────────────────────
+
+  // 1. Supresión / DNC re-comprobadas AHORA. Fail-closed si no se puede leer.
+  let suppressionState: PhoneRevealWaterfallSuppressionState;
+  try {
+    suppressionState = await deps.checkSuppressionAndDoNotContact(candidateId);
+  } catch {
+    suppressionState = 'check_unavailable';
+  }
+  const suppressionBlock = resolvePhoneRevealWaterfallSuppressionBlock(
+    suppressionState,
+    deps.nowIso,
+  );
+  if (suppressionBlock) {
+    await deps.updateRun(run.id, {
+      ...apolloCostPatch,
+      apolloOutcome: input.apolloOutcome,
+      ...suppressionBlock,
+    });
+    return {
+      outcome: 'closed_without_lusha',
+      reason: suppressionBlock.errorCode ?? 'suppressed',
+      lushaCalled: false,
+    };
+  }
+
+  // 2. Claim atómico. Si no actualiza fila, otro disparador ya tomó la pata: se
+  //    sale SIN llamar a Lusha y sin escribir nada más.
+  const claimed = await deps.claimLushaAttempt(run.id);
+  if (!claimed) {
+    return {
+      outcome: 'lusha_claim_lost',
+      reason: 'already_attempted',
+      lushaCalled: false,
+    };
+  }
+
+  // 3. UNA llamada a Lusha, sin retry. El actor es el operador que autorizó.
+  let legResult: PhoneRevealWaterfallLushaLegResult;
+  try {
+    legResult = await deps.callLushaLeg({
+      candidateId,
+      runId: run.id,
+      authorizedBy: run.authorizedBy,
+      maxCreditsAuthorized: run.maxCreditsAuthorized,
+    });
+  } catch {
+    // La pata quedó reclamada, así que NO se reintenta: se cierra como error con
+    // un código mecánico y el costo real permanece desconocido (nunca 0).
+    legResult = {
+      status: 'error',
+      creditsCharged: null,
+      errorCode: 'lusha_leg_threw',
+    };
+  }
+
+  const patch = mapLushaLegResultToWaterfallPatch(legResult, deps.nowIso);
+  await deps.updateRun(run.id, {
+    ...apolloCostPatch,
+    apolloOutcome: input.apolloOutcome,
+    ...patch,
+  });
+
+  if (patch.lushaOutcome === 'revealed') {
+    return { outcome: 'lusha_revealed', reason: null, lushaCalled: true };
+  }
+  if (patch.lushaOutcome === 'no_phone_found') {
+    return { outcome: 'lusha_no_phone_found', reason: null, lushaCalled: true };
+  }
+  return {
+    outcome: 'lusha_error',
+    reason: patch.errorCode ?? 'lusha_reveal_error',
+    lushaCalled: true,
+  };
+}
+
+// ── Vista de auditoría para la UI (PII-free) ───────────────────
+
+/**
+ * Proyección que la UI muestra en el bloque de auditoría del drawer. Solo
+ * códigos mecánicos, booleanos y conteos: ni teléfono, ni identidad, ni ids de
+ * proveedor. `runId` NO se incluye a propósito — el operador no lo necesita y es
+ * un identificador más que no tiene por qué viajar al cliente.
+ */
+export interface PhoneRevealWaterfallAuditView {
+  status: PhoneRevealWaterfallStatus;
+  isTerminal: boolean;
+  maxCreditsAuthorized: number;
+  apolloAttempted: boolean;
+  apolloOutcome: PhoneRevealWaterfallApolloOutcome | null;
+  apolloCostCredits: number | null;
+  apolloCostSource: PhoneRevealWaterfallCostSource | null;
+  lushaEligible: boolean;
+  lushaAttempted: boolean;
+  lushaSkippedReason: PhoneRevealWaterfallLushaSkippedReason | null;
+  lushaOutcome: PhoneRevealWaterfallLushaOutcome | null;
+  lushaCostCredits: number | null;
+  lushaCostSource: PhoneRevealWaterfallCostSource | null;
+  finalProvider: PhoneRevealWaterfallFinalProvider | null;
+}
+
+/** Construye la vista de auditoría desde la fila de la corrida. */
+export function buildPhoneRevealWaterfallAuditView(
+  run: PhoneRevealWaterfallRunRecord,
+): PhoneRevealWaterfallAuditView {
+  return {
+    status: run.status,
+    isTerminal: PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(run.status),
+    maxCreditsAuthorized: run.maxCreditsAuthorized,
+    apolloAttempted: run.apolloAttemptedAt !== null,
+    apolloOutcome: run.apolloOutcome,
+    apolloCostCredits: run.apolloCostCredits,
+    apolloCostSource: run.apolloCostSource,
+    lushaEligible: run.lushaEligible === true,
+    lushaAttempted: run.lushaAttemptedAt !== null,
+    lushaSkippedReason: run.lushaSkippedReason,
+    lushaOutcome: run.lushaOutcome,
+    lushaCostCredits: run.lushaCostCredits,
+    lushaCostSource: run.lushaCostSource,
+    finalProvider: run.finalProvider,
+  };
+}

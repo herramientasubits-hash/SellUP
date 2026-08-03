@@ -1,0 +1,163 @@
+// Tests — copy del waterfall Apollo → Lusha
+// (Agente 2A · AGENT2A-PHONE-WATERFALL-1).
+//
+// El copy es la única cosa que el operador ve ANTES de autorizar un gasto, así que
+// lo importante aquí no es la redacción: es que el tope que se MUESTRA sea el mismo
+// que el servidor revalida (13 con Lusha posible, 8 sin ella), y que el modal
+// declare las advertencias obligatorias.
+//
+// Módulo puro (sin React, sin red): se importa directo.
+
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  formatWaterfallLegCredits,
+  getPhoneRevealWaterfallModalCopy,
+  resolveWaterfallFinalProviderLabel,
+  resolveWaterfallLushaSkippedLabel,
+  resolveWaterfallOutcomeLabel,
+  PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS,
+  PHONE_REVEAL_WATERFALL_BUTTON_LABEL,
+  PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS,
+} from '../phone-reveal-waterfall-copy';
+import {
+  PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS,
+  PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA,
+} from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
+
+// ═══════════════════════════════════════════════════════════════
+// 1. Los topes de UI deben ser los del core (autoridad real)
+// ═══════════════════════════════════════════════════════════════
+
+describe('copy del waterfall — topes alineados con el core', () => {
+  test('el tope con Lusha de la UI es el del core (13)', () => {
+    assert.equal(
+      PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS,
+      PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA,
+    );
+    assert.equal(PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS, 13);
+  });
+
+  test('el tope sin Lusha de la UI es el del core (8)', () => {
+    assert.equal(
+      PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS,
+      PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS,
+    );
+    assert.equal(PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS, 8);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 2. Modal único
+// ═══════════════════════════════════════════════════════════════
+
+describe('copy del waterfall — modal único', () => {
+  test('con id Lusha: explica el orden de los proveedores y dice hasta 13 créditos', () => {
+    const copy = getPhoneRevealWaterfallModalCopy({ lushaEligible: true });
+    assert.equal(copy.maxCredits, 13);
+    assert.ok(copy.creditsMessage.includes('13'));
+    assert.ok(copy.flowDescription.includes('Apollo'));
+    assert.ok(copy.flowDescription.includes('Lusha'));
+    assert.ok(copy.flowDescription.includes('automáticamente'));
+    // Sin id Lusha ausente ⇒ no se explica una limitación que no aplica.
+    assert.equal(copy.lushaUnavailableNote, null);
+  });
+
+  test('sin id Lusha: dice hasta 8 créditos y EXPLICA por qué Lusha no aplica', () => {
+    const copy = getPhoneRevealWaterfallModalCopy({ lushaEligible: false });
+    assert.equal(copy.maxCredits, 8);
+    assert.ok(copy.creditsMessage.includes('8'));
+    assert.equal(copy.creditsMessage.includes('13'), false);
+    assert.ok(copy.flowDescription.includes('Apollo'));
+    assert.equal(copy.flowDescription.includes('Lusha'), false);
+    assert.ok(copy.lushaUnavailableNote);
+    assert.ok(copy.lushaUnavailableNote?.includes('identificador Lusha'));
+  });
+
+  test('el modal declara las advertencias obligatorias en los dos casos', () => {
+    for (const lushaEligible of [true, false]) {
+      const copy = getPhoneRevealWaterfallModalCopy({ lushaEligible });
+      const joined = copy.warnings.join(' ');
+      assert.ok(joined.includes('HubSpot'), 'debe advertir que no se escribe HubSpot');
+      assert.ok(joined.includes('individual'), 'debe advertir que no es masiva');
+      assert.ok(joined.includes('desconocido'), 'debe advertir sobre el tipo de teléfono');
+    }
+  });
+
+  test('el botón usa el mismo label del reveal Apollo (una sola acción para el operador)', () => {
+    assert.equal(PHONE_REVEAL_WATERFALL_BUTTON_LABEL, 'Revelar teléfono');
+    assert.equal(
+      getPhoneRevealWaterfallModalCopy({ lushaEligible: true }).title,
+      PHONE_REVEAL_WATERFALL_BUTTON_LABEL,
+    );
+    // No debe existir un label de "revelar con Lusha": no hay segundo botón.
+    assert.equal(PHONE_REVEAL_WATERFALL_BUTTON_LABEL.includes('Lusha'), false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 3. Etiquetas de auditoría
+// ═══════════════════════════════════════════════════════════════
+
+describe('copy del waterfall — etiquetas de auditoría', () => {
+  test('traduce los desenlaces de cada pata', () => {
+    assert.equal(resolveWaterfallOutcomeLabel('revealed'), 'Teléfono encontrado');
+    assert.equal(resolveWaterfallOutcomeLabel('no_phone_found'), 'Sin teléfono');
+    assert.ok(resolveWaterfallOutcomeLabel('revealed_from_cache')?.includes('reutilizado'));
+    assert.equal(resolveWaterfallOutcomeLabel(null), null);
+    // Un valor desconocido se muestra tal cual en vez de desaparecer.
+    assert.equal(resolveWaterfallOutcomeLabel('algo_nuevo'), 'algo_nuevo');
+  });
+
+  test('traduce cada motivo de omisión de la pata Lusha', () => {
+    for (const reason of [
+      'missing_lusha_contact_id',
+      'apollo_revealed',
+      'suppressed',
+      'dnc',
+      'authorization_expired',
+      'role_not_allowed',
+      'feature_disabled',
+      'already_attempted',
+      'not_needed',
+      'provider_error',
+    ]) {
+      const label = resolveWaterfallLushaSkippedLabel(reason);
+      assert.ok(label, `falta etiqueta para ${reason}`);
+      assert.ok(label?.startsWith('Omitida'), reason);
+    }
+    assert.equal(resolveWaterfallLushaSkippedLabel(null), null);
+  });
+
+  test('traduce el proveedor final, incluido "ninguno"', () => {
+    assert.equal(resolveWaterfallFinalProviderLabel('apollo'), 'Apollo');
+    assert.equal(resolveWaterfallFinalProviderLabel('lusha'), 'Lusha');
+    assert.equal(resolveWaterfallFinalProviderLabel('none'), 'Ninguno');
+    assert.equal(resolveWaterfallFinalProviderLabel(null), null);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 4. Costos: un costo no reportado NUNCA se muestra como 0
+// ═══════════════════════════════════════════════════════════════
+
+describe('copy del waterfall — formato de créditos por pata', () => {
+  test('un costo ausente se muestra como "no reportado", jamás como 0', () => {
+    assert.equal(formatWaterfallLegCredits(null, 'unknown'), 'costo no reportado');
+    assert.equal(formatWaterfallLegCredits(null, null), 'costo no reportado');
+    assert.equal(formatWaterfallLegCredits(Number.NaN, 'reported'), 'costo no reportado');
+    // Y sin que el texto sugiera un 0.
+    assert.equal(formatWaterfallLegCredits(null, 'unknown').includes('0'), false);
+  });
+
+  test('un 0 explícito y reportado sí se muestra como 0 créditos', () => {
+    assert.equal(formatWaterfallLegCredits(0, 'reported'), '0 créditos');
+  });
+
+  test('singular/plural y marca de "sin confirmar" cuando el costo no es reportado', () => {
+    assert.equal(formatWaterfallLegCredits(1, 'reported'), '1 crédito');
+    assert.equal(formatWaterfallLegCredits(5, 'reported'), '5 créditos');
+    assert.ok(formatWaterfallLegCredits(5, 'assumed_cap').includes('sin confirmar'));
+  });
+});

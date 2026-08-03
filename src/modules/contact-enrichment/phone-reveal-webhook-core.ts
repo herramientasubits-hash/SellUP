@@ -196,7 +196,38 @@ export interface WebhookUsageLogEntry {
     phone_revealed: boolean;
     phone_type: string | null;
     credits_used: number | null;
+    /**
+     * `phone_reveal_waterfall_runs.id` cuando este callback cierra la PRIMERA pata
+     * de un waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1). Id de fila PROPIO
+     * de SellUp: correlaciona esta pata con la de Lusha bajo UNA autorización, sin
+     * mezclar créditos (cada pata conserva su fila y su `credits_used`). NO es un
+     * id de proveedor y NO es PII.
+     *
+     * La clave se OMITE cuando no hay waterfall (dep no cableada o sin corrida
+     * activa), así que con el flag apagado la metadata es la de antes de este hito.
+     */
+    phone_reveal_waterfall_id?: string;
   };
+}
+
+// ── Hook de continuación del waterfall (AGENT2A-PHONE-WATERFALL-1) ──
+
+/**
+ * Desenlaces Apollo que este webhook puede comunicar al waterfall. Se declara
+ * estructuralmente (sin importar phone-reveal-waterfall-core) para que este core
+ * siga sin dependencias de la capa del waterfall y no exista riesgo de ciclo.
+ */
+export type WebhookWaterfallApolloOutcome =
+  | 'revealed'
+  | 'no_phone_found'
+  | 'blocked_suppressed'
+  | 'suppression_check_unavailable';
+
+export interface WebhookWaterfallContinuationArgs {
+  candidateId: string;
+  apolloOutcome: WebhookWaterfallApolloOutcome;
+  /** Créditos que Apollo reportó. null si no los reportó (nunca 0 por defecto). */
+  apolloCostCredits: number | null;
 }
 
 // ── Deps inyectadas ────────────────────────────────────────────
@@ -266,6 +297,31 @@ export interface ApolloPhoneRevealWebhookDeps {
    * registrado con un evento de forma CERRADA y sin PII.
    */
   onSuppressionNotEvaluable?: PhoneSuppressionNotEvaluableSink;
+
+  // ── Waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1) ─────
+  // Las DOS deps son OPCIONALES y solo se cablean cuando
+  // ENABLE_PHONE_REVEAL_WATERFALL está encendido. Sin ellas este core se comporta
+  // exactamente como antes de este hito: no resuelve corrida, no añade la clave a
+  // la metadata y no continúa nada.
+
+  /**
+   * Resuelve el id de la corrida activa del waterfall para el candidato, SOLO para
+   * incluirlo en la metadata del usage-log. Best-effort por contrato: el caller
+   * (este core) traga cualquier excepción y sigue sin la clave — un problema al
+   * correlacionar NUNCA puede perder un teléfono ya pagado.
+   */
+  resolveWaterfallRunId?: (candidateId: string) => Promise<string | null>;
+  /**
+   * Continúa el waterfall tras terminalizar Apollo. Se invoca DESPUÉS de persistir
+   * el desenlace y DESPUÉS del usage-log, y es el único camino por el que la pata
+   * Lusha puede llegar a ejecutarse.
+   *
+   * BEST-EFFORT por contrato: su resultado se ignora y sus excepciones se tragan
+   * aquí de forma acotada. Un fallo de la pata Lusha NO puede convertir un webhook
+   * correcto en 5xx, porque eso haría a Apollo reintentar el callback sin resolver
+   * nada. La idempotencia (claim atómico) vive en el core del waterfall.
+   */
+  continueWaterfall?: (args: WebhookWaterfallContinuationArgs) => Promise<unknown>;
 }
 
 // ── Resultado (para que la ruta arme la HTTP response segura) ──
@@ -466,6 +522,42 @@ async function cacheRevealedPhoneBestEffort(
   }
 }
 
+/**
+ * Resuelve el id de la corrida del waterfall sin poder romper el webhook
+ * (AGENT2A-PHONE-WATERFALL-1). Solo alimenta una clave de metadata, así que
+ * cualquier fallo se traga y se devuelve null: correlacionar es deseable, no
+ * imprescindible. Con la dep sin cablear (flag apagado) devuelve null sin I/O.
+ */
+async function resolveWaterfallRunIdBestEffort(
+  deps: ApolloPhoneRevealWebhookDeps,
+  candidateId: string,
+): Promise<string | null> {
+  if (!deps.resolveWaterfallRunId) return null;
+  try {
+    return cleanText(await deps.resolveWaterfallRunId(candidateId));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Continúa el waterfall sin poder romper el webhook. El desenlace Apollo ya está
+ * persistido y logueado cuando esto corre, así que un fallo aquí solo significa
+ * "la 2ª pata no se intentó ahora": jamás un 5xx que haga a Apollo reintentar.
+ */
+async function continueWaterfallBestEffort(
+  deps: ApolloPhoneRevealWebhookDeps,
+  args: WebhookWaterfallContinuationArgs,
+): Promise<void> {
+  if (!deps.continueWaterfall) return;
+  try {
+    await deps.continueWaterfall(args);
+  } catch {
+    // Silencio deliberado y acotado: el wrapper del waterfall ya registra el
+    // fallo sin PII, y este callback no puede degradarse a un reintento de Apollo.
+  }
+}
+
 // ── Orquestación pura del WEBHOOK ──────────────────────────────
 
 /**
@@ -517,6 +609,15 @@ export async function runApolloPhoneRevealWebhook(
   ) {
     return { httpStatus: 200, outcome: 'already_terminal' };
   }
+
+  // 5b. Corrida del waterfall (AGENT2A-PHONE-WATERFALL-1). Se resuelve una sola
+  //     vez, después de tener candidato y antes de cualquier usage-log, para que
+  //     TODOS los desenlaces de este callback queden correlacionados con la misma
+  //     autorización. Con el flag apagado la dep no está cableada ⇒ null, sin I/O.
+  const waterfallRunId = await resolveWaterfallRunIdBestEffort(deps, candidate.id);
+  const waterfallMeta = waterfallRunId
+    ? { phone_reveal_waterfall_id: waterfallRunId }
+    : {};
 
   // 6. Seleccionar el mejor teléfono (mobile → direct_dial → work/hq/other).
   const rawPhones = collectWebhookPhoneNumbers(input.payload);
@@ -584,7 +685,17 @@ export async function runApolloPhoneRevealWebhook(
           phone_revealed: false,
           phone_type: null,
           credits_used: credits,
+          ...waterfallMeta,
         },
+      });
+      // Waterfall: la supresión no se pudo verificar, así que la 2ª pata NO se
+      // gasta. La corrida se cierra fail-closed (nunca se lee como "sin
+      // tombstone"); el candidato sigue en vuelo para el recovery, y si el
+      // operador quiere volver a intentarlo tendrá que autorizarlo de nuevo.
+      await continueWaterfallBestEffort(deps, {
+        candidateId: candidate.id,
+        apolloOutcome: SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+        apolloCostCredits: credits,
       });
       return { httpStatus: 200, outcome: 'suppression_check_unavailable' };
     }
@@ -621,7 +732,15 @@ export async function runApolloPhoneRevealWebhook(
           phone_revealed: false,
           phone_type: null,
           credits_used: credits,
+          ...waterfallMeta,
         },
+      });
+      // Waterfall: hay tombstone ⇒ la corrida se aborta y la pata Lusha no se
+      // intenta. Una supresión registrada bloquea a TODOS los proveedores.
+      await continueWaterfallBestEffort(deps, {
+        candidateId: candidate.id,
+        apolloOutcome: SUPPRESSION_BLOCKED_ERROR_CODE,
+        apolloCostCredits: credits,
       });
       return { httpStatus: 200, outcome: 'blocked_suppressed' };
     }
@@ -677,7 +796,15 @@ export async function runApolloPhoneRevealWebhook(
         phone_revealed: true,
         phone_type: revealed.type,
         credits_used: credits,
+        ...waterfallMeta,
       },
+    });
+    // Waterfall: Apollo entregó el teléfono ⇒ la corrida se cierra con
+    // final_provider = apollo y la pata Lusha NUNCA se intenta (0 créditos Lusha).
+    await continueWaterfallBestEffort(deps, {
+      candidateId: candidate.id,
+      apolloOutcome: 'revealed',
+      apolloCostCredits: credits,
     });
     return { httpStatus: 200, outcome: 'revealed' };
   }
@@ -712,7 +839,18 @@ export async function runApolloPhoneRevealWebhook(
       phone_revealed: false,
       phone_type: null,
       credits_used: credits,
+      ...waterfallMeta,
     },
+  });
+  // Waterfall: ÚNICO desenlace que puede abrir la 2ª pata. El `no_phone_found` de
+  // Apollo ya quedó persistido arriba (no se altera), y la continuación decide —
+  // con claim atómico, TTL y re-chequeo de supresión/DNC — si Lusha corre. Si el
+  // candidato no tiene id Lusha propio, la corrida se cierra `exhausted` con 0
+  // llamadas. Best-effort: un fallo aquí no convierte este 200 en 5xx.
+  await continueWaterfallBestEffort(deps, {
+    candidateId: candidate.id,
+    apolloOutcome: 'no_phone_found',
+    apolloCostCredits: credits,
   });
   return { httpStatus: 200, outcome: 'no_phone_found' };
 }

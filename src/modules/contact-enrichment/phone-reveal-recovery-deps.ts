@@ -22,9 +22,16 @@
 // /people/match, no crea reveals y no consume créditos nuevos.
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { isApolloPhoneCacheEnabled } from '@/lib/feature-flags.server';
+import {
+  isApolloPhoneCacheEnabled,
+  isPhoneRevealWaterfallEnabled,
+} from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { readPhoneCacheSuppression, writePhoneCacheEntry } from './phone-cache-store';
+import {
+  continuePhoneRevealWaterfallForCandidate,
+  resolveActiveWaterfallRunId,
+} from './phone-reveal-waterfall-deps';
 import { fetchApolloPhoneRevealWebhookResult } from '@/server/integrations/apollo-client';
 import {
   classifyWebhookResultHttpStatus,
@@ -275,5 +282,20 @@ export function buildRecoveryCoreDeps(
         event,
       );
     },
+
+    // Waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1). Se cablea SOLO con
+    // ENABLE_PHONE_REVEAL_WATERFALL encendido, y cubre de una vez los DOS
+    // disparadores que comparten este builder: el cron L2 y la revisión manual L3.
+    //
+    // Con el flag apagado las deps llegan ausentes y el recovery se comporta
+    // exactamente como antes de este hito. La idempotencia entre webhook / cron /
+    // L3 la garantiza el claim atómico del core del waterfall: los tres pueden ver
+    // el mismo `no_phone_found` y solo uno llamará a Lusha.
+    ...(isPhoneRevealWaterfallEnabled()
+      ? {
+          resolveWaterfallRunId: resolveActiveWaterfallRunId,
+          continueWaterfall: continuePhoneRevealWaterfallForCandidate,
+        }
+      : {}),
   };
 }

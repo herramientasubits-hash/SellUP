@@ -64,6 +64,28 @@ import {
   getLushaPhoneFallbackCopy,
   LUSHA_PHONE_FALLBACK_MAX_CREDITS,
 } from './lusha-phone-fallback-copy';
+// Waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1). Un solo botón, un solo
+// modal: el operador confirma UNA vez y SellUp intenta Apollo y, si Apollo no
+// encuentra teléfono, Lusha automáticamente por debajo (server-side). Este
+// componente NO orquesta el waterfall: solo dispara el mismo server action del
+// reveal Apollo y LEE la auditoría de la corrida.
+import { getPhoneRevealWaterfallAuditAction } from '@/modules/contact-enrichment/phone-reveal-waterfall-actions';
+import type { PhoneRevealWaterfallAuditView } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
+import {
+  formatWaterfallLegCredits,
+  getPhoneRevealWaterfallModalCopy,
+  resolveWaterfallFinalProviderLabel,
+  resolveWaterfallLushaSkippedLabel,
+  resolveWaterfallOutcomeLabel,
+  PHONE_REVEAL_WATERFALL_APOLLO_RUNNING_COPY,
+  PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY,
+  PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
+  PHONE_REVEAL_WATERFALL_ERROR_COPY,
+  PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY,
+  PHONE_REVEAL_WATERFALL_LUSHA_RUNNING_COPY,
+  PHONE_REVEAL_WATERFALL_REVEALED_BY_APOLLO_COPY,
+  PHONE_REVEAL_WATERFALL_REVEALED_BY_LUSHA_COPY,
+} from './phone-reveal-waterfall-copy';
 // Núcleo PURO de la ventana L3 (sin imports en tiempo de ejecución, por eso es
 // seguro en el bundle cliente): cliente y servidor comparten LA MISMA definición
 // de "ya pasaron 2 min desde la solicitud" y no pueden desincronizarse.
@@ -280,6 +302,19 @@ interface ContactCandidateDetailSheetProps {
    * server-side; el server action revalida el rol de todas formas.
    */
   lushaPhoneFallbackAuthorized?: boolean;
+  /**
+   * ENABLE_PHONE_REVEAL_WATERFALL resuelto server-side
+   * (AGENT2A-PHONE-WATERFALL-1). Con `false` (default de producción) la UI es
+   * EXACTAMENTE la anterior al waterfall: reveal Apollo one-click + botón manual
+   * de Lusha cuando aplica.
+   */
+  phoneRevealWaterfallEnabled?: boolean;
+  /**
+   * `true` solo si el rol del actor autenticado es Administrador — el waterfall
+   * completo es admin-only. Un `commercial_manager` conserva el flujo Apollo-only.
+   * Resuelto server-side; el server revalida el rol de todas formas.
+   */
+  phoneRevealWaterfallAuthorized?: boolean;
 }
 
 /**
@@ -297,6 +332,8 @@ export function ContactCandidateDetailSheet({
   phoneRevealAuthorized = false,
   lushaPhoneFallbackEnabled = false,
   lushaPhoneFallbackAuthorized = false,
+  phoneRevealWaterfallEnabled = false,
+  phoneRevealWaterfallAuthorized = false,
 }: ContactCandidateDetailSheetProps) {
   const router = useRouter();
   const [candidate, setCandidate] = React.useState<PendingContactCandidate | null>(null);
@@ -356,6 +393,15 @@ export function ContactCandidateDetailSheet({
   >(null);
   const lushaFallbackInFlightRef = React.useRef(false);
 
+  // Waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1). `waterfallAudit` es la
+  // proyección PII-free de la corrida (qué intentó cada proveedor, qué costó cada
+  // pata, cuál fue el final). Es la ÚNICA fuente de la que la UI puede saber que
+  // Lusha está corriendo: el candidato sigue en `no_phone_found` mientras la 2ª
+  // pata trabaja, porque un resultado sin teléfono no debe pisar su estado.
+  const [showWaterfallConfirm, setShowWaterfallConfirm] = React.useState(false);
+  const [waterfallAudit, setWaterfallAudit] =
+    React.useState<PhoneRevealWaterfallAuditView | null>(null);
+
   // Refetch silencioso (LIVE-REFRESH-1). `reloadInFlightRef` evita dos refetch
   // simultáneos y `currentCandidateIdRef` corta el setState tardío cuando el
   // drawer ya se cerró o cambió de candidato mientras la lectura se resolvía.
@@ -371,6 +417,36 @@ export function ContactCandidateDetailSheet({
 
   const busy = approving || rejecting;
 
+  /**
+   * ¿El waterfall está realmente activo para este operador? Flag ON **y** rol
+   * admin, ambos resueltos server-side. Un `commercial_manager` conserva el flujo
+   * Apollo-only aunque el flag esté encendido.
+   */
+  const waterfallActive =
+    phoneRevealWaterfallEnabled === true && phoneRevealWaterfallAuthorized === true;
+
+  /**
+   * Lee la auditoría de la corrida del waterfall. Solo cuando el waterfall está
+   * activo: con el flag apagado no se hace ninguna llamada extra. Silencioso — la
+   * auditoría es informativa y nunca puede romper la revisión del candidato.
+   */
+  const reloadWaterfallAudit = React.useCallback(
+    async (targetCandidateId: string): Promise<void> => {
+      if (!waterfallActive) return;
+      try {
+        const audit = await getPhoneRevealWaterfallAuditAction({
+          candidateId: targetCandidateId,
+        });
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setWaterfallAudit(audit);
+        }
+      } catch {
+        // Silencioso: sin auditoría simplemente no se muestra el bloque.
+      }
+    },
+    [waterfallActive],
+  );
+
   React.useEffect(() => {
     if (open && candidateId) {
       let cancelled = false;
@@ -385,6 +461,9 @@ export function ContactCandidateDetailSheet({
             setCandidate(null);
           } else {
             setCandidate(result);
+            // Auditoría de la corrida del waterfall (no bloquea el render del
+            // candidato: se pide en paralelo y su ausencia solo oculta el bloque).
+            void reloadWaterfallAudit(candidateId);
           }
         } catch {
           if (!cancelled) {
@@ -419,9 +498,11 @@ export function ContactCandidateDetailSheet({
         setPhoneRecoveryNotice(null);
         setPhoneRecoveryError(null);
         recoverInFlightRef.current = false;
+        setShowWaterfallConfirm(false);
+        setWaterfallAudit(null);
       });
     }
-  }, [open, candidateId]);
+  }, [open, candidateId, reloadWaterfallAudit]);
 
   /**
    * Refetch silencioso del candidato tras un reveal (no muestra el skeleton del
@@ -444,6 +525,9 @@ export function ContactCandidateDetailSheet({
       } catch {
         // Silencioso: mantenemos la vista actual si el refetch falla.
       }
+      // La corrida se relee junto al candidato: es lo que hace visible el paso
+      // "Apollo no encontró teléfono, consultando Lusha" sin timers propios.
+      await reloadWaterfallAudit(candidateId);
     })();
     reloadInFlightRef.current = request;
     try {
@@ -451,7 +535,7 @@ export function ContactCandidateDetailSheet({
     } finally {
       if (reloadInFlightRef.current === request) reloadInFlightRef.current = null;
     }
-  }, [candidateId]);
+  }, [candidateId, reloadWaterfallAudit]);
 
   async function handleApprove(identityOverride?: { acknowledged: boolean; reason: string }) {
     if (!candidate || busy) return;
@@ -619,7 +703,7 @@ export function ContactCandidateDetailSheet({
    * teléfono, email, LinkedIn, nombre ni payload crudo. El ref corta un segundo
    * clic antes de que el botón se deshabilite por re-render.
    */
-  async function handlePhoneReveal() {
+  async function handlePhoneReveal(expectedMaxCredits: number = PHONE_REVEAL_MAX_CREDITS) {
     if (!candidate || revealInFlightRef.current) return;
     revealInFlightRef.current = true;
     setPhoneRevealError(null);
@@ -629,7 +713,7 @@ export function ContactCandidateDetailSheet({
       const result = await revealCandidatePhoneAction({
         candidateId: candidate.id,
         confirmCost: true,
-        expectedMaxCredits: PHONE_REVEAL_MAX_CREDITS,
+        expectedMaxCredits,
         phoneProcessingBasis: PHONE_REVEAL_PROCESSING_BASIS,
         phoneProcessingBasisNote: undefined,
       });
@@ -640,6 +724,22 @@ export function ContactCandidateDetailSheet({
       revealInFlightRef.current = false;
       setRevealingPhone(false);
     }
+  }
+
+  // ── Waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1) ───────────────────
+  /**
+   * Confirma el waterfall y lo dispara. Es EL MISMO server action del reveal
+   * Apollo: el waterfall no es una acción nueva del cliente, es la misma acción
+   * que el servidor extiende con una 2ª pata. Lo único que cambia aquí es el tope
+   * de créditos que el operador acaba de aceptar (13 con Lusha posible, 8 sin
+   * ella), que el servidor revalida.
+   *
+   * No hay segundo clic ni segundo modal: la pata Lusha la decide y la ejecuta el
+   * servidor cuando Apollo termina en `no_phone_found`.
+   */
+  async function handleConfirmPhoneWaterfallRun(maxCredits: number) {
+    setShowWaterfallConfirm(false);
+    await handlePhoneReveal(maxCredits);
   }
 
   // ── Revisión manual del resultado (APOLLO-PHONE-RECOVERY-L3) ───────────────
@@ -933,8 +1033,34 @@ export function ContactCandidateDetailSheet({
     phoneRevealExhausted &&
     !phoneRevealInFlight &&
     !hasPhone &&
-    hasLushaContactId;
+    hasLushaContactId &&
+    // Con el waterfall activo NO hay botón separado de Lusha en el flujo normal:
+    // la 2ª pata es automática y server-side, así que ofrecer además un disparo
+    // manual reintroduciría justo el segundo clic que este hito elimina — y
+    // permitiría gastar créditos Lusha fuera de la corrida que los contabiliza.
+    !waterfallActive;
   const lushaPhoneFallbackCopy = getLushaPhoneFallbackCopy();
+
+  // ── Estado visible del waterfall (AGENT2A-PHONE-WATERFALL-1) ───────────────
+  // El tope que se muestra y se envía depende de si Lusha es una 2ª pata posible.
+  // Es el MISMO criterio que aplica el servidor (`source === 'lusha'` + id propio),
+  // así que el modal no puede prometer 13 créditos donde el servidor solo autoriza 8.
+  const waterfallLushaEligible = hasLushaContactId;
+  const waterfallModalCopy = getPhoneRevealWaterfallModalCopy({
+    lushaEligible: waterfallLushaEligible,
+  });
+  // La 2ª pata está reclamada o corriendo: el candidato sigue en `no_phone_found`
+  // (un resultado sin teléfono no pisa su estado), así que esto solo lo sabe la
+  // corrida.
+  const waterfallLushaRunning =
+    waterfallActive &&
+    (waterfallAudit?.status === 'lusha_pending' ||
+      waterfallAudit?.status === 'lusha_running');
+  const waterfallInProgress =
+    waterfallActive && !!waterfallAudit && !waterfallAudit.isTerminal;
+  // Gate de aprobación: mientras la revelación siga viva, aprobar crearía el
+  // contacto oficial SIN el teléfono que se está pagando por conseguir.
+  const waterfallBlocksApproval = waterfallInProgress;
   const companyConsistency =
     (candidate?.enrichment_metadata?.company_consistency as
       | ContactCandidateCompanyConsistency
@@ -995,11 +1121,13 @@ export function ContactCandidateDetailSheet({
           !showRejectForm ? (
             <>
               <p className="flex-1 text-[11px] text-muted-foreground/70">
-                {candidate.account_id
-                  ? 'Al aprobar se creará un contacto oficial en SellUp.'
-                  : candidate.hubspot_company_id
-                    ? 'Al aprobar, SellUp creará o vinculará la cuenta automáticamente.'
-                    : 'Sin cuenta SellUp asociada: no se puede aprobar.'}
+                {waterfallBlocksApproval
+                  ? PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY
+                  : candidate.account_id
+                    ? 'Al aprobar se creará un contacto oficial en SellUp.'
+                    : candidate.hubspot_company_id
+                      ? 'Al aprobar, SellUp creará o vinculará la cuenta automáticamente.'
+                      : 'Sin cuenta SellUp asociada: no se puede aprobar.'}
               </p>
               <div className="flex shrink-0 items-center gap-2">
                 <Button
@@ -1015,7 +1143,13 @@ export function ContactCandidateDetailSheet({
                 <Button
                   type="button"
                   size="sm"
-                  disabled={busy || (!candidate.account_id && !candidate.hubspot_company_id)}
+                  disabled={
+                    busy ||
+                    (!candidate.account_id && !candidate.hubspot_company_id) ||
+                    // Waterfall en curso: aprobar ahora crearía el contacto oficial
+                    // sin el teléfono que se está pagando por conseguir.
+                    waterfallBlocksApproval
+                  }
                   onClick={() =>
                     isIdentityMismatch ? setShowIdentityOverrideDialog(true) : handleApprove()
                   }
@@ -1241,11 +1375,18 @@ export function ContactCandidateDetailSheet({
                       )}
                     </div>
                   )}
-                  {phoneRevealExhausted && !phoneRevealInFlight && (
-                    <p className="text-[11px] text-muted-foreground">
-                      Teléfono no disponible tras consultar Apollo.
-                    </p>
-                  )}
+                  {/* Con el waterfall activo y una corrida viva este copy se omite:
+                      diría "no disponible tras Apollo" mientras Lusha aún está
+                      consultando, que es exactamente la contradicción que el
+                      waterfall existe para evitar. Los estados del waterfall
+                      (más abajo) son la fuente en ese caso. */}
+                  {phoneRevealExhausted &&
+                    !phoneRevealInFlight &&
+                    !(waterfallActive && waterfallAudit) && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Teléfono no disponible tras consultar Apollo.
+                      </p>
+                    )}
                   {phoneRevealNotice && !phoneRevealInFlight && (
                     <p className="text-[11px] text-muted-foreground">{phoneRevealNotice}</p>
                   )}
@@ -1297,7 +1438,13 @@ export function ContactCandidateDetailSheet({
                         size="sm"
                         className="h-7 gap-1.5 text-xs"
                         disabled={busy || revealingPhone}
-                        onClick={handlePhoneReveal}
+                        // Con el waterfall activo el clic abre el ÚNICO modal de
+                        // confirmación; sin él conserva el one-click validado.
+                        onClick={
+                          waterfallActive
+                            ? () => setShowWaterfallConfirm(true)
+                            : () => handlePhoneReveal()
+                        }
                       >
                         {revealingPhone ? (
                           <>
@@ -1312,8 +1459,9 @@ export function ContactCandidateDetailSheet({
                         )}
                       </Button>
                       <p className="text-[11px] text-muted-foreground">
-                        Consulta individual con Apollo. Puede consumir hasta{' '}
-                        {PHONE_REVEAL_MAX_CREDITS} créditos y tardar algunos minutos.
+                        {waterfallActive
+                          ? `${waterfallModalCopy.flowDescription} ${waterfallModalCopy.creditsMessage}`
+                          : `Consulta individual con Apollo. Puede consumir hasta ${PHONE_REVEAL_MAX_CREDITS} créditos y tardar algunos minutos.`}
                       </p>
                       <p className="text-[11px] text-muted-foreground/70">
                         Base aplicada: interés legítimo B2B.
@@ -1323,10 +1471,121 @@ export function ContactCandidateDetailSheet({
                       )}
                     </div>
                   )}
+
+                  {/* Estados del waterfall (AGENT2A-PHONE-WATERFALL-1). Solo con el
+                      flag activo y solo cuando hay corrida: describen en qué pata
+                      está SellUp sin exigir ninguna acción al operador. */}
+                  {waterfallActive && waterfallAudit && (
+                    <div className="space-y-1">
+                      {waterfallLushaRunning ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Badge className="border-0 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-semibold">
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            Lusha
+                          </Badge>
+                          <span className="text-[11px] text-muted-foreground">
+                            {PHONE_REVEAL_WATERFALL_LUSHA_RUNNING_COPY}
+                          </span>
+                        </span>
+                      ) : waterfallAudit.status === 'apollo_in_flight' ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          {PHONE_REVEAL_WATERFALL_APOLLO_RUNNING_COPY}
+                        </p>
+                      ) : waterfallAudit.status === 'completed_apollo' ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          {PHONE_REVEAL_WATERFALL_REVEALED_BY_APOLLO_COPY}
+                        </p>
+                      ) : waterfallAudit.status === 'completed_lusha' ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          {PHONE_REVEAL_WATERFALL_REVEALED_BY_LUSHA_COPY}
+                        </p>
+                      ) : waterfallAudit.status === 'exhausted' ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          {PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY}
+                        </p>
+                      ) : waterfallAudit.status === 'aborted' ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          {PHONE_REVEAL_WATERFALL_BLOCKED_COPY}
+                        </p>
+                      ) : waterfallAudit.status === 'error' ? (
+                        <p className="text-[11px] text-destructive">
+                          {PHONE_REVEAL_WATERFALL_ERROR_COPY}
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               </DetailRow>
             </dl>
           </SurfaceCard>
+
+          {/* 2b. Auditoría del waterfall de teléfono (AGENT2A-PHONE-WATERFALL-1).
+               Solo con el flag activo, rol admin y corrida existente. Muestra qué
+               hizo CADA proveedor y cuánto costó CADA pata por separado — nunca un
+               total mezclado — y no expone ningún dato personal adicional. */}
+          {waterfallActive && waterfallAudit && (
+            <SurfaceCard>
+              <SurfaceCardHeader
+                title="Revelación de teléfono por proveedor"
+                description="Trazabilidad de la última revelación autorizada: qué intentó cada proveedor y cuánto costó cada consulta."
+              />
+              <dl className="space-y-3">
+                <DetailRow icon={PhoneCall} label="Apollo">
+                  <span className="flex flex-col gap-0.5">
+                    <span>
+                      {waterfallAudit.apolloAttempted ? 'Intentado' : 'No intentado'}
+                      {resolveWaterfallOutcomeLabel(waterfallAudit.apolloOutcome)
+                        ? ` · ${resolveWaterfallOutcomeLabel(waterfallAudit.apolloOutcome)}`
+                        : ''}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {formatWaterfallLegCredits(
+                        waterfallAudit.apolloCostCredits,
+                        waterfallAudit.apolloCostSource,
+                      )}
+                    </span>
+                  </span>
+                </DetailRow>
+                <DetailRow icon={PhoneCall} label="Lusha">
+                  <span className="flex flex-col gap-0.5">
+                    <span>
+                      {waterfallAudit.lushaAttempted
+                        ? `Intentado${
+                            resolveWaterfallOutcomeLabel(waterfallAudit.lushaOutcome)
+                              ? ` · ${resolveWaterfallOutcomeLabel(waterfallAudit.lushaOutcome)}`
+                              : ''
+                          }`
+                        : (resolveWaterfallLushaSkippedLabel(
+                            waterfallAudit.lushaSkippedReason,
+                          ) ?? 'Pendiente')}
+                    </span>
+                    {waterfallAudit.lushaAttempted && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {formatWaterfallLegCredits(
+                          waterfallAudit.lushaCostCredits,
+                          waterfallAudit.lushaCostSource,
+                        )}
+                      </span>
+                    )}
+                  </span>
+                </DetailRow>
+                <DetailRow icon={ShieldCheck} label="Proveedor final">
+                  {resolveWaterfallFinalProviderLabel(waterfallAudit.finalProvider) ? (
+                    <span>
+                      {resolveWaterfallFinalProviderLabel(waterfallAudit.finalProvider)}
+                    </span>
+                  ) : (
+                    <Fallback />
+                  )}
+                </DetailRow>
+                <DetailRow icon={Gauge} label="Máximo autorizado">
+                  <span className="tabular-nums">
+                    {waterfallAudit.maxCreditsAuthorized} créditos
+                  </span>
+                </DetailRow>
+              </dl>
+            </SurfaceCard>
+          )}
 
           {/* 3. Evaluación del candidato */}
           <SurfaceCard>
@@ -1698,6 +1957,70 @@ export function ContactCandidateDetailSheet({
               </>
             ) : (
               'Confirmar y revelar'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Modal ÚNICO del waterfall (AGENT2A-PHONE-WATERFALL-1). Es el único diálogo
+        de todo el flujo: lo que se confirma aquí cubre las DOS patas. No existe un
+        segundo modal para Lusha, ni un segundo clic — cuando Apollo termina sin
+        teléfono el servidor continúa por su cuenta. */}
+    <Dialog
+      open={showWaterfallConfirm}
+      onOpenChange={(v) => {
+        if (revealingPhone) return;
+        setShowWaterfallConfirm(v);
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{waterfallModalCopy.title}</DialogTitle>
+          <DialogDescription>{waterfallModalCopy.flowDescription}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-foreground">
+            {waterfallModalCopy.creditsMessage}
+          </p>
+          {waterfallModalCopy.lushaUnavailableNote && (
+            <p className="text-xs text-muted-foreground">
+              {waterfallModalCopy.lushaUnavailableNote}
+            </p>
+          )}
+          <ul className="space-y-0.5 pt-1">
+            {waterfallModalCopy.warnings.map((warning) => (
+              <li key={warning} className="text-[11px] text-muted-foreground">
+                {warning}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={revealingPhone}
+            onClick={() => setShowWaterfallConfirm(false)}
+          >
+            {waterfallModalCopy.cancelLabel}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={revealingPhone}
+            onClick={() =>
+              void handleConfirmPhoneWaterfallRun(waterfallModalCopy.maxCredits)
+            }
+          >
+            {revealingPhone ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Revelando…
+              </>
+            ) : (
+              waterfallModalCopy.confirmLabel
             )}
           </Button>
         </DialogFooter>
