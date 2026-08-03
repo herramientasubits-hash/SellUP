@@ -15,8 +15,11 @@ import type {
   ProspectingPipelineCandidate,
   ProspectingPipelineSummary,
   CandidateQualityLabel,
+  CatalogContextResult,
   NameInferenceSource,
   SearchTrace,
+  WebSearchProviderKey,
+  WebSearchResult,
 } from './types';
 import { getCatalogContext } from './catalog-context-retriever';
 import { runWebSearch, runMultiQueryWebSearch, buildCompanyDiscoveryQuery, getSourceGuidedQueryMeta, classifyQuery } from './web-search-tool';
@@ -647,99 +650,16 @@ export async function runProspectingPipeline(
 
   const candidates: ProspectingPipelineCandidate[] = await Promise.all(
     resultsToProcess.map(async (result): Promise<ProspectingPipelineCandidate> => {
-      const inferred = inferCompanyNameFromSearchResult(result.title, result.url);
-      let name = inferred.name;
-      const inferredNameSource = inferred.source;
-
-      // Hito 16AB.43.20: if title_fallback returned a sentence, the title has no
-      // extractable company name. Use domain inference as last resort, or if that
-      // also fails, force the candidate to discard so it is never persisted.
-      if (inferredNameSource === 'title_fallback' && isSentenceOrPhraseName(name)) {
-        const fromDomain = inferNameFromDomain(result.url);
-        if (fromDomain && !isSentenceOrPhraseName(fromDomain)) {
-          name = fromDomain;
-        } else {
-          nameQualityFilteredCount++;
-          // Build a minimal discard candidate — no I/O, scoring will mark as discard
-          name = 'Unknown';
-        }
-      }
-      const website = result.url;
-      const domain = normalizeDomain(result.url);
-
-      // Trazabilidad query→candidato (Hito 16Z.2)
-      const originQueryText = ('originQuery' in result && typeof result.originQuery === 'string')
-        ? result.originQuery
-        : searchQuery;
-      const { queryType, querySourceKey } = classifyQuery(originQueryText, input.country, input.industry);
-      const searchTrace: SearchTrace = {
-        query_text: originQueryText,
-        query_type: queryType,
-        query_source_key: querySourceKey,
-        provider_rank: result.rank,
-      };
-
-      // Paso 4a: Verificar website
-      const websiteVerification = await verifyWebsite({
-        candidateName: name,
-        websiteOrDomain: website,
-        country: input.country,
-        countryCode: input.countryCode,
-      });
-
-      // Paso 4b: Deduplicación (SellUp + HubSpot si está conectado)
-      const duplicateCheck = await checkCompanyDuplicate({
-        name,
-        website,
-        domain,
-        country: input.country,
-        countryCode: input.countryCode,
-      });
-
-      // Paso 4c: Scoring (determinístico, sin APIs externas)
-      const scoring = scoreCandidate({
-        name,
+      const built = await buildProspectingPipelineCandidate(result, {
         country: input.country,
         countryCode: input.countryCode,
         industry: input.industry,
-        website,
-        domain,
-        websiteVerification,
-        duplicateCheck,
         catalogContext,
-        sourcePrimary: result.source ?? provider,
-        sourcePriority:
-          catalogContext.recommendedSources.length > 0
-            ? catalogContext.recommendedSources[0].priority
-            : null,
-        sourceTitle: result.title,
-        sourceSnippet: result.snippet ?? null,
-        countryEvidenceLevel: evaluateCountryEvidence({
-          website: result.url,
-          domain: domain ?? '',
-          sourceSnippet: result.snippet ?? null,
-          sourceTitle: result.title,
-          queryText: originQueryText,
-          targetCountryCode: input.countryCode,
-        }).evidenceLevel,
+        provider,
+        fallbackQueryText: searchQuery,
       });
-
-      return {
-        name,
-        website,
-        domain,
-        country: input.country,
-        countryCode: input.countryCode,
-        industry: input.industry,
-        sourceUrl: result.url,
-        sourceTitle: result.title,
-        sourceSnippet: result.snippet ?? null,
-        inferredNameSource,
-        websiteVerification,
-        duplicateCheck,
-        scoring,
-        searchTrace,
-      };
+      if (built.nameQualityFiltered) nameQualityFilteredCount++;
+      return built.candidate;
     })
   );
 
@@ -767,9 +687,146 @@ export async function runProspectingPipeline(
   };
 }
 
+// ─── Builder de candidato (extraído — A1-APOLLO-TWO-ROUND-QUALITY-1 § 1) ─────
+
+/**
+ * Contexto que la construcción de un candidato necesita y que no viene en el
+ * resultado de búsqueda.
+ */
+export type ProspectingCandidateBuildContext = {
+  country: string;
+  countryCode: string;
+  industry: string;
+  catalogContext: CatalogContextResult;
+  provider: WebSearchProviderKey;
+  /** Query a la que se atribuye el candidato cuando el resultado no la trae. */
+  fallbackQueryText: string;
+};
+
+export type ProspectingCandidateBuildResult = {
+  candidate: ProspectingPipelineCandidate;
+  /** True cuando el nombre no era extraíble y el candidato quedó forzado a descarte. */
+  nameQualityFiltered: boolean;
+};
+
+/**
+ * Construye UN candidato a partir de UN resultado de búsqueda.
+ *
+ * Extraído literalmente del bucle de `runProspectingPipeline` (mismo orden,
+ * mismas llamadas, mismos campos) para que la modalidad Apollo de dos rondas
+ * reutilice la construcción real de candidatos — verificación de sitio,
+ * deduplicación SellUp + HubSpot y scoring — en vez de reimplementarla. El bucle
+ * original ahora llama a esta función: no hay una segunda ruta de construcción.
+ *
+ * Sin créditos de proveedor: `verifyWebsite` y `checkCompanyDuplicate` consultan
+ * nuestra base y HubSpot; ninguna llama a Apollo ni a Lusha.
+ */
+export async function buildProspectingPipelineCandidate(
+  result: WebSearchResult,
+  context: ProspectingCandidateBuildContext,
+): Promise<ProspectingCandidateBuildResult> {
+  const inferred = inferCompanyNameFromSearchResult(result.title, result.url);
+  let name = inferred.name;
+  const inferredNameSource = inferred.source;
+  let nameQualityFiltered = false;
+
+  // Hito 16AB.43.20: if title_fallback returned a sentence, the title has no
+  // extractable company name. Use domain inference as last resort, or if that
+  // also fails, force the candidate to discard so it is never persisted.
+  if (inferredNameSource === 'title_fallback' && isSentenceOrPhraseName(name)) {
+    const fromDomain = inferNameFromDomain(result.url);
+    if (fromDomain && !isSentenceOrPhraseName(fromDomain)) {
+      name = fromDomain;
+    } else {
+      nameQualityFiltered = true;
+      // Build a minimal discard candidate — no I/O, scoring will mark as discard
+      name = 'Unknown';
+    }
+  }
+  const website = result.url;
+  const domain = normalizeDomain(result.url);
+
+  // Trazabilidad query→candidato (Hito 16Z.2)
+  const originQueryText = ('originQuery' in result && typeof result.originQuery === 'string')
+    ? result.originQuery
+    : context.fallbackQueryText;
+  const { queryType, querySourceKey } = classifyQuery(originQueryText, context.country, context.industry);
+  const searchTrace: SearchTrace = {
+    query_text: originQueryText,
+    query_type: queryType,
+    query_source_key: querySourceKey,
+    provider_rank: result.rank,
+  };
+
+  // Paso 4a: Verificar website
+  const websiteVerification = await verifyWebsite({
+    candidateName: name,
+    websiteOrDomain: website,
+    country: context.country,
+    countryCode: context.countryCode,
+  });
+
+  // Paso 4b: Deduplicación (SellUp + HubSpot si está conectado)
+  const duplicateCheck = await checkCompanyDuplicate({
+    name,
+    website,
+    domain,
+    country: context.country,
+    countryCode: context.countryCode,
+  });
+
+  // Paso 4c: Scoring (determinístico, sin APIs externas)
+  const scoring = scoreCandidate({
+    name,
+    country: context.country,
+    countryCode: context.countryCode,
+    industry: context.industry,
+    website,
+    domain,
+    websiteVerification,
+    duplicateCheck,
+    catalogContext: context.catalogContext,
+    sourcePrimary: result.source ?? context.provider,
+    sourcePriority:
+      context.catalogContext.recommendedSources.length > 0
+        ? context.catalogContext.recommendedSources[0].priority
+        : null,
+    sourceTitle: result.title,
+    sourceSnippet: result.snippet ?? null,
+    countryEvidenceLevel: evaluateCountryEvidence({
+      website: result.url,
+      domain: domain ?? '',
+      sourceSnippet: result.snippet ?? null,
+      sourceTitle: result.title,
+      queryText: originQueryText,
+      targetCountryCode: context.countryCode,
+    }).evidenceLevel,
+  });
+
+  return {
+    nameQualityFiltered,
+    candidate: {
+      name,
+      website,
+      domain,
+      country: context.country,
+      countryCode: context.countryCode,
+      industry: context.industry,
+      sourceUrl: result.url,
+      sourceTitle: result.title,
+      sourceSnippet: result.snippet ?? null,
+      inferredNameSource,
+      websiteVerification,
+      duplicateCheck,
+      scoring,
+      searchTrace,
+    },
+  };
+}
+
 // ─── Builder de summary ───────────────────────────────────────────────────────
 
-function buildSummary(
+export function buildSummary(
   requested: number,
   searched: number,
   candidates: ProspectingPipelineCandidate[]

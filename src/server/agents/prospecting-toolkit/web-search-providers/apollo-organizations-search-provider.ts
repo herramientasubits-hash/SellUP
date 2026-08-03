@@ -483,6 +483,31 @@ export type ApolloOrgsSearchDeps = {
   captureIndustryLabels?: typeof captureProviderIndustryRawLabelObservations;
 };
 
+// ─── A1-APOLLO-TWO-ROUND-QUALITY-1: modo del gate sectorial ──────────────────
+
+/**
+ * Qué hace el provider con el gate sectorial de lote.
+ *
+ * `filter`   — comportamiento histórico y único de la ruta legacy: `results`
+ *              contiene sólo lo que pasó el gate.
+ * `annotate` — `results` contiene TODAS las organizaciones normalizadas y el
+ *              gate se reporta en metadata sin filtrar. Existe porque la
+ *              modalidad de dos rondas necesita ver a los candidatos con
+ *              evidencia sectorial INSUFICIENTE: son exactamente los que pueden
+ *              competir por un enrichment (§ 5/§ 6), y un gate que los descarta
+ *              antes hace imposible esa competencia. El veredicto por candidato
+ *              lo aplica después el orquestador con
+ *              `evaluateApolloSectorRelevanceForPaidOperation`.
+ *
+ * El modo NO cambia créditos, ni llamadas, ni usage logs: Apollo ya cobró por
+ * los resultados devueltos antes de que ningún gate corra.
+ */
+export type ApolloSectorGateMode = 'filter' | 'annotate';
+
+export type ApolloOrgsSearchOptions = {
+  sectorGateMode?: ApolloSectorGateMode;
+};
+
 // ─── A1-APOLLO-WIZARD-1: adaptadores de la ruta paginada ─────────────────────
 
 /**
@@ -616,7 +641,12 @@ export async function runApolloOrganizationsSearch(
   maxResults: number,
   usageContext?: ApolloOrgsUsageContext,
   deps?: ApolloOrgsSearchDeps,
+  options?: ApolloOrgsSearchOptions,
 ): Promise<WebSearchOutput> {
+  // A1-APOLLO-TWO-ROUND-QUALITY-1 § 4/§ 5 — modo del gate sectorial. Ausente ⇒
+  // 'filter', que es el comportamiento histórico y el de todos los llamadores
+  // previos. La ruta legacy no pasa este parámetro y no cambia.
+  const sectorGateMode: ApolloSectorGateMode = options?.sectorGateMode ?? 'filter';
   // ── Flag apagado: skipped sin costo ──────────────────────────────────────────
   if (!isApolloCompanySearchEnabled()) {
     const usageMeta: ApolloOrganizationsUsageMetadata = {
@@ -954,7 +984,10 @@ export async function runApolloOrganizationsSearch(
   // L2.15: gate recibe enrichedMapped (con apollo_profile más completo si cascade activo).
   const primarySubindustry = input.subindustries?.[0] ?? null;
   const gateResult = applyApolloSectorRelevanceGate(enrichedMapped, input.industry, 'apollo_organizations', primarySubindustry);
-  const filteredMapped = gateResult.passed;
+  // A1-APOLLO-TWO-ROUND-QUALITY-1: en 'annotate' el gate se calcula igual (su
+  // metadata sigue siendo la misma) pero no filtra. Ningún crédito cambia: la
+  // facturación se calcula sobre `rawOrgs`, antes del gate, en ambos modos.
+  const filteredMapped = sectorGateMode === 'annotate' ? enrichedMapped : gateResult.passed;
 
   // ── Cálculo de créditos y costo ───────────────────────────────────────────────
   // Créditos basados en resultados retornados por Apollo (antes del gate),
@@ -977,7 +1010,10 @@ export async function runApolloOrganizationsSearch(
   // Construir aquí (no después del log) para que provider_usage_logs.metadata
   // incluya apollo_result_diagnostics en la misma llamada a logFn.
   const sectorMapped = gateResult.metadata.sector_mapped;
-  const postGateCount = filteredMapped.length;
+  // Se mide sobre el resultado del gate, no sobre `filteredMapped`: en modo
+  // 'annotate' el gate no filtra, y contar la lista sin filtrar haría que el
+  // diagnóstico dijera que nadie fue rechazado cuando sí lo fue.
+  const postGateCount = gateResult.passed.length;
   let emptyOutputReason: string | null = null;
   if (postGateCount === 0) {
     if (rawOrgs.length === 0) {
@@ -1171,6 +1207,9 @@ export async function runApolloOrganizationsSearch(
       apollo_post_gate_results_count: postGateCount,
       apollo_sector_rejected_count: normalizedResultsCount - postGateCount,
       apollo_sector_relevance_gate: gateResult.metadata,
+      // A1-APOLLO-TWO-ROUND-QUALITY-1: qué hizo el provider con el gate. En
+      // 'filter' (todos los llamadores previos) `results` es la lista filtrada.
+      apollo_sector_gate_mode: sectorGateMode,
       // L2.8: diagnóstico detallado para trazabilidad en batch metadata
       apollo_result_diagnostics: apolloResultDiagnostics,
       // L2.14: samples raw de Apollo — para ver exactamente qué campos devolvió la API

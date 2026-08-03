@@ -41,6 +41,7 @@ import {
   buildProviderSelectionSignature,
   RUN_PROVIDER_SELECTION_METADATA_KEY,
   type WizardRunProviderSelection,
+  type ProviderSelectionAuthority,
 } from './wizard-run-provider-selection';
 import { isWizardRunProviderOverrideEnabled } from '@/lib/feature-flags.server';
 // Q3F-5BB.11E — OBSERVATIONAL Apollo provider-routing wiring. The adapter is pure
@@ -63,6 +64,7 @@ import {
   type ProviderRoutingEnvironment,
 } from '@/modules/prospect-batches/provider-routing';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
+import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 import { markWizardBatchFailed } from './wizard-batch-failure';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
@@ -162,10 +164,14 @@ export type WizardExecutionDeps = {
   /**
    * A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — selección de proveedor por corrida.
    *
-   * Opcional: sin ella se usa el resolutor por defecto, que reproduce
+   * Recibe la PETICIÓN del cliente ya validada por el schema. La autoridad no
+   * viaja en el payload: la resuelve la implementación server-side contra la
+   * sesión. Opcional: sin ella se usa el resolutor por defecto, que reproduce
    * exactamente el comportamiento previo (predeterminado global, sin override).
    */
-  resolveRunProviderSelection?: () => WizardRunProviderSelection;
+  resolveRunProviderSelection?: (input: {
+    requestedProvider?: string;
+  }) => Promise<WizardRunProviderSelection> | WizardRunProviderSelection;
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
 };
 
@@ -335,13 +341,22 @@ export async function executeProspectWizardGenerationAction(
     // sin origen: el contrato queda listo para un rollout o un benchmark
     // posterior, y hasta entonces cada corrida resuelve al predeterminado global
     // igual que antes.
-    resolveRunProviderSelection: () =>
-      resolveWizardRunProvider({
-        requestedProvider: undefined,
-        // Aunque hoy no llegue petición, la autoridad se resuelve igual: cuando
-        // el override se cablee, quién puede pedir ya está decidido server-side
-        // y no depende de nada que venga del cliente.
-        authority: null,
+    // A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 3 — fuente REAL de la petición y de la
+    // autoridad. La petición llega del payload ya validado por el schema; la
+    // autoridad NO: se deriva de la sesión y del rol en la base, server-side.
+    // Un cliente que envíe `isAdmin=true` o `providerAuthorized=true` no obtiene
+    // nada — esos campos ni siquiera existen en el schema, que es `.strict()`.
+    resolveRunProviderSelection: async ({ requestedProvider }) => {
+      // La autoridad sólo se consulta cuando hay algo que autorizar: sin
+      // petición, una corrida normal no paga una consulta de rol.
+      const authority: ProviderSelectionAuthority | null =
+        requestedProvider !== undefined && (await resolveIsApolloDiscoveryRolePermitted())
+          ? 'admin'
+          : null;
+
+      return resolveWizardRunProvider({
+        requestedProvider,
+        authority,
         runOverrideEnabled: isWizardRunProviderOverrideEnabled(),
         globalDefaultProvider: resolveWizardDiscoveryProvider(),
         enabledProviders: {
@@ -352,7 +367,8 @@ export async function executeProspectWizardGenerationAction(
           // Sin ruta de ejecución en el wizard de empresas: fail-closed.
           lusha_companies: false,
         },
-      }),
+      });
+    },
 
     markBatchFailed: (batchId, reason) =>
       markWizardBatchFailed(batchId, reason, async (id) => {
@@ -471,7 +487,9 @@ export async function executeProspectWizardGeneration(
   // predeterminado global decide y no hay petición por corrida. Los tests que ya
   // inyectan `resolveProvider` siguen gobernando la decisión.
   const runProviderSelection: WizardRunProviderSelection =
-    deps.resolveRunProviderSelection?.() ??
+    (await deps.resolveRunProviderSelection?.({
+      requestedProvider: req.requestedDiscoveryProvider,
+    })) ??
     resolveWizardRunProvider({
       authority: null,
       globalDefaultProvider: (deps.resolveProvider ?? resolveWizardDiscoveryProvider)(),
@@ -773,6 +791,12 @@ export async function executeProspectWizardGeneration(
         extraBatchMetadata: apolloRoutingExtraMetadata,
         // A1-APOLLO-BUDGET-RECONCILIATION-1 — viaja hasta provider_usage_logs.
         runCorrelation: toRunCorrelationMetadata(runCorrelation),
+        // A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 1/§ 7 — correlación completa: es
+        // la que ancla las claves de operación y el estado de recuperación de la
+        // modalidad de dos rondas. Con la modalidad apagada no se usa.
+        correlation: runCorrelation,
+        // § 2 — lo que la reserva sostiene, para la aserción defensiva de gasto.
+        reservedCredits: creditsReserved,
       });
     } else {
       pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });
@@ -842,7 +866,9 @@ export async function executeProspectWizardGeneration(
     // A1-APOLLO-BUDGET-RECONCILIATION-1: an overrun must be visible, not just
     // absorbed. The generation still succeeded — the candidates exist and the
     // credits were really spent — so this reports; it never fails the run.
-    ...buildReconciliationOutcome(lastReconciliation),
+    // A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 2: la aserción defensiva de la
+    // modalidad de dos rondas viaja por la misma vía, con el mismo código.
+    ...buildReconciliationOutcome(lastReconciliation, pipelineResult),
     ...(noveltyExhausted ? { noveltyExhausted: true as const } : {}),
   };
 }
@@ -859,13 +885,23 @@ export async function executeProspectWizardGeneration(
  */
 function buildReconciliationOutcome(
   reconciliation: WizardRunReconciliationResult | null,
+  pipelineResult?: IncrementalSearchOutput | null,
 ): {
   reconciliationState?: 'confirmed' | 'pending_reconciliation' | 'billing_unknown';
   budgetAnomalies?: readonly string[];
 } {
-  if (!reconciliation) return {};
+  const twoRoundAnomalies = readTwoRoundBudgetAnomalies(pipelineResult);
 
-  const state = reconciliation.anomalies.includes('recorded_usage_exceeds_reservation')
+  if (!reconciliation) {
+    // Sin reconciliación por proveedor (Tavily, o la ruta previa) el resultado
+    // conserva su forma; una anomalía de dos rondas sigue siendo visible.
+    return twoRoundAnomalies.length > 0
+      ? { reconciliationState: 'pending_reconciliation', budgetAnomalies: twoRoundAnomalies }
+      : {};
+  }
+
+  const anomalies = [...new Set([...reconciliation.anomalies, ...twoRoundAnomalies])];
+  const state = anomalies.includes('recorded_usage_exceeds_reservation')
     ? 'pending_reconciliation'
     : reconciliation.billingState === 'unknown'
       ? 'billing_unknown'
@@ -873,8 +909,27 @@ function buildReconciliationOutcome(
 
   return {
     reconciliationState: state,
-    ...(reconciliation.anomalies.length > 0 ? { budgetAnomalies: reconciliation.anomalies } : {}),
+    ...(anomalies.length > 0 ? { budgetAnomalies: anomalies } : {}),
   };
+}
+
+/**
+ * Lee la anomalía de presupuesto que la modalidad de dos rondas dejó en la
+ * observabilidad del pipeline.
+ *
+ * Devuelve una lista vacía —nunca lanza— para cualquier forma inesperada: una
+ * metadata ilegible no puede convertir una generación exitosa en un fallo.
+ */
+function readTwoRoundBudgetAnomalies(
+  pipelineResult: IncrementalSearchOutput | null | undefined,
+): string[] {
+  const metadata = pipelineResult?.metadata as Record<string, unknown> | undefined;
+  const observability = metadata?.[APOLLO_TWO_ROUND_OBSERVABILITY_KEY] as
+    | Record<string, unknown>
+    | undefined;
+  const anomalies = observability?.['budget_anomalies'];
+  if (!Array.isArray(anomalies)) return [];
+  return anomalies.filter((entry): entry is string => typeof entry === 'string');
 }
 
 const GUARDRAIL_MESSAGES: Partial<Record<PilotGuardrailCode, string>> = {

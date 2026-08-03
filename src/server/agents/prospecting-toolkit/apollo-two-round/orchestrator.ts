@@ -212,6 +212,13 @@ export type ApolloTwoRoundRunResult = {
   enrichmentSkips: EnrichmentSkip[];
   /** Claves de operación completadas. Un reintento las reconoce y no repite. */
   completedOperationKeys: string[];
+  /**
+   * TODOS los candidatos evaluados —elegibles y rechazados— con su motivo. Es lo
+   * que un reintento necesita para no volver a partir de cero (§ 7).
+   */
+  evaluatedCandidates: ResumedCandidate[];
+  /** Motivos de rechazo observados. Alimentan la adaptación de la ronda 2. */
+  observedRejectionReasons: CheapRejectionReason[];
 };
 
 export type ApolloTwoRoundRunInput = {
@@ -224,7 +231,75 @@ export type ApolloTwoRoundRunInput = {
    * repetirlo (§ 12).
    */
   completedOperationKeys?: readonly string[];
+  /**
+   * Estado recuperado de un intento anterior (§ 7).
+   *
+   * Sin él, un reintento que salta la búsqueda de la ronda 1 por clave de
+   * operación trataría esa ronda como si hubiera devuelto CERO candidatos, y la
+   * corrida terminaría vacía a pesar de haber pagado. Con él, el reintento
+   * recupera lo que la ronda ya produjo y sólo ejecuta lo que falta.
+   */
+  resume?: ApolloTwoRoundResumeState | null;
 };
+
+/**
+ * Estado de una corrida interrumpida, suficiente para continuarla sin repetir
+ * ninguna operación pagada.
+ *
+ * Lo produce `toApolloTwoRoundResumeState` a partir de un resultado parcial y lo
+ * persiste el adaptador de producción; este módulo sólo lo consume.
+ */
+export type ApolloTwoRoundResumeState = {
+  /** Identidades ya vistas: la ronda 2 no puede volver a procesarlas. */
+  seenIdentities: readonly NormalizedOrganizationIdentity[];
+  /** Candidatos ya evaluados, con su veredicto y su motivo de rechazo. */
+  candidates: readonly ResumedCandidate[];
+  /** Métricas de las rondas ya completadas. */
+  rounds: readonly ApolloTwoRoundRoundMetrics[];
+  totalRawResults: number;
+  totalSearchCredits: number;
+  totalEnrichmentCredits: number;
+  /** Enrichments ya PAGADOS. Descuentan del cap global de la corrida. */
+  enrichmentsExecuted: number;
+  observedRejectionReasons: readonly CheapRejectionReason[];
+  secondRoundSkippedReason?: SecondRoundSkippedReason | null;
+};
+
+/** Candidato recuperado de un intento anterior, con su estado completo. */
+export type ResumedCandidate = {
+  candidateKey: string;
+  roundNumber: number;
+  providerRank: number;
+  identity: NormalizedOrganizationIdentity;
+  assessment: CheapAssessment;
+  sectorEvidenceState: CandidateSectorEvidenceState;
+  eligible: boolean;
+  becameEligibleAfterEnrichment: boolean;
+  enrichmentExecuted: boolean;
+  finallyRejectedOrDuplicated: boolean;
+};
+
+/**
+ * Proyecta un resultado (parcial o completo) al estado que un reintento
+ * necesita. Deliberadamente NO incluye nada derivable: las métricas de corrida y
+ * el ranking final se recalculan, porque recalcularlos es gratis y guardarlos
+ * abre la puerta a que el estado y el resultado discrepen.
+ */
+export function toApolloTwoRoundResumeState(
+  result: ApolloTwoRoundRunResult,
+): ApolloTwoRoundResumeState {
+  return {
+    seenIdentities: result.evaluatedCandidates.map((c) => c.identity),
+    candidates: result.evaluatedCandidates,
+    rounds: result.rounds,
+    totalRawResults: result.runMetrics.totalRawResults,
+    totalSearchCredits: result.runMetrics.totalSearchCredits,
+    totalEnrichmentCredits: result.runMetrics.totalEnrichmentCredits,
+    enrichmentsExecuted: result.runMetrics.enrichmentsExecuted,
+    observedRejectionReasons: result.observedRejectionReasons,
+    secondRoundSkippedReason: result.secondRoundSkippedReason,
+  };
+}
 
 // ─── Estado interno de un candidato ───────────────────────────────────────────
 
@@ -325,24 +400,40 @@ export async function runApolloTwoRoundDiscovery(
   const ledger = ApolloTwoRoundOperationLedger.fromCompletedKeys(
     input.completedOperationKeys ?? [],
   );
+  const resume = input.resume ?? null;
 
+  // § 7 — el estado recuperado siembra la corrida. Sin esto, un reintento que
+  // salta una ronda ya buscada la trataría como si hubiera devuelto cero.
   let seenRegistry: SeenOrganizationRegistry = createSeenOrganizationRegistry();
-  const tracked: TrackedCandidate[] = [];
-  const roundMetrics: ApolloTwoRoundRoundMetrics[] = [];
+  for (const identity of resume?.seenIdentities ?? []) {
+    seenRegistry = registerSeenOrganization(seenRegistry, identity);
+  }
+  const tracked: TrackedCandidate[] = (resume?.candidates ?? []).map((c) => ({ ...c }));
+  const roundMetrics: ApolloTwoRoundRoundMetrics[] = (resume?.rounds ?? []).map((r) => ({ ...r }));
   const enrichmentSelections: EnrichmentSelection[] = [];
   const enrichmentSkips: EnrichmentSkip[] = [];
-  const observedRejectionReasons = new Set<CheapRejectionReason>();
+  const observedRejectionReasons = new Set<CheapRejectionReason>(
+    resume?.observedRejectionReasons ?? [],
+  );
 
-  let totalRawResults = 0;
-  let totalSearchCredits = 0;
-  let totalEnrichmentCredits = 0;
-  let remainingEnrichmentBudget = config.maxEnrichmentsPerRun;
-  let secondRoundSkippedReason: SecondRoundSkippedReason | null = null;
+  let totalRawResults = resume?.totalRawResults ?? 0;
+  let totalSearchCredits = resume?.totalSearchCredits ?? 0;
+  let totalEnrichmentCredits = resume?.totalEnrichmentCredits ?? 0;
+  let remainingEnrichmentBudget = Math.max(
+    0,
+    config.maxEnrichmentsPerRun - (resume?.enrichmentsExecuted ?? 0),
+  );
+  let secondRoundSkippedReason: SecondRoundSkippedReason | null =
+    resume?.secondRoundSkippedReason ?? null;
 
   const eligibleCount = (): number => tracked.filter((c) => c.eligible).length;
 
   // ── Bucle de rondas ─────────────────────────────────────────────────────────
   for (let roundNumber = 1; roundNumber <= config.maxRounds; roundNumber++) {
+    // § 7: una ronda cuyo estado ya se recuperó no se vuelve a ejecutar NI se
+    // vuelve a registrar. Sus métricas y sus candidatos ya están en el estado.
+    if (roundMetrics.some((m) => m.roundNumber === roundNumber)) continue;
+
     // § 7: parada inmediata. La ronda 2 no se ejecuta por estar presupuestada.
     if (roundNumber > 1 && eligibleCount() >= config.targetEligibleCompanies) {
       secondRoundSkippedReason = 'target_reached';
@@ -388,11 +479,17 @@ export async function runApolloTwoRoundDiscovery(
       subject: JSON.stringify(hypothesis.queryParameters),
     });
 
-    const metrics = buildEmptyRoundMetrics(roundNumber, hypothesis.queryHypothesis);
+    const metrics = buildEmptyRoundMetrics(
+      roundNumber,
+      hypothesis.queryHypothesis,
+      hypothesis.queryAdaptationReason,
+    );
 
     // § 12: una ronda ya completada por un intento anterior no se vuelve a
     // buscar. Se registra la ronda con cero peticiones para que el reintento sea
-    // legible, no invisible.
+    // legible, no invisible. Con estado recuperado este caso ya no se alcanza —
+    // la ronda se saltó arriba con sus métricas reales—, y queda como segundo
+    // candado para un reintento que traiga claves pero no estado.
     if (!ledger.canExecute(searchOperationKey)) {
       roundMetrics.push(metrics);
       continue;
@@ -478,102 +575,14 @@ export async function runApolloTwoRoundDiscovery(
     }
 
     metrics.eligibleBeforeEnrichment = roundCandidates.filter((c) => c.eligible).length;
-
-    // ── Selección económica del enrichment (§ 6) ─────────────────────────────
-    const freeSignals: FreeCandidateSignals[] = roundCandidates
-      .filter((c) => c.assessment.rejection === null)
-      .map((c) => ({
-        ...c.assessment.signals,
-        candidateKey: c.candidateKey,
-        roundNumber: c.roundNumber,
-        providerRank: c.providerRank,
-        sectorEvidenceState: c.sectorEvidenceState,
-      }));
-
-    const selection = selectCandidatesForEnrichment({
-      candidates: freeSignals,
-      remainingEnrichmentBudget,
-      eligibleCompaniesSoFar: eligibleCount(),
-      targetEligibleCompanies: config.targetEligibleCompanies,
-    });
-    metrics.enrichmentCandidates = selection.selected.length + selection.skipped.length;
-    enrichmentSkips.push(...selection.skipped);
-
-    for (const chosen of selection.selected) {
-      // Parada dentro del propio bucle de enrichment: si una llamada previa ya
-      // completó el objetivo, las restantes no se ejecutan (§ 6).
-      if (eligibleCount() >= config.targetEligibleCompanies) {
-        enrichmentSkips.push({
-          candidateKey: chosen.candidateKey,
-          roundNumber: chosen.roundNumber,
-          skippedReason: 'target_already_reached',
-        });
-        continue;
-      }
-
-      const candidate = roundCandidates.find((c) => c.candidateKey === chosen.candidateKey);
-      if (!candidate) continue;
-
-      const enrichmentOperationKey = buildApolloTwoRoundOperationKey({
-        correlation,
-        roundNumber,
-        operation: 'organization_enrichment',
-        subject: candidate.identity.normalizedDomain ?? candidate.candidateKey,
-      });
-      // § 12: un enrichment ya ejecutado por un intento anterior no se repite.
-      if (!ledger.canExecute(enrichmentOperationKey)) {
-        enrichmentSkips.push({
-          candidateKey: chosen.candidateKey,
-          roundNumber: chosen.roundNumber,
-          skippedReason: 'known_duplicate',
-        });
-        continue;
-      }
-
-      const result = await deps.enrichCandidate({
-        candidateKey: candidate.candidateKey,
-        roundNumber,
-        operationKey: enrichmentOperationKey,
-        identity: candidate.identity,
-      });
-      ledger.markCompleted(enrichmentOperationKey);
-
-      enrichmentSelections.push(chosen);
-      remainingEnrichmentBudget = Math.max(0, remainingEnrichmentBudget - 1);
-
-      if (result.executed) {
-        candidate.enrichmentExecuted = true;
-        metrics.enrichmentsExecuted++;
-        totalEnrichmentCredits += result.internalRecordedCredits;
-        metrics.internalRecordedCredits += result.internalRecordedCredits;
-      }
-
-      candidate.sectorEvidenceState = result.sectorEvidenceState;
-      const postRejection = result.postEnrichmentRejection ?? null;
-      if (postRejection !== null) {
-        tallyRejection(metrics, postRejection);
-        observedRejectionReasons.add(postRejection);
-        candidate.finallyRejectedOrDuplicated = true;
-        candidate.eligible = false;
-        continue;
-      }
-      const nowEligible = isEligible(candidate.assessment.rejection, result.sectorEvidenceState);
-      if (nowEligible && !candidate.eligible) {
-        candidate.eligible = true;
-        candidate.becameEligibleAfterEnrichment = true;
-      }
-      if (!nowEligible) {
-        // El enrichment se pagó y la empresa sigue sin confirmarse: eso es
-        // exactamente `enrichmentWaste`, y así queda contado.
-        candidate.finallyRejectedOrDuplicated = true;
-      }
-    }
-
-    metrics.eligibleAfterEnrichment = roundCandidates.filter((c) => c.eligible).length;
-    metrics.newEligibleCompaniesAdded = metrics.eligibleAfterEnrichment;
+    // La fase de enrichment corre DESPUÉS de todas las rondas (§ 6), así que en
+    // este punto lo elegible tras enrichment coincide con lo elegible barato. La
+    // fase global lo actualiza cuando un enrichment cambia un veredicto.
+    metrics.eligibleAfterEnrichment = metrics.eligibleBeforeEnrichment;
+    metrics.newEligibleCompaniesAdded = metrics.eligibleBeforeEnrichment;
     roundMetrics.push(metrics);
 
-    // § 7: alcanzado el objetivo, la corrida termina aquí.
+    // § 7: alcanzado el objetivo con gates baratos, la corrida no busca más.
     if (eligibleCount() >= config.targetEligibleCompanies) {
       if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
       break;
@@ -582,6 +591,123 @@ export async function runApolloTwoRoundDiscovery(
 
   if (config.maxRounds === 1 && secondRoundSkippedReason === null) {
     secondRoundSkippedReason = 'max_rounds_is_one';
+  }
+
+  // ── Fase global de enrichment (§ 6, opción recomendada) ─────────────────────
+  //
+  // Las señales GRATUITAS de ambas rondas se procesan primero; sólo entonces se
+  // decide a quién se le compra evidencia. Enriquecer al final de la ronda 1
+  // gastaba el presupuesto sin conocer todavía a los candidatos de la ronda 2,
+  // así que un candidato débil de la primera ronda podía consumir los dos
+  // créditos que un candidato fuerte de la segunda merecía más. Aquí compiten
+  // todos contra todos, una sola vez.
+  //
+  // La ronda 2 se decide con gates baratos (`eligibleCount()`), no con
+  // enrichment: es exactamente lo que el contrato permite y lo que evita pagar
+  // por confirmar antes de saber si hacía falta buscar más.
+  const roundMetricsByNumber = new Map(roundMetrics.map((m) => [m.roundNumber, m]));
+
+  const globalFreeSignals: FreeCandidateSignals[] = tracked
+    .filter((c) => c.assessment.rejection === null && !c.enrichmentExecuted)
+    .map((c) => ({
+      ...c.assessment.signals,
+      candidateKey: c.candidateKey,
+      roundNumber: c.roundNumber,
+      providerRank: c.providerRank,
+      sectorEvidenceState: c.sectorEvidenceState,
+    }));
+
+  const globalSelection = selectCandidatesForEnrichment({
+    candidates: globalFreeSignals,
+    remainingEnrichmentBudget,
+    eligibleCompaniesSoFar: eligibleCount(),
+    targetEligibleCompanies: config.targetEligibleCompanies,
+  });
+  enrichmentSkips.push(...globalSelection.skipped);
+  for (const entry of [...globalSelection.selected, ...globalSelection.skipped]) {
+    const metricsForRound = roundMetricsByNumber.get(entry.roundNumber);
+    if (metricsForRound) metricsForRound.enrichmentCandidates++;
+  }
+
+  for (const chosen of globalSelection.selected) {
+    // Parada dentro del propio bucle: si una llamada previa ya completó el
+    // objetivo, las restantes no se ejecutan (§ 6).
+    if (eligibleCount() >= config.targetEligibleCompanies) {
+      enrichmentSkips.push({
+        candidateKey: chosen.candidateKey,
+        roundNumber: chosen.roundNumber,
+        skippedReason: 'target_already_reached',
+      });
+      continue;
+    }
+
+    const candidate = tracked.find((c) => c.candidateKey === chosen.candidateKey);
+    if (!candidate) continue;
+    const metricsForRound = roundMetricsByNumber.get(candidate.roundNumber) ?? null;
+
+    const enrichmentOperationKey = buildApolloTwoRoundOperationKey({
+      correlation,
+      roundNumber: candidate.roundNumber,
+      operation: 'organization_enrichment',
+      subject: candidate.identity.normalizedDomain ?? candidate.candidateKey,
+    });
+    // § 12: un enrichment ya ejecutado por un intento anterior no se repite.
+    if (!ledger.canExecute(enrichmentOperationKey)) {
+      enrichmentSkips.push({
+        candidateKey: chosen.candidateKey,
+        roundNumber: chosen.roundNumber,
+        skippedReason: 'known_duplicate',
+      });
+      continue;
+    }
+
+    const result = await deps.enrichCandidate({
+      candidateKey: candidate.candidateKey,
+      roundNumber: candidate.roundNumber,
+      operationKey: enrichmentOperationKey,
+      identity: candidate.identity,
+    });
+    ledger.markCompleted(enrichmentOperationKey);
+
+    enrichmentSelections.push(chosen);
+    remainingEnrichmentBudget = Math.max(0, remainingEnrichmentBudget - 1);
+
+    if (result.executed) {
+      candidate.enrichmentExecuted = true;
+      totalEnrichmentCredits += result.internalRecordedCredits;
+      if (metricsForRound) {
+        metricsForRound.enrichmentsExecuted++;
+        metricsForRound.internalRecordedCredits += result.internalRecordedCredits;
+      }
+    }
+
+    candidate.sectorEvidenceState = result.sectorEvidenceState;
+    const postRejection = result.postEnrichmentRejection ?? null;
+    if (postRejection !== null) {
+      if (metricsForRound) tallyRejection(metricsForRound, postRejection);
+      observedRejectionReasons.add(postRejection);
+      candidate.finallyRejectedOrDuplicated = true;
+      candidate.eligible = false;
+      continue;
+    }
+    const nowEligible = isEligible(candidate.assessment.rejection, result.sectorEvidenceState);
+    if (nowEligible && !candidate.eligible) {
+      candidate.eligible = true;
+      candidate.becameEligibleAfterEnrichment = true;
+    }
+    if (!nowEligible) {
+      // El enrichment se pagó y la empresa sigue sin confirmarse: eso es
+      // exactamente `enrichmentWaste`, y así queda contado.
+      candidate.finallyRejectedOrDuplicated = true;
+    }
+  }
+
+  // Las métricas por ronda se recalculan tras la fase global: un enrichment pudo
+  // volver elegible a un candidato de cualquiera de las dos rondas.
+  for (const metricsForRound of roundMetrics) {
+    const ofRound = tracked.filter((c) => c.roundNumber === metricsForRound.roundNumber);
+    metricsForRound.eligibleAfterEnrichment = ofRound.filter((c) => c.eligible).length;
+    metricsForRound.newEligibleCompaniesAdded = metricsForRound.eligibleAfterEnrichment;
   }
 
   // ── Acumulación y ranking final (§ 9) ───────────────────────────────────────
@@ -662,5 +788,18 @@ export async function runApolloTwoRoundDiscovery(
     // Se devuelven para que un reintento con el mismo `idempotencyKey` reconozca
     // lo ya ejecutado y no lo repita (§ 12).
     completedOperationKeys: ledger.completedKeys,
+    evaluatedCandidates: tracked.map((c) => ({
+      candidateKey: c.candidateKey,
+      roundNumber: c.roundNumber,
+      providerRank: c.providerRank,
+      identity: c.identity,
+      assessment: c.assessment,
+      sectorEvidenceState: c.sectorEvidenceState,
+      eligible: c.eligible,
+      becameEligibleAfterEnrichment: c.becameEligibleAfterEnrichment,
+      enrichmentExecuted: c.enrichmentExecuted,
+      finallyRejectedOrDuplicated: c.finallyRejectedOrDuplicated,
+    })),
+    observedRejectionReasons: [...observedRejectionReasons],
   };
 }

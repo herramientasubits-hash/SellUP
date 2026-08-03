@@ -20,6 +20,12 @@
 export type ApolloTwoRoundRoundMetrics = {
   roundNumber: number;
   queryHypothesis: string;
+  /**
+   * Por qué la hipótesis de esta ronda difiere de la anterior. Null en la ronda
+   * 1, que no adapta nada. § 4 lo exige en la observabilidad REAL, no sólo en
+   * los objetos que ve un test unitario.
+   */
+  adaptationReason: string | null;
   /** Llamadas de búsqueda emitidas al proveedor en esta ronda. */
   providerRequestCount: number;
   rawResultsReturned: number;
@@ -45,10 +51,12 @@ export type ApolloTwoRoundRoundMetrics = {
 export function buildEmptyRoundMetrics(
   roundNumber: number,
   queryHypothesis: string,
+  adaptationReason: string | null = null,
 ): ApolloTwoRoundRoundMetrics {
   return {
     roundNumber,
     queryHypothesis,
+    adaptationReason,
     providerRequestCount: 0,
     rawResultsReturned: 0,
     normalizedResults: 0,
@@ -171,8 +179,16 @@ export function toRoundMetricsMetadata(
   return {
     round_number: metrics.roundNumber,
     query_hypothesis: metrics.queryHypothesis,
+    adaptation_reason: metrics.adaptationReason,
     provider_request_count: metrics.providerRequestCount,
+    raw_results: metrics.rawResultsReturned,
     raw_results_returned: metrics.rawResultsReturned,
+    /** Organizaciones que esta ronda aportó y que no se habían visto antes. */
+    new_unique_results: metrics.normalizedResults,
+    /** Elegibles tras el enrichment: lo que la ronda realmente aportó al objetivo. */
+    eligible_results: metrics.eligibleAfterEnrichment,
+    /** Créditos internos registrados por esta ronda (búsqueda + enrichment). */
+    credits: metrics.internalRecordedCredits,
     normalized_results: metrics.normalizedResults,
     seen_duplicates: metrics.seenDuplicates,
     known_company_duplicates: metrics.knownCompanyDuplicates,

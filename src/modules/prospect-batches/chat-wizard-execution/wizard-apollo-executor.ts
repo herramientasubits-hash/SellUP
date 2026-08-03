@@ -24,7 +24,9 @@ import { resolveApolloTwoRoundConfigFromEnv } from '@/server/agents/prospecting-
 import {
   toApolloTwoRoundConfigDiagnostics,
   type ApolloTwoRoundDiscoveryConfig,
+  type ApolloTwoRoundRunCorrelation,
 } from '@/server/agents/prospecting-toolkit/apollo-two-round';
+import { runApolloTwoRoundWizardDiscovery } from '@/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server';
 
 export const WIZARD_APOLLO_TARGET_INTERNAL = 25;
 export const WIZARD_APOLLO_MAX_ROUNDS = 4;
@@ -81,6 +83,18 @@ export type WizardApolloInput = {
    * que sólo ejercitan el pipeline.
    */
   runCorrelation?: RunCorrelationMetadata | null;
+  /**
+   * A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 1/§ 7 — correlación económica completa
+   * de la corrida. La modalidad de dos rondas la necesita para derivar claves de
+   * operación estables y para reconocer el estado de un intento anterior.
+   * Ausente ⇒ la modalidad no se ejecuta (fail-closed).
+   */
+  correlation?: ApolloTwoRoundRunCorrelation | null;
+  /**
+   * § 2 — créditos que la reserva sostiene. La aserción defensiva de gasto los
+   * compara contra lo que el ledger interno registró.
+   */
+  reservedCredits?: number;
 };
 
 export type WizardApolloRunner = (input: WizardApolloInput) => Promise<IncrementalSearchOutput>;
@@ -99,6 +113,7 @@ export type WizardApolloRunner = (input: WizardApolloInput) => Promise<Increment
 export async function runWizardApolloSearch(
   input: WizardApolloInput,
   runnerOverride?: typeof runIncrementalProspectingSearch,
+  twoRoundRunnerOverride?: typeof runApolloTwoRoundWizardDiscovery,
 ): Promise<IncrementalSearchOutput> {
   const runner = runnerOverride ?? runIncrementalProspectingSearch;
 
@@ -117,6 +132,39 @@ export async function runWizardApolloSearch(
           ...toApolloTwoRoundConfigDiagnostics(twoRoundResolution),
         }
       : null;
+
+  // A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 1 — RUTA REAL. Con la modalidad activa,
+  // el wizard NO ejecuta el runner incremental legacy con otros números: ejecuta
+  // el orquestador de dos rondas, que es quien gobierna rondas, dedup previo al
+  // gasto, cap global de enrichment y recuperación de reintentos.
+  //
+  // Con la modalidad apagada —el estado por defecto— nada de esto se toca y la
+  // corrida sigue exactamente por la ruta Apollo de siempre.
+  if (controls.modality === 'two_round_adaptive') {
+    if (!input.correlation) {
+      // Sin correlación no hay clave de idempotencia con la que evitar repetir
+      // una operación pagada. Fail-closed: no se ejecuta la modalidad.
+      throw new Error('apollo_two_round_requires_run_correlation');
+    }
+    const twoRoundRunner = twoRoundRunnerOverride ?? runApolloTwoRoundWizardDiscovery;
+    return twoRoundRunner({
+      country: input.resolved.country.name,
+      countryCode: input.resolved.country.code,
+      industry: input.resolved.industry.name,
+      subindustries: input.resolved.subindustries.map((s) => s.name),
+      additionalCriteria: input.resolved.additionalCriteria,
+      reservedBatchId: input.reservedBatchId,
+      triggeredByUserId: input.resolved.userId,
+      ownerId: input.resolved.userId,
+      correlation: input.correlation,
+      runCorrelationMetadata: input.runCorrelation ?? null,
+      extraBatchMetadata: {
+        ...(input.extraBatchMetadata ?? {}),
+        ...twoRoundMetadata,
+      },
+      reservedCredits: input.reservedCredits ?? 0,
+    });
+  }
 
   return runner({
     country: input.resolved.country.name,

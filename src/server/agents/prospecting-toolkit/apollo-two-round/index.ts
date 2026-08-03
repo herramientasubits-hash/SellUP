@@ -116,7 +116,20 @@ export {
 } from './idempotency';
 
 export {
+  APOLLO_TWO_ROUND_RUN_STATE_KEY,
+  APOLLO_TWO_ROUND_RUN_STATE_VERSION,
+  serializeRunState,
+  deserializeRunState,
+  type ApolloTwoRoundPersistedRunState,
+  type RestoredRunState,
+  type SerializeRunStateInput,
+} from './run-state';
+
+export {
   runApolloTwoRoundDiscovery,
+  toApolloTwoRoundResumeState,
+  type ApolloTwoRoundResumeState,
+  type ResumedCandidate,
   type ApolloTwoRoundDeps,
   type ApolloTwoRoundRunInput,
   type ApolloTwoRoundRunResult,

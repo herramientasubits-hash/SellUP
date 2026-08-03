@@ -32,6 +32,22 @@ export const wizardExecutionRequestSchema = z
       .nullable(),
     catalogVersion: z.string().min(1, 'Versión de catálogo requerida.'),
     clientRequestId: z.string().uuid('ID de solicitud inválido.'),
+    /**
+     * A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 3 — costura interna/admin para fijar
+     * el proveedor de UNA corrida (QA y rollout controlado). NO es un selector
+     * para usuarios finales y la UI no lo envía.
+     *
+     * Es una PETICIÓN, no una decisión: la autoridad se resuelve server-side
+     * contra la sesión y el rol, y el kill switch global manda por encima. Un
+     * cliente que envíe `apollo_organizations` sin ser admin obtiene el
+     * proveedor global, no Apollo.
+     *
+     * El schema sólo admite los valores del contrato de routing; cualquier otro
+     * valor invalida la solicitud entera en vez de degradarse en silencio.
+     */
+    requestedDiscoveryProvider: z
+      .enum(['tavily', 'apollo_organizations', 'lusha_companies'])
+      .optional(),
   })
   .strict();
 
