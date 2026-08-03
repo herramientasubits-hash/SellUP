@@ -50,6 +50,19 @@ import {
   realLogApolloOrgsUsage,
   type ApolloOrgsUsageContext,
 } from '../apollo-organizations-usage-logging';
+// A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 1 — constructor ÚNICO de la fila
+// económica de `organization_enrichment`. Este bucle era el único escritor; la
+// modalidad de dos rondas necesita el mismo contrato, así que la construcción de
+// la fila vive fuera y las dos rutas la comparten.
+import {
+  buildApolloEnrichmentUsageKey,
+  buildApolloEnrichmentUsageLogInput,
+  resolveApolloEnrichmentUsageAccounting,
+} from '../apollo-organization-enrichment-usage-log';
+import {
+  APOLLO_LEGACY_BILLING_CONTRACT,
+  APOLLO_TWO_ROUND_BILLING_CONTRACT,
+} from '../apollo-usage-operation-context';
 import {
   buildApolloOrganizationsSearchParams,
   APOLLO_QUERY_MAPPING_VERSION,
@@ -483,6 +496,31 @@ export type ApolloOrgsSearchDeps = {
   captureIndustryLabels?: typeof captureProviderIndustryRawLabelObservations;
 };
 
+// ─── A1-APOLLO-TWO-ROUND-QUALITY-1: modo del gate sectorial ──────────────────
+
+/**
+ * Qué hace el provider con el gate sectorial de lote.
+ *
+ * `filter`   — comportamiento histórico y único de la ruta legacy: `results`
+ *              contiene sólo lo que pasó el gate.
+ * `annotate` — `results` contiene TODAS las organizaciones normalizadas y el
+ *              gate se reporta en metadata sin filtrar. Existe porque la
+ *              modalidad de dos rondas necesita ver a los candidatos con
+ *              evidencia sectorial INSUFICIENTE: son exactamente los que pueden
+ *              competir por un enrichment (§ 5/§ 6), y un gate que los descarta
+ *              antes hace imposible esa competencia. El veredicto por candidato
+ *              lo aplica después el orquestador con
+ *              `evaluateApolloSectorRelevanceForPaidOperation`.
+ *
+ * El modo NO cambia créditos, ni llamadas, ni usage logs: Apollo ya cobró por
+ * los resultados devueltos antes de que ningún gate corra.
+ */
+export type ApolloSectorGateMode = 'filter' | 'annotate';
+
+export type ApolloOrgsSearchOptions = {
+  sectorGateMode?: ApolloSectorGateMode;
+};
+
 // ─── A1-APOLLO-WIZARD-1: adaptadores de la ruta paginada ─────────────────────
 
 /**
@@ -616,7 +654,12 @@ export async function runApolloOrganizationsSearch(
   maxResults: number,
   usageContext?: ApolloOrgsUsageContext,
   deps?: ApolloOrgsSearchDeps,
+  options?: ApolloOrgsSearchOptions,
 ): Promise<WebSearchOutput> {
+  // A1-APOLLO-TWO-ROUND-QUALITY-1 § 4/§ 5 — modo del gate sectorial. Ausente ⇒
+  // 'filter', que es el comportamiento histórico y el de todos los llamadores
+  // previos. La ruta legacy no pasa este parámetro y no cambia.
+  const sectorGateMode: ApolloSectorGateMode = options?.sectorGateMode ?? 'filter';
   // ── Flag apagado: skipped sin costo ──────────────────────────────────────────
   if (!isApolloCompanySearchEnabled()) {
     const usageMeta: ApolloOrganizationsUsageMetadata = {
@@ -647,11 +690,35 @@ export async function runApolloOrganizationsSearch(
   const { cap, wasCapped, maxResultsCapSource } = cappedMaxResults(maxResults);
 
   const startMs = Date.now();
-  const usageKey = buildApolloOrgsUsageKey(
+  // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 2 — la ronda entra en la clave.
+  // Sin ella, dos rondas cuya consulta produce el mismo slug compartirían
+  // `usage_key`: la segunda insercion chocaría con el índice único y se leería
+  // como `already_logged`, ocultando un segundo cargo real. Ausente el contexto
+  // (todos los llamadores previos) la clave es la histórica, byte por byte.
+  const operationContext = usageContext?.operationContext ?? null;
+  const usageKeyBase = buildApolloOrgsUsageKey(
     input.query,
     usageContext?.batchId,
     startMs,
   );
+  const usageKey =
+    operationContext === null
+      ? usageKeyBase
+      : `${usageKeyBase}:round_${operationContext.round_number}:${operationContext.operation_id}`;
+  // CAS-CLOSE § 5 — el contrato económico se deriva de la presencia del contexto
+  // de operación, que es exactamente lo que distingue las dos modalidades: sólo la
+  // de dos rondas lo inyecta. No hace falta un segundo parámetro para decir lo que
+  // la entrada ya dice.
+  const operationContextMetadata =
+    operationContext === null
+      ? { ...APOLLO_LEGACY_BILLING_CONTRACT }
+      : {
+          round_number: operationContext.round_number,
+          operation_subject: operationContext.operation_subject,
+          operation_id: operationContext.operation_id,
+          provider_request_id: operationContext.provider_request_id,
+          ...APOLLO_TWO_ROUND_BILLING_CONTRACT,
+        };
 
   const logFn = deps?.logUsage ?? realLogApolloOrgsUsage;
 
@@ -825,6 +892,7 @@ export async function runApolloOrganizationsSearch(
         ...(usageContext?.runCorrelation
           ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
           : {}),
+        ...operationContextMetadata,
       },
     }));
 
@@ -954,7 +1022,10 @@ export async function runApolloOrganizationsSearch(
   // L2.15: gate recibe enrichedMapped (con apollo_profile más completo si cascade activo).
   const primarySubindustry = input.subindustries?.[0] ?? null;
   const gateResult = applyApolloSectorRelevanceGate(enrichedMapped, input.industry, 'apollo_organizations', primarySubindustry);
-  const filteredMapped = gateResult.passed;
+  // A1-APOLLO-TWO-ROUND-QUALITY-1: en 'annotate' el gate se calcula igual (su
+  // metadata sigue siendo la misma) pero no filtra. Ningún crédito cambia: la
+  // facturación se calcula sobre `rawOrgs`, antes del gate, en ambos modos.
+  const filteredMapped = sectorGateMode === 'annotate' ? enrichedMapped : gateResult.passed;
 
   // ── Cálculo de créditos y costo ───────────────────────────────────────────────
   // Créditos basados en resultados retornados por Apollo (antes del gate),
@@ -977,7 +1048,10 @@ export async function runApolloOrganizationsSearch(
   // Construir aquí (no después del log) para que provider_usage_logs.metadata
   // incluya apollo_result_diagnostics en la misma llamada a logFn.
   const sectorMapped = gateResult.metadata.sector_mapped;
-  const postGateCount = filteredMapped.length;
+  // Se mide sobre el resultado del gate, no sobre `filteredMapped`: en modo
+  // 'annotate' el gate no filtra, y contar la lista sin filtrar haría que el
+  // diagnóstico dijera que nadie fue rechazado cuando sí lo fue.
+  const postGateCount = gateResult.passed.length;
   let emptyOutputReason: string | null = null;
   if (postGateCount === 0) {
     if (rawOrgs.length === 0) {
@@ -1046,6 +1120,9 @@ export async function runApolloOrganizationsSearch(
       ...(usageContext?.runCorrelation
         ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
         : {}),
+      // § 2 — ronda, sujeto y operación de ESTA búsqueda. Ausente en la ruta
+      // legacy, que no tiene rondas que distinguir.
+      ...operationContextMetadata,
     },
   }));
 
@@ -1063,46 +1140,36 @@ export async function runApolloOrganizationsSearch(
     const wasRealCall = entry.enriched || entry.skip_reason === 'enrichment_failed';
     if (!wasRealCall) continue;
 
-    const enrichStatus = entry.enriched ? 'success' : 'error';
-    const enrichUsageKey = usageContext?.batchId
-      ? `organization_enrichment:${usageContext.batchId}:${entry.domain ?? 'unknown'}`
-      : `organization_enrichment:no_batch:${entry.domain ?? 'unknown'}:${startMs}`;
-
-    trackLogResult(await logFn({
-      usage_key: enrichUsageKey,
-      provider_key: 'apollo',
-      operation_key: 'organization_enrichment',
-      batch_id: usageContext?.batchId ?? undefined,
-      agent_run_id: usageContext?.agentRunId ?? undefined,
-      // A1-APOLLO-BUDGET-RECONCILIATION-1: de la misma tabla de pricing con la
-      // que el wizard reservó, en vez de un 1 suelto aquí.
-      credits_used: creditsForApolloOperation('organization_enrichment', 1),
-      results_returned: entry.enriched ? 1 : 0,
-      estimated_cost_usd: organizationEnrichmentUnitCostUsd,
-      status: enrichStatus,
-      error_code: entry.enriched ? undefined : 'enrichment_failed',
-      error_message: entry.error ? entry.error.slice(0, 200) : undefined,
-      duration_ms: undefined,
-      triggered_by: usageContext?.triggeredByUserId ?? undefined,
-      metadata: {
+    // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 1 — misma fila, un solo
+    // constructor. La ruta legacy conserva su lectura histórica del cobro: un
+    // enrichment intentado registra un crédito, tanto si devolvió datos como si
+    // falló después de haber salido a la red. Ese criterio no cambia aquí; lo que
+    // cambia es que ahora vive en un helper que la modalidad de dos rondas
+    // también usa, en vez de en un bucle que sólo esta ruta atravesaba.
+    trackLogResult(await logFn(buildApolloEnrichmentUsageLogInput({
+      usageKey: buildApolloEnrichmentUsageKey({
+        batchId: usageContext?.batchId,
         domain: entry.domain,
-        fields_added: entry.fields_added ?? [],
-        cascade_version: enrichmentCascadeMeta.cascade_version,
-        pricing_missing_warning: organizationEnrichmentUnitCostUsd === null,
-        // A1-APOLLO-BUDGET-RECONCILIATION-1: misma correlación que el log de
-        // search, para que ambos se aten a la MISMA reserva.
-        ...(usageContext?.runCorrelation
-          ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
-          : {}),
-        [APOLLO_SPEND_OBSERVABILITY_KEY]: toApolloSpendObservabilityMetadata(
-          buildApolloSpendObservabilityRecord({
-            resultsReturned: entry.enriched ? 1 : 0,
-            billingState: 'recorded',
-            recordedUsageCredits: creditsForApolloOperation('organization_enrichment', 1),
-          }),
-        ),
+        fallbackTimestampMs: startMs,
+      }),
+      batchId: usageContext?.batchId,
+      agentRunId: usageContext?.agentRunId,
+      triggeredByUserId: usageContext?.triggeredByUserId,
+      domain: entry.domain,
+      fieldsAdded: entry.fields_added ?? [],
+      cascadeVersion: enrichmentCascadeMeta.cascade_version,
+      unitCostUsd: organizationEnrichmentUnitCostUsd,
+      errorMessage: entry.error ?? null,
+      // A1-APOLLO-BUDGET-RECONCILIATION-1: misma correlación que el log de
+      // search, para que ambos se aten a la MISMA reserva.
+      runCorrelation: usageContext?.runCorrelation ?? null,
+      accounting: {
+        ...resolveApolloEnrichmentUsageAccounting('charged'),
+        resultsReturned: entry.enriched ? 1 : 0,
+        status: entry.enriched ? 'success' : 'error',
+        errorCode: entry.enriched ? undefined : 'enrichment_failed',
       },
-    }));
+    })));
   }
 
   // ── Q3F-5AU.12: best-effort raw industry label capture from Apollo
@@ -1171,6 +1238,9 @@ export async function runApolloOrganizationsSearch(
       apollo_post_gate_results_count: postGateCount,
       apollo_sector_rejected_count: normalizedResultsCount - postGateCount,
       apollo_sector_relevance_gate: gateResult.metadata,
+      // A1-APOLLO-TWO-ROUND-QUALITY-1: qué hizo el provider con el gate. En
+      // 'filter' (todos los llamadores previos) `results` es la lista filtrada.
+      apollo_sector_gate_mode: sectorGateMode,
       // L2.8: diagnóstico detallado para trazabilidad en batch metadata
       apollo_result_diagnostics: apolloResultDiagnostics,
       // L2.14: samples raw de Apollo — para ver exactamente qué campos devolvió la API

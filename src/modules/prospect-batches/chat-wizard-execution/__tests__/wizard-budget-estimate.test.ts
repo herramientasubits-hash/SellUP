@@ -11,7 +11,7 @@
  * F. No secrets in metadata output
  */
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -288,6 +288,10 @@ describe('Section F — Metadata contains no secrets', () => {
         // A1-APOLLO-BUDGET-RECONCILIATION-1: search/enrichment credit split.
         // Caps and pricing identifiers only — never a key, token or query.
         'apollo_credit_breakdown',
+        // A1-APOLLO-TWO-ROUND-QUALITY-1 § 10: desglose del peor caso de dos
+        // rondas. Mismo criterio que la clave de arriba — sólo topes resueltos e
+        // identificadores de pricing, nunca un valor crudo de entorno.
+        'apollo_two_round_budget',
         'apollo_max_queries_per_run', 'apollo_max_results_per_query',
         'available_credits', 'max_credits_per_execution',
         'passed', 'block_reason',

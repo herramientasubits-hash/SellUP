@@ -231,6 +231,47 @@ export function resolveApolloMaxEnrichmentsPerRun(): number {
   return Math.min(parsed, 3); // hard cap 3
 }
 
+/**
+ * Flag name constant for the Apollo two-round adaptive discovery modality
+ * (A1-APOLLO-TWO-ROUND-QUALITY-1).
+ */
+export const APOLLO_TWO_ROUND_DISCOVERY_FLAG = 'ENABLE_APOLLO_TWO_ROUND_DISCOVERY';
+
+/**
+ * Returns true when ENABLE_APOLLO_TWO_ROUND_DISCOVERY is "true".
+ *
+ * Default: false. This flag governs the SHAPE of an Apollo run (two adaptive
+ * rounds, target of five eligible companies, at most two enrichments) — it does
+ * NOT authorise Apollo. ENABLE_APOLLO_COMPANY_SEARCH remains the kill switch:
+ * with it off, no Apollo call happens whatever this flag says.
+ *
+ * Kept separate on purpose. Conflating "may Apollo run" with "how should an
+ * Apollo run be shaped" would mean a routing experiment could silently switch
+ * the provider on.
+ */
+export function isApolloTwoRoundDiscoveryEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[APOLLO_TWO_ROUND_DISCOVERY_FLAG]);
+}
+
+/**
+ * Flag name constant for per-run discovery provider selection
+ * (A1-APOLLO-TWO-ROUND-QUALITY-1 § 1).
+ */
+export const WIZARD_RUN_PROVIDER_OVERRIDE_FLAG =
+  'ENABLE_WIZARD_RUN_PROVIDER_OVERRIDE';
+
+/**
+ * Returns true when ENABLE_WIZARD_RUN_PROVIDER_OVERRIDE is "true".
+ *
+ * Default: false. With it off, a per-run provider request is ignored and the
+ * global default decides — exactly today's behaviour. The flag never widens who
+ * may request a provider: the admin / internal-contract authorisation check
+ * applies on top of it, not instead of it.
+ */
+export function isWizardRunProviderOverrideEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[WIZARD_RUN_PROVIDER_OVERRIDE_FLAG]);
+}
+
 // ============================================================
 // Lusha Contact Enrichment (Agente 2A · 17B)
 // ============================================================

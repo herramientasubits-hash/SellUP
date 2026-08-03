@@ -22,6 +22,7 @@ import {
   RUN_CORRELATION_METADATA_KEY,
   type RunCorrelationMetadata,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
+import type { ApolloUsageOperationContextMetadata } from './apollo-usage-operation-context';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -68,6 +69,20 @@ export type ApolloOrgsUsageContext = {
    * perder justamente el registro de gasto que este hito busca conciliar.
    */
   runCorrelation?: RunCorrelationMetadata | null;
+  /**
+   * A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 2: ronda, operación y sujeto de
+   * ESTA llamada.
+   *
+   * Aterriza en `metadata` (no en columnas: la migración 100 no añadió
+   * `round_number` ni `operation_subject`, y este hito no crea esquema para un
+   * dato que el JSONB transporta) y además entra en el `usage_key`, para que la
+   * búsqueda de la ronda 1 y la de la ronda 2 no puedan colapsar en la misma
+   * clave y hacer que la segunda se lea como `already_logged` cuando en realidad
+   * hubo un segundo cargo.
+   *
+   * Ausente en todos los llamadores previos ⇒ nada cambia para ellos.
+   */
+  operationContext?: ApolloUsageOperationContextMetadata | null;
 };
 
 export type ApolloOrgsUsageLogResult =

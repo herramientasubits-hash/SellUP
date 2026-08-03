@@ -349,14 +349,30 @@ describe('11E runtime — Apollo selection attaches observational provider_routi
     assertUsd(cost.usd_max, APOLLO_USD_MAX);
   });
 
-  it('the observational metadata carries ONLY the provider_routing key (purely additive)', async () => {
+  it('la metadata observacional lleva SÓLO claves conocidas y aditivas', async () => {
     const spies: RuntimeSpies = { apolloCalls: [], tavilyCalls: [] };
     await withExecutionFlag(() =>
       executeProspectWizardGeneration(VALID_REQUEST_FULL, makeDeps('apollo_organizations', spies)),
     );
     const extra = rec(spies.apolloCalls[0]!.extraBatchMetadata);
-    // Wiring injects exactly one key; it can only ADD to batch metadata, never remove.
-    assert.deepEqual(Object.keys(extra), ['provider_routing']);
+
+    // El propósito de esta prueba no es "exactamente una clave": es que el
+    // cableado sólo pueda AÑADIR claves conocidas y jamás quitar ni sobrescribir
+    // metadata del lote. Cada clave nueva exige pasar por aquí de forma
+    // deliberada, que es justamente lo que hace de guardia.
+    //
+    // A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 añade `run_provider_selection`: los tres
+    // campos de la selección de proveedor por corrida (solicitado, resuelto y
+    // motivo). Son códigos estáticos y booleanos — ni claves, ni tokens, ni
+    // consultas.
+    assert.deepEqual(
+      Object.keys(extra).sort(),
+      ['provider_routing', 'run_provider_selection'],
+    );
+
+    const selection = rec(extra.run_provider_selection);
+    assert.equal(selection.resolved_discovery_provider, 'apollo_organizations');
+    assert.equal(selection.is_run_level_override, false);
   });
 
   it('tavily → no Apollo routing metadata and Apollo pipeline never called', async () => {
