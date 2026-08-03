@@ -31,6 +31,24 @@ import { runWizardApolloSearch } from './wizard-apollo-executor';
 import type { WizardApolloRunner } from './wizard-apollo-executor';
 import { resolveWizardDiscoveryProvider } from './wizard-provider-resolver';
 import type { WizardDiscoveryProviderKey } from './wizard-provider-resolver';
+// A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — selección de proveedor POR CORRIDA. El
+// núcleo es puro: no lee env ni consulta la base. Las lecturas de entorno y de
+// rol se hacen aquí y se le pasan resueltas.
+import {
+  resolveWizardRunProvider,
+  toExecutableDiscoveryProvider,
+  toRunProviderSelectionMetadata,
+  buildProviderSelectionSignature,
+  RUN_PROVIDER_SELECTION_METADATA_KEY,
+  type WizardRunProviderSelection,
+  type ProviderSelectionAuthority,
+} from './wizard-run-provider-selection';
+import {
+  isWizardRunProviderOverrideEnabled,
+  isApolloTwoRoundDiscoveryEnabled,
+} from '@/lib/feature-flags.server';
+// § 10 — código explicativo del techo de la modalidad de dos rondas.
+import { BUDGET_EXCEEDED_TWO_ROUND_APOLLO } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 // Q3F-5BB.11E — OBSERVATIONAL Apollo provider-routing wiring. The adapter is pure
 // (no env, no provider client, no Supabase, no contact-enrichment / phone reveal).
 // The barrel exposes the pure 11B resolver + 11C metadata builder. This produces
@@ -51,6 +69,8 @@ import {
   type ProviderRoutingEnvironment,
 } from '@/modules/prospect-batches/provider-routing';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
+import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '@/server/agents/prospecting-toolkit/apollo-two-round';
+import { TWO_ROUND_INDETERMINATE_ANOMALY } from '@/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server';
 import { markWizardBatchFailed } from './wizard-batch-failure';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
@@ -147,6 +167,17 @@ export type WizardExecutionDeps = {
   runApolloPipeline?: WizardApolloRunner;
   // Provider resolver — injectable for tests; defaults to resolveWizardDiscoveryProvider()
   resolveProvider?: () => WizardDiscoveryProviderKey;
+  /**
+   * A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — selección de proveedor por corrida.
+   *
+   * Recibe la PETICIÓN del cliente ya validada por el schema. La autoridad no
+   * viaja en el payload: la resuelve la implementación server-side contra la
+   * sesión. Opcional: sin ella se usa el resolutor por defecto, que reproduce
+   * exactamente el comportamiento previo (predeterminado global, sin override).
+   */
+  resolveRunProviderSelection?: (input: {
+    requestedProvider?: string;
+  }) => Promise<WizardRunProviderSelection> | WizardRunProviderSelection;
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
 };
 
@@ -308,6 +339,43 @@ export async function executeProspectWizardGenerationAction(
     runApolloPipeline: (apolloInput) => runWizardApolloSearch(apolloInput),
     resolveProvider: resolveWizardDiscoveryProvider,
 
+    // A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — todas las lecturas de entorno y de rol
+    // se hacen aquí; el núcleo que decide es puro.
+    //
+    // El wizard no expone hoy un selector de proveedor al usuario final, y este
+    // hito no lo crea (§ 1). Por eso `requestedProvider` queda deliberadamente
+    // sin origen: el contrato queda listo para un rollout o un benchmark
+    // posterior, y hasta entonces cada corrida resuelve al predeterminado global
+    // igual que antes.
+    // A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 3 — fuente REAL de la petición y de la
+    // autoridad. La petición llega del payload ya validado por el schema; la
+    // autoridad NO: se deriva de la sesión y del rol en la base, server-side.
+    // Un cliente que envíe `isAdmin=true` o `providerAuthorized=true` no obtiene
+    // nada — esos campos ni siquiera existen en el schema, que es `.strict()`.
+    resolveRunProviderSelection: async ({ requestedProvider }) => {
+      // La autoridad sólo se consulta cuando hay algo que autorizar: sin
+      // petición, una corrida normal no paga una consulta de rol.
+      const authority: ProviderSelectionAuthority | null =
+        requestedProvider !== undefined && (await resolveIsApolloDiscoveryRolePermitted())
+          ? 'admin'
+          : null;
+
+      return resolveWizardRunProvider({
+        requestedProvider,
+        authority,
+        runOverrideEnabled: isWizardRunProviderOverrideEnabled(),
+        globalDefaultProvider: resolveWizardDiscoveryProvider(),
+        enabledProviders: {
+          tavily: true,
+          // Kill switch real. Con el flag apagado, ninguna corrida puede usar
+          // Apollo — lo pida quien lo pida.
+          apollo_organizations: isApolloCompanySearchEnabled(),
+          // Sin ruta de ejecución en el wizard de empresas: fail-closed.
+          lusha_companies: false,
+        },
+      });
+    },
+
     markBatchFailed: (batchId, reason) =>
       markWizardBatchFailed(batchId, reason, async (id) => {
         const result = await supabase
@@ -410,7 +478,56 @@ export async function executeProspectWizardGeneration(
   }
 
   // 5a. Resolve discovery provider (server-side, double gate)
-  const discoveryProvider: WizardDiscoveryProviderKey = (deps.resolveProvider ?? resolveWizardDiscoveryProvider)();
+  //
+  // A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — la elección es POR CORRIDA. El
+  // predeterminado global sigue siendo Tavily y no cambia; lo que cambia es que
+  // una corrida autorizada puede fijar otro proveedor sin mover la variable
+  // global de Producción. Se resuelve AQUÍ, antes de estimar créditos y antes de
+  // reservar presupuesto, porque la estimación depende del proveedor: reservar
+  // para Tavily y ejecutar Apollo es exactamente el descuadre que este orden
+  // evita.
+  //
+  // El kill switch manda por encima de todo: con ENABLE_APOLLO_COMPANY_SEARCH
+  // apagado, ninguna corrida puede usar Apollo aunque lo pida un admin.
+  // Sin dep inyectada se conserva EXACTAMENTE el comportamiento previo: el
+  // predeterminado global decide y no hay petición por corrida. Los tests que ya
+  // inyectan `resolveProvider` siguen gobernando la decisión.
+  const runProviderSelection: WizardRunProviderSelection =
+    (await deps.resolveRunProviderSelection?.({
+      requestedProvider: req.requestedDiscoveryProvider,
+    })) ??
+    resolveWizardRunProvider({
+      authority: null,
+      globalDefaultProvider: (deps.resolveProvider ?? resolveWizardDiscoveryProvider)(),
+      // El resolutor global ya aplicó su doble gate: lo que devuelve es, por
+      // construcción, un proveedor habilitado.
+      enabledProviders: {
+        tavily: true,
+        apollo_organizations: true,
+      },
+    });
+
+  const executableProvider = toExecutableDiscoveryProvider(runProviderSelection);
+  if (executableProvider === null) {
+    // Un proveedor del contrato de routing sin ruta de ejecución en el wizard de
+    // empresas (hoy `lusha_companies`) NO se degrada en silencio a otro: se
+    // detiene sin lote, sin reserva y sin candidatos.
+    return {
+      ok: false,
+      code: 'PROVIDER_UNAVAILABLE',
+      message: 'El proveedor de búsqueda seleccionado no está disponible en este momento.',
+      retryable: false,
+    };
+  }
+  const discoveryProvider: WizardDiscoveryProviderKey = executableProvider;
+
+  // § 1 — los tres campos que cada ejecución debe conservar. Aterrizan de forma
+  // aditiva en el metadata del lote por la costura `extraBatchMetadata` que ya
+  // existe, sin una segunda escritura.
+  const runProviderSelectionMetadata: Record<string, unknown> = {
+    [RUN_PROVIDER_SELECTION_METADATA_KEY]:
+      toRunProviderSelectionMetadata(runProviderSelection),
+  };
 
   // 5a-bis. Q3F-5BB.11E — OBSERVATIONAL provider-routing metadata for Apollo.
   // Runs ONLY when the server-side double gate (resolveWizardDiscoveryProvider)
@@ -445,7 +562,10 @@ export async function executeProspectWizardGeneration(
         fallbackAllowed: false,
         fallbackReason: 'apollo_company_discovery_no_fallback',
       });
-      apolloRoutingExtraMetadata = { [BATCH_PROVIDER_ROUTING_KEY]: routingMetadata };
+      apolloRoutingExtraMetadata = {
+        [BATCH_PROVIDER_ROUTING_KEY]: routingMetadata,
+        ...runProviderSelectionMetadata,
+      };
     } catch {
       // Fail-closed: a routing inconsistency (assert throw) must not run a
       // mis-routed provider. Never falls through to another provider.
@@ -525,11 +645,20 @@ export async function executeProspectWizardGeneration(
   });
 
   if (budgetResult.status === 'blocked') {
+    // § 10 — la reserva atómica es la autoridad y sigue decidiendo sola. Lo que se
+    // añade es el estado EXPLICATIVO: con la modalidad de dos rondas activa, el
+    // número que no cupo es su techo de peor caso, y decirlo evita que un
+    // operador lo lea como el guardrail legacy.
+    const twoRoundBlockDetail =
+      discoveryProvider === 'apollo_organizations' && isApolloTwoRoundDiscoveryEnabled()
+        ? BUDGET_EXCEEDED_TWO_ROUND_APOLLO
+        : null;
     return {
       ok: false,
       code: budgetResult.code,
       message: GUARDRAIL_MESSAGES[budgetResult.code] ?? budgetResult.message,
       retryable: false,
+      ...(twoRoundBlockDetail !== null ? { blockDetail: twoRoundBlockDetail } : {}),
     };
   }
 
@@ -551,6 +680,11 @@ export async function executeProspectWizardGeneration(
       catalogResolution.industry.id,
       catalogResolution.subindustries.map((s) => s.id).join(','),
       String(requestedCredits),
+      // A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — el proveedor de la corrida entra en
+      // la huella. Dos intentos del mismo clientRequestId con proveedores
+      // distintos producen huellas distintas, así que un cambio de proveedor
+      // entre reintentos deja de ser indistinguible del mismo trabajo repetido.
+      buildProviderSelectionSignature(runProviderSelection),
     ].join('|'),
   });
 
@@ -672,6 +806,12 @@ export async function executeProspectWizardGeneration(
         extraBatchMetadata: apolloRoutingExtraMetadata,
         // A1-APOLLO-BUDGET-RECONCILIATION-1 — viaja hasta provider_usage_logs.
         runCorrelation: toRunCorrelationMetadata(runCorrelation),
+        // A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 1/§ 7 — correlación completa: es
+        // la que ancla las claves de operación y el estado de recuperación de la
+        // modalidad de dos rondas. Con la modalidad apagada no se usa.
+        correlation: runCorrelation,
+        // § 2 — lo que la reserva sostiene, para la aserción defensiva de gasto.
+        reservedCredits: creditsReserved,
       });
     } else {
       pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });
@@ -741,7 +881,9 @@ export async function executeProspectWizardGeneration(
     // A1-APOLLO-BUDGET-RECONCILIATION-1: an overrun must be visible, not just
     // absorbed. The generation still succeeded — the candidates exist and the
     // credits were really spent — so this reports; it never fails the run.
-    ...buildReconciliationOutcome(lastReconciliation),
+    // A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 2: la aserción defensiva de la
+    // modalidad de dos rondas viaja por la misma vía, con el mismo código.
+    ...buildReconciliationOutcome(lastReconciliation, pipelineResult),
     ...(noveltyExhausted ? { noveltyExhausted: true as const } : {}),
   };
 }
@@ -758,22 +900,61 @@ export async function executeProspectWizardGeneration(
  */
 function buildReconciliationOutcome(
   reconciliation: WizardRunReconciliationResult | null,
+  pipelineResult?: IncrementalSearchOutput | null,
 ): {
   reconciliationState?: 'confirmed' | 'pending_reconciliation' | 'billing_unknown';
   budgetAnomalies?: readonly string[];
 } {
-  if (!reconciliation) return {};
+  const twoRoundAnomalies = readTwoRoundBudgetAnomalies(pipelineResult);
+  // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 9 — una operación cuyo cobro no se
+  // confirmó impide declarar la conciliación cerrada, gane lo que gane el resto.
+  const indeterminate = twoRoundAnomalies.includes(TWO_ROUND_INDETERMINATE_ANOMALY);
 
-  const state = reconciliation.anomalies.includes('recorded_usage_exceeds_reservation')
-    ? 'pending_reconciliation'
-    : reconciliation.billingState === 'unknown'
-      ? 'billing_unknown'
+  if (!reconciliation) {
+    // Sin reconciliación por proveedor (Tavily, o la ruta previa) el resultado
+    // conserva su forma; una anomalía de dos rondas sigue siendo visible.
+    if (twoRoundAnomalies.length === 0) return {};
+    return {
+      reconciliationState: indeterminate ? 'billing_unknown' : 'pending_reconciliation',
+      budgetAnomalies: twoRoundAnomalies,
+    };
+  }
+
+  const anomalies = [...new Set([...reconciliation.anomalies, ...twoRoundAnomalies])];
+  // Precedencia: cobro desconocido > sobregasto registrado > confirmado. Un total
+  // conocido menor o igual a la reserva NO alcanza para declarar conciliación si
+  // no hubo filas de uso o si alguna operación quedó indeterminada: ausencia de
+  // evidencia no es evidencia de cero gasto.
+  const state = indeterminate || reconciliation.billingState === 'unknown'
+    ? 'billing_unknown'
+    : anomalies.includes('recorded_usage_exceeds_reservation') ||
+        anomalies.includes('no_usage_rows_found')
+      ? 'pending_reconciliation'
       : 'confirmed';
 
   return {
     reconciliationState: state,
-    ...(reconciliation.anomalies.length > 0 ? { budgetAnomalies: reconciliation.anomalies } : {}),
+    ...(anomalies.length > 0 ? { budgetAnomalies: anomalies } : {}),
   };
+}
+
+/**
+ * Lee la anomalía de presupuesto que la modalidad de dos rondas dejó en la
+ * observabilidad del pipeline.
+ *
+ * Devuelve una lista vacía —nunca lanza— para cualquier forma inesperada: una
+ * metadata ilegible no puede convertir una generación exitosa en un fallo.
+ */
+function readTwoRoundBudgetAnomalies(
+  pipelineResult: IncrementalSearchOutput | null | undefined,
+): string[] {
+  const metadata = pipelineResult?.metadata as Record<string, unknown> | undefined;
+  const observability = metadata?.[APOLLO_TWO_ROUND_OBSERVABILITY_KEY] as
+    | Record<string, unknown>
+    | undefined;
+  const anomalies = observability?.['budget_anomalies'];
+  if (!Array.isArray(anomalies)) return [];
+  return anomalies.filter((entry): entry is string => typeof entry === 'string');
 }
 
 const GUARDRAIL_MESSAGES: Partial<Record<PilotGuardrailCode, string>> = {
