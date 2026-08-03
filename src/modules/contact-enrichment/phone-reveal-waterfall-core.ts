@@ -40,6 +40,30 @@
  *   * no automatic retry, no bulk, no HubSpot write, no candidate approval.
  *   * Apollo and Lusha costs are recorded in SEPARATE columns and are NEVER
  *     summed into one. An unreported cost is `null` + `unknown`, never 0.
+ *
+ * MODALIDAD LEGACY (AGENT2A-PHONE-WATERFALL-2). Un candidato cuyo intento Apollo YA
+ * ocurrió y YA terminó `no_phone_found` ANTES de que existiera
+ * `phone_reveal_waterfall_runs` no tiene pata Apollo que gastar, pero sí puede tener
+ * pata Lusha. Para él existe una corrida `run_mode = 'legacy_lusha_only'`:
+ *
+ *   * MISMO botón, MISMO modal, MISMA autorización explícita — no hay un segundo
+ *     botón manual de Lusha ni un segundo clic;
+ *   * tope 5 (solo Lusha), nunca 13: los 8 de Apollo ya se cobraron bajo OTRA
+ *     autorización y no se re-atribuyen;
+ *   * CERO llamadas a Apollo, cero usage logs nuevos de Apollo, cero timestamps o
+ *     request ids inventados. `apollo_attempted_at` queda null y la modalidad es lo
+ *     que explica por qué;
+ *   * el resto del contrato es IDÉNTICO: claim atómico, TTL de 24 h,
+ *     re-comprobación de supresión/DNC fail-closed, admin-only, una sola llamada a
+ *     Lusha, sin retry automático, sin HubSpot, sin bulk.
+ *
+ * La ruta legacy NO es un atajo para saltarse Apollo: exige evidencia PERSISTIDA del
+ * desenlace histórico y se cierra en cuanto el candidato pertenece al flujo completo.
+ *
+ * REAUTORIZACIÓN (AGENT2A-PHONE-WATERFALL-2C). Una corrida histórica NO bloquea de
+ * forma indiscriminada una autorización nueva: lo que bloquea es su CLASE, no su
+ * existencia. La distinción vive en `classifyPhoneRevealWaterfallLegacyHistory` y es
+ * la única autoridad, compartida por el servidor y por la UI.
  */
 
 // ── Vocabularios (espejo exacto de los CHECK de la migración 102) ──
@@ -75,6 +99,47 @@ export type PhoneRevealWaterfallLushaOutcome =
 
 /** Proveedor que REALMENTE reveló (nunca uno que solo intentó). */
 export type PhoneRevealWaterfallFinalProvider = 'apollo' | 'lusha' | 'none';
+
+/**
+ * Modalidad de la corrida (AGENT2A-PHONE-WATERFALL-2). Vocabulario CERRADO y única
+ * fuente de los nombres: el CHECK `phone_reveal_waterfall_runs_run_mode_check` de la
+ * migración 103 se compara contra esta lista en un test estático, en los dos
+ * sentidos.
+ *
+ *   * `full_waterfall`     — Apollo dentro de la corrida y Lusha después solo si
+ *     Apollo terminó `no_phone_found`. Tope 13 (8 + 5).
+ *   * `legacy_lusha_only`  — el intento Apollo YA ocurrió y YA terminó
+ *     `no_phone_found` ANTES de que existiera la tabla. Apollo NO se vuelve a
+ *     ejecutar (0 llamadas, 0 créditos, 0 usage logs nuevos) y el operador autoriza
+ *     ÚNICAMENTE la pata Lusha. Tope 5.
+ *
+ * Es una columna y no una inferencia a propósito: `apollo_attempted_at IS NULL` es
+ * un efecto colateral, no una afirmación, y no distingue "Apollo no se ejecutó
+ * porque ya corrió antes" de "la pata Apollo nunca se registró".
+ */
+export const PHONE_REVEAL_WATERFALL_RUN_MODES = [
+  'full_waterfall',
+  'legacy_lusha_only',
+] as const;
+
+export type PhoneRevealWaterfallRunMode =
+  (typeof PHONE_REVEAL_WATERFALL_RUN_MODES)[number];
+
+/**
+ * Parser del vocabulario cerrado de modalidad. Un valor desconocido cae a
+ * `full_waterfall`, que es el DEFAULT de la columna y la modalidad más restrictiva
+ * para la ruta legacy: una fila ilegible nunca se lee como "Apollo ya está
+ * excusado", así que no puede convertirse en un atajo para saltarse Apollo.
+ */
+export function parsePhoneRevealWaterfallRunMode(
+  value: unknown,
+): PhoneRevealWaterfallRunMode {
+  if (typeof value !== 'string') return 'full_waterfall';
+  const trimmed = value.trim();
+  return (PHONE_REVEAL_WATERFALL_RUN_MODES as readonly string[]).includes(trimmed)
+    ? (trimmed as PhoneRevealWaterfallRunMode)
+    : 'full_waterfall';
+}
 
 /** Confianza sobre el costo. `unknown` ≠ 0: un costo no reportado no es gratis. */
 export type PhoneRevealWaterfallCostSource = 'reported' | 'assumed_cap' | 'unknown';
@@ -171,6 +236,15 @@ export const PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA =
   PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS + PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS;
 
 /**
+ * Tope de una corrida `legacy_lusha_only` (AGENT2A-PHONE-WATERFALL-2): SOLO la pata
+ * Lusha, así que es exactamente el tope de Lusha y NUNCA incluye los 8 de Apollo.
+ * Apollo ya corrió y ya se cobró bajo OTRA autorización; sumarlo aquí cobraría dos
+ * veces el mismo intento en la confirmación que ve el operador.
+ */
+export const PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS =
+  PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS;
+
+/**
  * Vida útil de la autorización humana. Pasadas 24 h, un webhook tardío puede
  * cerrar la pata Apollo pero NUNCA gastar la pata Lusha: el operador confirmó un
  * costo en un momento concreto, no de forma indefinida.
@@ -184,6 +258,12 @@ export interface PhoneRevealWaterfallRunRecord {
   id: string;
   candidateId: string;
   status: PhoneRevealWaterfallStatus;
+  /**
+   * Modalidad de la corrida (AGENT2A-PHONE-WATERFALL-2). `full_waterfall` es el
+   * default de la columna, así que las corridas creadas por el START de Apollo la
+   * traen sin cambiar nada.
+   */
+  runMode: PhoneRevealWaterfallRunMode;
   authorizedAt: string;
   /** internal_users.id opaco del operador que autorizó. Actor de los dos legs. */
   authorizedBy: string;
@@ -308,12 +388,39 @@ export function isPhoneRevealWaterfallRoleAuthorized(roleKey: string | null): bo
 /** Patch de INSERT de la corrida. Describe la fila; no la escribe. */
 export interface PhoneRevealWaterfallRunDraft {
   candidateId: string;
-  status: Extract<PhoneRevealWaterfallStatus, 'apollo_in_flight'>;
+  /**
+   * `apollo_in_flight` para una corrida `full_waterfall` (Apollo acaba de arrancar)
+   * y `lusha_pending` para una `legacy_lusha_only` (Apollo no va a arrancar: la
+   * corrida nace directamente esperando la pata Lusha). Los dos están en
+   * PHONE_REVEAL_WATERFALL_CLAIMABLE_STATUSES y en el índice único parcial, así que
+   * el claim atómico y "una sola corrida activa por candidato" valen igual.
+   */
+  status: Extract<PhoneRevealWaterfallStatus, 'apollo_in_flight' | 'lusha_pending'>;
+  /** Modalidad explícita. Nunca se deduce de los timestamps. */
+  runMode: PhoneRevealWaterfallRunMode;
   authorizedAt: string;
   authorizedBy: string;
   authorizedByRole: string | null;
   maxCreditsAuthorized: number;
-  apolloAttemptedAt: string;
+  /**
+   * `null` en una corrida `legacy_lusha_only`: Apollo NO se ejecuta bajo esta
+   * autorización, y un timestamp inventado haría parecer que sí. La evidencia del
+   * intento histórico vive en el candidato, no aquí.
+   */
+  apolloAttemptedAt: string | null;
+  /**
+   * Desenlace de la pata Apollo ya conocido en el INSERT. En `legacy_lusha_only`
+   * transcribe el desenlace terminal histórico del candidato (siempre
+   * `no_phone_found`, que es la condición de entrada). `undefined` en
+   * `full_waterfall`: ahí Apollo acaba de arrancar y todavía no hay desenlace.
+   */
+  apolloOutcome?: PhoneRevealWaterfallApolloOutcome;
+  /**
+   * Confianza del costo Apollo. En `legacy_lusha_only` es `unknown` con
+   * `apolloCostCredits` en null: el costo histórico pertenece a la autorización que
+   * realmente lo pagó y NUNCA se re-atribuye a esta. Jamás 0.
+   */
+  apolloCostSource?: PhoneRevealWaterfallCostSource;
   lushaEligible: boolean;
   /**
    * `missing_lusha_contact_id` ya en el INSERT cuando el candidato no tiene id
@@ -404,6 +511,9 @@ export async function startPhoneRevealWaterfall(
   const runId = await deps.createRun({
     candidateId,
     status: 'apollo_in_flight',
+    // Modalidad EXPLÍCITA aunque sea el default de la columna: el INSERT dice cuál
+    // es en vez de dejar que se deduzca (AGENT2A-PHONE-WATERFALL-2).
+    runMode: 'full_waterfall',
     authorizedAt: deps.nowIso,
     authorizedBy: deps.actor.internalUserId,
     authorizedByRole: cleanText(deps.actor.roleKey),
@@ -419,6 +529,358 @@ export async function startPhoneRevealWaterfall(
     runId,
     maxCreditsAuthorized,
     lushaEligible: lushaLeg.eligible,
+  };
+}
+
+// ── Ruta legacy: Apollo ya intentó ANTES de que existiera la tabla ──
+// (AGENT2A-PHONE-WATERFALL-2)
+
+/**
+ * Estados de `contact_enrichment_candidates.status` que dejan al candidato NO
+ * editable. Espejo EXACTO de TERMINAL_CANDIDATE_STATE_VALUES en
+ * lusha-phone-fallback-eligibility.ts, que sigue siendo el gate canónico y se
+ * ejecuta igual aguas abajo (dentro de `runLushaPhoneFallbackReveal`): esto es un
+ * pre-filtro que evita crear una corrida condenada, no un permiso alternativo.
+ */
+export const PHONE_REVEAL_WATERFALL_LEGACY_TERMINAL_CANDIDATE_STATUSES: readonly string[] =
+  ['approved', 'rejected', 'discarded', 'archived'];
+
+/**
+ * Evidencia PERSISTIDA que se exige para afirmar "Apollo ya intentó y terminó sin
+ * teléfono". Se lee de columnas canónicas del candidato, NUNCA de un texto de UI ni
+ * de un contador de intentos.
+ *
+ * PII-free: ni teléfono, ni nombre, ni email, ni LinkedIn. `hasPhone` es un booleano
+ * derivado y `sourceContactId` es un id opaco que nunca se imprime.
+ */
+export interface PhoneRevealWaterfallLegacyEvidence {
+  /** `contact_enrichment_candidates.status` crudo. */
+  candidateStatus: string | null;
+  /** `phone_reveal_status`: debe ser exactamente `no_phone_found`. */
+  phoneRevealStatus: string | null;
+  /**
+   * `phone_reveal_provider`: debe ser exactamente `apollo`. Es lo que distingue un
+   * `no_phone_found` de APOLLO de uno de LUSHA — un `no_phone_found` que ya lo
+   * produjo Lusha no autoriza volver a llamar a Lusha.
+   */
+  phoneRevealProvider: string | null;
+  /**
+   * `phone_reveal_completed_at`: la marca de que el intento CERRÓ. Un
+   * `no_phone_found` sin cierre no es un desenlace terminal fechado, así que no
+   * cuenta como evidencia (fail-closed). NO se inventa cuando falta.
+   */
+  phoneRevealCompletedAt: string | null;
+  /** true si el candidato YA tiene teléfono persistido. Nunca el número. */
+  hasPhone: boolean;
+  source: string | null;
+  sourceContactId: string | null;
+}
+
+/**
+ * Por qué la ruta legacy NO aplica. Vocabulario cerrado y PII-free; viaja a la UI y
+ * al diagnóstico como código mecánico.
+ */
+export type PhoneRevealWaterfallLegacyIneligibleReason =
+  | 'feature_disabled'
+  | 'role_not_allowed'
+  | 'invalid_candidate'
+  | 'candidate_not_found'
+  /** `phone_reveal_status` no es `no_phone_found` (incluye `error`, `requested`, `pending`, null). */
+  | 'apollo_not_exhausted'
+  /** El `no_phone_found` no lo produjo Apollo (p. ej. lo produjo Lusha), o no hay proveedor registrado. */
+  | 'apollo_evidence_missing'
+  /** `no_phone_found` sin `phone_reveal_completed_at`: el intento no cerró de forma fechada. */
+  | 'apollo_outcome_not_closed'
+  | 'existing_phone_present'
+  | 'candidate_not_editable'
+  | 'missing_lusha_contact_id'
+  | 'active_run_exists'
+  /**
+   * La corrida histórica pertenece al flujo COMPLETO (`full_waterfall`), así que el
+   * candidato no es legacy: su caso lo gobierna el waterfall normal, con Apollo
+   * incluido. La ruta legacy NO puede usarse para saltárselo.
+   */
+  | 'incompatible_historical_run'
+  /**
+   * La corrida legacy anterior YA consiguió teléfono. No hay nada que reautorizar y
+   * volver a llamar a Lusha gastaría créditos repitiendo un resultado ya pagado.
+   */
+  | 'previous_run_revealed_phone'
+  | 'create_conflict';
+
+export interface PhoneRevealWaterfallLegacyEligibility {
+  eligible: boolean;
+  reason: PhoneRevealWaterfallLegacyIneligibleReason | null;
+}
+
+// ── Clasificación del historial de corridas (reautorización) ────
+// (AGENT2A-PHONE-WATERFALL-2C)
+
+/**
+ * Proyección MÍNIMA para clasificar el historial. La cumplen tanto la fila completa
+ * (`PhoneRevealWaterfallRunRecord`) como la vista de auditoría que consume la UI
+ * (`PhoneRevealWaterfallAuditView`), así que servidor y cliente clasifican con la
+ * MISMA función sobre la MISMA fila (las dos leen
+ * `findLatestWaterfallRunForCandidate`) y no puede haber un botón que ofrezca lo que
+ * el servidor rechaza, ni al contrario.
+ */
+export interface PhoneRevealWaterfallHistoricalRun {
+  status: PhoneRevealWaterfallStatus;
+  runMode: PhoneRevealWaterfallRunMode;
+  lushaOutcome: PhoneRevealWaterfallLushaOutcome | null;
+  finalProvider: PhoneRevealWaterfallFinalProvider | null;
+}
+
+/** Por qué el historial permite (o no) una autorización legacy NUEVA. */
+export type PhoneRevealWaterfallLegacyHistoryVerdict =
+  | {
+      reauthorizable: true;
+      /** `no_previous_run` = primera vez; `terminal_legacy_run` = reautorización. */
+      basis: 'no_previous_run' | 'terminal_legacy_run';
+    }
+  | {
+      reauthorizable: false;
+      reason: Extract<
+        PhoneRevealWaterfallLegacyIneligibleReason,
+        'active_run_exists' | 'incompatible_historical_run' | 'previous_run_revealed_phone'
+      >;
+    };
+
+/**
+ * ¿Permite el historial una autorización legacy NUEVA? Clasifica la corrida MÁS
+ * RECIENTE del candidato en las cuatro clases que el contrato distingue, en vez de
+ * rechazar por el simple hecho de que exista historial:
+ *
+ *   1. NO hay corrida               ⇒ primera autorización legacy.
+ *   2. corrida NO terminal          ⇒ `active_run_exists`. Ya hay una autorización
+ *      viva: se usa esa o se espera su cierre. Nunca se abre una segunda en paralelo
+ *      (el índice único parcial lo garantiza además a nivel de escritura).
+ *   3. corrida terminal `full_waterfall` ⇒ `incompatible_historical_run`. El
+ *      candidato pertenece al flujo completo; una corrida suya NO lo convierte en
+ *      legacy y la ruta legacy no es una vía para saltarse Apollo.
+ *   4. corrida terminal `legacy_lusha_only`:
+ *        * si YA reveló teléfono   ⇒ `previous_run_revealed_phone` (nada que
+ *          reautorizar; repetir Lusha pagaría dos veces la misma respuesta);
+ *        * si NO reveló            ⇒ REAUTORIZABLE. Cubre `no_phone_found`, error de
+ *          Lusha, `suppressed`, `suppression_check_unavailable`, autorización vencida
+ *          y cualquier otro cierre sin teléfono. Cada reautorización es una corrida
+ *          NUEVA: id nuevo, `authorized_at` nuevo, tope 5 otra vez y TODOS los gates
+ *          revalidados — incluida la comprobación de supresión/DNC, que se ejecuta de
+ *          cero. El veredicto de privacidad anterior NUNCA se reutiliza como permiso.
+ *
+ * Por qué basta con la corrida MÁS RECIENTE y no hace falta escanear el historial
+ * completo: una corrida legacy solo puede crearse cuando la más reciente es nula o es
+ * legacy terminal, así que por inducción "la más reciente es legacy" implica que TODAS
+ * lo son. Y si en algún momento se añade una `full_waterfall` (el START de Apollo no
+ * consulta el historial, solo la corrida activa), pasa a ser la más reciente y cierra
+ * la ruta legacy desde ese momento — que es exactamente el efecto que exige el punto 3.
+ *
+ * PURA y sin I/O: recibe la fila ya leída.
+ */
+export function classifyPhoneRevealWaterfallLegacyHistory(
+  latestRun: PhoneRevealWaterfallHistoricalRun | null,
+): PhoneRevealWaterfallLegacyHistoryVerdict {
+  if (!latestRun) return { reauthorizable: true, basis: 'no_previous_run' };
+
+  if (!PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(latestRun.status)) {
+    return { reauthorizable: false, reason: 'active_run_exists' };
+  }
+
+  if (latestRun.runMode !== 'legacy_lusha_only') {
+    return { reauthorizable: false, reason: 'incompatible_historical_run' };
+  }
+
+  // "Ya consiguió teléfono" se comprueba por TRES señales independientes y basta una:
+  // el desenlace de Lusha, el proveedor final y el propio status de cierre. Son
+  // redundantes por diseño — una fila anómala en la que solo una de las tres lo diga
+  // debe bloquear igual, porque el error caro es cobrar de nuevo un teléfono ya pagado.
+  if (
+    latestRun.lushaOutcome === 'revealed' ||
+    latestRun.finalProvider === 'lusha' ||
+    latestRun.finalProvider === 'apollo' ||
+    latestRun.status === 'completed_lusha' ||
+    latestRun.status === 'completed_apollo'
+  ) {
+    return { reauthorizable: false, reason: 'previous_run_revealed_phone' };
+  }
+
+  return { reauthorizable: true, basis: 'terminal_legacy_run' };
+}
+
+/**
+ * ¿Este candidato entra en la ruta legacy? PURA, sin I/O, y fail-closed en todas las
+ * ramas: cualquier duda sobre la evidencia devuelve NO elegible.
+ *
+ * La evidencia canónica es la TERNA `phone_reveal_status = 'no_phone_found'` +
+ * `phone_reveal_provider = 'apollo'` + `phone_reveal_completed_at IS NOT NULL`, que
+ * es exactamente lo que escriben los tres caminos terminales de Apollo (el webhook
+ * en phone-reveal-webhook-core.ts y el recovery en phone-reveal-recovery-core.ts
+ * persisten los tres campos juntos). Se exigen los TRES:
+ *
+ *   * `no_phone_found` solo — no distingue proveedor: el fallback manual de Lusha
+ *     escribe el MISMO status con `phone_reveal_provider = 'lusha'`, y volver a
+ *     llamar a Lusha sobre su propio `no_phone_found` gastaría créditos repitiendo
+ *     una respuesta ya conocida;
+ *   * `provider = 'apollo'` solo — no dice que el intento terminara: un candidato en
+ *     vuelo también lleva provider apollo;
+ *   * `completed_at` solo — no dice CÓMO terminó.
+ *
+ * Un `phone_reveal_status = 'error'` NO es evidencia: un fallo técnico no significa
+ * "no existe teléfono", y el camino correcto ahí es reintentar Apollo, no excusarlo.
+ *
+ * `phone_reveal_attempt_count` NO se usa: es un contador que también sube en
+ * caminos de error, así que no afirma un desenlace.
+ */
+export function evaluatePhoneRevealWaterfallLegacyEligibility(
+  evidence: PhoneRevealWaterfallLegacyEvidence,
+): PhoneRevealWaterfallLegacyEligibility {
+  if (cleanText(evidence.phoneRevealStatus) !== 'no_phone_found') {
+    return { eligible: false, reason: 'apollo_not_exhausted' };
+  }
+  if (cleanText(evidence.phoneRevealProvider) !== 'apollo') {
+    return { eligible: false, reason: 'apollo_evidence_missing' };
+  }
+  if (!cleanText(evidence.phoneRevealCompletedAt)) {
+    return { eligible: false, reason: 'apollo_outcome_not_closed' };
+  }
+  if (evidence.hasPhone) {
+    return { eligible: false, reason: 'existing_phone_present' };
+  }
+  const candidateStatus = cleanText(evidence.candidateStatus);
+  if (
+    candidateStatus !== null &&
+    PHONE_REVEAL_WATERFALL_LEGACY_TERMINAL_CANDIDATE_STATUSES.includes(candidateStatus)
+  ) {
+    return { eligible: false, reason: 'candidate_not_editable' };
+  }
+  // Sin id Lusha propio la pata Lusha no existe, así que autorizar 5 créditos sería
+  // pedir permiso para una llamada que estructuralmente no puede ocurrir.
+  const lushaLeg = evaluatePhoneRevealWaterfallLushaLeg(evidence);
+  if (!lushaLeg.eligible) {
+    return { eligible: false, reason: 'missing_lusha_contact_id' };
+  }
+  return { eligible: true, reason: null };
+}
+
+export interface StartLegacyPhoneRevealWaterfallInput {
+  candidateId: string;
+}
+
+export interface StartLegacyPhoneRevealWaterfallDeps {
+  /** ENABLE_PHONE_REVEAL_WATERFALL ya resuelto por el wrapper. */
+  flagEnabled: boolean;
+  actor: { internalUserId: string; roleKey: string | null };
+  nowIso: string;
+  /** Evidencia persistida del intento Apollo histórico. */
+  loadLegacyEvidence: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallLegacyEvidence | null>;
+  /** Corrida NO terminal existente (índice único parcial de la migración 102). */
+  findActiveRun: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallRunRecord | null>;
+  /**
+   * Corrida MÁS RECIENTE del candidato, terminal o no. Su CLASE decide, vía
+   * `classifyPhoneRevealWaterfallLegacyHistory`, si cabe una autorización nueva: una
+   * corrida activa bloquea, una `full_waterfall` bloquea, y una legacy terminal que no
+   * consiguió teléfono es REAUTORIZABLE (AGENT2A-PHONE-WATERFALL-2C). Su mera
+   * existencia NO bloquea.
+   */
+  findLatestRun: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallRunRecord | null>;
+  createRun: (draft: PhoneRevealWaterfallRunDraft) => Promise<string | null>;
+}
+
+export type StartLegacyPhoneRevealWaterfallResult =
+  | {
+      started: true;
+      runId: string;
+      maxCreditsAuthorized: number;
+    }
+  | {
+      started: false;
+      reason: PhoneRevealWaterfallLegacyIneligibleReason;
+    };
+
+/**
+ * Crea la corrida `legacy_lusha_only`. Es la operación EXPLÍCITA de la ruta legacy:
+ * comparte el store, el claim, el TTL y la re-comprobación de supresión con el
+ * waterfall normal, pero NO tiene ninguna fase que llame a Apollo.
+ *
+ * Orden barato→caro y fail-closed: con el flag apagado o un rol no admin no se lee
+ * el candidato ni se escribe nada.
+ *
+ * La corrida nace en `lusha_pending` con:
+ *   * `run_mode = 'legacy_lusha_only'`  (modalidad explícita, nunca inferida)
+ *   * `apollo_attempted_at = null`      (Apollo NO corre aquí; no se falsifica)
+ *   * `apollo_outcome = 'no_phone_found'` (transcripción del desenlace histórico)
+ *   * `apollo_cost_credits = null` + `apollo_cost_source = 'unknown'`
+ *   * `max_credits_authorized = 5`      (solo Lusha; jamás 13)
+ *
+ * NO llama a ningún proveedor y NO gasta créditos: solo registra la autorización.
+ */
+export async function startLegacyPhoneRevealWaterfall(
+  input: StartLegacyPhoneRevealWaterfallInput,
+  deps: StartLegacyPhoneRevealWaterfallDeps,
+): Promise<StartLegacyPhoneRevealWaterfallResult> {
+  if (!deps.flagEnabled) return { started: false, reason: 'feature_disabled' };
+  if (!isPhoneRevealWaterfallRoleAuthorized(deps.actor.roleKey)) {
+    return { started: false, reason: 'role_not_allowed' };
+  }
+
+  const candidateId = cleanText(
+    typeof input.candidateId === 'string' ? input.candidateId : null,
+  );
+  if (!candidateId) return { started: false, reason: 'invalid_candidate' };
+
+  const evidence = await deps.loadLegacyEvidence(candidateId);
+  if (!evidence) return { started: false, reason: 'candidate_not_found' };
+
+  const eligibility = evaluatePhoneRevealWaterfallLegacyEligibility(evidence);
+  if (!eligibility.eligible) {
+    return {
+      started: false,
+      reason: eligibility.reason ?? 'apollo_evidence_missing',
+    };
+  }
+
+  // Una sola autorización viva por candidato (índice único parcial).
+  const active = await deps.findActiveRun(candidateId);
+  if (active) return { started: false, reason: 'active_run_exists' };
+
+  // El historial se CLASIFICA, no se cuenta (AGENT2A-PHONE-WATERFALL-2C): una corrida
+  // legacy terminal que no consiguió teléfono admite una autorización NUEVA, mientras
+  // que una corrida del flujo completo — o una que ya reveló — la cierra.
+  const historyVerdict = classifyPhoneRevealWaterfallLegacyHistory(
+    await deps.findLatestRun(candidateId),
+  );
+  if (!historyVerdict.reauthorizable) {
+    return { started: false, reason: historyVerdict.reason };
+  }
+
+  const runId = await deps.createRun({
+    candidateId,
+    status: 'lusha_pending',
+    runMode: 'legacy_lusha_only',
+    authorizedAt: deps.nowIso,
+    authorizedBy: deps.actor.internalUserId,
+    authorizedByRole: cleanText(deps.actor.roleKey),
+    maxCreditsAuthorized: PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS,
+    // Apollo NO se ejecuta bajo esta autorización: sin timestamp inventado.
+    apolloAttemptedAt: null,
+    // Transcripción del desenlace histórico, sin re-atribuir su costo.
+    apolloOutcome: 'no_phone_found',
+    apolloCostSource: 'unknown',
+    lushaEligible: true,
+    lushaSkippedReason: null,
+  });
+  if (!runId) return { started: false, reason: 'create_conflict' };
+
+  return {
+    started: true,
+    runId,
+    maxCreditsAuthorized: PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS,
   };
 }
 
@@ -595,7 +1057,15 @@ export type PhoneRevealWaterfallContinuationDecision =
         | 'no_active_run'
         | 'run_already_terminal'
         | 'lusha_already_attempted'
-        | 'apollo_not_terminal_no_phone_found';
+        | 'apollo_not_terminal_no_phone_found'
+        /**
+         * Una corrida `legacy_lusha_only` recibió un evento de Apollo que NO es
+         * `no_phone_found` (AGENT2A-PHONE-WATERFALL-2). No se escribe nada: Apollo
+         * no corre bajo esa autorización, así que ningún desenlace suyo puede
+         * reescribir su pata Apollo ni cerrar la corrida. El claim de Lusha queda
+         * intacto para el disparador legítimo.
+         */
+        | 'legacy_run_ignores_apollo_event';
     };
 
 function closeRun(
@@ -629,6 +1099,17 @@ export function decidePhoneRevealWaterfallContinuation(
   // `lusha_attempted_at` sellado y los demás no escriben nada.
   if (run.lushaAttemptedAt !== null) {
     return { action: 'noop', reason: 'lusha_already_attempted' };
+  }
+
+  // Una corrida legacy SOLO puede continuar por el desenlace que la creó
+  // (`no_phone_found`, transcrito en el INSERT). Cualquier otro evento de Apollo es
+  // ajeno a esa autorización — Apollo no corre bajo ella — así que se ignora sin
+  // escribir nada, dejando el claim de Lusha disponible para el disparador legítimo.
+  if (
+    run.runMode === 'legacy_lusha_only' &&
+    input.apolloOutcome !== 'no_phone_found'
+  ) {
+    return { action: 'noop', reason: 'legacy_run_ignores_apollo_event' };
   }
 
   // Defensa en profundidad: el rol ya se validó al crear la corrida, pero la
@@ -711,12 +1192,20 @@ export function decidePhoneRevealWaterfallContinuation(
 
   // Si aun así hay teléfono (llegó por otra vía entre la persistencia y este
   // hook), no se gasta nada más.
+  //
+  // En modalidad legacy el cierre NO puede ser `completed_apollo` + `apollo`: Apollo
+  // no corrió bajo esta autorización, así que atribuirle el teléfono sería declarar
+  // una ejecución que no existió. La corrida se aborta como innecesaria y el
+  // proveedor final queda `none` — quién consiguió realmente ese número lo dice el
+  // candidato, no esta corrida.
   if (!input.candidate || input.candidate.hasPhone) {
+    const isLegacy = run.runMode === 'legacy_lusha_only';
     return closeRun({
-      status: 'completed_apollo',
+      status: isLegacy ? 'aborted' : 'completed_apollo',
       apolloOutcome: 'no_phone_found',
       lushaSkippedReason: 'not_needed',
-      finalProvider: input.candidate?.hasPhone ? 'apollo' : 'none',
+      finalProvider:
+        !isLegacy && input.candidate?.hasPhone ? 'apollo' : 'none',
       completedAt: input.nowIso,
       errorCode: input.candidate ? null : 'candidate_not_found',
     });
@@ -1126,6 +1615,13 @@ export async function continuePhoneRevealWaterfall(
  */
 export interface PhoneRevealWaterfallAuditView {
   status: PhoneRevealWaterfallStatus;
+  /**
+   * Modalidad, para que la UI no tenga que deducirla (AGENT2A-PHONE-WATERFALL-2).
+   * Sin ella, `apolloAttempted: false` en una corrida legacy se leería como "Apollo
+   * nunca se intentó", cuando lo cierto es que se intentó ANTES y fuera de esta
+   * autorización.
+   */
+  runMode: PhoneRevealWaterfallRunMode;
   isTerminal: boolean;
   maxCreditsAuthorized: number;
   apolloAttempted: boolean;
@@ -1147,6 +1643,7 @@ export function buildPhoneRevealWaterfallAuditView(
 ): PhoneRevealWaterfallAuditView {
   return {
     status: run.status,
+    runMode: run.runMode,
     isTerminal: PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(run.status),
     maxCreditsAuthorized: run.maxCreditsAuthorized,
     apolloAttempted: run.apolloAttemptedAt !== null,

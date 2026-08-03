@@ -686,6 +686,9 @@ describe('102 ausente — el acceso a datos propaga, no inventa un estado', () =
         deps.createWaterfallRun({
           candidateId: CANDIDATE_ID,
           status: 'apollo_in_flight',
+          // Modalidad del waterfall COMPLETO: este bloque cubre el arranque de
+          // Apollo, no la ruta legacy (AGENT2A-PHONE-WATERFALL-2).
+          runMode: 'full_waterfall',
           authorizedAt: new Date().toISOString(),
           authorizedBy: ADMIN.internalUserId,
           authorizedByRole: 'admin',
@@ -718,6 +721,7 @@ describe('102 ausente — el acceso a datos propaga, no inventa un estado', () =
       deps.createWaterfallRun({
         candidateId: CANDIDATE_ID,
         status: 'apollo_in_flight',
+        runMode: 'full_waterfall',
         authorizedAt: new Date().toISOString(),
         authorizedBy: ADMIN.internalUserId,
         authorizedByRole: 'admin',

@@ -79,6 +79,10 @@ function activeRun(
     id: 'run-1',
     candidateId: 'candidate-1',
     status: 'apollo_in_flight',
+    // Default explícito: TODA esta suite describe el waterfall completo, así que
+    // ninguna de sus aserciones cambia de significado al añadirse la modalidad
+    // legacy (AGENT2A-PHONE-WATERFALL-2). La modalidad legacy tiene su propia suite.
+    runMode: 'full_waterfall',
     authorizedAt: isoMinusHours(1),
     authorizedBy: 'user-admin',
     authorizedByRole: 'admin',
