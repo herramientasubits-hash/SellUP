@@ -931,3 +931,29 @@ stay apart and that the code-enforced blockers are not role-clearable. The § 8 
 package's § 10 draft form: an input root takes a class label and never a path, and every reference field takes
 an identifier rather than an artifact's contents. And § 11's permitted/forbidden evidence split governs the
 package's § 13 evidence readiness, which reports the bucketed policy as documented but unapproved.
+
+---
+
+## 27. Update (BR-SOURCE-11X)
+
+BR-SOURCE-11X creates formal owner decision record templates for GATE-2, GATE-7 and cap/input policy. It does
+not approve GATE-2. It does not approve GATE-7. It does not approve cap/input policy. It does not authorize
+caps, input roots, output roots, temp storage, controlled execution, real-data access, import, Supabase,
+runtime or Agent 1. Current recommendation remains NO-GO. See
+[`br-receita-cnpj-11x-formal-owner-decision-records-gate2-gate7-cap-input.md`](./br-receita-cnpj-11x-formal-owner-decision-records-gate2-gate7-cap-input.md).
+
+**This runbook remains non-executable.** 11X changes no item in the § 7 preflight checklist — all fourteen
+still read `no` — and satisfies none of the § 15 decision points before any future run. It fills no role in
+§ 6: `Operator assigned` and `Reviewer assigned` remain unfilled, because a decision record's role field takes
+a role label and references an assignment made through the operator channel rather than constituting one. It
+leaves § 8's approval checklist blank and § 9's command skeleton structure-only, and the § 17 recommended
+draft decision — Option A, keep runbook blocked — is unchanged.
+
+Three of this runbook's rules govern 11X's GATE-7 record rather than being restated differently in it. The § 6
+separation rule requires the record's operator and reviewer role fields to name two distinct roles, and the
+named-human rule — never an agent, an automation or a CI runner — governs any assignment they reference. The
+§ 8 field-level rules govern every field in all three records: an input root takes a class label and never a
+path, and every reference field takes an identifier rather than an artifact's contents. And the § 11
+permitted/forbidden evidence split governs the records' evidence fields, which take a bucket class or an
+artifact identifier. 11X also notes that this runbook's preflight cannot pass while GATE-2 is unapproved,
+since its first item verifies gate status — so a valid GATE-7 record cannot precede a valid GATE-2 record.

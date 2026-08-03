@@ -815,3 +815,28 @@ underlying state warrants. What it adds against § 6 is a reframing rather than 
 blocker into an addressable owner decision with a role attached, using the role labels the runbook's § 6 table
 supplies. § 12's legal/privacy/security readiness restates this record's Option F as the area where a unit of
 effort still moves the most, and, as before, it requires its own separate owner phrase.
+
+---
+
+## 26. Update (BR-SOURCE-11X)
+
+BR-SOURCE-11X creates formal owner decision record templates for GATE-2, GATE-7 and cap/input policy. It does
+not approve GATE-2. It does not approve GATE-7. It does not approve cap/input policy. It does not authorize
+caps, input roots, output roots, temp storage, controlled execution, real-data access, import, Supabase,
+runtime or Agent 1. Current recommendation remains NO-GO. See
+[`br-receita-cnpj-11x-formal-owner-decision-records-gate2-gate7-cap-input.md`](./br-receita-cnpj-11x-formal-owner-decision-records-gate2-gate7-cap-input.md).
+
+**All eight blockers in § 6 remain present**, including BLOCKER-1 and BLOCKER-8, which § 8 identified as
+binding. None of the § 10 minimum conditions before execution is satisfied, none of the § 11 minimum
+conditions before a runbook is satisfied, and none of the EV-1 … EV-10 evidence in § 12 has been produced.
+Every field in § 9 remains blank, and the § 8 recommended draft decision — Option A, keep execution blocked —
+is unchanged.
+
+What 11X adds against § 9 is a capture form, not a clearing. Its three records cover, between them, the
+GATE-2, GATE-7 and cap/input decisions this record's § 9 field list folds into a single owner form, and its
+§ 4 validity rules make explicit what § 9's default already implied: an authorization field is `false` unless
+explicitly approved, an approval without an expiry is void, and a record that reads as granting execution by
+implication is invalid rather than generous. Its § 9 also records the arithmetic against this document — three
+valid records would clear three of the § 6 blockers and leave BLOCKER-8 and the operator, reviewer, incident,
+limited broader local execution and controlled execution attempt items open. § 8's Option F remains the area
+where a unit of effort moves the most, and it still requires its own separate owner phrase.
