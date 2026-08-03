@@ -96,6 +96,18 @@ describe('mapLushaPhoneRevealResponseToInternalStatus — HTTP error statuses', 
     assert.equal(result.errorCode, 'provider_auth_error');
   });
 
+  test('403 → error / error / provider_permission_error (LUSHA-PHONE-FALLBACK-1)', () => {
+    const result = mapLushaPhoneRevealResponseToInternalStatus(403, {});
+    assert.deepEqual(result, {
+      candidateStatus: 'error',
+      usageStatus: 'error',
+      costSource: null,
+      errorCode: 'provider_permission_error',
+      availabilitySource: null,
+      phonesReturned: 0,
+    });
+  });
+
   test('500 → error / error / provider_error', () => {
     const result = mapLushaPhoneRevealResponseToInternalStatus(500, {});
     assert.equal(result.errorCode, 'provider_error');

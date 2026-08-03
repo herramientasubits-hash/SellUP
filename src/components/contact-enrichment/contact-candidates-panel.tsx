@@ -9,7 +9,8 @@ import { getPendingContactCandidates } from '@/modules/contact-enrichment/action
 import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { getCurrentUser } from '@/modules/access/actions';
-import { isApolloPhoneRevealEnabled } from '@/lib/feature-flags.server';
+import { isApolloPhoneRevealEnabled, isLushaPhoneRevealFallbackEnabled } from '@/lib/feature-flags.server';
+import { LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS } from '@/modules/contact-enrichment/lusha-phone-fallback-core';
 
 // Roles autorizados a revelar teléfono (PHONE-3D.4). Espejo del gate del server
 // action (PHONE_REVEAL_AUTHORIZED_ROLE_KEYS en phone-reveal-core): Administrador
@@ -44,6 +45,14 @@ export async function ContactCandidatesPanel() {
     (PHONE_REVEAL_AUTHORIZED_ROLE_KEYS as readonly string[]).includes(
       currentUser.role_key,
     );
+
+  // Gobierno del fallback Lusha (LUSHA-PHONE-FALLBACK-1): flag + rol se
+  // resuelven aquí (server component) y viajan como booleanos planos. Con el
+  // flag OFF (default de producción) el botón no se renderiza en ningún caso.
+  const lushaPhoneFallbackEnabled = isLushaPhoneRevealFallbackEnabled();
+  const lushaPhoneFallbackAuthorized =
+    !!currentUser?.role_key &&
+    LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS.includes(currentUser.role_key);
 
   const accountOwners = new Map(
     accountsList.filter((a) => a.owner_id).map((a) => [a.id, a.owner_id!]),
@@ -118,6 +127,8 @@ export async function ContactCandidatesPanel() {
         scopeFilterOptions={scopeFilterOptions}
         phoneRevealEnabled={phoneRevealEnabled}
         phoneRevealAuthorized={phoneRevealAuthorized}
+        lushaPhoneFallbackEnabled={lushaPhoneFallbackEnabled}
+        lushaPhoneFallbackAuthorized={lushaPhoneFallbackAuthorized}
       />
     </DataTablePage>
   );
