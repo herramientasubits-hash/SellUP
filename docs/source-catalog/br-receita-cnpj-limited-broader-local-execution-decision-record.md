@@ -739,3 +739,18 @@ Supabase, runtime or Agent 1. It does not approve any gate. See
 
 The candidate scope, candidate caps, access controls and output controls in § 7–14 of this record remain
 `proposed_only / not_authorized`; 11O designs how they would be enforced, and changes none of them.
+
+---
+
+## 30. Update (BR-SOURCE-11R)
+
+BR-SOURCE-11R creates the execution authorization decision record.
+It documents current blockers, owner decision options, required owner fields, minimum conditions before
+execution and before a runbook, evidence requirements, stop conditions, a risk table and future milestone
+mapping. It does not approve GATE-2. It does not authorize execution, real-data access, caps, input roots,
+output roots, temp storage, import, Supabase, runtime or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-execution-authorization-decision-record.md`](./br-receita-cnpj-execution-authorization-decision-record.md).
+
+The candidate caps in § 7–14 of this record are still `proposed_only / not_authorized` after 11P, 11Q and
+11R. The 11P scaffold records an all-`null` cap ceiling precisely so that no candidate cap here is mistaken
+for an authorized one, and 11R lists that absence as a non-negotiable blocker rather than resolving it.
