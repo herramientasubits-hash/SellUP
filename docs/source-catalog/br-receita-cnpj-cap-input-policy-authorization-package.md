@@ -828,3 +828,47 @@ manifest, opened no CSV and no ZIP, processed no row, executed no join, and comp
 recorded no cap ceiling, no input root and no output root — only the category shapes those decisions would
 eventually need. Every gate in § 23 remains `not_started / not approved`, including GATE-2 and GATE-7, and
 each milestone in § 20 still requires its own explicit owner authorization.
+
+---
+
+## 26. Update (BR-SOURCE-11V)
+
+BR-SOURCE-11V creates the controlled execution authorization review. It evaluates whether the minimum
+conditions exist to authorize a future controlled execution attempt. Current recommendation remains NO-GO
+because GATE-2, GATE-7, cap/input policy, caps, input roots, output roots, temp storage, limited broader
+local execution and controlled execution attempt authorization remain missing. It does not approve GATE-2.
+It does not approve GATE-7. It does not approve cap/input policy. It does not authorize execution, real-data
+access, caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It does not
+approve any gate. See
+[`br-receita-cnpj-controlled-execution-authorization-review.md`](./br-receita-cnpj-controlled-execution-authorization-review.md).
+
+11V was written under the § 20 milestone mapping, after the intervening BR-SOURCE-11U synthetic rehearsal
+validation passed with zero file, commit, push, PR and merge activity. It flips no status in this package:
+`Cap/input policy approval status` remains `not_authorized`, every cap ceiling in § 6 remains null, and the
+input and output classes in § 7 and § 8 remain unauthorized class labels. 11V's own § 6 prerequisite table
+records this package as `official` and its policy as `not approved` on adjacent rows, preserving exactly the
+distinction § 2 of this document draws.
+
+---
+
+## 27. Update (BR-SOURCE-11W-PRECONDITION-OWNER-PACKAGE)
+
+BR-SOURCE-11W-PRECONDITION-OWNER-PACKAGE creates a docs-only readiness package for missing owner decisions
+across GATE-2, GATE-7 and cap/input policy. It does not approve GATE-2. It does not approve GATE-7. It does
+not approve cap/input policy. It does not authorize caps, input roots, output roots, temp storage, controlled
+execution, real-data access, import, Supabase, runtime or Agent 1. Current recommendation remains NO-GO. See
+[`br-receita-cnpj-11w-precondition-owner-package-gate2-gate7-cap-input-readiness.md`](./br-receita-cnpj-11w-precondition-owner-package-gate2-gate7-cap-input-readiness.md).
+
+It flips no status in this package. Every cap ceiling in § 6 remains null; every input class in § 7 and every
+output class in § 8 remains an unauthorized class label, including the four classes § 7 blocks outright rather
+than merely leaving unapproved; the § 9 family lists remain unapproved with `simples` on the forbidden side;
+§ 10 authorizes no manifest reading; § 11 temp storage remains `not_authorized` with Option A still the
+recommendation; § 13 keeps exact percentages and full-dataset denominators `not_authorized`; and every field
+in § 14 remains blank. The package's own § 8 restates each of these as a `not_ready` readiness row and
+reaches `Cap/input policy readiness result: NOT READY`.
+
+Its § 5 owner decision matrix names this package's cap categories, input classes and output classes as the
+decision areas an owner would have to rule on, expressing every current value as `TBD_BY_OWNER` or
+`not_authorized` and every allowed value as a type or a class label rather than a number. That is the same
+category-versus-value rule § 4 of this document sets, applied to a decision surface rather than to a policy
+surface: a matrix row naming a cap is not a cap ceiling, and a blank remains null, which is not unlimited.

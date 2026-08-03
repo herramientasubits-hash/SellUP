@@ -791,3 +791,128 @@ describe('waterfall UI — no aprobar mientras la corrida no sea terminal', () =
     assert.equal((approve as HTMLButtonElement).disabled, false);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════
+// Infraestructura del waterfall NO DISPONIBLE (AGENT2A-PHONE-WATERFALL-2A)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * El servidor no pudo crear la corrida de auditoría, así que NO ejecutó ningún
+ * proveedor. El operador tiene que entender exactamente eso: el proceso no
+ * arrancó, ni Apollo ni Lusha corrieron, no se cobró nada, y puede reintentar.
+ *
+ * Lo que la UI NO puede decir aquí: que no se encontró teléfono (no se buscó), que
+ * Apollo falló (Apollo no participó), que algo costó 0 (nadie cobró porque nadie
+ * corrió), que hubo un éxito parcial, ni que existe una corrida.
+ */
+describe('waterfall UI — infraestructura de auditoría no disponible', () => {
+  const INFRA_RESULT = {
+    ok: false,
+    status: 'waterfall_infrastructure_unavailable',
+    requestAccepted: false,
+    errorCode: 'waterfall_run_unavailable',
+  };
+
+  async function revealWithInfraFailure() {
+    mockReveal.mock.mockImplementation(async () => INFRA_RESULT);
+    await renderSheet(lushaCandidate(), {
+      waterfallEnabled: true,
+      waterfallAuthorized: true,
+    });
+    await act(async () => {
+      fireEvent.click(revealButton()!);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar y revelar' }));
+    });
+  }
+
+  it('muestra el copy de infraestructura no disponible al operador', async () => {
+    await revealWithInfraFailure();
+    const text = bodyText();
+    assert.ok(
+      text.includes('No se pudo iniciar la revelación segura'),
+      'el operador debe ver que el proceso NO pudo iniciarse',
+    );
+    assert.ok(
+      text.includes('servicio de auditoría no está disponible'),
+      'debe explicar la causa: la auditoría, no el proveedor',
+    );
+    assert.ok(text.includes('Intenta nuevamente más tarde'), 'es reintentable');
+  });
+
+  it('el copy confirma CERO proveedores ejecutados', async () => {
+    await revealWithInfraFailure();
+    const text = bodyText();
+    assert.ok(text.includes('No se ejecutó Apollo'), 'Apollo no fue ejecutado');
+    assert.ok(text.includes('no se ejecutó Lusha'), 'Lusha no fue ejecutado');
+  });
+
+  it('el copy confirma CERO créditos consumidos', async () => {
+    await revealWithInfraFailure();
+    assert.ok(bodyText().includes('no se consumieron créditos'));
+  });
+
+  it('NO lo representa como un error de Apollo ni como "sin teléfono"', async () => {
+    await revealWithInfraFailure();
+    const text = bodyText();
+    // Nada de atribuir el fallo a Apollo ni de afirmar que se buscó y no había.
+    assert.equal(text.includes('Teléfono no disponible tras consultar Apollo'), false);
+    assert.equal(text.includes('Apollo no encontró teléfono'), false);
+    assert.equal(text.includes('Sin teléfono'), false);
+    assert.equal(text.includes('Revelación solicitada'), false);
+    // Y ningún costo atribuido a un proveedor: nadie corrió, nadie cobró.
+    assert.equal(text.includes('0 créditos'), false);
+    assert.equal(text.includes('costo no reportado'), false);
+  });
+
+  it('NO muestra auditoría de una corrida inexistente', async () => {
+    await revealWithInfraFailure();
+    const text = bodyText();
+    assert.equal(text.includes('Consultando Apollo'), false);
+    assert.equal(text.includes('consultando Lusha'), false);
+    assert.equal(text.includes('Omitida'), false);
+    assert.equal(text.includes('Proveedor final'), false);
+  });
+
+  it('el error es VISIBLE en pantalla, no solo en console.error', async () => {
+    await revealWithInfraFailure();
+    // Se renderiza en el slot de error del bloque de reveal (estilo destructivo),
+    // que es la afordancia de error que el operador ya reconoce en este panel: el
+    // mensaje no puede quedarse únicamente en el log del navegador.
+    const destructive = Array.from(
+      document.querySelectorAll('.text-destructive'),
+    ).map((el) => (el.textContent ?? '').replace(/\s+/g, ' '));
+    assert.ok(
+      destructive.some((t) => t.includes('No se pudo iniciar la revelación segura')),
+      'el copy debe aparecer en el slot de error visible',
+    );
+  });
+
+  it('no recarga el candidato: no se persistió nada', async () => {
+    mockReveal.mock.mockImplementation(async () => INFRA_RESULT);
+    await renderSheet(lushaCandidate(), {
+      waterfallEnabled: true,
+      waterfallAuthorized: true,
+    });
+    const loadsBefore = mockGetById.mock.callCount();
+    await act(async () => {
+      fireEvent.click(revealButton()!);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar y revelar' }));
+    });
+    assert.equal(
+      mockGetById.mock.callCount(),
+      loadsBefore,
+      'sin escrituras no hay nada nuevo que releer',
+    );
+  });
+
+  it('el botón sigue disponible para reintentar', async () => {
+    await revealWithInfraFailure();
+    const button = revealButton();
+    assert.ok(button, 'el operador puede volver a autorizar más tarde');
+    assert.equal((button as HTMLButtonElement).disabled, false);
+  });
+});
