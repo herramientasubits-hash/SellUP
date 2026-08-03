@@ -1484,3 +1484,15 @@ execution and before a runbook, evidence requirements, stop conditions, a risk t
 mapping. It does not approve GATE-2. It does not authorize execution, real-data access, caps, input roots,
 output roots, temp storage, import, Supabase, runtime or Agent 1. It does not approve any gate. See
 [`br-receita-cnpj-execution-authorization-decision-record.md`](./br-receita-cnpj-execution-authorization-decision-record.md).
+
+BR-SOURCE-11S creates the execution runbook.
+It documents roles, checklists, a non-executable command skeleton, stop conditions, an evidence template, an
+incident path, a future validation template and milestone mapping. It does not approve GATE-2. It does not
+authorize execution, real-data access, caps, input roots, temp storage, import, Supabase, runtime or Agent 1.
+It does not approve any gate. See
+[`br-receita-cnpj-execution-runbook.md`](./br-receita-cnpj-execution-runbook.md).
+
+11S adds **no gate evidence**, and none was anticipated. Its evidence-packet template is a blank shape whose
+every field would be produced by a run, and no run is authorized; its post-run validation template is
+explicitly future-only. The GATE-7 evidence gaps recorded in § 11 are unchanged, and no gate moves toward
+`ready_for_review`.

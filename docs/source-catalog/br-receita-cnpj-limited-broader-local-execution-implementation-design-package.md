@@ -981,3 +981,20 @@ recorded in § 29 — a `not_approved` GATE-2 state with an absent authorization
 ceiling — appear in 11R as the first three of eight non-negotiable blockers, unchanged and unresolved. 11R
 adds no flag, no cap, no input root and no execution permission, and the recommended draft decision it
 carries is to keep execution blocked.
+
+---
+
+## 31. Update (BR-SOURCE-11S)
+
+BR-SOURCE-11S creates the execution runbook.
+It documents roles, checklists, a non-executable command skeleton, stop conditions, an evidence template, an
+incident path, a future validation template and milestone mapping. It does not approve GATE-2. It does not
+authorize execution, real-data access, caps, input roots, temp storage, import, Supabase, runtime or Agent 1.
+It does not approve any gate. See
+[`br-receita-cnpj-execution-runbook.md`](./br-receita-cnpj-execution-runbook.md).
+
+The runbook's § 9 command skeleton is drawn from the § 8 conceptual flag contract, with the three flags § 29
+records as deliberately unimplemented — the two path-bearing ones and the one that would let a caller name the
+person-family denylist — deliberately absent from it as well, and with every cap placeholder naming the future
+authorization artifact instead of a value. The § 17 evidence shape reaches the runbook in its § 29 form: class
+tallies and buckets, never raw requested lists or exact figures.

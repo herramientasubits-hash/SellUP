@@ -734,3 +734,19 @@ no runtime path, no Agent 1 path, no provider, and no UI. It opened no real data
 manifest, opened no CSV and no ZIP, processed no row, executed no join, and computed no coverage figure. It
 recorded no cap ceiling, no input root and no output root. Every gate in § 19 remains `not_started / not
 approved`, and each milestone in § 16 still requires its own explicit owner authorization.
+
+---
+
+## 22. Update (BR-SOURCE-11S)
+
+BR-SOURCE-11S creates the execution runbook.
+It documents roles, checklists, a non-executable command skeleton, stop conditions, an evidence template, an
+incident path, a future validation template and milestone mapping. It does not approve GATE-2. It does not
+authorize execution, real-data access, caps, input roots, temp storage, import, Supabase, runtime or Agent 1.
+It does not approve any gate. See
+[`br-receita-cnpj-execution-runbook.md`](./br-receita-cnpj-execution-runbook.md).
+
+11S was written under Option C of § 7, against the § 11 minimum conditions for a runbook. It changes none of
+the eight blockers in § 6, satisfies none of the § 10 minimum conditions before execution, and produces none
+of the EV-1 … EV-10 evidence in § 12. The § 8 recommended draft decision — Option A, keep execution blocked —
+is unchanged, and 11S carries the same recommendation forward for itself.
