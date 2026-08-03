@@ -49,14 +49,24 @@ function advanceToSuccess(status: 'created' | 'already_started'): ProspectWizard
   });
 }
 
+/**
+ * Fuente de la capa de paneles del wizard.
+ *
+ * A1-APOLLO-QA-CONTROL-SURFACE-1: los paneles de la fase de EJECUCIÓN (overlay,
+ * envío y éxito) se movieron a `wizard-execution-panels.tsx` para que
+ * `wizard-conversation-summary.tsx` no pasara el techo de tamaño del repo. Estas
+ * aserciones son sobre el CONTENIDO —copy, tokens, toasts, estructura—, no sobre
+ * en qué archivo vive; se leen los dos para que un movimiento de archivo no se
+ * confunda con una regresión de comportamiento.
+ */
 function readComponentSrc(): string {
-  return readFileSync(
-    resolve(
-      process.cwd(),
-      'src/components/prospect-batches/chat-wizard/wizard-conversation-summary.tsx',
-    ),
-    'utf8',
-  );
+  const base = 'src/components/prospect-batches/chat-wizard';
+  return [
+    `${base}/wizard-conversation-summary.tsx`,
+    `${base}/wizard-execution-panels.tsx`,
+  ]
+    .map((relative) => readFileSync(resolve(process.cwd(), relative), 'utf8'))
+    .join('\n');
 }
 
 // ── Block A: Loader state (20.A) ──────────────────────────────────────────────
@@ -110,7 +120,7 @@ describe('20.A.2 — CTA is implicitly disabled during submitting (state invaria
 });
 
 describe('20.A.3 — SubmittingPanel source uses full gradient overlay (Hito 16AB.43.22)', () => {
-  it('wizard-conversation-summary.tsx does NOT import AILoader (overlay replaces it)', () => {
+  it('the wizard panel layer does NOT import AILoader (overlay replaces it)', () => {
     const src = readComponentSrc();
     assert.ok(
       !src.includes("import { AILoader }"),
@@ -118,7 +128,7 @@ describe('20.A.3 — SubmittingPanel source uses full gradient overlay (Hito 16A
     );
   });
 
-  it('WizardGenerationOverlay is defined in wizard-conversation-summary.tsx', () => {
+  it('WizardGenerationOverlay is defined in the wizard panel layer', () => {
     const src = readComponentSrc();
     assert.ok(
       src.includes('WizardGenerationOverlay'),
@@ -241,7 +251,7 @@ describe('20.B.3 — Error path must NOT reach success step (no false success to
 });
 
 describe('20.B.4 — SuccessPanel source calls correct toast variants', () => {
-  it('wizard-conversation-summary.tsx imports toast from sonner', () => {
+  it('the wizard panel layer imports toast from sonner', () => {
     const src = readComponentSrc();
     assert.ok(
       src.includes("import { toast } from 'sonner'"),
@@ -253,7 +263,7 @@ describe('20.B.4 — SuccessPanel source calls correct toast variants', () => {
     const src = readComponentSrc();
     assert.ok(
       src.includes('toast.success('),
-      'toast.success not found in wizard-conversation-summary.tsx — Block B is not implemented',
+      'toast.success not found in the wizard panel layer — Block B is not implemented',
     );
   });
 
@@ -261,7 +271,7 @@ describe('20.B.4 — SuccessPanel source calls correct toast variants', () => {
     const src = readComponentSrc();
     assert.ok(
       src.includes('toast.info('),
-      'toast.info not found in wizard-conversation-summary.tsx — already_started branch missing',
+      'toast.info not found in the wizard panel layer — already_started branch missing',
     );
   });
 
@@ -342,7 +352,7 @@ describe('20.R — Error path regression after Block A/B changes', () => {
     assert.equal(s.executionStatus, 'created');
   });
 
-  it('wizard-conversation-summary.tsx does not use toast.error (errors use inline UI, not toasts)', () => {
+  it('the wizard panel layer does not use toast.error (errors use inline UI, not toasts)', () => {
     const src = readComponentSrc();
     // Error feedback must go through the inline error banner in ValidatedPanel,
     // not through toast — to avoid toast stacking on retryable errors.

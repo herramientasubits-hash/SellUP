@@ -27,6 +27,14 @@ export const PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS = 8;
  */
 export const PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS = 13;
 
+/**
+ * Tope de una corrida LEGACY (AGENT2A-PHONE-WATERFALL-2): SOLO Lusha, así que es el
+ * tope de Lusha y NUNCA incluye los 8 de Apollo — ese intento ya ocurrió y ya se
+ * cobró bajo otra autorización. Espejo de
+ * PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS del core.
+ */
+export const PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS = 5;
+
 // ── Estados visibles ───────────────────────────────────────────
 
 /** Apollo en vuelo (primera pata). */
@@ -87,6 +95,35 @@ export const PHONE_REVEAL_WATERFALL_INFRASTRUCTURE_UNAVAILABLE_COPY =
 export const PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY =
   'La revelación de teléfono sigue en proceso.';
 
+// ── Modalidad legacy (AGENT2A-PHONE-WATERFALL-2) ───────────────
+
+/** Pata Lusha reclamada o en curso en una corrida legacy (Apollo no participa). */
+export const PHONE_REVEAL_WATERFALL_LEGACY_LUSHA_RUNNING_COPY =
+  'Consultando Lusha…';
+
+/**
+ * Terminal sin teléfono en una corrida legacy. NO puede decir "tras consultar Apollo
+ * y Lusha" en presente: Apollo no se ejecutó en esta autorización, se intentó antes.
+ */
+export const PHONE_REVEAL_WATERFALL_LEGACY_EXHAUSTED_COPY =
+  'Lusha tampoco encontró un teléfono. Apollo ya se había intentado anteriormente sin resultado.';
+
+/**
+ * Etiqueta de la pata Apollo en el bloque de auditoría de una corrida legacy. Es
+ * DELIBERADAMENTE distinta de "No intentado": Apollo SÍ se intentó, antes y fuera de
+ * esta autorización, y esa es la razón por la que no se ejecutó aquí.
+ */
+export const PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_AUDIT_COPY =
+  'Intentado anteriormente, fuera de esta autorización';
+
+/**
+ * Costo de la pata Apollo en una corrida legacy. El costo histórico pertenece a la
+ * autorización que realmente lo pagó, así que aquí no se muestra ninguna cifra —
+ * y mucho menos un 0, que se leería como "fue gratis".
+ */
+export const PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_COST_COPY =
+  'Sin cargo en esta autorización';
+
 // ── Modal único de confirmación ────────────────────────────────
 
 export interface PhoneRevealWaterfallModalCopy {
@@ -113,6 +150,19 @@ const PHONE_REVEAL_WATERFALL_COMMON_WARNINGS: readonly string[] = [
 ];
 
 /**
+ * Advertencias de la modalidad LEGACY (AGENT2A-PHONE-WATERFALL-2). Además de las
+ * comunes, dicen explícitamente lo que el operador necesita saber para que la
+ * autorización sea informada: que no garantiza teléfono y que no crea un contacto
+ * oficial. Que Apollo no se reejecuta y que el tope es 5 los dicen
+ * `flowDescription` y `creditsMessage`.
+ */
+const PHONE_REVEAL_WATERFALL_LEGACY_WARNINGS: readonly string[] = [
+  'No garantiza encontrar un teléfono.',
+  'No crea un contacto oficial automáticamente.',
+  ...PHONE_REVEAL_WATERFALL_COMMON_WARNINGS,
+];
+
+/**
  * Copy del modal ÚNICO. No hay segundo modal ni segundo clic: lo que el operador
  * confirma aquí cubre las dos patas.
  *
@@ -123,7 +173,30 @@ const PHONE_REVEAL_WATERFALL_COMMON_WARNINGS: readonly string[] = [
  */
 export function getPhoneRevealWaterfallModalCopy(args: {
   lushaEligible: boolean;
+  /**
+   * `true` cuando la autorización cubre ÚNICAMENTE la pata Lusha porque Apollo ya
+   * se intentó antes y no encontró teléfono (AGENT2A-PHONE-WATERFALL-2). Cambia el
+   * tope a 5 y el copy a decir explícitamente que Apollo NO volverá a ejecutarse.
+   * Default `false` ⇒ el modal del waterfall completo, sin cambios.
+   */
+  legacyLushaOnly?: boolean;
 }): PhoneRevealWaterfallModalCopy {
+  // La modalidad legacy manda sobre `lushaEligible`: solo se ofrece cuando Lusha es
+  // alcanzable, y su tope es el de Lusha, nunca 13 ni 8.
+  if (args.legacyLushaOnly === true) {
+    return {
+      title: PHONE_REVEAL_WATERFALL_BUTTON_LABEL,
+      flowDescription:
+        'Apollo ya fue intentado anteriormente y no encontró un teléfono. Esta autorización no volverá a ejecutar Apollo. Solo se intentará Lusha.',
+      creditsMessage: `Puede consumir hasta ${PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS} créditos de Lusha.`,
+      maxCredits: PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS,
+      lushaUnavailableNote: null,
+      warnings: PHONE_REVEAL_WATERFALL_LEGACY_WARNINGS,
+      confirmLabel: 'Confirmar y revelar',
+      cancelLabel: 'Cancelar',
+    };
+  }
+
   const maxCredits = args.lushaEligible
     ? PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS
     : PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS;

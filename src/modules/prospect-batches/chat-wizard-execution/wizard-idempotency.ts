@@ -12,6 +12,11 @@
  * - Non-23505 errors propagate as typed WizardIdempotencyError.
  */
 
+import {
+  RUN_PROVIDER_SELECTION_METADATA_KEY,
+  type WizardRunProviderSelectionMetadata,
+} from './wizard-run-provider-selection';
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type WizardExecutionReservationInput = {
@@ -27,6 +32,19 @@ export type WizardExecutionReservationInput = {
     subindustryIds: string[];
     countryCode: string;
     additionalCriteria: string | null;
+    /**
+     * A1-APOLLO-QA-CONTROL-SURFACE-1 § 8/§ 26 — selección de proveedor de la
+     * corrida, ya resuelta server-side.
+     *
+     * Aterriza en el INSERT inicial y no en una segunda escritura. Eso importa por
+     * dos razones: la ruta Tavily no tiene costura `extraBatchMetadata` (sólo la
+     * de Apollo la tiene), así que sin esto una corrida Tavily con petición
+     * explícita no conservaba requested/resolved/reason en ninguna parte; y es la
+     * fila que un reintento vuelve a leer para conservar su proveedor original.
+     *
+     * Ausente ⇒ el metadata queda EXACTAMENTE igual que antes del hito.
+     */
+    runProviderSelection?: WizardRunProviderSelectionMetadata;
   };
 };
 
@@ -186,5 +204,78 @@ function buildMetadata(
     subindustry_ids: payload.subindustryIds,
     country_code: payload.countryCode,
     additional_criteria: payload.additionalCriteria,
+    // Aditivo: sin selección el objeto no gana ninguna clave nueva.
+    ...(payload.runProviderSelection
+      ? { [RUN_PROVIDER_SELECTION_METADATA_KEY]: payload.runProviderSelection }
+      : {}),
   };
+}
+
+// ── Lectura del proveedor del intento anterior (§ 9) ──────────────────────────
+
+/**
+ * Cliente mínimo para releer la selección de proveedor de una corrida existente.
+ * Declarado aparte de `IdempotencyDbClient` porque selecciona otra columna.
+ */
+export interface PreviousAttemptProviderDbClient {
+  from(table: string): {
+    select(columns: string): {
+      eq(
+        column: string,
+        value: string,
+      ): {
+        eq(
+          column: string,
+          value: string,
+        ): {
+          maybeSingle(): Promise<{
+            data: { metadata: unknown } | null;
+            error: DbError | null;
+          }>;
+        };
+      };
+    };
+  };
+}
+
+/**
+ * A1-APOLLO-QA-CONTROL-SURFACE-1 § 9 — proveedor que un intento anterior de la
+ * MISMA corrida ya resolvió.
+ *
+ * Existe para que un reintento no se convierta en Tavily porque el navegador
+ * perdió la selección: el proveedor de una corrida se fija una vez y la reserva
+ * queda atada a él.
+ *
+ * Devuelve `null` para cualquier ausencia o forma inesperada —fila inexistente,
+ * metadata ilegible, error de lectura— y NUNCA lanza: no poder leer el intento
+ * anterior debe degradar al comportamiento previo (decide el global), jamás
+ * romper la ejecución. La validación del valor la hace el núcleo puro.
+ */
+export async function readPreviousAttemptDiscoveryProvider(
+  input: { userId: string; clientRequestId: string },
+  db: PreviousAttemptProviderDbClient,
+): Promise<string | null> {
+  try {
+    const { data, error } = await db
+      .from('prospect_batches')
+      .select('metadata')
+      .eq('created_by', input.userId)
+      .eq('client_request_id', input.clientRequestId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    const metadata = data.metadata;
+    if (typeof metadata !== 'object' || metadata === null) return null;
+
+    const selection = (metadata as Record<string, unknown>)[
+      RUN_PROVIDER_SELECTION_METADATA_KEY
+    ];
+    if (typeof selection !== 'object' || selection === null) return null;
+
+    const resolved = (selection as Record<string, unknown>)['resolved_discovery_provider'];
+    return typeof resolved === 'string' ? resolved : null;
+  } catch {
+    return null;
+  }
 }

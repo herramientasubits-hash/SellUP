@@ -21,7 +21,13 @@ import {
   APOLLO_MAX_RESULTS_DEFAULT,
   APOLLO_MAX_RESULTS_HARD_CAP,
 } from '@/server/agents/prospecting-toolkit/apollo-cost-guardrails';
-import { resolveApolloMaxEnrichmentsPerRun } from '@/lib/feature-flags.server';
+import {
+  resolveApolloMaxEnrichmentsPerRun,
+  isApolloCompanySearchEnabled,
+  isApolloTwoRoundDiscoveryEnabled,
+  isWizardRunProviderOverrideEnabled,
+} from '@/lib/feature-flags.server';
+import { isRunProviderOverrideSurfaceAvailable } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
 import {
   resolveWizardDiscoveryProviderVerbose,
   APOLLO_ORGANIZATION_ROLES,
@@ -143,5 +149,68 @@ describe('agent1-apollo-config: APOLLO_ORGANIZATION_ROLES', () => {
 
   it('enrichment role is enrichment', () => {
     assert.strictEqual(APOLLO_ORGANIZATION_ROLES.enrichment, 'enrichment');
+  });
+});
+
+// ─── Tests: run_provider_override_surface_available (§ 12) ────────────────────
+//
+// A1-APOLLO-QA-CONTROL-SURFACE-1 · § 12 · casos 29 y 30.
+//
+// El campo publica la conjunción RESUELTA de los tres candados que gobiernan la
+// superficie «Proveedor de esta corrida». Se prueba con los mismos helpers que el
+// endpoint usa, leyendo entorno a través de `withEnv` — sin llamadas externas y
+// sin créditos.
+
+describe('agent1-apollo-config: run_provider_override_surface_available', () => {
+  /** Reproduce EXACTAMENTE lo que el endpoint calcula para este campo. */
+  function surfaceAvailable(): boolean {
+    return isRunProviderOverrideSurfaceAvailable({
+      runOverrideEnabled: isWizardRunProviderOverrideEnabled(),
+      apolloCompanySearchEnabled: isApolloCompanySearchEnabled(),
+      apolloTwoRoundDiscoveryEnabled: isApolloTwoRoundDiscoveryEnabled(),
+    });
+  }
+
+  const ALL_ON = {
+    ENABLE_WIZARD_RUN_PROVIDER_OVERRIDE: 'true',
+    ENABLE_APOLLO_COMPANY_SEARCH: 'true',
+    ENABLE_APOLLO_TWO_ROUND_DISCOVERY: 'true',
+  };
+
+  it('true only when the three gates are on', () => {
+    withEnv(ALL_ON, () => {
+      assert.strictEqual(surfaceAvailable(), true);
+    });
+  });
+
+  it('false when the override flag is off', () => {
+    withEnv({ ...ALL_ON, ENABLE_WIZARD_RUN_PROVIDER_OVERRIDE: 'false' }, () => {
+      assert.strictEqual(surfaceAvailable(), false);
+    });
+  });
+
+  it('false when the Apollo kill switch is off', () => {
+    withEnv({ ...ALL_ON, ENABLE_APOLLO_COMPANY_SEARCH: 'false' }, () => {
+      assert.strictEqual(surfaceAvailable(), false);
+    });
+  });
+
+  it('false when the two-round modality is off', () => {
+    withEnv({ ...ALL_ON, ENABLE_APOLLO_TWO_ROUND_DISCOVERY: 'false' }, () => {
+      assert.strictEqual(surfaceAvailable(), false);
+    });
+  });
+
+  it('false when every flag is absent — fail-closed, the current Production state', () => {
+    withEnv(
+      {
+        ENABLE_WIZARD_RUN_PROVIDER_OVERRIDE: undefined,
+        ENABLE_APOLLO_COMPANY_SEARCH: undefined,
+        ENABLE_APOLLO_TWO_ROUND_DISCOVERY: undefined,
+      },
+      () => {
+        assert.strictEqual(surfaceAvailable(), false);
+      },
+    );
   });
 });

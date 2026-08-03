@@ -1,5 +1,28 @@
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
 import type { WizardApolloSkipReason } from './wizard-apollo-availability';
+import type {
+  ProviderResolutionReason,
+  WizardDiscoveryProvider,
+} from './wizard-run-provider-selection';
+
+// ── Run-level provider outcome (A1-APOLLO-QA-CONTROL-SURFACE-1 § 10) ──────────
+
+/**
+ * Lo que el SERVIDOR decidió sobre el proveedor de esta corrida.
+ *
+ * Viaja de vuelta al cliente para que la UI pueda nombrar el proveedor real en
+ * vez de su propia selección. Sólo códigos estáticos y nombres de proveedor: sin
+ * nombres de variables de entorno, sin sus valores, sin roles.
+ */
+export type WizardRunProviderOutcome = {
+  /** Lo que se pidió, si se pidió algo válido. */
+  requested: WizardDiscoveryProvider | null;
+  /** El que el servidor resolvió. La única fuente para el indicador de la UI. */
+  resolved: WizardDiscoveryProvider;
+  reason: ProviderResolutionReason;
+  /** True cuando la corrida se apartó del predeterminado global. */
+  isRunLevelOverride: boolean;
+};
 
 // ── Error codes ───────────────────────────────────────────────────────────────
 
@@ -145,6 +168,24 @@ export type WizardExecutionActionResult =
       targetPersistibleCandidates?: number;
       /** True when candidatesCreated >= targetPersistibleCandidates. */
       targetReached?: boolean;
+      /**
+       * A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — proveedor REAL de esta corrida.
+       *
+       * Presente en cuanto la selección por corrida se resolvió. La UI debe
+       * pintar esto y no su propia selección: si el usuario pidió Apollo y el
+       * servidor resolvió Tavily, aquí llega Tavily.
+       */
+      runProvider?: WizardRunProviderOutcome;
+      /**
+       * § 11 — cifras reales de la modalidad de dos rondas, cuando corrió.
+       *
+       * Cada campo admite `null` = «no se sabe», distinto de `0`. Ausente cuando
+       * la modalidad no corrió.
+       */
+      twoRoundOutcome?: {
+        roundsExecuted: number | null;
+        eligibleCompaniesFound: number | null;
+      };
     }
   | {
       ok: false;
@@ -194,4 +235,15 @@ export type WizardExecutionActionResult =
        * Código estático. Nunca lleva valores de entorno ni cifras de otro usuario.
        */
       blockDetail?: string;
+      /**
+       * A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — proveedor resuelto, también en el
+       * fallo.
+       *
+       * Presente sólo cuando la selección llegó a resolverse (un fallo de flag,
+       * sesión, schema o catálogo ocurre antes y no tiene proveedor que reportar).
+       * Existe porque un rechazo tiene que poder decir con qué proveedor se
+       * rechazó: sin esto, un admin que pidió Apollo y recibió un error no puede
+       * distinguir «Apollo falló» de «nunca se intentó Apollo».
+       */
+      runProvider?: WizardRunProviderOutcome;
     };

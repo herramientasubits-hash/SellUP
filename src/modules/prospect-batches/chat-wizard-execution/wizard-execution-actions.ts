@@ -11,9 +11,24 @@ import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
 import { WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
-import type { WizardExecutionActionResult, ResolvedWizardExecution } from './wizard-execution-types';
-import { reserveWizardExecutionSlot } from './wizard-idempotency';
-import type { WizardExecutionReservationInput, WizardExecutionReservationResult, IdempotencyDbClient } from './wizard-idempotency';
+import type {
+  WizardExecutionActionResult,
+  ResolvedWizardExecution,
+  WizardRunProviderOutcome,
+} from './wizard-execution-types';
+import {
+  reserveWizardExecutionSlot,
+  readPreviousAttemptDiscoveryProvider,
+} from './wizard-idempotency';
+import type {
+  WizardExecutionReservationInput,
+  WizardExecutionReservationResult,
+  IdempotencyDbClient,
+  PreviousAttemptProviderDbClient,
+} from './wizard-idempotency';
+// A1-APOLLO-QA-CONTROL-SURFACE-1 § 7 — un solo lector de sesión y rol, compartido
+// con la capacidad que gobierna la superficie administrativa.
+import { isWizardApolloDiscoveryRolePermitted } from './wizard-run-provider-capability.server';
 import { isTavilyConfiguredForWizard } from './wizard-availability';
 // A1-APOLLO-WIZARD-1 — preflight de Apollo. Antes, con Apollo seleccionado y
 // sin credencial, la ejecución reservaba presupuesto y lote y sólo entonces el
@@ -39,6 +54,7 @@ import {
   toExecutableDiscoveryProvider,
   toRunProviderSelectionMetadata,
   buildProviderSelectionSignature,
+  isWizardDiscoveryProvider,
   RUN_PROVIDER_SELECTION_METADATA_KEY,
   type WizardRunProviderSelection,
   type ProviderSelectionAuthority,
@@ -177,7 +193,24 @@ export type WizardExecutionDeps = {
    */
   resolveRunProviderSelection?: (input: {
     requestedProvider?: string;
+    /**
+     * A1-APOLLO-QA-CONTROL-SURFACE-1 § 9 — proveedor ya resuelto por un intento
+     * anterior de la MISMA corrida. Presente sólo en reintentos.
+     */
+    previousAttemptProvider?: string | null;
   }) => Promise<WizardRunProviderSelection> | WizardRunProviderSelection;
+  /**
+   * § 9 — relee el proveedor del intento anterior de esta corrida.
+   *
+   * Opcional: sin ella el comportamiento es EXACTAMENTE el previo al hito (cada
+   * intento resuelve de cero). La implementación de producción sólo consulta la
+   * base cuando la capacidad de override está encendida, así que con el flag
+   * apagado no añade ni una lectura.
+   */
+  readPreviousAttemptProvider?: (input: {
+    userId: string;
+    clientRequestId: string;
+  }) => Promise<string | null>;
   markBatchFailed: (batchId: string, reason: 'batchid_mismatch' | 'pipeline_error') => Promise<void>;
 };
 
@@ -191,35 +224,15 @@ const BOGOTA_TIMEZONE = 'America/Bogota';
 /**
  * A1-APOLLO-WIZARD-1 — rol admitido para discovery de empresas con Apollo.
  *
- * Refleja la misma regla que ya gobierna la ruta legacy (`admin`), resuelta
- * aquí en vez de importarse desde el módulo de acciones de 4k líneas. Falla
- * cerrado: un rol ilegible no es un rol admitido.
+ * A1-APOLLO-QA-CONTROL-SURFACE-1 § 7: la lectura de sesión y rol vive ahora en
+ * `wizard-run-provider-capability.server.ts`, para que la capacidad que decide si
+ * la UI muestra el selector y la autoridad que decide si la ejecución lo honra
+ * salgan de la MISMA función. Dos lectores del rol es como se consigue una UI que
+ * ofrece lo que el servidor luego rechaza.
+ *
+ * Sigue fallando cerrado: un rol ilegible no es un rol admitido.
  */
-async function resolveIsApolloDiscoveryRolePermitted(): Promise<boolean> {
-  try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
-
-    const { data: internalUser } = await supabase
-      .from('internal_users')
-      .select('id, role_id')
-      .eq('auth_user_id', user.id)
-      .eq('access_status', 'active')
-      .single();
-    if (!internalUser) return false;
-
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', internalUser.role_id)
-      .single();
-
-    return role?.key === 'admin';
-  } catch {
-    return false;
-  }
-}
+const resolveIsApolloDiscoveryRolePermitted = isWizardApolloDiscoveryRolePermitted;
 
 // Budget RPC functions (try_reserve_wizard_credits, confirm_wizard_credits, release_wizard_credits)
 // and the wizard_budget_reservations table are REVOKE'd from the `authenticated` role — they require
@@ -352,7 +365,7 @@ export async function executeProspectWizardGenerationAction(
     // autoridad NO: se deriva de la sesión y del rol en la base, server-side.
     // Un cliente que envíe `isAdmin=true` o `providerAuthorized=true` no obtiene
     // nada — esos campos ni siquiera existen en el schema, que es `.strict()`.
-    resolveRunProviderSelection: async ({ requestedProvider }) => {
+    resolveRunProviderSelection: async ({ requestedProvider, previousAttemptProvider }) => {
       // La autoridad sólo se consulta cuando hay algo que autorizar: sin
       // petición, una corrida normal no paga una consulta de rol.
       const authority: ProviderSelectionAuthority | null =
@@ -365,6 +378,11 @@ export async function executeProspectWizardGenerationAction(
         authority,
         runOverrideEnabled: isWizardRunProviderOverrideEnabled(),
         globalDefaultProvider: resolveWizardDiscoveryProvider(),
+        // § 9 — la elección de un intento anterior gana sobre la petición nueva.
+        // El núcleo valida el valor: un string desconocido no resucita nada.
+        previousAttemptProvider: isWizardDiscoveryProvider(previousAttemptProvider)
+          ? previousAttemptProvider
+          : null,
         enabledProviders: {
           tavily: true,
           // Kill switch real. Con el flag apagado, ninguna corrida puede usar
@@ -374,6 +392,18 @@ export async function executeProspectWizardGenerationAction(
           lusha_companies: false,
         },
       });
+    },
+
+    // § 9 — sólo se consulta la base cuando la capacidad de elegir proveedor por
+    // corrida está encendida. Con el flag apagado —el estado actual de
+    // Producción— esta dep devuelve null sin una sola query, así que la ruta que
+    // hoy funciona no gana ni latencia ni una lectura.
+    readPreviousAttemptProvider: async ({ userId, clientRequestId }) => {
+      if (!isWizardRunProviderOverrideEnabled()) return null;
+      return readPreviousAttemptDiscoveryProvider(
+        { userId, clientRequestId },
+        supabase as unknown as PreviousAttemptProviderDbClient,
+      );
     },
 
     markBatchFailed: (batchId, reason) =>
@@ -492,9 +522,22 @@ export async function executeProspectWizardGeneration(
   // Sin dep inyectada se conserva EXACTAMENTE el comportamiento previo: el
   // predeterminado global decide y no hay petición por corrida. Los tests que ya
   // inyectan `resolveProvider` siguen gobernando la decisión.
+  //
+  // § 9 — antes de resolver se relee la elección del intento anterior de ESTA
+  // corrida (misma pareja userId + clientRequestId). Un reintento conserva su
+  // proveedor incluso si el navegador perdió la selección: la reserva ya está
+  // atada a ese proveedor, y dejar que un reintento cambie de proveedor es
+  // exactamente el descuadre que la firma de petición intenta hacer visible.
+  const previousAttemptProvider = deps.readPreviousAttemptProvider
+    ? await deps
+        .readPreviousAttemptProvider({ userId, clientRequestId: req.clientRequestId })
+        .catch(() => null)
+    : null;
+
   const runProviderSelection: WizardRunProviderSelection =
     (await deps.resolveRunProviderSelection?.({
       requestedProvider: req.requestedDiscoveryProvider,
+      previousAttemptProvider,
     })) ??
     resolveWizardRunProvider({
       authority: null,
@@ -507,6 +550,34 @@ export async function executeProspectWizardGeneration(
       },
     });
 
+  // Proyección de la decisión hacia el cliente (§ 10). Se construye una sola vez
+  // y viaja tanto en el éxito como en el rechazo: un admin que pidió Apollo tiene
+  // que poder ver con qué proveedor terminó, incluso cuando terminó en un error.
+  const runProviderOutcome: WizardRunProviderOutcome = {
+    requested: runProviderSelection.requestedDiscoveryProvider,
+    resolved: runProviderSelection.resolvedDiscoveryProvider,
+    reason: runProviderSelection.providerResolutionReason,
+    isRunLevelOverride: runProviderSelection.isRunLevelOverride,
+  };
+
+  // § 9 — el proveedor del intento anterior quedó apagado entre intentos. NO se
+  // sustituye por otro: cambiar de proveedor no es un mecanismo de recuperación.
+  // Se detiene sin llamar a Apollo, sin llamar a Tavily y sin reservar nada, de
+  // modo que la evidencia y el estado indeterminado del intento previo quedan
+  // intactos para la reconciliación.
+  if (
+    runProviderSelection.providerResolutionReason ===
+    'previous_attempt_provider_disabled_fail_closed'
+  ) {
+    return {
+      ok: false,
+      code: 'PROVIDER_UNAVAILABLE',
+      message: 'El proveedor de búsqueda seleccionado no está disponible en este momento.',
+      retryable: false,
+      runProvider: runProviderOutcome,
+    };
+  }
+
   const executableProvider = toExecutableDiscoveryProvider(runProviderSelection);
   if (executableProvider === null) {
     // Un proveedor del contrato de routing sin ruta de ejecución en el wizard de
@@ -517,6 +588,7 @@ export async function executeProspectWizardGeneration(
       code: 'PROVIDER_UNAVAILABLE',
       message: 'El proveedor de búsqueda seleccionado no está disponible en este momento.',
       retryable: false,
+      runProvider: runProviderOutcome,
     };
   }
   const discoveryProvider: WizardDiscoveryProviderKey = executableProvider;
@@ -574,6 +646,7 @@ export async function executeProspectWizardGeneration(
         code: 'GENERATION_FAILED',
         message: 'No se pudo validar el enrutamiento del proveedor de búsqueda.',
         retryable: false,
+        runProvider: runProviderOutcome,
       };
     }
   }
@@ -592,6 +665,7 @@ export async function executeProspectWizardGeneration(
         code: 'PROVIDER_UNAVAILABLE',
         message: 'No se pudo verificar la disponibilidad del proveedor de búsqueda.',
         retryable: true,
+        runProvider: runProviderOutcome,
         providerSkipped: {
           provider: 'apollo_organizations',
           skipReason: 'availability_check_failed',
@@ -611,6 +685,7 @@ export async function executeProspectWizardGeneration(
         retryable:
           availability.skipReason === 'availability_check_failed' ||
           availability.skipReason === 'capability_unavailable',
+        runProvider: runProviderOutcome,
         providerSkipped: {
           provider: 'apollo_organizations',
           skipReason: availability.skipReason,
@@ -628,6 +703,7 @@ export async function executeProspectWizardGeneration(
         code: 'PROVIDER_UNAVAILABLE',
         message: 'El proveedor de búsqueda Tavily no está disponible en este momento.',
         retryable: true,
+        runProvider: runProviderOutcome,
       };
     }
   }
@@ -658,6 +734,7 @@ export async function executeProspectWizardGeneration(
       code: budgetResult.code,
       message: GUARDRAIL_MESSAGES[budgetResult.code] ?? budgetResult.message,
       retryable: false,
+      runProvider: runProviderOutcome,
       ...(twoRoundBlockDetail !== null ? { blockDetail: twoRoundBlockDetail } : {}),
     };
   }
@@ -754,6 +831,12 @@ export async function executeProspectWizardGeneration(
         subindustryIds: catalogResolution.subindustries.map((s) => s.id),
         countryCode: req.countryCode,
         additionalCriteria: req.additionalCriteriaRaw,
+        // § 8/§ 26 — requested/resolved/reason quedan en el INSERT inicial, para
+        // TODOS los proveedores. La costura `extraBatchMetadata` sólo existe en la
+        // ruta de Apollo, así que sin esto una corrida Tavily con petición
+        // explícita no dejaba rastro de que se pidió otra cosa. También es la fila
+        // que un reintento relee para conservar su proveedor (§ 9).
+        runProviderSelection: toRunProviderSelectionMetadata(runProviderSelection),
       },
     });
   } catch {
@@ -766,6 +849,7 @@ export async function executeProspectWizardGeneration(
       code: 'GENERATION_FAILED',
       message: 'No se pudo reservar la ejecución. Por favor, intenta nuevamente.',
       retryable: true,
+      runProvider: runProviderOutcome,
     };
   }
 
@@ -786,6 +870,9 @@ export async function executeProspectWizardGeneration(
       batchId: reservation.batchId,
       batchStatus: 'draft',
       redirectPath: `/prospect-batches/${reservation.batchId}`,
+      // § 9/§ 10 — un reintento reporta el proveedor de la corrida, que es el
+      // preservado, no el que el navegador tenga seleccionado ahora.
+      runProvider: runProviderOutcome,
     };
   }
 
@@ -826,6 +913,7 @@ export async function executeProspectWizardGeneration(
       code: 'GENERATION_FAILED',
       message: 'El pipeline de búsqueda falló durante la ejecución.',
       retryable: false,
+      runProvider: runProviderOutcome,
     };
   }
 
@@ -839,6 +927,7 @@ export async function executeProspectWizardGeneration(
       code: 'GENERATION_FAILED',
       message: 'Se detectó una inconsistencia interna en el ID del lote generado.',
       retryable: false,
+      runProvider: runProviderOutcome,
     };
   }
 
@@ -885,6 +974,38 @@ export async function executeProspectWizardGeneration(
     // modalidad de dos rondas viaja por la misma vía, con el mismo código.
     ...buildReconciliationOutcome(lastReconciliation, pipelineResult),
     ...(noveltyExhausted ? { noveltyExhausted: true as const } : {}),
+    // A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — el proveedor REAL de esta corrida.
+    runProvider: runProviderOutcome,
+    // § 11 — cifras reales de dos rondas, sólo si la modalidad corrió.
+    ...buildTwoRoundOutcome(pipelineResult),
+  };
+}
+
+/**
+ * A1-APOLLO-QA-CONTROL-SURFACE-1 § 11 — proyecta las cifras de dos rondas que la
+ * observabilidad del pipeline dejó en el metadata.
+ *
+ * Devuelve `{}` cuando la modalidad no corrió, y `null` por campo cuando el dato
+ * está ausente o tiene una forma inesperada. Nunca lanza y nunca inventa un cero:
+ * «no se sabe cuántas rondas corrieron» no es «corrió una».
+ */
+function buildTwoRoundOutcome(
+  pipelineResult: IncrementalSearchOutput | null | undefined,
+): { twoRoundOutcome?: { roundsExecuted: number | null; eligibleCompaniesFound: number | null } } {
+  const metadata = pipelineResult?.metadata as Record<string, unknown> | undefined;
+  const observability = metadata?.[APOLLO_TWO_ROUND_OBSERVABILITY_KEY] as
+    | Record<string, unknown>
+    | undefined;
+  if (!observability || typeof observability !== 'object') return {};
+
+  const readCount = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+  return {
+    twoRoundOutcome: {
+      roundsExecuted: readCount(observability['rounds_executed']),
+      eligibleCompaniesFound: readCount(observability['eligible_companies_found']),
+    },
   };
 }
 

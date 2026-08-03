@@ -46,6 +46,21 @@ export type WizardProviderIndicatorInput = {
   serverDiscoveryProvider: WizardDiscoveryProviderKey | null;
   lushaRoute: WizardIndicatorLushaRoute | null;
   skippedProvider: WizardIndicatorProviderKey | null;
+  /**
+   * A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — proveedor que el servidor resolvió para
+   * ESTA corrida (`resolvedDiscoveryProvider`), devuelto por la acción de
+   * ejecución.
+   *
+   * Existe porque `serverDiscoveryProvider` es el predeterminado GLOBAL, y con la
+   * selección por corrida activa los dos pueden discrepar: el global sigue en
+   * Tavily mientras esta corrida usa Apollo. Mostrar el global ahí sería nombrar
+   * a un proveedor que no corrió.
+   *
+   * `null`/ausente = todavía no hubo resolución por corrida; se conserva el
+   * comportamiento anterior. Nunca se deduce de la selección local del navegador:
+   * si el usuario pidió Apollo y el servidor resolvió Tavily, aquí llega Tavily.
+   */
+  runResolvedProvider?: WizardDiscoveryProviderKey | null;
 };
 
 /**
@@ -55,15 +70,21 @@ export type WizardProviderIndicatorInput = {
  *   1. Un proveedor omitido por el backend gana: ya se sabe qué se intentó y que
  *      no se pudo. Conservar el nombre es lo que evita que el usuario crea que
  *      corrió otra cosa.
- *   2. Ruta Lusha honrada → Lusha.
- *   3. Ruta Lusha bloqueada → no disponible, sin nombre (no hubo selección).
- *   4. Ruta default_ai (o sin dato de ruta) → lo que resolvió el servidor.
+ *   2. El proveedor resuelto POR CORRIDA: es un hecho del servidor sobre esta
+ *      ejecución concreta, así que manda sobre cualquier predeterminado global.
+ *   3. Ruta Lusha honrada → Lusha.
+ *   4. Ruta Lusha bloqueada → no disponible, sin nombre (no hubo selección).
+ *   5. Ruta default_ai (o sin dato de ruta) → lo que resolvió el servidor.
  */
 export function resolveWizardProviderIndicator(
   input: WizardProviderIndicatorInput,
 ): WizardProviderIndicator {
   if (input.skippedProvider !== null) {
     return { status: 'unavailable', provider: input.skippedProvider };
+  }
+
+  if (input.runResolvedProvider != null) {
+    return { status: 'resolved', provider: input.runResolvedProvider };
   }
 
   if (input.lushaRoute === 'lusha') {

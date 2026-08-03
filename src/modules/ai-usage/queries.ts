@@ -9,6 +9,7 @@ import type {
   AiUsageSummary,
   ProviderUsageLog,
 } from '@/modules/usage-tracking/types';
+import { resolveUsageCredits } from '@/modules/usage-tracking/credits-display';
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -647,6 +648,8 @@ export async function getProviderStats(
       success_calls: 0,
       error_calls: 0,
       total_credits_used: null,
+      unknown_credit_operations: 0,
+      has_unknown_credits: false,
       total_input_tokens: 0,
       total_output_tokens: 0,
       total_results_returned: 0,
@@ -659,9 +662,15 @@ export async function getProviderStats(
     if (row.status === 'success') existing.success_calls++;
     else existing.error_calls++;
 
-    if (row.credits_used != null) {
-      existing.total_credits_used =
-        (existing.total_credits_used ?? 0) + Number(row.credits_used);
+    // Known-credit subtotal only. A NULL credits_used means the consumption is
+    // indeterminate — it is counted as a pending operation, never folded in as
+    // a confirmed zero. See modules/usage-tracking/credits-display.ts.
+    const credits = resolveUsageCredits(row.credits_used);
+    if (credits.state === 'unknown') {
+      existing.unknown_credit_operations++;
+      existing.has_unknown_credits = true;
+    } else {
+      existing.total_credits_used = (existing.total_credits_used ?? 0) + credits.credits;
     }
     existing.total_input_tokens += Number(row.input_tokens ?? 0);
     existing.total_output_tokens += Number(row.output_tokens ?? 0);
@@ -698,7 +707,12 @@ export interface OperationStat {
   total_calls: number;
   success_calls: number;
   error_calls: number;
+  /** Known-credit subtotal only — see unknown_credit_operations before treating this as a complete total. */
   total_credits_used: number;
+  /** How many aggregated rows have indeterminate credit consumption. */
+  unknown_credit_operations: number;
+  /** Convenience mirror of unknown_credit_operations > 0. */
+  has_unknown_credits: boolean;
   /** Known-cost subtotal only — see has_unknown_cost before treating this as a complete total. */
   total_estimated_cost_usd: number;
   /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
@@ -732,6 +746,8 @@ export function aggregateOperationStats(rows: OperationLogRow[]): OperationStat[
       success_calls: 0,
       error_calls: 0,
       total_credits_used: 0,
+      unknown_credit_operations: 0,
+      has_unknown_credits: false,
       total_estimated_cost_usd: 0,
       has_unknown_cost: false,
     };
@@ -740,7 +756,15 @@ export function aggregateOperationStats(rows: OperationLogRow[]): OperationStat[
     if (row.status === 'success') existing.success_calls++;
     else existing.error_calls++;
 
-    existing.total_credits_used += Number(row.credits_used ?? 0);
+    // Known-credit subtotal only — a NULL row is indeterminate consumption,
+    // never a hidden 0.
+    const credits = resolveUsageCredits(row.credits_used);
+    if (credits.state === 'unknown') {
+      existing.unknown_credit_operations++;
+      existing.has_unknown_credits = true;
+    } else {
+      existing.total_credits_used += credits.credits;
+    }
     // Known-cost subtotal only — a NULL row is unknown cost, never a hidden 0.
     if (row.estimated_cost_usd == null) {
       existing.has_unknown_cost = true;
@@ -1067,7 +1091,12 @@ export interface ProviderUserConsumptionRow {
   full_name: string | null;
   email: string | null;
   provider_calls: number;
+  /** Known-credit subtotal only — see unknown_credit_operations before treating this as a complete total. */
   total_credits_used: number;
+  /** How many aggregated rows have indeterminate credit consumption. */
+  unknown_credit_operations: number;
+  /** Convenience mirror of unknown_credit_operations > 0. */
+  has_unknown_credits: boolean;
   /** Known-cost subtotal only — see has_unknown_cost before treating this as a complete total. */
   total_estimated_cost_usd: number;
   /** True when at least one aggregated row has estimated_cost_usd = NULL (unknown cost). */
@@ -1121,6 +1150,8 @@ export function aggregateProviderUserConsumption(
       email: null,
       provider_calls: 0,
       total_credits_used: 0,
+      unknown_credit_operations: 0,
+      has_unknown_credits: false,
       total_estimated_cost_usd: 0,
       has_unknown_cost: false,
       last_activity_at: null,
@@ -1131,10 +1162,20 @@ export function aggregateProviderUserConsumption(
     // has_unknown_cost so total_estimated_cost_usd is never mislabeled as a
     // complete total.
     const rowHasUnknownCost = row.estimated_cost_usd == null;
+    // Same rule for credits: NULL is indeterminate consumption, not zero.
+    const credits = resolveUsageCredits(row.credits_used);
     const updated: ProviderUserConsumptionRow = {
       ...existing,
       provider_calls: existing.provider_calls + 1,
-      total_credits_used: existing.total_credits_used + Number(row.credits_used ?? 0),
+      total_credits_used:
+        credits.state === 'known'
+          ? existing.total_credits_used + credits.credits
+          : existing.total_credits_used,
+      unknown_credit_operations:
+        credits.state === 'unknown'
+          ? existing.unknown_credit_operations + 1
+          : existing.unknown_credit_operations,
+      has_unknown_credits: existing.has_unknown_credits || credits.state === 'unknown',
       total_estimated_cost_usd: rowHasUnknownCost
         ? existing.total_estimated_cost_usd
         : existing.total_estimated_cost_usd + Number(row.estimated_cost_usd),

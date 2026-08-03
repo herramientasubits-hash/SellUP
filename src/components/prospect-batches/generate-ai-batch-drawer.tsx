@@ -23,6 +23,8 @@ import type {
 // Sólo el tipo: se borra al compilar, así que este componente cliente no arrastra
 // el resolutor (que lee env) ni puede resolver el proveedor por su cuenta.
 import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
+import type { WizardProviderOverrideCapability } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
+import type { ApolloRunModeLimits } from '@/components/prospect-batches/chat-wizard/wizard-run-provider-copy';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
@@ -253,9 +255,17 @@ type GenerateAIBatchDrawerProps = {
    * componente no lo interpreta ni lo deduce. `null` = sin resolución conocida.
    */
   discoveryProvider?: WizardDiscoveryProviderKey | null;
+  /**
+   * A1-APOLLO-QA-CONTROL-SURFACE-1 § 2 — capacidad sanitizada de elegir proveedor
+   * por corrida, resuelta en el servidor. Sólo se transporta; este componente no
+   * la interpreta. Ausente ⇒ sin capacidad.
+   */
+  providerOverrideCapability?: WizardProviderOverrideCapability;
+  /** § 5 — topes efectivos de la modalidad de dos rondas. Sólo se transportan. */
+  apolloRunModeLimits?: ApolloRunModeLimits | null;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, discoveryProvider = null }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
@@ -513,6 +523,8 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           executionEnabled={executionEnabled}
           lushaPreviewEnabled={lushaPreviewEnabled}
           discoveryProvider={discoveryProvider}
+          providerOverrideCapability={providerOverrideCapability}
+          apolloRunModeLimits={apolloRunModeLimits}
         />
       </DrawerShell>
     );

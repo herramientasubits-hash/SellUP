@@ -68,9 +68,15 @@ function revealActionCallBlock(source: string): string {
 /** Handler onClick del botón "Revelar teléfono" (código sin comentarios). */
 function revealButtonBlock(source: string): string {
   // Buscamos el <Button ...> cuyo children incluye "Revelar teléfono".
+  //
+  // La ventana hacia atrás cubre el bloque COMPLETO del botón: `disabled`, el
+  // `onClick` condicional y el ternario del spinner. Se amplió de 600 a 1600 en
+  // AGENT2A-PHONE-WATERFALL-2, cuando el bloque creció (comentario del botón único +
+  // la condición de la ruta legacy) y el `onClick` dejó de caber en 600. La
+  // invariante que se verifica NO cambió: solo la heurística de extracción.
   const idx = source.indexOf('Revelar teléfono');
   if (idx === -1) return '';
-  return source.slice(Math.max(0, idx - 600), idx + 200);
+  return source.slice(Math.max(0, idx - 1600), idx + 200);
 }
 
 describe('ASYNC-5 — presencia del botón one-click (sin modal)', () => {

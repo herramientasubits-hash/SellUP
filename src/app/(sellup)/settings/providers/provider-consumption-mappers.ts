@@ -24,6 +24,8 @@ export function toOperationBreakdownRow(
     successCalls: op.success_calls,
     errorCalls: op.error_calls,
     totalCredits: op.total_credits_used,
+    unknownCreditOperations: op.unknown_credit_operations,
+    hasUnknownCredits: op.has_unknown_credits,
     totalCostUsd: op.total_estimated_cost_usd,
     hasUnknownCost: op.has_unknown_cost,
     creditsPercentage: Number.isFinite(rawPercentage) ? rawPercentage : 0,
@@ -37,5 +39,22 @@ export function toSnapshotCostFields(
   return {
     totalCostUsd: stat?.total_estimated_cost_usd ?? 0,
     hasUnknownCost: stat?.has_unknown_cost ?? false,
+  };
+}
+
+/**
+ * Same job for credits (A1-APOLLO-TWO-ROUND-QA-READINESS-1 § 4): the snapshot
+ * must be able to say "N créditos confirmados + M operaciones pendientes"
+ * instead of presenting N as a closed total.
+ *
+ * A missing stat yields zero pending operations, not "unknown": there is no
+ * evidence of an indeterminate charge when there is no row at all.
+ */
+export function toSnapshotCreditFields(
+  stat: ProviderStat | undefined,
+): Pick<ProviderConsumptionSnapshot, 'unknownCreditOperations' | 'hasUnknownCredits'> {
+  return {
+    unknownCreditOperations: stat?.unknown_credit_operations ?? 0,
+    hasUnknownCredits: stat?.has_unknown_credits ?? false,
   };
 }
