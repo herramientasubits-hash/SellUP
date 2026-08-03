@@ -16,7 +16,7 @@ import type {
   ProviderUserConsumptionBreakdownRow,
   ConsumptionLoadResult,
 } from './provider-consumption-types';
-import { toOperationBreakdownRow, toSnapshotCostFields } from './provider-consumption-mappers';
+import { toOperationBreakdownRow, toSnapshotCostFields, toSnapshotCreditFields } from './provider-consumption-mappers';
 
 function classifyConsumptionError(error: unknown): string {
   if (!(error instanceof Error)) return 'unknown_server_error';
@@ -99,6 +99,8 @@ export async function loadProviderConsumptionForWorkspace(
         email: row.email,
         totalCalls: row.provider_calls,
         totalCredits: row.total_credits_used,
+        unknownCreditOperations: row.unknown_credit_operations,
+        hasUnknownCredits: row.has_unknown_credits,
         totalCostUsd: row.total_estimated_cost_usd,
         hasUnknownCost: row.has_unknown_cost,
         lastActivityAt: row.last_activity_at,
@@ -131,6 +133,7 @@ export async function loadProviderConsumptionForWorkspace(
 
     const snapshot: ProviderConsumptionSnapshot = {
       totalCredits: stat?.total_credits_used ?? null,
+      ...toSnapshotCreditFields(stat),
       ...toSnapshotCostFields(stat),
       totalCalls: stat?.total_calls ?? 0,
       successCalls: stat?.success_calls ?? 0,

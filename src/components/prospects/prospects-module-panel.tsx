@@ -36,6 +36,14 @@ import {
 // (`executeProspectWizardGeneration`, paso 5a). Resolver aquí, en el servidor, es
 // lo que permite que la UI nombre el proveedor real sin deducirlo en el cliente.
 import { resolveWizardDiscoveryProvider } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
+// A1-APOLLO-QA-CONTROL-SURFACE-1 § 2/§ 5 — la capacidad de elegir proveedor por
+// corrida y los topes que la superficie anuncia se resuelven AQUÍ, server-side.
+// Al cliente sólo viajan dos booleanos, una lista de proveedores y cinco enteros:
+// ni flags, ni sus valores, ni el rol del usuario.
+import {
+  resolveWizardProviderOverrideCapabilityForCurrentUser,
+  resolveApolloRunModeLimitsForSurface,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability.server';
 
 /**
  * Query params understood by the Prospectos experience.
@@ -99,6 +107,16 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   // buscaba. Se resuelve aquí, server-side, con el mismo doble gate que usa la
   // ejecución; sólo viaja el nombre del proveedor — ni flags, ni env, ni roles.
   const wizardDiscoveryProvider = resolveWizardDiscoveryProvider();
+
+  // A1-APOLLO-QA-CONTROL-SURFACE-1 § 2 — el proveedor global sigue siendo el que
+  // resuelve la línea de arriba; esto sólo decide si un ADMIN puede apartarse de él
+  // para UNA corrida. Con `ENABLE_WIZARD_RUN_PROVIDER_OVERRIDE` apagado el
+  // resolutor corta antes de consultar sesión o rol, así que esta ruta no gana ni
+  // una query en el estado actual de Producción.
+  const [wizardProviderOverrideCapability, apolloRunModeLimits] = await Promise.all([
+    resolveWizardProviderOverrideCapabilityForCurrentUser(),
+    resolveApolloRunModeLimitsForSurface(),
+  ]);
 
   // Load catalog only when any enhanced experience is on — zero Supabase queries
   // otherwise (resolveCatalogAvailability returns `disabled` without querying).
@@ -182,7 +200,7 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
       tabs={<ModuleTabsNav active="prospectos" />}
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} discoveryProvider={wizardDiscoveryProvider} />
+          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} />
           <ImportCandidatesDrawer>
             <Button variant="outline" size="sm" className="gap-2 text-xs">
               <Upload className="h-3.5 w-3.5" />

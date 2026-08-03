@@ -790,3 +790,28 @@ evidence in § 12 has been produced. 11V's § 8 Option C — escalate legal/priv
 record's Option F carried forward, and 11V § 9 reaches the same reading: it is the earliest step that
 changes anything, and it requires its own separate owner phrase. The § 8 recommended draft decision —
 Option A, keep execution blocked — is unchanged.
+
+---
+
+## 25. Update (BR-SOURCE-11W-PRECONDITION-OWNER-PACKAGE)
+
+BR-SOURCE-11W-PRECONDITION-OWNER-PACKAGE creates a docs-only readiness package for missing owner decisions
+across GATE-2, GATE-7 and cap/input policy. It does not approve GATE-2. It does not approve GATE-7. It does
+not approve cap/input policy. It does not authorize caps, input roots, output roots, temp storage, controlled
+execution, real-data access, import, Supabase, runtime or Agent 1. Current recommendation remains NO-GO. See
+[`br-receita-cnpj-11w-precondition-owner-package-gate2-gate7-cap-input-readiness.md`](./br-receita-cnpj-11w-precondition-owner-package-gate2-gate7-cap-input-readiness.md).
+
+**All eight blockers in § 6 remain present**, including BLOCKER-1 and BLOCKER-8, which § 8 identified as
+binding and which the package's own § 4 and § 12 record as unresolved. None of the § 10 minimum conditions
+before execution is satisfied, none of the § 11 minimum conditions before a runbook is satisfied, and none of
+the EV-1 … EV-10 evidence in § 12 has been produced — the package's § 13 evidence readiness lists five
+available artifacts, all documentary or synthetic, and six missing owner decisions. Every field in § 9 remains
+blank, and the § 8 recommended draft decision — Option A, keep execution blocked — is unchanged.
+
+This record's § 8 observation about artifact accumulation applies to the package as much as to any earlier
+milestone, and the package acknowledges it in its own § 2: a document whose entire content is blank fields and
+`NOT READY` verdicts is the sharpest instance yet of an artifact that looks more like readiness than the
+underlying state warrants. What it adds against § 6 is a reframing rather than a clearing — it converts each
+blocker into an addressable owner decision with a role attached, using the role labels the runbook's § 6 table
+supplies. § 12's legal/privacy/security readiness restates this record's Option F as the area where a unit of
+effort still moves the most, and, as before, it requires its own separate owner phrase.

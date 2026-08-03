@@ -34,6 +34,7 @@ import {
 } from './wizard-conversation-summary';
 import { WizardChatComposer } from './wizard-chat-composer';
 import { getComposerMode, getComposerPlaceholder } from './wizard-composer-utils';
+import { useWizardMessageSound } from './use-wizard-message-sound';
 // A1-APOLLO-WIZARD-1 — indicador del proveedor de búsqueda. La resolución es del
 // backend (prop `discoveryProvider` + ruta Lusha + omisión reportada por la
 // acción); aquí sólo se reduce y se pinta.
@@ -44,6 +45,16 @@ import type {
   WizardIndicatorProviderKey,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-indicator';
 import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
+// A1-APOLLO-QA-CONTROL-SURFACE-1 — superficie administrativa de proveedor por
+// corrida. La capacidad la resuelve el servidor; aquí sólo se guarda la elección
+// del administrador y se envía como PETICIÓN.
+import {
+  NO_PROVIDER_OVERRIDE_CAPABILITY,
+  isProviderOptionEnabled,
+  type WizardProviderOverrideCapability,
+  type WizardRunSelectableProvider,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
+import type { ApolloRunModeLimits } from './wizard-run-provider-copy';
 
 // ── Error code → user-facing message mapping ──────────────────────────────────
 // Extracted to a separate module so tests can import without a DOM environment.
@@ -82,9 +93,33 @@ type ProspectChatWizardProps = {
    * asumir un default. El cliente nunca lo deduce de flags ni de env.
    */
   discoveryProvider?: WizardDiscoveryProviderKey | null;
+  /**
+   * A1-APOLLO-QA-CONTROL-SURFACE-1 § 2 — capacidad SANITIZADA resuelta en el
+   * servidor (sesión + rol admin + `ENABLE_WIZARD_RUN_PROVIDER_OVERRIDE`).
+   *
+   * Ausente ⇒ sin capacidad, que es el default de todo el sistema y el estado
+   * actual de Producción. Este objeto NO es una autorización: la ejecución vuelve
+   * a derivar autoridad y flags server-side, así que un cliente que lo manipule no
+   * consigue Apollo.
+   */
+  providerOverrideCapability?: WizardProviderOverrideCapability;
+  /**
+   * § 5 — topes efectivos de la modalidad de dos rondas, resueltos server-side por
+   * las mismas funciones que gobiernan la reserva. `null` ⇒ no se anuncia ninguna
+   * cifra, en vez de repetir los defaults del código a mano.
+   */
+  apolloRunModeLimits?: ApolloRunModeLimits | null;
 };
 
-export function ProspectChatWizard({ catalog, onClose, executionEnabled = false, lushaPreviewEnabled = false, discoveryProvider = null }: ProspectChatWizardProps) {
+export function ProspectChatWizard({
+  catalog,
+  onClose,
+  executionEnabled = false,
+  lushaPreviewEnabled = false,
+  discoveryProvider = null,
+  providerOverrideCapability = NO_PROVIDER_OVERRIDE_CAPABILITY,
+  apolloRunModeLimits = null,
+}: ProspectChatWizardProps) {
   const [state, dispatch] = React.useReducer(
     prospectWizardReducer,
     undefined,
@@ -130,48 +165,8 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
   );
 
   // ── Sound: short mechanical keyboard click when AI message appears ──────────
-  const playMessageSound = React.useCallback(() => {
-    try {
-      const ctx = new AudioContext();
-      // Noise buffer for the click transient
-      const bufferSize = Math.floor(ctx.sampleRate * 0.015);
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 8);
-      }
-      const noise = ctx.createBufferSource();
-      noise.buffer = buffer;
-      // Bandpass filter to shape the click
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.value = 3200;
-      filter.Q.value = 1.2;
-      // Short gain envelope
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.12, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.03);
-      noise.connect(filter);
-      filter.connect(gain);
-      gain.connect(ctx.destination);
-      noise.start(ctx.currentTime);
-      noise.stop(ctx.currentTime + 0.03);
-      // Tiny tonal tap for body
-      const osc = ctx.createOscillator();
-      const oscGain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.value = 1800;
-      oscGain.gain.setValueAtTime(0.04, ctx.currentTime);
-      oscGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.015);
-      osc.connect(oscGain);
-      oscGain.connect(ctx.destination);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.015);
-      setTimeout(() => ctx.close(), 80);
-    } catch {
-      // Silently ignore if AudioContext is unavailable
-    }
-  }, []);
+  // Extraído a un hook propio; comportamiento idéntico.
+  const playMessageSound = useWizardMessageSound();
 
   // ── Progressive reveal: show messages one-by-one with typing delay ──────────
   React.useEffect(() => {
@@ -246,19 +241,56 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
   const [skippedProvider, setSkippedProvider] =
     React.useState<WizardIndicatorProviderKey | null>(null);
 
+  // ── § 3 · proveedor pedido para ESTA corrida ────────────────────────────────
+  // `undefined` = el administrador no tocó el selector. Ese es el valor inicial a
+  // propósito: sin petición, la acción no consulta el rol y la corrida resuelve al
+  // predeterminado global igual que antes del hito. La selección vive sólo en
+  // estado de React — nunca en localStorage, cookies, perfil ni configuración
+  // global — así que no puede sobrevivir a una corrida nueva ni contaminar a otro
+  // usuario.
+  const [requestedProvider, setRequestedProvider] = React.useState<
+    WizardRunSelectableProvider | undefined
+  >(undefined);
+
+  // ── § 10 · proveedor que el SERVIDOR resolvió para esta corrida ─────────────
+  // Se llena sólo con lo que devuelve la acción. Si el administrador pidió Apollo
+  // y el servidor resolvió Tavily, aquí queda Tavily: el indicador nunca refleja
+  // la selección local.
+  const [runResolvedProvider, setRunResolvedProvider] =
+    React.useState<WizardDiscoveryProviderKey | null>(null);
+
+  // ── § 11 · cifras reales de la modalidad de dos rondas ──────────────────────
+  const [twoRoundOutcome, setTwoRoundOutcome] = React.useState<{
+    roundsExecuted: number | null;
+    eligibleCompaniesFound: number | null;
+  } | null>(null);
+
   // ── Indicador de proveedor de búsqueda ──────────────────────────────────────
-  // Reducción pura de tres señales del backend: el proveedor resuelto en el
-  // servidor, la ruta efectiva de Lusha (flag de servidor + criterios) y el
-  // proveedor que la acción reportó como omitido.
+  // Reducción pura de las señales del backend: el proveedor resuelto POR CORRIDA
+  // (que manda cuando existe), el predeterminado global resuelto en el servidor,
+  // la ruta efectiva de Lusha y el proveedor que la acción reportó como omitido.
   const providerIndicator = React.useMemo(
     () =>
       resolveWizardProviderIndicator({
         serverDiscoveryProvider: discoveryProvider,
         lushaRoute: lushaCriteria.provider as WizardIndicatorLushaRoute,
         skippedProvider,
+        runResolvedProvider,
       }),
-    [discoveryProvider, lushaCriteria.provider, skippedProvider],
+    [discoveryProvider, lushaCriteria.provider, skippedProvider, runResolvedProvider],
   );
+
+  /**
+   * § 11 — ¿esta corrida va a ejecutar Apollo en dos rondas?
+   *
+   * Se deriva de la petición del administrador Y de la capacidad, que el servidor
+   * sólo declara con el kill switch y la modalidad de dos rondas encendidos. Es lo
+   * más cerca que el cliente puede estar de la verdad mientras la ejecución está
+   * en vuelo, y por eso las etapas se presentan como PLAN y no como progreso.
+   */
+  const willRunApolloTwoRound =
+    requestedProvider === 'apollo_organizations' &&
+    isProviderOptionEnabled(providerOverrideCapability, 'apollo_organizations');
 
   // ── Catalog options derived for UI ────────────────────────────────────────
 
@@ -465,6 +497,15 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
       if (result.valid) {
         if (!clientRequestIdRef.current) {
           clientRequestIdRef.current = crypto.randomUUID();
+          // § 3 — una corrida NUEVA vuelve a Tavily. El punto de reinicio es el
+          // momento en que se acuña un clientRequestId, porque la elección de
+          // proveedor pertenece a esa corrida y a ninguna otra: recordar Apollo
+          // aquí convertiría una prueba puntual en el default silencioso del
+          // wizard. «Editar búsqueda» conserva el clientRequestId y por tanto la
+          // elección — es la misma corrida (§ 9).
+          setRequestedProvider(undefined);
+          setRunResolvedProvider(null);
+          setTwoRoundOutcome(null);
         }
         dispatch({ type: 'VALIDATION_SUCCEEDED' });
         return;
@@ -554,7 +595,30 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
         additionalCriteriaRaw: state.additionalCriteriaRaw,
         catalogVersion: state.catalogVersion,
         clientRequestId: clientRequestIdRef.current,
+        // § 6 — lo ÚNICO que el cliente puede enviar sobre el proveedor: una
+        // petición. Nunca `resolvedDiscoveryProvider`, `providerResolutionReason`,
+        // `isAdmin`, `providerAuthorized`, `authority` ni `overrideAllowed`; el
+        // schema es `.strict()` y rechazaría la solicitud entera.
+        //
+        // Ausente cuando el administrador no tocó el selector, de modo que un
+        // wizard sin tocar produce exactamente la misma solicitud que antes del
+        // hito.
+        ...(requestedProvider !== undefined
+          ? { requestedDiscoveryProvider: requestedProvider }
+          : {}),
       });
+
+      // § 10 — la fuente del indicador es el servidor, en éxito y en fallo.
+      if (result.runProvider) {
+        setRunResolvedProvider(
+          result.runProvider.resolved === 'lusha_companies'
+            ? null
+            : result.runProvider.resolved,
+        );
+      }
+      if (result.ok && result.twoRoundOutcome) {
+        setTwoRoundOutcome(result.twoRoundOutcome);
+      }
 
       if (result.ok) {
         dispatch({
@@ -683,6 +747,12 @@ export function ProspectChatWizard({ catalog, onClose, executionEnabled = false,
                 onEditSearch={handleEditSearch}
                 lushaPreviewEnabled={lushaPreviewEnabled}
                 lushaCriteria={lushaCriteria}
+                providerOverrideCapability={providerOverrideCapability}
+                apolloRunModeLimits={apolloRunModeLimits}
+                requestedProvider={requestedProvider}
+                onRequestedProviderChange={setRequestedProvider}
+                showApolloTwoRoundStages={willRunApolloTwoRound}
+                twoRoundOutcome={twoRoundOutcome}
               />
             ) : (
               <WizardActiveStep

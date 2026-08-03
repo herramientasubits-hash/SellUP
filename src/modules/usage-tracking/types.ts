@@ -323,7 +323,12 @@ export interface ProviderStat {
   total_calls: number;
   success_calls: number;
   error_calls: number;
+  /** Known-credit subtotal only — see unknown_credit_operations before treating this as a complete total. */
   total_credits_used: number | null;
+  /** How many aggregated rows have indeterminate credit consumption (NULL credits or billing_state = unknown). */
+  unknown_credit_operations: number;
+  /** Convenience mirror of unknown_credit_operations > 0. */
+  has_unknown_credits: boolean;
   total_input_tokens: number;
   total_output_tokens: number;
   total_results_returned: number;
