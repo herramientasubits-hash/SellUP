@@ -356,6 +356,21 @@ export type ApolloTwoRoundResumeState = {
   indeterminateOperations?: readonly ApolloTwoRoundIndeterminateOperation[];
   /** True cuando los candidatos ya se escribieron. Un reintento NO los reescribe. */
   candidatesPersisted?: boolean;
+  /**
+   * § 5 del FINAL-FIX — organizaciones que una búsqueda YA PAGADA devolvió y cuya
+   * evaluación barata nunca llegó a registrarse.
+   *
+   * El hueco que cierra: entre el checkpoint de "búsqueda completada" y el de
+   * "evaluación de la ronda completada" hay una ventana. Un fallo dentro de ella
+   * dejaba la búsqueda marcada como completada —correcto, se pagó— y la ronda sin
+   * candidatos, así que el reintento la registraba con CERO organizaciones y la
+   * corrida terminaba vacía después de haber pagado. Con esto, el reintento
+   * recupera las organizaciones y sólo repite la evaluación, que es gratis.
+   */
+  pendingRoundOrganizations?: readonly {
+    roundNumber: number;
+    organizations: readonly RawDiscoveredOrganization[];
+  }[];
 };
 
 /** Candidato recuperado de un intento anterior, con su estado completo. */
@@ -521,6 +536,18 @@ export async function runApolloTwoRoundDiscovery(
     ...(resume?.indeterminateOperations ?? []),
   ];
   const checkpointWriteFailures: ApolloTwoRoundCheckpointTrigger[] = [];
+  /**
+   * Organizaciones de una búsqueda ya pagada cuya evaluación aún no se registró.
+   *
+   * Se llena en cuanto la búsqueda devuelve y se vacía cuando las métricas de la
+   * ronda se registran. Mientras esté llena, viaja en cada checkpoint: es lo que
+   * permite que un reintento recupere lo que la búsqueda trajo en vez de tratar la
+   * ronda como si hubiera devuelto cero.
+   */
+  const pendingRoundOrganizations = new Map<number, readonly RawDiscoveredOrganization[]>();
+  for (const entry of resume?.pendingRoundOrganizations ?? []) {
+    pendingRoundOrganizations.set(entry.roundNumber, entry.organizations);
+  }
 
   let totalRawResults = resume?.totalRawResults ?? 0;
   let totalSearchCredits = resume?.totalSearchCredits ?? 0;
@@ -549,6 +576,9 @@ export async function runApolloTwoRoundDiscovery(
     indeterminateOperationKeys: ledger.indeterminateKeys,
     indeterminateOperations: [...indeterminateOperations],
     candidatesPersisted: resume?.candidatesPersisted === true,
+    pendingRoundOrganizations: [...pendingRoundOrganizations].map(
+      ([roundNumber, organizations]) => ({ roundNumber, organizations }),
+    ),
   });
 
   /**
@@ -699,12 +729,21 @@ export async function runApolloTwoRoundDiscovery(
     );
 
     // § 12: una ronda ya completada por un intento anterior no se vuelve a
-    // buscar. Se registra la ronda con cero peticiones para que el reintento sea
-    // legible, no invisible. Con estado recuperado este caso ya no se alcanza —
-    // la ronda se saltó arriba con sus métricas reales—, y queda como segundo
-    // candado para un reintento que traiga claves pero no estado.
+    // buscar. § 5: si de esa búsqueda quedaron organizaciones sin evaluar, se
+    // evalúan ahora —la evaluación es gratis— en vez de registrar la ronda con
+    // cero. Sin organizaciones pendientes se registra vacía, para que el reintento
+    // sea legible en vez de invisible.
     if (!ledger.canExecute(searchOperationContext.operationId)) {
-      roundMetrics.push(metrics);
+      const recovered = pendingRoundOrganizations.get(roundNumber) ?? null;
+      if (recovered === null) {
+        roundMetrics.push(metrics);
+        continue;
+      }
+      await assessRoundOrganizations(roundNumber, metrics, recovered);
+      if (eligibleCount() >= config.targetEligibleCompanies) {
+        if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
+        break;
+      }
       continue;
     }
 
@@ -714,6 +753,12 @@ export async function runApolloTwoRoundDiscovery(
       requestedResultLimit,
       operationContext: searchOperationContext,
     });
+
+    // § 5 — las organizaciones se anotan como PENDIENTES antes de cerrar la
+    // operación, así que el checkpoint de la búsqueda ya las lleva. Sin esto, un
+    // fallo entre ese checkpoint y el de la evaluación dejaba la búsqueda marcada
+    // como completada y la ronda sin nada que recuperar: corrida vacía tras pagar.
+    pendingRoundOrganizations.set(roundNumber, outcome.organizations);
 
     // § 3 — el usage log ya lo escribió la dependencia; ahora el ledger y el
     // checkpoint, juntos. Un cobro sin confirmar cierra la corrida aquí.
@@ -729,6 +774,9 @@ export async function runApolloTwoRoundDiscovery(
       metrics.internalRecordedCredits = outcome.internalRecordedCredits;
       totalSearchCredits += outcome.internalRecordedCredits;
       roundMetrics.push(metrics);
+      // La ronda queda registrada, así que ya no hay nada pendiente de ella: lo
+      // que falta es conciliación manual, no recuperación.
+      pendingRoundOrganizations.delete(roundNumber);
       break;
     }
 
@@ -738,11 +786,36 @@ export async function runApolloTwoRoundDiscovery(
     totalSearchCredits += outcome.internalRecordedCredits;
 
     // ── Procesamiento barato, en el orden del § 4 ────────────────────────────
+    await assessRoundOrganizations(roundNumber, metrics, outcome.organizations);
+
+    // § 7: alcanzado el objetivo con gates baratos, la corrida no busca más.
+    if (eligibleCount() >= config.targetEligibleCompanies) {
+      if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
+      break;
+    }
+  }
+
+  /**
+   * Evalúa las organizaciones de UNA ronda con los gates baratos, en el orden del
+   * § 4, y registra sus métricas.
+   *
+   * Extraída del bucle porque tiene DOS llamadores: la ronda recién buscada y la
+   * ronda cuya búsqueda ya se pagó pero cuya evaluación no llegó a registrarse.
+   * Que los dos caminos compartan el código es lo que garantiza que un reintento
+   * produzca el mismo veredicto que el intento original.
+   */
+  async function assessRoundOrganizations(
+    roundNumber: number,
+    metrics: ApolloTwoRoundRoundMetrics,
+    organizations: readonly RawDiscoveredOrganization[],
+  ): Promise<void> {
+    // Las organizaciones ya están anotadas como pendientes (las anotó el bucle al
+    // volver la búsqueda, o el estado recuperado). Aquí sólo se evalúan.
     const roundCandidates: TrackedCandidate[] = [];
     const identitiesInThisResponse = createSeenOrganizationRegistry();
     let localIdentities = identitiesInThisResponse;
 
-    for (const organization of outcome.organizations) {
+    for (const organization of organizations) {
       // Tope de resultados crudos de la corrida. Se cuenta lo que efectivamente
       // se procesa, no lo que el proveedor devolvió de más.
       if (totalRawResults >= config.maxRawResultsPerRun) {
@@ -810,17 +883,13 @@ export async function runApolloTwoRoundDiscovery(
     metrics.eligibleAfterEnrichment = metrics.eligibleBeforeEnrichment;
     metrics.newEligibleCompaniesAdded = metrics.eligibleBeforeEnrichment;
     roundMetrics.push(metrics);
+    // Evaluadas y registradas: ya no hay nada pendiente de esta ronda.
+    pendingRoundOrganizations.delete(roundNumber);
 
     // § 3 — la evaluación barata de la ronda es una transición recuperable: sin
     // este checkpoint, un fallo posterior obligaría a volver a buscar para
     // recuperar veredictos que no costaron nada calcular.
     await persistCheckpoint('round_assessment_completed', null);
-
-    // § 7: alcanzado el objetivo con gates baratos, la corrida no busca más.
-    if (eligibleCount() >= config.targetEligibleCompanies) {
-      if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
-      break;
-    }
   }
 
   if (config.maxRounds === 1 && secondRoundSkippedReason === null) {

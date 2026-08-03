@@ -122,6 +122,7 @@ import {
   type ApolloTwoRoundCheckpointV1,
   type ApolloTwoRoundEnrichmentSnapshot,
   type ApolloTwoRoundEnrichmentStatus,
+  type ApolloTwoRoundPendingOrganizationSnapshot,
 } from './checkpoint';
 import {
   readTwoRoundCheckpoint,
@@ -433,6 +434,20 @@ export async function runApolloTwoRoundWizardDiscovery(
   const evidenceByKey = new Map<string, ApolloTwoRoundCandidateEvidenceSnapshot>();
   for (const snapshot of restored?.candidate_snapshots ?? []) {
     if (snapshot.evidence !== null) evidenceByKey.set(snapshot.candidate_key, snapshot.evidence);
+  }
+  // § 5 — la evidencia de las organizaciones pagadas y aún sin evaluar. Sin
+  // sembrarla, un reintento en la ventana entre la búsqueda y su evaluación tendría
+  // las organizaciones pero no con qué evaluarlas.
+  for (const pending of restored?.pending_organizations ?? []) {
+    const key = candidateKeyFor({
+      providerOrganizationId: pending.provider_organization_id,
+      name: pending.name,
+      domain: pending.domain,
+      linkedinUrl: pending.linkedin_url,
+      providerRank: pending.provider_rank,
+      declaredIndustry: pending.declared_industry,
+    });
+    if (!evidenceByKey.has(key)) evidenceByKey.set(key, pending.evidence);
   }
 
   /**
@@ -1168,6 +1183,26 @@ function buildCheckpoint(input: {
         statusByKey.get(candidate.candidateKey) ?? 'not_attempted',
       ),
     ),
+    // § 5 — organizaciones ya pagadas cuya evaluación no se ha registrado. Sin su
+    // evidencia, un reintento en esa ventana daría la ronda por vacía.
+    pending_organizations: (input.resume.pendingRoundOrganizations ?? []).flatMap((entry) =>
+      entry.organizations.flatMap((organization) => {
+        const evidence = input.evidenceByKey.get(candidateKeyFor(organization));
+        if (evidence === undefined) return [];
+        return [
+          {
+            round_number: entry.roundNumber,
+            provider_rank: organization.providerRank,
+            provider_organization_id: organization.providerOrganizationId ?? null,
+            name: organization.name ?? null,
+            domain: organization.domain ?? null,
+            linkedin_url: organization.linkedinUrl ?? null,
+            declared_industry: organization.declaredIndustry ?? null,
+            evidence,
+          } satisfies ApolloTwoRoundPendingOrganizationSnapshot,
+        ];
+      }),
+    ),
     enrichment_snapshots: input.enrichmentSnapshots.map((snapshot) => ({ ...snapshot })),
     persisted_candidate_ids: [...input.persistedCandidateIds],
     candidates_persisted: input.candidatesPersisted,
@@ -1219,6 +1254,21 @@ export function toResumeStateFromCheckpoint(
     finallyRejectedOrDuplicated: snapshot.finally_rejected_or_duplicated,
   }));
 
+  // § 5 — organizaciones pagadas y sin evaluar, agrupadas por ronda.
+  const pendingByRound = new Map<number, RawDiscoveredOrganization[]>();
+  for (const pending of checkpoint.pending_organizations ?? []) {
+    const organizations = pendingByRound.get(pending.round_number) ?? [];
+    organizations.push({
+      providerOrganizationId: pending.provider_organization_id,
+      name: pending.name,
+      domain: pending.domain,
+      linkedinUrl: pending.linkedin_url,
+      providerRank: pending.provider_rank,
+      declaredIndustry: pending.declared_industry,
+    });
+    pendingByRound.set(pending.round_number, organizations);
+  }
+
   return {
     seenIdentities: candidates.map((candidate) => candidate.identity),
     candidates,
@@ -1232,6 +1282,10 @@ export function toResumeStateFromCheckpoint(
     completedOperationKeys: checkpoint.completed_operation_keys,
     indeterminateOperationKeys: checkpoint.indeterminate_operation_keys,
     candidatesPersisted: checkpoint.candidates_persisted,
+    pendingRoundOrganizations: [...pendingByRound].map(([roundNumber, organizations]) => ({
+      roundNumber,
+      organizations,
+    })),
   };
 }
 

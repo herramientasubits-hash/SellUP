@@ -186,6 +186,21 @@ export function toCandidateEvidenceSnapshot(
  * sectorial y el constructor de candidatos vuelven a decidir lo mismo. Ninguna
  * de las dos funciones consulta al proveedor, así que reconstruir aquí no cuesta
  * un crédito — es justo lo que permite no repetir la búsqueda en un reintento.
+ *
+ * La lista blanca cubre TODOS los campos que las tres funciones leen hoy:
+ *   `evaluateApolloEnrichmentEligibility` → url, title, metadata.domain,
+ *      metadata.country_code, metadata.country
+ *   `evaluateApolloSectorRelevanceForPaidOperation` → metadata.industry,
+ *      industries, keywords, organization_keywords, short_description,
+ *      seo_description, description, employee_count, domain, y los mismos dentro
+ *      de metadata.apollo_profile
+ *   `buildProspectingPipelineCandidate` → title, url, snippet, source, rank,
+ *      originQuery
+ *
+ * El adaptador usa esta reconstrucción TAMBIÉN en la primera pasada, no sólo en
+ * un reintento. Es deliberado: así el veredicto de un reintento se calcula sobre
+ * exactamente la misma entrada que el del primer intento, y una recuperación no
+ * puede diferir del original por un campo que el checkpoint no guardaba.
  */
 export function fromCandidateEvidenceSnapshot(
   snapshot: ApolloTwoRoundCandidateEvidenceSnapshot,
@@ -224,6 +239,10 @@ export function fromCandidateEvidenceSnapshot(
         description: snapshot.description,
         primary_domain: snapshot.domain,
         linkedin_url: snapshot.linkedin_url,
+        // Las dos formas del tamaño: el gate sectorial lee `employee_count` y el
+        // resto del pipeline `estimated_num_employees`. Reconstruir sólo una
+        // haría que el veredicto dependiera de por qué camino se llegó.
+        employee_count: snapshot.employee_count,
         estimated_num_employees: snapshot.employee_count,
       },
     },
@@ -269,6 +288,28 @@ export type ApolloTwoRoundCandidateSnapshot = {
   evidence: ApolloTwoRoundCandidateEvidenceSnapshot | null;
 };
 
+/**
+ * Organización que una búsqueda YA PAGADA devolvió y cuya evaluación barata no
+ * llegó a registrarse (§ 5).
+ *
+ * Es la ventana entre "la búsqueda se completó" y "la ronda quedó evaluada". Sin
+ * esto, un reintento dentro de esa ventana daba la ronda por vacía: la búsqueda
+ * marcada como completada —correctamente, se pagó— y cero candidatos. Con esto, el
+ * reintento recupera lo que la búsqueda trajo y sólo repite la evaluación, que no
+ * cuesta un crédito.
+ */
+export type ApolloTwoRoundPendingOrganizationSnapshot = {
+  round_number: number;
+  provider_rank: number;
+  provider_organization_id: string | null;
+  name: string | null;
+  domain: string | null;
+  linkedin_url: string | null;
+  declared_industry: string | null;
+  /** Evidencia mínima, la misma lista blanca que los candidatos evaluados. */
+  evidence: ApolloTwoRoundCandidateEvidenceSnapshot;
+};
+
 export type ApolloTwoRoundEnrichmentSnapshot = {
   candidate_key: string;
   round_number: number;
@@ -305,6 +346,8 @@ export type ApolloTwoRoundCheckpointV1 = {
   seen_organization_keys: string[];
   round_summaries: ApolloTwoRoundRoundMetrics[];
   candidate_snapshots: ApolloTwoRoundCandidateSnapshot[];
+  /** § 5 — organizaciones pagadas y aún sin evaluar. Vacío en una corrida sana. */
+  pending_organizations: ApolloTwoRoundPendingOrganizationSnapshot[];
   enrichment_snapshots: ApolloTwoRoundEnrichmentSnapshot[];
   persisted_candidate_ids: string[];
   candidates_persisted: boolean;
@@ -417,11 +460,12 @@ export type CheckpointCompactionResult = {
  *   2. evidencia de candidatos que ya no pueden competir por un enrichment
  *      (enrichment ejecutado y veredicto cerrado).
  *
- * Nunca suelta la evidencia de un candidato elegible pendiente de persistir: sin
- * ella el reintento no podría reconstruirlo y la corrida terminaría vacía después
- * de haber pagado, que es exactamente el defecto que el checkpoint existe para
- * evitar. Si aun así no cabe, se devuelve `withinLimit: false` y el escritor lo
- * reporta en vez de escribir un documento desmedido.
+ * Nunca suelta la evidencia de un candidato elegible pendiente de persistir, ni la
+ * de una organización pagada y aún sin evaluar: sin ellas el reintento no podría
+ * recuperarlas y la corrida terminaría vacía después de haber pagado, que es
+ * exactamente el defecto que el checkpoint existe para evitar. Si aun así no cabe,
+ * se devuelve `withinLimit: false` y el escritor lo reporta en vez de escribir un
+ * documento desmedido.
  */
 export function compactCheckpointForSize(
   checkpoint: ApolloTwoRoundCheckpointV1,
@@ -491,6 +535,9 @@ export function readCheckpoint(
       : [],
     seen_organization_keys: Array.isArray(candidate.seen_organization_keys)
       ? candidate.seen_organization_keys
+      : [],
+    pending_organizations: Array.isArray(candidate.pending_organizations)
+      ? candidate.pending_organizations
       : [],
     enrichment_snapshots: Array.isArray(candidate.enrichment_snapshots)
       ? candidate.enrichment_snapshots

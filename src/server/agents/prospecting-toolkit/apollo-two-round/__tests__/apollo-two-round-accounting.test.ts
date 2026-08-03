@@ -621,6 +621,46 @@ describe('§ 5 · un reintento recupera y no repite ninguna operación pagada', 
     );
   });
 
+  test('caso 5-bis — una ronda pagada cuya evaluación no se registró NO se da por vacía', async () => {
+    // La ventana entre "búsqueda completada" y "evaluación de la ronda
+    // completada": el checkpoint de la búsqueda ya marca la operación como
+    // completada, así que un reintento no puede volver a buscar. Sin las
+    // organizaciones recuperadas la ronda se registraría con CERO candidatos y la
+    // corrida terminaría vacía después de haber pagado.
+    const { deps, recorder } = buildHarness({
+      rounds: [searchOutput([confirmedSupermarket(1), confirmedSupermarket(2)], 2), searchOutput([], 0)],
+    });
+    await runApolloTwoRoundWizardDiscovery(runInput(), deps);
+
+    const afterSearch = recorder.checkpoints.find(
+      (checkpoint) => checkpoint.checkpoint_reason === 'search_round_completed',
+    );
+    assert.ok(afterSearch, 'la búsqueda deja su propio checkpoint');
+    assert.equal(afterSearch.completed_operation_keys.length, 1, 'la búsqueda ya está completada');
+    assert.equal(afterSearch.candidate_snapshots.length, 0, 'y todavía no hay candidatos');
+    assert.equal(
+      afterSearch.pending_organizations.length,
+      2,
+      'las organizaciones pagadas viajan en el checkpoint',
+    );
+
+    const retry = buildHarness({
+      rounds: [searchOutput([], 0), searchOutput([], 0)],
+      loadCheckpoint: async () => afterSearch,
+    });
+    await runApolloTwoRoundWizardDiscovery(runInput(), retry.deps);
+
+    assert.ok(
+      !retry.recorder.searchRounds.includes(1),
+      'la ronda 1 ya se pagó: no se repite',
+    );
+    assert.equal(
+      retry.recorder.writtenCandidateNames.length,
+      2,
+      'las dos organizaciones se recuperan y se persisten, no se dan por cero',
+    );
+  });
+
   test('caso 6 — tras un enrichment el reintento no vuelve a enriquecer', async () => {
     const { checkpoint } = await firstAttempt({
       rounds: [searchOutput([ambiguousOrganization(1)], 1), searchOutput([], 0)],
@@ -1021,6 +1061,7 @@ describe('§ 7 · el checkpoint no pisa metadata ajena ni se sobrescribe con una
     seen_organization_keys: [],
     round_summaries: [],
     candidate_snapshots: [],
+    pending_organizations: [],
     enrichment_snapshots: [],
     persisted_candidate_ids: [],
     candidates_persisted: false,
@@ -1222,6 +1263,7 @@ describe('§ 6 · el snapshot es mínimo, sanitizado y acotado', () => {
       indeterminate_operation_keys: [],
       seen_organization_keys: Array.from({ length: 40 }, (_, i) => `dom:empresa-${i}.com.co`),
       round_summaries: [],
+      pending_organizations: [],
       candidate_snapshots: Array.from({ length: 10 }, (_, index) => ({
         candidate_key: `apollo:org-${index}`,
         round_number: (index % 2) + 1,
@@ -1326,6 +1368,7 @@ describe('§ 6 · el snapshot es mínimo, sanitizado y acotado', () => {
       indeterminate_operation_keys: [],
       seen_organization_keys: [],
       round_summaries: [],
+      pending_organizations: [],
       candidate_snapshots: [snapshot('vivo', true), snapshot('rechazado', false)],
       enrichment_snapshots: [],
       persisted_candidate_ids: [],
