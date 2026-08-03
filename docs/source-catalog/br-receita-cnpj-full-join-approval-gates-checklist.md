@@ -1403,3 +1403,17 @@ runtime or Agent 1. It does not approve any gate. See
 The § 6 GATE-2 ceilings and the § 11 GATE-7 preflight items this checklist defines are unchanged by 11T: the
 package proposes the category shape those ceilings and evidence checks would eventually reference, never the
 ceiling values or the frozen sanitizer contract itself.
+
+BR-SOURCE-11V creates the controlled execution authorization review. It evaluates whether the minimum
+conditions exist to authorize a future controlled execution attempt. Current recommendation remains NO-GO
+because GATE-2, GATE-7, cap/input policy, caps, input roots, output roots, temp storage, limited broader
+local execution and controlled execution attempt authorization remain missing. **11V does not approve GATE-2
+and does not approve GATE-7.** It does not approve cap/input policy. It does not authorize execution,
+real-data access, caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It
+does not approve any gate. See
+[`br-receita-cnpj-controlled-execution-authorization-review.md`](./br-receita-cnpj-controlled-execution-authorization-review.md).
+11V records GATE-2 and GATE-7 as the first two rows of its § 6 prerequisite table, each `not satisfied / not
+approved`, each `Blocks controlled execution? = yes` — a status audit citing this checklist as its evidence
+source, never a status change. The § 6 ceilings still do not exist, the § 11 GATE-7 preflight items are
+unchanged, and `P-05`, `P-12`, `P-13` and `P-19` still cannot be performed for the reasons recorded above.
+All eight gates remain `not_started` / not approved, and none moves toward `ready_for_review`.

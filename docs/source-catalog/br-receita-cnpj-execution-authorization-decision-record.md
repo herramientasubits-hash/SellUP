@@ -768,3 +768,25 @@ handoff. It changes none of the eight blockers in § 6, satisfies none of the §
 execution, and produces none of the EV-1 … EV-10 evidence in § 12. The § 8 recommended draft decision —
 Option A, keep execution blocked — is unchanged, and 11T carries the same recommendation forward for itself
 in its own § 19.
+
+---
+
+## 24. Update (BR-SOURCE-11V)
+
+BR-SOURCE-11V creates the controlled execution authorization review. It evaluates whether the minimum
+conditions exist to authorize a future controlled execution attempt. Current recommendation remains NO-GO
+because GATE-2, GATE-7, cap/input policy, caps, input roots, output roots, temp storage, limited broader
+local execution and controlled execution attempt authorization remain missing. It does not approve GATE-2.
+It does not approve GATE-7. It does not approve cap/input policy. It does not authorize execution, real-data
+access, caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It does not
+approve any gate. See
+[`br-receita-cnpj-controlled-execution-authorization-review.md`](./br-receita-cnpj-controlled-execution-authorization-review.md).
+
+11V is the first milestone in this chain that audits rather than adds structure, and its audit reaches the
+same conclusion this record did. **All eight blockers in § 6 remain present**, including the two this
+record's § 8 identified as binding: BLOCKER-1, GATE-2 unapproved, and BLOCKER-8, no legal/privacy/security
+sign-off. None of the § 10 minimum conditions before execution is satisfied, and none of the EV-1 … EV-10
+evidence in § 12 has been produced. 11V's § 8 Option C — escalate legal/privacy/security review — is this
+record's Option F carried forward, and 11V § 9 reaches the same reading: it is the earliest step that
+changes anything, and it requires its own separate owner phrase. The § 8 recommended draft decision —
+Option A, keep execution blocked — is unchanged.

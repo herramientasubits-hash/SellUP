@@ -884,3 +884,24 @@ changes none of the preflight items in § 7 — `Cap/input policy official` rema
 none of the § 15 decision points before any future run. The § 17 recommended draft decision — Option A, keep
 runbook blocked — is unchanged, and 11T carries the analogous recommendation forward for itself in its own
 § 19.
+
+---
+
+## 25. Update (BR-SOURCE-11V)
+
+BR-SOURCE-11V creates the controlled execution authorization review. It evaluates whether the minimum
+conditions exist to authorize a future controlled execution attempt. Current recommendation remains NO-GO
+because GATE-2, GATE-7, cap/input policy, caps, input roots, output roots, temp storage, limited broader
+local execution and controlled execution attempt authorization remain missing. It does not approve GATE-2.
+It does not approve GATE-7. It does not approve cap/input policy. It does not authorize execution, real-data
+access, caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It does not
+approve any gate. See
+[`br-receita-cnpj-controlled-execution-authorization-review.md`](./br-receita-cnpj-controlled-execution-authorization-review.md).
+
+**This runbook remains non-executable.** 11V changes no item in the § 7 preflight checklist: the nine gate
+and authorization items still read `no`, and `Cap/input policy official` stays `no` for the reason § 24
+already records. Of the four items § 7 notes as advanceable by documentation alone, `Stop conditions
+reviewed`, `Evidence packet template approved` and `Rollback/cleanup expectations reviewed` are unchanged,
+and `Operator assigned` and `Reviewer assigned` in § 6 remain unfilled — 11V § 6 records both as unsatisfied
+blockers. The § 9 conceptual command skeleton is still structure-only, and the § 17 recommended draft
+decision — Option A, keep runbook blocked — is unchanged.
