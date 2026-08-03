@@ -252,7 +252,35 @@ export interface RecoveryUsageLogEntry {
      * ejecuta. Ausente en pending / 404 / 401 / no_phone_found.
      */
     suppression_state?: InFlightSuppressionAuditState;
+    /**
+     * `phone_reveal_waterfall_runs.id` cuando este poll cierra la PRIMERA pata de
+     * un waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1). Id de fila PROPIO
+     * de SellUp: correlaciona esta pata con la de Lusha bajo UNA autorización sin
+     * mezclar créditos (cada pata conserva su fila y su `credits_used`). NO es un
+     * id de proveedor y NO es PII. Clave OMITIDA cuando no hay waterfall.
+     */
+    phone_reveal_waterfall_id?: string;
   };
+}
+
+// ── Hook de continuación del waterfall (AGENT2A-PHONE-WATERFALL-1) ──
+
+/**
+ * Desenlaces Apollo que el recovery puede comunicar al waterfall. Declarado
+ * estructuralmente (sin importar phone-reveal-waterfall-core) para que este core
+ * no dependa de la capa del waterfall ni exista riesgo de ciclo de imports.
+ */
+export type RecoveryWaterfallApolloOutcome =
+  | 'revealed'
+  | 'no_phone_found'
+  | 'blocked_suppressed'
+  | 'suppression_check_unavailable';
+
+export interface RecoveryWaterfallContinuationArgs {
+  candidateId: string;
+  apolloOutcome: RecoveryWaterfallApolloOutcome;
+  /** Créditos que Apollo reportó. null si no los reportó (nunca 0 por defecto). */
+  apolloCostCredits: number | null;
 }
 
 // ── Deps inyectadas (todo el I/O real vive fuera del core) ─────
@@ -311,6 +339,29 @@ export interface RecoverApolloPhoneRevealDeps {
    * caso queda registrado con un evento de forma CERRADA y sin PII.
    */
   onSuppressionNotEvaluable?: PhoneSuppressionNotEvaluableSink;
+
+  // ── Waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1) ─────
+  // Las DOS deps son OPCIONALES y solo se cablean con
+  // ENABLE_PHONE_REVEAL_WATERFALL encendido. Sin ellas el recovery se comporta
+  // exactamente como antes de este hito.
+
+  /**
+   * Resuelve el id de la corrida activa del waterfall del candidato, SOLO para
+   * incluirlo en la metadata del usage-log. Best-effort: cualquier excepción se
+   * traga y se sigue sin la clave.
+   */
+  resolveWaterfallRunId?: (candidateId: string) => Promise<string | null>;
+  /**
+   * Continúa el waterfall tras terminalizar Apollo. Se invoca DESPUÉS de persistir
+   * y loguear el desenlace, y es el único camino por el que la pata Lusha puede
+   * ejecutarse desde el recovery (cron L2 o revisión manual L3).
+   *
+   * BEST-EFFORT: resultado ignorado y excepciones tragadas. Un fallo de la pata
+   * Lusha no puede convertir una recuperación correcta en un error, ni provocar
+   * reintentos contra Apollo. La idempotencia entre webhook / cron / L3 la
+   * garantiza el claim atómico del core del waterfall, no este caller.
+   */
+  continueWaterfall?: (args: RecoveryWaterfallContinuationArgs) => Promise<unknown>;
 }
 
 // ── Resultado (sin PII) ────────────────────────────────────────
@@ -411,6 +462,41 @@ function toResult(
     phoneType: extra.phoneType ?? null,
     retryAfterSeconds: extra.retryAfterSeconds ?? null,
   };
+}
+
+/**
+ * Resuelve el id de la corrida del waterfall sin poder romper el recovery
+ * (AGENT2A-PHONE-WATERFALL-1). Solo alimenta una clave de metadata: cualquier
+ * fallo se traga y devuelve null. Con la dep sin cablear (flag apagado) no hay I/O.
+ */
+async function resolveWaterfallRunIdBestEffort(
+  deps: RecoverApolloPhoneRevealDeps,
+  candidateId: string,
+): Promise<string | null> {
+  if (!deps.resolveWaterfallRunId) return null;
+  try {
+    return cleanText(await deps.resolveWaterfallRunId(candidateId));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Continúa el waterfall sin poder romper el recovery. El desenlace Apollo ya está
+ * persistido y logueado cuando esto corre, así que un fallo aquí solo significa
+ * "la 2ª pata no se intentó en esta pasada".
+ */
+async function continueWaterfallBestEffort(
+  deps: RecoverApolloPhoneRevealDeps,
+  args: RecoveryWaterfallContinuationArgs,
+): Promise<void> {
+  if (!deps.continueWaterfall) return;
+  try {
+    await deps.continueWaterfall(args);
+  } catch {
+    // Silencio deliberado y acotado: el wrapper del waterfall ya registra el
+    // fallo sin PII, y una recuperación correcta no puede degradarse por esto.
+  }
 }
 
 // ── Payload "todavía procesando" (APOLLO-PHONE-RECOVERY-L3) ────
@@ -613,6 +699,10 @@ async function handleRecoveredPayload(args: {
   deps: RecoverApolloPhoneRevealDeps;
 }): Promise<RecoverApolloPhoneRevealResult> {
   const { candidate, recoveryRequestId, payload, input, deps } = args;
+  // Corrida del waterfall (AGENT2A-PHONE-WATERFALL-1): se resuelve UNA vez, solo
+  // en el camino en el que Apollo entregó un resultado, para no añadir una lectura
+  // a cada poll pendiente del cron. Con el flag apagado la dep no está cableada.
+  const waterfallRunId = await resolveWaterfallRunIdBestEffort(deps, candidate.id);
   const rawPhones = collectWebhookPhoneNumbers(payload);
   const credits = sumWebhookCredits(rawPhones);
   const best = pickBestApolloPhone(rawPhones.map(webhookPhoneToApolloPhone));
@@ -657,7 +747,7 @@ async function handleRecoveredPayload(args: {
     // resultado se puede repolear sin gastar créditos.
     if (suppression.kind === 'check_unavailable') {
       deps.onSuppressionCheckUnavailable?.(suppression.message);
-      return finalizeNonTerminal({
+      const nonTerminal = await finalizeNonTerminal({
         candidate,
         recoveryRequestId,
         outcome: 'suppression_check_unavailable',
@@ -665,9 +755,19 @@ async function handleRecoveredPayload(args: {
         logStatus: 'error',
         errorCode: SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
         suppressionState,
+        waterfallRunId,
         input,
         deps,
       });
+      // Waterfall: la supresión no se pudo verificar ⇒ la 2ª pata NO se gasta. El
+      // candidato sigue recuperable (nada terminal se persistió), pero la corrida
+      // se cierra fail-closed: no se lee "no verificable" como "sin tombstone".
+      await continueWaterfallBestEffort(deps, {
+        candidateId: candidate.id,
+        apolloOutcome: SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+        apolloCostCredits: credits,
+      });
+      return nonTerminal;
     }
 
     // Tombstone ⇒ el teléfono recuperado se descarta. NO se escribe `phone`, NO se
@@ -694,9 +794,17 @@ async function handleRecoveredPayload(args: {
           phoneType: null,
           credits,
           suppressionState,
+          waterfallRunId,
           input,
         }),
       );
+      // Waterfall: tombstone confirmado ⇒ corrida abortada, pata Lusha nunca
+      // intentada. Una supresión registrada bloquea a todos los proveedores.
+      await continueWaterfallBestEffort(deps, {
+        candidateId: candidate.id,
+        apolloOutcome: SUPPRESSION_BLOCKED_ERROR_CODE,
+        apolloCostCredits: credits,
+      });
       return toResult('blocked_suppressed', {
         creditsUsed: credits,
         recoveryRequestIdPresent: true,
@@ -763,9 +871,17 @@ async function handleRecoveredPayload(args: {
         // FIX 3: constancia de que la comprobación se hizo también cuando el
         // teléfono sí se persiste.
         suppressionState,
+        waterfallRunId,
         input,
       }),
     );
+    // Waterfall: Apollo entregó el teléfono (por recuperación) ⇒ la corrida cierra
+    // con final_provider = apollo y la pata Lusha NUNCA se intenta.
+    await continueWaterfallBestEffort(deps, {
+      candidateId: candidate.id,
+      apolloOutcome: 'revealed',
+      apolloCostCredits: credits,
+    });
     return toResult('revealed', {
       phoneRevealed: true,
       creditsUsed: credits,
@@ -780,6 +896,8 @@ async function handleRecoveredPayload(args: {
   // sella solo `phone_reveal_last_checked_at` y el candidato sigue recuperable, con
   // el `retry_after_seconds` que Apollo sugirió (si lo trajo) para la UI.
   if (isPendingWebhookResultPayload(payload)) {
+    // NO se continúa el waterfall: "aún procesando" no es un desenlace terminal de
+    // Apollo, así que la corrida sigue en vuelo y la 2ª pata no se evalúa todavía.
     return finalizeNonTerminal({
       candidate,
       recoveryRequestId,
@@ -788,6 +906,7 @@ async function handleRecoveredPayload(args: {
       logStatus: 'success',
       errorCode: null,
       retryAfterSeconds: extractRetryAfterSeconds(payload),
+      waterfallRunId,
       input,
       deps,
     });
@@ -817,9 +936,20 @@ async function handleRecoveredPayload(args: {
       phonePresent: false,
       phoneType: null,
       credits,
+      waterfallRunId,
       input,
     }),
   );
+  // Waterfall: ÚNICO desenlace que puede abrir la 2ª pata. El `no_phone_found` de
+  // Apollo ya quedó persistido arriba (no se altera) y la continuación decide —
+  // con claim atómico, TTL y re-chequeo de supresión/DNC — si Lusha corre. El claim
+  // es lo que garantiza UNA sola llamada aunque el webhook, este cron y la revisión
+  // manual L3 vean el mismo resultado.
+  await continueWaterfallBestEffort(deps, {
+    candidateId: candidate.id,
+    apolloOutcome: 'no_phone_found',
+    apolloCostCredits: credits,
+  });
   return toResult('no_phone_found', {
     creditsUsed: credits,
     recoveryRequestIdPresent: true,
@@ -839,6 +969,8 @@ async function finalizeNonTerminal(args: {
   suppressionState?: InFlightSuppressionAuditState;
   /** Solo lo pasa el camino de payload pendiente (L3). Segundos, no PII. */
   retryAfterSeconds?: number | null;
+  /** Id de la corrida del waterfall, ya resuelto por el caller. Opcional. */
+  waterfallRunId?: string | null;
   input: RecoverApolloPhoneRevealInput;
   deps: RecoverApolloPhoneRevealDeps;
 }): Promise<RecoverApolloPhoneRevealResult> {
@@ -851,6 +983,7 @@ async function finalizeNonTerminal(args: {
     errorCode,
     suppressionState,
     retryAfterSeconds,
+    waterfallRunId,
     input,
     deps,
   } = args;
@@ -872,6 +1005,7 @@ async function finalizeNonTerminal(args: {
       phoneType: null,
       credits: null,
       suppressionState,
+      waterfallRunId,
       input,
     }),
   );
@@ -895,8 +1029,11 @@ function buildRecoveryLog(args: {
   credits: number | null;
   /** Etiqueta PII-free de la comprobación de supresión (FIX 3). Opcional. */
   suppressionState?: InFlightSuppressionAuditState;
+  /** Id de la corrida del waterfall (AGENT2A-PHONE-WATERFALL-1). Opcional. */
+  waterfallRunId?: string | null;
   input: RecoverApolloPhoneRevealInput;
 }): RecoveryUsageLogEntry {
+  const waterfallRunId = cleanText(args.waterfallRunId);
   return {
     operationKey: PHONE_REVEAL_OPERATION_KEY,
     provider: 'apollo',
@@ -921,6 +1058,9 @@ function buildRecoveryLog(args: {
       ...(args.suppressionState
         ? { suppression_state: args.suppressionState }
         : {}),
+      // Clave omitida cuando no hay waterfall: la metadata del recovery queda
+      // idéntica a la de antes de este hito con el flag apagado.
+      ...(waterfallRunId ? { phone_reveal_waterfall_id: waterfallRunId } : {}),
     },
   };
 }

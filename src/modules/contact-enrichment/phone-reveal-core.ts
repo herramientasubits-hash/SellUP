@@ -335,6 +335,18 @@ export interface PhoneRevealUsageLogEntry {
      * null cuando Apollo no devolvió una respuesta interpretable (p.ej. error HTTP).
      */
     apollo_trace: ApolloPhoneRevealTraceMetadata | null;
+    /**
+     * `phone_reveal_waterfall_runs.id` cuando este START es la PRIMERA pata de un
+     * waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1). Es un id de fila
+     * PROPIO de SellUp: correlaciona el log de Apollo con el de Lusha bajo una
+     * sola autorización humana SIN mezclar sus créditos (cada pata conserva su
+     * propia fila y su propio `credits_used`). NO es un id de proveedor y NO es
+     * PII.
+     *
+     * La clave se OMITE por completo cuando no hay waterfall, así que con el flag
+     * apagado la metadata del START es byte a byte la de antes de este hito.
+     */
+    phone_reveal_waterfall_id?: string;
   };
 }
 
@@ -464,6 +476,21 @@ export interface RevealCandidatePhoneDeps {
    * Mensaje mecánico redactado, sin PII.
    */
   onCacheHitUsageLogFailed?: (message: string) => void;
+
+  // ── Waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1) ─────
+
+  /**
+   * `phone_reveal_waterfall_runs.id` de la corrida que el wrapper creó ANTES de
+   * este START, cuando `ENABLE_PHONE_REVEAL_WATERFALL` está encendido y el actor
+   * es admin. Su ÚNICO efecto en este core es añadir `phone_reveal_waterfall_id`
+   * a la metadata del usage-log del START, para que la pata Apollo y una eventual
+   * pata Lusha sean correlacionables SIN sumar sus créditos.
+   *
+   * NO cambia ningún gate, ningún estado del candidato ni ninguna decisión: con
+   * el flag apagado (o rol no admin) llega `undefined`, la clave se omite y el
+   * comportamiento del START es exactamente el de antes de este hito.
+   */
+  phoneRevealWaterfallId?: string | null;
 }
 
 // ── Resultado de la acción ─────────────────────────────────────
@@ -791,6 +818,7 @@ export async function runRevealCandidatePhone(
         sourceProviderForId,
         trace,
         suppressionState,
+        waterfallId: deps.phoneRevealWaterfallId ?? null,
       }),
     );
     return { ok: false, status: 'error', requestAccepted: false, errorCode };
@@ -882,6 +910,7 @@ export async function runRevealCandidatePhone(
       sourceProviderForId,
       trace: started.trace ?? null,
       suppressionState,
+      waterfallId: deps.phoneRevealWaterfallId ?? null,
     }),
   );
   return { ok: true, status: 'requested', requestAccepted: true, errorCode: null };
@@ -1241,7 +1270,13 @@ function buildUsageLogEntry(args: {
   sourceProviderForId: string | null;
   trace: ApolloPhoneRevealTraceMetadata | null;
   suppressionState: PhoneSuppressionAuditState;
+  /** Id de la corrida del waterfall, si este START es su primera pata. */
+  waterfallId?: string | null;
 }): PhoneRevealUsageLogEntry {
+  const waterfallId =
+    typeof args.waterfallId === 'string' && args.waterfallId.trim()
+      ? args.waterfallId.trim()
+      : null;
   return {
     operationKey: PHONE_REVEAL_OPERATION_KEY,
     provider: 'apollo',
@@ -1269,6 +1304,7 @@ function buildUsageLogEntry(args: {
       id_forwarded_to_apollo: args.idForwardedToApollo,
       source_provider_for_id: args.sourceProviderForId,
       apollo_trace: args.trace,
+      ...(waterfallId ? { phone_reveal_waterfall_id: waterfallId } : {}),
     },
   };
 }

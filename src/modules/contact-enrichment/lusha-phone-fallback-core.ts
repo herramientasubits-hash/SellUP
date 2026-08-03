@@ -132,6 +132,22 @@ export interface LushaPhoneFallbackActionResult {
   status: LushaPhoneFallbackActionStatus;
   /** Safe (no-PII) error code when status = 'error'. null otherwise. */
   errorCode: string | null;
+  /**
+   * Credits Lusha actually reported for this call (billing.creditsCharged), or
+   * null when nothing was reported — NEVER 0 as a stand-in for "unknown".
+   *
+   * Added for AGENT2A-PHONE-WATERFALL-1 so the waterfall run can record the Lusha
+   * leg's cost in its OWN column without re-reading the candidate. OPTIONAL and
+   * additive: it is a number/null on the paths that reached the provider and
+   * absent on the paths that returned before any call, so pre-waterfall callers
+   * and fixtures are unaffected. Never PII.
+   */
+  creditsCharged?: number | null;
+  /**
+   * Confidence about `creditsCharged`: 'reported' when the provider stated it,
+   * 'unknown' when it did not. Same additive contract as above.
+   */
+  costSource?: 'reported' | 'assumed_cap' | 'unknown';
 }
 
 // ── Patch de persistencia ──────────────────────────────────────
@@ -170,6 +186,38 @@ export interface LushaPhoneFallbackCoreDeps {
   callLusha: (params: { contactId: string }) => Promise<LushaPhoneFallbackClientResult>;
   persist: (candidateId: string, patch: LushaPhoneFallbackPersistencePatch) => Promise<void>;
   logUsage: (entry: LushaPhoneFallbackUsageLogEntry) => Promise<void>;
+
+  // ── Modo waterfall (AGENT2A-PHONE-WATERFALL-1) ────────────────
+
+  /**
+   * `true` cuando esta llamada es la SEGUNDA PATA de un waterfall Apollo → Lusha
+   * y no la acción manual que el operador dispara por sí misma.
+   *
+   * Cambia UNA sola cosa, y solo en los caminos en los que Lusha NO reveló: el
+   * candidato NO se sobrescribe. En modo manual, un `no_phone_found` o un error de
+   * Lusha son el resultado de la acción que el operador pidió, así que dejarlos en
+   * el candidato (provider `lusha`, su costo, su error) es correcto. En modo
+   * waterfall serían una MENTIRA sobre el estado del candidato: Apollo ya lo cerró
+   * como `no_phone_found` y el proveedor con el que se resolvió el caso no es
+   * Lusha, que solo intentó. Ese resultado pertenece a
+   * `phone_reveal_waterfall_runs`, que es quien lo registra.
+   *
+   * El camino `revealed` es IDÉNTICO en los dos modos: Lusha sí reveló, así que el
+   * candidato pasa a provider `lusha` + `enrichment_metadata.phone.source =
+   * 'lusha_reveal'` con su costo real.
+   *
+   * El usage-log se escribe SIEMPRE, en los dos modos y en todos los caminos: un
+   * gasto (o un intento) nunca deja de registrarse por estar en waterfall.
+   *
+   * Default (undefined/false) = modo manual, comportamiento validado sin cambios.
+   */
+  waterfallMode?: boolean;
+  /**
+   * `phone_reveal_waterfall_runs.id` de la corrida a la que pertenece esta pata.
+   * Viaja únicamente a la metadata del usage-log (clave omitida si no se pasa),
+   * para correlacionar las dos patas SIN sumar sus créditos. No es PII.
+   */
+  phoneRevealWaterfallId?: string | null;
 }
 
 // ── Helpers puros ──────────────────────────────────────────────
@@ -197,6 +245,24 @@ function cleanText(value: string | null | undefined): string | null {
 function resolveLushaContactId(candidate: LushaPhoneFallbackCandidateRecord): string | null {
   if (candidate.source !== 'lusha') return null;
   return cleanText(candidate.sourceContactId);
+}
+
+/**
+ * Persiste el desenlace en el candidato, salvo cuando estamos en la segunda pata
+ * de un waterfall y Lusha NO reveló (AGENT2A-PHONE-WATERFALL-1).
+ *
+ * Un único punto de decisión para las CUATRO ramas que no revelan (fallo de red,
+ * error HTTP, `no_phone_found` y respuesta malformada), en lugar de repetir el
+ * mismo `if` cuatro veces. En modo manual siempre persiste: es exactamente el
+ * comportamiento validado antes de este hito.
+ */
+async function persistNonRevealOutcome(
+  deps: LushaPhoneFallbackCoreDeps,
+  candidateId: string,
+  patch: LushaPhoneFallbackPersistencePatch,
+): Promise<void> {
+  if (deps.waterfallMode === true) return;
+  await deps.persist(candidateId, patch);
 }
 
 // ── Orquestación pura ──────────────────────────────────────────
@@ -282,7 +348,7 @@ export async function runLushaPhoneFallbackReveal(
   //     cost — never assume 0 credits.
   if (!result.ok) {
     const errorCode = 'provider_network_error';
-    await deps.persist(candidateId, {
+    await persistNonRevealOutcome(deps, candidateId, {
       phone_reveal_status: 'error',
       phone_reveal_provider: 'lusha',
       phone_revealed_at: null,
@@ -302,14 +368,19 @@ export async function runLushaPhoneFallbackReveal(
         creditsUsed: null,
         costSource: 'unknown',
         errorCode,
+        waterfallId: deps.phoneRevealWaterfallId,
       }),
     );
-    return fail('error', errorCode);
+    return {
+      ...fail('error', errorCode),
+      creditsCharged: null,
+      costSource: 'unknown',
+    };
   }
 
   // 7b. HTTP error mapped by the response classifier (402/403/404/401/429/5xx/malformed).
   if (result.candidateStatus === 'error') {
-    await deps.persist(candidateId, {
+    await persistNonRevealOutcome(deps, candidateId, {
       phone_reveal_status: 'error',
       phone_reveal_provider: 'lusha',
       phone_revealed_at: null,
@@ -330,15 +401,20 @@ export async function runLushaPhoneFallbackReveal(
         creditsUsed: null,
         costSource: 'unknown',
         errorCode: result.errorCode,
+        waterfallId: deps.phoneRevealWaterfallId,
       }),
     );
-    return fail('error', result.errorCode);
+    return {
+      ...fail('error', result.errorCode),
+      creditsCharged: null,
+      costSource: 'unknown',
+    };
   }
 
   // 7c. no_phone_found: terminal, no re-reveal, no credits (mapper only
   //     reaches this branch when creditsCharged === 0).
   if (result.candidateStatus === 'no_phone_found') {
-    await deps.persist(candidateId, {
+    await persistNonRevealOutcome(deps, candidateId, {
       phone_reveal_status: 'no_phone_found',
       phone_reveal_provider: 'lusha',
       phone_revealed_at: null,
@@ -358,9 +434,16 @@ export async function runLushaPhoneFallbackReveal(
         creditsUsed: result.creditsCharged,
         costSource: result.costSource ?? 'unknown',
         errorCode: null,
+        waterfallId: deps.phoneRevealWaterfallId,
       }),
     );
-    return { ok: true, status: 'no_phone_found', errorCode: null };
+    return {
+      ok: true,
+      status: 'no_phone_found',
+      errorCode: null,
+      creditsCharged: result.creditsCharged,
+      costSource: result.costSource ?? 'unknown',
+    };
   }
 
   // 7d. revealed: persist the number with source 'lusha_reveal'. Never
@@ -370,7 +453,7 @@ export async function runLushaPhoneFallbackReveal(
     // Defensive: the client should never report `revealed` without a number.
     // Treat as malformed rather than silently persisting an empty phone.
     const errorCode = 'malformed_provider_response';
-    await deps.persist(candidateId, {
+    await persistNonRevealOutcome(deps, candidateId, {
       phone_reveal_status: 'error',
       phone_reveal_provider: 'lusha',
       phone_revealed_at: null,
@@ -390,11 +473,19 @@ export async function runLushaPhoneFallbackReveal(
         creditsUsed: null,
         costSource: 'unknown',
         errorCode,
+        waterfallId: deps.phoneRevealWaterfallId,
       }),
     );
-    return fail('error', errorCode);
+    return {
+      ...fail('error', errorCode),
+      creditsCharged: null,
+      costSource: 'unknown',
+    };
   }
 
+  // Camino `revealed`: IDÉNTICO en modo manual y en modo waterfall. Lusha sí
+  // reveló, así que el candidato pasa legítimamente a provider `lusha` con su
+  // costo real y `enrichment_metadata.phone.source = 'lusha_reveal'`.
   await deps.persist(candidateId, {
     phone: phoneNumber,
     enrichment_metadata: {
@@ -425,9 +516,16 @@ export async function runLushaPhoneFallbackReveal(
       creditsUsed: result.creditsCharged,
       costSource: result.costSource ?? 'unknown',
       errorCode: null,
+      waterfallId: deps.phoneRevealWaterfallId,
     }),
   );
-  return { ok: true, status: 'revealed', errorCode: null };
+  return {
+    ok: true,
+    status: 'revealed',
+    errorCode: null,
+    creditsCharged: result.creditsCharged,
+    costSource: result.costSource ?? 'unknown',
+  };
 }
 
 // ── Constructor del log de uso (sin PII) ───────────────────────
@@ -440,12 +538,19 @@ function buildUsageLogEntry(args: {
   creditsUsed: number | null;
   costSource: 'reported' | 'assumed_cap' | 'unknown';
   errorCode: string | null;
+  /**
+   * Id de la corrida del waterfall cuando esta pata pertenece a una
+   * (AGENT2A-PHONE-WATERFALL-1). El builder de metadata omite la clave si no
+   * llega, así que el log del fallback manual no cambia de forma.
+   */
+  waterfallId?: string | null;
 }): LushaPhoneFallbackUsageLogEntry {
   const metadataDraft = buildLushaPhoneFallbackUsageLogMetadataDraft({
     candidateId: args.candidateId,
     actorRole: args.actorRole ?? 'unknown',
     costSource: args.costSource,
     revealPhase: 'direct_enrich',
+    phoneRevealWaterfallId: args.waterfallId ?? null,
   });
   return {
     operationKey: LUSHA_PHONE_FALLBACK_OPERATION_KEY,

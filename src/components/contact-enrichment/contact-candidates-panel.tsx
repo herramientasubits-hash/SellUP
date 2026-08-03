@@ -9,8 +9,13 @@ import { getPendingContactCandidates } from '@/modules/contact-enrichment/action
 import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { getCurrentUser } from '@/modules/access/actions';
-import { isApolloPhoneRevealEnabled, isLushaPhoneRevealFallbackEnabled } from '@/lib/feature-flags.server';
+import {
+  isApolloPhoneRevealEnabled,
+  isLushaPhoneRevealFallbackEnabled,
+  isPhoneRevealWaterfallEnabled,
+} from '@/lib/feature-flags.server';
 import { LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS } from '@/modules/contact-enrichment/lusha-phone-fallback-core';
+import { PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
 
 // Roles autorizados a revelar teléfono (PHONE-3D.4). Espejo del gate del server
 // action (PHONE_REVEAL_AUTHORIZED_ROLE_KEYS en phone-reveal-core): Administrador
@@ -53,6 +58,15 @@ export async function ContactCandidatesPanel() {
   const lushaPhoneFallbackAuthorized =
     !!currentUser?.role_key &&
     LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS.includes(currentUser.role_key);
+
+  // Gobierno del waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1): flag + rol
+  // se resuelven aquí (server component) y viajan como booleanos planos. Es
+  // admin-only, más estrecho que el reveal Apollo: con el flag OFF (default de
+  // producción) o un rol `commercial_manager`, la UI conserva el flujo Apollo-only.
+  const phoneRevealWaterfallEnabled = isPhoneRevealWaterfallEnabled();
+  const phoneRevealWaterfallAuthorized =
+    !!currentUser?.role_key &&
+    PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS.includes(currentUser.role_key);
 
   const accountOwners = new Map(
     accountsList.filter((a) => a.owner_id).map((a) => [a.id, a.owner_id!]),
@@ -129,6 +143,8 @@ export async function ContactCandidatesPanel() {
         phoneRevealAuthorized={phoneRevealAuthorized}
         lushaPhoneFallbackEnabled={lushaPhoneFallbackEnabled}
         lushaPhoneFallbackAuthorized={lushaPhoneFallbackAuthorized}
+        phoneRevealWaterfallEnabled={phoneRevealWaterfallEnabled}
+        phoneRevealWaterfallAuthorized={phoneRevealWaterfallAuthorized}
       />
     </DataTablePage>
   );
