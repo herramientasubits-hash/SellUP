@@ -1392,3 +1392,14 @@ sanitizer contract. 11S is a separate control artifact that records the procedur
 GATE-7 boundary; the remaining-gates decision packet § 6 and § 7 remain the authority on the `P-`, `T-` and
 `OR-A` series. **GATE-7 remains `not_started` / not approved**, and an approved runbook would still be a
 procedure, never a permission.
+
+BR-SOURCE-11T creates the cap/input policy authorization package. It documents cap categories, input
+classes, output policy categories, family allow/deny policy, manifest/control-file policy, temp storage
+policy, evidence bucket policy, exact percentage/denominator policy, owner fields, stop conditions and
+future milestone mapping. **11T does not approve GATE-2 and does not approve GATE-7.** It does not
+authorize execution, real-data access, caps, input roots, output roots, temp storage, import, Supabase,
+runtime or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-cap-input-policy-authorization-package.md`](./br-receita-cnpj-cap-input-policy-authorization-package.md).
+The § 6 GATE-2 ceilings and the § 11 GATE-7 preflight items this checklist defines are unchanged by 11T: the
+package proposes the category shape those ceilings and evidence checks would eventually reference, never the
+ceiling values or the frozen sanitizer contract itself.

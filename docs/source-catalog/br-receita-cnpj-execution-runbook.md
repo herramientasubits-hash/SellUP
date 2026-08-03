@@ -866,3 +866,21 @@ manifest, opened no CSV and no ZIP, processed no row, executed no join, and comp
 recorded no cap ceiling, no input root and no output root. Every gate in § 21 remains
 `not_started / not approved`, including GATE-7, and each milestone in § 18 still requires its own explicit
 owner authorization.
+
+---
+
+## 24. Update (BR-SOURCE-11T)
+
+BR-SOURCE-11T creates the cap/input policy authorization package. It documents cap categories, input
+classes, output policy categories, family allow/deny policy, manifest/control-file policy, temp storage
+policy, evidence bucket policy, exact percentage/denominator policy, owner fields, stop conditions and
+future milestone mapping. It does not approve GATE-2. It does not approve GATE-7. It does not authorize
+execution, real-data access, caps, input roots, output roots, temp storage, import, Supabase, runtime or
+Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-cap-input-policy-authorization-package.md`](./br-receita-cnpj-cap-input-policy-authorization-package.md).
+
+11T was written under this runbook's § 19 required owner phrase and its § 18 next-milestone mapping. It
+changes none of the preflight items in § 7 — `Cap/input policy official` remains `no` — and it satisfies
+none of the § 15 decision points before any future run. The § 17 recommended draft decision — Option A, keep
+runbook blocked — is unchanged, and 11T carries the analogous recommendation forward for itself in its own
+§ 19.

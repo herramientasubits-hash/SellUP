@@ -998,3 +998,14 @@ records as deliberately unimplemented — the two path-bearing ones and the one 
 person-family denylist — deliberately absent from it as well, and with every cap placeholder naming the future
 authorization artifact instead of a value. The § 17 evidence shape reaches the runbook in its § 29 form: class
 tallies and buckets, never raw requested lists or exact figures.
+
+BR-SOURCE-11T creates the cap/input policy authorization package. It documents cap categories, input
+classes, output policy categories, family allow/deny policy, manifest/control-file policy, temp storage
+policy, evidence bucket policy, exact percentage/denominator policy, owner fields, stop conditions and
+future milestone mapping. It does not approve GATE-2. It does not authorize execution, real-data access,
+caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It does not approve any
+gate. See
+[`br-receita-cnpj-cap-input-policy-authorization-package.md`](./br-receita-cnpj-cap-input-policy-authorization-package.md).
+The § 8 conceptual flag contract's candidate cap set and the § 29 deliberately-unimplemented path-bearing
+flags are unchanged by 11T: the package proposes cap and input-class categories only, never the values this
+design's contract sketches as future placeholders.
