@@ -839,3 +839,26 @@ and § 16's instruction stands unchanged — if an 11W execution request arrives
 against the state at that moment and refuse on any `no`. And the package's own next-step phrase points at a
 further docs-only milestone, `AUTHORIZE BR-SOURCE-11X — FORMAL OWNER DECISION RECORDS FOR GATE2 GATE7 CAP
 INPUT`, which would authorize *capturing* owner decisions and never *making* them.
+
+---
+
+## 23. Update (BR-SOURCE-11X)
+
+BR-SOURCE-11X creates formal owner decision record templates for GATE-2, GATE-7 and cap/input policy. It does
+not approve GATE-2. It does not approve GATE-7. It does not approve cap/input policy. It does not authorize
+caps, input roots, output roots, temp storage, controlled execution, real-data access, import, Supabase,
+runtime or Agent 1. Current recommendation remains NO-GO. See
+[`br-receita-cnpj-11x-formal-owner-decision-records-gate2-gate7-cap-input.md`](./br-receita-cnpj-11x-formal-owner-decision-records-gate2-gate7-cap-input.md).
+
+It flips no row in the § 6 prerequisite table, clears no blocker in § 7, and changes no value in the § 11
+preflight. The § 9 recommended draft decision — Option A, keep controlled execution blocked — is unchanged,
+and 11X carries the analogous recommendation forward for itself. It is the docs-only continuation of § 8
+Option D, one step past the readiness inventory 11W produced: where 11W listed the missing decisions, 11X
+supplies the forms they would be captured in and the rules by which a captured decision counts.
+
+Two boundaries keep the milestones distinct. 11X is **not** the controlled execution attempt this review
+conditions and § 17 supplies a phrase for: that phrase remains unused, and § 16's instruction stands
+unchanged — if such a request arrives, re-run the § 11 preflight against the state at that moment and refuse on
+any `no`. And 11X § 8 restates § 12's *operator self-declares approval* risk as an explicit validity rule: a
+filled template inside a docs-only package is an unapproved draft, and three valid records would still leave
+the controlled execution attempt authorization missing.

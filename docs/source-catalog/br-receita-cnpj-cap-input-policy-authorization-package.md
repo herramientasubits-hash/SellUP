@@ -872,3 +872,28 @@ decision areas an owner would have to rule on, expressing every current value as
 `not_authorized` and every allowed value as a type or a class label rather than a number. That is the same
 category-versus-value rule § 4 of this document sets, applied to a decision surface rather than to a policy
 surface: a matrix row naming a cap is not a cap ceiling, and a blank remains null, which is not unlimited.
+
+---
+
+## 28. Update (BR-SOURCE-11X)
+
+BR-SOURCE-11X creates formal owner decision record templates for GATE-2, GATE-7 and cap/input policy. It does
+not approve GATE-2. It does not approve GATE-7. It does not approve cap/input policy. It does not authorize
+caps, input roots, output roots, temp storage, controlled execution, real-data access, import, Supabase,
+runtime or Agent 1. Current recommendation remains NO-GO. See
+[`br-receita-cnpj-11x-formal-owner-decision-records-gate2-gate7-cap-input.md`](./br-receita-cnpj-11x-formal-owner-decision-records-gate2-gate7-cap-input.md).
+
+It flips no status in this package. Every cap ceiling in § 6 remains null; every input class in § 7 and every
+output class in § 8 remains an unauthorized class label, including the four classes § 7 blocks outright; the
+§ 9 family lists remain unapproved with `simples` on the forbidden side; § 10 authorizes no manifest reading;
+§ 11 temp storage remains `not_authorized` with Option A still the recommendation; § 13 keeps exact
+percentages and full-dataset denominators `not_authorized`; and every field in § 14 remains blank.
+
+Its § 7 cap/input decision record is the form an owner decision on this policy would be captured in, and it
+carries this package's constraints into that form rather than restating them differently. *Cap maxima
+decision* references an approved cap set by artifact identifier and originates no number, which is § 4's
+category-versus-value rule applied to a capture surface. *Input root decision* takes a class label and never a
+path, and the four classes § 7 blocks outright cannot be approved through it. *Family allow/deny decision*
+inherits § 9's forbidden side unchanged, *Manifest/control-file policy decision* starts from § 10's zero
+authorization, and the percentage and denominator fields start from § 13's `not_authorized`. A field naming a
+cap is not a cap ceiling, and a blank remains null, which is not unlimited.

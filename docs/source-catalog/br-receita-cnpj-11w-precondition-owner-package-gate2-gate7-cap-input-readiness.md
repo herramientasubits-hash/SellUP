@@ -792,3 +792,27 @@ recommendation remains NO-GO, and this package organizes those missing decisions
 them.** Fifteen of fifteen blockers in § 4 are unresolved, twenty-eight of twenty-eight rows in § 5 read
 `Approval granted by this package? no`, thirteen of eighteen preflight items in § 9 fail, all seventeen
 fields in § 10 read `TBD_BY_OWNER`, and all twenty rows in § 14 remain unauthorized.
+
+---
+
+## 21. Update (BR-SOURCE-11X)
+
+BR-SOURCE-11X creates formal owner decision record templates for GATE-2, GATE-7 and cap/input policy. It does
+not approve GATE-2. It does not approve GATE-7. It does not approve cap/input policy. It does not authorize
+caps, input roots, output roots, temp storage, controlled execution, real-data access, import, Supabase,
+runtime or Agent 1. Current recommendation remains NO-GO. See
+[`br-receita-cnpj-11x-formal-owner-decision-records-gate2-gate7-cap-input.md`](./br-receita-cnpj-11x-formal-owner-decision-records-gate2-gate7-cap-input.md).
+
+It flips no status in this package. All fifteen blockers in § 4 remain unresolved, all twenty-eight rows in
+§ 5 still read `Approval granted by this package? no`, all five readiness results in § 6, § 7, § 8, § 12 and
+§ 13 still read `NOT READY`, thirteen of eighteen preflight items in § 9 still fail, and all twenty rows in
+§ 14 remain unauthorized. The § 15 recommended decision — keep NO-GO — is unchanged.
+
+What 11X adds against § 10 is form rather than authority. It splits this package's single seventeen-field
+draft form into three separate records, one per decision area, on the ground that the three decisions have
+different owners, different evidence requirements and different failure modes, and then attaches ten validity
+rules so a filled record can be checked rather than merely read. It also carries forward § 10's closing
+constraint as its own § 4 and § 8: a filled copy of a template inside a docs-only package is an unapproved
+draft, and a record is valid only when captured where approvals are captured and referenced by identifier.
+Its next-step phrase, `AUTHORIZE BR-SOURCE-11Y — OWNER DECISION CAPTURE REVIEW`, would authorize reviewing
+filled records against those rules and never filling or approving them.
