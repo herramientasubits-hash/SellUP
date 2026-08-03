@@ -28,12 +28,19 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { isApolloPhoneCacheEnabled } from '@/lib/feature-flags.server';
+import {
+  isApolloPhoneCacheEnabled,
+  isPhoneRevealWaterfallEnabled,
+} from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import {
   readPhoneCacheSuppression,
   writePhoneCacheEntry,
 } from '@/modules/contact-enrichment/phone-cache-store';
+import {
+  continuePhoneRevealWaterfallForCandidate,
+  resolveActiveWaterfallRunId,
+} from '@/modules/contact-enrichment/phone-reveal-waterfall-deps';
 import {
   runApolloPhoneRevealWebhook,
   isApolloWebhookTokenAuthorized,
@@ -288,6 +295,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           event,
         );
       },
+      // Waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1). Las DOS deps se
+      // cablean SOLO con ENABLE_PHONE_REVEAL_WATERFALL encendido: con el flag
+      // apagado llegan ausentes y el core no resuelve corrida, no añade la clave a
+      // la metadata y no continúa nada — el webhook queda igual que antes del hito.
+      //
+      // Ambas son best-effort DENTRO del core: correlacionar y continuar son
+      // deseables, pero un fallo suyo no puede convertir este callback en 5xx (eso
+      // haría a Apollo reintentar sin resolver nada) ni perder un teléfono pagado.
+      // La garantía de UNA sola llamada a Lusha es el claim atómico, no este caller.
+      ...(isPhoneRevealWaterfallEnabled()
+        ? {
+            resolveWaterfallRunId: resolveActiveWaterfallRunId,
+            continueWaterfall: continuePhoneRevealWaterfallForCandidate,
+          }
+        : {}),
     },
   );
 

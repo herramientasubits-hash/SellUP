@@ -78,9 +78,26 @@ describe('ASYNC-5 — presencia del botón one-click (sin modal)', () => {
     assert.ok(/Revelar teléfono/.test(detailSheet));
   });
 
-  it('el botón dispara la revelación directamente (onClick={handlePhoneReveal})', () => {
+  it('sin waterfall el botón dispara la revelación directamente (one-click, sin modal)', () => {
     const block = revealButtonBlock(detailSheetCode);
-    assert.ok(/onClick=\{handlePhoneReveal\}/.test(block), 'el botón debe llamar handlePhoneReveal');
+    // AGENT2A-PHONE-WATERFALL-1: el onClick pasó a ser condicional. La invariante
+    // ASYNC-5 no cambió — con `ENABLE_PHONE_REVEAL_WATERFALL` apagado
+    // (`waterfallActive === false`, el default de producción) el botón sigue
+    // llamando a handlePhoneReveal sin diálogo intermedio. Lo que se verifica aquí
+    // es exactamente esa rama; la rama del waterfall abre su modal ÚNICO y está
+    // cubierta por contact-candidate-detail-phone-waterfall-ui.test.tsx.
+    assert.ok(
+      /onClick=\{[\s\S]*waterfallActive[\s\S]*\}/.test(block),
+      'el onClick debe estar gobernado por waterfallActive',
+    );
+    assert.ok(
+      /:\s*\(\)\s*=>\s*handlePhoneReveal\(\)/.test(block),
+      'la rama sin waterfall debe llamar handlePhoneReveal directamente',
+    );
+    assert.ok(
+      /\?\s*\(\)\s*=>\s*setShowWaterfallConfirm\(true\)/.test(block),
+      'la rama con waterfall debe abrir el modal único, no revelar directo',
+    );
   });
 
   it('define una base legal FIJA legitimate_interest_b2b', () => {
@@ -134,7 +151,17 @@ describe('ASYNC-5 — contrato de la llamada al action (sin PII)', () => {
   it('envía candidateId + confirmCost + expectedMaxCredits + base fija', () => {
     assert.ok(block.includes('candidateId: candidate.id'));
     assert.ok(block.includes('confirmCost: true'));
-    assert.ok(block.includes('expectedMaxCredits: PHONE_REVEAL_MAX_CREDITS'));
+    assert.ok(block.includes('expectedMaxCredits'));
+    // AGENT2A-PHONE-WATERFALL-1: el tope pasó a ser un parámetro de
+    // handlePhoneReveal para que el waterfall pueda enviar 13. El DEFAULT sigue
+    // siendo PHONE_REVEAL_MAX_CREDITS (8), así que la ruta Apollo-only conserva
+    // exactamente el tope de ASYNC-5.
+    assert.ok(
+      /handlePhoneReveal\(\s*expectedMaxCredits:\s*number\s*=\s*PHONE_REVEAL_MAX_CREDITS\s*\)/.test(
+        detailSheet,
+      ),
+      'el tope por defecto debe seguir siendo PHONE_REVEAL_MAX_CREDITS',
+    );
     assert.ok(block.includes('phoneProcessingBasis: PHONE_REVEAL_PROCESSING_BASIS'));
     // Base fija: la nota se manda explícitamente como undefined.
     assert.ok(block.includes('phoneProcessingBasisNote: undefined'));

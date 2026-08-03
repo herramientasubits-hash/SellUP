@@ -153,6 +153,13 @@ interface ContactCandidatesDataTableClientProps {
   lushaPhoneFallbackEnabled?: boolean;
   /** true si el rol del actor autenticado (admin) puede usar el fallback Lusha. */
   lushaPhoneFallbackAuthorized?: boolean;
+  /**
+   * ENABLE_PHONE_REVEAL_WATERFALL resuelto server-side
+   * (AGENT2A-PHONE-WATERFALL-1). Se propaga tal cual al detalle del candidato.
+   */
+  phoneRevealWaterfallEnabled?: boolean;
+  /** true si el rol del actor autenticado (admin) puede usar el waterfall completo. */
+  phoneRevealWaterfallAuthorized?: boolean;
 }
 
 export function ContactCandidatesDataTableClient({
@@ -163,6 +170,8 @@ export function ContactCandidatesDataTableClient({
   phoneRevealAuthorized = false,
   lushaPhoneFallbackEnabled = false,
   lushaPhoneFallbackAuthorized = false,
+  phoneRevealWaterfallEnabled = false,
+  phoneRevealWaterfallAuthorized = false,
 }: ContactCandidatesDataTableClientProps) {
   // Side panel de detalle (ajuste posterior a 17A.4A): click en fila abre un
   // drawer read-only con el detalle del candidato. Solo lectura — sin acciones.
@@ -398,6 +407,8 @@ export function ContactCandidatesDataTableClient({
       phoneRevealAuthorized={phoneRevealAuthorized}
       lushaPhoneFallbackEnabled={lushaPhoneFallbackEnabled}
       lushaPhoneFallbackAuthorized={lushaPhoneFallbackAuthorized}
+      phoneRevealWaterfallEnabled={phoneRevealWaterfallEnabled}
+      phoneRevealWaterfallAuthorized={phoneRevealWaterfallAuthorized}
     />
     </>
   );

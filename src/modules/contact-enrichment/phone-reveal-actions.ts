@@ -30,6 +30,7 @@ import { createClient } from '@/lib/supabase/server';
 import {
   isApolloPhoneCacheEnabled,
   isApolloPhoneRevealEnabled,
+  isPhoneRevealWaterfallEnabled,
 } from '@/lib/feature-flags.server';
 import { startApolloPhoneReveal } from '@/server/integrations/apollo-client';
 import { sanitizeApolloErrorMessage } from './apollo-error-hint';
@@ -51,6 +52,14 @@ import {
   type RevealStartPersistencePatch,
   type PhoneRevealUsageLogEntry,
 } from './phone-reveal-core';
+import {
+  mapApolloStartStatusToWaterfallPatch,
+  startPhoneRevealWaterfall,
+} from './phone-reveal-waterfall-core';
+import {
+  buildStartWaterfallDeps,
+  updateWaterfallRun,
+} from './phone-reveal-waterfall-deps';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
 
 // Env con la URL pública del webhook async de Apollo (sin NEXT_PUBLIC). No se
@@ -169,6 +178,67 @@ function safeApolloErrorCode(raw: unknown): string {
   return /^[A-Za-z0-9_.-]+$/.test(code) ? code : 'apollo_reveal_start_failed';
 }
 
+// ── Waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1) ───────
+
+/**
+ * Crea la corrida del waterfall ANTES del START de Apollo, de forma BEST-EFFORT.
+ *
+ * Devuelve el id de la corrida, o null cuando no hay waterfall que abrir: flag
+ * apagado, rol no admin (un `commercial_manager` conserva el flujo Apollo-only),
+ * ya existe una autorización viva, o la escritura falló.
+ *
+ * Best-effort a propósito: si la corrida no se puede crear, el reveal Apollo que
+ * el operador autorizó sigue adelante SIN pata Lusha. Es la degradación segura —
+ * se pierde la automatización, nunca se gasta un crédito no registrado.
+ */
+async function startWaterfallRunBestEffort(
+  candidateId: string,
+  actor: { internalUserId: string; roleKey: string | null },
+): Promise<string | null> {
+  if (!isPhoneRevealWaterfallEnabled()) return null;
+  try {
+    const started = await startPhoneRevealWaterfall(
+      { candidateId },
+      buildStartWaterfallDeps(actor),
+    );
+    return started.started ? started.runId : null;
+  } catch (err) {
+    console.error(
+      '[phone-reveal-waterfall] run creation failed:',
+      err instanceof Error ? err.message : 'unknown error',
+    );
+    return null;
+  }
+}
+
+/**
+ * Reconcilia la corrida con el resultado del START de Apollo, BEST-EFFORT.
+ *
+ * `requested` (camino feliz asíncrono) no toca nada: la corrida sigue
+ * `apollo_in_flight` y la cerrarán el webhook o el recovery. Cualquier otro status
+ * la cierra ya — incluido un hit de caché (terminal e inmediato) y cualquier gate
+ * que impidió llamar a Apollo — para que no quede una corrida activa ocupando el
+ * índice único parcial y bloqueando un intento posterior legítimo.
+ */
+async function reconcileWaterfallAfterApolloStart(
+  runId: string,
+  apolloStartStatus: string,
+): Promise<void> {
+  const patch = mapApolloStartStatusToWaterfallPatch(
+    apolloStartStatus,
+    new Date().toISOString(),
+  );
+  if (!patch) return;
+  try {
+    await updateWaterfallRun(runId, patch);
+  } catch (err) {
+    console.error(
+      '[phone-reveal-waterfall] run reconciliation failed:',
+      err instanceof Error ? err.message : 'unknown error',
+    );
+  }
+}
+
 // ── Server Action ──────────────────────────────────────────────
 
 /**
@@ -201,11 +271,19 @@ export async function revealCandidatePhoneAction(
   const supabase = await createClient();
   const admin = getServiceRoleClient();
 
-  return runRevealCandidatePhone(input, {
+  // Waterfall Apollo → Lusha: la corrida se abre ANTES del START para que el
+  // webhook (que puede llegar en segundos) encuentre siempre la autorización, y
+  // para que el usage-log del START ya lleve `phone_reveal_waterfall_id`. Con el
+  // flag apagado o un rol no admin devuelve null y todo queda como antes.
+  const waterfallRunId = await startWaterfallRunBestEffort(input.candidateId, actor);
+
+  const result = await runRevealCandidatePhone(input, {
     flagEnabled: true,
     actor,
     nowIso: new Date().toISOString(),
     webhookUrl: resolveWebhookUrl(),
+    // Solo alimenta la metadata del usage-log del START: no cambia ningún gate.
+    phoneRevealWaterfallId: waterfallRunId,
 
     loadCandidate: async (candidateId): Promise<RevealCandidateRecord | null> => {
       const { data, error } = await supabase
@@ -405,4 +483,12 @@ export async function revealCandidatePhoneAction(
       });
     },
   });
+
+  // Reconciliación del waterfall: solo cuando se abrió una corrida. `requested`
+  // la deja en vuelo; cualquier otro desenlace del START la cierra ya.
+  if (waterfallRunId) {
+    await reconcileWaterfallAfterApolloStart(waterfallRunId, result.status);
+  }
+
+  return result;
 }

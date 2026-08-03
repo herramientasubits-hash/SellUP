@@ -33,6 +33,17 @@ export interface LushaPhoneFallbackUsageLogMetadataDraftInput {
   actorRole: string;
   costSource: LushaPhoneFallbackCostSource;
   revealPhase: LushaPhoneFallbackRevealPhase;
+  /**
+   * `phone_reveal_waterfall_runs.id` when this reveal is the SECOND leg of an
+   * Apollo → Lusha waterfall (AGENT2A-PHONE-WATERFALL-1). It is SellUp's own row
+   * id — a correlation handle, never a provider id and never PII — and it is what
+   * lets the Apollo leg's log and this Lusha leg's log be read as one authorized
+   * action while their credits stay in SEPARATE rows (they are never summed).
+   *
+   * Optional and omitted entirely when absent, so the manual, non-waterfall
+   * fallback keeps producing byte-for-byte the same metadata as before.
+   */
+  phoneRevealWaterfallId?: string | null;
 }
 
 /** Whitelisted, PII-free metadata shape — see module doc for what is excluded. */
@@ -43,6 +54,14 @@ export interface LushaPhoneFallbackUsageLogMetadataDraft {
   confirm_cost: true;
   cost_source: LushaPhoneFallbackCostSource;
   reveal_phase: LushaPhoneFallbackRevealPhase;
+  /** Present ONLY for a waterfall second leg. See input doc above. */
+  phone_reveal_waterfall_id?: string;
+}
+
+function cleanId(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 /**
@@ -53,6 +72,7 @@ export interface LushaPhoneFallbackUsageLogMetadataDraft {
 export function buildLushaPhoneFallbackUsageLogMetadataDraft(
   input: LushaPhoneFallbackUsageLogMetadataDraftInput,
 ): LushaPhoneFallbackUsageLogMetadataDraft {
+  const waterfallId = cleanId(input.phoneRevealWaterfallId);
   return {
     candidate_id: input.candidateId,
     actor_role: input.actorRole,
@@ -60,5 +80,8 @@ export function buildLushaPhoneFallbackUsageLogMetadataDraft(
     confirm_cost: true,
     cost_source: input.costSource,
     reveal_phase: input.revealPhase,
+    // Key omitted (not set to null/undefined) when there is no waterfall, so the
+    // manual fallback's metadata shape stays exactly as it was.
+    ...(waterfallId ? { phone_reveal_waterfall_id: waterfallId } : {}),
   };
 }
