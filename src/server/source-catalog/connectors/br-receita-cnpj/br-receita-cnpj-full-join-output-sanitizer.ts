@@ -43,6 +43,14 @@
  *     names the bounded window that was read and still passes, and the held-absence assertions
  *     (`exact_coverage_percentage_printed: false`, `full_dataset_denominator_printed: false`,
  *     `production_inference_allowed: false`) carry nothing and still pass;
+ *   - a LIMITED-BROADER-EXECUTION APPROVAL, a GATE-2 APPROVAL, or an import / runtime / Agent 1
+ *     READINESS key carrying a value — from BR-SOURCE-11P-IMPL the limited-broader control layer is
+ *     the first code path whose output could claim an APPROVAL rather than leak a value or
+ *     overclaim a figure, and a downstream reader would take any of them as a green light. GATE-2
+ *     is `not_approved` and only an owner decision record may change that, never a report. These
+ *     rules are deliberately narrow so the runner's own carve-out declarations
+ *     (`required_family_probe_authorized`, `real_manifest_metadata_only_execution_authorized`, …)
+ *     keep reporting `true`, and the held-absence values (`import_ready: false`) still pass;
  *   - a `record_identity_key`, `normalized_tax_id`, `cnpj_basico`, `cnpj`, or `cpf`
  *     key carrying a real value, and a `cnpj_basico`/`cnpj_completo` COLLECTION key — the
  *     shape a bounded key window would take if it were ever written out;
@@ -104,7 +112,14 @@ export type BrazilReceitaFullJoinLeakKind =
   | 'coverage_signal_denominator_payload'
   | 'coverage_signal_proof_payload'
   | 'coverage_signal_guarantee_payload'
-  | 'production_inference_payload';
+  | 'production_inference_payload'
+  // ── BR-SOURCE-11P-IMPL: the limited-broader control layer is the first code path whose output
+  //    could claim an APPROVAL it does not have ──
+  | 'limited_broader_execution_approval_payload'
+  | 'gate2_approval_payload'
+  | 'import_readiness_payload'
+  | 'runtime_readiness_payload'
+  | 'agent1_readiness_payload';
 
 export const BRAZIL_RECEITA_FULL_JOIN_LEAK_KINDS: readonly BrazilReceitaFullJoinLeakKind[] = [
   'cnpj_completo_like',
@@ -139,6 +154,11 @@ export const BRAZIL_RECEITA_FULL_JOIN_LEAK_KINDS: readonly BrazilReceitaFullJoin
   'coverage_signal_proof_payload',
   'coverage_signal_guarantee_payload',
   'production_inference_payload',
+  'limited_broader_execution_approval_payload',
+  'gate2_approval_payload',
+  'import_readiness_payload',
+  'runtime_readiness_payload',
+  'agent1_readiness_payload',
 ];
 
 /** The single aggregate error code surfaced on a report when sanitization fails. */
@@ -380,6 +400,57 @@ const EMPTY_ONLY_KEY_RULES: ReadonlyArray<{
       k.includes('datasetqualityscore') ||
       k.includes('fulldatasetcoverage'),
     kind: 'production_inference_payload',
+  },
+  // ── BR-SOURCE-11P-IMPL. The limited-broader-local-execution CONTROL LAYER is the first code
+  //    path whose output could claim an APPROVAL rather than leak a value or overclaim a figure:
+  //    the danger is a report asserting that GATE-2 is approved, that limited broader local
+  //    execution is authorized, or that Brazil is ready for import / runtime / Agent 1 — none of
+  //    which is true, and any of which would be read downstream as a green light.
+  //
+  //    Every rule below is deliberately NARROW, because the runner legitimately reports its own
+  //    carve-out declarations as `true` (`required_family_probe_authorized`,
+  //    `real_manifest_metadata_only_execution_authorized`, `aggregate_join_coverage_signal_authorized`,
+  //    …). A rule matching a bare `authorized` or `execution` fragment would fail every authorized
+  //    11E–11H run, so each rule names the limited-broader / GATE-2 / readiness shape specifically.
+  //    The held-absence values these reports actually carry (`import_ready: false`,
+  //    `gate2_approved: false`) are `false`, carry nothing, and still pass.
+  {
+    matches: (k) =>
+      k.includes('limitedbroaderlocalexecutionauthorized') ||
+      k.includes('limitedbroaderlocalexecutionapproved') ||
+      k.includes('limitedbroaderexecutionauthorized') ||
+      k.includes('limitedbroaderexecutionapproved') ||
+      k.includes('broaderlocalexecutionauthorized') ||
+      k.includes('broaderlocalexecutionapproved') ||
+      k.includes('fulljoinexecutionready') ||
+      k.includes('readyforfulljoinexecution'),
+    kind: 'limited_broader_execution_approval_payload',
+  },
+  {
+    // GATE-2 is `not_approved` and only an owner decision record can change that — never a report.
+    // `gate_2_temporary_storage` (the runner's own gate label) normalizes to
+    // `gate2temporarystorage` and is untouched by this rule.
+    matches: (k) =>
+      k.includes('gate2approved') ||
+      k.includes('gate2approval') ||
+      k.includes('gate2granted') ||
+      k.includes('gatetwoapproved'),
+    kind: 'gate2_approval_payload',
+  },
+  {
+    matches: (k) =>
+      k.includes('importready') || k.includes('readyforimport') || k.includes('importreadiness'),
+    kind: 'import_readiness_payload',
+  },
+  {
+    matches: (k) =>
+      k.includes('runtimeready') || k.includes('readyforruntime') || k.includes('runtimereadiness'),
+    kind: 'runtime_readiness_payload',
+  },
+  {
+    matches: (k) =>
+      k.includes('agent1ready') || k.includes('readyforagent1') || k.includes('agent1readiness'),
+    kind: 'agent1_readiness_payload',
   },
   {
     // `coverageAllowed = false` is a REFUSAL, not a labelling rule (§ 9.1): with bounded rows

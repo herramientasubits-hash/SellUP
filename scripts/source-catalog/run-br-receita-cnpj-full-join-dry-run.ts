@@ -81,6 +81,20 @@
  *                                  refused by the runner core: a real manifest can never
  *                                  carry synthetic-temp trust, and GATE-1/GATE-2 are not
  *                                  approved — so NO file is ever opened.
+ *   --limited-broader-local-execution
+ *                                  The BR-SOURCE-11P-IMPL control mode, and the ONLY mode that
+ *                                  refuses unconditionally. It declares limited broader local
+ *                                  execution intent and evaluates the request against the recorded
+ *                                  GATE-2 state (`not_approved`) and the owner cap-ceiling table
+ *                                  (empty), then prints the bucketed evidence packet as JSON and
+ *                                  exits non-zero. Requires --strict, --aggregate-only,
+ *                                  --temp-storage-disabled and all five --no-* invariants; refuses
+ *                                  --manifest and --output outright. It holds no path, constructs
+ *                                  no reader, opens no descriptor, creates no temp directory,
+ *                                  reads no row, computes no coverage and approves no gate — and
+ *                                  no argument can make it do any of those. Real limited broader
+ *                                  local execution stays impossible by construction, not by
+ *                                  configuration.
  *
  * Exactly one mode must be requested explicitly: a bare invocation is a fail-closed
  * usage error, never a silent default run.
@@ -175,6 +189,11 @@ import {
   BrazilReceitaAggregateJoinCoverageSignalError,
   createBrazilReceitaAggregateJoinCoverageSignal,
 } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-aggregate-join-coverage-signal';
+import {
+  BRAZIL_RECEITA_LIMITED_BROADER_LOCAL_EXECUTION_CAP_PARSE_CEILING,
+  buildLimitedBroaderLocalExecutionReport,
+  type BrazilReceitaLimitedBroaderLocalExecutionReport,
+} from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-limited-broader-local-execution';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -315,6 +334,32 @@ export interface FullJoinRunnerOptions {
   readonly maxManifestBytes: number | null;
   readonly maxDeclaredFiles: number | null;
   readonly outputPath: string | null;
+  // ── BR-SOURCE-11P-IMPL: the limited broader local execution CONTROL mode ──
+  /**
+   * True for the BR-SOURCE-11P mode. Always fails closed: it evaluates the request against the
+   * recorded gate state and the (empty) owner cap-ceiling table, prints the sanitized evidence
+   * packet, and returns a non-zero exit code WITHOUT constructing a reader or opening a file.
+   */
+  readonly limitedBroaderLocalExecution: boolean;
+  /**
+   * The new booleans are `boolean | null`, where `null` means the flag was ABSENT. The mode needs
+   * to tell "not declared" apart from "declared false", because § 8 requires every safety flag to
+   * be explicit — an absent invariant is a refusal, not a default.
+   */
+  readonly limitedBroaderLocalExecutionAuthorized: boolean | null;
+  readonly gate2Approved: boolean | null;
+  readonly aggregateOnly: boolean | null;
+  readonly tempStorageDisabled: boolean | null;
+  readonly noImport: boolean | null;
+  readonly noSupabaseWrite: boolean | null;
+  readonly noRuntime: boolean | null;
+  readonly noAgent1: boolean | null;
+  readonly noProviderCalls: boolean | null;
+  /** Repeatable `--allowed-family` LABELS. Classified by the control layer, never echoed. */
+  readonly allowedFamilies: readonly string[];
+  readonly maxFiles: number | null;
+  readonly maxFilesPerFamily: number | null;
+  readonly maxRuntimeSeconds: number | null;
 }
 
 // ─── Arg parsing ──────────────────────────────────────────────────────────────
@@ -387,6 +432,24 @@ function parseBoundedInteger(flag: string, value: string, ceiling: number): numb
 
 function parsePositiveInteger(flag: string, value: string): number {
   return parseBoundedInteger(flag, value, BRAZIL_RECEITA_FULL_JOIN_MAX_SYNTHETIC_ROWS);
+}
+
+/**
+ * Parses a BR-SOURCE-11P boolean flag that may carry an INLINE value: a bare `--flag` declares
+ * `true`, `--flag=false` declares `false`, and anything else fails closed.
+ *
+ * It reads `inlineValue` only and never consumes the following token, so `--no-import --no-runtime`
+ * cannot silently swallow the second flag as the first one's value. Any spelling other than the two
+ * literals is refused rather than coerced — `--gate2-approved=yes` is a stop, never a `true`.
+ */
+function parseInlineBoolean(flag: string, inlineValue: string | null): boolean {
+  if (inlineValue === null) return true;
+  const normalized = inlineValue.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  throw new ForbiddenFullJoinRunnerModeError(
+    `--${flag} accepts only "true" or "false" (or the bare flag, which declares true)`,
+  );
 }
 
 /**
@@ -463,6 +526,20 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   let maxManifestBytes: number | null = null;
   let maxDeclaredFiles: number | null = null;
   let outputPath: string | null = null;
+  let limitedBroaderLocalExecution = false;
+  let limitedBroaderLocalExecutionAuthorized: boolean | null = null;
+  let gate2Approved: boolean | null = null;
+  let aggregateOnly: boolean | null = null;
+  let tempStorageDisabled: boolean | null = null;
+  let noImport: boolean | null = null;
+  let noSupabaseWrite: boolean | null = null;
+  let noRuntime: boolean | null = null;
+  let noAgent1: boolean | null = null;
+  let noProviderCalls: boolean | null = null;
+  const allowedFamilies: string[] = [];
+  let maxFiles: number | null = null;
+  let maxFilesPerFamily: number | null = null;
+  let maxRuntimeSeconds: number | null = null;
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!;
@@ -667,6 +744,73 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
       case 'strict':
         strict = true;
         break;
+      // ── BR-SOURCE-11P-IMPL. The mode flag, its two state ASSERTIONS, the three caps this
+      //    milestone adds, the family allowlist and the six invariant declarations.
+      //
+      //    Two flags from the 11O § 8 sketch are deliberately NOT implemented:
+      //      - `--allowed-input-root` and `--manifest-control-file` are PATHS. This mode never
+      //        receives one, so no path can reach a layer that might open it (`--manifest` is
+      //        refused outright below). That is what makes "no file is opened" provable rather
+      //        than merely intended.
+      //      - `--forbidden-family` would let a caller NAME the denylist and therefore shrink it.
+      //        The person-family block is a module constant instead, so no argument can narrow it.
+      case 'limited-broader-local-execution':
+        limitedBroaderLocalExecution = true;
+        break;
+      case 'limited-broader-local-execution-authorized':
+        limitedBroaderLocalExecutionAuthorized = parseInlineBoolean(flag, inlineValue);
+        break;
+      case 'gate2-approved':
+        gate2Approved = parseInlineBoolean(flag, inlineValue);
+        break;
+      case 'aggregate-only':
+        aggregateOnly = parseInlineBoolean(flag, inlineValue);
+        break;
+      case 'temp-storage-disabled':
+        tempStorageDisabled = parseInlineBoolean(flag, inlineValue);
+        break;
+      case 'no-import':
+        noImport = parseInlineBoolean(flag, inlineValue);
+        break;
+      case 'no-supabase-write':
+        noSupabaseWrite = parseInlineBoolean(flag, inlineValue);
+        break;
+      case 'no-runtime':
+        noRuntime = parseInlineBoolean(flag, inlineValue);
+        break;
+      case 'no-agent1':
+        noAgent1 = parseInlineBoolean(flag, inlineValue);
+        break;
+      case 'no-provider-calls':
+        noProviderCalls = parseInlineBoolean(flag, inlineValue);
+        break;
+      case 'allowed-family':
+        allowedFamilies.push(takeValue());
+        break;
+      // The three caps this milestone adds are bounded by a PARSER sanity ceiling only. It
+      // authorizes no window: the control layer refuses every stated cap with
+      // `cap_ceiling_not_authorized`, because no owner cap maximum is recorded.
+      case 'max-files':
+        maxFiles = parseBoundedInteger(
+          'max-files',
+          takeValue(),
+          BRAZIL_RECEITA_LIMITED_BROADER_LOCAL_EXECUTION_CAP_PARSE_CEILING,
+        );
+        break;
+      case 'max-files-per-family':
+        maxFilesPerFamily = parseBoundedInteger(
+          'max-files-per-family',
+          takeValue(),
+          BRAZIL_RECEITA_LIMITED_BROADER_LOCAL_EXECUTION_CAP_PARSE_CEILING,
+        );
+        break;
+      case 'max-runtime-seconds':
+        maxRuntimeSeconds = parseBoundedInteger(
+          'max-runtime-seconds',
+          takeValue(),
+          BRAZIL_RECEITA_LIMITED_BROADER_LOCAL_EXECUTION_CAP_PARSE_CEILING,
+        );
+        break;
       default:
         throw new UnknownFullJoinRunnerFlagError(flag);
     }
@@ -694,17 +838,91 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
     }
   }
 
-  const requestedModes = [syntheticFixture, syntheticTempManifest, manifest !== null].filter(
-    Boolean,
-  ).length;
+  // ── BR-SOURCE-11P-IMPL. The limited broader local execution CONTROL mode.
+  //
+  // Every check here is a PRE-OPEN check, and the mode holds no path at all: `--manifest` is
+  // refused outright, `--output` is refused outright, and no reader, workspace or probe is ever
+  // constructed for this mode (see `main`). 11O § 7 makes the ORDER the safety property — a
+  // violation found after the first open "has already produced the read it was meant to prevent"
+  // — and this mode satisfies it trivially by never reaching a step that could open anything.
+  //
+  // The nine riders below are meaningless without the mode, so each is refused rather than
+  // silently ignored, exactly as the 11E–11H riders are.
+  const limitedBroaderRiders: ReadonlyArray<readonly [flag: string, declared: boolean]> = [
+    ['--limited-broader-local-execution-authorized', limitedBroaderLocalExecutionAuthorized !== null],
+    ['--gate2-approved', gate2Approved !== null],
+    ['--aggregate-only', aggregateOnly !== null],
+    ['--temp-storage-disabled', tempStorageDisabled !== null],
+    ['--no-import', noImport !== null],
+    ['--no-supabase-write', noSupabaseWrite !== null],
+    ['--no-runtime', noRuntime !== null],
+    ['--no-agent1', noAgent1 !== null],
+    ['--no-provider-calls', noProviderCalls !== null],
+    ['--allowed-family', allowedFamilies.length > 0],
+    ['--max-files', maxFiles !== null],
+    ['--max-files-per-family', maxFilesPerFamily !== null],
+    ['--max-runtime-seconds', maxRuntimeSeconds !== null],
+  ];
+  if (!limitedBroaderLocalExecution) {
+    for (const [flag, declared] of limitedBroaderRiders) {
+      if (declared) {
+        throw new ForbiddenFullJoinRunnerModeError(
+          `${flag} is only valid together with --limited-broader-local-execution`,
+        );
+      }
+    }
+  }
+  if (limitedBroaderLocalExecution) {
+    // A manifest is a real control DOCUMENT. This mode never opens one, so it never accepts one:
+    // refusing the flag is what makes "no file is opened" a property of the argument surface
+    // rather than a promise about the code below it.
+    if (manifest !== null) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--limited-broader-local-execution never accepts --manifest — the control layer opens no file and is given no path',
+      );
+    }
+    if (outputPath !== null) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--limited-broader-local-execution never accepts --output — 11O § 11 sets outputRoot to no-output-file',
+      );
+    }
+    if (!strict) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        '--limited-broader-local-execution requires --strict — the control mode has no lenient mode',
+      );
+    }
+    // § 8: "every safety flag is explicit; there is no implicit default that widens scope". So an
+    // ABSENT invariant is refused here rather than defaulted, and the control layer refuses the
+    // request again on its own terms afterwards.
+    const missingDeclarations: string[] = [];
+    if (aggregateOnly === null) missingDeclarations.push('--aggregate-only');
+    if (tempStorageDisabled === null) missingDeclarations.push('--temp-storage-disabled');
+    if (noImport === null) missingDeclarations.push('--no-import');
+    if (noSupabaseWrite === null) missingDeclarations.push('--no-supabase-write');
+    if (noRuntime === null) missingDeclarations.push('--no-runtime');
+    if (noAgent1 === null) missingDeclarations.push('--no-agent1');
+    if (noProviderCalls === null) missingDeclarations.push('--no-provider-calls');
+    if (missingDeclarations.length > 0) {
+      throw new ForbiddenFullJoinRunnerModeError(
+        `--limited-broader-local-execution requires every explicit safety declaration (missing: ${missingDeclarations.join(', ')})`,
+      );
+    }
+  }
+
+  const requestedModes = [
+    syntheticFixture,
+    syntheticTempManifest,
+    manifest !== null,
+    limitedBroaderLocalExecution,
+  ].filter(Boolean).length;
   if (requestedModes === 0) {
     throw new ForbiddenFullJoinRunnerModeError(
-      '--synthetic-fixture or --synthetic-temp-manifest is required (--manifest <path> --allow-local-manifest declares REAL local-manifest intent, which the runner core still refuses)',
+      '--synthetic-fixture or --synthetic-temp-manifest is required (--manifest <path> --allow-local-manifest declares REAL local-manifest intent, which the runner core still refuses; --limited-broader-local-execution declares BR-SOURCE-11P control intent, which the control layer always refuses)',
     );
   }
   if (requestedModes > 1) {
     throw new ForbiddenFullJoinRunnerModeError(
-      '--synthetic-fixture, --synthetic-temp-manifest and --manifest are mutually exclusive — pick exactly one mode',
+      '--synthetic-fixture, --synthetic-temp-manifest, --manifest and --limited-broader-local-execution are mutually exclusive — pick exactly one mode',
     );
   }
 
@@ -1084,6 +1302,20 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
     maxTotalRows,
     maxTotalBytes,
     outputPath,
+    limitedBroaderLocalExecution,
+    limitedBroaderLocalExecutionAuthorized,
+    gate2Approved,
+    aggregateOnly,
+    tempStorageDisabled,
+    noImport,
+    noSupabaseWrite,
+    noRuntime,
+    noAgent1,
+    noProviderCalls,
+    allowedFamilies,
+    maxFiles,
+    maxFilesPerFamily,
+    maxRuntimeSeconds,
   };
 }
 
@@ -1316,6 +1548,85 @@ export function formatReportText(report: BrazilReceitaFullJoinDryRunReport): str
     lines.push(`  ${error.stage}: ${error.error_code}`);
   }
   return lines.join('\n');
+}
+
+// ─── BR-SOURCE-11P control run ────────────────────────────────────────────────
+
+/**
+ * Runs the BR-SOURCE-11P control mode: translate the parsed flags into a control-layer request,
+ * evaluate it, and return the sanitized evidence packet.
+ *
+ * This function is the whole mode. It opens nothing, constructs no reader, creates no workspace,
+ * creates no temp directory, writes no file, and never calls `runFullJoinDryRun` — so the "no file
+ * is opened" property does not depend on a downstream refusal. The report always carries
+ * `ok: false`, `decision_status: not_authorized`, `gate2_status: not_approved` and every readiness
+ * flag `false`.
+ *
+ * The `--no-*` flags are INVARIANTS, not toggles (11O § 8): `--no-import` means "import is not
+ * requested", so `--no-import=false` is read as REQUESTING import and refused by the control layer.
+ * The positive spellings (`--import`, `--runtime`, `--agent1`, …) never get this far — the
+ * forbidden-flag list refuses them during parsing.
+ */
+export function runLimitedBroaderLocalExecution(
+  options: FullJoinRunnerOptions,
+): BrazilReceitaLimitedBroaderLocalExecutionReport {
+  return buildLimitedBroaderLocalExecutionReport({
+    // No phrase flag exists: an execution authorization phrase is not recorded anywhere, so there
+    // is nothing for a caller to supply and no string for the control layer to match.
+    authorizationPhrase: null,
+    limitedBroaderLocalExecutionAuthorized: options.limitedBroaderLocalExecutionAuthorized === true,
+    gate2Approved: options.gate2Approved === true,
+    strict: options.strict,
+    aggregateOnly: options.aggregateOnly === true,
+    requestedFamilies: options.allowedFamilies,
+    caps: {
+      maxFiles: options.maxFiles,
+      maxFilesPerFamily: options.maxFilesPerFamily,
+      maxBytesPerFile: options.maxBytesPerFile,
+      maxRowsPerFile: options.maxRowsPerFile,
+      maxTotalBytes: options.maxTotalBytes,
+      maxTotalRows: options.maxTotalRows,
+      maxRuntimeSeconds: options.maxRuntimeSeconds,
+    },
+    // No input-root or manifest-control-file flag exists, so no root is ever declared authorized
+    // and none of the traversal / symlink / unsafe-basename / output-in-repo shapes is reachable
+    // from the argument surface at all.
+    directoryPolicy: {
+      allowedInputRootAuthorized: false,
+      pathTraversalRequested: false,
+      symlinkRequested: false,
+      unsafeBasenameRequested: false,
+      outputInsideRepoRequested: false,
+    },
+    tempStorage: {
+      enabled: options.tempStorageDisabled !== true,
+      authorized: false,
+    },
+    // There is no flag that can ask for any of these. They are stated as structural falses so the
+    // control layer evaluates the full § 13 surface rather than a subset of it.
+    outputRequests: {
+      rawRows: false,
+      rawCells: false,
+      identifiers: false,
+      joinKeys: false,
+      joinKeyHashes: false,
+      exactCoveragePercentage: false,
+      fullDatasetDenominator: false,
+      coverageProof: false,
+      coverageGuarantee: false,
+      productionInference: false,
+      absolutePaths: false,
+      realFilenames: false,
+    },
+    escalations: {
+      importExecuted: options.noImport !== true,
+      supabaseWrite: options.noSupabaseWrite !== true,
+      runtimeIntegration: options.noRuntime !== true,
+      agent1Integration: options.noAgent1 !== true,
+      providerCalls: options.noProviderCalls !== true,
+      productionWrites: false,
+    },
+  });
 }
 
 // ─── Core run ─────────────────────────────────────────────────────────────────
@@ -1570,6 +1881,28 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
         ? err.message
         : 'BRSOURCE11A_ARG_PARSE_FAILED';
     process.stderr.write(`${message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // BR-SOURCE-11P: handled in its own branch, BEFORE `runFullJoinDryRun` is reached. Nothing in
+  // this path constructs a reader, a workspace or a probe, so no descriptor is ever opened. The
+  // evidence packet is emitted as JSON on every `--format` — this report has no text renderer, and
+  // silently degrading a refusal to a partial rendering would be worse than ignoring the flag.
+  if (options.limitedBroaderLocalExecution) {
+    const report = runLimitedBroaderLocalExecution(options);
+    const rendered = JSON.stringify(report, null, 2);
+    const sanitized = sanitizeBrazilReceitaFullJoinRenderedOutput(rendered);
+    if (!sanitized.ok) {
+      process.stderr.write(
+        `${new FullJoinRunnerOutputSanitizationError(sanitized.findings.map((f) => f.kind)).message}\n`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(`${rendered}\n`);
+    // Always non-zero: an unauthorized attempt is a failed attempt, and a zero exit code would
+    // read as a successful limited broader local execution to any caller or CI step.
     process.exitCode = 1;
     return;
   }
