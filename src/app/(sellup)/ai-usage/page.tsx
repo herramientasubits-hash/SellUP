@@ -35,7 +35,14 @@ import {
 import type { UsageFilters } from '@/modules/ai-usage/queries';
 import type { AgentStat, ProviderStat, ProviderUsageLog } from '@/modules/usage-tracking/types';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
-import { CostValue } from '@/components/shared/cost-value';
+import {
+  resolveUsageCredits,
+  readUsageBillingState,
+  resolveCreditsDisplay,
+  resolveCreditsTotalsDisplay,
+  type CreditsDisplayValue,
+} from '@/modules/usage-tracking/credits-display';
+import { CostValue, CreditsValue } from '@/components/shared/cost-value';
 
 // Q3F-5AY.7B — post-backfill UI parity.
 //
@@ -256,32 +263,42 @@ function AgentStatsTable({ agents }: { agents: AgentStat[] }) {
 // Sección 2 — Consumo por proveedor
 // ============================================================
 
-function providerMeasurementLabel(stat: ProviderStat): string {
-  const hasCreditBased =
-    (stat.total_credits_used ?? 0) > 0 &&
-    stat.total_input_tokens === 0 &&
-    stat.total_output_tokens === 0;
+// A1-APOLLO-TWO-ROUND-QA-READINESS-1 § 4/§ 5 — la medición de un proveedor es
+// "por créditos" también cuando lo único que hay son operaciones con consumo
+// indeterminado: un proveedor con 25 operaciones sin crédito determinado no es
+// un proveedor "por llamadas", es uno con la contabilidad pendiente. Un
+// proveedor facturado por tokens conserva su medición en tokens.
+function isCreditMeasured(stat: ProviderStat): boolean {
   const hasTokenBased = stat.total_input_tokens + stat.total_output_tokens > 0;
+  if (hasTokenBased) return false;
+  return (stat.total_credits_used ?? 0) > 0 || stat.has_unknown_credits;
+}
 
-  if (hasCreditBased) return 'Créditos / consultas';
-  if (hasTokenBased) return 'Tokens (in + out)';
+function providerMeasurementLabel(stat: ProviderStat): string {
+  if (isCreditMeasured(stat)) return 'Créditos / consultas';
+  if (stat.total_input_tokens + stat.total_output_tokens > 0) return 'Tokens (in + out)';
   return 'Llamadas';
 }
 
-function providerMeasurementValue(stat: ProviderStat): string {
-  const hasCreditBased =
-    (stat.total_credits_used ?? 0) > 0 &&
-    stat.total_input_tokens === 0 &&
-    stat.total_output_tokens === 0;
-  const hasTokenBased = stat.total_input_tokens + stat.total_output_tokens > 0;
+/**
+ * `null` significa "no hay medición que mostrar" (un guion), no "cero".
+ * Cuando hay créditos, se devuelve el display resuelto: un total con
+ * operaciones pendientes se marca como parcial en vez de presentarse cerrado.
+ */
+function providerMeasurementCredits(stat: ProviderStat): CreditsDisplayValue | null {
+  if (!isCreditMeasured(stat)) return null;
+  return resolveCreditsTotalsDisplay({
+    totals: {
+      knownCreditsTotal: stat.total_credits_used ?? 0,
+      unknownCreditOperations: stat.unknown_credit_operations,
+      hasUnknownCredits: stat.has_unknown_credits,
+    },
+  });
+}
 
-  if (hasCreditBased && stat.total_credits_used !== null) {
-    return stat.total_credits_used.toFixed(0);
-  }
-  if (hasTokenBased) {
-    return (stat.total_input_tokens + stat.total_output_tokens).toLocaleString('es-ES');
-  }
-  return '—';
+function providerMeasurementTokens(stat: ProviderStat): string | null {
+  const tokens = stat.total_input_tokens + stat.total_output_tokens;
+  return tokens > 0 ? tokens.toLocaleString('es-ES') : null;
 }
 
 function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
@@ -322,7 +339,14 @@ function ProviderStatsTable({ providers }: { providers: ProviderStat[] }) {
               </td>
               <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_calls}</td>
               <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
-                {providerMeasurementValue(p)}
+                {(() => {
+                  const credits = providerMeasurementCredits(p);
+                  if (credits) {
+                    return <div className="flex justify-end"><CreditsValue display={credits} /></div>;
+                  }
+                  const tokens = providerMeasurementTokens(p);
+                  return tokens ?? <span className="text-muted-foreground/40">—</span>;
+                })()}
               </td>
               <td className="py-3 pr-4 text-right text-muted-foreground">{p.total_results_returned}</td>
               <td className="py-3 pr-4 text-right font-mono text-muted-foreground">
@@ -375,12 +399,25 @@ function RecentLogsTable({ logs }: { logs: ProviderUsageLog[] }) {
         </thead>
         <tbody className="divide-y divide-border/40">
           {logs.map((log) => {
-            const quantity =
-              log.credits_used != null && Number(log.credits_used) > 0
-                ? `${Number(log.credits_used).toFixed(0)} créd.`
-                : log.input_tokens + log.output_tokens > 0
-                  ? `${(log.input_tokens + log.output_tokens).toLocaleString('es-ES')} tok.`
-                  : '—';
+            // § 3 — el estado del crédito se resuelve explícitamente: un NULL (o
+            // un billing_state indeterminado) NO se muestra como "0 créditos"
+            // ni como "sin consumo". Los tokens siguen ganando cuando el
+            // proveedor factura por tokens.
+            const credits = resolveUsageCredits(log.credits_used, readUsageBillingState(log));
+            const tokens = log.input_tokens + log.output_tokens;
+
+            const quantity: React.ReactNode =
+              credits.state === 'known' && credits.credits > 0
+                ? `${credits.credits.toFixed(0)} créd.`
+                : tokens > 0
+                  ? `${tokens.toLocaleString('es-ES')} tok.`
+                  : credits.state === 'unknown'
+                    ? (
+                      <div className="flex justify-end">
+                        <CreditsValue display={resolveCreditsDisplay(credits)} />
+                      </div>
+                    )
+                    : '0 créd.';
 
             return (
               <tr key={log.id}>

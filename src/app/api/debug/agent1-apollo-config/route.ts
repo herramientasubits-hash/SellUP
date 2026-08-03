@@ -13,16 +13,21 @@ import { createClient } from '@/lib/supabase/server';
 import {
   isApolloCompanySearchEnabled,
   isApolloOrganizationEnrichmentCascadeEnabled,
+  isApolloTwoRoundDiscoveryEnabled,
+  isWizardRunProviderOverrideEnabled,
   resolveApolloMaxEnrichmentsPerRun,
 } from '@/lib/feature-flags.server';
 import {
   resolveApolloMaxQueriesPerRun,
   resolveApolloMaxResultsPerQuery,
 } from '@/server/agents/prospecting-toolkit/apollo-cost-guardrails';
+import { resolveApolloTwoRoundConfigFromEnv } from '@/server/agents/prospecting-toolkit/apollo-two-round/env.server';
+import { toApolloTwoRoundConfigDiagnostics } from '@/server/agents/prospecting-toolkit/apollo-two-round/config';
 import {
   resolveWizardDiscoveryProviderVerbose,
   APOLLO_ORGANIZATION_ROLES,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
+import { isRunProviderOverrideSurfaceAvailable } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 
 export async function GET() {
@@ -47,16 +52,44 @@ export async function GET() {
   const providerResolution = resolveWizardDiscoveryProviderVerbose();
   const apolloKeyPresent = await hasApolloApiKey();
 
+  // A1-APOLLO-TWO-ROUND-QA-READINESS-1 § 2 — los cinco números efectivos de la
+  // modalidad de dos rondas y el origen de cada uno. `toApolloTwoRoundConfigDiagnostics`
+  // emite SÓLO enteros resueltos y etiquetas de origen: nunca el valor crudo de
+  // una variable de entorno, y por tanto nunca un secreto.
+  const twoRoundDiagnostics = toApolloTwoRoundConfigDiagnostics(
+    resolveApolloTwoRoundConfigFromEnv(),
+  );
+
   return NextResponse.json({
-    config_version: 'agent1_runtime_diagnostics_v1',
+    config_version: 'agent1_runtime_diagnostics_v2',
     diagnosis_timestamp: new Date().toISOString(),
     agent1_provider_resolved: providerResolution.provider,
     agent1_provider_reason: providerResolution.reason,
     apollo_company_search_enabled_resolved: isApolloCompanySearchEnabled(),
     apollo_enrichment_cascade_enabled_resolved: isApolloOrganizationEnrichmentCascadeEnabled(),
+    // Forma de ejecución de Apollo. NO autoriza Apollo por sí sola: el kill
+    // switch sigue siendo apollo_company_search_enabled_resolved.
+    apollo_two_round_discovery_enabled_resolved: isApolloTwoRoundDiscoveryEnabled(),
+    // Capacidad de fijar el proveedor de UNA corrida. Apagada ⇒ toda corrida
+    // usa el predeterminado global.
+    wizard_run_provider_override_enabled_resolved: isWizardRunProviderOverrideEnabled(),
+    // A1-APOLLO-QA-CONTROL-SURFACE-1 § 12 — ¿la superficie «Proveedor de esta
+    // corrida» puede ofrecer Apollo en este runtime? Es la conjunción resuelta de
+    // los tres candados (override ∧ kill switch ∧ dos rondas). NO dice nada de los
+    // permisos de ningún usuario concreto —no revela quién es admin— y por eso
+    // puede publicarse aquí sin exponer identidades.
+    run_provider_override_surface_available: isRunProviderOverrideSurfaceAvailable({
+      runOverrideEnabled: isWizardRunProviderOverrideEnabled(),
+      apolloCompanySearchEnabled: isApolloCompanySearchEnabled(),
+      apolloTwoRoundDiscoveryEnabled: isApolloTwoRoundDiscoveryEnabled(),
+    }),
     apollo_max_queries_per_run_resolved: resolveApolloMaxQueriesPerRun(),
     apollo_max_results_per_query_resolved: resolveApolloMaxResultsPerQuery(),
-    apollo_max_enrichments_per_run_resolved: resolveApolloMaxEnrichmentsPerRun(),
+    // Tope de la ruta LEGACY (una sola ronda), cap 3. No confundir con
+    // apollo_max_enrichments_per_run_resolved de la modalidad de dos rondas
+    // (cap 2), que llega abajo dentro de twoRoundDiagnostics.
+    apollo_legacy_max_enrichments_per_run_resolved: resolveApolloMaxEnrichmentsPerRun(),
+    ...twoRoundDiagnostics,
     has_apollo_api_key: apolloKeyPresent,
     // Decisión estratégica Q3F-3: roles de Apollo Organizations en Agente 1.
     apollo_organization_search_role: APOLLO_ORGANIZATION_ROLES.search,
