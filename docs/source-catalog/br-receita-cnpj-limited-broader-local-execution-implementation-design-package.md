@@ -872,3 +872,94 @@ Brazil remains blocked for import, runtime, Agent 1 and live prospect generation
 This milestone touched no code, no scripts, no package manifest, no test, no Supabase schema, no migration,
 no runtime path, no Agent 1 path, no provider, and no UI. It opened no real dataset file, read no real
 manifest, opened no CSV and no ZIP, processed no row, executed no join, and computed no coverage figure.
+
+---
+
+## 29. BR-SOURCE-11P implementation status (appended after 11P)
+
+This section records what the separately-authorized implementation milestone built against § 1–28. It is a
+status note; it approves no gate and authorizes no execution.
+
+```text
+Implementation milestone:                                 BR-SOURCE-11P
+Authorization phrase received:                            AUTHORIZE BR-SOURCE-11P — LIMITED BROADER LOCAL EXECUTION IMPLEMENTATION
+Implementation status:                                    fail_closed_scaffold_implemented
+GATE-2 approval status:                                   not_started / not approved
+Limited broader local execution status:                   not_authorized
+Execution status:                                         not_authorized
+Real data opened:                                         none
+Current GO/NO-GO:                                         NO-GO
+```
+
+**What was implemented.** A control layer
+(`src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-limited-broader-local-execution.ts`)
+exposing the two pure entry points § 6 and § 17 call for — a request evaluator and an evidence-packet
+builder — plus a fail-closed CLI mode (`--limited-broader-local-execution`) on the existing dry-run runner,
+a narrow output-sanitizer extension for approval language, and a synthetic-only test suite. § 6's guidance
+was followed: the family allowlist, the person-family denylist and the no-write/no-runtime guard were
+REUSED from the existing 11A/11D/11F modules rather than re-implemented, so each has one definition.
+
+**Why real execution remains impossible.** Two independent structural blocks, neither of which any caller,
+flag or argument can lift:
+
+```text
+1. The recorded GATE-2 state is `not_approved` and the recorded execution authorization phrase is absent
+   (null). Both are module constants. Per § 8 a `--gate2-approved` argument is a state assertion validated
+   against the recorded state — so asserting approval is itself a violation, and asserting non-approval is
+   simply true. Either way the request is refused.
+2. No cap ceiling is owner-approved. § 10 leaves every cap "TBD by owner" and states that an unset cap is
+   not an unlimited cap, so the ceiling table is deliberately all-`null` and a FULLY-CAPPED request is
+   still refused with `cap_ceiling_not_authorized`. Recording a ceiling would be an authorization decision
+   11P does not carry.
+```
+
+Both blocks are expressed in the TYPES as well as the logic: `ok` is the literal `false`, the decision
+status is a single-member union `'not_authorized'`, and `fileAccessAllowed` is the literal `false`. No
+caller can write a branch that proceeds to open a file.
+
+**Why no file can be opened.** The control layer is pure — it imports no `fs` and no `path`, performs no
+I/O, reads no environment variable — and it is never given a filesystem path at all: directory policy
+arrives as class labels. The CLI mode refuses `--manifest` and `--output` outright and constructs no reader,
+no workspace and no probe, so "no file is opened" is a property of the argument surface rather than a
+promise about downstream code. Two flags from the § 8 sketch were therefore deliberately NOT implemented:
+`--allowed-input-root` and `--manifest-control-file` (both paths), and `--forbidden-family` (which would let
+a caller name — and so shrink — the person-family denylist, now a module constant).
+
+**Deviation from § 17, in the safer direction.** `families_requested` is implemented as a class TALLY
+(`allowed` / `forbidden` / `unexpected` counts) rather than the raw requested list, because echoing an
+arbitrary caller string into an evidence packet could carry an identifier. The tally answers the reviewer's
+question without creating the leak.
+
+**Validation performed.** `tsc --noEmit` clean; the new synthetic suite green; the existing BR-SOURCE
+11A–11H runner suite green with no change in outcome; ESLint clean on every changed file; one CLI invocation
+run with synthetic, path-free arguments only, which refused as designed and exited non-zero.
+
+```text
+Flags after 11P:
+
+OPS_BR_LIMITED_BROADER_LOCAL_EXECUTION_IMPLEMENTATION_AUTHORIZED = true
+OPS_BR_LIMITED_BROADER_LOCAL_EXECUTION_IMPLEMENTATION_PR_READY = true
+OPS_BR_LIMITED_BROADER_LOCAL_EXECUTION_IMPLEMENTATION_OFFICIAL = false until merge
+
+OPS_BR_LIMITED_BROADER_LOCAL_EXECUTION_AUTHORIZED = false
+OPS_BR_GATE2_APPROVED = false
+OPS_BR_BROADER_LOCAL_EXECUTION_AUTHORIZED = false
+OPS_BR_MULTI_WINDOW_COVERAGE_SIGNAL_AUTHORIZED = false
+OPS_BR_EXACT_COVERAGE_PERCENTAGE_AUTHORIZED = false
+
+FULL_JOIN_RUNNER_READY = true
+FULL_JOIN_EXECUTION_READY = false
+IMPORT_READY = false
+RUNTIME_READY = false
+AGENT1_READY = false
+
+OPS_BR_READY_FOR_IMPORT = false
+OPS_BR_READY_FOR_PRODUCTION_IMPORT = false
+OPS_BR_READY_FOR_RUNTIME = false
+OPS_BR_LIVE_PROSPECT_GENERATION_READY = false
+OPS_BR_REAL_LOCAL_DRY_RUN_HEADERLESS_5_PASSED = false
+```
+
+Every gate in § 25 remains `not_started / not approved`. 11P approved none of them, and the next milestones
+in § 22 (11Q validation, 11R execution authorization, 11S runbook) each still require their own explicit
+owner authorization.
