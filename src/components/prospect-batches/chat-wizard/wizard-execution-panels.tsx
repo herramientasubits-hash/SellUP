@@ -1,0 +1,229 @@
+'use client';
+
+/**
+ * wizard-execution-panels.tsx — paneles del wizard DURANTE y DESPUÉS de la
+ * ejecución: overlay de generación, panel de envío y panel de éxito.
+ *
+ * Extraídos de `wizard-conversation-summary.tsx` (A1-APOLLO-QA-CONTROL-SURFACE-1):
+ * al añadir las etapas y el cierre de la modalidad de dos rondas (§ 11) ese
+ * archivo pasaba el techo de tamaño del repo. Estos tres paneles son la fase
+ * post-configuración del wizard y no comparten estado con los de configuración.
+ *
+ * Sin cambios de comportamiento respecto de la versión anterior: mismos textos,
+ * mismos toasts, mismo `router.refresh()`, mismo cierre automático.
+ */
+
+import * as React from 'react';
+import { useRouter } from 'next/navigation';
+import { CheckCircle2, Pencil, AlertCircle, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import {
+  WizardApolloTwoRoundPlannedSteps,
+  WizardApolloTwoRoundOutcome,
+} from './wizard-two-round-progress-panel';
+
+// ── Wizard generation overlay ─────────────────────────────────────────────────
+
+export type WizardGenerationOverlayProps = {
+  /** § 11 — listar las etapas de la modalidad de dos rondas. */
+  showApolloTwoRoundStages: boolean;
+  maxRounds: number | null;
+};
+
+function WizardGenerationOverlay({
+  showApolloTwoRoundStages,
+  maxRounds,
+}: WizardGenerationOverlayProps) {
+  return (
+    <div
+      className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 p-8 overflow-hidden"
+      role="status"
+      aria-live="polite"
+      aria-label="Generando empresas candidatas"
+      style={{
+        background:
+          'linear-gradient(135deg, var(--su-ai-stop-1), var(--su-ai-stop-2), var(--su-ai-stop-3), var(--su-ai-stop-4), var(--su-ai-stop-5))',
+      }}
+    >
+      {/* Mirror shine sweep */}
+      <div className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-12deg] bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.06)_20%,rgba(255,255,255,0.35)_50%,rgba(255,255,255,0.06)_80%,transparent_100%)] animate-su-mirror-shine" />
+
+      {/* Sparkle icon */}
+      <div className="animate-su-float relative z-10">
+        <Sparkles className="h-12 w-12 text-white/80" strokeWidth={1.5} />
+      </div>
+
+      {/* Main label */}
+      <div className="relative z-10 text-center space-y-1">
+        <p className="text-lg font-bold text-white">Generando empresas candidatas</p>
+        <p className="text-sm text-white/70">Procesando búsqueda con IA</p>
+      </div>
+
+      {/* Body text */}
+      <p className="relative z-10 text-xs text-white/60 text-center max-w-[280px]">
+        Filtrando resultados y preparando candidatos para revisión
+      </p>
+
+      {/* § 11 — etapas de la modalidad de dos rondas, presentadas como PLAN. La
+          ejecución es un único viaje al servidor, así que el cliente no sabe en
+          qué ronda está: marcar la ronda 2 como cumplida sería afirmar un gasto
+          de Apollo que puede no haber ocurrido. */}
+      {showApolloTwoRoundStages && maxRounds !== null && (
+        <WizardApolloTwoRoundPlannedSteps maxRounds={maxRounds} />
+      )}
+
+      {/* Indeterminate progress bar */}
+      <div className="relative z-10 w-full max-w-[280px]">
+        <div className="h-2 w-full rounded-full bg-white/20 overflow-hidden">
+          <div className="h-full w-2/3 rounded-full bg-white/80 animate-su-pulse" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Submitting panel ──────────────────────────────────────────────────────────
+
+export function SubmittingPanel({
+  showApolloTwoRoundStages,
+  maxRounds,
+}: WizardGenerationOverlayProps) {
+  return (
+    <WizardGenerationOverlay
+      showApolloTwoRoundStages={showApolloTwoRoundStages}
+      maxRounds={maxRounds}
+    />
+  );
+}
+
+// ── Success panel ─────────────────────────────────────────────────────────────
+// Closes the drawer and refreshes the global candidates list.
+// Does NOT navigate to a batch-detail route — that view no longer exists.
+
+export type SuccessPanelProps = {
+  status: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached' | null;
+  noveltyExhausted?: boolean;
+  candidateCount?: number;
+  targetPersistibleCandidates?: number;
+  onClose: () => void;
+  onEditSearch: () => void;
+  /** § 11 — cifras reales de dos rondas. `null` = la modalidad no corrió. */
+  twoRoundOutcome: { roundsExecuted: number | null; eligibleCompaniesFound: number | null } | null;
+  /** Objetivo efectivo de la corrida, para poder afirmar si se alcanzó. */
+  targetEligibleCompanies: number | null;
+};
+
+export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies }: SuccessPanelProps) {
+  const router = useRouter();
+
+  React.useEffect(() => {
+    if (status === 'no_new_candidates') {
+      // Do NOT auto-close — show the panel so the user can act.
+      toast.info('No se encontraron empresas nuevas.', {
+        description: 'Todos los resultados ya habían sido sugeridos recientemente.',
+      });
+      router.refresh();
+      return;
+    }
+    if (status === 'already_started') {
+      toast.info('Esta búsqueda ya había sido iniciada.', {
+        description: 'Actualizamos el listado para mostrar los resultados disponibles.',
+      });
+    } else if (status === 'success_target_reached') {
+      toast.success('¡Objetivo alcanzado!', {
+        description: targetPersistibleCandidates
+          ? `Encontramos ${targetPersistibleCandidates} prospectos nuevos para revisar.`
+          : 'Prospectos generados correctamente.',
+      });
+    } else {
+      toast.success('Prospectos generados correctamente.', {
+        description: 'Ya puedes revisarlos en el listado de prospectos.',
+      });
+    }
+    router.refresh();
+    onClose();
+  // onClose and router.refresh are stable references; status is captured once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (status === 'no_new_candidates') {
+    const noNewBody = noveltyExhausted
+      ? 'El universo de empresas disponibles con estos criterios ya fue explorado recientemente. Intenta cambiar la industria, el país o los criterios adicionales.'
+      : 'La búsqueda encontró resultados, pero todos ya habían sido sugeridos recientemente o no pasaron los filtros de calidad.';
+
+    return (
+      <div className="space-y-4 animate-su-fade-in" role="status">
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10">
+          <AlertCircle
+            className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden
+          />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+              No encontramos empresas nuevas con estos criterios.
+            </p>
+            <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
+              {noNewBody}
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={onEditSearch} className="gap-1.5">
+            <Pencil className="h-3.5 w-3.5" aria-hidden />
+            Editar búsqueda
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const heading =
+    status === 'already_started'
+      ? 'Búsqueda ya iniciada'
+      : status === 'success_target_reached'
+      ? '¡Objetivo alcanzado!'
+      : 'Candidatos generados';
+
+  const body =
+    status === 'already_started'
+      ? 'Esta búsqueda ya había sido iniciada. Actualizamos la lista para mostrar sus resultados.'
+      : status === 'success_target_reached' && targetPersistibleCandidates
+      ? `Encontramos ${targetPersistibleCandidates} prospectos nuevos para revisar.`
+      : candidateCount
+      ? `Se generaron ${candidateCount} candidatos disponibles para revisión.`
+      : 'Los candidatos fueron generados y ya están disponibles para revisión.';
+
+  return (
+    <div className="space-y-3 animate-su-fade-in">
+      <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
+        <CheckCircle2
+          className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+          aria-hidden
+        />
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+            {heading}
+          </p>
+          <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
+            {body}
+          </p>
+        </div>
+      </div>
+
+      {/* § 11 — cierre honesto de la modalidad de dos rondas: rondas REALMENTE
+          ejecutadas y si el objetivo se alcanzó. Cuando no se alcanzó, se dice
+          cuántas empresas se encontraron y que los filtros no se relajaron. */}
+      {twoRoundOutcome && targetEligibleCompanies !== null && (
+        <WizardApolloTwoRoundOutcome
+          roundsExecuted={twoRoundOutcome.roundsExecuted}
+          eligibleCompaniesFound={twoRoundOutcome.eligibleCompaniesFound}
+          targetEligibleCompanies={targetEligibleCompanies}
+        />
+      )}
+    </div>
+  );
+}

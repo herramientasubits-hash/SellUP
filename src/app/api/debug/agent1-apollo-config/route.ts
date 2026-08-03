@@ -27,6 +27,7 @@ import {
   resolveWizardDiscoveryProviderVerbose,
   APOLLO_ORGANIZATION_ROLES,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
+import { isRunProviderOverrideSurfaceAvailable } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 
 export async function GET() {
@@ -72,6 +73,16 @@ export async function GET() {
     // Capacidad de fijar el proveedor de UNA corrida. Apagada ⇒ toda corrida
     // usa el predeterminado global.
     wizard_run_provider_override_enabled_resolved: isWizardRunProviderOverrideEnabled(),
+    // A1-APOLLO-QA-CONTROL-SURFACE-1 § 12 — ¿la superficie «Proveedor de esta
+    // corrida» puede ofrecer Apollo en este runtime? Es la conjunción resuelta de
+    // los tres candados (override ∧ kill switch ∧ dos rondas). NO dice nada de los
+    // permisos de ningún usuario concreto —no revela quién es admin— y por eso
+    // puede publicarse aquí sin exponer identidades.
+    run_provider_override_surface_available: isRunProviderOverrideSurfaceAvailable({
+      runOverrideEnabled: isWizardRunProviderOverrideEnabled(),
+      apolloCompanySearchEnabled: isApolloCompanySearchEnabled(),
+      apolloTwoRoundDiscoveryEnabled: isApolloTwoRoundDiscoveryEnabled(),
+    }),
     apollo_max_queries_per_run_resolved: resolveApolloMaxQueriesPerRun(),
     apollo_max_results_per_query_resolved: resolveApolloMaxResultsPerQuery(),
     // Tope de la ruta LEGACY (una sola ronda), cap 3. No confundir con
