@@ -360,6 +360,17 @@ export interface PendingContactCandidate {
    * recuperación (apollo_http_request_id) lo resuelve el servidor del START log.
    */
   phone_reveal_recovery_id_present?: boolean;
+  /**
+   * Proveedor del último reveal registrado (`apollo` | `lusha`). Es un CÓDIGO
+   * mecánico, no PII, y es lo que permite a la UI distinguir un `no_phone_found` de
+   * APOLLO de uno de LUSHA sin adivinar (AGENT2A-PHONE-WATERFALL-2): solo el primero
+   * habilita la ruta legacy de solo-Lusha.
+   *
+   * OPCIONAL a propósito: aditivo, así que las proyecciones y fixtures que no lo
+   * traen siguen siendo válidas y la UI simplemente no ofrece la ruta legacy
+   * (fail-closed). El servidor revalida la evidencia contra las columnas canónicas.
+   */
+  phone_reveal_provider?: string | null;
   // Contexto de empresa (desde el run que originó al candidato)
   company_name: string | null;
   company_domain: string | null;

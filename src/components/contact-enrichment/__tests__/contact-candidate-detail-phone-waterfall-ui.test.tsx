@@ -105,6 +105,7 @@ const mockGetById = mock.fn<() => Promise<PendingContactCandidate | null>>();
 const mockReveal = mock.fn<(input: unknown) => Promise<unknown>>();
 const mockLushaFallback = mock.fn<(input: unknown) => Promise<unknown>>();
 const mockAudit = mock.fn<() => Promise<PhoneRevealWaterfallAuditView | null>>();
+const mockLegacyStart = mock.fn<(input: unknown) => Promise<unknown>>();
 
 mock.module('@/modules/contact-enrichment/actions', {
   namedExports: {
@@ -140,6 +141,16 @@ mock.module('@/modules/contact-enrichment/lusha-phone-fallback-actions', {
 mock.module('@/modules/contact-enrichment/phone-reveal-waterfall-actions', {
   namedExports: {
     getPhoneRevealWaterfallAuditAction: (...args: unknown[]) => mockAudit(...(args as [])),
+  },
+});
+
+// Ruta legacy (AGENT2A-PHONE-WATERFALL-2). Se mockea para que esta suite siga siendo
+// hermética Y para poder afirmar que en el waterfall NORMAL nunca se invoca: la
+// autorización legacy solo debe existir para candidatos legacy.
+mock.module('@/modules/contact-enrichment/phone-reveal-waterfall-legacy-actions', {
+  namedExports: {
+    startLegacyPhoneRevealWaterfallAction: (...args: unknown[]) =>
+      mockLegacyStart(...(args as [unknown])),
   },
 });
 
@@ -206,6 +217,10 @@ function auditView(
 ): PhoneRevealWaterfallAuditView {
   return {
     status: 'apollo_in_flight',
+    // Default explícito: esta suite describe el waterfall completo, así que sus
+    // aserciones no cambian de significado al añadirse la modalidad legacy
+    // (AGENT2A-PHONE-WATERFALL-2). El caso legacy tiene su propia suite.
+    runMode: 'full_waterfall',
     isTerminal: false,
     maxCreditsAuthorized: 13,
     apolloAttempted: true,
@@ -290,6 +305,12 @@ beforeEach(() => {
   mockReveal.mock.resetCalls();
   mockLushaFallback.mock.resetCalls();
   mockAudit.mock.resetCalls();
+  mockLegacyStart.mock.resetCalls();
+  mockLegacyStart.mock.mockImplementation(async () => ({
+    status: 'not_eligible',
+    reason: 'apollo_not_exhausted',
+    maxCreditsAuthorized: null,
+  }));
   mockReveal.mock.mockImplementation(async () => ({
     ok: true,
     status: 'requested',

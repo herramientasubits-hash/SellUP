@@ -70,6 +70,12 @@ import {
 // componente NO orquesta el waterfall: solo dispara el mismo server action del
 // reveal Apollo y LEE la auditoría de la corrida.
 import { getPhoneRevealWaterfallAuditAction } from '@/modules/contact-enrichment/phone-reveal-waterfall-actions';
+// Compatibilidad legacy (AGENT2A-PHONE-WATERFALL-2): con el waterfall encendido el
+// botón manual separado de Lusha desaparece, así que un candidato cuyo Apollo YA
+// terminó `no_phone_found` antes de que existiera la corrida se quedaría sin ninguna
+// vía. Esta acción autoriza SOLO la pata Lusha (tope 5) reutilizando el mismo botón y
+// el mismo modal. El servidor revalida flag, rol admin y evidencia persistida.
+import { startLegacyPhoneRevealWaterfallAction } from '@/modules/contact-enrichment/phone-reveal-waterfall-legacy-actions';
 import type { PhoneRevealWaterfallAuditView } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
 import {
   formatWaterfallLegCredits,
@@ -82,6 +88,10 @@ import {
   PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_ERROR_COPY,
   PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY,
+  PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_AUDIT_COPY,
+  PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_COST_COPY,
+  PHONE_REVEAL_WATERFALL_LEGACY_EXHAUSTED_COPY,
+  PHONE_REVEAL_WATERFALL_LEGACY_LUSHA_RUNNING_COPY,
   PHONE_REVEAL_WATERFALL_LUSHA_RUNNING_COPY,
   PHONE_REVEAL_WATERFALL_REVEALED_BY_APOLLO_COPY,
   PHONE_REVEAL_WATERFALL_REVEALED_BY_LUSHA_COPY,
@@ -403,6 +413,18 @@ export function ContactCandidateDetailSheet({
   const [waterfallAudit, setWaterfallAudit] =
     React.useState<PhoneRevealWaterfallAuditView | null>(null);
 
+  // Ruta legacy solo-Lusha (AGENT2A-PHONE-WATERFALL-2). SÍNCRONA como el fallback
+  // manual de Lusha (sin webhook: Lusha responde en la misma llamada), pero se
+  // dispara desde el MISMO botón y el MISMO modal que el waterfall.
+  const [revealingLegacyPhone, setRevealingLegacyPhone] = React.useState(false);
+  const [legacyWaterfallError, setLegacyWaterfallError] = React.useState<
+    string | null
+  >(null);
+  const [legacyWaterfallNotice, setLegacyWaterfallNotice] = React.useState<
+    string | null
+  >(null);
+  const legacyWaterfallInFlightRef = React.useRef(false);
+
   // Refetch silencioso (LIVE-REFRESH-1). `reloadInFlightRef` evita dos refetch
   // simultáneos y `currentCandidateIdRef` corta el setState tardío cuando el
   // drawer ya se cerró o cambió de candidato mientras la lectura se resolvía.
@@ -501,6 +523,10 @@ export function ContactCandidateDetailSheet({
         recoverInFlightRef.current = false;
         setShowWaterfallConfirm(false);
         setWaterfallAudit(null);
+        setRevealingLegacyPhone(false);
+        setLegacyWaterfallError(null);
+        setLegacyWaterfallNotice(null);
+        legacyWaterfallInFlightRef.current = false;
       });
     }
   }, [open, candidateId, reloadWaterfallAudit]);
@@ -741,6 +767,89 @@ export function ContactCandidateDetailSheet({
   async function handleConfirmPhoneWaterfallRun(maxCredits: number) {
     setShowWaterfallConfirm(false);
     await handlePhoneReveal(maxCredits);
+  }
+
+  // ── Ruta legacy solo-Lusha (AGENT2A-PHONE-WATERFALL-2) ─────────────────────
+  /**
+   * Traduce el resultado seguro de la acción legacy a copy en español. El teléfono
+   * NUNCA vuelve en el resultado: en `revealed` se recarga el candidato, que es quien
+   * lo muestra. Los códigos de bloqueo no deberían alcanzarse desde esta UI (el botón
+   * los pre-filtra), pero el servidor revalida todo, así que se traducen igual.
+   */
+  function applyLegacyPhoneWaterfallResult(
+    result: Awaited<ReturnType<typeof startLegacyPhoneRevealWaterfallAction>>,
+  ) {
+    switch (result.status) {
+      case 'revealed':
+        toast.success('Teléfono revelado con Lusha.');
+        setLegacyWaterfallNotice(null);
+        void reloadCandidate();
+        return;
+      case 'no_phone_found':
+        setLegacyWaterfallNotice(
+          'Lusha tampoco encontró un teléfono para este candidato.',
+        );
+        void reloadCandidate();
+        return;
+      // Cierre SIN llamar a Lusha: supresión registrada, no contactar, o
+      // verificación de supresión no disponible. El motivo mecánico distingue el
+      // último caso, que NO afirma que el candidato esté suprimido.
+      case 'closed_without_lusha':
+        if (result.reason === 'suppression_check_unavailable') {
+          setLegacyWaterfallNotice(
+            PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY,
+          );
+        } else {
+          setLegacyWaterfallNotice(PHONE_REVEAL_WATERFALL_BLOCKED_COPY);
+        }
+        void reloadCandidate();
+        return;
+      case 'already_attempted':
+        setLegacyWaterfallNotice(
+          'Esta revelación ya se había intentado. No se hizo ningún cargo nuevo.',
+        );
+        void reloadCandidate();
+        return;
+      case 'not_eligible':
+        setLegacyWaterfallError(
+          'Este candidato ya no puede autorizarse por esta vía. Recarga la vista para ver su estado actual.',
+        );
+        void reloadCandidate();
+        return;
+      case 'error':
+      default:
+        setLegacyWaterfallError(PHONE_REVEAL_WATERFALL_ERROR_COPY);
+        void reloadCandidate();
+    }
+  }
+
+  /**
+   * Confirma y ejecuta la autorización legacy: SOLO la pata Lusha, hasta 5 créditos.
+   * Un candidato por clic; el ref corta un segundo clic en el mismo tick y el
+   * servidor aplica además el claim atómico, así que Lusha se llama como máximo una
+   * vez por autorización. NO llama a Apollo.
+   */
+  async function handleConfirmLegacyPhoneWaterfallRun() {
+    setShowWaterfallConfirm(false);
+    if (!candidate || legacyWaterfallInFlightRef.current) return;
+    legacyWaterfallInFlightRef.current = true;
+    setLegacyWaterfallError(null);
+    setLegacyWaterfallNotice(null);
+    setRevealingLegacyPhone(true);
+    try {
+      const result = await startLegacyPhoneRevealWaterfallAction({
+        candidateId: candidate.id,
+      });
+      applyLegacyPhoneWaterfallResult(result);
+      // La corrida ya existe (terminal o no): recargar la auditoría es lo que retira
+      // el botón y muestra la trazabilidad por proveedor.
+      await reloadWaterfallAudit(candidate.id);
+    } catch {
+      setLegacyWaterfallError(PHONE_REVEAL_WATERFALL_ERROR_COPY);
+    } finally {
+      legacyWaterfallInFlightRef.current = false;
+      setRevealingLegacyPhone(false);
+    }
   }
 
   // ── Revisión manual del resultado (APOLLO-PHONE-RECOVERY-L3) ───────────────
@@ -1047,8 +1156,37 @@ export function ContactCandidateDetailSheet({
   // Es el MISMO criterio que aplica el servidor (`source === 'lusha'` + id propio),
   // así que el modal no puede prometer 13 créditos donde el servidor solo autoriza 8.
   const waterfallLushaEligible = hasLushaContactId;
+
+  // ── Ruta legacy solo-Lusha (AGENT2A-PHONE-WATERFALL-2) ─────────────────────
+  // Pre-filtro VISUAL para candidatos cuyo Apollo ya terminó `no_phone_found` antes
+  // de que existiera la corrida. El servidor revalida la evidencia contra las
+  // columnas canónicas (`phone_reveal_status` + `phone_reveal_provider` +
+  // `phone_reveal_completed_at`) y rechaza cualquier rol no admin, así que esto solo
+  // decide si se OFRECE el botón, nunca si se permite el gasto.
+  //
+  // Se exige `phone_reveal_provider === 'apollo'`: un `no_phone_found` que ya produjo
+  // LUSHA no habilita volver a llamar a Lusha. Y se exige id Lusha propio, porque sin
+  // él la pata no existe y pedir 5 créditos sería pedir permiso para nada.
+  const canOfferLegacyPhoneWaterfall =
+    !!candidate &&
+    waterfallActive &&
+    phoneRevealExhausted &&
+    candidate?.phone_reveal_provider === 'apollo' &&
+    !phoneRevealInFlight &&
+    !hasPhone &&
+    hasLushaContactId &&
+    // Solo cuando el candidato NO tiene NINGUNA corrida, ni viva ni cerrada. Es la
+    // misma condición que aplica el servidor, por dos razones distintas:
+    //   * una corrida viva significa que la autorización ya está en curso;
+    //   * una corrida cerrada significa que el candidato ya dejó de ser "legacy"
+    //     (legacy = anterior a la tabla). Sin esto, cada cierre sin teléfono volvería
+    //     a ofrecer el botón y la ruta se convertiría en un reintento ilimitado de
+    //     Lusha a 5 créditos por clic.
+    !waterfallAudit;
+
   const waterfallModalCopy = getPhoneRevealWaterfallModalCopy({
     lushaEligible: waterfallLushaEligible,
+    legacyLushaOnly: canOfferLegacyPhoneWaterfall,
   });
   // La 2ª pata está reclamada o corriendo: el candidato sigue en `no_phone_found`
   // (un resultado sin teléfono no pisa su estado), así que esto solo lo sabe la
@@ -1439,26 +1577,34 @@ export function ContactCandidateDetailSheet({
                   {phoneRecoveryError && (
                     <p className="text-[11px] text-destructive">{phoneRecoveryError}</p>
                   )}
-                  {canOfferPhoneReveal && (
+                  {/* Botón ÚNICO. Cubre los TRES casos con el mismo label y, cuando
+                      el waterfall está activo, con el mismo modal:
+                        * flag OFF                 → one-click Apollo (sin cambios);
+                        * flag ON + candidato normal → waterfall completo (hasta 13);
+                        * flag ON + candidato legacy → solo Lusha (hasta 5).
+                      No se añade un segundo botón para el caso legacy: eso
+                      reintroduciría justo el segundo clic que este flujo elimina. */}
+                  {(canOfferPhoneReveal || canOfferLegacyPhoneWaterfall) && (
                     <div className="space-y-1.5">
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
                         className="h-7 gap-1.5 text-xs"
-                        disabled={busy || revealingPhone}
-                        // Con el waterfall activo el clic abre el ÚNICO modal de
-                        // confirmación; sin él conserva el one-click validado.
+                        disabled={busy || revealingPhone || revealingLegacyPhone}
+                        // Con el waterfall activo (normal o legacy) el clic abre el
+                        // ÚNICO modal de confirmación; sin él conserva el one-click
+                        // validado del reveal Apollo.
                         onClick={
                           waterfallActive
                             ? () => setShowWaterfallConfirm(true)
                             : () => handlePhoneReveal()
                         }
                       >
-                        {revealingPhone ? (
+                        {revealingPhone || revealingLegacyPhone ? (
                           <>
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Solicitando…
+                            {revealingLegacyPhone ? 'Revelando…' : 'Solicitando…'}
                           </>
                         ) : (
                           <>
@@ -1478,8 +1624,37 @@ export function ContactCandidateDetailSheet({
                       {phoneRevealError && (
                         <p className="text-[11px] text-destructive">{phoneRevealError}</p>
                       )}
+                      {legacyWaterfallNotice && (
+                        <p className="text-[11px] text-muted-foreground">
+                          {legacyWaterfallNotice}
+                        </p>
+                      )}
+                      {legacyWaterfallError && (
+                        <p className="text-[11px] text-destructive">
+                          {legacyWaterfallError}
+                        </p>
+                      )}
                     </div>
                   )}
+                  {/* Mensajes de la ruta legacy cuando el botón ya no se ofrece (la
+                      corrida acaba de crearse, así que `canOfferLegacy…` es false).
+                      Sin esto el operador perdería el resultado de lo que autorizó. */}
+                  {!canOfferPhoneReveal &&
+                    !canOfferLegacyPhoneWaterfall &&
+                    (legacyWaterfallNotice || legacyWaterfallError) && (
+                      <div className="space-y-1">
+                        {legacyWaterfallNotice && (
+                          <p className="text-[11px] text-muted-foreground">
+                            {legacyWaterfallNotice}
+                          </p>
+                        )}
+                        {legacyWaterfallError && (
+                          <p className="text-[11px] text-destructive">
+                            {legacyWaterfallError}
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                   {/* Estados del waterfall (AGENT2A-PHONE-WATERFALL-1). Solo con el
                       flag activo y solo cuando hay corrida: describen en qué pata
@@ -1493,7 +1668,12 @@ export function ContactCandidateDetailSheet({
                             Lusha
                           </Badge>
                           <span className="text-[11px] text-muted-foreground">
-                            {PHONE_REVEAL_WATERFALL_LUSHA_RUNNING_COPY}
+                            {/* En legacy el copy NO puede decir "Apollo no
+                                encontró teléfono" en presente: Apollo no corrió en
+                                esta autorización, se intentó antes. */}
+                            {waterfallAudit.runMode === 'legacy_lusha_only'
+                              ? PHONE_REVEAL_WATERFALL_LEGACY_LUSHA_RUNNING_COPY
+                              : PHONE_REVEAL_WATERFALL_LUSHA_RUNNING_COPY}
                           </span>
                         </span>
                       ) : waterfallSuppressionUnverified ? (
@@ -1514,7 +1694,9 @@ export function ContactCandidateDetailSheet({
                         </p>
                       ) : waterfallAudit.status === 'exhausted' ? (
                         <p className="text-[11px] text-muted-foreground">
-                          {PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY}
+                          {waterfallAudit.runMode === 'legacy_lusha_only'
+                            ? PHONE_REVEAL_WATERFALL_LEGACY_EXHAUSTED_COPY
+                            : PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY}
                         </p>
                       ) : waterfallAudit.status === 'aborted' ? (
                         <p className="text-[11px] text-muted-foreground">
@@ -1546,16 +1728,30 @@ export function ContactCandidateDetailSheet({
                 <DetailRow icon={PhoneCall} label="Apollo">
                   <span className="flex flex-col gap-0.5">
                     <span>
-                      {waterfallAudit.apolloAttempted ? 'Intentado' : 'No intentado'}
+                      {/* En una corrida legacy `apolloAttempted` es false porque
+                          Apollo NO corrió bajo esta autorización — pero decir "No
+                          intentado" sería falso: se intentó antes. La modalidad es
+                          lo que resuelve la ambigüedad, y por eso viaja en la
+                          proyección en vez de deducirse del timestamp. */}
+                      {waterfallAudit.runMode === 'legacy_lusha_only'
+                        ? PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_AUDIT_COPY
+                        : waterfallAudit.apolloAttempted
+                          ? 'Intentado'
+                          : 'No intentado'}
                       {resolveWaterfallOutcomeLabel(waterfallAudit.apolloOutcome)
                         ? ` · ${resolveWaterfallOutcomeLabel(waterfallAudit.apolloOutcome)}`
                         : ''}
                     </span>
                     <span className="text-[11px] text-muted-foreground">
-                      {formatWaterfallLegCredits(
-                        waterfallAudit.apolloCostCredits,
-                        waterfallAudit.apolloCostSource,
-                      )}
+                      {/* El costo histórico pertenece a la autorización que lo pagó.
+                          Aquí no se muestra ninguna cifra — y nunca un 0, que se
+                          leería como "fue gratis". */}
+                      {waterfallAudit.runMode === 'legacy_lusha_only'
+                        ? PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_COST_COPY
+                        : formatWaterfallLegCredits(
+                            waterfallAudit.apolloCostCredits,
+                            waterfallAudit.apolloCostSource,
+                          )}
                     </span>
                   </span>
                 </DetailRow>
@@ -1983,7 +2179,7 @@ export function ContactCandidateDetailSheet({
     <Dialog
       open={showWaterfallConfirm}
       onOpenChange={(v) => {
-        if (revealingPhone) return;
+        if (revealingPhone || revealingLegacyPhone) return;
         setShowWaterfallConfirm(v);
       }}
     >
@@ -2014,7 +2210,7 @@ export function ContactCandidateDetailSheet({
             type="button"
             variant="outline"
             size="sm"
-            disabled={revealingPhone}
+            disabled={revealingPhone || revealingLegacyPhone}
             onClick={() => setShowWaterfallConfirm(false)}
           >
             {waterfallModalCopy.cancelLabel}
@@ -2022,12 +2218,18 @@ export function ContactCandidateDetailSheet({
           <Button
             type="button"
             size="sm"
-            disabled={revealingPhone}
-            onClick={() =>
-              void handleConfirmPhoneWaterfallRun(waterfallModalCopy.maxCredits)
+            disabled={revealingPhone || revealingLegacyPhone}
+            // MISMO botón de confirmación para las dos modalidades. En legacy
+            // dispara la acción que autoriza SOLO la pata Lusha (tope 5) y que
+            // nunca llama a Apollo; en el waterfall normal, el START de Apollo con
+            // el tope que el operador acaba de aceptar.
+            onClick={
+              canOfferLegacyPhoneWaterfall
+                ? () => void handleConfirmLegacyPhoneWaterfallRun()
+                : () => void handleConfirmPhoneWaterfallRun(waterfallModalCopy.maxCredits)
             }
           >
-            {revealingPhone ? (
+            {revealingPhone || revealingLegacyPhone ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Revelando…
