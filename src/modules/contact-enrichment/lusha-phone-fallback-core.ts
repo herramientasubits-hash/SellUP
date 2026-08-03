@@ -16,6 +16,12 @@
  * instead of a hardcoded literal inside the gate itself, so a future reversal
  * only requires flipping one constant.
  *
+ * The same confirmation set the real price: Lusha support confirmed phone
+ * reveal charges 5 credits per successful phone reveal, so the operator-facing
+ * cap (LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS) is 5, not 1. The cap is only
+ * the confirmation threshold — the billed cost still comes exclusively from
+ * billing.creditsCharged.
+ *
  * Pure: no I/O directly. Candidate load, the actual Lusha call, persistence
  * and the usage-log write are all injected. Legal/product contract enforced
  * here (never by a migration):
@@ -65,11 +71,18 @@ export const LUSHA_PHONE_ENTITLEMENT_CONFIRMED = true;
 export const LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS: readonly string[] = ['admin'];
 
 /**
- * Conservative default credit cap shown to the operator for a single-contact
- * /v3/contacts/enrich call with reveal:["phones"]. The REAL cost is always
- * read from billing.creditsCharged; this is only the confirmation threshold.
+ * Credit cap the operator must accept for a single-contact
+ * /v3/contacts/enrich call with reveal:["phones"].
+ *
+ * Lusha support confirmed phone reveal charges 5 credits per successful phone
+ * reveal. Previously modelled as 1 credit, which understated the real cost in
+ * the confirmation the operator sees.
+ *
+ * The REAL cost is always read from billing.creditsCharged; this is only the
+ * confirmation threshold. A caller that accepts LESS than this cap is blocked
+ * as `missing_cost_confirmation` — the cap is never lowered silently.
  */
-export const LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS = 1;
+export const LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS = 5;
 
 /** operation_key/provider_key re-exported for callers that only need the core. */
 export {
@@ -83,7 +96,11 @@ export interface LushaPhoneFallbackActionInput {
   candidateId: string;
   /** Explicit human cost confirmation. Must be exactly `true`. */
   confirmCost: boolean;
-  /** Credit cap the operator accepts. Default LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS. */
+  /**
+   * Credit cap the operator accepts. Defaults to
+   * LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS (5). A value BELOW that cap is
+   * rejected as `missing_cost_confirmation`; a higher value is accepted.
+   */
   expectedMaxCredits?: number;
 }
 

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 
 import {
   runLushaPhoneFallbackReveal,
+  LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS,
   type LushaPhoneFallbackActionInput,
   type LushaPhoneFallbackCandidateRecord,
   type LushaPhoneFallbackCoreDeps,
@@ -196,6 +197,16 @@ describe('runLushaPhoneFallbackReveal — eligibility gate (via evaluateLushaPho
     assert.equal(t.calledLusha, false);
   });
 
+  test('confirmCost !== true is blocked even when the cap is accepted', async () => {
+    const t = buildDeps();
+    const result = await runLushaPhoneFallbackReveal(
+      baseInput({ confirmCost: false, expectedMaxCredits: LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS }),
+      t.deps,
+    );
+    assert.equal(result.status, 'missing_cost_confirmation');
+    assert.equal(t.calledLusha, false);
+  });
+
   test('expectedMaxCredits below the default cap → missing_cost_confirmation', async () => {
     const t = buildDeps();
     const result = await runLushaPhoneFallbackReveal(
@@ -203,6 +214,120 @@ describe('runLushaPhoneFallbackReveal — eligibility gate (via evaluateLushaPho
       t.deps,
     );
     assert.equal(result.status, 'missing_cost_confirmation');
+  });
+});
+
+/**
+ * SPEND-CAP-FIX: Lusha support confirmed a successful phone reveal charges 5
+ * credits (previously modelled as 1). The cap is the operator's confirmation
+ * threshold — a caller accepting less is blocked, never silently downgraded.
+ */
+describe('runLushaPhoneFallbackReveal — credit cap is 5 (Lusha support confirmed)', () => {
+  test('the default cap is exactly 5 credits', () => {
+    assert.equal(LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS, 5);
+  });
+
+  for (const belowCap of [1, 2, 4, 4.9, 0, -1]) {
+    test(`expectedMaxCredits = ${belowCap} (< 5) → missing_cost_confirmation, never calls Lusha`, async () => {
+      const t = buildDeps();
+      const result = await runLushaPhoneFallbackReveal(
+        baseInput({ confirmCost: true, expectedMaxCredits: belowCap }),
+        t.deps,
+      );
+      assert.equal(result.ok, false);
+      assert.equal(result.status, 'missing_cost_confirmation');
+      assert.equal(t.calledLusha, false);
+      assert.equal(t.persisted.length, 0);
+      assert.equal(t.logged.length, 0);
+    });
+  }
+
+  test('expectedMaxCredits = 5 with confirmCost → proceeds when the other gates pass', async () => {
+    const t = buildDeps();
+    const result = await runLushaPhoneFallbackReveal(
+      baseInput({ confirmCost: true, expectedMaxCredits: 5 }),
+      t.deps,
+    );
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'revealed');
+    assert.equal(t.calledLusha, true);
+  });
+
+  test('expectedMaxCredits above the cap (e.g. 10) is accepted, not clamped down', async () => {
+    const t = buildDeps();
+    const result = await runLushaPhoneFallbackReveal(
+      baseInput({ confirmCost: true, expectedMaxCredits: 10 }),
+      t.deps,
+    );
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'revealed');
+  });
+
+  test('omitting expectedMaxCredits falls back to the 5-credit cap and proceeds', async () => {
+    const t = buildDeps();
+    const result = await runLushaPhoneFallbackReveal(baseInput(), t.deps);
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'revealed');
+  });
+
+  test('a non-finite expectedMaxCredits falls back to the cap instead of bypassing it', async () => {
+    const t = buildDeps();
+    const result = await runLushaPhoneFallbackReveal(
+      baseInput({ confirmCost: true, expectedMaxCredits: Number.NaN }),
+      t.deps,
+    );
+    // NaN is not finite → the default 5 applies, so the gate passes on the cap
+    // (never because NaN slipped through a comparison).
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'revealed');
+  });
+
+  test('the cap never suppresses the flag gate: flag OFF still blocks first', async () => {
+    const t = buildDeps({ flagEnabled: false });
+    const result = await runLushaPhoneFallbackReveal(
+      baseInput({ confirmCost: true, expectedMaxCredits: 5 }),
+      t.deps,
+    );
+    assert.equal(result.status, 'feature_disabled');
+    assert.equal(t.loadedCandidate, false);
+    assert.equal(t.calledLusha, false);
+  });
+
+  test('the cap never suppresses the role gate: non-admin still blocked', async () => {
+    const t = buildDeps({ roleKey: 'commercial_manager' });
+    const result = await runLushaPhoneFallbackReveal(
+      baseInput({ confirmCost: true, expectedMaxCredits: 5 }),
+      t.deps,
+    );
+    assert.equal(result.status, 'unauthorized_role');
+    assert.equal(t.calledLusha, false);
+  });
+
+  test('the real billed cost still comes from the provider, not from the cap', async () => {
+    const t = buildDeps({
+      lushaResult: {
+        ok: true,
+        httpStatus: 200,
+        phoneNumber: '+10000000000',
+        phoneType: 'unknown',
+        phoneRawType: null,
+        creditsCharged: 5,
+        candidateStatus: 'revealed',
+        usageStatus: 'success',
+        costSource: 'reported',
+        errorCode: null,
+        availabilitySource: null,
+        phonesReturned: 1,
+      } as LushaPhoneFallbackClientResult,
+    });
+    const result = await runLushaPhoneFallbackReveal(
+      baseInput({ confirmCost: true, expectedMaxCredits: 5 }),
+      t.deps,
+    );
+    assert.equal(result.status, 'revealed');
+    assert.equal(t.persisted[0].patch.phone_reveal_cost_credits, 5);
+    assert.equal(t.persisted[0].patch.phone_reveal_cost_source, 'reported');
+    assert.equal(t.logged[0].creditsUsed, 5);
   });
 });
 
