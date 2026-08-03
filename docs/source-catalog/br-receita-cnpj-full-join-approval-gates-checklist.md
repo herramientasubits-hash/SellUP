@@ -1376,3 +1376,19 @@ execution and before a runbook, evidence requirements, stop conditions, a risk t
 mapping. It does not approve GATE-2. It does not authorize execution, real-data access, caps, input roots,
 output roots, temp storage, import, Supabase, runtime or Agent 1. It does not approve any gate. See
 [`br-receita-cnpj-execution-authorization-decision-record.md`](./br-receita-cnpj-execution-authorization-decision-record.md).
+
+BR-SOURCE-11S creates the execution runbook.
+It documents roles, checklists, a non-executable command skeleton, stop conditions, an evidence template, an
+incident path, a future validation template and milestone mapping. It does not approve GATE-2. It does not
+authorize execution, real-data access, caps, input roots, temp storage, import, Supabase, runtime or Agent 1.
+It does not approve any gate. See
+[`br-receita-cnpj-execution-runbook.md`](./br-receita-cnpj-execution-runbook.md).
+
+**11S does not approve GATE-7 and is not the GATE-7 runbook section.** GATE-7's artifact must extend the
+existing manual-download / local-prep runbook rather than compete with it (§ 11, *Expected artifacts*), and
+four of its preflight items still cannot be performed: `P-05` fails by construction while any gate is
+unapproved, `P-12` and `P-13` have no GATE-2 ceilings to check against, and `P-19` has no frozen GATE-5
+sanitizer contract. 11S is a separate control artifact that records the procedural structure and the
+GATE-7 boundary; the remaining-gates decision packet § 6 and § 7 remain the authority on the `P-`, `T-` and
+`OR-A` series. **GATE-7 remains `not_started` / not approved**, and an approved runbook would still be a
+procedure, never a permission.
