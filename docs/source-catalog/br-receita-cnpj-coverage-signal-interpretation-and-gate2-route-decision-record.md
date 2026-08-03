@@ -585,3 +585,10 @@ for later owner acceptance. It does not approve GATE-2. It does not authorize a 
 broader local execution, broader local execution, temp storage, multi-window sampling, exact
 percentages, import, Supabase, runtime or Agent 1. It does not approve any gate. See
 [`br-receita-cnpj-gate2-formal-decision-record.md`](./br-receita-cnpj-gate2-formal-decision-record.md).
+
+BR-SOURCE-11N creates the limited broader local execution decision record.
+It documents candidate scope, prerequisites, proposed controls, fail-closed cases, stop conditions and
+formal options for future review. It does not approve GATE-2. It does not authorize limited broader local
+execution, broader local execution, implementation, temp storage, multi-window sampling, exact
+percentages, import, Supabase, runtime or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-limited-broader-local-execution-decision-record.md`](./br-receita-cnpj-limited-broader-local-execution-decision-record.md).
