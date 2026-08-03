@@ -1506,3 +1506,18 @@ gate. See
 [`br-receita-cnpj-cap-input-policy-authorization-package.md`](./br-receita-cnpj-cap-input-policy-authorization-package.md).
 11T adds **no gate evidence** either, and none was anticipated: its § 12 evidence bucket policy is a
 proposed shape for a future evidence packet, not a filled one, and no gate moves toward `ready_for_review`.
+
+BR-SOURCE-11V creates the controlled execution authorization review. It evaluates whether the minimum
+conditions exist to authorize a future controlled execution attempt. Current recommendation remains NO-GO
+because GATE-2, GATE-7, cap/input policy, caps, input roots, output roots, temp storage, limited broader
+local execution and controlled execution attempt authorization remain missing. It does not approve GATE-2.
+It does not approve GATE-7. It does not approve cap/input policy. It does not authorize execution, real-data
+access, caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It does not
+approve any gate. See
+[`br-receita-cnpj-controlled-execution-authorization-review.md`](./br-receita-cnpj-controlled-execution-authorization-review.md).
+11V adds **no gate evidence**, and none was anticipated. Its § 5 evidence base consists only of prior
+documents plus the fail-closed observations from 11P, 11Q and the intervening 11U synthetic rehearsal, and its
+§ 13 states explicitly that this evidence proves nothing about real-data execution safety, join coverage,
+dataset completeness, or import, runtime and Agent 1 readiness. The GATE-7 evidence gaps recorded in § 11 are
+unchanged, no gate moves toward `ready_for_review`, and no coverage figure, completeness claim or dataset
+denominator exists to be cited — the 11I finding on the bounded-window zero still stands.

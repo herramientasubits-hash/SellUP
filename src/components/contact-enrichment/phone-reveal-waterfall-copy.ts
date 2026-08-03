@@ -73,6 +73,24 @@ export const PHONE_REVEAL_WATERFALL_BLOCKED_COPY =
 export const PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY =
   'No se pudo verificar la supresión. Lusha no fue ejecutado. No se hizo ningún cargo por Lusha; puedes autorizar una nueva revelación más tarde.';
 
+/**
+ * La corrida de auditoría del waterfall no se pudo crear, así que NO se ejecutó
+ * ningún proveedor (AGENT2A-PHONE-WATERFALL-2A).
+ *
+ * El copy tiene que decir cuatro cosas y no puede insinuar ninguna otra:
+ *   1. el proceso NO pudo iniciarse (no es un resultado de búsqueda);
+ *   2. Apollo NO fue ejecutado;
+ *   3. Lusha NO fue ejecutado;
+ *   4. no se consumieron créditos, y se puede reintentar más tarde.
+ *
+ * Lo que NO puede aparecer: `no_phone_found` ("no se encontró teléfono" afirmaría
+ * que se buscó), un error de Apollo (Apollo no participó), un costo de 0 atribuido
+ * a un proveedor (ninguno cobró porque ninguno corrió), un éxito parcial, ni
+ * ninguna referencia a una corrida que no existe.
+ */
+export const PHONE_REVEAL_WATERFALL_INFRASTRUCTURE_UNAVAILABLE_COPY =
+  'No se pudo iniciar la revelación segura porque el servicio de auditoría no está disponible. No se ejecutó Apollo, no se ejecutó Lusha y no se consumieron créditos. Intenta nuevamente más tarde.';
+
 /** Gate de aprobación mientras la corrida no es terminal. */
 export const PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY =
   'La revelación de teléfono sigue en proceso.';

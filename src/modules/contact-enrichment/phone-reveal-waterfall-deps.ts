@@ -221,9 +221,16 @@ export async function resolveActiveWaterfallRunId(
 }
 
 /**
- * INSERT de la corrida. Devuelve null cuando el índice único parcial la rechaza
- * (código Postgres 23505): eso NO es un error, significa que otra corrida activa
- * ganó la carrera y el reveal Apollo devolverá `already_pending`.
+ * INSERT de la corrida. Devuelve null SOLO cuando el índice único parcial la
+ * rechaza (código Postgres 23505): eso NO es un error, significa que otra corrida
+ * activa ganó la carrera y el reveal Apollo devolverá `already_pending`.
+ *
+ * AGENT2A-PHONE-WATERFALL-2A: cualquier otro desenlace LANZA, incluido el caso
+ * anómalo "el INSERT no devolvió id". `null` es la única señal de "ya existe una
+ * autorización viva", y el caller la usa para seguir con el reveal legacy; si se
+ * devolviera también cuando no se sabe si la fila quedó escrita, el reveal
+ * continuaría sobre una corrida imposible de correlacionar ni de cerrar — es
+ * decir, exactamente la corrida parcial que este contrato prohíbe.
  */
 export async function createWaterfallRun(
   draft: PhoneRevealWaterfallRunDraft,
@@ -262,7 +269,13 @@ export async function createWaterfallRun(
     throw new Error(error.message);
   }
   const id = (data as Record<string, unknown> | null)?.id;
-  return typeof id === 'string' ? id : null;
+  if (typeof id !== 'string' || !id.trim()) {
+    // El driver no reportó error pero tampoco devolvió el id: no se puede afirmar
+    // que la corrida exista NI que no exista. Se falla fuerte para que el caller
+    // aplique el fail-closed en vez de tratarlo como un conflicto benigno.
+    throw new Error('phone_reveal_waterfall_runs insert returned no id');
+  }
+  return id;
 }
 
 export async function updateWaterfallRun(

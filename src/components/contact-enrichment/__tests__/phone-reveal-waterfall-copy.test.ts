@@ -20,6 +20,7 @@ import {
   PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS,
   PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_BUTTON_LABEL,
+  PHONE_REVEAL_WATERFALL_INFRASTRUCTURE_UNAVAILABLE_COPY,
   PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_AUDIT_COPY,
   PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_COST_COPY,
   PHONE_REVEAL_WATERFALL_LEGACY_EXHAUSTED_COPY,
@@ -298,5 +299,67 @@ describe('copy del waterfall — modalidad legacy solo-Lusha', () => {
     assert.ok(/Sin cargo en esta autorización/i.test(
       PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_COST_COPY,
     ));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 6. Infraestructura de auditoría no disponible (AGENT2A-PHONE-WATERFALL-2A)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Con el flag encendido, la corrida de auditoría es precondición de ejecutar
+ * proveedores. Si no se puede crear, el servidor no llama a nadie — y el copy es lo
+ * único que le dice al operador qué pasó realmente con su clic. Aquí no se juzga la
+ * redacción: se fija que afirme las cuatro garantías y que no insinúe ninguna otra.
+ */
+describe('copy del waterfall — infraestructura de auditoría no disponible', () => {
+  const copy = PHONE_REVEAL_WATERFALL_INFRASTRUCTURE_UNAVAILABLE_COPY;
+
+  test('dice que el proceso NO pudo iniciarse y por qué', () => {
+    assert.ok(copy.includes('No se pudo iniciar'));
+    assert.ok(copy.includes('servicio de auditoría no está disponible'));
+  });
+
+  test('confirma que NO se ejecutó Apollo y que NO se ejecutó Lusha', () => {
+    assert.ok(copy.includes('No se ejecutó Apollo'), 'Apollo no fue ejecutado');
+    assert.ok(copy.includes('no se ejecutó Lusha'), 'Lusha no fue ejecutado');
+  });
+
+  test('confirma cero créditos consumidos', () => {
+    assert.ok(copy.includes('no se consumieron créditos'));
+  });
+
+  test('invita a reintentar más tarde', () => {
+    assert.ok(copy.includes('Intenta nuevamente más tarde'));
+  });
+
+  test('NO se presenta como "no se encontró teléfono" ni como error de proveedor', () => {
+    // "no se encontró teléfono" afirmaría que se buscó, y nadie buscó.
+    assert.equal(copy.includes('no se encontró'), false);
+    assert.equal(copy.includes('no está disponible el teléfono'), false);
+    assert.equal(copy.includes('Apollo falló'), false);
+    assert.equal(copy.includes('error de Apollo'), false);
+    assert.equal(copy.includes('error de Lusha'), false);
+  });
+
+  test('NO atribuye un costo de 0 a ningún proveedor ni insinúa éxito parcial', () => {
+    // Un "0 créditos" leería como "Apollo corrió y salió gratis".
+    assert.equal(copy.includes('0 crédito'), false);
+    assert.equal(copy.includes('sin costo'), false);
+    assert.equal(copy.includes('parcial'), false);
+  });
+
+  test('NO menciona una corrida ni una revelación en proceso (no existen)', () => {
+    assert.equal(copy.toLowerCase().includes('corrida'), false);
+    assert.equal(copy.includes('en proceso'), false);
+    assert.equal(copy.includes('solicitada'), false);
+  });
+
+  test('es distinto de los otros cierres del waterfall', () => {
+    // Cada cierre afirma una cosa distinta: colapsarlos borraría la diferencia
+    // entre "no se pudo comprobar la privacidad", "falló la revelación" y "no se
+    // pudo ni empezar".
+    assert.notEqual(copy, PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY);
+    assert.notEqual(copy, PHONE_REVEAL_WATERFALL_BLOCKED_COPY);
   });
 });

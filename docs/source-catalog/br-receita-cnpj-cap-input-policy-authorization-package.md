@@ -828,3 +828,23 @@ manifest, opened no CSV and no ZIP, processed no row, executed no join, and comp
 recorded no cap ceiling, no input root and no output root — only the category shapes those decisions would
 eventually need. Every gate in § 23 remains `not_started / not approved`, including GATE-2 and GATE-7, and
 each milestone in § 20 still requires its own explicit owner authorization.
+
+---
+
+## 26. Update (BR-SOURCE-11V)
+
+BR-SOURCE-11V creates the controlled execution authorization review. It evaluates whether the minimum
+conditions exist to authorize a future controlled execution attempt. Current recommendation remains NO-GO
+because GATE-2, GATE-7, cap/input policy, caps, input roots, output roots, temp storage, limited broader
+local execution and controlled execution attempt authorization remain missing. It does not approve GATE-2.
+It does not approve GATE-7. It does not approve cap/input policy. It does not authorize execution, real-data
+access, caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It does not
+approve any gate. See
+[`br-receita-cnpj-controlled-execution-authorization-review.md`](./br-receita-cnpj-controlled-execution-authorization-review.md).
+
+11V was written under the § 20 milestone mapping, after the intervening BR-SOURCE-11U synthetic rehearsal
+validation passed with zero file, commit, push, PR and merge activity. It flips no status in this package:
+`Cap/input policy approval status` remains `not_authorized`, every cap ceiling in § 6 remains null, and the
+input and output classes in § 7 and § 8 remain unauthorized class labels. 11V's own § 6 prerequisite table
+records this package as `official` and its policy as `not approved` on adjacent rows, preserving exactly the
+distinction § 2 of this document draws.

@@ -1009,3 +1009,24 @@ gate. See
 The § 8 conceptual flag contract's candidate cap set and the § 29 deliberately-unimplemented path-bearing
 flags are unchanged by 11T: the package proposes cap and input-class categories only, never the values this
 design's contract sketches as future placeholders.
+
+---
+
+## 32. Update (BR-SOURCE-11V)
+
+BR-SOURCE-11V creates the controlled execution authorization review. It evaluates whether the minimum
+conditions exist to authorize a future controlled execution attempt. Current recommendation remains NO-GO
+because GATE-2, GATE-7, cap/input policy, caps, input roots, output roots, temp storage, limited broader
+local execution and controlled execution attempt authorization remain missing. It does not approve GATE-2.
+It does not approve GATE-7. It does not approve cap/input policy. It does not authorize execution, real-data
+access, caps, input roots, output roots, temp storage, import, Supabase, runtime or Agent 1. It does not
+approve any gate. See
+[`br-receita-cnpj-controlled-execution-authorization-review.md`](./br-receita-cnpj-controlled-execution-authorization-review.md).
+
+The § 29 fail-closed implementation status is unchanged, and 11V cites it as evidence rather than revising it.
+The three deliberately-unimplemented flags — the two path-bearing ones and the one that would let a caller
+name the person-family denylist — remain absent, which is why 11V § 6 records `Input root class approved` as
+blocked by construction rather than by policy alone. 11V § 5 draws the distinction that matters for this
+design: the scaffold's refusal path has been observed by 11P, 11Q and the intervening 11U synthetic rehearsal,
+while the path taken once the gate, phrase and caps are satisfied has never executed under any conditions.
+Confidence in the first transfers none to the second.

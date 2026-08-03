@@ -88,6 +88,7 @@ import {
   PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_ERROR_COPY,
   PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY,
+  PHONE_REVEAL_WATERFALL_INFRASTRUCTURE_UNAVAILABLE_COPY,
   PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_AUDIT_COPY,
   PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_COST_COPY,
   PHONE_REVEAL_WATERFALL_LEGACY_EXHAUSTED_COPY,
@@ -695,6 +696,15 @@ export function ContactCandidateDetailSheet({
         setPhoneRevealError(
           'No fue posible usar la caché de teléfonos. No se hizo ningún cargo; intenta de nuevo en unos minutos.',
         );
+        return;
+      // AGENT2A-PHONE-WATERFALL-2A: la corrida de auditoría del waterfall no se
+      // pudo crear, así que el servidor NO ejecutó ningún proveedor. No es un
+      // error de Apollo y no es "no se encontró teléfono": no se buscó. El
+      // candidato NO se recarga (no se persistió nada) y el mensaje se muestra al
+      // operador — el detalle mecánico queda solo en el log del servidor.
+      case 'waterfall_infrastructure_unavailable':
+        toast.error(PHONE_REVEAL_WATERFALL_INFRASTRUCTURE_UNAVAILABLE_COPY);
+        setPhoneRevealError(PHONE_REVEAL_WATERFALL_INFRASTRUCTURE_UNAVAILABLE_COPY);
         return;
       case 'do_not_contact':
         toast.warning('Este candidato/contacto está marcado como no contactar.');
