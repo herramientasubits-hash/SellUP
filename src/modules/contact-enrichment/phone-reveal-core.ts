@@ -536,6 +536,19 @@ export type RevealCandidatePhoneStatus =
   // así que se reutiliza el estado en vez de ampliar la superficie de la UI. El
   // errorCode distingue ambos casos en observabilidad.
   | 'cache_unavailable'
+  // AGENT2A-PHONE-WATERFALL-2A: con ENABLE_PHONE_REVEAL_WATERFALL ENCENDIDO y un
+  // admin, la corrida de auditoría (`phone_reveal_waterfall_runs`, migración 102)
+  // es PRECONDICIÓN de ejecutar cualquier proveedor: el operador autorizó un
+  // waterfall auditado, no un reveal suelto. Si la corrida no se puede crear
+  // (tabla ausente, timeout, cualquier fallo del driver) la acción se detiene
+  // ANTES de Apollo. Garantías para el operador: 0 llamadas a Apollo, 0 llamadas a
+  // Lusha, 0 usage-logs, ninguna corrida parcial y 0 créditos. Reintentable.
+  //
+  // Lo emite EXCLUSIVAMENTE el wrapper del server action (phone-reveal-actions.ts),
+  // que es quien cablea la corrida; `runRevealCandidatePhone` NUNCA lo devuelve —
+  // este core no conoce el waterfall. Es un estado propio a propósito: no es un
+  // error de Apollo, no es `no_phone_found` y no es un éxito parcial.
+  | 'waterfall_infrastructure_unavailable'
   | 'error';
 
 export interface RevealCandidatePhoneResult {
