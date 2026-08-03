@@ -21,7 +21,6 @@ import {
 } from '../config';
 import {
   estimateApolloTwoRoundBudget,
-  evaluateApolloTwoRoundBudgetPreflight,
   buildApolloTwoRoundSpendAccounting,
   BUDGET_EXCEEDED_TWO_ROUND_APOLLO,
 } from '../budget';
@@ -144,47 +143,15 @@ describe('§ 10 · presupuesto', () => {
     assert.equal(breakdown.maximumInternalRecordedCredits, 12);
   });
 
-  test('caso 19 — presupuesto insuficiente bloquea ANTES de cualquier llamada', () => {
-    const preflight = evaluateApolloTwoRoundBudgetPreflight({
-      config: testConfig(),
-      availableCredits: 11,
-      maxCreditsPerExecution: 100,
-    });
-
-    assert.equal(preflight.passed, false);
-    assert.equal(preflight.blockReason, BUDGET_EXCEEDED_TWO_ROUND_APOLLO);
-    assert.equal(
-      preflight.passed === false ? preflight.blockDetail : null,
-      'insufficient_available_budget',
-    );
-    // Sin reserva parcial: o cabe entera o no empieza.
-    assert.equal(preflight.creditsToReserve, 0);
-  });
-
-  test('un tope por ejecución inferior al máximo también bloquea con el mismo estado', () => {
-    const preflight = evaluateApolloTwoRoundBudgetPreflight({
-      config: testConfig(),
-      availableCredits: 1000,
-      maxCreditsPerExecution: 10,
-    });
-
-    assert.equal(preflight.passed, false);
-    assert.equal(preflight.blockReason, BUDGET_EXCEEDED_TWO_ROUND_APOLLO);
-    assert.equal(
-      preflight.passed === false ? preflight.blockDetail : null,
-      'exceeds_max_credits_per_execution',
-    );
-  });
-
-  test('con presupuesto suficiente se reserva exactamente el peor caso', () => {
-    const preflight = evaluateApolloTwoRoundBudgetPreflight({
-      config: testConfig(),
-      availableCredits: 12,
-      maxCreditsPerExecution: 12,
-    });
-
-    assert.equal(preflight.passed, true);
-    assert.equal(preflight.creditsToReserve, 12);
+  test('caso 19 — el peor caso requerido es el que la reserva tiene que cubrir', () => {
+    // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 10: el bloqueo lo decide la
+    // reserva atómica del wizard (`reserveWizardPilotCredits`), que lee el
+    // presupuesto disponible y el tope por ejecución dentro de la propia RPC. Lo
+    // que este módulo aporta es el NÚMERO que hay que cubrir —el peor caso— y el
+    // código explicativo con el que el bloqueo real se anota.
+    const breakdown = estimateApolloTwoRoundBudget(testConfig());
+    assert.equal(breakdown.maximumInternalRecordedCredits, 12);
+    assert.equal(BUDGET_EXCEEDED_TWO_ROUND_APOLLO, 'BUDGET_EXCEEDED_TWO_ROUND_APOLLO');
   });
 
   test('la reserva NO descuenta la parada temprana', () => {

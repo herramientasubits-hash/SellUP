@@ -28,8 +28,7 @@ import {
   type ApolloTwoRoundProductionDeps,
   type ApolloTwoRoundWizardRunInput,
 } from '../production-runner.server';
-import { serializeRunState } from '../run-state';
-import { toApolloTwoRoundResumeState } from '../orchestrator';
+import type { ApolloTwoRoundCheckpointV1 } from '../checkpoint';
 import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '../observability';
 import { estimateApolloTwoRoundBudget, defaultApolloTwoRoundConfig } from '../index';
 import { runWizardApolloSearch } from '@/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor';
@@ -142,7 +141,7 @@ type Recorder = {
   enrichCalls: number;
   requestedLimits: number[];
   persistedCandidateNames: string[];
-  savedStates: unknown[];
+  savedCheckpoints: ApolloTwoRoundCheckpointV1[];
 };
 
 function buildDeps(options: {
@@ -150,14 +149,14 @@ function buildDeps(options: {
   duplicates?: Record<string, 'sellup' | 'hubspot'>;
   /** Dominios que el enrichment confirma como del sector. */
   enrichmentConfirms?: string[];
-  loadRunState?: ApolloTwoRoundProductionDeps['loadRunState'];
+  loadCheckpoint?: ApolloTwoRoundProductionDeps['loadCheckpoint'];
 }): { deps: Partial<ApolloTwoRoundProductionDeps>; recorder: Recorder } {
   const recorder: Recorder = {
     searchCalls: 0,
     enrichCalls: 0,
     requestedLimits: [],
     persistedCandidateNames: [],
-    savedStates: [],
+    savedCheckpoints: [],
   };
 
   const deps: Partial<ApolloTwoRoundProductionDeps> = {
@@ -204,7 +203,9 @@ function buildDeps(options: {
         batchId: CORRELATION.batchId,
         candidatesCreated: writerInput.pipelineOutput.candidates.length,
         candidatesSkipped: 0,
-        createdCandidateIds: [],
+        createdCandidateIds: writerInput.pipelineOutput.candidates.map(
+          (_c, index) => `candidate-${index + 1}`,
+        ),
         skipped: [],
         status: 'success',
         errors: [],
@@ -221,10 +222,21 @@ function buildDeps(options: {
       previousBatchCount: 0,
     }),
 
-    loadRunState: options.loadRunState ?? (async () => null),
-    saveRunState: async (_batchId, state) => {
-      recorder.savedStates.push(state);
+    loadCheckpoint: options.loadCheckpoint ?? (async () => null),
+    saveCheckpoint: async (_batchId, checkpoint) => {
+      recorder.savedCheckpoints.push(checkpoint);
+      return {
+        kind: 'written',
+        checkpointVersion: checkpoint.checkpoint_version,
+        serializedBytes: 0,
+        compacted: false,
+      };
     },
+    // Pricing vivo inyectado: sin él el enrichment quedaría prohibido y las
+    // pruebas de enrichment no podrían ejercitarlo.
+    loadEnrichmentUnitCostUsd: async () => 0.02,
+    enrichOrganization: (async () => ({ success: true, data: undefined })) as never,
+    logEnrichmentUsage: (async () => ({ kind: 'logged' as const })) as never,
     resolveConfig: () => defaultApolloTwoRoundConfig(),
   };
 
@@ -656,7 +668,7 @@ describe('§ 10 · presupuesto y ejecución comparten límites', () => {
 
 describe('§ 10 · un reintento recupera lo que la ronda anterior produjo', () => {
   test('caso 12 — tras la ronda 1, el reintento no repite la búsqueda ni pierde candidatos', async () => {
-    // Primer intento: sólo la ronda 1, y la persistencia falla.
+    // Primer intento: la ronda 1 produce tres y se persisten.
     const first = buildDeps({
       rounds: [searchOutput([1, 2, 3].map(confirmedSupermarket), 3), searchOutput([], 0)],
     });
@@ -664,47 +676,41 @@ describe('§ 10 · un reintento recupera lo que la ronda anterior produjo', () =
     assert.equal(first.recorder.searchCalls, 2);
     assert.equal(firstOutput.candidatesCreated, 3);
 
-    const savedState = first.recorder.savedStates[0] as ReturnType<typeof serializeRunState>;
-    assert.ok(savedState.completed_operation_keys.length > 0);
-    assert.equal(savedState.resume.candidates.length, 3);
+    // El último checkpoint es el que un reintento leería.
+    const savedCheckpoint = first.recorder.savedCheckpoints.at(-1) as ApolloTwoRoundCheckpointV1;
+    assert.ok(savedCheckpoint.completed_operation_keys.length > 0);
+    assert.equal(savedCheckpoint.candidate_snapshots.length, 3);
+    assert.equal(savedCheckpoint.candidates_persisted, true);
 
-    // Reintento con el mismo estado: ninguna búsqueda nueva, mismos candidatos.
+    // Reintento con el mismo checkpoint: ninguna búsqueda nueva, mismos candidatos.
     const retry = buildDeps({
       rounds: [searchOutput([], 0), searchOutput([], 0)],
-      loadRunState: async () => savedState,
+      loadCheckpoint: async () => savedCheckpoint,
     });
     const retryOutput = await runApolloTwoRoundWizardDiscovery(runInput(), retry.deps);
 
     assert.equal(retry.recorder.searchCalls, 0, 'un reintento no vuelve a buscar');
     assert.equal(retry.recorder.enrichCalls, 0, 'un reintento no vuelve a enriquecer');
-    assert.equal(retryOutput.candidatesCreated, 3, 'los candidatos de la ronda 1 se recuperan');
+    assert.equal(
+      retry.recorder.persistedCandidateNames.length,
+      0,
+      'los candidatos ya persistidos no se vuelven a escribir',
+    );
+    assert.equal(
+      retryOutput.candidatesCreated,
+      3,
+      'el reintento reporta los candidatos ya persistidos, no cero',
+    );
   });
 
-  test('un estado de OTRA corrida se ignora: nunca se saltan operaciones ajenas', async () => {
-    const foreign = serializeRunState({
-      correlation: { ...CORRELATION, idempotencyKey: 'otra-corrida' },
-      completedOperationKeys: ['clave-ajena'],
-      resume: toApolloTwoRoundResumeState({
-        evaluatedCandidates: [],
-        rounds: [],
-        runMetrics: {
-          totalRawResults: 0,
-          totalSearchCredits: 0,
-          totalEnrichmentCredits: 0,
-          enrichmentsExecuted: 0,
-        },
-        observedRejectionReasons: [],
-        secondRoundSkippedReason: null,
-      } as never),
-      recordedUsageCredits: 99,
-      candidatesPersisted: true,
-      pipelineCandidates: new Map(),
-      searchResults: new Map(),
-    });
-
+  test('un checkpoint de OTRA corrida se ignora: nunca se saltan operaciones ajenas', async () => {
+    // `loadCheckpoint` recibe la identidad de la corrida y devuelve null cuando no
+    // coincide — eso lo garantiza `readCheckpoint`, probado aparte. Aquí se
+    // comprueba el efecto: la corrida arranca de cero.
     const { deps, recorder } = buildDeps({
       rounds: [searchOutput([1, 2].map(confirmedSupermarket), 2), searchOutput([], 0)],
-      loadRunState: async () => foreign,
+      loadCheckpoint: async (_batchId, identity) =>
+        identity.idempotencyKey === 'otra-corrida' ? ({} as ApolloTwoRoundCheckpointV1) : null,
     });
 
     await runApolloTwoRoundWizardDiscovery(runInput(), deps);

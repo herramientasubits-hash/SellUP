@@ -84,12 +84,9 @@ export {
 export {
   BUDGET_EXCEEDED_TWO_ROUND_APOLLO,
   estimateApolloTwoRoundBudget,
-  evaluateApolloTwoRoundBudgetPreflight,
   buildApolloTwoRoundSpendAccounting,
   toApolloTwoRoundBudgetMetadata,
   type ApolloTwoRoundBudgetBreakdown,
-  type ApolloTwoRoundBudgetPreflight,
-  type ApolloTwoRoundBudgetPreflightInput,
   type ApolloTwoRoundSpendAccounting,
 } from './budget';
 
@@ -107,23 +104,38 @@ export {
 
 export {
   buildApolloTwoRoundOperationKey,
+  buildApolloTwoRoundOperationContext,
+  buildApolloTwoRoundEnrichmentSubject,
   toOperationCorrelationMetadata,
+  toApolloTwoRoundOperationContextMetadata,
   ApolloTwoRoundOperationLedger,
   type ApolloTwoRoundRunCorrelation,
   type ApolloTwoRoundOperation,
   type ApolloTwoRoundOperationKeyInput,
   type ApolloTwoRoundOperationCorrelation,
+  type ApolloTwoRoundOperationContext,
 } from './idempotency';
 
 export {
-  APOLLO_TWO_ROUND_RUN_STATE_KEY,
-  APOLLO_TWO_ROUND_RUN_STATE_VERSION,
-  serializeRunState,
-  deserializeRunState,
-  type ApolloTwoRoundPersistedRunState,
-  type RestoredRunState,
-  type SerializeRunStateInput,
-} from './run-state';
+  APOLLO_TWO_ROUND_CHECKPOINT_KEY,
+  APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION,
+  APOLLO_TWO_ROUND_CHECKPOINT_MAX_SERIALIZED_BYTES,
+  toCandidateEvidenceSnapshot,
+  fromCandidateEvidenceSnapshot,
+  toSeenOrganizationKeys,
+  fromSeenOrganizationKeys,
+  measureCheckpointSerializedBytes,
+  compactCheckpointForSize,
+  readCheckpoint,
+  type ApolloTwoRoundCheckpointV1,
+  type ApolloTwoRoundCheckpointReason,
+  type ApolloTwoRoundCandidateSnapshot,
+  type ApolloTwoRoundCandidateEvidenceSnapshot,
+  type ApolloTwoRoundEnrichmentSnapshot,
+  type ApolloTwoRoundEnrichmentStatus,
+  type ApolloTwoRoundRankingSignalsSnapshot,
+  type CheckpointCompactionResult,
+} from './checkpoint';
 
 export {
   runApolloTwoRoundDiscovery,
@@ -134,6 +146,9 @@ export {
   type ApolloTwoRoundRunInput,
   type ApolloTwoRoundRunResult,
   type ApolloTwoRoundResultStatus,
+  type ApolloTwoRoundCheckpointSnapshot,
+  type ApolloTwoRoundCheckpointTrigger,
+  type ApolloTwoRoundIndeterminateOperation,
   type AccumulatedCompany,
   type CheapAssessment,
   type CheapRejectionReason,

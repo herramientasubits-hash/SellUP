@@ -63,8 +63,10 @@ import {
   type EnrichmentOutcome,
 } from './observability';
 import {
-  buildApolloTwoRoundOperationKey,
+  buildApolloTwoRoundOperationContext,
+  buildApolloTwoRoundEnrichmentSubject,
   ApolloTwoRoundOperationLedger,
+  type ApolloTwoRoundOperationContext,
   type ApolloTwoRoundRunCorrelation,
 } from './idempotency';
 
@@ -88,6 +90,12 @@ export type RoundSearchOutcome = {
   providerRequestCount: number;
   /** Créditos que NUESTRO ledger registró para esta búsqueda. */
   internalRecordedCredits: number;
+  /**
+   * § 4 del FINAL-FIX — la petición SALIÓ y su resultado o su cobro quedaron sin
+   * confirmar (timeout, corte de red, 5xx, respuesta ambigua). La operación no se
+   * reintenta y las que dependen de ella no se ejecutan.
+   */
+  indeterminate?: boolean;
 };
 
 // ─── Evaluación barata ────────────────────────────────────────────────────────
@@ -137,17 +145,27 @@ export type EnrichmentResult = {
   internalRecordedCredits: number;
   /** Un rechazo que sólo se pudo ver con el perfil enriquecido. */
   postEnrichmentRejection?: CheapRejectionReason | null;
+  /** § 4 del FINAL-FIX — cobro sin confirmar. Detiene los enrichments restantes. */
+  indeterminate?: boolean;
+  /** El proveedor respondió sin organización coincidente. Ni cargo ni evidencia. */
+  noMatch?: boolean;
 };
 
 // ─── Dependencias ─────────────────────────────────────────────────────────────
 
 export type ApolloTwoRoundDeps = {
-  /** Ejecuta UNA búsqueda de una ronda. Nunca se llama dos veces por ronda. */
+  /**
+   * Ejecuta UNA búsqueda de una ronda. Nunca se llama dos veces por ronda.
+   *
+   * Recibe el contexto de operación COMPLETO —ronda, operación y sujeto— porque es
+   * el adaptador quien escribe la fila económica y necesita los tres para poder
+   * distinguir esta búsqueda de la de la otra ronda.
+   */
   searchRound: (input: {
     roundNumber: number;
     hypothesis: ApolloTwoRoundQueryHypothesis;
     requestedResultLimit: number;
-    operationKey: string;
+    operationContext: ApolloTwoRoundOperationContext;
   }) => Promise<RoundSearchOutcome>;
 
   /** Aplica los gates baratos. No puede llamar al proveedor ni gastar créditos. */
@@ -161,16 +179,69 @@ export type ApolloTwoRoundDeps = {
   enrichCandidate: (input: {
     candidateKey: string;
     roundNumber: number;
-    operationKey: string;
+    operationContext: ApolloTwoRoundOperationContext;
     identity: NormalizedOrganizationIdentity;
   }) => Promise<EnrichmentResult>;
+
+  /**
+   * § 3 del FINAL-FIX — persiste el estado tras CADA transición recuperable.
+   *
+   * Debe resolver a `true` sólo cuando el estado quedó durablemente escrito. Un
+   * `false` (o un throw) hace que la operación que acaba de ejecutarse se degrade
+   * a INDETERMINADA en vez de quedar como completada: una operación cuyo
+   * resultado no se puede recuperar no es una operación completada.
+   *
+   * Ausente ⇒ el orquestador corre sin durabilidad. Es lo que hacen las suites
+   * puras que sólo ejercitan la lógica de rondas; producción siempre la inyecta.
+   */
+  saveCheckpoint?: (
+    checkpoint: ApolloTwoRoundCheckpointSnapshot,
+  ) => Promise<boolean> | boolean;
 };
+
+/**
+ * Lo que el orquestador entrega en cada checkpoint.
+ *
+ * El ledger viaja DENTRO del snapshot a propósito: el escritor lo persiste en la
+ * misma escritura que el resto del estado, así que "operación completada" y "su
+ * resultado es recuperable" no pueden quedar en documentos distintos.
+ */
+export type ApolloTwoRoundCheckpointSnapshot = {
+  reason: ApolloTwoRoundCheckpointTrigger;
+  resume: ApolloTwoRoundResumeState;
+  /** Operación que provocó el checkpoint. Null en los de fase. */
+  operationContext: ApolloTwoRoundOperationContext | null;
+};
+
+export type ApolloTwoRoundCheckpointTrigger =
+  | 'search_round_completed'
+  | 'search_round_indeterminate'
+  | 'round_assessment_completed'
+  | 'enrichment_completed'
+  | 'enrichment_indeterminate'
+  | 'run_completed';
 
 // ─── Salida ───────────────────────────────────────────────────────────────────
 
 export type ApolloTwoRoundResultStatus =
   | 'target_reached'
-  | 'partial_target_not_reached';
+  | 'partial_target_not_reached'
+  /**
+   * § 4 del FINAL-FIX — al menos una operación quedó con cobro sin confirmar.
+   * Gana sobre los otros dos estados: una corrida que alcanzó el objetivo pero
+   * dejó una operación indeterminada NO puede reportarse como cerrada.
+   */
+  | 'apollo_operation_indeterminate';
+
+/** Operación cuyo resultado o cobro no se pudo confirmar. */
+export type ApolloTwoRoundIndeterminateOperation = {
+  roundNumber: number;
+  operationKey: 'organizations_search' | 'organization_enrichment';
+  subject: string;
+  operationId: string;
+  /** Por qué quedó indeterminada. Vocabulario estático. */
+  reason: 'provider_outcome_unknown' | 'checkpoint_not_durable';
+};
 
 /** Por qué no se ejecutó la segunda ronda. Null cuando sí se ejecutó. */
 export type SecondRoundSkippedReason =
@@ -212,6 +283,17 @@ export type ApolloTwoRoundRunResult = {
   enrichmentSkips: EnrichmentSkip[];
   /** Claves de operación completadas. Un reintento las reconoce y no repite. */
   completedOperationKeys: string[];
+  /**
+   * Claves de operación INDETERMINADAS. Un reintento tampoco las repite —
+   * repetirlas podría duplicar un cargo— y la corrida exige conciliación manual.
+   */
+  indeterminateOperationKeys: string[];
+  /** Detalle de cada operación indeterminada, para la conciliación manual. */
+  indeterminateOperations: ApolloTwoRoundIndeterminateOperation[];
+  /** § 4 — la corrida no puede declararse conciliada de forma automática. */
+  manualReconciliationRequired: boolean;
+  /** Checkpoints que no se pudieron persistir. Vacío en una corrida sana. */
+  checkpointWriteFailures: ApolloTwoRoundCheckpointTrigger[];
   /**
    * TODOS los candidatos evaluados —elegibles y rechazados— con su motivo. Es lo
    * que un reintento necesita para no volver a partir de cero (§ 7).
@@ -263,6 +345,17 @@ export type ApolloTwoRoundResumeState = {
   enrichmentsExecuted: number;
   observedRejectionReasons: readonly CheapRejectionReason[];
   secondRoundSkippedReason?: SecondRoundSkippedReason | null;
+  /**
+   * § 5 del FINAL-FIX — el ledger viaja DENTRO del estado recuperable. Antes las
+   * claves completadas se pasaban por un campo aparte y el estado por otro, así
+   * que un reintento podía traer uno sin el otro: sabía que la ronda 1 ya se había
+   * buscado y no tenía nada que recuperar de ella.
+   */
+  completedOperationKeys?: readonly string[];
+  indeterminateOperationKeys?: readonly string[];
+  indeterminateOperations?: readonly ApolloTwoRoundIndeterminateOperation[];
+  /** True cuando los candidatos ya se escribieron. Un reintento NO los reescribe. */
+  candidatesPersisted?: boolean;
 };
 
 /** Candidato recuperado de un intento anterior, con su estado completo. */
@@ -298,6 +391,9 @@ export function toApolloTwoRoundResumeState(
     enrichmentsExecuted: result.runMetrics.enrichmentsExecuted,
     observedRejectionReasons: result.observedRejectionReasons,
     secondRoundSkippedReason: result.secondRoundSkippedReason,
+    completedOperationKeys: result.completedOperationKeys,
+    indeterminateOperationKeys: result.indeterminateOperationKeys,
+    indeterminateOperations: result.indeterminateOperations,
   };
 }
 
@@ -397,10 +493,16 @@ export async function runApolloTwoRoundDiscovery(
   deps: ApolloTwoRoundDeps,
 ): Promise<ApolloTwoRoundRunResult> {
   const { config, queryContext, correlation } = input;
-  const ledger = ApolloTwoRoundOperationLedger.fromCompletedKeys(
-    input.completedOperationKeys ?? [],
-  );
   const resume = input.resume ?? null;
+  // § 5 — el ledger se rehidrata del estado recuperado y, sólo como segunda
+  // fuente, de las claves sueltas que un llamador antiguo pudiera pasar.
+  const ledger = ApolloTwoRoundOperationLedger.fromCompletedKeys([
+    ...(input.completedOperationKeys ?? []),
+    ...(resume?.completedOperationKeys ?? []),
+  ]);
+  for (const key of resume?.indeterminateOperationKeys ?? []) {
+    ledger.markIndeterminate(key);
+  }
 
   // § 7 — el estado recuperado siembra la corrida. Sin esto, un reintento que
   // salta una ronda ya buscada la trataría como si hubiera devuelto cero.
@@ -415,6 +517,10 @@ export async function runApolloTwoRoundDiscovery(
   const observedRejectionReasons = new Set<CheapRejectionReason>(
     resume?.observedRejectionReasons ?? [],
   );
+  const indeterminateOperations: ApolloTwoRoundIndeterminateOperation[] = [
+    ...(resume?.indeterminateOperations ?? []),
+  ];
+  const checkpointWriteFailures: ApolloTwoRoundCheckpointTrigger[] = [];
 
   let totalRawResults = resume?.totalRawResults ?? 0;
   let totalSearchCredits = resume?.totalSearchCredits ?? 0;
@@ -428,11 +534,116 @@ export async function runApolloTwoRoundDiscovery(
 
   const eligibleCount = (): number => tracked.filter((c) => c.eligible).length;
 
+  /** Estado recuperable en ESTE instante. Se recalcula en cada checkpoint. */
+  const currentResumeState = (): ApolloTwoRoundResumeState => ({
+    seenIdentities: tracked.map((c) => c.identity),
+    candidates: tracked.map((c) => ({ ...c })),
+    rounds: roundMetrics.map((r) => ({ ...r })),
+    totalRawResults,
+    totalSearchCredits,
+    totalEnrichmentCredits,
+    enrichmentsExecuted: tracked.filter((c) => c.enrichmentExecuted).length,
+    observedRejectionReasons: [...observedRejectionReasons],
+    secondRoundSkippedReason,
+    completedOperationKeys: ledger.completedKeys,
+    indeterminateOperationKeys: ledger.indeterminateKeys,
+    indeterminateOperations: [...indeterminateOperations],
+    candidatesPersisted: resume?.candidatesPersisted === true,
+  });
+
+  /**
+   * Persiste el estado. Nunca lanza: un fallo se reporta como `false` y el
+   * llamador decide, en vez de tumbar una corrida que ya gastó.
+   */
+  const persistCheckpoint = async (
+    reason: ApolloTwoRoundCheckpointTrigger,
+    operationContext: ApolloTwoRoundOperationContext | null,
+  ): Promise<boolean> => {
+    if (!deps.saveCheckpoint) return true;
+    try {
+      const saved = await deps.saveCheckpoint({
+        reason,
+        resume: currentResumeState(),
+        operationContext,
+      });
+      if (saved === false) {
+        checkpointWriteFailures.push(reason);
+        return false;
+      }
+      return true;
+    } catch {
+      checkpointWriteFailures.push(reason);
+      return false;
+    }
+  };
+
+  /**
+   * Cierra UNA operación externa: marca el ledger y lo persiste en la misma
+   * escritura que el estado.
+   *
+   * El orden del § 3 se respeta aquí: la operación externa ya ocurrió y su usage
+   * log lo escribió la dependencia antes de devolver; lo que falta es el
+   * checkpoint durable y el ledger, y los dos van juntos.
+   *
+   * Si el checkpoint no se pudo persistir, la operación NO queda completada: se
+   * degrada a indeterminada. Ni se repite (segundo cargo) ni se salta como si su
+   * resultado estuviera recuperable (corrida vacía tras pagar).
+   */
+  const commitOperation = async (
+    operationContext: ApolloTwoRoundOperationContext,
+    outcome: 'completed' | 'indeterminate',
+  ): Promise<'completed' | 'indeterminate'> => {
+    if (outcome === 'indeterminate') {
+      ledger.markIndeterminate(operationContext.operationId);
+      indeterminateOperations.push({
+        roundNumber: operationContext.roundNumber,
+        operationKey: operationContext.operationKey,
+        subject: operationContext.subject,
+        operationId: operationContext.operationId,
+        reason: 'provider_outcome_unknown',
+      });
+      await persistCheckpoint(
+        operationContext.operationKey === 'organizations_search'
+          ? 'search_round_indeterminate'
+          : 'enrichment_indeterminate',
+        operationContext,
+      );
+      return 'indeterminate';
+    }
+
+    ledger.markCompleted(operationContext.operationId);
+    const persisted = await persistCheckpoint(
+      operationContext.operationKey === 'organizations_search'
+        ? 'search_round_completed'
+        : 'enrichment_completed',
+      operationContext,
+    );
+    if (persisted) return 'completed';
+
+    ledger.downgradeToIndeterminate(operationContext.operationId);
+    indeterminateOperations.push({
+      roundNumber: operationContext.roundNumber,
+      operationKey: operationContext.operationKey,
+      subject: operationContext.subject,
+      operationId: operationContext.operationId,
+      reason: 'checkpoint_not_durable',
+    });
+    return 'indeterminate';
+  };
+
+  /** True en cuanto una operación quedó indeterminada: nada dependiente corre. */
+  const hasIndeterminateOperation = (): boolean => indeterminateOperations.length > 0;
+
   // ── Bucle de rondas ─────────────────────────────────────────────────────────
   for (let roundNumber = 1; roundNumber <= config.maxRounds; roundNumber++) {
     // § 7: una ronda cuyo estado ya se recuperó no se vuelve a ejecutar NI se
     // vuelve a registrar. Sus métricas y sus candidatos ya están en el estado.
     if (roundMetrics.some((m) => m.roundNumber === roundNumber)) continue;
+
+    // § 4: una operación indeterminada detiene lo que dependa de ella. La ronda 2
+    // depende de saber qué trajo la ronda 1, y un enrichment depende de saber qué
+    // organizaciones hay: ninguno de los dos se ejecuta a ciegas.
+    if (hasIndeterminateOperation()) break;
 
     // § 7: parada inmediata. La ronda 2 no se ejecuta por estar presupuestada.
     if (roundNumber > 1 && eligibleCount() >= config.targetEligibleCompanies) {
@@ -472,10 +683,12 @@ export async function runApolloTwoRoundDiscovery(
       hypothesis = round2;
     }
 
-    const searchOperationKey = buildApolloTwoRoundOperationKey({
+    // § 2 — el contexto completo, no sólo el digest: la ronda y el sujeto viajan
+    // hasta la fila económica.
+    const searchOperationContext = buildApolloTwoRoundOperationContext({
       correlation,
       roundNumber,
-      operation: 'organizations_search',
+      operationKey: 'organizations_search',
       subject: JSON.stringify(hypothesis.queryParameters),
     });
 
@@ -490,7 +703,7 @@ export async function runApolloTwoRoundDiscovery(
     // legible, no invisible. Con estado recuperado este caso ya no se alcanza —
     // la ronda se saltó arriba con sus métricas reales—, y queda como segundo
     // candado para un reintento que traiga claves pero no estado.
-    if (!ledger.canExecute(searchOperationKey)) {
+    if (!ledger.canExecute(searchOperationContext.operationId)) {
       roundMetrics.push(metrics);
       continue;
     }
@@ -499,9 +712,25 @@ export async function runApolloTwoRoundDiscovery(
       roundNumber,
       hypothesis,
       requestedResultLimit,
-      operationKey: searchOperationKey,
+      operationContext: searchOperationContext,
     });
-    ledger.markCompleted(searchOperationKey);
+
+    // § 3 — el usage log ya lo escribió la dependencia; ahora el ledger y el
+    // checkpoint, juntos. Un cobro sin confirmar cierra la corrida aquí.
+    const searchOutcomeState = await commitOperation(
+      searchOperationContext,
+      outcome.indeterminate === true ? 'indeterminate' : 'completed',
+    );
+    if (searchOutcomeState === 'indeterminate') {
+      // Los créditos que el ledger interno SÍ registró se conservan: la búsqueda
+      // pudo haberse cobrado, y descontarlos aquí escondería ese gasto.
+      metrics.providerRequestCount = outcome.providerRequestCount;
+      metrics.rawResultsReturned = outcome.organizations.length;
+      metrics.internalRecordedCredits = outcome.internalRecordedCredits;
+      totalSearchCredits += outcome.internalRecordedCredits;
+      roundMetrics.push(metrics);
+      break;
+    }
 
     metrics.providerRequestCount = outcome.providerRequestCount;
     metrics.rawResultsReturned = outcome.organizations.length;
@@ -582,6 +811,11 @@ export async function runApolloTwoRoundDiscovery(
     metrics.newEligibleCompaniesAdded = metrics.eligibleBeforeEnrichment;
     roundMetrics.push(metrics);
 
+    // § 3 — la evaluación barata de la ronda es una transición recuperable: sin
+    // este checkpoint, un fallo posterior obligaría a volver a buscar para
+    // recuperar veredictos que no costaron nada calcular.
+    await persistCheckpoint('round_assessment_completed', null);
+
     // § 7: alcanzado el objetivo con gates baratos, la corrida no busca más.
     if (eligibleCount() >= config.targetEligibleCompanies) {
       if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
@@ -630,6 +864,18 @@ export async function runApolloTwoRoundDiscovery(
   }
 
   for (const chosen of globalSelection.selected) {
+    // § 4 — una operación indeterminada detiene los enrichments restantes: su
+    // presupuesto ya no es conocido y seguir gastando sobre un cobro sin
+    // confirmar es exactamente lo que no se puede hacer.
+    if (hasIndeterminateOperation()) {
+      enrichmentSkips.push({
+        candidateKey: chosen.candidateKey,
+        roundNumber: chosen.roundNumber,
+        skippedReason: 'prior_operation_indeterminate',
+      });
+      continue;
+    }
+
     // Parada dentro del propio bucle: si una llamada previa ya completó el
     // objetivo, las restantes no se ejecutan (§ 6).
     if (eligibleCount() >= config.targetEligibleCompanies) {
@@ -645,14 +891,22 @@ export async function runApolloTwoRoundDiscovery(
     if (!candidate) continue;
     const metricsForRound = roundMetricsByNumber.get(candidate.roundNumber) ?? null;
 
-    const enrichmentOperationKey = buildApolloTwoRoundOperationKey({
+    // § 2 — sujeto sanitizado y estable: id del proveedor, dominio normalizado o
+    // clave de candidato. Nunca un timestamp, para que dos reintentos de la misma
+    // operación produzcan la misma identidad.
+    const enrichmentOperationContext = buildApolloTwoRoundOperationContext({
       correlation,
       roundNumber: candidate.roundNumber,
-      operation: 'organization_enrichment',
-      subject: candidate.identity.normalizedDomain ?? candidate.candidateKey,
+      operationKey: 'organization_enrichment',
+      subject: buildApolloTwoRoundEnrichmentSubject({
+        providerOrganizationId: candidate.identity.providerOrganizationId,
+        normalizedDomain: candidate.identity.normalizedDomain,
+        candidateKey: candidate.candidateKey,
+      }),
     });
-    // § 12: un enrichment ya ejecutado por un intento anterior no se repite.
-    if (!ledger.canExecute(enrichmentOperationKey)) {
+    // § 12: un enrichment ya ejecutado —o ya indeterminado— por un intento
+    // anterior no se repite.
+    if (!ledger.canExecute(enrichmentOperationContext.operationId)) {
       enrichmentSkips.push({
         candidateKey: chosen.candidateKey,
         roundNumber: chosen.roundNumber,
@@ -664,10 +918,9 @@ export async function runApolloTwoRoundDiscovery(
     const result = await deps.enrichCandidate({
       candidateKey: candidate.candidateKey,
       roundNumber: candidate.roundNumber,
-      operationKey: enrichmentOperationKey,
+      operationContext: enrichmentOperationContext,
       identity: candidate.identity,
     });
-    ledger.markCompleted(enrichmentOperationKey);
 
     enrichmentSelections.push(chosen);
     remainingEnrichmentBudget = Math.max(0, remainingEnrichmentBudget - 1);
@@ -679,6 +932,17 @@ export async function runApolloTwoRoundDiscovery(
         metricsForRound.enrichmentsExecuted++;
         metricsForRound.internalRecordedCredits += result.internalRecordedCredits;
       }
+    }
+
+    const enrichmentOutcomeState = await commitOperation(
+      enrichmentOperationContext,
+      result.indeterminate === true ? 'indeterminate' : 'completed',
+    );
+    if (enrichmentOutcomeState === 'indeterminate') {
+      // El veredicto sectorial de una llamada cuyo resultado no se confirmó no se
+      // aplica: sería decidir la elegibilidad con evidencia que no sabemos si
+      // llegó. El candidato conserva su estado previo al enrichment.
+      continue;
     }
 
     candidate.sectorEvidenceState = result.sectorEvidenceState;
@@ -762,8 +1026,18 @@ export async function runApolloTwoRoundDiscovery(
     finallyRejectedOrDuplicated: c.finallyRejectedOrDuplicated,
   }));
 
+  const manualReconciliationRequired = indeterminateOperations.length > 0;
+
+  // § 3 — último checkpoint de la corrida. Los candidatos aún no se han escrito;
+  // ese paso lo sella el adaptador con su propio checkpoint.
+  await persistCheckpoint('run_completed', null);
+
   return {
-    resultStatus: targetReached ? 'target_reached' : 'partial_target_not_reached',
+    resultStatus: manualReconciliationRequired
+      ? 'apollo_operation_indeterminate'
+      : targetReached
+        ? 'target_reached'
+        : 'partial_target_not_reached',
     targetEligibleCompanies: config.targetEligibleCompanies,
     eligibleCompaniesFound,
     persistedCandidates: persisted.length,
@@ -788,6 +1062,10 @@ export async function runApolloTwoRoundDiscovery(
     // Se devuelven para que un reintento con el mismo `idempotencyKey` reconozca
     // lo ya ejecutado y no lo repita (§ 12).
     completedOperationKeys: ledger.completedKeys,
+    indeterminateOperationKeys: ledger.indeterminateKeys,
+    indeterminateOperations,
+    manualReconciliationRequired,
+    checkpointWriteFailures,
     evaluatedCandidates: tracked.map((c) => ({
       candidateKey: c.candidateKey,
       roundNumber: c.roundNumber,

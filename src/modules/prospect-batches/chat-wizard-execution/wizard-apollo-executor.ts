@@ -21,11 +21,8 @@ import type { ResolvedWizardExecution } from './wizard-execution-types';
 import type { RunCorrelationMetadata } from './wizard-run-correlation';
 import { isApolloTwoRoundDiscoveryEnabled } from '@/lib/feature-flags.server';
 import { resolveApolloTwoRoundConfigFromEnv } from '@/server/agents/prospecting-toolkit/apollo-two-round/env.server';
-import {
-  toApolloTwoRoundConfigDiagnostics,
-  type ApolloTwoRoundDiscoveryConfig,
-  type ApolloTwoRoundRunCorrelation,
-} from '@/server/agents/prospecting-toolkit/apollo-two-round';
+import { toApolloTwoRoundConfigDiagnostics } from '@/server/agents/prospecting-toolkit/apollo-two-round';
+import type { ApolloTwoRoundRunCorrelation } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 import { runApolloTwoRoundWizardDiscovery } from '@/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server';
 
 export const WIZARD_APOLLO_TARGET_INTERNAL = 25;
@@ -33,38 +30,19 @@ export const WIZARD_APOLLO_MAX_ROUNDS = 4;
 export const WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES = 10;
 
 /**
- * A1-APOLLO-TWO-ROUND-QUALITY-1 — controles de la modalidad de dos rondas.
+ * A1-APOLLO-TWO-ROUND-QUALITY-1 — qué ruta ejecuta esta corrida.
  *
- * Con `ENABLE_APOLLO_TWO_ROUND_DISCOVERY` encendido, los tres controles de
- * arriba se sustituyen por los de la configuración central: NO se redeclaran
- * números aquí. El objetivo interno pasa a ser el mismo que el objetivo de
- * empresas elegibles (5) porque en esta modalidad no hay sobre-búsqueda: la
- * corrida se detiene en cuanto reúne cinco.
+ * Sólo la modalidad. Antes esta función devolvía además `targetInternal`,
+ * `maxRounds` y `targetPersistibleCandidates` derivados de la configuración de dos
+ * rondas, pero la ruta de dos rondas NO consume esos tres números: los gobierna el
+ * orquestador desde su propia configuración. Eran tres campos que parecían
+ * gobernar la corrida y no gobernaban nada. Los controles legacy siguen siendo las
+ * constantes de arriba, que es donde la ruta legacy los lee.
  */
-export type WizardApolloRunControls = {
-  targetInternal: number;
-  maxRounds: number;
-  targetPersistibleCandidates: number;
-  modality: 'legacy_four_round' | 'two_round_adaptive';
-};
+export type WizardApolloModality = 'legacy_four_round' | 'two_round_adaptive';
 
-export function resolveWizardApolloRunControls(
-  twoRound: { enabled: boolean; config: ApolloTwoRoundDiscoveryConfig },
-): WizardApolloRunControls {
-  if (!twoRound.enabled) {
-    return {
-      targetInternal: WIZARD_APOLLO_TARGET_INTERNAL,
-      maxRounds: WIZARD_APOLLO_MAX_ROUNDS,
-      targetPersistibleCandidates: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
-      modality: 'legacy_four_round',
-    };
-  }
-  return {
-    targetInternal: twoRound.config.targetEligibleCompanies,
-    maxRounds: twoRound.config.maxRounds,
-    targetPersistibleCandidates: twoRound.config.targetEligibleCompanies,
-    modality: 'two_round_adaptive',
-  };
+export function resolveWizardApolloModality(twoRoundEnabled: boolean): WizardApolloModality {
+  return twoRoundEnabled ? 'two_round_adaptive' : 'legacy_four_round';
 }
 
 export type WizardApolloInput = {
@@ -117,21 +95,9 @@ export async function runWizardApolloSearch(
 ): Promise<IncrementalSearchOutput> {
   const runner = runnerOverride ?? runIncrementalProspectingSearch;
 
-  // A1-APOLLO-TWO-ROUND-QUALITY-1 — la modalidad decide los controles de la
-  // corrida. Apagada (el estado por defecto), son exactamente los de siempre.
-  const twoRoundResolution = resolveApolloTwoRoundConfigFromEnv();
-  const controls = resolveWizardApolloRunControls({
-    enabled: isApolloTwoRoundDiscoveryEnabled(),
-    config: twoRoundResolution.config,
-  });
-
-  const twoRoundMetadata =
-    controls.modality === 'two_round_adaptive'
-      ? {
-          apollo_discovery_modality: controls.modality,
-          ...toApolloTwoRoundConfigDiagnostics(twoRoundResolution),
-        }
-      : null;
+  // A1-APOLLO-TWO-ROUND-QUALITY-1 — la modalidad decide qué RUTA corre. Apagada
+  // (el estado por defecto), es exactamente la de siempre.
+  const modality = resolveWizardApolloModality(isApolloTwoRoundDiscoveryEnabled());
 
   // A1-APOLLO-TWO-ROUND-QUALITY-1-FIX § 1 — RUTA REAL. Con la modalidad activa,
   // el wizard NO ejecuta el runner incremental legacy con otros números: ejecuta
@@ -139,13 +105,15 @@ export async function runWizardApolloSearch(
   // gasto, cap global de enrichment y recuperación de reintentos.
   //
   // Con la modalidad apagada —el estado por defecto— nada de esto se toca y la
-  // corrida sigue exactamente por la ruta Apollo de siempre.
-  if (controls.modality === 'two_round_adaptive') {
+  // corrida sigue exactamente por la ruta Apollo de siempre, con su metadata
+  // intacta: el diagnóstico de dos rondas sólo existe dentro de esta rama.
+  if (modality === 'two_round_adaptive') {
     if (!input.correlation) {
       // Sin correlación no hay clave de idempotencia con la que evitar repetir
       // una operación pagada. Fail-closed: no se ejecuta la modalidad.
       throw new Error('apollo_two_round_requires_run_correlation');
     }
+    const twoRoundResolution = resolveApolloTwoRoundConfigFromEnv();
     const twoRoundRunner = twoRoundRunnerOverride ?? runApolloTwoRoundWizardDiscovery;
     return twoRoundRunner({
       country: input.resolved.country.name,
@@ -160,7 +128,8 @@ export async function runWizardApolloSearch(
       runCorrelationMetadata: input.runCorrelation ?? null,
       extraBatchMetadata: {
         ...(input.extraBatchMetadata ?? {}),
-        ...twoRoundMetadata,
+        apollo_discovery_modality: modality,
+        ...toApolloTwoRoundConfigDiagnostics(twoRoundResolution),
       },
       reservedCredits: input.reservedCredits ?? 0,
     });
@@ -173,21 +142,15 @@ export async function runWizardApolloSearch(
     subindustries: input.resolved.subindustries.map((s) => s.name),
     additionalCriteria: input.resolved.additionalCriteria,
     webSearchProvider: 'apollo_organizations',
-    targetInternal: controls.targetInternal,
-    maxRounds: controls.maxRounds,
-    targetPersistibleCandidates: controls.targetPersistibleCandidates,
+    targetInternal: WIZARD_APOLLO_TARGET_INTERNAL,
+    maxRounds: WIZARD_APOLLO_MAX_ROUNDS,
+    targetPersistibleCandidates: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
     existingBatchId: input.reservedBatchId,
     triggeredByUserId: input.resolved.userId,
     ownerId: input.resolved.userId,
     dryRun: false,
     // Q3F-5BB.11E — reenvía la metadata observacional (provider_routing) al writer.
-    // A1-APOLLO-TWO-ROUND-QUALITY-1 añade de forma ADITIVA el diagnóstico
-    // sanitizado de la configuración efectiva (§ 2), sólo cuando la modalidad
-    // está activa: un lote legacy conserva su metadata sin cambios.
-    extraBatchMetadata:
-      twoRoundMetadata === null
-        ? (input.extraBatchMetadata ?? null)
-        : { ...(input.extraBatchMetadata ?? {}), ...twoRoundMetadata },
+    extraBatchMetadata: input.extraBatchMetadata ?? null,
     usageInputContext: {
       batchId: input.reservedBatchId,
       triggeredByUserId: input.resolved.userId,

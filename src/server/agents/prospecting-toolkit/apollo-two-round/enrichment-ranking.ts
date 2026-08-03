@@ -148,7 +148,13 @@ export type EnrichmentSkippedReason =
   | 'country_incompatible'
   | 'domain_not_confident'
   | 'target_already_reached'
-  | 'enrichment_cap_reached';
+  | 'enrichment_cap_reached'
+  /**
+   * A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 4 — una operación anterior quedó
+   * con cobro sin confirmar. Los enrichments restantes no se ejecutan: el
+   * presupuesto real de la corrida ya no es conocido.
+   */
+  | 'prior_operation_indeterminate';
 
 /** Por qué un candidato SÍ lo recibió. */
 export type EnrichmentSelectionReason =

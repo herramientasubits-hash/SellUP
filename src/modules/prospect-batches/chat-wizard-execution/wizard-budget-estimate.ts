@@ -35,9 +35,7 @@ import {
 // A1-APOLLO-TWO-ROUND-QUALITY-1 § 10 — presupuesto del peor caso de dos rondas.
 import {
   estimateApolloTwoRoundBudget,
-  evaluateApolloTwoRoundBudgetPreflight,
   toApolloTwoRoundBudgetMetadata,
-  BUDGET_EXCEEDED_TWO_ROUND_APOLLO,
   type ApolloTwoRoundBudgetBreakdown,
 } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 import { resolveApolloTwoRoundConfigValues } from '@/server/agents/prospecting-toolkit/apollo-two-round/env.server';
@@ -115,12 +113,7 @@ export type WizardBudgetValidationResult = {
   availableCredits: number;
   maxCreditsPerExecution: number;
   passed: boolean;
-  blockReason:
-    | 'exceeds_max_credits_per_execution'
-    | 'insufficient_available_budget'
-    /** § 10 — estado explicativo propio de la modalidad de dos rondas. */
-    | typeof BUDGET_EXCEEDED_TWO_ROUND_APOLLO
-    | null;
+  blockReason: 'exceeds_max_credits_per_execution' | 'insufficient_available_budget' | null;
 };
 
 export type WizardBudgetEstimateInput = {
@@ -188,21 +181,10 @@ export function resolveWizardExecutionCreditEstimate(
     maxCreditsPerExecution,
   };
 
-  // § 10 — en la modalidad de dos rondas, cualquiera de los dos bloqueos se
-  // reporta con el estado explicativo propio: quien lea el resultado necesita
-  // saber que fue el techo de esta modalidad y no el guardrail legacy.
-  if (twoRound.enabled && apolloTwoRoundBreakdown) {
-    const preflight = evaluateApolloTwoRoundBudgetPreflight({
-      config: apolloTwoRoundBreakdown.config,
-      availableCredits,
-      maxCreditsPerExecution,
-    });
-    if (!preflight.passed) {
-      return { ...base, passed: false, blockReason: preflight.blockReason };
-    }
-    return { ...base, passed: true, blockReason: null };
-  }
-
+  // § 10 — la precedencia de bloqueo es la MISMA para las dos modalidades: lo
+  // único que cambia con dos rondas es el número estimado (su peor caso), que ya
+  // se resolvió arriba. El estado explicativo del techo de la modalidad viaja como
+  // `blockDetail` del bloqueo REAL, que lo decide la reserva atómica.
   // Block precedence: max_per_execution first, then available budget.
   if (estimatedCredits > maxCreditsPerExecution) {
     return { ...base, passed: false, blockReason: 'exceeds_max_credits_per_execution' };

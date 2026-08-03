@@ -45,8 +45,12 @@ function harness(options: {
   const recorder: Recorder = { searchCalls: [], enrichCalls: [] };
 
   const deps: ApolloTwoRoundDeps = {
-    searchRound: async ({ roundNumber, requestedResultLimit, operationKey }): Promise<RoundSearchOutcome> => {
-      recorder.searchCalls.push({ roundNumber, requestedResultLimit, operationKey });
+    searchRound: async ({ roundNumber, requestedResultLimit, operationContext }): Promise<RoundSearchOutcome> => {
+      recorder.searchCalls.push({
+        roundNumber,
+        requestedResultLimit,
+        operationKey: operationContext.operationId,
+      });
       const organizations = options.roundResults[roundNumber - 1] ?? [];
       return {
         organizations,

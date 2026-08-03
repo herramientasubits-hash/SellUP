@@ -180,4 +180,18 @@ export type WizardExecutionActionResult =
         provider: 'apollo_organizations';
         skipReason: WizardApolloSkipReason;
       };
+      /**
+       * A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 10 — detalle explicativo del
+       * bloqueo de presupuesto.
+       *
+       * La AUTORIDAD sigue siendo la reserva atómica: es la RPC la que decide, y
+       * este campo no puede desbloquear nada. Existe porque un
+       * `EXECUTION_CREDIT_LIMIT_EXCEEDED` con la modalidad de dos rondas activa
+       * significa algo concreto —el techo de 12 créditos del peor caso de esa
+       * modalidad no cabía— y sin decirlo el operador no puede distinguirlo del
+       * guardrail legacy, que describe una corrida de otra forma.
+       *
+       * Código estático. Nunca lleva valores de entorno ni cifras de otro usuario.
+       */
+      blockDetail?: string;
     };

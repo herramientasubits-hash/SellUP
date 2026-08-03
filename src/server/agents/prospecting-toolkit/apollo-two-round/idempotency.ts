@@ -97,6 +97,91 @@ export function toOperationCorrelationMetadata(
   };
 }
 
+// ─── Contexto de operación (§ 2 del FINAL-FIX) ─────────────────────────────────
+
+/**
+ * Identidad completa de UNA operación de la corrida.
+ *
+ * Antes el orquestador entregaba a sus dependencias sólo la `operationKey`
+ * (el digest) y descartaba la ronda y el sujeto que la habían producido. El
+ * adaptador, por tanto, no podía escribir `round_number` ni `operation_subject`
+ * en la fila económica: cuatro operaciones de la misma corrida quedaban
+ * indistinguibles entre sí. Este objeto es lo que ahora viaja completo hasta la
+ * petición al proveedor, el usage log, el ledger, el checkpoint y la auditoría de
+ * reconciliación.
+ *
+ * `operationKey` es el NOMBRE de la operación (`organizations_search` /
+ * `organization_enrichment`), tal como aterriza en
+ * `provider_usage_logs.operation_key`. `operationId` es el digest estable que
+ * identifica esta operación concreta para la idempotencia. Los dos nombres son
+ * distintos a propósito: confundirlos fue lo que dejó la correlación a medias.
+ */
+export type ApolloTwoRoundOperationContext = {
+  roundNumber: number;
+  operationKey: ApolloTwoRoundOperation;
+  subject: string;
+  operationId: string;
+};
+
+export function buildApolloTwoRoundOperationContext(input: {
+  correlation: ApolloTwoRoundRunCorrelation;
+  roundNumber: number;
+  operationKey: ApolloTwoRoundOperation;
+  subject: string;
+}): ApolloTwoRoundOperationContext {
+  const subject = input.subject.trim() || 'no_subject';
+  return {
+    roundNumber: input.roundNumber,
+    operationKey: input.operationKey,
+    subject,
+    operationId: buildApolloTwoRoundOperationKey({
+      correlation: input.correlation,
+      roundNumber: input.roundNumber,
+      operation: input.operationKey,
+      subject,
+    }),
+  };
+}
+
+/**
+ * Sujeto sanitizado de un Organization Enrichment.
+ *
+ * Precedencia: id del proveedor → dominio normalizado → clave estable del
+ * candidato. Ningún timestamp participa: dos reintentos de la misma operación
+ * deben producir el mismo sujeto, y un reloj no garantiza eso.
+ */
+export function buildApolloTwoRoundEnrichmentSubject(input: {
+  providerOrganizationId?: string | null;
+  normalizedDomain?: string | null;
+  candidateKey: string;
+}): string {
+  const providerId = input.providerOrganizationId?.trim();
+  if (providerId) return `apollo_org:${providerId}`;
+  const domain = input.normalizedDomain?.trim();
+  if (domain) return `domain:${domain}`;
+  return `candidate:${input.candidateKey}`;
+}
+
+/** Proyección snake_case del contexto, para la fila económica y el checkpoint. */
+export function toApolloTwoRoundOperationContextMetadata(
+  context: ApolloTwoRoundOperationContext,
+  providerRequestId: string | null = null,
+): {
+  round_number: number;
+  operation_key: ApolloTwoRoundOperation;
+  operation_subject: string;
+  operation_id: string;
+  provider_request_id: string | null;
+} {
+  return {
+    round_number: context.roundNumber,
+    operation_key: context.operationKey,
+    operation_subject: context.subject,
+    operation_id: context.operationId,
+    provider_request_id: providerRequestId,
+  };
+}
+
 // ─── Ledger de operaciones de la corrida ──────────────────────────────────────
 
 /**
@@ -118,8 +203,21 @@ export class ApolloTwoRoundOperationLedger {
   }
 
   markIndeterminate(operationKey: string): void {
-    if (this.completed.has(operationKey)) return;
+    this.completed.delete(operationKey);
     this.indeterminate.add(operationKey);
+  }
+
+  /**
+   * Degrada una operación ya marcada como completada a indeterminada.
+   *
+   * Es el único desenlace honesto cuando la operación se ejecutó pero su
+   * resultado NO se pudo persistir: dejarla `completed` haría que un reintento la
+   * saltara sin poder recuperar lo que produjo (corrida vacía después de pagar),
+   * y borrarla haría que la repitiera (segundo cargo). Indeterminada evita las dos
+   * cosas y exige conciliación manual, que es lo que el hecho realmente es.
+   */
+  downgradeToIndeterminate(operationKey: string): void {
+    this.markIndeterminate(operationKey);
   }
 
   isCompleted(operationKey: string): boolean {

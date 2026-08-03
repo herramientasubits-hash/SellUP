@@ -86,71 +86,24 @@ export function estimateApolloTwoRoundBudget(
   };
 }
 
-// ─── Preflight ────────────────────────────────────────────────────────────────
-
-/** Estado explicativo del § 10 cuando el presupuesto no alcanza. */
-export const BUDGET_EXCEEDED_TWO_ROUND_APOLLO = 'BUDGET_EXCEEDED_TWO_ROUND_APOLLO' as const;
-
-export type ApolloTwoRoundBudgetPreflightInput = {
-  config: ApolloTwoRoundDiscoveryConfig;
-  /** Créditos disponibles en el periodo. */
-  availableCredits: number;
-  /** Tope por ejecución que la política del piloto impone. */
-  maxCreditsPerExecution: number;
-};
-
-export type ApolloTwoRoundBudgetPreflight =
-  | {
-      passed: true;
-      breakdown: ApolloTwoRoundBudgetBreakdown;
-      /** Lo que hay que reservar antes de la primera llamada. */
-      creditsToReserve: number;
-      blockReason: null;
-    }
-  | {
-      passed: false;
-      breakdown: ApolloTwoRoundBudgetBreakdown;
-      creditsToReserve: 0;
-      blockReason: typeof BUDGET_EXCEEDED_TWO_ROUND_APOLLO;
-      /** Qué límite concreto no alcanzó. Ambos códigos son estáticos. */
-      blockDetail: 'exceeds_max_credits_per_execution' | 'insufficient_available_budget';
-    };
+// ─── Estado explicativo del bloqueo (§ 10) ────────────────────────────────────
 
 /**
- * Rechaza la ejecución ANTES de cualquier llamada cuando el presupuesto
- * disponible es inferior al máximo requerido por la configuración efectiva.
+ * Detalle explicativo cuando la reserva bloquea una corrida de dos rondas.
  *
- * No existe reserva parcial: una corrida que no puede cubrir su máximo
- * autorizado empezaría gastando y se quedaría sin cobertura a mitad de la ronda
- * 2 — precisamente el descuadre que este hito evita. O cabe entera o no empieza.
+ * A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 10: antes existía aquí un
+ * `evaluateApolloTwoRoundBudgetPreflight` completo que devolvía este código. No
+ * tenía consumidor de producción —el bloqueo real lo decide la reserva atómica
+ * (`reserveWizardPilotCredits`), que lee el presupuesto disponible y el tope por
+ * ejecución dentro de la propia RPC— y sostenerlo habría exigido duplicar esa
+ * lectura sólo para poder volver a decidir lo ya decidido.
+ *
+ * Así que el evaluador se eliminó y quedó el código, que sí tiene un consumidor
+ * real: `executeProspectWizardGeneration` lo adjunta como `blockDetail` cuando la
+ * reserva bloquea con la modalidad activa. La autoridad no se movió; lo que se
+ * añadió es poder explicar cuál era el techo que no cupo.
  */
-export function evaluateApolloTwoRoundBudgetPreflight(
-  input: ApolloTwoRoundBudgetPreflightInput,
-): ApolloTwoRoundBudgetPreflight {
-  const breakdown = estimateApolloTwoRoundBudget(input.config);
-  const required = breakdown.maximumInternalRecordedCredits;
-
-  if (required > input.maxCreditsPerExecution) {
-    return {
-      passed: false,
-      breakdown,
-      creditsToReserve: 0,
-      blockReason: BUDGET_EXCEEDED_TWO_ROUND_APOLLO,
-      blockDetail: 'exceeds_max_credits_per_execution',
-    };
-  }
-  if (required > input.availableCredits) {
-    return {
-      passed: false,
-      breakdown,
-      creditsToReserve: 0,
-      blockReason: BUDGET_EXCEEDED_TWO_ROUND_APOLLO,
-      blockDetail: 'insufficient_available_budget',
-    };
-  }
-
-  return { passed: true, breakdown, creditsToReserve: required, blockReason: null };
-}
+export const BUDGET_EXCEEDED_TWO_ROUND_APOLLO = 'BUDGET_EXCEEDED_TWO_ROUND_APOLLO' as const;
 
 // ─── Las cuatro cantidades ────────────────────────────────────────────────────
 

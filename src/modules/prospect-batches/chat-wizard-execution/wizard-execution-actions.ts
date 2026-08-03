@@ -43,7 +43,12 @@ import {
   type WizardRunProviderSelection,
   type ProviderSelectionAuthority,
 } from './wizard-run-provider-selection';
-import { isWizardRunProviderOverrideEnabled } from '@/lib/feature-flags.server';
+import {
+  isWizardRunProviderOverrideEnabled,
+  isApolloTwoRoundDiscoveryEnabled,
+} from '@/lib/feature-flags.server';
+// § 10 — código explicativo del techo de la modalidad de dos rondas.
+import { BUDGET_EXCEEDED_TWO_ROUND_APOLLO } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 // Q3F-5BB.11E — OBSERVATIONAL Apollo provider-routing wiring. The adapter is pure
 // (no env, no provider client, no Supabase, no contact-enrichment / phone reveal).
 // The barrel exposes the pure 11B resolver + 11C metadata builder. This produces
@@ -65,6 +70,7 @@ import {
 } from '@/modules/prospect-batches/provider-routing';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '@/server/agents/prospecting-toolkit/apollo-two-round';
+import { TWO_ROUND_INDETERMINATE_ANOMALY } from '@/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server';
 import { markWizardBatchFailed } from './wizard-batch-failure';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
@@ -639,11 +645,20 @@ export async function executeProspectWizardGeneration(
   });
 
   if (budgetResult.status === 'blocked') {
+    // § 10 — la reserva atómica es la autoridad y sigue decidiendo sola. Lo que se
+    // añade es el estado EXPLICATIVO: con la modalidad de dos rondas activa, el
+    // número que no cupo es su techo de peor caso, y decirlo evita que un
+    // operador lo lea como el guardrail legacy.
+    const twoRoundBlockDetail =
+      discoveryProvider === 'apollo_organizations' && isApolloTwoRoundDiscoveryEnabled()
+        ? BUDGET_EXCEEDED_TWO_ROUND_APOLLO
+        : null;
     return {
       ok: false,
       code: budgetResult.code,
       message: GUARDRAIL_MESSAGES[budgetResult.code] ?? budgetResult.message,
       retryable: false,
+      ...(twoRoundBlockDetail !== null ? { blockDetail: twoRoundBlockDetail } : {}),
     };
   }
 
@@ -891,20 +906,30 @@ function buildReconciliationOutcome(
   budgetAnomalies?: readonly string[];
 } {
   const twoRoundAnomalies = readTwoRoundBudgetAnomalies(pipelineResult);
+  // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 9 — una operación cuyo cobro no se
+  // confirmó impide declarar la conciliación cerrada, gane lo que gane el resto.
+  const indeterminate = twoRoundAnomalies.includes(TWO_ROUND_INDETERMINATE_ANOMALY);
 
   if (!reconciliation) {
     // Sin reconciliación por proveedor (Tavily, o la ruta previa) el resultado
     // conserva su forma; una anomalía de dos rondas sigue siendo visible.
-    return twoRoundAnomalies.length > 0
-      ? { reconciliationState: 'pending_reconciliation', budgetAnomalies: twoRoundAnomalies }
-      : {};
+    if (twoRoundAnomalies.length === 0) return {};
+    return {
+      reconciliationState: indeterminate ? 'billing_unknown' : 'pending_reconciliation',
+      budgetAnomalies: twoRoundAnomalies,
+    };
   }
 
   const anomalies = [...new Set([...reconciliation.anomalies, ...twoRoundAnomalies])];
-  const state = anomalies.includes('recorded_usage_exceeds_reservation')
-    ? 'pending_reconciliation'
-    : reconciliation.billingState === 'unknown'
-      ? 'billing_unknown'
+  // Precedencia: cobro desconocido > sobregasto registrado > confirmado. Un total
+  // conocido menor o igual a la reserva NO alcanza para declarar conciliación si
+  // no hubo filas de uso o si alguna operación quedó indeterminada: ausencia de
+  // evidencia no es evidencia de cero gasto.
+  const state = indeterminate || reconciliation.billingState === 'unknown'
+    ? 'billing_unknown'
+    : anomalies.includes('recorded_usage_exceeds_reservation') ||
+        anomalies.includes('no_usage_rows_found')
+      ? 'pending_reconciliation'
       : 'confirmed';
 
   return {

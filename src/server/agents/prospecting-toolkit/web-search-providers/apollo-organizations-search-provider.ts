@@ -50,6 +50,15 @@ import {
   realLogApolloOrgsUsage,
   type ApolloOrgsUsageContext,
 } from '../apollo-organizations-usage-logging';
+// A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 1 — constructor ÚNICO de la fila
+// económica de `organization_enrichment`. Este bucle era el único escritor; la
+// modalidad de dos rondas necesita el mismo contrato, así que la construcción de
+// la fila vive fuera y las dos rutas la comparten.
+import {
+  buildApolloEnrichmentUsageKey,
+  buildApolloEnrichmentUsageLogInput,
+  resolveApolloEnrichmentUsageAccounting,
+} from '../apollo-organization-enrichment-usage-log';
 import {
   buildApolloOrganizationsSearchParams,
   APOLLO_QUERY_MAPPING_VERSION,
@@ -677,11 +686,30 @@ export async function runApolloOrganizationsSearch(
   const { cap, wasCapped, maxResultsCapSource } = cappedMaxResults(maxResults);
 
   const startMs = Date.now();
-  const usageKey = buildApolloOrgsUsageKey(
+  // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 2 — la ronda entra en la clave.
+  // Sin ella, dos rondas cuya consulta produce el mismo slug compartirían
+  // `usage_key`: la segunda insercion chocaría con el índice único y se leería
+  // como `already_logged`, ocultando un segundo cargo real. Ausente el contexto
+  // (todos los llamadores previos) la clave es la histórica, byte por byte.
+  const operationContext = usageContext?.operationContext ?? null;
+  const usageKeyBase = buildApolloOrgsUsageKey(
     input.query,
     usageContext?.batchId,
     startMs,
   );
+  const usageKey =
+    operationContext === null
+      ? usageKeyBase
+      : `${usageKeyBase}:round_${operationContext.round_number}:${operationContext.operation_id}`;
+  const operationContextMetadata =
+    operationContext === null
+      ? {}
+      : {
+          round_number: operationContext.round_number,
+          operation_subject: operationContext.operation_subject,
+          operation_id: operationContext.operation_id,
+          provider_request_id: operationContext.provider_request_id,
+        };
 
   const logFn = deps?.logUsage ?? realLogApolloOrgsUsage;
 
@@ -855,6 +883,7 @@ export async function runApolloOrganizationsSearch(
         ...(usageContext?.runCorrelation
           ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
           : {}),
+        ...operationContextMetadata,
       },
     }));
 
@@ -1082,6 +1111,9 @@ export async function runApolloOrganizationsSearch(
       ...(usageContext?.runCorrelation
         ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
         : {}),
+      // § 2 — ronda, sujeto y operación de ESTA búsqueda. Ausente en la ruta
+      // legacy, que no tiene rondas que distinguir.
+      ...operationContextMetadata,
     },
   }));
 
@@ -1099,46 +1131,36 @@ export async function runApolloOrganizationsSearch(
     const wasRealCall = entry.enriched || entry.skip_reason === 'enrichment_failed';
     if (!wasRealCall) continue;
 
-    const enrichStatus = entry.enriched ? 'success' : 'error';
-    const enrichUsageKey = usageContext?.batchId
-      ? `organization_enrichment:${usageContext.batchId}:${entry.domain ?? 'unknown'}`
-      : `organization_enrichment:no_batch:${entry.domain ?? 'unknown'}:${startMs}`;
-
-    trackLogResult(await logFn({
-      usage_key: enrichUsageKey,
-      provider_key: 'apollo',
-      operation_key: 'organization_enrichment',
-      batch_id: usageContext?.batchId ?? undefined,
-      agent_run_id: usageContext?.agentRunId ?? undefined,
-      // A1-APOLLO-BUDGET-RECONCILIATION-1: de la misma tabla de pricing con la
-      // que el wizard reservó, en vez de un 1 suelto aquí.
-      credits_used: creditsForApolloOperation('organization_enrichment', 1),
-      results_returned: entry.enriched ? 1 : 0,
-      estimated_cost_usd: organizationEnrichmentUnitCostUsd,
-      status: enrichStatus,
-      error_code: entry.enriched ? undefined : 'enrichment_failed',
-      error_message: entry.error ? entry.error.slice(0, 200) : undefined,
-      duration_ms: undefined,
-      triggered_by: usageContext?.triggeredByUserId ?? undefined,
-      metadata: {
+    // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 1 — misma fila, un solo
+    // constructor. La ruta legacy conserva su lectura histórica del cobro: un
+    // enrichment intentado registra un crédito, tanto si devolvió datos como si
+    // falló después de haber salido a la red. Ese criterio no cambia aquí; lo que
+    // cambia es que ahora vive en un helper que la modalidad de dos rondas
+    // también usa, en vez de en un bucle que sólo esta ruta atravesaba.
+    trackLogResult(await logFn(buildApolloEnrichmentUsageLogInput({
+      usageKey: buildApolloEnrichmentUsageKey({
+        batchId: usageContext?.batchId,
         domain: entry.domain,
-        fields_added: entry.fields_added ?? [],
-        cascade_version: enrichmentCascadeMeta.cascade_version,
-        pricing_missing_warning: organizationEnrichmentUnitCostUsd === null,
-        // A1-APOLLO-BUDGET-RECONCILIATION-1: misma correlación que el log de
-        // search, para que ambos se aten a la MISMA reserva.
-        ...(usageContext?.runCorrelation
-          ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
-          : {}),
-        [APOLLO_SPEND_OBSERVABILITY_KEY]: toApolloSpendObservabilityMetadata(
-          buildApolloSpendObservabilityRecord({
-            resultsReturned: entry.enriched ? 1 : 0,
-            billingState: 'recorded',
-            recordedUsageCredits: creditsForApolloOperation('organization_enrichment', 1),
-          }),
-        ),
+        fallbackTimestampMs: startMs,
+      }),
+      batchId: usageContext?.batchId,
+      agentRunId: usageContext?.agentRunId,
+      triggeredByUserId: usageContext?.triggeredByUserId,
+      domain: entry.domain,
+      fieldsAdded: entry.fields_added ?? [],
+      cascadeVersion: enrichmentCascadeMeta.cascade_version,
+      unitCostUsd: organizationEnrichmentUnitCostUsd,
+      errorMessage: entry.error ?? null,
+      // A1-APOLLO-BUDGET-RECONCILIATION-1: misma correlación que el log de
+      // search, para que ambos se aten a la MISMA reserva.
+      runCorrelation: usageContext?.runCorrelation ?? null,
+      accounting: {
+        ...resolveApolloEnrichmentUsageAccounting('charged'),
+        resultsReturned: entry.enriched ? 1 : 0,
+        status: entry.enriched ? 'success' : 'error',
+        errorCode: entry.enriched ? undefined : 'enrichment_failed',
       },
-    }));
+    })));
   }
 
   // ── Q3F-5AU.12: best-effort raw industry label capture from Apollo

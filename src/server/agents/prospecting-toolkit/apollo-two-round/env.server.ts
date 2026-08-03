@@ -13,11 +13,9 @@
 
 import {
   resolveApolloTwoRoundConfig,
-  toApolloTwoRoundConfigDiagnostics,
   APOLLO_TWO_ROUND_ENV_KEYS,
   type ApolloTwoRoundConfigResolution,
   type ApolloTwoRoundDiscoveryConfig,
-  type ApolloTwoRoundConfigDiagnostics,
 } from './config';
 
 /** Resuelve la configuración efectiva desde el entorno. */
@@ -36,7 +34,7 @@ export function resolveApolloTwoRoundConfigValues(): ApolloTwoRoundDiscoveryConf
   return resolveApolloTwoRoundConfigFromEnv().config;
 }
 
-/** Diagnóstico sanitizado del runtime (§ 2). Nunca expone valores crudos. */
-export function resolveApolloTwoRoundConfigDiagnostics(): ApolloTwoRoundConfigDiagnostics {
-  return toApolloTwoRoundConfigDiagnostics(resolveApolloTwoRoundConfigFromEnv());
-}
+// El diagnóstico sanitizado se construye en el punto de uso con
+// `toApolloTwoRoundConfigDiagnostics(resolveApolloTwoRoundConfigFromEnv())`. Un
+// tercer envoltorio aquí no tenía ningún consumidor y sólo añadía un nombre más
+// para la misma composición.

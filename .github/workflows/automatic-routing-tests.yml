@@ -119,3 +119,25 @@ jobs:
       # provider calls, no credits, no real DB (Supabase is a loopback stub).
       - name: Run A1 legacy Apollo path fence tests
         run: npm run test:a1-legacy-path-fence
+
+      # A1-APOLLO-TWO-ROUND-QUALITY-1 — modalidad Apollo de dos rondas, de punta a
+      # punta. Guarda las invariantes que este hito cierra y que sólo se pueden
+      # romper en silencio: que el executor del wizard enrute al orquestador (y con
+      # el flag OFF al runner legacy con sus números de siempre); que CADA
+      # Organization Enrichment deje UNA fila en provider_usage_logs con la
+      # correlación completa, la ronda y el sujeto, y ninguna de más en un reintento;
+      # que una operación cuyo cobro no se confirmó quede indeterminada, no se
+      # reintente, no ejecute lo que dependa de ella y fuerce billing_unknown; que
+      # cada transición recuperable deje un checkpoint durable y que una operación
+      # cuyo checkpoint falló NO pueda marcarse como completada; que un reintento
+      # recupere rondas, candidatos, enrichments y `candidates_persisted` sin
+      # repetir una búsqueda, un enrichment ni una escritura de candidatos; que el
+      # checkpoint sea mínimo y sanitizado (sin payloads completos, headers,
+      # secretos ni datos personales) y quepa bajo su techo declarado; que su
+      # escritura conserve la metadata de otros autores y rechace una versión
+      # stale; que la reconciliación sume búsqueda + enrichment de las dos rondas
+      # sin duplicar créditos al repetirse; y que el enrichment no repita la
+      # verificación de sitio ni la consulta de duplicados. Determinista: sin
+      # activación de flags, sin llamadas al proveedor, sin créditos, sin DB real.
+      - name: Run A1 Apollo two-round quality tests
+        run: npm run test:a1-apollo-two-round-quality

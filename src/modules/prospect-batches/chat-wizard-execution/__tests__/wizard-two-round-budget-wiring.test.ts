@@ -16,6 +16,8 @@ import {
   toWizardBudgetValidationMetadata,
 } from '../wizard-budget-estimate';
 import { BUDGET_EXCEEDED_TWO_ROUND_APOLLO } from '@/server/agents/prospecting-toolkit/apollo-two-round';
+import { executeProspectWizardGeneration } from '../wizard-execution-actions';
+import type { WizardExecutionDeps } from '../wizard-execution-actions';
 
 /** Ejecuta `fn` con la modalidad de dos rondas encendida y restaura el entorno. */
 function withTwoRoundMode(enabled: boolean, fn: () => void): void {
@@ -40,7 +42,11 @@ describe('§ 10 · preflight del wizard con la modalidad de dos rondas', () => {
     });
   });
 
-  it('caso 19 — con presupuesto insuficiente bloquea con el estado explicativo propio', () => {
+  it('caso 19 — el presupuesto insuficiente bloquea con la precedencia de siempre', () => {
+    // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 10: lo que la modalidad cambia es
+    // el NÚMERO estimado (su peor caso), no el vocabulario del bloqueo. El estado
+    // explicativo propio viaja como `blockDetail` del bloqueo REAL, que lo decide
+    // la reserva atómica — ver la prueba de la ruta real más abajo.
     withTwoRoundMode(true, () => {
       const result = resolveWizardExecutionCreditEstimate({
         provider: 'apollo_organizations',
@@ -49,13 +55,13 @@ describe('§ 10 · preflight del wizard con la modalidad de dos rondas', () => {
       });
 
       assert.equal(result.passed, false);
-      assert.equal(result.blockReason, BUDGET_EXCEEDED_TWO_ROUND_APOLLO);
+      assert.equal(result.blockReason, 'insufficient_available_budget');
       assert.equal(result.estimatedCredits, 12);
       assert.equal(result.estimateSource, 'apollo_two_round_worst_case');
     });
   });
 
-  it('un tope por ejecución insuficiente bloquea con el mismo estado', () => {
+  it('un tope por ejecución insuficiente bloquea con su propio motivo', () => {
     withTwoRoundMode(true, () => {
       const result = resolveWizardExecutionCreditEstimate({
         provider: 'apollo_organizations',
@@ -64,7 +70,7 @@ describe('§ 10 · preflight del wizard con la modalidad de dos rondas', () => {
       });
 
       assert.equal(result.passed, false);
-      assert.equal(result.blockReason, BUDGET_EXCEEDED_TWO_ROUND_APOLLO);
+      assert.equal(result.blockReason, 'exceeds_max_credits_per_execution');
     });
   });
 
@@ -128,5 +134,101 @@ describe('§ 10 · preflight del wizard con la modalidad de dos rondas', () => {
       }
       assert.equal(metadata.apollo_two_round_budget?.['maximum_internal_recorded_credits'], 12);
     });
+  });
+});
+
+// ─── § 10 · el estado explicativo en la RUTA REAL ─────────────────────────────
+
+describe('§ 10 · el bloqueo real de presupuesto explica el techo de la modalidad', () => {
+  const BATCH_ID = '123e4567-e89b-12d3-a456-426614174000';
+  const USER_ID = '123e4567-e89b-12d3-a456-426614174009';
+  const INDUSTRY_ID = '223e4567-e89b-12d3-a456-426614174001';
+  const SUBINDUSTRY_ID = '323e4567-e89b-12d3-a456-426614174002';
+  const CLIENT_REQUEST_ID = '423e4567-e89b-12d3-a456-426614174003';
+
+  const request = {
+    clientRequestId: CLIENT_REQUEST_ID,
+    countryCode: 'CO',
+    industryId: INDUSTRY_ID,
+    subindustryIds: [SUBINDUSTRY_ID],
+    catalogVersion: 'v2024-01',
+    additionalCriteriaRaw: null,
+  };
+
+  function blockedDeps(): WizardExecutionDeps {
+    return {
+      getActiveUserId: async () => USER_ID,
+      resolveCatalog: async () => ({
+        catalog: { version: 'v2024-01' },
+        country: { code: 'CO', name: 'Colombia' },
+        industry: { id: INDUSTRY_ID, slug: 'supermercados', name: 'Supermercados' },
+        subindustries: [
+          { id: SUBINDUSTRY_ID, slug: 'hiper', name: 'Hipermercados', applicableCountries: ['CO'] },
+        ],
+      }),
+      checkTavilyAvailability: async () => true,
+      checkApolloAvailability: async () => ({ available: true } as const),
+      // La AUTORIDAD: la reserva atómica bloquea. Nada de lo que añade este hito
+      // puede desbloquearla.
+      reserveBudget: async () => ({
+        status: 'blocked',
+        code: 'EXECUTION_CREDIT_LIMIT_EXCEEDED',
+        message: 'limite por ejecución',
+      }),
+      confirmBudget: async () => ({ status: 'confirmed' as const }),
+      releaseBudget: async () => ({ status: 'released' as const }),
+      readConsumedCredits: async () => 0,
+      reserveSlot: async () => ({ status: 'reserved', batchId: BATCH_ID }),
+      runTavilyPipeline: async () => {
+        throw new Error('no debe ejecutarse: la reserva bloqueó');
+      },
+      runApolloPipeline: async () => {
+        throw new Error('no debe ejecutarse: la reserva bloqueó');
+      },
+      resolveProvider: () => 'apollo_organizations',
+      markBatchFailed: async () => undefined,
+    };
+  }
+
+  it('con la modalidad activa el bloqueo lleva su blockDetail', async () => {
+    const savedExecution = process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
+    process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = 'true';
+    const savedApollo = process.env.ENABLE_APOLLO_COMPANY_SEARCH;
+    process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true';
+    try {
+      // `withTwoRoundMode` es sincrónica y esta prueba es asíncrona, así que el
+      // flag se maneja aquí con el mismo cuidado: se pone y se restaura en finally.
+      process.env.ENABLE_APOLLO_TWO_ROUND_DISCOVERY = 'true';
+      const result = await executeProspectWizardGeneration(request, blockedDeps());
+
+      assert.ok(result.ok === false);
+      assert.equal(result.code, 'EXECUTION_CREDIT_LIMIT_EXCEEDED', 'la autoridad no cambia');
+      assert.equal(result.blockDetail, BUDGET_EXCEEDED_TWO_ROUND_APOLLO);
+    } finally {
+      delete process.env.ENABLE_APOLLO_TWO_ROUND_DISCOVERY;
+      if (savedApollo === undefined) delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;
+      else process.env.ENABLE_APOLLO_COMPANY_SEARCH = savedApollo;
+      if (savedExecution === undefined) delete process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
+      else process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = savedExecution;
+    }
+  });
+
+  it('con la modalidad apagada el bloqueo conserva su forma previa, sin blockDetail', async () => {
+    const savedExecution = process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
+    process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = 'true';
+    const savedApollo = process.env.ENABLE_APOLLO_COMPANY_SEARCH;
+    process.env.ENABLE_APOLLO_COMPANY_SEARCH = 'true';
+    delete process.env.ENABLE_APOLLO_TWO_ROUND_DISCOVERY;
+    try {
+      const result = await executeProspectWizardGeneration(request, blockedDeps());
+      assert.ok(result.ok === false);
+      assert.equal(result.code, 'EXECUTION_CREDIT_LIMIT_EXCEEDED');
+      assert.equal(result.blockDetail, undefined);
+    } finally {
+      if (savedApollo === undefined) delete process.env.ENABLE_APOLLO_COMPANY_SEARCH;
+      else process.env.ENABLE_APOLLO_COMPANY_SEARCH = savedApollo;
+      if (savedExecution === undefined) delete process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION;
+      else process.env.ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION = savedExecution;
+    }
   });
 });
