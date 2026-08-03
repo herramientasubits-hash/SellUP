@@ -897,3 +897,27 @@ path, and the four classes § 7 blocks outright cannot be approved through it. *
 inherits § 9's forbidden side unchanged, *Manifest/control-file policy decision* starts from § 10's zero
 authorization, and the percentage and denominator fields start from § 13's `not_authorized`. A field naming a
 cap is not a cap ceiling, and a blank remains null, which is not unlimited.
+
+---
+
+## 29. Update (BR-SOURCE-11Y)
+
+BR-SOURCE-11Y creates an owner decision capture review. It evaluates whether the formal owner decision records
+from 11X are complete and valid. Current result remains NO-GO because owner decisions are not captured,
+required fields remain missing and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11y-owner-decision-capture-review.md`](./br-receita-cnpj-11y-owner-decision-capture-review.md).
+
+It flips no status in this package. Every cap ceiling in § 6 remains null; every input class in § 7 and every
+output class in § 8 remains an unauthorized class label, including the four classes § 7 blocks outright; the
+§ 9 family lists remain unapproved with `simples` on the forbidden side; § 10 authorizes no manifest reading;
+§ 11 temp storage remains `not_authorized` with Option A still the recommendation; § 13 keeps exact
+percentages and full-dataset denominators `not_authorized`; and every field in § 14 remains blank.
+
+Its § 9 reviews all eighteen fields of the 11X cap/input record and finds every one `not captured /
+TBD_BY_OWNER`, approving no cap maximum, no input root, no output root and no temp storage. It adds no numeric
+value and no path, and records that a number written into a cap field by a documentation edit rather than an
+owner would be a fabricated approval. § 6's rule that a null cap is not an unlimited cap governs its reading
+of every blank, § 11's two named options remain unselected with inference from scaffold behavior blocked, and
+§ 13's `not_authorized` starting point for exact percentages and denominators is unchanged.

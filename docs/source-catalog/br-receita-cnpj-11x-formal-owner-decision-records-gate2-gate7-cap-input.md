@@ -762,3 +762,27 @@ this package.** Every owner-supplied field in all three records reads `TBD_BY_OW
 sixteen in § 6 and eighteen in § 7, the remaining lines in each being the record identifier, the decision
 area and the allowed-value enumeration — all twenty rows in § 11 remain unauthorized, and all twelve lines in
 § 12 read `no`.
+
+---
+
+## 19. Update (BR-SOURCE-11Y)
+
+BR-SOURCE-11Y creates an owner decision capture review. It evaluates whether the formal owner decision
+records from this document are complete and valid. Current result remains NO-GO because owner decisions are
+not captured, required fields remain missing and no approval is granted. It does not approve GATE-2. It does
+not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output
+roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11y-owner-decision-capture-review.md`](./br-receita-cnpj-11y-owner-decision-capture-review.md).
+
+It flips no status in this document and completes no field in it. All fifty-one owner-supplied fields across
+§ 5, § 6 and § 7 still read `TBD_BY_OWNER` — 11Y is explicitly not authorized to complete any of them — all
+ten validity rules in § 4 remain unsatisfied for all three records, all twenty rows in § 11 remain
+unauthorized, all twelve lines in § 12 still read `no`, and the § 13 recommended decision to keep NO-GO is
+unchanged.
+
+11Y confirms the prediction § 14 recorded in advance: a capture review conducted while § 12 reads twelve `no`
+reports that zero records exist and reaches the same NO-GO. It applies § 4's ten rules as its entire test set,
+adding no criterion and relaxing none, and records the finding one step earlier than § 4 anticipates — an
+absent record is not an invalid record, because there is nothing to check, so no proportion of the criteria can
+be reported as met. Its own § 11 closes the same implication rule on the reviewer: a merged capture review is
+not an approval, and a decision record for a gate remains not a decision on that gate.

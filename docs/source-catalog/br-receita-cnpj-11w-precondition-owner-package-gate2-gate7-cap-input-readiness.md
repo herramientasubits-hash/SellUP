@@ -816,3 +816,28 @@ constraint as its own § 4 and § 8: a filled copy of a template inside a docs-o
 draft, and a record is valid only when captured where approvals are captured and referenced by identifier.
 Its next-step phrase, `AUTHORIZE BR-SOURCE-11Y — OWNER DECISION CAPTURE REVIEW`, would authorize reviewing
 filled records against those rules and never filling or approving them.
+
+---
+
+## 22. Update (BR-SOURCE-11Y)
+
+BR-SOURCE-11Y creates an owner decision capture review. It evaluates whether the formal owner decision records
+from 11X are complete and valid. Current result remains NO-GO because owner decisions are not captured,
+required fields remain missing and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11y-owner-decision-capture-review.md`](./br-receita-cnpj-11y-owner-decision-capture-review.md).
+
+It flips no status in this package. All fifteen blockers in § 4 remain unresolved, all twenty-eight rows in
+§ 5 still read `Approval granted by this package? no`, all five readiness results in § 6, § 7, § 8, § 12 and
+§ 13 still read `NOT READY`, thirteen of eighteen preflight items in § 9 still fail, all seventeen fields in
+§ 10 still read `TBD_BY_OWNER`, and all twenty rows in § 14 remain unauthorized. The § 15 recommended
+decision — keep NO-GO — is unchanged.
+
+What 11Y adds against this package is a verdict where § 4 and § 13 supplied an inventory. Its § 5 inventory
+carries the same ten items forward as blocking, and its § 10 reviews the eight supporting references — the
+legal/privacy/security determination, the evidence packet, the operator and reviewer assignments, the incident
+and escalation paths, the expiry and the controlled execution attempt authorization — finding each `missing /
+not captured`. It preserves § 12's finding that legal/privacy/security escalation is where a unit of effort
+moves the most, and § 5's rule that `TBD_BY_OWNER` is a false and never a permission governs its reading of
+every unfilled field.
