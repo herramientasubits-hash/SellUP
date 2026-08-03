@@ -500,3 +500,10 @@ This document is **docs-only**. It does **not**:
 - merge.
 
 Brazil remains blocked for import, runtime, Agent 1, and live prospect generation.
+
+BR-SOURCE-11N creates the limited broader local execution decision record.
+It documents candidate scope, prerequisites, proposed controls, fail-closed cases, stop conditions and
+formal options for future review. It does not approve GATE-2. It does not authorize limited broader local
+execution, broader local execution, implementation, temp storage, multi-window sampling, exact
+percentages, import, Supabase, runtime or Agent 1. It does not approve any gate. See
+[`br-receita-cnpj-limited-broader-local-execution-decision-record.md`](./br-receita-cnpj-limited-broader-local-execution-decision-record.md).
