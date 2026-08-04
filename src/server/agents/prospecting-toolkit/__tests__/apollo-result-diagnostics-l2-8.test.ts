@@ -27,7 +27,7 @@ import {
   type ApolloOrganizationSearchResultMetadata,
 } from '../web-search-providers/apollo-organizations-search-provider';
 import {
-  buildApolloKeywords,
+  buildPrioritizedApolloKeywords,
   buildApolloOrganizationsSearchParams,
 } from '../apollo-organizations-query-mapping';
 import type { WebSearchInput } from '../types';
@@ -424,7 +424,7 @@ describe('C. Merge de Apollo diagnostics por rondas', () => {
       apollo_sector_rejected_count: 1,
     };
 
-    // Llamar directamente a buildApolloKeywords y query mapping no cubre este helper,
+    // Llamar directamente al query mapping no cubre este helper,
     // pero podemos verificar que el provider output con 2 rondas sumadas es correcto
     // verificando la lógica de mergeApolloBatchDiagnostics indirectamente.
     // El test C2 verifica la propagación end-to-end en el nivel de provider.
@@ -481,25 +481,37 @@ describe('C. Merge de Apollo diagnostics por rondas', () => {
 // ─── D. Keyword merge L2.8 ────────────────────────────────────────────────────
 
 describe('D. Keyword merge L2.8 — lms → merged_duplicate, no ignored', () => {
-  it('D1: lms en additionalCriteriaTokens → merged_duplicate, no ignored', () => {
-    const result = buildApolloKeywords({
+  // QUERY-QUALITY-2-FIX § 9 — el builder L2.7/L2.8 se borró. Lo que este test
+  // protege es el requisito, no el helper: un token que la consulta SÍ lleva no
+  // puede reportarse como ignorado por falta de cupo. El único builder de prioridad
+  // que queda es `buildPrioritizedApolloKeywords`, así que el test entra por él.
+  it('D1: lms en additionalCriteriaTokens viaja y no se reporta como ignorado', () => {
+    const result = buildPrioritizedApolloKeywords({
       industry: 'Educación',
       subindustries: ['Formación Corporativa'],
       additionalCriteriaTokens: ['plataformas', 'lms', 'capacitacion', 'comercial'],
     });
-    // lms ya está en subindustry keywords → debe ser merged_duplicate
+
     assert.ok(
-      result.mergedDuplicateAdditionalCriteriaTokens.includes('lms'),
-      `lms debe estar en merged_duplicate, no en ignored. merged: ${JSON.stringify(result.mergedDuplicateAdditionalCriteriaTokens)}, ignored: ${JSON.stringify(result.ignoredAdditionalCriteriaTokens)}`,
+      result.keywords.includes('lms'),
+      `lms debe viajar a Apollo. keywords: ${JSON.stringify(result.keywords)}`,
     );
     assert.ok(
-      !result.ignoredAdditionalCriteriaTokens.includes('lms'),
-      'lms NO debe estar en ignored',
+      !result.ignoredSpecificTokens.includes('lms'),
+      'lms NO puede reportarse como ignorado si viajó',
+    );
+    // Una sola posición por señal: `lms` está también en el catálogo de la
+    // subindustria, y gastar dos de las cinco en la misma señal es el desperdicio
+    // que la deduplicación previa al límite evita.
+    assert.equal(
+      result.keywords.filter((keyword) => keyword === 'lms').length,
+      1,
+      'lms no puede ocupar dos posiciones',
     );
   });
 
   it('D2: MAX_KEYWORDS=5 se mantiene', () => {
-    const result = buildApolloKeywords({
+    const result = buildPrioritizedApolloKeywords({
       industry: 'Educación',
       subindustries: ['Formación Corporativa'],
       additionalCriteriaTokens: ['plataformas', 'lms', 'capacitacion', 'comercial'],
@@ -544,13 +556,13 @@ describe('D. Keyword merge L2.8 — lms → merged_duplicate, no ignored', () =>
 
   it('D5: tokens con cupo libre aparecen en usedAdditionalCriteriaTokens', () => {
     // Sin subindustria: sector Servicios no tiene mapping → query_fallback → deja cupo
-    const result = buildApolloKeywords({
+    const result = buildPrioritizedApolloKeywords({
       industry: 'Servicios',
       subindustries: [],
       additionalCriteriaTokens: ['b2b', 'saas'],
     });
     assert.ok(
-      result.usedAdditionalCriteriaTokens.length > 0 ||
+      result.specificTokensUsed.length > 0 ||
       result.keywords.some(k => ['b2b', 'saas'].includes(k)),
       'tokens con cupo deben usarse',
     );
@@ -617,7 +629,7 @@ describe('E. No secrets en metadata Apollo diagnostics', () => {
 // ─── F. Tavily regression ─────────────────────────────────────────────────────
 
 describe('F. Tavily regression — metadata Apollo no aparece', () => {
-  it('F1: buildApolloKeywords no es importado por Tavily provider', async () => {
+  it('F1: el mapping de keywords Apollo no es importado por Tavily provider', async () => {
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
     const tavilySource = readFileSync(

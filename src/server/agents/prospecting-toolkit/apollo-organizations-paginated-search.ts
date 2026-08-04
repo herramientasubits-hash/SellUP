@@ -101,6 +101,16 @@ export type ApolloPaginatedSearchInput = {
   budget: ApolloPaginationBudget;
   wizardRunId: string;
   agentRunId?: string | null;
+  /**
+   * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 3 — primera página a pedir.
+   *
+   * Ausente o ≤ 1 ⇒ 1, que es lo que hacen todos los llamadores previos. La
+   * modalidad de dos rondas la usa para pedir la página 2 de la misma búsqueda
+   * cuando no existe una variante de términos genuinamente distinta: repetir la
+   * página 1 con los mismos filtros no puede traer nada nuevo y sí volvería a
+   * cobrar.
+   */
+  startPage?: number;
 };
 
 // ─── Resultado ────────────────────────────────────────────────────────────────
@@ -166,9 +176,23 @@ export async function runApolloOrganizationsPaginatedSearch(
   const seenOrganizationIds = new Set<string>();
   const pageOutcomes: ApolloPageOutcome[] = [];
 
+  // § 3 — pedir desde la página N se expresa como "la página N-1 ya se vio": el
+  // decisor de paginación calcula la siguiente a partir de la última, así que no
+  // hace falta un segundo camino para arrancar en otro sitio.
+  const startPage =
+    typeof input.startPage === 'number' && Number.isFinite(input.startPage)
+      ? Math.max(1, Math.floor(input.startPage))
+      : 1;
+
   let estimatedCredits = 0;
   let pagesFetched = 0;
-  let lastPage: number | null = null;
+  let lastPage: number | null = startPage > 1 ? startPage - 1 : null;
+  /**
+   * Última página REALMENTE obtenida. `lastPage` arranca sembrada para que el
+   * decisor pida `startPage`; reportar esa siembra como página observada diría
+   * que se pidió una página que nunca salió.
+   */
+  let observedLastPage: number | null = null;
   let lastPageResultCount: number | null = null;
   let totalPages: number | null = null;
   let totalEntries: number | null = null;
@@ -314,6 +338,7 @@ export async function runApolloOrganizationsPaginatedSearch(
         estimatedCredits += pageCredits;
         pagesFetched++;
         lastPage = page;
+        observedLastPage = page;
         lastPageResultCount = resultsReturned;
         totalPages = normalized.pagination.totalPages ?? totalPages;
         totalEntries = normalized.pagination.totalEntries ?? totalEntries;
@@ -466,7 +491,7 @@ export async function runApolloOrganizationsPaginatedSearch(
     rejectedUnknownParams: anchorContract.rejectedUnknownParams,
     lastRateLimit,
     normalizationMeta,
-    paginationMeta: { totalEntries, totalPages, lastPage },
+    paginationMeta: { totalEntries, totalPages, lastPage: observedLastPage },
   };
 }
 

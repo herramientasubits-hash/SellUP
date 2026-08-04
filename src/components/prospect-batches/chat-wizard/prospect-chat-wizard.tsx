@@ -45,6 +45,7 @@ import type {
   WizardIndicatorProviderKey,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-indicator';
 import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
+import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
 // A1-APOLLO-QA-CONTROL-SURFACE-1 — superficie administrativa de proveedor por
 // corrida. La capacidad la resuelve el servidor; aquí sólo se guarda la elección
 // del administrador y se envía como PETICIÓN.
@@ -264,6 +265,12 @@ export function ProspectChatWizard({
     roundsExecuted: number | null;
     eligibleCompaniesFound: number | null;
   } | null>(null);
+
+  // ── QUERY-QUALITY-2 § 8 · distribución REAL de descartes ────────────────────
+  // El copy de «no encontramos empresas nuevas» se deriva de esto. Sin dato, la
+  // UI no afirma ninguna causa concreta.
+  const [noNewCandidatesBreakdown, setNoNewCandidatesBreakdown] =
+    React.useState<NoNewCandidatesBreakdown | null>(null);
 
   // ── Indicador de proveedor de búsqueda ──────────────────────────────────────
   // Reducción pura de las señales del backend: el proveedor resuelto POR CORRIDA
@@ -619,6 +626,9 @@ export function ProspectChatWizard({
       if (result.ok && result.twoRoundOutcome) {
         setTwoRoundOutcome(result.twoRoundOutcome);
       }
+      if (result.ok && result.noNewCandidatesBreakdown) {
+        setNoNewCandidatesBreakdown(result.noNewCandidatesBreakdown);
+      }
 
       if (result.ok) {
         dispatch({
@@ -753,6 +763,7 @@ export function ProspectChatWizard({
                 onRequestedProviderChange={setRequestedProvider}
                 showApolloTwoRoundStages={willRunApolloTwoRound}
                 twoRoundOutcome={twoRoundOutcome}
+                noNewCandidatesBreakdown={noNewCandidatesBreakdown}
               />
             ) : (
               <WizardActiveStep

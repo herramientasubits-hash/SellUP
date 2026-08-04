@@ -30,6 +30,18 @@ export type ApolloTwoRoundRoundMetrics = {
   providerRequestCount: number;
   rawResultsReturned: number;
   normalizedResults: number;
+  /**
+   * QUERY-QUALITY-2 § 4 y § 10 — organizaciones que esta ronda aportó y que NO
+   * se habían visto antes.
+   *
+   * Antes esta cifra se proyectaba desde `normalizedResults`, que cuenta también
+   * los repetidos: por eso la corrida QA `edb6f40c` reportó a la vez
+   * `new_unique_results = 3` y `seen_duplicates = 3` sobre tres resultados. Un
+   * mismo resultado no puede ser nuevo y repetido.
+   *
+   * Invariante: `newUniqueResults + seenDuplicates <= normalizedResults`.
+   */
+  newUniqueResults: number;
   /** Ya vistas en rondas anteriores o repetidas dentro de la misma respuesta. */
   seenDuplicates: number;
   /** Duplicados contra SellUp / HubSpot / sugerencias previas. */
@@ -46,12 +58,49 @@ export type ApolloTwoRoundRoundMetrics = {
   newEligibleCompaniesAdded: number;
   /** Créditos que NUESTRO ledger registró para esta ronda. */
   internalRecordedCredits: number;
+  /**
+   * § 12 — huella de la HIPÓTESIS de esta ronda: los términos antes de la
+   * prioridad, la deduplicación y el truncamiento del mapper.
+   *
+   * Sirve para explicar la intención, NUNCA para decidir si la ronda 2 vale un
+   * crédito: dos hipótesis distintas pueden colapsar al mismo body efectivo, y esa
+   * es exactamente la segunda búsqueda que la corrida QA `edb6f40c` pagó de más.
+   * La decisión usa `effectiveProviderFingerprint`.
+   */
+  providerRequestFingerprint: string | null;
+  /**
+   * QUERY-QUALITY-2-FIX § 1 y § 10 — huella del request EFECTIVO que salió al
+   * proveedor: body ya priorizado, deduplicado, truncado y con su página.
+   *
+   * Es la única medida honesta de «esta ronda pidió algo distinto». Null cuando la
+   * corrida no pudo construirlo (suites puras sin adaptador): ausencia no es
+   * igualdad, y por eso se reporta null en vez de repetir la huella de hipótesis.
+   */
+  effectiveProviderFingerprint: string | null;
+  /** § 12 — página pedida por esta ronda. */
+  page: number | null;
+  /** § 10 — `per_page` que el request efectivo llevó. Null si no se construyó. */
+  perPage: number | null;
+  /** § 12 — términos de la HIPÓTESIS. Ni el texto humano ni una paráfrasis. */
+  specificTermsSent: string[];
+  /** § 10 — términos que EFECTIVAMENTE viajaron, tras prioridad y truncamiento. */
+  effectiveKeywordsSent: string[];
+  /** § 12 — `total_pages` que el proveedor declaró en esta ronda. */
+  providerTotalPages: number | null;
 };
 
 export function buildEmptyRoundMetrics(
   roundNumber: number,
   queryHypothesis: string,
   adaptationReason: string | null = null,
+  provider: {
+    requestFingerprint?: string | null;
+    effectiveRequestFingerprint?: string | null;
+    page?: number | null;
+    perPage?: number | null;
+    specificTermsSent?: readonly string[];
+    effectiveKeywordsSent?: readonly string[];
+  } = {},
 ): ApolloTwoRoundRoundMetrics {
   return {
     roundNumber,
@@ -60,6 +109,7 @@ export function buildEmptyRoundMetrics(
     providerRequestCount: 0,
     rawResultsReturned: 0,
     normalizedResults: 0,
+    newUniqueResults: 0,
     seenDuplicates: 0,
     knownCompanyDuplicates: 0,
     countryRejected: 0,
@@ -71,6 +121,13 @@ export function buildEmptyRoundMetrics(
     eligibleAfterEnrichment: 0,
     newEligibleCompaniesAdded: 0,
     internalRecordedCredits: 0,
+    providerRequestFingerprint: provider.requestFingerprint ?? null,
+    effectiveProviderFingerprint: provider.effectiveRequestFingerprint ?? null,
+    page: provider.page ?? null,
+    perPage: provider.perPage ?? null,
+    specificTermsSent: [...(provider.specificTermsSent ?? [])],
+    effectiveKeywordsSent: [...(provider.effectiveKeywordsSent ?? [])],
+    providerTotalPages: null,
   };
 }
 
@@ -101,6 +158,12 @@ export function countEnrichmentWaste(outcomes: readonly EnrichmentOutcome[]): nu
 export type ApolloTwoRoundRunMetrics = {
   roundsExecuted: number;
   totalRawResults: number;
+  /** § 10 — resultados normalizados sumados. Denominador de las invariantes. */
+  totalNormalizedResults: number;
+  /** § 10 — nuevos, sin repetir. `totalNewUniqueResults + totalSeenDuplicates <= totalNormalizedResults`. */
+  totalNewUniqueResults: number;
+  /** § 10 — repetidos, dentro de la respuesta o contra rondas anteriores. */
+  totalSeenDuplicates: number;
   totalUniqueOrganizations: number;
   totalEligibleCompanies: number;
   persistedCandidates: number;
@@ -138,6 +201,9 @@ export function buildRunMetrics(input: {
   enrichmentOutcomes: readonly EnrichmentOutcome[];
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
+  const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
+  const totalNewUniqueResults = input.rounds.reduce((sum, r) => sum + r.newUniqueResults, 0);
+  const totalSeenDuplicates = input.rounds.reduce((sum, r) => sum + r.seenDuplicates, 0);
   const duplicates = input.rounds.reduce(
     (sum, r) => sum + r.seenDuplicates + r.knownCompanyDuplicates,
     0,
@@ -153,6 +219,9 @@ export function buildRunMetrics(input: {
   return {
     roundsExecuted: input.rounds.length,
     totalRawResults,
+    totalNormalizedResults,
+    totalNewUniqueResults,
+    totalSeenDuplicates,
     totalUniqueOrganizations: input.totalUniqueOrganizations,
     totalEligibleCompanies: input.totalEligibleCompanies,
     persistedCandidates: input.persistedCandidates,
@@ -184,7 +253,7 @@ export function toRoundMetricsMetadata(
     raw_results: metrics.rawResultsReturned,
     raw_results_returned: metrics.rawResultsReturned,
     /** Organizaciones que esta ronda aportó y que no se habían visto antes. */
-    new_unique_results: metrics.normalizedResults,
+    new_unique_results: metrics.newUniqueResults,
     /** Elegibles tras el enrichment: lo que la ronda realmente aportó al objetivo. */
     eligible_results: metrics.eligibleAfterEnrichment,
     /** Créditos internos registrados por esta ronda (búsqueda + enrichment). */
@@ -201,6 +270,17 @@ export function toRoundMetricsMetadata(
     eligible_after_enrichment: metrics.eligibleAfterEnrichment,
     new_eligible_companies_added: metrics.newEligibleCompaniesAdded,
     internal_recorded_credits: metrics.internalRecordedCredits,
+    // § 12 — lo que el próximo QA necesita para no depender del texto humano.
+    provider_request_fingerprint: metrics.providerRequestFingerprint,
+    // § 10 — las DOS huellas, nombradas, para que nadie confunda la intención con
+    // lo que salió. La decisión económica usa la efectiva.
+    hypothesis_fingerprint: metrics.providerRequestFingerprint,
+    effective_provider_fingerprint: metrics.effectiveProviderFingerprint,
+    page: metrics.page,
+    per_page: metrics.perPage,
+    specific_terms_sent: metrics.specificTermsSent,
+    effective_keywords_sent: metrics.effectiveKeywordsSent,
+    provider_total_pages: metrics.providerTotalPages,
   };
 }
 
@@ -210,6 +290,9 @@ export function toRunMetricsMetadata(
   return {
     rounds_executed: metrics.roundsExecuted,
     total_raw_results: metrics.totalRawResults,
+    total_normalized_results: metrics.totalNormalizedResults,
+    total_new_unique_results: metrics.totalNewUniqueResults,
+    total_seen_duplicates: metrics.totalSeenDuplicates,
     total_unique_organizations: metrics.totalUniqueOrganizations,
     total_eligible_companies: metrics.totalEligibleCompanies,
     persisted_candidates: metrics.persistedCandidates,

@@ -43,6 +43,8 @@ import {
 import {
   buildRound1Hypothesis,
   buildRound2Hypothesis,
+  withRequestedPage,
+  type ApolloRound2Hypothesis,
   type ApolloTwoRoundQueryContext,
   type ApolloTwoRoundQueryHypothesis,
 } from './query-hypothesis';
@@ -90,6 +92,14 @@ export type RoundSearchOutcome = {
   providerRequestCount: number;
   /** Créditos que NUESTRO ledger registró para esta búsqueda. */
   internalRecordedCredits: number;
+  /**
+   * QUERY-QUALITY-2 § 3 — `total_pages` que el proveedor declaró.
+   *
+   * Es lo que autoriza a la ronda 2 a pedir la página 2 cuando no existe una
+   * variante de términos. Ausente ⇒ null: sin declaración del proveedor no se
+   * pide una página que puede no existir.
+   */
+  providerTotalPages?: number | null;
   /**
    * § 4 del FINAL-FIX — la petición SALIÓ y su resultado o su cobro quedaron sin
    * confirmar (timeout, corte de red, 5xx, respuesta ambigua). La operación no se
@@ -153,7 +163,39 @@ export type EnrichmentResult = {
 
 // ─── Dependencias ─────────────────────────────────────────────────────────────
 
+/**
+ * QUERY-QUALITY-2-FIX § 1 y § 2 — el request EFECTIVO de una ronda, construido sin
+ * ejecutarla.
+ *
+ * Lo produce el mismo constructor que gobierna la llamada real
+ * (`buildApolloOrganizationsEffectiveRequest`), así que la huella que aquí se
+ * compara es literalmente la del body que saldría. No es una reimplementación del
+ * mapper: es el mapper, invocado antes de pagar.
+ */
+export type RoundProviderRequestPreview = {
+  /** Huella del body efectivo, `page` incluida. Base de la decisión económica. */
+  effectiveRequestFingerprint: string;
+  page: number;
+  perPage: number;
+  /** Términos que sobrevivieron a la prioridad, la dedupe y el truncamiento. */
+  effectiveKeywordTags: readonly string[];
+};
+
 export type ApolloTwoRoundDeps = {
+  /**
+   * § 2 — construye el request efectivo de una ronda SIN emitir la llamada.
+   *
+   * Ausente ⇒ el orquestador cae a la huella de HIPÓTESIS para decidir la ronda 2.
+   * Es lo que hacen las suites puras que sólo ejercitan la lógica de rondas;
+   * producción siempre la inyecta, porque sólo el body efectivo prueba que una
+   * segunda búsqueda puede traer algo nuevo.
+   */
+  buildRoundProviderRequest?: (input: {
+    roundNumber: number;
+    hypothesis: ApolloTwoRoundQueryHypothesis;
+    requestedResultLimit: number;
+  }) => RoundProviderRequestPreview | null;
+
   /**
    * Ejecuta UNA búsqueda de una ronda. Nunca se llama dos veces por ronda.
    *
@@ -248,6 +290,15 @@ export type SecondRoundSkippedReason =
   | 'target_reached'
   | 'max_rounds_is_one'
   | 'raw_result_cap_reached'
+  /**
+   * QUERY-QUALITY-2 § 3 — los parámetros normalizados que la ronda 2 enviaría
+   * son los MISMOS que envió la ronda 1. Vocabulario del hito.
+   */
+  | 'identical_provider_request'
+  /**
+   * Código heredado del hito anterior. Se conserva SÓLO para poder rehidratar un
+   * checkpoint escrito antes de este cambio; ninguna corrida nueva lo emite.
+   */
   | 'round2_hypothesis_identical_to_round1';
 
 export type AccumulatedCompany = {
@@ -664,6 +715,26 @@ export async function runApolloTwoRoundDiscovery(
   /** True en cuanto una operación quedó indeterminada: nada dependiente corre. */
   const hasIndeterminateOperation = (): boolean => indeterminateOperations.length > 0;
 
+  /**
+   * § 2 — request efectivo de una ronda, sin ejecutarla.
+   *
+   * Nunca lanza: un constructor que falla deja la decisión sin la huella efectiva,
+   * y el respaldo de hipótesis es más pobre pero no cuesta créditos. Lo que NO
+   * puede pasar es que un fallo aquí tumbe una corrida que ya gastó.
+   */
+  const previewProviderRequest = (
+    roundNumber: number,
+    hypothesis: ApolloTwoRoundQueryHypothesis,
+    requestedResultLimit: number,
+  ): RoundProviderRequestPreview | null => {
+    if (!deps.buildRoundProviderRequest) return null;
+    try {
+      return deps.buildRoundProviderRequest({ roundNumber, hypothesis, requestedResultLimit });
+    } catch {
+      return null;
+    }
+  };
+
   // ── Bucle de rondas ─────────────────────────────────────────────────────────
   for (let roundNumber = 1; roundNumber <= config.maxRounds; roundNumber++) {
     // § 7: una ronda cuyo estado ya se recuperó no se vuelve a ejecutar NI se
@@ -692,25 +763,75 @@ export async function runApolloTwoRoundDiscovery(
     const requestedResultLimit = config.maxResultsPerRound;
 
     let hypothesis: ApolloTwoRoundQueryHypothesis;
+    let requestPreview: RoundProviderRequestPreview | null = null;
     if (roundNumber === 1) {
       hypothesis = buildRound1Hypothesis(queryContext, requestedResultLimit);
+      requestPreview = previewProviderRequest(1, hypothesis, requestedResultLimit);
     } else {
-      const round2 = buildRound2Hypothesis(
+      const round1Metrics = roundMetrics.find((m) => m.roundNumber === 1) ?? null;
+      const providerTotalPages = round1Metrics?.providerTotalPages ?? null;
+      // Huella de HIPÓTESIS de la ronda 1: sólo se usa como respaldo cuando no hay
+      // constructor de request efectivo (suites puras). Nunca como criterio
+      // preferente: es la comparación que dejó pasar la ronda 2 del QA `edb6f40c`.
+      const round1HypothesisFingerprint = round1Metrics?.providerRequestFingerprint ?? null;
+      const round1EffectiveFingerprint = round1Metrics?.effectiveProviderFingerprint ?? null;
+
+      let round2: ApolloRound2Hypothesis = buildRound2Hypothesis(
         queryContext,
         {
           remainingTarget: Math.max(0, config.targetEligibleCompanies - eligibleCount()),
           excludedSeenOrganizationCount: countSeenOrganizations(seenRegistry),
           observedRejectionReasons: [...observedRejectionReasons],
+          // § 3 — la página 2 sólo es una variante válida si el proveedor
+          // declaró que existe.
+          providerTotalPages,
         },
         requestedResultLimit,
       );
-      // Repetir exactamente la consulta de la ronda 1 no puede traer nada nuevo
-      // y sí volvería a cobrar. Se omite la ronda en vez de pagarla.
-      if (!round2.differsFromRound1) {
-        secondRoundSkippedReason = 'round2_hypothesis_identical_to_round1';
+      let round2Preview = previewProviderRequest(2, round2, requestedResultLimit);
+
+      /**
+       * § 1 — ¿la ronda 2 enviaría lo MISMO que la ronda 1?
+       *
+       * Con request efectivo disponible se comparan los bodies: es lo único que
+       * prueba que una segunda búsqueda no puede traer nada nuevo, porque la
+       * prioridad y el truncamiento a `MAX_KEYWORDS` pueden colapsar dos hipótesis
+       * distintas en el mismo request. Sin él se cae a la huella de hipótesis, que
+       * es lo que las suites puras pueden ofrecer.
+       */
+      const sendsSameRequest = (
+        candidate: ApolloRound2Hypothesis,
+        preview: RoundProviderRequestPreview | null,
+      ): boolean => {
+        if (preview !== null && round1EffectiveFingerprint !== null) {
+          return preview.effectiveRequestFingerprint === round1EffectiveFingerprint;
+        }
+        return (
+          !candidate.differsFromRound1 ||
+          (round1HypothesisFingerprint !== null &&
+            round1HypothesisFingerprint === candidate.providerRequestFingerprint)
+        );
+      };
+
+      // § 4 — cuando el body efectivo colapsó al de la ronda 1, la ÚNICA variante
+      // que queda es otra página, y sólo si el proveedor declaró que existe. Pedir
+      // una página no declarada es pagar por una respuesta vacía.
+      if (
+        sendsSameRequest(round2, round2Preview) &&
+        round2.queryParameters.page === 1 &&
+        providerTotalPages !== null &&
+        providerTotalPages >= 2
+      ) {
+        round2 = withRequestedPage(round2, 2, round1HypothesisFingerprint);
+        round2Preview = previewProviderRequest(2, round2, requestedResultLimit);
+      }
+
+      if (sendsSameRequest(round2, round2Preview)) {
+        secondRoundSkippedReason = 'identical_provider_request';
         break;
       }
       hypothesis = round2;
+      requestPreview = round2Preview;
     }
 
     // § 2 — el contexto completo, no sólo el digest: la ronda y el sujeto viajan
@@ -726,6 +847,16 @@ export async function runApolloTwoRoundDiscovery(
       roundNumber,
       hypothesis.queryHypothesis,
       hypothesis.queryAdaptationReason,
+      {
+        requestFingerprint: hypothesis.providerRequestFingerprint,
+        // § 10 — la huella EFECTIVA queda registrada por ronda. Es la que la ronda
+        // siguiente compara y la que el próximo QA puede auditar.
+        effectiveRequestFingerprint: requestPreview?.effectiveRequestFingerprint ?? null,
+        page: requestPreview?.page ?? hypothesis.queryParameters.page,
+        perPage: requestPreview?.perPage ?? null,
+        specificTermsSent: hypothesis.queryParameters.keywordTags,
+        effectiveKeywordsSent: requestPreview?.effectiveKeywordTags ?? [],
+      },
     );
 
     // § 12: una ronda ya completada por un intento anterior no se vuelve a
@@ -783,6 +914,7 @@ export async function runApolloTwoRoundDiscovery(
     metrics.providerRequestCount = outcome.providerRequestCount;
     metrics.rawResultsReturned = outcome.organizations.length;
     metrics.internalRecordedCredits = outcome.internalRecordedCredits;
+    metrics.providerTotalPages = outcome.providerTotalPages ?? null;
     totalSearchCredits += outcome.internalRecordedCredits;
 
     // ── Procesamiento barato, en el orden del § 4 ────────────────────────────
@@ -846,6 +978,9 @@ export async function runApolloTwoRoundDiscovery(
 
       const identity = acrossRounds.identity;
       metrics.normalizedResults++;
+      // § 4 / § 10 — nuevo es lo que superó AMBAS deduplicaciones. Un resultado
+      // no puede contarse a la vez como nuevo y como repetido.
+      metrics.newUniqueResults++;
 
       // 3-11. Resto de gates baratos, inyectados.
       const assessment = await deps.assessCandidate({ organization, identity, roundNumber });

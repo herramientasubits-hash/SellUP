@@ -86,6 +86,7 @@ import {
 } from '@/modules/prospect-batches/provider-routing';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '@/server/agents/prospecting-toolkit/apollo-two-round';
+import { buildNoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
 import { TWO_ROUND_INDETERMINATE_ANOMALY } from '@/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server';
 import { markWizardBatchFailed } from './wizard-batch-failure';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
@@ -974,6 +975,16 @@ export async function executeProspectWizardGeneration(
     // modalidad de dos rondas viaja por la misma vía, con el mismo código.
     ...buildReconciliationOutcome(lastReconciliation, pipelineResult),
     ...(noveltyExhausted ? { noveltyExhausted: true as const } : {}),
+    // A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 8 — la distribución real de
+    // descartes viaja sólo cuando hace falta explicarla: sin empresas nuevas.
+    ...(hasNewCandidates
+      ? {}
+      : {
+          noNewCandidatesBreakdown: buildNoNewCandidatesBreakdown(
+            { ...(pipelineResult.metadata ?? {}), novelty_exhausted: noveltyExhausted },
+            APOLLO_TWO_ROUND_OBSERVABILITY_KEY,
+          ),
+        }),
     // A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — el proveedor REAL de esta corrida.
     runProvider: runProviderOutcome,
     // § 11 — cifras reales de dos rondas, sólo si la modalidad corrió.

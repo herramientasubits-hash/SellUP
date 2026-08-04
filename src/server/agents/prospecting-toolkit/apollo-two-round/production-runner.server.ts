@@ -51,12 +51,27 @@ import {
   buildProspectingPipelineCandidate,
   buildSummary,
 } from '../prospecting-pipeline';
-import { runApolloOrganizationsSearch } from '../web-search-providers/apollo-organizations-search-provider';
+import {
+  runApolloOrganizationsSearch,
+  type ApolloOrgsSearchOptions,
+} from '../web-search-providers/apollo-organizations-search-provider';
+// QUERY-QUALITY-2-FIX § 1/§ 2 — constructor ÚNICO del request efectivo. El mismo
+// que gobierna la llamada real decide si la ronda 2 vale un crédito.
+import {
+  buildApolloOrganizationsEffectiveRequest,
+  type ApolloEffectiveRequest,
+} from '../apollo-organizations-effective-request';
+import { resolveApolloMaxResultsPerQuery } from '../apollo-cost-guardrails';
 import {
   evaluateApolloEnrichmentEligibility,
   type ApolloEnrichmentIneligibilityReason,
 } from '../apollo-enrichment-eligibility-gate';
 import { evaluateApolloSectorRelevanceForPaidOperation } from '../apollo-sector-relevance-gate';
+import {
+  evaluateApolloFreeSectorContradiction,
+  resolveFirstApolloSubindustrySearchMapping,
+  type ApolloFreeSectorEvidence,
+} from '../apollo-subindustry-search-mapping';
 import { runApolloOrganizationEnrichmentCascade } from '../apollo-organization-enrichment-cascade';
 import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
 import { loadActiveApolloOrganizationEnrichmentPricing } from '@/modules/usage-tracking/provider-pricing';
@@ -76,6 +91,7 @@ import {
   type ApolloEnrichmentBillingOutcome,
 } from '../apollo-organization-enrichment-usage-log';
 
+import type { ApolloTwoRoundQueryHypothesis } from './query-hypothesis';
 import {
   runApolloTwoRoundDiscovery,
   toApolloTwoRoundResumeState,
@@ -431,6 +447,12 @@ export async function runApolloTwoRoundWizardDiscovery(
     searchDepth: 'standard',
   });
 
+  // QUERY-QUALITY-2 § 2 / § 7 — mapping explícito de la subindustria elegida.
+  // Null cuando la subindustria no está en el catálogo: sin términos declarados
+  // no hay contradicción que afirmar.
+  const subindustryMapping =
+    resolveFirstApolloSubindustrySearchMapping(input.subindustries)?.mapping ?? null;
+
   const negativeMemoryScope = {
     countryCode: input.countryCode,
     industryName: input.industry,
@@ -760,23 +782,83 @@ export async function runApolloTwoRoundWizardDiscovery(
     return false;
   };
 
+  /**
+   * QUERY-QUALITY-2-FIX § 1 y § 2 — construcción ÚNICA del request de una ronda.
+   *
+   * `searchRound` la usa para ejecutar y `buildRoundProviderRequest` para comparar
+   * sin ejecutar. Que las dos salgan de la MISMA llamada es lo que garantiza que la
+   * huella con la que se decide sea la del body que saldría: una segunda
+   * construcción en paralelo podría divergir en cuanto el mapper cambie.
+   */
+  const buildRoundSearchRequest = (
+    hypothesis: ApolloTwoRoundQueryHypothesis,
+    requestedResultLimit: number,
+  ): {
+    searchInput: WebSearchInput;
+    searchOptions: ApolloOrgsSearchOptions;
+    effective: ApolloEffectiveRequest;
+  } => {
+    const searchInput: WebSearchInput = {
+      query: hypothesis.queryHypothesis,
+      country: input.country,
+      countryCode: input.countryCode,
+      industry: input.industry,
+      intent: 'company_discovery',
+      maxResults: requestedResultLimit,
+      provider: 'apollo_organizations',
+      subindustries: input.subindustries,
+      additionalCriteriaTokens: hypothesis.queryParameters.keywordTags,
+    };
+
+    const searchOptions: ApolloOrgsSearchOptions = {
+      // § 5 — la modalidad necesita ver a los candidatos con evidencia sectorial
+      // insuficiente: son los únicos que pueden competir por un enrichment. El
+      // gate se aplica después, candidato a candidato.
+      sectorGateMode: 'annotate',
+      // QUERY-QUALITY-2 § 5 — el límite de esta modalidad es el suyo. La variable
+      // legacy `AGENT1_APOLLO_MAX_RESULTS_PER_QUERY` recortaba en silencio la ronda
+      // a 3 y hacía inalcanzable el objetivo de cinco.
+      resultLimitMode: 'two_round',
+      twoRoundMaxResultsPerRound: config.maxResultsPerRound,
+      // QUERY-QUALITY-2 § 3 — la ronda 2 puede pedir la página 2 de la misma
+      // búsqueda cuando no hay variante de términos.
+      startPage: hypothesis.queryParameters.page,
+    };
+
+    const effective = buildApolloOrganizationsEffectiveRequest({
+      input: searchInput,
+      requestedMaxResults: requestedResultLimit,
+      resultLimitMode: searchOptions.resultLimitMode,
+      twoRoundMaxResultsPerRound: searchOptions.twoRoundMaxResultsPerRound,
+      startPage: searchOptions.startPage,
+      legacyMaxResultsPerQuery: resolveApolloMaxResultsPerQuery(),
+    });
+
+    return { searchInput, searchOptions, effective };
+  };
+
   const orchestratorDeps: ApolloTwoRoundDeps = {
+    // § 2 — el orquestador compara los bodies efectivos de las dos rondas sin
+    // emitir una sola llamada: cero créditos, cero filas de uso.
+    buildRoundProviderRequest: ({ hypothesis, requestedResultLimit }) => {
+      const { effective } = buildRoundSearchRequest(hypothesis, requestedResultLimit);
+      return {
+        effectiveRequestFingerprint: effective.effectiveRequestFingerprint,
+        page: effective.page,
+        perPage: effective.perPage,
+        effectiveKeywordTags: effective.effectiveKeywordTags,
+      };
+    },
+
     searchRound: async ({ hypothesis, requestedResultLimit, operationContext }) => {
       if (budgetExceeded()) {
         return { organizations: [], providerRequestCount: 0, internalRecordedCredits: 0 };
       }
 
-      const searchInput: WebSearchInput = {
-        query: hypothesis.queryHypothesis,
-        country: input.country,
-        countryCode: input.countryCode,
-        industry: input.industry,
-        intent: 'company_discovery',
-        maxResults: requestedResultLimit,
-        provider: 'apollo_organizations',
-        subindustries: input.subindustries,
-        additionalCriteriaTokens: hypothesis.queryParameters.keywordTags,
-      };
+      const { searchInput, searchOptions } = buildRoundSearchRequest(
+        hypothesis,
+        requestedResultLimit,
+      );
 
       const output = await deps.searchApollo(
         searchInput,
@@ -794,10 +876,7 @@ export async function runApolloTwoRoundWizardDiscovery(
           operationContext: toApolloTwoRoundOperationContextMetadata(operationContext),
         },
         undefined,
-        // § 5 — la modalidad necesita ver a los candidatos con evidencia
-        // sectorial insuficiente: son los únicos que pueden competir por un
-        // enrichment. El gate se aplica después, candidato a candidato.
-        { sectorGateMode: 'annotate' },
+        searchOptions,
       );
       searchOutputs.push(output);
 
@@ -823,6 +902,8 @@ export async function runApolloTwoRoundWizardDiscovery(
         providerRequestCount: output.skipped ? 0 : 1,
         internalRecordedCredits: credits,
         indeterminate: readSearchIndeterminacy(output),
+        // § 3 — lo que el proveedor DECLARÓ, no lo que nos convenga suponer.
+        providerTotalPages: readProviderTotalPages(output),
       };
     },
 
@@ -849,7 +930,16 @@ export async function runApolloTwoRoundWizardDiscovery(
         input.industry,
         input.subindustries[0] ?? null,
       );
-      const sectorEvidenceState = toSectorEvidenceState(sector.decision);
+      // QUERY-QUALITY-2 § 7 — contradicción visible en campos GRATUITOS. El QA
+      // gastó su único enrichment en Citigroup buscando supermercados: la
+      // industria declarada ya decía «retail banking» antes de pagar nada.
+      const contradiction = evaluateApolloFreeSectorContradiction(
+        readFreeSectorEvidence(result, organization),
+        subindustryMapping,
+      );
+      const sectorEvidenceState: CandidateSectorEvidenceState = contradiction.contradictory
+        ? 'sector_evidence_contradictory'
+        : toSectorEvidenceState(sector.decision);
 
       // 10-11. Duplicado en SellUp y en HubSpot — una sola consulta por
       // organización, la misma que el pipeline de producción ya hace, y cacheada
@@ -886,6 +976,9 @@ export async function runApolloTwoRoundWizardDiscovery(
         freeOfContradictoryEvidence: sectorEvidenceState !== 'sector_evidence_contradictory',
         knownDuplicate,
         cooldownActive,
+        // § 7 — viaja al ranking: un candidato contradicho no compite por un
+        // enrichment ni aunque el resto de sus señales sea impecable.
+        declaredSectorContradiction: contradiction.contradictory,
       };
 
       // Orden del § 4: primero los gates del proveedor, después los duplicados
@@ -1319,6 +1412,10 @@ function buildObservabilityMetadata(input: {
       target_reached: runResult.targetReached,
       partial_result_reason: runResult.partialResultReason,
       second_round_skipped_reason: runResult.secondRoundSkippedReason,
+      // QUERY-QUALITY-2 § 12 — el próximo QA lee ESTO, no el texto humano de la
+      // hipótesis: dos rondas con la misma huella son la misma búsqueda pagada
+      // dos veces, por muy distinta que suene su descripción.
+      ...buildRoundComparisonMetadata(runResult),
       rounds: runResult.rounds.map(toRoundMetricsMetadata),
       run_metrics: toRunMetricsMetadata(runResult.runMetrics),
       enrichment_selections: runResult.enrichmentSelections,
@@ -1349,6 +1446,55 @@ function buildObservabilityMetadata(input: {
       ...(anomalies.length > 0 ? { budget_anomalies: anomalies } : {}),
       ...toApolloTwoRoundConfigDiagnostics(resolveApolloTwoRoundConfigFromEnv()),
     },
+  };
+}
+
+/**
+ * QUERY-QUALITY-2 § 12 — comparación explícita entre las dos rondas.
+ *
+ * Todo lo que aquí se afirma sale de lo que REALMENTE se envió. Un dato ausente
+ * queda null: «no se sabe qué envió la ronda 2» no es «envió lo mismo».
+ */
+export function buildRoundComparisonMetadata(
+  runResult: ApolloTwoRoundRunResult,
+): Record<string, unknown> {
+  const round1 = runResult.rounds.find((round) => round.roundNumber === 1) ?? null;
+  const round2 = runResult.rounds.find((round) => round.roundNumber === 2) ?? null;
+
+  const hypothesis1 = round1?.providerRequestFingerprint ?? null;
+  const hypothesis2 = round2?.providerRequestFingerprint ?? null;
+  const effective1 = round1?.effectiveProviderFingerprint ?? null;
+  const effective2 = round2?.effectiveProviderFingerprint ?? null;
+
+  const distinct = (a: string | null, b: string | null): boolean | null =>
+    a === null || b === null ? null : a !== b;
+
+  return {
+    // § 10 — las cuatro huellas, cada una con su nombre. Confundirlas es el defecto
+    // que este hito cierra: la de hipótesis explica la intención, la efectiva es la
+    // que decide si una segunda búsqueda podía traer algo nuevo.
+    round_1_hypothesis_fingerprint: hypothesis1,
+    round_2_hypothesis_fingerprint: hypothesis2,
+    round_1_effective_provider_fingerprint: effective1,
+    round_2_effective_provider_fingerprint: effective2,
+    /** Criterio ECONÓMICO. Null cuando falta una de las dos: ausencia ≠ igualdad. */
+    effective_fingerprints_are_distinct: distinct(effective1, effective2),
+    /** Conservado para continuidad de lectura; NO es el criterio económico. */
+    round_1_provider_fingerprint: hypothesis1,
+    round_2_provider_fingerprint: hypothesis2,
+    hypothesis_fingerprints_are_distinct: distinct(hypothesis1, hypothesis2),
+    fingerprints_are_distinct: distinct(effective1, effective2) ?? distinct(hypothesis1, hypothesis2),
+    round_1_page: round1?.page ?? null,
+    round_2_page: round2?.page ?? null,
+    round_1_per_page: round1?.perPage ?? null,
+    round_2_per_page: round2?.perPage ?? null,
+    specific_terms_sent: round1?.specificTermsSent ?? [],
+    round_2_specific_terms_sent: round2?.specificTermsSent ?? [],
+    // § 10 — lo que EFECTIVAMENTE viajó, tras prioridad y truncamiento.
+    round_1_effective_keywords_sent: round1?.effectiveKeywordsSent ?? [],
+    round_2_effective_keywords_sent: round2?.effectiveKeywordsSent ?? [],
+    round_2_skipped_reason: runResult.secondRoundSkippedReason,
+    round_2_novel_provider_results: round2?.newUniqueResults ?? null,
   };
 }
 
@@ -1617,6 +1763,52 @@ function buildRejectedAssessment(
       cooldownActive: false,
     },
     noPriorSuggestion: true,
+  };
+}
+
+/**
+ * QUERY-QUALITY-2 § 3 — `total_pages` que el proveedor declaró en esta búsqueda.
+ *
+ * Null cuando el proveedor no lo dijo: la ronda 2 no puede pedir una página 2
+ * cuya existencia nadie declaró.
+ */
+export function readProviderTotalPages(output: WebSearchOutput): number | null {
+  const metadata = (output.metadata ?? {}) as Record<string, unknown>;
+  const pagination = metadata['apollo_pagination'] as { total_pages?: unknown } | undefined;
+  const totalPages = pagination?.total_pages;
+  return typeof totalPages === 'number' && Number.isFinite(totalPages) ? totalPages : null;
+}
+
+/**
+ * QUERY-QUALITY-2 § 7 — evidencia GRATUITA de identidad de un candidato.
+ *
+ * Sólo campos declarados por el proveedor: industria, industrias, keywords y
+ * nombre. La descripción se excluye a propósito — bloquear por ella descartaría
+ * supermercados reales que mencionan su propio crédito de consumo.
+ */
+export function readFreeSectorEvidence(
+  result: WebSearchResult,
+  organization: RawDiscoveredOrganization,
+): ApolloFreeSectorEvidence {
+  const meta = (result.metadata ?? {}) as Record<string, unknown>;
+  const profile = (meta['apollo_profile'] ?? {}) as Record<string, unknown>;
+  const readStringArray = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+  return {
+    declaredIndustry:
+      organization.declaredIndustry ??
+      (typeof meta['industry'] === 'string' ? (meta['industry'] as string) : null),
+    declaredIndustries: [
+      ...readStringArray(meta['industries']),
+      ...readStringArray(profile['industries']),
+    ],
+    keywords: [
+      ...readStringArray(meta['keywords']),
+      ...readStringArray(profile['keywords']),
+      ...readStringArray(profile['organization_keywords']),
+    ],
+    organizationName: organization.name ?? result.title ?? null,
   };
 }
 
