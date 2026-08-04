@@ -354,6 +354,19 @@ describe('WATERFALL-2 UI — un botón, un modal, copy legacy', () => {
     assert.equal(/13/.test(dialogText), false, dialogText);
   });
 
+  it('el modal legacy sigue mostrando su tope de 5 y NO adopta el desglose de 4B', async () => {
+    // AGENT2A-PHONE-WATERFALL-4B completó el modal del waterfall COMPLETO. El legacy
+    // autoriza UNA sola pata, así que no puede ganar un desglose por proveedor ni un
+    // "máximo total autorizado": eso insinuaría que hay más de una pata en juego.
+    await renderSheet(legacyCandidate());
+    await openModal();
+    const dialogText = (screen.getByRole('dialog').textContent ?? '').replace(/\s+/g, ' ');
+    assert.ok(/Puede consumir hasta 5 créditos de Lusha\./.test(dialogText), dialogText);
+    assert.equal(/Apollo: hasta 8 créditos/.test(dialogText), false, dialogText);
+    assert.equal(/Lusha: hasta 5 créditos\./.test(dialogText), false, dialogText);
+    assert.equal(/Máximo total autorizado/.test(dialogText), false, dialogText);
+  });
+
   it('el modal legacy declara las advertencias obligatorias', async () => {
     await renderSheet(legacyCandidate());
     await openModal();
@@ -435,8 +448,10 @@ describe('WATERFALL-2 UI — cuándo NO se ofrece la ruta legacy', () => {
     await openModal();
 
     const dialogText = (screen.getByRole('dialog').textContent ?? '').replace(/\s+/g, ' ');
-    assert.ok(/primero Apollo/i.test(dialogText), dialogText);
-    assert.ok(/hasta 13 créditos/i.test(dialogText), dialogText);
+    assert.ok(/Apollo se intentará primero/i.test(dialogText), dialogText);
+    // Modal del waterfall COMPLETO ⇒ desglose de las dos patas y total 13
+    // (AGENT2A-PHONE-WATERFALL-4B), no el tope legacy de 5.
+    assert.ok(/Máximo total autorizado: 13 créditos/i.test(dialogText), dialogText);
     assert.equal(/no volverá a ejecutar Apollo/i.test(dialogText), false);
 
     await act(async () => {

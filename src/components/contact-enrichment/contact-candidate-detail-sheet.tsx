@@ -2477,9 +2477,29 @@ export function ContactCandidateDetailSheet({
           <DialogDescription>{waterfallModalCopy.flowDescription}</DialogDescription>
         </DialogHeader>
         <div className="space-y-1.5">
-          <p className="text-xs font-medium text-foreground">
-            {waterfallModalCopy.creditsMessage}
-          </p>
+          {/* Desglose por proveedor (AGENT2A-PHONE-WATERFALL-4B). El total va
+              destacado porque es la cifra que el operador autoriza; las patas van
+              en secundario porque son el umbral de cada proveedor, no un costo
+              previsto. La modalidad legacy no tiene desglose (una sola pata) y
+              conserva su línea de tope tal cual. */}
+          {waterfallModalCopy.creditBreakdown ? (
+            <>
+              <ul className="space-y-0.5">
+                {waterfallModalCopy.creditBreakdown.legs.map((leg) => (
+                  <li key={leg} className="text-xs text-muted-foreground">
+                    {leg}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs font-medium text-foreground">
+                {waterfallModalCopy.creditBreakdown.total}
+              </p>
+            </>
+          ) : (
+            <p className="text-xs font-medium text-foreground">
+              {waterfallModalCopy.creditsMessage}
+            </p>
+          )}
           {waterfallModalCopy.lushaUnavailableNote && (
             <p className="text-xs text-muted-foreground">
               {waterfallModalCopy.lushaUnavailableNote}

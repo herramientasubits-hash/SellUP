@@ -28,6 +28,15 @@ export const PHONE_REVEAL_WATERFALL_BUTTON_LABEL = 'Revelar teléfono';
 export const PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS = 8;
 
 /**
+ * Tope de la SEGUNDA pata cuando Lusha aplica. Es el sumando que, con los 8 de
+ * Apollo, produce el total de 13, y el modal lo muestra por separado
+ * (AGENT2A-PHONE-WATERFALL-4B): un total sin desglose no le dice al operador que
+ * está autorizando DOS proveedores. Espejo de
+ * PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS del core.
+ */
+export const PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS = 5;
+
+/**
  * Tope cuando Lusha es una segunda pata posible: Apollo hasta 8 + Lusha 5.
  * Espejo de PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA del core.
  */
@@ -132,12 +141,35 @@ export const PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_COST_COPY =
 
 // ── Modal único de confirmación ────────────────────────────────
 
+/**
+ * Desglose del tope, por pata autorizada, para el modal del waterfall
+ * (AGENT2A-PHONE-WATERFALL-4B). Antes el modal solo mostraba el TOTAL, y un total
+ * sin desglose no permite saber cuántos proveedores se están autorizando ni cuánto
+ * puede cobrar cada uno.
+ *
+ * No es una predicción de costo: es el UMBRAL por pata. Lo que cada proveedor
+ * cobra de verdad sale de lo que reporta, y se audita por separado — de ahí que
+ * `legs` y `total` sean campos distintos y no una sola frase.
+ */
+export interface PhoneRevealWaterfallCreditBreakdown {
+  /** Una línea por pata autorizada, en el orden en que se intentan. */
+  legs: readonly string[];
+  /** Total autorizado, ya redactado. Es la suma de las patas, nunca menos. */
+  total: string;
+}
+
 export interface PhoneRevealWaterfallModalCopy {
   title: string;
   /** Qué va a hacer SellUp, en orden. */
   flowDescription: string;
   /** Tope de créditos, ya redactado. */
   creditsMessage: string;
+  /**
+   * Desglose por pata + total, para el modal. `null` en la modalidad legacy, que
+   * autoriza UNA sola pata: ahí no hay nada que desglosar y `creditsMessage` ya
+   * dice de qué proveedor son los 5 créditos.
+   */
+  creditBreakdown: PhoneRevealWaterfallCreditBreakdown | null;
   /** Tope que viaja en el payload de la acción (autoridad real: el server). */
   maxCredits: number;
   /** Solo cuando Lusha NO aplica: por qué. null en caso contrario. */
@@ -169,6 +201,26 @@ const PHONE_REVEAL_WATERFALL_LEGACY_WARNINGS: readonly string[] = [
 ];
 
 /**
+ * Advertencias del modal del waterfall COMPLETO (AGENT2A-PHONE-WATERFALL-4B).
+ *
+ * Antes este modal solo llevaba las comunes, así que las dos advertencias que más
+ * pesan en una autorización de gasto —que puede no encontrarse teléfono, y que
+ * encontrarlo no crea un contacto oficial— solo las veía el operador del flujo
+ * legacy. Un consentimiento informado no puede depender de por qué vía llegó el
+ * candidato: el flujo completo autoriza MÁS crédito (13 vs 5), no menos, así que si
+ * alguno de los dos las necesita es este.
+ *
+ * La redacción es la del contrato de 4B ("No se garantiza…", "No se creará…") y NO
+ * se reusa la del legacy a propósito: el legacy quedó explícitamente sin cambios en
+ * este cambio, y unificar la redacción habría tocado su copy ya validado.
+ */
+const PHONE_REVEAL_WATERFALL_FULL_WARNINGS: readonly string[] = [
+  'No se garantiza encontrar un teléfono.',
+  'No se creará un contacto oficial automáticamente.',
+  ...PHONE_REVEAL_WATERFALL_COMMON_WARNINGS,
+];
+
+/**
  * Copy del modal ÚNICO. No hay segundo modal ni segundo clic: lo que el operador
  * confirma aquí cubre las dos patas.
  *
@@ -195,6 +247,9 @@ export function getPhoneRevealWaterfallModalCopy(args: {
       flowDescription:
         'Apollo ya fue intentado anteriormente y no encontró un teléfono. Esta autorización no volverá a ejecutar Apollo. Solo se intentará Lusha.',
       creditsMessage: `Puede consumir hasta ${PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS} créditos de Lusha.`,
+      // Una sola pata autorizada ⇒ no hay desglose que hacer, y el modal legacy
+      // sigue mostrando exactamente lo que mostraba (tope 5, nunca 13).
+      creditBreakdown: null,
       maxCredits: PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS,
       lushaUnavailableNote: null,
       warnings: PHONE_REVEAL_WATERFALL_LEGACY_WARNINGS,
@@ -210,14 +265,27 @@ export function getPhoneRevealWaterfallModalCopy(args: {
   return {
     title: PHONE_REVEAL_WATERFALL_BUTTON_LABEL,
     flowDescription: args.lushaEligible
-      ? 'SellUp intentará primero Apollo. Si Apollo no encuentra teléfono, intentará Lusha automáticamente.'
+      ? 'Apollo se intentará primero. Si Apollo no encuentra un teléfono, SellUp intentará Lusha como respaldo.'
       : 'SellUp intentará Apollo.',
     creditsMessage: `Puede consumir hasta ${maxCredits} créditos.`,
+    // El desglose enumera SOLO las patas que esta autorización habilita: sin id
+    // Lusha reutilizable no aparece una línea de Lusha ni un total de 13, porque
+    // esa pata no puede ejecutarse. Lo mismo vale para el rol no autorizado, que
+    // ni llega a este modal (conserva el reveal Apollo one-click).
+    creditBreakdown: {
+      legs: args.lushaEligible
+        ? [
+            `Apollo: hasta ${PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS} créditos.`,
+            `Lusha: hasta ${PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS} créditos.`,
+          ]
+        : [`Apollo: hasta ${PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS} créditos.`],
+      total: `Máximo total autorizado: ${maxCredits} créditos.`,
+    },
     maxCredits,
     lushaUnavailableNote: args.lushaEligible
       ? null
       : 'Lusha no está disponible para este candidato porque no tiene identificador Lusha reutilizable.',
-    warnings: PHONE_REVEAL_WATERFALL_COMMON_WARNINGS,
+    warnings: PHONE_REVEAL_WATERFALL_FULL_WARNINGS,
     confirmLabel: 'Confirmar y revelar',
     cancelLabel: 'Cancelar',
   };
