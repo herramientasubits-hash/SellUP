@@ -786,3 +786,29 @@ adding no criterion and relaxing none, and records the finding one step earlier 
 absent record is not an invalid record, because there is nothing to check, so no proportion of the criteria can
 be reported as met. Its own § 11 closes the same implication rule on the reviewer: a merged capture review is
 not an approval, and a decision record for a gate remains not a decision on that gate.
+
+---
+
+## 20. Update (BR-SOURCE-11Z)
+
+BR-SOURCE-11Z creates an owner decision completion packet. It packages the missing owner fields detected by
+11Y — the fields of the three records in § 5, § 6 and § 7 — so owners can complete them later. Current result
+remains NO-GO because this package does not fill owner fields, does not capture owner decisions and grants no
+approval. It does not approve GATE-2. It does not approve GATE-7. It does not approve cap/input policy. It
+does not authorize caps, input roots, output roots, temp storage, controlled execution, real-data access,
+import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11z-owner-decision-completion-packet.md`](./br-receita-cnpj-11z-owner-decision-completion-packet.md).
+
+It flips no status in this document and completes no field in it. All fifty-one owner-supplied fields across
+§ 5, § 6 and § 7 still read `TBD_BY_OWNER` — 11Z is explicitly not authorized to complete any of them — all
+ten validity rules in § 4 remain unsatisfied for all three records, all twenty rows in § 11 remain
+unauthorized, all twelve lines in § 12 still read `no`, and the § 13 recommended decision to keep NO-GO is
+unchanged.
+
+11Z adds no field to any of the three records, removes none and widens no allowed value; its completion forms
+restate this document's fields as completion targets and attach, per field, the input an owner must obtain
+first. Three of this document's rules govern it directly. § 4's ten validity rules remain the whole test set,
+and 11Z's own completion rules layer on top of them rather than substituting for them. § 8's requirement that
+a valid record be captured **where approvals are captured** is why 11Z refuses to host a filled record and
+states the refusal as a rule rather than a scope note. And § 9's dependency stands: three valid and official
+records would still not authorize execution, which remains a separate decision under the 11V § 17 phrase.

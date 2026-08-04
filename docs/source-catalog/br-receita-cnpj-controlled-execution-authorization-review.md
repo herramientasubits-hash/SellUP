@@ -885,3 +885,28 @@ misread as real-data readiness* and *operator self-declares approval* rows into 
 decision may be inferred from a template, a PR merge, synthetic validation, a runbook, a precondition package
 or the capture review itself — the last clause applying the § 12 hazard to the reviewer rather than only to a
 future operator.
+
+---
+
+## 25. Update (BR-SOURCE-11Z)
+
+BR-SOURCE-11Z creates an owner decision completion packet. It packages the missing owner fields detected by
+11Y so owners can complete them later. Current result remains NO-GO because this package does not fill owner
+fields, does not capture owner decisions and grants no approval. It does not approve GATE-2. It does not
+approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots,
+temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11z-owner-decision-completion-packet.md`](./br-receita-cnpj-11z-owner-decision-completion-packet.md).
+
+It flips no row in the § 6 prerequisite table, clears no blocker in § 7, closes no risk in § 12, and changes
+no value in the § 11 preflight. The § 9 recommended draft decision — Option A, keep controlled execution
+blocked — is unchanged, and 11Z carries the analogous recommendation forward for itself.
+
+11Z is **not** the controlled execution attempt this review conditions and § 17 supplies a phrase for: that
+phrase remains unused, its own § 9 and § 13 both restate that an agent presented with it while any § 17 item
+stands must still refuse, and § 16's instruction is unchanged — if such a request arrives, re-run the § 11
+preflight against the state at that moment and refuse on any `no`. This review's § 12 risk register governs
+11Z more directly than any prior milestone: *operator self-declares approval* is why 11Z states as a rule,
+rather than as a scope note, that a completion may not be captured in a repository document, and 11Z adds one
+adjacent hazard of its own — a completion packet copied into an approval surface with its placeholders intact
+would file a record that looks submitted while answering nothing. § 8 Option C's escalation remains the step
+that changes the most, unchanged by this packet and still requiring its own separate owner phrase.
