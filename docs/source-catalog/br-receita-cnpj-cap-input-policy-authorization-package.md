@@ -974,3 +974,22 @@ rest of a submitted form — the four unavailable input classes in § 7, `simple
 no manifest reading in § 10, the unselected Option A or Option B in § 11 with inference from scaffold behavior
 still blocked, § 6's rule that a null cap is not an unlimited cap, and § 13's `not_authorized` floor for exact
 percentages, denominators and coverage language.
+
+---
+
+## 32. Update (BR-SOURCE-12B)
+
+BR-SOURCE-12B creates an owner completion resubmission packet. It defines what owners must resubmit after 12A
+found that no owner-completed intake was received. Current result remains NO-GO because no owner resubmission
+has been received, no owner decision was captured and no approval is granted. It does not approve GATE-2. It
+does not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output
+roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12b-owner-completion-resubmission-packet.md`](./br-receita-cnpj-12b-owner-completion-resubmission-packet.md).
+
+It approves no cap maximum, no input root, no output root and no temp storage, and it records no numeric value
+and no path. The six standing constraints 12B lists over its cap/input form are this package's: § 7's four
+unavailable input classes, § 8's bucketed output shape, § 9's family placement including the person-linked
+classes, § 10's authorization of no manifest reading at all, the unselected Option A or Option B in § 11 with
+inference from scaffold behavior still blocked, § 6's rule that a null cap is not an unlimited cap, and § 13's
+`not_authorized` floor for exact percentages, denominators and coverage language. 12B adds a rejection ground
+for a resubmission that names any unavailable class as approved, which restates § 7 rather than extending it.
