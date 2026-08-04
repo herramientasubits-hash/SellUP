@@ -40,6 +40,7 @@ import {
   passingAssessment,
   ambiguousAssessment,
   rejectedAssessment,
+  simulatedEffectiveRequestBuilder,
 } from './fixtures';
 import {
   resolveUsageCredits,
@@ -66,6 +67,9 @@ function simulate(options: {
   const recorder: SimulationRecorder = { searchCalls: [], enrichCalls: [], usageRows: [] };
 
   const deps: ApolloTwoRoundDeps = {
+    // HARDENING-3 § 6 — la simulación declara EXPLÍCITAMENTE su constructor de
+    // request efectivo, igual que producción. Sin él la ronda 2 no se autoriza.
+    buildRoundProviderRequest: simulatedEffectiveRequestBuilder(),
     searchRound: async ({ roundNumber }) => {
       recorder.searchCalls.push(roundNumber);
       const organizations = options.roundResults[roundNumber - 1] ?? [];

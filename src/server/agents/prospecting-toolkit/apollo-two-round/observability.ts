@@ -15,6 +15,30 @@
  * Puro: sin I/O, sin reloj.
  */
 
+// ─── Estado de construcción del request efectivo ──────────────────────────────
+
+/**
+ * A1-APOLLO-EFFECTIVE-FINGERPRINT-HARDENING-3 § 4 — por qué una ronda tiene (o no
+ * tiene) huella efectiva.
+ *
+ * Existe porque `effectiveProviderFingerprint = null` no dice NADA sobre la causa,
+ * y la causa es lo que decide si una segunda llamada pagada puede autorizarse. Un
+ * `catch` que devolvía `null` convertía tres situaciones distintas —no hay
+ * constructor, el constructor falló, el checkpoint es antiguo— en el mismo silencio.
+ *
+ *   `success`                   la huella se construyó y es la del body que saldría.
+ *   `unavailable_dependency`    no hay constructor inyectado (suites puras).
+ *   `build_error`               el constructor lanzó o no devolvió nada.
+ *   `legacy_checkpoint_missing` ronda rehidratada de un checkpoint anterior a este
+ *                               hito, sin el campo. NUNCA se rellena con la
+ *                               huella de hipótesis.
+ */
+export type ApolloEffectiveRequestBuildStatus =
+  | 'success'
+  | 'unavailable_dependency'
+  | 'build_error'
+  | 'legacy_checkpoint_missing';
+
 // ─── Ronda ────────────────────────────────────────────────────────────────────
 
 export type ApolloTwoRoundRoundMetrics = {
@@ -77,6 +101,17 @@ export type ApolloTwoRoundRoundMetrics = {
    * igualdad, y por eso se reporta null en vez de repetir la huella de hipótesis.
    */
   effectiveProviderFingerprint: string | null;
+  /**
+   * HARDENING-3 § 4 — por qué la huella efectiva está o falta. `null` sin causa
+   * declarada dejaba indistinguibles "no hay constructor" y "el constructor falló",
+   * y las dos deben impedir una segunda llamada pagada por motivos distintos.
+   */
+  effectiveRequestBuildStatus: ApolloEffectiveRequestBuildStatus;
+  /**
+   * HARDENING-3 § 4 — código sanitizado del fallo. Sólo el nombre del error, nunca
+   * el mensaje, la traza, el payload ni la API key. Null salvo en `build_error`.
+   */
+  effectiveRequestBuildErrorCode: string | null;
   /** § 12 — página pedida por esta ronda. */
   page: number | null;
   /** § 10 — `per_page` que el request efectivo llevó. Null si no se construyó. */
@@ -96,6 +131,8 @@ export function buildEmptyRoundMetrics(
   provider: {
     requestFingerprint?: string | null;
     effectiveRequestFingerprint?: string | null;
+    effectiveRequestBuildStatus?: ApolloEffectiveRequestBuildStatus;
+    effectiveRequestBuildErrorCode?: string | null;
     page?: number | null;
     perPage?: number | null;
     specificTermsSent?: readonly string[];
@@ -123,6 +160,12 @@ export function buildEmptyRoundMetrics(
     internalRecordedCredits: 0,
     providerRequestFingerprint: provider.requestFingerprint ?? null,
     effectiveProviderFingerprint: provider.effectiveRequestFingerprint ?? null,
+    // Sin causa declarada, la ausencia de constructor es la lectura honesta: es lo
+    // que hace una suite pura, y es fail-closed para la ronda 2.
+    effectiveRequestBuildStatus:
+      provider.effectiveRequestBuildStatus ??
+      (provider.effectiveRequestFingerprint ? 'success' : 'unavailable_dependency'),
+    effectiveRequestBuildErrorCode: provider.effectiveRequestBuildErrorCode ?? null,
     page: provider.page ?? null,
     perPage: provider.perPage ?? null,
     specificTermsSent: [...(provider.specificTermsSent ?? [])],
@@ -183,6 +226,16 @@ export type ApolloTwoRoundRunMetrics = {
   enrichmentWasteRate: number | null;
   enrichmentsExecuted: number;
   enrichmentWaste: number;
+  /**
+   * HARDENING-3 § 7 — ¿las huellas EFECTIVAS de las dos rondas resultaron
+   * distintas?
+   *
+   * `true`/`false` sólo cuando la comparación se pudo hacer de verdad. `null`
+   * cuando no se llegó a comparar —objetivo alcanzado en la ronda 1, `maxRounds=1`—
+   * o cuando una de las dos huellas no se pudo construir. Un `false` ahí afirmaría
+   * "son iguales" sobre un dato que nadie tiene.
+   */
+  effectiveFingerprintsAreDistinct: boolean | null;
 };
 
 /** Redondea a 4 decimales para que la métrica sea comparable entre corridas. */
@@ -199,6 +252,8 @@ export function buildRunMetrics(input: {
   totalSearchCredits: number;
   totalEnrichmentCredits: number;
   enrichmentOutcomes: readonly EnrichmentOutcome[];
+  /** HARDENING-3 § 7 — resultado de la comparación efectiva. Ausente ⇒ null. */
+  effectiveFingerprintsAreDistinct?: boolean | null;
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
   const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
@@ -234,6 +289,7 @@ export function buildRunMetrics(input: {
     enrichmentWasteRate: ratio(enrichmentWaste, enrichmentsExecuted),
     enrichmentsExecuted,
     enrichmentWaste,
+    effectiveFingerprintsAreDistinct: input.effectiveFingerprintsAreDistinct ?? null,
   };
 }
 
@@ -276,6 +332,10 @@ export function toRoundMetricsMetadata(
     // lo que salió. La decisión económica usa la efectiva.
     hypothesis_fingerprint: metrics.providerRequestFingerprint,
     effective_provider_fingerprint: metrics.effectiveProviderFingerprint,
+    // HARDENING-3 § 4 y § 7 — la causa viaja junto al dato: un null con
+    // `build_error` no se lee igual que un null con `unavailable_dependency`.
+    effective_request_build_status: metrics.effectiveRequestBuildStatus,
+    effective_request_build_error_code: metrics.effectiveRequestBuildErrorCode,
     page: metrics.page,
     per_page: metrics.perPage,
     specific_terms_sent: metrics.specificTermsSent,
@@ -305,5 +365,7 @@ export function toRunMetricsMetadata(
     enrichment_waste_rate: metrics.enrichmentWasteRate,
     enrichments_executed: metrics.enrichmentsExecuted,
     enrichment_waste: metrics.enrichmentWaste,
+    // HARDENING-3 § 7 — null cuando la comparación no se pudo hacer. Nunca false.
+    effective_fingerprints_are_distinct: metrics.effectiveFingerprintsAreDistinct,
   };
 }

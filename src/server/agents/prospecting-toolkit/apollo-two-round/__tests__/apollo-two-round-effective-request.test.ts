@@ -327,17 +327,36 @@ describe('§ 3 · body efectivo igual ⇒ ronda 2 omitida', () => {
     assert.equal(result.secondRoundSkippedReason, null);
   });
 
-  test('sin constructor de request efectivo la corrida sigue funcionando', async () => {
-    // Suites puras: el respaldo es la huella de hipótesis. Más pobre, pero nunca
-    // ejecuta una ronda que la hipótesis ya declara idéntica.
+  test('sin constructor de request efectivo la ronda 2 NO se ejecuta y se nombra la causa', async () => {
+    /**
+     * HARDENING-3 § 3 — el respaldo silencioso a la huella de HIPÓTESIS desapareció.
+     *
+     * Antes, sin constructor efectivo la corrida caía a comparar hipótesis y podía
+     * autorizar una segunda llamada pagada cuya diversidad nadie había demostrado.
+     * Ahora la ronda 1 se conserva íntegra y la ronda 2 se omite con su causa
+     * propia: `effective_request_fingerprint_unavailable`, NUNCA
+     * `identical_provider_request` —que afirmaría que los dos bodies son iguales— ni
+     * «las hipótesis difieren», que autorizaría el gasto.
+     */
     const { result, searchCalls } = await runWithPreviews({
       previewByRound: {},
       queryContext: { sector: 'Sector Inexistente', subindustry: null, targetLocations: [] },
       organizationsByRound: { 1: [org('uno')] },
     });
 
-    assert.equal(searchCalls.length, 1);
-    assert.equal(result.secondRoundSkippedReason, 'identical_provider_request');
+    assert.equal(searchCalls.length, 1, 'ni una llamada de la ronda 2');
+    assert.equal(
+      result.secondRoundSkippedReason,
+      'effective_request_fingerprint_unavailable',
+    );
+    assert.equal(
+      result.effectiveFingerprintsAreDistinct,
+      null,
+      'desconocido se reporta null, no false',
+    );
+    // La ronda 1 y su gasto siguen intactos.
+    assert.equal(result.roundsExecuted, 1);
+    assert.equal(result.runMetrics.totalSearchCredits, 1);
   });
 });
 
