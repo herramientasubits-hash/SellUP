@@ -37,6 +37,14 @@ const FILES = {
   ),
   panels: join(ROOT, 'src/components/prospect-batches/chat-wizard/wizard-execution-panels.tsx'),
   copy: join(ROOT, 'src/modules/prospect-batches/chat-wizard-execution/wizard-result-copy.ts'),
+  errorMap: join(
+    ROOT,
+    'src/components/prospect-batches/chat-wizard/wizard-execution-error-map.ts',
+  ),
+  types: join(
+    ROOT,
+    'src/modules/prospect-batches/chat-wizard-execution/wizard-execution-types.ts',
+  ),
 };
 
 const src = Object.fromEntries(
@@ -83,6 +91,71 @@ describe('§ 8 — el panel usa el resolutor de PRIORIDAD', () => {
     );
     assert.ok(block.length > 0, 'debe existir la rama de completed_with_errors');
     assert.doesNotMatch(block, /onEditSearch/);
+  });
+});
+
+// ── A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 1, § 2 y § 3 ──────────────────────
+//
+// El otro extremo de la cadena: el FALLO. El copy del writer llegaba entero, pero
+// el del preflight se perdía en `mapExecutionError`, que descarta el resultado
+// estructurado y sustituye el `retryable` del servidor por un literal de tabla.
+
+describe('§ 1 — el wizard resuelve PERSISTENCE_NOT_READY por su vía estructurada', () => {
+  it('el cliente NO manda el código al mapa estático a secas', () => {
+    assert.match(src.wizard, /result\.code === 'PERSISTENCE_NOT_READY'/);
+    assert.match(src.wizard, /mapPersistenceNotReady\(/);
+  });
+
+  it('le pasa el motivo del servidor Y el retryable del servidor', () => {
+    // Ambos argumentos importan: sin el primero los dos motivos dirían lo mismo;
+    // sin el segundo la UI impondría su propia reintentabilidad.
+    assert.match(
+      src.wizard,
+      /mapPersistenceNotReady\(result\.persistenceNotReady,\s*result\.retryable\)/,
+    );
+  });
+});
+
+describe('§ 1 — la pantalla no ofrece relanzar de inmediato', () => {
+  it('el gate de «Generar prospectos» conoce el bloqueo de persistencia', () => {
+    assert.match(src.summary, /isPersistenceBlocked/);
+    assert.match(src.summary, /executionError\?\.code === 'PERSISTENCE_NOT_READY'/);
+  });
+
+  it('el botón de generación y el selector de proveedor comparten ese gate', () => {
+    // Un selector visible junto a un botón ausente sugeriría que se puede elegir
+    // con qué reintentar algo que no se puede reintentar.
+    const gated = src.summary.match(/!isPersistenceBlocked/g) ?? [];
+    assert.equal(gated.length, 2, 'el gate debe cubrir el botón y el selector');
+  });
+});
+
+describe('§ 3 — el mapa de errores no puede volver a olvidar un código', () => {
+  it('el catálogo de códigos server-side es una tupla enumerable compartida', () => {
+    assert.match(src.types, /export const WIZARD_EXECUTION_FAILURE_CODES = \[/);
+    assert.match(src.types, /'PERSISTENCE_NOT_READY',/);
+    assert.match(
+      src.types,
+      /export type WizardExecutionFailureCode = \(typeof WIZARD_EXECUTION_FAILURE_CODES\)\[number\]/,
+    );
+  });
+
+  it('el mapa se tipa contra ese catálogo, no contra `string`', () => {
+    // `Record<WizardExecutionFailureCode, …>` es lo que hace que un código nuevo
+    // sin copy no compile. Con `Record<string, …>` compilaba y fallaba en runtime
+    // mostrando el mensaje genérico.
+    assert.match(src.errorMap, /Record<WizardExecutionFailureCode, ExecutionErrorPresentation>/);
+    assert.match(src.errorMap, /PERSISTENCE_NOT_READY:\s*\{/);
+  });
+
+  it('el copy del preflight no reutiliza el texto genérico de fallo', () => {
+    const generic = 'No fue posible completar la generación de prospectos.';
+    const persistenceCopy = src.errorMap.slice(
+      src.errorMap.indexOf('PERSISTENCE_NOT_READY_LEAD ='),
+      src.errorMap.indexOf('PERSISTENCE_NOT_READY_REASON_MESSAGES'),
+    );
+    assert.ok(persistenceCopy.length > 0);
+    assert.ok(!persistenceCopy.includes(generic));
   });
 });
 

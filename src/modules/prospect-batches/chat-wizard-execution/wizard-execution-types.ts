@@ -43,6 +43,50 @@ export type WizardExecutionErrorCode =
   | 'TOO_MANY_SUBINDUSTRIES'
   | 'INVALID_CRITERIA';
 
+/**
+ * A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 3 — catálogo ÚNICO de códigos con los
+ * que una corrida puede terminar en fallo.
+ *
+ * Antes vivía como una unión escrita a mano dentro del tipo del resultado, así
+ * que era invisible para cualquier consumidor: el mapa de copy de la UI mantenía
+ * su propia lista y la prueba de cobertura mantenía una TERCERA, hardcodeada.
+ * Con tres listas independientes, añadir un código en el servidor no rompía
+ * nada — y eso es exactamente cómo `PERSISTENCE_NOT_READY` llegó a Producción
+ * mostrando el mensaje genérico de fallback.
+ *
+ * Es una tupla `as const` a propósito: da el tipo (unión derivada, no duplicada)
+ * y a la vez es enumerable, de modo que el mapa de la UI puede exigirse
+ * exhaustivo en tiempo de compilación y la prueba puede recorrerla en vez de
+ * copiarla.
+ */
+export const WIZARD_EXECUTION_FAILURE_CODES = [
+  'EXECUTION_DISABLED',
+  'UNAUTHENTICATED',
+  'INACTIVE_USER',
+  'INVALID_REQUEST',
+  'CATALOG_CHANGED',
+  'IDEMPOTENCY_CONFLICT',
+  'PROVIDER_UNAVAILABLE',
+  'GENERATION_FAILED',
+  // Pilot budget guardrail codes (16AB.43.17)
+  'PILOT_PAUSED',
+  'NOT_IN_PILOT',
+  'BUDGET_PERIOD_NOT_CONFIGURED',
+  'BUDGET_PERIOD_CLOSED',
+  'EXECUTION_CREDIT_LIMIT_EXCEEDED',
+  'BUDGET_EXCEEDED',
+  'CONCURRENT_EXECUTION_ACTIVE',
+  'BUDGET_RESERVATION_FAILED',
+  /**
+   * A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — el esquema no puede guardar
+   * candidatos. Se decide ANTES de reservar presupuesto y ANTES de llamar al
+   * proveedor: cero reserva, cero llamadas, cero créditos.
+   */
+  'PERSISTENCE_NOT_READY',
+] as const;
+
+export type WizardExecutionFailureCode = (typeof WIZARD_EXECUTION_FAILURE_CODES)[number];
+
 export class WizardExecutionError extends Error {
   constructor(
     public readonly code: WizardExecutionErrorCode,
@@ -236,30 +280,12 @@ export type WizardExecutionActionResult =
     }
   | {
       ok: false;
-      code:
-        | 'EXECUTION_DISABLED'
-        | 'UNAUTHENTICATED'
-        | 'INACTIVE_USER'
-        | 'INVALID_REQUEST'
-        | 'CATALOG_CHANGED'
-        | 'IDEMPOTENCY_CONFLICT'
-        | 'PROVIDER_UNAVAILABLE'
-        | 'GENERATION_FAILED'
-        // Pilot budget guardrail codes (16AB.43.17)
-        | 'PILOT_PAUSED'
-        | 'NOT_IN_PILOT'
-        | 'BUDGET_PERIOD_NOT_CONFIGURED'
-        | 'BUDGET_PERIOD_CLOSED'
-        | 'EXECUTION_CREDIT_LIMIT_EXCEEDED'
-        | 'BUDGET_EXCEEDED'
-        | 'CONCURRENT_EXECUTION_ACTIVE'
-        | 'BUDGET_RESERVATION_FAILED'
-        /**
-         * A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — el esquema no puede guardar
-         * candidatos. Se decide ANTES de reservar presupuesto y ANTES de llamar
-         * al proveedor: cero reserva, cero llamadas, cero créditos.
-         */
-        | 'PERSISTENCE_NOT_READY';
+      /**
+       * Derivado de `WIZARD_EXECUTION_FAILURE_CODES` — no se vuelve a escribir la
+       * unión aquí. Añadir un código allí lo hace obligatorio en el mapa de copy
+       * de la UI en tiempo de compilación (§ 3).
+       */
+      code: WizardExecutionFailureCode;
       message: string;
       retryable: boolean;
       /**

@@ -61,7 +61,11 @@ import type { ApolloRunModeLimits } from './wizard-run-provider-copy';
 // ── Error code → user-facing message mapping ──────────────────────────────────
 // Extracted to a separate module so tests can import without a DOM environment.
 
-import { mapExecutionError, mapProviderSkip } from './wizard-execution-error-map';
+import {
+  mapExecutionError,
+  mapPersistenceNotReady,
+  mapProviderSkip,
+} from './wizard-execution-error-map';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -652,10 +656,18 @@ export function ProspectChatWizard({
         // A1-APOLLO-WIZARD-1: un proveedor omitido trae su propio motivo, con
         // mensaje y reintentabilidad precisos; el resto sigue por el mapa de
         // códigos de siempre.
+        //
+        // A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 1 y § 2: el preflight de
+        // persistencia se resuelve igual, desde su resultado estructurado. Pasar
+        // por `mapExecutionError` a secas descartaría `persistenceNotReady.reason`
+        // —la diferencia entre «falta la migración» y «no se pudo comprobar»— y
+        // sustituiría el `retryable` que decidió el servidor por el de una tabla.
         const mapped =
           result.code === 'PROVIDER_UNAVAILABLE'
             ? mapProviderSkip(result.providerSkipped?.skipReason)
-            : mapExecutionError(result.code);
+            : result.code === 'PERSISTENCE_NOT_READY'
+              ? mapPersistenceNotReady(result.persistenceNotReady, result.retryable)
+              : mapExecutionError(result.code);
         // El nombre del proveedor omitido se conserva visible; el motivo técnico
         // NO se muestra: el usuario ve el mensaje funcional ya mapeado.
         if (result.code === 'PROVIDER_UNAVAILABLE' && result.providerSkipped) {

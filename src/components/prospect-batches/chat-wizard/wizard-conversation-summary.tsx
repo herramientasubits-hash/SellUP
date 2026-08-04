@@ -226,6 +226,14 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
     return <LushaDisabledBlockedPanel onEditSearch={onEditSearch} dispatch={dispatch} />;
   }
 
+  // A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 1 — el preflight de persistencia
+  // bloqueó la corrida. El texto dice que hay que esperar a que se corrija el
+  // almacenamiento; dejar «Generar prospectos» a un clic contradiría el mensaje y
+  // sólo produciría el mismo bloqueo otra vez. Se retira también el selector de
+  // proveedor, que comparte gate con el botón por diseño: si esta pantalla no
+  // puede ejecutar, tampoco ofrece elegir con qué.
+  const isPersistenceBlocked = executionError?.code === 'PERSISTENCE_NOT_READY';
+
   const validBody = useLushaFinalSearch
     ? 'Revisa los criterios y ejecuta la búsqueda. Nada se guarda todavía.'
     : executionEnabled
@@ -287,6 +295,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           un no-admin no se renderiza nada. */}
       {!useLushaFinalSearch &&
         !isLushaBlocked &&
+        !isPersistenceBlocked &&
         executionEnabled &&
         onRequestedProviderChange !== undefined && (
           <WizardRunProviderSelector
@@ -299,7 +308,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           />
         )}
 
-      {!useLushaFinalSearch && !isLushaBlocked && executionEnabled && (
+      {!useLushaFinalSearch && !isLushaBlocked && !isPersistenceBlocked && executionEnabled && (
         <Button
           type="button"
           size="sm"
