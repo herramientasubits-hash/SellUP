@@ -171,7 +171,50 @@ export type ApolloTwoRoundQueryParameters = {
   locations: string[];
   keywordTags: string[];
   employeeRanges: string[];
+  /**
+   * QUERY-QUALITY-2 § 3 — página que la ronda pide. La ronda 1 siempre es la 1;
+   * la ronda 2 puede ser la 2 cuando no hay variante de términos y el proveedor
+   * declaró más de una página.
+   */
+  page: number;
 };
+
+/**
+ * QUERY-QUALITY-2 § 3 — huella NORMALIZADA de los parámetros que SALEN hacia el
+ * proveedor.
+ *
+ * Es la única medida honesta de "esta ronda es distinta": la corrida QA
+ * `edb6f40c` ejecutó dos rondas cuyo `request_fingerprint` de Apollo era
+ * byte-idéntico y sólo cambiaba el texto humano de `query_hypothesis`. Ese texto
+ * no viaja al proveedor y no puede traer un solo resultado nuevo.
+ *
+ * Normaliza igual que el contrato: minúsculas, sin acentos, arrays ordenados.
+ * Incluye la página, porque la página SÍ cambia lo que Apollo devuelve.
+ */
+export function buildApolloRoundProviderFingerprint(
+  parameters: ApolloTwoRoundQueryParameters,
+): string {
+  const normalizeList = (values: readonly string[]): string =>
+    [...values].map(normalizeKey).filter((value) => value !== '').sort().join(',');
+
+  return [
+    `organization_locations=${normalizeList(parameters.locations)}`,
+    `organization_num_employees_ranges=${normalizeList(parameters.employeeRanges)}`,
+    `page=${parameters.page}`,
+    `q_organization_keyword_tags=${normalizeList(parameters.keywordTags)}`,
+  ].join('|');
+}
+
+/** QUERY-QUALITY-2 § 3 — de dónde salió la variante de la ronda 2. */
+export type ApolloRound2VariantStrategy =
+  /** Conjunto alternativo de términos específicos del catálogo. */
+  | 'alternative_specific_terms'
+  /** Hipótesis regional o lingüística alternativa válida. */
+  | 'alternative_region_hypothesis'
+  /** Página 2 de la misma búsqueda, con `total_pages >= 2` declarado. */
+  | 'same_query_next_page'
+  /** No existe variante real: la ronda no debe ejecutarse. */
+  | 'no_real_variant';
 
 export type ApolloTwoRoundQueryHypothesis = {
   roundNumber: number;
@@ -179,6 +222,8 @@ export type ApolloTwoRoundQueryHypothesis = {
   queryHypothesis: string;
   /** Parámetros sanitizados que sí viajan al proveedor. */
   queryParameters: ApolloTwoRoundQueryParameters;
+  /** § 3 — huella normalizada de lo que SALE. Es lo que decide si difiere. */
+  providerRequestFingerprint: string;
   /** Términos aplicados localmente porque Apollo no admite exclusiones. */
   locallyExcludedTerms: string[];
   /** Por qué la hipótesis de la ronda 2 difiere de la de la ronda 1. */
@@ -219,14 +264,18 @@ export function buildRound1Hypothesis(
   const label = context.subindustry?.trim() || context.sector?.trim() || 'sin sector';
   const countryLabel = context.country?.trim() || context.countryCode?.trim() || 'sin país';
 
+  const queryParameters: ApolloTwoRoundQueryParameters = {
+    locations: dedupeTrimmed([context.country, ...(context.targetLocations ?? [])]),
+    keywordTags: dedupeTrimmed(positive),
+    employeeRanges: dedupeTrimmed(context.employeeRanges ?? []),
+    page: 1,
+  };
+
   return {
     roundNumber: 1,
     queryHypothesis: `${label} en ${countryLabel} — señales estrictas de subindustria`,
-    queryParameters: {
-      locations: dedupeTrimmed([context.country, ...(context.targetLocations ?? [])]),
-      keywordTags: dedupeTrimmed(positive),
-      employeeRanges: dedupeTrimmed(context.employeeRanges ?? []),
-    },
+    queryParameters,
+    providerRequestFingerprint: buildApolloRoundProviderFingerprint(queryParameters),
     locallyExcludedTerms: resolved ? [...resolved.signals.contradictory] : [],
     queryAdaptationReason: null,
     requestedResultLimit,
@@ -247,6 +296,13 @@ export type Round1Feedback = {
   observedRejectionReasons: readonly string[];
   /** Términos derivados de falsos positivos de la ronda 1. */
   falsePositiveTerms?: readonly string[];
+  /**
+   * QUERY-QUALITY-2 § 3 — `total_pages` que el proveedor declaró en la ronda 1.
+   *
+   * Es la única condición que autoriza la página 2 como variante: pedir una
+   * página que el proveedor no declara es pagar por una respuesta vacía.
+   */
+  providerTotalPages?: number | null;
 };
 
 /**
@@ -261,7 +317,7 @@ export function buildRound2Hypothesis(
   context: ApolloTwoRoundQueryContext,
   feedback: Round1Feedback,
   requestedResultLimit: number,
-): ApolloTwoRoundQueryHypothesis & { differsFromRound1: boolean } {
+): ApolloRound2Hypothesis {
   const round1 = buildRound1Hypothesis(context, requestedResultLimit);
   const resolved = resolveSectorSignalSet(context.sector, context.subindustry);
 
@@ -292,29 +348,147 @@ export function buildRound2Hypothesis(
   if (feedback.observedRejectionReasons.length > 0) adaptationParts.push('motivos_de_descarte_ronda_1');
   if ((feedback.falsePositiveTerms ?? []).length > 0) adaptationParts.push('terminos_negativos_de_falsos_positivos');
 
-  // "Difiere" mide el único eje que puede traer resultados nuevos del proveedor:
-  // los parámetros enviados. Excluir localmente organizaciones ya vistas no
-  // cambia lo que Apollo devuelve y por tanto no justifica una segunda búsqueda.
+  // ── § 3: elección de variante, en orden de preferencia ──────────────────────
+  //
+  //   1. conjunto alternativo de términos específicos;
+  //   2. hipótesis regional o lingüística alternativa válida;
+  //   3. página 2 de la misma búsqueda cuando el proveedor declara total_pages≥2;
+  //   4. sin variante real ⇒ la ronda se omite.
+  //
+  // El criterio NO es el texto humano de `query_hypothesis`: es la huella
+  // normalizada de lo que sale hacia Apollo. Dos rondas con el mismo body son la
+  // misma búsqueda cobrada dos veces, por muy distinta que suene su descripción.
+  const termsChanged =
+    keywordTags.map(normalizeKey).join('|') !==
+    round1.queryParameters.keywordTags.map(normalizeKey).join('|');
+  const locationsChanged =
+    locations.map(normalizeKey).join('|') !==
+    round1.queryParameters.locations.map(normalizeKey).join('|');
+
+  const totalPages =
+    typeof feedback.providerTotalPages === 'number' &&
+    Number.isFinite(feedback.providerTotalPages)
+      ? feedback.providerTotalPages
+      : null;
+  const nextPageAvailable = totalPages !== null && totalPages >= 2;
+
+  let variantStrategy: ApolloRound2VariantStrategy;
+  let queryParameters: ApolloTwoRoundQueryParameters;
+
+  if (termsChanged) {
+    variantStrategy = 'alternative_specific_terms';
+    queryParameters = {
+      locations,
+      keywordTags,
+      employeeRanges: round1.queryParameters.employeeRanges,
+      page: 1,
+    };
+  } else if (locationsChanged) {
+    variantStrategy = 'alternative_region_hypothesis';
+    queryParameters = {
+      locations,
+      keywordTags,
+      employeeRanges: round1.queryParameters.employeeRanges,
+      page: 1,
+    };
+  } else if (nextPageAvailable) {
+    // Sin variante de términos ni de región, la única forma de traer algo nuevo
+    // es otra página. Repetir la página 1 con el mismo filtro está prohibido.
+    variantStrategy = 'same_query_next_page';
+    queryParameters = {
+      locations: round1.queryParameters.locations,
+      keywordTags: round1.queryParameters.keywordTags,
+      employeeRanges: round1.queryParameters.employeeRanges,
+      page: 2,
+    };
+    adaptationParts.push('pagina_2_de_la_misma_busqueda');
+  } else {
+    variantStrategy = 'no_real_variant';
+    queryParameters = {
+      locations,
+      keywordTags,
+      employeeRanges: round1.queryParameters.employeeRanges,
+      page: 1,
+    };
+  }
+
+  const providerRequestFingerprint = buildApolloRoundProviderFingerprint(queryParameters);
   const differsFromRound1 =
-    keywordTags.join('|') !== round1.queryParameters.keywordTags.join('|') ||
-    locations.join('|') !== round1.queryParameters.locations.join('|');
+    providerRequestFingerprint !== round1.providerRequestFingerprint;
 
   return {
     roundNumber: 2,
     queryHypothesis:
-      `${label} en ${countryLabel} — sinónimos controlados y regiones objetivo, ` +
-      'excluyendo señales financieras y organizaciones ya vistas',
-    queryParameters: {
-      locations,
-      keywordTags,
-      employeeRanges: round1.queryParameters.employeeRanges,
-    },
+      variantStrategy === 'same_query_next_page'
+        ? `${label} en ${countryLabel} — misma búsqueda, página 2, ` +
+          'excluyendo señales financieras y organizaciones ya vistas'
+        : `${label} en ${countryLabel} — sinónimos controlados y regiones objetivo, ` +
+          'excluyendo señales financieras y organizaciones ya vistas',
+    queryParameters,
+    providerRequestFingerprint,
     locallyExcludedTerms,
     queryAdaptationReason:
       adaptationParts.length > 0 ? adaptationParts.join('+') : 'sin_senales_de_adaptacion',
     requestedResultLimit,
     sectorSignalsMissing: resolved === null,
     differsFromRound1,
+    variantStrategy,
+  };
+}
+
+/** Hipótesis de la ronda 2, con su veredicto de diferencia y su variante. */
+export type ApolloRound2Hypothesis = ApolloTwoRoundQueryHypothesis & {
+  differsFromRound1: boolean;
+  variantStrategy: ApolloRound2VariantStrategy;
+};
+
+/**
+ * QUERY-QUALITY-2-FIX § 4 — la MISMA hipótesis pidiendo otra página.
+ *
+ * Existe porque la variante «página 2» sólo puede decidirse DESPUÉS de comprobar
+ * que el request efectivo de la ronda 2 colapsó al de la ronda 1: la hipótesis, por
+ * sí sola, no sabe qué términos sobrevivirán a la prioridad y al truncamiento. El
+ * orquestador construye la ronda 2, compara el body efectivo y, sólo si resultó
+ * idéntico y el proveedor declaró `total_pages >= 2`, vuelve a pedirla con esta
+ * función.
+ *
+ * Inmutable: devuelve una hipótesis nueva y recalcula la huella. `differsFromRound1`
+ * se recalcula contra la huella de hipótesis de la ronda 1 que el llamador aporta —
+ * la decisión económica final la toma el orquestador con la huella EFECTIVA, no con
+ * este campo.
+ */
+export function withRequestedPage(
+  hypothesis: ApolloRound2Hypothesis,
+  page: number,
+  round1Fingerprint: string | null,
+): ApolloRound2Hypothesis {
+  const requestedPage = Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1;
+  if (requestedPage === hypothesis.queryParameters.page) return hypothesis;
+
+  const queryParameters: ApolloTwoRoundQueryParameters = {
+    ...hypothesis.queryParameters,
+    locations: [...hypothesis.queryParameters.locations],
+    keywordTags: [...hypothesis.queryParameters.keywordTags],
+    employeeRanges: [...hypothesis.queryParameters.employeeRanges],
+    page: requestedPage,
+  };
+  const providerRequestFingerprint = buildApolloRoundProviderFingerprint(queryParameters);
+  const adaptationParts = (hypothesis.queryAdaptationReason ?? '')
+    .split('+')
+    .filter((part) => part !== '' && part !== 'sin_senales_de_adaptacion');
+  if (!adaptationParts.includes('pagina_2_de_la_misma_busqueda')) {
+    adaptationParts.push('pagina_2_de_la_misma_busqueda');
+  }
+
+  return {
+    ...hypothesis,
+    queryParameters,
+    providerRequestFingerprint,
+    variantStrategy: 'same_query_next_page',
+    queryAdaptationReason: adaptationParts.join('+'),
+    queryHypothesis: `${hypothesis.queryHypothesis} — página ${requestedPage}`,
+    differsFromRound1:
+      round1Fingerprint === null || providerRequestFingerprint !== round1Fingerprint,
   };
 }
 
@@ -353,7 +527,12 @@ export function toQueryHypothesisMetadata(
       organization_locations: hypothesis.queryParameters.locations,
       q_organization_keyword_tags: hypothesis.queryParameters.keywordTags,
       organization_num_employees_ranges: hypothesis.queryParameters.employeeRanges,
+      page: hypothesis.queryParameters.page,
     },
+    // § 12 — la observabilidad del próximo QA no puede depender del texto humano.
+    provider_request_fingerprint: hypothesis.providerRequestFingerprint,
+    page: hypothesis.queryParameters.page,
+    specific_terms_sent: hypothesis.queryParameters.keywordTags,
     locally_excluded_terms: hypothesis.locallyExcludedTerms,
     query_adaptation_reason: hypothesis.queryAdaptationReason,
     requested_result_limit: hypothesis.requestedResultLimit,

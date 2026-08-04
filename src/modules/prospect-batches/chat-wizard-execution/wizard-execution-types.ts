@@ -1,5 +1,6 @@
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
 import type { WizardApolloSkipReason } from './wizard-apollo-availability';
+import type { NoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
 import type {
   ProviderResolutionReason,
   WizardDiscoveryProvider,
@@ -186,6 +187,14 @@ export type WizardExecutionActionResult =
         roundsExecuted: number | null;
         eligibleCompaniesFound: number | null;
       };
+      /**
+       * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 8 — distribución REAL de descartes.
+       *
+       * Sólo se envía cuando la corrida terminó sin empresas nuevas: es lo que
+       * permite decirle al usuario la causa que ocurrió en vez de una disyunción
+       * genérica entre las dos posibles.
+       */
+      noNewCandidatesBreakdown?: NoNewCandidatesBreakdown;
     }
   | {
       ok: false;

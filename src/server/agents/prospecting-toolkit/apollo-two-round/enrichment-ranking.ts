@@ -59,6 +59,19 @@ export type FreeCandidateSignals = {
   knownDuplicate: boolean;
   /** Cooldown activo sobre el dominio. */
   cooldownActive: boolean;
+  /**
+   * QUERY-QUALITY-2 § 7 — la INDUSTRIA DECLARADA contradice la subindustria
+   * buscada, y ninguna señal positiva la desmiente.
+   *
+   * Se lee sólo de campos declarados (`industry`, `industries[]`), nunca de la
+   * descripción: un supermercado con crédito de consumo la menciona sin ser un
+   * banco. Es la señal que impide repetir el crédito gastado en Citigroup en una
+   * búsqueda de supermercados.
+   *
+   * Opcional: un checkpoint escrito antes de este hito no la trae, y su ausencia
+   * significa «no se observó contradicción», no «hay contradicción».
+   */
+  declaredSectorContradiction?: boolean;
 };
 
 // ─── Pesos ────────────────────────────────────────────────────────────────────
@@ -115,7 +128,9 @@ export function scoreCandidateForEnrichment(
   add(signals.domainConfident, w.domainConfident, 'domain_confidence');
   add(signals.ownershipConfident, w.ownershipConfident, 'name_domain_ownership_confidence');
   add(
-    signals.freeOfContradictoryEvidence,
+    // § 7 — la contradicción declarada anula el premio por «sin evidencia en
+    // contra»: la evidencia en contra existe y es gratuita.
+    signals.freeOfContradictoryEvidence && signals.declaredSectorContradiction !== true,
     w.freeOfContradictoryEvidence,
     'absence_of_contradictory_evidence',
   );
@@ -204,6 +219,12 @@ function disqualify(
   if (candidate.cooldownActive) return 'cooldown_active';
   if (!candidate.countryCompatible) return 'country_incompatible';
   if (!candidate.domainConfident) return 'domain_not_confident';
+  // § 7 — una contradicción VISIBLE en campos gratuitos impide el enrichment,
+  // aunque el veredicto sectorial todavía diga «falta evidencia». Comprar la
+  // descripción de un banco no lo convierte en supermercado.
+  if (candidate.declaredSectorContradiction === true) {
+    return 'sector_evidence_contradictory';
+  }
   if (candidate.sectorEvidenceState === 'sector_evidence_contradictory') {
     return 'sector_evidence_contradictory';
   }

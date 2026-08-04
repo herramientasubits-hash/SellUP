@@ -8,7 +8,7 @@
  *   ENABLE_APOLLO_COMPANY_SEARCH=true            → llamada real a Apollo con guardrails duros.
  *
  * Guardrails (real-limited):
- *   MAX_APOLLO_ORGANIZATIONS_PER_RUN    = 10  orgs como máximo por invocación.
+ *   APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS = 10  orgs como máximo por invocación.
  *   MAX_APOLLO_ORGANIZATIONS_CREDITS    = 10  créditos estimados máximos por invocación.
  *   1 organización retornada = 1 crédito estimado.
  *
@@ -37,7 +37,6 @@ import {
   type ApolloOrganization,
   type EnrichOrganizationParams,
   type ApolloEnrichResult,
-  type SearchOrganizationsParams,
 } from '@/server/integrations/apollo-client';
 import {
   runApolloOrganizationEnrichmentCascade,
@@ -63,10 +62,20 @@ import {
   APOLLO_LEGACY_BILLING_CONTRACT,
   APOLLO_TWO_ROUND_BILLING_CONTRACT,
 } from '../apollo-usage-operation-context';
+import { APOLLO_QUERY_MAPPING_VERSION } from '../apollo-organizations-query-mapping';
+// QUERY-QUALITY-2-FIX § 1/§ 2 — constructor ÚNICO del request efectivo y de su
+// huella. Construir y ejecutar quedan separados: el orquestador de dos rondas
+// compara bodies sin emitir una llamada, y este provider ejecuta el MISMO body.
 import {
-  buildApolloOrganizationsSearchParams,
-  APOLLO_QUERY_MAPPING_VERSION,
-} from '../apollo-organizations-query-mapping';
+  APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS,
+  buildApolloOrganizationsEffectiveRequest,
+  resolveApolloResultLimit,
+  toApolloContractFilters,
+  toApolloEffectiveRequestMetadata,
+  type ApolloEffectiveRequest,
+  type ApolloResultLimitMode,
+  type ApolloResultLimitResolution,
+} from '../apollo-organizations-effective-request';
 import { resolveApolloMaxResultsPerQuery } from '../apollo-cost-guardrails';
 // A1-APOLLO-WIZARD-1 — paginación acotada, normalización con prioridad de
 // `organizations[]`, taxonomía de errores y lectura de cuota real.
@@ -92,7 +101,6 @@ import {
   type ApolloErrorClassification,
 } from '../apollo-organizations-error-taxonomy';
 import { toRateLimitLogMetadata } from '@/server/integrations/apollo-rate-limit-headers';
-import type { ApolloOrganizationsRequestInput } from '../apollo-organizations-request-contract';
 import { applyApolloSectorRelevanceGate } from '../apollo-sector-relevance-gate';
 import { ingestApolloOrganizationIndustryRawLabels } from '@/modules/industry-mapping/apollo-industry-raw-label-ingestion';
 import { normalizeClassificationValue } from '@/modules/prospect-batches/import-classification/catalog-normalization';
@@ -213,16 +221,48 @@ export type ApolloOrganizationsUsageMetadata = {
 
 // ─── Guardrails ───────────────────────────────────────────────────────────────
 
-const MAX_APOLLO_ORGANIZATIONS_PER_RUN = 10;
 const MAX_APOLLO_ORGANIZATIONS_CREDITS = 10;
 const APOLLO_ORGANIZATIONS_UNIT_COST_USD = 0.00875;
 
-function cappedMaxResults(requested: number): { cap: number; wasCapped: boolean; maxResultsCapSource: string } {
-  // Two-layer cap: env-configurable QA guardrail first, then hard provider limit.
-  const envCap = resolveApolloMaxResultsPerQuery();
-  const cap = Math.min(requested, envCap, MAX_APOLLO_ORGANIZATIONS_PER_RUN);
-  const maxResultsCapSource = cap < requested ? 'agent1_apollo_cost_guardrail' : 'none';
-  return { cap, wasCapped: cap < requested, maxResultsCapSource };
+/**
+ * QUERY-QUALITY-2-FIX § 1 — el límite efectivo y el request efectivo los resuelve
+ * `apollo-organizations-effective-request`, no este archivo.
+ *
+ * Se reexportan para no romper a los consumidores que ya los importan de aquí,
+ * pero la implementación es UNA: la que gobierna la llamada real es exactamente la
+ * que el orquestador usa para decidir si una segunda ronda vale un crédito.
+ */
+export {
+  APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS,
+  resolveApolloResultLimit,
+  buildApolloOrganizationsEffectiveRequest,
+};
+export type {
+  ApolloEffectiveRequest,
+  ApolloResultLimitMode,
+  ApolloResultLimitResolution,
+};
+
+/**
+ * Construye el request EFECTIVO de esta invocación sin ejecutarlo.
+ *
+ * § 2 — construir y ejecutar son dos pasos. El orquestador de dos rondas llama al
+ * primero para comparar rondas sin gastar; este provider llama al primero y luego
+ * al segundo. No hay una segunda implementación del mapeo.
+ */
+function buildEffectiveRequestForCall(
+  input: WebSearchInput,
+  requested: number,
+  options?: ApolloOrgsSearchOptions,
+): ApolloEffectiveRequest {
+  return buildApolloOrganizationsEffectiveRequest({
+    input,
+    requestedMaxResults: requested,
+    resultLimitMode: options?.resultLimitMode,
+    twoRoundMaxResultsPerRound: options?.twoRoundMaxResultsPerRound ?? null,
+    startPage: options?.startPage ?? null,
+    legacyMaxResultsPerQuery: resolveApolloMaxResultsPerQuery(),
+  });
 }
 
 // ─── Mapping puro Apollo org → WebSearchResult ────────────────────────────────
@@ -519,6 +559,15 @@ export type ApolloSectorGateMode = 'filter' | 'annotate';
 
 export type ApolloOrgsSearchOptions = {
   sectorGateMode?: ApolloSectorGateMode;
+  /** Ausente ⇒ `legacy`. */
+  resultLimitMode?: ApolloResultLimitMode;
+  /** Límite por ronda ya resuelto por la config de dos rondas. Sólo en `two_round`. */
+  twoRoundMaxResultsPerRound?: number;
+  /**
+   * § 3 — página a pedir. Ausente ⇒ 1. La ronda 2 puede pedir la página 2 de la
+   * misma búsqueda cuando no existe una variante de términos genuinamente nueva.
+   */
+  startPage?: number;
 };
 
 // ─── A1-APOLLO-WIZARD-1: adaptadores de la ruta paginada ─────────────────────
@@ -565,21 +614,12 @@ function adaptSearchOrgsToPage(
 }
 
 /**
- * Traduce los params del mapper de query a los filtros tipados del contrato de
- * request. `page` y `per_page` los gobierna el presupuesto de paginación, no el
- * mapper, así que se descartan aquí a propósito.
+ * QUERY-QUALITY-2-FIX § 1 — traductor ÚNICO de params del mapper a filtros del
+ * contrato. Vive en `apollo-organizations-effective-request` y se reexpone aquí
+ * sólo por compatibilidad: una segunda copia local permitiría que la huella que se
+ * compara y el body que se envía salieran de dos traducciones distintas.
  */
-function buildPaginatedSearchFilters(
-  params: SearchOrganizationsParams,
-): Omit<ApolloOrganizationsRequestInput, 'page' | 'perPage'> {
-  return {
-    locations: params.organization_locations ?? null,
-    employeeRanges: params.organization_num_employees_ranges ?? null,
-    keywordTags: params.q_organization_keyword_tags ?? null,
-    organizationName: params.q_organization_name ?? null,
-    domainsList: params.q_organization_domains ?? null,
-  };
-}
+const buildPaginatedSearchFilters = toApolloContractFilters;
 
 /**
  * Convierte la organización normalizada a la forma `ApolloOrganization` que
@@ -686,8 +726,15 @@ export async function runApolloOrganizationsSearch(
     };
   }
 
-  // ── Guardrail: cap de resultados (env + hard limit) ─────────────────────────
-  const { cap, wasCapped, maxResultsCapSource } = cappedMaxResults(maxResults);
+  // ── Request EFECTIVO: límite, prioridad de términos, truncamiento y página ──
+  //
+  // § 1/§ 2 — una sola construcción. `effective.body` es literalmente lo que sale
+  // hacia Apollo, y `effective.effectiveRequestFingerprint` la huella que la
+  // decisión económica de la ronda 2 compara. § 5 — en modo `two_round` el límite
+  // lo fija la config de la modalidad, no la variable legacy.
+  const effective = buildEffectiveRequestForCall(input, maxResults, options);
+  const resultLimit = effective.limit;
+  const { cap, wasCapped, maxResultsCapSource } = resultLimit;
 
   const startMs = Date.now();
   // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 2 — la ronda entra en la clave.
@@ -736,19 +783,21 @@ export async function runApolloOrganizationsSearch(
     }
   }
 
-  // ── Construir params estructurados Apollo (v1.16K-AA) ───────────────────────
-  // Usa q_keywords (búsqueda libre) en lugar de q_organization_name (nombre exacto).
-  // organization_locations recibe el país como filtro estructurado.
-  const { params: apolloParams, meta: mappingMeta } = buildApolloOrganizationsSearchParams(
-    input,
-    cap,
-  );
+  // ── Params estructurados Apollo, ya resueltos por el request efectivo ───────
+  // Usa q_organization_keyword_tags (no q_organization_name, que exige nombre
+  // exacto). organization_locations recibe el país como filtro estructurado.
+  const apolloParams = effective.params;
+  const mappingMeta = effective.mappingMeta;
   const apolloParamsSanitized = {
     ...mappingMeta,
     was_capped: wasCapped,
     capped_max_results: cap,
     requested_max_results: maxResults,
     max_results_cap_source: maxResultsCapSource,
+    // § 5/§ 10 — los DOS límites y la huella del body efectivo, siempre visibles,
+    // para que un diagnóstico pueda decir qué gobernó la llamada en vez de
+    // deducirlo del texto de la consulta.
+    ...toApolloEffectiveRequestMetadata(effective),
   };
 
   // ── A1-APOLLO-WIZARD-1: búsqueda paginada acotada ───────────────────────────
@@ -779,6 +828,11 @@ export async function runApolloOrganizationsSearch(
       budget: paginationBudget,
       wizardRunId: usageContext?.batchId ?? `no_batch:${startMs}`,
       agentRunId: usageContext?.agentRunId ?? null,
+      // § 3 — la ronda 2 puede pedir la página 2 de la MISMA búsqueda cuando no
+      // hay variante de términos que la haga distinta. La página sale del request
+      // efectivo, no de la opción cruda: así la huella comparada y la página
+      // enviada no pueden discrepar. Ausente ⇒ 1, como todos los llamadores previos.
+      startPage: effective.page,
     },
     {
       fetchPage,
@@ -803,6 +857,13 @@ export async function runApolloOrganizationsSearch(
     total_entries: paginated.paginationMeta.totalEntries,
     total_pages: paginated.paginationMeta.totalPages,
     request_fingerprint: paginated.requestFingerprint,
+    // QUERY-QUALITY-2-FIX § 1 — invariante observable: la huella que se calculó
+    // ANTES de ejecutar es la del body que la paginación realmente construyó. Si
+    // alguna vez dejaran de coincidir, la decisión de la ronda 2 estaría mirando
+    // un request que no es el que salió.
+    effective_request_fingerprint: effective.effectiveRequestFingerprint,
+    effective_request_fingerprint_matches_sent:
+      effective.filtersFingerprint === paginated.requestFingerprint,
     indeterminate_pages: paginated.indeterminatePages,
     rejected_forbidden_params: paginated.rejectedForbiddenParams,
     rejected_unknown_params: paginated.rejectedUnknownParams,

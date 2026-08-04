@@ -143,6 +143,17 @@ export type ApolloOrganizationsRequestContract = {
   sentParamKeys: string[];
   /** Huella estable de los filtros — base de la clave idempotente por página. */
   filtersFingerprint: string;
+  /**
+   * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 1 — huella del request EFECTIVO,
+   * `page` incluida.
+   *
+   * `filtersFingerprint` excluye la página a propósito: es el ancla idempotente
+   * de una búsqueda paginada, y la página 2 de los mismos filtros debe compartir
+   * ancla con la 1. Pero para decidir si una SEGUNDA ronda puede traer algo
+   * nuevo, la página es justamente lo que puede cambiar la respuesta. Dos huellas
+   * distintas para dos preguntas distintas, derivadas del MISMO body.
+   */
+  effectiveRequestFingerprint: string;
 };
 
 // ─── Helpers puros ────────────────────────────────────────────────────────────
@@ -201,8 +212,30 @@ function isAllowedParam(name: string): boolean {
  * página es estable entre reintentos.
  */
 function buildFiltersFingerprint(body: ApolloOrganizationsRequestBody): string {
+  return fingerprintBody(body, { includePage: false });
+}
+
+/**
+ * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 1 — huella del body EFECTIVO, `page`
+ * incluida.
+ *
+ * Única función que la decisión económica de la ronda 2 puede usar: se calcula
+ * sobre el body ya construido por este contrato, es decir, después de la
+ * prioridad de términos, de la deduplicación y del truncamiento. Comparar
+ * hipótesis antes de todo eso declara distintas dos rondas que envían lo mismo.
+ */
+export function buildApolloEffectiveRequestFingerprint(
+  body: ApolloOrganizationsRequestBody,
+): string {
+  return fingerprintBody(body, { includePage: true });
+}
+
+function fingerprintBody(
+  body: ApolloOrganizationsRequestBody,
+  options: { includePage: boolean },
+): string {
   const entries = Object.entries(body)
-    .filter(([key]) => key !== 'page')
+    .filter(([key]) => options.includePage || key !== 'page')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => {
       if (Array.isArray(value)) {
@@ -331,6 +364,7 @@ export function buildApolloOrganizationsRequestContract(
     rejectedUnknownParams,
     sentParamKeys: Object.keys(body).sort(),
     filtersFingerprint: buildFiltersFingerprint(body),
+    effectiveRequestFingerprint: buildApolloEffectiveRequestFingerprint(body),
   };
 }
 

@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   buildApolloOrganizationsSearchParams,
-  buildApolloKeywords,
+  buildPrioritizedApolloKeywords,
   getSectorKeywords,
   getSubindustryKeywords,
   APOLLO_QUERY_MAPPING_VERSION,
@@ -165,8 +165,8 @@ describe('Apollo mapping — additionalCriteriaTokens', () => {
 // ─── E. Apollo mapping con criterio genérico ─────────────────────────────────
 
 describe('Apollo mapping — criterio genérico no genera ruido', () => {
-  it('E1. buildApolloKeywords sin subindustrias ni tokens: usa sector puro', () => {
-    const { keywords } = buildApolloKeywords({
+  it('E1. sin subindustrias ni tokens: la prioridad usa sector puro', () => {
+    const { keywords } = buildPrioritizedApolloKeywords({
       industry: 'Educación',
       subindustries: [],
       additionalCriteriaTokens: [],
