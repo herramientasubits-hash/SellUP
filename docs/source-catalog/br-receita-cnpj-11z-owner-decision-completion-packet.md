@@ -956,3 +956,30 @@ and no execution can proceed.** Zero of three records exist, all fifty-one owner
 11X § 5, § 6 and § 7 still read `TBD_BY_OWNER`, all eight supporting references in § 9 are missing, all
 eleven completion areas in § 5 require owner action this packet cannot supply, all fourteen lines in § 10
 read `no`, all twenty-two lines in § 11 remain unauthorized, and all eight gates in § 17 remain unapproved.
+
+---
+
+## 20. Update (BR-SOURCE-12A)
+
+BR-SOURCE-12A creates an owner completion intake review. It evaluates whether externally completed owner
+fields were provided after this packet. Current result remains NO-GO because no owner completion intake was
+received, no owner decision was captured and no approval is granted. It does not approve GATE-2. It does not
+approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots,
+temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12a-owner-completion-intake-review.md`](./br-receita-cnpj-12a-owner-completion-intake-review.md).
+
+It completes no field in this packet and flips no status in it. All fifty-one owner-supplied fields in § 6,
+§ 7 and § 8 still read `TBD_BY_OWNER`, all eight supporting references in § 9 remain missing, all eleven rows
+in § 5 still read `Can this packet complete it? = no`, all fourteen lines in § 10 read `no`, all twenty-two
+lines in § 11 remain unauthorized, all eight gates in § 17 remain unapproved, and the § 14 recommended
+decision to keep NO-GO is unchanged.
+
+12A is the milestone § 15 describes, executed on the branch of the conditional § 15 stated: owners supplied no
+completed fields, so 12A remains NO-GO rather than reviewing a submission. Its only new content over this
+packet is a standing intake gate — a stated procedure for what happens when an artifact arrives, plus an
+on-the-record finding that on this date none did — and it names one check this packet left implicit, namely
+that an arriving artifact must be *official* per 11X § 8 before its contents matter at all. That check is the
+formal answer to § 13's third instruction: a copy of § 6, § 7 or § 8 filed with placeholders intact, or filled
+outside the approval surface, is not an intake. This packet's `official` status is carried into 12A § 6 with
+the accompanying statement that it changes nothing about the decisions described here, and 12A § 12 adds two
+implication bars pointing at its own document and pull request.

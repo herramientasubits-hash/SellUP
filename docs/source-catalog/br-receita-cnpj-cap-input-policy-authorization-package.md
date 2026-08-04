@@ -948,3 +948,29 @@ that as the reason to restate the standing constraints rather than to relax them
 classes in § 7, `simples` on the forbidden side in § 9, no manifest reading in § 10, the unselected Option A
 or Option B in § 11 with inference from scaffold behavior still blocked, and § 13's `not_authorized` floor for
 exact percentages, denominators and coverage language.
+
+---
+
+## 31. Update (BR-SOURCE-12A)
+
+BR-SOURCE-12A creates an owner completion intake review. It evaluates whether externally completed owner
+fields were provided after 11Z. Current result remains NO-GO because no owner completion intake was received,
+no owner decision was captured and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12a-owner-completion-intake-review.md`](./br-receita-cnpj-12a-owner-completion-intake-review.md).
+
+It flips no status in this package. Every cap ceiling in § 6 remains null; every input class in § 7 and every
+output class in § 8 remains an unauthorized class label, including the four classes § 7 blocks outright; the
+§ 9 family lists remain unapproved with `simples` on the forbidden side; § 10 authorizes no manifest reading;
+§ 11 temp storage remains `not_authorized` with Option A still the recommendation; § 13 keeps exact percentages
+and full-dataset denominators `not_authorized`; and every field in § 14 remains blank.
+
+12A received no cap/input submission, so none of the eighteen fields was evaluated, and **it adds no numeric
+value and no path of its own**. It inverts 11Z's observation that this is the most completable of the three
+records into a warning for whoever reviews an eventual arrival: the record most likely to arrive first is also
+the easiest to arrive wrong, so the six standing constraints above are the ones to check before reading the
+rest of a submitted form — the four unavailable input classes in § 7, `simples` on the forbidden side in § 9,
+no manifest reading in § 10, the unselected Option A or Option B in § 11 with inference from scaffold behavior
+still blocked, § 6's rule that a null cap is not an unlimited cap, and § 13's `not_authorized` floor for exact
+percentages, denominators and coverage language.

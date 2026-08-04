@@ -812,3 +812,27 @@ and 11Z's own completion rules layer on top of them rather than substituting for
 a valid record be captured **where approvals are captured** is why 11Z refuses to host a filled record and
 states the refusal as a rule rather than a scope note. And § 9's dependency stands: three valid and official
 records would still not authorize execution, which remains a separate decision under the 11V § 17 phrase.
+
+---
+
+## 21. Update (BR-SOURCE-12A)
+
+BR-SOURCE-12A creates an owner completion intake review. It evaluates whether externally completed owner
+fields were provided after 11Z. Current result remains NO-GO because no owner completion intake was received,
+no owner decision was captured and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12a-owner-completion-intake-review.md`](./br-receita-cnpj-12a-owner-completion-intake-review.md).
+
+It flips no status in this document and completes no field in it. All fifty-one owner-supplied fields across
+§ 5, § 6 and § 7 still read `TBD_BY_OWNER`, no instance of any of the three records has been created anywhere,
+all ten validity rules in § 4 remain unsatisfied for all three, all twenty rows in § 11 remain unauthorized,
+all twelve lines in § 12 still read `no`, and the § 13 recommended decision to keep NO-GO is unchanged.
+
+12A adds an intake gate that runs *before* § 4's rules rather than alongside them, and the ordering is the
+point: § 4 describes how to void a record that exists, and 12A decides whether a record exists to be voided.
+Its Step 2 is § 8 applied as an admission test — an arriving artifact must be captured where approvals are
+captured and cited by identifier before its fields matter — which is why a filled copy of § 5, § 6 or § 7
+sitting in a repository directory, a pull request or a message is not an intake. Zero of the three records were
+received, so no rule in § 4 was exercised, and § 9's dependency stands unchanged: three valid and official
+records would still not authorize execution, which remains a separate decision under the 11V § 17 phrase.

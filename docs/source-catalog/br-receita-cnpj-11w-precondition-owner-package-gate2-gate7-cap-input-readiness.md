@@ -868,3 +868,29 @@ verifiable cleanup path and no TTL yet exists, which is why the GATE-2 evidence 
 upstream artifact to cite; and § 8's block on inferring a temp-storage decision from scaffold behavior.
 § 12's nine `not_ready` rows remain the reason the legal/privacy/security reference is unsatisfiable inside
 this chain.
+
+---
+
+## 24. Update (BR-SOURCE-12A)
+
+BR-SOURCE-12A creates an owner completion intake review. It evaluates whether externally completed owner
+fields were provided after 11Z. Current result remains NO-GO because no owner completion intake was received,
+no owner decision was captured and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12a-owner-completion-intake-review.md`](./br-receita-cnpj-12a-owner-completion-intake-review.md).
+
+It flips no status in this package. All fifteen blockers in § 4 remain unresolved, all rows in § 5 still read
+`Approval granted by this package? no`, all five readiness results in § 6, § 7, § 8, § 12 and § 13 still read
+`NOT READY`, thirteen of eighteen preflight items in § 9 still fail, all seventeen fields in § 10 still read
+`TBD_BY_OWNER`, all twenty rows in § 14 remain unauthorized, and the § 15 recommended decision to keep NO-GO
+is unchanged.
+
+Four of this package's findings are the reason 12A's intake gate has nothing to receive, and they are carried
+forward unchanged rather than restated as progress: § 6's record that no measured ceiling, no verifiable
+cleanup path and no TTL yet exists, which keeps the GATE-2 evidence reference unfillable; § 7's record that
+**no frozen sanitizer contract exists**, which leaves the GATE-7 sanitizer field with no upstream artifact to
+cite; § 8's block on inferring a temp-storage decision from scaffold behavior; and § 12's nine `not_ready`
+rows, which keep the legal/privacy/security reference unsatisfiable inside this chain. § 5's role labels —
+including the joint technical-owner and privacy-owner pairing GATE-2 requires — remain the assignment nobody
+has made, and 12A records both the operator and the reviewer as `not_received / missing`.

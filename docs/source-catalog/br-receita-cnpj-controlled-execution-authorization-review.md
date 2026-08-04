@@ -910,3 +910,28 @@ rather than as a scope note, that a completion may not be captured in a reposito
 adjacent hazard of its own — a completion packet copied into an approval surface with its placeholders intact
 would file a record that looks submitted while answering nothing. § 8 Option C's escalation remains the step
 that changes the most, unchanged by this packet and still requiring its own separate owner phrase.
+
+---
+
+## 26. Update (BR-SOURCE-12A)
+
+BR-SOURCE-12A creates an owner completion intake review. It evaluates whether externally completed owner
+fields were provided after 11Z. Current result remains NO-GO because no owner completion intake was received,
+no owner decision was captured and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12a-owner-completion-intake-review.md`](./br-receita-cnpj-12a-owner-completion-intake-review.md).
+
+It flips no row in the § 6 prerequisite table, clears no blocker in § 7, closes no risk in § 12, and changes no
+value in the § 11 preflight. The § 9 recommended draft decision — Option A, keep controlled execution
+blocked — is unchanged, and 12A carries the analogous recommendation forward for itself.
+
+12A is **not** the controlled execution attempt this review conditions and § 17 supplies a phrase for: that
+phrase remains unused, 12A records the controlled execution attempt authorization as `not_received / missing`
+in its own inventory and as a separate decision sitting below a boundary, and § 16's instruction is unchanged —
+if such a request arrives, re-run the § 11 preflight against the state at that moment and refuse on any `no`.
+This review's § 12 risk register governs 12A with one new emphasis: an *intake* document is the most natural
+place for a self-declared approval to be recorded as though received, so 12A's admission test requires an
+arriving artifact to be official and cited by identifier before its contents are read at all. § 8 Option C's
+escalation remains the step that changes the most, unchanged by this review and still requiring its own
+separate owner phrase.
