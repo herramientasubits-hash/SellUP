@@ -101,13 +101,28 @@ export const PHONE_REVEAL_WATERFALL_INSUFFICIENT_CREDITS_COPY =
   'No hay créditos suficientes para realizar esta revelación.';
 
 /**
- * El saldo NO se pudo verificar. DELIBERADAMENTE distinto del anterior: no se sabe
- * si alcanza, así que afirmar "no hay créditos suficientes" sería inventarse un
- * hecho. Las garantías son las mismas —cero corridas, cero proveedores, cero
- * créditos— y por eso el copy las declara.
+ * NO hay presupuesto configurado para alguno de los proveedores que la autorización
+ * puede llegar a llamar (AGENT2A-PHONE-WATERFALL-4E).
+ *
+ * DELIBERADAMENTE distinto de "no hay créditos suficientes": aquí no es que el saldo se
+ * haya agotado, es que nadie configuró un límite de créditos para ese proveedor, así que
+ * no hay disponibilidad contra la que reservar la exposición. Decirle al operador que
+ * faltan créditos lo mandaría a conseguir créditos que no desbloquearían nada; lo que
+ * hace falta es que un administrador configure la regla.
+ *
+ * Garantías idénticas: 0 corridas, 0 proveedores, 0 usage logs, 0 créditos.
+ */
+export const PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY =
+  'No hay un presupuesto configurado para realizar esta revelación.';
+
+/**
+ * El saldo NO se pudo verificar. DELIBERADAMENTE distinto de los dos anteriores: no se
+ * sabe si alcanza NI si existe presupuesto, así que afirmar cualquiera de las dos cosas
+ * sería inventarse un hecho. Las garantías son las mismas —cero corridas, cero
+ * proveedores, cero créditos— y por eso el copy las declara.
  */
 export const PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY =
-  'No fue posible verificar el saldo de créditos. No se ejecutó ningún proveedor y no se consumieron créditos. Intenta nuevamente más tarde.';
+  'No fue posible verificar el saldo de créditos. No se ejecutó ningún proveedor ni se consumieron créditos.';
 
 /** Cierre técnico: no significa "no existe teléfono". */
 export const PHONE_REVEAL_WATERFALL_ERROR_COPY =

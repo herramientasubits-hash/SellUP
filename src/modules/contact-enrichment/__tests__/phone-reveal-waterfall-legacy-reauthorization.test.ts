@@ -90,6 +90,12 @@ const CLAIMABLE_STATUSES = ['apollo_in_flight', 'lusha_pending'];
 
 interface Store {
   runs: Row[];
+  /**
+   * Reservas de crédito (AGENT2A-PHONE-WATERFALL-4E). Se mantienen con estado real para
+   * que la reautorización pruebe también que cada autorización nueva ocupa exposición
+   * NUEVA y que la de la corrida anterior ya quedó liquidada.
+   */
+  reservations: Row[];
   /** UPDATEs aplicados a cada corrida, por id. Mide inmutabilidad. */
   updatesById: Map<string, number>;
   /** Secuencia de INSERT: da un `created_at` monótono y determinista. */
@@ -102,6 +108,7 @@ type DbError = { code: string; message: string };
 
 const store: Store = {
   runs: [],
+  reservations: [],
   updatesById: new Map(),
   seq: 0,
   contactsSelectError: null,
@@ -151,6 +158,7 @@ let lushaScenario: LushaScenario = 'no_phone_found';
 
 function resetAll(): void {
   store.runs = [];
+  store.reservations = [];
   store.updatesById = new Map();
   store.seq = 0;
   store.contactsSelectError = null;
@@ -197,6 +205,7 @@ function buildQuery(table: string): Record<string, unknown> {
 
   function rowsForTable(): Row[] {
     if (table === 'phone_reveal_waterfall_runs') return store.runs;
+    if (table === 'phone_reveal_credit_reservations') return store.reservations;
     if (table === 'contact_enrichment_candidates') return [candidateRow];
     if (table === 'contacts') return dncContacts;
     return [];
@@ -327,9 +336,108 @@ function buildQuery(table: string): Record<string, unknown> {
   return api;
 }
 
+/**
+ * Reserva atómica de créditos (AGENT2A-PHONE-WATERFALL-4E). Se implementa sobre el mismo
+ * store con estado que las corridas, así que la reautorización sigue midiendo lo que
+ * medía y además demuestra que cada autorización nueva ocupa exposición nueva.
+ *
+ * El pozo es amplio a propósito: aquí el sujeto es la reautorización, no el presupuesto —
+ * ese tiene sus propias suites.
+ */
+function reservationRpc(fn: string, params: Record<string, unknown>): QueryResult {
+  if (fn === 'try_reserve_phone_reveal_credits') {
+    const candidateId = params.p_candidate_id;
+    if (
+      store.reservations.some(
+        (r) => r.candidate_id === candidateId && r.status === 'reserved',
+      )
+    ) {
+      return { data: { status: 'already_reserved' }, error: null };
+    }
+    const legs = (params.p_legs as { provider_key: string; credits: number }[]) ?? [];
+    const created = legs.map((leg, index) => {
+      const id = `res-${store.reservations.length}-${index}-${leg.provider_key}`;
+      store.reservations.push({
+        id,
+        reservation_group_id: params.p_reservation_group_id,
+        candidate_id: candidateId,
+        provider_key: leg.provider_key,
+        credits_reserved: leg.credits,
+        status: 'reserved',
+        run_id: null,
+      });
+      return { id, provider_key: leg.provider_key, credits_reserved: leg.credits };
+    });
+    return {
+      data: {
+        status: 'reserved',
+        reservation_group_id: params.p_reservation_group_id,
+        reservations: created,
+      },
+      error: null,
+    };
+  }
+
+  const target = store.reservations.find((r) => r.id === params.p_reservation_id);
+  if (!target) return { data: 'not_found', error: null };
+  if (target.status !== 'reserved') {
+    return { data: `already_${target.status}`, error: null };
+  }
+  if (fn === 'confirm_phone_reveal_credits') {
+    target.status = 'confirmed';
+    target.credits_confirmed = params.p_credits_confirmed;
+    target.cost_truth = params.p_cost_truth;
+    return { data: 'confirmed', error: null };
+  }
+  target.status = 'released';
+  target.release_reason = params.p_reason;
+  return { data: 'released', error: null };
+}
+
 mock.module('@/lib/supabase/admin', {
   namedExports: {
-    createSupabaseAdminClient: () => ({ from: (table: string) => buildQuery(table) }),
+    createSupabaseAdminClient: () => ({
+      from: (table: string) => buildQuery(table),
+      rpc: (fn: string, params: Record<string, unknown>) => {
+        const result = reservationRpc(fn, params);
+        return { then: (resolve: (v: QueryResult) => unknown) => resolve(result) };
+      },
+    }),
+  },
+});
+
+/**
+ * Presupuesto POR PROVEEDOR resuelto con un pozo amplio: `checkBudget` habla con su
+ * propio cliente admin y con `provider_usage_logs`, que no son el sujeto de este archivo.
+ */
+mock.module('@/modules/budgets/budget-resolution', {
+  namedExports: {
+    checkBudget: async (providerKey: string) => ({
+      allowed: true,
+      reason: null,
+      providerKey,
+      userId: 'user-admin',
+      periodStart: '2026-08-01T00:00:00.000Z',
+      periodEnd: '2026-08-31T23:59:59.999Z',
+      scopeApplied: 'global',
+      matchedRule: {
+        id: 'rule-1',
+        providerKey,
+        scopeType: 'global',
+        scopeId: null,
+        limitCredits: 1_000,
+        limitUsd: null,
+        periodType: 'monthly',
+        onExceed: 'block',
+      },
+      consumedCredits: 0,
+      consumedUsd: 0,
+      projectedCredits: 0,
+      projectedUsd: 0,
+      remainingCredits: 1_000,
+      remainingUsd: null,
+      usdCostTruth: 'complete',
+    }),
   },
 });
 
@@ -644,6 +752,7 @@ describe('WATERFALL-2C — matriz de corridas históricas (pura)', () => {
       finalProvider: 'none',
       completedAt: '2026-08-01T10:00:06.000Z',
       errorCode: null,
+      creditReservationGroupId: 'group-legacy-prev',
     });
     assert.deepEqual(core.classifyPhoneRevealWaterfallLegacyHistory(view), {
       reauthorizable: true,

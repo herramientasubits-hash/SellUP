@@ -92,6 +92,7 @@ import {
   PHONE_REVEAL_WATERFALL_APOLLO_RUNNING_COPY,
   PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
+  PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY,
   PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY,
   PHONE_REVEAL_WATERFALL_ERROR_COPY,
   PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY,
@@ -844,6 +845,14 @@ export function ContactCandidateDetailSheet({
         toast.error(PHONE_REVEAL_WATERFALL_INSUFFICIENT_CREDITS_COPY);
         setPhoneRevealError(PHONE_REVEAL_WATERFALL_INSUFFICIENT_CREDITS_COPY);
         return;
+      // AGENT2A-PHONE-WATERFALL-4E: no hay regla de crédito para alguno de los
+      // proveedores que la autorización puede llegar a llamar, así que no hubo
+      // disponibilidad que reservar. Mismas garantías de cero efectos, pero el copy NO
+      // puede decir que falten créditos: lo que falta es la configuración.
+      case 'budget_not_configured':
+        toast.error(PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY);
+        setPhoneRevealError(PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY);
+        return;
       // El saldo no se pudo VERIFICAR. Mismas garantías de cero efectos, pero el
       // copy no puede afirmar que falten créditos: eso no se comprobó.
       case 'credit_balance_unavailable':
@@ -975,6 +984,11 @@ export function ContactCandidateDetailSheet({
       // Lusha, 0 créditos. No se recarga nada porque no se escribió nada.
       case 'insufficient_credits':
         setLegacyWaterfallError(PHONE_REVEAL_WATERFALL_INSUFFICIENT_CREDITS_COPY);
+        return;
+      // AGENT2A-PHONE-WATERFALL-4E: Lusha no tiene regla de crédito, así que no había
+      // disponibilidad que reservar. Cero efectos, y el motivo es la configuración.
+      case 'budget_not_configured':
+        setLegacyWaterfallError(PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY);
         return;
       case 'credit_balance_unavailable':
         setLegacyWaterfallError(

@@ -21,6 +21,7 @@ import {
   PHONE_REVEAL_WATERFALL_APOLLO_RUNNING_COPY,
   PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_BUTTON_LABEL,
+  PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY,
   PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY,
   PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY,
   PHONE_REVEAL_WATERFALL_INFRASTRUCTURE_UNAVAILABLE_COPY,
@@ -281,15 +282,29 @@ describe('copy del waterfall — saldo de créditos', () => {
     const copy = PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY;
     assert.notEqual(copy, PHONE_REVEAL_WATERFALL_INSUFFICIENT_CREDITS_COPY);
     assert.equal(/No hay créditos suficientes/.test(copy), false, copy);
-    assert.ok(/No fue posible verificar el saldo/.test(copy), copy);
-    // Y declara las garantías: ningún proveedor corrió y no se cobró nada.
-    assert.ok(/No se ejecutó ningún proveedor/.test(copy), copy);
-    assert.ok(/no se consumieron créditos/.test(copy), copy);
+    // Redacción EXACTA del contrato (AGENT2A-PHONE-WATERFALL-4E).
+    assert.equal(
+      copy,
+      'No fue posible verificar el saldo de créditos. No se ejecutó ningún proveedor ni se consumieron créditos.',
+    );
   });
 
-  test('ninguno de los dos se presenta como "no se encontró teléfono"', () => {
+  test('presupuesto sin configurar: TERCER copy, distinto de los dos anteriores', () => {
+    // AGENT2A-PHONE-WATERFALL-4E. No es "no hay créditos" (el saldo no se agotó) ni "no
+    // se pudo verificar" (sí se verificó: no hay regla). Decirle al operador que faltan
+    // créditos lo mandaría a conseguir créditos que no desbloquearían nada.
+    const copy = PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY;
+    assert.equal(copy, 'No hay un presupuesto configurado para realizar esta revelación.');
+    assert.notEqual(copy, PHONE_REVEAL_WATERFALL_INSUFFICIENT_CREDITS_COPY);
+    assert.notEqual(copy, PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY);
+    assert.equal(/créditos suficientes/.test(copy), false, copy);
+    assert.equal(/no fue posible verificar/i.test(copy), false, copy);
+  });
+
+  test('ninguno de los tres se presenta como "no se encontró teléfono"', () => {
     for (const copy of [
       PHONE_REVEAL_WATERFALL_INSUFFICIENT_CREDITS_COPY,
+      PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY,
       PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY,
     ]) {
       assert.equal(/no se encontró/i.test(copy), false, copy);

@@ -671,8 +671,31 @@ describe('4D — saldo insuficiente', () => {
     const text = bodyText();
     assert.ok(text.includes('No fue posible verificar el saldo de créditos'), text);
     assert.ok(text.includes('No se ejecutó ningún proveedor'), text);
-    assert.ok(text.includes('no se consumieron créditos'), text);
+    assert.ok(text.includes('ni se consumieron créditos'), text);
     assert.equal(text.includes(INSUFFICIENT_CREDITS_COPY), false, text);
+  });
+
+  it('presupuesto sin configurar: copy propio, sin afirmar que falten créditos', async () => {
+    // AGENT2A-PHONE-WATERFALL-4E. El servidor no encontró regla de crédito para alguno
+    // de los proveedores que la autorización podía llamar, así que no hubo
+    // disponibilidad que reservar: 0 corridas, 0 proveedores, 0 créditos.
+    mockReveal.mock.mockImplementation(async () => ({
+      ok: false,
+      status: 'budget_not_configured',
+      requestAccepted: false,
+      errorCode: 'budget_not_configured',
+    }));
+    await renderSheet(lushaCandidate());
+    await clickReveal();
+    const text = bodyText();
+    assert.ok(
+      text.includes('No hay un presupuesto configurado para realizar esta revelación.'),
+      text,
+    );
+    assert.equal(text.includes(INSUFFICIENT_CREDITS_COPY), false, text);
+    assert.equal(text.includes('No fue posible verificar el saldo'), false, text);
+    // Y no se finge que se buscó teléfono.
+    assert.equal(text.includes('Teléfono no disponible.'), false, text);
   });
 });
 

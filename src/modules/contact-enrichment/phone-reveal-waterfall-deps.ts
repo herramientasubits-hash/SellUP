@@ -50,6 +50,7 @@ import {
   PHONE_REVEAL_WATERFALL_ACTIVE_STATUSES,
   PHONE_REVEAL_WATERFALL_AUTHORIZATION_TTL_HOURS,
   PHONE_REVEAL_WATERFALL_CLAIMABLE_STATUSES,
+  PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES,
   startLegacyPhoneRevealWaterfall,
   type ContinuePhoneRevealWaterfallDeps,
   type ContinuePhoneRevealWaterfallResult,
@@ -65,9 +66,21 @@ import {
   type StartLegacyPhoneRevealWaterfallDeps,
   type StartPhoneRevealWaterfallDeps,
 } from './phone-reveal-waterfall-core';
-// Preflight de saldo (AGENT2A-PHONE-WATERFALL-4D): la LECTURA vive aquí porque este
-// es el módulo de infraestructura; la decisión sigue siendo del core puro.
-import { readPhoneRevealCreditBalance } from './phone-reveal-credit-budget-deps';
+// Preflight de presupuesto (AGENT2A-PHONE-WATERFALL-4D/4E): la LECTURA vive aquí porque
+// este es el módulo de infraestructura; la decisión sigue siendo del core puro.
+import { readPhoneRevealCreditPools } from './phone-reveal-credit-budget-deps';
+// Reserva ATÓMICA (AGENT2A-PHONE-WATERFALL-4E). La atomicidad vive en la migración 104;
+// estos wrappers solo la invocan y traducen su desenlace.
+import {
+  attachPhoneRevealCreditReservationsToRun,
+  confirmPhoneRevealCreditReservation,
+  findActivePhoneRevealCreditReservations,
+  releasePhoneRevealCreditReservation,
+  releasePhoneRevealCreditReservationGroup,
+  reservePhoneRevealCredits,
+} from './phone-reveal-credit-reservation-deps';
+import { decidePhoneRevealCreditSettlement } from './phone-reveal-credit-reservation-core';
+import type { PhoneRevealCreditProviderKey } from './phone-reveal-credit-budget-core';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
 
 /** Tabla de corridas (migración 102). service_role-only. */
@@ -80,7 +93,8 @@ export const WATERFALL_RUN_SELECT = `id, candidate_id, status, run_mode, authori
    apollo_attempted_at, apollo_outcome, apollo_cost_credits, apollo_cost_source,
    lusha_eligible, lusha_skipped_reason, lusha_attempted_at, lusha_outcome,
    lusha_cost_credits, lusha_cost_source,
-   final_provider, completed_at, error_code`;
+   final_provider, completed_at, error_code,
+   credit_reservation_group_id`;
 
 function toNumberOrNull(value: unknown): number | null {
   // `numeric` puede llegar como string desde PostgREST; se normaliza sin
@@ -135,6 +149,13 @@ export function mapWaterfallRun(
       (row.final_provider as PhoneRevealWaterfallRunRecord['finalProvider']) ?? null,
     completedAt: (row.completed_at as string | null) ?? null,
     errorCode: (row.error_code as string | null) ?? null,
+    // AGENT2A-PHONE-WATERFALL-4E. Ausente (o null) en corridas anteriores a la
+    // migración 104: esas no tienen exposición reservada que liquidar, y la
+    // reconciliación simplemente no encuentra nada que hacer.
+    creditReservationGroupId:
+      typeof row.credit_reservation_group_id === 'string'
+        ? row.credit_reservation_group_id
+        : null,
   };
 }
 
@@ -272,6 +293,10 @@ export async function createWaterfallRun(
         : {}),
       lusha_eligible: draft.lushaEligible,
       lusha_skipped_reason: draft.lushaSkippedReason,
+      // AGENT2A-PHONE-WATERFALL-4E: la asociación con la exposición reservada va DENTRO
+      // del INSERT. Así no existe ni un instante en el que haya una corrida cuya reserva
+      // no se pueda encontrar para liquidarla.
+      credit_reservation_group_id: draft.creditReservationGroupId,
     })
     .select('id')
     .maybeSingle();
@@ -289,6 +314,24 @@ export async function createWaterfallRun(
   return id;
 }
 
+/**
+ * Corrida por id. La necesita la reconciliación de la reserva: liquidar exige leer los
+ * hechos TERMINALES de la fila (qué pata se intentó y qué costó cada una) y no el patch
+ * que acabó de aplicarse, que puede ser parcial.
+ */
+export async function findWaterfallRunById(
+  runId: string,
+): Promise<PhoneRevealWaterfallRunRecord | null> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from(PHONE_REVEAL_WATERFALL_RUNS_TABLE)
+    .select(WATERFALL_RUN_SELECT)
+    .eq('id', runId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? mapWaterfallRun(data as Record<string, unknown>) : null;
+}
+
 export async function updateWaterfallRun(
   runId: string,
   patch: PhoneRevealWaterfallRunPatch,
@@ -299,6 +342,77 @@ export async function updateWaterfallRun(
     .update(toRunUpdate(patch))
     .eq('id', runId);
   if (error) throw new Error(error.message);
+
+  // AGENT2A-PHONE-WATERFALL-4E. Este UPDATE es el ÚNICO paso por el que pasan TODOS los
+  // cierres de una corrida —webhook de Apollo, cron L2, revisión manual L3, cierre tras
+  // el START y cierre de la pata Lusha—, así que es el sitio correcto para reconciliar la
+  // exposición reservada: engancharla aquí cubre todos los caminos sin que ninguno tenga
+  // que acordarse. Solo se dispara en patches TERMINALES: mientras la corrida pueda
+  // gastar, la exposición se mantiene ENTERA.
+  if (patch.status !== undefined && PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(patch.status)) {
+    await reconcilePhoneRevealCreditReservationForRun(runId);
+  }
+}
+
+/**
+ * Liquida la exposición reservada de una corrida TERMINAL, pata por pata
+ * (AGENT2A-PHONE-WATERFALL-4E).
+ *
+ * BEST-EFFORT por contrato: un fallo aquí no puede convertir un webhook correcto de
+ * Apollo en un 5xx (eso provocaría reintentos que no resuelven nada) ni degradar una
+ * recuperación válida. El estado conservador ante un fallo es dejar la fila `reserved`:
+ * la exposición sigue ocupada, así que el error nunca se traduce en créditos regalados.
+ *
+ * La DECISIÓN es del core puro (`decidePhoneRevealCreditSettlement`): pata no intentada ⇒
+ * release; pata intentada con costo reportado ⇒ confirm con ese costo; pata intentada con
+ * costo desconocido ⇒ confirm con el TOPE (`assumed_cap`), nunca 0 y nunca release.
+ */
+export async function reconcilePhoneRevealCreditReservationForRun(
+  runId: string,
+): Promise<void> {
+  try {
+    const run = await findWaterfallRunById(runId);
+    // Sin grupo no hay exposición que liquidar (corrida anterior a la migración 104).
+    if (!run?.creditReservationGroupId) return;
+
+    const reservedLegs = await findActivePhoneRevealCreditReservations(
+      run.creditReservationGroupId,
+    );
+    if (reservedLegs.length === 0) return;
+
+    const actions = decidePhoneRevealCreditSettlement({
+      facts: {
+        isTerminal: PHONE_REVEAL_WATERFALL_TERMINAL_STATUSES.includes(run.status),
+        apolloAttempted: run.apolloAttemptedAt !== null,
+        apolloCostCredits: run.apolloCostCredits,
+        apolloCostSource: run.apolloCostSource,
+        lushaAttempted: run.lushaAttemptedAt !== null,
+        lushaCostCredits: run.lushaCostCredits,
+        lushaCostSource: run.lushaCostSource,
+      },
+      reservedLegs,
+    });
+
+    await Promise.all(
+      actions.map((action) =>
+        action.action === 'confirm'
+          ? confirmPhoneRevealCreditReservation({
+              reservationId: action.reservationId,
+              credits: action.credits,
+              costTruth: action.costTruth,
+            })
+          : releasePhoneRevealCreditReservation({
+              reservationId: action.reservationId,
+              reason: action.reason,
+            }),
+      ),
+    );
+  } catch (err) {
+    console.error(
+      '[phone-reveal-credit-reservation] settlement failed, exposure stays reserved:',
+      err instanceof Error ? err.message : 'unknown error',
+    );
+  }
 }
 
 /**
@@ -703,11 +817,27 @@ export function buildStartWaterfallDeps(actor: {
     nowIso: new Date().toISOString(),
     loadCandidate: loadCandidateForWaterfall,
     findActiveRun: findActiveWaterfallRunForCandidate,
-    // Saldo del/los proveedores que la modalidad puede llegar a llamar. El core
-    // decide de quién pedirlo y qué hacer con el resultado.
-    readCreditBalance: (providerKeys) =>
-      readPhoneRevealCreditBalance(providerKeys, actor.internalUserId),
+    ...buildCreditReservationDeps(actor.internalUserId),
     createRun: createWaterfallRun,
+  };
+}
+
+/**
+ * Deps de crédito compartidas por los DOS arranques
+ * (AGENT2A-PHONE-WATERFALL-4D/4E). Una sola función porque el contrato es el mismo: el
+ * core decide de qué proveedores pedir presupuesto y qué reservar, y este módulo solo
+ * provee el I/O.
+ */
+function buildCreditReservationDeps(internalUserId: string) {
+  return {
+    // Presupuesto POR PROVEEDOR, con la identidad del pozo que la reserva necesita.
+    readCreditPools: (providerKeys: readonly PhoneRevealCreditProviderKey[]) =>
+      readPhoneRevealCreditPools(providerKeys, internalUserId),
+    reserveCredits: reservePhoneRevealCredits,
+    releaseCredits: releasePhoneRevealCreditReservationGroup,
+    // `crypto.randomUUID()` es del runtime, no del core puro: por eso llega inyectado.
+    newReservationGroupId: () => crypto.randomUUID(),
+    attachReservationsToRun: attachPhoneRevealCreditReservationsToRun,
   };
 }
 
@@ -727,9 +857,9 @@ export function buildStartLegacyWaterfallDeps(actor: {
     loadLegacyEvidence: loadLegacyEvidenceForWaterfall,
     findActiveRun: findActiveWaterfallRunForCandidate,
     findLatestRun: findLatestWaterfallRunForCandidate,
-    // Solo el saldo de Lusha: Apollo no se ejecuta bajo esta autorización.
-    readCreditBalance: (providerKeys) =>
-      readPhoneRevealCreditBalance(providerKeys, actor.internalUserId),
+    // El core pide SOLO el pozo de Lusha en esta modalidad: Apollo no se ejecuta bajo
+    // esta autorización, así que su presupuesto no puede bloquearla ni ocuparse.
+    ...buildCreditReservationDeps(actor.internalUserId),
     createRun: createWaterfallRun,
   };
 }

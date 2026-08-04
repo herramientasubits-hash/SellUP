@@ -95,6 +95,10 @@ interface Spies {
    * deja fila: lo que se mide es "¿quedó una corrida parcial?", no "¿se intentó?".
    */
   waterfallWrites: number;
+  /** Reservas de crédito tomadas (AGENT2A-PHONE-WATERFALL-4E). */
+  creditReservations: number;
+  /** Motivos de liberación de exposición, en orden. */
+  creditReleases: string[];
 }
 
 const spies: Spies = {
@@ -105,6 +109,8 @@ const spies: Spies = {
   usageLogs: 0,
   insertAttempts: 0,
   waterfallWrites: 0,
+  creditReservations: 0,
+  creditReleases: [],
 };
 
 function resetSpies(): void {
@@ -115,6 +121,8 @@ function resetSpies(): void {
   spies.usageLogs = 0;
   spies.insertAttempts = 0;
   spies.waterfallWrites = 0;
+  spies.creditReservations = 0;
+  spies.creditReleases = [];
   httpRequests = [];
 }
 
@@ -264,8 +272,75 @@ mock.module('@/lib/supabase/admin', {
             },
           };
         },
+        // Reserva atómica de créditos (AGENT2A-PHONE-WATERFALL-4E, migración 104).
+        // Simulada para que este archivo siga midiendo el gate de infraestructura de la
+        // corrida; además permite afirmar que una corrida que no se pudo crear LIBERA la
+        // exposición que había reservado, en vez de dejarla bloqueada para siempre.
+        rpc: (fn: string, params: Record<string, unknown>) => {
+          if (fn === 'try_reserve_phone_reveal_credits') {
+            spies.creditReservations += 1;
+            const legs = (params.p_legs as { provider_key: string; credits: number }[]) ?? [];
+            return chain({
+              data: {
+                status: 'reserved',
+                reservation_group_id: params.p_reservation_group_id,
+                reservations: legs.map((leg, index) => ({
+                  id: `reservation-${index}-${leg.provider_key}`,
+                  provider_key: leg.provider_key,
+                  credits_reserved: leg.credits,
+                })),
+              },
+              error: null,
+            });
+          }
+          if (fn === 'release_phone_reveal_credits') {
+            spies.creditReleases.push(String(params.p_reason ?? ''));
+            return chain({ data: 'released', error: null });
+          }
+          if (fn === 'confirm_phone_reveal_credits') {
+            return chain({ data: 'confirmed', error: null });
+          }
+          return chain({ data: null, error: null });
+        },
       };
     },
+  },
+});
+
+/**
+ * Presupuesto POR PROVEEDOR resuelto (AGENT2A-PHONE-WATERFALL-4E). `checkBudget` habla
+ * con su propio cliente admin y con `provider_usage_logs`, que no son el sujeto de este
+ * archivo: aquí se prueba el gate de infraestructura de la corrida. Un pozo con límite
+ * amplio deja pasar el preflight para que el bloqueo observado sea el de la corrida.
+ */
+mock.module('@/modules/budgets/budget-resolution', {
+  namedExports: {
+    checkBudget: async (providerKey: string) => ({
+      allowed: true,
+      reason: null,
+      providerKey,
+      userId: 'user-admin',
+      periodStart: '2026-08-01T00:00:00.000Z',
+      periodEnd: '2026-08-31T23:59:59.999Z',
+      scopeApplied: 'global',
+      matchedRule: {
+        id: 'rule-1',
+        providerKey,
+        scopeType: 'global',
+        scopeId: null,
+        limitCredits: 1_000,
+        limitUsd: null,
+        periodType: 'monthly',
+        onExceed: 'block',
+      },
+      consumedCredits: 0,
+      consumedUsd: 0,
+      projectedCredits: 0,
+      projectedUsd: 0,
+      remainingCredits: 1_000,
+      remainingUsd: null,
+      usdCostTruth: 'complete',
+    }),
   },
 });
 
@@ -586,15 +661,21 @@ describe('legacy — las deps del arranque NO incluyen ninguna pata Apollo', () 
     // Superficie EXACTA: si alguien añade una dep de proveedor, este test cae.
     assert.deepEqual(keys, [
       'actor',
+      // AGENT2A-PHONE-WATERFALL-4E: asocia la reserva a la corrida. No llama a nadie.
+      'attachReservationsToRun',
       'createRun',
       'findActiveRun',
       'findLatestRun',
       'flagEnabled',
       'loadLegacyEvidence',
+      'newReservationGroupId',
       'nowIso',
-      // AGENT2A-PHONE-WATERFALL-4D: lee SALDO, no proveedores. No puede llamar a
-      // Apollo ni a Lusha, y en esta modalidad solo se le pregunta por Lusha.
-      'readCreditBalance',
+      // AGENT2A-PHONE-WATERFALL-4D/4E: resuelven y ocupan PRESUPUESTO, no proveedores.
+      // Ninguna puede llamar a Apollo ni a Lusha, y en esta modalidad solo se pregunta y
+      // solo se reserva por Lusha.
+      'readCreditPools',
+      'releaseCredits',
+      'reserveCredits',
     ]);
     const serialized = keys.join(' ').toLowerCase();
     assert.equal(serialized.includes('apollo'), false);

@@ -193,11 +193,16 @@ type PhoneRevealWaterfallStartGate =
   | { kind: 'started'; runId: string }
   | { kind: 'infrastructure_unavailable'; errorCode: string }
   /**
-   * AGENT2A-PHONE-WATERFALL-4D: el saldo no cubre el tope de la modalidad. El core
-   * lo detectó ANTES del INSERT, así que no hay corrida que reconciliar.
+   * AGENT2A-PHONE-WATERFALL-4D: algún pozo no cubre su pata. El core lo detectó ANTES
+   * del INSERT y ANTES de reservar, así que no hay corrida ni exposición que liberar.
    */
   | { kind: 'insufficient_credits' }
-  /** El saldo no se pudo verificar. Fail-closed, mismas garantías de cero efectos. */
+  /**
+   * AGENT2A-PHONE-WATERFALL-4E: algún proveedor exigido no tiene regla de crédito, así
+   * que no hay disponibilidad que reservar. Mismas garantías de cero efectos.
+   */
+  | { kind: 'budget_not_configured' }
+  /** El presupuesto no se pudo verificar. Fail-closed, mismas garantías de cero efectos. */
   | { kind: 'credit_balance_unavailable' };
 
 /**
@@ -282,6 +287,8 @@ async function startWaterfallRunOrBlock(
     // declarar indisponibles.
     case 'insufficient_credits':
       return { kind: 'insufficient_credits' };
+    case 'budget_not_configured':
+      return { kind: 'budget_not_configured' };
     case 'credit_balance_unavailable':
       return { kind: 'credit_balance_unavailable' };
     default: {
@@ -391,6 +398,18 @@ export async function revealCandidatePhoneAction(
       status: 'insufficient_credits',
       requestAccepted: false,
       errorCode: 'insufficient_credits',
+    };
+  }
+  // AGENT2A-PHONE-WATERFALL-4E: sin regla de crédito no hay disponibilidad que reservar,
+  // así que no se ejecuta ningún proveedor. Es un motivo PROPIO y no un
+  // `insufficient_credits`: decirle al operador que faltan créditos cuando lo que falta
+  // es la configuración del presupuesto lo manda a pedir créditos que no resolverán nada.
+  if (waterfallGate.kind === 'budget_not_configured') {
+    return {
+      ok: false,
+      status: 'budget_not_configured',
+      requestAccepted: false,
+      errorCode: 'budget_not_configured',
     };
   }
   if (waterfallGate.kind === 'credit_balance_unavailable') {

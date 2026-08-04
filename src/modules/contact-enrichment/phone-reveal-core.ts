@@ -560,9 +560,19 @@ export type RevealCandidatePhoneStatus =
   // Lo emite EXCLUSIVAMENTE el wrapper del server action, igual que
   // `waterfall_infrastructure_unavailable`: este core no conoce el presupuesto.
   | 'insufficient_credits'
-  // AGENT2A-PHONE-WATERFALL-4D: el saldo no se pudo VERIFICAR. Es distinto del
-  // anterior a propósito — no se sabe si alcanza, solo que no se pudo comprobar —
-  // y también es fail-closed: mismas garantías de cero efectos.
+  // AGENT2A-PHONE-WATERFALL-4E: alguno de los proveedores que la modalidad puede
+  // llegar a llamar NO tiene regla de crédito configurada (`budget_rules` sin
+  // `limit_credits` para ese provider_key, o sin regla aplicable). Sin límite no hay
+  // disponibilidad contra la que RESERVAR la exposición máxima, así que el waterfall
+  // no arranca en vez de correr sobre un techo imaginario.
+  //
+  // Es un estado PROPIO y no un `insufficient_credits`: decirle al operador que
+  // faltan créditos cuando lo que falta es la configuración del presupuesto lo manda
+  // a conseguir créditos que no van a desbloquear nada.
+  | 'budget_not_configured'
+  // AGENT2A-PHONE-WATERFALL-4D: el presupuesto no se pudo VERIFICAR. Es distinto de
+  // los dos anteriores a propósito — no se sabe si alcanza ni si existe, solo que no
+  // se pudo comprobar — y también es fail-closed: mismas garantías de cero efectos.
   | 'credit_balance_unavailable'
   | 'error';
 

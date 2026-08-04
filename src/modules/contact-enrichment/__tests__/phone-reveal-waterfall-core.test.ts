@@ -40,7 +40,12 @@ import {
   type PhoneRevealWaterfallRunRecord,
   type PhoneRevealWaterfallSuppressionState,
 } from '../phone-reveal-waterfall-core';
-import type { PhoneRevealCreditBalance } from '../phone-reveal-credit-budget-core';
+import {
+  configuredPool,
+  creditHarness,
+  poolsWith,
+  type CreditHarness,
+} from './phone-reveal-credit-reservation-fixtures';
 import { APOLLO_PHONE_REVEAL_CREDITS } from '../phone-reveal-core';
 import { LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS } from '../lusha-phone-fallback-core';
 
@@ -101,6 +106,9 @@ function activeRun(
     finalProvider: null,
     completedAt: null,
     errorCode: null,
+    // AGENT2A-PHONE-WATERFALL-4E: toda corrida creada por este código nace con su grupo
+    // de reserva. La fixture lo trae para que las aserciones describan corridas reales.
+    creditReservationGroupId: 'group-1',
     ...overrides,
   };
 }
@@ -179,8 +187,10 @@ describe('waterfall — elegibilidad de la pata Lusha', () => {
 interface StartHarness {
   created: PhoneRevealWaterfallRunDraft[];
   loadedCandidate: boolean;
-  /** Proveedores por los que el core preguntó el saldo (4D). */
+  /** Proveedores por los que el core resolvió el presupuesto (4D/4E). */
   balanceQueries: readonly string[][];
+  /** Cableado de crédito compartido: reserva, liberación y asociación (4E). */
+  credit: CreditHarness;
   deps: Parameters<typeof startPhoneRevealWaterfall>[1];
 }
 
@@ -190,19 +200,23 @@ function startHarness(opts: {
   candidate?: PhoneRevealWaterfallCandidateRecord | null;
   activeRun?: PhoneRevealWaterfallRunRecord | null;
   createReturns?: string | null;
+  createThrows?: Error;
   /**
-   * Saldo inyectado (AGENT2A-PHONE-WATERFALL-4D). Default: `unlimited`, que es la
-   * situación cuando no hay regla de crédito configurada y deja intacto el resto de
-   * las aserciones de esta suite.
+   * Presupuesto inyectado (AGENT2A-PHONE-WATERFALL-4D/4E). Default: un pozo CONFIGURADO
+   * con saldo amplio para cada proveedor exigido — la situación normal en producción, y
+   * la que deja intacto el resto de las aserciones de esta suite.
+   *
+   * Ojo: desde 4E "sin regla configurada" BLOQUEA, así que ya no puede ser el default.
    */
-  balance?: PhoneRevealCreditBalance;
+  credit?: CreditHarness;
 } = {}): StartHarness {
   const created: PhoneRevealWaterfallRunDraft[] = [];
-  const balanceQueries: string[][] = [];
+  const credit = opts.credit ?? creditHarness();
   const harness: StartHarness = {
     created,
     loadedCandidate: false,
-    balanceQueries,
+    balanceQueries: credit.poolQueries,
+    credit,
     deps: {
       flagEnabled: opts.flagEnabled ?? true,
       actor: { internalUserId: 'user-admin', roleKey: opts.roleKey ?? 'admin' },
@@ -212,11 +226,9 @@ function startHarness(opts: {
         return opts.candidate === undefined ? lushaCandidate() : opts.candidate;
       },
       findActiveRun: async () => opts.activeRun ?? null,
-      readCreditBalance: async (providerKeys) => {
-        balanceQueries.push([...providerKeys]);
-        return opts.balance ?? { kind: 'unlimited' };
-      },
+      ...credit.deps,
       createRun: async (draft) => {
+        if (opts.createThrows) throw opts.createThrows;
         created.push(draft);
         return opts.createReturns === undefined ? 'run-new' : opts.createReturns;
       },
@@ -267,38 +279,51 @@ describe('waterfall — arranque de la corrida', () => {
     assert.equal(h.created[0].lushaSkippedReason, 'missing_lusha_contact_id');
   });
 
-  // ── Preflight de saldo (AGENT2A-PHONE-WATERFALL-4D) ─────────────
+  // ── Preflight de presupuesto (AGENT2A-PHONE-WATERFALL-4D/4E) ────
   //
   // Con el modal eliminado, el clic único crea la corrida y arranca Apollo sin paso
-  // intermedio. Estas pruebas fijan que el saldo se comprueba ANTES del INSERT: no
+  // intermedio. Estas pruebas fijan que el presupuesto se comprueba ANTES del INSERT: no
   // basta con devolver el motivo correcto — no puede haberse creado corrida.
+  //
+  // 4E cambia la ARITMÉTICA: el modelo es POR PROVEEDOR, así que la exigencia es Apollo
+  // ≥ 8 y/o Lusha ≥ 5 contra SUS pozos, nunca "algún saldo ≥ 13".
 
-  test('saldo 5: NO se crea la corrida de 13 (bloqueo antes de cualquier escritura)', async () => {
-    const h = startHarness({ balance: { kind: 'available', credits: 5 } });
+  test('pozo de Apollo con 5: NO se crea la corrida (bloqueo antes de escribir)', async () => {
+    const h = startHarness({ credit: creditHarness({ poolsFor: poolsWith(5) }) });
     const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'insufficient_credits' });
     assert.equal(h.created.length, 0, 'ninguna corrida creada');
+    assert.equal(h.credit.reserveRequests.length, 0, 'ni se intentó reservar');
   });
 
-  test('saldo 5: NO se crea la corrida Apollo-only de 8', async () => {
+  test('pozo con 5: NO se crea la corrida Apollo-only, que exige 8', async () => {
     const h = startHarness({
       candidate: apolloCandidate(),
-      balance: { kind: 'available', credits: 5 },
+      credit: creditHarness({ poolsFor: poolsWith(5) }),
     });
     const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'insufficient_credits' });
     assert.equal(h.created.length, 0);
   });
 
-  test('saldo exacto (13 y 8) SÍ autoriza: el umbral es >=, no >', async () => {
-    const full = startHarness({ balance: { kind: 'available', credits: 13 } });
+  test('saldo exacto por pata (Apollo 8, Lusha 5) SÍ autoriza: el umbral es >=, no >', async () => {
+    // Per-provider: Apollo con 8 y Lusha con 5 alcanzan, aunque NINGUNO llegue a 13.
+    const full = startHarness({
+      credit: creditHarness({
+        poolsFor: (keys) =>
+          keys.map((providerKey) => ({
+            providerKey,
+            state: configuredPool(providerKey === 'apollo' ? 8 : 5),
+          })),
+      }),
+    });
     assert.equal(
       (await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, full.deps)).started,
       true,
     );
     const apolloOnly = startHarness({
       candidate: apolloCandidate(),
-      balance: { kind: 'available', credits: 8 },
+      credit: creditHarness({ poolsFor: poolsWith(8) }),
     });
     assert.equal(
       (await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, apolloOnly.deps))
@@ -307,15 +332,54 @@ describe('waterfall — arranque de la corrida', () => {
     );
   });
 
-  test('saldo NO verificable: fail-closed, sin corrida y con motivo propio', async () => {
-    const h = startHarness({ balance: { kind: 'unavailable' } });
+  test('Apollo con 8 pero Lusha con 4: bloquea por LA PATA que no alcanza', async () => {
+    // El "mínimo combinado" de 4D no distinguía esto: aquí Apollo tiene de sobra y la
+    // autorización se rechaza igual, porque su segunda pata está autorizada y el
+    // servidor la ejecuta sin volver a preguntar.
+    const h = startHarness({
+      credit: creditHarness({
+        poolsFor: (keys) =>
+          keys.map((providerKey) => ({
+            providerKey,
+            state: configuredPool(providerKey === 'apollo' ? 8 : 4),
+          })),
+      }),
+    });
     const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
-    // Motivo DISTINTO de `insufficient_credits`: no se sabe si alcanza.
+    assert.deepEqual(result, { started: false, reason: 'insufficient_credits' });
+    assert.equal(h.created.length, 0);
+  });
+
+  test('sin regla de crédito: budget_not_configured, sin corrida y sin reserva', async () => {
+    // 4E. En 4D esto era `unlimited` y AUTORIZABA el gasto. Ya no: sin límite no hay
+    // disponibilidad contra la que reservar la exposición máxima.
+    const h = startHarness({
+      credit: creditHarness({
+        poolsFor: (keys) =>
+          keys.map((providerKey) => ({ providerKey, state: { kind: 'not_configured' } })),
+      }),
+    });
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    assert.deepEqual(result, { started: false, reason: 'budget_not_configured' });
+    assert.equal(h.created.length, 0);
+    assert.equal(h.credit.reserveRequests.length, 0);
+  });
+
+  test('presupuesto NO verificable: fail-closed, sin corrida y con motivo propio', async () => {
+    const h = startHarness({
+      credit: creditHarness({
+        poolsFor: (keys) =>
+          keys.map((providerKey) => ({ providerKey, state: { kind: 'unavailable' } })),
+      }),
+    });
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    // Motivo DISTINTO de `insufficient_credits` y de `budget_not_configured`: no se sabe
+    // si alcanza NI si existe presupuesto.
     assert.deepEqual(result, { started: false, reason: 'credit_balance_unavailable' });
     assert.equal(h.created.length, 0);
   });
 
-  test('el saldo se pide de los proveedores que la modalidad puede llamar', async () => {
+  test('el presupuesto se pide de los proveedores que la modalidad puede llamar', async () => {
     const full = startHarness();
     await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, full.deps);
     assert.deepEqual(full.balanceQueries, [['apollo', 'lusha']]);

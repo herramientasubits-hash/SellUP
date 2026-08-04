@@ -108,6 +108,10 @@ interface Spies {
    * corrida parcial?", no "¿se intentó escribir?".
    */
   waterfallWrites: number;
+  /** Reservas de crédito tomadas (AGENT2A-PHONE-WATERFALL-4E). */
+  creditReservations: number;
+  /** Motivos de liberación de exposición, en orden. */
+  creditReleases: string[];
 }
 
 const spies: Spies = {
@@ -118,6 +122,8 @@ const spies: Spies = {
   usageLogs: 0,
   insertAttempts: 0,
   waterfallWrites: 0,
+  creditReservations: 0,
+  creditReleases: [],
 };
 
 /**
@@ -135,6 +141,8 @@ function resetSpies(): void {
   spies.usageLogs = 0;
   spies.insertAttempts = 0;
   spies.waterfallWrites = 0;
+  spies.creditReservations = 0;
+  spies.creditReleases = [];
   events = [];
   httpRequests = [];
 }
@@ -314,8 +322,79 @@ mock.module('@/lib/supabase/admin', {
             },
           };
         },
+        // Reserva atómica de créditos (AGENT2A-PHONE-WATERFALL-4E, migración 104).
+        // Simulada aquí para que este archivo siga midiendo lo que mide —el gate de
+        // infraestructura de la tabla 102— y, de paso, para poder afirmar que una
+        // corrida que NO se pudo crear libera la exposición que había reservado.
+        rpc: (fn: string, params: Record<string, unknown>) => {
+          if (fn === 'try_reserve_phone_reveal_credits') {
+            spies.creditReservations += 1;
+            events.push('credit_reserve');
+            const legs = (params.p_legs as { provider_key: string; credits: number }[]) ?? [];
+            return chain({
+              data: {
+                status: 'reserved',
+                reservation_group_id: params.p_reservation_group_id,
+                reservations: legs.map((leg, index) => ({
+                  id: `reservation-${index}-${leg.provider_key}`,
+                  provider_key: leg.provider_key,
+                  credits_reserved: leg.credits,
+                })),
+              },
+              error: null,
+            });
+          }
+          if (fn === 'release_phone_reveal_credits') {
+            spies.creditReleases.push(String(params.p_reason ?? ''));
+            events.push('credit_release');
+            return chain({ data: 'released', error: null });
+          }
+          if (fn === 'confirm_phone_reveal_credits') {
+            events.push('credit_confirm');
+            return chain({ data: 'confirmed', error: null });
+          }
+          return chain({ data: null, error: null });
+        },
       };
     },
+  },
+});
+
+/**
+ * Presupuesto POR PROVEEDOR resuelto (AGENT2A-PHONE-WATERFALL-4E). Se mockea porque
+ * `checkBudget` habla con SU propio cliente admin y con `provider_usage_logs`, que no es
+ * el sujeto de este archivo: aquí lo que se prueba es el gate de infraestructura de la
+ * tabla 102. Un pozo con límite amplio deja pasar el preflight para que el bloqueo que se
+ * observe sea el de la corrida y no el del presupuesto.
+ */
+mock.module('@/modules/budgets/budget-resolution', {
+  namedExports: {
+    checkBudget: async (providerKey: string) => ({
+      allowed: true,
+      reason: null,
+      providerKey,
+      userId: 'user-admin',
+      periodStart: '2026-08-01T00:00:00.000Z',
+      periodEnd: '2026-08-31T23:59:59.999Z',
+      scopeApplied: 'global',
+      matchedRule: {
+        id: 'rule-1',
+        providerKey,
+        scopeType: 'global',
+        scopeId: null,
+        limitCredits: 1_000,
+        limitUsd: null,
+        periodType: 'monthly',
+        onExceed: 'block',
+      },
+      consumedCredits: 0,
+      consumedUsd: 0,
+      projectedCredits: 0,
+      projectedUsd: 0,
+      remainingCredits: 1_000,
+      remainingUsd: null,
+      usdCostTruth: 'complete',
+    }),
   },
 });
 
@@ -696,6 +775,8 @@ describe('102 ausente — el acceso a datos propaga, no inventa un estado', () =
           apolloAttemptedAt: new Date().toISOString(),
           lushaEligible: true,
           lushaSkippedReason: null,
+          // AGENT2A-PHONE-WATERFALL-4E: el draft siempre trae su grupo de reserva.
+          creditReservationGroupId: 'group-absent-1',
         }),
       );
     });
@@ -729,6 +810,7 @@ describe('102 ausente — el acceso a datos propaga, no inventa un estado', () =
         apolloAttemptedAt: new Date().toISOString(),
         lushaEligible: true,
         lushaSkippedReason: null,
+        creditReservationGroupId: 'group-absent-2',
       }),
       /no id/,
     );
