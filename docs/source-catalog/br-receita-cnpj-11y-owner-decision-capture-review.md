@@ -956,3 +956,29 @@ Zero of three records exist, all fifty-one owner-supplied fields across 11X § 5
 `TBD_BY_OWNER`, all eight supporting references in § 10 are missing, all ten inventory rows in § 5 block
 controlled execution, all twenty-two lines in § 12 remain unauthorized, and all eight gates in § 18 remain
 unapproved.
+
+---
+
+## 21. Update (BR-SOURCE-11Z)
+
+BR-SOURCE-11Z creates an owner decision completion packet. It packages the missing owner fields identified by
+this review so owners can complete them later. Current result remains NO-GO because this package does not
+fill owner fields, does not capture owner decisions and grants no approval. It does not approve GATE-2. It
+does not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots,
+output roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11z-owner-decision-completion-packet.md`](./br-receita-cnpj-11z-owner-decision-completion-packet.md).
+
+It flips no status in this document and completes no field anywhere. All fifty-one owner-supplied fields
+across 11X § 5, § 6 and § 7 still read `TBD_BY_OWNER` — 11Z is explicitly not authorized to complete any of
+them — all ten inventory rows in § 5 still block controlled execution, all eight supporting references in
+§ 10 remain missing, all twenty-two lines in § 12 remain unauthorized, all eight gates in § 18 remain
+unapproved, and the § 15 recommended decision to keep NO-GO is unchanged.
+
+11Z is the packet § 16 describes and is held to the ceiling § 16 set for it: it assembles, per field, what an
+owner needs in hand and where a filled value must be captured, and fills nothing. Its only new content over
+this review is the per-field prerequisite — which fields are blocked on unproduced inputs rather than merely
+unanswered — and that is a sequencing aid, never a clearance. It carries § 11's implication rules forward
+with a fifth and sixth entry pointing at itself, restates § 15's *outside this package* rule as a completion
+rule rather than a recommendation, and adds one hazard this review did not have: a completion packet can be
+misused by being *copied with placeholders intact* into an approval surface, where a filed placeholder record
+would convert an obvious absence into a plausible-looking one.

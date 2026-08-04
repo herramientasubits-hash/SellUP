@@ -984,3 +984,31 @@ cleanup and incident fields that point at documented-but-unapproved procedures i
 § 7 preflight's first item means a valid GATE-7 record cannot precede a valid GATE-2 record, so a submission
 presenting GATE-7 first is out of order rather than ahead. It also carries forward § 7's rule that a failed
 item is a stop and an ambiguous item has failed, as its own *any uncertainty is NO-GO*.
+
+---
+
+## 29. Update (BR-SOURCE-11Z)
+
+BR-SOURCE-11Z creates an owner decision completion packet. It packages the missing owner fields detected by
+11Y so owners can complete them later. Current result remains NO-GO because this package does not fill owner
+fields, does not capture owner decisions and grants no approval. It does not approve GATE-2. It does not
+approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots,
+temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11z-owner-decision-completion-packet.md`](./br-receita-cnpj-11z-owner-decision-completion-packet.md).
+
+**This runbook remains non-executable.** 11Z changes no item in the § 7 preflight checklist — all fourteen
+still read `no` — and satisfies none of the § 15 decision points before any future run. It fills no role in
+§ 6: `Operator assigned` and `Reviewer assigned` remain unfilled, and its § 5 and § 9 record both assignments
+as owner actions no documentation milestone can take. It leaves § 8's approval checklist blank and § 9's
+command skeleton structure-only, **contains no runnable real-data command of its own**, and the § 17
+recommended draft decision — Option A, keep runbook blocked — is unchanged.
+
+Its § 7 restates all sixteen fields of the GATE-7 record as completion targets against this runbook's rules,
+and four of this runbook's constraints are anchored there unchanged: § 6's separation rule, so a record naming
+one role for both operator and reviewer has a missing required field; § 4.2's rule that assignments travel
+through the operator channel and are referenced by identifier, never named in a repository document; the
+*Sanitizer procedure* field's lack of any upstream artifact to cite, which makes it the one GATE-7
+prerequisite that is an authoring task rather than a decision; and § 7's first preflight item, which keeps a
+valid GATE-7 record from preceding a valid GATE-2 record. 11Z adds that the *Dry-run rehearsal reference*
+field is the completion attempt a future reviewer should check first, since a citation to synthetic
+validation would be evidence for a different claim than a named human following this runbook end to end.

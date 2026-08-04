@@ -841,3 +841,30 @@ and escalation paths, the expiry and the controlled execution attempt authorizat
 not captured`. It preserves § 12's finding that legal/privacy/security escalation is where a unit of effort
 moves the most, and § 5's rule that `TBD_BY_OWNER` is a false and never a permission governs its reading of
 every unfilled field.
+
+---
+
+## 23. Update (BR-SOURCE-11Z)
+
+BR-SOURCE-11Z creates an owner decision completion packet. It packages the missing owner fields detected by
+11Y so owners can complete them later. Current result remains NO-GO because this package does not fill owner
+fields, does not capture owner decisions and grants no approval. It does not approve GATE-2. It does not
+approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots,
+temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11z-owner-decision-completion-packet.md`](./br-receita-cnpj-11z-owner-decision-completion-packet.md).
+
+It flips no status in this package. All fifteen blockers in § 4 remain unresolved, all rows in § 5 still read
+`Approval granted by this package? no`, all five readiness results in § 6, § 7, § 8, § 12 and § 13 still read
+`NOT READY`, thirteen of eighteen preflight items in § 9 still fail, all seventeen fields in § 10 still read
+`TBD_BY_OWNER`, and all twenty rows in § 14 remain unauthorized. The § 15 recommended decision — keep NO-GO —
+is unchanged.
+
+Where this package converted fifteen facts into fifteen requests, 11Z converts eleven of those requests into
+completion targets with a named prerequisite each, and converts none of them into an approval. Four of this
+package's findings are load-bearing in it and are carried forward unchanged: § 5's role labels, including the
+joint technical-owner and privacy-owner pairing GATE-2 requires; § 6's record that no measured ceiling, no
+verifiable cleanup path and no TTL yet exists, which is why the GATE-2 evidence field cannot be filled today;
+§ 7's record that **no frozen sanitizer contract exists**, which is why the GATE-7 sanitizer field has no
+upstream artifact to cite; and § 8's block on inferring a temp-storage decision from scaffold behavior.
+§ 12's nine `not_ready` rows remain the reason the legal/privacy/security reference is unsatisfiable inside
+this chain.

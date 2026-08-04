@@ -921,3 +921,30 @@ value and no path, and records that a number written into a cap field by a docum
 owner would be a fabricated approval. § 6's rule that a null cap is not an unlimited cap governs its reading
 of every blank, § 11's two named options remain unselected with inference from scaffold behavior blocked, and
 § 13's `not_authorized` starting point for exact percentages and denominators is unchanged.
+
+---
+
+## 30. Update (BR-SOURCE-11Z)
+
+BR-SOURCE-11Z creates an owner decision completion packet. It packages the missing owner fields detected by
+11Y so owners can complete them later. Current result remains NO-GO because this package does not fill owner
+fields, does not capture owner decisions and grants no approval. It does not approve GATE-2. It does not
+approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots,
+temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11z-owner-decision-completion-packet.md`](./br-receita-cnpj-11z-owner-decision-completion-packet.md).
+
+It flips no status in this package. Every cap ceiling in § 6 remains null; every input class in § 7 and every
+output class in § 8 remains an unauthorized class label, including the four classes § 7 blocks outright; the
+§ 9 family lists remain unapproved with `simples` on the forbidden side; § 10 authorizes no manifest reading;
+§ 11 temp storage remains `not_authorized` with Option A still the recommendation; § 13 keeps exact
+percentages and full-dataset denominators `not_authorized`; and every field in § 14 remains blank.
+
+Its § 8 restates all eighteen fields of the cap/input record as completion targets and approves no cap
+maximum, no input root, no output root and no temp storage. **It adds no numeric value and no path**, and
+records that a directory value pre-filled by a documentation edit would authorize a location no owner chose —
+the same failure class as a fabricated ceiling. 11Z also identifies this as the most completable of the three
+records, since most of its fields are selections among options this package already documents, and treats
+that as the reason to restate the standing constraints rather than to relax them: the four unavailable input
+classes in § 7, `simples` on the forbidden side in § 9, no manifest reading in § 10, the unselected Option A
+or Option B in § 11 with inference from scaffold behavior still blocked, and § 13's `not_authorized` floor for
+exact percentages, denominators and coverage language.

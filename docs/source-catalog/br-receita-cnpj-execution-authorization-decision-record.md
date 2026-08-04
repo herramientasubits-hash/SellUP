@@ -865,3 +865,29 @@ measured disk and memory ceilings, no verifiable cleanup path and no TTL to name
 remains the area where a unit of effort moves the most, unchanged by this review and still requiring its own
 separate owner phrase. 11Y's own next-step phrase would authorize only a completion packet, never filling a
 field and never an execution attempt.
+
+---
+
+## 28. Update (BR-SOURCE-11Z)
+
+BR-SOURCE-11Z creates an owner decision completion packet. It packages the missing owner fields detected by
+11Y so owners can complete them later. Current result remains NO-GO because this package does not fill owner
+fields, does not capture owner decisions and grants no approval. It does not approve GATE-2. It does not
+approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots,
+temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-11z-owner-decision-completion-packet.md`](./br-receita-cnpj-11z-owner-decision-completion-packet.md).
+
+**All eight blockers in § 6 remain present**, including BLOCKER-1 and BLOCKER-8, which § 8 identified as
+binding. None of the § 10 minimum conditions before execution is satisfied, none of the § 11 minimum
+conditions before a runbook is satisfied, and none of the EV-1 … EV-10 evidence in § 12 has been produced.
+Every field in § 9 remains blank, and the § 8 recommended draft decision — Option A, keep execution blocked —
+is unchanged.
+
+11Z restates the fields of the three 11X records as completion targets and completes none of them. BLOCKER-8
+is the reason its § 6 marks two GATE-2 fields as unfillable today under any amount of owner diligence rather
+than merely unfilled: the legal/privacy/security reference has no written determination to cite, and the
+evidence packet reference has no measured disk and memory ceilings, no verifiable cleanup path and no TTL to
+name. § 8's Option F therefore remains the area where a unit of effort moves the most — 11Z adds only that
+closing it unblocks fields in two of the three records at once — and it still requires its own separate owner
+phrase. 11Z's own next-step phrase would authorize reviewing owner-completed fields if owners supply any, and
+never an execution attempt.
