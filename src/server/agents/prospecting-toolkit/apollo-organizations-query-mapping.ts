@@ -46,6 +46,7 @@ import {
   type ApolloSearchPack,
   type ApolloSearchPackBuildResult,
 } from './apollo-search-pack-builder';
+import { resolveFirstApolloSubindustrySearchMapping } from './apollo-subindustry-search-mapping';
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
@@ -373,6 +374,193 @@ export function buildApolloKeywords(opts: {
   };
 }
 
+// ─── Prioridad de términos (QUERY-QUALITY-2 § 1) ──────────────────────────────
+
+/**
+ * Posiciones que se reservan para señales específicas (subindustria + intención
+ * escrita por el usuario) cuando existe al menos una.
+ */
+export const MIN_SPECIFIC_KEYWORD_SLOTS = 3;
+/** Posiciones que los términos GENÉRICOS del sector pueden ocupar como mucho. */
+export const MAX_GENERIC_KEYWORD_SLOTS = 2;
+
+export type ApolloKeywordPriorityStrategy =
+  /** Sólo señales específicas: los genéricos ni siquiera hicieron falta. */
+  | 'specific_only'
+  /** Señales específicas primero, genéricos rellenando el cupo restante. */
+  | 'specific_first_with_generic_fill'
+  /** Sin señales específicas: el sector general es el único respaldo. */
+  | 'sector_general_fallback'
+  /** Ni subindustria ni sector mapeados. */
+  | 'no_mapped_keywords';
+
+/**
+ * Clave de deduplicación de un keyword.
+ *
+ * Singular y plural de UN token colapsan (`supermercados` → `supermercado`),
+ * pero una frase nunca colapsa contra uno de sus tokens: `cadena de
+ * supermercados` y `supermercado` son dos señales distintas para Apollo y
+ * fusionarlas perdería justamente la más específica.
+ */
+export function apolloKeywordDedupeKey(term: string): string {
+  const normalized = normalizeKey(term).replace(/\s+/g, ' ');
+  return normalized
+    .split(' ')
+    .map((token) => {
+      if (token.length > 4 && token.endsWith('es')) return token.slice(0, -2);
+      if (token.length > 3 && token.endsWith('s')) return token.slice(0, -1);
+      return token;
+    })
+    .join(' ');
+}
+
+function dedupeKeywords(terms: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const term of terms) {
+    const trimmed = term?.trim();
+    if (!trimmed) continue;
+    const key = apolloKeywordDedupeKey(trimmed);
+    if (key === '' || seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/**
+ * Un término del catálogo sectorial es GENÉRICO cuando es una sola palabra
+ * (`retail`, `comercio`, `ecommerce`) y ESPECÍFICO cuando es una frase
+ * (`retail chain`, `learning management system`).
+ *
+ * Es una regla de forma, no de opinión: una sola palabra de sector describe el
+ * sector entero; una frase describe un tipo de empresa dentro de él.
+ */
+export function isGenericSectorKeyword(term: string): boolean {
+  return !normalizeKey(term).includes(' ');
+}
+
+export type PrioritizedApolloKeywordsResult = {
+  keywords: string[];
+  /** Señales específicas disponibles antes de aplicar el límite. */
+  specificTokensAvailable: string[];
+  /** Señales específicas que sí viajaron a Apollo. */
+  specificTokensUsed: string[];
+  /** Términos del catálogo sectorial (genéricos) que viajaron. */
+  sectorTokensUsed: string[];
+  /** Señales específicas que el límite dejó fuera. */
+  ignoredSpecificTokens: string[];
+  /** Términos genéricos que el cupo dejó fuera. */
+  ignoredGenericTokens: string[];
+  keywordPriorityStrategy: ApolloKeywordPriorityStrategy;
+  /** Subindustria del catálogo que gobernó la consulta. Null si no hubo. */
+  matchedSubindustry: string | null;
+  relevanceStrategy: 'subindustry_specific' | 'sector_specific_keywords' | 'query_fallback';
+};
+
+/**
+ * Construye los keywords de Apollo con la prioridad del § 1.
+ *
+ *   subindustria seleccionada
+ *     → intención escrita por el usuario
+ *       → catálogo sectorial específico (frases)
+ *         → sector general como respaldo (palabras sueltas)
+ *
+ * Reglas de cupo, con `MAX_KEYWORDS = 5`:
+ *   - existiendo señales específicas, los genéricos ocupan como mucho DOS
+ *     posiciones, y ninguna si las específicas llenan las cinco;
+ *   - sin ninguna señal específica, el sector general es el único respaldo y
+ *     puede ocupar todas las posiciones — es eso o una consulta vacía.
+ *
+ * La deduplicación (textual y de singular/plural) ocurre ANTES del límite: de
+ * otro modo `supermercado` y `supermercados` gastarían dos de las cinco
+ * posiciones en la misma señal.
+ *
+ * Puro.
+ */
+export function buildPrioritizedApolloKeywords(opts: {
+  industry: string | null | undefined;
+  subindustries: readonly string[];
+  additionalCriteriaTokens: readonly string[];
+  maxKeywords?: number;
+}): PrioritizedApolloKeywordsResult {
+  const maxKeywords = opts.maxKeywords ?? MAX_KEYWORDS;
+
+  // 1. Subindustria: primero el catálogo explícito, luego el mapa histórico.
+  const catalogMatch = resolveFirstApolloSubindustrySearchMapping(opts.subindustries);
+  const subindustryTerms: string[] = catalogMatch
+    ? [...catalogMatch.mapping.positiveTerms]
+    : [];
+  for (const sub of opts.subindustries) {
+    for (const keyword of getSubindustryKeywords(sub)) subindustryTerms.push(keyword);
+  }
+
+  // 2. Intención escrita por el usuario.
+  const intentTokens = [...opts.additionalCriteriaTokens];
+
+  // 3/4. Catálogo sectorial, partido en específico (frases) y genérico (palabras).
+  const sectorCatalog = opts.industry ? getSectorKeywords(opts.industry) : [];
+  const sectorSpecificTerms = sectorCatalog.filter((term) => !isGenericSectorKeyword(term));
+  const sectorGenericTerms = sectorCatalog.filter(isGenericSectorKeyword);
+
+  // La intención se intercala DESPUÉS de la subindustria pero sin quedar
+  // sepultada: si el usuario escribió algo, se le reservan hasta dos posiciones
+  // por delante de la cola de la subindustria.
+  const reservedIntentSlots = Math.min(intentTokens.length, MAX_GENERIC_KEYWORD_SLOTS);
+  const subindustryLead = Math.max(0, maxKeywords - reservedIntentSlots);
+
+  const specificAvailable = dedupeKeywords([
+    ...subindustryTerms.slice(0, subindustryLead),
+    ...intentTokens,
+    ...subindustryTerms.slice(subindustryLead),
+    ...sectorSpecificTerms,
+  ]);
+  const genericAvailable = dedupeKeywords(sectorGenericTerms).filter(
+    (term) =>
+      !specificAvailable.some(
+        (specific) => apolloKeywordDedupeKey(specific) === apolloKeywordDedupeKey(term),
+      ),
+  );
+
+  if (specificAvailable.length === 0) {
+    const sectorTokensUsed = genericAvailable.slice(0, maxKeywords);
+    return {
+      keywords: sectorTokensUsed,
+      specificTokensAvailable: [],
+      specificTokensUsed: [],
+      sectorTokensUsed,
+      ignoredSpecificTokens: [],
+      ignoredGenericTokens: genericAvailable.slice(maxKeywords),
+      keywordPriorityStrategy:
+        sectorTokensUsed.length > 0 ? 'sector_general_fallback' : 'no_mapped_keywords',
+      matchedSubindustry: null,
+      relevanceStrategy:
+        sectorTokensUsed.length > 0 ? 'sector_specific_keywords' : 'query_fallback',
+    };
+  }
+
+  const specificTokensUsed = specificAvailable.slice(0, maxKeywords);
+  const genericBudget = Math.min(
+    MAX_GENERIC_KEYWORD_SLOTS,
+    Math.max(0, maxKeywords - specificTokensUsed.length),
+  );
+  const sectorTokensUsed = genericAvailable.slice(0, genericBudget);
+
+  return {
+    keywords: [...specificTokensUsed, ...sectorTokensUsed],
+    specificTokensAvailable: specificAvailable,
+    specificTokensUsed,
+    sectorTokensUsed,
+    ignoredSpecificTokens: specificAvailable.slice(specificTokensUsed.length),
+    ignoredGenericTokens: genericAvailable.slice(sectorTokensUsed.length),
+    keywordPriorityStrategy:
+      sectorTokensUsed.length === 0 ? 'specific_only' : 'specific_first_with_generic_fill',
+    matchedSubindustry: catalogMatch?.mapping.canonicalSubindustry ?? null,
+    relevanceStrategy:
+      subindustryTerms.length > 0 ? 'subindustry_specific' : 'sector_specific_keywords',
+  };
+}
+
 // ─── Tipos de output ──────────────────────────────────────────────────────────
 
 /** Metadata del search pack seleccionado — L2.10. */
@@ -450,6 +638,21 @@ export type ApolloQueryMappingMeta = {
   employee_range_filter_enabled: boolean;
   /** L2.11: fuente del threshold de empleados. Null si no aplica. */
   employee_threshold_source: 'input.targetEmployeeThreshold' | null;
+  // ── QUERY-QUALITY-2 § 1: prioridad de términos ────────────────────────────
+  /** Señales específicas disponibles antes de aplicar el límite. */
+  specific_tokens_available: string[];
+  /** Señales específicas que efectivamente viajaron a Apollo. */
+  specific_tokens_used: string[];
+  /** Términos genéricos del sector que viajaron a Apollo. */
+  sector_tokens_used: string[];
+  /** Señales específicas que el límite dejó fuera. */
+  ignored_specific_tokens: string[];
+  /** Términos genéricos que el cupo de dos posiciones dejó fuera. */
+  ignored_generic_tokens: string[];
+  /** Estrategia de prioridad aplicada. */
+  keyword_priority_strategy: ApolloKeywordPriorityStrategy | 'search_pack_selected';
+  /** Subindustria del catálogo explícito que gobernó la consulta. Null si no hubo. */
+  matched_subindustry_mapping: string | null;
 };
 
 export type ApolloSearchParamsWithMeta = {
@@ -518,6 +721,18 @@ export function buildApolloOrganizationsSearchParams(
   const packIndex = opts?.packIndex ?? 0;
   const maxQueries = opts?.maxQueries ?? 1;
 
+  // ── QUERY-QUALITY-2 § 1: la subindustria del catálogo explícito manda ───────
+  //
+  // Un search pack sólo puede ganar cuando la subindustria seleccionada NO tiene
+  // mapping propio. Con mapping, sus términos son la señal más específica que
+  // existe y ningún pack de sector puede desplazarlos.
+  const prioritized = buildPrioritizedApolloKeywords({
+    industry: input.industry,
+    subindustries,
+    additionalCriteriaTokens,
+  });
+  const subindustryMappingWins = prioritized.matchedSubindustry !== null;
+
   // ── L2.10: intentar construir packs ─────────────────────────────────────────
   const packBuildResult = buildApolloSearchPacks({
     sector: input.industry,
@@ -526,7 +741,9 @@ export function buildApolloOrganizationsSearchParams(
   });
 
   const packSelection = selectPacksUpToMaxQueries(packBuildResult, maxQueries);
-  const selectedPack: ApolloSearchPack | null = packBuildResult.packs[packIndex] ?? null;
+  const selectedPack: ApolloSearchPack | null = subindustryMappingWins
+    ? null
+    : (packBuildResult.packs[packIndex] ?? null);
 
   // ── Decidir keywords: pack (L2.10) o fallback keyword builder (L2.7) ────────
   let finalKeywords: string[];
@@ -569,19 +786,24 @@ export function buildApolloOrganizationsSearchParams(
       build_strategy: packBuildResult.buildStrategy,
     };
   } else {
-    // Fallback L2.7: usar keyword builder clásico
-    const kwResult = buildApolloKeywords({
-      industry: input.industry,
-      subindustries,
-      additionalCriteriaTokens,
-    });
-    finalKeywords = kwResult.keywords;
-    effectiveStrategy = kwResult.relevanceStrategy;
-    subindustryKeywordsUsed = kwResult.subindustryKeywordsUsed;
-    sectorKeywordsUsed = kwResult.sectorKeywordsUsed;
-    ignoredAdditionalCriteriaTokens = kwResult.ignoredAdditionalCriteriaTokens;
-    mergedDuplicateAdditionalCriteriaTokens = kwResult.mergedDuplicateAdditionalCriteriaTokens;
-    usedAdditionalCriteriaTokens = kwResult.usedAdditionalCriteriaTokens;
+    // QUERY-QUALITY-2 § 1: prioridad específica antes que genérica. Sustituye al
+    // builder L2.7, que llenaba las cinco posiciones con el catálogo del sector
+    // antes de mirar la subindustria o lo que el usuario escribió.
+    finalKeywords = prioritized.keywords;
+    effectiveStrategy = prioritized.relevanceStrategy;
+    subindustryKeywordsUsed = prioritized.specificTokensUsed;
+    sectorKeywordsUsed = prioritized.sectorTokensUsed;
+    ignoredAdditionalCriteriaTokens = additionalCriteriaTokens.filter((token) =>
+      prioritized.ignoredSpecificTokens.includes(token),
+    );
+    mergedDuplicateAdditionalCriteriaTokens = additionalCriteriaTokens.filter(
+      (token) =>
+        !prioritized.specificTokensUsed.includes(token) &&
+        !prioritized.ignoredSpecificTokens.includes(token),
+    );
+    usedAdditionalCriteriaTokens = additionalCriteriaTokens.filter((token) =>
+      prioritized.specificTokensUsed.includes(token),
+    );
   }
 
   // Si no hay keywords desde ningún camino, fallback al texto de query
@@ -648,6 +870,18 @@ export function buildApolloOrganizationsSearchParams(
     apollo_employee_ranges_sent: employeeRangesSent,
     employee_range_filter_enabled: employeeRangeFilterEnabled,
     employee_threshold_source: employeeThreshold != null ? 'input.targetEmployeeThreshold' : null,
+    // QUERY-QUALITY-2 § 1 — por qué la consulta lleva estos términos y no otros.
+    // Con un pack seleccionado, la prioridad la decidió el pack: se declara así
+    // en vez de reportar el cálculo que no gobernó la consulta.
+    specific_tokens_available: prioritized.specificTokensAvailable,
+    specific_tokens_used: selectedPack ? finalKeywords : prioritized.specificTokensUsed,
+    sector_tokens_used: selectedPack ? [] : prioritized.sectorTokensUsed,
+    ignored_specific_tokens: selectedPack ? [] : prioritized.ignoredSpecificTokens,
+    ignored_generic_tokens: selectedPack ? [] : prioritized.ignoredGenericTokens,
+    keyword_priority_strategy: selectedPack
+      ? 'search_pack_selected'
+      : prioritized.keywordPriorityStrategy,
+    matched_subindustry_mapping: prioritized.matchedSubindustry,
   };
 
   return { params, meta };

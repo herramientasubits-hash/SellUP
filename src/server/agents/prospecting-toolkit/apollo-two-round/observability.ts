@@ -30,6 +30,18 @@ export type ApolloTwoRoundRoundMetrics = {
   providerRequestCount: number;
   rawResultsReturned: number;
   normalizedResults: number;
+  /**
+   * QUERY-QUALITY-2 § 4 y § 10 — organizaciones que esta ronda aportó y que NO
+   * se habían visto antes.
+   *
+   * Antes esta cifra se proyectaba desde `normalizedResults`, que cuenta también
+   * los repetidos: por eso la corrida QA `edb6f40c` reportó a la vez
+   * `new_unique_results = 3` y `seen_duplicates = 3` sobre tres resultados. Un
+   * mismo resultado no puede ser nuevo y repetido.
+   *
+   * Invariante: `newUniqueResults + seenDuplicates <= normalizedResults`.
+   */
+  newUniqueResults: number;
   /** Ya vistas en rondas anteriores o repetidas dentro de la misma respuesta. */
   seenDuplicates: number;
   /** Duplicados contra SellUp / HubSpot / sugerencias previas. */
@@ -46,12 +58,25 @@ export type ApolloTwoRoundRoundMetrics = {
   newEligibleCompaniesAdded: number;
   /** Créditos que NUESTRO ledger registró para esta ronda. */
   internalRecordedCredits: number;
+  /** § 12 — huella normalizada de lo que ESTA ronda envió al proveedor. */
+  providerRequestFingerprint: string | null;
+  /** § 12 — página pedida por esta ronda. */
+  page: number | null;
+  /** § 12 — términos específicos enviados. Ni el texto humano ni una paráfrasis. */
+  specificTermsSent: string[];
+  /** § 12 — `total_pages` que el proveedor declaró en esta ronda. */
+  providerTotalPages: number | null;
 };
 
 export function buildEmptyRoundMetrics(
   roundNumber: number,
   queryHypothesis: string,
   adaptationReason: string | null = null,
+  provider: {
+    requestFingerprint?: string | null;
+    page?: number | null;
+    specificTermsSent?: readonly string[];
+  } = {},
 ): ApolloTwoRoundRoundMetrics {
   return {
     roundNumber,
@@ -60,6 +85,7 @@ export function buildEmptyRoundMetrics(
     providerRequestCount: 0,
     rawResultsReturned: 0,
     normalizedResults: 0,
+    newUniqueResults: 0,
     seenDuplicates: 0,
     knownCompanyDuplicates: 0,
     countryRejected: 0,
@@ -71,6 +97,10 @@ export function buildEmptyRoundMetrics(
     eligibleAfterEnrichment: 0,
     newEligibleCompaniesAdded: 0,
     internalRecordedCredits: 0,
+    providerRequestFingerprint: provider.requestFingerprint ?? null,
+    page: provider.page ?? null,
+    specificTermsSent: [...(provider.specificTermsSent ?? [])],
+    providerTotalPages: null,
   };
 }
 
@@ -101,6 +131,12 @@ export function countEnrichmentWaste(outcomes: readonly EnrichmentOutcome[]): nu
 export type ApolloTwoRoundRunMetrics = {
   roundsExecuted: number;
   totalRawResults: number;
+  /** § 10 — resultados normalizados sumados. Denominador de las invariantes. */
+  totalNormalizedResults: number;
+  /** § 10 — nuevos, sin repetir. `totalNewUniqueResults + totalSeenDuplicates <= totalNormalizedResults`. */
+  totalNewUniqueResults: number;
+  /** § 10 — repetidos, dentro de la respuesta o contra rondas anteriores. */
+  totalSeenDuplicates: number;
   totalUniqueOrganizations: number;
   totalEligibleCompanies: number;
   persistedCandidates: number;
@@ -138,6 +174,9 @@ export function buildRunMetrics(input: {
   enrichmentOutcomes: readonly EnrichmentOutcome[];
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
+  const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
+  const totalNewUniqueResults = input.rounds.reduce((sum, r) => sum + r.newUniqueResults, 0);
+  const totalSeenDuplicates = input.rounds.reduce((sum, r) => sum + r.seenDuplicates, 0);
   const duplicates = input.rounds.reduce(
     (sum, r) => sum + r.seenDuplicates + r.knownCompanyDuplicates,
     0,
@@ -153,6 +192,9 @@ export function buildRunMetrics(input: {
   return {
     roundsExecuted: input.rounds.length,
     totalRawResults,
+    totalNormalizedResults,
+    totalNewUniqueResults,
+    totalSeenDuplicates,
     totalUniqueOrganizations: input.totalUniqueOrganizations,
     totalEligibleCompanies: input.totalEligibleCompanies,
     persistedCandidates: input.persistedCandidates,
@@ -184,7 +226,7 @@ export function toRoundMetricsMetadata(
     raw_results: metrics.rawResultsReturned,
     raw_results_returned: metrics.rawResultsReturned,
     /** Organizaciones que esta ronda aportó y que no se habían visto antes. */
-    new_unique_results: metrics.normalizedResults,
+    new_unique_results: metrics.newUniqueResults,
     /** Elegibles tras el enrichment: lo que la ronda realmente aportó al objetivo. */
     eligible_results: metrics.eligibleAfterEnrichment,
     /** Créditos internos registrados por esta ronda (búsqueda + enrichment). */
@@ -201,6 +243,11 @@ export function toRoundMetricsMetadata(
     eligible_after_enrichment: metrics.eligibleAfterEnrichment,
     new_eligible_companies_added: metrics.newEligibleCompaniesAdded,
     internal_recorded_credits: metrics.internalRecordedCredits,
+    // § 12 — lo que el próximo QA necesita para no depender del texto humano.
+    provider_request_fingerprint: metrics.providerRequestFingerprint,
+    page: metrics.page,
+    specific_terms_sent: metrics.specificTermsSent,
+    provider_total_pages: metrics.providerTotalPages,
   };
 }
 
@@ -210,6 +257,9 @@ export function toRunMetricsMetadata(
   return {
     rounds_executed: metrics.roundsExecuted,
     total_raw_results: metrics.totalRawResults,
+    total_normalized_results: metrics.totalNormalizedResults,
+    total_new_unique_results: metrics.totalNewUniqueResults,
+    total_seen_duplicates: metrics.totalSeenDuplicates,
     total_unique_organizations: metrics.totalUniqueOrganizations,
     total_eligible_companies: metrics.totalEligibleCompanies,
     persisted_candidates: metrics.persistedCandidates,

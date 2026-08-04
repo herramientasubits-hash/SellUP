@@ -23,6 +23,7 @@ import {
   type RunCorrelationMetadata,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 import type { ApolloUsageOperationContextMetadata } from './apollo-usage-operation-context';
+import { APOLLO_SPEND_OBSERVABILITY_KEY as APOLLO_SPEND_OBSERVABILITY_METADATA_KEY } from './apollo-spend-observability';
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -172,8 +173,41 @@ export function buildCorrelationColumns(metadata: unknown): Record<string, unkno
     wizard_run_id: c.wizard_run_id ?? null,
     request_fingerprint: c.request_fingerprint ?? null,
     idempotency_key: c.idempotency_key ?? null,
-    billing_state: c.billing_state ?? null,
+    billing_state: resolveProviderUsageBillingState(metadata),
   };
+}
+
+/**
+ * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 9 — un solo estado de cobro por fila.
+ *
+ * El defecto observado: las filas de `organizations_search` llevaban
+ * `metadata.spend_observability.billing_state = 'recorded'` y, al mismo tiempo,
+ * `provider_usage_logs.billing_state = NULL`. Dos representaciones del mismo
+ * hecho, una vacía.
+ *
+ * Precedencia: lo que la correlación de la corrida declare gana; si no declara
+ * nada, se adopta lo que la observabilidad de gasto de ESA MISMA fila observó.
+ * Ninguna de las dos se inventa: sin ninguna, queda null.
+ *
+ * No hace backfill: sólo gobierna filas nuevas.
+ */
+export function resolveProviderUsageBillingState(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const root = metadata as Record<string, unknown>;
+
+  const correlation = root[RUN_CORRELATION_METADATA_KEY];
+  if (correlation && typeof correlation === 'object') {
+    const declared = (correlation as Partial<RunCorrelationMetadata>).billing_state;
+    if (typeof declared === 'string' && declared.trim() !== '') return declared;
+  }
+
+  const spend = root[APOLLO_SPEND_OBSERVABILITY_METADATA_KEY];
+  if (spend && typeof spend === 'object') {
+    const observed = (spend as Record<string, unknown>)['billing_state'];
+    if (typeof observed === 'string' && observed.trim() !== '') return observed;
+  }
+
+  return null;
 }
 
 /**
@@ -184,6 +218,16 @@ export function buildCorrelationColumns(metadata: unknown): Record<string, unkno
 export function buildProviderUsageLogRow(
   input: LogProviderUsageInput,
 ): Record<string, unknown> {
+  // § 9 — el estado de cobro resuelto viaja SIEMPRE en el metadata, exista o no
+  // la columna. Con las columnas de correlación apagadas, ésta es la única
+  // representación disponible, y dejarla implícita es lo que produjo una fila
+  // con `spend_observability.billing_state = 'recorded'` y la columna en NULL.
+  const resolvedBillingState = resolveProviderUsageBillingState(input.metadata);
+  const metadata =
+    resolvedBillingState === null
+      ? (input.metadata ?? {})
+      : { ...(input.metadata ?? {}), provider_usage_billing_state: resolvedBillingState };
+
   return {
     agent_run_id: input.agent_run_id ?? null,
     agent_run_step_id: input.agent_run_step_id ?? null,
@@ -205,7 +249,7 @@ export function buildProviderUsageLogRow(
     triggered_by: input.triggered_by ?? null,
     triggered_by_role_key: null,
     triggered_by_group_id: null,
-    metadata: input.metadata ?? {},
+    metadata,
   };
 }
 

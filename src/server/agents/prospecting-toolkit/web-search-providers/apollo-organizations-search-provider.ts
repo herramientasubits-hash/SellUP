@@ -217,12 +217,88 @@ const MAX_APOLLO_ORGANIZATIONS_PER_RUN = 10;
 const MAX_APOLLO_ORGANIZATIONS_CREDITS = 10;
 const APOLLO_ORGANIZATIONS_UNIT_COST_USD = 0.00875;
 
-function cappedMaxResults(requested: number): { cap: number; wasCapped: boolean; maxResultsCapSource: string } {
+/** Tope duro del proveedor. Ninguna modalidad puede superarlo. */
+export const APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS = MAX_APOLLO_ORGANIZATIONS_PER_RUN;
+
+export type ApolloResultLimitResolution = {
+  cap: number;
+  wasCapped: boolean;
+  maxResultsCapSource: string;
+  /** Límite de la ruta legacy, resuelto. Diagnóstico, no necesariamente aplicado. */
+  legacyMaxResultsPerQuery: number;
+  /** Límite por ronda de la modalidad de dos rondas. Null fuera de ella. */
+  twoRoundMaxResultsPerRound: number | null;
+  limitMode: ApolloResultLimitMode;
+};
+
+/**
+ * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 5 — frontera entre el límite legacy y el
+ * de dos rondas.
+ *
+ * El defecto observado: la modalidad de dos rondas pide 5 por ronda, pero
+ * `AGENT1_APOLLO_MAX_RESULTS_PER_QUERY=3` —una variable de la ruta legacy— la
+ * recortaba a 3 sin decirlo, y el objetivo de cinco empresas quedaba
+ * estructuralmente inalcanzable.
+ *
+ * Reglas:
+ *   - `legacy`:    min(pedido, AGENT1_APOLLO_MAX_RESULTS_PER_QUERY, tope duro).
+ *   - `two_round`: min(maxResultsPerRound de la config de dos rondas, tope duro).
+ *     La variable legacy NO participa. Bajar el límite de dos rondas exige su
+ *     propia variable (`AGENT1_APOLLO_MAX_RESULTS_PER_ROUND`), que la config ya
+ *     resolvió antes de llegar aquí.
+ *
+ * Puro salvo la lectura de la variable legacy, que se inyecta en los tests.
+ */
+export function resolveApolloResultLimit(input: {
+  requested: number;
+  mode?: ApolloResultLimitMode;
+  twoRoundMaxResultsPerRound?: number | null;
+  legacyMaxResultsPerQuery: number;
+}): ApolloResultLimitResolution {
+  const legacy = input.legacyMaxResultsPerQuery;
+  const mode: ApolloResultLimitMode = input.mode ?? 'legacy';
+
+  if (mode === 'two_round') {
+    const perRound =
+      typeof input.twoRoundMaxResultsPerRound === 'number' &&
+      Number.isFinite(input.twoRoundMaxResultsPerRound) &&
+      input.twoRoundMaxResultsPerRound > 0
+        ? Math.floor(input.twoRoundMaxResultsPerRound)
+        : input.requested;
+    const cap = Math.max(1, Math.min(perRound, MAX_APOLLO_ORGANIZATIONS_PER_RUN));
+    return {
+      cap,
+      wasCapped: cap < input.requested,
+      maxResultsCapSource:
+        cap < input.requested ? 'agent1_apollo_two_round_max_results_per_round' : 'none',
+      legacyMaxResultsPerQuery: legacy,
+      twoRoundMaxResultsPerRound: perRound,
+      limitMode: mode,
+    };
+  }
+
   // Two-layer cap: env-configurable QA guardrail first, then hard provider limit.
-  const envCap = resolveApolloMaxResultsPerQuery();
-  const cap = Math.min(requested, envCap, MAX_APOLLO_ORGANIZATIONS_PER_RUN);
-  const maxResultsCapSource = cap < requested ? 'agent1_apollo_cost_guardrail' : 'none';
-  return { cap, wasCapped: cap < requested, maxResultsCapSource };
+  const cap = Math.min(input.requested, legacy, MAX_APOLLO_ORGANIZATIONS_PER_RUN);
+  return {
+    cap,
+    wasCapped: cap < input.requested,
+    maxResultsCapSource: cap < input.requested ? 'agent1_apollo_cost_guardrail' : 'none',
+    legacyMaxResultsPerQuery: legacy,
+    twoRoundMaxResultsPerRound: null,
+    limitMode: mode,
+  };
+}
+
+function cappedMaxResults(
+  requested: number,
+  options?: ApolloOrgsSearchOptions,
+): ApolloResultLimitResolution {
+  return resolveApolloResultLimit({
+    requested,
+    mode: options?.resultLimitMode,
+    twoRoundMaxResultsPerRound: options?.twoRoundMaxResultsPerRound ?? null,
+    legacyMaxResultsPerQuery: resolveApolloMaxResultsPerQuery(),
+  });
 }
 
 // ─── Mapping puro Apollo org → WebSearchResult ────────────────────────────────
@@ -517,8 +593,28 @@ export type ApolloOrgsSearchDeps = {
  */
 export type ApolloSectorGateMode = 'filter' | 'annotate';
 
+/**
+ * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 5 — qué límite gobierna `per_page`.
+ *
+ * `legacy` es el comportamiento histórico y el de todos los llamadores previos:
+ * `AGENT1_APOLLO_MAX_RESULTS_PER_QUERY` recorta la petición.
+ * `two_round` usa el límite propio de la modalidad
+ * (`AGENT1_APOLLO_MAX_RESULTS_PER_ROUND`, ya resuelto en su config), porque una
+ * variable de la ruta legacy no puede reducir en silencio el modo nuevo.
+ */
+export type ApolloResultLimitMode = 'legacy' | 'two_round';
+
 export type ApolloOrgsSearchOptions = {
   sectorGateMode?: ApolloSectorGateMode;
+  /** Ausente ⇒ `legacy`. */
+  resultLimitMode?: ApolloResultLimitMode;
+  /** Límite por ronda ya resuelto por la config de dos rondas. Sólo en `two_round`. */
+  twoRoundMaxResultsPerRound?: number;
+  /**
+   * § 3 — página a pedir. Ausente ⇒ 1. La ronda 2 puede pedir la página 2 de la
+   * misma búsqueda cuando no existe una variante de términos genuinamente nueva.
+   */
+  startPage?: number;
 };
 
 // ─── A1-APOLLO-WIZARD-1: adaptadores de la ruta paginada ─────────────────────
@@ -687,7 +783,10 @@ export async function runApolloOrganizationsSearch(
   }
 
   // ── Guardrail: cap de resultados (env + hard limit) ─────────────────────────
-  const { cap, wasCapped, maxResultsCapSource } = cappedMaxResults(maxResults);
+  // § 5 — en modo `two_round` el límite lo fija la config de la modalidad, no la
+  // variable legacy: una variable de la ruta vieja no puede recortar la nueva.
+  const resultLimit = cappedMaxResults(maxResults, options);
+  const { cap, wasCapped, maxResultsCapSource } = resultLimit;
 
   const startMs = Date.now();
   // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 2 — la ronda entra en la clave.
@@ -749,6 +848,12 @@ export async function runApolloOrganizationsSearch(
     capped_max_results: cap,
     requested_max_results: maxResults,
     max_results_cap_source: maxResultsCapSource,
+    // § 5 — los DOS límites, siempre visibles, para que un diagnóstico pueda
+    // decir cuál gobernó la llamada en vez de deducirlo.
+    apollo_result_limit_mode: resultLimit.limitMode,
+    apollo_max_results_per_query_resolved: resultLimit.legacyMaxResultsPerQuery,
+    apollo_max_results_per_round_resolved: resultLimit.twoRoundMaxResultsPerRound,
+    apollo_per_page_sent: cap,
   };
 
   // ── A1-APOLLO-WIZARD-1: búsqueda paginada acotada ───────────────────────────
@@ -779,6 +884,10 @@ export async function runApolloOrganizationsSearch(
       budget: paginationBudget,
       wizardRunId: usageContext?.batchId ?? `no_batch:${startMs}`,
       agentRunId: usageContext?.agentRunId ?? null,
+      // § 3 — la ronda 2 puede pedir la página 2 de la MISMA búsqueda cuando no
+      // hay variante de términos que la haga distinta. Ausente ⇒ página 1, que
+      // es lo que hacen todos los llamadores previos.
+      startPage: options?.startPage,
     },
     {
       fetchPage,

@@ -22,6 +22,10 @@ import {
   WizardApolloTwoRoundPlannedSteps,
   WizardApolloTwoRoundOutcome,
 } from './wizard-two-round-progress-panel';
+import {
+  resolveNoNewCandidatesCopy,
+  type NoNewCandidatesBreakdown,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
 
 // ── Wizard generation overlay ─────────────────────────────────────────────────
 
@@ -112,16 +116,33 @@ export type SuccessPanelProps = {
   twoRoundOutcome: { roundsExecuted: number | null; eligibleCompaniesFound: number | null } | null;
   /** Objetivo efectivo de la corrida, para poder afirmar si se alcanzó. */
   targetEligibleCompanies: number | null;
+  /**
+   * QUERY-QUALITY-2 § 8 — distribución REAL de descartes. `null` cuando el
+   * servidor no la envió: entonces el copy no afirma ninguna causa concreta.
+   */
+  noNewCandidatesBreakdown?: NoNewCandidatesBreakdown | null;
 };
 
-export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies }: SuccessPanelProps) {
+export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown }: SuccessPanelProps) {
   const router = useRouter();
+
+  // QUERY-QUALITY-2 § 8 — el texto sale de lo que REALMENTE pasó. Sin
+  // distribución, la causa es «no hubo resultados que clasificar», nunca una
+  // disyunción entre dos causas que no se comprobaron.
+  const noNewCandidatesCopy = resolveNoNewCandidatesCopy(
+    noNewCandidatesBreakdown ?? {
+      recentlySuggestedCount: 0,
+      qualityRejectedCount: 0,
+      noveltyExhausted: noveltyExhausted === true,
+      secondRoundSkippedReason: null,
+    },
+  );
 
   React.useEffect(() => {
     if (status === 'no_new_candidates') {
       // Do NOT auto-close — show the panel so the user can act.
       toast.info('No se encontraron empresas nuevas.', {
-        description: 'Todos los resultados ya habían sido sugeridos recientemente.',
+        description: noNewCandidatesCopy.body,
       });
       router.refresh();
       return;
@@ -148,9 +169,7 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
   }, []);
 
   if (status === 'no_new_candidates') {
-    const noNewBody = noveltyExhausted
-      ? 'El universo de empresas disponibles con estos criterios ya fue explorado recientemente. Intenta cambiar la industria, el país o los criterios adicionales.'
-      : 'La búsqueda encontró resultados, pero todos ya habían sido sugeridos recientemente o no pasaron los filtros de calidad.';
+    const noNewBody = noNewCandidatesCopy.body;
 
     return (
       <div className="space-y-4 animate-su-fade-in" role="status">

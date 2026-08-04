@@ -22,6 +22,7 @@ import { WizardRunProviderSelector } from './wizard-run-provider-selector';
 // Paneles de la fase de ejecución (overlay, envío y éxito), extraídos a su propio
 // archivo para mantener este por debajo del techo de tamaño del repo.
 import { SubmittingPanel, SuccessPanel } from './wizard-execution-panels';
+import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
 import type { ApolloRunModeLimits } from './wizard-run-provider-copy';
 import {
   NO_PROVIDER_OVERRIDE_CAPABILITY,
@@ -48,6 +49,8 @@ type WizardRunProviderSurfaceProps = {
   showApolloTwoRoundStages?: boolean;
   /** § 11 — cifras reales devueltas por el backend. `null` = no corrió / no llegó. */
   twoRoundOutcome?: { roundsExecuted: number | null; eligibleCompaniesFound: number | null } | null;
+  /** QUERY-QUALITY-2 § 8 — distribución real de descartes de la corrida. */
+  noNewCandidatesBreakdown?: NoNewCandidatesBreakdown | null;
 };
 
 type WizardConversationSummaryProps = WizardRunProviderSurfaceProps & {
@@ -82,6 +85,7 @@ export function WizardConversationSummary({
   onRequestedProviderChange,
   showApolloTwoRoundStages = false,
   twoRoundOutcome = null,
+  noNewCandidatesBreakdown = null,
 }: WizardConversationSummaryProps) {
   if (state.currentStep === 'validating') {
     return <ValidatingPanel />;
@@ -127,6 +131,7 @@ export function WizardConversationSummary({
         onClose={onClose}
         onEditSearch={onEditSearch}
         twoRoundOutcome={twoRoundOutcome}
+        noNewCandidatesBreakdown={noNewCandidatesBreakdown}
         targetEligibleCompanies={apolloRunModeLimits?.targetEligibleCompanies ?? null}
       />
     );
