@@ -350,6 +350,29 @@ describe('waterfall UI — flag OFF', () => {
     assert.equal(mockAudit.mock.callCount(), 0);
   });
 
+  it('conserva el one-click de 8 SIN el desglose de 4B: no hay modal que desglosar', async () => {
+    // Con el flag apagado no existe waterfall, así que tampoco existe una 2ª pata
+    // que autorizar: el desglose por proveedor y el total de 13 no pueden aparecer.
+    await renderSheet(lushaCandidate(), { waterfallEnabled: false });
+    const text = bodyText();
+    assert.ok(text.includes('hasta 8 créditos'));
+    assert.equal(/Apollo: hasta 8 créditos/.test(text), false, text);
+    assert.equal(/Lusha: hasta 5 créditos/.test(text), false, text);
+    assert.equal(/Máximo total autorizado/.test(text), false, text);
+    assert.equal(/13/.test(text), false, text);
+    // Y sigue sin haber paso de confirmación: el clic gasta directo, como antes.
+    // (El propio sidepanel es un Sheet con role="dialog", así que lo que distingue
+    // "hay modal" de "no hay modal" es el botón de confirmar, no el rol ARIA.)
+    assert.equal(screen.queryByRole('button', { name: 'Confirmar y revelar' }), null);
+    await act(async () => {
+      fireEvent.click(revealButton()!);
+    });
+    assert.equal(screen.queryByRole('button', { name: 'Confirmar y revelar' }), null);
+    assert.equal(mockReveal.mock.callCount(), 1);
+    const payload = mockReveal.mock.calls[0].arguments[0] as { expectedMaxCredits: number };
+    assert.equal(payload.expectedMaxCredits, 8);
+  });
+
   it('conserva el botón manual de Lusha tras un no_phone_found de Apollo', async () => {
     await renderSheet(
       lushaCandidate({ phone_reveal_status: 'no_phone_found' }),
@@ -383,8 +406,8 @@ describe('waterfall UI — flag ON con rol admin', () => {
     });
     assert.equal(mockReveal.mock.callCount(), 0, 'no se gasta nada hasta confirmar');
     const text = bodyText();
-    assert.ok(text.includes('SellUp intentará primero Apollo'));
-    assert.ok(text.includes('intentará Lusha automáticamente'));
+    assert.ok(text.includes('Apollo se intentará primero'));
+    assert.ok(text.includes('SellUp intentará Lusha como respaldo'));
   });
 
   it('con id Lusha el modal dice hasta 13 créditos y envía expectedMaxCredits=13', async () => {
@@ -464,6 +487,100 @@ describe('waterfall UI — flag ON con rol admin', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// 2 bis. Consentimiento completo del modal normal (WATERFALL-4B)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * El modal del waterfall completo autoriza 13 créditos y DOS proveedores. Antes
+ * mostraba solo el total y no repetía las advertencias que sí traía el modal legacy,
+ * así que el operador del flujo que gasta MÁS era el que veía MENOS. Lo que se fija
+ * aquí es el contenido del diálogo tal como se renderiza — no el objeto de copy — y
+ * que abrirlo siga sin tener ningún efecto: ni corrida, ni proveedor, ni crédito.
+ */
+describe('waterfall UI — consentimiento del modal normal (4B)', () => {
+  function dialogText(): string {
+    return (screen.getByRole('dialog').textContent ?? '').replace(/\s+/g, ' ');
+  }
+
+  async function openFullWaterfallModal() {
+    await renderSheet(lushaCandidate(), {
+      waterfallEnabled: true,
+      waterfallAuthorized: true,
+    });
+    await act(async () => {
+      fireEvent.click(revealButton()!);
+    });
+  }
+
+  it('desglosa la pata Apollo: hasta 8 créditos', async () => {
+    await openFullWaterfallModal();
+    assert.ok(/Apollo: hasta 8 créditos\./.test(dialogText()), dialogText());
+  });
+
+  it('desglosa la pata Lusha: hasta 5 créditos', async () => {
+    await openFullWaterfallModal();
+    assert.ok(/Lusha: hasta 5 créditos\./.test(dialogText()), dialogText());
+  });
+
+  it('declara el máximo TOTAL autorizado: 13 créditos', async () => {
+    await openFullWaterfallModal();
+    assert.ok(
+      /Máximo total autorizado: 13 créditos\./.test(dialogText()),
+      dialogText(),
+    );
+  });
+
+  it('advierte que no se garantiza encontrar un teléfono', async () => {
+    await openFullWaterfallModal();
+    assert.ok(/No se garantiza encontrar un teléfono\./.test(dialogText()), dialogText());
+  });
+
+  it('advierte que no se creará un contacto oficial automáticamente', async () => {
+    await openFullWaterfallModal();
+    assert.ok(
+      /No se creará un contacto oficial automáticamente\./.test(dialogText()),
+      dialogText(),
+    );
+  });
+
+  it('advierte que no se escribirá en HubSpot automáticamente', async () => {
+    await openFullWaterfallModal();
+    assert.ok(
+      /No se escribirá en HubSpot automáticamente\./.test(dialogText()),
+      dialogText(),
+    );
+  });
+
+  it('abrir el modal NO crea una corrida (ni la relee: no hay nada que releer)', async () => {
+    await renderSheet(lushaCandidate(), {
+      waterfallEnabled: true,
+      waterfallAuthorized: true,
+    });
+    // La corrida la crea el servidor al confirmar; la auditoría solo se consulta al
+    // montar. Abrir el modal no debe añadir ninguna de las dos cosas.
+    const auditCallsBefore = mockAudit.mock.callCount();
+    const candidateCallsBefore = mockGetById.mock.callCount();
+    await act(async () => {
+      fireEvent.click(revealButton()!);
+    });
+    assert.ok(screen.getByRole('dialog'), 'el modal debe estar abierto');
+    assert.equal(mockAudit.mock.callCount(), auditCallsBefore);
+    assert.equal(mockGetById.mock.callCount(), candidateCallsBefore);
+  });
+
+  it('abrir el modal NO llama a Apollo', async () => {
+    await openFullWaterfallModal();
+    assert.equal(mockReveal.mock.callCount(), 0);
+  });
+
+  it('abrir el modal NO llama a Lusha (ni por el waterfall ni por la ruta legacy)', async () => {
+    await openFullWaterfallModal();
+    assert.equal(mockLushaFallback.mock.callCount(), 0);
+    assert.equal(mockLegacyStart.mock.callCount(), 0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // 3. Flag ON + commercial_manager (rol no autorizado)
 // ═══════════════════════════════════════════════════════════════
 
@@ -483,6 +600,21 @@ describe('waterfall UI — flag ON con rol NO autorizado', () => {
     const payload = mockReveal.mock.calls[0].arguments[0] as { expectedMaxCredits: number };
     assert.equal(payload.expectedMaxCredits, 8);
     assert.equal(mockAudit.mock.callCount(), 0);
+  });
+
+  it('NO recibe la pata Lusha: ni desglose de Lusha ni total de 13 en pantalla', async () => {
+    // El candidato SÍ tiene id Lusha reutilizable: lo que lo deja fuera de la 2ª
+    // pata es el rol, no el dato. Si el desglose de 4B se escapara al flujo
+    // Apollo-only, el rol no autorizado estaría leyendo una autorización de 13 que
+    // nunca va a poder dar.
+    await renderSheet(lushaCandidate(), {
+      waterfallEnabled: true,
+      waterfallAuthorized: false,
+    });
+    const text = bodyText();
+    assert.equal(/Lusha: hasta 5 créditos/.test(text), false, text);
+    assert.equal(/Máximo total autorizado/.test(text), false, text);
+    assert.equal(/13/.test(text), false, text);
   });
 });
 

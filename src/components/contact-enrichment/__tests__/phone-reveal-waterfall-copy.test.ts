@@ -26,12 +26,14 @@ import {
   PHONE_REVEAL_WATERFALL_LEGACY_EXHAUSTED_COPY,
   PHONE_REVEAL_WATERFALL_LEGACY_LUSHA_RUNNING_COPY,
   PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS,
+  PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS,
   PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY,
   PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS,
 } from '../phone-reveal-waterfall-copy';
 import {
   PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS,
   PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS as PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS_CORE,
+  PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS,
   PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS,
   PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA,
 } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
@@ -56,6 +58,17 @@ describe('copy del waterfall — topes alineados con el core', () => {
     );
     assert.equal(PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS, 8);
   });
+
+  test('el tope de la pata Lusha que se desglosa es el del core (5)', () => {
+    // El desglose del modal (AGENT2A-PHONE-WATERFALL-4B) muestra esta cifra como el
+    // umbral de la 2ª pata: si dejara de ser la del core, el modal estaría pidiendo
+    // autorización por un tope que el servidor no aplica.
+    assert.equal(
+      PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS,
+      PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS,
+    );
+    assert.equal(PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS, 5);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -69,7 +82,10 @@ describe('copy del waterfall — modal único', () => {
     assert.ok(copy.creditsMessage.includes('13'));
     assert.ok(copy.flowDescription.includes('Apollo'));
     assert.ok(copy.flowDescription.includes('Lusha'));
-    assert.ok(copy.flowDescription.includes('automáticamente'));
+    // El orden importa: Apollo primero, Lusha SOLO como respaldo si el primero no
+    // encuentra teléfono (AGENT2A-PHONE-WATERFALL-4B).
+    assert.ok(/Apollo se intentará primero/i.test(copy.flowDescription));
+    assert.ok(/como respaldo/i.test(copy.flowDescription));
     // Sin id Lusha ausente ⇒ no se explica una limitación que no aplica.
     assert.equal(copy.lushaUnavailableNote, null);
   });
@@ -93,6 +109,93 @@ describe('copy del waterfall — modal único', () => {
       assert.ok(joined.includes('individual'), 'debe advertir que no es masiva');
       assert.ok(joined.includes('desconocido'), 'debe advertir sobre el tipo de teléfono');
     }
+  });
+
+  // ── Consentimiento completo del modal normal (AGENT2A-PHONE-WATERFALL-4B) ──
+  //
+  // El modal del waterfall completo autoriza MÁS crédito que el legacy (13 vs 5) y
+  // DOS proveedores en vez de uno. Antes solo mostraba el total, así que el
+  // operador no podía saber qué pata cobraba qué, y las advertencias sobre no
+  // garantizar teléfono / no crear contacto oficial solo existían en el legacy.
+
+  test('el desglose atribuye hasta 8 créditos a Apollo', () => {
+    const copy = getPhoneRevealWaterfallModalCopy({ lushaEligible: true });
+    const legs = copy.creditBreakdown?.legs ?? [];
+    assert.ok(
+      legs.some((leg) => /^Apollo: hasta 8 créditos\.$/.test(leg)),
+      legs.join(' | '),
+    );
+  });
+
+  test('el desglose atribuye hasta 5 créditos a Lusha', () => {
+    const copy = getPhoneRevealWaterfallModalCopy({ lushaEligible: true });
+    const legs = copy.creditBreakdown?.legs ?? [];
+    assert.ok(
+      legs.some((leg) => /^Lusha: hasta 5 créditos\.$/.test(leg)),
+      legs.join(' | '),
+    );
+    // Apollo primero: el orden de las líneas es el orden de ejecución.
+    assert.equal(legs.length, 2);
+    assert.ok(legs[0].startsWith('Apollo:'));
+    assert.ok(legs[1].startsWith('Lusha:'));
+  });
+
+  test('el desglose declara 13 como máximo TOTAL autorizado, y suma las patas', () => {
+    const copy = getPhoneRevealWaterfallModalCopy({ lushaEligible: true });
+    assert.equal(copy.creditBreakdown?.total, 'Máximo total autorizado: 13 créditos.');
+    // El total no es una cifra suelta: es exactamente la suma de las dos patas, y
+    // coincide con el tope que viaja al servidor.
+    assert.equal(
+      PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS +
+        PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS,
+      PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS,
+    );
+    assert.equal(copy.maxCredits, PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS);
+  });
+
+  test('sin id Lusha el desglose NO inventa una pata Lusha ni un total de 13', () => {
+    const copy = getPhoneRevealWaterfallModalCopy({ lushaEligible: false });
+    assert.deepEqual(copy.creditBreakdown?.legs, ['Apollo: hasta 8 créditos.']);
+    assert.equal(copy.creditBreakdown?.total, 'Máximo total autorizado: 8 créditos.');
+    const joined = `${copy.creditBreakdown?.legs.join(' ')} ${copy.creditBreakdown?.total}`;
+    assert.equal(/Lusha/.test(joined), false, joined);
+    assert.equal(/13/.test(joined), false, joined);
+  });
+
+  test('el modal normal advierte que NO se garantiza un teléfono', () => {
+    for (const lushaEligible of [true, false]) {
+      const warnings = getPhoneRevealWaterfallModalCopy({ lushaEligible }).warnings.join(
+        ' | ',
+      );
+      assert.ok(/No se garantiza encontrar un teléfono/i.test(warnings), warnings);
+    }
+  });
+
+  test('el modal normal advierte que NO se creará un contacto oficial', () => {
+    for (const lushaEligible of [true, false]) {
+      const warnings = getPhoneRevealWaterfallModalCopy({ lushaEligible }).warnings.join(
+        ' | ',
+      );
+      assert.ok(/No se creará un contacto oficial/i.test(warnings), warnings);
+    }
+  });
+
+  test('el modal legacy conserva SU redacción de advertencias, sin adoptar la nueva', () => {
+    // 4B completó el modal normal sin tocar el legacy: si el legacy empezara a
+    // decir "No se garantiza…" sería que se unificó su copy, que es justo lo que
+    // este cambio no debía hacer.
+    const legacy = getPhoneRevealWaterfallModalCopy({
+      lushaEligible: true,
+      legacyLushaOnly: true,
+    });
+    const warnings = legacy.warnings.join(' | ');
+    assert.ok(/No garantiza encontrar un teléfono/i.test(warnings));
+    assert.equal(/No se garantiza encontrar un teléfono/i.test(warnings), false);
+    assert.ok(/No crea un contacto oficial/i.test(warnings));
+    assert.equal(/No se creará un contacto oficial/i.test(warnings), false);
+    // Y no gana un desglose: autoriza UNA pata, y su tope sigue siendo 5.
+    assert.equal(legacy.creditBreakdown, null);
+    assert.equal(legacy.maxCredits, PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS);
   });
 
   test('el botón usa el mismo label del reveal Apollo (una sola acción para el operador)', () => {
@@ -270,7 +373,7 @@ describe('copy del waterfall — modalidad legacy solo-Lusha', () => {
       baseline,
     );
     assert.equal(baseline.maxCredits, 13);
-    assert.ok(/primero Apollo/i.test(baseline.flowDescription));
+    assert.ok(/Apollo se intentará primero/i.test(baseline.flowDescription));
   });
 
   test('el copy del estado legacy no afirma que Apollo se esté consultando ahora', () => {
