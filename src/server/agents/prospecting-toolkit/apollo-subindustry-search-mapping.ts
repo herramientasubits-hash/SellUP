@@ -20,6 +20,20 @@
  * exclusión de keywords, así que se aplican localmente y siempre antes de
  * cualquier operación pagada.
  *
+ * ── FOLLOW-UP registrado (QUERY-QUALITY-2-FIX § 12), NO implementado aquí ──────
+ *
+ * La base de datos ya tiene `subindustry_search_terms`: 228 términos repartidos
+ * sobre las 73 subindustrias del catálogo activo, y hoy SIN ningún consumidor. El
+ * seguimiento deberá decidir si sustituye este catálogo TypeScript o si actúa como
+ * capa gestionable por encima de él — y, si sustituye, cómo se auditan los términos
+ * que gobiernan gasto real.
+ *
+ * Este PR NO añade consultas de producción, caché ni migraciones para eso: un
+ * catálogo que decide qué se le compra a un proveedor no se conecta de paso. Los
+ * 73 nombres viven congelados en
+ * `__tests__/fixtures/sellup-subindustry-catalog-names.ts` para que la suite pueda
+ * comprobar el emparejamiento contra el catálogo real sin tocar la base.
+ *
  * Puro: sin env, sin I/O, sin reloj.
  */
 
