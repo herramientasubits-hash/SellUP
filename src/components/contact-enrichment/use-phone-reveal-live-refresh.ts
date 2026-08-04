@@ -22,13 +22,32 @@ export interface UsePhoneRevealLiveRefreshInput {
   readonly reload: () => Promise<void>;
 }
 
+export interface PhoneRevealLiveRefreshState {
+  /** El refresco acotado está corriendo AHORA (quedan intentos y presupuesto). */
+  readonly active: boolean;
+  /**
+   * El presupuesto se AGOTÓ y el reveal sigue en vuelo
+   * (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 5).
+   *
+   * Es una tercera situación, distinta de `active: true` y de "no aplica": nadie
+   * está mirando ya, pero el caso no está cerrado. Se expone por separado porque
+   * la UI debe DECIRLO — antes simplemente dejaba de mostrar «Actualizando el
+   * estado automáticamente…» sin sustituirlo por nada, así que el spinner de
+   * «Revelación en proceso» quedaba ahí y parecía que SellUp seguía trabajando.
+   *
+   * Nunca es `true` a la vez que `active`.
+   */
+  readonly budgetExhausted: boolean;
+}
+
 /**
  * Refresco acotado del candidato mientras un Apollo Phone Reveal está en vuelo
  * (APOLLO-PHONE-REVEAL-LIVE-REFRESH-1).
  *
  * Programa refetch encadenados con `setTimeout` (nunca `setInterval`) mientras
- * `enabled` sea `true`, con un presupuesto total acotado. Devuelve si el refresco
- * sigue activo, para que la UI pueda decirlo sin inventarse su propio estado.
+ * `enabled` sea `true`, con un presupuesto total acotado. Devuelve el estado del
+ * ciclo — activo / presupuesto agotado — para que la UI pueda decirlo sin
+ * inventarse su propio estado ni dejar un spinner indefinido.
  *
  * Paradas obligatorias — todas cubiertas aquí:
  *  - `enabled` pasa a `false` (estado terminal, teléfono presente, drawer cerrado,
@@ -44,7 +63,7 @@ export function usePhoneRevealLiveRefresh({
   enabled,
   candidateId,
   reload,
-}: UsePhoneRevealLiveRefreshInput): boolean {
+}: UsePhoneRevealLiveRefreshInput): PhoneRevealLiveRefreshState {
   // Único estado del hook: si ESTE ciclo ya consumió su presupuesto. Se enciende
   // desde el callback del timer y se apaga en el cleanup (cuando el ciclo termina
   // por cambio de candidato, cierre o estado terminal), nunca en el cuerpo del
@@ -104,7 +123,16 @@ export function usePhoneRevealLiveRefresh({
     };
   }, [enabled, candidateId, reload]);
 
-  return enabled && !!candidateId && !budgetExhausted;
+  // `enabled` ya incorpora "sigue en vuelo": lo calcula
+  // `isPhoneRevealLiveRefreshEligible`, que apaga el ciclo en cuanto el estado es
+  // terminal o aparece un teléfono. Por eso el agotamiento sólo se REPORTA cuando
+  // el ciclo sigue vigente — un presupuesto agotado sobre un caso ya cerrado no es
+  // algo que haya que contarle a nadie.
+  const applicable = enabled && !!candidateId;
+  return {
+    active: applicable && !budgetExhausted,
+    budgetExhausted: applicable && budgetExhausted,
+  };
 }
 
 export { PHONE_REVEAL_LIVE_REFRESH_MAX_DURATION_MS };

@@ -7,6 +7,14 @@
  *
  * Observacional, NO bloqueante. No afirma "email verificado", "propiedad del
  * correo confirmada" ni "persona verificada": solo describe la evidencia.
+ *
+ * AGENT2A-PHONE-REVEAL-UI-STATE-1 § 8.3 — el copy es NEUTRAL respecto al
+ * proveedor. Antes nombraba a Lusha ("la búsqueda de Lusha", "encontrada
+ * inicialmente en Lusha") de forma fija, lo que era doblemente engañoso: falso
+ * para un candidato de Apollo, y sugería que Lusha había intervenido en el
+ * teléfono cuando el proveedor telefónico es otro eje (`phone_reveal_provider`).
+ * Este bloque describe la FUENTE del candidato, así que habla de "la fuente
+ * original" y deja que la fila «Fuente del candidato» diga cuál es.
  */
 
 import type { LushaPersonIdentityEvidenceV1 } from '@/modules/contact-enrichment/types';
@@ -46,14 +54,14 @@ export function resolveIdentityDisplay(
       return {
         label: 'Identidad coincidente',
         description:
-          'La identidad devuelta por el enriquecimiento coincide con la persona encontrada en la búsqueda de Lusha.',
+          'La identidad devuelta por el enriquecimiento coincide con la identidad del candidato encontrado por la fuente original.',
         tone: 'consistent',
       };
     case 'mismatch':
       return {
         label: 'Requiere revisión de identidad',
         description:
-          'La identidad devuelta por el enriquecimiento no coincide completamente con la persona encontrada inicialmente en Lusha. Revisa el perfil y el correo antes de aprobar.',
+          'La identidad devuelta por el enriquecimiento no coincide completamente con la identidad del candidato encontrado por la fuente original. Revisa el perfil y el correo antes de aprobar.',
         tone: 'mismatch',
       };
     default:

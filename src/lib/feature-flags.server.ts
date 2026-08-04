@@ -456,27 +456,39 @@ export const LUSHA_PHONE_REVEAL_FALLBACK_FLAG =
  * ban on phone reveal for the existing V3 email-only client (enrichLushaContactsV3)
  * stays exactly as-is and is unaffected by this flag in either state.
  *
- * This is a SEPARATE flag for a FUTURE, distinct action: a manual,
- * single-candidate Lusha phone reveal fallback, offered only after Apollo's
- * own phone reveal already returned `no_phone_found`. It was approved
- * internally as Legal/Compliance GO, Product GO (manual fallback), Spend GO
- * (conditioned), single-candidate, non-bulk, non-automatic, no-retry, no
- * HubSpot write — pending a senior Lusha support ticket confirming three open
- * questions: whether `v1.`-prefixed ids returned by V3 endpoints are stable
- * for later reuse, whether `reveal:["phones"]` requires an additional
- * entitlement, and whether ids can be reused days/weeks after they were
- * issued. See evaluateLushaPhoneFallbackEligibility in
- * src/modules/contact-enrichment/lusha-phone-fallback-eligibility.ts, whose
- * `lushaContactIdReuseConfirmed` / `lushaPhoneEntitlementConfirmed` inputs
- * represent exactly those two open questions — no real caller can truthfully
- * pass `true` for either until the ticket resolves, so the fallback cannot
- * reach `eligible` today regardless of this flag's value.
+ * This is a SEPARATE flag for a distinct action: a manual, single-candidate
+ * Lusha phone reveal fallback, offered only after Apollo's own phone reveal
+ * already returned `no_phone_found`. Approved internally as Legal/Compliance GO,
+ * Product GO (manual fallback), Spend GO (conditioned), single-candidate,
+ * non-bulk, non-automatic, no-retry, no HubSpot write.
  *
- * NOT configured in any Vercel environment as of LUSHA-PHONE-FALLBACK-1S.
- * With this flag OFF (the default) every scaffold function that reads it
- * evaluates to ineligible/disabled before any network call. No route, server
- * action or UI component reads this flag or this scaffold in this milestone,
- * so flipping it locally has no live effect either way.
+ * The senior Lusha support ticket that used to gate it RESOLVED on 2026-07-31:
+ * `v1.`-prefixed V3 contact ids may be reused later for /v3/contacts/enrich, and
+ * `reveal:["phones"]` needs no entitlement beyond Enrich Contacts access plus
+ * credits. Accordingly `LUSHA_CONTACT_ID_REUSE_CONFIRMED` and
+ * `LUSHA_PHONE_ENTITLEMENT_CONFIRMED` (lusha-phone-fallback-core.ts) are both
+ * `true`, so `evaluateLushaPhoneFallbackEligibility` CAN now reach `eligible` —
+ * the opposite of what this comment said while the ticket was open. A 403 in
+ * practice is still handled fail-closed as `provider_permission_error`.
+ *
+ * STATUS (actualizado en AGENT2A-PHONE-REVEAL-UI-STATE-1 § 9 — el texto anterior
+ * afirmaba que este flag no estaba configurado en ningún entorno de Vercel y que
+ * ninguna ruta, server action o componente lo leía; las dos afirmaciones dejaron
+ * de ser ciertas y describían el estado congelado de LUSHA-PHONE-FALLBACK-1S):
+ *   * el flag SÍ está registrado en Vercel y el fallback manual de Lusha es una
+ *     ruta VIVA en Producción cuando resuelve a `"true"` (LUSHA-PHONE-FALLBACK-1
+ *     y su cap de créditos posterior);
+ *   * lo leen server actions y UI reales — `lusha-phone-fallback-actions.ts`, el
+ *     drawer de candidatos y la 2ª pata del waterfall —, así que cambiar su valor
+ *     SÍ tiene efecto en vivo;
+ *   * su valor concreto no se puede leer desde el código ni desde `vercel env ls`
+ *     (`type: sensitive`): sólo se confirma en runtime.
+ *
+ * Lo que NO cambió: sigue siendo fail-closed y por defecto `false`, y con el flag
+ * OFF toda función que lo lee evalúa a ineligible/disabled ANTES de cualquier
+ * llamada de red. Tampoco debilita `isLushaPhoneRevealEnabled(): false`, ni
+ * autoriza por sí solo ningún gasto: cada reveal exige además su autorización
+ * explícita.
  */
 export function isLushaPhoneRevealFallbackEnabled(): boolean {
   return isEnvFlagEnabled(process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG]);
@@ -493,10 +505,22 @@ export const PHONE_REVEAL_WATERFALL_FLAG = 'ENABLE_PHONE_REVEAL_WATERFALL';
  * Returns true when ENABLE_PHONE_REVEAL_WATERFALL is exactly "true"
  * (case-insensitive, leading/trailing whitespace ignored).
  *
- * Default: false, fail-closed. NOT configured in any environment as of
- * AGENT2A-PHONE-WATERFALL-1, and never a NEXT_PUBLIC_* flag: it is resolved
- * server-side and travels to the client only as a plain boolean prop, exactly
- * like `isApolloPhoneRevealEnabled` / `isLushaPhoneRevealFallbackEnabled`.
+ * Default: false, fail-closed. Nunca es un flag `NEXT_PUBLIC_*`: se resuelve
+ * server-side y viaja al cliente solo como booleano, igual que
+ * `isApolloPhoneRevealEnabled` / `isLushaPhoneRevealFallbackEnabled`.
+ *
+ * PRESENCIA (verificado 2026-08-04, AGENT2A-PHONE-REVEAL-UI-STATE-1): la variable
+ * SÍ está registrada en el entorno Production de Vercel. El texto anterior decía
+ * «NOT configured in any environment as of AGENT2A-PHONE-WATERFALL-1» y dejó de ser
+ * cierto.
+ *
+ * Estar registrada NO significa estar encendida: el registro es `Encrypted`, así que
+ * su valor es ilegible desde el código y desde `vercel env ls`, y cualquier valor que
+ * no sea exactamente `"true"` deja el waterfall APAGADO. Confirmar el estado real
+ * exige runtime: GET /api/debug/agent2a-phone-waterfall-config (admin-only) publica
+ * `phone_reveal_waterfall_flag_configured` y
+ * `phone_reveal_waterfall_enabled_resolved` por separado justamente para que
+ * «listada» y «activa» no se confundan. No dar por supuesto ninguno de los dos.
  *
  * What it turns on: ONE operator click on "Revelar teléfono" authorizes a
  * two-leg reveal — Apollo first and, only if Apollo terminates as
@@ -520,4 +544,29 @@ export const PHONE_REVEAL_WATERFALL_FLAG = 'ENABLE_PHONE_REVEAL_WATERFALL';
  */
 export function isPhoneRevealWaterfallEnabled(): boolean {
   return isEnvFlagEnabled(process.env[PHONE_REVEAL_WATERFALL_FLAG]);
+}
+
+/**
+ * ¿Existe la variable `ENABLE_PHONE_REVEAL_WATERFALL` en este runtime?
+ *
+ * PRESENCIA, no valor (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 11). Devuelve `true`
+ * cuando la variable está definida y no está vacía, sin revelar su contenido.
+ * Existe porque «configurada» y «resuelta como activa» son preguntas distintas y
+ * confundirlas es lo que hace imposible diagnosticar el estado real: una variable
+ * presente con un valor que no sea exactamente `"true"` deja el waterfall APAGADO,
+ * y sin este par de señales ese caso es indistinguible de la variable ausente.
+ *
+ * En Vercel los flags son `type: sensitive`: su valor es ilegible para siempre
+ * (ni la API con `?decrypt=true` lo devuelve), así que `vercel env ls` sólo prueba
+ * presencia. Este helper es el equivalente en runtime de esa comprobación, y el
+ * endpoint de diagnóstico lo publica JUNTO a `isPhoneRevealWaterfallEnabled()`
+ * para que el operador pueda distinguir los tres casos: ausente, presente-pero-no-
+ * `"true"`, y presente-y-activa.
+ *
+ * Nunca devuelve, registra ni deriva el valor crudo — sólo su longitud tras
+ * `trim()`, reducida a un booleano.
+ */
+export function isPhoneRevealWaterfallFlagConfigured(): boolean {
+  const raw = process.env[PHONE_REVEAL_WATERFALL_FLAG];
+  return typeof raw === 'string' && raw.trim().length > 0;
 }

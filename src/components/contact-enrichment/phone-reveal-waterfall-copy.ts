@@ -2,8 +2,14 @@
 // Sin React, sin red, sin imports de servidor: seguro de importar desde tests
 // unitarios y desde el bundle cliente. Lo renderiza
 // contact-candidate-detail-sheet.tsx, pero solo cuando
-// ENABLE_PHONE_REVEAL_WATERFALL está encendido (apagado en todos los entornos),
-// así que hoy ningún operador ve este copy.
+// ENABLE_PHONE_REVEAL_WATERFALL resuelve a `"true"` para un rol admin.
+//
+// NOTA (2026-08-04, AGENT2A-PHONE-REVEAL-UI-STATE-1): el texto anterior afirmaba
+// que el flag estaba «apagado en todos los entornos» y que por tanto ningún
+// operador veía este copy. La variable SÍ está registrada en Production y su valor
+// es ilegible (`Encrypted`), así que esa afirmación ya no es verificable desde el
+// código. Si el waterfall está activo se comprueba en runtime con
+// GET /api/debug/agent2a-phone-waterfall-config, no asumiéndolo aquí.
 //
 // Misma convención que lusha-phone-fallback-copy.ts: un `get<X>Copy()` puro por
 // concern, y los topes de crédito declarados como constantes de UI para no

@@ -131,6 +131,11 @@ import {
   PHONE_REVEAL_LIVE_REFRESH_COPY,
 } from './phone-reveal-live-refresh-core';
 import { usePhoneRevealLiveRefresh } from './use-phone-reveal-live-refresh';
+import {
+  shouldClearLocalPhoneRevealState,
+  PHONE_REVEAL_LIVE_REFRESH_EXHAUSTED_COPY,
+} from './phone-reveal-drawer-sync-core';
+import { usePhoneRevealWindowRefresh } from './use-phone-reveal-window-refresh';
 
 // Motivos de rechazo sugeridos (Hito 17A.4B). "Otro" habilita un comentario
 // opcional; el resto se guarda tal cual en review_notes + metadata.review.
@@ -152,6 +157,52 @@ const SOURCE_LABELS: Record<ContactSource, string> = {
   manual: 'Manual',
   mock: 'Mock',
 };
+
+/**
+ * Etiqueta de `candidate.source` (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 8.1).
+ *
+ * Antes era sólo «Fuente», y esa ambigüedad hacía leer «Fuente: Lusha» como
+ * "Lusha consiguió este teléfono" incluso cuando el reveal lo había ejecutado
+ * Apollo. `candidate.source` y `phone_reveal_provider` son ejes INDEPENDIENTES:
+ * quién descubrió a la persona no dice nada de quién reveló (o intentó revelar)
+ * su teléfono.
+ */
+const CANDIDATE_SOURCE_LABEL = 'Fuente del candidato';
+
+/**
+ * Etiqueta de `phone_reveal_provider` (§ 8.2). Vive en la sección de Teléfono,
+ * separada de la fuente del candidato, y sólo se muestra cuando existe un intento
+ * real: sin intento no se infiere desde `candidate.source`, porque inferirlo es
+ * precisamente el error que este hito corrige.
+ */
+const PHONE_REVEAL_PROVIDER_LABEL = 'Proveedor de revelación';
+
+/**
+ * Nombres visibles de los proveedores de revelación. Deliberadamente separado de
+ * `SOURCE_LABELS` (aunque hoy coincida en Apollo/Lusha) para que ampliar el
+ * vocabulario de uno no arrastre al otro: son dos dominios distintos.
+ */
+const PHONE_REVEAL_PROVIDER_LABELS: Record<string, string> = {
+  apollo: 'Apollo',
+  lusha: 'Lusha',
+};
+
+/**
+ * Traduce `phone_reveal_provider` a su nombre visible, o `null` cuando NO hay
+ * intento de revelación registrado.
+ *
+ * Fail-closed: ausente, vacío o desconocido ⇒ `null` ⇒ la línea no se renderiza.
+ * Un código desconocido no se muestra crudo: preferimos omitir el dato antes que
+ * mostrar un valor que el operador no pueda interpretar.
+ */
+function resolvePhoneRevealProviderLabel(
+  provider: string | null | undefined,
+): string | null {
+  if (typeof provider !== 'string') return null;
+  const normalized = provider.trim().toLowerCase();
+  if (!normalized) return null;
+  return PHONE_REVEAL_PROVIDER_LABELS[normalized] ?? null;
+}
 
 const RELEVANCE_LABELS: Record<ContactRelevanceStatus, string> = {
   high_relevance: 'Alta',
@@ -397,6 +448,12 @@ export function ContactCandidateDetailSheet({
   );
   const recoverInFlightRef = React.useRef(false);
 
+  // Actualización manual DESDE LA BASE (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 6). No
+  // confundir con "Revisar resultado ahora": esto SOLO relee el candidato en
+  // SellUp. Contrato: 0 llamadas a Apollo, 0 a Lusha, 0 usage logs, 0 créditos, 0
+  // escrituras. Es la salida honesta cuando la actualización automática ya terminó.
+  const [refreshingFromDatabase, setRefreshingFromDatabase] = React.useState(false);
+
   // Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1). SÍNCRONO (a diferencia del
   // reveal Apollo): la respuesta llega en la misma llamada, sin webhook. Exige
   // confirmación explícita antes de ejecutar (diálogo), nunca one-click.
@@ -477,6 +534,85 @@ export function ContactCandidateDetailSheet({
     [waterfallActive],
   );
 
+  /**
+   * Descarta TODO el estado local temporal del candidato en pantalla
+   * (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 4.2 / § 4.3).
+   *
+   * Se usa en los tres momentos en que el estado anterior deja de ser válido: al
+   * cerrar el drawer, al cambiar de candidato con el drawer abierto, y cuando el
+   * servidor confirma que el reveal ya terminó. Antes vivía en línea dentro de la
+   * rama `!open`, así que un cambio de `candidateId` con el drawer montado
+   * arrastraba avisos, errores y spinners del candidato anterior al siguiente.
+   *
+   * Incluye los estados del fallback manual de Lusha, que la versión anterior
+   * omitía por completo: su aviso y su error sobrevivían incluso al cierre.
+   *
+   * SOLO estado de React, deliberadamente: así puede invocarse durante el render
+   * (§ 4.3) sin tocar refs, que no pueden leerse ni escribirse en esa fase. Los
+   * guards contra doble clic viven en refs y se limpian en `resetInFlightGuards`,
+   * que corre fuera del render. Separarlos no pierde nada: cada guard ya se apaga
+   * en el `finally` de su propio handler, así que no puede quedarse encendido.
+   */
+  const resetTransientCandidateState = React.useCallback(() => {
+    setApproving(false);
+    setRejecting(false);
+    setShowRejectForm(false);
+    setReason(REJECTION_REASONS[0]);
+    setOtherComment('');
+    setShowIdentityOverrideDialog(false);
+    setOverrideAcknowledged(false);
+    setOverrideReason('');
+    setOverrideValidationError(null);
+    setRevealingPhone(false);
+    setPhoneRevealError(null);
+    setPhoneRevealNotice(null);
+    setRecoveringPhone(false);
+    setPhoneRecoveryNotice(null);
+    setPhoneRecoveryError(null);
+    setShowLushaPhoneFallbackConfirm(false);
+    setRevealingPhoneViaLusha(false);
+    setLushaPhoneFallbackError(null);
+    setLushaPhoneFallbackNotice(null);
+    setShowWaterfallConfirm(false);
+    setWaterfallAudit(null);
+    setRevealingLegacyPhone(false);
+    setLegacyWaterfallError(null);
+    setLegacyWaterfallNotice(null);
+  }, []);
+
+  /**
+   * Apaga los guards contra doble clic. Viven en refs, así que esto NUNCA puede
+   * llamarse durante el render — solo al cerrar el drawer.
+   */
+  const resetInFlightGuards = React.useCallback(() => {
+    revealInFlightRef.current = false;
+    recoverInFlightRef.current = false;
+    lushaFallbackInFlightRef.current = false;
+    legacyWaterfallInFlightRef.current = false;
+  }, []);
+
+  /**
+   * § 4.3 — el estado local temporal PERTENECE a un candidato concreto.
+   *
+   * Cuando el drawer sigue montado y cambia `candidateId`, nada del candidato
+   * anterior es válido: ni avisos, ni errores, ni estados de recovery. Antes la
+   * limpieza vivía solo en la rama `!open`, así que un
+   * «Apollo aún está procesando el resultado» del candidato A aparecía sobre el
+   * candidato B, que podía estar ya terminal.
+   *
+   * Se ajusta DURANTE EL RENDER (patrón documentado de React para "adaptar estado
+   * cuando cambia una prop"), no en un efecto: así el estado del candidato anterior
+   * no llega a pintarse ni un solo render sobre el nuevo, que es justamente el
+   * parpadeo que un efecto no puede evitar.
+   */
+  const [transientStateOwnerId, setTransientStateOwnerId] = React.useState<string | null>(
+    candidateId,
+  );
+  if (open && candidateId && transientStateOwnerId !== candidateId) {
+    setTransientStateOwnerId(candidateId);
+    resetTransientCandidateState();
+  }
+
   React.useEffect(() => {
     if (open && candidateId) {
       let cancelled = false;
@@ -484,6 +620,9 @@ export function ContactCandidateDetailSheet({
         setLoading(true);
         setNotFound(false);
         try {
+          // § 4.1: SIEMPRE se relee el candidato desde SellUp al abrir. No se
+          // confía en el snapshot de la tabla padre, que puede ser anterior al
+          // webhook. Lectura de solo lectura: 0 llamadas a proveedor, 0 créditos.
           const result = await getPendingContactCandidateById(candidateId);
           if (cancelled) return;
           if (!result) {
@@ -511,32 +650,17 @@ export function ContactCandidateDetailSheet({
       queueMicrotask(() => {
         setCandidate(null);
         setNotFound(false);
-        setApproving(false);
-        setRejecting(false);
-        setShowRejectForm(false);
-        setReason(REJECTION_REASONS[0]);
-        setOtherComment('');
-        setShowIdentityOverrideDialog(false);
-        setOverrideAcknowledged(false);
-        setOverrideReason('');
-        setOverrideValidationError(null);
-        setRevealingPhone(false);
-        setPhoneRevealError(null);
-        setPhoneRevealNotice(null);
-        revealInFlightRef.current = false;
-        setRecoveringPhone(false);
-        setPhoneRecoveryNotice(null);
-        setPhoneRecoveryError(null);
-        recoverInFlightRef.current = false;
-        setShowWaterfallConfirm(false);
-        setWaterfallAudit(null);
-        setRevealingLegacyPhone(false);
-        setLegacyWaterfallError(null);
-        setLegacyWaterfallNotice(null);
-        legacyWaterfallInFlightRef.current = false;
+        resetTransientCandidateState();
+        resetInFlightGuards();
       });
     }
-  }, [open, candidateId, reloadWaterfallAudit]);
+  }, [
+    open,
+    candidateId,
+    reloadWaterfallAudit,
+    resetTransientCandidateState,
+    resetInFlightGuards,
+  ]);
 
   /**
    * Refetch silencioso del candidato tras un reveal (no muestra el skeleton del
@@ -922,6 +1046,30 @@ export function ContactCandidateDetailSheet({
   }
 
   /**
+   * Relee el candidato desde SellUp por acto humano (§ 6).
+   *
+   * Contrato DELIBERADAMENTE distinto del de «Revisar resultado ahora»:
+   *   * aquí: una lectura de la base de SellUp. Ni Apollo, ni Lusha, ni usage
+   *     logs, ni créditos, ni escrituras. Siempre disponible mientras haya
+   *     candidato, porque leer nunca puede hacer daño;
+   *   * allí: un recovery Apollo explícito — un GET al resultado ya solicitado,
+   *     solo para un estado en vuelo elegible y con ventana anti-abuso.
+   *
+   * Reutiliza `reloadCandidate`, que ya cumple exactamente este contrato: no se
+   * añade una acción de servidor nueva para algo que la proyección de lectura
+   * existente ya hace.
+   */
+  async function handleRefreshFromDatabase() {
+    if (!candidateId || refreshingFromDatabase) return;
+    setRefreshingFromDatabase(true);
+    try {
+      await reloadCandidate();
+    } finally {
+      setRefreshingFromDatabase(false);
+    }
+  }
+
+  /**
    * Pide al servidor revisar AHORA el resultado del reveal en vuelo. Un solo
    * candidato, una sola invocación por clic: el ref corta un segundo clic en el
    * mismo tick y el backend aplica además su propia ventana anti-abuso. NO inicia
@@ -1054,6 +1202,39 @@ export function ContactCandidateDetailSheet({
   const phoneTypeLabel = resolvePhoneTypeLabel(phoneMeta?.type);
   const phoneSourceLabel = resolvePhoneSourceLabel(phoneMeta?.source);
 
+  // ── El SERVIDOR manda (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 4.2) ───────────────
+  // En cuanto el candidato leído deja de estar en vuelo — `revealed`,
+  // `no_phone_found`, `error`, `not_requested` o `null` — el estado local que
+  // describía una espera queda INVÁLIDO. Este es el bug central del hito: el caso
+  // ya estaba cerrado en base (`webhook_received_at` = `completed_at`) y la UI
+  // seguía anunciando «Apollo aún está procesando el resultado» porque nada
+  // retiraba ese aviso una vez fijado en React.
+  //
+  // Se resuelve DERIVANDO en vez de con un efecto que limpie estado. Es mejor por
+  // dos razones, no solo por evitar renders en cascada: el aviso obsoleto no puede
+  // ni parpadear (no hay un render intermedio en el que siga visible), y no hay dos
+  // fuentes de verdad que puedan desincronizarse. Los spinners no necesitan
+  // derivación: `revealingPhone` y `recoveringPhone` se apagan en el `finally` de
+  // sus propios handlers, así que no pueden quedarse encendidos.
+  const phoneRevealSettledOnServer = shouldClearLocalPhoneRevealState(
+    candidate?.phone_reveal_status,
+  );
+  // Aviso de la revisión manual, ya filtrado: si el servidor cerró el caso, no se
+  // muestra aunque siga en el estado local.
+  const visiblePhoneRecoveryNotice = phoneRevealSettledOnServer
+    ? null
+    : phoneRecoveryNotice;
+
+  // Proveedor que reveló (o intentó revelar) el teléfono
+  // (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 8.2). Se deriva EXCLUSIVAMENTE de
+  // `phone_reveal_provider`: nunca de `candidate.source` ni de `phone.source`. Son
+  // tres propiedades distintas y mezclarlas es lo que hacía leer un reveal de
+  // Apollo como si lo hubiera hecho Lusha. `null` ⇒ no hubo intento ⇒ no se
+  // muestra nada (no se infiere).
+  const phoneRevealProviderLabel = resolvePhoneRevealProviderLabel(
+    candidate?.phone_reveal_provider,
+  );
+
   // Identidad suficiente para intentar un reveal Apollo (PHONE-3D.6B). Espejo
   // EXACTO del gate del server (`buildApolloPhoneRevealMatchParams`): basta un
   // identificador fuerte — source_contact_id del proveedor, email o LinkedIn. El
@@ -1101,8 +1282,20 @@ export function ContactCandidateDetailSheet({
     hasPhone,
     busy,
   });
-  const liveRefreshActive = usePhoneRevealLiveRefresh({
-    enabled: open && !!candidate && liveRefreshEligible,
+  const { active: liveRefreshActive, budgetExhausted: liveRefreshExhausted } =
+    usePhoneRevealLiveRefresh({
+      enabled: open && !!candidate && liveRefreshEligible,
+      candidateId,
+      reload: reloadCandidate,
+    });
+
+  // § 7: volver a la pestaña relee el candidato UNA vez. Cubre el hueco que deja
+  // el presupuesto acotado de arriba: quien deja el drawer abierto y vuelve más
+  // tarde ya no se queda mirando un estado congelado. Solo lee la base de SellUp
+  // — 0 llamadas a Apollo, 0 a Lusha, 0 usage logs, 0 créditos — y su ventana
+  // mínima impide que un cambio de pestaña produzca una ráfaga.
+  usePhoneRevealWindowRefresh({
+    open,
     candidateId,
     reload: reloadCandidate,
   });
@@ -1411,7 +1604,7 @@ export function ContactCandidateDetailSheet({
               <DetailRow icon={Globe} label="Dominio empresa">
                 {candidate.company_domain || <Fallback />}
               </DetailRow>
-              <DetailRow icon={Tag} label="Fuente">
+              <DetailRow icon={Tag} label={CANDIDATE_SOURCE_LABEL}>
                 <Badge variant="outline" className="text-[10px]">
                   {SOURCE_LABELS[candidate.source] ?? candidate.source}
                 </Badge>
@@ -1463,6 +1656,19 @@ export function ContactCandidateDetailSheet({
                   ) : (
                     <Fallback />
                   )}
+                  {/* § 8.2: línea SEPARADA para el proveedor de revelación. Vive en
+                      la sección de Teléfono porque es un hecho del teléfono, no del
+                      candidato, y así «Fuente del candidato: Lusha» +
+                      «Proveedor de revelación: Apollo» se leen sin contradicción.
+                      Ausente cuando todavía no hubo ningún intento. */}
+                  {phoneRevealProviderLabel && (
+                    <p className="text-[11px] text-muted-foreground">
+                      <span className="uppercase tracking-wide text-muted-foreground/70">
+                        {PHONE_REVEAL_PROVIDER_LABEL}:
+                      </span>{' '}
+                      <span className="text-foreground">{phoneRevealProviderLabel}</span>
+                    </p>
+                  )}
                   {phoneRevealInFlight && (
                     <div className="space-y-1">
                       <span className="inline-flex items-center gap-1.5">
@@ -1493,6 +1699,51 @@ export function ContactCandidateDetailSheet({
                           {PHONE_REVEAL_LIVE_REFRESH_COPY}
                         </p>
                       )}
+                      {/* § 5: el presupuesto se agotó y el caso sigue abierto. Antes
+                          el copy de arriba simplemente desaparecía y quedaba el
+                          spinner de "Revelación en proceso" solo, dando a entender
+                          que SellUp seguía revisando. Ahora se dice que la
+                          actualización automática TERMINÓ, y las dos afirmaciones son
+                          mutuamente excluyentes por construcción (el hook nunca
+                          reporta `active` y `budgetExhausted` a la vez). No inicia
+                          ninguna revelación nueva ni consume créditos. */}
+                      {liveRefreshExhausted && (
+                        <p className="text-[11px] text-muted-foreground/70">
+                          {PHONE_REVEAL_LIVE_REFRESH_EXHAUSTED_COPY}
+                        </p>
+                      )}
+                      {/* § 6: actualizar desde SellUp. Es una LECTURA de la base —
+                          nada de proveedores, créditos ni escrituras — y por eso
+                          está siempre disponible mientras el reveal siga en vuelo,
+                          sin ventana anti-abuso. Su copy dice explícitamente que no
+                          consulta a Apollo, para que no se confunda con el CTA de
+                          revisión manual que aparece más abajo. */}
+                      <div className="space-y-1.5 pt-0.5">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1.5 text-xs"
+                          disabled={busy || refreshingFromDatabase}
+                          onClick={handleRefreshFromDatabase}
+                        >
+                          {refreshingFromDatabase ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Actualizando…
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="h-3.5 w-3.5" />
+                              Actualizar desde SellUp
+                            </>
+                          )}
+                        </Button>
+                        <p className="text-[11px] text-muted-foreground/70">
+                          Relee el estado guardado en SellUp. No consulta a Apollo ni
+                          a Lusha y no consume créditos.
+                        </p>
+                      </div>
                       {phoneRevealLastCheckedAt && (
                         <p className="text-[11px] text-muted-foreground/70">
                           Última revisión: {formatDate(phoneRevealLastCheckedAt)}
@@ -1593,9 +1844,9 @@ export function ContactCandidateDetailSheet({
                   {/* Mensajes de la revisión manual (L3). Viven FUERA del bloque en
                       vuelo para que sigan visibles cuando el resultado ya cerró el
                       caso y el candidato deja de estar en `requested`/`pending`. */}
-                  {phoneRecoveryNotice && (
+                  {visiblePhoneRecoveryNotice && (
                     <p className="text-[11px] text-muted-foreground">
-                      {phoneRecoveryNotice}
+                      {visiblePhoneRecoveryNotice}
                     </p>
                   )}
                   {phoneRecoveryError && (
@@ -1884,7 +2135,13 @@ export function ContactCandidateDetailSheet({
           <SurfaceCard>
             <SurfaceCardHeader
               title="Consistencia de identidad"
-              description="Compara la persona encontrada en Lusha con la identidad devuelta por el enriquecimiento."
+              /* § 8.3: copy NEUTRAL respecto al proveedor. El texto anterior
+                 nombraba a Lusha ("la persona encontrada en Lusha"), lo que sugería
+                 que Lusha había participado en el teléfono cuando lo único que
+                 indica es `candidate.source`. Este bloque compara identidades del
+                 CANDIDATO y del enriquecimiento; no dice nada del proveedor
+                 telefónico, así que tampoco debe nombrar a ninguno. */
+              description="Compara la identidad del candidato encontrado por la fuente original con la identidad devuelta durante el enriquecimiento."
             />
             <div className="flex items-start gap-2.5">
               <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
@@ -1967,9 +2224,16 @@ export function ContactCandidateDetailSheet({
                   <Fallback />
                 )}
               </DetailRow>
-              <DetailRow icon={Tag} label="Fuente">
+              <DetailRow icon={Tag} label={CANDIDATE_SOURCE_LABEL}>
                 {SOURCE_LABELS[candidate.source] ?? candidate.source}
               </DetailRow>
+              {/* § 8.2 en Trazabilidad: el eje del teléfono, junto al del candidato
+                  pero nunca fundido con él. Solo si hubo intento real. */}
+              {phoneRevealProviderLabel && (
+                <DetailRow icon={PhoneCall} label={PHONE_REVEAL_PROVIDER_LABEL}>
+                  {phoneRevealProviderLabel}
+                </DetailRow>
+              )}
               {apolloAttempt && (
                 <DetailRow icon={UserSearch} label="Intento de búsqueda Apollo">
                   <span className="text-xs">{apolloAttempt}</span>
