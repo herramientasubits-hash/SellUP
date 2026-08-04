@@ -35,6 +35,7 @@ import {
   poolsWith,
   type CreditHarness,
 } from './phone-reveal-credit-reservation-fixtures';
+import type { PhoneRevealCreditProviderKey } from '../phone-reveal-credit-budget-core';
 
 const NOW = '2026-08-04T12:00:00.000Z';
 const ADMIN = { internalUserId: 'user-admin', roleKey: 'admin' };
@@ -77,9 +78,24 @@ function fullHarness(opts: {
   createReturns?: string | null;
   createThrows?: Error;
 } = {}): Harness {
-  const drafts: PhoneRevealWaterfallRunDraft[] = [];
-  const credit = opts.credit ?? creditHarness();
-  const harness: Harness = { drafts, credit, createCalls: 0, deps: undefined as never };
+  const credit = opts.credit ?? creditHarness({
+    ...(opts.createReturns === null
+      ? { outcome: { status: 'create_conflict' as const } }
+      : {}),
+    ...(opts.createThrows ? { throws: opts.createThrows } : {}),
+  });
+  const harness: Harness = {
+    // 4F: solo lo realmente escrito. Un rollback deja esta lista vacía.
+    drafts: credit.createdDrafts,
+    credit,
+    // Cuántas CORRIDAS se crearon realmente. En 4F la reserva y el INSERT son una sola
+    // operación, así que "no se intentó crear la corrida" ya no es observable como un
+    // INSERT que no se emitió: lo observable —y lo que importa— es que no quedó corrida.
+    get createCalls() {
+      return credit.createdDrafts.length;
+    },
+    deps: undefined as never,
+  };
   harness.deps = {
     flagEnabled: true,
     actor: ADMIN,
@@ -87,12 +103,6 @@ function fullHarness(opts: {
     loadCandidate: async () => lushaCandidate({ id: opts.candidateId ?? 'cand-1' }),
     findActiveRun: async () => null,
     ...credit.deps,
-    createRun: async (draft) => {
-      harness.createCalls += 1;
-      if (opts.createThrows) throw opts.createThrows;
-      drafts.push(draft);
-      return opts.createReturns === undefined ? 'run-new' : opts.createReturns;
-    },
   };
   return harness;
 }
@@ -107,10 +117,14 @@ function legacyHarness(opts: {
   drafts: PhoneRevealWaterfallRunDraft[];
   credit: CreditHarness;
 } {
-  const drafts: PhoneRevealWaterfallRunDraft[] = [];
-  const credit = opts.credit ?? creditHarness();
+  const credit = opts.credit ?? creditHarness({
+    ...(opts.createReturns === null
+      ? { outcome: { status: 'create_conflict' as const } }
+      : {}),
+    ...(opts.createThrows ? { throws: opts.createThrows } : {}),
+  });
   return {
-    drafts,
+    drafts: credit.createdDrafts,
     credit,
     deps: {
       flagEnabled: true,
@@ -120,11 +134,6 @@ function legacyHarness(opts: {
       findActiveRun: async () => null,
       findLatestRun: async () => null,
       ...credit.deps,
-      createRun: async (draft) => {
-        if (opts.createThrows) throw opts.createThrows;
-        drafts.push(draft);
-        return opts.createReturns === undefined ? 'run-legacy' : opts.createReturns;
-      },
     },
   };
 }
@@ -150,8 +159,9 @@ describe('4E — la reserva precede a la corrida y a cualquier proveedor', () =>
     // La corrida se creó UNA vez y con la asociación dentro del INSERT.
     assert.equal(h.drafts.length, 1);
     assert.equal(h.drafts[0].creditReservationGroupId, 'group-abc');
-    // Y nada se liberó: la exposición sigue ocupada mientras la corrida esté viva.
-    assert.deepEqual(h.credit.releases, []);
+    // Y la exposición sigue OCUPADA mientras la corrida esté viva: 4F no libera nada
+    // en el arranque feliz.
+    assert.equal(h.credit.active.filter((r) => r.status === 'reserved').length, 2);
   });
 
   it('la corrida NO se intenta crear si el crédito bloquea', async () => {
@@ -166,18 +176,27 @@ describe('4E — la reserva precede a la corrida y a cualquier proveedor', () =>
       const h = fullHarness({ credit });
       const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
       assert.equal(result.started, false);
-      assert.equal(h.createCalls, 0, 'ningún INSERT emitido');
+      assert.equal(h.createCalls, 0, 'ninguna corrida creada');
       assert.equal(h.drafts.length, 0);
     }
   });
 
-  it('la RPC caída ⇒ credit_balance_unavailable (fail-closed), nunca "faltan créditos"', async () => {
+  it('la RPC caída ⇒ run_creation_unavailable (fail-closed), nunca "faltan créditos"', async () => {
     // Es el estado real de un entorno donde la migración 104 no está aplicada.
+    //
+    // AGENT2A-PHONE-WATERFALL-4F: el motivo dejó de ser `credit_balance_unavailable`.
+    // El saldo SÍ se verificó —y con éxito— justo antes; lo que falló es la escritura
+    // atómica. Decirle al operador que no se pudo comprobar su saldo le describiría un
+    // problema que no tuvo. Lo que NO cambia, y es lo que este test protege, es que
+    // tampoco se afirme que faltan créditos.
     const h = fullHarness({
-      credit: creditHarness({ outcome: { status: 'unavailable', detail: 'reserve_rpc_error' } }),
+      credit: creditHarness({
+        outcome: { status: 'unavailable', detail: 'reserve_and_create_rpc_error' },
+      }),
     });
     const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
-    assert.deepEqual(result, { started: false, reason: 'credit_balance_unavailable' });
+    assert.deepEqual(result, { started: false, reason: 'run_creation_unavailable' });
+    assert.equal(h.createCalls, 0, 'y no quedó ninguna corrida');
   });
 
   it('la RPC responde already_reserved ⇒ active_run_exists (hay autorización viva)', async () => {
@@ -203,11 +222,17 @@ describe('4E — la reserva precede a la corrida y a cualquier proveedor', () =>
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 2. Compensación: la reserva no puede quedar bloqueada
+// 2. Rollback: la reserva no puede sobrevivir a una corrida que no existe
 // ═══════════════════════════════════════════════════════════════
+//
+// En 4E esto era COMPENSACIÓN: se reservaba, se intentaba crear y, si fallaba, se
+// emitía un release. Ese diseño dependía de que el release llegara a ejecutarse, y
+// justo los fallos que importan (caída del proceso, respuesta perdida) son los que
+// impiden que llegue. En 4F las dos escrituras son una transacción, así que no hay
+// nada que compensar: el fallo deshace ambas.
 
-describe('4E — la exposición se libera cuando la corrida no llega a existir', () => {
-  it('el INSERT lanza ⇒ release con `run_creation_failed` y el error se propaga', async () => {
+describe('4F — un fallo de creación no deja exposición: rollback, no compensación', () => {
+  it('la operación atómica lanza ⇒ el error se propaga y el pozo queda intacto', async () => {
     const boom = new Error('relation "public.phone_reveal_waterfall_runs" does not exist');
     const h = fullHarness({ createThrows: boom });
 
@@ -215,44 +240,47 @@ describe('4E — la exposición se libera cuando la corrida no llega a existir',
       () => startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps),
       /does not exist/,
     );
-    assert.deepEqual(
-      h.credit.releases.map((r) => r.reason),
-      ['run_creation_failed'],
-    );
-    // Y la disponibilidad volvió al pozo: no queda exposición huérfana.
+    // Ni corrida escrita ni exposición ocupada: la transacción no llegó a comprometerse.
+    assert.deepEqual(h.drafts, []);
     assert.deepEqual(h.credit.active, []);
+    assert.deepEqual(h.credit.createdRuns, []);
   });
 
-  it('23505 (índice único) ⇒ create_conflict y release con `create_conflict`', async () => {
+  it('23505 del índice único ⇒ create_conflict SIN reserva superviviente', async () => {
     const h = fullHarness({ createReturns: null });
     const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
 
     assert.deepEqual(result, { started: false, reason: 'create_conflict' });
-    assert.deepEqual(
-      h.credit.releases.map((r) => r.reason),
-      ['create_conflict'],
-    );
-    assert.deepEqual(h.credit.active, []);
+    assert.deepEqual(h.credit.active, [], 'el rollback devolvió la disponibilidad');
+    assert.deepEqual(h.drafts, []);
   });
 
-  it('se liberan TODAS las patas del grupo, no solo la primera', async () => {
-    const h = fullHarness({ createReturns: null });
+  it('el rollback cubre TODAS las patas, no solo la primera', async () => {
+    // Pozo justo para una autorización: si alguna pata sobreviviese al rollback, la
+    // siguiente autorización legítima no cabría.
+    const credit = creditHarness({
+      poolsFor: (keys) =>
+        keys.map((providerKey) => ({
+          providerKey,
+          state: configuredPool(providerKey === 'apollo' ? 8 : 5),
+        })),
+      outcome: { status: 'create_conflict' },
+    });
+    const h = fullHarness({ credit });
     await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
-    assert.deepEqual(
-      h.credit.releases[0].reservations.map((r) => r.providerKey),
-      ['apollo', 'lusha'],
+    assert.equal(
+      credit.active.filter((r) => r.status === 'reserved').length,
+      0,
+      'ninguna pata quedó ocupando disponibilidad',
     );
   });
 
-  it('legacy: los dos fallos de creación también liberan', async () => {
+  it('legacy: los dos fallos de creación tampoco dejan exposición', async () => {
     const thrown = legacyHarness({ createThrows: new Error('timeout') });
     await assert.rejects(() =>
       startLegacyPhoneRevealWaterfall({ candidateId: 'cand-1' }, thrown.deps),
     );
-    assert.deepEqual(
-      thrown.credit.releases.map((r) => r.reason),
-      ['run_creation_failed'],
-    );
+    assert.deepEqual(thrown.credit.active, []);
 
     const conflict = legacyHarness({ createReturns: null });
     const result = await startLegacyPhoneRevealWaterfall(
@@ -260,30 +288,29 @@ describe('4E — la exposición se libera cuando la corrida no llega a existir',
       conflict.deps,
     );
     assert.equal(result.started === false && result.reason, 'create_conflict');
-    assert.deepEqual(
-      conflict.credit.releases.map((r) => r.reason),
-      ['create_conflict'],
-    );
+    assert.deepEqual(conflict.credit.active, []);
   });
 
-  it('tras liberar por conflicto, la disponibilidad queda utilizable otra vez', async () => {
-    // Pozo justo para UNA autorización: si el conflicto no liberase, la siguiente
-    // autorización legítima quedaría bloqueada para siempre.
-    const credit = creditHarness({
-      poolsFor: (keys) =>
-        keys.map((providerKey) => ({
-          providerKey,
-          state: configuredPool(providerKey === 'apollo' ? 8 : 5),
-        })),
-      groupIds: ['group-1', 'group-2'],
-    });
+  it('tras un conflicto, la disponibilidad queda utilizable otra vez', async () => {
+    // Pozo justo para UNA autorización: si el rollback no devolviese la exposición, la
+    // siguiente autorización legítima quedaría bloqueada para siempre.
+    const poolsFor = (keys: readonly PhoneRevealCreditProviderKey[]) =>
+      keys.map((providerKey) => ({
+        providerKey,
+        state: configuredPool(providerKey === 'apollo' ? 8 : 5),
+      }));
 
-    const conflicted = fullHarness({ credit, createReturns: null });
+    const conflicted = fullHarness({
+      credit: creditHarness({ poolsFor, outcome: { status: 'create_conflict' } }),
+    });
     await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, conflicted.deps);
 
-    const retried = fullHarness({ credit, candidateId: 'cand-2' });
+    const retried = fullHarness({
+      credit: creditHarness({ poolsFor, active: conflicted.credit.active }),
+      candidateId: 'cand-2',
+    });
     const result = await startPhoneRevealWaterfall({ candidateId: 'cand-2' }, retried.deps);
-    assert.equal(result.started, true, 'la exposición liberada volvió a estar disponible');
+    assert.equal(result.started, true, 'la exposición del rollback volvió a estar disponible');
   });
 });
 
@@ -305,7 +332,13 @@ describe('4E — dos autorizaciones no consumen la misma disponibilidad', () => 
 
     assert.equal(a.started, true);
     assert.deepEqual(b, { started: false, reason: 'insufficient_credits' });
-    assert.equal(second.createCalls, 0, 'el segundo no llegó a crear corrida');
+    // Los dos arranques comparten el MISMO pozo simulado, así que la cuenta se lee del
+    // pozo: exactamente una corrida, y es la del primer candidato.
+    assert.deepEqual(
+      credit.createdRuns.map((r) => r.candidateId),
+      ['cand-a'],
+      'el segundo no llegó a crear corrida',
+    );
   });
 
   it('dos legacy con 5 en el pozo de Lusha: solo el primero arranca', async () => {
@@ -321,7 +354,10 @@ describe('4E — dos autorizaciones no consumen la misma disponibilidad', () => 
 
     assert.equal(a.started, true);
     assert.equal(b.started === false && b.reason, 'insufficient_credits');
-    assert.equal(second.drafts.length, 0);
+    assert.deepEqual(
+      credit.createdRuns.map((r) => r.candidateId),
+      ['cand-a'],
+    );
   });
 });
 
@@ -350,7 +386,7 @@ describe('4E — flag OFF y commercial_manager quedan exactamente igual', () => 
     assert.deepEqual(result, { started: false, reason: 'role_not_allowed' });
     assert.equal(h.credit.poolQueries.length, 0, 'ni se resolvió presupuesto');
     assert.equal(h.credit.reserveRequests.length, 0, 'ni se reservó nada');
-    assert.deepEqual(h.credit.releases, []);
+    assert.deepEqual(h.credit.createdRuns, []);
   });
 
   it('una autorización viva preexistente no reserva nada nuevo', async () => {

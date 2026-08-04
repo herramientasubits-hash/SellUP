@@ -254,7 +254,6 @@ mock.module('@/lib/supabase/admin', {
             ...base,
             select: () => base,
             insert: () => {
-              spies.insertAttempts += 1;
               if (err) return chain(failure);
               if (waterfallInsertError) {
                 return chain({ data: null, error: waterfallInsertError });
@@ -277,12 +276,32 @@ mock.module('@/lib/supabase/admin', {
         // corrida; además permite afirmar que una corrida que no se pudo crear LIBERA la
         // exposición que había reservado, en vez de dejarla bloqueada para siempre.
         rpc: (fn: string, params: Record<string, unknown>) => {
-          if (fn === 'try_reserve_phone_reveal_credits') {
+          // AGENT2A-PHONE-WATERFALL-4F: reserva + corrida en una sola función SQL. La
+          // salud de la tabla 102 se observa aquí, y un fallo deshace ambas escrituras.
+          if (fn === 'reserve_and_create_phone_reveal_run') {
             spies.creditReservations += 1;
-            const legs = (params.p_legs as { provider_key: string; credits: number }[]) ?? [];
+            spies.insertAttempts += 1;
+
+            if (waterfallTableError) {
+              return chain({ data: null, error: waterfallTableError });
+            }
+            if (waterfallInsertError) {
+              if (waterfallInsertError.code === '23505') {
+                return chain({ data: { status: 'create_conflict' }, error: null });
+              }
+              return chain({ data: null, error: waterfallInsertError });
+            }
+
+            const legs =
+              (params.p_legs as { provider_key: string; credits: number }[]) ?? [];
+            if (!waterfallInsertId) {
+              return chain({ data: { status: 'created' }, error: null });
+            }
+            spies.waterfallWrites += 1;
             return chain({
               data: {
-                status: 'reserved',
+                status: 'created',
+                run_id: waterfallInsertId,
                 reservation_group_id: params.p_reservation_group_id,
                 reservations: legs.map((leg, index) => ({
                   id: `reservation-${index}-${leg.provider_key}`,
@@ -580,7 +599,12 @@ describe('legacy — el INSERT de la corrida falla: 0 Apollo, 0 Lusha', () => {
       );
 
       assert.equal(result.outcome, 'not_started');
-      assert.equal(result.reason, 'legacy_run_creation_failed');
+      // AGENT2A-PHONE-WATERFALL-4F: la escritura es una RPC, así que el fallo llega
+      // como DESENLACE (`run_creation_unavailable`) en vez de como excepción
+      // (`legacy_run_creation_failed`). El contrato observable no cambia: not_started,
+      // 0 Lusha, 0 Apollo, 0 usage logs, 0 créditos — y la reserva se deshizo con la
+      // transacción, así que tampoco queda exposición ocupada.
+      assert.equal(result.reason, 'run_creation_unavailable');
       assert.equal(result.lushaCalled, false);
       assert.equal(spies.insertAttempts, 1, 'se intentó crear la corrida UNA vez');
       assertNoSpendAtAll();
@@ -598,7 +622,7 @@ describe('legacy — el INSERT de la corrida falla: 0 Apollo, 0 Lusha', () => {
     );
 
     assert.equal(result.outcome, 'not_started');
-    assert.equal(result.reason, 'legacy_run_creation_failed');
+    assert.equal(result.reason, 'run_creation_unavailable');
     assert.equal(result.lushaCalled, false);
     assert.equal(result.maxCreditsAuthorized, null);
     assert.equal(spies.insertAttempts, 1);
@@ -661,21 +685,18 @@ describe('legacy — las deps del arranque NO incluyen ninguna pata Apollo', () 
     // Superficie EXACTA: si alguien añade una dep de proveedor, este test cae.
     assert.deepEqual(keys, [
       'actor',
-      // AGENT2A-PHONE-WATERFALL-4E: asocia la reserva a la corrida. No llama a nadie.
-      'attachReservationsToRun',
-      'createRun',
       'findActiveRun',
       'findLatestRun',
       'flagEnabled',
       'loadLegacyEvidence',
+      'newAuthorizationKey',
       'newReservationGroupId',
       'nowIso',
-      // AGENT2A-PHONE-WATERFALL-4D/4E: resuelven y ocupan PRESUPUESTO, no proveedores.
-      // Ninguna puede llamar a Apollo ni a Lusha, y en esta modalidad solo se pregunta y
-      // solo se reserva por Lusha.
+      // AGENT2A-PHONE-WATERFALL-4D/4E: resuelve PRESUPUESTO, no proveedores.
       'readCreditPools',
-      'releaseCredits',
-      'reserveCredits',
+      // AGENT2A-PHONE-WATERFALL-4F: ocupa presupuesto Y escribe la corrida en UNA
+      // transacción. No puede llamar a Apollo ni a Lusha.
+      'reserveCreditsAndCreateRun',
     ]);
     const serialized = keys.join(' ').toLowerCase();
     assert.equal(serialized.includes('apollo'), false);

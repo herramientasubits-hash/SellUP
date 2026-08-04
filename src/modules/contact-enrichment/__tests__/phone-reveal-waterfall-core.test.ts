@@ -210,10 +210,22 @@ function startHarness(opts: {
    */
   credit?: CreditHarness;
 } = {}): StartHarness {
-  const created: PhoneRevealWaterfallRunDraft[] = [];
-  const credit = opts.credit ?? creditHarness();
+  // AGENT2A-PHONE-WATERFALL-4F: reserva y corrida son UNA operación, así que el
+  // harness de crédito es también el que "crea" la corrida. `createReturns: null`
+  // (el 23505 histórico) pasa a ser el desenlace `create_conflict` de la transacción,
+  // y `createThrows` pasa a ser un fallo de transporte de esa misma operación.
+  const credit =
+    opts.credit ??
+    creditHarness({
+      ...(opts.createReturns === null
+        ? { outcome: { status: 'create_conflict' as const } }
+        : {}),
+      ...(opts.createThrows ? { throws: opts.createThrows } : {}),
+    });
   const harness: StartHarness = {
-    created,
+    // Solo las corridas realmente ESCRITAS: tras un rollback esta lista queda vacía,
+    // que es exactamente lo que la transacción garantiza.
+    created: credit.createdDrafts,
     loadedCandidate: false,
     balanceQueries: credit.poolQueries,
     credit,
@@ -227,11 +239,6 @@ function startHarness(opts: {
       },
       findActiveRun: async () => opts.activeRun ?? null,
       ...credit.deps,
-      createRun: async (draft) => {
-        if (opts.createThrows) throw opts.createThrows;
-        created.push(draft);
-        return opts.createReturns === undefined ? 'run-new' : opts.createReturns;
-      },
     },
   };
   return harness;

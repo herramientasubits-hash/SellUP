@@ -302,7 +302,6 @@ mock.module('@/lib/supabase/admin', {
             ...base,
             select: () => base,
             insert: () => {
-              spies.insertAttempts += 1;
               if (err) return chain(failure);
               if (waterfallInsertError) {
                 return chain({ data: null, error: waterfallInsertError });
@@ -327,13 +326,40 @@ mock.module('@/lib/supabase/admin', {
         // infraestructura de la tabla 102— y, de paso, para poder afirmar que una
         // corrida que NO se pudo crear libera la exposición que había reservado.
         rpc: (fn: string, params: Record<string, unknown>) => {
-          if (fn === 'try_reserve_phone_reveal_credits') {
+          // AGENT2A-PHONE-WATERFALL-4F. La reserva y el INSERT de la corrida son UNA
+          // función SQL, así que la salud de la tabla 102 se observa AQUÍ: la función
+          // la toca, y si no existe la RPC entera falla. Eso es lo que hace que un
+          // rollback deje CERO reservas — ya no hay compensación que pueda no llegar.
+          if (fn === 'reserve_and_create_phone_reveal_run') {
             spies.creditReservations += 1;
+            spies.insertAttempts += 1;
             events.push('credit_reserve');
-            const legs = (params.p_legs as { provider_key: string; credits: number }[]) ?? [];
+
+            if (waterfallTableError) {
+              return chain({ data: null, error: waterfallTableError });
+            }
+            if (waterfallInsertError) {
+              // El 23505 lo captura la propia función y lo devuelve como desenlace,
+              // deshaciendo la transacción entera.
+              if (waterfallInsertError.code === '23505') {
+                return chain({ data: { status: 'create_conflict' }, error: null });
+              }
+              return chain({ data: null, error: waterfallInsertError });
+            }
+
+            const legs =
+              (params.p_legs as { provider_key: string; credits: number }[]) ?? [];
+            if (!waterfallInsertId) {
+              // Anomalía: la función dice haber creado y no devuelve id. No se puede
+              // afirmar que la fila exista, así que el wrapper lo trata como indisponible.
+              return chain({ data: { status: 'created' }, error: null });
+            }
+            spies.waterfallWrites += 1;
+            events.push('waterfall_insert');
             return chain({
               data: {
-                status: 'reserved',
+                status: 'created',
+                run_id: waterfallInsertId,
                 reservation_group_id: params.p_reservation_group_id,
                 reservations: legs.map((leg, index) => ({
                   id: `reservation-${index}-${leg.provider_key}`,

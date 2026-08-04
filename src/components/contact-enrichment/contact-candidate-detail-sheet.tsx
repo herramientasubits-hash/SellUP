@@ -995,6 +995,12 @@ export function ContactCandidateDetailSheet({
           PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY,
         );
         return;
+      // AGENT2A-PHONE-WATERFALL-4F: el saldo estaba bien; la corrida no se pudo
+      // registrar. Cero efectos, así que no se recarga nada, y el copy no afirma que
+      // falten créditos ni que el candidato no aplique.
+      case 'infrastructure_unavailable':
+        setLegacyWaterfallError(PHONE_REVEAL_WATERFALL_ERROR_COPY);
+        return;
       case 'error':
       default:
         setLegacyWaterfallError(PHONE_REVEAL_WATERFALL_ERROR_COPY);

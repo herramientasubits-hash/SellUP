@@ -46,6 +46,14 @@ let runUpdateError: { code: string; message: string } | null = null;
 const RUN_ID = 'run-4e';
 const GROUP_ID = 'group-4e';
 
+/** Guion de la operación atómica: una entrada por invocación, en orden. */
+interface ReserveAndCreateStep {
+  data?: unknown;
+  error?: { code: string; message: string } | null;
+  throws?: Error;
+}
+let reserveAndCreateScript: ReserveAndCreateStep[] = [];
+
 function chain(result: { data: unknown; error: unknown }): Record<string, unknown> {
   const self: Record<string, unknown> = {};
   for (const method of [
@@ -86,6 +94,15 @@ mock.module('@/lib/supabase/admin', {
       },
       rpc: (fn: string, params: Record<string, unknown>) => {
         rpcCalls.push({ fn, params });
+        // AGENT2A-PHONE-WATERFALL-4F: la operación atómica tiene su propio guion, para
+        // poder modelar la RESPUESTA PERDIDA (una excepción de transporte con la
+        // transacción ya comprometida) y el reintento que la resuelve.
+        if (fn === 'reserve_and_create_phone_reveal_run') {
+          const step = reserveAndCreateScript.shift();
+          if (!step) return chain({ data: null, error: null });
+          if (step.throws) throw step.throws;
+          return chain({ data: step.data ?? null, error: step.error ?? null });
+        }
         return chain({
           data: fn === 'confirm_phone_reveal_credits' ? 'confirmed' : 'released',
           error: null,
@@ -113,9 +130,12 @@ mock.module('@/modules/usage-tracking/logging', {
 
 type WaterfallDeps = typeof import('../phone-reveal-waterfall-deps');
 let deps: WaterfallDeps;
+type ReservationDeps = typeof import('../phone-reveal-credit-reservation-deps');
+let deps2: ReservationDeps;
 
 before(async () => {
   deps = await import('../phone-reveal-waterfall-deps');
+  deps2 = await import('../phone-reveal-credit-reservation-deps');
 });
 
 /** Fila de corrida con los hechos terminales que decidan la liquidación. */
@@ -166,6 +186,7 @@ beforeEach(() => {
   runRow = run();
   runReadError = null;
   runUpdateError = null;
+  reserveAndCreateScript = [];
 });
 
 function callsFor(fn: string): RpcCall[] {
@@ -325,5 +346,173 @@ describe('4E — la liquidación es best-effort y conserva la exposición ante u
     await assert.rejects(() => deps.updateWaterfallRun(RUN_ID, { status: 'exhausted' }));
     // Y no se liquidó: la corrida no llegó a cerrarse.
     assert.deepEqual(rpcCalls, []);
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════
+// 4. La operación atómica en el cableado real (4F)
+// ═══════════════════════════════════════════════════════════════
+//
+// El wrapper es el único punto que puede distinguir "no se ejecutó nada" de "se ejecutó
+// y no me enteré" — y no puede: por eso reintenta con la MISMA clave. Estos tests fijan
+// que ese reintento exista, que reuse la clave y que se detenga.
+
+describe('4F — reservePhoneRevealCreditsAndCreateRun: reintento con la misma clave', () => {
+  const REQUEST = {
+    candidateId: 'cand-4f',
+    authorizedBy: 'user-admin',
+    reservationGroupId: 'group-4f',
+    authorizationKey: 'key-4f',
+    legs: [
+      {
+        providerKey: 'apollo' as const,
+        credits: 8,
+        limitCredits: 100,
+        consumedCredits: 0,
+        scopeType: 'global' as const,
+        scopeId: null,
+        periodStart: '2026-08-01T00:00:00.000Z',
+        periodEnd: '2026-08-31T23:59:59.999Z',
+      },
+    ],
+  };
+  const RUN_PAYLOAD = { status: 'apollo_in_flight', run_mode: 'full_waterfall' };
+
+  function reserveCalls() {
+    return rpcCalls.filter((c) => c.fn === 'reserve_and_create_phone_reveal_run');
+  }
+
+  it('camino feliz: UNA invocación y el envelope se traduce entero', async () => {
+    reserveAndCreateScript = [
+      {
+        data: {
+          status: 'created',
+          run_id: 'run-nuevo',
+          reservation_group_id: 'group-4f',
+          reservations: [
+            { id: 'res-1', provider_key: 'apollo', credits_reserved: 8 },
+          ],
+        },
+      },
+    ];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'created',
+      runId: 'run-nuevo',
+      reservationGroupId: 'group-4f',
+      reservations: [{ id: 'res-1', providerKey: 'apollo', creditsReserved: 8 }],
+    });
+    assert.equal(reserveCalls().length, 1, 'sin reintento cuando no hace falta');
+  });
+
+  it('RESPUESTA PERDIDA: reintenta UNA vez con la MISMA clave y encuentra la corrida', async () => {
+    // Primer intento: la transacción hizo COMMIT y el driver lanzó igualmente.
+    reserveAndCreateScript = [
+      { throws: new Error('socket hang up') },
+      {
+        data: {
+          status: 'already_created',
+          run_id: 'run-commitida',
+          reservation_group_id: 'group-4f',
+        },
+      },
+    ];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'already_created',
+      runId: 'run-commitida',
+      reservationGroupId: 'group-4f',
+    });
+    const calls = reserveCalls();
+    assert.equal(calls.length, 2, 'exactamente un reintento');
+    assert.equal(
+      calls[0].params.p_authorization_key,
+      calls[1].params.p_authorization_key,
+      'el reintento DEBE reusar la clave: sin eso sería una segunda autorización',
+    );
+    assert.equal(calls[1].params.p_authorization_key, 'key-4f');
+  });
+
+  it('dos fallos de transporte ⇒ unavailable, y NO un tercer intento', async () => {
+    reserveAndCreateScript = [
+      { throws: new Error('socket hang up') },
+      { throws: new Error('socket hang up') },
+    ];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'unavailable',
+      detail: 'reserve_and_create_threw',
+    });
+    assert.equal(reserveCalls().length, 2, 'un solo reintento, no un bucle');
+  });
+
+  it('un error REPORTADO por el servidor no se reintenta: la transacción ya se deshizo', async () => {
+    reserveAndCreateScript = [
+      { error: { code: '42883', message: 'function does not exist' } },
+    ];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'unavailable',
+      detail: 'reserve_and_create_rpc_error',
+    });
+    assert.equal(reserveCalls().length, 1);
+  });
+
+  it('`created` sin run_id se lee como INDISPONIBLE, nunca como éxito', async () => {
+    // Sin id no hay corrida a la que atribuir el gasto ni exposición que liquidar.
+    reserveAndCreateScript = [{ data: { status: 'created' } }];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'unavailable',
+      detail: 'created_without_rows',
+    });
+  });
+
+  it('`already_created` sin run_id tampoco se acepta', async () => {
+    reserveAndCreateScript = [{ data: { status: 'already_created' } }];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'unavailable',
+      detail: 'already_created_without_run',
+    });
+  });
+
+  it('`create_conflict` y `already_reserved` viajan tal cual', async () => {
+    for (const status of ['create_conflict', 'already_reserved'] as const) {
+      reserveAndCreateScript = [{ data: { status } }];
+      const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+        reservation: REQUEST,
+        run: RUN_PAYLOAD,
+      });
+      assert.deepEqual(outcome, { status });
+    }
+  });
+
+  it('un status DESCONOCIDO se lee como indisponible, nunca como autorización', async () => {
+    reserveAndCreateScript = [{ data: { status: 'algo_nuevo' } }];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, { status: 'unavailable', detail: 'unknown_status' });
   });
 });

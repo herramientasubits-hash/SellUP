@@ -1,24 +1,30 @@
 // Fixtures compartidas de la reserva de créditos del reveal de teléfono
-// (Agente 2A · AGENT2A-PHONE-WATERFALL-4E)
+// (Agente 2A · AGENT2A-PHONE-WATERFALL-4E, reescritas en 4F)
 //
-// NO es una suite: es el cableado de crédito que las tres suites del arranque
-// (waterfall completo, legacy y ausencia de infraestructura) necesitan inyectar desde
-// que la reserva atómica existe. Vive en un solo sitio porque el contrato es uno: si
-// mañana cambia la forma de una dep de crédito, cambia aquí y las tres suites lo
-// heredan en vez de divergir.
+// NO es una suite: es el cableado de crédito que las suites del arranque (waterfall
+// completo, legacy y ausencia de infraestructura) necesitan inyectar desde que la
+// reserva atómica existe. Vive en un solo sitio porque el contrato es uno: si mañana
+// cambia la forma de una dep de crédito, cambia aquí y las suites lo heredan en vez de
+// divergir.
 //
-// OFFLINE por construcción: la reserva se simula con la semántica de REFERENCIA del core
-// puro (`simulatePhoneRevealCreditReservation`), que es el espejo del SQL. Aquí no hay
+// QUÉ CAMBIÓ EN 4F. La reserva y la creación de la corrida dejaron de ser dos deps
+// (`reserveCredits` + `createRun`) y pasaron a ser UNA
+// (`reserveCreditsAndCreateRun`), porque en producción son una sola transacción. El
+// harness refleja esa unión: mantiene la tabla de corridas simulada junto al pozo, de
+// modo que un `create_conflict` deshaga también la reserva — igual que el rollback real.
+//
+// OFFLINE por construcción: se simula con la semántica de REFERENCIA del core puro
+// (`simulatePhoneRevealCreditReservationAndRun`), que es el espejo del SQL. Aquí no hay
 // base de datos, ni red, ni Apollo, ni Lusha, ni un solo crédito.
 
 import {
-  simulatePhoneRevealCreditReservation,
+  simulatePhoneRevealCreditReservationAndRun,
   type PhoneRevealCreditActiveReservation,
-  type PhoneRevealCreditReservationOutcome,
-  type PhoneRevealCreditReservationRequest,
-  type PhoneRevealCreditReservedLeg,
-  type PhoneRevealCreditReservationReleaseReason,
+  type PhoneRevealCreditExistingRun,
+  type PhoneRevealCreditReservationAndRunOutcome,
+  type PhoneRevealCreditReservationAndRunRequest,
 } from '../phone-reveal-credit-reservation-core';
+import type { PhoneRevealWaterfallRunDraft } from '../phone-reveal-waterfall-core';
 import type {
   PhoneRevealCreditPool,
   PhoneRevealCreditPoolState,
@@ -69,84 +75,97 @@ export interface CreditHarness {
     readCreditPools: (
       providerKeys: readonly PhoneRevealCreditProviderKey[],
     ) => Promise<readonly PhoneRevealCreditPool[]>;
-    reserveCredits: (
-      request: PhoneRevealCreditReservationRequest,
-    ) => Promise<PhoneRevealCreditReservationOutcome>;
-    releaseCredits: (args: {
-      reservations: readonly PhoneRevealCreditReservedLeg[];
-      reason: PhoneRevealCreditReservationReleaseReason;
-    }) => Promise<void>;
+    reserveCreditsAndCreateRun: (args: {
+      reservation: PhoneRevealCreditReservationAndRunRequest;
+      run: PhoneRevealWaterfallRunDraft;
+    }) => Promise<PhoneRevealCreditReservationAndRunOutcome>;
     newReservationGroupId: () => string;
-    attachReservationsToRun: (args: {
-      reservationGroupId: string;
-      runId: string;
-    }) => Promise<void>;
+    newAuthorizationKey: () => string;
   };
   /** Proveedores por los que se preguntó, en orden. Prueba QUÉ pozos se consultan. */
   poolQueries: PhoneRevealCreditProviderKey[][];
-  /** Peticiones de reserva emitidas. Prueba QUÉ se reservó y por cuánto. */
-  reserveRequests: PhoneRevealCreditReservationRequest[];
-  /** Liberaciones ejecutadas, con su motivo. Prueba la compensación. */
-  releases: {
-    reservations: readonly PhoneRevealCreditReservedLeg[];
-    reason: PhoneRevealCreditReservationReleaseReason;
-  }[];
-  /** Asociaciones corrida ↔ grupo de reserva. */
-  attachments: { reservationGroupId: string; runId: string }[];
-  /** Reservas vivas del "pozo" simulado. Se mutan al reservar/liberar. */
+  /** Peticiones emitidas. Prueba QUÉ se reservó, por cuánto y con qué clave. */
+  reserveRequests: PhoneRevealCreditReservationAndRunRequest[];
+  /** Borradores ENVIADOS. Uno por intento, se haya escrito o no. */
+  runDrafts: PhoneRevealWaterfallRunDraft[];
+  /** Corridas realmente ESCRITAS. Vacío tras un rollback. */
+  createdRuns: PhoneRevealCreditExistingRun[];
+  /** Borradores de las corridas realmente escritas. Vacío tras un rollback. */
+  createdDrafts: PhoneRevealWaterfallRunDraft[];
+  /** Reservas vivas del "pozo" simulado. Se mutan al reservar. */
   active: PhoneRevealCreditActiveReservation[];
 }
 
 /**
  * Cableado de crédito con la semántica de referencia del SQL.
  *
- *   * `poolsFor`  — pozos por proveedor. Default: saldo amplio.
- *   * `outcome`   — fuerza un desenlace de reserva (p. ej. `unavailable`), saltándose la
- *     simulación. Sirve para fijar el fail-closed sin montar un pozo.
- *   * `active`    — reservas ya vivas en el pozo, para los casos de concurrencia.
+ *   * `poolsFor`      — pozos por proveedor. Default: saldo amplio.
+ *   * `outcome`       — fuerza un desenlace, saltándose la simulación. Sirve para fijar
+ *     el fail-closed sin montar un pozo.
+ *   * `active`        — reservas ya vivas en el pozo, para los casos de concurrencia.
+ *   * `existingRuns`  — corridas ya existentes: una activa produce `create_conflict`, y
+ *     una con `authorizationKey` produce el golpe idempotente.
+ *   * `throws`        — fallo de TRANSPORTE de la operación atómica. Modela la respuesta
+ *     perdida: en producción la transacción pudo haber hecho COMMIT igualmente.
  */
 export function creditHarness(
   opts: {
     poolsFor?: (
       providerKeys: readonly PhoneRevealCreditProviderKey[],
     ) => readonly PhoneRevealCreditPool[];
-    outcome?: PhoneRevealCreditReservationOutcome;
+    outcome?: PhoneRevealCreditReservationAndRunOutcome;
     active?: PhoneRevealCreditActiveReservation[];
+    existingRuns?: PhoneRevealCreditExistingRun[];
     groupIds?: string[];
+    authorizationKeys?: string[];
+    throws?: unknown;
   } = {},
 ): CreditHarness {
   const poolQueries: PhoneRevealCreditProviderKey[][] = [];
-  const reserveRequests: PhoneRevealCreditReservationRequest[] = [];
-  const releases: CreditHarness['releases'] = [];
-  const attachments: { reservationGroupId: string; runId: string }[] = [];
+  const reserveRequests: PhoneRevealCreditReservationAndRunRequest[] = [];
+  const runDrafts: PhoneRevealWaterfallRunDraft[] = [];
   const active: PhoneRevealCreditActiveReservation[] = opts.active ?? [];
+  const createdRuns: PhoneRevealCreditExistingRun[] = [];
+  const createdDrafts: PhoneRevealWaterfallRunDraft[] = [];
+  // Tabla de corridas simulada: las preexistentes MÁS las que este harness escriba.
+  const runs: PhoneRevealCreditExistingRun[] = [...(opts.existingRuns ?? [])];
   const groupIds = opts.groupIds ?? [];
+  const authorizationKeys = opts.authorizationKeys ?? [];
   let groupCounter = 0;
+  let keyCounter = 0;
 
   const poolsFor = opts.poolsFor ?? poolsWith(GENEROUS_CREDITS);
 
   return {
     poolQueries,
     reserveRequests,
-    releases,
-    attachments,
+    runDrafts,
+    createdRuns,
+    createdDrafts,
     active,
     deps: {
       readCreditPools: async (providerKeys) => {
         poolQueries.push([...providerKeys]);
         return poolsFor(providerKeys);
       },
-      reserveCredits: async (request) => {
-        reserveRequests.push(request);
+      reserveCreditsAndCreateRun: async ({ reservation, run }) => {
+        reserveRequests.push(reservation);
+        runDrafts.push(run);
+        if (opts.throws) throw opts.throws;
         if (opts.outcome) return opts.outcome;
 
-        const outcome = simulatePhoneRevealCreditReservation(request, active);
-        if (outcome.status === 'reserved') {
-          // La reserva OCUPA el pozo simulado, igual que el INSERT del SQL: es lo que
-          // hace que una segunda autorización concurrente ya no quepa.
-          for (const leg of request.legs) {
+        const outcome = simulatePhoneRevealCreditReservationAndRun(reservation, {
+          activeReservations: active,
+          runs,
+        });
+
+        // Solo `created` escribe. Cualquier otro desenlace deja el pozo y la tabla EXACTAMENTE
+        // como estaban, que es lo que hace el rollback de la transacción real: no existe un
+        // camino en el que la reserva sobreviva sin su corrida.
+        if (outcome.status === 'created') {
+          for (const leg of reservation.legs) {
             active.push({
-              candidateId: request.candidateId,
+              candidateId: reservation.candidateId,
               providerKey: leg.providerKey,
               creditsReserved: leg.credits,
               scopeType: leg.scopeType,
@@ -155,23 +174,22 @@ export function creditHarness(
               status: 'reserved',
             });
           }
+          const created: PhoneRevealCreditExistingRun = {
+            runId: outcome.runId,
+            candidateId: reservation.candidateId,
+            authorizationKey: reservation.authorizationKey,
+            reservationGroupId: outcome.reservationGroupId,
+            isActive: true,
+          };
+          runs.push(created);
+          createdRuns.push(created);
+          createdDrafts.push(run);
         }
         return outcome;
       },
-      releaseCredits: async (args) => {
-        releases.push(args);
-        // Liberar DEVUELVE la disponibilidad al pozo simulado.
-        for (const leg of args.reservations) {
-          const index = active.findIndex(
-            (r) => r.providerKey === leg.providerKey && r.status === 'reserved',
-          );
-          if (index >= 0) active.splice(index, 1);
-        }
-      },
       newReservationGroupId: () => groupIds[groupCounter++] ?? `group-${groupCounter}`,
-      attachReservationsToRun: async (args) => {
-        attachments.push(args);
-      },
+      newAuthorizationKey: () =>
+        authorizationKeys[keyCounter++] ?? `authkey-${keyCounter}`,
     },
   };
 }

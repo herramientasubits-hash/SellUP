@@ -135,11 +135,13 @@ function startDeps(
   drafts: PhoneRevealWaterfallRunDraft[];
   credit: CreditHarness;
 } {
-  const drafts: PhoneRevealWaterfallRunDraft[] = [];
   // Presupuesto por defecto: pozo CONFIGURADO con saldo amplio
   // (AGENT2A-PHONE-WATERFALL-4E). Ya no puede ser "sin regla": desde 4E eso bloquea, y
   // el resto de la suite mide otras cosas. El preflight tiene sus propias pruebas.
   const credit = creditOverride ?? creditHarness();
+  // 4F: la corrida la escribe la MISMA operación que reserva, así que los borradores
+  // realmente escritos los lleva el harness de crédito.
+  const drafts = credit.createdDrafts;
   const deps: StartLegacyPhoneRevealWaterfallDeps = {
     flagEnabled: true,
     actor: { internalUserId: 'user-admin', roleKey: 'admin' },
@@ -148,10 +150,6 @@ function startDeps(
     findActiveRun: async () => null,
     findLatestRun: async () => null,
     ...credit.deps,
-    createRun: async (draft) => {
-      drafts.push(draft);
-      return 'run-legacy-1';
-    },
     ...overrides,
   };
   return { deps, drafts, credit };
@@ -387,7 +385,10 @@ describe('WATERFALL-2 — gates del arranque legacy (flag, rol, corridas)', () =
   });
 
   it('el índice único parcial rechazando el INSERT ⇒ create_conflict', async () => {
-    const { deps } = startDeps({ createRun: async () => null });
+    const { deps } = startDeps(
+      {},
+      creditHarness({ outcome: { status: 'create_conflict' } }),
+    );
     const result = await startLegacyPhoneRevealWaterfall(
       { candidateId: 'cand-legacy' },
       deps,
@@ -494,22 +495,20 @@ describe('WATERFALL-2 — CERO Apollo', () => {
     // falla: la superficie de deps es la lista cerrada de abajo.
     assert.deepEqual(Object.keys(deps).sort(), [
       'actor',
-      // AGENT2A-PHONE-WATERFALL-4E. Asocia la reserva a la corrida; no llama a nadie.
-      'attachReservationsToRun',
-      'createRun',
       'findActiveRun',
       'findLatestRun',
       'flagEnabled',
       'loadLegacyEvidence',
-      // Genera un uuid. No toca red ni proveedores.
+      // Generan un uuid. No tocan red ni proveedores.
+      'newAuthorizationKey',
       'newReservationGroupId',
       'nowIso',
-      // AGENT2A-PHONE-WATERFALL-4D/4E. Resuelven y ocupan PRESUPUESTO, no proveedores:
-      // ninguna puede llamar a Apollo ni a Lusha, y en esta modalidad solo se pregunta y
-      // solo se reserva por Lusha.
+      // AGENT2A-PHONE-WATERFALL-4D/4E. Resuelve PRESUPUESTO, no proveedores: en esta
+      // modalidad solo se pregunta por Lusha.
       'readCreditPools',
-      'releaseCredits',
-      'reserveCredits',
+      // AGENT2A-PHONE-WATERFALL-4F. Ocupa presupuesto Y escribe la corrida, en UNA
+      // transacción. No puede llamar a Apollo ni a Lusha.
+      'reserveCreditsAndCreateRun',
     ]);
   });
 

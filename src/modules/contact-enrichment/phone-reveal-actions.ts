@@ -291,6 +291,17 @@ async function startWaterfallRunOrBlock(
       return { kind: 'budget_not_configured' };
     case 'credit_balance_unavailable':
       return { kind: 'credit_balance_unavailable' };
+    // AGENT2A-PHONE-WATERFALL-4F. El saldo se verificó bien; lo que no se pudo fue
+    // ESCRIBIR la reserva y la corrida (la migración 104 no está aplicada, timeout,
+    // credenciales…). Es exactamente el mismo caso que la tabla 102 ausente —el
+    // waterfall se autorizó y su corrida no existe— así que se trata igual: se corta
+    // antes de cualquier proveedor y el operador lee un fallo de infraestructura, no
+    // uno de saldo que no tuvo.
+    case 'run_creation_unavailable':
+      return {
+        kind: 'infrastructure_unavailable',
+        errorCode: WATERFALL_RUN_UNAVAILABLE_ERROR_CODE,
+      };
     default: {
       // Un motivo NUEVO rompe la compilación aquí a propósito: decidir si una
       // razón inédita puede seguir gastando proveedores es una decisión de

@@ -72,14 +72,15 @@ import { readPhoneRevealCreditPools } from './phone-reveal-credit-budget-deps';
 // Reserva ATÓMICA (AGENT2A-PHONE-WATERFALL-4E). La atomicidad vive en la migración 104;
 // estos wrappers solo la invocan y traducen su desenlace.
 import {
-  attachPhoneRevealCreditReservationsToRun,
   confirmPhoneRevealCreditReservation,
   findActivePhoneRevealCreditReservations,
   releasePhoneRevealCreditReservation,
-  releasePhoneRevealCreditReservationGroup,
-  reservePhoneRevealCredits,
+  reservePhoneRevealCreditsAndCreateRun,
 } from './phone-reveal-credit-reservation-deps';
-import { decidePhoneRevealCreditSettlement } from './phone-reveal-credit-reservation-core';
+import {
+  decidePhoneRevealCreditSettlement,
+  type PhoneRevealCreditReservationAndRunRequest,
+} from './phone-reveal-credit-reservation-core';
 import type { PhoneRevealCreditProviderKey } from './phone-reveal-credit-budget-core';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
 
@@ -818,7 +819,6 @@ export function buildStartWaterfallDeps(actor: {
     loadCandidate: loadCandidateForWaterfall,
     findActiveRun: findActiveWaterfallRunForCandidate,
     ...buildCreditReservationDeps(actor.internalUserId),
-    createRun: createWaterfallRun,
   };
 }
 
@@ -833,11 +833,51 @@ function buildCreditReservationDeps(internalUserId: string) {
     // Presupuesto POR PROVEEDOR, con la identidad del pozo que la reserva necesita.
     readCreditPools: (providerKeys: readonly PhoneRevealCreditProviderKey[]) =>
       readPhoneRevealCreditPools(providerKeys, internalUserId),
-    reserveCredits: reservePhoneRevealCredits,
-    releaseCredits: releasePhoneRevealCreditReservationGroup,
+    // AGENT2A-PHONE-WATERFALL-4F: reserva y corrida son UNA escritura. El borrador se
+    // traduce aquí a nombres de columna; el core no conoce el esquema.
+    reserveCreditsAndCreateRun: (args: {
+      reservation: PhoneRevealCreditReservationAndRunRequest;
+      run: PhoneRevealWaterfallRunDraft;
+    }) =>
+      reservePhoneRevealCreditsAndCreateRun({
+        reservation: args.reservation,
+        run: toWaterfallRunRpcPayload(args.run),
+      }),
     // `crypto.randomUUID()` es del runtime, no del core puro: por eso llega inyectado.
     newReservationGroupId: () => crypto.randomUUID(),
-    attachReservationsToRun: attachPhoneRevealCreditReservationsToRun,
+    // Clave de idempotencia: una por autorización, generada ANTES de la operación.
+    newAuthorizationKey: () => crypto.randomUUID(),
+  };
+}
+
+/**
+ * Borrador de corrida → payload `p_run` de la RPC. Mismos nombres de columna y mismas
+ * omisiones deliberadas que `createWaterfallRun`: `apollo_cost_credits` NO se escribe
+ * (su valor correcto es NULL — un costo no atribuible a esta autorización jamás se
+ * representa como 0), y los campos sólo presentes en la modalidad legacy se omiten en
+ * `full_waterfall` en vez de viajar como null explícito.
+ *
+ * `credit_reservation_group_id` y `authorization_key` NO viajan aquí: la RPC los escribe
+ * desde sus propios parámetros, que son la autoridad.
+ */
+function toWaterfallRunRpcPayload(
+  draft: PhoneRevealWaterfallRunDraft,
+): Record<string, unknown> {
+  return {
+    status: draft.status,
+    run_mode: draft.runMode,
+    authorized_at: draft.authorizedAt,
+    authorized_by_role: draft.authorizedByRole,
+    max_credits_authorized: draft.maxCreditsAuthorized,
+    apollo_attempted_at: draft.apolloAttemptedAt,
+    ...(draft.apolloOutcome !== undefined
+      ? { apollo_outcome: draft.apolloOutcome }
+      : {}),
+    ...(draft.apolloCostSource !== undefined
+      ? { apollo_cost_source: draft.apolloCostSource }
+      : {}),
+    lusha_eligible: draft.lushaEligible,
+    lusha_skipped_reason: draft.lushaSkippedReason,
   };
 }
 
@@ -860,7 +900,6 @@ export function buildStartLegacyWaterfallDeps(actor: {
     // El core pide SOLO el pozo de Lusha en esta modalidad: Apollo no se ejecuta bajo
     // esta autorización, así que su presupuesto no puede bloquearla ni ocuparse.
     ...buildCreditReservationDeps(actor.internalUserId),
-    createRun: createWaterfallRun,
   };
 }
 

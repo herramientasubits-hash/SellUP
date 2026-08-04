@@ -345,8 +345,28 @@ function buildQuery(table: string): Record<string, unknown> {
  * ese tiene sus propias suites.
  */
 function reservationRpc(fn: string, params: Record<string, unknown>): QueryResult {
-  if (fn === 'try_reserve_phone_reveal_credits') {
+  // AGENT2A-PHONE-WATERFALL-4F: la reserva y el INSERT de la corrida son UNA función
+  // SQL. Se simula sobre el MISMO store, y el orden reproduce el del SQL —clave
+  // idempotente, exposición viva, disponibilidad, y sólo entonces las escrituras— para
+  // que un conflicto deshaga también la reserva, igual que el rollback real.
+  if (fn === 'reserve_and_create_phone_reveal_run') {
     const candidateId = params.p_candidate_id;
+    const authorizationKey = params.p_authorization_key;
+
+    const existing = store.runs.find(
+      (r) => r.authorization_key === authorizationKey,
+    );
+    if (existing) {
+      return {
+        data: {
+          status: 'already_created',
+          run_id: existing.id,
+          reservation_group_id: existing.credit_reservation_group_id ?? null,
+        },
+        error: null,
+      };
+    }
+
     if (
       store.reservations.some(
         (r) => r.candidate_id === candidateId && r.status === 'reserved',
@@ -354,7 +374,39 @@ function reservationRpc(fn: string, params: Record<string, unknown>): QueryResul
     ) {
       return { data: { status: 'already_reserved' }, error: null };
     }
+
+    // La transacción llegó a intentar la escritura: se cuenta aquí, tanto si el índice
+    // único la deja pasar como si la rechaza.
+    spies.insertAttempts += 1;
+    const run = { ...((params.p_run as Row) ?? {}) };
+    const status = String(run.status ?? '');
+    if (
+      ACTIVE_STATUSES.includes(status) &&
+      store.runs.some(
+        (r) =>
+          r.candidate_id === candidateId &&
+          ACTIVE_STATUSES.includes(String(r.status ?? '')),
+      )
+    ) {
+      // Índice único parcial `uq_phone_reveal_waterfall_runs_active_candidate`. Cae
+      // DENTRO de la transacción, así que no se escribe ninguna reserva.
+      return { data: { status: 'create_conflict' }, error: null };
+    }
+
     const legs = (params.p_legs as { provider_key: string; credits: number }[]) ?? [];
+    store.seq += 1;
+    run.id = `run-${store.seq}`;
+    run.candidate_id = candidateId;
+    run.authorized_by = params.p_authorized_by;
+    run.authorization_key = authorizationKey;
+    run.credit_reservation_group_id = params.p_reservation_group_id;
+    // `created_at` es DEFAULT now() en la tabla real; aquí es monótono para que
+    // "la corrida más reciente" sea determinista.
+    run.created_at = new Date(
+      Date.parse('2026-08-03T00:00:00.000Z') + store.seq * 1000,
+    ).toISOString();
+    store.runs.push(run);
+
     const created = legs.map((leg, index) => {
       const id = `res-${store.reservations.length}-${index}-${leg.provider_key}`;
       store.reservations.push({
@@ -364,13 +416,15 @@ function reservationRpc(fn: string, params: Record<string, unknown>): QueryResul
         provider_key: leg.provider_key,
         credits_reserved: leg.credits,
         status: 'reserved',
-        run_id: null,
+        run_id: run.id,
       });
       return { id, provider_key: leg.provider_key, credits_reserved: leg.credits };
     });
+
     return {
       data: {
-        status: 'reserved',
+        status: 'created',
+        run_id: run.id,
         reservation_group_id: params.p_reservation_group_id,
         reservations: created,
       },

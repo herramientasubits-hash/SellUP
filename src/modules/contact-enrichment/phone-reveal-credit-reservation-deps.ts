@@ -1,8 +1,9 @@
 // Agente 2A — Reserva ATÓMICA de créditos del reveal de teléfono: I/O
 // (AGENT2A-PHONE-WATERFALL-4E)
 //
-// Envoltorios de las tres funciones SQL de la migración 104. Este módulo NO decide
-// nada: el ciclo de vida y la liquidación viven en el core PURO
+// Envoltorios de las tres funciones SQL de la migración 104
+// (`reserve_and_create_phone_reveal_run`, `confirm_…`, `release_…`). Este módulo NO
+// decide nada: el ciclo de vida y la liquidación viven en el core PURO
 // (phone-reveal-credit-reservation-core.ts) y la atomicidad vive en el SQL, que es el
 // único lugar donde puede existir — serializar disponibilidad exige el lock y la
 // relectura dentro de la misma transacción.
@@ -23,10 +24,10 @@
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type {
+  PhoneRevealCreditReservationAndRunOutcome,
+  PhoneRevealCreditReservationAndRunRequest,
   PhoneRevealCreditReservationCostTruth,
-  PhoneRevealCreditReservationOutcome,
   PhoneRevealCreditReservationReleaseReason,
-  PhoneRevealCreditReservationRequest,
   PhoneRevealCreditReservedLeg,
   PhoneRevealCreditReservationStatus,
 } from './phone-reveal-credit-reservation-core';
@@ -38,9 +39,11 @@ import {
 /** Tabla y funciones de la migración 104. service_role-only. */
 export const PHONE_REVEAL_CREDIT_RESERVATIONS_TABLE =
   'phone_reveal_credit_reservations';
-export const PHONE_REVEAL_CREDIT_RESERVE_FN = 'try_reserve_phone_reveal_credits';
 export const PHONE_REVEAL_CREDIT_CONFIRM_FN = 'confirm_phone_reveal_credits';
 export const PHONE_REVEAL_CREDIT_RELEASE_FN = 'release_phone_reveal_credits';
+/** 4F: reserva + corrida en UNA transacción. Es el camino de arranque vigente. */
+export const PHONE_REVEAL_CREDIT_RESERVE_AND_CREATE_RUN_FN =
+  'reserve_and_create_phone_reveal_run';
 
 function redactDriverMessage(err: unknown): string {
   return err instanceof Error ? err.message.slice(0, 200) : 'unknown error';
@@ -64,23 +67,26 @@ function toFiniteNumber(value: unknown): number | null {
 }
 
 /**
- * Traduce el envelope jsonb de `try_reserve_phone_reveal_credits`. Una respuesta que no
- * se puede interpretar es `unavailable`: es lo que impide que un cambio de forma en el
- * SQL se lea silenciosamente como una autorización.
+ * Traduce el envelope jsonb de `reserve_and_create_phone_reveal_run`. Comparte los
+ * rechazos con la reserva sola y añade los dos desenlaces que sólo existen cuando la
+ * corrida se escribe en la MISMA transacción.
  */
-function parseReserveEnvelope(raw: unknown): PhoneRevealCreditReservationOutcome {
+function parseReserveAndRunEnvelope(
+  raw: unknown,
+): PhoneRevealCreditReservationAndRunOutcome {
   if (!raw || typeof raw !== 'object') {
     return { status: 'unavailable', detail: 'unparseable_response' };
   }
   const envelope = raw as Record<string, unknown>;
   const status = typeof envelope.status === 'string' ? envelope.status : null;
+  const runId = typeof envelope.run_id === 'string' ? envelope.run_id : null;
+  const groupId =
+    typeof envelope.reservation_group_id === 'string'
+      ? envelope.reservation_group_id
+      : null;
 
   switch (status) {
-    case 'reserved': {
-      const groupId =
-        typeof envelope.reservation_group_id === 'string'
-          ? envelope.reservation_group_id
-          : null;
+    case 'created': {
       const rows = Array.isArray(envelope.reservations) ? envelope.reservations : [];
       const reservations: PhoneRevealCreditReservedLeg[] = [];
       for (const row of rows) {
@@ -92,12 +98,21 @@ function parseReserveEnvelope(raw: unknown): PhoneRevealCreditReservationOutcome
         if (!id || !providerKey || credits === null) continue;
         reservations.push({ id, providerKey, creditsReserved: credits });
       }
-      // Una reserva "exitosa" sin id o sin patas no es una reserva: no habría nada que
-      // liberar ni que confirmar, y la exposición quedaría sin dueño.
-      if (!groupId || reservations.length === 0) {
-        return { status: 'unavailable', detail: 'reserved_without_rows' };
+      // Una creación "exitosa" sin corrida, sin grupo o sin patas no es una creación: no
+      // habría nada que liquidar ni a qué atribuir el gasto del proveedor.
+      if (!runId || !groupId || reservations.length === 0) {
+        return { status: 'unavailable', detail: 'created_without_rows' };
       }
-      return { status: 'reserved', reservationGroupId: groupId, reservations };
+      return { status: 'created', runId, reservationGroupId: groupId, reservations };
+    }
+
+    case 'already_created': {
+      // Golpe idempotente. Sin `run_id` no hay corrida que devolver, y afirmar que la
+      // autorización ya existe sin poder señalarla dejaría al caller sin nada que usar.
+      if (!runId) {
+        return { status: 'unavailable', detail: 'already_created_without_run' };
+      }
+      return { status: 'already_created', runId, reservationGroupId: groupId };
     }
 
     case 'insufficient_credits':
@@ -118,11 +133,13 @@ function parseReserveEnvelope(raw: unknown): PhoneRevealCreditReservationOutcome
     case 'already_reserved':
       return { status: 'already_reserved' };
 
+    case 'create_conflict':
+      return { status: 'create_conflict' };
+
     case 'invalid_input':
       return {
         status: 'unavailable',
-        detail:
-          typeof envelope.detail === 'string' ? envelope.detail : 'invalid_input',
+        detail: typeof envelope.detail === 'string' ? envelope.detail : 'invalid_input',
       };
 
     default:
@@ -131,46 +148,79 @@ function parseReserveEnvelope(raw: unknown): PhoneRevealCreditReservationOutcome
 }
 
 /**
- * Reserva TODAS las patas de una autorización, all-or-nothing. Nunca lanza: el
- * fail-closed es un desenlace (`unavailable`), no una excepción, para que el caller
- * pueda liberar/abortar con un código mecánico en vez de propagar un error de driver.
+ * Reserva TODAS las patas Y crea la corrida en UNA transacción
+ * (AGENT2A-PHONE-WATERFALL-4F).
+ *
+ * POR QUÉ EL REINTENTO ES SEGURO — Y NECESARIO. El fallo que 4E no podía manejar es la
+ * RESPUESTA PERDIDA: la transacción hizo COMMIT y el driver, aun así, lanza. Desde aquí
+ * ese caso es indistinguible de "no se ejecutó nada", así que la única salida correcta es
+ * volver a llamar con la MISMA `authorizationKey`: si la primera llamada sí escribió, la
+ * segunda encuentra la corrida y devuelve `already_created` sin reservar nada; si no
+ * escribió, la segunda hace el trabajo. Reintentar SIN la clave sería una segunda
+ * autorización, que es justo lo que no puede pasar.
+ *
+ * Un solo reintento: si el segundo intento también falla en el transporte, el estado
+ * sigue siendo desconocido y el fail-closed (`unavailable`) es la respuesta honesta.
+ * Ningún proveedor se llama sin `runId`, así que un `unavailable` no cuesta créditos.
  */
-export async function reservePhoneRevealCredits(
-  request: PhoneRevealCreditReservationRequest,
-): Promise<PhoneRevealCreditReservationOutcome> {
-  try {
-    const admin = createSupabaseAdminClient();
-    const { data, error } = await admin.rpc(PHONE_REVEAL_CREDIT_RESERVE_FN, {
-      p_candidate_id: request.candidateId,
-      p_authorized_by: request.authorizedBy,
-      p_reservation_group_id: request.reservationGroupId,
-      p_legs: request.legs.map((leg) => ({
-        provider_key: leg.providerKey,
-        credits: leg.credits,
-        limit_credits: leg.limitCredits,
-        consumed_credits: leg.consumedCredits,
-        scope_type: leg.scopeType,
-        scope_id: leg.scopeId,
-        period_start: leg.periodStart,
-        period_end: leg.periodEnd,
-      })),
-    });
+export async function reservePhoneRevealCreditsAndCreateRun(args: {
+  reservation: PhoneRevealCreditReservationAndRunRequest;
+  /** Payload jsonb de la fila de la corrida, ya en nombres de columna. */
+  run: Record<string, unknown>;
+}): Promise<PhoneRevealCreditReservationAndRunOutcome> {
+  const { reservation } = args;
+  const params = {
+    p_candidate_id: reservation.candidateId,
+    p_authorized_by: reservation.authorizedBy,
+    p_authorization_key: reservation.authorizationKey,
+    p_reservation_group_id: reservation.reservationGroupId,
+    p_legs: reservation.legs.map((leg) => ({
+      provider_key: leg.providerKey,
+      credits: leg.credits,
+      limit_credits: leg.limitCredits,
+      consumed_credits: leg.consumedCredits,
+      scope_type: leg.scopeType,
+      scope_id: leg.scopeId,
+      period_start: leg.periodStart,
+      period_end: leg.periodEnd,
+    })),
+    p_run: args.run,
+  };
 
-    if (error) {
-      console.error(
-        '[phone-reveal-credit-reservation] reserve failed, failing closed:',
-        error.message.slice(0, 200),
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const admin = createSupabaseAdminClient();
+      const { data, error } = await admin.rpc(
+        PHONE_REVEAL_CREDIT_RESERVE_AND_CREATE_RUN_FN,
+        params,
       );
-      return { status: 'unavailable', detail: 'reserve_rpc_error' };
+      if (error) {
+        // Un error REPORTADO por el servidor significa que la transacción se deshizo:
+        // no hay estado a medias y reintentar no aportaría nada nuevo.
+        console.error(
+          '[phone-reveal-credit-reservation] reserve+create failed, failing closed:',
+          error.message.slice(0, 200),
+        );
+        return { status: 'unavailable', detail: 'reserve_and_create_rpc_error' };
+      }
+      return parseReserveAndRunEnvelope(data);
+    } catch (err) {
+      // Transporte: la respuesta puede haberse perdido DESPUÉS del COMMIT.
+      const lastAttempt = attempt === 1;
+      console.error(
+        `[phone-reveal-credit-reservation] reserve+create threw (attempt ${attempt + 1}/2)${
+          lastAttempt ? ', failing closed' : ', retrying with the same authorization key'
+        }:`,
+        redactDriverMessage(err),
+      );
+      if (lastAttempt) {
+        return { status: 'unavailable', detail: 'reserve_and_create_threw' };
+      }
     }
-    return parseReserveEnvelope(data);
-  } catch (err) {
-    console.error(
-      '[phone-reveal-credit-reservation] reserve threw, failing closed:',
-      redactDriverMessage(err),
-    );
-    return { status: 'unavailable', detail: 'reserve_threw' };
   }
+
+  /* c8 ignore next */
+  return { status: 'unavailable', detail: 'reserve_and_create_threw' };
 }
 
 /**
@@ -241,53 +291,6 @@ export async function releasePhoneRevealCreditReservation(args: {
       redactDriverMessage(err),
     );
     return false;
-  }
-}
-
-/** Libera TODAS las patas de un grupo. Se usa cuando la corrida no llegó a existir. */
-export async function releasePhoneRevealCreditReservationGroup(args: {
-  reservations: readonly PhoneRevealCreditReservedLeg[];
-  reason: PhoneRevealCreditReservationReleaseReason;
-}): Promise<void> {
-  await Promise.all(
-    args.reservations.map((leg) =>
-      releasePhoneRevealCreditReservation({
-        reservationId: leg.id,
-        reason: args.reason,
-      }),
-    ),
-  );
-}
-
-/**
- * Asocia las patas del grupo a la corrida recién creada. La asociación AUTORITATIVA es
- * la inversa (`phone_reveal_waterfall_runs.credit_reservation_group_id`, escrita dentro
- * del INSERT de la corrida), así que este UPDATE es la cara de conveniencia: sirve para
- * detectar huérfanas y para consultar desde la reserva. Un fallo se registra y no
- * detiene nada — la corrida ya sabe a qué grupo pertenece.
- */
-export async function attachPhoneRevealCreditReservationsToRun(args: {
-  reservationGroupId: string;
-  runId: string;
-}): Promise<void> {
-  try {
-    const admin = createSupabaseAdminClient();
-    const { error } = await admin
-      .from(PHONE_REVEAL_CREDIT_RESERVATIONS_TABLE)
-      .update({ run_id: args.runId })
-      .eq('reservation_group_id', args.reservationGroupId)
-      .is('run_id', null);
-    if (error) {
-      console.error(
-        '[phone-reveal-credit-reservation] run attach failed (association is authoritative on the run row):',
-        error.message.slice(0, 200),
-      );
-    }
-  } catch (err) {
-    console.error(
-      '[phone-reveal-credit-reservation] run attach threw:',
-      redactDriverMessage(err),
-    );
   }
 }
 

@@ -141,6 +141,81 @@ describe('migración 104 — disponibilidad = limit - consumed - reservado activ
 });
 
 // ═══════════════════════════════════════════════════════════════
+// 2b. La función ATÓMICA de 4F comparte la misma aritmética
+// ═══════════════════════════════════════════════════════════════
+//
+// `reserve_and_create_phone_reveal_run` sustituye a la reserva sola en el arranque, así
+// que si su fórmula o su orden divergieran, el camino vigente estaría gobernado por
+// reglas que ninguna otra prueba mira.
+
+describe('migración 104 — la operación atómica no reimplementa el dinero', () => {
+  const atomic = (() => {
+    const start = executableSql.indexOf(
+      'CREATE OR REPLACE FUNCTION public.reserve_and_create_phone_reveal_run(',
+    );
+    assert.notEqual(start, -1);
+    const end = executableSql.indexOf('END $$;', start);
+    return executableSql.slice(start, end);
+  })();
+
+  it('usa la MISMA resta de tres términos', () => {
+    assert.ok(/limit_credits'\)::numeric/.test(atomic));
+    assert.ok(/-\s*COALESCE\(\(v_leg->>'consumed_credits'\)::numeric, 0\)/.test(atomic));
+    assert.ok(/-\s*v_reserved_active/.test(atomic));
+  });
+
+  it('suma la exposición sobre el MISMO pozo, con IS NOT DISTINCT FROM', () => {
+    assert.ok(/r\.status = 'reserved'/.test(atomic));
+    assert.ok(/scope_id IS NOT DISTINCT FROM/.test(atomic));
+  });
+
+  it('serializa cada pozo con el MISMO lock y en orden determinista', () => {
+    assert.ok(/pg_advisory_xact_lock\(hashtext\(v_lock_key\)\)/.test(atomic));
+    assert.ok(/ORDER BY 1/.test(atomic));
+  });
+
+  it('el cortocircuito idempotente ocurre ANTES del lock y de toda escritura', () => {
+    // Si el orden se invirtiera, un reintento tomaría locks y podría reservar de nuevo
+    // antes de descubrir que su corrida ya existía.
+    const shortCircuit = atomic.indexOf("'already_created'");
+    const lock = atomic.indexOf('pg_advisory_xact_lock');
+    const insert = atomic.indexOf('INSERT INTO public.phone_reveal_credit_reservations');
+    assert.ok(shortCircuit > 0 && lock > 0 && insert > 0);
+    assert.ok(shortCircuit < lock, 'la idempotencia va antes del lock');
+    assert.ok(shortCircuit < insert, 'y antes de cualquier INSERT');
+  });
+
+  it('los DOS INSERT viven en el mismo bloque que atrapa unique_violation', () => {
+    // Es lo que garantiza el rollback conjunto: un EXCEPTION a nivel de función dejaría
+    // las reservas escritas, que es exactamente la huérfana que 4F elimina.
+    const reservationInsert = atomic.indexOf(
+      'INSERT INTO public.phone_reveal_credit_reservations',
+    );
+    const runInsert = atomic.indexOf('INSERT INTO public.phone_reveal_waterfall_runs');
+    const handler = atomic.indexOf('WHEN unique_violation THEN');
+    assert.ok(reservationInsert > 0 && runInsert > reservationInsert);
+    assert.ok(handler > runInsert, 'el handler cierra por debajo de los dos INSERT');
+    // Y el bloque interno abre ANTES del primer INSERT.
+    const innerBegin = atomic.lastIndexOf('BEGIN', reservationInsert);
+    assert.ok(innerBegin > 0 && innerBegin < reservationInsert);
+  });
+
+  it('la corrida nace con su grupo de reserva Y su clave, en el propio INSERT', () => {
+    const runInsert = atomic.slice(
+      atomic.indexOf('INSERT INTO public.phone_reveal_waterfall_runs'),
+    );
+    assert.ok(/credit_reservation_group_id, authorization_key/.test(runInsert));
+    assert.ok(/p_reservation_group_id,\s*\n\s*p_authorization_key/.test(runInsert));
+  });
+
+  it('distingue qué índice único falló en vez de colapsarlo todo en un error', () => {
+    assert.ok(/GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME/.test(atomic));
+    assert.ok(/uq_phone_reveal_waterfall_runs_authorization_key/.test(atomic));
+    assert.ok(/uq_phone_reveal_credit_reservations_active_leg/.test(atomic));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // 3. Serialización: el lock que hace la reserva atómica
 // ═══════════════════════════════════════════════════════════════
 
@@ -283,8 +358,9 @@ describe('migración 104 — RLS, asociación atómica y nada destructivo', () =
   it('es idempotente: tabla, índices, columna y funciones se pueden re-ejecutar', () => {
     assert.ok(/CREATE TABLE IF NOT EXISTS public\.phone_reveal_credit_reservations/.test(executableSql));
     assert.ok(/ADD COLUMN IF NOT EXISTS credit_reservation_group_id/.test(executableSql));
+    assert.ok(/ADD COLUMN IF NOT EXISTS authorization_key/.test(executableSql));
     for (const fn of [
-      'try_reserve_phone_reveal_credits',
+      'reserve_and_create_phone_reveal_run',
       'confirm_phone_reveal_credits',
       'release_phone_reveal_credits',
     ]) {

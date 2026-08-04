@@ -350,6 +350,156 @@ export function simulatePhoneRevealCreditReservation(
   };
 }
 
+// ── Reserva Y corrida en UNA transacción (4F) ───────────────────
+
+/**
+ * Petición de la operación ATÓMICA: reservar todas las patas Y crear la corrida en la
+ * misma transacción (`reserve_and_create_phone_reveal_run`, migración 104).
+ *
+ * POR QUÉ NO BASTABA 4E. Reservar y crear la corrida eran dos viajes distintos, y entre
+ * ellos hay una ventana en la que la reserva ya está comprometida y la corrida todavía
+ * no existe. Tres cosas ordinarias caen dentro: el proceso muere, la respuesta se pierde
+ * después del COMMIT, o el driver expira. En las tres, la compensación nunca corre y
+ * queda una HUÉRFANA — exposición ocupando disponibilidad que nadie va a liquidar,
+ * porque la liquidación se dispara desde la corrida. Y no hay reintento del lado de la
+ * aplicación que lo arregle: la aplicación no puede distinguir "no se reservó" de "se
+ * reservó y no me enteré".
+ */
+export interface PhoneRevealCreditReservationAndRunRequest
+  extends PhoneRevealCreditReservationRequest {
+  /**
+   * Clave de idempotencia de ESTA autorización. Se genera ANTES de la operación y se
+   * reenvía IDÉNTICA en cada reintento. Es lo que convierte un reintento en una lectura
+   * de la corrida que ya existe, en vez de una segunda autorización.
+   *
+   * Por autorización, NO por candidato: una autorización nueva y legítima del mismo
+   * candidato llega con una clave nueva y crea una corrida nueva, como debe.
+   */
+  authorizationKey: string;
+}
+
+/**
+ * Desenlace de la operación atómica.
+ *
+ *   * `created`          — reserva Y corrida escritas juntas. Recién ahora se puede
+ *     llamar a un proveedor: antes de tener `runId` no hay a qué atribuir el gasto.
+ *   * `already_created`  — la clave ya tenía corrida. IDEMPOTENTE: no se reservó nada
+ *     de nuevo, y se devuelve la corrida original.
+ *   * `create_conflict`  — ya había otra autorización viva para el candidato. La
+ *     transacción se deshizo ENTERA: no quedó ni reserva ni corrida.
+ *   * `unavailable`      — no se pudo evaluar. FAIL-CLOSED, distinto de
+ *     `insufficient_credits`: no se sabe si alcanzaba.
+ */
+export type PhoneRevealCreditReservationAndRunOutcome =
+  | {
+      status: 'created';
+      runId: string;
+      reservationGroupId: string;
+      reservations: readonly PhoneRevealCreditReservedLeg[];
+    }
+  | {
+      status: 'already_created';
+      runId: string;
+      reservationGroupId: string | null;
+    }
+  | {
+      status: 'insufficient_credits';
+      legs: readonly PhoneRevealCreditReservationLegRejection[];
+    }
+  | {
+      status: 'budget_not_configured';
+      legs: readonly PhoneRevealCreditReservationLegRejection[];
+    }
+  | { status: 'already_reserved' }
+  | { status: 'create_conflict' }
+  | { status: 'unavailable'; detail: string | null };
+
+/**
+ * Corrida ya existente, tal como la ve la operación atómica. Proyección mínima de
+ * `phone_reveal_waterfall_runs`: lo justo para reproducir los dos índices únicos que
+ * deciden el desenlace.
+ */
+export interface PhoneRevealCreditExistingRun {
+  runId: string;
+  candidateId: string;
+  /** `authorization_key`. null en corridas anteriores a 4F. */
+  authorizationKey: string | null;
+  reservationGroupId: string | null;
+  /** Coincide con el predicado del índice único parcial de la migración 102. */
+  isActive: boolean;
+}
+
+/**
+ * Semántica de REFERENCIA de `reserve_and_create_phone_reveal_run`, en TypeScript puro.
+ *
+ * Espejo ejecutable del SQL, en el MISMO orden, porque el orden es parte del contrato:
+ *
+ *   0. forma inválida            ⇒ unavailable (nada escrito)
+ *   1. sin regla de crédito      ⇒ budget_not_configured
+ *   2. la clave YA tiene corrida ⇒ already_created  ← antes de cualquier lock y escritura
+ *   3. el candidato ya tiene exposición viva ⇒ already_reserved
+ *   4. algún pozo no alcanza     ⇒ insufficient_credits
+ *   5. ya hay corrida activa     ⇒ create_conflict (rollback: ni reserva ni corrida)
+ *   6. si no                     ⇒ created
+ *
+ * El paso 5 va DESPUÉS del 4 y produce rollback completo, que es justamente lo que 4E no
+ * podía ofrecer: allí el 23505 de la corrida dejaba la reserva escrita y había que
+ * compensarla con un release que podía no llegar a ejecutarse nunca.
+ */
+export function simulatePhoneRevealCreditReservationAndRun(
+  request: PhoneRevealCreditReservationAndRunRequest,
+  state: {
+    activeReservations: readonly PhoneRevealCreditActiveReservation[];
+    runs: readonly PhoneRevealCreditExistingRun[];
+  },
+): PhoneRevealCreditReservationAndRunOutcome {
+  if (!request.authorizationKey || !request.authorizationKey.trim()) {
+    return { status: 'unavailable', detail: 'missing_identity' };
+  }
+
+  // Paso 2 del SQL: cortocircuito idempotente ANTES de tocar nada. Un reintento de una
+  // autorización que ya salió bien no puede costar una reserva más.
+  const byKey = state.runs.find(
+    (run) => run.authorizationKey === request.authorizationKey,
+  );
+  if (byKey) {
+    if (byKey.candidateId !== request.candidateId) {
+      // La clave identifica UNA autorización de UN candidato. Devolver la corrida de
+      // otro candidato le atribuiría a él el gasto de este operador.
+      return { status: 'unavailable', detail: 'authorization_key_candidate_mismatch' };
+    }
+    return {
+      status: 'already_created',
+      runId: byKey.runId,
+      reservationGroupId: byKey.reservationGroupId,
+    };
+  }
+
+  // Pasos 0/1/3/4: idénticos a los de la reserva sola, y con la misma autoridad.
+  const reservation = simulatePhoneRevealCreditReservation(
+    request,
+    state.activeReservations,
+  );
+  if (reservation.status !== 'reserved') {
+    return reservation;
+  }
+
+  // Paso 5: el índice único parcial de la migración 102. En 4E esto era un 23505 que
+  // llegaba con la reserva YA escrita; aquí cae dentro de la misma transacción, así que
+  // no queda exposición que compensar.
+  if (state.runs.some((run) => run.candidateId === request.candidateId && run.isActive)) {
+    return { status: 'create_conflict' };
+  }
+
+  return {
+    status: 'created',
+    // Id sintético y estable: esta función no habla con Postgres.
+    runId: `run:${request.authorizationKey}`,
+    reservationGroupId: reservation.reservationGroupId,
+    reservations: reservation.reservations,
+  };
+}
+
 // ── Liquidación contra el costo real (reconciliación) ───────────
 
 /**

@@ -80,6 +80,13 @@ export type LegacyPhoneRevealWaterfallActionStatus =
   | 'budget_not_configured'
   /** El presupuesto no se pudo verificar. Fail-closed, mismas garantías de cero efectos. */
   | 'credit_balance_unavailable'
+  /**
+   * AGENT2A-PHONE-WATERFALL-4F: el saldo SÍ se verificó, pero la escritura atómica de
+   * reserva + corrida no se pudo ejecutar (migración 104 no aplicada, timeout…).
+   * Mismas garantías de cero efectos, y NUNCA `not_eligible`: el candidato aplica
+   * perfectamente y lo que falló es la infraestructura.
+   */
+  | 'infrastructure_unavailable'
   /** El candidato no entra en la ruta legacy (o el flag/rol no lo permiten). */
   | 'not_eligible';
 
@@ -145,6 +152,9 @@ function toActionStatus(
     if (result.reason === 'budget_not_configured') return 'budget_not_configured';
     if (result.reason === 'credit_balance_unavailable') {
       return 'credit_balance_unavailable';
+    }
+    if (result.reason === 'run_creation_unavailable') {
+      return 'infrastructure_unavailable';
     }
   }
   switch (result.outcome) {

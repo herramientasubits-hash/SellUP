@@ -1,5 +1,20 @@
 -- Migration 104: atomic credit reservations for the phone reveal waterfall
--- (Agente 2A · AGENT2A-PHONE-WATERFALL-4E)
+-- (Agente 2A · AGENT2A-PHONE-WATERFALL-4E, hardened in 4F)
+--
+-- WHAT 4F ADDED ON TOP OF 4E
+--
+--   * `reserve_and_create_phone_reveal_run` — reservation AND run in ONE transaction.
+--     4E did them in two round trips, and the window between them produced orphan
+--     exposure on process death, a lost response or a driver timeout.
+--   * `phone_reveal_waterfall_runs.authorization_key` + its unique index — a stable
+--     idempotency key generated before the operation, so a retry returns the same run
+--     instead of authorizing a second one.
+--   * REVOKE/GRANT on every function. PostgreSQL grants EXECUTE to PUBLIC by default;
+--     on SECURITY DEFINER functions that bypass RLS, that default was a real hole.
+--   * `SET search_path = pg_catalog, pg_temp` (pg_catalog FIRST, so no temp object can
+--     shadow a built-in type or relation), pinned function owner, and the missing
+--     constraints: strictly positive credit limit, valid period window, and one leg per
+--     provider per reservation group.
 --
 -- WHY THIS EXISTS
 --
@@ -55,7 +70,7 @@
 --   * touch `budget_rules`, `provider_usage_logs`, `tool_catalog`,
 --     `wizard_monthly_budget_periods`, `wizard_budget_reservations`,
 --     `contact_enrichment_candidates`, `phone_reveal_cache` or any other table
---     beyond adding ONE nullable column to `phone_reveal_waterfall_runs`
+--     beyond adding TWO nullable columns to `phone_reveal_waterfall_runs`
 --   * change RLS, policies or triggers of any pre-existing table
 --   * drop a table, a column, a constraint or an index
 --   * create or activate a feature flag
@@ -137,9 +152,14 @@ CREATE TABLE IF NOT EXISTS public.phone_reveal_credit_reservations (
   period_start           timestamptz NOT NULL,
   period_end             timestamptz NOT NULL,
   -- Credit limit of the resolved rule. NOT NULL: no rule ⇒ no reservation.
+  -- STRICTLY POSITIVE: a rule whose ceiling is 0 has no availability to reserve
+  -- against, so `available = 0 - consumed - reserved` is never >= a positive
+  -- requirement and no row could legitimately be written with it. Making the CHECK
+  -- `> 0` turns "a zero-limit rule reached the insert" from an impossible-in-practice
+  -- state into an impossible-by-construction one.
   limit_credits          numeric     NOT NULL
     CONSTRAINT phone_reveal_credit_reservations_limit_positive
-    CHECK (limit_credits >= 0),
+    CHECK (limit_credits > 0),
 
   -- internal_users.id of the operator. NOT a FK, same reasoning as
   -- `phone_reveal_waterfall_runs.authorized_by`: this is an audit record of an
@@ -212,6 +232,19 @@ BEGIN
       CHECK (scope_type IN ('user', 'group', 'role', 'global'));
   END IF;
 
+  -- PERIOD BOUNDARIES. The pool identity includes `period_start`, and the active
+  -- exposure SUM groups by it, so an inverted or degenerate window would silently
+  -- create a pool that nothing else can ever match — exposure that occupies nobody's
+  -- availability. An empty window is not a budget period.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'phone_reveal_credit_reservations_period_bounds_check'
+  ) THEN
+    ALTER TABLE public.phone_reveal_credit_reservations
+      ADD CONSTRAINT phone_reveal_credit_reservations_period_bounds_check
+      CHECK (period_end > period_start);
+  END IF;
+
   -- A confirmed row must carry a number and its provenance; a reserved row must not
   -- pretend to have one. This is what keeps "unknown cost" from silently becoming 0.
   IF NOT EXISTS (
@@ -246,6 +279,15 @@ CREATE INDEX IF NOT EXISTS idx_phone_reveal_credit_reservations_active_pool
 CREATE INDEX IF NOT EXISTS idx_phone_reveal_credit_reservations_group
   ON public.phone_reveal_credit_reservations (reservation_group_id);
 
+-- UNAMBIGUOUS GROUP IDENTITY. One reservation group is one authorization, and an
+-- authorization has AT MOST ONE leg per provider. Without this, a retry that reused
+-- the group id could append a second Apollo leg to a group that already had one, and
+-- reconciliation would settle a group whose shape it cannot predict. Unlike the
+-- partial index above, this one covers EVERY status: once a group has settled its
+-- Apollo leg, that leg cannot be re-added under the same id.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_phone_reveal_credit_reservations_group_leg
+  ON public.phone_reveal_credit_reservations (reservation_group_id, provider_key);
+
 -- ORPHAN DETECTION. A reservation that is still occupying availability but never got
 -- attached to a run is, by definition, exposure nobody will ever settle. This index
 -- makes the sweep cheap; it is a diagnostic, not a gate.
@@ -263,6 +305,24 @@ ALTER TABLE public.phone_reveal_waterfall_runs
 CREATE INDEX IF NOT EXISTS idx_phone_reveal_waterfall_runs_credit_reservation_group
   ON public.phone_reveal_waterfall_runs (credit_reservation_group_id)
   WHERE credit_reservation_group_id IS NOT NULL;
+
+-- ── 4b. Idempotency key of the authorization ───────────────────────
+-- (AGENT2A-PHONE-WATERFALL-4F)
+--
+-- The application generates ONE key per authorization BEFORE calling the database, and
+-- retries the same call with the same key. This unique index is what makes the retry
+-- idempotent instead of a second authorization: the second attempt collides, the
+-- function reads the run the first attempt created, and returns it.
+--
+-- It is per-AUTHORIZATION, not per-candidate: a later, genuinely new authorization for
+-- the same candidate arrives with a NEW key and legitimately creates a new run. Opaque
+-- machine value, never printed, PII-free.
+ALTER TABLE public.phone_reveal_waterfall_runs
+  ADD COLUMN IF NOT EXISTS authorization_key text NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_phone_reveal_waterfall_runs_authorization_key
+  ON public.phone_reveal_waterfall_runs (authorization_key)
+  WHERE authorization_key IS NOT NULL;
 
 -- ── 5. RLS: service_role only ──────────────────────────────────────
 -- Same pattern as migrations 099 / 102: RLS on, ONE policy for service_role, and NO
@@ -284,59 +344,183 @@ BEGIN
   END IF;
 END $$;
 
--- ── 6. try_reserve_phone_reveal_credits ────────────────────────────
+-- ── 6. confirm_phone_reveal_credits ────────────────────────────────
 --
--- Reserves EVERY leg of one authorization, ALL-OR-NOTHING, inside a single
--- transaction. Returns a jsonb envelope:
+-- Settles ONE leg against what it really cost. Returns TEXT:
+--   confirmed | already_confirmed | already_released | not_found | invalid_input
 --
---   {"status":"reserved","reservation_group_id":…,"reservations":[{provider_key,id,credits_reserved},…]}
+-- `p_credits_confirmed` is never NULL and never a stand-in for "unknown": the caller
+-- that cannot obtain a reported cost must pass the reserved ceiling with
+-- p_cost_truth = 'assumed_cap'. Confirming at 0 on an unreported cost would hand back
+-- availability the provider may well have charged.
+
+CREATE OR REPLACE FUNCTION public.confirm_phone_reveal_credits(
+  p_reservation_id    uuid,
+  p_credits_confirmed numeric,
+  p_cost_truth        text
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_status text;
+BEGIN
+  IF p_reservation_id IS NULL
+     OR p_credits_confirmed IS NULL
+     OR p_credits_confirmed < 0
+     OR p_cost_truth IS NULL
+     OR p_cost_truth NOT IN ('reported', 'assumed_cap') THEN
+    RETURN 'invalid_input';
+  END IF;
+
+  SELECT status INTO v_status
+  FROM public.phone_reveal_credit_reservations
+  WHERE id = p_reservation_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN RETURN 'not_found'; END IF;
+  IF v_status = 'confirmed' THEN RETURN 'already_confirmed'; END IF;
+  IF v_status = 'released'  THEN RETURN 'already_released';  END IF;
+
+  UPDATE public.phone_reveal_credit_reservations
+  SET status            = 'confirmed',
+      credits_confirmed = p_credits_confirmed,
+      cost_truth        = p_cost_truth,
+      confirmed_at      = now()
+  WHERE id = p_reservation_id;
+
+  RETURN 'confirmed';
+END $$;
+
+-- ── 7. release_phone_reveal_credits ────────────────────────────────
+--
+-- Gives back the exposure of ONE leg that provably never ran. Returns TEXT:
+--   released | already_confirmed | already_released | not_found | invalid_input
+--
+-- "Provably never ran" is the whole contract of this function. Legitimate reasons:
+-- the run could not be created after the reservation was taken, the unique index
+-- rejected it (23505), or the run reached a terminal state with the leg never claimed
+-- (`lusha_attempted_at IS NULL`, which the atomic claim makes trustworthy). A leg that
+-- WAS attempted is never released — even when its cost is unknown — because releasing
+-- it would declare a spend of zero that nobody verified.
+
+CREATE OR REPLACE FUNCTION public.release_phone_reveal_credits(
+  p_reservation_id uuid,
+  p_reason         text
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_status text;
+BEGIN
+  IF p_reservation_id IS NULL THEN RETURN 'invalid_input'; END IF;
+
+  SELECT status INTO v_status
+  FROM public.phone_reveal_credit_reservations
+  WHERE id = p_reservation_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN RETURN 'not_found'; END IF;
+  IF v_status = 'confirmed' THEN RETURN 'already_confirmed'; END IF;
+  IF v_status = 'released'  THEN RETURN 'already_released';  END IF;
+
+  UPDATE public.phone_reveal_credit_reservations
+  SET status         = 'released',
+      released_at    = now(),
+      release_reason = LEFT(COALESCE(p_reason, 'unspecified'), 60)
+  WHERE id = p_reservation_id;
+
+  RETURN 'released';
+END $$;
+
+-- ── 8. reserve_and_create_phone_reveal_run ─────────────────────────
+-- (AGENT2A-PHONE-WATERFALL-4F)
+--
+-- THE HOLE THIS CLOSES. 4E reserved atomically and then created the run in a SECOND
+-- round trip. Between those two statements there is a window in which the reservation
+-- is committed and the run does not exist yet, and three ordinary events land inside
+-- it: the process dies, the RPC response is lost on the wire after the COMMIT, or the
+-- driver times out. In every one of those the compensating release never runs, and the
+-- result is an ORPHAN — exposure occupying availability that nobody will ever settle,
+-- because settlement is driven from the run. No amount of application-side retry can
+-- close it: the application cannot distinguish "the reservation did not happen" from
+-- "the reservation happened and I did not hear about it".
+--
+-- So the two writes become ONE statement, in ONE transaction: lock the pools, recompute
+-- availability, insert every leg, insert the run carrying the group id, back-reference
+-- the legs, return both ids. Any failure at any step rolls the whole thing back, so a
+-- reservation without a run is not merely unlikely — it is unrepresentable.
+--
+-- IDEMPOTENCY. `p_authorization_key` is generated by the application BEFORE the call
+-- and reused verbatim on retry. Two paths make the retry safe:
+--   * the key already has a run  ⇒ short-circuit, return it, reserve nothing;
+--   * two callers race on the key ⇒ one wins, the loser's unique_violation rolls its
+--     own reservations back and it re-reads the winner's run.
+-- A genuinely new authorization for the same candidate arrives with a NEW key and is
+-- correctly treated as new work.
+--
+-- WHY THE WRITES SIT IN AN INNER BLOCK. A plpgsql EXCEPTION block rolls back to the
+-- savepoint taken at ITS OWN entry. Putting the reservation INSERTs and the run INSERT
+-- inside the same block as the handler is what guarantees that catching the run's
+-- 23505 also undoes the reservations. A handler placed at function level would leave
+-- them committed — which is the very orphan this function exists to make impossible.
+--
+-- Returns a jsonb envelope:
+--   {"status":"created","run_id":…,"reservation_group_id":…,"reservations":[…]}
+--   {"status":"already_created","run_id":…,"reservation_group_id":…}   ← idempotent hit
 --   {"status":"insufficient_credits","legs":[{provider_key,required,available},…]}
 --   {"status":"budget_not_configured","legs":[{provider_key},…]}
 --   {"status":"already_reserved"}
+--   {"status":"create_conflict"}
 --   {"status":"invalid_input","detail":"…"}
---
--- CONCURRENCY. Each leg's pool is serialized with a transaction-scoped advisory lock
--- keyed by (provider_key, scope_type, scope_id, period_start). Locks are taken in
--- sorted key order so two concurrent multi-leg calls can never deadlock against each
--- other. Inside the lock the function re-derives the pool's active exposure from this
--- table, so the availability it compares against cannot have been taken by a call that
--- started a microsecond earlier.
---
--- WHAT THE CALLER SUPPLIES AND WHY. `limit_credits`, `consumed_credits`, `scope_*` and
--- the period bounds come from the application's own budget resolution
--- (src/modules/budgets/budget-resolution.ts), which walks user → group → role → global
--- and aggregates `provider_usage_logs` over the matched rule's period. Re-implementing
--- that walk in SQL would duplicate the authority and let the two drift. What this
--- function owns — and what the application CANNOT do correctly on its own — is the
--- serialized part: active exposure and the atomic insert.
---
--- available = limit_credits - consumed_credits - SUM(active reservations in the pool)
 
-CREATE OR REPLACE FUNCTION public.try_reserve_phone_reveal_credits(
+CREATE OR REPLACE FUNCTION public.reserve_and_create_phone_reveal_run(
   p_candidate_id         uuid,
   p_authorized_by        uuid,
+  p_authorization_key    text,
   p_reservation_group_id uuid,
-  p_legs                 jsonb
+  p_legs                 jsonb,
+  p_run                  jsonb
 )
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_temp
+SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
-  v_leg              jsonb;
-  v_lock_key         text;
-  v_reserved_active  numeric;
-  v_available        numeric;
-  v_required         numeric;
-  v_missing_budget   jsonb := '[]'::jsonb;
-  v_insufficient     jsonb := '[]'::jsonb;
-  v_created          jsonb := '[]'::jsonb;
-  v_new_id           uuid;
+  v_leg             jsonb;
+  v_lock_key        text;
+  v_reserved_active numeric;
+  v_available       numeric;
+  v_required        numeric;
+  v_missing_budget  jsonb := '[]'::jsonb;
+  v_insufficient    jsonb := '[]'::jsonb;
+  v_created         jsonb := '[]'::jsonb;
+  v_new_id          uuid;
+  v_run_id          uuid;
+  v_existing_run    public.phone_reveal_waterfall_runs%ROWTYPE;
+  v_constraint      text;
 BEGIN
-  -- ── Step 1: shape validation (fail-closed, never a partial reservation) ──
-  IF p_candidate_id IS NULL OR p_authorized_by IS NULL OR p_reservation_group_id IS NULL THEN
+  -- ── Step 0: shape validation (fail-closed, nothing written) ─────
+  IF p_candidate_id IS NULL
+     OR p_authorized_by IS NULL
+     OR p_reservation_group_id IS NULL
+     OR p_authorization_key IS NULL
+     OR LENGTH(TRIM(p_authorization_key)) = 0 THEN
     RETURN jsonb_build_object('status', 'invalid_input', 'detail', 'missing_identity');
+  END IF;
+
+  IF p_run IS NULL
+     OR jsonb_typeof(p_run) <> 'object'
+     OR (p_run->>'status') IS NULL
+     OR (p_run->>'run_mode') IS NULL
+     OR (p_run->>'max_credits_authorized') IS NULL THEN
+    RETURN jsonb_build_object('status', 'invalid_input', 'detail', 'run_incomplete');
   END IF;
 
   IF p_legs IS NULL
@@ -358,8 +542,6 @@ BEGIN
       RETURN jsonb_build_object('status', 'invalid_input', 'detail', 'leg_credits_not_positive');
     END IF;
 
-    -- NO CREDIT RULE ⇒ NO RESERVATION. Collected for ALL legs before returning, so the
-    -- caller learns every provider that lacks a budget, not just the first one.
     IF (v_leg->>'limit_credits') IS NULL THEN
       v_missing_budget := v_missing_budget || jsonb_build_array(
         jsonb_build_object('provider_key', v_leg->>'provider_key')
@@ -369,6 +551,30 @@ BEGIN
 
   IF jsonb_array_length(v_missing_budget) > 0 THEN
     RETURN jsonb_build_object('status', 'budget_not_configured', 'legs', v_missing_budget);
+  END IF;
+
+  -- ── Step 1: idempotent short-circuit ────────────────────────────
+  -- Runs BEFORE any lock and any write. A retry of an authorization that already
+  -- succeeded must cost nothing and reserve nothing.
+  SELECT * INTO v_existing_run
+  FROM public.phone_reveal_waterfall_runs
+  WHERE authorization_key = p_authorization_key;
+
+  IF FOUND THEN
+    -- The key is the identity of ONE authorization of ONE candidate. A key that
+    -- resurfaced under a different candidate is a caller bug, and silently returning
+    -- the other candidate's run would attribute this operator's spend to it.
+    IF v_existing_run.candidate_id <> p_candidate_id THEN
+      RETURN jsonb_build_object(
+        'status', 'invalid_input',
+        'detail', 'authorization_key_candidate_mismatch'
+      );
+    END IF;
+    RETURN jsonb_build_object(
+      'status',               'already_created',
+      'run_id',               v_existing_run.id,
+      'reservation_group_id', v_existing_run.credit_reservation_group_id
+    );
   END IF;
 
   -- ── Step 2: lock every pool, in a deterministic order ───────────
@@ -384,9 +590,7 @@ BEGIN
     PERFORM pg_advisory_xact_lock(hashtext(v_lock_key));
   END LOOP;
 
-  -- ── Step 3: idempotency / double-click ──────────────────────────
-  -- The partial unique index is the real guarantee; this check turns the race it would
-  -- lose into a clear status instead of a constraint violation.
+  -- ── Step 3: one live authorization per candidate ────────────────
   IF EXISTS (
     SELECT 1
     FROM public.phone_reveal_credit_reservations r
@@ -425,150 +629,159 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- ALL-OR-NOTHING: one leg without room blocks the whole authorization. Reserving only
-  -- the affordable leg would spend Apollo's 8 on a waterfall whose Lusha leg is already
-  -- known to be unpayable.
   IF jsonb_array_length(v_insufficient) > 0 THEN
     RETURN jsonb_build_object('status', 'insufficient_credits', 'legs', v_insufficient);
   END IF;
 
-  -- ── Step 5: insert every leg ────────────────────────────────────
-  FOR v_leg IN SELECT * FROM jsonb_array_elements(p_legs) LOOP
-    INSERT INTO public.phone_reveal_credit_reservations (
-      reservation_group_id, candidate_id, provider_key, credits_reserved,
-      status, scope_type, scope_id, period_start, period_end, limit_credits,
-      authorized_by
-    ) VALUES (
-      p_reservation_group_id,
-      p_candidate_id,
-      v_leg->>'provider_key',
-      (v_leg->>'credits')::numeric,
-      'reserved',
-      v_leg->>'scope_type',
-      v_leg->>'scope_id',
-      (v_leg->>'period_start')::timestamptz,
-      (v_leg->>'period_end')::timestamptz,
-      (v_leg->>'limit_credits')::numeric,
-      p_authorized_by
-    )
-    RETURNING id INTO v_new_id;
-
-    v_created := v_created || jsonb_build_array(
-      jsonb_build_object(
-        'id',               v_new_id,
-        'provider_key',     v_leg->>'provider_key',
-        'credits_reserved', (v_leg->>'credits')::numeric
+  -- ── Step 5: reserve AND create, all inside one rollback scope ───
+  BEGIN
+    FOR v_leg IN SELECT * FROM jsonb_array_elements(p_legs) LOOP
+      INSERT INTO public.phone_reveal_credit_reservations (
+        reservation_group_id, candidate_id, provider_key, credits_reserved,
+        status, scope_type, scope_id, period_start, period_end, limit_credits,
+        authorized_by
+      ) VALUES (
+        p_reservation_group_id,
+        p_candidate_id,
+        v_leg->>'provider_key',
+        (v_leg->>'credits')::numeric,
+        'reserved',
+        v_leg->>'scope_type',
+        v_leg->>'scope_id',
+        (v_leg->>'period_start')::timestamptz,
+        (v_leg->>'period_end')::timestamptz,
+        (v_leg->>'limit_credits')::numeric,
+        p_authorized_by
       )
-    );
-  END LOOP;
+      RETURNING id INTO v_new_id;
+
+      v_created := v_created || jsonb_build_array(
+        jsonb_build_object(
+          'id',               v_new_id,
+          'provider_key',     v_leg->>'provider_key',
+          'credits_reserved', (v_leg->>'credits')::numeric
+        )
+      );
+    END LOOP;
+
+    -- The run is born WITH its reservation group and its authorization key. The
+    -- single-active-run index (migration 102) is still the authority on "one live
+    -- authorization per candidate": if it rejects this insert, the reservations above
+    -- are rolled back with it.
+    INSERT INTO public.phone_reveal_waterfall_runs (
+      candidate_id, status, run_mode, authorized_at, authorized_by, authorized_by_role,
+      max_credits_authorized, apollo_attempted_at, apollo_outcome, apollo_cost_source,
+      lusha_eligible, lusha_skipped_reason,
+      credit_reservation_group_id, authorization_key
+    ) VALUES (
+      p_candidate_id,
+      p_run->>'status',
+      p_run->>'run_mode',
+      COALESCE((p_run->>'authorized_at')::timestamptz, now()),
+      p_authorized_by,
+      p_run->>'authorized_by_role',
+      (p_run->>'max_credits_authorized')::integer,
+      (p_run->>'apollo_attempted_at')::timestamptz,
+      p_run->>'apollo_outcome',
+      p_run->>'apollo_cost_source',
+      (p_run->>'lusha_eligible')::boolean,
+      p_run->>'lusha_skipped_reason',
+      p_reservation_group_id,
+      p_authorization_key
+    )
+    RETURNING id INTO v_run_id;
+
+    -- Convenience back-reference. Free here: same transaction, no extra window.
+    UPDATE public.phone_reveal_credit_reservations
+    SET run_id = v_run_id
+    WHERE reservation_group_id = p_reservation_group_id;
+
+  EXCEPTION
+    WHEN unique_violation THEN
+      -- Rolled back to the start of THIS block: no reservation and no run survive.
+      GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+
+      IF v_constraint = 'uq_phone_reveal_waterfall_runs_authorization_key' THEN
+        -- A concurrent caller used the same key and won. Idempotency is the point:
+        -- return THEIR run instead of failing this authorization.
+        SELECT * INTO v_existing_run
+        FROM public.phone_reveal_waterfall_runs
+        WHERE authorization_key = p_authorization_key;
+
+        IF FOUND THEN
+          RETURN jsonb_build_object(
+            'status',               'already_created',
+            'run_id',               v_existing_run.id,
+            'reservation_group_id', v_existing_run.credit_reservation_group_id
+          );
+        END IF;
+        RETURN jsonb_build_object('status', 'create_conflict');
+      END IF;
+
+      IF v_constraint IN (
+        'uq_phone_reveal_credit_reservations_active_leg',
+        'uq_phone_reveal_credit_reservations_group_leg'
+      ) THEN
+        RETURN jsonb_build_object('status', 'already_reserved');
+      END IF;
+
+      -- uq_phone_reveal_waterfall_runs_active_candidate, or any other: another live
+      -- authorization won the race. Benign, and nothing is left occupied.
+      RETURN jsonb_build_object('status', 'create_conflict');
+  END;
 
   RETURN jsonb_build_object(
-    'status',               'reserved',
+    'status',               'created',
+    'run_id',               v_run_id,
     'reservation_group_id', p_reservation_group_id,
     'reservations',         v_created
   );
+END $$;
+
+-- ── 9. Execution privileges ────────────────────────────────────────
+-- (AGENT2A-PHONE-WATERFALL-4F)
+--
+-- PostgreSQL grants EXECUTE on a new function to PUBLIC by default. On a SECURITY
+-- DEFINER function that inserts reservations and runs — and that bypasses the RLS this
+-- migration just enabled — that default is a hole, not a formality: anyone holding the
+-- anon key could reach these through PostgREST. The three functions are revoked from
+-- PUBLIC/anon/authenticated and granted only to the roles the server actually uses,
+-- exactly as migration 064 does for the wizard's equivalents.
+
+REVOKE ALL ON FUNCTION public.confirm_phone_reveal_credits(uuid, numeric, text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.confirm_phone_reveal_credits(uuid, numeric, text)
+  TO postgres, service_role;
+
+REVOKE ALL ON FUNCTION public.release_phone_reveal_credits(uuid, text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.release_phone_reveal_credits(uuid, text)
+  TO postgres, service_role;
+
+REVOKE ALL ON FUNCTION public.reserve_and_create_phone_reveal_run(uuid, uuid, text, uuid, jsonb, jsonb)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.reserve_and_create_phone_reveal_run(uuid, uuid, text, uuid, jsonb, jsonb)
+  TO postgres, service_role;
+
+-- OWNER. A SECURITY DEFINER function runs with its OWNER's privileges, so the owner is
+-- part of the security contract and is pinned explicitly instead of being whatever role
+-- happened to run the migration. Guarded: if the executing role cannot reassign
+-- ownership, the migration reports it rather than failing — the REVOKEs above are the
+-- load-bearing control and they have already been applied.
+DO $$
+BEGIN
+  ALTER FUNCTION public.confirm_phone_reveal_credits(uuid, numeric, text)
+    OWNER TO postgres;
+  ALTER FUNCTION public.release_phone_reveal_credits(uuid, text)
+    OWNER TO postgres;
+  ALTER FUNCTION public.reserve_and_create_phone_reveal_run(uuid, uuid, text, uuid, jsonb, jsonb)
+    OWNER TO postgres;
 EXCEPTION
-  -- The partial unique index fired between the check and the insert. Nothing was
-  -- written (the whole function is one transaction), so the exposure is untouched.
-  WHEN unique_violation THEN
-    RETURN jsonb_build_object('status', 'already_reserved');
+  WHEN insufficient_privilege OR undefined_object THEN
+    RAISE NOTICE 'migration 104: could not pin function owner to postgres; EXECUTE revokes remain in force';
 END $$;
 
--- ── 7. confirm_phone_reveal_credits ────────────────────────────────
---
--- Settles ONE leg against what it really cost. Returns TEXT:
---   confirmed | already_confirmed | already_released | not_found | invalid_input
---
--- `p_credits_confirmed` is never NULL and never a stand-in for "unknown": the caller
--- that cannot obtain a reported cost must pass the reserved ceiling with
--- p_cost_truth = 'assumed_cap'. Confirming at 0 on an unreported cost would hand back
--- availability the provider may well have charged.
-
-CREATE OR REPLACE FUNCTION public.confirm_phone_reveal_credits(
-  p_reservation_id    uuid,
-  p_credits_confirmed numeric,
-  p_cost_truth        text
-)
-RETURNS TEXT
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = pg_temp
-AS $$
-DECLARE
-  v_status text;
-BEGIN
-  IF p_reservation_id IS NULL
-     OR p_credits_confirmed IS NULL
-     OR p_credits_confirmed < 0
-     OR p_cost_truth IS NULL
-     OR p_cost_truth NOT IN ('reported', 'assumed_cap') THEN
-    RETURN 'invalid_input';
-  END IF;
-
-  SELECT status INTO v_status
-  FROM public.phone_reveal_credit_reservations
-  WHERE id = p_reservation_id
-  FOR UPDATE;
-
-  IF NOT FOUND THEN RETURN 'not_found'; END IF;
-  IF v_status = 'confirmed' THEN RETURN 'already_confirmed'; END IF;
-  IF v_status = 'released'  THEN RETURN 'already_released';  END IF;
-
-  UPDATE public.phone_reveal_credit_reservations
-  SET status            = 'confirmed',
-      credits_confirmed = p_credits_confirmed,
-      cost_truth        = p_cost_truth,
-      confirmed_at      = now()
-  WHERE id = p_reservation_id;
-
-  RETURN 'confirmed';
-END $$;
-
--- ── 8. release_phone_reveal_credits ────────────────────────────────
---
--- Gives back the exposure of ONE leg that provably never ran. Returns TEXT:
---   released | already_confirmed | already_released | not_found | invalid_input
---
--- "Provably never ran" is the whole contract of this function. Legitimate reasons:
--- the run could not be created after the reservation was taken, the unique index
--- rejected it (23505), or the run reached a terminal state with the leg never claimed
--- (`lusha_attempted_at IS NULL`, which the atomic claim makes trustworthy). A leg that
--- WAS attempted is never released — even when its cost is unknown — because releasing
--- it would declare a spend of zero that nobody verified.
-
-CREATE OR REPLACE FUNCTION public.release_phone_reveal_credits(
-  p_reservation_id uuid,
-  p_reason         text
-)
-RETURNS TEXT
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = pg_temp
-AS $$
-DECLARE
-  v_status text;
-BEGIN
-  IF p_reservation_id IS NULL THEN RETURN 'invalid_input'; END IF;
-
-  SELECT status INTO v_status
-  FROM public.phone_reveal_credit_reservations
-  WHERE id = p_reservation_id
-  FOR UPDATE;
-
-  IF NOT FOUND THEN RETURN 'not_found'; END IF;
-  IF v_status = 'confirmed' THEN RETURN 'already_confirmed'; END IF;
-  IF v_status = 'released'  THEN RETURN 'already_released';  END IF;
-
-  UPDATE public.phone_reveal_credit_reservations
-  SET status         = 'released',
-      released_at    = now(),
-      release_reason = LEFT(COALESCE(p_reason, 'unspecified'), 60)
-  WHERE id = p_reservation_id;
-
-  RETURN 'released';
-END $$;
-
--- ── 9. Comments ────────────────────────────────────────────────────
+-- ── 10. Comments ───────────────────────────────────────────────────
 
 COMMENT ON TABLE public.phone_reveal_credit_reservations IS
   'AGENT2A-PHONE-WATERFALL-4E — one row per PROVIDER LEG of one phone reveal authorization, taken atomically BEFORE the run exists and BEFORE any provider call. Closes the concurrency hole of the per-provider budget model (budget_rules + provider_usage_logs have no reserved counter, so two authorizations read the same availability). A full waterfall reserves 8 against Apollo and 5 against Lusha as two rows in one reservation_group_id, all-or-nothing; there is no single pool that holds 13. A provider with no credit rule cannot be reserved against (limit_credits NOT NULL), so the waterfall refuses to start instead of running on an imaginary ceiling. PII-free by construction.';
@@ -588,11 +801,14 @@ COMMENT ON COLUMN public.phone_reveal_credit_reservations.scope_type IS
 COMMENT ON COLUMN public.phone_reveal_waterfall_runs.credit_reservation_group_id IS
   'AGENT2A-PHONE-WATERFALL-4E — reservation group whose legs pay for this run, written INSIDE the run INSERT so run and exposure are associated atomically. NULL only on runs created before this migration.';
 
-COMMENT ON FUNCTION public.try_reserve_phone_reveal_credits(uuid, uuid, uuid, jsonb) IS
-  'AGENT2A-PHONE-WATERFALL-4E — reserves every leg of one authorization all-or-nothing. Serializes each pool with a transaction advisory lock keyed by (provider_key, scope_type, scope_id, period_start), taken in sorted order to avoid deadlocks, then compares required credits against limit_credits - consumed_credits - SUM(active reservations in the pool). Returns a jsonb envelope: reserved | insufficient_credits | budget_not_configured | already_reserved | invalid_input.';
-
 COMMENT ON FUNCTION public.confirm_phone_reveal_credits(uuid, numeric, text) IS
   'AGENT2A-PHONE-WATERFALL-4E — settles one leg at its real cost. p_credits_confirmed is never NULL: a caller with no reported cost passes the reserved ceiling with cost_truth = assumed_cap, because confirming 0 on an unreported cost hands back availability the provider may have charged.';
 
 COMMENT ON FUNCTION public.release_phone_reveal_credits(uuid, text) IS
   'AGENT2A-PHONE-WATERFALL-4E — gives back the exposure of one leg that PROVABLY never ran (run creation failed, 23505 conflict, or terminal run with the leg never claimed). A leg that was attempted is never released, even with unknown cost.';
+
+COMMENT ON COLUMN public.phone_reveal_waterfall_runs.authorization_key IS
+  'AGENT2A-PHONE-WATERFALL-4F — idempotency key of ONE authorization, generated by the application BEFORE the call and reused verbatim on retry. Unique (partial index), so a retry after a lost response returns the run that already exists instead of authorizing a second one. Per-authorization, NOT per-candidate: a later genuine authorization for the same candidate carries a new key. Opaque machine value, PII-free, never printed.';
+
+COMMENT ON FUNCTION public.reserve_and_create_phone_reveal_run(uuid, uuid, text, uuid, jsonb, jsonb) IS
+  'AGENT2A-PHONE-WATERFALL-4F — reserves every leg AND creates the run in ONE transaction, so a reservation without a run is unrepresentable rather than merely unlikely. 4E did the two writes in separate round trips, leaving a window (process death, lost response, driver timeout) in which the committed reservation had no run to settle it and the compensating release never ran. Idempotent on p_authorization_key: an existing run short-circuits before any lock or write, and a concurrent race on the key rolls the loser back and returns the winner run. Returns created | already_created | insufficient_credits | budget_not_configured | already_reserved | create_conflict | invalid_input.';
