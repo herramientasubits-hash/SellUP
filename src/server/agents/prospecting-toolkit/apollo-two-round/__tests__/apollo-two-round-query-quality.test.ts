@@ -36,6 +36,7 @@ import {
   passingAssessment,
   ambiguousAssessment,
   rejectedAssessment,
+  simulatedEffectiveRequestBuilder,
 } from './fixtures';
 
 // ─── Ayudas ───────────────────────────────────────────────────────────────────
@@ -61,6 +62,9 @@ async function runWithProvider(input: {
   const calls: RoundCall[] = [];
 
   const deps: ApolloTwoRoundDeps = {
+    // HARDENING-3 § 6 — dependencia SIMULADA y explícita: sin ella el orquestador es
+    // fail-closed y la ronda 2 de estos escenarios no llegaría a emitirse.
+    buildRoundProviderRequest: simulatedEffectiveRequestBuilder(),
     searchRound: async ({ roundNumber, hypothesis }): Promise<RoundSearchOutcome> => {
       calls.push({
         roundNumber,

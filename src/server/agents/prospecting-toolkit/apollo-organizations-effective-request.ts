@@ -240,6 +240,52 @@ export function buildApolloOrganizationsEffectiveRequest(
   };
 }
 
+// ─── Invariante «lo que se calculó es lo que salió» ───────────────────────────
+
+/**
+ * A1-APOLLO-EFFECTIVE-FINGERPRINT-HARDENING-3 § 2 — veredicto de la invariante.
+ *
+ * `matchesSent` es `null`, NUNCA `false`, cuando ninguna petición salió: no hay
+ * body enviado con el que comparar, y un `false` ahí se leería como "salió algo
+ * distinto" cuando el hecho real es "no salió nada".
+ */
+export type ApolloEffectiveRequestMatchVerdict = {
+  matchesSent: boolean | null;
+  /** Huella calculada ANTES de ejecutar. */
+  builtFingerprint: string;
+  /** Huella recalculada desde el body efectivamente enviado. Null si no salió. */
+  sentFingerprint: string | null;
+};
+
+/**
+ * § 2 — compara la huella EFECTIVA calculada antes de ejecutar con la huella
+ * EFECTIVA recalculada desde el body que el transporte recibió.
+ *
+ * Las dos vienen de `buildApolloEffectiveRequestFingerprint`, así que son
+ * página-inclusivas y cubren los mismos campos semánticos —términos, ubicaciones,
+ * rangos de empleados, `page`, `per_page` y el resto del allowlist del contrato— y
+ * excluyen todo lo no semántico: no hay timestamps, ni ids de request, ni ids de
+ * correlación, ni cabeceras dentro del body del contrato.
+ *
+ * El defecto que cierra: la comparación anterior usaba `filtersFingerprint`, que
+ * excluye `page` a propósito. Con ese criterio, construir la página 1 y enviar la
+ * página 2 seguía declarando `true` — exactamente la discrepancia que el indicador
+ * dice vigilar.
+ */
+export function verifyApolloEffectiveRequestMatchesSent(input: {
+  builtFingerprint: string;
+  sentFingerprint: string | null;
+}): ApolloEffectiveRequestMatchVerdict {
+  return {
+    matchesSent:
+      input.sentFingerprint === null
+        ? null
+        : input.builtFingerprint === input.sentFingerprint,
+    builtFingerprint: input.builtFingerprint,
+    sentFingerprint: input.sentFingerprint,
+  };
+}
+
 /** Metadata sanitizada del request efectivo. Sin secretos, sin PII. */
 export function toApolloEffectiveRequestMetadata(
   effective: ApolloEffectiveRequest,

@@ -136,6 +136,18 @@ export type ApolloPaginatedSearchResult = {
   indeterminatePages: number[];
   pageOutcomes: ApolloPageOutcome[];
   requestFingerprint: string;
+  /**
+   * HARDENING-3 § 2 — huella EFECTIVA (página incluida) del PRIMER body que salió
+   * realmente al transporte.
+   *
+   * `requestFingerprint` es el ancla idempotente y excluye `page` a propósito, así
+   * que no puede probar que la página construida es la página enviada. Ésta sí: se
+   * toma del contrato de la página que se despachó, no del ancla con `page=1`.
+   *
+   * Null cuando ninguna petición salió (presupuesto agotado antes de la primera
+   * página, parámetro prohibido, cancelación). Ausencia, no discrepancia.
+   */
+  effectiveRequestFingerprintSent: string | null;
   omittedFilters: ApolloOmittedFilter[];
   rejectedForbiddenParams: string[];
   rejectedUnknownParams: string[];
@@ -210,6 +222,11 @@ export async function runApolloOrganizationsPaginatedSearch(
     perPage: budget.perPage,
   });
   const requestFingerprint = anchorContract.filtersFingerprint;
+  /**
+   * § 2 — se sella con la huella del contrato de la primera página DESPACHADA, y
+   * sólo entonces. Mientras siga en null, ninguna petición salió.
+   */
+  let effectiveRequestFingerprintSent: string | null = null;
 
   // Un parámetro prohibido es un fallo de contrato, no un aviso. Se detiene
   // antes de gastar un solo crédito.
@@ -226,6 +243,8 @@ export async function runApolloOrganizationsPaginatedSearch(
       indeterminatePages: [],
       pageOutcomes: [],
       requestFingerprint,
+      // Ni una petición salió: la invariante no tiene con qué compararse.
+      effectiveRequestFingerprintSent: null,
       omittedFilters: anchorContract.omittedFilters,
       rejectedForbiddenParams: anchorContract.rejectedForbiddenParams,
       rejectedUnknownParams: anchorContract.rejectedUnknownParams,
@@ -288,6 +307,14 @@ export async function runApolloOrganizationsPaginatedSearch(
       // El transporte real no lanza, pero un transporte inyectado sí puede.
       // Una excepción aquí significa que el request salió y no volvió, así que
       // se trata como timeout ambiguo: cobro desconocido y sin reintento.
+      // § 2 — el body sale AHORA: se sella la huella efectiva de lo enviado antes
+      // de conocer el desenlace. Sólo la primera, que es la que el llamador
+      // predijo; sellarla después dejaría la invariante sin dato cuando el
+      // transporte falle, que es justo cuando hace falta.
+      if (effectiveRequestFingerprintSent === null) {
+        effectiveRequestFingerprintSent = pageContract.effectiveRequestFingerprint;
+      }
+
       let response: ApolloPageFetchResult;
       try {
         response = await deps.fetchPage(
@@ -486,6 +513,7 @@ export async function runApolloOrganizationsPaginatedSearch(
       .map((outcome) => outcome.page),
     pageOutcomes,
     requestFingerprint,
+    effectiveRequestFingerprintSent,
     omittedFilters: anchorContract.omittedFilters,
     rejectedForbiddenParams: anchorContract.rejectedForbiddenParams,
     rejectedUnknownParams: anchorContract.rejectedUnknownParams,

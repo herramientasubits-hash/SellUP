@@ -11,6 +11,7 @@ import type {
   ApolloTwoRoundDiscoveryConfig,
 } from '../config';
 import type {
+  ApolloTwoRoundDeps,
   CheapAssessment,
   RawDiscoveredOrganization,
 } from '../orchestrator';
@@ -58,6 +59,37 @@ export function testQueryContext(
     targetLocations: ['Bogotá'],
     employeeRanges: ['201,500'],
     ...overrides,
+  };
+}
+
+/**
+ * A1-APOLLO-EFFECTIVE-FINGERPRINT-HARDENING-3 § 6 — dependencia SIMULADA y
+ * EXPLÍCITA del constructor de request efectivo.
+ *
+ * Existe porque el orquestador es fail-closed: sin constructor no hay ronda 2, y las
+ * suites que ejercitan la lógica de dos rondas sin atravesar la capa de producción
+ * necesitan declarar esa dependencia en vez de heredar un respaldo silencioso. La
+ * huella deriva de los parámetros de la hipótesis, así que dos rondas que piden lo
+ * mismo colapsan a la misma huella igual que en producción.
+ *
+ * NO es un doble del mapper: no prioriza ni trunca términos. Sirve para probar el
+ * flujo de rondas; la equivalencia con el body real la prueban las suites que usan
+ * `buildApolloOrganizationsEffectiveRequest` directamente.
+ */
+export function simulatedEffectiveRequestBuilder(): NonNullable<
+  ApolloTwoRoundDeps['buildRoundProviderRequest']
+> {
+  return ({ hypothesis, requestedResultLimit }) => {
+    const tags = [...hypothesis.queryParameters.keywordTags]
+      .map((tag) => tag.trim().toLowerCase())
+      .sort();
+    const page = hypothesis.queryParameters.page;
+    return {
+      effectiveRequestFingerprint: `q_organization_keyword_tags=${tags.join(',')}|page=${page}|per_page=${requestedResultLimit}`,
+      page,
+      perPage: requestedResultLimit,
+      effectiveKeywordTags: tags,
+    };
   };
 }
 
