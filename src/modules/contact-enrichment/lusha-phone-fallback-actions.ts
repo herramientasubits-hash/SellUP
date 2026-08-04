@@ -164,6 +164,11 @@ export async function revealCandidatePhoneViaLushaFallbackAction(
       const update: Record<string, unknown> = {
         phone_reveal_status: patch.phone_reveal_status,
         phone_reveal_provider: patch.phone_reveal_provider,
+        // Higiene del id de correlación (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 10).
+        // Se escribe SIEMPRE, incluso cuando vale `null`: omitirlo es lo que dejaba
+        // el id del intento Apollo anterior en una fila cuyo proveedor final es
+        // Lusha. El valor lo resuelve el core con `resolveFinalPhoneRevealRequestId`.
+        phone_reveal_request_id: patch.phone_reveal_request_id,
         phone_revealed_at: patch.phone_revealed_at,
         phone_reveal_completed_at: patch.phone_reveal_completed_at,
         phone_revealed_by: patch.phone_revealed_by,

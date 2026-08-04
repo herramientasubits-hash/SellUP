@@ -1038,3 +1038,24 @@ item, which keeps a valid GATE-7 record from preceding a valid GATE-2 record —
 GATE-7 record alone is out of order rather than early, and 12A states it would be rejected on that ground even
 if all sixteen fields were filled. 12A also carries forward § 7's rule that a failed item is a stop and an
 ambiguous item has failed, as its own *any uncertainty is NO-GO*.
+
+---
+
+## 31. Update (BR-SOURCE-12B)
+
+BR-SOURCE-12B creates an owner completion resubmission packet. It defines what owners must resubmit after 12A
+found that no owner-completed intake was received. Current result remains NO-GO because no owner resubmission
+has been received, no owner decision was captured and no approval is granted. It does not approve GATE-2. It
+does not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output
+roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12b-owner-completion-resubmission-packet.md`](./br-receita-cnpj-12b-owner-completion-resubmission-packet.md).
+
+It approves no procedure in this runbook and assigns nobody to any of them. § 4.2's and § 6's requirement that
+the operator is a named human — never an agent, an automation or a CI runner — and distinct from the
+independent reviewer is carried into 12B as a standing constraint no filled record can lift, and both
+assignments remain unmade. § 11's evidence policy and § 13's incident path and escalation route remain
+documented and unapproved. § 7's preflight is the source of the ordering rule 12B states as a line in its
+GATE-7 form rather than only as commentary: a resubmission carrying GATE-7 alone is out of order rather than
+early, and 12B rejects it on that ground even if all sixteen fields are filled. § 7's rule that a failed item
+is a stop and an ambiguous item has failed is carried forward as 12B's *missing, placeholder, partial or
+implied resubmission = NO-GO*.

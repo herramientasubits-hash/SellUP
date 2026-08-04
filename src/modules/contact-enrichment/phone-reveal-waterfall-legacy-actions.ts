@@ -34,9 +34,15 @@
 // El gate de rol NO es de UI: `commercial_manager` (y cualquier rol no admin) es
 // rechazado aquí, en el servidor, aunque el cliente invoque la acción directamente.
 //
-// Gated behind ENABLE_PHONE_REVEAL_WATERFALL, AUSENTE en todos los entornos: con el
-// flag apagado el core sale en el primer gate sin leer el candidato, sin escribir y
-// sin llamar a ningún proveedor.
+// Gated behind ENABLE_PHONE_REVEAL_WATERFALL: con el flag apagado el core sale en el
+// primer gate sin leer el candidato, sin escribir y sin llamar a ningún proveedor.
+//
+// NOTA (2026-08-04, AGENT2A-PHONE-REVEAL-UI-STATE-1): antes se describía la variable
+// como «AUSENTE en todos los entornos». Está registrada en Production y su valor es
+// ilegible (`Encrypted`), así que la ausencia ya NO puede darse por supuesta — el
+// candado efectivo es el gate de flag + rol de este archivo, no la inexistencia de la
+// variable. Verificar el estado real en runtime con
+// GET /api/debug/agent2a-phone-waterfall-config.
 //
 // El resultado es PII-free: nunca devuelve el teléfono, la identidad, el id de la
 // corrida ni ningún id de proveedor. En éxito la UI recarga el candidato, que es

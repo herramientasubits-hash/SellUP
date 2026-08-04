@@ -43,6 +43,10 @@ import {
 } from './lusha-phone-fallback-eligibility';
 import type { LushaPhoneFallbackClientResult } from '@/server/integrations/lusha-phone-fallback-client';
 import {
+  resolveFinalPhoneRevealRequestId,
+  type PhoneRevealRequestId,
+} from './phone-reveal-request-id-hygiene';
+import {
   buildLushaPhoneFallbackUsageLogMetadataDraft,
   LUSHA_PHONE_FALLBACK_OPERATION_KEY,
   LUSHA_PHONE_FALLBACK_PROVIDER_KEY,
@@ -157,6 +161,18 @@ export interface LushaPhoneFallbackPersistencePatch {
   enrichment_metadata?: ContactCandidateEnrichmentMetadata;
   phone_reveal_status: 'revealed' | 'no_phone_found' | 'error';
   phone_reveal_provider: 'lusha';
+  /**
+   * Id de correlación del desenlace, resuelto SIEMPRE por
+   * `resolveFinalPhoneRevealRequestId` (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 10).
+   *
+   * Obligatorio (no opcional) a propósito: la columna debe escribirse en TODOS
+   * los caminos, porque el bug que se corrige es precisamente el de omitirla y
+   * dejar en la fila el id del intento APOLLO anterior junto a
+   * `phone_reveal_provider = 'lusha'`. Hoy es siempre `null` — Lusha resuelve de
+   * forma síncrona y no entrega ningún id de seguimiento — y ese `null` LIMPIA
+   * la columna en vez de conservar lo que hubiera.
+   */
+  phone_reveal_request_id: PhoneRevealRequestId;
   phone_revealed_at: string | null;
   phone_reveal_completed_at: string;
   phone_revealed_by: string;
@@ -339,6 +355,18 @@ export async function runLushaPhoneFallbackReveal(
   const contactId = lushaContactId as string;
   const nextAttempt = (candidate.phoneRevealAttemptCount ?? 0) + 1;
 
+  // Higiene del id de correlación (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 10). El id
+  // que se persiste pertenece SIEMPRE al proveedor que cierra el caso. Lusha
+  // resuelve de forma síncrona y su contrato de cliente no incluye ningún
+  // identificador de seguimiento, así que esto resuelve a `null` — y ese `null`
+  // LIMPIA cualquier id Apollo anterior en vez de dejarlo convivir con
+  // `phone_reveal_provider = 'lusha'`. Se calcula una sola vez y se usa en los
+  // CINCO caminos de persistencia, para que ninguno pueda olvidarlo.
+  const finalRequestId = resolveFinalPhoneRevealRequestId({
+    provider: 'lusha',
+    providerRequestId: null,
+  });
+
   // 7. Single call to Lusha's /v3/contacts/enrich (reveal: ["phones"]). Never
   //    search, never waterfallReveal — enforced structurally by the client's
   //    own signature, not re-checked here.
@@ -351,6 +379,7 @@ export async function runLushaPhoneFallbackReveal(
     await persistNonRevealOutcome(deps, candidateId, {
       phone_reveal_status: 'error',
       phone_reveal_provider: 'lusha',
+      phone_reveal_request_id: finalRequestId,
       phone_revealed_at: null,
       phone_reveal_completed_at: deps.nowIso,
       phone_revealed_by: deps.actor.internalUserId,
@@ -383,6 +412,7 @@ export async function runLushaPhoneFallbackReveal(
     await persistNonRevealOutcome(deps, candidateId, {
       phone_reveal_status: 'error',
       phone_reveal_provider: 'lusha',
+      phone_reveal_request_id: finalRequestId,
       phone_revealed_at: null,
       phone_reveal_completed_at: deps.nowIso,
       phone_revealed_by: deps.actor.internalUserId,
@@ -417,6 +447,7 @@ export async function runLushaPhoneFallbackReveal(
     await persistNonRevealOutcome(deps, candidateId, {
       phone_reveal_status: 'no_phone_found',
       phone_reveal_provider: 'lusha',
+      phone_reveal_request_id: finalRequestId,
       phone_revealed_at: null,
       phone_reveal_completed_at: deps.nowIso,
       phone_revealed_by: deps.actor.internalUserId,
@@ -456,6 +487,7 @@ export async function runLushaPhoneFallbackReveal(
     await persistNonRevealOutcome(deps, candidateId, {
       phone_reveal_status: 'error',
       phone_reveal_provider: 'lusha',
+      phone_reveal_request_id: finalRequestId,
       phone_revealed_at: null,
       phone_reveal_completed_at: deps.nowIso,
       phone_revealed_by: deps.actor.internalUserId,
@@ -499,6 +531,7 @@ export async function runLushaPhoneFallbackReveal(
     },
     phone_reveal_status: 'revealed',
     phone_reveal_provider: 'lusha',
+    phone_reveal_request_id: finalRequestId,
     phone_revealed_at: deps.nowIso,
     phone_reveal_completed_at: deps.nowIso,
     phone_revealed_by: deps.actor.internalUserId,
