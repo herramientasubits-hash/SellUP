@@ -191,7 +191,14 @@ function safeApolloErrorCode(raw: unknown): string {
 type PhoneRevealWaterfallStartGate =
   | { kind: 'no_waterfall' }
   | { kind: 'started'; runId: string }
-  | { kind: 'infrastructure_unavailable'; errorCode: string };
+  | { kind: 'infrastructure_unavailable'; errorCode: string }
+  /**
+   * AGENT2A-PHONE-WATERFALL-4D: el saldo no cubre el tope de la modalidad. El core
+   * lo detectó ANTES del INSERT, así que no hay corrida que reconciliar.
+   */
+  | { kind: 'insufficient_credits' }
+  /** El saldo no se pudo verificar. Fail-closed, mismas garantías de cero efectos. */
+  | { kind: 'credit_balance_unavailable' };
 
 /**
  * Código PII-free que viaja al resultado y al log cuando la corrida no se pudo
@@ -270,6 +277,13 @@ async function startWaterfallRunOrBlock(
     case 'active_run_exists':
     case 'create_conflict':
       return { kind: 'no_waterfall' };
+    // AGENT2A-PHONE-WATERFALL-4D. NO son `no_waterfall`: dejar continuar el reveal
+    // Apollo legacy sería gastar exactamente los créditos que el preflight acaba de
+    // declarar indisponibles.
+    case 'insufficient_credits':
+      return { kind: 'insufficient_credits' };
+    case 'credit_balance_unavailable':
+      return { kind: 'credit_balance_unavailable' };
     default: {
       // Un motivo NUEVO rompe la compilación aquí a propósito: decidir si una
       // razón inédita puede seguir gastando proveedores es una decisión de
@@ -364,6 +378,27 @@ export async function revealCandidatePhoneAction(
       status: 'waterfall_infrastructure_unavailable',
       requestAccepted: false,
       errorCode: waterfallGate.errorCode,
+    };
+  }
+
+  // AGENT2A-PHONE-WATERFALL-4D: el preflight de saldo cortó ANTES del INSERT de la
+  // corrida, así que también corta antes de `runRevealCandidatePhone`, que es el
+  // único punto que llama a Apollo y el único que escribe un usage-log. Por
+  // construcción: 0 corridas, 0 llamadas a proveedor, 0 usage-logs y 0 créditos.
+  if (waterfallGate.kind === 'insufficient_credits') {
+    return {
+      ok: false,
+      status: 'insufficient_credits',
+      requestAccepted: false,
+      errorCode: 'insufficient_credits',
+    };
+  }
+  if (waterfallGate.kind === 'credit_balance_unavailable') {
+    return {
+      ok: false,
+      status: 'credit_balance_unavailable',
+      requestAccepted: false,
+      errorCode: 'credit_balance_unavailable',
     };
   }
 

@@ -549,6 +549,21 @@ export type RevealCandidatePhoneStatus =
   // este core no conoce el waterfall. Es un estado propio a propósito: no es un
   // error de Apollo, no es `no_phone_found` y no es un éxito parcial.
   | 'waterfall_infrastructure_unavailable'
+  // AGENT2A-PHONE-WATERFALL-4D: el saldo de créditos NO cubre el tope de la
+  // modalidad autorizada (13 con pata Lusha, 8 sin ella). Se comprueba SERVER-SIDE
+  // antes de crear la corrida, que es la primera escritura: 0 corridas, 0 llamadas
+  // a Apollo, 0 llamadas a Lusha, 0 usage-logs y 0 créditos.
+  //
+  // Existe porque al eliminarse el modal ya no hay un paso intermedio donde parar:
+  // un solo clic crea la corrida y arranca Apollo.
+  //
+  // Lo emite EXCLUSIVAMENTE el wrapper del server action, igual que
+  // `waterfall_infrastructure_unavailable`: este core no conoce el presupuesto.
+  | 'insufficient_credits'
+  // AGENT2A-PHONE-WATERFALL-4D: el saldo no se pudo VERIFICAR. Es distinto del
+  // anterior a propósito — no se sabe si alcanza, solo que no se pudo comprobar —
+  // y también es fail-closed: mismas garantías de cero efectos.
+  | 'credit_balance_unavailable'
   | 'error';
 
 export interface RevealCandidatePhoneResult {

@@ -134,6 +134,9 @@ function startDeps(
     loadLegacyEvidence: async () => legacyEvidence(),
     findActiveRun: async () => null,
     findLatestRun: async () => null,
+    // Saldo por defecto `unlimited` (AGENT2A-PHONE-WATERFALL-4D): así el resto de la
+    // suite sigue midiendo lo que medía. El preflight tiene sus propias pruebas.
+    readCreditBalance: async () => ({ kind: 'unlimited' }),
     createRun: async (draft) => {
       drafts.push(draft);
       return 'run-legacy-1';
@@ -384,6 +387,82 @@ describe('WATERFALL-2 — gates del arranque legacy (flag, rol, corridas)', () =
 
 // ── 2. Cero Apollo ───────────────────────────────────────────────────────────
 
+// ── Preflight de saldo de la ruta legacy (AGENT2A-PHONE-WATERFALL-4D) ────────
+
+describe('WATERFALL-4D — saldo antes de crear la corrida legacy', () => {
+  it('saldo 5 SÍ autoriza la corrida legacy: su tope es 5, no 13 ni 8', async () => {
+    const { deps, drafts } = startDeps({
+      readCreditBalance: async () => ({ kind: 'available', credits: 5 }),
+    });
+    const result = await startLegacyPhoneRevealWaterfall(
+      { candidateId: 'cand-legacy' },
+      deps,
+    );
+    assert.equal(result.started, true);
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0].maxCreditsAuthorized, 5);
+  });
+
+  it('saldo 4 ⇒ insufficient_credits y NINGUNA corrida creada', async () => {
+    const { deps, drafts } = startDeps({
+      readCreditBalance: async () => ({ kind: 'available', credits: 4 }),
+    });
+    const result = await startLegacyPhoneRevealWaterfall(
+      { candidateId: 'cand-legacy' },
+      deps,
+    );
+    assert.equal(result.started, false);
+    assert.equal(result.started === false && result.reason, 'insufficient_credits');
+    assert.equal(drafts.length, 0, 'sin corrida no hay forma de llamar a Lusha');
+  });
+
+  it('saldo NO verificable ⇒ fail-closed con motivo propio y sin corrida', async () => {
+    const { deps, drafts } = startDeps({
+      readCreditBalance: async () => ({ kind: 'unavailable' }),
+    });
+    const result = await startLegacyPhoneRevealWaterfall(
+      { candidateId: 'cand-legacy' },
+      deps,
+    );
+    assert.equal(result.started, false);
+    assert.equal(
+      result.started === false && result.reason,
+      'credit_balance_unavailable',
+    );
+    assert.equal(drafts.length, 0);
+  });
+
+  it('solo se consulta el saldo de LUSHA: Apollo no corre en esta autorización', async () => {
+    const queried: string[][] = [];
+    const { deps } = startDeps({
+      readCreditBalance: async (providerKeys) => {
+        queried.push([...providerKeys]);
+        return { kind: 'unlimited' };
+      },
+    });
+    await startLegacyPhoneRevealWaterfall({ candidateId: 'cand-legacy' }, deps);
+    assert.deepEqual(queried, [['lusha']]);
+  });
+
+  it('flag OFF / rol no admin no consultan el saldo (gates baratos primero)', async () => {
+    for (const overrides of [
+      { flagEnabled: false },
+      { actor: { internalUserId: 'user-x', roleKey: 'commercial_manager' } },
+    ]) {
+      let queries = 0;
+      const { deps } = startDeps({
+        ...overrides,
+        readCreditBalance: async () => {
+          queries += 1;
+          return { kind: 'unlimited' };
+        },
+      });
+      await startLegacyPhoneRevealWaterfall({ candidateId: 'cand-legacy' }, deps);
+      assert.equal(queries, 0, JSON.stringify(overrides));
+    }
+  });
+});
+
 describe('WATERFALL-2 — CERO Apollo', () => {
   it('el arranque legacy no expone NINGUNA dep de Apollo que se pueda invocar', async () => {
     const { deps } = startDeps();
@@ -397,6 +476,9 @@ describe('WATERFALL-2 — CERO Apollo', () => {
       'flagEnabled',
       'loadLegacyEvidence',
       'nowIso',
+      // AGENT2A-PHONE-WATERFALL-4D. Lee SALDO, no proveedores: no puede llamar a
+      // Apollo ni a Lusha, y en esta modalidad solo se le pregunta por Lusha.
+      'readCreditBalance',
     ]);
   });
 

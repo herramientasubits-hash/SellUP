@@ -8,9 +8,10 @@
  * se quedan SIN NINGUNA vía.
  *
  * Contrato de UX verificado:
- *   * UN solo botón ("Revelar teléfono") y UN solo modal, los mismos del waterfall;
+ *   * UN solo botón ("Revelar teléfono") que EJECUTA en un clic, el mismo del
+ *     waterfall (AGENT2A-PHONE-WATERFALL-4D: ya no hay modal);
  *   * copy legacy: Apollo no se reejecuta, máximo 5 créditos, nunca 13;
- *   * NINGÚN botón manual separado de Lusha, ni un segundo modal;
+ *   * NINGÚN botón manual separado de Lusha, ni ninguna superficie de confirmación;
  *   * `commercial_manager` no obtiene la ruta (y no puede invocarla desde la UI);
  *   * flag OFF ⇒ flujo anterior intacto (botón manual de Lusha, sin acción legacy);
  *   * no se ofrece mientras la corrida está activa, ni una vez que existe cualquier
@@ -276,7 +277,12 @@ function bodyText(): string {
   return (document.body.textContent ?? '').replace(/\s+/g, ' ');
 }
 
-async function openModal() {
+/**
+ * Un clic en el botón ÚNICO. AGENT2A-PHONE-WATERFALL-4D: esto EJECUTA — no abre un
+ * modal — así que las pruebas que antes verificaban el contenido del diálogo ahora
+ * verifican lo que se lee debajo del botón ANTES de este clic.
+ */
+async function clickReveal() {
   const buttons = revealButtons();
   assert.equal(buttons.length, 1, 'debe haber EXACTAMENTE un botón "Revelar teléfono"');
   await act(async () => {
@@ -284,6 +290,7 @@ async function openModal() {
   });
 }
 
+/** Ya no existe. Se conserva como aserción de ausencia. */
 function confirmButton() {
   return screen.queryByRole('button', { name: 'Confirmar y revelar' });
 }
@@ -323,53 +330,44 @@ beforeEach(() => {
   }));
 });
 
-// ── 1. Un botón, un modal ───────────────────────────────────────────────────
+// ── 1. Un botón, sin modal, copy legacy ─────────────────────────────────────
 
-describe('WATERFALL-2 UI — un botón, un modal, copy legacy', () => {
+describe('WATERFALL-2/4D UI — un botón, sin modal, copy legacy', () => {
   it('ofrece EXACTAMENTE un botón "Revelar teléfono" y NINGÚN botón separado de Lusha', async () => {
     await renderSheet(legacyCandidate());
     assert.equal(revealButtons().length, 1);
     assert.equal(lushaButton(), null);
   });
 
-  it('el clic abre UN solo modal, con el copy legacy y tope 5', async () => {
+  it('el copy legacy y el tope 5 se leen ANTES del clic, sin abrir ningún modal', async () => {
     await renderSheet(legacyCandidate());
-    await openModal();
-
     const text = bodyText();
-    assert.ok(/Apollo ya fue intentado anteriormente/i.test(text));
-    assert.ok(/no volverá a ejecutar Apollo/i.test(text));
-    assert.ok(/Solo se intentará Lusha/i.test(text));
-    assert.ok(/hasta 5 créditos/i.test(text));
-    // UN solo diálogo abierto.
-    assert.equal(screen.queryAllByRole('dialog').length, 1);
-    assert.ok(confirmButton());
+    assert.ok(/Apollo ya fue intentado\./i.test(text), text);
+    assert.ok(/SellUp intentará Lusha automáticamente/i.test(text), text);
+    assert.ok(/Puede consumir hasta 5 créditos\./i.test(text), text);
+    // Y no hay superficie de confirmación en ningún momento.
+    assert.equal(confirmButton(), null);
+    assert.equal(screen.queryByRole('button', { name: 'Cancelar' }), null);
   });
 
-  it('el modal legacy NO muestra 13 créditos en ninguna parte', async () => {
+  it('el copy legacy NO muestra 13 créditos en ninguna parte', async () => {
     await renderSheet(legacyCandidate());
-    await openModal();
-    const dialog = screen.getByRole('dialog');
-    const dialogText = (dialog.textContent ?? '').replace(/\s+/g, ' ');
-    assert.equal(/13/.test(dialogText), false, dialogText);
+    assert.equal(/13/.test(bodyText()), false, bodyText());
   });
 
-  it('el modal legacy sigue mostrando su tope de 5 y NO adopta el desglose de 4B', async () => {
-    // AGENT2A-PHONE-WATERFALL-4B completó el modal del waterfall COMPLETO. El legacy
-    // autoriza UNA sola pata, así que no puede ganar un desglose por proveedor ni un
-    // "máximo total autorizado": eso insinuaría que hay más de una pata en juego.
+  it('el legacy NO adopta el desglose por proveedor: autoriza UNA sola pata', async () => {
+    // El desglose de 4B pertenece al waterfall COMPLETO. El legacy autoriza una sola
+    // pata, así que un desglose o un "máximo total autorizado" insinuarían que hay
+    // más de una pata en juego.
     await renderSheet(legacyCandidate());
-    await openModal();
-    const dialogText = (screen.getByRole('dialog').textContent ?? '').replace(/\s+/g, ' ');
-    assert.ok(/Puede consumir hasta 5 créditos de Lusha\./.test(dialogText), dialogText);
-    assert.equal(/Apollo: hasta 8 créditos/.test(dialogText), false, dialogText);
-    assert.equal(/Lusha: hasta 5 créditos\./.test(dialogText), false, dialogText);
-    assert.equal(/Máximo total autorizado/.test(dialogText), false, dialogText);
+    const text = bodyText();
+    assert.equal(/Apollo: hasta 8 créditos/.test(text), false, text);
+    assert.equal(/Lusha: hasta 5 créditos\./.test(text), false, text);
+    assert.equal(/Máximo total autorizado/.test(text), false, text);
   });
 
-  it('el modal legacy declara las advertencias obligatorias', async () => {
+  it('declara las advertencias obligatorias, antes del clic', async () => {
     await renderSheet(legacyCandidate());
-    await openModal();
     const text = bodyText();
     assert.ok(/No garantiza encontrar un teléfono/i.test(text));
     assert.ok(/No crea un contacto oficial/i.test(text));
@@ -377,12 +375,9 @@ describe('WATERFALL-2 UI — un botón, un modal, copy legacy', () => {
     assert.ok(/individual, no masiva/i.test(text));
   });
 
-  it('confirmar invoca la acción LEGACY con solo el id, y NUNCA el reveal de Apollo', async () => {
+  it('UN clic invoca la acción LEGACY con solo el id, y NUNCA el reveal de Apollo', async () => {
     await renderSheet(legacyCandidate());
-    await openModal();
-    await act(async () => {
-      fireEvent.click(confirmButton()!);
-    });
+    await clickReveal();
 
     assert.equal(mockLegacyStart.mock.callCount(), 1);
     assert.deepEqual(mockLegacyStart.mock.calls[0].arguments[0], {
@@ -393,14 +388,11 @@ describe('WATERFALL-2 UI — un botón, un modal, copy legacy', () => {
     assert.equal(mockLushaFallback.mock.callCount(), 0);
   });
 
-  it('cancelar no invoca nada', async () => {
+  it('abrir el drawer NO autoriza nada: sin clic no hay corrida', async () => {
     await renderSheet(legacyCandidate());
-    await openModal();
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
-    });
     assert.equal(mockLegacyStart.mock.callCount(), 0);
     assert.equal(mockReveal.mock.callCount(), 0);
+    assert.equal(mockLushaFallback.mock.callCount(), 0);
   });
 });
 
@@ -445,18 +437,15 @@ describe('WATERFALL-2 UI — cuándo NO se ofrece la ruta legacy', () => {
     await renderSheet(
       legacyCandidate({ phone_reveal_status: 'error', phone_reveal_provider: 'apollo' }),
     );
-    await openModal();
 
-    const dialogText = (screen.getByRole('dialog').textContent ?? '').replace(/\s+/g, ' ');
-    assert.ok(/Apollo se intentará primero/i.test(dialogText), dialogText);
-    // Modal del waterfall COMPLETO ⇒ desglose de las dos patas y total 13
+    const text = bodyText();
+    assert.ok(/Apollo se intentará primero/i.test(text), text);
+    // Copy del waterfall COMPLETO ⇒ desglose de las dos patas y total 13
     // (AGENT2A-PHONE-WATERFALL-4B), no el tope legacy de 5.
-    assert.ok(/Máximo total autorizado: 13 créditos/i.test(dialogText), dialogText);
-    assert.equal(/no volverá a ejecutar Apollo/i.test(dialogText), false);
+    assert.ok(/Máximo total autorizado: 13 créditos/i.test(text), text);
+    assert.equal(/Apollo ya fue intentado/i.test(text), false);
 
-    await act(async () => {
-      fireEvent.click(confirmButton()!);
-    });
+    await clickReveal();
     // El gasto va por el START de Apollo, no por la ruta legacy.
     assert.equal(mockLegacyStart.mock.callCount(), 0);
     assert.equal(mockReveal.mock.callCount(), 1);
@@ -553,36 +542,27 @@ describe('WATERFALL-2C UI — reautorización tras una corrida terminal sin tel�
     assert.equal(bodyText().includes('Reintentar Lusha'), false);
   });
 
-  it('abre el MISMO modal legacy: máximo 5, Apollo no se repite, nunca 13', async () => {
+  it('conserva el MISMO copy legacy: máximo 5, Apollo no se repite, nunca 13', async () => {
     await renderSheet(legacyCandidate());
-    await openModal();
 
-    // Una sola superficie de confirmación: un único "Confirmar y revelar". No hay un
-    // segundo modal ni un flujo de confirmación paralelo para la reautorización.
-    assert.equal(
-      screen.getAllByRole('button', { name: 'Confirmar y revelar' }).length,
-      1,
-      'un solo modal de confirmación, no un segundo',
-    );
-    const dialogText = (screen.getByRole('dialog').textContent ?? '').replace(/\s+/g, ' ');
-    assert.ok(/hasta 5 créditos de Lusha/i.test(dialogText), dialogText);
-    assert.equal(/13 créditos/.test(dialogText), false, 'nunca muestra 13');
-    assert.ok(/no volverá a ejecutar Apollo/i.test(dialogText), dialogText);
-    assert.ok(/Solo se intentará Lusha/i.test(dialogText), dialogText);
-    assert.ok(/No garantiza encontrar un teléfono/i.test(dialogText), dialogText);
-    assert.ok(/No crea un contacto oficial/i.test(dialogText), dialogText);
-    assert.ok(/No se escribirá en HubSpot/i.test(dialogText), dialogText);
+    // Ninguna superficie de confirmación: el clic ejecuta (4D).
+    assert.equal(confirmButton(), null);
+    const text = bodyText();
+    assert.ok(/Puede consumir hasta 5 créditos\./i.test(text), text);
+    assert.equal(/13 créditos/.test(text), false, 'nunca muestra 13');
+    assert.ok(/Apollo ya fue intentado\./i.test(text), text);
+    assert.ok(/SellUp intentará Lusha automáticamente/i.test(text), text);
+    assert.ok(/No garantiza encontrar un teléfono/i.test(text), text);
+    assert.ok(/No crea un contacto oficial/i.test(text), text);
+    assert.ok(/No se escribirá en HubSpot/i.test(text), text);
   });
 
-  it('exige una confirmación NUEVA: abrir el modal no gasta nada', async () => {
+  it('exige una ACCIÓN nueva: abrir el drawer no gasta nada, el clic sí autoriza', async () => {
     await renderSheet(legacyCandidate());
-    await openModal();
-    assert.equal(mockLegacyStart.mock.callCount(), 0, 'abrir el modal no autoriza');
+    assert.equal(mockLegacyStart.mock.callCount(), 0, 'abrir el drawer no autoriza');
 
-    await act(async () => {
-      fireEvent.click(confirmButton()!);
-    });
-    assert.equal(mockLegacyStart.mock.callCount(), 1, 'solo la confirmación autoriza');
+    await clickReveal();
+    assert.equal(mockLegacyStart.mock.callCount(), 1, 'solo el clic autoriza');
     // Un candidato por invocación y nunca el reveal de Apollo.
     assert.deepEqual(mockLegacyStart.mock.calls[0].arguments[0], {
       candidateId: 'cand-legacy',
@@ -596,18 +576,16 @@ describe('WATERFALL-2C UI — reautorización tras una corrida terminal sin tel�
     assert.equal(mockLegacyStart.mock.callCount(), 0);
     assert.equal(mockReveal.mock.callCount(), 0);
     assert.equal(mockLushaFallback.mock.callCount(), 0);
-    // La confirmación no aparece sola: sin clic no hay "Confirmar y revelar" en pantalla.
-    assert.equal(confirmButton(), null, 'ningún modal de confirmación se abre solo');
   });
 
-  it('cancelar cierra el modal sin autorizar', async () => {
+  it('dos clics concurrentes crean UNA sola corrida', async () => {
     await renderSheet(legacyCandidate());
-    await openModal();
+    const button = revealButtons()[0];
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+      fireEvent.click(button);
+      fireEvent.click(button);
     });
-    assert.equal(mockLegacyStart.mock.callCount(), 0);
-    assert.equal(revealButtons().length, 1, 'el botón sigue disponible');
+    assert.equal(mockLegacyStart.mock.callCount(), 1);
   });
 });
 
@@ -621,10 +599,7 @@ describe('WATERFALL-2 UI — resultados de la autorización legacy', () => {
       maxCreditsAuthorized: 5,
     }));
     await renderSheet(legacyCandidate());
-    await openModal();
-    await act(async () => {
-      fireEvent.click(confirmButton()!);
-    });
+    await clickReveal();
     assert.ok(/Lusha tampoco encontró un teléfono/i.test(bodyText()));
   });
 
@@ -635,10 +610,7 @@ describe('WATERFALL-2 UI — resultados de la autorización legacy', () => {
       maxCreditsAuthorized: 5,
     }));
     await renderSheet(legacyCandidate());
-    await openModal();
-    await act(async () => {
-      fireEvent.click(confirmButton()!);
-    });
+    await clickReveal();
     const text = bodyText();
     assert.ok(/No se pudo verificar la supresión/i.test(text));
     assert.ok(/Lusha no fue ejecutado/i.test(text));
@@ -651,10 +623,7 @@ describe('WATERFALL-2 UI — resultados de la autorización legacy', () => {
       maxCreditsAuthorized: 5,
     }));
     await renderSheet(legacyCandidate());
-    await openModal();
-    await act(async () => {
-      fireEvent.click(confirmButton()!);
-    });
+    await clickReveal();
     assert.ok(/restricción de privacidad/i.test(bodyText()));
   });
 
@@ -665,10 +634,7 @@ describe('WATERFALL-2 UI — resultados de la autorización legacy', () => {
       maxCreditsAuthorized: 5,
     }));
     await renderSheet(legacyCandidate());
-    await openModal();
-    await act(async () => {
-      fireEvent.click(confirmButton()!);
-    });
+    await clickReveal();
     assert.ok(/ya se había intentado/i.test(bodyText()));
     assert.ok(/ningún cargo nuevo/i.test(bodyText()));
   });
@@ -680,10 +646,7 @@ describe('WATERFALL-2 UI — resultados de la autorización legacy', () => {
       maxCreditsAuthorized: 5,
     }));
     await renderSheet(legacyCandidate());
-    await openModal();
-    await act(async () => {
-      fireEvent.click(confirmButton()!);
-    });
+    await clickReveal();
     const text = bodyText();
     assert.ok(/No fue posible completar la revelación/i.test(text));
     assert.equal(/no existe teléfono/i.test(text), false);
@@ -723,11 +686,15 @@ describe('WATERFALL-2 UI — auditoría de una corrida legacy', () => {
     );
     await renderSheet(legacyCandidate());
     const text = bodyText();
-    assert.ok(/Consultando Lusha/i.test(text));
-    assert.equal(/Apollo no encontró teléfono, consultando Lusha/i.test(text), false);
+    // 4D: copy único para las dos modalidades. Está en PASADO, así que no afirma que
+    // Apollo esté corriendo ahora — y la fila de auditoría de Apollo aclara que ese
+    // intento ocurrió fuera de esta autorización.
+    assert.ok(/Apollo no encontró un teléfono\. SellUp está intentando Lusha\./.test(text), text);
+    assert.equal(/[Cc]onsultando Apollo/.test(text), false, text);
+    assert.ok(/Intentado anteriormente, fuera de esta autorización/i.test(text), text);
   });
 
-  it('agotada, el copy sitúa a Apollo en el pasado', async () => {
+  it('agotada: estado terminal único y Apollo situado en el pasado por la auditoría', async () => {
     mockAudit.mock.mockImplementation(async () =>
       auditView({
         status: 'exhausted',
@@ -741,7 +708,12 @@ describe('WATERFALL-2 UI — auditoría de una corrida legacy', () => {
     );
     await renderSheet(legacyCandidate());
     const text = bodyText();
-    assert.ok(/Apollo ya se había intentado anteriormente sin resultado/i.test(text));
+    // 4D: el estado terminal ya no enumera proveedores…
+    assert.ok(/Teléfono no disponible\./.test(text), text);
+    // …y quien sitúa el intento de Apollo en el pasado, fuera de esta autorización,
+    // es la fila de auditoría de Apollo, que sigue intacta.
+    assert.ok(/Intentado anteriormente, fuera de esta autorización/i.test(text), text);
+    assert.ok(/Sin cargo en esta autorización/i.test(text), text);
   });
 
   it('un costo de Lusha no reportado se muestra como "no reportado", nunca como 0', async () => {

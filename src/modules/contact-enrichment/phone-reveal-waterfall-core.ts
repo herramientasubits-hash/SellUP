@@ -64,7 +64,25 @@
  * forma indiscriminada una autorización nueva: lo que bloquea es su CLASE, no su
  * existencia. La distinción vive en `classifyPhoneRevealWaterfallLegacyHistory` y es
  * la única autoridad, compartida por el servidor y por la UI.
+ *
+ * PREFLIGHT DE SALDO (AGENT2A-PHONE-WATERFALL-4D). Con el modal eliminado, el clic
+ * único crea la corrida y arranca Apollo sin paso intermedio, así que el saldo se
+ * comprueba en los DOS arranques justo antes del INSERT, con el tope de la
+ * modalidad (13 / 8 / 5). Sin saldo suficiente —o sin poder verificarlo—
+ * fail-closed: 0 corridas, 0 llamadas a proveedor, 0 usage logs, 0 créditos. La
+ * comparación vive en phone-reveal-credit-budget-core.ts, que es igual de puro; la
+ * lectura del saldo llega inyectada como dep.
  */
+
+// Único import de este módulo, y es a otro core PURO (sin I/O, sin imports de
+// servidor): la alternativa era duplicar aquí los topes exigidos y la política
+// fail-closed del saldo, y duplicarlos es lo que permitiría que discrepasen.
+import {
+  evaluatePhoneRevealCreditBudget,
+  resolvePhoneRevealCreditBudgetMode,
+  resolvePhoneRevealCreditBudgetProviders,
+  type PhoneRevealCreditBalance,
+} from './phone-reveal-credit-budget-core';
 
 // ── Vocabularios (espejo exacto de los CHECK de la migración 102) ──
 
@@ -435,6 +453,19 @@ export interface StartPhoneRevealWaterfallInput {
   candidateId: string;
 }
 
+/**
+ * Lector del saldo de créditos (AGENT2A-PHONE-WATERFALL-4D). Recibe los
+ * proveedores que la modalidad puede llegar a llamar y devuelve UN saldo ya
+ * combinado. Es una dep porque el core es puro: aquí no se consulta nada.
+ *
+ * Es OBLIGATORIA en los dos arranques: sin ella el preflight de saldo no existiría
+ * y el clic único crearía la corrida sin comprobar nada. Un fallo de lectura se
+ * expresa como `{ kind: 'unavailable' }` — fail-closed — no lanzando.
+ */
+export type PhoneRevealWaterfallCreditBalanceReader = (
+  providerKeys: readonly string[],
+) => Promise<PhoneRevealCreditBalance>;
+
 export interface StartPhoneRevealWaterfallDeps {
   /** ENABLE_PHONE_REVEAL_WATERFALL ya resuelto por el wrapper. */
   flagEnabled: boolean;
@@ -447,6 +478,8 @@ export interface StartPhoneRevealWaterfallDeps {
   findActiveRun: (
     candidateId: string,
   ) => Promise<PhoneRevealWaterfallRunRecord | null>;
+  /** Saldo disponible, leído ANTES de crear la corrida. Fail-closed. */
+  readCreditBalance: PhoneRevealWaterfallCreditBalanceReader;
   /**
    * INSERT de la corrida. Devuelve el id, o null si el índice único parcial la
    * rechazó porque otra corrida activa ganó la carrera (no es un error: significa
@@ -471,6 +504,14 @@ export type StartPhoneRevealWaterfallResult =
         | 'invalid_candidate'
         | 'candidate_not_found'
         | 'active_run_exists'
+        /**
+         * El saldo NO cubre el tope de la modalidad (13 o 8). No se creó corrida,
+         * así que no hay nada que reconciliar y no se llamó a ningún proveedor
+         * (AGENT2A-PHONE-WATERFALL-4D).
+         */
+        | 'insufficient_credits'
+        /** El saldo no se pudo verificar. Fail-closed: tampoco se creó corrida. */
+        | 'credit_balance_unavailable'
         | 'create_conflict';
     };
 
@@ -507,6 +548,28 @@ export async function startPhoneRevealWaterfall(
 
   const lushaLeg = evaluatePhoneRevealWaterfallLushaLeg(candidate);
   const maxCreditsAuthorized = resolvePhoneRevealWaterfallMaxCredits(lushaLeg.eligible);
+
+  // PREFLIGHT DE SALDO (AGENT2A-PHONE-WATERFALL-4D). Va justo ANTES del INSERT y
+  // DESPUÉS de conocer la modalidad, porque el tope exigido depende de ella (13 con
+  // pata Lusha, 8 sin ella). Al eliminarse el modal, este es el último punto en el
+  // que se puede parar sin haber escrito nada: si no alcanza, no hay corrida, no hay
+  // llamada a Apollo, no hay usage log y no hay créditos.
+  const budgetMode = resolvePhoneRevealCreditBudgetMode({
+    legacyLushaOnly: false,
+    lushaEligible: lushaLeg.eligible,
+  });
+  const budget = evaluatePhoneRevealCreditBudget({
+    mode: budgetMode,
+    balance: await deps.readCreditBalance(
+      resolvePhoneRevealCreditBudgetProviders(budgetMode),
+    ),
+  });
+  if (budget.decision === 'insufficient_credits') {
+    return { started: false, reason: 'insufficient_credits' };
+  }
+  if (budget.decision === 'balance_unavailable') {
+    return { started: false, reason: 'credit_balance_unavailable' };
+  }
 
   const runId = await deps.createRun({
     candidateId,
@@ -595,6 +658,13 @@ export type PhoneRevealWaterfallLegacyIneligibleReason =
   | 'candidate_not_editable'
   | 'missing_lusha_contact_id'
   | 'active_run_exists'
+  /**
+   * El saldo NO cubre los 5 créditos de la pata Lusha
+   * (AGENT2A-PHONE-WATERFALL-4D). No se creó corrida y no se llamó a Lusha.
+   */
+  | 'insufficient_credits'
+  /** El saldo no se pudo verificar. Fail-closed: tampoco se creó corrida. */
+  | 'credit_balance_unavailable'
   /**
    * La corrida histórica pertenece al flujo COMPLETO (`full_waterfall`), así que el
    * candidato no es legacy: su caso lo gobierna el waterfall normal, con Apollo
@@ -789,6 +859,13 @@ export interface StartLegacyPhoneRevealWaterfallDeps {
   findLatestRun: (
     candidateId: string,
   ) => Promise<PhoneRevealWaterfallRunRecord | null>;
+  /**
+   * Saldo disponible, leído ANTES de crear la corrida legacy
+   * (AGENT2A-PHONE-WATERFALL-4D). Solo se consulta el saldo de Lusha: Apollo no se
+   * ejecuta bajo esta autorización, así que bloquear por su saldo bloquearía por un
+   * proveedor que no va a correr.
+   */
+  readCreditBalance: PhoneRevealWaterfallCreditBalanceReader;
   createRun: (draft: PhoneRevealWaterfallRunDraft) => Promise<string | null>;
 }
 
@@ -857,6 +934,22 @@ export async function startLegacyPhoneRevealWaterfall(
   );
   if (!historyVerdict.reauthorizable) {
     return { started: false, reason: historyVerdict.reason };
+  }
+
+  // PREFLIGHT DE SALDO (AGENT2A-PHONE-WATERFALL-4D). El tope legacy es 5 — solo la
+  // pata Lusha — y se comprueba ANTES del INSERT: sin saldo no hay corrida nueva,
+  // no hay llamada a Lusha, no hay usage log y no hay créditos.
+  const legacyBudget = evaluatePhoneRevealCreditBudget({
+    mode: 'legacy_lusha_only',
+    balance: await deps.readCreditBalance(
+      resolvePhoneRevealCreditBudgetProviders('legacy_lusha_only'),
+    ),
+  });
+  if (legacyBudget.decision === 'insufficient_credits') {
+    return { started: false, reason: 'insufficient_credits' };
+  }
+  if (legacyBudget.decision === 'balance_unavailable') {
+    return { started: false, reason: 'credit_balance_unavailable' };
   }
 
   const runId = await deps.createRun({

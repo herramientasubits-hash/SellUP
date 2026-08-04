@@ -65,6 +65,9 @@ import {
   type StartLegacyPhoneRevealWaterfallDeps,
   type StartPhoneRevealWaterfallDeps,
 } from './phone-reveal-waterfall-core';
+// Preflight de saldo (AGENT2A-PHONE-WATERFALL-4D): la LECTURA vive aquí porque este
+// es el módulo de infraestructura; la decisión sigue siendo del core puro.
+import { readPhoneRevealCreditBalance } from './phone-reveal-credit-budget-deps';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
 
 /** Tabla de corridas (migración 102). service_role-only. */
@@ -700,6 +703,10 @@ export function buildStartWaterfallDeps(actor: {
     nowIso: new Date().toISOString(),
     loadCandidate: loadCandidateForWaterfall,
     findActiveRun: findActiveWaterfallRunForCandidate,
+    // Saldo del/los proveedores que la modalidad puede llegar a llamar. El core
+    // decide de quién pedirlo y qué hacer con el resultado.
+    readCreditBalance: (providerKeys) =>
+      readPhoneRevealCreditBalance(providerKeys, actor.internalUserId),
     createRun: createWaterfallRun,
   };
 }
@@ -720,6 +727,9 @@ export function buildStartLegacyWaterfallDeps(actor: {
     loadLegacyEvidence: loadLegacyEvidenceForWaterfall,
     findActiveRun: findActiveWaterfallRunForCandidate,
     findLatestRun: findLatestWaterfallRunForCandidate,
+    // Solo el saldo de Lusha: Apollo no se ejecuta bajo esta autorización.
+    readCreditBalance: (providerKeys) =>
+      readPhoneRevealCreditBalance(providerKeys, actor.internalUserId),
     createRun: createWaterfallRun,
   };
 }

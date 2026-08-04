@@ -592,6 +592,9 @@ describe('legacy — las deps del arranque NO incluyen ninguna pata Apollo', () 
       'flagEnabled',
       'loadLegacyEvidence',
       'nowIso',
+      // AGENT2A-PHONE-WATERFALL-4D: lee SALDO, no proveedores. No puede llamar a
+      // Apollo ni a Lusha, y en esta modalidad solo se le pregunta por Lusha.
+      'readCreditBalance',
     ]);
     const serialized = keys.join(' ').toLowerCase();
     assert.equal(serialized.includes('apollo'), false);

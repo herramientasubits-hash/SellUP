@@ -5,8 +5,9 @@
  * Contrato de UX que se verifica:
  *   * flag OFF ⇒ UI anterior intacta: reveal Apollo one-click (sin modal) y botón
  *     manual de Lusha cuando aplica;
- *   * flag ON + admin ⇒ UN solo botón "Revelar teléfono", UN solo modal, copy 13
- *     con id Lusha y 8 sin él, y NINGÚN botón separado de Lusha;
+ *   * flag ON + admin ⇒ UN solo botón "Revelar teléfono" que EJECUTA en un clic
+ *     (AGENT2A-PHONE-WATERFALL-4D: ya no hay modal ni «Confirmar y revelar»), con
+ *     copy 13 con id Lusha y 8 sin él, y NINGÚN botón separado de Lusha;
  *   * flag ON + commercial_manager ⇒ Apollo-only (el rol no autorizado no ve el
  *     waterfall y no puede gastar la 2ª pata);
  *   * estados intermedios y terminales por corrida;
@@ -396,21 +397,22 @@ describe('waterfall UI — flag ON con rol admin', () => {
     assert.equal(lushaButton(), null, 'no debe haber un segundo botón de Lusha');
   });
 
-  it('el clic abre el modal ÚNICO y NO dispara la acción todavía', async () => {
+  // AGENT2A-PHONE-WATERFALL-4D: el clic EJECUTA. No hay modal intermedio, así que la
+  // información de proveedores y costo tiene que estar visible ANTES del clic.
+  it('el flujo y el tope se leen ANTES del clic, sin abrir nada', async () => {
     await renderSheet(lushaCandidate(), {
       waterfallEnabled: true,
       waterfallAuthorized: true,
     });
-    await act(async () => {
-      fireEvent.click(revealButton()!);
-    });
-    assert.equal(mockReveal.mock.callCount(), 0, 'no se gasta nada hasta confirmar');
     const text = bodyText();
     assert.ok(text.includes('Apollo se intentará primero'));
-    assert.ok(text.includes('SellUp intentará Lusha como respaldo'));
+    assert.ok(text.includes('SellUp intentará Lusha automáticamente'));
+    assert.ok(text.includes('hasta 13 créditos'));
+    // Y nada se ha gastado por el simple hecho de abrir el drawer.
+    assert.equal(mockReveal.mock.callCount(), 0);
   });
 
-  it('con id Lusha el modal dice hasta 13 créditos y envía expectedMaxCredits=13', async () => {
+  it('con id Lusha UN clic dispara la acción con expectedMaxCredits=13', async () => {
     await renderSheet(lushaCandidate(), {
       waterfallEnabled: true,
       waterfallAuthorized: true,
@@ -418,44 +420,36 @@ describe('waterfall UI — flag ON con rol admin', () => {
     await act(async () => {
       fireEvent.click(revealButton()!);
     });
-    assert.ok(bodyText().includes('hasta 13 créditos'));
-
-    const confirm = screen.getByRole('button', { name: 'Confirmar y revelar' });
-    await act(async () => {
-      fireEvent.click(confirm);
-    });
-    assert.equal(mockReveal.mock.callCount(), 1);
+    assert.equal(mockReveal.mock.callCount(), 1, 'un clic, una corrida');
     const payload = mockReveal.mock.calls[0].arguments[0] as { expectedMaxCredits: number };
     assert.equal(payload.expectedMaxCredits, 13);
+    // Y en ningún momento apareció un paso de confirmación.
+    assert.equal(screen.queryByRole('button', { name: 'Confirmar y revelar' }), null);
   });
 
-  it('sin id Lusha el modal dice hasta 8, explica por qué, y envía 8', async () => {
+  it('sin id Lusha dice hasta 8, no menciona Lusha ni 13, y envía 8 en un clic', async () => {
     await renderSheet(apolloCandidate(), {
       waterfallEnabled: true,
       waterfallAuthorized: true,
     });
+    const text = bodyText();
+    assert.ok(text.includes('Consulta individual con Apollo'));
+    assert.ok(text.includes('hasta 8 créditos'));
+    assert.equal(text.includes('hasta 13 créditos'), false);
+    assert.equal(/Lusha/.test(text), false, text);
+
     await act(async () => {
       fireEvent.click(revealButton()!);
     });
-    const text = bodyText();
-    assert.ok(text.includes('hasta 8 créditos'));
-    assert.equal(text.includes('hasta 13 créditos'), false);
-    assert.ok(text.includes('no tiene identificador Lusha reutilizable'));
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Confirmar y revelar' }));
-    });
+    assert.equal(mockReveal.mock.callCount(), 1);
     const payload = mockReveal.mock.calls[0].arguments[0] as { expectedMaxCredits: number };
     assert.equal(payload.expectedMaxCredits, 8);
   });
 
-  it('el modal advierte que no se escribe HubSpot y que es individual', async () => {
+  it('advierte que no se escribe HubSpot y que es individual, debajo del botón', async () => {
     await renderSheet(lushaCandidate(), {
       waterfallEnabled: true,
       waterfallAuthorized: true,
-    });
-    await act(async () => {
-      fireEvent.click(revealButton()!);
     });
     const text = bodyText();
     assert.ok(text.includes('No se escribirá en HubSpot automáticamente'));
@@ -463,18 +457,13 @@ describe('waterfall UI — flag ON con rol admin', () => {
     assert.ok(text.includes('tipo de teléfono puede quedar como desconocido'));
   });
 
-  it('cancelar el modal no dispara ninguna acción', async () => {
+  it('no existe ningún paso de confirmación ni de cancelación', async () => {
     await renderSheet(lushaCandidate(), {
       waterfallEnabled: true,
       waterfallAuthorized: true,
     });
-    await act(async () => {
-      fireEvent.click(revealButton()!);
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
-    });
-    assert.equal(mockReveal.mock.callCount(), 0);
+    assert.equal(screen.queryByRole('button', { name: 'Confirmar y revelar' }), null);
+    assert.equal(screen.queryByRole('button', { name: 'Cancelar' }), null);
   });
 
   it('tras un no_phone_found de Apollo NO reaparece el botón manual de Lusha', async () => {
@@ -487,94 +476,63 @@ describe('waterfall UI — flag ON con rol admin', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 2 bis. Consentimiento completo del modal normal (WATERFALL-4B)
+// 2 bis. Consentimiento DEBAJO DEL BOTÓN (4B, movido en 4D)
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * El modal del waterfall completo autoriza 13 créditos y DOS proveedores. Antes
- * mostraba solo el total y no repetía las advertencias que sí traía el modal legacy,
- * así que el operador del flujo que gasta MÁS era el que veía MENOS. Lo que se fija
- * aquí es el contenido del diálogo tal como se renderiza — no el objeto de copy — y
- * que abrirlo siga sin tener ningún efecto: ni corrida, ni proveedor, ni crédito.
+ * La autorización completa gasta 13 créditos y DOS proveedores. Al eliminarse el
+ * modal (AGENT2A-PHONE-WATERFALL-4D) todo su contenido —desglose por pata, total y
+ * advertencias— se lee AHORA debajo del botón, ANTES del clic: un consentimiento que
+ * solo apareciera después del clic no sería consentimiento.
+ *
+ * Lo que se fija aquí es el contenido tal como se renderiza — no el objeto de copy —
+ * y que abrir el drawer siga sin tener ningún efecto: ni corrida, ni proveedor, ni
+ * crédito.
  */
-describe('waterfall UI — consentimiento del modal normal (4B)', () => {
-  function dialogText(): string {
-    return (screen.getByRole('dialog').textContent ?? '').replace(/\s+/g, ' ');
-  }
-
-  async function openFullWaterfallModal() {
+describe('waterfall UI — consentimiento debajo del botón (4B/4D)', () => {
+  async function renderFullWaterfall() {
     await renderSheet(lushaCandidate(), {
       waterfallEnabled: true,
       waterfallAuthorized: true,
-    });
-    await act(async () => {
-      fireEvent.click(revealButton()!);
     });
   }
 
   it('desglosa la pata Apollo: hasta 8 créditos', async () => {
-    await openFullWaterfallModal();
-    assert.ok(/Apollo: hasta 8 créditos\./.test(dialogText()), dialogText());
+    await renderFullWaterfall();
+    assert.ok(/Apollo: hasta 8 créditos\./.test(bodyText()), bodyText());
   });
 
   it('desglosa la pata Lusha: hasta 5 créditos', async () => {
-    await openFullWaterfallModal();
-    assert.ok(/Lusha: hasta 5 créditos\./.test(dialogText()), dialogText());
+    await renderFullWaterfall();
+    assert.ok(/Lusha: hasta 5 créditos\./.test(bodyText()), bodyText());
   });
 
   it('declara el máximo TOTAL autorizado: 13 créditos', async () => {
-    await openFullWaterfallModal();
-    assert.ok(
-      /Máximo total autorizado: 13 créditos\./.test(dialogText()),
-      dialogText(),
-    );
+    await renderFullWaterfall();
+    assert.ok(/Máximo total autorizado: 13 créditos\./.test(bodyText()), bodyText());
   });
 
   it('advierte que no se garantiza encontrar un teléfono', async () => {
-    await openFullWaterfallModal();
-    assert.ok(/No se garantiza encontrar un teléfono\./.test(dialogText()), dialogText());
+    await renderFullWaterfall();
+    assert.ok(/No se garantiza encontrar un teléfono\./.test(bodyText()), bodyText());
   });
 
   it('advierte que no se creará un contacto oficial automáticamente', async () => {
-    await openFullWaterfallModal();
+    await renderFullWaterfall();
     assert.ok(
-      /No se creará un contacto oficial automáticamente\./.test(dialogText()),
-      dialogText(),
+      /No se creará un contacto oficial automáticamente\./.test(bodyText()),
+      bodyText(),
     );
   });
 
   it('advierte que no se escribirá en HubSpot automáticamente', async () => {
-    await openFullWaterfallModal();
-    assert.ok(
-      /No se escribirá en HubSpot automáticamente\./.test(dialogText()),
-      dialogText(),
-    );
+    await renderFullWaterfall();
+    assert.ok(/No se escribirá en HubSpot automáticamente\./.test(bodyText()), bodyText());
   });
 
-  it('abrir el modal NO crea una corrida (ni la relee: no hay nada que releer)', async () => {
-    await renderSheet(lushaCandidate(), {
-      waterfallEnabled: true,
-      waterfallAuthorized: true,
-    });
-    // La corrida la crea el servidor al confirmar; la auditoría solo se consulta al
-    // montar. Abrir el modal no debe añadir ninguna de las dos cosas.
-    const auditCallsBefore = mockAudit.mock.callCount();
-    const candidateCallsBefore = mockGetById.mock.callCount();
-    await act(async () => {
-      fireEvent.click(revealButton()!);
-    });
-    assert.ok(screen.getByRole('dialog'), 'el modal debe estar abierto');
-    assert.equal(mockAudit.mock.callCount(), auditCallsBefore);
-    assert.equal(mockGetById.mock.callCount(), candidateCallsBefore);
-  });
-
-  it('abrir el modal NO llama a Apollo', async () => {
-    await openFullWaterfallModal();
-    assert.equal(mockReveal.mock.callCount(), 0);
-  });
-
-  it('abrir el modal NO llama a Lusha (ni por el waterfall ni por la ruta legacy)', async () => {
-    await openFullWaterfallModal();
+  it('abrir el drawer NO crea una corrida ni llama a ningún proveedor', async () => {
+    await renderFullWaterfall();
+    assert.equal(mockReveal.mock.callCount(), 0, 'Apollo no se llama al abrir');
     assert.equal(mockLushaFallback.mock.callCount(), 0);
     assert.equal(mockLegacyStart.mock.callCount(), 0);
   });
@@ -633,22 +591,24 @@ describe('waterfall UI — estados', () => {
     await renderSheet(candidate, { waterfallEnabled: true, waterfallAuthorized: true });
   }
 
-  it('Apollo en vuelo: "Consultando Apollo…"', async () => {
+  it('Apollo en vuelo: "Apollo está procesando el resultado."', async () => {
     await renderWithAudit(
       auditView({ status: 'apollo_in_flight' }),
       lushaCandidate({ phone_reveal_status: 'requested' }),
     );
-    assert.ok(bodyText().includes('Consultando Apollo'));
+    assert.ok(bodyText().includes('Apollo está procesando el resultado.'));
   });
 
-  it('pata Lusha en curso: "Apollo no encontró teléfono, consultando Lusha…"', async () => {
+  it('pata Lusha en curso: "Apollo no encontró un teléfono. SellUp está intentando Lusha."', async () => {
     await renderWithAudit(
       auditView({ status: 'lusha_running', apolloOutcome: 'no_phone_found' }),
     );
-    assert.ok(bodyText().includes('Apollo no encontró teléfono, consultando Lusha'));
+    assert.ok(
+      bodyText().includes('Apollo no encontró un teléfono. SellUp está intentando Lusha.'),
+    );
   });
 
-  it('revelado por Apollo', async () => {
+  it('revelado (por Apollo): un solo estado terminal con teléfono', async () => {
     await renderWithAudit(
       auditView({
         status: 'completed_apollo',
@@ -657,10 +617,14 @@ describe('waterfall UI — estados', () => {
         finalProvider: 'apollo',
       }),
     );
-    assert.ok(bodyText().includes('Teléfono revelado por Apollo'));
+    const text = bodyText();
+    assert.ok(text.includes('Teléfono revelado.'));
+    // La atribución no desaparece: vive en el bloque de auditoría.
+    assert.ok(text.includes('Proveedor final'));
+    assert.ok(text.includes('Apollo'));
   });
 
-  it('revelado por Lusha', async () => {
+  it('revelado (por Lusha): mismo estado, atribución en la auditoría', async () => {
     await renderWithAudit(
       auditView({
         status: 'completed_lusha',
@@ -671,10 +635,13 @@ describe('waterfall UI — estados', () => {
         finalProvider: 'lusha',
       }),
     );
-    assert.ok(bodyText().includes('Teléfono revelado por Lusha'));
+    const text = bodyText();
+    assert.ok(text.includes('Teléfono revelado.'));
+    assert.ok(text.includes('Proveedor final'));
+    assert.ok(text.includes('Lusha'));
   });
 
-  it('no disponible tras Apollo Y Lusha', async () => {
+  it('agotado: "Teléfono no disponible."', async () => {
     await renderWithAudit(
       auditView({
         status: 'exhausted',
@@ -685,9 +652,7 @@ describe('waterfall UI — estados', () => {
         finalProvider: 'none',
       }),
     );
-    assert.ok(
-      bodyText().includes('Teléfono no disponible tras consultar Apollo y Lusha'),
-    );
+    assert.ok(bodyText().includes('Teléfono no disponible.'));
   });
 
   it('error controlado: no dice "no existe teléfono"', async () => {
@@ -696,7 +661,7 @@ describe('waterfall UI — estados', () => {
     );
     const text = bodyText();
     assert.ok(text.includes('No fue posible completar la revelación de teléfono'));
-    assert.equal(text.includes('Teléfono no disponible tras consultar Apollo y Lusha'), false);
+    assert.equal(text.includes('Teléfono no disponible.'), false);
   });
 
   it('cierre por privacidad: lo dice explícitamente', async () => {
@@ -972,11 +937,9 @@ describe('waterfall UI — infraestructura de auditoría no disponible', () => {
       waterfallEnabled: true,
       waterfallAuthorized: true,
     });
+    // 4D: un solo clic, sin confirmación intermedia.
     await act(async () => {
       fireEvent.click(revealButton()!);
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Confirmar y revelar' }));
     });
   }
 
@@ -1051,9 +1014,6 @@ describe('waterfall UI — infraestructura de auditoría no disponible', () => {
     const loadsBefore = mockGetById.mock.callCount();
     await act(async () => {
       fireEvent.click(revealButton()!);
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Confirmar y revelar' }));
     });
     assert.equal(
       mockGetById.mock.callCount(),
