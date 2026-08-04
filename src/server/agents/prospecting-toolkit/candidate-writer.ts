@@ -99,6 +99,59 @@ import {
   APOLLO_PROVIDER_USAGE_KEY,
   APOLLO_ORGANIZATIONS_OPERATION_KEY,
 } from './provider-routing-attempts';
+// A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — clasificación sanitizada del fallo de
+// escritura y estado de lote coherente con el resultado real de la persistencia.
+import {
+  classifyCandidatePersistenceError,
+  resolveBatchStatusForPersistenceOutcome,
+  toCandidatePersistenceOutcomeMetadata,
+  CANDIDATE_PERSISTENCE_OUTCOME_METADATA_KEY,
+  type CandidatePersistenceOutcome,
+  type PersistenceErrorCode,
+  type PersistenceErrorStage,
+} from './prospect-candidate-persistence-readiness';
+
+// ─── Resultado de la persistencia ─────────────────────────────────────────────
+
+/**
+ * A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — constructor único del resultado de
+ * persistencia del writer.
+ *
+ * Existe para que ninguno de los caminos de salida del writer pueda olvidar las
+ * cifras: un `return` sin ellas es exactamente cómo un fallo de escritura acabó
+ * siendo indistinguible de un vacío normal.
+ *
+ * `persistenceFailed` NO se deriva de «cero guardados»: cero guardados es el
+ * resultado legítimo de una corrida cuyos candidatos se descartaron a propósito.
+ * Se deriva de que hubiera al menos un fallo REAL de escritura.
+ */
+function buildPersistenceOutcome(input: {
+  eligibleBeforePersistence: number;
+  persistedCandidates: number;
+  failures: readonly { code: PersistenceErrorCode; stage: PersistenceErrorStage }[];
+}): CandidatePersistenceOutcome {
+  const failureCount = input.failures.length;
+  // Con varios fallos se reporta el PRIMER código: es el que explica la corrida,
+  // y una columna ausente produce el mismo error en todas las filas.
+  const first = input.failures[0] ?? null;
+  return {
+    eligibleBeforePersistence: input.eligibleBeforePersistence,
+    persistedCandidates: input.persistedCandidates,
+    persistenceFailureCount: failureCount,
+    persistenceFailed: failureCount > 0,
+    persistenceErrorCode: first?.code ?? null,
+    persistenceErrorStage: first?.stage ?? null,
+  };
+}
+
+/** Resultado de persistencia de un camino que no escribió candidatos. */
+function emptyPersistenceOutcome(eligibleBeforePersistence = 0): CandidatePersistenceOutcome {
+  return buildPersistenceOutcome({
+    eligibleBeforePersistence,
+    persistedCandidates: 0,
+    failures: [],
+  });
+}
 
 // ─── Batch validation error ───────────────────────────────────────────────────
 
@@ -637,6 +690,7 @@ export async function writeProspectingCandidates(
         skipped: [],
         status: isDryRun ? "dry_run" : "failed",
         errors: ["El pipeline no retornó candidatos para persistir"],
+        persistence: emptyPersistenceOutcome(),
       };
     }
     // With existingBatchId (wizard path), proceed through batch metadata update
@@ -668,6 +722,10 @@ export async function writeProspectingCandidates(
       skipped,
       status: "dry_run",
       errors: [],
+      // Una corrida en seco no escribe: no puede fallar al escribir.
+      persistence: emptyPersistenceOutcome(
+        pipelineOutput.candidates.length - skipped.length,
+      ),
     };
   }
 
@@ -676,6 +734,13 @@ export async function writeProspectingCandidates(
   const errors: string[] = [];
   const createdCandidateIds: string[] = [];
   const skipped: CandidateWriterSkipped[] = [];
+  // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — fallos REALES de escritura, separados
+  // de los descartes intencionales. Antes compartían la lista `skipped` y el
+  // fallo terminaba clasificado como «ni historial ni calidad», es decir, como
+  // nada.
+  const persistenceFailures: { code: PersistenceErrorCode; stage: PersistenceErrorStage }[] = [];
+  /** Candidatos que llegaron a intentar el INSERT (elegibles tras todas las puertas). */
+  let insertAttempts = 0;
 
   // Novelty index: carga candidatos históricos para los dominios del lote actual
   // en un solo SELECT antes de crear el batch. No hace writes.
@@ -836,7 +901,19 @@ export async function writeProspectingCandidates(
           searchTrace: c.searchTrace ?? undefined,
         })),
         status: "failed",
-        errors: [`Error al actualizar lote existente: ${updateError.message ?? "unknown"}`],
+        // § 7 — código sanitizado, no el mensaje del motor: este texto viaja
+        // hacia arriba y puede terminar en metadata persistida.
+        errors: [`Error al actualizar lote existente: ${classifyCandidatePersistenceError(updateError)}`],
+        persistence: buildPersistenceOutcome({
+          eligibleBeforePersistence: pipelineOutput.candidates.length,
+          persistedCandidates: 0,
+          failures: [
+            {
+              code: classifyCandidatePersistenceError(updateError),
+              stage: 'batch_update',
+            },
+          ],
+        }),
       };
     }
 
@@ -891,7 +968,14 @@ export async function writeProspectingCandidates(
           searchTrace: c.searchTrace ?? undefined,
         })),
         status: "failed",
-        errors: [`Error al crear lote: ${batchError?.message ?? "unknown"}`],
+        errors: [`Error al crear lote: ${classifyCandidatePersistenceError(batchError)}`],
+        persistence: buildPersistenceOutcome({
+          eligibleBeforePersistence: pipelineOutput.candidates.length,
+          persistedCandidates: 0,
+          failures: [
+            { code: classifyCandidatePersistenceError(batchError), stage: 'batch_update' },
+          ],
+        }),
       };
     }
 
@@ -2220,6 +2304,8 @@ export async function writeProspectingCandidates(
         }
       : candidateInsertBase;
 
+    insertAttempts += 1;
+
     try {
       const { data: created, error: insertErr } = await admin
         .from("prospect_candidates")
@@ -2228,9 +2314,19 @@ export async function writeProspectingCandidates(
         .single();
 
       if (insertErr || !created) {
-        const msg = insertErr?.message ?? "unknown";
-        errors.push(`Error al crear candidato "${candidate.name}": ${msg}`);
-        skipped.push({ name: candidate.name, reason: msg, searchTrace: candidate.searchTrace ?? undefined });
+        // § 7 — el motivo que se propaga es un CÓDIGO nuestro, nunca el mensaje
+        // del motor. El mensaje crudo (`Could not find the 'identity_key'
+        // column of 'prospect_candidates' in the schema cache`) terminaba en
+        // `skipped[].reason`, y desde ahí en metadata persistida y en el
+        // `failureReason` del provider_attempt.
+        const code = classifyCandidatePersistenceError(insertErr);
+        persistenceFailures.push({ code, stage: 'candidate_insert' });
+        errors.push(`Error al crear candidato: ${code}`);
+        skipped.push({
+          name: candidate.name,
+          reason: `persistence_failed:${code}`,
+          searchTrace: candidate.searchTrace ?? undefined,
+        });
         continue;
       }
 
@@ -2250,9 +2346,16 @@ export async function writeProspectingCandidates(
         },
       });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "unexpected error";
-      errors.push(`Error inesperado al crear candidato "${candidate.name}": ${msg}`);
-      skipped.push({ name: candidate.name, reason: msg, searchTrace: candidate.searchTrace ?? undefined });
+      // § 7 — una excepción también es un fallo de persistencia, y su mensaje
+      // tampoco se propaga tal cual.
+      const code = classifyCandidatePersistenceError(err);
+      persistenceFailures.push({ code, stage: 'candidate_insert' });
+      errors.push(`Error inesperado al crear candidato: ${code}`);
+      skipped.push({
+        name: candidate.name,
+        reason: `persistence_failed:${code}`,
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
     }
   }
 
@@ -2272,15 +2375,34 @@ export async function writeProspectingCandidates(
     status = "success";
   }
 
+  // A1-APOLLO-PERSISTENCE-READINESS-4 § 7/§ 9 — cifras reales de la persistencia
+  // y el estado de lote que se deriva de ellas. Se calculan una sola vez y las
+  // usan las DOS escrituras de estado de abajo, para que no puedan discrepar.
+  const persistenceOutcome = buildPersistenceOutcome({
+    eligibleBeforePersistence: insertAttempts,
+    persistedCandidates: candidatesCreated,
+    failures: persistenceFailures,
+  });
+  const batchStatusForOutcome = resolveBatchStatusForPersistenceOutcome({
+    persistedCandidates: candidatesCreated,
+    persistenceFailureCount: persistenceFailures.length,
+  });
+
   // ── Status correction (guaranteed) ───────────────────────────────────────
   // A batch with 0 persisted candidates must NEVER remain ready_for_review.
   // This runs in its own try-catch so it cannot be swallowed by the metadata
   // computation below. The full metadata update repeats the status write later.
-  if (candidatesCreated === 0 && errors.length === 0) {
+  //
+  // § 9 — antes esta corrección sólo cubría «todo descartado a propósito»
+  // (`completed`). Un lote con empresas elegibles cuya escritura falló caía por
+  // el `else` y se quedaba en `ready_for_review` con cero candidatos: es lo que
+  // permitió que LIVE-QA-2 (lote 62fdf47b) se leyera como un vacío normal. Ahora
+  // ese caso queda `failed`, que ya existe en el CHECK de `prospect_batches`.
+  if (batchStatusForOutcome !== "ready_for_review") {
     try {
       await admin
         .from("prospect_batches")
-        .update({ status: "completed" })
+        .update({ status: batchStatusForOutcome })
         .eq("id", batchId);
     } catch (err) {
       console.error("[candidate-writer] status correction failed for batch", batchId, err);
@@ -2582,6 +2704,11 @@ export async function writeProspectingCandidates(
     const finalMetadata = {
       ...preMergedMetadata,
       writer_summary: writerSummary,
+      // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — cifras sanitizadas del resultado
+      // de la escritura. Sin stack, sin SQL, sin mensaje del motor: sólo enteros
+      // y uno de dos códigos conocidos.
+      [CANDIDATE_PERSISTENCE_OUTCOME_METADATA_KEY]:
+        toCandidatePersistenceOutcomeMetadata(persistenceOutcome),
       novelty_summary: noveltySummary,
       pipeline_summary_post_write: pipelineSummaryPostWrite,
       canonical_identity_gate: canonicalIdentityGate,
@@ -2654,13 +2781,14 @@ export async function writeProspectingCandidates(
       metadataToPersist = mergeProviderAttemptsBatchMetadata(finalMetadata, [apolloAttempt]);
     }
 
-    if (candidatesCreated === 0 && errors.length === 0) {
-      // All candidates were intentionally skipped (novelty / quality) — no new
-      // content to review. Correct the status so the batch does not appear as
-      // ready_for_review when it has nothing in it.
+    if (batchStatusForOutcome !== "ready_for_review") {
+      // `completed` — todos los candidatos se descartaron a propósito
+      // (historial / calidad): no hay contenido nuevo que revisar.
+      // `failed`    — § 9: había elegibles y la escritura falló. El lote NO puede
+      //               quedarse en `ready_for_review` con cero candidatos dentro.
       await admin
         .from("prospect_batches")
-        .update({ status: "completed", metadata: metadataToPersist })
+        .update({ status: batchStatusForOutcome, metadata: metadataToPersist })
         .eq("id", batchId);
     } else {
       await admin
@@ -2683,6 +2811,7 @@ export async function writeProspectingCandidates(
     skipped,
     status,
     errors,
+    persistence: persistenceOutcome,
   };
 }
 

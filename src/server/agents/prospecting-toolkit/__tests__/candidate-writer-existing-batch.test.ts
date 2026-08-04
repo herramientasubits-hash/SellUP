@@ -21,6 +21,7 @@ import { runIncrementalProspectingSearch } from '../incremental-search';
 import type { CandidateWriterInput, CandidateWriterOutput, CatalogContextResult } from '../types';
 import type { IncrementalSearchInput } from '../incremental-search-types';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { noCandidatePersistenceFailures } from '../prospect-candidate-persistence-readiness';
 
 // Minimal CatalogContextResult for test fixtures (ProspectingPipelineOutput requires it non-null)
 const FAKE_CATALOG_CONTEXT: CatalogContextResult = {
@@ -690,6 +691,9 @@ describe('T12: runIncrementalProspectingSearch forwards existingBatchId to write
         skipped: [],
         status: 'success',
         errors: [],
+        // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — el contrato del writer exige las
+        // cifras de persistencia; este doble no ejercita fallos de escritura.
+        persistence: noCandidatePersistenceFailures(),
       };
     };
 
@@ -726,6 +730,9 @@ describe('T12: runIncrementalProspectingSearch forwards existingBatchId to write
         skipped: [],
         status: 'success',
         errors: [],
+        // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — el contrato del writer exige las
+        // cifras de persistencia; este doble no ejercita fallos de escritura.
+        persistence: noCandidatePersistenceFailures(),
       };
     };
 
@@ -815,6 +822,9 @@ describe('T14: no real external providers were invoked', () => {
       skipped: [],
       status: 'success',
       errors: [],
+      // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — el contrato del writer exige las
+      // cifras de persistencia; este doble no ejercita fallos de escritura.
+      persistence: noCandidatePersistenceFailures(),
     });
 
     const result = await runIncrementalProspectingSearch(

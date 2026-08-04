@@ -98,6 +98,9 @@ function makeDeps(
     getActiveUserId: async () => USER_ID,
     resolveCatalog: async () => CATALOG_RESULT,
     checkTavilyAvailability: async () => true,
+    // A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — el esquema está listo: este doble
+    // no ejercita el preflight de persistencia.
+    checkPersistenceReadiness: async () => ({ status: 'available' as const }),
     checkApolloAvailability: async () => ({ available: true }) as const,
     reserveBudget: async () => ({
       status: 'reserved',

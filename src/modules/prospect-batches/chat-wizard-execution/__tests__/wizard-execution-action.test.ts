@@ -363,6 +363,9 @@ function makeReservedDeps(overrides: Partial<WizardExecutionDeps> = {}): WizardE
     getActiveUserId: async () => FAKE_USER_ID,
     resolveCatalog: async (_input: CatalogResolutionInput) => FAKE_CATALOG_RESOLUTION,
     checkTavilyAvailability: async () => true,
+    // A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — el esquema está listo: este doble
+    // no ejercita el preflight de persistencia.
+    checkPersistenceReadiness: async () => ({ status: 'available' as const }),
     reserveBudget: async (input) => {
       reserveBudgetCalls.push(input);
       return { status: 'reserved', reservationId: FAKE_RESERVATION_ID, creditsReserved: 10 } satisfies ReserveBudgetDepResult;

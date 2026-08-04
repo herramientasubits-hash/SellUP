@@ -88,6 +88,9 @@ function makeBaseDeps(overrides: Partial<WizardExecutionDeps> = {}): WizardExecu
     getActiveUserId: async () => USER_ID,
     resolveCatalog: async () => CATALOG_RESULT,
     checkTavilyAvailability: async () => true,
+    // A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — el esquema está listo: este doble
+    // no ejercita el preflight de persistencia.
+    checkPersistenceReadiness: async () => ({ status: 'available' as const }),
     // A1-APOLLO-WIZARD-1: el preflight de Apollo falla cerrado, así que las
     // pruebas que ejercitan la ruta Apollo deben declararlo disponible.
     checkApolloAvailability: async () => ({ available: true } as const),

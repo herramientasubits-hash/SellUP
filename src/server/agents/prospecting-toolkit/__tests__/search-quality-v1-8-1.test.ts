@@ -21,6 +21,7 @@ import { buildSearchStrategyFromCatalog } from '../search-strategy-builder';
 import { classifyQuery } from '../query-builder';
 import type { SearchStrategyRuntimeMetadata } from '../incremental-search-types';
 import type { ProspectingPipelineOutput, CatalogContextResult } from '../types';
+import { noCandidatePersistenceFailures } from '../prospect-candidate-persistence-readiness';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -118,6 +119,9 @@ function mockWriterCapturing(): {
       skipped: [],
       status: 'success' as const,
       errors: [],
+      // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — el contrato del writer exige las
+      // cifras de persistencia; este doble no ejercita fallos de escritura.
+      persistence: noCandidatePersistenceFailures(),
     };
   };
   return { writer, captured };

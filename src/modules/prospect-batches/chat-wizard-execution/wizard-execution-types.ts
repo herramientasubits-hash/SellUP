@@ -1,6 +1,7 @@
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
 import type { WizardApolloSkipReason } from './wizard-apollo-availability';
 import type { NoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
+import type { WizardPersistenceOutcome } from './wizard-result-copy';
 import type {
   ProviderResolutionReason,
   WizardDiscoveryProvider,
@@ -141,10 +142,37 @@ export type WizardGenerationCommand = {
 
 // ── Action result (server action return type) ─────────────────────────────────
 
+/**
+ * Estados con los que una ejecución del wizard puede terminar bien.
+ *
+ * A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — exportado y reutilizado a propósito:
+ * antes esta unión estaba escrita a mano en tres archivos (la acción, el estado
+ * de la UI y el panel), y añadir un estado en uno solo compilaba igual dejando a
+ * los otros dos sin él.
+ */
+export type WizardExecutionStatus =
+  | 'created'
+  | 'already_started'
+  | 'no_new_candidates'
+  | 'success_partial'
+  | 'success_target_reached'
+  | 'completed_with_errors';
+
 export type WizardExecutionActionResult =
   | {
       ok: true;
-      status: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached';
+      /**
+       * A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — `completed_with_errors` es el
+       * estado de una corrida que SÍ encontró empresas elegibles y no pudo
+       * guardar ninguna. No es `no_new_candidates`: la búsqueda ya se ejecutó y
+       * pudo cobrarse, así que anunciarla como un vacío normal invita al usuario
+       * a repetirla y pagarla otra vez.
+       *
+       * Es un miembro de esta unión de TypeScript, no un enum nuevo de base de
+       * datos: el lote usa `failed`, que ya existe en el CHECK de
+       * `prospect_batches.status`.
+       */
+      status: WizardExecutionStatus;
       batchId: string;
       batchStatus: string;
       candidateCount?: number;
@@ -195,6 +223,16 @@ export type WizardExecutionActionResult =
        * genérica entre las dos posibles.
        */
       noNewCandidatesBreakdown?: NoNewCandidatesBreakdown;
+      /**
+       * A1-APOLLO-PERSISTENCE-READINESS-4 § 7/§ 8 — cifras REALES de la
+       * persistencia.
+       *
+       * Se envía siempre que el pipeline las produjo, no sólo cuando fallan: es
+       * lo que permite a la UI resolver la causa de mayor prioridad —fallo de
+       * almacenamiento por encima de historial y calidad— sin adivinarla desde
+       * un conteo de candidatos.
+       */
+      persistenceOutcome?: WizardPersistenceOutcome;
     }
   | {
       ok: false;
@@ -215,7 +253,13 @@ export type WizardExecutionActionResult =
         | 'EXECUTION_CREDIT_LIMIT_EXCEEDED'
         | 'BUDGET_EXCEEDED'
         | 'CONCURRENT_EXECUTION_ACTIVE'
-        | 'BUDGET_RESERVATION_FAILED';
+        | 'BUDGET_RESERVATION_FAILED'
+        /**
+         * A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — el esquema no puede guardar
+         * candidatos. Se decide ANTES de reservar presupuesto y ANTES de llamar
+         * al proveedor: cero reserva, cero llamadas, cero créditos.
+         */
+        | 'PERSISTENCE_NOT_READY';
       message: string;
       retryable: boolean;
       /**
@@ -255,4 +299,16 @@ export type WizardExecutionActionResult =
        * distinguir «Apollo falló» de «nunca se intentó Apollo».
        */
       runProvider?: WizardRunProviderOutcome;
+      /**
+       * § 6 — motivo estructurado de un `PERSISTENCE_NOT_READY`.
+       *
+       * `errorCode` es el código propio del repo, nunca el de Postgres/PostgREST.
+       * `reason` distingue «la columna no está» de «no se pudo comprobar», que es
+       * lo que decide si hay que aplicar una migración o mirar la conexión.
+       */
+      persistenceNotReady?: {
+        errorCode: string;
+        reason: 'identity_key_missing' | 'probe_failed';
+        stage: 'schema_preflight';
+      };
     };

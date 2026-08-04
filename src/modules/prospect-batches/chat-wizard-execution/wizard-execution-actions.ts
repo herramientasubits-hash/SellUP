@@ -87,6 +87,15 @@ import {
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 import { buildNoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
+// A1-APOLLO-PERSISTENCE-READINESS-4 § 6/§ 7 — readiness de persistencia antes de
+// gastar y proyección del resultado real de la escritura.
+import {
+  decidePersistenceReadiness,
+  type PersistenceReadinessProbe,
+} from '@/server/agents/prospecting-toolkit/prospect-candidate-persistence-readiness';
+import { probeProspectCandidatePersistenceReadiness } from './wizard-persistence-readiness-deps';
+import type { PersistenceReadinessDbClient } from './wizard-persistence-readiness-deps';
+import type { WizardPersistenceOutcome } from './wizard-result-copy';
 import { TWO_ROUND_INDETERMINATE_ANOMALY } from '@/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server';
 import { markWizardBatchFailed } from './wizard-batch-failure';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
@@ -140,6 +149,16 @@ export type WizardExecutionDeps = {
    * falta y Apollo es el proveedor seleccionado, se falla cerrado.
    */
   checkApolloAvailability?: () => Promise<WizardApolloAvailability>;
+  /**
+   * A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — ¿puede la base guardar lo que esta
+   * corrida va a encontrar?
+   *
+   * OBLIGATORIA a propósito, a diferencia de `checkApolloAvailability`: aplica a
+   * TODOS los proveedores y su ausencia no puede degradarse a «entonces no se
+   * comprueba». Un dep opcional aquí es una corrida que gasta 12 créditos y
+   * descubre después que el INSERT no cabe — exactamente LIVE-QA-2.
+   */
+  checkPersistenceReadiness: () => Promise<PersistenceReadinessProbe>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
   reserveBudget: (input: {
     userId: string;
@@ -289,6 +308,16 @@ export async function executeProspectWizardGenerationAction(
         logSkip: logWizardApolloSkipped,
       }),
 
+    // A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — lectura REAL de la columna, con la
+    // misma capa (PostgREST) y la misma caché de esquema que hará la escritura.
+    // No mira el repo, ni la lista de migraciones, ni un flag: el fallo de
+    // LIVE-QA-2 fue `PGRST204`, y la columna podía existir en el SQL del repo y
+    // no existir para PostgREST.
+    checkPersistenceReadiness: () =>
+      probeProspectCandidatePersistenceReadiness(
+        supabase as unknown as PersistenceReadinessDbClient,
+      ),
+
     reserveBudget: async ({ userId, clientRequestId, requestedCredits }) => {
       const periodStart = getPilotBudgetPeriodStart(BOGOTA_TIMEZONE);
       const rpcResult = await reserveWizardPilotCredits(
@@ -430,6 +459,9 @@ export async function executeProspectWizardGenerationAction(
 //   3.  Schema validation — strict; rejects any unknown or economic fields
 //   4.  Catalog resolution — validates all IDs canonically
 //   5.  Tavily availability — no batch, no budget if provider unavailable
+//   5c. Persistence readiness — A1-APOLLO-PERSISTENCE-READINESS-4 § 6: la base
+//       tiene que poder GUARDAR antes de que se autorice gastar. Cero reserva,
+//       cero llamadas al proveedor, cero créditos cuando no puede.
 //   6.  Estimate max credits server-side (currently 10; never from client)
 //   7.  Atomic budget reservation — pilot kill-switch, allowlist, period, concurrency
 //   8.  Durable batch reservation — idempotency anchor
@@ -709,6 +741,42 @@ export async function executeProspectWizardGeneration(
     }
   }
 
+  // 5c. A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — readiness de PERSISTENCIA.
+  //
+  // Va aquí y no en otro sitio: después de la autorización y de resolver el
+  // proveedor (para que el rechazo pueda decir con qué proveedor se rechazó), y
+  // ANTES de estimar créditos, ANTES de reservar presupuesto y ANTES de cualquier
+  // llamada al proveedor. El orden es el punto entero del control: LIVE-QA-2
+  // reservó 12 créditos, los gastó, Apollo devolvió una empresa elegible y el
+  // INSERT murió porque `prospect_candidates.identity_key` no existía en
+  // Producción. Comprobarlo aquí cuesta un `select ... limit 1`.
+  //
+  // Fail-closed: sólo una lectura que funcionó autoriza continuar. Ausencia y
+  // fallo de sonda bloquean igual, porque para el gasto tienen la misma
+  // consecuencia.
+  const persistenceReadiness = decidePersistenceReadiness(
+    await deps.checkPersistenceReadiness().catch((): PersistenceReadinessProbe => ({
+      status: 'probe_failed',
+    })),
+  );
+  if (!persistenceReadiness.ready) {
+    return {
+      ok: false,
+      code: 'PERSISTENCE_NOT_READY',
+      // El mensaje crudo de Postgres/PostgREST NO se expone (§ 6).
+      message: persistenceReadiness.adminMessage,
+      // Un esquema sin la columna no se arregla reintentando: hay que aplicar la
+      // migración. Una sonda que falló sí puede recuperarse sola.
+      retryable: persistenceReadiness.reason === 'probe_failed',
+      runProvider: runProviderOutcome,
+      persistenceNotReady: {
+        errorCode: persistenceReadiness.errorCode,
+        reason: persistenceReadiness.reason,
+        stage: persistenceReadiness.stage,
+      },
+    };
+  }
+
   // 6. Calculate max credits server-side — provider-aware; client cannot control this value.
   // Apollo: resolvedMaxQueries × resolvedMaxResults × 1 credit/result (default 1×3=3).
   // Tavily: adaptive pipeline ceiling (4 rounds × 5 queries = 20).
@@ -955,14 +1023,44 @@ export async function executeProspectWizardGeneration(
   const noveltyExhausted = pipelineResult.metadata?.novelty_exhausted === true;
   const targetPersistibleCandidates = pipelineResult.targetPersistibleCandidates ?? 10;
   const targetReached = pipelineResult.targetReached === true;
-  const executionStatus = hasNewCandidates
-    ? (targetReached ? 'success_target_reached' : 'success_partial')
-    : 'no_new_candidates';
+
+  // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — cifras reales de la escritura, tal
+  // como las devolvió el writer. `null` cuando el pipeline no las produjo.
+  const persistenceOutcome: WizardPersistenceOutcome | null = pipelineResult.persistenceOutcome
+    ? {
+        eligibleBeforePersistence:
+          pipelineResult.persistenceOutcome.eligibleBeforePersistence,
+        persistedCandidates: pipelineResult.persistenceOutcome.persistedCandidates,
+        persistenceFailureCount: pipelineResult.persistenceOutcome.persistenceFailureCount,
+        persistenceFailed: pipelineResult.persistenceOutcome.persistenceFailed,
+        persistenceErrorCode: pipelineResult.persistenceOutcome.persistenceErrorCode,
+      }
+    : null;
+
+  // § 7 — había empresas elegibles y NINGUNA se guardó. No es un vacío: es un
+  // error técnico posterior al gasto, y el estado tiene que decirlo.
+  const persistenceBlocked =
+    persistenceOutcome !== null &&
+    persistenceOutcome.persistenceFailed &&
+    persistenceOutcome.eligibleBeforePersistence > 0 &&
+    persistenceOutcome.persistedCandidates === 0;
+
+  const executionStatus = persistenceBlocked
+    ? 'completed_with_errors'
+    : hasNewCandidates
+      ? (targetReached ? 'success_target_reached' : 'success_partial')
+      : 'no_new_candidates';
   return {
     ok: true,
     status: executionStatus,
     batchId: reservedBatchId,
-    batchStatus: hasNewCandidates ? 'ready_for_review' : 'nothing_to_write',
+    // El lote quedó `failed` por el writer (§ 9): el estado que se reporta es el
+    // que la base tiene, no una etiqueta optimista.
+    batchStatus: persistenceBlocked
+      ? 'failed'
+      : hasNewCandidates
+        ? 'ready_for_review'
+        : 'nothing_to_write',
     candidateCount: pipelineResult.candidatesCreated,
     redirectPath: `/prospect-batches/${reservedBatchId}`,
     targetPersistibleCandidates,
@@ -989,6 +1087,10 @@ export async function executeProspectWizardGeneration(
     runProvider: runProviderOutcome,
     // § 11 — cifras reales de dos rondas, sólo si la modalidad corrió.
     ...buildTwoRoundOutcome(pipelineResult),
+    // A1-APOLLO-PERSISTENCE-READINESS-4 § 7/§ 8 — se envía siempre que exista,
+    // también cuando todo fue bien: la UI resuelve la causa de mayor prioridad a
+    // partir de estas cifras en vez de inferirla de un conteo.
+    ...(persistenceOutcome !== null ? { persistenceOutcome } : {}),
   };
 }
 

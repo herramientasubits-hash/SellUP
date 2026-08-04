@@ -46,6 +46,7 @@ import type {
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-indicator';
 import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
+import type { WizardPersistenceOutcome } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
 // A1-APOLLO-QA-CONTROL-SURFACE-1 — superficie administrativa de proveedor por
 // corrida. La capacidad la resuelve el servidor; aquí sólo se guarda la elección
 // del administrador y se envía como PETICIÓN.
@@ -271,6 +272,13 @@ export function ProspectChatWizard({
   // UI no afirma ninguna causa concreta.
   const [noNewCandidatesBreakdown, setNoNewCandidatesBreakdown] =
     React.useState<NoNewCandidatesBreakdown | null>(null);
+
+  // ── PERSISTENCE-READINESS-4 § 8 · resultado REAL de la escritura ────────────
+  // Gana sobre historial y calidad al resolver el copy: un fallo de
+  // almacenamiento no es una razón de historial y pedirle al usuario que repita
+  // la búsqueda le costaría los créditos otra vez.
+  const [persistenceOutcome, setPersistenceOutcome] =
+    React.useState<WizardPersistenceOutcome | null>(null);
 
   // ── Indicador de proveedor de búsqueda ──────────────────────────────────────
   // Reducción pura de las señales del backend: el proveedor resuelto POR CORRIDA
@@ -629,6 +637,9 @@ export function ProspectChatWizard({
       if (result.ok && result.noNewCandidatesBreakdown) {
         setNoNewCandidatesBreakdown(result.noNewCandidatesBreakdown);
       }
+      if (result.ok && result.persistenceOutcome) {
+        setPersistenceOutcome(result.persistenceOutcome);
+      }
 
       if (result.ok) {
         dispatch({
@@ -764,6 +775,7 @@ export function ProspectChatWizard({
                 showApolloTwoRoundStages={willRunApolloTwoRound}
                 twoRoundOutcome={twoRoundOutcome}
                 noNewCandidatesBreakdown={noNewCandidatesBreakdown}
+                persistenceOutcome={persistenceOutcome}
               />
             ) : (
               <WizardActiveStep

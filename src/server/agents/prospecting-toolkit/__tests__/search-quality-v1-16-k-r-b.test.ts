@@ -37,6 +37,7 @@ import { LINKEDIN_COMPANY_SEARCH_FLAG } from '@/lib/feature-flags.server';
 import type { LinkedInSearchOverride } from '../candidate-writer';
 import type { CandidateWriterInput, CandidateWriterOutput } from '../types';
 import type { IncrementalSearchInput } from '../incremental-search-types';
+import { noCandidatePersistenceFailures } from '../prospect-candidate-persistence-readiness';
 
 const CHECKED_AT = '2026-06-26T10:00:00.000Z';
 const BATCH_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -288,6 +289,9 @@ function makeCapturingWriter(captured: { args: CapturedWriterArgs | null }) {
       skipped: [],
       status: 'success',
       errors: [],
+      // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — el contrato del writer exige las
+      // cifras de persistencia; este doble no ejercita fallos de escritura.
+      persistence: noCandidatePersistenceFailures(),
     };
   };
 }
