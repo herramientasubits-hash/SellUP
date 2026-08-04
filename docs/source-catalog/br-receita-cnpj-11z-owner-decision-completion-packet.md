@@ -983,3 +983,27 @@ formal answer to § 13's third instruction: a copy of § 6, § 7 or § 8 filed w
 outside the approval surface, is not an intake. This packet's `official` status is carried into 12A § 6 with
 the accompanying statement that it changes nothing about the decisions described here, and 12A § 12 adds two
 implication bars pointing at its own document and pull request.
+
+---
+
+## 21. Update (BR-SOURCE-12B)
+
+BR-SOURCE-12B creates an owner completion resubmission packet. It defines what owners must resubmit after 12A
+found that no owner-completed intake was received. Current result remains NO-GO because no owner resubmission
+has been received, no owner decision was captured and no approval is granted. It does not approve GATE-2. It
+does not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output
+roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12b-owner-completion-resubmission-packet.md`](./br-receita-cnpj-12b-owner-completion-resubmission-packet.md).
+
+It completes no field in this packet and flips no status in it. All fifty-one owner-supplied fields in § 6,
+§ 7 and § 8 still read `TBD_BY_OWNER`, all eight supporting references in § 9 remain missing, all eleven rows
+in § 5 still read `Can this packet complete it? = no`, all fourteen lines in § 10 read `no`, all twenty-two
+lines in § 11 remain unauthorized, all eight gates in § 17 remain unapproved, and the § 14 recommended
+decision to keep NO-GO is unchanged.
+
+12B reprints this packet's three forms and its supporting form a third time, relabelling only the first field
+of each as a resubmission status, and it adds no field, removes none and widens no allowed value. § 13's third
+instruction — that owners must not copy this packet with its placeholders into an approval record — is the one
+12B converts from an instruction into a rejection ground, on the reasoning that a placeholder copy presented
+as a correction is harder to spot than a placeholder copy presented as a submission. § 15's conditional is
+restated literally: owners supplied no completed fields, so 12B remains NO-GO.

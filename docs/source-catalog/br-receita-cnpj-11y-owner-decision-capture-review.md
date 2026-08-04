@@ -1008,3 +1008,26 @@ decision artifact per 11X § 8 before its contents matter, so that a document me
 cannot be accepted as one. It also carries § 11's implication rules forward with two further entries pointing
 at its own document and pull request, and it restates § 16's conditional literally: no owner-completed fields
 were provided, so 12A remains NO-GO.
+
+---
+
+## 23. Update (BR-SOURCE-12B)
+
+BR-SOURCE-12B creates an owner completion resubmission packet. It defines what owners must resubmit after 12A
+found that no owner-completed intake was received. Current result remains NO-GO because no owner resubmission
+has been received, no owner decision was captured and no approval is granted. It does not approve GATE-2. It
+does not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output
+roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12b-owner-completion-resubmission-packet.md`](./br-receita-cnpj-12b-owner-completion-resubmission-packet.md).
+
+It flips no status in this document. All ten inventory rows in § 5 still block controlled execution, all
+fifty-one owner-supplied fields across 11X § 5, § 6 and § 7 still read `TBD_BY_OWNER`, all eight supporting
+references in § 10 remain missing, all twenty-two lines in § 12 remain unauthorized, all eight gates in § 18
+remain unapproved, and the § 15 recommended decision to keep NO-GO is unchanged.
+
+§ 4's seven-step method is neither applied nor replaced by 12B, and for the reason 12A recorded: its Step 1 —
+was an owner-completed record provided? — still fails, so Steps 2 through 7 still have no subject. What 12B
+adds sits beside that method rather than inside it: a list of grounds on which an arriving resubmission is
+rejected, each of which restates a constraint already binding under 11X § 4, 11T, 11S § 6 or 11I. § 15's
+sequencing observation is carried forward unchanged, with legal/privacy/security escalation now named as the
+highest-value next action by seven consecutive milestones.

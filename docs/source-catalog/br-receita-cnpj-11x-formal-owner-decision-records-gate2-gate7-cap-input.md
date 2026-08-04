@@ -836,3 +836,27 @@ captured and cited by identifier before its fields matter — which is why a fil
 sitting in a repository directory, a pull request or a message is not an intake. Zero of the three records were
 received, so no rule in § 4 was exercised, and § 9's dependency stands unchanged: three valid and official
 records would still not authorize execution, which remains a separate decision under the 11V § 17 phrase.
+
+---
+
+## 22. Update (BR-SOURCE-12B)
+
+BR-SOURCE-12B creates an owner completion resubmission packet. It defines what owners must resubmit after 12A
+found that no owner-completed intake was received. Current result remains NO-GO because no owner resubmission
+has been received, no owner decision was captured and no approval is granted. It does not approve GATE-2. It
+does not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output
+roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12b-owner-completion-resubmission-packet.md`](./br-receita-cnpj-12b-owner-completion-resubmission-packet.md).
+
+It fills no field in the three records and flips no status in this document. All fifty-one owner-supplied
+fields across § 5, § 6 and § 7 still read `TBD_BY_OWNER`, all fourteen lines in § 12 read `no`, all
+twenty-two lines in § 11 remain unauthorized, all eight gates in § 16 remain unapproved, and § 13's
+recommendation is unchanged.
+
+§ 4's ten validity rules are the authority 12B's rejection criteria are downstream of: each criterion names a
+concrete way a resubmission could fail one of the ten, none adds a rule, and where a criterion appears to
+differ from § 4, § 4 governs. § 8's requirement that a valid record is captured where approvals are captured
+and cited here by identifier is the reason 12B fills nothing in — a field completed inside the repository
+would produce an unapproved draft that reads like an approval. § 9's dependency stands unchanged: three valid
+and official records would still not authorize execution, which remains a separate decision under the
+11V § 17 phrase.

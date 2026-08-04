@@ -915,3 +915,21 @@ unfilled. § 8's Option F therefore remains the area where a unit of effort move
 consecutive milestone to reach that conclusion without the escalation being requested from anyone with the
 authority to make it — and it still requires its own separate owner phrase. 12A's own next-step phrase would
 authorize preparing a resubmission packet, not an execution attempt, and 12A does not recommend using it.
+
+---
+
+## 30. Update (BR-SOURCE-12B)
+
+BR-SOURCE-12B creates an owner completion resubmission packet. It defines what owners must resubmit after 12A
+found that no owner-completed intake was received. Current result remains NO-GO because no owner resubmission
+has been received, no owner decision was captured and no approval is granted. It does not approve GATE-2. It
+does not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output
+roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12b-owner-completion-resubmission-packet.md`](./br-receita-cnpj-12b-owner-completion-resubmission-packet.md).
+
+It clears no blocker in this record. BLOCKER-8 remains open, and 12B is the seventh consecutive milestone to
+name the legal/privacy/security escalation as the area where a unit of effort moves the most without that
+escalation being requested from anyone with the authority to make it. 12B's own next-step phrase would
+authorize an intake review of a resubmission, not an execution attempt, and § 15 of that packet does not
+recommend using it — it records that a resubmission which does arrive can already be reviewed under 12A § 4
+and 11Y § 4 as they stand.
