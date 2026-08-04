@@ -26,6 +26,7 @@ import {
   passingAssessment,
   ambiguousAssessment,
   rejectedAssessment,
+  simulatedEffectiveRequestBuilder,
 } from './fixtures';
 
 // ─── Arnés ────────────────────────────────────────────────────────────────────
@@ -45,6 +46,9 @@ function harness(options: {
   const recorder: Recorder = { searchCalls: [], enrichCalls: [] };
 
   const deps: ApolloTwoRoundDeps = {
+    // HARDENING-3 § 6 — dependencia SIMULADA y explícita. El orquestador es
+    // fail-closed: sin ella no habría ronda 2 y estos casos no podrían existir.
+    buildRoundProviderRequest: simulatedEffectiveRequestBuilder(),
     searchRound: async ({ roundNumber, requestedResultLimit, operationContext }): Promise<RoundSearchOutcome> => {
       recorder.searchCalls.push({
         roundNumber,

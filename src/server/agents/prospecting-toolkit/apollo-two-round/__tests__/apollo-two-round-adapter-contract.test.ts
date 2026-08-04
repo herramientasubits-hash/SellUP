@@ -622,6 +622,41 @@ describe('§ 5 · el provider envía el per_page del modo, no el de la variable 
         (pagination['effective_request_fingerprint'] as string).includes('page=1'),
       'la huella efectiva lleva la página',
     );
+    // HARDENING-3 § 2 — la huella declarada como ENVIADA se recalcula desde el body
+    // que salió, no desde el ancla idempotente con `page=1`.
+    assert.ok(
+      typeof pagination['effective_request_fingerprint_sent'] === 'string' &&
+        (pagination['effective_request_fingerprint_sent'] as string).includes('page=1'),
+    );
+  });
+
+  test('pidiendo la página 2, la invariante sigue cierta y AMBAS huellas dicen página 2', async () => {
+    /**
+     * HARDENING-3 § 2 — la prueba que el criterio anterior no podía dar.
+     *
+     * Con la comparación vieja (`filtersFingerprint`, que excluye la página) este
+     * caso también salía `true`, pero por la razón equivocada: la huella comparada
+     * no sabía en qué página estaba. Ahora las dos son página-inclusivas, así que un
+     * `true` aquí significa de verdad «se envió la página que se construyó».
+     */
+    const { output } = await runProvider(
+      {
+        resultLimitMode: 'two_round',
+        twoRoundMaxResultsPerRound: 5,
+        startPage: 2,
+        sectorGateMode: 'annotate',
+      },
+      '3',
+    );
+
+    const metadata = (output.metadata ?? {}) as Record<string, unknown>;
+    const pagination = metadata['apollo_pagination'] as Record<string, unknown>;
+
+    assert.equal(pagination['effective_request_fingerprint_matches_sent'], true);
+    for (const key of ['effective_request_fingerprint', 'effective_request_fingerprint_sent']) {
+      const value = pagination[key];
+      assert.ok(typeof value === 'string' && value.includes('page=2'), `${key} debe llevar page=2`);
+    }
   });
 
   test('el tope duro del proveedor manda sobre el límite de dos rondas', async () => {

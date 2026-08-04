@@ -72,6 +72,7 @@ import {
   resolveApolloResultLimit,
   toApolloContractFilters,
   toApolloEffectiveRequestMetadata,
+  verifyApolloEffectiveRequestMatchesSent,
   type ApolloEffectiveRequest,
   type ApolloResultLimitMode,
   type ApolloResultLimitResolution,
@@ -843,6 +844,13 @@ export async function runApolloOrganizationsSearch(
     },
   );
 
+  // HARDENING-3 § 2 — el veredicto se calcula con la función canónica, no con una
+  // comparación suelta que pueda elegir la huella equivocada.
+  const effectiveRequestMatch = verifyApolloEffectiveRequestMatchesSent({
+    builtFingerprint: effective.effectiveRequestFingerprint,
+    sentFingerprint: paginated.effectiveRequestFingerprintSent,
+  });
+
   // Trazabilidad de paginación y cuota — sin secretos, sin PII.
   const apolloPaginationMetadata = {
     pages_processed: paginated.pagesProcessed,
@@ -857,13 +865,17 @@ export async function runApolloOrganizationsSearch(
     total_entries: paginated.paginationMeta.totalEntries,
     total_pages: paginated.paginationMeta.totalPages,
     request_fingerprint: paginated.requestFingerprint,
-    // QUERY-QUALITY-2-FIX § 1 — invariante observable: la huella que se calculó
-    // ANTES de ejecutar es la del body que la paginación realmente construyó. Si
-    // alguna vez dejaran de coincidir, la decisión de la ronda 2 estaría mirando
-    // un request que no es el que salió.
+    // HARDENING-3 § 2 — invariante observable: la huella EFECTIVA que se calculó
+    // ANTES de ejecutar es la del body que realmente salió, `page` incluida.
+    //
+    // Antes esto comparaba `filtersFingerprint` —que excluye la página— contra el
+    // ancla de la paginación, así que construir la página 1 y enviar la página 2
+    // seguía declarando `true`. Ahora las dos huellas son página-inclusivas y
+    // salen de la misma función canónica.
     effective_request_fingerprint: effective.effectiveRequestFingerprint,
-    effective_request_fingerprint_matches_sent:
-      effective.filtersFingerprint === paginated.requestFingerprint,
+    effective_request_fingerprint_sent: effectiveRequestMatch.sentFingerprint,
+    // `null` cuando ninguna petición salió: ausencia no es discrepancia.
+    effective_request_fingerprint_matches_sent: effectiveRequestMatch.matchesSent,
     indeterminate_pages: paginated.indeterminatePages,
     rejected_forbidden_params: paginated.rejectedForbiddenParams,
     rejected_unknown_params: paginated.rejectedUnknownParams,

@@ -93,10 +93,11 @@ import {
 
 import type { ApolloTwoRoundQueryHypothesis } from './query-hypothesis';
 import {
+  createApolloTwoRoundProductionOrchestratorDeps,
   runApolloTwoRoundDiscovery,
   toApolloTwoRoundResumeState,
   type ApolloTwoRoundCheckpointSnapshot,
-  type ApolloTwoRoundDeps,
+  type ApolloTwoRoundProductionOrchestratorDeps,
   type ApolloTwoRoundResumeState,
   type ApolloTwoRoundRunResult,
   type CheapAssessment,
@@ -837,7 +838,10 @@ export async function runApolloTwoRoundWizardDiscovery(
     return { searchInput, searchOptions, effective };
   };
 
-  const orchestratorDeps: ApolloTwoRoundDeps = {
+  // HARDENING-3 § 6 — la ruta de producción NO puede configurarse sin el constructor
+  // del request efectivo: el tipo lo exige en compilación y la factory en runtime.
+  const orchestratorDeps: ApolloTwoRoundProductionOrchestratorDeps =
+    createApolloTwoRoundProductionOrchestratorDeps({
     // § 2 — el orquestador compara los bodies efectivos de las dos rondas sin
     // emitir una sola llamada: cero créditos, cero filas de uso.
     buildRoundProviderRequest: ({ hypothesis, requestedResultLimit }) => {
@@ -1191,7 +1195,7 @@ export async function runApolloTwoRoundWizardDiscovery(
     },
 
     saveCheckpoint: (snapshot) => persistCheckpoint(snapshot),
-  };
+  });
 
   const runResult: ApolloTwoRoundRunResult = await runApolloTwoRoundDiscovery(
     {

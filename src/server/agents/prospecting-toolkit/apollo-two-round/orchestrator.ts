@@ -60,6 +60,7 @@ import {
 import {
   buildEmptyRoundMetrics,
   buildRunMetrics,
+  type ApolloEffectiveRequestBuildStatus,
   type ApolloTwoRoundRoundMetrics,
   type ApolloTwoRoundRunMetrics,
   type EnrichmentOutcome,
@@ -181,14 +182,32 @@ export type RoundProviderRequestPreview = {
   effectiveKeywordTags: readonly string[];
 };
 
+/**
+ * HARDENING-3 § 4 — resultado de intentar construir el request efectivo de una
+ * ronda, con la causa cuando no se pudo.
+ *
+ * Sustituye al `preview | null` anterior: un null sin causa hacía indistinguibles
+ * "no hay constructor", "el constructor lanzó" y "el checkpoint es antiguo", y las
+ * tres tenían el mismo efecto silencioso — caer a la huella de hipótesis y
+ * autorizar una segunda llamada pagada cuya diversidad nadie había probado.
+ */
+export type RoundEffectiveRequestBuild = {
+  status: ApolloEffectiveRequestBuildStatus;
+  /** Non-null si y sólo si `status === 'success'`. */
+  preview: RoundProviderRequestPreview | null;
+  /** Código sanitizado. Non-null sólo en `build_error`. */
+  errorCode: string | null;
+};
+
 export type ApolloTwoRoundDeps = {
   /**
    * § 2 — construye el request efectivo de una ronda SIN emitir la llamada.
    *
-   * Ausente ⇒ el orquestador cae a la huella de HIPÓTESIS para decidir la ronda 2.
-   * Es lo que hacen las suites puras que sólo ejercitan la lógica de rondas;
-   * producción siempre la inyecta, porque sólo el body efectivo prueba que una
-   * segunda búsqueda puede traer algo nuevo.
+   * Ausente ⇒ la ronda 2 NO se ejecuta (§ 3 del HARDENING-3): sin body efectivo no
+   * hay prueba de que una segunda búsqueda pueda traer algo nuevo, y la huella de
+   * hipótesis no sirve para autorizar gasto. Las suites puras que necesiten dos
+   * rondas deben inyectar una dependencia simulada EXPLÍCITA; producción la exige
+   * por tipo y en runtime (`createApolloTwoRoundProductionOrchestratorDeps`).
    */
   buildRoundProviderRequest?: (input: {
     roundNumber: number;
@@ -240,6 +259,39 @@ export type ApolloTwoRoundDeps = {
     checkpoint: ApolloTwoRoundCheckpointSnapshot,
   ) => Promise<boolean> | boolean;
 };
+
+/**
+ * HARDENING-3 § 6 — dependencias de la ruta de PRODUCCIÓN: el constructor del
+ * request efectivo es OBLIGATORIO.
+ *
+ * En `ApolloTwoRoundDeps` sigue siendo opcional porque las suites puras y los
+ * consumidores legacy no atraviesan la capa de producción. Pero producción no puede
+ * ni compilar ni ejecutar dos rondas sin él: una corrida real que decidiera la
+ * ronda 2 sin body efectivo estaría autorizando un cargo sobre una diversidad no
+ * demostrada.
+ */
+export type ApolloTwoRoundProductionOrchestratorDeps = ApolloTwoRoundDeps &
+  Required<Pick<ApolloTwoRoundDeps, 'buildRoundProviderRequest'>>;
+
+/** Error que levanta la factory cuando falta el constructor efectivo. */
+export const APOLLO_TWO_ROUND_PRODUCTION_BUILDER_REQUIRED =
+  'apollo_two_round_production_requires_effective_request_builder' as const;
+
+/**
+ * § 6 — puerta única de la ruta de producción.
+ *
+ * El tipo ya lo exige en compilación; esto lo exige además en runtime, para que un
+ * objeto construido dinámicamente (o un `as` de conveniencia) no pueda colarse.
+ * Falla ruidoso ANTES de emitir una sola llamada: cero créditos gastados.
+ */
+export function createApolloTwoRoundProductionOrchestratorDeps(
+  deps: ApolloTwoRoundProductionOrchestratorDeps,
+): ApolloTwoRoundProductionOrchestratorDeps {
+  if (typeof deps.buildRoundProviderRequest !== 'function') {
+    throw new Error(APOLLO_TWO_ROUND_PRODUCTION_BUILDER_REQUIRED);
+  }
+  return deps;
+}
 
 /**
  * Lo que el orquestador entrega en cada checkpoint.
@@ -296,6 +348,25 @@ export type SecondRoundSkippedReason =
    */
   | 'identical_provider_request'
   /**
+   * HARDENING-3 § 3 — una de las dos huellas EFECTIVAS no se pudo construir (no hay
+   * constructor, o lanzó, o no devolvió nada).
+   *
+   * Es fail-closed a propósito: sin las dos huellas no se puede demostrar que la
+   * ronda 2 pediría algo distinto, y una diversidad no demostrada no autoriza un
+   * segundo cargo. NO se sustituye por «las hipótesis difieren»: esa comparación es
+   * exactamente la que dejó pasar la ronda 2 pagada del QA `edb6f40c`.
+   */
+  | 'effective_request_fingerprint_unavailable'
+  /**
+   * HARDENING-3 § 5 — la ronda 1 se rehidrató de un checkpoint escrito antes de que
+   * la huella efectiva existiera.
+   *
+   * La ronda 1 y su gasto se conservan intactos; lo único que se prohíbe es una
+   * ronda 2 nueva. El campo NO se rellena con la huella de hipótesis, ni se emite
+   * una llamada para «reconstruirlo»: eso sería pagar por un dato de auditoría.
+   */
+  | 'legacy_checkpoint_missing_effective_fingerprint'
+  /**
    * Código heredado del hito anterior. Se conserva SÓLO para poder rehidratar un
    * checkpoint escrito antes de este cambio; ninguna corrida nueva lo emite.
    */
@@ -321,6 +392,15 @@ export type ApolloTwoRoundRunResult = {
   /** Código estático cuando el objetivo no se alcanzó. Null cuando sí. */
   partialResultReason: 'partial_target_not_reached' | null;
   secondRoundSkippedReason: SecondRoundSkippedReason | null;
+  /**
+   * HARDENING-3 § 7 — resultado de la comparación de huellas EFECTIVAS.
+   *
+   * `true` ⇒ la ronda 2 pedía algo distinto y se ejecutó. `false` ⇒ pedía lo mismo
+   * (`identical_provider_request`). `null` ⇒ la comparación no se pudo hacer: no se
+   * llegó a ella, o una de las dos huellas no estaba disponible. Nunca `false` para
+   * un valor desconocido.
+   */
+  effectiveFingerprintsAreDistinct: boolean | null;
 
   /** Empresas que se persisten, en orden de calidad. */
   persisted: AccumulatedCompany[];
@@ -512,6 +592,42 @@ function isEligible(
   return rejection === null && sectorEvidenceState === 'sector_evidence_confirmed';
 }
 
+/**
+ * HARDENING-3 § 4 — código de error SANITIZADO del constructor efectivo.
+ *
+ * Sólo el nombre de la clase de error, y sólo si es un identificador plano. Nunca el
+ * mensaje, la traza, la API key ni el payload: este código viaja a metadata
+ * persistible y a `provider_usage_logs`.
+ */
+export function sanitizeEffectiveRequestBuildErrorCode(err: unknown): string {
+  const name = err instanceof Error ? err.name : typeof err;
+  const safe = /^[A-Za-z0-9_]{1,40}$/.test(name) ? name : 'unknown';
+  return `effective_request_build_threw:${safe}`;
+}
+
+/**
+ * HARDENING-3 § 5 — normaliza una ronda rehidratada de un checkpoint.
+ *
+ * Un checkpoint escrito antes de este hito no tiene `effectiveRequestBuildStatus`.
+ * Se le estampa `legacy_checkpoint_missing` para que la decisión de la ronda 2 pueda
+ * nombrar la causa exacta. Lo que NO se hace: rellenar `effectiveProviderFingerprint`
+ * con la huella de hipótesis. Sus resultados, su gasto y sus métricas se conservan
+ * exactamente como estaban.
+ */
+function normalizeRestoredRoundMetrics(
+  round: ApolloTwoRoundRoundMetrics,
+): ApolloTwoRoundRoundMetrics {
+  if (round.effectiveRequestBuildStatus !== undefined) return { ...round };
+  return {
+    ...round,
+    effectiveRequestBuildStatus:
+      round.effectiveProviderFingerprint === null || round.effectiveProviderFingerprint === undefined
+        ? 'legacy_checkpoint_missing'
+        : 'success',
+    effectiveRequestBuildErrorCode: round.effectiveRequestBuildErrorCode ?? null,
+  };
+}
+
 function tallyRejection(
   metrics: ApolloTwoRoundRoundMetrics,
   reason: CheapRejectionReason,
@@ -577,7 +693,11 @@ export async function runApolloTwoRoundDiscovery(
     seenRegistry = registerSeenOrganization(seenRegistry, identity);
   }
   const tracked: TrackedCandidate[] = (resume?.candidates ?? []).map((c) => ({ ...c }));
-  const roundMetrics: ApolloTwoRoundRoundMetrics[] = (resume?.rounds ?? []).map((r) => ({ ...r }));
+  // § 5 — las rondas rehidratadas declaran si su huella efectiva es verificable o si
+  // vienen de un checkpoint anterior a este hito. Sin backfill de la huella.
+  const roundMetrics: ApolloTwoRoundRoundMetrics[] = (resume?.rounds ?? []).map(
+    normalizeRestoredRoundMetrics,
+  );
   const enrichmentSelections: EnrichmentSelection[] = [];
   const enrichmentSkips: EnrichmentSkip[] = [];
   const observedRejectionReasons = new Set<CheapRejectionReason>(
@@ -609,6 +729,11 @@ export async function runApolloTwoRoundDiscovery(
   );
   let secondRoundSkippedReason: SecondRoundSkippedReason | null =
     resume?.secondRoundSkippedReason ?? null;
+  /**
+   * § 7 — sólo se fija cuando la comparación de huellas efectivas se hizo de verdad.
+   * Mientras siga en null, nadie comparó nada.
+   */
+  let effectiveFingerprintsAreDistinct: boolean | null = null;
 
   const eligibleCount = (): number => tracked.filter((c) => c.eligible).length;
 
@@ -716,22 +841,47 @@ export async function runApolloTwoRoundDiscovery(
   const hasIndeterminateOperation = (): boolean => indeterminateOperations.length > 0;
 
   /**
-   * § 2 — request efectivo de una ronda, sin ejecutarla.
+   * § 2 y § 4 — request efectivo de una ronda, sin ejecutarla, con la CAUSA cuando
+   * no se pudo construir.
    *
-   * Nunca lanza: un constructor que falla deja la decisión sin la huella efectiva,
-   * y el respaldo de hipótesis es más pobre pero no cuesta créditos. Lo que NO
-   * puede pasar es que un fallo aquí tumbe una corrida que ya gastó.
+   * Nunca lanza: un fallo aquí no puede tumbar la ronda 1 ya ejecutada ni el wizard
+   * completo, porque el resultado parcial sigue siendo seguro de devolver. Lo único
+   * que impide es una segunda llamada cuya diversidad no se pueda demostrar.
+   *
+   * Lo que ya NO hace: devolver `null` a secas. El estado viaja con el dato, así que
+   * la decisión económica no puede confundir "no hay constructor" con "las dos
+   * rondas piden lo mismo".
    */
-  const previewProviderRequest = (
+  const buildRoundEffectiveRequest = (
     roundNumber: number,
     hypothesis: ApolloTwoRoundQueryHypothesis,
     requestedResultLimit: number,
-  ): RoundProviderRequestPreview | null => {
-    if (!deps.buildRoundProviderRequest) return null;
+  ): RoundEffectiveRequestBuild => {
+    if (!deps.buildRoundProviderRequest) {
+      return { status: 'unavailable_dependency', preview: null, errorCode: null };
+    }
     try {
-      return deps.buildRoundProviderRequest({ roundNumber, hypothesis, requestedResultLimit });
-    } catch {
-      return null;
+      const preview = deps.buildRoundProviderRequest({
+        roundNumber,
+        hypothesis,
+        requestedResultLimit,
+      });
+      if (preview === null || typeof preview.effectiveRequestFingerprint !== 'string') {
+        // El constructor existe y no produjo huella: es un fallo de construcción,
+        // no una dependencia ausente. Nombrarlo distinto importa para el diagnóstico.
+        return {
+          status: 'build_error',
+          preview: null,
+          errorCode: 'effective_request_builder_returned_no_fingerprint',
+        };
+      }
+      return { status: 'success', preview, errorCode: null };
+    } catch (err: unknown) {
+      return {
+        status: 'build_error',
+        preview: null,
+        errorCode: sanitizeEffectiveRequestBuildErrorCode(err),
+      };
     }
   };
 
@@ -763,18 +913,36 @@ export async function runApolloTwoRoundDiscovery(
     const requestedResultLimit = config.maxResultsPerRound;
 
     let hypothesis: ApolloTwoRoundQueryHypothesis;
-    let requestPreview: RoundProviderRequestPreview | null = null;
+    let effectiveBuild: RoundEffectiveRequestBuild;
     if (roundNumber === 1) {
       hypothesis = buildRound1Hypothesis(queryContext, requestedResultLimit);
-      requestPreview = previewProviderRequest(1, hypothesis, requestedResultLimit);
+      effectiveBuild = buildRoundEffectiveRequest(1, hypothesis, requestedResultLimit);
     } else {
       const round1Metrics = roundMetrics.find((m) => m.roundNumber === 1) ?? null;
       const providerTotalPages = round1Metrics?.providerTotalPages ?? null;
-      // Huella de HIPÓTESIS de la ronda 1: sólo se usa como respaldo cuando no hay
-      // constructor de request efectivo (suites puras). Nunca como criterio
-      // preferente: es la comparación que dejó pasar la ronda 2 del QA `edb6f40c`.
+      // Huella de HIPÓTESIS de la ronda 1: SÓLO diagnóstico y observabilidad. Ya no
+      // participa en la decisión económica — era la comparación que dejó pasar la
+      // ronda 2 pagada del QA `edb6f40c`.
       const round1HypothesisFingerprint = round1Metrics?.providerRequestFingerprint ?? null;
       const round1EffectiveFingerprint = round1Metrics?.effectiveProviderFingerprint ?? null;
+      const round1BuildStatus: ApolloEffectiveRequestBuildStatus =
+        round1Metrics?.effectiveRequestBuildStatus ?? 'legacy_checkpoint_missing';
+
+      /**
+       * § 3 y § 5 — sin huella efectiva de la ronda 1 no hay ronda 2.
+       *
+       * Se distingue la causa: un checkpoint antiguo (§ 5) no es lo mismo que un
+       * constructor ausente o roto (§ 3). Ninguna de las dos se resuelve emitiendo
+       * una llamada para «reconstruir» el dato, ni sustituyendo la huella efectiva
+       * por la de hipótesis. La ronda 1, sus resultados y su gasto se conservan.
+       */
+      if (round1EffectiveFingerprint === null) {
+        secondRoundSkippedReason =
+          round1BuildStatus === 'legacy_checkpoint_missing'
+            ? 'legacy_checkpoint_missing_effective_fingerprint'
+            : 'effective_request_fingerprint_unavailable';
+        break;
+      }
 
       let round2: ApolloRound2Hypothesis = buildRound2Hypothesis(
         queryContext,
@@ -788,51 +956,51 @@ export async function runApolloTwoRoundDiscovery(
         },
         requestedResultLimit,
       );
-      let round2Preview = previewProviderRequest(2, round2, requestedResultLimit);
+      let round2Build = buildRoundEffectiveRequest(2, round2, requestedResultLimit);
 
       /**
-       * § 1 — ¿la ronda 2 enviaría lo MISMO que la ronda 1?
+       * § 1 y § 3 — la ronda 2 sólo se autoriza cuando AMBAS huellas efectivas
+       * existen y son distintas.
        *
-       * Con request efectivo disponible se comparan los bodies: es lo único que
-       * prueba que una segunda búsqueda no puede traer nada nuevo, porque la
-       * prioridad y el truncamiento a `MAX_KEYWORDS` pueden colapsar dos hipótesis
-       * distintas en el mismo request. Sin él se cae a la huella de hipótesis, que
-       * es lo que las suites puras pueden ofrecer.
+       * `null` no significa "distintas": significa que no se puede afirmar nada. Es
+       * la diferencia entre no gastar y gastar sobre una suposición.
        */
-      const sendsSameRequest = (
-        candidate: ApolloRound2Hypothesis,
-        preview: RoundProviderRequestPreview | null,
-      ): boolean => {
-        if (preview !== null && round1EffectiveFingerprint !== null) {
-          return preview.effectiveRequestFingerprint === round1EffectiveFingerprint;
-        }
-        return (
-          !candidate.differsFromRound1 ||
-          (round1HypothesisFingerprint !== null &&
-            round1HypothesisFingerprint === candidate.providerRequestFingerprint)
-        );
-      };
+      const compareEffective = (
+        build: RoundEffectiveRequestBuild,
+      ): boolean | null =>
+        build.preview === null
+          ? null
+          : build.preview.effectiveRequestFingerprint !== round1EffectiveFingerprint;
 
       // § 4 — cuando el body efectivo colapsó al de la ronda 1, la ÚNICA variante
       // que queda es otra página, y sólo si el proveedor declaró que existe. Pedir
       // una página no declarada es pagar por una respuesta vacía.
       if (
-        sendsSameRequest(round2, round2Preview) &&
+        compareEffective(round2Build) === false &&
         round2.queryParameters.page === 1 &&
         providerTotalPages !== null &&
         providerTotalPages >= 2
       ) {
         round2 = withRequestedPage(round2, 2, round1HypothesisFingerprint);
-        round2Preview = previewProviderRequest(2, round2, requestedResultLimit);
+        round2Build = buildRoundEffectiveRequest(2, round2, requestedResultLimit);
       }
 
-      if (sendsSameRequest(round2, round2Preview)) {
+      const distinct = compareEffective(round2Build);
+      if (distinct === null) {
+        // La ronda 2 no se pudo construir: su diversidad es indemostrable.
+        effectiveFingerprintsAreDistinct = null;
+        secondRoundSkippedReason = 'effective_request_fingerprint_unavailable';
+        break;
+      }
+      effectiveFingerprintsAreDistinct = distinct;
+      if (!distinct) {
         secondRoundSkippedReason = 'identical_provider_request';
         break;
       }
       hypothesis = round2;
-      requestPreview = round2Preview;
+      effectiveBuild = round2Build;
     }
+    const requestPreview = effectiveBuild.preview;
 
     // § 2 — el contexto completo, no sólo el digest: la ronda y el sujeto viajan
     // hasta la fila económica.
@@ -852,6 +1020,9 @@ export async function runApolloTwoRoundDiscovery(
         // § 10 — la huella EFECTIVA queda registrada por ronda. Es la que la ronda
         // siguiente compara y la que el próximo QA puede auditar.
         effectiveRequestFingerprint: requestPreview?.effectiveRequestFingerprint ?? null,
+        // HARDENING-3 § 4 y § 7 — y la CAUSA cuando falta, sanitizada.
+        effectiveRequestBuildStatus: effectiveBuild.status,
+        effectiveRequestBuildErrorCode: effectiveBuild.errorCode,
         page: requestPreview?.page ?? hypothesis.queryParameters.page,
         perPage: requestPreview?.perPage ?? null,
         specificTermsSent: hypothesis.queryParameters.keywordTags,
@@ -1249,6 +1420,7 @@ export async function runApolloTwoRoundDiscovery(
     targetReached,
     partialResultReason: targetReached ? null : 'partial_target_not_reached',
     secondRoundSkippedReason,
+    effectiveFingerprintsAreDistinct,
     persisted,
     notPersisted,
     rounds: roundMetrics,
@@ -1260,6 +1432,7 @@ export async function runApolloTwoRoundDiscovery(
       totalSearchCredits,
       totalEnrichmentCredits,
       enrichmentOutcomes,
+      effectiveFingerprintsAreDistinct,
     }),
     enrichmentSelections,
     enrichmentSkips,
