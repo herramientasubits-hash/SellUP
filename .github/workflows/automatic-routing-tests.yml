@@ -24,10 +24,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # AGENT2A-PHONE-WATERFALL-4F: Node 24, la versión con la que se desarrolla.
+      # Con Node 20, `mock.module()` no resuelve los alias `@/…` de tsconfig, así que
+      # TODA suite de UI que mockee un módulo por alias falla con ERR_MODULE_NOT_FOUND
+      # — no por un defecto del código, sino del runner. Era invisible mientras ninguna
+      # suite jsdom corría en CI; al entrar las del teléfono, dejó de serlo. Los nueve
+      # pasos que ya existían se verificaron uno a uno en Node 24 antes de este cambio.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
