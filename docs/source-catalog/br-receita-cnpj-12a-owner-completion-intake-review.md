@@ -985,3 +985,28 @@ Zero of three records were received, all fifty-one owner-supplied fields across 
 read `TBD_BY_OWNER`, all eight supporting references in § 10 are missing, all eleven intake artifacts in § 5
 read `not_received / missing`, all nine areas in § 6 read `no`, all six lines in § 11 report absence or NO-GO,
 all twenty-four lines in § 13 remain unauthorized, and all eight gates in § 18 remain unapproved.
+
+---
+
+## 21. Update (BR-SOURCE-12B)
+
+BR-SOURCE-12B creates an owner completion resubmission packet. It defines what owners must resubmit after 12A
+found that no owner-completed intake was received. Current result remains NO-GO because no owner resubmission
+has been received, no owner decision was captured and no approval is granted. It does not approve GATE-2. It
+does not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output
+roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12b-owner-completion-resubmission-packet.md`](./br-receita-cnpj-12b-owner-completion-resubmission-packet.md).
+
+It flips no status in this review. All eleven intake artifacts in § 5 still read `not_received / missing`, all
+nine areas in § 6 still read `no`, all eight supporting references in § 10 remain missing, all six lines in
+§ 11 still report absence, all twenty-four lines in § 13 remain unauthorized, all eight gates in § 18 remain
+unapproved, and the § 15 recommended decision to keep NO-GO is unchanged.
+
+The relationship to § 4's seven-step intake gate is the one thing a later reader should get right. 12B does
+**not** replace that gate and does not re-run it; a resubmission still enters through Step 1 and Step 2 here,
+and 12B's own rules feed it rather than substitute for it. 12B's single piece of new content is a
+reviewer-facing list of rejection grounds, which restates constraints already binding under 11X § 4, 11T,
+11S § 6, 11I and § 4 above without adding a rule to any of them. § 16's characterization of 12B was accurate:
+its subject is the same fifty-one fields and the same eight references, and a completed submission could have
+been reviewed under § 4 and 11Y § 4 without it. Two new negative status lines record that no resubmission has
+arrived either.

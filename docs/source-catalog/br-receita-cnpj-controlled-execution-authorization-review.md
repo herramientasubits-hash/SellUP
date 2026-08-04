@@ -935,3 +935,22 @@ place for a self-declared approval to be recorded as though received, so 12A's a
 arriving artifact to be official and cited by identifier before its contents are read at all. § 8 Option C's
 escalation remains the step that changes the most, unchanged by this review and still requiring its own
 separate owner phrase.
+
+---
+
+## 27. Update (BR-SOURCE-12B)
+
+BR-SOURCE-12B creates an owner completion resubmission packet. It defines what owners must resubmit after 12A
+found that no owner-completed intake was received. Current result remains NO-GO because no owner resubmission
+has been received, no owner decision was captured and no approval is granted. It does not approve GATE-2. It
+does not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output
+roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12b-owner-completion-resubmission-packet.md`](./br-receita-cnpj-12b-owner-completion-resubmission-packet.md).
+
+It flips no item in this review. § 6's `satisfied / informational only` rows still bind nobody, § 13's
+distinction between a synthetic scaffold exercise and a human-performed rehearsal is carried into 12B as a
+rejection ground rather than only as commentary, and § 14's stop conditions remain the literal basis on which
+an agent must refuse the § 17 phrase while any of its items stands. § 17's controlled execution attempt
+authorization is listed in 12B below a boundary in three separate sections so that a reader who closes the
+items above it does not conclude that it follows. § 8 Option C's escalation remains the step that changes the
+most, unchanged by this packet and still requiring its own separate owner phrase.

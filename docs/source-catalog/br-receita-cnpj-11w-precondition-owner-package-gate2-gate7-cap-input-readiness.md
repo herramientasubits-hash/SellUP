@@ -894,3 +894,23 @@ cite; § 8's block on inferring a temp-storage decision from scaffold behavior; 
 rows, which keep the legal/privacy/security reference unsatisfiable inside this chain. § 5's role labels —
 including the joint technical-owner and privacy-owner pairing GATE-2 requires — remain the assignment nobody
 has made, and 12A records both the operator and the reviewer as `not_received / missing`.
+
+---
+
+## 25. Update (BR-SOURCE-12B)
+
+BR-SOURCE-12B creates an owner completion resubmission packet. It defines what owners must resubmit after 12A
+found that no owner-completed intake was received. Current result remains NO-GO because no owner resubmission
+has been received, no owner decision was captured and no approval is granted. It does not approve GATE-2. It
+does not approve GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output
+roots, temp storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12b-owner-completion-resubmission-packet.md`](./br-receita-cnpj-12b-owner-completion-resubmission-packet.md).
+
+It flips no readiness row in this package. § 6's `not_ready` evidence rows, § 7's twelve `not_ready` GATE-7
+rows including the missing frozen sanitizer contract, § 8's unselected temp storage option and § 12's nine
+`not_ready` legal, privacy and security rows are all carried into 12B unchanged, and they remain the reason
+two GATE-2 fields cannot be filled by any amount of owner diligence. § 5's role labels — including the joint
+technical-owner and privacy-owner pairing GATE-2 requires — remain the assignment nobody has made, and 12B
+records both the operator and the reviewer as `not_received / missing`. § 15's identification of
+legal/privacy/security escalation as the highest-value next action is restated, now for the seventh
+consecutive milestone, without the escalation having been requested from anyone with the authority to make it.
