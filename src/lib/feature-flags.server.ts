@@ -505,10 +505,22 @@ export const PHONE_REVEAL_WATERFALL_FLAG = 'ENABLE_PHONE_REVEAL_WATERFALL';
  * Returns true when ENABLE_PHONE_REVEAL_WATERFALL is exactly "true"
  * (case-insensitive, leading/trailing whitespace ignored).
  *
- * Default: false, fail-closed. NOT configured in any environment as of
- * AGENT2A-PHONE-WATERFALL-1, and never a NEXT_PUBLIC_* flag: it is resolved
- * server-side and travels to the client only as a plain boolean prop, exactly
- * like `isApolloPhoneRevealEnabled` / `isLushaPhoneRevealFallbackEnabled`.
+ * Default: false, fail-closed. Nunca es un flag `NEXT_PUBLIC_*`: se resuelve
+ * server-side y viaja al cliente solo como booleano, igual que
+ * `isApolloPhoneRevealEnabled` / `isLushaPhoneRevealFallbackEnabled`.
+ *
+ * PRESENCIA (verificado 2026-08-04, AGENT2A-PHONE-REVEAL-UI-STATE-1): la variable
+ * SÍ está registrada en el entorno Production de Vercel. El texto anterior decía
+ * «NOT configured in any environment as of AGENT2A-PHONE-WATERFALL-1» y dejó de ser
+ * cierto.
+ *
+ * Estar registrada NO significa estar encendida: el registro es `Encrypted`, así que
+ * su valor es ilegible desde el código y desde `vercel env ls`, y cualquier valor que
+ * no sea exactamente `"true"` deja el waterfall APAGADO. Confirmar el estado real
+ * exige runtime: GET /api/debug/agent2a-phone-waterfall-config (admin-only) publica
+ * `phone_reveal_waterfall_flag_configured` y
+ * `phone_reveal_waterfall_enabled_resolved` por separado justamente para que
+ * «listada» y «activa» no se confundan. No dar por supuesto ninguno de los dos.
  *
  * What it turns on: ONE operator click on "Revelar teléfono" authorizes a
  * two-leg reveal — Apollo first and, only if Apollo terminates as
