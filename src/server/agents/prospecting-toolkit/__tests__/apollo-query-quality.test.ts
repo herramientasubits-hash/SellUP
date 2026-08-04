@@ -22,9 +22,11 @@ import {
 import {
   evaluateApolloFreeSectorContradiction,
   listApolloSubindustrySearchMappings,
+  matchesApolloSubindustryAlias,
   resolveApolloSubindustrySearchMapping,
   resolveFirstApolloSubindustrySearchMapping,
 } from '../apollo-subindustry-search-mapping';
+import { resolveSectorSignalSet } from '../apollo-two-round/query-hypothesis';
 import { resolveApolloResultLimit } from '../web-search-providers/apollo-organizations-search-provider';
 import { normalizeApolloOrganizationsResponse } from '../apollo-organizations-response-normalizer';
 import { evaluateApolloEnrichmentEligibility } from '../apollo-enrichment-eligibility-gate';
@@ -42,6 +44,11 @@ import {
   QA_WIZARD_SELECTION,
   toQaSearchResult,
 } from './fixtures/apollo-qa-batch-edb6f40c';
+import {
+  GENERIC_NAMES_THAT_MUST_NOT_MATCH,
+  SELLUP_ACTIVE_SUBINDUSTRY_NAMES,
+  SELLUP_SUBINDUSTRY_WITH_APOLLO_MAPPING,
+} from './fixtures/sellup-subindustry-catalog-names';
 
 // ─── Ayudas ───────────────────────────────────────────────────────────────────
 
@@ -270,6 +277,216 @@ describe('§ 2 · mapping explícito de subindustrias', () => {
     assert.equal(resolveApolloSubindustrySearchMapping(''), null);
     assert.equal(resolveApolloSubindustrySearchMapping(null), null);
     assert.equal(resolveFirstApolloSubindustrySearchMapping([]), null);
+  });
+});
+
+// ─── § 8: el emparejamiento de alias no puede ser ancho ───────────────────────
+
+describe('§ 8 · un término genérico no arrastra una subindustria entera', () => {
+  test('el nombre canónico empareja', () => {
+    const mapping = resolveApolloSubindustrySearchMapping('Supermercados e Hipermercados');
+    assert.ok(mapping);
+    assert.equal(mapping.canonicalSubindustry, 'Supermercados e Hipermercados');
+  });
+
+  test('un alias explícito completo empareja: «Supermercados»', () => {
+    const mapping = resolveApolloSubindustrySearchMapping('Supermercados');
+    assert.ok(mapping, 'está configurado como alias explícito');
+    assert.equal(mapping.canonicalSubindustry, 'Supermercados e Hipermercados');
+  });
+
+  test('un alias de dos o más palabras empareja dentro de un nombre más largo', () => {
+    for (const input of [
+      'Supermercados e Hipermercados (Retail)',
+      'Retail — Supermercados e Hipermercados',
+      'Grocery Retail B2B',
+    ]) {
+      const mapping = resolveApolloSubindustrySearchMapping(input);
+      assert.ok(mapping, `"${input}" debería resolver`);
+      assert.equal(mapping.canonicalSubindustry, 'Supermercados e Hipermercados');
+    }
+  });
+
+  /**
+   * El defecto que cierra el § 8. La contención bidireccional anterior —
+   * `normalized.includes(alias) || alias.includes(normalized)` — hacía que
+   * `retail` cupiera dentro del alias `grocery retail`, `alimentos` dentro de
+   * `retail de alimentos` y `food` dentro de `food retail`. Tres sectores genéricos
+   * heredaban así los términos y las contradicciones de los supermercados, y esas
+   * son decisiones que cuestan créditos.
+   */
+  test('11-12. «Retail» y «Alimentos» NO mapean a supermercados', () => {
+    assert.equal(resolveApolloSubindustrySearchMapping('Retail'), null);
+    assert.equal(resolveApolloSubindustrySearchMapping('retail'), null);
+    assert.equal(resolveApolloSubindustrySearchMapping('Alimentos'), null);
+    assert.equal(resolveApolloSubindustrySearchMapping('alimentos'), null);
+  });
+
+  test('«Food» tampoco mapea', () => {
+    assert.equal(resolveApolloSubindustrySearchMapping('Food'), null);
+    assert.equal(resolveApolloSubindustrySearchMapping('food'), null);
+  });
+
+  test('ningún nombre genérico resuelve a supermercados', () => {
+    for (const generic of GENERIC_NAMES_THAT_MUST_NOT_MATCH) {
+      assert.equal(
+        resolveApolloSubindustrySearchMapping(generic),
+        null,
+        `"${generic}" no puede resolver a una subindustria del catálogo`,
+      );
+    }
+  });
+
+  /**
+   * `grocery` SÍ empareja, y sólo por IGUALDAD: está configurado como alias
+   * explícito completo, que es la única excepción que el § 8 admite. Lo que ya no
+   * puede es aparecer dentro de otro nombre y arrastrar la subindustria.
+   */
+  test('«grocery» empareja sólo por igualdad con el alias explícito', () => {
+    assert.equal(matchesApolloSubindustryAlias('grocery', 'grocery'), true);
+    assert.equal(matchesApolloSubindustryAlias('grocery delivery b2b', 'grocery'), false);
+    assert.equal(matchesApolloSubindustryAlias('food', 'food retail'), false);
+    assert.equal(matchesApolloSubindustryAlias('retail', 'grocery retail'), false);
+  });
+
+  test('un alias de una palabra no se busca dentro de la entrada', () => {
+    // `supermercado` es alias explícito: empareja consigo mismo y con nada más.
+    assert.equal(matchesApolloSubindustryAlias('supermercado', 'supermercado'), true);
+    assert.equal(
+      matchesApolloSubindustryAlias('proveedores de supermercado', 'supermercado'),
+      false,
+      'un proveedor de supermercados no es un supermercado',
+    );
+  });
+
+  test('el emparejamiento es por palabras completas, no por substring', () => {
+    assert.equal(matchesApolloSubindustryAlias('supermercadoss', 'supermercados'), false);
+    assert.equal(matchesApolloSubindustryAlias('groceryretail', 'grocery retail'), false);
+  });
+
+  /**
+   * § 8 — reejecución contra el catálogo REAL de 73 subindustrias.
+   *
+   * Un solo match esperado, y ninguno inesperado. Congelado en fixture: la suite no
+   * consulta la base de datos.
+   */
+  test('el catálogo real de 73 subindustrias produce exactamente un match', () => {
+    assert.equal(
+      SELLUP_ACTIVE_SUBINDUSTRY_NAMES.length,
+      73,
+      'el fixture debe reflejar el catálogo activo completo',
+    );
+
+    const matched = SELLUP_ACTIVE_SUBINDUSTRY_NAMES.filter(
+      (name) => resolveApolloSubindustrySearchMapping(name) !== null,
+    );
+
+    assert.deepEqual(
+      matched,
+      [SELLUP_SUBINDUSTRY_WITH_APOLLO_MAPPING],
+      `matches inesperados: ${JSON.stringify(matched)}`,
+    );
+  });
+
+  test('las subindustrias con «Retail» o «Alimentos» en el nombre no se contaminan', () => {
+    // Casos reales del catálogo que la contención ancha ponía en riesgo.
+    for (const name of [
+      'Farmacias Cadena y Retail de Salud',
+      'Operadores Omnicanal y Ecommerce Retail',
+      'Retailers Especializados',
+      'Fabricantes de Alimentos y Bebidas (FMCG)',
+      'Tiendas por Departamento, Moda y Calzado',
+    ]) {
+      assert.equal(
+        resolveApolloSubindustrySearchMapping(name),
+        null,
+        `"${name}" es otro negocio y no puede heredar los términos de supermercados`,
+      );
+    }
+  });
+
+  test('el conjunto de señales del sector tampoco resuelve supermercados desde un genérico', () => {
+    // La capa de hipótesis tiene su propio catálogo sectorial. Un genérico puede
+    // resolver el SECTOR, nunca la subindustria de supermercados.
+    for (const generic of ['Retail', 'Alimentos', 'Food']) {
+      const resolved = resolveSectorSignalSet(generic, null);
+      assert.notEqual(
+        resolved?.matchedKey,
+        'supermercados e hipermercados',
+        `"${generic}" no puede resolver el conjunto de señales de supermercados`,
+      );
+    }
+  });
+});
+
+// ─── § 9: no queda una segunda fuente de prioridad ────────────────────────────
+
+describe('§ 9 · el builder de keywords legacy fue eliminado', () => {
+  test('13. `buildApolloKeywords` ya no se exporta', async () => {
+    const mappingModule = await import('../apollo-organizations-query-mapping');
+    assert.equal(
+      'buildApolloKeywords' in mappingModule,
+      false,
+      'un segundo builder de prioridad sin consumidores es una segunda política esperando',
+    );
+  });
+
+  test('la implementación tampoco queda en el archivo', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const source = readFileSync(
+      join(process.cwd(), 'src/server/agents/prospecting-toolkit/apollo-organizations-query-mapping.ts'),
+      'utf-8',
+    );
+
+    assert.equal(
+      /export function buildApolloKeywords/.test(source),
+      false,
+      'la implementación debe estar borrada, no sólo el export',
+    );
+    assert.equal(
+      /function buildApolloKeywords/.test(source),
+      false,
+      'tampoco puede quedar como función privada',
+    );
+  });
+
+  test('ningún archivo del repo lo importa ni lo llama', async () => {
+    const { execFileSync } = await import('node:child_process');
+    // El patrón se compone en tiempo de ejecución para que este archivo no lo
+    // contenga literalmente y se encuentre a sí mismo.
+    const needle = `${'buildApolloKeywords'}\\(`;
+    // `grep` devuelve 1 sin coincidencias: eso es exactamente lo que se espera.
+    let output = '';
+    try {
+      output = execFileSync('grep', ['-rnE', '--include=*.ts', '--include=*.tsx', needle, 'src'], {
+        cwd: process.cwd(),
+        encoding: 'utf-8',
+      });
+    } catch {
+      output = '';
+    }
+    assert.equal(output.trim(), '', `quedan llamadas al helper eliminado:\n${output}`);
+  });
+
+  test('la fuente canónica de prioridad sigue siendo una sola', () => {
+    const result = buildPrioritizedApolloKeywords({
+      industry: QA_WIZARD_SELECTION.industry,
+      subindustries: [...QA_WIZARD_SELECTION.subindustries],
+      additionalCriteriaTokens: [],
+    });
+
+    // La prioridad del § 1: subindustria primero, genéricos como mucho dos y sólo
+    // si sobra cupo. Es la única política que queda en el repo.
+    assert.equal(result.matchedSubindustry, 'Supermercados e Hipermercados');
+    assert.ok(result.sectorTokensUsed.length <= MAX_GENERIC_KEYWORD_SLOTS);
+    for (const generic of GENERIC_RETAIL_SIGNALS) {
+      assert.equal(
+        lower(result.keywords).includes(generic),
+        false,
+        `"${generic}" no puede desplazar una señal de subindustria`,
+      );
+    }
   });
 });
 
@@ -580,5 +797,83 @@ describe('§ 9 · billing_state de las filas de Search', () => {
         process.env.ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS = previous;
       }
     }
+  });
+
+  // ── § 11: columna y metadata no pueden contradecirse ───────────────────────
+  //
+  // El contrato aprobado no cambia. Lo que se añade son regresiones: con las
+  // columnas encendidas los dos sitios dicen `recorded`; con el flag apagado la
+  // metadata sigue diciendo `recorded` y la columna simplemente no se escribe. Lo
+  // que NUNCA puede ocurrir es que digan cosas distintas.
+
+  test('con columnas activas, columna y metadata declaran el mismo billing_state', () => {
+    const previous = process.env.ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS;
+    process.env.ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS = 'true';
+    try {
+      // La fila que se inserta es la composición de ambas piezas, igual que en
+      // `realLogApolloOrgsUsage`: columnas de correlación + fila base.
+      const inserted = {
+        ...buildCorrelationColumns(searchMetadata),
+        ...buildProviderUsageLogRow({
+          provider_key: 'apollo',
+          operation_key: 'organizations_search',
+          metadata: searchMetadata,
+        } as never),
+      } as Record<string, unknown>;
+      const metadata = inserted['metadata'] as Record<string, unknown>;
+
+      assert.equal(metadata['provider_usage_billing_state'], 'recorded');
+      assert.equal(inserted['billing_state'], 'recorded');
+      assert.equal(
+        inserted['billing_state'],
+        metadata['provider_usage_billing_state'],
+        'columna y metadata no pueden contradecirse',
+      );
+    } finally {
+      if (previous === undefined) delete process.env.ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS;
+      else process.env.ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS = previous;
+    }
+  });
+
+  test('con el flag apagado la metadata declara recorded y la columna queda ausente', () => {
+    const previous = process.env.ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS;
+    delete process.env.ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS;
+    try {
+      const inserted = {
+        ...buildCorrelationColumns(searchMetadata),
+        ...buildProviderUsageLogRow({
+          provider_key: 'apollo',
+          operation_key: 'organizations_search',
+          metadata: searchMetadata,
+        } as never),
+      } as Record<string, unknown>;
+      const metadata = inserted['metadata'] as Record<string, unknown>;
+
+      assert.equal(metadata['provider_usage_billing_state'], 'recorded');
+      assert.equal(
+        'billing_state' in inserted,
+        false,
+        'fail-closed: ausente no es una contradicción, es una columna no escrita',
+      );
+    } finally {
+      if (previous !== undefined) {
+        process.env.ENABLE_PROVIDER_USAGE_CORRELATION_COLUMNS = previous;
+      }
+    }
+  });
+
+  test('la ruta de dos rondas no introduce un segundo criterio de billing_state', () => {
+    // Misma metadata, mismo resolutor, con y sin contexto de operación de ronda.
+    const withRoundContext = {
+      ...searchMetadata,
+      round_number: 2,
+      operation_id: 'operation-2',
+      operation_subject: 'subject-2',
+    };
+
+    assert.equal(
+      resolveProviderUsageBillingState(withRoundContext),
+      resolveProviderUsageBillingState(searchMetadata),
+    );
   });
 });

@@ -26,7 +26,7 @@
  *   2. Genera packs ordenados P0 (más específico) → P2 (más amplio).
  *   3. buildApolloOrganizationsSearchParams recibe packIndex (default 0 = P0).
  *   4. El pack seleccionado determina qKeywords → q_organization_keyword_tags[] Apollo.
- *   5. Fallback: si no hay packs, usa buildApolloKeywords (L2.7) como antes.
+ *   5. Fallback: si no hay pack aplicable, buildPrioritizedApolloKeywords (§ 1).
  *   6. País siempre en organization_locations — nunca en tags.
  *   7. q_organization_name vacío — Apollo lo interpreta como nombre exacto de empresa.
  *   8. organization_num_employees_ranges: solo si targetEmployeeThreshold está en input.
@@ -262,119 +262,21 @@ export function getSectorKeywords(sector: string | null | undefined): string[] {
   return [sector.trim()];
 }
 
-// ─── Keyword builder (L2.7) ───────────────────────────────────────────────────
+// ─── Prioridad de términos (QUERY-QUALITY-2 § 1) ──────────────────────────────
 
+/** Posiciones que la consulta puede llevar. Techo de Apollo para esta ruta. */
 const MAX_KEYWORDS = 5;
 
 /**
- * Construye el array final de keywords para Apollo q_keywords.
+ * QUERY-QUALITY-2-FIX § 9 — `buildApolloKeywords` (L2.7/L2.8) ya no existe.
  *
- * Prioridad:
- *   1. Subindustria keywords (máx MAX_KEYWORDS, SUBINDUSTRY_KEYWORD_MAP).
- *   2. Si hay subindustria pero no alcanza MAX_KEYWORDS → completar con sector keywords.
- *   3. Si no hay subindustria → usar solo sector keywords.
- *   4. additionalCriteriaTokens → agregar al final si hay cupo disponible.
- *      - Si el token ya está cubierto conceptualmente → merged_duplicate (no ignored).
- *      - Si no hay cupo → ignored (no_room).
- *
- * País nunca entra en este array — va en organization_locations.
- *
- * L2.8: Distingue merged_duplicate de ignored para diagnóstico preciso.
+ * Llenaba las cinco posiciones con el catálogo del sector ANTES de mirar la
+ * subindustria o lo que el usuario escribió: es exactamente la prioridad que la
+ * corrida QA `edb6f40c` demostró equivocada. Desde el § 1 la única fuente de
+ * prioridad es `buildPrioritizedApolloKeywords`, y se borró en vez de dejarse
+ * exportada: un segundo builder sin consumidores es una segunda política esperando
+ * a que alguien la vuelva a llamar.
  */
-export function buildApolloKeywords(opts: {
-  industry: string | null | undefined;
-  subindustries: string[];
-  additionalCriteriaTokens: string[];
-}): {
-  keywords: string[];
-  subindustryKeywordsUsed: string[];
-  sectorKeywordsUsed: string[];
-  ignoredAdditionalCriteriaTokens: string[];
-  /** L2.8: tokens ya cubiertos conceptualmente por las keywords seleccionadas. */
-  mergedDuplicateAdditionalCriteriaTokens: string[];
-  /** L2.8: tokens del criterio adicional realmente insertados en keywords. */
-  usedAdditionalCriteriaTokens: string[];
-  relevanceStrategy: 'subindustry_specific' | 'sector_specific_keywords' | 'query_fallback';
-} {
-  const { industry, subindustries, additionalCriteriaTokens } = opts;
-
-  // Recolectar keywords de subindustrias (primera que tenga mapping gana, luego acumula)
-  const subindustryKeywords: string[] = [];
-  for (const sub of subindustries) {
-    const kws = getSubindustryKeywords(sub);
-    for (const kw of kws) {
-      if (!subindustryKeywords.includes(kw)) subindustryKeywords.push(kw);
-    }
-  }
-
-  const sectorKeywords = getSectorKeywords(industry);
-
-  let keywords: string[] = [];
-  let relevanceStrategy: 'subindustry_specific' | 'sector_specific_keywords' | 'query_fallback';
-  let subindustryKeywordsUsed: string[];
-  let sectorKeywordsUsed: string[];
-
-  if (subindustryKeywords.length > 0) {
-    // Prioridad 1: subindustria
-    keywords = subindustryKeywords.slice(0, MAX_KEYWORDS);
-    subindustryKeywordsUsed = keywords;
-    // Completar con sector si hay cupo
-    if (keywords.length < MAX_KEYWORDS) {
-      const remaining = MAX_KEYWORDS - keywords.length;
-      const sectorFill = sectorKeywords.filter(k => !keywords.includes(k)).slice(0, remaining);
-      keywords = [...keywords, ...sectorFill];
-      sectorKeywordsUsed = sectorFill;
-    } else {
-      sectorKeywordsUsed = [];
-    }
-    relevanceStrategy = 'subindustry_specific';
-  } else if (sectorKeywords.length > 0) {
-    // Prioridad 2: sector
-    keywords = sectorKeywords.slice(0, MAX_KEYWORDS);
-    subindustryKeywordsUsed = [];
-    sectorKeywordsUsed = keywords;
-    relevanceStrategy = 'sector_specific_keywords';
-  } else {
-    // Sin mapping sectorial ni subindustrial
-    subindustryKeywordsUsed = [];
-    sectorKeywordsUsed = [];
-    relevanceStrategy = 'query_fallback';
-  }
-
-  // Prioridad 3: additionalCriteriaTokens — solo si hay cupo
-  // L2.8: Distinguir tokens ya cubiertos (merged_duplicate) de tokens sin cupo (ignored).
-  const usedTokens: string[] = [];
-  const ignoredTokens: string[] = [];
-  const mergedDuplicateTokens: string[] = [];
-  for (const token of additionalCriteriaTokens) {
-    const normalizedToken = normalizeKey(token);
-    const alreadyCovered = keywords.some(k => normalizeKey(k).includes(normalizedToken) || normalizedToken.includes(normalizeKey(k)));
-    if (alreadyCovered) {
-      // Token ya cubierto conceptualmente: no agregar, pero NO es "ignored" — es merged.
-      mergedDuplicateTokens.push(token);
-      continue;
-    }
-    if (keywords.length < MAX_KEYWORDS) {
-      keywords.push(token);
-      usedTokens.push(token);
-    } else {
-      // Sin cupo — genuinamente ignorado.
-      ignoredTokens.push(token);
-    }
-  }
-
-  return {
-    keywords,
-    subindustryKeywordsUsed,
-    sectorKeywordsUsed,
-    ignoredAdditionalCriteriaTokens: ignoredTokens,
-    mergedDuplicateAdditionalCriteriaTokens: mergedDuplicateTokens,
-    usedAdditionalCriteriaTokens: usedTokens,
-    relevanceStrategy,
-  };
-}
-
-// ─── Prioridad de términos (QUERY-QUALITY-2 § 1) ──────────────────────────────
 
 /**
  * Posiciones que se reservan para señales específicas (subindustria + intención

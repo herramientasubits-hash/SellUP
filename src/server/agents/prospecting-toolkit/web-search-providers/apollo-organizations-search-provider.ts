@@ -8,7 +8,7 @@
  *   ENABLE_APOLLO_COMPANY_SEARCH=true            → llamada real a Apollo con guardrails duros.
  *
  * Guardrails (real-limited):
- *   MAX_APOLLO_ORGANIZATIONS_PER_RUN    = 10  orgs como máximo por invocación.
+ *   APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS = 10  orgs como máximo por invocación.
  *   MAX_APOLLO_ORGANIZATIONS_CREDITS    = 10  créditos estimados máximos por invocación.
  *   1 organización retornada = 1 crédito estimado.
  *
@@ -37,7 +37,6 @@ import {
   type ApolloOrganization,
   type EnrichOrganizationParams,
   type ApolloEnrichResult,
-  type SearchOrganizationsParams,
 } from '@/server/integrations/apollo-client';
 import {
   runApolloOrganizationEnrichmentCascade,
@@ -63,10 +62,20 @@ import {
   APOLLO_LEGACY_BILLING_CONTRACT,
   APOLLO_TWO_ROUND_BILLING_CONTRACT,
 } from '../apollo-usage-operation-context';
+import { APOLLO_QUERY_MAPPING_VERSION } from '../apollo-organizations-query-mapping';
+// QUERY-QUALITY-2-FIX § 1/§ 2 — constructor ÚNICO del request efectivo y de su
+// huella. Construir y ejecutar quedan separados: el orquestador de dos rondas
+// compara bodies sin emitir una llamada, y este provider ejecuta el MISMO body.
 import {
-  buildApolloOrganizationsSearchParams,
-  APOLLO_QUERY_MAPPING_VERSION,
-} from '../apollo-organizations-query-mapping';
+  APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS,
+  buildApolloOrganizationsEffectiveRequest,
+  resolveApolloResultLimit,
+  toApolloContractFilters,
+  toApolloEffectiveRequestMetadata,
+  type ApolloEffectiveRequest,
+  type ApolloResultLimitMode,
+  type ApolloResultLimitResolution,
+} from '../apollo-organizations-effective-request';
 import { resolveApolloMaxResultsPerQuery } from '../apollo-cost-guardrails';
 // A1-APOLLO-WIZARD-1 — paginación acotada, normalización con prioridad de
 // `organizations[]`, taxonomía de errores y lectura de cuota real.
@@ -92,7 +101,6 @@ import {
   type ApolloErrorClassification,
 } from '../apollo-organizations-error-taxonomy';
 import { toRateLimitLogMetadata } from '@/server/integrations/apollo-rate-limit-headers';
-import type { ApolloOrganizationsRequestInput } from '../apollo-organizations-request-contract';
 import { applyApolloSectorRelevanceGate } from '../apollo-sector-relevance-gate';
 import { ingestApolloOrganizationIndustryRawLabels } from '@/modules/industry-mapping/apollo-industry-raw-label-ingestion';
 import { normalizeClassificationValue } from '@/modules/prospect-batches/import-classification/catalog-normalization';
@@ -213,90 +221,46 @@ export type ApolloOrganizationsUsageMetadata = {
 
 // ─── Guardrails ───────────────────────────────────────────────────────────────
 
-const MAX_APOLLO_ORGANIZATIONS_PER_RUN = 10;
 const MAX_APOLLO_ORGANIZATIONS_CREDITS = 10;
 const APOLLO_ORGANIZATIONS_UNIT_COST_USD = 0.00875;
 
-/** Tope duro del proveedor. Ninguna modalidad puede superarlo. */
-export const APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS = MAX_APOLLO_ORGANIZATIONS_PER_RUN;
-
-export type ApolloResultLimitResolution = {
-  cap: number;
-  wasCapped: boolean;
-  maxResultsCapSource: string;
-  /** Límite de la ruta legacy, resuelto. Diagnóstico, no necesariamente aplicado. */
-  legacyMaxResultsPerQuery: number;
-  /** Límite por ronda de la modalidad de dos rondas. Null fuera de ella. */
-  twoRoundMaxResultsPerRound: number | null;
-  limitMode: ApolloResultLimitMode;
+/**
+ * QUERY-QUALITY-2-FIX § 1 — el límite efectivo y el request efectivo los resuelve
+ * `apollo-organizations-effective-request`, no este archivo.
+ *
+ * Se reexportan para no romper a los consumidores que ya los importan de aquí,
+ * pero la implementación es UNA: la que gobierna la llamada real es exactamente la
+ * que el orquestador usa para decidir si una segunda ronda vale un crédito.
+ */
+export {
+  APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS,
+  resolveApolloResultLimit,
+  buildApolloOrganizationsEffectiveRequest,
+};
+export type {
+  ApolloEffectiveRequest,
+  ApolloResultLimitMode,
+  ApolloResultLimitResolution,
 };
 
 /**
- * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 5 — frontera entre el límite legacy y el
- * de dos rondas.
+ * Construye el request EFECTIVO de esta invocación sin ejecutarlo.
  *
- * El defecto observado: la modalidad de dos rondas pide 5 por ronda, pero
- * `AGENT1_APOLLO_MAX_RESULTS_PER_QUERY=3` —una variable de la ruta legacy— la
- * recortaba a 3 sin decirlo, y el objetivo de cinco empresas quedaba
- * estructuralmente inalcanzable.
- *
- * Reglas:
- *   - `legacy`:    min(pedido, AGENT1_APOLLO_MAX_RESULTS_PER_QUERY, tope duro).
- *   - `two_round`: min(maxResultsPerRound de la config de dos rondas, tope duro).
- *     La variable legacy NO participa. Bajar el límite de dos rondas exige su
- *     propia variable (`AGENT1_APOLLO_MAX_RESULTS_PER_ROUND`), que la config ya
- *     resolvió antes de llegar aquí.
- *
- * Puro salvo la lectura de la variable legacy, que se inyecta en los tests.
+ * § 2 — construir y ejecutar son dos pasos. El orquestador de dos rondas llama al
+ * primero para comparar rondas sin gastar; este provider llama al primero y luego
+ * al segundo. No hay una segunda implementación del mapeo.
  */
-export function resolveApolloResultLimit(input: {
-  requested: number;
-  mode?: ApolloResultLimitMode;
-  twoRoundMaxResultsPerRound?: number | null;
-  legacyMaxResultsPerQuery: number;
-}): ApolloResultLimitResolution {
-  const legacy = input.legacyMaxResultsPerQuery;
-  const mode: ApolloResultLimitMode = input.mode ?? 'legacy';
-
-  if (mode === 'two_round') {
-    const perRound =
-      typeof input.twoRoundMaxResultsPerRound === 'number' &&
-      Number.isFinite(input.twoRoundMaxResultsPerRound) &&
-      input.twoRoundMaxResultsPerRound > 0
-        ? Math.floor(input.twoRoundMaxResultsPerRound)
-        : input.requested;
-    const cap = Math.max(1, Math.min(perRound, MAX_APOLLO_ORGANIZATIONS_PER_RUN));
-    return {
-      cap,
-      wasCapped: cap < input.requested,
-      maxResultsCapSource:
-        cap < input.requested ? 'agent1_apollo_two_round_max_results_per_round' : 'none',
-      legacyMaxResultsPerQuery: legacy,
-      twoRoundMaxResultsPerRound: perRound,
-      limitMode: mode,
-    };
-  }
-
-  // Two-layer cap: env-configurable QA guardrail first, then hard provider limit.
-  const cap = Math.min(input.requested, legacy, MAX_APOLLO_ORGANIZATIONS_PER_RUN);
-  return {
-    cap,
-    wasCapped: cap < input.requested,
-    maxResultsCapSource: cap < input.requested ? 'agent1_apollo_cost_guardrail' : 'none',
-    legacyMaxResultsPerQuery: legacy,
-    twoRoundMaxResultsPerRound: null,
-    limitMode: mode,
-  };
-}
-
-function cappedMaxResults(
+function buildEffectiveRequestForCall(
+  input: WebSearchInput,
   requested: number,
   options?: ApolloOrgsSearchOptions,
-): ApolloResultLimitResolution {
-  return resolveApolloResultLimit({
-    requested,
-    mode: options?.resultLimitMode,
+): ApolloEffectiveRequest {
+  return buildApolloOrganizationsEffectiveRequest({
+    input,
+    requestedMaxResults: requested,
+    resultLimitMode: options?.resultLimitMode,
     twoRoundMaxResultsPerRound: options?.twoRoundMaxResultsPerRound ?? null,
+    startPage: options?.startPage ?? null,
     legacyMaxResultsPerQuery: resolveApolloMaxResultsPerQuery(),
   });
 }
@@ -593,17 +557,6 @@ export type ApolloOrgsSearchDeps = {
  */
 export type ApolloSectorGateMode = 'filter' | 'annotate';
 
-/**
- * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 5 — qué límite gobierna `per_page`.
- *
- * `legacy` es el comportamiento histórico y el de todos los llamadores previos:
- * `AGENT1_APOLLO_MAX_RESULTS_PER_QUERY` recorta la petición.
- * `two_round` usa el límite propio de la modalidad
- * (`AGENT1_APOLLO_MAX_RESULTS_PER_ROUND`, ya resuelto en su config), porque una
- * variable de la ruta legacy no puede reducir en silencio el modo nuevo.
- */
-export type ApolloResultLimitMode = 'legacy' | 'two_round';
-
 export type ApolloOrgsSearchOptions = {
   sectorGateMode?: ApolloSectorGateMode;
   /** Ausente ⇒ `legacy`. */
@@ -661,21 +614,12 @@ function adaptSearchOrgsToPage(
 }
 
 /**
- * Traduce los params del mapper de query a los filtros tipados del contrato de
- * request. `page` y `per_page` los gobierna el presupuesto de paginación, no el
- * mapper, así que se descartan aquí a propósito.
+ * QUERY-QUALITY-2-FIX § 1 — traductor ÚNICO de params del mapper a filtros del
+ * contrato. Vive en `apollo-organizations-effective-request` y se reexpone aquí
+ * sólo por compatibilidad: una segunda copia local permitiría que la huella que se
+ * compara y el body que se envía salieran de dos traducciones distintas.
  */
-function buildPaginatedSearchFilters(
-  params: SearchOrganizationsParams,
-): Omit<ApolloOrganizationsRequestInput, 'page' | 'perPage'> {
-  return {
-    locations: params.organization_locations ?? null,
-    employeeRanges: params.organization_num_employees_ranges ?? null,
-    keywordTags: params.q_organization_keyword_tags ?? null,
-    organizationName: params.q_organization_name ?? null,
-    domainsList: params.q_organization_domains ?? null,
-  };
-}
+const buildPaginatedSearchFilters = toApolloContractFilters;
 
 /**
  * Convierte la organización normalizada a la forma `ApolloOrganization` que
@@ -782,10 +726,14 @@ export async function runApolloOrganizationsSearch(
     };
   }
 
-  // ── Guardrail: cap de resultados (env + hard limit) ─────────────────────────
-  // § 5 — en modo `two_round` el límite lo fija la config de la modalidad, no la
-  // variable legacy: una variable de la ruta vieja no puede recortar la nueva.
-  const resultLimit = cappedMaxResults(maxResults, options);
+  // ── Request EFECTIVO: límite, prioridad de términos, truncamiento y página ──
+  //
+  // § 1/§ 2 — una sola construcción. `effective.body` es literalmente lo que sale
+  // hacia Apollo, y `effective.effectiveRequestFingerprint` la huella que la
+  // decisión económica de la ronda 2 compara. § 5 — en modo `two_round` el límite
+  // lo fija la config de la modalidad, no la variable legacy.
+  const effective = buildEffectiveRequestForCall(input, maxResults, options);
+  const resultLimit = effective.limit;
   const { cap, wasCapped, maxResultsCapSource } = resultLimit;
 
   const startMs = Date.now();
@@ -835,25 +783,21 @@ export async function runApolloOrganizationsSearch(
     }
   }
 
-  // ── Construir params estructurados Apollo (v1.16K-AA) ───────────────────────
-  // Usa q_keywords (búsqueda libre) en lugar de q_organization_name (nombre exacto).
-  // organization_locations recibe el país como filtro estructurado.
-  const { params: apolloParams, meta: mappingMeta } = buildApolloOrganizationsSearchParams(
-    input,
-    cap,
-  );
+  // ── Params estructurados Apollo, ya resueltos por el request efectivo ───────
+  // Usa q_organization_keyword_tags (no q_organization_name, que exige nombre
+  // exacto). organization_locations recibe el país como filtro estructurado.
+  const apolloParams = effective.params;
+  const mappingMeta = effective.mappingMeta;
   const apolloParamsSanitized = {
     ...mappingMeta,
     was_capped: wasCapped,
     capped_max_results: cap,
     requested_max_results: maxResults,
     max_results_cap_source: maxResultsCapSource,
-    // § 5 — los DOS límites, siempre visibles, para que un diagnóstico pueda
-    // decir cuál gobernó la llamada en vez de deducirlo.
-    apollo_result_limit_mode: resultLimit.limitMode,
-    apollo_max_results_per_query_resolved: resultLimit.legacyMaxResultsPerQuery,
-    apollo_max_results_per_round_resolved: resultLimit.twoRoundMaxResultsPerRound,
-    apollo_per_page_sent: cap,
+    // § 5/§ 10 — los DOS límites y la huella del body efectivo, siempre visibles,
+    // para que un diagnóstico pueda decir qué gobernó la llamada en vez de
+    // deducirlo del texto de la consulta.
+    ...toApolloEffectiveRequestMetadata(effective),
   };
 
   // ── A1-APOLLO-WIZARD-1: búsqueda paginada acotada ───────────────────────────
@@ -885,9 +829,10 @@ export async function runApolloOrganizationsSearch(
       wizardRunId: usageContext?.batchId ?? `no_batch:${startMs}`,
       agentRunId: usageContext?.agentRunId ?? null,
       // § 3 — la ronda 2 puede pedir la página 2 de la MISMA búsqueda cuando no
-      // hay variante de términos que la haga distinta. Ausente ⇒ página 1, que
-      // es lo que hacen todos los llamadores previos.
-      startPage: options?.startPage,
+      // hay variante de términos que la haga distinta. La página sale del request
+      // efectivo, no de la opción cruda: así la huella comparada y la página
+      // enviada no pueden discrepar. Ausente ⇒ 1, como todos los llamadores previos.
+      startPage: effective.page,
     },
     {
       fetchPage,
@@ -912,6 +857,13 @@ export async function runApolloOrganizationsSearch(
     total_entries: paginated.paginationMeta.totalEntries,
     total_pages: paginated.paginationMeta.totalPages,
     request_fingerprint: paginated.requestFingerprint,
+    // QUERY-QUALITY-2-FIX § 1 — invariante observable: la huella que se calculó
+    // ANTES de ejecutar es la del body que la paginación realmente construyó. Si
+    // alguna vez dejaran de coincidir, la decisión de la ronda 2 estaría mirando
+    // un request que no es el que salió.
+    effective_request_fingerprint: effective.effectiveRequestFingerprint,
+    effective_request_fingerprint_matches_sent:
+      effective.filtersFingerprint === paginated.requestFingerprint,
     indeterminate_pages: paginated.indeterminatePages,
     rejected_forbidden_params: paginated.rejectedForbiddenParams,
     rejected_unknown_params: paginated.rejectedUnknownParams,

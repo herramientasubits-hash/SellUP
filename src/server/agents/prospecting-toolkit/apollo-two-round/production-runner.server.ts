@@ -51,7 +51,17 @@ import {
   buildProspectingPipelineCandidate,
   buildSummary,
 } from '../prospecting-pipeline';
-import { runApolloOrganizationsSearch } from '../web-search-providers/apollo-organizations-search-provider';
+import {
+  runApolloOrganizationsSearch,
+  type ApolloOrgsSearchOptions,
+} from '../web-search-providers/apollo-organizations-search-provider';
+// QUERY-QUALITY-2-FIX § 1/§ 2 — constructor ÚNICO del request efectivo. El mismo
+// que gobierna la llamada real decide si la ronda 2 vale un crédito.
+import {
+  buildApolloOrganizationsEffectiveRequest,
+  type ApolloEffectiveRequest,
+} from '../apollo-organizations-effective-request';
+import { resolveApolloMaxResultsPerQuery } from '../apollo-cost-guardrails';
 import {
   evaluateApolloEnrichmentEligibility,
   type ApolloEnrichmentIneligibilityReason,
@@ -81,6 +91,7 @@ import {
   type ApolloEnrichmentBillingOutcome,
 } from '../apollo-organization-enrichment-usage-log';
 
+import type { ApolloTwoRoundQueryHypothesis } from './query-hypothesis';
 import {
   runApolloTwoRoundDiscovery,
   toApolloTwoRoundResumeState,
@@ -771,23 +782,83 @@ export async function runApolloTwoRoundWizardDiscovery(
     return false;
   };
 
+  /**
+   * QUERY-QUALITY-2-FIX § 1 y § 2 — construcción ÚNICA del request de una ronda.
+   *
+   * `searchRound` la usa para ejecutar y `buildRoundProviderRequest` para comparar
+   * sin ejecutar. Que las dos salgan de la MISMA llamada es lo que garantiza que la
+   * huella con la que se decide sea la del body que saldría: una segunda
+   * construcción en paralelo podría divergir en cuanto el mapper cambie.
+   */
+  const buildRoundSearchRequest = (
+    hypothesis: ApolloTwoRoundQueryHypothesis,
+    requestedResultLimit: number,
+  ): {
+    searchInput: WebSearchInput;
+    searchOptions: ApolloOrgsSearchOptions;
+    effective: ApolloEffectiveRequest;
+  } => {
+    const searchInput: WebSearchInput = {
+      query: hypothesis.queryHypothesis,
+      country: input.country,
+      countryCode: input.countryCode,
+      industry: input.industry,
+      intent: 'company_discovery',
+      maxResults: requestedResultLimit,
+      provider: 'apollo_organizations',
+      subindustries: input.subindustries,
+      additionalCriteriaTokens: hypothesis.queryParameters.keywordTags,
+    };
+
+    const searchOptions: ApolloOrgsSearchOptions = {
+      // § 5 — la modalidad necesita ver a los candidatos con evidencia sectorial
+      // insuficiente: son los únicos que pueden competir por un enrichment. El
+      // gate se aplica después, candidato a candidato.
+      sectorGateMode: 'annotate',
+      // QUERY-QUALITY-2 § 5 — el límite de esta modalidad es el suyo. La variable
+      // legacy `AGENT1_APOLLO_MAX_RESULTS_PER_QUERY` recortaba en silencio la ronda
+      // a 3 y hacía inalcanzable el objetivo de cinco.
+      resultLimitMode: 'two_round',
+      twoRoundMaxResultsPerRound: config.maxResultsPerRound,
+      // QUERY-QUALITY-2 § 3 — la ronda 2 puede pedir la página 2 de la misma
+      // búsqueda cuando no hay variante de términos.
+      startPage: hypothesis.queryParameters.page,
+    };
+
+    const effective = buildApolloOrganizationsEffectiveRequest({
+      input: searchInput,
+      requestedMaxResults: requestedResultLimit,
+      resultLimitMode: searchOptions.resultLimitMode,
+      twoRoundMaxResultsPerRound: searchOptions.twoRoundMaxResultsPerRound,
+      startPage: searchOptions.startPage,
+      legacyMaxResultsPerQuery: resolveApolloMaxResultsPerQuery(),
+    });
+
+    return { searchInput, searchOptions, effective };
+  };
+
   const orchestratorDeps: ApolloTwoRoundDeps = {
+    // § 2 — el orquestador compara los bodies efectivos de las dos rondas sin
+    // emitir una sola llamada: cero créditos, cero filas de uso.
+    buildRoundProviderRequest: ({ hypothesis, requestedResultLimit }) => {
+      const { effective } = buildRoundSearchRequest(hypothesis, requestedResultLimit);
+      return {
+        effectiveRequestFingerprint: effective.effectiveRequestFingerprint,
+        page: effective.page,
+        perPage: effective.perPage,
+        effectiveKeywordTags: effective.effectiveKeywordTags,
+      };
+    },
+
     searchRound: async ({ hypothesis, requestedResultLimit, operationContext }) => {
       if (budgetExceeded()) {
         return { organizations: [], providerRequestCount: 0, internalRecordedCredits: 0 };
       }
 
-      const searchInput: WebSearchInput = {
-        query: hypothesis.queryHypothesis,
-        country: input.country,
-        countryCode: input.countryCode,
-        industry: input.industry,
-        intent: 'company_discovery',
-        maxResults: requestedResultLimit,
-        provider: 'apollo_organizations',
-        subindustries: input.subindustries,
-        additionalCriteriaTokens: hypothesis.queryParameters.keywordTags,
-      };
+      const { searchInput, searchOptions } = buildRoundSearchRequest(
+        hypothesis,
+        requestedResultLimit,
+      );
 
       const output = await deps.searchApollo(
         searchInput,
@@ -805,20 +876,7 @@ export async function runApolloTwoRoundWizardDiscovery(
           operationContext: toApolloTwoRoundOperationContextMetadata(operationContext),
         },
         undefined,
-        {
-          // § 5 — la modalidad necesita ver a los candidatos con evidencia
-          // sectorial insuficiente: son los únicos que pueden competir por un
-          // enrichment. El gate se aplica después, candidato a candidato.
-          sectorGateMode: 'annotate',
-          // QUERY-QUALITY-2 § 5 — el límite de esta modalidad es el suyo. La
-          // variable legacy `AGENT1_APOLLO_MAX_RESULTS_PER_QUERY` recortaba en
-          // silencio la ronda a 3 y hacía inalcanzable el objetivo de cinco.
-          resultLimitMode: 'two_round',
-          twoRoundMaxResultsPerRound: config.maxResultsPerRound,
-          // QUERY-QUALITY-2 § 3 — la ronda 2 puede pedir la página 2 de la misma
-          // búsqueda cuando no hay variante de términos.
-          startPage: hypothesis.queryParameters.page,
-        },
+        searchOptions,
       );
       searchOutputs.push(output);
 
@@ -1403,18 +1461,39 @@ export function buildRoundComparisonMetadata(
   const round1 = runResult.rounds.find((round) => round.roundNumber === 1) ?? null;
   const round2 = runResult.rounds.find((round) => round.roundNumber === 2) ?? null;
 
-  const fingerprint1 = round1?.providerRequestFingerprint ?? null;
-  const fingerprint2 = round2?.providerRequestFingerprint ?? null;
+  const hypothesis1 = round1?.providerRequestFingerprint ?? null;
+  const hypothesis2 = round2?.providerRequestFingerprint ?? null;
+  const effective1 = round1?.effectiveProviderFingerprint ?? null;
+  const effective2 = round2?.effectiveProviderFingerprint ?? null;
+
+  const distinct = (a: string | null, b: string | null): boolean | null =>
+    a === null || b === null ? null : a !== b;
 
   return {
-    round_1_provider_fingerprint: fingerprint1,
-    round_2_provider_fingerprint: fingerprint2,
-    fingerprints_are_distinct:
-      fingerprint1 === null || fingerprint2 === null ? null : fingerprint1 !== fingerprint2,
+    // § 10 — las cuatro huellas, cada una con su nombre. Confundirlas es el defecto
+    // que este hito cierra: la de hipótesis explica la intención, la efectiva es la
+    // que decide si una segunda búsqueda podía traer algo nuevo.
+    round_1_hypothesis_fingerprint: hypothesis1,
+    round_2_hypothesis_fingerprint: hypothesis2,
+    round_1_effective_provider_fingerprint: effective1,
+    round_2_effective_provider_fingerprint: effective2,
+    /** Criterio ECONÓMICO. Null cuando falta una de las dos: ausencia ≠ igualdad. */
+    effective_fingerprints_are_distinct: distinct(effective1, effective2),
+    /** Conservado para continuidad de lectura; NO es el criterio económico. */
+    round_1_provider_fingerprint: hypothesis1,
+    round_2_provider_fingerprint: hypothesis2,
+    hypothesis_fingerprints_are_distinct: distinct(hypothesis1, hypothesis2),
+    fingerprints_are_distinct: distinct(effective1, effective2) ?? distinct(hypothesis1, hypothesis2),
     round_1_page: round1?.page ?? null,
     round_2_page: round2?.page ?? null,
+    round_1_per_page: round1?.perPage ?? null,
+    round_2_per_page: round2?.perPage ?? null,
     specific_terms_sent: round1?.specificTermsSent ?? [],
     round_2_specific_terms_sent: round2?.specificTermsSent ?? [],
+    // § 10 — lo que EFECTIVAMENTE viajó, tras prioridad y truncamiento.
+    round_1_effective_keywords_sent: round1?.effectiveKeywordsSent ?? [],
+    round_2_effective_keywords_sent: round2?.effectiveKeywordsSent ?? [],
+    round_2_skipped_reason: runResult.secondRoundSkippedReason,
     round_2_novel_provider_results: round2?.newUniqueResults ?? null,
   };
 }

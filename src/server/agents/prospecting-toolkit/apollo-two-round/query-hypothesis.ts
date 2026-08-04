@@ -317,10 +317,7 @@ export function buildRound2Hypothesis(
   context: ApolloTwoRoundQueryContext,
   feedback: Round1Feedback,
   requestedResultLimit: number,
-): ApolloTwoRoundQueryHypothesis & {
-  differsFromRound1: boolean;
-  variantStrategy: ApolloRound2VariantStrategy;
-} {
+): ApolloRound2Hypothesis {
   const round1 = buildRound1Hypothesis(context, requestedResultLimit);
   const resolved = resolveSectorSignalSet(context.sector, context.subindustry);
 
@@ -436,6 +433,62 @@ export function buildRound2Hypothesis(
     sectorSignalsMissing: resolved === null,
     differsFromRound1,
     variantStrategy,
+  };
+}
+
+/** Hipótesis de la ronda 2, con su veredicto de diferencia y su variante. */
+export type ApolloRound2Hypothesis = ApolloTwoRoundQueryHypothesis & {
+  differsFromRound1: boolean;
+  variantStrategy: ApolloRound2VariantStrategy;
+};
+
+/**
+ * QUERY-QUALITY-2-FIX § 4 — la MISMA hipótesis pidiendo otra página.
+ *
+ * Existe porque la variante «página 2» sólo puede decidirse DESPUÉS de comprobar
+ * que el request efectivo de la ronda 2 colapsó al de la ronda 1: la hipótesis, por
+ * sí sola, no sabe qué términos sobrevivirán a la prioridad y al truncamiento. El
+ * orquestador construye la ronda 2, compara el body efectivo y, sólo si resultó
+ * idéntico y el proveedor declaró `total_pages >= 2`, vuelve a pedirla con esta
+ * función.
+ *
+ * Inmutable: devuelve una hipótesis nueva y recalcula la huella. `differsFromRound1`
+ * se recalcula contra la huella de hipótesis de la ronda 1 que el llamador aporta —
+ * la decisión económica final la toma el orquestador con la huella EFECTIVA, no con
+ * este campo.
+ */
+export function withRequestedPage(
+  hypothesis: ApolloRound2Hypothesis,
+  page: number,
+  round1Fingerprint: string | null,
+): ApolloRound2Hypothesis {
+  const requestedPage = Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1;
+  if (requestedPage === hypothesis.queryParameters.page) return hypothesis;
+
+  const queryParameters: ApolloTwoRoundQueryParameters = {
+    ...hypothesis.queryParameters,
+    locations: [...hypothesis.queryParameters.locations],
+    keywordTags: [...hypothesis.queryParameters.keywordTags],
+    employeeRanges: [...hypothesis.queryParameters.employeeRanges],
+    page: requestedPage,
+  };
+  const providerRequestFingerprint = buildApolloRoundProviderFingerprint(queryParameters);
+  const adaptationParts = (hypothesis.queryAdaptationReason ?? '')
+    .split('+')
+    .filter((part) => part !== '' && part !== 'sin_senales_de_adaptacion');
+  if (!adaptationParts.includes('pagina_2_de_la_misma_busqueda')) {
+    adaptationParts.push('pagina_2_de_la_misma_busqueda');
+  }
+
+  return {
+    ...hypothesis,
+    queryParameters,
+    providerRequestFingerprint,
+    variantStrategy: 'same_query_next_page',
+    queryAdaptationReason: adaptationParts.join('+'),
+    queryHypothesis: `${hypothesis.queryHypothesis} — página ${requestedPage}`,
+    differsFromRound1:
+      round1Fingerprint === null || providerRequestFingerprint !== round1Fingerprint,
   };
 }
 

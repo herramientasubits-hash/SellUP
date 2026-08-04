@@ -130,6 +130,69 @@ function normalizeKey(value: string): string {
     .trim();
 }
 
+// ─── Emparejamiento de alias ──────────────────────────────────────────────────
+
+/**
+ * QUERY-QUALITY-2-FIX § 8 — ¿el nombre de subindustria recibido ES este alias?
+ *
+ * La versión anterior emparejaba con `normalized.includes(alias) ||
+ * alias.includes(normalized)`, y esa segunda mitad es demasiado ancha: cualquier
+ * palabra suelta contenida en un alias resolvía la entrada completa. Con los alias
+ * de este catálogo, `Retail` caía dentro de `grocery retail`, `Alimentos` dentro de
+ * `retail de alimentos` y `Food` dentro de `food retail`, así que tres sectores
+ * genéricos resolvían a «Supermercados e Hipermercados» y heredaban sus términos y
+ * sus contradicciones — decisiones que cuestan créditos.
+ *
+ * Reglas, en este orden:
+ *   1. igualdad canónica normalizada;
+ *   2. alias completo normalizado, también por igualdad;
+ *   3. alias de DOS O MÁS palabras presente en la entrada como secuencia de
+ *      palabras completas — «Supermercados e Hipermercados (Retail)» sigue
+ *      resolviendo, y ningún token aislado puede hacerlo.
+ *
+ * Un alias de una sola palabra sólo empareja por igualdad: es lo que impide que
+ * `retail`, `alimentos` o `food` arrastren una subindustria entera.
+ */
+function tokenize(value: string): string[] {
+  return normalizeKey(value)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((token) => token !== '');
+}
+
+function containsTokenSequence(
+  inputTokens: readonly string[],
+  aliasTokens: readonly string[],
+): boolean {
+  if (aliasTokens.length === 0 || aliasTokens.length > inputTokens.length) return false;
+  for (let start = 0; start <= inputTokens.length - aliasTokens.length; start++) {
+    let matched = true;
+    for (let offset = 0; offset < aliasTokens.length; offset++) {
+      if (inputTokens[start + offset] !== aliasTokens[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return true;
+  }
+  return false;
+}
+
+export function matchesApolloSubindustryAlias(
+  subindustryInput: string,
+  alias: string,
+): boolean {
+  const normalizedInput = normalizeKey(subindustryInput);
+  const normalizedAlias = normalizeKey(alias);
+  if (normalizedInput === '' || normalizedAlias === '') return false;
+  if (normalizedInput === normalizedAlias) return true;
+
+  const aliasTokens = tokenize(normalizedAlias);
+  // Un alias de una sola palabra NO se busca dentro de la entrada: sería volver a
+  // la contención ancha por la puerta de atrás.
+  if (aliasTokens.length < 2) return false;
+  return containsTokenSequence(tokenize(normalizedInput), aliasTokens);
+}
+
 // ─── Lookup ───────────────────────────────────────────────────────────────────
 
 /** Todas las subindustrias con mapping explícito. Sólo lectura. */
@@ -144,10 +207,11 @@ export function listApolloSubindustrySearchMappings(): ApolloSubindustrySearchMa
 /**
  * Mapping de una subindustria, o null si no está en el catálogo.
  *
- * El emparejamiento es por alias exacto o por contención en cualquiera de los
- * dos sentidos: «Supermercados e Hipermercados (Retail)» y «supermercados»
- * resuelven a la misma entrada. Un valor vacío nunca resuelve — `''` estaría
- * contenido en todo.
+ * El emparejamiento lo define `matchesApolloSubindustryAlias` (§ 8): igualdad
+ * canónica, igualdad de alias, o alias de dos o más palabras presente como
+ * secuencia de palabras completas. «Supermercados e Hipermercados (Retail)» y
+ * «supermercados» resuelven a la misma entrada; `Retail`, `Alimentos` y `Food`, a
+ * ninguna. Un valor vacío nunca resuelve.
  */
 export function resolveApolloSubindustrySearchMapping(
   subindustry: string | null | undefined,
@@ -157,16 +221,14 @@ export function resolveApolloSubindustrySearchMapping(
   if (normalized === '') return null;
 
   for (const entry of APOLLO_SUBINDUSTRY_CATALOG) {
-    const candidates = [normalizeKey(entry.mapping.canonicalSubindustry), ...entry.aliases.map(normalizeKey)];
+    const candidates = [entry.mapping.canonicalSubindustry, ...entry.aliases];
     for (const alias of candidates) {
-      if (alias === '') continue;
-      if (normalized === alias || normalized.includes(alias) || alias.includes(normalized)) {
-        return {
-          canonicalSubindustry: entry.mapping.canonicalSubindustry,
-          positiveTerms: [...entry.mapping.positiveTerms],
-          contradictoryTerms: [...entry.mapping.contradictoryTerms],
-        };
-      }
+      if (!matchesApolloSubindustryAlias(normalized, alias)) continue;
+      return {
+        canonicalSubindustry: entry.mapping.canonicalSubindustry,
+        positiveTerms: [...entry.mapping.positiveTerms],
+        contradictoryTerms: [...entry.mapping.contradictoryTerms],
+      };
     }
   }
   return null;

@@ -58,12 +58,33 @@ export type ApolloTwoRoundRoundMetrics = {
   newEligibleCompaniesAdded: number;
   /** Créditos que NUESTRO ledger registró para esta ronda. */
   internalRecordedCredits: number;
-  /** § 12 — huella normalizada de lo que ESTA ronda envió al proveedor. */
+  /**
+   * § 12 — huella de la HIPÓTESIS de esta ronda: los términos antes de la
+   * prioridad, la deduplicación y el truncamiento del mapper.
+   *
+   * Sirve para explicar la intención, NUNCA para decidir si la ronda 2 vale un
+   * crédito: dos hipótesis distintas pueden colapsar al mismo body efectivo, y esa
+   * es exactamente la segunda búsqueda que la corrida QA `edb6f40c` pagó de más.
+   * La decisión usa `effectiveProviderFingerprint`.
+   */
   providerRequestFingerprint: string | null;
+  /**
+   * QUERY-QUALITY-2-FIX § 1 y § 10 — huella del request EFECTIVO que salió al
+   * proveedor: body ya priorizado, deduplicado, truncado y con su página.
+   *
+   * Es la única medida honesta de «esta ronda pidió algo distinto». Null cuando la
+   * corrida no pudo construirlo (suites puras sin adaptador): ausencia no es
+   * igualdad, y por eso se reporta null en vez de repetir la huella de hipótesis.
+   */
+  effectiveProviderFingerprint: string | null;
   /** § 12 — página pedida por esta ronda. */
   page: number | null;
-  /** § 12 — términos específicos enviados. Ni el texto humano ni una paráfrasis. */
+  /** § 10 — `per_page` que el request efectivo llevó. Null si no se construyó. */
+  perPage: number | null;
+  /** § 12 — términos de la HIPÓTESIS. Ni el texto humano ni una paráfrasis. */
   specificTermsSent: string[];
+  /** § 10 — términos que EFECTIVAMENTE viajaron, tras prioridad y truncamiento. */
+  effectiveKeywordsSent: string[];
   /** § 12 — `total_pages` que el proveedor declaró en esta ronda. */
   providerTotalPages: number | null;
 };
@@ -74,8 +95,11 @@ export function buildEmptyRoundMetrics(
   adaptationReason: string | null = null,
   provider: {
     requestFingerprint?: string | null;
+    effectiveRequestFingerprint?: string | null;
     page?: number | null;
+    perPage?: number | null;
     specificTermsSent?: readonly string[];
+    effectiveKeywordsSent?: readonly string[];
   } = {},
 ): ApolloTwoRoundRoundMetrics {
   return {
@@ -98,8 +122,11 @@ export function buildEmptyRoundMetrics(
     newEligibleCompaniesAdded: 0,
     internalRecordedCredits: 0,
     providerRequestFingerprint: provider.requestFingerprint ?? null,
+    effectiveProviderFingerprint: provider.effectiveRequestFingerprint ?? null,
     page: provider.page ?? null,
+    perPage: provider.perPage ?? null,
     specificTermsSent: [...(provider.specificTermsSent ?? [])],
+    effectiveKeywordsSent: [...(provider.effectiveKeywordsSent ?? [])],
     providerTotalPages: null,
   };
 }
@@ -245,8 +272,14 @@ export function toRoundMetricsMetadata(
     internal_recorded_credits: metrics.internalRecordedCredits,
     // § 12 — lo que el próximo QA necesita para no depender del texto humano.
     provider_request_fingerprint: metrics.providerRequestFingerprint,
+    // § 10 — las DOS huellas, nombradas, para que nadie confunda la intención con
+    // lo que salió. La decisión económica usa la efectiva.
+    hypothesis_fingerprint: metrics.providerRequestFingerprint,
+    effective_provider_fingerprint: metrics.effectiveProviderFingerprint,
     page: metrics.page,
+    per_page: metrics.perPage,
     specific_terms_sent: metrics.specificTermsSent,
+    effective_keywords_sent: metrics.effectiveKeywordsSent,
     provider_total_pages: metrics.providerTotalPages,
   };
 }
