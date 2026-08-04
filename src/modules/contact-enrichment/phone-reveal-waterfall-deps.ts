@@ -635,6 +635,11 @@ export async function callLushaFallbackLeg(args: {
         const update: Record<string, unknown> = {
           phone_reveal_status: patch.phone_reveal_status,
           phone_reveal_provider: patch.phone_reveal_provider,
+          // Higiene del id de correlación (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 10).
+          // Este camino es el que reveló CON LUSHA tras un intento Apollo previo, así
+          // que es exactamente donde un id Apollo huérfano quedaría junto a
+          // `phone_reveal_provider = 'lusha'`. Se escribe siempre, incluso `null`.
+          phone_reveal_request_id: patch.phone_reveal_request_id,
           phone_revealed_at: patch.phone_revealed_at,
           phone_reveal_completed_at: patch.phone_reveal_completed_at,
           phone_revealed_by: patch.phone_revealed_by,
