@@ -891,3 +891,27 @@ name. § 8's Option F therefore remains the area where a unit of effort moves th
 closing it unblocks fields in two of the three records at once — and it still requires its own separate owner
 phrase. 11Z's own next-step phrase would authorize reviewing owner-completed fields if owners supply any, and
 never an execution attempt.
+
+---
+
+## 29. Update (BR-SOURCE-12A)
+
+BR-SOURCE-12A creates an owner completion intake review. It evaluates whether externally completed owner
+fields were provided after 11Z. Current result remains NO-GO because no owner completion intake was received,
+no owner decision was captured and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12a-owner-completion-intake-review.md`](./br-receita-cnpj-12a-owner-completion-intake-review.md).
+
+**All eight blockers in § 6 remain present**, including BLOCKER-1 and BLOCKER-8, which § 8 identified as
+binding. None of the § 10 minimum conditions before execution is satisfied, none of the § 11 minimum
+conditions before a runbook is satisfied, none of the EV-1 … EV-10 evidence in § 12 has been produced, every
+field in § 9 remains blank, and the § 8 recommended draft decision — Option A, keep execution blocked — is
+unchanged.
+
+BLOCKER-8 is why 12A records the legal/privacy/security reference as not received *and* not producible inside
+this chain: no written determination exists to cite, so the field is blocked externally rather than merely
+unfilled. § 8's Option F therefore remains the area where a unit of effort moves the most — now the sixth
+consecutive milestone to reach that conclusion without the escalation being requested from anyone with the
+authority to make it — and it still requires its own separate owner phrase. 12A's own next-step phrase would
+authorize preparing a resubmission packet, not an execution attempt, and 12A does not recommend using it.

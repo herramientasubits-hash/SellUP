@@ -982,3 +982,29 @@ with a fifth and sixth entry pointing at itself, restates § 15's *outside this 
 rule rather than a recommendation, and adds one hazard this review did not have: a completion packet can be
 misused by being *copied with placeholders intact* into an approval surface, where a filed placeholder record
 would convert an obvious absence into a plausible-looking one.
+
+---
+
+## 22. Update (BR-SOURCE-12A)
+
+BR-SOURCE-12A creates an owner completion intake review. It evaluates whether externally completed owner
+fields were provided after 11Z. Current result remains NO-GO because no owner completion intake was received,
+no owner decision was captured and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12a-owner-completion-intake-review.md`](./br-receita-cnpj-12a-owner-completion-intake-review.md).
+
+It flips no status in this document. All ten inventory rows in § 5 still block controlled execution, all
+fifty-one owner-supplied fields across 11X § 5, § 6 and § 7 still read `TBD_BY_OWNER`, all eight supporting
+references in § 10 remain missing, all twenty-two lines in § 12 remain unauthorized, all eight gates in § 18
+remain unapproved, and the § 15 recommended decision to keep NO-GO is unchanged.
+
+The relationship to § 4's seven-step method is the one thing a later reader should get right. 12A does **not**
+apply that method, because its own Step 1 — was an owner-completed packet provided? — fails, leaving this
+review's Steps 2 through 7 without a subject. The two compose rather than compete: 12A's intake gate decides
+whether a submission exists at all, and this method decides whether an existing submission passes. 12A adds
+one check this review did not state separately, namely that an arriving artifact must be an *official* owner
+decision artifact per 11X § 8 before its contents matter, so that a document merely shaped like a submission
+cannot be accepted as one. It also carries § 11's implication rules forward with two further entries pointing
+at its own document and pull request, and it restates § 16's conditional literally: no owner-completed fields
+were provided, so 12A remains NO-GO.

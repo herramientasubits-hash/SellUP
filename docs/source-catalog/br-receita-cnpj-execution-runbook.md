@@ -1012,3 +1012,29 @@ prerequisite that is an authoring task rather than a decision; and § 7's first 
 valid GATE-7 record from preceding a valid GATE-2 record. 11Z adds that the *Dry-run rehearsal reference*
 field is the completion attempt a future reviewer should check first, since a citation to synthetic
 validation would be evidence for a different claim than a named human following this runbook end to end.
+
+---
+
+## 30. Update (BR-SOURCE-12A)
+
+BR-SOURCE-12A creates an owner completion intake review. It evaluates whether externally completed owner
+fields were provided after 11Z. Current result remains NO-GO because no owner completion intake was received,
+no owner decision was captured and no approval is granted. It does not approve GATE-2. It does not approve
+GATE-7. It does not approve cap/input policy. It does not authorize caps, input roots, output roots, temp
+storage, controlled execution, real-data access, import, Supabase, runtime or Agent 1. See
+[`br-receita-cnpj-12a-owner-completion-intake-review.md`](./br-receita-cnpj-12a-owner-completion-intake-review.md).
+
+**This runbook remains non-executable.** 12A changes no item in the § 7 preflight checklist — all fourteen
+still read `no` — satisfies none of the § 15 decision points, leaves § 8's approval checklist blank and § 9's
+command skeleton structure-only, **contains no runnable real-data command of its own**, and leaves the § 17
+recommended draft decision unchanged. It fills no role in § 6: `Operator assigned` and `Reviewer assigned`
+remain unfilled, and 12A records both as `not_received / missing` rather than as pending.
+
+Four of this runbook's constraints are anchored in 12A's GATE-7 section unchanged: § 6's separation rule, so a
+submission naming one role for both operator and reviewer has a missing required field; § 4.2's rule that
+assignments travel through the operator channel and are referenced by identifier, never named in a repository
+document; the *Sanitizer procedure* field's lack of any upstream artifact to cite; and § 7's first preflight
+item, which keeps a valid GATE-7 record from preceding a valid GATE-2 record — so an intake arriving with the
+GATE-7 record alone is out of order rather than early, and 12A states it would be rejected on that ground even
+if all sixteen fields were filled. 12A also carries forward § 7's rule that a failed item is a stop and an
+ambiguous item has failed, as its own *any uncertainty is NO-GO*.
