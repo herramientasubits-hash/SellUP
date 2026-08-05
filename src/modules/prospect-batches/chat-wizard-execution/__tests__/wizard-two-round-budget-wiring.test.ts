@@ -167,6 +167,9 @@ describe('§ 10 · el bloqueo real de presupuesto explica el techo de la modalid
         ],
       }),
       checkTavilyAvailability: async () => true,
+      // A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — el esquema está listo: este doble
+      // no ejercita el preflight de persistencia.
+      checkPersistenceReadiness: async () => ({ status: 'available' as const }),
       checkApolloAvailability: async () => ({ available: true } as const),
       // La AUTORIDAD: la reserva atómica bloquea. Nada de lo que añade este hito
       // puede desbloquearla.

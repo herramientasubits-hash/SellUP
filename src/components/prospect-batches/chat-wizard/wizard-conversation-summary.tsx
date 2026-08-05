@@ -23,6 +23,7 @@ import { WizardRunProviderSelector } from './wizard-run-provider-selector';
 // archivo para mantener este por debajo del techo de tamaño del repo.
 import { SubmittingPanel, SuccessPanel } from './wizard-execution-panels';
 import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
+import type { WizardPersistenceOutcome } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
 import type { ApolloRunModeLimits } from './wizard-run-provider-copy';
 import {
   NO_PROVIDER_OVERRIDE_CAPABILITY,
@@ -51,6 +52,8 @@ type WizardRunProviderSurfaceProps = {
   twoRoundOutcome?: { roundsExecuted: number | null; eligibleCompaniesFound: number | null } | null;
   /** QUERY-QUALITY-2 § 8 — distribución real de descartes de la corrida. */
   noNewCandidatesBreakdown?: NoNewCandidatesBreakdown | null;
+  /** PERSISTENCE-READINESS-4 § 8 — cifras reales de la escritura. `null` = no llegaron. */
+  persistenceOutcome?: WizardPersistenceOutcome | null;
 };
 
 type WizardConversationSummaryProps = WizardRunProviderSurfaceProps & {
@@ -86,6 +89,7 @@ export function WizardConversationSummary({
   showApolloTwoRoundStages = false,
   twoRoundOutcome = null,
   noNewCandidatesBreakdown = null,
+  persistenceOutcome = null,
 }: WizardConversationSummaryProps) {
   if (state.currentStep === 'validating') {
     return <ValidatingPanel />;
@@ -132,6 +136,7 @@ export function WizardConversationSummary({
         onEditSearch={onEditSearch}
         twoRoundOutcome={twoRoundOutcome}
         noNewCandidatesBreakdown={noNewCandidatesBreakdown}
+        persistenceOutcome={persistenceOutcome}
         targetEligibleCompanies={apolloRunModeLimits?.targetEligibleCompanies ?? null}
       />
     );
@@ -221,6 +226,14 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
     return <LushaDisabledBlockedPanel onEditSearch={onEditSearch} dispatch={dispatch} />;
   }
 
+  // A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 1 — el preflight de persistencia
+  // bloqueó la corrida. El texto dice que hay que esperar a que se corrija el
+  // almacenamiento; dejar «Generar prospectos» a un clic contradiría el mensaje y
+  // sólo produciría el mismo bloqueo otra vez. Se retira también el selector de
+  // proveedor, que comparte gate con el botón por diseño: si esta pantalla no
+  // puede ejecutar, tampoco ofrece elegir con qué.
+  const isPersistenceBlocked = executionError?.code === 'PERSISTENCE_NOT_READY';
+
   const validBody = useLushaFinalSearch
     ? 'Revisa los criterios y ejecuta la búsqueda. Nada se guarda todavía.'
     : executionEnabled
@@ -283,6 +296,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
       {!useLushaFinalSearch &&
         !isLushaBlocked &&
         executionEnabled &&
+        !isPersistenceBlocked &&
         onRequestedProviderChange !== undefined && (
           <WizardRunProviderSelector
             capability={providerOverrideCapability}
@@ -294,7 +308,12 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           />
         )}
 
-      {!useLushaFinalSearch && !isLushaBlocked && executionEnabled && (
+      {/* `!isPersistenceBlocked` va DESPUÉS de `executionEnabled` a propósito: la
+          conjunción `!useLushaFinalSearch && !isLushaBlocked && executionEnabled`
+          es la que fija literalmente el guardrail STRICT-ALL de Lusha
+          (prospect-wizard-route-static.test.ts). El orden es indiferente para la
+          lógica y esa invariante no se toca. */}
+      {!useLushaFinalSearch && !isLushaBlocked && executionEnabled && !isPersistenceBlocked && (
         <Button
           type="button"
           size="sm"

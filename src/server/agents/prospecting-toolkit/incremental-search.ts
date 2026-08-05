@@ -63,6 +63,7 @@ import {
 } from './source-guided-investigation';
 import type { SourceGuidedInvestigationOutput } from './source-guided-investigation';
 import type { ProspectingPipelineCandidate, ProspectingPipelineOutput, ProspectingPipelineSummary } from './types';
+import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
 import type {
   IncrementalSearchInput,
   IncrementalSearchOutput,
@@ -444,6 +445,10 @@ export async function runIncrementalProspectingSearch(
   let lastPipelineOutput: ProspectingPipelineOutput | null = null;
   let writerBatchId: string | null = null;
   let writerCandidatesCreated: number | undefined = undefined;
+  // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — resultado real de la escritura. Se
+  // captura también cuando el writer falla: ese caso es precisamente el que
+  // antes sólo dejaba un `warning` y llegaba a la UI como un vacío normal.
+  let writerPersistenceOutcome: CandidatePersistenceOutcome | undefined = undefined;
   let totalExcludedByNegativeMemory = 0;
 
   // ─── Query cap tracking (Hito v1.3) ─────────────────────────────────────────
@@ -1194,6 +1199,8 @@ export async function runIncrementalProspectingSearch(
         : await buildLinkedInSearchOverride(input.triggeredByUserId ?? null),
       );
 
+      writerPersistenceOutcome = writerOutput.persistence;
+
       if (writerOutput.status === 'failed') {
         warnings.push(`Writer error: ${writerOutput.errors.join('; ')}`);
       } else {
@@ -1309,5 +1316,6 @@ export async function runIncrementalProspectingSearch(
     targetReached: dryRun ? undefined : targetReached,
     targetPersistibleCandidates,
     searchStrategyRuntime,
+    ...(writerPersistenceOutcome ? { persistenceOutcome: writerPersistenceOutcome } : {}),
   };
 }

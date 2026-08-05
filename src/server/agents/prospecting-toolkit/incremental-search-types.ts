@@ -10,6 +10,7 @@
  */
 
 import type { ProspectingPipelineCandidate } from './types';
+import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
 import type { TavilyUsageBaseContext } from './tavily-usage-logging';
 import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 
@@ -365,4 +366,13 @@ export type IncrementalSearchOutput = {
   targetPersistibleCandidates?: number;
   /** Runtime stats from the search strategy filter (Hito v1.8.1). Always present. */
   searchStrategyRuntime?: SearchStrategyRuntimeMetadata;
+  /**
+   * A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — resultado REAL de la persistencia.
+   *
+   * Ausente cuando el camino no escribió (dry run, o un runner previo al hito).
+   * Presente, distingue «no había nada que guardar» de «había algo y no se pudo
+   * guardar», que es la diferencia que la UI necesita para no pedirle al usuario
+   * que repita —y vuelva a pagar— una búsqueda ya ejecutada.
+   */
+  persistenceOutcome?: CandidatePersistenceOutcome;
 };

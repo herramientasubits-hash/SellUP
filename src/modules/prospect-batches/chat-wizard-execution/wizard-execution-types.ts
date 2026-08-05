@@ -1,6 +1,7 @@
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
 import type { WizardApolloSkipReason } from './wizard-apollo-availability';
 import type { NoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
+import type { WizardPersistenceOutcome } from './wizard-result-copy';
 import type {
   ProviderResolutionReason,
   WizardDiscoveryProvider,
@@ -41,6 +42,50 @@ export type WizardExecutionErrorCode =
   | 'SUBINDUSTRY_COUNTRY_MISMATCH'
   | 'TOO_MANY_SUBINDUSTRIES'
   | 'INVALID_CRITERIA';
+
+/**
+ * A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 3 — catálogo ÚNICO de códigos con los
+ * que una corrida puede terminar en fallo.
+ *
+ * Antes vivía como una unión escrita a mano dentro del tipo del resultado, así
+ * que era invisible para cualquier consumidor: el mapa de copy de la UI mantenía
+ * su propia lista y la prueba de cobertura mantenía una TERCERA, hardcodeada.
+ * Con tres listas independientes, añadir un código en el servidor no rompía
+ * nada — y eso es exactamente cómo `PERSISTENCE_NOT_READY` llegó a Producción
+ * mostrando el mensaje genérico de fallback.
+ *
+ * Es una tupla `as const` a propósito: da el tipo (unión derivada, no duplicada)
+ * y a la vez es enumerable, de modo que el mapa de la UI puede exigirse
+ * exhaustivo en tiempo de compilación y la prueba puede recorrerla en vez de
+ * copiarla.
+ */
+export const WIZARD_EXECUTION_FAILURE_CODES = [
+  'EXECUTION_DISABLED',
+  'UNAUTHENTICATED',
+  'INACTIVE_USER',
+  'INVALID_REQUEST',
+  'CATALOG_CHANGED',
+  'IDEMPOTENCY_CONFLICT',
+  'PROVIDER_UNAVAILABLE',
+  'GENERATION_FAILED',
+  // Pilot budget guardrail codes (16AB.43.17)
+  'PILOT_PAUSED',
+  'NOT_IN_PILOT',
+  'BUDGET_PERIOD_NOT_CONFIGURED',
+  'BUDGET_PERIOD_CLOSED',
+  'EXECUTION_CREDIT_LIMIT_EXCEEDED',
+  'BUDGET_EXCEEDED',
+  'CONCURRENT_EXECUTION_ACTIVE',
+  'BUDGET_RESERVATION_FAILED',
+  /**
+   * A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — el esquema no puede guardar
+   * candidatos. Se decide ANTES de reservar presupuesto y ANTES de llamar al
+   * proveedor: cero reserva, cero llamadas, cero créditos.
+   */
+  'PERSISTENCE_NOT_READY',
+] as const;
+
+export type WizardExecutionFailureCode = (typeof WIZARD_EXECUTION_FAILURE_CODES)[number];
 
 export class WizardExecutionError extends Error {
   constructor(
@@ -141,10 +186,37 @@ export type WizardGenerationCommand = {
 
 // ── Action result (server action return type) ─────────────────────────────────
 
+/**
+ * Estados con los que una ejecución del wizard puede terminar bien.
+ *
+ * A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — exportado y reutilizado a propósito:
+ * antes esta unión estaba escrita a mano en tres archivos (la acción, el estado
+ * de la UI y el panel), y añadir un estado en uno solo compilaba igual dejando a
+ * los otros dos sin él.
+ */
+export type WizardExecutionStatus =
+  | 'created'
+  | 'already_started'
+  | 'no_new_candidates'
+  | 'success_partial'
+  | 'success_target_reached'
+  | 'completed_with_errors';
+
 export type WizardExecutionActionResult =
   | {
       ok: true;
-      status: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached';
+      /**
+       * A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — `completed_with_errors` es el
+       * estado de una corrida que SÍ encontró empresas elegibles y no pudo
+       * guardar ninguna. No es `no_new_candidates`: la búsqueda ya se ejecutó y
+       * pudo cobrarse, así que anunciarla como un vacío normal invita al usuario
+       * a repetirla y pagarla otra vez.
+       *
+       * Es un miembro de esta unión de TypeScript, no un enum nuevo de base de
+       * datos: el lote usa `failed`, que ya existe en el CHECK de
+       * `prospect_batches.status`.
+       */
+      status: WizardExecutionStatus;
       batchId: string;
       batchStatus: string;
       candidateCount?: number;
@@ -195,27 +267,25 @@ export type WizardExecutionActionResult =
        * genérica entre las dos posibles.
        */
       noNewCandidatesBreakdown?: NoNewCandidatesBreakdown;
+      /**
+       * A1-APOLLO-PERSISTENCE-READINESS-4 § 7/§ 8 — cifras REALES de la
+       * persistencia.
+       *
+       * Se envía siempre que el pipeline las produjo, no sólo cuando fallan: es
+       * lo que permite a la UI resolver la causa de mayor prioridad —fallo de
+       * almacenamiento por encima de historial y calidad— sin adivinarla desde
+       * un conteo de candidatos.
+       */
+      persistenceOutcome?: WizardPersistenceOutcome;
     }
   | {
       ok: false;
-      code:
-        | 'EXECUTION_DISABLED'
-        | 'UNAUTHENTICATED'
-        | 'INACTIVE_USER'
-        | 'INVALID_REQUEST'
-        | 'CATALOG_CHANGED'
-        | 'IDEMPOTENCY_CONFLICT'
-        | 'PROVIDER_UNAVAILABLE'
-        | 'GENERATION_FAILED'
-        // Pilot budget guardrail codes (16AB.43.17)
-        | 'PILOT_PAUSED'
-        | 'NOT_IN_PILOT'
-        | 'BUDGET_PERIOD_NOT_CONFIGURED'
-        | 'BUDGET_PERIOD_CLOSED'
-        | 'EXECUTION_CREDIT_LIMIT_EXCEEDED'
-        | 'BUDGET_EXCEEDED'
-        | 'CONCURRENT_EXECUTION_ACTIVE'
-        | 'BUDGET_RESERVATION_FAILED';
+      /**
+       * Derivado de `WIZARD_EXECUTION_FAILURE_CODES` — no se vuelve a escribir la
+       * unión aquí. Añadir un código allí lo hace obligatorio en el mapa de copy
+       * de la UI en tiempo de compilación (§ 3).
+       */
+      code: WizardExecutionFailureCode;
       message: string;
       retryable: boolean;
       /**
@@ -255,4 +325,16 @@ export type WizardExecutionActionResult =
        * distinguir «Apollo falló» de «nunca se intentó Apollo».
        */
       runProvider?: WizardRunProviderOutcome;
+      /**
+       * § 6 — motivo estructurado de un `PERSISTENCE_NOT_READY`.
+       *
+       * `errorCode` es el código propio del repo, nunca el de Postgres/PostgREST.
+       * `reason` distingue «la columna no está» de «no se pudo comprobar», que es
+       * lo que decide si hay que aplicar una migración o mirar la conexión.
+       */
+      persistenceNotReady?: {
+        errorCode: string;
+        reason: 'identity_key_missing' | 'probe_failed';
+        stage: 'schema_preflight';
+      };
     };

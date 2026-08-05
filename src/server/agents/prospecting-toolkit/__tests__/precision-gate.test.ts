@@ -36,6 +36,7 @@ import type {
   CandidateWriterInput,
   CandidateWriterOutput,
 } from '../types';
+import { noCandidatePersistenceFailures } from '../prospect-candidate-persistence-readiness';
 
 // ── Shared fixtures ────────────────────────────────────────────────────────────
 
@@ -152,6 +153,9 @@ describe('Fixture A — Target cap', () => {
         skipped: [],
         status: 'success',
         errors: [],
+        // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — el contrato del writer exige las
+        // cifras de persistencia; este doble no ejercita fallos de escritura.
+        persistence: noCandidatePersistenceFailures(),
       };
     };
 
@@ -190,6 +194,9 @@ describe('Fixture A — Target cap', () => {
         skipped: [],
         status: 'success',
         errors: [],
+        // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — el contrato del writer exige las
+        // cifras de persistencia; este doble no ejercita fallos de escritura.
+        persistence: noCandidatePersistenceFailures(),
       };
     };
 
@@ -228,6 +235,9 @@ describe('Fixture A — Target cap', () => {
         skipped: [],
         status: 'success',
         errors: [],
+        // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — el contrato del writer exige las
+        // cifras de persistencia; este doble no ejercita fallos de escritura.
+        persistence: noCandidatePersistenceFailures(),
       };
     };
 
@@ -506,6 +516,9 @@ describe('Fixture G — Adaptive metadata reconciliation post-writer', () => {
       skipped: [],
       status: 'success',
       errors: [],
+      // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — el contrato del writer exige las
+      // cifras de persistencia; este doble no ejercita fallos de escritura.
+      persistence: noCandidatePersistenceFailures(),
     });
   }
 

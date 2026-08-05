@@ -76,6 +76,7 @@ import { runApolloOrganizationEnrichmentCascade } from '../apollo-organization-e
 import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
 import { loadActiveApolloOrganizationEnrichmentPricing } from '@/modules/usage-tracking/provider-pricing';
 import { writeProspectingCandidates } from '../candidate-writer';
+import type { CandidatePersistenceOutcome } from '../prospect-candidate-persistence-readiness';
 import {
   loadDiscoveryNegativeMemory,
   emptyNegativeMemory,
@@ -1275,6 +1276,11 @@ export async function runApolloTwoRoundWizardDiscovery(
   });
 
   let candidatesCreated = persistedCandidateIds.length;
+  // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — resultado real de la escritura, que
+  // el wizard necesita para no anunciar un fallo de almacenamiento como un vacío
+  // normal. `undefined` cuando este intento no escribió (los candidatos ya
+  // estaban persistidos por un intento anterior del MISMO run).
+  let persistenceOutcome: CandidatePersistenceOutcome | undefined;
 
   if (!candidatesPersisted) {
     const pipelineOutput: ProspectingPipelineOutput = {
@@ -1322,6 +1328,7 @@ export async function runApolloTwoRoundWizardDiscovery(
 
     candidatesCreated = writerResult.candidatesCreated;
     persistedCandidateIds = writerResult.createdCandidateIds ?? [];
+    persistenceOutcome = writerResult.persistence;
     candidatesPersisted = true;
 
     // § 3 — el checkpoint final se escribe DESPUÉS del writer y RELEYENDO el
@@ -1375,6 +1382,7 @@ export async function runApolloTwoRoundWizardDiscovery(
     targetReached: runResult.targetReached,
     targetPersistibleCandidates: config.targetEligibleCompanies,
     ...(budgetAnomalies.length > 0 ? { budgetAnomalies } : {}),
+    ...(persistenceOutcome ? { persistenceOutcome } : {}),
   };
 }
 
