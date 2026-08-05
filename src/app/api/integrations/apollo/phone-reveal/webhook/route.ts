@@ -236,8 +236,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           phone_reveal_webhook_received_at: patch.phone_reveal_webhook_received_at,
           phone_reveal_provider: patch.phone_reveal_provider,
           phone_reveal_cost_credits: patch.phone_reveal_cost_credits,
+          // Procedencia de la cifra anterior (AGENT2A-PHONE-REVEAL-4N § 6). Se escribe
+          // siempre: dejarla en null junto a un costo desconocido era indistinguible de
+          // "nadie lo ha mirado".
+          phone_reveal_cost_source: patch.phone_reveal_cost_source,
           phone_reveal_error_code: patch.phone_reveal_error_code,
         };
+        // Solo el camino `revealed` la emite, y por eso solo ahí se escribe: un
+        // no_phone_found no puede sobrescribir la fecha de un reveal anterior con null.
+        if (patch.phone_revealed_at !== undefined) {
+          update.phone_revealed_at = patch.phone_revealed_at;
+        }
         if (patch.phone !== undefined) update.phone = patch.phone;
         if (patch.enrichment_metadata !== undefined) {
           update.enrichment_metadata = patch.enrichment_metadata;

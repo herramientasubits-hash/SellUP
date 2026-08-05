@@ -8,7 +8,13 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { BudgetRule } from '@/modules/usage-tracking/types';
 import type { OrgGroupLike } from '@/modules/access/group-tree';
-import type { UserBudgetContext, PeriodConsumption } from './types';
+import type { UserBudgetContext } from './types';
+import {
+  WATERFALL_USAGE_CORRELATION_KEY,
+  type ReservationSnapshotRow,
+  type ReservationSnapshotStatus,
+  type UsageConsumptionRow,
+} from './effective-consumption-core';
 
 // ─── Client ───────────────────────────────────────────────────────────────────
 
@@ -21,27 +27,48 @@ export function getAdminClient() {
 
 type AdminClient = ReturnType<typeof getAdminClient>;
 
+/** Table holding the atomic credit reservations of the phone reveal waterfall (mig. 104). */
+const PHONE_REVEAL_CREDIT_RESERVATIONS_TABLE = 'phone_reveal_credit_reservations';
+
+/** Terminal runs of the phone reveal waterfall (mig. 102), for group → run resolution. */
+const PHONE_REVEAL_WATERFALL_RUNS_TABLE = 'phone_reveal_waterfall_runs';
+
 /**
- * Sums credits_used/estimated_cost_usd from provider_usage_logs rows.
- * estimated_cost_usd = NULL means unknown cost — it is excluded from usd
- * (never coerced to 0) and flagged via hasUnknownCost so `usd` is never
- * mislabeled as a complete total (17B.4X.5).
+ * Columns the consumption queries read from provider_usage_logs.
+ *
+ * `metadata` is read in full and NOT narrowed to a JSON path on purpose. The waterfall
+ * correlation key can appear on any row written under a reveal authorization, so
+ * filtering by `operation_key` would silently stop excluding a future writer's rows and
+ * reintroduce the double count this milestone exists to prevent (AGENT2A-PHONE-REVEAL-4N).
  */
-function sumPeriodConsumption(
-  rows: Array<{ credits_used: number | null; estimated_cost_usd: number | null }>,
-): PeriodConsumption {
-  let credits = 0;
-  let usd = 0;
-  let hasUnknownCost = false;
-  for (const r of rows) {
-    credits += Number(r.credits_used ?? 0);
-    if (r.estimated_cost_usd == null) {
-      hasUnknownCost = true;
-    } else {
-      usd += Number(r.estimated_cost_usd);
-    }
-  }
-  return { credits, usd, hasUnknownCost };
+const USAGE_CONSUMPTION_SELECT = 'provider_key, credits_used, estimated_cost_usd, metadata';
+
+/**
+ * Maps raw provider_usage_logs rows to the vocabulary of the pure accounting core,
+ * pulling the waterfall run id out of `metadata` when the row carries one.
+ */
+function toUsageConsumptionRows(rows: unknown[]): UsageConsumptionRow[] {
+  return rows.map((raw) => {
+    const row = raw as {
+      provider_key?: unknown;
+      credits_used?: unknown;
+      estimated_cost_usd?: unknown;
+      metadata?: unknown;
+    };
+    const metadata =
+      row.metadata !== null && typeof row.metadata === 'object'
+        ? (row.metadata as Record<string, unknown>)
+        : null;
+    const correlated = metadata?.[WATERFALL_USAGE_CORRELATION_KEY];
+
+    return {
+      providerKey: typeof row.provider_key === 'string' ? row.provider_key : '',
+      creditsUsed: row.credits_used == null ? null : Number(row.credits_used),
+      estimatedCostUsd:
+        row.estimated_cost_usd == null ? null : Number(row.estimated_cost_usd),
+      waterfallRunId: typeof correlated === 'string' && correlated.length > 0 ? correlated : null,
+    };
+  });
 }
 
 // ─── Rules ────────────────────────────────────────────────────────────────────
@@ -157,11 +184,23 @@ export function buildGroupAncestorChain(
 }
 
 // ─── Consumption ──────────────────────────────────────────────────────────────
+//
+// These readers return RAW ROWS, not a summed total. Summing moved into the pure core
+// (effective-consumption-core.ts) because the budgetary total is no longer a plain
+// aggregation over provider_usage_logs: a waterfall leg whose cost the provider never
+// reported is represented by its confirmed reservation instead, and the log has to be
+// excluded so the same spend is not counted twice (AGENT2A-PHONE-REVEAL-4N).
+//
+// THEY THROW on a read failure, and that is a deliberate change of contract. Returning
+// "0 consumed" on a failed read is fail-OPEN: it reports a full, untouched pool to the
+// credit gate, which is exactly when it must refuse to authorize. Callers that must not
+// break on a transient error (the Apollo/Tavily budget alerts) already catch and degrade
+// to a non-blocking technical error, and the phone reveal preflight already translates a
+// throw into `balance_unavailable` — fail-closed, as its contract promises.
 
 /**
- * Aggregates credits_used and estimated_cost_usd from provider_usage_logs
- * for a specific user and provider within a period (periodStart inclusive,
- * periodEnd exclusive).
+ * provider_usage_logs rows for a specific user and provider within a period
+ * (periodStart inclusive, periodEnd exclusive).
  */
 export async function getConsumptionForUser(
   admin: AdminClient,
@@ -169,27 +208,26 @@ export async function getConsumptionForUser(
   userId: string,
   periodStart: string,
   periodEnd: string,
-): Promise<PeriodConsumption> {
+): Promise<UsageConsumptionRow[]> {
   const { data, error } = await admin
     .from('provider_usage_logs')
-    .select('credits_used, estimated_cost_usd')
+    .select(USAGE_CONSUMPTION_SELECT)
     .eq('provider_key', providerKey)
     .eq('triggered_by', userId)
     .gte('created_at', periodStart)
     .lt('created_at', periodEnd);
 
-  if (error || !data) return { credits: 0, usd: 0, hasUnknownCost: false };
-
-  return sumPeriodConsumption(data);
+  if (error) throw new Error(`usage consumption read failed (user): ${error.message}`);
+  return toUsageConsumptionRows(data ?? []);
 }
 
 /**
- * Aggregates credits_used and estimated_cost_usd for a set of group IDs.
- * Used for the group rule check — the pool covers the matched group and all
- * its descendants. Logs created before triggered_by_group_id was populated
- * (Hito A or earlier) will have null there and will NOT be counted; this is
- * expected and documented: only logs with a group snapshot count toward group
- * budgets. Historical logs without snapshot still count for user and global rules.
+ * provider_usage_logs rows for a set of group IDs. Used for the group rule check — the
+ * pool covers the matched group and all its descendants. Logs created before
+ * triggered_by_group_id was populated (Hito A or earlier) have null there and will NOT
+ * be counted; this is expected and documented: only logs with a group snapshot count
+ * toward group budgets. Historical logs without a snapshot still count for user and
+ * global rules.
  */
 export async function getConsumptionForGroups(
   admin: AdminClient,
@@ -197,27 +235,25 @@ export async function getConsumptionForGroups(
   groupIds: string[],
   periodStart: string,
   periodEnd: string,
-): Promise<PeriodConsumption> {
-  if (groupIds.length === 0) return { credits: 0, usd: 0, hasUnknownCost: false };
+): Promise<UsageConsumptionRow[]> {
+  if (groupIds.length === 0) return [];
 
   const { data, error } = await admin
     .from('provider_usage_logs')
-    .select('credits_used, estimated_cost_usd')
+    .select(USAGE_CONSUMPTION_SELECT)
     .eq('provider_key', providerKey)
     .in('triggered_by_group_id', groupIds)
     .gte('created_at', periodStart)
     .lt('created_at', periodEnd);
 
-  if (error || !data) return { credits: 0, usd: 0, hasUnknownCost: false };
-
-  return sumPeriodConsumption(data);
+  if (error) throw new Error(`usage consumption read failed (groups): ${error.message}`);
+  return toUsageConsumptionRows(data ?? []);
 }
 
 /**
- * Aggregates credits_used and estimated_cost_usd for all users with a given role.
- * Used for the role rule check — the pool is shared across the entire role.
- * Logs created before triggered_by_role_key was populated will have null and
- * will NOT be counted; same historical caveat as group logs above.
+ * provider_usage_logs rows for all users with a given role. Used for the role rule
+ * check — the pool is shared across the entire role. Same historical caveat about a
+ * missing triggered_by_role_key snapshot as group logs above.
  */
 export async function getConsumptionForRole(
   admin: AdminClient,
@@ -225,69 +261,182 @@ export async function getConsumptionForRole(
   roleKey: string,
   periodStart: string,
   periodEnd: string,
-): Promise<PeriodConsumption> {
+): Promise<UsageConsumptionRow[]> {
   const { data, error } = await admin
     .from('provider_usage_logs')
-    .select('credits_used, estimated_cost_usd')
+    .select(USAGE_CONSUMPTION_SELECT)
     .eq('provider_key', providerKey)
     .eq('triggered_by_role_key', roleKey)
     .gte('created_at', periodStart)
     .lt('created_at', periodEnd);
 
-  if (error || !data) return { credits: 0, usd: 0, hasUnknownCost: false };
-
-  return sumPeriodConsumption(data);
+  if (error) throw new Error(`usage consumption read failed (role): ${error.message}`);
+  return toUsageConsumptionRows(data ?? []);
 }
 
 /**
- * Aggregates credits_used and estimated_cost_usd for a whole provider
- * (all users) within a period. Used for the global rule check.
+ * provider_usage_logs rows for a whole provider (all users) within a period.
+ * Used for the global rule check.
  */
 export async function getConsumptionGlobal(
   admin: AdminClient,
   providerKey: string,
   periodStart: string,
   periodEnd: string,
-): Promise<PeriodConsumption> {
+): Promise<UsageConsumptionRow[]> {
   const { data, error } = await admin
     .from('provider_usage_logs')
-    .select('credits_used, estimated_cost_usd')
+    .select(USAGE_CONSUMPTION_SELECT)
     .eq('provider_key', providerKey)
     .gte('created_at', periodStart)
     .lt('created_at', periodEnd);
 
-  if (error || !data) return { credits: 0, usd: 0, hasUnknownCost: false };
-
-  return sumPeriodConsumption(data);
+  if (error) throw new Error(`usage consumption read failed (global): ${error.message}`);
+  return toUsageConsumptionRows(data ?? []);
 }
 
 /**
- * Aggregates consumption per provider for the admin summary.
- * Returns a map keyed by provider_key.
+ * provider_usage_logs rows for EVERY provider in a period, for the admin summary,
+ * which resolves all pools in one pass.
  */
 export async function getConsumptionByProvider(
   admin: AdminClient,
   periodStart: string,
   periodEnd: string,
-): Promise<Map<string, PeriodConsumption>> {
+): Promise<UsageConsumptionRow[]> {
   const { data, error } = await admin
     .from('provider_usage_logs')
-    .select('provider_key, credits_used, estimated_cost_usd')
+    .select(USAGE_CONSUMPTION_SELECT)
     .gte('created_at', periodStart)
     .lt('created_at', periodEnd);
 
-  const result = new Map<string, PeriodConsumption>();
-  if (error || !data) return result;
+  if (error) throw new Error(`usage consumption read failed (all providers): ${error.message}`);
+  return toUsageConsumptionRows(data ?? []);
+}
 
-  for (const row of data) {
-    const key = row.provider_key as string;
-    const prev = result.get(key) ?? { credits: 0, usd: 0, hasUnknownCost: false };
-    const hasUnknownCost = prev.hasUnknownCost || row.estimated_cost_usd == null;
-    result.set(key, {
-      credits: prev.credits + Number(row.credits_used ?? 0),
-      usd: row.estimated_cost_usd == null ? prev.usd : prev.usd + Number(row.estimated_cost_usd),
-      hasUnknownCost,
-    });
+// ─── Phone reveal credit reservations (AGENT2A-PHONE-REVEAL-4N) ────────────────
+
+/**
+ * Reservation rows of ONE pool, in ONE read, with EVERY status included.
+ *
+ * The single read is the whole point and not an optimization. `reserved` credits occupy
+ * availability and `confirmed` credits are consumption, so a row must be seen by exactly
+ * one of the two. Split into two queries, a row that settles between them is read
+ * `reserved` by the first and `confirmed` by the second — or, in the other order, by
+ * NEITHER, which hands its credits back to `available` for the duration of the window.
+ * That is the double-availability interval §3 forbids; one snapshot makes it impossible.
+ *
+ * POOL IDENTITY IS MATCHED AS STORED, never re-resolved. Each row carries the scope and
+ * period that were in force when the authorization was granted, and it is matched on
+ * exactly those — the same `provider_key / scope_type / scope_id (null-safe) /
+ * period_start` tuple `reserve_and_create_phone_reveal_run` locks. A later change to
+ * `budget_rules` therefore moves the CURRENT pool without dragging historical operations
+ * into it: a reservation confirmed under the old pool stays charged to the old pool.
+ *
+ * `released` rows are read but contribute nothing (the pure core ignores them). They are
+ * fetched anyway so the snapshot is a complete picture of the pool and a row that was
+ * released mid-read cannot be mistaken for a missing one.
+ *
+ * SCOPE IS OPTIONAL. Omitting `scope` reads every scope for the given providers and
+ * period, which is what the org-wide admin summary needs: it aggregates usage logs across
+ * ALL users against a global rule, so it must also see the reservations of the per-user
+ * pools those logs came from. Pinning it to `scope_type = 'global'` there would exclude a
+ * user-scoped reservation's usage log while adding nothing back, and the spend would
+ * simply disappear from the total.
+ */
+export async function getPhoneRevealReservationSnapshot(
+  admin: AdminClient,
+  pool: {
+    providerKeys: readonly string[];
+    /** Omit to read EVERY scope (aggregate reporting). Present = one exact pool. */
+    scope?: { scopeType: string; scopeId: string | null };
+    periodStart: string;
+    periodEnd: string;
+  },
+): Promise<ReservationSnapshotRow[]> {
+  if (pool.providerKeys.length === 0) return [];
+
+  let query = admin
+    .from(PHONE_REVEAL_CREDIT_RESERVATIONS_TABLE)
+    .select(
+      'provider_key, status, credits_reserved, credits_confirmed, cost_truth, run_id, reservation_group_id',
+    )
+    .in('provider_key', pool.providerKeys as string[])
+    .eq('period_start', pool.periodStart)
+    .eq('period_end', pool.periodEnd);
+
+  if (pool.scope) {
+    query = query.eq('scope_type', pool.scope.scopeType);
+    // scope_id is NULL on a global rule, and `.eq(col, null)` does not match NULL in
+    // PostgREST — it has to be an IS NULL filter, mirroring the SQL's
+    // `IS NOT DISTINCT FROM`.
+    query =
+      pool.scope.scopeId === null
+        ? query.is('scope_id', null)
+        : query.eq('scope_id', pool.scope.scopeId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(`phone reveal reservation snapshot read failed: ${error.message}`);
+  }
+
+  return (data ?? []).map((raw) => {
+    const row = raw as Record<string, unknown>;
+    return {
+      providerKey: typeof row.provider_key === 'string' ? row.provider_key : '',
+      status: row.status as ReservationSnapshotStatus,
+      creditsReserved: row.credits_reserved == null ? null : Number(row.credits_reserved),
+      creditsConfirmed: row.credits_confirmed == null ? null : Number(row.credits_confirmed),
+      costTruth: (row.cost_truth as ReservationSnapshotRow['costTruth']) ?? null,
+      runId: typeof row.run_id === 'string' ? row.run_id : null,
+      reservationGroupId:
+        typeof row.reservation_group_id === 'string' ? row.reservation_group_id : null,
+    };
+  });
+}
+
+/**
+ * `credit_reservation_group_id` → `phone_reveal_waterfall_runs.id` for the groups in a
+ * snapshot. This is the AUTHORITATIVE side of the reservation ↔ run association (it is
+ * written inside the run INSERT), so it is what lets a usage log be excluded even when
+ * the reservation's own convenience `run_id` was never written back.
+ *
+ * TOLERANT ON PURPOSE, unlike every other reader here. This map only ever ADDS exclusions;
+ * without it, exclusion falls back to `reservations.run_id` and any leg it cannot match
+ * simply keeps counting its usage log ON TOP of its confirmed reservation. That direction
+ * over-counts, which blocks an operation at worst — the opposite direction would hand back
+ * availability that was already spent. So a failure here degrades instead of failing closed,
+ * and budget resolution does not become hostage to a feature table it does not own.
+ */
+export async function getRunIdsByReservationGroup(
+  admin: AdminClient,
+  reservationGroupIds: readonly string[],
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (reservationGroupIds.length === 0) return result;
+
+  const { data, error } = await admin
+    .from(PHONE_REVEAL_WATERFALL_RUNS_TABLE)
+    .select('id, credit_reservation_group_id')
+    .in('credit_reservation_group_id', reservationGroupIds as string[]);
+
+  if (error) {
+    console.warn(
+      '[budgets] waterfall run group resolution unavailable, falling back to reservation.run_id (over-counts, never under-counts):',
+      error.message,
+    );
+    return result;
+  }
+
+  for (const raw of data ?? []) {
+    const row = raw as Record<string, unknown>;
+    if (
+      typeof row.id === 'string' &&
+      typeof row.credit_reservation_group_id === 'string'
+    ) {
+      result.set(row.credit_reservation_group_id, row.id);
+    }
   }
   return result;
 }

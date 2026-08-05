@@ -223,6 +223,10 @@ export function buildRecoveryCoreDeps(
       if (patch.phone_reveal_cost_credits !== undefined) {
         update.phone_reveal_cost_credits = patch.phone_reveal_cost_credits;
       }
+      // Procedencia de la cifra anterior (AGENT2A-PHONE-REVEAL-4N § 6).
+      if (patch.phone_reveal_cost_source !== undefined) {
+        update.phone_reveal_cost_source = patch.phone_reveal_cost_source;
+      }
       if (patch.phone_reveal_error_code !== undefined) {
         update.phone_reveal_error_code = patch.phone_reveal_error_code;
       }

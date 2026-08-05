@@ -193,3 +193,20 @@ jobs:
 
       - name: Run phone drawer sync tests
         run: npm run test:agent2a:phone-drawer-sync
+
+      # AGENT2A-PHONE-REVEAL-4N — la contabilidad del presupuesto entra al check
+      # obligatorio. Es donde vive el defecto que este hito cierra y ninguna suite lo
+      # cubría: la reserva confirmada de Apollo (8 créditos, `assumed_cap`) no entraba en
+      # ningún cálculo de presupuesto porque Apollo no reporta lo que cobra, y sumarla sin
+      # excluir el usage log de Lusha habría contado el mismo gasto dos veces (10 → 15 sobre
+      # un pozo de 10). La suite reproduce las dos corridas live con sus cifras exactas,
+      # verifica que las reservas se lean en UN solo snapshot (para que `reserved →
+      # confirmed` no devuelva disponibilidad ni por un instante), que el pozo se empareje
+      # tal como quedó ALMACENADO, y que el camino Apollo escriba por fin sus campos
+      # terminales. Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run phone budget accounting tests
+        run: npm run test:agent2a:phone-budget-accounting
+
+      # El módulo de presupuestos, cuyo resolver es ahora la fuente económica canónica.
+      - name: Run budget module tests
+        run: npm run test:budgets

@@ -601,6 +601,33 @@ export function decidePhoneRevealCreditSettlement(args: {
   });
 }
 
+// ── Costo ECONÓMICO de una pata (AGENT2A-PHONE-REVEAL-4N § 6) ──
+
+/**
+ * Lo que una pata acabó COSTANDO económicamente, leído de la liquidación que ya se
+ * decidió. Es la única cifra que existe cuando el proveedor no reporta: para Apollo el
+ * usage log lleva `credits_used = NULL` y el número real es el tope que la reserva
+ * confirmó (8, con `assumed_cap`).
+ *
+ * Se deriva de `decidePhoneRevealCreditSettlement` en vez de recalcularse para que el
+ * candidato y la reserva NO puedan divergir: si algún día cambia la regla de liquidación,
+ * las dos cifras cambian juntas porque son la misma decisión.
+ *
+ * Devuelve null cuando esa pata no se confirmó (se liberó, o la corrida no era terminal):
+ * no hay costo que declarar, y declarar 0 sería afirmar que no se cobró.
+ */
+export function resolvePhoneRevealSettledLegCost(args: {
+  providerKey: string;
+  settlement: readonly PhoneRevealCreditSettlementAction[];
+}): { credits: number; costSource: PhoneRevealCreditReservationCostTruth } | null {
+  for (const action of args.settlement) {
+    if (action.action !== 'confirm') continue;
+    if (action.providerKey !== args.providerKey) continue;
+    return { credits: action.credits, costSource: action.costTruth };
+  }
+  return null;
+}
+
 // ── Huérfanas ──────────────────────────────────────────────────
 
 /**

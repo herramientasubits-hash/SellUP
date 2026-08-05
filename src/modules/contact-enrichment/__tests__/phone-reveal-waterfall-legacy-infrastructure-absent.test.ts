@@ -354,6 +354,18 @@ mock.module('@/modules/budgets/budget-resolution', {
       },
       consumedCredits: 0,
       consumedUsd: 0,
+      // AGENT2A-PHONE-REVEAL-4N: el pozo declara explícitamente que NO hay exposición
+      // reservada. El preflight lo exige como dato y trata su ausencia como
+      // `balance_unavailable`, porque un pozo cuya exposición nadie leyó no autoriza gasto.
+      reservedCredits: 0,
+      consumptionBreakdown: {
+        usageLogCredits: 0,
+        confirmedReservationCredits: 0,
+        excludedUsageLogCredits: 0,
+        excludedUsageLogCount: 0,
+        hasAssumedCapCredits: false,
+        malformedConfirmedReservationCount: 0,
+      },
       projectedCredits: 0,
       projectedUsd: 0,
       remainingCredits: 1_000,
