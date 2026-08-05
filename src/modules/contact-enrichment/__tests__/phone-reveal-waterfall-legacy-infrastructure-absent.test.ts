@@ -95,6 +95,10 @@ interface Spies {
    * deja fila: lo que se mide es "¿quedó una corrida parcial?", no "¿se intentó?".
    */
   waterfallWrites: number;
+  /** Reservas de crédito tomadas (AGENT2A-PHONE-WATERFALL-4E). */
+  creditReservations: number;
+  /** Motivos de liberación de exposición, en orden. */
+  creditReleases: string[];
 }
 
 const spies: Spies = {
@@ -105,6 +109,8 @@ const spies: Spies = {
   usageLogs: 0,
   insertAttempts: 0,
   waterfallWrites: 0,
+  creditReservations: 0,
+  creditReleases: [],
 };
 
 function resetSpies(): void {
@@ -115,6 +121,8 @@ function resetSpies(): void {
   spies.usageLogs = 0;
   spies.insertAttempts = 0;
   spies.waterfallWrites = 0;
+  spies.creditReservations = 0;
+  spies.creditReleases = [];
   httpRequests = [];
 }
 
@@ -246,7 +254,6 @@ mock.module('@/lib/supabase/admin', {
             ...base,
             select: () => base,
             insert: () => {
-              spies.insertAttempts += 1;
               if (err) return chain(failure);
               if (waterfallInsertError) {
                 return chain({ data: null, error: waterfallInsertError });
@@ -264,8 +271,95 @@ mock.module('@/lib/supabase/admin', {
             },
           };
         },
+        // Reserva atómica de créditos (AGENT2A-PHONE-WATERFALL-4E, migración 104).
+        // Simulada para que este archivo siga midiendo el gate de infraestructura de la
+        // corrida; además permite afirmar que una corrida que no se pudo crear LIBERA la
+        // exposición que había reservado, en vez de dejarla bloqueada para siempre.
+        rpc: (fn: string, params: Record<string, unknown>) => {
+          // AGENT2A-PHONE-WATERFALL-4F: reserva + corrida en una sola función SQL. La
+          // salud de la tabla 102 se observa aquí, y un fallo deshace ambas escrituras.
+          if (fn === 'reserve_and_create_phone_reveal_run') {
+            spies.creditReservations += 1;
+            spies.insertAttempts += 1;
+
+            if (waterfallTableError) {
+              return chain({ data: null, error: waterfallTableError });
+            }
+            if (waterfallInsertError) {
+              if (waterfallInsertError.code === '23505') {
+                return chain({ data: { status: 'create_conflict' }, error: null });
+              }
+              return chain({ data: null, error: waterfallInsertError });
+            }
+
+            const legs =
+              (params.p_legs as { provider_key: string; credits: number }[]) ?? [];
+            if (!waterfallInsertId) {
+              return chain({ data: { status: 'created' }, error: null });
+            }
+            spies.waterfallWrites += 1;
+            return chain({
+              data: {
+                status: 'created',
+                run_id: waterfallInsertId,
+                reservation_group_id: params.p_reservation_group_id,
+                reservations: legs.map((leg, index) => ({
+                  id: `reservation-${index}-${leg.provider_key}`,
+                  provider_key: leg.provider_key,
+                  credits_reserved: leg.credits,
+                })),
+              },
+              error: null,
+            });
+          }
+          if (fn === 'release_phone_reveal_credits') {
+            spies.creditReleases.push(String(params.p_reason ?? ''));
+            return chain({ data: 'released', error: null });
+          }
+          if (fn === 'confirm_phone_reveal_credits') {
+            return chain({ data: 'confirmed', error: null });
+          }
+          return chain({ data: null, error: null });
+        },
       };
     },
+  },
+});
+
+/**
+ * Presupuesto POR PROVEEDOR resuelto (AGENT2A-PHONE-WATERFALL-4E). `checkBudget` habla
+ * con su propio cliente admin y con `provider_usage_logs`, que no son el sujeto de este
+ * archivo: aquí se prueba el gate de infraestructura de la corrida. Un pozo con límite
+ * amplio deja pasar el preflight para que el bloqueo observado sea el de la corrida.
+ */
+mock.module('@/modules/budgets/budget-resolution', {
+  namedExports: {
+    checkBudget: async (providerKey: string) => ({
+      allowed: true,
+      reason: null,
+      providerKey,
+      userId: 'user-admin',
+      periodStart: '2026-08-01T00:00:00.000Z',
+      periodEnd: '2026-08-31T23:59:59.999Z',
+      scopeApplied: 'global',
+      matchedRule: {
+        id: 'rule-1',
+        providerKey,
+        scopeType: 'global',
+        scopeId: null,
+        limitCredits: 1_000,
+        limitUsd: null,
+        periodType: 'monthly',
+        onExceed: 'block',
+      },
+      consumedCredits: 0,
+      consumedUsd: 0,
+      projectedCredits: 0,
+      projectedUsd: 0,
+      remainingCredits: 1_000,
+      remainingUsd: null,
+      usdCostTruth: 'complete',
+    }),
   },
 });
 
@@ -505,7 +599,12 @@ describe('legacy — el INSERT de la corrida falla: 0 Apollo, 0 Lusha', () => {
       );
 
       assert.equal(result.outcome, 'not_started');
-      assert.equal(result.reason, 'legacy_run_creation_failed');
+      // AGENT2A-PHONE-WATERFALL-4F: la escritura es una RPC, así que el fallo llega
+      // como DESENLACE (`run_creation_unavailable`) en vez de como excepción
+      // (`legacy_run_creation_failed`). El contrato observable no cambia: not_started,
+      // 0 Lusha, 0 Apollo, 0 usage logs, 0 créditos — y la reserva se deshizo con la
+      // transacción, así que tampoco queda exposición ocupada.
+      assert.equal(result.reason, 'run_creation_unavailable');
       assert.equal(result.lushaCalled, false);
       assert.equal(spies.insertAttempts, 1, 'se intentó crear la corrida UNA vez');
       assertNoSpendAtAll();
@@ -523,7 +622,7 @@ describe('legacy — el INSERT de la corrida falla: 0 Apollo, 0 Lusha', () => {
     );
 
     assert.equal(result.outcome, 'not_started');
-    assert.equal(result.reason, 'legacy_run_creation_failed');
+    assert.equal(result.reason, 'run_creation_unavailable');
     assert.equal(result.lushaCalled, false);
     assert.equal(result.maxCreditsAuthorized, null);
     assert.equal(spies.insertAttempts, 1);
@@ -586,12 +685,18 @@ describe('legacy — las deps del arranque NO incluyen ninguna pata Apollo', () 
     // Superficie EXACTA: si alguien añade una dep de proveedor, este test cae.
     assert.deepEqual(keys, [
       'actor',
-      'createRun',
       'findActiveRun',
       'findLatestRun',
       'flagEnabled',
       'loadLegacyEvidence',
+      'newAuthorizationKey',
+      'newReservationGroupId',
       'nowIso',
+      // AGENT2A-PHONE-WATERFALL-4D/4E: resuelve PRESUPUESTO, no proveedores.
+      'readCreditPools',
+      // AGENT2A-PHONE-WATERFALL-4F: ocupa presupuesto Y escribe la corrida en UNA
+      // transacción. No puede llamar a Apollo ni a Lusha.
+      'reserveCreditsAndCreateRun',
     ]);
     const serialized = keys.join(' ').toLowerCase();
     assert.equal(serialized.includes('apollo'), false);
