@@ -156,9 +156,12 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
   React.useEffect(() => {
     if (status === 'completed_with_errors') {
       // No se cierra solo: el usuario tiene que leer que NO repita la búsqueda.
-      toast.error('No pudimos guardar los resultados.', {
-        description: resultCopy.body,
-      });
+      //
+      // A1-APOLLO-PERSISTENCE-READINESS-4-FIX — y NO se emite `toast.error`. El
+      // panel inline de más abajo ya muestra el mismo titular y el mismo cuerpo,
+      // así que el toast sólo duplicaba el mensaje; la invariante 20.R del wizard
+      // exige precisamente que los errores vivan en la UI inline y no en toasts,
+      // para no apilarlos en los fallos reintentables.
       router.refresh();
       return;
     }

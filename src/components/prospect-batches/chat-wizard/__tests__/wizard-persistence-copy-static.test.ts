@@ -125,8 +125,29 @@ describe('§ 1 — la pantalla no ofrece relanzar de inmediato', () => {
   it('el botón de generación y el selector de proveedor comparten ese gate', () => {
     // Un selector visible junto a un botón ausente sugeriría que se puede elegir
     // con qué reintentar algo que no se puede reintentar.
-    const gated = src.summary.match(/!isPersistenceBlocked/g) ?? [];
-    assert.equal(gated.length, 2, 'el gate debe cubrir el botón y el selector');
+    //
+    // Se afirman las DOS conjunciones concretas en vez de contar apariciones del
+    // token: un contador se rompe en cuanto un comentario menciona el nombre, y
+    // eso lo vuelve una prueba sobre la prosa en vez de sobre el gate.
+    assert.match(
+      src.summary,
+      /executionEnabled && !isPersistenceBlocked && \(\s*<Button/,
+      'el botón «Generar prospectos» debe estar gateado por !isPersistenceBlocked',
+    );
+    assert.match(
+      src.summary,
+      /!isPersistenceBlocked &&\s*\n\s*onRequestedProviderChange !== undefined/,
+      'el selector de proveedor debe estar gateado por !isPersistenceBlocked',
+    );
+  });
+
+  it('el gate NO rompe la conjunción que fija el guardrail STRICT-ALL de Lusha', () => {
+    // `prospect-wizard-route-static.test.ts` fija literalmente esta conjunción.
+    // Insertar el nuevo gate en medio la partía; va después a propósito.
+    assert.match(
+      src.summary,
+      /!useLushaFinalSearch && !isLushaBlocked && executionEnabled/,
+    );
   });
 });
 

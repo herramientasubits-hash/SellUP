@@ -295,8 +295,8 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           un no-admin no se renderiza nada. */}
       {!useLushaFinalSearch &&
         !isLushaBlocked &&
-        !isPersistenceBlocked &&
         executionEnabled &&
+        !isPersistenceBlocked &&
         onRequestedProviderChange !== undefined && (
           <WizardRunProviderSelector
             capability={providerOverrideCapability}
@@ -308,7 +308,12 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           />
         )}
 
-      {!useLushaFinalSearch && !isLushaBlocked && !isPersistenceBlocked && executionEnabled && (
+      {/* `!isPersistenceBlocked` va DESPUÉS de `executionEnabled` a propósito: la
+          conjunción `!useLushaFinalSearch && !isLushaBlocked && executionEnabled`
+          es la que fija literalmente el guardrail STRICT-ALL de Lusha
+          (prospect-wizard-route-static.test.ts). El orden es indiferente para la
+          lógica y esa invariante no se toca. */}
+      {!useLushaFinalSearch && !isLushaBlocked && executionEnabled && !isPersistenceBlocked && (
         <Button
           type="button"
           size="sm"
