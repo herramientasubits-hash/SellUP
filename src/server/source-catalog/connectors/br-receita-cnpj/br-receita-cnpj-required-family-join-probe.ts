@@ -90,6 +90,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import type {
+  BrazilReceitaCalibrationPhase,
+  BrazilReceitaCalibrationRecorder,
+  BrazilReceitaCalibrationSamplePoint,
+} from './br-receita-cnpj-calibration-instrumentation';
 import {
   countBrReceitaCnpjDelimitedColumns,
   getBrReceitaCnpjOfficialColumnCount,
@@ -153,6 +158,28 @@ export const BRAZIL_RECEITA_REQUIRED_FAMILY_JOIN_PROBE_FAMILIES: readonly string
  * A layout constant, not data: it names a column position, never a value.
  */
 export const BRAZIL_RECEITA_REQUIRED_FAMILY_JOIN_PROBE_KEY_COLUMN_INDEX = 0 as const;
+
+/**
+ * Which BR-SOURCE-14B.0A calibration phase each required family's bounded read belongs to.
+ *
+ * A LOOKUP, not a strategy: the probe still iterates the families in probe order and still reads
+ * each one exactly as before. This map only tells the optional recorder which phase boundary a
+ * given iteration corresponds to, so the two reads can be timed separately without the loop
+ * having to know anything about measurement.
+ *
+ * The second family's phase deliberately absorbs the join: the membership tests happen inside
+ * that read, so no separable join phase exists to name (see the instrumentation module's
+ * non-separable-phase declaration).
+ */
+const CALIBRATION_PHASE_BY_FAMILY: Readonly<
+  Record<
+    string,
+    { readonly phase: BrazilReceitaCalibrationPhase; readonly point: BrazilReceitaCalibrationSamplePoint }
+  >
+> = {
+  empresas: { phase: 'empresas_read', point: 'after_empresas_read' },
+  estabelecimentos: { phase: 'estabelecimentos_read', point: 'after_estabelecimentos_read' },
+};
 
 /** The extension the manifest CONTROL DOCUMENT must carry. */
 const MANIFEST_EXTENSION = '.json';
@@ -443,6 +470,19 @@ export interface BrazilReceitaRequiredFamilyJoinProbeOptions {
   readonly includeCoveragePercentage?: boolean;
   /** Injectable clock, so the liveness deadline is testable. Defaults to `Date.now`. */
   readonly nowMs?: () => number;
+  /**
+   * The optional BR-SOURCE-14B.0A calibration recorder. An OBSERVER: it is handed phase
+   * boundaries and sample points, and it is never read back into a decision.
+   *
+   * Omitted by default, which is what keeps this milestone behaviour-preserving — every existing
+   * caller and every existing test constructs a probe with no recorder and gets byte-identical
+   * behaviour, because the instrumented call sites collapse to optional-call no-ops.
+   *
+   * It is deliberately NOT the same clock as `nowMs`. `nowMs` is a WALL clock enforcing the
+   * liveness deadline; the recorder carries its own MONOTONIC clock for durations, and the two
+   * are never combined into one figure.
+   */
+  readonly calibrationRecorder?: BrazilReceitaCalibrationRecorder;
 }
 
 // ─── Contract validation ──────────────────────────────────────────────────────
@@ -1071,8 +1111,13 @@ export function createBrazilReceitaRequiredFamilyJoinProbe(
   });
   const manifestPath = assertManifestPathAllowed(options.manifestPath);
   const nowMs = options.nowMs ?? Date.now;
+  const recorder = options.calibrationRecorder;
 
   return (request: BrazilReceitaRequiredFamilyJoinProbeReadRequest) => {
+    // The probe-owned phases open here. Every one of them closes only on the path that actually
+    // completed the work: a refusal below leaves its phase open, and an open phase is reported as
+    // `not_measured` rather than as a fabricated duration.
+    recorder?.beginPhase('manifest_validation');
     const caps = assertCapsAllowed(request);
     // A read may never ask for more than the probe was built with.
     for (const [key] of CAP_CEILINGS) {
@@ -1153,6 +1198,10 @@ export function createBrazilReceitaRequiredFamilyJoinProbe(
         selection.selectionClass,
       );
     }
+    // Validation is complete and no data descriptor exists yet: the honest boundary between
+    // "deciding what may be opened" and "opening it".
+    recorder?.endPhase('manifest_validation');
+    recorder?.sample('after_manifest_validation');
 
     // 4) The bounded read of both files, with the join in between. Per-file AND total budgets
     //    are enforced on every file, exactly as the structural probe enforces them.
@@ -1215,6 +1264,12 @@ export function createBrazilReceitaRequiredFamilyJoinProbe(
             return 'continue';
           };
 
+      // The calibration boundary for THIS family's bounded read. Opened before the descriptor and
+      // closed only after the read returns, so a read that refused or threw leaves the phase open
+      // and therefore `not_measured`.
+      const calibration = CALIBRATION_PHASE_BY_FAMILY[file.family];
+      if (calibration !== undefined) recorder?.beginPhase(calibration.phase);
+
       let outcome: FileReadOutcome;
       try {
         outcome = readOneFileBounded(
@@ -1243,6 +1298,11 @@ export function createBrazilReceitaRequiredFamilyJoinProbe(
           neverOpenedFamilyCount,
           'selected',
         );
+      }
+
+      if (calibration !== undefined) {
+        recorder?.endPhase(calibration.phase);
+        recorder?.sample(calibration.point);
       }
 
       filesOpenedCount += 1;
@@ -1289,6 +1349,11 @@ export function createBrazilReceitaRequiredFamilyJoinProbe(
     // The window is RELEASED here, before the aggregate is assembled. Nothing below this line
     // can reach a join key, because there is no longer one to reach.
     firstFamilyKeys.clear();
+
+    // The join is complete and the window is gone. There is no `join` PHASE to close: the
+    // membership tests ran inside the second family's read, which is why the instrumentation
+    // declares `join` non-separable instead of timing this remnant and calling it the join.
+    recorder?.sample('after_join');
 
     return {
       manifestTrust: BRAZIL_RECEITA_REQUIRED_FAMILY_JOIN_PROBE_TRUST,
