@@ -36,6 +36,9 @@ const ZERO: NoNewCandidatesBreakdown = {
   cooldownCount: 0,
   repeatedAcrossRoundsCount: 0,
   qualityRejectedCount: 0,
+  countryRejectedCount: 0,
+  sectorRejectedCount: 0,
+  ownershipRejectedCount: 0,
   noveltyExhausted: false,
   secondRoundSkippedReason: null,
 };
@@ -92,6 +95,9 @@ describe('§ 8 · el copy se basa en causas reales, una por una', () => {
       cooldownCount: 1,
       hubspotDuplicateCount: 1,
       qualityRejectedCount: 1,
+      countryRejectedCount: 0,
+      sectorRejectedCount: 0,
+      ownershipRejectedCount: 0,
     });
 
     assert.equal(copy.cause, 'mixed');
@@ -143,6 +149,9 @@ describe('§ 8 · el copy se basa en causas reales, una por una', () => {
       cooldownCount: 4,
       hubspotDuplicateCount: 4,
       qualityRejectedCount: 4,
+      countryRejectedCount: 0,
+      sectorRejectedCount: 0,
+      ownershipRejectedCount: 0,
       noveltyExhausted: true,
     });
 
@@ -154,6 +163,9 @@ describe('§ 8 · el copy se basa en causas reales, una por una', () => {
     const copy = resolveNoNewCandidatesCopy({
       ...ZERO,
       qualityRejectedCount: 3,
+      countryRejectedCount: 0,
+      sectorRejectedCount: 0,
+      ownershipRejectedCount: 0,
       secondRoundSkippedReason: 'identical_provider_request',
     });
 
@@ -165,6 +177,9 @@ describe('§ 8 · el copy se basa en causas reales, una por una', () => {
     const copy = resolveNoNewCandidatesCopy({
       ...ZERO,
       qualityRejectedCount: 1,
+      countryRejectedCount: 0,
+      sectorRejectedCount: 0,
+      ownershipRejectedCount: 0,
       secondRoundSkippedReason: 'target_reached',
     });
 
@@ -176,6 +191,9 @@ describe('§ 8 · el copy se basa en causas reales, una por una', () => {
       ...ZERO,
       cooldownCount: -3,
       qualityRejectedCount: 2.7,
+      countryRejectedCount: 0,
+      sectorRejectedCount: 0,
+      ownershipRejectedCount: 0,
     });
 
     assert.equal(copy.cause, 'insufficient_evidence');
@@ -320,6 +338,9 @@ describe('§ 5 · desglose compacto para la UI', () => {
       cooldownCount: 1,
       repeatedAcrossRoundsCount: 4,
       qualityRejectedCount: 3,
+      countryRejectedCount: 0,
+      sectorRejectedCount: 0,
+      ownershipRejectedCount: 0,
     };
 
     const compact = buildNoNewCandidatesCompactBreakdown(breakdown, {
@@ -334,6 +355,9 @@ describe('§ 5 · desglose compacto para la UI', () => {
       cooldownCount: 1,
       repeatedAcrossRoundsCount: 4,
       qualityRejectedCount: 3,
+      countryRejectedCount: 0,
+      sectorRejectedCount: 0,
+      ownershipRejectedCount: 0,
       candidatesCreatedCount: 5,
     });
   });
@@ -350,12 +374,12 @@ describe('§ 5 · desglose compacto para la UI', () => {
 
   test('negativos y fraccionarios se normalizan a enteros no negativos', () => {
     const compact = buildNoNewCandidatesCompactBreakdown(
-      { ...ZERO, hubspotDuplicateCount: -2, qualityRejectedCount: 2.9 },
+      { ...ZERO, hubspotDuplicateCount: -2, sectorRejectedCount: 2.9 },
       { uniqueResultsCount: -1, candidatesCreatedCount: 0.5 },
     );
 
     assert.equal(compact.hubspotDuplicateCount, 0);
-    assert.equal(compact.qualityRejectedCount, 2);
+    assert.equal(compact.sectorRejectedCount, 2);
     assert.equal(compact.uniqueResultsCount, 0);
     assert.equal(compact.candidatesCreatedCount, 0);
   });

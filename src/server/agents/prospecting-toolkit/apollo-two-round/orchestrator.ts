@@ -261,6 +261,29 @@ export type ApolloTwoRoundDeps = {
   saveCheckpoint?: (
     checkpoint: ApolloTwoRoundCheckpointSnapshot,
   ) => Promise<boolean> | boolean;
+
+  /**
+   * A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 5 — gates FINALES, después de la
+   * reevaluación sectorial y antes de declarar elegible a nadie.
+   *
+   * Existe porque el orden estaba roto por abajo. El gate de ownership del writer
+   * corre DESPUÉS de que el orquestador haya contado sus elegibles, así que en la
+   * corrida `be181d2d` una empresa entró en `run_metrics.persisted_candidates` y
+   * el writer la descartó a continuación: la métrica decía 3 y las filas eran 2.
+   * Un rechazo que el orquestador puede conocer tiene que conocerlo ANTES de
+   * contar, no después de publicar.
+   *
+   * Gratis por contrato: sin llamadas al proveedor y sin créditos. Sólo re-aplica
+   * criterios puros sobre el candidato ya construido.
+   *
+   * Ausente ⇒ no se aplica ningún gate final; es lo que hacen las suites puras
+   * que sólo ejercitan la lógica de rondas. Producción la inyecta siempre.
+   */
+  applyFinalGates?: (input: {
+    candidateKey: string;
+    roundNumber: number;
+    identity: NormalizedOrganizationIdentity;
+  }) => Promise<{ rejection: CheapRejectionReason | null }> | { rejection: CheapRejectionReason | null };
 };
 
 /**
@@ -767,6 +790,8 @@ export async function runApolloTwoRoundDiscovery(
    */
   let sectorConfirmedByEnrichmentCount = 0;
   let sectorStillUnconfirmedAfterEnrichmentCount = 0;
+  /** HARDENING-1 § 5 — el enrichment CONTRADIJO el sector. Cubeta propia. */
+  let sectorRejectedAfterEnrichmentCount = 0;
   let enrichmentFailedCount = 0;
 
   const eligibleCount = (): number => tracked.filter((c) => c.eligible).length;
@@ -1402,13 +1427,20 @@ export async function runApolloTwoRoundDiscovery(
       continue;
     }
 
-    // § 4 — clasificación en las tres cubetas, ANTES de aplicar el veredicto: un
-    // `noMatch` no aporta evidencia utilizable y no debe contarse como "sector aún
-    // sin confirmar", que implicaría que sí se evaluó con datos frescos.
+    // § 4 — clasificación en cubetas, ANTES de aplicar el veredicto: un `noMatch`
+    // no aporta evidencia utilizable y no debe contarse como "sector aún sin
+    // confirmar", que implicaría que sí se evaluó con datos frescos.
+    //
+    // HARDENING-1 § 5 — el rechazo tiene cubeta propia. Antes «el enrichment
+    // demostró que NO es del sector» y «el enrichment no bastó para confirmarlo»
+    // caían en la misma cifra, y son desenlaces opuestos: en el primero ya no hay
+    // nada que confirmar, en el segundo sí.
     if (result.noMatch === true) {
       enrichmentFailedCount++;
     } else if (result.sectorEvidenceState === 'sector_evidence_confirmed') {
       sectorConfirmedByEnrichmentCount++;
+    } else if (result.sectorEvidenceState === 'sector_evidence_contradictory') {
+      sectorRejectedAfterEnrichmentCount++;
     } else {
       sectorStillUnconfirmedAfterEnrichmentCount++;
     }
@@ -1430,6 +1462,35 @@ export async function runApolloTwoRoundDiscovery(
     if (!nowEligible) {
       // El enrichment se pagó y la empresa sigue sin confirmarse: eso es
       // exactamente `enrichmentWaste`, y así queda contado.
+      candidate.finallyRejectedOrDuplicated = true;
+    }
+  }
+
+  // ── HARDENING-1 § 5 — gates FINALES ────────────────────────────────────────
+  //
+  // Orden del contrato: reevaluación sectorial → ownership → calidad / encaje de
+  // negocio → elegibilidad final → writer. Hasta aquí el ownership sólo se
+  // evaluaba con los datos de la BÚSQUEDA; el veredicto definitivo lo emitía el
+  // writer, ya fuera del alcance de estas métricas. Por eso la corrida
+  // `be181d2d` publicó tres persistidos y escribió dos.
+  //
+  // Se aplica sólo sobre quien sigue siendo elegible: a un candidato ya
+  // descartado no hay nada que volver a rechazarle, y re-tallyarlo lo contaría
+  // dos veces en el desglose de la ronda.
+  if (deps.applyFinalGates) {
+    for (const candidate of tracked) {
+      if (!candidate.eligible) continue;
+      const verdict = await deps.applyFinalGates({
+        candidateKey: candidate.candidateKey,
+        roundNumber: candidate.roundNumber,
+        identity: candidate.identity,
+      });
+      if (verdict.rejection === null) continue;
+      const metricsForRound = roundMetricsByNumber.get(candidate.roundNumber) ?? null;
+      if (metricsForRound) tallyRejection(metricsForRound, verdict.rejection);
+      observedRejectionReasons.add(verdict.rejection);
+      candidate.eligible = false;
+      candidate.becameEligibleAfterEnrichment = false;
       candidate.finallyRejectedOrDuplicated = true;
     }
   }
@@ -1529,6 +1590,7 @@ export async function runApolloTwoRoundDiscovery(
       effectiveFingerprintsAreDistinct,
       sectorConfirmedByEnrichment: sectorConfirmedByEnrichmentCount,
       sectorStillUnconfirmedAfterEnrichment: sectorStillUnconfirmedAfterEnrichmentCount,
+      sectorRejectedAfterEnrichment: sectorRejectedAfterEnrichmentCount,
       enrichmentFailedCount,
     }),
     enrichmentSelections,

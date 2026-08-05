@@ -115,6 +115,21 @@ import {
   APOLLO_PROVIDER_USAGE_KEY,
   APOLLO_ORGANIZATIONS_OPERATION_KEY,
 } from './provider-routing-attempts';
+// A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 §§ 1, 4, 6 y 7 — verdad de la
+// persistencia, datos del enrichment en columnas, desglose de descartes por
+// motivo real y sellado terminal del lote.
+import { reconcileApolloTwoRoundPersistedTruth } from './apollo-persisted-candidate-truth';
+import {
+  buildCandidateSkipBreakdown,
+  toCandidateSkipBreakdownMetadata,
+} from './candidate-skip-reason-taxonomy';
+import {
+  APOLLO_ENRICHMENT_PERSISTENCE_METADATA_KEY,
+  toApolloEnrichmentCandidateColumns,
+  toApolloEnrichmentPersistenceMetadata,
+} from './apollo-enrichment-persistence-capture';
+import { decideBatchCompletionSeal } from './batch-completion-seal';
+import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from './apollo-two-round/observability';
 // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — clasificación sanitizada del fallo de
 // escritura y estado de lote coherente con el resultado real de la persistencia.
 import {
@@ -2322,6 +2337,17 @@ export async function writeProspectingCandidates(
             employee_count_source: providerCompanyFields.employeeCount.sourceProvider,
           }
         : {}),
+      // A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 4 — ciudad y clasificación
+      // que el enrichment devolvió, en sus columnas normales. El proyector omite
+      // la clave de todo campo que el proveedor no entregó: un dato ausente deja
+      // la columna intacta en vez de borrarla con un null.
+      //
+      // No solapa con § 3: el proyector del enrichment NO escribe `employee_count`
+      // ni `linkedin_url` — esas dos columnas las gobierna A1-APOLLO-LINKEDIN-
+      // EMPLOYEES-1 por su propia vía.
+      ...(candidate.providerEnrichmentCapture
+        ? toApolloEnrichmentCandidateColumns(candidate.providerEnrichmentCapture)
+        : {}),
       metadata: {
         ...buildCandidateMetadata(candidate),
         scoring: {
@@ -2361,6 +2387,15 @@ export async function writeProspectingCandidates(
                 base_status: candidateStatus,
                 persisted_status: completenessAdjustedStatus,
               },
+            }
+          : {}),
+        // HARDENING § 4 — evidencia de subindustria y procedencia del dato.
+        // `prospect_candidates` no tiene columnas para ninguna de las dos, así que
+        // viven aquí estructuradas, SIN sustituir a las columnas normales.
+        ...(candidate.providerEnrichmentCapture
+          ? {
+              [APOLLO_ENRICHMENT_PERSISTENCE_METADATA_KEY]:
+                toApolloEnrichmentPersistenceMetadata(candidate.providerEnrichmentCapture),
             }
           : {}),
         novelty_check: noveltyResult.noveltyMetadata,
@@ -2614,11 +2649,18 @@ export async function writeProspectingCandidates(
       "negative_memory_rejected_recently",
     ]);
     const noveltySkipped = skipped.filter((s) => noveltyReasons.has(s.reason));
+    // § 6 — el desglose por motivo REAL. Cada descarte cae en exactamente una
+    // cubeta y la suma es `skipped.length`.
+    const skipBreakdown = buildCandidateSkipBreakdown(skipped);
+    // § 6 — `quality_skipped_count` deja de absorber decisiones de ownership.
+    // Una empresa cuyo dominio no se pudo acreditar no es una empresa de baja
+    // calidad, y contarla como tal mandaba a buscar la causa al sitio equivocado:
+    // en la corrida `be181d2d` el único descarte era ownership y el resumen decía
+    // «calidad». El resto de la cubeta se conserva tal cual estaba.
     // v1.16K-K FIX 3: add content/intermediary gate reasons to quality bucket
     const qualitySkipped = skipped.filter((s) =>
       s.reason === "qualityLabel=discard" ||
       s.reason.startsWith("external_platform:") ||
-      s.reason.startsWith("company_ownership:") ||
       s.reason.startsWith("source_url_quality:") ||
       s.reason.startsWith("business_fit:") ||
       s.reason === "content_page" ||
@@ -2641,6 +2683,15 @@ export async function writeProspectingCandidates(
       quality_skipped_count: qualitySkipped.length,
       identity_gate_skipped_count: identityGateTotal,
       created_candidate_ids_count: createdCandidateIds.length,
+      // § 6 — el desglose por motivo real. `ownership_rejected_count` ya no vive
+      // dentro de `quality_skipped_count`, y las cubetas suman `actual_skipped_count`.
+      ...toCandidateSkipBreakdownMetadata(skipBreakdown),
+      // § 1 — cuántos elegibles LLEGARON al writer y cuántos quedaron como filas.
+      // Son cantidades distintas por definición y aquí se declaran las dos. Se
+      // cuentan los candidatos recibidos, no los que alcanzaron el INSERT: el
+      // hueco que hay que poder explicar es justo el de los gates intermedios.
+      eligible_before_persistence: pipelineOutput.candidates.length,
+      insert_attempt_count: insertAttempts,
       updated_at: new Date().toISOString(),
     };
 
@@ -2909,8 +2960,42 @@ export async function writeProspectingCandidates(
       active_candidate_guard_reason: duplicateGuardData.prefetchReason,
     };
 
+    // ── § 1 — la verdad de la persistencia sobre la proyección ───────────────
+    //
+    // La observabilidad de dos rondas se construye ANTES del writer, así que su
+    // `persisted_candidates` es una PROYECCIÓN del ranking del orquestador, no un
+    // recuento de filas. Aquí, con las filas ya escritas, se reescribe con la
+    // verdad y se deja constancia del hueco y de su causa.
+    //
+    // El desglose de causas sale del mismo `skipBreakdown` del § 6: el hueco se
+    // explica con los motivos REALES de los descartes, no con una atribución
+    // plausible. Lo que ninguna cubeta explique queda como `unexplained_gap`.
+    const twoRoundReconciled = reconcileApolloTwoRoundPersistedTruth(
+      (preMergedMetadata as Record<string, unknown>)[APOLLO_TWO_ROUND_OBSERVABILITY_KEY],
+      {
+        eligibleBeforePersistence: pipelineOutput.candidates.length,
+        persistedCandidates: createdCandidateIds.length,
+        gapCauses: {
+          ownership_rejected: skipBreakdown.ownership_rejected,
+          quality_rejected: skipBreakdown.quality_rejected,
+          sector_rejected: skipBreakdown.sector_rejected,
+          country_rejected: skipBreakdown.country_rejected,
+          duplicate_hubspot: skipBreakdown.duplicate_hubspot,
+          duplicate_sellup: skipBreakdown.duplicate_sellup,
+          cooldown_or_prior_suggestion: skipBreakdown.cooldown,
+          novelty_rejected: skipBreakdown.novelty_rejected,
+          identity_gate_rejected: skipBreakdown.identity_gate_rejected,
+          persistence_failed: skipBreakdown.persistence_failed,
+        },
+        targetEligibleCompanies: pipelineOutput.summary.requested,
+      },
+    );
+
     const finalMetadata = {
       ...preMergedMetadata,
+      ...(twoRoundReconciled
+        ? { [APOLLO_TWO_ROUND_OBSERVABILITY_KEY]: twoRoundReconciled.observability }
+        : {}),
       writer_summary: writerSummary,
       // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — cifras sanitizadas del resultado
       // de la escritura. Sin stack, sin SQL, sin mensaje del motor: sólo enteros
@@ -3011,6 +3096,37 @@ export async function writeProspectingCandidates(
     // Non-critical: metadata update failure does not affect the writer result.
     // Status was already corrected above (completed) if candidatesCreated === 0.
     console.error("[candidate-writer] post-loop metadata update failed for batch", batchId, err);
+  }
+
+  // ── § 7 — sellado terminal del lote ────────────────────────────────────────
+  //
+  // `batchStatusForOutcome` es siempre terminal (`ready_for_review`, `completed`
+  // o `failed`): la corrida ya no va a avanzar por sí sola. Aun así el lote
+  // `e1622574…` quedó con `completed_at = null` porque nadie lo escribía, y una
+  // corrida sin fecha de cierre no se puede ordenar, medir ni comparar.
+  //
+  // La escritura es idempotente por construcción: `.is('completed_at', null)`
+  // hace que sólo la PRIMERA gane. Un segundo cierre —un reintento, o dos
+  // procesos a la vez— no puede producir una marca de tiempo distinta, y la
+  // condición la evalúa Postgres, no este proceso.
+  //
+  // Va en su propio try/catch y DESPUÉS de la metadata: un fallo al sellar no
+  // puede tumbar una escritura de candidatos que ya ocurrió.
+  const completionSeal = decideBatchCompletionSeal({
+    status: batchStatusForOutcome,
+    currentCompletedAt: null,
+    now,
+  });
+  if (completionSeal.shouldWrite && completionSeal.completedAt !== null) {
+    try {
+      await admin
+        .from("prospect_batches")
+        .update({ completed_at: completionSeal.completedAt })
+        .eq("id", batchId)
+        .is("completed_at", null);
+    } catch (err) {
+      console.error("[candidate-writer] completed_at seal failed for batch", batchId, err);
+    }
   }
 
   return {

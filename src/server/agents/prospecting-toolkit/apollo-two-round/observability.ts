@@ -334,7 +334,28 @@ export type ApolloTwoRoundRunMetrics = {
    */
   sectorConfirmedByEnrichment: number;
   sectorStillUnconfirmedAfterEnrichment: number;
+  /**
+   * QUALITY-PERSISTENCE-HARDENING-1 § 5 — el enrichment trajo evidencia que
+   * CONTRADICE el sector o la subindustria buscada.
+   *
+   * Antes caía en `sectorStillUnconfirmedAfterEnrichment`, que dice «sigue sin
+   * confirmarse» y sugiere que otro dato podría confirmarlo. Un rechazo es un
+   * desenlace distinto: ya no hay nada que confirmar.
+   */
+  sectorRejectedAfterEnrichment: number;
   enrichmentFailedCount: number;
+  /**
+   * § 5 — enrichments cuyo desenlace se pudo CLASIFICAR en una de las cuatro
+   * cubetas. Es el denominador honesto de la invariante:
+   *
+   *   confirmados + ambiguos + rechazados + fallidos === enrichmentsClassified
+   *
+   * Coincide con `enrichmentsExecuted` cuando toda llamada determinada se cobró.
+   * Difiere cuando alguna respondió `no_match`: esa llamada se clasifica (cubeta
+   * `enrichmentFailedCount`) pero NO se cobró, y contarla como ejecutada
+   * inventaría gasto.
+   */
+  enrichmentsClassified: number;
   /**
    * HARDENING-3 § 7 — ¿las huellas EFECTIVAS de las dos rondas resultaron
    * distintas?
@@ -363,9 +384,11 @@ export function buildRunMetrics(input: {
   enrichmentOutcomes: readonly EnrichmentOutcome[];
   /** HARDENING-3 § 7 — resultado de la comparación efectiva. Ausente ⇒ null. */
   effectiveFingerprintsAreDistinct?: boolean | null;
-  /** § 4 — las tres cubetas del desenlace de enrichment. Ausentes ⇒ 0. */
+  /** § 4 — las cubetas del desenlace de enrichment. Ausentes ⇒ 0. */
   sectorConfirmedByEnrichment?: number;
   sectorStillUnconfirmedAfterEnrichment?: number;
+  /** HARDENING-1 § 5 — rechazo confirmado por el enrichment. Ausente ⇒ 0. */
+  sectorRejectedAfterEnrichment?: number;
   enrichmentFailedCount?: number;
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
@@ -404,7 +427,13 @@ export function buildRunMetrics(input: {
     enrichmentWaste,
     sectorConfirmedByEnrichment: input.sectorConfirmedByEnrichment ?? 0,
     sectorStillUnconfirmedAfterEnrichment: input.sectorStillUnconfirmedAfterEnrichment ?? 0,
+    sectorRejectedAfterEnrichment: input.sectorRejectedAfterEnrichment ?? 0,
     enrichmentFailedCount: input.enrichmentFailedCount ?? 0,
+    enrichmentsClassified:
+      (input.sectorConfirmedByEnrichment ?? 0) +
+      (input.sectorStillUnconfirmedAfterEnrichment ?? 0) +
+      (input.sectorRejectedAfterEnrichment ?? 0) +
+      (input.enrichmentFailedCount ?? 0),
     effectiveFingerprintsAreDistinct: input.effectiveFingerprintsAreDistinct ?? null,
   };
 }
@@ -486,10 +515,18 @@ export function toRunMetricsMetadata(
     enrichment_waste_rate: metrics.enrichmentWasteRate,
     enrichments_executed: metrics.enrichmentsExecuted,
     enrichment_waste: metrics.enrichmentWaste,
-    // § 4 — las tres cubetas del desenlace de enrichment, separadas.
+    // § 4 — las cubetas del desenlace de enrichment, separadas.
     sector_confirmed_by_enrichment: metrics.sectorConfirmedByEnrichment,
     sector_still_unconfirmed_after_enrichment: metrics.sectorStillUnconfirmedAfterEnrichment,
     enrichment_failed_count: metrics.enrichmentFailedCount,
+    // HARDENING-1 § 5 — los cuatro desenlaces con los nombres del contrato, y su
+    // denominador. Los tres de arriba se conservan para no romper lecturas ya
+    // escritas contra ellos.
+    sector_confirmed_after_enrichment: metrics.sectorConfirmedByEnrichment,
+    sector_still_ambiguous_after_enrichment: metrics.sectorStillUnconfirmedAfterEnrichment,
+    sector_rejected_after_enrichment: metrics.sectorRejectedAfterEnrichment,
+    enrichment_failed: metrics.enrichmentFailedCount,
+    enrichment_outcomes_classified: metrics.enrichmentsClassified,
     // HARDENING-3 § 7 — null cuando la comparación no se pudo hacer. Nunca false.
     effective_fingerprints_are_distinct: metrics.effectiveFingerprintsAreDistinct,
   };
