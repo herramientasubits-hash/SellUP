@@ -77,6 +77,22 @@ import {
   extractHubSpotMatchedEmployees,
   extractCandidateCompanySize,
 } from './employee-size-resolver';
+import {
+  toCompanyLinkedInMetadataBlock,
+  toCompanyEmployeeCountMetadataBlock,
+} from './apollo-company-fields-mapping';
+import type {
+  ApolloCompanyFieldsCapture,
+  CompanyFieldMappingStatus,
+} from './apollo-company-fields-mapping';
+import {
+  evaluateCandidateTargetEligibility,
+  buildCandidateCompletenessCounters,
+  resolveCandidateStatusForCompleteness,
+  toSubindustryMatchVerdict,
+  INCOMPLETE_CANDIDATE_REVIEW_FLAG,
+} from './candidate-completeness-contract';
+import type { CandidateTargetEligibility } from './candidate-completeness-contract';
 import type {
   RichProfileEnrichmentConfig,
   RichProfileEnrichmentProviderFn,
@@ -530,6 +546,50 @@ function isValidUuid(val: string | null | undefined): boolean {
 }
 
 /**
+ * A1-APOLLO-LINKEDIN-EMPLOYEES-1 — captura de respaldo cuando la ruta Apollo
+ * entrega un candidato SIN los campos del proveedor.
+ *
+ * No es una ausencia del proveedor: es que la captura no llegó hasta aquí. Se
+ * etiqueta `mapping_failed` para que el diagnóstico apunte adentro, no a Apollo.
+ */
+const MAPPING_FAILED_COMPANY_FIELDS: ApolloCompanyFieldsCapture = {
+  linkedin: {
+    companyLinkedInUrl: null,
+    status: 'mapping_failed',
+    sourceProvider: 'apollo',
+    sourceOperation: null,
+    observedAt: null,
+    rawValue: null,
+    reason: 'provider_company_fields_absent_from_candidate',
+  },
+  employeeCount: {
+    employeeCount: null,
+    status: 'mapping_failed',
+    sourceProvider: 'apollo',
+    sourceOperation: null,
+    observedAt: null,
+    rawValue: null,
+    reason: 'provider_company_fields_absent_from_candidate',
+  },
+};
+
+/**
+ * True cuando el error del insert es exactamente «la columna `linkedin_url` no
+ * existe».
+ *
+ * Mismo criterio estricto que `isMissingProviderUsageCorrelationColumnError`: el
+ * código de error Y el nombre de la columna en el mensaje. Cualquier otro fallo
+ * es un fallo de verdad y debe propagarse.
+ */
+export function isMissingLinkedInUrlColumnError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  const isSchemaCodeMatch = code === '42703' || code === 'PGRST204';
+  if (!isSchemaCodeMatch) return false;
+  return typeof message === 'string' && message.includes('linkedin_url');
+}
+
+/**
  * Construye el metadata del candidato.
  * No incluye HTML completo ni tokens/secretos.
  * snippet truncado a 300 chars.
@@ -741,6 +801,13 @@ export async function writeProspectingCandidates(
   const persistenceFailures: { code: PersistenceErrorCode; stage: PersistenceErrorStage }[] = [];
   /** Candidatos que llegaron a intentar el INSERT (elegibles tras todas las puertas). */
   let insertAttempts = 0;
+  /**
+   * A1-APOLLO-LINKEDIN-EMPLOYEES-1 § 5 — completitud de cada candidato REALMENTE
+   * escrito. Alimenta los contadores separados: persistidos ≠ completos.
+   */
+  const completenessEligibilities: CandidateTargetEligibility[] = [];
+  /** Inserts que tuvieron que reintentarse porque la columna `linkedin_url` no existe. */
+  let linkedInColumnFallbackCount = 0;
 
   // Novelty index: carga candidatos históricos para los dominios del lote actual
   // en un solo SELECT antes de crear el batch. No hace writes.
@@ -768,6 +835,13 @@ export async function writeProspectingCandidates(
 
   const pipelineMeta = pipelineOutput.metadata as Record<string, unknown>;
   const isMockRun = pipelineMeta?.provider === "mock";
+  /**
+   * Ruta de descubrimiento de EMPRESAS por Apollo. Es la única en la que el
+   * contrato de LinkedIn / número de empleados aplica: en las demás no hay payload
+   * de Apollo que mapear, y marcarlas como «el proveedor no lo devolvió» sería
+   * afirmar algo sobre un proveedor al que no se le preguntó.
+   */
+  const isApolloCompanyDiscoveryPath = pipelineMeta?.provider === "apollo_organizations";
 
   const batchMetadata: Record<string, unknown> = {
     generated_by: "agent_1_candidate_writer",
@@ -1671,6 +1745,11 @@ export async function writeProspectingCandidates(
       sourceSnippet: candidate.sourceSnippet ?? undefined,
       sourceUrl: candidate.sourceUrl ?? undefined,
       website: candidate.website ?? undefined,
+      // A1-APOLLO-LINKEDIN-EMPLOYEES-1 — el LinkedIn que el proveedor YA devolvió.
+      // Sin esta línea, la única evidencia que se miraba eran el título, el
+      // snippet y la URL del sitio, y un `linkedin_url` presente en el payload de
+      // Apollo terminaba reportado como «no hay LinkedIn en la evidencia».
+      providedLinkedInUrl: candidate.companyLinkedInUrl ?? undefined,
       source: 'provided_search_result',
       checkedAt: nowIso,
     }),
@@ -2150,6 +2229,57 @@ export async function writeProspectingCandidates(
       countryCode: candidate.countryCode ?? null,
     });
 
+    // ── A1-APOLLO-LINKEDIN-EMPLOYEES-1 — campos empresariales del proveedor ────
+    //
+    // § 4 del contrato: la ausencia del proveedor y la pérdida interna son cosas
+    // distintas y se registran distinto. En la ruta Apollo la captura la pone el
+    // constructor del candidato; si falta, es una pérdida interna (`mapping_failed`),
+    // nunca «el proveedor no lo devolvió».
+    const providerCompanyFields = isApolloCompanyDiscoveryPath
+      ? (candidate.providerCompanyFields ?? MAPPING_FAILED_COMPANY_FIELDS)
+      : null;
+
+    const companyLinkedInBlock = providerCompanyFields
+      ? toCompanyLinkedInMetadataBlock(providerCompanyFields.linkedin)
+      : null;
+    const companyEmployeeCountBlock = providerCompanyFields
+      ? toCompanyEmployeeCountMetadataBlock(providerCompanyFields.employeeCount)
+      : null;
+
+    // URL que se persiste en la columna canónica. El valor de Apollo manda; si
+    // Apollo no lo devolvió, sirve el que el enriquecimiento del writer confirmó.
+    const apolloLinkedInUrl = providerCompanyFields?.linkedin.companyLinkedInUrl ?? null;
+    const enrichmentLinkedInUrl =
+      linkedInEnrichment.status === 'found' ? (linkedInEnrichment.company_url ?? null) : null;
+    const persistedLinkedInUrl = apolloLinkedInUrl ?? enrichmentLinkedInUrl;
+    const persistedLinkedInOrigin = apolloLinkedInUrl
+      ? 'apollo'
+      : enrichmentLinkedInUrl
+        ? 'writer_linkedin_enrichment'
+        : null;
+
+    // § 5 — la regla de conteo hacia el target. Los gates de propiedad y de
+    // calidad ya descartaron antes del insert a quien no pasaba, así que llegar
+    // aquí ES el `pass`; se registra explícito en vez de darse por supuesto.
+    const targetEligibility: CandidateTargetEligibility = evaluateCandidateTargetEligibility({
+      persistenceSuccess: true,
+      subindustryMatch: toSubindustryMatchVerdict(candidate.sectorEvidenceState),
+      employeeCountStatus: providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
+      linkedinStatus: providerCompanyFields?.linkedin.status ?? 'mapping_failed',
+      duplicateStatus: dbDuplicateStatus,
+      ownershipGate: 'pass',
+      qualityGate: 'pass',
+    });
+
+    // Un candidato incompleto se persiste, pero nunca como `high_quality_new`.
+    const completenessAdjustedStatus = resolveCandidateStatusForCompleteness(
+      candidateStatus,
+      targetEligibility,
+    );
+    const completenessReviewFlags = targetEligibility.countsTowardTarget
+      ? []
+      : [INCOMPLETE_CANDIDATE_REVIEW_FLAG];
+
     const candidateInsertBase = {
       batch_id: batchId,
       name: persistedName,
@@ -2180,8 +2310,18 @@ export async function writeProspectingCandidates(
       confidence_score: effectiveConfidenceScore,
       fit_score: effectiveFitScore,
       data_completeness_score: candidate.scoring.dataCompletenessScore,
-      status: candidateStatus,
+      status: completenessAdjustedStatus,
       review_notes: reviewNotes,
+      ...(completenessReviewFlags.length > 0 ? { review_flags: completenessReviewFlags } : {}),
+      // § 3 — el número de empleados va a su columna normal. Sólo un valor
+      // `confirmed` se escribe: `null` nunca se convierte en cero y un `invalid`
+      // no se disfraza de dato.
+      ...(providerCompanyFields?.employeeCount.status === 'confirmed'
+        ? {
+            employee_count: providerCompanyFields.employeeCount.employeeCount,
+            employee_count_source: providerCompanyFields.employeeCount.sourceProvider,
+          }
+        : {}),
       metadata: {
         ...buildCandidateMetadata(candidate),
         scoring: {
@@ -2196,6 +2336,33 @@ export async function writeProspectingCandidates(
           fit_breakdown: adjustedFitBreakdown,
         },
         linkedin_enrichment: linkedInEnrichment,
+        // § 2 y § 3 — señales de LinkedIn empresarial y de número de empleados con
+        // su procedencia. `prospect_candidates` no tiene columnas de procedencia,
+        // así que viven aquí, estructuradas y con los nombres del contrato.
+        ...(companyLinkedInBlock
+          ? {
+              company_linkedin: {
+                ...companyLinkedInBlock,
+                persisted_linkedin_url: persistedLinkedInUrl,
+                persisted_linkedin_origin: persistedLinkedInOrigin,
+              },
+            }
+          : {}),
+        ...(companyEmployeeCountBlock
+          ? { company_employee_count: companyEmployeeCountBlock }
+          : {}),
+        // § 5 — por qué este candidato cuenta (o no) hacia el target. Persistido
+        // no es lo mismo que completo, y aquí queda dicho por candidato.
+        ...(providerCompanyFields
+          ? {
+              target_completeness: {
+                counts_toward_target: targetEligibility.countsTowardTarget,
+                failed_conditions: targetEligibility.failedConditions,
+                base_status: candidateStatus,
+                persisted_status: completenessAdjustedStatus,
+              },
+            }
+          : {}),
         novelty_check: noveltyResult.noveltyMetadata,
         ...(identityResolution
           ? {
@@ -2292,7 +2459,7 @@ export async function writeProspectingCandidates(
         ).source_trace
       : null;
 
-    const candidateInsert = apolloProviderTrace
+    const candidateInsertWithTrace = apolloProviderTrace
       ? {
           ...candidateInsertBase,
           metadata: {
@@ -2304,14 +2471,38 @@ export async function writeProspectingCandidates(
         }
       : candidateInsertBase;
 
+    // § 2 — LinkedIn empresarial en su columna canónica. La columna puede no
+    // existir todavía en un entorno donde la migración no se haya aplicado; en
+    // ese caso el insert se reintenta SIN ella y el valor sigue vivo en la
+    // metadata estructurada. Nunca se pierde un candidato por esto.
+    const candidateInsert =
+      persistedLinkedInUrl !== null
+        ? { ...candidateInsertWithTrace, linkedin_url: persistedLinkedInUrl }
+        : candidateInsertWithTrace;
+
     insertAttempts += 1;
 
     try {
-      const { data: created, error: insertErr } = await admin
+      let { data: created, error: insertErr } = await admin
         .from("prospect_candidates")
         .insert(candidateInsert)
         .select("id")
         .single();
+
+      if (
+        insertErr &&
+        persistedLinkedInUrl !== null &&
+        isMissingLinkedInUrlColumnError(insertErr)
+      ) {
+        linkedInColumnFallbackCount += 1;
+        const retry = await admin
+          .from("prospect_candidates")
+          .insert(candidateInsertWithTrace)
+          .select("id")
+          .single();
+        created = retry.data;
+        insertErr = retry.error;
+      }
 
       if (insertErr || !created) {
         // § 7 — el motivo que se propaga es un CÓDIGO nuestro, nunca el mensaje
@@ -2331,6 +2522,8 @@ export async function writeProspectingCandidates(
       }
 
       createdCandidateIds.push(created.id);
+      // § 5 — sólo se contabiliza la completitud de lo que REALMENTE se escribió.
+      if (providerCompanyFields) completenessEligibilities.push(targetEligibility);
 
       // Auditoría: candidate_created
       await admin.from("prospect_candidate_audit").insert({
@@ -2483,6 +2676,21 @@ export async function writeProspectingCandidates(
       returned_before_writer: pipelineOutput.summary.returned,
       needs_review_persisted: createdCandidateIds.length,
     };
+
+    // A1-APOLLO-LINKEDIN-EMPLOYEES-1 § 5 — contadores SEPARADOS. `persisted` ya
+    // no puede leerse como «candidatos completos»: un candidato sin LinkedIn o
+    // sin número de empleados se persiste con `needs_review` y queda fuera de
+    // `target_count`.
+    const companyFieldsCompleteness =
+      completenessEligibilities.length > 0
+        ? {
+            ...buildCandidateCompletenessCounters(completenessEligibilities),
+            target: targetCap ?? pipelineOutput.summary.requested,
+            linkedin_url_column_fallback_count: linkedInColumnFallbackCount,
+            linkedin_persistence_mode:
+              linkedInColumnFallbackCount > 0 ? 'metadata_only' : 'column_and_metadata',
+          }
+        : undefined;
 
     const canonicalIdentityGate = {
       enabled: true,
@@ -2711,6 +2919,9 @@ export async function writeProspectingCandidates(
         toCandidatePersistenceOutcomeMetadata(persistenceOutcome),
       novelty_summary: noveltySummary,
       pipeline_summary_post_write: pipelineSummaryPostWrite,
+      ...(companyFieldsCompleteness
+        ? { company_fields_completeness: companyFieldsCompleteness }
+        : {}),
       canonical_identity_gate: canonicalIdentityGate,
       precision_gate: precisionGateMetadata,
       source_url_quality_gate: sourceUrlQualityGateMetadata,

@@ -481,6 +481,26 @@ export type ProspectingPipelineCandidate = {
   llmEvaluation?: import('./llm-evaluator-types').LLMEvaluationMetadata | null;
   /** Query trazabilidad: identifica qué query generó este candidato (Hito 16Z.2). */
   searchTrace?: SearchTrace | null;
+  /**
+   * A1-APOLLO-LINKEDIN-EMPLOYEES-1 — LinkedIn empresarial y número de empleados
+   * tal como los devolvió Apollo, con su estado y procedencia.
+   *
+   * Antes existía `employee_count` pero NADIE lo poblaba y no había campo alguno
+   * para el LinkedIn: los dos valores morían en el constructor del candidato y el
+   * writer los reportaba como «el proveedor no los devolvió». Este campo es el
+   * puente que faltaba entre el payload del proveedor y la persistencia.
+   */
+  providerCompanyFields?: import('./apollo-company-fields-mapping').ApolloCompanyFieldsCapture | null;
+  /** LinkedIn empresarial canónico, plano, para los consumidores que sólo leen la URL. */
+  companyLinkedInUrl?: string | null;
+  /**
+   * Estado de la evidencia sectorial cuando la modalidad la calcula (Apollo dos
+   * rondas). `undefined` cuando el camino no la evalúa: la regla de completitud
+   * es fail-closed, así que la ausencia nunca cuenta como confirmada.
+   */
+  sectorEvidenceState?:
+    | import('./apollo-two-round/enrichment-ranking').CandidateSectorEvidenceState
+    | null;
 };
 
 export type ProspectingPipelineSummary = {

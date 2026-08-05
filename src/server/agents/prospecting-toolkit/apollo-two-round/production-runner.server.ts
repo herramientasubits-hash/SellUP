@@ -84,6 +84,11 @@ import {
 } from '../discovery-negative-memory';
 import { normalizeDomain } from '../normalization';
 import {
+  captureApolloCompanyFields,
+  mergeCompanyLinkedInCapture,
+  mergeEmployeeCountCapture,
+} from '../apollo-company-fields-mapping';
+import {
   buildApolloEnrichmentUsageKey,
   classifyApolloEnrichmentBillingOutcome,
   classifyApolloEnrichmentOutcomeFromCascadeEntry,
@@ -1155,6 +1160,23 @@ export async function runApolloTwoRoundWizardDiscovery(
             duplicate: readDuplicateVerdict(rebuilt.candidate),
             checkedDomain: enrichedDomain,
           });
+        } else {
+          // A1-APOLLO-LINKEDIN-EMPLOYEES-1 — el dominio no cambió, así que las
+          // comprobaciones caras siguen siendo válidas y no se repiten. Pero el
+          // enrichment SÍ pudo aportar el número de empleados o el LinkedIn, y
+          // eso ya no vive sólo en `apollo_profile`: viaja en el candidato. Sin
+          // esta re-captura, el crédito pagado por `organization_enrichment` se
+          // registraría y su dato se perdería.
+          const cachedAssessment = assessmentByKey.get(candidateKey);
+          if (cachedAssessment) {
+            assessmentByKey.set(candidateKey, {
+              ...cachedAssessment,
+              candidate: withRecapturedProviderCompanyFields(
+                cachedAssessment.candidate,
+                enrichedResult,
+              ),
+            });
+          }
         }
       }
 
@@ -1231,7 +1253,10 @@ export async function runApolloTwoRoundWizardDiscovery(
     for (const entry of runResult.persisted) {
       const cached = assessmentByKey.get(entry.candidateKey);
       if (cached) {
-        resolved.push(cached.candidate);
+        // El veredicto sectorial de la modalidad viaja con el candidato: es lo
+        // que permite al writer distinguir `subindustry_match = confirmed` de
+        // «nadie lo evaluó», sin volver a llamar al gate ni al proveedor.
+        resolved.push({ ...cached.candidate, sectorEvidenceState: entry.sectorEvidenceState });
         continue;
       }
       const evidence = readEvidenceResult(evidenceByKey, entry.candidateKey);
@@ -1243,6 +1268,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         catalogContext,
         provider: 'apollo_organizations',
         fallbackQueryText: input.industry,
+        sectorEvidenceState: entry.sectorEvidenceState,
       });
       assessmentByKey.set(entry.candidateKey, {
         candidate: rebuilt.candidate,
@@ -1756,6 +1782,37 @@ function readEvidenceDomain(result: WebSearchResult): string | null {
   const raw = meta['domain'] ?? profile['primary_domain'];
   if (typeof raw !== 'string' || raw.trim() === '') return normalizeDomain(result.url);
   return normalizeDomain(raw) ?? raw.trim().toLowerCase();
+}
+
+/**
+ * A1-APOLLO-LINKEDIN-EMPLOYEES-1 — vuelve a leer los campos empresariales del
+ * proveedor sobre un candidato ya construido, fusionándolos con lo que ya tenía.
+ *
+ * Devuelve un objeto nuevo. Un valor ya confirmado no se degrada nunca: la
+ * fusión sólo puede mejorar la observación (ver `mergeEmployeeCountCapture`).
+ */
+function withRecapturedProviderCompanyFields(
+  candidate: ProspectingPipelineCandidate,
+  enrichedResult: WebSearchResult,
+): ProspectingPipelineCandidate {
+  const recaptured = captureApolloCompanyFields(enrichedResult, new Date().toISOString());
+  const linkedin = mergeCompanyLinkedInCapture(
+    candidate.providerCompanyFields?.linkedin,
+    recaptured.linkedin,
+  );
+  const employeeCount = mergeEmployeeCountCapture(
+    candidate.providerCompanyFields?.employeeCount,
+    recaptured.employeeCount,
+  );
+
+  return {
+    ...candidate,
+    providerCompanyFields: { linkedin, employeeCount },
+    companyLinkedInUrl: linkedin.companyLinkedInUrl,
+    ...(employeeCount.status === 'confirmed'
+      ? { employeeCount: employeeCount.employeeCount }
+      : {}),
+  };
 }
 
 function buildRejectedAssessment(
