@@ -205,6 +205,39 @@ export function buildApolloRoundProviderFingerprint(
   ].join('|');
 }
 
+/**
+ * SCALE-SECOND-ROUND-FIX-1B § 1 — términos EFECTIVOS que las dos rondas comparten.
+ *
+ * Existe porque «las huellas efectivas difieren» resultó ser una prueba demasiado
+ * débil. En la corrida live `eae6d47f` (2026-08-05T17:59Z) la ronda 2 salió con
+ * `[supermercado, hipermercado, grocery, grocery chain, grocery retail]` frente a
+ * `[supermercado, hipermercado, grocery, grocery store, food retail]` de la ronda 1:
+ * huellas distintas, tres de cinco términos compartidos y, con `page=1` y
+ * `per_page=5`, las MISMAS cinco empresas de vuelta —cinco créditos por cero
+ * organizaciones nuevas—. Un solo término compartido basta para que la ventana de
+ * la página 1 se solape, así que la comparación es de intersección, no de igualdad.
+ *
+ * Normaliza igual que el resto del módulo (minúsculas, sin acentos) y devuelve los
+ * términos tal como los envió la ronda 2, sin repetirlos.
+ */
+export function findSharedEffectiveKeywords(
+  round1EffectiveKeywords: readonly string[],
+  round2EffectiveKeywords: readonly string[],
+): string[] {
+  const round1 = new Set(
+    round1EffectiveKeywords.map(normalizeKey).filter((value) => value !== ''),
+  );
+  const shared: string[] = [];
+  const alreadyShared = new Set<string>();
+  for (const keyword of round2EffectiveKeywords) {
+    const normalized = normalizeKey(keyword);
+    if (normalized === '' || !round1.has(normalized) || alreadyShared.has(normalized)) continue;
+    alreadyShared.add(normalized);
+    shared.push(keyword);
+  }
+  return shared;
+}
+
 /** QUERY-QUALITY-2 § 3 — de dónde salió la variante de la ronda 2. */
 export type ApolloRound2VariantStrategy =
   /** Conjunto alternativo de términos específicos del catálogo. */

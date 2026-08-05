@@ -160,6 +160,17 @@ jobs:
       - name: Run A1 Apollo persistence readiness tests
         run: npm run test:a1-apollo-persistence-readiness
 
+      # AGENT1-APOLLO-SCALE-SECOND-ROUND-FIX-1B — la PÁGINA que la ronda 2 pide y el
+      # desglose que la UI pinta entran al check obligatorio. Sin este paso ninguna
+      # de las dos cosas corría en CI: la corrida live `eae6d47f` pagó cinco créditos
+      # por una ronda 2 en la página 1 cuyos términos efectivos se solapaban con la
+      # ronda 1 —mismas cinco empresas de vuelta— y la usuaria lo vio como «ya
+      # sugeridos recientemente» sin una sola cifra. La suite entra por el runner de
+      # producción real con el proveedor doblado y renderiza el panel real.
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 Apollo second-round page and breakdown tests
+        run: npm run test:a1-apollo-scale-second-round
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)

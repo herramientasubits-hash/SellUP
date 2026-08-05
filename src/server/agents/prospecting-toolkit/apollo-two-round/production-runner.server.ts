@@ -115,6 +115,7 @@ import {
 import {
   APOLLO_TWO_ROUND_OBSERVABILITY_KEY,
   toRoundMetricsMetadata,
+  toRound2PageDecisionMetadata,
   toRunMetricsMetadata,
 } from './observability';
 import {
@@ -1507,6 +1508,9 @@ export function buildRoundComparisonMetadata(
     round_2_effective_keywords_sent: round2?.effectiveKeywordsSent ?? [],
     round_2_skipped_reason: runResult.secondRoundSkippedReason,
     round_2_novel_provider_results: round2?.newUniqueResults ?? null,
+    // SCALE-SECOND-ROUND-FIX-1B § 1 — por qué la ronda 2 pidió la página que pidió.
+    // `null` cuando nadie decidió (sin ronda 2, o rehidratada de un checkpoint).
+    round_2_page_decision: toRound2PageDecisionMetadata(runResult.round2PageDecision),
   };
 }
 

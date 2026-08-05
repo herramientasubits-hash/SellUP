@@ -39,9 +39,9 @@ export const MAX_ENRICHMENTS_PER_RUN_DEFAULT = 2;
 
 export const TARGET_ELIGIBLE_COMPANIES_ABSOLUTE_MAX = 5;
 export const MAX_SEARCH_ROUNDS_ABSOLUTE_MAX = 2;
-export const MAX_RESULTS_PER_ROUND_ABSOLUTE_MAX = 5;
-export const MAX_RAW_RESULTS_PER_RUN_ABSOLUTE_MAX = 10;
-export const MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX = 2;
+export const MAX_RESULTS_PER_ROUND_ABSOLUTE_MAX = 10;
+export const MAX_RAW_RESULTS_PER_RUN_ABSOLUTE_MAX = 20;
+export const MAX_ENRICHMENTS_PER_RUN_ABSOLUTE_MAX = 5;
 
 // ─── Nombres de las variables de entorno ──────────────────────────────────────
 
