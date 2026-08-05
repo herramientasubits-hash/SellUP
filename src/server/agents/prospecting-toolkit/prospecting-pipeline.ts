@@ -43,6 +43,8 @@ import {
 import { isSentenceOrPhraseName } from './noise-filter';
 import { buildSearchPlan, getExecutableQueriesFromSearchPlan } from './search-planner';
 import { evaluateCountryEvidence } from './country-evidence-gate';
+import { captureApolloCompanyFields } from './apollo-company-fields-mapping';
+import type { CandidateSectorEvidenceState } from './apollo-two-round/enrichment-ranking';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -701,6 +703,13 @@ export type ProspectingCandidateBuildContext = {
   provider: WebSearchProviderKey;
   /** Query a la que se atribuye el candidato cuando el resultado no la trae. */
   fallbackQueryText: string;
+  /**
+   * A1-APOLLO-LINKEDIN-EMPLOYEES-1 — instante de observación de los campos del
+   * proveedor. Inyectable para que la procedencia sea determinista en tests.
+   */
+  observedAt?: string;
+  /** Estado de evidencia sectorial cuando la modalidad lo conoce (Apollo dos rondas). */
+  sectorEvidenceState?: CandidateSectorEvidenceState | null;
 };
 
 export type ProspectingCandidateBuildResult = {
@@ -803,6 +812,15 @@ export async function buildProspectingPipelineCandidate(
     }).evidenceLevel,
   });
 
+  // A1-APOLLO-LINKEDIN-EMPLOYEES-1 — el LinkedIn empresarial y el número de
+  // empleados que el proveedor devolvió viajan CON el candidato. Antes se
+  // quedaban en `result.metadata` y el writer, que nunca los veía, los reportaba
+  // como ausencia del proveedor.
+  const providerCompanyFields = captureApolloCompanyFields(
+    result,
+    context.observedAt ?? new Date().toISOString(),
+  );
+
   return {
     nameQualityFiltered,
     candidate: {
@@ -820,6 +838,17 @@ export async function buildProspectingPipelineCandidate(
       duplicateCheck,
       scoring,
       searchTrace,
+      providerCompanyFields,
+      companyLinkedInUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
+      // El resolver del ICP size gate ya leía `employeeCount`; lo que faltaba era
+      // que alguien lo poblara. Sólo se expone un valor confirmado: un `invalid`
+      // o un `not_returned` no puede convertirse en dato de tamaño.
+      ...(providerCompanyFields.employeeCount.status === 'confirmed'
+        ? { employeeCount: providerCompanyFields.employeeCount.employeeCount }
+        : {}),
+      ...(context.sectorEvidenceState !== undefined
+        ? { sectorEvidenceState: context.sectorEvidenceState }
+        : {}),
     },
   };
 }

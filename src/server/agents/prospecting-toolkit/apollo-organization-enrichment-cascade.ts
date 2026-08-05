@@ -428,10 +428,22 @@ export function mergeEnrichmentIntoResult(
     }
   }
 
+  // A1-APOLLO-LINKEDIN-EMPLOYEES-1 — qué campos costaron un crédito.
+  // `fieldsAdded` sólo contiene lo que la búsqueda dejó vacío, así que esta lista
+  // es la única fuente honesta de la operación de procedencia de cada campo. Se
+  // acumula por si un resultado pasa por más de una mezcla.
+  const previousFieldsAdded = Array.isArray(meta['apollo_enrichment_fields_added'])
+    ? (meta['apollo_enrichment_fields_added'] as unknown[]).filter(
+        (entry): entry is string => typeof entry === 'string',
+      )
+    : [];
+  const accumulatedFieldsAdded = [...new Set([...previousFieldsAdded, ...fieldsAdded])];
+
   const updatedMeta: Record<string, unknown> = {
     ...meta,
     apollo_profile: mergedProfile,
     apollo_enrichment_applied: true,
+    apollo_enrichment_fields_added: accumulatedFieldsAdded,
   };
 
   return {

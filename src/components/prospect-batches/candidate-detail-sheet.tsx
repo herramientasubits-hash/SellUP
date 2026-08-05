@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { getCandidateLinkedInUrl, getCandidateLinkedInDisplay } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
+  resolveLinkedInFieldDisplay,
+  resolveEmployeeCountFieldDisplay,
+} from '@/modules/prospect-batches/candidate-company-fields-display';
+import {
   Globe,
   Link2,
   ShieldCheck,
@@ -835,6 +839,18 @@ export function CandidateDetailSheet({
     (enrichment?.employee_count as string | number | undefined) ??
     candidate.company_size ??
     null;
+
+  // A1-APOLLO-LINKEDIN-EMPLOYEES-1 — un solo «No disponible» para todos los casos
+  // hacía indistinguible «Apollo no lo devolvió» de «llegó y se perdió por dentro».
+  // Estos dos descriptores traen el mensaje exacto de cada estado.
+  const linkedInFieldDisplay = resolveLinkedInFieldDisplay(
+    candidate.metadata,
+    effectiveLinkedinUrl ?? candidate.linkedin_url ?? null,
+  );
+  const employeeCountFieldDisplay = resolveEmployeeCountFieldDisplay(
+    candidate.metadata,
+    candidate.employee_count ?? employeeCount,
+  );
   const sectorDescription =
     (enrichment?.sector_description as string | undefined) ?? candidate.industry ?? null;
   const ciiu =
@@ -1562,6 +1578,25 @@ export function CandidateDetailSheet({
                             </div>
                           )}
                         </div>
+                      ) : linkedInFieldDisplay.message ? (
+                        // Cada estado dice lo suyo: ausencia del proveedor en gris,
+                        // pérdida interna en ámbar porque es un defecto nuestro.
+                        <div className="space-y-0.5">
+                          <p
+                            className={
+                              linkedInFieldDisplay.kind === 'internal_loss'
+                                ? 'text-xs text-amber-600 dark:text-amber-400'
+                                : 'text-xs text-muted-foreground'
+                            }
+                          >
+                            {linkedInFieldDisplay.message}
+                          </p>
+                          {linkedInFieldDisplay.sourceLabel && (
+                            <p className="text-[9px] text-muted-foreground/60">
+                              {linkedInFieldDisplay.sourceLabel}
+                            </p>
+                          )}
+                        </div>
                       ) : (
                         <MissingText text="Sin LinkedIn" />
                       )
@@ -1569,7 +1604,45 @@ export function CandidateDetailSheet({
                   />
                   <Field
                     label="Tamaño / Empleados"
-                    value={val(employeeCount ? String(employeeCount) : null, 'Sin dato')}
+                    value={
+                      employeeCountFieldDisplay.kind === 'value' &&
+                      employeeCountFieldDisplay.value !== null ? (
+                        <div className="space-y-0.5">
+                          <p className="text-xs font-medium">
+                            {employeeCountFieldDisplay.value.toLocaleString('es-CO')}
+                          </p>
+                          {employeeCountFieldDisplay.sourceLabel && (
+                            <p className="text-[9px] text-muted-foreground/60">
+                              {employeeCountFieldDisplay.sourceLabel}
+                            </p>
+                          )}
+                        </div>
+                      ) : employeeCountFieldDisplay.message ? (
+                        <div className="space-y-0.5">
+                          {employeeCountFieldDisplay.value !== null && (
+                            <p className="text-xs font-medium">
+                              {employeeCountFieldDisplay.value.toLocaleString('es-CO')}
+                            </p>
+                          )}
+                          <p
+                            className={
+                              employeeCountFieldDisplay.kind === 'internal_loss'
+                                ? 'text-xs text-amber-600 dark:text-amber-400'
+                                : 'text-xs text-muted-foreground'
+                            }
+                          >
+                            {employeeCountFieldDisplay.message}
+                          </p>
+                          {employeeCountFieldDisplay.sourceLabel && (
+                            <p className="text-[9px] text-muted-foreground/60">
+                              {employeeCountFieldDisplay.sourceLabel}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        val(employeeCount ? String(employeeCount) : null, 'Sin dato')
+                      )
+                    }
                   />
                   {!isStructured && sourcePrimaryLabel && (
                     <Field label="Fuente" value={sourcePrimaryLabel} />
