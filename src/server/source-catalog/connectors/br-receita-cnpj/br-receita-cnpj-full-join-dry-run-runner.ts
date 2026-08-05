@@ -128,6 +128,7 @@ import {
   planBrazilReceitaFullJoinCleanup,
   type BrazilReceitaFullJoinCleanupReport,
 } from './br-receita-cnpj-full-join-cleanup';
+import type { BrazilReceitaCalibrationRecorder } from './br-receita-cnpj-calibration-instrumentation';
 
 // ─── Public constants ─────────────────────────────────────────────────────────
 
@@ -969,6 +970,19 @@ export interface BrazilReceitaFullJoinDryRunInput {
   readonly maxCoverageRowsPrinted?: number;
   /** The injected coverage-signal port. Absent ⇒ coverage-signal mode refuses. */
   readonly aggregateJoinCoverageSignalReader?: BrazilReceitaFullJoinAggregateJoinCoverageSignalReader;
+
+  // ── Bounded calibration instrumentation (BR-SOURCE-14B.0A) ──
+  /**
+   * The optional calibration recorder. An injected OBSERVER PORT, not configuration: it receives
+   * phase boundaries and sample points and is never read back into a gate, a cap, a refusal, or a
+   * report field. Like the reader ports above it is excluded from the no-write guard config, for
+   * the same reason — it is a capability the caller injected, not a value the run declared.
+   *
+   * Absent by default. Only the BR-SOURCE-11G join-probe path is instrumented, so every other
+   * mode ignores it entirely, and a 11G run without it behaves byte-identically to before this
+   * milestone.
+   */
+  readonly calibrationRecorder?: BrazilReceitaCalibrationRecorder;
 
   readonly noWriteMode: true;
   readonly runtimeIntegration: false;
@@ -1867,7 +1881,12 @@ function buildGuardConfig(input: BrazilReceitaFullJoinDryRunInput): Record<strin
       key === 'realManifestMetadataReader' ||
       key === 'requiredFamilyProbeReader' ||
       key === 'requiredFamilyJoinProbeReader' ||
-      key === 'aggregateJoinCoverageSignalReader'
+      key === 'aggregateJoinCoverageSignalReader' ||
+      // BR-SOURCE-14B.0A: the calibration recorder is an injected OBSERVER port, on the same
+      // footing as the reader ports above — a capability the caller holds, not configuration the
+      // run declared. Handing it to the no-write guard would put a live object with method
+      // properties into a config tree whose whole purpose is scanning DECLARED values.
+      key === 'calibrationRecorder'
     ) {
       continue;
     }
@@ -3168,6 +3187,17 @@ function runRequiredFamilyJoinProbe(
   input: BrazilReceitaFullJoinDryRunInput,
   provenance: RunProvenance,
 ): BrazilReceitaFullJoinDryRunReport {
+  // BR-SOURCE-14B.0A: the optional calibration recorder. Purely observational — it is never read
+  // back into a gate, a cap, a refusal, or a report field, and the validation ORDER below is
+  // exactly what it was before instrumentation. Absent ⇒ every call here is a no-op.
+  const recorder = input.calibrationRecorder;
+  recorder?.beginPhase('total');
+  recorder?.sample('before_preflight');
+  // `preflight` spans EVERY pre-probe validation: the manifest metadata gate and the join gate
+  // both live inside it. Splitting them would be more precise than the phase contract promises,
+  // and conflating them is honest as long as the boundary is documented — which is here.
+  recorder?.beginPhase('preflight');
+
   // The manifest is read as a CONTROL DOCUMENT first, under the metadata-only gate: a probe
   // that could not clear the manifest gate never gets to open a data file, let alone join one.
   const metadataOutcome = readManifestMetadataBlock(input, provenance);
@@ -3185,6 +3215,9 @@ function runRequiredFamilyJoinProbe(
       metadata,
     );
   }
+
+  // Every authorization and every cap has now been validated and no descriptor exists yet.
+  recorder?.endPhase('preflight');
 
   let scan: BrazilReceitaFullJoinRequiredFamilyJoinProbeScan;
   try {
@@ -3239,6 +3272,19 @@ function runRequiredFamilyJoinProbe(
   const guardrail = zeroCounts(GUARDRAIL_COUNT_KEYS);
   guardrail.required_family_join_probe_files_opened = scan.filesOpenedCount;
 
+  // The projection and the cleanup plan are HOISTED out of the `assembleReport` argument, in their
+  // original relative order, so the cleanup phase has a boundary to measure. Both are pure, and
+  // source-order evaluation of the former object literal ran them in exactly this sequence.
+  const requiredFamilyJoinProbeReport = projectRequiredFamilyJoinProbe(scan);
+  recorder?.beginPhase('cleanup');
+  const cleanup = planBrazilReceitaFullJoinCleanup({
+    sanitizerFailed: false,
+    guardFailed: false,
+    errorCount: 0,
+  });
+  recorder?.endPhase('cleanup');
+  recorder?.sample('after_cleanup');
+
   const candidate = assembleReport({
     ok: true,
     provenance,
@@ -3247,19 +3293,21 @@ function runRequiredFamilyJoinProbe(
     join: zeroCounts(JOIN_COUNT_KEYS),
     guardrail,
     manifestMetadata: metadata,
-    requiredFamilyJoinProbe: projectRequiredFamilyJoinProbe(scan),
-    cleanup: planBrazilReceitaFullJoinCleanup({
-      sanitizerFailed: false,
-      guardFailed: false,
-      errorCount: 0,
-    }),
+    requiredFamilyJoinProbe: requiredFamilyJoinProbeReport,
+    cleanup,
     errors: [],
   });
 
   // Output sanitization. A leak discards the metadata AND the join block — the report never
   // ships partially-sanitized content, and the offending value is never surfaced.
+  recorder?.beginPhase('sanitization');
   const sanitized = sanitizeBrazilReceitaFullJoinReport(candidate);
+  recorder?.endPhase('sanitization');
+  recorder?.sample('after_sanitization');
   if (!sanitized.ok) {
+    // The measurement stays deliberately unclosed on this path: `total` never ends, so the
+    // calibration reports itself INCOMPLETE rather than presenting a sanitizer failure as a
+    // successfully measured run.
     return failClosedReport(
       provenance,
       [{ error_code: BRAZIL_RECEITA_FULL_JOIN_SANITIZER_ERROR_CODE, stage: 'output_sanitization' }],
@@ -3267,6 +3315,7 @@ function runRequiredFamilyJoinProbe(
       sanitized.findings.length,
     );
   }
+  recorder?.endPhase('total');
   return candidate;
 }
 

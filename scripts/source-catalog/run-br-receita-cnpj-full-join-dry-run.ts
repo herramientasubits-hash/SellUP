@@ -56,6 +56,19 @@
  *                                  all four join caps. Prints no join key, no joined row, no
  *                                  joined sample, no join pair, no coverage percentage; makes
  *                                  no coverage claim; hashes nothing; approves no gate.
+ *   … --required-family-join-probe --calibration-instrumentation
+ *                                  BR-SOURCE-14B.0A. MEASURES the 11G run above and emits a
+ *                                  sanitized measurement beside the report: peak RSS, peak heap,
+ *                                  peak external memory, total and per-phase duration, and the
+ *                                  temporary-storage observation — every magnitude as a BUCKET,
+ *                                  never an exact figure. Valid ONLY with
+ *                                  --required-family-join-probe. It is a measurement switch, not
+ *                                  an authorization: it carries no owner phrase because measuring
+ *                                  a run the caller could already perform grants nothing. It opens
+ *                                  no extra file, reads no extra byte, widens no cap, changes no
+ *                                  outcome and changes no exit status; omitting it reproduces the
+ *                                  pre-14B.0A output byte for byte. Prints no path, no filename,
+ *                                  no raw timestamp and no raw memory observation.
  *   … --aggregate-join-coverage-signal --aggregate-join-coverage-signal-authorized
  *       --real-local-join-coverage-signal-authorized
  *                                  The BR-SOURCE-11H-IMPL Option C carve-out, valid ONLY together
@@ -171,7 +184,15 @@ import {
   type BrazilReceitaFullJoinDryRunReport,
   type BrazilReceitaFullJoinRunMode,
 } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-dry-run-runner';
-import { sanitizeBrazilReceitaFullJoinRenderedOutput } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-output-sanitizer';
+import {
+  sanitizeBrazilReceitaFullJoinRenderedOutput,
+  sanitizeBrazilReceitaFullJoinReport,
+} from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-output-sanitizer';
+import {
+  createBrazilReceitaCalibrationProcessDependencies,
+  createBrazilReceitaCalibrationRecorder,
+  type BrazilReceitaCalibrationRecorder,
+} from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-calibration-instrumentation';
 import { createBrazilReceitaSyntheticTempManifest } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-synthetic-temp-manifest';
 import {
   BrazilReceitaRealManifestMetadataError,
@@ -321,6 +342,15 @@ export interface FullJoinRunnerOptions {
   readonly maxCoverageKeyValuesInMemory: number | null;
   readonly maxCoveragePairsEmitted: number | null;
   readonly maxCoverageRowsPrinted: number | null;
+  /**
+   * True for the BR-SOURCE-14B.0A bounded calibration instrumentation: the run is MEASURED and an
+   * additional sanitized measurement block is emitted alongside the report.
+   *
+   * Opt-in and 11G-only. It grants nothing: it opens no extra file, reads no extra byte, widens no
+   * cap, and cannot change the run's outcome or exit status. Omitting it reproduces the exact
+   * pre-14B.0A output, byte for byte.
+   */
+  readonly calibrationInstrumentation: boolean;
   readonly maxFilesOpened: number | null;
   readonly maxRowsPerFile: number | null;
   readonly maxTotalRows: number | null;
@@ -511,6 +541,7 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
   let maxCoverageKeyValuesInMemory: number | null = null;
   let maxCoveragePairsEmitted: number | null = null;
   let maxCoverageRowsPrinted: number | null = null;
+  let calibrationInstrumentation = false;
   let maxFilesOpened: number | null = null;
   let maxRowsPerFile: number | null = null;
   let maxTotalRows: number | null = null;
@@ -590,6 +621,11 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
         break;
       case 'real-local-join-dry-run-authorized':
         realLocalJoinDryRunAuthorized = true;
+        break;
+      // BR-SOURCE-14B.0A. A MEASUREMENT switch, not an authorization: it carries no owner phrase,
+      // because measuring a run the caller was already authorized to perform grants nothing.
+      case 'calibration-instrumentation':
+        calibrationInstrumentation = true;
         break;
       case 'max-join-input-rows':
         maxJoinInputRows = parseBoundedInteger(
@@ -1068,6 +1104,14 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
       '--real-local-join-dry-run-authorized is only valid together with --required-family-join-probe or --aggregate-join-coverage-signal',
     );
   }
+  // BR-SOURCE-14B.0A: the measurement is 11G-only. Accepting it in another mode would ship a
+  // measurement whose phase contract does not describe the run that produced it, and a report of
+  // `not_measured` phases reads as a broken probe rather than as a misused flag.
+  if (calibrationInstrumentation && !requiredFamilyJoinProbe) {
+    throw new ForbiddenFullJoinRunnerModeError(
+      '--calibration-instrumentation is only valid together with --required-family-join-probe — the calibration phase contract describes the 11G run and no other',
+    );
+  }
   if (requiredFamilyJoinProbe) {
     if (!requiredFamilyJoinProbeAuthorized) {
       throw new ForbiddenFullJoinRunnerModeError(
@@ -1289,6 +1333,7 @@ export function parseFullJoinRunnerArgs(argv: string[]): FullJoinRunnerOptions {
     maxCoverageKeyValuesInMemory,
     maxCoveragePairsEmitted,
     maxCoverageRowsPrinted,
+    calibrationInstrumentation,
     format,
     strict,
     maxCompanyRows,
@@ -1631,8 +1676,14 @@ export function runLimitedBroaderLocalExecution(
 
 // ─── Core run ─────────────────────────────────────────────────────────────────
 
+/**
+ * `recorder` is the optional BR-SOURCE-14B.0A calibration observer, supplied by `main` when
+ * `--calibration-instrumentation` is present. It is threaded to the probe and to the core runner
+ * and is never read here, so the return type is unchanged and every existing caller is unaffected.
+ */
 export function runFullJoinDryRun(
   options: FullJoinRunnerOptions,
+  recorder?: BrazilReceitaCalibrationRecorder,
 ): BrazilReceitaFullJoinDryRunReport {
   // Option B: GENERATE a synthetic temp workspace, read only that, and release it. The
   // workspace path is chosen by the generator, so this CLI never holds one.
@@ -1704,6 +1755,9 @@ export function runFullJoinDryRun(
           maxJoinKeyValuesInMemory: options.maxJoinKeyValuesInMemory ?? undefined,
           maxJoinPairsEmitted: options.maxJoinPairsEmitted ?? undefined,
           maxJoinedRowsPrinted: options.maxJoinedRowsPrinted ?? undefined,
+          // BR-SOURCE-14B.0A: the probe-owned phase boundaries. An observer only — it cannot make
+          // the probe open a file, read a byte, or reach a different outcome.
+          ...(recorder !== undefined ? { calibrationRecorder: recorder } : {}),
         })
       : null;
 
@@ -1853,6 +1907,9 @@ export function runFullJoinDryRun(
         ? { maxCompanyScanRows: options.maxCompanyScanRows }
         : {}),
       ...(options.maxBytesPerFile !== null ? { maxBytesPerFile: options.maxBytesPerFile } : {}),
+      // BR-SOURCE-14B.0A: the runner-owned phase boundaries (preflight, cleanup, sanitization,
+      // total). Excluded from the no-write guard config by the core, as an injected port.
+      ...(recorder !== undefined ? { calibrationRecorder: recorder } : {}),
       noWriteMode: true,
       runtimeIntegration: false,
       agent1Integration: false,
@@ -1866,6 +1923,61 @@ export function runFullJoinDryRun(
     // outlives its run. `dispose` only ever removes the directory it created itself.
     workspace?.dispose();
   }
+}
+
+// ─── Calibration measurement rendering (BR-SOURCE-14B.0A) ─────────────────────
+
+/**
+ * Renders the report TOGETHER with the sanitized calibration measurement.
+ *
+ * Reached only under `--calibration-instrumentation`, so the legacy rendering path above is
+ * untouched: without the flag this function is never called and the output is byte-identical to
+ * the pre-14B.0A CLI.
+ *
+ * The measurement is passed through the report sanitizer before it is rendered. A finding is a
+ * LEAK and fails the run closed — which can turn a successful run into a failed one, and must:
+ * blocking a leak is the sanitizer's entire job. It can never do the opposite, because a
+ * measurement has no channel into `report.ok` or into the exit code that derives from it.
+ */
+function renderWithCalibrationMeasurement(
+  options: FullJoinRunnerOptions,
+  report: BrazilReceitaFullJoinDryRunReport,
+  reportRendered: string,
+  recorder: BrazilReceitaCalibrationRecorder,
+): string {
+  const measurement = recorder.build();
+  const sanitized = sanitizeBrazilReceitaFullJoinReport(measurement);
+  if (!sanitized.ok) {
+    throw new FullJoinRunnerOutputSanitizationError(sanitized.findings.map((finding) => finding.kind));
+  }
+
+  if (options.format === 'json') {
+    // A WRAPPER rather than an extra key on the report: the report's own JSON contract stays
+    // exactly what every earlier hito published, and a consumer that did not pass the flag never
+    // sees this envelope.
+    return JSON.stringify({ report, calibration_measurement: measurement }, null, 2);
+  }
+
+  const lines: string[] = [reportRendered, 'calibration_measurement:'];
+  lines.push(`  measurement_version: ${measurement.measurement_version}`);
+  lines.push(`  measurement_complete: ${measurement.measurement_complete}`);
+  lines.push(`  instrumentation_failure_count: ${measurement.instrumentation_failure_count}`);
+  lines.push(`  peak_rss_bucket: ${measurement.peak_rss_bucket}`);
+  lines.push(`  peak_heap_used_bucket: ${measurement.peak_heap_used_bucket}`);
+  lines.push(`  peak_external_memory_bucket: ${measurement.peak_external_memory_bucket}`);
+  lines.push(`  total_duration_bucket: ${measurement.total_duration_bucket}`);
+  lines.push('  phase_duration_buckets:');
+  for (const [phase, bucket] of Object.entries(measurement.phase_duration_buckets)) {
+    lines.push(`    ${phase}: ${bucket}`);
+  }
+  for (const [phase, combinedInto] of Object.entries(measurement.non_separable_phases)) {
+    lines.push(`  non_separable_phase: ${phase} -> ${combinedInto}`);
+  }
+  lines.push(`  temporary_storage_mode: ${measurement.temporary_storage_mode}`);
+  lines.push(`  temporary_storage_peak_bytes: ${measurement.temporary_storage_peak_bytes}`);
+  lines.push(`  temporary_storage_observation: ${measurement.temporary_storage_observation}`);
+  lines.push(`  sample_points_observed: ${measurement.sample_points_observed.join(', ')}`);
+  return lines.join('\n');
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────
@@ -1908,11 +2020,24 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   }
 
   try {
-    const report = runFullJoinDryRun(options);
-    const rendered = options.format === 'json' ? formatReportJson(report) : formatReportText(report);
+    // BR-SOURCE-14B.0A: the recorder exists only when the caller asked to MEASURE. When it is
+    // absent, `runFullJoinDryRun` and every rendering below behave exactly as they did before this
+    // milestone, so the legacy output is preserved byte for byte.
+    const recorder = options.calibrationInstrumentation
+      ? createBrazilReceitaCalibrationRecorder(createBrazilReceitaCalibrationProcessDependencies())
+      : undefined;
+
+    const report = runFullJoinDryRun(options, recorder);
+    const reportRendered =
+      options.format === 'json' ? formatReportJson(report) : formatReportText(report);
+    const rendered =
+      recorder === undefined
+        ? reportRendered
+        : renderWithCalibrationMeasurement(options, report, reportRendered, recorder);
 
     // Defense-in-depth: the core already sanitized the report tree; re-check the
-    // RENDERED string, so a leak introduced by rendering is still blocked.
+    // RENDERED string, so a leak introduced by rendering is still blocked. The measurement block
+    // is inside `rendered` by this point, so it is covered by the same check.
     const sanitized = sanitizeBrazilReceitaFullJoinRenderedOutput(rendered);
     if (!sanitized.ok) {
       throw new FullJoinRunnerOutputSanitizationError(sanitized.findings.map((f) => f.kind));
