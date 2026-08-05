@@ -89,9 +89,7 @@ describe('ASYNC-5 — presencia del botón one-click (sin modal)', () => {
     // AGENT2A-PHONE-WATERFALL-1: el onClick pasó a ser condicional. La invariante
     // ASYNC-5 no cambió — con `ENABLE_PHONE_REVEAL_WATERFALL` apagado
     // (`waterfallActive === false`, el default de producción) el botón sigue
-    // llamando a handlePhoneReveal sin diálogo intermedio. Lo que se verifica aquí
-    // es exactamente esa rama; la rama del waterfall abre su modal ÚNICO y está
-    // cubierta por contact-candidate-detail-phone-waterfall-ui.test.tsx.
+    // llamando a handlePhoneReveal sin diálogo intermedio.
     assert.ok(
       /onClick=\{[\s\S]*waterfallActive[\s\S]*\}/.test(block),
       'el onClick debe estar gobernado por waterfallActive',
@@ -100,9 +98,27 @@ describe('ASYNC-5 — presencia del botón one-click (sin modal)', () => {
       /:\s*\(\)\s*=>\s*handlePhoneReveal\(\)/.test(block),
       'la rama sin waterfall debe llamar handlePhoneReveal directamente',
     );
+  });
+
+  it('CON waterfall el botón también ejecuta en un clic (4D: el modal murió)', () => {
+    // AGENT2A-PHONE-WATERFALL-4D revirtió 4B/4C: el consentimiento se lee DEBAJO
+    // del botón y el clic EJECUTA. Antes de 4D esta rama abría
+    // `setShowWaterfallConfirm(true)`; esa expectativa quedó obsoleta y es la
+    // regresión que 4F corrige. Ahora cada rama del ternario debe llamar
+    // directamente a su starter de corrida.
+    const block = revealButtonBlock(detailSheetCode);
     assert.ok(
-      /\?\s*\(\)\s*=>\s*setShowWaterfallConfirm\(true\)/.test(block),
-      'la rama con waterfall debe abrir el modal único, no revelar directo',
+      /\(\)\s*=>\s*void\s+handleStartPhoneWaterfallRun\(/.test(block),
+      'la rama waterfall completo debe iniciar la corrida directamente',
+    );
+    assert.ok(
+      /\(\)\s*=>\s*void\s+handleStartLegacyPhoneWaterfallRun\(/.test(block),
+      'la rama legacy debe iniciar la corrida directamente',
+    );
+    assert.equal(
+      /setShowWaterfallConfirm/.test(block),
+      false,
+      'ninguna rama del botón puede abrir un modal',
     );
   });
 
@@ -136,6 +152,43 @@ describe('ASYNC-5 — el modal y su vocabulario fueron eliminados', () => {
     assert.equal(/PHONE_PROCESSING_BASIS_OPTIONS/.test(detailSheetCode), false);
     assert.equal(/phone-reveal-basis/.test(detailSheetCode), false);
     assert.equal(/showPhoneRevealDialog/.test(detailSheetCode), false);
+  });
+
+  it('tampoco queda el modal del waterfall que 4B/4C introdujeron (4D lo eliminó)', () => {
+    for (const token of [
+      'setShowWaterfallConfirm',
+      'showWaterfallConfirm',
+      'getPhoneRevealWaterfallModalCopy',
+    ]) {
+      assert.equal(
+        detailSheetCode.includes(token),
+        false,
+        `no debe quedar vocabulario del modal del waterfall: ${token}`,
+      );
+    }
+  });
+
+  it('el único «Confirmar y revelar» que sobrevive es el del fallback manual de Lusha (flag OFF)', () => {
+    // 4D eliminó el modal del WATERFALL, no el diálogo histórico del fallback
+    // manual de Lusha, que solo se ofrece con `ENABLE_PHONE_REVEAL_WATERFALL`
+    // apagado y tras un `no_phone_found` de Apollo. Ese diálogo conserva su copy
+    // y su «Cancelar». Lo que no puede existir es un segundo botón de
+    // confirmación gobernado por el waterfall: con el flag ON no debe aparecer
+    // ningún «Confirmar y revelar», y eso lo prueba en render real
+    // contact-candidate-detail-phone-reveal-ui-4f.test.tsx.
+    const occurrences = detailSheetCode.split('Confirmar y revelar').length - 1;
+    assert.equal(occurrences, 1, 'solo puede quedar UNA confirmación en el archivo');
+    const idx = detailSheetCode.indexOf('Confirmar y revelar');
+    const surrounding = detailSheetCode.slice(Math.max(0, idx - 1200), idx);
+    assert.ok(
+      surrounding.includes('handleConfirmLushaPhoneFallback'),
+      'esa confirmación debe pertenecer al diálogo del fallback manual de Lusha',
+    );
+    assert.equal(
+      /waterfallActive/.test(surrounding),
+      false,
+      'y no puede estar gobernada por el waterfall',
+    );
   });
 
   it('no quedan las otras bases seleccionables del viejo modal', () => {

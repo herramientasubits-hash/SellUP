@@ -67,6 +67,26 @@ export type LegacyPhoneRevealWaterfallActionStatus =
   | 'closed_without_lusha'
   /** Otro disparador ya había tomado la pata en esta corrida. */
   | 'already_attempted'
+  /**
+   * AGENT2A-PHONE-WATERFALL-4D: el pozo de Lusha no cubre los 5 créditos de su pata.
+   * Se detectó ANTES de crear la corrida: 0 corridas, 0 llamadas a Lusha, 0 usage
+   * logs, 0 créditos.
+   */
+  | 'insufficient_credits'
+  /**
+   * AGENT2A-PHONE-WATERFALL-4E: Lusha no tiene regla de crédito configurada, así que no
+   * hay disponibilidad que reservar. Mismas garantías de cero efectos.
+   */
+  | 'budget_not_configured'
+  /** El presupuesto no se pudo verificar. Fail-closed, mismas garantías de cero efectos. */
+  | 'credit_balance_unavailable'
+  /**
+   * AGENT2A-PHONE-WATERFALL-4F: el saldo SÍ se verificó, pero la escritura atómica de
+   * reserva + corrida no se pudo ejecutar (migración 104 no aplicada, timeout…).
+   * Mismas garantías de cero efectos, y NUNCA `not_eligible`: el candidato aplica
+   * perfectamente y lo que falló es la infraestructura.
+   */
+  | 'infrastructure_unavailable'
   /** El candidato no entra en la ruta legacy (o el flag/rol no lo permiten). */
   | 'not_eligible';
 
@@ -115,13 +135,29 @@ async function resolveActorForLegacyWaterfall(): Promise<{
   return { internalUserId: internalUser.id, roleKey };
 }
 
-/** Mapea el desenlace del runtime al status que consume la UI. */
+/**
+ * Mapea el desenlace del runtime al status que consume la UI.
+ *
+ * Recibe el resultado COMPLETO y no solo el `outcome` porque los dos rechazos de
+ * saldo (AGENT2A-PHONE-WATERFALL-4D) llegan como `not_started` + motivo: la corrida
+ * no se creó, así que el runtime no tiene un desenlace propio que los distinga, y
+ * colapsarlos en `not_eligible` le diría al operador que el candidato no aplica
+ * cuando el candidato aplica perfectamente y lo que falta es saldo.
+ */
 function toActionStatus(
-  outcome: Awaited<
-    ReturnType<typeof startLegacyPhoneRevealWaterfallForCandidate>
-  >['outcome'],
+  result: Awaited<ReturnType<typeof startLegacyPhoneRevealWaterfallForCandidate>>,
 ): LegacyPhoneRevealWaterfallActionStatus {
-  switch (outcome) {
+  if (result.outcome === 'not_started') {
+    if (result.reason === 'insufficient_credits') return 'insufficient_credits';
+    if (result.reason === 'budget_not_configured') return 'budget_not_configured';
+    if (result.reason === 'credit_balance_unavailable') {
+      return 'credit_balance_unavailable';
+    }
+    if (result.reason === 'run_creation_unavailable') {
+      return 'infrastructure_unavailable';
+    }
+  }
+  switch (result.outcome) {
     case 'lusha_revealed':
       return 'revealed';
     case 'lusha_no_phone_found':
@@ -171,7 +207,7 @@ export async function startLegacyPhoneRevealWaterfallAction(input: {
   );
 
   return {
-    status: toActionStatus(result.outcome),
+    status: toActionStatus(result),
     reason: result.reason,
     maxCreditsAuthorized: result.maxCreditsAuthorized,
   };

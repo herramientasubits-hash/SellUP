@@ -64,7 +64,50 @@
  * forma indiscriminada una autorización nueva: lo que bloquea es su CLASE, no su
  * existencia. La distinción vive en `classifyPhoneRevealWaterfallLegacyHistory` y es
  * la única autoridad, compartida por el servidor y por la UI.
+ *
+ * PREFLIGHT DE SALDO (AGENT2A-PHONE-WATERFALL-4D). Con el modal eliminado, el clic
+ * único crea la corrida y arranca Apollo sin paso intermedio, así que el presupuesto se
+ * comprueba en los DOS arranques justo antes del INSERT. Sin saldo suficiente —o sin
+ * poder verificarlo— fail-closed: 0 corridas, 0 llamadas a proveedor, 0 usage logs, 0
+ * créditos. La comparación vive en phone-reveal-credit-budget-core.ts, que es igual de
+ * puro; la resolución del presupuesto llega inyectada como dep.
+ *
+ * RESERVA ATÓMICA (AGENT2A-PHONE-WATERFALL-4E). Comprobar el saldo no basta: el modelo
+ * presupuestario es POR PROVEEDOR y no tiene contador de reservado, así que dos
+ * autorizaciones consecutivas leen la MISMA disponibilidad y las dos pasan. Por eso el
+ * arranque ahora RESERVA la exposición máxima —Apollo 8 y/o Lusha 5, cada una contra su
+ * propio pozo, all-or-nothing— ANTES de crear la corrida y ANTES de llamar a cualquier
+ * proveedor. Consecuencias que este core garantiza:
+ *
+ *   * sin regla de crédito para un proveedor exigido ⇒ `budget_not_configured` y NO se
+ *     arranca (no hay disponibilidad contra la que reservar);
+ *   * si la corrida no se puede crear —excepción o 23505 del índice único parcial— la
+ *     reserva se LIBERA, así que un conflicto benigno no deja créditos bloqueados;
+ *   * la corrida nace con `credit_reservation_group_id`, así que run y exposición
+ *     quedan asociadas ATÓMICAMENTE: no existe una corrida cuya reserva no se pueda
+ *     encontrar para liquidarla;
+ *   * mientras la corrida siga viva la exposición se mantiene ENTERA, y al terminalizar
+ *     se reconcilia contra el costo real de cada pata por separado (la decisión vive en
+ *     phone-reveal-credit-reservation-core.ts).
  */
+
+// Únicos imports de este módulo, y los dos son a cores PUROS (sin I/O, sin imports de
+// servidor): la alternativa era duplicar aquí los topes exigidos, la política
+// fail-closed del presupuesto y el ciclo de vida de la reserva, y duplicarlos es lo que
+// permitiría que discrepasen.
+import {
+  evaluatePhoneRevealCreditBudget,
+  resolvePhoneRevealCreditBudgetMode,
+  resolvePhoneRevealCreditBudgetProviders,
+  type PhoneRevealCreditBudgetMode,
+  type PhoneRevealCreditPool,
+  type PhoneRevealCreditProviderKey,
+} from './phone-reveal-credit-budget-core';
+import {
+  buildPhoneRevealCreditReservationLegs,
+  type PhoneRevealCreditReservationAndRunOutcome,
+  type PhoneRevealCreditReservationAndRunRequest,
+} from './phone-reveal-credit-reservation-core';
 
 // ── Vocabularios (espejo exacto de los CHECK de la migración 102) ──
 
@@ -282,6 +325,13 @@ export interface PhoneRevealWaterfallRunRecord {
   finalProvider: PhoneRevealWaterfallFinalProvider | null;
   completedAt: string | null;
   errorCode: string | null;
+  /**
+   * Grupo de reserva que paga esta corrida (AGENT2A-PHONE-WATERFALL-4E). Se escribe
+   * DENTRO del INSERT, así que una corrida creada por este código siempre lo trae.
+   * `null` solo en corridas anteriores a la migración 104, que no tienen exposición
+   * reservada que liquidar.
+   */
+  creditReservationGroupId: string | null;
 }
 
 /**
@@ -429,13 +479,74 @@ export interface PhoneRevealWaterfallRunDraft {
    * pata sigue viva (todavía puede terminar en `apollo_revealed`, `suppressed`…).
    */
   lushaSkippedReason: PhoneRevealWaterfallLushaSkippedReason | null;
+  /**
+   * Grupo de reserva cuya exposición paga esta corrida
+   * (AGENT2A-PHONE-WATERFALL-4E). Va en el INSERT y no en un UPDATE posterior: es lo
+   * que hace que la asociación entre corrida y exposición sea ATÓMICA, sin una ventana
+   * en la que exista una corrida cuya reserva nadie pueda encontrar.
+   */
+  creditReservationGroupId: string;
 }
 
 export interface StartPhoneRevealWaterfallInput {
   candidateId: string;
 }
 
-export interface StartPhoneRevealWaterfallDeps {
+/**
+ * Resolución del presupuesto (AGENT2A-PHONE-WATERFALL-4D, per-provider en 4E). Recibe
+ * los proveedores que la modalidad puede llegar a llamar y devuelve UN POZO POR
+ * PROVEEDOR, con su límite, su consumo y la identidad de su pozo. Es una dep porque el
+ * core es puro: aquí no se consulta nada.
+ *
+ * Es OBLIGATORIA en los dos arranques: sin ella el preflight no existiría y el clic
+ * único crearía la corrida sin comprobar nada. Un fallo de lectura se expresa como
+ * `{ kind: 'unavailable' }` por pozo — fail-closed — no lanzando.
+ */
+export type PhoneRevealWaterfallCreditPoolReader = (
+  providerKeys: readonly PhoneRevealCreditProviderKey[],
+) => Promise<readonly PhoneRevealCreditPool[]>;
+
+/**
+ * Reserva la exposición Y crea la corrida en UNA sola transacción
+ * (AGENT2A-PHONE-WATERFALL-4F, `reserve_and_create_phone_reveal_run`).
+ *
+ * Sustituye al par `reserveCredits` + `createRun` de 4E, que eran dos viajes con una
+ * ventana entre medias: si el proceso moría, la respuesta se perdía tras el COMMIT o el
+ * driver expiraba, la reserva quedaba escrita sin corrida y la compensación nunca
+ * corría. Una reserva huérfana no es sólo improbable ahora: es irrepresentable.
+ *
+ * Contrato: nunca lanza. Un fallo se expresa como `{ status: 'unavailable' }`.
+ */
+export type PhoneRevealWaterfallCreditReserverAndRunCreator = (args: {
+  reservation: PhoneRevealCreditReservationAndRunRequest;
+  run: PhoneRevealWaterfallRunDraft;
+}) => Promise<PhoneRevealCreditReservationAndRunOutcome>;
+
+/** Deps de reserva compartidas por los DOS arranques (completo y legacy). */
+interface PhoneRevealWaterfallCreditReservationDeps {
+  /** Presupuesto por proveedor, resuelto ANTES de reservar. Fail-closed. */
+  readCreditPools: PhoneRevealWaterfallCreditPoolReader;
+  /**
+   * Reserva atómica de todas las patas Y creación de la corrida, en UNA transacción
+   * (AGENT2A-PHONE-WATERFALL-4F). Una sola dep porque son una sola escritura: separarlas
+   * es exactamente lo que producía reservas huérfanas.
+   */
+  reserveCreditsAndCreateRun: PhoneRevealWaterfallCreditReserverAndRunCreator;
+  /**
+   * Id del grupo de reserva. Es una dep porque el core es puro y no puede llamar a
+   * `crypto.randomUUID()`; en tests es determinista.
+   */
+  newReservationGroupId: () => string;
+  /**
+   * Clave de idempotencia de ESTA autorización (AGENT2A-PHONE-WATERFALL-4F). Se genera
+   * ANTES de la operación, una vez por autorización, y la capa de I/O la reenvía
+   * IDÉNTICA en su reintento. Dep por la misma razón que la anterior: el core es puro.
+   */
+  newAuthorizationKey: () => string;
+}
+
+export interface StartPhoneRevealWaterfallDeps
+  extends PhoneRevealWaterfallCreditReservationDeps {
   /** ENABLE_PHONE_REVEAL_WATERFALL ya resuelto por el wrapper. */
   flagEnabled: boolean;
   actor: { internalUserId: string; roleKey: string | null };
@@ -447,13 +558,6 @@ export interface StartPhoneRevealWaterfallDeps {
   findActiveRun: (
     candidateId: string,
   ) => Promise<PhoneRevealWaterfallRunRecord | null>;
-  /**
-   * INSERT de la corrida. Devuelve el id, o null si el índice único parcial la
-   * rechazó porque otra corrida activa ganó la carrera (no es un error: significa
-   * que ya hay una autorización viva y el reveal Apollo devolverá
-   * `already_pending`).
-   */
-  createRun: (draft: PhoneRevealWaterfallRunDraft) => Promise<string | null>;
 }
 
 export type StartPhoneRevealWaterfallResult =
@@ -471,8 +575,158 @@ export type StartPhoneRevealWaterfallResult =
         | 'invalid_candidate'
         | 'candidate_not_found'
         | 'active_run_exists'
+        /**
+         * Algún pozo NO cubre su pata (Apollo 8 y/o Lusha 5). No se creó corrida, no se
+         * reservó nada y no se llamó a ningún proveedor
+         * (AGENT2A-PHONE-WATERFALL-4D/4E).
+         */
+        | 'insufficient_credits'
+        /**
+         * Algún proveedor exigido NO tiene regla de crédito configurada
+         * (AGENT2A-PHONE-WATERFALL-4E). No hay disponibilidad contra la que reservar, así
+         * que el waterfall no arranca en vez de correr sobre un techo imaginario.
+         */
+        | 'budget_not_configured'
+        /** El presupuesto no se pudo verificar. Fail-closed: tampoco se creó corrida. */
+        | 'credit_balance_unavailable'
+        /**
+         * El presupuesto SÍ se verificó, pero la escritura atómica de reserva + corrida
+         * no se pudo ejecutar (AGENT2A-PHONE-WATERFALL-4F): función ausente porque la
+         * migración 104 no está aplicada, timeout, credenciales… Fail-closed: 0
+         * corridas, 0 proveedores, 0 créditos, y el operador lee un fallo de
+         * infraestructura en vez de uno de saldo.
+         */
+        | 'run_creation_unavailable'
         | 'create_conflict';
     };
+
+// ── Reserva + corrida atómicas, compartidas por los dos arranques ──
+
+/** Desenlace del gate: o existe la corrida con su exposición, o hay un motivo. */
+type PhoneRevealWaterfallCreditGate =
+  | {
+      started: true;
+      runId: string;
+      reservationGroupId: string | null;
+      /** true cuando la clave de idempotencia devolvió una corrida que YA existía. */
+      idempotentHit: boolean;
+    }
+  | {
+      started: false;
+      reason:
+        | 'insufficient_credits'
+        | 'budget_not_configured'
+        | 'credit_balance_unavailable'
+        | 'run_creation_unavailable'
+        | 'active_run_exists'
+        | 'create_conflict';
+    };
+
+/**
+ * Resuelve el presupuesto y, en UNA sola operación atómica, RESERVA la exposición
+ * máxima de la modalidad Y CREA la corrida (AGENT2A-PHONE-WATERFALL-4E/4F).
+ *
+ * Dos pasos y no uno, a propósito:
+ *
+ *   1. La evaluación PURA distingue los tres rechazos con precisión —no alcanza / no hay
+ *      presupuesto / no se pudo leer— y evita una RPC cuando ya se sabe que va a fallar.
+ *      Es lo que le permite al operador leer el motivo exacto.
+ *   2. La operación ATÓMICA es la autoridad. Vuelve a comparar dentro de la transacción,
+ *      con la exposición ya reservada por otras autorizaciones incluida, que es lo único
+ *      que el paso 1 no puede saber sin condición de carrera — y escribe la corrida en
+ *      esa MISMA transacción.
+ *
+ * QUÉ CAMBIÓ EN 4F. En 4E el paso 2 sólo reservaba, y la corrida se creaba después, en
+ * otro viaje. Entre los dos había una ventana en la que la reserva estaba comprometida y
+ * la corrida no existía; una caída, una respuesta perdida o un timeout dejaban ahí una
+ * huérfana que ninguna compensación iba a recoger. Ahora las dos escrituras son una, y
+ * cualquier fallo deshace ambas: NO hay camino en el que quede exposición sin corrida, y
+ * por eso ya no hace falta `releaseCredits` ni `attachReservationsToRun` aquí.
+ *
+ * `already_reserved` se traduce a `active_run_exists`: ese candidato ya tiene exposición
+ * viva, así que hay una autorización en curso y no se abre una segunda.
+ */
+async function reserveWaterfallCreditsAndCreateRunOrBlock(args: {
+  mode: PhoneRevealCreditBudgetMode;
+  candidateId: string;
+  authorizedBy: string;
+  deps: PhoneRevealWaterfallCreditReservationDeps;
+  /** Construye el borrador una vez conocido el grupo de reserva. */
+  buildRun: (reservationGroupId: string) => PhoneRevealWaterfallRunDraft;
+}): Promise<PhoneRevealWaterfallCreditGate> {
+  const { mode, deps } = args;
+
+  const pools = await deps.readCreditPools(
+    resolvePhoneRevealCreditBudgetProviders(mode),
+  );
+  const budget = { model: 'per_provider' as const, pools };
+  const verdict = evaluatePhoneRevealCreditBudget({ mode, budget });
+
+  if (verdict.decision === 'insufficient_credits') {
+    return { started: false, reason: 'insufficient_credits' };
+  }
+  if (verdict.decision === 'budget_not_configured') {
+    return { started: false, reason: 'budget_not_configured' };
+  }
+  if (verdict.decision === 'balance_unavailable') {
+    return { started: false, reason: 'credit_balance_unavailable' };
+  }
+
+  const reservationGroupId = deps.newReservationGroupId();
+  const outcome = await deps.reserveCreditsAndCreateRun({
+    reservation: {
+      candidateId: args.candidateId,
+      authorizedBy: args.authorizedBy,
+      reservationGroupId,
+      // Se genera ANTES de la operación: es la condición para que el reintento de la
+      // capa de I/O pueda ser idempotente en vez de una segunda autorización.
+      authorizationKey: deps.newAuthorizationKey(),
+      legs: buildPhoneRevealCreditReservationLegs({ mode, budget }),
+    },
+    run: args.buildRun(reservationGroupId),
+  });
+
+  switch (outcome.status) {
+    case 'created':
+      return {
+        started: true,
+        runId: outcome.runId,
+        reservationGroupId: outcome.reservationGroupId,
+        idempotentHit: false,
+      };
+    case 'already_created':
+      // El reintento encontró la corrida que la primera llamada ya había creado. No se
+      // reservó nada nuevo y no se gastó nada: es la MISMA autorización.
+      return {
+        started: true,
+        runId: outcome.runId,
+        reservationGroupId: outcome.reservationGroupId,
+        idempotentHit: true,
+      };
+    case 'insufficient_credits':
+      return { started: false, reason: 'insufficient_credits' };
+    case 'budget_not_configured':
+      return { started: false, reason: 'budget_not_configured' };
+    case 'already_reserved':
+      return { started: false, reason: 'active_run_exists' };
+    case 'create_conflict':
+      return { started: false, reason: 'create_conflict' };
+    case 'unavailable':
+      // NO es `credit_balance_unavailable`. El saldo YA se verificó arriba, con éxito;
+      // lo que falló es la ESCRITURA atómica (función ausente porque la migración 104
+      // no está aplicada, timeout, credenciales…). Decirle al operador que no se pudo
+      // verificar su saldo sería describirle un problema que no tuvo. Los dos caminos
+      // son igual de fail-closed: 0 corridas, 0 proveedores, 0 créditos.
+      return { started: false, reason: 'run_creation_unavailable' };
+    default: {
+      // Un desenlace nuevo rompe la compilación: decidir si una respuesta inédita de la
+      // reserva puede seguir gastando proveedores es una decisión de producto.
+      const exhaustive: never = outcome;
+      void exhaustive;
+      return { started: false, reason: 'run_creation_unavailable' };
+    }
+  }
+}
 
 /**
  * Crea la corrida del waterfall al autorizar el botón. Corre ANTES del START de
@@ -508,25 +762,44 @@ export async function startPhoneRevealWaterfall(
   const lushaLeg = evaluatePhoneRevealWaterfallLushaLeg(candidate);
   const maxCreditsAuthorized = resolvePhoneRevealWaterfallMaxCredits(lushaLeg.eligible);
 
-  const runId = await deps.createRun({
-    candidateId,
-    status: 'apollo_in_flight',
-    // Modalidad EXPLÍCITA aunque sea el default de la columna: el INSERT dice cuál
-    // es en vez de dejar que se deduzca (AGENT2A-PHONE-WATERFALL-2).
-    runMode: 'full_waterfall',
-    authorizedAt: deps.nowIso,
-    authorizedBy: deps.actor.internalUserId,
-    authorizedByRole: cleanText(deps.actor.roleKey),
-    maxCreditsAuthorized,
-    apolloAttemptedAt: deps.nowIso,
+  // PREFLIGHT + RESERVA (AGENT2A-PHONE-WATERFALL-4D/4E). Van justo ANTES del INSERT y
+  // DESPUÉS de conocer la modalidad, porque lo exigido depende de ella (Apollo 8 + Lusha
+  // 5 con pata Lusha, solo Apollo 8 sin ella). Al eliminarse el modal, este es el último
+  // punto en el que se puede parar sin haber escrito nada: si no alcanza, no hay
+  // corrida, no hay llamada a Apollo, no hay usage log y no hay créditos.
+  const budgetMode = resolvePhoneRevealCreditBudgetMode({
+    legacyLushaOnly: false,
     lushaEligible: lushaLeg.eligible,
-    lushaSkippedReason: lushaLeg.skippedReason,
   });
-  if (!runId) return { started: false, reason: 'create_conflict' };
+  // RESERVA Y CORRIDA, en una sola transacción (4F). No hay estado intermedio que
+  // compensar: o existen las dos cosas, o no existe ninguna.
+  const creditGate = await reserveWaterfallCreditsAndCreateRunOrBlock({
+    mode: budgetMode,
+    candidateId,
+    authorizedBy: deps.actor.internalUserId,
+    deps,
+    buildRun: (reservationGroupId) => ({
+      candidateId,
+      status: 'apollo_in_flight',
+      // Modalidad EXPLÍCITA aunque sea el default de la columna: el INSERT dice cuál
+      // es en vez de dejar que se deduzca (AGENT2A-PHONE-WATERFALL-2).
+      runMode: 'full_waterfall',
+      authorizedAt: deps.nowIso,
+      authorizedBy: deps.actor.internalUserId,
+      authorizedByRole: cleanText(deps.actor.roleKey),
+      maxCreditsAuthorized,
+      apolloAttemptedAt: deps.nowIso,
+      lushaEligible: lushaLeg.eligible,
+      lushaSkippedReason: lushaLeg.skippedReason,
+      // Asociación ATÓMICA con la exposición: va en el INSERT, no en un UPDATE después.
+      creditReservationGroupId: reservationGroupId,
+    }),
+  });
+  if (!creditGate.started) return { started: false, reason: creditGate.reason };
 
   return {
     started: true,
-    runId,
+    runId: creditGate.runId,
     maxCreditsAuthorized,
     lushaEligible: lushaLeg.eligible,
   };
@@ -595,6 +868,24 @@ export type PhoneRevealWaterfallLegacyIneligibleReason =
   | 'candidate_not_editable'
   | 'missing_lusha_contact_id'
   | 'active_run_exists'
+  /**
+   * El pozo de Lusha NO cubre los 5 créditos de su pata
+   * (AGENT2A-PHONE-WATERFALL-4D/4E). No se creó corrida y no se llamó a Lusha.
+   */
+  | 'insufficient_credits'
+  /**
+   * Lusha NO tiene regla de crédito configurada (AGENT2A-PHONE-WATERFALL-4E). No hay
+   * disponibilidad contra la que reservar, así que la corrida legacy no arranca.
+   */
+  | 'budget_not_configured'
+  /** El presupuesto no se pudo verificar. Fail-closed: tampoco se creó corrida. */
+  | 'credit_balance_unavailable'
+  /**
+   * El presupuesto SÍ se verificó, pero la escritura atómica de reserva + corrida no se
+   * pudo ejecutar (AGENT2A-PHONE-WATERFALL-4F). Fail-closed: 0 corridas, 0 Lusha, 0
+   * créditos.
+   */
+  | 'run_creation_unavailable'
   /**
    * La corrida histórica pertenece al flujo COMPLETO (`full_waterfall`), así que el
    * candidato no es legacy: su caso lo gobierna el waterfall normal, con Apollo
@@ -766,7 +1057,8 @@ export interface StartLegacyPhoneRevealWaterfallInput {
   candidateId: string;
 }
 
-export interface StartLegacyPhoneRevealWaterfallDeps {
+export interface StartLegacyPhoneRevealWaterfallDeps
+  extends PhoneRevealWaterfallCreditReservationDeps {
   /** ENABLE_PHONE_REVEAL_WATERFALL ya resuelto por el wrapper. */
   flagEnabled: boolean;
   actor: { internalUserId: string; roleKey: string | null };
@@ -789,7 +1081,6 @@ export interface StartLegacyPhoneRevealWaterfallDeps {
   findLatestRun: (
     candidateId: string,
   ) => Promise<PhoneRevealWaterfallRunRecord | null>;
-  createRun: (draft: PhoneRevealWaterfallRunDraft) => Promise<string | null>;
 }
 
 export type StartLegacyPhoneRevealWaterfallResult =
@@ -859,27 +1150,39 @@ export async function startLegacyPhoneRevealWaterfall(
     return { started: false, reason: historyVerdict.reason };
   }
 
-  const runId = await deps.createRun({
+  // PREFLIGHT + RESERVA (AGENT2A-PHONE-WATERFALL-4D/4E). Solo se exige y solo se reserva
+  // la pata LUSHA (5): Apollo no se ejecuta bajo esta autorización, así que bloquear —o
+  // reservar— por su pozo sería hacerlo por un proveedor que no va a correr. Se hace
+  // ANTES del INSERT: sin exposición reservada no hay corrida nueva, no hay llamada a
+  // Lusha, no hay usage log y no hay créditos.
+  const creditGate = await reserveWaterfallCreditsAndCreateRunOrBlock({
+    mode: 'legacy_lusha_only',
     candidateId,
-    status: 'lusha_pending',
-    runMode: 'legacy_lusha_only',
-    authorizedAt: deps.nowIso,
     authorizedBy: deps.actor.internalUserId,
-    authorizedByRole: cleanText(deps.actor.roleKey),
-    maxCreditsAuthorized: PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS,
-    // Apollo NO se ejecuta bajo esta autorización: sin timestamp inventado.
-    apolloAttemptedAt: null,
-    // Transcripción del desenlace histórico, sin re-atribuir su costo.
-    apolloOutcome: 'no_phone_found',
-    apolloCostSource: 'unknown',
-    lushaEligible: true,
-    lushaSkippedReason: null,
+    deps,
+    buildRun: (reservationGroupId) => ({
+      candidateId,
+      status: 'lusha_pending',
+      runMode: 'legacy_lusha_only',
+      authorizedAt: deps.nowIso,
+      authorizedBy: deps.actor.internalUserId,
+      authorizedByRole: cleanText(deps.actor.roleKey),
+      maxCreditsAuthorized: PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS,
+      // Apollo NO se ejecuta bajo esta autorización: sin timestamp inventado.
+      apolloAttemptedAt: null,
+      // Transcripción del desenlace histórico, sin re-atribuir su costo.
+      apolloOutcome: 'no_phone_found',
+      apolloCostSource: 'unknown',
+      lushaEligible: true,
+      lushaSkippedReason: null,
+      creditReservationGroupId: reservationGroupId,
+    }),
   });
-  if (!runId) return { started: false, reason: 'create_conflict' };
+  if (!creditGate.started) return { started: false, reason: creditGate.reason };
 
   return {
     started: true,
-    runId,
+    runId: creditGate.runId,
     maxCreditsAuthorized: PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS,
   };
 }

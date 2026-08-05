@@ -24,10 +24,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # AGENT2A-PHONE-WATERFALL-4F: Node 24, la versión con la que se desarrolla.
+      # Con Node 20, `mock.module()` no resuelve los alias `@/…` de tsconfig, así que
+      # TODA suite de UI que mockee un módulo por alias falla con ERR_MODULE_NOT_FOUND
+      # — no por un defecto del código, sino del runner. Era invisible mientras ninguna
+      # suite jsdom corría en CI; al entrar las del teléfono, dejó de serlo. Los nueve
+      # pasos que ya existían se verificaron uno a uno en Node 24 antes de este cambio.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -141,3 +147,26 @@ jobs:
       # activación de flags, sin llamadas al proveedor, sin créditos, sin DB real.
       - name: Run A1 Apollo two-round quality tests
         run: npm run test:a1-apollo-two-round-quality
+
+      # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
+      # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
+      # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)
+      # sobrevivió justamente porque nada la ejecutaba en el PR. Las seis son
+      # deterministas: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run phone reveal UI tests
+        run: npm run test:agent2a:phone-reveal-ui
+
+      - name: Run phone reveal waterfall tests
+        run: npm run test:agent2a:phone-waterfall
+
+      - name: Run phone reveal waterfall legacy tests
+        run: npm run test:agent2a:phone-waterfall-legacy
+
+      - name: Run phone direct reveal tests
+        run: npm run test:agent2a:phone-direct-reveal
+
+      - name: Run phone credit reservation tests
+        run: npm run test:agent2a:phone-credit-reservation
+
+      - name: Run phone drawer sync tests
+        run: npm run test:agent2a:phone-drawer-sync

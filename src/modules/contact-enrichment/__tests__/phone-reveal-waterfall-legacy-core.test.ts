@@ -47,6 +47,11 @@ import {
   type PhoneRevealWaterfallSuppressionState,
   type StartLegacyPhoneRevealWaterfallDeps,
 } from '../phone-reveal-waterfall-core';
+import {
+  creditHarness,
+  poolsWith,
+  type CreditHarness,
+} from './phone-reveal-credit-reservation-fixtures';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -112,6 +117,8 @@ function legacyRun(
     finalProvider: null,
     completedAt: null,
     errorCode: null,
+    // AGENT2A-PHONE-WATERFALL-4E: la corrida nace asociada a su grupo de reserva.
+    creditReservationGroupId: 'group-legacy-1',
     ...overrides,
   };
 }
@@ -122,11 +129,19 @@ function legacyRun(
  */
 function startDeps(
   overrides: Partial<StartLegacyPhoneRevealWaterfallDeps> = {},
+  creditOverride?: CreditHarness,
 ): {
   deps: StartLegacyPhoneRevealWaterfallDeps;
   drafts: PhoneRevealWaterfallRunDraft[];
+  credit: CreditHarness;
 } {
-  const drafts: PhoneRevealWaterfallRunDraft[] = [];
+  // Presupuesto por defecto: pozo CONFIGURADO con saldo amplio
+  // (AGENT2A-PHONE-WATERFALL-4E). Ya no puede ser "sin regla": desde 4E eso bloquea, y
+  // el resto de la suite mide otras cosas. El preflight tiene sus propias pruebas.
+  const credit = creditOverride ?? creditHarness();
+  // 4F: la corrida la escribe la MISMA operación que reserva, así que los borradores
+  // realmente escritos los lleva el harness de crédito.
+  const drafts = credit.createdDrafts;
   const deps: StartLegacyPhoneRevealWaterfallDeps = {
     flagEnabled: true,
     actor: { internalUserId: 'user-admin', roleKey: 'admin' },
@@ -134,13 +149,10 @@ function startDeps(
     loadLegacyEvidence: async () => legacyEvidence(),
     findActiveRun: async () => null,
     findLatestRun: async () => null,
-    createRun: async (draft) => {
-      drafts.push(draft);
-      return 'run-legacy-1';
-    },
+    ...credit.deps,
     ...overrides,
   };
-  return { deps, drafts };
+  return { deps, drafts, credit };
 }
 
 // ── 1. Elegibilidad legacy ───────────────────────────────────────────────────
@@ -373,7 +385,10 @@ describe('WATERFALL-2 — gates del arranque legacy (flag, rol, corridas)', () =
   });
 
   it('el índice único parcial rechazando el INSERT ⇒ create_conflict', async () => {
-    const { deps } = startDeps({ createRun: async () => null });
+    const { deps } = startDeps(
+      {},
+      creditHarness({ outcome: { status: 'create_conflict' } }),
+    );
     const result = await startLegacyPhoneRevealWaterfall(
       { candidateId: 'cand-legacy' },
       deps,
@@ -384,6 +399,95 @@ describe('WATERFALL-2 — gates del arranque legacy (flag, rol, corridas)', () =
 
 // ── 2. Cero Apollo ───────────────────────────────────────────────────────────
 
+// ── Preflight de saldo de la ruta legacy (AGENT2A-PHONE-WATERFALL-4D) ────────
+
+describe('WATERFALL-4D/4E — presupuesto y reserva antes de crear la corrida legacy', () => {
+  it('pozo de Lusha con 5 SÍ autoriza la corrida legacy: su tope es 5, no 13 ni 8', async () => {
+    const { deps, drafts, credit } = startDeps(
+      {},
+      creditHarness({ poolsFor: poolsWith(5) }),
+    );
+    const result = await startLegacyPhoneRevealWaterfall(
+      { candidateId: 'cand-legacy' },
+      deps,
+    );
+    assert.equal(result.started, true);
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0].maxCreditsAuthorized, 5);
+    // La reserva ocupa 5 contra Lusha, y SOLO contra Lusha.
+    assert.deepEqual(
+      credit.reserveRequests[0].legs.map((leg) => [leg.providerKey, leg.credits]),
+      [['lusha', 5]],
+    );
+  });
+
+  it('pozo con 4 ⇒ insufficient_credits y NINGUNA corrida creada', async () => {
+    const { deps, drafts } = startDeps({}, creditHarness({ poolsFor: poolsWith(4) }));
+    const result = await startLegacyPhoneRevealWaterfall(
+      { candidateId: 'cand-legacy' },
+      deps,
+    );
+    assert.equal(result.started, false);
+    assert.equal(result.started === false && result.reason, 'insufficient_credits');
+    assert.equal(drafts.length, 0, 'sin corrida no hay forma de llamar a Lusha');
+  });
+
+  it('sin regla de crédito para Lusha ⇒ budget_not_configured y sin corrida', async () => {
+    const { deps, drafts } = startDeps(
+      {},
+      creditHarness({
+        poolsFor: (keys) =>
+          keys.map((providerKey) => ({ providerKey, state: { kind: 'not_configured' } })),
+      }),
+    );
+    const result = await startLegacyPhoneRevealWaterfall(
+      { candidateId: 'cand-legacy' },
+      deps,
+    );
+    assert.equal(result.started, false);
+    assert.equal(result.started === false && result.reason, 'budget_not_configured');
+    assert.equal(drafts.length, 0);
+  });
+
+  it('presupuesto NO verificable ⇒ fail-closed con motivo propio y sin corrida', async () => {
+    const { deps, drafts } = startDeps(
+      {},
+      creditHarness({
+        poolsFor: (keys) =>
+          keys.map((providerKey) => ({ providerKey, state: { kind: 'unavailable' } })),
+      }),
+    );
+    const result = await startLegacyPhoneRevealWaterfall(
+      { candidateId: 'cand-legacy' },
+      deps,
+    );
+    assert.equal(result.started, false);
+    assert.equal(
+      result.started === false && result.reason,
+      'credit_balance_unavailable',
+    );
+    assert.equal(drafts.length, 0);
+  });
+
+  it('solo se consulta el pozo de LUSHA: Apollo no corre en esta autorización', async () => {
+    const { deps, credit } = startDeps();
+    await startLegacyPhoneRevealWaterfall({ candidateId: 'cand-legacy' }, deps);
+    assert.deepEqual(credit.poolQueries, [['lusha']]);
+  });
+
+  it('flag OFF / rol no admin no consultan el presupuesto (gates baratos primero)', async () => {
+    for (const overrides of [
+      { flagEnabled: false },
+      { actor: { internalUserId: 'user-x', roleKey: 'commercial_manager' } },
+    ]) {
+      const { deps, credit } = startDeps(overrides);
+      await startLegacyPhoneRevealWaterfall({ candidateId: 'cand-legacy' }, deps);
+      assert.equal(credit.poolQueries.length, 0, JSON.stringify(overrides));
+      assert.equal(credit.reserveRequests.length, 0, JSON.stringify(overrides));
+    }
+  });
+});
+
 describe('WATERFALL-2 — CERO Apollo', () => {
   it('el arranque legacy no expone NINGUNA dep de Apollo que se pueda invocar', async () => {
     const { deps } = startDeps();
@@ -391,12 +495,20 @@ describe('WATERFALL-2 — CERO Apollo', () => {
     // falla: la superficie de deps es la lista cerrada de abajo.
     assert.deepEqual(Object.keys(deps).sort(), [
       'actor',
-      'createRun',
       'findActiveRun',
       'findLatestRun',
       'flagEnabled',
       'loadLegacyEvidence',
+      // Generan un uuid. No tocan red ni proveedores.
+      'newAuthorizationKey',
+      'newReservationGroupId',
       'nowIso',
+      // AGENT2A-PHONE-WATERFALL-4D/4E. Resuelve PRESUPUESTO, no proveedores: en esta
+      // modalidad solo se pregunta por Lusha.
+      'readCreditPools',
+      // AGENT2A-PHONE-WATERFALL-4F. Ocupa presupuesto Y escribe la corrida, en UNA
+      // transacción. No puede llamar a Apollo ni a Lusha.
+      'reserveCreditsAndCreateRun',
     ]);
   });
 
