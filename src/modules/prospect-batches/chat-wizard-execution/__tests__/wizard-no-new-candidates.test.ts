@@ -260,41 +260,43 @@ describe('NNC4 — WizardExecutionActionResult type contract includes no_new_can
  */
 function makeLiveRunPipelineOutput(): IncrementalSearchOutput {
   const base = makePipelineOutput(BATCH_A, 0);
-  return {
-    ...base,
-    metadata: {
-      ...base.metadata,
-      apollo_two_round_discovery: {
-        rounds: [
-          {
-            round_number: 1,
-            duplicate_in_hubspot: 4,
-            duplicate_in_sellup: 0,
-            cooldown_or_prior_suggestion: 0,
-            seen_duplicates: 0,
-            country_rejected: 0,
-            sector_rejected: 1,
-            ownership_rejected: 0,
-            page: 1,
-          },
-          {
-            round_number: 2,
-            duplicate_in_hubspot: 0,
-            duplicate_in_sellup: 0,
-            cooldown_or_prior_suggestion: 0,
-            seen_duplicates: 5,
-            country_rejected: 0,
-            sector_rejected: 0,
-            ownership_rejected: 0,
-            page: 2,
-          },
-        ],
-        run_metrics: { total_raw_results: 10, total_unique_organizations: 5 },
-        second_round_skipped_reason: null,
-        round_2_page: 2,
-      },
+  // La observabilidad de la modalidad de dos rondas la escribe el adaptador bajo su
+  // propia clave, y `IncrementalSearchMetadata` no la declara. Se compone igual que
+  // en producción y se afirma el tipo del CONTENEDOR, nunca el de las cifras.
+  const metadata = {
+    ...base.metadata,
+    apollo_two_round_discovery: {
+      rounds: [
+        {
+          round_number: 1,
+          duplicate_in_hubspot: 4,
+          duplicate_in_sellup: 0,
+          cooldown_or_prior_suggestion: 0,
+          seen_duplicates: 0,
+          country_rejected: 0,
+          sector_rejected: 1,
+          ownership_rejected: 0,
+          page: 1,
+        },
+        {
+          round_number: 2,
+          duplicate_in_hubspot: 0,
+          duplicate_in_sellup: 0,
+          cooldown_or_prior_suggestion: 0,
+          seen_duplicates: 5,
+          country_rejected: 0,
+          sector_rejected: 0,
+          ownership_rejected: 0,
+          page: 2,
+        },
+      ],
+      run_metrics: { total_raw_results: 10, total_unique_organizations: 5 },
+      second_round_skipped_reason: null,
+      round_2_page: 2,
     },
   };
+
+  return { ...base, metadata: metadata as IncrementalSearchOutput['metadata'] };
 }
 
 describe('NNC5 — el desglose de «cero empresas nuevas» viaja completo', () => {
