@@ -2,8 +2,12 @@
  * Prospecting Toolkit — Tipos base.
  *
  * Contiene los contratos de deduplicación y del catálogo de fuentes.
- * No contienen lógica, no importan nada externo.
+ * No contienen lógica. La única dependencia es el módulo hermano PURO de
+ * readiness de persistencia, del que se reutiliza el contrato de resultado en
+ * vez de redeclararlo aquí (dos copias del mismo tipo se desincronizan).
  */
+
+import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
 
 export type DuplicateStatus =
   | "new_candidate"
@@ -556,6 +560,15 @@ export type CandidateWriterOutput = {
   skipped: CandidateWriterSkipped[];
   status: CandidateWriterStatus;
   errors: string[];
+  /**
+   * A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — resultado REAL de la escritura.
+   *
+   * Antes, un INSERT fallido sólo dejaba rastro en `skipped` con el mensaje
+   * crudo del motor, que no encajaba en ningún bucket de descarte y por tanto
+   * desaparecía: la corrida terminaba indistinguible de un vacío legítimo.
+   * Estas cifras hacen la diferencia explícita y viajan hasta la UI.
+   */
+  persistence: CandidatePersistenceOutcome;
 };
 
 // Combined output for runAndWriteProspectingPipeline

@@ -52,6 +52,7 @@ import type {
   ProspectingPipelineOutput,
   WebSearchOutput,
 } from '../types';
+import { noCandidatePersistenceFailures } from '../prospect-candidate-persistence-readiness';
 
 // Q3F-5AU.16: mirrors the local intersection types production code uses in
 // incremental-search.ts/web-search-tool.ts — remainingEnrichmentBudget /
@@ -191,6 +192,9 @@ const NOOP_WRITER: typeof writeProspectingCandidates = async () => ({
   skipped: [],
   status: 'success',
   errors: [],
+  // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — el contrato del writer exige las
+  // cifras de persistencia; este doble no ejercita fallos de escritura.
+  persistence: noCandidatePersistenceFailures(),
 });
 
 function withoutSupabaseEnv<T>(fn: () => Promise<T>): Promise<T> {

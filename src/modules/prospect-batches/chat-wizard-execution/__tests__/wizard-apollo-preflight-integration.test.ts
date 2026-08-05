@@ -45,6 +45,9 @@ function buildDeps(
       subindustries: [],
     }),
     checkTavilyAvailability: async () => true,
+    // A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — el esquema está listo: este doble
+    // no ejercita el preflight de persistencia.
+    checkPersistenceReadiness: async () => ({ status: 'available' as const }),
     reserveBudget: async () => {
       spy.reserveBudgetCalls++;
       return { status: 'reserved', reservationId: 'res_1', creditsReserved: 3 };

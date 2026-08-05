@@ -22,10 +22,14 @@ import {
   WizardApolloTwoRoundPlannedSteps,
   WizardApolloTwoRoundOutcome,
 } from './wizard-two-round-progress-panel';
+import { type NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
+// A1-APOLLO-PERSISTENCE-READINESS-4 § 8 — la prioridad de causas vive en un solo
+// núcleo puro: fallo de almacenamiento por encima de historial y calidad.
 import {
-  resolveNoNewCandidatesCopy,
-  type NoNewCandidatesBreakdown,
-} from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
+  resolveWizardResultCopy,
+  type WizardPersistenceOutcome,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
+import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 
 // ── Wizard generation overlay ─────────────────────────────────────────────────
 
@@ -106,7 +110,7 @@ export function SubmittingPanel({
 // Does NOT navigate to a batch-detail route — that view no longer exists.
 
 export type SuccessPanelProps = {
-  status: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached' | null;
+  status: WizardExecutionStatus | null;
   noveltyExhausted?: boolean;
   candidateCount?: number;
   targetPersistibleCandidates?: number;
@@ -121,28 +125,50 @@ export type SuccessPanelProps = {
    * servidor no la envió: entonces el copy no afirma ninguna causa concreta.
    */
   noNewCandidatesBreakdown?: NoNewCandidatesBreakdown | null;
+  /**
+   * A1-APOLLO-PERSISTENCE-READINESS-4 § 8 — cifras reales de la persistencia.
+   * `null` cuando el servidor no las envió.
+   */
+  persistenceOutcome?: WizardPersistenceOutcome | null;
 };
 
-export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown }: SuccessPanelProps) {
+export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown, persistenceOutcome }: SuccessPanelProps) {
   const router = useRouter();
 
-  // QUERY-QUALITY-2 § 8 — el texto sale de lo que REALMENTE pasó. Sin
-  // distribución, la causa es «no hubo resultados que clasificar», nunca una
-  // disyunción entre dos causas que no se comprobaron.
-  const noNewCandidatesCopy = resolveNoNewCandidatesCopy(
-    noNewCandidatesBreakdown ?? {
-      recentlySuggestedCount: 0,
-      qualityRejectedCount: 0,
-      noveltyExhausted: noveltyExhausted === true,
-      secondRoundSkippedReason: null,
-    },
-  );
+  // QUERY-QUALITY-2 § 8 + PERSISTENCE-READINESS-4 § 8 — el texto sale de lo que
+  // REALMENTE pasó, y la causa de mayor prioridad gana: un fallo de
+  // almacenamiento se anuncia como tal y NUNCA como historial, aunque la
+  // distribución de descartes tenga resultados «ya sugeridos» (es exactamente el
+  // caso de LIVE-QA-2: 8 descartes de historial y una empresa perdida al
+  // guardarla).
+  const resultCopy = resolveWizardResultCopy({
+    persistence: persistenceOutcome ?? null,
+    noNewCandidates:
+      noNewCandidatesBreakdown ?? {
+        recentlySuggestedCount: 0,
+        qualityRejectedCount: 0,
+        noveltyExhausted: noveltyExhausted === true,
+        secondRoundSkippedReason: null,
+      },
+  });
+  const isPersistenceFailure = resultCopy.source === 'persistence_failure';
 
   React.useEffect(() => {
+    if (status === 'completed_with_errors') {
+      // No se cierra solo: el usuario tiene que leer que NO repita la búsqueda.
+      //
+      // A1-APOLLO-PERSISTENCE-READINESS-4-FIX — y NO se emite `toast.error`. El
+      // panel inline de más abajo ya muestra el mismo titular y el mismo cuerpo,
+      // así que el toast sólo duplicaba el mensaje; la invariante 20.R del wizard
+      // exige precisamente que los errores vivan en la UI inline y no en toasts,
+      // para no apilarlos en los fallos reintentables.
+      router.refresh();
+      return;
+    }
     if (status === 'no_new_candidates') {
       // Do NOT auto-close — show the panel so the user can act.
       toast.info('No se encontraron empresas nuevas.', {
-        description: noNewCandidatesCopy.body,
+        description: resultCopy.body,
       });
       router.refresh();
       return;
@@ -168,8 +194,35 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // § 8 — fallo de almacenamiento: el gasto ya ocurrió, así que la única acción
+  // ofrecida es cerrar. NO se ofrece «Editar búsqueda»: reeditar y relanzar es
+  // justo lo que el copy pide no hacer, y ponerlo a un clic contradice el texto.
+  if (status === 'completed_with_errors') {
+    return (
+      <div className="space-y-4 animate-su-fade-in" role="alert">
+        <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-5 py-4">
+          <AlertCircle
+            className="mt-0.5 h-5 w-5 shrink-0 text-destructive"
+            aria-hidden
+          />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-destructive">
+              {resultCopy.heading}
+            </p>
+            <p className="text-xs text-destructive/80">{resultCopy.body}</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (status === 'no_new_candidates') {
-    const noNewBody = noNewCandidatesCopy.body;
+    const noNewBody = resultCopy.body;
 
     return (
       <div className="space-y-4 animate-su-fade-in" role="status">
@@ -180,7 +233,7 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
           />
           <div className="space-y-1">
             <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-              No encontramos empresas nuevas con estos criterios.
+              {resultCopy.heading ?? 'No encontramos empresas nuevas con estos criterios.'}
             </p>
             <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
               {noNewBody}
@@ -232,6 +285,27 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
           </p>
         </div>
       </div>
+
+      {/* PERSISTENCE-READINESS-4 § 8 — persistencia PARCIAL. Hay candidatos que
+          revisar (por eso el bloque verde de arriba sigue), y además se perdió
+          parte de lo encontrado. Decirlo aquí evita que el usuario concluya que
+          el listado está completo y repita la búsqueda para «recuperar» el resto. */}
+      {isPersistenceFailure && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10" role="alert">
+          <AlertCircle
+            className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden
+          />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+              {resultCopy.heading}
+            </p>
+            <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
+              {resultCopy.body}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* § 11 — cierre honesto de la modalidad de dos rondas: rondas REALMENTE
           ejecutadas y si el objetivo se alcanzó. Cuando no se alcanzó, se dice

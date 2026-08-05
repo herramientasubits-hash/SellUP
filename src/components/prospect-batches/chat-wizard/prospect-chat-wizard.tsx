@@ -46,6 +46,7 @@ import type {
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-indicator';
 import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 import type { NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
+import type { WizardPersistenceOutcome } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
 // A1-APOLLO-QA-CONTROL-SURFACE-1 — superficie administrativa de proveedor por
 // corrida. La capacidad la resuelve el servidor; aquí sólo se guarda la elección
 // del administrador y se envía como PETICIÓN.
@@ -60,7 +61,11 @@ import type { ApolloRunModeLimits } from './wizard-run-provider-copy';
 // ── Error code → user-facing message mapping ──────────────────────────────────
 // Extracted to a separate module so tests can import without a DOM environment.
 
-import { mapExecutionError, mapProviderSkip } from './wizard-execution-error-map';
+import {
+  mapExecutionError,
+  mapPersistenceNotReady,
+  mapProviderSkip,
+} from './wizard-execution-error-map';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -271,6 +276,13 @@ export function ProspectChatWizard({
   // UI no afirma ninguna causa concreta.
   const [noNewCandidatesBreakdown, setNoNewCandidatesBreakdown] =
     React.useState<NoNewCandidatesBreakdown | null>(null);
+
+  // ── PERSISTENCE-READINESS-4 § 8 · resultado REAL de la escritura ────────────
+  // Gana sobre historial y calidad al resolver el copy: un fallo de
+  // almacenamiento no es una razón de historial y pedirle al usuario que repita
+  // la búsqueda le costaría los créditos otra vez.
+  const [persistenceOutcome, setPersistenceOutcome] =
+    React.useState<WizardPersistenceOutcome | null>(null);
 
   // ── Indicador de proveedor de búsqueda ──────────────────────────────────────
   // Reducción pura de las señales del backend: el proveedor resuelto POR CORRIDA
@@ -629,6 +641,9 @@ export function ProspectChatWizard({
       if (result.ok && result.noNewCandidatesBreakdown) {
         setNoNewCandidatesBreakdown(result.noNewCandidatesBreakdown);
       }
+      if (result.ok && result.persistenceOutcome) {
+        setPersistenceOutcome(result.persistenceOutcome);
+      }
 
       if (result.ok) {
         dispatch({
@@ -641,10 +656,18 @@ export function ProspectChatWizard({
         // A1-APOLLO-WIZARD-1: un proveedor omitido trae su propio motivo, con
         // mensaje y reintentabilidad precisos; el resto sigue por el mapa de
         // códigos de siempre.
+        //
+        // A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 1 y § 2: el preflight de
+        // persistencia se resuelve igual, desde su resultado estructurado. Pasar
+        // por `mapExecutionError` a secas descartaría `persistenceNotReady.reason`
+        // —la diferencia entre «falta la migración» y «no se pudo comprobar»— y
+        // sustituiría el `retryable` que decidió el servidor por el de una tabla.
         const mapped =
           result.code === 'PROVIDER_UNAVAILABLE'
             ? mapProviderSkip(result.providerSkipped?.skipReason)
-            : mapExecutionError(result.code);
+            : result.code === 'PERSISTENCE_NOT_READY'
+              ? mapPersistenceNotReady(result.persistenceNotReady, result.retryable)
+              : mapExecutionError(result.code);
         // El nombre del proveedor omitido se conserva visible; el motivo técnico
         // NO se muestra: el usuario ve el mensaje funcional ya mapeado.
         if (result.code === 'PROVIDER_UNAVAILABLE' && result.providerSkipped) {
@@ -764,6 +787,7 @@ export function ProspectChatWizard({
                 showApolloTwoRoundStages={willRunApolloTwoRound}
                 twoRoundOutcome={twoRoundOutcome}
                 noNewCandidatesBreakdown={noNewCandidatesBreakdown}
+                persistenceOutcome={persistenceOutcome}
               />
             ) : (
               <WizardActiveStep

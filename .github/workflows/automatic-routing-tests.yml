@@ -148,6 +148,18 @@ jobs:
       - name: Run A1 Apollo two-round quality tests
         run: npm run test:a1-apollo-two-round-quality
 
+      # A1-APOLLO-PERSISTENCE-REVIEW-FIX-1 — el preflight de persistencia entra al
+      # check obligatorio. Sin este paso, la cobertura del guardrail que impide el
+      # fallo de LIVE-QA-2 (12 créditos gastados y 0 candidatos guardados porque
+      # `prospect_candidates.identity_key` no existía) no corría en ningún PR: el
+      # typecheck protege el catálogo de códigos, pero no verifica el ORDEN real del
+      # preflight, el cero gasto, la clasificación de los errores de PostgREST, la
+      # tabla vacía, la sanitización, el comportamiento post-gasto, la migración
+      # estática ni el fixture de QA. Determinista: sin flags, sin proveedores, sin
+      # créditos y sin DB real.
+      - name: Run A1 Apollo persistence readiness tests
+        run: npm run test:a1-apollo-persistence-readiness
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)

@@ -1,3 +1,8 @@
+// A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — la unión de estados de ejecución se
+// importa de la acción en vez de reescribirse aquí: dos copias a mano fue cómo
+// `completed_with_errors` habría podido existir en el servidor y no en la UI.
+import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
+
 // ── Search mode contracts ─────────────────────────────────────────────────────
 
 export type ProspectSearchMode = 'exploratory' | 'competitors' | 'suppliers';
@@ -103,7 +108,7 @@ export type ProspectWizardState = {
   executionError: { code: string; message: string; retryable: boolean } | null;
   executionBatchId: string | null;
   executionRedirectPath: string | null;
-  executionStatus: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached' | null;
+  executionStatus: WizardExecutionStatus | null;
   /** True when novelty pre-check confirms the universe of domains for these criteria is exhausted. */
   executionNoveltyExhausted?: boolean;
   /** True when execution reached targetPersistibleCandidates. */
@@ -140,7 +145,7 @@ export type ProspectWizardAction =
   | { type: 'RECONCILE_COUNTRY_SUBINDUSTRIES'; compatibleSubindustryIds: string[] }
   | { type: 'APPLY_CRITERIA_GUARD_RESULT'; rawValue: string; result: CriteriaGuardResult }
   | { type: 'BEGIN_EXECUTION' }
-  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached'; noveltyExhausted?: boolean; targetPersistibleCandidates?: number; targetReached?: boolean }
+  | { type: 'EXECUTION_SUCCEEDED'; batchId: string; redirectPath: string; status: WizardExecutionStatus; noveltyExhausted?: boolean; targetPersistibleCandidates?: number; targetReached?: boolean }
   | { type: 'EXECUTION_FAILED'; errorCode: string; message: string; retryable: boolean };
 
 // ── Derived message contract ──────────────────────────────────────────────────
