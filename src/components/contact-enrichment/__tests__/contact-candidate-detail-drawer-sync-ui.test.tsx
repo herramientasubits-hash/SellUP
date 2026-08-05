@@ -765,19 +765,34 @@ describe('UI-STATE-1 · K — waterfall OFF', () => {
 });
 
 describe('UI-STATE-1 · L — waterfall ON', () => {
-  it('el botón abre el modal de confirmación y no revela en un clic', async () => {
+  // AGENT2A-PHONE-WATERFALL-4D: el modal desapareció. El botón EJECUTA en un clic, y
+  // lo que ya no puede pasar es que el clic dispare una acción DISTINTA del START del
+  // reveal (la corrida la abre el servidor dentro de esa misma acción).
+  it('el botón ejecuta el START del reveal en un clic, sin acción intermedia', async () => {
     await mountWith(makeCandidate({ phone_reveal_status: null }), {
       phoneRevealWaterfallEnabled: true,
       phoneRevealWaterfallAuthorized: true,
     });
+
+    // Antes del clic no se ha llamado a nada: abrir el drawer no gasta.
+    assert.equal(mockReveal.mock.callCount(), 0);
 
     await act(async () => {
       screen.getByRole('button', { name: 'Revelar teléfono' }).click();
     });
     await flush();
 
-    assert.equal(mockReveal.mock.callCount(), 0, 'con waterfall ON no hay one-click');
-    assert.equal(mockStartWaterfall.mock.callCount(), 0, 'el modal aún no se confirmó');
+    assert.equal(mockReveal.mock.callCount(), 1, 'un clic, una corrida');
+    assert.equal(
+      screen.queryByRole('button', { name: 'Confirmar y revelar' }),
+      null,
+      'no existe ninguna superficie de confirmación',
+    );
+    assert.equal(
+      mockStartWaterfall.mock.callCount(),
+      0,
+      'el cliente no abre la corrida por su cuenta: lo hace el servidor en el START',
+    );
   });
 
   it('no ofrece un CTA manual separado de Lusha', async () => {

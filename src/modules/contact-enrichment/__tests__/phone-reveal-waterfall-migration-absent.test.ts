@@ -108,6 +108,10 @@ interface Spies {
    * corrida parcial?", no "¿se intentó escribir?".
    */
   waterfallWrites: number;
+  /** Reservas de crédito tomadas (AGENT2A-PHONE-WATERFALL-4E). */
+  creditReservations: number;
+  /** Motivos de liberación de exposición, en orden. */
+  creditReleases: string[];
 }
 
 const spies: Spies = {
@@ -118,6 +122,8 @@ const spies: Spies = {
   usageLogs: 0,
   insertAttempts: 0,
   waterfallWrites: 0,
+  creditReservations: 0,
+  creditReleases: [],
 };
 
 /**
@@ -135,6 +141,8 @@ function resetSpies(): void {
   spies.usageLogs = 0;
   spies.insertAttempts = 0;
   spies.waterfallWrites = 0;
+  spies.creditReservations = 0;
+  spies.creditReleases = [];
   events = [];
   httpRequests = [];
 }
@@ -294,7 +302,6 @@ mock.module('@/lib/supabase/admin', {
             ...base,
             select: () => base,
             insert: () => {
-              spies.insertAttempts += 1;
               if (err) return chain(failure);
               if (waterfallInsertError) {
                 return chain({ data: null, error: waterfallInsertError });
@@ -314,8 +321,106 @@ mock.module('@/lib/supabase/admin', {
             },
           };
         },
+        // Reserva atómica de créditos (AGENT2A-PHONE-WATERFALL-4E, migración 104).
+        // Simulada aquí para que este archivo siga midiendo lo que mide —el gate de
+        // infraestructura de la tabla 102— y, de paso, para poder afirmar que una
+        // corrida que NO se pudo crear libera la exposición que había reservado.
+        rpc: (fn: string, params: Record<string, unknown>) => {
+          // AGENT2A-PHONE-WATERFALL-4F. La reserva y el INSERT de la corrida son UNA
+          // función SQL, así que la salud de la tabla 102 se observa AQUÍ: la función
+          // la toca, y si no existe la RPC entera falla. Eso es lo que hace que un
+          // rollback deje CERO reservas — ya no hay compensación que pueda no llegar.
+          if (fn === 'reserve_and_create_phone_reveal_run') {
+            spies.creditReservations += 1;
+            spies.insertAttempts += 1;
+            events.push('credit_reserve');
+
+            if (waterfallTableError) {
+              return chain({ data: null, error: waterfallTableError });
+            }
+            if (waterfallInsertError) {
+              // El 23505 lo captura la propia función y lo devuelve como desenlace,
+              // deshaciendo la transacción entera.
+              if (waterfallInsertError.code === '23505') {
+                return chain({ data: { status: 'create_conflict' }, error: null });
+              }
+              return chain({ data: null, error: waterfallInsertError });
+            }
+
+            const legs =
+              (params.p_legs as { provider_key: string; credits: number }[]) ?? [];
+            if (!waterfallInsertId) {
+              // Anomalía: la función dice haber creado y no devuelve id. No se puede
+              // afirmar que la fila exista, así que el wrapper lo trata como indisponible.
+              return chain({ data: { status: 'created' }, error: null });
+            }
+            spies.waterfallWrites += 1;
+            events.push('waterfall_insert');
+            return chain({
+              data: {
+                status: 'created',
+                run_id: waterfallInsertId,
+                reservation_group_id: params.p_reservation_group_id,
+                reservations: legs.map((leg, index) => ({
+                  id: `reservation-${index}-${leg.provider_key}`,
+                  provider_key: leg.provider_key,
+                  credits_reserved: leg.credits,
+                })),
+              },
+              error: null,
+            });
+          }
+          if (fn === 'release_phone_reveal_credits') {
+            spies.creditReleases.push(String(params.p_reason ?? ''));
+            events.push('credit_release');
+            return chain({ data: 'released', error: null });
+          }
+          if (fn === 'confirm_phone_reveal_credits') {
+            events.push('credit_confirm');
+            return chain({ data: 'confirmed', error: null });
+          }
+          return chain({ data: null, error: null });
+        },
       };
     },
+  },
+});
+
+/**
+ * Presupuesto POR PROVEEDOR resuelto (AGENT2A-PHONE-WATERFALL-4E). Se mockea porque
+ * `checkBudget` habla con SU propio cliente admin y con `provider_usage_logs`, que no es
+ * el sujeto de este archivo: aquí lo que se prueba es el gate de infraestructura de la
+ * tabla 102. Un pozo con límite amplio deja pasar el preflight para que el bloqueo que se
+ * observe sea el de la corrida y no el del presupuesto.
+ */
+mock.module('@/modules/budgets/budget-resolution', {
+  namedExports: {
+    checkBudget: async (providerKey: string) => ({
+      allowed: true,
+      reason: null,
+      providerKey,
+      userId: 'user-admin',
+      periodStart: '2026-08-01T00:00:00.000Z',
+      periodEnd: '2026-08-31T23:59:59.999Z',
+      scopeApplied: 'global',
+      matchedRule: {
+        id: 'rule-1',
+        providerKey,
+        scopeType: 'global',
+        scopeId: null,
+        limitCredits: 1_000,
+        limitUsd: null,
+        periodType: 'monthly',
+        onExceed: 'block',
+      },
+      consumedCredits: 0,
+      consumedUsd: 0,
+      projectedCredits: 0,
+      projectedUsd: 0,
+      remainingCredits: 1_000,
+      remainingUsd: null,
+      usdCostTruth: 'complete',
+    }),
   },
 });
 
@@ -696,6 +801,8 @@ describe('102 ausente — el acceso a datos propaga, no inventa un estado', () =
           apolloAttemptedAt: new Date().toISOString(),
           lushaEligible: true,
           lushaSkippedReason: null,
+          // AGENT2A-PHONE-WATERFALL-4E: el draft siempre trae su grupo de reserva.
+          creditReservationGroupId: 'group-absent-1',
         }),
       );
     });
@@ -729,6 +836,7 @@ describe('102 ausente — el acceso a datos propaga, no inventa un estado', () =
         apolloAttemptedAt: new Date().toISOString(),
         lushaEligible: true,
         lushaSkippedReason: null,
+        creditReservationGroupId: 'group-absent-2',
       }),
       /no id/,
     );

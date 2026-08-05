@@ -191,7 +191,19 @@ function safeApolloErrorCode(raw: unknown): string {
 type PhoneRevealWaterfallStartGate =
   | { kind: 'no_waterfall' }
   | { kind: 'started'; runId: string }
-  | { kind: 'infrastructure_unavailable'; errorCode: string };
+  | { kind: 'infrastructure_unavailable'; errorCode: string }
+  /**
+   * AGENT2A-PHONE-WATERFALL-4D: algún pozo no cubre su pata. El core lo detectó ANTES
+   * del INSERT y ANTES de reservar, así que no hay corrida ni exposición que liberar.
+   */
+  | { kind: 'insufficient_credits' }
+  /**
+   * AGENT2A-PHONE-WATERFALL-4E: algún proveedor exigido no tiene regla de crédito, así
+   * que no hay disponibilidad que reservar. Mismas garantías de cero efectos.
+   */
+  | { kind: 'budget_not_configured' }
+  /** El presupuesto no se pudo verificar. Fail-closed, mismas garantías de cero efectos. */
+  | { kind: 'credit_balance_unavailable' };
 
 /**
  * Código PII-free que viaja al resultado y al log cuando la corrida no se pudo
@@ -270,6 +282,26 @@ async function startWaterfallRunOrBlock(
     case 'active_run_exists':
     case 'create_conflict':
       return { kind: 'no_waterfall' };
+    // AGENT2A-PHONE-WATERFALL-4D. NO son `no_waterfall`: dejar continuar el reveal
+    // Apollo legacy sería gastar exactamente los créditos que el preflight acaba de
+    // declarar indisponibles.
+    case 'insufficient_credits':
+      return { kind: 'insufficient_credits' };
+    case 'budget_not_configured':
+      return { kind: 'budget_not_configured' };
+    case 'credit_balance_unavailable':
+      return { kind: 'credit_balance_unavailable' };
+    // AGENT2A-PHONE-WATERFALL-4F. El saldo se verificó bien; lo que no se pudo fue
+    // ESCRIBIR la reserva y la corrida (la migración 104 no está aplicada, timeout,
+    // credenciales…). Es exactamente el mismo caso que la tabla 102 ausente —el
+    // waterfall se autorizó y su corrida no existe— así que se trata igual: se corta
+    // antes de cualquier proveedor y el operador lee un fallo de infraestructura, no
+    // uno de saldo que no tuvo.
+    case 'run_creation_unavailable':
+      return {
+        kind: 'infrastructure_unavailable',
+        errorCode: WATERFALL_RUN_UNAVAILABLE_ERROR_CODE,
+      };
     default: {
       // Un motivo NUEVO rompe la compilación aquí a propósito: decidir si una
       // razón inédita puede seguir gastando proveedores es una decisión de
@@ -364,6 +396,39 @@ export async function revealCandidatePhoneAction(
       status: 'waterfall_infrastructure_unavailable',
       requestAccepted: false,
       errorCode: waterfallGate.errorCode,
+    };
+  }
+
+  // AGENT2A-PHONE-WATERFALL-4D: el preflight de saldo cortó ANTES del INSERT de la
+  // corrida, así que también corta antes de `runRevealCandidatePhone`, que es el
+  // único punto que llama a Apollo y el único que escribe un usage-log. Por
+  // construcción: 0 corridas, 0 llamadas a proveedor, 0 usage-logs y 0 créditos.
+  if (waterfallGate.kind === 'insufficient_credits') {
+    return {
+      ok: false,
+      status: 'insufficient_credits',
+      requestAccepted: false,
+      errorCode: 'insufficient_credits',
+    };
+  }
+  // AGENT2A-PHONE-WATERFALL-4E: sin regla de crédito no hay disponibilidad que reservar,
+  // así que no se ejecuta ningún proveedor. Es un motivo PROPIO y no un
+  // `insufficient_credits`: decirle al operador que faltan créditos cuando lo que falta
+  // es la configuración del presupuesto lo manda a pedir créditos que no resolverán nada.
+  if (waterfallGate.kind === 'budget_not_configured') {
+    return {
+      ok: false,
+      status: 'budget_not_configured',
+      requestAccepted: false,
+      errorCode: 'budget_not_configured',
+    };
+  }
+  if (waterfallGate.kind === 'credit_balance_unavailable') {
+    return {
+      ok: false,
+      status: 'credit_balance_unavailable',
+      requestAccepted: false,
+      errorCode: 'credit_balance_unavailable',
     };
   }
 
