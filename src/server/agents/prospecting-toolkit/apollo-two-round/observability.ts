@@ -68,8 +68,22 @@ export type ApolloTwoRoundRoundMetrics = {
   newUniqueResults: number;
   /** Ya vistas en rondas anteriores o repetidas dentro de la misma respuesta. */
   seenDuplicates: number;
-  /** Duplicados contra SellUp / HubSpot / sugerencias previas. */
+  /**
+   * Duplicados contra SellUp / HubSpot / sugerencias previas, SUMADOS.
+   *
+   * SCALE-AND-SECOND-ROUND-FIX-1 § 5 — se conserva como agregado por
+   * compatibilidad con consumidores existentes; el desglose real vive en los tres
+   * campos siguientes. El copy de "cero candidatos" NUNCA debe leer este campo
+   * sumado para elegir causa: mezclar HubSpot, SellUp y cooldown en un solo
+   * número es exactamente la conflación que ese hito corrige.
+   */
   knownCompanyDuplicates: number;
+  /** § 5 — duplicado confirmado en SellUp. */
+  duplicateInSellUp: number;
+  /** § 5 — duplicado confirmado en HubSpot. */
+  duplicateInHubSpot: number;
+  /** § 5 — cooldown real o sugerencia previa. NUNCA un duplicado de catálogo. */
+  cooldownOrPriorSuggestion: number;
   countryRejected: number;
   sectorRejected: number;
   ownershipRejected: number;
@@ -149,6 +163,9 @@ export function buildEmptyRoundMetrics(
     newUniqueResults: 0,
     seenDuplicates: 0,
     knownCompanyDuplicates: 0,
+    duplicateInSellUp: 0,
+    duplicateInHubSpot: 0,
+    cooldownOrPriorSuggestion: 0,
     countryRejected: 0,
     sectorRejected: 0,
     ownershipRejected: 0,
@@ -227,6 +244,26 @@ export type ApolloTwoRoundRunMetrics = {
   enrichmentsExecuted: number;
   enrichmentWaste: number;
   /**
+   * SCALE-AND-SECOND-ROUND-FIX-1 § 4 — desenlace de cada enrichment PAGADO, en
+   * tres cubetas mutuamente excluyentes, para no leer "cero candidatos" como una
+   * sola causa homogénea:
+   *
+   *   `sectorConfirmedByEnrichment`            — el enrichment confirmó el sector.
+   *   `sectorStillUnconfirmedAfterEnrichment`  — se cobró y el sector sigue sin
+   *                                               confirmarse (contradictorio, no
+   *                                               mapeado, o sigue faltando
+   *                                               evidencia).
+   *   `enrichmentFailedCount`                  — la llamada no devolvió evidencia
+   *                                               utilizable (sin match del
+   *                                               proveedor o cobro sin confirmar).
+   *
+   * Una industria amplia NUNCA se cuenta como `sectorConfirmedByEnrichment`: el
+   * gate sectorial sigue siendo el único que decide "confirmado".
+   */
+  sectorConfirmedByEnrichment: number;
+  sectorStillUnconfirmedAfterEnrichment: number;
+  enrichmentFailedCount: number;
+  /**
    * HARDENING-3 § 7 — ¿las huellas EFECTIVAS de las dos rondas resultaron
    * distintas?
    *
@@ -254,6 +291,10 @@ export function buildRunMetrics(input: {
   enrichmentOutcomes: readonly EnrichmentOutcome[];
   /** HARDENING-3 § 7 — resultado de la comparación efectiva. Ausente ⇒ null. */
   effectiveFingerprintsAreDistinct?: boolean | null;
+  /** § 4 — las tres cubetas del desenlace de enrichment. Ausentes ⇒ 0. */
+  sectorConfirmedByEnrichment?: number;
+  sectorStillUnconfirmedAfterEnrichment?: number;
+  enrichmentFailedCount?: number;
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
   const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
@@ -289,6 +330,9 @@ export function buildRunMetrics(input: {
     enrichmentWasteRate: ratio(enrichmentWaste, enrichmentsExecuted),
     enrichmentsExecuted,
     enrichmentWaste,
+    sectorConfirmedByEnrichment: input.sectorConfirmedByEnrichment ?? 0,
+    sectorStillUnconfirmedAfterEnrichment: input.sectorStillUnconfirmedAfterEnrichment ?? 0,
+    enrichmentFailedCount: input.enrichmentFailedCount ?? 0,
     effectiveFingerprintsAreDistinct: input.effectiveFingerprintsAreDistinct ?? null,
   };
 }
@@ -317,6 +361,11 @@ export function toRoundMetricsMetadata(
     normalized_results: metrics.normalizedResults,
     seen_duplicates: metrics.seenDuplicates,
     known_company_duplicates: metrics.knownCompanyDuplicates,
+    // § 5 — el desglose real. El copy de "cero candidatos" lee estos tres, nunca
+    // el agregado de arriba.
+    duplicate_in_sellup: metrics.duplicateInSellUp,
+    duplicate_in_hubspot: metrics.duplicateInHubSpot,
+    cooldown_or_prior_suggestion: metrics.cooldownOrPriorSuggestion,
     country_rejected: metrics.countryRejected,
     sector_rejected: metrics.sectorRejected,
     ownership_rejected: metrics.ownershipRejected,
@@ -365,6 +414,10 @@ export function toRunMetricsMetadata(
     enrichment_waste_rate: metrics.enrichmentWasteRate,
     enrichments_executed: metrics.enrichmentsExecuted,
     enrichment_waste: metrics.enrichmentWaste,
+    // § 4 — las tres cubetas del desenlace de enrichment, separadas.
+    sector_confirmed_by_enrichment: metrics.sectorConfirmedByEnrichment,
+    sector_still_unconfirmed_after_enrichment: metrics.sectorStillUnconfirmedAfterEnrichment,
+    enrichment_failed_count: metrics.enrichmentFailedCount,
     // HARDENING-3 § 7 — null cuando la comparación no se pudo hacer. Nunca false.
     effective_fingerprints_are_distinct: metrics.effectiveFingerprintsAreDistinct,
   };

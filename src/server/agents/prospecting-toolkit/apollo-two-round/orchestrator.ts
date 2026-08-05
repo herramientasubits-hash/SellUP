@@ -638,9 +638,16 @@ function tallyRejection(
       metrics.seenDuplicates++;
       break;
     case 'duplicate_in_sellup':
+      metrics.knownCompanyDuplicates++;
+      metrics.duplicateInSellUp++;
+      break;
     case 'duplicate_in_hubspot':
+      metrics.knownCompanyDuplicates++;
+      metrics.duplicateInHubSpot++;
+      break;
     case 'cooldown_or_prior_suggestion':
       metrics.knownCompanyDuplicates++;
+      metrics.cooldownOrPriorSuggestion++;
       break;
     case 'country_incompatible':
       metrics.countryRejected++;
@@ -734,6 +741,15 @@ export async function runApolloTwoRoundDiscovery(
    * Mientras siga en null, nadie comparó nada.
    */
   let effectiveFingerprintsAreDistinct: boolean | null = null;
+  /**
+   * SCALE-AND-SECOND-ROUND-FIX-1 § 4 — desenlace de cada enrichment pagado en
+   * ESTA invocación, en tres cubetas mutuamente excluyentes. No se rehidratan de
+   * `resume`: igual que `enrichmentSelections`/`enrichmentSkips`, describen sólo
+   * lo que este intento ejecutó, no el acumulado histórico.
+   */
+  let sectorConfirmedByEnrichmentCount = 0;
+  let sectorStillUnconfirmedAfterEnrichmentCount = 0;
+  let enrichmentFailedCount = 0;
 
   const eligibleCount = (): number => tracked.filter((c) => c.eligible).length;
 
@@ -1317,7 +1333,19 @@ export async function runApolloTwoRoundDiscovery(
       // El veredicto sectorial de una llamada cuyo resultado no se confirmó no se
       // aplica: sería decidir la elegibilidad con evidencia que no sabemos si
       // llegó. El candidato conserva su estado previo al enrichment.
+      enrichmentFailedCount++;
       continue;
+    }
+
+    // § 4 — clasificación en las tres cubetas, ANTES de aplicar el veredicto: un
+    // `noMatch` no aporta evidencia utilizable y no debe contarse como "sector aún
+    // sin confirmar", que implicaría que sí se evaluó con datos frescos.
+    if (result.noMatch === true) {
+      enrichmentFailedCount++;
+    } else if (result.sectorEvidenceState === 'sector_evidence_confirmed') {
+      sectorConfirmedByEnrichmentCount++;
+    } else {
+      sectorStillUnconfirmedAfterEnrichmentCount++;
     }
 
     candidate.sectorEvidenceState = result.sectorEvidenceState;
@@ -1433,6 +1461,9 @@ export async function runApolloTwoRoundDiscovery(
       totalEnrichmentCredits,
       enrichmentOutcomes,
       effectiveFingerprintsAreDistinct,
+      sectorConfirmedByEnrichment: sectorConfirmedByEnrichmentCount,
+      sectorStillUnconfirmedAfterEnrichment: sectorStillUnconfirmedAfterEnrichmentCount,
+      enrichmentFailedCount,
     }),
     enrichmentSelections,
     enrichmentSkips,

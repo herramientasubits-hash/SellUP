@@ -2,17 +2,21 @@
  * wizard-no-new-candidates-copy.ts — Qué se le dice al usuario cuando una
  * corrida no dejó ninguna empresa nueva.
  *
- * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 · § 8.
+ * A1-APOLLO-TWO-ROUND-QUERY-QUALITY-2 § 8 · AGENT1-APOLLO-SCALE-AND-SECOND-ROUND-FIX-1 § 5.
  *
- * El defecto observado: la corrida QA `edb6f40c` mostró «Todos los resultados ya
+ * El defecto original: la corrida QA `edb6f40c` mostró «Todos los resultados ya
  * habían sido sugeridos recientemente o no pasaron los filtros de calidad»
  * cuando `skipped_recent_count = 0` y NINGÚN resultado había sido sugerido
  * antes. El copy era una disyunción genérica que describía dos causas posibles
- * sin comprobar cuál había ocurrido, así que resultaba engañoso justo en el
- * momento en que el usuario necesita entender qué cambiar.
+ * sin comprobar cuál había ocurrido.
  *
- * Aquí el copy se DERIVA de la distribución real de descartes. Cuando no hay
- * distribución que leer, se dice eso, no se elige una causa al azar.
+ * El defecto siguiente (LIVE-QA-2, lote `62fdf47b`): el mismo resolutor sumaba
+ * duplicados de HubSpot, duplicados de SellUp, cooldown real y repeticiones
+ * entre rondas en UN solo número (`recentlySuggestedCount`) y lo llamaba
+ * «sugeridos recientemente» aunque ninguna de esas empresas hubiera sido
+ * sugerida antes por SellUp — sólo existían ya en otro catálogo. Aquí cada
+ * causa tiene su propio contador y su propio texto: un duplicado de HubSpot no
+ * es un cooldown, y un cooldown no es una repetición entre rondas.
  *
  * Puro: sin I/O, sin React, sin env. Se testea sin navegador.
  */
@@ -20,14 +24,28 @@
 // ─── Entrada ──────────────────────────────────────────────────────────────────
 
 export type NoNewCandidatesBreakdown = {
+  /** Duplicado confirmado en HubSpot. */
+  hubspotDuplicateCount: number;
+  /** Duplicado confirmado en SellUp. */
+  sellupDuplicateCount: number;
   /**
-   * Resultados descartados por historial: ya sugeridos, en cooldown, o
-   * duplicados de SellUp/HubSpot.
+   * Cooldown real o sugerencia previa del propio wizard. NUNCA un duplicado de
+   * catálogo: una empresa puede estar en cooldown sin existir aún en HubSpot ni
+   * en SellUp.
    */
-  recentlySuggestedCount: number;
+  cooldownCount: number;
   /**
-   * Resultados descartados por país, sector, identidad o dominio: los «filtros
-   * de calidad» en el sentido literal.
+   * Misma organización repetida — dentro de una respuesta o entre rondas.
+   *
+   * Cuenta EVENTOS de repetición, no empresas únicas: es la ronda 2 devolviendo
+   * de nuevo lo que la ronda 1 ya trajo. No participa en la elección de causa —
+   * una organización repetida ya se contó (o se rechazó) la primera vez que
+   * apareció, y contarla otra vez inflaría el desglose con la misma empresa.
+   */
+  repeatedAcrossRoundsCount: number;
+  /**
+   * País, sector, identidad o dominio insuficientes: los «filtros de calidad»
+   * en el sentido literal.
    */
   qualityRejectedCount: number;
   /** El universo con estos criterios ya se exploró: no queda nada nuevo que traer. */
@@ -39,8 +57,9 @@ export type NoNewCandidatesBreakdown = {
 /** Causa REAL del resultado vacío, derivada de la distribución. */
 export type NoNewCandidatesCause =
   | 'novelty_exhausted'
-  | 'all_recently_suggested'
-  | 'all_quality_rejected'
+  | 'cooldown'
+  | 'duplicates'
+  | 'insufficient_evidence'
   | 'mixed'
   | 'no_results_at_all';
 
@@ -62,13 +81,13 @@ const COPY_BY_CAUSE: Readonly<Record<NoNewCandidatesCause, string>> = {
   novelty_exhausted:
     'El universo de empresas disponibles con estos criterios ya fue explorado recientemente. ' +
     'Intenta cambiar la industria, el país o los criterios adicionales.',
-  all_recently_suggested: 'Todos los resultados ya habían sido sugeridos recientemente.',
-  all_quality_rejected:
-    'Los resultados encontrados no superaron los filtros de país, sector, identidad o calidad.',
+  cooldown: 'Algunas empresas ya habían sido sugeridas recientemente.',
+  duplicates: 'Los resultados encontrados ya existen en SellUp o HubSpot.',
+  insufficient_evidence: 'Las empresas encontradas no cumplieron los criterios de sector y calidad.',
   mixed:
-    'Algunos resultados ya habían sido sugeridos y los demás no superaron los filtros de calidad.',
-  no_results_at_all:
-    'La búsqueda no devolvió empresas que pudiéramos evaluar con estos criterios.',
+    'No se encontraron empresas nuevas que cumplieran todos los criterios. ' +
+    'Revisa el desglose de duplicados y validaciones.',
+  no_results_at_all: 'La búsqueda no devolvió empresas que pudiéramos evaluar con estos criterios.',
 };
 
 /**
@@ -80,22 +99,37 @@ export const IDENTICAL_PROVIDER_REQUEST_AUDIT_NOTE =
   'enviado al proveedor eran idénticos a los de la primera ronda. No se consumió ' +
   'ningún crédito adicional.';
 
+function nonNegativeInt(value: number): number {
+  return Math.max(0, Math.trunc(value));
+}
+
 /**
- * Copy derivado de la distribución REAL de descartes.
+ * Copy derivado de la distribución REAL de descartes, en causas MUTUAMENTE
+ * EXCLUYENTES.
  *
  * Reglas:
  *   - el universo agotado gana sobre todo lo demás: es la única causa que le
  *     dice al usuario que no hay nada que reintentar;
- *   - sólo se afirma «ya sugeridos» cuando el conteo de historial es > 0;
- *   - sólo se afirma «no pasaron los filtros» cuando el conteo de calidad es > 0;
- *   - con ambos en cero no se elige ninguna de las dos: no hubo resultados que
+ *   - si más de una de {duplicados, cooldown, calidad} ocurrió, la causa es
+ *     `mixed` — nombrar sólo una sería tan engañoso como el defecto original;
+ *   - `duplicates` cubre HubSpot y SellUp juntos: para el usuario ambos dicen
+ *     lo mismo ("esto ya existe"), aunque el desglose interno los separe;
+ *   - `repeatedAcrossRoundsCount` NUNCA participa en la elección de causa: es un
+ *     conteo de eventos, no de empresas, y ya se decidió por la primera
+ *     aparición de esa organización;
+ *   - con las tres cubetas en cero no se elige ninguna: no hubo resultados que
  *     clasificar, y decir lo contrario es exactamente el defecto que se corrige.
  */
 export function resolveNoNewCandidatesCopy(
   breakdown: NoNewCandidatesBreakdown,
 ): NoNewCandidatesCopy {
-  const recent = Math.max(0, Math.trunc(breakdown.recentlySuggestedCount));
-  const quality = Math.max(0, Math.trunc(breakdown.qualityRejectedCount));
+  const hubspot = nonNegativeInt(breakdown.hubspotDuplicateCount);
+  const sellup = nonNegativeInt(breakdown.sellupDuplicateCount);
+  const cooldown = nonNegativeInt(breakdown.cooldownCount);
+  const quality = nonNegativeInt(breakdown.qualityRejectedCount);
+  const duplicates = hubspot + sellup;
+
+  const activeCauseCount = [duplicates > 0, cooldown > 0, quality > 0].filter(Boolean).length;
 
   const auditNote =
     breakdown.secondRoundSkippedReason === 'identical_provider_request'
@@ -104,13 +138,15 @@ export function resolveNoNewCandidatesCopy(
 
   const cause: NoNewCandidatesCause = breakdown.noveltyExhausted
     ? 'novelty_exhausted'
-    : recent > 0 && quality > 0
+    : activeCauseCount >= 2
       ? 'mixed'
-      : recent > 0
-        ? 'all_recently_suggested'
-        : quality > 0
-          ? 'all_quality_rejected'
-          : 'no_results_at_all';
+      : duplicates > 0
+        ? 'duplicates'
+        : cooldown > 0
+          ? 'cooldown'
+          : quality > 0
+            ? 'insufficient_evidence'
+            : 'no_results_at_all';
 
   return { cause, body: COPY_BY_CAUSE[cause], auditNote };
 }
@@ -125,9 +161,16 @@ function readNumber(value: unknown): number {
  * Proyecta la distribución de descartes desde el metadata que el pipeline dejó.
  *
  * Fuente preferente: la observabilidad por ronda de la modalidad de dos rondas,
- * que ya separa historial (`known_company_duplicates`, `seen_duplicates`) de
- * calidad (`country_rejected`, `sector_rejected`, `ownership_rejected`).
- * Como respaldo, `skipped_recent_count` de la ruta legacy.
+ * que separa HubSpot (`duplicate_in_hubspot`), SellUp (`duplicate_in_sellup`),
+ * cooldown (`cooldown_or_prior_suggestion`), repeticiones entre rondas
+ * (`seen_duplicates`) y calidad (`country_rejected` + `sector_rejected` +
+ * `ownership_rejected`).
+ *
+ * Un metadata escrito ANTES de este hito no trae los tres campos granulares de
+ * duplicados — sólo el agregado `known_company_duplicates` — y aquí no se
+ * reparte a ciegas: repartirlo sería inventar una atribución que nadie observó.
+ * Ese caso legacy cae a `skipped_recent_count` como respaldo de cooldown, igual
+ * que hacía el resolutor anterior.
  *
  * Nunca lanza: un metadata con forma inesperada produce ceros, y ceros producen
  * el copy honesto de «no hubo resultados que clasificar».
@@ -137,7 +180,10 @@ export function buildNoNewCandidatesBreakdown(
   observabilityKey: string,
 ): NoNewCandidatesBreakdown {
   const empty: NoNewCandidatesBreakdown = {
-    recentlySuggestedCount: 0,
+    hubspotDuplicateCount: 0,
+    sellupDuplicateCount: 0,
+    cooldownCount: 0,
+    repeatedAcrossRoundsCount: 0,
     qualityRejectedCount: 0,
     noveltyExhausted: false,
     secondRoundSkippedReason: null,
@@ -146,27 +192,32 @@ export function buildNoNewCandidatesBreakdown(
   const root = metadata as Record<string, unknown>;
 
   const noveltyExhausted = root['novelty_exhausted'] === true;
-  const legacyRecent = readNumber(root['skipped_recent_count']);
+  const legacyCooldown = readNumber(root['skipped_recent_count']);
 
   const observability = root[observabilityKey];
   if (!observability || typeof observability !== 'object') {
     return {
-      recentlySuggestedCount: legacyRecent,
-      qualityRejectedCount: 0,
+      ...empty,
+      cooldownCount: legacyCooldown,
       noveltyExhausted,
-      secondRoundSkippedReason: null,
     };
   }
 
   const block = observability as Record<string, unknown>;
   const rounds = Array.isArray(block['rounds']) ? (block['rounds'] as unknown[]) : [];
 
-  let recent = legacyRecent;
+  let hubspot = 0;
+  let sellup = 0;
+  let cooldown = legacyCooldown;
+  let repeatedAcrossRounds = 0;
   let quality = 0;
   for (const round of rounds) {
     if (!round || typeof round !== 'object') continue;
     const r = round as Record<string, unknown>;
-    recent += readNumber(r['known_company_duplicates']) + readNumber(r['seen_duplicates']);
+    hubspot += readNumber(r['duplicate_in_hubspot']);
+    sellup += readNumber(r['duplicate_in_sellup']);
+    cooldown += readNumber(r['cooldown_or_prior_suggestion']);
+    repeatedAcrossRounds += readNumber(r['seen_duplicates']);
     quality +=
       readNumber(r['country_rejected']) +
       readNumber(r['sector_rejected']) +
@@ -176,9 +227,49 @@ export function buildNoNewCandidatesBreakdown(
   const skippedReason = block['second_round_skipped_reason'];
 
   return {
-    recentlySuggestedCount: recent,
+    hubspotDuplicateCount: hubspot,
+    sellupDuplicateCount: sellup,
+    cooldownCount: cooldown,
+    repeatedAcrossRoundsCount: repeatedAcrossRounds,
     qualityRejectedCount: quality,
     noveltyExhausted,
     secondRoundSkippedReason: typeof skippedReason === 'string' ? skippedReason : null,
+  };
+}
+
+// ─── Desglose compacto para la UI ─────────────────────────────────────────────
+
+/** § 5 — lo que el panel muestra, en el orden en que el usuario debe leerlo. */
+export type NoNewCandidatesCompactBreakdown = {
+  uniqueResultsCount: number;
+  hubspotDuplicateCount: number;
+  sellupDuplicateCount: number;
+  cooldownCount: number;
+  repeatedAcrossRoundsCount: number;
+  qualityRejectedCount: number;
+  candidatesCreatedCount: number;
+};
+
+/**
+ * Ensambla el desglose compacto del § 5: resultados únicos, duplicados por
+ * fuente, cooldown, repeticiones entre rondas, rechazos de calidad y
+ * candidatos creados.
+ *
+ * `uniqueResultsCount` y `candidatesCreatedCount` llegan por parámetro porque
+ * viven fuera de esta observabilidad (el conteo de únicas es del run completo,
+ * y los candidatos creados son la cifra de persistencia, no de descubrimiento).
+ */
+export function buildNoNewCandidatesCompactBreakdown(
+  breakdown: NoNewCandidatesBreakdown,
+  totals: { uniqueResultsCount: number; candidatesCreatedCount: number },
+): NoNewCandidatesCompactBreakdown {
+  return {
+    uniqueResultsCount: nonNegativeInt(totals.uniqueResultsCount),
+    hubspotDuplicateCount: nonNegativeInt(breakdown.hubspotDuplicateCount),
+    sellupDuplicateCount: nonNegativeInt(breakdown.sellupDuplicateCount),
+    cooldownCount: nonNegativeInt(breakdown.cooldownCount),
+    repeatedAcrossRoundsCount: nonNegativeInt(breakdown.repeatedAcrossRoundsCount),
+    qualityRejectedCount: nonNegativeInt(breakdown.qualityRejectedCount),
+    candidatesCreatedCount: nonNegativeInt(totals.candidatesCreatedCount),
   };
 }

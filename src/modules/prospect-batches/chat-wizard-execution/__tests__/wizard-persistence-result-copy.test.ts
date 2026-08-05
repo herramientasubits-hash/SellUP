@@ -64,7 +64,8 @@ describe('§ 14.8 — elegible + writer fallido NO produce copy de recientes', (
       buildQa2TwoRoundObservability(),
       APOLLO_TWO_ROUND_OBSERVABILITY_KEY,
     );
-    assert.equal(breakdown.recentlySuggestedCount, 8);
+    assert.equal(breakdown.hubspotDuplicateCount, 3);
+    assert.equal(breakdown.repeatedAcrossRoundsCount, 5);
     assert.equal(breakdown.qualityRejectedCount, 0);
 
     const copy = resolveWizardResultCopy({
@@ -78,7 +79,10 @@ describe('§ 14.8 — elegible + writer fallido NO produce copy de recientes', (
     const copy = resolveWizardResultCopy({
       persistence: qa2Persistence(),
       noNewCandidates: {
-        recentlySuggestedCount: 0,
+        hubspotDuplicateCount: 0,
+        sellupDuplicateCount: 0,
+        cooldownCount: 0,
+        repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 0,
         noveltyExhausted: true,
         secondRoundSkippedReason: null,
@@ -143,14 +147,17 @@ describe('§ 14.10 — el historial REAL conserva su copy', () => {
         persistenceErrorCode: null,
       },
       noNewCandidates: {
-        recentlySuggestedCount: 5,
+        hubspotDuplicateCount: 0,
+        sellupDuplicateCount: 0,
+        cooldownCount: 5,
+        repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 0,
         noveltyExhausted: false,
         secondRoundSkippedReason: null,
       },
     });
     assert.equal(copy.source, 'no_new_candidates');
-    assert.equal(copy.cause, 'all_recently_suggested');
+    assert.equal(copy.cause, 'cooldown');
     assert.equal(copy.claimsRecentlySuggested, true);
     assert.match(copy.body, /sugerid/i);
   });
@@ -158,13 +165,16 @@ describe('§ 14.10 — el historial REAL conserva su copy', () => {
   it('sin cifras de persistencia (corrida previa al hito) el comportamiento es el de antes', () => {
     const copy = resolveWizardResultCopy({
       noNewCandidates: {
-        recentlySuggestedCount: 2,
+        hubspotDuplicateCount: 0,
+        sellupDuplicateCount: 0,
+        cooldownCount: 2,
+        repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 0,
         noveltyExhausted: false,
         secondRoundSkippedReason: null,
       },
     });
-    assert.equal(copy.cause, 'all_recently_suggested');
+    assert.equal(copy.cause, 'cooldown');
   });
 });
 
@@ -179,15 +189,18 @@ describe('§ 14.11 — la calidad REAL conserva su copy', () => {
         persistenceErrorCode: null,
       },
       noNewCandidates: {
-        recentlySuggestedCount: 0,
+        hubspotDuplicateCount: 0,
+        sellupDuplicateCount: 0,
+        cooldownCount: 0,
+        repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 4,
         noveltyExhausted: false,
         secondRoundSkippedReason: null,
       },
     });
-    assert.equal(copy.cause, 'all_quality_rejected');
+    assert.equal(copy.cause, 'insufficient_evidence');
     assert.equal(copy.claimsRecentlySuggested, false);
-    assert.match(copy.body, /filtros/i);
+    assert.match(copy.body, /sector/i);
   });
 
   it('ambos en cero sigue diciendo «no hubo resultados que clasificar»', () => {
@@ -208,7 +221,10 @@ describe('§ 8 — relevancia del fallo: dos señales, no una', () => {
         persistenceErrorCode: IDENTITY_KEY_CODE,
       },
       noNewCandidates: {
-        recentlySuggestedCount: 3,
+        hubspotDuplicateCount: 0,
+        sellupDuplicateCount: 0,
+        cooldownCount: 3,
+        repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 0,
         noveltyExhausted: false,
         secondRoundSkippedReason: null,
@@ -232,7 +248,10 @@ describe('§ 8 — relevancia del fallo: dos señales, no una', () => {
   it('la nota de auditoría de ronda 2 idéntica sigue viajando en el camino normal', () => {
     const copy = resolveWizardResultCopy({
       noNewCandidates: {
-        recentlySuggestedCount: 0,
+        hubspotDuplicateCount: 0,
+        sellupDuplicateCount: 0,
+        cooldownCount: 0,
+        repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 2,
         noveltyExhausted: false,
         secondRoundSkippedReason: 'identical_provider_request',

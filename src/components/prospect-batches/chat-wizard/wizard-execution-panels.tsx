@@ -145,7 +145,10 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
     persistence: persistenceOutcome ?? null,
     noNewCandidates:
       noNewCandidatesBreakdown ?? {
-        recentlySuggestedCount: 0,
+        hubspotDuplicateCount: 0,
+        sellupDuplicateCount: 0,
+        cooldownCount: 0,
+        repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 0,
         noveltyExhausted: noveltyExhausted === true,
         secondRoundSkippedReason: null,
