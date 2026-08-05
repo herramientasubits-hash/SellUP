@@ -32,7 +32,16 @@ import {
   getActiveCatalogEntries,
   getProviderConnectionStatuses,
   getProvidersWithTrackedConsumption,
+  getPhoneRevealReservationSnapshot,
+  getRunIdsByReservationGroup,
 } from './queries';
+import {
+  computeEffectiveConsumption,
+  computeEffectiveConsumptionByProvider,
+  type EffectiveConsumption,
+  type ReservationSnapshotRow,
+  type UsageConsumptionRow,
+} from './effective-consumption-core';
 import { deriveMeasurementStatus } from './provider-measurement';
 import { getBudgetCheckActivity } from './budget-check-activity';
 
@@ -99,9 +108,17 @@ function toMatchedRule(
 
 // ─── Allowance logic ─────────────────────────────────────────────────────────
 
+/**
+ * `reservedCredits` participates in BOTH the remaining figure and the limit check
+ * (AGENT2A-PHONE-REVEAL-4N §8). An authorization that is still in flight has already
+ * claimed that availability, so reporting it as remaining — or allowing an operation that
+ * assumes it is free — would hand the same credits out twice. The atomic reservation would
+ * reject the second one anyway; agreeing with it here is what keeps the two resolvers from
+ * telling the operator different stories.
+ */
 function computeAllowance(
   matchedRule: MatchedRule | null,
-  consumed: { credits: number; usd: number },
+  consumed: { credits: number; usd: number; reservedCredits: number },
   projected: { credits: number; usd: number },
 ): {
   allowed: boolean;
@@ -115,10 +132,11 @@ function computeAllowance(
 
   const { limitCredits, limitUsd, onExceed } = matchedRule;
 
-  const projectedCredits = consumed.credits + projected.credits;
+  const committedCredits = consumed.credits + consumed.reservedCredits;
+  const projectedCredits = committedCredits + projected.credits;
   const projectedUsd = consumed.usd + projected.usd;
 
-  const remainingCredits = limitCredits !== null ? Math.max(0, limitCredits - consumed.credits) : null;
+  const remainingCredits = limitCredits !== null ? Math.max(0, limitCredits - committedCredits) : null;
   const remainingUsd = limitUsd !== null ? Math.max(0, limitUsd - consumed.usd) : null;
 
   const overCredits = limitCredits !== null && projectedCredits > limitCredits;
@@ -145,6 +163,101 @@ function computeAllowance(
  */
 function deriveUsdCostTruth(consumed: { hasUnknownCost: boolean }): UsdCostTruth {
   return consumed.hasUnknownCost ? 'unknown' : 'complete';
+}
+
+// ─── Effective consumption (AGENT2A-PHONE-REVEAL-4N) ─────────────────────────
+
+/** Providers whose spend can be represented by a phone-reveal credit reservation. */
+const PHONE_REVEAL_RESERVATION_PROVIDER_KEYS = ['apollo', 'lusha'] as const;
+
+/** An empty pool, used when no rule matched and there is nothing to aggregate. */
+const EMPTY_EFFECTIVE_CONSUMPTION: EffectiveConsumption = {
+  credits: 0,
+  usd: 0,
+  hasUnknownCost: false,
+  reservedCredits: 0,
+  breakdown: {
+    usageLogCredits: 0,
+    confirmedReservationCredits: 0,
+    excludedUsageLogCredits: 0,
+    excludedUsageLogCount: 0,
+    hasAssumedCapCredits: false,
+    malformedConfirmedReservationCount: 0,
+  },
+};
+
+/**
+ * Reads the reservation snapshot of a pool and resolves the group → run map its
+ * exclusions need. Returns an empty snapshot for providers that cannot hold a phone
+ * reveal reservation, so the read is skipped entirely for anthropic/tavily/etc.
+ *
+ * This is the ONLY place either read happens. Both `checkBudget` and
+ * `getAdminBudgetSummary` go through it, which is what keeps a single definition of the
+ * economic truth: there is no second resolver left that still reads only
+ * `provider_usage_logs`.
+ */
+async function readReservationSnapshot(
+  admin: ReturnType<typeof getAdminClient>,
+  pool: {
+    providerKeys: readonly string[];
+    /** Omit for the aggregate summary; present pins one exact pool. */
+    scope?: { scopeType: string; scopeId: string | null };
+    periodStart: string;
+    periodEnd: string;
+  },
+): Promise<{
+  reservations: ReservationSnapshotRow[];
+  runIdByReservationGroupId: Map<string, string>;
+}> {
+  const providerKeys = pool.providerKeys.filter((key) =>
+    (PHONE_REVEAL_RESERVATION_PROVIDER_KEYS as readonly string[]).includes(key),
+  );
+  if (providerKeys.length === 0) {
+    return { reservations: [], runIdByReservationGroupId: new Map() };
+  }
+
+  const reservations = await getPhoneRevealReservationSnapshot(admin, {
+    ...pool,
+    providerKeys,
+  });
+
+  const groupIds = [
+    ...new Set(
+      reservations
+        .map((row) => row.reservationGroupId)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+
+  return {
+    reservations,
+    runIdByReservationGroupId: await getRunIdsByReservationGroup(admin, groupIds),
+  };
+}
+
+/** Effective consumption of ONE pool: usage rows + its reservation snapshot. */
+async function resolveEffectiveConsumption(
+  admin: ReturnType<typeof getAdminClient>,
+  args: {
+    usageLogs: UsageConsumptionRow[];
+    providerKeys: readonly string[];
+    scope?: { scopeType: string; scopeId: string | null };
+    periodStart: string;
+    periodEnd: string;
+  },
+): Promise<EffectiveConsumption> {
+  const { reservations, runIdByReservationGroupId } = await readReservationSnapshot(admin, {
+    providerKeys: args.providerKeys,
+    scope: args.scope,
+    periodStart: args.periodStart,
+    periodEnd: args.periodEnd,
+  });
+
+  return computeEffectiveConsumption({
+    usageLogs: args.usageLogs,
+    reservations,
+    runIdByReservationGroupId,
+  });
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -179,21 +292,38 @@ export async function checkBudget(
   const periodStart = bounds.start.toISOString();
   const periodEnd = bounds.end.toISOString();
 
-  let consumed: Awaited<ReturnType<typeof getConsumptionForUser>>;
+  let consumed: EffectiveConsumption;
   if (!match) {
-    consumed = { credits: 0, usd: 0, hasUnknownCost: false };
-  } else if (match.scope === 'global') {
-    consumed = await getConsumptionGlobal(admin, providerKey, periodStart, periodEnd);
-  } else if (match.scope === 'group') {
-    // Shared pool: matched group + all its descendants
-    const groupIds = collectGroupSubtreeIds([match.rule.scope_id!], allGroups);
-    consumed = await getConsumptionForGroups(admin, providerKey, groupIds, periodStart, periodEnd);
-  } else if (match.scope === 'role') {
-    // Shared pool: all users with this role
-    consumed = await getConsumptionForRole(admin, providerKey, ctx.roleKey!, periodStart, periodEnd);
+    // No rule ⇒ nothing to aggregate against. A reservation cannot exist for a pool
+    // that has no rule either: `limit_credits` is NOT NULL in the reservations table.
+    consumed = EMPTY_EFFECTIVE_CONSUMPTION;
   } else {
-    // user — individual consumption
-    consumed = await getConsumptionForUser(admin, providerKey, userId, periodStart, periodEnd);
+    let usageLogs: UsageConsumptionRow[];
+    if (match.scope === 'global') {
+      usageLogs = await getConsumptionGlobal(admin, providerKey, periodStart, periodEnd);
+    } else if (match.scope === 'group') {
+      // Shared pool: matched group + all its descendants
+      const groupIds = collectGroupSubtreeIds([match.rule.scope_id!], allGroups);
+      usageLogs = await getConsumptionForGroups(admin, providerKey, groupIds, periodStart, periodEnd);
+    } else if (match.scope === 'role') {
+      // Shared pool: all users with this role
+      usageLogs = await getConsumptionForRole(admin, providerKey, ctx.roleKey!, periodStart, periodEnd);
+    } else {
+      // user — individual consumption
+      usageLogs = await getConsumptionForUser(admin, providerKey, userId, periodStart, periodEnd);
+    }
+
+    // The reservation snapshot is matched on the pool identity THIS resolution produced,
+    // which is also the identity each reservation stored when it was authorized. A
+    // reservation taken under a different scope or period simply does not appear here —
+    // it stays charged to the pool it was granted against, never re-homed retroactively.
+    consumed = await resolveEffectiveConsumption(admin, {
+      usageLogs,
+      providerKeys: [providerKey],
+      scope: { scopeType: match.scope, scopeId: match.rule.scope_id ?? null },
+      periodStart,
+      periodEnd,
+    });
   }
 
   const projected = { credits: operation.credits ?? 0, usd: operation.usd ?? 0 };
@@ -215,6 +345,8 @@ export async function checkBudget(
     matchedRule,
     consumedCredits: consumed.credits,
     consumedUsd: consumed.usd,
+    reservedCredits: consumed.reservedCredits,
+    consumptionBreakdown: consumed.breakdown,
     projectedCredits: consumed.credits + projected.credits,
     projectedUsd: consumed.usd + projected.usd,
     remainingCredits,
@@ -237,13 +369,28 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
   const periodStart = defaultBounds.start.toISOString();
   const periodEnd = defaultBounds.end.toISOString();
 
-  const [catalogEntries, allRules, consumption, connectionStatuses, trackedProviders] = await Promise.all([
+  const [catalogEntries, allRules, defaultPeriodUsage, connectionStatuses, trackedProviders] = await Promise.all([
     getActiveCatalogEntries(admin),
     getAllActiveRules(admin),
     getConsumptionByProvider(admin, periodStart, periodEnd),
     getProviderConnectionStatuses(admin),
     getProvidersWithTrackedConsumption(admin),
   ]);
+
+  // Same canonical calculation as `checkBudget`, applied across every provider at once.
+  // The reservation snapshot is read WITHOUT a scope filter here: this summary aggregates
+  // usage logs org-wide, so it has to see the per-user pools' reservations too or the
+  // spend they represent would vanish from the total (see §5 — Apollo 37 + 8 = 45).
+  const defaultPeriodSnapshot = await readReservationSnapshot(admin, {
+    providerKeys: PHONE_REVEAL_RESERVATION_PROVIDER_KEYS,
+    periodStart,
+    periodEnd,
+  });
+  const consumption = computeEffectiveConsumptionByProvider({
+    usageLogs: defaultPeriodUsage,
+    reservations: defaultPeriodSnapshot.reservations,
+    runIdByReservationGroupId: defaultPeriodSnapshot.runIdByReservationGroupId,
+  });
 
   const providerKeys = catalogEntries.map((e) => e.providerKey);
   const activityMap = await getBudgetCheckActivity(providerKeys);
@@ -266,10 +413,15 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
       const ps = bounds.start.toISOString();
       const pe = bounds.end.toISOString();
 
-      const consumed =
+      const consumed: EffectiveConsumption =
         ps === periodStart
-          ? (consumption.get(providerKey) ?? { credits: 0, usd: 0, hasUnknownCost: false })
-          : await getConsumptionGlobal(admin, providerKey, ps, pe);
+          ? (consumption.get(providerKey) ?? EMPTY_EFFECTIVE_CONSUMPTION)
+          : await resolveEffectiveConsumption(admin, {
+              usageLogs: await getConsumptionGlobal(admin, providerKey, ps, pe),
+              providerKeys: [providerKey],
+              periodStart: ps,
+              periodEnd: pe,
+            });
 
       const limitCredits = globalRule?.limit_credits != null ? Number(globalRule.limit_credits) : null;
       const limitUsd = globalRule?.limit_usd != null ? Number(globalRule.limit_usd) : null;
@@ -285,7 +437,7 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
       const providerCreditsAvailable = isApiSyncedLive
         ? creditsRemainingExternal
         : monthlyCreditsAllowance !== null
-          ? monthlyCreditsAllowance - consumed.credits
+          ? monthlyCreditsAllowance - consumed.credits - consumed.reservedCredits
           : null;
       const providerUsdAvailable = monthlyUsdAllowance !== null
         ? monthlyUsdAllowance - consumed.usd
@@ -300,7 +452,15 @@ export async function getAdminBudgetSummary(): Promise<AdminBudgetSummary> {
         consumedCredits: consumed.credits,
         consumedUsd: consumed.usd,
         hasUnknownCost: consumed.hasUnknownCost,
-        remainingCredits: limitCredits !== null ? Math.max(0, limitCredits - consumed.credits) : null,
+        reservedCredits: consumed.reservedCredits,
+        consumptionBreakdown: consumed.breakdown,
+        // In-flight exposure is subtracted too: an authorization that can still spend has
+        // already taken that availability, so reporting it as remaining would invite a
+        // second authorization the atomic reservation would then reject.
+        remainingCredits:
+          limitCredits !== null
+            ? Math.max(0, limitCredits - consumed.credits - consumed.reservedCredits)
+            : null,
         remainingUsd: limitUsd !== null ? Math.max(0, limitUsd - consumed.usd) : null,
         periodType,
         periodStart: ps,

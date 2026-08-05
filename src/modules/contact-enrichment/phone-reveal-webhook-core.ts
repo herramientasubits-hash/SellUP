@@ -149,7 +149,29 @@ export interface WebhookRevealPersistencePatch {
   phone_reveal_completed_at: string;
   phone_reveal_webhook_received_at: string;
   phone_reveal_provider: 'apollo';
+  /**
+   * Momento REAL del reveal: el instante en que llegó un teléfono que se persistió.
+   * Solo se emite en el camino `revealed` — un `no_phone_found` no reveló nada, y un
+   * bloqueo por supresión tampoco, así que ahí queda ausente y la columna no se toca
+   * (AGENT2A-PHONE-REVEAL-4N § 6). Antes de este hito el camino Apollo NUNCA lo escribía,
+   * mientras el camino Lusha sí, y esa asimetría dejaba candidatos revelados por Apollo
+   * sin fecha de revelación.
+   */
+  phone_revealed_at?: string;
   phone_reveal_cost_credits: number | null;
+  /**
+   * Procedencia de la cifra de créditos de la columna anterior, con el mismo vocabulario
+   * cerrado que ya usa el camino Lusha (mig. 095/097).
+   *
+   *   * `reported`    — Apollo devolvió un número de créditos en el callback.
+   *   * `unknown`     — no lo devolvió, y todavía NO se ha liquidado la reserva. Es el
+   *     caso REAL de Apollo hoy: el webhook no puede afirmar un costo que nadie reportó.
+   *
+   * `assumed_cap` no lo escribe este core: esa cifra es ECONÓMICA (el tope autorizado que
+   * la reserva confirmó) y la conoce la reconciliación, que la escribe después. Ver
+   * `reconcilePhoneRevealCreditReservationForRun`.
+   */
+  phone_reveal_cost_source: 'reported' | 'unknown';
   phone_reveal_error_code: null | typeof SUPPRESSION_BLOCKED_ERROR_CODE;
   /**
    * Apollo person id VALIDADO (24 hex) del payload (APOLLO-PHONE-CACHE-1a): de
@@ -457,6 +479,19 @@ export function collectWebhookPhoneNumbers(
 }
 
 /**
+ * Procedencia de la cifra de créditos que este webhook puede afirmar
+ * (AGENT2A-PHONE-REVEAL-4N § 6).
+ *
+ * Solo dos valores son honestos aquí: `reported` cuando Apollo devolvió un número, y
+ * `unknown` cuando no. NUNCA `assumed_cap` — el tope autorizado es un hecho ECONÓMICO de
+ * la reserva, no algo que el proveedor haya dicho, y quien lo conoce es la reconciliación.
+ * Escribirlo desde aquí sería presentar una suposición nuestra como un dato del proveedor.
+ */
+function resolveWebhookCostSource(credits: number | null): 'reported' | 'unknown' {
+  return typeof credits === 'number' && Number.isFinite(credits) ? 'reported' : 'unknown';
+}
+
+/**
  * Adapta un teléfono del webhook al shape que entiende `pickBestApolloPhone`:
  * el número sale de sanitized_number (o raw_number como fallback) y el tipo de
  * type_cd. Así reutilizamos la prioridad mobile→direct_dial→work/hq/other.
@@ -710,7 +745,10 @@ export async function runApolloPhoneRevealWebhook(
         phone_reveal_completed_at: deps.nowIso,
         phone_reveal_webhook_received_at: deps.nowIso,
         phone_reveal_provider: PHONE_REVEAL_PROVIDER,
+        // Sin `phone_revealed_at`: el teléfono llegó pero un tombstone impidió
+        // persistirlo, así que NO hay revelación que fechar.
         phone_reveal_cost_credits: credits,
+        phone_reveal_cost_source: resolveWebhookCostSource(credits),
         phone_reveal_error_code: SUPPRESSION_BLOCKED_ERROR_CODE,
       });
       await deps.logUsage({
@@ -762,7 +800,10 @@ export async function runApolloPhoneRevealWebhook(
       phone_reveal_completed_at: deps.nowIso,
       phone_reveal_webhook_received_at: deps.nowIso,
       phone_reveal_provider: PHONE_REVEAL_PROVIDER,
+      // ÚNICO camino que revela: es el que fecha la revelación (§ 6).
+      phone_revealed_at: deps.nowIso,
       phone_reveal_cost_credits: credits,
+      phone_reveal_cost_source: resolveWebhookCostSource(credits),
       phone_reveal_error_code: null,
       apollo_person_id: apolloPersonId,
     };
@@ -817,7 +858,9 @@ export async function runApolloPhoneRevealWebhook(
     phone_reveal_completed_at: deps.nowIso,
     phone_reveal_webhook_received_at: deps.nowIso,
     phone_reveal_provider: PHONE_REVEAL_PROVIDER,
+    // Sin `phone_revealed_at`: no hubo teléfono, así que no hay nada que fechar.
     phone_reveal_cost_credits: credits,
+    phone_reveal_cost_source: resolveWebhookCostSource(credits),
     phone_reveal_error_code: null,
     apollo_person_id: apolloPersonId,
   };

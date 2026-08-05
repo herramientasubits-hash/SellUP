@@ -188,6 +188,13 @@ export interface RecoveryPersistencePatch {
   phone_revealed_at?: string | null;
   phone_reveal_provider?: 'apollo';
   phone_reveal_cost_credits?: number | null;
+  /**
+   * Procedencia de la cifra anterior (AGENT2A-PHONE-REVEAL-4N § 6), con el mismo
+   * vocabulario cerrado del camino Lusha. `reported` cuando el payload recuperado trae
+   * créditos, `unknown` cuando no. NUNCA `assumed_cap`: el tope autorizado es un hecho de
+   * la reserva y lo escribe la reconciliación, no la recuperación.
+   */
+  phone_reveal_cost_source?: 'reported' | 'unknown';
   phone_reveal_error_code?: null | typeof SUPPRESSION_BLOCKED_ERROR_CODE;
   phone_processing_basis?: PhoneProcessingBasis;
   /** Siempre presente: marca de la última verificación de recuperación. */
@@ -448,6 +455,15 @@ function normalizeBasis(
   value: PhoneProcessingBasis | string | null,
 ): PhoneProcessingBasis {
   return cleanText(value) ? (value as PhoneProcessingBasis) : DEFAULT_RECOVERY_PROCESSING_BASIS;
+}
+
+/**
+ * Procedencia de la cifra de créditos que la recuperación puede afirmar
+ * (AGENT2A-PHONE-REVEAL-4N § 6). Misma regla que el webhook: `reported` solo si el payload
+ * recuperado trae un número; nunca `assumed_cap`, que es un hecho de la reserva.
+ */
+function resolveRecoveryCostSource(credits: number | null): 'reported' | 'unknown' {
+  return typeof credits === 'number' && Number.isFinite(credits) ? 'reported' : 'unknown';
 }
 
 function toResult(
@@ -780,6 +796,7 @@ async function handleRecoveredPayload(args: {
         phone_reveal_last_checked_at: deps.nowIso,
         phone_reveal_provider: PHONE_REVEAL_PROVIDER,
         phone_reveal_cost_credits: credits,
+        phone_reveal_cost_source: resolveRecoveryCostSource(credits),
         phone_reveal_error_code: SUPPRESSION_BLOCKED_ERROR_CODE,
       });
       await deps.logUsage(
@@ -830,6 +847,7 @@ async function handleRecoveredPayload(args: {
       phone_reveal_last_checked_at: deps.nowIso,
       phone_reveal_provider: PHONE_REVEAL_PROVIDER,
       phone_reveal_cost_credits: credits,
+      phone_reveal_cost_source: resolveRecoveryCostSource(credits),
       phone_reveal_error_code: null,
       // Conserva la base existente; solo la fija si la fila en vuelo no la tenía.
       phone_processing_basis: normalizeBasis(candidate.phoneProcessingBasis),
@@ -920,6 +938,7 @@ async function handleRecoveredPayload(args: {
     phone_reveal_last_checked_at: deps.nowIso,
     phone_reveal_provider: PHONE_REVEAL_PROVIDER,
     phone_reveal_cost_credits: credits,
+    phone_reveal_cost_source: resolveRecoveryCostSource(credits),
     phone_reveal_error_code: null,
     // null si el payload no trae person id (no se fuerza); el wrapper no escribe.
     apollo_person_id: apolloPersonId,

@@ -68,10 +68,21 @@ async function readProviderCreditPool(
       return { kind: 'unavailable' };
     }
 
+    // Exposición ya reservada en el MISMO pozo (AGENT2A-PHONE-REVEAL-4N). Antes de este
+    // hito el preflight la ignoraba —`reservedCredits` llegaba ausente y el core la
+    // trataba como 0—, así que una autorización en vuelo no ocupaba saldo hasta que la
+    // reserva atómica la rechazaba. Ahora el preflight ve exactamente lo mismo que el SQL.
+    // Una cifra rota se trata como NO verificable, igual que el límite y el consumo.
+    const reservedCredits = result.reservedCredits;
+    if (typeof reservedCredits !== 'number' || !Number.isFinite(reservedCredits)) {
+      return { kind: 'unavailable' };
+    }
+
     return {
       kind: 'configured',
       limitCredits,
       consumedCredits,
+      reservedCredits,
       scopeType: result.scopeApplied,
       scopeId: rule.scopeId,
       periodStart: result.periodStart,
