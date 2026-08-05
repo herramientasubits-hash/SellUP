@@ -330,7 +330,11 @@ describe('§ 8 · la distribución se deriva de la observabilidad real, sin conf
 });
 
 describe('§ 5 · desglose compacto para la UI', () => {
-  test('ensambla las siete cifras del § 5, en unidades únicas', () => {
+  test('ensambla las cifras del § 5 en unidades únicas, con las causas separadas', () => {
+    // A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 6 — el desglose visible ya no
+    // lleva el agregado `qualityRejectedCount`: lleva sus tres partes. Pintar el
+    // agregado JUNTO a ellas contaría cada descarte dos veces, y el agregado por
+    // sí solo obligaba a adivinar cuál de las tres causas había ocurrido.
     const breakdown: NoNewCandidatesBreakdown = {
       ...ZERO,
       hubspotDuplicateCount: 2,
@@ -338,9 +342,9 @@ describe('§ 5 · desglose compacto para la UI', () => {
       cooldownCount: 1,
       repeatedAcrossRoundsCount: 4,
       qualityRejectedCount: 3,
-      countryRejectedCount: 0,
-      sectorRejectedCount: 0,
-      ownershipRejectedCount: 0,
+      countryRejectedCount: 1,
+      sectorRejectedCount: 1,
+      ownershipRejectedCount: 1,
     };
 
     const compact = buildNoNewCandidatesCompactBreakdown(breakdown, {
@@ -354,12 +358,30 @@ describe('§ 5 · desglose compacto para la UI', () => {
       sellupDuplicateCount: 1,
       cooldownCount: 1,
       repeatedAcrossRoundsCount: 4,
-      qualityRejectedCount: 3,
-      countryRejectedCount: 0,
-      sectorRejectedCount: 0,
-      ownershipRejectedCount: 0,
+      countryRejectedCount: 1,
+      sectorRejectedCount: 1,
+      ownershipRejectedCount: 1,
       candidatesCreatedCount: 5,
     });
+  });
+
+  test('§ 6 · un descarte por ownership se pinta como ownership, no como calidad', () => {
+    // Es el caso de la corrida `be181d2d`: el único descarte era ownership y la
+    // única fila visible decía «país, sector o calidad».
+    const rows = toNoNewCandidatesBreakdownRows(
+      buildNoNewCandidatesCompactBreakdown(
+        { ...ZERO, qualityRejectedCount: 1, ownershipRejectedCount: 1 },
+        { uniqueResultsCount: 20, candidatesCreatedCount: 2 },
+      ),
+    );
+
+    const ownershipRow = rows.find((row) => row.key === 'ownershipRejectedCount');
+    assert.ok(ownershipRow, 'la fila de ownership debe pintarse');
+    assert.equal(ownershipRow.count, 1);
+    assert.match(ownershipRow.label, /dominio/);
+    // Y ninguna fila de país o sector, porque no ocurrieron.
+    assert.equal(rows.some((row) => row.key === 'countryRejectedCount'), false);
+    assert.equal(rows.some((row) => row.key === 'sectorRejectedCount'), false);
   });
 
   test('cinco candidatos creados se reflejan en el desglose sin tocar las causas de rechazo', () => {

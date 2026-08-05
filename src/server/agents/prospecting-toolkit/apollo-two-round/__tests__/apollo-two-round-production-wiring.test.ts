@@ -268,7 +268,10 @@ function confirmedSupermarket(index: number): WebSearchResult {
   return apolloResult({
     id: `org-confirmed-${index}`,
     name: `Supermercado Uno ${index}`,
-    domain: `supermercado${index}.com.co`,
+    // § 5 — el dominio acredita al nombre. Con `supermercado${index}.com.co` el
+    // gate de ownership —el mismo que aplica el writer— rechazaba al candidato,
+    // así que la corrida no podía persistirlo de verdad.
+    domain: `supermercadouno${index}.com.co`,
     industry: 'retail',
     snippet: 'cadena de supermercados y autoservicio con tiendas de abarrotes',
     rank: index,

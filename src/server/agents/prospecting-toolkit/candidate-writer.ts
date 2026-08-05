@@ -908,6 +908,12 @@ export async function writeProspectingCandidates(
   // (added). When creating a new batch it is identical to batchMetadata.
   let batchId: string;
   let preMergedMetadata: Record<string, unknown> = batchMetadata;
+  /**
+   * § 7 — marca de cierre que el lote YA tenía. Un lote nuevo no tiene ninguna, y
+   * uno reutilizado sólo se acepta en `draft` / `generating`, que tampoco la
+   * tienen; se lee de todos modos para que el sellado nunca pise una existente.
+   */
+  let existingCompletedAt: string | null = null;
 
   if (existingBatchId) {
     // ── Path A: reuse an existing batch ────────────────────────────────────
@@ -916,7 +922,12 @@ export async function writeProspectingCandidates(
 
     const { data: existingBatch, error: selectError } = await admin
       .from("prospect_batches")
-      .select("id, status, source, created_by, owner_id, metadata, client_request_id")
+      .select(
+        // § 7 — `completed_at` se LEE para poder respetar una marca previa: una
+        // corrida deja de avanzar una sola vez, y dos cierres no pueden dar
+        // instantes distintos.
+        "id, status, source, created_by, owner_id, metadata, client_request_id, completed_at",
+      )
       .eq("id", existingBatchId)
       .single();
 
@@ -958,6 +969,10 @@ export async function writeProspectingCandidates(
     // Wizard keys (request_source, catalog_version_id, industry_id, etc.) do not
     // overlap with pipeline keys (generated_by, pipeline_version, etc.) so a
     // shallow spread is sufficient and safe.
+    existingCompletedAt =
+      typeof (existingBatch as { completed_at?: unknown }).completed_at === 'string'
+        ? ((existingBatch as { completed_at?: string }).completed_at ?? null)
+        : null;
     const existingMeta = (existingBatch.metadata ?? {}) as Record<string, unknown>;
     preMergedMetadata = { ...existingMeta, ...batchMetadata };
 
@@ -3077,6 +3092,30 @@ export async function writeProspectingCandidates(
       metadataToPersist = mergeProviderAttemptsBatchMetadata(finalMetadata, [apolloAttempt]);
     }
 
+    // ── § 7 — sellado terminal ────────────────────────────────────────────
+    //
+    // `batchStatusForOutcome` es siempre terminal (`ready_for_review`,
+    // `completed` o `failed`): la corrida ya no va a avanzar por sí sola. Aun así
+    // el lote `e1622574…` quedó con `completed_at = null` porque nadie lo
+    // escribía, y una corrida sin fecha de cierre no se puede ordenar, medir ni
+    // comparar con las demás.
+    //
+    // Viaja en la MISMA escritura que la metadata, no en una aparte: el estado y
+    // su fecha de cierre describen el mismo hecho y separarlos abre una ventana
+    // en la que el lote está terminal y sin sellar.
+    //
+    // Idempotente: una marca previa se respeta siempre y la decisión no depende
+    // de este proceso, sino de lo que la fila ya tenía.
+    const completionSeal = decideBatchCompletionSeal({
+      status: batchStatusForOutcome,
+      currentCompletedAt: existingCompletedAt,
+      now,
+    });
+    const completedAtPatch =
+      completionSeal.shouldWrite && completionSeal.completedAt !== null
+        ? { completed_at: completionSeal.completedAt }
+        : {};
+
     if (batchStatusForOutcome !== "ready_for_review") {
       // `completed` — todos los candidatos se descartaron a propósito
       // (historial / calidad): no hay contenido nuevo que revisar.
@@ -3084,49 +3123,22 @@ export async function writeProspectingCandidates(
       //               quedarse en `ready_for_review` con cero candidatos dentro.
       await admin
         .from("prospect_batches")
-        .update({ status: batchStatusForOutcome, metadata: metadataToPersist })
+        .update({
+          status: batchStatusForOutcome,
+          metadata: metadataToPersist,
+          ...completedAtPatch,
+        })
         .eq("id", batchId);
     } else {
       await admin
         .from("prospect_batches")
-        .update({ metadata: metadataToPersist })
+        .update({ metadata: metadataToPersist, ...completedAtPatch })
         .eq("id", batchId);
     }
   } catch (err) {
     // Non-critical: metadata update failure does not affect the writer result.
     // Status was already corrected above (completed) if candidatesCreated === 0.
     console.error("[candidate-writer] post-loop metadata update failed for batch", batchId, err);
-  }
-
-  // ── § 7 — sellado terminal del lote ────────────────────────────────────────
-  //
-  // `batchStatusForOutcome` es siempre terminal (`ready_for_review`, `completed`
-  // o `failed`): la corrida ya no va a avanzar por sí sola. Aun así el lote
-  // `e1622574…` quedó con `completed_at = null` porque nadie lo escribía, y una
-  // corrida sin fecha de cierre no se puede ordenar, medir ni comparar.
-  //
-  // La escritura es idempotente por construcción: `.is('completed_at', null)`
-  // hace que sólo la PRIMERA gane. Un segundo cierre —un reintento, o dos
-  // procesos a la vez— no puede producir una marca de tiempo distinta, y la
-  // condición la evalúa Postgres, no este proceso.
-  //
-  // Va en su propio try/catch y DESPUÉS de la metadata: un fallo al sellar no
-  // puede tumbar una escritura de candidatos que ya ocurrió.
-  const completionSeal = decideBatchCompletionSeal({
-    status: batchStatusForOutcome,
-    currentCompletedAt: null,
-    now,
-  });
-  if (completionSeal.shouldWrite && completionSeal.completedAt !== null) {
-    try {
-      await admin
-        .from("prospect_batches")
-        .update({ completed_at: completionSeal.completedAt })
-        .eq("id", batchId)
-        .is("completed_at", null);
-    } catch (err) {
-      console.error("[candidate-writer] completed_at seal failed for batch", batchId, err);
-    }
   }
 
   return {
