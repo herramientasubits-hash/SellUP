@@ -7,7 +7,7 @@
  *      `complete_synthetic_accept` — the fixture built to look as finished as an intake can look, with
  *      all nine decisions accepted and every acknowledgement stated — validates to the identical `NO_GO`,
  *      `blocked`, all-false-execution-and-gate-fields result as the worst-case fixture.
- *   2. Fail-closed, with no exit. Every one of the sixteen intake fixtures resolves to exactly one of six
+ *   2. Fail-closed, with no exit. Every one of the seventeen intake fixtures resolves to exactly one of six
  *      statuses, in a fixed precedence (invalid > inconsistent > rejected > deferred > incomplete >
  *      complete), and the CLI refuses every argument that is not `--fixture`, `--decision`, `--intake`,
  *      `--format` or `--pretty` — `--approve` and `--sign` included, refused for the same reason as
@@ -34,6 +34,7 @@ import {
   BRAZIL_RECEITA_INTAKE_READINESS_CONCLUSION,
   BRAZIL_RECEITA_INTAKE_REQUIRED_DECISION_IDS,
   BRAZIL_RECEITA_INTAKE_REQUIRED_HUMAN_ACTIONS,
+  BRAZIL_RECEITA_INTAKE_REVIEWER_ROLES,
   BRAZIL_RECEITA_INTAKE_SAFETY_ASSERTIONS,
   BRAZIL_RECEITA_INTAKE_SCOPE,
   BRAZIL_RECEITA_INTAKE_STATIC_TIMESTAMP,
@@ -43,6 +44,7 @@ import {
   buildBrazilReceitaControlledExecutionAuthorizationIntakeFixture,
   buildBrazilReceitaControlledExecutionAuthorizationIntakeValidationResult,
   formatBrazilReceitaControlledExecutionAuthorizationIntakeValidationResult,
+  isBrazilReceitaIntakeReviewerRole,
   renderBrazilReceitaControlledExecutionAuthorizationIntakeValidationMarkdown,
   validateBrazilReceitaControlledExecutionAuthorizationIntake,
   type BrazilReceitaControlledExecutionAuthorizationIntake,
@@ -479,11 +481,65 @@ describe('BR-SOURCE-13J invalid-content fixtures', () => {
     );
   });
 
+  it('invalid_reviewer_role reaches intake_invalid via INTAKE_REVIEWER_ROLE_INVALID', () => {
+    const result = resultFor('invalid_reviewer_role');
+
+    assert.equal(result.status, 'intake_invalid');
+    assert.ok(
+      result.findings.some(
+        (finding) =>
+          finding.findingId === 'INTAKE_REVIEWER_ROLE_INVALID' &&
+          finding.decisionId === 'OWNER_COMPLETION_RESUBMISSION',
+      ),
+      'expected an INTAKE_REVIEWER_ROLE_INVALID finding on OWNER_COMPLETION_RESUBMISSION',
+    );
+  });
+
   it('every finding across every fixture carries severity blocking', () => {
     for (const intakeFixture of BRAZIL_RECEITA_INTAKE_FIXTURE_NAMES) {
       for (const finding of resultFor(intakeFixture).findings) {
         assert.equal(finding.severity, 'blocking', `${intakeFixture}: ${finding.findingId}`);
       }
+    }
+  });
+});
+
+// ─── 6a. Reviewer role runtime guard ────────────────────────────────────────────
+//
+// The intake type declares `reviewerRole` as a closed five-member union, but that is a compile-time
+// promise only: nothing upstream parses untyped input, so a decision entry assembled by hand (or,
+// eventually, read from a real submission) can carry any string there. This block exercises the runtime
+// guard directly, and confirms the validator actually calls it for every recognized-role case too — not
+// only for the one fixture built to violate it.
+
+describe('BR-SOURCE-13J reviewer role runtime guard', () => {
+  it('accepts exactly the five recognized roles', () => {
+    assert.deepEqual(
+      [...BRAZIL_RECEITA_INTAKE_REVIEWER_ROLES].sort(),
+      ['commercial_operations', 'legal_security_privacy', 'owner', 'synthetic_reviewer', 'technical_owner'],
+    );
+
+    for (const role of BRAZIL_RECEITA_INTAKE_REVIEWER_ROLES) {
+      assert.equal(isBrazilReceitaIntakeReviewerRole(role), true, role);
+    }
+  });
+
+  it('rejects an unrecognized, empty or non-string role', () => {
+    for (const value of ['unspecified', 'Owner', 'OWNER', '', '  ', 'random_role', 123, null, undefined]) {
+      assert.equal(isBrazilReceitaIntakeReviewerRole(value), false, JSON.stringify(value));
+    }
+  });
+
+  it('every recognized-role fixture carries no INTAKE_REVIEWER_ROLE_INVALID finding', () => {
+    for (const intakeFixture of BRAZIL_RECEITA_INTAKE_FIXTURE_NAMES) {
+      if (intakeFixture === 'invalid_reviewer_role') continue;
+
+      assert.ok(
+        resultFor(intakeFixture).findings.every(
+          (finding) => finding.findingId !== 'INTAKE_REVIEWER_ROLE_INVALID',
+        ),
+        intakeFixture,
+      );
     }
   });
 });
@@ -511,6 +567,7 @@ describe('BR-SOURCE-13J status precedence', () => {
     inconsistent_agent1_without_runtime: 'intake_inconsistent',
     placeholder_values: 'intake_invalid',
     forbidden_content: 'intake_invalid',
+    invalid_reviewer_role: 'intake_invalid',
   };
 
   it('every fixture resolves to its expected status, deterministically', () => {
@@ -589,8 +646,8 @@ describe('BR-SOURCE-13J safety assertions and required human actions', () => {
     }
   });
 
-  it('lists exactly sixteen intake fixtures and nine required decision ids', () => {
-    assert.equal(BRAZIL_RECEITA_INTAKE_FIXTURE_NAMES.length, 16);
+  it('lists exactly seventeen intake fixtures and nine required decision ids', () => {
+    assert.equal(BRAZIL_RECEITA_INTAKE_FIXTURE_NAMES.length, 17);
     assert.equal(BRAZIL_RECEITA_INTAKE_REQUIRED_DECISION_IDS.length, 9);
   });
 });
