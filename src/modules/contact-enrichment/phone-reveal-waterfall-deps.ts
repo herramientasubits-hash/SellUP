@@ -79,7 +79,9 @@ import {
 } from './phone-reveal-credit-reservation-deps';
 import {
   decidePhoneRevealCreditSettlement,
+  resolvePhoneRevealSettledLegCost,
   type PhoneRevealCreditReservationAndRunRequest,
+  type PhoneRevealCreditSettlementAction,
 } from './phone-reveal-credit-reservation-core';
 import type { PhoneRevealCreditProviderKey } from './phone-reveal-credit-budget-core';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
@@ -408,9 +410,59 @@ export async function reconcilePhoneRevealCreditReservationForRun(
             }),
       ),
     );
+
+    // Paridad económica del candidato Apollo (AGENT2A-PHONE-REVEAL-4N § 6). Se hace
+    // DESPUÉS de liquidar, porque hasta aquí la cifra no existe: Apollo no reporta lo que
+    // cobra, así que el webhook solo pudo dejar `unknown` / null y el número real es el
+    // que la reserva acaba de confirmar. Best-effort igual que el resto de este cierre.
+    await writeApolloSettledCostBestEffort(run, actions);
   } catch (err) {
     console.error(
       '[phone-reveal-credit-reservation] settlement failed, exposure stays reserved:',
+      err instanceof Error ? err.message : 'unknown error',
+    );
+  }
+}
+
+/**
+ * Escribe en el candidato el costo ECONÓMICO de la pata Apollo recién liquidada.
+ *
+ * SOLO cuando Apollo es el proveedor que el candidato describe (`final_provider = apollo`).
+ * En un waterfall completo donde Apollo no encontró nada y Lusha sí, las columnas de costo
+ * del candidato describen el reveal de LUSHA —las escribió su propio camino con su costo
+ * reportado— y sobrescribirlas con los 8 de Apollo convertiría el registro del candidato en
+ * una cifra que no corresponde a su teléfono. El costo de esa pata Apollo sigue contabilizado
+ * donde importa para el presupuesto: en su reserva confirmada.
+ *
+ * Solo toca escrituras FUTURAS: se ejecuta en el instante en que una corrida se vuelve
+ * terminal, y una corrida ya terminal no vuelve a pasar por aquí (sus patas ya no están
+ * `reserved`, así que la reconciliación sale antes de llegar a este punto).
+ */
+async function writeApolloSettledCostBestEffort(
+  run: PhoneRevealWaterfallRunRecord,
+  actions: readonly PhoneRevealCreditSettlementAction[],
+): Promise<void> {
+  if (run.finalProvider !== 'apollo') return;
+
+  const settled = resolvePhoneRevealSettledLegCost({ providerKey: 'apollo', settlement: actions });
+  if (!settled) return;
+
+  try {
+    const admin = createSupabaseAdminClient();
+    const { error } = await admin
+      .from('contact_enrichment_candidates')
+      .update({
+        phone_reveal_cost_credits: settled.credits,
+        phone_reveal_cost_source: settled.costSource,
+      })
+      .eq('id', run.candidateId);
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    // Un fallo aquí NO invalida la liquidación: los créditos ya están confirmados y el
+    // presupuesto ya los cuenta. El candidato se queda con el costo `unknown` que escribió
+    // el webhook, que es una cifra honesta, no una falsa.
+    console.error(
+      '[phone-reveal-credit-reservation] apollo settled cost not persisted on candidate:',
       err instanceof Error ? err.message : 'unknown error',
     );
   }
