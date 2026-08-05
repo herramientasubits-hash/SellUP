@@ -146,6 +146,11 @@ export function buildQa2TwoRoundObservability(): Record<string, unknown> {
           round_number: 1,
           raw_results: 5,
           known_company_duplicates: 3,
+          // Cencosud / Rappi / Colombina — las tres, HubSpot. Ninguna era
+          // cooldown ni duplicado de SellUp.
+          duplicate_in_hubspot: 3,
+          duplicate_in_sellup: 0,
+          cooldown_or_prior_suggestion: 0,
           seen_duplicates: 0,
           country_rejected: 0,
           sector_rejected: 0,
@@ -155,6 +160,9 @@ export function buildQa2TwoRoundObservability(): Record<string, unknown> {
           round_number: 2,
           raw_results: 5,
           known_company_duplicates: 0,
+          duplicate_in_hubspot: 0,
+          duplicate_in_sellup: 0,
+          cooldown_or_prior_suggestion: 0,
           seen_duplicates: QA2_ROUND_2_SEEN_COUNT,
           country_rejected: 0,
           sector_rejected: 0,
@@ -171,13 +179,20 @@ export function buildQa2TwoRoundObservability(): Record<string, unknown> {
 /**
  * Distribución de descartes tal como la UI la recibió en LIVE-QA-2.
  *
- * `recentlySuggestedCount = 8` a propósito: es el número real, y la corrección de
- * este hito NO consiste en bajarlo, sino en que deje de ser la causa que se
- * anuncia cuando la escritura falló.
+ * `hubspotDuplicateCount = 3` y `repeatedAcrossRoundsCount = 5` a propósito: son
+ * los números reales (3 duplicados de HubSpot en la ronda 1, 5 repeticiones de
+ * la ronda 1 en la ronda 2), y la corrección de este hito NO consiste en
+ * bajarlos, sino en que ninguno de los dos se anuncie como causa cuando la
+ * escritura falló — y en que, cuando sí se anuncian, HubSpot no se disfrace de
+ * "sugerido recientemente" ni las repeticiones entre rondas cuenten como
+ * empresas rechazadas.
  */
 export function buildQa2NoNewCandidatesBreakdown(): NoNewCandidatesBreakdown {
   return {
-    recentlySuggestedCount: 8,
+    hubspotDuplicateCount: 3,
+    sellupDuplicateCount: 0,
+    cooldownCount: 0,
+    repeatedAcrossRoundsCount: QA2_ROUND_2_SEEN_COUNT,
     qualityRejectedCount: 0,
     noveltyExhausted: false,
     secondRoundSkippedReason: null,

@@ -146,7 +146,10 @@ export function resolveWizardResultCopy(input: {
 
   const fallback = resolveNoNewCandidatesCopy(
     input.noNewCandidates ?? {
-      recentlySuggestedCount: 0,
+      hubspotDuplicateCount: 0,
+      sellupDuplicateCount: 0,
+      cooldownCount: 0,
+      repeatedAcrossRoundsCount: 0,
       qualityRejectedCount: 0,
       noveltyExhausted: false,
       secondRoundSkippedReason: null,
@@ -159,7 +162,6 @@ export function resolveWizardResultCopy(input: {
     heading: null,
     body: fallback.body,
     auditNote: fallback.auditNote,
-    claimsRecentlySuggested:
-      fallback.cause === 'all_recently_suggested' || fallback.cause === 'mixed',
+    claimsRecentlySuggested: fallback.cause === 'cooldown' || fallback.cause === 'mixed',
   };
 }

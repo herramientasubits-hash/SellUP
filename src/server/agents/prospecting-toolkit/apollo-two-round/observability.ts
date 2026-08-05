@@ -39,6 +39,78 @@ export type ApolloEffectiveRequestBuildStatus =
   | 'build_error'
   | 'legacy_checkpoint_missing';
 
+// ─── Decisión de página de la ronda 2 ─────────────────────────────────────────
+
+/**
+ * SCALE-SECOND-ROUND-FIX-1B § 1 — por qué la ronda 2 tuvo que pedir otra página.
+ *
+ *   `identical_effective_request`     el body efectivo colapsó al de la ronda 1
+ *                                    (defecto que cerró HARDENING-3).
+ *   `overlapping_effective_keywords`  los términos efectivos NO son idénticos pero
+ *                                    se solapan, así que la página 1 devuelve la
+ *                                    misma ventana de empresas. Es el defecto de la
+ *                                    corrida live `eae6d47f`: 5 créditos, 0 nuevas.
+ */
+export type ApolloRound2PageEscalationReason =
+  | 'identical_effective_request'
+  | 'overlapping_effective_keywords';
+
+/**
+ * § 1B — la decisión de página de la ronda 2, con su causa y su resultado.
+ *
+ * `null` en el resultado de la corrida significa que NADIE la tomó en este intento
+ * (no hubo ronda 2, o se recuperó de un checkpoint): nunca «se decidió la página 1».
+ */
+export type ApolloRound2PageDecision = {
+  /** Página que la ronda 2 pidió REALMENTE al proveedor. */
+  requestedPage: number;
+  /**
+   * De dónde salió esa página:
+   *
+   *   `first_page`                    la ronda 2 pidió la 1 porque su ventana ya era
+   *                                   otra (términos efectivos disjuntos).
+   *   `hypothesis_variant`            la propia hipótesis eligió la página 2 al no
+   *                                   tener variante de términos ni de región.
+   *   `effective_request_escalation`  la hipótesis pedía la 1 y ESTA decisión la
+   *                                   movió a la 2 al comparar los bodies efectivos.
+   */
+  pageSource: 'first_page' | 'hypothesis_variant' | 'effective_request_escalation';
+  /** True sólo cuando esta decisión movió la petición de la página 1 a la 2. */
+  escalatedToPage2: boolean;
+  /** Causa del salto, o `null` cuando la ronda 2 ya pedía algo genuinamente nuevo. */
+  escalationReason: ApolloRound2PageEscalationReason | null;
+  /** Términos efectivos compartidos con la ronda 1. Vacío ⇒ ventanas disjuntas. */
+  sharedEffectiveKeywords: string[];
+  /** `total_pages` que el proveedor declaró en la ronda 1. */
+  providerTotalPages: number | null;
+  /**
+   * Por qué el salto hacía falta y NO se pudo dar. Pedir una página que el
+   * proveedor no declara es pagar por una respuesta vacía, así que la corrida
+   * sigue en la página 1 y lo deja dicho en vez de esconderlo.
+   */
+  escalationBlockedReason:
+    | 'provider_total_pages_unknown'
+    | 'provider_declared_single_page'
+    | null;
+};
+
+/** § 1B — proyección sanitizada de la decisión. `null` ⇒ nadie la tomó. */
+export function toRound2PageDecisionMetadata(
+  decision: ApolloRound2PageDecision | null,
+): Record<string, unknown> | null {
+  if (decision === null) return null;
+  return {
+    requested_page: decision.requestedPage,
+    page_source: decision.pageSource,
+    escalated_to_page_2: decision.escalatedToPage2,
+    escalation_reason: decision.escalationReason,
+    shared_effective_keywords: decision.sharedEffectiveKeywords,
+    shared_effective_keyword_count: decision.sharedEffectiveKeywords.length,
+    provider_total_pages: decision.providerTotalPages,
+    escalation_blocked_reason: decision.escalationBlockedReason,
+  };
+}
+
 // ─── Ronda ────────────────────────────────────────────────────────────────────
 
 export type ApolloTwoRoundRoundMetrics = {
@@ -68,8 +140,22 @@ export type ApolloTwoRoundRoundMetrics = {
   newUniqueResults: number;
   /** Ya vistas en rondas anteriores o repetidas dentro de la misma respuesta. */
   seenDuplicates: number;
-  /** Duplicados contra SellUp / HubSpot / sugerencias previas. */
+  /**
+   * Duplicados contra SellUp / HubSpot / sugerencias previas, SUMADOS.
+   *
+   * SCALE-AND-SECOND-ROUND-FIX-1 § 5 — se conserva como agregado por
+   * compatibilidad con consumidores existentes; el desglose real vive en los tres
+   * campos siguientes. El copy de "cero candidatos" NUNCA debe leer este campo
+   * sumado para elegir causa: mezclar HubSpot, SellUp y cooldown en un solo
+   * número es exactamente la conflación que ese hito corrige.
+   */
   knownCompanyDuplicates: number;
+  /** § 5 — duplicado confirmado en SellUp. */
+  duplicateInSellUp: number;
+  /** § 5 — duplicado confirmado en HubSpot. */
+  duplicateInHubSpot: number;
+  /** § 5 — cooldown real o sugerencia previa. NUNCA un duplicado de catálogo. */
+  cooldownOrPriorSuggestion: number;
   countryRejected: number;
   sectorRejected: number;
   ownershipRejected: number;
@@ -149,6 +235,9 @@ export function buildEmptyRoundMetrics(
     newUniqueResults: 0,
     seenDuplicates: 0,
     knownCompanyDuplicates: 0,
+    duplicateInSellUp: 0,
+    duplicateInHubSpot: 0,
+    cooldownOrPriorSuggestion: 0,
     countryRejected: 0,
     sectorRejected: 0,
     ownershipRejected: 0,
@@ -227,6 +316,26 @@ export type ApolloTwoRoundRunMetrics = {
   enrichmentsExecuted: number;
   enrichmentWaste: number;
   /**
+   * SCALE-AND-SECOND-ROUND-FIX-1 § 4 — desenlace de cada enrichment PAGADO, en
+   * tres cubetas mutuamente excluyentes, para no leer "cero candidatos" como una
+   * sola causa homogénea:
+   *
+   *   `sectorConfirmedByEnrichment`            — el enrichment confirmó el sector.
+   *   `sectorStillUnconfirmedAfterEnrichment`  — se cobró y el sector sigue sin
+   *                                               confirmarse (contradictorio, no
+   *                                               mapeado, o sigue faltando
+   *                                               evidencia).
+   *   `enrichmentFailedCount`                  — la llamada no devolvió evidencia
+   *                                               utilizable (sin match del
+   *                                               proveedor o cobro sin confirmar).
+   *
+   * Una industria amplia NUNCA se cuenta como `sectorConfirmedByEnrichment`: el
+   * gate sectorial sigue siendo el único que decide "confirmado".
+   */
+  sectorConfirmedByEnrichment: number;
+  sectorStillUnconfirmedAfterEnrichment: number;
+  enrichmentFailedCount: number;
+  /**
    * HARDENING-3 § 7 — ¿las huellas EFECTIVAS de las dos rondas resultaron
    * distintas?
    *
@@ -254,6 +363,10 @@ export function buildRunMetrics(input: {
   enrichmentOutcomes: readonly EnrichmentOutcome[];
   /** HARDENING-3 § 7 — resultado de la comparación efectiva. Ausente ⇒ null. */
   effectiveFingerprintsAreDistinct?: boolean | null;
+  /** § 4 — las tres cubetas del desenlace de enrichment. Ausentes ⇒ 0. */
+  sectorConfirmedByEnrichment?: number;
+  sectorStillUnconfirmedAfterEnrichment?: number;
+  enrichmentFailedCount?: number;
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
   const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
@@ -289,6 +402,9 @@ export function buildRunMetrics(input: {
     enrichmentWasteRate: ratio(enrichmentWaste, enrichmentsExecuted),
     enrichmentsExecuted,
     enrichmentWaste,
+    sectorConfirmedByEnrichment: input.sectorConfirmedByEnrichment ?? 0,
+    sectorStillUnconfirmedAfterEnrichment: input.sectorStillUnconfirmedAfterEnrichment ?? 0,
+    enrichmentFailedCount: input.enrichmentFailedCount ?? 0,
     effectiveFingerprintsAreDistinct: input.effectiveFingerprintsAreDistinct ?? null,
   };
 }
@@ -317,6 +433,11 @@ export function toRoundMetricsMetadata(
     normalized_results: metrics.normalizedResults,
     seen_duplicates: metrics.seenDuplicates,
     known_company_duplicates: metrics.knownCompanyDuplicates,
+    // § 5 — el desglose real. El copy de "cero candidatos" lee estos tres, nunca
+    // el agregado de arriba.
+    duplicate_in_sellup: metrics.duplicateInSellUp,
+    duplicate_in_hubspot: metrics.duplicateInHubSpot,
+    cooldown_or_prior_suggestion: metrics.cooldownOrPriorSuggestion,
     country_rejected: metrics.countryRejected,
     sector_rejected: metrics.sectorRejected,
     ownership_rejected: metrics.ownershipRejected,
@@ -365,6 +486,10 @@ export function toRunMetricsMetadata(
     enrichment_waste_rate: metrics.enrichmentWasteRate,
     enrichments_executed: metrics.enrichmentsExecuted,
     enrichment_waste: metrics.enrichmentWaste,
+    // § 4 — las tres cubetas del desenlace de enrichment, separadas.
+    sector_confirmed_by_enrichment: metrics.sectorConfirmedByEnrichment,
+    sector_still_unconfirmed_after_enrichment: metrics.sectorStillUnconfirmedAfterEnrichment,
+    enrichment_failed_count: metrics.enrichmentFailedCount,
     // HARDENING-3 § 7 — null cuando la comparación no se pudo hacer. Nunca false.
     effective_fingerprints_are_distinct: metrics.effectiveFingerprintsAreDistinct,
   };
