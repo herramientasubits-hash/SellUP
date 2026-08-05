@@ -94,9 +94,10 @@ export function isBrazilReceitaIntakeFormat(
 }
 
 /**
- * The sixteen named synthetic intake scenarios this module can build and validate. One is built to look
- * as complete as an intake can look; the rest each isolate one way a real intake could fail — a missing
- * decision, a rejection, a deferral, an inconsistency between two decisions, or unsafe content.
+ * The seventeen named synthetic intake scenarios this module can build and validate. One is built to
+ * look as complete as an intake can look; the rest each isolate one way a real intake could fail — a
+ * missing decision, a rejection, a deferral, an inconsistency between two decisions, an unrecognized
+ * approver role, or unsafe content.
  */
 export type BrazilReceitaControlledExecutionAuthorizationIntakeFixture =
   | 'complete_synthetic_accept'
@@ -114,7 +115,8 @@ export type BrazilReceitaControlledExecutionAuthorizationIntakeFixture =
   | 'inconsistent_import_without_full_join'
   | 'inconsistent_agent1_without_runtime'
   | 'placeholder_values'
-  | 'forbidden_content';
+  | 'forbidden_content'
+  | 'invalid_reviewer_role';
 
 /** Every intake fixture name, in documentation order. The single source of truth for callers. */
 export const BRAZIL_RECEITA_INTAKE_FIXTURE_NAMES: readonly BrazilReceitaControlledExecutionAuthorizationIntakeFixture[] =
@@ -135,6 +137,7 @@ export const BRAZIL_RECEITA_INTAKE_FIXTURE_NAMES: readonly BrazilReceitaControll
     'inconsistent_agent1_without_runtime',
     'placeholder_values',
     'forbidden_content',
+    'invalid_reviewer_role',
   ] as const;
 
 export function isBrazilReceitaIntakeFixtureName(
@@ -173,6 +176,25 @@ export type BrazilReceitaControlledExecutionAuthorizationIntakeReviewerRole =
   | 'technical_owner'
   | 'commercial_operations'
   | 'synthetic_reviewer';
+
+/** Every recognized reviewer role, in documentation order. The single source of truth for callers. */
+export const BRAZIL_RECEITA_INTAKE_REVIEWER_ROLES: readonly BrazilReceitaControlledExecutionAuthorizationIntakeReviewerRole[] =
+  ['owner', 'legal_security_privacy', 'technical_owner', 'commercial_operations', 'synthetic_reviewer'] as const;
+
+/**
+ * Whether `value` is one of the five recognized reviewer roles. The intake type declares `reviewerRole`
+ * as that closed union, but nothing upstream of this module parses untyped input — a decision entry a
+ * caller builds by hand (or, eventually, reads from a real submission) can carry any string in that
+ * field, so the validator must check it at runtime rather than trust the type.
+ */
+export function isBrazilReceitaIntakeReviewerRole(
+  value: unknown,
+): value is BrazilReceitaControlledExecutionAuthorizationIntakeReviewerRole {
+  return (
+    typeof value === 'string' &&
+    (BRAZIL_RECEITA_INTAKE_REVIEWER_ROLES as readonly string[]).includes(value)
+  );
+}
 
 export type BrazilReceitaControlledExecutionAuthorizationIntakeDecision = {
   decisionId: BrazilReceitaControlledExecutionAuthorizationDecisionId;
@@ -214,6 +236,7 @@ export const BRAZIL_RECEITA_INTAKE_FINDING_CODES = {
   scopeInvalid: 'INTAKE_SCOPE_INVALID',
   requiredAckMissing: 'INTAKE_REQUIRED_ACK_MISSING',
   forbiddenContent: 'INTAKE_FORBIDDEN_CONTENT',
+  reviewerRoleInvalid: 'INTAKE_REVIEWER_ROLE_INVALID',
 } as const;
 
 const CODES = BRAZIL_RECEITA_INTAKE_FINDING_CODES;
@@ -386,8 +409,9 @@ const REQUIRED_ACKS: readonly (keyof BrazilReceitaControlledExecutionAuthorizati
 ];
 
 /**
- * Checks one intake decision entry for invalid content: field hygiene on every string field, an invalid
- * scope, and — for an `accepted` decision only — the three required acknowledgements.
+ * Checks one intake decision entry for invalid content: field hygiene on every string field, an
+ * unrecognized reviewer role, an invalid scope, and — for an `accepted` decision only — the three
+ * required acknowledgements.
  */
 function checkDecisionContent(
   decision: BrazilReceitaControlledExecutionAuthorizationIntakeDecision,
@@ -397,6 +421,19 @@ function checkDecisionContent(
 
   for (const field of STRING_FIELDS) {
     findings.push(...checkFieldHygiene(decision.decisionId, field, values[field]));
+  }
+
+  // The type declares `reviewerRole` as a closed union, but that is a compile-time promise only: a
+  // decision entry assembled from anything other than a literal in this file (a hand-built object, or
+  // eventually a real submission) can carry any string here, so who-approved-this must be checked at
+  // runtime, exactly like the scope check just below it.
+  if (!isBrazilReceitaIntakeReviewerRole(values.reviewerRole)) {
+    findings.push({
+      findingId: CODES.reviewerRoleInvalid,
+      severity: 'blocking',
+      decisionId: decision.decisionId,
+      description: `Intake decision ${decision.decisionId} reviewerRole must be one of ${BRAZIL_RECEITA_INTAKE_REVIEWER_ROLES.join(', ')}.`,
+    });
   }
 
   if (values.scope !== undefined && values.scope !== BRAZIL_RECEITA_INTAKE_SCOPE) {
@@ -696,6 +733,7 @@ const INVALID_CODES: readonly string[] = [
   CODES.scopeInvalid,
   CODES.requiredAckMissing,
   CODES.forbiddenContent,
+  CODES.reviewerRoleInvalid,
 ];
 const INCONSISTENT_CODES: readonly string[] = [
   CODES.inconsistentImportWithoutFullJoin,
@@ -1081,6 +1119,17 @@ export function buildBrazilReceitaControlledExecutionAuthorizationIntakeFixture(
         intakeFixture,
         withDecisionPatch('OWNER_COMPLETION_RESUBMISSION', {
           notes: `resubmission staged at${buildForbiddenLocalPathMarker()}intake`,
+        }),
+      );
+
+    // A reviewerRole outside the five recognized roles — the shape a real, hand-assembled submission
+    // (never one built by this module's own literals) could get wrong, and the one field this module did
+    // not check at runtime until this fixture was added to prove it now does.
+    case 'invalid_reviewer_role':
+      return buildIntake(
+        intakeFixture,
+        withDecisionPatch('OWNER_COMPLETION_RESUBMISSION', {
+          reviewerRole: 'unspecified' as BrazilReceitaControlledExecutionAuthorizationIntakeReviewerRole,
         }),
       );
 
