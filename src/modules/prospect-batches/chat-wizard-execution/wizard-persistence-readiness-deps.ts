@@ -21,7 +21,7 @@
  */
 
 import {
-  toPersistenceReadinessProbe,
+  toPersistenceReadinessProbeFromResponse,
   type PersistenceReadinessProbe,
   PROSPECT_CANDIDATE_IDENTITY_COLUMN,
 } from '@/server/agents/prospecting-toolkit/prospect-candidate-persistence-readiness';
@@ -29,11 +29,16 @@ import {
 /**
  * Mínimo de la interfaz de Supabase que la sonda necesita. Tipado a mano para
  * que los tests inyecten un doble sin arrastrar el cliente entero.
+ *
+ * La respuesta se declara `unknown` a propósito (A1-APOLLO-PERSISTENCE-REVIEW-FIX-1
+ * § 1): tipar aquí `{ error: unknown }` afirmaría en el tipo justo lo que la sonda
+ * tiene que VERIFICAR en tiempo de ejecución, y dejaría fuera del sistema de tipos
+ * las respuestas malformadas que son la razón de existir de esta comprobación.
  */
 export type PersistenceReadinessDbClient = {
   from: (table: string) => {
     select: (columns: string) => {
-      limit: (count: number) => Promise<{ error: unknown }>;
+      limit: (count: number) => Promise<unknown>;
     };
   };
 };
@@ -45,16 +50,20 @@ export type PersistenceReadinessDbClient = {
  * Nunca lanza: una excepción de red o un cliente roto se traducen a
  * `probe_failed`, que bloquea igual que la ausencia de la columna. «No se pudo
  * comprobar» no es «está bien».
+ *
+ * La respuesta se pasa ENTERA al clasificador, no sólo su `error`: la
+ * disponibilidad exige la forma real de una lectura correcta, así que una
+ * respuesta truncada o inesperada bloquea en vez de autorizar gasto (§ 1).
  */
 export async function probeProspectCandidatePersistenceReadiness(
   client: PersistenceReadinessDbClient,
 ): Promise<PersistenceReadinessProbe> {
   try {
-    const { error } = await client
+    const response = await client
       .from('prospect_candidates')
       .select(PROSPECT_CANDIDATE_IDENTITY_COLUMN)
       .limit(1);
-    return toPersistenceReadinessProbe(error);
+    return toPersistenceReadinessProbeFromResponse(response);
   } catch {
     return { status: 'probe_failed' };
   }

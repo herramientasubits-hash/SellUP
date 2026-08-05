@@ -27,15 +27,17 @@ import { QA2_IDENTITY_KEY_POSTGREST_ERROR } from '@/server/agents/prospecting-to
 
 type ProbeCall = { table: string; columns: string; limit: number };
 
-type PostgrestResponse = { data?: unknown; error: unknown };
-
 /**
  * Cliente falso que REGISTRA la lectura en vez de ejecutarla.
  *
  * Encadena `from → select → limit` igual que `@supabase/supabase-js`, de modo que
  * el registro sólo se completa si la sonda usa las tres, en ese orden.
+ *
+ * `response` es `unknown` a propósito: la mitad de lo que hay que probar aquí son
+ * respuestas MALFORMADAS, y un tipo que las excluyera dejaría esos casos sin poder
+ * escribirse. Una función se invoca (para simular una excepción del cliente).
  */
-function fakeClient(response: PostgrestResponse | (() => never)): {
+function fakeClient(response: unknown): {
   client: PersistenceReadinessDbClient;
   calls: ProbeCall[];
 } {
@@ -45,8 +47,8 @@ function fakeClient(response: PostgrestResponse | (() => never)): {
       select: (columns: string) => ({
         limit: async (limit: number) => {
           calls.push({ table, columns, limit });
-          if (typeof response === 'function') response();
-          return response as { error: unknown };
+          if (typeof response === 'function') return response() as unknown;
+          return response;
         },
       }),
     }),
@@ -54,7 +56,7 @@ function fakeClient(response: PostgrestResponse | (() => never)): {
   return { client, calls };
 }
 
-const AVAILABLE_ROW = { data: [{ identity_key: null }], error: null } satisfies PostgrestResponse;
+const AVAILABLE_ROW = { data: [{ identity_key: null }], error: null };
 
 // ─── La consulta que sale ─────────────────────────────────────────────────────
 
@@ -97,7 +99,7 @@ describe('§ 4 — tabla con filas', () => {
 });
 
 describe('§ 4 — tabla vacía', () => {
-  it('data = [] con error null es READY, no un fallo', async () => {
+  it('tabla vacía con data=[] y error null es READY, no un fallo', async () => {
     // El defecto que esto previene: tratar «no hay filas» como «no se pudo
     // comprobar» bloquearía toda corrida en una base recién migrada, que es
     // precisamente el estado en el que la corrección debe desbloquear.
@@ -105,11 +107,50 @@ describe('§ 4 — tabla vacía', () => {
     const probe = await probeProspectCandidatePersistenceReadiness(client);
     assert.deepEqual(probe, { status: 'available' });
   });
+});
 
-  it('data ausente con error null también es READY', async () => {
-    const { client } = fakeClient({ error: null });
-    const probe = await probeProspectCandidatePersistenceReadiness(client);
-    assert.deepEqual(probe, { status: 'available' });
+// ─── Respuestas malformadas: fail-closed ──────────────────────────────────────
+
+describe('§ 1 — una respuesta malformada NO autoriza gasto', () => {
+  // El agujero que cierra esta suite: mientras la disponibilidad se decidía sólo
+  // con `error == null`, todas estas respuestas declaraban READY. Un doble
+  // incompleto, un cliente a medio inicializar o un proxy que recorta el cuerpo
+  // habrían dejado pasar la corrida hasta el gasto, que es el fallo exacto que
+  // este preflight existe para impedir. Para un guardrail previo al gasto, la
+  // única lectura segura de «no reconozco esta respuesta» es bloquear.
+  const malformed: { label: string; response: unknown }[] = [
+    { label: 'respuesta {}', response: {} },
+    { label: 'respuesta sin data ({ error: null })', response: { error: null } },
+    { label: 'data null', response: { data: null, error: null } },
+    { label: 'data no array (objeto)', response: { data: {}, error: null } },
+    { label: 'data no array (fila suelta de .single())', response: { data: { identity_key: null }, error: null } },
+    { label: 'data no array (número)', response: { data: 0, error: null } },
+    { label: 'respuesta undefined', response: undefined },
+    { label: 'respuesta null', response: null },
+    { label: 'respuesta con forma inesperada (string)', response: 'ok' },
+    { label: 'respuesta con forma inesperada (arreglo)', response: [] },
+    { label: 'error presente pero undefined', response: { data: [], error: undefined } },
+    { label: 'sólo data, sin la propiedad error', response: { data: [] } },
+  ];
+
+  for (const { label, response } of malformed) {
+    it(`${label} ⇒ probe_failed, nunca available`, async () => {
+      const { client } = fakeClient(response);
+      const probe = await probeProspectCandidatePersistenceReadiness(client);
+      assert.deepEqual(probe, { status: 'probe_failed' }, `${label} no puede declarar disponibilidad`);
+    });
+  }
+
+  it('la única forma que declara READY es la que PostgREST devuelve de verdad', async () => {
+    // Enunciado al revés que los casos de arriba: en vez de enumerar lo que
+    // bloquea, fija lo que autoriza. Si alguien añade un camino permisivo nuevo,
+    // esta prueba no lo detecta — pero la de arriba sí, y esta documenta el
+    // contrato mínimo: objeto + error null + data arreglo.
+    for (const response of [{ data: [], error: null }, AVAILABLE_ROW]) {
+      const { client } = fakeClient(response);
+      const probe = await probeProspectCandidatePersistenceReadiness(client);
+      assert.deepEqual(probe, { status: 'available' });
+    }
   });
 });
 
@@ -149,6 +190,39 @@ describe('§ 4 — columna ausente: el error EXACTO de LIVE-QA-2', () => {
 });
 
 describe('§ 4 — error de conexión o de sonda', () => {
+  it('42501 insufficient_privilege ⇒ probe_failed, no identity_key_missing', async () => {
+    // Caso propio y con nombre porque es el fallo MÁS fácil de confundir con la
+    // columna ausente: la tabla existe y la columna existe, pero el rol de la
+    // sonda no puede leerla. Diagnosticarlo como `identity_key_missing` mandaría
+    // al operador a aplicar una migración que no arregla nada. Bloquea igual
+    // —nada se gasta— pero el motivo tiene que ser el correcto.
+    const { client } = fakeClient({
+      data: null,
+      error: { code: '42501', message: 'permission denied for table prospect_candidates' },
+    });
+    const probe = await probeProspectCandidatePersistenceReadiness(client);
+    assert.deepEqual(probe, { status: 'probe_failed' });
+  });
+
+  it('un error desconocido con datos sensibles ⇒ probe_failed y nada se filtra', async () => {
+    const { client } = fakeClient({
+      data: null,
+      error: {
+        code: 'XX000',
+        message:
+          'insert into prospect_candidates ... apikey=sk-live-4f3a2b1c host=db.internal:5432',
+        details: 'Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature',
+      },
+    });
+    const probe = await probeProspectCandidatePersistenceReadiness(client);
+    assert.deepEqual(probe, { status: 'probe_failed' });
+    const serialized = JSON.stringify(probe);
+    assert.doesNotMatch(serialized, /sk-live/);
+    assert.doesNotMatch(serialized, /Bearer/);
+    assert.doesNotMatch(serialized, /db\.internal/);
+    assert.doesNotMatch(serialized, /insert into/i);
+  });
+
   it('un error devuelto que no es de columna ⇒ probe_failed', async () => {
     const { client } = fakeClient({
       data: null,

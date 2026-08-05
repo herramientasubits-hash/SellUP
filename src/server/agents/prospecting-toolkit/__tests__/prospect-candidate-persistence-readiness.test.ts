@@ -11,12 +11,13 @@ import assert from 'node:assert/strict';
 
 import {
   classifyCandidatePersistenceError,
+  classifyPersistenceProbeError,
   decidePersistenceReadiness,
   isMissingProspectCandidateIdentityKeyError,
   noCandidatePersistenceFailures,
   resolveBatchStatusForPersistenceOutcome,
   toCandidatePersistenceOutcomeMetadata,
-  toPersistenceReadinessProbe,
+  toPersistenceReadinessProbeFromResponse,
   CANDIDATE_PERSISTENCE_FAILED_ERROR_CODE,
   IDENTITY_KEY_UNAVAILABLE_ERROR_CODE,
   PERSISTENCE_NOT_READY_ADMIN_MESSAGE,
@@ -24,14 +25,80 @@ import {
 import { QA2_IDENTITY_KEY_POSTGREST_ERROR } from './qa2-persistence-fixture';
 
 describe('§ 14.1 — identity_key disponible', () => {
-  it('sin error, la sonda está disponible y la decisión autoriza continuar', () => {
-    const probe = toPersistenceReadinessProbe(null);
+  it('una lectura correcta está disponible y la decisión autoriza continuar', () => {
+    const probe = toPersistenceReadinessProbeFromResponse({
+      data: [{ identity_key: null }],
+      error: null,
+    });
     assert.deepEqual(probe, { status: 'available' });
     assert.deepEqual(decidePersistenceReadiness(probe), { ready: true });
   });
 
-  it('undefined también cuenta como ausencia de error', () => {
-    assert.deepEqual(toPersistenceReadinessProbe(undefined), { status: 'available' });
+  it('la tabla vacía (data=[]) también autoriza: se comprueba el esquema, no el contenido', () => {
+    const probe = toPersistenceReadinessProbeFromResponse({ data: [], error: null });
+    assert.deepEqual(probe, { status: 'available' });
+    assert.deepEqual(decidePersistenceReadiness(probe), { ready: true });
+  });
+});
+
+describe('§ 1 — la disponibilidad exige la forma completa de la respuesta', () => {
+  // A1-APOLLO-PERSISTENCE-REVIEW-FIX-1. El contrato anterior mirába sólo `error`,
+  // así que una respuesta a la que le faltaba TODO menos `error: null` pasaba por
+  // «listo» y autorizaba el gasto. Aquí se fija al revés: available sólo con
+  // objeto + `error` presente y null + `data` presente y arreglo.
+  const notReady: unknown[] = [
+    {},
+    { error: null },
+    { data: null, error: null },
+    { data: {}, error: null },
+    { data: 'rows', error: null },
+    { data: [] },
+    { data: [], error: undefined },
+    undefined,
+    null,
+    'ok',
+    42,
+    [],
+  ];
+
+  for (const response of notReady) {
+    it(`${JSON.stringify(response) ?? String(response)} ⇒ probe_failed`, () => {
+      assert.deepEqual(toPersistenceReadinessProbeFromResponse(response), {
+        status: 'probe_failed',
+      });
+    });
+  }
+
+  it('ninguna respuesta malformada llega a `ready: true`', () => {
+    for (const response of notReady) {
+      const decision = decidePersistenceReadiness(
+        toPersistenceReadinessProbeFromResponse(response),
+      );
+      assert.equal(decision.ready, false, `no puede autorizar: ${String(JSON.stringify(response))}`);
+      if (decision.ready) continue;
+      assert.equal(decision.reason, 'probe_failed');
+      assert.equal(decision.stage, 'schema_preflight');
+    }
+  });
+
+  it('la columna ausente sigue distinguiéndose dentro de una respuesta con error', () => {
+    // Regresión importante del cambio de forma: al pasar la respuesta ENTERA en
+    // vez del error, el diagnóstico específico tenía que sobrevivir.
+    assert.deepEqual(
+      toPersistenceReadinessProbeFromResponse({
+        data: null,
+        error: QA2_IDENTITY_KEY_POSTGREST_ERROR,
+      }),
+      { status: 'identity_key_missing' },
+    );
+  });
+
+  it('el clasificador de errores no puede devolver disponibilidad', () => {
+    // Por tipo y por comportamiento: recibir un error ya prueba que la lectura no
+    // funcionó, incluso si el error es `null`/`undefined` por un cliente raro.
+    for (const error of [null, undefined, {}, 'boom', new Error('x')]) {
+      assert.notEqual(classifyPersistenceProbeError(error).status, 'available');
+    }
   });
 });
 
@@ -46,7 +113,7 @@ describe('§ 14.2 — identity_key ausente (42703, undefined_column de Postgres)
   });
 
   it('la decisión bloquea con el código del repo y la razón correcta', () => {
-    const decision = decidePersistenceReadiness(toPersistenceReadinessProbe(error));
+    const decision = decidePersistenceReadiness(classifyPersistenceProbeError(error));
     assert.equal(decision.ready, false);
     if (decision.ready) return;
     assert.equal(decision.errorCode, IDENTITY_KEY_UNAVAILABLE_ERROR_CODE);
@@ -55,7 +122,7 @@ describe('§ 14.2 — identity_key ausente (42703, undefined_column de Postgres)
   });
 
   it('el mensaje administrativo NO contiene el error crudo de Postgres', () => {
-    const decision = decidePersistenceReadiness(toPersistenceReadinessProbe(error));
+    const decision = decidePersistenceReadiness(classifyPersistenceProbeError(error));
     assert.equal(decision.ready, false);
     if (decision.ready) return;
     assert.equal(decision.adminMessage, PERSISTENCE_NOT_READY_ADMIN_MESSAGE);
@@ -77,7 +144,7 @@ describe('§ 14.3 — la caché de esquema devuelve la columna como ausente (PGR
       true,
     );
     const decision = decidePersistenceReadiness(
-      toPersistenceReadinessProbe(QA2_IDENTITY_KEY_POSTGREST_ERROR),
+      classifyPersistenceProbeError(QA2_IDENTITY_KEY_POSTGREST_ERROR),
     );
     assert.equal(decision.ready, false);
     if (decision.ready) return;
@@ -89,7 +156,7 @@ describe('§ 6 — fail-closed: lo que NO es la columna ausente tampoco autoriza
   it('otra columna ausente NO se confunde con la nuestra, y bloquea igual', () => {
     const other = { code: '42703', message: 'column prospect_candidates.foo does not exist' };
     assert.equal(isMissingProspectCandidateIdentityKeyError(other), false);
-    const decision = decidePersistenceReadiness(toPersistenceReadinessProbe(other));
+    const decision = decidePersistenceReadiness(classifyPersistenceProbeError(other));
     assert.equal(decision.ready, false);
     if (decision.ready) return;
     assert.equal(decision.reason, 'probe_failed');
@@ -97,7 +164,7 @@ describe('§ 6 — fail-closed: lo que NO es la columna ausente tampoco autoriza
 
   it('un error de permisos bloquea como sonda fallida, no como columna ausente', () => {
     const denied = { code: '42501', message: 'permission denied for table prospect_candidates' };
-    const decision = decidePersistenceReadiness(toPersistenceReadinessProbe(denied));
+    const decision = decidePersistenceReadiness(classifyPersistenceProbeError(denied));
     assert.equal(decision.ready, false);
     if (decision.ready) return;
     assert.equal(decision.reason, 'probe_failed');
@@ -105,7 +172,7 @@ describe('§ 6 — fail-closed: lo que NO es la columna ausente tampoco autoriza
 
   it('un error sin código ni forma esperada sigue bloqueando', () => {
     for (const weird of ['boom', 42, {}, { message: 'identity_key' }, { code: 'PGRST204' }]) {
-      const decision = decidePersistenceReadiness(toPersistenceReadinessProbe(weird));
+      const decision = decidePersistenceReadiness(classifyPersistenceProbeError(weird));
       assert.equal(decision.ready, false, `debe bloquear con ${JSON.stringify(weird)}`);
     }
   });

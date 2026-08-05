@@ -114,12 +114,65 @@ export type PersistenceReadinessProbe =
   | { status: 'identity_key_missing' }
   | { status: 'probe_failed' };
 
-/** Traduce el error crudo de la sonda a su estado, sin exponerlo. */
-export function toPersistenceReadinessProbe(error: unknown): PersistenceReadinessProbe {
-  if (error == null) return { status: 'available' };
+/** Estados en los que la sonda NO autoriza gastar. */
+export type BlockingPersistenceReadinessProbe = Exclude<
+  PersistenceReadinessProbe,
+  { status: 'available' }
+>;
+
+/**
+ * Traduce el error crudo de la sonda a su estado, sin exponerlo.
+ *
+ * No puede devolver `available` por construcción: recibir un error ya es la
+ * prueba de que la lectura no funcionó. La disponibilidad se decide una capa
+ * más arriba, mirando la respuesta COMPLETA.
+ */
+export function classifyPersistenceProbeError(
+  error: unknown,
+): BlockingPersistenceReadinessProbe {
   return isMissingProspectCandidateIdentityKeyError(error)
     ? { status: 'identity_key_missing' }
     : { status: 'probe_failed' };
+}
+
+/**
+ * Traduce la respuesta COMPLETA de PostgREST al estado de la sonda.
+ *
+ * A1-APOLLO-PERSISTENCE-REVIEW-FIX-1 · § 1. Antes bastaba `error == null` para
+ * declarar disponibilidad, y eso convertía cualquier respuesta malformada en un
+ * permiso de gasto: `{}`, `{ error: null }`, `undefined` y una respuesta con
+ * `data: null` pasaban todas por «listo». Para un guardrail que corre ANTES de
+ * reservar créditos eso es exactamente el error opuesto al que debe cometer.
+ *
+ * Ahora la disponibilidad exige la forma que PostgREST devuelve de verdad
+ * cuando la lectura funciona, y cada condición es una que un cliente roto, un
+ * doble incompleto o un proxy intermedio pueden incumplir:
+ *
+ *   - la respuesta es un objeto;
+ *   - trae la propiedad `error` y vale exactamente `null`;
+ *   - trae la propiedad `data`;
+ *   - `data` es un arreglo — el select devolvió un conjunto de filas.
+ *
+ * `data: []` (tabla vacía) SÍ es disponibilidad: lo que se comprueba es el
+ * esquema, no el contenido. Cualquier otra forma es `probe_failed`, que bloquea
+ * igual que la columna ausente. «No se pudo comprobar» nunca es «está bien».
+ */
+export function toPersistenceReadinessProbeFromResponse(
+  response: unknown,
+): PersistenceReadinessProbe {
+  if (response === null || typeof response !== 'object') return { status: 'probe_failed' };
+  if (!('error' in response)) return { status: 'probe_failed' };
+
+  const { error } = response as { error: unknown };
+  // Un `error` presente pero `undefined` tampoco autoriza: la respuesta real de
+  // una lectura correcta lo trae en `null`.
+  if (error !== null) return classifyPersistenceProbeError(error);
+
+  if (!('data' in response)) return { status: 'probe_failed' };
+  const { data } = response as { data: unknown };
+  if (!Array.isArray(data)) return { status: 'probe_failed' };
+
+  return { status: 'available' };
 }
 
 // ─── Decisión ─────────────────────────────────────────────────────────────────
