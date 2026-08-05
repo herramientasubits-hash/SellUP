@@ -169,6 +169,141 @@ describe('§ 1 · hipótesis distinta + truncamiento idéntico ⇒ decide el pro
   });
 });
 
+// ─── § 1B · solapamiento de términos efectivos, no sólo identidad ─────────────
+
+/**
+ * Constructor cuyo mapper devuelve conjuntos de términos DISTINTOS por ronda, con
+ * o sin intersección según se pida. Es la costura mínima para separar los dos casos
+ * que la corrida live confundía: «huellas distintas» no implica «ventanas
+ * distintas».
+ */
+function keywordSetBuilder(byRound: Record<number, string[]>): NonNullable<
+  ApolloTwoRoundDeps['buildRoundProviderRequest']
+> {
+  return ({ roundNumber, hypothesis, requestedResultLimit }) => {
+    const tags = byRound[roundNumber] ?? [];
+    const page = hypothesis.queryParameters.page;
+    const preview: RoundProviderRequestPreview = {
+      effectiveRequestFingerprint: `q_organization_keyword_tags=${[...tags].sort().join(',')}|page=${page}|per_page=${requestedResultLimit}`,
+      page,
+      perPage: requestedResultLimit,
+      effectiveKeywordTags: tags,
+    };
+    return preview;
+  };
+}
+
+function runWithKeywordSets(input: {
+  byRound: Record<number, string[]>;
+  providerTotalPages: number | null;
+}): Promise<{
+  result: Awaited<ReturnType<typeof runApolloTwoRoundDiscovery>>;
+  searchCalls: Array<{ roundNumber: number; page: number }>;
+}> {
+  const searchCalls: Array<{ roundNumber: number; page: number }> = [];
+  const deps: ApolloTwoRoundDeps = {
+    buildRoundProviderRequest: keywordSetBuilder(input.byRound),
+    searchRound: async ({ roundNumber, hypothesis }) => {
+      searchCalls.push({ roundNumber, page: hypothesis.queryParameters.page });
+      const organizations = [org(`r${roundNumber}`)];
+      return {
+        organizations,
+        providerRequestCount: 1,
+        internalRecordedCredits: organizations.length,
+        providerTotalPages: input.providerTotalPages,
+      };
+    },
+    assessCandidate: () => rejectedAssessment('sector_not_mapped'),
+    enrichCandidate: async () => ({
+      executed: false,
+      sectorEvidenceState: 'sector_evidence_missing_needs_enrichment',
+      internalRecordedCredits: 0,
+    }),
+  };
+
+  return runApolloTwoRoundDiscovery(
+    { config: testConfig(), queryContext: testQueryContext(), correlation: testCorrelation() },
+    deps,
+  ).then((result) => ({ result, searchCalls }));
+}
+
+describe('§ 1B · la ventana se decide por solapamiento de términos efectivos', () => {
+  test('un solo término efectivo compartido ⇒ la ronda 2 pide la página 2', async () => {
+    // El caso exacto de la corrida live `eae6d47f`: huellas distintas, tres términos
+    // compartidos, y la página 1 devolviendo las mismas empresas.
+    const { result, searchCalls } = await runWithKeywordSets({
+      byRound: {
+        1: ['supermercado', 'hipermercado', 'grocery', 'grocery store', 'food retail'],
+        2: ['supermercado', 'hipermercado', 'grocery', 'grocery chain', 'grocery retail'],
+      },
+      providerTotalPages: 52,
+    });
+
+    assert.equal(searchCalls[1].page, 2);
+    assert.equal(result.round2PageDecision?.escalatedToPage2, true);
+    assert.equal(result.round2PageDecision?.escalationReason, 'overlapping_effective_keywords');
+    assert.equal(result.round2PageDecision?.pageSource, 'effective_request_escalation');
+    assert.deepEqual(result.round2PageDecision?.sharedEffectiveKeywords, [
+      'supermercado',
+      'hipermercado',
+      'grocery',
+    ]);
+    // La ronda 2 SÍ se ejecuta: la página 2 es una ventana nueva, no una repetición.
+    assert.equal(result.secondRoundSkippedReason, null);
+    assert.equal(result.effectiveFingerprintsAreDistinct, true);
+  });
+
+  test('términos efectivos DISJUNTOS ⇒ la página 1 es correcta y no se toca', async () => {
+    const { result, searchCalls } = await runWithKeywordSets({
+      byRound: {
+        1: ['supermercado', 'hipermercado'],
+        2: ['tienda de descuento', 'almacen de cadena'],
+      },
+      providerTotalPages: 52,
+    });
+
+    assert.equal(searchCalls[1].page, 1, 'sin solapamiento la ventana ya es otra');
+    assert.equal(result.round2PageDecision?.escalatedToPage2, false);
+    assert.equal(result.round2PageDecision?.escalationReason, null);
+    assert.equal(result.round2PageDecision?.pageSource, 'first_page');
+    assert.deepEqual(result.round2PageDecision?.sharedEffectiveKeywords, []);
+    assert.equal(result.round2PageDecision?.escalationBlockedReason, null);
+    assert.equal(result.secondRoundSkippedReason, null);
+  });
+
+  test('solapamiento sin página 2 declarada ⇒ se ejecuta la 1 y queda dicho por qué', async () => {
+    const { result, searchCalls } = await runWithKeywordSets({
+      byRound: {
+        1: ['supermercado', 'hipermercado'],
+        2: ['supermercado', 'grocery chain'],
+      },
+      providerTotalPages: null,
+    });
+
+    assert.equal(searchCalls[1].page, 1, 'una página no declarada no se pide nunca');
+    assert.equal(result.round2PageDecision?.escalationReason, 'overlapping_effective_keywords');
+    assert.equal(
+      result.round2PageDecision?.escalationBlockedReason,
+      'provider_total_pages_unknown',
+    );
+  });
+
+  test('sin ronda 2 no hay decisión de página: `null`, nunca «página 1»', async () => {
+    const { result } = await runWithKeywordSets({
+      byRound: { 1: ['supermercado'], 2: ['supermercado'] },
+      providerTotalPages: 1,
+    });
+
+    assert.equal(result.secondRoundSkippedReason, 'identical_provider_request');
+    assert.equal(result.round2PageDecision?.escalationReason, 'identical_effective_request');
+    assert.equal(
+      result.round2PageDecision?.escalationBlockedReason,
+      'provider_declared_single_page',
+    );
+    assert.equal(result.roundsExecuted, 1);
+  });
+});
+
 // ─── § 2 · topes absolutos elevados, comportamiento por defecto intacto ───────
 
 describe('§ 2 · topes absolutos 10/20/5, sin cambiar el comportamiento por defecto', () => {

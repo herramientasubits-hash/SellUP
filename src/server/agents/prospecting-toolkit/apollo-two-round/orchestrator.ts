@@ -43,6 +43,7 @@ import {
 import {
   buildRound1Hypothesis,
   buildRound2Hypothesis,
+  findSharedEffectiveKeywords,
   withRequestedPage,
   type ApolloRound2Hypothesis,
   type ApolloTwoRoundQueryContext,
@@ -61,6 +62,8 @@ import {
   buildEmptyRoundMetrics,
   buildRunMetrics,
   type ApolloEffectiveRequestBuildStatus,
+  type ApolloRound2PageDecision,
+  type ApolloRound2PageEscalationReason,
   type ApolloTwoRoundRoundMetrics,
   type ApolloTwoRoundRunMetrics,
   type EnrichmentOutcome,
@@ -401,6 +404,14 @@ export type ApolloTwoRoundRunResult = {
    * un valor desconocido.
    */
   effectiveFingerprintsAreDistinct: boolean | null;
+  /**
+   * SCALE-SECOND-ROUND-FIX-1B § 1 — decisión de página de la ronda 2 tomada en
+   * ESTE intento, con su causa.
+   *
+   * `null` cuando nadie la tomó: la ronda 2 no llegó a construirse, o se recuperó
+   * de un checkpoint anterior. Ausencia no es «se decidió la página 1».
+   */
+  round2PageDecision: ApolloRound2PageDecision | null;
 
   /** Empresas que se persisten, en orden de calidad. */
   persisted: AccumulatedCompany[];
@@ -742,6 +753,13 @@ export async function runApolloTwoRoundDiscovery(
    */
   let effectiveFingerprintsAreDistinct: boolean | null = null;
   /**
+   * SCALE-SECOND-ROUND-FIX-1B § 1 — decisión de página de la ronda 2. Se queda en
+   * `null` mientras nadie la tome; no se rehidrata de `resume` porque describe una
+   * decisión de ESTE intento, y un reintento que no vuelve a construir la ronda 2
+   * no ha decidido nada.
+   */
+  let round2PageDecision: ApolloRound2PageDecision | null = null;
+  /**
    * SCALE-AND-SECOND-ROUND-FIX-1 § 4 — desenlace de cada enrichment pagado en
    * ESTA invocación, en tres cubetas mutuamente excluyentes. No se rehidratan de
    * `resume`: igual que `enrichmentSelections`/`enrichmentSkips`, describen sólo
@@ -988,18 +1006,65 @@ export async function runApolloTwoRoundDiscovery(
           ? null
           : build.preview.effectiveRequestFingerprint !== round1EffectiveFingerprint;
 
-      // § 4 — cuando el body efectivo colapsó al de la ronda 1, la ÚNICA variante
-      // que queda es otra página, y sólo si el proveedor declaró que existe. Pedir
-      // una página no declarada es pagar por una respuesta vacía.
-      if (
-        compareEffective(round2Build) === false &&
-        round2.queryParameters.page === 1 &&
-        providerTotalPages !== null &&
-        providerTotalPages >= 2
-      ) {
+      /**
+       * § 4 + SCALE-SECOND-ROUND-FIX-1B § 1 — cuándo la ronda 2 tiene que pedir
+       * OTRA página.
+       *
+       * HARDENING-3 sólo saltaba de página cuando el body efectivo era idéntico al
+       * de la ronda 1. La corrida live `eae6d47f` demostró que eso no basta: la
+       * ronda 2 salió con tres de sus cinco términos efectivos compartidos con la
+       * ronda 1 —huella distinta, ventana igual— y Apollo devolvió las MISMAS cinco
+       * empresas en la página 1. Cinco créditos, cero organizaciones nuevas.
+       *
+       * Así que el disparador es el solapamiento, no la identidad: con un solo
+       * término efectivo en común la página 1 vuelve a caer sobre el mismo ranking.
+       * Sin términos compartidos la ventana es genuinamente otra y la página 1 sigue
+       * siendo correcta. Pedir una página que el proveedor no declaró sigue estando
+       * prohibido: sería pagar por una respuesta vacía.
+       */
+      const round1EffectiveKeywords = round1Metrics?.effectiveKeywordsSent ?? [];
+      const sharedEffectiveKeywords =
+        round2Build.preview === null
+          ? []
+          : findSharedEffectiveKeywords(
+              round1EffectiveKeywords,
+              round2Build.preview.effectiveKeywordTags,
+            );
+      const escalationReason: ApolloRound2PageEscalationReason | null =
+        compareEffective(round2Build) === false
+          ? 'identical_effective_request'
+          : sharedEffectiveKeywords.length > 0
+            ? 'overlapping_effective_keywords'
+            : null;
+      const nextPageDeclared = providerTotalPages !== null && providerTotalPages >= 2;
+
+      let escalatedToPage2 = false;
+      if (escalationReason !== null && round2.queryParameters.page === 1 && nextPageDeclared) {
         round2 = withRequestedPage(round2, 2, round1HypothesisFingerprint);
+        // La página no toca los términos, así que `sharedEffectiveKeywords` sigue
+        // describiendo el solapamiento que motivó el salto.
         round2Build = buildRoundEffectiveRequest(2, round2, requestedResultLimit);
+        escalatedToPage2 = true;
       }
+
+      round2PageDecision = {
+        requestedPage: round2.queryParameters.page,
+        pageSource: escalatedToPage2
+          ? 'effective_request_escalation'
+          : round2.queryParameters.page > 1
+            ? 'hypothesis_variant'
+            : 'first_page',
+        escalatedToPage2,
+        escalationReason,
+        sharedEffectiveKeywords,
+        providerTotalPages,
+        escalationBlockedReason:
+          escalationReason === null || escalatedToPage2 || round2.queryParameters.page > 1
+            ? null
+            : providerTotalPages === null
+              ? 'provider_total_pages_unknown'
+              : 'provider_declared_single_page',
+      };
 
       const distinct = compareEffective(round2Build);
       if (distinct === null) {
@@ -1449,6 +1514,7 @@ export async function runApolloTwoRoundDiscovery(
     partialResultReason: targetReached ? null : 'partial_target_not_reached',
     secondRoundSkippedReason,
     effectiveFingerprintsAreDistinct,
+    round2PageDecision,
     persisted,
     notPersisted,
     rounds: roundMetrics,

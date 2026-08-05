@@ -48,6 +48,17 @@ export type NoNewCandidatesBreakdown = {
    * en el sentido literal.
    */
   qualityRejectedCount: number;
+  /**
+   * SCALE-SECOND-ROUND-FIX-1B § 3 — empresas ÚNICAS que la corrida llegó a ver.
+   *
+   * Es el denominador honesto del desglose: la corrida live `eae6d47f` devolvió 10
+   * resultados crudos y sólo 5 empresas únicas, porque la ronda 2 repitió las de la
+   * ronda 1. Mostrar «10 encontradas» habría contado dos veces las mismas cinco.
+   *
+   * Opcional: un metadata escrito antes de este hito no trae la cifra, y en ese caso
+   * se muestra 0 en vez de inventar un total.
+   */
+  uniqueResultsCount?: number;
   /** El universo con estos criterios ya se exploró: no queda nada nuevo que traer. */
   noveltyExhausted: boolean;
   /** Motivo por el que la ronda 2 no corrió. Alimenta la nota de auditoría. */
@@ -99,8 +110,10 @@ export const IDENTICAL_PROVIDER_REQUEST_AUDIT_NOTE =
   'enviado al proveedor eran idénticos a los de la primera ronda. No se consumió ' +
   'ningún crédito adicional.';
 
-function nonNegativeInt(value: number): number {
-  return Math.max(0, Math.trunc(value));
+function nonNegativeInt(value: number | undefined): number {
+  // Un valor ausente o no finito es «no se sabe», y en un conteo eso se muestra
+  // como 0, nunca como NaN.
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
 }
 
 /**
@@ -206,6 +219,14 @@ export function buildNoNewCandidatesBreakdown(
   const block = observability as Record<string, unknown>;
   const rounds = Array.isArray(block['rounds']) ? (block['rounds'] as unknown[]) : [];
 
+  // § 3 — empresas ÚNICAS, no resultados crudos. La ronda 2 que repite lo que la
+  // ronda 1 ya trajo NO añade empresas, y el desglose no puede decir que sí.
+  const runMetrics =
+    block['run_metrics'] && typeof block['run_metrics'] === 'object'
+      ? (block['run_metrics'] as Record<string, unknown>)
+      : null;
+  const uniqueResultsCount = readNumber(runMetrics?.['total_unique_organizations']);
+
   let hubspot = 0;
   let sellup = 0;
   let cooldown = legacyCooldown;
@@ -232,6 +253,7 @@ export function buildNoNewCandidatesBreakdown(
     cooldownCount: cooldown,
     repeatedAcrossRoundsCount: repeatedAcrossRounds,
     qualityRejectedCount: quality,
+    uniqueResultsCount,
     noveltyExhausted,
     secondRoundSkippedReason: typeof skippedReason === 'string' ? skippedReason : null,
   };
@@ -255,16 +277,17 @@ export type NoNewCandidatesCompactBreakdown = {
  * fuente, cooldown, repeticiones entre rondas, rechazos de calidad y
  * candidatos creados.
  *
- * `uniqueResultsCount` y `candidatesCreatedCount` llegan por parámetro porque
- * viven fuera de esta observabilidad (el conteo de únicas es del run completo,
- * y los candidatos creados son la cifra de persistencia, no de descubrimiento).
+ * `candidatesCreatedCount` llega por parámetro porque vive fuera de esta
+ * observabilidad: es la cifra de persistencia, no de descubrimiento.
+ * `uniqueResultsCount` se toma del desglose cuando el llamador no lo aporta — es la
+ * misma cifra de empresas únicas que el pipeline ya observó.
  */
 export function buildNoNewCandidatesCompactBreakdown(
   breakdown: NoNewCandidatesBreakdown,
-  totals: { uniqueResultsCount: number; candidatesCreatedCount: number },
+  totals: { uniqueResultsCount?: number; candidatesCreatedCount: number },
 ): NoNewCandidatesCompactBreakdown {
   return {
-    uniqueResultsCount: nonNegativeInt(totals.uniqueResultsCount),
+    uniqueResultsCount: nonNegativeInt(totals.uniqueResultsCount ?? breakdown.uniqueResultsCount),
     hubspotDuplicateCount: nonNegativeInt(breakdown.hubspotDuplicateCount),
     sellupDuplicateCount: nonNegativeInt(breakdown.sellupDuplicateCount),
     cooldownCount: nonNegativeInt(breakdown.cooldownCount),
@@ -272,4 +295,83 @@ export function buildNoNewCandidatesCompactBreakdown(
     qualityRejectedCount: nonNegativeInt(breakdown.qualityRejectedCount),
     candidatesCreatedCount: nonNegativeInt(totals.candidatesCreatedCount),
   };
+}
+
+// ─── Filas del desglose que la UI pinta ───────────────────────────────────────
+
+/**
+ * SCALE-SECOND-ROUND-FIX-1B § 3 — etiqueta de cada cifra.
+ *
+ * Vive aquí, y no en el componente, para que el texto sea testeable sin navegador y
+ * para que ninguna pantalla invente una etiqueta propia. Ninguna menciona «ya
+ * sugeridos recientemente» salvo la que de verdad cuenta cooldown: ése era el copy
+ * que la corrida live mostró con `skipped_recent_count = 0`.
+ */
+export const NO_NEW_CANDIDATES_BREAKDOWN_LABELS: Readonly<
+  Record<keyof NoNewCandidatesCompactBreakdown, string>
+> = {
+  uniqueResultsCount: 'Empresas únicas encontradas',
+  hubspotDuplicateCount: 'Ya existían en HubSpot',
+  sellupDuplicateCount: 'Ya existían en SellUp',
+  cooldownCount: 'Sugeridas recientemente (en enfriamiento)',
+  repeatedAcrossRoundsCount: 'Repeticiones de la misma empresa entre rondas',
+  qualityRejectedCount: 'Descartadas por país, sector o calidad',
+  candidatesCreatedCount: 'Candidatos creados',
+};
+
+/**
+ * § 3 — aclaración de la fila de repeticiones.
+ *
+ * Es la línea que impide leer el desglose como si sumara empresas: una organización
+ * que la ronda 2 vuelve a traer NO es una empresa más. En la corrida live eso era la
+ * diferencia entre «10 empresas encontradas» y las 5 reales.
+ */
+export const REPEATED_ACROSS_ROUNDS_HINT =
+  'No cuentan como empresas nuevas: es la misma empresa vista otra vez.';
+
+export type NoNewCandidatesBreakdownRow = {
+  key: keyof NoNewCandidatesCompactBreakdown;
+  label: string;
+  count: number;
+  /** Aclaración bajo la fila, cuando la cifra puede malinterpretarse. */
+  hint: string | null;
+};
+
+/**
+ * § 3 — filas a pintar, en orden de lectura.
+ *
+ * `uniqueResultsCount` y `candidatesCreatedCount` se muestran siempre: son el marco
+ * («cuántas empresas vimos» y «cuántos candidatos quedaron»). Las causas sólo
+ * aparecen cuando REALMENTE ocurrieron — una fila «HubSpot: 0» afirmaría haber
+ * comprobado algo que no ocurrió, que es la clase de afirmación que este hito
+ * elimina.
+ */
+export function toNoNewCandidatesBreakdownRows(
+  compact: NoNewCandidatesCompactBreakdown,
+): NoNewCandidatesBreakdownRow[] {
+  const row = (
+    key: keyof NoNewCandidatesCompactBreakdown,
+    hint: string | null = null,
+  ): NoNewCandidatesBreakdownRow => ({
+    key,
+    label: NO_NEW_CANDIDATES_BREAKDOWN_LABELS[key],
+    count: compact[key],
+    hint,
+  });
+
+  const causes: Array<keyof NoNewCandidatesCompactBreakdown> = [
+    'hubspotDuplicateCount',
+    'sellupDuplicateCount',
+    'cooldownCount',
+    'repeatedAcrossRoundsCount',
+    'qualityRejectedCount',
+  ];
+
+  return [
+    row('uniqueResultsCount'),
+    ...causes
+      .filter((key) => compact[key] > 0)
+      .map((key) => row(key, key === 'repeatedAcrossRoundsCount' ? REPEATED_ACROSS_ROUNDS_HINT : null)),
+    row('candidatesCreatedCount'),
+  ];
 }

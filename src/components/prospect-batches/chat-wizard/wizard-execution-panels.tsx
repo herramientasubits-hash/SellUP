@@ -22,7 +22,11 @@ import {
   WizardApolloTwoRoundPlannedSteps,
   WizardApolloTwoRoundOutcome,
 } from './wizard-two-round-progress-panel';
-import { type NoNewCandidatesBreakdown } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
+import {
+  buildNoNewCandidatesCompactBreakdown,
+  toNoNewCandidatesBreakdownRows,
+  type NoNewCandidatesBreakdown,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
 // A1-APOLLO-PERSISTENCE-READINESS-4 § 8 — la prioridad de causas vive en un solo
 // núcleo puro: fallo de almacenamiento por encima de historial y calidad.
 import {
@@ -227,6 +231,19 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
   if (status === 'no_new_candidates') {
     const noNewBody = resultCopy.body;
 
+    // SCALE-SECOND-ROUND-FIX-1B § 3 — el desglose REAL debajo del texto de causa.
+    // Sustituye al mensaje genérico como única explicación: el copy dice QUÉ pasó y
+    // estas cifras dicen CUÁNTAS empresas hubo detrás. Las repeticiones entre rondas
+    // se muestran como tales y nunca se suman a las empresas únicas.
+    const breakdownRows =
+      noNewCandidatesBreakdown === null || noNewCandidatesBreakdown === undefined
+        ? []
+        : toNoNewCandidatesBreakdownRows(
+            buildNoNewCandidatesCompactBreakdown(noNewCandidatesBreakdown, {
+              candidatesCreatedCount: candidateCount ?? 0,
+            }),
+          );
+
     return (
       <div className="space-y-4 animate-su-fade-in" role="status">
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10">
@@ -234,13 +251,37 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
             className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
             aria-hidden
           />
-          <div className="space-y-1">
+          <div className="space-y-2">
             <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
               {resultCopy.heading ?? 'No encontramos empresas nuevas con estos criterios.'}
             </p>
             <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
               {noNewBody}
             </p>
+
+            {breakdownRows.length > 0 && (
+              <dl
+                className="mt-1 space-y-1 border-t border-amber-200 pt-2 dark:border-amber-800/40"
+                data-testid="wizard-no-new-candidates-breakdown"
+              >
+                {breakdownRows.map((row) => (
+                  <div key={row.key} className="space-y-0.5" data-testid={`wizard-no-new-candidates-row-${row.key}`}>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                      <dd
+                        className="text-xs font-semibold tabular-nums text-foreground"
+                        data-testid={`wizard-no-new-candidates-count-${row.key}`}
+                      >
+                        {row.count}
+                      </dd>
+                    </div>
+                    {row.hint !== null && (
+                      <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+                    )}
+                  </div>
+                ))}
+              </dl>
+            )}
           </div>
         </div>
         <div className="flex gap-2">

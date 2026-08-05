@@ -39,6 +39,78 @@ export type ApolloEffectiveRequestBuildStatus =
   | 'build_error'
   | 'legacy_checkpoint_missing';
 
+// ─── Decisión de página de la ronda 2 ─────────────────────────────────────────
+
+/**
+ * SCALE-SECOND-ROUND-FIX-1B § 1 — por qué la ronda 2 tuvo que pedir otra página.
+ *
+ *   `identical_effective_request`     el body efectivo colapsó al de la ronda 1
+ *                                    (defecto que cerró HARDENING-3).
+ *   `overlapping_effective_keywords`  los términos efectivos NO son idénticos pero
+ *                                    se solapan, así que la página 1 devuelve la
+ *                                    misma ventana de empresas. Es el defecto de la
+ *                                    corrida live `eae6d47f`: 5 créditos, 0 nuevas.
+ */
+export type ApolloRound2PageEscalationReason =
+  | 'identical_effective_request'
+  | 'overlapping_effective_keywords';
+
+/**
+ * § 1B — la decisión de página de la ronda 2, con su causa y su resultado.
+ *
+ * `null` en el resultado de la corrida significa que NADIE la tomó en este intento
+ * (no hubo ronda 2, o se recuperó de un checkpoint): nunca «se decidió la página 1».
+ */
+export type ApolloRound2PageDecision = {
+  /** Página que la ronda 2 pidió REALMENTE al proveedor. */
+  requestedPage: number;
+  /**
+   * De dónde salió esa página:
+   *
+   *   `first_page`                    la ronda 2 pidió la 1 porque su ventana ya era
+   *                                   otra (términos efectivos disjuntos).
+   *   `hypothesis_variant`            la propia hipótesis eligió la página 2 al no
+   *                                   tener variante de términos ni de región.
+   *   `effective_request_escalation`  la hipótesis pedía la 1 y ESTA decisión la
+   *                                   movió a la 2 al comparar los bodies efectivos.
+   */
+  pageSource: 'first_page' | 'hypothesis_variant' | 'effective_request_escalation';
+  /** True sólo cuando esta decisión movió la petición de la página 1 a la 2. */
+  escalatedToPage2: boolean;
+  /** Causa del salto, o `null` cuando la ronda 2 ya pedía algo genuinamente nuevo. */
+  escalationReason: ApolloRound2PageEscalationReason | null;
+  /** Términos efectivos compartidos con la ronda 1. Vacío ⇒ ventanas disjuntas. */
+  sharedEffectiveKeywords: string[];
+  /** `total_pages` que el proveedor declaró en la ronda 1. */
+  providerTotalPages: number | null;
+  /**
+   * Por qué el salto hacía falta y NO se pudo dar. Pedir una página que el
+   * proveedor no declara es pagar por una respuesta vacía, así que la corrida
+   * sigue en la página 1 y lo deja dicho en vez de esconderlo.
+   */
+  escalationBlockedReason:
+    | 'provider_total_pages_unknown'
+    | 'provider_declared_single_page'
+    | null;
+};
+
+/** § 1B — proyección sanitizada de la decisión. `null` ⇒ nadie la tomó. */
+export function toRound2PageDecisionMetadata(
+  decision: ApolloRound2PageDecision | null,
+): Record<string, unknown> | null {
+  if (decision === null) return null;
+  return {
+    requested_page: decision.requestedPage,
+    page_source: decision.pageSource,
+    escalated_to_page_2: decision.escalatedToPage2,
+    escalation_reason: decision.escalationReason,
+    shared_effective_keywords: decision.sharedEffectiveKeywords,
+    shared_effective_keyword_count: decision.sharedEffectiveKeywords.length,
+    provider_total_pages: decision.providerTotalPages,
+    escalation_blocked_reason: decision.escalationBlockedReason,
+  };
+}
+
 // ─── Ronda ────────────────────────────────────────────────────────────────────
 
 export type ApolloTwoRoundRoundMetrics = {

@@ -21,7 +21,10 @@ import {
   buildNoNewCandidatesBreakdown,
   buildNoNewCandidatesCompactBreakdown,
   resolveNoNewCandidatesCopy,
+  toNoNewCandidatesBreakdownRows,
   IDENTICAL_PROVIDER_REQUEST_AUDIT_NOTE,
+  NO_NEW_CANDIDATES_BREAKDOWN_LABELS,
+  REPEATED_ACROSS_ROUNDS_HINT,
   type NoNewCandidatesBreakdown,
 } from '../wizard-no-new-candidates-copy';
 
@@ -355,5 +358,113 @@ describe('§ 5 · desglose compacto para la UI', () => {
     assert.equal(compact.qualityRejectedCount, 2);
     assert.equal(compact.uniqueResultsCount, 0);
     assert.equal(compact.candidatesCreatedCount, 0);
+  });
+});
+
+// ─── § 3 (FIX-1B) · empresas únicas y filas que la UI pinta ───────────────────
+
+describe('§ 3 · empresas ÚNICAS, no resultados crudos', () => {
+  test('la cifra sale de run_metrics.total_unique_organizations', () => {
+    // Metadata de la corrida live `eae6d47f`: 10 resultados crudos, 5 únicas.
+    const breakdown = buildNoNewCandidatesBreakdown(
+      {
+        [OBSERVABILITY_KEY]: {
+          rounds: [
+            { duplicate_in_hubspot: 4, seen_duplicates: 0, country_rejected: 0 },
+            { duplicate_in_hubspot: 0, seen_duplicates: 5, country_rejected: 0 },
+          ],
+          run_metrics: { total_raw_results: 10, total_unique_organizations: 5 },
+        },
+      },
+      OBSERVABILITY_KEY,
+    );
+
+    assert.equal(breakdown.uniqueResultsCount, 5, 'cinco únicas, nunca diez');
+    assert.equal(breakdown.repeatedAcrossRoundsCount, 5);
+    assert.equal(breakdown.hubspotDuplicateCount, 4);
+  });
+
+  test('un metadata sin run_metrics deja la cifra en 0, no la inventa', () => {
+    const breakdown = buildNoNewCandidatesBreakdown(
+      { [OBSERVABILITY_KEY]: { rounds: [{ seen_duplicates: 2 }] } },
+      OBSERVABILITY_KEY,
+    );
+
+    assert.equal(breakdown.uniqueResultsCount, 0);
+  });
+
+  test('el desglose compacto toma las únicas del propio desglose si nadie las aporta', () => {
+    const compact = buildNoNewCandidatesCompactBreakdown(
+      { ...ZERO, uniqueResultsCount: 5, repeatedAcrossRoundsCount: 5 },
+      { candidatesCreatedCount: 0 },
+    );
+
+    assert.equal(compact.uniqueResultsCount, 5);
+    assert.equal(compact.repeatedAcrossRoundsCount, 5);
+    assert.notEqual(
+      compact.uniqueResultsCount,
+      compact.uniqueResultsCount + compact.repeatedAcrossRoundsCount,
+      'las repeticiones NUNCA se suman a las empresas únicas',
+    );
+  });
+
+  test('una cifra ausente no produce NaN en ninguna fila', () => {
+    const compact = buildNoNewCandidatesCompactBreakdown(ZERO, { candidatesCreatedCount: 0 });
+    for (const value of Object.values(compact)) {
+      assert.equal(Number.isFinite(value), true);
+    }
+  });
+});
+
+describe('§ 3 · filas del desglose para la UI', () => {
+  test('sólo se listan las causas que ocurrieron, con el marco siempre presente', () => {
+    const rows = toNoNewCandidatesBreakdownRows(
+      buildNoNewCandidatesCompactBreakdown(
+        { ...ZERO, uniqueResultsCount: 5, hubspotDuplicateCount: 4, repeatedAcrossRoundsCount: 5 },
+        { candidatesCreatedCount: 0 },
+      ),
+    );
+
+    assert.deepEqual(
+      rows.map((row) => row.key),
+      [
+        'uniqueResultsCount',
+        'hubspotDuplicateCount',
+        'repeatedAcrossRoundsCount',
+        'candidatesCreatedCount',
+      ],
+    );
+    assert.equal(rows.find((row) => row.key === 'uniqueResultsCount')?.count, 5);
+  });
+
+  test('la fila de repeticiones lleva su aclaración; ninguna otra la lleva', () => {
+    const rows = toNoNewCandidatesBreakdownRows(
+      buildNoNewCandidatesCompactBreakdown(
+        { ...ZERO, uniqueResultsCount: 5, cooldownCount: 1, repeatedAcrossRoundsCount: 5 },
+        { candidatesCreatedCount: 0 },
+      ),
+    );
+
+    assert.equal(
+      rows.find((row) => row.key === 'repeatedAcrossRoundsCount')?.hint,
+      REPEATED_ACROSS_ROUNDS_HINT,
+    );
+    for (const row of rows.filter((r) => r.key !== 'repeatedAcrossRoundsCount')) {
+      assert.equal(row.hint, null);
+    }
+  });
+
+  test('cada fila trae su etiqueta del catálogo compartido, no un texto propio', () => {
+    const rows = toNoNewCandidatesBreakdownRows(
+      buildNoNewCandidatesCompactBreakdown(
+        { ...ZERO, uniqueResultsCount: 3, sellupDuplicateCount: 2, qualityRejectedCount: 1 },
+        { candidatesCreatedCount: 0 },
+      ),
+    );
+
+    for (const row of rows) {
+      assert.equal(row.label, NO_NEW_CANDIDATES_BREAKDOWN_LABELS[row.key]);
+      assert.ok(row.label.trim().length > 0);
+    }
   });
 });
