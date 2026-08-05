@@ -5,7 +5,7 @@
  * POR QUÉ ESTE ARCHIVO EXISTE
  *
  * La suite hermana `phone-reveal-reservation-table-grants-migration.test.ts` lee la
- * migración 105 como TEXTO. Eso captura una migración mal escrita, pero no puede captar la
+ * migración 106 como TEXTO. Eso captura una migración mal escrita, pero no puede captar la
  * clase de defecto que este hito destapó: que `GRANT` sólo SUMA, así que un archivo que
  * "concede exactamente cuatro privilegios" puede dejar TRUNCATE intacto si el rol ya lo
  * tenía por el DEFAULT PRIVILEGES de Supabase. Ese error es invisible en el texto y obvio
@@ -26,13 +26,13 @@
  *     el esquema y no por la tabla, y la prueba pasaría por la razón equivocada;
  *   * `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES TO anon, authenticated, service_role`,
  *     que es lo que hace que toda tabla nueva de `public` NAZCA con los 8 privilegios;
- *   * las migraciones 102, 103 y 104 tal cual están en disco, y luego la 105.
+ *   * las migraciones 102, 103 y 104 tal cual están en disco, y luego la 106.
  *
  * QUÉ PRUEBA
  *
- *   1. que el arnés reproduce el AGUJERO: antes de la 105, `anon` y `authenticated` tienen
+ *   1. que el arnés reproduce el AGUJERO: antes de la 106, `anon` y `authenticated` tienen
  *      los 8 privilegios en las dos tablas (si esto fallara, todo lo demás pasaría vacío);
- *   2. la matriz completa después de la 105: los 8 privilegios × {PUBLIC, anon,
+ *   2. la matriz completa después de la 106: los 8 privilegios × {PUBLIC, anon,
  *      authenticated} = false, uno por uno, en las dos tablas;
  *   3. que `service_role` conserva EXACTAMENTE SELECT/INSERT/UPDATE/DELETE y ninguno de
  *      TRUNCATE/REFERENCES/TRIGGER/MAINTAIN;
@@ -41,12 +41,12 @@
  *      funciones SECURITY DEFINER de la 104;
  *   5. que `service_role` SÍ puede operar (SELECT/INSERT reales) y NO puede TRUNCATE;
  *   6. que las tres funciones de la 104 quedan intactas: `prosecdef`, dueño, `search_path`,
- *      ACL de EXECUTE y md5 del cuerpo, comparados ANTES y DESPUÉS de la 105;
+ *      ACL de EXECUTE y md5 del cuerpo, comparados ANTES y DESPUÉS de la 106;
  *   7. que la RLS queda intacta: activada, NO forzada, una sola política de `service_role`
  *      por tabla y cero políticas de `anon`/`authenticated`;
  *   8. idempotencia sobre los TRES estados que exige el hito: el relacl exacto de
  *      Producción tras la 104, uno parcialmente revocado y uno ya completamente endurecido;
- *   9. que la 105 no toca UNA SOLA FILA: se insertan filas reales en las dos tablas antes
+ *   9. que la 106 no toca UNA SOLA FILA: se insertan filas reales en las dos tablas antes
  *      de aplicarla y se comparan por hash de contenido después de cada reaplicación.
  *
  * NO llama a Apollo, ni a Lusha, ni a HubSpot; no lee un flag; no toca Producción ni
@@ -225,7 +225,7 @@ const relaclOf = (table: string) =>
     `SELECT COALESCE(c.relacl::text, '<null>') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname='public' AND c.relname='${table}'`,
   );
 
-/** Huella del CONTENIDO de una tabla: si la 105 tocara una fila, esto cambiaría. */
+/** Huella del CONTENIDO de una tabla: si la 106 tocara una fila, esto cambiaría. */
 const contentHashOf = (table: string) =>
   scalar<string>(
     `SELECT COALESCE(md5(string_agg(t::text, '|' ORDER BY t::text)), '<empty>') FROM public.${table} t`,
@@ -273,7 +273,7 @@ const restoreSupabaseDefaultGrants = async (table: string) => {
 // Arranque: reproducir Producción y aplicar 102 → 103 → 104
 // ═══════════════════════════════════════════════════════════════
 
-/** Estado capturado ANTES de la 105, para comparar contra el de después. */
+/** Estado capturado ANTES de la 106, para comparar contra el de después. */
 let beforeState: {
   relacl: Record<string, string>;
   content: Record<string, string>;
@@ -281,7 +281,7 @@ let beforeState: {
   anonPrivileges: Record<string, Record<string, boolean>>;
 } | null = null;
 
-describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessSkipReason }, () => {
+describe('106 — privilegios de tabla contra PostgreSQL real', { skip: harnessSkipReason }, () => {
   before(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'a2a-4h-pg-'));
     postgres = new EmbeddedPostgresCtor!({
@@ -319,7 +319,7 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
     await applyMigration('103_phone_reveal_waterfall_legacy_mode.sql');
     await applyMigration('104_phone_reveal_credit_reservations.sql');
 
-    // ── Filas reales, para poder demostrar que la 105 no las toca ──
+    // ── Filas reales, para poder demostrar que la 106 no las toca ──
     await client.query(`
       -- Dos candidatos: el primero lleva la corrida sembrada, el segundo existe para que
       -- la prueba positiva de service_role pueda INSERTAR una corrida sin chocar con el
@@ -384,7 +384,7 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
   // 0. El arnés reproduce el agujero (si no, todo lo demás pasa vacío)
   // ═════════════════════════════════════════════════════════════
 
-  describe('0 — línea base: el agujero existe antes de la 105', () => {
+  describe('0 — línea base: el agujero existe antes de la 106', () => {
     it('corre sobre PostgreSQL 17, la serie de Producción, donde MAINTAIN existe', async () => {
       const versionNum = Number(await scalar<string>(`SELECT current_setting('server_version_num')`));
       assert.ok(
@@ -394,7 +394,7 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
     });
 
     for (const table of TABLES) {
-      it(`antes de la 105, anon tiene los 8 privilegios en ${table}`, () => {
+      it(`antes de la 106, anon tiene los 8 privilegios en ${table}`, () => {
         const privileges = beforeState!.anonPrivileges[table];
         for (const privilege of TABLE_PRIVILEGES) {
           assert.equal(
@@ -405,7 +405,7 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
         }
       });
 
-      it(`antes de la 105, el relacl de ${table} es el observado en Producción`, () => {
+      it(`antes de la 106, el relacl de ${table} es el observado en Producción`, () => {
         for (const role of ['anon', 'authenticated', 'service_role']) {
           assert.match(
             beforeState!.relacl[table],
@@ -418,16 +418,16 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
   });
 
   // ═════════════════════════════════════════════════════════════
-  // 1. Aplicar la 105 y medir
+  // 1. Aplicar la 106 y medir
   // ═════════════════════════════════════════════════════════════
 
-  describe('1 — aplicación de la 105', () => {
+  describe('1 — aplicación de la 106', () => {
     it('la migración se aplica sin error sobre el estado exacto posterior a la 104', async () => {
-      await applyMigration('105_phone_reveal_reservation_table_grants.sql');
+      await applyMigration('106_phone_reveal_reservation_table_grants.sql');
     });
   });
 
-  describe('2 — matriz de privilegios tras la 105', () => {
+  describe('2 — matriz de privilegios tras la 106', () => {
     for (const table of TABLES) {
       for (const role of UNAUTHORIZED_ROLES) {
         for (const privilege of TABLE_PRIVILEGES) {
@@ -543,7 +543,7 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
   });
 
   // ═════════════════════════════════════════════════════════════
-  // 5. Lo que la 105 NO debía tocar
+  // 5. Lo que la 106 NO debía tocar
   // ═════════════════════════════════════════════════════════════
 
   describe('5 — funciones de la 104 intactas', () => {
@@ -610,22 +610,22 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
   // ═════════════════════════════════════════════════════════════
 
   describe('7 — idempotencia', () => {
-    it('estado YA ENDURECIDO: reaplicar la 105 converge en el mismo relacl', async () => {
+    it('estado YA ENDURECIDO: reaplicar la 106 converge en el mismo relacl', async () => {
       const before = { [TABLES[0]]: await relaclOf(TABLES[0]), [TABLES[1]]: await relaclOf(TABLES[1]) };
-      await applyMigration('105_phone_reveal_reservation_table_grants.sql');
+      await applyMigration('106_phone_reveal_reservation_table_grants.sql');
       for (const table of TABLES) {
         assert.equal(await relaclOf(table), before[table]);
       }
     });
 
-    it('estado PARCIAL: con un solo grant devuelto, la 105 vuelve a cerrarlo', async () => {
+    it('estado PARCIAL: con un solo grant devuelto, la 106 vuelve a cerrarlo', async () => {
       await client.query(
         `GRANT SELECT, TRUNCATE ON TABLE public.${TABLES[0]} TO anon;
          GRANT TRUNCATE ON TABLE public.${TABLES[1]} TO authenticated;`,
       );
       assert.equal((await privilegesOfRole('anon', TABLES[0])).TRUNCATE, true);
 
-      await applyMigration('105_phone_reveal_reservation_table_grants.sql');
+      await applyMigration('106_phone_reveal_reservation_table_grants.sql');
 
       for (const table of TABLES) {
         assert.deepEqual(await aclPrivilegesOfRole('anon', table), []);
@@ -633,13 +633,13 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
       }
     });
 
-    it('estado DE PRODUCCIÓN TRAS LA 104: la 105 lo endurece desde cero otra vez', async () => {
+    it('estado DE PRODUCCIÓN TRAS LA 104: la 106 lo endurece desde cero otra vez', async () => {
       for (const table of TABLES) {
         await restoreSupabaseDefaultGrants(table);
         assert.equal((await privilegesOfRole('authenticated', table)).TRUNCATE, true);
       }
 
-      await applyMigration('105_phone_reveal_reservation_table_grants.sql');
+      await applyMigration('106_phone_reveal_reservation_table_grants.sql');
 
       for (const table of TABLES) {
         for (const role of UNAUTHORIZED_ROLES) {
@@ -658,7 +658,7 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
       try {
         await client.query(`DROP TABLE public.${TABLES[0]} CASCADE`);
         await client.query(`DROP TABLE public.${TABLES[1]} CASCADE`);
-        await applyMigration('105_phone_reveal_reservation_table_grants.sql');
+        await applyMigration('106_phone_reveal_reservation_table_grants.sql');
       } finally {
         await client.query('ROLLBACK');
       }
@@ -669,9 +669,9 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
   // 8. Cero datos, cero forma
   // ═════════════════════════════════════════════════════════════
 
-  describe('8 — la 105 no tocó una sola fila ni una sola forma', () => {
+  describe('8 — la 106 no tocó una sola fila ni una sola forma', () => {
     for (const table of TABLES) {
-      it(`el contenido de ${table} es idéntico al de antes de la 105`, async () => {
+      it(`el contenido de ${table} es idéntico al de antes de la 106`, async () => {
         assert.equal(await contentHashOf(table), beforeState!.content[table]);
         assert.notEqual(
           beforeState!.content[table],
@@ -703,7 +703,7 @@ describe('105 — privilegios de tabla contra PostgreSQL real', { skip: harnessS
           FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
           WHERE n.nspname='public' AND c.relname='${table}'
         `);
-        assert.match(comment, /HARDENED IN 4H \(migration 105\)/);
+        assert.match(comment, /HARDENED IN 4H \(migration 106\)/);
       }
     });
   });

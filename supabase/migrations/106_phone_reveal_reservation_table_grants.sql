@@ -1,4 +1,4 @@
--- Migration 105: table-level privilege hardening of the phone reveal waterfall tables
+-- Migration 106: table-level privilege hardening of the phone reveal waterfall tables
 -- (Agente 2A · AGENT2A-PHONE-WATERFALL-4H)
 --
 -- SCOPE: the two tables of the waterfall authorization path —
@@ -140,7 +140,7 @@ DO $$
 BEGIN
   IF to_regclass('public.phone_reveal_credit_reservations') IS NULL THEN
     RAISE NOTICE
-      'migration 105: public.phone_reveal_credit_reservations does not exist; apply migration 104 first. Nothing to harden, exiting cleanly.';
+      'migration 106: public.phone_reveal_credit_reservations does not exist; apply migration 104 first. Nothing to harden, exiting cleanly.';
     RETURN;
   END IF;
 
@@ -177,7 +177,7 @@ BEGIN
   -- (Caught by the ephemeral-PostgreSQL run, not by inspection.)
   EXECUTE format(
     'COMMENT ON TABLE public.phone_reveal_credit_reservations IS %L',
-    $comment$AGENT2A-PHONE-WATERFALL-4E — one row per PROVIDER LEG of one phone reveal authorization, taken atomically BEFORE the run exists and BEFORE any provider call. Closes the concurrency hole of the per-provider budget model (budget_rules + provider_usage_logs have no reserved counter, so two authorizations read the same availability). A full waterfall reserves 8 against Apollo and 5 against Lusha as two rows in one reservation_group_id, all-or-nothing; there is no single pool that holds 13. A provider with no credit rule cannot be reserved against (limit_credits NOT NULL), so the waterfall refuses to start instead of running on an imaginary ceiling. PII-free by construction. HARDENED IN 4H (migration 105): table-level privileges are service_role-only — SELECT/INSERT/UPDATE/DELETE for service_role, nothing for PUBLIC/anon/authenticated, and TRUNCATE/REFERENCES/TRIGGER granted to nobody. RLS was never the only gate: TRUNCATE ignores policies entirely, and on this table erasing reserved rows would return all in-flight provider exposure at once. Reaching this table from the browser now requires BOTH a new policy AND a new grant.$comment$
+    $comment$AGENT2A-PHONE-WATERFALL-4E — one row per PROVIDER LEG of one phone reveal authorization, taken atomically BEFORE the run exists and BEFORE any provider call. Closes the concurrency hole of the per-provider budget model (budget_rules + provider_usage_logs have no reserved counter, so two authorizations read the same availability). A full waterfall reserves 8 against Apollo and 5 against Lusha as two rows in one reservation_group_id, all-or-nothing; there is no single pool that holds 13. A provider with no credit rule cannot be reserved against (limit_credits NOT NULL), so the waterfall refuses to start instead of running on an imaginary ceiling. PII-free by construction. HARDENED IN 4H (migration 106): table-level privileges are service_role-only — SELECT/INSERT/UPDATE/DELETE for service_role, nothing for PUBLIC/anon/authenticated, and TRUNCATE/REFERENCES/TRIGGER granted to nobody. RLS was never the only gate: TRUNCATE ignores policies entirely, and on this table erasing reserved rows would return all in-flight provider exposure at once. Reaching this table from the browser now requires BOTH a new policy AND a new grant.$comment$
   );
 END $$;
 
@@ -191,7 +191,7 @@ DO $$
 BEGIN
   IF to_regclass('public.phone_reveal_waterfall_runs') IS NULL THEN
     RAISE NOTICE
-      'migration 105: public.phone_reveal_waterfall_runs does not exist; apply migration 102 first. Nothing to harden, exiting cleanly.';
+      'migration 106: public.phone_reveal_waterfall_runs does not exist; apply migration 102 first. Nothing to harden, exiting cleanly.';
     RETURN;
   END IF;
 
@@ -208,6 +208,6 @@ BEGIN
 
   EXECUTE format(
     'COMMENT ON TABLE public.phone_reveal_waterfall_runs IS %L',
-    $comment$AGENT2A-PHONE-WATERFALL-1 — one row per authorized phone reveal that may span Apollo then Lusha. Groups both legs under a single human authorization, records per-provider attempt/outcome/cost separately (never a mixed total), and its lusha_attempted_at claim is what makes the Lusha leg run at most once across webhook / recovery cron / manual review. PII-free by construction: no phone, email, name, linkedin or provider contact id. Gated behind ENABLE_PHONE_REVEAL_WATERFALL (unset everywhere as of this migration). HARDENED IN 4H (migration 105): table-level privileges are service_role-only — SELECT/INSERT/UPDATE/DELETE for service_role, nothing for PUBLIC/anon/authenticated, and TRUNCATE/REFERENCES/TRIGGER granted to nobody. RLS was never the only gate: TRUNCATE ignores policies entirely, and erasing these rows would erase the at-most-once Lusha claims, so webhook, recovery cron and manual review could each pay for the same leg again. Reaching this table from the browser now requires BOTH a new policy AND a new grant.$comment$
+    $comment$AGENT2A-PHONE-WATERFALL-1 — one row per authorized phone reveal that may span Apollo then Lusha. Groups both legs under a single human authorization, records per-provider attempt/outcome/cost separately (never a mixed total), and its lusha_attempted_at claim is what makes the Lusha leg run at most once across webhook / recovery cron / manual review. PII-free by construction: no phone, email, name, linkedin or provider contact id. Gated behind ENABLE_PHONE_REVEAL_WATERFALL (unset everywhere as of this migration). HARDENED IN 4H (migration 106): table-level privileges are service_role-only — SELECT/INSERT/UPDATE/DELETE for service_role, nothing for PUBLIC/anon/authenticated, and TRUNCATE/REFERENCES/TRIGGER granted to nobody. RLS was never the only gate: TRUNCATE ignores policies entirely, and erasing these rows would erase the at-most-once Lusha claims, so webhook, recovery cron and manual review could each pay for the same leg again. Reaching this table from the browser now requires BOTH a new policy AND a new grant.$comment$
   );
 END $$;

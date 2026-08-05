@@ -1,5 +1,5 @@
 /**
- * Seguridad estática de supabase/migrations/105_phone_reveal_reservation_table_grants.sql
+ * Seguridad estática de supabase/migrations/106_phone_reveal_reservation_table_grants.sql
  * (Agente 2A · AGENT2A-PHONE-WATERFALL-4H).
  *
  * QUÉ CIERRA LA MIGRACIÓN QUE ESTE ARCHIVO PROTEGE
@@ -65,7 +65,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..', '..');
 const migrationsDir = join(repoRoot, 'supabase/migrations');
 
-const MIGRATION_FILE = '105_phone_reveal_reservation_table_grants.sql';
+const MIGRATION_FILE = '106_phone_reveal_reservation_table_grants.sql';
 const migrationSql = readFileSync(join(migrationsDir, MIGRATION_FILE), 'utf8');
 
 /**
@@ -104,10 +104,10 @@ const escaped = (table: string) => table.replace(/\./g, '\\.');
 // 1. Numeración
 // ═══════════════════════════════════════════════════════════════
 
-describe('105 — numeración única', () => {
-  it('ningún otro archivo de migración empieza por 105', () => {
+describe('106 — numeración única', () => {
+  it('ningún otro archivo de migración empieza por 106', () => {
     const conflicting = readdirSync(migrationsDir).filter(
-      (file) => file.startsWith('105') && file !== MIGRATION_FILE,
+      (file) => file.startsWith('106') && file !== MIGRATION_FILE,
     );
     assert.deepEqual(conflicting, []);
   });
@@ -121,7 +121,7 @@ describe('105 — numeración única', () => {
 // 2. REVOKE: los cuatro sujetos, en las dos tablas, ninguno olvidado
 // ═══════════════════════════════════════════════════════════════
 
-describe('105 — REVOKE ALL PRIVILEGES', () => {
+describe('106 — REVOKE ALL PRIVILEGES', () => {
   for (const table of TABLES) {
     for (const grantee of ['PUBLIC', 'anon', 'authenticated']) {
       it(`revoca todo a ${grantee} en ${table}`, () => {
@@ -170,7 +170,7 @@ describe('105 — REVOKE ALL PRIVILEGES', () => {
 // 3. GRANT: enumerado, nunca ALL
 // ═══════════════════════════════════════════════════════════════
 
-describe('105 — GRANT mínimo a service_role', () => {
+describe('106 — GRANT mínimo a service_role', () => {
   for (const table of TABLES) {
     it(`concede exactamente SELECT, INSERT, UPDATE, DELETE en ${table}`, () => {
       assert.match(
@@ -217,7 +217,7 @@ describe('105 — GRANT mínimo a service_role', () => {
 // 4. La RLS no se toca
 // ═══════════════════════════════════════════════════════════════
 
-describe('105 — RLS intacta', () => {
+describe('106 — RLS intacta', () => {
   it('no crea, borra ni altera ninguna política', () => {
     assert.doesNotMatch(sqlWithoutCommentLiteral, /\b(CREATE|DROP|ALTER)\s+POLICY\b/i);
   });
@@ -239,7 +239,7 @@ describe('105 — RLS intacta', () => {
 // 5. Alcance: dos tablas, cero datos, cero forma
 // ═══════════════════════════════════════════════════════════════
 
-describe('105 — alcance mínimo', () => {
+describe('106 — alcance mínimo', () => {
   /**
    * Las dos que cargan los mismos grants muertos y quedan fuera A PROPÓSITO, más las
    * vecinas que este hito no debe rozar. Que `phone_reveal_cache` siga aquí es
@@ -296,7 +296,7 @@ describe('105 — alcance mínimo', () => {
 // 6. Guarda e idempotencia
 // ═══════════════════════════════════════════════════════════════
 
-describe('105 — reaplicable y segura sin las tablas', () => {
+describe('106 — reaplicable y segura sin las tablas', () => {
   it('cada tabla tiene su propio bloque DO guardado', () => {
     const blocks = [...sqlWithoutCommentLiteral.matchAll(/DO \$\$/g)];
     assert.equal(blocks.length, TABLES.length);
@@ -343,7 +343,7 @@ describe('105 — reaplicable y segura sin las tablas', () => {
 // 7. Privacidad y secretos
 // ═══════════════════════════════════════════════════════════════
 
-describe('105 — PII-free y sin secretos', () => {
+describe('106 — PII-free y sin secretos', () => {
   /**
    * Sobre el SQL EJECUTABLE, no sobre el archivo completo: la cabecera declara en prosa
    * «no phone, email, name, LinkedIn URL», y esa frase es documentación del contrato, no

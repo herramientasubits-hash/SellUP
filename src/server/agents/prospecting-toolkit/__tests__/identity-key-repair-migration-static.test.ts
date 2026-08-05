@@ -51,12 +51,25 @@ const repairSql = statementsOnly(repair);
 const repairDdl = ddlOnly(repair);
 
 describe('§ 5 — la reparación va hacia adelante, no reescribe la historia', () => {
-  it('es posterior al máximo local y no renombra ni edita la 092', () => {
-    const numbers = readdirSync(MIGRATIONS_DIR)
+  it('es posterior a la 092, no comparte número y no la renombra ni la edita', () => {
+    const numberOf = (file: string) => Number.parseInt(file.slice(0, 3), 10);
+    const repairNumber = numberOf(REPAIR_FILE);
+
+    // Forward-only: la reparación va DESPUÉS de la 092, nunca en su lugar.
+    assert.ok(
+      repairNumber > numberOf(ORIGINAL_FILE),
+      'la reparación debe llevar un número posterior al de la 092',
+    );
+
+    // Su número es suyo: dos archivos con el mismo prefijo se aplicarían en un orden
+    // que depende del sistema de archivos. Se afirma la unicidad, NO que la reparación
+    // sea el máximo global: cualquier hito posterior añade migraciones más altas, y eso
+    // no dice nada sobre si esta reescribe la historia.
+    const sharingNumber = readdirSync(MIGRATIONS_DIR)
       .filter((f) => /^\d{3}_.*\.sql$/.test(f))
-      .map((f) => Number.parseInt(f.slice(0, 3), 10));
-    const max = Math.max(...numbers);
-    assert.equal(max, 105, 'la reparación debe ser la migración de número más alto');
+      .filter((f) => numberOf(f) === repairNumber && f !== REPAIR_FILE);
+    assert.deepEqual(sharingNumber, [], 'ninguna otra migración puede llevar ese número');
+
     // La 092 sigue existiendo y sigue siendo la de siempre.
     assert.match(original, /ADD COLUMN IF NOT EXISTS identity_key text/);
   });
