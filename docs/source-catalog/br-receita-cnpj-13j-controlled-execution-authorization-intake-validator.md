@@ -52,7 +52,14 @@ no code path in this module that reads completeness as permission.
 | **13I** | Supplies the handoff packet 13J always builds and embeds, verbatim, as `handoffPacket`. |
 
 13J re-implements none of 13A–13I's rules. It adds exactly one thing the chain did not have yet: a check
-over a **completed intake document**, with its own sixteen synthetic fixtures and its own findings.
+over a **completed intake document**, with its own seventeen synthetic fixtures and its own findings.
+
+> **Update (BR-SOURCE-14A):** a runtime gap was closed without changing any of the above. `reviewerRole`
+> was declared as a closed five-member union but never checked at runtime — an intake decision built from
+> anything other than this module's own literals could carry any string there. 14A added the
+> `INTAKE_REVIEWER_ROLE_INVALID` finding, the `invalid_reviewer_role` fixture (#17 below), and the
+> `isBrazilReceitaIntakeReviewerRole` runtime guard. See
+> [`br-receita-cnpj-14a-owner-authorization-closure-decision-record.md`](./br-receita-cnpj-14a-owner-authorization-closure-decision-record.md).
 
 ## Usage
 
@@ -72,7 +79,7 @@ Output goes to stdout only. No file is ever created.
 | --- | --- | --- |
 | `--fixture` | a BR-SOURCE-13C synthetic fixture name | yes |
 | `--decision` | `approve` \| `reject` \| `defer` | yes |
-| `--intake` | one of the sixteen BR-SOURCE-13J intake fixture names (below) | yes |
+| `--intake` | one of the seventeen BR-SOURCE-13J intake fixture names (below) | yes |
 | `--format` | `json` \| `markdown` | yes |
 | `--pretty` | none (indents JSON; ignored for Markdown) | no |
 
@@ -99,7 +106,7 @@ refused: this tool has nothing to run and nothing to sign.
 | `0` | A result was produced. Every result is `NO_GO`; a refusal is the artefact, not an error. |
 | `1` | The arguments were unusable. Nothing was produced, and the reason code is on stderr. |
 
-## The sixteen intake fixtures
+## The seventeen intake fixtures
 
 | # | `intakeFixture` | What it isolates |
 | --- | --- | --- |
@@ -119,6 +126,7 @@ refused: this tool has nothing to run and nothing to sign.
 | 14 | `inconsistent_agent1_without_runtime` | `AGENT1_AUTHORIZATION` accepted while `RUNTIME_AUTHORIZATION` never arrived. |
 | 15 | `placeholder_values` | A field still holds the `TBD_BY_OWNER` placeholder. |
 | 16 | `forbidden_content` | A field carries an absolute local path — unsafe content, refused rather than stored. |
+| 17 | `invalid_reviewer_role` | A `reviewerRole` outside the five recognized roles — added by BR-SOURCE-14A after this check was found missing at runtime. |
 
 Fixtures 2–10 use a **dependents-aware cascade**: when a decision is omitted, every decision structurally
 downstream of it (per the four consistency rules below) is omitted too, so a `missing_*` fixture reports
@@ -174,6 +182,7 @@ INTAKE_FIELD_PLACEHOLDER
 INTAKE_SCOPE_INVALID
 INTAKE_REQUIRED_ACK_MISSING
 INTAKE_FORBIDDEN_CONTENT
+INTAKE_REVIEWER_ROLE_INVALID
 ```
 
 `status` is the most severe category present, in this fixed precedence:
@@ -271,7 +280,7 @@ timestamp, so two runs are byte-identical, and both JSON and Markdown renderings
 
 | Path | Role |
 | --- | --- |
-| `src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-controlled-execution-authorization-intake-validator.ts` | Pure module: intake types, the sixteen fixtures, validation, JSON and Markdown rendering |
+| `src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-controlled-execution-authorization-intake-validator.ts` | Pure module: intake types, the seventeen fixtures, validation, JSON and Markdown rendering |
 | `scripts/source-catalog/br-receita-cnpj-controlled-execution-authorization-intake-validator.ts` | CLI: argument parsing, refusals, stdout output |
 | `src/server/source-catalog/connectors/br-receita-cnpj/__tests__/br-receita-cnpj-controlled-execution-authorization-intake-validator.test.ts` | Tests, including static import guards and 13A–13I regressions |
 | `docs/source-catalog/br-receita-cnpj-13i-controlled-execution-authorization-handoff-packet.md` | The upstream handoff packet this validation embeds |
