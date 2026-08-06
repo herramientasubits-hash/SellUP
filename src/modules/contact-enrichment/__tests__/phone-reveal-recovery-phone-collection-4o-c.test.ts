@@ -26,7 +26,10 @@ import {
   type RecoveryUsageLogEntry,
 } from '../phone-reveal-recovery-core';
 import type { ApolloPhoneRevealWebhookPayload } from '../phone-reveal-webhook-core';
-import { FakeCandidatePhoneStore } from './candidate-phone-collection-fake-store';
+import {
+  FakeCandidatePhoneStore,
+  observedTerminalState,
+} from './candidate-phone-collection-fake-store';
 
 const NOW = '2026-08-06T10:00:00.000Z';
 const RECOVERY_ID = '-4594297923800105423';
@@ -66,6 +69,12 @@ function harness(
     phoneProcessingBasis: 'legitimate_interest_b2b',
     ...options.candidate,
   };
+  // El doble y este fixture son EL MISMO candidato (ver la nota gemela en la suite
+  // del webhook): cada harness fija la fila del doble al estado que declara el
+  // fixture, para que el core y el almacén no discrepen sobre si está en vuelo.
+  store.registerCandidate(candidate.id, {
+    phoneRevealStatus: candidate.phoneRevealStatus,
+  });
 
   const deps: RecoverApolloPhoneRevealDeps = {
     nowIso: NOW,
@@ -93,6 +102,18 @@ function harness(
   return { store, patches, logs, deps };
 }
 
+/**
+ * El estado terminal con el que acabó el candidato, venga de la transacción
+ * (migración 110, el camino de Producción) o del parche secuencial (el camino sin
+ * la dep cableada). Las aserciones miran el RESULTADO, no el mecanismo.
+ */
+const terminal = (h: Harness) =>
+  observedTerminalState({
+    store: h.store,
+    candidateId: CANDIDATE_ID,
+    patches: h.patches.map((entry) => entry.patch),
+  });
+
 function recover(h: Harness) {
   return recoverApolloPhoneRevealForCandidate({ candidateId: CANDIDATE_ID }, h.deps);
 }
@@ -117,8 +138,8 @@ describe('4O-C recovery — captura completa', () => {
     assert.equal(result.phoneRevealed, true);
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 3);
     assert.equal(h.store.primaryOf(CANDIDATE_ID)?.displayPhone, MOBILE);
-    assert.equal(h.patches[0].patch.phone, MOBILE);
-    assert.equal(h.patches[0].patch.phone_revealed_at, NOW);
+    assert.equal(terminal(h).phone, MOBILE);
+    assert.equal(terminal(h).revealedAt, NOW);
     assert.equal(result.creditsUsed, 8);
   });
 
@@ -133,7 +154,7 @@ describe('4O-C recovery — captura completa', () => {
     await recover(h);
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 1);
     assert.equal(h.store.sourcesFor(CANDIDATE_ID).length, 1);
-    assert.equal(h.patches[0].patch.phone_reveal_cost_credits, 4);
+    assert.equal(terminal(h).costCredits, 4);
   });
 
   it('la procedencia queda marcada como recovery_poll, no como webhook', async () => {
@@ -158,7 +179,7 @@ describe('4O-C recovery — captura completa', () => {
     await recover(h);
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 2);
     assert.equal(h.store.primaryOf(CANDIDATE_ID)?.displayPhone, WORK);
-    assert.equal(h.patches[0].patch.phone, WORK);
+    assert.equal(terminal(h).phone, WORK);
   });
 
   it('sin sanitized pero con raw utilizable ⇒ se captura igualmente', async () => {
@@ -167,7 +188,7 @@ describe('4O-C recovery — captura completa', () => {
     });
     await recover(h);
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 1);
-    assert.equal(h.patches[0].patch.phone, '(555) 000-0001');
+    assert.equal(terminal(h).phone, '(555) 000-0001');
   });
 });
 
@@ -203,17 +224,35 @@ describe('4O-C recovery — idempotencia', () => {
     store.suppress(CANDIDATE_ID, key, '2026-08-06T11:00:00.000Z');
 
     const h = harness({ payload, store });
-    await recover(h);
+    const result = await recover(h);
     const tombstone = store.rowFor(CANDIDATE_ID, key)!;
     assert.notEqual(tombstone.suppressedAt, null);
     assert.equal(tombstone.normalizedPhone, null);
     assert.equal(tombstone.isPrimary, false);
     assert.equal(store.primaryOf(CANDIDATE_ID), null);
-    // Sin principal vivo el escalar cae al heredado: el número ya se pagó y el
-    // producto lo mostraba. El tombstone gobierna la COLECCIÓN, que es donde se
-    // registró la supresión.
-    assert.equal(h.patches[0].patch.phone, MOBILE);
+
+    // ⚠️ CAMBIO DE COMPORTAMIENTO DELIBERADO EN 4O-C-R1.
+    //
+    // Cuando TODOS los números del evento son tombstones, 4O-C terminalizaba el
+    // candidato y el escalar caía al número heredado — que en este escenario ES el
+    // número suprimido. Es decir: el tombstone bloqueaba la colección y el número
+    // reaparecía en el campo visible, que es exactamente lo que el tombstone existe
+    // para impedir.
+    //
+    // Ahora la transacción responde `suppressed` sin escribir nada y sin
+    // terminalizar. El candidato queda recuperable con 0 créditos y NINGÚN número
+    // suprimido vuelve a la vista.
+    //
+    // LÍMITE DECLARADO: un tombstone permanente hace que este poll se repita y
+    // cuente como `failed` en cada barrido, siempre a 0 créditos, hasta que alguien
+    // intervenga. Se elige eso antes que devolver a la vista un número borrado.
+    assert.equal(result.outcome, 'collection_persistence_unavailable');
+    assert.equal(result.phoneRevealed, false);
+    assert.equal(terminal(h).phone, null);
+    assert.notEqual(terminal(h).status, 'revealed');
     assert.equal(h.logs[0].metadata.phone_collection?.suppressed_skipped_count, 1);
+    assert.equal(h.logs[0].metadata.phone_collection?.persistence_status, 'suppressed');
+    assert.equal(h.logs[0].metadata.phone_collection?.candidate_terminalized, false);
   });
 });
 
@@ -235,7 +274,7 @@ describe('4O-C recovery — el writer falla', () => {
 
     assert.equal(result.outcome, 'collection_persistence_unavailable');
     assert.equal(result.phoneRevealed, false);
-    assert.equal(h.patches.length, 1);
+    assert.equal(terminal(h).writes, 1);
     // El ÚNICO campo tocado es la marca de verificación: nada terminal.
     assert.deepEqual(Object.keys(h.patches[0].patch), ['phone_reveal_last_checked_at']);
     assert.equal(store.livePhones(CANDIDATE_ID).length, 0);
@@ -353,7 +392,7 @@ describe('4O-C recovery — sin el writer cableado', () => {
     });
     const result = await recover(h);
     assert.equal(result.outcome, 'revealed');
-    assert.equal(h.patches[0].patch.phone, MOBILE);
+    assert.equal(terminal(h).phone, MOBILE);
     assert.equal(h.store.phones.length, 0);
     assert.equal('phone_collection' in h.logs[0].metadata, false);
   });
@@ -373,8 +412,8 @@ describe('4O-C recovery — contabilidad y privacidad', () => {
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 2);
     assert.equal(h.logs.length, 1);
     assert.equal(h.logs[0].creditsUsed, 8);
-    assert.equal(h.patches[0].patch.phone_reveal_cost_credits, 8);
-    assert.equal(h.patches[0].patch.phone_reveal_cost_source, 'reported');
+    assert.equal(terminal(h).costCredits, 8);
+    assert.equal(terminal(h).costSource, 'reported');
   });
 
   it('ni el usage-log ni el resultado contienen teléfono ni dedupe_key', async () => {
@@ -395,9 +434,11 @@ describe('4O-C recovery — contabilidad y privacidad', () => {
       assert.equal(serialized.includes(row.dedupeKey), false, 'sin dedupe_key');
     }
     assert.deepEqual(Object.keys(h.logs[0].metadata.phone_collection ?? {}).sort(), [
+      'candidate_terminalized',
       'canonical_phone_count',
       'collection_persisted',
       'duplicate_phone_count',
+      'persistence_status',
       'primary_persisted',
       'source_count',
       'suppressed_skipped_count',

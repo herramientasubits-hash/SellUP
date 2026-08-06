@@ -75,6 +75,12 @@ async function runWebhook(
     enrichmentMetadata: {},
     phoneRevealStatus: options.alreadyTerminal ? 'revealed' : 'requested',
   };
+  // El doble y el fixture son EL MISMO candidato: se sincronizan para que el core
+  // y el almacén no discrepen sobre si el reveal sigue en vuelo.
+  store.registerCandidate(CANDIDATE_ID, {
+    phoneRevealStatus: candidate.phoneRevealStatus,
+    phoneRevealRequestId: REQUEST_ID,
+  });
   return runApolloPhoneRevealWebhook(
     { tokenProvided: TOKEN, payload: PAYLOAD },
     {
@@ -108,6 +114,10 @@ async function runRecovery(
     enrichmentMetadata: {},
     phoneProcessingBasis: 'legitimate_interest_b2b',
   };
+  store.registerCandidate(CANDIDATE_ID, {
+    phoneRevealStatus: candidate.phoneRevealStatus,
+    phoneRevealRequestId: REQUEST_ID,
+  });
   return recoverApolloPhoneRevealForCandidate(
     { candidateId: CANDIDATE_ID },
     {
@@ -177,8 +187,8 @@ describe('4O-C cross-path — webhook y recovery convergen', () => {
     );
     assert.equal(store.primaryOf(CANDIDATE_ID)?.displayPhone, MOBILE);
     // El escalar es el mismo por los dos caminos.
-    assert.equal(trace.webhookPatches[0].phone, MOBILE);
-    assert.equal(trace.recoveryPatches[0].phone, MOBILE);
+    assert.equal(store.candidateOf(CANDIDATE_ID)?.phone, MOBILE);
+    assert.equal(store.candidateOf(CANDIDATE_ID)?.phone, MOBILE);
   });
 
   it('el mismo camino repetido no añade procedencias (idempotencia por evento)', async () => {
@@ -232,8 +242,8 @@ describe('4O-C cross-path — contabilidad', () => {
     for (const log of trace.logs) {
       assert.equal(log.creditsUsed, 8);
     }
-    assert.equal(trace.webhookPatches[0].phone_reveal_cost_credits, 8);
-    assert.equal(trace.recoveryPatches[0].phone_reveal_cost_credits, 8);
+    assert.equal(store.candidateOf(CANDIDATE_ID)?.phoneRevealCostCredits, 8);
+    assert.equal(store.candidateOf(CANDIDATE_ID)?.phoneRevealCostCredits, 8);
   });
 
   it('ninguna fila de la colección lleva costo', async () => {
@@ -271,8 +281,8 @@ describe('4O-C cross-path — tombstone', () => {
     assert.equal(tombstone.isPrimary, false);
     // El principal pasa al superviviente, y ambos caminos escriben ESE escalar.
     assert.equal(store.primaryOf(CANDIDATE_ID)?.displayPhone, DIRECT);
-    assert.equal(trace.recoveryPatches[0].phone, DIRECT);
-    assert.equal(trace.webhookPatches[0].phone, DIRECT);
+    assert.equal(store.candidateOf(CANDIDATE_ID)?.phone, DIRECT);
+    assert.equal(store.candidateOf(CANDIDATE_ID)?.phone, DIRECT);
   });
 });
 
@@ -298,7 +308,7 @@ describe('4O-C cross-path — convergencia tras un fallo del writer', () => {
     assert.equal(recovered.outcome, 'revealed');
     assert.equal(store.livePhones(CANDIDATE_ID).length, 2);
     assert.equal(store.primaryOf(CANDIDATE_ID)?.displayPhone, MOBILE);
-    assert.equal(trace.recoveryPatches[0].phone, MOBILE);
+    assert.equal(store.candidateOf(CANDIDATE_ID)?.phone, MOBILE);
   });
 
   it('en ningún instante hay escalar escrito con colección vacía', async () => {
@@ -355,7 +365,7 @@ describe('4O-C cross-path — coherencia escalar / principal', () => {
       );
       const primary = store.primaryOf(CANDIDATE_ID);
       assert.ok(primary, 'estos escenarios siempre dejan un principal');
-      assert.equal(patches[0].phone, primary.displayPhone);
+      assert.equal(store.candidateOf(CANDIDATE_ID)?.phone, primary.displayPhone);
     }
   });
 });

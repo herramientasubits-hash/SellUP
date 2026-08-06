@@ -163,6 +163,50 @@ describe('4O-C — créditos sin doble conteo estructural', () => {
     assert.equal(result.credits, 11);
   });
 
+  it('dos números DISTINTOS con IGUAL tipo, estado y crédito suman los dos', () => {
+    // 4O-C-R1. El caso más peligroso de toda la contabilidad: aquí lo ÚNICO que
+    // distingue los dos registros es el número. Si la firma estructural dejara de
+    // incluirlo —o lo normalizara hasta hacerlos iguales— las dos entradas se
+    // colapsarían en una y el total quedaría a la mitad, con un reveal de dos
+    // móviles contabilizado como uno. Las otras pruebas de este bloque no lo
+    // cubren: todas ellas difieren además en tipo o en crédito.
+    const result = capture({
+      phone_numbers: [
+        { sanitized_number: MOBILE, type_cd: 'mobile', status_cd: 'valid', credits_consumed: 4 },
+        { sanitized_number: DIRECT, type_cd: 'mobile', status_cd: 'valid', credits_consumed: 4 },
+      ],
+    });
+    assert.equal(result.credits, 8);
+    // Y son DOS filas canónicas: son dos números, no dos vistas de uno.
+    assert.equal(result.counters.canonical_phone_count, 2);
+    assert.equal(result.counters.duplicate_phone_count, 0);
+  });
+
+  it('el mismo número dos veces en UNA ubicación cuenta dos veces, en DOS ubicaciones una', () => {
+    // Las dos mitades de la regla, una al lado de la otra, porque es la asimetría
+    // que se rompe sola cuando alguien «simplifica» la deduplicación a por-número.
+    const entry = {
+      sanitized_number: MOBILE,
+      type_cd: 'mobile',
+      status_cd: 'valid',
+      credits_consumed: 4,
+    };
+    assert.equal(capture({ phone_numbers: [{ ...entry }, { ...entry }] }).credits, 8);
+    assert.equal(
+      capture({
+        phone_numbers: [{ ...entry }],
+        person: { phone_numbers: [{ ...entry }] },
+      }).credits,
+      4,
+    );
+    // En los dos casos la COLECCIÓN es una sola fila: la multiplicidad es un hecho
+    // del cobro, no del número.
+    assert.equal(
+      capture({ phone_numbers: [{ ...entry }, { ...entry }] }).counters.canonical_phone_count,
+      1,
+    );
+  });
+
   it('sin ningún credits_consumed ⇒ null (la ausencia de dato NO es cero)', () => {
     assert.equal(capture({ phone_numbers: [{ sanitized_number: MOBILE }] }).credits, null);
     assert.equal(sumApolloPhoneCreditsAcrossLocations([]), null);

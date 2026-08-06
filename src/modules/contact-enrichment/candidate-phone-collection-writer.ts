@@ -1,5 +1,5 @@
 // Agente 2A — Contrato del writer de la colección de teléfonos del candidato
-// (AGENT2A-PHONE-REVEAL-4O-C)
+// (AGENT2A-PHONE-REVEAL-4O-C · ámbito transaccional en 4O-C-R1)
 //
 // QUÉ ES. El tipo de la dependencia que persiste la colección canónica, más los
 // helpers PURos que la acompañan. Existe como módulo propio para que el webhook y
@@ -8,6 +8,18 @@
 //
 // Sin I/O: aquí solo viven tipos y funciones puras. La implementación real
 // (Supabase, service role) está en `candidate-phone-collection-persistence.ts`.
+//
+// ── QUÉ CAMBIÓ EN 4O-C-R1 ──────────────────────────────────────
+//
+// El writer ya no persiste SOLO la colección: persiste también el estado terminal
+// `revealed` del candidato, y lo hace en la MISMA transacción (migración 110). Por
+// eso la petición incorpora ahora `terminal`, y por eso el resultado dice si el
+// candidato quedó terminalizado — el caller ya no vuelve a escribirlo.
+//
+// El motivo de meter el parche terminal aquí, en vez de dejar dos escrituras
+// ordenadas, es que «ordenadas» solo hace inalcanzable el PEOR estado (escalar con
+// teléfono y colección vacía). Seguía siendo alcanzable un estado a medias: parte
+// de la colección escrita y ningún estado terminal. Ese estado ya no existe.
 //
 // PRIVACIDAD. `CandidatePhoneCollectionWriteRequest` lleva números — va al writer,
 // nunca a un log. `CandidatePhoneCollectionWriteResult` y
@@ -22,6 +34,76 @@ import type {
   PhoneType,
 } from '@/server/agents/contact-enrichment-toolkit/phone-classification';
 
+// ── Candidata a principal, con su escalar ya resuelto ──────────
+
+/**
+ * Una clave que PODRÍA quedar como principal, acompañada del escalar y del tipo
+ * que el candidato tendría si esa clave gana.
+ *
+ * POR QUÉ VIAJAN JUNTOS. El principal lo elige la base (es la única que sabe qué
+ * filas son tombstones), pero el escalar lo calcula la lógica pura. Si se pasaran
+ * por separado —una lista de claves y UN escalar— la base podría elegir la
+ * segunda clave y el escalar seguiría siendo el de la primera: exactamente la
+ * divergencia «principal MOBILE / escalar DIRECT» que este subsistema existe para
+ * impedir. Emparejando cada clave con SU escalar, la divergencia deja de ser
+ * posible: la base escribe el escalar de la clave que eligió, o ninguno.
+ */
+export interface CandidatePrimaryPhoneCandidate {
+  dedupeKey: string;
+  /** Texto que iría a `contact_enrichment_candidates.phone` si esta clave gana. */
+  phone: string;
+  phoneType: PhoneType;
+  rawType: string | null;
+}
+
+// ── Parche terminal `revealed` ─────────────────────────────────
+
+/**
+ * El estado terminal que la MISMA transacción escribe en el candidato.
+ *
+ * FORMA CERRADA a propósito. Un `Record<string, unknown>` genérico haría del
+ * writer un escritor de columnas arbitrarias; aquí cada campo es un campo que los
+ * dos caminos ya escriben hoy, con su misma semántica y sin ninguno nuevo.
+ *
+ * Los campos específicos de fase son `null` cuando esa fase no los escribe, y
+ * `null` significa «no toques la columna», no «ponla a null»: el webhook sella
+ * `webhookReceivedAt` y nunca `lastCheckedAt`, el recovery al revés, y sobrescribir
+ * el del otro afirmaría una operación que no ocurrió.
+ */
+export interface CandidateRevealTerminalPatch {
+  /** Fase que produjo el resultado. Decide qué fecha de fase se sella. */
+  phase: 'webhook' | 'recovery_poll';
+  /**
+   * Apollo async id que el candidato debe SEGUIR teniendo para que este resultado
+   * le pertenezca. El webhook lo pasa (es la columna por la que buscó el
+   * candidato); el recovery pasa null porque su id vive en la metadata del
+   * usage-log y no en la fila, y allí la guarda es el estado en vuelo.
+   */
+  expectedRequestId: string | null;
+  /**
+   * El teléfono que el camino HEREDADO habría escrito, con su tipo. Es el suelo
+   * del escalar: si ninguna candidata a principal resulta elegible, esto es lo que
+   * se guarda, idéntico a antes de 4O-C.
+   */
+  legacyPhone: string;
+  legacyPhoneType: PhoneType;
+  legacyRawType: string | null;
+  /** Instante del reveal. Ambas fases lo escriben. */
+  revealedAt: string;
+  completedAt: string;
+  /** Solo el webhook. null ⇒ la columna no se toca. */
+  webhookReceivedAt: string | null;
+  /** Solo el recovery. null ⇒ la columna no se toca. */
+  lastCheckedAt: string | null;
+  /** null es un VALOR: Apollo a menudo no reporta cifra. Siempre se escribe. */
+  costCredits: number | null;
+  costSource: 'reported' | 'unknown';
+  /** Solo el recovery lo fija. null ⇒ la columna no se toca. */
+  processingBasis: string | null;
+  /** Solo se escribe cuando es truthy; nunca fuerza ni sobrescribe con null. */
+  apolloPersonId: string | null;
+}
+
 // ── Petición ───────────────────────────────────────────────────
 
 export interface CandidatePhoneCollectionWriteRequest {
@@ -33,19 +115,48 @@ export interface CandidatePhoneCollectionWriteRequest {
    */
   phones: readonly CanonicalCandidatePhone[];
   /**
-   * Claves candidatas a principal EN ORDEN DE PREFERENCIA, ya filtradas a las
-   * elegibles por la lógica pura. El writer promueve la PRIMERA que no esté
-   * suprimida en la base y no elige por su cuenta: el ranking es una decisión de
-   * negocio y no puede vivir en la capa de I/O.
+   * Candidatas a principal EN ORDEN DE PREFERENCIA, ya filtradas a las elegibles
+   * por la lógica pura y cada una con su escalar resuelto. El writer promueve la
+   * PRIMERA que la base no declare tombstone y no elige por su cuenta: el ranking
+   * es una decisión de negocio y no puede vivir en la capa de I/O.
    */
-  primaryPreference: readonly string[];
+  primaryCandidates: readonly CandidatePrimaryPhoneCandidate[];
   /** ISO-8601 del evento. El writer no lee el reloj. */
   observedAt: string;
+  /**
+   * Estado terminal `revealed` a aplicar EN LA MISMA TRANSACCIÓN (4O-C-R1). El
+   * caller NO vuelve a escribir el candidato: si esto no se aplica, no se aplica
+   * nada.
+   */
+  terminal: CandidateRevealTerminalPatch;
 }
 
 // ── Resultado ──────────────────────────────────────────────────
 
+/**
+ * Qué hizo realmente la transacción. Vocabulario CERRADO y sin PII.
+ *
+ *   * `persisted`              — colección, principal y estado terminal escritos.
+ *   * `idempotent`             — el MISMO evento ya había cerrado (carrera
+ *     perdida contra otra transacción que hizo exactamente este trabajo). El
+ *     estado deseado ya está puesto; no se reescribió nada.
+ *   * `stale_event`            — el candidato ya está en otro estado terminal, o
+ *     ha pasado a otro request id. Este resultado no le pertenece: 0 escrituras.
+ *   * `candidate_not_eligible` — la fila del candidato no existe. 0 escrituras.
+ *   * `suppressed`             — TODOS los números del evento son tombstones. No
+ *     se escribe nada y el candidato NO se terminaliza: el escalar caería al
+ *     número heredado, que es uno de esos tombstones, y devolver a la vista un
+ *     número suprimido es justo lo que el tombstone impide.
+ */
+export type CandidatePhoneCollectionWriteStatus =
+  | 'persisted'
+  | 'idempotent'
+  | 'stale_event'
+  | 'candidate_not_eligible'
+  | 'suppressed';
+
 export interface CandidatePhoneCollectionWriteResult {
+  status: CandidatePhoneCollectionWriteStatus;
   /** Filas canónicas creadas por primera vez. */
   inserted_phone_count: number;
   /** Filas canónicas ya existentes que se refrescaron (last_seen_at, tipo, estado). */
@@ -65,6 +176,14 @@ export interface CandidatePhoneCollectionWriteResult {
    * escalar y colección no puedan discrepar.
    */
   primary_dedupe_key: string | null;
+  /** true si la colección acabó con un principal vivo marcado en la base. */
+  primary_persisted: boolean;
+  /**
+   * true si el candidato quedó en `revealed` DENTRO de esta transacción. Cuando es
+   * true el caller NO debe volver a escribir el candidato: ya está escrito, y
+   * repetirlo solo abriría la ventana que esta transacción cierra.
+   */
+  candidate_terminalized: boolean;
 }
 
 /** Firma de la dependencia inyectada. Debe LANZAR si no puede completar. */
@@ -83,6 +202,15 @@ export interface CandidatePhoneCollectionLogFields {
   suppressed_skipped_count: number;
   /** true si la colección acabó con un principal vivo. */
   primary_persisted: boolean;
+  /**
+   * Veredicto CERRADO de la transacción (4O-C-R1). Es lo que hace observable en
+   * `provider_usage_logs` la diferencia entre «escrito», «ya estaba» y «no me
+   * pertenecía», sin que ninguna de las tres necesite un número para explicarse.
+   * Ausente cuando no hubo escritura que describir.
+   */
+  persistence_status?: CandidatePhoneCollectionWriteStatus;
+  /** true si el candidato quedó terminalizado dentro de la misma transacción. */
+  candidate_terminalized: boolean;
 }
 
 /**
@@ -103,7 +231,9 @@ export function describeCandidatePhoneCollectionWrite(args: {
     source_count: args.sourceCount,
     duplicate_phone_count: args.duplicatePhoneCount,
     suppressed_skipped_count: args.result?.suppressed_skipped_count ?? 0,
-    primary_persisted: Boolean(args.result?.primary_dedupe_key),
+    primary_persisted: args.result?.primary_persisted ?? false,
+    ...(args.result ? { persistence_status: args.result.status } : {}),
+    candidate_terminalized: args.result?.candidate_terminalized ?? false,
   };
 }
 
@@ -186,4 +316,41 @@ export function resolvePrimaryPhoneForCandidate(args: {
     type: primary?.phoneType ?? 'unknown',
     raw_type: primary?.sources[0]?.rawProviderType ?? null,
   };
+}
+
+/**
+ * Empareja cada clave candidata a principal con el escalar que el candidato
+ * tendría si ESA clave gana (AGENT2A-PHONE-REVEAL-4O-C-R1).
+ *
+ * Es la forma de que la elección del principal pueda ocurrir DENTRO de la
+ * transacción —donde se conoce el estado de los tombstones— sin que la lógica de
+ * negocio se mude a SQL. Cada entrada se resuelve con la MISMA
+ * `resolvePrimaryPhoneForCandidate` que el camino usaba antes, así que el escalar
+ * no cambia de regla: solo se calcula para todas las opciones en vez de para una,
+ * y la transacción escribe el de la que efectivamente eligió.
+ *
+ * Nunca devuelve una entrada sin número: una candidata cuyo escalar no se puede
+ * resolver no podría ser principal de todas formas.
+ */
+export function buildCandidatePrimaryPhoneCandidates(args: {
+  phones: readonly CanonicalCandidatePhone[];
+  primaryPreference: readonly string[];
+  legacy: ClassifiedPhone;
+}): readonly CandidatePrimaryPhoneCandidate[] {
+  return args.primaryPreference.flatMap((dedupeKey) => {
+    const resolved = resolvePrimaryPhoneForCandidate({
+      phones: args.phones,
+      primaryDedupeKey: dedupeKey,
+      legacy: args.legacy,
+    });
+    if (!resolved.number) return [];
+    return [
+      {
+        dedupeKey,
+        phone: resolved.number,
+        phoneType: resolved.type,
+        rawType: resolved.raw_type,
+      },
+    ];
+  });
 }

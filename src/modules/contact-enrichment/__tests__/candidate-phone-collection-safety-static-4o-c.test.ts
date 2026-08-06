@@ -127,10 +127,28 @@ describe('4O-C — alcance: superficies fuera de contrato', () => {
   it('ninguna fila de la colección lleva una columna de costo', () => {
     // El dinero vive en la reserva, la corrida y el usage-log. Una segunda
     // contabilidad por número sería una cifra que nadie cobró.
+    //
+    // 4O-C-R1: `phone_reveal_cost_credits` / `_cost_source` SÍ aparecen ahora en
+    // este archivo, porque la misma transacción escribe el estado terminal del
+    // CANDIDATO — que es donde esas columnas ya vivían antes del hito. Lo prohibido
+    // sigue siendo idéntico: una columna de costo en una fila de TELÉFONO. Por eso
+    // la guarda se aplica al payload de la colección, no al archivo entero.
     const code = executable(sources[PERSISTENCE]);
+    const phonePayload = code.slice(
+      code.indexOf('const phones = request.phones.map'),
+      code.indexOf('const params = {'),
+    );
+    assert.ok(phonePayload.length > 0, 'el payload de la colección debe ser localizable');
     for (const forbidden of ['cost_credits', 'cost_usd', 'credits_consumed', 'credits:']) {
-      assert.equal(code.includes(forbidden), false, `sin ${forbidden} en la fila`);
+      assert.equal(
+        phonePayload.includes(forbidden),
+        false,
+        `sin ${forbidden} en la fila de teléfono`,
+      );
     }
+    // Y ninguna de las dos tablas de la 109 recibe una columna de costo por su
+    // nombre en ningún punto del archivo.
+    assert.equal(/candidate_phone[a-z_]*\s*:\s*\{[^}]*cost/i.test(code), false);
   });
 });
 
@@ -138,24 +156,62 @@ describe('4O-C — alcance: superficies fuera de contrato', () => {
 // Sin migración y sin backfill
 // ═══════════════════════════════════════════════════════════════════
 
-describe('4O-C — sin migración y sin backfill', () => {
-  it('no añade ninguna migración: 109 sigue siendo la última', () => {
-    const migrations = readdirSync(join(repoRoot, 'supabase/migrations'))
+describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
+  const migrations = () =>
+    readdirSync(join(repoRoot, 'supabase/migrations'))
       .filter((file) => /^\d+.*\.sql$/.test(file))
       .sort();
-    const last = migrations[migrations.length - 1];
-    assert.equal(last, '109_contact_enrichment_candidate_phones.sql');
-    // Y ninguna migración 110+ existe.
+
+  it('añade la 110 y ninguna más: 111+ no existe', () => {
+    // 4O-C no podía añadir migración y por eso su persistencia no era
+    // transaccional. 4O-C-R1 añade UNA —la función de la 110— y esta guarda pasa de
+    // «ninguna» a «exactamente esa»: sigue siendo una guarda, no una puerta abierta.
+    const files = migrations();
+    assert.equal(files[files.length - 1], '110_persist_candidate_apollo_phone_reveal_result.sql');
+    assert.ok(files.includes('109_contact_enrichment_candidate_phones.sql'));
     assert.equal(
-      migrations.some((file) => /^1[1-9]\d/.test(file)),
+      files.some((file) => /^1(1[1-9]|[2-9]\d)/.test(file)),
       false,
+      'ninguna migración 111 o superior',
     );
   });
 
-  it('la persistencia no reescribe la migración 109 ni crea SQL suelto', () => {
+  it('la 110 no crea, altera ni borra ninguna tabla: solo una función', () => {
+    const sql = readFileSync(
+      join(repoRoot, 'supabase/migrations/110_persist_candidate_apollo_phone_reveal_result.sql'),
+      'utf8',
+    );
+    const statements = sql
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n');
+    for (const forbidden of [
+      'CREATE TABLE',
+      'ALTER TABLE',
+      'DROP TABLE',
+      'CREATE INDEX',
+      'CREATE TRIGGER',
+      'TRUNCATE',
+    ]) {
+      assert.equal(
+        new RegExp(forbidden, 'i').test(statements),
+        false,
+        `la 110 no debe contener ${forbidden}`,
+      );
+    }
+  });
+
+  it('la persistencia no arma SQL: invoca la función de la 110 y nada más', () => {
     const code = executable(sources[PERSISTENCE]);
     assert.equal(/CREATE TABLE|ALTER TABLE|DROP TABLE|CREATE INDEX/i.test(code), false);
-    assert.equal(/\.rpc\(/.test(code), false, 'no invoca funciones SQL nuevas');
+    // Exactamente UNA llamada, y a la función nombrada por su constante.
+    assert.equal((code.match(/\.rpc\(/g) ?? []).length, 1, 'exactamente una llamada RPC');
+    assert.match(code, /PERSIST_CANDIDATE_APOLLO_PHONE_REVEAL_RESULT_FN/);
+    // Y ya no queda NINGUNA escritura suelta: eso es lo que hace la transacción
+    // posible. Un `.insert()` sobreviviente sería un write fuera de ella.
+    for (const write of ['.insert(', '.update(', '.upsert(', '.delete(']) {
+      assert.equal(code.includes(write), false, `sin ${write} fuera de la transacción`);
+    }
   });
 
   it('no hay backfill: nada recorre históricos ni reconstruye el pasado', () => {
@@ -163,16 +219,57 @@ describe('4O-C — sin migración y sin backfill', () => {
       const code = executable(sources[file]);
       assert.equal(/backfill/i.test(code), false, `${file} sin backfill`);
     }
-    // La persistencia solo lee las filas DEL candidato que está escribiendo.
+    // La persistencia solo habla de UN candidato: el que está escribiendo.
     const code = executable(sources[PERSISTENCE]);
-    const selects = [...code.matchAll(/\.select\([^)]*\)/g)];
-    assert.ok(selects.length > 0);
-    assert.match(code, /\.eq\('candidate_id', request\.candidateId\)/);
+    assert.match(code, /p_candidate_id: request\.candidateId/);
+    // Y la función SQL toca UN candidato: el del parámetro. Se mira el SQL
+    // EJECUTABLE, no los comentarios — que sí usan la palabra «backfill», porque
+    // explicar por qué no hay backfill exige nombrarlo.
+    const sql = readFileSync(
+      join(repoRoot, 'supabase/migrations/110_persist_candidate_apollo_phone_reveal_result.sql'),
+      'utf8',
+    );
+    const statements = sql
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n');
+    assert.equal(/backfill/i.test(statements), false, 'sin backfill en el SQL ejecutable');
+    // Cada escritura está acotada al candidato o a una fila suya por id.
+    assert.match(statements, /WHERE c\.id = p_candidate_id\s*\n\s*FOR UPDATE/);
+    assert.match(statements, /UPDATE public\.contact_enrichment_candidates[\s\S]*WHERE id = p_candidate_id/);
+    // Ningún UPDATE de la tabla canónica sin acotar a este candidato o a una fila.
+    for (const clause of [...statements.matchAll(/UPDATE public\.contact_enrichment_candidate_phones[\s\S]{0,400}?;/g)]) {
+      assert.ok(
+        /candidate_id = p_candidate_id|id = v_primary_id/.test(clause[0]),
+        'todo UPDATE de teléfonos queda acotado al candidato',
+      );
+    }
   });
 
-  it('no se concede a sí misma un DELETE que la migración le niega', () => {
-    const code = executable(sources[PERSISTENCE]);
-    assert.equal(/\.delete\(\)/.test(code), false, 'borrar una fila borra un tombstone');
+  it('la 110 no se concede el DELETE ni el UPDATE que la 109 le niega', () => {
+    const sql = readFileSync(
+      join(repoRoot, 'supabase/migrations/110_persist_candidate_apollo_phone_reveal_result.sql'),
+      'utf8',
+    );
+    const statements = sql
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n');
+    // SECURITY INVOKER es lo que mantiene el techo de la 109 en pie: la función no
+    // puede borrar una fila de teléfono (borrar una fila borra un tombstone) ni
+    // reescribir una procedencia.
+    assert.match(statements, /SECURITY INVOKER/);
+    assert.equal(/SECURITY DEFINER/.test(statements), false);
+    assert.equal(
+      /DELETE FROM public\.contact_enrichment_candidate_phones/i.test(statements),
+      false,
+      'borrar una fila borra un tombstone',
+    );
+    assert.equal(
+      /UPDATE public\.contact_enrichment_candidate_phone_sources/i.test(statements),
+      false,
+      'una procedencia que su writer puede reescribir no es procedencia',
+    );
   });
 });
 

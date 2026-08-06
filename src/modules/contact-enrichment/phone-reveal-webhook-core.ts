@@ -42,6 +42,7 @@ import {
   type ApolloPhoneCollectionCapture,
 } from './apollo-phone-collection-capture';
 import {
+  buildCandidatePrimaryPhoneCandidates,
   describeCandidatePhoneCollectionWrite,
   resolvePrimaryPhoneForCandidate,
   type CandidatePhoneCollectionLogFields,
@@ -863,24 +864,61 @@ export async function runApolloPhoneRevealWebhook(
       return { httpStatus: 200, outcome: 'blocked_suppressed' };
     }
 
-    // ── 4O-C — COLECCIÓN COMPLETA ────────────────────────────────
-    // Se escribe ANTES del candidato, y ese orden es la garantía: si la
-    // colección no se puede guardar, el escalar tampoco se escribe y el estado
-    // prohibido «teléfono visible sin colección» no llega a existir. Sin la dep
-    // cableada este bloque no hace nada y el camino queda como antes del hito.
+    // ── 4O-C-R1 — COLECCIÓN Y ESTADO TERMINAL, EN UNA TRANSACCIÓN ──
+    // Ya no es «la colección antes del candidato»: es LO MISMO, en una sola
+    // transacción (migración 110). El estado prohibido «teléfono visible sin
+    // colección» sigue siendo inalcanzable, y además desaparece el estado a
+    // medias que el orden por sí solo no impedía —parte de la colección escrita y
+    // ningún estado terminal—. Sin la dep cableada este bloque no hace nada y el
+    // camino queda como antes del hito.
     let collection: CandidatePhoneCollectionWriteResult | null = null;
     if (deps.persistCandidatePhoneCollection && capture.phones.length > 0) {
       try {
         collection = await deps.persistCandidatePhoneCollection({
           candidateId: candidate.id,
           phones: capture.phones,
-          primaryPreference: capture.primaryPreference,
+          // Cada candidata a principal viaja con SU escalar ya resuelto, para que
+          // la transacción escriba el número de la clave que efectivamente elija
+          // y no el de otra (candidate-phone-collection-writer.ts).
+          primaryCandidates: buildCandidatePrimaryPhoneCandidates({
+            phones: capture.phones,
+            primaryPreference: capture.primaryPreference,
+            legacy: best,
+          }),
           observedAt: deps.nowIso,
+          terminal: {
+            phase: 'webhook',
+            // El candidato tiene que SEGUIR apuntando a este request id: es la
+            // columna por la que se buscó, y comprobarla otra vez ya bajo el
+            // bloqueo es lo que impide que un callback de un reveal superado
+            // aterrice sobre uno nuevo.
+            expectedRequestId: requestId,
+            legacyPhone: best.number,
+            legacyPhoneType: best.type,
+            legacyRawType: best.raw_type,
+            revealedAt: deps.nowIso,
+            completedAt: deps.nowIso,
+            webhookReceivedAt: deps.nowIso,
+            // El webhook no sella `last_checked_at`: no hubo poll.
+            lastCheckedAt: null,
+            costCredits: credits,
+            costSource: resolveWebhookCostSource(credits),
+            // El webhook nunca ha escrito la base de tratamiento; sigue sin
+            // hacerlo (null ⇒ la columna no se toca).
+            processingBasis: null,
+            apolloPersonId: apolloPersonId,
+          },
         });
       } catch {
-        // Fail-closed y SIN ruido con PII: el writer ya propagó el error de la
-        // base, que describe la operación y no el dato. No se persiste nada del
-        // candidato, así que sigue en vuelo y recuperable con 0 créditos.
+        // Silencio deliberado: el writer ya propagó el error de la base, que
+        // describe la operación y no el dato, y volver a formatearlo aquí solo
+        // podría añadir PII. `collection` sigue null ⇒ camino fail-closed.
+      }
+      // Fail-closed también cuando la RPC respondió sin terminalizar: `suppressed`
+      // (todos los números son tombstones), `stale_event` (el candidato ya cerró o
+      // pasó a otro request id) y `candidate_not_eligible` escriben 0 filas, así
+      // que tratarlas como éxito dejaría un `revealed` que nadie escribió.
+      if (!collection?.candidate_terminalized) {
         await deps.logUsage({
           operationKey: PHONE_REVEAL_OPERATION_KEY,
           provider: 'apollo',
@@ -900,8 +938,10 @@ export async function runApolloPhoneRevealWebhook(
             phone_revealed: false,
             phone_type: null,
             credits_used: credits,
+            // Con `collection` presente, `persistence_status` distingue en el log
+            // «no se pudo escribir» de «no me pertenecía» sin necesitar un número.
             phone_collection: describeCandidatePhoneCollectionWrite({
-              result: null,
+              result: collection,
               duplicatePhoneCount: capture.counters.duplicate_phone_count,
               canonicalPhoneCount: capture.counters.canonical_phone_count,
               sourceCount: capture.counters.source_count,
@@ -920,6 +960,12 @@ export async function runApolloPhoneRevealWebhook(
     // El escalar sale del principal que la base dejó REALMENTE marcado, no de la
     // preferencia enviada: si un tombstone tumbó la primera opción, el escalar
     // sigue al principal superviviente en vez de contradecirlo.
+    //
+    // Cuando la transacción terminalizó el candidato, este valor NO se vuelve a
+    // escribir: se recalcula aquí, con la MISMA función pura que alimentó el
+    // payload, únicamente para la caché y para la etiqueta de tipo del usage-log.
+    // Coinciden por construcción — la transacción escribió el escalar de la clave
+    // que eligió, y `primary_dedupe_key` es esa clave.
     const primary = resolvePrimaryPhoneForCandidate({
       phones: capture.phones,
       primaryDedupeKey: collection?.primary_dedupe_key ?? null,
@@ -947,24 +993,36 @@ export async function runApolloPhoneRevealWebhook(
       source: 'apollo_reveal',
       raw_type: revealed.raw_type,
     };
-    const patch: WebhookRevealPersistencePatch = {
-      phone: revealed.number,
-      enrichment_metadata: {
-        ...candidate.enrichmentMetadata,
-        phone: phoneMetadata,
-      },
-      phone_reveal_status: 'revealed',
-      phone_reveal_completed_at: deps.nowIso,
-      phone_reveal_webhook_received_at: deps.nowIso,
-      phone_reveal_provider: PHONE_REVEAL_PROVIDER,
-      // ÚNICO camino que revela: es el que fecha la revelación (§ 6).
-      phone_revealed_at: deps.nowIso,
-      phone_reveal_cost_credits: credits,
-      phone_reveal_cost_source: resolveWebhookCostSource(credits),
-      phone_reveal_error_code: null,
-      apollo_person_id: apolloPersonId,
-    };
-    await deps.persist(candidate.id, patch);
+    // 4O-C-R1: el candidato solo se escribe AQUÍ cuando la transacción no lo hizo,
+    // es decir cuando la dep de la colección no está cableada. En Producción SÍ lo
+    // está —la ruta del webhook y las deps del recovery la pasan sin flag— así que
+    // este parche es el camino de antes del hito, conservado para que un caller que
+    // no cablea la colección siga comportándose exactamente como siempre.
+    //
+    // NO es un fallback de la transacción: si la RPC falla o no terminaliza, el
+    // bloque de arriba ya salió por `collection_persistence_unavailable` y nunca se
+    // llega hasta aquí. Escribir el candidato después de una transacción fallida
+    // sería justo la persistencia parcial que este hito elimina.
+    if (!collection?.candidate_terminalized) {
+      const patch: WebhookRevealPersistencePatch = {
+        phone: revealed.number,
+        enrichment_metadata: {
+          ...candidate.enrichmentMetadata,
+          phone: phoneMetadata,
+        },
+        phone_reveal_status: 'revealed',
+        phone_reveal_completed_at: deps.nowIso,
+        phone_reveal_webhook_received_at: deps.nowIso,
+        phone_reveal_provider: PHONE_REVEAL_PROVIDER,
+        // ÚNICO camino que revela: es el que fecha la revelación (§ 6).
+        phone_revealed_at: deps.nowIso,
+        phone_reveal_cost_credits: credits,
+        phone_reveal_cost_source: resolveWebhookCostSource(credits),
+        phone_reveal_error_code: null,
+        apollo_person_id: apolloPersonId,
+      };
+      await deps.persist(candidate.id, patch);
+    }
     // Caché (APOLLO-PHONE-CACHE-1b): solo tras persistir el reveal, solo con
     // teléfono, y best-effort. Sin person id válido / cuenta / país ISO-2 la
     // propia decisión de escritura lo descarta con un motivo mecánico.

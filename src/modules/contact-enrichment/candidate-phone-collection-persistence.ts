@@ -1,206 +1,155 @@
-// Agente 2A — Escritura REAL de la colección de teléfonos del candidato
-// (AGENT2A-PHONE-REVEAL-4O-C)
+// Agente 2A — Escritura TRANSACCIONAL del resultado `revealed` de Apollo
+// (AGENT2A-PHONE-REVEAL-4O-C · transaccional en 4O-C-R1)
 //
 // Implementación server-only del contrato `PersistCandidatePhoneCollection`
-// (candidate-phone-collection-writer.ts) sobre las dos tablas de la migración
-// 109. Es el ÚNICO sitio del repositorio que escribe en ellas: el webhook y el
-// recovery la inyectan, y ninguno de los dos arma SQL por su cuenta.
+// (candidate-phone-collection-writer.ts). Es el ÚNICO sitio del repositorio que
+// escribe la colección de teléfonos: el webhook y el recovery la inyectan, y
+// ninguno de los dos arma SQL por su cuenta.
 //
-// ── POR QUÉ NO HAY UNA TRANSACCIÓN ─────────────────────────────
+// ── UNA TRANSACCIÓN, UNA LLAMADA ───────────────────────────────
 //
-// Dicho sin adornos: esta escritura NO es una transacción de base de datos. El
-// cliente de Supabase habla PostgREST, que no expone BEGIN/COMMIT, y el
-// repositorio no tiene ninguna función SQL reutilizable que cubra este caso — la
-// única forma de conseguir atomicidad real sería una función nueva, es decir una
-// migración nueva, que este hito no está autorizado a crear.
+// 4O-C escribía aquí cuatro cosas en secuencia (filas canónicas, procedencias,
+// principal, y después el caller tocaba el candidato). Ordenarlas hacía
+// inalcanzable el PEOR estado —escalar con teléfono y colección vacía— pero no
+// hacía inalcanzable un estado a medias, y «el siguiente poll gratuito lo
+// completa» es una promesa sobre un evento futuro, no una propiedad de este.
 //
-// Lo que se hace en su lugar NO es «la misma secuencia sin transacción y a ver
-// qué pasa». Las tres propiedades que sí se garantizan, y que son las que el
-// contrato pedía:
+// Desde 4O-C-R1 este módulo hace EXACTAMENTE UNA llamada: la función
+// `persist_candidate_apollo_phone_reveal_result` de la migración 110, que bloquea
+// el candidato y escribe las cuatro cosas en una sola transacción de PostgreSQL.
+// Este archivo ya no contiene ni un `.insert()`, ni un `.update()`, ni un
+// `.select()`: solo prepara el payload, llama, e interpreta la respuesta.
 //
-//   1. ORDEN. La colección se escribe ANTES de que el caller toque el candidato.
-//      El estado prohibido —escalar con teléfono y colección vacía— es por tanto
-//      inalcanzable: si esta función no termina, el caller aborta y el candidato
-//      ni siquiera pasa a terminal.
-//   2. IDEMPOTENCIA. Cada paso converge al repetirse: las filas canónicas se
-//      insertan o refrescan por (candidate_id, dedupe_key), las procedencias se
-//      insertan con ON CONFLICT DO NOTHING sobre (candidate_phone_id,
-//      source_event_key), y el principal se recalcula entero.
-//   3. CONVERGENCIA. Un fallo a mitad deja un SUBCONJUNTO de la colección y
-//      ningún cambio visible: el reveal queda no terminal y el siguiente poll de
-//      recuperación —que no cuesta créditos— vuelve a ejecutar exactamente esta
-//      misma escritura y la completa.
+// ── SIN FALLBACK SECUENCIAL ────────────────────────────────────
 //
-// El estado intermedio observable en el peor caso es «faltan filas por escribir»,
-// nunca «el candidato dice que tiene teléfono y la colección no lo tiene».
+// Si la RPC falla —error del servidor, error de transporte, función ausente,
+// respuesta con forma inesperada— este módulo LANZA y no intenta nada más. En
+// particular NO reintenta y NO cae al camino de escrituras sueltas: un reintento
+// ciego podría duplicar el trabajo de una transacción que sí llegó a hacer COMMIT
+// pero cuya respuesta se perdió, y un fallback secuencial reintroduciría
+// literalmente el defecto que este hito corrige. El caller trata la excepción
+// como `collection_persistence_unavailable`: nada terminal se escribe, el
+// candidato sigue en vuelo y el mismo payload se puede reprocesar con 0 créditos.
+//
+// Por qué la ausencia de reintento es SEGURA y no una renuncia: la RPC es
+// idempotente por construcción (`(candidate_id, dedupe_key)` y
+// `(candidate_phone_id, source_event_key)` son UNIQUE, y un evento repetido
+// devuelve `idempotent` sin reescribir). Un reproceso posterior converge; lo que
+// no se hace es reintentar a ciegas dentro de la misma llamada, porque ahí no se
+// sabe si hubo COMMIT.
 //
 // ── PRIVILEGIOS ────────────────────────────────────────────────
-// La migración concede SELECT/INSERT/UPDATE en la tabla canónica (sin DELETE) y
-// SELECT/INSERT en la de procedencias (append-and-read). Este módulo se mantiene
-// dentro de ese sobre: no borra filas y no reescribe procedencias.
+// La función es SECURITY INVOKER, así que corre con el sobre del service role que
+// la migración 109 concedió: SELECT/INSERT/UPDATE en la tabla canónica (sin
+// DELETE) y SELECT/INSERT en la de procedencias. No se le regala nada.
 //
 // ── PRIVACIDAD ─────────────────────────────────────────────────
-// No imprime nada. Los errores se propagan con el mensaje de PostgREST, que
-// describe la operación, no el dato; ningún mensaje se construye aquí con un
-// número, un display ni una `dedupe_key`.
+// No imprime nada. Los números viajan en el payload de la llamada y jamás en un
+// log: los mensajes de error se recortan y describen la operación, y la respuesta
+// de la RPC solo contiene cifras, banderas, un status y una `dedupe_key` (hash).
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import {
-  aggregateCandidatePhoneStatus,
-  aggregateCandidatePhoneType,
-  type CandidatePhoneStatus,
-} from './phone-collection-core';
 import type {
   CandidatePhoneCollectionWriteRequest,
   CandidatePhoneCollectionWriteResult,
+  CandidatePhoneCollectionWriteStatus,
 } from './candidate-phone-collection-writer';
-import type { PhoneType } from '@/server/agents/contact-enrichment-toolkit/phone-classification';
 
-export const CANDIDATE_PHONES_TABLE = 'contact_enrichment_candidate_phones';
-export const CANDIDATE_PHONE_SOURCES_TABLE =
-  'contact_enrichment_candidate_phone_sources';
+/** Nombre de la función de la migración 110. */
+export const PERSIST_CANDIDATE_APOLLO_PHONE_REVEAL_RESULT_FN =
+  'persist_candidate_apollo_phone_reveal_result';
 
-/** Proyección mínima de una fila ya existente. Se pide `dedupe_key`, no el número. */
-interface ExistingPhoneRow {
-  id: string;
-  dedupe_key: string;
-  phone_type: string | null;
-  phone_status: string | null;
-  is_primary: boolean;
-  suppressed_at: string | null;
-}
+/** Los cinco veredictos que la RPC puede devolver. */
+const WRITE_STATUSES: readonly CandidatePhoneCollectionWriteStatus[] = [
+  'persisted',
+  'idempotent',
+  'stale_event',
+  'candidate_not_eligible',
+  'suppressed',
+];
 
-function asPhoneType(value: string | null): PhoneType | null {
-  return (value as PhoneType | null) ?? null;
-}
+/** Longitud máxima de un mensaje de error propagado. Corta antes de que crezca. */
+const MAX_ERROR_DETAIL = 200;
 
-function asPhoneStatus(value: string | null): CandidatePhoneStatus {
-  return (value as CandidatePhoneStatus | null) ?? 'unknown';
+function asCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 /**
- * Persiste la colección observada y devuelve qué quedó realmente escrito.
+ * Interpreta el sobre de la RPC.
  *
- * FUSIÓN, no reemplazo: lo que ya estaba se conserva y se refresca. Un callback
- * que trae dos números no borra un tercero visto antes; el modelo acumula
- * evidencia, y sustituir la colección haría exactamente la pérdida que este hito
- * corrige, solo que un evento más tarde.
+ * FAIL-CLOSED ante cualquier forma que no reconozca: una respuesta que no se
+ * entiende no se puede tratar como éxito, porque «éxito» aquí autoriza al caller a
+ * NO volver a escribir el candidato.
+ */
+function parseWriteEnvelope(data: unknown): CandidatePhoneCollectionWriteResult {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('candidate phone reveal persistence returned a non-object envelope');
+  }
+  const envelope = data as Record<string, unknown>;
+  const status = envelope.status;
+  if (typeof status !== 'string') {
+    throw new Error('candidate phone reveal persistence returned no status');
+  }
+  if (status === 'invalid_input') {
+    // El payload que este módulo construyó no cumple el contrato de la función.
+    // Es un defecto de programación, no una condición operativa, y `detail` es un
+    // string mecánico cerrado que nombra el CAMPO, nunca su valor.
+    const detail = typeof envelope.detail === 'string' ? envelope.detail : 'unspecified';
+    throw new Error(`candidate phone reveal persistence rejected the payload: ${detail}`);
+  }
+  if (!WRITE_STATUSES.includes(status as CandidatePhoneCollectionWriteStatus)) {
+    throw new Error('candidate phone reveal persistence returned an unknown status');
+  }
+  return {
+    status: status as CandidatePhoneCollectionWriteStatus,
+    inserted_phone_count: asCount(envelope.inserted_phone_count),
+    updated_phone_count: asCount(envelope.updated_phone_count),
+    inserted_source_count: asCount(envelope.inserted_source_count),
+    suppressed_skipped_count: asCount(envelope.suppressed_skipped_count),
+    primary_dedupe_key:
+      typeof envelope.primary_dedupe_key === 'string' ? envelope.primary_dedupe_key : null,
+    primary_persisted: envelope.primary_set === true,
+    candidate_terminalized: envelope.candidate_terminalized === true,
+  };
+}
+
+/**
+ * Persiste el resultado `revealed` completo en UNA transacción y devuelve qué
+ * quedó realmente escrito.
+ *
+ * FUSIÓN, no reemplazo: lo que ya estaba en la colección se conserva y se
+ * refresca. Un callback que trae dos números no borra un tercero visto antes; el
+ * modelo acumula evidencia, y sustituir la colección haría exactamente la pérdida
+ * que este hito corrige, solo que un evento más tarde.
  */
 export async function persistCandidatePhoneCollection(
   request: CandidatePhoneCollectionWriteRequest,
 ): Promise<CandidatePhoneCollectionWriteResult> {
-  const admin = createSupabaseAdminClient();
+  const { terminal } = request;
 
-  const empty: CandidatePhoneCollectionWriteResult = {
-    inserted_phone_count: 0,
-    updated_phone_count: 0,
-    inserted_source_count: 0,
-    suppressed_skipped_count: 0,
-    primary_dedupe_key: null,
-  };
-  if (request.phones.length === 0) return empty;
+  // ── Payload: colección canónica ──────────────────────────────
+  // Las claves son las del contrato de la migración 110 y nada más. `extension`
+  // no viaja porque la tabla de la 109 no tiene esa columna: mandarla sería pedir
+  // a la función que escriba algo que no existe.
+  const phones = request.phones.map((phone) => ({
+    dedupe_key: phone.dedupeKey,
+    normalized_phone: phone.normalizedPhone,
+    display_phone: phone.displayPhone,
+    phone_type: phone.phoneType,
+    phone_status: phone.phoneStatus,
+    first_seen_at: phone.firstSeenAt,
+    last_seen_at: phone.lastSeenAt,
+  }));
 
-  // ── 1. Estado actual del candidato ───────────────────────────
-  const { data: existingRaw, error: readError } = await admin
-    .from(CANDIDATE_PHONES_TABLE)
-    .select('id, dedupe_key, phone_type, phone_status, is_primary, suppressed_at')
-    .eq('candidate_id', request.candidateId);
-  if (readError) throw new Error(readError.message);
-
-  const existing = new Map<string, ExistingPhoneRow>();
-  for (const row of (existingRaw ?? []) as ExistingPhoneRow[]) {
-    existing.set(row.dedupe_key, row);
-  }
-
-  // ── 2. Reparto: nuevas / a refrescar / suprimidas ────────────
-  // Una fila con `suppressed_at` se salta ENTERA: no se reescribe el número, no
-  // se anota la procedencia y no se considera para principal. Anotar la
-  // procedencia sería registrar que se volvió a ver a una persona que pidió
-  // dejar de ser vista, y reescribir el número violaría además el CHECK del
-  // tombstone.
-  const toInsert: typeof request.phones[number][] = [];
-  const toUpdate: Array<{
-    row: ExistingPhoneRow;
-    phone: typeof request.phones[number];
-  }> = [];
-  let suppressedSkipped = 0;
-
-  for (const phone of request.phones) {
-    const row = existing.get(phone.dedupeKey);
-    if (!row) {
-      toInsert.push(phone);
-      continue;
-    }
-    if (row.suppressed_at !== null) {
-      suppressedSkipped += 1;
-      continue;
-    }
-    toUpdate.push({ row, phone });
-  }
-
-  // ── 3. Filas canónicas nuevas ────────────────────────────────
-  // `is_primary` se deja en false aquí y se resuelve en el paso 6: promover
-  // durante el INSERT chocaría con el índice parcial de un principal por
-  // candidato mientras el anterior sigue en pie.
-  const insertedIds = new Map<string, string>();
-  if (toInsert.length > 0) {
-    const { data, error } = await admin
-      .from(CANDIDATE_PHONES_TABLE)
-      .insert(
-        toInsert.map((phone) => ({
-          candidate_id: request.candidateId,
-          normalized_phone: phone.normalizedPhone,
-          display_phone: phone.displayPhone,
-          dedupe_key: phone.dedupeKey,
-          phone_type: phone.phoneType,
-          phone_status: phone.phoneStatus,
-          is_primary: false,
-          first_seen_at: phone.firstSeenAt,
-          last_seen_at: phone.lastSeenAt,
-        })),
-      )
-      .select('id, dedupe_key');
-    if (error) throw new Error(error.message);
-    for (const row of (data ?? []) as Array<{ id: string; dedupe_key: string }>) {
-      insertedIds.set(row.dedupe_key, row.id);
-    }
-  }
-
-  // ── 4. Filas canónicas ya conocidas: se refrescan, no se pisan ──
-  // El estado y el tipo se AGREGAN con las mismas reglas puras de 4O-B: un
-  // proveedor que ahora no logra verificar un número no degrada un `valid`
-  // anterior, y un tipo mejor sí mejora la fila. `first_seen_at` no se toca: es
-  // la primera vez que se vio, y una observación posterior no la cambia.
-  for (const { row, phone } of toUpdate) {
-    const mergedStatus = aggregateCandidatePhoneStatus([
-      asPhoneStatus(row.phone_status),
-      phone.phoneStatus,
-    ]);
-    const existingType = asPhoneType(row.phone_type);
-    const mergedType = aggregateCandidatePhoneType(
-      existingType ? [existingType, phone.phoneType ?? 'unknown'] : [phone.phoneType ?? 'unknown'],
-    );
-    const { error } = await admin
-      .from(CANDIDATE_PHONES_TABLE)
-      .update({
-        phone_status: mergedStatus,
-        phone_type: mergedType,
-        last_seen_at: request.observedAt,
-      })
-      .eq('id', row.id);
-    if (error) throw new Error(error.message);
-  }
-
-  // ── 5. Procedencias (append-only, idempotentes) ──────────────
-  const idByKey = new Map<string, string>();
-  for (const [key, id] of insertedIds) idByKey.set(key, id);
-  for (const { row, phone } of toUpdate) idByKey.set(phone.dedupeKey, row.id);
-
-  const sourceRows = request.phones.flatMap((phone) => {
-    const candidatePhoneId = idByKey.get(phone.dedupeKey);
-    if (!candidatePhoneId) return [];
-    return phone.sources.map((source) => ({
-      candidate_phone_id: candidatePhoneId,
+  // ── Payload: procedencias, aplanadas con su clave ────────────
+  // Van en una lista plana con `dedupe_key` porque la función necesita resolver el
+  // `candidate_phone_id` ella misma: ese id no existe todavía cuando se construye
+  // este payload, y fabricarlo aquí obligaría a una lectura previa fuera de la
+  // transacción — es decir, a la carrera que la transacción elimina.
+  const sources = request.phones.flatMap((phone) =>
+    phone.sources.map((source) => ({
+      dedupe_key: phone.dedupeKey,
       provider: source.provider,
       acquisition_mode: source.acquisitionMode,
       raw_provider_type: source.rawProviderType,
@@ -210,67 +159,53 @@ export async function persistCandidatePhoneCollection(
       provider_usage_log_id: source.providerUsageLogId,
       source_event_key: source.sourceEventKey,
       observed_at: source.observedAt,
-    }));
-  });
+    })),
+  );
 
-  let insertedSourceCount = 0;
-  if (sourceRows.length > 0) {
-    // `ignoreDuplicates` ⇒ ON CONFLICT DO NOTHING: reprocesar el mismo webhook no
-    // añade una segunda procedencia, y no hace falta UPDATE (que la tabla, siendo
-    // append-and-read, tampoco tiene concedido).
-    const { data, error } = await admin
-      .from(CANDIDATE_PHONE_SOURCES_TABLE)
-      .upsert(sourceRows, {
-        onConflict: 'candidate_phone_id,source_event_key',
-        ignoreDuplicates: true,
-      })
-      .select('id');
-    if (error) throw new Error(error.message);
-    insertedSourceCount = (data ?? []).length;
-  }
+  const primaryCandidates = request.primaryCandidates.map((candidate) => ({
+    dedupe_key: candidate.dedupeKey,
+    phone: candidate.phone,
+    phone_type: candidate.phoneType,
+    raw_type: candidate.rawType,
+  }));
 
-  // ── 6. Principal: la primera preferencia que no esté suprimida ──
-  // El writer NO rankea: recorre la lista que le dio la lógica pura y descarta
-  // las que la base dice que están suprimidas. Un tombstone nunca vuelve a ser
-  // principal, aunque el ranking lo prefiriera.
-  let primaryDedupeKey: string | null = null;
-  for (const key of request.primaryPreference) {
-    const row = existing.get(key);
-    if (row?.suppressed_at) continue;
-    if (!idByKey.has(key)) continue;
-    primaryDedupeKey = key;
-    break;
-  }
-
-  const currentPrimary = [...existing.values()].find((row) => row.is_primary) ?? null;
-
-  if (primaryDedupeKey && currentPrimary?.dedupe_key !== primaryDedupeKey) {
-    // Degradar SIEMPRE antes de promover: el índice parcial único no admite dos
-    // principales ni por un instante.
-    if (currentPrimary) {
-      const { error } = await admin
-        .from(CANDIDATE_PHONES_TABLE)
-        .update({ is_primary: false })
-        .eq('id', currentPrimary.id);
-      if (error) throw new Error(error.message);
-    }
-    const { error } = await admin
-      .from(CANDIDATE_PHONES_TABLE)
-      .update({ is_primary: true })
-      .eq('id', idByKey.get(primaryDedupeKey)!);
-    if (error) throw new Error(error.message);
-  } else if (!primaryDedupeKey && currentPrimary) {
-    // No hay preferencia viable en ESTE evento. El principal que ya existía se
-    // respeta: no había nada mejor y quitarlo dejaría al candidato sin principal
-    // sin que nadie lo hubiera pedido.
-    primaryDedupeKey = currentPrimary.dedupe_key;
-  }
-
-  return {
-    inserted_phone_count: insertedIds.size,
-    updated_phone_count: toUpdate.length,
-    inserted_source_count: insertedSourceCount,
-    suppressed_skipped_count: suppressedSkipped,
-    primary_dedupe_key: primaryDedupeKey,
+  const params = {
+    p_candidate_id: request.candidateId,
+    p_expected_request_id: terminal.expectedRequestId,
+    p_reveal_phase: terminal.phase,
+    p_observed_at: request.observedAt,
+    p_phones: phones,
+    p_sources: sources,
+    p_primary_candidates: primaryCandidates,
+    p_legacy_phone: terminal.legacyPhone,
+    p_legacy_phone_type: terminal.legacyPhoneType,
+    p_legacy_raw_type: terminal.legacyRawType,
+    p_phone_reveal_status: 'revealed',
+    p_phone_reveal_provider: 'apollo',
+    p_phone_revealed_at: terminal.revealedAt,
+    p_phone_reveal_completed_at: terminal.completedAt,
+    p_phone_reveal_webhook_received_at: terminal.webhookReceivedAt,
+    p_phone_reveal_last_checked_at: terminal.lastCheckedAt,
+    p_phone_reveal_cost_credits: terminal.costCredits,
+    p_phone_reveal_cost_source: terminal.costSource,
+    // Este camino es el de éxito: un código de error viajando con él sería una
+    // contradicción, y la función lo rechaza además por su cuenta.
+    p_phone_reveal_error_code: null,
+    p_phone_processing_basis: terminal.processingBasis,
+    p_apollo_person_id: terminal.apolloPersonId,
   };
+
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin.rpc(
+    PERSIST_CANDIDATE_APOLLO_PHONE_REVEAL_RESULT_FN,
+    params,
+  );
+  if (error) {
+    // Un error REPORTADO por el servidor significa que la transacción se deshizo:
+    // no hay estado a medias que limpiar y no hay nada que reintentar aquí.
+    throw new Error(
+      `candidate phone reveal persistence failed: ${error.message.slice(0, MAX_ERROR_DETAIL)}`,
+    );
+  }
+  return parseWriteEnvelope(data);
 }

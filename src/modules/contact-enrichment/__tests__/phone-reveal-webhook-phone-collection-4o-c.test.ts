@@ -28,7 +28,10 @@ import {
   type WebhookRevealPersistencePatch,
   type WebhookUsageLogEntry,
 } from '../phone-reveal-webhook-core';
-import { FakeCandidatePhoneStore } from './candidate-phone-collection-fake-store';
+import {
+  FakeCandidatePhoneStore,
+  observedTerminalState,
+} from './candidate-phone-collection-fake-store';
 
 const NOW = '2026-08-06T10:00:00.000Z';
 const TOKEN = 'webhook-secret-token';
@@ -72,6 +75,17 @@ function harness(
     phoneRevealStatus: 'requested',
     ...options.candidate,
   };
+  // El doble y este fixture son EL MISMO candidato: en Producción son una sola
+  // fila, y dejar que el core la vea «en vuelo» mientras el doble la ve «revealed»
+  // haría fallar aserciones por una divergencia que no existe. Cada harness fija la
+  // fila del doble al estado que declara el fixture, así que dos harness sucesivos
+  // sobre el mismo store simulan dos entregas de un reveal en vuelo — que es lo que
+  // esas suites quieren probar. El corto-circuito real por evento ya cerrado se
+  // prueba aparte, registrando el candidato a mano.
+  store.registerCandidate(candidate.id, {
+    phoneRevealStatus: candidate.phoneRevealStatus,
+    phoneRevealRequestId: REQUEST_ID,
+  });
 
   const deps: ApolloPhoneRevealWebhookDeps = {
     expectedToken: TOKEN,
@@ -95,6 +109,18 @@ function harness(
 
   return { store, patches, logs, deps };
 }
+
+/**
+ * El estado terminal con el que acabó el candidato, venga de la transacción
+ * (migración 110, el camino de Producción) o del parche secuencial (el camino sin
+ * la dep cableada). Las aserciones miran el RESULTADO, no el mecanismo.
+ */
+const terminal = (h: Harness) =>
+  observedTerminalState({
+    store: h.store,
+    candidateId: CANDIDATE_ID,
+    patches: h.patches.map((entry) => entry.patch),
+  });
 
 function run(
   payload: ApolloPhoneRevealWebhookPayload,
@@ -125,7 +151,7 @@ describe('4O-C webhook — captura completa', () => {
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 1);
     assert.equal(h.store.sourcesFor(CANDIDATE_ID).length, 1);
     assert.equal(h.store.primaryOf(CANDIDATE_ID)?.phoneType, 'mobile');
-    assert.equal(h.patches[0].patch.phone, MOBILE);
+    assert.equal(terminal(h).phone, MOBILE);
   });
 
   it('DIRECT + MOBILE ⇒ 2 canónicos, escalar MÓVIL, DIRECT ya no se pierde', async () => {
@@ -140,16 +166,16 @@ describe('4O-C webhook — captura completa', () => {
     );
     assert.equal(result.outcome, 'revealed');
     // Lo que ya se veía NO cambia…
-    assert.equal(h.patches[0].patch.phone, MOBILE);
-    assert.equal(h.patches[0].patch.enrichment_metadata?.phone?.type, 'mobile');
+    assert.equal(terminal(h).phone, MOBILE);
+    assert.equal(terminal(h).phoneType, 'mobile');
     // …y lo que se perdía ahora está guardado.
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 2);
     assert.ok(
       h.store.livePhones(CANDIDATE_ID).some((row) => row.displayPhone === DIRECT),
     );
     // Costo total real, sin repartir por número.
-    assert.equal(h.patches[0].patch.phone_reveal_cost_credits, 8);
-    assert.equal(h.patches[0].patch.phone_reveal_cost_source, 'reported');
+    assert.equal(terminal(h).costCredits, 8);
+    assert.equal(terminal(h).costSource, 'reported');
   });
 
   it('WORK + HQ + MOBILE ⇒ 3 canónicos y principal móvil', async () => {
@@ -165,7 +191,7 @@ describe('4O-C webhook — captura completa', () => {
     );
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 3);
     assert.equal(h.store.primaryOf(CANDIDATE_ID)?.displayPhone, MOBILE);
-    assert.equal(h.patches[0].patch.phone, MOBILE);
+    assert.equal(terminal(h).phone, MOBILE);
   });
 
   it('el mismo teléfono en raíz y person ⇒ 1 canónico y 1 procedencia', async () => {
@@ -177,7 +203,7 @@ describe('4O-C webhook — captura completa', () => {
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 1);
     assert.equal(h.store.sourcesFor(CANDIDATE_ID).length, 1);
     // Y el cargo se cuenta UNA vez, no dos.
-    assert.equal(h.patches[0].patch.phone_reveal_cost_credits, 4);
+    assert.equal(terminal(h).costCredits, 4);
   });
 
   it('el mismo número con tipos distintos ⇒ 1 canónico, 2 procedencias con su raw_type', async () => {
@@ -211,7 +237,7 @@ describe('4O-C webhook — captura completa', () => {
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 2);
     assert.equal(h.store.primaryOf(CANDIDATE_ID)?.displayPhone, WORK);
     // Escalar y principal coinciden: no existe el par «principal A / escalar B».
-    assert.equal(h.patches[0].patch.phone, WORK);
+    assert.equal(terminal(h).phone, WORK);
   });
 
   it('sin fila elegible como principal el escalar conserva el valor heredado', async () => {
@@ -219,7 +245,7 @@ describe('4O-C webhook — captura completa', () => {
     // prohíbe marcarlo principal, pero seguir mostrándolo es lo que se hacía y
     // dejar de guardarlo sería perder un dato ya pagado.
     await run({ phone_numbers: [{ sanitized_number: '555', type_cd: 'mobile' }] }, h);
-    assert.equal(h.patches[0].patch.phone, '555');
+    assert.equal(terminal(h).phone, '555');
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 1);
     assert.equal(h.store.primaryOf(CANDIDATE_ID), null);
   });
@@ -283,9 +309,9 @@ describe('4O-C webhook — idempotencia y tombstones', () => {
     assert.equal(store.sourcesFor(CANDIDATE_ID).length, sourcesBefore + 1);
     // El principal pasa al superviviente, y el escalar lo sigue.
     assert.equal(store.primaryOf(CANDIDATE_ID)?.displayPhone, WORK);
-    assert.equal(h.patches[0].patch.phone, WORK);
+    assert.equal(terminal(h).phone, WORK);
     // El reveal sigue cerrando terminal: la supresión no lo convierte en error.
-    assert.equal(h.patches[0].patch.phone_reveal_status, 'revealed');
+    assert.equal(terminal(h).status, 'revealed');
   });
 });
 
@@ -354,8 +380,8 @@ describe('4O-C webhook — caminos que NO escriben colección', () => {
     assert.equal(result.outcome, 'no_phone_found');
     assert.deepEqual(h.store.writes, []);
     assert.equal(h.store.phones.length, 0);
-    assert.equal(h.patches[0].patch.phone_revealed_at, undefined);
-    assert.equal(h.patches[0].patch.phone_reveal_completed_at, NOW);
+    assert.equal(terminal(h).revealedAt, undefined);
+    assert.equal(terminal(h).completedAt, NOW);
   });
 
   it('bloqueado por supresión de la PERSONA ⇒ 0 filas', async () => {
@@ -370,7 +396,7 @@ describe('4O-C webhook — caminos que NO escriben colección', () => {
     );
     assert.equal(result.outcome, 'blocked_suppressed');
     assert.deepEqual(h.store.writes, []);
-    assert.equal(h.patches[0].patch.phone, undefined);
+    assert.equal(terminal(h).phone, undefined);
   });
 
   it('supresión no verificable ⇒ 0 filas y candidato en vuelo', async () => {
@@ -419,7 +445,7 @@ describe('4O-C webhook — sin el writer cableado', () => {
       h,
     );
     assert.equal(result.outcome, 'revealed');
-    assert.equal(h.patches[0].patch.phone, MOBILE);
+    assert.equal(terminal(h).phone, MOBILE);
     assert.equal(h.store.phones.length, 0);
     assert.equal('phone_collection' in h.logs[0].metadata, false);
   });
@@ -445,9 +471,9 @@ describe('4O-C webhook — contabilidad', () => {
     assert.equal(h.store.livePhones(CANDIDATE_ID).length, 3);
     // UN usage-log, UN patch, UN costo total.
     assert.equal(h.logs.length, 1);
-    assert.equal(h.patches.length, 1);
+    assert.equal(terminal(h).writes, 1);
     assert.equal(h.logs[0].creditsUsed, 8);
-    assert.equal(h.patches[0].patch.phone_reveal_cost_credits, 8);
+    assert.equal(terminal(h).costCredits, 8);
     // Ninguna fila lleva costo: el dinero vive en la reserva y el usage-log.
     for (const row of h.store.livePhones(CANDIDATE_ID)) {
       assert.equal('costCredits' in row, false);
@@ -477,9 +503,11 @@ describe('4O-C webhook — privacidad', () => {
     }
     // Lo que SÍ se registra son cifras y banderas, de forma cerrada.
     assert.deepEqual(Object.keys(h.logs[0].metadata.phone_collection ?? {}).sort(), [
+      'candidate_terminalized',
       'canonical_phone_count',
       'collection_persisted',
       'duplicate_phone_count',
+      'persistence_status',
       'primary_persisted',
       'source_count',
       'suppressed_skipped_count',
