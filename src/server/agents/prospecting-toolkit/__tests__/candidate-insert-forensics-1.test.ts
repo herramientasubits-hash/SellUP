@@ -56,6 +56,9 @@ const LA_14_PRECISION: ApolloSubindustryPrecisionAssessment = {
   // (`IndustryMatchVerdict`): la industria de Apollo trae el ancla `supermarkets`.
   industryMatch: 'confirmed',
   subindustryMatch: 'confirmed',
+  // Supermercados e Hipermercados no distingue familias (§ 6 de
+  // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1): siempre `none`.
+  subindustryMatchFamily: 'none',
   subindustryConfidence: 90,
   subindustryEvidence: [
     { term: 'supermercado', field: 'apollo_profile.industry', source: 'provider_industry' },

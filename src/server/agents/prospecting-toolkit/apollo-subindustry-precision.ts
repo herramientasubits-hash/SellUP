@@ -81,6 +81,20 @@ export type SubindustryEvidenceItem = {
   source: SubindustryClassificationSource;
 };
 
+/**
+ * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 6 — para una subindustria
+ * COOMPUESTA (varias familias bajo una sola etiqueta), qué familia produjo la
+ * confirmación. `none` cuando el veredicto no es `confirmed`, o la subindustria
+ * no distingue familias.
+ *
+ * Una familia confirmada basta: no se exige que una empresa cumpla las tres.
+ */
+export type SubindustryMatchFamily =
+  | 'department_store'
+  | 'fashion_apparel'
+  | 'footwear'
+  | 'none';
+
 export type ApolloSubindustryPrecisionAssessment = {
   /** Subindustria tal como se pidió. `null` cuando la búsqueda no declaró una. */
   requestedSubindustry: string | null;
@@ -88,6 +102,8 @@ export type ApolloSubindustryPrecisionAssessment = {
   subindustryMapped: boolean;
   industryMatch: IndustryMatchVerdict;
   subindustryMatch: SubindustryMatchVerdict;
+  /** Familia que confirmó, para subindustrias compuestas. `none` si no aplica. */
+  subindustryMatchFamily: SubindustryMatchFamily;
   /** 0–100. Nunca se reporta confianza sobre un veredicto sin evidencia. */
   subindustryConfidence: number;
   subindustryEvidence: SubindustryEvidenceItem[];
@@ -117,6 +133,59 @@ export type SubindustryVerdictReason =
  * quedaba «confirmada». Lo mismo con `retail`, que ya tiene su propio historial
  * (v1.16K-AC) por ser substring de `retail banking`.
  */
+/**
+ * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 6 — «Tiendas por
+ * Departamento, Moda y Calzado» es una etiqueta COMPUESTA: tres familias de
+ * operador distintas bajo un solo nombre. Confirmar CUALQUIERA basta; no se
+ * exige que una empresa cumpla las tres.
+ *
+ * `confeccion` y `calzado` sueltos NO son anclas (§ 5): son substring de
+ * `confección industrial` y de `fabricante de calzado`, y con ellos un
+ * fabricante mayorista quedaría confirmado sin una sola señal de venta al
+ * consumidor. Sólo la forma compuesta con evidencia de venta/comercio cuenta.
+ *
+ * Declarado ANTES de `SUBINDUSTRY_ANCHOR_TERMS`, que deriva sus claves de aquí.
+ */
+const SUBINDUSTRY_ANCHOR_FAMILIES: Record<string, Record<string, SubindustryMatchFamily>> = {
+  'tiendas por departamento, moda y calzado': {
+    // Tiendas por departamento — español e inglés.
+    'tienda por departamentos': 'department_store',
+    'tiendas por departamentos': 'department_store',
+    'almacen por departamentos': 'department_store',
+    'almacenes por departamentos': 'department_store',
+    'department store': 'department_store',
+    'department stores': 'department_store',
+    'departmental store': 'department_store',
+    'departmental stores': 'department_store',
+
+    // Moda y confección comercial.
+    moda: 'fashion_apparel',
+    fashion: 'fashion_apparel',
+    'fashion retail': 'fashion_apparel',
+    'fashion retailer': 'fashion_apparel',
+    'apparel retail': 'fashion_apparel',
+    'apparel retailer': 'fashion_apparel',
+    'clothing store': 'fashion_apparel',
+    'clothing stores': 'fashion_apparel',
+    'clothing retailer': 'fashion_apparel',
+    'tienda de ropa': 'fashion_apparel',
+    'tiendas de ropa': 'fashion_apparel',
+    'prendas de vestir': 'fashion_apparel',
+    'venta de confeccion': 'fashion_apparel',
+    'venta de prendas de vestir': 'fashion_apparel',
+
+    // Calzado — sólo con evidencia de venta/tienda, nunca `calzado` a secas.
+    'footwear retail': 'footwear',
+    'footwear retailer': 'footwear',
+    'shoe store': 'footwear',
+    'shoe stores': 'footwear',
+    'shoe retailer': 'footwear',
+    'tienda de calzado': 'footwear',
+    'tiendas de calzado': 'footwear',
+    'venta de calzado': 'footwear',
+  },
+};
+
 const SUBINDUSTRY_ANCHOR_TERMS: Record<string, string[]> = {
   'supermercados e hipermercados': [
     // Español — nombran al operador, no a la categoría de producto.
@@ -139,6 +208,9 @@ const SUBINDUSTRY_ANCHOR_TERMS: Record<string, string[]> = {
     'grocery retailer',
     'supermarket chain',
   ],
+  'tiendas por departamento, moda y calzado': Object.keys(
+    SUBINDUSTRY_ANCHOR_FAMILIES['tiendas por departamento, moda y calzado'],
+  ),
 };
 
 /**
@@ -213,6 +285,25 @@ const SUBINDUSTRY_BROAD_INDUSTRY_TERMS: Record<string, string[]> = {
     'comercio',
     'consumo',
   ],
+  // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 5 — amplias a propósito:
+  // presencia y NADA más ⇒ `ambiguous`, nunca `confirmed`. `almacen` está aquí
+  // suelto porque es parte frecuente del NOMBRE comercial («Almacenes La 14») y
+  // no debe, por sí solo, demostrar ninguna de las tres familias.
+  'tiendas por departamento, moda y calzado': [
+    'retail',
+    'consumer goods',
+    'comercio',
+    'marketplace',
+    'supermarket',
+    'grocery',
+    'food',
+    'beverage',
+    'manufacturer',
+    'distributor',
+    'wholesale',
+    'shopping',
+    'almacen',
+  ],
 };
 
 /**
@@ -236,6 +327,44 @@ const SUBINDUSTRY_CONTRADICTORY_INDUSTRY_TERMS: Record<string, string[]> = {
     'saas',
     'information technology',
     'consulting',
+  ],
+  // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 5, caso E — la industria
+  // DECLARADA contradice, sin que ningún término amplio la salve. Un fabricante
+  // de alimentos que menciona `retail` en su catálogo no queda «por confirmar»:
+  // su industria declarada ya dice que no es un operador de tienda/moda/calzado.
+  // Se incluyen también supermercado/hipermercado — es una subindustria de
+  // retail DISTINTA, no una de las tres familias de esta etiqueta.
+  'tiendas por departamento, moda y calzado': [
+    'food production',
+    'food manufacturing',
+    'fabricante de alimentos',
+    'food and beverage manufacturing',
+    'beverage manufacturing',
+    'agriculture',
+    'farming',
+    'supermarket',
+    'supermarkets',
+    'supermercado',
+    'supermercados',
+    'hypermarket',
+    'hypermarkets',
+    'hipermercado',
+    'hipermercados',
+    'grocery store',
+    'grocery stores',
+    'banking',
+    'financial services',
+    'insurance',
+    'software',
+    'saas',
+    'information technology',
+    'consulting',
+    'oil & energy',
+    'mining & metals',
+    'construction',
+    'real estate',
+    'hospital & health care',
+    'pharmaceuticals',
   ],
 };
 
@@ -494,12 +623,32 @@ function assessment(
     requestedSubindustry: null,
     subindustryMapped: false,
     industryMatch: 'unknown',
+    subindustryMatchFamily: 'none',
     subindustryConfidence: 0,
     subindustryEvidence: [],
     classificationSource: 'none',
     disqualifyingSignals: [],
     ...overrides,
   };
+}
+
+/**
+ * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 6 — familia que produjo
+ * la confirmación, para subindustrias compuestas. `none` cuando la
+ * subindustria no distingue familias, o ningún término de evidencia tiene una
+ * familia asociada.
+ */
+function resolveFamilyForEvidence(
+  key: string,
+  evidence: readonly SubindustryEvidenceItem[],
+): SubindustryMatchFamily {
+  const families = SUBINDUSTRY_ANCHOR_FAMILIES[key];
+  if (!families) return 'none';
+  for (const item of evidence) {
+    const family = families[item.term];
+    if (family) return family;
+  }
+  return 'none';
 }
 
 /**
@@ -602,6 +751,7 @@ export function assessApolloSubindustryPrecision(
     return assessment({
       ...base,
       subindustryMatch: 'confirmed',
+      subindustryMatchFamily: resolveFamilyForEvidence(key, evidence),
       subindustryConfidence: SOURCE_AUTHORITY[source],
       subindustryEvidence: evidence,
       classificationSource: source,
@@ -635,6 +785,7 @@ export function toApolloSubindustryPrecisionMetadata(
     subindustry_mapped: input.subindustryMapped,
     industry_match: input.industryMatch,
     subindustry_match: input.subindustryMatch,
+    subindustry_match_family: input.subindustryMatchFamily,
     subindustry_confidence: input.subindustryConfidence,
     subindustry_evidence: input.subindustryEvidence
       .slice(0, MAX_PERSISTED_EVIDENCE)

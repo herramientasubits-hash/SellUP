@@ -90,14 +90,13 @@ import {
   buildEmployeeCountTrace,
 } from './apollo-company-fields-mapping';
 import {
-  evaluateCandidateTargetEligibility,
+  evaluateCandidateSubindustryTargetEligibility,
   buildCandidateCompletenessCounters,
   resolveCandidateStatusForCompleteness,
-  toSubindustryMatchVerdict,
   INCOMPLETE_CANDIDATE_REVIEW_FLAG,
   CANDIDATE_TARGET_METRICS_METADATA_KEY,
 } from './candidate-completeness-contract';
-import type { CandidateTargetEligibility } from './candidate-completeness-contract';
+import type { CandidateCanonicalTargetEligibility as CandidateTargetEligibility } from './candidate-completeness-contract';
 import type {
   RichProfileEnrichmentConfig,
   RichProfileEnrichmentProviderFn,
@@ -2413,9 +2412,18 @@ export async function writeProspectingCandidates(
     // § 5 — la regla de conteo hacia el target. Los gates de propiedad y de
     // calidad ya descartaron antes del insert a quien no pasaba, así que llegar
     // aquí ES el `pass`; se registra explícito en vez de darse por supuesto.
-    const targetEligibility: CandidateTargetEligibility = evaluateCandidateTargetEligibility({
+    //
+    // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 3 — cuando la búsqueda
+    // pidió una subindustria específica, el veredicto que decide el conteo es
+    // el de `ApolloSubindustryPrecisionAssessment` (`providerEnrichmentCapture
+    // .precision`), NO `candidate.sectorEvidenceState`: ese estado es el
+    // veredicto de relevancia sectorial/de INDUSTRIA, subindustria-ciego para
+    // toda subindustria sin catálogo de anclas propio, y leerlo como si
+    // demostrara la subindustria pedida es el defecto que este cambio cierra.
+    const targetEligibility: CandidateTargetEligibility = evaluateCandidateSubindustryTargetEligibility({
       persistenceSuccess: true,
-      subindustryMatch: toSubindustryMatchVerdict(candidate.sectorEvidenceState),
+      sectorEvidenceState: candidate.sectorEvidenceState,
+      subindustryPrecision: candidate.providerEnrichmentCapture?.precision ?? null,
       employeeCountStatus: providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
       linkedinStatus: providerCompanyFields?.linkedin.status ?? 'mapping_failed',
       duplicateStatus: dbDuplicateStatus,
@@ -2542,6 +2550,16 @@ export async function writeProspectingCandidates(
                 failed_conditions: targetEligibility.failedConditions,
                 base_status: candidateStatus,
                 persisted_status: completenessAdjustedStatus,
+                // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 3 — el
+                // mismo veredicto que decidió `counts_toward_target`, explícito
+                // y auditable sin tener que releer `apollo_enrichment_capture`.
+                complete_valid: targetEligibility.completeValid,
+                review_only: targetEligibility.reviewOnly,
+                review_only_reasons: targetEligibility.reviewOnlyReasons,
+                blocking_reasons: targetEligibility.blockingReasons,
+                subindustry_requirement_applied: targetEligibility.subindustryRequirementApplied,
+                subindustry_mapped: targetEligibility.subindustryMapped,
+                subindustry_match: targetEligibility.subindustryMatch,
               },
             }
           : {}),
