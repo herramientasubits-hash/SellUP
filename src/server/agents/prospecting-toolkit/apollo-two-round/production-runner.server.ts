@@ -1400,7 +1400,15 @@ export async function runApolloTwoRoundWizardDiscovery(
 
   const resolvePersistableCandidates = async (): Promise<ProspectingPipelineCandidate[]> => {
     const resolved: ProspectingPipelineCandidate[] = [];
-    for (const entry of runResult.persisted) {
+    // AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § D — las ambiguas viajan al
+    // writer JUNTO a las completas. El writer ya sabe distinguirlas: su contrato
+    // de completitud las degrada a `needs_review` y las deja fuera de
+    // `target_count`. Lo que faltaba era que llegaran.
+    //
+    // El orden importa: las completas primero, para que el tope de escritura del
+    // writer —si alguno aplica— nunca sacrifique una empresa válida por una que
+    // sólo va a revisión.
+    for (const entry of [...runResult.persisted, ...runResult.reviewOnly]) {
       const capture = buildEnrichmentCapture(entry.candidateKey);
       const cached = assessmentByKey.get(entry.candidateKey);
       if (cached) {

@@ -37,6 +37,7 @@ describe('§ 1 · la verdad es el writer, no la proyección', () => {
     const out = reconcileApolloTwoRoundPersistedTruth(liveObservability(), {
       eligibleBeforePersistence: 3,
       persistedCandidates: 2,
+      completeValidCandidates: 2,
       gapCauses: { ownership_rejected: 1 },
       targetEligibleCompanies: 5,
     });
@@ -56,6 +57,7 @@ describe('§ 1 · la verdad es el writer, no la proyección', () => {
     const out = reconcileApolloTwoRoundPersistedTruth(liveObservability(), {
       eligibleBeforePersistence: 3,
       persistedCandidates: 2,
+      completeValidCandidates: 2,
       gapCauses: { ownership_rejected: 1 },
       targetEligibleCompanies: 5,
     });
@@ -70,6 +72,7 @@ describe('§ 1 · la verdad es el writer, no la proyección', () => {
     const out = reconcileApolloTwoRoundPersistedTruth(liveObservability(), {
       eligibleBeforePersistence: 3,
       persistedCandidates: 2,
+      completeValidCandidates: 2,
       gapCauses: { ownership_rejected: 1 },
       targetEligibleCompanies: 5,
     });
@@ -83,6 +86,7 @@ describe('§ 1 · la verdad es el writer, no la proyección', () => {
     const out = reconcileApolloTwoRoundPersistedTruth(liveObservability(), {
       eligibleBeforePersistence: 3,
       persistedCandidates: 2,
+      completeValidCandidates: 2,
       gapCauses: { ownership_rejected: 1 },
       targetEligibleCompanies: 5,
     });
@@ -97,6 +101,7 @@ describe('§ 1 · la verdad es el writer, no la proyección', () => {
     const out = reconcileApolloTwoRoundPersistedTruth(liveObservability(), {
       eligibleBeforePersistence: 5,
       persistedCandidates: 5,
+      completeValidCandidates: 5,
       gapCauses: {},
       targetEligibleCompanies: 5,
     });
@@ -113,6 +118,7 @@ describe('§ 1 · el hueco lleva causa explícita', () => {
       {
         eligibleBeforePersistence: 3,
         persistedCandidates: 2,
+        completeValidCandidates: 2,
         gapCauses: { ownership_rejected: 1 },
         targetEligibleCompanies: 5,
       },
@@ -129,6 +135,7 @@ describe('§ 1 · el hueco lleva causa explícita', () => {
       {
         eligibleBeforePersistence: 4,
         persistedCandidates: 2,
+        completeValidCandidates: 2,
         gapCauses: { ownership_rejected: 1 },
         targetEligibleCompanies: 5,
       },
@@ -144,6 +151,7 @@ describe('§ 1 · el hueco lleva causa explícita', () => {
       {
         eligibleBeforePersistence: 2,
         persistedCandidates: 0,
+        completeValidCandidates: 0,
         gapCauses: { ownership_rejected: 2 },
         targetEligibleCompanies: 5,
       },
@@ -161,6 +169,7 @@ describe('§ 1 · el hueco lleva causa explícita', () => {
       {
         eligibleBeforePersistence: 1,
         persistedCandidates: 3,
+        completeValidCandidates: 3,
         gapCauses: {},
         targetEligibleCompanies: 5,
       },
@@ -178,6 +187,7 @@ describe('§ 1 · alcance de la reconciliación', () => {
       reconcileApolloTwoRoundPersistedTruth(undefined, {
         eligibleBeforePersistence: 1,
         persistedCandidates: 1,
+        completeValidCandidates: 1,
         gapCauses: {},
         targetEligibleCompanies: 5,
       }),
@@ -189,6 +199,7 @@ describe('§ 1 · alcance de la reconciliación', () => {
         {
           eligibleBeforePersistence: 1,
           persistedCandidates: 1,
+          completeValidCandidates: 1,
           gapCauses: {},
           targetEligibleCompanies: 5,
         },
@@ -205,6 +216,7 @@ describe('§ 1 · alcance de la reconciliación', () => {
     const out = reconcileApolloTwoRoundPersistedTruth(original, {
       eligibleBeforePersistence: 3,
       persistedCandidates: 2,
+      completeValidCandidates: 2,
       gapCauses: { ownership_rejected: 1 },
       targetEligibleCompanies: 5,
     });

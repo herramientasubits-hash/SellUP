@@ -408,6 +408,21 @@ export type AccumulatedCompany = {
   becameEligibleAfterEnrichment: boolean;
 };
 
+/**
+ * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § D — por qué una empresa se
+ * persiste SÓLO para revisión.
+ *
+ * Hoy hay una sola causa, y tiene nombre propio en vez de un booleano: cuando
+ * aparezca la segunda, el consumidor no tendrá que adivinar cuál de las dos leyó.
+ */
+export type ReviewOnlyCompanyReason =
+  /** Se pagó su enrichment y la subindustria siguió sin poder demostrarse. */
+  'subindustry_ambiguous_after_enrichment';
+
+export type ReviewOnlyCompany = AccumulatedCompany & {
+  reviewReason: ReviewOnlyCompanyReason;
+};
+
 export type ApolloTwoRoundRunResult = {
   resultStatus: ApolloTwoRoundResultStatus;
   targetEligibleCompanies: number;
@@ -438,6 +453,17 @@ export type ApolloTwoRoundRunResult = {
 
   /** Empresas que se persisten, en orden de calidad. */
   persisted: AccumulatedCompany[];
+  /**
+   * § D — empresas que TAMBIÉN se persisten, pero como `needs_review`, y que NO
+   * cuentan hacia el objetivo.
+   *
+   * Son las que pagaron un enrichment y siguieron ambiguas: hay evidencia
+   * suficiente para que valga la pena mirarlas, e insuficiente para afirmar que
+   * pertenecen a la subindustria pedida. Nunca incluye a una empresa con rechazo
+   * definitivo — ownership, país, duplicidad, sector contradictorio o calidad —,
+   * porque un rechazo con causa no es una duda.
+   */
+  reviewOnly: ReviewOnlyCompany[];
   /** Elegibles que el tope dejó fuera. Sus métricas NO se pierden (§ 9). */
   notPersisted: Array<AccumulatedCompany & { reason: 'eligible_not_persisted_due_to_target_cap' }>;
 
@@ -550,6 +576,13 @@ export type ResumedCandidate = {
   becameEligibleAfterEnrichment: boolean;
   enrichmentExecuted: boolean;
   finallyRejectedOrDuplicated: boolean;
+  /**
+   * § D — opcionales porque un checkpoint escrito antes de este hito no los
+   * tiene. Al rehidratar se derivan de la evaluación barata, que es la única
+   * información que ese checkpoint sí guardó.
+   */
+  definitivelyRejected?: boolean;
+  definitiveRejectionReason?: CheapRejectionReason | 'sector_evidence_contradictory' | null;
 };
 
 /**
@@ -590,6 +623,20 @@ type TrackedCandidate = {
   becameEligibleAfterEnrichment: boolean;
   enrichmentExecuted: boolean;
   finallyRejectedOrDuplicated: boolean;
+  /**
+   * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § D — hay un rechazo DEFINITIVO
+   * con causa nombrada (gate barato, duplicado post-enrichment, gate final o
+   * sector contradictorio).
+   *
+   * Se separa de `finallyRejectedOrDuplicated` a propósito: ese campo alimenta
+   * `enrichmentWaste` y marca también al candidato que sigue AMBIGUO tras pagar
+   * su enrichment. Ambiguo y rechazado no son lo mismo — el primero se persiste
+   * como `needs_review` y el segundo no se persiste — y confundirlos era
+   * exactamente lo que impedía al usuario revisar empresas potencialmente útiles.
+   */
+  definitivelyRejected: boolean;
+  /** Causa del rechazo definitivo, cuando la hay. Nunca se inventa. */
+  definitiveRejectionReason: CheapRejectionReason | 'sector_evidence_contradictory' | null;
 };
 
 /**
@@ -733,7 +780,21 @@ export async function runApolloTwoRoundDiscovery(
   for (const identity of resume?.seenIdentities ?? []) {
     seenRegistry = registerSeenOrganization(seenRegistry, identity);
   }
-  const tracked: TrackedCandidate[] = (resume?.candidates ?? []).map((c) => ({ ...c }));
+  const tracked: TrackedCandidate[] = (resume?.candidates ?? []).map((c) => {
+    // § D — un checkpoint anterior a este hito no trae el rechazo definitivo. Se
+    // deriva de lo que ese checkpoint SÍ guardó: el gate barato y el veredicto
+    // sectorial. Nunca se rellena con `false` a ciegas.
+    const derivedReason: CheapRejectionReason | 'sector_evidence_contradictory' | null =
+      c.assessment.rejection ??
+      (c.sectorEvidenceState === 'sector_evidence_contradictory'
+        ? 'sector_evidence_contradictory'
+        : null);
+    return {
+      ...c,
+      definitivelyRejected: c.definitivelyRejected ?? derivedReason !== null,
+      definitiveRejectionReason: c.definitiveRejectionReason ?? derivedReason,
+    };
+  });
   // § 5 — las rondas rehidratadas declaran si su huella efectiva es verificable o si
   // vienen de un checkpoint anterior a este hito. Sin backfill de la huella.
   const roundMetrics: ApolloTwoRoundRoundMetrics[] = (resume?.rounds ?? []).map(
@@ -1283,6 +1344,17 @@ export async function runApolloTwoRoundDiscovery(
         becameEligibleAfterEnrichment: false,
         enrichmentExecuted: false,
         finallyRejectedOrDuplicated: assessment.rejection !== null,
+        // § D — un gate barato y un sector contradictorio son rechazos con causa.
+        // «Falta evidencia» todavía no lo es: eso es justo lo que el enrichment
+        // existe para resolver.
+        definitivelyRejected:
+          assessment.rejection !== null ||
+          assessment.sectorEvidenceState === 'sector_evidence_contradictory',
+        definitiveRejectionReason:
+          assessment.rejection ??
+          (assessment.sectorEvidenceState === 'sector_evidence_contradictory'
+            ? 'sector_evidence_contradictory'
+            : null),
       };
       roundCandidates.push(candidate);
       tracked.push(candidate);
@@ -1451,8 +1523,16 @@ export async function runApolloTwoRoundDiscovery(
       if (metricsForRound) tallyRejection(metricsForRound, postRejection);
       observedRejectionReasons.add(postRejection);
       candidate.finallyRejectedOrDuplicated = true;
+      candidate.definitivelyRejected = true;
+      candidate.definitiveRejectionReason = postRejection;
       candidate.eligible = false;
       continue;
+    }
+    // § D — el enrichment pudo REVELAR una contradicción sectorial. Eso sí es un
+    // rechazo con causa, y descalifica incluso para revisión.
+    if (result.sectorEvidenceState === 'sector_evidence_contradictory') {
+      candidate.definitivelyRejected = true;
+      candidate.definitiveRejectionReason = 'sector_evidence_contradictory';
     }
     const nowEligible = isEligible(candidate.assessment.rejection, result.sectorEvidenceState);
     if (nowEligible && !candidate.eligible) {
@@ -1462,6 +1542,10 @@ export async function runApolloTwoRoundDiscovery(
     if (!nowEligible) {
       // El enrichment se pagó y la empresa sigue sin confirmarse: eso es
       // exactamente `enrichmentWaste`, y así queda contado.
+      //
+      // § D — `finallyRejectedOrDuplicated` NO implica rechazo definitivo. Si
+      // aquí no se marcó `definitivelyRejected`, esta empresa quedó AMBIGUA tras
+      // pagar por resolverla, y se persistirá como `needs_review`.
       candidate.finallyRejectedOrDuplicated = true;
     }
   }
@@ -1477,21 +1561,43 @@ export async function runApolloTwoRoundDiscovery(
   // Se aplica sólo sobre quien sigue siendo elegible: a un candidato ya
   // descartado no hay nada que volver a rechazarle, y re-tallyarlo lo contaría
   // dos veces en el desglose de la ronda.
+  //
+  // § D — los gates finales se aplican TAMBIÉN a las empresas que sólo irían a
+  // revisión. El contrato es explícito: un rechazo de ownership, país,
+  // duplicidad o calidad no se persiste ni siquiera como `needs_review`. Sin
+  // esto, una empresa rechazada por ownership entraría en la base disfrazada de
+  // duda pendiente.
+  const isReviewOnlyCohort = (candidate: TrackedCandidate): boolean =>
+    !candidate.eligible &&
+    !candidate.definitivelyRejected &&
+    candidate.enrichmentExecuted &&
+    candidate.sectorEvidenceState === 'sector_evidence_missing_needs_enrichment';
+
   if (deps.applyFinalGates) {
     for (const candidate of tracked) {
-      if (!candidate.eligible) continue;
+      const reviewOnlyCandidate = isReviewOnlyCohort(candidate);
+      if (!candidate.eligible && !reviewOnlyCandidate) continue;
       const verdict = await deps.applyFinalGates({
         candidateKey: candidate.candidateKey,
         roundNumber: candidate.roundNumber,
         identity: candidate.identity,
       });
       if (verdict.rejection === null) continue;
+      observedRejectionReasons.add(verdict.rejection);
+      candidate.definitivelyRejected = true;
+      candidate.definitiveRejectionReason = verdict.rejection;
+      candidate.finallyRejectedOrDuplicated = true;
+      if (!candidate.eligible) {
+        // El desglose por ronda cuenta rechazos de candidatos ELEGIBLES. Este ya
+        // no lo era, y tallyarlo movería cifras que otras auditorías comparan
+        // contra `eligibleAfterEnrichment`. Su causa queda registrada en
+        // `observedRejectionReasons` y en `evaluatedCandidates`.
+        continue;
+      }
       const metricsForRound = roundMetricsByNumber.get(candidate.roundNumber) ?? null;
       if (metricsForRound) tallyRejection(metricsForRound, verdict.rejection);
-      observedRejectionReasons.add(verdict.rejection);
       candidate.eligible = false;
       candidate.becameEligibleAfterEnrichment = false;
-      candidate.finallyRejectedOrDuplicated = true;
     }
   }
 
@@ -1517,8 +1623,13 @@ export async function runApolloTwoRoundDiscovery(
   const ranked = rankFinalEligibleCompanies(finalSignals, config.targetEligibleCompanies);
   const byKey = new Map(eligibleCompanies.map((c) => [c.candidateKey, c]));
 
-  const toAccumulated = (candidateKey: string): AccumulatedCompany | null => {
-    const candidate = byKey.get(candidateKey);
+  // `explicit` permite acumular a un candidato que NO está en `byKey`: ese mapa
+  // sólo contiene elegibles, y la cohorte de revisión (§ D) por definición no lo es.
+  const toAccumulated = (
+    candidateKey: string,
+    explicit?: TrackedCandidate,
+  ): AccumulatedCompany | null => {
+    const candidate = explicit ?? byKey.get(candidateKey);
     if (!candidate) return null;
     return {
       candidateKey: candidate.candidateKey,
@@ -1545,6 +1656,22 @@ export async function runApolloTwoRoundDiscovery(
         reason: 'eligible_not_persisted_due_to_target_cap';
       } => entry !== null,
     );
+
+  // § D — cohorte de revisión, calculada DESPUÉS de los gates finales para que
+  // ninguna empresa con rechazo definitivo se cuele en ella. El orden importa: en
+  // el orden inverso, la rechazada por ownership del `be181d2d` habría entrado.
+  const reviewOnly: ReviewOnlyCompany[] = tracked
+    .filter(isReviewOnlyCohort)
+    .map((candidate) => {
+      const accumulated = toAccumulated(candidate.candidateKey, candidate);
+      return accumulated === null
+        ? null
+        : {
+            ...accumulated,
+            reviewReason: 'subindustry_ambiguous_after_enrichment' as const,
+          };
+    })
+    .filter((entry): entry is ReviewOnlyCompany => entry !== null);
 
   const eligibleCompaniesFound = eligibleCompanies.length;
   const targetReached = eligibleCompaniesFound >= config.targetEligibleCompanies;
@@ -1577,6 +1704,7 @@ export async function runApolloTwoRoundDiscovery(
     effectiveFingerprintsAreDistinct,
     round2PageDecision,
     persisted,
+    reviewOnly,
     notPersisted,
     rounds: roundMetrics,
     runMetrics: buildRunMetrics({
@@ -1613,6 +1741,8 @@ export async function runApolloTwoRoundDiscovery(
       becameEligibleAfterEnrichment: c.becameEligibleAfterEnrichment,
       enrichmentExecuted: c.enrichmentExecuted,
       finallyRejectedOrDuplicated: c.finallyRejectedOrDuplicated,
+      definitivelyRejected: c.definitivelyRejected,
+      definitiveRejectionReason: c.definitiveRejectionReason,
     })),
     observedRejectionReasons: [...observedRejectionReasons],
   };

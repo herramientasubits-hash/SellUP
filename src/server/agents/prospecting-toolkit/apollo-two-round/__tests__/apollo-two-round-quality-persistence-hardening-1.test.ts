@@ -296,6 +296,7 @@ describe('§ 8 · fixture completo de la corrida', () => {
       {
         eligibleBeforePersistence: result.persisted.length,
         persistedCandidates: persistedCandidateIds.length,
+        completeValidCandidates: persistedCandidateIds.length,
         gapCauses: { ownership_rejected: breakdown.ownership_rejected },
         targetEligibleCompanies: fixtureConfig().targetEligibleCompanies,
       },
@@ -349,6 +350,7 @@ describe('§ 5 · ownership antes de contar, no después de publicar', () => {
       {
         eligibleBeforePersistence: 3,
         persistedCandidates: 2,
+        completeValidCandidates: 2,
         gapCauses: { ownership_rejected: 1 },
         targetEligibleCompanies: 5,
       },
@@ -367,21 +369,33 @@ describe('§ 5 · ownership antes de contar, no después de publicar', () => {
   test('con gate final, proyección y filas coinciden desde el principio', async () => {
     const { result, finalGateCalls } = await runFixture({ applyFinalGates: true });
 
-    // Sólo se evalúa a quien seguía siendo elegible: dos confirmados por
-    // enrichment más el que el sector confirmó gratis.
-    assert.equal(finalGateCalls.length, 3);
+    // INTEGRATION-1 § D — se evalúa a quien sigue siendo elegible (dos
+    // confirmados por enrichment más el que el sector confirmó gratis) Y a las
+    // tres que sólo irían a revisión: un rechazo de ownership tampoco puede
+    // persistirse como `needs_review`.
+    assert.equal(finalGateCalls.length, 6);
     assert.equal(result.runMetrics.persistedCandidates, 2);
     assert.equal(result.persisted.length, 2);
+    assert.equal(result.reviewOnly.length, 3);
     assert.ok(result.observedRejectionReasons.includes('ownership_mismatch'));
   });
 
-  test('el gate final no toca a quien ya estaba descartado', async () => {
+  test('el gate final no toca a quien ya estaba descartado con causa', async () => {
     const { finalGateCalls } = await runFixture({ applyFinalGates: true });
 
-    // Re-evaluar a un descartado lo contaría dos veces en el desglose de la ronda.
+    // Re-evaluar a un rechazado lo contaría dos veces en el desglose de la ronda.
+    // Duplicados, cooldown, país y sector contradictorio quedan fuera; las tres
+    // ambiguas entran porque todavía pueden persistirse para revisión.
     for (const key of finalGateCalls) {
       assert.ok(
-        ['apollo:enr1', 'apollo:enr2', 'apollo:ownership'].includes(key),
+        [
+          'apollo:enr1',
+          'apollo:enr2',
+          'apollo:enr3',
+          'apollo:enr4',
+          'apollo:enr5',
+          'apollo:ownership',
+        ].includes(key),
         `no debería evaluarse ${key}`,
       );
     }

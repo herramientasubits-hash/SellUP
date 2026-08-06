@@ -81,8 +81,14 @@ export type CandidateCompletenessCounters = {
   persisted_candidates: number;
   /** Persistidos que cumplen TODAS las condiciones del contrato. */
   complete_valid_candidates: number;
-  /** Persistidos con al menos una condición incumplida. */
-  incomplete_candidates: number;
+  /**
+   * Persistidos con al menos una condición incumplida: existen para que alguien
+   * los revise, y por eso NO pueden contarse como resultado exitoso.
+   *
+   * `review_only_candidates = persisted_candidates - complete_valid_candidates`,
+   * por definición y no por acumulación: las dos cifras salen de la misma lista.
+   */
+  review_only_candidates: number;
   /** Lo único que puede compararse con el target de la modalidad. */
   target_count: number;
   /** Cuántas veces falló cada condición, para diagnóstico agregado. */
@@ -108,7 +114,7 @@ export function buildCandidateCompletenessCounters(
   return {
     persisted_candidates: eligibilities.length,
     complete_valid_candidates: complete,
-    incomplete_candidates: eligibilities.length - complete,
+    review_only_candidates: eligibilities.length - complete,
     target_count: complete,
     failed_condition_counts: failedConditionCounts,
   };
@@ -120,16 +126,37 @@ export function buildCandidateCompletenessCounters(
 export const INCOMPLETE_CANDIDATE_REVIEW_FLAG = 'incomplete_provider_company_fields';
 
 /**
+ * Clave del bloque canónico de métricas de objetivo en la metadata del lote.
+ *
+ * Es la única fuente que responde «cuántas cuentan hacia el objetivo». Vive en
+ * su propia clave para que ningún consumidor tenga que deducirlo del total de
+ * filas persistidas.
+ */
+export const CANDIDATE_TARGET_METRICS_METADATA_KEY = 'candidate_target_metrics' as const;
+
+/** Estado de revisión con el que se persiste todo candidato incompleto o ambiguo. */
+export const REVIEW_ONLY_CANDIDATE_STATUS = 'needs_review';
+
+/**
+ * Estados que YA dicen algo más específico que «revísalo» y por eso no se
+ * sobrescriben: `duplicate` nombra la causa exacta, y degradarlo a
+ * `needs_review` perdería información sin ganar ninguna.
+ */
+const MORE_SPECIFIC_THAN_REVIEW: readonly string[] = ['duplicate'];
+
+/**
  * Estado con el que se persiste un candidato según su completitud.
  *
- * Un candidato incompleto NUNCA se persiste como `high_quality_new`: se degrada
- * a `needs_review`. Sigue persistiéndose —la información parcial es útil— pero
- * no puede pasar por completo.
+ * Contrato de integración (§ D): un candidato que NO cuenta hacia el objetivo se
+ * persiste como `needs_review`. Sigue persistiéndose —la información parcial es
+ * útil y el usuario puede revisarla— pero nunca queda con un estado que se lea
+ * como «este ya está bien».
  */
 export function resolveCandidateStatusForCompleteness(
   baseStatus: string,
   eligibility: CandidateTargetEligibility,
 ): string {
   if (eligibility.countsTowardTarget) return baseStatus;
-  return baseStatus === 'high_quality_new' ? 'needs_review' : baseStatus;
+  if (MORE_SPECIFIC_THAN_REVIEW.includes(baseStatus)) return baseStatus;
+  return REVIEW_ONLY_CANDIDATE_STATUS;
 }

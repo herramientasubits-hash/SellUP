@@ -59,8 +59,22 @@ export type PersistenceGapCause =
 export type ApolloPersistedCandidateTruth = {
   /** Elegibles que el writer recibió. */
   eligibleBeforePersistence: number;
-  /** `createdCandidateIds.length`. La única cifra canónica. */
+  /** `createdCandidateIds.length`. La única cifra canónica de FILAS. */
   persistedCandidates: number;
+  /**
+   * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § E — filas persistidas que
+   * cumplen el contrato completo de `candidate-completeness-contract.ts`.
+   *
+   * Es lo ÚNICO que puede compararse con el objetivo. Desde que un candidato
+   * ambiguo se persiste como `needs_review` (§ D), `persistedCandidates` incluye
+   * filas que existen para que alguien las revise: contarlas hacia el objetivo
+   * declararía alcanzada una meta que nadie alcanzó.
+   *
+   * Fail-closed: `null` significa «el writer no lo midió», y en ese caso el
+   * objetivo NO se da por alcanzado. La ausencia nunca se sustituye por las
+   * filas totales.
+   */
+  completeValidCandidates: number | null;
   /** Causas del hueco, contadas. Sólo entradas con recuento > 0. */
   gapCauses: Partial<Record<PersistenceGapCause, number>>;
   /** Objetivo de la corrida. `target_reached` se decide contra él. */
@@ -97,14 +111,37 @@ function sumCauses(causes: Partial<Record<PersistenceGapCause, number>>): number
 export type ApolloPersistenceReconciliation = {
   canonical_persisted_source: typeof CANONICAL_PERSISTED_SOURCE;
   eligible_before_persistence: number;
+  /**
+   * § E — los que pasaron todos los gates PREVIOS al writer. Igual a
+   * `eligible_before_persistence` por definición: son la misma lista, nombrada
+   * con el vocabulario del contrato.
+   */
+  projected_persistable_candidates: number;
   persisted_candidates: number;
+  /** Filas que cumplen el contrato completo. `null` ⇒ el writer no lo midió. */
+  complete_valid_candidates: number | null;
+  /** Filas persistidas SÓLO para revisión. `null` ⇒ indeterminado, nunca 0. */
+  review_only_candidates: number | null;
+  /** Lo único comparable con el objetivo. `null` ⇒ indeterminado. */
+  target_count: number | null;
   persistence_gap: number;
   gap_causes: Partial<Record<PersistenceGapCause, number>>;
   /** Parte del hueco que ninguna causa explica. Debe ser 0 en una corrida sana. */
   unexplained_gap: number;
   target_eligible_companies: number;
-  /** `persisted >= target`. Sobre filas reales, nunca sobre la proyección. */
+  /**
+   * `complete_valid_candidates >= target`. NUNCA sobre el total de filas: desde
+   * el § D hay filas persistidas que existen sólo para revisión.
+   */
   target_reached: boolean;
+  /** Costo por FILA. Incluye las de revisión: es lo que la corrida escribió. */
+  credits_per_persisted_candidate: number | null;
+  /** Costo por empresa realmente útil. Es el que mide el rendimiento real. */
+  credits_per_complete_valid_candidate: number | null;
+  /**
+   * Nombre histórico de `credits_per_persisted_candidate`. Se conserva porque
+   * `run_metrics` ya lo publicaba y hay auditorías leyéndolo; misma cifra.
+   */
   credits_per_persisted_company: number | null;
   total_credits: number;
 };
@@ -125,16 +162,38 @@ export function buildApolloPersistenceReconciliation(
   const gap = eligible - persisted;
   const declared = sumCauses(truth.gapCauses);
 
+  // § E — «completo» nunca puede exceder «persistido»: son un subconjunto de la
+  // misma lista, y una cifra mayor sólo podría venir de un error de conteo.
+  const complete =
+    truth.completeValidCandidates === null
+      ? null
+      : Math.min(persisted, Math.max(0, Math.trunc(truth.completeValidCandidates)));
+  const reviewOnly = complete === null ? null : persisted - complete;
+
+  const creditsPerPersisted = ratio(totalCredits, persisted);
+
   return {
     canonical_persisted_source: CANONICAL_PERSISTED_SOURCE,
     eligible_before_persistence: eligible,
+    projected_persistable_candidates: eligible,
     persisted_candidates: persisted,
+    complete_valid_candidates: complete,
+    review_only_candidates: reviewOnly,
+    target_count: complete,
     persistence_gap: gap,
     gap_causes: { ...truth.gapCauses },
     unexplained_gap: Math.max(0, gap - declared),
     target_eligible_companies: truth.targetEligibleCompanies,
-    target_reached: truth.targetEligibleCompanies > 0 && persisted >= truth.targetEligibleCompanies,
-    credits_per_persisted_company: ratio(totalCredits, persisted),
+    // Fail-closed: sin medición de completitud NO se declara alcanzado el
+    // objetivo. Antes bastaba con que hubiera filas, y desde el § D hay filas
+    // que sólo existen para revisión.
+    target_reached:
+      complete !== null &&
+      truth.targetEligibleCompanies > 0 &&
+      complete >= truth.targetEligibleCompanies,
+    credits_per_persisted_candidate: creditsPerPersisted,
+    credits_per_complete_valid_candidate: complete === null ? null : ratio(totalCredits, complete),
+    credits_per_persisted_company: creditsPerPersisted,
     total_credits: totalCredits,
   };
 }
@@ -177,15 +236,27 @@ export function reconcileApolloTwoRoundPersistedTruth(
         // filas. La proyección del orquestador se conserva con su propio nombre
         // para poder comparar las dos sin confundirlas.
         persisted_candidates: reconciliation.persisted_candidates,
-        projected_persistable_candidates:
+        // § E — los que superaron los gates PREVIOS al writer. NO es la
+        // proyección del ranking del orquestador: esa conserva su propio nombre
+        // justo debajo, porque son dos cifras distintas y confundirlas fue el
+        // defecto original.
+        projected_persistable_candidates: reconciliation.projected_persistable_candidates,
+        orchestrator_ranked_persisted_projection:
           readNumber(runMetrics['persisted_candidates']) ?? null,
+        complete_valid_candidates: reconciliation.complete_valid_candidates,
+        review_only_candidates: reconciliation.review_only_candidates,
+        target_count: reconciliation.target_count,
         eligible_before_persistence: reconciliation.eligible_before_persistence,
         persistence_gap: reconciliation.persistence_gap,
+        credits_per_persisted_candidate: reconciliation.credits_per_persisted_candidate,
+        credits_per_complete_valid_candidate:
+          reconciliation.credits_per_complete_valid_candidate,
         credits_per_persisted_company: reconciliation.credits_per_persisted_company,
         canonical_persisted_source: CANONICAL_PERSISTED_SOURCE,
       },
-      // § 1 — `target_reached` deja de significar «el orquestador acumuló N
-      // elegibles» y pasa a significar «hay N candidatos válidos en la base».
+      // § 1 y § E — `target_reached` deja de significar «el orquestador acumuló N
+      // elegibles» y pasa a significar «hay N empresas COMPLETAS Y VÁLIDAS en la
+      // base». Ni la proyección ni el total de filas deciden esto.
       target_reached: reconciliation.target_reached,
       projected_target_reached: observability['target_reached'] ?? null,
       candidates_persisted_count: reconciliation.persisted_candidates,

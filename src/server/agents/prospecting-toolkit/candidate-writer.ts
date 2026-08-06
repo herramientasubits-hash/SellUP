@@ -86,11 +86,16 @@ import type {
   CompanyFieldMappingStatus,
 } from './apollo-company-fields-mapping';
 import {
+  buildCompanyLinkedInTrace,
+  buildEmployeeCountTrace,
+} from './apollo-company-fields-mapping';
+import {
   evaluateCandidateTargetEligibility,
   buildCandidateCompletenessCounters,
   resolveCandidateStatusForCompleteness,
   toSubindustryMatchVerdict,
   INCOMPLETE_CANDIDATE_REVIEW_FLAG,
+  CANDIDATE_TARGET_METRICS_METADATA_KEY,
 } from './candidate-completeness-contract';
 import type { CandidateTargetEligibility } from './candidate-completeness-contract';
 import type {
@@ -821,6 +826,16 @@ export async function writeProspectingCandidates(
    * escrito. Alimenta los contadores separados: persistidos ≠ completos.
    */
   const completenessEligibilities: CandidateTargetEligibility[] = [];
+  /**
+   * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § E — completitud de TODAS las
+   * filas escritas, incluidas las que no traen campos de proveedor.
+   *
+   * `completenessEligibilities` sólo acumula las que tienen `providerCompanyFields`
+   * porque alimenta un bloque de metadata sobre esos campos. El recuento canónico
+   * de la corrida no puede excluir a nadie: una fila sin campos de proveedor es,
+   * por definición, una fila incompleta, y omitirla inflaría `target_count`.
+   */
+  const persistedTargetEligibilities: CandidateTargetEligibility[] = [];
   /** Inserts que tuvieron que reintentarse porque la columna `linkedin_url` no existe. */
   let linkedInColumnFallbackCount = 0;
 
@@ -2288,6 +2303,37 @@ export async function writeProspectingCandidates(
         ? 'writer_linkedin_enrichment'
         : null;
 
+    // ── § G — trazabilidad por campo ──────────────────────────────────────────
+    //
+    // El `usage_key` de la operación que trajo el dato sólo existe cuando hubo
+    // una operación PAGADA (el enrichment de organización). Cuando el valor vino
+    // de la búsqueda, no hay clave que citar y el campo queda en `null` en vez de
+    // inventarse una.
+    //
+    // `persistence_mode` se declara aquí como `column` porque es lo que este
+    // insert intenta. Si la columna no existiera en el entorno, el reintento sin
+    // ella lo registra a nivel de lote en `company_fields_completeness.
+    // linkedin_persistence_mode = 'metadata_only'`: la columna existe o no existe
+    // para TODA la corrida, así que el estado del lote es el que manda, y por eso
+    // es el que la QA certifica.
+    const companyFieldSourceRequestId =
+      candidate.providerEnrichmentCapture?.provenance.sourceRequestId ?? null;
+    const companyFieldTraces = providerCompanyFields
+      ? {
+          linkedin: buildCompanyLinkedInTrace(providerCompanyFields.linkedin, {
+            sourceRequestId: companyFieldSourceRequestId,
+            persistenceMode: persistedLinkedInUrl !== null ? 'column' : 'not_persisted',
+          }),
+          employee_count: buildEmployeeCountTrace(providerCompanyFields.employeeCount, {
+            sourceRequestId: companyFieldSourceRequestId,
+            persistenceMode:
+              providerCompanyFields.employeeCount.status === 'confirmed'
+                ? 'column'
+                : 'not_persisted',
+          }),
+        }
+      : null;
+
     // § 5 — la regla de conteo hacia el target. Los gates de propiedad y de
     // calidad ya descartaron antes del insert a quien no pasaba, así que llegar
     // aquí ES el `pass`; se registra explícito en vez de darse por supuesto.
@@ -2386,11 +2432,19 @@ export async function writeProspectingCandidates(
                 ...companyLinkedInBlock,
                 persisted_linkedin_url: persistedLinkedInUrl,
                 persisted_linkedin_origin: persistedLinkedInOrigin,
+                // § G — las cinco etapas del campo, para que «no está» deje de
+                // tener cinco causas indistinguibles.
+                ...(companyFieldTraces ? { trace: companyFieldTraces.linkedin } : {}),
               },
             }
           : {}),
         ...(companyEmployeeCountBlock
-          ? { company_employee_count: companyEmployeeCountBlock }
+          ? {
+              company_employee_count: {
+                ...companyEmployeeCountBlock,
+                ...(companyFieldTraces ? { trace: companyFieldTraces.employee_count } : {}),
+              },
+            }
           : {}),
         // § 5 — por qué este candidato cuenta (o no) hacia el target. Persistido
         // no es lo mismo que completo, y aquí queda dicho por candidato.
@@ -2574,6 +2628,9 @@ export async function writeProspectingCandidates(
       createdCandidateIds.push(created.id);
       // § 5 — sólo se contabiliza la completitud de lo que REALMENTE se escribió.
       if (providerCompanyFields) completenessEligibilities.push(targetEligibility);
+      // § E — el recuento canónico incluye TODA fila escrita, con campos de
+      // proveedor o sin ellos.
+      persistedTargetEligibilities.push(targetEligibility);
 
       // Auditoría: candidate_created
       await admin.from("prospect_candidate_audit").insert({
@@ -2735,12 +2792,40 @@ export async function writeProspectingCandidates(
       })),
     };
 
+    // AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § E — vocabulario canónico de
+    // la corrida, calculado UNA vez sobre las filas realmente escritas. Todos los
+    // consumidores (resumen, panel, costo, auditoría, reconciliación) leen de
+    // aquí para que no pueda haber dos verdades.
+    const canonicalCompletenessCounters = buildCandidateCompletenessCounters(
+      persistedTargetEligibilities,
+    );
+    const projectedPersistableCandidates = pipelineOutput.candidates.length;
+    const canonicalTargetMetrics = {
+      projected_persistable_candidates: projectedPersistableCandidates,
+      persisted_candidates: canonicalCompletenessCounters.persisted_candidates,
+      complete_valid_candidates: canonicalCompletenessCounters.complete_valid_candidates,
+      review_only_candidates: canonicalCompletenessCounters.review_only_candidates,
+      target_count: canonicalCompletenessCounters.target_count,
+      persistence_gap:
+        projectedPersistableCandidates - canonicalCompletenessCounters.persisted_candidates,
+      target_eligible_companies: targetCap ?? pipelineOutput.summary.requested,
+      target_reached:
+        (targetCap ?? pipelineOutput.summary.requested) > 0 &&
+        canonicalCompletenessCounters.target_count >=
+          (targetCap ?? pipelineOutput.summary.requested),
+      failed_condition_counts: canonicalCompletenessCounters.failed_condition_counts,
+    };
+
     const pipelineSummaryPostWrite = {
       requested: pipelineOutput.summary.requested,
       persisted: createdCandidateIds.length,
       skipped: skipped.length,
       returned_before_writer: pipelineOutput.summary.returned,
-      needs_review_persisted: createdCandidateIds.length,
+      // § E — antes esto repetía el total de filas, así que decía «5 para
+      // revisión» aunque 2 estuvieran completas. Ahora nombra sólo las que de
+      // verdad quedaron pendientes de revisión.
+      needs_review_persisted: canonicalCompletenessCounters.review_only_candidates,
+      complete_valid_persisted: canonicalCompletenessCounters.complete_valid_candidates,
     };
 
     // A1-APOLLO-LINKEDIN-EMPLOYEES-1 § 5 — contadores SEPARADOS. `persisted` ya
@@ -2753,8 +2838,11 @@ export async function writeProspectingCandidates(
             ...buildCandidateCompletenessCounters(completenessEligibilities),
             target: targetCap ?? pipelineOutput.summary.requested,
             linkedin_url_column_fallback_count: linkedInColumnFallbackCount,
+            // § G — `column` es el estado que una QA puede certificar: la columna
+            // existe y el valor está en ella. `metadata_only` sigue siendo un
+            // estado válido durante un despliegue gradual, pero no certifica nada.
             linkedin_persistence_mode:
-              linkedInColumnFallbackCount > 0 ? 'metadata_only' : 'column_and_metadata',
+              linkedInColumnFallbackCount > 0 ? 'metadata_only' : 'column',
           }
         : undefined;
 
@@ -2990,6 +3078,10 @@ export async function writeProspectingCandidates(
       {
         eligibleBeforePersistence: pipelineOutput.candidates.length,
         persistedCandidates: createdCandidateIds.length,
+        // § E — el objetivo se decide contra las empresas COMPLETAS Y VÁLIDAS,
+        // no contra el total de filas: desde el § D hay filas persistidas que
+        // existen sólo para revisión.
+        completeValidCandidates: canonicalCompletenessCounters.complete_valid_candidates,
         gapCauses: {
           ownership_rejected: skipBreakdown.ownership_rejected,
           quality_rejected: skipBreakdown.quality_rejected,
@@ -3011,7 +3103,16 @@ export async function writeProspectingCandidates(
       ...(twoRoundReconciled
         ? { [APOLLO_TWO_ROUND_OBSERVABILITY_KEY]: twoRoundReconciled.observability }
         : {}),
-      writer_summary: writerSummary,
+      // § E — el resumen del writer publica las tres cifras separadas. Antes sólo
+      // publicaba `created_candidate_ids_count`, que cualquiera podía leer como
+      // «empresas válidas».
+      writer_summary: {
+        ...writerSummary,
+        complete_valid_candidates: canonicalTargetMetrics.complete_valid_candidates,
+        review_only_candidates: canonicalTargetMetrics.review_only_candidates,
+        target_count: canonicalTargetMetrics.target_count,
+        persistence_gap: canonicalTargetMetrics.persistence_gap,
+      },
       // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — cifras sanitizadas del resultado
       // de la escritura. Sin stack, sin SQL, sin mensaje del motor: sólo enteros
       // y uno de dos códigos conocidos.
@@ -3019,6 +3120,10 @@ export async function writeProspectingCandidates(
         toCandidatePersistenceOutcomeMetadata(persistenceOutcome),
       novelty_summary: noveltySummary,
       pipeline_summary_post_write: pipelineSummaryPostWrite,
+      // § E — bloque canónico de la corrida. Existe para toda modalidad, no sólo
+      // para Apollo dos rondas: cualquier consumidor que pregunte «cuántas
+      // cuentan» tiene una única respuesta y no la deduce del total de filas.
+      [CANDIDATE_TARGET_METRICS_METADATA_KEY]: canonicalTargetMetrics,
       ...(companyFieldsCompleteness
         ? { company_fields_completeness: companyFieldsCompleteness }
         : {}),

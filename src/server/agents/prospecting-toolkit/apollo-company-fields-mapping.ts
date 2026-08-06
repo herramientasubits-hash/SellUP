@@ -443,3 +443,78 @@ export function toCompanyEmployeeCountMetadataBlock(
     employee_count_mapping_reason: capture.reason,
   };
 }
+
+// ─── § G · trazabilidad por campo ─────────────────────────────────────────────
+
+/**
+ * Dónde se guardó finalmente el valor.
+ *
+ * `column` es el único estado que una QA puede certificar. `metadata_only`
+ * existe para el despliegue gradual —la columna aún no está en ese entorno— y
+ * `not_persisted` para cuando no había valor que guardar.
+ */
+export type CompanyFieldPersistenceMode = 'column' | 'metadata_only' | 'not_persisted';
+
+/**
+ * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § G — las cinco etapas por las
+ * que pasa un campo, cada una con su respuesta de sí o no.
+ *
+ * Existe porque «el campo no está» tenía cinco causas posibles y ninguna forma
+ * de distinguirlas: el proveedor no lo devolvió, llegó con un valor inválido, el
+ * mapeo lo perdió, el writer no lo recibió, o se guardó y la UI no lo pinta. Con
+ * la traza, cada una se lee directamente.
+ */
+export type CompanyFieldTrace = {
+  returned_by_provider: boolean;
+  normalized: boolean;
+  sent_to_writer: boolean;
+  persisted: boolean;
+  displayed: boolean;
+  source_provider: 'apollo' | null;
+  source_operation: ApolloCompanyFieldOperation | null;
+  /** `usage_key` de la operación que lo trajo. `null` si no hubo operación pagada. */
+  source_request_id: string | null;
+  observed_at: string | null;
+  mapping_status: CompanyFieldMappingStatus;
+  persistence_mode: CompanyFieldPersistenceMode;
+};
+
+function traceFor(
+  capture: { status: CompanyFieldMappingStatus; sourceProvider: 'apollo' | null;
+    sourceOperation: ApolloCompanyFieldOperation | null; observedAt: string | null },
+  hasValue: boolean,
+  options: { sourceRequestId: string | null; persistenceMode: CompanyFieldPersistenceMode },
+): CompanyFieldTrace {
+  // `not_returned` es lo único que afirma que el proveedor no lo entregó. Un
+  // `invalid` o un `mapping_failed` SÍ llegaron: se perdieron después, y
+  // reportarlos como ausencia del proveedor es justo el error que esto cierra.
+  const returnedByProvider = capture.status !== 'not_returned';
+  return {
+    returned_by_provider: returnedByProvider,
+    normalized: capture.status === 'confirmed',
+    sent_to_writer: hasValue,
+    persisted: options.persistenceMode !== 'not_persisted',
+    // Se pinta lo que se guardó; los demás estados tienen su propio mensaje.
+    displayed: options.persistenceMode !== 'not_persisted',
+    source_provider: capture.sourceProvider,
+    source_operation: capture.sourceOperation,
+    source_request_id: options.sourceRequestId,
+    observed_at: capture.observedAt,
+    mapping_status: capture.status,
+    persistence_mode: options.persistenceMode,
+  };
+}
+
+export function buildCompanyLinkedInTrace(
+  capture: CompanyLinkedInCapture,
+  options: { sourceRequestId: string | null; persistenceMode: CompanyFieldPersistenceMode },
+): CompanyFieldTrace {
+  return traceFor(capture, capture.companyLinkedInUrl !== null, options);
+}
+
+export function buildEmployeeCountTrace(
+  capture: EmployeeCountCapture,
+  options: { sourceRequestId: string | null; persistenceMode: CompanyFieldPersistenceMode },
+): CompanyFieldTrace {
+  return traceFor(capture, capture.employeeCount !== null, options);
+}
