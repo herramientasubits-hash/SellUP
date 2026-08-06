@@ -129,7 +129,10 @@ describe('§ 14.9 — persistencia parcial', () => {
     const copy = resolveWizardResultCopy({ persistence: partial });
     assert.equal(copy.cause, 'persistence_partial');
     assert.equal(copy.heading, PERSISTENCE_PARTIAL_HEADING);
-    assert.match(copy.body, /Guardamos 1 de 4/);
+    // FORENSICS-1 § 7 — el cuerpo dice las DOS cifras. Antes decía «Guardamos 1
+    // de 4 … las demás», y «las demás» no es un número que nadie pueda auditar.
+    assert.match(copy.body, /Se guardaron 1 de 4 candidatos\./);
+    assert.match(copy.body, /3 no pudieron guardarse\./);
     assert.equal(copy.claimsRecentlySuggested, false);
   });
 

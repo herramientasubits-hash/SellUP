@@ -325,6 +325,10 @@ describe('11F.2 writeProspectingCandidates — Apollo + provider_routing stamps 
       assert.equal(cost['estimated_cost_usd'], null);
       assert.ok(sourceTrace, 'source_trace must be present');
       assert.equal(sourceTrace['sourceProvider'], 'apollo');
+      // FORENSICS-1 § 10 — la procedencia persistida es la real. Etiquetar como
+      // `web_ai` un candidato producido íntegramente por Apollo hacía que la
+      // ficha dijera «Web/IA» mientras sus campos citaban «Apollo · …».
+      assert.equal(row['source_primary'], 'apollo');
     }
   });
 });
@@ -351,6 +355,9 @@ describe('11F.2 writeProspectingCandidates — Apollo without provider_routing d
       assert.equal('source_provider' in metadata, false);
       assert.equal('provider_trace' in metadata, false);
       assert.equal('source_trace' in row, false);
+      // Sin `provider_routing` la corrida no está confirmada como Apollo, así
+      // que la procedencia NO se promueve: se queda en el valor genérico.
+      assert.equal(row['source_primary'], 'web_ai');
     }
   });
 });

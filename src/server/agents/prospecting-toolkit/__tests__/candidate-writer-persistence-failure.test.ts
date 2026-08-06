@@ -249,6 +249,12 @@ describe('§ 14.12 — fixture QA-2: elegible = 1, writer muere por identity_key
       persistence_failed: true,
       persistence_error_code: IDENTITY_KEY_UNAVAILABLE_ERROR_CODE,
       persistence_error_stage: 'candidate_insert',
+      // FORENSICS-1 § 7 — un intento, cero guardados: fracaso total, no parcial.
+      persistence_status: 'failed',
+      persistence_attempted_count: 1,
+      persistence_succeeded_count: 0,
+      persistence_failed_count: 1,
+      persistence_gap: 1,
     });
   });
 

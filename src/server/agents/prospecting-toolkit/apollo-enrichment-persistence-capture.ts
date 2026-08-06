@@ -177,11 +177,42 @@ export function toApolloEnrichmentPersistenceMetadata(
  * como estaba, mientras que una clave con `null` la sobrescribiría con nada. Un
  * dato que el proveedor no devolvió no debe borrar uno que ya estuviera.
  */
+/**
+ * Dominio que la CHECK `prospect_candidates_classification_source_check`
+ * (migración 093) admite en la columna homónima.
+ */
+export const PROSPECT_CANDIDATE_CLASSIFICATION_SOURCES = [
+  'writer',
+  'derived_metadata',
+  'derived_source_primary',
+  'derived_review_notes',
+  'derived_batch',
+  'manual',
+  'derived_status',
+  'unknown',
+] as const;
+
+export type ProspectCandidateClassificationSource =
+  (typeof PROSPECT_CANDIDATE_CLASSIFICATION_SOURCES)[number];
+
+/**
+ * La columna responde «quién produjo la clasificación persistida», y aquí la
+ * produce el writer. El campo del proveedor que aportó la evidencia
+ * (`provider_industry`, `website_profile`, …) es otro vocabulario y vive en
+ * `metadata.apollo_enrichment_capture.classification_source`, que no tiene
+ * dominio cerrado; no se pierde ni un dato al separarlos.
+ *
+ * Escribir el vocabulario de evidencia en la columna violaba la CHECK y hacía
+ * fallar el INSERT de TODO candidato con subindustria confirmada — es decir,
+ * justo de los que cuentan hacia el objetivo.
+ */
+const CANDIDATE_CLASSIFICATION_COLUMN_SOURCE: ProspectCandidateClassificationSource = 'writer';
+
 export type ApolloEnrichmentCandidateColumns = {
   city?: string;
   subindustry?: string;
   sector_code?: string;
-  classification_source?: string;
+  classification_source?: ProspectCandidateClassificationSource;
   classification_confidence?: number;
 };
 
@@ -193,7 +224,7 @@ export function toApolloEnrichmentCandidateColumns(
     ...(capture.subindustry !== null ? { subindustry: capture.subindustry } : {}),
     ...(capture.sectorCode !== null ? { sector_code: capture.sectorCode } : {}),
     ...(capture.classificationSource !== null
-      ? { classification_source: capture.classificationSource }
+      ? { classification_source: CANDIDATE_CLASSIFICATION_COLUMN_SOURCE }
       : {}),
     ...(capture.classificationConfidence !== null
       ? { classification_confidence: capture.classificationConfidence }

@@ -235,7 +235,41 @@ export type CandidatePersistenceOutcome = {
   persistenceFailed: boolean;
   persistenceErrorCode: PersistenceErrorCode | null;
   persistenceErrorStage: PersistenceErrorStage | null;
+  persistenceStatus: PersistenceStatus;
+  persistenceAttemptedCount: number;
+  persistenceSucceededCount: number;
+  persistenceFailedCount: number;
+  persistenceGap: number;
+  /**
+   * FORENSICS-1 § 4 y § 7 — cifras que sólo el writer conoce y que la UI
+   * necesita para explicar un éxito parcial sin abrir la base.
+   *
+   * Opcionales a propósito: los caminos que no escriben candidatos (dry run, un
+   * reintento que encontró las filas ya persistidas) no las pueden medir, y
+   * `undefined` significa «no medido», nunca cero. Un cero afirmaría que no hubo
+   * ninguno, que es una afirmación distinta y más fuerte.
+   */
+  lateDuplicateCount?: number;
+  completeValidCandidates?: number;
+  reviewOnlyCandidates?: number;
 };
+
+/**
+ * Éxito, éxito PARCIAL y fracaso son tres cosas distintas.
+ *
+ * Un booleano `persistenceFailed` no distingue «no se guardó nada» de «se
+ * guardaron 3 de 4», y esa indistinción es la que dejó una corrida anunciándose
+ * como normal mientras perdía al único candidato que contaba hacia el objetivo.
+ */
+export type PersistenceStatus = 'success' | 'partial_failure' | 'failed';
+
+export function resolvePersistenceStatus(input: {
+  succeededCount: number;
+  failedCount: number;
+}): PersistenceStatus {
+  if (input.failedCount <= 0) return 'success';
+  return input.succeededCount > 0 ? 'partial_failure' : 'failed';
+}
 
 /**
  * Resultado «nada falló», para los caminos que no escriben y para los dobles de
@@ -250,13 +284,19 @@ export function noCandidatePersistenceFailures(input?: {
   eligibleBeforePersistence?: number;
   persistedCandidates?: number;
 }): CandidatePersistenceOutcome {
+  const persisted = input?.persistedCandidates ?? 0;
   return {
     eligibleBeforePersistence: input?.eligibleBeforePersistence ?? 0,
-    persistedCandidates: input?.persistedCandidates ?? 0,
+    persistedCandidates: persisted,
     persistenceFailureCount: 0,
     persistenceFailed: false,
     persistenceErrorCode: null,
     persistenceErrorStage: null,
+    persistenceStatus: 'success',
+    persistenceAttemptedCount: persisted,
+    persistenceSucceededCount: persisted,
+    persistenceFailedCount: 0,
+    persistenceGap: 0,
   };
 }
 
@@ -268,6 +308,11 @@ export type CandidatePersistenceOutcomeMetadata = {
   persistence_failed: boolean;
   persistence_error_code: string | null;
   persistence_error_stage: string | null;
+  persistence_status: PersistenceStatus;
+  persistence_attempted_count: number;
+  persistence_succeeded_count: number;
+  persistence_failed_count: number;
+  persistence_gap: number;
 };
 
 export const CANDIDATE_PERSISTENCE_OUTCOME_METADATA_KEY = 'candidate_persistence' as const;
@@ -282,6 +327,11 @@ export function toCandidatePersistenceOutcomeMetadata(
     persistence_failed: outcome.persistenceFailed,
     persistence_error_code: outcome.persistenceErrorCode,
     persistence_error_stage: outcome.persistenceErrorStage,
+    persistence_status: outcome.persistenceStatus,
+    persistence_attempted_count: outcome.persistenceAttemptedCount,
+    persistence_succeeded_count: outcome.persistenceSucceededCount,
+    persistence_failed_count: outcome.persistenceFailedCount,
+    persistence_gap: outcome.persistenceGap,
   };
 }
 
