@@ -1034,6 +1034,22 @@ export async function executeProspectWizardGeneration(
         persistenceFailureCount: pipelineResult.persistenceOutcome.persistenceFailureCount,
         persistenceFailed: pipelineResult.persistenceOutcome.persistenceFailed,
         persistenceErrorCode: pipelineResult.persistenceOutcome.persistenceErrorCode,
+        // AGENT1-APOLLO-CANDIDATE-INSERT-FORENSICS-1 § 7 — éxito PARCIAL con
+        // nombre propio y con las cifras que lo sostienen. Sin ellas la UI sólo
+        // podía elegir entre «todo bien» y «todo mal», y la corrida `9a9acf99`
+        // (3 guardados de 4 intentos) no es ninguna de las dos.
+        //
+        // `null` cuando el camino no las midió: un cero afirmaría que no hubo
+        // ninguno, que es una afirmación distinta y más fuerte.
+        persistenceStatus: pipelineResult.persistenceOutcome.persistenceStatus,
+        persistenceAttemptedCount: pipelineResult.persistenceOutcome.persistenceAttemptedCount,
+        persistenceSucceededCount: pipelineResult.persistenceOutcome.persistenceSucceededCount,
+        persistenceFailedCount: pipelineResult.persistenceOutcome.persistenceFailedCount,
+        persistenceGap: pipelineResult.persistenceOutcome.persistenceGap,
+        lateDuplicateCount: pipelineResult.persistenceOutcome.lateDuplicateCount ?? null,
+        completeValidCandidates:
+          pipelineResult.persistenceOutcome.completeValidCandidates ?? null,
+        reviewOnlyCandidates: pipelineResult.persistenceOutcome.reviewOnlyCandidates ?? null,
       }
     : null;
 

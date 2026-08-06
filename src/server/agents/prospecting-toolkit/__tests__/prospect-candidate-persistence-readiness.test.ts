@@ -285,6 +285,11 @@ describe('§ 7 — metadata sanitizada del resultado', () => {
       persistenceFailed: true,
       persistenceErrorCode: IDENTITY_KEY_UNAVAILABLE_ERROR_CODE,
       persistenceErrorStage: 'candidate_insert',
+      persistenceStatus: 'failed',
+      persistenceAttemptedCount: 1,
+      persistenceSucceededCount: 0,
+      persistenceFailedCount: 1,
+      persistenceGap: 1,
     });
     assert.deepEqual(metadata, {
       eligible_before_persistence: 1,
@@ -293,6 +298,11 @@ describe('§ 7 — metadata sanitizada del resultado', () => {
       persistence_failed: true,
       persistence_error_code: IDENTITY_KEY_UNAVAILABLE_ERROR_CODE,
       persistence_error_stage: 'candidate_insert',
+      persistence_status: 'failed',
+      persistence_attempted_count: 1,
+      persistence_succeeded_count: 0,
+      persistence_failed_count: 1,
+      persistence_gap: 1,
     });
     const serialized = JSON.stringify(metadata);
     assert.doesNotMatch(serialized, /schema cache/);
