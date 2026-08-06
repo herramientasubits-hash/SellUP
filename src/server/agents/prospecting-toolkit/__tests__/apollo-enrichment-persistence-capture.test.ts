@@ -62,10 +62,16 @@ describe('§ 4 · lo devuelto llega a columnas', () => {
   });
 
   test('la subindustria confirmada se persiste con su fuente y su confianza', () => {
-    const columns = toApolloEnrichmentCandidateColumns(capture(enrichedResult()));
+    const captured = capture(enrichedResult());
+    const columns = toApolloEnrichmentCandidateColumns(captured);
 
     assert.equal(columns.subindustry, SUBINDUSTRY);
-    assert.equal(columns.classification_source, 'provider_description');
+    // FORENSICS-1 § 3 — la COLUMNA responde «quién clasificó» y su CHECK
+    // (migración 093) sólo admite ese vocabulario. El campo del proveedor que
+    // aportó la evidencia es otra cosa y vive en la metadata: escribirlo aquí
+    // hacía fallar el INSERT de todo candidato con subindustria confirmada.
+    assert.equal(columns.classification_source, 'writer');
+    assert.equal(captured.classificationSource, 'provider_description');
     assert.ok((columns.classification_confidence ?? 0) > 0);
   });
 

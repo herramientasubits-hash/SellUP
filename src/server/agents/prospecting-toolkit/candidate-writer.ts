@@ -140,12 +140,20 @@ import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from './apollo-two-round/observabi
 import {
   classifyCandidatePersistenceError,
   resolveBatchStatusForPersistenceOutcome,
+  resolvePersistenceStatus,
   toCandidatePersistenceOutcomeMetadata,
   CANDIDATE_PERSISTENCE_OUTCOME_METADATA_KEY,
   type CandidatePersistenceOutcome,
   type PersistenceErrorCode,
   type PersistenceErrorStage,
 } from './prospect-candidate-persistence-readiness';
+import {
+  CANDIDATE_PERSISTENCE_FAILED_AUDIT_ACTION,
+  classifyCandidateInsertFailureKind,
+  extractDatabaseErrorDiagnostics,
+  toCandidatePersistenceFailureAuditDetails,
+  type DatabaseErrorDiagnostics,
+} from './candidate-persistence-failure-audit';
 
 // ─── Resultado de la persistencia ─────────────────────────────────────────────
 
@@ -165,11 +173,23 @@ function buildPersistenceOutcome(input: {
   eligibleBeforePersistence: number;
   persistedCandidates: number;
   failures: readonly { code: PersistenceErrorCode; stage: PersistenceErrorStage }[];
+  attemptedCount?: number;
+  /**
+   * FORENSICS-1 § 4 y § 7 — cifras que la UI necesita para explicar un éxito
+   * parcial. Ausentes en los caminos que no recorrieron el bucle de escritura:
+   * ahí no se midieron, y `undefined` lo dice sin fingir un cero.
+   */
+  lateDuplicateCount?: number;
+  completeValidCandidates?: number;
+  reviewOnlyCandidates?: number;
 }): CandidatePersistenceOutcome {
   const failureCount = input.failures.length;
   // Con varios fallos se reporta el PRIMER código: es el que explica la corrida,
   // y una columna ausente produce el mismo error en todas las filas.
   const first = input.failures[0] ?? null;
+  // Los intentos que no se pasan explícitamente se reconstruyen: guardados más
+  // fallidos. Nunca menos que los guardados.
+  const attempted = input.attemptedCount ?? input.persistedCandidates + failureCount;
   return {
     eligibleBeforePersistence: input.eligibleBeforePersistence,
     persistedCandidates: input.persistedCandidates,
@@ -177,6 +197,23 @@ function buildPersistenceOutcome(input: {
     persistenceFailed: failureCount > 0,
     persistenceErrorCode: first?.code ?? null,
     persistenceErrorStage: first?.stage ?? null,
+    persistenceStatus: resolvePersistenceStatus({
+      succeededCount: input.persistedCandidates,
+      failedCount: failureCount,
+    }),
+    persistenceAttemptedCount: attempted,
+    persistenceSucceededCount: input.persistedCandidates,
+    persistenceFailedCount: failureCount,
+    persistenceGap: Math.max(0, attempted - input.persistedCandidates),
+    ...(input.lateDuplicateCount !== undefined
+      ? { lateDuplicateCount: input.lateDuplicateCount }
+      : {}),
+    ...(input.completeValidCandidates !== undefined
+      ? { completeValidCandidates: input.completeValidCandidates }
+      : {}),
+    ...(input.reviewOnlyCandidates !== undefined
+      ? { reviewOnlyCandidates: input.reviewOnlyCandidates }
+      : {}),
   };
 }
 
@@ -821,6 +858,45 @@ export async function writeProspectingCandidates(
   const persistenceFailures: { code: PersistenceErrorCode; stage: PersistenceErrorStage }[] = [];
   /** Candidatos que llegaron a intentar el INSERT (elegibles tras todas las puertas). */
   let insertAttempts = 0;
+  /** § 4 — duplicados que sólo aparecieron al chocar con un índice único. */
+  let lateDuplicateCount = 0;
+
+  /**
+   * § 8 — el fallo de un candidato queda auditado aunque no exista su fila.
+   *
+   * `prospect_candidate_audit.candidate_id` es nullable, así que el registro se
+   * ancla al lote. La auditoría nunca puede tumbar la corrida: si ella misma
+   * falla, el writer sigue y el resultado del lote no cambia.
+   */
+  const recordCandidatePersistenceFailure = async (input: {
+    diagnostics: DatabaseErrorDiagnostics;
+    errorCode: PersistenceErrorCode;
+    name: string;
+    domain: string | null;
+    identityKey: string | null;
+    countryCode: string | null;
+  }): Promise<void> => {
+    try {
+      await admin.from('prospect_candidate_audit').insert({
+        batch_id: batchId,
+        candidate_id: null,
+        actor_user_id: triggeredByUserId ?? null,
+        action_type: CANDIDATE_PERSISTENCE_FAILED_AUDIT_ACTION,
+        details: toCandidatePersistenceFailureAuditDetails({
+          stage: 'candidate_insert',
+          errorCode: input.errorCode,
+          diagnostics: input.diagnostics,
+          companyName: input.name,
+          normalizedDomain: input.domain,
+          identityKey: input.identityKey,
+          countryCode: input.countryCode,
+          occurredAt: new Date().toISOString(),
+        }),
+      });
+    } catch {
+      // Un fallo de auditoría no puede convertirse en un fallo de la corrida.
+    }
+  };
   /**
    * A1-APOLLO-LINKEDIN-EMPLOYEES-1 § 5 — completitud de cada candidato REALMENTE
    * escrito. Alimenta los contadores separados: persistidos ≠ completos.
@@ -2356,6 +2432,17 @@ export async function writeProspectingCandidates(
       ? []
       : [INCOMPLETE_CANDIDATE_REVIEW_FLAG];
 
+    // FORENSICS-1 § 10 — la procedencia que se persiste es la REAL. Un candidato
+    // producido íntegramente por Apollo Organizations no puede etiquetarse
+    // `web_ai`: la ficha lo mostraba como «Web/IA» mientras sus propios campos
+    // citaban «Apollo · organizations_search». `apollo` ya está en el dominio de
+    // `prospect_candidates_source_primary_check`, así que no hace falta migración.
+    const isApolloCompanyDiscoveryRun = shouldEmitApolloBatchProviderAttempts({
+      webSearchProvider: pipelineMeta?.provider,
+      hasProviderRouting: preMergedMetadata[BATCH_PROVIDER_ROUTING_KEY] != null,
+    });
+    const candidateSourcePrimary = isApolloCompanyDiscoveryRun ? 'apollo' : 'web_ai';
+
     const candidateInsertBase = {
       batch_id: batchId,
       name: persistedName,
@@ -2366,7 +2453,7 @@ export async function writeProspectingCandidates(
       country: candidate.country,
       country_code: candidate.countryCode,
       industry: candidate.industry,
-      source_primary: "web_ai",
+      source_primary: candidateSourcePrimary,
       sources_checked: [
         { provider: "web_search", checked_at: now.toISOString() },
         {
@@ -2543,10 +2630,7 @@ export async function writeProspectingCandidates(
     // keys). A provider mismatch fails closed via ProviderMetadataConsistencyError
     // rather than silently overwriting provenance. Per-candidate cost stays
     // null/null — batch credits are never split per candidate.
-    const apolloProviderTrace = shouldEmitApolloBatchProviderAttempts({
-      webSearchProvider: pipelineMeta?.provider,
-      hasProviderRouting: preMergedMetadata[BATCH_PROVIDER_ROUTING_KEY] != null,
-    })
+    const apolloProviderTrace = isApolloCompanyDiscoveryRun
       ? buildApolloCandidateProviderTrace()
       : null;
 
@@ -2615,12 +2699,32 @@ export async function writeProspectingCandidates(
         // `skipped[].reason`, y desde ahí en metadata persistida y en el
         // `failureReason` del provider_attempt.
         const code = classifyCandidatePersistenceError(insertErr);
-        persistenceFailures.push({ code, stage: 'candidate_insert' });
-        errors.push(`Error al crear candidato: ${code}`);
+        const diagnostics = extractDatabaseErrorDiagnostics(insertErr);
+        const failureKind = classifyCandidateInsertFailureKind(diagnostics);
+        // § 4 — una duplicidad que sólo aparece al chocar con un índice único es
+        // un duplicado tardío, no una avería de escritura. Se cuenta como tal
+        // para no inflar el hueco de persistencia con un fallo inexistente.
+        if (failureKind === 'duplicate') {
+          lateDuplicateCount += 1;
+        } else {
+          persistenceFailures.push({ code, stage: 'candidate_insert' });
+          errors.push(`Error al crear candidato: ${code}`);
+        }
         skipped.push({
           name: candidate.name,
-          reason: `persistence_failed:${code}`,
+          reason:
+            failureKind === 'duplicate'
+              ? 'duplicate_late_unique_conflict'
+              : `persistence_failed:${code}`,
           searchTrace: candidate.searchTrace ?? undefined,
+        });
+        await recordCandidatePersistenceFailure({
+          diagnostics,
+          errorCode: code,
+          name: persistedName,
+          domain: domain ?? null,
+          identityKey: candidateIdentityKey,
+          countryCode: candidate.countryCode ?? null,
         });
         continue;
       }
@@ -2640,7 +2744,7 @@ export async function writeProspectingCandidates(
         action_type: "candidate_created",
         details: {
           name: persistedName,
-          source_primary: "web_ai",
+          source_primary: candidateSourcePrimary,
           quality_label: candidate.scoring.qualityLabel,
           status: candidateStatus,
         },
@@ -2655,6 +2759,14 @@ export async function writeProspectingCandidates(
         name: candidate.name,
         reason: `persistence_failed:${code}`,
         searchTrace: candidate.searchTrace ?? undefined,
+      });
+      await recordCandidatePersistenceFailure({
+        diagnostics: extractDatabaseErrorDiagnostics(err),
+        errorCode: code,
+        name: persistedName,
+        domain: domain ?? null,
+        identityKey: candidateIdentityKey,
+        countryCode: candidate.countryCode ?? null,
       });
     }
   }
@@ -2678,10 +2790,27 @@ export async function writeProspectingCandidates(
   // A1-APOLLO-PERSISTENCE-READINESS-4 § 7/§ 9 — cifras reales de la persistencia
   // y el estado de lote que se deriva de ellas. Se calculan una sola vez y las
   // usan las DOS escrituras de estado de abajo, para que no puedan discrepar.
+  // AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § E — vocabulario canónico de
+  // la corrida, calculado UNA vez sobre las filas realmente escritas. Todos los
+  // consumidores (resumen, panel, costo, auditoría, reconciliación) leen de
+  // aquí para que no pueda haber dos verdades.
+  //
+  // FORENSICS-1 § 7 — se calcula ANTES del resultado de persistencia porque ese
+  // resultado ya lo publica: la UI necesita distinguir «3 filas guardadas» de
+  // «3 candidatos completos», y en la corrida `9a9acf99` esas dos cifras eran 3
+  // y 0.
+  const canonicalCompletenessCounters = buildCandidateCompletenessCounters(
+    persistedTargetEligibilities,
+  );
+
   const persistenceOutcome = buildPersistenceOutcome({
     eligibleBeforePersistence: insertAttempts,
+    attemptedCount: insertAttempts,
     persistedCandidates: candidatesCreated,
     failures: persistenceFailures,
+    lateDuplicateCount,
+    completeValidCandidates: canonicalCompletenessCounters.complete_valid_candidates,
+    reviewOnlyCandidates: canonicalCompletenessCounters.review_only_candidates,
   });
   const batchStatusForOutcome = resolveBatchStatusForPersistenceOutcome({
     persistedCandidates: candidatesCreated,
@@ -2792,13 +2921,6 @@ export async function writeProspectingCandidates(
       })),
     };
 
-    // AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § E — vocabulario canónico de
-    // la corrida, calculado UNA vez sobre las filas realmente escritas. Todos los
-    // consumidores (resumen, panel, costo, auditoría, reconciliación) leen de
-    // aquí para que no pueda haber dos verdades.
-    const canonicalCompletenessCounters = buildCandidateCompletenessCounters(
-      persistedTargetEligibilities,
-    );
     const projectedPersistableCandidates = pipelineOutput.candidates.length;
     const canonicalTargetMetrics = {
       projected_persistable_candidates: projectedPersistableCandidates,
@@ -3112,6 +3234,13 @@ export async function writeProspectingCandidates(
         review_only_candidates: canonicalTargetMetrics.review_only_candidates,
         target_count: canonicalTargetMetrics.target_count,
         persistence_gap: canonicalTargetMetrics.persistence_gap,
+        // FORENSICS-1 § 7 — éxito parcial con nombre propio. `persistence_failed`
+        // por sí solo no distingue «no se guardó nada» de «se guardaron 3 de 4».
+        persistence_status: persistenceOutcome.persistenceStatus,
+        persistence_attempted_count: persistenceOutcome.persistenceAttemptedCount,
+        persistence_succeeded_count: persistenceOutcome.persistenceSucceededCount,
+        persistence_failed_count: persistenceOutcome.persistenceFailedCount,
+        late_duplicate_count: lateDuplicateCount,
       },
       // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — cifras sanitizadas del resultado
       // de la escritura. Sin stack, sin SQL, sin mensaje del motor: sólo enteros

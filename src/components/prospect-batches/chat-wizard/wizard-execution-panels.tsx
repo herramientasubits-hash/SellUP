@@ -30,7 +30,9 @@ import {
 // A1-APOLLO-PERSISTENCE-READINESS-4 § 8 — la prioridad de causas vive en un solo
 // núcleo puro: fallo de almacenamiento por encima de historial y calidad.
 import {
+  buildWizardPersistenceBreakdown,
   resolveWizardResultCopy,
+  type WizardPersistenceBreakdownRow,
   type WizardPersistenceOutcome,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
 import {
@@ -113,6 +115,48 @@ export function SubmittingPanel({
   );
 }
 
+// ── Desglose administrativo de la escritura ───────────────────────────────────
+
+/**
+ * AGENT1-APOLLO-CANDIDATE-INSERT-FORENSICS-1 § 7 — las cinco cifras de la
+ * escritura, para cerrar una corrida parcial sin abrir la base de datos.
+ *
+ * Vive junto al aviso de persistencia y no dentro de él: el aviso dice QUÉ pasó,
+ * estas filas dicen CUÁNTAS empresas hubo detrás de cada cosa. «Guardados» y
+ * «candidatos completos» son columnas distintas a propósito — en la corrida
+ * `9a9acf99` valían 3 y 0.
+ */
+function WizardPersistenceBreakdown({ rows }: { rows: WizardPersistenceBreakdownRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <dl
+      className="space-y-2 rounded-xl border border-border bg-card px-5 py-4"
+      data-testid="wizard-persistence-breakdown"
+    >
+      {rows.map((row) => (
+        <div
+          key={row.key}
+          className="space-y-0.5"
+          data-testid={`wizard-persistence-breakdown-row-${row.key}`}
+        >
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-xs text-muted-foreground">{row.label}</dt>
+            <dd
+              className="text-xs font-semibold tabular-nums text-foreground"
+              data-testid={`wizard-persistence-breakdown-value-${row.key}`}
+            >
+              {row.value}
+            </dd>
+          </div>
+          {row.hint !== null && (
+            <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+          )}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 // ── Success panel ─────────────────────────────────────────────────────────────
 // Closes the drawer and refreshes the global candidates list.
 // Does NOT navigate to a batch-detail route — that view no longer exists.
@@ -172,6 +216,11 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
       },
   });
   const isPersistenceFailure = resultCopy.source === 'persistence_failure';
+  // FORENSICS-1 § 7 — éxito PARCIAL: ni el bloque verde de «todo listo» ni el
+  // rojo de «no pudimos guardar nada». La corrida `9a9acf99` guardó 3 de 4 y
+  // ambas presentaciones habrían mentido.
+  const isPartialPersistence = resultCopy.cause === 'persistence_partial';
+  const persistenceBreakdownRows = buildWizardPersistenceBreakdown(persistenceOutcome ?? null);
 
   React.useEffect(() => {
     if (status === 'completed_with_errors') {
@@ -182,6 +231,14 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
       // así que el toast sólo duplicaba el mensaje; la invariante 20.R del wizard
       // exige precisamente que los errores vivan en la UI inline y no en toasts,
       // para no apilarlos en los fallos reintentables.
+      router.refresh();
+      return;
+    }
+    if (isPartialPersistence) {
+      // FORENSICS-1 § 7 — NO se cierra solo y NO se emite un toast de éxito.
+      // Cerrar el drawer con un «Prospectos generados correctamente» era lo que
+      // dejaba al usuario sin enterarse de que una empresa se había perdido, y
+      // le pedía implícitamente que repitiera —y volviera a pagar— la búsqueda.
       router.refresh();
       return;
     }
@@ -232,6 +289,7 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
             <p className="text-xs text-destructive/80">{resultCopy.body}</p>
           </div>
         </div>
+        <WizardPersistenceBreakdown rows={persistenceBreakdownRows} />
         <div className="flex gap-2">
           <Button size="sm" variant="ghost" onClick={onClose}>
             Cerrar
@@ -328,25 +386,32 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
 
   return (
     <div className="space-y-3 animate-su-fade-in">
-      <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
-        <CheckCircle2
-          className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
-          aria-hidden
-        />
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-            {heading}
-          </p>
-          <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
-            {body}
-          </p>
+      {/* FORENSICS-1 § 7 — con persistencia parcial NO se pinta el bloque verde.
+          Un titular de éxito con una marca de verificación es exactamente lo que
+          hizo que la corrida `9a9acf99` se leyera como completa mientras perdía
+          al único candidato que contaba hacia el objetivo. El aviso ámbar de más
+          abajo pasa a ser el titular de la corrida. */}
+      {!isPartialPersistence && (
+        <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
+          <CheckCircle2
+            className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+            aria-hidden
+          />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+              {heading}
+            </p>
+            <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
+              {body}
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* PERSISTENCE-READINESS-4 § 8 — persistencia PARCIAL. Hay candidatos que
-          revisar (por eso el bloque verde de arriba sigue), y además se perdió
-          parte de lo encontrado. Decirlo aquí evita que el usuario concluya que
-          el listado está completo y repita la búsqueda para «recuperar» el resto. */}
+          revisar, y además se perdió parte de lo encontrado. Decirlo aquí evita
+          que el usuario concluya que el listado está completo y repita la
+          búsqueda para «recuperar» el resto. */}
       {isPersistenceFailure && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10" role="alert">
           <AlertCircle
@@ -362,6 +427,13 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
             </p>
           </div>
         </div>
+      )}
+
+      {/* § 7 — el desglose administrativo acompaña SIEMPRE al aviso de
+          persistencia: sin él «se perdió uno» no dice si era completo, si era un
+          duplicado tardío o si fue una avería de escritura. */}
+      {isPersistenceFailure && (
+        <WizardPersistenceBreakdown rows={persistenceBreakdownRows} />
       )}
 
       {/* INTEGRATION-1 § H — las cuatro cifras separadas. Guardadas, completas y
@@ -400,6 +472,18 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
           eligibleCompaniesFound={twoRoundOutcome.eligibleCompaniesFound}
           targetEligibleCompanies={targetEligibleCompanies}
         />
+      )}
+
+      {/* FORENSICS-1 § 7 — con persistencia parcial el panel ya no se cierra
+          solo, así que necesita su propia salida. Sólo «Cerrar»: el copy pide
+          explícitamente no relanzar la búsqueda, y poner «Editar búsqueda» a un
+          clic contradiría el texto igual que en el fallo total. */}
+      {isPartialPersistence && (
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
       )}
     </div>
   );
