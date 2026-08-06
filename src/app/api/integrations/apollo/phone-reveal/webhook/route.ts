@@ -37,6 +37,7 @@ import {
   readPhoneCacheSuppression,
   writePhoneCacheEntry,
 } from '@/modules/contact-enrichment/phone-cache-store';
+import { persistCandidatePhoneCollection } from '@/modules/contact-enrichment/candidate-phone-collection-persistence';
 import {
   continuePhoneRevealWaterfallForCandidate,
   resolveActiveWaterfallRunId,
@@ -281,6 +282,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // escribir nada. Nunca lanza: la caché no puede romper el webhook.
       cacheRevealedPhone: async (cacheInput) =>
         writePhoneCacheEntry(cacheInput, isApolloPhoneCacheEnabled()),
+      // Colección COMPLETA de teléfonos (AGENT2A-PHONE-REVEAL-4O-C). Se cablea
+      // SIN flag y SIN condicionarla al de caché: no es una optimización que se
+      // pueda apagar, es la única forma de que los números que Apollo ya entregó
+      // —y que la operadora ya pagó— dejen de perderse al escribir. El flag de
+      // caché gobierna la REUTILIZACIÓN de un teléfono; esto es la CAPTURA.
+      //
+      // A diferencia de la caché NO es best-effort: si lanza, el core no cierra
+      // el reveal y el candidato queda recuperable con 0 créditos.
+      persistCandidatePhoneCollection,
       // Supresión en vuelo (FIX 3). Se cablea SIN condicionar al flag de caché: una
       // DSAR registrada mientras el reveal estaba en curso tiene que bloquear la
       // persistencia tardía del teléfono con la caché encendida o apagada. La
