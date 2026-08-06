@@ -221,3 +221,16 @@ jobs:
       # El módulo de presupuestos, cuyo resolver es ahora la fuente económica canónica.
       - name: Run budget module tests
         run: npm run test:budgets
+
+      # AGENT2A-PHONE-REVEAL-4O-B — el modelo canónico de MÚLTIPLES teléfonos entra al
+      # check obligatorio desde el primer día, antes de que nada lo consuma. La razón es
+      # que sus garantías son justamente las que se rompen en silencio: que la clave de
+      # deduplicación NUNCA contenga el número (de lo que depende que un tombstone no
+      # conserve lo que dice haber borrado), que la clave de procedencia no lleve PII y no
+      # dependa del reloj (o un webhook reprocesado duplicaría la fila), que un número
+      # inválido o suprimido no pueda ser principal, y que los vocabularios del SQL y de
+      # TypeScript no se separen — una divergencia que no falla al compilar sino al
+      # insertar. Determinista: sin flags, sin proveedores, sin créditos y sin DB real
+      # (la migración solo se lee de disco; no se aplica en ningún sitio).
+      - name: Run candidate multiple-phone model tests
+        run: npm run test:agent2a:candidate-phone-collection
