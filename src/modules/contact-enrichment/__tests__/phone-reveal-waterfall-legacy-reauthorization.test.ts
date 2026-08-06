@@ -541,6 +541,7 @@ mock.module('@/server/integrations/lusha-phone-fallback-client', {
         return {
           ok: true as const,
           httpStatus: 429,
+          phones: [],
           phoneNumber: null,
           phoneType: 'unknown' as const,
           phoneRawType: null,
@@ -557,6 +558,10 @@ mock.module('@/server/integrations/lusha-phone-fallback-client', {
         return {
           ok: true as const,
           httpStatus: 200,
+          // 4O-D: el cliente publica la lista COMPLETA además del escalar.
+          phones: [
+            { number: '+57 300 000 0000', rawType: null, phoneType: 'unknown' as const },
+          ],
           phoneNumber: '+57 300 000 0000',
           phoneType: 'unknown' as const,
           phoneRawType: null,
@@ -572,6 +577,7 @@ mock.module('@/server/integrations/lusha-phone-fallback-client', {
       return {
         ok: true as const,
         httpStatus: 200,
+        phones: [],
         phoneNumber: null,
         phoneType: 'unknown' as const,
         phoneRawType: null,
@@ -582,6 +588,43 @@ mock.module('@/server/integrations/lusha-phone-fallback-client', {
         availabilitySource: null,
         errorCode: null,
         phonesReturned: 0,
+      };
+    },
+  },
+});
+
+/**
+ * AGENT2A-PHONE-REVEAL-4O-D — la pata Lusha persiste ahora su colección con una RPC
+ * transaccional. Este archivo no es el que prueba esa transacción (lo hace el arnés
+ * de PostgreSQL real): aquí se sustituye por un doble que devuelve el sobre de éxito,
+ * para que lo que se siga midiendo sea la REAUTORIZACIÓN y no la infraestructura.
+ */
+mock.module('@/modules/contact-enrichment/candidate-lusha-phone-collection-persistence', {
+  namedExports: {
+    PERSIST_CANDIDATE_LUSHA_PHONE_REVEAL_RESULT_FN:
+      'persist_candidate_lusha_phone_reveal_result',
+    persistCandidateLushaPhoneCollection: async (request: {
+      terminal: { legacyPhone: string; attemptCount: number };
+    }) => {
+      // La transacción real escribe TAMBIÉN el candidato: escalar y estado terminal
+      // viajan dentro de ella desde 4O-D. El doble lo reproduce sobre el almacén
+      // falso, porque si no este archivo dejaría de ver un efecto que en Producción
+      // sí ocurre — y la reautorización, que es lo que aquí se mide, depende de él.
+      candidateRow.phone = request.terminal.legacyPhone;
+      candidateRow.phone_reveal_status = 'revealed';
+      candidateRow.phone_reveal_provider = 'lusha';
+      candidateRow.phone_reveal_request_id = null;
+      candidateRow.phone_reveal_attempt_count = request.terminal.attemptCount;
+      return {
+      status: 'persisted' as const,
+      inserted_phone_count: 1,
+      updated_phone_count: 0,
+      inserted_source_count: 1,
+      suppressed_skipped_count: 0,
+      primary_dedupe_key: 'e164:doble',
+      primary_persisted: true,
+      candidate_scalar_updated: true,
+      candidate_terminalized: true,
       };
     },
   },
