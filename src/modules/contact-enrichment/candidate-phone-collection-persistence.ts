@@ -180,6 +180,7 @@ export async function persistCandidatePhoneCollection(
     p_legacy_phone: terminal.legacyPhone,
     p_legacy_phone_type: terminal.legacyPhoneType,
     p_legacy_raw_type: terminal.legacyRawType,
+    p_legacy_dedupe_key: terminal.legacyDedupeKey,
     p_phone_reveal_status: 'revealed',
     p_phone_reveal_provider: 'apollo',
     p_phone_revealed_at: terminal.revealedAt,

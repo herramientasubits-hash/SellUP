@@ -237,9 +237,16 @@ export class FakeCandidatePhoneStore {
     const suppressedIncoming = request.phones.filter(
       (phone) => this.rowFor(request.candidateId, phone.dedupeKey)?.suppressedAt,
     ).length;
-    if (request.phones.length > 0 && suppressedIncoming === request.phones.length) {
-      // Todos los números son tombstones: el escalar caería al heredado, que es uno
-      // de ellos. Fail-closed y sin terminalizar.
+    // ¿Sobrevive alguna candidata a principal, y es el número heredado un tombstone?
+    // Si nada sobrevive Y el heredado está suprimido, el escalar caería sobre un
+    // número borrado. Fail-closed y sin terminalizar.
+    const viablePreference = request.primaryCandidates.filter(
+      (candidate) => !this.rowFor(request.candidateId, candidate.dedupeKey)?.suppressedAt,
+    ).length;
+    const legacySuppressed = Boolean(
+      this.rowFor(request.candidateId, terminal.legacyDedupeKey)?.suppressedAt,
+    );
+    if (legacySuppressed && viablePreference === 0) {
       return nothingWritten('suppressed', suppressedIncoming);
     }
 

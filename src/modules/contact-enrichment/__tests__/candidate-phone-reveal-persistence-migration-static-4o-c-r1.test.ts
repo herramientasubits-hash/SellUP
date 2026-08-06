@@ -62,7 +62,7 @@ const sql = raw
 
 /** La firma exacta, en el orden en que se declara. Los REVOKE/GRANT la repiten. */
 const SIGNATURE =
-  'uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text,\n' +
+  'uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text, text,\n' +
   '  timestamptz, timestamptz, timestamptz, timestamptz, integer, text, text, text, text';
 
 interface Check {
@@ -243,10 +243,24 @@ const CHECKS: readonly Check[] = [
     mutate: (s) => s.replace(/'status',\s+'suppressed'/, "'status', 'persisted'"),
   },
   {
-    name: 'un payload íntegramente suprimido NO terminaliza el candidato',
+    name: 'el fallback heredado nunca resucita un número suprimido',
+    // El único camino que llega al fallback es «ninguna candidata elegible», y ahí un
+    // heredado que sea tombstone volvería al campo visible. La condición mira las dos
+    // mitades: fallback suprimido Y ninguna candidata viable.
     ok: (s) =>
-      /IF v_suppressed_count = v_incoming_count THEN[\s\S]*?'candidate_terminalized',   false[\s\S]*?END IF;/.test(s),
-    mutate: (s) => s.replace("'candidate_terminalized',   false", "'candidate_terminalized',   true"),
+      /IF v_legacy_suppressed AND v_viable_preference = 0 THEN[\s\S]*?'candidate_terminalized',   false[\s\S]*?END IF;/.test(s) &&
+      /e\.dedupe_key = p_legacy_dedupe_key\s*\n\s*AND e\.suppressed_at IS NOT NULL/.test(s),
+    mutate: (s) =>
+      s.replace('IF v_legacy_suppressed AND v_viable_preference = 0 THEN', 'IF false THEN'),
+  },
+  {
+    name: 'sin la clave del heredado la comprobación no se puede saltar en silencio',
+    ok: (s) => /p_legacy_dedupe_key IS NULL OR LENGTH\(BTRIM\(p_legacy_dedupe_key\)\) = 0/.test(s),
+    mutate: (s) =>
+      s.replace(
+        'p_legacy_dedupe_key IS NULL OR LENGTH(BTRIM(p_legacy_dedupe_key)) = 0',
+        'false',
+      ),
   },
   {
     name: 'ningún mensaje de excepción incluye un valor de dato',
@@ -321,7 +335,7 @@ describe('4O-C-R1 — la migración 110, leída como texto', () => {
       .split(',')
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
-    assert.equal(params.length, 21, 'los 21 parámetros del contrato');
+    assert.equal(params.length, 22, 'los 22 parámetros del contrato');
     for (const param of params) {
       assert.match(
         param,

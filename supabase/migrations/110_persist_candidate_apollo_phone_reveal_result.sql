@@ -148,6 +148,12 @@ CREATE OR REPLACE FUNCTION public.persist_candidate_apollo_phone_reveal_result(
   p_legacy_phone                     text,
   p_legacy_phone_type                text,
   p_legacy_raw_type                  text,
+  -- The dedupe key OF that fallback number. Needed because the fallback is only safe
+  -- to write if the number behind it is not itself a tombstone: without this key the
+  -- function cannot tell, and the one path that reaches the fallback — no eligible
+  -- primary — is exactly the path where a suppressed number would slip back into the
+  -- visible field. See step 3.
+  p_legacy_dedupe_key                text,
 
   -- ── Terminal `revealed` state (one typed parameter per column) ───
   p_phone_reveal_status              text,
@@ -196,6 +202,8 @@ DECLARE
   v_incoming_count    integer := 0;
   v_distinct_count    integer := 0;
   v_suppressed_count  integer := 0;
+  v_viable_preference integer := 0;
+  v_legacy_suppressed boolean := false;
   v_existing_live     integer := 0;
   v_inserted_count    integer := 0;
   v_updated_count     integer := 0;
@@ -261,6 +269,12 @@ BEGIN
   IF p_legacy_phone IS NULL OR LENGTH(BTRIM(p_legacy_phone)) = 0 THEN
     -- The legacy scalar is the floor: this path exists because Apollo delivered a phone.
     RETURN jsonb_build_object('status', 'invalid_input', 'detail', 'legacy_phone_missing');
+  END IF;
+
+  IF p_legacy_dedupe_key IS NULL OR LENGTH(BTRIM(p_legacy_dedupe_key)) = 0 THEN
+    -- Without it the tombstone check on the fallback (step 3) cannot run, and a missing
+    -- privacy check must never be silently skipped.
+    RETURN jsonb_build_object('status', 'invalid_input', 'detail', 'legacy_dedupe_key_missing');
   END IF;
 
   IF p_phones IS NULL
@@ -456,12 +470,47 @@ BEGIN
    AND e.dedupe_key = x.dedupe_key
   WHERE e.suppressed_at IS NOT NULL;
 
-  IF v_suppressed_count = v_incoming_count THEN
-    -- EVERY number in this payload is a tombstone. Nothing can be written, and — this is
-    -- the part that matters — the candidate must NOT be terminalized either: the scalar
-    -- would fall back to the legacy number, which IS one of these tombstoned numbers, and
-    -- a suppressed number reappearing in the visible field is the exact failure the
-    -- tombstone exists to prevent. Fail closed, nothing written.
+  -- ── Would the LEGACY FALLBACK resurrect a suppressed number? ────
+  --
+  -- The fallback is only reached when no preference key turns out to be electable. On that
+  -- path the scalar becomes `p_legacy_phone` — and if the row behind THAT number is a
+  -- tombstone, the suppressed number lands straight back in the visible field. Which is the
+  -- precise failure the tombstone exists to prevent, arriving through the one door that
+  -- does not consult it.
+  --
+  -- So both halves are computed BEFORE any write: whether the fallback number is suppressed,
+  -- and whether any preference key survives to keep the fallback from being needed.
+  SELECT EXISTS (
+    SELECT 1 FROM public.contact_enrichment_candidate_phones e
+    WHERE e.candidate_id = p_candidate_id
+      AND e.dedupe_key = p_legacy_dedupe_key
+      AND e.suppressed_at IS NOT NULL
+  ) INTO v_legacy_suppressed;
+
+  SELECT COUNT(*) INTO v_viable_preference
+  FROM jsonb_array_elements(p_primary_candidates) AS e(item)
+  CROSS JOIN LATERAL jsonb_to_record(e.item) AS r(
+    dedupe_key text, phone text, phone_type text, raw_type text
+  )
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.contact_enrichment_candidate_phones ex
+    WHERE ex.candidate_id = p_candidate_id
+      AND ex.dedupe_key = r.dedupe_key
+      AND ex.suppressed_at IS NOT NULL
+  );
+
+  IF v_legacy_suppressed AND v_viable_preference = 0 THEN
+    -- Nothing electable survives AND the fallback is a tombstone. Fail closed with nothing
+    -- written and — the part that matters — WITHOUT terminalizing the candidate: a
+    -- `revealed` row here would have to carry some number, and the only one left is one
+    -- that was erased.
+    --
+    -- This subsumes the simpler "every number in the payload is a tombstone" case, since the
+    -- legacy number is always one of the payload's numbers.
+    --
+    -- DECLARED LIMIT: a permanent tombstone makes this poll repeat and count as `failed` on
+    -- every sweep, always at 0 credits, until an operator intervenes. That is chosen over
+    -- putting an erased number back in front of a user.
     RETURN jsonb_build_object(
       'status',                   'suppressed',
       'inserted_phone_count',     0,
@@ -736,7 +785,7 @@ BEGIN
 END $$;
 
 COMMENT ON FUNCTION public.persist_candidate_apollo_phone_reveal_result(
-  uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text,
+  uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text, text,
   timestamptz, timestamptz, timestamptz, timestamptz, integer, text, text, text, text
 ) IS
   'AGENT2A-PHONE-REVEAL-4O-C-R1 — persists an Apollo `revealed` phone result in ONE transaction: the canonical phone rows, their provenance, the single primary designation, the candidate scalar phone and the candidate revealed terminal state. Either all of it lands or none of it does; a partial collection is not reachable. Locks the candidate with SELECT FOR UPDATE, so a webhook and a recovery poll racing on the same candidate serialize instead of both electing a primary. Re-checks suppression tombstones INSIDE the lock and in the ON CONFLICT clauses: a tombstoned number is never rewritten, never gains provenance and never becomes primary, and a payload in which EVERY number is tombstoned fails closed without terminalizing the candidate. Idempotent by (candidate_id, dedupe_key) and (candidate_phone_id, source_event_key); a repeated event returns `idempotent` without rewriting anything, and an event the candidate has moved past returns `stale_event`. SECURITY INVOKER on purpose so migration 109 privilege ceiling still applies — it cannot DELETE a phone row or UPDATE a provenance row. No dynamic SQL, every written column named literally, terminal fields as individual typed parameters. Writes NO usage log, NO reservation and NO waterfall row: the accounting stays in phone_reveal_waterfall_runs / phone_reveal_credit_reservations / provider_usage_logs and must survive a failure it describes. Handles `revealed` ONLY and rejects any other status. Returns counts, flags and a SHA-256 dedupe key — never a phone number. Service-role only.';
@@ -751,21 +800,21 @@ COMMENT ON FUNCTION public.persist_candidate_apollo_phone_reveal_result(
 -- includes it: migrations and maintenance run as the owner.
 
 REVOKE ALL ON FUNCTION public.persist_candidate_apollo_phone_reveal_result(
-  uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text,
+  uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text, text,
   timestamptz, timestamptz, timestamptz, timestamptz, integer, text, text, text, text
 ) FROM PUBLIC;
 
 REVOKE ALL ON FUNCTION public.persist_candidate_apollo_phone_reveal_result(
-  uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text,
+  uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text, text,
   timestamptz, timestamptz, timestamptz, timestamptz, integer, text, text, text, text
 ) FROM anon;
 
 REVOKE ALL ON FUNCTION public.persist_candidate_apollo_phone_reveal_result(
-  uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text,
+  uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text, text,
   timestamptz, timestamptz, timestamptz, timestamptz, integer, text, text, text, text
 ) FROM authenticated;
 
 GRANT EXECUTE ON FUNCTION public.persist_candidate_apollo_phone_reveal_result(
-  uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text,
+  uuid, text, text, timestamptz, jsonb, jsonb, jsonb, text, text, text, text, text, text,
   timestamptz, timestamptz, timestamptz, timestamptz, integer, text, text, text, text
 ) TO postgres, service_role;

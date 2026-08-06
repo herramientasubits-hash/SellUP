@@ -220,6 +220,7 @@ interface RpcArgs {
   legacyPhone?: string;
   legacyPhoneType?: string;
   legacyRawType?: string | null;
+  legacyDedupeKey?: string;
   status?: string;
   provider?: string;
   revealedAt?: string | null;
@@ -261,17 +262,18 @@ describe('4O-C-R1 — atomicidad real de la persistencia del reveal', { skip: ha
          p_legacy_phone                     => $8::text,
          p_legacy_phone_type                => $9::text,
          p_legacy_raw_type                  => $10::text,
-         p_phone_reveal_status              => $11::text,
-         p_phone_reveal_provider            => $12::text,
-         p_phone_revealed_at                => $13::timestamptz,
-         p_phone_reveal_completed_at        => $14::timestamptz,
-         p_phone_reveal_webhook_received_at => $15::timestamptz,
-         p_phone_reveal_last_checked_at     => $16::timestamptz,
-         p_phone_reveal_cost_credits        => $17::integer,
-         p_phone_reveal_cost_source         => $18::text,
-         p_phone_reveal_error_code          => $19::text,
-         p_phone_processing_basis           => $20::text,
-         p_apollo_person_id                 => $21::text
+         p_legacy_dedupe_key                => $11::text,
+         p_phone_reveal_status              => $12::text,
+         p_phone_reveal_provider            => $13::text,
+         p_phone_revealed_at                => $14::timestamptz,
+         p_phone_reveal_completed_at        => $15::timestamptz,
+         p_phone_reveal_webhook_received_at => $16::timestamptz,
+         p_phone_reveal_last_checked_at     => $17::timestamptz,
+         p_phone_reveal_cost_credits        => $18::integer,
+         p_phone_reveal_cost_source         => $19::text,
+         p_phone_reveal_error_code          => $20::text,
+         p_phone_processing_basis           => $21::text,
+         p_apollo_person_id                 => $22::text
        ) AS result`,
       [
         args.candidateId ?? CANDIDATE_ID,
@@ -288,6 +290,7 @@ describe('4O-C-R1 — atomicidad real de la persistencia del reveal', { skip: ha
         args.legacyPhone ?? MOBILE,
         args.legacyPhoneType ?? 'mobile',
         args.legacyRawType === undefined ? 'mobile' : args.legacyRawType,
+        args.legacyDedupeKey ?? KEY_MOBILE,
         args.status ?? 'revealed',
         args.provider ?? 'apollo',
         args.revealedAt === undefined ? NOW : args.revealedAt,
@@ -899,6 +902,84 @@ describe('4O-C-R1 — atomicidad real de la persistencia del reveal', { skip: ha
       assert.equal(state.candidate!.phone_reveal_status, 'revealed');
     });
 
+    it('el heredado es tombstone y NINGUNA candidata sobrevive ⇒ `suppressed`, sin resucitar', async () => {
+      // El hueco que este caso cierra: 2 números, el heredado suprimido y el otro
+      // AFIRMADO INVÁLIDO. El inválido no puede ser principal (CHECK de la 109), así
+      // que la lógica pura no lo pone en la preferencia; la única candidata es el
+      // suprimido. Con la condición ingenua «¿están TODOS suprimidos?» la respuesta
+      // era «no» (el inválido no lo está), se seguía adelante, no se elegía principal
+      // y el escalar caía al heredado — el número borrado, de vuelta a la vista.
+      //
+      // La condición correcta es la que se comprueba: el fallback es un tombstone Y
+      // no sobrevive ninguna candidata.
+      await reset();
+      await client.query(
+        `INSERT INTO public.contact_enrichment_candidate_phones
+           (candidate_id, dedupe_key, phone_status, suppressed_at, suppression_reason)
+         VALUES ($1, $2, 'unknown', now(), 'data_subject_request')`,
+        [CANDIDATE_ID, KEY_MOBILE],
+      );
+
+      const result = await callRpc({
+        phones: [
+          phone(KEY_MOBILE, MOBILE, 'mobile', 'valid'),
+          phone(KEY_WORK, WORK, 'work', 'invalid'),
+        ],
+        sources: [
+          source(KEY_MOBILE, 'apollo:reveal:webhook:m'),
+          source(KEY_WORK, 'apollo:reveal:webhook:w'),
+        ],
+        // Solo el móvil es candidata: el otro es inválido y la 109 lo rechazaría.
+        primaryCandidates: [
+          { dedupe_key: KEY_MOBILE, phone: MOBILE, phone_type: 'mobile', raw_type: 'mobile' },
+        ],
+        legacyPhone: MOBILE,
+        legacyDedupeKey: KEY_MOBILE,
+      });
+
+      assert.equal(result.status, 'suppressed');
+      assert.equal(result.candidate_terminalized, false);
+      const state = await snapshot();
+      // NADA escrito: ni siquiera la fila del número inválido, que sí era escribible.
+      // Fail-closed es fail-closed.
+      assert.equal(state.phones.length, 1, 'solo sigue el tombstone que ya estaba');
+      assert.equal(state.sources.length, 0);
+      assert.equal(state.candidate!.phone, null, 'el número borrado NO vuelve a la vista');
+      assert.notEqual(state.candidate!.phone_reveal_status, 'revealed');
+    });
+
+    it('el heredado es tombstone pero OTRA candidata sobrevive ⇒ se escribe con esa', async () => {
+      await reset();
+      await client.query(
+        `INSERT INTO public.contact_enrichment_candidate_phones
+           (candidate_id, dedupe_key, phone_status, suppressed_at, suppression_reason)
+         VALUES ($1, $2, 'unknown', now(), 'data_subject_request')`,
+        [CANDIDATE_ID, KEY_MOBILE],
+      );
+      const result = await callRpc({
+        phones: [
+          phone(KEY_MOBILE, MOBILE, 'mobile', 'valid'),
+          phone(KEY_WORK, WORK, 'work'),
+        ],
+        sources: [
+          source(KEY_MOBILE, 'apollo:reveal:webhook:m'),
+          source(KEY_WORK, 'apollo:reveal:webhook:w'),
+        ],
+        primaryCandidates: [
+          { dedupe_key: KEY_MOBILE, phone: MOBILE, phone_type: 'mobile', raw_type: 'mobile' },
+          { dedupe_key: KEY_WORK, phone: WORK, phone_type: 'work', raw_type: 'work' },
+        ],
+        legacyPhone: MOBILE,
+        legacyDedupeKey: KEY_MOBILE,
+      });
+      // El fallback no se necesita, así que que sea tombstone no bloquea nada.
+      assert.equal(result.status, 'persisted');
+      assert.equal(result.primary_dedupe_key, KEY_WORK);
+      const state = await snapshot();
+      assert.equal(state.candidate!.phone, WORK);
+      assert.equal(state.candidate!.phone_reveal_status, 'revealed');
+    });
+
     it('TODOS los números suprimidos ⇒ `suppressed`, 0 escrituras y SIN terminalizar', async () => {
       await reset();
       // Un tombstone preexistente para el ÚNICO número que el payload trae.
@@ -1040,7 +1121,7 @@ describe('4O-C-R1 — atomicidad real de la persistencia del reveal', { skip: ha
 
     const nullCall = `SELECT public.${FN}(
       NULL::uuid, NULL::text, NULL::text, NULL::timestamptz, NULL::jsonb, NULL::jsonb,
-      NULL::jsonb, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text,
+      NULL::jsonb, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text,
       NULL::timestamptz, NULL::timestamptz, NULL::timestamptz, NULL::timestamptz,
       NULL::integer, NULL::text, NULL::text, NULL::text, NULL::text)`;
 

@@ -44,6 +44,7 @@ import {
 import {
   buildCandidatePrimaryPhoneCandidates,
   describeCandidatePhoneCollectionWrite,
+  resolveLegacyPhoneDedupeKey,
   resolvePrimaryPhoneForCandidate,
   type CandidatePhoneCollectionLogFields,
   type CandidatePhoneCollectionWriteResult,
@@ -896,6 +897,7 @@ export async function runApolloPhoneRevealWebhook(
             legacyPhone: best.number,
             legacyPhoneType: best.type,
             legacyRawType: best.raw_type,
+            legacyDedupeKey: resolveLegacyPhoneDedupeKey(best),
             revealedAt: deps.nowIso,
             completedAt: deps.nowIso,
             webhookReceivedAt: deps.nowIso,

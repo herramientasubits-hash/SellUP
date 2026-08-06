@@ -55,6 +55,7 @@ import {
 import {
   buildCandidatePrimaryPhoneCandidates,
   describeCandidatePhoneCollectionWrite,
+  resolveLegacyPhoneDedupeKey,
   resolvePrimaryPhoneForCandidate,
   type CandidatePhoneCollectionLogFields,
   type CandidatePhoneCollectionWriteResult,
@@ -897,6 +898,7 @@ async function handleRecoveredPayload(args: {
             legacyPhone: best.number,
             legacyPhoneType: best.type,
             legacyRawType: best.raw_type,
+            legacyDedupeKey: resolveLegacyPhoneDedupeKey(best),
             revealedAt: deps.nowIso,
             completedAt: deps.nowIso,
             // La recuperación no recibió callback: no sella `webhook_received_at`.

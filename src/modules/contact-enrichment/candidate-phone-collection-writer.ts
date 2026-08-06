@@ -28,7 +28,7 @@
 // un error. Ni el número, ni el display, ni `dedupe_key` (aunque sea un hash)
 // salen jamás por esas vías.
 
-import type { CanonicalCandidatePhone } from './phone-collection-core';
+import { normalizeCandidatePhone, type CanonicalCandidatePhone } from './phone-collection-core';
 import type {
   ClassifiedPhone,
   PhoneType,
@@ -88,6 +88,15 @@ export interface CandidateRevealTerminalPatch {
   legacyPhone: string;
   legacyPhoneType: PhoneType;
   legacyRawType: string | null;
+  /**
+   * La `dedupe_key` DE ese número heredado.
+   *
+   * Hace falta porque el fallback solo se puede escribir si el número que hay detrás
+   * NO es él mismo un tombstone. Sin esta clave la transacción no puede saberlo, y
+   * el único camino que llega al fallback —ninguna candidata elegible— es justo
+   * donde un número suprimido volvería al campo visible.
+   */
+  legacyDedupeKey: string;
   /** Instante del reveal. Ambas fases lo escriben. */
   revealedAt: string;
   completedAt: string;
@@ -332,6 +341,22 @@ export function resolvePrimaryPhoneForCandidate(args: {
  * Nunca devuelve una entrada sin número: una candidata cuyo escalar no se puede
  * resolver no podría ser principal de todas formas.
  */
+/**
+ * La `dedupe_key` del teléfono que el camino heredado habría escrito.
+ *
+ * Se calcula con `normalizeCandidatePhone` y con los MISMOS argumentos que usa
+ * `buildPrimaryPreference` en la captura: si divergieran, la clave que se manda a
+ * comprobar contra los tombstones no sería la del número que se va a escribir, y la
+ * comprobación pasaría mirando otra fila.
+ */
+export function resolveLegacyPhoneDedupeKey(legacy: ClassifiedPhone): string {
+  return normalizeCandidatePhone({
+    displayPhone: legacy.number,
+    sanitizedPhone: legacy.number,
+    countryCode: null,
+  }).dedupeKey;
+}
+
 export function buildCandidatePrimaryPhoneCandidates(args: {
   phones: readonly CanonicalCandidatePhone[];
   primaryPreference: readonly string[];
