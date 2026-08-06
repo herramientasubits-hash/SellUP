@@ -35,6 +35,23 @@
  *     'lusha' — a candidate sourced from Apollo (or elsewhere) never forwards
  *     its source_contact_id to Lusha, the same anti-cross-contamination rule
  *     phone-reveal-core.ts applies in the opposite direction for Apollo
+ *
+ * ── AGENT2A-PHONE-REVEAL-4O-D ──────────────────────────────────
+ *
+ * The `revealed` path can now persist EVERY phone the response carried, in ONE
+ * transaction, instead of the single scalar `UPDATE` it used before. That happens
+ * only when `persistPhoneCollection` is injected — which is the case for the two
+ * paths this milestone authorized (the full Apollo → Lusha waterfall leg and the
+ * legacy Lusha-only continuation, both wired through `callLushaFallbackLeg`).
+ * Without the dep the path is byte-for-byte what it was, so the manual admin
+ * action keeps its validated behaviour and is not silently changed by a milestone
+ * that was not scoped to it.
+ *
+ * What DOES change on every path, including the manual one, is which number ends
+ * up in the scalar: the client no longer publishes `phones[0]` but the one the
+ * type ranking elects, so a valid mobile in slot 1 now beats a work line in slot
+ * 0. That is the binding product decision, it is deliberate, and it is the whole
+ * point of the milestone.
  */
 
 import {
@@ -42,6 +59,16 @@ import {
   type LushaPhoneFallbackEligibilityReasonCode,
 } from './lusha-phone-fallback-eligibility';
 import type { LushaPhoneFallbackClientResult } from '@/server/integrations/lusha-phone-fallback-client';
+import {
+  buildLushaPhoneCollectionCapture,
+  resolveLushaLegacyDedupeKey,
+} from './lusha-phone-collection-capture';
+import { buildCandidatePrimaryPhoneCandidates } from './candidate-phone-collection-writer';
+import {
+  describeCandidateLushaPhoneCollectionWrite,
+  type CandidateLushaPhoneCollectionLogFields,
+  type PersistCandidateLushaPhoneCollection,
+} from './candidate-lusha-phone-collection-writer';
 import {
   resolveFinalPhoneRevealRequestId,
   type PhoneRevealRequestId,
@@ -189,7 +216,22 @@ export interface LushaPhoneFallbackUsageLogEntry {
   creditsUsed: number | null;
   status: 'success' | 'error' | 'rate_limited' | 'quota_exceeded';
   errorCode: string | null;
-  metadata: LushaPhoneFallbackUsageLogMetadataDraft & { provider_error_code?: string };
+  /**
+   * Additive intersection, same convention `provider_error_code` already
+   * established: the closed draft module is not touched, and the two 4O-D keys
+   * are OPTIONAL, so every path that does not persist a collection logs exactly
+   * the shape it logged before.
+   *
+   * Both new keys are PII-free by construction — `phone_collection` can only be
+   * built by `describeCandidateLushaPhoneCollectionWrite`, whose return type is a
+   * closed set of counts and flags, and `phone_collection_error_code` is a
+   * mechanical code.
+   */
+  metadata: LushaPhoneFallbackUsageLogMetadataDraft & {
+    provider_error_code?: string;
+    phone_collection?: CandidateLushaPhoneCollectionLogFields;
+    phone_collection_error_code?: string;
+  };
 }
 
 // ── Deps inyectadas ────────────────────────────────────────────
@@ -230,10 +272,40 @@ export interface LushaPhoneFallbackCoreDeps {
   waterfallMode?: boolean;
   /**
    * `phone_reveal_waterfall_runs.id` de la corrida a la que pertenece esta pata.
-   * Viaja únicamente a la metadata del usage-log (clave omitida si no se pasa),
-   * para correlacionar las dos patas SIN sumar sus créditos. No es PII.
+   * Viaja a la metadata del usage-log (clave omitida si no se pasa) y, desde
+   * 4O-D, también a `waterfall_run_id` en la procedencia de cada teléfono
+   * capturado, que es donde se puede unir con la contabilidad. No es PII.
    */
   phoneRevealWaterfallId?: string | null;
+
+  /**
+   * Escritura TRANSACCIONAL de la colección de teléfonos
+   * (AGENT2A-PHONE-REVEAL-4O-D). OPCIONAL a propósito.
+   *
+   * PRESENTE ⇒ el camino `revealed` deja de escribir el candidato con un UPDATE
+   * suelto y pasa a una sola llamada que persiste, atómicamente, las filas
+   * canónicas, sus procedencias, el principal, el escalar y el estado terminal.
+   * Es lo que cablean las DOS rutas autorizadas por este hito (waterfall completo
+   * y continuación legacy), ambas por `callLushaFallbackLeg`.
+   *
+   * AUSENTE ⇒ comportamiento anterior intacto, vía `persist`. El disparo manual
+   * de administración queda ahí, sin cambios: no estaba en el alcance de este
+   * hito y no se modifica de refilón. Consecuencia declarada: ese camino sigue
+   * guardando un solo teléfono. Lo que sí mejora en él, porque vive en el
+   * cliente y no aquí, es CUÁL de ellos.
+   *
+   * Debe LANZAR si no puede completar. Un fallo aquí es fail-closed: el candidato
+   * NO se terminaliza, el usage-log sí se escribe (el gasto ocurrió), y el mismo
+   * resultado es reprocesable sin volver a llamar a Lusha.
+   */
+  persistPhoneCollection?: PersistCandidateLushaPhoneCollection;
+
+  /**
+   * `phone_reveal_credit_reservations.id` de la pata, si el camino lo conoce.
+   * Solo viaja a la procedencia. null cuando no se conoce — igual que en la
+   * captura del otro proveedor, no se inventa una correlación.
+   */
+  phoneCollectionReservationId?: string | null;
 }
 
 // ── Helpers puros ──────────────────────────────────────────────
@@ -518,6 +590,175 @@ export async function runLushaPhoneFallbackReveal(
   // Camino `revealed`: IDÉNTICO en modo manual y en modo waterfall. Lusha sí
   // reveló, así que el candidato pasa legítimamente a provider `lusha` con su
   // costo real y `enrichment_metadata.phone.source = 'lusha_reveal'`.
+  //
+  // 4O-D: con `persistPhoneCollection` cableada, esa escritura deja de ser un
+  // UPDATE suelto y pasa a ser UNA transacción que además guarda TODOS los
+  // teléfonos de la respuesta. Sin la dep, el UPDATE de siempre.
+  if (deps.persistPhoneCollection) {
+    const elected = {
+      number: phoneNumber,
+      rawType: result.phoneRawType,
+      phoneType: result.phoneType,
+    };
+    // El escalar elegido SIEMPRE forma parte de la colección. Si un cliente
+    // entregara la lista vacía (o no la entregara) en un camino que sí reveló, la
+    // colección se construye a partir de ese único teléfono en vez de quedarse
+    // vacía: un número que ya se pagó no puede acabar sin fila porque la lista
+    // llegara mal, y la migración rechaza una colección vacía de todos modos.
+    const observed =
+      Array.isArray(result.phones) && result.phones.length > 0
+        ? result.phones
+        : [elected];
+
+    const capture = buildLushaPhoneCollectionCapture({
+      phones: observed,
+      primary: elected,
+      context: {
+        waterfallRunId: deps.phoneRevealWaterfallId ?? null,
+        reservationId: deps.phoneCollectionReservationId ?? null,
+        // El usage-log de ESTA pata todavía no existe cuando se construye la
+        // captura, así que se declara null en vez de inventarse: la migración lo
+        // admite nulo precisamente para no fabricar correlaciones.
+        providerUsageLogId: null,
+        observedAt: deps.nowIso,
+      },
+    });
+
+    // `legacyBest` es no-nulo aquí: se construyó a partir de `phoneNumber`, que
+    // esta rama ya comprobó. El fallback estructural mantiene el tipo honesto.
+    const legacy = capture.legacyBest ?? {
+      number: phoneNumber,
+      type: result.phoneType,
+      source: 'lusha_reveal' as const,
+      raw_type: result.phoneRawType,
+    };
+
+    const collectionLog = (
+      write: CandidateLushaPhoneCollectionLogFields | null,
+    ): CandidateLushaPhoneCollectionLogFields =>
+      write ??
+      describeCandidateLushaPhoneCollectionWrite({
+        result: null,
+        duplicatePhoneCount: capture.counters.duplicate_phone_count,
+        canonicalPhoneCount: capture.counters.canonical_phone_count,
+        sourceCount: capture.counters.source_count,
+      });
+
+    let written;
+    try {
+      written = await deps.persistPhoneCollection({
+        candidateId,
+        phones: capture.phones,
+        primaryCandidates: buildCandidatePrimaryPhoneCandidates({
+          phones: capture.phones,
+          primaryPreference: capture.primaryPreference,
+          legacy,
+        }),
+        observedAt: deps.nowIso,
+        terminal: {
+          // El estado que autorizó esta pata. La transacción exige, bajo el lock,
+          // que la fila siga en él: es el único token de pertenencia disponible,
+          // porque Lusha no entrega ningún id de seguimiento.
+          expectedPhoneRevealStatus: candidate.phoneRevealStatus ?? '',
+          legacyPhone: legacy.number,
+          legacyPhoneType: legacy.type,
+          legacyRawType: legacy.raw_type,
+          legacyDedupeKey: resolveLushaLegacyDedupeKey(legacy),
+          revealedAt: deps.nowIso,
+          completedAt: deps.nowIso,
+          revealedBy: deps.actor.internalUserId,
+          requestId: finalRequestId,
+          costCredits: result.creditsCharged,
+          costSource: result.costSource ?? 'unknown',
+          attemptCount: nextAttempt,
+        },
+      });
+    } catch {
+      // FAIL-CLOSED. Lusha YA cobró, así que el gasto se registra igualmente —
+      // el usage-log vive fuera de la transacción precisamente para sobrevivir al
+      // fallo que describe. Lo que NO se hace es decir `revealed`: el candidato
+      // sigue sin cerrar, que es el estado reprocesable y auditable. No se
+      // reintenta y no se vuelve a llamar a Lusha.
+      const errorCode = 'collection_persistence_unavailable';
+      await deps.logUsage(
+        buildUsageLogEntry({
+          candidateId,
+          actorId: deps.actor.internalUserId,
+          actorRole: deps.actor.roleKey,
+          usageStatus: 'success',
+          creditsUsed: result.creditsCharged,
+          costSource: result.costSource ?? 'unknown',
+          errorCode: null,
+          waterfallId: deps.phoneRevealWaterfallId,
+          phoneCollection: collectionLog(null),
+          phoneCollectionErrorCode: errorCode,
+        }),
+      );
+      return {
+        ...fail('error', errorCode),
+        creditsCharged: result.creditsCharged,
+        costSource: result.costSource ?? 'unknown',
+      };
+    }
+
+    const describedWrite = describeCandidateLushaPhoneCollectionWrite({
+      result: written,
+      duplicatePhoneCount: capture.counters.duplicate_phone_count,
+      canonicalPhoneCount: capture.counters.canonical_phone_count,
+      sourceCount: capture.counters.source_count,
+    });
+
+    // La transacción decide si el candidato quedó cerrado. `suppressed` y
+    // `stale_event` NO lo cierran a propósito, así que reportarlos como
+    // `revealed` sería afirmar un estado que la base no tiene.
+    if (!written.candidate_terminalized) {
+      const errorCode =
+        written.status === 'suppressed'
+          ? 'phone_suppressed'
+          : `collection_${written.status}`;
+      await deps.logUsage(
+        buildUsageLogEntry({
+          candidateId,
+          actorId: deps.actor.internalUserId,
+          actorRole: deps.actor.roleKey,
+          usageStatus: 'success',
+          creditsUsed: result.creditsCharged,
+          costSource: result.costSource ?? 'unknown',
+          errorCode: null,
+          waterfallId: deps.phoneRevealWaterfallId,
+          phoneCollection: describedWrite,
+          phoneCollectionErrorCode: errorCode,
+        }),
+      );
+      return {
+        ...fail('error', errorCode),
+        creditsCharged: result.creditsCharged,
+        costSource: result.costSource ?? 'unknown',
+      };
+    }
+
+    await deps.logUsage(
+      buildUsageLogEntry({
+        candidateId,
+        actorId: deps.actor.internalUserId,
+        actorRole: deps.actor.roleKey,
+        usageStatus: 'success',
+        creditsUsed: result.creditsCharged,
+        costSource: result.costSource ?? 'unknown',
+        errorCode: null,
+        waterfallId: deps.phoneRevealWaterfallId,
+        phoneCollection: describedWrite,
+      }),
+    );
+    return {
+      ok: true,
+      status: 'revealed',
+      errorCode: null,
+      creditsCharged: result.creditsCharged,
+      costSource: result.costSource ?? 'unknown',
+    };
+  }
+
   await deps.persist(candidateId, {
     phone: phoneNumber,
     enrichment_metadata: {
@@ -577,6 +818,19 @@ function buildUsageLogEntry(args: {
    * llega, así que el log del fallback manual no cambia de forma.
    */
   waterfallId?: string | null;
+  /**
+   * Cifras PII-free de la escritura de la colección (4O-D). Clave OMITIDA si no
+   * llega, así que los caminos que no persisten colección conservan la forma de
+   * metadata exacta que ya tenían.
+   */
+  phoneCollection?: CandidateLushaPhoneCollectionLogFields;
+  /**
+   * Código mecánico del fallo de persistencia, cuando lo hubo. Es distinto de
+   * `provider_error_code` a propósito: Lusha respondió bien y cobró; lo que falló
+   * fue guardar el resultado, y confundir las dos cosas haría ilegible la
+   * conciliación del gasto.
+   */
+  phoneCollectionErrorCode?: string;
 }): LushaPhoneFallbackUsageLogEntry {
   const metadataDraft = buildLushaPhoneFallbackUsageLogMetadataDraft({
     candidateId: args.candidateId,
@@ -592,8 +846,13 @@ function buildUsageLogEntry(args: {
     creditsUsed: args.creditsUsed,
     status: args.usageStatus,
     errorCode: args.errorCode,
-    metadata: args.errorCode
-      ? { ...metadataDraft, provider_error_code: args.errorCode }
-      : metadataDraft,
+    metadata: {
+      ...metadataDraft,
+      ...(args.errorCode ? { provider_error_code: args.errorCode } : {}),
+      ...(args.phoneCollection ? { phone_collection: args.phoneCollection } : {}),
+      ...(args.phoneCollectionErrorCode
+        ? { phone_collection_error_code: args.phoneCollectionErrorCode }
+        : {}),
+    },
   };
 }
