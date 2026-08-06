@@ -103,6 +103,16 @@ export type ApolloTwoRoundCandidateEvidenceSnapshot = {
   country: string | null;
   country_code: string | null;
   employee_count: number | null;
+  /**
+   * A1-APOLLO-LINKEDIN-EMPLOYEES-1 — campos que el enrichment pagado añadió al
+   * perfil. Sin ellos, un reintento atribuiría a la búsqueda un valor que en
+   * realidad costó un crédito de `organization_enrichment`, y la procedencia
+   * persistida sería falsa.
+   *
+   * Opcional a propósito: los checkpoints escritos antes de este cambio no la
+   * traen, y leerlos debe seguir funcionando. Ausente ⇒ se asume la búsqueda.
+   */
+  enrichment_fields_added?: string[];
 };
 
 function truncateText(value: unknown): string | null {
@@ -172,6 +182,7 @@ export function toCandidateEvidenceSnapshot(
     country: truncateLabel(pick('country')),
     country_code: truncateLabel(pick('country_code')),
     employee_count: readNumber(pick('employee_count') ?? pick('estimated_num_employees')),
+    enrichment_fields_added: truncateStringArray(meta['apollo_enrichment_fields_added']),
   };
 }
 
@@ -225,6 +236,9 @@ export function fromCandidateEvidenceSnapshot(
       country_code: snapshot.country_code,
       employee_count: snapshot.employee_count,
       estimated_num_employees: snapshot.employee_count,
+      // La procedencia sobrevive al reintento: si el enrichment aportó el
+      // tamaño, la reconstrucción lo sigue atribuyendo al enrichment.
+      apollo_enrichment_fields_added: snapshot.enrichment_fields_added ?? [],
       apollo_profile: {
         industry: snapshot.industry,
         industries: snapshot.industries,

@@ -46,8 +46,22 @@ export type NoNewCandidatesBreakdown = {
   /**
    * País, sector, identidad o dominio insuficientes: los «filtros de calidad»
    * en el sentido literal.
+   *
+   * HARDENING-1 § 6 — se conserva porque el resolutor de copy la usa para ELEGIR
+   * causa, y ahí las tres significan lo mismo: «la empresa no encajaba». El
+   * desglose VISIBLE, en cambio, usa los tres campos separados de abajo.
    */
   qualityRejectedCount: number;
+  /** § 6 — descartes por país, con nombre propio. */
+  countryRejectedCount: number;
+  /** § 6 — descartes por sector o subindustria, con nombre propio. */
+  sectorRejectedCount: number;
+  /**
+   * § 6 — descartes por OWNERSHIP: el dominio no acredita pertenecer a la empresa
+   * nombrada. No es un juicio de calidad, y mezclarlo con uno mandaba a buscar la
+   * causa al sitio equivocado.
+   */
+  ownershipRejectedCount: number;
   /**
    * SCALE-SECOND-ROUND-FIX-1B § 3 — empresas ÚNICAS que la corrida llegó a ver.
    *
@@ -198,6 +212,9 @@ export function buildNoNewCandidatesBreakdown(
     cooldownCount: 0,
     repeatedAcrossRoundsCount: 0,
     qualityRejectedCount: 0,
+    countryRejectedCount: 0,
+    sectorRejectedCount: 0,
+    ownershipRejectedCount: 0,
     noveltyExhausted: false,
     secondRoundSkippedReason: null,
   };
@@ -231,7 +248,12 @@ export function buildNoNewCandidatesBreakdown(
   let sellup = 0;
   let cooldown = legacyCooldown;
   let repeatedAcrossRounds = 0;
-  let quality = 0;
+  // § 6 — las tres causas se acumulan POR SEPARADO y sólo se suman al final para
+  // el resolutor de copy. Sumarlas aquí es lo que hacía imposible que la UI
+  // dijera cuál de las tres había ocurrido.
+  let countryRejected = 0;
+  let sectorRejected = 0;
+  let ownershipRejected = 0;
   for (const round of rounds) {
     if (!round || typeof round !== 'object') continue;
     const r = round as Record<string, unknown>;
@@ -239,11 +261,11 @@ export function buildNoNewCandidatesBreakdown(
     sellup += readNumber(r['duplicate_in_sellup']);
     cooldown += readNumber(r['cooldown_or_prior_suggestion']);
     repeatedAcrossRounds += readNumber(r['seen_duplicates']);
-    quality +=
-      readNumber(r['country_rejected']) +
-      readNumber(r['sector_rejected']) +
-      readNumber(r['ownership_rejected']);
+    countryRejected += readNumber(r['country_rejected']);
+    sectorRejected += readNumber(r['sector_rejected']);
+    ownershipRejected += readNumber(r['ownership_rejected']);
   }
+  const quality = countryRejected + sectorRejected + ownershipRejected;
 
   const skippedReason = block['second_round_skipped_reason'];
 
@@ -253,6 +275,9 @@ export function buildNoNewCandidatesBreakdown(
     cooldownCount: cooldown,
     repeatedAcrossRoundsCount: repeatedAcrossRounds,
     qualityRejectedCount: quality,
+    countryRejectedCount: countryRejected,
+    sectorRejectedCount: sectorRejected,
+    ownershipRejectedCount: ownershipRejected,
     uniqueResultsCount,
     noveltyExhausted,
     secondRoundSkippedReason: typeof skippedReason === 'string' ? skippedReason : null,
@@ -268,7 +293,14 @@ export type NoNewCandidatesCompactBreakdown = {
   sellupDuplicateCount: number;
   cooldownCount: number;
   repeatedAcrossRoundsCount: number;
-  qualityRejectedCount: number;
+  /**
+   * § 6 — las tres causas, separadas, tal como se pintan. El agregado
+   * `qualityRejectedCount` NO viaja al desglose visible: pintarlo junto a sus
+   * tres partes contaría cada descarte dos veces.
+   */
+  countryRejectedCount: number;
+  sectorRejectedCount: number;
+  ownershipRejectedCount: number;
   candidatesCreatedCount: number;
 };
 
@@ -292,7 +324,9 @@ export function buildNoNewCandidatesCompactBreakdown(
     sellupDuplicateCount: nonNegativeInt(breakdown.sellupDuplicateCount),
     cooldownCount: nonNegativeInt(breakdown.cooldownCount),
     repeatedAcrossRoundsCount: nonNegativeInt(breakdown.repeatedAcrossRoundsCount),
-    qualityRejectedCount: nonNegativeInt(breakdown.qualityRejectedCount),
+    countryRejectedCount: nonNegativeInt(breakdown.countryRejectedCount),
+    sectorRejectedCount: nonNegativeInt(breakdown.sectorRejectedCount),
+    ownershipRejectedCount: nonNegativeInt(breakdown.ownershipRejectedCount),
     candidatesCreatedCount: nonNegativeInt(totals.candidatesCreatedCount),
   };
 }
@@ -315,7 +349,13 @@ export const NO_NEW_CANDIDATES_BREAKDOWN_LABELS: Readonly<
   sellupDuplicateCount: 'Ya existían en SellUp',
   cooldownCount: 'Sugeridas recientemente (en enfriamiento)',
   repeatedAcrossRoundsCount: 'Repeticiones de la misma empresa entre rondas',
-  qualityRejectedCount: 'Descartadas por país, sector o calidad',
+  // § 6 — una etiqueta por causa. La anterior, «Descartadas por país, sector o
+  // calidad», obligaba a adivinar cuál de las tres había ocurrido y ni siquiera
+  // nombraba el ownership, que fue la causa real del único descarte de la
+  // corrida `be181d2d`.
+  countryRejectedCount: 'Descartadas por país',
+  sectorRejectedCount: 'Descartadas por sector o subindustria',
+  ownershipRejectedCount: 'Descartadas porque el dominio no acredita a la empresa',
   candidatesCreatedCount: 'Candidatos creados',
 };
 
@@ -364,7 +404,9 @@ export function toNoNewCandidatesBreakdownRows(
     'sellupDuplicateCount',
     'cooldownCount',
     'repeatedAcrossRoundsCount',
-    'qualityRejectedCount',
+    'countryRejectedCount',
+    'sectorRejectedCount',
+    'ownershipRejectedCount',
   ];
 
   return [

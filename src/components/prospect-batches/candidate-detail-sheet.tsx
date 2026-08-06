@@ -5,6 +5,14 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { getCandidateLinkedInUrl, getCandidateLinkedInDisplay } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
+  resolveLinkedInFieldDisplay,
+  resolveEmployeeCountFieldDisplay,
+} from '@/modules/prospect-batches/candidate-company-fields-display';
+// AGENT1-APOLLO-CANDIDATE-INSERT-FORENSICS-1 § 11 — la subindustria pedida, su
+// veredicto y si cuenta hacia el objetivo. El dato ya se persistía; faltaba
+// enseñarlo, y sin él una empresa AMBIGUA se leía como una empresa confirmada.
+import { resolveCandidateSubindustryStatus } from '@/modules/prospect-batches/candidate-subindustry-status-display';
+import {
   Globe,
   Link2,
   ShieldCheck,
@@ -835,6 +843,18 @@ export function CandidateDetailSheet({
     (enrichment?.employee_count as string | number | undefined) ??
     candidate.company_size ??
     null;
+
+  // A1-APOLLO-LINKEDIN-EMPLOYEES-1 — un solo «No disponible» para todos los casos
+  // hacía indistinguible «Apollo no lo devolvió» de «llegó y se perdió por dentro».
+  // Estos dos descriptores traen el mensaje exacto de cada estado.
+  const linkedInFieldDisplay = resolveLinkedInFieldDisplay(
+    candidate.metadata,
+    effectiveLinkedinUrl ?? candidate.linkedin_url ?? null,
+  );
+  const employeeCountFieldDisplay = resolveEmployeeCountFieldDisplay(
+    candidate.metadata,
+    candidate.employee_count ?? employeeCount,
+  );
   const sectorDescription =
     (enrichment?.sector_description as string | undefined) ?? candidate.industry ?? null;
   const ciiu =
@@ -1562,6 +1582,25 @@ export function CandidateDetailSheet({
                             </div>
                           )}
                         </div>
+                      ) : linkedInFieldDisplay.message ? (
+                        // Cada estado dice lo suyo: ausencia del proveedor en gris,
+                        // pérdida interna en ámbar porque es un defecto nuestro.
+                        <div className="space-y-0.5">
+                          <p
+                            className={
+                              linkedInFieldDisplay.kind === 'internal_loss'
+                                ? 'text-xs text-amber-600 dark:text-amber-400'
+                                : 'text-xs text-muted-foreground'
+                            }
+                          >
+                            {linkedInFieldDisplay.message}
+                          </p>
+                          {linkedInFieldDisplay.sourceLabel && (
+                            <p className="text-[9px] text-muted-foreground/60">
+                              {linkedInFieldDisplay.sourceLabel}
+                            </p>
+                          )}
+                        </div>
                       ) : (
                         <MissingText text="Sin LinkedIn" />
                       )
@@ -1569,7 +1608,45 @@ export function CandidateDetailSheet({
                   />
                   <Field
                     label="Tamaño / Empleados"
-                    value={val(employeeCount ? String(employeeCount) : null, 'Sin dato')}
+                    value={
+                      employeeCountFieldDisplay.kind === 'value' &&
+                      employeeCountFieldDisplay.value !== null ? (
+                        <div className="space-y-0.5">
+                          <p className="text-xs font-medium">
+                            {employeeCountFieldDisplay.value.toLocaleString('es-CO')}
+                          </p>
+                          {employeeCountFieldDisplay.sourceLabel && (
+                            <p className="text-[9px] text-muted-foreground/60">
+                              {employeeCountFieldDisplay.sourceLabel}
+                            </p>
+                          )}
+                        </div>
+                      ) : employeeCountFieldDisplay.message ? (
+                        <div className="space-y-0.5">
+                          {employeeCountFieldDisplay.value !== null && (
+                            <p className="text-xs font-medium">
+                              {employeeCountFieldDisplay.value.toLocaleString('es-CO')}
+                            </p>
+                          )}
+                          <p
+                            className={
+                              employeeCountFieldDisplay.kind === 'internal_loss'
+                                ? 'text-xs text-amber-600 dark:text-amber-400'
+                                : 'text-xs text-muted-foreground'
+                            }
+                          >
+                            {employeeCountFieldDisplay.message}
+                          </p>
+                          {employeeCountFieldDisplay.sourceLabel && (
+                            <p className="text-[9px] text-muted-foreground/60">
+                              {employeeCountFieldDisplay.sourceLabel}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        val(employeeCount ? String(employeeCount) : null, 'Sin dato')
+                      )
+                    }
                   />
                   {!isStructured && sourcePrimaryLabel && (
                     <Field label="Fuente" value={sourcePrimaryLabel} />
@@ -1651,6 +1728,98 @@ export function CandidateDetailSheet({
                             {icpState.description}
                           </div>
                         )}
+                      </div>
+                    )}
+                  </div>
+                </SurfaceCard>
+                </CollapsibleSection>
+              );
+            })()}
+
+            {/* Subindustria solicitada — FORENSICS-1 § 11.
+                Qué se pidió, qué se demostró, si cuenta hacia el objetivo y por
+                qué quedó para revisión. Antes nada de esto se veía: una empresa
+                con subindustria AMBIGUA (Juan Valdez, Alpina, Grupo Diana en la
+                corrida `9a9acf99`) era indistinguible de una confirmada. */}
+            {(() => {
+              const subindustryStatus = resolveCandidateSubindustryStatus(
+                candidate.metadata as Record<string, unknown> | null | undefined,
+              );
+              if (!subindustryStatus.hasData) return null;
+
+              const verdictBadgeStyle =
+                subindustryStatus.verdict === 'confirmed'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  : subindustryStatus.verdict === 'ambiguous'
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                  : subindustryStatus.verdict === 'rejected'
+                  ? 'bg-destructive/10 text-destructive'
+                  : 'bg-muted text-muted-foreground/60';
+
+              return (
+                <CollapsibleSection title="Subindustria solicitada">
+                <SurfaceCard>
+                  <SurfaceCardHeader
+                    title="Subindustria solicitada"
+                    description="Sólo una subindustria confirmada cuenta hacia el objetivo de la búsqueda."
+                  />
+                  <div className="space-y-3 mt-1" data-testid="candidate-subindustry-status">
+                    <div className="space-y-0.5">
+                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                        Subindustria solicitada
+                      </p>
+                      <p className="text-xs text-foreground/90 font-medium">
+                        {subindustryStatus.requestedSubindustry ?? 'Sin subindustria declarada'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge
+                        className={`border-0 text-[10px] font-semibold ${verdictBadgeStyle}`}
+                        data-testid="candidate-subindustry-verdict"
+                      >
+                        {subindustryStatus.verdictLabel}
+                      </Badge>
+                      <span className="text-[11px] text-muted-foreground">
+                        Cuenta hacia el objetivo:{' '}
+                        <span
+                          className="font-semibold text-foreground"
+                          data-testid="candidate-subindustry-counts-toward-target"
+                        >
+                          {subindustryStatus.countsTowardTargetLabel}
+                        </span>
+                      </span>
+                    </div>
+
+                    {subindustryStatus.notConfirmedMessage && (
+                      <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden />
+                        <span data-testid="candidate-subindustry-not-confirmed">
+                          {subindustryStatus.notConfirmedMessage}
+                        </span>
+                      </div>
+                    )}
+
+                    {subindustryStatus.reviewReasons.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                          Motivo de revisión
+                        </p>
+                        <ul className="space-y-1" data-testid="candidate-subindustry-review-reasons">
+                          {subindustryStatus.reviewReasons.map((reason) => (
+                            <li
+                              key={reason.key}
+                              className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                              data-testid={`candidate-subindustry-reason-${reason.key}`}
+                            >
+                              <span
+                                className="h-1.5 w-1.5 rounded-full bg-amber-500/70 shrink-0"
+                                aria-hidden
+                              />
+                              {reason.label}
+                            </li>
+                          ))}
+                        </ul>
                       </div>
                     )}
                   </div>

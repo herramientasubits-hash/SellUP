@@ -56,14 +56,14 @@ const CORRELATION = {
 function supermarket(index: number): WebSearchResult {
   return {
     title: `Cadena de Supermercados ${index}`,
-    url: `https://supermercado${index}.com.co`,
+    url: `https://cadenadesupermercados${index}.com.co`,
     snippet: 'cadena de supermercados y autoservicio con tiendas de abarrotes',
     source: 'apollo_organizations',
     rank: index,
     provider: 'apollo_organizations',
     metadata: {
       apollo_organization_id: `org-super-${index}`,
-      domain: `supermercado${index}.com.co`,
+      domain: `cadenadesupermercados${index}.com.co`,
       industry: 'retail',
       country_code: 'CO',
       country: 'Colombia',

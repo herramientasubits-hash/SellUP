@@ -481,6 +481,46 @@ export type ProspectingPipelineCandidate = {
   llmEvaluation?: import('./llm-evaluator-types').LLMEvaluationMetadata | null;
   /** Query trazabilidad: identifica qué query generó este candidato (Hito 16Z.2). */
   searchTrace?: SearchTrace | null;
+  /**
+   * A1-APOLLO-LINKEDIN-EMPLOYEES-1 — LinkedIn empresarial y número de empleados
+   * tal como los devolvió Apollo, con su estado y procedencia.
+   *
+   * Antes existía `employee_count` pero NADIE lo poblaba y no había campo alguno
+   * para el LinkedIn: los dos valores morían en el constructor del candidato y el
+   * writer los reportaba como «el proveedor no los devolvió». Este campo es el
+   * puente que faltaba entre el payload del proveedor y la persistencia.
+   */
+  providerCompanyFields?: import('./apollo-company-fields-mapping').ApolloCompanyFieldsCapture | null;
+  /** LinkedIn empresarial canónico, plano, para los consumidores que sólo leen la URL. */
+  companyLinkedInUrl?: string | null;
+  /**
+   * Estado de la evidencia sectorial cuando la modalidad la calcula (Apollo dos
+   * rondas). `undefined` cuando el camino no la evalúa: la regla de completitud
+   * es fail-closed, así que la ausencia nunca cuenta como confirmada.
+   */
+  sectorEvidenceState?:
+    | import('./apollo-two-round/enrichment-ranking').CandidateSectorEvidenceState
+    | null;
+  /**
+   * A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 4 — ciudad, clasificación de
+   * subindustria y procedencia tal como el enrichment las devolvió.
+   *
+   * Existe porque el perfil enriquecido moría en `metadata.apollo_profile` del
+   * resultado de búsqueda: la corrida `be181d2d` pagó cinco enrichments y
+   * persistió dos candidatos con `city`, `subindustry`, `sector_code` y
+   * `classification_*` en null. Este campo es el puente entre lo que se compró y
+   * lo que se guarda.
+   *
+   * NO transporta el número de empleados ni el LinkedIn empresarial: esos dos los
+   * cubre A1-APOLLO-LINKEDIN-EMPLOYEES-1 por su propia vía, y duplicar la
+   * escritura de una columna desde dos rutas es cómo se consiguen dos verdades.
+   *
+   * `undefined` cuando el camino no ejecuta enrichment de organización: la
+   * ausencia nunca se rellena con suposiciones.
+   */
+  providerEnrichmentCapture?:
+    | import('./apollo-enrichment-persistence-capture').ApolloEnrichmentPersistenceCapture
+    | null;
 };
 
 export type ProspectingPipelineSummary = {

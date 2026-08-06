@@ -84,6 +84,9 @@ describe('§ 14.8 — elegible + writer fallido NO produce copy de recientes', (
         cooldownCount: 0,
         repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 0,
+        countryRejectedCount: 0,
+        sectorRejectedCount: 0,
+        ownershipRejectedCount: 0,
         noveltyExhausted: true,
         secondRoundSkippedReason: null,
       },
@@ -126,7 +129,10 @@ describe('§ 14.9 — persistencia parcial', () => {
     const copy = resolveWizardResultCopy({ persistence: partial });
     assert.equal(copy.cause, 'persistence_partial');
     assert.equal(copy.heading, PERSISTENCE_PARTIAL_HEADING);
-    assert.match(copy.body, /Guardamos 1 de 4/);
+    // FORENSICS-1 § 7 — el cuerpo dice las DOS cifras. Antes decía «Guardamos 1
+    // de 4 … las demás», y «las demás» no es un número que nadie pueda auditar.
+    assert.match(copy.body, /Se guardaron 1 de 4 candidatos\./);
+    assert.match(copy.body, /3 no pudieron guardarse\./);
     assert.equal(copy.claimsRecentlySuggested, false);
   });
 
@@ -152,6 +158,9 @@ describe('§ 14.10 — el historial REAL conserva su copy', () => {
         cooldownCount: 5,
         repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 0,
+        countryRejectedCount: 0,
+        sectorRejectedCount: 0,
+        ownershipRejectedCount: 0,
         noveltyExhausted: false,
         secondRoundSkippedReason: null,
       },
@@ -170,6 +179,9 @@ describe('§ 14.10 — el historial REAL conserva su copy', () => {
         cooldownCount: 2,
         repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 0,
+        countryRejectedCount: 0,
+        sectorRejectedCount: 0,
+        ownershipRejectedCount: 0,
         noveltyExhausted: false,
         secondRoundSkippedReason: null,
       },
@@ -194,6 +206,9 @@ describe('§ 14.11 — la calidad REAL conserva su copy', () => {
         cooldownCount: 0,
         repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 4,
+        countryRejectedCount: 0,
+        sectorRejectedCount: 0,
+        ownershipRejectedCount: 0,
         noveltyExhausted: false,
         secondRoundSkippedReason: null,
       },
@@ -226,6 +241,9 @@ describe('§ 8 — relevancia del fallo: dos señales, no una', () => {
         cooldownCount: 3,
         repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 0,
+        countryRejectedCount: 0,
+        sectorRejectedCount: 0,
+        ownershipRejectedCount: 0,
         noveltyExhausted: false,
         secondRoundSkippedReason: null,
       },
@@ -253,6 +271,9 @@ describe('§ 8 — relevancia del fallo: dos señales, no una', () => {
         cooldownCount: 0,
         repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 2,
+        countryRejectedCount: 0,
+        sectorRejectedCount: 0,
+        ownershipRejectedCount: 0,
         noveltyExhausted: false,
         secondRoundSkippedReason: 'identical_provider_request',
       },

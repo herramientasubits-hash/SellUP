@@ -160,6 +160,19 @@ jobs:
       - name: Run A1 Apollo persistence readiness tests
         run: npm run test:a1-apollo-persistence-readiness
 
+      # AGENT1-APOLLO-CANDIDATE-INSERT-FORENSICS-1 — el dominio REAL de
+      # `classification_source` entra al check obligatorio. La corrida live
+      # `9a9acf99` perdió su único candidato con subindustria confirmada porque el
+      # proyector escribía en esa columna el vocabulario de evidencia
+      # (`provider_industry`, …) y la CHECK de la migración 093 sólo admite el de
+      # quién clasificó (`writer`, `derived_*`, …): dos conjuntos sin un solo valor
+      # en común, así que fallaban EXACTAMENTE los candidatos que cuentan hacia el
+      # objetivo. La suite compara el código contra el SQL de la migración, así que
+      # un vocabulario nuevo no puede volver a colarse. Determinista: sin flags, sin
+      # proveedores, sin créditos y sin DB real.
+      - name: Run A1 Apollo candidate insert forensics tests
+        run: npm run test:a1-apollo-candidate-insert-forensics
+
       # AGENT1-APOLLO-SCALE-SECOND-ROUND-FIX-1B — la PÁGINA que la ronda 2 pide y el
       # desglose que la UI pinta entran al check obligatorio. Sin este paso ninguna
       # de las dos cosas corría en CI: la corrida live `eae6d47f` pagó cinco créditos
@@ -170,6 +183,17 @@ jobs:
       # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
       - name: Run A1 Apollo second-round page and breakdown tests
         run: npm run test:a1-apollo-scale-second-round
+
+      # AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 — el contrato de completitud y
+      # el vocabulario de objetivo entran al check obligatorio. Sin este paso NADA
+      # de #234 ni de #235 corría en CI: ninguna de sus suites estaba enganchada a
+      # un script, así que el typecheck era toda su protección. Lo que aquí se fija
+      # es lo que la corrida `be181d2d` no supo responder: cuántas empresas se
+      # guardaron para revisión y cuántas, completas y válidas, cuentan de verdad
+      # hacia el objetivo. Determinista: sin flags, sin proveedores, sin créditos y
+      # sin DB real.
+      - name: Run A1 Apollo LinkedIn and quality integration tests
+        run: npm run test:a1-apollo-linkedin-quality-integration
 
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
@@ -210,3 +234,16 @@ jobs:
       # El módulo de presupuestos, cuyo resolver es ahora la fuente económica canónica.
       - name: Run budget module tests
         run: npm run test:budgets
+
+      # AGENT2A-PHONE-REVEAL-4O-B — el modelo canónico de MÚLTIPLES teléfonos entra al
+      # check obligatorio desde el primer día, antes de que nada lo consuma. La razón es
+      # que sus garantías son justamente las que se rompen en silencio: que la clave de
+      # deduplicación NUNCA contenga el número (de lo que depende que un tombstone no
+      # conserve lo que dice haber borrado), que la clave de procedencia no lleve PII y no
+      # dependa del reloj (o un webhook reprocesado duplicaría la fila), que un número
+      # inválido o suprimido no pueda ser principal, y que los vocabularios del SQL y de
+      # TypeScript no se separen — una divergencia que no falla al compilar sino al
+      # insertar. Determinista: sin flags, sin proveedores, sin créditos y sin DB real
+      # (la migración solo se lee de disco; no se aplica en ningún sitio).
+      - name: Run candidate multiple-phone model tests
+        run: npm run test:agent2a:candidate-phone-collection

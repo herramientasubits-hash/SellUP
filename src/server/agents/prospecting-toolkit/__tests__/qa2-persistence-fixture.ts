@@ -194,6 +194,9 @@ export function buildQa2NoNewCandidatesBreakdown(): NoNewCandidatesBreakdown {
     cooldownCount: 0,
     repeatedAcrossRoundsCount: QA2_ROUND_2_SEEN_COUNT,
     qualityRejectedCount: 0,
+    countryRejectedCount: 0,
+    sectorRejectedCount: 0,
+    ownershipRejectedCount: 0,
     noveltyExhausted: false,
     secondRoundSkippedReason: null,
   };
