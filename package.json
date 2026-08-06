@@ -256,7 +256,8 @@
     "test:agent2a:phone-drawer-sync": "node --experimental-test-module-mocks --import tsx --test src/components/contact-enrichment/__tests__/phone-reveal-drawer-sync-core.test.ts src/components/contact-enrichment/__tests__/contact-candidate-detail-drawer-sync-ui.test.tsx src/modules/contact-enrichment/__tests__/phone-reveal-request-id-hygiene.test.ts src/app/api/debug/agent2a-phone-waterfall-config/__tests__/route.test.ts",
     "test:agent2a:phone-table-grants-postgres": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-reveal-table-grants-postgres.test.ts",
     "test:agent2a:phone-cache-grants-postgres": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-reveal-cache-grants-postgres.test.ts",
-    "test:agent2a:candidate-phone-collection": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-collection-core.test.ts src/modules/contact-enrichment/__tests__/candidate-phone-collection-migration-static.test.ts"
+    "test:agent2a:candidate-phone-collection": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-collection-core.test.ts src/modules/contact-enrichment/__tests__/candidate-phone-collection-migration-static.test.ts",
+    "test:agent2a:apollo-phone-collection-capture": "node --import tsx --test src/modules/contact-enrichment/__tests__/apollo-phone-collection-capture-4o-c.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-webhook-phone-collection-4o-c.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-recovery-phone-collection-4o-c.test.ts src/modules/contact-enrichment/__tests__/candidate-phone-collection-cross-path-4o-c.test.ts src/modules/contact-enrichment/__tests__/candidate-phone-collection-safety-static-4o-c.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
