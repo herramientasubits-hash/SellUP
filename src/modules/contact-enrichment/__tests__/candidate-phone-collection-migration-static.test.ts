@@ -62,22 +62,50 @@ describe('109 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('ninguna OTRA migración crea o toca las dos tablas nuevas', () => {
+  it('ninguna OTRA migración define la FORMA de las dos tablas nuevas', () => {
+    // La 109 es la única dueña del ESQUEMA: quién crea las tablas, sus índices, sus
+    // CHECK, su RLS y sus privilegios. Eso es lo que esta guarda protege, y por eso
+    // mira DDL y GRANT, no cualquier mención.
+    //
+    // Desde 4O-C-R1 la 110 sí NOMBRA las dos tablas —lee y escribe FILAS en ellas
+    // desde una función—, que es exactamente para lo que la 109 las creó. Prohibir
+    // la mención habría dejado el modelo permanentemente sin escritor, o habría
+    // forzado a que el escritor fuera SQL suelto en TypeScript, que es de donde
+    // venimos.
+    const DDL = [
+      'CREATE TABLE',
+      'ALTER TABLE',
+      'DROP TABLE',
+      'CREATE INDEX',
+      'DROP INDEX',
+      'CREATE TRIGGER',
+      'CREATE POLICY',
+      'GRANT',
+      'REVOKE',
+      'TRUNCATE',
+    ];
     const others = readdirSync(migrationsDir).filter(
       (file) => file.endsWith('.sql') && file !== MIGRATION_FILE,
     );
     for (const file of others) {
-      const sql = readFileSync(join(migrationsDir, file), 'utf8');
-      assert.equal(
-        sql.includes('contact_enrichment_candidate_phones'),
-        false,
-        `${file} no debe tocar contact_enrichment_candidate_phones`,
-      );
-      assert.equal(
-        sql.includes('contact_enrichment_candidate_phone_sources'),
-        false,
-        `${file} no debe tocar contact_enrichment_candidate_phone_sources`,
-      );
+      const sql = readFileSync(join(migrationsDir, file), 'utf8')
+        .split('\n')
+        .filter((line) => !line.trimStart().startsWith('--'))
+        .join('\n');
+      for (const table of [
+        'contact_enrichment_candidate_phones',
+        'contact_enrichment_candidate_phone_sources',
+      ]) {
+        for (const keyword of DDL) {
+          // El DDL y la tabla en la MISMA sentencia (hasta el `;`).
+          const pattern = new RegExp(`${keyword}\\b[^;]{0,400}?${table}\\b`, 'i');
+          assert.equal(
+            pattern.test(sql),
+            false,
+            `${file} no debe ejecutar ${keyword} sobre ${table}: el esquema es de la 109`,
+          );
+        }
+      }
     }
   });
 

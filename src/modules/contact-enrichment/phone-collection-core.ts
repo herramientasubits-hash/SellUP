@@ -147,6 +147,23 @@ export interface CandidatePhoneSourceInput {
   waterfallRunId: string | null;
   reservationId: string | null;
   providerUsageLogId: string | null;
+  /**
+   * Discriminante OPCIONAL de la observación (AGENT2A-PHONE-REVEAL-4O-C).
+   *
+   * POR QUÉ EXISTE. Un solo evento HTTP puede traer el MISMO número dos veces:
+   * Apollo repite el objeto en `phone_numbers[]`, en `person.phone_numbers[]` y
+   * en `people[].phone_numbers[]`. Sin discriminante las dos observaciones
+   * comparten clave y colapsan en UNA procedencia, que es exactamente lo que se
+   * quiere cuando el objeto es idéntico. Pero si el mismo número llega con
+   * `type_cd` o `status_cd` DISTINTOS en dos ubicaciones, eso sí son dos
+   * observaciones con contenido distinto, y colapsarlas perdería uno de los dos
+   * `raw_provider_type` que la tabla de procedencias existe para conservar.
+   *
+   * Debe construirse SIN PII: solo con lo que el proveedor dice SOBRE el número
+   * (tipo y estado crudos), nunca con el número. Ausente ⇒ la clave es
+   * byte-idéntica a la de 4O-B, así que ninguna procedencia previa cambia.
+   */
+  observationDiscriminator?: string | null;
   /** ISO-8601. Entra como dato: este módulo no lee el reloj. */
   observedAt: string;
 }
@@ -383,6 +400,11 @@ export function normalizeCandidatePhone(
  * que dos observaciones manuales sin ids colapsan en una. Es la lectura correcta
  * — sin un identificador que las distinga, no hay evidencia de que sean dos
  * eventos — y es preferible a inventar unicidad con un reloj.
+ *
+ * DISCRIMINANTE (4O-C): cuando `observationDiscriminator` viene, se añade como
+ * último segmento. Es lo que permite que el MISMO número observado dos veces en
+ * el MISMO evento HTTP colapse si el proveedor dijo lo mismo de él, y NO colapse
+ * si dijo cosas distintas. Ausente ⇒ clave byte-idéntica a la de 4O-B.
  */
 export function buildCandidatePhoneSourceEventKey(
   source: Pick<
@@ -393,10 +415,11 @@ export function buildCandidatePhoneSourceEventKey(
     | 'waterfallRunId'
     | 'reservationId'
     | 'providerUsageLogId'
-  >,
+  > &
+    Partial<Pick<CandidatePhoneSourceInput, 'observationDiscriminator'>>,
 ): string {
   const part = (value: string | null): string => cleanText(value) ?? '-';
-  return [
+  const base = [
     'v1',
     source.provider,
     source.acquisitionMode,
@@ -405,6 +428,8 @@ export function buildCandidatePhoneSourceEventKey(
     part(source.reservationId),
     part(source.providerUsageLogId),
   ].join(':');
+  const discriminator = cleanText(source.observationDiscriminator ?? null);
+  return discriminator ? `${base}:${discriminator}` : base;
 }
 
 // ── 3. Fusión ──────────────────────────────────────────────────────

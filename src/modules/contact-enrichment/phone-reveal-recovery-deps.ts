@@ -28,6 +28,7 @@ import {
 } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { readPhoneCacheSuppression, writePhoneCacheEntry } from './phone-cache-store';
+import { persistCandidatePhoneCollection } from './candidate-phone-collection-persistence';
 import {
   continuePhoneRevealWaterfallForCandidate,
   resolveActiveWaterfallRunId,
@@ -264,6 +265,15 @@ export function buildRecoveryCoreDeps(
     // sin leer ni escribir. Nunca lanza: la caché no puede romper el recovery.
     cacheRevealedPhone: async (cacheInput) =>
       writePhoneCacheEntry(cacheInput, isApolloPhoneCacheEnabled()),
+
+    // Colección COMPLETA de teléfonos (AGENT2A-PHONE-REVEAL-4O-C). EXACTAMENTE la
+    // misma dep que el webhook: un candidato cerrado por recuperación tiene que
+    // acabar con la misma colección que si el callback hubiera llegado, y dos
+    // writers distintos se desincronizarían al primer arreglo. Sin flag y sin
+    // depender del de caché — este es el camino de CAPTURA, no el de reutilización.
+    // NO es best-effort: si lanza, nada terminal se persiste y el candidato sigue
+    // recuperable con 0 créditos.
+    persistCandidatePhoneCollection,
 
     // Supresión en vuelo (FIX 3). Sin condicionar al flag de caché: una DSAR
     // registrada entre el START y este poll tiene que bloquear la persistencia

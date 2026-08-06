@@ -247,3 +247,26 @@ jobs:
       # (la migración solo se lee de disco; no se aplica en ningún sitio).
       - name: Run candidate multiple-phone model tests
         run: npm run test:agent2a:candidate-phone-collection
+
+      # AGENT2A-PHONE-REVEAL-4O-C — captura de TODOS los teléfonos Apollo.
+      #
+      # 4O-B creó el modelo y no lo cableó; este bloque es el que hace que los números
+      # adicionales que Apollo YA entregaba —y que la operadora YA pagó— dejen de
+      # perderse al escribir. Lo que la suite protege, y que no falla al compilar:
+      #
+      #   * que el escalar `contact_enrichment_candidates.phone` siga siendo EXACTAMENTE
+      #     el mismo teléfono que antes del hito (una regresión aquí cambia el dato
+      #     visible de un candidato sin que nadie lo pida);
+      #   * que un registro repetido por Apollo en la raíz y bajo `person` no se
+      #     contabilice dos veces, ni genere una segunda procedencia;
+      #   * que el escalar y el principal de la colección NUNCA se contradigan;
+      #   * que un fallo del writer no se cierre como éxito ni deje un teléfono visible
+      #     sin su colección;
+      #   * que un tombstone no resucite por ninguno de los dos caminos;
+      #   * que ningún teléfono, display ni `dedupe_key` llegue a un usage-log;
+      #   * que la captura NO sea alcanzable desde el search, la caché, Lusha ni la UI.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real (la
+      # persistencia se ejerce contra un doble en memoria con las mismas reglas).
+      - name: Run Apollo phone collection capture tests
+        run: npm run test:agent2a:apollo-phone-collection-capture
