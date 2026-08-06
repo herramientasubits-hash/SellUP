@@ -20,6 +20,7 @@ import {
   sumApolloPhoneCreditsAcrossLocations,
   type ApolloPhoneCaptureSourceContext,
 } from '../apollo-phone-collection-capture';
+import { resolveLegacyPhoneDedupeKey } from '../candidate-phone-collection-writer';
 import { sumWebhookCredits } from '../phone-reveal-webhook-core';
 import type { ApolloPhoneRevealWebhookPayload } from '../phone-reveal-webhook-core';
 
@@ -372,6 +373,50 @@ describe('4O-C — mapeo de status_cd', () => {
 // ═══════════════════════════════════════════════════════════════════
 // Elección del principal
 // ═══════════════════════════════════════════════════════════════════
+
+describe('4O-C-R1 — la clave del heredado coincide con la de la captura', () => {
+  // INVARIANTE PORTANTE. La transacción comprueba contra los tombstones la
+  // `dedupe_key` que `resolveLegacyPhoneDedupeKey` calcula; la captura calcula la
+  // suya por dentro para poner el heredado a la cabeza de la preferencia. Si las dos
+  // divergieran, la comprobación de privacidad miraría OTRA fila y pasaría sin
+  // comprobar nada — un fallo silencioso, y del tipo peor.
+  const payloads: Array<[string, ApolloPhoneRevealWebhookPayload]> = [
+    ['un móvil E.164', { phone_numbers: [{ sanitized_number: MOBILE, type_cd: 'mobile' }] }],
+    [
+      'varios tipos',
+      {
+        phone_numbers: [
+          { sanitized_number: WORK, type_cd: 'work' },
+          { sanitized_number: MOBILE, type_cd: 'mobile' },
+        ],
+      },
+    ],
+    [
+      'solo raw, con formato humano',
+      { phone_numbers: [{ raw_number: '(555) 000-0001', type_cd: 'mobile' }] },
+    ],
+    [
+      'el mismo número repetido en dos ubicaciones',
+      {
+        phone_numbers: [{ sanitized_number: MOBILE, type_cd: 'mobile' }],
+        person: { phone_numbers: [{ sanitized_number: MOBILE, type_cd: 'mobile' }] },
+      },
+    ],
+  ];
+
+  for (const [label, payload] of payloads) {
+    it(`coinciden con ${label}`, () => {
+      const result = capture(payload);
+      assert.ok(result.legacyBest, 'el escenario debe producir un heredado');
+      const legacyKey = resolveLegacyPhoneDedupeKey(result.legacyBest);
+      // El heredado es elegible en todos estos escenarios, así que la captura lo
+      // pone PRIMERO en la preferencia — y esa primera clave tiene que ser la misma.
+      assert.equal(result.primaryPreference[0], legacyKey);
+      // Y la fila canónica de esa clave existe: se comprueba contra algo real.
+      assert.ok(result.phones.some((phone) => phone.dedupeKey === legacyKey));
+    });
+  }
+});
 
 describe('4O-C — principal', () => {
   it('DIRECT + MOBILE ⇒ el principal es el MÓVIL (sin regresión visible)', () => {
