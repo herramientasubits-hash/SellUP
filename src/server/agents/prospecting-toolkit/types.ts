@@ -501,6 +501,26 @@ export type ProspectingPipelineCandidate = {
   sectorEvidenceState?:
     | import('./apollo-two-round/enrichment-ranking').CandidateSectorEvidenceState
     | null;
+  /**
+   * A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 4 — ciudad, clasificación de
+   * subindustria y procedencia tal como el enrichment las devolvió.
+   *
+   * Existe porque el perfil enriquecido moría en `metadata.apollo_profile` del
+   * resultado de búsqueda: la corrida `be181d2d` pagó cinco enrichments y
+   * persistió dos candidatos con `city`, `subindustry`, `sector_code` y
+   * `classification_*` en null. Este campo es el puente entre lo que se compró y
+   * lo que se guarda.
+   *
+   * NO transporta el número de empleados ni el LinkedIn empresarial: esos dos los
+   * cubre A1-APOLLO-LINKEDIN-EMPLOYEES-1 por su propia vía, y duplicar la
+   * escritura de una columna desde dos rutas es cómo se consiguen dos verdades.
+   *
+   * `undefined` cuando el camino no ejecuta enrichment de organización: la
+   * ausencia nunca se rellena con suposiciones.
+   */
+  providerEnrichmentCapture?:
+    | import('./apollo-enrichment-persistence-capture').ApolloEnrichmentPersistenceCapture
+    | null;
 };
 
 export type ProspectingPipelineSummary = {

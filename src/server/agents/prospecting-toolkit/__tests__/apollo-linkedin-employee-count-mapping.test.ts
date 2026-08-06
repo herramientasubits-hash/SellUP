@@ -736,7 +736,7 @@ describe('A1-APOLLO-LINKEDIN-EMPLOYEES-1 — contrato de completitud', () => {
 
     assert.equal(counters.persisted_candidates, 3);
     assert.equal(counters.complete_valid_candidates, 1);
-    assert.equal(counters.incomplete_candidates, 2);
+    assert.equal(counters.review_only_candidates, 2);
     assert.equal(counters.target_count, 1);
     assert.equal(counters.failed_condition_counts.linkedin_status, 2);
     assert.equal(counters.failed_condition_counts.employee_count_status, 1);
@@ -770,7 +770,7 @@ describe('A1-APOLLO-LINKEDIN-EMPLOYEES-1 — contrato de completitud', () => {
       .company_fields_completeness as Record<string, unknown>;
     assert.equal(completeness.persisted_candidates, 1);
     assert.equal(completeness.complete_valid_candidates, 0);
-    assert.equal(completeness.incomplete_candidates, 1);
+    assert.equal(completeness.review_only_candidates, 1);
     assert.equal(completeness.target_count, 0);
   });
 });

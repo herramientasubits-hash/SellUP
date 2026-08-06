@@ -157,6 +157,17 @@ import {
   verifyDurableCheckpointContainsOperation,
 } from './checkpoint-merge';
 import { APOLLO_TWO_ROUND_BILLING_CONTRACT } from '../apollo-usage-operation-context';
+// A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 §§ 3, 4 y 5 — precisión de
+// subindustria, captura persistible del enrichment y gate final de ownership.
+import {
+  assessApolloSubindustryPrecision,
+  type ApolloSubindustryPrecisionAssessment,
+} from '../apollo-subindustry-precision';
+import { captureApolloEnrichmentForPersistence } from '../apollo-enrichment-persistence-capture';
+import {
+  evaluateCompanyOwnership,
+  isBlockedByCompanyOwnership,
+} from '../company-ownership-gate';
 import {
   readTwoRoundCheckpoint,
   writeTwoRoundCheckpoint,
@@ -330,6 +341,39 @@ export function toSectorEvidenceState(
  * ambas señales. Una organización = una evaluación = como máximo diez por
  * corrida, que es el tope de resultados crudos del § 2.
  */
+/**
+ * HARDENING-1 § 3 — pliega el veredicto de SUBINDUSTRIA sobre el veredicto de
+ * sector.
+ *
+ * El gate sectorial declara «relevante» en cuanto un término del conjunto
+ * aparece en cualquier texto del candidato, y para «Supermercados e
+ * Hipermercados» ese conjunto incluye `grocery`. Así se confirmaron —y se
+ * persistieron— una app de domicilios de mercado y un distribuidor B2B de
+ * alimentos. La confirmación de sector ya no basta por sí sola: hace falta
+ * además evidencia positiva y trazable de la subindustria pedida.
+ *
+ * Sin subindustria mapeada el pliegue es la identidad. Esa búsqueda no pide
+ * precisión de subindustria y aplicarle una política que no tiene rechazaría a
+ * todo el mundo.
+ *
+ * El pliegue sólo puede DEGRADAR. Una subindustria confirmada no rescata a un
+ * candidato cuya industria declarada contradice el sector: la contradicción es
+ * evidencia en contra y no se compensa con una coincidencia de palabra.
+ */
+export function foldSubindustryPrecisionIntoSectorState(
+  base: CandidateSectorEvidenceState,
+  precision: ApolloSubindustryPrecisionAssessment,
+): CandidateSectorEvidenceState {
+  if (!precision.subindustryMapped) return base;
+  if (precision.subindustryMatch === 'rejected') return 'sector_evidence_contradictory';
+  if (precision.subindustryMatch === 'ambiguous' && base === 'sector_evidence_confirmed') {
+    // Ambigua NO cuenta para el objetivo, pero sigue siendo el único estado que
+    // puede competir por un enrichment: resolver esa duda es para lo que existe.
+    return 'sector_evidence_missing_needs_enrichment';
+  }
+  return base;
+}
+
 export function readDuplicateVerdict(
   candidate: ProspectingPipelineCandidate,
 ): { sellUpDuplicate: boolean; hubSpotDuplicate: boolean } {
@@ -398,6 +442,16 @@ export function readSearchIndeterminacy(output: WebSearchOutput): boolean {
 export type ApolloTwoRoundWizardRunOutcome = IncrementalSearchOutput & {
   /** § 2 / § 4 — visible cuando el gasto no cuadra o no se pudo confirmar. */
   budgetAnomalies?: readonly string[];
+  /**
+   * A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 1 — lo que el ORQUESTADOR había
+   * proyectado antes de escribir.
+   *
+   * `targetReached` pasa a decidirse sobre filas reales, y esta cifra conserva la
+   * proyección para poder compararlas. Una divergencia entre las dos no es ruido:
+   * significa que un gate posterior al ranking rechazó a alguien ya contado, y
+   * ése es exactamente el defecto que la corrida `be181d2d` dejó ver.
+   */
+  projectedTargetReached?: boolean;
 };
 
 /**
@@ -577,6 +631,17 @@ export async function runApolloTwoRoundWizardDiscovery(
   for (const snapshot of enrichmentSnapshots) {
     enrichmentStatusByKey.set(snapshot.candidate_key, snapshot.status);
   }
+
+  /**
+   * HARDENING-1 §§ 3 y 4 — veredicto de subindustria por candidato, y clave de uso
+   * del enrichment que lo produjo.
+   *
+   * El veredicto se recalcula tras el enrichment, así que el mapa siempre guarda
+   * la evaluación MÁS reciente. La clave de uso es la procedencia: sin ella el
+   * dato persistido no se puede atribuir a la operación que se pagó.
+   */
+  const subindustryPrecisionByKey = new Map<string, ApolloSubindustryPrecisionAssessment>();
+  const enrichmentUsageKeyByCandidate = new Map<string, string>();
 
   const searchOutputs: WebSearchOutput[] = [];
   let persistedCandidateIds: string[] = [...(restored?.persisted_candidate_ids ?? [])];
@@ -948,9 +1013,20 @@ export async function runApolloTwoRoundWizardDiscovery(
         readFreeSectorEvidence(result, organization),
         subindustryMapping,
       );
+      // HARDENING-1 § 3 — la precisión de subindustria se evalúa con las señales
+      // GRATUITAS de la búsqueda, antes de cualquier gasto, y degrada el veredicto
+      // sectorial cuando la evidencia no demuestra la subindustria pedida.
+      const precision = assessApolloSubindustryPrecision(
+        result,
+        input.subindustries[0] ?? null,
+      );
+      subindustryPrecisionByKey.set(key, precision);
       const sectorEvidenceState: CandidateSectorEvidenceState = contradiction.contradictory
         ? 'sector_evidence_contradictory'
-        : toSectorEvidenceState(sector.decision);
+        : foldSubindustryPrecisionIntoSectorState(
+            toSectorEvidenceState(sector.decision),
+            precision,
+          );
 
       // 10-11. Duplicado en SellUp y en HubSpot — una sola consulta por
       // organización, la misma que el pipeline de producción ya hace, y cacheada
@@ -1187,7 +1263,20 @@ export async function runApolloTwoRoundWizardDiscovery(
         input.industry,
         input.subindustries[0] ?? null,
       );
-      const sectorEvidenceState = toSectorEvidenceState(sector.decision);
+      // § 5 — la reevaluación posterior al enrichment vuelve a pasar por la
+      // precisión de subindustria. Un perfil enriquecido puede confirmar la
+      // subindustria, seguir sin demostrarla o revelar un modelo de negocio que la
+      // excluye; los tres desenlaces tienen cubeta propia en las métricas.
+      const enrichedPrecision = assessApolloSubindustryPrecision(
+        enrichedResult,
+        input.subindustries[0] ?? null,
+      );
+      subindustryPrecisionByKey.set(candidateKey, enrichedPrecision);
+      enrichmentUsageKeyByCandidate.set(candidateKey, usageKey);
+      const sectorEvidenceState = foldSubindustryPrecisionIntoSectorState(
+        toSectorEvidenceState(sector.decision),
+        enrichedPrecision,
+      );
 
       // § 8 — un duplicado que sólo se pudo ver con el dominio recuperado por el
       // enrichment sí es un rechazo post-enrichment legítimo.
@@ -1215,6 +1304,37 @@ export async function runApolloTwoRoundWizardDiscovery(
         internalRecordedCredits: credits,
         ...(postEnrichmentRejection !== null ? { postEnrichmentRejection } : {}),
         ...(outcome === 'no_match' ? { noMatch: true } : {}),
+      };
+    },
+
+    /**
+     * HARDENING-1 § 5 — ownership como gate FINAL, con el candidato ya construido
+     * y el perfil ya enriquecido.
+     *
+     * Es literalmente la misma función que aplica el writer
+     * (`evaluateCompanyOwnership` + `isBlockedByCompanyOwnership`), invocada aquí
+     * para que su veredicto llegue ANTES de contar elegibles y no después de
+     * publicarlos. En la corrida `be181d2d` el writer descartó por ownership a una
+     * empresa que el orquestador ya había contado: `run_metrics` dijo 3 y la base
+     * tuvo 2. Con el gate aquí, esa empresa no llega a contarse.
+     *
+     * Cero llamadas al proveedor y cero créditos: sólo compara el nombre con el
+     * dominio que ya tenemos.
+     *
+     * Fail-open deliberado ante la AUSENCIA del candidato: si no hay nada que
+     * evaluar no se inventa un rechazo. El writer sigue siendo la última palabra,
+     * así que un hueco aquí degrada la métrica, no la corrección.
+     */
+    applyFinalGates: ({ candidateKey }) => {
+      const cached = assessmentByKey.get(candidateKey) ?? null;
+      if (cached === null) return { rejection: null };
+      const ownership = evaluateCompanyOwnership(
+        cached.candidate.name,
+        cached.candidate.website ?? null,
+        cached.candidate.domain ?? null,
+      );
+      return {
+        rejection: isBlockedByCompanyOwnership(ownership) ? 'ownership_mismatch' : null,
       };
     },
 
@@ -1248,15 +1368,58 @@ export async function runApolloTwoRoundWizardDiscovery(
   // desde su evidencia mínima. Reconstruir cuesta la verificación del sitio y la
   // consulta de duplicados —ambas gratuitas en créditos de proveedor— y es lo que
   // permite no repetir la búsqueda, que sí cuesta.
+  /**
+   * HARDENING-1 § 4 — baja a campos persistibles lo que la corrida COMPRÓ.
+   *
+   * La evidencia de `evidenceByKey` se sustituye por la enriquecida en cuanto un
+   * enrichment tiene éxito, así que aquí se lee el perfil final. La operación de
+   * procedencia se declara según lo que realmente ocurrió con ESE candidato: un
+   * enrichment ejecutado o sólo la búsqueda. Atribuir a `organization_enrichment`
+   * un dato que trajo la búsqueda falsearía la procedencia de algo que nadie pagó.
+   */
+  const buildEnrichmentCapture = (
+    candidateKey: string,
+  ): ProspectingPipelineCandidate['providerEnrichmentCapture'] => {
+    const evidence = readEvidenceResult(evidenceByKey, candidateKey);
+    if (evidence === null) return null;
+    const precision =
+      subindustryPrecisionByKey.get(candidateKey) ??
+      assessApolloSubindustryPrecision(evidence, input.subindustries[0] ?? null);
+    const enriched = enrichmentStatusByKey.get(candidateKey) === 'executed';
+    return captureApolloEnrichmentForPersistence({
+      result: evidence,
+      precision,
+      provenance: {
+        sourceProvider: 'apollo',
+        sourceOperation: enriched ? 'organization_enrichment' : 'organizations_search',
+        sourceRequestId: enrichmentUsageKeyByCandidate.get(candidateKey) ?? null,
+        observedAt: new Date().toISOString(),
+      },
+    });
+  };
+
   const resolvePersistableCandidates = async (): Promise<ProspectingPipelineCandidate[]> => {
     const resolved: ProspectingPipelineCandidate[] = [];
-    for (const entry of runResult.persisted) {
+    // AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § D — las ambiguas viajan al
+    // writer JUNTO a las completas. El writer ya sabe distinguirlas: su contrato
+    // de completitud las degrada a `needs_review` y las deja fuera de
+    // `target_count`. Lo que faltaba era que llegaran.
+    //
+    // El orden importa: las completas primero, para que el tope de escritura del
+    // writer —si alguno aplica— nunca sacrifique una empresa válida por una que
+    // sólo va a revisión.
+    for (const entry of [...runResult.persisted, ...runResult.reviewOnly]) {
+      const capture = buildEnrichmentCapture(entry.candidateKey);
       const cached = assessmentByKey.get(entry.candidateKey);
       if (cached) {
         // El veredicto sectorial de la modalidad viaja con el candidato: es lo
         // que permite al writer distinguir `subindustry_match = confirmed` de
         // «nadie lo evaluó», sin volver a llamar al gate ni al proveedor.
-        resolved.push({ ...cached.candidate, sectorEvidenceState: entry.sectorEvidenceState });
+        resolved.push({
+          ...cached.candidate,
+          sectorEvidenceState: entry.sectorEvidenceState,
+          providerEnrichmentCapture: capture,
+        });
         continue;
       }
       const evidence = readEvidenceResult(evidenceByKey, entry.candidateKey);
@@ -1275,7 +1438,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         duplicate: readDuplicateVerdict(rebuilt.candidate),
         checkedDomain: entry.identity.normalizedDomain,
       });
-      resolved.push(rebuilt.candidate);
+      resolved.push({ ...rebuilt.candidate, providerEnrichmentCapture: capture });
     }
     return resolved;
   };
@@ -1406,7 +1569,19 @@ export async function runApolloTwoRoundWizardDiscovery(
     } as unknown as IncrementalSearchOutput['metadata'],
     warnings,
     batchId: input.reservedBatchId,
-    targetReached: runResult.targetReached,
+    // HARDENING-1 § 1 — `targetReached` deja de significar «el orquestador acumuló
+    // N elegibles» y pasa a significar «hay N candidatos válidos en la base». Es
+    // la misma regla que aplica el writer sobre la metadata del lote, y aquí se
+    // aplica sobre lo que el wizard va a leer.
+    //
+    // `candidatesCreated` es el recuento del writer cuando esta ejecución escribió,
+    // y el tamaño de `persisted_candidate_ids` cuando los candidatos ya estaban
+    // escritos por un intento anterior del mismo run. En los dos casos son filas,
+    // nunca la proyección del ranking.
+    targetReached:
+      config.targetEligibleCompanies > 0 &&
+      candidatesCreated >= config.targetEligibleCompanies,
+    projectedTargetReached: runResult.targetReached,
     targetPersistibleCandidates: config.targetEligibleCompanies,
     ...(budgetAnomalies.length > 0 ? { budgetAnomalies } : {}),
     ...(persistenceOutcome ? { persistenceOutcome } : {}),

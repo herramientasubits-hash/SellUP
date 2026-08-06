@@ -104,6 +104,9 @@ function liveRunBreakdown(
     cooldownCount: 0,
     repeatedAcrossRoundsCount: 5,
     qualityRejectedCount: 1,
+    countryRejectedCount: 1,
+    sectorRejectedCount: 0,
+    ownershipRejectedCount: 0,
     uniqueResultsCount: 5,
     noveltyExhausted: false,
     secondRoundSkippedReason: null,
@@ -196,7 +199,11 @@ describe('§ 3 · el desglose sustituye al mensaje genérico como única explica
 describe('§ 3 · el copy específico por causa se conserva junto al desglose', () => {
   it('sólo duplicados de catálogo ⇒ el texto habla de SellUp/HubSpot, no de cooldown', () => {
     renderNoNewCandidates(
-      liveRunBreakdown({ repeatedAcrossRoundsCount: 0, qualityRejectedCount: 0 }),
+      liveRunBreakdown({
+        repeatedAcrossRoundsCount: 0,
+        qualityRejectedCount: 0,
+        countryRejectedCount: 0,
+      }),
     );
 
     const rendered = document.body.textContent ?? '';
@@ -212,6 +219,7 @@ describe('§ 3 · el copy específico por causa se conserva junto al desglose', 
       liveRunBreakdown({
         hubspotDuplicateCount: 0,
         qualityRejectedCount: 0,
+        countryRejectedCount: 0,
         repeatedAcrossRoundsCount: 0,
         cooldownCount: 3,
       }),
@@ -228,9 +236,15 @@ describe('§ 3 · el copy específico por causa se conserva junto al desglose', 
     const rendered = document.body.textContent ?? '';
     assert.ok(rendered.includes('Revisa el desglose'));
     // Y el desglose al que remite está de verdad ahí, con las tres causas.
+    //
+    // A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 6 — la tercera fila ya no es el
+    // agregado `qualityRejectedCount` («país, sector o calidad», que obligaba a
+    // adivinar cuál de las tres había ocurrido y ni siquiera nombraba el
+    // ownership): son sus tres partes, y sólo se pinta la que de verdad pasó.
     assert.ok(hasRow('hubspotDuplicateCount'));
     assert.ok(hasRow('cooldownCount'));
-    assert.ok(hasRow('qualityRejectedCount'));
+    assert.ok(hasRow('countryRejectedCount'));
+    assert.equal(hasRow('qualityRejectedCount'), false, 'el agregado ya no se pinta');
   });
 
   it('universo agotado ⇒ el texto pide cambiar criterios y el desglose acompaña', () => {

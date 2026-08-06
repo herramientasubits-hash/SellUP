@@ -33,6 +33,10 @@ import {
   resolveWizardResultCopy,
   type WizardPersistenceOutcome,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
+import {
+  buildWizardTargetSummary,
+  type WizardTargetSummaryInput,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-target-summary-copy';
 import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 
 // ── Wizard generation overlay ─────────────────────────────────────────────────
@@ -134,9 +138,15 @@ export type SuccessPanelProps = {
    * `null` cuando el servidor no las envió.
    */
   persistenceOutcome?: WizardPersistenceOutcome | null;
+  /**
+   * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § H — cifras canónicas de la
+   * corrida. `null`/ausente cuando el servidor no las envió: entonces el resumen
+   * no se pinta en vez de rellenarse con ceros.
+   */
+  targetSummary?: WizardTargetSummaryInput | null;
 };
 
-export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown, persistenceOutcome }: SuccessPanelProps) {
+export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown, persistenceOutcome, targetSummary }: SuccessPanelProps) {
   const router = useRouter();
 
   // QUERY-QUALITY-2 § 8 + PERSISTENCE-READINESS-4 § 8 — el texto sale de lo que
@@ -154,6 +164,9 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
         cooldownCount: 0,
         repeatedAcrossRoundsCount: 0,
         qualityRejectedCount: 0,
+        countryRejectedCount: 0,
+        sectorRejectedCount: 0,
+        ownershipRejectedCount: 0,
         noveltyExhausted: noveltyExhausted === true,
         secondRoundSkippedReason: null,
       },
@@ -349,6 +362,33 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
             </p>
           </div>
         </div>
+      )}
+
+      {/* INTEGRATION-1 § H — las cuatro cifras separadas. Guardadas, completas y
+          válidas, pendientes de revisión, y si el objetivo se alcanzó. Un solo
+          número no puede responder «cuántas guardamos» y «cuántas sirven». */}
+      {targetSummary && (
+        <dl
+          className="space-y-2 rounded-xl border border-border bg-card px-5 py-4"
+          data-testid="wizard-target-summary"
+        >
+          {buildWizardTargetSummary(targetSummary).rows.map((row) => (
+            <div key={row.key} className="space-y-0.5" data-testid={`wizard-target-summary-row-${row.key}`}>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                <dd
+                  className="text-xs font-semibold tabular-nums text-foreground"
+                  data-testid={`wizard-target-summary-value-${row.key}`}
+                >
+                  {row.value}
+                </dd>
+              </div>
+              {row.hint !== null && (
+                <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+              )}
+            </div>
+          ))}
+        </dl>
       )}
 
       {/* § 11 — cierre honesto de la modalidad de dos rondas: rondas REALMENTE

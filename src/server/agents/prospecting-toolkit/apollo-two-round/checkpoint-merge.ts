@@ -485,6 +485,38 @@ const ENRICHMENT_PROGRESS: Record<ApolloTwoRoundEnrichmentStatus, number> = {
   indeterminate: 3,
 };
 
+/**
+ * § 1 — cuánto ha avanzado la EVALUACIÓN de un candidato, con independencia del
+ * enrichment.
+ *
+ * `1` sólo cuando el candidato tiene veredicto final: elegible, o descartado de
+ * forma definitiva. Un candidato que sigue en evaluación vale `0`. La escala es
+ * deliberadamente binaria: lo único que hace falta es que «resuelto» gane a «sin
+ * resolver», nunca al revés.
+ */
+function candidateEvaluationProgress(snapshot: ApolloTwoRoundCandidateSnapshot): number {
+  return snapshot.eligible || snapshot.finally_rejected_or_duplicated ? 1 : 0;
+}
+
+/**
+ * § 1 — elige el snapshot MÁS resuelto entre dos observaciones del mismo
+ * candidato: primero por progreso de enrichment, y a igualdad por progreso de
+ * evaluación. Empate absoluto ⇒ se conserva el existente, para que la fusión
+ * siga siendo estable e idempotente.
+ */
+function pickResolvedCandidateSnapshot(
+  existing: ApolloTwoRoundCandidateSnapshot,
+  incoming: ApolloTwoRoundCandidateSnapshot,
+): ApolloTwoRoundCandidateSnapshot {
+  const enrichmentDelta =
+    ENRICHMENT_PROGRESS[incoming.enrichment_status] -
+    ENRICHMENT_PROGRESS[existing.enrichment_status];
+  if (enrichmentDelta !== 0) return enrichmentDelta > 0 ? incoming : existing;
+  return candidateEvaluationProgress(incoming) > candidateEvaluationProgress(existing)
+    ? incoming
+    : existing;
+}
+
 function mergeCandidateSnapshots(
   base: readonly ApolloTwoRoundCandidateSnapshot[],
   incoming: readonly ApolloTwoRoundCandidateSnapshot[],
@@ -497,11 +529,21 @@ function mergeCandidateSnapshots(
       byKey.set(snapshot.candidate_key, { ...snapshot });
       continue;
     }
-    const winner =
-      ENRICHMENT_PROGRESS[snapshot.enrichment_status] >
-      ENRICHMENT_PROGRESS[existing.enrichment_status]
-        ? snapshot
-        : existing;
+    // QUALITY-PERSISTENCE-HARDENING-1 § 1 — el progreso de enrichment por sí solo
+    // no ordena estos documentos.
+    //
+    // Con el mismo `enrichment_status` en ambos lados el desempate anterior se
+    // quedaba SIEMPRE con `existing` (el suelo durable, más antiguo), así que la
+    // reevaluación posterior al enrichment no llegaba nunca al checkpoint: en la
+    // corrida `be181d2d` las empresas enriquecidas y confirmadas quedaron
+    // almacenadas como `eligible: false` /
+    // `sector_evidence_missing_needs_enrichment`, contradiciendo a `run_metrics`.
+    //
+    // Se añade un segundo criterio: un candidato con veredicto FINAL —elegible o
+    // definitivamente descartado— está más resuelto que uno todavía en evaluación.
+    // Sigue siendo monótono, que es lo que la fusión concurrente necesita: el
+    // estado sólo puede avanzar hacia «resuelto», nunca retroceder.
+    const winner = pickResolvedCandidateSnapshot(existing, snapshot);
     byKey.set(snapshot.candidate_key, {
       ...winner,
       // La evidencia sobrevive aunque el ganador la hubiera soltado al compactar:

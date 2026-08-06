@@ -86,11 +86,16 @@ import type {
   CompanyFieldMappingStatus,
 } from './apollo-company-fields-mapping';
 import {
+  buildCompanyLinkedInTrace,
+  buildEmployeeCountTrace,
+} from './apollo-company-fields-mapping';
+import {
   evaluateCandidateTargetEligibility,
   buildCandidateCompletenessCounters,
   resolveCandidateStatusForCompleteness,
   toSubindustryMatchVerdict,
   INCOMPLETE_CANDIDATE_REVIEW_FLAG,
+  CANDIDATE_TARGET_METRICS_METADATA_KEY,
 } from './candidate-completeness-contract';
 import type { CandidateTargetEligibility } from './candidate-completeness-contract';
 import type {
@@ -115,6 +120,21 @@ import {
   APOLLO_PROVIDER_USAGE_KEY,
   APOLLO_ORGANIZATIONS_OPERATION_KEY,
 } from './provider-routing-attempts';
+// A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 §§ 1, 4, 6 y 7 — verdad de la
+// persistencia, datos del enrichment en columnas, desglose de descartes por
+// motivo real y sellado terminal del lote.
+import { reconcileApolloTwoRoundPersistedTruth } from './apollo-persisted-candidate-truth';
+import {
+  buildCandidateSkipBreakdown,
+  toCandidateSkipBreakdownMetadata,
+} from './candidate-skip-reason-taxonomy';
+import {
+  APOLLO_ENRICHMENT_PERSISTENCE_METADATA_KEY,
+  toApolloEnrichmentCandidateColumns,
+  toApolloEnrichmentPersistenceMetadata,
+} from './apollo-enrichment-persistence-capture';
+import { decideBatchCompletionSeal } from './batch-completion-seal';
+import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from './apollo-two-round/observability';
 // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — clasificación sanitizada del fallo de
 // escritura y estado de lote coherente con el resultado real de la persistencia.
 import {
@@ -806,6 +826,16 @@ export async function writeProspectingCandidates(
    * escrito. Alimenta los contadores separados: persistidos ≠ completos.
    */
   const completenessEligibilities: CandidateTargetEligibility[] = [];
+  /**
+   * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § E — completitud de TODAS las
+   * filas escritas, incluidas las que no traen campos de proveedor.
+   *
+   * `completenessEligibilities` sólo acumula las que tienen `providerCompanyFields`
+   * porque alimenta un bloque de metadata sobre esos campos. El recuento canónico
+   * de la corrida no puede excluir a nadie: una fila sin campos de proveedor es,
+   * por definición, una fila incompleta, y omitirla inflaría `target_count`.
+   */
+  const persistedTargetEligibilities: CandidateTargetEligibility[] = [];
   /** Inserts que tuvieron que reintentarse porque la columna `linkedin_url` no existe. */
   let linkedInColumnFallbackCount = 0;
 
@@ -893,6 +923,12 @@ export async function writeProspectingCandidates(
   // (added). When creating a new batch it is identical to batchMetadata.
   let batchId: string;
   let preMergedMetadata: Record<string, unknown> = batchMetadata;
+  /**
+   * § 7 — marca de cierre que el lote YA tenía. Un lote nuevo no tiene ninguna, y
+   * uno reutilizado sólo se acepta en `draft` / `generating`, que tampoco la
+   * tienen; se lee de todos modos para que el sellado nunca pise una existente.
+   */
+  let existingCompletedAt: string | null = null;
 
   if (existingBatchId) {
     // ── Path A: reuse an existing batch ────────────────────────────────────
@@ -901,7 +937,12 @@ export async function writeProspectingCandidates(
 
     const { data: existingBatch, error: selectError } = await admin
       .from("prospect_batches")
-      .select("id, status, source, created_by, owner_id, metadata, client_request_id")
+      .select(
+        // § 7 — `completed_at` se LEE para poder respetar una marca previa: una
+        // corrida deja de avanzar una sola vez, y dos cierres no pueden dar
+        // instantes distintos.
+        "id, status, source, created_by, owner_id, metadata, client_request_id, completed_at",
+      )
       .eq("id", existingBatchId)
       .single();
 
@@ -943,6 +984,10 @@ export async function writeProspectingCandidates(
     // Wizard keys (request_source, catalog_version_id, industry_id, etc.) do not
     // overlap with pipeline keys (generated_by, pipeline_version, etc.) so a
     // shallow spread is sufficient and safe.
+    existingCompletedAt =
+      typeof (existingBatch as { completed_at?: unknown }).completed_at === 'string'
+        ? ((existingBatch as { completed_at?: string }).completed_at ?? null)
+        : null;
     const existingMeta = (existingBatch.metadata ?? {}) as Record<string, unknown>;
     preMergedMetadata = { ...existingMeta, ...batchMetadata };
 
@@ -2258,6 +2303,37 @@ export async function writeProspectingCandidates(
         ? 'writer_linkedin_enrichment'
         : null;
 
+    // ── § G — trazabilidad por campo ──────────────────────────────────────────
+    //
+    // El `usage_key` de la operación que trajo el dato sólo existe cuando hubo
+    // una operación PAGADA (el enrichment de organización). Cuando el valor vino
+    // de la búsqueda, no hay clave que citar y el campo queda en `null` en vez de
+    // inventarse una.
+    //
+    // `persistence_mode` se declara aquí como `column` porque es lo que este
+    // insert intenta. Si la columna no existiera en el entorno, el reintento sin
+    // ella lo registra a nivel de lote en `company_fields_completeness.
+    // linkedin_persistence_mode = 'metadata_only'`: la columna existe o no existe
+    // para TODA la corrida, así que el estado del lote es el que manda, y por eso
+    // es el que la QA certifica.
+    const companyFieldSourceRequestId =
+      candidate.providerEnrichmentCapture?.provenance.sourceRequestId ?? null;
+    const companyFieldTraces = providerCompanyFields
+      ? {
+          linkedin: buildCompanyLinkedInTrace(providerCompanyFields.linkedin, {
+            sourceRequestId: companyFieldSourceRequestId,
+            persistenceMode: persistedLinkedInUrl !== null ? 'column' : 'not_persisted',
+          }),
+          employee_count: buildEmployeeCountTrace(providerCompanyFields.employeeCount, {
+            sourceRequestId: companyFieldSourceRequestId,
+            persistenceMode:
+              providerCompanyFields.employeeCount.status === 'confirmed'
+                ? 'column'
+                : 'not_persisted',
+          }),
+        }
+      : null;
+
     // § 5 — la regla de conteo hacia el target. Los gates de propiedad y de
     // calidad ya descartaron antes del insert a quien no pasaba, así que llegar
     // aquí ES el `pass`; se registra explícito en vez de darse por supuesto.
@@ -2322,6 +2398,17 @@ export async function writeProspectingCandidates(
             employee_count_source: providerCompanyFields.employeeCount.sourceProvider,
           }
         : {}),
+      // A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 4 — ciudad y clasificación
+      // que el enrichment devolvió, en sus columnas normales. El proyector omite
+      // la clave de todo campo que el proveedor no entregó: un dato ausente deja
+      // la columna intacta en vez de borrarla con un null.
+      //
+      // No solapa con § 3: el proyector del enrichment NO escribe `employee_count`
+      // ni `linkedin_url` — esas dos columnas las gobierna A1-APOLLO-LINKEDIN-
+      // EMPLOYEES-1 por su propia vía.
+      ...(candidate.providerEnrichmentCapture
+        ? toApolloEnrichmentCandidateColumns(candidate.providerEnrichmentCapture)
+        : {}),
       metadata: {
         ...buildCandidateMetadata(candidate),
         scoring: {
@@ -2345,11 +2432,19 @@ export async function writeProspectingCandidates(
                 ...companyLinkedInBlock,
                 persisted_linkedin_url: persistedLinkedInUrl,
                 persisted_linkedin_origin: persistedLinkedInOrigin,
+                // § G — las cinco etapas del campo, para que «no está» deje de
+                // tener cinco causas indistinguibles.
+                ...(companyFieldTraces ? { trace: companyFieldTraces.linkedin } : {}),
               },
             }
           : {}),
         ...(companyEmployeeCountBlock
-          ? { company_employee_count: companyEmployeeCountBlock }
+          ? {
+              company_employee_count: {
+                ...companyEmployeeCountBlock,
+                ...(companyFieldTraces ? { trace: companyFieldTraces.employee_count } : {}),
+              },
+            }
           : {}),
         // § 5 — por qué este candidato cuenta (o no) hacia el target. Persistido
         // no es lo mismo que completo, y aquí queda dicho por candidato.
@@ -2361,6 +2456,15 @@ export async function writeProspectingCandidates(
                 base_status: candidateStatus,
                 persisted_status: completenessAdjustedStatus,
               },
+            }
+          : {}),
+        // HARDENING § 4 — evidencia de subindustria y procedencia del dato.
+        // `prospect_candidates` no tiene columnas para ninguna de las dos, así que
+        // viven aquí estructuradas, SIN sustituir a las columnas normales.
+        ...(candidate.providerEnrichmentCapture
+          ? {
+              [APOLLO_ENRICHMENT_PERSISTENCE_METADATA_KEY]:
+                toApolloEnrichmentPersistenceMetadata(candidate.providerEnrichmentCapture),
             }
           : {}),
         novelty_check: noveltyResult.noveltyMetadata,
@@ -2524,6 +2628,9 @@ export async function writeProspectingCandidates(
       createdCandidateIds.push(created.id);
       // § 5 — sólo se contabiliza la completitud de lo que REALMENTE se escribió.
       if (providerCompanyFields) completenessEligibilities.push(targetEligibility);
+      // § E — el recuento canónico incluye TODA fila escrita, con campos de
+      // proveedor o sin ellos.
+      persistedTargetEligibilities.push(targetEligibility);
 
       // Auditoría: candidate_created
       await admin.from("prospect_candidate_audit").insert({
@@ -2614,11 +2721,18 @@ export async function writeProspectingCandidates(
       "negative_memory_rejected_recently",
     ]);
     const noveltySkipped = skipped.filter((s) => noveltyReasons.has(s.reason));
+    // § 6 — el desglose por motivo REAL. Cada descarte cae en exactamente una
+    // cubeta y la suma es `skipped.length`.
+    const skipBreakdown = buildCandidateSkipBreakdown(skipped);
+    // § 6 — `quality_skipped_count` deja de absorber decisiones de ownership.
+    // Una empresa cuyo dominio no se pudo acreditar no es una empresa de baja
+    // calidad, y contarla como tal mandaba a buscar la causa al sitio equivocado:
+    // en la corrida `be181d2d` el único descarte era ownership y el resumen decía
+    // «calidad». El resto de la cubeta se conserva tal cual estaba.
     // v1.16K-K FIX 3: add content/intermediary gate reasons to quality bucket
     const qualitySkipped = skipped.filter((s) =>
       s.reason === "qualityLabel=discard" ||
       s.reason.startsWith("external_platform:") ||
-      s.reason.startsWith("company_ownership:") ||
       s.reason.startsWith("source_url_quality:") ||
       s.reason.startsWith("business_fit:") ||
       s.reason === "content_page" ||
@@ -2641,6 +2755,15 @@ export async function writeProspectingCandidates(
       quality_skipped_count: qualitySkipped.length,
       identity_gate_skipped_count: identityGateTotal,
       created_candidate_ids_count: createdCandidateIds.length,
+      // § 6 — el desglose por motivo real. `ownership_rejected_count` ya no vive
+      // dentro de `quality_skipped_count`, y las cubetas suman `actual_skipped_count`.
+      ...toCandidateSkipBreakdownMetadata(skipBreakdown),
+      // § 1 — cuántos elegibles LLEGARON al writer y cuántos quedaron como filas.
+      // Son cantidades distintas por definición y aquí se declaran las dos. Se
+      // cuentan los candidatos recibidos, no los que alcanzaron el INSERT: el
+      // hueco que hay que poder explicar es justo el de los gates intermedios.
+      eligible_before_persistence: pipelineOutput.candidates.length,
+      insert_attempt_count: insertAttempts,
       updated_at: new Date().toISOString(),
     };
 
@@ -2669,12 +2792,40 @@ export async function writeProspectingCandidates(
       })),
     };
 
+    // AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § E — vocabulario canónico de
+    // la corrida, calculado UNA vez sobre las filas realmente escritas. Todos los
+    // consumidores (resumen, panel, costo, auditoría, reconciliación) leen de
+    // aquí para que no pueda haber dos verdades.
+    const canonicalCompletenessCounters = buildCandidateCompletenessCounters(
+      persistedTargetEligibilities,
+    );
+    const projectedPersistableCandidates = pipelineOutput.candidates.length;
+    const canonicalTargetMetrics = {
+      projected_persistable_candidates: projectedPersistableCandidates,
+      persisted_candidates: canonicalCompletenessCounters.persisted_candidates,
+      complete_valid_candidates: canonicalCompletenessCounters.complete_valid_candidates,
+      review_only_candidates: canonicalCompletenessCounters.review_only_candidates,
+      target_count: canonicalCompletenessCounters.target_count,
+      persistence_gap:
+        projectedPersistableCandidates - canonicalCompletenessCounters.persisted_candidates,
+      target_eligible_companies: targetCap ?? pipelineOutput.summary.requested,
+      target_reached:
+        (targetCap ?? pipelineOutput.summary.requested) > 0 &&
+        canonicalCompletenessCounters.target_count >=
+          (targetCap ?? pipelineOutput.summary.requested),
+      failed_condition_counts: canonicalCompletenessCounters.failed_condition_counts,
+    };
+
     const pipelineSummaryPostWrite = {
       requested: pipelineOutput.summary.requested,
       persisted: createdCandidateIds.length,
       skipped: skipped.length,
       returned_before_writer: pipelineOutput.summary.returned,
-      needs_review_persisted: createdCandidateIds.length,
+      // § E — antes esto repetía el total de filas, así que decía «5 para
+      // revisión» aunque 2 estuvieran completas. Ahora nombra sólo las que de
+      // verdad quedaron pendientes de revisión.
+      needs_review_persisted: canonicalCompletenessCounters.review_only_candidates,
+      complete_valid_persisted: canonicalCompletenessCounters.complete_valid_candidates,
     };
 
     // A1-APOLLO-LINKEDIN-EMPLOYEES-1 § 5 — contadores SEPARADOS. `persisted` ya
@@ -2687,8 +2838,11 @@ export async function writeProspectingCandidates(
             ...buildCandidateCompletenessCounters(completenessEligibilities),
             target: targetCap ?? pipelineOutput.summary.requested,
             linkedin_url_column_fallback_count: linkedInColumnFallbackCount,
+            // § G — `column` es el estado que una QA puede certificar: la columna
+            // existe y el valor está en ella. `metadata_only` sigue siendo un
+            // estado válido durante un despliegue gradual, pero no certifica nada.
             linkedin_persistence_mode:
-              linkedInColumnFallbackCount > 0 ? 'metadata_only' : 'column_and_metadata',
+              linkedInColumnFallbackCount > 0 ? 'metadata_only' : 'column',
           }
         : undefined;
 
@@ -2909,9 +3063,56 @@ export async function writeProspectingCandidates(
       active_candidate_guard_reason: duplicateGuardData.prefetchReason,
     };
 
+    // ── § 1 — la verdad de la persistencia sobre la proyección ───────────────
+    //
+    // La observabilidad de dos rondas se construye ANTES del writer, así que su
+    // `persisted_candidates` es una PROYECCIÓN del ranking del orquestador, no un
+    // recuento de filas. Aquí, con las filas ya escritas, se reescribe con la
+    // verdad y se deja constancia del hueco y de su causa.
+    //
+    // El desglose de causas sale del mismo `skipBreakdown` del § 6: el hueco se
+    // explica con los motivos REALES de los descartes, no con una atribución
+    // plausible. Lo que ninguna cubeta explique queda como `unexplained_gap`.
+    const twoRoundReconciled = reconcileApolloTwoRoundPersistedTruth(
+      (preMergedMetadata as Record<string, unknown>)[APOLLO_TWO_ROUND_OBSERVABILITY_KEY],
+      {
+        eligibleBeforePersistence: pipelineOutput.candidates.length,
+        persistedCandidates: createdCandidateIds.length,
+        // § E — el objetivo se decide contra las empresas COMPLETAS Y VÁLIDAS,
+        // no contra el total de filas: desde el § D hay filas persistidas que
+        // existen sólo para revisión.
+        completeValidCandidates: canonicalCompletenessCounters.complete_valid_candidates,
+        gapCauses: {
+          ownership_rejected: skipBreakdown.ownership_rejected,
+          quality_rejected: skipBreakdown.quality_rejected,
+          sector_rejected: skipBreakdown.sector_rejected,
+          country_rejected: skipBreakdown.country_rejected,
+          duplicate_hubspot: skipBreakdown.duplicate_hubspot,
+          duplicate_sellup: skipBreakdown.duplicate_sellup,
+          cooldown_or_prior_suggestion: skipBreakdown.cooldown,
+          novelty_rejected: skipBreakdown.novelty_rejected,
+          identity_gate_rejected: skipBreakdown.identity_gate_rejected,
+          persistence_failed: skipBreakdown.persistence_failed,
+        },
+        targetEligibleCompanies: pipelineOutput.summary.requested,
+      },
+    );
+
     const finalMetadata = {
       ...preMergedMetadata,
-      writer_summary: writerSummary,
+      ...(twoRoundReconciled
+        ? { [APOLLO_TWO_ROUND_OBSERVABILITY_KEY]: twoRoundReconciled.observability }
+        : {}),
+      // § E — el resumen del writer publica las tres cifras separadas. Antes sólo
+      // publicaba `created_candidate_ids_count`, que cualquiera podía leer como
+      // «empresas válidas».
+      writer_summary: {
+        ...writerSummary,
+        complete_valid_candidates: canonicalTargetMetrics.complete_valid_candidates,
+        review_only_candidates: canonicalTargetMetrics.review_only_candidates,
+        target_count: canonicalTargetMetrics.target_count,
+        persistence_gap: canonicalTargetMetrics.persistence_gap,
+      },
       // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — cifras sanitizadas del resultado
       // de la escritura. Sin stack, sin SQL, sin mensaje del motor: sólo enteros
       // y uno de dos códigos conocidos.
@@ -2919,6 +3120,10 @@ export async function writeProspectingCandidates(
         toCandidatePersistenceOutcomeMetadata(persistenceOutcome),
       novelty_summary: noveltySummary,
       pipeline_summary_post_write: pipelineSummaryPostWrite,
+      // § E — bloque canónico de la corrida. Existe para toda modalidad, no sólo
+      // para Apollo dos rondas: cualquier consumidor que pregunte «cuántas
+      // cuentan» tiene una única respuesta y no la deduce del total de filas.
+      [CANDIDATE_TARGET_METRICS_METADATA_KEY]: canonicalTargetMetrics,
       ...(companyFieldsCompleteness
         ? { company_fields_completeness: companyFieldsCompleteness }
         : {}),
@@ -2992,6 +3197,30 @@ export async function writeProspectingCandidates(
       metadataToPersist = mergeProviderAttemptsBatchMetadata(finalMetadata, [apolloAttempt]);
     }
 
+    // ── § 7 — sellado terminal ────────────────────────────────────────────
+    //
+    // `batchStatusForOutcome` es siempre terminal (`ready_for_review`,
+    // `completed` o `failed`): la corrida ya no va a avanzar por sí sola. Aun así
+    // el lote `e1622574…` quedó con `completed_at = null` porque nadie lo
+    // escribía, y una corrida sin fecha de cierre no se puede ordenar, medir ni
+    // comparar con las demás.
+    //
+    // Viaja en la MISMA escritura que la metadata, no en una aparte: el estado y
+    // su fecha de cierre describen el mismo hecho y separarlos abre una ventana
+    // en la que el lote está terminal y sin sellar.
+    //
+    // Idempotente: una marca previa se respeta siempre y la decisión no depende
+    // de este proceso, sino de lo que la fila ya tenía.
+    const completionSeal = decideBatchCompletionSeal({
+      status: batchStatusForOutcome,
+      currentCompletedAt: existingCompletedAt,
+      now,
+    });
+    const completedAtPatch =
+      completionSeal.shouldWrite && completionSeal.completedAt !== null
+        ? { completed_at: completionSeal.completedAt }
+        : {};
+
     if (batchStatusForOutcome !== "ready_for_review") {
       // `completed` — todos los candidatos se descartaron a propósito
       // (historial / calidad): no hay contenido nuevo que revisar.
@@ -2999,12 +3228,16 @@ export async function writeProspectingCandidates(
       //               quedarse en `ready_for_review` con cero candidatos dentro.
       await admin
         .from("prospect_batches")
-        .update({ status: batchStatusForOutcome, metadata: metadataToPersist })
+        .update({
+          status: batchStatusForOutcome,
+          metadata: metadataToPersist,
+          ...completedAtPatch,
+        })
         .eq("id", batchId);
     } else {
       await admin
         .from("prospect_batches")
-        .update({ metadata: metadataToPersist })
+        .update({ metadata: metadataToPersist, ...completedAtPatch })
         .eq("id", batchId);
     }
   } catch (err) {
