@@ -162,17 +162,34 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       .filter((file) => /^\d+.*\.sql$/.test(file))
       .sort();
 
-  it('añade la 110 y ninguna más: 111+ no existe', () => {
+  it('la 110 sigue siendo la única migración de este hito, y el techo no se ha abierto', () => {
     // 4O-C no podía añadir migración y por eso su persistencia no era
     // transaccional. 4O-C-R1 añade UNA —la función de la 110— y esta guarda pasa de
     // «ninguna» a «exactamente esa»: sigue siendo una guarda, no una puerta abierta.
+    //
+    // AGENT2A-PHONE-REVEAL-4O-D subió el techo a la 111 (la función equivalente para
+    // el otro proveedor de teléfono, con su propia guarda estática en
+    // candidate-lusha-phone-persistence-static-4o-d.test.ts). Lo que esta guarda
+    // protege NO es el número más alto del directorio, que sube cada vez que un
+    // bloque autorizado añade la suya: es que 4O-C-R1 aportó SOLO la 110 y que nadie
+    // ha colado una migración por encima del último hito conocido.
     const files = migrations();
-    assert.equal(files[files.length - 1], '110_persist_candidate_apollo_phone_reveal_result.sql');
     assert.ok(files.includes('109_contact_enrichment_candidate_phones.sql'));
+    assert.ok(files.includes('110_persist_candidate_apollo_phone_reveal_result.sql'));
     assert.equal(
-      files.some((file) => /^1(1[1-9]|[2-9]\d)/.test(file)),
+      files.filter((file) => /^110/.test(file)).length,
+      1,
+      '4O-C-R1 aporta exactamente una migración',
+    );
+    assert.equal(
+      files[files.length - 1],
+      '111_persist_candidate_lusha_phone_reveal_result.sql',
+      'el techo conocido es la 111 (4O-D)',
+    );
+    assert.equal(
+      files.some((file) => /^1(1[2-9]|[2-9]\d)/.test(file)),
       false,
-      'ninguna migración 111 o superior',
+      'ninguna migración 112 o superior',
     );
   });
 

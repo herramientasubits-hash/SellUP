@@ -43,6 +43,7 @@ import {
   type LushaPhoneFallbackPersistencePatch,
   type LushaPhoneFallbackUsageLogEntry,
 } from './lusha-phone-fallback-core';
+import { persistCandidateLushaPhoneCollection } from './candidate-lusha-phone-collection-persistence';
 import {
   continuePhoneRevealWaterfall,
   parsePhoneRevealWaterfallLushaSkippedReason,
@@ -773,6 +774,24 @@ export async function callLushaFallbackLeg(args: {
       nowIso: new Date().toISOString(),
       waterfallMode: true,
       phoneRevealWaterfallId: args.runId,
+
+      // AGENT2A-PHONE-REVEAL-4O-D. Cableada AQUÍ y solo aquí: esta función es el
+      // único punto por el que pasan las DOS rutas que el hito autorizó — el
+      // waterfall completo y la continuación legacy, que comparten
+      // `continuePhoneRevealWaterfall` y por tanto esta pata. El disparo manual de
+      // administración vive en lusha-phone-fallback-actions.ts, no llega hasta
+      // aquí, y por eso conserva su escritura anterior sin cambios.
+      //
+      // Con la dep presente, el camino `revealed` persiste TODOS los teléfonos de
+      // la respuesta, sus procedencias, el principal, el escalar y el estado
+      // terminal en UNA transacción (migración 111). Si esa escritura falla, el
+      // core falla cerrado: el candidato no se cierra y no se vuelve a llamar a
+      // Lusha.
+      persistPhoneCollection: persistCandidateLushaPhoneCollection,
+      // La reserva de esta pata se liquida por su propia función (migración 104) y
+      // su id no viaja hasta aquí. null en vez de inventar una correlación, misma
+      // convención que la captura del otro proveedor.
+      phoneCollectionReservationId: null,
 
       loadCandidate: async (candidateId) => {
         const { data, error } = await admin
