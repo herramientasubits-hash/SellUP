@@ -6,25 +6,27 @@
  * real full-scan resource measurement would have to pass, the operator-safety guards that must hold
  * before any byte is read, and the hard refusal that stands in the way today.
  *
- * ── The finding that shapes this whole module ───────────────────────────────────
- * The § 3 audit looked for the full-join runner and did not find one. What exists is a family of
- * ULTRA-BOUNDED probes: every real-data reader in the join path performs a SINGLE bounded read from
- * byte offset zero into a pre-allocated buffer, and none of them ever advances a file position.
- * There is no loop over a file, no second read, and therefore no code path that observes more than
- * a fixed prefix of Empresas or Estabelecimentos. The only routine that joins companies to
- * establishments across a whole collection operates on a synthetic in-memory fixture.
+ * ── The finding that shaped this module, and what 14B.0D changed ────────────────
+ * The § 3 audit looked for the full-join runner and did not find one. What existed was a family of
+ * ULTRA-BOUNDED probes: every real-data reader in the join path performed a SINGLE bounded read from
+ * byte offset zero into a pre-allocated buffer, and none of them ever advanced a file position.
+ * There was no loop over a file, no second read, and therefore no code path that observed more than
+ * a fixed prefix of Empresas or Estabelecimentos. That was Model D: scaffolding, extensively; an
+ * executable full-scan route, not at all.
  *
- * That is Model D: scaffolding, extensively; an executable full-scan route, not at all.
+ * BR-SOURCE-14B.0D built the route. `br-receita-cnpj-full-join-engine` reads both required families
+ * to EOF under caps that bound MEMORY rather than coverage, so the audited model is now Model A and
+ * `BRAZIL_RECEITA_FULL_JOIN_IMPLEMENTATION_EXISTS` is `true`.
  *
- * The honest consequence is that a "full-scan benchmark" cannot be delivered as a measurement,
- * because there is nothing to measure — and a benchmark that quietly measured a 64 KiB prefix while
- * being named for a full scan would be the single most misleading artifact this milestone could
- * produce. GATE-2 would then be asked to approve production caps derived from a run that touched a
- * millionth of the input.
+ * The refusal did not move. `BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED` is still `false`, so
+ * the preflight below still refuses every real run — now at the AUTHORIZATION stage rather than for
+ * lack of an implementation. The only executable path here is
+ * `runBrazilReceitaFullJoinSyntheticFixtureBenchmark`: the real engine, over SYNTHETIC fixtures, into
+ * a sink that emits nothing, and it refuses `realDataRun: true` outright.
  *
- * So the mode is built completely — guards, caps, checkpoints, cleanup, single-attempt, both metric
- * channels — and its preflight REFUSES with `full_join_implementation_missing`. Every control is
- * ready and tested; the thing they would control does not exist yet.
+ * A benchmark that quietly measured a 64 KiB prefix while being named for a full scan would still be
+ * the most misleading artifact this connector could produce. That is why the synthetic mode is a
+ * separate, differently-named function rather than a parameter on the real one.
  *
  * ── This module NEVER ───────────────────────────────────────────────────────────
  *   - imports or touches Supabase, a migration, `source_company_snapshots`, the runtime, Agent 1,
@@ -39,6 +41,12 @@
 
 import * as path from 'node:path';
 
+import {
+  runBrazilReceitaFullJoinStreamingEngineOnce,
+  type BrazilReceitaFullJoinEngineRequest,
+  type BrazilReceitaFullJoinEngineResult,
+} from './br-receita-cnpj-full-join-engine';
+import { assertBrazilReceitaFullJoinNoWrite } from './br-receita-cnpj-full-join-no-write-guard';
 import {
   BRAZIL_RECEITA_FULL_JOIN_AUTOMATIC_RETRY_COUNT,
   resolveBrazilReceitaFullJoinResourceCaps,
@@ -78,15 +86,26 @@ export type BrazilReceitaFullJoinArchitectureModel =
   | 'model_d_full_join_not_implemented';
 
 export const BRAZIL_RECEITA_FULL_JOIN_AUDITED_MODEL: BrazilReceitaFullJoinArchitectureModel =
-  'model_d_full_join_not_implemented';
+  'model_a_fully_bounded_streaming';
 
 /**
- * Whether an executable full-scan join route exists. `false` per the § 3 audit.
+ * Whether an executable full-scan join route exists. `true` since BR-SOURCE-14B.0D.
  *
  * Only Model A may proceed to a real benchmark. Model B or C would need an architecture fix first;
- * Model D needs an implementation, and an authorization would not produce one.
+ * Model D needed an implementation, and an authorization would not have produced one.
+ *
+ * ── What changed, and what did not ─────────────────────────────────────────────
+ * `br-receita-cnpj-full-join-engine` traverses both required families to EOF with a memory footprint
+ * capped independently of the row count: a reused chunk buffer, a capped carry buffer, one row buffer
+ * and one partition's key window. The § 3 audit's decisive fact — that every real-data reader
+ * performed ONE read from offset zero — no longer holds, because a reader that advances now exists.
+ *
+ * What did NOT change is authorization. `BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED` and
+ * `..._EXECUTED` are still `false`, temporary storage is still unapproved for real data, and the
+ * preflight below still refuses every real run. An implementation existing and a run being permitted
+ * are different facts, and flipping the first must never be read as flipping the second.
  */
-export const BRAZIL_RECEITA_FULL_JOIN_IMPLEMENTATION_EXISTS = false as const;
+export const BRAZIL_RECEITA_FULL_JOIN_IMPLEMENTATION_EXISTS = true as const;
 
 /** The models a real benchmark could be run against. Deliberately just one. */
 export const BRAZIL_RECEITA_FULL_JOIN_BENCHMARKABLE_MODELS: readonly BrazilReceitaFullJoinArchitectureModel[] =
@@ -341,8 +360,10 @@ function refuse(
  * Runs the whole ordered preflight. Pure, synchronous, and incapable of reaching data: it opens no
  * file, and it returns a decision rather than a running benchmark.
  *
- * Today it always refuses, and the last two stages are why. That is the milestone's actual finding,
- * expressed as behaviour instead of a paragraph in a document.
+ * It still always refuses. Since BR-SOURCE-14B.0D the refusal comes from the AUTHORIZATION stage
+ * rather than from `full_join_implementation`: the implementation exists, and permission does not. The
+ * `full_join_implementation` stage is kept — and kept last — because it is the check that would fire
+ * again if a future change regressed the engine to Model B, C or D while leaving the constant alone.
  */
 export function preflightBrazilReceitaFullJoinResourceBenchmark(
   request: BrazilReceitaFullJoinBenchmarkPreflightRequest,
@@ -380,6 +401,126 @@ export function preflightBrazilReceitaFullJoinResourceBenchmark(
     caps: capResolution.caps,
     auditedModel: BRAZIL_RECEITA_FULL_JOIN_AUDITED_MODEL,
     dataAccessed: false,
+  };
+}
+
+// ─── Synthetic-fixture mode (§ 13) ────────────────────────────────────────────
+
+/**
+ * The ONE mode this milestone may execute: the real engine, over SYNTHETIC fixtures, into a sink that
+ * emits nothing.
+ *
+ * It exists so "the benchmark uses the real full-join engine" is a fact a test can check rather than a
+ * claim in a document — and it is separated from the real full-scan path by a hard refusal rather than
+ * by a flag an operator might flip: `realDataRun: true` is rejected here, at the top, before any port
+ * is touched.
+ *
+ * Note the ordering, which mirrors the real preflight for the same reasons: working directory (the one
+ * hazard that can damage something outside this run), then caps, then the no-write contract, then the
+ * zero-output invariants, then the attempt ledger — so a typo does not burn the single attempt.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_BENCHMARK_MODE =
+  'full_join_synthetic_fixture_benchmark' as const;
+
+export type BrazilReceitaFullJoinSyntheticBenchmarkAbortCode =
+  | 'unsafe_operator_working_directory'
+  | 'real_data_run_not_authorized'
+  | 'resource_caps_incomplete'
+  | 'no_write_guard_failed'
+  | 'output_rows_cap_must_be_zero'
+  | 'materializing_sink_not_authorized'
+  | 'single_attempt_already_consumed';
+
+export interface BrazilReceitaFullJoinSyntheticBenchmarkRequest {
+  readonly workingDirectory: BrazilReceitaFullJoinBenchmarkWorkingDirectoryInputs;
+  readonly attemptLedger: BrazilReceitaFullJoinBenchmarkAttemptLedger;
+  /** Passed through the 11A no-write guard verbatim. Must be the literal zero-effect contract. */
+  readonly noWriteContract: unknown;
+  readonly engineRequest: BrazilReceitaFullJoinEngineRequest;
+}
+
+export type BrazilReceitaFullJoinSyntheticBenchmarkOutcome =
+  | {
+      readonly ok: true;
+      readonly mode: typeof BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_BENCHMARK_MODE;
+      readonly engineUsed: true;
+      readonly auditedModel: BrazilReceitaFullJoinArchitectureModel;
+      readonly realFullScanBenchmarkExecuted: typeof BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED;
+      readonly result: BrazilReceitaFullJoinEngineResult;
+    }
+  | {
+      readonly ok: false;
+      readonly mode: typeof BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_BENCHMARK_MODE;
+      readonly abortStage: typeof BRAZIL_RECEITA_FULL_JOIN_BENCHMARK_ABORT_STAGE;
+      readonly abortCode: BrazilReceitaFullJoinSyntheticBenchmarkAbortCode;
+      readonly cwdViolations: readonly BrazilReceitaFullJoinBenchmarkCwdViolation[];
+      readonly capRejections: readonly BrazilReceitaFullJoinCapRejection[];
+      readonly dataAccessed: false;
+      readonly rowsEmitted: 0;
+      readonly retriesPerformed: typeof BRAZIL_RECEITA_FULL_JOIN_AUTOMATIC_RETRY_COUNT;
+    };
+
+function refuseSynthetic(
+  abortCode: BrazilReceitaFullJoinSyntheticBenchmarkAbortCode,
+  cwdViolations: readonly BrazilReceitaFullJoinBenchmarkCwdViolation[] = [],
+  capRejections: readonly BrazilReceitaFullJoinCapRejection[] = [],
+): BrazilReceitaFullJoinSyntheticBenchmarkOutcome {
+  return {
+    ok: false,
+    mode: BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_BENCHMARK_MODE,
+    abortStage: BRAZIL_RECEITA_FULL_JOIN_BENCHMARK_ABORT_STAGE,
+    abortCode,
+    cwdViolations,
+    capRejections,
+    dataAccessed: false,
+    rowsEmitted: 0,
+    retriesPerformed: BRAZIL_RECEITA_FULL_JOIN_AUTOMATIC_RETRY_COUNT,
+  };
+}
+
+export async function runBrazilReceitaFullJoinSyntheticFixtureBenchmark(
+  request: BrazilReceitaFullJoinSyntheticBenchmarkRequest,
+): Promise<BrazilReceitaFullJoinSyntheticBenchmarkOutcome> {
+  const cwdViolations = evaluateBrazilReceitaFullJoinBenchmarkWorkingDirectory(
+    request.workingDirectory,
+  );
+  if (cwdViolations.length > 0) {
+    return refuseSynthetic('unsafe_operator_working_directory', cwdViolations);
+  }
+
+  // The wall between this mode and the unauthorized one. A real run does not reach a port from here.
+  if (request.engineRequest.realDataRun) {
+    return refuseSynthetic('real_data_run_not_authorized');
+  }
+
+  const capResolution = resolveBrazilReceitaFullJoinResourceCaps(request.engineRequest.resourceCaps);
+  if (!capResolution.ok) {
+    return refuseSynthetic('resource_caps_incomplete', [], capResolution.rejections);
+  }
+  // `maxOutputRows: 0` is an equality here, not a ceiling: a resource benchmark that could emit one
+  // row would be an import with a smaller number attached to it.
+  if (capResolution.caps.maxOutputRows !== 0) {
+    return refuseSynthetic('output_rows_cap_must_be_zero');
+  }
+  if (request.engineRequest.sinkMaterializesRows) {
+    return refuseSynthetic('materializing_sink_not_authorized');
+  }
+
+  const guardResult = assertBrazilReceitaFullJoinNoWrite(request.noWriteContract);
+  if (!guardResult.ok) return refuseSynthetic('no_write_guard_failed');
+
+  if (!request.attemptLedger.consume()) {
+    return refuseSynthetic('single_attempt_already_consumed');
+  }
+
+  const result = await runBrazilReceitaFullJoinStreamingEngineOnce(request.engineRequest);
+  return {
+    ok: true,
+    mode: BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_BENCHMARK_MODE,
+    engineUsed: true,
+    auditedModel: BRAZIL_RECEITA_FULL_JOIN_AUDITED_MODEL,
+    realFullScanBenchmarkExecuted: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED,
+    result,
   };
 }
 
