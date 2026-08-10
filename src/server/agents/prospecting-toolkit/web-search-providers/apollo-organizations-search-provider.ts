@@ -102,7 +102,7 @@ import {
   type ApolloErrorClassification,
 } from '../apollo-organizations-error-taxonomy';
 import { toRateLimitLogMetadata } from '@/server/integrations/apollo-rate-limit-headers';
-import { applyApolloSectorRelevanceGate } from '../apollo-sector-relevance-gate';
+import { applyApolloSectorRelevanceGateAnyOf } from '../apollo-sector-relevance-gate';
 import { ingestApolloOrganizationIndustryRawLabels } from '@/modules/industry-mapping/apollo-industry-raw-label-ingestion';
 import { normalizeClassificationValue } from '@/modules/prospect-batches/import-classification/catalog-normalization';
 import { captureProviderIndustryRawLabelObservations } from '../provider-industry-raw-label-capture';
@@ -1077,7 +1077,10 @@ export async function runApolloOrganizationsSearch(
         eligibility: {
           targetCountryCode: input.countryCode ?? null,
           sector: input.industry ?? null,
-          subindustry: input.subindustries?.[0] ?? null,
+          // ADDENDUM § 2 — gate de GASTO: ANY-OF sobre las subindustrias pedidas.
+          // Con `subindustries[0]` un candidato plausible para la segunda pagaba
+          // el rechazo de la primera.
+          subindustries: input.subindustries ?? null,
         },
       },
     );
@@ -1093,8 +1096,11 @@ export async function runApolloOrganizationsSearch(
   // L2.13: pasar subindustria primaria para activar señales estrictas de subindustria
   // (ej. 'formacion corporativa' rechaza universidades, solo pasa LMS/corporate training).
   // L2.15: gate recibe enrichedMapped (con apollo_profile más completo si cascade activo).
-  const primarySubindustry = input.subindustries?.[0] ?? null;
-  const gateResult = applyApolloSectorRelevanceGate(enrichedMapped, input.industry, 'apollo_organizations', primarySubindustry);
+  // ADDENDUM § 2 y § 6 — este gate ADMITE o DESCARTA, así que evalúa las
+  // subindustrias pedidas con ANY-OF. Con la primaria, un candidato que demostraba
+  // la segunda selección del usuario se descartaba midiéndolo contra las señales
+  // de la primera.
+  const gateResult = applyApolloSectorRelevanceGateAnyOf(enrichedMapped, input.industry, 'apollo_organizations', input.subindustries ?? null);
   // A1-APOLLO-TWO-ROUND-QUALITY-1: en 'annotate' el gate se calcula igual (su
   // metadata sigue siendo la misma) pero no filtra. Ningún crédito cambia: la
   // facturación se calcula sobre `rawOrgs`, antes del gate, en ambos modos.

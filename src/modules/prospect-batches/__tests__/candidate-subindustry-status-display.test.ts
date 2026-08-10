@@ -136,7 +136,16 @@ describe('§ 11 — una subindustria rechazada se nombra Rechazada', () => {
       target_completeness: { counts_toward_target: false, failed_conditions: ['subindustry_match'] },
     });
     assert.equal(status.verdictLabel, 'Rechazada');
-    assert.match(String(status.notConfirmedMessage), /No se confirmó/);
+    // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 5 — «rechazada» dejó de
+    // redactarse como una ambigüedad. «No se confirmó» describe una carencia de
+    // evidencia; aquí la evidencia existe y CONTRADICE lo pedido, y leerlo como
+    // lo primero hacía parecer que la empresa «casi» calificaba.
+    assert.match(String(status.notConfirmedMessage), /no coincide con/);
+    assert.doesNotMatch(String(status.notConfirmedMessage), /No se confirmó/);
+    assert.deepEqual(
+      status.reviewReasons.map((reason) => reason.key),
+      ['subindustry_rejected'],
+    );
   });
 });
 

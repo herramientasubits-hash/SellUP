@@ -14,6 +14,11 @@
  */
 
 import type { CompanyFieldMappingStatus } from './apollo-company-fields-mapping';
+import type {
+  ApolloSubindustryPrecisionAssessment,
+  RequestedSubindustryEvaluation,
+  SubindustryMatchFamily,
+} from './apollo-subindustry-precision';
 
 // ─── Entradas de la regla (§ 5 del addendum) ──────────────────────────────────
 
@@ -68,6 +73,338 @@ export function toSubindustryMatchVerdict(
 ): SubindustryMatchVerdict {
   if (sectorEvidenceState === undefined || sectorEvidenceState === null) return 'unknown';
   return sectorEvidenceState === 'sector_evidence_confirmed' ? 'confirmed' : 'not_confirmed';
+}
+
+// ─── AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 3 ────────────────────
+//
+// El defecto que esta sección cierra: `toSubindustryMatchVerdict` sólo conoce
+// `sectorEvidenceState`, un veredicto de RELEVANCIA SECTORIAL/de INDUSTRIA que
+// el gate sectorial (`apollo-sector-relevance-gate.ts`) confirma con señales
+// amplias. Cuando la búsqueda pide una SUBINDUSTRIA específica y esa
+// subindustria no tiene catálogo de anclas propio
+// (`assessApolloSubindustryPrecision` → `subindustryMapped: false`), el pliegue
+// (`foldSubindustryPrecisionIntoSectorState`) deja `sectorEvidenceState` tal
+// cual —a propósito, para no romper búsquedas SIN subindustria— y ese
+// veredicto de industria, subindustria-ciego, se leía como si demostrara la
+// subindustria pedida. Así contaron hacia el objetivo, sin subindustria
+// confirmada, tres de cuatro candidatos de la corrida `8c86eb06…`.
+//
+// La corrección NO cambia `toSubindustryMatchVerdict` ni `sectorEvidenceState`
+// —ambos siguen siendo correctos para búsquedas SIN subindustria— sino que
+// añade la resolución que faltaba: cuando SÍ se pidió una subindustria, el
+// veredicto que decide el conteo es el de `ApolloSubindustryPrecisionAssessment`
+// —ya calculado, ya fail-closed (§ 3 de HARDENING-1) y ya persistido en
+// `metadata.apollo_enrichment_capture.precision`— y no el estado de industria.
+
+/**
+ * Veredicto de subindustria para el conteo.
+ *
+ * `unmapped` y `evaluation_unavailable` son estados PROPIOS, no matices de
+ * `ambiguous`, porque exigen acciones distintas: la primera pide un mapeo nuevo
+ * en el catálogo, la segunda dice que la evaluación no llegó a ocurrir. Ninguno
+ * de los dos cuenta.
+ */
+export type SubindustryRequirementMatch =
+  | 'confirmed'
+  | 'ambiguous'
+  | 'unmapped'
+  | 'rejected'
+  | 'evaluation_unavailable'
+  | 'not_requested';
+
+/**
+ * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 5 — causa ESPECÍFICA de que
+ * la subindustria no cuente.
+ *
+ * La condición del contrato es siempre `subindustry_match`; este código dice por
+ * qué. Sin él, la ficha tenía que adivinar la causa desde `subindustry_mapped` y
+ * no podía distinguir «rechazada» de «ambigua» —el contrasentido que el § 5
+ * prohíbe mostrar—.
+ */
+export type SubindustryBlockingReason =
+  | 'subindustry_ambiguous'
+  | 'subindustry_not_mapped'
+  | 'subindustry_rejected'
+  | 'subindustry_evaluation_unavailable';
+
+export type CandidateSubindustryRequirementResult = {
+  /** `true` cuando la búsqueda declaró al menos una subindustria. */
+  subindustryRequirementApplied: boolean;
+  /** Subindustrias pedidas, saneadas. Vacío cuando no se pidió ninguna. */
+  requestedSubindustries: string[];
+  /** § 2 — veredicto de CADA subindustria pedida. Ninguna selección se descarta. */
+  perRequestedSubindustryEvaluations: RequestedSubindustryEvaluation[];
+  /** § 2 — la subindustria pedida que confirmó. `null` cuando ninguna confirmó. */
+  matchedRequestedSubindustry: string | null;
+  /** § 2 — familia que produjo la confirmación, para subindustrias compuestas. */
+  matchedSubindustryFamily: SubindustryMatchFamily;
+  /** La subindustria pedida tiene catálogo de anclas propio. `false` cuando no se pidió ninguna. */
+  subindustryMapped: boolean;
+  subindustryMatch: SubindustryRequirementMatch;
+  /** `null` cuando la subindustria NO bloquea (confirmada, o no se pidió ninguna). */
+  subindustryBlockingReason: SubindustryBlockingReason | null;
+  /** Veredicto de dos estados que consume `evaluateCandidateTargetEligibility`. */
+  eligibilityVerdict: SubindustryMatchVerdict;
+};
+
+/** Compara etiquetas de subindustria sin depender de tildes, caja ni espacios. */
+function subindustryLabelKey(label: string): string {
+  return label
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function sanitizeRequestedSubindustries(
+  requested: readonly (string | null | undefined)[] | null | undefined,
+): string[] {
+  if (!Array.isArray(requested)) return [];
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const entry of requested) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (trimmed === '') continue;
+    const key = subindustryLabelKey(trimmed);
+    if (key === '' || seen.has(key)) continue;
+    seen.add(key);
+    labels.push(trimmed);
+  }
+  return labels;
+}
+
+/**
+ * Resuelve, para UN candidato, si la subindustria pedida cuenta hacia el
+ * objetivo.
+ *
+ * Invariantes (§ 2 del addendum):
+ *
+ *   A. subindustryMatch = 'confirmed' es OBLIGATORIO para contar, cuando se
+ *      pidió una subindustria.
+ *   B/D. 'ambiguous' o subindustryMapped = false → NO cuenta, se persiste
+ *      `needs_review`. Nunca se sustituye por el veredicto de industria.
+ *   C. 'rejected' → no llega aquí: el candidato no se persiste.
+ *   E. `industryMatch = 'confirmed'` (dentro de `precision`) NUNCA convierte un
+ *      `subindustryMatch` ambiguo o no mapeado en confirmado: no se lee en
+ *      absoluto para esta decisión.
+ *
+ * Cuando NO se pidió subindustria, la pregunta no aplica: el veredicto de
+ * relevancia sectorial/de industria de siempre (`sectorEvidenceState`) sigue
+ * decidiendo, exactamente como antes de este cambio.
+ */
+export function resolveCandidateSubindustryRequirement(input: {
+  sectorEvidenceState: string | null | undefined;
+  /**
+   * § 3 — subindustrias que la BÚSQUEDA pidió, según el request, no según lo que
+   * el proveedor alcanzó a evaluar.
+   *
+   * Es la entrada que hace posible el fail-closed explícito: sin ella, «no se
+   * pidió subindustria» y «se pidió y nadie la evaluó» eran indistinguibles, y
+   * el segundo caso caía a `sectorEvidenceState` —el veredicto de INDUSTRIA— y
+   * contaba. Omitirla conserva el comportamiento histórico (se deduce del
+   * assessment), pero todo consumidor de producción debe pasarla.
+   */
+  requestedSubindustries?: readonly (string | null | undefined)[] | null;
+  /** `null` cuando no hay assessment de Apollo para este candidato (otra vía, u otro proveedor). */
+  subindustryPrecision: ApolloSubindustryPrecisionAssessment | null;
+}): CandidateSubindustryRequirementResult {
+  const precision = input.subindustryPrecision;
+
+  const requestedFromInput = sanitizeRequestedSubindustries(input.requestedSubindustries);
+  const requestedFromPrecision = sanitizeRequestedSubindustries(
+    precision === null
+      ? []
+      : precision.requestedSubindustries.length > 0
+        ? precision.requestedSubindustries
+        : [precision.requestedSubindustry],
+  );
+  const requestedSubindustries =
+    requestedFromInput.length > 0 ? requestedFromInput : requestedFromPrecision;
+
+  // ── No se pidió subindustria: la pregunta no aplica y nada cambia ──────────
+  if (requestedSubindustries.length === 0) {
+    return {
+      subindustryRequirementApplied: false,
+      requestedSubindustries: [],
+      perRequestedSubindustryEvaluations: [],
+      matchedRequestedSubindustry: null,
+      matchedSubindustryFamily: 'none',
+      subindustryMapped: false,
+      subindustryMatch: 'not_requested',
+      subindustryBlockingReason: null,
+      eligibilityVerdict: toSubindustryMatchVerdict(input.sectorEvidenceState),
+    };
+  }
+
+  /**
+   * § 3 — la subindustria se pidió pero NO hay veredicto que la responda.
+   *
+   * Tres formas de llegar aquí, y las tres acaban igual: no cuenta.
+   *
+   *   1. otro proveedor (Tavily/legacy) que nunca calcula precisión;
+   *   2. el capture de Apollo llegó sin `precision`;
+   *   3. la precisión se calculó SIN subindustria (`requestedSubindustry: null`)
+   *      aunque la búsqueda sí pidió una.
+   *
+   * Lo que NO se hace, y es el defecto que este § cierra: caer a
+   * `sectorEvidenceState`. Ese estado es el veredicto de INDUSTRIA; leerlo aquí
+   * afirmaría una pertenencia que nadie midió.
+   */
+  const unavailable = (): CandidateSubindustryRequirementResult => ({
+    subindustryRequirementApplied: true,
+    requestedSubindustries,
+    perRequestedSubindustryEvaluations: [],
+    matchedRequestedSubindustry: null,
+    matchedSubindustryFamily: 'none',
+    subindustryMapped: false,
+    subindustryMatch: 'evaluation_unavailable',
+    subindustryBlockingReason: 'subindustry_evaluation_unavailable',
+    eligibilityVerdict: 'not_confirmed',
+  });
+
+  if (precision === null || precision.requestedSubindustry === null) return unavailable();
+
+  const mapped = precision.subindustryMapped;
+  const match = precision.subindustryMatch;
+
+  // Fail-closed ante un desajuste de cableado: una confirmación sólo cuenta si la
+  // subindustria que confirmó es una de las PEDIDAS. Inerte en producción —el
+  // writer y el runner leen la misma lista— y la única red si algún día dejan de
+  // hacerlo, porque el desenlace inseguro sería contar la confirmación de una
+  // subindustria que el usuario no eligió.
+  const requestedKeys = new Set(requestedSubindustries.map(subindustryLabelKey));
+  const confirmedLabel = precision.matchedRequestedSubindustry ?? precision.requestedSubindustry;
+  if (match === 'confirmed' && !requestedKeys.has(subindustryLabelKey(confirmedLabel))) {
+    return unavailable();
+  }
+
+  const confirmed = mapped && match === 'confirmed';
+  const reportedMatch: SubindustryRequirementMatch = confirmed
+    ? 'confirmed'
+    : match === 'rejected'
+      ? 'rejected'
+      : mapped
+        ? 'ambiguous'
+        : 'unmapped';
+
+  return {
+    subindustryRequirementApplied: true,
+    requestedSubindustries,
+    perRequestedSubindustryEvaluations: precision.perRequestedSubindustryEvaluations,
+    matchedRequestedSubindustry: confirmed ? confirmedLabel : null,
+    matchedSubindustryFamily: confirmed ? precision.subindustryMatchFamily : 'none',
+    subindustryMapped: mapped,
+    subindustryMatch: reportedMatch,
+    subindustryBlockingReason: confirmed
+      ? null
+      : reportedMatch === 'rejected'
+        ? 'subindustry_rejected'
+        : reportedMatch === 'ambiguous'
+          ? 'subindustry_ambiguous'
+          : 'subindustry_not_mapped',
+    // D — sin mapeo, fail-closed sin importar el veredicto.
+    eligibilityVerdict: confirmed ? 'confirmed' : 'not_confirmed',
+  };
+}
+
+/**
+ * Fuente CANÓNICA única de elegibilidad hacia el target, para UN candidato.
+ *
+ * Compone `resolveCandidateSubindustryRequirement` (§ A–E) con
+ * `evaluateCandidateTargetEligibility` (el resto del contrato) para que ningún
+ * consumidor —orchestrator, writer, run_metrics, checkpoint, UI, auditorías—
+ * tenga que reimplementar la composición ni pueda diverger de ella.
+ *
+ * `completeValid` y `countsTowardTarget` son el MISMO booleano con dos nombres:
+ * en este contrato no existe un candidato que cuente hacia el target sin ser
+ * completo y válido, ni al revés. `reviewOnlyReasons` y `blockingReasons`
+ * son, por la misma razón, la MISMA lista: toda condición incumplida es a la
+ * vez el motivo de revisión y el motivo de que no cuente.
+ */
+export type CandidateCanonicalTargetEligibility = {
+  countsTowardTarget: boolean;
+  completeValid: boolean;
+  reviewOnly: boolean;
+  /**
+   * Motivos de revisión en vocabulario ACCIONABLE: idéntico a `failedConditions`
+   * salvo que `subindustry_match` se sustituye por su causa concreta
+   * (`subindustry_ambiguous`, `subindustry_not_mapped`, `subindustry_rejected`,
+   * `subindustry_evaluation_unavailable`).
+   *
+   * Es lo que la ficha muestra (§ 5). `failedConditions` conserva el vocabulario
+   * del contrato porque es el que agregan los contadores.
+   */
+  reviewOnlyReasons: string[];
+  blockingReasons: string[];
+  /**
+   * Condiciones del contrato incumplidas, con el nombre histórico. Presente para
+   * que este tipo siga siendo un `CandidateTargetEligibility` válido —ambos
+   * consumidores existentes (`buildCandidateCompletenessCounters`,
+   * `resolveCandidateStatusForCompleteness`) siguen funcionando sin cambios.
+   */
+  failedConditions: string[];
+  subindustryRequirementApplied: boolean;
+  requestedSubindustries: string[];
+  perRequestedSubindustryEvaluations: RequestedSubindustryEvaluation[];
+  matchedRequestedSubindustry: string | null;
+  matchedSubindustryFamily: SubindustryMatchFamily;
+  subindustryMapped: boolean;
+  subindustryMatch: SubindustryRequirementMatch;
+  subindustryBlockingReason: SubindustryBlockingReason | null;
+};
+
+export function evaluateCandidateSubindustryTargetEligibility(input: {
+  persistenceSuccess: boolean;
+  sectorEvidenceState: string | null | undefined;
+  /** § 3 — lo que la búsqueda PIDIÓ. Ver `resolveCandidateSubindustryRequirement`. */
+  requestedSubindustries?: readonly (string | null | undefined)[] | null;
+  subindustryPrecision: ApolloSubindustryPrecisionAssessment | null;
+  employeeCountStatus: CompanyFieldMappingStatus;
+  linkedinStatus: CompanyFieldMappingStatus;
+  duplicateStatus: string | null;
+  ownershipGate: GateVerdict;
+  qualityGate: GateVerdict;
+}): CandidateCanonicalTargetEligibility {
+  const subindustry = resolveCandidateSubindustryRequirement({
+    sectorEvidenceState: input.sectorEvidenceState,
+    requestedSubindustries: input.requestedSubindustries,
+    subindustryPrecision: input.subindustryPrecision,
+  });
+
+  const base = evaluateCandidateTargetEligibility({
+    persistenceSuccess: input.persistenceSuccess,
+    subindustryMatch: subindustry.eligibilityVerdict,
+    employeeCountStatus: input.employeeCountStatus,
+    linkedinStatus: input.linkedinStatus,
+    duplicateStatus: input.duplicateStatus,
+    ownershipGate: input.ownershipGate,
+    qualityGate: input.qualityGate,
+  });
+
+  const reviewOnlyReasons = base.failedConditions.map((condition) =>
+    condition === 'subindustry_match' && subindustry.subindustryBlockingReason !== null
+      ? subindustry.subindustryBlockingReason
+      : condition,
+  );
+
+  return {
+    countsTowardTarget: base.countsTowardTarget,
+    completeValid: base.countsTowardTarget,
+    reviewOnly: !base.countsTowardTarget,
+    reviewOnlyReasons,
+    blockingReasons: base.failedConditions,
+    failedConditions: base.failedConditions,
+    subindustryRequirementApplied: subindustry.subindustryRequirementApplied,
+    requestedSubindustries: subindustry.requestedSubindustries,
+    perRequestedSubindustryEvaluations: subindustry.perRequestedSubindustryEvaluations,
+    matchedRequestedSubindustry: subindustry.matchedRequestedSubindustry,
+    matchedSubindustryFamily: subindustry.matchedSubindustryFamily,
+    subindustryMapped: subindustry.subindustryMapped,
+    subindustryMatch: subindustry.subindustryMatch,
+    subindustryBlockingReason: subindustry.subindustryBlockingReason,
+  };
 }
 
 // ─── Contadores separados (§ 5 del addendum) ──────────────────────────────────
