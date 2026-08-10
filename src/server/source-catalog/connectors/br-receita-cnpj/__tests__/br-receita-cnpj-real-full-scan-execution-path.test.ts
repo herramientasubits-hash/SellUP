@@ -467,6 +467,83 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
     }
   });
 
+  /**
+   * A PRESENT-but-incomplete cap set is a different failure from an absent one, and it has its own
+   * stage.
+   *
+   * The declaration check above only asks whether `resourceCaps` is an object — which a set missing
+   * `maxRssBytes` still is. Without this test the gap between "declared" and "complete" would be
+   * unguarded, and a run could pass the declarations stage carrying a cap set that authorizes an
+   * unbounded quantity of whatever key was left out.
+   */
+  it('refuses a present but incomplete cap set at the resource_caps stage', async () => {
+    for (const omitted of ['maxRssBytes', 'maxRuntimeMs', 'maxFilesOpened', 'maxOutputRows']) {
+      const caps = { ...brazilReceitaProposedFullScanResourceCaps() } as Record<string, unknown>;
+      delete caps[omitted];
+
+      const { request, bridge } = benchmarkRequest({
+        declarations: completeDeclarations({ resourceCaps: caps }),
+      });
+      const outcome = await runBrazilReceitaRealFullScanResourceBenchmark(request);
+
+      assert.equal(outcome.ok, false);
+      if (outcome.ok) continue;
+      assert.equal(outcome.abortCode, 'resource_caps_incomplete', `${omitted} must be required`);
+      assert.equal(outcome.failedStage, 'resource_caps');
+      assert.ok(outcome.capRejections.length > 0, `${omitted} must produce a cap rejection`);
+      assert.equal(outcome.abortStage, BRAZIL_RECEITA_REAL_FULL_SCAN_ABORT_BEFORE_REAL_FILE_OPEN);
+      assert.deepEqual(bridge.touched, []);
+    }
+  });
+
+  /**
+   * The § 3 handle caps are validated as a RELATION, and the failure is its own stage.
+   *
+   * `maxOpenPartitionFiles = 128` against `maxFilesOpened = 64` is a partition pool allowed to
+   * exhaust the entire descriptor budget on its own, leaving nothing for the source file the join
+   * has to re-read. Each figure alone is a perfectly ordinary integer, which is precisely why the
+   * declarations stage passes it and this stage must not.
+   */
+  it('refuses a partition handle cap above the global one, at its own stage', async () => {
+    const { request, bridge } = benchmarkRequest({
+      declarations: completeDeclarations({ maxOpenPartitionFiles: 128 }),
+    });
+    const outcome = await runBrazilReceitaRealFullScanResourceBenchmark(request);
+
+    assert.equal(outcome.ok, false);
+    if (outcome.ok) return;
+    assert.equal(outcome.abortCode, 'handle_caps_invalid');
+    assert.equal(outcome.failedStage, 'handle_caps');
+    assert.equal(outcome.abortStage, BRAZIL_RECEITA_REAL_FULL_SCAN_ABORT_BEFORE_REAL_FILE_OPEN);
+    assert.deepEqual(bridge.touched, []);
+
+    // Zero and negative caps are INTEGERS, so they satisfy the declarations stage and are refused
+    // here instead: a run that may hold zero descriptors cannot read its own input, so zero is a
+    // typo rather than a tight budget.
+    for (const wrong of [0, -1]) {
+      const broken = benchmarkRequest({
+        declarations: completeDeclarations({ maxOpenPartitionFiles: wrong }),
+      });
+      const refused = await runBrazilReceitaRealFullScanResourceBenchmark(broken.request);
+      assert.equal(refused.ok, false);
+      if (refused.ok) continue;
+      assert.equal(refused.abortCode, 'handle_caps_invalid', `${wrong} must be refused`);
+    }
+
+    // A FRACTIONAL cap is refused one stage earlier, by the declaration shape check. Asserted
+    // explicitly rather than folded in above, because "refused somewhere" is not the claim: each
+    // stage owns a distinct failure, and a test that accepted either code would not notice if one
+    // of the two checks disappeared.
+    const fractional = benchmarkRequest({
+      declarations: completeDeclarations({ maxOpenPartitionFiles: 3.5 }),
+    });
+    const refusedFractional = await runBrazilReceitaRealFullScanResourceBenchmark(fractional.request);
+    assert.equal(refusedFractional.ok, false);
+    if (refusedFractional.ok) return;
+    assert.equal(refusedFractional.abortCode, 'declaration_missing');
+    assert.ok(refusedFractional.missingDeclarations.includes('maxOpenPartitionFiles'));
+  });
+
   it('refuses an unsafe working directory before it even looks at the declarations', async () => {
     const { request, bridge } = benchmarkRequest({
       workingDirectory: { ...SAFE_WORKING_DIRECTORY, currentWorkingDirectory: '/home/operator' },
