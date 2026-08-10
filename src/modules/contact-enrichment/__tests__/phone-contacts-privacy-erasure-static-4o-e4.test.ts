@@ -294,10 +294,22 @@ describe('4O-E4 estático — la suite está cableada en el check obligatorio', 
 
   it('el workflow del check obligatorio ejecuta el script', () => {
     const workflow = read(...WORKFLOW);
+    // Ancla al FINAL de línea a propósito. Sin `$`, el propio comentario del step
+    // —que menciona la variante `…-postgres`— satisfaría la aserción aunque alguien
+    // borrase el `run:`. Sería una guarda midiendo su propia documentación.
     assert.match(
       workflow,
-      new RegExp(`npm run ${SCRIPT.replace(/:/g, ':')}`),
+      new RegExp(`^\\s*run: npm run ${SCRIPT}\\s*$`, 'm'),
       'un test que no se cablea no protege nada',
+    );
+  });
+
+  it('el step del check NO es la variante postgres (depende de un binario)', () => {
+    const workflow = read(...WORKFLOW);
+    assert.equal(
+      new RegExp(`^\\s*run: npm run ${SCRIPT}-postgres\\s*$`, 'm').test(workflow),
+      false,
+      'la suite postgres queda FUERA del check obligatorio',
     );
   });
 
