@@ -20,19 +20,24 @@
  * exclusión de keywords, así que se aplican localmente y siempre antes de
  * cualquier operación pagada.
  *
- * ── FOLLOW-UP registrado (QUERY-QUALITY-2-FIX § 12), NO implementado aquí ──────
+ * ── FOLLOW-UP registrado (QUERY-QUALITY-2-FIX § 12) — CONECTADO ────────────────
  *
- * La base de datos ya tiene `subindustry_search_terms`: 228 términos repartidos
- * sobre las 73 subindustrias del catálogo activo, y hoy SIN ningún consumidor. El
- * seguimiento deberá decidir si sustituye este catálogo TypeScript o si actúa como
- * capa gestionable por encima de él — y, si sustituye, cómo se auditan los términos
- * que gobiernan gasto real.
+ * `subindustry_search_terms` (228 filas, `keyword`/`query_phrase`/`exclusion_term`/
+ * `source_hint` sobre las 73 subindustrias) ya tiene consumidor: el
+ * CATALOG SEARCH TERMS COVERAGE ADDENDUM conecta sus filas `keyword` (107 términos,
+ * 73/73 subindustrias con al menos una) en `apollo-subindustry-catalog-search-terms`
+ * y las combina con ESTE catálogo en `apollo-subindustry-search-coverage`
+ * (`resolveApolloSubindustrySearchCoverage`). NO sustituye este catálogo: sigue
+ * siendo la única fuente de precisión (`positiveTerms`/`contradictoryTerms`) y de
+ * los 2/73 que cuentan hacia el objetivo — el catálogo de la tabla sólo resuelve
+ * DISCOVERY (¿hay algo que buscar?), nunca PRECISION (¿el candidato es de verdad de
+ * esta subindustria?).
  *
- * Este PR NO añade consultas de producción, caché ni migraciones para eso: un
- * catálogo que decide qué se le compra a un proveedor no se conecta de paso. Los
- * 73 nombres viven congelados en
- * `__tests__/fixtures/sellup-subindustry-catalog-names.ts` para que la suite pueda
- * comprobar el emparejamiento contra el catálogo real sin tocar la base.
+ * Los 73 nombres siguen viviendo congelados en
+ * `__tests__/fixtures/sellup-subindustry-catalog-names.ts`, y el snapshot del
+ * addendum se generó con una lectura de SOLO LECTURA contra el mismo catálogo
+ * publicado, sin dejar ninguna consulta en vivo en la ruta de construcción de
+ * queries.
  *
  * Puro: sin env, sin I/O, sin reloj.
  */

@@ -48,6 +48,7 @@ import {
   type ApolloSearchPackBuildResult,
 } from './apollo-search-pack-builder';
 import { resolveApolloSubindustrySearchMapping } from './apollo-subindustry-search-mapping';
+import { resolveApolloSubindustryCatalogSearchTerms } from './apollo-subindustry-catalog-search-terms';
 import {
   apolloKeywordDedupeKey,
   apolloSubindustryCoverageFloor,
@@ -319,12 +320,28 @@ export type ApolloKeywordPriorityStrategy =
 
 /**
  * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 1 — términos de UNA subindustria,
- * mirando las dos fuentes que este módulo conoce, en orden de especificidad.
+ * mirando las fuentes que este módulo conoce, en orden de especificidad.
  *
  * Es el resolvedor que el reparto round-robin inyecta, y también el que define qué
- * significa «esta subindustria es cubrible»: sin términos en ninguna de las dos
- * fuentes no hay nada suyo que enviar, y el § 7 lo trata como un bloqueo antes del
- * gasto en vez de como una omisión silenciosa.
+ * significa «esta subindustria es cubrible»: sin términos en ninguna fuente no hay
+ * nada suyo que enviar, y el § 7 lo trata como un bloqueo antes del gasto en vez de
+ * como una omisión silenciosa.
+ *
+ * CATALOG SEARCH TERMS COVERAGE ADDENDUM § 7 — se añadió un tercer nivel entre el
+ * catálogo especializado y el mapa histórico:
+ *
+ *   1. catálogo especializado (`apollo-subindustry-search-mapping`) — 2/73, el
+ *      mismo que gobierna precisión;
+ *   2. catálogo `subindustry_search_terms` (`apollo-subindustry-catalog-search-terms`)
+ *      — 73/73, sólo discovery, NUNCA implica mapping de precisión;
+ *   3. mapa histórico de keywords libres (`getSubindustryKeywords`) — se conserva
+ *      como respaldo para etiquetas que NO son uno de los 73 nombres canónicos
+ *      (p. ej. `"Educación Corporativa"`, `"LMS"`), que el nuevo catálogo no
+ *      reconoce por diseño (emparejamiento por igualdad exacta, no por alias).
+ *
+ * El orden importa: 1 y 2 comparten el mismo espacio de nombres (los 73 canónicos),
+ * así que una subindustria nunca resuelve por las dos a la vez, y 3 sólo se alcanza
+ * cuando ninguna de las dos reconoce la etiqueta.
  */
 export function resolveApolloSubindustryQueryTerms(
   subindustry: string,
@@ -335,6 +352,14 @@ export function resolveApolloSubindustryQueryTerms(
       canonicalSubindustry: explicit.canonicalSubindustry,
       termSource: 'explicit_catalog',
       terms: explicit.positiveTerms,
+    };
+  }
+  const catalog = resolveApolloSubindustryCatalogSearchTerms(subindustry);
+  if (catalog !== null && catalog.terms.length > 0) {
+    return {
+      canonicalSubindustry: catalog.canonicalSubindustry,
+      termSource: 'catalog_search_terms',
+      terms: catalog.terms,
     };
   }
   const legacy = getSubindustryKeywords(subindustry);

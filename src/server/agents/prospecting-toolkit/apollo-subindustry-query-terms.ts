@@ -97,6 +97,12 @@ export function apolloKeywordDedupeKey(term: string): string {
 export type ApolloSubindustryTermSource =
   /** Catálogo explícito de subindustrias (`apollo-subindustry-search-mapping`). */
   | 'explicit_catalog'
+  /**
+   * `subindustry_search_terms` (`apollo-subindustry-catalog-search-terms`) —
+   * CATALOG SEARCH TERMS COVERAGE ADDENDUM. Cubre las 73 subindustrias del
+   * catálogo activo; NO implica mapping de precisión (sigue en 2/73).
+   */
+  | 'catalog_search_terms'
   /** Mapa histórico de keywords del query mapper. */
   | 'legacy_keyword_map'
   /** Search pack curado que gobernó la consulta de esta subindustria. */
