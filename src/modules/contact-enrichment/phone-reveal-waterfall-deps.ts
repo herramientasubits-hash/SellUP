@@ -32,11 +32,13 @@ import {
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { enrichLushaContactPhonesForFallback } from '@/server/integrations/lusha-phone-fallback-client';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+// Puerta de privacidad COMPARTIDA con el disparo manual de Lusha (4O-E3): una sola
+// implementación de la re-comprobación de supresión + do-not-contact.
 import {
-  evaluateInFlightPhoneSuppression,
-  resolveInFlightSuppressionPersonId,
-} from './phone-reveal-suppression-guard';
-import { readPhoneCacheSuppression } from './phone-cache-store';
+  checkPhoneRevealPrivacyGate,
+  loadPhoneRevealPrivacyGateCandidateRow,
+  PRIVACY_GATE_CANDIDATE_SELECT,
+} from './phone-reveal-privacy-gate';
 import {
   runLushaPhoneFallbackReveal,
   type LushaPhoneFallbackCandidateRecord,
@@ -511,67 +513,22 @@ export async function claimLushaAttempt(runId: string): Promise<boolean> {
 }
 
 // ── Candidato (proyección del waterfall) ───────────────────────
+//
+// 4O-E3: la proyección, su lector y la re-comprobación de privacidad se mudaron a
+// `phone-reveal-privacy-gate.ts` para que el disparo MANUAL de Lusha ejecute
+// exactamente la misma puerta y no una copia con las mismas reglas escritas dos
+// veces. Aquí solo queda la proyección PII-free que consume el core.
+//
+// `WATERFALL_CANDIDATE_SELECT` se conserva como alias porque nombra el contrato de
+// lectura del waterfall en las suites existentes.
 
-/**
- * Proyección para decidir el waterfall. `phone` se lee para saber SI hay teléfono
- * — nunca se devuelve el número al core, solo el booleano `hasPhone`.
- * `apollo_person_id` + `run.account_id` son la clave de la re-comprobación de
- * supresión; `source` / `source_contact_id` deciden la elegibilidad Lusha.
- */
-export const WATERFALL_CANDIDATE_SELECT = `id, source, source_contact_id, phone,
-   email, linkedin_url, phone_reveal_status, apollo_person_id,
-   run:contact_enrichment_runs ( account_id )`;
-
-interface WaterfallCandidateRow {
-  id: string;
-  source: ContactSource | null;
-  sourceContactId: string | null;
-  hasPhone: boolean;
-  phoneRevealStatus: string | null;
-  email: string | null;
-  linkedinUrl: string | null;
-  apolloPersonId: string | null;
-  accountId: string | null;
-}
-
-function mapWaterfallCandidateRow(row: Record<string, unknown>): WaterfallCandidateRow {
-  const runRaw = row.run;
-  const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
-    | { account_id: string | null }
-    | null
-    | undefined;
-  const phone = row.phone as string | null;
-  return {
-    id: row.id as string,
-    source: (row.source as ContactSource | null) ?? null,
-    sourceContactId: (row.source_contact_id as string | null) ?? null,
-    hasPhone: typeof phone === 'string' && phone.trim().length > 0,
-    phoneRevealStatus: (row.phone_reveal_status as string | null) ?? null,
-    email: (row.email as string | null) ?? null,
-    linkedinUrl: (row.linkedin_url as string | null) ?? null,
-    apolloPersonId: (row.apollo_person_id as string | null) ?? null,
-    accountId: run?.account_id ?? null,
-  };
-}
-
-async function loadWaterfallCandidateRow(
-  candidateId: string,
-): Promise<WaterfallCandidateRow | null> {
-  const admin = createSupabaseAdminClient();
-  const { data, error } = await admin
-    .from('contact_enrichment_candidates')
-    .select(WATERFALL_CANDIDATE_SELECT)
-    .eq('id', candidateId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data ? mapWaterfallCandidateRow(data as Record<string, unknown>) : null;
-}
+export const WATERFALL_CANDIDATE_SELECT = PRIVACY_GATE_CANDIDATE_SELECT;
 
 /** Proyección PII-free que consume el core (sin email/linkedin/teléfono). */
 export async function loadCandidateForWaterfall(
   candidateId: string,
 ): Promise<PhoneRevealWaterfallCandidateRecord | null> {
-  const row = await loadWaterfallCandidateRow(candidateId);
+  const row = await loadPhoneRevealPrivacyGateCandidateRow(candidateId);
   if (!row) return null;
   return {
     id: row.id,
@@ -628,89 +585,21 @@ export async function loadLegacyEvidenceForWaterfall(
 // ── Re-comprobación de supresión + do-not-contact ──────────────
 
 /**
- * ¿Hay `do_not_contact` para este candidato? Espejo EXACTO de `isDoNotContact` en
- * phone-reveal-actions.ts: solo es detectable con cuenta + identidad
- * (email/linkedin); sin ellas NO se bloquea por inferencia. Ese es el mismo
- * criterio que ya gobierna el reveal Apollo, así que la pata Lusha no aplica una
- * regla distinta a la que el operador ya aceptó.
- */
-async function isCandidateDoNotContact(row: WaterfallCandidateRow): Promise<boolean> {
-  if (!row.accountId) return false;
-  const email = row.email?.trim().toLowerCase() || null;
-  const linkedin = row.linkedinUrl?.trim().toLowerCase() || null;
-  if (!email && !linkedin) return false;
-
-  const admin = createSupabaseAdminClient();
-  const { data, error } = await admin
-    .from('contacts')
-    .select('id, email, linkedin_url, contact_status')
-    .eq('account_id', row.accountId)
-    .eq('contact_status', 'do_not_contact');
-  if (error) throw new Error(error.message);
-
-  return (data ?? []).some((c) => {
-    const cEmail = typeof c.email === 'string' ? c.email.toLowerCase() : null;
-    const cLinkedin =
-      typeof c.linkedin_url === 'string' ? c.linkedin_url.toLowerCase() : null;
-    return (
-      (email !== null && cEmail === email) ||
-      (linkedin !== null && cLinkedin === linkedin)
-    );
-  });
-}
-
-/**
  * Re-comprueba supresión (tombstone) y do-not-contact INMEDIATAMENTE antes de la
  * pata Lusha. El reveal Apollo pudo empezar horas antes: una DSAR o un
  * `do_not_contact` pueden haberse registrado en el intervalo, y la pata Lusha es
  * una llamada NUEVA a un proveedor NUEVO — hereda la autorización de costo, no el
  * veredicto de privacidad.
  *
- * Fail-closed: cualquier fallo de lectura devuelve `check_unavailable`, que el
- * core traduce en NO llamar a Lusha.
- *
- * `not_evaluable` (sin Apollo person id resoluble o sin cuenta) se trata como
- * `clear`, exactamente la política que ya aplican el START, el webhook y el
- * recovery (FIX 4): sin clave no hay tombstone que emparejar, y no se bloquea por
- * inferencia ni se hace matching difuso por teléfono/email/nombre/LinkedIn.
+ * 4O-E3: la implementación vive en `phone-reveal-privacy-gate.ts` y es LA MISMA que
+ * ejecuta ahora el disparo manual de Lusha. Esta función se conserva como el nombre
+ * con el que el core del waterfall inyecta la dep; delega y no decide nada por su
+ * cuenta, así que los dos caminos no pueden divergir en reglas ni en precedencia.
  */
 export async function checkSuppressionAndDoNotContact(
   candidateId: string,
 ): Promise<PhoneRevealWaterfallSuppressionState> {
-  let row: WaterfallCandidateRow | null;
-  try {
-    row = await loadWaterfallCandidateRow(candidateId);
-  } catch {
-    return 'check_unavailable';
-  }
-  if (!row) return 'check_unavailable';
-
-  try {
-    if (await isCandidateDoNotContact(row)) return 'do_not_contact';
-  } catch {
-    return 'check_unavailable';
-  }
-
-  const suppression = await evaluateInFlightPhoneSuppression({
-    personId: resolveInFlightSuppressionPersonId({
-      candidateApolloPersonId: row.apolloPersonId,
-      candidateSource: row.source,
-      candidateSourceContactId: row.sourceContactId,
-    }),
-    accountId: row.accountId,
-    lookup: readPhoneCacheSuppression,
-  });
-
-  switch (suppression.kind) {
-    case 'blocked_suppressed':
-      return 'blocked_suppressed';
-    case 'check_unavailable':
-      return 'check_unavailable';
-    case 'not_evaluable':
-    case 'allowed':
-    default:
-      return 'clear';
-  }
+  return checkPhoneRevealPrivacyGate(candidateId);
 }
 
 // ── Pata Lusha (fallback existente, en modo waterfall) ─────────
