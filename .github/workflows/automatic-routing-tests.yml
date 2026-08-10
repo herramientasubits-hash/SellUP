@@ -367,3 +367,43 @@ jobs:
       # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
       - name: Run phone suppression terminal policy tests
         run: npm run test:agent2a:phone-suppression-terminal
+
+      # AGENT2A-PHONE-REVEAL-4O-E2 — propagación de la supresión / DSAR a la COLECCIÓN.
+      #
+      # La migración 109 añadió un QUINTO sitio donde vive el teléfono
+      # (`contact_enrichment_candidate_phones`) y la DSAR nunca supo de él: borraba la
+      # caché, el escalar del candidato y los contactos, y dejaba viva la fila
+      # `is_primary` de la colección. Desde ahí las RPC 110/111 hacen exactamente lo
+      # que se construyeron para hacer —leer la colección bajo el lock, elegir el
+      # número vivo y escribirlo en el escalar—, así que el número borrado VUELVE. No
+      # por un fallo del borrado ni del reveal, sino por la costura entre los dos.
+      # Nada de eso rompe una compilación, y la tabla está vacía hoy, así que tampoco
+      # lo delata ningún dato.
+      #
+      # Lo que la suite protege:
+      #   * que el motivo se TRADUZCA entre los dos vocabularios de supresión, que no
+      #     comparten ni un valor: un pass-through fallaría la CHECK de la 109 en el
+      #     100% de las filas y solo en runtime — la misma forma del 23514 que en el
+      #     hilo de Agente 1 perdió «Almacenes La 14»;
+      #   * que el tombstone borre el número Y conserve la `dedupe_key`, que es el
+      #     UNIQUE que impide reinsertarlo: un DELETE desbloquearía el número;
+      #   * que la tabla de PROCEDENCIAS no se toque (no lleva teléfono y es la
+      #     evidencia de que hubo observación), garantizado además por privilegio;
+      #   * que un tombstone NUNCA quede como principal, que el escalar nunca sea un
+      #     número tombstoneado, y que no quede en null habiendo superviviente;
+      #   * que la reelección use el ranking CANÓNICO y no el orden de llegada del
+      #     proveedor;
+      #   * que el escritor viejo del candidato por PostgREST haya DESAPARECIDO: si
+      #     siguiera ahí volvería a poner `phone = null` encima del superviviente que
+      #     la transacción acaba de elegir;
+      #   * que un fallo de la propagación NO se reporte como supresión exitosa;
+      #   * que las RPC 110/111, las migraciones 109/110/111, la política terminal de
+      #     E1, la allowlist de contacts, la pata manual de Lusha y la UI queden
+      #     intactas, y que este paso siga existiendo en el workflow.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real (la
+      # migración solo se lee de disco; la atomicidad se demuestra aparte, contra un
+      # PostgreSQL 17 efímero, en `test:agent2a:phone-suppression-propagation-postgres`,
+      # que queda FUERA del check por depender de un binario que se descarga).
+      - name: Run phone suppression propagation tests
+        run: npm run test:agent2a:phone-suppression-propagation

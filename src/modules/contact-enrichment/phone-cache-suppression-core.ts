@@ -188,7 +188,17 @@ export interface PhoneCacheTombstoneInsertRow {
   suppressed_by: string | null;
 }
 
-/** Borrado del teléfono en un candidato (hard delete del valor). */
+/**
+ * Borrado del teléfono en un candidato (hard delete del valor).
+ *
+ * ⚠️ 4O-E2. Desde este hito el patch NO se envía por PostgREST: la escritura del
+ * escalar, de la metadata y de los tombstones de la colección canónica ocurre en UNA
+ * transacción (`suppress_candidate_phone_collection`, migración 112), porque un
+ * segundo escritor por PostgREST volvería a poner `phone = null` DESPUÉS de que la
+ * transacción hubiera elegido un superviviente. El patch sigue siendo el CONTRATO
+ * declarado y probado de lo que esa transacción escribe —los mismos tres campos, con
+ * los mismos valores— y una prueba comprueba que el SQL y esta forma no se separan.
+ */
 export interface CandidatePhoneSuppressionPatch {
   phone: null;
   enrichment_metadata: ContactCandidateEnrichmentMetadata;
@@ -514,6 +524,16 @@ export interface SuppressPhoneCacheEntryInput {
 export type PhoneCacheSuppressionFailureCode =
   | 'cache_tombstone_failed'
   | 'candidate_clear_failed'
+  /**
+   * La propagación a `contact_enrichment_candidate_phones` no se completó
+   * (AGENT2A-PHONE-REVEAL-4O-E2). Código PROPIO y no reutilizado: desde este hito
+   * el escalar del candidato y la colección se escriben en la MISMA transacción, así
+   * que un fallo aquí significa que ninguna de las dos cosas ocurrió — y sobre todo
+   * que puede quedar un número vivo en la colección que las RPC 110/111 volverían a
+   * elegir. Confundirlo con un fallo genérico del candidato ocultaría exactamente el
+   * riesgo que este hito existe para cerrar.
+   */
+  | 'candidate_phone_collection_failed'
   | 'contact_clear_failed'
   | 'audit_write_failed';
 
@@ -527,6 +547,12 @@ export interface SuppressPhoneCacheEntryResult {
   /** true cuando NO existía fila y se insertó un tombstone nuevo (FIX B2). */
   tombstoneCreated: boolean;
   candidatesCleared: number;
+  /**
+   * Filas de `contact_enrichment_candidate_phones` que la propagación convirtió en
+   * tombstone (4O-E2). Conteo REAL devuelto por la transacción, nunca la longitud
+   * del plan.
+   */
+  candidatePhoneRowsSuppressed: number;
   contactsCleared: number;
   /** true solo cuando la auditoría durable quedó escrita (FIX H3). */
   auditPersisted: boolean;
@@ -551,6 +577,13 @@ export interface PhoneCacheSuppressionAuditRow {
   candidates_cleared: number;
   contacts_cleared: number;
   cache_rows_suppressed: number;
+  /**
+   * Filas de la colección canónica convertidas en tombstone (4O-E2). Columna TIPADA
+   * de la migración 112 y no una clave dentro de `metadata`: los otros tres conteos
+   * son columnas con su propia CHECK `>= 0`, y esconder el cuarto en un jsonb libre
+   * lo convertiría en el único que nadie puede restringir ni consultar igual.
+   */
+  candidate_phone_rows_suppressed: number;
   tombstone_created: boolean;
   metadata: {
     action: typeof PHONE_CACHE_SUPPRESSION_AUDIT_ACTION;
@@ -558,6 +591,13 @@ export interface PhoneCacheSuppressionAuditRow {
     tombstone: true;
     reuse_scope: typeof PHONE_CACHE_REUSE_SCOPE;
     contact_link_strengths: string[];
+    /**
+     * Agregados de la reelección del principal (4O-E2). PII-free por construcción:
+     * un conteo y una bandera. NO se registra ninguna `dedupe_key`, ni el número, ni
+     * qué candidato concreto cambió de principal.
+     */
+    candidate_phone_survivor_count: number;
+    candidate_phone_primary_changed: boolean;
   };
 }
 
@@ -570,6 +610,12 @@ export function buildPhoneCacheSuppressionAuditRow(args: {
   tombstoneCreated: boolean;
   /** Candidatos realmente actualizados. */
   candidatesCleared: number;
+  /** Filas de la colección canónica realmente tombstoneadas (4O-E2). */
+  candidatePhoneRowsSuppressed: number;
+  /** Números vivos y elegibles que quedaron tras la propagación (4O-E2). */
+  candidatePhoneSurvivorCount: number;
+  /** true si alguna propagación cambió el principal del candidato (4O-E2). */
+  candidatePhonePrimaryChanged: boolean;
   /** Contactos realmente actualizados. */
   contactsCleared: number;
 }): PhoneCacheSuppressionAuditRow {
@@ -583,6 +629,7 @@ export function buildPhoneCacheSuppressionAuditRow(args: {
     candidates_cleared: args.candidatesCleared,
     contacts_cleared: args.contactsCleared,
     cache_rows_suppressed: args.cacheRowsSuppressed,
+    candidate_phone_rows_suppressed: args.candidatePhoneRowsSuppressed,
     tombstone_created: args.tombstoneCreated,
     metadata: {
       action: PHONE_CACHE_SUPPRESSION_AUDIT_ACTION,
@@ -594,6 +641,8 @@ export function buildPhoneCacheSuppressionAuditRow(args: {
       contact_link_strengths: [
         ...new Set(args.plan.contactPatches.map((c) => c.linkStrength)),
       ].sort(),
+      candidate_phone_survivor_count: args.candidatePhoneSurvivorCount,
+      candidate_phone_primary_changed: args.candidatePhonePrimaryChanged,
     },
   };
 }

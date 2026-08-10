@@ -696,6 +696,11 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
       tombstoneCreated: true,
       // Conteos REALES (lo que la DB reportó), no las longitudes del plan.
       candidatesCleared: 2,
+      // 4O-E2: filas de la colección canónica realmente tombstoneadas, y los
+      // agregados PII-free de la reelección del principal.
+      candidatePhoneRowsSuppressed: 3,
+      candidatePhoneSurvivorCount: 0,
+      candidatePhonePrimaryChanged: true,
       contactsCleared: 1,
     });
     assert.equal(row.provider, 'apollo');
@@ -706,6 +711,11 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
     assert.equal(row.cache_rows_suppressed, 1);
     assert.equal(row.tombstone_created, true);
     assert.equal(row.candidates_cleared, 2);
+    // 4O-E2: el conteo de la colección es una COLUMNA tipada, no una clave dentro
+    // de `metadata`, igual que los otros tres.
+    assert.equal(row.candidate_phone_rows_suppressed, 3);
+    assert.equal(row.metadata.candidate_phone_survivor_count, 0);
+    assert.equal(row.metadata.candidate_phone_primary_changed, true);
     // El plan tenía 2 contactos pero la DB solo actualizó 1: manda la realidad.
     assert.equal(row.contacts_cleared, 1);
     assert.equal(row.metadata.hard_delete, true);
@@ -722,6 +732,9 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
       cacheRowsSuppressed: 1,
       tombstoneCreated: false,
       candidatesCleared: 2,
+      candidatePhoneRowsSuppressed: 2,
+      candidatePhoneSurvivorCount: 0,
+      candidatePhonePrimaryChanged: true,
       contactsCleared: 2,
     });
     const serialized = JSON.stringify(row);
@@ -743,6 +756,9 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
       cacheRowsSuppressed: 1,
       tombstoneCreated: false,
       candidatesCleared: 2,
+      candidatePhoneRowsSuppressed: 2,
+      candidatePhoneSurvivorCount: 0,
+      candidatePhonePrimaryChanged: true,
       contactsCleared: 2,
     });
     // En v1 la única fuerza que puede aparecer es `provenance_proven`: nada más
