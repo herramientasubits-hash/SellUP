@@ -1270,6 +1270,28 @@ export async function writeProspectingCandidates(
     return typeof raw === 'string' ? raw : null;
   })();
 
+  /**
+   * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 3 — subindustrias que la
+   * búsqueda PIDIÓ, leídas del request y no de lo que el proveedor alcanzó a
+   * evaluar.
+   *
+   * Es la entrada que permite distinguir «no se pidió subindustria» (la búsqueda
+   * sectorial de siempre, que no cambia) de «se pidió y nadie la evaluó» (Tavily,
+   * la ruta legacy, o un capture de Apollo sin `precision`). Sin ella el segundo
+   * caso caía a `sectorEvidenceState` —el veredicto de INDUSTRIA— y contaba hacia
+   * el objetivo sin una sola señal de la subindustria pedida.
+   *
+   * `pipelineOutput.input.subindustries` manda porque es lo que el pipeline
+   * ejecutó; `extraBatchMetadata.subindustries` es el respaldo para las rutas que
+   * sólo inyectan el contexto del wizard.
+   */
+  const requestedSubindustriesForTarget = (() => {
+    const fromPipeline = (pipelineOutput.input as { subindustries?: unknown } | null)
+      ?.subindustries;
+    if (Array.isArray(fromPipeline) && fromPipeline.length > 0) return fromPipeline as string[];
+    return batchSubindustries;
+  })();
+
   // Evidence persistence policy gate tracking (Hito v1.5)
   type EvidencePolicySample = { name: string; reason: string; url: string | null };
   const evidencePolicyGateData = {
@@ -2420,9 +2442,13 @@ export async function writeProspectingCandidates(
     // veredicto de relevancia sectorial/de INDUSTRIA, subindustria-ciego para
     // toda subindustria sin catálogo de anclas propio, y leerlo como si
     // demostrara la subindustria pedida es el defecto que este cambio cierra.
-    const targetEligibility: CandidateTargetEligibility = evaluateCandidateSubindustryTargetEligibility({
+    const targetEligibility = evaluateCandidateSubindustryTargetEligibility({
       persistenceSuccess: true,
       sectorEvidenceState: candidate.sectorEvidenceState,
+      // § 3 — lo que se PIDIÓ. Con esto, una búsqueda con subindustria cuya
+      // precisión no llegó queda fail-closed en vez de heredar el veredicto de
+      // industria.
+      requestedSubindustries: requestedSubindustriesForTarget,
       subindustryPrecision: candidate.providerEnrichmentCapture?.precision ?? null,
       employeeCountStatus: providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
       linkedinStatus: providerCompanyFields?.linkedin.status ?? 'mapping_failed',
@@ -2560,6 +2586,14 @@ export async function writeProspectingCandidates(
                 subindustry_requirement_applied: targetEligibility.subindustryRequirementApplied,
                 subindustry_mapped: targetEligibility.subindustryMapped,
                 subindustry_match: targetEligibility.subindustryMatch,
+                // § 5 — la causa CONCRETA, para que la ficha no tenga que
+                // deducirla y no pueda mostrar «ambigua» sobre una rechazada.
+                subindustry_blocking_reason: targetEligibility.subindustryBlockingReason,
+                // § 2 — las subindustrias pedidas y cuál confirmó. Sin esto,
+                // auditar una corrida de cinco selecciones exigía reevaluar.
+                requested_subindustries: targetEligibility.requestedSubindustries,
+                matched_requested_subindustry: targetEligibility.matchedRequestedSubindustry,
+                matched_subindustry_family: targetEligibility.matchedSubindustryFamily,
               },
             }
           : {}),

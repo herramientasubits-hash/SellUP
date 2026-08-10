@@ -95,9 +95,41 @@ export type SubindustryMatchFamily =
   | 'footwear'
   | 'none';
 
+/**
+ * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 2 — veredicto de UNA de las
+ * subindustrias pedidas, conservado aparte del veredicto agregado.
+ *
+ * Sin esto, saber POR QUÉ un candidato quedó ambiguo cuando el usuario pidió
+ * cinco subindustrias exigiría reevaluar: el agregado sólo dice el desenlace, no
+ * qué selección lo produjo.
+ */
+export type RequestedSubindustryEvaluation = {
+  requestedSubindustry: string;
+  subindustryMapped: boolean;
+  subindustryMatch: SubindustryMatchVerdict;
+  subindustryMatchFamily: SubindustryMatchFamily;
+  subindustryConfidence: number;
+  verdictReason: SubindustryVerdictReason;
+};
+
 export type ApolloSubindustryPrecisionAssessment = {
-  /** Subindustria tal como se pidió. `null` cuando la búsqueda no declaró una. */
+  /**
+   * Subindustria cuyo veredicto GANÓ el ANY-OF (§ 2). `null` cuando la búsqueda
+   * no declaró ninguna.
+   *
+   * Con una sola subindustria pedida es esa misma, y el campo conserva
+   * exactamente el significado que tenía antes del § 2.
+   */
   requestedSubindustry: string | null;
+  /** § 2 — TODAS las subindustrias pedidas, en el orden en que se pidieron. */
+  requestedSubindustries: string[];
+  /** § 2 — veredicto individual de cada subindustria pedida. Ninguna se descarta. */
+  perRequestedSubindustryEvaluations: RequestedSubindustryEvaluation[];
+  /**
+   * § 2 — la subindustria pedida que produjo la CONFIRMACIÓN. `null` cuando
+   * ninguna confirmó: una selección ambigua no «casi» confirma.
+   */
+  matchedRequestedSubindustry: string | null;
   /** La subindustria pedida tiene catálogo de anclas propio. */
   subindustryMapped: boolean;
   industryMatch: IndustryMatchVerdict;
@@ -221,21 +253,37 @@ const SUBINDUSTRY_ANCHOR_TERMS: Record<string, string[]> = {
  * su catálogo menciona los mismos productos y con frecuencia la misma palabra
  * `grocery`. Es el caso B del § 3 y su veredicto es `rejected`.
  */
+/**
+ * § 1 — nota sobre los PLURALES de las listas que RECHAZAN.
+ *
+ * Con el matcher por substring, `food distributor` casaba dentro de «food
+ * distributors» de regalo. Con el matcher por token ya no, y perder una
+ * coincidencia aquí no es un detalle de estilo: debilitaría un RECHAZO, que es
+ * la dirección insegura. Por eso las formas plurales e inflexionadas se declaran
+ * explícitas, igual que el módulo ya hacía con `supermercado`/`supermercados`,
+ * en vez de reintroducir coincidencia difusa por sufijos —que volvería a hacer
+ * casar `moda` dentro de `modas`… y de cualquier otra cosa que empiece igual.
+ */
 const SUBINDUSTRY_EXCLUSIVE_BUSINESS_MODEL_TERMS: Record<string, string[]> = {
   'supermercados e hipermercados': [
     'wholesale distributor',
+    'wholesale distributors',
     'wholesale distribution',
     'food distributor',
+    'food distributors',
     'food distribution',
     'foodservice distribution',
     'distribuidor mayorista',
+    'distribuidores mayoristas',
     'distribucion mayorista',
     'distribuidor de alimentos',
+    'distribuidores de alimentos',
     'distribucion de alimentos',
     'venta al por mayor',
     'b2b marketplace',
     'restaurant supply',
     'proveedor de restaurantes',
+    'proveedores de restaurantes',
   ],
 };
 
@@ -251,15 +299,18 @@ const SUBINDUSTRY_CONFLICTING_BUSINESS_MODEL_TERMS: Record<string, string[]> = {
   'supermercados e hipermercados': [
     'grocery delivery',
     'delivery app',
+    'delivery apps',
     'on-demand delivery',
     'domicilios',
     'aplicacion de domicilios',
     'marketplace',
+    'marketplaces',
     'ecommerce platform',
     'e-commerce platform',
     'quick commerce',
     'q-commerce',
     'dark store',
+    'dark stores',
     'last mile delivery',
   ],
 };
@@ -291,18 +342,27 @@ const SUBINDUSTRY_BROAD_INDUSTRY_TERMS: Record<string, string[]> = {
   // no debe, por sí solo, demostrar ninguna de las tres familias.
   'tiendas por departamento, moda y calzado': [
     'retail',
+    'retailer',
+    'retailers',
     'consumer goods',
     'comercio',
     'marketplace',
+    'marketplaces',
     'supermarket',
     'grocery',
     'food',
     'beverage',
+    'beverages',
     'manufacturer',
+    'manufacturers',
     'distributor',
+    'distributors',
     'wholesale',
     'shopping',
+    // § 1 — con matcher por token, `almacen` ya NO cubre «Almacenes La 14»: el
+    // plural se declara aparte. Ambos siguen siendo AMPLIOS a propósito (§ 5).
     'almacen',
+    'almacenes',
   ],
 };
 
@@ -338,6 +398,7 @@ const SUBINDUSTRY_CONTRADICTORY_INDUSTRY_TERMS: Record<string, string[]> = {
     'food production',
     'food manufacturing',
     'fabricante de alimentos',
+    'fabricantes de alimentos',
     'food and beverage manufacturing',
     'beverage manufacturing',
     'agriculture',
@@ -449,6 +510,91 @@ function normalize(value: string): string {
     .trim();
 }
 
+// ─── Matching seguro de términos ──────────────────────────────────────────────
+
+/**
+ * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 1 — un término del catálogo
+ * coincide como PALABRA completa o como SECUENCIA COMPLETA de palabras, nunca
+ * como substring dentro de otra palabra.
+ *
+ * El defecto que cierra: `text.includes(term)`. Con `moda` y `fashion` como
+ * anclas de la familia `fashion_apparel`, estas cinco cadenas quedaban
+ * `confirmed` —y por tanto contaban hacia el objetivo— sin una sola señal de la
+ * subindustria pedida:
+ *
+ *   «venta de cómodas y camas»      `moda` dentro de `cómodas`
+ *   «servicios de acomodación»      `moda` dentro de `acomodación`
+ *   «empresa acomodada»             `moda` dentro de `acomodada`
+ *   «experiencia incómoda»          `moda` dentro de `incómoda`
+ *   «Accommodation services»        `moda` dentro de `Accommodation`
+ *
+ * No se usa `\b` de JavaScript: sobre texto Unicode, `\b` considera frontera de
+ * palabra el paso de un carácter de palabra ASCII a uno acentuado, así que
+ * `/\bmoda\b/u` sigue casando dentro de «acomodación». La tokenización explícita
+ * con `\p{L}`/`\p{N}` no tiene esa ambigüedad, y `normalize` ya quitó las tildes
+ * y colapsó los espacios antes de llegar aquí.
+ */
+const TOKEN_PATTERN = /[\p{L}\p{N}]+/gu;
+
+function tokenize(normalizedText: string): readonly string[] {
+  return normalizedText.match(TOKEN_PATTERN) ?? [];
+}
+
+/**
+ * Tokens de un término del catálogo, memorizados: los catálogos son estáticos y
+ * cada término se comprueba contra muchos textos por candidato.
+ */
+const termTokenCache = new Map<string, readonly string[]>();
+
+function termTokens(term: string): readonly string[] {
+  const cached = termTokenCache.get(term);
+  if (cached !== undefined) return cached;
+  const tokens = tokenize(normalize(term));
+  termTokenCache.set(term, tokens);
+  return tokens;
+}
+
+/**
+ * `true` cuando `sequence` aparece como subsecuencia CONTIGUA de `textTokens`.
+ *
+ * Una secuencia vacía nunca coincide: un término del catálogo compuesto sólo de
+ * puntuación no puede confirmar a nadie.
+ */
+function tokensContainSequence(
+  textTokens: readonly string[],
+  sequence: readonly string[],
+): boolean {
+  if (sequence.length === 0 || sequence.length > textTokens.length) return false;
+  for (let start = 0; start <= textTokens.length - sequence.length; start += 1) {
+    let matched = true;
+    for (let offset = 0; offset < sequence.length; offset += 1) {
+      if (textTokens[start + offset] !== sequence[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return true;
+  }
+  return false;
+}
+
+/**
+ * Coincidencia segura de UN término del catálogo contra UN texto ya normalizado.
+ *
+ * Exportada para que las pruebas puedan ejercitar el matcher directamente, sin
+ * tener que construir un candidato completo para cada cadena adversarial.
+ */
+export function matchesCatalogTerm(normalizedText: string, term: string): boolean {
+  return tokensContainSequence(tokenize(normalizedText), termTokens(term));
+}
+
+/** Coincidencia segura contra una lista de textos ya normalizados. */
+function someTextMatches(normalizedTexts: readonly string[], term: string): boolean {
+  const sequence = termTokens(term);
+  if (sequence.length === 0) return false;
+  return normalizedTexts.some((text) => tokensContainSequence(tokenize(text), sequence));
+}
+
 function readPath(meta: Record<string, unknown>, path: readonly string[]): unknown {
   let current: unknown = meta;
   for (const segment of path) {
@@ -505,7 +651,8 @@ function collectAnchorEvidence(
     const texts = toNormalizedTexts(readPath(meta, descriptor.path));
     if (texts.length === 0) continue;
     for (const anchor of anchors) {
-      if (!texts.some((text) => text.includes(anchor))) continue;
+      // § 1 — palabra o frase completa, nunca substring. Ver `matchesCatalogTerm`.
+      if (!someTextMatches(texts, anchor)) continue;
       const dedupeKey = `${descriptor.field}|${anchor}`;
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
@@ -522,6 +669,11 @@ function collectAnchorEvidence(
  * Sólo cuenta cuando el ancla aparece como palabra del nombre: «Supermercados
  * X» es inequívoco, «Supermundo» no contiene la operación aunque contenga las
  * letras. Por eso se comprueba con límites de palabra y no por substring.
+ *
+ * § 1 — el ancla de VARIAS palabras usa el mismo matcher por secuencia de
+ * tokens que el resto del módulo. Antes caía a `normalized.includes(anchor)`, la
+ * misma comparación por substring que dejaba pasar «Comodas del Norte» para el
+ * ancla compuesta equivalente.
  */
 function collectCommercialNameEvidence(
   title: unknown,
@@ -530,12 +682,9 @@ function collectCommercialNameEvidence(
   if (typeof title !== 'string') return [];
   const normalized = normalize(title);
   if (normalized === '') return [];
-  const words = new Set(normalized.split(' '));
 
   return anchors
-    .filter((anchor) =>
-      anchor.includes(' ') ? normalized.includes(anchor) : words.has(anchor),
-    )
+    .filter((anchor) => matchesCatalogTerm(normalized, anchor))
     .map((anchor) => ({
       term: anchor,
       field: 'title',
@@ -552,10 +701,17 @@ function collectBusinessModelSignals(
     toNormalizedTexts(readPath(meta, descriptor.path)),
   );
   if (haystack.length === 0) return [];
-  return terms.filter((term) => haystack.some((text) => text.includes(term)));
+  return terms.filter((term) => someTextMatches(haystack, term));
 }
 
-/** Clasifica la INDUSTRIA declarada. Lo contradictorio se comprueba primero. */
+/**
+ * Clasifica la INDUSTRIA declarada. Lo contradictorio se comprueba primero.
+ *
+ * § 1 — el campo `industry` usa el MISMO matcher seguro que el resto de los
+ * campos clasificadores. Era el que más daño hacía por substring: una industria
+ * declarada «Accommodation and Food Services» activaba el ancla `moda` y
+ * devolvía `confirmed` para «Tiendas por Departamento, Moda y Calzado».
+ */
 function classifyDeclaredIndustry(
   meta: Record<string, unknown>,
   key: string,
@@ -566,17 +722,17 @@ function classifyDeclaredIndustry(
   if (declared.length === 0) return 'unknown';
 
   const contradictory = SUBINDUSTRY_CONTRADICTORY_INDUSTRY_TERMS[key] ?? [];
-  if (contradictory.some((term) => declared.some((industry) => industry.includes(term)))) {
+  if (contradictory.some((term) => someTextMatches(declared, term))) {
     return 'contradictory';
   }
 
   const anchors = SUBINDUSTRY_ANCHOR_TERMS[key] ?? [];
-  if (anchors.some((anchor) => declared.some((industry) => industry.includes(anchor)))) {
+  if (anchors.some((anchor) => someTextMatches(declared, anchor))) {
     return 'confirmed';
   }
 
   const broad = SUBINDUSTRY_BROAD_INDUSTRY_TERMS[key] ?? [];
-  if (broad.some((term) => declared.some((industry) => industry.includes(term)))) {
+  if (broad.some((term) => someTextMatches(declared, term))) {
     return 'broad_compatible';
   }
 
@@ -621,6 +777,9 @@ function assessment(
 ): ApolloSubindustryPrecisionAssessment {
   return {
     requestedSubindustry: null,
+    requestedSubindustries: [],
+    perRequestedSubindustryEvaluations: [],
+    matchedRequestedSubindustry: null,
     subindustryMapped: false,
     industryMatch: 'unknown',
     subindustryMatchFamily: 'none',
@@ -652,18 +811,17 @@ function resolveFamilyForEvidence(
 }
 
 /**
- * Evalúa la precisión de subindustria de un candidato ya normalizado.
+ * Núcleo: evalúa UNA subindustria pedida contra la evidencia del candidato.
  *
- * Sin subindustria pedida, o con una que no tiene catálogo de anclas, el
- * resultado es `ambiguous` con `subindustryMapped: false`. Es deliberado y es
- * fail-closed hacia el OBJETIVO —una subindustria sin política no confirma a
- * nadie— sin ser fail-closed hacia el gasto: el consumidor sigue pudiendo tratar
- * `subindustryMapped: false` como «esta búsqueda no pide precisión de
- * subindustria» y regirse por el gate sectorial de siempre.
+ * Privado a propósito. El único camino público es el evaluador ANY-OF del § 2,
+ * para que no exista un consumidor capaz de mirar una sola de las cinco
+ * selecciones posibles del usuario sin darse cuenta.
  *
- * Puro.
+ * Los campos del § 2 (`requestedSubindustries`,
+ * `perRequestedSubindustryEvaluations`, `matchedRequestedSubindustry`) los
+ * rellena el ANY-OF: aquí quedan en su valor por defecto.
  */
-export function assessApolloSubindustryPrecision(
+function assessSingleRequestedSubindustry(
   result: WebSearchResult,
   subindustry: string | null | undefined,
 ): ApolloSubindustryPrecisionAssessment {
@@ -769,6 +927,145 @@ export function assessApolloSubindustryPrecision(
   });
 }
 
+// ─── § 2 · ANY-OF sobre las subindustrias pedidas ─────────────────────────────
+//
+// El defecto que cierra: el wizard permite hasta CINCO subindustrias y la
+// búsqueda Apollo las consulta con semántica ANY-OF, pero la precisión sólo
+// evaluaba `subindustries[0]`. Una empresa que demostraba la segunda, tercera,
+// cuarta o quinta selección del usuario quedaba `ambiguous` —y fuera del
+// objetivo— por una evidencia que nadie había mirado.
+
+/**
+ * Precedencia del ANY-OF: una confirmación gana a cualquier duda, y una duda
+ * gana a un rechazo.
+ *
+ * `rejected` es el más débil a propósito: con semántica ANY-OF, que una de las
+ * subindustrias pedidas quede descartada no dice nada sobre las demás. Sólo
+ * cuando TODAS quedan rechazadas el candidato queda rechazado.
+ */
+const VERDICT_PRECEDENCE: Record<SubindustryMatchVerdict, number> = {
+  confirmed: 3,
+  ambiguous: 2,
+  rejected: 1,
+};
+
+/**
+ * Puntúa un veredicto para elegir el ganador del ANY-OF.
+ *
+ * El desempate por `subindustryMapped` sólo actúa entre dudas: ante
+ * `[mapeada ambigua, sin mapeo]` gana la MAPEADA, porque su ambigüedad es un
+ * hecho medido —hay catálogo y la evidencia no alcanzó— mientras «sin mapeo»
+ * sólo dice que SellUp aún no sabe evaluarla. Reportar la segunda escondería que
+ * la primera sí se evaluó.
+ */
+function verdictScore(assessment: ApolloSubindustryPrecisionAssessment): number {
+  return VERDICT_PRECEDENCE[assessment.subindustryMatch] * 10 + (assessment.subindustryMapped ? 1 : 0);
+}
+
+/**
+ * Etiquetas pedidas, saneadas: sin vacías, sin duplicados y en el orden pedido.
+ *
+ * La deduplicación compara en forma normalizada pero CONSERVA la etiqueta
+ * original: es la que el usuario eligió y la que la ficha muestra.
+ */
+function normalizeRequestedSubindustries(
+  requested: readonly (string | null | undefined)[] | null | undefined,
+): string[] {
+  if (!Array.isArray(requested)) return [];
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const entry of requested) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (trimmed === '') continue;
+    const key = normalize(trimmed);
+    if (key === '' || seen.has(key)) continue;
+    seen.add(key);
+    labels.push(trimmed);
+  }
+  return labels;
+}
+
+/**
+ * Evalúa la precisión de subindustria con semántica ANY-OF sobre TODAS las
+ * subindustrias que la búsqueda pidió.
+ *
+ * Contrato (§ 2):
+ *
+ *   cualquiera confirmada            ⇒ `confirmed`; puede contar si el resto del
+ *                                      contrato de completitud también pasa.
+ *   ninguna confirmada, alguna duda  ⇒ `ambiguous` (o sin mapeo); NO cuenta.
+ *   todas rechazadas                 ⇒ `rejected`; no se persiste.
+ *   una rechazada y otra confirmada  ⇒ `confirmed` (gana el ANY-OF).
+ *   una mapeada confirmada y otra
+ *   sin mapeo                        ⇒ `confirmed`.
+ *
+ * Sin subindustrias pedidas el resultado es idéntico al de antes de este § —las
+ * búsquedas SIN subindustria no cambian de comportamiento en ningún punto.
+ *
+ * Puro.
+ */
+export function assessApolloSubindustryPrecisionForRequest(
+  result: WebSearchResult,
+  requestedSubindustries: readonly (string | null | undefined)[] | null | undefined,
+): ApolloSubindustryPrecisionAssessment {
+  const requested = normalizeRequestedSubindustries(requestedSubindustries);
+
+  if (requested.length === 0) {
+    return assessSingleRequestedSubindustry(result, null);
+  }
+
+  const evaluated = requested.map((label) => ({
+    label,
+    assessment: assessSingleRequestedSubindustry(result, label),
+  }));
+
+  // Estable: sólo una puntuación ESTRICTAMENTE mayor desplaza al ganador, así
+  // que ante empate manda el orden en que el usuario pidió las subindustrias.
+  let winner = evaluated[0];
+  for (const candidate of evaluated.slice(1)) {
+    if (verdictScore(candidate.assessment) > verdictScore(winner.assessment)) winner = candidate;
+  }
+
+  return {
+    ...winner.assessment,
+    requestedSubindustries: requested,
+    perRequestedSubindustryEvaluations: evaluated.map(({ label, assessment }) => ({
+      requestedSubindustry: label,
+      subindustryMapped: assessment.subindustryMapped,
+      subindustryMatch: assessment.subindustryMatch,
+      subindustryMatchFamily: assessment.subindustryMatchFamily,
+      subindustryConfidence: assessment.subindustryConfidence,
+      verdictReason: assessment.verdictReason,
+    })),
+    matchedRequestedSubindustry:
+      winner.assessment.subindustryMatch === 'confirmed' ? winner.label : null,
+  };
+}
+
+/**
+ * Evalúa la precisión de subindustria de un candidato ya normalizado.
+ *
+ * Firma histórica de UNA subindustria, conservada porque es la que usan las
+ * suites y los consumidores que sólo tienen una. Delega en el evaluador ANY-OF,
+ * así que no existe una segunda implementación de la regla que pueda diverger.
+ *
+ * Sin subindustria pedida, o con una que no tiene catálogo de anclas, el
+ * resultado es `ambiguous` con `subindustryMapped: false`. Es deliberado y es
+ * fail-closed hacia el OBJETIVO —una subindustria sin política no confirma a
+ * nadie— sin ser fail-closed hacia el gasto: el consumidor sigue pudiendo tratar
+ * `subindustryMapped: false` como «esta búsqueda no pide precisión de
+ * subindustria» y regirse por el gate sectorial de siempre.
+ *
+ * Puro.
+ */
+export function assessApolloSubindustryPrecision(
+  result: WebSearchResult,
+  subindustry: string | null | undefined,
+): ApolloSubindustryPrecisionAssessment {
+  return assessApolloSubindustryPrecisionForRequest(result, [subindustry]);
+}
+
 // ─── Proyección a metadata ────────────────────────────────────────────────────
 
 /** Clave bajo la que la precisión de subindustria aterriza en el metadata. */
@@ -777,11 +1074,34 @@ export const APOLLO_SUBINDUSTRY_PRECISION_METADATA_KEY = 'subindustry_precision'
 /** Máximo de piezas de evidencia que viajan a metadata. */
 const MAX_PERSISTED_EVIDENCE = 8;
 
+/**
+ * Máximo de evaluaciones por subindustria que viajan a metadata.
+ *
+ * El wizard permite cinco; el techo es 8 para que una ampliación del wizard no
+ * truncase en silencio antes de que nadie lo note. Si alguna vez se supera, el
+ * conteo real sigue disponible en `requested_subindustries`, que NO se recorta.
+ */
+const MAX_PERSISTED_REQUESTED_EVALUATIONS = 8;
+
 export function toApolloSubindustryPrecisionMetadata(
   input: ApolloSubindustryPrecisionAssessment,
 ): Record<string, unknown> {
   return {
     requested_subindustry: input.requestedSubindustry,
+    // § 2 — las CINCO selecciones posibles, no sólo la que ganó el ANY-OF.
+    requested_subindustries: input.requestedSubindustries,
+    matched_requested_subindustry: input.matchedRequestedSubindustry,
+    matched_subindustry_family: input.subindustryMatchFamily,
+    per_requested_subindustry_evaluations: input.perRequestedSubindustryEvaluations
+      .slice(0, MAX_PERSISTED_REQUESTED_EVALUATIONS)
+      .map((item) => ({
+        requested_subindustry: item.requestedSubindustry,
+        subindustry_mapped: item.subindustryMapped,
+        subindustry_match: item.subindustryMatch,
+        subindustry_match_family: item.subindustryMatchFamily,
+        subindustry_confidence: item.subindustryConfidence,
+        verdict_reason: item.verdictReason,
+      })),
     subindustry_mapped: input.subindustryMapped,
     industry_match: input.industryMatch,
     subindustry_match: input.subindustryMatch,

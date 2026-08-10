@@ -51,6 +51,21 @@ import type { WebSearchResult } from '../types';
 /** Veredicto de precisión de `la14.com`: ancla limpia en la industria declarada. */
 const LA_14_PRECISION: ApolloSubindustryPrecisionAssessment = {
   requestedSubindustry: 'Supermercados e Hipermercados',
+  // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 2 — la corrida real pidió
+  // UNA subindustria, así que el ANY-OF la evalúa sola y ella misma es la que
+  // confirma.
+  requestedSubindustries: ['Supermercados e Hipermercados'],
+  perRequestedSubindustryEvaluations: [
+    {
+      requestedSubindustry: 'Supermercados e Hipermercados',
+      subindustryMapped: true,
+      subindustryMatch: 'confirmed',
+      subindustryMatchFamily: 'none',
+      subindustryConfidence: 90,
+      verdictReason: 'anchor_evidence_confirmed',
+    },
+  ],
+  matchedRequestedSubindustry: 'Supermercados e Hipermercados',
   subindustryMapped: true,
   // `confirmed` es el veredicto de industria declarada del vocabulario real
   // (`IndustryMatchVerdict`): la industria de Apollo trae el ancla `supermarkets`.

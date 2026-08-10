@@ -41,13 +41,21 @@ type MetadataBag = Record<string, unknown>;
  * distinguir un candidato que necesita revisión de uno que necesita un mapeo
  * nuevo en el catálogo.
  */
-export type SubindustryVerdictKey = 'confirmed' | 'ambiguous' | 'rejected' | 'unmapped';
+export type SubindustryVerdictKey =
+  | 'confirmed'
+  | 'ambiguous'
+  | 'rejected'
+  | 'unmapped'
+  | 'evaluation_unavailable';
 
 export const SUBINDUSTRY_VERDICT_LABELS: Record<SubindustryVerdictKey, string> = {
   confirmed: 'Confirmada',
   ambiguous: 'Ambigua',
   rejected: 'Rechazada',
-  unmapped: 'Sin mapeo',
+  unmapped: 'Sin confirmar',
+  // § 5 — «no se evaluó» no es «no se confirmó»: la primera es una carencia del
+  // sistema, la segunda un veredicto sobre la empresa.
+  evaluation_unavailable: 'Sin evaluar',
 };
 
 /**
@@ -59,14 +67,29 @@ export const SUBINDUSTRY_VERDICT_LABELS: Record<SubindustryVerdictKey, string> =
 export type SubindustryReviewReasonKey =
   | 'subindustry_ambiguous'
   | 'subindustry_not_mapped'
+  | 'subindustry_rejected'
+  | 'subindustry_evaluation_unavailable'
   | 'linkedin_missing'
   | 'employee_count_missing'
   | 'size_outside_icp'
   | 'other';
 
+/**
+ * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 5 — cuatro estados, cuatro
+ * frases que dicen lo que de verdad pasó.
+ *
+ * Antes había dos, y una de ellas mentía por omisión: un candidato cuya evidencia
+ * CONTRADECÍA la subindustria pedida se mostraba como «Subindustria ambigua»,
+ * como si le hubiera faltado un dato. Y «Subindustria sin mapeo» era jerga
+ * interna: describía el estado del catálogo de SellUp, no lo que la usuaria tenía
+ * que hacer con la empresa.
+ */
 export const SUBINDUSTRY_REVIEW_REASON_LABELS: Record<SubindustryReviewReasonKey, string> = {
   subindustry_ambiguous: 'Subindustria ambigua',
-  subindustry_not_mapped: 'Subindustria sin mapeo',
+  subindustry_not_mapped: 'No se pudo confirmar automáticamente la subindustria solicitada',
+  subindustry_rejected: 'La evidencia disponible no coincide con la subindustria solicitada',
+  subindustry_evaluation_unavailable:
+    'No fue posible evaluar automáticamente la subindustria solicitada',
   linkedin_missing: 'LinkedIn ausente',
   employee_count_missing: 'Número de empleados ausente',
   size_outside_icp: 'Tamaño fuera de ICP',
@@ -94,11 +117,29 @@ const FAILED_CONDITION_REASONS: Record<string, SubindustryReviewReasonKey> = {
 const REASON_ORDER: readonly SubindustryReviewReasonKey[] = [
   'subindustry_ambiguous',
   'subindustry_not_mapped',
+  'subindustry_rejected',
+  'subindustry_evaluation_unavailable',
   'linkedin_missing',
   'employee_count_missing',
   'size_outside_icp',
   'other',
 ];
+
+/**
+ * § 5 — motivos que el writer ya publica en `target_completeness
+ * .review_only_reasons` con su nombre propio.
+ *
+ * Cuando ese campo existe no hay nada que deducir: el evaluador ya decidió entre
+ * ambigua, sin mapeo, rechazada y no evaluable. Las filas escritas antes de que
+ * el campo existiera siguen resolviéndose desde `failed_conditions` +
+ * `subindustry_mapped`, que es todo lo que tenían.
+ */
+const SELF_DESCRIBING_REASONS: Record<string, SubindustryReviewReasonKey> = {
+  subindustry_ambiguous: 'subindustry_ambiguous',
+  subindustry_not_mapped: 'subindustry_not_mapped',
+  subindustry_rejected: 'subindustry_rejected',
+  subindustry_evaluation_unavailable: 'subindustry_evaluation_unavailable',
+};
 
 // ─── Salida ───────────────────────────────────────────────────────────────────
 
@@ -169,17 +210,24 @@ function readVerdict(rawMatch: unknown, mapped: boolean): SubindustryVerdictKey 
  * `readVerdict`.
  */
 function collectReasons(
-  failedConditions: readonly unknown[],
+  conditions: readonly unknown[],
   icpBlocked: boolean,
-  subindustryMapped: boolean,
+  subindustryFallbackReason: SubindustryReviewReasonKey,
 ): SubindustryReviewReason[] {
   const keys = new Set<SubindustryReviewReasonKey>();
 
-  for (const condition of failedConditions) {
+  for (const condition of conditions) {
     const name = readString(condition);
     if (name === null) continue;
+    // § 5 — un motivo que ya se nombra a sí mismo se respeta tal cual; sólo la
+    // condición genérica del contrato necesita que alguien decida su causa.
+    const selfDescribing = SELF_DESCRIBING_REASONS[name];
+    if (selfDescribing !== undefined) {
+      keys.add(selfDescribing);
+      continue;
+    }
     if (name === 'subindustry_match') {
-      keys.add(subindustryMapped ? 'subindustry_ambiguous' : 'subindustry_not_mapped');
+      keys.add(subindustryFallbackReason);
       continue;
     }
     keys.add(FAILED_CONDITION_REASONS[name] ?? 'other');
@@ -211,30 +259,66 @@ export function resolveCandidateSubindustryStatus(
   const precision = capture ? readBag(capture, 'precision') : null;
   const completeness = readBag(metadata, 'target_completeness');
 
-  const requestedSubindustry = precision
-    ? readString(precision['requested_subindustry'])
-    : null;
+  /**
+   * § 5 — sin precisión, la subindustria pedida se lee del contrato. Es el caso
+   * «no evaluable»: la frase debe poder nombrar lo que se pidió aunque nadie
+   * llegara a evaluarlo.
+   */
+  const requestedSubindustry =
+    (precision ? readString(precision['requested_subindustry']) : null) ??
+    (Array.isArray(completeness?.['requested_subindustries'])
+      ? readString((completeness['requested_subindustries'] as unknown[])[0])
+      : null);
   // Ausente ⇒ se asume `true` (dato escrito antes de que este campo existiera):
   // no inventar «sin mapeo» donde el evaluador nunca lo declaró.
   const subindustryMapped =
     typeof precision?.['subindustry_mapped'] === 'boolean'
       ? (precision['subindustry_mapped'] as boolean)
       : true;
-  const verdict = precision ? readVerdict(precision['subindustry_match'], subindustryMapped) : null;
+  /**
+   * § 5 — el veredicto sale de la precisión cuando existe; si NO existe pero el
+   * contrato registró que la subindustria no se pudo evaluar, ése es el
+   * veredicto. Es el caso Tavily/legacy con subindustria pedida: antes no había
+   * precisión que leer, así que la ficha decía «Sin medir» —indistinguible de un
+   * candidato de otra modalidad— sobre un candidato que sí se pidió evaluar.
+   */
+  const contractMatch = readString(completeness?.['subindustry_match']);
+  const verdict = precision
+    ? readVerdict(precision['subindustry_match'], subindustryMapped)
+    : contractMatch === 'evaluation_unavailable'
+      ? 'evaluation_unavailable'
+      : null;
 
   const countsTowardTarget =
     completeness && typeof completeness['counts_toward_target'] === 'boolean'
       ? (completeness['counts_toward_target'] as boolean)
       : null;
 
+  /**
+   * § 5 — `review_only_reasons` manda porque ya trae la causa concreta de la
+   * subindustria. `failed_conditions` es el respaldo para las filas escritas
+   * antes de que ese campo existiera.
+   */
+  const reviewOnlyReasons = Array.isArray(completeness?.['review_only_reasons'])
+    ? (completeness['review_only_reasons'] as unknown[])
+    : null;
   const failedConditions = Array.isArray(completeness?.['failed_conditions'])
     ? (completeness['failed_conditions'] as unknown[])
     : [];
 
   const reviewReasons = collectReasons(
-    failedConditions,
+    reviewOnlyReasons ?? failedConditions,
     isIcpSizeGateBlocked(metadata),
-    subindustryMapped,
+    // Respaldo para la condición genérica del contrato: `rejected` y
+    // `evaluation_unavailable` nunca se deducen —se leen— porque deducirlos de
+    // `subindustry_mapped` es exactamente el contrasentido que el § 5 prohíbe.
+    verdict === 'rejected'
+      ? 'subindustry_rejected'
+      : verdict === 'evaluation_unavailable'
+        ? 'subindustry_evaluation_unavailable'
+        : subindustryMapped
+          ? 'subindustry_ambiguous'
+          : 'subindustry_not_mapped',
   );
 
   // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 9 — «ambigua» y «sin
@@ -242,14 +326,26 @@ export function resolveCandidateSubindustryStatus(
   // alcanzó, la otra dice que SellUp todavía no sabe evaluar esa subindustria.
   // Fusionarlas en un solo texto es lo que hacía parecer, ante una subindustria
   // sin mapeo, que el candidato «casi» calificaba.
-  const notConfirmedMessage =
-    verdict === null || verdict === 'confirmed'
-      ? null
-      : verdict === 'unmapped'
-        ? 'Se guardó para revisión, pero SellUp todavía no tiene reglas suficientes para confirmar automáticamente esta subindustria.'
-        : requestedSubindustry === null
-          ? 'No se confirmó la subindustria solicitada para esta empresa.'
-          : `No se confirmó que esta empresa pertenezca a «${requestedSubindustry}».`;
+  const notConfirmedMessage = (() => {
+    if (verdict === null || verdict === 'confirmed') return null;
+    if (verdict === 'unmapped') {
+      return 'Se guardó para revisión, pero SellUp todavía no tiene reglas suficientes para confirmar automáticamente esta subindustria.';
+    }
+    if (verdict === 'evaluation_unavailable') {
+      return 'Se guardó para revisión: no fue posible evaluar automáticamente la subindustria solicitada para esta empresa.';
+    }
+    // § 5 — «rechazada» no dice «faltó evidencia», dice que la que hay
+    // CONTRADICE lo que se pidió. Redactarla como una ambigüedad hacía leer
+    // como «casi califica» a una empresa que el evaluador descartó.
+    if (verdict === 'rejected') {
+      return requestedSubindustry === null
+        ? 'La evidencia disponible no coincide con la subindustria solicitada.'
+        : `La evidencia disponible no coincide con «${requestedSubindustry}».`;
+    }
+    return requestedSubindustry === null
+      ? 'No se confirmó la subindustria solicitada para esta empresa.'
+      : `No se confirmó que esta empresa pertenezca a «${requestedSubindustry}».`;
+  })();
 
   return {
     hasData: precision !== null || completeness !== null,
