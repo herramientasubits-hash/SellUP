@@ -557,3 +557,38 @@ jobs:
       # check por depender de un binario que se descarga.
       - name: Run official contact phone privacy erasure tests
         run: npm run test:agent2a:contacts-phone-privacy-erasure
+
+      # AGENT2A-PHONE-REVEAL-4O-E4.1 — `contacts.mobile_phone` no se borra sin
+      # procedencia.
+      #
+      # El defecto que cierra: la supresión de Apollo nulaba también
+      # `contacts.mobile_phone`, y la única evidencia que lo sostenía era
+      # `contacts.phone_source` — un valor que describe la columna `phone` y ninguna
+      # otra. La auditoría de escritores de este hito demostró que NINGÚN proveedor
+      # escribe `mobile_phone`: sus únicos escritores son los dos formularios manuales
+      # de contacto, `ContactInsertPayload` no tiene la columna, Producción no tiene
+      # trigger / columna generada / función que la escriba, y el historial completo de
+      # git no contiene un solo escritor de proveedor. El caso que rompía no necesita
+      # ninguna carrera: un contacto aprobado desde Apollo conserva
+      # `phone_source = apollo_reveal` para siempre, `updateContact` nunca toca esa
+      # columna, y basta con que alguien teclee un celular a mano para que la DSAR lo
+      # borrase.
+      #
+      # Esta suite prueba:
+      #   * las tres procedencias admitidas (apollo_reveal, apollo_cache, lusha_reveal)
+      #     siguen borrando `phone` y sus 7 columnas — la erasure NO se degrada;
+      #   * ninguna de ellas toca `mobile_phone`, ni siquiera cuando el valor coincide:
+      #     NO PROVENANCE → NO DESTRUCTIVE ERASURE;
+      #   * `manual`, `unknown` y `NULL` siguen sin producir patch alguno;
+      #   * el UPDATE sigue siendo CONDICIONAL por la procedencia observada, así que un
+      #     reemplazo legítimo posterior a la lectura sobrevive a la escritura stale;
+      #   * la AUDITORÍA DE ESCRITORES queda congelada: si aparece un escritor nuevo de
+      #     `mobile_phone` en `src/`, la suite falla — la premisa de E4.1 dejaría de ser
+      #     cierta y hay que revisitarla antes de que un borrado quede corto.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos, sin DSAR real y sin DB.
+      # La variante contra PostgreSQL real vive en
+      # `test:agent2a:contacts-phone-privacy-erasure-postgres`, fuera del check por
+      # depender de un binario que se descarga.
+      - name: Run mobile phone provenance erasure tests
+        run: npm run test:agent2a:mobile-phone-provenance-erasure
