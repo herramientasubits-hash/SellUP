@@ -85,6 +85,10 @@ import {
   type PhoneRevealCreditSettlementAction,
 } from './phone-reveal-credit-reservation-core';
 import type { PhoneRevealCreditProviderKey } from './phone-reveal-credit-budget-core';
+// Cierre terminal por supresión (AGENT2A-PHONE-REVEAL-4O-E1). La escritura
+// condicional vive en su propio módulo; aquí solo se cablea.
+import { buildTerminalPhoneSuppressionPatch } from './phone-reveal-suppression-guard';
+import { persistTerminalPhoneSuppression } from './candidate-phone-suppression-persistence';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
 
 /** Tabla de corridas (migración 102). service_role-only. */
@@ -788,6 +792,13 @@ export async function callLushaFallbackLeg(args: {
       // core falla cerrado: el candidato no se cierra y no se vuelve a llamar a
       // Lusha.
       persistPhoneCollection: persistCandidateLushaPhoneCollection,
+      // AGENT2A-PHONE-REVEAL-4O-E1. Cableada en el MISMO punto y por la misma razón:
+      // esta función es el único camino por el que la transacción de Lusha puede
+      // responder `suppressed`, y ese resultado tiene que dejar el candidato terminal
+      // (`error` + `blocked_suppressed`) en vez de devolverlo a `no_phone_found`, que
+      // es el estado que lo hace elegible para otro reveal pagado del MISMO número
+      // suprimido. Escritura condicional: no puede pisar un resultado concurrente.
+      persistTerminalSuppression: persistTerminalPhoneSuppression,
       // La reserva de esta pata se liquida por su propia función (migración 104) y
       // su id no viaja hasta aquí. null en vez de inventar una correlación, misma
       // convención que la captura del otro proveedor.
@@ -992,6 +1003,27 @@ export function buildContinueWaterfallDeps(): ContinuePhoneRevealWaterfallDeps {
     checkSuppressionAndDoNotContact,
     claimLushaAttempt,
     callLushaLeg: callLushaFallbackLeg,
+    // AGENT2A-PHONE-REVEAL-4O-E1 § 7. Se cablea SIN flag propio: el gate previo a
+    // Lusha ya existe y ya bloquea la llamada; lo único que añade esta dep es que la
+    // decisión de privacidad quede también en el candidato, que es donde la leen el
+    // gate de elegibilidad del fallback pagado, el cron y la revisión manual.
+    //
+    // La escritura es condicional por contrato (ver
+    // `persistTerminalPhoneSuppression`): exige que la fila siga en el estado que el
+    // core observó, así que no puede pisar un resultado concurrente.
+    terminalizeSuppressedCandidate: async ({ candidateId, expectedStatuses }) =>
+      persistTerminalPhoneSuppression(
+        candidateId,
+        buildTerminalPhoneSuppressionPatch({
+          expectedStatuses,
+          nowIso: new Date().toISOString(),
+          // El gate es PRE-CALL: Lusha no se llamó, así que no hay costo nuevo que
+          // declarar y las columnas de costo del candidato NO se tocan — siguen
+          // describiendo la pata Apollo que ya se cerró y se pagó. Lo que quedó
+          // reservado y no se gastó lo libera la liquidación de la corrida
+          // (`leg_never_attempted`), no este rastro.
+        }),
+      ),
   };
 }
 

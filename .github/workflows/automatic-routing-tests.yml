@@ -300,3 +300,35 @@ jobs:
       # persistencia se ejerce contra un doble en memoria con las mismas reglas).
       - name: Run Apollo phone collection capture tests
         run: npm run test:agent2a:apollo-phone-collection-capture
+
+      # AGENT2A-PHONE-REVEAL-4O-E1 — política TERMINAL de supresión.
+      #
+      # La auditoría 4O-E0 encontró que ninguna suite de supresión entraba en este
+      # check, y el defecto que 4O-E1 corrige es exactamente del tipo que sobrevive a
+      # esa ausencia: las transacciones 110/111 responden `suppressed` (todos los
+      # números del evento son tombstones) y ese resultado se agrupaba con los FALLOS
+      # de escritura, así que el candidato se quedaba en vuelo, el cron lo
+      # reseleccionaba en cada pasada sobre una respuesta que nunca iba a poder
+      # persistirse, la corrida seguía activa y su reserva seguía `reserved` pese a que
+      # el proveedor ya había cobrado. Nada de eso rompe una compilación.
+      #
+      # Lo que la suite protege:
+      #   * que una supresión confirmada terminalice (`error` + `blocked_suppressed`) y
+      #     NUNCA como `no_phone_found`, que es el estado que vuelve a hacer elegible un
+      #     reveal PAGADO del mismo número suprimido;
+      #   * que esa escritura sea CONDICIONAL, comprobando los filtros reales que se
+      #     envían al driver: sin ellos una carrera convertiría un `revealed` legítimo
+      #     en un `error`;
+      #   * que el cron deje de seleccionar lo terminalizado, probado de forma NO vacía
+      #     con la query real (5 suprimidos + 1 candidato en vuelo que sí debe salir);
+      #   * que el costo REAL ya incurrido se preserve: el de Apollo en el candidato, y
+      #     el de Lusha en su propia columna de la corrida — donde antes se borraba a
+      #     `null` + `unknown` y la liquidación de la reserva leía ese cero;
+      #   * que `stale_event`, `candidate_not_eligible` y una comprobación no disponible
+      #     NO terminalicen: no afirman ninguna supresión;
+      #   * que las RPC 110/111, las migraciones, la UI, los contactos y HubSpot queden
+      #     intactos, y que este paso siga existiendo en el workflow.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run phone suppression terminal policy tests
+        run: npm run test:agent2a:phone-suppression-terminal

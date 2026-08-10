@@ -38,6 +38,7 @@ import {
   writePhoneCacheEntry,
 } from '@/modules/contact-enrichment/phone-cache-store';
 import { persistCandidatePhoneCollection } from '@/modules/contact-enrichment/candidate-phone-collection-persistence';
+import { persistTerminalPhoneSuppression } from '@/modules/contact-enrichment/candidate-phone-suppression-persistence';
 import {
   continuePhoneRevealWaterfallForCandidate,
   resolveActiveWaterfallRunId,
@@ -291,6 +292,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // A diferencia de la caché NO es best-effort: si lanza, el core no cierra
       // el reveal y el candidato queda recuperable con 0 créditos.
       persistCandidatePhoneCollection,
+      // Cierre terminal por supresión (AGENT2A-PHONE-REVEAL-4O-E1). Se cablea SIN
+      // flag, igual que la captura: cuando la transacción responde `suppressed` el
+      // resultado NUNCA va a poder persistirse, así que dejar el candidato en vuelo no
+      // lo hacía «recuperable» sino permanentemente pendiente — con la corrida activa
+      // y su reserva sin liquidar pese a que Apollo ya había cobrado.
+      //
+      // La escritura es CONDICIONAL sobre el estado en vuelo, así que un `revealed`
+      // que llegue por otra vía en el intervalo sobrevive intacto.
+      persistTerminalSuppression: persistTerminalPhoneSuppression,
       // Supresión en vuelo (FIX 3). Se cablea SIN condicionar al flag de caché: una
       // DSAR registrada mientras el reveal estaba en curso tiene que bloquear la
       // persistencia tardía del teléfono con la caché encendida o apagada. La
