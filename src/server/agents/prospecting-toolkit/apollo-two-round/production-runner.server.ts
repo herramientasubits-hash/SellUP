@@ -133,6 +133,12 @@ import {
   type ApolloTwoRoundDiscoveryConfig,
 } from './config';
 import { resolveApolloTwoRoundConfigFromEnv } from './env.server';
+// MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § D — invariantes de consistencia
+// entre las fuentes del estado final. Observacional: nunca lanza.
+import {
+  evaluateApolloTwoRoundFinalStateConsistency,
+  toFinalStateConsistencyMetadata,
+} from './run-final-state-consistency';
 import type { CandidateSectorEvidenceState } from './enrichment-ranking';
 import {
   APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION,
@@ -1500,6 +1506,11 @@ export async function runApolloTwoRoundWizardDiscovery(
     budgetAnomalyRaised,
     checkpointFailures,
     candidatesPersisted,
+    // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A — lo que la corrida RECIBIÓ,
+    // escrito junto a lo que hizo. La forense de `7d92773b` tuvo que deducir de
+    // las keywords que la solicitud sólo traía una subindustria; con esto la
+    // pregunta «¿llegaron las dos?» se responde leyendo el lote.
+    requestedSubindustries: input.subindustries,
   });
 
   let candidatesCreated = persistedCandidateIds.length;
@@ -1640,8 +1651,11 @@ function buildObservabilityMetadata(input: {
   budgetAnomalyRaised: boolean;
   checkpointFailures: readonly string[];
   candidatesPersisted: boolean;
+  /** § A — subindustrias que la SOLICITUD trajo, en su orden. Ausente ⇒ []. */
+  requestedSubindustries?: readonly string[];
 }): Record<string, unknown> {
   const { runResult } = input;
+  const requestedSubindustries = [...(input.requestedSubindustries ?? [])];
   const accounting = buildApolloTwoRoundSpendAccounting({
     estimatedCredits: input.budget.maximumInternalRecordedCredits,
     reservedCredits: input.reservedCredits,
@@ -1653,9 +1667,32 @@ function buildObservabilityMetadata(input: {
     ...(runResult.manualReconciliationRequired ? [TWO_ROUND_INDETERMINATE_ANOMALY] : []),
   ];
 
+  // § D — se evalúa sobre el estado FINAL de la corrida (los candidatos tal como
+  // el checkpoint `run_completed` los va a guardar), nunca sobre uno intermedio.
+  const finalStateConsistency = evaluateApolloTwoRoundFinalStateConsistency({
+    rounds: runResult.rounds,
+    candidates: toApolloTwoRoundResumeState(runResult).candidates.map((candidate) => ({
+      candidate_key: candidate.candidateKey,
+      eligible: candidate.eligible,
+      finally_rejected_or_duplicated: candidate.finallyRejectedOrDuplicated,
+    })),
+    runMetrics: {
+      totalUniqueOrganizations: runResult.runMetrics.totalUniqueOrganizations,
+      totalEligibleCompanies: runResult.runMetrics.totalEligibleCompanies,
+      persistedCandidates: runResult.runMetrics.persistedCandidates,
+    },
+    targetEligibleCompanies: runResult.targetEligibleCompanies,
+    targetReached: runResult.targetReached,
+  });
+
   return {
     [APOLLO_TWO_ROUND_OBSERVABILITY_KEY]: {
       modality: 'two_round_adaptive',
+      // § A — la SOLICITUD, tal cual llegó. `requested_subindustries_count` va
+      // aparte porque es lo que se compara contra la selección de la UI de un
+      // vistazo, sin leer el array.
+      requested_subindustries: requestedSubindustries,
+      requested_subindustries_count: requestedSubindustries.length,
       result_status: runResult.resultStatus,
       target_eligible_companies: runResult.targetEligibleCompanies,
       eligible_companies_found: runResult.eligibleCompaniesFound,
@@ -1691,6 +1728,9 @@ function buildObservabilityMetadata(input: {
       })),
       completed_operation_keys_count: runResult.completedOperationKeys.length,
       indeterminate_operation_keys_count: runResult.indeterminateOperationKeys.length,
+      // § D — contradicciones entre desglose por ronda, snapshots y run_metrics.
+      // `ok: true` en una corrida sana; los conflictos se nombran, no se corrigen.
+      final_state_consistency: toFinalStateConsistencyMetadata(finalStateConsistency),
       // § 3 — un checkpoint que no se pudo escribir queda visible.
       checkpoint_write_failures: [...input.checkpointFailures],
       candidates_persisted: input.candidatesPersisted,

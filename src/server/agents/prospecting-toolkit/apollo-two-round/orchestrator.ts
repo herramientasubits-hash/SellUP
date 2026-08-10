@@ -369,6 +369,12 @@ export type SecondRoundSkippedReason =
   | 'max_rounds_is_one'
   | 'raw_result_cap_reached'
   /**
+   * MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § C — la corrida ya escribió sus
+   * candidatos. Un reintento posterior no abre una ronda nueva: recupera lo
+   * pagado, no compra más.
+   */
+  | 'candidates_already_persisted'
+  /**
    * QUERY-QUALITY-2 § 3 — los parámetros normalizados que la ronda 2 enviaría
    * son los MISMOS que envió la ronda 1. Vocabulario del hito.
    */
@@ -1016,6 +1022,22 @@ export async function runApolloTwoRoundDiscovery(
     // organizaciones hay: ninguno de los dos se ejecuta a ciegas.
     if (hasIndeterminateOperation()) break;
 
+    // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § C — una corrida que YA escribió
+    // sus candidatos no abre una ronda NUEVA en un reintento. Un reintento existe
+    // para recuperar lo ya pagado, nunca para comprar más.
+    //
+    // Hasta ahora esta garantía se sostenía por accidente: el checkpoint
+    // conservaba un `eligible` ANTERIOR a los gates finales (§ C.8), así que un
+    // reintento creía el objetivo alcanzado y se detenía solo. Con el estado final
+    // ya autoritativo esa creencia desaparece —correctamente— y la garantía de
+    // gasto tiene que ser explícita en vez de depender de un dato equivocado.
+    if (resume?.candidatesPersisted === true) {
+      if (roundNumber > 1 && secondRoundSkippedReason === null) {
+        secondRoundSkippedReason = 'candidates_already_persisted';
+      }
+      break;
+    }
+
     // § 7: parada inmediata. La ronda 2 no se ejecuta por estar presupuestada.
     if (roundNumber > 1 && eligibleCount() >= config.targetEligibleCompanies) {
       secondRoundSkippedReason = 'target_reached';
@@ -1530,9 +1552,25 @@ export async function runApolloTwoRoundDiscovery(
     }
     // § D — el enrichment pudo REVELAR una contradicción sectorial. Eso sí es un
     // rechazo con causa, y descalifica incluso para revisión.
+    //
+    // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § B.5 — y además SE CUENTA.
+    //
+    // Esta rama marcaba el rechazo y no lo tallyaba, así que el desglose por
+    // ronda perdía al candidato: la corrida `7d92773b` cerró la ronda 2 con
+    // 7 duplicados + 2 ownership = 9 sobre 10 empresas únicas, y la décima
+    // (`instaleap`, contradictoria tras el enrichment) no aparecía en ninguna
+    // fila. `run_metrics.sector_rejected_after_enrichment` decía 1 y
+    // `rounds[].sector_rejected` decía 0.
+    //
+    // No hay doble conteo: la rama de `postRejection` de arriba ya tallya y
+    // corta con `continue`, así que este camino es mutuamente excluyente con
+    // ella. Los gates finales de más abajo tampoco lo re-tallyan: sólo actúan
+    // sobre candidatos aún elegibles, y éste ya no lo es.
     if (result.sectorEvidenceState === 'sector_evidence_contradictory') {
       candidate.definitivelyRejected = true;
       candidate.definitiveRejectionReason = 'sector_evidence_contradictory';
+      if (metricsForRound) tallyRejection(metricsForRound, 'sector_evidence_contradictory');
+      observedRejectionReasons.add('sector_evidence_contradictory');
     }
     const nowEligible = isEligible(candidate.assessment.rejection, result.sectorEvidenceState);
     if (nowEligible && !candidate.eligible) {
@@ -1547,6 +1585,12 @@ export async function runApolloTwoRoundDiscovery(
       // aquí no se marcó `definitivelyRejected`, esta empresa quedó AMBIGUA tras
       // pagar por resolverla, y se persistirá como `needs_review`.
       candidate.finallyRejectedOrDuplicated = true;
+      // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § D — un rechazo DEFINITIVO no
+      // puede convivir con `eligible: true`. La rama de `postRejection` ya lo
+      // hacía; ésta no, y un candidato elegible antes del enrichment cuya
+      // evidencia lo contradice después habría quedado contado como elegible en
+      // `eligibleAfterEnrichment`.
+      if (candidate.definitivelyRejected) candidate.eligible = false;
     }
   }
 
