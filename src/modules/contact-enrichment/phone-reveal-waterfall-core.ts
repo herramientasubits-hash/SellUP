@@ -1628,6 +1628,23 @@ export interface PhoneRevealWaterfallLushaLegResult {
 }
 
 /**
+ * Código de error de la pata Lusha que significa «respondió, COBRÓ, y todos sus
+ * números son tombstones» (AGENT2A-PHONE-REVEAL-4O-E1 § 10).
+ *
+ * Espejo de `LUSHA_PHONE_COLLECTION_SUPPRESSED_ERROR_CODE` en
+ * lusha-phone-fallback-core.ts. Se declara aquí en vez de importarse para que este
+ * core siga sin depender del core de Lusha (misma convención que
+ * `PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS`); un test estático verifica que las dos
+ * constantes no se separen.
+ *
+ * Es el ÚNICO error de esta pata que viene acompañado de un costo REAL, y por eso
+ * necesita reconocerse: la regla general «un error no reporta costo» es correcta
+ * para una red caída o un 402, y falsa aquí.
+ */
+export const PHONE_REVEAL_WATERFALL_LUSHA_SUPPRESSED_ERROR_CODE =
+  'phone_suppressed' as const;
+
+/**
  * Cierra la corrida con el resultado de la pata Lusha.
  *
  * `revealed` ⇒ `completed_lusha` + `final_provider = 'lusha'`. `no_phone_found`
@@ -1637,6 +1654,15 @@ export interface PhoneRevealWaterfallLushaLegResult {
  *
  * El costo se registra SIEMPRE en las columnas de Lusha, jamás sumado a las de
  * Apollo, y un costo no reportado queda `null` + `unknown`, nunca 0.
+ *
+ * EXCEPCIÓN ANCLADA A EVIDENCIA (4O-E1 § 10): cuando el error es
+ * `phone_suppressed` Y el proveedor reportó créditos, la corrida conserva ese
+ * costo real. Antes de este hito cualquier status distinto de
+ * `revealed`/`no_phone_found` borraba la cifra a `null` + `unknown`, de modo que
+ * una llamada pagada cuyo resultado quedó bloqueado por privacidad se registraba
+ * como si Lusha no hubiera cobrado nada — y esa es la única lectura de la que
+ * dispone la liquidación de la reserva. No se generaliza a «todos los errores
+ * tienen costo»: hace falta el código específico Y una cifra presente.
  */
 export function mapLushaLegResultToWaterfallPatch(
   result: PhoneRevealWaterfallLushaLegResult,
@@ -1669,6 +1695,30 @@ export function mapLushaLegResultToWaterfallPatch(
       finalProvider: 'none',
       completedAt: nowIso,
       errorCode: null,
+    };
+  }
+
+  // Supresión confirmada DESPUÉS de una llamada pagada. El desenlace de la pata
+  // sigue siendo `error` (Lusha no reveló nada persistible), pero la corrida se
+  // cierra `aborted` como cualquier otro bloqueo de privacidad, y el costo real se
+  // conserva. `lushaSkippedReason` se deja SIN tocar: Lusha sí se ejecutó, así que
+  // escribir `suppressed` ahí afirmaría que se omitió por supresión, que es
+  // literalmente lo contrario de lo que pasó.
+  if (
+    cleanText(result.errorCode) === PHONE_REVEAL_WATERFALL_LUSHA_SUPPRESSED_ERROR_CODE &&
+    lushaCostCredits !== null
+  ) {
+    return {
+      status: 'aborted',
+      lushaOutcome: 'error',
+      lushaCostCredits,
+      lushaCostSource,
+      finalProvider: 'none',
+      completedAt: nowIso,
+      // Vocabulario de privacidad de la corrida, el mismo que usan los demás
+      // cierres por tombstone. El detalle del proveedor (`phone_suppressed`) queda
+      // en el usage-log de la pata, que no se reescribe.
+      errorCode: 'blocked_suppressed',
     };
   }
 
@@ -1736,6 +1786,32 @@ export interface ContinuePhoneRevealWaterfallDeps {
     authorizedBy: string;
     maxCreditsAuthorized: number;
   }) => Promise<PhoneRevealWaterfallLushaLegResult>;
+  /**
+   * Deja en el CANDIDATO el rastro terminal de una supresión confirmada por la
+   * re-comprobación previa a Lusha (AGENT2A-PHONE-REVEAL-4O-E1 § 7).
+   *
+   * Hasta este hito ese gate hacía todo lo demás bien —0 llamadas, 0 créditos,
+   * corrida `aborted` con `lusha_skipped_reason = 'suppressed'`— pero el candidato
+   * no recibía NADA: se quedaba en el `no_phone_found` que Apollo escribió, que es
+   * exactamente el estado que lo vuelve a hacer elegible para un reveal pagado. La
+   * decisión de privacidad quedaba solo en la corrida, y el gate manual no la lee.
+   *
+   * Se declara ESTRUCTURALMENTE (y no importando el contrato compartido) para que
+   * este core siga sin dependencias de la capa de supresión ni riesgo de arrastrar
+   * módulos server-only a un bundle que lo importe por su vista de auditoría.
+   *
+   * OPCIONAL y BEST-EFFORT: solo se invoca con un tombstone CONFIRMADO (nunca con
+   * `check_unavailable`, que no afirma nada), su resultado no altera el cierre de la
+   * corrida, y sin la dep el comportamiento es idéntico al anterior al hito. La
+   * escritura tiene que ser CONDICIONAL sobre `expectedStatuses`: la fila puede
+   * haber cambiado mientras se leía la supresión, y pisar un `revealed` ajeno sería
+   * peor que no dejar rastro.
+   */
+  terminalizeSuppressedCandidate?: (args: {
+    candidateId: string;
+    /** Estados en los que la fila DEBE seguir para que la escritura gane. */
+    expectedStatuses: readonly string[];
+  }) => Promise<unknown>;
 }
 
 export type ContinuePhoneRevealWaterfallOutcome =
@@ -1842,6 +1918,33 @@ export async function continuePhoneRevealWaterfall(
     deps.nowIso,
   );
   if (suppressionBlock) {
+    // 4O-E1 § 7 — rastro terminal en el CANDIDATO, y SOLO con tombstone confirmado.
+    // `check_unavailable` y `do_not_contact` NO pasan por aquí: el primero no afirma
+    // ninguna supresión (no se pudo comprobar) y el segundo es otra decisión, con su
+    // propio registro. Se hace ANTES de cerrar la corrida para que, si el proceso
+    // muriera en medio, el estado que sobreviva sea el que MÁS protege: candidato
+    // bloqueado con la corrida todavía viva (que el cierre posterior resuelve) en vez
+    // de una corrida cerrada sobre un candidato que sigue pareciendo comprable.
+    if (suppressionState === 'blocked_suppressed' && deps.terminalizeSuppressedCandidate) {
+      const observedStatus = cleanText(candidate?.phoneRevealStatus);
+      if (observedStatus) {
+        try {
+          await deps.terminalizeSuppressedCandidate({
+            candidateId,
+            // El estado que este core observó al decidir. En este punto es siempre
+            // el desenlace terminal que Apollo acababa de persistir
+            // (`no_phone_found`): la decisión solo llega a `check_suppression` con
+            // `apolloOutcome === 'no_phone_found'`, y una corrida legacy exige ese
+            // mismo desenlace ya persistido para poder crearse. No se asume: se
+            // exige la fila tal como se leyó.
+            expectedStatuses: [observedStatus],
+          });
+        } catch {
+          // Silencio acotado: el cierre de la corrida y la liquidación de la reserva
+          // no pueden depender de este rastro. El escritor ya registra su fallo.
+        }
+      }
+    }
     await deps.updateRun(run.id, {
       ...apolloCostPatch,
       apolloOutcome: input.apolloOutcome,

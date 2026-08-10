@@ -29,6 +29,7 @@ import {
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { readPhoneCacheSuppression, writePhoneCacheEntry } from './phone-cache-store';
 import { persistCandidatePhoneCollection } from './candidate-phone-collection-persistence';
+import { persistTerminalPhoneSuppression } from './candidate-phone-suppression-persistence';
 import {
   continuePhoneRevealWaterfallForCandidate,
   resolveActiveWaterfallRunId,
@@ -274,6 +275,14 @@ export function buildRecoveryCoreDeps(
     // NO es best-effort: si lanza, nada terminal se persiste y el candidato sigue
     // recuperable con 0 créditos.
     persistCandidatePhoneCollection,
+
+    // Cierre terminal por supresión (AGENT2A-PHONE-REVEAL-4O-E1). Sin flag: cuando la
+    // transacción responde `suppressed` el resultado NUNCA va a poder persistirse, así
+    // que dejar el candidato en vuelo solo conseguía que el cron lo volviera a
+    // seleccionar en cada pasada —desplazando candidatos que sí se pueden recuperar—
+    // sobre una respuesta que además ya estaba pagada. Escritura condicional: si la
+    // fila cambió de estado se actualizan 0 filas y no se terminaliza nada.
+    persistTerminalSuppression: persistTerminalPhoneSuppression,
 
     // Supresión en vuelo (FIX 3). Sin condicionar al flag de caché: una DSAR
     // registrada entre el START y este poll tiene que bloquear la persistencia

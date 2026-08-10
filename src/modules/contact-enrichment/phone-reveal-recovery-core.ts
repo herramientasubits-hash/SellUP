@@ -74,13 +74,17 @@ import {
 } from './phone-cache-core';
 import { PHONE_REVEAL_OPERATION_KEY, PHONE_REVEAL_PROVIDER } from './phone-reveal-core';
 import {
+  applyTerminalPhoneSuppression,
+  buildTerminalPhoneSuppressionPatch,
   describeInFlightSuppression,
   evaluateInFlightPhoneSuppression,
   resolveInFlightSuppressionPersonId,
+  IN_FLIGHT_TERMINAL_SUPPRESSION_EXPECTED_STATUSES,
   SUPPRESSION_BLOCKED_ERROR_CODE,
   SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
   type InFlightSuppressionAuditState,
   type InFlightSuppressionLookup,
+  type PersistTerminalPhoneSuppression,
 } from './phone-reveal-suppression-guard';
 import {
   reportPhoneSuppressionNotEvaluable,
@@ -350,6 +354,21 @@ export interface RecoverApolloPhoneRevealDeps {
    * puede repolear sin gastar créditos.
    */
   persistCandidatePhoneCollection?: PersistCandidatePhoneCollection;
+
+  /**
+   * Cierra el candidato como `error` + `blocked_suppressed` cuando la transacción
+   * de la colección respondió `suppressed` (AGENT2A-PHONE-REVEAL-4O-E1). MISMO
+   * contrato y misma implementación que en el webhook: un candidato suprimido tiene
+   * que acabar igual venga el resultado por callback o por recuperación.
+   *
+   * OPCIONAL: sin ella este core conserva EXACTAMENTE el camino anterior al hito —
+   * ese resultado sale por `collection_persistence_unavailable`, no terminaliza y el
+   * cron lo vuelve a seleccionar. Es justamente el bucle que este hito cierra.
+   *
+   * La escritura es CONDICIONAL: si la fila ya cambió de estado se actualizan 0
+   * filas y no se terminaliza nada.
+   */
+  persistTerminalSuppression?: PersistTerminalPhoneSuppression;
 
   // ── Cumplimiento de SUPRESIÓN en vuelo (FIX 3) ────────────────
   // Igual que en el webhook: NO depende de `ENABLE_APOLLO_PHONE_CACHE`. Un flag de
@@ -915,9 +934,79 @@ async function handleRecoveredPayload(args: {
         // Silencio deliberado: el writer ya propagó el error de la base, que
         // describe la operación y no el dato. `collection` sigue null ⇒ fail-closed.
       }
-      // Fail-closed también cuando la RPC respondió SIN terminalizar (`suppressed`,
-      // `stale_event`, `candidate_not_eligible`): esas respuestas escriben 0 filas,
-      // y darlas por buenas dejaría un `revealed` que nadie escribió.
+      // ── 4O-E1 — SUPRESIÓN CONFIRMADA POR LA TRANSACCIÓN ──────────
+      // Mismo veredicto y mismo cierre que en el webhook: `suppressed` no es un
+      // fallo de escritura, es un tombstone en TODOS los números del evento. Aquí
+      // el efecto de no terminalizar era peor que en el callback, porque el cron
+      // vuelve cada pasada: el candidato quedaba seleccionado indefinidamente sobre
+      // un resultado que nunca iba a poder persistirse.
+      //
+      // NO usa `finalizeNonTerminal`: esa función solo sella
+      // `phone_reveal_last_checked_at` y deja el estado en vuelo, que es
+      // exactamente lo que mantiene vivo el bucle.
+      if (collection?.status === 'suppressed') {
+        const terminalized = await applyTerminalPhoneSuppression({
+          candidateId: candidate.id,
+          persist: deps.persistTerminalSuppression,
+          patch: buildTerminalPhoneSuppressionPatch({
+            expectedStatuses: IN_FLIGHT_TERMINAL_SUPPRESSION_EXPECTED_STATUSES,
+            nowIso: deps.nowIso,
+            // Este cierre ES el del reveal del candidato: sus columnas de costo le
+            // pertenecen y la cifra del payload recuperado se conserva.
+            cost: { credits, source: resolveRecoveryCostSource(credits) },
+            provider: PHONE_REVEAL_PROVIDER,
+            // La recuperación no recibió callback: sella la comprobación, nunca
+            // `webhook_received_at`.
+            lastCheckedAt: deps.nowIso,
+          }),
+        });
+        if (terminalized.applied) {
+          await deps.logUsage(
+            buildRecoveryLog({
+              candidate,
+              recoveryRequestId,
+              revealStatus: SUPPRESSION_BLOCKED_ERROR_CODE,
+              outcome: 'blocked_suppressed',
+              logStatus: 'success',
+              errorCode: SUPPRESSION_BLOCKED_ERROR_CODE,
+              phonePresent: false,
+              phoneType: null,
+              credits,
+              // La comprobación por PERSONA se ejecutó y no encontró nada: quien
+              // bloqueó fue el tombstone del NÚMERO, y eso lo dice
+              // `phone_collection.persistence_status`.
+              suppressionState,
+              collectionFields: describeCandidatePhoneCollectionWrite({
+                result: collection,
+                duplicatePhoneCount: capture.counters.duplicate_phone_count,
+                canonicalPhoneCount: capture.counters.canonical_phone_count,
+                sourceCount: capture.counters.source_count,
+              }),
+              waterfallRunId,
+              input,
+            }),
+          );
+          // Waterfall: supresión confirmada ⇒ corrida abortada, pata Lusha nunca
+          // intentada, y la reserva LIQUIDADA (Apollo fue llamado, así que su pata se
+          // confirma con el costo real o con el tope; nunca se queda `reserved`).
+          await continueWaterfallBestEffort(deps, {
+            candidateId: candidate.id,
+            apolloOutcome: SUPPRESSION_BLOCKED_ERROR_CODE,
+            apolloCostCredits: credits,
+          });
+          return toResult('blocked_suppressed', {
+            creditsUsed: credits,
+            recoveryRequestIdPresent: true,
+          });
+        }
+        // No aplicada (dep sin cablear, carrera o fallo de escritura): se cae al
+        // camino no terminal de siempre, sin pisar el estado de otro actor.
+      }
+
+      // Fail-closed también cuando la RPC respondió SIN terminalizar (`suppressed`
+      // que no se pudo cerrar arriba, `stale_event`, `candidate_not_eligible`): esas
+      // respuestas escriben 0 filas, y darlas por buenas dejaría un `revealed` que
+      // nadie escribió.
       //
       // Sale por el camino NO terminal que ya existe: solo se sella
       // `phone_reveal_last_checked_at`, el candidato sigue en vuelo y el mismo

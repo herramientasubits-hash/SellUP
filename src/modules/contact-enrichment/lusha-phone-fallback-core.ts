@@ -74,6 +74,11 @@ import {
   type PhoneRevealRequestId,
 } from './phone-reveal-request-id-hygiene';
 import {
+  applyTerminalPhoneSuppression,
+  buildTerminalPhoneSuppressionPatch,
+  type PersistTerminalPhoneSuppression,
+} from './phone-reveal-suppression-guard';
+import {
   buildLushaPhoneFallbackUsageLogMetadataDraft,
   LUSHA_PHONE_FALLBACK_OPERATION_KEY,
   LUSHA_PHONE_FALLBACK_PROVIDER_KEY,
@@ -97,6 +102,20 @@ export const LUSHA_CONTACT_ID_REUSE_CONFIRMED = true;
  * turns out to lack it in practice. See module doc.
  */
 export const LUSHA_PHONE_ENTITLEMENT_CONFIRMED = true;
+
+/**
+ * `errorCode` que este core devuelve cuando la transacción de la colección
+ * (migración 111) respondió `suppressed`: Lusha entregó teléfonos y COBRÓ, pero
+ * todos son tombstones y ninguno se pudo persistir.
+ *
+ * Se exporta porque es el único código de error de esta pata que va acompañado de un
+ * costo REAL, y quien contabiliza la corrida tiene que poder reconocerlo para no
+ * borrar ese costo (AGENT2A-PHONE-REVEAL-4O-E1 § 10). El waterfall lo espeja en
+ * `PHONE_REVEAL_WATERFALL_LUSHA_SUPPRESSED_ERROR_CODE` en vez de importar este
+ * módulo — mantiene su independencia del core de Lusha — y un test estático verifica
+ * que las dos constantes no se separen.
+ */
+export const LUSHA_PHONE_COLLECTION_SUPPRESSED_ERROR_CODE = 'phone_suppressed' as const;
 
 /** Roles authorized to trigger the fallback — admin only (narrower than Apollo). */
 export const LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS: readonly string[] = ['admin'];
@@ -306,6 +325,22 @@ export interface LushaPhoneFallbackCoreDeps {
    * captura del otro proveedor, no se inventa una correlación.
    */
   phoneCollectionReservationId?: string | null;
+
+  /**
+   * Cierra el candidato como `error` + `blocked_suppressed` cuando la transacción
+   * de la colección respondió `suppressed` (AGENT2A-PHONE-REVEAL-4O-E1).
+   *
+   * Ese resultado significa que TODOS los números que Lusha entregó —y cobró— son
+   * tombstones. Hasta este hito el candidato no recibía NINGÚN rastro: se quedaba
+   * en `no_phone_found`, que es exactamente el estado que vuelve a hacerlo elegible
+   * para otro reveal pagado, así que el mismo número suprimido se podía volver a
+   * comprar indefinidamente.
+   *
+   * OPCIONAL: sin ella el camino queda como antes del hito. La escritura es
+   * CONDICIONAL —exige que la fila siga en el estado que autorizó esta pata— así
+   * que una carrera con otro actor no puede pisar su resultado.
+   */
+  persistTerminalSuppression?: PersistTerminalPhoneSuppression;
 }
 
 // ── Helpers puros ──────────────────────────────────────────────
@@ -714,8 +749,42 @@ export async function runLushaPhoneFallbackReveal(
     if (!written.candidate_terminalized) {
       const errorCode =
         written.status === 'suppressed'
-          ? 'phone_suppressed'
+          ? LUSHA_PHONE_COLLECTION_SUPPRESSED_ERROR_CODE
           : `collection_${written.status}`;
+      // 4O-E1 — supresión confirmada por la transacción: TODOS los números que
+      // Lusha entregó (y cobró) son tombstones. El candidato recibe por fin el
+      // rastro terminal `error` + `blocked_suppressed`, que es lo que lo saca de
+      // `no_phone_found` y por tanto lo hace INELEGIBLE para otro reveal pagado
+      // (`apollo_not_exhausted` en el gate canónico).
+      //
+      // Best-effort en el sentido estricto: si la escritura no se aplica —dep sin
+      // cablear, carrera con otro actor, fallo del driver— el camino sigue siendo
+      // exactamente el de antes del hito. Lo que NO se hace en ningún caso es
+      // ocultar el gasto: el usage-log de abajo se escribe igual.
+      if (written.status === 'suppressed') {
+        await applyTerminalPhoneSuppression({
+          candidateId,
+          persist: deps.persistTerminalSuppression,
+          patch: buildTerminalPhoneSuppressionPatch({
+            // Mismo token de pertenencia que exigió la transacción: la fila tiene
+            // que seguir en el estado que autorizó esta pata. Vacío ⇒ no se escribe.
+            expectedStatuses: cleanText(candidate.phoneRevealStatus)
+              ? [candidate.phoneRevealStatus as string]
+              : [],
+            nowIso: deps.nowIso,
+            // El costo NO se escribe en el candidato, y eso es lo que PRESERVA el
+            // gasto real. Estas columnas describen UN reveal, y el que describen aquí
+            // es el de la pata anterior (Apollo cerró `no_phone_found` con su propia
+            // cifra): sobrescribirlas con los créditos de Lusha borraría ese dato y
+            // atribuiría el gasto al proveedor equivocado. El cargo REAL de Lusha se
+            // conserva donde se contabiliza —columnas Lusha de la corrida, reserva
+            // confirmada y `provider_usage_logs`—, cada pata en su sitio.
+            //
+            // Por la misma razón no se toca `phone_reveal_provider`: el reveal que la
+            // fila describe sigue siendo el de Apollo.
+          }),
+        });
+      }
       await deps.logUsage(
         buildUsageLogEntry({
           candidateId,

@@ -1,0 +1,281 @@
+/**
+ * Tests ESTÁTICOS — alcance y cableado del check obligatorio
+ * (Agente 2A · AGENT2A-PHONE-REVEAL-4O-E1)
+ *
+ * La auditoría 4O-E0 encontró que el workflow obligatorio no ejecutaba las suites de
+ * supresión: un defecto de esta familia podía llegar a `main` con el check en verde
+ * simplemente porque nada lo corría. Este archivo cierra esa puerta desde dentro del
+ * propio check —comprobando que el paso existe— y fija a la vez las propiedades de
+ * ALCANCE que no fallan al compilar ni al ejecutar:
+ *
+ *   * la suite E1 está declarada en package.json Y ejecutada por el workflow;
+ *   * el workflow no perdió ningún paso previo;
+ *   * la escritura terminal es CONDICIONAL en el código fuente (nunca un
+ *     `.eq('id', …)` suelto);
+ *   * no se crearon ni modificaron migraciones, ni se tocaron las RPC 110/111;
+ *   * no se escriben tombstones nuevos en la colección canónica;
+ *   * el vocabulario terminal sigue siendo el de la columna, sin ampliarlo.
+ *
+ * Sin red, sin Supabase, sin proveedores: solo se leen archivos del repositorio.
+ */
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = join(HERE, '..', '..', '..', '..');
+const MODULE_DIR = join(REPO_ROOT, 'src', 'modules', 'contact-enrichment');
+
+const read = (...segments: string[]): string =>
+  readFileSync(join(REPO_ROOT, ...segments), 'utf8');
+
+/** Nombre EXACTO del script de la suite E1. Única fuente para los dos lados. */
+const E1_TEST_SCRIPT = 'test:agent2a:phone-suppression-terminal';
+
+const WORKFLOW_PATH = ['.github', 'workflows', 'automatic-routing-tests.yml'];
+
+// ═══════════════════════════════════════════════════════════════
+// § 18 — El check obligatorio ejecuta la suite
+// ═══════════════════════════════════════════════════════════════
+
+describe('4O-E1 § 18 · required check', () => {
+  it('package.json declara el script de la suite E1', () => {
+    const pkg = JSON.parse(read('package.json')) as {
+      scripts: Record<string, string>;
+    };
+    const script = pkg.scripts[E1_TEST_SCRIPT];
+    assert.ok(script, `falta el script ${E1_TEST_SCRIPT} en package.json`);
+    // Las tres suites del hito tienen que estar dentro del script, no solo una.
+    for (const suite of [
+      'phone-suppression-terminal-policy-4o-e1.test.ts',
+      'phone-suppression-terminal-runtime-4o-e1.test.ts',
+      'phone-suppression-terminal-static-4o-e1.test.ts',
+    ]) {
+      assert.ok(script.includes(suite), `el script no ejecuta ${suite}`);
+    }
+    // La suite runtime usa mock.module: sin el flag no arrancaría.
+    assert.ok(
+      script.includes('--experimental-test-module-mocks'),
+      'el script necesita --experimental-test-module-mocks',
+    );
+  });
+
+  it('el workflow obligatorio ejecuta ese script', () => {
+    const workflow = read(...WORKFLOW_PATH);
+    assert.ok(
+      workflow.includes(`npm run ${E1_TEST_SCRIPT}`),
+      `el workflow obligatorio no ejecuta ${E1_TEST_SCRIPT}`,
+    );
+  });
+
+  it('no se eliminó ningún paso previo del workflow', () => {
+    const workflow = read(...WORKFLOW_PATH);
+    // Muestra representativa de los pasos que ya existían antes del hito. Si alguno
+    // desapareciera, este test lo dice en vez de que el check adelgace en silencio.
+    for (const step of [
+      'npm run typecheck',
+      'npm run test:agent2a:automatic-routing',
+      'npm run test:agent2a:phone-waterfall',
+      'npm run test:agent2a:phone-credit-reservation',
+      'npm run test:agent2a:phone-budget-accounting',
+      'npm run test:agent2a:candidate-phone-collection',
+      'npm run test:agent2a:apollo-phone-collection-capture',
+    ]) {
+      assert.ok(workflow.includes(step), `el workflow perdió el paso: ${step}`);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// § 5.1 — La escritura terminal es condicional EN EL CÓDIGO
+// ═══════════════════════════════════════════════════════════════
+
+describe('4O-E1 § 5.1 · el UPDATE terminal nunca es incondicional', () => {
+  const source = read(
+    'src',
+    'modules',
+    'contact-enrichment',
+    'candidate-phone-suppression-persistence.ts',
+  );
+
+  it('condiciona por estado y por ausencia de teléfono', () => {
+    assert.ok(
+      source.includes(".in('phone_reveal_status'"),
+      'falta la condición de estado',
+    );
+    assert.ok(source.includes(".is('phone', null)"), 'falta la condición de teléfono');
+  });
+
+  it('cuenta las filas afectadas en vez de asumir la escritura', () => {
+    assert.ok(source.includes(".select('id')"), 'sin select no se pueden contar filas');
+    assert.ok(source.includes('data.length === 1'));
+  });
+
+  it('no hace ningún INSERT ni DELETE: solo marca el estado', () => {
+    assert.equal(source.includes('.insert('), false);
+    assert.equal(source.includes('.delete('), false);
+    assert.equal(source.includes('.upsert('), false);
+    assert.equal(source.includes('.rpc('), false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// § 13 / § 14 / § 20 — Alcance
+// ═══════════════════════════════════════════════════════════════
+
+describe('4O-E1 § 13 · las RPC 110 y 111 quedan intactas', () => {
+  it('el hito no llama a las funciones de persistencia por su nombre', () => {
+    const source = read(
+      'src',
+      'modules',
+      'contact-enrichment',
+      'candidate-phone-suppression-persistence.ts',
+    );
+    assert.equal(source.includes('persist_candidate_apollo_phone_reveal_result'), false);
+    assert.equal(source.includes('persist_candidate_lusha_phone_reveal_result'), false);
+  });
+
+  it('no se introdujo una RPC nueva para el cierre terminal', () => {
+    const guard = read('src', 'modules', 'contact-enrichment', 'phone-reveal-suppression-guard.ts');
+    assert.equal(guard.includes('.rpc('), false);
+  });
+});
+
+describe('4O-E1 § 14 · no se escriben tombstones nuevos', () => {
+  const touched = [
+    'phone-reveal-suppression-guard.ts',
+    'candidate-phone-suppression-persistence.ts',
+    'phone-reveal-webhook-core.ts',
+    'phone-reveal-recovery-core.ts',
+    'phone-reveal-waterfall-core.ts',
+    'lusha-phone-fallback-core.ts',
+  ];
+
+  it('ningún archivo tocado escribe `suppressed_at` ni toca las tablas de teléfonos', () => {
+    for (const file of touched) {
+      const source = readFileSync(join(MODULE_DIR, file), 'utf8');
+      assert.equal(
+        source.includes('suppressed_at:'),
+        false,
+        `${file} no puede escribir suppressed_at`,
+      );
+      assert.equal(
+        source.includes('contact_enrichment_candidate_phones'),
+        false,
+        `${file} no puede tocar la colección canónica directamente`,
+      );
+    }
+  });
+
+  it('tampoco toca contactos ni HubSpot', () => {
+    // Se buscan USOS, no menciones: los comentarios de estos módulos declaran
+    // explícitamente que nunca escriben HubSpot, y prohibir la palabra castigaría
+    // justo la documentación de la garantía.
+    for (const file of touched) {
+      const source = readFileSync(join(MODULE_DIR, file), 'utf8');
+      assert.equal(/from\s+['"][^'"]*hubspot/i.test(source), false, `${file}`);
+      assert.equal(/hubspot[A-Za-z]*\(/i.test(source), false, `${file}`);
+      assert.equal(source.includes("from('contacts')"), false, `${file}`);
+    }
+  });
+});
+
+describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
+  it('la última migración del repositorio sigue siendo la 111', () => {
+    const files = readdirSync(join(REPO_ROOT, 'supabase', 'migrations')).sort();
+    const last = files[files.length - 1];
+    assert.ok(
+      last.includes('111_') || last.includes('persist_candidate_lusha'),
+      `la última migración es ${last}: 4O-E1 no puede añadir ninguna`,
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// § 3.1 — El vocabulario terminal no se amplía
+// ═══════════════════════════════════════════════════════════════
+
+describe('4O-E1 § 3.1 · vocabulario', () => {
+  const guard = read(
+    'src',
+    'modules',
+    'contact-enrichment',
+    'phone-reveal-suppression-guard.ts',
+  );
+
+  it('el estado terminal es `error`, no uno nuevo', () => {
+    assert.ok(guard.includes("phone_reveal_status: 'error'"));
+    // `suppressed` como VALOR de phone_reveal_status ampliaría el CHECK de la
+    // columna (mig. 095/097) y exigiría una migración que este hito no autoriza.
+    assert.equal(guard.includes("phone_reveal_status: 'suppressed'"), false);
+    // `no_phone_found` sería peor que no escribir nada: es el estado que hace
+    // elegible el fallback pagado de Lusha.
+    assert.equal(guard.includes("phone_reveal_status: 'no_phone_found'"), false);
+  });
+
+  it('el código de error es el que ya existía', () => {
+    assert.ok(guard.includes("SUPPRESSION_BLOCKED_ERROR_CODE = 'blocked_suppressed'"));
+  });
+
+  it('el vocabulario de `lusha_skipped_reason` no cambia', () => {
+    const waterfall = read(
+      'src',
+      'modules',
+      'contact-enrichment',
+      'phone-reveal-waterfall-core.ts',
+    );
+    const block = waterfall.slice(
+      waterfall.indexOf('PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS = ['),
+      waterfall.indexOf('] as const;', waterfall.indexOf('PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS = [')),
+    );
+    for (const reason of [
+      'missing_lusha_contact_id',
+      'apollo_revealed',
+      'suppressed',
+      'suppression_check_unavailable',
+      'dnc',
+      'authorization_expired',
+      'role_not_allowed',
+      'feature_disabled',
+      'already_attempted',
+      'not_needed',
+      'provider_error',
+    ]) {
+      assert.ok(block.includes(`'${reason}'`), `falta ${reason}`);
+    }
+    // Exactamente los once de siempre: ni uno más.
+    assert.equal((block.match(/'/g) ?? []).length / 2, 11);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// § 12 / § 14 — Deuda declarada, no resuelta a escondidas
+// ═══════════════════════════════════════════════════════════════
+
+describe('4O-E1 · deuda pendiente declarada', () => {
+  it('el disparo manual de Lusha sigue SIN la persistencia de colección', () => {
+    // Es lo que mantiene `MANUAL_LUSHA_MULTI_PHONE_PENDING` y el gate pre-call del
+    // disparo manual fuera de este hito (pertenecen a 4O-E3). Si alguien cablease
+    // `persistPhoneCollection` en la acción manual, este test lo diría.
+    const actions = read(
+      'src',
+      'modules',
+      'contact-enrichment',
+      'lusha-phone-fallback-actions.ts',
+    );
+    assert.equal(actions.includes('persistPhoneCollection'), false);
+  });
+
+  it('la propagación DSAR a la colección sigue sin implementarse', () => {
+    const persistence = read(
+      'src',
+      'modules',
+      'contact-enrichment',
+      'candidate-phone-suppression-persistence.ts',
+    );
+    assert.equal(persistence.includes('suppressed_at'), false);
+  });
+});
