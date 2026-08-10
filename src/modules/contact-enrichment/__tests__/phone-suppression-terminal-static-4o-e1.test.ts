@@ -184,13 +184,31 @@ describe('4O-E1 § 14 · no se escriben tombstones nuevos', () => {
 });
 
 describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
-  it('la última migración del repositorio sigue siendo la 111', () => {
-    const files = readdirSync(join(REPO_ROOT, 'supabase', 'migrations')).sort();
+  it('4O-E1 no aportó ninguna migración, y el techo es el del último hito conocido', () => {
+    // Lo que esta guarda protege NO es el número más alto del directorio —sube cada
+    // vez que un bloque AUTORIZADO añade la suya—, sino que 4O-E1 no añadió ninguna:
+    // su cierre terminal es un UPDATE condicional y nada más. El techo lo movió
+    // AGENT2A-PHONE-REVEAL-4O-E2 con la 112 (propagación de la supresión a la
+    // colección), que tiene su propia guarda estática.
+    const files = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
+      .filter((file) => /^\d+.*\.sql$/.test(file))
+      .sort();
     const last = files[files.length - 1];
-    assert.ok(
-      last.includes('111_') || last.includes('persist_candidate_lusha'),
-      `la última migración es ${last}: 4O-E1 no puede añadir ninguna`,
+    assert.equal(
+      last,
+      '112_suppress_candidate_phone_collection.sql',
+      `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
+    // Y ninguna migración menciona a 4O-E1: el hito no escribió SQL.
+    for (const file of files) {
+      assert.equal(
+        readFileSync(join(REPO_ROOT, 'supabase', 'migrations', file), 'utf8').includes(
+          '4O-E1',
+        ),
+        false,
+        `${file} no debería mencionar 4O-E1`,
+      );
+    }
   });
 });
 
