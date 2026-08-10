@@ -36,6 +36,7 @@ import {
 import {
   brazilReceitaFullJoinSyntheticKey,
   brazilReceitaFullJoinSyntheticKeysInOnePartition,
+  brazilReceitaFullJoinFixtureRunDefaults,
   createBrazilReceitaFullJoinFixture,
   type BrazilReceitaFullJoinFixtureHandle,
   type BrazilReceitaFullJoinFixtureScenario,
@@ -124,6 +125,7 @@ function engineRequest(
       datasetRoot: handle.datasetRoot,
     },
     resourceDependencies: createBrazilReceitaFullJoinResourceProcessDependencies(),
+    ...brazilReceitaFullJoinFixtureRunDefaults(),
     realDataRun: false,
     sinkMaterializesRows: false,
     ...overrides,

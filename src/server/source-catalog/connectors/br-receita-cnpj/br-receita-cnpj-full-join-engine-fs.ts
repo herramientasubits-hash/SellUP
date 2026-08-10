@@ -26,8 +26,32 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import type { BrazilReceitaFullJoinFreeDiskProbe } from './br-receita-cnpj-full-join-free-disk';
 import type { BrazilReceitaFullJoinWorkspaceFileSystem } from './br-receita-cnpj-full-join-partition-workspace';
 import type { BrazilReceitaFullJoinReaderFileSystem } from './br-receita-cnpj-full-join-streaming-reader';
+
+/**
+ * The real free-disk probe, backed by `statfs` (BR-SOURCE-14B.0F § 4).
+ *
+ * `statfsSync` rather than `child_process` + `df`, which § 4 forbids and which would be worse on
+ * every axis: spawning a shell from a module that must not spawn anything, parsing locale-dependent
+ * output, and answering for whatever `df` decided the path meant.
+ *
+ * `bavail`, NOT `bfree`. Most filesystems reserve a slice of their free blocks for the superuser, so
+ * `bfree` is larger than what this process can actually write. A run that treated the reserved slice
+ * as usable would hit `ENOSPC` while its own arithmetic still said there was room — which is exactly
+ * the failure the free-disk check exists to prevent.
+ *
+ * Throws on an unresolvable path, and that is deliberate: the free-disk policy module treats a
+ * throwing probe as `free_disk_measurement_unavailable`, which is terminal. A probe that swallowed
+ * the error and returned a large number would turn "cannot measure" into "plenty of room".
+ */
+export function createBrazilReceitaFullJoinFreeDiskProbe(): BrazilReceitaFullJoinFreeDiskProbe {
+  return (targetPath: string): number => {
+    const stats = fs.statfsSync(targetPath);
+    return Number(stats.bavail) * Number(stats.bsize);
+  };
+}
 
 /**
  * The real, process-backed reader port.

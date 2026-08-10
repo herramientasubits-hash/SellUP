@@ -80,6 +80,16 @@ export interface BrazilReceitaFullJoinEngineExactObservations {
   readonly partitionDepthReached: number;
   readonly filesTraversedToEndOfFile: number;
   readonly sourceFilesDeclared: number;
+  /**
+   * The high-water mark of SIMULTANEOUSLY-open descriptors, across every category
+   * (BR-SOURCE-14B.0F § 3, § 9). This is the figure that answers "did the run need an extraordinary
+   * `ulimit`?" — the cumulative `resource.filesOpened` count cannot, because it never falls.
+   */
+  readonly filesOpenedPeak: number;
+  /** The partition pool's own high-water mark. Bounded by `maxOpenPartitionFiles` by construction. */
+  readonly partitionHandlePeakOpen: number;
+  /** How many times the pool closed a handle to make room. Evidence the bound is doing work. */
+  readonly partitionHandleEvictions: number;
 }
 
 /**
@@ -132,6 +142,9 @@ export interface BrazilReceitaFullJoinEnginePublicReport {
   readonly partition_count_bucket: BrazilReceitaFullJoinCountBucket;
   readonly largest_partition_reference_count_bucket: BrazilReceitaFullJoinCountBucket;
   readonly in_memory_key_window_peak_bucket: BrazilReceitaFullJoinCountBucket;
+  /** § 10's `filesOpenedPeakBucket`. Bucketed like every other magnitude; never the exact count. */
+  readonly files_opened_peak_bucket: BrazilReceitaFullJoinCountBucket;
+  readonly partition_handle_peak_open_bucket: BrazilReceitaFullJoinCountBucket;
   readonly partition_depth_reached: number;
   readonly match_count_bucket: BrazilReceitaFullJoinCountBucket;
   readonly orphan_establishment_count_bucket: BrazilReceitaFullJoinCountBucket;
@@ -238,6 +251,10 @@ export function buildBrazilReceitaFullJoinEnginePublicReport(
       exact.largestPartitionReferenceCount,
     ),
     in_memory_key_window_peak_bucket: toBrazilReceitaFullJoinCountBucket(exact.peakKeyWindowSize),
+    files_opened_peak_bucket: toBrazilReceitaFullJoinCountBucket(exact.filesOpenedPeak),
+    partition_handle_peak_open_bucket: toBrazilReceitaFullJoinCountBucket(
+      exact.partitionHandlePeakOpen,
+    ),
     partition_depth_reached: exact.partitionDepthReached,
     match_count_bucket: toBrazilReceitaFullJoinCountBucket(exact.matchesEmitted),
     orphan_establishment_count_bucket: toBrazilReceitaFullJoinCountBucket(
