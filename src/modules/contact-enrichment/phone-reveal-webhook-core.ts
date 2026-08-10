@@ -55,13 +55,17 @@ import {
   PHONE_REVEAL_PROVIDER,
 } from './phone-reveal-core';
 import {
+  applyTerminalPhoneSuppression,
+  buildTerminalPhoneSuppressionPatch,
   describeInFlightSuppression,
   evaluateInFlightPhoneSuppression,
   resolveInFlightSuppressionPersonId,
+  IN_FLIGHT_TERMINAL_SUPPRESSION_EXPECTED_STATUSES,
   SUPPRESSION_BLOCKED_ERROR_CODE,
   SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
   type InFlightSuppressionAuditState,
   type InFlightSuppressionLookup,
+  type PersistTerminalPhoneSuppression,
 } from './phone-reveal-suppression-guard';
 import {
   reportPhoneSuppressionNotEvaluable,
@@ -343,6 +347,21 @@ export interface ApolloPhoneRevealWebhookDeps {
    * colección y escalar no puedan discrepar.
    */
   persistCandidatePhoneCollection?: PersistCandidatePhoneCollection;
+
+  /**
+   * Cierra el candidato como `error` + `blocked_suppressed` cuando la transacción
+   * de la colección respondió `suppressed` (AGENT2A-PHONE-REVEAL-4O-E1).
+   *
+   * OPCIONAL: sin ella este core conserva EXACTAMENTE el camino anterior al hito —
+   * ese resultado se registra como `collection_persistence_unavailable`, no
+   * terminaliza y deja el candidato recuperable.
+   *
+   * La escritura es CONDICIONAL por contrato (ver
+   * `PersistTerminalPhoneSuppression`): si la fila ya cambió de estado se
+   * actualizan 0 filas y este core NO terminaliza, para no pisar el resultado de
+   * otro actor legítimo.
+   */
+  persistTerminalSuppression?: PersistTerminalPhoneSuppression;
 
   // ── Cumplimiento de SUPRESIÓN en vuelo (FIX 3) ────────────────
   // NO depende de `ENABLE_APOLLO_PHONE_CACHE`: el flag gobierna la reutilización
@@ -916,10 +935,85 @@ export async function runApolloPhoneRevealWebhook(
         // describe la operación y no el dato, y volver a formatearlo aquí solo
         // podría añadir PII. `collection` sigue null ⇒ camino fail-closed.
       }
+      // ── 4O-E1 — SUPRESIÓN CONFIRMADA POR LA TRANSACCIÓN ──────────
+      // `suppressed` significa que TODOS los números de este evento son
+      // tombstones. NO es «no se pudo guardar»: es un veredicto de privacidad
+      // definitivo, y agruparlo con los fallos de escritura era lo que dejaba al
+      // candidato en vuelo (el cron lo reseleccionaba en cada pasada, sobre un
+      // resultado que jamás va a poder persistirse) y a la corrida activa con su
+      // reserva sin liquidar pese a que Apollo YA había cobrado.
+      //
+      // Se cierra terminal `error` + `blocked_suppressed` con una escritura
+      // CONDICIONAL: si la fila cambió de estado mientras tanto se actualizan 0
+      // filas y se cae al camino no terminal de siempre, sin pisar a nadie.
+      if (collection?.status === 'suppressed') {
+        const terminalized = await applyTerminalPhoneSuppression({
+          candidateId: candidate.id,
+          persist: deps.persistTerminalSuppression,
+          patch: buildTerminalPhoneSuppressionPatch({
+            expectedStatuses: IN_FLIGHT_TERMINAL_SUPPRESSION_EXPECTED_STATUSES,
+            nowIso: deps.nowIso,
+            // El cargo del proveedor se conserva: la respuesta llegó y se pagó,
+            // aunque la supresión impidiera guardar el número. Este cierre ES el del
+            // reveal del candidato, así que sus columnas de costo le pertenecen.
+            cost: { credits, source: resolveWebhookCostSource(credits) },
+            provider: PHONE_REVEAL_PROVIDER,
+            webhookReceivedAt: deps.nowIso,
+          }),
+        });
+        if (terminalized.applied) {
+          await deps.logUsage({
+            operationKey: PHONE_REVEAL_OPERATION_KEY,
+            provider: 'apollo',
+            creditsUsed: credits,
+            status: 'success',
+            errorCode: SUPPRESSION_BLOCKED_ERROR_CODE,
+            metadata: {
+              candidate_id: candidate.id,
+              account_id: candidate.accountId,
+              provider: 'apollo',
+              reveal_status: SUPPRESSION_BLOCKED_ERROR_CODE,
+              reveal_phase: 'webhook',
+              // La comprobación POR PERSONA sí se ejecutó y no encontró nada: el
+              // tombstone que bloqueó es el del NÚMERO, y decir lo contrario
+              // falsearía qué se comprobó. `phone_collection.persistence_status`
+              // es lo que identifica el veredicto de la transacción.
+              suppression_state: suppressionState,
+              request_id: requestId,
+              webhook_ref: ref,
+              correlation_source: correlationSource,
+              phone_revealed: false,
+              phone_type: null,
+              credits_used: credits,
+              phone_collection: describeCandidatePhoneCollectionWrite({
+                result: collection,
+                duplicatePhoneCount: capture.counters.duplicate_phone_count,
+                canonicalPhoneCount: capture.counters.canonical_phone_count,
+                sourceCount: capture.counters.source_count,
+              }),
+              ...waterfallMeta,
+            },
+          });
+          // Waterfall: una supresión confirmada bloquea a TODOS los proveedores, así
+          // que la corrida se aborta y la pata Lusha no se intenta. Es además el
+          // paso que LIQUIDA la reserva: Apollo fue llamado, así que su pata se
+          // confirma con el costo real (o con el tope, `assumed_cap`, si no lo
+          // reportó) en vez de quedarse `reserved` para siempre.
+          await continueWaterfallBestEffort(deps, {
+            candidateId: candidate.id,
+            apolloOutcome: SUPPRESSION_BLOCKED_ERROR_CODE,
+            apolloCostCredits: credits,
+          });
+          return { httpStatus: 200, outcome: 'blocked_suppressed' };
+        }
+        // No aplicada (dep sin cablear, carrera con otro actor o fallo de
+        // escritura): se cae al camino no terminal de siempre. Nada se pisa.
+      }
+
       // Fail-closed también cuando la RPC respondió sin terminalizar: `suppressed`
-      // (todos los números son tombstones), `stale_event` (el candidato ya cerró o
-      // pasó a otro request id) y `candidate_not_eligible` escriben 0 filas, así
-      // que tratarlas como éxito dejaría un `revealed` que nadie escribió.
+      // que no se pudo cerrar arriba, `stale_event` (el candidato ya cerró o pasó a
+      // otro request id) y `candidate_not_eligible` escriben 0 filas, así que
+      // tratarlas como éxito dejaría un `revealed` que nadie escribió.
       if (!collection?.candidate_terminalized) {
         await deps.logUsage({
           operationKey: PHONE_REVEAL_OPERATION_KEY,

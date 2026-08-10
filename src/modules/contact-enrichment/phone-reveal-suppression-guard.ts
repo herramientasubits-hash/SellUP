@@ -198,6 +198,184 @@ export function describeInFlightSuppression(
   }
 }
 
+// ── Terminalización de la supresión (AGENT2A-PHONE-REVEAL-4O-E1) ──
+//
+// La guarda de arriba resuelve la supresión POR PERSONA y sus dos caminos ya
+// terminalizan. Falta el otro sitio donde una supresión puede impedir persistir un
+// teléfono: la transacción de la colección (migraciones 110/111) responde
+// `status = 'suppressed'` cuando TODOS los números del evento son tombstones, y
+// entonces escribe 0 filas y NO cierra el candidato.
+//
+// Hasta este hito ese resultado se trataba como «no se pudo guardar»: el candidato
+// se quedaba en vuelo, el cron lo volvía a seleccionar cada pasada, la corrida
+// seguía activa y su reserva seguía `reserved` pese a que el proveedor YA había
+// cobrado. Ni la privacidad quedaba registrada ni el gasto liquidado.
+//
+// Este bloque define el contrato ÚNICO de esa terminalización para las cuatro
+// fases (webhook, recovery, pata Lusha del waterfall y gate previo a Lusha), para
+// que las cuatro escriban exactamente lo mismo:
+//
+//   phone_reveal_status     = 'error'
+//   phone_reveal_error_code = 'blocked_suppressed'
+//
+// `error` y no un estado nuevo: es el vocabulario que ya admite el CHECK de la
+// columna (mig. 095/097) y el ÚNICO que el recovery, el cron y la revisión manual
+// L3 ya tratan como terminal. `no_phone_found` sería peor que no escribir nada —
+// es justo el estado que hace ELEGIBLE el fallback pagado de Lusha.
+//
+// La escritura es CONDICIONAL por contrato: entre que la transacción respondió
+// `suppressed` y que este UPDATE llega, otro actor legítimo pudo terminalizar o
+// revelar el candidato. Un `UPDATE ... WHERE id = ?` a secas pisaría ese resultado.
+
+/**
+ * Estados NO terminales desde los que el webhook y la recuperación pueden
+ * terminalizar una supresión. Espejo de `POLLABLE_STATUSES`: son exactamente los
+ * dos estados «en vuelo» en los que puede estar un reveal Apollo cuyo resultado
+ * acaba de llegar.
+ */
+export const IN_FLIGHT_TERMINAL_SUPPRESSION_EXPECTED_STATUSES: readonly string[] = [
+  'requested',
+  'pending',
+];
+
+/**
+ * UPDATE terminal por supresión. Describe la escritura; no la ejecuta.
+ *
+ * `expectedStatuses` NO es un adorno: es la condición de la escritura. La fila solo
+ * se toca si sigue exactamente en uno de esos estados, de modo que un `revealed`
+ * concurrente sobrevive intacto.
+ */
+export interface TerminalPhoneSuppressionPatch {
+  /** Estados en los que la fila DEBE seguir para que esta escritura gane. */
+  expectedStatuses: readonly string[];
+  phone_reveal_status: 'error';
+  phone_reveal_error_code: typeof SUPPRESSION_BLOCKED_ERROR_CODE;
+  phone_reveal_completed_at: string;
+  /**
+   * Créditos que el proveedor reportó por la respuesta que la supresión impidió
+   * guardar, y su procedencia. Se conserva el cargo: existió aunque el número no se
+   * persistiera, y escribir 0 sería declarar gratis una llamada pagada.
+   *
+   * Las DOS claves son OPCIONALES y van juntas o no van, porque estas columnas del
+   * candidato describen UN reveal, no la suma de varios:
+   *
+   *   * se escriben cuando esta supresión cierra el reveal EN VUELO del propio
+   *     candidato (webhook / recuperación de Apollo), donde no había cifra previa;
+   *   * se OMITEN cuando el candidato ya lleva la cifra de otra pata —el gate previo
+   *     a Lusha y la supresión posterior a una llamada Lusha ocurren sobre un
+   *     candidato que ya cerró su pata Apollo—. Escribirlas ahí borraría un costo
+   *     real ya incurrido o lo atribuiría al proveedor equivocado. Ese costo vive,
+   *     por pata y sin mezclarse, en `phone_reveal_waterfall_runs`, en la reserva
+   *     confirmada y en `provider_usage_logs`.
+   */
+  phone_reveal_cost_credits?: number | null;
+  phone_reveal_cost_source?: 'reported' | 'unknown';
+  /**
+   * Proveedor que produjo la respuesta suprimida. OPCIONAL: solo se escribe cuando
+   * este cierre es el del reveal del propio candidato. En los cierres que ocurren
+   * sobre un reveal ya terminalizado por otra pata la columna NO se toca — cambiarla
+   * reescribiría de quién era ese reveal.
+   */
+  phone_reveal_provider?: 'apollo' | 'lusha';
+  /** Solo el webhook: sella la llegada del callback. */
+  phone_reveal_webhook_received_at?: string;
+  /** Solo la recuperación: sella la última comprobación. */
+  phone_reveal_last_checked_at?: string;
+}
+
+/**
+ * Firma de la escritura condicional inyectada. Devuelve `applied: true` SOLO si
+ * afectó exactamente una fila. Puede LANZAR: `applyTerminalPhoneSuppression` lo
+ * traduce a un resultado mecánico y el caller conserva su camino fail-closed.
+ */
+export type PersistTerminalPhoneSuppression = (
+  candidateId: string,
+  patch: TerminalPhoneSuppressionPatch,
+) => Promise<{ applied: boolean }>;
+
+/** Por qué la terminalización se aplicó o no. Código mecánico, sin PII. */
+export type TerminalPhoneSuppressionReason =
+  | 'applied'
+  /** El caller no cableó la dep: se conserva su comportamiento anterior al hito. */
+  | 'not_wired'
+  /** La fila cambió de estado entre la respuesta de la transacción y este UPDATE. */
+  | 'concurrent_state_change'
+  /** La escritura falló (driver, permisos, timeout). Nada terminal se escribió. */
+  | 'write_failed';
+
+export interface TerminalPhoneSuppressionOutcome {
+  applied: boolean;
+  reason: TerminalPhoneSuppressionReason;
+}
+
+/**
+ * Construye el patch terminal por supresión. Un único constructor para las cuatro
+ * fases: si algún día cambia el estado o el código, cambia en un solo sitio y
+ * ninguna fase puede quedarse con el anterior.
+ */
+export function buildTerminalPhoneSuppressionPatch(args: {
+  expectedStatuses: readonly string[];
+  nowIso: string;
+  /**
+   * Costo del reveal que esta supresión cierra. Presente SOLO cuando el reveal es
+   * el del propio candidato; ausente cuando el candidato ya lleva la cifra de otra
+   * pata (ver `TerminalPhoneSuppressionPatch`).
+   */
+  cost?: { credits: number | null; source: 'reported' | 'unknown' };
+  provider?: 'apollo' | 'lusha';
+  webhookReceivedAt?: string;
+  lastCheckedAt?: string;
+}): TerminalPhoneSuppressionPatch {
+  return {
+    expectedStatuses: args.expectedStatuses,
+    phone_reveal_status: 'error',
+    phone_reveal_error_code: SUPPRESSION_BLOCKED_ERROR_CODE,
+    phone_reveal_completed_at: args.nowIso,
+    ...(args.cost
+      ? {
+          phone_reveal_cost_credits: args.cost.credits,
+          phone_reveal_cost_source: args.cost.source,
+        }
+      : {}),
+    ...(args.provider ? { phone_reveal_provider: args.provider } : {}),
+    ...(args.webhookReceivedAt
+      ? { phone_reveal_webhook_received_at: args.webhookReceivedAt }
+      : {}),
+    ...(args.lastCheckedAt ? { phone_reveal_last_checked_at: args.lastCheckedAt } : {}),
+  };
+}
+
+/**
+ * Aplica la terminalización sin poder lanzar. Fail-closed en los tres modos de
+ * fallo: dep ausente, 0 filas afectadas y excepción del driver devuelven
+ * `applied: false`, y el caller conserva íntegro su camino anterior (no terminal)
+ * en vez de dar por cerrado algo que la base no escribió.
+ *
+ * Filtrar los estados esperados vacíos es deliberado: una lista vacía haría un
+ * `IN ()` que no puede casar nada, y peor aún invitaría a un caller a escribir sin
+ * condición. Sin estados que exigir, no se escribe.
+ */
+export async function applyTerminalPhoneSuppression(args: {
+  candidateId: string;
+  patch: TerminalPhoneSuppressionPatch;
+  persist?: PersistTerminalPhoneSuppression;
+}): Promise<TerminalPhoneSuppressionOutcome> {
+  if (!args.persist) return { applied: false, reason: 'not_wired' };
+  if (args.patch.expectedStatuses.length === 0) {
+    return { applied: false, reason: 'not_wired' };
+  }
+  try {
+    const { applied } = await args.persist(args.candidateId, args.patch);
+    return applied
+      ? { applied: true, reason: 'applied' }
+      : { applied: false, reason: 'concurrent_state_change' };
+  } catch {
+    // Silencio acotado: el driver ya describe la operación y volver a formatear su
+    // mensaje aquí solo podría añadir PII. El caller sale por su camino fail-closed.
+    return { applied: false, reason: 'write_failed' };
+  }
+}
+
 // ── Alerta de "no evaluable" (APOLLO-PHONE-CACHE-1b, FIX 4) ─────
 //
 // El límite documentado en la cabecera — sin Apollo person id (o sin cuenta) no
