@@ -604,10 +604,14 @@ describe('CACHE-1b supresión — FIX 1 procedencia creado/promovido obligatoria
 // ── FIX M1: no borrar teléfonos manuales / curados ─────────────
 
 describe('CACHE-1b supresión — FIX M1 procedencia del teléfono del contacto', () => {
-  it('solo apollo_reveal y apollo_cache son borrables', () => {
+  // 4O-E4 amplió la allowlist a `lusha_reveal` con la cadena de procedencia
+  // demostrada de punta a punta. El detalle de esa admisión —y el límite de
+  // `mobile_phone`— vive en `phone-contacts-privacy-erasure-4o-e4.test.ts`.
+  it('solo apollo_reveal, apollo_cache y lusha_reveal son borrables', () => {
     assert.deepEqual([...SUPPRESSIBLE_CONTACT_PHONE_SOURCES], [
       'apollo_reveal',
       'apollo_cache',
+      'lusha_reveal',
     ]);
   });
 
@@ -623,7 +627,6 @@ describe('CACHE-1b supresión — FIX M1 procedencia del teléfono del contacto'
     'manual',
     'provider_payload',
     'apollo_search',
-    'lusha_reveal',
     'unknown',
     'future_unapproved_source',
     null,
@@ -634,7 +637,7 @@ describe('CACHE-1b supresión — FIX M1 procedencia del teléfono del contacto'
     });
   }
 
-  for (const source of ['apollo_reveal', 'apollo_cache']) {
+  for (const source of ['apollo_reveal', 'apollo_cache', 'lusha_reveal']) {
     it(`procedencia ${source} ⇒ sí se borra`, () => {
       const result = plan({}, { contacts: [makeContact({ phoneSource: source })] });
       assert.deepEqual(clearedContactIds(result), ['contact-1']);

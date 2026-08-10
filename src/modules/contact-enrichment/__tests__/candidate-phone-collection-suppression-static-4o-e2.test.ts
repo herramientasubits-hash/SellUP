@@ -716,7 +716,13 @@ describe('4O-E2 · deuda declarada y alcance no tocado', () => {
     assert.equal(/suppress_candidate_phone_collection/.test(e1), false);
   });
 
-  it('la allowlist de procedencias borrables en contacts NO se amplió a Lusha', () => {
+  // Este test nació como guarda de alcance de E2: «E2 no amplió la allowlist a
+  // Lusha». La ampliación llegó en 4O-E4, con la cadena de procedencia demostrada de
+  // punta a punta, así que la guarda pasa a fijar el conjunto EXACTO resultante. Lo
+  // que sigue siendo la propiedad de fondo —y lo que el assert protege— es que la
+  // lista no admita nada sin procedencia: `manual`, `unknown`, `apollo_search`,
+  // `provider_payload` y `NULL` quedan fuera.
+  it('la allowlist de procedencias borrables en contacts es exactamente Apollo + Lusha', () => {
     const core = read(
       'src',
       'modules',
@@ -728,7 +734,7 @@ describe('4O-E2 · deuda declarada y alcance no tocado', () => {
     );
     assert.ok(list);
     const values = [...list[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
-    assert.deepEqual(values, ['apollo_cache', 'apollo_reveal']);
+    assert.deepEqual(values, ['apollo_cache', 'apollo_reveal', 'lusha_reveal']);
   });
 
   it('la pata manual de Lusha no fue modificada por este hito', () => {
