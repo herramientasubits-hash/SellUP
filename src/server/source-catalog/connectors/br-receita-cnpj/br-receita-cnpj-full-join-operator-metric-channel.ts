@@ -255,8 +255,34 @@ export interface BrazilReceitaFullJoinPrivateOperatorMeasurements {
   readonly temporaryStoragePeakBytes: number;
   readonly joinKeysPeakInMemory: number;
   readonly outputRowsMaterialized: number;
+  /**
+   * The four figures BR-SOURCE-14B.0F § 9 adds, all of them counts of the run's own machinery.
+   *
+   * `filesOpenedPeak` is the one that could not be derived from anything that existed before: the
+   * enforcer's `filesOpened` is CUMULATIVE and never falls, so it cannot answer "how many descriptors
+   * were held at once" — which is precisely the question the 4096-handle finding raised.
+   */
+  readonly partitionsCreated: number;
+  readonly largestPartitionReferenceCount: number;
+  readonly filesOpenedPeak: number;
+  readonly partitionHandlePeakOpen: number;
   readonly cleanupResult: BrazilReceitaFullJoinResourceCleanupOutcome | 'not_recorded';
   readonly sanitizerResult: BrazilReceitaFullJoinPrivateSanitizerResult;
+}
+
+/**
+ * The engine-side counts the private channel carries alongside the resource observations.
+ *
+ * A separate parameter rather than a wider `BrazilReceitaFullJoinResourceExactObservations`, because
+ * the 14B.0C enforcer measures the PROCESS and knows nothing about partitions. Widening its type to
+ * carry a partition count would put engine vocabulary inside the resource envelope, and the envelope
+ * is deliberately the one module in this family that has no idea what a join is.
+ */
+export interface BrazilReceitaFullJoinPrivateEngineCounts {
+  readonly partitionsCreated: number;
+  readonly largestPartitionReferenceCount: number;
+  readonly filesOpenedPeak: number;
+  readonly partitionHandlePeakOpen: number;
 }
 
 /** The public report's sanitizer verdict, carried so an operator can correlate the two channels. */
@@ -265,11 +291,32 @@ export type BrazilReceitaFullJoinPrivateSanitizerResult =
   | 'failed'
   | 'not_run';
 
+/**
+ * The engine counts a run that never reached the engine reports.
+ *
+ * Zeros rather than absent fields, for the reason the empty resource observations exist: a refusal
+ * must report the same SHAPE as a completed run, or a consumer has to special-case it — and
+ * special-casing is where a refusal starts reading as a success.
+ */
+export function emptyBrazilReceitaFullJoinPrivateEngineCounts(): BrazilReceitaFullJoinPrivateEngineCounts {
+  return {
+    partitionsCreated: 0,
+    largestPartitionReferenceCount: 0,
+    filesOpenedPeak: 0,
+    partitionHandlePeakOpen: 0,
+  };
+}
+
 export function toBrazilReceitaFullJoinPrivateOperatorMeasurements(
   observations: BrazilReceitaFullJoinResourceExactObservations,
   sanitizerResult: BrazilReceitaFullJoinPrivateSanitizerResult,
+  engineCounts: BrazilReceitaFullJoinPrivateEngineCounts = emptyBrazilReceitaFullJoinPrivateEngineCounts(),
 ): BrazilReceitaFullJoinPrivateOperatorMeasurements {
   return {
+    partitionsCreated: engineCounts.partitionsCreated,
+    largestPartitionReferenceCount: engineCounts.largestPartitionReferenceCount,
+    filesOpenedPeak: engineCounts.filesOpenedPeak,
+    partitionHandlePeakOpen: engineCounts.partitionHandlePeakOpen,
     channel_version: BRAZIL_RECEITA_FULL_JOIN_METRIC_CHANNEL_VERSION,
     envelope_version: observations.envelope_version,
     peakRssBytes: observations.peakRssBytes,
@@ -344,6 +391,10 @@ const ALLOWED_PRIVATE_TOP_LEVEL_FIELDS: readonly string[] = [
   'temporaryStoragePeakBytes',
   'joinKeysPeakInMemory',
   'outputRowsMaterialized',
+  'partitionsCreated',
+  'largestPartitionReferenceCount',
+  'filesOpenedPeak',
+  'partitionHandlePeakOpen',
   'cleanupResult',
   'sanitizerResult',
 ];

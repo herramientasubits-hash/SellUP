@@ -49,6 +49,7 @@ import {
 import { BRAZIL_RECEITA_FULL_JOIN_NO_WRITE_CONTRACT } from '../br-receita-cnpj-full-join-no-write-guard';
 import {
   brazilReceitaFullJoinSyntheticKey,
+  brazilReceitaFullJoinFixtureRunDefaults,
   createBrazilReceitaFullJoinFixture,
   type BrazilReceitaFullJoinFixtureHandle,
 } from '../br-receita-cnpj-full-join-engine-fixtures';
@@ -516,6 +517,7 @@ function syntheticBenchmarkRequest(overrides: { resourceCaps?: unknown; realData
           datasetRoot: handle.datasetRoot,
         },
         resourceDependencies: createBrazilReceitaFullJoinResourceProcessDependencies(),
+        ...brazilReceitaFullJoinFixtureRunDefaults(),
         realDataRun: overrides.realDataRun ?? false,
         sinkMaterializesRows: overrides.sinkMaterializesRows ?? false,
       },

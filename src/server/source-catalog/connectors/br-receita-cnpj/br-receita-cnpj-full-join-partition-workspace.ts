@@ -26,6 +26,25 @@
  * path-only plus one `realpath`: a symlinked parent resolves to its target and is compared again, so
  * a link planted between validation and creation cannot redirect the workspace into the dataset.
  *
+ * ── Descriptors are POOLED, not hoarded (BR-SOURCE-14B.0F § 3) ──────────────────
+ * The first version of this module kept one append handle per partition file for the whole reference
+ * pass. At `partitionCount = 1024` across two families that is roughly 4096 descriptors — a number
+ * set by a PARTITIONING parameter rather than by a resource cap, and invisible to 14B.0C's
+ * `maxFilesOpened`, which counts cumulative SOURCE opens. Correctness therefore depended on the
+ * operator having raised `ulimit -n`, which is not a correctness argument.
+ *
+ * Handles now come from a bounded LRU pool (`maxOpenPartitionFiles`, proposed 32) whose every
+ * reservation also passes through a GLOBAL concurrent ledger (`maxFilesOpened`, proposed 64) shared
+ * with source files, the private metric artifact and control artifacts. Eviction is safe because
+ * partition files are append-only and every write is one complete fixed-width record: a reopened file
+ * continues exactly where the closed handle stopped.
+ *
+ * ── Free disk is checked, not assumed (BR-SOURCE-14B.0F § 4) ────────────────────
+ * `maxTemporaryStorageBytes` bounds what the run may WRITE; it says nothing about whether the volume
+ * can accept it. The parent is probed once before the workspace is created, and the workspace is
+ * re-probed before each write block, so a filling disk stops the run while the machine is still
+ * usable rather than at `ENOSPC`.
+ *
  * ── Cleanup is a deletion ENGINE, and it verifies ───────────────────────────────
  * `br-receita-cnpj-full-join-cleanup` is a pure PLANNER that cannot delete a path — it was written
  * when no deletion engine was authorized. This module is that engine, and it is deliberately
@@ -46,6 +65,19 @@
  */
 
 import * as path from 'node:path';
+
+import {
+  assertBrazilReceitaFullJoinFreeDiskBeforeStart,
+  assertBrazilReceitaFullJoinFreeDiskReserve,
+  createBrazilReceitaFullJoinFreeDiskCheckSchedule,
+  resolveBrazilReceitaFullJoinFreeDiskThresholds,
+  type BrazilReceitaFullJoinFreeDiskProbe,
+} from './br-receita-cnpj-full-join-free-disk';
+import type { BrazilReceitaFullJoinOpenHandleLedger } from './br-receita-cnpj-full-join-open-handle-ledger';
+import {
+  createBrazilReceitaFullJoinPartitionHandlePool,
+  type BrazilReceitaFullJoinPartitionHandlePoolStats,
+} from './br-receita-cnpj-full-join-partition-handle-pool';
 
 // ─── Version & policy ─────────────────────────────────────────────────────────
 
@@ -243,7 +275,11 @@ export type BrazilReceitaFullJoinWorkspaceRejection =
   | 'parent_realpath_unavailable'
   | 'parent_realpath_escapes_declared_parent'
   | 'temporary_storage_policy_not_approved'
-  | 'storage_cap_invalid';
+  | 'storage_cap_invalid'
+  | 'handle_caps_invalid'
+  | 'free_disk_thresholds_invalid'
+  | 'insufficient_free_disk_before_start'
+  | 'free_disk_measurement_unavailable';
 
 /** True when `candidate` is `parent` or lives beneath it. Path-only; touches no filesystem. */
 function isInside(candidate: string, parent: string): boolean {
@@ -324,7 +360,10 @@ export type BrazilReceitaFullJoinWorkspaceFailure =
   | 'partition_open_failed'
   | 'partition_read_failed'
   | 'partition_file_permission_verification_failed'
-  | 'partition_record_truncated';
+  | 'partition_record_truncated'
+  | 'partition_handle_cap_exceeded'
+  | 'free_disk_reserve_breached'
+  | 'free_disk_measurement_unavailable';
 
 /** The verified outcome of a deletion. Mirrors 14B.0C's cleanup vocabulary exactly. */
 export type BrazilReceitaFullJoinWorkspaceCleanupOutcome =
@@ -374,6 +413,8 @@ export interface BrazilReceitaFullJoinWorkspace {
     partitionOrdinal: number,
   ): number;
   bytesWritten(): number;
+  /** Live descriptor accounting for the partition pool. Counts only — never a name or a path. */
+  handleStats(): BrazilReceitaFullJoinPartitionHandlePoolStats;
   /** Deletes every file this workspace created, then the directory, then verifies absence. */
   dispose(): BrazilReceitaFullJoinWorkspaceCleanupResult;
 }
@@ -383,6 +424,24 @@ export interface BrazilReceitaFullJoinWorkspaceRequest {
   readonly boundaries: BrazilReceitaFullJoinWorkspaceBoundaries;
   readonly fileSystem: BrazilReceitaFullJoinWorkspaceFileSystem;
   readonly maxTemporaryStorageBytes: number;
+  /**
+   * The pool's own ceiling on simultaneously-open partition files (BR-SOURCE-14B.0F § 3).
+   *
+   * REQUIRED, with no default, for the same reason every 14B.0C cap is required: a filled gap is an
+   * invented authorization, and the gap this one fills is precisely the one that made descriptor
+   * usage a function of `maxPartitionCount`.
+   */
+  readonly maxOpenPartitionFiles: number;
+  /**
+   * The GLOBAL concurrent descriptor ledger, shared with source files, the private metric artifact
+   * and control artifacts. Injected rather than created here, because "global" is only true if every
+   * category reserves from the same instance.
+   */
+  readonly openHandleLedger: BrazilReceitaFullJoinOpenHandleLedger;
+  /** How many bytes must remain free on the workspace's own filesystem, and how to find out. */
+  readonly minimumFreeDiskBeforeStart: number;
+  readonly minimumFreeDiskReserve: number;
+  readonly freeDiskProbe: BrazilReceitaFullJoinFreeDiskProbe;
   /**
    * Whether the run is a REAL one. A real run additionally requires
    * `BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED`, which is `false`, so a real run
@@ -422,12 +481,51 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
     return { ok: false, rejections: ['storage_cap_invalid'], failure: null };
   }
 
+  // The pool cap and the global cap are validated together: a partition pool allowed to exhaust the
+  // whole descriptor budget on its own would leave nothing for the source file the join re-reads.
+  if (
+    !Number.isInteger(request.maxOpenPartitionFiles) ||
+    request.maxOpenPartitionFiles <= 0 ||
+    request.maxOpenPartitionFiles > request.openHandleLedger.maxFilesOpened()
+  ) {
+    return { ok: false, rejections: ['handle_caps_invalid'], failure: null };
+  }
+
+  const diskThresholds = resolveBrazilReceitaFullJoinFreeDiskThresholds({
+    minimumFreeDiskBeforeStart: request.minimumFreeDiskBeforeStart,
+    minimumFreeDiskReserve: request.minimumFreeDiskReserve,
+    maxTemporaryStorageBytes: request.maxTemporaryStorageBytes,
+  });
+  if (!diskThresholds.ok) {
+    return { ok: false, rejections: ['free_disk_thresholds_invalid'], failure: null };
+  }
+
   const rejections = validateBrazilReceitaFullJoinWorkspaceParent(
     request.parentDirectory,
     request.boundaries,
     request.fileSystem,
   );
   if (rejections.length > 0) return { ok: false, rejections, failure: null };
+
+  // Probed AFTER the destination is validated and BEFORE anything is created: a run that made its
+  // workspace and then found the volume full would have to clean up something it should never have
+  // made. `mkdtemp` cannot cross a filesystem boundary, so the parent's volume is the workspace's.
+  const beforeStart = assertBrazilReceitaFullJoinFreeDiskBeforeStart(
+    request.parentDirectory,
+    diskThresholds.thresholds,
+    request.freeDiskProbe,
+  );
+  if (!beforeStart.ok) {
+    return {
+      ok: false,
+      rejections: [
+        beforeStart.breach.code === 'free_disk_measurement_unavailable'
+          ? 'free_disk_measurement_unavailable'
+          : 'insufficient_free_disk_before_start',
+      ],
+      failure: null,
+    };
+  }
 
   const { fileSystem } = request;
 
@@ -456,24 +554,42 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
   }
 
   let written = 0;
+  let recordsWritten = 0;
   const counts = new Map<string, number>();
-  const appendHandles = new Map<string, number>();
+  const hardenedFiles = new Set<string>();
+  const freeDiskCheckDue = createBrazilReceitaFullJoinFreeDiskCheckSchedule();
 
   function partitionPath(name: string): string {
     return path.join(directory, name);
   }
 
-  function closeAppendHandles(): void {
-    for (const handle of appendHandles.values()) {
-      try {
+  /**
+   * Pool keys carry their MODE, because a partition file is opened two different ways over its life:
+   * `a:` while references are being appended, `r:` while they are being read back. Keying by name
+   * alone would let a read hand back an append handle, whose position is at end-of-file.
+   */
+  const APPEND_KEY_PREFIX = 'a:';
+  const READ_KEY_PREFIX = 'r:';
+
+  const handlePool = createBrazilReceitaFullJoinPartitionHandlePool({
+    maxOpenPartitionFiles: request.maxOpenPartitionFiles,
+    ledger: request.openHandleLedger,
+    port: {
+      open(key, firstOpen) {
+        const name = key.slice(2);
+        if (key.startsWith(READ_KEY_PREFIX)) return fileSystem.openForRead(partitionPath(name));
+        // `openForAppend` is create-exclusive on a path that does not exist and append-only on one
+        // that does, so a REOPEN after eviction lands on the file this workspace already created and
+        // continues at its end. `firstOpen` is what makes the distinction auditable rather than a
+        // side effect of an existence probe.
+        void firstOpen;
+        return fileSystem.openForAppend(partitionPath(name), BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE);
+      },
+      close(handle) {
         fileSystem.close(handle);
-      } catch {
-        // A close failure is reported through the cleanup outcome, not thrown: the caller is already
-        // on its way out, and an exception here would replace an accurate cleanup verdict.
-      }
-    }
-    appendHandles.clear();
-  }
+      },
+    },
+  });
 
   const workspace: BrazilReceitaFullJoinWorkspace = {
     appendReference(reference, partitionOrdinal) {
@@ -490,17 +606,42 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
         return { ok: false, failure: 'temporary_storage_cap_exceeded' };
       }
 
-      let handle = appendHandles.get(name);
-      if (handle === undefined) {
-        try {
-          handle = fileSystem.openForAppend(
-            partitionPath(name),
-            BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE,
-          );
-        } catch {
-          return { ok: false, failure: 'partition_open_failed' };
+      // The free-disk RESERVE, re-checked once per write block. A `statfs` per 16-byte record would
+      // dominate the syscall budget and measure nothing new — a volume cannot lose 8 GiB between two
+      // consecutive records.
+      if (freeDiskCheckDue(recordsWritten)) {
+        const reserve = assertBrazilReceitaFullJoinFreeDiskReserve(
+          directory,
+          diskThresholds.thresholds,
+          request.freeDiskProbe,
+        );
+        if (!reserve.ok) {
+          return {
+            ok: false,
+            failure:
+              reserve.breach.code === 'free_disk_measurement_unavailable'
+                ? 'free_disk_measurement_unavailable'
+                : 'free_disk_reserve_breached',
+          };
         }
-        appendHandles.set(name, handle);
+      }
+
+      const acquired = handlePool.acquire(`${APPEND_KEY_PREFIX}${name}`);
+      if (!acquired.ok) {
+        return {
+          ok: false,
+          failure:
+            acquired.failure === 'handle_cap_exceeded'
+              ? 'partition_handle_cap_exceeded'
+              : 'partition_open_failed',
+        };
+      }
+      const handle = acquired.handle;
+
+      // Permissions are hardened and VERIFIED once per file, not once per open: `mkdtemp`'s umask
+      // applies at creation, and a reopen of a file whose mode was already verified cannot change it.
+      // Re-verifying on every eviction-driven reopen would add two syscalls per miss for no fact.
+      if (!hardenedFiles.has(name)) {
         try {
           fileSystem.chmod(partitionPath(name), BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE);
           const mode = fileSystem.statMode(partitionPath(name)) & 0o777;
@@ -510,6 +651,7 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
         } catch {
           return { ok: false, failure: 'partition_file_permission_verification_failed' };
         }
+        hardenedFiles.add(name);
       }
 
       try {
@@ -522,6 +664,7 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
       }
 
       written = projected;
+      recordsWritten += 1;
       counts.set(name, (counts.get(name) ?? 0) + 1);
       return { ok: true };
     },
@@ -541,22 +684,22 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
       }
 
       // Writing must be finished before reading: an open append handle may hold unflushed bytes.
-      const appendHandle = appendHandles.get(name);
-      if (appendHandle !== undefined) {
-        try {
-          fileSystem.close(appendHandle);
-        } catch {
-          return { ok: false, failure: 'partition_write_failed' };
-        }
-        appendHandles.delete(name);
-      }
+      handlePool.closeKey(`${APPEND_KEY_PREFIX}${name}`);
 
-      let handle: number;
-      try {
-        handle = fileSystem.openForRead(partitionPath(name));
-      } catch {
-        return { ok: false, failure: 'partition_open_failed' };
+      // The READ handle is pooled too, so a partition read back in many bounded slices pays one
+      // `open` rather than one per slice — and, more importantly, so it counts against the same
+      // global ledger as everything else.
+      const acquired = handlePool.acquire(`${READ_KEY_PREFIX}${name}`);
+      if (!acquired.ok) {
+        return {
+          ok: false,
+          failure:
+            acquired.failure === 'handle_cap_exceeded'
+              ? 'partition_handle_cap_exceeded'
+              : 'partition_open_failed',
+        };
       }
+      const handle = acquired.handle;
 
       const wanted = Math.min(maxRecords, total - startRecordIndex);
       const sliceBytes = BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES * wanted;
@@ -594,11 +737,9 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
           references.push(decoded.reference);
         }
       } finally {
-        try {
-          fileSystem.close(handle);
-        } catch {
-          // The read verdict already stands; a close failure must not overwrite it.
-        }
+        // The handle is NOT closed here: it belongs to the pool, which reuses it for the next slice
+        // of this partition and evicts it when the budget is needed elsewhere. `dispose` closes it.
+        // Closing it here would defeat the pooling and leave the ledger holding a phantom slot.
       }
 
       const nextRecordIndex = startRecordIndex + references.length;
@@ -615,8 +756,16 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
       return written;
     },
 
+    handleStats() {
+      return handlePool.stats();
+    },
+
     dispose() {
-      closeAppendHandles();
+      // Every pooled descriptor — append and read alike — is closed and its ledger slot released
+      // BEFORE any deletion is attempted. § 12 orders it this way for a reason: unlinking a file
+      // this process still holds open leaves the space allocated until the descriptor goes, so a
+      // cleanup that deleted first would report `completed` while the volume was still full.
+      handlePool.closeAll();
 
       let names: readonly string[];
       try {
