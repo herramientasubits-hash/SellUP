@@ -774,6 +774,10 @@ export async function runIncrementalProspectingSearch(
       // como campos opcionales y los propaga a runMultiQueryWebSearch.
       subindustries: input.subindustries,
       additionalCriteriaTokens: additionalCriteriaTokens.length > 0 ? additionalCriteriaTokens : undefined,
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — resolución de términos de la
+      // versión publicada, la MISMA en todas las rondas de la corrida.
+      subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
+      selectionCatalogVersion: input.selectionCatalogVersion ?? null,
     });
 
     const rawCount = pipelineOutput.webSearch.resultsCount;

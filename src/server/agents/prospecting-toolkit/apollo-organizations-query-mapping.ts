@@ -42,11 +42,36 @@ import type { SearchOrganizationsParams } from '@/server/integrations/apollo-cli
 import type { WebSearchInput } from './types';
 import {
   buildApolloSearchPacks,
+  matchApolloSearchPackDomainForSubindustry,
   selectPacksUpToMaxQueries,
   type ApolloSearchPack,
   type ApolloSearchPackBuildResult,
 } from './apollo-search-pack-builder';
-import { resolveFirstApolloSubindustrySearchMapping } from './apollo-subindustry-search-mapping';
+import { resolveApolloSubindustrySearchMapping } from './apollo-subindustry-search-mapping';
+import {
+  createApolloSubindustryCatalogTermsLookup,
+  type ApolloSubindustryCatalogTermsLookup,
+} from './apollo-subindustry-catalog-terms-resolution';
+import {
+  apolloKeywordDedupeKey,
+  apolloSubindustryCoverageFloor,
+  computeApolloSubindustryQueryCoverage,
+  interleaveApolloSubindustryTerms,
+  resolveApolloSubindustryTermLists,
+  toApolloSubindustryTermProvenanceMetadata,
+  withApolloSubindustryTerms,
+  type ApolloSubindustryQueryCoverage,
+  type ApolloSubindustryTermList,
+  type ApolloSubindustryTermResolution,
+} from './apollo-subindustry-query-terms';
+
+/**
+ * La clave de deduplicación vive en `apollo-subindustry-query-terms` para que el
+ * reparto de términos y la medida de cobertura usen exactamente la misma regla. Se
+ * reexporta porque este módulo era su origen y sus consumidores la importan de
+ * aquí.
+ */
+export { apolloKeywordDedupeKey };
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
@@ -297,23 +322,65 @@ export type ApolloKeywordPriorityStrategy =
   | 'no_mapped_keywords';
 
 /**
- * Clave de deduplicación de un keyword.
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 1 — términos de UNA subindustria,
+ * mirando las fuentes que este módulo conoce, en orden de especificidad.
  *
- * Singular y plural de UN token colapsan (`supermercados` → `supermercado`),
- * pero una frase nunca colapsa contra uno de sus tokens: `cadena de
- * supermercados` y `supermercado` son dos señales distintas para Apollo y
- * fusionarlas perdería justamente la más específica.
+ * Es el resolvedor que el reparto round-robin inyecta, y también el que define qué
+ * significa «esta subindustria es cubrible»: sin términos en ninguna fuente no hay
+ * nada suyo que enviar, y el § 7 lo trata como un bloqueo antes del gasto en vez de
+ * como una omisión silenciosa.
+ *
+ * CATALOG SEARCH TERMS COVERAGE ADDENDUM § 7 — se añadió un tercer nivel entre el
+ * catálogo especializado y el mapa histórico:
+ *
+ *   1. catálogo especializado (`apollo-subindustry-search-mapping`) — 2/73, el
+ *      mismo que gobierna precisión;
+ *   2. términos de `subindustry_search_terms` de la versión publicada, YA RESUELTOS
+ *      — 73/73, sólo discovery, NUNCA implica mapping de precisión;
+ *   3. mapa histórico de keywords libres (`getSubindustryKeywords`) — se conserva
+ *      como respaldo para etiquetas que NO son uno de los 73 nombres canónicos
+ *      (p. ej. `"Educación Corporativa"`, `"LMS"`), que el catálogo publicado no
+ *      reconoce por diseño (emparejamiento por igualdad exacta, no por alias).
+ *
+ * El orden importa: 1 y 2 comparten el mismo espacio de nombres (los 73 canónicos),
+ * así que una subindustria nunca resuelve por las dos a la vez, y 3 sólo se alcanza
+ * cuando ninguna de las dos reconoce la etiqueta.
+ *
+ * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — `catalogTerms` es un
+ * parámetro OBLIGATORIO, no un import.
+ *
+ * Antes el nivel 2 se resolvía contra un snapshot TypeScript de la tabla, y ese
+ * snapshot podía describir una versión del catálogo distinta de la que el usuario
+ * acababa de seleccionar sin que nada fallara. Ahora los términos llegan resueltos
+ * desde la MISMA versión publicada que resolvió la selección, y el compilador lo
+ * exige en cada llamada: no hay firma que permita olvidarse de pasarlos y caer en
+ * silencio a un respaldo estático.
  */
-export function apolloKeywordDedupeKey(term: string): string {
-  const normalized = normalizeKey(term).replace(/\s+/g, ' ');
-  return normalized
-    .split(' ')
-    .map((token) => {
-      if (token.length > 4 && token.endsWith('es')) return token.slice(0, -2);
-      if (token.length > 3 && token.endsWith('s')) return token.slice(0, -1);
-      return token;
-    })
-    .join(' ');
+export function resolveApolloSubindustryQueryTerms(
+  subindustry: string,
+  catalogTerms: ApolloSubindustryCatalogTermsLookup,
+): ApolloSubindustryTermResolution {
+  const explicit = resolveApolloSubindustrySearchMapping(subindustry);
+  if (explicit !== null) {
+    return {
+      canonicalSubindustry: explicit.canonicalSubindustry,
+      termSource: 'explicit_catalog',
+      terms: explicit.positiveTerms,
+    };
+  }
+  const catalog = catalogTerms(subindustry);
+  if (catalog !== null && catalog.terms.length > 0) {
+    return {
+      canonicalSubindustry: catalog.canonicalSubindustry,
+      termSource: 'catalog_search_terms',
+      terms: catalog.terms,
+    };
+  }
+  const legacy = getSubindustryKeywords(subindustry);
+  if (legacy.length > 0) {
+    return { canonicalSubindustry: null, termSource: 'legacy_keyword_map', terms: legacy };
+  }
+  return { canonicalSubindustry: null, termSource: 'none', terms: [] };
 }
 
 function dedupeKeywords(terms: readonly string[]): string[] {
@@ -355,15 +422,26 @@ export type PrioritizedApolloKeywordsResult = {
   /** Términos genéricos que el cupo dejó fuera. */
   ignoredGenericTokens: string[];
   keywordPriorityStrategy: ApolloKeywordPriorityStrategy;
-  /** Subindustria del catálogo que gobernó la consulta. Null si no hubo. */
+  /**
+   * Primera subindustria del catálogo explícito que aportó términos. Diagnóstico y
+   * continuidad de lectura; NO es «la que gobierna»: desde el § 2 gobiernan todas.
+   */
   matchedSubindustry: string | null;
+  /** § 1 — TODAS las subindustrias del catálogo explícito que aportaron términos. */
+  matchedSubindustries: string[];
+  /** § 1 — términos atribuibles a cada subindustria pedida, con su procedencia. */
+  subindustryTermLists: ApolloSubindustryTermList[];
+  /** § 10 G — qué subindustrias aportaron cada término superviviente. */
+  subindustryTermProvenance: Record<string, string[]>;
+  /** § 2 — posiciones reservadas para cubrir una señal por subindustria. */
+  subindustryCoverageFloor: number;
   relevanceStrategy: 'subindustry_specific' | 'sector_specific_keywords' | 'query_fallback';
 };
 
 /**
  * Construye los keywords de Apollo con la prioridad del § 1.
  *
- *   subindustria seleccionada
+ *   subindustrias seleccionadas (TODAS, repartidas round-robin)
  *     → intención escrita por el usuario
  *       → catálogo sectorial específico (frases)
  *         → sector general como respaldo (palabras sueltas)
@@ -373,6 +451,21 @@ export type PrioritizedApolloKeywordsResult = {
  *     posiciones, y ninguna si las específicas llenan las cinco;
  *   - sin ninguna señal específica, el sector general es el único respaldo y
  *     puede ocupar todas las posiciones — es eso o una consulta vacía.
+ *
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 2 y § 4 — el reparto entre
+ * subindustrias, y el SUELO de cobertura:
+ *
+ *   - los términos ya no salen de la primera subindustria con mapping, sino de la
+ *     intercalación round-robin de todas: primero el término más específico de
+ *     cada una, luego el segundo de cada una, y así;
+ *   - el `subindustryLead` nunca baja del número de subindustrias cubribles, así
+ *     que con cinco selecciones las cinco posiciones llevan una señal de cada una.
+ *     Con cinco subindustrias la intención escrita cede su cupo — y eso es
+ *     deliberado: la alternativa sería una llamada pagada por subindustria, que el
+ *     § 4 prohíbe. Lo que cede queda declarado en `ignoredSpecificTokens`.
+ *
+ * El número de llamadas al proveedor NO cambia por esto: cambia el reparto DENTRO
+ * del único array de keywords que la llamada ya llevaba.
  *
  * La deduplicación (textual y de singular/plural) ocurre ANTES del límite: de
  * otro modo `supermercado` y `supermercados` gastarían dos de las cinco
@@ -384,18 +477,32 @@ export function buildPrioritizedApolloKeywords(opts: {
   industry: string | null | undefined;
   subindustries: readonly string[];
   additionalCriteriaTokens: readonly string[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — términos de la versión publicada,
+   * ya resueltos. Obligatorio: la ruta de construcción de la consulta no consulta
+   * nada, y tampoco tiene un respaldo estático al que caer si nadie los pasa.
+   */
+  catalogTerms: ApolloSubindustryCatalogTermsLookup;
   maxKeywords?: number;
 }): PrioritizedApolloKeywordsResult {
   const maxKeywords = opts.maxKeywords ?? MAX_KEYWORDS;
 
-  // 1. Subindustria: primero el catálogo explícito, luego el mapa histórico.
-  const catalogMatch = resolveFirstApolloSubindustrySearchMapping(opts.subindustries);
-  const subindustryTerms: string[] = catalogMatch
-    ? [...catalogMatch.mapping.positiveTerms]
-    : [];
-  for (const sub of opts.subindustries) {
-    for (const keyword of getSubindustryKeywords(sub)) subindustryTerms.push(keyword);
-  }
+  // 1. Subindustrias: una lista de términos POR selección (catálogo explícito
+  //    primero, términos de la versión publicada después, mapa histórico al final),
+  //    repartidas round-robin.
+  const subindustryTermLists = resolveApolloSubindustryTermLists(
+    opts.subindustries,
+    (subindustry) => resolveApolloSubindustryQueryTerms(subindustry, opts.catalogTerms),
+  );
+  const interleaved = interleaveApolloSubindustryTerms(
+    subindustryTermLists,
+    apolloKeywordDedupeKey,
+  );
+  const subindustryTerms = interleaved.terms;
+  const matchedSubindustries = subindustryTermLists
+    .filter((list) => list.termSource === 'explicit_catalog')
+    .map((list) => list.canonicalSubindustry)
+    .filter((name): name is string => name !== null);
 
   // 2. Intención escrita por el usuario.
   const intentTokens = [...opts.additionalCriteriaTokens];
@@ -409,7 +516,14 @@ export function buildPrioritizedApolloKeywords(opts: {
   // sepultada: si el usuario escribió algo, se le reservan hasta dos posiciones
   // por delante de la cola de la subindustria.
   const reservedIntentSlots = Math.min(intentTokens.length, MAX_GENERIC_KEYWORD_SLOTS);
-  const subindustryLead = Math.max(0, maxKeywords - reservedIntentSlots);
+  // § 2 — el suelo de cobertura gana a la reserva de intención. Sin esta línea,
+  // `[A, B, C, D, E]` mandaría sólo tres señales de subindustria y dos selecciones
+  // del usuario no viajarían.
+  const coverageFloor = apolloSubindustryCoverageFloor(subindustryTermLists, maxKeywords);
+  const subindustryLead = Math.max(
+    coverageFloor,
+    Math.max(0, maxKeywords - reservedIntentSlots),
+  );
 
   const specificAvailable = dedupeKeywords([
     ...subindustryTerms.slice(0, subindustryLead),
@@ -436,6 +550,10 @@ export function buildPrioritizedApolloKeywords(opts: {
       keywordPriorityStrategy:
         sectorTokensUsed.length > 0 ? 'sector_general_fallback' : 'no_mapped_keywords',
       matchedSubindustry: null,
+      matchedSubindustries: [],
+      subindustryTermLists,
+      subindustryTermProvenance: interleaved.provenanceByTerm,
+      subindustryCoverageFloor: coverageFloor,
       relevanceStrategy:
         sectorTokensUsed.length > 0 ? 'sector_specific_keywords' : 'query_fallback',
     };
@@ -457,7 +575,11 @@ export function buildPrioritizedApolloKeywords(opts: {
     ignoredGenericTokens: genericAvailable.slice(sectorTokensUsed.length),
     keywordPriorityStrategy:
       sectorTokensUsed.length === 0 ? 'specific_only' : 'specific_first_with_generic_fill',
-    matchedSubindustry: catalogMatch?.mapping.canonicalSubindustry ?? null,
+    matchedSubindustry: matchedSubindustries[0] ?? null,
+    matchedSubindustries,
+    subindustryTermLists,
+    subindustryTermProvenance: interleaved.provenanceByTerm,
+    subindustryCoverageFloor: coverageFloor,
     relevanceStrategy:
       subindustryTerms.length > 0 ? 'subindustry_specific' : 'sector_specific_keywords',
   };
@@ -553,13 +675,45 @@ export type ApolloQueryMappingMeta = {
   ignored_generic_tokens: string[];
   /** Estrategia de prioridad aplicada. */
   keyword_priority_strategy: ApolloKeywordPriorityStrategy | 'search_pack_selected';
-  /** Subindustria del catálogo explícito que gobernó la consulta. Null si no hubo. */
+  /**
+   * Primera subindustria del catálogo explícito que aportó términos. Se conserva
+   * para continuidad de lectura; la lista completa está en el campo siguiente.
+   */
   matched_subindustry_mapping: string | null;
+  // ── MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 §§ 1, 2 y 6 ──────────────────
+  /** TODAS las subindustrias del catálogo explícito que aportaron términos. */
+  matched_subindustry_mappings: string[];
+  /** § 6 — procedencia declarada de los términos, por subindustria pedida. */
+  subindustry_term_provenance: Record<string, unknown>[];
+  /** § 10 G — qué subindustrias aportaron cada término superviviente. */
+  subindustry_term_provenance_by_term: Record<string, string[]>;
+  /** § 2 — posiciones reservadas para cubrir una señal por subindustria. */
+  subindustry_coverage_floor: number;
+  /** § 6 — cobertura de la consulta sobre las subindustrias pedidas. */
+  requested_subindustries: string[];
+  query_covered_subindustries: string[];
+  query_uncovered_subindustries: string[];
+  query_coverage_count: number;
+  query_coverage_ratio: number;
+  query_coverage_complete: boolean;
+  effective_keywords_by_subindustry: Record<string, string[]>;
+  /** Términos sin subindustria atribuible: sector o intención libre. */
+  unattributed_effective_keywords: string[];
 };
 
 export type ApolloSearchParamsWithMeta = {
   params: SearchOrganizationsParams;
   meta: ApolloQueryMappingMeta;
+  /**
+   * § 6 — términos que GOBERNARON la consulta, por subindustria pedida.
+   *
+   * Va fuera de `meta` porque no es metadata para persistir: es lo que el
+   * constructor del request efectivo necesita para volver a medir la cobertura
+   * sobre el body final del contrato, en vez de fiarse de la medida previa.
+   */
+  subindustryTermLists: ApolloSubindustryTermList[];
+  /** § 6 — cobertura medida sobre los keywords que este mapper produjo. */
+  subindustryCoverage: ApolloSubindustryQueryCoverage;
 };
 
 // ─── Employee range mapping (L2.11) ──────────────────────────────────────────
@@ -628,12 +782,28 @@ export function buildApolloOrganizationsSearchParams(
   // Un search pack sólo puede ganar cuando la subindustria seleccionada NO tiene
   // mapping propio. Con mapping, sus términos son la señal más específica que
   // existe y ningún pack de sector puede desplazarlos.
+  // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — los términos de catálogo viajan
+  // DENTRO de `WebSearchInput`, resueltos una sola vez por corrida en la frontera del
+  // wizard desde la misma versión publicada que resolvió la selección. Ausentes, el
+  // nivel 2 simplemente no aporta nada: la incoherencia la bloquea el gate de versión
+  // del § 3 antes de gastar, no un respaldo silencioso aquí.
+  const catalogTerms = createApolloSubindustryCatalogTermsLookup(
+    input.subindustryCatalogTerms ?? null,
+  );
+
   const prioritized = buildPrioritizedApolloKeywords({
     industry: input.industry,
     subindustries,
     additionalCriteriaTokens,
+    catalogTerms,
   });
-  const subindustryMappingWins = prioritized.matchedSubindustry !== null;
+  // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — y con DOS o más selecciones el
+  // pack tampoco puede ganar: un pack es el conjunto curado de UN dominio, así que
+  // gobernar con él dejaría fuera a las demás subindustrias pedidas. Con una sola
+  // selección la ruta de packs queda intacta, byte por byte.
+  const subindustryMappingWins =
+    prioritized.matchedSubindustries.length > 0 ||
+    prioritized.subindustryTermLists.length > 1;
 
   // ── L2.10: intentar construir packs ─────────────────────────────────────────
   const packBuildResult = buildApolloSearchPacks({
@@ -714,6 +884,27 @@ export function buildApolloOrganizationsSearchParams(
     effectiveStrategy = 'query_fallback';
   }
 
+  // ── MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 §§ 6 y 7: cobertura ────────────
+  //
+  // Se mide sobre `finalKeywords` —lo que de verdad va a viajar— y contra los
+  // términos que GOBERNARON la consulta. Cuando manda un pack, sus keywords son
+  // los términos de la subindustria que lo seleccionó: atribuirlos es lo honesto,
+  // porque el pack es su catálogo curado y no un respaldo sectorial.
+  const governingTermLists = selectedPack
+    ? withApolloSubindustryTerms(
+        prioritized.subindustryTermLists,
+        (list) =>
+          matchApolloSearchPackDomainForSubindustry(list.requestedSubindustry) !== null,
+        finalKeywords,
+        'search_pack',
+      )
+    : prioritized.subindustryTermLists;
+  const subindustryCoverage = computeApolloSubindustryQueryCoverage({
+    lists: governingTermLists,
+    effectiveKeywords: finalKeywords,
+    dedupeKey: apolloKeywordDedupeKey,
+  });
+
   // L2.11: usar tags array; apollo_keywords_sent como string para backward compat
   const apolloKeywordTagsSent = finalKeywords;
   const apolloKeywordsSentStr = finalKeywords.join(' ').trim() || null;
@@ -784,7 +975,22 @@ export function buildApolloOrganizationsSearchParams(
       ? 'search_pack_selected'
       : prioritized.keywordPriorityStrategy,
     matched_subindustry_mapping: prioritized.matchedSubindustry,
+    // ── MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 §§ 1, 2 y 6 ────────────────
+    matched_subindustry_mappings: prioritized.matchedSubindustries,
+    subindustry_term_provenance: toApolloSubindustryTermProvenanceMetadata(
+      governingTermLists,
+    ),
+    subindustry_term_provenance_by_term: prioritized.subindustryTermProvenance,
+    subindustry_coverage_floor: prioritized.subindustryCoverageFloor,
+    requested_subindustries: subindustryCoverage.requestedSubindustries,
+    query_covered_subindustries: subindustryCoverage.coveredSubindustries,
+    query_uncovered_subindustries: subindustryCoverage.uncoveredSubindustries,
+    query_coverage_count: subindustryCoverage.coverageCount,
+    query_coverage_ratio: subindustryCoverage.coverageRatio,
+    query_coverage_complete: subindustryCoverage.complete,
+    effective_keywords_by_subindustry: subindustryCoverage.effectiveKeywordsBySubindustry,
+    unattributed_effective_keywords: subindustryCoverage.unattributedEffectiveKeywords,
   };
 
-  return { params, meta };
+  return { params, meta, subindustryTermLists: governingTermLists, subindustryCoverage };
 }

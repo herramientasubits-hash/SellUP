@@ -336,6 +336,26 @@ function matchSubindustryDomain(subindustries: string[]): {
   return null;
 }
 
+/**
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — ¿los packs de dominio los
+ * seleccionó ESTA subindustria?
+ *
+ * Los packs son conjuntos curados de un dominio entero, así que cuando gobiernan
+ * la consulta sus keywords SON los términos de la subindustria que los eligió. La
+ * cobertura necesita poder atribuirlos para no declarar «no cubierta» a una
+ * subindustria cuya consulta es precisamente su pack.
+ *
+ * Sólo se consulta con UNA subindustria: con dos o más el mapper suprime los packs
+ * (un pack de un dominio no puede representar dos selecciones) y gobierna el
+ * reparto round-robin.
+ */
+export function matchApolloSearchPackDomainForSubindustry(
+  subindustry: string | null | undefined,
+): string | null {
+  if (!subindustry?.trim()) return null;
+  return matchSubindustryDomain([subindustry])?.domainKey ?? null;
+}
+
 // ─── Sector fallback packs ────────────────────────────────────────────────────
 
 function buildSectorFallbackPacks(sector: string | null | undefined): ApolloSearchPack[] {

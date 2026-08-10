@@ -23,6 +23,19 @@ import {
 } from '../web-search-providers/apollo-organizations-search-provider';
 import type { ApolloOrganization, ApolloEnrichResult } from '@/server/integrations/apollo-client';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
+import {
+  buildPublishedCatalogTermsResolution,
+  CATALOG_VERSION,
+} from './fixtures/sellup-published-catalog-search-terms';
+
+/**
+ * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 3 — una búsqueda con subindustrias tiene que
+ * declarar de qué versión publicada del catálogo salieron sus términos, y que sea la
+ * misma con la que se resolvió la selección. Sin eso el provider bloquea antes de gastar
+ * (cero créditos), así que estos casos —que miden el cascade de enrichment, no el
+ * gate— pasan una corrida COHERENTE.
+ */
+const PUBLISHED_CATALOG_TERMS = buildPublishedCatalogTermsResolution();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -203,7 +216,13 @@ describe('L2.15-B-C: Cascade ON, domain present → organization_enrichment log 
     };
 
     await runApolloOrganizationsSearch(
-      { query: 'lms colombia', industry: 'Educación', subindustries: ['Formación Corporativa'] },
+      {
+        query: 'lms colombia',
+        industry: 'Educación',
+        subindustries: ['Formación Corporativa'],
+        subindustryCatalogTerms: PUBLISHED_CATALOG_TERMS,
+        selectionCatalogVersion: CATALOG_VERSION,
+      },
       3,
       // Q3F-5AU.16: organizationEnrichmentUnitCostUsd simulates incremental-search.ts
       // having resolved live provider_pricing_config pricing (migration 079) and
@@ -574,6 +593,8 @@ describe('L2.15-B-H: Enriched LMS org passes formacion corporativa gate', () => 
         query: 'lms colombia',
         industry: 'Educación',
         subindustries: ['Formación Corporativa y Corporate Training'],
+        subindustryCatalogTerms: PUBLISHED_CATALOG_TERMS,
+        selectionCatalogVersion: CATALOG_VERSION,
       },
       3,
       undefined,

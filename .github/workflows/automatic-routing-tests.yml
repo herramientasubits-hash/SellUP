@@ -260,6 +260,73 @@ jobs:
       - name: Run A1 multi-subindustry request and reconciliation tests
         run: npm run test:a1-multi-subindustry-request-observability
 
+      # AGENT1-MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 — la COBERTURA de la consulta
+      # entra al check obligatorio. #245 demostró que la multiselección llega íntegra
+      # al runner y #241 que los gates de gasto la evalúan con ANY-OF, pero la corrida
+      # live `ce957e2f` pidió dos subindustrias y las consultas efectivas de las DOS
+      # rondas sólo representaron a una: 21 créditos, 20 organizaciones, 0 candidatos.
+      # La causa eran dos resolvedores FIRST-ONLY en fila
+      # (`primarySubindustryForQueryDrafting` → `resolveFirstApolloSubindustrySearchMapping`),
+      # y el segundo invalidaba la justificación escrita del primero.
+      #
+      # Lo que este paso guarda, y que no falla al compilar:
+      #
+      #   * que las subindustrias pedidas se repartan round-robin dentro del ÚNICO
+      #     array de keyword tags, de modo que con 1, 2 o 5 selecciones todas queden
+      #     representadas bajo el tope de cinco posiciones;
+      #   * que permutar la solicitud no cambie a quién representa la consulta;
+      #   * que las DOS rondas conserven la cobertura, incluida la variante de
+      #     página 2;
+      #   * que una subindustria sin términos NO se omita en silencio: la búsqueda se
+      #     bloquea antes de gastar, con cero créditos, cero llamadas al transporte y
+      #     cero filas económicas, y con la causa auditable en metadata;
+      #   * que el número de llamadas pagadas, el cap de 5 enrichments y el techo de
+      #     25 créditos sean invariantes al número de subindustrias;
+      #   * que el allowlist del contrato del proveedor no se amplíe (nada de un
+      #     parámetro por subindustria, ni de una llamada por subindustria);
+      #   * que los contratos de #245 (solicitud íntegra y en orden), #241 (ANY-OF en
+      #     precisión y en los gates de gasto) y #238 (vocabulario de
+      #     `classification_source`) sigan en pie.
+      #
+      # Determinista: sin flags de Producción, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 multi-subindustry query drafting ANY-OF tests
+        run: npm run test:a1-multi-subindustry-query-drafting-anyof
+
+      # CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM — la COHERENCIA DE VERSIÓN del catálogo
+      # entra al check obligatorio.
+      #
+      # El catálogo de industrias no es code-owned: vive en PostgreSQL y una versión
+      # nueva se publica con una transacción (`publish_industry_catalog_version`), sin
+      # despliegue. El wizard lo lee en vivo y verifica la versión que el navegador
+      # envió; el addendum anterior, en cambio, redactaba las consultas con un snapshot
+      # TypeScript de `subindustry_search_terms`. Dos fuentes de verdad para el mismo
+      # catálogo, y la segunda podía describir otra versión sin que nada fallara.
+      #
+      # Lo que este paso guarda, y que no falla al compilar:
+      #
+      #   * que ningún módulo de producción vuelva a importar un snapshot de esa tabla,
+      #     ni el fixture de la lectura congelada, ni un cliente de Supabase dentro de
+      #     la ruta pura de construcción de la consulta;
+      #   * que la selección y los términos vengan de la MISMA versión publicada
+      #     (`selection_catalog_version == search_term_catalog_version`), y que la
+      #     ausencia se trate como incoherencia y no como permiso;
+      #   * que una incoherencia bloquee ANTES del gasto: cero llamadas al transporte,
+      #     cero créditos, cero filas económicas, y la causa con las DOS versiones en
+      #     metadata;
+      #   * que un cambio de catálogo v1 → v2 no pueda producir nunca
+      #     `wizard=v2 + términos=v1 + llamada al proveedor`;
+      #   * que el loader rehúse una lectura que atraviese un publish en vez de mezclar
+      #     dos versiones;
+      #   * que la cobertura de discovery siga siendo 73/73 sobre la versión publicada y
+      #     la precisión siga en 2/73, sin fallback a la industria padre;
+      #   * que los topes de 2 llamadas / 5 enrichments / 25 créditos no se muevan, y que
+      #     el vocabulario de `classification_source` de #238 siga intacto.
+      #
+      # Determinista: sin flags de Producción, sin proveedores, sin créditos y sin DB
+      # real — la lectura del catálogo se inyecta desde el fixture verificado de `1.0.0`.
+      - name: Run A1 catalog source-of-truth and version-coherence tests
+        run: npm run test:a1-catalog-source-of-truth
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)

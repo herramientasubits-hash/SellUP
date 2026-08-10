@@ -31,6 +31,18 @@ export type IncrementalSearchInput = {
    */
   subindustries?: string[];
 
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — términos de
+   * `subindustry_search_terms` de la versión PUBLICADA, ya resueltos, y la versión con
+   * la que se resolvió la selección del usuario.
+   *
+   * Los provee el wizard (`runWizardApolloSearch`) leyendo el catálogo una sola vez.
+   * Sólo Apollo los consume; Tavily y mock los ignoran. Ausentes con subindustrias
+   * pedidas, el gate del § 3 bloquea la búsqueda de Apollo antes de gastar.
+   */
+  subindustryCatalogTerms?: import('./apollo-subindustry-catalog-terms-resolution').ApolloSubindustryCatalogTermsResolution | null;
+  selectionCatalogVersion?: string | null;
+
   /** Web search provider. Limitado a tavily y mock en flujo incremental.
    * Default: 'mock' */
   webSearchProvider?: IncrementalSearchWebProvider;
