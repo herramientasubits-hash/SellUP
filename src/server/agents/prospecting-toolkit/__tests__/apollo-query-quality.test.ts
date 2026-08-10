@@ -24,7 +24,7 @@ import {
   listApolloSubindustrySearchMappings,
   matchesApolloSubindustryAlias,
   resolveApolloSubindustrySearchMapping,
-  resolveFirstApolloSubindustrySearchMapping,
+  resolveAllApolloSubindustrySearchMappings,
 } from '../apollo-subindustry-search-mapping';
 import { resolveSectorSignalSet } from '../apollo-two-round/query-hypothesis';
 import { resolveApolloResultLimit } from '../web-search-providers/apollo-organizations-search-provider';
@@ -47,6 +47,7 @@ import {
 import {
   GENERIC_NAMES_THAT_MUST_NOT_MATCH,
   SELLUP_ACTIVE_SUBINDUSTRY_NAMES,
+  SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING,
   SELLUP_SUBINDUSTRY_WITH_APOLLO_MAPPING,
 } from './fixtures/sellup-subindustry-catalog-names';
 
@@ -276,7 +277,11 @@ describe('§ 2 · mapping explícito de subindustrias', () => {
     assert.equal(resolveApolloSubindustrySearchMapping('Subindustria Inexistente'), null);
     assert.equal(resolveApolloSubindustrySearchMapping(''), null);
     assert.equal(resolveApolloSubindustrySearchMapping(null), null);
-    assert.equal(resolveFirstApolloSubindustrySearchMapping([]), null);
+    assert.deepEqual(resolveAllApolloSubindustrySearchMappings([]), []);
+    assert.deepEqual(
+      resolveAllApolloSubindustrySearchMappings(['Subindustria Inexistente']),
+      [],
+    );
   });
 });
 
@@ -370,7 +375,7 @@ describe('§ 8 · un término genérico no arrastra una subindustria entera', ()
    * Un solo match esperado, y ninguno inesperado. Congelado en fixture: la suite no
    * consulta la base de datos.
    */
-  test('el catálogo real de 73 subindustrias produce exactamente un match', () => {
+  test('el catálogo real de 73 subindustrias produce exactamente los matches declarados', () => {
     assert.equal(
       SELLUP_ACTIVE_SUBINDUSTRY_NAMES.length,
       73,
@@ -381,10 +386,16 @@ describe('§ 8 · un término genérico no arrastra una subindustria entera', ()
       (name) => resolveApolloSubindustrySearchMapping(name) !== null,
     );
 
+    // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 9 — dos entradas, no una. Lo que
+    // esta prueba sigue prohibiendo es un match INESPERADO: añadir una subindustria
+    // al catálogo no puede arrastrar a ninguna otra de las 73.
     assert.deepEqual(
-      matched,
-      [SELLUP_SUBINDUSTRY_WITH_APOLLO_MAPPING],
+      [...matched].sort(),
+      [...SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING].sort(),
       `matches inesperados: ${JSON.stringify(matched)}`,
+    );
+    assert.ok(
+      SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING.includes(SELLUP_SUBINDUSTRY_WITH_APOLLO_MAPPING),
     );
   });
 
@@ -395,7 +406,6 @@ describe('§ 8 · un término genérico no arrastra una subindustria entera', ()
       'Operadores Omnicanal y Ecommerce Retail',
       'Retailers Especializados',
       'Fabricantes de Alimentos y Bebidas (FMCG)',
-      'Tiendas por Departamento, Moda y Calzado',
     ]) {
       assert.equal(
         resolveApolloSubindustrySearchMapping(name),
@@ -403,6 +413,21 @@ describe('§ 8 · un término genérico no arrastra una subindustria entera', ()
         `"${name}" es otro negocio y no puede heredar los términos de supermercados`,
       );
     }
+
+    // § 9 — «Tiendas por Departamento, Moda y Calzado» sí tiene entrada desde este
+    // hito, y la suya: sigue sin poder heredar los términos de supermercados.
+    const departmentStore = resolveApolloSubindustrySearchMapping(
+      'Tiendas por Departamento, Moda y Calzado',
+    );
+    assert.equal(
+      departmentStore?.canonicalSubindustry,
+      'Tiendas por Departamento, Moda y Calzado',
+    );
+    assert.equal(
+      departmentStore?.positiveTerms.some((term) => term.includes('supermercado')),
+      false,
+      'la tienda por departamento no puede heredar los términos de supermercados',
+    );
   });
 
   test('el conjunto de señales del sector tampoco resuelve supermercados desde un genérico', () => {

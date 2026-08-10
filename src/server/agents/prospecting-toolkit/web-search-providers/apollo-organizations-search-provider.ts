@@ -737,6 +737,43 @@ export async function runApolloOrganizationsSearch(
   const resultLimit = effective.limit;
   const { cap, wasCapped, maxResultsCapSource } = resultLimit;
 
+  // ── MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7: fail-closed ANTES del gasto ──
+  //
+  // Este es el límite del dinero: TODA búsqueda pagada de organizaciones pasa por
+  // aquí, la legacy y la de dos rondas. Si la solicitud trajo subindustrias y el
+  // body efectivo no representa a todas, la llamada no se emite.
+  //
+  // La corrida live `ce957e2f` es el caso: pidió dos subindustrias, el body sólo
+  // llevaba términos de una, y se pagaron 21 créditos por una pregunta que no era
+  // la del usuario. Cero créditos es la respuesta correcta a una consulta que no se
+  // puede construir — no una búsqueda a medias.
+  const coverageGate = effective.subindustryCoverageSpendGate;
+  if (!coverageGate.allowed) {
+    const usageMeta: ApolloOrganizationsUsageMetadata = {
+      operation_key: 'organizations_search',
+      provider_key: 'apollo',
+      credits_used: 0,
+      estimated_cost_usd: 0,
+      status: 'skipped',
+    };
+
+    return {
+      provider: 'apollo_organizations',
+      query: input.query,
+      results: [],
+      resultsCount: 0,
+      skipped: true,
+      skipReason: coverageGate.blockReason,
+      estimatedCostUsd: 0,
+      metadata: {
+        dry_run: false,
+        note: coverageGate.adminCopy,
+        usage: usageMeta,
+        ...toApolloEffectiveRequestMetadata(effective),
+      },
+    };
+  }
+
   const startMs = Date.now();
   // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 2 — la ronda entra en la clave.
   // Sin ella, dos rondas cuya consulta produce el mismo slug compartirían

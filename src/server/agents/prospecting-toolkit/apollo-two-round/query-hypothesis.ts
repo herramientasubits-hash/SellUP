@@ -21,6 +21,10 @@
  */
 
 import { APOLLO_MAX_FILTER_VALUES } from '../apollo-organizations-request-contract';
+import {
+  interleaveApolloSubindustryTerms,
+  type ApolloSubindustryTermList,
+} from '../apollo-subindustry-query-terms';
 
 // ─── Catálogo sectorial de señales ────────────────────────────────────────────
 
@@ -84,6 +88,36 @@ const SECTOR_SIGNAL_CATALOG: Readonly<Record<string, SectorSignalSet>> = {
       'tienda de descuento',
       'almacen de cadena',
       'food retailer',
+    ],
+  },
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 9 — la subindustria que la corrida
+   * live `ce957e2f` eligió y que este catálogo no conocía.
+   *
+   * Sin entrada propia, `resolveSectorSignalSet` caía al conjunto de «Retail y
+   * Consumo» y la hipótesis de las dos rondas se redactaba con señales genéricas
+   * del sector. Sus términos específicos viven aquí y en el catálogo de búsqueda
+   * (`apollo-subindustry-search-mapping`): el de aquí redacta la hipótesis y las
+   * exclusiones locales, el de allí gobierna los keywords que viajan.
+   */
+  'tiendas por departamento, moda y calzado': {
+    positive: [
+      'department store',
+      'tienda por departamento',
+      'almacen por departamentos',
+      'apparel retail',
+      'footwear retail',
+      'fashion retail',
+      'tienda de ropa',
+    ],
+    contradictory: UNIVERSAL_CONTRADICTORY_SIGNALS,
+    round2Synonyms: [
+      'department stores',
+      'clothing retail',
+      'ropa y calzado',
+      'cadena de tiendas de ropa',
+      'apparel chain',
+      'footwear chain',
     ],
   },
   'retail y consumo': {
@@ -150,13 +184,97 @@ export function resolveSectorSignalSet(
   return null;
 }
 
+/**
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 2 — señales de TODAS las
+ * subindustrias pedidas, no de la primera.
+ *
+ * Devuelve una resolución por subindustria (null cuando no está en el catálogo) y
+ * el respaldo sectorial por separado. Quien redacta decide cómo repartir; lo que
+ * este resolvedor NO hace es elegir una ganadora.
+ *
+ * El respaldo sectorial se usa como cola, nunca como sustituto: con `[A, B]` donde
+ * sólo A está en el catálogo, mandar el conjunto del sector y llamarlo «cobertura
+ * de B» es precisamente la omisión silenciosa que el § 7 bloquea.
+ */
+export function resolveSectorSignalSets(
+  sector: string | null | undefined,
+  subindustries: readonly string[],
+): {
+  perSubindustry: {
+    subindustry: string;
+    resolved: { signals: SectorSignalSet; matchedKey: string } | null;
+  }[];
+  sectorFallback: { signals: SectorSignalSet; matchedKey: string } | null;
+  /** True cuando ninguna subindustria ni el sector están en el catálogo. */
+  allSignalsMissing: boolean;
+} {
+  const perSubindustry = subindustries
+    .map((subindustry) => subindustry?.trim())
+    .filter((subindustry): subindustry is string => !!subindustry)
+    .map((subindustry) => {
+      const resolved = resolveSectorSignalSet(null, subindustry);
+      return {
+        subindustry,
+        resolved: resolved ? { signals: resolved.signals, matchedKey: resolved.matchedKey } : null,
+      };
+    });
+
+  const fromSector = resolveSectorSignalSet(sector, null);
+  const sectorFallback = fromSector
+    ? { signals: fromSector.signals, matchedKey: fromSector.matchedKey }
+    : null;
+
+  return {
+    perSubindustry,
+    sectorFallback,
+    allSignalsMissing:
+      sectorFallback === null && perSubindustry.every((entry) => entry.resolved === null),
+  };
+}
+
+/**
+ * § 2 — términos de una fase (positivos o sinónimos de ronda 2) repartidos
+ * round-robin entre las subindustrias que los declaran, con el sector como cola.
+ */
+function buildInterleavedSignalTerms(
+  sets: ReturnType<typeof resolveSectorSignalSets>,
+  pick: (signals: SectorSignalSet) => readonly string[],
+): { terms: string[]; provenanceByTerm: Record<string, string[]> } {
+  const lists: ApolloSubindustryTermList[] = sets.perSubindustry
+    .filter((entry) => entry.resolved !== null)
+    .map((entry, index) => ({
+      requestedSubindustry: entry.subindustry,
+      requestPosition: index,
+      canonicalSubindustry: entry.resolved?.matchedKey ?? null,
+      termSource: 'explicit_catalog' as const,
+      terms: [...pick(entry.resolved!.signals)],
+    }));
+
+  const interleaved = interleaveApolloSubindustryTerms(lists);
+  const sectorTail = sets.sectorFallback ? [...pick(sets.sectorFallback.signals)] : [];
+
+  return {
+    terms: [...interleaved.terms, ...sectorTail],
+    provenanceByTerm: interleaved.provenanceByTerm,
+  };
+}
+
 // ─── Hipótesis ────────────────────────────────────────────────────────────────
 
 export type ApolloTwoRoundQueryContext = {
   country: string | null;
   countryCode: string | null;
   sector: string | null;
-  subindustry: string | null;
+  /**
+   * § 1 — TODAS las subindustrias pedidas, en el orden de la solicitud.
+   *
+   * Antes era `subindustry: string | null`, alimentado por
+   * `primarySubindustryForQueryDrafting`. Ese campo era el segundo cuello de
+   * botella FIRST-ONLY de la cadena: la hipótesis de las dos rondas se redactaba
+   * con las señales de la primera selección y las demás no aparecían ni en los
+   * términos ni en las exclusiones locales.
+   */
+  subindustries: readonly string[];
   /** Ciudades o regiones objetivo, cuando forman parte de la intención. */
   targetLocations?: readonly string[];
   /** Rangos de empleados ya mapeados al vocabulario de Apollo. */
@@ -262,8 +380,13 @@ export type ApolloTwoRoundQueryHypothesis = {
   /** Por qué la hipótesis de la ronda 2 difiere de la de la ronda 1. */
   queryAdaptationReason: string | null;
   requestedResultLimit: number;
-  /** True cuando el sector no tenía señales en el catálogo. */
+  /** True cuando ni las subindustrias ni el sector tenían señales en el catálogo. */
   sectorSignalsMissing: boolean;
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — qué subindustrias pedidas
+   * aportaron cada término de la hipótesis. Vacío cuando sólo habló el sector.
+   */
+  subindustryTermProvenance: Record<string, string[]>;
 };
 
 function dedupeTrimmed(values: readonly (string | null | undefined)[]): string[] {
@@ -280,26 +403,51 @@ function dedupeTrimmed(values: readonly (string | null | undefined)[]): string[]
   return out.slice(0, APOLLO_MAX_FILTER_VALUES);
 }
 
+/** Etiqueta legible de las subindustrias pedidas. Sólo para el texto humano. */
+function contextLabel(context: ApolloTwoRoundQueryContext): string {
+  const subindustries = context.subindustries
+    .map((subindustry) => subindustry?.trim())
+    .filter((subindustry): subindustry is string => !!subindustry);
+  if (subindustries.length > 0) return subindustries.join(' | ');
+  return context.sector?.trim() || 'sin sector';
+}
+
+/** Términos contradictorios de TODAS las subindustrias pedidas, más el sector. */
+function collectContradictoryTerms(
+  sets: ReturnType<typeof resolveSectorSignalSets>,
+): string[] {
+  const terms: string[] = [];
+  for (const entry of sets.perSubindustry) {
+    if (entry.resolved) terms.push(...entry.resolved.signals.contradictory);
+  }
+  if (sets.sectorFallback) terms.push(...sets.sectorFallback.signals.contradictory);
+  return terms;
+}
+
 /**
  * Ronda 1 — la hipótesis MÁS específica disponible.
  *
- * Prefiere las señales de la subindustria sobre las del sector: buscar
+ * Prefiere las señales de las subindustrias sobre las del sector: buscar
  * "Supermercados e Hipermercados" con las señales amplias de "Retail y Consumo"
  * es exactamente la imprecisión que este hito corrige.
+ *
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 3 — con varias subindustrias pedidas,
+ * la ronda 1 lleva una señal de CADA una por delante del respaldo sectorial. No se
+ * sacrifica la segunda, la tercera, la cuarta ni la quinta por ser posteriores.
  */
 export function buildRound1Hypothesis(
   context: ApolloTwoRoundQueryContext,
   requestedResultLimit: number,
 ): ApolloTwoRoundQueryHypothesis {
-  const resolved = resolveSectorSignalSet(context.sector, context.subindustry);
-  const positive = resolved ? [...resolved.signals.positive] : [];
+  const sets = resolveSectorSignalSets(context.sector, context.subindustries);
+  const positive = buildInterleavedSignalTerms(sets, (signals) => signals.positive);
 
-  const label = context.subindustry?.trim() || context.sector?.trim() || 'sin sector';
+  const label = contextLabel(context);
   const countryLabel = context.country?.trim() || context.countryCode?.trim() || 'sin país';
 
   const queryParameters: ApolloTwoRoundQueryParameters = {
     locations: dedupeTrimmed([context.country, ...(context.targetLocations ?? [])]),
-    keywordTags: dedupeTrimmed(positive),
+    keywordTags: dedupeTrimmed(positive.terms),
     employeeRanges: dedupeTrimmed(context.employeeRanges ?? []),
     page: 1,
   };
@@ -309,10 +457,11 @@ export function buildRound1Hypothesis(
     queryHypothesis: `${label} en ${countryLabel} — señales estrictas de subindustria`,
     queryParameters,
     providerRequestFingerprint: buildApolloRoundProviderFingerprint(queryParameters),
-    locallyExcludedTerms: resolved ? [...resolved.signals.contradictory] : [],
+    locallyExcludedTerms: dedupeTrimmed(collectContradictoryTerms(sets)),
     queryAdaptationReason: null,
     requestedResultLimit,
-    sectorSignalsMissing: resolved === null,
+    sectorSignalsMissing: sets.allSignalsMissing,
+    subindustryTermProvenance: positive.provenanceByTerm,
   };
 }
 
@@ -352,9 +501,12 @@ export function buildRound2Hypothesis(
   requestedResultLimit: number,
 ): ApolloRound2Hypothesis {
   const round1 = buildRound1Hypothesis(context, requestedResultLimit);
-  const resolved = resolveSectorSignalSet(context.sector, context.subindustry);
+  const sets = resolveSectorSignalSets(context.sector, context.subindustries);
 
-  const synonyms = resolved ? [...resolved.signals.round2Synonyms] : [];
+  // § 3 — los sinónimos también se reparten round-robin: la variante de la ronda 2
+  // conserva la cobertura de la ronda 1 en vez de estrecharse a un solo dominio.
+  const synonymTerms = buildInterleavedSignalTerms(sets, (signals) => signals.round2Synonyms);
+  const synonyms = synonymTerms.terms;
   // Las señales de la ronda 1 que no dieron elegibles siguen valiendo como
   // ancla del sector; los sinónimos van DELANTE para que, con el tope de
   // valores, la consulta 2 sea genuinamente distinta y no la 1 recortada.
@@ -365,13 +517,12 @@ export function buildRound2Hypothesis(
     context.country,
   ]);
 
-  const contradictory = resolved ? [...resolved.signals.contradictory] : [];
   const locallyExcludedTerms = dedupeTrimmed([
-    ...contradictory,
+    ...collectContradictoryTerms(sets),
     ...(feedback.falsePositiveTerms ?? []),
   ]);
 
-  const label = context.subindustry?.trim() || context.sector?.trim() || 'sin sector';
+  const label = contextLabel(context);
   const countryLabel = context.country?.trim() || context.countryCode?.trim() || 'sin país';
 
   const adaptationParts: string[] = [];
@@ -463,7 +614,13 @@ export function buildRound2Hypothesis(
     queryAdaptationReason:
       adaptationParts.length > 0 ? adaptationParts.join('+') : 'sin_senales_de_adaptacion',
     requestedResultLimit,
-    sectorSignalsMissing: resolved === null,
+    sectorSignalsMissing: sets.allSignalsMissing,
+    // § 3 — la procedencia de la ronda 2 une los sinónimos repartidos con las
+    // anclas heredadas de la ronda 1: las dos rondas declaran a quién representan.
+    subindustryTermProvenance: {
+      ...round1.subindustryTermProvenance,
+      ...synonymTerms.provenanceByTerm,
+    },
     differsFromRound1,
     variantStrategy,
   };
@@ -570,5 +727,7 @@ export function toQueryHypothesisMetadata(
     query_adaptation_reason: hypothesis.queryAdaptationReason,
     requested_result_limit: hypothesis.requestedResultLimit,
     sector_signals_missing: hypothesis.sectorSignalsMissing,
+    // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — a quién representa cada término.
+    subindustry_term_provenance: hypothesis.subindustryTermProvenance,
   };
 }

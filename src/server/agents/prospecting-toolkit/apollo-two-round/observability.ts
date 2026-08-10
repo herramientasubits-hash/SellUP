@@ -208,6 +208,28 @@ export type ApolloTwoRoundRoundMetrics = {
   effectiveKeywordsSent: string[];
   /** § 12 — `total_pages` que el proveedor declaró en esta ronda. */
   providerTotalPages: number | null;
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — cobertura de ESTA ronda.
+   *
+   * Por ronda y no sólo por corrida: el § 3 exige que las dos rondas representen a
+   * todas las subindustrias pedidas, y una cifra agregada no distingue «las dos
+   * rondas cubrieron A y B» de «la ronda 1 cubrió A y la ronda 2 cubrió B».
+   *
+   * `null` cuando la ronda no pudo construir su request efectivo: ausencia de dato
+   * no es cobertura completa.
+   */
+  subindustryCoverage: ApolloRoundSubindustryCoverage | null;
+};
+
+/** § 6 — cobertura de una ronda, ya sanitizada (sólo términos de catálogo). */
+export type ApolloRoundSubindustryCoverage = {
+  requestedSubindustries: string[];
+  coveredSubindustries: string[];
+  uncoveredSubindustries: string[];
+  coverageCount: number;
+  coverageRatio: number;
+  effectiveKeywordsBySubindustry: Record<string, string[]>;
+  complete: boolean;
 };
 
 export function buildEmptyRoundMetrics(
@@ -223,6 +245,7 @@ export function buildEmptyRoundMetrics(
     perPage?: number | null;
     specificTermsSent?: readonly string[];
     effectiveKeywordsSent?: readonly string[];
+    subindustryCoverage?: ApolloRoundSubindustryCoverage | null;
   } = {},
 ): ApolloTwoRoundRoundMetrics {
   return {
@@ -260,6 +283,7 @@ export function buildEmptyRoundMetrics(
     specificTermsSent: [...(provider.specificTermsSent ?? [])],
     effectiveKeywordsSent: [...(provider.effectiveKeywordsSent ?? [])],
     providerTotalPages: null,
+    subindustryCoverage: provider.subindustryCoverage ?? null,
   };
 }
 
@@ -491,6 +515,17 @@ export function toRoundMetricsMetadata(
     specific_terms_sent: metrics.specificTermsSent,
     effective_keywords_sent: metrics.effectiveKeywordsSent,
     provider_total_pages: metrics.providerTotalPages,
+    // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — cobertura POR RONDA. Los
+    // campos van planos, con el prefijo `round_`, para que una consulta pueda
+    // preguntar «¿esta ronda representó a las dos subindustrias?» sin desanidar.
+    round_requested_subindustries: metrics.subindustryCoverage?.requestedSubindustries ?? null,
+    round_covered_subindustries: metrics.subindustryCoverage?.coveredSubindustries ?? null,
+    round_uncovered_subindustries: metrics.subindustryCoverage?.uncoveredSubindustries ?? null,
+    round_coverage_count: metrics.subindustryCoverage?.coverageCount ?? null,
+    round_coverage_ratio: metrics.subindustryCoverage?.coverageRatio ?? null,
+    round_coverage_complete: metrics.subindustryCoverage?.complete ?? null,
+    effective_keywords_by_subindustry:
+      metrics.subindustryCoverage?.effectiveKeywordsBySubindustry ?? null,
   };
 }
 

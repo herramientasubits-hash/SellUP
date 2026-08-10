@@ -131,6 +131,55 @@ const APOLLO_SUBINDUSTRY_CATALOG: readonly ApolloSubindustryCatalogEntry[] = [
       'autoservicios',
     ],
   },
+  {
+    /**
+     * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 9 — la subindustria de la corrida
+     * live `ce957e2f` que NO tenía entrada.
+     *
+     * El usuario la eligió junto a «Supermercados e Hipermercados» y las dos
+     * llegaron al runner, pero sin términos declarados no había nada suyo que
+     * mandar: las cinco posiciones se llenaron con el catálogo de la otra
+     * subindustria y con el respaldo genérico del sector. Con el reparto
+     * round-robin del § 2 la ausencia de esta entrada ya no se resolvería
+     * silenciosamente —el gate del § 7 bloquearía la búsqueda antes de pagar—, y
+     * eso convertiría en inejecutable una selección legítima del wizard.
+     *
+     * Las frases van primero a propósito: son las que sobreviven al truncamiento a
+     * cinco posiciones. `moda`, `calzado`, `apparel` y `footwear` a secas quedan en
+     * la cola, donde amplían el ANY-OF sólo cuando hay hueco.
+     */
+    mapping: {
+      canonicalSubindustry: 'Tiendas por Departamento, Moda y Calzado',
+      positiveTerms: [
+        'department store',
+        'tienda por departamento',
+        'almacen por departamentos',
+        'apparel retail',
+        'footwear retail',
+        'fashion retail',
+        'tienda de ropa',
+        'ropa y calzado',
+        'clothing retail',
+        'apparel',
+        'footwear',
+        'moda',
+        'calzado',
+      ],
+      contradictoryTerms: [...COMMERCE_CONTRADICTORY_TERMS],
+    },
+    aliases: [
+      'tiendas por departamento, moda y calzado',
+      'tiendas por departamento',
+      'tienda por departamento',
+      'moda y calzado',
+      'ropa y calzado',
+      'department stores',
+      'department store',
+      'apparel and footwear',
+      'fashion and apparel',
+      'fashion and footwear',
+    ],
+  },
 ];
 
 // ─── Normalización ────────────────────────────────────────────────────────────
@@ -249,19 +298,34 @@ export function resolveApolloSubindustrySearchMapping(
 }
 
 /**
- * Primera subindustria de la lista del wizard que tenga mapping explícito.
+ * TODAS las subindustrias pedidas que tienen mapping explícito, en el orden de la
+ * solicitud.
  *
- * El wizard permite varias; la consulta es una sola, así que gana la primera que
- * el catálogo reconoce en vez de mezclar señales de dominios distintos.
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 1 — sustituye a
+ * `resolveFirstApolloSubindustrySearchMapping`, que devolvía la PRIMERA y
+ * descartaba el resto. Ese `return` dentro del bucle era la causa raíz de
+ * `ce957e2f`: por muchas subindustrias que el usuario eligiera, exactamente una
+ * podía gobernar los términos de la consulta, y con `[A, B]` la que se quedaba
+ * fuera era B —o A, si A no tenía entrada—.
+ *
+ * Se borró en vez de dejarse exportada: un resolvedor de un solo valor sin
+ * consumidores es una política FIRST-ONLY esperando a que alguien la vuelva a
+ * llamar.
+ *
+ * `matchedInput` conserva la etiqueta EXACTA que trajo la solicitud, no la
+ * canónica: la procedencia es por selección del usuario (§ 10 H).
  */
-export function resolveFirstApolloSubindustrySearchMapping(
+export function resolveAllApolloSubindustrySearchMappings(
   subindustries: readonly (string | null | undefined)[] | null | undefined,
-): { mapping: ApolloSubindustrySearchMapping; matchedInput: string } | null {
+): { mapping: ApolloSubindustrySearchMapping; matchedInput: string }[] {
+  const resolved: { mapping: ApolloSubindustrySearchMapping; matchedInput: string }[] = [];
   for (const subindustry of subindustries ?? []) {
     const mapping = resolveApolloSubindustrySearchMapping(subindustry);
-    if (mapping !== null) return { mapping, matchedInput: (subindustry ?? '').trim() };
+    if (mapping !== null) {
+      resolved.push({ mapping, matchedInput: (subindustry ?? '').trim() });
+    }
   }
-  return null;
+  return resolved;
 }
 
 // ─── Contradicción con señales GRATUITAS ──────────────────────────────────────
@@ -373,6 +437,68 @@ export function evaluateApolloFreeSectorContradiction(
     contradictory: true,
     matchedContradictoryTerm,
     matchedField,
+    matchedPositiveTerms,
+    overriddenByPositiveEvidence: false,
+  };
+}
+
+/**
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 1 — el MISMO veredicto, evaluado con
+ * ANY-OF sobre todas las subindustrias pedidas.
+ *
+ * Este era el último consumidor FIRST-ONLY que decidía GASTO y que el ADDENDUM de
+ * PR #241 no alcanzó: el runner resolvía una sola mapping con
+ * `resolveFirstApolloSubindustrySearchMapping` y con ella juzgaba la
+ * contradicción. Con `[Tiendas por Departamento, Supermercados]` la mapping que
+ * gobernaba era la de supermercados, así que una tienda por departamento cuya
+ * industria declarada mencionara un término contradictorio se bloqueaba sin que
+ * sus propias señales positivas pudieran desactivarlo — y con la solicitud
+ * permutada el veredicto podía cambiar.
+ *
+ * Semántica ANY-OF, coherente con los otros cuatro gates: basta que UNA
+ * subindustria pedida no resulte contradicha para que el candidato no lo esté. Se
+ * conserva la evidencia positiva observada de todas ellas.
+ *
+ * El cap NO se mueve: esto decide QUIÉN compite por un enrichment, no cuántos se
+ * ejecutan. El tope sigue siendo cinco enrichments y veinticinco créditos, con una
+ * subindustria o con cinco.
+ */
+export function evaluateApolloFreeSectorContradictionAnyOf(
+  evidence: ApolloFreeSectorEvidence,
+  mappings: readonly ApolloSubindustrySearchMapping[],
+): ApolloFreeSectorContradictionVerdict {
+  if (mappings.length === 0) return evaluateApolloFreeSectorContradiction(evidence, null);
+
+  const verdicts = mappings.map((mapping) =>
+    evaluateApolloFreeSectorContradiction(evidence, mapping),
+  );
+
+  const matchedPositiveTerms: string[] = [];
+  for (const verdict of verdicts) {
+    for (const term of verdict.matchedPositiveTerms) {
+      if (!matchedPositiveTerms.includes(term)) matchedPositiveTerms.push(term);
+    }
+  }
+
+  const surviving = verdicts.find((verdict) => !verdict.contradictory) ?? null;
+  if (surviving !== null) {
+    return {
+      contradictory: false,
+      matchedContradictoryTerm: null,
+      matchedField: null,
+      matchedPositiveTerms,
+      // Una sola subindustria rescatada por evidencia positiva ya es un rescate.
+      overriddenByPositiveEvidence: verdicts.some((v) => v.overriddenByPositiveEvidence),
+    };
+  }
+
+  // Ninguna sobrevivió: la contradicción se reporta con el primer término
+  // observado, que es el que un diagnóstico necesita nombrar.
+  const first = verdicts[0];
+  return {
+    contradictory: true,
+    matchedContradictoryTerm: first.matchedContradictoryTerm,
+    matchedField: first.matchedField,
     matchedPositiveTerms,
     overriddenByPositiveEvidence: false,
   };

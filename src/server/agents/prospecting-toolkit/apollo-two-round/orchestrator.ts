@@ -64,6 +64,7 @@ import {
   type ApolloEffectiveRequestBuildStatus,
   type ApolloRound2PageDecision,
   type ApolloRound2PageEscalationReason,
+  type ApolloRoundSubindustryCoverage,
   type ApolloTwoRoundRoundMetrics,
   type ApolloTwoRoundRunMetrics,
   type EnrichmentOutcome,
@@ -183,6 +184,18 @@ export type RoundProviderRequestPreview = {
   perPage: number;
   /** Términos que sobrevivieron a la prioridad, la dedupe y el truncamiento. */
   effectiveKeywordTags: readonly string[];
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 §§ 6 y 7 — cobertura del body
+   * efectivo de esta ronda sobre las subindustrias pedidas.
+   *
+   * Viaja en el PREVIEW, es decir antes de pagar, porque es lo que decide si la
+   * ronda se emite: una consulta que no representa a todo lo seleccionado no se
+   * cobra (§ 7). Opcional para no romper las suites puras que inyectan un preview
+   * simulado; ausente ⇒ el gate no bloquea y la cobertura se reporta `null`.
+   */
+  subindustryCoverage?: ApolloRoundSubindustryCoverage | null;
+  /** § 7 — código estático del bloqueo. Non-null ⇒ la ronda NO se ejecuta. */
+  subindustryCoverageBlockReason?: string | null;
 };
 
 /**
@@ -399,6 +412,15 @@ export type SecondRoundSkippedReason =
    */
   | 'legacy_checkpoint_missing_effective_fingerprint'
   /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — el body efectivo de la ronda no
+   * representaba a todas las subindustrias pedidas.
+   *
+   * Fail-closed: la ronda no se emite y no consume créditos. No es un
+   * «no había variante»: es que la consulta que se iba a pagar omitía un criterio
+   * que el usuario eligió.
+   */
+  | 'subindustry_query_coverage_incomplete'
+  /**
    * Código heredado del hito anterior. Se conserva SÓLO para poder rehidratar un
    * checkpoint escrito antes de este cambio; ninguna corrida nueva lo emite.
    */
@@ -439,6 +461,13 @@ export type ApolloTwoRoundRunResult = {
   /** Código estático cuando el objetivo no se alcanzó. Null cuando sí. */
   partialResultReason: 'partial_target_not_reached' | null;
   secondRoundSkippedReason: SecondRoundSkippedReason | null;
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — código estático cuando la
+   * corrida se detuvo porque ninguna consulta cubría todas las subindustrias
+   * pedidas. `null` en una corrida normal. Con valor, los créditos gastados en
+   * búsquedas son CERO.
+   */
+  queryCoverageBlockReason: string | null;
   /**
    * HARDENING-3 § 7 — resultado de la comparación de huellas EFECTIVAS.
    *
@@ -838,6 +867,15 @@ export async function runApolloTwoRoundDiscovery(
   let secondRoundSkippedReason: SecondRoundSkippedReason | null =
     resume?.secondRoundSkippedReason ?? null;
   /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — por qué la corrida no pudo pagar
+   * ninguna búsqueda.
+   *
+   * Se distingue del `secondRoundSkippedReason` a propósito: un bloqueo de cobertura
+   * en la ronda 1 no es «la ronda 2 se omitió», es «no se construyó ninguna consulta
+   * cobrable». `null` en una corrida normal.
+   */
+  let queryCoverageBlockReason: string | null = null;
+  /**
    * § 7 — sólo se fija cuando la comparación de huellas efectivas se hizo de verdad.
    * Mientras siga en null, nadie comparó nada.
    */
@@ -1205,6 +1243,7 @@ export async function runApolloTwoRoundDiscovery(
       hypothesis.queryHypothesis,
       hypothesis.queryAdaptationReason,
       {
+        subindustryCoverage: requestPreview?.subindustryCoverage ?? null,
         requestFingerprint: hypothesis.providerRequestFingerprint,
         // § 10 — la huella EFECTIVA queda registrada por ronda. Es la que la ronda
         // siguiente compara y la que el próximo QA puede auditar.
@@ -1218,6 +1257,25 @@ export async function runApolloTwoRoundDiscovery(
         effectiveKeywordsSent: requestPreview?.effectiveKeywordTags ?? [],
       },
     );
+
+    /**
+     * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — fail-closed ANTES de gastar.
+     *
+     * El preview ya trae el veredicto porque lo calcula el mismo constructor que
+     * gobierna la llamada real. Si el body efectivo no representa a todas las
+     * subindustrias pedidas, la ronda se registra —para que el bloqueo sea legible
+     * en vez de invisible— y la corrida se detiene sin emitir la búsqueda.
+     *
+     * Se comprueba en TODAS las rondas, no sólo en la primera: la ronda 2 cambia
+     * los términos, y una variante que perdiera una subindustria sería otra
+     * búsqueda pagada que omite un criterio elegido.
+     */
+    if (requestPreview?.subindustryCoverageBlockReason) {
+      queryCoverageBlockReason = requestPreview.subindustryCoverageBlockReason;
+      secondRoundSkippedReason = 'subindustry_query_coverage_incomplete';
+      roundMetrics.push(metrics);
+      break;
+    }
 
     // § 12: una ronda ya completada por un intento anterior no se vuelve a
     // buscar. § 5: si de esa búsqueda quedaron organizaciones sin evaluar, se
@@ -1745,6 +1803,7 @@ export async function runApolloTwoRoundDiscovery(
     targetReached,
     partialResultReason: targetReached ? null : 'partial_target_not_reached',
     secondRoundSkippedReason,
+    queryCoverageBlockReason,
     effectiveFingerprintsAreDistinct,
     round2PageDecision,
     persisted,

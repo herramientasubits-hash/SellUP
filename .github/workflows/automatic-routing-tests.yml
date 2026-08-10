@@ -260,6 +260,38 @@ jobs:
       - name: Run A1 multi-subindustry request and reconciliation tests
         run: npm run test:a1-multi-subindustry-request-observability
 
+      # AGENT1-MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 — la COBERTURA de la consulta
+      # entra al check obligatorio. #245 demostró que la multiselección llega íntegra
+      # al runner y #241 que los gates de gasto la evalúan con ANY-OF, pero la corrida
+      # live `ce957e2f` pidió dos subindustrias y las consultas efectivas de las DOS
+      # rondas sólo representaron a una: 21 créditos, 20 organizaciones, 0 candidatos.
+      # La causa eran dos resolvedores FIRST-ONLY en fila
+      # (`primarySubindustryForQueryDrafting` → `resolveFirstApolloSubindustrySearchMapping`),
+      # y el segundo invalidaba la justificación escrita del primero.
+      #
+      # Lo que este paso guarda, y que no falla al compilar:
+      #
+      #   * que las subindustrias pedidas se repartan round-robin dentro del ÚNICO
+      #     array de keyword tags, de modo que con 1, 2 o 5 selecciones todas queden
+      #     representadas bajo el tope de cinco posiciones;
+      #   * que permutar la solicitud no cambie a quién representa la consulta;
+      #   * que las DOS rondas conserven la cobertura, incluida la variante de
+      #     página 2;
+      #   * que una subindustria sin términos NO se omita en silencio: la búsqueda se
+      #     bloquea antes de gastar, con cero créditos, cero llamadas al transporte y
+      #     cero filas económicas, y con la causa auditable en metadata;
+      #   * que el número de llamadas pagadas, el cap de 5 enrichments y el techo de
+      #     25 créditos sean invariantes al número de subindustrias;
+      #   * que el allowlist del contrato del proveedor no se amplíe (nada de un
+      #     parámetro por subindustria, ni de una llamada por subindustria);
+      #   * que los contratos de #245 (solicitud íntegra y en orden), #241 (ANY-OF en
+      #     precisión y en los gates de gasto) y #238 (vocabulario de
+      #     `classification_source`) sigan en pie.
+      #
+      # Determinista: sin flags de Producción, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 multi-subindustry query drafting ANY-OF tests
+        run: npm run test:a1-multi-subindustry-query-drafting-anyof
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)
