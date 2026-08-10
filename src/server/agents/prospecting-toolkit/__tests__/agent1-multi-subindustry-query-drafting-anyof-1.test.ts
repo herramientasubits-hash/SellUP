@@ -79,9 +79,24 @@ import {
   testConfig,
   testCorrelation,
 } from '../apollo-two-round/__tests__/fixtures';
+import { createApolloSubindustryCatalogTermsLookup } from '../apollo-subindustry-catalog-terms-resolution';
+import {
+  buildPublishedCatalogTermsResolution,
+  CATALOG_VERSION,
+} from './fixtures/sellup-published-catalog-search-terms';
 import type { WebSearchInput, WebSearchResult } from '../types';
 
 // ─── Contexto de la corrida live ──────────────────────────────────────────────
+
+/**
+ * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — los términos de catálogo ya no
+ * salen de un snapshot importado por producción, sino de la versión publicada leída en
+ * vivo. La suite inyecta esa lectura desde el fixture de `1.0.0` (73 subindustrias,
+ * 107 términos `keyword`, verificado byte a byte contra Prod) para ejercitar el MISMO
+ * camino que la corrida real, sin base de datos.
+ */
+const PUBLISHED_CATALOG_TERMS = buildPublishedCatalogTermsResolution();
+const CATALOG_TERMS_LOOKUP = createApolloSubindustryCatalogTermsLookup(PUBLISHED_CATALOG_TERMS);
 
 const LIVE_COUNTRY = 'Colombia';
 const LIVE_INDUSTRY = 'Retail y Consumo';
@@ -120,6 +135,10 @@ function buildEffective(input: {
     provider: 'apollo_organizations',
     subindustries: [...input.subindustries],
     additionalCriteriaTokens: [...(input.additionalCriteriaTokens ?? [])],
+    // §§ 2 y 3 — términos resueltos y versión de la selección, coherentes por defecto.
+    // Los tests de deriva pasan una versión distinta a propósito.
+    subindustryCatalogTerms: PUBLISHED_CATALOG_TERMS,
+    selectionCatalogVersion: CATALOG_VERSION,
   };
   return buildApolloOrganizationsEffectiveRequest({
     input: searchInput,
@@ -191,6 +210,7 @@ describe('§ 2 · las dos subindustrias viajan, con semántica ANY-OF', () => {
       industry: LIVE_INDUSTRY,
       subindustries: [SUPERMARKETS],
       additionalCriteriaTokens: [],
+      catalogTerms: CATALOG_TERMS_LOOKUP,
     });
     // Los cinco primeros términos del catálogo de supermercados, sin intención
     // escrita que reclame posiciones: exactamente lo de antes del hito.
@@ -215,6 +235,7 @@ describe('§ 2 · las dos subindustrias viajan, con semántica ANY-OF', () => {
         'comercio minorista',
         'consumo masivo',
       ],
+      catalogTerms: CATALOG_TERMS_LOOKUP,
     });
     assert.deepEqual(withIntent.keywords, [
       'supermercado',
@@ -341,7 +362,8 @@ describe('§ 4 · cinco subindustrias caben en el mismo presupuesto', () => {
   test('el suelo de cobertura no puede pasar del tope de posiciones', () => {
     const lists = resolveApolloSubindustryTermLists(
       FIVE_SUBINDUSTRIES,
-      resolveApolloSubindustryQueryTerms,
+      (subindustry: string) =>
+        resolveApolloSubindustryQueryTerms(subindustry, CATALOG_TERMS_LOOKUP),
     );
     assert.equal(apolloSubindustryCoverageFloor(lists, MAX_KEYWORDS), 5);
     assert.equal(apolloSubindustryCoverageFloor(lists, 3), 3);
@@ -483,7 +505,8 @@ describe('§ 6 · la cobertura se declara, no se deduce', () => {
   test('una etiqueta repetida idéntica colapsa en la primera aparición', () => {
     const lists = resolveApolloSubindustryTermLists(
       [SUPERMARKETS, ' supermercados e hipermercados ', ''],
-      resolveApolloSubindustryQueryTerms,
+      (subindustry: string) =>
+        resolveApolloSubindustryQueryTerms(subindustry, CATALOG_TERMS_LOOKUP),
     );
     assert.equal(lists.length, 1);
     assert.equal(lists[0].requestedSubindustry, SUPERMARKETS);
@@ -531,7 +554,7 @@ describe('§ 7 · una consulta que no cubre todo lo pedido no se paga', () => {
   const UNMAPPED = 'Astilleros y Reparación Naval';
 
   test('E. una subindustria sin términos no se elimina en silencio', () => {
-    const resolution = resolveApolloSubindustryQueryTerms(UNMAPPED);
+    const resolution = resolveApolloSubindustryQueryTerms(UNMAPPED, CATALOG_TERMS_LOOKUP);
     assert.equal(resolution.termSource, 'none');
     assert.deepEqual(resolution.terms, []);
 
@@ -569,7 +592,9 @@ describe('§ 7 · una consulta que no cubre todo lo pedido no se paga', () => {
 
   test('el veredicto es puro: la misma cobertura produce el mismo bloqueo', () => {
     const coverage = computeApolloSubindustryQueryCoverage({
-      lists: resolveApolloSubindustryTermLists([UNMAPPED], resolveApolloSubindustryQueryTerms),
+      lists: resolveApolloSubindustryTermLists([UNMAPPED], (subindustry: string) =>
+        resolveApolloSubindustryQueryTerms(subindustry, CATALOG_TERMS_LOOKUP),
+      ),
       effectiveKeywords: ['retailer'],
     });
     assert.equal(evaluateApolloSubindustryCoverageSpendGate(coverage).allowed, false);
@@ -657,6 +682,11 @@ describe('§ 7 · el provider no emite la llamada cuando falta cobertura', () =>
       intent: 'company_discovery',
       provider: 'apollo_organizations',
       subindustries: [...subindustries],
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 3 — versión coherente por defecto: lo
+      // que estos casos prueban es el gate de COBERTURA, y con una incoherencia de
+      // versión el bloqueo llegaría antes y por otra razón.
+      subindustryCatalogTerms: PUBLISHED_CATALOG_TERMS,
+      selectionCatalogVersion: CATALOG_VERSION,
     };
   }
 
@@ -789,7 +819,8 @@ describe('§ 9 · fixture `ce957e2f` — Colombia · Retail y Consumo · dos sub
     const coverage = computeApolloSubindustryQueryCoverage({
       lists: resolveApolloSubindustryTermLists(
         LIVE_SUBINDUSTRIES,
-        resolveApolloSubindustryQueryTerms,
+        (subindustry: string) =>
+        resolveApolloSubindustryQueryTerms(subindustry, CATALOG_TERMS_LOOKUP),
       ),
       effectiveKeywords: liveRound1,
     });

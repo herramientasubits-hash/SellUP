@@ -43,6 +43,7 @@ import {
 import { runWizardTavilySearch } from './wizard-tavily-executor';
 import type { WizardTavilyRunner, WizardTavilyInput } from './wizard-tavily-executor';
 import { runWizardApolloSearch } from './wizard-apollo-executor';
+import { loadApolloSubindustryCatalogTerms } from '@/server/agents/prospecting-toolkit/apollo-subindustry-catalog-terms-loader.server';
 import type { WizardApolloRunner } from './wizard-apollo-executor';
 import { resolveWizardDiscoveryProvider } from './wizard-provider-resolver';
 import type { WizardDiscoveryProviderKey } from './wizard-provider-resolver';
@@ -379,7 +380,16 @@ export async function executeProspectWizardGenerationAction(
       reserveWizardExecutionSlot(input, supabase as unknown as IdempotencyDbClient),
 
     runTavilyPipeline: (tavilyInput: WizardTavilyInput) => runWizardTavilySearch(tavilyInput),
-    runApolloPipeline: (apolloInput) => runWizardApolloSearch(apolloInput),
+    // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — los términos de búsqueda
+    // del catálogo se leen con el MISMO cliente que resolvió la selección
+    // (`resolveCatalog`, arriba). Una segunda identidad podría ver otra versión
+    // publicada, y entonces «coherencia de versión» sería una comparación entre dos
+    // lecturas que nadie ató a la misma sesión.
+    runApolloPipeline: (apolloInput) =>
+      runWizardApolloSearch({
+        ...apolloInput,
+        loadCatalogSearchTerms: () => loadApolloSubindustryCatalogTerms(supabase),
+      }),
     resolveProvider: resolveWizardDiscoveryProvider,
 
     // A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — todas las lecturas de entorno y de rol

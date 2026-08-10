@@ -490,6 +490,9 @@ describe('D. Keyword merge L2.8 — lms → merged_duplicate, no ignored', () =>
       industry: 'Educación',
       subindustries: ['Formación Corporativa'],
       additionalCriteriaTokens: ['plataformas', 'lms', 'capacitacion', 'comercial'],
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — sin términos de catálogo: este
+      // caso ejercita el catálogo especializado y el mapa histórico, no la tabla.
+      catalogTerms: () => null,
     });
 
     assert.ok(
@@ -515,6 +518,9 @@ describe('D. Keyword merge L2.8 — lms → merged_duplicate, no ignored', () =>
       industry: 'Educación',
       subindustries: ['Formación Corporativa'],
       additionalCriteriaTokens: ['plataformas', 'lms', 'capacitacion', 'comercial'],
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — sin términos de catálogo: este
+      // caso ejercita el catálogo especializado y el mapa histórico, no la tabla.
+      catalogTerms: () => null,
     });
     assert.ok(result.keywords.length <= 5, `keywords.length = ${result.keywords.length}`);
   });
@@ -560,6 +566,9 @@ describe('D. Keyword merge L2.8 — lms → merged_duplicate, no ignored', () =>
       industry: 'Servicios',
       subindustries: [],
       additionalCriteriaTokens: ['b2b', 'saas'],
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — sin términos de catálogo: este
+      // caso ejercita el catálogo especializado y el mapa histórico, no la tabla.
+      catalogTerms: () => null,
     });
     assert.ok(
       result.specificTokensUsed.length > 0 ||

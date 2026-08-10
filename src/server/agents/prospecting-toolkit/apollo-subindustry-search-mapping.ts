@@ -24,20 +24,22 @@
  *
  * `subindustry_search_terms` (228 filas, `keyword`/`query_phrase`/`exclusion_term`/
  * `source_hint` sobre las 73 subindustrias) ya tiene consumidor: el
- * CATALOG SEARCH TERMS COVERAGE ADDENDUM conecta sus filas `keyword` (107 términos,
- * 73/73 subindustrias con al menos una) en `apollo-subindustry-catalog-search-terms`
- * y las combina con ESTE catálogo en `apollo-subindustry-search-coverage`
- * (`resolveApolloSubindustrySearchCoverage`). NO sustituye este catálogo: sigue
- * siendo la única fuente de precisión (`positiveTerms`/`contradictoryTerms`) y de
- * los 2/73 que cuentan hacia el objetivo — el catálogo de la tabla sólo resuelve
- * DISCOVERY (¿hay algo que buscar?), nunca PRECISION (¿el candidato es de verdad de
- * esta subindustria?).
+ * CATALOG SEARCH TERMS COVERAGE ADDENDUM conectó sus filas `keyword` (107 términos,
+ * 73/73 subindustrias con al menos una) y las combina con ESTE catálogo en
+ * `apollo-subindustry-search-coverage` (`resolveApolloSubindustrySearchCoverage`). NO
+ * sustituye este catálogo: sigue siendo la única fuente de precisión
+ * (`positiveTerms`/`contradictoryTerms`) y de los 2/73 que cuentan hacia el objetivo —
+ * el catálogo de la tabla sólo resuelve DISCOVERY (¿hay algo que buscar?), nunca
+ * PRECISION (¿el candidato es de verdad de esta subindustria?).
  *
- * Los 73 nombres siguen viviendo congelados en
- * `__tests__/fixtures/sellup-subindustry-catalog-names.ts`, y el snapshot del
- * addendum se generó con una lectura de SOLO LECTURA contra el mismo catálogo
- * publicado, sin dejar ninguna consulta en vivo en la ruta de construcción de
- * queries.
+ * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — esas filas ya NO se leen de un
+ * snapshot TypeScript. El catálogo publicado puede cambiar sin despliegue (es una
+ * transacción de base de datos), así que los términos se resuelven en vivo desde la
+ * misma versión publicada que resolvió la selección del wizard
+ * (`apollo-subindustry-catalog-terms-loader.server.ts`) y viajan como dato hasta la
+ * ruta pura de construcción de la consulta. Este catálogo especializado, en cambio,
+ * SÍ es code-owned a propósito: gobierna precisión, y su vocabulario se versiona con
+ * el repositorio.
  *
  * Puro: sin env, sin I/O, sin reloj.
  */

@@ -40,6 +40,10 @@ import type {
   WebSearchResult,
 } from '../../types';
 import type { ApolloTwoRoundCheckpointV1 } from '../checkpoint';
+import {
+  buildPublishedCatalogTermsResolution,
+  CATALOG_VERSION,
+} from '../../__tests__/fixtures/sellup-published-catalog-search-terms';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -475,6 +479,17 @@ afterEach(() => {
   for (const key of TOUCHED_ENV) delete process.env[key];
 });
 
+/**
+ * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 3 — la resolución de términos de la versión
+ * publicada viaja en el input, y su versión tiene que ser la de la selección.
+ *
+ * Sin ella el provider bloquea ANTES del transporte (cero créditos), que es
+ * precisamente el contrato nuevo: una consulta cuya procedencia de catálogo no se puede
+ * afirmar no se paga. Estos casos miden `per_page`, páginas y huellas, así que
+ * necesitan una corrida COHERENTE; la incoherencia se prueba en su propia suite.
+ */
+const PUBLISHED_CATALOG_TERMS = buildPublishedCatalogTermsResolution();
+
 const PROVIDER_INPUT: WebSearchInput = {
   query: 'supermercados en Colombia',
   country: 'Colombia',
@@ -485,6 +500,8 @@ const PROVIDER_INPUT: WebSearchInput = {
   provider: 'apollo_organizations',
   subindustries: ['Supermercados e Hipermercados'],
   additionalCriteriaTokens: ['grocery store'],
+  subindustryCatalogTerms: PUBLISHED_CATALOG_TERMS,
+  selectionCatalogVersion: CATALOG_VERSION,
 };
 
 function pagePayload(page: number, perPage: number): ApolloPageFetchResult {

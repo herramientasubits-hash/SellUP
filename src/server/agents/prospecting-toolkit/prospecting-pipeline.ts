@@ -319,6 +319,10 @@ export async function runProspectingPipeline(
           // L2.7: propagar subindustrias y tokens al provider (Apollo los usa; Tavily los ignora)
           subindustries: input.subindustries,
           additionalCriteriaTokens: input.additionalCriteriaTokens,
+          // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — términos ya resueltos de la
+          // versión publicada. Se transportan; este módulo no los interpreta.
+          subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
+          selectionCatalogVersion: input.selectionCatalogVersion ?? null,
         });
         const sgMeta = hasQueryOverrides || usesPlannerQueries
           ? { enabled: false, sources_used: [] as string[] }

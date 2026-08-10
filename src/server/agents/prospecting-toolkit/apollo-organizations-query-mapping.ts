@@ -48,7 +48,10 @@ import {
   type ApolloSearchPackBuildResult,
 } from './apollo-search-pack-builder';
 import { resolveApolloSubindustrySearchMapping } from './apollo-subindustry-search-mapping';
-import { resolveApolloSubindustryCatalogSearchTerms } from './apollo-subindustry-catalog-search-terms';
+import {
+  createApolloSubindustryCatalogTermsLookup,
+  type ApolloSubindustryCatalogTermsLookup,
+} from './apollo-subindustry-catalog-terms-resolution';
 import {
   apolloKeywordDedupeKey,
   apolloSubindustryCoverageFloor,
@@ -332,19 +335,30 @@ export type ApolloKeywordPriorityStrategy =
  *
  *   1. catálogo especializado (`apollo-subindustry-search-mapping`) — 2/73, el
  *      mismo que gobierna precisión;
- *   2. catálogo `subindustry_search_terms` (`apollo-subindustry-catalog-search-terms`)
+ *   2. términos de `subindustry_search_terms` de la versión publicada, YA RESUELTOS
  *      — 73/73, sólo discovery, NUNCA implica mapping de precisión;
  *   3. mapa histórico de keywords libres (`getSubindustryKeywords`) — se conserva
  *      como respaldo para etiquetas que NO son uno de los 73 nombres canónicos
- *      (p. ej. `"Educación Corporativa"`, `"LMS"`), que el nuevo catálogo no
+ *      (p. ej. `"Educación Corporativa"`, `"LMS"`), que el catálogo publicado no
  *      reconoce por diseño (emparejamiento por igualdad exacta, no por alias).
  *
  * El orden importa: 1 y 2 comparten el mismo espacio de nombres (los 73 canónicos),
  * así que una subindustria nunca resuelve por las dos a la vez, y 3 sólo se alcanza
  * cuando ninguna de las dos reconoce la etiqueta.
+ *
+ * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — `catalogTerms` es un
+ * parámetro OBLIGATORIO, no un import.
+ *
+ * Antes el nivel 2 se resolvía contra un snapshot TypeScript de la tabla, y ese
+ * snapshot podía describir una versión del catálogo distinta de la que el usuario
+ * acababa de seleccionar sin que nada fallara. Ahora los términos llegan resueltos
+ * desde la MISMA versión publicada que resolvió la selección, y el compilador lo
+ * exige en cada llamada: no hay firma que permita olvidarse de pasarlos y caer en
+ * silencio a un respaldo estático.
  */
 export function resolveApolloSubindustryQueryTerms(
   subindustry: string,
+  catalogTerms: ApolloSubindustryCatalogTermsLookup,
 ): ApolloSubindustryTermResolution {
   const explicit = resolveApolloSubindustrySearchMapping(subindustry);
   if (explicit !== null) {
@@ -354,7 +368,7 @@ export function resolveApolloSubindustryQueryTerms(
       terms: explicit.positiveTerms,
     };
   }
-  const catalog = resolveApolloSubindustryCatalogSearchTerms(subindustry);
+  const catalog = catalogTerms(subindustry);
   if (catalog !== null && catalog.terms.length > 0) {
     return {
       canonicalSubindustry: catalog.canonicalSubindustry,
@@ -463,15 +477,22 @@ export function buildPrioritizedApolloKeywords(opts: {
   industry: string | null | undefined;
   subindustries: readonly string[];
   additionalCriteriaTokens: readonly string[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — términos de la versión publicada,
+   * ya resueltos. Obligatorio: la ruta de construcción de la consulta no consulta
+   * nada, y tampoco tiene un respaldo estático al que caer si nadie los pasa.
+   */
+  catalogTerms: ApolloSubindustryCatalogTermsLookup;
   maxKeywords?: number;
 }): PrioritizedApolloKeywordsResult {
   const maxKeywords = opts.maxKeywords ?? MAX_KEYWORDS;
 
   // 1. Subindustrias: una lista de términos POR selección (catálogo explícito
-  //    primero, mapa histórico después), repartidas round-robin.
+  //    primero, términos de la versión publicada después, mapa histórico al final),
+  //    repartidas round-robin.
   const subindustryTermLists = resolveApolloSubindustryTermLists(
     opts.subindustries,
-    resolveApolloSubindustryQueryTerms,
+    (subindustry) => resolveApolloSubindustryQueryTerms(subindustry, opts.catalogTerms),
   );
   const interleaved = interleaveApolloSubindustryTerms(
     subindustryTermLists,
@@ -761,10 +782,20 @@ export function buildApolloOrganizationsSearchParams(
   // Un search pack sólo puede ganar cuando la subindustria seleccionada NO tiene
   // mapping propio. Con mapping, sus términos son la señal más específica que
   // existe y ningún pack de sector puede desplazarlos.
+  // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — los términos de catálogo viajan
+  // DENTRO de `WebSearchInput`, resueltos una sola vez por corrida en la frontera del
+  // wizard desde la misma versión publicada que resolvió la selección. Ausentes, el
+  // nivel 2 simplemente no aporta nada: la incoherencia la bloquea el gate de versión
+  // del § 3 antes de gastar, no un respaldo silencioso aquí.
+  const catalogTerms = createApolloSubindustryCatalogTermsLookup(
+    input.subindustryCatalogTerms ?? null,
+  );
+
   const prioritized = buildPrioritizedApolloKeywords({
     industry: input.industry,
     subindustries,
     additionalCriteriaTokens,
+    catalogTerms,
   });
   // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — y con DOS o más selecciones el
   // pack tampoco puede ganar: un pack es el conjunto curado de UN dominio, así que

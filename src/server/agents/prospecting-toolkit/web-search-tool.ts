@@ -304,6 +304,14 @@ export async function runMultiQueryWebSearch(
       // L2.7: propagar contexto estructurado al provider (Apollo lo usa; Tavily lo ignora)
       ...(input.subindustries && input.subindustries.length > 0 ? { subindustries: input.subindustries } : {}),
       ...(input.additionalCriteriaTokens && input.additionalCriteriaTokens.length > 0 ? { additionalCriteriaTokens: input.additionalCriteriaTokens } : {}),
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — la MISMA resolución de términos
+      // para todas las queries de la ronda: se lee una vez por corrida, no por query.
+      ...(input.subindustryCatalogTerms != null
+        ? { subindustryCatalogTerms: input.subindustryCatalogTerms }
+        : {}),
+      ...(input.selectionCatalogVersion != null
+        ? { selectionCatalogVersion: input.selectionCatalogVersion }
+        : {}),
     };
 
     const dispatchContext: ApolloDispatchUsageContext | undefined = usageContext

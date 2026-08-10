@@ -98,9 +98,10 @@ export type ApolloSubindustryTermSource =
   /** Catálogo explícito de subindustrias (`apollo-subindustry-search-mapping`). */
   | 'explicit_catalog'
   /**
-   * `subindustry_search_terms` (`apollo-subindustry-catalog-search-terms`) —
-   * CATALOG SEARCH TERMS COVERAGE ADDENDUM. Cubre las 73 subindustrias del
-   * catálogo activo; NO implica mapping de precisión (sigue en 2/73).
+   * `subindustry_search_terms` de la versión PUBLICADA, resueltos en vivo
+   * (CATALOG SEARCH TERMS COVERAGE ADDENDUM, y CATALOG SOURCE-OF-TRUTH FINAL
+   * ADDENDUM § 2, que quitó el snapshot intermedio). Cubre las 73 subindustrias del
+   * catálogo `1.0.0`; NO implica mapping de precisión (sigue en 2/73).
    */
   | 'catalog_search_terms'
   /** Mapa histórico de keywords del query mapper. */

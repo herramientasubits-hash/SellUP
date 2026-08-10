@@ -171,6 +171,14 @@ import {
   type ApolloSubindustryPrecisionAssessment,
 } from '../apollo-subindustry-precision';
 import { captureApolloEnrichmentForPersistence } from '../apollo-enrichment-persistence-capture';
+// CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM §§ 3 y 9 — versión del catálogo que redactó
+// la consulta, y el invariante que la ata a la versión de la selección.
+import {
+  evaluateApolloCatalogVersionCoherence,
+  toApolloCatalogVersionCoherenceMetadata,
+  toApolloSubindustryCatalogTermsMetadata,
+  type ApolloSubindustryCatalogTermsResolution,
+} from '../apollo-subindustry-catalog-terms-resolution';
 import {
   evaluateCompanyOwnership,
   isBlockedByCompanyOwnership,
@@ -188,6 +196,22 @@ export type ApolloTwoRoundWizardRunInput = {
   countryCode: string;
   industry: string;
   subindustries: string[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — términos de
+   * `subindustry_search_terms` de la versión publicada, resueltos UNA vez en la
+   * frontera del wizard con el mismo cliente que resolvió la selección.
+   *
+   * Viajan resueltos porque la redacción de la consulta es pura: el runner no
+   * consulta el catálogo, lo transporta. Ausentes con subindustrias pedidas, el gate
+   * del § 3 bloquea antes de gastar en vez de buscar con un respaldo estático.
+   */
+  subindustryCatalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
+  /**
+   * § 3 — versión del catálogo con la que se resolvió la SELECCIÓN
+   * (`resolved.catalog.version`). Lado izquierdo del invariante
+   * `selection_catalog_version == search_term_catalog_version`.
+   */
+  selectionCatalogVersion?: string | null;
   additionalCriteria: string | null;
   /** Lote ya reservado. La modalidad NUNCA crea un segundo lote. */
   reservedBatchId: string;
@@ -912,6 +936,11 @@ export async function runApolloTwoRoundWizardDiscovery(
       maxResults: requestedResultLimit,
       provider: 'apollo_organizations',
       subindustries: input.subindustries,
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM §§ 2 y 3 — la MISMA resolución para
+      // todas las páginas y las dos rondas: se lee una vez por corrida, así que dos
+      // llamadas de la misma corrida no pueden redactarse con dos versiones.
+      subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
+      selectionCatalogVersion: input.selectionCatalogVersion ?? null,
       additionalCriteriaTokens: hypothesis.queryParameters.keywordTags,
     };
 
@@ -1532,6 +1561,9 @@ export async function runApolloTwoRoundWizardDiscovery(
     // las keywords que la solicitud sólo traía una subindustria; con esto la
     // pregunta «¿llegaron las dos?» se responde leyendo el lote.
     requestedSubindustries: input.subindustries,
+    // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 9 — y CONTRA QUÉ catálogo se redactó.
+    catalogTerms: input.subindustryCatalogTerms ?? null,
+    selectionCatalogVersion: input.selectionCatalogVersion ?? null,
   });
 
   let candidatesCreated = persistedCandidateIds.length;
@@ -1724,6 +1756,14 @@ function buildObservabilityMetadata(input: {
   candidatesPersisted: boolean;
   /** § A — subindustrias que la SOLICITUD trajo, en su orden. Ausente ⇒ []. */
   requestedSubindustries?: readonly string[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 9 — la resolución de términos con la que
+   * se redactaron TODAS las consultas de esta corrida. Ausente ⇒ se declara como no
+   * resuelta, que es un hecho de la corrida y no un campo que falte.
+   */
+  catalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
+  /** § 3 — versión con la que se resolvió la selección del usuario. */
+  selectionCatalogVersion?: string | null;
 }): Record<string, unknown> {
   const { runResult } = input;
   const requestedSubindustries = [...(input.requestedSubindustries ?? [])];
@@ -1769,6 +1809,18 @@ function buildObservabilityMetadata(input: {
       // `ce957e2f` no pudo responder leyendo el lote: la solicitud decía dos y la
       // consulta representaba una, y ningún campo lo declaraba.
       ...buildRunSubindustryCoverageMetadata(runResult, requestedSubindustries),
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 9 — de qué versión publicada del
+      // catálogo salieron los términos, con su digest, y si esa versión es la misma
+      // con la que se resolvió la selección. Sin estos campos, «cobertura 2/2» no
+      // dice contra qué catálogo se midió.
+      ...toApolloSubindustryCatalogTermsMetadata(input.catalogTerms ?? null),
+      ...toApolloCatalogVersionCoherenceMetadata(
+        evaluateApolloCatalogVersionCoherence({
+          selectionCatalogVersion: input.selectionCatalogVersion ?? null,
+          resolution: input.catalogTerms ?? null,
+          requestedSubindustries,
+        }),
+      ),
       // § 7 — con valor, ninguna búsqueda se emitió y los créditos son CERO.
       query_coverage_block_reason: runResult.queryCoverageBlockReason,
       result_status: runResult.resultStatus,

@@ -49,6 +49,12 @@ import {
   type ApolloOrganizationsRequestBody,
   type ApolloOrganizationsRequestInput,
 } from './apollo-organizations-request-contract';
+import {
+  evaluateApolloCatalogVersionCoherence,
+  toApolloCatalogVersionCoherenceMetadata,
+  toApolloSubindustryCatalogTermsMetadata,
+  type ApolloCatalogVersionCoherenceVerdict,
+} from './apollo-subindustry-catalog-terms-resolution';
 
 // ─── Tope duro del proveedor ──────────────────────────────────────────────────
 
@@ -194,6 +200,16 @@ export type ApolloEffectiveRequest = {
   subindustryCoverageSpendGate: ApolloSubindustryCoverageSpendVerdict;
   /** § 6 — términos que gobernaron la consulta, por subindustria pedida. */
   subindustryTermLists: ApolloSubindustryTermList[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 3 — invariante
+   * `selection_catalog_version == search_term_catalog_version`.
+   *
+   * Se evalúa aquí, junto al resto del request efectivo, porque aquí es donde se sabe
+   * QUÉ términos gobernaron el body: un veredicto de versión calculado en otro sitio
+   * podría estar hablando de una resolución distinta de la que redactó la consulta.
+   * `allowed: false` ⇒ la búsqueda NO se emite y no se consume ningún crédito.
+   */
+  catalogVersionCoherence: ApolloCatalogVersionCoherenceVerdict;
 };
 
 /**
@@ -263,11 +279,21 @@ export function buildApolloOrganizationsEffectiveRequest(
     dedupeKey: apolloKeywordDedupeKey,
   });
 
+  // § 3 — coherencia de versión entre la SELECCIÓN y los TÉRMINOS. Se evalúa contra
+  // las subindustrias que la solicitud trajo: sin subindustrias no hay nada que
+  // cubrir, y con ellas la resolución tiene que venir de la misma versión publicada.
+  const catalogVersionCoherence = evaluateApolloCatalogVersionCoherence({
+    selectionCatalogVersion: input.input.selectionCatalogVersion,
+    resolution: input.input.subindustryCatalogTerms ?? null,
+    requestedSubindustries: input.input.subindustries,
+  });
+
   return {
     subindustryCoverage,
     subindustryCoverageSpendGate:
       evaluateApolloSubindustryCoverageSpendGate(subindustryCoverage),
     subindustryTermLists,
+    catalogVersionCoherence,
     body: contract.body,
     effectiveRequestFingerprint: contract.effectiveRequestFingerprint,
     filtersFingerprint: contract.filtersFingerprint,
@@ -348,5 +374,21 @@ export function toApolloEffectiveRequestMetadata(
     ...toApolloSubindustryQueryCoverageMetadata(effective.subindustryCoverage),
     apollo_subindustry_coverage_block_reason:
       effective.subindustryCoverageSpendGate.blockReason,
+    // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM §§ 3 y 9 — de qué versión publicada
+    // salieron los términos, y si esa versión es la de la selección.
+    ...toApolloCatalogVersionCoherenceMetadata(effective.catalogVersionCoherence),
   };
+}
+
+/**
+ * §§ 3 y 9 — metadata de la RESOLUCIÓN de términos de catálogo de la corrida.
+ *
+ * Va aparte del request efectivo porque describe la corrida, no la llamada: la
+ * resolución se lee una vez y gobierna todas las páginas y las dos rondas, así que
+ * repetirla por llamada sugeriría que puede cambiar entre ellas.
+ */
+export function toApolloCatalogTermsRunMetadata(
+  input: WebSearchInput,
+): Record<string, unknown> {
+  return toApolloSubindustryCatalogTermsMetadata(input.subindustryCatalogTerms ?? null);
 }

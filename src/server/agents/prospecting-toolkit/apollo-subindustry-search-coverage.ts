@@ -1,10 +1,12 @@
 /**
  * apollo-subindustry-search-coverage.ts — contrato canónico de cobertura de
- * búsqueda por subindustria, combinando el catálogo especializado (2/73) y el
- * catálogo de `subindustry_search_terms` (73/73).
+ * búsqueda por subindustria, combinando el catálogo especializado (2/73) y los
+ * términos de `subindustry_search_terms` de la versión publicada (73/73 en `1.0.0`).
  *
  * AGENT1-MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 · CATALOG SEARCH TERMS COVERAGE
- * ADDENDUM · §§ 2, 3, 4 y 6.
+ * ADDENDUM · §§ 2, 3, 4 y 6 · y CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2, que
+ * convirtió los términos de catálogo en un input OBLIGATORIO ya resuelto: este módulo
+ * ya no conoce ningún snapshot, y por tanto no puede desviarse de la versión publicada.
  *
  * ── Dos contratos independientes, a propósito (§ 4) ────────────────────────────
  *
@@ -45,16 +47,24 @@ import {
   type ApolloSubindustrySearchMapping,
 } from './apollo-subindustry-search-mapping';
 import {
-  resolveApolloSubindustryCatalogSearchTerms,
-  listApolloSubindustryCatalogSearchTerms,
-} from './apollo-subindustry-catalog-search-terms';
+  createApolloSubindustryCatalogTermsLookup,
+  type ApolloSubindustryCatalogTermsLookup,
+  type ApolloSubindustryCatalogTermsResolution,
+} from './apollo-subindustry-catalog-terms-resolution';
 import { normalizeApolloTermKey, apolloKeywordDedupeKey } from './apollo-subindustry-query-terms';
 
 // ─── Resolvers inyectables ────────────────────────────────────────────────────
 
-export type ApolloSubindustryCatalogSearchTermsResolver = (
-  subindustry: string,
-) => { canonicalSubindustryId: string; canonicalSubindustry: string; terms: string[] } | null;
+/**
+ * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — los términos de catálogo se
+ * reciben YA RESUELTOS desde la versión publicada, nunca desde un snapshot estático.
+ *
+ * Es el mismo tipo que consume la ruta de construcción de la consulta
+ * (`ApolloSubindustryCatalogTermsLookup`): una sola forma para una sola fuente. Antes
+ * había un tipo local aquí y otro en el mapper, y dos formas para la misma cosa es
+ * exactamente cómo se cuela una segunda fuente de verdad.
+ */
+export type ApolloSubindustryCatalogSearchTermsResolver = ApolloSubindustryCatalogTermsLookup;
 
 export type ApolloSubindustrySpecializedMappingResolver = (
   subindustry: string,
@@ -112,8 +122,12 @@ export type ApolloSubindustrySearchCoverageResult = {
 
 export type ApolloSubindustrySearchCoverageInput = {
   requestedSubindustries: readonly (string | null | undefined)[] | null | undefined;
-  /** Default: `resolveApolloSubindustryCatalogSearchTerms` (snapshot de 73). */
-  catalogSearchTerms?: ApolloSubindustryCatalogSearchTermsResolver;
+  /**
+   * OBLIGATORIO — términos de la versión publicada, ya resueltos. No tiene default:
+   * un default estático es precisamente la segunda fuente de verdad que este addendum
+   * elimina. Sin términos de catálogo, pásese `() => null` explícitamente.
+   */
+  catalogSearchTerms: ApolloSubindustryCatalogSearchTermsResolver;
   /** Default: `resolveApolloSubindustrySearchMapping` (catálogo especializado, 2/73). */
   specializedMappings?: ApolloSubindustrySpecializedMappingResolver;
 };
@@ -127,7 +141,7 @@ export type ApolloSubindustrySearchCoverageInput = {
 export function resolveApolloSubindustrySearchCoverage(
   input: ApolloSubindustrySearchCoverageInput,
 ): ApolloSubindustrySearchCoverageResult {
-  const catalogResolve = input.catalogSearchTerms ?? resolveApolloSubindustryCatalogSearchTerms;
+  const catalogResolve = input.catalogSearchTerms;
   const specializedResolve = input.specializedMappings ?? resolveApolloSubindustrySearchMapping;
 
   const seen = new Set<string>();
@@ -251,30 +265,28 @@ export type ApolloSubindustryCatalogCoverageAudit = {
 };
 
 /**
- * § 6 — ¿cuántas de las 73 subindustrias del catálogo activo pueden construir una
- * búsqueda hoy? Recorre los 73 nombres canónicos del snapshot
- * (`apollo-subindustry-catalog-search-terms`, generado desde una lectura de sólo
- * lectura del catálogo publicado — los mismos 73 que
- * `__tests__/fixtures/sellup-subindustry-catalog-names.ts` congela para la suite)
- * uno por uno, sin fallback al sector padre. `subindustryNames` es inyectable para
- * que la suite pueda auditar contra el fixture congelado y comparar longitudes sin
- * que este módulo de producción importe un archivo de `__tests__`.
+ * § 7 — ¿cuántas subindustrias de UNA resolución concreta pueden construir una
+ * búsqueda? Recorre los nombres canónicos uno por uno, sin fallback al sector padre.
+ *
+ * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — audita una RESOLUCIÓN, no un snapshot.
+ *
+ * Antes esta función tenía defaults: leía los 73 nombres del snapshot estático y sus
+ * términos del mismo sitio. Eso la volvía una aserción sobre el repositorio, no sobre
+ * el catálogo publicado — y era la última vía por la que el snapshot podía quedarse
+ * como fuente de verdad. Ahora la resolución es un parámetro obligatorio: la suite le
+ * pasa la lectura congelada de la versión `1.0.0` (73/73), y una auditoría contra otra
+ * versión publicada le pasa esa otra.
  */
-export function auditApolloSubindustryCatalogSearchCoverage(
-  input?: {
-    subindustryNames?: readonly string[];
-    catalogSearchTerms?: ApolloSubindustryCatalogSearchTermsResolver;
-    specializedMappings?: ApolloSubindustrySpecializedMappingResolver;
-  },
-): ApolloSubindustryCatalogCoverageAudit {
-  const subindustryNames =
-    input?.subindustryNames ??
-    listApolloSubindustryCatalogSearchTerms().map((entry) => entry.canonicalSubindustry);
+export function auditApolloSubindustryCatalogSearchCoverage(input: {
+  resolution: ApolloSubindustryCatalogTermsResolution;
+  specializedMappings?: ApolloSubindustrySpecializedMappingResolver;
+}): ApolloSubindustryCatalogCoverageAudit {
+  const subindustryNames = input.resolution.entries.map((entry) => entry.canonicalSubindustry);
 
   const result = resolveApolloSubindustrySearchCoverage({
     requestedSubindustries: subindustryNames,
-    catalogSearchTerms: input?.catalogSearchTerms,
-    specializedMappings: input?.specializedMappings,
+    catalogSearchTerms: createApolloSubindustryCatalogTermsLookup(input.resolution),
+    specializedMappings: input.specializedMappings,
   });
 
   return {

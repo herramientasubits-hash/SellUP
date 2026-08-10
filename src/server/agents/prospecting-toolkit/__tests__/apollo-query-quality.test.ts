@@ -135,6 +135,9 @@ describe('§ 1 · prioridad de términos', () => {
       industry: 'Retail y Consumo',
       subindustries: [],
       additionalCriteriaTokens: ['tiendas de barrio'],
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — los términos de catálogo llegan
+      // resueltos; aquí se prueba la prioridad del catálogo especializado y del sector.
+      catalogTerms: () => null,
     });
 
     assert.ok(result.specificTokensUsed.length > 0);
@@ -149,6 +152,9 @@ describe('§ 1 · prioridad de términos', () => {
       industry: 'Retail y Consumo',
       subindustries: ['Supermercados e Hipermercados'],
       additionalCriteriaTokens: ['tiendas de descuento'],
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — los términos de catálogo llegan
+      // resueltos; aquí se prueba la prioridad del catálogo especializado y del sector.
+      catalogTerms: () => null,
     });
 
     assert.ok(
@@ -164,6 +170,9 @@ describe('§ 1 · prioridad de términos', () => {
       industry: 'salud',
       subindustries: [],
       additionalCriteriaTokens: [],
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — los términos de catálogo llegan
+      // resueltos; aquí se prueba la prioridad del catálogo especializado y del sector.
+      catalogTerms: () => null,
     });
 
     assert.equal(result.keywordPriorityStrategy, 'sector_general_fallback');
@@ -176,6 +185,9 @@ describe('§ 1 · prioridad de términos', () => {
       industry: 'Retail y Consumo',
       subindustries: [],
       additionalCriteriaTokens: [],
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — los términos de catálogo llegan
+      // resueltos; aquí se prueba la prioridad del catálogo especializado y del sector.
+      catalogTerms: () => null,
     });
 
     assert.ok(
@@ -499,6 +511,9 @@ describe('§ 9 · el builder de keywords legacy fue eliminado', () => {
       industry: QA_WIZARD_SELECTION.industry,
       subindustries: [...QA_WIZARD_SELECTION.subindustries],
       additionalCriteriaTokens: [],
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — los términos de catálogo llegan
+      // resueltos; aquí se prueba la prioridad del catálogo especializado y del sector.
+      catalogTerms: () => null,
     });
 
     // La prioridad del § 1: subindustria primero, genéricos como mucho dos y sólo

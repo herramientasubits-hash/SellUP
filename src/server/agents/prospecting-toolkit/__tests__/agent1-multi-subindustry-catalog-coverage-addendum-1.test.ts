@@ -28,10 +28,13 @@ import {
   toApolloSubindustrySearchCoverageMetadata,
   evaluateApolloSubindustrySearchCoverageSpendGate,
 } from '../apollo-subindustry-search-coverage';
+import { createApolloSubindustryCatalogTermsLookup } from '../apollo-subindustry-catalog-terms-resolution';
 import {
-  listApolloSubindustryCatalogSearchTerms,
-  resolveApolloSubindustryCatalogSearchTerms,
-} from '../apollo-subindustry-catalog-search-terms';
+  buildPublishedCatalogTermsResolution,
+  CATALOG_TERMS_SOURCE_HASH,
+  CATALOG_VERSION,
+  CATALOG_VERSION_ID,
+} from './fixtures/sellup-published-catalog-search-terms';
 import {
   buildApolloOrganizationsSearchParams,
   resolveApolloSubindustryQueryTerms,
@@ -56,6 +59,15 @@ import type { WebSearchInput, WebSearchResult } from '../types';
 
 const MAX_KEYWORDS = 5;
 
+/**
+ * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — el snapshot TypeScript de
+ * `subindustry_search_terms` ya no existe. Producción lee la versión publicada en vivo,
+ * y esta suite le inyecta esa misma lectura desde el fixture de `1.0.0`.
+ */
+const PUBLISHED_CATALOG_TERMS = buildPublishedCatalogTermsResolution();
+const CATALOG_TERMS_LOOKUP = createApolloSubindustryCatalogTermsLookup(PUBLISHED_CATALOG_TERMS);
+const publishedCatalogEntries = () => PUBLISHED_CATALOG_TERMS.entries;
+
 function searchResult(overrides: Partial<WebSearchResult> & { title: string }): WebSearchResult {
   return {
     url: 'https://ejemplo.com',
@@ -77,6 +89,8 @@ function buildEffective(input: {
       countryCode: 'CO',
       industry: input.industry ?? 'Tecnología',
       subindustries: [...input.subindustries],
+      subindustryCatalogTerms: PUBLISHED_CATALOG_TERMS,
+      selectionCatalogVersion: CATALOG_VERSION,
     },
     5,
   );
@@ -87,6 +101,8 @@ function buildEffective(input: {
       countryCode: 'CO',
       industry: input.industry ?? 'Tecnología',
       subindustries: [...input.subindustries],
+      subindustryCatalogTerms: PUBLISHED_CATALOG_TERMS,
+      selectionCatalogVersion: CATALOG_VERSION,
     },
     requestedMaxResults: 5,
     resultLimitMode: 'two_round',
@@ -99,8 +115,8 @@ function buildEffective(input: {
 // ─── § 1: auditoría del catálogo ──────────────────────────────────────────────
 
 describe('§ 1 · auditoría del catálogo subindustry_search_terms', () => {
-  test('el snapshot tiene exactamente 73 subindustrias, las mismas del fixture congelado', () => {
-    const catalogNames = listApolloSubindustryCatalogSearchTerms().map(
+  test('la versión publicada trae exactamente 73 subindustrias, las mismas del fixture congelado', () => {
+    const catalogNames = publishedCatalogEntries().map(
       (entry) => entry.canonicalSubindustry,
     );
     assert.equal(catalogNames.length, 73);
@@ -108,7 +124,7 @@ describe('§ 1 · auditoría del catálogo subindustry_search_terms', () => {
   });
 
   test('las 73 tienen al menos un término keyword — cero sin cobertura', () => {
-    const entries = listApolloSubindustryCatalogSearchTerms();
+    const entries = publishedCatalogEntries();
     const withoutTerms = entries.filter((entry) => entry.terms.length === 0);
     assert.deepEqual(withoutTerms, [], `subindustrias sin término: ${JSON.stringify(withoutTerms)}`);
 
@@ -118,15 +134,15 @@ describe('§ 1 · auditoría del catálogo subindustry_search_terms', () => {
   });
 
   test('auditApolloSubindustryCatalogSearchCoverage declara 73/73 cubiertas por discovery', () => {
-    const audit = auditApolloSubindustryCatalogSearchCoverage();
+    const audit = auditApolloSubindustryCatalogSearchCoverage({ resolution: PUBLISHED_CATALOG_TERMS });
     assert.equal(audit.subindustriesTotal, 73);
     assert.equal(audit.queryCoveredSubindustries, 73);
     assert.equal(audit.queryUncoveredSubindustries, 0);
     assert.deepEqual(audit.uncoveredLabels, []);
   });
 
-  test('cada UUID del snapshot es único', () => {
-    const ids = listApolloSubindustryCatalogSearchTerms().map((entry) => entry.canonicalSubindustryId);
+  test('cada UUID de la versión publicada es único', () => {
+    const ids = publishedCatalogEntries().map((entry) => entry.canonicalSubindustryId);
     assert.equal(new Set(ids).size, ids.length);
   });
 });
@@ -137,6 +153,7 @@ describe('§ 2 · resolveApolloSubindustrySearchCoverage', () => {
   test('subindustria sólo con catálogo especializado (2/73)', () => {
     const result = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Supermercados e Hipermercados'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     assert.equal(result.entries.length, 1);
     const [entry] = result.entries;
@@ -150,6 +167,7 @@ describe('§ 2 · resolveApolloSubindustrySearchCoverage', () => {
   test('subindustria sólo con catálogo de la tabla (71/73)', () => {
     const result = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Ciberseguridad'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     const [entry] = result.entries;
     assert.equal(entry.covered, true);
@@ -162,6 +180,7 @@ describe('§ 2 · resolveApolloSubindustrySearchCoverage', () => {
   test('subindustria sin ninguna fuente ⇒ uncovered, sin fallback', () => {
     const result = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Astilleros y Reparación Naval'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     const [entry] = result.entries;
     assert.equal(entry.covered, false);
@@ -199,29 +218,38 @@ describe('§ 2 · resolveApolloSubindustrySearchCoverage', () => {
   test('etiquetas vacías se descartan y las repetidas colapsan en la primera aparición', () => {
     const result = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Ciberseguridad', '', '  ', 'ciberseguridad', 'Ciberseguridad'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     assert.equal(result.entries.length, 1);
     assert.equal(result.entries[0].requestedSubindustry, 'Ciberseguridad');
   });
 
   test('sin subindustrias pedidas, coverageRatio es 1 y no hay entradas', () => {
-    const result = resolveApolloSubindustrySearchCoverage({ requestedSubindustries: [] });
+    const result = resolveApolloSubindustrySearchCoverage({
+      requestedSubindustries: [],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
+    });
     assert.deepEqual(result.entries, []);
     assert.equal(result.coverageRatio, 1);
     assert.equal(result.requestedCount, 0);
   });
 
   test('una, dos y cinco subindustrias catalog-only quedan todas cubiertas', () => {
-    const one = resolveApolloSubindustrySearchCoverage({ requestedSubindustries: ['Ciberseguridad'] });
+    const one = resolveApolloSubindustrySearchCoverage({
+      requestedSubindustries: ['Ciberseguridad'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
+    });
     assert.equal(one.coveredCount, 1);
 
     const two = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Ciberseguridad', 'Legaltech'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     assert.equal(two.coveredCount, 2);
 
     const five = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Ciberseguridad', 'Legaltech', 'Insurtech', 'Agritech', 'HRtech y Gestión del Talento'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     assert.equal(five.coveredCount, 5);
     assert.deepEqual(five.uncoveredSubindustries, []);
@@ -230,9 +258,11 @@ describe('§ 2 · resolveApolloSubindustrySearchCoverage', () => {
   test('permutation invariance: [A,B] y [B,A] cubren el mismo conjunto', () => {
     const forward = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Ciberseguridad', 'Legaltech'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     const reverse = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Legaltech', 'Ciberseguridad'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     assert.deepEqual(
       [...forward.coveredSubindustries].sort(),
@@ -243,9 +273,13 @@ describe('§ 2 · resolveApolloSubindustrySearchCoverage', () => {
 
   test('permutation invariance con cinco subindustrias', () => {
     const five = ['Ciberseguridad', 'Legaltech', 'Insurtech', 'Agritech', 'HRtech y Gestión del Talento'];
-    const forward = resolveApolloSubindustrySearchCoverage({ requestedSubindustries: five });
+    const forward = resolveApolloSubindustrySearchCoverage({
+      requestedSubindustries: five,
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
+    });
     const reversed = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: [...five].reverse(),
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     assert.deepEqual(
       [...forward.coveredSubindustries].sort(),
@@ -261,6 +295,7 @@ describe('§ 4 · la cobertura de catálogo NO implica mapping de precisión', (
   test('«Ciberseguridad» tiene términos de catálogo pero sigue sin anclas de precisión', () => {
     const coverage = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Ciberseguridad'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     assert.equal(coverage.entries[0].covered, true);
 
@@ -278,7 +313,7 @@ describe('§ 4 · la cobertura de catálogo NO implica mapping de precisión', (
   });
 
   test('resolveApolloSubindustryQueryTerms para «Ciberseguridad» resuelve por catalog_search_terms, no explicit_catalog', () => {
-    const resolution = resolveApolloSubindustryQueryTerms('Ciberseguridad');
+    const resolution = resolveApolloSubindustryQueryTerms('Ciberseguridad', CATALOG_TERMS_LOOKUP);
     assert.equal(resolution.termSource, 'catalog_search_terms');
     assert.ok(resolution.terms.length > 0);
   });
@@ -290,6 +325,7 @@ describe('§ 5 y § 7 · fail-closed pre-gasto sobre lo que de verdad no tiene c
   test('evaluateApolloSubindustrySearchCoverageSpendGate bloquea cuando falta una subindustria', () => {
     const coverage = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Ciberseguridad', 'Astilleros y Reparación Naval'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     const verdict = evaluateApolloSubindustrySearchCoverageSpendGate(coverage);
     assert.equal(verdict.allowed, false);
@@ -298,7 +334,10 @@ describe('§ 5 y § 7 · fail-closed pre-gasto sobre lo que de verdad no tiene c
 
   test('con las 73 canónicas ninguna bloquea por falta de fuente de discovery', () => {
     for (const name of SELLUP_ACTIVE_SUBINDUSTRY_NAMES) {
-      const coverage = resolveApolloSubindustrySearchCoverage({ requestedSubindustries: [name] });
+      const coverage = resolveApolloSubindustrySearchCoverage({
+      requestedSubindustries: [name],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
+    });
       const verdict = evaluateApolloSubindustrySearchCoverageSpendGate(coverage);
       assert.equal(verdict.allowed, true, `"${name}" no debería bloquear`);
     }
@@ -370,7 +409,9 @@ describe('§ 7 · 1 a 5 subindustrias catalog-only quedan representadas en la co
 
   test('el suelo de cobertura reserva una posición por subindustria catalog-only', () => {
     const five = ['Ciberseguridad', 'Legaltech', 'Insurtech', 'Agritech', 'HRtech y Gestión del Talento'];
-    const lists = resolveApolloSubindustryTermLists(five, resolveApolloSubindustryQueryTerms);
+    const lists = resolveApolloSubindustryTermLists(five, (subindustry: string) =>
+      resolveApolloSubindustryQueryTerms(subindustry, CATALOG_TERMS_LOOKUP),
+    );
     assert.equal(apolloSubindustryCoverageFloor(lists, MAX_KEYWORDS), 5);
     for (const list of lists) {
       assert.equal(list.termSource, 'catalog_search_terms', `"${list.requestedSubindustry}" debería resolver por catálogo`);
@@ -454,7 +495,14 @@ describe('§ 8 · los topes de gasto no se mueven', () => {
 describe('§ 11 · contratos de hitos previos preservados', () => {
   test('PR #246 — ANY-OF: dos subindustrias catalog-only reparten posiciones, ninguna gobierna sola', () => {
     const { meta } = buildApolloOrganizationsSearchParams(
-      { query: 'x', country: 'Colombia', industry: 'Tecnología', subindustries: ['Legaltech', 'Insurtech'] },
+      {
+        query: 'x',
+        country: 'Colombia',
+        industry: 'Tecnología',
+        subindustries: ['Legaltech', 'Insurtech'],
+        subindustryCatalogTerms: PUBLISHED_CATALOG_TERMS,
+        selectionCatalogVersion: CATALOG_VERSION,
+      },
       5,
     );
     assert.deepEqual(meta.query_uncovered_subindustries, []);
@@ -463,7 +511,14 @@ describe('§ 11 · contratos de hitos previos preservados', () => {
 
   test('PR #245 — la solicitud viaja íntegra y en orden con subindustrias catalog-only', () => {
     const { meta } = buildApolloOrganizationsSearchParams(
-      { query: 'x', country: 'Colombia', industry: 'Tecnología', subindustries: ['Legaltech', 'Insurtech'] },
+      {
+        query: 'x',
+        country: 'Colombia',
+        industry: 'Tecnología',
+        subindustries: ['Legaltech', 'Insurtech'],
+        subindustryCatalogTerms: PUBLISHED_CATALOG_TERMS,
+        selectionCatalogVersion: CATALOG_VERSION,
+      },
       5,
     );
     assert.deepEqual(meta.requested_subindustries, ['Legaltech', 'Insurtech']);
@@ -512,6 +567,7 @@ describe('§ 12 · metadata de diagnóstico', () => {
   test('toApolloSubindustrySearchCoverageMetadata no lleva secretos ni datos crudos del candidato', () => {
     const coverage = resolveApolloSubindustrySearchCoverage({
       requestedSubindustries: ['Ciberseguridad', 'Astilleros y Reparación Naval'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     const metadata = toApolloSubindustrySearchCoverageMetadata(coverage);
     assert.equal(metadata.requested_count, 2);
@@ -528,7 +584,7 @@ describe('§ 12 · metadata de diagnóstico', () => {
 
 describe('resolveApolloSubindustryCatalogSearchTerms — igualdad exacta, no substring', () => {
   test('nombre canónico exacto resuelve', () => {
-    const resolved = resolveApolloSubindustryCatalogSearchTerms('Ciberseguridad');
+    const resolved = CATALOG_TERMS_LOOKUP('Ciberseguridad');
     assert.notEqual(resolved, null);
     assert.equal(resolved?.canonicalSubindustry, 'Ciberseguridad');
   });
@@ -537,19 +593,19 @@ describe('resolveApolloSubindustryCatalogSearchTerms — igualdad exacta, no sub
     // "Educación Corporativa" NO es uno de los 73 nombres canónicos — el canónico
     // es "Formación Corporativa y Corporate Training". Debe seguir resolviendo por
     // el mapa histórico exactamente como antes de este addendum.
-    assert.equal(resolveApolloSubindustryCatalogSearchTerms('Educación Corporativa'), null);
-    assert.equal(resolveApolloSubindustryCatalogSearchTerms('LMS'), null);
-    const resolution = resolveApolloSubindustryQueryTerms('Educación Corporativa');
+    assert.equal(CATALOG_TERMS_LOOKUP('Educación Corporativa'), null);
+    assert.equal(CATALOG_TERMS_LOOKUP('LMS'), null);
+    const resolution = resolveApolloSubindustryQueryTerms('Educación Corporativa', CATALOG_TERMS_LOOKUP);
     assert.equal(resolution.termSource, 'legacy_keyword_map');
   });
 
   test('nombre inexistente no resuelve', () => {
-    assert.equal(resolveApolloSubindustryCatalogSearchTerms('No Existe Esta Subindustria'), null);
+    assert.equal(CATALOG_TERMS_LOOKUP('No Existe Esta Subindustria'), null);
   });
 
   test('vacío o null no resuelve', () => {
-    assert.equal(resolveApolloSubindustryCatalogSearchTerms(''), null);
-    assert.equal(resolveApolloSubindustryCatalogSearchTerms(null), null);
-    assert.equal(resolveApolloSubindustryCatalogSearchTerms(undefined), null);
+    assert.equal(CATALOG_TERMS_LOOKUP(''), null);
+    assert.equal(CATALOG_TERMS_LOOKUP(null), null);
+    assert.equal(CATALOG_TERMS_LOOKUP(undefined), null);
   });
 });

@@ -70,6 +70,7 @@ import {
   APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS,
   buildApolloOrganizationsEffectiveRequest,
   resolveApolloResultLimit,
+  toApolloCatalogTermsRunMetadata,
   toApolloContractFilters,
   toApolloEffectiveRequestMetadata,
   verifyApolloEffectiveRequestMatchesSent,
@@ -747,8 +748,28 @@ export async function runApolloOrganizationsSearch(
   // llevaba términos de una, y se pagaron 21 créditos por una pregunta que no era
   // la del usuario. Cero créditos es la respuesta correcta a una consulta que no se
   // puede construir — no una búsqueda a medias.
-  const coverageGate = effective.subindustryCoverageSpendGate;
-  if (!coverageGate.allowed) {
+  //
+  // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 3 — y ANTES de eso, la coherencia de
+  // versión. Es el gate más fundamental de los dos: la cobertura pregunta «¿hay un
+  // término para cada subindustria?», y este pregunta «¿esos términos describen el
+  // catálogo que el usuario seleccionó?». Una cobertura perfecta calculada sobre la
+  // versión equivocada sigue siendo la pregunta equivocada, así que se evalúa primero
+  // y se declara con su propia razón: `wizard=v2 + términos=v1 + llamada al proveedor`
+  // no puede ocurrir.
+  const spendBlock =
+    !effective.catalogVersionCoherence.allowed
+      ? {
+          blockReason: effective.catalogVersionCoherence.blockReason,
+          adminCopy: effective.catalogVersionCoherence.adminCopy,
+        }
+      : !effective.subindustryCoverageSpendGate.allowed
+        ? {
+            blockReason: effective.subindustryCoverageSpendGate.blockReason,
+            adminCopy: effective.subindustryCoverageSpendGate.adminCopy,
+          }
+        : null;
+
+  if (spendBlock !== null) {
     const usageMeta: ApolloOrganizationsUsageMetadata = {
       operation_key: 'organizations_search',
       provider_key: 'apollo',
@@ -763,13 +784,14 @@ export async function runApolloOrganizationsSearch(
       results: [],
       resultsCount: 0,
       skipped: true,
-      skipReason: coverageGate.blockReason,
+      skipReason: spendBlock.blockReason,
       estimatedCostUsd: 0,
       metadata: {
         dry_run: false,
-        note: coverageGate.adminCopy,
+        note: spendBlock.adminCopy,
         usage: usageMeta,
         ...toApolloEffectiveRequestMetadata(effective),
+        ...toApolloCatalogTermsRunMetadata(input),
       },
     };
   }
@@ -836,6 +858,10 @@ export async function runApolloOrganizationsSearch(
     // para que un diagnóstico pueda decir qué gobernó la llamada en vez de
     // deducirlo del texto de la consulta.
     ...toApolloEffectiveRequestMetadata(effective),
+    // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 9 — y de qué versión publicada del
+    // catálogo salieron los términos que la redactaron. Una corrida que salió bien
+    // también tiene que poder decirlo, no sólo una bloqueada.
+    ...toApolloCatalogTermsRunMetadata(input),
   };
 
   // ── A1-APOLLO-WIZARD-1: búsqueda paginada acotada ───────────────────────────
