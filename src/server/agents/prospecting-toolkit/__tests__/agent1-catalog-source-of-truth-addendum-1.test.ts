@@ -934,16 +934,25 @@ describe('§ 10 · PR #238 — el vocabulario de classification_source no se toc
     }
   });
 
-  test('este addendum no añade ninguna migración', () => {
-    const migrations = readdirSync(path.join(REPO_ROOT, 'supabase', 'migrations'));
-    const maxNumber = migrations
-      .map((file) => Number.parseInt(file.slice(0, 3), 10))
-      .filter((value) => Number.isFinite(value))
-      .reduce((max, value) => Math.max(max, value), 0);
-    assert.equal(
-      maxNumber,
-      112,
-      'el catálogo se lee, no se modifica: este addendum no crea migraciones',
+  test('el catálogo se LEE: ninguna migración nueva toca subindustry_search_terms', () => {
+    // La aserción no cuenta migraciones ni fija un número máximo: otras cadenas de
+    // trabajo añaden las suyas constantemente y eso no tiene nada que ver con este
+    // addendum. Lo que se afirma es más preciso — las ÚNICAS migraciones que
+    // mencionan la tabla de términos siguen siendo las cuatro que la crearon,
+    // endurecieron y sembraron. Este addendum no escribe en el catálogo: lo consulta.
+    const migrationsDir = path.join(REPO_ROOT, 'supabase', 'migrations');
+    const touchingTermsTable = readdirSync(migrationsDir)
+      .filter((file) => file.endsWith('.sql'))
+      .filter((file) =>
+        readFileSync(path.join(migrationsDir, file), 'utf8').includes('subindustry_search_terms'),
+      )
+      .map((file) => file.slice(0, 3))
+      .sort();
+
+    assert.deepEqual(
+      touchingTermsTable,
+      ['057', '058', '059', '060'],
+      'una migración nueva sobre subindustry_search_terms no pertenece a este addendum',
     );
   });
 });
