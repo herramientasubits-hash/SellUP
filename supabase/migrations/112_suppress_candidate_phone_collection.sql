@@ -153,7 +153,9 @@
 -- collection is empty in every environment, so there is no historical row to propagate a
 -- suppression to. Nothing in this file activates a flag, calls a provider or moves a credit.
 --
--- ⚠️ NOT APPLIED. This migration has NOT been applied to any remote Supabase project.
+-- ✅ APPLIED IN PRODUCTION. Remote version 20260810163800 (2026-08-10), applied exactly once,
+-- migration-first: it landed AHEAD of the code that calls it, so the function has existed with
+-- zero callers ever since. Do NOT apply it again.
 --
 -- Idempotent: ADD COLUMN IF NOT EXISTS, the CHECK is guarded, CREATE OR REPLACE for the
 -- function, and the REVOKE/GRANT block declares an end state.

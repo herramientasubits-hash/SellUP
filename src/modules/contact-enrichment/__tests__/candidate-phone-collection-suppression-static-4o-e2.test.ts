@@ -111,6 +111,22 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
     assert.deepEqual(above, []);
   });
 
+  it('la 112 declara que YA está aplicada, con la versión remota exacta', () => {
+    // Las hermanas 109/110/111 llevan un marcador «NOT APPLIED» que una suite
+    // estática fija, porque lo que evita el daño es que el archivo diga en qué
+    // estado está. La 112 se aplicó ANTES que su código (migration-first), así
+    // que aquí el marcador correcto es el contrario — y esta prueba lo sujeta:
+    // sin ella, la cabecera podría volver a decir «NOT APPLIED» y empujar a
+    // alguien a aplicarla por segunda vez.
+    assert.match(SQL, /APPLIED IN PRODUCTION/);
+    assert.match(SQL, /20260810163800/, 'debe constar la versión remota exacta');
+    assert.equal(
+      /NOT APPLIED/.test(SQL),
+      false,
+      'la 112 sí está aplicada: el marcador de las hermanas no aplicadas sería falso',
+    );
+  });
+
   it('las migraciones 109/110/111 NO fueron modificadas por este hito', () => {
     // Marcadores de identidad de cada una. Si el hito las hubiera editado, el
     // marcador o el bloque que lo rodea habría cambiado.
