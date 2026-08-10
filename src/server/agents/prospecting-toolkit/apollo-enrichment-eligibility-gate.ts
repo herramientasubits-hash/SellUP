@@ -23,7 +23,7 @@
 
 import type { WebSearchResult } from './types';
 import {
-  evaluateApolloSectorRelevanceForPaidOperation,
+  evaluateApolloSectorRelevanceForPaidOperationAnyOf,
   type ApolloPaidSectorRelevanceDecision,
 } from './apollo-sector-relevance-gate';
 
@@ -255,8 +255,16 @@ export type ApolloEnrichmentEligibilityContext = {
   targetCountryCode: string | null;
   /** Sector requested by the wizard, for the fail-closed relevance check. */
   sector: string | null;
-  /** Primary subindustry, when the search has one. */
-  subindustry?: string | null;
+  /**
+   * Every subindustry the search asked for, evaluated ANY-OF.
+   *
+   * FINAL MULTI-SUBINDUSTRY SPEND-GATE ADDENDUM § 2 — this used to be a single
+   * `subindustry`, and that made the gate order-dependent: the search queries all
+   * of them with ANY-OF, so judging a candidate against only the first rejected
+   * companies that plainly matched the second. A list is the type-level guarantee
+   * that no caller can hand a spend gate one value out of five again.
+   */
+  subindustries?: readonly (string | null | undefined)[] | null;
   /**
    * Domains under cooldown, lowercase and `www.`-stripped.
    *
@@ -521,10 +529,12 @@ export function evaluateApolloEnrichmentEligibility(
   //                                    sector at all; buying that description is
   //                                    exactly what the cascade is for. Not a
   //                                    passthrough — a structured reason.
-  const sectorRelevance = evaluateApolloSectorRelevanceForPaidOperation(
+  // ADDENDUM § 2 — ANY-OF sobre TODAS las subindustrias pedidas. Un candidato
+  // plausible para la segunda ya no lo rechaza el veredicto de la primera.
+  const sectorRelevance = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
     result,
     context.sector,
-    context.subindustry ?? null,
+    context.subindustries ?? null,
   );
   if (
     sectorRelevance.decision === 'sector_not_mapped' ||

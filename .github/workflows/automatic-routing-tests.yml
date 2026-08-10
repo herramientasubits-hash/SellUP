@@ -195,6 +195,36 @@ jobs:
       - name: Run A1 Apollo LinkedIn and quality integration tests
         run: npm run test:a1-apollo-linkedin-quality-integration
 
+      # AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 — la integridad del
+      # objetivo entra al check obligatorio. La corrida live `8c86eb06` contó 3 de 4
+      # empresas hacia el objetivo SIN una sola subindustria confirmada, porque el
+      # writer decidía con `sectorEvidenceState` —el veredicto de INDUSTRIA— en vez
+      # de con el de subindustria, que ya era correcto y ya estaba persistido. Lo
+      # que este paso guarda, y que no falla al compilar:
+      #
+      #   * que las anclas casen por PALABRA o frase completa y nunca por
+      #     substring: con `moda` y `fashion` de anclas, «cómodas»,
+      #     «acomodación», «Accommodation», «incómoda» y «acomodada» quedaban
+      #     confirmadas y contaban;
+      #   * que `\b` de JavaScript NO se use como matcher (es ASCII: una tilde le
+      #     crea una frontera de palabra falsa), y que los plurales de las listas
+      #     que RECHAZAN sigan rechazando tras el cambio de matcher;
+      #   * que la precisión evalúe las CINCO subindustrias que el wizard permite
+      #     con semántica ANY-OF —la misma de la búsqueda Apollo— y no sólo
+      #     `subindustries[0]`;
+      #   * que pedir subindustria y no obtener veredicto sea fail-closed, sin
+      #     caer NUNCA al veredicto de la industria padre;
+      #   * que las búsquedas SIN subindustria conserven su comportamiento;
+      #   * que la ficha no pueda mostrar «Subindustria ambigua» sobre una
+      #     RECHAZADA, ni «Cuenta hacia el objetivo: Sí» sobre una no confirmada;
+      #   * que `classification_source` siga llevando el vocabulario de QUIÉN
+      #     clasificó (PR #238) y no el de la evidencia, que es lo que producía el
+      #     error 23514 contra la CHECK de la migración 093.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 subindustry fail-closed target integrity tests
+        run: npm run test:a1-subindustry-fail-closed-target-integrity
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)

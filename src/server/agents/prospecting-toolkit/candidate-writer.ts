@@ -90,14 +90,13 @@ import {
   buildEmployeeCountTrace,
 } from './apollo-company-fields-mapping';
 import {
-  evaluateCandidateTargetEligibility,
+  evaluateCandidateSubindustryTargetEligibility,
   buildCandidateCompletenessCounters,
   resolveCandidateStatusForCompleteness,
-  toSubindustryMatchVerdict,
   INCOMPLETE_CANDIDATE_REVIEW_FLAG,
   CANDIDATE_TARGET_METRICS_METADATA_KEY,
 } from './candidate-completeness-contract';
-import type { CandidateTargetEligibility } from './candidate-completeness-contract';
+import type { CandidateCanonicalTargetEligibility as CandidateTargetEligibility } from './candidate-completeness-contract';
 import type {
   RichProfileEnrichmentConfig,
   RichProfileEnrichmentProviderFn,
@@ -1271,6 +1270,28 @@ export async function writeProspectingCandidates(
     return typeof raw === 'string' ? raw : null;
   })();
 
+  /**
+   * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 3 — subindustrias que la
+   * búsqueda PIDIÓ, leídas del request y no de lo que el proveedor alcanzó a
+   * evaluar.
+   *
+   * Es la entrada que permite distinguir «no se pidió subindustria» (la búsqueda
+   * sectorial de siempre, que no cambia) de «se pidió y nadie la evaluó» (Tavily,
+   * la ruta legacy, o un capture de Apollo sin `precision`). Sin ella el segundo
+   * caso caía a `sectorEvidenceState` —el veredicto de INDUSTRIA— y contaba hacia
+   * el objetivo sin una sola señal de la subindustria pedida.
+   *
+   * `pipelineOutput.input.subindustries` manda porque es lo que el pipeline
+   * ejecutó; `extraBatchMetadata.subindustries` es el respaldo para las rutas que
+   * sólo inyectan el contexto del wizard.
+   */
+  const requestedSubindustriesForTarget = (() => {
+    const fromPipeline = (pipelineOutput.input as { subindustries?: unknown } | null)
+      ?.subindustries;
+    if (Array.isArray(fromPipeline) && fromPipeline.length > 0) return fromPipeline as string[];
+    return batchSubindustries;
+  })();
+
   // Evidence persistence policy gate tracking (Hito v1.5)
   type EvidencePolicySample = { name: string; reason: string; url: string | null };
   const evidencePolicyGateData = {
@@ -2413,9 +2434,22 @@ export async function writeProspectingCandidates(
     // § 5 — la regla de conteo hacia el target. Los gates de propiedad y de
     // calidad ya descartaron antes del insert a quien no pasaba, así que llegar
     // aquí ES el `pass`; se registra explícito en vez de darse por supuesto.
-    const targetEligibility: CandidateTargetEligibility = evaluateCandidateTargetEligibility({
+    //
+    // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 3 — cuando la búsqueda
+    // pidió una subindustria específica, el veredicto que decide el conteo es
+    // el de `ApolloSubindustryPrecisionAssessment` (`providerEnrichmentCapture
+    // .precision`), NO `candidate.sectorEvidenceState`: ese estado es el
+    // veredicto de relevancia sectorial/de INDUSTRIA, subindustria-ciego para
+    // toda subindustria sin catálogo de anclas propio, y leerlo como si
+    // demostrara la subindustria pedida es el defecto que este cambio cierra.
+    const targetEligibility = evaluateCandidateSubindustryTargetEligibility({
       persistenceSuccess: true,
-      subindustryMatch: toSubindustryMatchVerdict(candidate.sectorEvidenceState),
+      sectorEvidenceState: candidate.sectorEvidenceState,
+      // § 3 — lo que se PIDIÓ. Con esto, una búsqueda con subindustria cuya
+      // precisión no llegó queda fail-closed en vez de heredar el veredicto de
+      // industria.
+      requestedSubindustries: requestedSubindustriesForTarget,
+      subindustryPrecision: candidate.providerEnrichmentCapture?.precision ?? null,
       employeeCountStatus: providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
       linkedinStatus: providerCompanyFields?.linkedin.status ?? 'mapping_failed',
       duplicateStatus: dbDuplicateStatus,
@@ -2542,6 +2576,24 @@ export async function writeProspectingCandidates(
                 failed_conditions: targetEligibility.failedConditions,
                 base_status: candidateStatus,
                 persisted_status: completenessAdjustedStatus,
+                // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 3 — el
+                // mismo veredicto que decidió `counts_toward_target`, explícito
+                // y auditable sin tener que releer `apollo_enrichment_capture`.
+                complete_valid: targetEligibility.completeValid,
+                review_only: targetEligibility.reviewOnly,
+                review_only_reasons: targetEligibility.reviewOnlyReasons,
+                blocking_reasons: targetEligibility.blockingReasons,
+                subindustry_requirement_applied: targetEligibility.subindustryRequirementApplied,
+                subindustry_mapped: targetEligibility.subindustryMapped,
+                subindustry_match: targetEligibility.subindustryMatch,
+                // § 5 — la causa CONCRETA, para que la ficha no tenga que
+                // deducirla y no pueda mostrar «ambigua» sobre una rechazada.
+                subindustry_blocking_reason: targetEligibility.subindustryBlockingReason,
+                // § 2 — las subindustrias pedidas y cuál confirmó. Sin esto,
+                // auditar una corrida de cinco selecciones exigía reevaluar.
+                requested_subindustries: targetEligibility.requestedSubindustries,
+                matched_requested_subindustry: targetEligibility.matchedRequestedSubindustry,
+                matched_subindustry_family: targetEligibility.matchedSubindustryFamily,
               },
             }
           : {}),

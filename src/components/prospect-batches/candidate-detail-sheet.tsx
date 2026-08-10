@@ -1747,6 +1747,10 @@ export function CandidateDetailSheet({
               );
               if (!subindustryStatus.hasData) return null;
 
+              // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 9 — `unmapped`
+              // usa el mismo tono neutro que «Sin medir»: no es un error del
+              // candidato, es SellUp sin reglas todavía para esa subindustria, y
+              // no debe leerse con la misma alarma que «Ambigua» o «Rechazada».
               const verdictBadgeStyle =
                 subindustryStatus.verdict === 'confirmed'
                   ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
@@ -1755,6 +1759,8 @@ export function CandidateDetailSheet({
                   : subindustryStatus.verdict === 'rejected'
                   ? 'bg-destructive/10 text-destructive'
                   : 'bg-muted text-muted-foreground/60';
+              // Cubre 'unmapped' y null (sin medir) — ambos comparten el estilo
+              // neutro por diseño, no por omisión.
 
               return (
                 <CollapsibleSection title="Subindustria solicitada">

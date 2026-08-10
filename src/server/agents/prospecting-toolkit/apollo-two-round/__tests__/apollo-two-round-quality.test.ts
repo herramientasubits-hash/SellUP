@@ -124,7 +124,7 @@ describe('§ 13 · clasificación sectorial (§ 5)', () => {
     const eligibility = evaluateApolloEnrichmentEligibility(bank, {
       targetCountryCode: 'CO',
       sector: SECTOR,
-      subindustry: SUBINDUSTRY,
+      subindustries: [SUBINDUSTRY],
     });
 
     assert.equal(eligibility.eligible, false);
@@ -143,7 +143,7 @@ describe('§ 13 · clasificación sectorial (§ 5)', () => {
     const eligibility = evaluateApolloEnrichmentEligibility(unknownSector, {
       targetCountryCode: 'CO',
       sector: SECTOR,
-      subindustry: SUBINDUSTRY,
+      subindustries: [SUBINDUSTRY],
     });
 
     assert.equal(eligibility.eligible, true);
@@ -179,7 +179,7 @@ describe('§ 13 · duplicados conocidos antes del gasto', () => {
     const eligibility = evaluateApolloEnrichmentEligibility(citi, {
       targetCountryCode: 'US',
       sector: SECTOR,
-      subindustry: SUBINDUSTRY,
+      subindustries: [SUBINDUSTRY],
       alreadyProcessedDomains: new Set(['citi.com']),
     });
 

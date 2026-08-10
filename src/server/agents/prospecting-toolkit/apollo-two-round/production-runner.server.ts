@@ -66,7 +66,7 @@ import {
   evaluateApolloEnrichmentEligibility,
   type ApolloEnrichmentIneligibilityReason,
 } from '../apollo-enrichment-eligibility-gate';
-import { evaluateApolloSectorRelevanceForPaidOperation } from '../apollo-sector-relevance-gate';
+import { evaluateApolloSectorRelevanceForPaidOperationAnyOf } from '../apollo-sector-relevance-gate';
 import {
   evaluateApolloFreeSectorContradiction,
   resolveFirstApolloSubindustrySearchMapping,
@@ -160,7 +160,7 @@ import { APOLLO_TWO_ROUND_BILLING_CONTRACT } from '../apollo-usage-operation-con
 // A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 §§ 3, 4 y 5 — precisión de
 // subindustria, captura persistible del enrichment y gate final de ownership.
 import {
-  assessApolloSubindustryPrecision,
+  assessApolloSubindustryPrecisionForRequest,
   type ApolloSubindustryPrecisionAssessment,
 } from '../apollo-subindustry-precision';
 import { captureApolloEnrichmentForPersistence } from '../apollo-enrichment-persistence-capture';
@@ -360,6 +360,31 @@ export function toSectorEvidenceState(
  * candidato cuya industria declarada contradice el sector: la contradicción es
  * evidencia en contra y no se compensa con una coincidencia de palabra.
  */
+/**
+ * Subindustria PRINCIPAL, para redactar la CONSULTA. Único consumidor legítimo de
+ * un solo valor que queda en este runner.
+ *
+ * FINAL MULTI-SUBINDUSTRY SPEND-GATE ADDENDUM § 6 — antes se llamaba
+ * `primarySubindustryForSingleValueConsumers` y alimentaba también los gates de
+ * elegibilidad y de relevancia sectorial. Eso era la última asimetría FIRST-ONLY:
+ * la búsqueda consultaba las cinco con ANY-OF y la precisión las evaluaba con
+ * ANY-OF, pero quien decidía si se GASTA juzgaba contra la primera. Con `[A, B]`
+ * un candidato que sólo demostraba B se rechazaba antes de pagar; con `[B, A]`
+ * entraba. Esos tres consumidores pasaron a
+ * `evaluateApolloSectorRelevanceForPaidOperationAnyOf` y al contexto
+ * `subindustries`, y el nombre se estrechó a lo que de verdad admite un valor.
+ *
+ * Que la hipótesis se redacte sobre una sola NO recorta el alcance de la búsqueda:
+ * el effective request arma el ANY-OF de keywords con la lista completa. Y la
+ * redacción de la consulta no decide elegibilidad, ranking, gasto, objetivo ni
+ * persistencia — no hay nada que ampliar aquí.
+ */
+export function primarySubindustryForQueryDrafting(
+  subindustries: readonly string[],
+): string | null {
+  return subindustries[0] ?? null;
+}
+
 export function foldSubindustryPrecisionIntoSectorState(
   base: CandidateSectorEvidenceState,
   precision: ApolloSubindustryPrecisionAssessment,
@@ -994,17 +1019,18 @@ export async function runApolloTwoRoundWizardDiscovery(
 
       // 3-9. Gates baratos reales: país, dominio, TLD, correo, ownership,
       // plataforma externa, cooldown e historial. Cero llamadas, cero créditos.
+      // ADDENDUM § 2 — el gate de gasto evalúa las CINCO selecciones con ANY-OF.
       const eligibility = evaluateApolloEnrichmentEligibility(result, {
         targetCountryCode: input.countryCode,
         sector: input.industry,
-        subindustry: input.subindustries[0] ?? null,
+        subindustries: input.subindustries,
         domainsInCooldown: negativeMemory.excludedDomains,
       });
 
-      const sector = evaluateApolloSectorRelevanceForPaidOperation(
+      const sector = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
         result,
         input.industry,
-        input.subindustries[0] ?? null,
+        input.subindustries,
       );
       // QUERY-QUALITY-2 § 7 — contradicción visible en campos GRATUITOS. El QA
       // gastó su único enrichment en Citigroup buscando supermercados: la
@@ -1016,10 +1042,11 @@ export async function runApolloTwoRoundWizardDiscovery(
       // HARDENING-1 § 3 — la precisión de subindustria se evalúa con las señales
       // GRATUITAS de la búsqueda, antes de cualquier gasto, y degrada el veredicto
       // sectorial cuando la evidencia no demuestra la subindustria pedida.
-      const precision = assessApolloSubindustryPrecision(
-        result,
-        input.subindustries[0] ?? null,
-      );
+      // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 2 — ANY-OF sobre TODAS
+      // las subindustrias pedidas, no sólo `subindustries[0]`. La búsqueda Apollo
+      // ya las consulta con esa semántica; evaluar sólo la primera descartaba de
+      // la cuenta a una empresa que demostraba la segunda selección del usuario.
+      const precision = assessApolloSubindustryPrecisionForRequest(result, input.subindustries);
       subindustryPrecisionByKey.set(key, precision);
       const sectorEvidenceState: CandidateSectorEvidenceState = contradiction.contradictory
         ? 'sector_evidence_contradictory'
@@ -1135,7 +1162,10 @@ export async function runApolloTwoRoundWizardDiscovery(
           eligibility: {
             targetCountryCode: input.countryCode,
             sector: input.industry,
-            subindustry: input.subindustries[0] ?? null,
+            // ADDENDUM § 2 — mismo contrato ANY-OF que el gate previo. Si aquí
+            // volviera a viajar una sola, el cascade rechazaría antes de pagar a
+            // candidatos que el gate anterior ya había admitido.
+            subindustries: input.subindustries,
           },
         },
       );
@@ -1258,18 +1288,22 @@ export async function runApolloTwoRoundWizardDiscovery(
 
       // Recalcular el veredicto sectorial es GRATIS y puro: es la única señal que
       // el enrichment podía mover.
-      const sector = evaluateApolloSectorRelevanceForPaidOperation(
+      // ADDENDUM § 2 — misma semántica ANY-OF que antes del gasto. Reevaluar el
+      // perfil comprado contra una sola subindustria podría degradar a un
+      // candidato que el enrichment acababa de confirmar para otra de las pedidas.
+      const sector = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
         enrichedResult,
         input.industry,
-        input.subindustries[0] ?? null,
+        input.subindustries,
       );
       // § 5 — la reevaluación posterior al enrichment vuelve a pasar por la
       // precisión de subindustria. Un perfil enriquecido puede confirmar la
       // subindustria, seguir sin demostrarla o revelar un modelo de negocio que la
       // excluye; los tres desenlaces tienen cubeta propia en las métricas.
-      const enrichedPrecision = assessApolloSubindustryPrecision(
+      // § 2 — misma semántica ANY-OF que en la evaluación previa al gasto.
+      const enrichedPrecision = assessApolloSubindustryPrecisionForRequest(
         enrichedResult,
-        input.subindustries[0] ?? null,
+        input.subindustries,
       );
       subindustryPrecisionByKey.set(candidateKey, enrichedPrecision);
       enrichmentUsageKeyByCandidate.set(candidateKey, usageKey);
@@ -1348,7 +1382,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         country: input.country,
         countryCode: input.countryCode,
         sector: input.industry,
-        subindustry: input.subindustries[0] ?? null,
+        subindustry: primarySubindustryForQueryDrafting(input.subindustries),
       },
       correlation: input.correlation,
       resume: restored ? toResumeStateFromCheckpoint(restored) : null,
@@ -1384,7 +1418,10 @@ export async function runApolloTwoRoundWizardDiscovery(
     if (evidence === null) return null;
     const precision =
       subindustryPrecisionByKey.get(candidateKey) ??
-      assessApolloSubindustryPrecision(evidence, input.subindustries[0] ?? null);
+      // § 2 — el respaldo (candidato restaurado de un checkpoint anterior) usa el
+      // MISMO evaluador ANY-OF: si aquí quedara `subindustries[0]`, un reintento
+      // reintroduciría por la puerta de atrás el defecto que este § cierra.
+      assessApolloSubindustryPrecisionForRequest(evidence, input.subindustries);
     const enriched = enrichmentStatusByKey.get(candidateKey) === 'executed';
     return captureApolloEnrichmentForPersistence({
       result: evidence,
