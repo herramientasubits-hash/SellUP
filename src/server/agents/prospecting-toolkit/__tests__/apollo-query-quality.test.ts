@@ -712,7 +712,7 @@ describe('§ 7 · contradicción visible impide el enrichment', () => {
     const eligibility = evaluateApolloEnrichmentEligibility(toQaSearchResult(google), {
       targetCountryCode: 'CO',
       sector: 'Retail y Consumo',
-      subindustry: 'Supermercados e Hipermercados',
+      subindustries: ['Supermercados e Hipermercados'],
     });
 
     assert.equal(eligibility.eligible, false, 'ningún crédito puede gastarse en google.com');

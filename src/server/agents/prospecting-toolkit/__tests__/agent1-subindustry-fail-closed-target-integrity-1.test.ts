@@ -54,6 +54,32 @@ import {
   type CandidateCanonicalTargetEligibility,
 } from '../candidate-completeness-contract';
 import { foldSubindustryPrecisionIntoSectorState } from '../apollo-two-round/production-runner.server';
+import {
+  evaluateApolloSectorRelevanceForPaidOperation,
+  evaluateApolloSectorRelevanceForPaidOperationAnyOf,
+  applyApolloSectorRelevanceGate,
+  applyApolloSectorRelevanceGateAnyOf,
+} from '../apollo-sector-relevance-gate';
+import { evaluateApolloEnrichmentEligibility } from '../apollo-enrichment-eligibility-gate';
+import {
+  selectCandidatesForEnrichment,
+  type FreeCandidateSignals,
+  type CandidateSectorEvidenceState,
+} from '../apollo-two-round/enrichment-ranking';
+import { runApolloTwoRoundDiscovery } from '../apollo-two-round/orchestrator';
+import type {
+  ApolloTwoRoundDeps,
+  RawDiscoveredOrganization,
+} from '../apollo-two-round/orchestrator';
+import {
+  testConfig,
+  testCorrelation,
+  testQueryContext,
+  orgs,
+  ambiguousAssessment,
+  simulatedEffectiveRequestBuilder,
+} from '../apollo-two-round/__tests__/fixtures';
+
 import { resolveCandidateSubindustryStatus } from '@/modules/prospect-batches/candidate-subindustry-status-display';
 import { writeProspectingCandidates } from '../candidate-writer';
 import type { CandidateWriterInput, CatalogContextResult } from '../types';
@@ -1399,5 +1425,587 @@ describe('§ 5 · UI — «sin confirmar», «rechazada» y «sin evaluar» no s
     });
     assert.equal(status.countsTowardTarget, null);
     assert.equal(status.countsTowardTargetLabel, 'Sin medir');
+  });
+});
+
+// ─── ADDENDUM · los gates de GASTO evalúan ANY-OF ────────────────────────────
+//
+// FINAL MULTI-SUBINDUSTRY SPEND-GATE ADDENDUM.
+//
+// El § 2 del hito llevó la PRECISIÓN a ANY-OF, pero los gates que deciden quién
+// puede GASTAR seguían juzgando contra `subindustries[0]`. Como el conjunto de
+// señales de la subindustria SUSTITUYE al del sector, un candidato que demostraba
+// la segunda selección se medía contra las señales de la primera y se rechazaba
+// antes de pagar. El mismo candidato entraba o no según el orden en que el
+// usuario marcó dos casillas.
+//
+// Nada de esto amplía el gasto: el cap sigue siendo `maxEnrichmentsPerRun` para
+// TODA la corrida, no por subindustria. Cambia QUIÉN compite, no CUÁNTOS cupos hay.
+
+/** Sector con mapping de señales, y su subindustria estricta. */
+const RETAIL_SECTOR = 'Retail y Consumo';
+/** Sector deliberadamente SIN mapping de señales, para el caso G. */
+const UNMAPPED_SECTOR = 'Manufactura Industrial';
+/** Subindustria CON señales propias en el gate sectorial. */
+const TRAINING_SUBINDUSTRY = 'formación corporativa';
+
+function spendCandidate(
+  title: string,
+  domain: string,
+  metadata: Record<string, unknown>,
+): WebSearchResult {
+  return {
+    title,
+    url: `https://${domain}`,
+    snippet: null,
+    rank: 1,
+    source: 'apollo_organizations',
+    metadata: { domain, ...metadata },
+  } as unknown as WebSearchResult;
+}
+
+/**
+ * Tienda por departamento: demuestra `Tiendas por Departamento, Moda y Calzado`
+ * y CONTRADICE `Supermercados e Hipermercados` (su industria declarada no está
+ * entre las amplias compatibles de supermercados).
+ */
+const DEPARTMENT_STORE = spendCandidate('Tiendas Vestir S.A.', 'tiendasvestir.com.co', {
+  industry: 'apparel & fashion',
+  short_description: 'Cadena de tiendas por departamento y venta de prendas de vestir.',
+});
+
+/** Contradice ambas subindustrias y también el sector: nunca debe gastar. */
+const BANK = spendCandidate('Banco Sintetico S.A.', 'bancosintetico.com.co', {
+  industry: 'banking',
+  short_description: 'Servicios de banca personal y corporativa.',
+});
+
+/** Proveedor de LMS: sólo `formación corporativa` tiene política que lo admita. */
+const LMS_VENDOR = spendCandidate('Plataforma LMS Sintetica SAS', 'lmssintetica.com.co', {
+  industry: 'e-learning',
+  short_description: 'Learning management system y corporate training para empresas.',
+});
+
+/** Señales gratuitas neutras: el ranking no mira subindustrias, sólo el estado. */
+function freeSignals(
+  candidateKey: string,
+  sectorEvidenceState: CandidateSectorEvidenceState,
+): FreeCandidateSignals {
+  return {
+    candidateKey,
+    roundNumber: 1,
+    providerRank: 1,
+    countryCompatible: true,
+    domainConfident: true,
+    ownershipConfident: true,
+    sectorKeywordMatchCount: 0,
+    novel: true,
+    hasCompanySizeSignal: true,
+    hasLocationSignal: true,
+    hasLinkedInUrl: true,
+    freeOfContradictoryEvidence: true,
+    sectorEvidenceState,
+    knownDuplicate: false,
+    cooldownActive: false,
+  };
+}
+
+/** Campos del contrato de completitud ajenos a la subindustria: todos en verde. */
+const ADDENDUM_CONTRACT_BASE = {
+  persistenceSuccess: true,
+  employeeCountStatus: 'confirmed' as const,
+  linkedinStatus: 'confirmed' as const,
+  duplicateStatus: 'no_match',
+  ownershipGate: 'pass' as const,
+  qualityGate: 'pass' as const,
+  sectorEvidenceState: 'sector_evidence_confirmed',
+};
+
+function eligibilityFor(
+  result: WebSearchResult,
+  sector: string,
+  subindustries: readonly string[],
+) {
+  return evaluateApolloEnrichmentEligibility(result, {
+    targetCountryCode: 'CO',
+    sector,
+    subindustries,
+  });
+}
+
+describe('ADDENDUM § 2 · el gate de gasto evalúa TODAS las subindustrias pedidas', () => {
+  it('A — plausible sólo para la SEGUNDA: compite por el enrichment', () => {
+    // El defecto, medido: juzgada sólo contra la primera, la tienda se rechazaba.
+    const firstOnly = evaluateApolloSectorRelevanceForPaidOperation(
+      DEPARTMENT_STORE,
+      RETAIL_SECTOR,
+      MAPPED_SUPERMARKETS,
+    );
+    assert.equal(firstOnly.decision, 'sector_relevance_contradicted');
+
+    const anyOf = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
+      DEPARTMENT_STORE,
+      RETAIL_SECTOR,
+      [MAPPED_SUPERMARKETS, REQUESTED_SUBINDUSTRY],
+    );
+    assert.equal(anyOf.decision, 'relevant');
+    assert.equal(anyOf.matchedRequestedSubindustry, REQUESTED_SUBINDUSTRY);
+
+    const eligibility = eligibilityFor(DEPARTMENT_STORE, RETAIL_SECTOR, [
+      MAPPED_SUPERMARKETS,
+      REQUESTED_SUBINDUSTRY,
+    ]);
+    assert.equal(eligibility.eligible, true);
+  });
+
+  it('B — el mismo candidato con el orden invertido da EXACTAMENTE el mismo resultado', () => {
+    const forward = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
+      DEPARTMENT_STORE,
+      RETAIL_SECTOR,
+      [MAPPED_SUPERMARKETS, REQUESTED_SUBINDUSTRY],
+    );
+    const reversed = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
+      DEPARTMENT_STORE,
+      RETAIL_SECTOR,
+      [REQUESTED_SUBINDUSTRY, MAPPED_SUPERMARKETS],
+    );
+
+    assert.equal(forward.decision, reversed.decision);
+    assert.equal(
+      eligibilityFor(DEPARTMENT_STORE, RETAIL_SECTOR, [MAPPED_SUPERMARKETS, REQUESTED_SUBINDUSTRY])
+        .eligible,
+      eligibilityFor(DEPARTMENT_STORE, RETAIL_SECTOR, [REQUESTED_SUBINDUSTRY, MAPPED_SUPERMARKETS])
+        .eligible,
+    );
+
+    // El veredicto de cada subindustria es el mismo conjunto, sólo reordenado.
+    const asSet = (r: typeof forward): string[] =>
+      r.perRequestedSubindustryDecisions
+        .map((d) => `${d.requestedSubindustry}:${d.decision}`)
+        .sort();
+    assert.deepEqual(asSet(forward), asSet(reversed));
+  });
+
+  it('C — contradicha para la primera pero plausible para la segunda: la primera NO bloquea', () => {
+    const anyOf = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
+      DEPARTMENT_STORE,
+      RETAIL_SECTOR,
+      [MAPPED_SUPERMARKETS, REQUESTED_SUBINDUSTRY],
+    );
+
+    // La contradicción se REGISTRA — no se esconde — pero no decide.
+    const supermarkets = anyOf.perRequestedSubindustryDecisions.find(
+      (d) => d.requestedSubindustry === MAPPED_SUPERMARKETS,
+    );
+    assert.equal(supermarkets?.decision, 'sector_relevance_contradicted');
+    assert.equal(anyOf.decision, 'relevant');
+  });
+
+  it('D — contradicha para TODAS: no se gasta', () => {
+    for (const order of [
+      [MAPPED_SUPERMARKETS, REQUESTED_SUBINDUSTRY],
+      [REQUESTED_SUBINDUSTRY, MAPPED_SUPERMARKETS],
+    ]) {
+      const anyOf = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
+        BANK,
+        RETAIL_SECTOR,
+        order,
+      );
+      assert.equal(anyOf.decision, 'sector_relevance_contradicted');
+
+      const eligibility = eligibilityFor(BANK, RETAIL_SECTOR, order);
+      assert.equal(eligibility.eligible, false);
+      assert.equal(
+        eligibility.eligible === false && eligibility.skipReason,
+        'sector_relevance_contradicted',
+      );
+    }
+  });
+
+  it('E — confirmada GRATIS para la segunda: no necesita enrichment', () => {
+    // La precisión ANY-OF confirma por la segunda selección…
+    const precision = assessApolloSubindustryPrecisionForRequest(DEPARTMENT_STORE, [
+      MAPPED_SUPERMARKETS,
+      REQUESTED_SUBINDUSTRY,
+    ]);
+    assert.equal(precision.subindustryMatch, 'confirmed');
+    assert.equal(precision.matchedRequestedSubindustry, REQUESTED_SUBINDUSTRY);
+
+    // …y un sector ya confirmado no gasta un crédito en volver a confirmarse.
+    const selection = selectCandidatesForEnrichment({
+      candidates: [freeSignals('apollo:confirmada-por-la-segunda', 'sector_evidence_confirmed')],
+      remainingEnrichmentBudget: 5,
+      eligibleCompaniesSoFar: 0,
+      targetEligibleCompanies: 5,
+    });
+    assert.deepEqual(selection.selected, []);
+    assert.equal(selection.skipped[0]?.skippedReason, 'sector_evidence_already_confirmed');
+  });
+
+  it('F — ambigua para varias: compite por uno de los cinco cupos', () => {
+    const selection = selectCandidatesForEnrichment({
+      candidates: [
+        freeSignals('apollo:ambigua-1', 'sector_evidence_missing_needs_enrichment'),
+        freeSignals('apollo:ambigua-2', 'sector_evidence_missing_needs_enrichment'),
+      ],
+      remainingEnrichmentBudget: 5,
+      eligibleCompaniesSoFar: 0,
+      targetEligibleCompanies: 5,
+    });
+
+    assert.equal(selection.selected.length, 2);
+  });
+
+  it('G — cinco subindustrias y sólo la QUINTA tiene política: compite igual', () => {
+    const others = [
+      'Servicios Financieros y Banca',
+      'Salud y Farmaceutica',
+      'Logistica y Transporte',
+      UNMAPPED_SOFTWARE,
+    ];
+
+    // Juzgado sólo contra la primera, el sector sin mapping fallaba cerrado.
+    assert.equal(
+      eligibilityFor(LMS_VENDOR, UNMAPPED_SECTOR, [others[0]!]).eligible,
+      false,
+    );
+
+    const withFifth = eligibilityFor(LMS_VENDOR, UNMAPPED_SECTOR, [
+      ...others,
+      TRAINING_SUBINDUSTRY,
+    ]);
+    assert.equal(withFifth.eligible, true);
+
+    // Y da igual en qué posición de la lista viaje.
+    const reversed = eligibilityFor(LMS_VENDOR, UNMAPPED_SECTOR, [
+      TRAINING_SUBINDUSTRY,
+      ...others,
+    ]);
+    assert.equal(reversed.eligible, true);
+  });
+});
+
+describe('ADDENDUM § 3 · el cap de enrichments NO depende del número de subindustrias', () => {
+  /**
+   * Corrida completa con candidatos AMBIGUOS —el único estado que compite por un
+   * enrichment—, para medir cuántos se ejecutan de verdad.
+   *
+   * El orquestador es quien gobierna el presupuesto: `maxEnrichmentsPerRun` menos
+   * lo ya ejecutado, un solo contador para toda la corrida. Las subindustrias no
+   * entran en esa cuenta por ningún lado, y esta prueba es la que lo demuestra en
+   * vez de suponerlo.
+   */
+  async function runWithAmbiguousCandidates(maxEnrichmentsPerRun: number): Promise<number> {
+    const enrichCalls: string[] = [];
+    const deps: ApolloTwoRoundDeps = {
+      buildRoundProviderRequest: simulatedEffectiveRequestBuilder(),
+      searchRound: async ({ roundNumber }) => {
+        const organizations: RawDiscoveredOrganization[] =
+          roundNumber === 1 ? orgs('a', 10) : orgs('b', 10);
+        return {
+          organizations,
+          providerRequestCount: 1,
+          internalRecordedCredits: organizations.length,
+        };
+      },
+      // Todos ambiguos: todos aspiran a un enrichment, ninguno cuenta todavía.
+      assessCandidate: () => ambiguousAssessment(),
+      enrichCandidate: async ({ candidateKey }) => {
+        enrichCalls.push(candidateKey);
+        return {
+          executed: true,
+          // Siguen sin confirmarse, así que el objetivo nunca se alcanza y nada
+          // detiene la corrida antes de tiempo: el cap es lo único que la frena.
+          sectorEvidenceState: 'sector_evidence_missing_needs_enrichment',
+          internalRecordedCredits: 1,
+        };
+      },
+    };
+
+    await runApolloTwoRoundDiscovery(
+      {
+        config: testConfig({
+          targetEligibleCompanies: 5,
+          maxRounds: 2,
+          maxResultsPerRound: 10,
+          maxRawResultsPerRun: 20,
+          maxEnrichmentsPerRun,
+        }),
+        queryContext: testQueryContext(),
+        correlation: testCorrelation(),
+      },
+      deps,
+    );
+
+    return enrichCalls.length;
+  }
+
+  it('H — con UNA subindustria el techo son cinco enrichments', async () => {
+    assert.equal(await runWithAmbiguousCandidates(5), 5);
+  });
+
+  it('H — con CINCO subindustrias el techo siguen siendo cinco, nunca 5 × 5', async () => {
+    // El cap es un parámetro de la corrida, no del número de subindustrias: la
+    // misma configuración produce el mismo techo, y `input.subindustries` no
+    // aparece en ninguna de las cuentas del presupuesto.
+    const executed = await runWithAmbiguousCandidates(5);
+    assert.equal(executed, 5);
+    assert.notEqual(executed, 25);
+    assert.ok(executed <= 5);
+  });
+
+  it('el presupuesto se respeta también cuando es más pequeño que la demanda', async () => {
+    assert.equal(await runWithAmbiguousCandidates(2), 2);
+  });
+
+  it('el ranking no recibe subindustrias: no hay cupo por subindustria que repartir', () => {
+    // Cinco candidatos ambiguos y un presupuesto de cinco ⇒ cinco selecciones.
+    // Ni el input ni el resultado tienen dimensión de subindustria.
+    const selection = selectCandidatesForEnrichment({
+      candidates: Array.from({ length: 8 }, (_unused, index) =>
+        freeSignals(`apollo:ambigua-${index}`, 'sector_evidence_missing_needs_enrichment'),
+      ),
+      remainingEnrichmentBudget: 5,
+      eligibleCompaniesSoFar: 0,
+      targetEligibleCompanies: 5,
+    });
+
+    assert.equal(selection.selected.length, 5);
+    assert.equal(selection.remainingEnrichmentBudget, 0);
+  });
+});
+
+describe('ADDENDUM § 4 · el orden de las subindustrias no cambia ningún resultado', () => {
+  const FIVE = [
+    MAPPED_SUPERMARKETS,
+    'Servicios Financieros y Banca',
+    'Salud y Farmaceutica',
+    UNMAPPED_SOFTWARE,
+    REQUESTED_SUBINDUSTRY,
+  ];
+
+  /** Lo que DECIDE, separado de lo que sólo describe. */
+  function decisionFingerprint(
+    result: WebSearchResult,
+    sector: string,
+    subindustries: readonly string[],
+  ): Record<string, unknown> {
+    const relevance = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
+      result,
+      sector,
+      subindustries,
+    );
+    const eligibility = eligibilityFor(result, sector, subindustries);
+    const precision = assessApolloSubindustryPrecisionForRequest(result, subindustries);
+    const eligibilityContract = evaluateCandidateSubindustryTargetEligibility({
+      ...ADDENDUM_CONTRACT_BASE,
+      requestedSubindustries: subindustries,
+      subindustryPrecision: precision,
+    });
+
+    return {
+      relevance: relevance.decision,
+      eligible: eligibility.eligible,
+      skipReason: eligibility.eligible === false ? eligibility.skipReason : null,
+      subindustryMatch: precision.subindustryMatch,
+      subindustryMapped: precision.subindustryMapped,
+      countsTowardTarget: eligibilityContract.countsTowardTarget,
+      // Los veredictos por subindustria, como CONJUNTO: el orden de la lista es
+      // el que el usuario pidió y no puede cambiar ninguna decisión.
+      perSubindustry: relevance.perRequestedSubindustryDecisions
+        .map((d) => `${d.requestedSubindustry}:${d.decision}`)
+        .sort(),
+      perPrecision: precision.perRequestedSubindustryEvaluations
+        .map((e) => `${e.requestedSubindustry}:${e.subindustryMatch}`)
+        .sort(),
+    };
+  }
+
+  for (const [name, candidate, sector] of [
+    ['tienda por departamento', DEPARTMENT_STORE, RETAIL_SECTOR],
+    ['banco contradicho', BANK, RETAIL_SECTOR],
+    ['proveedor de LMS', LMS_VENDOR, UNMAPPED_SECTOR],
+  ] as const) {
+    it(`[A,B] y [B,A] dan lo mismo — ${name}`, () => {
+      assert.deepEqual(
+        decisionFingerprint(candidate, sector, [MAPPED_SUPERMARKETS, REQUESTED_SUBINDUSTRY]),
+        decisionFingerprint(candidate, sector, [REQUESTED_SUBINDUSTRY, MAPPED_SUPERMARKETS]),
+      );
+    });
+
+    it(`[A,B,C,D,E] y [E,D,C,B,A] dan lo mismo — ${name}`, () => {
+      assert.deepEqual(
+        decisionFingerprint(candidate, sector, FIVE),
+        decisionFingerprint(candidate, sector, [...FIVE].reverse()),
+      );
+    });
+  }
+
+  it('las cinco permutaciones rotadas coinciden entre sí', () => {
+    const rotations = FIVE.map((_unused, index) => [
+      ...FIVE.slice(index),
+      ...FIVE.slice(0, index),
+    ]);
+    const baseline = decisionFingerprint(DEPARTMENT_STORE, RETAIL_SECTOR, rotations[0]!);
+    for (const rotation of rotations.slice(1)) {
+      assert.deepEqual(decisionFingerprint(DEPARTMENT_STORE, RETAIL_SECTOR, rotation), baseline);
+    }
+  });
+});
+
+describe('ADDENDUM § 7 · el contrato fail-closed del objetivo no se movió', () => {
+  it('ambigua para todas sigue SIN contar, aunque el gate de gasto la admita', () => {
+    const ambiguous = spendCandidate('Comercializadora Sintetica SAS', 'comersintetica.com.co', {
+      industry: 'retail',
+      short_description: 'Comercio minorista de productos de consumo.',
+    });
+
+    // El gate de gasto la deja competir: es justo lo que el enrichment resuelve.
+    assert.equal(
+      eligibilityFor(ambiguous, RETAIL_SECTOR, [MAPPED_SUPERMARKETS, REQUESTED_SUBINDUSTRY])
+        .eligible,
+      true,
+    );
+
+    // Y aun así NO cuenta hacia el objetivo mientras no se confirme.
+    const precision = assessApolloSubindustryPrecisionForRequest(ambiguous, [
+      MAPPED_SUPERMARKETS,
+      REQUESTED_SUBINDUSTRY,
+    ]);
+    assert.notEqual(precision.subindustryMatch, 'confirmed');
+    assert.equal(
+      evaluateCandidateSubindustryTargetEligibility({
+        ...ADDENDUM_CONTRACT_BASE,
+        requestedSubindustries: [MAPPED_SUPERMARKETS, REQUESTED_SUBINDUSTRY],
+        subindustryPrecision: precision,
+      }).countsTowardTarget,
+      false,
+    );
+  });
+
+  it('poder GASTAR y poder CONTAR siguen siendo dos preguntas distintas', () => {
+    // La tienda por departamento: elegible para gasto Y confirmada. Que ambas
+    // cosas coincidan aquí no las convierte en la misma pregunta — el caso
+    // anterior las separa —, pero deja explícito que admitir gasto no confirma.
+    const eligibility = eligibilityFor(DEPARTMENT_STORE, RETAIL_SECTOR, [
+      MAPPED_SUPERMARKETS,
+      REQUESTED_SUBINDUSTRY,
+    ]);
+    const precision = assessApolloSubindustryPrecisionForRequest(DEPARTMENT_STORE, [
+      MAPPED_SUPERMARKETS,
+      REQUESTED_SUBINDUSTRY,
+    ]);
+
+    assert.equal(eligibility.eligible, true);
+    assert.equal(precision.subindustryMatch, 'confirmed');
+    // El veredicto de gasto NO es el que confirma: viene de la precisión.
+    assert.equal(precision.matchedRequestedSubindustry, REQUESTED_SUBINDUSTRY);
+  });
+});
+
+describe('ADDENDUM § 6 · ningún consumidor de GASTO recibe una sola subindustria', () => {
+  it('el idioma FIRST-ONLY no reaparece en los módulos de gasto', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const files = [
+      'src/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server.ts',
+      'src/server/agents/prospecting-toolkit/web-search-providers/apollo-organizations-search-provider.ts',
+    ];
+
+    for (const file of files) {
+      const source = await readFile(file, 'utf8');
+      const code = source
+        // Los comentarios SÍ nombran el idioma para explicar qué se corrigió.
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '');
+
+      assert.equal(
+        /subindustries\s*\?*\.?\s*\[\s*0\s*\]/.test(
+          code.replace(/return subindustries\[0\] \?\? null;/, ''),
+        ),
+        false,
+        `${file} volvió a leer sólo la primera subindustria`,
+      );
+    }
+  });
+});
+
+describe('ADDENDUM § 2 · el gate de ADMISIÓN de la búsqueda también es ANY-OF', () => {
+  /**
+   * `applyApolloSectorRelevanceGate` decide qué candidatos sobreviven a la
+   * búsqueda de una sola ronda. Descarta, así que entra en `MUST_BE_MULTI_VALUE`:
+   * con `subindustries[0]` una tienda por departamento se medía contra las
+   * señales estrictas de supermercados y desaparecía del lote.
+   */
+  const SUPERMARKET = spendCandidate('Supermercados Sinteticos S.A.', 'supersintetico.com.co', {
+    industry: 'retail',
+    short_description: 'Cadena de supermercados y autoservicio.',
+  });
+  const LOT = [DEPARTMENT_STORE, BANK, SUPERMARKET];
+  const titlesOf = (results: WebSearchResult[]): string[] => results.map((r) => r.title).sort();
+
+  it('la primera subindustria ya no borra del lote lo que demuestra la segunda', () => {
+    const firstOnly = applyApolloSectorRelevanceGate(
+      LOT,
+      RETAIL_SECTOR,
+      'apollo_organizations',
+      MAPPED_SUPERMARKETS,
+    );
+    assert.deepEqual(titlesOf(firstOnly.passed), ['Supermercados Sinteticos S.A.']);
+
+    const anyOf = applyApolloSectorRelevanceGateAnyOf(LOT, RETAIL_SECTOR, 'apollo_organizations', [
+      MAPPED_SUPERMARKETS,
+      REQUESTED_SUBINDUSTRY,
+    ]);
+    assert.deepEqual(titlesOf(anyOf.passed), [
+      'Supermercados Sinteticos S.A.',
+      'Tiendas Vestir S.A.',
+    ]);
+  });
+
+  it('el banco contradicho sigue fuera: ANY-OF no es un passthrough', () => {
+    const anyOf = applyApolloSectorRelevanceGateAnyOf(LOT, RETAIL_SECTOR, 'apollo_organizations', [
+      MAPPED_SUPERMARKETS,
+      REQUESTED_SUBINDUSTRY,
+    ]);
+    assert.equal(
+      anyOf.passed.some((r) => r.title === 'Banco Sintetico S.A.'),
+      false,
+    );
+    assert.equal(anyOf.metadata.rejected_count, 1);
+  });
+
+  it('el orden de las subindustrias no cambia el lote admitido', () => {
+    const forward = applyApolloSectorRelevanceGateAnyOf(
+      LOT,
+      RETAIL_SECTOR,
+      'apollo_organizations',
+      [MAPPED_SUPERMARKETS, REQUESTED_SUBINDUSTRY],
+    );
+    const reversed = applyApolloSectorRelevanceGateAnyOf(
+      LOT,
+      RETAIL_SECTOR,
+      'apollo_organizations',
+      [REQUESTED_SUBINDUSTRY, MAPPED_SUPERMARKETS],
+    );
+
+    assert.deepEqual(titlesOf(forward.passed), titlesOf(reversed.passed));
+    assert.equal(forward.metadata.passed_count, reversed.metadata.passed_count);
+    assert.equal(forward.metadata.rejected_count, reversed.metadata.rejected_count);
+  });
+
+  it('un proveedor que no es Apollo sigue pasando de largo', () => {
+    const gate = applyApolloSectorRelevanceGateAnyOf(LOT, RETAIL_SECTOR, 'tavily', [
+      MAPPED_SUPERMARKETS,
+      REQUESTED_SUBINDUSTRY,
+    ]);
+    assert.equal(gate.passed.length, LOT.length);
+    assert.equal(gate.metadata.enabled, false);
+  });
+
+  it('sin subindustrias pedidas el comportamiento es el de siempre, byte a byte', () => {
+    assert.deepEqual(
+      applyApolloSectorRelevanceGateAnyOf(LOT, RETAIL_SECTOR, 'apollo_organizations', []),
+      applyApolloSectorRelevanceGate(LOT, RETAIL_SECTOR, 'apollo_organizations', null),
+    );
   });
 });

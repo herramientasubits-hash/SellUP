@@ -967,8 +967,13 @@ function verdictScore(assessment: ApolloSubindustryPrecisionAssessment): number 
  *
  * La deduplicación compara en forma normalizada pero CONSERVA la etiqueta
  * original: es la que el usuario eligió y la que la ficha muestra.
+ *
+ * FINAL MULTI-SUBINDUSTRY SPEND-GATE ADDENDUM § 2 — se exporta para que los gates
+ * de GASTO saneen la lista EXACTAMENTE igual que la precisión. Dos normalizadores
+ * distintos podrían diferir en qué cuenta como duplicado, y entonces el conjunto
+ * de subindustrias que decide si se paga dejaría de ser el que decide si cuenta.
  */
-function normalizeRequestedSubindustries(
+export function normalizeRequestedSubindustries(
   requested: readonly (string | null | undefined)[] | null | undefined,
 ): string[] {
   if (!Array.isArray(requested)) return [];
