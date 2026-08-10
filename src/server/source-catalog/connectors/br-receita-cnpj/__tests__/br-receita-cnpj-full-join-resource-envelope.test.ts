@@ -8,10 +8,13 @@
  *
  * The claims these tests defend, in order of how much damage their absence would cause:
  *
- *   1. THE FULL JOIN DOES NOT EXIST. The § 3 audit found only ultra-bounded prefix readers, so the
- *      benchmark refuses with `full_join_implementation_missing`. A test suite that let this
- *      constant drift to `true` without an implementation would be the most expensive failure here,
- *      because it would unblock an authorization for a run nobody has written.
+ *   1. THE REAL FULL SCAN IS NOT AUTHORIZED. Originally this claim read "the full join does not
+ *      exist": the § 3 audit found only ultra-bounded prefix readers, and the benchmark refused with
+ *      `full_join_implementation_missing`. BR-SOURCE-14B.0D built the engine, so the classification
+ *      assertions below were inverted to Model A and the refusal now comes from the AUTHORIZATION
+ *      stage. What must never drift is the pair of authorization constants — an implementation
+ *      existing is not permission to run it over 60 GB of real data, and a suite that let those two
+ *      constants follow the implementation one would be the most expensive failure here.
  *   2. ABSENT IS NOT UNLIMITED. A missing, null or infinite cap is a refusal to start, and the
  *      refusal happens before anything could open a file.
  *   3. A CAP YOU CANNOT MEASURE IS NOT A CAP. A broken sampler is terminal here, which is the exact
@@ -159,9 +162,26 @@ function armedEnforcer(
 // ─── 1. Full-join classification ──────────────────────────────────────────────
 
 describe('BR-SOURCE-14B.0C — full-join algorithm classification (§ 3, § 4)', () => {
-  it('records Model D: no executable full-scan join route exists', () => {
-    assert.equal(BRAZIL_RECEITA_FULL_JOIN_AUDITED_MODEL, 'model_d_full_join_not_implemented');
-    assert.equal(BRAZIL_RECEITA_FULL_JOIN_IMPLEMENTATION_EXISTS, false);
+  /**
+   * UPDATED BY BR-SOURCE-14B.0D.
+   *
+   * These four tests were the strongest evidence 14B.0C produced: they proved MECHANICALLY that no
+   * executable full-scan route existed, by reading the source of every real-data join reader and
+   * asserting each performed one read from offset zero and advanced no position.
+   *
+   * 14B.0D built the route, so the first three assertions have been INVERTED rather than deleted —
+   * `br-receita-cnpj-full-join-engine-classification.test.ts` now carries the positive half (an
+   * advancing offset, an EOF condition, a non-progression abort, and no whole-file materialization
+   * anywhere in the engine), which is a stronger claim than the one it replaces.
+   *
+   * The fourth test is UNCHANGED and still passes, because the three bounded probes were never the
+   * thing that had to grow: they remain narrower, separately-authorized carve-outs. A milestone that
+   * had widened them in place would have satisfied a "the reader advances" test while destroying the
+   * boundaries 11F/11G/11H were approved under — so this assertion stays exactly as it was.
+   */
+  it('records Model A: a bounded streaming full-join route now exists', () => {
+    assert.equal(BRAZIL_RECEITA_FULL_JOIN_AUDITED_MODEL, 'model_a_fully_bounded_streaming');
+    assert.equal(BRAZIL_RECEITA_FULL_JOIN_IMPLEMENTATION_EXISTS, true);
   });
 
   it('permits a real benchmark only for Model A', () => {
@@ -169,21 +189,22 @@ describe('BR-SOURCE-14B.0C — full-join algorithm classification (§ 3, § 4)',
       'model_a_fully_bounded_streaming',
     ]);
     assert.ok(
-      !BRAZIL_RECEITA_FULL_JOIN_BENCHMARKABLE_MODELS.includes(BRAZIL_RECEITA_FULL_JOIN_AUDITED_MODEL),
-      'Model D must not be benchmarkable',
+      BRAZIL_RECEITA_FULL_JOIN_BENCHMARKABLE_MODELS.includes(BRAZIL_RECEITA_FULL_JOIN_AUDITED_MODEL),
+      'the audited model must be the benchmarkable one',
     );
   });
 
-  it('reports the next action as an implementation requirement, not an authorization request', () => {
+  it('reports the next action as an authorization question, not an implementation one', () => {
     const readiness = summarizeBrazilReceitaFullJoinBenchmarkReadiness();
-    assert.equal(readiness.nextAction, 'full_join_implementation_required');
-    assert.equal(readiness.fullScanBenchmarkReadyForAuthorization, false);
-    // The controls ARE finished. Readiness is false because the subject is missing, not the fence.
+    assert.equal(readiness.nextAction, 'merge_review');
+    // READY FOR AUTHORIZATION is not AUTHORIZED. The two benchmark constants below are still false.
+    assert.equal(readiness.fullScanBenchmarkReadyForAuthorization, true);
     assert.equal(readiness.controlsReady, true);
   });
 
-  it('holds the audited evidence: every real-data join reader reads one prefix from offset zero', () => {
-    // The audit's decisive fact, re-checked mechanically so an added read loop breaks this test.
+  it('holds the audited evidence: the three bounded probes still read one prefix from offset zero', () => {
+    // 14B.0C's decisive fact about the PROBES, re-checked mechanically. 14B.0D added a new module
+    // that advances; it did not turn a probe into a scanner, and this test is what says so.
     for (const moduleRef of [
       '../br-receita-cnpj-required-family-join-probe',
       '../br-receita-cnpj-required-family-probe',
@@ -1374,7 +1395,10 @@ describe('BR-SOURCE-14B.0C — full-scan benchmark is prepared, not executed (§
     assert.equal(outcome.dataAccessed, false);
     assert.equal(outcome.rowsEmitted, 0);
     assert.equal(outcome.retriesPerformed, 0);
-    assert.equal(outcome.auditedModel, 'model_d_full_join_not_implemented');
+    // Since 14B.0D the audited model is A and the refusal comes from the authorization stage. The
+    // refusal itself did not move: nothing about a real full scan is permitted.
+    assert.equal(outcome.auditedModel, 'model_a_fully_bounded_streaming');
+    assert.equal(outcome.failedStage, 'authorization');
   });
 
   it('aborts on an unsafe cwd BEFORE it looks at the caps', () => {
@@ -1613,7 +1637,9 @@ describe('BR-SOURCE-14B.0C — static guards', () => {
     const source = codeOf('../br-receita-cnpj-full-join-resource-benchmark');
     assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED = false'));
     assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED = false'));
-    assert.ok(source.includes('BRAZIL_RECEITA_FULL_JOIN_IMPLEMENTATION_EXISTS = false'));
+    // 14B.0D flipped the IMPLEMENTATION constant and only that one. The two AUTHORIZATION constants
+    // above are the ones this test exists to pin, and they are still `false` literals.
+    assert.ok(source.includes('BRAZIL_RECEITA_FULL_JOIN_IMPLEMENTATION_EXISTS = true'));
   });
 
   it('leaves the 14B.0A instrumentation contract untouched', () => {
