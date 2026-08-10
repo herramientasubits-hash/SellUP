@@ -36,9 +36,15 @@
  * ── Where the resource envelope draws the line ──────────────────────────────────
  * Every coverage-shaped bound comes from 14B.0C's enforcer, which this module CALLS and never
  * reimplements: bytes, rows, files, in-memory keys, output rows, temporary storage, memory, runtime,
- * phase runtime. `maxFilesOpened` deliberately counts SOURCE descriptors: temporary partition files
- * are bounded independently and much more tightly by `maxPartitionCount`, and mixing the two would
- * make a legitimate partition map look like a descriptor leak.
+ * phase runtime.
+ *
+ * `maxFilesOpened` is now counted TWICE, by two different counters, and the difference matters
+ * (BR-SOURCE-14B.0F § 3). 14B.0C's enforcer counts CUMULATIVE source opens over the run's lifetime.
+ * The new open-handle ledger counts CONCURRENT descriptors across every category — source files,
+ * partition files, the private metric artifact, control artifacts. 14B.0D bounded partition
+ * descriptors only by `maxPartitionCount`, which at 1024 partitions meant thousands of them held at
+ * once and made correctness depend on the operator's `ulimit -n`. It no longer does: partition
+ * handles come from a bounded LRU pool, and every open in this path reserves from the ledger first.
  *
  * Periodic re-checks during a long pass use an EXPONENTIALLY WIDENING row interval (see
  * `periodicCheckpointDue`). A fixed interval would make the enforcer's checkpoint list grow linearly
@@ -86,6 +92,11 @@ import {
   type BrazilReceitaFullJoinEngineExactObservations,
   type BrazilReceitaFullJoinEnginePublicReport,
 } from './br-receita-cnpj-full-join-engine-report';
+import type { BrazilReceitaFullJoinFreeDiskProbe } from './br-receita-cnpj-full-join-free-disk';
+import {
+  withBrazilReceitaFullJoinLedgerAccounting,
+  type BrazilReceitaFullJoinOpenHandleLedger,
+} from './br-receita-cnpj-full-join-open-handle-ledger';
 import {
   createBrazilReceitaFullJoinPartitionWorkspace,
   BRAZIL_RECEITA_FULL_JOIN_REFERENCE_READ_BATCH,
@@ -94,6 +105,7 @@ import {
   type BrazilReceitaFullJoinWorkspace,
   type BrazilReceitaFullJoinWorkspaceBoundaries,
   type BrazilReceitaFullJoinWorkspaceCleanupOutcome,
+  type BrazilReceitaFullJoinWorkspaceFailure,
   type BrazilReceitaFullJoinWorkspaceFileSystem,
   type BrazilReceitaFullJoinWorkspaceRejection,
 } from './br-receita-cnpj-full-join-partition-workspace';
@@ -133,6 +145,19 @@ export interface BrazilReceitaFullJoinEngineRequest {
   readonly workspaceParentDirectory: string;
   readonly workspaceBoundaries: BrazilReceitaFullJoinWorkspaceBoundaries;
   readonly resourceDependencies: BrazilReceitaFullJoinResourceDependencies;
+  /**
+   * The GLOBAL concurrent descriptor ledger (BR-SOURCE-14B.0F § 3).
+   *
+   * Injected rather than created here so ONE instance covers source files, partition files, the
+   * private metric artifact and any control artifact. A ledger the engine created for itself would
+   * bound the engine and leave everything around it unaccounted, which is the state 14B.0E found.
+   */
+  readonly openHandleLedger: BrazilReceitaFullJoinOpenHandleLedger;
+  /** The partition pool's own ceiling. Required; see the workspace module for why there is no default. */
+  readonly maxOpenPartitionFiles: number;
+  readonly minimumFreeDiskBeforeStart: number;
+  readonly minimumFreeDiskReserve: number;
+  readonly freeDiskProbe: BrazilReceitaFullJoinFreeDiskProbe;
   /** `true` for a real dataset run, which the temporary-storage policy still refuses. */
   readonly realDataRun: boolean;
   /**
@@ -168,6 +193,52 @@ export interface BrazilReceitaFullJoinStreamingEngine {
   attemptsConsumed(): number;
 }
 
+// ─── Refusal mapping ──────────────────────────────────────────────────────────
+
+/**
+ * Maps a workspace refusal to the engine's terminal code, MOST SPECIFIC FIRST.
+ *
+ * The order is the whole content of this function. A run refused for lack of free disk and a run
+ * refused because temporary storage is unapproved are different facts with different remedies, and
+ * collapsing every workspace refusal into `temporary_workspace_unavailable` — which is what the
+ * previous two-branch check did once § 4 added four new rejections — would hand an operator a code
+ * that means "something about the destination" and leave them to guess which something.
+ */
+function workspaceRejectionAbortCode(
+  rejections: readonly BrazilReceitaFullJoinWorkspaceRejection[],
+): BrazilReceitaFullJoinEngineAbortCode {
+  if (rejections.includes('temporary_storage_policy_not_approved')) {
+    return 'temporary_storage_policy_not_approved';
+  }
+  if (rejections.includes('handle_caps_invalid')) return 'handle_caps_incomplete';
+  if (rejections.includes('free_disk_thresholds_invalid')) return 'free_disk_thresholds_invalid';
+  if (rejections.includes('free_disk_measurement_unavailable')) {
+    return 'free_disk_measurement_unavailable';
+  }
+  if (rejections.includes('insufficient_free_disk_before_start')) {
+    return 'insufficient_free_disk_before_start';
+  }
+  return 'temporary_workspace_unavailable';
+}
+
+/** Maps a per-append workspace failure to the engine's terminal code. Same principle, same order. */
+function appendFailureAbortCode(
+  failure: BrazilReceitaFullJoinWorkspaceFailure,
+): BrazilReceitaFullJoinEngineAbortCode {
+  switch (failure) {
+    case 'temporary_storage_cap_exceeded':
+      return 'temporary_storage_cap_exceeded';
+    case 'partition_handle_cap_exceeded':
+      return 'files_opened_cap_exceeded';
+    case 'free_disk_reserve_breached':
+      return 'free_disk_reserve_breached';
+    case 'free_disk_measurement_unavailable':
+      return 'free_disk_measurement_unavailable';
+    default:
+      return 'partition_io_failed';
+  }
+}
+
 // ─── Engine ───────────────────────────────────────────────────────────────────
 
 export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJoinStreamingEngine {
@@ -186,7 +257,29 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
     let partitionCount = 0;
     let partitionDepth = 0;
     let temporaryBytes = 0;
+    // Sampled from the pool BEFORE each disposal, because a disposed workspace can no longer be
+    // asked, and a repartition disposes one workspace and builds another. Taking the maximum across
+    // depths is the honest reading: the peak is a property of the RUN, not of its last attempt.
+    let partitionHandlePeak = 0;
+    let partitionHandleEvictions = 0;
     let enforcer: BrazilReceitaFullJoinResourceEnforcer | null = null;
+
+    /**
+     * Folds the live workspace's descriptor statistics into the run-level accumulators.
+     *
+     * Idempotent per workspace INSTANCE, which is what makes it safe to call from both the release
+     * path and the reporting path: a repartition disposes one workspace and builds another, so the
+     * stats have to be captured before the reference is dropped, and a run that never repartitioned
+     * must not have its single workspace counted twice.
+     */
+    const foldedWorkspaces = new Set<BrazilReceitaFullJoinWorkspace>();
+    function foldPartitionHandleStats(): void {
+      if (workspace === null || foldedWorkspaces.has(workspace)) return;
+      foldedWorkspaces.add(workspace);
+      const stats = workspace.handleStats();
+      partitionHandlePeak = Math.max(partitionHandlePeak, stats.peakOpen);
+      partitionHandleEvictions += stats.evictions;
+    }
 
     /** Builds the terminal result. The single exit point, so no path can skip the public report. */
     function finish(
@@ -200,6 +293,7 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
       } = {},
       declaredPolicy: BrazilReceitaFullJoinDuplicateKeyPolicy | 'not_declared' = 'not_declared',
     ): BrazilReceitaFullJoinEngineResult {
+      foldPartitionHandleStats();
       const exact: BrazilReceitaFullJoinEngineExactObservations = {
         resource: enforcer?.readExactObservations() ?? emptyBrazilReceitaFullJoinResourceObservations(),
         empresaRowsTraversed: tallies.empresaRows,
@@ -218,6 +312,9 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
         partitionDepthReached: partitionDepth,
         filesTraversedToEndOfFile: tallies.filesToEof,
         sourceFilesDeclared: Array.isArray(request.sources) ? request.sources.length : 0,
+        filesOpenedPeak: request.openHandleLedger.peakOpen(),
+        partitionHandlePeakOpen: partitionHandlePeak,
+        partitionHandleEvictions,
       };
 
       // The projection into buckets lives in `-engine-report`, and every exit goes through it. A
@@ -253,6 +350,8 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
     /** Runs the deletion engine and records the outcome with the 14B.0C enforcer. */
     function releaseWorkspace(): void {
       if (workspace === null) return;
+      // Captured BEFORE disposal, because the repartition path drops the reference afterwards.
+      foldPartitionHandleStats();
       const result = workspace.dispose();
       cleanupOutcome = result.outcome;
       cleanupVerifiedAbsent = result.verifiedAbsent;
@@ -317,6 +416,16 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
     );
     const rowBuffer = Buffer.alloc(readerCaps.maxRowBytes);
 
+    // Every source descriptor this run opens — in the reference passes and in the join stage alike —
+    // goes through the GLOBAL ledger, so `maxFilesOpened` bounds the number held AT ONE INSTANT
+    // rather than only the number of times a dataset file was opened. Wrapping the PORT rather than
+    // the call sites is what makes that true of paths written after this milestone too.
+    const readerFileSystem = withBrazilReceitaFullJoinLedgerAccounting(
+      request.readerFileSystem,
+      request.openHandleLedger,
+      'source_file',
+    );
+
     // ── Stages 1 & 2, repeated only for a controlled repartition ───────────────
     let overflowed = false;
     for (partitionDepth = 0; ; partitionDepth += 1) {
@@ -332,12 +441,16 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
         boundaries: request.workspaceBoundaries,
         fileSystem: request.workspaceFileSystem,
         maxTemporaryStorageBytes: resourceResolution.caps.maxTemporaryStorageBytes,
+        maxOpenPartitionFiles: request.maxOpenPartitionFiles,
+        openHandleLedger: request.openHandleLedger,
+        minimumFreeDiskBeforeStart: request.minimumFreeDiskBeforeStart,
+        minimumFreeDiskReserve: request.minimumFreeDiskReserve,
+        freeDiskProbe: request.freeDiskProbe,
         realDataRun: request.realDataRun,
       });
       if (!creation.ok) {
-        const policyRefused = creation.rejections.includes('temporary_storage_policy_not_approved');
         return finish(
-          policyRefused ? 'temporary_storage_policy_not_approved' : 'temporary_workspace_unavailable',
+          workspaceRejectionAbortCode(creation.rejections),
           'before_first_read',
           { workspace: creation.rejections },
           duplicatePolicy,
@@ -372,7 +485,7 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
             filePath: source.filePath,
             encoding: source.encoding,
             caps: readerCaps,
-            fileSystem: request.readerFileSystem,
+            fileSystem: readerFileSystem,
             resourceGuard: guard,
             onRow: (row) => {
               rowsInPhase += 1;
@@ -407,10 +520,7 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
                 ordinal,
               );
               if (!appended.ok) {
-                appendFailure =
-                  appended.failure === 'temporary_storage_cap_exceeded'
-                    ? 'temporary_storage_cap_exceeded'
-                    : 'partition_io_failed';
+                appendFailure = appendFailureAbortCode(appended.failure);
                 return 'stop';
               }
               tallies.references += 1;
@@ -527,7 +637,7 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
       if (existing !== undefined) return existing;
       if (!guard.noteFileOpened().ok) return null;
       try {
-        const handle = request.readerFileSystem.open(filePath);
+        const handle = readerFileSystem.open(filePath);
         handles.set(ordinal, handle);
         return handle;
       } catch {
@@ -557,7 +667,7 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
         byteLength: reference.byteLength,
         encoding: encodingFor(reference.sourceFileOrdinal),
         buffer: rowBuffer,
-        fileSystem: request.readerFileSystem,
+        fileSystem: readerFileSystem,
         resourceGuard: guard,
       });
       if (!fetched.ok) return { ok: false };
@@ -732,7 +842,7 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
 
     for (const handle of handles.values()) {
       try {
-        request.readerFileSystem.close(handle);
+        readerFileSystem.close(handle);
       } catch {
         // A close failure does not change the join's verdict; cleanup below is what must be honest.
       }

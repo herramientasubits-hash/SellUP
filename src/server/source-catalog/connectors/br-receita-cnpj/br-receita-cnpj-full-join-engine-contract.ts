@@ -366,6 +366,13 @@ export const BRAZIL_RECEITA_FULL_JOIN_ENGINE_ABORT_CODES = [
   'temporary_storage_cap_exceeded',
   'partition_capacity_exceeded',
   'partition_io_failed',
+  // ── BR-SOURCE-14B.0F § 3 and § 4 ──
+  'handle_caps_incomplete',
+  'files_opened_cap_exceeded',
+  'free_disk_thresholds_invalid',
+  'insufficient_free_disk_before_start',
+  'free_disk_reserve_breached',
+  'free_disk_measurement_unavailable',
   'non_progressing_reader',
   'row_bytes_cap_exceeded',
   'carry_bytes_cap_exceeded',

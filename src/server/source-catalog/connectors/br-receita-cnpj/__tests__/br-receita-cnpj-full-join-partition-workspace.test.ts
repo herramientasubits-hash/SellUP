@@ -26,6 +26,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { createBrazilReceitaFullJoinWorkspaceFileSystem } from '../br-receita-cnpj-full-join-engine-fs';
+import type { BrazilReceitaFullJoinFreeDiskProbe } from '../br-receita-cnpj-full-join-free-disk';
+import {
+  createBrazilReceitaFullJoinOpenHandleLedger,
+  type BrazilReceitaFullJoinOpenHandleLedger,
+} from '../br-receita-cnpj-full-join-open-handle-ledger';
 import {
   BRAZIL_RECEITA_FULL_JOIN_PARTITION_FILE_PATTERN,
   BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES,
@@ -87,6 +92,11 @@ function openWorkspace(
     fileSystem?: BrazilReceitaFullJoinWorkspaceFileSystem;
     realDataRun?: boolean;
     boundaryOverrides?: Partial<BrazilReceitaFullJoinWorkspaceBoundaries>;
+    maxOpenPartitionFiles?: number;
+    openHandleLedger?: BrazilReceitaFullJoinOpenHandleLedger;
+    minimumFreeDiskBeforeStart?: number;
+    minimumFreeDiskReserve?: number;
+    freeDiskProbe?: BrazilReceitaFullJoinFreeDiskProbe;
   } = {},
 ) {
   return createBrazilReceitaFullJoinPartitionWorkspace({
@@ -94,6 +104,11 @@ function openWorkspace(
     boundaries: boundaries(options.boundaryOverrides),
     fileSystem: options.fileSystem ?? createBrazilReceitaFullJoinWorkspaceFileSystem(),
     maxTemporaryStorageBytes: options.maxTemporaryStorageBytes ?? 64 * 1024,
+    maxOpenPartitionFiles: options.maxOpenPartitionFiles ?? 32,
+    openHandleLedger: options.openHandleLedger ?? createBrazilReceitaFullJoinOpenHandleLedger(64),
+    minimumFreeDiskBeforeStart: options.minimumFreeDiskBeforeStart ?? 1024 * 1024,
+    minimumFreeDiskReserve: options.minimumFreeDiskReserve ?? 1024 * 1024,
+    freeDiskProbe: options.freeDiskProbe ?? (() => 64 * 1024 * 1024 * 1024),
     realDataRun: options.realDataRun ?? false,
   });
 }
