@@ -486,23 +486,68 @@ const ENRICHMENT_PROGRESS: Record<ApolloTwoRoundEnrichmentStatus, number> = {
 };
 
 /**
- * § 1 — cuánto ha avanzado la EVALUACIÓN de un candidato, con independencia del
- * enrichment.
+ * AGENT1-MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § C.8 — precedencia COMPLETA
+ * del estado de evaluación de un candidato.
  *
- * `1` sólo cuando el candidato tiene veredicto final: elegible, o descartado de
- * forma definitiva. Un candidato que sigue en evaluación vale `0`. La escala es
- * deliberadamente binaria: lo único que hace falta es que «resuelto» gane a «sin
- * resolver», nunca al revés.
+ * La escala anterior era binaria: `eligible` y `finally_rejected_or_duplicated`
+ * valían LO MISMO (`1`). Con el mismo `enrichment_status` en ambos lados eso es
+ * un empate, y un empate conserva `existing`, así que un snapshot ANTERIOR con
+ * `eligible: true` bloqueaba al posterior que ya traía el rechazo de los gates
+ * finales. Ocurrió de verdad: en la corrida `7d92773b`, «Supermercado Vaquita»
+ * quedó archivada como `eligible: true` / `finally_rejected_or_duplicated: false`
+ * mientras `run_metrics` declaraba 0 elegibles y 0 persistidos.
+ *
+ * La escala pasa a tener los tres estados nombrados, de mayor a menor autoridad:
+ *
+ *   2 · `finally_rejected_or_duplicated` — VEREDICTO FINAL NEGATIVO. Sale de los
+ *       gates finales (ownership, país, duplicidad, calidad) o de una
+ *       contradicción sectorial revelada por el enrichment. Es el estado más
+ *       restrictivo y el último que se decide: nada anterior puede revocarlo.
+ *       Gana también cuando el snapshot trae ADEMÁS `eligible: true` — una
+ *       combinación que sólo puede venir de un documento a medio actualizar, y
+ *       ante la duda manda el rechazo.
+ *
+ *   1 · `eligible` (sin rechazo final) — veredicto POSITIVO todavía revocable:
+ *       los gates finales aún pueden tumbarlo. Gana a «sin resolver», nunca al
+ *       rechazo.
+ *
+ *   0 · ni lo uno ni lo otro — candidato en evaluación: pre-enrichment, esperando
+ *       enrichment, o cohorte de revisión aún sin veredicto. Es el suelo.
+ *
+ * Sigue siendo MONÓTONA, que es lo que la fusión concurrente necesita: el estado
+ * sólo puede avanzar hacia «más resuelto», nunca retroceder.
  */
+const CANDIDATE_EVALUATION_PROGRESS = {
+  /** En evaluación: ni elegible ni rechazado. */
+  unresolved: 0,
+  /** Elegible y sin rechazo final. */
+  eligible: 1,
+  /** Rechazo final o duplicado: la máxima autoridad. */
+  finallyRejectedOrDuplicated: 2,
+} as const;
+
 function candidateEvaluationProgress(snapshot: ApolloTwoRoundCandidateSnapshot): number {
-  return snapshot.eligible || snapshot.finally_rejected_or_duplicated ? 1 : 0;
+  if (snapshot.finally_rejected_or_duplicated) {
+    return CANDIDATE_EVALUATION_PROGRESS.finallyRejectedOrDuplicated;
+  }
+  if (snapshot.eligible) return CANDIDATE_EVALUATION_PROGRESS.eligible;
+  return CANDIDATE_EVALUATION_PROGRESS.unresolved;
 }
 
 /**
- * § 1 — elige el snapshot MÁS resuelto entre dos observaciones del mismo
- * candidato: primero por progreso de enrichment, y a igualdad por progreso de
- * evaluación. Empate absoluto ⇒ se conserva el existente, para que la fusión
- * siga siendo estable e idempotente.
+ * § 1 · § C.8 — elige el snapshot MÁS resuelto entre dos observaciones del mismo
+ * candidato. Precedencia completa, en este orden:
+ *
+ *   1. `enrichment_status` (`indeterminate` > `executed` > `no_match` >
+ *      `not_attempted`). Va primero porque describe el GASTO y la necesidad de
+ *      conciliación manual, no el veredicto: degradar un `indeterminate` perdería
+ *      la señal que detiene el gasto, y ninguna mejora del veredicto compensa eso.
+ *   2. `candidateEvaluationProgress` (rechazo final > elegible > sin resolver).
+ *   3. Empate absoluto ⇒ se conserva el existente, para que la fusión siga siendo
+ *      estable e idempotente.
+ *
+ * Un rechazo final nunca puede perder contra un `eligible` con el mismo
+ * `enrichment_status`, que era exactamente el defecto de § C.8.
  */
 function pickResolvedCandidateSnapshot(
   existing: ApolloTwoRoundCandidateSnapshot,

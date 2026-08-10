@@ -170,6 +170,9 @@ describe('Apollo mapping — criterio genérico no genera ruido', () => {
       industry: 'Educación',
       subindustries: [],
       additionalCriteriaTokens: [],
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — sin términos de catálogo: este
+      // caso ejercita el catálogo especializado y el mapa histórico, no la tabla.
+      catalogTerms: () => null,
     });
     assert.ok(keywords.length > 0);
     assert.ok(keywords.length <= 5);

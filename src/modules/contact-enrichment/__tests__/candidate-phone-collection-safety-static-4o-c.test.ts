@@ -169,8 +169,11 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     //
     // AGENT2A-PHONE-REVEAL-4O-D subió el techo a la 111 (la función equivalente para
     // el otro proveedor de teléfono, con su propia guarda estática en
-    // candidate-lusha-phone-persistence-static-4o-d.test.ts). Lo que esta guarda
-    // protege NO es el número más alto del directorio, que sube cada vez que un
+    // candidate-lusha-phone-persistence-static-4o-d.test.ts) y
+    // AGENT2A-PHONE-REVEAL-4O-E2 a la 112 (la propagación de la supresión a la
+    // colección, con su guarda en
+    // candidate-phone-collection-suppression-static-4o-e2.test.ts). Lo que esta
+    // guarda protege NO es el número más alto del directorio, que sube cada vez que un
     // bloque autorizado añade la suya: es que 4O-C-R1 aportó SOLO la 110 y que nadie
     // ha colado una migración por encima del último hito conocido.
     const files = migrations();
@@ -183,13 +186,13 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     );
     assert.equal(
       files[files.length - 1],
-      '111_persist_candidate_lusha_phone_reveal_result.sql',
-      'el techo conocido es la 111 (4O-D)',
+      '113_phone_reveal_person_suppression_recheck.sql',
+      'el techo conocido es la 113 (4O-E3), que vuelve a declarar la 110 sin editarla',
     );
     assert.equal(
-      files.some((file) => /^1(1[2-9]|[2-9]\d)/.test(file)),
+      files.some((file) => /^1(1[4-9]|[2-9]\d)/.test(file)),
       false,
-      'ninguna migración 112 o superior',
+      'ninguna migración 114 o superior',
     );
   });
 

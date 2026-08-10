@@ -68,10 +68,11 @@ import {
 } from '../apollo-enrichment-eligibility-gate';
 import { evaluateApolloSectorRelevanceForPaidOperationAnyOf } from '../apollo-sector-relevance-gate';
 import {
-  evaluateApolloFreeSectorContradiction,
-  resolveFirstApolloSubindustrySearchMapping,
+  evaluateApolloFreeSectorContradictionAnyOf,
+  resolveAllApolloSubindustrySearchMappings,
   type ApolloFreeSectorEvidence,
 } from '../apollo-subindustry-search-mapping';
+import { toApolloSubindustryQueryCoverageMetadata } from '../apollo-subindustry-query-terms';
 import { runApolloOrganizationEnrichmentCascade } from '../apollo-organization-enrichment-cascade';
 import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
 import { loadActiveApolloOrganizationEnrichmentPricing } from '@/modules/usage-tracking/provider-pricing';
@@ -133,6 +134,12 @@ import {
   type ApolloTwoRoundDiscoveryConfig,
 } from './config';
 import { resolveApolloTwoRoundConfigFromEnv } from './env.server';
+// MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § D — invariantes de consistencia
+// entre las fuentes del estado final. Observacional: nunca lanza.
+import {
+  evaluateApolloTwoRoundFinalStateConsistency,
+  toFinalStateConsistencyMetadata,
+} from './run-final-state-consistency';
 import type { CandidateSectorEvidenceState } from './enrichment-ranking';
 import {
   APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION,
@@ -164,6 +171,14 @@ import {
   type ApolloSubindustryPrecisionAssessment,
 } from '../apollo-subindustry-precision';
 import { captureApolloEnrichmentForPersistence } from '../apollo-enrichment-persistence-capture';
+// CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM §§ 3 y 9 — versión del catálogo que redactó
+// la consulta, y el invariante que la ata a la versión de la selección.
+import {
+  evaluateApolloCatalogVersionCoherence,
+  toApolloCatalogVersionCoherenceMetadata,
+  toApolloSubindustryCatalogTermsMetadata,
+  type ApolloSubindustryCatalogTermsResolution,
+} from '../apollo-subindustry-catalog-terms-resolution';
 import {
   evaluateCompanyOwnership,
   isBlockedByCompanyOwnership,
@@ -181,6 +196,22 @@ export type ApolloTwoRoundWizardRunInput = {
   countryCode: string;
   industry: string;
   subindustries: string[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — términos de
+   * `subindustry_search_terms` de la versión publicada, resueltos UNA vez en la
+   * frontera del wizard con el mismo cliente que resolvió la selección.
+   *
+   * Viajan resueltos porque la redacción de la consulta es pura: el runner no
+   * consulta el catálogo, lo transporta. Ausentes con subindustrias pedidas, el gate
+   * del § 3 bloquea antes de gastar en vez de buscar con un respaldo estático.
+   */
+  subindustryCatalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
+  /**
+   * § 3 — versión del catálogo con la que se resolvió la SELECCIÓN
+   * (`resolved.catalog.version`). Lado izquierdo del invariante
+   * `selection_catalog_version == search_term_catalog_version`.
+   */
+  selectionCatalogVersion?: string | null;
   additionalCriteria: string | null;
   /** Lote ya reservado. La modalidad NUNCA crea un segundo lote. */
   reservedBatchId: string;
@@ -361,29 +392,22 @@ export function toSectorEvidenceState(
  * evidencia en contra y no se compensa con una coincidencia de palabra.
  */
 /**
- * Subindustria PRINCIPAL, para redactar la CONSULTA. Único consumidor legítimo de
- * un solo valor que queda en este runner.
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 1 — `primarySubindustryForQueryDrafting`
+ * ya no existe.
  *
- * FINAL MULTI-SUBINDUSTRY SPEND-GATE ADDENDUM § 6 — antes se llamaba
- * `primarySubindustryForSingleValueConsumers` y alimentaba también los gates de
- * elegibilidad y de relevancia sectorial. Eso era la última asimetría FIRST-ONLY:
- * la búsqueda consultaba las cinco con ANY-OF y la precisión las evaluaba con
- * ANY-OF, pero quien decidía si se GASTA juzgaba contra la primera. Con `[A, B]`
- * un candidato que sólo demostraba B se rechazaba antes de pagar; con `[B, A]`
- * entraba. Esos tres consumidores pasaron a
- * `evaluateApolloSectorRelevanceForPaidOperationAnyOf` y al contexto
- * `subindustries`, y el nombre se estrechó a lo que de verdad admite un valor.
+ * Era el último consumidor de un solo valor del runner y estaba declarado como
+ * legítimo con este argumento: «que la hipótesis se redacte sobre una sola NO
+ * recorta el alcance de la búsqueda, porque el effective request arma el ANY-OF de
+ * keywords con la lista completa». La corrida live `ce957e2f` demostró que esa
+ * premisa era falsa: el effective request armaba el ANY-OF con
+ * `resolveFirstApolloSubindustrySearchMapping`, que también se quedaba con la
+ * primera. Dos cuellos de botella FIRST-ONLY en fila, y el segundo invalidaba la
+ * justificación del primero.
  *
- * Que la hipótesis se redacte sobre una sola NO recorta el alcance de la búsqueda:
- * el effective request arma el ANY-OF de keywords con la lista completa. Y la
- * redacción de la consulta no decide elegibilidad, ranking, gasto, objetivo ni
- * persistencia — no hay nada que ampliar aquí.
+ * La redacción de la consulta SÍ decide alcance: es lo que se le pregunta al
+ * proveedor. Ahora el contexto de consulta lleva `subindustries[]` y el reparto lo
+ * hace `interleaveApolloSubindustryTerms`.
  */
-export function primarySubindustryForQueryDrafting(
-  subindustries: readonly string[],
-): string | null {
-  return subindustries[0] ?? null;
-}
 
 export function foldSubindustryPrecisionIntoSectorState(
   base: CandidateSectorEvidenceState,
@@ -534,11 +558,18 @@ export async function runApolloTwoRoundWizardDiscovery(
     searchDepth: 'standard',
   });
 
-  // QUERY-QUALITY-2 § 2 / § 7 — mapping explícito de la subindustria elegida.
-  // Null cuando la subindustria no está en el catálogo: sin términos declarados
-  // no hay contradicción que afirmar.
-  const subindustryMapping =
-    resolveFirstApolloSubindustrySearchMapping(input.subindustries)?.mapping ?? null;
+  // QUERY-QUALITY-2 § 2 / § 7 — mappings explícitos de las subindustrias elegidas.
+  // Vacío cuando ninguna está en el catálogo: sin términos declarados no hay
+  // contradicción que afirmar.
+  //
+  // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 1 — antes era UNA mapping, la de la
+  // primera subindustria con entrada, y con ella se juzgaba la contradicción de
+  // todos los candidatos. Ese era el último gate de gasto FIRST-ONLY: con
+  // `[A, B]` las señales positivas de A no podían desactivar una contradicción, y
+  // permutar la solicitud podía cambiar el veredicto.
+  const subindustryMappings = resolveAllApolloSubindustrySearchMappings(
+    input.subindustries,
+  ).map((resolved) => resolved.mapping);
 
   const negativeMemoryScope = {
     countryCode: input.countryCode,
@@ -905,6 +936,11 @@ export async function runApolloTwoRoundWizardDiscovery(
       maxResults: requestedResultLimit,
       provider: 'apollo_organizations',
       subindustries: input.subindustries,
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM §§ 2 y 3 — la MISMA resolución para
+      // todas las páginas y las dos rondas: se lee una vez por corrida, así que dos
+      // llamadas de la misma corrida no pueden redactarse con dos versiones.
+      subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
+      selectionCatalogVersion: input.selectionCatalogVersion ?? null,
       additionalCriteriaTokens: hypothesis.queryParameters.keywordTags,
     };
 
@@ -943,11 +979,26 @@ export async function runApolloTwoRoundWizardDiscovery(
     // emitir una sola llamada: cero créditos, cero filas de uso.
     buildRoundProviderRequest: ({ hypothesis, requestedResultLimit }) => {
       const { effective } = buildRoundSearchRequest(hypothesis, requestedResultLimit);
+      const coverage = effective.subindustryCoverage;
       return {
         effectiveRequestFingerprint: effective.effectiveRequestFingerprint,
         page: effective.page,
         perPage: effective.perPage,
         effectiveKeywordTags: effective.effectiveKeywordTags,
+        // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 §§ 6 y 7 — la cobertura del body
+        // efectivo y su veredicto de gasto viajan con el preview: el orquestador
+        // decide con ellos ANTES de emitir la búsqueda.
+        subindustryCoverage: {
+          requestedSubindustries: coverage.requestedSubindustries,
+          coveredSubindustries: coverage.coveredSubindustries,
+          uncoveredSubindustries: coverage.uncoveredSubindustries,
+          coverageCount: coverage.coverageCount,
+          coverageRatio: coverage.coverageRatio,
+          effectiveKeywordsBySubindustry: coverage.effectiveKeywordsBySubindustry,
+          complete: coverage.complete,
+        },
+        subindustryCoverageBlockReason:
+          effective.subindustryCoverageSpendGate.blockReason,
       };
     },
 
@@ -1035,9 +1086,12 @@ export async function runApolloTwoRoundWizardDiscovery(
       // QUERY-QUALITY-2 § 7 — contradicción visible en campos GRATUITOS. El QA
       // gastó su único enrichment en Citigroup buscando supermercados: la
       // industria declarada ya decía «retail banking» antes de pagar nada.
-      const contradiction = evaluateApolloFreeSectorContradiction(
+      // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 1 — ANY-OF: basta que UNA
+      // subindustria pedida no resulte contradicha. El cap de enrichments y de
+      // créditos no se mueve; cambia quién compite, no cuántos se pagan.
+      const contradiction = evaluateApolloFreeSectorContradictionAnyOf(
         readFreeSectorEvidence(result, organization),
-        subindustryMapping,
+        subindustryMappings,
       );
       // HARDENING-1 § 3 — la precisión de subindustria se evalúa con las señales
       // GRATUITAS de la búsqueda, antes de cualquier gasto, y degrada el veredicto
@@ -1382,7 +1436,9 @@ export async function runApolloTwoRoundWizardDiscovery(
         country: input.country,
         countryCode: input.countryCode,
         sector: input.industry,
-        subindustry: primarySubindustryForQueryDrafting(input.subindustries),
+        // § 1 — TODAS las subindustrias pedidas llegan a la redacción de la
+        // consulta, en el orden de la solicitud.
+        subindustries: input.subindustries,
       },
       correlation: input.correlation,
       resume: restored ? toResumeStateFromCheckpoint(restored) : null,
@@ -1500,6 +1556,14 @@ export async function runApolloTwoRoundWizardDiscovery(
     budgetAnomalyRaised,
     checkpointFailures,
     candidatesPersisted,
+    // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A — lo que la corrida RECIBIÓ,
+    // escrito junto a lo que hizo. La forense de `7d92773b` tuvo que deducir de
+    // las keywords que la solicitud sólo traía una subindustria; con esto la
+    // pregunta «¿llegaron las dos?» se responde leyendo el lote.
+    requestedSubindustries: input.subindustries,
+    // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 9 — y CONTRA QUÉ catálogo se redactó.
+    catalogTerms: input.subindustryCatalogTerms ?? null,
+    selectionCatalogVersion: input.selectionCatalogVersion ?? null,
   });
 
   let candidatesCreated = persistedCandidateIds.length;
@@ -1632,6 +1696,56 @@ export async function runApolloTwoRoundWizardDiscovery(
  * un objeto literal armado aquí. Había dos implementaciones de las mismas cuatro
  * cantidades y sólo una estaba testeada.
  */
+/**
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — cobertura de la CORRIDA.
+ *
+ * Es la UNIÓN de lo que cubrió cada ronda, porque el § 3 admite distribuciones en
+ * las que la cobertura global se completa entre las dos. Lo que NO se admite es
+ * que una subindustria pedida no aparezca en ninguna: eso es `uncovered`, y el
+ * gate del § 7 lo bloquea antes de gastar.
+ *
+ * Se deriva de las rondas —de lo que realmente salió— y nunca de la solicitud: una
+ * corrida bloqueada reporta `covered = 0`, no `covered = requested`.
+ */
+function buildRunSubindustryCoverageMetadata(
+  runResult: ApolloTwoRoundRunResult,
+  requestedSubindustries: readonly string[],
+): Record<string, unknown> {
+  const covered: string[] = [];
+  const effectiveKeywordsBySubindustry: Record<string, string[]> = {};
+
+  for (const round of runResult.rounds) {
+    const coverage = round.subindustryCoverage;
+    if (!coverage) continue;
+    for (const subindustry of coverage.coveredSubindustries) {
+      if (!covered.includes(subindustry)) covered.push(subindustry);
+    }
+    for (const [subindustry, keywords] of Object.entries(
+      coverage.effectiveKeywordsBySubindustry,
+    )) {
+      const bucket = (effectiveKeywordsBySubindustry[subindustry] ??= []);
+      for (const keyword of keywords) {
+        if (!bucket.includes(keyword)) bucket.push(keyword);
+      }
+    }
+  }
+
+  const requested = [...requestedSubindustries];
+  const coveredInRequestOrder = requested.filter((subindustry) => covered.includes(subindustry));
+  const uncovered = requested.filter((subindustry) => !covered.includes(subindustry));
+
+  return toApolloSubindustryQueryCoverageMetadata({
+    requestedSubindustries: requested,
+    coveredSubindustries: coveredInRequestOrder,
+    uncoveredSubindustries: uncovered,
+    coverageCount: coveredInRequestOrder.length,
+    coverageRatio: requested.length === 0 ? 1 : coveredInRequestOrder.length / requested.length,
+    effectiveKeywordsBySubindustry,
+    unattributedEffectiveKeywords: [],
+    complete: uncovered.length === 0,
+  });
+}
+
 function buildObservabilityMetadata(input: {
   runResult: ApolloTwoRoundRunResult;
   budget: ReturnType<typeof estimateApolloTwoRoundBudget>;
@@ -1640,8 +1754,19 @@ function buildObservabilityMetadata(input: {
   budgetAnomalyRaised: boolean;
   checkpointFailures: readonly string[];
   candidatesPersisted: boolean;
+  /** § A — subindustrias que la SOLICITUD trajo, en su orden. Ausente ⇒ []. */
+  requestedSubindustries?: readonly string[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 9 — la resolución de términos con la que
+   * se redactaron TODAS las consultas de esta corrida. Ausente ⇒ se declara como no
+   * resuelta, que es un hecho de la corrida y no un campo que falte.
+   */
+  catalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
+  /** § 3 — versión con la que se resolvió la selección del usuario. */
+  selectionCatalogVersion?: string | null;
 }): Record<string, unknown> {
   const { runResult } = input;
+  const requestedSubindustries = [...(input.requestedSubindustries ?? [])];
   const accounting = buildApolloTwoRoundSpendAccounting({
     estimatedCredits: input.budget.maximumInternalRecordedCredits,
     reservedCredits: input.reservedCredits,
@@ -1653,9 +1778,51 @@ function buildObservabilityMetadata(input: {
     ...(runResult.manualReconciliationRequired ? [TWO_ROUND_INDETERMINATE_ANOMALY] : []),
   ];
 
+  // § D — se evalúa sobre el estado FINAL de la corrida (los candidatos tal como
+  // el checkpoint `run_completed` los va a guardar), nunca sobre uno intermedio.
+  const finalStateConsistency = evaluateApolloTwoRoundFinalStateConsistency({
+    rounds: runResult.rounds,
+    candidates: toApolloTwoRoundResumeState(runResult).candidates.map((candidate) => ({
+      candidate_key: candidate.candidateKey,
+      eligible: candidate.eligible,
+      finally_rejected_or_duplicated: candidate.finallyRejectedOrDuplicated,
+    })),
+    runMetrics: {
+      totalUniqueOrganizations: runResult.runMetrics.totalUniqueOrganizations,
+      totalEligibleCompanies: runResult.runMetrics.totalEligibleCompanies,
+      persistedCandidates: runResult.runMetrics.persistedCandidates,
+    },
+    targetEligibleCompanies: runResult.targetEligibleCompanies,
+    targetReached: runResult.targetReached,
+  });
+
   return {
     [APOLLO_TWO_ROUND_OBSERVABILITY_KEY]: {
       modality: 'two_round_adaptive',
+      // § A — la SOLICITUD, tal cual llegó. `requested_subindustries_count` va
+      // aparte porque es lo que se compara contra la selección de la UI de un
+      // vistazo, sin leer el array.
+      requested_subindustries: requestedSubindustries,
+      requested_subindustries_count: requestedSubindustries.length,
+      // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — y qué parte de esa solicitud
+      // llegó de verdad a las consultas pagadas. Es la pregunta que la forense de
+      // `ce957e2f` no pudo responder leyendo el lote: la solicitud decía dos y la
+      // consulta representaba una, y ningún campo lo declaraba.
+      ...buildRunSubindustryCoverageMetadata(runResult, requestedSubindustries),
+      // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 9 — de qué versión publicada del
+      // catálogo salieron los términos, con su digest, y si esa versión es la misma
+      // con la que se resolvió la selección. Sin estos campos, «cobertura 2/2» no
+      // dice contra qué catálogo se midió.
+      ...toApolloSubindustryCatalogTermsMetadata(input.catalogTerms ?? null),
+      ...toApolloCatalogVersionCoherenceMetadata(
+        evaluateApolloCatalogVersionCoherence({
+          selectionCatalogVersion: input.selectionCatalogVersion ?? null,
+          resolution: input.catalogTerms ?? null,
+          requestedSubindustries,
+        }),
+      ),
+      // § 7 — con valor, ninguna búsqueda se emitió y los créditos son CERO.
+      query_coverage_block_reason: runResult.queryCoverageBlockReason,
       result_status: runResult.resultStatus,
       target_eligible_companies: runResult.targetEligibleCompanies,
       eligible_companies_found: runResult.eligibleCompaniesFound,
@@ -1691,6 +1858,9 @@ function buildObservabilityMetadata(input: {
       })),
       completed_operation_keys_count: runResult.completedOperationKeys.length,
       indeterminate_operation_keys_count: runResult.indeterminateOperationKeys.length,
+      // § D — contradicciones entre desglose por ronda, snapshots y run_metrics.
+      // `ok: true` en una corrida sana; los conflictos se nombran, no se corrigen.
+      final_state_consistency: toFinalStateConsistencyMetadata(finalStateConsistency),
       // § 3 — un checkpoint que no se pudo escribir queda visible.
       checkpoint_write_failures: [...input.checkpointFailures],
       candidates_persisted: input.candidatesPersisted,

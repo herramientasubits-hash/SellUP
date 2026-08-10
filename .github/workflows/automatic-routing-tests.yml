@@ -225,6 +225,108 @@ jobs:
       - name: Run A1 subindustry fail-closed target integrity tests
         run: npm run test:a1-subindustry-fail-closed-target-integrity
 
+      # AGENT1-MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 — la SOLICITUD y la
+      # contabilidad del desenlace entran al check obligatorio. #241 dejó el
+      # backend multi-subindustria correcto (ANY-OF en consulta, precisión y
+      # gates de gasto), pero la corrida live `7d92773b` pidió dos subindustrias
+      # y el lote se creó con una: la pérdida estaba ANTES del servidor, en el
+      # paso del wizard, y ninguna pantalla la mostraba antes de gastar.
+      #
+      # Lo que este paso guarda, y que no falla al compilar:
+      #
+      #   * que la multiselección viaje íntegra y EN ORDEN por la ruta real —
+      #     reductor → solicitud → schema estricto → resolutor de catálogo →
+      #     production-runner— con 1, 2 y 5 subindustrias, con [A,B] frente a
+      #     [B,A], y tras «editar» y volver a la confirmación;
+      #   * que los ids duplicados tengan política explícita (se colapsan en la
+      #     primera aparición en la UI; en la solicitud INVALIDAN la petición) y
+      #     que un id inválido o de más falle cerrado, sin eliminación silenciosa;
+      #   * que la selección ya NO viva en un borrador local del paso: el árbol
+      #     del paso activo se desmonta cada vez que el hilo de mensajes
+      #     "escribe", y con el borrador eso descartaba lo elegido sin aviso. La
+      #     suite remonta el paso a propósito;
+      #   * que la pantalla previa al gasto liste TODAS las subindustrias con su
+      #     contador (antes la recapitulación sólo existía dentro del panel de
+      #     Lusha, así que la ruta que de verdad gasta no mostraba ninguna);
+      #   * que un rechazo sectorial descubierto DESPUÉS del enrichment se
+      #     contabilice exactamente una vez en su ronda (la ronda 2 de `7d92773b`
+      #     cerró 9 sobre 10 empresas únicas) y que el desglose reconcilie contra
+      #     el total, declarando lo que no cuadra en vez de esconderlo;
+      #   * que un rechazo FINAL nunca pueda ser bloqueado por un `eligible`
+      #     anterior al fusionar checkpoints («Supermercado Vaquita» quedó
+      #     archivada como elegible mientras run_metrics decía 0).
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 multi-subindustry request and reconciliation tests
+        run: npm run test:a1-multi-subindustry-request-observability
+
+      # AGENT1-MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 — la COBERTURA de la consulta
+      # entra al check obligatorio. #245 demostró que la multiselección llega íntegra
+      # al runner y #241 que los gates de gasto la evalúan con ANY-OF, pero la corrida
+      # live `ce957e2f` pidió dos subindustrias y las consultas efectivas de las DOS
+      # rondas sólo representaron a una: 21 créditos, 20 organizaciones, 0 candidatos.
+      # La causa eran dos resolvedores FIRST-ONLY en fila
+      # (`primarySubindustryForQueryDrafting` → `resolveFirstApolloSubindustrySearchMapping`),
+      # y el segundo invalidaba la justificación escrita del primero.
+      #
+      # Lo que este paso guarda, y que no falla al compilar:
+      #
+      #   * que las subindustrias pedidas se repartan round-robin dentro del ÚNICO
+      #     array de keyword tags, de modo que con 1, 2 o 5 selecciones todas queden
+      #     representadas bajo el tope de cinco posiciones;
+      #   * que permutar la solicitud no cambie a quién representa la consulta;
+      #   * que las DOS rondas conserven la cobertura, incluida la variante de
+      #     página 2;
+      #   * que una subindustria sin términos NO se omita en silencio: la búsqueda se
+      #     bloquea antes de gastar, con cero créditos, cero llamadas al transporte y
+      #     cero filas económicas, y con la causa auditable en metadata;
+      #   * que el número de llamadas pagadas, el cap de 5 enrichments y el techo de
+      #     25 créditos sean invariantes al número de subindustrias;
+      #   * que el allowlist del contrato del proveedor no se amplíe (nada de un
+      #     parámetro por subindustria, ni de una llamada por subindustria);
+      #   * que los contratos de #245 (solicitud íntegra y en orden), #241 (ANY-OF en
+      #     precisión y en los gates de gasto) y #238 (vocabulario de
+      #     `classification_source`) sigan en pie.
+      #
+      # Determinista: sin flags de Producción, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 multi-subindustry query drafting ANY-OF tests
+        run: npm run test:a1-multi-subindustry-query-drafting-anyof
+
+      # CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM — la COHERENCIA DE VERSIÓN del catálogo
+      # entra al check obligatorio.
+      #
+      # El catálogo de industrias no es code-owned: vive en PostgreSQL y una versión
+      # nueva se publica con una transacción (`publish_industry_catalog_version`), sin
+      # despliegue. El wizard lo lee en vivo y verifica la versión que el navegador
+      # envió; el addendum anterior, en cambio, redactaba las consultas con un snapshot
+      # TypeScript de `subindustry_search_terms`. Dos fuentes de verdad para el mismo
+      # catálogo, y la segunda podía describir otra versión sin que nada fallara.
+      #
+      # Lo que este paso guarda, y que no falla al compilar:
+      #
+      #   * que ningún módulo de producción vuelva a importar un snapshot de esa tabla,
+      #     ni el fixture de la lectura congelada, ni un cliente de Supabase dentro de
+      #     la ruta pura de construcción de la consulta;
+      #   * que la selección y los términos vengan de la MISMA versión publicada
+      #     (`selection_catalog_version == search_term_catalog_version`), y que la
+      #     ausencia se trate como incoherencia y no como permiso;
+      #   * que una incoherencia bloquee ANTES del gasto: cero llamadas al transporte,
+      #     cero créditos, cero filas económicas, y la causa con las DOS versiones en
+      #     metadata;
+      #   * que un cambio de catálogo v1 → v2 no pueda producir nunca
+      #     `wizard=v2 + términos=v1 + llamada al proveedor`;
+      #   * que el loader rehúse una lectura que atraviese un publish en vez de mezclar
+      #     dos versiones;
+      #   * que la cobertura de discovery siga siendo 73/73 sobre la versión publicada y
+      #     la precisión siga en 2/73, sin fallback a la industria padre;
+      #   * que los topes de 2 llamadas / 5 enrichments / 25 créditos no se muevan, y que
+      #     el vocabulario de `classification_source` de #238 siga intacto.
+      #
+      # Determinista: sin flags de Producción, sin proveedores, sin créditos y sin DB
+      # real — la lectura del catálogo se inyecta desde el fixture verificado de `1.0.0`.
+      - name: Run A1 catalog source-of-truth and version-coherence tests
+        run: npm run test:a1-catalog-source-of-truth
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)
@@ -332,3 +434,126 @@ jobs:
       # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
       - name: Run phone suppression terminal policy tests
         run: npm run test:agent2a:phone-suppression-terminal
+
+      # AGENT2A-PHONE-REVEAL-4O-E2 — propagación de la supresión / DSAR a la COLECCIÓN.
+      #
+      # La migración 109 añadió un QUINTO sitio donde vive el teléfono
+      # (`contact_enrichment_candidate_phones`) y la DSAR nunca supo de él: borraba la
+      # caché, el escalar del candidato y los contactos, y dejaba viva la fila
+      # `is_primary` de la colección. Desde ahí las RPC 110/111 hacen exactamente lo
+      # que se construyeron para hacer —leer la colección bajo el lock, elegir el
+      # número vivo y escribirlo en el escalar—, así que el número borrado VUELVE. No
+      # por un fallo del borrado ni del reveal, sino por la costura entre los dos.
+      # Nada de eso rompe una compilación, y la tabla está vacía hoy, así que tampoco
+      # lo delata ningún dato.
+      #
+      # Lo que la suite protege:
+      #   * que el motivo se TRADUZCA entre los dos vocabularios de supresión, que no
+      #     comparten ni un valor: un pass-through fallaría la CHECK de la 109 en el
+      #     100% de las filas y solo en runtime — la misma forma del 23514 que en el
+      #     hilo de Agente 1 perdió «Almacenes La 14»;
+      #   * que el tombstone borre el número Y conserve la `dedupe_key`, que es el
+      #     UNIQUE que impide reinsertarlo: un DELETE desbloquearía el número;
+      #   * que la tabla de PROCEDENCIAS no se toque (no lleva teléfono y es la
+      #     evidencia de que hubo observación), garantizado además por privilegio;
+      #   * que un tombstone NUNCA quede como principal, que el escalar nunca sea un
+      #     número tombstoneado, y que no quede en null habiendo superviviente;
+      #   * que la reelección use el ranking CANÓNICO y no el orden de llegada del
+      #     proveedor;
+      #   * que el escritor viejo del candidato por PostgREST haya DESAPARECIDO: si
+      #     siguiera ahí volvería a poner `phone = null` encima del superviviente que
+      #     la transacción acaba de elegir;
+      #   * que un fallo de la propagación NO se reporte como supresión exitosa;
+      #   * que las RPC 110/111, las migraciones 109/110/111, la política terminal de
+      #     E1, la allowlist de contacts, la pata manual de Lusha y la UI queden
+      #     intactas, y que este paso siga existiendo en el workflow.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real (la
+      # migración solo se lee de disco; la atomicidad se demuestra aparte, contra un
+      # PostgreSQL 17 efímero, en `test:agent2a:phone-suppression-propagation-postgres`,
+      # que queda FUERA del check por depender de un binario que se descarga).
+      - name: Run phone suppression propagation tests
+        run: npm run test:agent2a:phone-suppression-propagation
+
+      # AGENT2A-PHONE-REVEAL-4O-E3 — carreras de privacidad y puertas del Lusha manual.
+      #
+      # E1 cerró qué pasa cuando la transacción declara `suppressed`; E2 hizo que la
+      # DSAR llegara a la colección canónica. Quedaban tres huecos, y los tres son del
+      # tipo que no rompe ninguna compilación ni deja ningún dato que los delate:
+      #
+      #   * LA CARRERA EN VUELO. La comprobación POR PERSONA vivía solo en TypeScript,
+      #     leída ANTES de la llamada al proveedor y FUERA del lock. Entre esa lectura
+      #     y el COMMIT de la persistencia caben la respuesta del proveedor y una DSAR
+      #     entera. La re-comprobación por NÚMERO que ya hacían las RPC 110/111 no lo
+      #     cubre: la DSAR tombstonea los números que la colección YA tenía, y un
+      #     número que el proveedor devuelve por primera vez no tiene tombstone que
+      #     emparejar — entra vivo, y la persona borrada vuelve a tener teléfono
+      #     visible minutos después de su propia supresión.
+      #   * EL CIERRE POR TOMBSTONE ERA INCONDICIONAL. El webhook y la recuperación
+      #     escribían `error` + `blocked_suppressed` con un `UPDATE … WHERE id = ?`
+      #     sobre una decisión leída mucho antes, así que podían pisar un `revealed`
+      #     que otro actor había alcanzado legítimamente.
+      #   * EL DISPARO MANUAL DE LUSHA NO TENÍA PUERTA. La re-comprobación de supresión
+      #     y `do_not_contact` existía solo en el waterfall: la acción manual de
+      #     administración llamaba a Lusha —y pagaba— sin consultar ninguna de las dos.
+      #
+      # Lo que la suite protege:
+      #   * que la migración 113 sea EXACTAMENTE la 110 y la 111 con tres ediciones
+      #     acotadas. Se DERIVA del SQL vigente y se compara byte a byte: una
+      #     restatement de ~1.800 líneas escrita a mano es el riesgo real del hito;
+      #   * que las migraciones 110, 111 y 112 no se editen retroactivamente;
+      #   * que el SQL nuevo sea SECURITY INVOKER, con `search_path` fijado, sin SQL
+      #     dinámico, sin DELETE y ejecutable solo por service_role;
+      #   * que el bloqueo PREVIO a la llamada valga 0 llamadas y 0 créditos, y que la
+      #     supresión POSTERIOR retenga el número conservando el cargo REAL — declarar
+      #     gratis una llamada pagada sería el bug que E1 ya corrigió una vez;
+      #   * que las dos rutas de Lusha compartan UNA sola puerta, con la misma
+      #     precedencia, en vez de dos copias que puedan divergir;
+      #   * que el disparo manual la tenga realmente INYECTADA: un gate que existe pero
+      #     no se cablea no protege nada;
+      #   * que el manual siga guardando UN solo teléfono (el multi-phone sigue
+      #     diferido) y que E1 y E2 queden intactos.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real. La
+      # carrera de verdad —dos transacciones compitiendo por el mismo lock— se
+      # demuestra aparte contra un PostgreSQL 17 efímero, en
+      # `test:agent2a:phone-privacy-race-postgres`, que queda FUERA del check por
+      # depender de un binario que se descarga.
+      - name: Run phone privacy race and gate tests
+        run: npm run test:agent2a:phone-privacy-race-gates
+
+      # AGENT2A-PHONE-REVEAL-4O-E4 — erasure provenance-safe de teléfonos OFICIALES.
+      #
+      # El defecto que cierra: la supresión limpiaba la caché, el escalar del candidato
+      # y la colección canónica, pero al llegar a `contacts` exigía que `phone_source`
+      # estuviera en una allowlist SÓLO de Apollo. Un teléfono revelado por Lusha
+      # sobrevivía intacto en la fila visible —la que pinta la UI y la que se
+      # sincroniza a HubSpot— y la DSAR se declaraba `ok` con el dato personal a la
+      # vista.
+      #
+      # Esta suite prueba las dos propiedades y su tensión:
+      #   * procedencia Lusha DEMOSTRADA de punta a punta (reveal → metadata del
+      #     candidato → aprobación → `contacts.phone_source`) ⇒ el teléfono se borra,
+      #     junto con las 7 columnas de su tupla: dejar `phone_revealed_at` o
+      #     `phone_processing_basis` vivos sería metadata delatora sobre el titular;
+      #   * procedencia AUSENTE o ajena (`manual`, `unknown`, `NULL`, `apollo_search`,
+      #     `provider_payload`) ⇒ el teléfono SOBREVIVE, incluso cuando su valor
+      #     coincide exactamente con uno de la colección del candidato: coincidencia
+      #     de valor no demuestra quién lo escribió;
+      #   * `mobile_phone` NO se borra en el camino Lusha. La columna no tiene
+      #     procedencia —no existe `mobile_phone_source` y sus únicos escritores son
+      #     los formularios manuales de contacto—, así que la erasure es
+      #     declaradamente PARCIAL cuando ese campo está poblado, y la suite lo afirma
+      #     en voz alta en vez de disimularlo ampliando el borrado;
+      #   * el UPDATE sigue siendo CONDICIONAL por la procedencia EXACTA observada
+      #     (`.eq`, ya no `.in`): con dos patches distintos según procedencia, un `.in`
+      #     permitiría aplicar el de Apollo —que incluye `mobile_phone`— a una fila que
+      #     pasó a ser Lusha entre la lectura y la escritura.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos, sin DSAR real y sin DB.
+      # La carrera de verdad —dos transacciones compitiendo por la misma fila— se
+      # demuestra aparte contra un PostgreSQL 17 efímero, en
+      # `test:agent2a:contacts-phone-privacy-erasure-postgres`, que queda FUERA del
+      # check por depender de un binario que se descarga.
+      - name: Run official contact phone privacy erasure tests
+        run: npm run test:agent2a:contacts-phone-privacy-erasure

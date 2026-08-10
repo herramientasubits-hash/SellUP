@@ -340,7 +340,7 @@ describe('§ 3 · body efectivo igual ⇒ ronda 2 omitida', () => {
      */
     const { result, searchCalls } = await runWithPreviews({
       previewByRound: {},
-      queryContext: { sector: 'Sector Inexistente', subindustry: null, targetLocations: [] },
+      queryContext: { sector: 'Sector Inexistente', subindustries: [], targetLocations: [] },
       organizationsByRound: { 1: [org('uno')] },
     });
 
@@ -424,7 +424,7 @@ async function runWithRealBuilder(input: {
       // Sector fuera del catálogo de señales: ninguna ronda aporta términos propios.
       queryContext: testQueryContext({
         sector: 'Sector Inexistente',
-        subindustry: null,
+        subindustries: [],
         targetLocations: [],
       }),
       correlation: testCorrelation(),

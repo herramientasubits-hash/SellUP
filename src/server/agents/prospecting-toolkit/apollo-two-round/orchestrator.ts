@@ -64,6 +64,7 @@ import {
   type ApolloEffectiveRequestBuildStatus,
   type ApolloRound2PageDecision,
   type ApolloRound2PageEscalationReason,
+  type ApolloRoundSubindustryCoverage,
   type ApolloTwoRoundRoundMetrics,
   type ApolloTwoRoundRunMetrics,
   type EnrichmentOutcome,
@@ -183,6 +184,18 @@ export type RoundProviderRequestPreview = {
   perPage: number;
   /** Términos que sobrevivieron a la prioridad, la dedupe y el truncamiento. */
   effectiveKeywordTags: readonly string[];
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 §§ 6 y 7 — cobertura del body
+   * efectivo de esta ronda sobre las subindustrias pedidas.
+   *
+   * Viaja en el PREVIEW, es decir antes de pagar, porque es lo que decide si la
+   * ronda se emite: una consulta que no representa a todo lo seleccionado no se
+   * cobra (§ 7). Opcional para no romper las suites puras que inyectan un preview
+   * simulado; ausente ⇒ el gate no bloquea y la cobertura se reporta `null`.
+   */
+  subindustryCoverage?: ApolloRoundSubindustryCoverage | null;
+  /** § 7 — código estático del bloqueo. Non-null ⇒ la ronda NO se ejecuta. */
+  subindustryCoverageBlockReason?: string | null;
 };
 
 /**
@@ -369,6 +382,12 @@ export type SecondRoundSkippedReason =
   | 'max_rounds_is_one'
   | 'raw_result_cap_reached'
   /**
+   * MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § C — la corrida ya escribió sus
+   * candidatos. Un reintento posterior no abre una ronda nueva: recupera lo
+   * pagado, no compra más.
+   */
+  | 'candidates_already_persisted'
+  /**
    * QUERY-QUALITY-2 § 3 — los parámetros normalizados que la ronda 2 enviaría
    * son los MISMOS que envió la ronda 1. Vocabulario del hito.
    */
@@ -392,6 +411,15 @@ export type SecondRoundSkippedReason =
    * una llamada para «reconstruirlo»: eso sería pagar por un dato de auditoría.
    */
   | 'legacy_checkpoint_missing_effective_fingerprint'
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — el body efectivo de la ronda no
+   * representaba a todas las subindustrias pedidas.
+   *
+   * Fail-closed: la ronda no se emite y no consume créditos. No es un
+   * «no había variante»: es que la consulta que se iba a pagar omitía un criterio
+   * que el usuario eligió.
+   */
+  | 'subindustry_query_coverage_incomplete'
   /**
    * Código heredado del hito anterior. Se conserva SÓLO para poder rehidratar un
    * checkpoint escrito antes de este cambio; ninguna corrida nueva lo emite.
@@ -433,6 +461,13 @@ export type ApolloTwoRoundRunResult = {
   /** Código estático cuando el objetivo no se alcanzó. Null cuando sí. */
   partialResultReason: 'partial_target_not_reached' | null;
   secondRoundSkippedReason: SecondRoundSkippedReason | null;
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — código estático cuando la
+   * corrida se detuvo porque ninguna consulta cubría todas las subindustrias
+   * pedidas. `null` en una corrida normal. Con valor, los créditos gastados en
+   * búsquedas son CERO.
+   */
+  queryCoverageBlockReason: string | null;
   /**
    * HARDENING-3 § 7 — resultado de la comparación de huellas EFECTIVAS.
    *
@@ -832,6 +867,15 @@ export async function runApolloTwoRoundDiscovery(
   let secondRoundSkippedReason: SecondRoundSkippedReason | null =
     resume?.secondRoundSkippedReason ?? null;
   /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — por qué la corrida no pudo pagar
+   * ninguna búsqueda.
+   *
+   * Se distingue del `secondRoundSkippedReason` a propósito: un bloqueo de cobertura
+   * en la ronda 1 no es «la ronda 2 se omitió», es «no se construyó ninguna consulta
+   * cobrable». `null` en una corrida normal.
+   */
+  let queryCoverageBlockReason: string | null = null;
+  /**
    * § 7 — sólo se fija cuando la comparación de huellas efectivas se hizo de verdad.
    * Mientras siga en null, nadie comparó nada.
    */
@@ -1016,6 +1060,22 @@ export async function runApolloTwoRoundDiscovery(
     // organizaciones hay: ninguno de los dos se ejecuta a ciegas.
     if (hasIndeterminateOperation()) break;
 
+    // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § C — una corrida que YA escribió
+    // sus candidatos no abre una ronda NUEVA en un reintento. Un reintento existe
+    // para recuperar lo ya pagado, nunca para comprar más.
+    //
+    // Hasta ahora esta garantía se sostenía por accidente: el checkpoint
+    // conservaba un `eligible` ANTERIOR a los gates finales (§ C.8), así que un
+    // reintento creía el objetivo alcanzado y se detenía solo. Con el estado final
+    // ya autoritativo esa creencia desaparece —correctamente— y la garantía de
+    // gasto tiene que ser explícita en vez de depender de un dato equivocado.
+    if (resume?.candidatesPersisted === true) {
+      if (roundNumber > 1 && secondRoundSkippedReason === null) {
+        secondRoundSkippedReason = 'candidates_already_persisted';
+      }
+      break;
+    }
+
     // § 7: parada inmediata. La ronda 2 no se ejecuta por estar presupuestada.
     if (roundNumber > 1 && eligibleCount() >= config.targetEligibleCompanies) {
       secondRoundSkippedReason = 'target_reached';
@@ -1183,6 +1243,7 @@ export async function runApolloTwoRoundDiscovery(
       hypothesis.queryHypothesis,
       hypothesis.queryAdaptationReason,
       {
+        subindustryCoverage: requestPreview?.subindustryCoverage ?? null,
         requestFingerprint: hypothesis.providerRequestFingerprint,
         // § 10 — la huella EFECTIVA queda registrada por ronda. Es la que la ronda
         // siguiente compara y la que el próximo QA puede auditar.
@@ -1196,6 +1257,25 @@ export async function runApolloTwoRoundDiscovery(
         effectiveKeywordsSent: requestPreview?.effectiveKeywordTags ?? [],
       },
     );
+
+    /**
+     * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — fail-closed ANTES de gastar.
+     *
+     * El preview ya trae el veredicto porque lo calcula el mismo constructor que
+     * gobierna la llamada real. Si el body efectivo no representa a todas las
+     * subindustrias pedidas, la ronda se registra —para que el bloqueo sea legible
+     * en vez de invisible— y la corrida se detiene sin emitir la búsqueda.
+     *
+     * Se comprueba en TODAS las rondas, no sólo en la primera: la ronda 2 cambia
+     * los términos, y una variante que perdiera una subindustria sería otra
+     * búsqueda pagada que omite un criterio elegido.
+     */
+    if (requestPreview?.subindustryCoverageBlockReason) {
+      queryCoverageBlockReason = requestPreview.subindustryCoverageBlockReason;
+      secondRoundSkippedReason = 'subindustry_query_coverage_incomplete';
+      roundMetrics.push(metrics);
+      break;
+    }
 
     // § 12: una ronda ya completada por un intento anterior no se vuelve a
     // buscar. § 5: si de esa búsqueda quedaron organizaciones sin evaluar, se
@@ -1530,9 +1610,25 @@ export async function runApolloTwoRoundDiscovery(
     }
     // § D — el enrichment pudo REVELAR una contradicción sectorial. Eso sí es un
     // rechazo con causa, y descalifica incluso para revisión.
+    //
+    // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § B.5 — y además SE CUENTA.
+    //
+    // Esta rama marcaba el rechazo y no lo tallyaba, así que el desglose por
+    // ronda perdía al candidato: la corrida `7d92773b` cerró la ronda 2 con
+    // 7 duplicados + 2 ownership = 9 sobre 10 empresas únicas, y la décima
+    // (`instaleap`, contradictoria tras el enrichment) no aparecía en ninguna
+    // fila. `run_metrics.sector_rejected_after_enrichment` decía 1 y
+    // `rounds[].sector_rejected` decía 0.
+    //
+    // No hay doble conteo: la rama de `postRejection` de arriba ya tallya y
+    // corta con `continue`, así que este camino es mutuamente excluyente con
+    // ella. Los gates finales de más abajo tampoco lo re-tallyan: sólo actúan
+    // sobre candidatos aún elegibles, y éste ya no lo es.
     if (result.sectorEvidenceState === 'sector_evidence_contradictory') {
       candidate.definitivelyRejected = true;
       candidate.definitiveRejectionReason = 'sector_evidence_contradictory';
+      if (metricsForRound) tallyRejection(metricsForRound, 'sector_evidence_contradictory');
+      observedRejectionReasons.add('sector_evidence_contradictory');
     }
     const nowEligible = isEligible(candidate.assessment.rejection, result.sectorEvidenceState);
     if (nowEligible && !candidate.eligible) {
@@ -1547,6 +1643,12 @@ export async function runApolloTwoRoundDiscovery(
       // aquí no se marcó `definitivelyRejected`, esta empresa quedó AMBIGUA tras
       // pagar por resolverla, y se persistirá como `needs_review`.
       candidate.finallyRejectedOrDuplicated = true;
+      // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § D — un rechazo DEFINITIVO no
+      // puede convivir con `eligible: true`. La rama de `postRejection` ya lo
+      // hacía; ésta no, y un candidato elegible antes del enrichment cuya
+      // evidencia lo contradice después habría quedado contado como elegible en
+      // `eligibleAfterEnrichment`.
+      if (candidate.definitivelyRejected) candidate.eligible = false;
     }
   }
 
@@ -1701,6 +1803,7 @@ export async function runApolloTwoRoundDiscovery(
     targetReached,
     partialResultReason: targetReached ? null : 'partial_target_not_reached',
     secondRoundSkippedReason,
+    queryCoverageBlockReason,
     effectiveFingerprintsAreDistinct,
     round2PageDecision,
     persisted,

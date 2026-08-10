@@ -841,17 +841,45 @@ export async function runApolloPhoneRevealWebhook(
     // ningún dato nuevo de una persona suprimida) y NO se escribe caché. Se
     // cierra terminal para que el recovery no lo vuelva a traer.
     if (suppression.kind === 'blocked_suppressed') {
-      await deps.persist(candidate.id, {
-        phone_reveal_status: 'error',
-        phone_reveal_completed_at: deps.nowIso,
-        phone_reveal_webhook_received_at: deps.nowIso,
-        phone_reveal_provider: PHONE_REVEAL_PROVIDER,
-        // Sin `phone_revealed_at`: el teléfono llegó pero un tombstone impidió
-        // persistirlo, así que NO hay revelación que fechar.
-        phone_reveal_cost_credits: credits,
-        phone_reveal_cost_source: resolveWebhookCostSource(credits),
-        phone_reveal_error_code: SUPPRESSION_BLOCKED_ERROR_CODE,
+      // 4O-E3 — ESCRITURA CONDICIONAL. Antes de este hito el cierre por tombstone
+      // era un `UPDATE … WHERE id = ?` a secas, y la decisión que lo autorizaba se
+      // había leído mucho antes (el candidato se cargó al principio del callback y
+      // la supresión se evaluó después). Entre esa lectura y esta escritura cabe un
+      // desenlace legítimo de otro actor —la recuperación cerrando el MISMO reveal
+      // como `revealed`, o la revisión manual L3—, y el UPDATE incondicional lo
+      // pisaba: el candidato acababa en `error` con el costo del webhook encima del
+      // resultado de quien sí llegó a conclusión. Ahora la fila solo se toca si
+      // sigue en uno de los dos estados EN VUELO que autorizaron este cierre.
+      //
+      // Sin la dep condicional cableada se conserva exactamente el camino anterior:
+      // un caller que no la inyecta no puede quedarse sin escribir nada.
+      const terminalized = await applyTerminalPhoneSuppression({
+        candidateId: candidate.id,
+        persist: deps.persistTerminalSuppression,
+        patch: buildTerminalPhoneSuppressionPatch({
+          expectedStatuses: IN_FLIGHT_TERMINAL_SUPPRESSION_EXPECTED_STATUSES,
+          nowIso: deps.nowIso,
+          // El cargo del proveedor se conserva: Apollo entregó y cobró, aunque el
+          // tombstone impidiera guardar el número. Este cierre ES el del reveal del
+          // propio candidato, así que sus columnas de costo le pertenecen.
+          cost: { credits, source: resolveWebhookCostSource(credits) },
+          provider: PHONE_REVEAL_PROVIDER,
+          webhookReceivedAt: deps.nowIso,
+        }),
       });
+      if (terminalized.reason === 'not_wired') {
+        await deps.persist(candidate.id, {
+          phone_reveal_status: 'error',
+          phone_reveal_completed_at: deps.nowIso,
+          phone_reveal_webhook_received_at: deps.nowIso,
+          phone_reveal_provider: PHONE_REVEAL_PROVIDER,
+          // Sin `phone_revealed_at`: el teléfono llegó pero un tombstone impidió
+          // persistirlo, así que NO hay revelación que fechar.
+          phone_reveal_cost_credits: credits,
+          phone_reveal_cost_source: resolveWebhookCostSource(credits),
+          phone_reveal_error_code: SUPPRESSION_BLOCKED_ERROR_CODE,
+        });
+      }
       await deps.logUsage({
         operationKey: PHONE_REVEAL_OPERATION_KEY,
         provider: 'apollo',

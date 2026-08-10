@@ -32,14 +32,29 @@
 import type { SearchOrganizationsParams } from '@/server/integrations/apollo-client';
 import type { WebSearchInput } from './types';
 import {
+  apolloKeywordDedupeKey,
   buildApolloOrganizationsSearchParams,
   type ApolloQueryMappingMeta,
 } from './apollo-organizations-query-mapping';
+import {
+  computeApolloSubindustryQueryCoverage,
+  evaluateApolloSubindustryCoverageSpendGate,
+  toApolloSubindustryQueryCoverageMetadata,
+  type ApolloSubindustryCoverageSpendVerdict,
+  type ApolloSubindustryQueryCoverage,
+  type ApolloSubindustryTermList,
+} from './apollo-subindustry-query-terms';
 import {
   buildApolloOrganizationsRequestContract,
   type ApolloOrganizationsRequestBody,
   type ApolloOrganizationsRequestInput,
 } from './apollo-organizations-request-contract';
+import {
+  evaluateApolloCatalogVersionCoherence,
+  toApolloCatalogVersionCoherenceMetadata,
+  toApolloSubindustryCatalogTermsMetadata,
+  type ApolloCatalogVersionCoherenceVerdict,
+} from './apollo-subindustry-catalog-terms-resolution';
 
 // ─── Tope duro del proveedor ──────────────────────────────────────────────────
 
@@ -168,6 +183,33 @@ export type ApolloEffectiveRequest = {
   /** Params en el vocabulario del mapper. Lo que el provider ya consumía. */
   params: SearchOrganizationsParams;
   mappingMeta: ApolloQueryMappingMeta;
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — cobertura medida sobre los
+   * keywords del BODY del contrato, no sobre los que el mapper propuso.
+   *
+   * El contrato puede deduplicar y truncar por su cuenta (`APOLLO_MAX_FILTER_VALUES`),
+   * así que la única medida que describe lo que Apollo va a recibir es ésta. Es la
+   * misma disciplina que `effectiveRequestFingerprint`: se mide el body, no la
+   * intención.
+   */
+  subindustryCoverage: ApolloSubindustryQueryCoverage;
+  /**
+   * § 7 — veredicto de gasto derivado de esa cobertura. `allowed: false` ⇒ la
+   * búsqueda NO se emite y no se consume ningún crédito.
+   */
+  subindustryCoverageSpendGate: ApolloSubindustryCoverageSpendVerdict;
+  /** § 6 — términos que gobernaron la consulta, por subindustria pedida. */
+  subindustryTermLists: ApolloSubindustryTermList[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 3 — invariante
+   * `selection_catalog_version == search_term_catalog_version`.
+   *
+   * Se evalúa aquí, junto al resto del request efectivo, porque aquí es donde se sabe
+   * QUÉ términos gobernaron el body: un veredicto de versión calculado en otro sitio
+   * podría estar hablando de una resolución distinta de la que redactó la consulta.
+   * `allowed: false` ⇒ la búsqueda NO se emite y no se consume ningún crédito.
+   */
+  catalogVersionCoherence: ApolloCatalogVersionCoherenceVerdict;
 };
 
 /**
@@ -212,10 +254,14 @@ export function buildApolloOrganizationsEffectiveRequest(
     legacyMaxResultsPerQuery: input.legacyMaxResultsPerQuery,
   });
 
-  const { params, meta } = buildApolloOrganizationsSearchParams(input.input, limit.cap, {
-    packIndex: input.packIndex,
-    maxQueries: input.maxQueries,
-  });
+  const { params, meta, subindustryTermLists } = buildApolloOrganizationsSearchParams(
+    input.input,
+    limit.cap,
+    {
+      packIndex: input.packIndex,
+      maxQueries: input.maxQueries,
+    },
+  );
 
   const page = normalizeStartPage(input.startPage);
   const contract = buildApolloOrganizationsRequestContract({
@@ -224,7 +270,30 @@ export function buildApolloOrganizationsEffectiveRequest(
     perPage: limit.cap,
   });
 
+  // § 6 y § 7 — la cobertura se vuelve a medir contra el body del contrato. Si el
+  // contrato hubiera dejado fuera el único término de una subindustria, el veredicto
+  // lo dice ANTES de que nadie pague.
+  const subindustryCoverage = computeApolloSubindustryQueryCoverage({
+    lists: subindustryTermLists,
+    effectiveKeywords: contract.body.q_organization_keyword_tags ?? [],
+    dedupeKey: apolloKeywordDedupeKey,
+  });
+
+  // § 3 — coherencia de versión entre la SELECCIÓN y los TÉRMINOS. Se evalúa contra
+  // las subindustrias que la solicitud trajo: sin subindustrias no hay nada que
+  // cubrir, y con ellas la resolución tiene que venir de la misma versión publicada.
+  const catalogVersionCoherence = evaluateApolloCatalogVersionCoherence({
+    selectionCatalogVersion: input.input.selectionCatalogVersion,
+    resolution: input.input.subindustryCatalogTerms ?? null,
+    requestedSubindustries: input.input.subindustries,
+  });
+
   return {
+    subindustryCoverage,
+    subindustryCoverageSpendGate:
+      evaluateApolloSubindustryCoverageSpendGate(subindustryCoverage),
+    subindustryTermLists,
+    catalogVersionCoherence,
     body: contract.body,
     effectiveRequestFingerprint: contract.effectiveRequestFingerprint,
     filtersFingerprint: contract.filtersFingerprint,
@@ -301,5 +370,25 @@ export function toApolloEffectiveRequestMetadata(
     apollo_result_limit_mode: effective.limit.limitMode,
     apollo_max_results_per_query_resolved: effective.limit.legacyMaxResultsPerQuery,
     apollo_max_results_per_round_resolved: effective.limit.twoRoundMaxResultsPerRound,
+    // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — cobertura del body efectivo.
+    ...toApolloSubindustryQueryCoverageMetadata(effective.subindustryCoverage),
+    apollo_subindustry_coverage_block_reason:
+      effective.subindustryCoverageSpendGate.blockReason,
+    // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM §§ 3 y 9 — de qué versión publicada
+    // salieron los términos, y si esa versión es la de la selección.
+    ...toApolloCatalogVersionCoherenceMetadata(effective.catalogVersionCoherence),
   };
+}
+
+/**
+ * §§ 3 y 9 — metadata de la RESOLUCIÓN de términos de catálogo de la corrida.
+ *
+ * Va aparte del request efectivo porque describe la corrida, no la llamada: la
+ * resolución se lee una vez y gobierna todas las páginas y las dos rondas, así que
+ * repetirla por llamada sugeriría que puede cambiar entre ellas.
+ */
+export function toApolloCatalogTermsRunMetadata(
+  input: WebSearchInput,
+): Record<string, unknown> {
+  return toApolloSubindustryCatalogTermsMetadata(input.subindustryCatalogTerms ?? null);
 }

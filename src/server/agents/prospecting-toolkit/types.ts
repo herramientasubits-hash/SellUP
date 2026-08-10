@@ -8,6 +8,7 @@
  */
 
 import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
+import type { ApolloSubindustryCatalogTermsResolution } from './apollo-subindustry-catalog-terms-resolution';
 
 export type DuplicateStatus =
   | "new_candidate"
@@ -251,6 +252,27 @@ export type WebSearchInput = {
    */
   subindustries?: string[];
   /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — términos de
+   * `subindustry_search_terms` de la versión PUBLICADA, ya resueltos.
+   *
+   * Viajan como dato porque la ruta de construcción de la consulta es pura: la única
+   * lectura ocurre una vez por corrida en la frontera del wizard
+   * (`loadApolloSubindustryCatalogTerms`), con el mismo cliente que resolvió la
+   * selección. Llevan consigo la versión y el digest de origen, y el gate del § 3
+   * exige que esa versión sea la MISMA con la que se resolvió la selección antes de
+   * permitir cualquier gasto.
+   *
+   * Tavily no los usa.
+   */
+  subindustryCatalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
+  /**
+   * § 3 — versión del catálogo con la que se resolvió la SELECCIÓN del usuario
+   * (`active_industry_catalog.catalog_version`, la misma que `resolveWizardCatalog`
+   * verifica). Es el lado izquierdo del invariante
+   * `selection_catalog_version == search_term_catalog_version`.
+   */
+  selectionCatalogVersion?: string | null;
+  /**
    * Tokens comerciales extraídos del criterio adicional libre del usuario (L2.7).
    * Producidos por parseAdditionalCriteriaTokens en wizard-context-normalizer.ts.
    * Usados por Apollo para enriquecer q_organization_keyword_tags con señales del usuario.
@@ -447,6 +469,13 @@ export type ProspectingPipelineInput = {
   usageContext?: import('./tavily-usage-logging').TavilyUsageContext | null;
   /** Subindustrias canónicas del catálogo (L2.7). Solo para Apollo; Tavily las ignora aquí. */
   subindustries?: string[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — términos de la versión publicada, ya
+   * resueltos, y la versión con la que se resolvió la selección. Se transportan sin
+   * interpretarlos hasta `WebSearchInput`; sólo Apollo los consume.
+   */
+  subindustryCatalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
+  selectionCatalogVersion?: string | null;
   /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
   additionalCriteriaTokens?: string[];
 };
@@ -692,6 +721,12 @@ export type MultiQuerySearchInput = {
   usageContext?: import('./tavily-usage-logging').TavilyUsageContext | null;
   /** Subindustrias canónicas del catálogo (L2.7). Solo para Apollo; Tavily las ignora. */
   subindustries?: string[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — términos de la versión publicada, ya
+   * resueltos, y la versión de la selección. Último tramo antes de `WebSearchInput`.
+   */
+  subindustryCatalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
+  selectionCatalogVersion?: string | null;
   /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
   additionalCriteriaTokens?: string[];
 };

@@ -76,8 +76,13 @@ import {
 import {
   applyTerminalPhoneSuppression,
   buildTerminalPhoneSuppressionPatch,
+  SUPPRESSION_BLOCKED_ERROR_CODE,
+  SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
   type PersistTerminalPhoneSuppression,
 } from './phone-reveal-suppression-guard';
+// Vocabulario del veredicto de la puerta de privacidad (4O-E3). Import de SOLO TIPO:
+// el core sigue siendo puro y no arrastra el cliente admin del módulo de la puerta.
+import type { PhoneRevealWaterfallSuppressionState } from './phone-reveal-waterfall-core';
 import {
   buildLushaPhoneFallbackUsageLogMetadataDraft,
   LUSHA_PHONE_FALLBACK_OPERATION_KEY,
@@ -175,6 +180,15 @@ export type LushaPhoneFallbackActionStatus =
   | 'candidate_not_found'
   | 'revealed'
   | 'no_phone_found'
+  // ── Puerta de privacidad (AGENT2A-PHONE-REVEAL-4O-E3) ────────
+  //
+  // Vocabulario REUTILIZADO, no inventado: son exactamente los códigos que el
+  // webhook, el recovery y la pata Lusha del waterfall ya escriben. Un
+  // `manual_suppressed` o un `privacy_block` paralelos harían que el mismo hecho
+  // se llamara de dos formas según quién disparara la llamada.
+  | typeof SUPPRESSION_BLOCKED_ERROR_CODE
+  | 'do_not_contact'
+  | typeof SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE
   | 'error';
 
 export interface LushaPhoneFallbackActionResult {
@@ -341,6 +355,33 @@ export interface LushaPhoneFallbackCoreDeps {
    * que una carrera con otro actor no puede pisar su resultado.
    */
   persistTerminalSuppression?: PersistTerminalPhoneSuppression;
+
+  /**
+   * Puerta de PRIVACIDAD previa (y posterior) a la llamada
+   * (AGENT2A-PHONE-REVEAL-4O-E3).
+   *
+   * Hasta este hito el disparo MANUAL llamaba a Lusha sin consultar ni la supresión
+   * ni `do_not_contact`: la re-comprobación existía solo en el waterfall, así que
+   * una persona con DSAR registrada —o marcada como no contactable— se podía revelar
+   * igualmente, pagando el crédito. La misma función que ya usa el waterfall
+   * (`checkPhoneRevealPrivacyGate`) se cablea ahora aquí, así que las dos rutas
+   * aplican LAS MISMAS reglas y la MISMA precedencia.
+   *
+   * Se consulta DOS veces y por razones distintas:
+   *
+   *   1. ANTES de `callLusha` — bloquea con 0 llamadas y 0 créditos;
+   *   2. DESPUÉS de una respuesta `revealed`, justo antes de escribir el número —
+   *      cierra la ventana en la que una DSAR se registra MIENTRAS Lusha responde.
+   *      Ahí el crédito YA se gastó: se retiene el número, nunca el cargo.
+   *
+   * OPCIONAL: sin cablear, el camino queda EXACTAMENTE como antes del hito. La pata
+   * del waterfall no la inyecta a propósito — su core ya ejecutó esta misma puerta
+   * antes de autorizar la corrida, y su escritura va por la transacción de la
+   * migración 113, que vuelve a comprobar la supresión bajo el lock.
+   */
+  checkPrivacyGate?: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallSuppressionState>;
 }
 
 // ── Helpers puros ──────────────────────────────────────────────
@@ -461,6 +502,52 @@ export async function runLushaPhoneFallbackReveal(
   // short-circuited eligibility above otherwise.
   const contactId = lushaContactId as string;
   const nextAttempt = (candidate.phoneRevealAttemptCount ?? 0) + 1;
+
+  // 6b. PUERTA DE PRIVACIDAD, ANTES de la llamada (4O-E3).
+  //
+  // Va después del gate canónico —que es puro y no hace I/O, así que comprobarlo
+  // primero no cuesta nada— y ANTES de cualquier contacto con el proveedor. El
+  // efecto de un bloqueo aquí es exacto: 0 llamadas a Lusha, 0 créditos, 0
+  // mutaciones del candidato. No se escribe ningún estado terminal: la señal que
+  // impide el siguiente intento es el tombstone DURADERO en sí, que esta misma
+  // puerta vuelve a leer, no un rastro que haya que recordar escribir.
+  //
+  // Precedencia (documentada en phone-reveal-privacy-gate.ts): do_not_contact gana a
+  // la supresión. Las dos bloquean por igual y con el mismo costo — cero —, así que
+  // lo único que decide el orden es qué etiqueta se registra, y es SIEMPRE la misma.
+  if (deps.checkPrivacyGate) {
+    const gate = await deps.checkPrivacyGate(candidateId);
+    if (gate !== 'clear') {
+      const blockedStatus =
+        gate === 'do_not_contact'
+          ? 'do_not_contact'
+          : gate === 'blocked_suppressed'
+            ? SUPPRESSION_BLOCKED_ERROR_CODE
+            : SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE;
+      await deps.logUsage(
+        buildUsageLogEntry({
+          candidateId,
+          actorId: deps.actor.internalUserId,
+          actorRole: deps.actor.roleKey,
+          // `check_unavailable` es un fallo de lectura y se registra como error;
+          // los otros dos no fallaron: se rehusaron, que es un desenlace correcto.
+          usageStatus:
+            gate === 'check_unavailable' ? 'error' : 'success',
+          // 0 y no null: null significa «no se sabe cuánto costó». Aquí se sabe con
+          // certeza, porque no se llamó al proveedor.
+          creditsUsed: 0,
+          costSource: 'reported',
+          errorCode: blockedStatus,
+          waterfallId: deps.phoneRevealWaterfallId,
+        }),
+      );
+      return {
+        ...fail(blockedStatus, blockedStatus),
+        creditsCharged: 0,
+        costSource: 'reported',
+      };
+    }
+  }
 
   // Higiene del id de correlación (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 10). El id
   // que se persiste pertenece SIEMPRE al proveedor que cierra el caso. Lusha
@@ -826,6 +913,69 @@ export async function runLushaPhoneFallbackReveal(
       creditsCharged: result.creditsCharged,
       costSource: result.costSource ?? 'unknown',
     };
+  }
+
+  // ── Puerta de privacidad, DESPUÉS de la respuesta (4O-E3) ──────
+  //
+  // Este camino escribe el número con un UPDATE suelto, así que no hay transacción
+  // donde re-comprobar (la migración 113 protege la ruta que sí usa la RPC). La
+  // llamada a Lusha es síncrona pero no instantánea, y una DSAR registrada mientras
+  // el proveedor respondía dejaría el número borrado de vuelta en el escalar. Se
+  // vuelve a leer el estado duradero justo antes de escribir.
+  //
+  // El crédito YA se gastó. Lo que se retiene es el NÚMERO, nunca el cargo: el
+  // usage-log de abajo lleva los créditos REALES que Lusha reportó, y en el caso de
+  // supresión el cierre terminal deja el rastro sin tocar las columnas de costo del
+  // candidato —que describen el reveal de la pata anterior— tal y como fijó 4O-E1.
+  if (deps.checkPrivacyGate) {
+    const gateAfter = await deps.checkPrivacyGate(candidateId);
+    if (gateAfter !== 'clear') {
+      const blockedStatus =
+        gateAfter === 'do_not_contact'
+          ? 'do_not_contact'
+          : gateAfter === 'blocked_suppressed'
+            ? SUPPRESSION_BLOCKED_ERROR_CODE
+            : SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE;
+
+      // Solo la supresión CONFIRMADA deja rastro terminal: es un veredicto de
+      // privacidad definitivo y es lo que saca al candidato del estado que lo hace
+      // elegible para otro reveal pagado. Un `do_not_contact` o una lectura que
+      // falló no afirman eso, así que no cierran nada — el siguiente intento lo para
+      // la puerta PREVIA, con 0 créditos.
+      if (gateAfter === 'blocked_suppressed') {
+        await applyTerminalPhoneSuppression({
+          candidateId,
+          persist: deps.persistTerminalSuppression,
+          patch: buildTerminalPhoneSuppressionPatch({
+            // Mismo token de pertenencia que usa la transacción: la fila tiene que
+            // seguir en el estado que autorizó este intento. Vacío ⇒ no se escribe.
+            expectedStatuses: cleanText(candidate.phoneRevealStatus)
+              ? [candidate.phoneRevealStatus as string]
+              : [],
+            nowIso: deps.nowIso,
+          }),
+        });
+      }
+
+      await deps.logUsage(
+        buildUsageLogEntry({
+          candidateId,
+          actorId: deps.actor.internalUserId,
+          actorRole: deps.actor.roleKey,
+          usageStatus: 'success',
+          // El gasto REAL, íntegro: la llamada ocurrió y se cobró.
+          creditsUsed: result.creditsCharged,
+          costSource: result.costSource ?? 'unknown',
+          errorCode: blockedStatus,
+          waterfallId: deps.phoneRevealWaterfallId,
+        }),
+      );
+      return {
+        ...fail(blockedStatus, blockedStatus),
+        creditsCharged: result.creditsCharged,
+        costSource: result.costSource ?? 'unknown',
+      };
+    }
   }
 
   await deps.persist(candidateId, {

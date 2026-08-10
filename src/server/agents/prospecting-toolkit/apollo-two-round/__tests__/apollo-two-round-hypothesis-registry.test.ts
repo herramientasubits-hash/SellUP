@@ -90,7 +90,7 @@ describe('§ 3 · ronda 1 estricta', () => {
 
   test('un sector sin catálogo se declara, no se inventa', () => {
     const hypothesis = buildRound1Hypothesis(
-      testQueryContext({ sector: 'Sector Inexistente', subindustry: null }),
+      testQueryContext({ sector: 'Sector Inexistente', subindustries: [] }),
       5,
     );
     assert.equal(hypothesis.sectorSignalsMissing, true);
@@ -153,7 +153,7 @@ describe('§ 8 · ronda 2 adaptativa', () => {
   test('sin sinónimos ni regiones se declara idéntica y no justifica una segunda búsqueda', () => {
     const context = testQueryContext({
       sector: 'Sector Inexistente',
-      subindustry: null,
+      subindustries: [],
       targetLocations: [],
     });
     const round2 = buildRound2Hypothesis(context, feedback, 5);

@@ -24,6 +24,12 @@ import { resolveApolloTwoRoundConfigFromEnv } from '@/server/agents/prospecting-
 import { toApolloTwoRoundConfigDiagnostics } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 import type { ApolloTwoRoundRunCorrelation } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 import { runApolloTwoRoundWizardDiscovery } from '@/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server';
+// CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — la única lectura de
+// `subindustry_search_terms` de la ruta de descubrimiento.
+import {
+  loadApolloSubindustryCatalogTermsForRequest,
+  type ApolloSubindustryCatalogTermsLoadResult,
+} from '@/server/agents/prospecting-toolkit/apollo-subindustry-catalog-terms-loader.server';
 
 export const WIZARD_APOLLO_TARGET_INTERNAL = 25;
 export const WIZARD_APOLLO_MAX_ROUNDS = 4;
@@ -73,6 +79,16 @@ export type WizardApolloInput = {
    * compara contra lo que el ledger interno registró.
    */
   reservedCredits?: number;
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — lectura de los términos de
+   * `subindustry_search_terms` de la versión publicada.
+   *
+   * Se inyecta desde la acción del wizard con el MISMO cliente Supabase que resolvió
+   * la selección (`resolveWizardCatalog`), para que selección y términos vengan de la
+   * misma identidad, las mismas políticas y la misma versión. Ausente, esta frontera
+   * la resuelve por su cuenta con un cliente de petición.
+   */
+  loadCatalogSearchTerms?: () => Promise<ApolloSubindustryCatalogTermsLoadResult>;
 };
 
 export type WizardApolloRunner = (input: WizardApolloInput) => Promise<IncrementalSearchOutput>;
@@ -94,6 +110,28 @@ export async function runWizardApolloSearch(
   twoRoundRunnerOverride?: typeof runApolloTwoRoundWizardDiscovery,
 ): Promise<IncrementalSearchOutput> {
   const runner = runnerOverride ?? runIncrementalProspectingSearch;
+
+  // ── CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) y § 3 ────────────────
+  //
+  // Los términos de búsqueda de las subindustrias se leen AQUÍ, una vez por corrida,
+  // y desde la misma versión publicada que resolvió la selección. Ésta es la única
+  // frontera donde las dos cosas existen a la vez: `input.resolved.catalog.version`
+  // (lo que el usuario seleccionó, ya verificado contra `active_industry_catalog` por
+  // `resolveWizardCatalog`) y la lectura de `subindustry_search_terms`.
+  //
+  // No hay caché entre corridas a propósito: un TTL sería una tercera ventana en la
+  // que la versión puede cambiar sin que nadie lo note, y es exactamente la clase de
+  // deriva que este addendum elimina. La lectura son dos `select` sobre dos vistas,
+  // en la misma petición que ya consultó el catálogo.
+  //
+  // Un fallo NO se traduce en una búsqueda con términos viejos ni con el sector padre:
+  // la resolución llega vacía, el gate del § 3 la reconoce como incoherente y la
+  // búsqueda se bloquea antes de gastar, con cero llamadas y cero créditos.
+  const catalogTermsLoad = await (input.loadCatalogSearchTerms
+    ? input.loadCatalogSearchTerms()
+    : loadApolloSubindustryCatalogTermsForRequest());
+  const subindustryCatalogTerms = catalogTermsLoad.resolution;
+  const selectionCatalogVersion = input.resolved.catalog?.version ?? null;
 
   // A1-APOLLO-TWO-ROUND-QUALITY-1 — la modalidad decide qué RUTA corre. Apagada
   // (el estado por defecto), es exactamente la de siempre.
@@ -120,6 +158,10 @@ export async function runWizardApolloSearch(
       countryCode: input.resolved.country.code,
       industry: input.resolved.industry.name,
       subindustries: input.resolved.subindustries.map((s) => s.name),
+      // §§ 2 y 3 — los nombres de arriba y estos términos salen de la MISMA versión
+      // publicada; el invariante lo comprueba el request efectivo antes de gastar.
+      subindustryCatalogTerms,
+      selectionCatalogVersion,
       additionalCriteria: input.resolved.additionalCriteria,
       reservedBatchId: input.reservedBatchId,
       triggeredByUserId: input.resolved.userId,
@@ -140,6 +182,10 @@ export async function runWizardApolloSearch(
     countryCode: input.resolved.country.code,
     industry: input.resolved.industry.name,
     subindustries: input.resolved.subindustries.map((s) => s.name),
+    // §§ 2 y 3 — la ruta legacy pasa por el MISMO provider y por tanto por el mismo
+    // límite del dinero: también redacta con la versión publicada, o no redacta.
+    subindustryCatalogTerms,
+    selectionCatalogVersion,
     additionalCriteria: input.resolved.additionalCriteria,
     webSearchProvider: 'apollo_organizations',
     targetInternal: WIZARD_APOLLO_TARGET_INTERNAL,

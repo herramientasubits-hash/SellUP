@@ -93,8 +93,27 @@ export const SELLUP_ACTIVE_SUBINDUSTRY_NAMES: readonly string[] = [
   'Warehousing y Fulfillment B2B',
 ];
 
-/** La única subindustria del catálogo con mapping explícito de búsqueda Apollo. */
+/** La primera subindustria del catálogo con mapping explícito de búsqueda Apollo. */
 export const SELLUP_SUBINDUSTRY_WITH_APOLLO_MAPPING = 'Supermercados e Hipermercados' as const;
+
+/**
+ * Subindustrias del catálogo activo con mapping explícito de búsqueda Apollo, en el
+ * orden en que el catálogo las declara.
+ *
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 9 — «Tiendas por Departamento, Moda y
+ * Calzado» entró porque es la subindustria que la corrida live `ce957e2f` eligió y
+ * que no tenía términos: sin entrada, el reparto ANY-OF no podía representarla y el
+ * gate del § 7 habría bloqueado una selección legítima del wizard.
+ *
+ * Las 71 restantes siguen SIN mapping, y eso es un hecho operativo, no un detalle
+ * de test: una corrida que las elija no puede construir una consulta que las cubra
+ * y se bloquea antes de gastar. Conectar `subindustry_search_terms` (228 términos
+ * sobre las 73) es el seguimiento registrado en `apollo-subindustry-search-mapping`.
+ */
+export const SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING = [
+  'Supermercados e Hipermercados',
+  'Tiendas por Departamento, Moda y Calzado',
+] as const;
 
 /**
  * Nombres genéricos que NO son subindustrias del catálogo y que la contención
