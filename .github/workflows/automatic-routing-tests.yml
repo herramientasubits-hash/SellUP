@@ -521,3 +521,39 @@ jobs:
       # depender de un binario que se descarga.
       - name: Run phone privacy race and gate tests
         run: npm run test:agent2a:phone-privacy-race-gates
+
+      # AGENT2A-PHONE-REVEAL-4O-E4 — erasure provenance-safe de teléfonos OFICIALES.
+      #
+      # El defecto que cierra: la supresión limpiaba la caché, el escalar del candidato
+      # y la colección canónica, pero al llegar a `contacts` exigía que `phone_source`
+      # estuviera en una allowlist SÓLO de Apollo. Un teléfono revelado por Lusha
+      # sobrevivía intacto en la fila visible —la que pinta la UI y la que se
+      # sincroniza a HubSpot— y la DSAR se declaraba `ok` con el dato personal a la
+      # vista.
+      #
+      # Esta suite prueba las dos propiedades y su tensión:
+      #   * procedencia Lusha DEMOSTRADA de punta a punta (reveal → metadata del
+      #     candidato → aprobación → `contacts.phone_source`) ⇒ el teléfono se borra,
+      #     junto con las 7 columnas de su tupla: dejar `phone_revealed_at` o
+      #     `phone_processing_basis` vivos sería metadata delatora sobre el titular;
+      #   * procedencia AUSENTE o ajena (`manual`, `unknown`, `NULL`, `apollo_search`,
+      #     `provider_payload`) ⇒ el teléfono SOBREVIVE, incluso cuando su valor
+      #     coincide exactamente con uno de la colección del candidato: coincidencia
+      #     de valor no demuestra quién lo escribió;
+      #   * `mobile_phone` NO se borra en el camino Lusha. La columna no tiene
+      #     procedencia —no existe `mobile_phone_source` y sus únicos escritores son
+      #     los formularios manuales de contacto—, así que la erasure es
+      #     declaradamente PARCIAL cuando ese campo está poblado, y la suite lo afirma
+      #     en voz alta en vez de disimularlo ampliando el borrado;
+      #   * el UPDATE sigue siendo CONDICIONAL por la procedencia EXACTA observada
+      #     (`.eq`, ya no `.in`): con dos patches distintos según procedencia, un `.in`
+      #     permitiría aplicar el de Apollo —que incluye `mobile_phone`— a una fila que
+      #     pasó a ser Lusha entre la lectura y la escritura.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos, sin DSAR real y sin DB.
+      # La carrera de verdad —dos transacciones compitiendo por la misma fila— se
+      # demuestra aparte contra un PostgreSQL 17 efímero, en
+      # `test:agent2a:contacts-phone-privacy-erasure-postgres`, que queda FUERA del
+      # check por depender de un binario que se descarga.
+      - name: Run official contact phone privacy erasure tests
+        run: npm run test:agent2a:contacts-phone-privacy-erasure

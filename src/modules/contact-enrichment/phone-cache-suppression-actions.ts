@@ -26,9 +26,26 @@
 //     turn a DSAR into a no-op.
 //   * Contacts are only touched when the contact ITSELF proves it was
 //     created/promoted from one of the suppressed candidates
-//     (`contacts.metadata.source_candidate_id`) AND the stored phone came from an
-//     Apollo reveal/cache hit (FIX 1 / FIX M1). A duplicate match — by name,
-//     email or linkedin — never erases a contact in v1.
+//     (`contacts.metadata.source_candidate_id`) AND the stored phone came from a
+//     PROVEN reveal path — an Apollo reveal, an Apollo cache hit or a Lusha reveal
+//     (FIX 1 / FIX M1 / 4O-E4). A duplicate match — by name, email or linkedin —
+//     never erases a contact in v1.
+//
+// ── 4O-E4: la erasure de teléfonos Lusha oficiales ─────────────
+//
+// `lusha_reveal` entra en la allowlist de procedencias borrables: hasta este hito el
+// contacto OFICIAL conservaba el número revelado por Lusha aunque la DSAR limpiara la
+// caché, el escalar del candidato y la colección canónica, y la operación se
+// declaraba `ok` con el dato personal aún visible en la UI. La admisión se apoya en
+// una cadena de procedencia explícita y completa (reveal → metadata del candidato →
+// aprobación → `contacts.phone_source`), nunca en coincidencia de valor.
+//
+// Dos consecuencias que este archivo materializa:
+//   * el UPDATE ahora filtra por la procedencia EXACTA observada (`.eq`) y no por la
+//     allowlist entera (`.in`), porque el patch dejó de ser el mismo para todas;
+//   * `mobile_phone` NO se toca en el camino Lusha. La columna no tiene procedencia
+//     propia y sus únicos escritores son los formularios manuales, así que la erasure
+//     de Lusha es declaradamente PARCIAL cuando ese campo está poblado.
 //   * Every write is counted from the rows the database actually returned, so
 //     the durable audit reflects reality and not the plan (FIX M2).
 //   * Never returns or logs a phone/email/name/linkedin — only counts and ids.
@@ -400,17 +417,31 @@ export async function suppressPhoneCacheEntryAction(
     }
   }
 
-  // 2d. Contactos oficiales enlazados: borrado duro del teléfono y su
-  //     procedencia. El UPDATE repite el filtro de procedencia además del de
-  //     cuenta, para que una carrera que cambie `phone_source` entre la lectura y
+  // 2d. Contactos oficiales enlazados: borrado duro del teléfono y de TODA su
+  //     tupla de procedencia. El UPDATE repite el filtro de procedencia además del
+  //     de cuenta, para que una carrera que cambie `phone_source` entre la lectura y
   //     la escritura no acabe borrando un número manual (FIX M1).
-  for (const { contactId, patch } of plan.contactPatches) {
+  //
+  //     4O-E4: el predicado pasa de `.in(allowlist)` a `.eq(procedencia observada)`.
+  //     Mientras todas las procedencias admitidas compartían un mismo patch, `.in`
+  //     y `.eq` eran equivalentes en efecto. Con `lusha_reveal` admitido ya no lo
+  //     son: el patch de Apollo incluye `mobile_phone: null` y el de Lusha no, así
+  //     que un `.in` permitiría aplicar el patch de una procedencia a una fila que
+  //     entre la lectura y la escritura pasó a ser de OTRA — borrando un celular sin
+  //     procedencia, o dejando sin borrar uno que sí la tenía. Con `.eq` esa carrera
+  //     afecta 0 filas y el operador la ve como supresión incompleta.
+  //
+  //     El `.eq` es además estrictamente MÁS restrictivo que el `.in` anterior, así
+  //     que ninguna fila que antes estuviera protegida deja de estarlo: `manual`,
+  //     `unknown` y `NULL` nunca son un `observedPhoneSource` porque el core sólo
+  //     emite patches para procedencias de la allowlist.
+  for (const { contactId, patch, observedPhoneSource } of plan.contactPatches) {
     const { data: updated, error } = await admin
       .from('contacts')
       .update(patch)
       .eq('id', contactId)
       .eq('account_id', tombstone.accountId)
-      .in('phone_source', ['apollo_reveal', 'apollo_cache'])
+      .eq('phone_source', observedPhoneSource)
       .select('id');
     if (error) {
       console.error('[phone-cache] suppression contact clear failed:', error.message);
