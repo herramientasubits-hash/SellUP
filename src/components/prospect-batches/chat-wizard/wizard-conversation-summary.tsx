@@ -13,7 +13,12 @@ import type {
 } from '@/modules/prospect-batches/chat-wizard';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type { WizardLushaCriteriaDecision } from '@/modules/prospect-batches/wizard-lusha-criteria';
-import { buildWizardFinalRecap } from '@/modules/prospect-batches/wizard-final-summary';
+import {
+  buildWizardFinalRecap,
+  buildWizardSubindustrySelectionRecap,
+  WIZARD_SUBINDUSTRY_RECAP_EMPTY_LABEL,
+  WIZARD_SUBINDUSTRY_RECAP_LABEL,
+} from '@/modules/prospect-batches/wizard-final-summary';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import { WizardLushaFinalSearch } from './wizard-lusha-final-search';
 // A1-APOLLO-QA-CONTROL-SURFACE-1 — selector administrativo por corrida (§ 2–5) y
@@ -265,6 +270,16 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         </div>
       )}
 
+      {/* MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A.4 — la selección completa,
+          en la ÚLTIMA pantalla antes de gastar créditos.
+          Hasta ahora la recapitulación de subindustrias sólo existía dentro del
+          panel de Lusha: la ruta que de verdad gasta (Apollo / «Generar
+          prospectos») no mostraba ninguna, así que perder una subindustria entre
+          dos clics era indetectable hasta leer el lote ya creado. */}
+      {!useLushaFinalSearch && (
+        <SubindustrySelectionRecap state={state} catalog={catalog} />
+      )}
+
       {/* Hidden Lusha provider — final "Revisa tu búsqueda" surface. The recap
           (país/sector/subindustria/tamaño/criterio/proveedor/costo), the credit
           banner and the primary "Buscar con IA" CTA all live inside. On click it
@@ -473,6 +488,62 @@ function BlockedPanel({ state, dispatch }: BlockedPanelProps) {
   );
 }
 
+// ── Multiselección de subindustrias (§ A.4) ──────────────────────────────────
+
+/**
+ * MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A.4 — la selección COMPLETA, una
+ * línea por subindustria, más el contador.
+ *
+ * Existe porque un resumen de una sola etiqueta no permite detectar que falta una
+ * subindustria antes de gastar créditos: la corrida `7d92773b` pidió dos y el lote
+ * se creó con una, y ninguna pantalla lo mostraba. El contador va aparte del
+ * listado a propósito: si el catálogo no puede nombrar un id, la lista se acorta
+ * pero la cuenta no miente.
+ */
+function SubindustrySelectionRecap({
+  state,
+  catalog,
+}: {
+  state: ProspectWizardState;
+  catalog: ActiveIndustryCatalog;
+}) {
+  const recap = React.useMemo(
+    () => buildWizardSubindustrySelectionRecap(state, catalog),
+    [state, catalog],
+  );
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-4 py-3 space-y-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-xs font-medium text-muted-foreground">
+          {WIZARD_SUBINDUSTRY_RECAP_LABEL}
+        </span>
+        <span className="text-xs text-muted-foreground tabular-nums" aria-live="polite">
+          {recap.countLabel}
+        </span>
+      </div>
+      {recap.count === 0 ? (
+        <p className="text-xs text-foreground">{WIZARD_SUBINDUSTRY_RECAP_EMPTY_LABEL}</p>
+      ) : (
+        <ul className="space-y-1">
+          {recap.names.map((name) => (
+            <li key={name} className="flex gap-1.5 text-xs text-foreground">
+              <span aria-hidden>•</span>
+              <span>{name}</span>
+            </li>
+          ))}
+          {recap.unresolvedIds.map((id) => (
+            <li key={id} className="flex gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <span aria-hidden>•</span>
+              <span>Subindustria no reconocida en el catálogo ({id})</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ── Summary panel ─────────────────────────────────────────────────────────────
 
 type SummaryPanelProps = {
@@ -484,18 +555,18 @@ type SummaryPanelProps = {
 function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
   const countryEntry = LATAM_COUNTRIES.find((c) => c.code === state.countryCode);
   const industryEntry = catalog.industries.find((i) => i.id === state.industryId);
-  const selectedSubs = catalog.subindustries.filter((s) =>
-    state.subindustryIds.includes(s.id),
-  );
+  // § A.4 — el mismo recapitulador puro que la pantalla previa al gasto: orden de
+  // selección conservado y ningún id descartado en silencio.
+  const subsRecap = buildWizardSubindustrySelectionRecap(state, catalog);
 
   const countryLabel = countryEntry
     ? `${getFlagEmoji(countryEntry.code)} ${countryEntry.name}`
     : '—';
   const industryLabel = industryEntry?.name ?? '—';
   const subsLabel =
-    selectedSubs.length > 0
-      ? selectedSubs.map((s) => s.name).join(', ')
-      : 'Toda la industria';
+    subsRecap.count > 0
+      ? `${subsRecap.names.join(', ')} · ${subsRecap.countLabel}`
+      : WIZARD_SUBINDUSTRY_RECAP_EMPTY_LABEL;
   const criteriaLabel = state.additionalCriteriaRaw ?? 'Ninguno';
 
   const serverWarnings = state.warnings.filter((w) => w.step === 'summary');
@@ -522,9 +593,10 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
           onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'industry' })}
         />
         <SummaryRow
-          label="Subindustrias"
+          label={WIZARD_SUBINDUSTRY_RECAP_LABEL}
           value={subsLabel}
           onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'subindustries' })}
+          wrap
         />
         <SummaryRow
           label="Criterio adicional"
@@ -539,6 +611,9 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
           value=">200 empleados"
         />
       </div>
+
+      {/* § A.4 — la multiselección completa, explícita y contada. */}
+      <SubindustrySelectionRecap state={state} catalog={catalog} />
 
       <div className="rounded-lg bg-muted/40 px-4 py-3">
         <p className="text-xs text-muted-foreground leading-relaxed">

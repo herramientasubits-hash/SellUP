@@ -124,6 +124,17 @@ export type ProspectWizardAction =
   | { type: 'SELECT_SEARCH_MODE'; mode: ProspectSearchMode }
   | { type: 'SELECT_COUNTRY'; countryCode: string }
   | { type: 'SELECT_INDUSTRY'; industryId: string }
+  /**
+   * AGENT1-MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A — cada cambio de la
+   * multiselección se COMPROMETE en el estado, sin avanzar de paso.
+   *
+   * Antes la selección vivía en un `useState` local del paso, y el árbol del paso
+   * activo se desmonta cada vez que el hilo de mensajes vuelve a "escribir". Un
+   * desmontaje entre el primer clic y «Continuar» reiniciaba ese borrador desde
+   * `state.subindustryIds` y descartaba en silencio lo ya elegido: nadie lo
+   * advertía, y el lote se creaba con menos subindustrias de las pedidas.
+   */
+  | { type: 'SET_SUBINDUSTRY_SELECTION'; subindustryIds: string[] }
   | { type: 'SET_SUBINDUSTRIES'; subindustryIds: string[] }
   | { type: 'SKIP_SUBINDUSTRIES' }
   | { type: 'SET_ADDITIONAL_CRITERIA'; value: string | null }

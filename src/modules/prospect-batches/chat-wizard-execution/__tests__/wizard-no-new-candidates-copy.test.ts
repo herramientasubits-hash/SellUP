@@ -352,6 +352,10 @@ describe('§ 5 · desglose compacto para la UI', () => {
       candidatesCreatedCount: 5,
     });
 
+    // AGENT1-MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § B.6 — el desglose
+    // compacto lleva además el guardrail de reconciliación. Aquí cierra:
+    // 2+1+1+1+1+1+5 = 12 = empresas únicas, así que ambas cifras valen 0 y
+    // ninguna de las dos filas se pintará.
     assert.deepEqual(compact, {
       uniqueResultsCount: 12,
       hubspotDuplicateCount: 2,
@@ -362,6 +366,8 @@ describe('§ 5 · desglose compacto para la UI', () => {
       sectorRejectedCount: 1,
       ownershipRejectedCount: 1,
       candidatesCreatedCount: 5,
+      unclassifiedUniqueResultsCount: 0,
+      overCountedUniqueResultsCount: 0,
     });
   });
 
@@ -464,9 +470,13 @@ describe('§ 3 · empresas ÚNICAS, no resultados crudos', () => {
 
 describe('§ 3 · filas del desglose para la UI', () => {
   test('sólo se listan las causas que ocurrieron, con el marco siempre presente', () => {
+    // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § B.6 — el desglose CIERRA
+    // (4 duplicados de HubSpot sobre 4 empresas únicas), así que el guardrail de
+    // reconciliación no añade fila y esta prueba sigue midiendo sólo qué causas
+    // se listan. Las 5 repeticiones no participan: son eventos, no empresas.
     const rows = toNoNewCandidatesBreakdownRows(
       buildNoNewCandidatesCompactBreakdown(
-        { ...ZERO, uniqueResultsCount: 5, hubspotDuplicateCount: 4, repeatedAcrossRoundsCount: 5 },
+        { ...ZERO, uniqueResultsCount: 4, hubspotDuplicateCount: 4, repeatedAcrossRoundsCount: 5 },
         { candidatesCreatedCount: 0 },
       ),
     );
@@ -480,13 +490,16 @@ describe('§ 3 · filas del desglose para la UI', () => {
         'candidatesCreatedCount',
       ],
     );
-    assert.equal(rows.find((row) => row.key === 'uniqueResultsCount')?.count, 5);
+    assert.equal(rows.find((row) => row.key === 'uniqueResultsCount')?.count, 4);
   });
 
   test('la fila de repeticiones lleva su aclaración; ninguna otra la lleva', () => {
     const rows = toNoNewCandidatesBreakdownRows(
       buildNoNewCandidatesCompactBreakdown(
-        { ...ZERO, uniqueResultsCount: 5, cooldownCount: 1, repeatedAcrossRoundsCount: 5 },
+        // § B.6 — el desglose cierra (1 cooldown sobre 1 empresa única): sin
+        // fila de guardrail, la aclaración sigue siendo exclusiva de las
+        // repeticiones.
+        { ...ZERO, uniqueResultsCount: 1, cooldownCount: 1, repeatedAcrossRoundsCount: 5 },
         { candidatesCreatedCount: 0 },
       ),
     );

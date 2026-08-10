@@ -225,6 +225,41 @@ jobs:
       - name: Run A1 subindustry fail-closed target integrity tests
         run: npm run test:a1-subindustry-fail-closed-target-integrity
 
+      # AGENT1-MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 — la SOLICITUD y la
+      # contabilidad del desenlace entran al check obligatorio. #241 dejó el
+      # backend multi-subindustria correcto (ANY-OF en consulta, precisión y
+      # gates de gasto), pero la corrida live `7d92773b` pidió dos subindustrias
+      # y el lote se creó con una: la pérdida estaba ANTES del servidor, en el
+      # paso del wizard, y ninguna pantalla la mostraba antes de gastar.
+      #
+      # Lo que este paso guarda, y que no falla al compilar:
+      #
+      #   * que la multiselección viaje íntegra y EN ORDEN por la ruta real —
+      #     reductor → solicitud → schema estricto → resolutor de catálogo →
+      #     production-runner— con 1, 2 y 5 subindustrias, con [A,B] frente a
+      #     [B,A], y tras «editar» y volver a la confirmación;
+      #   * que los ids duplicados tengan política explícita (se colapsan en la
+      #     primera aparición en la UI; en la solicitud INVALIDAN la petición) y
+      #     que un id inválido o de más falle cerrado, sin eliminación silenciosa;
+      #   * que la selección ya NO viva en un borrador local del paso: el árbol
+      #     del paso activo se desmonta cada vez que el hilo de mensajes
+      #     "escribe", y con el borrador eso descartaba lo elegido sin aviso. La
+      #     suite remonta el paso a propósito;
+      #   * que la pantalla previa al gasto liste TODAS las subindustrias con su
+      #     contador (antes la recapitulación sólo existía dentro del panel de
+      #     Lusha, así que la ruta que de verdad gasta no mostraba ninguna);
+      #   * que un rechazo sectorial descubierto DESPUÉS del enrichment se
+      #     contabilice exactamente una vez en su ronda (la ronda 2 de `7d92773b`
+      #     cerró 9 sobre 10 empresas únicas) y que el desglose reconcilie contra
+      #     el total, declarando lo que no cuadra en vez de esconderlo;
+      #   * que un rechazo FINAL nunca pueda ser bloqueado por un `eligible`
+      #     anterior al fusionar checkpoints («Supermercado Vaquita» quedó
+      #     archivada como elegible mientras run_metrics decía 0).
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 multi-subindustry request and reconciliation tests
+        run: npm run test:a1-multi-subindustry-request-observability
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)

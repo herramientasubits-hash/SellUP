@@ -80,21 +80,82 @@ export interface WizardFinalRecap {
 
 // ── Builders ────────────────────────────────────────────────────────────────
 
+// ── Multiselección de subindustrias (§ A.4) ──────────────────────────────────
+
+/** Etiqueta de la fila de subindustrias en cualquier recapitulación. */
+export const WIZARD_SUBINDUSTRY_RECAP_LABEL = 'Subindustrias';
+/** Texto cuando el usuario decidió no acotar la industria. */
+export const WIZARD_SUBINDUSTRY_RECAP_EMPTY_LABEL = 'Toda la industria';
+
+/**
+ * MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A.4 — la multiselección tal como
+ * viajará en la solicitud, resuelta a nombres humanos.
+ *
+ * Dos reglas que la versión anterior no cumplía:
+ *
+ *   1. **Orden de selección.** Resolver con `catalog.subindustries.filter(...)`
+ *      devolvía el orden del CATÁLOGO, no el del usuario. La pantalla decía otra
+ *      cosa que la solicitud y una inversión pasaba inadvertida.
+ *   2. **Ningún id se pierde en silencio.** Un id que el catálogo no resuelve no
+ *      desaparece de la cuenta: viaja en `unresolvedIds` para que la pantalla
+ *      pueda mostrar que hay una selección que no se pudo nombrar, en vez de
+ *      enseñar una lista más corta que la real.
+ *
+ * Puro: sin I/O, sin React.
+ */
+export interface WizardSubindustrySelectionRecap {
+  /** Nombres resueltos, EN EL ORDEN en que el usuario los eligió. */
+  names: string[];
+  /** Ids seleccionados que el catálogo no pudo nombrar. Nunca se descartan. */
+  unresolvedIds: string[];
+  /** Total de ids seleccionados = `names.length + unresolvedIds.length`. */
+  count: number;
+  /** Contador visible, p. ej. «2 subindustrias seleccionadas». */
+  countLabel: string;
+}
+
+export function buildWizardSubindustrySelectionRecap(
+  state: WizardFinalSummaryState,
+  catalog: ActiveIndustryCatalog,
+): WizardSubindustrySelectionRecap {
+  const byId = new Map(catalog.subindustries.map((s) => [s.id, s.name]));
+  const names: string[] = [];
+  const unresolvedIds: string[] = [];
+
+  for (const id of state.subindustryIds) {
+    const name = byId.get(id);
+    if (name === undefined) unresolvedIds.push(id);
+    else names.push(name);
+  }
+
+  const count = names.length + unresolvedIds.length;
+  return {
+    names,
+    unresolvedIds,
+    count,
+    countLabel:
+      count === 0
+        ? 'Sin subindustrias seleccionadas'
+        : count === 1
+          ? '1 subindustria seleccionada'
+          : `${count} subindustrias seleccionadas`,
+  };
+}
+
 /** Resolve the human labels for the wizard's selected criteria (display only). */
 export function buildWizardFinalSummaryLabels(
   state: WizardFinalSummaryState,
   catalog: ActiveIndustryCatalog,
 ): WizardFinalSummaryLabels {
   const industry = catalog.industries.find((i) => i.id === state.industryId);
-  const subs = catalog.subindustries.filter((s) =>
-    state.subindustryIds.includes(s.id),
-  );
+  // § A.4 — mismo recapitulador que las pantallas de confirmación, para que el
+  // texto corto y la lista explícita no puedan divergir en orden ni en cuenta.
+  const recap = buildWizardSubindustrySelectionRecap(state, catalog);
   const criteria = state.additionalCriteriaRaw?.trim();
 
   return {
     sectorLabel: industry?.name ?? '—',
-    subIndustryLabel:
-      subs.length > 0 ? subs.map((s) => s.name).join(', ') : null,
+    subIndustryLabel: recap.names.length > 0 ? recap.names.join(', ') : null,
     criteriaLabel: criteria && criteria.length > 0 ? criteria : null,
   };
 }
