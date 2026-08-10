@@ -302,7 +302,86 @@ export type NoNewCandidatesCompactBreakdown = {
   sectorRejectedCount: number;
   ownershipRejectedCount: number;
   candidatesCreatedCount: number;
+  /**
+   * MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § B.6 — empresas únicas que NINGUNA
+   * disposición final explica. En una corrida sana vale 0.
+   *
+   * Es un guardrail de observabilidad, no una categoría: si aparece, el desglose
+   * no cierra y falta contabilizar a alguien. Nunca debe usarse para absorber un
+   * error de conteo — su único trabajo es hacerlo visible.
+   */
+  unclassifiedUniqueResultsCount: number;
+  /**
+   * § B.6 — cierre por el otro lado: la suma de disposiciones SUPERA el total de
+   * empresas únicas, es decir, alguien se contó dos veces. También es un error de
+   * contabilidad y también tiene que verse.
+   */
+  overCountedUniqueResultsCount: number;
 };
+
+// ─── Invariante de reconciliación (§ B.6) ─────────────────────────────────────
+
+/**
+ * MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § B.6 — cálculo CANÓNICO de la
+ * reconciliación del desglose.
+ *
+ *   classified_unique_results   = suma de las disposiciones finales
+ *                                 MUTUAMENTE EXCLUYENTES
+ *   unclassified_unique_results = unique_provider_results − classified
+ *
+ * Las disposiciones finales son, por empresa ÚNICA: duplicado en HubSpot,
+ * duplicado en SellUp, cooldown/sugerencia previa, descarte por país, descarte
+ * por sector o subindustria, descarte por ownership, y candidato creado.
+ *
+ * `repeatedAcrossRoundsCount` NO participa: cuenta EVENTOS de repetición, no
+ * empresas. Sumarlo contaría dos veces a la misma organización, que es
+ * precisamente la confusión que el desglose evita.
+ *
+ * Esperado normal: `unclassifiedUniqueResults === 0`. La corrida `7d92773b`
+ * cerraba en 19/20 porque el rechazo sectorial descubierto DESPUÉS del
+ * enrichment no se tallyaba en la ronda (§ B.5).
+ *
+ * Puro y sin recortes: si la suma se pasa del total, la diferencia se reporta
+ * como sobreconteo en vez de saturarse a cero. Un error de contabilidad que se
+ * esconde es peor que uno que se ve.
+ */
+export type UniqueResultReconciliation = {
+  uniqueProviderResults: number;
+  classifiedUniqueResults: number;
+  /** Positivo ⇒ faltan empresas por clasificar. 0 en una corrida sana. */
+  unclassifiedUniqueResults: number;
+  /** Positivo ⇒ las disposiciones suman de más: alguien se contó dos veces. */
+  overCountedUniqueResults: number;
+};
+
+export function computeUniqueResultReconciliation(input: {
+  uniqueResultsCount: number;
+  hubspotDuplicateCount: number;
+  sellupDuplicateCount: number;
+  cooldownCount: number;
+  countryRejectedCount: number;
+  sectorRejectedCount: number;
+  ownershipRejectedCount: number;
+  candidatesCreatedCount: number;
+}): UniqueResultReconciliation {
+  const uniqueProviderResults = nonNegativeInt(input.uniqueResultsCount);
+  const classifiedUniqueResults =
+    nonNegativeInt(input.hubspotDuplicateCount) +
+    nonNegativeInt(input.sellupDuplicateCount) +
+    nonNegativeInt(input.cooldownCount) +
+    nonNegativeInt(input.countryRejectedCount) +
+    nonNegativeInt(input.sectorRejectedCount) +
+    nonNegativeInt(input.ownershipRejectedCount) +
+    nonNegativeInt(input.candidatesCreatedCount);
+
+  const delta = uniqueProviderResults - classifiedUniqueResults;
+  return {
+    uniqueProviderResults,
+    classifiedUniqueResults,
+    unclassifiedUniqueResults: delta > 0 ? delta : 0,
+    overCountedUniqueResults: delta < 0 ? -delta : 0,
+  };
+}
 
 /**
  * Ensambla el desglose compacto del § 5: resultados únicos, duplicados por
@@ -318,7 +397,7 @@ export function buildNoNewCandidatesCompactBreakdown(
   breakdown: NoNewCandidatesBreakdown,
   totals: { uniqueResultsCount?: number; candidatesCreatedCount: number },
 ): NoNewCandidatesCompactBreakdown {
-  return {
+  const base = {
     uniqueResultsCount: nonNegativeInt(totals.uniqueResultsCount ?? breakdown.uniqueResultsCount),
     hubspotDuplicateCount: nonNegativeInt(breakdown.hubspotDuplicateCount),
     sellupDuplicateCount: nonNegativeInt(breakdown.sellupDuplicateCount),
@@ -328,6 +407,12 @@ export function buildNoNewCandidatesCompactBreakdown(
     sectorRejectedCount: nonNegativeInt(breakdown.sectorRejectedCount),
     ownershipRejectedCount: nonNegativeInt(breakdown.ownershipRejectedCount),
     candidatesCreatedCount: nonNegativeInt(totals.candidatesCreatedCount),
+  };
+  const reconciliation = computeUniqueResultReconciliation(base);
+  return {
+    ...base,
+    unclassifiedUniqueResultsCount: reconciliation.unclassifiedUniqueResults,
+    overCountedUniqueResultsCount: reconciliation.overCountedUniqueResults,
   };
 }
 
@@ -357,7 +442,23 @@ export const NO_NEW_CANDIDATES_BREAKDOWN_LABELS: Readonly<
   sectorRejectedCount: 'Descartadas por sector o subindustria',
   ownershipRejectedCount: 'Descartadas porque el dominio no acredita a la empresa',
   candidatesCreatedCount: 'Candidatos creados',
+  // § B.6 — guardrail. Sólo se pinta cuando la cifra NO es cero.
+  unclassifiedUniqueResultsCount: 'Sin clasificar en el desglose',
+  overCountedUniqueResultsCount: 'Contabilizadas más de una vez en el desglose',
 };
+
+/**
+ * § B.6 — aclaración de la fila de «sin clasificar».
+ *
+ * No es una causa de descarte: es la constancia de que el desglose no cierra
+ * contra el total de empresas únicas. Que aparezca significa que falta
+ * contabilidad, no que existan empresas de una categoría desconocida.
+ */
+export const UNCLASSIFIED_UNIQUE_RESULTS_HINT =
+  'El desglose no cuadra con el total de empresas únicas. Es un aviso de contabilidad, no una causa de descarte.';
+
+export const OVER_COUNTED_UNIQUE_RESULTS_HINT =
+  'Las causas suman más que el total de empresas únicas: alguna empresa se contabilizó dos veces.';
 
 /**
  * § 3 — aclaración de la fila de repeticiones.
@@ -409,11 +510,25 @@ export function toNoNewCandidatesBreakdownRows(
     'ownershipRejectedCount',
   ];
 
+  // § B.6 — el guardrail va DESPUÉS de «Candidatos creados»: es lo último que se
+  // lee, y sólo aparece cuando de verdad hay algo que no cuadra. Con el desglose
+  // cerrado (el caso normal) la fila no existe, para no enseñar un cero que
+  // parecería una categoría más.
+  const reconciliationRows: NoNewCandidatesBreakdownRow[] = [
+    ...(compact.unclassifiedUniqueResultsCount > 0
+      ? [row('unclassifiedUniqueResultsCount', UNCLASSIFIED_UNIQUE_RESULTS_HINT)]
+      : []),
+    ...(compact.overCountedUniqueResultsCount > 0
+      ? [row('overCountedUniqueResultsCount', OVER_COUNTED_UNIQUE_RESULTS_HINT)]
+      : []),
+  ];
+
   return [
     row('uniqueResultsCount'),
     ...causes
       .filter((key) => compact[key] > 0)
       .map((key) => row(key, key === 'repeatedAcrossRoundsCount' ? REPEATED_ACROSS_ROUNDS_HINT : null)),
     row('candidatesCreatedCount'),
+    ...reconciliationRows,
   ];
 }
