@@ -34,6 +34,12 @@ import {
   brazilReceitaFullJoinPartitionOrdinalFor,
   type BrazilReceitaFullJoinSourceFileDescriptor,
 } from './br-receita-cnpj-full-join-engine-contract';
+import type { BrazilReceitaFullJoinFreeDiskProbe } from './br-receita-cnpj-full-join-free-disk';
+import {
+  createBrazilReceitaFullJoinOpenHandleLedger,
+  type BrazilReceitaFullJoinOpenHandleLedger,
+} from './br-receita-cnpj-full-join-open-handle-ledger';
+import { BRAZIL_RECEITA_FULL_JOIN_PROPOSED_MAX_OPEN_PARTITION_FILES } from './br-receita-cnpj-full-join-partition-handle-pool';
 import type { BrazilReceitaFullJoinPartitionedFamily } from './br-receita-cnpj-full-join-partition-workspace';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -284,5 +290,44 @@ export function computeBrazilReceitaFullJoinSyntheticOracle(
     expectedDuplicateCompanyKeys: duplicateCompanyKeys,
     expectedCompanyRows: companyRows,
     expectedEstablishmentRows: establishmentRows,
+  };
+}
+
+// ─── Descriptor & disk defaults for synthetic runs (BR-SOURCE-14B.0F § 3, § 4) ─
+
+/**
+ * The § 3 and § 4 dependencies a synthetic engine run needs, with values chosen so neither one is
+ * the thing under test.
+ *
+ * A fixture exercising duplicate-key policy should not fail because its descriptor budget was too
+ * small or because the machine running the suite happens to be low on disk — so the ledger is
+ * generous, the pool is the proposed 32, and the probe reports a fixed, large figure rather than
+ * consulting a real filesystem. Tests that ARE about descriptors or disk pass their own overrides.
+ *
+ * The probe is deliberately a CONSTANT rather than a real `statfs`: a suite whose outcome depends on
+ * the free space of whatever machine runs it is a flaky suite, and the real probe has its own tests.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_FIXTURE_FREE_DISK_BYTES = 64 * 1024 * 1024 * 1024;
+
+export interface BrazilReceitaFullJoinFixtureRunDefaults {
+  readonly openHandleLedger: BrazilReceitaFullJoinOpenHandleLedger;
+  readonly maxOpenPartitionFiles: number;
+  readonly minimumFreeDiskBeforeStart: number;
+  readonly minimumFreeDiskReserve: number;
+  readonly freeDiskProbe: BrazilReceitaFullJoinFreeDiskProbe;
+}
+
+export function brazilReceitaFullJoinFixtureRunDefaults(
+  overrides: Partial<BrazilReceitaFullJoinFixtureRunDefaults> = {},
+): BrazilReceitaFullJoinFixtureRunDefaults {
+  return {
+    openHandleLedger:
+      overrides.openHandleLedger ?? createBrazilReceitaFullJoinOpenHandleLedger(64),
+    maxOpenPartitionFiles:
+      overrides.maxOpenPartitionFiles ?? BRAZIL_RECEITA_FULL_JOIN_PROPOSED_MAX_OPEN_PARTITION_FILES,
+    // Well below the constant probe below, so a synthetic run never trips the disk check by accident.
+    minimumFreeDiskBeforeStart: overrides.minimumFreeDiskBeforeStart ?? 1024 * 1024,
+    minimumFreeDiskReserve: overrides.minimumFreeDiskReserve ?? 1024 * 1024,
+    freeDiskProbe: overrides.freeDiskProbe ?? (() => BRAZIL_RECEITA_FULL_JOIN_FIXTURE_FREE_DISK_BYTES),
   };
 }
