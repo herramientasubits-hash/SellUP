@@ -32,11 +32,39 @@
 //   * Every write is counted from the rows the database actually returned, so
 //     the durable audit reflects reality and not the plan (FIX M2).
 //   * Never returns or logs a phone/email/name/linkedin — only counts and ids.
+//
+// ── 4O-E2: the candidate write is now TRANSACTIONAL ────────────
+//
+// Migration 109 added a fifth place the phone can live —
+// `contact_enrichment_candidate_phones` — and this action did not know about it. The
+// erasure cleared the cache, the candidate scalar and the contacts while leaving a
+// LIVE `is_primary` row in the collection, which migrations 110/111 would then
+// re-elect and write straight back into the visible scalar. The number came back
+// through the seam between the two operations, not through a bug in either.
+//
+// So the per-candidate step is no longer an `UPDATE … SET phone = null` through
+// PostgREST. It is one call to `suppress_candidate_phone_collection` (migration 112),
+// which in a SINGLE transaction tombstones the numbers, demotes the old primary,
+// promotes the surviving one (or none) and syncs the scalar plus
+// `enrichment_metadata.phone` to THAT survivor. The transaction is the authority; this
+// file does not write the candidate again afterwards, because a second writer would
+// put `phone = null` on top of a legitimately re-elected survivor.
+//
+// The order of the surrounding steps is unchanged, and so is what is and is not
+// atomic: the cache tombstone still goes FIRST (a later failure must not leave the
+// person unblocked), the contacts erasure and the durable audit are still separate
+// statements, and the audit is still attempted LAST and unconditionally. What is
+// atomic is `collection + candidate scalar/primary`, which is the pair that could
+// previously contradict each other. A failed propagation is reported as
+// `candidate_phone_collection_failed` and the suppression is NOT reported as ok.
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { PHONE_CACHE_PROVIDER } from './phone-cache-core';
+import { DSAR_CANDIDATE_PHONE_SUPPRESSION_SCOPE } from './candidate-phone-collection-suppression-core';
+import { suppressCandidatePhoneCollection } from './candidate-phone-collection-suppression-persistence';
+import { mapSuppressionReasonToCandidatePhoneReason } from './candidate-phone-suppression-reason-mapping';
 import {
   hashProviderPersonId,
   PHONE_REVEAL_CACHE_TABLE,
@@ -68,6 +96,7 @@ function rejected(
     cacheEntriesSuppressed: 0,
     tombstoneCreated: false,
     candidatesCleared: 0,
+    candidatePhoneRowsSuppressed: 0,
     contactsCleared: 0,
     auditPersisted: false,
   };
@@ -84,6 +113,7 @@ function failed(
     cacheEntriesSuppressed: 0,
     tombstoneCreated: false,
     candidatesCleared: 0,
+    candidatePhoneRowsSuppressed: 0,
     contactsCleared: 0,
     auditPersisted: false,
   };
@@ -226,6 +256,9 @@ export async function suppressPhoneCacheEntryAction(
   //    en pie y se reporta como supresión INCOMPLETA, nunca como éxito.
   let failureCode: PhoneCacheSuppressionFailureCode | null = null;
   let candidatesCleared = 0;
+  let candidatePhoneRowsSuppressed = 0;
+  let candidatePhoneSurvivorCount = 0;
+  let candidatePhonePrimaryChanged = false;
   let contactsCleared = 0;
   let plan: PhoneCacheSuppressionPlan = {
     ...tombstone,
@@ -311,23 +344,60 @@ export async function suppressPhoneCacheEntryAction(
   const planned = buildPhoneCacheSuppressionPlan(request, { nowIso, candidates, contacts });
   if (planned.ok) plan = planned.plan;
 
-  // 2c. Candidatos: borrado duro del número y del bloque phone de la metadata.
-  //     El UPDATE se acota además por el run del candidato (FIX M2/M3): el run es
-  //     lo que resolvió la cuenta, así que scopearlo cierra el hueco de un id
-  //     suelto sin alcance verificado.
-  for (const { candidateId, enrichmentRunId, patch } of plan.candidatePatches) {
-    let query = admin
-      .from('contact_enrichment_candidates')
-      .update(patch)
-      .eq('id', candidateId);
-    if (enrichmentRunId) query = query.eq('enrichment_run_id', enrichmentRunId);
-    const { data: updated, error } = await query.select('id');
-    if (error) {
-      console.error('[phone-cache] suppression candidate clear failed:', error.message);
-      failureCode = 'candidate_clear_failed';
-      continue;
+  // 2c. Candidatos: borrado duro del número, del bloque phone de la metadata Y de la
+  //     COLECCIÓN CANÓNICA, en UNA transacción por candidato (4O-E2, migración 112).
+  //
+  //     Antes de este hito aquí había un `UPDATE contact_enrichment_candidates` por
+  //     PostgREST que dejaba `phone = null` y nada más. Eso bastaba mientras
+  //     `contact_enrichment_candidate_phones` no existía; con la tabla poblada dejaba
+  //     vivo el número en la colección, y las RPC 110/111 lo habrían vuelto a elegir
+  //     como principal escribiéndolo de nuevo en el escalar. La transacción es ahora
+  //     la AUTORIDAD sobre las cuatro cosas: tombstones, reelección del principal,
+  //     escalar y metadata. Este bucle NO vuelve a escribir el candidato después —
+  //     hacerlo pondría `phone = null` encima de un superviviente legítimamente
+  //     reelegido, que es el defecto en espejo del que se está corrigiendo.
+  //
+  //     El alcance por RUN se conserva (FIX M2/M3): el run es lo que resolvió la
+  //     cuenta, así que viaja a la transacción y allí se reafirma DENTRO del lock.
+  //
+  //     El motivo se TRADUCE: el vocabulario de la caché y el de la colección no
+  //     comparten ni un valor, así que un pass-through fallaría la CHECK de la 109 en
+  //     el 100% de las filas.
+  const collectionReason = mapSuppressionReasonToCandidatePhoneReason(
+    plan.reasonCode,
+  );
+  for (const { candidateId, enrichmentRunId } of plan.candidatePatches) {
+    try {
+      const propagated = await suppressCandidatePhoneCollection({
+        candidateId,
+        expectedEnrichmentRunId: enrichmentRunId,
+        scope: DSAR_CANDIDATE_PHONE_SUPPRESSION_SCOPE,
+        dedupeKey: null,
+        reason: collectionReason,
+        suppressedBy: plan.actorUserId,
+        suppressedAt: nowIso,
+      });
+      candidatePhoneRowsSuppressed += propagated.suppressedCount;
+      candidatePhoneSurvivorCount += propagated.survivorCount;
+      candidatePhonePrimaryChanged =
+        candidatePhonePrimaryChanged || propagated.primaryChanged;
+      if (propagated.candidateSettled) {
+        // Se cuenta el candidato ALCANZADO y dejado en el estado pedido, no el
+        // UPDATE: una repetición idempotente no cambia valores y el UPDATE
+        // incondicional anterior sí la contaba. Cambiar la semántica del conteo
+        // haría que una segunda DSAR pareciera no haber tocado nada.
+        candidatesCleared += 1;
+      } else {
+        failureCode = failureCode ?? 'candidate_phone_collection_failed';
+      }
+    } catch {
+      // Sin PII y sin el mensaje del driver: PostgreSQL cita valores de la query en
+      // sus errores, y aquí uno de esos valores es un teléfono.
+      console.error(
+        '[phone-cache] suppression candidate collection propagation failed',
+      );
+      failureCode = failureCode ?? 'candidate_phone_collection_failed';
     }
-    candidatesCleared += updated?.length ?? 0;
   }
 
   // 2d. Contactos oficiales enlazados: borrado duro del teléfono y su
@@ -359,6 +429,9 @@ export async function suppressPhoneCacheEntryAction(
     cacheRowsSuppressed: cacheEntriesSuppressed,
     tombstoneCreated,
     candidatesCleared,
+    candidatePhoneRowsSuppressed,
+    candidatePhoneSurvivorCount,
+    candidatePhonePrimaryChanged,
     contactsCleared,
   });
   const { error: auditError } = await admin
@@ -378,6 +451,7 @@ export async function suppressPhoneCacheEntryAction(
     cacheEntriesSuppressed,
     tombstoneCreated,
     candidatesCleared,
+    candidatePhoneRowsSuppressed,
     contactsCleared,
     auditPersisted,
   };
