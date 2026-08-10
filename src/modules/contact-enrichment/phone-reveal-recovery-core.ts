@@ -849,15 +849,37 @@ async function handleRecoveredPayload(args: {
     // toca `enrichment_metadata.phone`, NO se propaga `apollo_person_id` (no se
     // añade dato nuevo de una persona suprimida) y NO se escribe caché.
     if (suppression.kind === 'blocked_suppressed') {
-      await deps.persist(candidate.id, {
-        phone_reveal_status: 'error',
-        phone_reveal_completed_at: deps.nowIso,
-        phone_reveal_last_checked_at: deps.nowIso,
-        phone_reveal_provider: PHONE_REVEAL_PROVIDER,
-        phone_reveal_cost_credits: credits,
-        phone_reveal_cost_source: resolveRecoveryCostSource(credits),
-        phone_reveal_error_code: SUPPRESSION_BLOCKED_ERROR_CODE,
+      // 4O-E3 — ESCRITURA CONDICIONAL, por la misma razón que en el webhook: entre
+      // que este poll leyó el candidato y llega este cierre, el callback del MISMO
+      // reveal pudo aterrizar y cerrarlo como `revealed`. Un `UPDATE … WHERE id = ?`
+      // a secas lo pisaba con `error` + el costo de esta recuperación. Ahora la fila
+      // solo se toca si sigue en uno de los dos estados en vuelo.
+      //
+      // Sin la dep condicional cableada se conserva el camino anterior íntegro.
+      const terminalized = await applyTerminalPhoneSuppression({
+        candidateId: candidate.id,
+        persist: deps.persistTerminalSuppression,
+        patch: buildTerminalPhoneSuppressionPatch({
+          expectedStatuses: IN_FLIGHT_TERMINAL_SUPPRESSION_EXPECTED_STATUSES,
+          nowIso: deps.nowIso,
+          // Apollo entregó y cobró: el cargo se conserva aunque el número no se
+          // guarde. Este cierre ES el del reveal del propio candidato.
+          cost: { credits, source: resolveRecoveryCostSource(credits) },
+          provider: PHONE_REVEAL_PROVIDER,
+          lastCheckedAt: deps.nowIso,
+        }),
       });
+      if (terminalized.reason === 'not_wired') {
+        await deps.persist(candidate.id, {
+          phone_reveal_status: 'error',
+          phone_reveal_completed_at: deps.nowIso,
+          phone_reveal_last_checked_at: deps.nowIso,
+          phone_reveal_provider: PHONE_REVEAL_PROVIDER,
+          phone_reveal_cost_credits: credits,
+          phone_reveal_cost_source: resolveRecoveryCostSource(credits),
+          phone_reveal_error_code: SUPPRESSION_BLOCKED_ERROR_CODE,
+        });
+      }
       await deps.logUsage(
         buildRecoveryLog({
           candidate,

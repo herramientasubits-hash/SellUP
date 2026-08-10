@@ -474,3 +474,50 @@ jobs:
       # que queda FUERA del check por depender de un binario que se descarga).
       - name: Run phone suppression propagation tests
         run: npm run test:agent2a:phone-suppression-propagation
+
+      # AGENT2A-PHONE-REVEAL-4O-E3 — carreras de privacidad y puertas del Lusha manual.
+      #
+      # E1 cerró qué pasa cuando la transacción declara `suppressed`; E2 hizo que la
+      # DSAR llegara a la colección canónica. Quedaban tres huecos, y los tres son del
+      # tipo que no rompe ninguna compilación ni deja ningún dato que los delate:
+      #
+      #   * LA CARRERA EN VUELO. La comprobación POR PERSONA vivía solo en TypeScript,
+      #     leída ANTES de la llamada al proveedor y FUERA del lock. Entre esa lectura
+      #     y el COMMIT de la persistencia caben la respuesta del proveedor y una DSAR
+      #     entera. La re-comprobación por NÚMERO que ya hacían las RPC 110/111 no lo
+      #     cubre: la DSAR tombstonea los números que la colección YA tenía, y un
+      #     número que el proveedor devuelve por primera vez no tiene tombstone que
+      #     emparejar — entra vivo, y la persona borrada vuelve a tener teléfono
+      #     visible minutos después de su propia supresión.
+      #   * EL CIERRE POR TOMBSTONE ERA INCONDICIONAL. El webhook y la recuperación
+      #     escribían `error` + `blocked_suppressed` con un `UPDATE … WHERE id = ?`
+      #     sobre una decisión leída mucho antes, así que podían pisar un `revealed`
+      #     que otro actor había alcanzado legítimamente.
+      #   * EL DISPARO MANUAL DE LUSHA NO TENÍA PUERTA. La re-comprobación de supresión
+      #     y `do_not_contact` existía solo en el waterfall: la acción manual de
+      #     administración llamaba a Lusha —y pagaba— sin consultar ninguna de las dos.
+      #
+      # Lo que la suite protege:
+      #   * que la migración 113 sea EXACTAMENTE la 110 y la 111 con tres ediciones
+      #     acotadas. Se DERIVA del SQL vigente y se compara byte a byte: una
+      #     restatement de ~1.800 líneas escrita a mano es el riesgo real del hito;
+      #   * que las migraciones 110, 111 y 112 no se editen retroactivamente;
+      #   * que el SQL nuevo sea SECURITY INVOKER, con `search_path` fijado, sin SQL
+      #     dinámico, sin DELETE y ejecutable solo por service_role;
+      #   * que el bloqueo PREVIO a la llamada valga 0 llamadas y 0 créditos, y que la
+      #     supresión POSTERIOR retenga el número conservando el cargo REAL — declarar
+      #     gratis una llamada pagada sería el bug que E1 ya corrigió una vez;
+      #   * que las dos rutas de Lusha compartan UNA sola puerta, con la misma
+      #     precedencia, en vez de dos copias que puedan divergir;
+      #   * que el disparo manual la tenga realmente INYECTADA: un gate que existe pero
+      #     no se cablea no protege nada;
+      #   * que el manual siga guardando UN solo teléfono (el multi-phone sigue
+      #     diferido) y que E1 y E2 queden intactos.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real. La
+      # carrera de verdad —dos transacciones compitiendo por el mismo lock— se
+      # demuestra aparte contra un PostgreSQL 17 efímero, en
+      # `test:agent2a:phone-privacy-race-postgres`, que queda FUERA del check por
+      # depender de un binario que se descarga.
+      - name: Run phone privacy race and gate tests
+        run: npm run test:agent2a:phone-privacy-race-gates

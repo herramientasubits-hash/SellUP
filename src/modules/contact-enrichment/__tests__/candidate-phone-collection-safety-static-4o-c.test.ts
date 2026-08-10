@@ -186,13 +186,13 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     );
     assert.equal(
       files[files.length - 1],
-      '112_suppress_candidate_phone_collection.sql',
-      'el techo conocido es la 112 (4O-E2)',
+      '113_phone_reveal_person_suppression_recheck.sql',
+      'el techo conocido es la 113 (4O-E3), que vuelve a declarar la 110 sin editarla',
     );
     assert.equal(
-      files.some((file) => /^1(1[3-9]|[2-9]\d)/.test(file)),
+      files.some((file) => /^1(1[4-9]|[2-9]\d)/.test(file)),
       false,
-      'ninguna migración 113 o superior',
+      'ninguna migración 114 o superior',
     );
   });
 

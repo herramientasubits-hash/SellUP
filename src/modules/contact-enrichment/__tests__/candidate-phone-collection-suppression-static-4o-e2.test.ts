@@ -98,17 +98,24 @@ function returnEnvelopes(): string[] {
 describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
   const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
 
-  it('la migración 112 existe y es la de mayor número', () => {
+  it('la migración 112 existe y sigue siendo la de 4O-E2', () => {
     assert.ok(files.includes(MIGRATION_FILE), 'falta la migración 112');
-    const numbered = files
-      .map((f) => Number.parseInt(f.slice(0, 3), 10))
-      .filter((n) => Number.isFinite(n));
-    assert.equal(Math.max(...numbered), 112);
+    assert.equal(
+      files.filter((f) => f.startsWith('112')).length,
+      1,
+      '4O-E2 aporta exactamente una migración',
+    );
   });
 
-  it('no se creó ninguna migración por encima de la 112', () => {
+  it('el techo lo movió 4O-E3 con la 113, y nadie más', () => {
+    // Esta guarda NO fija el número más alto del directorio para siempre —sube cada
+    // vez que un bloque AUTORIZADO añade la suya—, sino que por encima de la 112 solo
+    // esté la que el hito siguiente declaró: AGENT2A-PHONE-REVEAL-4O-E3, que vuelve a
+    // declarar las funciones 110/111 con la re-comprobación de supresión POR PERSONA
+    // dentro de la transacción. Tiene su propia guarda estática, que además comprueba
+    // que la 112 no se editó retroactivamente.
     const above = files.filter((f) => Number.parseInt(f.slice(0, 3), 10) > 112);
-    assert.deepEqual(above, []);
+    assert.deepEqual(above, ['113_phone_reveal_person_suppression_recheck.sql']);
   });
 
   it('la 112 declara que YA está aplicada, con la versión remota exacta', () => {
