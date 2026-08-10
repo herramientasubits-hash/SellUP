@@ -71,7 +71,16 @@ export const BRAZIL_RECEITA_FULL_JOIN_RESOURCE_BENCHMARK_VERSION = 1 as const;
  * source edit, a PR, and an owner decision — which is the point.
  */
 export const BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED = false as const;
-export const BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED = false as const;
+/**
+ * A real read-only full-scan benchmark attempt WAS executed, under BR-SOURCE-14B.0G.
+ *
+ * This is a declarative record of a historical fact, not an enforcement mechanism. Nothing gates on
+ * it, and flipping it back would not re-enable anything. The control that prevents a second attempt is
+ * `..._AUTHORIZED` above, which is `false` again; the in-process `BenchmarkAttemptLedger` does not
+ * survive a process exit, so attempt consumption is persisted HERE and in the 14B.0G evidence document
+ * and nowhere else.
+ */
+export const BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED = true as const;
 
 // ─── § 3 audit result, as data ────────────────────────────────────────────────
 

@@ -391,7 +391,7 @@ describe('BR-SOURCE-14B.0F § 5 — the real entry point exists', () => {
     assert.equal(readiness.realFullScanBenchmarkReadyForOwnerAuthorization, true);
     // Ready to be authorized, and not authorized. Different facts.
     assert.equal(readiness.realFullScanBenchmarkAuthorized, false);
-    assert.equal(readiness.realFullScanBenchmarkExecuted, false);
+    assert.equal(readiness.realFullScanBenchmarkExecuted, true);
     // Gate 2 answers a question only the benchmark can answer, so it cannot be ready before it runs.
     assert.equal(readiness.gate2ReadyForOwnerReview, false);
     assert.equal(readiness.nextAction, 'merge_review');
@@ -415,7 +415,7 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
     assert.equal(outcome.realManifestOpened, false);
     assert.equal(outcome.realDataAccessed, false);
     assert.equal(outcome.rowsEmitted, 0);
-    assert.equal(outcome.realFullScanBenchmarkExecuted, false);
+    assert.equal(outcome.realFullScanBenchmarkExecuted, true);
     // The strong form of test 3: the bridge port was never CALLED. Not "it was called with a
     // synthetic path" — never called, because the refusal happens before the manifest is reached.
     assert.deepEqual(bridge.touched, []);
@@ -1488,7 +1488,7 @@ describe('BR-SOURCE-14B.0F § 15 — no real data is reachable', () => {
     assert.equal(outcome.ok, false);
     if (!outcome.ok) assert.equal(outcome.realManifestOpened, false);
     assert.deepEqual(bridge.touched, []);
-    assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED, false);
+    assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED, true);
   });
 });
 
