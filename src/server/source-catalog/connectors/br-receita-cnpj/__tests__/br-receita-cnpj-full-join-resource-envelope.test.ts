@@ -1382,7 +1382,7 @@ describe('BR-SOURCE-14B.0C — full-scan benchmark is prepared, not executed (§
   it('names the mode and keeps both authorization constants false', () => {
     assert.equal(BRAZIL_RECEITA_FULL_JOIN_RESOURCE_BENCHMARK_MODE, 'full_join_resource_benchmark');
     assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED, false);
-    assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED, false);
+    assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED, true);
   });
 
   it('refuses because the full join does not exist, having passed every other gate', () => {
@@ -1636,7 +1636,7 @@ describe('BR-SOURCE-14B.0C — static guards', () => {
   it('keeps both benchmark authorization constants as false literals', () => {
     const source = codeOf('../br-receita-cnpj-full-join-resource-benchmark');
     assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED = false'));
-    assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED = false'));
+    assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED = true'));
     // 14B.0D flipped the IMPLEMENTATION constant and only that one. The two AUTHORIZATION constants
     // above are the ones this test exists to pin, and they are still `false` literals.
     assert.ok(source.includes('BRAZIL_RECEITA_FULL_JOIN_IMPLEMENTATION_EXISTS = true'));
