@@ -189,24 +189,41 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
     // vez que un bloque AUTORIZADO añade la suya—, sino que 4O-E1 no añadió ninguna:
     // su cierre terminal es un UPDATE condicional y nada más. El techo lo movió
     // AGENT2A-PHONE-REVEAL-4O-E2 con la 112 (propagación de la supresión a la
-    // colección), que tiene su propia guarda estática.
+    // colección) y después AGENT2A-PHONE-REVEAL-4O-E3 con la 113 (re-comprobación de
+    // la supresión POR PERSONA dentro de la transacción de persistencia); las dos
+    // tienen su propia guarda estática.
     const files = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d+.*\.sql$/.test(file))
       .sort();
     const last = files[files.length - 1];
     assert.equal(
       last,
-      '112_suppress_candidate_phone_collection.sql',
+      '113_phone_reveal_person_suppression_recheck.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
-    // Y ninguna migración menciona a 4O-E1: el hito no escribió SQL.
+    // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.
+    //
+    // Se comprueba la autoría, no la mención. Un hito posterior puede —y debe— citar a
+    // 4O-E1 cuando delimita su alcance: la 113 lo hace para dejar escrito que el cierre
+    // terminal (`error` + `blocked_suppressed`), el aborto de la corrida y la
+    // liquidación de la reserva siguen viviendo en TypeScript y NO se duplican en SQL.
+    // Prohibir la cita empujaría a borrar exactamente la frase que evita que alguien
+    // reimplemente esa política dentro de una función.
+    //
+    // Autoría son las dos formas con las que este repositorio la declara: la PRIMERA
+    // línea (`-- Migration NNN: … (AGENT2A-…)`) y el prefijo de los `COMMENT ON … IS`.
     for (const file of files) {
+      const sql = readFileSync(join(REPO_ROOT, 'supabase', 'migrations', file), 'utf8');
+      const titleLine = sql.slice(0, sql.indexOf('\n'));
       assert.equal(
-        readFileSync(join(REPO_ROOT, 'supabase', 'migrations', file), 'utf8').includes(
-          '4O-E1',
-        ),
+        titleLine.includes('4O-E1'),
         false,
-        `${file} no debería mencionar 4O-E1`,
+        `${file}: el título declara a 4O-E1 como autor de una migración`,
+      );
+      assert.equal(
+        sql.includes("'AGENT2A-PHONE-REVEAL-4O-E1"),
+        false,
+        `${file}: un COMMENT atribuye un objeto a 4O-E1`,
       );
     }
   });

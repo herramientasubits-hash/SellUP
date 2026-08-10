@@ -767,8 +767,13 @@ describe('4O-E1 § 15.9 · estados que NO son una supresión', () => {
     assert.equal(h.writer.calls.length, 0);
   });
 
-  it('la supresión POR PERSONA sigue por su camino de siempre', async () => {
-    // FIX 3 ya terminalizaba este caso con `deps.persist`; 4O-E1 no lo altera.
+  it('la supresión POR PERSONA terminaliza con la escritura CONDICIONAL', async () => {
+    // FIX 3 terminalizaba este caso con `deps.persist`, es decir con un
+    // `UPDATE … WHERE id = ?` sobre una decisión leída mucho antes: podía pisar un
+    // `revealed` que la recuperación hubiera alcanzado mientras tanto.
+    // AGENT2A-PHONE-REVEAL-4O-E3 lo pasa a la MISMA escritura condicional que ya usaba
+    // la supresión confirmada por la transacción. El desenlace observable no cambia; lo
+    // que cambia es que ahora exige que la fila siga en vuelo.
     const h = webhookHarness({ collection: 'persisted' });
     h.deps.lookupPhoneCacheSuppression = async () => ({ suppressedAt: NOW });
 
@@ -778,10 +783,16 @@ describe('4O-E1 § 15.9 · estados que NO son una supresión', () => {
     );
 
     assert.equal(result.outcome, 'blocked_suppressed');
-    assert.equal(h.patches.length, 1);
-    assert.equal(h.patches[0].phone_reveal_status, 'error');
-    assert.equal(h.patches[0].phone_reveal_error_code, 'blocked_suppressed');
-    assert.equal(h.writer.calls.length, 0, 'no pasa por el writer nuevo');
+    assert.equal(h.patches.length, 0, 'ya no hay UPDATE incondicional');
+    assert.equal(h.writer.calls.length, 1, 'el cierre va por la escritura condicional');
+    assert.equal(h.writer.calls[0].patch.phone_reveal_status, 'error');
+    assert.equal(h.writer.calls[0].patch.phone_reveal_error_code, 'blocked_suppressed');
+    assert.deepEqual(
+      [...h.writer.calls[0].patch.expectedStatuses],
+      ['requested', 'pending'],
+      'un `revealed` concurrente no puede ser pisado por este cierre',
+    );
+    assert.equal(h.collectionWrites, 0, 'no pasa por el writer de la colección');
   });
 
   it('la comprobación no verificable sigue siendo NO terminal', async () => {

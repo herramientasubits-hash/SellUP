@@ -31,6 +31,14 @@ import {
   type LushaPhoneFallbackPersistencePatch,
   type LushaPhoneFallbackUsageLogEntry,
 } from './lusha-phone-fallback-core';
+// Puerta de PRIVACIDAD (AGENT2A-PHONE-REVEAL-4O-E3). Es LA MISMA función que ejecuta
+// la pata Lusha del waterfall: el disparo manual deja de ser el único camino que
+// llamaba al proveedor sin consultar supresión ni `do_not_contact`.
+import { checkPhoneRevealPrivacyGate } from './phone-reveal-privacy-gate';
+// Cierre terminal CONDICIONAL por supresión (4O-E1). Necesario aquí porque la puerta
+// posterior a la respuesta puede encontrar una DSAR registrada mientras Lusha
+// respondía, y ese cierre no puede pisar el resultado de otro actor.
+import { persistTerminalPhoneSuppression } from './candidate-phone-suppression-persistence';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
 
 // ── Auth + rol del actor ──────────────────────────────────────
@@ -133,6 +141,14 @@ export async function revealCandidatePhoneViaLushaFallbackAction(
     flagEnabled: true,
     actor,
     nowIso: new Date().toISOString(),
+
+    // 4O-E3 — supresión + do_not_contact, la MISMA puerta que el waterfall. El core
+    // la consulta antes de llamar a Lusha (0 créditos si bloquea) y otra vez antes de
+    // escribir un número revelado (el crédito ya se gastó: se retiene el número).
+    checkPrivacyGate: checkPhoneRevealPrivacyGate,
+    // Escritura CONDICIONAL del cierre por supresión: si la fila cambió de estado
+    // mientras Lusha respondía, se actualizan 0 filas en vez de pisar a nadie.
+    persistTerminalSuppression: persistTerminalPhoneSuppression,
 
     loadCandidate: async (candidateId): Promise<LushaPhoneFallbackCandidateRecord | null> => {
       const { data, error } = await supabase
