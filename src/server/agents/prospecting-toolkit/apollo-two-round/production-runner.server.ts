@@ -190,7 +190,10 @@ import {
   isBlockedByCompanyOwnership,
 } from '../company-ownership-gate';
 import { mapDuplicateStatus } from '../candidate-writer';
-import { evaluateApolloPreWriterQualityGateForCandidate } from '../apollo-pre-writer-target-conditions';
+import {
+  APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
+  evaluateApolloPreWriterQualityGateForCandidate,
+} from '../apollo-pre-writer-target-conditions';
 import {
   resolveCandidateSubindustryRequirement,
 } from '../candidate-completeness-contract';
@@ -1487,6 +1490,24 @@ export async function runApolloTwoRoundWizardDiscovery(
      *
      * Sin candidato construido, TODO queda pendiente: sin nada que evaluar no se
      * inventa un veredicto, y un pendiente nunca cuenta hacia el objetivo (§ 2).
+     *
+     * ── WRITER-ONLY-ADMISSION-PENDING §§ 1, 2 y 9 ─────────────────────────────
+     *
+     * Lo que este adaptador resuelve NO es todo lo que el writer decide. Quedan
+     * trece comprobaciones de admisión sin resolver
+     * (`APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS`): cinco que sólo el writer
+     * puede resolver —tres prefetches de base y dos que exigen el lote completo ya
+     * rankeado— y ocho puras que todavía no están cableadas aquí. Cualquiera de las
+     * trece puede descartar a un candidato que este adaptador da por bueno.
+     *
+     * Antes de este addendum su ausencia se leía como un PASE, y por eso
+     * `stableFinalizableCandidateCount` podía sobreestimar el objetivo y detener
+     * enrichments que el writer iba a dejar fuera. Ahora se DECLARAN pendientes.
+     *
+     * No se resuelven aquí porque el § 9 lo prohíbe: cero lecturas de base nuevas
+     * en el orquestador. Consecuencia aceptada por el § 4: la parada temprana por
+     * objetivo queda desactivada de hecho en producción, y el gasto lo siguen
+     * acotando los topes absolutos (2 búsquedas / 5 enrichments / 25 créditos).
      */
     readCandidateTargetConditions: ({ candidateKey, sectorEvidenceState }) => {
       const cached = assessmentByKey.get(candidateKey) ?? null;
@@ -1506,6 +1527,7 @@ export async function runApolloTwoRoundWizardDiscovery(
             'ownership_gate',
             'quality_gate',
           ],
+          unresolvedWriterOnlyAdmissionChecks: APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
         };
       }
 
@@ -1533,6 +1555,9 @@ export async function runApolloTwoRoundWizardDiscovery(
         duplicateStatus: mapDuplicateStatus(candidate.duplicateCheck?.status ?? 'unchecked'),
         ownershipGate: isBlockedByCompanyOwnership(ownership) ? 'fail' : 'pass',
         qualityGate: quality.verdict,
+        // §§ 1 y 2 — las trece admisiones que este adaptador NO resuelve, DECLARADAS.
+        // Fail-closed: mientras estén aquí, ningún candidato es estable pre-writer.
+        unresolvedWriterOnlyAdmissionChecks: APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
       };
     },
 

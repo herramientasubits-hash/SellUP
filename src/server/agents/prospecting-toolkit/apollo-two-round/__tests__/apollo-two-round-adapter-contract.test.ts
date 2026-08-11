@@ -26,6 +26,7 @@ import {
   type ApolloTwoRoundWizardRunInput,
 } from '../production-runner.server';
 import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '../observability';
+import { APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS } from '../../apollo-pre-writer-target-conditions';
 import { defaultApolloTwoRoundConfig } from '../index';
 import {
   runApolloOrganizationsSearch,
@@ -422,8 +423,31 @@ describe('§ 6 · objetivo 5 end-to-end por el adaptador y el writer', () => {
     assert.equal(runMetrics['total_raw_results'], 10);
     assert.equal(runMetrics['total_unique_organizations'], 10);
     assert.equal(observability['eligible_companies_found'], 5);
-    assert.equal(observability['target_reached'], true);
-    assert.equal(observability['result_status'], 'target_reached');
+
+    // WRITER-ONLY-ADMISSION-PENDING §§ 7, 8 y 11 — las dos lecturas del objetivo
+    // están SEPARADAS, y ésta es la PRE-writer.
+    //
+    // `observability.target_reached` y `result_status` los emite el orquestador
+    // ANTES de escribir, con la cuenta estable: el adaptador de producción declara
+    // pendientes las admisiones que sólo el writer resuelve, así que la cuenta
+    // estable es 0 y la proyección no puede declarar el objetivo alcanzado. Eso es
+    // exactamente lo que se busca — la proyección no miente hacia arriba.
+    assert.equal(observability['target_reached'], false, 'proyección PRE-writer');
+    assert.equal(observability['result_status'], 'partial_target_not_reached');
+    const preWriterMetrics = runMetrics as Record<string, unknown>;
+    assert.equal(preWriterMetrics['stable_finalizable_count'], 0);
+    assert.equal(preWriterMetrics['writer_only_pending_count'], 5, 'las cinco proyectadas');
+    assert.equal(preWriterMetrics['projected_finalizable_count'], 5);
+    assert.deepEqual(
+      preWriterMetrics['writer_only_pending_reasons'],
+      [...APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS],
+      'el motivo viaja por nombre, no como un booleano',
+    );
+
+    // § 7 — la cifra AUTORITATIVA es la de después del writer, y sí alcanza el
+    // objetivo: cinco filas completas contra un objetivo de cinco.
+    assert.equal(outcome.candidatesCreated, 5);
+    assert.equal(outcome.targetReached, true, 'autoritativa POST-writer');
 
     // El writer se invoca UNA vez y recibe exactamente cinco candidatos distintos.
     assert.equal(recorder.writerCalls, 1);

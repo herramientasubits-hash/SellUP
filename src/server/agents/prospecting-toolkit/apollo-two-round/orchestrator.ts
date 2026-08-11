@@ -222,6 +222,16 @@ export type ApolloTwoRoundCandidateTargetConditions = {
    * antes de que el writer corra. Fail-closed: una pendiente impide contar.
    */
   pendingConditions?: readonly CandidateTargetCondition[];
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 2 — comprobaciones de ADMISIÓN del writer
+   * que este adaptador declara SIN resolver.
+   *
+   * No son condiciones del contrato (ver `CandidateTargetEligibilityInput`), pero
+   * tienen el mismo efecto: mientras haya una, el candidato no puede sostener una
+   * parada por objetivo. Ausente ⇒ el adaptador afirma haberlas resuelto todas;
+   * es el caso de las suites puras, que no tienen writer al que ganarle.
+   */
+  unresolvedWriterOnlyAdmissionChecks?: readonly string[];
 };
 
 // ─── Dependencias ─────────────────────────────────────────────────────────────
@@ -552,6 +562,20 @@ export type ApolloTwoRoundRunResult = {
    * condición pendiente se persiste como `needs_review` y no cuenta.
    */
   stableFinalizableCandidateCount: number;
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 3 — candidatos a los que sólo les faltan las
+   * admisiones que el writer resuelve (`active_duplicate_guard`, `novelty_index`,
+   * cooldown de identidad, dedupe intra-lote, cupo del lote).
+   *
+   * OBSERVABILIDAD ÚNICAMENTE. Es siempre `>= stableFinalizableCandidateCount` y
+   * NUNCA puede emitir `target_already_reached`: si pudiera, el defecto que este
+   * addendum cierra volvería con otro nombre.
+   */
+  projectedFinalizableCandidateCount: number;
+  /** § 8 — `projected - stable`: cuántos están bloqueados SÓLO por writer-only. */
+  writerOnlyPendingCount: number;
+  /** § 8 — nombres de las admisiones writer-only observadas sin resolver. */
+  writerOnlyPendingReasons: string[];
   /** § 11 — `max(0, target - stableFinalizableCandidateCount)`, PRE-writer. */
   projectedTargetGap: number;
   persistedCandidates: number;
@@ -1148,6 +1172,7 @@ export async function runApolloTwoRoundDiscovery(
       ownershipGate: conditions.ownershipGate,
       qualityGate: conditions.qualityGate,
       pendingConditions: conditions.pendingConditions,
+      unresolvedWriterOnlyAdmissionChecks: conditions.unresolvedWriterOnlyAdmissionChecks,
     });
   };
 
@@ -1173,18 +1198,62 @@ export async function runApolloTwoRoundDiscovery(
    * Sigue resolviendo los gates finales antes de contar (§ A), porque un
    * candidato que va a caer por ownership no puede sostener una parada.
    */
-  const stableFinalizableCandidateCount = async (): Promise<number> => {
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING §§ 3 y 8 — un solo barrido, tres cifras que NO
+   * son la misma y que por eso no comparten nombre.
+   *
+   *   `stable`    — cero condiciones fallidas, cero pendientes y cero admisiones
+   *                 writer-only sin resolver. La ÚNICA que puede detener gasto.
+   *   `projected` — igual, pero ignorando las admisiones writer-only. Es una
+   *                 PROYECCIÓN optimista: sólo observabilidad (§ 3).
+   *   `writerOnlyPending` — candidatos que serían finalizables si alguien
+   *                 resolviera sus admisiones writer-only. Es exactamente
+   *                 `projected - stable`, calculado y no deducido.
+   */
+  type FinalizabilityScan = {
+    stable: number;
+    projected: number;
+    writerOnlyPending: number;
+    writerOnlyPendingReasons: string[];
+  };
+
+  const scanFinalizability = async (): Promise<FinalizabilityScan> => {
     for (const candidate of tracked) {
       if (candidate.eligible) await ensureFinalGateEvaluated(candidate);
     }
     let stable = 0;
+    let projected = 0;
+    let writerOnlyPending = 0;
+    const reasons: string[] = [];
     for (const candidate of tracked) {
       if (!candidate.eligible) continue;
       const eligibility = await evaluateCandidateFinalizability(candidate);
-      if (eligibility.countsTowardTargetIfPersisted) stable++;
+      if (eligibility.countsTowardTargetIfPersisted) {
+        stable++;
+        projected++;
+        continue;
+      }
+      // Proyectado ⇔ lo ÚNICO que le falta son admisiones writer-only. Un
+      // candidato con una condición del contrato fallida o pendiente no es
+      // proyectable: le falta algo que sí se sabe.
+      const blockedOnlyByWriterOnly =
+        eligibility.writerOnlyPendingChecks.length > 0 &&
+        eligibility.strictlyFailedConditions.length === 0 &&
+        eligibility.pendingConditions.every((entry) =>
+          eligibility.writerOnlyPendingChecks.includes(entry),
+        );
+      if (!blockedOnlyByWriterOnly) continue;
+      projected++;
+      writerOnlyPending++;
+      for (const reason of eligibility.writerOnlyPendingChecks) {
+        if (!reasons.includes(reason)) reasons.push(reason);
+      }
     }
-    return stable;
+    return { stable, projected, writerOnlyPending, writerOnlyPendingReasons: reasons };
   };
+
+  const stableFinalizableCandidateCount = async (): Promise<number> =>
+    (await scanFinalizability()).stable;
 
   /** § 11 — hueco PROYECTADO contra el objetivo, antes del writer. Nunca negativo. */
   const projectedTargetGap = async (): Promise<number> =>
@@ -2111,7 +2180,8 @@ export async function runApolloTwoRoundDiscovery(
    * objetivo. Confundir las dos cifras es exactamente lo que hacía que una
    * corrida con 3 candidatos completos se declarara cerrada en 5.
    */
-  const stableFinalizableCandidates = await stableFinalizableCandidateCount();
+  const finalizability = await scanFinalizability();
+  const stableFinalizableCandidates = finalizability.stable;
   const projectedGap = Math.max(0, config.targetEligibleCompanies - stableFinalizableCandidates);
   const targetReached = stableFinalizableCandidates >= config.targetEligibleCompanies;
 
@@ -2136,6 +2206,9 @@ export async function runApolloTwoRoundDiscovery(
     targetEligibleCompanies: config.targetEligibleCompanies,
     eligibleCompaniesFound,
     stableFinalizableCandidateCount: stableFinalizableCandidates,
+    projectedFinalizableCandidateCount: finalizability.projected,
+    writerOnlyPendingCount: finalizability.writerOnlyPending,
+    writerOnlyPendingReasons: finalizability.writerOnlyPendingReasons,
     projectedTargetGap: projectedGap,
     persistedCandidates: persisted.length,
     roundsExecuted: roundMetrics.length,
@@ -2167,6 +2240,11 @@ export async function runApolloTwoRoundDiscovery(
       // `buildRunMetrics` la aliaseaba a `totalEligibleCompanies`, así que la
       // métrica que decía «estable» era la provisional con otro nombre.
       stableFinalizableCandidateCount: stableFinalizableCandidates,
+      // WRITER-ONLY-ADMISSION-PENDING § 8 — la proyección y el motivo de que no
+      // sea estable, cada uno con su nombre. Ninguno puede detener gasto.
+      projectedFinalizableCandidateCount: finalizability.projected,
+      writerOnlyPendingCount: finalizability.writerOnlyPending,
+      writerOnlyPendingReasons: finalizability.writerOnlyPendingReasons,
     }),
     enrichmentSelections,
     enrichmentSkips,

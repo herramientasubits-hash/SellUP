@@ -399,7 +399,7 @@ describe('§ 10 · el executor enruta según el flag', () => {
 // ─── 3-4 · rondas efectivas ───────────────────────────────────────────────────
 
 describe('§ 10 · rondas reales a través del adaptador de producción', () => {
-  test('caso 3 — la ronda 1 reúne cinco: una sola petición al proveedor', async () => {
+  test('caso 3 — la ronda 1 reúne cinco: la ronda 2 igual se emite (§ 4)', async () => {
     const { deps, recorder } = buildDeps({
       rounds: [
         searchOutput([1, 2, 3, 4, 5].map(confirmedSupermarket), 5),
@@ -409,7 +409,24 @@ describe('§ 10 · rondas reales a través del adaptador de producción', () => 
 
     const output = await runApolloTwoRoundWizardDiscovery(runInput(), deps);
 
-    assert.equal(recorder.searchCalls, 1);
+    // WRITER-ONLY-ADMISSION-PENDING § 4 — la parada temprana por objetivo queda
+    // DESACTIVADA de hecho en producción, y esta aserción es donde se ve.
+    //
+    // El adaptador de producción declara pendientes las trece admisiones que no
+    // resuelve (`APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS`), y un pendiente no
+    // cuenta hacia el objetivo. Cinco candidatas completas en la ronda 1 ya no
+    // pueden sostener un `target_already_reached`, porque antes del writer nadie
+    // puede afirmar que el duplicate guard, el índice de novedad, el cooldown de
+    // identidad, la dedupe intra-lote y el cupo del lote las vayan a admitir.
+    //
+    // Aceptado explícitamente por el § 4: el gasto lo acotan los topes absolutos
+    // (<=2 búsquedas, <=5 enrichments, <=25 créditos), no esta parada. Lo que
+    // NO se admite —y es lo que este caso guarda— es que la ausencia de esos
+    // veredictos se lea como si fueran favorables.
+    assert.equal(recorder.searchCalls, 2);
+
+    // Y el objetivo SÍ se alcanza: § 7 — después del writer las admisiones están
+    // resueltas y la cifra autoritativa son las FILAS, no la proyección.
     assert.equal(output.candidatesCreated, 5);
     assert.equal(output.targetReached, true);
   });

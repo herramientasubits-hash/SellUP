@@ -20,13 +20,19 @@
  *
  * ── Límite declarado (§ 9 y § 10) ────────────────────────────────────────────
  *
- * Dos comprobaciones del writer dependen de estado que sólo el writer tiene en
- * el momento de escribir —el prefetch de candidatos ACTIVOS del duplicate guard
- * y el índice de novedad— y por eso no se evalúan aquí. Ninguna de las dos puede
- * volver finalizable a un candidato que este módulo descarta: sólo pueden
- * descartar a uno que aquí pasa. Esa asimetría es la razón de que la métrica
- * PRE-writer sea una proyección y la reconciliación POSTERIOR al writer sea la
- * autoritativa (§ 10/§ 11), y de que las dos NO compartan nombre.
+ * Varias comprobaciones del writer no se resuelven aquí: cinco porque dependen
+ * de estado que sólo el writer tiene al escribir (tres prefetches de base y dos
+ * que exigen el lote entero ya rankeado) y ocho porque, siendo puras, todavía no
+ * están cableadas antes del writer. El registro de abajo las enumera una por una
+ * con su causa.
+ *
+ * Ninguna puede volver finalizable a un candidato que este módulo descarta: sólo
+ * pueden descartar a uno que aquí pasa. Esa asimetría es la razón de que la
+ * métrica PRE-writer sea una proyección y la reconciliación POSTERIOR al writer
+ * sea la autoritativa (§ 10/§ 11), y de que las dos NO compartan nombre. Lo que
+ * el addendum WRITER-ONLY-ADMISSION-PENDING añade es la otra mitad de esa
+ * asimetría: la ausencia de un veredicto deja de contarse como un veredicto
+ * favorable.
  */
 
 import {
@@ -51,16 +57,163 @@ import type { ProspectingPipelineCandidate } from './types';
  */
 export const APOLLO_PRE_WRITER_ICP_EMPLOYEE_THRESHOLD = 200;
 
+// ─── WRITER-ONLY-ADMISSION-PENDING § 1 — la auditoría, como DATO ──────────────
+//
+// El addendum pedía no dar por supuesto que las comprobaciones que sólo el
+// writer resuelve fueran `active_duplicate_guard` y `novelty_index`. No lo son:
+// el barrido de los DIECIOCHO puntos de descarte de `candidate-writer.ts`
+// —Pass 1 (bucle de gates), Pass 2.5 (dedupe intra-lote), Pass 3 (cupo) y
+// Pass 4 (bucle de escritura)— deja tres familias, y sólo la primera estaba
+// declarada.
+//
+// La pregunta de la auditoría es siempre la misma: ¿puede este punto convertir
+// un candidato que el evaluador PRE-writer considera finalizable en uno que NO
+// cuenta, por algo que no sea un fallo de escritura? Si la respuesta es sí y
+// aquí no se resuelve, su ausencia NO puede leerse como un pase.
+
+/** Por qué una comprobación no se puede resolver antes del writer. */
+export type ApolloPreWriterUnresolvableCause =
+  /** Exige una lectura de base que el orquestador no hace (y § 9 prohíbe añadir). */
+  | 'requires_db_prefetch'
+  /** Exige el lote completo ya rankeado: no es una propiedad del candidato. */
+  | 'requires_full_batch_context'
+  /** Es puro y sería resoluble sin I/O, pero HOY nadie lo invoca antes del writer. */
+  | 'pure_but_not_wired_pre_writer';
+
+export type ApolloPreWriterAdmissionCheck = {
+  /** Nombre estático. Viaja a `writer_only_pending_reasons`. */
+  check: string;
+  cause: ApolloPreWriterUnresolvableCause;
+  /** Función del writer que lo decide, para que la auditoría sea rastreable. */
+  writerDecidedBy: string;
+};
+
 /**
- * Comprobaciones del writer que este módulo NO puede resolver, con su causa.
- * Vocabulario estático: viaja a metadata de observabilidad.
+ * Familia 1 — comprobaciones que SÓLO el writer puede resolver.
+ *
+ * Tres necesitan una lectura de base (`buildNoveltyIndex`,
+ * `buildRecentIdentityKeySet`, `fetchActiveCandidatesForGuard`) y dos necesitan
+ * el lote entero ya rankeado. Ninguna es una propiedad del candidato, y ninguna
+ * puede resolverse sin violar el § 9 (cero I/O nueva en el orquestador).
+ *
+ * `target_cap` está aquí y no fuera por una razón que no es obvia: el cupo se
+ * aplica sobre el lote ordenado por ENCAJE (`businessFit + sourceUrl +
+ * countryCompat`), no por completitud del contrato, así que con el cupo igual al
+ * objetivo un candidato completo puede quedar desplazado por uno incompleto
+ * mejor rankeado. Es decir: sí puede tumbar a un finalizable.
  */
-export const APOLLO_WRITER_ONLY_ADMISSION_CHECKS: readonly string[] = [
-  // Necesita el prefetch de candidatos ACTIVOS del lote/usuario.
-  'active_duplicate_guard',
-  // Necesita el índice de novedad construido sobre corridas anteriores.
-  'novelty_index',
-];
+export const APOLLO_WRITER_ONLY_ADMISSION_CHECK_REGISTRY: readonly ApolloPreWriterAdmissionCheck[] =
+  [
+    {
+      check: 'active_duplicate_guard',
+      cause: 'requires_db_prefetch',
+      writerDecidedBy: 'checkActiveCandidateDuplicate/fetchActiveCandidatesForGuard',
+    },
+    {
+      check: 'novelty_index',
+      cause: 'requires_db_prefetch',
+      writerDecidedBy: 'evaluateCandidateNovelty/buildNoveltyIndex',
+    },
+    {
+      check: 'recent_identity_cooldown',
+      cause: 'requires_db_prefetch',
+      writerDecidedBy: 'buildRecentIdentityKeySet',
+    },
+    {
+      check: 'intra_batch_identity_dedupe',
+      cause: 'requires_full_batch_context',
+      writerDecidedBy: 'candidate-writer.ts Pass 2.5 (seenBatchIdentityKeys)',
+    },
+    {
+      check: 'target_cap',
+      cause: 'requires_full_batch_context',
+      writerDecidedBy: 'candidate-writer.ts Pass 3 (targetPersistibleCandidates)',
+    },
+  ];
+
+/**
+ * Familia 2 — gates PUROS del writer que este módulo todavía no invoca.
+ *
+ * No son writer-only: son deterministas y no tocan la base, así que una futura
+ * versión puede resolverlos aquí sin cambiar el perfil de I/O (§ 9). Hasta
+ * entonces están SIN RESOLVER, y el § 2 no admite matices: sin resolver no es
+ * pase. Se declaran aparte para que el nombre no mienta —llamarlos «writer-only»
+ * sería falso— y para que la deuda sea visible y acotada.
+ *
+ * Lo que este módulo SÍ resuelve, y por eso no aparece aquí: encaje de negocio,
+ * política de evidencia de país y tamaño ICP (`evaluateApolloPreWriterQualityGate`),
+ * y la propiedad del dominio, que viaja como `ownership_gate`.
+ */
+export const APOLLO_UNRESOLVED_PRE_WRITER_ADMISSION_CHECKS: readonly ApolloPreWriterAdmissionCheck[] =
+  [
+    {
+      check: 'quality_label_discard',
+      cause: 'pure_but_not_wired_pre_writer',
+      writerDecidedBy: 'mapQualityLabelToStatus',
+    },
+    {
+      check: 'canonical_identity_gate',
+      cause: 'pure_but_not_wired_pre_writer',
+      writerDecidedBy: 'buildCanonicalCompanyIdentity (isNonCompanyPhrase)',
+    },
+    {
+      check: 'non_official_source_domain',
+      cause: 'pure_but_not_wired_pre_writer',
+      writerDecidedBy: 'isDirectorySourceDomain',
+    },
+    {
+      check: 'country_compatibility_gate',
+      cause: 'pure_but_not_wired_pre_writer',
+      writerDecidedBy: 'evaluateCountryCompatibility',
+    },
+    {
+      check: 'content_page_gate',
+      cause: 'pure_but_not_wired_pre_writer',
+      writerDecidedBy: 'isContentPageUrl/isContentPageName',
+    },
+    {
+      check: 'content_intermediary_gate',
+      cause: 'pure_but_not_wired_pre_writer',
+      writerDecidedBy: 'evaluateContentIntermediaryGate',
+    },
+    {
+      check: 'external_platform_gate',
+      cause: 'pure_but_not_wired_pre_writer',
+      writerDecidedBy: 'evaluateExternalPlatformGate',
+    },
+    {
+      check: 'source_url_quality_gate',
+      cause: 'pure_but_not_wired_pre_writer',
+      writerDecidedBy: 'classifySourceUrlQuality',
+    },
+  ];
+
+/**
+ * Comprobaciones que SÓLO el writer resuelve. Vocabulario estático: viaja a
+ * metadata de observabilidad.
+ *
+ * Sigue siendo la constante del hito anterior; lo que cambió es que ahora dice
+ * la verdad completa. Eran dos porque nadie había barrido Pass 2.5, Pass 3 ni el
+ * cooldown de identidad.
+ */
+export const APOLLO_WRITER_ONLY_ADMISSION_CHECKS: readonly string[] =
+  APOLLO_WRITER_ONLY_ADMISSION_CHECK_REGISTRY.map((entry) => entry.check);
+
+/**
+ * § 2 — TODO lo que un consumidor PRE-writer debe declarar pendiente: las dos
+ * familias juntas.
+ *
+ * Es lo que producción pasa a `evaluateCandidateTargetEligibility`. Consecuencia
+ * declarada y aceptada por el § 4: mientras esta lista no esté vacía, ningún
+ * candidato puede ser `stable` antes del writer, así que la parada temprana por
+ * objetivo queda DESACTIVADA de hecho en producción. Los topes absolutos
+ * (2 búsquedas / 5 enrichments / 25 créditos) siguen acotando el gasto, y la
+ * reconciliación posterior al writer sigue siendo la cifra autoritativa.
+ */
+export const APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS: readonly string[] = [
+  ...APOLLO_WRITER_ONLY_ADMISSION_CHECK_REGISTRY,
+  ...APOLLO_UNRESOLVED_PRE_WRITER_ADMISSION_CHECKS,
+].map((entry) => entry.check);
 
 export type ApolloPreWriterQualityGate = {
   verdict: GateVerdict;

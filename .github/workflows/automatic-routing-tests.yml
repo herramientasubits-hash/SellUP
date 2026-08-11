@@ -359,6 +359,27 @@ jobs:
       #   * que los topes absolutos no se muevan: <=2 búsquedas, <=5 enrichments,
       #     <=25 créditos por corrida.
       #
+      # WRITER-ONLY-ADMISSION-PENDING añade a este mismo paso la otra mitad de la
+      # asimetría: hay comprobaciones de ADMISIÓN que sólo el writer resuelve
+      # —duplicate guard sobre candidatos ACTIVOS, índice de novedad, cooldown de
+      # identidad, dedupe intra-lote y cupo del lote—, y su AUSENCIA se estaba
+      # leyendo como un pase. Lo que se guarda aquí:
+      #
+      #   * que la lista auditada de admisiones writer-only siga siendo la
+      #     completa (eran dos declaradas de cinco reales) y que la familia pura
+      #     todavía sin cablear se nombre aparte en vez de darse por pasada;
+      #   * que una admisión sin resolver NO cuente hacia el objetivo, igual que
+      #     una condición fallida o pendiente;
+      #   * que la PROYECCIÓN (`projected_finalizable_count`) no pueda emitir
+      #     `target_already_reached` por mucho que cubra el objetivo, y que sólo
+      #     la cuenta ESTABLE detenga gasto;
+      #   * que el caso mixto cuente lo resuelto y nada más (3 pass + 2 pending
+      #     ⇒ estable 3, hueco 2);
+      #   * que la reconciliación POSTERIOR al writer siga siendo la autoritativa
+      #     y sostenga `target_reached == (target_count >= target)` y
+      #     `target_gap == max(0, target - target_count)`, con `null` —nunca un
+      #     número inventado— cuando la completitud no se midió.
+      #
       # Determinista: sin flags, sin proveedores, sin créditos, sin DB real. El
       # proveedor, el writer y las consultas de duplicados entran por inyección.
       - name: Run A1 Apollo finalization hardening and stable-target parity tests

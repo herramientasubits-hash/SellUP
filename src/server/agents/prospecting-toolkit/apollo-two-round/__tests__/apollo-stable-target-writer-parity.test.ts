@@ -251,13 +251,21 @@ describe('§ 7 · el gate de calidad invoca los gates propios del writer', () =>
   });
 
   test('§ 10 — el límite del evaluador PRE-writer está DECLARADO, no implícito', () => {
-    // Estas dos comprobaciones dependen de estado que sólo el writer tiene en el
+    // Estas comprobaciones dependen de estado que sólo el writer tiene en el
     // momento de escribir. Sólo pueden descartar a un candidato que aquí pasa —
     // nunca rescatar a uno que aquí cae— y por eso la cifra PRE-writer es una
     // proyección y la reconciliación posterior es la autoritativa.
+    //
+    // WRITER-ONLY-ADMISSION-PENDING § 1 — eran DOS porque nadie había barrido el
+    // cooldown de identidad (`buildRecentIdentityKeySet`), la dedupe intra-lote
+    // (Pass 2.5) ni el cupo del lote (Pass 3). La lista es la auditoría, así que
+    // esta aserción es lo que impide volver a declararla incompleta.
     assert.deepEqual([...APOLLO_WRITER_ONLY_ADMISSION_CHECKS], [
       'active_duplicate_guard',
       'novelty_index',
+      'recent_identity_cooldown',
+      'intra_batch_identity_dedupe',
+      'target_cap',
     ]);
   });
 });

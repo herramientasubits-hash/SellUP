@@ -93,6 +93,24 @@ export type CandidateTargetEligibilityInput = {
    * resuelve todas, y el comportamiento histórico de esta función.
    */
   pendingConditions?: readonly CandidateTargetCondition[];
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 2 — comprobaciones de ADMISIÓN que sólo el
+   * writer resuelve y que este llamador declara SIN resolver.
+   *
+   * Por qué no son condiciones del contrato: no describen al candidato, sino a
+   * la decisión de admitirlo. `active_duplicate_guard` compara contra las filas
+   * ACTIVAS del usuario; `novelty_index` contra corridas anteriores; el cupo del
+   * lote contra el resto de la tanda. Ninguna cabe en las siete condiciones sin
+   * forzar el significado de una de ellas —el duplicado del contrato es
+   * `prospect_candidates.duplicate_status`, otra cosa— y forzarlo habría hecho
+   * ilegible `failed_condition_counts`.
+   *
+   * Efecto (§ 2 y § 4): una sola entrada aquí basta para que el candidato NO
+   * cuente hacia el objetivo, exactamente igual que una condición pendiente. No
+   * saber no es cumplir. El writer no pasa nada aquí porque las resuelve todas,
+   * así que su semántica y sus contadores quedan idénticos.
+   */
+  unresolvedWriterOnlyAdmissionChecks?: readonly string[];
 };
 
 export type CandidateTargetEligibility = {
@@ -116,11 +134,29 @@ export type CandidateTargetEligibility = {
   conditionStates: Record<CandidateTargetCondition, CandidateTargetConditionStatus>;
   /** Condiciones evaluadas y NO cumplidas, sin las pendientes. */
   strictlyFailedConditions: string[];
-  /** Condiciones que todavía no se pueden saber, en el orden del contrato. */
+  /**
+   * Lo que todavía no se puede saber: las condiciones del contrato declaradas
+   * pendientes, en el orden del contrato, seguidas de las comprobaciones de
+   * admisión writer-only sin resolver (§ 2).
+   *
+   * Van en la MISMA lista porque tienen el mismo efecto —no cuenta— y porque el
+   * contrato del addendum es literal: `pendingConditions.length > 0` ⇒ no
+   * elegible. `writerOnlyPendingChecks` lleva el desglose de la segunda familia.
+   */
   pendingConditions: string[];
   /**
+   * § 8 — comprobaciones de admisión writer-only declaradas SIN resolver, en el
+   * orden en que el llamador las declaró y sin repeticiones.
+   *
+   * Vacío en el writer, que las resuelve todas. Vacío NO significa «pasaron»
+   * cuando el llamador no las conoce: significa que nadie declaró ninguna, y por
+   * eso el único consumidor legítimo de esta lista es la observabilidad.
+   */
+  writerOnlyPendingChecks: string[];
+  /**
    * § 10 — verdad determinista PRE-persistencia: todas las condiciones salvo
-   * `persistence_success` están satisfechas.
+   * `persistence_success` están satisfechas Y ninguna comprobación de admisión
+   * writer-only quedó sin resolver (§ 2).
    *
    * Es lo que un consumidor pre-writer puede afirmar honestamente. Un fallo de
    * base posterior lo desmiente para esa fila —`eligibleForTarget` pasa a
@@ -185,9 +221,30 @@ export function evaluateCandidateTargetEligibility(
     else strictlyFailedConditions.push(condition);
   }
 
-  const countsTowardTargetIfPersisted = CANDIDATE_PRE_PERSISTENCE_TARGET_CONDITIONS.every(
+  /**
+   * § 2 — la segunda familia de pendientes. Se deduplica preservando el orden de
+   * declaración: la lista viaja a observabilidad y un mismo check declarado dos
+   * veces no es dos motivos.
+   */
+  const writerOnlyPendingChecks: string[] = [];
+  for (const check of input.unresolvedWriterOnlyAdmissionChecks ?? []) {
+    if (typeof check !== 'string' || check === '') continue;
+    if (writerOnlyPendingChecks.includes(check)) continue;
+    writerOnlyPendingChecks.push(check);
+  }
+  for (const check of writerOnlyPendingChecks) {
+    pendingConditions.push(check);
+    failedConditions.push(check);
+  }
+
+  const allContractConditionsSatisfied = CANDIDATE_PRE_PERSISTENCE_TARGET_CONDITIONS.every(
     (condition) => conditionStates[condition] === 'satisfied',
   );
+  // § 2/§ 4 — fail-closed: una admisión writer-only sin resolver pesa lo mismo
+  // que una condición pendiente. Ésta es la línea que impide que la ausencia de
+  // `active_duplicate_guard`/`novelty_index` se lea como un PASE.
+  const countsTowardTargetIfPersisted =
+    allContractConditionsSatisfied && writerOnlyPendingChecks.length === 0;
   const eligibleForTarget =
     countsTowardTargetIfPersisted && conditionStates.persistence_success === 'satisfied';
 
@@ -198,6 +255,7 @@ export function evaluateCandidateTargetEligibility(
     conditionStates,
     strictlyFailedConditions,
     pendingConditions,
+    writerOnlyPendingChecks,
     countsTowardTargetIfPersisted,
     completeValidIfPersisted: countsTowardTargetIfPersisted,
   };
@@ -500,6 +558,11 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
    * el writer sin fingir veredictos. Ver `CandidateTargetEligibilityInput`.
    */
   pendingConditions?: readonly CandidateTargetCondition[];
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 2 — admisiones writer-only sin resolver. Ver
+   * `CandidateTargetEligibilityInput`.
+   */
+  unresolvedWriterOnlyAdmissionChecks?: readonly string[];
 }): CandidateCanonicalTargetEligibility {
   const subindustry = resolveCandidateSubindustryRequirement({
     sectorEvidenceState: input.sectorEvidenceState,
@@ -516,6 +579,7 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
     ownershipGate: input.ownershipGate,
     qualityGate: input.qualityGate,
     pendingConditions: input.pendingConditions,
+    unresolvedWriterOnlyAdmissionChecks: input.unresolvedWriterOnlyAdmissionChecks,
   });
 
   const reviewOnlyReasons = base.failedConditions.map((condition) =>

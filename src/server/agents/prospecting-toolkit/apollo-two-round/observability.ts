@@ -398,6 +398,19 @@ export type ApolloTwoRoundRunMetrics = {
    */
   stableFinalizableCandidateCount: number;
   /**
+   * WRITER-ONLY-ADMISSION-PENDING § 8 — la PROYECCIÓN, con nombre propio.
+   *
+   * Cuenta a los candidatos que serían finalizables si alguien resolviera las
+   * admisiones que sólo el writer resuelve. No es la cifra estable y no puede
+   * detener gasto; existe para que la distancia entre las dos sea legible en vez
+   * de tener que deducirse.
+   */
+  projectedFinalizableCandidateCount: number;
+  /** § 8 — `projected - stable`. Cuántos están bloqueados SÓLO por writer-only. */
+  writerOnlyPendingCount: number;
+  /** § 8 — qué admisiones writer-only quedaron sin resolver, por nombre. */
+  writerOnlyPendingReasons: string[];
+  /**
    * § D — `max(0, target - stableFinalizableCandidateCount)`. Cero significa
    * que el objetivo se alcanzó de verdad; con `enrichmentsExecuted` en cero y
    * este campo en positivo, la corrida se quedó corta y NO fue por falta de
@@ -442,6 +455,16 @@ export function buildRunMetrics(input: {
    * todavía no la calculan. Producción siempre la pasa.
    */
   stableFinalizableCandidateCount?: number;
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 8 — la proyección y su motivo.
+   *
+   * Ausentes ⇒ la proyección cae a la cuenta estable y el pendiente a 0. Ese
+   * respaldo es el conservador: afirma «no hay proyección aparte», no «hay más de
+   * los que se pueden probar».
+   */
+  projectedFinalizableCandidateCount?: number;
+  writerOnlyPendingCount?: number;
+  writerOnlyPendingReasons?: readonly string[];
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
   const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
@@ -493,6 +516,17 @@ export function buildRunMetrics(input: {
     // subindustria, duplicidad, calidad), que es el caso normal.
     stableFinalizableCandidateCount:
       input.stableFinalizableCandidateCount ?? input.totalEligibleCompanies,
+    // § 8 — la proyección nunca puede quedar por DEBAJO de la estable: son la
+    // misma lista y la estable es su subconjunto. Un llamador que pase una cifra
+    // menor está informando mal, y el máximo evita publicar un imposible.
+    projectedFinalizableCandidateCount: Math.max(
+      input.stableFinalizableCandidateCount ?? input.totalEligibleCompanies,
+      input.projectedFinalizableCandidateCount ??
+        input.stableFinalizableCandidateCount ??
+        input.totalEligibleCompanies,
+    ),
+    writerOnlyPendingCount: input.writerOnlyPendingCount ?? 0,
+    writerOnlyPendingReasons: [...(input.writerOnlyPendingReasons ?? [])],
     targetGap: Math.max(
       0,
       (input.targetEligibleCompanies ?? 0) -
@@ -608,5 +642,15 @@ export function toRunMetricsMetadata(
     // `total_eligible_companies` y `target_eligible_companies`.
     stable_finalizable_candidate_count: metrics.stableFinalizableCandidateCount,
     target_gap: metrics.targetGap,
+    // WRITER-ONLY-ADMISSION-PENDING § 8 — las cuatro cifras PRE-writer se emiten
+    // SEPARADAS y con los nombres del addendum. `stable_finalizable_count` es el
+    // mismo número que `stable_finalizable_candidate_count`, publicado también con
+    // el nombre corto del contrato para que la pareja projected/stable se lea de un
+    // golpe; la quinta cifra —`final_persisted_target_count`— no se emite aquí a
+    // propósito: sólo existe DESPUÉS del writer y la escribe la reconciliación.
+    projected_finalizable_count: metrics.projectedFinalizableCandidateCount,
+    stable_finalizable_count: metrics.stableFinalizableCandidateCount,
+    writer_only_pending_count: metrics.writerOnlyPendingCount,
+    writer_only_pending_reasons: [...metrics.writerOnlyPendingReasons],
   };
 }

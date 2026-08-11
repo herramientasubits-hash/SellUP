@@ -209,11 +209,22 @@ function pipelineCandidate(result: WebSearchResult): ProspectingPipelineCandidat
  * el checkpoint ANTES de que el otro escriba (versión N), y sólo las relecturas
  * posteriores —las que hace la resolución del `stale_rejected`— ven el documento
  * ganador.
+ *
+ * `maxRounds` existe por WRITER-ONLY-ADMISSION-PENDING § 4. Esta suite prueba la
+ * resolución de CAS concurrente, y para eso necesita una corrida SANA que emita
+ * exactamente UNA operación externa. Antes lo conseguía dejando que el objetivo se
+ * declarara alcanzado en la ronda 1, es decir apoyándose en la parada temprana —y
+ * esa parada ya no existe en producción, porque las admisiones que sólo el writer
+ * resuelve se declaran pendientes y un pendiente nunca cuenta—. Acotar las rondas
+ * aquí desacopla la suite de la semántica de objetivo, que no es su tema: una
+ * segunda ronda legítima añadiría una segunda operación y con ella un segundo
+ * crédito, y las aserciones dejarían de hablar de contención.
  */
 function processDeps(options: {
   world: ExternalWorld;
   store: ReturnType<typeof sharedBatchStore>;
   staleFirstLoad?: boolean;
+  maxRounds?: number;
 }): Partial<ApolloTwoRoundProductionDeps> {
   let firstLoadServed = false;
 
@@ -308,7 +319,10 @@ function processDeps(options: {
       });
       return { kind: 'logged' as const };
     }) as never,
-    resolveConfig: () => defaultApolloTwoRoundConfig(),
+    resolveConfig: () =>
+      options.maxRounds === undefined
+        ? defaultApolloTwoRoundConfig()
+        : { ...defaultApolloTwoRoundConfig(), maxRounds: options.maxRounds },
   };
 }
 
@@ -337,9 +351,10 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
     const store = sharedBatchStore();
 
     // 1-3. Proceso A lee el checkpoint (no hay), ejecuta la operación y persiste.
+    // `maxRounds: 1` acota la corrida a UNA operación externa: ver `processDeps`.
     const resultA = await runApolloTwoRoundWizardDiscovery(
       runInput(),
-      processDeps({ world, store }),
+      processDeps({ world, store, maxRounds: 1 }),
     );
 
     assert.equal(world.providerCalls, 1, 'A emitió la única llamada al proveedor');
@@ -352,7 +367,7 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
     // contra el CAS, relee el ganador y reconoce en él su propia operación.
     const resultB = await runApolloTwoRoundWizardDiscovery(
       runInput(),
-      processDeps({ world, store, staleFirstLoad: true }),
+      processDeps({ world, store, staleFirstLoad: true, maxRounds: 1 }),
     );
 
     assert.equal(world.providerCalls, 1, 'B no emitió una segunda llamada');
@@ -410,7 +425,7 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
 
     const resultC = await runApolloTwoRoundWizardDiscovery(
       runInput(),
-      processDeps({ world, store }),
+      processDeps({ world, store, maxRounds: 1 }),
     );
 
     assert.equal(
@@ -452,7 +467,10 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
       idempotency_key: CORRELATION.idempotencyKey,
       request_fingerprint: CORRELATION.requestFingerprint,
       wizard_run_id: CORRELATION.wizardRunId,
-      config: defaultApolloTwoRoundConfig(),
+      // La MISMA configuración que la corrida (`maxRounds: 1`, ver `processDeps`):
+      // este caso prueba la fusión sobre un ganador ajeno a la operación, no el
+      // rechazo por configuración distinta —ése es el caso de más abajo—.
+      config: { ...defaultApolloTwoRoundConfig(), maxRounds: 1 },
       completed_operation_keys: [],
       indeterminate_operation_keys: [],
       seen_organization_keys: [],
@@ -482,7 +500,7 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
 
     const result = await runApolloTwoRoundWizardDiscovery(
       runInput(),
-      processDeps({ world, store, staleFirstLoad: true }),
+      processDeps({ world, store, staleFirstLoad: true, maxRounds: 1 }),
     );
 
     assert.equal(world.providerCalls, 1, 'la búsqueda se ejecutó una vez');
