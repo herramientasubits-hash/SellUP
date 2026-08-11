@@ -1055,23 +1055,30 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     assert.match(detail, /const phoneNumber = candidate\?\.phone \?\? phoneMeta\?\.number \?\? null;/);
   });
 
-  it('OFFICIAL_MULTI_PHONE_MODEL_PENDING — no existe `contact_phones`', () => {
-    const migrations = readdirSync(join(repoRoot, 'supabase/migrations'));
-    for (const file of migrations) {
-      assert.equal(
-        /CREATE TABLE[^;]*\bcontact_phones\b/.test(readRepo(`supabase/migrations/${file}`)),
-        false,
-        `${file} crea la tabla del modelo oficial multi-teléfono, que sigue pendiente`,
-      );
-    }
+  // AGENT2A-PHONE-REVEAL-4O-H1 — este guarda se INVIERTE, no se borra.
+  //
+  // En 4O-F afirmaba que el modelo oficial multi-teléfono NO existía, y eso era una
+  // descripción correcta del estado del repo en ese momento:
+  // `OFFICIAL_MULTI_PHONE_MODEL_PENDING`. 4O-H1 lo crea —migración 114, `contact_phones`
+  // + `contact_phone_sources`, INERTE— así que la afirmación cambia de «no existe» a
+  // «existe, y la crea EXACTAMENTE una migración».
+  //
+  // Lo que se sigue protegiendo, y es lo que importa aquí: que ninguna OTRA migración la
+  // cree, y que la aprobación del candidato siga siendo ESCALAR — la propagación de la
+  // colección es H3 y sigue pendiente, como comprueba el test siguiente.
+  it('sólo la 114 crea `contact_phones`: el esquema oficial tiene una única dueña', () => {
+    const creators = readdirSync(join(repoRoot, 'supabase/migrations')).filter((file) =>
+      /CREATE TABLE[^;]*\bcontact_phones\b/.test(readRepo(`supabase/migrations/${file}`)),
+    );
+    assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
-  it('4O-F no añade migración: la máxima sigue siendo la 113', () => {
+  it('4O-F no añade migración: el techo lo movió 4O-H1 con la 114', () => {
     const numbered = readdirSync(join(repoRoot, 'supabase/migrations'))
       .filter((file) => /^\d{3}_.*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 113, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    assert.equal(numbered[numbered.length - 1], 114, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   it('la aprobación del candidato sigue siendo ESCALAR', () => {

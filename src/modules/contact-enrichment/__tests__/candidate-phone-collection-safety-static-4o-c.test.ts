@@ -176,6 +176,14 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     // guarda protege NO es el número más alto del directorio, que sube cada vez que un
     // bloque autorizado añade la suya: es que 4O-C-R1 aportó SOLO la 110 y que nadie
     // ha colado una migración por encima del último hito conocido.
+    //
+    // AGENT2A-PHONE-REVEAL-4O-H1 sube el techo a la 114: el esquema OFICIAL de
+    // múltiples teléfonos (`contact_phones` + `contact_phone_sources`), creado INERTE y
+    // con su propia guarda estática en
+    // src/modules/contacts/__tests__/official-contact-phone-schema-static-4o-h1.test.ts,
+    // que es la que fija su forma, sus vocabularios y sus privilegios. La 114 NO edita
+    // la 110 ni ninguna otra de la cadena 109–113, que es la propiedad que esta guarda
+    // vigila desde 4O-C-R1.
     const files = migrations();
     assert.ok(files.includes('109_contact_enrichment_candidate_phones.sql'));
     assert.ok(files.includes('110_persist_candidate_apollo_phone_reveal_result.sql'));
@@ -186,13 +194,13 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     );
     assert.equal(
       files[files.length - 1],
-      '113_phone_reveal_person_suppression_recheck.sql',
-      'el techo conocido es la 113 (4O-E3), que vuelve a declarar la 110 sin editarla',
+      '114_official_contact_phones.sql',
+      'el techo conocido es la 114 (4O-H1), que crea el esquema oficial sin editar la 110',
     );
     assert.equal(
-      files.some((file) => /^1(1[4-9]|[2-9]\d)/.test(file)),
+      files.some((file) => /^1(1[5-9]|[2-9]\d)/.test(file)),
       false,
-      'ninguna migración 114 o superior',
+      'ninguna migración 115 o superior',
     );
   });
 
