@@ -35,6 +35,7 @@ import {
 } from '../checkpoint.server';
 import { APOLLO_TWO_ROUND_CHECKPOINT_KEY, type ApolloTwoRoundCheckpointV1 } from '../checkpoint';
 import { defaultApolloTwoRoundConfig } from '../config';
+import { captureApolloCompanyFields } from '../../apollo-company-fields-mapping';
 import type { ProspectingPipelineCandidate, WebSearchOutput, WebSearchResult } from '../../types';
 
 const CORRELATION = {
@@ -128,9 +129,20 @@ function recordedCredits(world: ExternalWorld): number {
   return [...world.usageLogs.values()].reduce((total, row) => total + row.credits, 0);
 }
 
+/** Reloj fijo: estas pruebas no pueden depender del real. */
+const FIXTURE_OBSERVED_AT = '2026-08-10T00:00:00.000Z';
+
 function supermarket(index: number): WebSearchResult {
   return {
-    title: `Supermercado Uno ${index}`,
+    // AGENT1-APOLLO-FINALIZATION-HARDENING-1 § A — el nombre coincide con el
+    // dominio ("supermercadoN" ≈ "supermercadoN.com.co"). Antes decía
+    // "Supermercado Uno N", que el gate REAL de ownership rechaza (el dominio no
+    // contiene "uno"); ese rechazo estaba oculto porque los gates finales sólo
+    // corrían al final, después de que la decisión de enrichment ya se hubiera
+    // tomado sobre un `eligibleCount()` provisional. Con la § A resuelta, el
+    // rechazo se ve ANTES, y expuso que el fixture nunca pasaba ownership — algo
+    // ajeno a lo que esta suite prueba (la resolución de CAS concurrente).
+    title: `Supermercado ${index}`,
     url: `https://supermercado${index}.com.co`,
     snippet: 'cadena de supermercados y autoservicio con tiendas de abarrotes',
     source: 'apollo_organizations',
@@ -145,6 +157,11 @@ function supermarket(index: number): WebSearchResult {
       city: 'Bogotá',
       employee_count: 500,
       estimated_num_employees: 500,
+      // STABLE-TARGET-WRITER-PARITY § 6 — sin LinkedIn el contrato de
+      // completitud deja al candidato fuera del objetivo, la corrida no se
+      // detiene y compra enrichments que esta suite —que prueba la resolución
+      // de CAS concurrente, no la completitud— prohíbe explícitamente.
+      linkedin_url: `https://www.linkedin.com/company/org-${index}`,
       apollo_profile: { industry: 'retail', industries: [] },
     },
   };
@@ -155,6 +172,8 @@ const SEARCH_CREDITS = 1;
 
 function pipelineCandidate(result: WebSearchResult): ProspectingPipelineCandidate {
   const domain = (result.metadata?.['domain'] as string) ?? null;
+  // § 1 — el doble reproduce lo que produce `buildCandidateFromResult`.
+  const providerCompanyFields = captureApolloCompanyFields(result, FIXTURE_OBSERVED_AT);
   return {
     name: result.title,
     website: result.url,
@@ -175,6 +194,11 @@ function pipelineCandidate(result: WebSearchResult): ProspectingPipelineCandidat
       checkedSources: ['sellup', 'hubspot'],
     } as ProspectingPipelineCandidate['duplicateCheck'],
     scoring: { qualityLabel: 'high_quality_new' } as ProspectingPipelineCandidate['scoring'],
+    providerCompanyFields,
+    companyLinkedInUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
+    ...(providerCompanyFields.employeeCount.status === 'confirmed'
+      ? { employeeCount: providerCompanyFields.employeeCount.employeeCount }
+      : {}),
   };
 }
 
@@ -185,11 +209,22 @@ function pipelineCandidate(result: WebSearchResult): ProspectingPipelineCandidat
  * el checkpoint ANTES de que el otro escriba (versión N), y sólo las relecturas
  * posteriores —las que hace la resolución del `stale_rejected`— ven el documento
  * ganador.
+ *
+ * `maxRounds` existe por WRITER-ONLY-ADMISSION-PENDING § 4. Esta suite prueba la
+ * resolución de CAS concurrente, y para eso necesita una corrida SANA que emita
+ * exactamente UNA operación externa. Antes lo conseguía dejando que el objetivo se
+ * declarara alcanzado en la ronda 1, es decir apoyándose en la parada temprana —y
+ * esa parada ya no existe en producción, porque las admisiones que sólo el writer
+ * resuelve se declaran pendientes y un pendiente nunca cuenta—. Acotar las rondas
+ * aquí desacopla la suite de la semántica de objetivo, que no es su tema: una
+ * segunda ronda legítima añadiría una segunda operación y con ella un segundo
+ * crédito, y las aserciones dejarían de hablar de contención.
  */
 function processDeps(options: {
   world: ExternalWorld;
   store: ReturnType<typeof sharedBatchStore>;
   staleFirstLoad?: boolean;
+  maxRounds?: number;
 }): Partial<ApolloTwoRoundProductionDeps> {
   let firstLoadServed = false;
 
@@ -284,7 +319,10 @@ function processDeps(options: {
       });
       return { kind: 'logged' as const };
     }) as never,
-    resolveConfig: () => defaultApolloTwoRoundConfig(),
+    resolveConfig: () =>
+      options.maxRounds === undefined
+        ? defaultApolloTwoRoundConfig()
+        : { ...defaultApolloTwoRoundConfig(), maxRounds: options.maxRounds },
   };
 }
 
@@ -313,9 +351,10 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
     const store = sharedBatchStore();
 
     // 1-3. Proceso A lee el checkpoint (no hay), ejecuta la operación y persiste.
+    // `maxRounds: 1` acota la corrida a UNA operación externa: ver `processDeps`.
     const resultA = await runApolloTwoRoundWizardDiscovery(
       runInput(),
-      processDeps({ world, store }),
+      processDeps({ world, store, maxRounds: 1 }),
     );
 
     assert.equal(world.providerCalls, 1, 'A emitió la única llamada al proveedor');
@@ -328,7 +367,7 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
     // contra el CAS, relee el ganador y reconoce en él su propia operación.
     const resultB = await runApolloTwoRoundWizardDiscovery(
       runInput(),
-      processDeps({ world, store, staleFirstLoad: true }),
+      processDeps({ world, store, staleFirstLoad: true, maxRounds: 1 }),
     );
 
     assert.equal(world.providerCalls, 1, 'B no emitió una segunda llamada');
@@ -386,7 +425,7 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
 
     const resultC = await runApolloTwoRoundWizardDiscovery(
       runInput(),
-      processDeps({ world, store }),
+      processDeps({ world, store, maxRounds: 1 }),
     );
 
     assert.equal(
@@ -428,7 +467,10 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
       idempotency_key: CORRELATION.idempotencyKey,
       request_fingerprint: CORRELATION.requestFingerprint,
       wizard_run_id: CORRELATION.wizardRunId,
-      config: defaultApolloTwoRoundConfig(),
+      // La MISMA configuración que la corrida (`maxRounds: 1`, ver `processDeps`):
+      // este caso prueba la fusión sobre un ganador ajeno a la operación, no el
+      // rechazo por configuración distinta —ése es el caso de más abajo—.
+      config: { ...defaultApolloTwoRoundConfig(), maxRounds: 1 },
       completed_operation_keys: [],
       indeterminate_operation_keys: [],
       seen_organization_keys: [],
@@ -458,7 +500,7 @@ describe('CAS-CLOSE § 1 · dos procesos del mismo run, una sola operación exte
 
     const result = await runApolloTwoRoundWizardDiscovery(
       runInput(),
-      processDeps({ world, store, staleFirstLoad: true }),
+      processDeps({ world, store, staleFirstLoad: true, maxRounds: 1 }),
     );
 
     assert.equal(world.providerCalls, 1, 'la búsqueda se ejecutó una vez');

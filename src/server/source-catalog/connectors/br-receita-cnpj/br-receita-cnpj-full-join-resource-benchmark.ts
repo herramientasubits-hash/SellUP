@@ -47,6 +47,7 @@ import {
   type BrazilReceitaFullJoinEngineResult,
 } from './br-receita-cnpj-full-join-engine';
 import { assertBrazilReceitaFullJoinNoWrite } from './br-receita-cnpj-full-join-no-write-guard';
+import { BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED } from './br-receita-cnpj-real-benchmark-attempt-ledger';
 import {
   BRAZIL_RECEITA_FULL_JOIN_AUTOMATIC_RETRY_COUNT,
   resolveBrazilReceitaFullJoinResourceCaps,
@@ -74,13 +75,27 @@ export const BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED = false as const
 /**
  * A real read-only full-scan benchmark attempt WAS executed, under BR-SOURCE-14B.0G.
  *
- * This is a declarative record of a historical fact, not an enforcement mechanism. Nothing gates on
- * it, and flipping it back would not re-enable anything. The control that prevents a second attempt is
- * `..._AUTHORIZED` above, which is `false` again; the in-process `BenchmarkAttemptLedger` does not
- * survive a process exit, so attempt consumption is persisted HERE and in the 14B.0G evidence document
- * and nowhere else.
+ * ── DERIVED since BR-SOURCE-14B.0J § 4 ──────────────────────────────────────────
+ * This is no longer an independently-written literal. It is computed from
+ * `BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED`, the durable attempt count that 14B.0J made
+ * canonical: `executed` simply means `attemptsConsumed > 0`.
+ *
+ * The reason is § 4's rule against two contradictory sources. Before 14B.0J this boolean and the
+ * attempt history were separate hand-maintained facts, and the failure mode was obvious in hindsight —
+ * record a second attempt in the ledger, forget this line, and the connector reports a history that
+ * disagrees with its own count. Derivation removes the possibility rather than documenting it: there is
+ * nothing here to keep in sync.
+ *
+ * The `as true` assertion preserves the literal type every downstream `typeof` reference depends on
+ * while keeping the VALUE derived. It is sound exactly while the durable count is positive, which § 3
+ * makes permanent: the count never decreases, so this can never be asserting away a `false`.
+ *
+ * It remains a RECORD and not an enforcement mechanism. Nothing gates on it. Attempt-number enforcement
+ * lives in `br-receita-cnpj-real-benchmark-attempt-ledger`, and authorization remains
+ * `..._AUTHORIZED` above, which is `false`.
  */
-export const BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED = true as const;
+export const BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED =
+  (BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED > 0) as true;
 
 // ─── § 3 audit result, as data ────────────────────────────────────────────────
 

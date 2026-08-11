@@ -83,6 +83,21 @@ import {
   type BrazilReceitaFullJoinPrivateSanitizerResult,
   type BrazilReceitaFullJoinPrivateWriteFailure,
 } from './br-receita-cnpj-full-join-operator-metric-channel';
+import {
+  brazilReceitaNationalInputSatisfiesAttempt2,
+  summarizeBrazilReceitaNationalInputGate,
+  type BrazilReceitaNationalInputCompletenessResult,
+  type BrazilReceitaNationalInputGateStanding,
+} from './br-receita-cnpj-national-input-completeness';
+import {
+  BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_2_REQUIRED_PERIOD,
+  BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED,
+  createBrazilReceitaRealBenchmarkAttemptBoundaryLedger,
+  evaluateBrazilReceitaRealBenchmarkAttemptRequest,
+  summarizeBrazilReceitaRealBenchmarkAttemptModel,
+  type BrazilReceitaRealBenchmarkAttemptModelSummary,
+  type BrazilReceitaRealBenchmarkAttemptRejectionCode,
+} from './br-receita-cnpj-real-benchmark-attempt-ledger';
 import { BRAZIL_RECEITA_FULL_JOIN_PROPOSED_MAX_OPEN_PARTITION_FILES } from './br-receita-cnpj-full-join-partition-handle-pool';
 import type {
   BrazilReceitaFullJoinWorkspaceBoundaries,
@@ -242,8 +257,33 @@ export interface BrazilReceitaRealFullScanDeclarations {
   readonly capInputPolicyApproved: unknown;
   /** The benchmark authorization itself. Checked against the source constant, never trusted alone. */
   readonly benchmarkAuthorization: unknown;
-  /** Must be exactly `1`. There is no second attempt and no configuration that produces one. */
+  /**
+   * Attempts this ONE run is budgeted. Must be exactly `1`: a single run spends a single attempt.
+   *
+   * Not to be confused with `requestedRealAttemptNumber` below — that is WHICH attempt this is in the
+   * project's history. Conflating "one attempt per run" with "only one attempt ever" is precisely what
+   * 14B.0J had to untangle: the first is a per-run invariant that never changes, the second is a
+   * historical count that moved to 1 when 14B.0G ran.
+   */
   readonly attemptCount: unknown;
+  /**
+   * WHICH real attempt this run is (BR-SOURCE-14B.0J § 5). Must equal the durable ledger's next attempt
+   * number exactly — `2` today.
+   *
+   * Declared and never defaulted. A run that omits it is refused: the number is how the durable ledger
+   * tells a legitimate second attempt from a third one, and a default would answer the question the gate
+   * exists to ask.
+   */
+  readonly requestedRealAttemptNumber: unknown;
+  /**
+   * The § 7 national-input completeness result for the declared period.
+   *
+   * A RESULT OBJECT from `evaluateBrazilReceitaNationalInputCompleteness`, never a boolean: a boolean
+   * would let a caller assert completeness, and the whole point of the gate is that completeness must be
+   * derived from a declared inventory instead of claimed. The verdict must be `complete` and the scope
+   * `full_national` for any attempt beyond the first.
+   */
+  readonly nationalInputCompleteness: unknown;
   /** The dataset period being benchmarked, `YYYY-MM`. Named so two runs cannot be confused. */
   readonly datasetPeriod: unknown;
   /** The absolute manifest path. Declared, never discovered — this module searches for nothing. */
@@ -274,6 +314,8 @@ export const BRAZIL_RECEITA_REAL_FULL_SCAN_DECLARATION_KEYS = [
   'capInputPolicyApproved',
   'benchmarkAuthorization',
   'attemptCount',
+  'requestedRealAttemptNumber',
+  'nationalInputCompleteness',
   'datasetPeriod',
   'manifestPath',
   'privateMetricChannelAcknowledgement',
@@ -299,6 +341,13 @@ export type BrazilReceitaRealFullScanDeclarationKey =
 export const BRAZIL_RECEITA_REAL_FULL_SCAN_ABORT_CODES = [
   'unsafe_operator_working_directory',
   'declaration_missing',
+  // BR-SOURCE-14B.0J § 5–§ 7. Every one of these fires before the manifest is opened.
+  'real_attempt_number_invalid',
+  'real_attempt_number_already_consumed',
+  'real_attempt_number_not_next',
+  'real_benchmark_attempt_limit_reached',
+  'dataset_period_not_authorized_for_attempt',
+  'national_input_not_complete',
   'resource_caps_incomplete',
   'handle_caps_invalid',
   'no_write_guard_failed',
@@ -320,20 +369,37 @@ export type BrazilReceitaRealFullScanAbortCode =
  * property rather than a style choice:
  *
  *   1. `operator_working_directory` — the one hazard that can damage something OUTSIDE this run.
- *   2. `declarations`              — nine explicit statements, none inferred from another.
- *   3. `resource_caps`             — § 5 of 14B.0C: caps validated before the first real access.
- *   4. `handle_caps`               — § 3's two new caps, validated together.
- *   5. `no_write_contract`         — the 11A guard, on the whole configuration.
- *   6. `zero_output`               — `maxOutputRows` must be exactly zero.
- *   7. `private_metric_channel`    — resolved, so a run does not finish and then discover it has
+ *   2. `declarations`              — explicit statements, none inferred from another.
+ *   3. `real_attempt_eligibility`  — BR-SOURCE-14B.0J § 5, § 6: the durable attempt number. Placed
+ *                                    THIRD, immediately after the declarations that carry it, so a
+ *                                    third attempt is refused as early as the data allows — long
+ *                                    before caps, channels or a manifest are considered.
+ *   4. `national_input_completeness` — § 7: the input must be the national collection, not the
+ *                                    calibration subset attempt #1 used. Read-only and row-free.
+ *   5. `resource_caps`             — § 5 of 14B.0C: caps validated before the first real access.
+ *   6. `handle_caps`               — § 3's two new caps, validated together.
+ *   7. `no_write_contract`         — the 11A guard, on the whole configuration.
+ *   8. `zero_output`               — `maxOutputRows` must be exactly zero.
+ *   9. `private_metric_channel`    — resolved, so a run does not finish and then discover it has
  *                                    nowhere to put the figures it spent six hours collecting.
- *   8. `single_attempt`            — consumed only once the run is otherwise well-formed, so a typo
- *                                    does not burn the operator's single attempt.
- *   9. `authorization`             — LAST, and the one that actually stops every run today.
+ *  10. `single_attempt`            — the PER-PROCESS single-flight token, consumed only once the run
+ *                                    is otherwise well-formed, so a typo does not burn it. It is not
+ *                                    the durable record; stage 3 owns that.
+ *  11. `authorization`             — LAST, and the one that actually stops every run today.
+ *
+ * ── Why the durable gate is NOT where the in-process ledger is (§ 11) ────────────
+ * § 11 requires that a run aborting BEFORE the real-data boundary leave the durable consumed count
+ * untouched. The in-process ledger at stage 10 is consumed before the authorization refusal at stage 11,
+ * and that is deliberately left alone: it is a single-flight token scoped to one process, it dies with
+ * the process, and it was never the historical record. The DURABLE count moves only at
+ * `commitCrossing()`, past stage 11 — so today's standing refusal spends nothing, exactly as § 5 and
+ * § 11 require.
  */
 export const BRAZIL_RECEITA_REAL_FULL_SCAN_PREFLIGHT_STAGES = [
   'operator_working_directory',
   'declarations',
+  'real_attempt_eligibility',
+  'national_input_completeness',
   'resource_caps',
   'handle_caps',
   'no_write_contract',
@@ -434,6 +500,18 @@ export interface BrazilReceitaRealFullScanRefusal {
   readonly rowsEmitted: 0;
   readonly retriesPerformed: typeof BRAZIL_RECEITA_FULL_JOIN_AUTOMATIC_RETRY_COUNT;
   readonly realFullScanBenchmarkExecuted: typeof BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED;
+  /**
+   * The durable attempt accounting AFTER this refusal (BR-SOURCE-14B.0J § 5, § 11).
+   *
+   * Reported on every refusal because "the run was refused" and "the attempt was not spent" are two
+   * different claims, and an operator with one structurally supported attempt left needs the second one
+   * stated rather than inferred. `realDataBoundaryCrossed` is `false` on this type by construction: a
+   * refusal is, definitionally, a stop before the boundary.
+   */
+  readonly realDataBoundaryCrossed: false;
+  readonly attemptsConsumedAfterRefusal: number;
+  /** The durable ledger's verdict on the requested attempt number, when that is why the run stopped. */
+  readonly attemptRejectionCode: BrazilReceitaRealBenchmarkAttemptRejectionCode | null;
 }
 
 export interface BrazilReceitaRealFullScanCompletion {
@@ -444,6 +522,17 @@ export interface BrazilReceitaRealFullScanCompletion {
   readonly privateArtifactWritten: boolean;
   readonly privateArtifactFailure: BrazilReceitaFullJoinPrivateWriteFailure | null;
   readonly cleanupVerified: boolean;
+  /**
+   * The § 11 attempt accounting for a run that CROSSED the boundary.
+   *
+   * `realDataBoundaryCrossed` is `true` on this type by construction — reaching a completion means the
+   * engine ran — and `attemptsConsumedAfterRun` is what the durable record must be edited to. Reported
+   * rather than silently assumed, because the durable count is a source constant: someone has to make
+   * that edit, and this is the number they need.
+   */
+  readonly realDataBoundaryCrossed: true;
+  readonly realAttemptNumber: number;
+  readonly attemptsConsumedAfterRun: number;
 }
 
 export type BrazilReceitaRealFullScanOutcome =
@@ -476,6 +565,26 @@ export function findBrazilReceitaRealFullScanMissingDeclarations(
   if (declarations.capInputPolicyApproved !== true) missing.push('capInputPolicyApproved');
   if (declarations.benchmarkAuthorization !== true) missing.push('benchmarkAuthorization');
   if (declarations.attemptCount !== 1) missing.push('attemptCount');
+  // A positive integer only. The VALUE is judged by the durable ledger at the
+  // `real_attempt_eligibility` stage — this check establishes only that the operator stated one, so a
+  // missing number is reported as a missing declaration rather than as an attempt-number rejection.
+  if (
+    typeof declarations.requestedRealAttemptNumber !== 'number' ||
+    !Number.isInteger(declarations.requestedRealAttemptNumber) ||
+    declarations.requestedRealAttemptNumber < 1
+  ) {
+    missing.push('requestedRealAttemptNumber');
+  }
+  // Shape only, and never the verdict: a completeness result whose verdict is `incomplete` is a
+  // PRESENT declaration that the `national_input_completeness` stage then refuses. Folding the verdict
+  // in here would report a diagnosed subset as a paperwork error.
+  if (
+    !isRecord(declarations.nationalInputCompleteness) ||
+    typeof declarations.nationalInputCompleteness.verdict !== 'string' ||
+    typeof declarations.nationalInputCompleteness.inputScope !== 'string'
+  ) {
+    missing.push('nationalInputCompleteness');
+  }
   if (
     typeof declarations.datasetPeriod !== 'string' ||
     !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(declarations.datasetPeriod)
@@ -543,6 +652,7 @@ function refuse(
     capRejections?: readonly BrazilReceitaFullJoinCapRejection[];
     privateChannelRejections?: readonly BrazilReceitaFullJoinPrivateDestinationRejection[];
     bridgeFindings?: readonly BrazilReceitaFullJoinBridgeFinding[];
+    attemptRejectionCode?: BrazilReceitaRealBenchmarkAttemptRejectionCode | null;
   } = {},
 ): BrazilReceitaRealFullScanRefusal {
   return {
@@ -561,6 +671,12 @@ function refuse(
     rowsEmitted: 0,
     retriesPerformed: BRAZIL_RECEITA_FULL_JOIN_AUTOMATIC_RETRY_COUNT,
     realFullScanBenchmarkExecuted: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED,
+    // A refusal never crosses the boundary, so the durable count is whatever it already was. Read from
+    // the ledger rather than restated as a literal: a hardcoded `1` here would silently become wrong the
+    // day the durable record moves.
+    realDataBoundaryCrossed: false,
+    attemptsConsumedAfterRefusal: BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED,
+    attemptRejectionCode: details.attemptRejectionCode ?? null,
   };
 }
 
@@ -641,7 +757,42 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
   }
   const declarations = request.declarations;
 
-  // 3 — Resource caps.
+  // 3 — REAL ATTEMPT ELIGIBILITY (BR-SOURCE-14B.0J § 5, § 6). The durable attempt number, judged
+  // against the durable consumed count. A third attempt dies here — before caps are parsed, before the
+  // private channel is resolved, and a long way before a manifest could be opened.
+  const eligibility = evaluateBrazilReceitaRealBenchmarkAttemptRequest(
+    declarations.requestedRealAttemptNumber,
+  );
+  if (!eligibility.eligible) {
+    // The ledger's rejection code IS the abort code. They are deliberately the same strings: a second
+    // vocabulary here would mean a future reader has to maintain a mapping, and a stale mapping is how
+    // `real_benchmark_attempt_limit_reached` would quietly become something softer.
+    return refuse(
+      eligibility.rejectionCode as BrazilReceitaRealFullScanAbortCode,
+      'real_attempt_eligibility',
+      { attemptRejectionCode: eligibility.rejectionCode },
+    );
+  }
+
+  // 4 — NATIONAL INPUT COMPLETENESS (§ 7, § 8). Attempt #1 traversed a staged subset; a second attempt
+  // over the same subset would spend the last supported attempt to re-answer a question that is already
+  // answered. Row-free: the result was computed from manifest metadata by a module with no `node:fs`.
+  //
+  // The period is checked HERE, against the attempt-specific requirement, rather than in the
+  // declarations: `datasetPeriod` being a well-formed `YYYY-MM` is a shape question, and being the
+  // period this ATTEMPT was approved for is a policy question.
+  if (declarations.datasetPeriod !== BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_2_REQUIRED_PERIOD) {
+    return refuse('dataset_period_not_authorized_for_attempt', 'national_input_completeness');
+  }
+  if (
+    !brazilReceitaNationalInputSatisfiesAttempt2(
+      declarations.nationalInputCompleteness as BrazilReceitaNationalInputCompletenessResult,
+    )
+  ) {
+    return refuse('national_input_not_complete', 'national_input_completeness');
+  }
+
+  // 5 — Resource caps.
   const capResolution = resolveBrazilReceitaFullJoinResourceCaps(
     declarations.resourceCaps as Readonly<Partial<Record<BrazilReceitaFullJoinResourceCapKey, unknown>>>,
   );
@@ -651,23 +802,23 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     });
   }
 
-  // 4 — Handle caps, validated together with the global one they must fit inside.
+  // 6 — Handle caps, validated together with the global one they must fit inside.
   const handleCaps = resolveBrazilReceitaFullJoinHandleCaps(
     capResolution.caps.maxFilesOpened,
     declarations.maxOpenPartitionFiles,
   );
   if (!handleCaps.ok) return refuse('handle_caps_invalid', 'handle_caps');
 
-  // 5 — The 11A no-write contract, over the whole configuration.
+  // 7 — The 11A no-write contract, over the whole configuration.
   const guardResult = assertBrazilReceitaFullJoinNoWrite(declarations.noWriteContract);
   if (!guardResult.ok) return refuse('no_write_guard_failed', 'no_write_contract');
 
-  // 6 — Zero output. An equality, not a ceiling.
+  // 8 — Zero output. An equality, not a ceiling.
   if (capResolution.caps.maxOutputRows !== 0) {
     return refuse('output_rows_cap_must_be_zero', 'zero_output');
   }
 
-  // 7 — The private channel, resolved BEFORE the run rather than after. A six-hour benchmark that
+  // 9 — The private channel, resolved BEFORE the run rather than after. A six-hour benchmark that
   // finished and then discovered it had nowhere to put its figures would have to be run again, and
   // there is no second attempt.
   const privateDeclaration: BrazilReceitaFullJoinPrivateChannelDeclaration = {
@@ -686,12 +837,12 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     });
   }
 
-  // 8 — The single attempt, consumed only now that the run is otherwise well-formed.
+  // 10 — The single attempt, consumed only now that the run is otherwise well-formed.
   if (!request.attemptLedger.consume()) {
     return refuse('single_attempt_already_consumed', 'single_attempt');
   }
 
-  // 9 — AUTHORIZATION. The gate that stops every run today, and the last thing checked before the
+  // 11 — AUTHORIZATION. The gate that stops every run today, and the last thing checked before the
   // manifest would be opened. Both the source constant and the operator's declaration must agree:
   // the declaration alone cannot authorize a run, and the constant alone does not mean the operator
   // asked for one.
@@ -716,6 +867,26 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
   const openHandleLedger: BrazilReceitaFullJoinOpenHandleLedger =
     createBrazilReceitaFullJoinOpenHandleLedger(handleCaps.maxFilesOpened);
   const sink = createBrazilReceitaFullJoinNullBenchmarkSink();
+
+  // ── THE REAL-DATA ATTEMPT BOUNDARY (BR-SOURCE-14B.0J § 11) ────────────────────
+  //
+  // Crossing this line is what SPENDS the attempt, and it sits here — immediately before the engine,
+  // which is the first thing in this function that opens a SOURCE ROW.
+  //
+  // Not earlier, at the manifest bridge: § 9 classes manifest metadata as permitted and § 5's marker is
+  // `ABORT_BEFORE_REAL_SOURCE_ROW_OPEN`, so a manifest that fails validation has cost the operator a
+  // read of their own control document and nothing else. Putting the commit before the bridge would have
+  // billed a six-hour attempt for a typo in a JSON path, and would have made
+  // `manifest_resolution_failed` report a boundary crossing that never happened.
+  //
+  // Not later, after the engine returns: that is the failure mode § 11 exists to forbid. A run that
+  // breaches `maxRuntimeMs` at one per cent of the join has spent attempt #2 exactly as completely as a
+  // clean traversal would — the cost was the hours and the data access, not the verdict — so the commit
+  // must precede the work rather than record its success.
+  const boundaryLedger = createBrazilReceitaRealBenchmarkAttemptBoundaryLedger(
+    eligibility.attemptNumber as number,
+  );
+  boundaryLedger.commitCrossing();
 
   const engineResult = await runBrazilReceitaFullJoinStreamingEngineOnce({
     sources: bridge.joinSources,
@@ -825,6 +996,12 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     privateArtifactWritten: write.written,
     privateArtifactFailure: write.written ? null : write.failure,
     cleanupVerified,
+    // Read back from the boundary ledger rather than restated: the accounting a report carries and the
+    // accounting the code performed are then the same object, and cannot drift.
+    realDataBoundaryCrossed: (boundaryLedger.boundaryState() ===
+      'crossed_real_data_boundary') as true,
+    realAttemptNumber: eligibility.attemptNumber as number,
+    attemptsConsumedAfterRun: boundaryLedger.resultingAttemptsConsumed(),
   };
 }
 
@@ -846,6 +1023,17 @@ export interface BrazilReceitaRealFullScanReadiness {
   readonly realFullScanBenchmarkExecuted: typeof BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED;
   readonly gate2ReadyForOwnerReview: false;
   readonly nextAction: 'merge_review';
+  /**
+   * The BR-SOURCE-14B.0J attempt model and input gate, so `--readiness` answers the second-attempt
+   * question without an operator having to read source.
+   *
+   * `secondRealBenchmarkControlReady` and `secondRealBenchmarkAuthorized` are separate fields on purpose:
+   * the controls being finished is what this milestone delivers, and it is not permission.
+   */
+  readonly attemptModel: BrazilReceitaRealBenchmarkAttemptModelSummary;
+  readonly nationalInputGate: BrazilReceitaNationalInputGateStanding;
+  readonly secondRealBenchmarkControlReady: true;
+  readonly secondRealBenchmarkAuthorized: typeof BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED;
 }
 
 export function summarizeBrazilReceitaRealFullScanReadiness(): BrazilReceitaRealFullScanReadiness {
@@ -853,6 +1041,11 @@ export function summarizeBrazilReceitaRealFullScanReadiness(): BrazilReceitaReal
     fullScanEngineReady: true,
     fullScanExecutionPathReady: true,
     benchmarkProfileImplementable: true,
+    attemptModel: summarizeBrazilReceitaRealBenchmarkAttemptModel(),
+    nationalInputGate: summarizeBrazilReceitaNationalInputGate(),
+    // The CONTROLS are ready. Authorization is the next field and it is `false`.
+    secondRealBenchmarkControlReady: true,
+    secondRealBenchmarkAuthorized: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED,
     // Ready to be AUTHORIZED — every control exists and the path is wired end to end. Not authorized:
     // those are different facts, and this milestone changes only the first.
     realFullScanBenchmarkReadyForOwnerAuthorization: true,

@@ -18,6 +18,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { runProspectingPipeline } from "./prospecting-pipeline";
 import { buildNoveltyIndex, evaluateCandidateNovelty, buildRecentIdentityKeySet } from "./novelty-checker";
 import { buildCanonicalCompanyIdentity } from "./canonical-company-identity";
+// ADAPTIVE-EARLY-STOP §§ 3, 4 y 5 — los gates deterministas, el comparador de
+// ranking, la dedupe intra-lote y el orden del cupo viven fuera de este archivo
+// para que el evaluador PRE-writer invoque LAS MISMAS funciones, no una copia.
+import {
+  isContentPageUrl,
+  isContentPageName,
+  isDirectorySourceDomain,
+  mapQualityLabelToStatus,
+  extractDomain,
+  normalizeName,
+  compareWriterEligibleRank,
+  selectIntraBatchIdentityWinnerIndexes,
+  orderByCompleteFirst,
+} from "./candidate-writer-pure-gates";
 import { buildProspectCandidateIdentityKey } from "./prospect-candidate-identity-key";
 import { evaluateCountryCompatibility, countryCompatibilityRankWeight } from "./country-compatibility";
 import { classifySourceUrlQuality, isBlockedBySourceUrlQuality } from "./source-url-quality-gate";
@@ -54,7 +68,6 @@ import type {
   CandidateWriterOutput,
   CandidateWriterSkipped,
   DuplicateStatus,
-  CandidateQualityLabel,
   ProspectingPipelineCandidate,
   ProspectingPipelineInput,
   ProspectingPipelineOutput,
@@ -258,152 +271,21 @@ function getAdminClient() {
   return createAdminClient(url, key);
 }
 
-// ─── Content-page gate (Hito 16AB.43.28) ──────────────────────────────────────
+// ─── Gates deterministas del writer ───────────────────────────────────────────
 //
-// Detecta URLs cuyo path indica una página de contenido, artículo, caso de éxito
-// o blog en lugar de una homepage corporativa de una empresa real.
-// Operación completamente local — sin IA, sin llamadas externas.
-
-const CONTENT_PAGE_PATH_PATTERNS = [
-  'casos-exito',                          // /nosotros/casos-exito, /casos-exito
-  'caso-de-exito',                        // /caso-de-exito-...
-  'casos-de-exito',                       // /3-casos-de-exito-..., /casos-de-exito
-  '/academia/',                           // /academia/conceptos/...
-  '/actualidad/',                         // /actualidad/nuestros-expertos/...
-  '/nuestros-expertos/',                  // /nuestros-expertos/...
-  '/blog/',                               // artículos de blog
-  '/articulo/',                           // artículos editoriales
-  '/article/',                            // artículos en inglés
-  '/guide/',                              // guías
-  '/full-guide/',                         // guías completas
-  'nearshore-software-development',       // artículos tipo "nearshore software development Colombia"
-  '/case-study/',                         // caso de éxito en inglés
-  '/case-studies/',                       // casos de éxito en inglés
-  '/success-story/',                      // historia de éxito
-  '/success-stories/',                    // historias de éxito
-  '/press/',                              // sala de prensa
-  '/press-release/',                      // comunicados de prensa
-  '/press-releases/',
-  '/comunicado/',                         // comunicados en español
-  '/comunicados/',
-  '/nouvelles/',                          // noticias en francés (p.ej. moodle.com/fr/nouvelles/...)
-  '/historias/',                          // historias editoriales
-];
-
-const CONTENT_PAGE_NAME_PATTERNS = [
-  /^casos\s+de\s+[eé]xito/i,             // "Casos de éxito Línea Datascan"
-  /^caso\s+de\s+[eé]xito/i,              // "Caso de éxito ..."
-  /^full\s+guide$/i,                     // "Full guide"
-  /^fases\s+y\s+beneficios/i,            // "Fases y beneficios..."
-  /^\d+\s+casos\s+de\s+[eé]xito/i,       // "3 casos de éxito..."
-  /^nearshore\s+software/i,              // "Nearshore software development..."
-];
-
-/**
- * Retorna true si la URL tiene un path que indica página de contenido/artículo,
- * no una homepage corporativa.
- */
-export function isContentPageUrl(website: string | null): boolean {
-  if (!website) return false;
-  try {
-    const url = website.startsWith('http') ? website : `https://${website}`;
-    const pathname = new URL(url).pathname.toLowerCase();
-    return CONTENT_PAGE_PATH_PATTERNS.some((p) => pathname.includes(p));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Retorna true si el nombre del candidato parece un título de artículo/caso de éxito
- * en lugar del nombre de una empresa real.
- */
-export function isContentPageName(name: string): boolean {
-  return CONTENT_PAGE_NAME_PATTERNS.some((p) => p.test(name.trim()));
-}
-
-// ─── Path depth helper ────────────────────────────────────────────────────────
-
-/**
- * Número de segmentos de path en la URL. Menor → más cercano a la raíz.
- * Se usa como tiebreaker en el ordenamiento de elegibles.
- */
-function pathDepth(website: string | null): number {
-  if (!website) return 999;
-  try {
-    const url = website.startsWith('http') ? website : `https://${website}`;
-    const { pathname } = new URL(url);
-    return pathname.split('/').filter((s) => s.length > 0).length;
-  } catch {
-    return 999;
-  }
-}
-
-// ─── Official website gate ────────────────────────────────────────────────────
+// ADAPTIVE-EARLY-STOP § 3 — el gate de página de contenido, el de dominio de
+// directorio, la profundidad de path y el mapeo de etiqueta de calidad vivían
+// aquí como funciones privadas de este archivo. Ahora viven en
+// `candidate-writer-pure-gates.ts`, sin un cambio de comportamiento, porque el
+// evaluador PRE-writer tiene que invocar LAS MISMAS y no una copia.
 //
-// Dominios que son directorios, catálogos, marketplaces o rankings.
-// Un candidato cuyo dominio de website sea uno de estos no debe persistirse
-// como empresa oficial, ya que no tiene sitio propio identificable.
-// Hito 16AB.43.25.
+// Se re-exportan `isContentPageUrl` / `isContentPageName` porque ya eran API
+// pública de este módulo (`precision-gate.test.ts` las importa desde aquí).
 
-const DIRECTORY_SOURCE_DOMAINS = new Set([
-  // Catálogos de software
-  'catalogodesoftware.com',
-  'comparasoftware.com',
-  'comparasoftware.co',
-  'capterra.com',
-  'capterra.co',
-  'g2.com',
-  'getapp.com',
-  'softwareadvice.com',
-  'trustradius.com',
-  'softwareworld.co',
-  'crozdesk.com',
-  'alternativeto.net',
-  'producthunt.com',
-  'techbehemoths.com',
-  'clutch.co',
-  'goodfirms.co',
-  'sortlist.com',
-  'designrush.com',
-  // Directorios empresariales
-  'guiatic.com',
-  'yelp.com',
-  'paginasamarillas.com.co',
-  'einforma.com',
-  'einforma.co',
-  'datacreditoempresas.com.co',
-  'lasempresas.com.co',
-  'connectamericas.com',
-  // Plataformas sociales
-  'linkedin.com',
-  'facebook.com',
-  'instagram.com',
-  'youtube.com',
-  // Portales de empleo
-  'computrabajo.com',
-  'indeed.com',
-  'glassdoor.com',
-  // Directorios de empresas globales (v1.16K-S)
-  'kompass.com',
-  'europages.com',
-  'manta.com',
-  'dnb.com',
-]);
-
-/**
- * Retorna true si el dominio pertenece a un directorio/catálogo/marketplace,
- * lo que indica que el candidato no tiene sitio oficial propio identificable.
- */
-function isDirectorySourceDomain(domain: string | null): boolean {
-  if (!domain) return false;
-  const d = domain.toLowerCase().replace(/^www\./, '');
-  if (DIRECTORY_SOURCE_DOMAINS.has(d)) return true;
-  for (const entry of DIRECTORY_SOURCE_DOMAINS) {
-    if (d.endsWith(`.${entry}`)) return true;
-  }
-  return false;
-}
+export {
+  isContentPageUrl,
+  isContentPageName,
+} from './candidate-writer-pure-gates';
 
 // ─── Active duplicate guard — prefetch helper ─────────────────────────────────
 
@@ -524,7 +406,15 @@ export async function fetchActiveCandidatesForGuard(
  * Mapea DuplicateStatus del toolkit al duplicate_status del schema DB.
  * El toolkit usa valores distintos a los del schema de Supabase.
  */
-function mapDuplicateStatus(status: DuplicateStatus): string {
+/**
+ * STABLE-TARGET-WRITER-PARITY § 9 — exportada para que el orquestador lea el
+ * MISMO `duplicate_status` que se persistirá, en vez de deducirlo.
+ *
+ * Deducirlo era exactamente lo que producía la divergencia: el orquestador sabía
+ * «hay duplicado conocido» y el writer escribía un valor de un vocabulario que
+ * el orquestador no conocía.
+ */
+export function mapDuplicateStatus(status: DuplicateStatus): string {
   switch (status) {
     case "new_candidate":
       return "no_match";
@@ -545,56 +435,13 @@ function mapDuplicateStatus(status: DuplicateStatus): string {
   }
 }
 
-/**
- * Mapea qualityLabel del scorer al status de prospect_candidates.
- * Retorna null para labels que deben omitirse (discard).
- *
- * Mapeo:
- *   high_quality_new → needs_review
- *   needs_review     → needs_review
- *   duplicate        → duplicate
- *   insufficient_data→ needs_review (con nota, se conserva para trazabilidad)
- *   discard          → null (no se crea candidato)
- */
-function mapQualityLabelToStatus(label: CandidateQualityLabel): string | null {
-  switch (label) {
-    case "high_quality_new":
-      return "needs_review";
-    case "needs_review":
-      return "needs_review";
-    case "duplicate":
-      return "duplicate";
-    case "insufficient_data":
-      return "needs_review";
-    case "discard":
-      return null;
-    default:
-      return "needs_review";
-  }
-}
+// Mapea qualityLabel del scorer al status de prospect_candidates y retorna null
+// para labels que deben omitirse (`discard`): ver `mapQualityLabelToStatus` en
+// `candidate-writer-pure-gates.ts`. ADAPTIVE-EARLY-STOP § 3 — movido allí, sin
+// cambios, para que el evaluador PRE-writer resuelva `quality_label_discard` con
+// la MISMA función.
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function normalizeName(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function extractDomain(website: string | null): string | null {
-  if (!website) return null;
-  try {
-    const url = website.startsWith("http") ? website : `https://${website}`;
-    const { hostname } = new URL(url);
-    return hostname.replace(/^www\./, "");
-  } catch {
-    return null;
-  }
-}
 
 function isValidUuid(val: string | null | undefined): boolean {
   if (!val) return false;
@@ -1792,59 +1639,107 @@ export async function writeProspectingCandidates(
   // Priority: 1) composite fit score desc (business fit + URL quality + country compat),
   //           2) confidence score desc,
   //           3) path depth asc (closer to root URL is better)
-  eligibleEntries.sort((a, b) => {
-    const aComposite = a.businessFitRankingBonus + a.sourceUrlRankingBonus + a.countryCompatWeight * 10;
-    const bComposite = b.businessFitRankingBonus + b.sourceUrlRankingBonus + b.countryCompatWeight * 10;
-    const compositeDiff = bComposite - aComposite;
-    if (compositeDiff !== 0) return compositeDiff;
-    const scoreDiff = (b.candidate.scoring.confidenceScore ?? 0) - (a.candidate.scoring.confidenceScore ?? 0);
-    if (scoreDiff !== 0) return scoreDiff;
-    return pathDepth(a.candidate.website) - pathDepth(b.candidate.website);
-  });
+  // ADAPTIVE-EARLY-STOP § 4 — comparador COMPARTIDO con el evaluador PRE-writer.
+  eligibleEntries.sort((a, b) =>
+    compareWriterEligibleRank(
+      {
+        businessFitRankingBonus: a.businessFitRankingBonus,
+        sourceUrlRankingBonus: a.sourceUrlRankingBonus,
+        countryCompatWeight: a.countryCompatWeight,
+        confidenceScore: a.candidate.scoring.confidenceScore ?? null,
+        website: a.candidate.website ?? null,
+      },
+      {
+        businessFitRankingBonus: b.businessFitRankingBonus,
+        sourceUrlRankingBonus: b.sourceUrlRankingBonus,
+        countryCompatWeight: b.countryCompatWeight,
+        confidenceScore: b.candidate.scoring.confidenceScore ?? null,
+        website: b.candidate.website ?? null,
+      },
+    ),
+  );
 
   // ── Pass 2.5: intra-batch identity deduplicate (Hito 16AB.43.28) ─────────────
   // After ranking, keep only the first (best-ranked) entry per identity key.
   // Prevents the same company from appearing twice in one batch with different URLs.
-  const seenBatchIdentityKeys = new Set<string>();
+  //
+  // ADAPTIVE-EARLY-STOP § 4 — la SELECCIÓN de ganadores es ahora la función
+  // compartida; lo que se queda aquí es el efecto colateral (contadores, ledger
+  // de descartes y muestras), que sólo el writer emite.
   type IntraBatchDupeSample = { identity_key: string; kept_url: string | null; removed_url: string | null };
   const intraBatchDupeSamples: IntraBatchDupeSample[] = [];
-  const eligibleAfterIntraDedupe: EligibleEntry[] = [];
+  const intraDedupe = selectIntraBatchIdentityWinnerIndexes(
+    eligibleEntries.map((entry) => entry.identityKey),
+  );
+  const eligibleAfterIntraDedupe: EligibleEntry[] = intraDedupe.winners.map(
+    (index) => eligibleEntries[index],
+  );
 
-  for (const entry of eligibleEntries) {
-    const ik = entry.identityKey;
-    if (!ik) {
-      eligibleAfterIntraDedupe.push(entry);
-      continue;
-    }
-    if (!seenBatchIdentityKeys.has(ik)) {
-      seenBatchIdentityKeys.add(ik);
-      eligibleAfterIntraDedupe.push(entry);
-    } else {
-      precisionGate.intraBatchDuplicateCount++;
-      skipped.push({ name: entry.candidate.name, reason: 'intra_batch_identity_duplicate', searchTrace: entry.candidate.searchTrace ?? undefined });
-      if (intraBatchDupeSamples.length < 10) {
-        const keptEntry = eligibleAfterIntraDedupe.find((e) => e.identityKey === ik);
-        intraBatchDupeSamples.push({
-          identity_key: ik,
-          kept_url: keptEntry?.candidate.website ?? null,
-          removed_url: entry.candidate.website ?? null,
-        });
-      }
+  for (const index of intraDedupe.losers) {
+    const entry = eligibleEntries[index];
+    const ik = entry.identityKey!;
+    precisionGate.intraBatchDuplicateCount++;
+    skipped.push({ name: entry.candidate.name, reason: 'intra_batch_identity_duplicate', searchTrace: entry.candidate.searchTrace ?? undefined });
+    // AGENT1-APOLLO-FINALIZATION-HARDENING-1 § F — todo descarte necesita una
+    // candidata TRAZABLE, no sólo una categoría agregada.
+    captureOmittedSample(entry.candidate, entry.domain, 'intra_batch_identity_duplicate', 'intra_batch_identity');
+    if (intraBatchDupeSamples.length < 10) {
+      const keptEntry = eligibleAfterIntraDedupe.find((e) => e.identityKey === ik);
+      intraBatchDupeSamples.push({
+        identity_key: ik,
+        kept_url: keptEntry?.candidate.website ?? null,
+        removed_url: entry.candidate.website ?? null,
+      });
     }
   }
 
   // ── Pass 3: apply target cap (Hito 16AB.43.27) ───────────────────────────────
+  //
+  // ADAPTIVE-EARLY-STOP § 5 — el cupo se aplica COMPLETE-FIRST.
+  //
+  // Hasta este hito el cupo cortaba el lote ordenado por ENCAJE, así que con el
+  // cupo igual al objetivo un candidato completo y válido podía quedar
+  // desplazado por uno de revisión mejor rankeado. Para Agente 1 el objetivo
+  // declarado es encontrar empresas ELEGIBLES, no empresas con buen encaje: ese
+  // desplazamiento reducía el resultado de la corrida por construcción.
+  //
+  // La proyección de completitud usa las MISMAS entradas que
+  // `evaluateCandidateSubindustryTargetEligibility` leerá en Pass 4, salvo
+  // `duplicate_status`, que aquí se toma del duplicate-checker y que el Active
+  // Duplicate Guard sólo puede DEGRADAR más adelante (nunca mejorar). Es decir:
+  // esta partición nunca promueve a un candidato que el writer vaya a dejar en
+  // revisión por un motivo que ya se conozca, y en el peor caso ordena a dos
+  // candidatos del mismo grupo como antes.
+  //
+  // Ni el cupo total ni el orden de encaje DENTRO de cada grupo cambian.
   const targetCap = input.targetPersistibleCandidates ?? null;
   const eligibleBeforeCap = eligibleAfterIntraDedupe.length;
+  const capOrdered = orderByCompleteFirst(eligibleAfterIntraDedupe, (entry) =>
+    evaluateCandidateSubindustryTargetEligibility({
+      persistenceSuccess: true,
+      sectorEvidenceState: entry.candidate.sectorEvidenceState,
+      requestedSubindustries: requestedSubindustriesForTarget,
+      subindustryPrecision: entry.candidate.providerEnrichmentCapture?.precision ?? null,
+      employeeCountStatus:
+        entry.candidate.providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
+      linkedinStatus: entry.candidate.providerCompanyFields?.linkedin.status ?? 'mapping_failed',
+      duplicateStatus: mapDuplicateStatus(entry.candidate.duplicateCheck?.status ?? 'unchecked'),
+      ownershipGate: 'pass',
+      qualityGate: 'pass',
+    }).countsTowardTarget,
+  );
   const toPersist =
     targetCap != null && targetCap > 0 && eligibleBeforeCap > targetCap
-      ? eligibleAfterIntraDedupe.slice(0, targetCap)
-      : eligibleAfterIntraDedupe;
-  const cappedEntries = eligibleAfterIntraDedupe.slice(toPersist.length);
+      ? capOrdered.slice(0, targetCap)
+      : capOrdered;
+  const cappedEntries = capOrdered.slice(toPersist.length);
 
-  for (const { candidate } of cappedEntries) {
+  for (const { candidate, domain } of cappedEntries) {
     skipped.push({ name: candidate.name, reason: "target_cap", searchTrace: candidate.searchTrace ?? undefined });
     precisionGate.targetCapCount++;
+    // § F — elegible, sin rechazo: se queda fuera por cupo, no por calidad. Debe
+    // seguir siendo trazable como cualquier otro descarte.
+    captureOmittedSample(candidate, domain, 'target_cap', 'target_cap');
   }
 
   // ── Active Duplicate Guard: prefetch active candidates (v1.13.1) ───────────
@@ -2148,6 +2043,9 @@ export async function writeProspectingCandidates(
           reason: `duplicate_guard:${guardMatch.reason}`,
           searchTrace: candidate.searchTrace ?? undefined,
         });
+        // § F — `duplicateGuardData.samples` ya guarda el nombre, pero acotado a
+        // 10 y en su propia cubeta; `writer_omitted_samples` es el ledger único.
+        captureOmittedSample(candidate, domain, `duplicate_guard:${guardMatch.reason}`, 'duplicate_guard');
         duplicateGuardData.skippedCount++;
         if (duplicateGuardData.samples.length < 10) {
           duplicateGuardData.samples.push({
@@ -2190,6 +2088,14 @@ export async function writeProspectingCandidates(
         reason: `evidence_policy:${evidencePolicy.primaryReason}`,
         searchTrace: candidate.searchTrace ?? undefined,
       });
+      // § F — mismo ledger único para todo descarte, además de la muestra
+      // acotada propia de `evidencePolicyGateData`.
+      captureOmittedSample(
+        candidate,
+        domain,
+        `evidence_policy:${evidencePolicy.primaryReason}`,
+        'evidence_policy',
+      );
       evidencePolicyGateData.blockedCount++;
       if (evidencePolicyGateData.samples.length < 10) {
         evidencePolicyGateData.samples.push({
@@ -2283,11 +2189,18 @@ export async function writeProspectingCandidates(
     const icpSizeGateAction = resolveIcpSizeGateWriterAction(icpSizeGateResult);
 
     if (icpSizeGateAction.action === 'skip') {
+      const icpSkipReason = icpSizeGateAction.skipReason ?? 'icp_size_below_threshold';
       skipped.push({
         name: candidate.name,
-        reason: icpSizeGateAction.skipReason ?? 'icp_size_below_threshold',
+        reason: icpSkipReason,
         searchTrace: candidate.searchTrace ?? undefined,
       });
+      // AGENT1-APOLLO-FINALIZATION-HARDENING-1 § F — el defecto real de la
+      // corrida `bdc51c49`: `writer_summary.quality_rejected_count = 1` y
+      // `writer_omitted_samples = []`. La categoría existía; la candidata no
+      // tenía nombre en ningún lado. Este gate era el único de Pass 4 sin
+      // `captureOmittedSample`.
+      captureOmittedSample(candidate, domain, icpSkipReason, 'icp_size');
       icpSizeGateData.blockedCount++;
       if (icpSizeGateData.blockedReasons.length < 20) {
         icpSizeGateData.blockedReasons.push(

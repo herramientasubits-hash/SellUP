@@ -390,6 +390,46 @@ export type ApolloTwoRoundRunMetrics = {
    * "son iguales" sobre un dato que nadie tiene.
    */
   effectiveFingerprintsAreDistinct: boolean | null;
+  /**
+   * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § D — la cuenta que decidió cada
+   * parada de esta corrida, YA resuelta por los gates finales. Coincide con
+   * `totalEligibleCompanies`: es el mismo número, nombrado para que quede claro
+   * que es la métrica CONSERVADORA del § A, no un sustituto más laxo.
+   */
+  stableFinalizableCandidateCount: number;
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 8 — la PROYECCIÓN, con nombre propio.
+   *
+   * Cuenta a los candidatos que serían finalizables si alguien resolviera las
+   * admisiones que sólo el writer resuelve. No es la cifra estable y no puede
+   * detener gasto; existe para que la distancia entre las dos sea legible en vez
+   * de tener que deducirse.
+   */
+  projectedFinalizableCandidateCount: number;
+  /** § 8 — `projected - stable`. Cuántos están bloqueados SÓLO por writer-only. */
+  writerOnlyPendingCount: number;
+  /** § 8 — qué admisiones writer-only quedaron sin resolver, por nombre. */
+  writerOnlyPendingReasons: string[];
+  /**
+   * ADAPTIVE-EARLY-STOP § 11 — comprobaciones de admisión PRE-writer agregadas
+   * sobre los candidatos elegibles, en tres cubetas que no se solapan.
+   *
+   * Sirven para responder, sin abrir el código, la pregunta que este addendum
+   * hace explícita: cuántas de las trece se están resolviendo de verdad. Con
+   * `pending` en cero y `pass` positivo, la parada temprana está VIVA; con
+   * `pending` alto, la corrida vuelve a recorrer el máximo de gasto y aquí se ve
+   * por qué.
+   */
+  preWriterAdmissionPassCount: number;
+  preWriterAdmissionFailedCount: number;
+  preWriterAdmissionPendingCount: number;
+  /**
+   * § D — `max(0, target - stableFinalizableCandidateCount)`. Cero significa
+   * que el objetivo se alcanzó de verdad; con `enrichmentsExecuted` en cero y
+   * este campo en positivo, la corrida se quedó corta y NO fue por falta de
+   * intentos de enrichment.
+   */
+  targetGap: number;
 };
 
 /** Redondea a 4 decimales para que la métrica sea comparable entre corridas. */
@@ -414,6 +454,34 @@ export function buildRunMetrics(input: {
   /** HARDENING-1 § 5 — rechazo confirmado por el enrichment. Ausente ⇒ 0. */
   sectorRejectedAfterEnrichment?: number;
   enrichmentFailedCount?: number;
+  /** § D — objetivo de la corrida. Ausente ⇒ el hueco se reporta 0, nunca negativo. */
+  targetEligibleCompanies?: number;
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 3 — cuenta ESTABLE, calculada por el
+   * orquestador con el contrato canónico.
+   *
+   * Hasta este hito no existía como entrada: se aliaseaba a
+   * `totalEligibleCompanies`, así que la métrica que se llamaba «estable» era la
+   * provisional con otro nombre, y `target_gap` heredaba el mismo error.
+   *
+   * Ausente ⇒ se cae al total de elegibles, para no romper a los llamadores que
+   * todavía no la calculan. Producción siempre la pasa.
+   */
+  stableFinalizableCandidateCount?: number;
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 8 — la proyección y su motivo.
+   *
+   * Ausentes ⇒ la proyección cae a la cuenta estable y el pendiente a 0. Ese
+   * respaldo es el conservador: afirma «no hay proyección aparte», no «hay más de
+   * los que se pueden probar».
+   */
+  projectedFinalizableCandidateCount?: number;
+  writerOnlyPendingCount?: number;
+  writerOnlyPendingReasons?: readonly string[];
+  /** § 11 — agregados de admisión PRE-writer. Ausentes ⇒ 0, nunca inventados. */
+  preWriterAdmissionPassCount?: number;
+  preWriterAdmissionFailedCount?: number;
+  preWriterAdmissionPendingCount?: number;
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
   const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
@@ -459,6 +527,31 @@ export function buildRunMetrics(input: {
       (input.sectorRejectedAfterEnrichment ?? 0) +
       (input.enrichmentFailedCount ?? 0),
     effectiveFingerprintsAreDistinct: input.effectiveFingerprintsAreDistinct ?? null,
+    // STABLE-TARGET-WRITER-PARITY § 3 — la cuenta estable es la que llega, no un
+    // alias de `totalEligibleCompanies`. Son cifras distintas siempre que algún
+    // elegible no cumpla el contrato completo (employee_count, LinkedIn,
+    // subindustria, duplicidad, calidad), que es el caso normal.
+    stableFinalizableCandidateCount:
+      input.stableFinalizableCandidateCount ?? input.totalEligibleCompanies,
+    // § 8 — la proyección nunca puede quedar por DEBAJO de la estable: son la
+    // misma lista y la estable es su subconjunto. Un llamador que pase una cifra
+    // menor está informando mal, y el máximo evita publicar un imposible.
+    projectedFinalizableCandidateCount: Math.max(
+      input.stableFinalizableCandidateCount ?? input.totalEligibleCompanies,
+      input.projectedFinalizableCandidateCount ??
+        input.stableFinalizableCandidateCount ??
+        input.totalEligibleCompanies,
+    ),
+    writerOnlyPendingCount: input.writerOnlyPendingCount ?? 0,
+    writerOnlyPendingReasons: [...(input.writerOnlyPendingReasons ?? [])],
+    preWriterAdmissionPassCount: input.preWriterAdmissionPassCount ?? 0,
+    preWriterAdmissionFailedCount: input.preWriterAdmissionFailedCount ?? 0,
+    preWriterAdmissionPendingCount: input.preWriterAdmissionPendingCount ?? 0,
+    targetGap: Math.max(
+      0,
+      (input.targetEligibleCompanies ?? 0) -
+        (input.stableFinalizableCandidateCount ?? input.totalEligibleCompanies),
+    ),
   };
 }
 
@@ -564,5 +657,23 @@ export function toRunMetricsMetadata(
     enrichment_outcomes_classified: metrics.enrichmentsClassified,
     // HARDENING-3 § 7 — null cuando la comparación no se pudo hacer. Nunca false.
     effective_fingerprints_are_distinct: metrics.effectiveFingerprintsAreDistinct,
+    // AGENT1-APOLLO-FINALIZATION-HARDENING-1 § D — la cuenta conservadora y el
+    // hueco contra el objetivo, con nombre propio en vez de derivarse a ojo de
+    // `total_eligible_companies` y `target_eligible_companies`.
+    stable_finalizable_candidate_count: metrics.stableFinalizableCandidateCount,
+    target_gap: metrics.targetGap,
+    // WRITER-ONLY-ADMISSION-PENDING § 8 — las cuatro cifras PRE-writer se emiten
+    // SEPARADAS y con los nombres del addendum. `stable_finalizable_count` es el
+    // mismo número que `stable_finalizable_candidate_count`, publicado también con
+    // el nombre corto del contrato para que la pareja projected/stable se lea de un
+    // golpe; la quinta cifra —`final_persisted_target_count`— no se emite aquí a
+    // propósito: sólo existe DESPUÉS del writer y la escribe la reconciliación.
+    projected_finalizable_count: metrics.projectedFinalizableCandidateCount,
+    stable_finalizable_count: metrics.stableFinalizableCandidateCount,
+    writer_only_pending_count: metrics.writerOnlyPendingCount,
+    writer_only_pending_reasons: [...metrics.writerOnlyPendingReasons],
+    pre_writer_admission_pass_count: metrics.preWriterAdmissionPassCount,
+    pre_writer_admission_failed_count: metrics.preWriterAdmissionFailedCount,
+    pre_writer_admission_pending_count: metrics.preWriterAdmissionPendingCount,
   };
 }

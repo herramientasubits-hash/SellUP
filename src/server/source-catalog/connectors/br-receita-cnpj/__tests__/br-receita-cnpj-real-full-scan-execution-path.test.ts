@@ -48,6 +48,11 @@ import {
 } from '../br-receita-cnpj-full-join-manifest-source-bridge';
 import { BRAZIL_RECEITA_FULL_JOIN_NO_WRITE_CONTRACT } from '../br-receita-cnpj-full-join-no-write-guard';
 import {
+  evaluateBrazilReceitaNationalInputCompleteness,
+  type BrazilReceitaNationalInputCompletenessResult,
+} from '../br-receita-cnpj-national-input-completeness';
+import { brazilReceitaNextRealAttemptNumber } from '../br-receita-cnpj-real-benchmark-attempt-ledger';
+import {
   BRAZIL_RECEITA_FULL_JOIN_PRIVATE_CHANNEL_ACKNOWLEDGEMENT,
   BRAZIL_RECEITA_FULL_JOIN_PRIVATE_CHANNEL_DEFAULT_ENABLED,
   BRAZIL_RECEITA_FULL_JOIN_PRIVATE_CHANNEL_DEFAULT_TTL_MS,
@@ -275,6 +280,37 @@ const SAFE_WORKING_DIRECTORY = {
   repositoryPackageName: 'sellup',
 };
 
+/**
+ * A `complete` / `full_national` completeness result, built from a SYNTHETIC evidential inventory
+ * (BR-SOURCE-14B.0J § 7).
+ *
+ * 14B.0J added `nationalInputCompleteness` as a required declaration, and these 14B.0F tests need to
+ * reach the stages BEYOND it — so they must supply a passing one. It is computed by the real gate over
+ * invented numbers rather than hand-written as an object literal, which keeps this fixture honest: if the
+ * gate's own rules tighten, this helper stops producing `complete` and these tests say so.
+ */
+function syntheticCompleteNationalInput(): BrazilReceitaNationalInputCompletenessResult {
+  const families = ['empresas', 'estabelecimentos'] as const;
+  return evaluateBrazilReceitaNationalInputCompleteness({
+    period: '2026-07',
+    observed: {
+      sourceKey: 'br_receita_cnpj_dados_abertos',
+      period: '2026-07',
+      encoding: 'latin1',
+      delimiter: ';',
+      layoutMode: 'official_headerless',
+      families: families.map((family) => ({ family, declaredPartKeys: ['0', '1', '2'] })),
+      forbiddenFamilyCount: 0,
+    },
+    expected: {
+      sourceKey: 'br_receita_cnpj_dados_abertos',
+      period: '2026-07',
+      provenance: 'declared_local_inventory_contract',
+      families: families.map((family) => ({ family, expectedPartCount: 3 })),
+    },
+  });
+}
+
 function completeDeclarations(
   overrides: Partial<BrazilReceitaRealFullScanDeclarations> = {},
 ): BrazilReceitaRealFullScanDeclarations {
@@ -284,6 +320,9 @@ function completeDeclarations(
     capInputPolicyApproved: true,
     benchmarkAuthorization: true,
     attemptCount: 1,
+    // BR-SOURCE-14B.0J: the next durable attempt number, and an input the § 7 gate accepts.
+    requestedRealAttemptNumber: brazilReceitaNextRealAttemptNumber(),
+    nationalInputCompleteness: syntheticCompleteNationalInput(),
     datasetPeriod: '2026-07',
     manifestPath: SYNTHETIC_MANIFEST_PATH,
     privateMetricChannelAcknowledgement: BRAZIL_RECEITA_FULL_JOIN_PRIVATE_CHANNEL_ACKNOWLEDGEMENT,
@@ -1540,10 +1579,17 @@ describe('BR-SOURCE-14B.0F § 7 — the operator CLI', () => {
       '2026-07',
       '--private-metric-acknowledgement',
       BRAZIL_RECEITA_FULL_JOIN_PRIVATE_CHANNEL_ACKNOWLEDGEMENT,
+      // BR-SOURCE-14B.0J § 5 made the attempt number a required, never-defaulted flag — of the synthetic
+      // mode too, so that the smoke test proves the wiring of the same path a real run takes.
+      '--real-attempt-number',
+      String(brazilReceitaNextRealAttemptNumber()),
     ]);
     assert.equal(parsed.ok, true);
     if (!parsed.ok) return;
     assert.equal(parsed.options.mode, 'synthetic-smoke');
+    assert.equal(parsed.options.requestedRealAttemptNumber, brazilReceitaNextRealAttemptNumber());
+    // The number alone never implies owner approval for a second attempt.
+    assert.equal(parsed.options.secondRealAttemptOwnerDeclared, false);
 
     const declarations = buildBrazilReceitaRealFullScanDeclarations(parsed.options);
     // The three POLICY approvals mirror the authorization constant, which is `false`. The CLI cannot
