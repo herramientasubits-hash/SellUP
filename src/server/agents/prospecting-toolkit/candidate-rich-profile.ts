@@ -112,6 +112,17 @@ export type CandidateRichProfileInput = {
 
   linkedInEnrichment?: LinkedInEnrichmentMetadata | null;
 
+  /**
+   * § D — la URL canónica ya resuelta por el llamador (proveedor > enrichment del
+   * writer) con su estado de verificación. Cuando viene, manda sobre
+   * `linkedInEnrichment`: es la misma que se persiste en la columna `linkedin_url`.
+   */
+  effectiveLinkedin?: { url: string | null; state: RichProfileLinkedInState } | null;
+
+  /** Ciudad ya resuelta (p. ej. por el enrichment de Apollo). */
+  city?: string | null;
+  citySource?: CandidateRichProfileV1['location']['source'];
+
   countryEvidenceLevel?: 'strong' | 'weak' | 'query_only' | null;
   countryEvidenceSources?: string[] | null;
   countryEvidenceWarning?: string | null;
@@ -125,6 +136,38 @@ export type CandidateRichProfileInput = {
 };
 
 // ─── Completeness ────────────────────────────────────────────────────────────
+
+/**
+ * CANDIDATE-OPERABILITY-VALIDATION-1 § E — las tres situaciones que el perfil puede
+ * afirmar sobre LinkedIn. `absent` es la única que significa «no hay dato».
+ */
+export type RichProfileLinkedInState = 'absent' | 'available_unverified' | 'verified';
+
+/**
+ * § G — la verdad EFECTIVA del candidato, la que existe después del enrichment.
+ *
+ * El perfil se construye temprano, con lo que la búsqueda trajo, y hasta este hito
+ * nadie lo refrescaba: la corrida `b3afe066` persistió a Supertiendas Cañaveral con
+ * `missing_fields = ['linkedin_url','subindustry','city','size']` mientras la fila
+ * tenía los cuatro (`linkedin_url` confirmado, `subindustry = 'Supermercados e
+ * Hipermercados'`, `city = 'Cali'`, `employee_count = 2000`). Cuatro ausencias
+ * declaradas, cero ausencias reales.
+ *
+ * Cada campo es opcional y `undefined` significa «no se resolvió nada nuevo»: el
+ * refresco NUNCA borra un dato que el perfil ya tuviera.
+ */
+export type CandidateRichProfileEffectiveTruth = {
+  linkedin?: { url: string | null; state: RichProfileLinkedInState } | undefined;
+  city?: string | null | undefined;
+  citySource?: CandidateRichProfileV1['location']['source'] | undefined;
+  subindustry?: string | null | undefined;
+  /** Empleados confirmados por el proveedor. Sólo un valor real; nunca cero por defecto. */
+  employeeCount?: number | null | undefined;
+  /** Rango ya resuelto (p. ej. por `resolveEmployeeSizeForIcpGate`). */
+  employeeSizeRange?: string | null | undefined;
+  employeeSizeSource?: CandidateRichProfileV1['size']['source'] | undefined;
+  employeeSizeStatus?: CandidateRichProfileV1['size']['status'] | undefined;
+};
 
 export type CandidateRichProfileCompleteness = {
   has_company: boolean;
@@ -452,21 +495,39 @@ function inferRelationshipType(
   return { relationship_type: 'sales_prospect' };
 }
 
+/**
+ * CANDIDATE-OPERABILITY-VALIDATION-1 § E — la nota ejecutiva distingue AUSENCIA de
+ * verificación pendiente.
+ *
+ * `absent` es el único estado que autoriza a decir «sin perfil de LinkedIn». Antes
+ * este parámetro era un booleano y por eso una URL confirmada, no verificada,
+ * producía «sin perfil de LinkedIn verificado»: una frase que el lector entiende
+ * como «no hay LinkedIn» cuando lo que había era una verificación no demostrada.
+ */
 function buildExecutiveNote(
   hasWebsite: boolean,
-  hasLinkedIn: boolean,
+  linkedInState: RichProfileLinkedInState,
   primarySourceType: CandidateRichProfileV1['evidence']['primary_source_type'] | undefined,
 ): string | null {
   const parts: string[] = [];
 
-  if (hasWebsite && hasLinkedIn) {
-    parts.push('Candidato con sitio web y LinkedIn encontrados');
+  const linkedInPhrase =
+    linkedInState === 'verified'
+      ? 'LinkedIn verificado'
+      : linkedInState === 'available_unverified'
+        ? 'LinkedIn disponible sin verificación confirmada'
+        : null;
+
+  if (linkedInPhrase !== null) {
+    parts.push(
+      hasWebsite
+        ? `Candidato con sitio web y ${linkedInPhrase}`
+        : `Candidato sin sitio web identificado; ${linkedInPhrase}`,
+    );
   } else if (hasWebsite) {
-    parts.push('Candidato con sitio web encontrado; sin perfil de LinkedIn verificado');
-  } else if (hasLinkedIn) {
-    parts.push('Candidato sin sitio web identificado; perfil de LinkedIn encontrado');
+    parts.push('Candidato con sitio web encontrado; sin perfil de LinkedIn');
   } else {
-    parts.push('Sin sitio web ni LinkedIn verificados');
+    parts.push('Sin sitio web ni perfil de LinkedIn');
   }
 
   if (primarySourceType === 'official_website') {
@@ -486,6 +547,49 @@ function buildExecutiveNote(
   return `${parts[0]}; ${parts[1]}.`;
 }
 
+// ─── Missing fields: derivados del perfil, nunca declarados a mano ───────────
+
+/** Orden estable de los campos que el contrato evalúa. */
+const RICH_PROFILE_TRACKED_FIELDS = [
+  'website',
+  'linkedin_url',
+  'description',
+  'subindustry',
+  'city',
+  'size',
+] as const;
+
+function hasText(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/**
+ * § G — `missing_fields` se DERIVA del perfil, no se acumula durante la
+ * construcción.
+ *
+ * Ésa era la causa mecánica del defecto: `'city'` se empujaba a la lista sin
+ * condición («city still requires external calls») y los otros tres se evaluaban
+ * contra el estado pre-enrichment, que nadie volvía a mirar. Con la derivación,
+ * un campo sólo figura como ausente si el perfil FINAL no lo tiene.
+ *
+ * Un campo presente pero no verificado NO es un campo ausente: la verificación se
+ * publica aparte (`linkedin_availability`), que es lo que el § E exige.
+ */
+export function computeRichProfileMissingFields(
+  profile: Pick<CandidateRichProfileV1, 'company' | 'classification' | 'location' | 'size' | 'description'>,
+): string[] {
+  const present: Record<(typeof RICH_PROFILE_TRACKED_FIELDS)[number], boolean> = {
+    website: hasText(profile.company.website) || hasText(profile.company.domain),
+    linkedin_url: hasText(profile.company.linkedin_url),
+    description: hasText(profile.description.short),
+    subindustry: hasText(profile.classification.subindustry),
+    city: hasText(profile.location.city),
+    size: hasText(profile.size.estimated_range) || profile.size.status !== 'unknown',
+  };
+
+  return RICH_PROFILE_TRACKED_FIELDS.filter((field) => !present[field]);
+}
+
 // ─── Builder principal ───────────────────────────────────────────────────────
 
 export function buildCandidateRichProfileV1(
@@ -493,13 +597,23 @@ export function buildCandidateRichProfileV1(
 ): CandidateRichProfileV1 {
   const clock = input.clockFn ?? (() => new Date().toISOString());
 
-  // LinkedIn: sólo de linkedInEnrichment.company_url si status=found
+  // LinkedIn: la URL canónica que el llamador ya resolvió (proveedor > enrichment
+  // del writer) manda; si no la pasó, se conserva el comportamiento histórico de
+  // leerla del enrichment con `status='found'`.
+  //
+  // § D — `effectiveLinkedin` es lo que permite que el perfil no contradiga a la
+  // columna `linkedin_url`: hasta este hito el perfil sólo miraba el enrichment del
+  // writer y por eso una URL entregada por Apollo quedaba invisible aquí.
   const linkedInUrl =
-    input.linkedInEnrichment?.status === 'found' &&
-    input.linkedInEnrichment.company_url
+    input.effectiveLinkedin?.url ??
+    (input.linkedInEnrichment?.status === 'found' && input.linkedInEnrichment.company_url
       ? input.linkedInEnrichment.company_url
-      : null;
+      : null);
   const hasLinkedIn = !!linkedInUrl;
+  const linkedInState: RichProfileLinkedInState = !hasLinkedIn
+    ? 'absent'
+    : (input.effectiveLinkedin?.state ??
+      (input.linkedInEnrichment?.status === 'found' ? 'verified' : 'available_unverified'));
 
   // Evidence
   const primaryUrl = input.sourceUrl ?? null;
@@ -546,17 +660,6 @@ export function buildCandidateRichProfileV1(
   const snippetText = [input.sourceTitle, input.sourceSnippet].filter(Boolean).join(' ');
   const sizeFromSnippet = parseEmployeeSizeFromText(snippetText);
 
-  // Missing fields para notes
-  const missingFields: string[] = [];
-  if (!input.website && !input.domain) missingFields.push('website');
-  if (!linkedInUrl) missingFields.push('linkedin_url');
-  if (!descriptionShort) missingFields.push('description');
-  if (!inferredSubindustry) missingFields.push('subindustry');
-  // city still requires external calls
-  missingFields.push('city');
-  // size is missing only when snippet extraction found nothing
-  if (!sizeFromSnippet) missingFields.push('size');
-
   const requiresHumanReview =
     evidenceQuality === 'low' ||
     evidenceQuality === 'unknown' ||
@@ -567,9 +670,11 @@ export function buildCandidateRichProfileV1(
   // Executive note: factual, no inventada
   const executiveNote = buildExecutiveNote(
     !!(input.website || input.domain),
-    hasLinkedIn,
+    linkedInState,
     primarySourceType,
   );
+
+  const cityAtBuildTime = input.city ?? null;
 
   const profile: CandidateRichProfileV1 = {
     schema_version: 'candidate_rich_profile_v1',
@@ -592,9 +697,9 @@ export function buildCandidateRichProfileV1(
     },
 
     location: {
-      city: null,
+      city: cityAtBuildTime,
       hq_country: input.country ?? null,
-      source: 'unknown',
+      source: cityAtBuildTime === null ? 'unknown' : (input.citySource ?? 'unknown'),
     },
 
     size: sizeFromSnippet
@@ -634,7 +739,10 @@ export function buildCandidateRichProfileV1(
     notes: {
       executive_note: executiveNote,
       review_note: null,
-      missing_fields: missingFields,
+      // § G — derivado del perfil que se acaba de ensamblar, nunca acumulado a
+      // mano mientras se construía. Se rellena justo debajo, cuando el objeto ya
+      // existe y puede responder por sí mismo.
+      missing_fields: [],
       requires_human_review: requiresHumanReview,
     },
 
@@ -647,7 +755,98 @@ export function buildCandidateRichProfileV1(
     },
   };
 
-  return profile;
+  return {
+    ...profile,
+    notes: { ...profile.notes, missing_fields: computeRichProfileMissingFields(profile) },
+  };
+}
+
+// ─── Refresco con la verdad efectiva (§ G) ───────────────────────────────────
+
+/**
+ * Reconstruye las afirmaciones del perfil con la verdad que existe DESPUÉS del
+ * enrichment: LinkedIn normalizado, subindustria con precisión resuelta, ciudad y
+ * número de empleados que el proveedor entregó.
+ *
+ * Reglas:
+ *
+ *   1. Sólo AÑADE. `undefined` y `null` en la verdad efectiva significan «no se
+ *      resolvió nada nuevo»; un dato que el perfil ya tenía nunca se borra.
+ *   2. `missing_fields` y la nota ejecutiva se RECALCULAN sobre el resultado. Son
+ *      las dos afirmaciones que quedaban congeladas en el estado pre-enrichment.
+ *   3. No se toca `provenance.cost_usd` ni `external_calls_used`: este refresco no
+ *      compra nada, sólo deja de ignorar lo ya comprado.
+ *
+ * Devuelve un objeto nuevo; no muta el perfil recibido.
+ */
+export function refreshCandidateRichProfileWithEffectiveTruth(
+  profile: CandidateRichProfileV1,
+  truth: CandidateRichProfileEffectiveTruth,
+): CandidateRichProfileV1 {
+  const linkedinUrl = truth.linkedin?.url ?? profile.company.linkedin_url ?? null;
+  const linkedinState: RichProfileLinkedInState =
+    linkedinUrl === null
+      ? 'absent'
+      : (truth.linkedin?.state ??
+        (profile.company.linkedin_url ? 'available_unverified' : 'available_unverified'));
+
+  const city = truth.city ?? profile.location.city ?? null;
+  const subindustry = truth.subindustry ?? profile.classification.subindustry ?? null;
+
+  // Tamaño: un rango explícito manda; si no, un recuento confirmado se publica como
+  // rango textual. `status` sólo mejora — un `confirmed` no se degrada a `estimated`.
+  const resolvedRange =
+    truth.employeeSizeRange ??
+    (typeof truth.employeeCount === 'number' && Number.isFinite(truth.employeeCount)
+      ? String(truth.employeeCount)
+      : null) ??
+    profile.size.estimated_range ??
+    null;
+
+  const resolvedSizeStatus: CandidateRichProfileV1['size']['status'] =
+    truth.employeeSizeStatus ??
+    (profile.size.status !== 'unknown'
+      ? profile.size.status
+      : resolvedRange !== null
+        ? typeof truth.employeeCount === 'number'
+          ? 'confirmed'
+          : 'estimated'
+        : 'unknown');
+
+  const refreshed: CandidateRichProfileV1 = {
+    ...profile,
+    company: { ...profile.company, linkedin_url: linkedinUrl },
+    classification: { ...profile.classification, subindustry },
+    location: {
+      ...profile.location,
+      city,
+      source:
+        city === null
+          ? (profile.location.source ?? 'unknown')
+          : (truth.citySource ?? profile.location.source ?? 'unknown'),
+    },
+    size: {
+      ...profile.size,
+      estimated_range: resolvedRange,
+      status: resolvedSizeStatus,
+      ...(resolvedRange !== null && profile.size.estimated_range === null
+        ? { source: truth.employeeSizeSource ?? profile.size.source ?? 'unknown' }
+        : {}),
+    },
+  };
+
+  return {
+    ...refreshed,
+    notes: {
+      ...refreshed.notes,
+      executive_note: buildExecutiveNote(
+        !!(refreshed.company.website || refreshed.company.domain),
+        linkedinState,
+        refreshed.evidence.primary_source_type,
+      ),
+      missing_fields: computeRichProfileMissingFields(refreshed),
+    },
+  };
 }
 
 // ─── Merge helper ────────────────────────────────────────────────────────────

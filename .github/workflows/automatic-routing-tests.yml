@@ -424,6 +424,48 @@ jobs:
       - name: Run A1 Apollo finalization hardening and stable-target parity tests
         run: npm run test:a1-apollo-finalization-hardening
 
+      # AGENT1-APOLLO-CANDIDATE-OPERABILITY-VALIDATION-1 — la OPERABILIDAD del
+      # candidato y la veracidad de su ficha entran al check obligatorio.
+      #
+      # Los defectos medidos en la corrida live `b3afe066…` (candidato
+      # `f526cd07…`, runtime `89563be5`) no rompían ningún tipo, no fallaban al
+      # compilar y ninguna suite los veía:
+      #
+      #   * las OCHO filas de Apollo en Producción tenían `record_origin = NULL`,
+      #     así que la cola de revisión limpia —que exige `'production'`— no podía
+      #     aprobarlas ni descartarlas. El writer canónico nunca escribió la
+      #     columna: los `web_ai` con `'production'` venían de un backfill único y
+      #     los 22 escritos después de aquel backfill están igual de NULL;
+      #   * `scoring.warnings` afirmaba «LinkedIn no disponible» sobre una fila con
+      #     `linkedin_url` en columna y `mapping_status = 'confirmed'`, porque
+      #     `captureApolloCompanyFields()` corría DESPUÉS de `scoreCandidate()` —un
+      #     defecto de ORDEN, invisible al compilador;
+      #   * `rich_profile.notes.missing_fields` declaraba ausentes `linkedin_url`,
+      #     `subindustry`, `city` y `size` en una fila que tenía los cuatro.
+      #
+      # Lo que este paso guarda:
+      #
+      #   * que una corrida REAL escriba `record_origin = 'production'` y que la
+      #     fila así escrita PASE el gate de la cola limpia;
+      #   * que una corrida en seco y cualquier marcador de smoke/QA NUNCA se
+      #     asciendan a `production` — el gate de seguridad no se relaja;
+      #   * que los CUATRO gates (approve, approve+convert, discard, duplicate)
+      #     sigan rechazando NULL y todo origen no-production;
+      #   * que la captura del proveedor preceda al scoring y que los DOS call
+      #     sites reciban `linkedinCompanyUrl`;
+      #   * que DISPONIBILIDAD y VERIFICACIÓN sean campos distintos: una URL con
+      #     verificación ambigua nunca se reporta como ausente, y `mapping_status
+      #     = confirmed` nunca se disfraza de «verificado»;
+      #   * que `missing_fields` describa ausencias REALES post-enrichment;
+      #   * que `final_state_consistency` describa exclusivamente el estado
+      #     POST-writer, con el diagnóstico pre-writer conservado con su propio
+      #     nombre.
+      #
+      # Determinista: sin Apollo real, sin Tavily real, sin DB real, sin flags,
+      # sin créditos y sin escrituras en Producción.
+      - name: Run A1 Apollo candidate operability validation tests
+        run: npm run test:a1-apollo-candidate-operability-validation
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)

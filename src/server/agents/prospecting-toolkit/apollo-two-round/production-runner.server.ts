@@ -2216,13 +2216,19 @@ function buildObservabilityMetadata(input: {
       // § D — contradicciones entre desglose por ronda, snapshots y run_metrics.
       // `ok: true` en una corrida sana; los conflictos se nombran, no se corrigen.
       //
-      // § G — ESTE bloque se calcula con datos del orquestador, es decir antes
-      // de que el writer corra. No es el veredicto final: `persistence_gap` y
-      // `gap_causes` en `persistence_reconciliation` (escritos DESPUÉS del
-      // writer, en `apollo-persisted-candidate-truth.ts`) son la capa que sí
-      // incorpora lo que el writer decidió. Etiquetado explícito para que nadie
-      // lo lea como la última palabra.
-      final_state_consistency: {
+      // CANDIDATE-OPERABILITY-VALIDATION-1 § H — este bloque se llamaba
+      // `final_state_consistency` y llevaba `computed_at: 'pre_writer'` para
+      // avisar de que no era final. La etiqueta no bastaba: la corrida `b3afe066`
+      // publicó `final_state_consistency.ok = false` con `unclassified = 1`
+      // mientras `candidate_final_dispositions` cerraba 17/17 con
+      // `unclassified_count = 0` y `unexplained_gap = 0`. Dos bloques con el mismo
+      // nombre semántico y veredictos opuestos: quien leía «final» leía el
+      // diagnóstico intermedio.
+      //
+      // Ahora el nombre dice cuándo se midió. `final_state_consistency` lo escribe
+      // la pasada POST-writer (`reconcileApolloTwoRoundPersistedTruth`), que es la
+      // única que ha visto filas.
+      pre_writer_state_consistency: {
         ...toFinalStateConsistencyMetadata(finalStateConsistency),
         computed_at: 'pre_writer' as const,
       },

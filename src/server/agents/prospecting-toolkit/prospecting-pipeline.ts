@@ -526,6 +526,15 @@ export async function runProspectingPipeline(
       const matchingRawInput = rawInputs.find((ri) => ri.idx === evaluated.idx);
       const originQueryText = matchingRawInput?.query ?? searchQuery;
 
+      // CANDIDATE-OPERABILITY-VALIDATION-1 § D — el segundo call site del scorer
+      // recibe la misma verdad que el primero. Se lee del resultado crudo con la
+      // MISMA captura canónica; en esta ruta (evaluador LLM sobre búsqueda web) lo
+      // habitual es que no haya URL, y entonces la advertencia de ausencia es
+      // cierta y se conserva.
+      const providerCompanyFields = rawResult
+        ? captureApolloCompanyFields(rawResult, new Date().toISOString())
+        : null;
+
       const scoring = scoreCandidate({
         name,
         country: input.country,
@@ -536,6 +545,7 @@ export async function runProspectingPipeline(
         websiteVerification,
         duplicateCheck,
         catalogContext,
+        linkedinCompanyUrl: providerCompanyFields?.linkedin.companyLinkedInUrl ?? null,
         sourcePrimary: rawResult?.source ?? provider,
         sourcePriority:
           catalogContext.recommendedSources.length > 0
@@ -788,6 +798,21 @@ export async function buildProspectingPipelineCandidate(
     countryCode: context.countryCode,
   });
 
+  // A1-APOLLO-LINKEDIN-EMPLOYEES-1 — el LinkedIn empresarial y el número de
+  // empleados que el proveedor devolvió viajan CON el candidato. Antes se
+  // quedaban en `result.metadata` y el writer, que nunca los veía, los reportaba
+  // como ausencia del proveedor.
+  //
+  // CANDIDATE-OPERABILITY-VALIDATION-1 § D — y la captura ocurre AHORA, ANTES del
+  // scoring. Estaba justo debajo, y por eso `scoreCandidate` nunca recibía
+  // `linkedinCompanyUrl`: en la ruta Apollo la rama `else` de la señal de LinkedIn
+  // era la única alcanzable, y toda empresa con LinkedIn confirmado se persistía
+  // con la advertencia «LinkedIn no disponible». El dato existía y llegaba tarde.
+  const providerCompanyFields = captureApolloCompanyFields(
+    result,
+    context.observedAt ?? new Date().toISOString(),
+  );
+
   // Paso 4c: Scoring (determinístico, sin APIs externas)
   const scoring = scoreCandidate({
     name,
@@ -799,6 +824,9 @@ export async function buildProspectingPipelineCandidate(
     websiteVerification,
     duplicateCheck,
     catalogContext: context.catalogContext,
+    // § D — la URL canónica que el proveedor ya entregó, sin re-normalizar: es
+    // exactamente la misma que se persiste en la columna `linkedin_url`.
+    linkedinCompanyUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
     sourcePrimary: result.source ?? context.provider,
     sourcePriority:
       context.catalogContext.recommendedSources.length > 0
@@ -815,15 +843,6 @@ export async function buildProspectingPipelineCandidate(
       targetCountryCode: context.countryCode,
     }).evidenceLevel,
   });
-
-  // A1-APOLLO-LINKEDIN-EMPLOYEES-1 — el LinkedIn empresarial y el número de
-  // empleados que el proveedor devolvió viajan CON el candidato. Antes se
-  // quedaban en `result.metadata` y el writer, que nunca los veía, los reportaba
-  // como ausencia del proveedor.
-  const providerCompanyFields = captureApolloCompanyFields(
-    result,
-    context.observedAt ?? new Date().toISOString(),
-  );
 
   return {
     nameQualityFiltered,

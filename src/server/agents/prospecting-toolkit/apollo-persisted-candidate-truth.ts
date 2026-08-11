@@ -320,7 +320,96 @@ export function reconcileApolloTwoRoundPersistedTruth(
        */
       candidates_persisted: reconciliation.persisted_candidates > 0,
       persistence_reconciliation: reconciliation,
+      /**
+       * CANDIDATE-OPERABILITY-VALIDATION-1 § H — el veredicto de consistencia que
+       * SÍ vio filas.
+       *
+       * `final_state_consistency` describe ahora exclusivamente el estado
+       * POST-writer, y se deriva de las dos cifras autoritativas que esta misma
+       * pasada acaba de calcular: el hueco que ninguna causa explica
+       * (`unexplained_gap`) y las filas que el writer escribió. El diagnóstico
+       * PRE-writer sigue publicándose con su nombre propio
+       * (`pre_writer_state_consistency`) y sigue siendo útil: nombra las
+       * contradicciones entre rondas, snapshots y `run_metrics` que sólo se pueden
+       * ver antes de escribir. Lo que ya no hace es llamarse «final».
+       */
+      final_state_consistency: buildPostWriterStateConsistency(reconciliation),
     },
     reconciliation,
+  };
+}
+
+export type ApolloPostWriterStateConsistency = {
+  ok: boolean;
+  computed_at: 'post_writer';
+  /** Elegibles que no llegaron a ser fila y que NINGUNA causa explica. */
+  unexplained_gap: number;
+  persisted_candidates: number;
+  complete_valid_candidates: number | null;
+  target_gap: number | null;
+  target_reached: boolean;
+  conflicts: Array<{ code: string; detail: string }>;
+};
+
+/**
+ * § H — consistencia post-writer. Observacional: nombra los conflictos, no los
+ * corrige ni lanza.
+ *
+ * `ok` es fail-closed en un punto concreto: sin medición de completitud
+ * (`complete_valid_candidates === null`) no se puede afirmar que la corrida cerró
+ * bien, así que se declara conflicto en vez de dar por bueno un indeterminado.
+ */
+export function buildPostWriterStateConsistency(
+  reconciliation: ApolloPersistenceReconciliation,
+): ApolloPostWriterStateConsistency {
+  const conflicts: ApolloPostWriterStateConsistency['conflicts'] = [];
+
+  if (reconciliation.unexplained_gap > 0) {
+    conflicts.push({
+      code: 'persistence_gap_unexplained',
+      detail:
+        `elegibles=${reconciliation.eligible_before_persistence} ` +
+        `filas=${reconciliation.persisted_candidates} ` +
+        `sin_explicar=${reconciliation.unexplained_gap}`,
+    });
+  }
+
+  if (reconciliation.complete_valid_candidates === null) {
+    conflicts.push({
+      code: 'completeness_not_measured',
+      detail: 'el writer no midió completitud: `complete_valid_candidates` es null',
+    });
+  } else if (reconciliation.complete_valid_candidates > reconciliation.persisted_candidates) {
+    conflicts.push({
+      code: 'complete_valid_exceeds_persisted',
+      detail:
+        `completas=${reconciliation.complete_valid_candidates} ` +
+        `filas=${reconciliation.persisted_candidates}`,
+    });
+  }
+
+  // `target_reached` se DERIVA de las filas completas, igual que en § 1/§ E de
+  // WRITER-ONLY-ADMISSION. Si lo declarado y lo derivado discrepan, se nombra.
+  const derivedTargetReached =
+    reconciliation.complete_valid_candidates !== null &&
+    reconciliation.target_eligible_companies > 0 &&
+    reconciliation.complete_valid_candidates >= reconciliation.target_eligible_companies;
+
+  if (derivedTargetReached !== reconciliation.target_reached) {
+    conflicts.push({
+      code: 'target_reached_disagrees_with_complete_valid',
+      detail: `declarado=${reconciliation.target_reached} derivado=${derivedTargetReached}`,
+    });
+  }
+
+  return {
+    ok: conflicts.length === 0,
+    computed_at: 'post_writer',
+    unexplained_gap: reconciliation.unexplained_gap,
+    persisted_candidates: reconciliation.persisted_candidates,
+    complete_valid_candidates: reconciliation.complete_valid_candidates,
+    target_gap: reconciliation.target_gap,
+    target_reached: reconciliation.target_reached,
+    conflicts,
   };
 }
