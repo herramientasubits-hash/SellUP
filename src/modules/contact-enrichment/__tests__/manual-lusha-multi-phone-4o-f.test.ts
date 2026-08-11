@@ -1029,15 +1029,30 @@ describe('4O-F · § 32 — la suite está cableada al check obligatorio', () =>
 });
 
 describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => {
-  it('la colección NO se muestra: la UI sigue leyendo el escalar', () => {
+  it('el PRINCIPAL sigue siendo el escalar, y BUSCAR más números sigue sin existir', () => {
+    // 4O-F declaró esta deuda como abierta y prohibía toda UI de la colección.
+    // AGENT2A-PHONE-REVEAL-4O-G la cierra a medias, y sólo a medias, así que la
+    // guarda se ESTRECHA en vez de borrarse — borrarla dejaría sin vigilancia la
+    // mitad que sigue pendiente.
+    //
+    // Lo que 4O-G SÍ hizo: mostrar en LECTURA los números adicionales ya
+    // almacenados, en un disclosure aparte. Eso ya no puede prohibirse aquí.
+    //
+    // Lo que sigue prohibido, y es lo que esta prueba defiende:
+    //   * el drawer NO lee la colección por su cuenta — la lectura vive detrás de
+    //     una acción autorizada, no en el componente;
+    //   * el TELÉFONO PRINCIPAL que se muestra arriba sigue siendo el escalar del
+    //     candidato, no una elección hecha sobre la colección;
+    //   * «Buscar más números» NO existe. Ese sí gastaría, y no está autorizado.
     const detail = readRepo('src/components/contact-enrichment/contact-candidate-detail-sheet.tsx');
     for (const forbidden of [
       'contact_enrichment_candidate_phones',
-      'Ver más números',
       'Buscar más números',
     ]) {
-      assert.equal(detail.includes(forbidden), false, `4O-F no construye UI: apareció «${forbidden}»`);
+      assert.equal(detail.includes(forbidden), false, `apareció «${forbidden}»`);
     }
+    // El escalar sigue siendo la autoridad del número principal.
+    assert.match(detail, /const phoneNumber = candidate\?\.phone \?\? phoneMeta\?\.number \?\? null;/);
   });
 
   it('OFFICIAL_MULTI_PHONE_MODEL_PENDING — no existe `contact_phones`', () => {
