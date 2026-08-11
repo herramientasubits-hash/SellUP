@@ -224,6 +224,7 @@ describe('output sanitization', () => {
         countryCode: 'BR',
         sourceYear: 0,
         sourcePeriod: '',
+        inputScope: 'staged_subset',
         filesSeen: 0,
         filesAccepted: 0,
         filesRejected: 0,

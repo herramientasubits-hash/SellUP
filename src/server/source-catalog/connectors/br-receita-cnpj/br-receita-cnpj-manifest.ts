@@ -42,6 +42,25 @@ export const BR_RECEITA_CNPJ_ALLOWED_FILE_TYPES = [
   ...BR_RECEITA_CNPJ_OPTIONAL_FILE_TYPES,
 ] as const;
 
+/**
+ * How many distinct parts the Receita publishes per required family for a full national
+ * period (BR-SOURCE-14B.0M). A manifest declaring `inputScope: 'full_national'` must carry
+ * exactly this many distinct `partOrdinal` values (0..9) for every required family.
+ */
+export const BR_RECEITA_CNPJ_NATIONAL_PART_COUNT = 10 as const;
+
+/**
+ * What a manifest's declared files are meant to constitute.
+ *   - `staged_subset` (default): one or more parts, of unasserted completeness. A single-file
+ *     manifest (every manifest before BR-SOURCE-14B.0M) is a `staged_subset` by construction.
+ *   - `full_national`: the caller asserts every required family carries all 10 national parts
+ *     (`partOrdinal` 0..9). Asserting this without the parts present is a rejection
+ *     (`missing_national_part`), never a silent downgrade to `staged_subset`.
+ */
+export const BR_RECEITA_CNPJ_INPUT_SCOPES = ['staged_subset', 'full_national'] as const;
+export type BrReceitaCnpjManifestInputScope = (typeof BR_RECEITA_CNPJ_INPUT_SCOPES)[number];
+export const BR_RECEITA_CNPJ_DEFAULT_INPUT_SCOPE: BrReceitaCnpjManifestInputScope = 'staged_subset';
+
 /** Data-file extensions the validator will accept (a ZIP is explicitly rejected). */
 export const BR_RECEITA_CNPJ_ALLOWED_EXTENSIONS = ['.csv', '.txt'] as const;
 export type BrReceitaCnpjAllowedExtension = (typeof BR_RECEITA_CNPJ_ALLOWED_EXTENSIONS)[number];
@@ -74,6 +93,13 @@ export interface BrReceitaCnpjManifestFile {
   delimiter?: BrReceitaCnpjManifestDelimiter;
   /** Per-file layout mode; overrides the manifest-level default when present. */
   layoutMode?: BrReceitaCnpjManifestLayoutMode;
+  /**
+   * Which national part (0..9) this file is, within its `fileType`. Omitted means the SAME
+   * thing it always meant before BR-SOURCE-14B.0M: this is the one and only file for that
+   * `fileType` (equivalent to `partOrdinal: 0`). A `fileType` may be declared more than once
+   * ONLY when each declaration carries a distinct `partOrdinal`.
+   */
+  partOrdinal?: number;
 }
 
 /** The manifest document shape (validated structurally at read time). */
@@ -86,6 +112,8 @@ export interface BrReceitaCnpjManifest {
   mode: typeof BR_RECEITA_CNPJ_MANIFEST_MODE;
   /** Optional manifest-level layout mode applied to every file lacking its own. */
   layoutMode?: BrReceitaCnpjManifestLayoutMode;
+  /** What the declared files are meant to constitute. Defaults to `staged_subset`. */
+  inputScope?: BrReceitaCnpjManifestInputScope;
   files: BrReceitaCnpjManifestFile[];
 }
 
@@ -104,6 +132,9 @@ export type BrReceitaCnpjManifestReasonCode =
   | 'layout_mode_invalid'
   | 'required_file_missing'
   | 'duplicate_file_type'
+  | 'part_ordinal_invalid'
+  | 'input_scope_invalid'
+  | 'missing_national_part'
   | 'forbidden_file_type'
   | 'forbidden_file_name'
   | 'too_many_files'
@@ -136,6 +167,8 @@ export interface BrReceitaCnpjManifestFileReport {
   /** Sanitized basename only — never a full local path. */
   safeFileLabel: string;
   extension: string;
+  /** The resolved part ordinal (0..9), defaulting to 0 when the entry omitted it. Never a filename. */
+  partOrdinal?: number;
   sizeBytes?: number;
   /** Non-reversible SHA-256 truncated to 12 hex chars. */
   sha256Hash12?: string;
@@ -164,6 +197,8 @@ export interface BrReceitaCnpjManifestValidationResult {
   countryCode: typeof BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE;
   sourceYear: number;
   sourcePeriod: string;
+  /** Resolved scope (`staged_subset` unless the document declared `full_national`). */
+  inputScope: BrReceitaCnpjManifestInputScope;
   filesSeen: number;
   filesAccepted: number;
   filesRejected: number;

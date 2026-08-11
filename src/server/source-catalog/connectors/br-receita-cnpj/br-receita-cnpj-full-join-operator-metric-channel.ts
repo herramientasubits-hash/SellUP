@@ -47,6 +47,7 @@
 
 import * as path from 'node:path';
 
+import { containsBrazilCnpjLikeIdentifier } from './br-receita-cnpj-identifier-shape';
 import {
   BRAZIL_RECEITA_CALIBRATION_MEASUREMENT_VERSION,
   toBrazilReceitaCalibrationDurationBucket,
@@ -424,6 +425,13 @@ export function validateBrazilReceitaFullJoinPrivateContent(
         return;
       }
       if (IDENTIFIER_LIKE_DIGIT_RUN.test(value)) {
+        findings.push({ kind: 'identifier_like_digit_run', field });
+        return;
+      }
+      // Alphanumeric CNPJ (§ 3.1/§ 3.4, effective July 2026): the digit-run pattern above cannot
+      // see a CNPJ that contains letters. DV-validated, so this does not reject every alphanumeric
+      // technical value — only one that is also CNPJ-shaped-and-DV-valid.
+      if (containsBrazilCnpjLikeIdentifier(value)) {
         findings.push({ kind: 'identifier_like_digit_run', field });
         return;
       }
