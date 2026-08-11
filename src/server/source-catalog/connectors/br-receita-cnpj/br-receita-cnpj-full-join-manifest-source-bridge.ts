@@ -126,6 +126,7 @@ export const BRAZIL_RECEITA_FULL_JOIN_BRIDGE_REJECTIONS = [
   'manifest_declaration_missing',
   'family_not_authorized',
   'family_duplicated',
+  'part_ordinal_invalid',
   'required_family_missing',
   'path_absolute_not_allowed',
   'path_traversal_blocked',
@@ -247,6 +248,22 @@ interface ManifestEntry {
   readonly encoding: string;
   readonly delimiter: string;
   readonly layoutMode: string;
+}
+
+/** How many distinct national parts a required family may declare (BR-SOURCE-14B.0M). */
+const NATIONAL_PART_COUNT = 10;
+
+/**
+ * Resolves an entry's `partOrdinal`. `undefined` means "the one and only part" — `0`, exactly
+ * as it always has. Anything else that is not an integer in `[0, NATIONAL_PART_COUNT)` is refused
+ * rather than coerced.
+ */
+function resolvePartOrdinal(value: unknown): number | null {
+  if (value === undefined) return 0;
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < NATIONAL_PART_COUNT) {
+    return value;
+  }
+  return null;
 }
 
 /**
@@ -381,9 +398,16 @@ export async function resolveBrazilReceitaFullJoinManifestSources(
     typeof document.layoutMode === 'string' ? document.layoutMode : undefined;
 
   const findings: BrazilReceitaFullJoinBridgeFinding[] = [];
-  const joinSources: BrazilReceitaFullJoinSourceFileDescriptor[] = [];
+  // Collected, then SORTED, then turned into descriptors — see the sort below for why this can't
+  // be a direct push loop any more (BR-SOURCE-14B.0M § 9: descriptor order must be deterministic
+  // by (family, partOrdinal), never by manifest-document order).
+  const resolvedJoinEntries: Array<{
+    readonly family: BrazilReceitaFullJoinPartitionedFamily;
+    readonly partOrdinal: number;
+    readonly filePath: string;
+  }> = [];
   const lookupSources: BrazilReceitaFullJoinLookupSource[] = [];
-  const seenFamilies = new Set<string>();
+  const seenPartIdentities = new Set<string>();
 
   for (const rawEntry of document.files) {
     if (!isRecord(rawEntry) || typeof rawEntry.fileType !== 'string') {
@@ -401,13 +425,24 @@ export async function resolveBrazilReceitaFullJoinManifestSources(
       findings.push(refuse('family_not_authorized', family));
       continue;
     }
-    if (seenFamilies.has(family)) {
-      // A second entry for one family would give the engine two descriptors for the same role, and
-      // the second would silently win or silently double the traversal depending on the consumer.
+
+    const partOrdinal = resolvePartOrdinal(rawEntry.partOrdinal);
+    if (partOrdinal === null) {
+      findings.push(refuse('part_ordinal_invalid', family));
+      continue;
+    }
+    // Identity is (family, partOrdinal): a national manifest declares the SAME family up to 10
+    // times, once per distinct part. Two entries that both omit `partOrdinal` (both default to 0)
+    // are still the exact same identity, and are still refused.
+    const partIdentity = `${family}:${partOrdinal}`;
+    if (seenPartIdentities.has(partIdentity)) {
+      // A second entry for one (family, part) would give the engine two descriptors for the same
+      // role, and the second would silently win or silently double the traversal depending on the
+      // consumer.
       findings.push(refuse('family_duplicated', family));
       continue;
     }
-    seenFamilies.add(family);
+    seenPartIdentities.add(partIdentity);
 
     const entry: ManifestEntry = {
       family,
@@ -443,13 +478,10 @@ export async function resolveBrazilReceitaFullJoinManifestSources(
     }
 
     if (isJoinFamily) {
-      joinSources.push({
-        filePath: resolved.filePath,
+      resolvedJoinEntries.push({
         family: family as BrazilReceitaFullJoinPartitionedFamily,
-        // The ordinal is the descriptor's position in the JOIN list, assigned here and carried into
-        // every reference record. A technical index, never a name.
-        sourceFileOrdinal: joinSources.length,
-        encoding: BRAZIL_RECEITA_FULL_JOIN_BRIDGE_REQUIRED_ENCODING,
+        partOrdinal,
+        filePath: resolved.filePath,
       });
     } else {
       lookupSources.push({
@@ -461,12 +493,34 @@ export async function resolveBrazilReceitaFullJoinManifestSources(
   }
 
   for (const required of BRAZIL_RECEITA_FULL_JOIN_BRIDGE_JOIN_FAMILIES) {
-    if (!joinSources.some((source) => source.family === required)) {
+    if (!resolvedJoinEntries.some((entry) => entry.family === required)) {
       findings.push(refuse('required_family_missing', required));
     }
   }
 
   if (findings.length > 0) return { ok: false, findings };
+
+  // Deterministic order: family in its CONTRACTUAL order (empresas before estabelecimentos),
+  // then partOrdinal ascending. Never the manifest document's entry order, never readdir order,
+  // never insertion order — a caller that happened to list Empresas9 before Empresas0 must get the
+  // exact same descriptor list as one that listed them the other way.
+  const familyRank = (family: BrazilReceitaFullJoinPartitionedFamily): number =>
+    BRAZIL_RECEITA_FULL_JOIN_BRIDGE_JOIN_FAMILIES.indexOf(family);
+  const orderedJoinEntries = [...resolvedJoinEntries].sort((left, right) => {
+    const familyDelta = familyRank(left.family) - familyRank(right.family);
+    return familyDelta !== 0 ? familyDelta : left.partOrdinal - right.partOrdinal;
+  });
+  const joinSources: BrazilReceitaFullJoinSourceFileDescriptor[] = orderedJoinEntries.map(
+    (entry, index) => ({
+      filePath: entry.filePath,
+      family: entry.family,
+      // The ordinal is the descriptor's position in the SORTED join list — a technical index, never
+      // a name, and never the manifest's raw declaration order.
+      sourceFileOrdinal: index,
+      encoding: BRAZIL_RECEITA_FULL_JOIN_BRIDGE_REQUIRED_ENCODING,
+      manifestPartOrdinal: entry.partOrdinal,
+    }),
+  );
 
   return {
     ok: true,

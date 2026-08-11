@@ -79,6 +79,13 @@ export interface BrazilReceitaFullJoinSourceFileDescriptor {
   /** A stable, technical index into the descriptor list. The reference records carry this, not a name. */
   readonly sourceFileOrdinal: number;
   readonly encoding: 'latin1' | 'utf8';
+  /**
+   * Which national part (0..9) this descriptor's manifest entry declared, when it came from the
+   * manifest bridge (BR-SOURCE-14B.0M). Optional and purely informational — the engine never reads
+   * it, sorts by it, or requires it; every existing fixture-built descriptor omits it and remains
+   * valid. It exists only so a test can prove a descriptor's provenance survived bridging.
+   */
+  readonly manifestPartOrdinal?: number;
 }
 
 // ─── Join key ─────────────────────────────────────────────────────────────────

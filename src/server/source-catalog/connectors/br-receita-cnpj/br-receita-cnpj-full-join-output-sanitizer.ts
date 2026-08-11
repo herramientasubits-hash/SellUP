@@ -75,6 +75,8 @@
  *     string in any order, at any layer.
  */
 
+import { containsBrazilCnpjLikeIdentifier } from './br-receita-cnpj-identifier-shape';
+
 // ─── Finding kinds ────────────────────────────────────────────────────────────
 
 /** What kind of forbidden content was detected. Never carries the value itself. */
@@ -558,6 +560,12 @@ function checkStringValue(
       findings.push({ kind, path });
       return;
     }
+  }
+  // Alphanumeric CNPJ (§ 3.1/§ 3.4, effective July 2026): none of the digit-only patterns above
+  // can see a CNPJ that contains letters. DV-validated (not just shape), so this does not turn
+  // every 14-character technical token in a report into a false leak.
+  if (containsBrazilCnpjLikeIdentifier(text)) {
+    findings.push({ kind: 'cnpj_completo_like', path });
   }
 }
 

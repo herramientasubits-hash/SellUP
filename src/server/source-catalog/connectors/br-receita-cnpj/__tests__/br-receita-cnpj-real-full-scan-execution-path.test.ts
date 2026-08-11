@@ -230,6 +230,7 @@ function scriptedValidator(
       countryCode: 'BR',
       sourceYear: outcome.sourceYear ?? 2026,
       sourcePeriod: outcome.sourcePeriod ?? '2026-07',
+      inputScope: 'staged_subset',
       filesSeen: 2,
       filesAccepted: outcome.ok ? 2 : 0,
       filesRejected: outcome.ok ? 0 : 2,
