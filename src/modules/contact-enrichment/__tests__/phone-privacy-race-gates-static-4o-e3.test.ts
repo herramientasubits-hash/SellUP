@@ -241,15 +241,39 @@ describe('4O-E3 — la puerta de privacidad es UNA y está cableada', () => {
     );
   });
 
-  test('el disparo manual inyecta la puerta y la escritura condicional', () => {
-    const actions = readModule('lusha-phone-fallback-actions.ts');
+  // AGENT2A-PHONE-REVEAL-4O-F-R2 — el disparo manual dejó de tener cableado propio: ahora
+  // ejecuta la pata COMPARTIDA (`callLushaFallbackLeg`, `manualInvocation: true`). La
+  // propiedad protegida NO cambia —la invocación manual sigue teniendo la puerta de
+  // privacidad y el cierre condicional— pero se verifica donde ahora vive.
+  test('la invocación manual inyecta la puerta y la escritura condicional', () => {
+    const deps = readModule('phone-reveal-waterfall-deps.ts');
     assert.ok(
-      actions.includes('checkPrivacyGate: checkPhoneRevealPrivacyGate'),
+      deps.includes('checkPrivacyGate: checkPhoneRevealPrivacyGate'),
       'sin inyectar la dep, el gate del core no se ejecuta y no protege nada',
     );
     assert.ok(
-      actions.includes('persistTerminalSuppression: persistTerminalPhoneSuppression'),
+      deps.includes('persistTerminalSuppression: persistTerminalPhoneSuppression'),
       'el cierre por supresión tiene que ser el condicional, no un UPDATE suelto',
+    );
+    // La inyección de la puerta está CONDICIONADA al modo manual: en la ruta automática
+    // el core del waterfall ya la ejecutó antes de autorizar la corrida, y añadirla allí
+    // cambiaría el comportamiento del waterfall general, que R2 deja idéntico.
+    assert.ok(
+      deps.includes('...(manual ? { checkPrivacyGate: checkPhoneRevealPrivacyGate } : {})'),
+      'la puerta posterior a la respuesta está scoped a la invocación manual',
+    );
+  });
+
+  test('la acción manual delega y NO reintroduce un camino pagado propio', () => {
+    const actions = readModule('lusha-phone-fallback-actions.ts');
+    assert.ok(
+      actions.includes('executeLegacyLushaOnlyPhoneReveal'),
+      'el disparo manual pasa por el motor legacy_lusha_only, con reserva y corrida',
+    );
+    assert.equal(
+      actions.includes('callLusha:'),
+      false,
+      'volver a cablear la llamada aquí resucitaría el camino sin reserva ni gate',
     );
   });
 
@@ -271,13 +295,39 @@ describe('4O-E3 — la puerta de privacidad es UNA y está cableada', () => {
     assert.ok(secondGate < persistPhone, 'la re-comprobación va antes de escribir');
   });
 
-  test('el manual sigue guardando UN solo teléfono: el multi-phone queda diferido', () => {
+  // AGENT2A-PHONE-REVEAL-4O-F invirtió este guarda. En 4O-E3 afirmaba que el disparo
+  // manual seguía guardando UN teléfono; ahora afirma lo que ese cambio NO puede
+  // romper: que al cablear la colección la puerta de privacidad posterior siga
+  // cubriendo el camino manual. Es el punto exacto donde la protección se habría
+  // perdido en silencio, porque la transacción re-comprueba tombstones y supresión
+  // por persona bajo el lock pero NO lee `do_not_contact`.
+  test('la re-comprobación posterior precede a AMBAS escrituras, no solo a la escalar', () => {
     const core = readModule('lusha-phone-fallback-core.ts');
-    const actions = readModule('lusha-phone-fallback-actions.ts');
+    const secondGate = core.indexOf('const gateAfter = await deps.checkPrivacyGate(candidateId);');
+    const collectionBranch = core.indexOf('if (deps.persistPhoneCollection) {');
+    assert.notEqual(secondGate, -1, 'falta la re-comprobación posterior a la respuesta');
+    assert.notEqual(collectionBranch, -1);
     assert.ok(
-      !actions.includes('persistPhoneCollection'),
-      'MANUAL_LUSHA_MULTI_PHONE_PENDING sigue pendiente: no se cablea aquí',
+      secondGate < collectionBranch,
+      'la puerta tiene que evaluarse ANTES de bifurcar: dentro de la rama escalar dejaría ' +
+        'el camino transaccional sin protección de do_not_contact en vuelo',
     );
+    // Y se evalúa UNA sola vez tras la respuesta: dos copias divergirían.
+    assert.equal(
+      (core.match(/const gateAfter = await deps\.checkPrivacyGate\(candidateId\);/g) ?? []).length,
+      1,
+    );
+  });
+
+  test('el disparo manual cablea la colección transaccional (4O-F, vía pata compartida en R2)', () => {
+    const deps = readModule('phone-reveal-waterfall-deps.ts');
+    assert.ok(
+      deps.includes('persistPhoneCollection: persistCandidateLushaPhoneCollection'),
+      'MANUAL_LUSHA_MULTI_PHONE queda cerrado: LA MISMA transacción que el waterfall',
+    );
+    // La rama sigue siendo condicional en el core: el contrato de la dep no se
+    // convierte en obligatorio, que es lo que mantiene el core probable sin base.
+    const core = readModule('lusha-phone-fallback-core.ts');
     assert.ok(core.includes('if (deps.persistPhoneCollection) {'));
   });
 });
