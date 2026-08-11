@@ -174,7 +174,10 @@ import { APOLLO_TWO_ROUND_BILLING_CONTRACT } from '../apollo-usage-operation-con
 // subindustria, captura persistible del enrichment y gate final de ownership.
 import {
   assessApolloSubindustryPrecisionForRequest,
+  // PHASE 2B § 9 — el pliegue sectorial consume el veredicto OPERATIVO.
+  projectOperationalSubindustryVerdict,
   type ApolloSubindustryPrecisionAssessment,
+  type SubindustryPrecisionEvaluationOptions,
 } from '../apollo-subindustry-precision';
 import { captureApolloEnrichmentForPersistence } from '../apollo-enrichment-persistence-capture';
 // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM §§ 3 y 9 — versión del catálogo que redactó
@@ -464,13 +467,25 @@ export function toSectorEvidenceState(
  * hace `interleaveApolloSubindustryTerms`.
  */
 
+/**
+ * PHASE 2B § 9 — el pliegue lee el veredicto OPERATIVO, no el diagnóstico.
+ *
+ * Con las dos reglas de precisión vigentes (`mode: 'full'`) los dos veredictos son
+ * el MISMO, término por término, así que este cambio no altera ninguna decisión de
+ * hoy. Lo que instala es la frontera: una regla `confirm_only` futura podrá aportar
+ * su confirmación sin que sus ramas `ambiguous`/`rejected` —las que no se han
+ * calibrado— degraden el estado sectorial, convoquen enrichments o impidan
+ * persistir.
+ */
 export function foldSubindustryPrecisionIntoSectorState(
   base: CandidateSectorEvidenceState,
   precision: ApolloSubindustryPrecisionAssessment,
+  options?: SubindustryPrecisionEvaluationOptions,
 ): CandidateSectorEvidenceState {
-  if (!precision.subindustryMapped) return base;
-  if (precision.subindustryMatch === 'rejected') return 'sector_evidence_contradictory';
-  if (precision.subindustryMatch === 'ambiguous' && base === 'sector_evidence_confirmed') {
+  const operational = projectOperationalSubindustryVerdict(precision, options);
+  if (!operational.subindustryMapped) return base;
+  if (operational.subindustryMatch === 'rejected') return 'sector_evidence_contradictory';
+  if (operational.subindustryMatch === 'ambiguous' && base === 'sector_evidence_confirmed') {
     // Ambigua NO cuenta para el objetivo, pero sigue siendo el único estado que
     // puede competir por un enrichment: resolver esa duda es para lo que existe.
     return 'sector_evidence_missing_needs_enrichment';

@@ -566,6 +566,52 @@ jobs:
       - name: Run A1 subindustry key resolution hardening tests
         run: npm run test:a1-subindustry-key-resolution-hardening
 
+      # AGENT1-SUBINDUSTRY-PRECISION-COVERAGE-1 · PHASE 2B — los datos de precisión
+      # de las dos subindustrias mapeadas dejan de ser seis `Record<string,
+      # string[]>` dispersos y pasan a ser un `SubindustryPrecisionRuleSet` tipado
+      # por subindustria, con registry validado.
+      #
+      # Por qué entra al check obligatorio: la precisión de subindustria decide si
+      # un candidato CUENTA hacia el objetivo (#251) y si se persiste, así que un
+      # port «equivalente» que moviera un solo término movería gasto y admisión sin
+      # que nada lo dijera. Y a partir de aquí añadir una subindustria es editar un
+      # registro, que es exactamente la clase de cambio que necesita un ratchet.
+      #
+      # Lo que este paso protege:
+      #
+      #   * el contrato tipado: cada regla declara los mismos campos, su clave está
+      #     normalizada y coincide con su canónico, y ninguna regla mapeada se queda
+      #     sin anclas;
+      #   * cobertura EXACTAMENTE 2 de 73 — «Supermercados e Hipermercados» y
+      #     «Tiendas por Departamento, Moda y Calzado», nombradas una a una— y las
+      #     71 restantes sin mapeo. Un PR que añada una tercera clave falla aquí;
+      #   * § 8 alias de CATÁLOGO ≠ alias de PRECISIÓN: `precisionAliases` vacío en
+      #     las dos reglas, y ninguno de los 127 alias publicados —`banco`, `bank`,
+      #     `fintech` incluidos— resuelve identidad de precisión;
+      #   * § 14 colisiones: clave, canónico normalizado, `subindustryId`,
+      #     alias-alias y alias-canónico ajenos ABORTAN la construcción del registro
+      #     en el import, en vez de degradar a «gana la primera»;
+      #   * § 7 el resolver de #265 sigue intacto: identidad sólo por igualdad
+      #     exacta, sin substring, sin fuzzy, sin sector padre y sin que el orden del
+      #     registro pueda elegir ganador;
+      #   * § 11 paridad: con las dos reglas en `mode: 'full'`, el veredicto
+      #     OPERATIVO es el DIAGNÓSTICO sobre toda la matriz de término × campo ×
+      #     subindustria, en ANY-OF y en la forma de la metadata persistida;
+      #   * §§ 9–10 `confirm_only` implementado y SIN USAR en producción: sobre una
+      #     regla TEST-ONLY inyectada, `confirmed` confirma y puede contar, mientras
+      #     `ambiguous` y `rejected` quedan como diagnóstico y NO mueven el estado
+      #     sectorial, NO crean prioridad de enrichment y NO impiden persistir;
+      #   * § 13 ANY-OF con modos mezclados: [A,B] == [B,A] en veredicto y en
+      #     conteo, y el empate se desempata por el orden PEDIDO, declarado;
+      #   * § 17 «Formación Corporativa y Corporate Training» no está registrada y
+      #     no auto-confirma.
+      #
+      # 0 subindustrias nuevas, 0 migraciones, 0 escrituras en Producción, 0
+      # créditos. Determinista y offline: sin Apollo, sin Tavily, sin Lusha, sin
+      # HubSpot, sin Supabase y sin flags.
+      - name: Run A1 subindustry precision rule-set registry tests
+        run: npm run test:a1-subindustry-precision-ruleset-registry
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)

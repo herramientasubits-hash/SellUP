@@ -45,6 +45,19 @@ import {
   resolveSubindustryPrecisionIdentity,
   type SubindustryPrecisionIdentityEntry,
 } from './apollo-subindustry-key-resolution';
+import {
+  buildSubindustryPrecisionRuleSetRegistry,
+  SUBINDUSTRY_PRECISION_RULE_SETS,
+  type SubindustryMatchFamily,
+  type SubindustryPrecisionMode,
+  type SubindustryPrecisionRuleSet,
+} from './apollo-subindustry-precision-rule-sets';
+
+export type {
+  SubindustryMatchFamily,
+  SubindustryPrecisionMode,
+  SubindustryPrecisionRuleSet,
+};
 
 // ─── Vocabulario del veredicto ────────────────────────────────────────────────
 
@@ -88,17 +101,16 @@ export type SubindustryEvidenceItem = {
 
 /**
  * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 6 — para una subindustria
- * COOMPUESTA (varias familias bajo una sola etiqueta), qué familia produjo la
+ * COMPUESTA (varias familias bajo una sola etiqueta), qué familia produjo la
  * confirmación. `none` cuando el veredicto no es `confirmed`, o la subindustria
  * no distingue familias.
  *
  * Una familia confirmada basta: no se exige que una empresa cumpla las tres.
+ *
+ * PHASE 2B — el TIPO vive ahora junto al mapa que lo asigna
+ * (`apollo-subindustry-precision-rule-sets.ts`) y se re-exporta arriba, para que
+ * ningún consumidor histórico cambie de import.
  */
-export type SubindustryMatchFamily =
-  | 'department_store'
-  | 'fashion_apparel'
-  | 'footwear'
-  | 'none';
 
 /**
  * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 2 — veredicto de UNA de las
@@ -160,279 +172,37 @@ export type SubindustryVerdictReason =
   | 'broad_industry_only'
   | 'no_subindustry_evidence';
 
-// ─── Catálogos de señales ─────────────────────────────────────────────────────
+// ─── Catálogos de señales · PHASE 2B ─────────────────────────────────────────
+//
+// Los cinco catálogos de términos y el mapa de familias vivían aquí como seis
+// `Record<string, string[]>` indexados por clave normalizada. Ahora son un
+// `SubindustryPrecisionRuleSet` por subindustria, en
+// `apollo-subindustry-precision-rule-sets.ts`. El vocabulario es el MISMO,
+// término por término y en el mismo orden: PHASE 2B porta, no amplía.
+//
+// Lo que se queda en este archivo es la MÁQUINA —matcher por tokens, campos
+// clasificadores, autoridad de fuentes, techo de confianza, precedencia del
+// ANY-OF— porque es igual para toda subindustria. Un evaluador por subindustria
+// (`evaluateApolloSupermarket`, `evaluateApolloBanking`…) es exactamente lo que
+// esta separación existe para no necesitar.
 
 /**
- * ANCLAS: términos que, por sí solos, nombran la operación de la subindustria.
+ * Registro efectivo, validado en el import.
  *
- * `grocery` a secas NO está aquí, y esa ausencia es deliberada: es substring de
- * `grocery delivery` y de `grocery marketplace`, y con él una app de domicilios
- * quedaba «confirmada». Lo mismo con `retail`, que ya tiene su propio historial
- * (v1.16K-AC) por ser substring de `retail banking`.
+ * `buildSubindustryPrecisionRuleSetRegistry` LANZA ante identidad ambigua o ancla
+ * sin familia (§ 14). Al hacerlo aquí, el fallo llega en el arranque del módulo
+ * —cada suite, el typecheck y el build— y nunca en una corrida con crédito ya
+ * reservado.
  */
-/**
- * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 6 — «Tiendas por
- * Departamento, Moda y Calzado» es una etiqueta COMPUESTA: tres familias de
- * operador distintas bajo un solo nombre. Confirmar CUALQUIERA basta; no se
- * exige que una empresa cumpla las tres.
- *
- * `confeccion` y `calzado` sueltos NO son anclas (§ 5): son substring de
- * `confección industrial` y de `fabricante de calzado`, y con ellos un
- * fabricante mayorista quedaría confirmado sin una sola señal de venta al
- * consumidor. Sólo la forma compuesta con evidencia de venta/comercio cuenta.
- *
- * Declarado ANTES de `SUBINDUSTRY_ANCHOR_TERMS`, que deriva sus claves de aquí.
- */
-const SUBINDUSTRY_ANCHOR_FAMILIES: Record<string, Record<string, SubindustryMatchFamily>> = {
-  'tiendas por departamento, moda y calzado': {
-    // Tiendas por departamento — español e inglés.
-    'tienda por departamentos': 'department_store',
-    'tiendas por departamentos': 'department_store',
-    'almacen por departamentos': 'department_store',
-    'almacenes por departamentos': 'department_store',
-    'department store': 'department_store',
-    'department stores': 'department_store',
-    'departmental store': 'department_store',
-    'departmental stores': 'department_store',
+const PRECISION_RULE_SETS = buildSubindustryPrecisionRuleSetRegistry(
+  SUBINDUSTRY_PRECISION_RULE_SETS,
+  normalizeSubindustryIdentity,
+);
 
-    // Moda y confección comercial.
-    moda: 'fashion_apparel',
-    fashion: 'fashion_apparel',
-    'fashion retail': 'fashion_apparel',
-    'fashion retailer': 'fashion_apparel',
-    'apparel retail': 'fashion_apparel',
-    'apparel retailer': 'fashion_apparel',
-    'clothing store': 'fashion_apparel',
-    'clothing stores': 'fashion_apparel',
-    'clothing retailer': 'fashion_apparel',
-    'tienda de ropa': 'fashion_apparel',
-    'tiendas de ropa': 'fashion_apparel',
-    'prendas de vestir': 'fashion_apparel',
-    'venta de confeccion': 'fashion_apparel',
-    'venta de prendas de vestir': 'fashion_apparel',
-
-    // Calzado — sólo con evidencia de venta/tienda, nunca `calzado` a secas.
-    'footwear retail': 'footwear',
-    'footwear retailer': 'footwear',
-    'shoe store': 'footwear',
-    'shoe stores': 'footwear',
-    'shoe retailer': 'footwear',
-    'tienda de calzado': 'footwear',
-    'tiendas de calzado': 'footwear',
-    'venta de calzado': 'footwear',
-  },
-};
-
-const SUBINDUSTRY_ANCHOR_TERMS: Record<string, string[]> = {
-  'supermercados e hipermercados': [
-    // Español — nombran al operador, no a la categoría de producto.
-    'supermercado',
-    'supermercados',
-    'hipermercado',
-    'hipermercados',
-    'autoservicio',
-    'cadena de supermercados',
-    'almacen de cadena',
-    'tienda de descuento',
-    // Inglés
-    'supermarket',
-    'supermarkets',
-    'hypermarket',
-    'hypermarkets',
-    'grocery store',
-    'grocery stores',
-    'grocery chain',
-    'grocery retailer',
-    'supermarket chain',
-  ],
-  'tiendas por departamento, moda y calzado': Object.keys(
-    SUBINDUSTRY_ANCHOR_FAMILIES['tiendas por departamento, moda y calzado'],
-  ),
-};
-
-/**
- * Modelos de negocio EXCLUYENTES: quien opera así no es de la subindustria
- * pedida, por muchos términos de categoría que comparta con ella.
- *
- * Un distribuidor mayorista de alimentos vende A supermercados y restaurantes;
- * su catálogo menciona los mismos productos y con frecuencia la misma palabra
- * `grocery`. Es el caso B del § 3 y su veredicto es `rejected`.
- */
-/**
- * § 1 — nota sobre los PLURALES de las listas que RECHAZAN.
- *
- * Con el matcher por substring, `food distributor` casaba dentro de «food
- * distributors» de regalo. Con el matcher por token ya no, y perder una
- * coincidencia aquí no es un detalle de estilo: debilitaría un RECHAZO, que es
- * la dirección insegura. Por eso las formas plurales e inflexionadas se declaran
- * explícitas, igual que el módulo ya hacía con `supermercado`/`supermercados`,
- * en vez de reintroducir coincidencia difusa por sufijos —que volvería a hacer
- * casar `moda` dentro de `modas`… y de cualquier otra cosa que empiece igual.
- */
-const SUBINDUSTRY_EXCLUSIVE_BUSINESS_MODEL_TERMS: Record<string, string[]> = {
-  'supermercados e hipermercados': [
-    'wholesale distributor',
-    'wholesale distributors',
-    'wholesale distribution',
-    'food distributor',
-    'food distributors',
-    'food distribution',
-    'foodservice distribution',
-    'distribuidor mayorista',
-    'distribuidores mayoristas',
-    'distribucion mayorista',
-    'distribuidor de alimentos',
-    'distribuidores de alimentos',
-    'distribucion de alimentos',
-    'venta al por mayor',
-    'b2b marketplace',
-    'restaurant supply',
-    'proveedor de restaurantes',
-    'proveedores de restaurantes',
-  ],
-};
-
-/**
- * Modelos de negocio EN CONFLICTO: pueden coexistir con la subindustria (una
- * cadena real tiene app de domicilios) pero no la demuestran por sí solos.
- *
- * Con ancla ⇒ `ambiguous`: la evidencia se contradice y resolverla no es cosa de
- * este módulo. Sin ancla ⇒ `rejected`: sólo queda el modelo que no es el pedido.
- * Es el caso C del § 3.
- */
-const SUBINDUSTRY_CONFLICTING_BUSINESS_MODEL_TERMS: Record<string, string[]> = {
-  'supermercados e hipermercados': [
-    'grocery delivery',
-    'delivery app',
-    'delivery apps',
-    'on-demand delivery',
-    'domicilios',
-    'aplicacion de domicilios',
-    'marketplace',
-    'marketplaces',
-    'ecommerce platform',
-    'e-commerce platform',
-    'quick commerce',
-    'q-commerce',
-    'dark store',
-    'dark stores',
-    'last mile delivery',
-  ],
-};
-
-/**
- * Industrias AMPLIAS: contienen a la subindustria sin demostrarla.
- *
- * Presencia de una de ellas y NADA más ⇒ `ambiguous` (caso D del § 3: una
- * empresa con `retail` genérico nunca queda `confirmed`).
- */
-const SUBINDUSTRY_BROAD_INDUSTRY_TERMS: Record<string, string[]> = {
-  'supermercados e hipermercados': [
-    'retail',
-    'consumer goods',
-    'consumer services',
-    'food',
-    'food and beverage',
-    'food & beverages',
-    'food and beverages',
-    'beverages',
-    'wholesale',
-    'grocery',
-    'comercio',
-    'consumo',
-  ],
-  // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 5 — amplias a propósito:
-  // presencia y NADA más ⇒ `ambiguous`, nunca `confirmed`. `almacen` está aquí
-  // suelto porque es parte frecuente del NOMBRE comercial («Almacenes La 14») y
-  // no debe, por sí solo, demostrar ninguna de las tres familias.
-  'tiendas por departamento, moda y calzado': [
-    'retail',
-    'retailer',
-    'retailers',
-    'consumer goods',
-    'comercio',
-    'marketplace',
-    'marketplaces',
-    'supermarket',
-    'grocery',
-    'food',
-    'beverage',
-    'beverages',
-    'manufacturer',
-    'manufacturers',
-    'distributor',
-    'distributors',
-    'wholesale',
-    'shopping',
-    // § 1 — con matcher por token, `almacen` ya NO cubre «Almacenes La 14»: el
-    // plural se declara aparte. Ambos siguen siendo AMPLIOS a propósito (§ 5).
-    'almacen',
-    'almacenes',
-  ],
-};
-
-/**
- * Industrias que CONTRADICEN la subindustria.
- *
- * `retail banking` y `commercial banking` se nombran explícitamente porque
- * contienen el substring `retail`, que es amplio: sin nombrarlas, la comprobación
- * de amplitud las dejaría pasar como «por confirmar».
- */
-const SUBINDUSTRY_CONTRADICTORY_INDUSTRY_TERMS: Record<string, string[]> = {
-  'supermercados e hipermercados': [
-    'retail banking',
-    'commercial banking',
-    'investment banking',
-    'banking',
-    'financial services',
-    'finance',
-    'insurance',
-    'capital markets',
-    'software',
-    'saas',
-    'information technology',
-    'consulting',
-  ],
-  // AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 5, caso E — la industria
-  // DECLARADA contradice, sin que ningún término amplio la salve. Un fabricante
-  // de alimentos que menciona `retail` en su catálogo no queda «por confirmar»:
-  // su industria declarada ya dice que no es un operador de tienda/moda/calzado.
-  // Se incluyen también supermercado/hipermercado — es una subindustria de
-  // retail DISTINTA, no una de las tres familias de esta etiqueta.
-  'tiendas por departamento, moda y calzado': [
-    'food production',
-    'food manufacturing',
-    'fabricante de alimentos',
-    'fabricantes de alimentos',
-    'food and beverage manufacturing',
-    'beverage manufacturing',
-    'agriculture',
-    'farming',
-    'supermarket',
-    'supermarkets',
-    'supermercado',
-    'supermercados',
-    'hypermarket',
-    'hypermarkets',
-    'hipermercado',
-    'hipermercados',
-    'grocery store',
-    'grocery stores',
-    'banking',
-    'financial services',
-    'insurance',
-    'software',
-    'saas',
-    'information technology',
-    'consulting',
-    'oil & energy',
-    'mining & metals',
-    'construction',
-    'real estate',
-    'hospital & health care',
-    'pharmaceuticals',
-  ],
-};
+/** § 12 — las reglas de precisión vigentes, para auditoría y ratchets. */
+export function listSubindustryPrecisionRuleSets(): readonly SubindustryPrecisionRuleSet[] {
+  return PRECISION_RULE_SETS;
+}
 
 // ─── Campos del proveedor ─────────────────────────────────────────────────────
 
@@ -621,36 +391,32 @@ function toNormalizedTexts(value: unknown): string[] {
 }
 
 /**
- * PHASE 2A § 10 — registro de identidad de las subindustrias CON política de
- * precisión. Dos entradas, las mismas dos de siempre.
+ * PHASE 2A § 10 · PHASE 2B § 7 — vista de IDENTIDAD del registro de reglas.
  *
- * Se declara aquí, junto a los catálogos que indexa, y la suite verifica que sus
- * claves son EXACTAMENTE las de `SUBINDUSTRY_ANCHOR_TERMS`
- * (`listSubindustryPrecisionAnchorKeys`): una subindustria con anclas y sin
+ * El resolver exact/fail-closed de PHASE 2A consume esta forma, y ahora se DERIVA
+ * de los rule-sets en vez de declararse aparte. Es la diferencia entre «dos
+ * registros que hay que mantener sincronizados» y uno: una regla con anclas y sin
  * identidad sería inevaluable, y una con identidad y sin anclas sería una
- * subindustria «mapeada» que no puede confirmar a nadie.
+ * subindustria «mapeada» incapaz de confirmar a nadie.
  *
- * `explicitAliases` está VACÍO a propósito (§ 4): hoy la precisión recibe una
- * etiqueta de texto sin la versión del catálogo que la resolvió, así que conectar
- * los 127 alias publicados crearía una segunda fuente de verdad. Es la decisión
- * de Phase 2B — ver `SubindustryPrecisionPhase2BInput`.
- *
- * `subindustryId` es `null` por el mismo motivo: ningún consumidor lo trae aún.
+ * § 8 — `explicitAliases` sale de `precisionAliases`, que hoy está VACÍO en las
+ * dos reglas. Alias de CATÁLOGO ≠ alias de PRECISIÓN: los 127 alias publicados
+ * viajan con un `catalog_version_id` que la precisión no recibe, y promoverlos por
+ * conveniencia admitiría palabras genéricas de una pieza (`banco`, `bank`,
+ * `fintech`) como identidad.
  */
-const SUBINDUSTRY_PRECISION_IDENTITY_REGISTRY: readonly SubindustryPrecisionIdentityEntry[] = [
-  {
-    key: 'supermercados e hipermercados',
-    canonicalName: 'Supermercados e Hipermercados',
-    subindustryId: null,
-    explicitAliases: [],
-  },
-  {
-    key: 'tiendas por departamento, moda y calzado',
-    canonicalName: 'Tiendas por Departamento, Moda y Calzado',
-    subindustryId: null,
-    explicitAliases: [],
-  },
-];
+function toIdentityRegistry(
+  ruleSets: readonly SubindustryPrecisionRuleSet[],
+): readonly SubindustryPrecisionIdentityEntry[] {
+  return ruleSets.map((ruleSet) => ({
+    key: ruleSet.key,
+    canonicalName: ruleSet.canonicalName,
+    subindustryId: ruleSet.subindustryId,
+    explicitAliases: ruleSet.precisionAliases,
+  }));
+}
+
+const SUBINDUSTRY_PRECISION_IDENTITY_REGISTRY = toIdentityRegistry(PRECISION_RULE_SETS);
 
 /** § 10 — las subindustrias con política de precisión, para auditoría y pruebas. */
 export function listSubindustryPrecisionIdentityRegistry(): SubindustryPrecisionIdentityEntry[] {
@@ -661,18 +427,20 @@ export function listSubindustryPrecisionIdentityRegistry(): SubindustryPrecision
 }
 
 /**
- * Claves que los catálogos de ANCLAS declaran. Sólo lectura.
+ * Claves que las reglas de precisión declaran. Sólo lectura.
  *
- * Existe para que la suite pueda probar que el registro de identidad y los
- * catálogos de precisión hablan del mismo conjunto de subindustrias, sin exponer
- * los términos.
+ * Existe para que la suite pueda probar que el registro de identidad y las reglas
+ * hablan del mismo conjunto de subindustrias, sin exponer los términos. Con los
+ * rule-sets, esa igualdad es estructural —las dos vistas salen del mismo array—
+ * pero el ratchet se conserva: es lo que fallaría si alguien volviera a declarar
+ * las dos listas por separado.
  */
 export function listSubindustryPrecisionAnchorKeys(): string[] {
-  return Object.keys(SUBINDUSTRY_ANCHOR_TERMS);
+  return PRECISION_RULE_SETS.map((ruleSet) => ruleSet.key);
 }
 
 /**
- * Clave de catálogo de una subindustria, resuelta sólo por coincidencia EXACTA.
+ * Regla de precisión de una subindustria, resuelta sólo por coincidencia EXACTA.
  *
  * PHASE 2A §§ 1, 2 y 9 — sustituye la contención bidireccional por substring
  * (`normalized.includes(key) || key.includes(normalized)`), que hacía que
@@ -682,17 +450,26 @@ export function listSubindustryPrecisionAnchorKeys(): string[] {
  * candidato cuenta hacia el objetivo y si se persiste—. El ganador, además, lo
  * elegía el orden de `Object.keys`.
  *
- * Ahora: id exacto, canónico normalizado exacto, alias explícito normalizado
+ * Ahora: id exacto, canónico normalizado exacto, alias de precisión normalizado
  * exacto, o `null`. Sin fallback al sector padre, sin clave más cercana, sin
  * primera entrada del registro y sin mapping por defecto.
+ *
+ * PHASE 2B § 7 — el registro NO se itera aquí buscando parecidos. La resolución
+ * sigue siendo la del § 2 de PHASE 2A; lo único que cambia es que devuelve la
+ * regla completa en vez de su clave, para que el evaluador no tenga que volver a
+ * indexar seis catálogos por separado.
  */
-function resolveSubindustryKey(subindustry: string | null | undefined): string | null {
-  return (
-    resolveSubindustryPrecisionIdentity(
-      { label: subindustry ?? null },
-      SUBINDUSTRY_PRECISION_IDENTITY_REGISTRY,
-    )?.key ?? null
+function resolveSubindustryRuleSet(
+  subindustry: string | null | undefined,
+  ruleSets: readonly SubindustryPrecisionRuleSet[],
+  identityRegistry: readonly SubindustryPrecisionIdentityEntry[],
+): SubindustryPrecisionRuleSet | null {
+  const resolved = resolveSubindustryPrecisionIdentity(
+    { label: subindustry ?? null },
+    identityRegistry,
   );
+  if (resolved === null) return null;
+  return ruleSets.find((ruleSet) => ruleSet.key === resolved.key) ?? null;
 }
 
 // ─── Lectura de evidencia ─────────────────────────────────────────────────────
@@ -778,25 +555,27 @@ function collectBusinessModelSignals(
  */
 function classifyDeclaredIndustry(
   meta: Record<string, unknown>,
-  key: string,
+  ruleSet: SubindustryPrecisionRuleSet,
 ): IndustryMatchVerdict {
   const declared = DECLARED_INDUSTRY_FIELDS.flatMap((path) =>
     toNormalizedTexts(readPath(meta, path)),
   );
   if (declared.length === 0) return 'unknown';
 
-  const contradictory = SUBINDUSTRY_CONTRADICTORY_INDUSTRY_TERMS[key] ?? [];
-  if (contradictory.some((term) => someTextMatches(declared, term))) {
+  if (
+    ruleSet.contradictoryProviderIndustries.some((term) => someTextMatches(declared, term))
+  ) {
     return 'contradictory';
   }
 
-  const anchors = SUBINDUSTRY_ANCHOR_TERMS[key] ?? [];
-  if (anchors.some((anchor) => someTextMatches(declared, anchor))) {
+  // PHASE 2B § 3 — «provider industry matches» NO es una lista aparte: la
+  // industria declarada se comprueba contra las MISMAS anclas. Duplicarlas en el
+  // rule-set crearía dos verdades que podrían divergir al editar una sola.
+  if (ruleSet.anchors.some((anchor) => someTextMatches(declared, anchor))) {
     return 'confirmed';
   }
 
-  const broad = SUBINDUSTRY_BROAD_INDUSTRY_TERMS[key] ?? [];
-  if (broad.some((term) => someTextMatches(declared, term))) {
+  if (ruleSet.broadProviderIndustries.some((term) => someTextMatches(declared, term))) {
     return 'broad_compatible';
   }
 
@@ -862,10 +641,10 @@ function assessment(
  * familia asociada.
  */
 function resolveFamilyForEvidence(
-  key: string,
+  ruleSet: SubindustryPrecisionRuleSet,
   evidence: readonly SubindustryEvidenceItem[],
 ): SubindustryMatchFamily {
-  const families = SUBINDUSTRY_ANCHOR_FAMILIES[key];
+  const families = ruleSet.anchorFamilies;
   if (!families) return 'none';
   for (const item of evidence) {
     const family = families[item.term];
@@ -888,11 +667,13 @@ function resolveFamilyForEvidence(
 function assessSingleRequestedSubindustry(
   result: WebSearchResult,
   subindustry: string | null | undefined,
+  ruleSets: readonly SubindustryPrecisionRuleSet[],
+  identityRegistry: readonly SubindustryPrecisionIdentityEntry[],
 ): ApolloSubindustryPrecisionAssessment {
   const requestedSubindustry = subindustry?.trim() ? subindustry.trim() : null;
-  const key = resolveSubindustryKey(requestedSubindustry);
+  const ruleSet = resolveSubindustryRuleSet(requestedSubindustry, ruleSets, identityRegistry);
 
-  if (key === null) {
+  if (ruleSet === null) {
     return assessment({
       requestedSubindustry,
       subindustryMapped: false,
@@ -902,8 +683,8 @@ function assessSingleRequestedSubindustry(
   }
 
   const meta = (result.metadata ?? {}) as Record<string, unknown>;
-  const anchors = SUBINDUSTRY_ANCHOR_TERMS[key] ?? [];
-  const industryMatch = classifyDeclaredIndustry(meta, key);
+  const anchors = ruleSet.anchors;
+  const industryMatch = classifyDeclaredIndustry(meta, ruleSet);
 
   const base = {
     requestedSubindustry,
@@ -925,14 +706,8 @@ function assessSingleRequestedSubindustry(
     ...collectAnchorEvidence(meta, anchors),
     ...collectCommercialNameEvidence(result.title, anchors),
   ];
-  const exclusive = collectBusinessModelSignals(
-    meta,
-    SUBINDUSTRY_EXCLUSIVE_BUSINESS_MODEL_TERMS[key] ?? [],
-  );
-  const conflicting = collectBusinessModelSignals(
-    meta,
-    SUBINDUSTRY_CONFLICTING_BUSINESS_MODEL_TERMS[key] ?? [],
-  );
+  const exclusive = collectBusinessModelSignals(meta, ruleSet.exclusiveBusinessModels);
+  const conflicting = collectBusinessModelSignals(meta, ruleSet.conflictingBusinessModels);
 
   // 2. Modelo de negocio excluyente: quien distribuye al por mayor no es el
   //    operador buscado, comparta o no su vocabulario de producto (caso B).
@@ -973,7 +748,7 @@ function assessSingleRequestedSubindustry(
     return assessment({
       ...base,
       subindustryMatch: 'confirmed',
-      subindustryMatchFamily: resolveFamilyForEvidence(key, evidence),
+      subindustryMatchFamily: resolveFamilyForEvidence(ruleSet, evidence),
       subindustryConfidence: SOURCE_AUTHORITY[source],
       subindustryEvidence: evidence,
       classificationSource: source,
@@ -1022,8 +797,11 @@ const VERDICT_PRECEDENCE: Record<SubindustryMatchVerdict, number> = {
  * sólo dice que SellUp aún no sabe evaluarla. Reportar la segunda escondería que
  * la primera sí se evaluó.
  */
-function verdictScore(assessment: ApolloSubindustryPrecisionAssessment): number {
-  return VERDICT_PRECEDENCE[assessment.subindustryMatch] * 10 + (assessment.subindustryMapped ? 1 : 0);
+function verdictScore(verdict: {
+  subindustryMatch: SubindustryMatchVerdict;
+  subindustryMapped: boolean;
+}): number {
+  return VERDICT_PRECEDENCE[verdict.subindustryMatch] * 10 + (verdict.subindustryMapped ? 1 : 0);
 }
 
 /**
@@ -1077,16 +855,22 @@ export function normalizeRequestedSubindustries(
 export function assessApolloSubindustryPrecisionForRequest(
   result: WebSearchResult,
   requestedSubindustries: readonly (string | null | undefined)[] | null | undefined,
+  options?: SubindustryPrecisionEvaluationOptions,
 ): ApolloSubindustryPrecisionAssessment {
+  const ruleSets = options?.ruleSets ?? PRECISION_RULE_SETS;
+  const identityRegistry =
+    ruleSets === PRECISION_RULE_SETS
+      ? SUBINDUSTRY_PRECISION_IDENTITY_REGISTRY
+      : toIdentityRegistry(ruleSets);
   const requested = normalizeRequestedSubindustries(requestedSubindustries);
 
   if (requested.length === 0) {
-    return assessSingleRequestedSubindustry(result, null);
+    return assessSingleRequestedSubindustry(result, null, ruleSets, identityRegistry);
   }
 
   const evaluated = requested.map((label) => ({
     label,
-    assessment: assessSingleRequestedSubindustry(result, label),
+    assessment: assessSingleRequestedSubindustry(result, label, ruleSets, identityRegistry),
   }));
 
   // Estable: sólo una puntuación ESTRICTAMENTE mayor desplaza al ganador, así
@@ -1131,8 +915,142 @@ export function assessApolloSubindustryPrecisionForRequest(
 export function assessApolloSubindustryPrecision(
   result: WebSearchResult,
   subindustry: string | null | undefined,
+  options?: SubindustryPrecisionEvaluationOptions,
 ): ApolloSubindustryPrecisionAssessment {
-  return assessApolloSubindustryPrecisionForRequest(result, [subindustry]);
+  return assessApolloSubindustryPrecisionForRequest(result, [subindustry], options);
+}
+
+// ─── § 9 · modo de la regla y veredicto OPERATIVO ─────────────────────────────
+//
+// El defecto que este § previene, antes de que exista: hasta aquí el veredicto de
+// precisión es UNO, y lo leen dos consumidores que deciden dinero —el pliegue
+// sectorial del runner (`foldSubindustryPrecisionIntoSectorState`) y el contrato de
+// completitud (`resolveCandidateSubindustryRequirement`)—. Añadir una subindustria
+// nueva con reglas sin calibrar significaría, hoy, que sus ramas NEGATIVAS
+// (`ambiguous`, `rejected`) empiezan a mover el estado sectorial, a convocar
+// enrichments y a impedir persistencias desde el primer despliegue.
+//
+// `confirm_only` separa esas dos lecturas: el veredicto DIAGNÓSTICO conserva las
+// tres ramas —es lo que la ficha muestra y lo que la calibración necesita leer— y
+// el veredicto OPERATIVO admite sólo la rama positiva. Una regla nueva puede así
+// aportar evidencia sin poder perjudicar.
+//
+// Ninguna regla de producción usa `confirm_only` todavía (§ 9). Con las dos reglas
+// vigentes en `full`, el veredicto operativo es IDÉNTICO al diagnóstico, término
+// por término, y el ratchet de la suite lo comprueba sobre toda la matriz.
+
+/** § 18 — inyección del registro. Producción lo omite; las pruebas de Phase 2C no. */
+export type SubindustryPrecisionEvaluationOptions = {
+  /**
+   * Reglas con las que evaluar. Por defecto, las de producción.
+   *
+   * Existe para que una regla NUEVA —incluida una `confirm_only`— pueda probarse de
+   * extremo a extremo sin registrarse en producción y sin tocar el evaluador, que
+   * es la condición del § 18.
+   */
+  ruleSets?: readonly SubindustryPrecisionRuleSet[];
+};
+
+/**
+ * Veredicto OPERATIVO: lo único que un consumidor con efecto económico puede leer.
+ *
+ * `precisionMode` es el modo de la regla que produjo la contribución GANADORA, o
+ * `null` cuando ninguna regla contribuyó —porque ninguna estaba mapeada, o porque
+ * las que lo estaban son `confirm_only` y no confirmaron—.
+ */
+export type OperationalSubindustryVerdict = {
+  subindustryMapped: boolean;
+  subindustryMatch: SubindustryMatchVerdict;
+  precisionMode: SubindustryPrecisionMode | null;
+};
+
+/**
+ * Sin contribución operativa.
+ *
+ * Es exactamente la forma que el módulo ya usaba para «subindustria sin política»
+ * (`subindustryMapped: false`, `subindustryMatch: 'ambiguous'`), y por eso el
+ * pliegue la trata como identidad y el contrato de completitud la reporta como
+ * `unmapped`: el comportamiento base/fail-closed existente, sin rama nueva.
+ */
+const NO_OPERATIONAL_CONTRIBUTION: OperationalSubindustryVerdict = {
+  subindustryMapped: false,
+  subindustryMatch: 'ambiguous',
+  precisionMode: null,
+};
+
+/** Proyección de UNA evaluación al plano operativo, según el modo de su regla. */
+function projectOneOperationalVerdict(
+  evaluation: { subindustryMapped: boolean; subindustryMatch: SubindustryMatchVerdict },
+  mode: SubindustryPrecisionMode | null,
+): OperationalSubindustryVerdict {
+  if (!evaluation.subindustryMapped || mode === null) return NO_OPERATIONAL_CONTRIBUTION;
+  if (mode === 'full') {
+    return {
+      subindustryMapped: true,
+      subindustryMatch: evaluation.subindustryMatch,
+      precisionMode: 'full',
+    };
+  }
+  // `confirm_only`: sólo la rama positiva cruza al plano operativo. `ambiguous` y
+  // `rejected` no se convierten en otra cosa —siguen siendo el diagnóstico— pero
+  // dejan de contribuir, que es distinto de contribuir con un veredicto neutro.
+  return evaluation.subindustryMatch === 'confirmed'
+    ? { subindustryMapped: true, subindustryMatch: 'confirmed', precisionMode: 'confirm_only' }
+    : NO_OPERATIONAL_CONTRIBUTION;
+}
+
+/**
+ * Veredicto OPERATIVO de un assessment, con semántica ANY-OF.
+ *
+ * Usa la MISMA máquina de precedencia que el veredicto diagnóstico
+ * (`verdictScore`): una confirmación gana a cualquier duda, una duda gana a un
+ * rechazo, y sólo una puntuación estrictamente mayor desplaza al ganador —así que
+ * el orden en que el usuario pidió las subindustrias no decide el veredicto, sólo
+ * rompe empates igual que antes—.
+ *
+ * Cuando el assessment no trae evaluaciones por subindustria —un candidato
+ * restaurado de un checkpoint antiguo, o una fixture sintética— se proyecta el
+ * agregado. Y si una etiqueta MAPEADA no resuelve en el registro recibido, el modo
+ * se asume `full`: es el más estricto de los dos, y es el comportamiento histórico.
+ * Suponer `confirm_only` ahí sería desactivar rechazos que hoy sí aplican.
+ *
+ * Puro.
+ */
+export function projectOperationalSubindustryVerdict(
+  assessment: ApolloSubindustryPrecisionAssessment,
+  options?: SubindustryPrecisionEvaluationOptions,
+): OperationalSubindustryVerdict {
+  const ruleSets = options?.ruleSets ?? PRECISION_RULE_SETS;
+  const identityRegistry =
+    ruleSets === PRECISION_RULE_SETS
+      ? SUBINDUSTRY_PRECISION_IDENTITY_REGISTRY
+      : toIdentityRegistry(ruleSets);
+
+  const evaluations =
+    assessment.perRequestedSubindustryEvaluations.length > 0
+      ? assessment.perRequestedSubindustryEvaluations.map((evaluation) => ({
+          label: evaluation.requestedSubindustry,
+          subindustryMapped: evaluation.subindustryMapped,
+          subindustryMatch: evaluation.subindustryMatch,
+        }))
+      : [
+          {
+            label: assessment.requestedSubindustry,
+            subindustryMapped: assessment.subindustryMapped,
+            subindustryMatch: assessment.subindustryMatch,
+          },
+        ];
+
+  let winner: OperationalSubindustryVerdict | null = null;
+  for (const evaluation of evaluations) {
+    const mode = evaluation.subindustryMapped
+      ? (resolveSubindustryRuleSet(evaluation.label, ruleSets, identityRegistry)?.mode ?? 'full')
+      : null;
+    const projected = projectOneOperationalVerdict(evaluation, mode);
+    if (winner === null || verdictScore(projected) > verdictScore(winner)) winner = projected;
+  }
+
+  return winner ?? NO_OPERATIONAL_CONTRIBUTION;
 }
 
 // ─── Proyección a metadata ────────────────────────────────────────────────────
