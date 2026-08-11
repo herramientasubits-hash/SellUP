@@ -54,7 +54,12 @@ export type {
 } from './types';
 export type { UsageCostSignal, CostCompletenessInput, CostCompletenessResult } from './cost-completeness';
 // Q3F-5AY.2 — Record origin classifier (pure).
-export { deriveRecordOriginClassification } from './classification';
+// AGENT1-RECORD-ORIGIN-CLASSIFIER-HARDENING-1 — detectores puros compartidos.
+export {
+  deriveRecordOriginClassification,
+  detectExplicitNonProductionExecution,
+  hasPositiveProductionProvenance,
+} from './classification';
 export type {
   RecordOrigin,
   RejectionReason,

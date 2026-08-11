@@ -466,6 +466,106 @@ jobs:
       - name: Run A1 Apollo candidate operability validation tests
         run: npm run test:a1-apollo-candidate-operability-validation
 
+      # AGENT1-RECORD-ORIGIN-CLASSIFIER-HARDENING-1 — la PRECEDENCIA del
+      # clasificador canónico de `record_origin` entra al check obligatorio.
+      #
+      # #256 enseñó al writer canónico a declarar la procedencia, y con eso la
+      # cola de revisión limpia volvió a poder operar un candidato REAL. Lo que
+      # ese hito NO podía saber es lo que descubrió el backfill histórico
+      # posterior: aplicado a ciegas sobre filas antiguas,
+      # `deriveRecordOriginClassification` produce falsos `production`. Tres
+      # causas, medidas sobre datos reales, y ninguna rompe una compilación:
+      #
+      #   * EC-SCVS NO EJECUTADO. Un registro con `provider_calls_allowed=false`,
+      #     `live_pilot_not_executed=true` y `execution_authorized=false`
+      #     aterrizaba en la regla de `production_status` con confianza 80, porque
+      #     su `status='needs_review'` es legítimo y NINGUNA regla miraba esos
+      #     tres campos. El status ganaba a la evidencia que lo contradecía;
+      #   * QA CLEANUP NO RECONOCIDO. `metadata.qa_cleanup` no era marcador de
+      #     nada: la familia QA sólo leía `qa_only`/`do_not_use_for_sales`/
+      #     `do_not_convert` y la de limpieza sólo la frase «limpieza histórica»,
+      #     así que 15 filas de limpieza de QA visual caían en `unknown`;
+      #   * NOTA COMERCIAL COMO PRUEBA. La regla `outside_icp` devolvía
+      #     `production` por el SOLO hecho de que `review_notes` dijera «fuera del
+      #     segmento». Una frase comercial legítima con basura de QA pegada
+      #     bastaba para afirmar procedencia de producción sobre una fila que no
+      #     tenía ninguna.
+      #
+      # Lo que este paso guarda:
+      #
+      #   * la PRECEDENCIA como contrato: toda la evidencia explícita de
+      #     no-producción (smoke > qa > synthetic > cleanup > import >
+      #     no-ejecutado) se resuelve ANTES de cualquier inferencia de producción,
+      #     y NINGÚN camino de marcador explícito puede devolver `production`,
+      #     probado contra los cuatro status legítimos;
+      #   * que los tres marcadores fuertes basten CADA UNO por separado, también
+      #     anidados un nivel y también en el lote;
+      #   * que las dos pistas DÉBILES —`do_not_sync_hubspot`, `runner_required`—
+      #     se declaren y NO decidan: una corrida real puede pedir deliberadamente
+      #     no sincronizar, y tratarlas como prueba invalidaría filas legítimas;
+      #   * que `review_notes` nunca sea la ÚNICA señal que eleve un origen
+      #     ambiguo a `production`, conservando el MOTIVO comercial —que es lo
+      #     único que la nota aporta— y afirmando el ORIGEN sólo con procedencia
+      #     positiva independiente;
+      #   * que la producción REAL siga siendo producción: Apollo, web_ai/Tavily y
+      #     Lusha con el contrato de #256, los cinco status de producción y el
+      #     duplicado con su motivo;
+      #   * que el contrato del writer de #256 quede intacto: `dry_run` devuelve
+      #     ausencia, y la proyección sigue SIN escribir `classification_source`
+      #     ni `classification_confidence` (PR #238 / #241 § 7, el mismo par de
+      #     columnas cuyo vocabulario equivocado produjo el 23514);
+      #   * que los cuatro gates de la cola limpia sigan rechazando NULL y todo
+      #     origen no-production, sin haberlos tocado;
+      #   * que el clasificador siga siendo PURO: sin I/O, sin mutar entradas, sin
+      #     lanzar sobre datos parciales, y con la confianza dentro del rango que
+      #     la CHECK de la migración 093 admite.
+      #
+      # 0 migraciones, 0 backfills, 0 escrituras en Producción. Determinista y
+      # offline: sin Apollo, sin Tavily, sin Lusha, sin HubSpot, sin Supabase, sin
+      # flags y sin créditos.
+      - name: Run A1 record-origin classifier hardening tests
+        run: npm run test:a1-record-origin-classifier-hardening
+
+      # AGENT1-SUBINDUSTRY-PRECISION-COVERAGE-1 · PHASE 2A — resolución EXACTA de
+      # la identidad de subindustria, antes de ampliar la cobertura de precisión.
+      #
+      # El defecto que guarda: `resolveSubindustryKey` emparejaba con contención
+      # bidireccional por substring (`normalized.includes(key) ||
+      # key.includes(normalized)`). Las claves de precisión son frases largas, así
+      # que cualquier substring suyo resolvía a una subindustria REAL: se midió
+      # sobre `origin/main` y `"super"`, `"moda"`, `"calzado"`, `"departamento"` y
+      # hasta las cadenas de UNA letra `"a"`, `"e"`, `"s"`, `"o"`, `"y"` devolvían
+      # `subindustryMapped: true`, con el ganador decidido por el orden de
+      # `Object.keys`. Y `subindustryMapped` no es diagnóstico: decide si un
+      # candidato puede contar hacia el objetivo (#251) y si deja de persistirse.
+      #
+      # Lo que este paso protege:
+      #
+      #   * que la identidad se resuelva SÓLO por id exacto, canónico normalizado
+      #     exacto o alias explícito normalizado exacto, y nada más: sin prefijo,
+      #     sin sufijo, sin frase contenida, sin contención bidireccional, sin
+      #     token parcial y sin fuzzy matching;
+      #   * que un alias declarado por dos subindustrias sea ambiguo y NO resuelva;
+      #   * fail-closed: sin resolución no hay sector padre, ni clave más cercana,
+      #     ni primera entrada del registro, ni mapping por defecto — y un
+      #     candidato que confirmaría bajo la política de supermercados no confirma
+      #     con una etiqueta que el catálogo no reconoce;
+      #   * la auditoría read-only de colisiones sobre las 73 canónicas y los 127
+      #     alias publicados, en sus tres clases (canónica-canónica,
+      #     alias-canónica, alias-alias);
+      #   * ANY-OF intacto: cada subindustria pedida se resuelve por separado, un
+      #     ítem irreconocible no contamina a los demás y [A,B] == [B,A];
+      #   * que la cobertura de precisión siga siendo EXACTAMENTE 2 de 73 —
+      #     «Supermercados e Hipermercados» y «Tiendas por Departamento, Moda y
+      #     Calzado»— y que ninguno de los 127 alias publicados resuelva precisión
+      #     todavía.
+      #
+      # 0 mappings nuevos, 0 migraciones, 0 escrituras en Producción. Determinista
+      # y offline: sin Apollo, sin Tavily, sin Lusha, sin HubSpot, sin Supabase,
+      # sin flags y sin créditos.
+      - name: Run A1 subindustry key resolution hardening tests
+        run: npm run test:a1-subindustry-key-resolution-hardening
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)
