@@ -16,8 +16,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -287,13 +286,17 @@ describe('4O-G — autorización de servidor, no de UI', () => {
   });
 
   it('no se crea ninguna ruta pública que consulte teléfonos por UUID', () => {
-    const routes = execFileSync(
-      'git',
-      ['ls-files', 'src/app/api'],
-      { cwd: repoRoot, encoding: 'utf8' },
-    )
-      .split('\n')
-      .filter((path) => path.includes('stored-phone') || path.includes('candidate-phone'));
+    const walk = (dir: string, acc: string[] = []): string[] => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full, acc);
+        else acc.push(full.slice(repoRoot.length + 1));
+      }
+      return acc;
+    };
+    const routes = walk(join(repoRoot, 'src/app/api')).filter(
+      (path) => path.includes('stored-phone') || path.includes('candidate-phone'),
+    );
     assert.deepEqual(routes, []);
   });
 });
@@ -385,48 +388,105 @@ describe('4O-G — el copy no puede prometer una búsqueda', () => {
 // 8. Alcance: lo que el hito NO toca
 // ═══════════════════════════════════════════════════════════════
 
+// Estas guardas NO se apoyan en `git diff` contra `origin/main`.
+//
+// La primera versión sí lo hacía y pasaba en local, pero el checkout de CI es un
+// clon superficial de una sola rama: `origin/main` no existe ahí y las tres
+// aserciones reventaban. La lección no es «arreglar el ref»: una guarda que
+// depende de la topología del clon comprueba cosas distintas según dónde corra, y
+// la tentación entonces es hacerla saltarse en silencio cuando el ref falta — es
+// decir, apagarla justo en el único sitio que bloquea un merge.
+//
+// Se sustituye por invariantes de CONTENIDO, que valen lo mismo en el portátil, en
+// CI y dentro de un tarball sin `.git`, y que además vigilan la dirección que de
+// verdad importa: que 4O-G no se filtre hacia el código que gasta.
 describe('4O-G — alcance', () => {
-  function changedAgainstMain(): readonly string[] {
-    return execFileSync('git', ['diff', '--name-only', 'origin/main...HEAD'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    })
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
+  /** Todos los `.ts`/`.tsx` bajo `src/`. */
+  function sourceFiles(dir: string, acc: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) sourceFiles(full, acc);
+      else if (/\.tsx?$/.test(entry.name)) acc.push(full);
+    }
+    return acc;
   }
 
-  it('no añade ni modifica ninguna migración', () => {
+  const MIGRATIONS_DIR = join(repoRoot, 'supabase/migrations');
+
+  it('no añade ninguna migración: la máxima sigue siendo la 113', () => {
     // 4O-B ya creó todo el esquema necesario. Si hiciera falta schema para
-    // MOSTRAR teléfonos, el hito estaría mal planteado.
-    const migrations = changedAgainstMain().filter((path) =>
-      path.startsWith('supabase/migrations/'),
-    );
-    assert.deepEqual(migrations, []);
+    // MOSTRAR teléfonos, el hito estaría mal planteado y esto es el HARD STOP.
+    const numbered = readdirSync(MIGRATIONS_DIR)
+      .filter((file) => /^\d{3}_.*\.sql$/.test(file))
+      .map((file) => Number(file.slice(0, 3)))
+      .sort((a, b) => a - b);
+    assert.equal(numbered[numbered.length - 1], 113);
+    assert.equal(numbered.length, 113);
   });
 
-  it('no modifica el código de proveedor, presupuesto, reservas ni waterfall', () => {
-    const forbiddenPrefixes = [
-      'src/server/integrations/apollo',
-      'src/server/integrations/lusha',
-      'src/modules/contact-enrichment/phone-reveal-waterfall',
-      'src/modules/contact-enrichment/phone-reveal-credit',
-      'src/modules/contact-enrichment/phone-reveal-actions.ts',
-      'src/modules/contact-enrichment/lusha-phone-fallback',
-      'src/modules/contact-enrichment/legacy-lusha-only-reveal-engine.ts',
+  it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {
+    for (const file of readdirSync(MIGRATIONS_DIR)) {
+      assert.equal(
+        /4O-G|stored-candidate-phones|stored_candidate_phones/i.test(
+          readFileSync(join(MIGRATIONS_DIR, file), 'utf8'),
+        ),
+        false,
+        `${file} fue modificado por 4O-G`,
+      );
+    }
+  });
+
+  it('NADIE fuera del drawer importa los módulos de 4O-G', () => {
+    // La dirección que importa. Un `git diff` limpio hoy no impide que mañana el
+    // motor del waterfall, el reservador de créditos o la aprobación empiecen a
+    // colgarse de esta lectura y la conviertan en parte de un camino que gasta.
+    // Esto sí lo impide, y para siempre.
+    const ALLOWED_IMPORTERS = [
+      'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
+      'src/components/contact-enrichment/candidate-stored-phones-disclosure.tsx',
+      'src/modules/contact-enrichment/candidate-stored-phones-actions.ts',
+      'src/modules/contact-enrichment/candidate-stored-phones-read.ts',
+      'src/modules/contact-enrichment/__tests__/candidate-stored-phones-core-4o-g.test.ts',
+      'src/modules/contact-enrichment/__tests__/candidate-stored-phones-static-4o-g.test.ts',
+      'src/components/contact-enrichment/__tests__/candidate-stored-phones-ui-4o-g.test.tsx',
     ];
-    const touched = changedAgainstMain().filter((path) =>
-      forbiddenPrefixes.some((prefix) => path.startsWith(prefix)),
-    );
-    assert.deepEqual(touched, []);
+    const offenders = sourceFiles(join(repoRoot, 'src'))
+      .map((absolute) => absolute.slice(repoRoot.length + 1))
+      .filter((relative) => !ALLOWED_IMPORTERS.includes(relative))
+      .filter((relative) => /candidate-stored-phones/.test(read(relative)));
+    assert.deepEqual(offenders, []);
   });
 
-  it('no modifica la aprobación del candidato ni los contactos', () => {
-    const touched = changedAgainstMain().filter(
-      (path) =>
-        path.startsWith('src/modules/contacts/') ||
-        path.endsWith('candidate-review-core.ts'),
-    );
-    assert.deepEqual(touched, []);
+  it('el código que GASTA no menciona 4O-G', () => {
+    // Espejo de la guarda anterior sobre los archivos concretos cuyo asunto es
+    // el dinero: si alguno los nombrara, la lectura habría entrado en un camino
+    // de gasto aunque no lo importara por su ruta.
+    const SPENDING_MODULES = [
+      'src/modules/contact-enrichment/phone-reveal-actions.ts',
+      'src/modules/contact-enrichment/phone-reveal-waterfall-core.ts',
+      'src/modules/contact-enrichment/phone-reveal-waterfall-actions.ts',
+      'src/modules/contact-enrichment/phone-reveal-credit-reservation-core.ts',
+      'src/modules/contact-enrichment/phone-reveal-credit-budget-core.ts',
+      'src/modules/contact-enrichment/lusha-phone-fallback-actions.ts',
+      'src/modules/contact-enrichment/legacy-lusha-only-reveal-engine.ts',
+      'src/modules/contact-enrichment/candidate-review-core.ts',
+    ];
+    for (const spendingModule of SPENDING_MODULES) {
+      assert.equal(
+        /4O-G|stored-candidate-phones|storedPhone/i.test(read(spendingModule)),
+        false,
+        `${spendingModule} no debe saber que 4O-G existe`,
+      );
+    }
+  });
+
+  it('la aprobación del candidato sigue siendo ESCALAR', () => {
+    // 4O-G muestra la colección; NO la propaga al contacto oficial.
+    // OFFICIAL_MULTI_PHONE_MODEL_PENDING sigue abierto.
+    const core = read('src/modules/contact-enrichment/candidate-review-core.ts');
+    const payload = core.match(/interface ContactInsertPayload \{([\s\S]*?)\n\}/);
+    assert.ok(payload, '`ContactInsertPayload` debe seguir existiendo');
+    assert.match(payload[1], /phone: string \| null;/);
+    assert.equal(/phones\s*:\s*(readonly )?\w+\[\]|phones\s*:\s*Array</.test(payload[1]), false);
   });
 });
