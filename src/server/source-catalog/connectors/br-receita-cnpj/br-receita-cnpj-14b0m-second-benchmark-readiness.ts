@@ -16,6 +16,13 @@
  * `ATTEMPT_2_AUTHORIZED` is NEVER a function of this result (§ 29 says so explicitly) — technical
  * readiness is a precondition for asking an owner, never a substitute for being answered. Nothing in
  * this module reads, writes, or references the attempt ledger's authorization flag.
+ *
+ * ── Eighth condition (BR-SOURCE-14B.0M correctness patch) ────────────────────────
+ * `cumulativeSourceOpenCapPreflight` was added alongside the byte-cap preflight fix: the byte bound
+ * and the cumulative source-file-open bound are derived from the same repartition semantics
+ * (`deriveBrazilReceitaNationalMultipartSourcePassMultiplier`), but a run can clear one while missing
+ * the other — they bound different resources (bytes vs. descriptors) — so neither can stand in for
+ * the other in this conjunction.
  */
 
 export type BrazilReceitaBytesCapPreflightVerdict = 'pass' | 'fail' | 'indeterminate';
@@ -27,6 +34,7 @@ export interface BrazilReceitaSecondBenchmarkReadinessInputs {
   readonly numericCnpjRedactionReady: boolean;
   readonly alphanumericCnpjRedactionReady: boolean;
   readonly fullNationalBytesCapPreflight: BrazilReceitaBytesCapPreflightVerdict;
+  readonly cumulativeSourceOpenCapPreflight: BrazilReceitaBytesCapPreflightVerdict;
   readonly attempt2StructurallySupported: boolean;
 }
 
@@ -37,7 +45,7 @@ export interface BrazilReceitaSecondBenchmarkReadinessResult {
 }
 
 /**
- * Evaluates whether every one of the seven conditions § 29 requires holds. All seven, every time —
+ * Evaluates whether every one of the eight conditions § 29 requires holds. All eight, every time —
  * there is no early return, so a caller sees the FULL list of what is missing in one pass.
  */
 export function evaluateBrazilReceitaSecondBenchmarkTechnicalReadiness(
@@ -62,6 +70,9 @@ export function evaluateBrazilReceitaSecondBenchmarkTechnicalReadiness(
   }
   if (inputs.fullNationalBytesCapPreflight === 'fail') {
     unmetConditions.push('full_national_bytes_cap_preflight_failed');
+  }
+  if (inputs.cumulativeSourceOpenCapPreflight === 'fail') {
+    unmetConditions.push('cumulative_source_open_cap_preflight_failed');
   }
   if (!inputs.attempt2StructurallySupported) {
     unmetConditions.push('attempt_2_not_structurally_supported');

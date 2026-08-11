@@ -14,6 +14,7 @@ import {
   type BrazilReceitaNationalMultipartSourceSize,
 } from '../br-receita-cnpj-14b0m-national-multipart-size-preflight';
 import { BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS } from '../br-receita-cnpj-real-full-scan-benchmark';
+import { deriveBrazilReceitaNationalMultipartSourcePassMultiplier } from '../br-receita-cnpj-14b0m-national-source-pass-multiplier';
 import {
   evaluateBrazilReceitaSecondBenchmarkTechnicalReadiness,
   type BrazilReceitaSecondBenchmarkReadinessInputs,
@@ -87,17 +88,30 @@ describe('evaluateBrazilReceitaFullNationalBytesCapPreflight', () => {
     assert.ok(result.minimumRequiredReadBytes! > maxBytesReadCap);
   });
 
-  it('passes only when even the worst-case bound (minimum × 2) clears the cap', () => {
-    // Tiny total: 20 parts of 10 bytes each is nowhere near the ~68GiB cap, even doubled.
+  it('passes only when even the worst-case bound clears the cap', () => {
+    // Tiny total: 20 parts of 10 bytes each is nowhere near the ~68GiB cap, even at the real multiplier.
     const totals = aggregateBrazilReceitaNationalMultipartSourceBytes(tenPartsPerFamily(10));
     const result = evaluateBrazilReceitaFullNationalBytesCapPreflight(totals);
     assert.equal(result.verdict, 'pass');
-    assert.equal(result.determinableMaxReadBytes, 400);
+    assert.equal(result.determinableMaxReadBytes, 600);
+  });
+
+  it('derives the worst-case multiplier from the frozen maxPartitionDepth (3×, not an optimistic 2×)', () => {
+    // BR-SOURCE-14B.0M correctness patch root finding: with the frozen maxPartitionDepth: 1, one
+    // controlled repartition retry is possible, so the true worst case is TWO full reference passes
+    // plus one refetch pass (3×) — a caller that hardcodes 2× (0 repartition retries) understates it.
+    assert.equal(BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS.maxPartitionDepth, 1);
+    const totals = aggregateBrazilReceitaNationalMultipartSourceBytes(tenPartsPerFamily(1000));
+    const result = evaluateBrazilReceitaFullNationalBytesCapPreflight(totals);
+    const minimum = result.minimumRequiredReadBytes!;
+    assert.equal(result.determinableMaxReadBytes, minimum * 3);
+    assert.notEqual(result.determinableMaxReadBytes, minimum * 2, 'must not regress to the optimistic 2× bound');
   });
 
   it('is indeterminate when the total sits between the guaranteed-fail and guaranteed-pass bounds', () => {
-    // Chosen so minimum <= cap (not a guaranteed fail) but minimum*2 > cap (not a guaranteed pass).
-    const perPart = Math.ceil((maxBytesReadCap * 0.7) / 20);
+    // Chosen so minimum <= cap (not a guaranteed fail) but minimum*3 > cap (not a guaranteed pass) —
+    // the real multiplier at the frozen maxPartitionDepth: 1.
+    const perPart = Math.ceil((maxBytesReadCap * 0.9) / 20);
     const totals = aggregateBrazilReceitaNationalMultipartSourceBytes(tenPartsPerFamily(perPart));
     const result = evaluateBrazilReceitaFullNationalBytesCapPreflight(totals);
     assert.equal(result.verdict, 'indeterminate');
@@ -110,6 +124,41 @@ describe('evaluateBrazilReceitaFullNationalBytesCapPreflight', () => {
     const result = evaluateBrazilReceitaFullNationalBytesCapPreflight(totals);
     assert.equal(result.maxBytesReadCap, BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS.maxBytesRead);
   });
+
+  it('matches the expected real-metadata figures from the correctness patch report', () => {
+    // TOTAL_FULL_NATIONAL_SOURCE_BYTES observed metadata-only, distributed across 20 descriptors as
+    // 19 equal integer parts plus a remainder part, so the sum is exact (22_254_270_713 % 20 != 0).
+    const totalBytes = 22_254_270_713;
+    const perPart = Math.floor(totalBytes / 20);
+    const entries = tenPartsPerFamily(perPart);
+    entries[0] = { ...entries[0]!, extractedSizeBytes: perPart + (totalBytes - perPart * 20) };
+    const totals = aggregateBrazilReceitaNationalMultipartSourceBytes(entries);
+    const result = evaluateBrazilReceitaFullNationalBytesCapPreflight(totals);
+    assert.equal(result.minimumRequiredReadBytes, 22_254_270_713);
+    assert.equal(result.determinableMaxReadBytes, 66_762_812_139);
+    assert.equal(result.maxBytesReadCap, 73_014_444_032);
+    assert.equal(result.verdict, 'pass');
+  });
+});
+
+describe('deriveBrazilReceitaNationalMultipartSourcePassMultiplier', () => {
+  it('is 2 at depth 0 — one reference pass, no repartition retry, plus one refetch pass', () => {
+    assert.equal(deriveBrazilReceitaNationalMultipartSourcePassMultiplier(0), 2);
+  });
+
+  it('is 3 at depth 1 — the frozen caps value — never the optimistic 2×', () => {
+    assert.equal(deriveBrazilReceitaNationalMultipartSourcePassMultiplier(1), 3);
+  });
+
+  it('is 4 at depth 2 — one more permitted repartition retry than the frozen caps allow', () => {
+    assert.equal(deriveBrazilReceitaNationalMultipartSourcePassMultiplier(2), 4);
+  });
+
+  it('is indeterminate (null), never an assumed multiplier, for a bound it cannot derive', () => {
+    assert.equal(deriveBrazilReceitaNationalMultipartSourcePassMultiplier(-1), null);
+    assert.equal(deriveBrazilReceitaNationalMultipartSourcePassMultiplier(1.5), null);
+    assert.equal(deriveBrazilReceitaNationalMultipartSourcePassMultiplier(Number.NaN), null);
+  });
 });
 
 describe('evaluateBrazilReceitaSecondBenchmarkTechnicalReadiness', () => {
@@ -121,11 +170,12 @@ describe('evaluateBrazilReceitaSecondBenchmarkTechnicalReadiness', () => {
       numericCnpjRedactionReady: true,
       alphanumericCnpjRedactionReady: true,
       fullNationalBytesCapPreflight: 'pass',
+      cumulativeSourceOpenCapPreflight: 'pass',
       attempt2StructurallySupported: true,
     };
   }
 
-  it('is ready only when all seven conditions hold', () => {
+  it('is ready only when all eight conditions hold', () => {
     const result = evaluateBrazilReceitaSecondBenchmarkTechnicalReadiness(allTrue());
     assert.equal(result.technicallyReady, true);
     assert.deepEqual(result.unmetConditions, []);
@@ -176,5 +226,24 @@ describe('evaluateBrazilReceitaSecondBenchmarkTechnicalReadiness', () => {
     });
     assert.equal(result.technicallyReady, false);
     assert.deepEqual(result.unmetConditions, ['national_multi_part_input_not_ready']);
+  });
+
+  it('treats an indeterminate cumulative source-open preflight as NOT a failure by itself', () => {
+    const result = evaluateBrazilReceitaSecondBenchmarkTechnicalReadiness({
+      ...allTrue(),
+      cumulativeSourceOpenCapPreflight: 'indeterminate',
+    });
+    assert.equal(result.technicallyReady, true);
+  });
+
+  it('is not ready when the cumulative source-open preflight fails, even if the byte-cap preflight passes', () => {
+    // The two bounds are independent — passing one never substitutes for the other.
+    const result = evaluateBrazilReceitaSecondBenchmarkTechnicalReadiness({
+      ...allTrue(),
+      fullNationalBytesCapPreflight: 'pass',
+      cumulativeSourceOpenCapPreflight: 'fail',
+    });
+    assert.equal(result.technicallyReady, false);
+    assert.deepEqual(result.unmetConditions, ['cumulative_source_open_cap_preflight_failed']);
   });
 });
