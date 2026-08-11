@@ -124,6 +124,25 @@ export type ApolloPersistenceReconciliation = {
   review_only_candidates: number | null;
   /** Lo único comparable con el objetivo. `null` ⇒ indeterminado. */
   target_count: number | null;
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 8 — `target_count` publicado con el nombre
+   * que lo distingue de las cifras PRE-writer.
+   *
+   * Misma cifra, nombre distinto a propósito: `projected_finalizable_count` y
+   * `stable_finalizable_count` son proyecciones de antes de escribir, y ésta es la
+   * única que cuenta FILAS. Compartir nombre con ellas fue el defecto que el hito
+   * anterior cerró; que la autoritativa no tuviera nombre propio era el resto.
+   */
+  final_persisted_target_count: number | null;
+  /**
+   * § 7 — `max(0, target - target_count)`. La cifra autoritativa del hueco.
+   *
+   * `null` cuando `target_count` es `null`: sin medición de completitud el hueco
+   * no se puede calcular, y publicar el objetivo entero afirmaría cero completos.
+   * No confundir con `persistence_gap`, que mide elegibles que no llegaron a ser
+   * fila.
+   */
+  target_gap: number | null;
   persistence_gap: number;
   gap_causes: Partial<Record<PersistenceGapCause, number>>;
   /** Parte del hueco que ninguna causa explica. Debe ser 0 en una corrida sana. */
@@ -180,6 +199,11 @@ export function buildApolloPersistenceReconciliation(
     complete_valid_candidates: complete,
     review_only_candidates: reviewOnly,
     target_count: complete,
+    final_persisted_target_count: complete,
+    // § 7 — el hueco autoritativo sale de las FILAS completas, no de la
+    // proyección del orquestador. Nunca negativo; `null` cuando no se midió.
+    target_gap:
+      complete === null ? null : Math.max(0, truth.targetEligibleCompanies - complete),
     persistence_gap: gap,
     gap_causes: { ...truth.gapCauses },
     unexplained_gap: Math.max(0, gap - declared),
@@ -246,6 +270,24 @@ export function reconcileApolloTwoRoundPersistedTruth(
         complete_valid_candidates: reconciliation.complete_valid_candidates,
         review_only_candidates: reconciliation.review_only_candidates,
         target_count: reconciliation.target_count,
+        /**
+         * WRITER-ONLY-ADMISSION-PENDING §§ 7 y 8 — la cifra y el hueco
+         * AUTORITATIVOS toman el nombre canónico, y las proyecciones PRE-writer
+         * se conservan con nombre de proyección.
+         *
+         * Es el mismo idioma que esta función ya aplicaba a `persisted_candidates`
+         * (→ `orchestrator_ranked_persisted_projection`) y a `target_reached`
+         * (→ `projected_target_reached`). Sin esto, `target_gap` seguía siendo el
+         * hueco calculado ANTES de escribir, publicado sin marca alguna de que no
+         * había visto una sola fila.
+         *
+         * `projected_finalizable_count`, `stable_finalizable_count` y
+         * `writer_only_pending_*` llegan del `...runMetrics` de arriba y NO se
+         * tocan: describen honestamente el momento pre-writer.
+         */
+        final_persisted_target_count: reconciliation.final_persisted_target_count,
+        target_gap: reconciliation.target_gap,
+        projected_target_gap: readNumber(runMetrics['target_gap']) ?? null,
         eligible_before_persistence: reconciliation.eligible_before_persistence,
         persistence_gap: reconciliation.persistence_gap,
         credits_per_persisted_candidate: reconciliation.credits_per_persisted_candidate,
@@ -260,6 +302,23 @@ export function reconcileApolloTwoRoundPersistedTruth(
       target_reached: reconciliation.target_reached,
       projected_target_reached: observability['target_reached'] ?? null,
       candidates_persisted_count: reconciliation.persisted_candidates,
+      /**
+       * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § H — el booleano se REESCRIBE
+       * aquí, en la misma pasada que corrige el número.
+       *
+       * Antes de este hito, `candidates_persisted` llegaba en `false` desde
+       * `buildObservabilityMetadata` —calculado ANTES de que el writer corriera,
+       * literalmente `input.candidatesPersisted` en ese instante— y esta función
+       * sólo tocaba `run_metrics.*`: el `...observability` de más abajo conservaba
+       * ese `false` byte a byte incluso en una corrida que escribió filas. La
+       * corrida `bdc51c49` lo demostró: `candidates_persisted_count: 3` y
+       * `candidates_persisted: false` en el mismo documento.
+       *
+       * Contrato (§ H): `candidates_persisted = persisted_candidate_ids.length > 0`,
+       * y `persisted_candidate_ids.length` es exactamente
+       * `reconciliation.persisted_candidates` — la única cifra canónica de filas.
+       */
+      candidates_persisted: reconciliation.persisted_candidates > 0,
       persistence_reconciliation: reconciliation,
     },
     reconciliation,

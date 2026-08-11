@@ -80,6 +80,18 @@ export type ApolloTwoRoundFinalStateConsistency = {
   unclassifiedUniqueResults: number;
   /** Elegibles según los snapshots del estado final. */
   eligibleFromCandidateSnapshots: number;
+  /**
+   * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § E — de las snapshots, cuántas NO
+   * son elegibles y TAMPOCO están rechazadas/duplicadas definitivamente.
+   *
+   * Es la disposición que el desglose por ronda no puede nombrar porque no es
+   * un rechazo: son candidatas que pasaron los gates baratos, quedaron con
+   * `sector_evidence_missing_needs_enrichment`, y nunca llegaron a competir por
+   * un enrichment (`enrichment_cap_reached`) o quedaron fuera cuando el
+   * objetivo se declaró alcanzado (`target_already_reached`) — antes de la § A,
+   * exactamente los ocho resultados sin clasificar de la corrida `bdc51c49`.
+   */
+  notSelectedForEnrichmentOrInsufficientEvidence: number;
 };
 
 // ─── Evaluación ───────────────────────────────────────────────────────────────
@@ -134,6 +146,18 @@ export function evaluateApolloTwoRoundFinalStateConsistency(input: {
 
   // 4 · El desglose por ronda tiene que cerrar contra las empresas únicas.
   //     `seenDuplicates` NO participa: cuenta eventos de repetición, no empresas.
+  //
+  // § E — las snapshots aportan la disposición que el desglose por ronda no
+  // nombra: candidatas que ni son elegibles ni están rechazadas/duplicadas
+  // definitivamente. Sólo se suma cuando HAY snapshots (check 3 ya explica por
+  // qué una corrida rehidratada puede llegar sin ellas): sin candidatos, sumar
+  // cero no es afirmar "no hay pendientes", es "no se pudo saber".
+  const notSelectedForEnrichmentOrInsufficientEvidence =
+    input.candidates.length > 0
+      ? input.candidates.filter(
+          (candidate) => !candidate.eligible && !candidate.finally_rejected_or_duplicated,
+        ).length
+      : 0;
   const classified =
     input.rounds.reduce(
       (sum, round) =>
@@ -143,7 +167,9 @@ export function evaluateApolloTwoRoundFinalStateConsistency(input: {
         safeCount(round.sectorRejected) +
         safeCount(round.ownershipRejected),
       0,
-    ) + safeCount(input.runMetrics.persistedCandidates);
+    ) +
+    safeCount(input.runMetrics.persistedCandidates) +
+    notSelectedForEnrichmentOrInsufficientEvidence;
   const delta = declaredUnique - classified;
   const unclassifiedUniqueResults = delta > 0 ? delta : 0;
   if (delta > 0) {
@@ -181,6 +207,7 @@ export function evaluateApolloTwoRoundFinalStateConsistency(input: {
     conflicts,
     unclassifiedUniqueResults,
     eligibleFromCandidateSnapshots,
+    notSelectedForEnrichmentOrInsufficientEvidence,
   };
 }
 
@@ -192,6 +219,8 @@ export function toFinalStateConsistencyMetadata(
     ok: consistency.ok,
     unclassified_unique_results: consistency.unclassifiedUniqueResults,
     eligible_from_candidate_snapshots: consistency.eligibleFromCandidateSnapshots,
+    not_selected_for_enrichment_or_insufficient_evidence:
+      consistency.notSelectedForEnrichmentOrInsufficientEvidence,
     conflicts: consistency.conflicts.map((conflict) => ({
       code: conflict.code,
       detail: conflict.detail,

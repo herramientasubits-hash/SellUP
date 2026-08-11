@@ -26,6 +26,10 @@ import {
   type ApolloTwoRoundWizardRunInput,
 } from '../production-runner.server';
 import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '../observability';
+import {
+  APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS,
+  APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
+} from '../../apollo-pre-writer-target-conditions';
 import { defaultApolloTwoRoundConfig } from '../index';
 import {
   runApolloOrganizationsSearch,
@@ -40,6 +44,7 @@ import type {
   WebSearchResult,
 } from '../../types';
 import type { ApolloTwoRoundCheckpointV1 } from '../checkpoint';
+import { captureApolloCompanyFields } from '../../apollo-company-fields-mapping';
 import {
   buildPublishedCatalogTermsResolution,
   CATALOG_VERSION,
@@ -55,6 +60,9 @@ const CORRELATION = {
   requestFingerprint: 'fingerprint-adapter-1',
   idempotencyKey: 'idempotency-adapter-1',
 };
+
+/** Reloj fijo: estas pruebas no pueden depender del real. */
+const FIXTURE_OBSERVED_AT = '2026-08-10T00:00:00.000Z';
 
 /** Un supermercado que las señales GRATUITAS ya confirman: no necesita enrichment. */
 function supermarket(index: number): WebSearchResult {
@@ -74,6 +82,10 @@ function supermarket(index: number): WebSearchResult {
       city: 'Bogotá',
       employee_count: 800,
       estimated_num_employees: 800,
+      // STABLE-TARGET-WRITER-PARITY § 6 — el contrato de completitud exige el
+      // LinkedIn empresarial para contar hacia el objetivo. Estas cinco son
+      // candidatas COMPLETAS, así que lo traen.
+      linkedin_url: `https://www.linkedin.com/company/org-super-${index}`,
       apollo_profile: { industry: 'retail', industries: [] },
     },
   };
@@ -105,6 +117,7 @@ function otherBusiness(index: number, industry: string, name: string): WebSearch
       employee_count: 900,
       estimated_num_employees: 900,
       keywords: [industry],
+      linkedin_url: `https://www.linkedin.com/company/org-other-${index}`,
       apollo_profile: { industry, industries: [industry] },
     },
   };
@@ -125,6 +138,10 @@ function searchOutput(results: WebSearchResult[], credits: number): WebSearchOut
 
 function pipelineCandidate(result: WebSearchResult): ProspectingPipelineCandidate {
   const domain = (result.metadata?.['domain'] as string) ?? null;
+  // § 1 — el doble reproduce lo que `buildCandidateFromResult` produce: la
+  // captura de LinkedIn y `employee_count` viaja CON el candidato, que es de
+  // donde el contrato canónico las lee.
+  const providerCompanyFields = captureApolloCompanyFields(result, FIXTURE_OBSERVED_AT);
   return {
     name: result.title,
     website: result.url,
@@ -145,6 +162,11 @@ function pipelineCandidate(result: WebSearchResult): ProspectingPipelineCandidat
       checkedSources: ['sellup', 'hubspot'],
     } as ProspectingPipelineCandidate['duplicateCheck'],
     scoring: { qualityLabel: 'high_quality_new' } as ProspectingPipelineCandidate['scoring'],
+    providerCompanyFields,
+    companyLinkedInUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
+    ...(providerCompanyFields.employeeCount.status === 'confirmed'
+      ? { employeeCount: providerCompanyFields.employeeCount.employeeCount }
+      : {}),
   };
 }
 
@@ -160,6 +182,12 @@ type Recorder = {
   writerCalls: number;
   writtenCandidateNames: string[][];
   savedCheckpoints: ApolloTwoRoundCheckpointV1[];
+  /**
+   * ADAPTIVE-EARLY-STOP § 2 — cuántas veces el runner pidió el prefetch de
+   * admisión. El contrato es UNA por corrida: ni una por ronda, ni una por
+   * candidato, ni una por evaluación de finalizabilidad (que ocurren varias).
+   */
+  admissionPrefetchCalls: number;
 };
 
 /**
@@ -177,6 +205,7 @@ function buildDeps(options: {
     writerCalls: 0,
     writtenCandidateNames: [],
     savedCheckpoints: [],
+    admissionPrefetchCalls: 0,
   };
 
   const deps: Partial<ApolloTwoRoundProductionDeps> = {
@@ -253,6 +282,21 @@ function buildDeps(options: {
     enrichOrganization: (async () => ({ success: true, data: undefined })) as never,
     logEnrichmentUsage: (async () => ({ kind: 'logged' as const })) as never,
     resolveConfig: () => defaultApolloTwoRoundConfig(),
+    // ADAPTIVE-EARLY-STOP § 2 — el prefetch de admisión, contado y DEGRADADO.
+    //
+    // Degradado a propósito: esta suite no simula la base, y el contrato dice que
+    // sin datos las tres comprobaciones respaldadas por base quedan PENDIENTES.
+    // Lo que sí se mide aquí es cuántas veces se pidió.
+    loadAdmissionPrefetch: async () => {
+      recorder.admissionPrefetchCalls++;
+      return {
+        coveredDomains: new Set<string>(),
+        noveltyIndex: new Map(),
+        recentIdentityKeys: new Set<string>(),
+        activeCandidates: [],
+        degraded: true,
+      };
+    },
   };
 
   return { deps, recorder };
@@ -404,8 +448,58 @@ describe('§ 6 · objetivo 5 end-to-end por el adaptador y el writer', () => {
     assert.equal(runMetrics['total_raw_results'], 10);
     assert.equal(runMetrics['total_unique_organizations'], 10);
     assert.equal(observability['eligible_companies_found'], 5);
-    assert.equal(observability['target_reached'], true);
-    assert.equal(observability['result_status'], 'target_reached');
+
+    // WRITER-ONLY-ADMISSION-PENDING §§ 7, 8 y 11 — las dos lecturas del objetivo
+    // están SEPARADAS, y ésta es la PRE-writer.
+    //
+    // `observability.target_reached` y `result_status` los emite el orquestador
+    // ANTES de escribir, con la cuenta estable: el adaptador de producción declara
+    // pendientes las admisiones que sólo el writer resuelve, así que la cuenta
+    // estable es 0 y la proyección no puede declarar el objetivo alcanzado. Eso es
+    // exactamente lo que se busca — la proyección no miente hacia arriba.
+    assert.equal(observability['target_reached'], false, 'proyección PRE-writer');
+    assert.equal(observability['result_status'], 'partial_target_not_reached');
+    const preWriterMetrics = runMetrics as Record<string, unknown>;
+    assert.equal(preWriterMetrics['stable_finalizable_count'], 0);
+    assert.equal(preWriterMetrics['writer_only_pending_count'], 5, 'las cinco proyectadas');
+    assert.equal(preWriterMetrics['projected_finalizable_count'], 5);
+    // ADAPTIVE-EARLY-STOP §§ 2, 3, 4 y 5 — de las trece, ocho deterministas y las
+    // dos de lote ya se resuelven aquí; sólo quedan pendientes las TRES que
+    // dependen del prefetch de base, que esta suite no inyecta (el runner cae al
+    // contexto degradado, y degradado ⇒ pendiente, nunca pase).
+    assert.deepEqual(
+      preWriterMetrics['writer_only_pending_reasons'],
+      APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS,
+      'el motivo viaja por nombre, no como un booleano',
+    );
+    for (const resolved of APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS.filter(
+      (check) => !APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS.includes(check),
+    )) {
+      assert.ok(
+        !(preWriterMetrics['writer_only_pending_reasons'] as string[]).includes(resolved),
+        `${resolved} ya no puede quedar pendiente: se resuelve antes del writer`,
+      );
+    }
+    // § 11 — y las resueltas se CUENTAN, para que «viva» y «muerta» sean legibles.
+    assert.ok((preWriterMetrics['pre_writer_admission_pass_count'] as number) > 0);
+    assert.equal(
+      preWriterMetrics['pre_writer_admission_pending_count'],
+      5 * APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS.length,
+    );
+
+    // § 2 — el prefetch de admisión ocurre UNA vez en toda la corrida, con DIEZ
+    // organizaciones evaluadas, DOS rondas y varias evaluaciones de
+    // finalizabilidad por medio. Ni una consulta por ronda, ni una por candidato.
+    assert.equal(
+      recorder.admissionPrefetchCalls,
+      1,
+      `prefetch de admisión = ${recorder.admissionPrefetchCalls}: el contrato es UNA por corrida`,
+    );
+
+    // § 7 — la cifra AUTORITATIVA es la de después del writer, y sí alcanza el
+    // objetivo: cinco filas completas contra un objetivo de cinco.
+    assert.equal(outcome.candidatesCreated, 5);
+    assert.equal(outcome.targetReached, true, 'autoritativa POST-writer');
 
     // El writer se invoca UNA vez y recibe exactamente cinco candidatos distintos.
     assert.equal(recorder.writerCalls, 1);
