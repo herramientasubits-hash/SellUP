@@ -13,6 +13,18 @@
 // `isQaOrSmokeCandidateForNegativeMemory` in
 // src/server/agents/prospecting-toolkit/novelty-checker.ts so the two agree on
 // what counts as a smoke/QA/cleanup record.
+//
+// AGENT1-RECORD-ORIGIN-CLASSIFIER-HARDENING-1 — contrato del clasificador:
+//
+//   * Es un clasificador PURO. Sin DB, sin reloj, sin env, sin provider.
+//   * La EVIDENCIA EXPLÍCITA DE NO-PRODUCCIÓN GANA SIEMPRE sobre cualquier
+//     inferencia de producción por status. Un `status` legítimo, por sí solo,
+//     nunca puede sobreponerse a un marcador que declara que la ejecución no
+//     ocurrió, no estaba autorizada, o era QA/smoke/fixture/seed/cleanup/import.
+//   * `review_notes` puede aportar el MOTIVO de un rechazo, pero nunca es
+//     evidencia suficiente, por sí sola, para afirmar `production`.
+//   * NO es autoridad suficiente para ejecutar backfills históricos: remediar
+//     filas existentes exige procedencia auditada externa a esta función.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Taxonomies (Q3F-5AY.1)
@@ -72,8 +84,10 @@ export type ClassificationSource =
 export type MatchedRule =
   | 'smoke_marker'
   | 'qa_marker'
+  | 'synthetic_marker'
   | 'historical_cleanup_note'
   | 'external_import'
+  | 'unexecuted_or_unauthorized'
   | 'duplicate_status'
   | 'outside_icp_note'
   | 'production_status'
@@ -86,7 +100,14 @@ export type ClassificationWarning =
   | 'commercial_reason_low_confidence'
   | 'unknown_discarded_reason'
   | 'batch_origin_used'
-  | 'synthetic_folded_into_smoke_test';
+  | 'synthetic_folded_into_smoke_test'
+  // HARDENING-1: la ejecución se declara explícitamente no ocurrida / no autorizada.
+  | 'explicit_nonproduction_marker'
+  // HARDENING-1: hay motivo comercial, pero NADA que pruebe una corrida real.
+  | 'production_evidence_insufficient'
+  // HARDENING-1: se observó una pista débil (`do_not_sync_hubspot`,
+  // `runner_required`) que NO decide por sí sola. Se declara en vez de callarla.
+  | 'nonproduction_hint_not_decisive';
 
 export interface RecordOriginClassification {
   recordOrigin: RecordOrigin;
@@ -139,6 +160,98 @@ const DUPLICATE_STATUS = 'duplicate';
 const EXACT_DUPLICATE_MATCH = 'exact_duplicate';
 const IMPORT_SOURCE = 'external_import';
 const SMOKE_SOURCE_PRIMARY = 'smoke_script';
+const CONVERTED_STATUS = 'converted_to_account';
+
+// ── HARDENING-1 · marcadores explícitos de NO-producción ─────────────────────
+//
+// Claves EXACTAS, nunca substring ni regex sobre nombres de clave: un texto
+// comercial legítimo no puede activarlas por accidente.
+
+/** Presentes con valor `false` ⇒ la ejecución no estaba permitida/autorizada. */
+const NONPRODUCTION_FALSE_MARKERS: readonly string[] = [
+  'execution_authorized',
+  'provider_calls_allowed',
+];
+
+/** Presentes con valor `true` ⇒ la ejecución explícitamente no ocurrió. */
+const NONPRODUCTION_TRUE_MARKERS: readonly string[] = ['live_pilot_not_executed'];
+
+/**
+ * Pistas que se OBSERVAN y no deciden por sí solas.
+ *
+ * `do_not_sync_hubspot` describe una política de sincronización: una corrida
+ * REAL puede pedir deliberadamente no sincronizar. `runner_required` describe
+ * cómo se ejecuta algo, no si se ejecutó. Tratar cualquiera de las dos como
+ * prueba de no-producción invalidaría corridas legítimas.
+ */
+const NONPRODUCTION_NON_DECISIVE_HINTS: readonly string[] = [
+  'do_not_sync_hubspot',
+  'runner_required',
+];
+
+/** Marcadores booleanos de smoke (además de los ya existentes). */
+const SMOKE_TRUE_KEYS: readonly string[] = ['smoke_test', 'smoke', 'is_smoke', 'smoke_run'];
+
+/** Marcadores booleanos de QA/test. */
+const QA_TRUE_KEYS: readonly string[] = [
+  'qa_only',
+  'qa',
+  'qa_run',
+  'test',
+  'is_test',
+  'test_run',
+  'do_not_use_for_sales',
+  'do_not_convert',
+];
+
+/**
+ * Marcador estructurado de limpieza de QA. Su PRESENCIA basta: el texto exacto
+ * («Descartado por limpieza de QA visual: batch de prueba previo a v1.8.1») es
+ * un detalle de una corrida concreta, no un contrato.
+ */
+const QA_CLEANUP_KEY = 'qa_cleanup';
+
+/** Datos fabricados: fixture / seed / sintético declarado. */
+const SYNTHETIC_TRUE_KEYS: readonly string[] = [
+  'synthetic',
+  'is_synthetic',
+  'fixture',
+  'is_fixture',
+  'seed',
+  'seeded',
+];
+
+/** Limpieza histórica declarada en metadata. */
+const CLEANUP_TRUE_KEYS: readonly string[] = ['historical_cleanup', 'cleanup'];
+
+/** Import externo declarado en metadata. */
+const IMPORT_TRUE_KEYS: readonly string[] = ['import', 'external_import'];
+
+/**
+ * `source_primary` que SÍ acredita una corrida automatizada real. `manual`,
+ * `other`, `external_import` y `smoke_script` quedan fuera a propósito: describen
+ * a un humano, a lo desconocido, o a rutas que ya tienen su propia regla.
+ */
+const PRODUCTION_PROVENANCE_SOURCE_PRIMARY: ReadonlySet<string> = new Set([
+  'apollo',
+  'lusha',
+  'web_ai',
+  'hubspot',
+  'public_source',
+  'preloaded',
+  'socrata_colombia',
+  'denue_mexico',
+  'datos_gob_cl',
+]);
+
+/** `prospect_batches.source` que acredita una corrida real (no manual/importada). */
+const PRODUCTION_PROVENANCE_BATCH_SOURCE: ReadonlySet<string> = new Set([
+  'agent_1',
+  'apollo',
+  'socrata_colombia',
+  'denue_mexico',
+  'datos_gob_cl',
+]);
 
 // Confidence tiers.
 const CONFIDENCE_EXPLICIT_FIELD = 95;
@@ -176,6 +289,116 @@ function asNoteText(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+/** `true` sólo para un valor declarado, no para un `undefined` ni un `''`. */
+function isPresentValue(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === 'string') return value.trim().length > 0;
+  return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HARDENING-1 · ámbitos de metadata donde se buscan marcadores exactos
+// ─────────────────────────────────────────────────────────────────────────────
+
+type MetadataScope = { scope: Record<string, unknown>; source: ClassificationSource };
+
+/**
+ * Ámbitos donde puede vivir un marcador: la metadata del candidato, sus
+ * `review_flags`, y la metadata del lote — cada uno con sus hijos DIRECTOS que
+ * sean objetos (profundidad 2, para cubrir contenedores como `context` sin tener
+ * que adivinar su nombre).
+ *
+ * La profundidad acotada es segura porque el emparejamiento es por clave EXACTA:
+ * la única forma de activar un marcador es que la clave exista literalmente.
+ */
+function metadataScopes(
+  candidate: ClassifiableCandidate,
+  batch: ClassifiableBatch | undefined,
+): MetadataScope[] {
+  const scopes: MetadataScope[] = [];
+
+  const push = (raw: unknown, source: ClassificationSource): void => {
+    const record = asRecord(raw);
+    if (Object.keys(record).length === 0) return;
+    scopes.push({ scope: record, source });
+    for (const value of Object.values(record)) {
+      const child = asRecord(value);
+      if (Object.keys(child).length > 0) scopes.push({ scope: child, source });
+    }
+  };
+
+  push(candidate.metadata, 'derived_metadata');
+  push(candidate.review_flags, 'derived_metadata');
+  if (batch) push(batch.metadata, 'derived_batch');
+
+  return scopes;
+}
+
+/** Primera fuente donde alguna de las claves está en `true`. */
+function findTrueMarker(scopes: readonly MetadataScope[], keys: readonly string[]): ClassificationSource | null {
+  for (const { scope, source } of scopes) {
+    for (const key of keys) {
+      if (scope[key] === true) return source;
+    }
+  }
+  return null;
+}
+
+/**
+ * Evidencia EXPLÍCITA de que la corrida no ocurrió o no estaba autorizada.
+ *
+ * El caso real que cierra: un registro de EC-SCVS nunca ejecutado llevaba
+ * `provider_calls_allowed=false`, `live_pilot_not_executed=true` y
+ * `execution_authorized=false` y, aun así, un `status='needs_review'` legítimo lo
+ * hacía aterrizar en R7 `production_status` con confianza 80.
+ */
+export function detectExplicitNonProductionExecution(
+  candidate: ClassifiableCandidate,
+  batch?: ClassifiableBatch,
+): ClassificationSource | null {
+  const scopes = metadataScopes(candidate, batch);
+  for (const { scope, source } of scopes) {
+    for (const key of NONPRODUCTION_FALSE_MARKERS) {
+      if (scope[key] === false) return source;
+    }
+    for (const key of NONPRODUCTION_TRUE_MARKERS) {
+      if (scope[key] === true) return source;
+    }
+  }
+  return null;
+}
+
+/** `true` si sólo hay pistas débiles, que se declaran pero no deciden. */
+function hasNonDecisiveNonProductionHint(
+  candidate: ClassifiableCandidate,
+  batch: ClassifiableBatch | undefined,
+): boolean {
+  for (const { scope } of metadataScopes(candidate, batch)) {
+    for (const key of NONPRODUCTION_NON_DECISIVE_HINTS) {
+      if (scope[key] === true) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Evidencia POSITIVA de que la fila salió de una corrida real: un proveedor
+ * automatizado en `source_primary`, un lote de corrida real, o una fila que
+ * terminó convertida en cuenta.
+ *
+ * Sólo la consume la regla de motivo comercial (R6): una nota de revisión no
+ * puede ser la ÚNICA señal que eleve un origen ambiguo a `production`.
+ */
+export function hasPositiveProductionProvenance(
+  candidate: ClassifiableCandidate,
+  batch?: ClassifiableBatch,
+): boolean {
+  if (PRODUCTION_PROVENANCE_SOURCE_PRIMARY.has(asTrimmedLower(candidate.source_primary))) return true;
+  if (asTrimmedLower(candidate.status) === CONVERTED_STATUS) return true;
+  if (batch && PRODUCTION_PROVENANCE_BATCH_SOURCE.has(asTrimmedLower(batch.source))) return true;
+  return false;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Marker detectors — each returns the driving ClassificationSource or null.
 // Candidate signals win over batch signals; a batch hit reports `derived_batch`.
@@ -194,6 +417,9 @@ function detectSmoke(
   if (typeof meta.created_by_script === 'string' && meta.created_by_script.toLowerCase().includes('smoke')) {
     return 'derived_metadata';
   }
+  // HARDENING-1 — el resto de la familia declarada, por clave exacta.
+  const trueMarker = findTrueMarker(metadataScopes(candidate, batch), SMOKE_TRUE_KEYS);
+  if (trueMarker) return trueMarker;
   if (SMOKE_NOTE_RE.test(asNoteText(candidate.review_notes))) return 'derived_review_notes';
 
   if (batch && batchIndicatesSmoke(batch)) return 'derived_batch';
@@ -215,12 +441,19 @@ function detectQa(
   candidate: ClassifiableCandidate,
   batch: ClassifiableBatch | undefined,
 ): ClassificationSource | null {
-  const meta = asRecord(candidate.metadata);
+  const scopes = metadataScopes(candidate, batch);
+
   // do_not_use_for_sales / do_not_convert are grouped as QA/test markers by the
   // canonical novelty-checker detector; we honor that grouping here.
-  if (meta.qa_only === true) return 'derived_metadata';
-  if (meta.do_not_use_for_sales === true) return 'derived_metadata';
-  if (meta.do_not_convert === true) return 'derived_metadata';
+  //
+  // HARDENING-1 — se suman `qa`, `qa_run`, `test`, `is_test` y `test_run`, y la
+  // PRESENCIA del marcador estructurado `qa_cleanup`, que antes no se reconocía y
+  // dejaba caer 15 filas de limpieza de QA visual en `unknown`.
+  const trueMarker = findTrueMarker(scopes, QA_TRUE_KEYS);
+  if (trueMarker) return trueMarker;
+  for (const { scope, source } of scopes) {
+    if (isPresentValue(scope[QA_CLEANUP_KEY])) return source;
+  }
   if (QA_NOTE_RE.test(asNoteText(candidate.review_notes))) return 'derived_review_notes';
 
   if (batch && batchIndicatesQa(batch)) return 'derived_batch';
@@ -233,11 +466,28 @@ function batchIndicatesQa(batch: ClassifiableBatch): boolean {
   return meta.qa_only === true;
 }
 
-function detectHistoricalCleanup(candidate: ClassifiableCandidate): ClassificationSource | null {
+/**
+ * HARDENING-1 — datos declaradamente FABRICADOS (fixture, seed, sintético). Sólo
+ * por marcador estructurado: una nota que diga «sintético» sigue siendo texto
+ * libre y no clasifica por sí sola (el fold a `smoke_test` de R1 la cubre).
+ */
+function detectSynthetic(
+  candidate: ClassifiableCandidate,
+  batch: ClassifiableBatch | undefined,
+): ClassificationSource | null {
+  return findTrueMarker(metadataScopes(candidate, batch), SYNTHETIC_TRUE_KEYS);
+}
+
+function detectHistoricalCleanup(
+  candidate: ClassifiableCandidate,
+  batch: ClassifiableBatch | undefined,
+): ClassificationSource | null {
   if (CLEANUP_NOTE_RE.test(asNoteText(candidate.review_notes))) return 'derived_review_notes';
   const cleanup = asRecord(asRecord(candidate.metadata).logical_cleanup);
   if (cleanup.cleanup_mode === 'logical_only') return 'derived_metadata';
-  return null;
+  // HARDENING-1 — limpieza declarada por marcador exacto. `qa_cleanup` NO entra
+  // aquí: lo resuelve R2 antes, porque su ORIGEN es la corrida de QA.
+  return findTrueMarker(metadataScopes(candidate, batch), CLEANUP_TRUE_KEYS);
 }
 
 function detectImport(
@@ -246,7 +496,8 @@ function detectImport(
 ): ClassificationSource | null {
   if (asTrimmedLower(candidate.source_primary) === IMPORT_SOURCE) return 'derived_source_primary';
   if (batch && asTrimmedLower(batch.source) === IMPORT_SOURCE) return 'derived_batch';
-  return null;
+  // HARDENING-1 — import declarado por marcador exacto.
+  return findTrueMarker(metadataScopes(candidate, batch), IMPORT_TRUE_KEYS);
 }
 
 function isDuplicate(candidate: ClassifiableCandidate): boolean {
@@ -262,10 +513,22 @@ function isDuplicate(candidate: ClassifiableCandidate): boolean {
 
 /**
  * Derives the record origin + rejection reason for a candidate. Pure; the input
- * objects are read-only and never mutated. Priority is strict top-down:
- * smoke (R1) > QA (R2) > cleanup (R3) > import (R4) > duplicate (R5) >
- * outside-ICP (R6) > production status (R7) > discarded-unknown (R8) >
- * fallback (R9).
+ * objects are read-only and never mutated.
+ *
+ * Priority is strict top-down, y el ORDEN es el contrato:
+ *
+ *   smoke (R1) > QA (R2) > synthetic (R2b) > cleanup (R3) > import (R4)
+ *     > unexecuted/unauthorized (R4b)
+ *     > duplicate (R5) > outside-ICP (R6) > production status (R7)
+ *     > discarded-unknown (R8) > fallback (R9)
+ *
+ * Es decir: TODA la evidencia explícita de no-producción (R1–R4b) se resuelve
+ * ANTES de cualquier inferencia de producción (R5–R7). Un `status` legítimo por
+ * sí solo nunca gana a un marcador explícito.
+ *
+ * ⚠️ NO es autoridad suficiente para un backfill histórico: sobre filas
+ * antiguas puede seguir habiendo ambigüedad que sólo resuelve procedencia
+ * auditada externa a esta función.
  */
 export function deriveRecordOriginClassification(
   candidate: ClassifiableCandidate,
@@ -274,6 +537,12 @@ export function deriveRecordOriginClassification(
   const status = asTrimmedLower(candidate.status);
   const isDiscarded = status === DISCARDED_STATUS;
   const noteText = asNoteText(candidate.review_notes);
+
+  // Pistas débiles: se declaran en las reglas de INFERENCIA (R5–R9), donde el
+  // lector necesita saber que se vieron y que no bastaron. Nunca deciden.
+  const hasWeakHint = hasNonDecisiveNonProductionHint(candidate, batch);
+  const withHints = (warnings: readonly ClassificationWarning[]): ClassificationWarning[] =>
+    hasWeakHint ? [...warnings, 'nonproduction_hint_not_decisive'] : [...warnings];
 
   // ── R1 — smoke ──────────────────────────────────────────────────────────────
   const smokeSource = detectSmoke(candidate, batch);
@@ -311,8 +580,25 @@ export function deriveRecordOriginClassification(
     };
   }
 
+  // ── R2b — synthetic / fixture / seed (HARDENING-1) ───────────────────────────
+  // `synthetic` ya existe en el vocabulario de la CHECK de la migración 093, así
+  // que no hace falta un valor nuevo en base de datos.
+  const syntheticSource = detectSynthetic(candidate, batch);
+  if (syntheticSource) {
+    const warnings: ClassificationWarning[] = ['explicit_nonproduction_marker'];
+    if (syntheticSource === 'derived_batch') warnings.push('batch_origin_used');
+    return {
+      recordOrigin: 'synthetic',
+      rejectionReason: isDiscarded ? 'test_record' : null,
+      classificationSource: syntheticSource,
+      classificationConfidence: confidenceForSource(syntheticSource),
+      matchedRule: 'synthetic_marker',
+      warnings,
+    };
+  }
+
   // ── R3 — historical cleanup ─────────────────────────────────────────────────
-  const cleanupSource = detectHistoricalCleanup(candidate);
+  const cleanupSource = detectHistoricalCleanup(candidate, batch);
   if (cleanupSource) {
     return {
       recordOrigin: 'historical_cleanup',
@@ -340,6 +626,30 @@ export function deriveRecordOriginClassification(
     };
   }
 
+  // ── R4b — ejecución NO ocurrida / NO autorizada (HARDENING-1) ────────────────
+  //
+  // Es la regla que corrige el falso `production` de EC-SCVS: un registro que
+  // declara que la ejecución no ocurrió o no estaba autorizada no puede quedar
+  // clasificado por su `status`, aunque ese status sea legítimo.
+  //
+  // El origen es `unknown`, no `synthetic` ni `qa`: la fila no es un dato
+  // fabricado ni la salida de una corrida de QA — es un plan que nunca corrió, y
+  // de él NO se puede afirmar procedencia. `unknown` es el valor fail-closed del
+  // vocabulario existente, y los cuatro gates de la cola limpia ya lo rechazan.
+  const unexecutedSource = detectExplicitNonProductionExecution(candidate, batch);
+  if (unexecutedSource) {
+    const warnings: ClassificationWarning[] = ['explicit_nonproduction_marker'];
+    if (unexecutedSource === 'derived_batch') warnings.push('batch_origin_used');
+    return {
+      recordOrigin: 'unknown',
+      rejectionReason: isDiscarded ? 'unknown' : null,
+      classificationSource: unexecutedSource,
+      classificationConfidence: confidenceForSource(unexecutedSource),
+      matchedRule: 'unexecuted_or_unauthorized',
+      warnings,
+    };
+  }
+
   // ── R5 — duplicate ───────────────────────────────────────────────────────────
   // No test/cleanup/import markers matched, so a duplicate is a production
   // pipeline outcome flagged as a repeat.
@@ -350,23 +660,41 @@ export function deriveRecordOriginClassification(
       classificationSource: 'derived_status',
       classificationConfidence: CONFIDENCE_STATUS,
       matchedRule: 'duplicate_status',
-      warnings: [],
+      warnings: withHints([]),
     };
   }
 
-  // ── R6 — outside ICP (explicit note only, low confidence) ─────────────────────
+  // ── R6 — outside ICP (HARDENING-1: la nota NO prueba producción) ──────────────
+  //
+  // Antes esta regla devolvía `production` por el SOLO hecho de que la nota de
+  // revisión mencionara «fuera del segmento». Una frase comercial legítima —o una
+  // frase comercial con basura de QA pegada— no es prueba de que la fila saliera
+  // de una corrida real: `axZXzxxZ` en la nota de un registro sin ninguna
+  // procedencia positiva bastaba para afirmarlo.
+  //
+  // Ahora la nota conserva el MOTIVO (`outside_icp`, que es lo que aporta) y el
+  // ORIGEN sólo se afirma si hay evidencia positiva independiente.
   if (OUTSIDE_ICP_NOTE_RE.test(noteText)) {
+    const provenanced = hasPositiveProductionProvenance(candidate, batch);
     return {
-      recordOrigin: 'production',
+      recordOrigin: provenanced ? 'production' : 'unknown',
       rejectionReason: 'outside_icp',
       classificationSource: 'derived_review_notes',
-      classificationConfidence: CONFIDENCE_COMMERCIAL_LOW,
+      classificationConfidence: provenanced
+        ? CONFIDENCE_COMMERCIAL_LOW
+        : CONFIDENCE_DISCARDED_UNKNOWN,
       matchedRule: 'outside_icp_note',
-      warnings: ['commercial_reason_low_confidence'],
+      warnings: withHints(
+        provenanced
+          ? ['commercial_reason_low_confidence']
+          : ['commercial_reason_low_confidence', 'production_evidence_insufficient'],
+      ),
     };
   }
 
   // ── R7 — clean production status ──────────────────────────────────────────────
+  // Se llega aquí sólo cuando NINGÚN marcador explícito de no-producción matcheó
+  // (R1–R4b), que es la garantía que este hito añade.
   if (PRODUCTION_STATUSES.has(status)) {
     return {
       recordOrigin: 'production',
@@ -374,7 +702,7 @@ export function deriveRecordOriginClassification(
       classificationSource: 'derived_status',
       classificationConfidence: CONFIDENCE_PRODUCTION_STATUS,
       matchedRule: 'production_status',
-      warnings: [],
+      warnings: withHints([]),
     };
   }
 
@@ -388,7 +716,7 @@ export function deriveRecordOriginClassification(
       classificationSource: 'derived_status',
       classificationConfidence: CONFIDENCE_DISCARDED_UNKNOWN,
       matchedRule: 'discarded_unknown',
-      warnings,
+      warnings: withHints(warnings),
     };
   }
 
@@ -399,7 +727,7 @@ export function deriveRecordOriginClassification(
     classificationSource: 'unknown',
     classificationConfidence: CONFIDENCE_FALLBACK,
     matchedRule: 'fallback_unknown',
-    warnings: [],
+    warnings: withHints([]),
   };
 }
 
