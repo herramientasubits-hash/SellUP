@@ -829,3 +829,67 @@ jobs:
       # binario que se descarga (`npm install --no-save embedded-postgres@17.6.0-beta.15`).
       - name: Run manual Lusha legacy-run convergence tests
         run: npm run test:agent2a:manual-lusha-legacy-convergence
+
+      # AGENT2A-PHONE-REVEAL-4O-G — «Ver más números»: los teléfonos YA almacenados
+      # se pueden LEER, y leerlos cuesta cero.
+      #
+      # QUÉ HUECO CIERRA. Desde 4O-C/4O-D la colección canónica de la migración 109
+      # sí guarda todos los números que Apollo y Lusha devuelven, pero el drawer
+      # seguía enseñando exactamente uno: el escalar del candidato. Los números
+      # adicionales —ya observados, ya pagados, ya persistidos— no tenían ninguna
+      # superficie donde leerse, así que la operación pagaba por ellos y no podía
+      # usarlos.
+      #
+      # QUÉ SE PROTEGE AQUÍ:
+      #   * COSTE CERO, que es el contrato central: abrir el disclosure no llama a
+      #     Apollo, no llama a Lusha, no crea corridas, no reserva créditos, no
+      #     escribe usage logs y no toca el estado del reveal. Las guardas estáticas
+      #     verifican que esas llamadas NO ESTÉN ESCRITAS en el camino nuevo — un
+      #     test de comportamiento sólo probaría que hoy no se hicieron;
+      #   * SÓLO LECTURA: el módulo de acceso no contiene `.insert`/`.update`/
+      #     `.delete`/`.upsert` ni una sola `.rpc()`. En particular NO invoca las
+      #     funciones de 110/111/112/113, que son transaccionales y escriben;
+      #   * READ ERROR ≠ CALL PROVIDER: si la lectura falla, la UI lo dice y no
+      #     ofrece ningún camino alterno que gaste. Cubierto con un `unavailable`
+      #     del servidor y con una excepción cruda de la acción;
+      #   * PRIVACIDAD: una fila con `suppressed_at` no se muestra ni enmascarada;
+      #     la consulta pide columnas explícitas (nunca `*`) y no trae
+      #     `suppression_reason`/`suppressed_by`; la proyección al navegador tiene
+      #     EXACTAMENTE cinco campos y ninguna `dedupe_key`, id de corrida, de
+      #     reserva, de usage log ni de persona del proveedor; ningún número se
+      #     imprime en consola;
+      #   * FLAGS: `ENABLE_PHONE_REVEAL_WATERFALL` (false en Producción) y
+      #     `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` NO gobiernan esta lectura. Un
+      #     número ya pagado y ya guardado no puede volverse invisible porque el
+      #     proveedor que lo trajo esté hoy apagado: disponibilidad operativa del
+      #     proveedor ≠ visibilidad del dato almacenado;
+      #   * AUTORIZACIÓN de servidor: las DOS acciones exigen rol `admin` antes de
+      #     leer, y la lectura con service role no lleva 'use server', así que no
+      #     puede convertirse en un endpoint. Que el botón no se pinte no es la
+      #     protección;
+      #   * CORRECCIÓN de la proyección: mismo número visto por Apollo y por Lusha ⇒
+      #     UNA fila con DOS fuentes (nunca duplicado); el principal no se repite
+      #     como «adicional» ni cuando la fila no está marcada pero contiene el
+      #     mismo número que el escalar; orden canónico por tipo, no el orden físico
+      #     de la base;
+      #   * COPY: el verbo es VER. «Buscar», «Encontrar», «Revelar» y «Enriquecer»
+      #     están prohibidos porque prometerían una consulta que cuesta, y no se
+      #     muestra costo por número (las respuestas se cobran POR RESPUESTA, así
+      #     que un precio unitario sería una cifra que nadie facturó);
+      #   * ALCANCE: 0 migraciones, 0 cambios en proveedor/presupuesto/reservas/
+      #     waterfall, 0 en aprobación y 0 en contactos, verificado contra
+      #     `origin/main...HEAD`.
+      #
+      # Mutantes detectados: el filtro de tombstone desaparece; la proyección
+      # empieza a llevar `dedupe_key`; el CTA se ata al flag del waterfall; el
+      # estado de error cae a un reveal; `select('*')`; el principal vuelve a
+      # listarse como adicional.
+      #
+      # Determinista y offline: sin red, sin Supabase real, sin proveedores, 0
+      # créditos. La suite de UI va aparte porque necesita
+      # `--experimental-test-module-mocks`.
+      - name: Run stored candidate phones tests
+        run: npm run test:agent2a:stored-candidate-phones
+
+      - name: Run stored candidate phones UI tests
+        run: npm run test:agent2a:stored-candidate-phones-ui

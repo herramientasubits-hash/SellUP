@@ -70,6 +70,13 @@ import {
 // waterfall: solo dispara el mismo server action del reveal Apollo y LEE la auditoría
 // de la corrida.
 import { getPhoneRevealWaterfallAuditAction } from '@/modules/contact-enrichment/phone-reveal-waterfall-actions';
+// «Ver más números» (AGENT2A-PHONE-REVEAL-4O-G). SOLO lectura de teléfonos YA
+// almacenados por 4O-C/4O-D: 0 llamadas a proveedor, 0 corridas, 0 reservas,
+// 0 créditos y 0 escrituras. El resumen es un entero y decide si el CTA existe;
+// los números no viajan al navegador hasta que el operador abre el disclosure.
+import { getCandidateStoredPhoneSummaryAction } from '@/modules/contact-enrichment/candidate-stored-phones-actions';
+import { CandidateStoredPhonesDisclosure } from './candidate-stored-phones-disclosure';
+import { resolvePhoneSourceLabel, resolvePhoneTypeLabel } from './phone-display-labels';
 // Compatibilidad legacy (AGENT2A-PHONE-WATERFALL-2): con el waterfall encendido el
 // botón manual separado de Lusha desaparece, así que un candidato cuyo Apollo YA
 // terminó `no_phone_found` antes de que existiera la corrida se quedaría sin ninguna
@@ -116,8 +123,6 @@ import type {
   ContactSource,
   ContactCandidateCompanyConsistency,
   LushaPersonIdentityEvidenceV1,
-  PhoneType,
-  PhoneSource,
   PhoneProcessingBasis,
 } from '@/modules/contact-enrichment/types';
 import {
@@ -233,55 +238,11 @@ const DUPLICATE_LABELS: Record<ContactDuplicateStatus, string> = {
 // PHONE-3A conservó en `enrichment_metadata.phone`. Copy PRUDENTE: `personal_mobile`
 // se rotula como "posible personal" a propósito, sin prometer certeza sobre la
 // titularidad del número. Este hito NO revela teléfonos ni activa reveal alguno.
-
-const PHONE_TYPE_UNKNOWN_LABEL = 'Tipo desconocido';
-const PHONE_SOURCE_UNKNOWN_LABEL = 'Fuente desconocida';
-
-const PHONE_TYPE_LABELS: Record<PhoneType, string> = {
-  personal_mobile: 'Móvil / posible personal',
-  mobile: 'Móvil',
-  direct_dial: 'Directo corporativo',
-  work: 'Trabajo',
-  hq: 'Central / HQ',
-  other: 'Otro',
-  unknown: PHONE_TYPE_UNKNOWN_LABEL,
-};
-
-const PHONE_SOURCE_LABELS: Record<PhoneSource, string> = {
-  apollo_search: 'Apollo búsqueda',
-  apollo_reveal: 'Apollo reveal',
-  // APOLLO-PHONE-CACHE-1b: el operador tiene que poder distinguir de un vistazo
-  // un número reutilizado de uno recién revelado (no se cobraron créditos).
-  apollo_cache: 'Apollo reveal reutilizado',
-  lusha_reveal: 'Lusha reveal',
-  provider_payload: 'Proveedor',
-  manual: 'Manual',
-  unknown: PHONE_SOURCE_UNKNOWN_LABEL,
-};
-
-/**
- * Etiqueta del tipo de teléfono. Cualquier valor ausente, vacío, `unknown` o no
- * reconocido cae a "Tipo desconocido" (estado explícito cuando hay teléfono
- * pero no hay tipo claro).
- */
-function resolvePhoneTypeLabel(type: string | null | undefined): string {
-  if (typeof type === 'string' && Object.prototype.hasOwnProperty.call(PHONE_TYPE_LABELS, type)) {
-    return PHONE_TYPE_LABELS[type as PhoneType];
-  }
-  return PHONE_TYPE_UNKNOWN_LABEL;
-}
-
-/**
- * Etiqueta de la fuente del teléfono. Devuelve `null` cuando no hay fuente
- * (para omitir el badge). Valores no reconocidos → "Fuente desconocida".
- */
-function resolvePhoneSourceLabel(source: string | null | undefined): string | null {
-  if (typeof source !== 'string' || source.trim().length === 0) return null;
-  if (Object.prototype.hasOwnProperty.call(PHONE_SOURCE_LABELS, source)) {
-    return PHONE_SOURCE_LABELS[source as PhoneSource];
-  }
-  return PHONE_SOURCE_UNKNOWN_LABEL;
-}
+//
+// AGENT2A-PHONE-REVEAL-4O-G: los mapas y sus resolvers viven ahora en
+// `phone-display-labels.ts`, sin cambiar un solo valor. El disclosure «Ver más
+// números» muestra teléfonos en otra superficie y tiene que rotularlos EXACTAMENTE
+// igual; dos copias del mismo mapa habrían divergido en el primer renombrado.
 
 // ── Reveal de teléfono (PHONE-3D.4) ──────────────────────────────────────────
 // UI explícita, individual y auditada para revelar el teléfono de UN candidato
@@ -479,6 +440,11 @@ export function ContactCandidateDetailSheet({
   const [waterfallAudit, setWaterfallAudit] =
     React.useState<PhoneRevealWaterfallAuditView | null>(null);
 
+  // Teléfonos adicionales YA almacenados (AGENT2A-PHONE-REVEAL-4O-G). Sólo el
+  // CONTEO: los números se piden aparte, y sólo si el operador abre el disclosure.
+  const [storedPhoneAdditionalCount, setStoredPhoneAdditionalCount] =
+    React.useState<number>(0);
+
   // Ruta legacy solo-Lusha (AGENT2A-PHONE-WATERFALL-2). SÍNCRONA como el fallback
   // manual de Lusha (sin webhook: Lusha responde en la misma llamada), pero se
   // dispara desde el MISMO botón único que el waterfall.
@@ -537,6 +503,38 @@ export function ContactCandidateDetailSheet({
   );
 
   /**
+   * Cuántos teléfonos ADICIONALES tiene guardados el candidato
+   * (AGENT2A-PHONE-REVEAL-4O-G). Es lo único que hace falta para decidir si el CTA
+   * «Ver más números» existe, y es un entero: mientras el operador no lo pida, no
+   * viaja al navegador ningún número extra.
+   *
+   * NO depende de `waterfallActive` ni de ningún flag de proveedor. Estos números
+   * ya están guardados y ya se pagaron; que Apollo o Lusha estén hoy apagados
+   * gobierna si SellUp puede GASTAR, no si el operador puede VER lo que ya tiene.
+   *
+   * Se relee junto al candidato, así que una supresión (DSAR) posterior retira el
+   * CTA en el siguiente refetch sin necesidad de tiempo real. Silencioso y
+   * fail-closed: ante cualquier fallo se queda en 0 y el CTA no aparece.
+   */
+  const reloadStoredPhoneSummary = React.useCallback(
+    async (targetCandidateId: string): Promise<void> => {
+      try {
+        const summary = await getCandidateStoredPhoneSummaryAction({
+          candidateId: targetCandidateId,
+        });
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setStoredPhoneAdditionalCount(summary.additionalCount);
+        }
+      } catch {
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setStoredPhoneAdditionalCount(0);
+        }
+      }
+    },
+    [],
+  );
+
+  /**
    * Descarta TODO el estado local temporal del candidato en pantalla
    * (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 4.2 / § 4.3).
    *
@@ -579,6 +577,9 @@ export function ContactCandidateDetailSheet({
     setRevealingLegacyPhone(false);
     setLegacyWaterfallError(null);
     setLegacyWaterfallNotice(null);
+    // 4O-G: el conteo pertenece al candidato anterior. Dejarlo puesto haría
+    // aparecer «Ver 2 números más» sobre un candidato que quizá no tiene ninguno.
+    setStoredPhoneAdditionalCount(0);
   }, []);
 
   /**
@@ -634,6 +635,9 @@ export function ContactCandidateDetailSheet({
             // Auditoría de la corrida del waterfall (no bloquea el render del
             // candidato: se pide en paralelo y su ausencia solo oculta el bloque).
             void reloadWaterfallAudit(candidateId);
+            // 4O-G: conteo de teléfonos adicionales ya almacenados. Igual que la
+            // auditoría, en paralelo y sin bloquear; su ausencia sólo oculta el CTA.
+            void reloadStoredPhoneSummary(candidateId);
           }
         } catch {
           if (!cancelled) {
@@ -659,6 +663,7 @@ export function ContactCandidateDetailSheet({
     open,
     candidateId,
     reloadWaterfallAudit,
+    reloadStoredPhoneSummary,
     resetTransientCandidateState,
     resetInFlightGuards,
   ]);
@@ -687,6 +692,10 @@ export function ContactCandidateDetailSheet({
       // La corrida se relee junto al candidato: es lo que hace visible el paso
       // "Apollo no encontró teléfono, consultando Lusha" sin timers propios.
       await reloadWaterfallAudit(candidateId);
+      // 4O-G: el conteo se relee con el candidato. Es lo que hace que un reveal
+      // que trajo un segundo número muestre el CTA sin recargar la página — y,
+      // en el otro sentido, que una supresión posterior lo retire.
+      await reloadStoredPhoneSummary(candidateId);
     })();
     reloadInFlightRef.current = request;
     try {
@@ -694,7 +703,7 @@ export function ContactCandidateDetailSheet({
     } finally {
       if (reloadInFlightRef.current === request) reloadInFlightRef.current = null;
     }
-  }, [candidateId, reloadWaterfallAudit]);
+  }, [candidateId, reloadWaterfallAudit, reloadStoredPhoneSummary]);
 
   async function handleApprove(identityOverride?: { acknowledged: boolean; reason: string }) {
     if (!candidate || busy) return;
@@ -1701,6 +1710,22 @@ export function ContactCandidateDetailSheet({
                     </span>
                   ) : (
                     <Fallback />
+                  )}
+                  {/* «Ver más números» (AGENT2A-PHONE-REVEAL-4O-G). Aparece SOLO si
+                      hay al menos un número adicional YA almacenado, y lista
+                      únicamente los ADICIONALES: el principal ya se lee justo
+                      arriba y repetirlo sería ruido.
+
+                      Es una LECTURA. No busca, no revela y no gasta: 0 llamadas a
+                      Apollo, 0 a Lusha, 0 corridas, 0 reservas, 0 créditos. Por eso
+                      no está detrás de ningún flag de proveedor — un número ya
+                      pagado y ya guardado no puede desaparecer porque el proveedor
+                      que lo trajo esté hoy apagado. */}
+                  {candidate && storedPhoneAdditionalCount > 0 && (
+                    <CandidateStoredPhonesDisclosure
+                      candidateId={candidate.id}
+                      additionalCount={storedPhoneAdditionalCount}
+                    />
                   )}
                   {/* § 8.2: línea SEPARADA para el proveedor de revelación. Vive en
                       la sección de Teléfono porque es un hecho del teléfono, no del
