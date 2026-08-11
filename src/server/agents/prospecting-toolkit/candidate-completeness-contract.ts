@@ -14,6 +14,9 @@
  */
 
 import type { CompanyFieldMappingStatus } from './apollo-company-fields-mapping';
+// PHASE 2B § 9 — el conteo lee el veredicto OPERATIVO; el diagnóstico sigue siendo
+// lo que la ficha muestra.
+import { projectOperationalSubindustryVerdict } from './apollo-subindustry-precision';
 import type {
   ApolloSubindustryPrecisionAssessment,
   RequestedSubindustryEvaluation,
@@ -503,8 +506,20 @@ export function resolveCandidateSubindustryRequirement(input: {
 
   if (precision === null || precision.requestedSubindustry === null) return unavailable();
 
+  // ── PHASE 2B § 9 — diagnóstico y operativo son cosas distintas ─────────────
+  //
+  // `mapped`/`match` son el veredicto DIAGNÓSTICO: es lo que la ficha muestra y lo
+  // que nombra la causa de revisión, y conserva las tres ramas siempre.
+  //
+  // `operational` es lo que decide si el candidato CUENTA. Con las dos reglas
+  // vigentes (`mode: 'full'`) ambos coinciden término por término, así que ninguna
+  // decisión de hoy cambia. Con una regla `confirm_only` futura, su `ambiguous` y
+  // su `rejected` dejan de contribuir al plano operativo —quedan como diagnóstico—
+  // y el candidato cae al comportamiento base/fail-closed de siempre: no cuenta,
+  // pero tampoco se rechaza ni se le abre prioridad de enrichment por esa regla.
   const mapped = precision.subindustryMapped;
   const match = precision.subindustryMatch;
+  const operational = projectOperationalSubindustryVerdict(precision);
 
   // Fail-closed ante un desajuste de cableado: una confirmación sólo cuenta si la
   // subindustria que confirmó es una de las PEDIDAS. Inerte en producción —el
@@ -513,11 +528,15 @@ export function resolveCandidateSubindustryRequirement(input: {
   // subindustria que el usuario no eligió.
   const requestedKeys = new Set(requestedSubindustries.map(subindustryLabelKey));
   const confirmedLabel = precision.matchedRequestedSubindustry ?? precision.requestedSubindustry;
-  if (match === 'confirmed' && !requestedKeys.has(subindustryLabelKey(confirmedLabel))) {
+  if (
+    operational.subindustryMatch === 'confirmed' &&
+    !requestedKeys.has(subindustryLabelKey(confirmedLabel))
+  ) {
     return unavailable();
   }
 
-  const confirmed = mapped && match === 'confirmed';
+  const confirmed =
+    operational.subindustryMapped && operational.subindustryMatch === 'confirmed';
   const reportedMatch: SubindustryRequirementMatch = confirmed
     ? 'confirmed'
     : match === 'rejected'
