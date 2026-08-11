@@ -298,7 +298,9 @@ describe('4O-E4.1 estático — alcance', () => {
       .filter((f) => /^\d{3}_/.test(f) && f.endsWith('.sql'))
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 113, 'la 113 (E3) sigue siendo la última');
+    // El techo lo movió 4O-H1 con la 114 (esquema oficial multi-teléfono, INERTE). Lo que
+    // esta guarda fija es que E4.1 se resolvió en TypeScript, no cuál es el número más alto.
+    assert.equal(numbered[numbered.length - 1], 114, 'la 114 (4O-H1) es la última');
   });
 
   it('no se introduce `mobile_phone_source` ni ningún modelo de procedencia', () => {
@@ -326,17 +328,21 @@ describe('4O-E4.1 estático — alcance', () => {
     }
   });
 
-  it('no se crea ninguna tabla contact_phones', () => {
+  it('sólo 4O-H1 crea la tabla contact_phones', () => {
+    // Invertido por 4O-H1: la tabla ya existe. Lo que se sigue protegiendo es que la cree
+    // EXACTAMENTE una migración, y que ninguna toque el escalar móvil (arriba).
+    const creators: string[] = [];
     for (const file of readdirSync(MIGRATIONS_DIR)) {
       if (!file.endsWith('.sql')) continue;
-      assert.equal(
+      if (
         /CREATE TABLE[^;]*\bpublic\.contact_phones\b/i.test(
           readFileSync(join(MIGRATIONS_DIR, file), 'utf8'),
-        ),
-        false,
-        `${file} no debe crear contact_phones`,
-      );
+        )
+      ) {
+        creators.push(file);
+      }
     }
+    assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
   it('E4.1 no toca la UI ni HubSpot en código', () => {
