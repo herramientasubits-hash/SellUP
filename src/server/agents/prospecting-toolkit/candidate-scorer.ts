@@ -29,6 +29,24 @@ import {
 
 // ─── Constantes de scoring ────────────────────────────────────────────────────
 
+/**
+ * CANDIDATE-OPERABILITY-VALIDATION-1 § E/F — la advertencia habla de
+ * DISPONIBILIDAD, no de verificación.
+ *
+ * Se exporta porque hay exactamente una regla canónica y un solo texto: la
+ * reconciliación del writer (`candidate-linkedin-availability.ts`) tiene que poder
+ * reconocer y retirar ESTA advertencia cuando la URL canónica llegó después del
+ * scoring, sin volver a escribir la cadena a mano en otro archivo.
+ */
+export const LINKEDIN_ABSENT_WARNING = 'LinkedIn no disponible.' as const;
+
+/**
+ * El componente que la presencia de un LinkedIn empresarial aporta, tanto a
+ * `confidenceScore` como a `dataCompletenessScore`. Una sola definición: si la
+ * regla canónica cambia, cambia en un sitio.
+ */
+export const LINKEDIN_PRESENCE_SCORE_COMPONENT = 5;
+
 const LARGE_COMPANY_SIZES = new Set([
   'grande', 'large', 'enterprise', 'corporacion', 'corporación',
   'multinacional', 'multinational', 'enterprise+', 'grande+',
@@ -173,9 +191,9 @@ function computeConfidenceScore(input: CandidateScoringInput): ConfidenceResult 
 
   // LinkedIn URL presente: +5
   if (input.linkedinCompanyUrl?.trim()) {
-    raw += 5;
+    raw += LINKEDIN_PRESENCE_SCORE_COMPONENT;
   } else {
-    warnings.push('LinkedIn no disponible.');
+    warnings.push(LINKEDIN_ABSENT_WARNING);
   }
 
   const score = clamp(raw - penalties, 0, 100);
@@ -525,7 +543,7 @@ function computeCompletenessScore(input: CandidateScoringInput): number {
   if (input.city?.trim() || input.region?.trim()) score += 10;
   if (input.companySize?.trim()) score += 10;
   if (input.taxIdentifier?.trim()) score += 10;
-  if (input.linkedinCompanyUrl?.trim()) score += 5;
+  if (input.linkedinCompanyUrl?.trim()) score += LINKEDIN_PRESENCE_SCORE_COMPONENT;
   if (input.duplicateCheck) score += 5;
 
   return clamp(score, 0, 100);
