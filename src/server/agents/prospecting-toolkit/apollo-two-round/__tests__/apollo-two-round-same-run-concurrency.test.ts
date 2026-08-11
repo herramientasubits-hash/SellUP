@@ -35,6 +35,7 @@ import {
 } from '../checkpoint.server';
 import { APOLLO_TWO_ROUND_CHECKPOINT_KEY, type ApolloTwoRoundCheckpointV1 } from '../checkpoint';
 import { defaultApolloTwoRoundConfig } from '../config';
+import { captureApolloCompanyFields } from '../../apollo-company-fields-mapping';
 import type { ProspectingPipelineCandidate, WebSearchOutput, WebSearchResult } from '../../types';
 
 const CORRELATION = {
@@ -128,6 +129,9 @@ function recordedCredits(world: ExternalWorld): number {
   return [...world.usageLogs.values()].reduce((total, row) => total + row.credits, 0);
 }
 
+/** Reloj fijo: estas pruebas no pueden depender del real. */
+const FIXTURE_OBSERVED_AT = '2026-08-10T00:00:00.000Z';
+
 function supermarket(index: number): WebSearchResult {
   return {
     // AGENT1-APOLLO-FINALIZATION-HARDENING-1 § A — el nombre coincide con el
@@ -153,6 +157,11 @@ function supermarket(index: number): WebSearchResult {
       city: 'Bogotá',
       employee_count: 500,
       estimated_num_employees: 500,
+      // STABLE-TARGET-WRITER-PARITY § 6 — sin LinkedIn el contrato de
+      // completitud deja al candidato fuera del objetivo, la corrida no se
+      // detiene y compra enrichments que esta suite —que prueba la resolución
+      // de CAS concurrente, no la completitud— prohíbe explícitamente.
+      linkedin_url: `https://www.linkedin.com/company/org-${index}`,
       apollo_profile: { industry: 'retail', industries: [] },
     },
   };
@@ -163,6 +172,8 @@ const SEARCH_CREDITS = 1;
 
 function pipelineCandidate(result: WebSearchResult): ProspectingPipelineCandidate {
   const domain = (result.metadata?.['domain'] as string) ?? null;
+  // § 1 — el doble reproduce lo que produce `buildCandidateFromResult`.
+  const providerCompanyFields = captureApolloCompanyFields(result, FIXTURE_OBSERVED_AT);
   return {
     name: result.title,
     website: result.url,
@@ -183,6 +194,11 @@ function pipelineCandidate(result: WebSearchResult): ProspectingPipelineCandidat
       checkedSources: ['sellup', 'hubspot'],
     } as ProspectingPipelineCandidate['duplicateCheck'],
     scoring: { qualityLabel: 'high_quality_new' } as ProspectingPipelineCandidate['scoring'],
+    providerCompanyFields,
+    companyLinkedInUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
+    ...(providerCompanyFields.employeeCount.status === 'confirmed'
+      ? { employeeCount: providerCompanyFields.employeeCount.employeeCount }
+      : {}),
   };
 }
 

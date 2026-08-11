@@ -327,6 +327,43 @@ jobs:
       - name: Run A1 catalog source-of-truth and version-coherence tests
         run: npm run test:a1-catalog-source-of-truth
 
+      # AGENT1-APOLLO-FINALIZATION-HARDENING-1 + STABLE-TARGET-WRITER-PARITY —
+      # la SEMÁNTICA DE OBJETIVO entra al check obligatorio.
+      #
+      # Hasta este paso, ninguna de estas suites corría en CI: se ejecutaban a
+      # mano. El defecto que guardan es exactamente el tipo de cosa que no falla
+      # al compilar y que una ejecución manual olvidada deja pasar — había DOS
+      # semánticas de objetivo, y la que decidía el gasto era la laxa.
+      #
+      # Lo que este paso guarda:
+      #
+      #   * que exista UNA sola función canónica de elegibilidad hacia el
+      #     objetivo (`evaluateCandidateTargetEligibility`), compartida por el
+      #     orquestador y por el writer, y que la única diferencia legítima entre
+      #     sus dos lecturas sea `persistence_success`;
+      #   * que una condición PENDIENTE —la que todavía no se puede saber— NUNCA
+      #     cuente hacia el objetivo, igual que una fallida;
+      #   * que `employee_count` ausente, LinkedIn ausente, calidad en revisión,
+      #     subindustria ambigua o sin mapear (#241) y duplicado no resuelto (§ 9)
+      #     dejen al candidato FUERA de la cuenta que detiene el gasto, y que por
+      #     tanto siga compitiendo por su enrichment en vez de recibir
+      #     `target_already_reached`;
+      #   * que `stable_finalizable_candidate_count` deje de ser un alias de
+      #     `total_eligible_companies`, y que el invariante
+      #     `target_reached == (target_gap == 0)` se sostenga;
+      #   * que la métrica PRE-writer y la POSTERIOR al writer no compartan
+      #     nombre, y que la reconciliación siga siendo la autoritativa;
+      #   * que todo descarte del writer deje una candidata TRAZABLE en
+      #     `writer_omitted_samples`, incluido el gate de tamaño ICP, que era el
+      #     único de Pass 4 sin muestra;
+      #   * que los topes absolutos no se muevan: <=2 búsquedas, <=5 enrichments,
+      #     <=25 créditos por corrida.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos, sin DB real. El
+      # proveedor, el writer y las consultas de duplicados entran por inyección.
+      - name: Run A1 Apollo finalization hardening and stable-target parity tests
+        run: npm run test:a1-apollo-finalization-hardening
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)

@@ -33,6 +33,7 @@ import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '../observability';
 import { estimateApolloTwoRoundBudget, defaultApolloTwoRoundConfig } from '../index';
 import { runWizardApolloSearch } from '@/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor';
 import { estimateCreditsForProvider } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-estimate';
+import { captureApolloCompanyFields } from '../../apollo-company-fields-mapping';
 import type {
   ProspectingPipelineCandidate,
   WebSearchOutput,
@@ -40,6 +41,9 @@ import type {
 } from '../../types';
 
 // ─── Fixtures de producción ───────────────────────────────────────────────────
+
+/** Reloj fijo: el orquestador es puro y estas pruebas no pueden depender del real. */
+const FIXTURE_OBSERVED_AT = '2026-08-10T00:00:00.000Z';
 
 const CORRELATION = {
   wizardRunId: 'run-1',
@@ -59,7 +63,17 @@ function apolloResult(options: {
   snippet?: string;
   rank?: number;
   employees?: number;
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 6 — `null` reproduce a una empresa SIN
+   * LinkedIn, que el contrato de completitud deja fuera del objetivo. Por
+   * omisión el fixture lo trae: estos casos describen candidatas COMPLETAS.
+   */
+  linkedinUrl?: string | null;
 }): WebSearchResult {
+  const linkedinUrl =
+    options.linkedinUrl === undefined
+      ? `https://www.linkedin.com/company/${options.id}`
+      : options.linkedinUrl;
   return {
     title: options.name,
     url: `https://${options.domain}`,
@@ -76,6 +90,7 @@ function apolloResult(options: {
       city: 'Bogotá',
       employee_count: options.employees ?? 500,
       estimated_num_employees: options.employees ?? 500,
+      ...(linkedinUrl === null ? {} : { linkedin_url: linkedinUrl }),
       apollo_profile: { industry: options.industry ?? null, industries: [] },
     },
   };
@@ -100,6 +115,7 @@ function pipelineCandidate(
   duplicate: 'none' | 'sellup' | 'hubspot',
 ): ProspectingPipelineCandidate {
   const domain = (result.metadata?.['domain'] as string) ?? null;
+  const providerCompanyFields = captureApolloCompanyFields(result, FIXTURE_OBSERVED_AT);
   return {
     name: result.title,
     website: result.url,
@@ -133,6 +149,16 @@ function pipelineCandidate(
     scoring: {
       qualityLabel: 'high_quality_new',
     } as ProspectingPipelineCandidate['scoring'],
+    // STABLE-TARGET-WRITER-PARITY § 1 — el doble tiene que producir lo MISMO que
+    // `buildCandidateFromResult`: la captura de LinkedIn y `employee_count` viaja
+    // con el candidato. Sin ella, el contrato canónico lee `mapping_failed` —
+    // correcto y fail-closed, pero convierte a estos fixtures en candidatas
+    // incompletas y ninguna prueba de «objetivo alcanzado» podría alcanzarlo.
+    providerCompanyFields,
+    companyLinkedInUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
+    ...(providerCompanyFields.employeeCount.status === 'confirmed'
+      ? { employeeCount: providerCompanyFields.employeeCount.employeeCount }
+      : {}),
   };
 }
 

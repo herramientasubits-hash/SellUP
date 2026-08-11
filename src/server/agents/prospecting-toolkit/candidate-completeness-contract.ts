@@ -25,6 +25,53 @@ import type {
 export type GateVerdict = 'pass' | 'fail' | 'unknown';
 export type SubindustryMatchVerdict = 'confirmed' | 'not_confirmed' | 'unknown';
 
+/**
+ * AGENT1-APOLLO-FINALIZATION-HARDENING-1 · STABLE-TARGET-WRITER-PARITY § 2 —
+ * las condiciones del contrato, en su orden, como DATO.
+ *
+ * Existen como constante enumerable porque hay dos consumidores que tienen que
+ * hablar de ellas por nombre y no sólo evaluarlas: el orquestador —que declara
+ * cuáles todavía no puede resolver— y el writer —que las resuelve todas—. Una
+ * lista implícita en el cuerpo de la función no se puede declarar como
+ * pendiente.
+ */
+export const CANDIDATE_TARGET_CONDITIONS = [
+  'persistence_success',
+  'subindustry_match',
+  'employee_count_status',
+  'linkedin_status',
+  'duplicate_status',
+  'ownership_gate',
+  'quality_gate',
+] as const;
+
+export type CandidateTargetCondition = (typeof CANDIDATE_TARGET_CONDITIONS)[number];
+
+/**
+ * § 2 — las condiciones del contrato que NO son `persistence_success`.
+ *
+ * Son exactamente las que un consumidor PRE-writer puede evaluar: la única
+ * diferencia legítima entre la evaluación de antes y la de después de escribir
+ * es si la fila llegó a la base.
+ */
+export const CANDIDATE_PRE_PERSISTENCE_TARGET_CONDITIONS: readonly CandidateTargetCondition[] =
+  CANDIDATE_TARGET_CONDITIONS.filter((condition) => condition !== 'persistence_success');
+
+/**
+ * § 2 — estado de UNA condición.
+ *
+ *   `satisfied` — se evaluó y se cumple.
+ *   `failed`    — se evaluó y NO se cumple.
+ *   `pending`   — todavía no se puede saber. NO es «se cumple»: un pendiente
+ *                 nunca cuenta hacia el objetivo.
+ *
+ * `pending` sólo aparece cuando el llamador lo DECLARA (`pendingConditions`).
+ * Ningún veredicto se degrada solo: un `unknown` de gate o un
+ * `duplicateStatus` nulo siguen siendo `failed`, exactamente como antes de este
+ * hito, porque son respuestas —«no lo demostró»— y no ausencias de respuesta.
+ */
+export type CandidateTargetConditionStatus = 'satisfied' | 'failed' | 'pending';
+
 export type CandidateTargetEligibilityInput = {
   persistenceSuccess: boolean;
   subindustryMatch: SubindustryMatchVerdict;
@@ -34,12 +81,58 @@ export type CandidateTargetEligibilityInput = {
   duplicateStatus: string | null;
   ownershipGate: GateVerdict;
   qualityGate: GateVerdict;
+  /**
+   * § 2 — condiciones que este llamador todavía NO puede resolver.
+   *
+   * Es lo que hace posible que el orquestador use ESTA función —la misma que
+   * usa el writer— sin tener que inventar un veredicto para lo que sólo el
+   * writer sabe. Fail-closed: una condición declarada pendiente impide contar,
+   * igual que una fallida, y se reporta aparte para que la causa sea legible.
+   *
+   * Ausente ⇒ ninguna condición pendiente: es el caso del writer, que las
+   * resuelve todas, y el comportamiento histórico de esta función.
+   */
+  pendingConditions?: readonly CandidateTargetCondition[];
 };
 
 export type CandidateTargetEligibility = {
   countsTowardTarget: boolean;
-  /** Condiciones que no se cumplieron, en el orden del contrato. */
+  /**
+   * Condiciones que no se cumplieron, en el orden del contrato.
+   *
+   * Incluye las PENDIENTES: para un contador agregado, «no se cumplió» y «no se
+   * pudo saber» tienen el mismo efecto —no cuenta— y separarlas aquí habría
+   * cambiado `failed_condition_counts` para todo consumidor ya escrito.
+   * `strictlyFailedConditions` y `pendingConditions` llevan el desglose.
+   */
   failedConditions: string[];
+  // ── STABLE-TARGET-WRITER-PARITY § 1 — campos del contrato canónico ──────────
+  /**
+   * § 3 — el ÚNICO booleano que puede detener gasto. `true` sólo cuando las
+   * SIETE condiciones están satisfechas: ni una fallida, ni una pendiente.
+   */
+  eligibleForTarget: boolean;
+  /** Estado de cada condición, por nombre. Nada se deduce; todo se declara. */
+  conditionStates: Record<CandidateTargetCondition, CandidateTargetConditionStatus>;
+  /** Condiciones evaluadas y NO cumplidas, sin las pendientes. */
+  strictlyFailedConditions: string[];
+  /** Condiciones que todavía no se pueden saber, en el orden del contrato. */
+  pendingConditions: string[];
+  /**
+   * § 10 — verdad determinista PRE-persistencia: todas las condiciones salvo
+   * `persistence_success` están satisfechas.
+   *
+   * Es lo que un consumidor pre-writer puede afirmar honestamente. Un fallo de
+   * base posterior lo desmiente para esa fila —`eligibleForTarget` pasa a
+   * `false`— sin invalidar la decisión que se tomó antes de escribir.
+   */
+  countsTowardTargetIfPersisted: boolean;
+  /**
+   * `completeValid` y `countsTowardTarget` son el MISMO booleano con dos
+   * nombres (ver `CandidateCanonicalTargetEligibility`); éste es su proyección
+   * pre-persistencia.
+   */
+  completeValidIfPersisted: boolean;
 };
 
 /** Único valor de duplicado que el contrato acepta. */
@@ -48,23 +141,66 @@ const REQUIRED_DUPLICATE_STATUS = 'no_match';
 /**
  * Evalúa si un candidato cuenta hacia el target de la modalidad QA.
  *
+ * FUNCIÓN CANÓNICA ÚNICA (STABLE-TARGET-WRITER-PARITY § 1). No existe —ni puede
+ * existir— una segunda implementación de esta decisión: el orquestador la usa
+ * para decidir si puede dejar de gastar, y el writer para decidir si la fila
+ * cuenta. Antes de este hito eran dos semánticas distintas, y la del
+ * orquestador era más laxa: bastaba «sector confirmado» para detener
+ * enrichments que el writer iba a dejar en `needs_review`.
+ *
  * La conjunción es exactamente la del contrato; ninguna condición se pondera ni
  * se compensa con otra.
  */
 export function evaluateCandidateTargetEligibility(
   input: CandidateTargetEligibilityInput,
 ): CandidateTargetEligibility {
+  const declaredPending = new Set<CandidateTargetCondition>(input.pendingConditions ?? []);
+
+  /** Veredicto crudo de cada condición, antes de aplicar lo declarado pendiente. */
+  const satisfied: Record<CandidateTargetCondition, boolean> = {
+    persistence_success: input.persistenceSuccess,
+    subindustry_match: input.subindustryMatch === 'confirmed',
+    employee_count_status: input.employeeCountStatus === 'confirmed',
+    linkedin_status: input.linkedinStatus === 'confirmed',
+    duplicate_status: input.duplicateStatus === REQUIRED_DUPLICATE_STATUS,
+    ownership_gate: input.ownershipGate === 'pass',
+    quality_gate: input.qualityGate === 'pass',
+  };
+
+  const conditionStates = {} as Record<CandidateTargetCondition, CandidateTargetConditionStatus>;
   const failedConditions: string[] = [];
+  const strictlyFailedConditions: string[] = [];
+  const pendingConditions: string[] = [];
 
-  if (!input.persistenceSuccess) failedConditions.push('persistence_success');
-  if (input.subindustryMatch !== 'confirmed') failedConditions.push('subindustry_match');
-  if (input.employeeCountStatus !== 'confirmed') failedConditions.push('employee_count_status');
-  if (input.linkedinStatus !== 'confirmed') failedConditions.push('linkedin_status');
-  if (input.duplicateStatus !== REQUIRED_DUPLICATE_STATUS) failedConditions.push('duplicate_status');
-  if (input.ownershipGate !== 'pass') failedConditions.push('ownership_gate');
-  if (input.qualityGate !== 'pass') failedConditions.push('quality_gate');
+  for (const condition of CANDIDATE_TARGET_CONDITIONS) {
+    const state: CandidateTargetConditionStatus = declaredPending.has(condition)
+      ? 'pending'
+      : satisfied[condition]
+        ? 'satisfied'
+        : 'failed';
+    conditionStates[condition] = state;
+    if (state === 'satisfied') continue;
+    failedConditions.push(condition);
+    if (state === 'pending') pendingConditions.push(condition);
+    else strictlyFailedConditions.push(condition);
+  }
 
-  return { countsTowardTarget: failedConditions.length === 0, failedConditions };
+  const countsTowardTargetIfPersisted = CANDIDATE_PRE_PERSISTENCE_TARGET_CONDITIONS.every(
+    (condition) => conditionStates[condition] === 'satisfied',
+  );
+  const eligibleForTarget =
+    countsTowardTargetIfPersisted && conditionStates.persistence_success === 'satisfied';
+
+  return {
+    countsTowardTarget: eligibleForTarget,
+    failedConditions,
+    eligibleForTarget,
+    conditionStates,
+    strictlyFailedConditions,
+    pendingConditions,
+    countsTowardTargetIfPersisted,
+    completeValidIfPersisted: countsTowardTargetIfPersisted,
+  };
 }
 
 /** Traduce el estado de evidencia sectorial de la modalidad al veredicto del contrato. */
@@ -323,8 +459,7 @@ export function resolveCandidateSubindustryRequirement(input: {
  * son, por la misma razón, la MISMA lista: toda condición incumplida es a la
  * vez el motivo de revisión y el motivo de que no cuente.
  */
-export type CandidateCanonicalTargetEligibility = {
-  countsTowardTarget: boolean;
+export type CandidateCanonicalTargetEligibility = CandidateTargetEligibility & {
   completeValid: boolean;
   reviewOnly: boolean;
   /**
@@ -338,13 +473,6 @@ export type CandidateCanonicalTargetEligibility = {
    */
   reviewOnlyReasons: string[];
   blockingReasons: string[];
-  /**
-   * Condiciones del contrato incumplidas, con el nombre histórico. Presente para
-   * que este tipo siga siendo un `CandidateTargetEligibility` válido —ambos
-   * consumidores existentes (`buildCandidateCompletenessCounters`,
-   * `resolveCandidateStatusForCompleteness`) siguen funcionando sin cambios.
-   */
-  failedConditions: string[];
   subindustryRequirementApplied: boolean;
   requestedSubindustries: string[];
   perRequestedSubindustryEvaluations: RequestedSubindustryEvaluation[];
@@ -366,6 +494,12 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
   duplicateStatus: string | null;
   ownershipGate: GateVerdict;
   qualityGate: GateVerdict;
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 2 — condiciones que este llamador todavía no
+   * puede resolver. Es lo que permite al orquestador compartir esta función con
+   * el writer sin fingir veredictos. Ver `CandidateTargetEligibilityInput`.
+   */
+  pendingConditions?: readonly CandidateTargetCondition[];
 }): CandidateCanonicalTargetEligibility {
   const subindustry = resolveCandidateSubindustryRequirement({
     sectorEvidenceState: input.sectorEvidenceState,
@@ -381,6 +515,7 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
     duplicateStatus: input.duplicateStatus,
     ownershipGate: input.ownershipGate,
     qualityGate: input.qualityGate,
+    pendingConditions: input.pendingConditions,
   });
 
   const reviewOnlyReasons = base.failedConditions.map((condition) =>
@@ -390,12 +525,11 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
   );
 
   return {
-    countsTowardTarget: base.countsTowardTarget,
+    ...base,
     completeValid: base.countsTowardTarget,
     reviewOnly: !base.countsTowardTarget,
     reviewOnlyReasons,
     blockingReasons: base.failedConditions,
-    failedConditions: base.failedConditions,
     subindustryRequirementApplied: subindustry.subindustryRequirementApplied,
     requestedSubindustries: subindustry.requestedSubindustries,
     perRequestedSubindustryEvaluations: subindustry.perRequestedSubindustryEvaluations,
@@ -432,8 +566,22 @@ export type CandidateCompletenessCounters = {
   failed_condition_counts: Record<string, number>;
 };
 
+/**
+ * Lo MÍNIMO que un contador o un resolvedor de estado necesita de una
+ * elegibilidad.
+ *
+ * Se declara aparte del tipo completo a propósito: `CandidateTargetEligibility`
+ * creció (STABLE-TARGET-WRITER-PARITY § 1) con el desglose por condición que
+ * sólo el orquestador consume, y exigirlo aquí obligaría a todo llamador —y a
+ * toda prueba— a construir una estructura que estas dos funciones no miran.
+ */
+export type CandidateTargetEligibilitySummary = Pick<
+  CandidateTargetEligibility,
+  'countsTowardTarget' | 'failedConditions'
+>;
+
 export function buildCandidateCompletenessCounters(
-  eligibilities: readonly CandidateTargetEligibility[],
+  eligibilities: readonly CandidateTargetEligibilitySummary[],
 ): CandidateCompletenessCounters {
   const failedConditionCounts: Record<string, number> = {};
   let complete = 0;
@@ -491,7 +639,7 @@ const MORE_SPECIFIC_THAN_REVIEW: readonly string[] = ['duplicate'];
  */
 export function resolveCandidateStatusForCompleteness(
   baseStatus: string,
-  eligibility: CandidateTargetEligibility,
+  eligibility: CandidateTargetEligibilitySummary,
 ): string {
   if (eligibility.countsTowardTarget) return baseStatus;
   if (MORE_SPECIFIC_THAN_REVIEW.includes(baseStatus)) return baseStatus;

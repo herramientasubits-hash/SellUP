@@ -430,6 +430,18 @@ export function buildRunMetrics(input: {
   enrichmentFailedCount?: number;
   /** § D — objetivo de la corrida. Ausente ⇒ el hueco se reporta 0, nunca negativo. */
   targetEligibleCompanies?: number;
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 3 — cuenta ESTABLE, calculada por el
+   * orquestador con el contrato canónico.
+   *
+   * Hasta este hito no existía como entrada: se aliaseaba a
+   * `totalEligibleCompanies`, así que la métrica que se llamaba «estable» era la
+   * provisional con otro nombre, y `target_gap` heredaba el mismo error.
+   *
+   * Ausente ⇒ se cae al total de elegibles, para no romper a los llamadores que
+   * todavía no la calculan. Producción siempre la pasa.
+   */
+  stableFinalizableCandidateCount?: number;
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
   const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
@@ -475,12 +487,16 @@ export function buildRunMetrics(input: {
       (input.sectorRejectedAfterEnrichment ?? 0) +
       (input.enrichmentFailedCount ?? 0),
     effectiveFingerprintsAreDistinct: input.effectiveFingerprintsAreDistinct ?? null,
-    // § D — `totalEligibleCompanies` YA es la cuenta estable (se calcula después
-    // de los gates finales); este campo sólo la nombra con el vocabulario del §A.
-    stableFinalizableCandidateCount: input.totalEligibleCompanies,
+    // STABLE-TARGET-WRITER-PARITY § 3 — la cuenta estable es la que llega, no un
+    // alias de `totalEligibleCompanies`. Son cifras distintas siempre que algún
+    // elegible no cumpla el contrato completo (employee_count, LinkedIn,
+    // subindustria, duplicidad, calidad), que es el caso normal.
+    stableFinalizableCandidateCount:
+      input.stableFinalizableCandidateCount ?? input.totalEligibleCompanies,
     targetGap: Math.max(
       0,
-      (input.targetEligibleCompanies ?? 0) - input.totalEligibleCompanies,
+      (input.targetEligibleCompanies ?? 0) -
+        (input.stableFinalizableCandidateCount ?? input.totalEligibleCompanies),
     ),
   };
 }

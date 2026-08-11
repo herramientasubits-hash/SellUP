@@ -189,6 +189,11 @@ import {
   evaluateCompanyOwnership,
   isBlockedByCompanyOwnership,
 } from '../company-ownership-gate';
+import { mapDuplicateStatus } from '../candidate-writer';
+import { evaluateApolloPreWriterQualityGateForCandidate } from '../apollo-pre-writer-target-conditions';
+import {
+  resolveCandidateSubindustryRequirement,
+} from '../candidate-completeness-contract';
 import {
   readTwoRoundCheckpoint,
   writeTwoRoundCheckpoint,
@@ -1392,12 +1397,29 @@ export async function runApolloTwoRoundWizardDiscovery(
         sectorEvidenceState,
       });
 
+      // STABLE-TARGET-WRITER-PARITY § 5 — lo que este crédito RESOLVIÓ de los
+      // campos obligatorios, leído de la captura ya re-capturada más arriba
+      // (`withRecapturedProviderCompanyFields`), que es la misma que persistirá
+      // el writer. Sin esto, el orquestador seguiría creyendo que a La Canasta le
+      // falta `employee_count` después de haberlo comprado, y gastaría los
+      // enrichments restantes buscando un objetivo ya alcanzado.
+      const enrichedCompanyFields =
+        assessmentByKey.get(candidateKey)?.candidate.providerCompanyFields ?? null;
+
       return {
         executed: outcome === 'charged',
         sectorEvidenceState,
         internalRecordedCredits: credits,
         ...(postEnrichmentRejection !== null ? { postEnrichmentRejection } : {}),
         ...(outcome === 'no_match' ? { noMatch: true } : {}),
+        ...(enrichedCompanyFields
+          ? {
+              providerCompanyFields: {
+                employeeCountStatus: enrichedCompanyFields.employeeCount.status,
+                linkedinStatus: enrichedCompanyFields.linkedin.status,
+              },
+            }
+          : {}),
       };
     },
 
@@ -1429,6 +1451,88 @@ export async function runApolloTwoRoundWizardDiscovery(
       );
       return {
         rejection: isBlockedByCompanyOwnership(ownership) ? 'ownership_mismatch' : null,
+      };
+    },
+
+    /**
+     * STABLE-TARGET-WRITER-PARITY § 1 — las condiciones del contrato canónico
+     * con los MISMOS datos que leerá el writer.
+     *
+     * Es la pieza que elimina la doble semántica de objetivo. Hasta este hito el
+     * orquestador contaba «elegibles» —gates baratos limpios y sector
+     * confirmado— y el writer contaba «complete_valid» —además: subindustria
+     * demostrada, `employee_count`, LinkedIn, duplicidad y calidad—. La corrida
+     * `bdc51c49` confirmó a La Canasta y Surtifamiliar por nombre comercial, sin
+     * `employee_count`: elegibles aquí, `needs_review` allí. Con la cuenta laxa
+     * decidiendo el gasto, una corrida podía darse por cerrada en 5 con 3 filas
+     * que contaran.
+     *
+     * Cada condición se lee de su fuente REAL, ninguna se supone:
+     *
+     *   subindustry_match     ← `resolveCandidateSubindustryRequirement` sobre la
+     *                           misma precisión y las mismas subindustrias
+     *                           PEDIDAS que usa el writer (preserva #241: sin
+     *                           catálogo, `unmapped`, y no cuenta)
+     *   employee_count/linkedin ← `providerCompanyFields`, la misma captura que
+     *                           el writer persiste, ya re-capturada si un
+     *                           enrichment la resolvió
+     *   duplicate_status      ← `mapDuplicateStatus`, la función del writer
+     *   ownership_gate        ← `evaluateCompanyOwnership`, la del writer
+     *   quality_gate          ← los gates propios del writer que sólo dependen
+     *                           del candidato (encaje de negocio, política de
+     *                           evidencia, tamaño ICP)
+     *
+     * Cero llamadas al proveedor y cero créditos: todo es lectura de lo que la
+     * corrida ya construyó.
+     *
+     * Sin candidato construido, TODO queda pendiente: sin nada que evaluar no se
+     * inventa un veredicto, y un pendiente nunca cuenta hacia el objetivo (§ 2).
+     */
+    readCandidateTargetConditions: ({ candidateKey, sectorEvidenceState }) => {
+      const cached = assessmentByKey.get(candidateKey) ?? null;
+      if (cached === null) {
+        return {
+          subindustryMatch: 'unknown',
+          employeeCountStatus: 'mapping_failed',
+          linkedinStatus: 'mapping_failed',
+          duplicateStatus: null,
+          ownershipGate: 'unknown',
+          qualityGate: 'unknown',
+          pendingConditions: [
+            'subindustry_match',
+            'employee_count_status',
+            'linkedin_status',
+            'duplicate_status',
+            'ownership_gate',
+            'quality_gate',
+          ],
+        };
+      }
+
+      const candidate = cached.candidate;
+      const precision = subindustryPrecisionByKey.get(candidateKey) ?? null;
+      const subindustry = resolveCandidateSubindustryRequirement({
+        sectorEvidenceState,
+        requestedSubindustries: input.subindustries,
+        subindustryPrecision: precision,
+      });
+      const ownership = evaluateCompanyOwnership(
+        candidate.name,
+        candidate.website ?? null,
+        candidate.domain ?? null,
+      );
+      const quality = evaluateApolloPreWriterQualityGateForCandidate(candidate, {
+        targetCountryCode: input.countryCode,
+        subindustries: input.subindustries,
+      });
+
+      return {
+        subindustryMatch: subindustry.eligibilityVerdict,
+        employeeCountStatus: candidate.providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
+        linkedinStatus: candidate.providerCompanyFields?.linkedin.status ?? 'mapping_failed',
+        duplicateStatus: mapDuplicateStatus(candidate.duplicateCheck?.status ?? 'unchecked'),
+        ownershipGate: isBlockedByCompanyOwnership(ownership) ? 'fail' : 'pass',
+        qualityGate: quality.verdict,
       };
     },
 

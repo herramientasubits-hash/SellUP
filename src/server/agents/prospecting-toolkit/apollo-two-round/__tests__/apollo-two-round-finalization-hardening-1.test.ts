@@ -348,21 +348,21 @@ function buildDeps(): { deps: ApolloTwoRoundDeps; enrichCalls: string[]; finalGa
       assessmentFor(organization.providerOrganizationId ?? ''),
     enrichCandidate: async ({ candidateKey }): Promise<EnrichmentResult> => {
       enrichCalls.push(candidateKey);
-      if (candidateKey === 'apollo:megatiendas') {
-        return {
-          executed: true,
-          internalRecordedCredits: 1,
-          sectorEvidenceState: 'sector_evidence_confirmed',
-        };
-      }
-      // La Canasta / Surtifamiliar: el sector YA estaba confirmado; este
-      // enrichment resuelve `employee_count`, invisible para el orquestador
-      // puro (eso lo captura la capa de persistencia) pero el sector se
-      // reconfirma sin contradicción.
+      // STABLE-TARGET-WRITER-PARITY § 5 — `organization_enrichment` devuelve el
+      // perfil COMPLETO de la organización, así que un enrichment que se cobra
+      // resuelve a la vez el sector, `employee_count` y el LinkedIn. Antes de
+      // ese § el orquestador no se enteraba: las señales gratuitas venían de la
+      // búsqueda y nadie las volvía a tocar, de modo que un campo comprado
+      // seguía figurando como ausente. Ahora el desenlace viaja con el
+      // resultado, leído de la MISMA captura que persistirá el writer.
       return {
         executed: true,
         internalRecordedCredits: 1,
         sectorEvidenceState: 'sector_evidence_confirmed',
+        providerCompanyFields: {
+          employeeCountStatus: 'confirmed',
+          linkedinStatus: 'confirmed',
+        },
       };
     },
     applyFinalGates: ({ candidateKey }) => {

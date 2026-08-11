@@ -524,7 +524,15 @@ export async function fetchActiveCandidatesForGuard(
  * Mapea DuplicateStatus del toolkit al duplicate_status del schema DB.
  * El toolkit usa valores distintos a los del schema de Supabase.
  */
-function mapDuplicateStatus(status: DuplicateStatus): string {
+/**
+ * STABLE-TARGET-WRITER-PARITY § 9 — exportada para que el orquestador lea el
+ * MISMO `duplicate_status` que se persistirá, en vez de deducirlo.
+ *
+ * Deducirlo era exactamente lo que producía la divergencia: el orquestador sabía
+ * «hay duplicado conocido» y el writer escribía un valor de un vocabulario que
+ * el orquestador no conocía.
+ */
+export function mapDuplicateStatus(status: DuplicateStatus): string {
   switch (status) {
     case "new_candidate":
       return "no_match";

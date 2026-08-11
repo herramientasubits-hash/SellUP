@@ -40,6 +40,7 @@ import type {
   WebSearchResult,
 } from '../../types';
 import type { ApolloTwoRoundCheckpointV1 } from '../checkpoint';
+import { captureApolloCompanyFields } from '../../apollo-company-fields-mapping';
 import {
   buildPublishedCatalogTermsResolution,
   CATALOG_VERSION,
@@ -55,6 +56,9 @@ const CORRELATION = {
   requestFingerprint: 'fingerprint-adapter-1',
   idempotencyKey: 'idempotency-adapter-1',
 };
+
+/** Reloj fijo: estas pruebas no pueden depender del real. */
+const FIXTURE_OBSERVED_AT = '2026-08-10T00:00:00.000Z';
 
 /** Un supermercado que las señales GRATUITAS ya confirman: no necesita enrichment. */
 function supermarket(index: number): WebSearchResult {
@@ -74,6 +78,10 @@ function supermarket(index: number): WebSearchResult {
       city: 'Bogotá',
       employee_count: 800,
       estimated_num_employees: 800,
+      // STABLE-TARGET-WRITER-PARITY § 6 — el contrato de completitud exige el
+      // LinkedIn empresarial para contar hacia el objetivo. Estas cinco son
+      // candidatas COMPLETAS, así que lo traen.
+      linkedin_url: `https://www.linkedin.com/company/org-super-${index}`,
       apollo_profile: { industry: 'retail', industries: [] },
     },
   };
@@ -105,6 +113,7 @@ function otherBusiness(index: number, industry: string, name: string): WebSearch
       employee_count: 900,
       estimated_num_employees: 900,
       keywords: [industry],
+      linkedin_url: `https://www.linkedin.com/company/org-other-${index}`,
       apollo_profile: { industry, industries: [industry] },
     },
   };
@@ -125,6 +134,10 @@ function searchOutput(results: WebSearchResult[], credits: number): WebSearchOut
 
 function pipelineCandidate(result: WebSearchResult): ProspectingPipelineCandidate {
   const domain = (result.metadata?.['domain'] as string) ?? null;
+  // § 1 — el doble reproduce lo que `buildCandidateFromResult` produce: la
+  // captura de LinkedIn y `employee_count` viaja CON el candidato, que es de
+  // donde el contrato canónico las lee.
+  const providerCompanyFields = captureApolloCompanyFields(result, FIXTURE_OBSERVED_AT);
   return {
     name: result.title,
     website: result.url,
@@ -145,6 +158,11 @@ function pipelineCandidate(result: WebSearchResult): ProspectingPipelineCandidat
       checkedSources: ['sellup', 'hubspot'],
     } as ProspectingPipelineCandidate['duplicateCheck'],
     scoring: { qualityLabel: 'high_quality_new' } as ProspectingPipelineCandidate['scoring'],
+    providerCompanyFields,
+    companyLinkedInUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
+    ...(providerCompanyFields.employeeCount.status === 'confirmed'
+      ? { employeeCount: providerCompanyFields.employeeCount.employeeCount }
+      : {}),
   };
 }
 
