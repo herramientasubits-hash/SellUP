@@ -173,7 +173,18 @@ export type EnrichmentSkippedReason =
 
 /** Por qué un candidato SÍ lo recibió. */
 export type EnrichmentSelectionReason =
-  'resolves_missing_sector_evidence_highest_free_signal_rank';
+  | 'resolves_missing_sector_evidence_highest_free_signal_rank'
+  /**
+   * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § B/C — el sector ya está confirmado
+   * GRATIS, pero a la empresa todavía le falta `employee_count` o LinkedIn —
+   * ambos resolubles por `organization_enrichment` — y por eso compite igual que
+   * cualquier otra candidata. Antes de este hito, `sector_evidence_confirmed`
+   * descalificaba sin mirar qué le faltaba: la corrida `bdc51c49` confirmó a
+   * Surtifamiliar y La Canasta por nombre comercial y las dejó con
+   * `employee_count = NULL` para siempre, porque nunca competían por un
+   * enrichment que sí podía resolverlo.
+   */
+  | 'resolves_missing_required_field_highest_free_signal_rank';
 
 export type EnrichmentSelection = {
   candidateKey: string;
@@ -181,6 +192,10 @@ export type EnrichmentSelection = {
   score: number;
   selectionReason: EnrichmentSelectionReason;
   contributingSignals: string[];
+  /** § C — campos obligatorios que este enrichment intenta resolver. */
+  enrichmentReasons: ApolloEnrichmentReason[];
+  /** § C — lo que faltaba ANTES de gastar. El desenlace lo registra quien recibe la respuesta. */
+  missingBefore: ApolloResolvableEvidenceField[];
 };
 
 export type EnrichmentSkip = {
@@ -205,37 +220,132 @@ export type EnrichmentSelectionInput = {
   targetEligibleCompanies: number;
 };
 
+// ─── AGENT1-APOLLO-FINALIZATION-HARDENING-1 § B — necesidad real de enrichment ──
+
 /**
- * Motivo de exclusión inmediata, evaluado antes del ranking.
- *
- * El orden va del hecho más categórico al más contingente, de modo que el motivo
- * reportado sea siempre el más informativo de los que aplican: un duplicado
- * conocido es un duplicado con independencia de su país.
+ * § B — campo obligatorio para `complete_valid` (contrato en
+ * `candidate-completeness-contract.ts`) que `organization_enrichment` puede
+ * resolver. `sector_evidence` no es un campo de esa lista — es una PRECONDICIÓN
+ * para competir siquiera —, pero se modela igual porque comparte el mismo
+ * mecanismo: falta, y Apollo puede llenarla.
  */
-function disqualify(
+export type ApolloResolvableEvidenceField =
+  | 'sector_evidence'
+  | 'employee_count'
+  | 'linkedin_url';
+
+/** Motivo por el que ESTE campo, si se resuelve, justifica el enrichment. */
+export type ApolloEnrichmentReason =
+  | 'resolves_missing_sector_evidence'
+  | 'resolves_missing_employee_count'
+  | 'resolves_missing_linkedin_url';
+
+/**
+ * § B — evaluación canónica de si un candidato debe competir por un enrichment.
+ *
+ * Sustituye a la pregunta única "¿el sector está confirmado?" por la pregunta
+ * real: "¿queda algo OBLIGATORIO por resolver, y Apollo puede resolverlo?". Un
+ * candidato con sector confirmado y `employee_count` ausente sigue teniendo una
+ * razón real para gastar un enrichment — la que `disqualify()` ignoraba antes
+ * de este hito.
+ */
+export type ApolloEnrichmentNeedEvaluation = {
+  /** Campos obligatorios que este candidato NO tiene todavía. */
+  missingRequiredEvidence: ApolloResolvableEvidenceField[];
+  /** Subconjunto de los anteriores que `organization_enrichment` puede llenar. */
+  providerResolvableEvidence: ApolloResolvableEvidenceField[];
+  /** Por qué gastar, uno por campo resoluble pendiente. Vacío ⇒ no hay por qué. */
+  enrichmentReasons: ApolloEnrichmentReason[];
+  /**
+   * Si resolver lo pendiente puede hacer que este candidato cuente hacia el
+   * objetivo. `no_target_value` cuando no queda nada resoluble que comprar, o
+   * cuando un descalificador categórico (duplicado, país, dominio, contradicción)
+   * ya decidió que ningún enrichment ayuda.
+   */
+  expectedTargetValue: 'contributes_to_target' | 'no_target_value';
+  eligibleForEnrichment: boolean;
+  /** Motivo de exclusión cuando `eligibleForEnrichment` es `false`. */
+  disqualifiedReason: EnrichmentSkippedReason | null;
+};
+
+const REASON_BY_FIELD: Record<ApolloResolvableEvidenceField, ApolloEnrichmentReason> = {
+  sector_evidence: 'resolves_missing_sector_evidence',
+  employee_count: 'resolves_missing_employee_count',
+  linkedin_url: 'resolves_missing_linkedin_url',
+};
+
+/**
+ * § B — evalúa la necesidad real de enrichment de UN candidato.
+ *
+ * Puro: sólo lee señales gratuitas. No decide CUÁNTO enrichment hay presupuesto
+ * para comprar — eso lo decide `selectCandidatesForEnrichment` bajo el cap.
+ */
+export function evaluateApolloEnrichmentNeed(
   candidate: FreeCandidateSignals,
-): EnrichmentSkippedReason | null {
-  if (candidate.knownDuplicate) return 'known_duplicate';
-  if (candidate.cooldownActive) return 'cooldown_active';
-  if (!candidate.countryCompatible) return 'country_incompatible';
-  if (!candidate.domainConfident) return 'domain_not_confident';
-  // § 7 — una contradicción VISIBLE en campos gratuitos impide el enrichment,
-  // aunque el veredicto sectorial todavía diga «falta evidencia». Comprar la
-  // descripción de un banco no lo convierte en supermercado.
-  if (candidate.declaredSectorContradiction === true) {
-    return 'sector_evidence_contradictory';
+): ApolloEnrichmentNeedEvaluation {
+  const disqualifyCategorically = (): EnrichmentSkippedReason | null => {
+    if (candidate.knownDuplicate) return 'known_duplicate';
+    if (candidate.cooldownActive) return 'cooldown_active';
+    if (!candidate.countryCompatible) return 'country_incompatible';
+    if (!candidate.domainConfident) return 'domain_not_confident';
+    // § 7 — una contradicción VISIBLE en campos gratuitos impide el enrichment,
+    // aunque el veredicto sectorial todavía diga «falta evidencia». Comprar la
+    // descripción de un banco no lo convierte en supermercado.
+    if (candidate.declaredSectorContradiction === true) return 'sector_evidence_contradictory';
+    if (candidate.sectorEvidenceState === 'sector_evidence_contradictory') {
+      return 'sector_evidence_contradictory';
+    }
+    if (candidate.sectorEvidenceState === 'sector_not_mapped') return 'sector_not_mapped';
+    return null;
+  };
+
+  const categoricalReason = disqualifyCategorically();
+  if (categoricalReason !== null) {
+    return {
+      missingRequiredEvidence: [],
+      providerResolvableEvidence: [],
+      enrichmentReasons: [],
+      expectedTargetValue: 'no_target_value',
+      eligibleForEnrichment: false,
+      disqualifiedReason: categoricalReason,
+    };
   }
-  if (candidate.sectorEvidenceState === 'sector_evidence_contradictory') {
-    return 'sector_evidence_contradictory';
+
+  const missing: ApolloResolvableEvidenceField[] = [];
+  if (candidate.sectorEvidenceState === 'sector_evidence_missing_needs_enrichment') {
+    missing.push('sector_evidence');
   }
-  if (candidate.sectorEvidenceState === 'sector_not_mapped') return 'sector_not_mapped';
-  if (candidate.sectorEvidenceState === 'sector_evidence_confirmed') {
-    // No es un rechazo del candidato: es un rechazo del GASTO. Ya sabemos que
-    // pertenece al sector; comprar esa confirmación no resuelve ninguna duda.
-    return 'sector_evidence_already_confirmed';
+  if (!candidate.hasCompanySizeSignal) missing.push('employee_count');
+  if (!candidate.hasLinkedInUrl) missing.push('linkedin_url');
+
+  // Todo lo que falta en esta lista es, hoy, resoluble por organization_enrichment.
+  const resolvable = [...missing];
+
+  if (resolvable.length === 0) {
+    // Sector confirmado (o no aplicable) y ambos campos ya presentes: no hay
+    // nada que comprar. Es el caso original — «ya sabemos que pertenece al
+    // sector, comprar esa confirmación no resuelve ninguna duda» — generalizado
+    // a cualquier campo obligatorio, no sólo al sectorial.
+    return {
+      missingRequiredEvidence: [],
+      providerResolvableEvidence: [],
+      enrichmentReasons: [],
+      expectedTargetValue: 'no_target_value',
+      eligibleForEnrichment: false,
+      disqualifiedReason: 'sector_evidence_already_confirmed',
+    };
   }
-  return null;
+
+  return {
+    missingRequiredEvidence: missing,
+    providerResolvableEvidence: resolvable,
+    enrichmentReasons: resolvable.map((field) => REASON_BY_FIELD[field]),
+    expectedTargetValue: 'contributes_to_target',
+    eligibleForEnrichment: true,
+    disqualifiedReason: null,
+  };
 }
+
 
 /**
  * Selecciona a lo sumo `remainingEnrichmentBudget` candidatos para enrichment.
@@ -269,7 +379,11 @@ export function selectCandidatesForEnrichment(
     return { selected: [], skipped, remainingEnrichmentBudget: budget };
   }
 
-  const contenders: Array<{ candidate: FreeCandidateSignals; score: EnrichmentRankingScore }> = [];
+  const contenders: Array<{
+    candidate: FreeCandidateSignals;
+    score: EnrichmentRankingScore;
+    need: ApolloEnrichmentNeedEvaluation;
+  }> = [];
   const seenKeys = new Set<string>();
 
   for (const candidate of candidates) {
@@ -285,16 +399,16 @@ export function selectCandidatesForEnrichment(
     }
     seenKeys.add(candidate.candidateKey);
 
-    const reason = disqualify(candidate);
-    if (reason !== null) {
+    const need = evaluateApolloEnrichmentNeed(candidate);
+    if (!need.eligibleForEnrichment) {
       skipped.push({
         candidateKey: candidate.candidateKey,
         roundNumber: candidate.roundNumber,
-        skippedReason: reason,
+        skippedReason: need.disqualifiedReason ?? 'sector_evidence_already_confirmed',
       });
       continue;
     }
-    contenders.push({ candidate, score: scoreCandidateForEnrichment(candidate) });
+    contenders.push({ candidate, score: scoreCandidateForEnrichment(candidate), need });
   }
 
   // Orden estable: puntaje descendente, luego ronda, luego posición original del
@@ -321,12 +435,23 @@ export function selectCandidatesForEnrichment(
       });
       continue;
     }
+    // § B — el nombre de la razón distingue "resuelve el sector" (el caso
+    // original) de "resuelve un campo obligatorio con el sector ya confirmado"
+    // (lo que este hito habilita). Un candidato puede necesitar ambos a la vez;
+    // el nombre reporta el motivo PRINCIPAL, y `enrichmentReasons` lleva la
+    // lista completa para quien necesite el detalle.
+    const selectionReason: EnrichmentSelectionReason =
+      contender.need.missingRequiredEvidence.includes('sector_evidence')
+        ? 'resolves_missing_sector_evidence_highest_free_signal_rank'
+        : 'resolves_missing_required_field_highest_free_signal_rank';
     selected.push({
       candidateKey: contender.candidate.candidateKey,
       roundNumber: contender.candidate.roundNumber,
       score: contender.score.score,
-      selectionReason: 'resolves_missing_sector_evidence_highest_free_signal_rank',
+      selectionReason,
       contributingSignals: contender.score.contributingSignals,
+      enrichmentReasons: contender.need.enrichmentReasons,
+      missingBefore: contender.need.missingRequiredEvidence,
     });
   }
 

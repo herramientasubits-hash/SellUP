@@ -33,6 +33,7 @@ import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '../observability';
 import { estimateApolloTwoRoundBudget, defaultApolloTwoRoundConfig } from '../index';
 import { runWizardApolloSearch } from '@/modules/prospect-batches/chat-wizard-execution/wizard-apollo-executor';
 import { estimateCreditsForProvider } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-estimate';
+import { captureApolloCompanyFields } from '../../apollo-company-fields-mapping';
 import type {
   ProspectingPipelineCandidate,
   WebSearchOutput,
@@ -40,6 +41,9 @@ import type {
 } from '../../types';
 
 // ─── Fixtures de producción ───────────────────────────────────────────────────
+
+/** Reloj fijo: el orquestador es puro y estas pruebas no pueden depender del real. */
+const FIXTURE_OBSERVED_AT = '2026-08-10T00:00:00.000Z';
 
 const CORRELATION = {
   wizardRunId: 'run-1',
@@ -59,7 +63,17 @@ function apolloResult(options: {
   snippet?: string;
   rank?: number;
   employees?: number;
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 6 — `null` reproduce a una empresa SIN
+   * LinkedIn, que el contrato de completitud deja fuera del objetivo. Por
+   * omisión el fixture lo trae: estos casos describen candidatas COMPLETAS.
+   */
+  linkedinUrl?: string | null;
 }): WebSearchResult {
+  const linkedinUrl =
+    options.linkedinUrl === undefined
+      ? `https://www.linkedin.com/company/${options.id}`
+      : options.linkedinUrl;
   return {
     title: options.name,
     url: `https://${options.domain}`,
@@ -76,6 +90,7 @@ function apolloResult(options: {
       city: 'Bogotá',
       employee_count: options.employees ?? 500,
       estimated_num_employees: options.employees ?? 500,
+      ...(linkedinUrl === null ? {} : { linkedin_url: linkedinUrl }),
       apollo_profile: { industry: options.industry ?? null, industries: [] },
     },
   };
@@ -100,6 +115,7 @@ function pipelineCandidate(
   duplicate: 'none' | 'sellup' | 'hubspot',
 ): ProspectingPipelineCandidate {
   const domain = (result.metadata?.['domain'] as string) ?? null;
+  const providerCompanyFields = captureApolloCompanyFields(result, FIXTURE_OBSERVED_AT);
   return {
     name: result.title,
     website: result.url,
@@ -133,6 +149,16 @@ function pipelineCandidate(
     scoring: {
       qualityLabel: 'high_quality_new',
     } as ProspectingPipelineCandidate['scoring'],
+    // STABLE-TARGET-WRITER-PARITY § 1 — el doble tiene que producir lo MISMO que
+    // `buildCandidateFromResult`: la captura de LinkedIn y `employee_count` viaja
+    // con el candidato. Sin ella, el contrato canónico lee `mapping_failed` —
+    // correcto y fail-closed, pero convierte a estos fixtures en candidatas
+    // incompletas y ninguna prueba de «objetivo alcanzado» podría alcanzarlo.
+    providerCompanyFields,
+    companyLinkedInUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
+    ...(providerCompanyFields.employeeCount.status === 'confirmed'
+      ? { employeeCount: providerCompanyFields.employeeCount.employeeCount }
+      : {}),
   };
 }
 
@@ -373,7 +399,7 @@ describe('§ 10 · el executor enruta según el flag', () => {
 // ─── 3-4 · rondas efectivas ───────────────────────────────────────────────────
 
 describe('§ 10 · rondas reales a través del adaptador de producción', () => {
-  test('caso 3 — la ronda 1 reúne cinco: una sola petición al proveedor', async () => {
+  test('caso 3 — la ronda 1 reúne cinco: la ronda 2 igual se emite (§ 4)', async () => {
     const { deps, recorder } = buildDeps({
       rounds: [
         searchOutput([1, 2, 3, 4, 5].map(confirmedSupermarket), 5),
@@ -383,7 +409,24 @@ describe('§ 10 · rondas reales a través del adaptador de producción', () => 
 
     const output = await runApolloTwoRoundWizardDiscovery(runInput(), deps);
 
-    assert.equal(recorder.searchCalls, 1);
+    // WRITER-ONLY-ADMISSION-PENDING § 4 — la parada temprana por objetivo queda
+    // DESACTIVADA de hecho en producción, y esta aserción es donde se ve.
+    //
+    // El adaptador de producción declara pendientes las trece admisiones que no
+    // resuelve (`APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS`), y un pendiente no
+    // cuenta hacia el objetivo. Cinco candidatas completas en la ronda 1 ya no
+    // pueden sostener un `target_already_reached`, porque antes del writer nadie
+    // puede afirmar que el duplicate guard, el índice de novedad, el cooldown de
+    // identidad, la dedupe intra-lote y el cupo del lote las vayan a admitir.
+    //
+    // Aceptado explícitamente por el § 4: el gasto lo acotan los topes absolutos
+    // (<=2 búsquedas, <=5 enrichments, <=25 créditos), no esta parada. Lo que
+    // NO se admite —y es lo que este caso guarda— es que la ausencia de esos
+    // veredictos se lea como si fueran favorables.
+    assert.equal(recorder.searchCalls, 2);
+
+    // Y el objetivo SÍ se alcanza: § 7 — después del writer las admisiones están
+    // resueltas y la cifra autoritativa son las FILAS, no la proyección.
     assert.equal(output.candidatesCreated, 5);
     assert.equal(output.targetReached, true);
   });
