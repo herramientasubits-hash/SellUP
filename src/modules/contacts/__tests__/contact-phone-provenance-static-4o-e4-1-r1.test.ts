@@ -268,6 +268,85 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// 4b. AUDITORÍA DE ESCRITORES de `contacts.phone` (premisa congelada)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * R1 sólo cierra el defecto si el inventario de escritores de `contacts.phone` está
+ * COMPLETO. Hoy son cuatro, y cada uno deja el par (número, procedencia) coherente:
+ *
+ *   1. `createContact`            — INSERT manual: escribe `phone` y NO escribe
+ *                                   `phone_source` ⇒ queda NULL, fuera de la
+ *                                   allowlist, así que no produce borrado destructivo;
+ *   2. `updateContact`            — R1: número y procedencia en el MISMO patch;
+ *   3. `insertContact` (aprobación de candidato, `ContactInsertPayload`) — escribe
+ *                                   `phone` junto a su `phone_source` de proveedor;
+ *   4. la supresión de privacidad — nula la tupla entera (4O-E4).
+ *
+ * Un quinto escritor que tocara `phone` sin su procedencia reabriría exactamente el
+ * defecto de R1, y las pruebas de comportamiento no lo verían: prueban el helper y a
+ * quien lo llama, no a un módulo nuevo. Por eso el inventario se congela aquí.
+ */
+describe('R1 estático — auditoría de escritores de `contacts.phone`', () => {
+  const SRC_DIR = join(repoRoot, 'src');
+
+  function walk(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full, out);
+      else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  const ALLOWED_WRITERS = [
+    join('src', 'modules', 'contacts', 'actions.ts'),
+    join('src', 'modules', 'contact-enrichment', 'actions.ts'),
+    join('src', 'modules', 'contact-enrichment', 'phone-cache-suppression-actions.ts'),
+  ];
+
+  it('sólo los módulos conocidos ESCRIBEN en la tabla `contacts`', () => {
+    const offenders: string[] = [];
+    for (const file of walk(SRC_DIR)) {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      // `.from('contacts')` seguido de una mutación, tolerando el encadenado
+      // multilínea de PostgREST.
+      if (!/\.from\(\s*'contacts'\s*\)[\s\S]{0,200}?\.(update|insert|upsert|delete)\(/.test(code)) {
+        continue;
+      }
+      const rel = file.slice(repoRoot.length + 1);
+      if (!ALLOWED_WRITERS.includes(rel)) offenders.push(rel);
+    }
+    assert.deepEqual(
+      offenders,
+      [],
+      'un escritor nuevo de `contacts` debe demostrar que deja (phone, phone_source) coherentes ' +
+        'antes de entrar en esta lista',
+    );
+  });
+
+  it('`createContact` escribe `phone` pero NO procedencia ⇒ NULL, fuera de la allowlist', () => {
+    const body = createContactBody();
+    assert.match(body, /phone: input\.phone\?\.trim\(\) \|\| null/);
+    assert.equal(/phone_source/.test(body), false);
+  });
+
+  it('la aprobación de candidato escribe `phone` junto a su `phone_source`', () => {
+    const core = read('src', 'modules', 'contact-enrichment', 'candidate-review-core.ts');
+    const iface = core.match(/interface ContactInsertPayload \{([\s\S]*?)\n\}/);
+    assert.ok(iface, '`ContactInsertPayload` debe seguir existiendo');
+    assert.match(iface[1], /phone: string \| null;/);
+    assert.match(
+      iface[1],
+      /phone_source: PhoneSource \| null;/,
+      'si el payload perdiera la procedencia, un contacto aprobado quedaría con número sin origen',
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // 5. 4O-E4 / E4.1 intactos
 // ═══════════════════════════════════════════════════════════════
 
