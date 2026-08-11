@@ -62,6 +62,7 @@
     "test:br-source:14b0j-second-benchmark-control": "node --import tsx --test src/server/source-catalog/connectors/br-receita-cnpj/__tests__/br-receita-cnpj-14b0j-second-benchmark-control.test.ts src/server/source-catalog/connectors/br-receita-cnpj/__tests__/br-receita-cnpj-real-full-scan-execution-path.test.ts src/server/source-catalog/connectors/br-receita-cnpj/__tests__/br-receita-cnpj-full-join-resource-envelope.test.ts src/server/source-catalog/connectors/br-receita-cnpj/__tests__/br-receita-cnpj-full-join-engine-classification.test.ts",
     "test:br-source:14b0i-synthetic-source-throughput": "node --import tsx --test src/server/source-catalog/connectors/br-receita-cnpj/__tests__/br-receita-cnpj-14b0i-synthetic-source-throughput.test.ts",
     "br-source:14b0k-resolve-national-inventory": "node --import tsx scripts/source-catalog/run-br-receita-cnpj-14b0k-national-inventory-resolution.ts",
+    "br-source:14b0l-acquire-missing-national-parts": "node --import tsx scripts/source-catalog/run-br-receita-cnpj-14b0l-acquire-missing-national-parts.ts",
     "br-source:14b0i-local-performance": "node --expose-gc --import tsx scripts/source-catalog/br-receita-cnpj-14b0i-local-performance.ts",
     "test:ec-scvs-lookup": "node --import tsx --test src/server/services/__tests__/ec-scvs-lookup.test.ts",
     "test:ec-scvs-controlled-pilot": "node --import tsx --test src/server/source-catalog/enrichment/__tests__/ec-scvs-controlled-pilot.test.ts",
