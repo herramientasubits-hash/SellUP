@@ -140,6 +140,12 @@ import {
   evaluateApolloTwoRoundFinalStateConsistency,
   toFinalStateConsistencyMetadata,
 } from './run-final-state-consistency';
+// AGENT1-APOLLO-FINALIZATION-HARDENING-1 § E — disposición final de CADA
+// resultado único, nombrada y mutuamente excluyente.
+import {
+  evaluateApolloCandidateFinalDispositions,
+  toCandidateFinalDispositionsMetadata,
+} from './candidate-final-disposition';
 import type { CandidateSectorEvidenceState } from './enrichment-ranking';
 import {
   APOLLO_TWO_ROUND_CHECKPOINT_CONTRACT_VERSION,
@@ -1796,6 +1802,13 @@ function buildObservabilityMetadata(input: {
     targetReached: runResult.targetReached,
   });
 
+  // § E — disposición final de cada resultado único. Se calcula sobre el
+  // resultado del orquestador, es decir ANTES del writer (ver el docstring del
+  // módulo): las provisionalmente persistidas todavía pueden caer por calidad,
+  // duplicado activo o fallo de escritura, y ESE desenlace lo sigue contando
+  // `persistence_reconciliation` — agregado, no por candidato.
+  const candidateFinalDispositions = evaluateApolloCandidateFinalDispositions(runResult);
+
   return {
     [APOLLO_TWO_ROUND_OBSERVABILITY_KEY]: {
       modality: 'two_round_adaptive',
@@ -1860,7 +1873,22 @@ function buildObservabilityMetadata(input: {
       indeterminate_operation_keys_count: runResult.indeterminateOperationKeys.length,
       // § D — contradicciones entre desglose por ronda, snapshots y run_metrics.
       // `ok: true` en una corrida sana; los conflictos se nombran, no se corrigen.
-      final_state_consistency: toFinalStateConsistencyMetadata(finalStateConsistency),
+      //
+      // § G — ESTE bloque se calcula con datos del orquestador, es decir antes
+      // de que el writer corra. No es el veredicto final: `persistence_gap` y
+      // `gap_causes` en `persistence_reconciliation` (escritos DESPUÉS del
+      // writer, en `apollo-persisted-candidate-truth.ts`) son la capa que sí
+      // incorpora lo que el writer decidió. Etiquetado explícito para que nadie
+      // lo lea como la última palabra.
+      final_state_consistency: {
+        ...toFinalStateConsistencyMetadata(finalStateConsistency),
+        computed_at: 'pre_writer' as const,
+      },
+      // § E — universo completo de resultados únicos, cada uno con una
+      // disposición nombrada. `unclassified_count` debe ser 0 en toda corrida.
+      candidate_final_dispositions: toCandidateFinalDispositionsMetadata(
+        candidateFinalDispositions,
+      ),
       // § 3 — un checkpoint que no se pudo escribir queda visible.
       checkpoint_write_failures: [...input.checkpointFailures],
       candidates_persisted: input.candidatesPersisted,

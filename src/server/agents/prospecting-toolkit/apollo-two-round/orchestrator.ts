@@ -672,6 +672,13 @@ type TrackedCandidate = {
   definitivelyRejected: boolean;
   /** Causa del rechazo definitivo, cuando la hay. Nunca se inventa. */
   definitiveRejectionReason: CheapRejectionReason | 'sector_evidence_contradictory' | null;
+  /**
+   * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § A — `deps.applyFinalGates` ya
+   * corrió sobre este candidato. Evita invocarlo dos veces (una vez temprano,
+   * vía `stableEligibleCount()`, y otra en el barrido final) y es lo que le
+   * permite a `stableEligibleCount()` saber a quién todavía le falta resolver.
+   */
+  finalGateEvaluated: boolean;
 };
 
 /**
@@ -828,6 +835,10 @@ export async function runApolloTwoRoundDiscovery(
       ...c,
       definitivelyRejected: c.definitivelyRejected ?? derivedReason !== null,
       definitiveRejectionReason: c.definitiveRejectionReason ?? derivedReason,
+      // § A — un checkpoint anterior a este hito no trae el campo. Se asume NO
+      // evaluado: en el peor caso, `applyFinalGates` se vuelve a invocar sobre un
+      // candidato ya resuelto, y el contrato lo garantiza gratis y puro.
+      finalGateEvaluated: false,
     };
   });
   // § 5 — las rondas rehidratadas declaran si su huella efectiva es verificable o si
@@ -899,7 +910,62 @@ export async function runApolloTwoRoundDiscovery(
   let sectorRejectedAfterEnrichmentCount = 0;
   let enrichmentFailedCount = 0;
 
-  const eligibleCount = (): number => tracked.filter((c) => c.eligible).length;
+  /**
+   * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § A — aplica `deps.applyFinalGates`
+   * a UN candidato, a lo sumo una vez.
+   *
+   * Extraída de lo que antes era un único barrido al final de la corrida
+   * (HARDENING-1 § 5) para poder invocarla TEMPRANO, desde `stableEligibleCount()`,
+   * justo antes de cada decisión de parada. El barrido final (más abajo) sigue
+   * existiendo para la cohorte de revisión, que no participa de `eligibleCount()`
+   * y por tanto no necesita resolverse antes de ninguna parada.
+   */
+  const ensureFinalGateEvaluated = async (candidate: TrackedCandidate): Promise<void> => {
+    if (!deps.applyFinalGates) return;
+    if (candidate.finalGateEvaluated) return;
+    candidate.finalGateEvaluated = true;
+    const verdict = await deps.applyFinalGates({
+      candidateKey: candidate.candidateKey,
+      roundNumber: candidate.roundNumber,
+      identity: candidate.identity,
+    });
+    if (verdict.rejection === null) return;
+    observedRejectionReasons.add(verdict.rejection);
+    candidate.definitivelyRejected = true;
+    candidate.definitiveRejectionReason = verdict.rejection;
+    candidate.finallyRejectedOrDuplicated = true;
+    if (!candidate.eligible) return;
+    const metricsForRound = roundMetrics.find((m) => m.roundNumber === candidate.roundNumber) ?? null;
+    if (metricsForRound) tallyRejection(metricsForRound, verdict.rejection);
+    candidate.eligible = false;
+    candidate.becameEligibleAfterEnrichment = false;
+  };
+
+  /**
+   * § A — la métrica CONSERVADORA que decide toda parada temprana.
+   *
+   * El defecto que cierra: `eligibleCount()` cuenta candidatos NOMINALMENTE
+   * elegibles —superaron los gates baratos y el sector está confirmado—, pero
+   * el ownership y la calidad finales (`applyFinalGates`) todavía no corrieron
+   * sobre ellos. En la corrida `bdc51c49`, esa cuenta provisional tocó el techo
+   * de 5 y detuvo cuatro enrichments —`target_already_reached`—, y el conteo
+   * FINAL, tras los gates finales, cerró en 4: el objetivo nunca se alcanzó de
+   * verdad, y cuatro candidatos perdieron su oportunidad por una cifra que
+   * todavía podía bajar.
+   *
+   * La corrección no es una cifra distinta: es la MISMA cuenta, calculada
+   * después de resolver —una sola vez, con la misma llamada gratuita que ya
+   * existía— a todo candidato todavía pendiente. Nunca sustituye el objetivo
+   * por un sustituto más laxo (elegible sectorial, elegible provisional): sigue
+   * siendo `count(candidatos elegibles)`, sólo que ninguno de ellos puede
+   * todavía caer.
+   */
+  const stableEligibleCount = async (): Promise<number> => {
+    for (const candidate of tracked) {
+      if (candidate.eligible) await ensureFinalGateEvaluated(candidate);
+    }
+    return tracked.filter((c) => c.eligible).length;
+  };
 
   /** Estado recuperable en ESTE instante. Se recalcula en cada checkpoint. */
   const currentResumeState = (): ApolloTwoRoundResumeState => ({
@@ -1077,7 +1143,9 @@ export async function runApolloTwoRoundDiscovery(
     }
 
     // § 7: parada inmediata. La ronda 2 no se ejecuta por estar presupuestada.
-    if (roundNumber > 1 && eligibleCount() >= config.targetEligibleCompanies) {
+    // § A — con la cuenta ESTABLE: una parada real, no una que un gate final
+    // pueda deshacer después de que la ronda 2 ya se descartó.
+    if (roundNumber > 1 && (await stableEligibleCount()) >= config.targetEligibleCompanies) {
       secondRoundSkippedReason = 'target_reached';
       break;
     }
@@ -1127,7 +1195,7 @@ export async function runApolloTwoRoundDiscovery(
       let round2: ApolloRound2Hypothesis = buildRound2Hypothesis(
         queryContext,
         {
-          remainingTarget: Math.max(0, config.targetEligibleCompanies - eligibleCount()),
+          remainingTarget: Math.max(0, config.targetEligibleCompanies - (await stableEligibleCount())),
           excludedSeenOrganizationCount: countSeenOrganizations(seenRegistry),
           observedRejectionReasons: [...observedRejectionReasons],
           // § 3 — la página 2 sólo es una variante válida si el proveedor
@@ -1289,7 +1357,8 @@ export async function runApolloTwoRoundDiscovery(
         continue;
       }
       await assessRoundOrganizations(roundNumber, metrics, recovered);
-      if (eligibleCount() >= config.targetEligibleCompanies) {
+      // § A — cuenta ESTABLE: ver el comentario de `stableEligibleCount()`.
+      if ((await stableEligibleCount()) >= config.targetEligibleCompanies) {
         if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
         break;
       }
@@ -1339,7 +1408,8 @@ export async function runApolloTwoRoundDiscovery(
     await assessRoundOrganizations(roundNumber, metrics, outcome.organizations);
 
     // § 7: alcanzado el objetivo con gates baratos, la corrida no busca más.
-    if (eligibleCount() >= config.targetEligibleCompanies) {
+    // § A — cuenta ESTABLE.
+    if ((await stableEligibleCount()) >= config.targetEligibleCompanies) {
       if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
       break;
     }
@@ -1435,6 +1505,7 @@ export async function runApolloTwoRoundDiscovery(
           (assessment.sectorEvidenceState === 'sector_evidence_contradictory'
             ? 'sector_evidence_contradictory'
             : null),
+        finalGateEvaluated: false,
       };
       roundCandidates.push(candidate);
       tracked.push(candidate);
@@ -1475,7 +1546,20 @@ export async function runApolloTwoRoundDiscovery(
   const roundMetricsByNumber = new Map(roundMetrics.map((m) => [m.roundNumber, m]));
 
   const globalFreeSignals: FreeCandidateSignals[] = tracked
-    .filter((c) => c.assessment.rejection === null && !c.enrichmentExecuted)
+    .filter(
+      (c) =>
+        c.assessment.rejection === null &&
+        !c.enrichmentExecuted &&
+        // § A — un candidato puede llegar aquí con el gate barato limpio y, a la
+        // vez, ya RECHAZADO por `applyFinalGates` — posible desde que § A lo
+        // invoca temprano, vía `stableEligibleCount()`, en vez de sólo al final.
+        // Antes de este hito era imposible llegar aquí con `definitivelyRejected
+        // === true`: los gates finales corrían DESPUÉS de esta selección. Gastar
+        // un enrichment en una empresa ya descartada por ownership o duplicidad
+        // final no resuelve nada — el rechazo no depende de la evidencia que el
+        // enrichment podría traer.
+        !c.definitivelyRejected,
+    )
     .map((c) => ({
       ...c.assessment.signals,
       candidateKey: c.candidateKey,
@@ -1487,7 +1571,9 @@ export async function runApolloTwoRoundDiscovery(
   const globalSelection = selectCandidatesForEnrichment({
     candidates: globalFreeSignals,
     remainingEnrichmentBudget,
-    eligibleCompaniesSoFar: eligibleCount(),
+    // § A — cuenta ESTABLE: decide si vale la pena seguir gastando en
+    // enrichments con el mismo conteo que decide todas las demás paradas.
+    eligibleCompaniesSoFar: await stableEligibleCount(),
     targetEligibleCompanies: config.targetEligibleCompanies,
   });
   enrichmentSkips.push(...globalSelection.skipped);
@@ -1510,8 +1596,8 @@ export async function runApolloTwoRoundDiscovery(
     }
 
     // Parada dentro del propio bucle: si una llamada previa ya completó el
-    // objetivo, las restantes no se ejecutan (§ 6).
-    if (eligibleCount() >= config.targetEligibleCompanies) {
+    // objetivo, las restantes no se ejecutan (§ 6). § A — cuenta ESTABLE.
+    if ((await stableEligibleCount()) >= config.targetEligibleCompanies) {
       enrichmentSkips.push({
         candidateKey: chosen.candidateKey,
         roundNumber: chosen.roundNumber,
@@ -1675,10 +1761,20 @@ export async function runApolloTwoRoundDiscovery(
     candidate.enrichmentExecuted &&
     candidate.sectorEvidenceState === 'sector_evidence_missing_needs_enrichment';
 
+  // § A — a estas alturas, todo candidato que en algún momento fue elegible ya
+  // pasó por `ensureFinalGateEvaluated` (vía `stableEligibleCount()`, invocada
+  // antes de cada parada). Este barrido ya no repite esa llamada — el flag
+  // `finalGateEvaluated` lo evita — y sólo le queda resolver la cohorte de
+  // revisión, que nunca participa de `eligibleCount()` y por tanto nunca pasó
+  // por una parada.
   if (deps.applyFinalGates) {
     for (const candidate of tracked) {
-      const reviewOnlyCandidate = isReviewOnlyCohort(candidate);
-      if (!candidate.eligible && !reviewOnlyCandidate) continue;
+      if (candidate.eligible) {
+        await ensureFinalGateEvaluated(candidate);
+        continue;
+      }
+      if (!isReviewOnlyCohort(candidate) || candidate.finalGateEvaluated) continue;
+      candidate.finalGateEvaluated = true;
       const verdict = await deps.applyFinalGates({
         candidateKey: candidate.candidateKey,
         roundNumber: candidate.roundNumber,
@@ -1689,17 +1785,9 @@ export async function runApolloTwoRoundDiscovery(
       candidate.definitivelyRejected = true;
       candidate.definitiveRejectionReason = verdict.rejection;
       candidate.finallyRejectedOrDuplicated = true;
-      if (!candidate.eligible) {
-        // El desglose por ronda cuenta rechazos de candidatos ELEGIBLES. Este ya
-        // no lo era, y tallyarlo movería cifras que otras auditorías comparan
-        // contra `eligibleAfterEnrichment`. Su causa queda registrada en
-        // `observedRejectionReasons` y en `evaluatedCandidates`.
-        continue;
-      }
-      const metricsForRound = roundMetricsByNumber.get(candidate.roundNumber) ?? null;
-      if (metricsForRound) tallyRejection(metricsForRound, verdict.rejection);
-      candidate.eligible = false;
-      candidate.becameEligibleAfterEnrichment = false;
+      // La cohorte de revisión ya es `!eligible`: no hay nada más que voltear,
+      // y el desglose por ronda sólo cuenta rechazos de candidatos que SÍ eran
+      // elegibles (ver `ensureFinalGateEvaluated`).
     }
   }
 
@@ -1823,6 +1911,7 @@ export async function runApolloTwoRoundDiscovery(
       sectorStillUnconfirmedAfterEnrichment: sectorStillUnconfirmedAfterEnrichmentCount,
       sectorRejectedAfterEnrichment: sectorRejectedAfterEnrichmentCount,
       enrichmentFailedCount,
+      targetEligibleCompanies: config.targetEligibleCompanies,
     }),
     enrichmentSelections,
     enrichmentSkips,

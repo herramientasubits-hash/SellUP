@@ -260,6 +260,23 @@ export function reconcileApolloTwoRoundPersistedTruth(
       target_reached: reconciliation.target_reached,
       projected_target_reached: observability['target_reached'] ?? null,
       candidates_persisted_count: reconciliation.persisted_candidates,
+      /**
+       * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § H — el booleano se REESCRIBE
+       * aquí, en la misma pasada que corrige el número.
+       *
+       * Antes de este hito, `candidates_persisted` llegaba en `false` desde
+       * `buildObservabilityMetadata` —calculado ANTES de que el writer corriera,
+       * literalmente `input.candidatesPersisted` en ese instante— y esta función
+       * sólo tocaba `run_metrics.*`: el `...observability` de más abajo conservaba
+       * ese `false` byte a byte incluso en una corrida que escribió filas. La
+       * corrida `bdc51c49` lo demostró: `candidates_persisted_count: 3` y
+       * `candidates_persisted: false` en el mismo documento.
+       *
+       * Contrato (§ H): `candidates_persisted = persisted_candidate_ids.length > 0`,
+       * y `persisted_candidate_ids.length` es exactamente
+       * `reconciliation.persisted_candidates` — la única cifra canónica de filas.
+       */
+      candidates_persisted: reconciliation.persisted_candidates > 0,
       persistence_reconciliation: reconciliation,
     },
     reconciliation,

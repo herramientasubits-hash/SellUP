@@ -1822,6 +1822,9 @@ export async function writeProspectingCandidates(
     } else {
       precisionGate.intraBatchDuplicateCount++;
       skipped.push({ name: entry.candidate.name, reason: 'intra_batch_identity_duplicate', searchTrace: entry.candidate.searchTrace ?? undefined });
+      // AGENT1-APOLLO-FINALIZATION-HARDENING-1 § F — todo descarte necesita una
+      // candidata TRAZABLE, no sólo una categoría agregada.
+      captureOmittedSample(entry.candidate, entry.domain, 'intra_batch_identity_duplicate', 'intra_batch_identity');
       if (intraBatchDupeSamples.length < 10) {
         const keptEntry = eligibleAfterIntraDedupe.find((e) => e.identityKey === ik);
         intraBatchDupeSamples.push({
@@ -1842,9 +1845,12 @@ export async function writeProspectingCandidates(
       : eligibleAfterIntraDedupe;
   const cappedEntries = eligibleAfterIntraDedupe.slice(toPersist.length);
 
-  for (const { candidate } of cappedEntries) {
+  for (const { candidate, domain } of cappedEntries) {
     skipped.push({ name: candidate.name, reason: "target_cap", searchTrace: candidate.searchTrace ?? undefined });
     precisionGate.targetCapCount++;
+    // § F — elegible, sin rechazo: se queda fuera por cupo, no por calidad. Debe
+    // seguir siendo trazable como cualquier otro descarte.
+    captureOmittedSample(candidate, domain, 'target_cap', 'target_cap');
   }
 
   // ── Active Duplicate Guard: prefetch active candidates (v1.13.1) ───────────
@@ -2148,6 +2154,9 @@ export async function writeProspectingCandidates(
           reason: `duplicate_guard:${guardMatch.reason}`,
           searchTrace: candidate.searchTrace ?? undefined,
         });
+        // § F — `duplicateGuardData.samples` ya guarda el nombre, pero acotado a
+        // 10 y en su propia cubeta; `writer_omitted_samples` es el ledger único.
+        captureOmittedSample(candidate, domain, `duplicate_guard:${guardMatch.reason}`, 'duplicate_guard');
         duplicateGuardData.skippedCount++;
         if (duplicateGuardData.samples.length < 10) {
           duplicateGuardData.samples.push({
@@ -2190,6 +2199,14 @@ export async function writeProspectingCandidates(
         reason: `evidence_policy:${evidencePolicy.primaryReason}`,
         searchTrace: candidate.searchTrace ?? undefined,
       });
+      // § F — mismo ledger único para todo descarte, además de la muestra
+      // acotada propia de `evidencePolicyGateData`.
+      captureOmittedSample(
+        candidate,
+        domain,
+        `evidence_policy:${evidencePolicy.primaryReason}`,
+        'evidence_policy',
+      );
       evidencePolicyGateData.blockedCount++;
       if (evidencePolicyGateData.samples.length < 10) {
         evidencePolicyGateData.samples.push({
@@ -2283,11 +2300,18 @@ export async function writeProspectingCandidates(
     const icpSizeGateAction = resolveIcpSizeGateWriterAction(icpSizeGateResult);
 
     if (icpSizeGateAction.action === 'skip') {
+      const icpSkipReason = icpSizeGateAction.skipReason ?? 'icp_size_below_threshold';
       skipped.push({
         name: candidate.name,
-        reason: icpSizeGateAction.skipReason ?? 'icp_size_below_threshold',
+        reason: icpSkipReason,
         searchTrace: candidate.searchTrace ?? undefined,
       });
+      // AGENT1-APOLLO-FINALIZATION-HARDENING-1 § F — el defecto real de la
+      // corrida `bdc51c49`: `writer_summary.quality_rejected_count = 1` y
+      // `writer_omitted_samples = []`. La categoría existía; la candidata no
+      // tenía nombre en ningún lado. Este gate era el único de Pass 4 sin
+      // `captureOmittedSample`.
+      captureOmittedSample(candidate, domain, icpSkipReason, 'icp_size');
       icpSizeGateData.blockedCount++;
       if (icpSizeGateData.blockedReasons.length < 20) {
         icpSizeGateData.blockedReasons.push(

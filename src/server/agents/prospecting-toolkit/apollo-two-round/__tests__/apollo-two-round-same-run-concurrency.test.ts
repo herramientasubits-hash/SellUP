@@ -130,7 +130,15 @@ function recordedCredits(world: ExternalWorld): number {
 
 function supermarket(index: number): WebSearchResult {
   return {
-    title: `Supermercado Uno ${index}`,
+    // AGENT1-APOLLO-FINALIZATION-HARDENING-1 § A — el nombre coincide con el
+    // dominio ("supermercadoN" ≈ "supermercadoN.com.co"). Antes decía
+    // "Supermercado Uno N", que el gate REAL de ownership rechaza (el dominio no
+    // contiene "uno"); ese rechazo estaba oculto porque los gates finales sólo
+    // corrían al final, después de que la decisión de enrichment ya se hubiera
+    // tomado sobre un `eligibleCount()` provisional. Con la § A resuelta, el
+    // rechazo se ve ANTES, y expuso que el fixture nunca pasaba ownership — algo
+    // ajeno a lo que esta suite prueba (la resolución de CAS concurrente).
+    title: `Supermercado ${index}`,
     url: `https://supermercado${index}.com.co`,
     snippet: 'cadena de supermercados y autoservicio con tiendas de abarrotes',
     source: 'apollo_organizations',

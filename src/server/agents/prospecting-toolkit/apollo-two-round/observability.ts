@@ -390,6 +390,20 @@ export type ApolloTwoRoundRunMetrics = {
    * "son iguales" sobre un dato que nadie tiene.
    */
   effectiveFingerprintsAreDistinct: boolean | null;
+  /**
+   * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § D — la cuenta que decidió cada
+   * parada de esta corrida, YA resuelta por los gates finales. Coincide con
+   * `totalEligibleCompanies`: es el mismo número, nombrado para que quede claro
+   * que es la métrica CONSERVADORA del § A, no un sustituto más laxo.
+   */
+  stableFinalizableCandidateCount: number;
+  /**
+   * § D — `max(0, target - stableFinalizableCandidateCount)`. Cero significa
+   * que el objetivo se alcanzó de verdad; con `enrichmentsExecuted` en cero y
+   * este campo en positivo, la corrida se quedó corta y NO fue por falta de
+   * intentos de enrichment.
+   */
+  targetGap: number;
 };
 
 /** Redondea a 4 decimales para que la métrica sea comparable entre corridas. */
@@ -414,6 +428,8 @@ export function buildRunMetrics(input: {
   /** HARDENING-1 § 5 — rechazo confirmado por el enrichment. Ausente ⇒ 0. */
   sectorRejectedAfterEnrichment?: number;
   enrichmentFailedCount?: number;
+  /** § D — objetivo de la corrida. Ausente ⇒ el hueco se reporta 0, nunca negativo. */
+  targetEligibleCompanies?: number;
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
   const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
@@ -459,6 +475,13 @@ export function buildRunMetrics(input: {
       (input.sectorRejectedAfterEnrichment ?? 0) +
       (input.enrichmentFailedCount ?? 0),
     effectiveFingerprintsAreDistinct: input.effectiveFingerprintsAreDistinct ?? null,
+    // § D — `totalEligibleCompanies` YA es la cuenta estable (se calcula después
+    // de los gates finales); este campo sólo la nombra con el vocabulario del §A.
+    stableFinalizableCandidateCount: input.totalEligibleCompanies,
+    targetGap: Math.max(
+      0,
+      (input.targetEligibleCompanies ?? 0) - input.totalEligibleCompanies,
+    ),
   };
 }
 
@@ -564,5 +587,10 @@ export function toRunMetricsMetadata(
     enrichment_outcomes_classified: metrics.enrichmentsClassified,
     // HARDENING-3 § 7 — null cuando la comparación no se pudo hacer. Nunca false.
     effective_fingerprints_are_distinct: metrics.effectiveFingerprintsAreDistinct,
+    // AGENT1-APOLLO-FINALIZATION-HARDENING-1 § D — la cuenta conservadora y el
+    // hueco contra el objetivo, con nombre propio en vez de derivarse a ojo de
+    // `total_eligible_companies` y `target_eligible_companies`.
+    stable_finalizable_candidate_count: metrics.stableFinalizableCandidateCount,
+    target_gap: metrics.targetGap,
   };
 }
