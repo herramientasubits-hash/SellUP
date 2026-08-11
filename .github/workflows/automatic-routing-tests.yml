@@ -592,3 +592,39 @@ jobs:
       # depender de un binario que se descarga.
       - name: Run mobile phone provenance erasure tests
         run: npm run test:agent2a:mobile-phone-provenance-erasure
+
+      # AGENT2A-PHONE-REVEAL-4O-E4.1-R1 — editar el teléfono a mano invalida la
+      # procedencia del proveedor.
+      #
+      # El defecto que cierra: E4 dejó la supresión de teléfonos oficiales apoyada por
+      # completo en `contacts.phone_source`, pero `updateContact` escribía
+      # `contacts.phone` SIN tocar esa columna. Un contacto aprobado desde Apollo o
+      # Lusha conserva `phone_source = apollo_reveal / lusha_reveal` para siempre, así
+      # que bastaba con que un humano tecleara otro número en el formulario para que la
+      # procedencia siguiera pareciendo demostrada y una DSAR posterior borrase un
+      # teléfono que el proveedor nunca escribió. No hace falta ninguna carrera.
+      #
+      # Esta suite prueba:
+      #   * los cuatro casos del helper compartido: campo ausente y valor reenviado NO
+      #     tocan la procedencia (si no, editar el cargo convertiría en `manual` todos
+      #     los teléfonos de proveedor del sistema y ninguna DSAR volvería a borrarlos);
+      #     un valor nuevo pasa la tupla entera a `manual`; vaciar el campo la deja toda
+      #     en NULL, sin metadata huérfana;
+      #   * la matriz de procedencias de origen (apollo_reveal / apollo_cache /
+      #     lusha_reveal / manual / NULL / …) y las 7 columnas de la tupla;
+      #   * la regresión de privacidad de punta a punta: la fila ES borrable antes de la
+      #     edición y NO lo es después — con el `phone_source` producido por el helper
+      #     real, nunca tecleado por la prueba;
+      #   * mutantes: «sólo escribo phone» y «campo presente ⇒ manual» son detectados;
+      #   * premisas CONGELADAS: `updateContact` no vuelve a asignar `payload.phone`,
+      #     número y procedencia viajan en UN solo `update()`, el formulario sigue sin
+      #     selector de tipo (lo que autoriza `phone_type = NULL`), `mobile_phone` sigue
+      #     fuera del alcance (4O-E4.1) y las suites de privacidad dejan de fabricar
+      #     `phone_source = 'manual'` en SQL a mano.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos, sin DSAR real y sin DB.
+      # La variante contra PostgreSQL real vive en
+      # `test:agent2a:contacts-phone-privacy-erasure-postgres`, fuera del check por
+      # depender de un binario que se descarga.
+      - name: Run manual contact phone provenance tests
+        run: npm run test:agent2a:contact-phone-provenance
