@@ -92,7 +92,7 @@ describe('R1 estático — `updateContact` delega la procedencia en el helper', 
     const source = stripComments(read(...CONTACT_ACTIONS));
     assert.match(
       source,
-      /import\s*\{\s*resolveManualContactPhoneEdit\s*\}\s*from\s*'\.\/contact-phone-provenance'/,
+      /import\s*\{[^}]*\bresolveManualContactPhoneEdit\b[^}]*\}\s*from\s*'\.\/contact-phone-provenance'/,
       'la semántica de procedencia no puede duplicarse dentro de la acción',
     );
   });
@@ -255,14 +255,22 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
     }
   });
 
-  it('`createContact` sigue SIN escribir procedencia (fuera de alcance, declarado)', () => {
+  it('`createContact` declara la procedencia con el MISMO helper (4O-H0.5)', () => {
+    // R1 dejó abierto `MANUAL_CREATE_PHONE_PROVENANCE_NORMALIZATION_PENDING`: el INSERT
+    // manual escribía `phone` y dejaba `phone_source` en NULL. H0.5 lo cierra sin
+    // vocabulario ni esquema nuevos —`'manual'` ya está en el CHECK de 094—, así que
+    // esta sección sigue siendo la que demuestra que no se inventó nada. El contrato
+    // positivo vive en la suite de H0.5.
     const body = createContactBody();
+    assert.match(
+      body,
+      /buildManualContactPhoneEditPatch\(input\.phone\?\.trim\(\) \|\| null\)/,
+      'la procedencia del INSERT manual no puede volver a construirse a mano',
+    );
     assert.equal(
-      /phone_source/.test(body),
+      /phone_source:/.test(body),
       false,
-      'MANUAL_CREATE_PHONE_PROVENANCE_NORMALIZATION_PENDING: un contacto creado a ' +
-        'mano queda con phone_source NULL, que NO está en la allowlist y por tanto ' +
-        'no produce el borrado destructivo. Cambiarlo es otro hito.',
+      'la procedencia sólo puede venir del patch compartido, nunca de un literal local',
     );
   });
 });
@@ -275,9 +283,10 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
  * R1 sólo cierra el defecto si el inventario de escritores de `contacts.phone` está
  * COMPLETO. Hoy son cuatro, y cada uno deja el par (número, procedencia) coherente:
  *
- *   1. `createContact`            — INSERT manual: escribe `phone` y NO escribe
- *                                   `phone_source` ⇒ queda NULL, fuera de la
- *                                   allowlist, así que no produce borrado destructivo;
+ *   1. `createContact`            — INSERT manual: desde 4O-H0.5 escribe `phone` y su
+ *                                   procedencia con el MISMO helper que `updateContact`
+ *                                   ⇒ `'manual'`, que no está en la allowlist y por
+ *                                   tanto tampoco produce borrado destructivo;
  *   2. `updateContact`            — R1: número y procedencia en el MISMO patch;
  *   3. `insertContact` (aprobación de candidato, `ContactInsertPayload`) — escribe
  *                                   `phone` junto a su `phone_source` de proveedor;
@@ -327,10 +336,14 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
     );
   });
 
-  it('`createContact` escribe `phone` pero NO procedencia ⇒ NULL, fuera de la allowlist', () => {
+  it('`createContact` escribe `phone` y su procedencia en el MISMO patch (4O-H0.5)', () => {
     const body = createContactBody();
-    assert.match(body, /phone: input\.phone\?\.trim\(\) \|\| null/);
-    assert.equal(/phone_source/.test(body), false);
+    assert.match(body, /\.\.\.buildManualContactPhoneEditPatch\(input\.phone\?\.trim\(\) \|\| null\)/);
+    assert.equal(
+      /phone:\s*input\.phone/.test(body),
+      false,
+      'reintroducir el escalar suelto deja otra vez el número sin procedencia',
+    );
   });
 
   it('la aprobación de candidato escribe `phone` junto a su `phone_source`', () => {

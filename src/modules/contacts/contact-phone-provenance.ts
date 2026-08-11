@@ -127,6 +127,14 @@ function normalizeWritablePhone(value: string | null | undefined): string | null
 /**
  * Construye el patch de una escritura manual de `contacts.phone`.
  *
+ * Lo comparten los DOS escritores humanos, y a propósito: `updateContact` a través de
+ * `resolveManualContactPhoneEdit` (que primero decide SI hay escritura comparando con
+ * el valor guardado) y `createContact` directamente (4O-H0.5), donde no hay valor
+ * previo con el que comparar y por tanto no hay decisión que tomar: si el formulario
+ * trae un número, ese número es manual. Que el contrato viva en una sola función es lo
+ * que impide que los dos caminos diverjan y que uno de ellos vuelva a dejar un teléfono
+ * sin procedencia.
+ *
  * Con número (`nextPhone` no nulo) la procedencia es `'manual'`: el sistema SÍ sabe
  * de dónde salió esa escritura —de un humano en el formulario— y declararlo es mejor
  * que dejar la columna en NULL, que significa «se desconoce». Sin número, toda la

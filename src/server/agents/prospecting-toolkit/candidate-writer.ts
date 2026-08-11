@@ -73,7 +73,23 @@ import type {
   ProspectingPipelineOutput,
   ProspectingPipelineWriteOutput,
 } from "./types";
-import { buildCandidateRichProfileV1 } from "./candidate-rich-profile";
+import {
+  buildCandidateRichProfileV1,
+  refreshCandidateRichProfileWithEffectiveTruth,
+} from "./candidate-rich-profile";
+// CANDIDATE-OPERABILITY-VALIDATION-1 §§ A, D, E, F.
+import {
+  CANDIDATE_RECORD_ORIGIN_METADATA_KEY,
+  resolveCandidateRecordOriginForWriter,
+  toCandidateRecordOriginColumns,
+  toCandidateRecordOriginMetadata,
+} from "./candidate-record-origin";
+import {
+  describeLinkedinAvailability,
+  LINKEDIN_AVAILABILITY_METADATA_KEY,
+  reconcileScoringForLinkedinAvailability,
+  toLinkedinAvailabilityMetadata,
+} from "./candidate-linkedin-availability";
 import { resolveCanonicalCandidateName } from "./resolve-canonical-candidate-name";
 import type { CanonicalCandidateNameResolution } from "./resolve-canonical-candidate-name";
 import {
@@ -2107,10 +2123,48 @@ export async function writeProspectingCandidates(
       continue;
     }
 
+    // ── A1-APOLLO-LINKEDIN-EMPLOYEES-1 — campos empresariales del proveedor ────
+    //
+    // § 4 del contrato: la ausencia del proveedor y la pérdida interna son cosas
+    // distintas y se registran distinto. En la ruta Apollo la captura la pone el
+    // constructor del candidato; si falta, es una pérdida interna (`mapping_failed`),
+    // nunca «el proveedor no lo devolvió».
+    //
+    // CANDIDATE-OPERABILITY-VALIDATION-1 § D — este bloque estaba ~150 líneas más
+    // abajo, DESPUÉS de construir el `rich_profile` y de fijar el score efectivo.
+    // Por eso el perfil no podía ver el LinkedIn de Apollo y declaraba
+    // `missing_fields: ['linkedin_url', …]` sobre una fila que lo tenía en columna.
+    // Resolver la verdad ANTES de afirmar nada sobre ella es el arreglo.
+    const providerCompanyFields = isApolloCompanyDiscoveryPath
+      ? (candidate.providerCompanyFields ?? MAPPING_FAILED_COMPANY_FIELDS)
+      : null;
+
+    // ── LinkedIn Enrichment (v1.15.1 + v1.15.2) ──────────────────────────────
+    // Pre-computed in the LinkedIn pre-pass above. Includes controlled search
+    // result when the feature is enabled and the candidate was eligible.
+    const linkedInEnrichment = preComputedLinkedInEnrichments[_entryIdx];
+
+    // § E — disponibilidad y verificación, cada una de su fuente. La URL canónica
+    // sale de la MISMA precedencia que la columna `linkedin_url` (proveedor >
+    // enriquecimiento del writer); la verificación, sólo del enriquecimiento.
+    const linkedinAvailability = describeLinkedinAvailability({
+      providerCapture: providerCompanyFields?.linkedin ?? null,
+      writerEnrichment: linkedInEnrichment,
+    });
+
+    // § F — el scoring se corrigió si la URL le llegó tarde. Retira la advertencia
+    // falsa y aplica el componente canónico exactamente una vez; con la URL ya
+    // vista por el scorer (ruta reordenada del pipeline) esto es un no-op.
+    const linkedinScoring = reconcileScoringForLinkedinAvailability(
+      candidate.scoring,
+      linkedinAvailability,
+    );
+    const reconciledScoring = linkedinScoring.scoring;
+
     const effectiveConfidenceScore =
       evidencePolicy.confidenceCap !== null
-        ? Math.min(candidate.scoring.confidenceScore, evidencePolicy.confidenceCap)
-        : candidate.scoring.confidenceScore;
+        ? Math.min(reconciledScoring.confidenceScore, evidencePolicy.confidenceCap)
+        : reconciledScoring.confidenceScore;
 
     if (evidencePolicy.confidenceCap !== null) {
       evidencePolicyGateData.confidenceCapCount++;
@@ -2140,11 +2194,6 @@ export async function writeProspectingCandidates(
         ? `Datos insuficientes. Blockers: ${candidate.scoring.blockers.join(", ")}`
         : null;
 
-    // ── LinkedIn Enrichment (v1.15.1 + v1.15.2) ──────────────────────────────
-    // Pre-computed in the LinkedIn pre-pass above. Includes controlled search
-    // result when the feature is enabled and the candidate was eligible.
-    const linkedInEnrichment = preComputedLinkedInEnrichments[_entryIdx];
-
     // ── Rich Profile (v1.16A + v1.16E controlled enrichment) ─────────────────
     const richProfile = buildCandidateRichProfileV1({
       name: persistedName,
@@ -2161,6 +2210,15 @@ export async function writeProspectingCandidates(
       fitLabel: candidate.scoring.fitBreakdown?.fit_label ?? null,
       fitReasons: candidate.scoring.fitBreakdown?.fit_reasons ?? null,
       linkedInEnrichment,
+      // § D/G — la URL canónica y su estado de verificación entran al perfil.
+      effectiveLinkedin: {
+        url: linkedinAvailability.url,
+        state: linkedinAvailability.isVerified
+          ? 'verified'
+          : linkedinAvailability.isAvailable
+            ? 'available_unverified'
+            : 'absent',
+      },
       countryEvidenceLevel: countryEvidenceResult.evidenceLevel,
       countryEvidenceSources: countryEvidenceResult.evidenceSources,
       countryEvidenceWarning: countryEvidenceResult.warning ?? null,
@@ -2222,10 +2280,45 @@ export async function writeProspectingCandidates(
       selected_value: resolvedEmployeeSize.selectedValue,
       confidence: resolvedEmployeeSize.confidence,
     };
+    // CANDIDATE-OPERABILITY-VALIDATION-1 § G — el perfil se refresca con la verdad
+    // EFECTIVA antes de anotar el gate. Es el único punto de la función donde ya
+    // están resueltas las cuatro: LinkedIn normalizado, subindustria con precisión
+    // demostrada, ciudad del enrichment y tamaño del resolver central. Antes de este
+    // hito el perfil se congelaba con el estado pre-enrichment y declaraba ausentes
+    // los cuatro campos que la propia fila acabaría teniendo en columna.
+    const enrichmentCapture = candidate.providerEnrichmentCapture ?? null;
+    const refreshedRichProfile = refreshCandidateRichProfileWithEffectiveTruth(
+      mergedRichProfile,
+      {
+        linkedin: {
+          url: linkedinAvailability.url,
+          state: linkedinAvailability.isVerified
+            ? 'verified'
+            : linkedinAvailability.isAvailable
+              ? 'available_unverified'
+              : 'absent',
+        },
+        city: enrichmentCapture?.city ?? null,
+        citySource: enrichmentCapture?.city != null ? 'linkedin' : undefined,
+        // Sólo la subindustria con precisión `confirmed` llega aquí: la captura ya
+        // aplica esa regla (§ 3 de QUALITY-PERSISTENCE-HARDENING-1) y no se relaja.
+        subindustry: enrichmentCapture?.subindustry ?? null,
+        employeeCount:
+          providerCompanyFields?.employeeCount.status === 'confirmed'
+            ? providerCompanyFields.employeeCount.employeeCount
+            : null,
+        employeeSizeRange:
+          resolvedEmployeeSize.selectedValue == null
+            ? null
+            : String(resolvedEmployeeSize.selectedValue),
+        employeeSizeSource: 'registry',
+      },
+    );
+
     const finalRichProfile = {
-      ...mergedRichProfile,
+      ...refreshedRichProfile,
       size: {
-        ...mergedRichProfile.size,
+        ...refreshedRichProfile.size,
         icp_size_gate: icpSizeGateResult,
         employee_size_resolution: employeeSizeResolutionTrace,
       },
@@ -2284,16 +2377,8 @@ export async function writeProspectingCandidates(
       countryCode: candidate.countryCode ?? null,
     });
 
-    // ── A1-APOLLO-LINKEDIN-EMPLOYEES-1 — campos empresariales del proveedor ────
-    //
-    // § 4 del contrato: la ausencia del proveedor y la pérdida interna son cosas
-    // distintas y se registran distinto. En la ruta Apollo la captura la pone el
-    // constructor del candidato; si falta, es una pérdida interna (`mapping_failed`),
-    // nunca «el proveedor no lo devolvió».
-    const providerCompanyFields = isApolloCompanyDiscoveryPath
-      ? (candidate.providerCompanyFields ?? MAPPING_FAILED_COMPANY_FIELDS)
-      : null;
-
+    // `providerCompanyFields` se resolvió al principio de la iteración (§ D): es la
+    // MISMA captura, leída una sola vez, que alimenta scoring, perfil y columnas.
     const companyLinkedInBlock = providerCompanyFields
       ? toCompanyLinkedInMetadataBlock(providerCompanyFields.linkedin)
       : null;
@@ -2390,6 +2475,39 @@ export async function writeProspectingCandidates(
     });
     const candidateSourcePrimary = isApolloCompanyDiscoveryRun ? 'apollo' : 'web_ai';
 
+    // ── CANDIDATE-OPERABILITY-VALIDATION-1 § A — la procedencia de la FILA ──────
+    //
+    // `record_origin` es la dimensión que decide si la cola de revisión limpia
+    // puede operar el candidato (`PENDING_REVIEW_RECORD_ORIGIN = 'production'`, y
+    // los cuatro gates de acción con ella). El writer canónico nunca la escribía:
+    // los `web_ai` con `production` venían de un backfill único
+    // (`classification_source = 'derived_status'`) y todo lo escrito después de
+    // aquel backfill —incluida cada fila de Apollo— quedaba en NULL, es decir
+    // inoperable. No es lo mismo que `source_primary`: eso dice QUÉ proveedor la
+    // produjo; esto dice DE QUÉ CLASE DE CORRIDA salió.
+    //
+    // La verdad la deriva el clasificador canónico sobre la fila que se va a
+    // insertar. Un marcador de smoke/QA/import gana siempre: esta vía nunca
+    // asciende nada a `production`.
+    const candidateBaseMetadata = buildCandidateMetadata(candidate);
+    const recordOriginResolution = resolveCandidateRecordOriginForWriter({
+      dryRun: isDryRun,
+      candidate: {
+        status: completenessAdjustedStatus,
+        duplicate_status: dbDuplicateStatus,
+        source_primary: candidateSourcePrimary,
+        review_notes: reviewNotes,
+        // La metadata del CANDIDATO, no la del lote: es donde viven los marcadores
+        // `smoke_test` / `qa_only` que tienen que poder vetar el ascenso.
+        metadata: candidateBaseMetadata,
+      },
+      batch: {
+        source,
+        name: batchName ?? null,
+        metadata: preMergedMetadata,
+      },
+    });
+
     const candidateInsertBase = {
       batch_id: batchId,
       name: persistedName,
@@ -2419,9 +2537,14 @@ export async function writeProspectingCandidates(
       matched_hubspot_company_id: matchedHubspotId,
       confidence_score: effectiveConfidenceScore,
       fit_score: effectiveFitScore,
-      data_completeness_score: candidate.scoring.dataCompletenessScore,
+      // § F — la completitud reconciliada. Si la URL de LinkedIn le llegó al scorer
+      // después de puntuar, su componente canónico se aplica aquí exactamente una vez.
+      data_completeness_score: reconciledScoring.dataCompletenessScore,
       status: completenessAdjustedStatus,
       review_notes: reviewNotes,
+      // § A — la fila declara de qué clase de corrida salió. Sin esto, un candidato
+      // real de una corrida real no se puede aprobar ni descartar desde la cola.
+      ...toCandidateRecordOriginColumns(recordOriginResolution),
       ...(completenessReviewFlags.length > 0 ? { review_flags: completenessReviewFlags } : {}),
       // § 3 — el número de empleados va a su columna normal. Sólo un valor
       // `confirmed` se escribe: `null` nunca se convierte en cero y un `invalid`
@@ -2444,18 +2567,30 @@ export async function writeProspectingCandidates(
         ? toApolloEnrichmentCandidateColumns(candidate.providerEnrichmentCapture)
         : {}),
       metadata: {
-        ...buildCandidateMetadata(candidate),
+        ...candidateBaseMetadata,
         scoring: {
-          confidence_score: candidate.scoring.confidenceScore,
+          // § F — el scoring publicado es el reconciliado: ya no puede contener
+          // «LinkedIn no disponible» sobre una fila con `linkedin_url` en columna.
+          confidence_score: reconciledScoring.confidenceScore,
           fit_score: effectiveFitScore,
-          data_completeness: candidate.scoring.dataCompletenessScore,
-          quality_label: candidate.scoring.qualityLabel,
-          recommended_action: candidate.scoring.recommendedAction,
-          reasons: candidate.scoring.reasons,
-          warnings: candidate.scoring.warnings,
-          blockers: candidate.scoring.blockers,
+          data_completeness: reconciledScoring.dataCompletenessScore,
+          quality_label: reconciledScoring.qualityLabel,
+          recommended_action: reconciledScoring.recommendedAction,
+          reasons: reconciledScoring.reasons,
+          warnings: reconciledScoring.warnings,
+          blockers: reconciledScoring.blockers,
           fit_breakdown: adjustedFitBreakdown,
         },
+        // § A — cómo se decidió la procedencia de la fila, auditable sin reejecutar.
+        [CANDIDATE_RECORD_ORIGIN_METADATA_KEY]:
+          toCandidateRecordOriginMetadata(recordOriginResolution),
+        // § E — disponibilidad y verificación como DOS campos distintos. Es lo que
+        // permite a la ficha decir «disponible · verificación pendiente» sin tener
+        // que elegir entre afirmar una ausencia falsa o una verificación falsa.
+        [LINKEDIN_AVAILABILITY_METADATA_KEY]: toLinkedinAvailabilityMetadata(
+          linkedinAvailability,
+          linkedinScoring,
+        ),
         linkedin_enrichment: linkedInEnrichment,
         // § 2 y § 3 — señales de LinkedIn empresarial y de número de empleados con
         // su procedencia. `prospect_candidates` no tiene columnas de procedencia,
