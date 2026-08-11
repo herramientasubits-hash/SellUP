@@ -11,7 +11,10 @@ import type {
   UpdateContactInput,
   ContactStatus,
 } from './types';
-import { resolveManualContactPhoneEdit } from './contact-phone-provenance';
+import {
+  buildManualContactPhoneEditPatch,
+  resolveManualContactPhoneEdit,
+} from './contact-phone-provenance';
 import {
   runSyncContactToHubSpot,
   type ContactForSync,
@@ -256,7 +259,15 @@ export async function createContact(
     last_name: input.last_name?.trim() || null,
     full_name: fullName,
     email,
-    phone: input.phone?.trim() || null,
+    // 4O-H0.5 — el número y su procedencia entran en el MISMO INSERT, con el contrato
+    // que ya usa `updateContact`: un teléfono tecleado por un humano es `'manual'` y no
+    // arrastra metadata de proveedor. Sin teléfono, la tupla entera queda NULL (no hay
+    // dato del que declarar origen). Antes de H0.5 el INSERT escribía `phone` y dejaba
+    // `phone_source` en NULL, es decir «se desconoce»: un teléfono demostrablemente
+    // manual quedaba indistinguible de uno sin procedencia conocida.
+    // NO se declara nada sobre `mobile_phone`: esa columna sigue sin procedencia propia
+    // (`MOBILE_PHONE_PROVENANCE_PENDING`) y `phone_source` describe `phone`, no a ella.
+    ...buildManualContactPhoneEditPatch(input.phone?.trim() || null),
     mobile_phone: input.mobile_phone?.trim() || null,
     linkedin_url: input.linkedin_url?.trim() || null,
     job_title: input.job_title?.trim() || null,
