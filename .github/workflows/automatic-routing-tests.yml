@@ -677,7 +677,16 @@ jobs:
       #
       # Determinista y offline: sin red (fetch stub), sin Supabase real, sin Lusha, 0
       # créditos. La atomicidad de `reserve_and_create_phone_reveal_run` vive en la
-      # migración 104 y ya está validada contra PostgreSQL real por
-      # AGENT2A-PHONE-WATERFALL-4G; R2 no modifica ese SQL.
+      # migración 104, que R2 no modifica y que AGENT2A-PHONE-WATERFALL-4G ya validó
+      # contra PostgreSQL real.
+      #
+      # Lo que ESE arnés no puede demostrar es la INTEGRACIÓN nueva: que el llamador
+      # manual, al converger, obtenga de esa transacción una corrida `legacy_lusha_only`
+      # con una sola pata; que tres invocaciones sobre CONEXIONES distintas produzcan una
+      # sola llamada pagada; y que las filas reales del ledger, pasadas por la lógica real
+      # de consumo efectivo, den 5 y no 10. Eso vive en
+      # `test:agent2a:manual-lusha-legacy-convergence-postgres` (§ 48), que queda FUERA
+      # del check por la misma razón que las demás suites de PostgreSQL: depende de un
+      # binario que se descarga (`npm install --no-save embedded-postgres@17.6.0-beta.15`).
       - name: Run manual Lusha legacy-run convergence tests
         run: npm run test:agent2a:manual-lusha-legacy-convergence

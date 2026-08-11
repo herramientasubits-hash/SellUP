@@ -283,7 +283,8 @@
     "test:agent2a:phone-privacy-race-postgres": "node --import tsx --test src/modules/contact-enrichment/__tests__/phone-privacy-inflight-race-postgres-4o-e3.test.ts",
     "test:agent2a:phone-suppression-propagation-postgres": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-phone-collection-suppression-postgres-4o-e2.test.ts",
     "test:agent2a:phone-suppression-terminal": "node --import tsx --experimental-test-module-mocks --test src/modules/contact-enrichment/__tests__/phone-suppression-terminal-policy-4o-e1.test.ts src/modules/contact-enrichment/__tests__/phone-suppression-terminal-runtime-4o-e1.test.ts src/modules/contact-enrichment/__tests__/phone-suppression-terminal-static-4o-e1.test.ts",
-    "test:agent2a:manual-lusha-legacy-convergence": "node --experimental-test-module-mocks --import tsx --test src/modules/contact-enrichment/__tests__/manual-lusha-legacy-run-convergence-4o-f-r2.test.ts"
+    "test:agent2a:manual-lusha-legacy-convergence": "node --experimental-test-module-mocks --import tsx --test src/modules/contact-enrichment/__tests__/manual-lusha-legacy-run-convergence-4o-f-r2.test.ts",
+    "test:agent2a:manual-lusha-legacy-convergence-postgres": "node --experimental-test-module-mocks --import tsx --test src/modules/contact-enrichment/__tests__/manual-lusha-legacy-run-convergence-postgres-4o-f-r2.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
