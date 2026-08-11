@@ -411,6 +411,19 @@ export type ApolloTwoRoundRunMetrics = {
   /** § 8 — qué admisiones writer-only quedaron sin resolver, por nombre. */
   writerOnlyPendingReasons: string[];
   /**
+   * ADAPTIVE-EARLY-STOP § 11 — comprobaciones de admisión PRE-writer agregadas
+   * sobre los candidatos elegibles, en tres cubetas que no se solapan.
+   *
+   * Sirven para responder, sin abrir el código, la pregunta que este addendum
+   * hace explícita: cuántas de las trece se están resolviendo de verdad. Con
+   * `pending` en cero y `pass` positivo, la parada temprana está VIVA; con
+   * `pending` alto, la corrida vuelve a recorrer el máximo de gasto y aquí se ve
+   * por qué.
+   */
+  preWriterAdmissionPassCount: number;
+  preWriterAdmissionFailedCount: number;
+  preWriterAdmissionPendingCount: number;
+  /**
    * § D — `max(0, target - stableFinalizableCandidateCount)`. Cero significa
    * que el objetivo se alcanzó de verdad; con `enrichmentsExecuted` en cero y
    * este campo en positivo, la corrida se quedó corta y NO fue por falta de
@@ -465,6 +478,10 @@ export function buildRunMetrics(input: {
   projectedFinalizableCandidateCount?: number;
   writerOnlyPendingCount?: number;
   writerOnlyPendingReasons?: readonly string[];
+  /** § 11 — agregados de admisión PRE-writer. Ausentes ⇒ 0, nunca inventados. */
+  preWriterAdmissionPassCount?: number;
+  preWriterAdmissionFailedCount?: number;
+  preWriterAdmissionPendingCount?: number;
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
   const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
@@ -527,6 +544,9 @@ export function buildRunMetrics(input: {
     ),
     writerOnlyPendingCount: input.writerOnlyPendingCount ?? 0,
     writerOnlyPendingReasons: [...(input.writerOnlyPendingReasons ?? [])],
+    preWriterAdmissionPassCount: input.preWriterAdmissionPassCount ?? 0,
+    preWriterAdmissionFailedCount: input.preWriterAdmissionFailedCount ?? 0,
+    preWriterAdmissionPendingCount: input.preWriterAdmissionPendingCount ?? 0,
     targetGap: Math.max(
       0,
       (input.targetEligibleCompanies ?? 0) -
@@ -652,5 +672,8 @@ export function toRunMetricsMetadata(
     stable_finalizable_count: metrics.stableFinalizableCandidateCount,
     writer_only_pending_count: metrics.writerOnlyPendingCount,
     writer_only_pending_reasons: [...metrics.writerOnlyPendingReasons],
+    pre_writer_admission_pass_count: metrics.preWriterAdmissionPassCount,
+    pre_writer_admission_failed_count: metrics.preWriterAdmissionFailedCount,
+    pre_writer_admission_pending_count: metrics.preWriterAdmissionPendingCount,
   };
 }

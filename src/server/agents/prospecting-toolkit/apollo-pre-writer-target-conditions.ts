@@ -47,6 +47,35 @@ import {
   extractHubSpotMatchedEmployees,
   resolveEmployeeSizeForIcpGate,
 } from './employee-size-resolver';
+// ── ADAPTIVE-EARLY-STOP § 3 — los gates DETERMINISTAS del writer, los mismos ──
+import {
+  isContentPageName,
+  isContentPageUrl,
+  isDirectorySourceDomain,
+  mapQualityLabelToStatus,
+  extractDomain,
+  normalizeName,
+  compareWriterEligibleRank,
+  selectIntraBatchIdentityWinnerIndexes,
+  orderByCompleteFirst,
+} from './candidate-writer-pure-gates';
+import { buildCanonicalCompanyIdentity } from './canonical-company-identity';
+import {
+  evaluateCountryCompatibility,
+  countryCompatibilityRankWeight,
+} from './country-compatibility';
+import { evaluateContentIntermediaryGate } from './content-intermediary-gate';
+import { evaluateExternalPlatformGate } from './external-platform-blocklist';
+import {
+  classifySourceUrlQuality,
+  isBlockedBySourceUrlQuality,
+} from './source-url-quality-gate';
+import { evaluateCandidateNovelty, type NoveltyIndex } from './novelty-checker';
+import {
+  checkActiveCandidateDuplicate,
+  type ActiveCandidateRecord,
+} from './active-candidate-identity-guard';
+import { normalizeDomain } from './normalization';
 import type { GateVerdict } from './candidate-completeness-contract';
 import type { ProspectingPipelineCandidate } from './types';
 
@@ -325,4 +354,428 @@ export function evaluateApolloPreWriterQualityGateForCandidate(
     candidate,
     matchedHubspotRaw: hubspotMatch?.raw,
   });
+}
+
+// ═══ ADAPTIVE-EARLY-STOP §§ 2, 3, 4, 5 y 6 — pipeline canónico de admisión ═════
+//
+// Lo que este bloque cambia respecto del addendum anterior: las trece
+// comprobaciones dejan de ser una lista de deuda y pasan a RESOLVERSE, cada una
+// con la función del writer que la decide. Lo que NO cambia, y es el invariante
+// que el § 1 exige conservar: sin resolver sigue sin ser un pase. Una
+// comprobación que aquí no se puede evaluar —porque su contexto no llegó, o
+// porque el candidato quedó fuera de la cobertura del prefetch— se declara
+// `pending`, y un `pending` nunca cuenta hacia el objetivo.
+
+/** § 6 — estado de UNA comprobación de admisión. `pending` NO es `passed`. */
+export type ApolloPreWriterAdmissionState = 'passed' | 'failed' | 'pending';
+
+export type ApolloPreWriterAdmissionCheckResult = {
+  check: string;
+  state: ApolloPreWriterAdmissionState;
+  /** Causa concreta. `null` sólo cuando el estado es `passed`. */
+  reason: string | null;
+};
+
+/**
+ * § 2 — lo que UNA sola lectura de base, hecha una vez por corrida, deja
+ * disponible para las tres comprobaciones que la necesitan.
+ *
+ * `coveredDomains` es la parte que no se puede omitir. Las tres estructuras del
+ * writer contestan «no hay nada» tanto cuando de verdad no hay nada como cuando
+ * el dominio nunca se consultó, y esa segunda respuesta leída como pase es
+ * exactamente el defecto de este hilo con otro disfraz. Un candidato cuyo
+ * dominio no esté aquí conserva sus tres comprobaciones PENDIENTES.
+ */
+export type ApolloPreWriterDbAdmissionContext = {
+  /** Dominios normalizados que el prefetch consultó de verdad. */
+  coveredDomains: ReadonlySet<string>;
+  noveltyIndex: NoveltyIndex;
+  recentIdentityKeys: ReadonlySet<string>;
+  activeCandidates: readonly ActiveCandidateRecord[];
+  /**
+   * El prefetch degradó (el writer opera fail-open con `[]`). Aquí no se puede
+   * hacer lo mismo: fail-open sirve para no bloquear una escritura, no para
+   * autorizar una parada de gasto. Degradado ⇒ las tres quedan pendientes.
+   */
+  degraded: boolean;
+};
+
+/**
+ * §§ 4 y 5 — lo que exige el LOTE entero y no es una propiedad del candidato.
+ *
+ * `intraBatchIdentityWinners` mapea identidad canónica → clave del candidato que
+ * el writer conservaría; `targetCapAdmittedKeys` es el conjunto que sobrevive al
+ * cupo COMPLETE-FIRST. `null` en cualquiera de los dos ⇒ su comprobación queda
+ * pendiente, nunca aprobada por omisión.
+ */
+export type ApolloPreWriterBatchAdmissionContext = {
+  intraBatchIdentityWinners: ReadonlyMap<string, string>;
+  targetCapAdmittedKeys: ReadonlySet<string> | null;
+};
+
+/**
+ * § 2 — las TRES comprobaciones que dependen del prefetch de base, en el orden
+ * en que el evaluador las emite.
+ *
+ * Son las únicas que pueden quedar pendientes cuando el contexto de lote sí está
+ * disponible: sin cliente, con el prefetch degradado o con el dominio fuera de su
+ * cobertura. Existe como constante porque hay dos consumidores que necesitan
+ * nombrarlas —la observabilidad y las suites— y deducirlas de la diferencia entre
+ * dos listas era exactamente el tipo de derivación implícita que este hilo evita.
+ */
+export const APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS: readonly string[] = [
+  'recent_identity_cooldown',
+  'novelty_index',
+  'active_duplicate_guard',
+];
+
+export type ApolloPreWriterGateContext = {
+  targetCountryCode: string | null;
+  subindustries: readonly string[];
+  additionalCriteria?: string | null;
+};
+
+/** Dominio efectivo tal como lo resuelve el writer en Pass 1. */
+export function resolveApolloPreWriterEffectiveDomain(
+  candidate: ProspectingPipelineCandidate,
+): string | null {
+  return candidate.domain ?? extractDomain(candidate.website ?? null);
+}
+
+function passed(check: string): ApolloPreWriterAdmissionCheckResult {
+  return { check, state: 'passed', reason: null };
+}
+function failed(check: string, reason: string): ApolloPreWriterAdmissionCheckResult {
+  return { check, state: 'failed', reason };
+}
+function pending(check: string, reason: string): ApolloPreWriterAdmissionCheckResult {
+  return { check, state: 'pending', reason };
+}
+
+/**
+ * § 3 — las OCHO comprobaciones puras del writer, resueltas antes del writer.
+ *
+ * Mismo orden que Pass 1 de `candidate-writer.ts`, porque el orden decide qué
+ * causa se reporta cuando más de una bloquea. Ninguna se reimplementa: cada una
+ * invoca la función que el writer invoca.
+ *
+ * `country_compatibility_gate` es la única que puede quedar PENDIENTE aquí, y
+ * sólo cuando la corrida no declaró código de país: el writer, en ese caso,
+ * descarta con `missing_country_code`, así que declararlo pendiente es la
+ * lectura conservadora (no cuenta) sin afirmar un rechazo que depende de una
+ * configuración y no del candidato.
+ */
+export function evaluateApolloPreWriterDeterministicGates(
+  candidate: ProspectingPipelineCandidate,
+  context: ApolloPreWriterGateContext,
+): ApolloPreWriterAdmissionCheckResult[] {
+  const results: ApolloPreWriterAdmissionCheckResult[] = [];
+  const effectiveDomain = resolveApolloPreWriterEffectiveDomain(candidate);
+  const urlOrDomain =
+    candidate.website ?? (effectiveDomain ? `https://${effectiveDomain}` : null);
+
+  results.push(
+    mapQualityLabelToStatus(candidate.scoring.qualityLabel) === null
+      ? failed('quality_label_discard', 'qualityLabel=discard')
+      : passed('quality_label_discard'),
+  );
+
+  const identity = buildCanonicalCompanyIdentity(candidate.name);
+  results.push(
+    identity.isNonCompanyPhrase
+      ? failed('canonical_identity_gate', 'non_company_phrase')
+      : passed('canonical_identity_gate'),
+  );
+
+  results.push(
+    isDirectorySourceDomain(effectiveDomain)
+      ? failed('non_official_source_domain', 'non_official_source_domain')
+      : passed('non_official_source_domain'),
+  );
+
+  if (!context.targetCountryCode) {
+    results.push(pending('country_compatibility_gate', 'missing_country_code'));
+  } else {
+    const compat = evaluateCountryCompatibility(urlOrDomain, context.targetCountryCode);
+    results.push(
+      compat.compatible
+        ? passed('country_compatibility_gate')
+        : failed('country_compatibility_gate', `country_incompatible:${compat.reason}`),
+    );
+  }
+
+  results.push(
+    isContentPageUrl(candidate.website ?? null) || isContentPageName(candidate.name)
+      ? failed('content_page_gate', 'content_page')
+      : passed('content_page_gate'),
+  );
+
+  const intermediary = evaluateContentIntermediaryGate({
+    name: candidate.name,
+    domain: effectiveDomain,
+    title: candidate.sourceTitle ?? undefined,
+    snippet: candidate.sourceSnippet ?? undefined,
+    companySize: typeof candidate.companySize === 'string' ? candidate.companySize : undefined,
+  });
+  results.push(
+    intermediary.blocked
+      ? failed(
+          'content_intermediary_gate',
+          intermediary.reasons[0] ?? 'content_or_intermediary_site',
+        )
+      : passed('content_intermediary_gate'),
+  );
+
+  const externalPlatform = evaluateExternalPlatformGate(urlOrDomain, candidate.name);
+  results.push(
+    externalPlatform.allowed
+      ? passed('external_platform_gate')
+      : failed(
+          'external_platform_gate',
+          `external_platform:${externalPlatform.platformType ?? 'unknown'}`,
+        ),
+  );
+
+  const sourceUrlQuality = classifySourceUrlQuality(urlOrDomain, candidate.name);
+  results.push(
+    isBlockedBySourceUrlQuality(sourceUrlQuality)
+      ? failed('source_url_quality_gate', `source_url_quality:${sourceUrlQuality.quality}`)
+      : passed('source_url_quality_gate'),
+  );
+
+  return results;
+}
+
+/** § 4 — señales de ranking del writer para UN candidato, con sus gates puros. */
+export function buildApolloPreWriterRankSignals(
+  candidate: ProspectingPipelineCandidate,
+  context: ApolloPreWriterGateContext,
+): {
+  businessFitRankingBonus: number;
+  sourceUrlRankingBonus: number;
+  countryCompatWeight: number;
+  confidenceScore: number | null;
+  website: string | null;
+} {
+  const effectiveDomain = resolveApolloPreWriterEffectiveDomain(candidate);
+  const urlOrDomain =
+    candidate.website ?? (effectiveDomain ? `https://${effectiveDomain}` : null);
+  const businessFit = evaluateBusinessFit({
+    name: candidate.name,
+    website: candidate.website ?? null,
+    domain: effectiveDomain,
+    sourceSnippet: candidate.sourceSnippet ?? null,
+    sourceTitle: candidate.sourceTitle ?? null,
+    subindustries: [...context.subindustries],
+    additionalCriteria: context.additionalCriteria ?? null,
+  });
+  return {
+    businessFitRankingBonus: businessFit.rankingBonus,
+    sourceUrlRankingBonus: classifySourceUrlQuality(urlOrDomain, candidate.name).rankingBonus,
+    countryCompatWeight: context.targetCountryCode
+      ? countryCompatibilityRankWeight(
+          evaluateCountryCompatibility(urlOrDomain, context.targetCountryCode),
+        )
+      : 0,
+    confidenceScore: candidate.scoring.confidenceScore ?? null,
+    website: candidate.website ?? null,
+  };
+}
+
+/** Entrada del lote para construir el contexto de §§ 4 y 5. */
+export type ApolloPreWriterBatchCandidate = {
+  candidateKey: string;
+  candidate: ProspectingPipelineCandidate;
+  /**
+   * Proyección de completitud del contrato canónico para ESTE candidato, tal
+   * como la calcula quien conoce su precisión de subindustria. Es lo que hace
+   * COMPLETE-FIRST al cupo (§ 5); este módulo no la deduce, la recibe.
+   */
+  completeValidIfPersisted: boolean;
+};
+
+/**
+ * §§ 4 y 5 — contexto de lote, construido con el MISMO orden, la MISMA dedupe y
+ * el MISMO cupo complete-first que aplicará el writer.
+ *
+ * Antes de ordenar se descartan los candidatos que no superan los gates
+ * deterministas, porque el writer tampoco los mete en el ranking: incluirlos
+ * cambiaría quién gana una identidad repetida y quién entra en el cupo.
+ */
+export function buildApolloPreWriterBatchAdmissionContext(input: {
+  candidates: readonly ApolloPreWriterBatchCandidate[];
+  context: ApolloPreWriterGateContext;
+  /** Cupo del lote. `null` ⇒ no hay cupo y `target_cap` no puede descartar a nadie. */
+  targetCap: number | null;
+}): ApolloPreWriterBatchAdmissionContext {
+  const rankable = input.candidates
+    .filter((entry) =>
+      evaluateApolloPreWriterDeterministicGates(entry.candidate, input.context).every(
+        (check) => check.state !== 'failed',
+      ),
+    )
+    .map((entry) => ({
+      entry,
+      signals: buildApolloPreWriterRankSignals(entry.candidate, input.context),
+      identityKey: buildCanonicalCompanyIdentity(entry.candidate.name).identityKey ?? null,
+    }))
+    .sort((a, b) => compareWriterEligibleRank(a.signals, b.signals));
+
+  const dedupe = selectIntraBatchIdentityWinnerIndexes(rankable.map((e) => e.identityKey));
+  const winners = dedupe.winners.map((index) => rankable[index]);
+
+  const intraBatchIdentityWinners = new Map<string, string>();
+  for (const winner of winners) {
+    if (winner.identityKey) {
+      intraBatchIdentityWinners.set(winner.identityKey, winner.entry.candidateKey);
+    }
+  }
+
+  const capOrdered = orderByCompleteFirst(winners, (w) => w.entry.completeValidIfPersisted);
+  const targetCapAdmittedKeys =
+    input.targetCap === null
+      ? new Set(capOrdered.map((w) => w.entry.candidateKey))
+      : new Set(
+          capOrdered
+            .slice(0, Math.max(0, input.targetCap))
+            .map((w) => w.entry.candidateKey),
+        );
+
+  return { intraBatchIdentityWinners, targetCapAdmittedKeys };
+}
+
+/**
+ * § 6 — evaluación canónica de admisión PRE-writer para UN candidato.
+ *
+ * Devuelve el estado de LAS TRECE comprobaciones. Lo que un consumidor tiene que
+ * hacer con el resultado está fijado por el § 2 y no admite matices: sólo
+ * `pendingChecks.length === 0 && failedChecks.length === 0` habilita a ese
+ * candidato a sostener una parada por objetivo, y esa condición se combina
+ * además con la elegibilidad canónica del contrato (`countsTowardTargetIfPersisted`).
+ */
+export function evaluateCandidatePreWriterAdmission(input: {
+  candidateKey: string;
+  candidate: ProspectingPipelineCandidate;
+  context: ApolloPreWriterGateContext;
+  dbContext?: ApolloPreWriterDbAdmissionContext | null;
+  batchContext?: ApolloPreWriterBatchAdmissionContext | null;
+}): {
+  checks: ApolloPreWriterAdmissionCheckResult[];
+  passedChecks: string[];
+  failedChecks: string[];
+  pendingChecks: string[];
+} {
+  const checks = evaluateApolloPreWriterDeterministicGates(input.candidate, input.context);
+
+  const identity = buildCanonicalCompanyIdentity(input.candidate.name);
+  const effectiveDomain = resolveApolloPreWriterEffectiveDomain(input.candidate);
+  const normalizedDomain = effectiveDomain ? normalizeDomain(effectiveDomain) : null;
+
+  // ── §§ 2 — las tres respaldadas por el prefetch único ─────────────────────
+  const db = input.dbContext ?? null;
+  const dbUsable = db !== null && !db.degraded;
+  // Un candidato SIN dominio no participa de las consultas por dominio: el
+  // writer lo evalúa igual, con el índice que tenga. Con dominio, la cobertura
+  // es obligatoria.
+  const dbCoversCandidate =
+    dbUsable && (normalizedDomain === null || db!.coveredDomains.has(normalizedDomain));
+
+  const dbPendingReason =
+    db === null
+      ? 'db_prefetch_unavailable'
+      : db.degraded
+        ? 'db_prefetch_degraded'
+        : 'domain_outside_prefetch_coverage';
+
+  if (!dbCoversCandidate) {
+    checks.push(pending('recent_identity_cooldown', dbPendingReason));
+    checks.push(pending('novelty_index', dbPendingReason));
+    checks.push(pending('active_duplicate_guard', dbPendingReason));
+  } else {
+    const prefetch = db!;
+    checks.push(
+      identity.identityKey && prefetch.recentIdentityKeys.has(identity.identityKey)
+        ? failed('recent_identity_cooldown', 'seen_identity_key_recently')
+        : passed('recent_identity_cooldown'),
+    );
+
+    const novelty = evaluateCandidateNovelty(
+      {
+        name: input.candidate.name,
+        domain: input.candidate.domain ?? null,
+        website: input.candidate.website ?? null,
+      },
+      prefetch.noveltyIndex,
+    );
+    checks.push(
+      novelty.shouldSkip
+        ? failed('novelty_index', novelty.skipReason ?? 'novelty_skip')
+        : passed('novelty_index'),
+    );
+
+    // Misma entrada de guard que construye Pass 4 del writer. El nombre inferido
+    // desde dominio sólo se aplica cuando la normalización lo sustituyó, igual
+    // que allí; sin sustitución, el nombre crudo.
+    const guardName = input.candidate.name;
+    const guardMatch = checkActiveCandidateDuplicate(
+      {
+        name: guardName,
+        domain: effectiveDomain,
+        website: input.candidate.website ?? null,
+        inferredCompanyName: guardName,
+        normalizedName: normalizeName(guardName),
+      },
+      [...prefetch.activeCandidates],
+    );
+    const isStrongMatch =
+      guardMatch.matched &&
+      (guardMatch.reason === 'same_active_domain' ||
+        guardMatch.reason === 'same_inferred_identity');
+    checks.push(
+      isStrongMatch
+        ? failed('active_duplicate_guard', `duplicate_guard:${guardMatch.reason}`)
+        : passed('active_duplicate_guard'),
+    );
+  }
+
+  // ── §§ 4 y 5 — las dos que exigen el lote entero ──────────────────────────
+  //
+  // Un candidato que ya cae por un gate determinista nunca entra en el ranking
+  // del writer, así que preguntarle por el cupo o por la dedupe no tiene
+  // respuesta: se declara pendiente con esa causa en vez de inventar un
+  // «duplicado intra-lote» que no ocurrió. No cambia nada económico —ya no
+  // podía ser estable— y evita un motivo falso en la observabilidad.
+  const excludedBeforeRanking = checks.some((c) => c.state === 'failed');
+  const batch = input.batchContext ?? null;
+  if (excludedBeforeRanking) {
+    checks.push(pending('intra_batch_identity_dedupe', 'excluded_before_ranking'));
+    checks.push(pending('target_cap', 'excluded_before_ranking'));
+  } else if (batch === null) {
+    checks.push(pending('intra_batch_identity_dedupe', 'batch_context_unavailable'));
+    checks.push(pending('target_cap', 'batch_context_unavailable'));
+  } else {
+    const winnerKey = identity.identityKey
+      ? batch.intraBatchIdentityWinners.get(identity.identityKey) ?? null
+      : null;
+    checks.push(
+      identity.identityKey === null || winnerKey === input.candidateKey
+        ? passed('intra_batch_identity_dedupe')
+        : failed('intra_batch_identity_dedupe', 'intra_batch_identity_duplicate'),
+    );
+
+    checks.push(
+      batch.targetCapAdmittedKeys === null
+        ? pending('target_cap', 'target_cap_unknown')
+        : batch.targetCapAdmittedKeys.has(input.candidateKey)
+          ? passed('target_cap')
+          : failed('target_cap', 'target_cap'),
+    );
+  }
+
+  return {
+    checks,
+    passedChecks: checks.filter((c) => c.state === 'passed').map((c) => c.check),
+    failedChecks: checks.filter((c) => c.state === 'failed').map((c) => c.check),
+    pendingChecks: checks.filter((c) => c.state === 'pending').map((c) => c.check),
+  };
 }

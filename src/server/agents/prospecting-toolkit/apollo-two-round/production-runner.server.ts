@@ -189,14 +189,24 @@ import {
   evaluateCompanyOwnership,
   isBlockedByCompanyOwnership,
 } from '../company-ownership-gate';
-import { mapDuplicateStatus } from '../candidate-writer';
+import { mapDuplicateStatus, fetchActiveCandidatesForGuard } from '../candidate-writer';
+import { buildNoveltyIndex, buildRecentIdentityKeySet } from '../novelty-checker';
 import {
   APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
+  buildApolloPreWriterBatchAdmissionContext,
   evaluateApolloPreWriterQualityGateForCandidate,
+  evaluateCandidatePreWriterAdmission,
+  resolveApolloPreWriterEffectiveDomain,
+  type ApolloPreWriterBatchAdmissionContext,
+  type ApolloPreWriterDbAdmissionContext,
 } from '../apollo-pre-writer-target-conditions';
 import {
+  evaluateCandidateTargetEligibility,
   resolveCandidateSubindustryRequirement,
+  type GateVerdict,
+  type SubindustryMatchVerdict,
 } from '../candidate-completeness-contract';
+import type { CompanyFieldMappingStatus } from '../apollo-company-fields-mapping';
 import {
   readTwoRoundCheckpoint,
   writeTwoRoundCheckpoint,
@@ -320,7 +330,38 @@ export type ApolloTwoRoundProductionDeps = {
     checkpoint: ApolloTwoRoundCheckpointV1,
   ) => Promise<CheckpointWriteOutcome>;
   resolveConfig: () => ApolloTwoRoundDiscoveryConfig;
+  /**
+   * ADAPTIVE-EARLY-STOP § 2 — prefetch ÚNICO por corrida de las tres estructuras
+   * de base que el writer usa para admitir un candidato: el índice de novedad,
+   * el conjunto de identidades en cooldown y las filas activas del Active
+   * Duplicate Guard.
+   *
+   * Existe para que esas tres comprobaciones dejen de estar permanentemente
+   * pendientes —lo que dejaba muerta la parada temprana— sin añadir una sola
+   * lectura por candidato ni por ronda. Se invoca a lo sumo UNA vez por corrida,
+   * de forma perezosa, en la primera evaluación de finalizabilidad.
+   *
+   * Su contrato es fail-closed: cuando no hay cliente, cuando la consulta falla o
+   * cuando el guard degrada, devuelve `degraded: true` y las tres comprobaciones
+   * vuelven a declararse PENDIENTES. El writer puede permitirse fail-open —no
+   * bloquear una escritura—; una parada de gasto no.
+   */
+  loadAdmissionPrefetch: (input: {
+    domains: readonly string[];
+    countryCode: string | null;
+  }) => Promise<ApolloPreWriterDbAdmissionContext>;
 };
+
+/** § 2 — contexto vacío y DEGRADADO: nada resuelto, todo pendiente. */
+export function emptyAdmissionPrefetch(): ApolloPreWriterDbAdmissionContext {
+  return {
+    coveredDomains: new Set<string>(),
+    noveltyIndex: new Map(),
+    recentIdentityKeys: new Set<string>(),
+    activeCandidates: [],
+    degraded: true,
+  };
+}
 
 const NEGATIVE_MEMORY_LOOKBACK_DAYS = 30;
 
@@ -555,6 +596,38 @@ export async function runApolloTwoRoundWizardDiscovery(
     loadCheckpoint: (batchId, identity) => readTwoRoundCheckpoint(batchId, identity),
     saveCheckpoint: (batchId, checkpoint) => writeTwoRoundCheckpoint(batchId, checkpoint),
     resolveConfig: () => resolveApolloTwoRoundConfigFromEnv().config,
+    // § 2 — UNA sola llamada por corrida; dentro, las tres lecturas que el writer
+    // ya hacía, con los MISMOS constructores. Nada por candidato, nada por ronda.
+    loadAdmissionPrefetch: async ({ domains, countryCode }) => {
+      const { tryGetAdminClientForTwoRound } = await import('./checkpoint.server');
+      const client = tryGetAdminClientForTwoRound();
+      if (!client) return emptyAdmissionPrefetch();
+      const normalized = [
+        ...new Set(
+          domains
+            .map((domain) => (domain ? normalizeDomain(domain) : null))
+            .filter((domain): domain is string => domain !== null),
+        ),
+      ];
+      try {
+        const [noveltyIndex, recentIdentityKeys, guard] = await Promise.all([
+          buildNoveltyIndex(client, normalized),
+          buildRecentIdentityKeySet(client),
+          fetchActiveCandidatesForGuard(client, normalized, countryCode),
+        ]);
+        return {
+          coveredDomains: new Set(normalized),
+          noveltyIndex,
+          recentIdentityKeys,
+          activeCandidates: guard.records,
+          // El guard degrada fail-open para el writer; aquí una degradación
+          // significa que no se puede afirmar nada, y no afirmar nada es pendiente.
+          degraded: guard.status === 'degraded',
+        };
+      } catch {
+        return emptyAdmissionPrefetch();
+      }
+    },
     ...depsOverride,
   };
 
@@ -712,6 +785,143 @@ export async function runApolloTwoRoundWizardDiscovery(
    */
   const subindustryPrecisionByKey = new Map<string, ApolloSubindustryPrecisionAssessment>();
   const enrichmentUsageKeyByCandidate = new Map<string, string>();
+
+  /**
+   * ADAPTIVE-EARLY-STOP § 5 — último veredicto sectorial conocido por candidato.
+   *
+   * Existe porque el cupo COMPLETE-FIRST y la dedupe intra-lote son propiedades
+   * del LOTE, no del candidato que el orquestador está preguntando: para
+   * ordenarlos hace falta la completitud proyectada de TODOS, y la completitud
+   * depende del veredicto sectorial de cada uno. El orquestador sólo entrega el
+   * del candidato en curso, así que se guarda a medida que llega. Nunca se
+   * adivina: un candidato del que nadie informó todavía se trata como
+   * `sector_evidence_missing_needs_enrichment`, que es el estado que NO cuenta.
+   */
+  const sectorEvidenceStateByKey = new Map<string, CandidateSectorEvidenceState>();
+
+  /**
+   * § 2 — el prefetch de admisión, UNA sola vez por corrida y de forma perezosa.
+   *
+   * Perezosa y no al arrancar porque los dominios del lote no existen hasta que
+   * la primera ronda devuelve. Se dispara en la primera evaluación de
+   * finalizabilidad —es decir, antes de la primera decisión de parada— y a
+   * partir de ahí toda lectura reutiliza la misma promesa: cero consultas por
+   * ronda y cero por candidato.
+   *
+   * Consecuencia declarada: los candidatos cuyo dominio no estaba en el lote
+   * cuando se disparó el prefetch (los que trae una ronda posterior) conservan
+   * sus tres comprobaciones de base PENDIENTES, así que no pueden sostener una
+   * parada. Es la dirección segura, y no añade ni una lectura.
+   */
+  let admissionPrefetchPromise: Promise<ApolloPreWriterDbAdmissionContext> | null = null;
+  const ensureAdmissionPrefetch = (): Promise<ApolloPreWriterDbAdmissionContext> => {
+    // La memoización ES el contrato: la promesa se guarda antes de resolverse, así
+    // que dos lecturas concurrentes comparten UNA sola llamada.
+    if (admissionPrefetchPromise !== null) return admissionPrefetchPromise;
+    const domains = [...assessmentByKey.values()]
+      .map((cached) => resolveApolloPreWriterEffectiveDomain(cached.candidate))
+      .filter((domain): domain is string => domain !== null && domain !== '');
+    admissionPrefetchPromise = deps
+      .loadAdmissionPrefetch({ domains, countryCode: input.countryCode })
+      .catch(() => emptyAdmissionPrefetch());
+    return admissionPrefetchPromise;
+  };
+
+  /**
+   * Las SIETE condiciones del contrato canónico (menos `persistence_success`)
+   * leídas de su fuente real, exactamente como las leerá el writer.
+   *
+   * Se extrae de `readCandidateTargetConditions` porque tiene un segundo
+   * llamador: la proyección de completitud que ordena el cupo COMPLETE-FIRST
+   * (§ 5) necesita el mismo veredicto para TODOS los candidatos del lote, no
+   * sólo para el que el orquestador está preguntando.
+   *
+   * Puro y gratis: cero llamadas al proveedor, cero créditos, cero lecturas de
+   * base. Sólo lee lo que la corrida ya construyó.
+   */
+  const readContractConditions = (
+    candidateKey: string,
+    sectorEvidenceState: CandidateSectorEvidenceState,
+  ): {
+    subindustryMatch: SubindustryMatchVerdict;
+    employeeCountStatus: CompanyFieldMappingStatus;
+    linkedinStatus: CompanyFieldMappingStatus;
+    duplicateStatus: string | null;
+    ownershipGate: GateVerdict;
+    qualityGate: GateVerdict;
+  } | null => {
+    const cached = assessmentByKey.get(candidateKey) ?? null;
+    if (cached === null) return null;
+    const candidate = cached.candidate;
+    const subindustry = resolveCandidateSubindustryRequirement({
+      sectorEvidenceState,
+      requestedSubindustries: input.subindustries,
+      subindustryPrecision: subindustryPrecisionByKey.get(candidateKey) ?? null,
+    });
+    const ownership = evaluateCompanyOwnership(
+      candidate.name,
+      candidate.website ?? null,
+      candidate.domain ?? null,
+    );
+    const quality = evaluateApolloPreWriterQualityGateForCandidate(candidate, {
+      targetCountryCode: input.countryCode,
+      subindustries: input.subindustries,
+    });
+    return {
+      subindustryMatch: subindustry.eligibilityVerdict,
+      employeeCountStatus:
+        candidate.providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
+      linkedinStatus: candidate.providerCompanyFields?.linkedin.status ?? 'mapping_failed',
+      duplicateStatus: mapDuplicateStatus(candidate.duplicateCheck?.status ?? 'unchecked'),
+      ownershipGate: isBlockedByCompanyOwnership(ownership) ? 'fail' : 'pass',
+      qualityGate: quality.verdict,
+    };
+  };
+
+  /**
+   * § 5 — completitud PROYECTADA de un candidato, sin las comprobaciones de
+   * admisión. Es lo que decide su grupo en el cupo COMPLETE-FIRST.
+   *
+   * No incluye las admisiones a propósito: si las incluyera, el cupo dependería
+   * del cupo. La pregunta que responde es «¿este candidato contaría hacia el
+   * objetivo si se persistiera?», que es exactamente la que el § 5 usa para
+   * ordenar.
+   */
+  const projectCompleteValidIfPersisted = (candidateKey: string): boolean => {
+    const conditions = readContractConditions(
+      candidateKey,
+      sectorEvidenceStateByKey.get(candidateKey) ?? 'sector_evidence_missing_needs_enrichment',
+    );
+    if (conditions === null) return false;
+    return evaluateCandidateTargetEligibility({
+      persistenceSuccess: true,
+      ...conditions,
+    }).countsTowardTargetIfPersisted;
+  };
+
+  /**
+   * §§ 4 y 5 — contexto de lote sobre TODOS los candidatos ya construidos.
+   *
+   * Se recalcula en cada lectura porque su respuesta cambia con cada enrichment
+   * pagado: un crédito que resuelve `employee_count` mueve a su candidato al
+   * grupo COMPLETE y puede desplazar a otro fuera del cupo. Es aritmética pura
+   * sobre como mucho diez candidatos —el tope de resultados crudos de la
+   * corrida—, sin I/O y sin créditos.
+   */
+  const buildBatchAdmissionContext = (): ApolloPreWriterBatchAdmissionContext =>
+    buildApolloPreWriterBatchAdmissionContext({
+      candidates: [...assessmentByKey.entries()].map(([key, cached]) => ({
+        candidateKey: key,
+        candidate: cached.candidate,
+        completeValidIfPersisted: projectCompleteValidIfPersisted(key),
+      })),
+      context: {
+        targetCountryCode: input.countryCode,
+        subindustries: input.subindustries,
+      },
+      // El writer aplica exactamente este cupo (`targetPersistibleCandidates`).
+      targetCap: config.targetEligibleCompanies,
+    });
 
   const searchOutputs: WebSearchOutput[] = [];
   let persistedCandidateIds: string[] = [...(restored?.persisted_candidate_ids ?? [])];
@@ -1122,6 +1332,9 @@ export async function runApolloTwoRoundWizardDiscovery(
             toSectorEvidenceState(sector.decision),
             precision,
           );
+      // ADAPTIVE-EARLY-STOP § 5 — el veredicto queda disponible para la
+      // proyección de completitud del LOTE, no sólo para este candidato.
+      sectorEvidenceStateByKey.set(key, sectorEvidenceState);
 
       // 10-11. Duplicado en SellUp y en HubSpot — una sola consulta por
       // organización, la misma que el pipeline de producción ya hace, y cacheada
@@ -1379,6 +1592,10 @@ export async function runApolloTwoRoundWizardDiscovery(
         toSectorEvidenceState(sector.decision),
         enrichedPrecision,
       );
+      // ADAPTIVE-EARLY-STOP § 5 — el veredicto que el crédito acaba de comprar
+      // entra en la proyección de completitud del LOTE, que es lo que reordena el
+      // cupo COMPLETE-FIRST.
+      sectorEvidenceStateByKey.set(candidateKey, sectorEvidenceState);
 
       // § 8 — un duplicado que sólo se pudo ver con el dominio recuperado por el
       // enrichment sí es un rechazo post-enrichment legítimo.
@@ -1491,27 +1708,28 @@ export async function runApolloTwoRoundWizardDiscovery(
      * Sin candidato construido, TODO queda pendiente: sin nada que evaluar no se
      * inventa un veredicto, y un pendiente nunca cuenta hacia el objetivo (§ 2).
      *
-     * ── WRITER-ONLY-ADMISSION-PENDING §§ 1, 2 y 9 ─────────────────────────────
+     * ── ADAPTIVE-EARLY-STOP §§ 2, 3, 4, 5 y 6 ─────────────────────────────────
      *
-     * Lo que este adaptador resuelve NO es todo lo que el writer decide. Quedan
-     * trece comprobaciones de admisión sin resolver
-     * (`APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS`): cinco que sólo el writer
-     * puede resolver —tres prefetches de base y dos que exigen el lote completo ya
-     * rankeado— y ocho puras que todavía no están cableadas aquí. Cualquiera de las
-     * trece puede descartar a un candidato que este adaptador da por bueno.
+     * Las TRECE comprobaciones de admisión del writer se resuelven aquí, cada una
+     * con la función que el writer usa:
      *
-     * Antes de este addendum su ausencia se leía como un PASE, y por eso
-     * `stableFinalizableCandidateCount` podía sobreestimar el objetivo y detener
-     * enrichments que el writer iba a dejar fuera. Ahora se DECLARAN pendientes.
+     *   ocho deterministas y puras ← `evaluateApolloPreWriterDeterministicGates`
+     *   tres respaldadas por base  ← un ÚNICO prefetch por corrida (§ 2)
+     *   dos de lote                ← dedupe intra-lote y cupo COMPLETE-FIRST (§§ 4, 5)
      *
-     * No se resuelven aquí porque el § 9 lo prohíbe: cero lecturas de base nuevas
-     * en el orquestador. Consecuencia aceptada por el § 4: la parada temprana por
-     * objetivo queda desactivada de hecho en producción, y el gasto lo siguen
-     * acotando los topes absolutos (2 búsquedas / 5 enrichments / 25 créditos).
+     * Lo que NO cambia respecto del addendum anterior: lo que no se puede
+     * resolver sigue declarándose PENDIENTE, y un pendiente sigue sin contar. La
+     * diferencia es que ahora quedan pendientes por una causa concreta —no hay
+     * prefetch, el prefetch degradó, o el dominio quedó fuera de su cobertura— en
+     * vez de estarlo siempre por construcción, que era lo que dejaba muerta la
+     * parada temprana en producción.
      */
-    readCandidateTargetConditions: ({ candidateKey, sectorEvidenceState }) => {
+    readCandidateTargetConditions: async ({ candidateKey, sectorEvidenceState }) => {
+      sectorEvidenceStateByKey.set(candidateKey, sectorEvidenceState);
       const cached = assessmentByKey.get(candidateKey) ?? null;
       if (cached === null) {
+        // Sin candidato construido no hay nada que evaluar: las siete condiciones
+        // del contrato y las trece admisiones quedan sin resolver.
         return {
           subindustryMatch: 'unknown',
           employeeCountStatus: 'mapping_failed',
@@ -1532,32 +1750,27 @@ export async function runApolloTwoRoundWizardDiscovery(
       }
 
       const candidate = cached.candidate;
-      const precision = subindustryPrecisionByKey.get(candidateKey) ?? null;
-      const subindustry = resolveCandidateSubindustryRequirement({
-        sectorEvidenceState,
-        requestedSubindustries: input.subindustries,
-        subindustryPrecision: precision,
-      });
-      const ownership = evaluateCompanyOwnership(
-        candidate.name,
-        candidate.website ?? null,
-        candidate.domain ?? null,
-      );
-      const quality = evaluateApolloPreWriterQualityGateForCandidate(candidate, {
-        targetCountryCode: input.countryCode,
-        subindustries: input.subindustries,
+      const contract = readContractConditions(candidateKey, sectorEvidenceState)!;
+
+      const dbContext = await ensureAdmissionPrefetch();
+      const admission = evaluateCandidatePreWriterAdmission({
+        candidateKey,
+        candidate,
+        context: {
+          targetCountryCode: input.countryCode,
+          subindustries: input.subindustries,
+        },
+        dbContext,
+        batchContext: buildBatchAdmissionContext(),
       });
 
       return {
-        subindustryMatch: subindustry.eligibilityVerdict,
-        employeeCountStatus: candidate.providerCompanyFields?.employeeCount.status ?? 'mapping_failed',
-        linkedinStatus: candidate.providerCompanyFields?.linkedin.status ?? 'mapping_failed',
-        duplicateStatus: mapDuplicateStatus(candidate.duplicateCheck?.status ?? 'unchecked'),
-        ownershipGate: isBlockedByCompanyOwnership(ownership) ? 'fail' : 'pass',
-        qualityGate: quality.verdict,
-        // §§ 1 y 2 — las trece admisiones que este adaptador NO resuelve, DECLARADAS.
-        // Fail-closed: mientras estén aquí, ningún candidato es estable pre-writer.
-        unresolvedWriterOnlyAdmissionChecks: APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
+        ...contract,
+        // § 6 — resueltas y negativas por un lado, sin resolver por otro. Las dos
+        // impiden contar; sólo la segunda es un pendiente.
+        unresolvedWriterOnlyAdmissionChecks: admission.pendingChecks,
+        failedWriterOnlyAdmissionChecks: admission.failedChecks,
+        resolvedWriterOnlyAdmissionChecks: admission.passedChecks,
       };
     },
 

@@ -232,6 +232,17 @@ export type ApolloTwoRoundCandidateTargetConditions = {
    * es el caso de las suites puras, que no tienen writer al que ganarle.
    */
   unresolvedWriterOnlyAdmissionChecks?: readonly string[];
+  /**
+   * ADAPTIVE-EARLY-STOP § 6 — comprobaciones de admisión que el adaptador SÍ
+   * resolvió y que salieron NEGATIVAS. Bloquean igual que una pendiente, pero no
+   * son una pendiente: hay respuesta, y es que no pasa.
+   */
+  failedWriterOnlyAdmissionChecks?: readonly string[];
+  /**
+   * § 11 — comprobaciones resueltas y APROBADAS. Sólo observabilidad: no
+   * participan de ninguna decisión, y por eso el contrato canónico ni las mira.
+   */
+  resolvedWriterOnlyAdmissionChecks?: readonly string[];
 };
 
 // ─── Dependencias ─────────────────────────────────────────────────────────────
@@ -576,6 +587,16 @@ export type ApolloTwoRoundRunResult = {
   writerOnlyPendingCount: number;
   /** § 8 — nombres de las admisiones writer-only observadas sin resolver. */
   writerOnlyPendingReasons: string[];
+  /**
+   * ADAPTIVE-EARLY-STOP § 11 — comprobaciones de admisión PRE-writer agregadas
+   * sobre los candidatos elegibles, en tres cubetas mutuamente excluyentes.
+   *
+   * OBSERVABILIDAD ÚNICAMENTE. Ninguna de las tres decide nada: la decisión la
+   * toma `stableFinalizableCandidateCount`, que ya incorpora su efecto.
+   */
+  preWriterAdmissionPassCount: number;
+  preWriterAdmissionFailedCount: number;
+  preWriterAdmissionPendingCount: number;
   /** § 11 — `max(0, target - stableFinalizableCandidateCount)`, PRE-writer. */
   projectedTargetGap: number;
   persistedCandidates: number;
@@ -1154,7 +1175,11 @@ export async function runApolloTwoRoundDiscovery(
    */
   const evaluateCandidateFinalizability = async (
     candidate: TrackedCandidate,
-  ): Promise<CandidateTargetEligibility> => {
+  ): Promise<{
+    eligibility: CandidateTargetEligibility;
+    /** § 11 — admisiones aprobadas, para el contador agregado. */
+    resolvedAdmissionChecks: readonly string[];
+  }> => {
     const conditions = deps.readCandidateTargetConditions
       ? await deps.readCandidateTargetConditions({
           candidateKey: candidate.candidateKey,
@@ -1163,17 +1188,21 @@ export async function runApolloTwoRoundDiscovery(
           sectorEvidenceState: candidate.sectorEvidenceState,
         })
       : deriveTargetConditions(candidate);
-    return evaluateCandidateTargetEligibility({
-      persistenceSuccess: true,
-      subindustryMatch: conditions.subindustryMatch,
-      employeeCountStatus: conditions.employeeCountStatus,
-      linkedinStatus: conditions.linkedinStatus,
-      duplicateStatus: conditions.duplicateStatus,
-      ownershipGate: conditions.ownershipGate,
-      qualityGate: conditions.qualityGate,
-      pendingConditions: conditions.pendingConditions,
-      unresolvedWriterOnlyAdmissionChecks: conditions.unresolvedWriterOnlyAdmissionChecks,
-    });
+    return {
+      eligibility: evaluateCandidateTargetEligibility({
+        persistenceSuccess: true,
+        subindustryMatch: conditions.subindustryMatch,
+        employeeCountStatus: conditions.employeeCountStatus,
+        linkedinStatus: conditions.linkedinStatus,
+        duplicateStatus: conditions.duplicateStatus,
+        ownershipGate: conditions.ownershipGate,
+        qualityGate: conditions.qualityGate,
+        pendingConditions: conditions.pendingConditions,
+        unresolvedWriterOnlyAdmissionChecks: conditions.unresolvedWriterOnlyAdmissionChecks,
+        failedWriterOnlyAdmissionChecks: conditions.failedWriterOnlyAdmissionChecks,
+      }),
+      resolvedAdmissionChecks: conditions.resolvedWriterOnlyAdmissionChecks ?? [],
+    };
   };
 
   /**
@@ -1215,6 +1244,10 @@ export async function runApolloTwoRoundDiscovery(
     projected: number;
     writerOnlyPending: number;
     writerOnlyPendingReasons: string[];
+    /** § 11 — admisiones PRE-writer agregadas sobre los candidatos elegibles. */
+    admissionPassCount: number;
+    admissionFailedCount: number;
+    admissionPendingCount: number;
   };
 
   const scanFinalizability = async (): Promise<FinalizabilityScan> => {
@@ -1224,10 +1257,17 @@ export async function runApolloTwoRoundDiscovery(
     let stable = 0;
     let projected = 0;
     let writerOnlyPending = 0;
+    let admissionPassCount = 0;
+    let admissionFailedCount = 0;
+    let admissionPendingCount = 0;
     const reasons: string[] = [];
     for (const candidate of tracked) {
       if (!candidate.eligible) continue;
-      const eligibility = await evaluateCandidateFinalizability(candidate);
+      const scan = await evaluateCandidateFinalizability(candidate);
+      const eligibility = scan.eligibility;
+      admissionPassCount += scan.resolvedAdmissionChecks.length;
+      admissionFailedCount += eligibility.writerOnlyFailedChecks.length;
+      admissionPendingCount += eligibility.writerOnlyPendingChecks.length;
       if (eligibility.countsTowardTargetIfPersisted) {
         stable++;
         projected++;
@@ -1249,7 +1289,15 @@ export async function runApolloTwoRoundDiscovery(
         if (!reasons.includes(reason)) reasons.push(reason);
       }
     }
-    return { stable, projected, writerOnlyPending, writerOnlyPendingReasons: reasons };
+    return {
+      stable,
+      projected,
+      writerOnlyPending,
+      writerOnlyPendingReasons: reasons,
+      admissionPassCount,
+      admissionFailedCount,
+      admissionPendingCount,
+    };
   };
 
   const stableFinalizableCandidateCount = async (): Promise<number> =>
@@ -2209,6 +2257,9 @@ export async function runApolloTwoRoundDiscovery(
     projectedFinalizableCandidateCount: finalizability.projected,
     writerOnlyPendingCount: finalizability.writerOnlyPending,
     writerOnlyPendingReasons: finalizability.writerOnlyPendingReasons,
+    preWriterAdmissionPassCount: finalizability.admissionPassCount,
+    preWriterAdmissionFailedCount: finalizability.admissionFailedCount,
+    preWriterAdmissionPendingCount: finalizability.admissionPendingCount,
     projectedTargetGap: projectedGap,
     persistedCandidates: persisted.length,
     roundsExecuted: roundMetrics.length,
@@ -2245,6 +2296,10 @@ export async function runApolloTwoRoundDiscovery(
       projectedFinalizableCandidateCount: finalizability.projected,
       writerOnlyPendingCount: finalizability.writerOnlyPending,
       writerOnlyPendingReasons: finalizability.writerOnlyPendingReasons,
+      // ADAPTIVE-EARLY-STOP § 11 — cuántas admisiones se resolvieron de verdad.
+      preWriterAdmissionPassCount: finalizability.admissionPassCount,
+      preWriterAdmissionFailedCount: finalizability.admissionFailedCount,
+      preWriterAdmissionPendingCount: finalizability.admissionPendingCount,
     }),
     enrichmentSelections,
     enrichmentSkips,

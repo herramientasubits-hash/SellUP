@@ -380,6 +380,45 @@ jobs:
       #     `target_gap == max(0, target - target_count)`, con `null` —nunca un
       #     número inventado— cuando la completitud no se midió.
       #
+      # ADAPTIVE-EARLY-STOP cierra el efecto colateral del addendum anterior. Al
+      # declarar las TRECE admisiones permanentemente pendientes, ningún candidato
+      # podía ser `stable`: la parada temprana por objetivo quedó MUERTA en
+      # producción y toda corrida pasó a recorrer el máximo de gasto autorizado
+      # aunque la ronda 1 ya hubiera traído las cinco empresas. Lo que este mismo
+      # paso guarda ahora, y que no falla al compilar:
+      #
+      #   * que los OCHO gates deterministas del writer (etiqueta de calidad,
+      #     identidad canónica, dominio de directorio, compatibilidad de país,
+      #     página de contenido, intermediario, plataforma externa y calidad de
+      #     URL) se resuelvan ANTES del writer invocando LAS MISMAS funciones —no
+      #     una copia—, y que lo que el evaluador declara `failed` sea exactamente
+      #     lo que el writer real descarta;
+      #   * que las TRES respaldadas por base se resuelvan con UN solo prefetch por
+      #     corrida: cero consultas por ronda y cero por candidato;
+      #   * que ese prefetch sea fail-closed en las tres formas en que puede no
+      #     saber —sin cliente, degradado, o dominio fuera de su cobertura—: en las
+      #     tres la comprobación vuelve a PENDIENTE, nunca a pase. Un `Map` vacío
+      #     contesta «no hay nada» igual que un dominio nunca consultado, y esa
+      #     confusión leída como pase es el defecto de este hilo con otro disfraz;
+      #   * que la dedupe intra-lote y el cupo se resuelvan con la política del
+      #     writer, y que dos candidatas con la MISMA identidad canónica no puedan
+      #     contar las dos hacia el objetivo;
+      #   * que el cupo sea COMPLETE-FIRST: con el cupo apretado, una candidata de
+      #     revisión con MEJOR encaje ya no puede expulsar a una completa y válida.
+      #     Se mide donde de verdad ocurre, en Pass 3 del writer real;
+      #   * que una admisión resuelta NEGATIVA descarte igual que una condición
+      #     fallida, y que no se disfrace de pendiente: hay respuesta, y es que no
+      #     pasa;
+      #   * que la parada temprana vuelva a existir — cinco finalizables en la
+      #     ronda 1 ⇒ sin ronda 2, sin enrichments, gasto estrictamente por debajo
+      #     del peor caso permitido —;
+      #   * que NO regrese la semántica optimista: tres finalizables y dos sin
+      #     `employee_count` ⇒ estable 3, hueco 2, las dos incompletas siguen
+      #     compitiendo por su enrichment, y sólo cuando el crédito resuelve el
+      #     campo la cuenta sube a 5 y la corrida puede parar;
+      #   * que los topes absolutos sigan intactos: <=2 búsquedas, <=5 enrichments,
+      #     <=25 créditos.
+      #
       # Determinista: sin flags, sin proveedores, sin créditos, sin DB real. El
       # proveedor, el writer y las consultas de duplicados entran por inyección.
       - name: Run A1 Apollo finalization hardening and stable-target parity tests

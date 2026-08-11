@@ -111,6 +111,19 @@ export type CandidateTargetEligibilityInput = {
    * así que su semántica y sus contadores quedan idénticos.
    */
   unresolvedWriterOnlyAdmissionChecks?: readonly string[];
+  /**
+   * ADAPTIVE-EARLY-STOP § 6 — comprobaciones de admisión que este llamador SÍ
+   * resolvió y que salieron NEGATIVAS.
+   *
+   * Se declaran aparte de las no resueltas porque no son lo mismo: «el writer va
+   * a descartar a este candidato por el cupo» es una respuesta, y «nadie sabe si
+   * el cupo lo descarta» es la ausencia de una. Las dos impiden contar hacia el
+   * objetivo —la conjunción es la misma—, pero sólo la segunda es un pendiente, y
+   * confundirlas volvería a hacer ilegible la proyección del § 8: un candidato
+   * con una admisión FALLIDA no es proyectable, porque no le falta información,
+   * le falta pasar.
+   */
+  failedWriterOnlyAdmissionChecks?: readonly string[];
 };
 
 export type CandidateTargetEligibility = {
@@ -153,6 +166,14 @@ export type CandidateTargetEligibility = {
    * eso el único consumidor legítimo de esta lista es la observabilidad.
    */
   writerOnlyPendingChecks: string[];
+  /**
+   * ADAPTIVE-EARLY-STOP § 6 — comprobaciones de admisión resueltas y NEGATIVAS,
+   * sin repeticiones y en el orden en que se declararon.
+   *
+   * Viajan también dentro de `failedConditions` y `strictlyFailedConditions`,
+   * porque a efectos del conteo son un incumplimiento como cualquier otro.
+   */
+  writerOnlyFailedChecks: string[];
   /**
    * § 10 — verdad determinista PRE-persistencia: todas las condiciones salvo
    * `persistence_success` están satisfechas Y ninguna comprobación de admisión
@@ -237,14 +258,35 @@ export function evaluateCandidateTargetEligibility(
     failedConditions.push(check);
   }
 
+  /**
+   * ADAPTIVE-EARLY-STOP § 6 — la tercera familia: admisiones RESUELTAS y
+   * negativas. Cuentan como incumplimiento, no como pendiente.
+   */
+  const writerOnlyFailedChecks: string[] = [];
+  for (const check of input.failedWriterOnlyAdmissionChecks ?? []) {
+    if (typeof check !== 'string' || check === '') continue;
+    if (writerOnlyFailedChecks.includes(check)) continue;
+    if (writerOnlyPendingChecks.includes(check)) continue;
+    writerOnlyFailedChecks.push(check);
+  }
+  for (const check of writerOnlyFailedChecks) {
+    strictlyFailedConditions.push(check);
+    failedConditions.push(check);
+  }
+
   const allContractConditionsSatisfied = CANDIDATE_PRE_PERSISTENCE_TARGET_CONDITIONS.every(
     (condition) => conditionStates[condition] === 'satisfied',
   );
   // § 2/§ 4 — fail-closed: una admisión writer-only sin resolver pesa lo mismo
   // que una condición pendiente. Ésta es la línea que impide que la ausencia de
   // `active_duplicate_guard`/`novelty_index` se lea como un PASE.
+  //
+  // ADAPTIVE-EARLY-STOP § 6 — y una admisión resuelta NEGATIVA pesa lo mismo que
+  // una condición fallida.
   const countsTowardTargetIfPersisted =
-    allContractConditionsSatisfied && writerOnlyPendingChecks.length === 0;
+    allContractConditionsSatisfied &&
+    writerOnlyPendingChecks.length === 0 &&
+    writerOnlyFailedChecks.length === 0;
   const eligibleForTarget =
     countsTowardTargetIfPersisted && conditionStates.persistence_success === 'satisfied';
 
@@ -256,6 +298,7 @@ export function evaluateCandidateTargetEligibility(
     strictlyFailedConditions,
     pendingConditions,
     writerOnlyPendingChecks,
+    writerOnlyFailedChecks,
     countsTowardTargetIfPersisted,
     completeValidIfPersisted: countsTowardTargetIfPersisted,
   };
@@ -563,6 +606,8 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
    * `CandidateTargetEligibilityInput`.
    */
   unresolvedWriterOnlyAdmissionChecks?: readonly string[];
+  /** ADAPTIVE-EARLY-STOP § 6 — admisiones resueltas y negativas. */
+  failedWriterOnlyAdmissionChecks?: readonly string[];
 }): CandidateCanonicalTargetEligibility {
   const subindustry = resolveCandidateSubindustryRequirement({
     sectorEvidenceState: input.sectorEvidenceState,
@@ -580,6 +625,7 @@ export function evaluateCandidateSubindustryTargetEligibility(input: {
     qualityGate: input.qualityGate,
     pendingConditions: input.pendingConditions,
     unresolvedWriterOnlyAdmissionChecks: input.unresolvedWriterOnlyAdmissionChecks,
+    failedWriterOnlyAdmissionChecks: input.failedWriterOnlyAdmissionChecks,
   });
 
   const reviewOnlyReasons = base.failedConditions.map((condition) =>

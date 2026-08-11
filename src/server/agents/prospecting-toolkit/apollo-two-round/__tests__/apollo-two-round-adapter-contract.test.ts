@@ -26,7 +26,10 @@ import {
   type ApolloTwoRoundWizardRunInput,
 } from '../production-runner.server';
 import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '../observability';
-import { APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS } from '../../apollo-pre-writer-target-conditions';
+import {
+  APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS,
+  APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS,
+} from '../../apollo-pre-writer-target-conditions';
 import { defaultApolloTwoRoundConfig } from '../index';
 import {
   runApolloOrganizationsSearch,
@@ -179,6 +182,12 @@ type Recorder = {
   writerCalls: number;
   writtenCandidateNames: string[][];
   savedCheckpoints: ApolloTwoRoundCheckpointV1[];
+  /**
+   * ADAPTIVE-EARLY-STOP § 2 — cuántas veces el runner pidió el prefetch de
+   * admisión. El contrato es UNA por corrida: ni una por ronda, ni una por
+   * candidato, ni una por evaluación de finalizabilidad (que ocurren varias).
+   */
+  admissionPrefetchCalls: number;
 };
 
 /**
@@ -196,6 +205,7 @@ function buildDeps(options: {
     writerCalls: 0,
     writtenCandidateNames: [],
     savedCheckpoints: [],
+    admissionPrefetchCalls: 0,
   };
 
   const deps: Partial<ApolloTwoRoundProductionDeps> = {
@@ -272,6 +282,21 @@ function buildDeps(options: {
     enrichOrganization: (async () => ({ success: true, data: undefined })) as never,
     logEnrichmentUsage: (async () => ({ kind: 'logged' as const })) as never,
     resolveConfig: () => defaultApolloTwoRoundConfig(),
+    // ADAPTIVE-EARLY-STOP § 2 — el prefetch de admisión, contado y DEGRADADO.
+    //
+    // Degradado a propósito: esta suite no simula la base, y el contrato dice que
+    // sin datos las tres comprobaciones respaldadas por base quedan PENDIENTES.
+    // Lo que sí se mide aquí es cuántas veces se pidió.
+    loadAdmissionPrefetch: async () => {
+      recorder.admissionPrefetchCalls++;
+      return {
+        coveredDomains: new Set<string>(),
+        noveltyIndex: new Map(),
+        recentIdentityKeys: new Set<string>(),
+        activeCandidates: [],
+        degraded: true,
+      };
+    },
   };
 
   return { deps, recorder };
@@ -438,10 +463,37 @@ describe('§ 6 · objetivo 5 end-to-end por el adaptador y el writer', () => {
     assert.equal(preWriterMetrics['stable_finalizable_count'], 0);
     assert.equal(preWriterMetrics['writer_only_pending_count'], 5, 'las cinco proyectadas');
     assert.equal(preWriterMetrics['projected_finalizable_count'], 5);
+    // ADAPTIVE-EARLY-STOP §§ 2, 3, 4 y 5 — de las trece, ocho deterministas y las
+    // dos de lote ya se resuelven aquí; sólo quedan pendientes las TRES que
+    // dependen del prefetch de base, que esta suite no inyecta (el runner cae al
+    // contexto degradado, y degradado ⇒ pendiente, nunca pase).
     assert.deepEqual(
       preWriterMetrics['writer_only_pending_reasons'],
-      [...APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS],
+      APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS,
       'el motivo viaja por nombre, no como un booleano',
+    );
+    for (const resolved of APOLLO_PENDING_PRE_WRITER_ADMISSION_CHECKS.filter(
+      (check) => !APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS.includes(check),
+    )) {
+      assert.ok(
+        !(preWriterMetrics['writer_only_pending_reasons'] as string[]).includes(resolved),
+        `${resolved} ya no puede quedar pendiente: se resuelve antes del writer`,
+      );
+    }
+    // § 11 — y las resueltas se CUENTAN, para que «viva» y «muerta» sean legibles.
+    assert.ok((preWriterMetrics['pre_writer_admission_pass_count'] as number) > 0);
+    assert.equal(
+      preWriterMetrics['pre_writer_admission_pending_count'],
+      5 * APOLLO_DB_BACKED_PRE_WRITER_ADMISSION_CHECKS.length,
+    );
+
+    // § 2 — el prefetch de admisión ocurre UNA vez en toda la corrida, con DIEZ
+    // organizaciones evaluadas, DOS rondas y varias evaluaciones de
+    // finalizabilidad por medio. Ni una consulta por ronda, ni una por candidato.
+    assert.equal(
+      recorder.admissionPrefetchCalls,
+      1,
+      `prefetch de admisión = ${recorder.admissionPrefetchCalls}: el contrato es UNA por corrida`,
     );
 
     // § 7 — la cifra AUTORITATIVA es la de después del writer, y sí alcanza el
