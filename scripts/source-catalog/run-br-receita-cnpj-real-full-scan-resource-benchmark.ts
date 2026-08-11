@@ -244,13 +244,14 @@ export function buildBrazilReceitaRealFullScanDeclarations(
     benchmarkAuthorization: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZATION_FLAG,
     attemptCount: proposal.attemptCount,
     requestedRealAttemptNumber: options.requestedRealAttemptNumber,
-    // The § 7 gate, evaluated here from the metadata this CLI actually has — which is NONE. No expected
-    // national inventory exists (`BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN` is `false`), so the
-    // observed side is declared as empty and the verdict comes back `indeterminate`.
+    // The § 7 gate, evaluated here from the metadata this CLI actually has — which is NONE. Both sides
+    // are declared absent and the verdict comes back `indeterminate`.
     //
-    // This CLI deliberately cannot do better, and that is the § 9 boundary: producing a `complete`
-    // verdict would mean reading an inventory of the operator's staged files, and this milestone opens
-    // nothing. When a real inventory contract lands, this is the one call site that changes.
+    // BR-SOURCE-14B.0K landed the missing EXPECTED side (the publisher's 2026-07 part inventory), and it
+    // is deliberately not wired in here: without an OBSERVED side an expectation changes nothing but the
+    // finding codes, and producing a `complete` verdict would mean inventorying the operator's staged
+    // files, which this CLI does not do. The resolution that compares both sides is
+    // `run-br-receita-cnpj-14b0k-national-inventory-resolution`, and its verdict is what an owner reads.
     nationalInputCompleteness: evaluateBrazilReceitaNationalInputCompleteness({
       period: options.datasetPeriod,
       // `null`, not an empty record: this CLI has not inspected anything, and `null` is how the gate is
