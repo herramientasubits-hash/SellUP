@@ -311,7 +311,18 @@ function rowsPerSecond(rows: number, durationMs: number): number {
   return durationMs <= 0 ? Infinity : (rows / durationMs) * 1_000;
 }
 
-function mibPerSecond(bytes: number, durationMs: number): number {
+/**
+ * MiB/s over SYNTHETIC REFERENCE-WRITE BYTES — 16 bytes per reference, the bytes this profiler's write
+ * path actually moves.
+ *
+ * NOT source bytes read. The 68 GiB / 6 h requirement that motivated BR-SOURCE-14B.0G is expressed in
+ * SOURCE bytes (~3.2 MiB/s of Receita file read), and the two denominators are not interchangeable:
+ * one source row is tens to hundreds of bytes read and produces exactly one 16-byte reference written,
+ * so a figure in this unit cannot be compared with, converted into, or substituted for a source-read
+ * figure. Every key computed from this function is named `..._SYNTHETIC_REFERENCE_WRITE_MIB_PER_SECOND`
+ * so the denominator travels with the number.
+ */
+function syntheticReferenceWriteMibPerSecond(bytes: number, durationMs: number): number {
   return durationMs <= 0 ? Infinity : (bytes / (1024 * 1024) / durationMs) * 1_000;
 }
 
@@ -355,10 +366,18 @@ function main(): void {
           100,
       ) / 100,
 
-    BASELINE_MIB_PER_SECOND:
-      Math.round(mibPerSecond(baseline.bytesWritten, baseline.durationMs) * 1000) / 1000,
-    OPTIMIZED_MIB_PER_SECOND:
-      Math.round(mibPerSecond(optimized.bytesWritten, optimized.durationMs) * 1000) / 1000,
+    // Denominator carried in the key name on purpose — see `syntheticReferenceWriteMibPerSecond`.
+    // These are REFERENCE-WRITE bytes (16 B/reference), never SOURCE-READ bytes, and therefore are not
+    // comparable with the ~3.2 MiB/s source-read rate the 68 GiB / 6 h budget implies.
+    THROUGHPUT_DENOMINATOR_NOTE:
+      'MiB/s below = synthetic reference-write bytes (16 B/reference). NOT source bytes read. ' +
+      'NOT comparable with, and never convertible into, SOURCE_READ_MIB_PER_SECOND.',
+    BASELINE_SYNTHETIC_REFERENCE_WRITE_MIB_PER_SECOND:
+      Math.round(syntheticReferenceWriteMibPerSecond(baseline.bytesWritten, baseline.durationMs) * 1000) /
+      1000,
+    OPTIMIZED_SYNTHETIC_REFERENCE_WRITE_MIB_PER_SECOND:
+      Math.round(syntheticReferenceWriteMibPerSecond(optimized.bytesWritten, optimized.durationMs) * 1000) /
+      1000,
 
     REFERENCE_RECORDS: TOTAL_REFERENCES,
     BASELINE_PARTITION_WRITE_CALLS: baseline.partitionWriteSyscalls,

@@ -631,8 +631,11 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
   // shared the handle pool's own 32-slot ceiling; once buffers were decoupled from handles (see
   // above), that ceiling no longer bounds this memory, and profiling showed write-call reduction
   // scaling directly with bytes-per-partition — 32 MiB is the size at which the synthetic engineering
-  // target (>= 5 MiB/s sustained, BR-SOURCE-14B.0H § 12) was actually reached (measured ~7.6 MiB/s at
-  // 1M references / 1024 partitions), not a round number chosen a priori.
+  // target (>= 5 MiB/s of SYNTHETIC REFERENCE-WRITE bytes, BR-SOURCE-14B.0H § 12) was actually reached
+  // (measured ~7.6 MiB/s of reference-write bytes at 1M references / 1024 partitions), not a round
+  // number chosen a priori. That denominator is 16 bytes per reference WRITTEN — it is not a
+  // source-bytes-READ rate, and it is not comparable with the ~3.2 MiB/s source read the 68 GiB / 6 h
+  // budget implies.
   interface PendingPartitionBuffer {
     readonly bytes: Buffer;
     length: number;

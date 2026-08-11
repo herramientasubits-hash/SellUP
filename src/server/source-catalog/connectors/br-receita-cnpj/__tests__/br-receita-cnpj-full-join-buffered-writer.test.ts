@@ -11,6 +11,17 @@
  *      buffer never filled on its own, was evicted from the buffer ceiling, or sat through many
  *      unrelated handle evictions — reads back byte-for-byte identical and in append order.
  *
+ * ── The write-ratio target is SCALE-AWARE, and that is not a hedge ──────────────
+ * `partitionWriteCalls * 256 <= referenceRecordsEncoded` (the `LARGE_SCALE_STRUCTURAL_TARGET`) is NOT
+ * an invariant that holds for every N, and asserting it on a small fixture would be asserting something
+ * arithmetically impossible rather than something the writer controls. Every partition owes ONE
+ * finalization flush whether or not its buffer ever filled, so at low references-per-partition those
+ * fixed flushes dominate and no amount of correct buffering can reach 1/256. See
+ * `structuralWriteCallUpperBound` / `largeScaleTargetIsArithmeticallyReachable` below: the target
+ * becomes reachable only once the fixture carries at least one FULL buffer per active partition, and
+ * this suite therefore proves the target at that scale and proves its UNREACHABILITY (by arithmetic,
+ * not by omission) at the small one.
+ *
  * Real filesystem, real temp directory, same pattern as the sibling workspace suite.
  */
 
@@ -44,6 +55,56 @@ type ReadSliceResult = ReturnType<BrazilReceitaFullJoinWorkspace['readPartitionS
 
 const REFERENCES_PER_BUFFER =
   BRAZIL_RECEITA_FULL_JOIN_PARTITION_WRITE_BUFFER_BYTES / BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES;
+
+/**
+ * The denominator of the LARGE-SCALE structural target: at a fixture large enough for the buffer-fill
+ * regime to dominate, the buffered writer must issue at most one partition write syscall per 256
+ * references encoded. Expressed as a denominator (and asserted by multiplication) so no assertion in
+ * this file ever divides — an integer comparison cannot drift on a floating-point rounding edge.
+ */
+const LARGE_SCALE_STRUCTURAL_TARGET_DENOMINATOR = 256;
+
+/**
+ * The number of partition write syscalls the writer may issue, AT ANY SCALE, for a run that encodes
+ * `referenceRecordsEncoded` references across `activePartitions` distinct partition files.
+ *
+ * Derivation, straight off the writer's two flush triggers:
+ *   - FULL-BUFFER flushes. Each carries exactly `REFERENCES_PER_BUFFER` references and permanently
+ *     removes them from memory, so a whole run can afford at most `floor(refs / REFERENCES_PER_BUFFER)`
+ *     of them no matter how the references are distributed.
+ *   - FINALIZATION flushes. Each partition that still holds a partial buffer owes exactly one flush at
+ *     `dispose`/read time — at most `activePartitions` of them, and this is the FIXED cost that makes
+ *     the ratio scale-dependent.
+ *
+ * PRECONDITION: `activePartitions <= BRAZIL_RECEITA_FULL_JOIN_MAX_BUFFERED_PARTITIONS`. Above that
+ * ceiling a partition's buffer can be evicted (and flushed, partially) more than once, and the
+ * `activePartitions` term stops bounding the fixed cost. Every caller below asserts it.
+ */
+function structuralWriteCallUpperBound(referenceRecordsEncoded: number, activePartitions: number): number {
+  return activePartitions + Math.floor(referenceRecordsEncoded / REFERENCES_PER_BUFFER);
+}
+
+/**
+ * Whether `LARGE_SCALE_STRUCTURAL_TARGET` is even arithmetically achievable at this shape.
+ *
+ * Substituting the upper bound above into `256 * writeCalls <= refs`:
+ *
+ *     256 * (activePartitions + refs/512) <= refs
+ *     256 * activePartitions              <= refs / 2
+ *     refs                                >= 512 * activePartitions
+ *
+ * i.e. the fixture must carry at least ONE FULL BUFFER per active partition. Below that, the fixed
+ * per-partition finalization flushes dominate and a perfectly-behaved writer still misses 1/256 — which
+ * is exactly why the small fixtures in this file do not assert the target. (Sufficient, not necessary:
+ * a skewed distribution can clear the target somewhat earlier, as the profiler's 1M/2048-partition run
+ * did. Nothing in this file relies on that.)
+ */
+function largeScaleTargetIsArithmeticallyReachable(
+  referenceRecordsEncoded: number,
+  activePartitions: number,
+): boolean {
+  return referenceRecordsEncoded >= REFERENCES_PER_BUFFER * activePartitions;
+}
 
 let temporaryDirectories: string[] = [];
 
@@ -125,9 +186,20 @@ describe('BR-SOURCE-14B.0H — buffered writer reduces syscalls', () => {
     const before = creation.workspace.writeStats();
     // Mid-run: at least 5 full-buffer flushes should already have happened, without any read/dispose.
     assert.ok(before.fullBufferFlushes >= 5, `expected >=5 full flushes, saw ${before.fullBufferFlushes}`);
+    // The REAL guarantee at this (single-partition, mid-run) shape: the scale-aware upper bound, which
+    // holds at every scale. Not a ratio — at one partition and 2 567 references the fixed finalization
+    // cost is a single flush, so a ratio here would be measuring almost nothing.
+    assert.ok(
+      before.partitionWriteSyscalls <= structuralWriteCallUpperBound(TOTAL, 1),
+      `syscalls ${before.partitionWriteSyscalls} must respect the structural bound ` +
+        `${structuralWriteCallUpperBound(TOTAL, 1)} for ${TOTAL} references over 1 partition`,
+    );
+    // SECONDARY SMOKE ONLY, deliberately not the guarantee: an order-of-magnitude sanity check that
+    // catches a total collapse back to one-syscall-per-reference at this small scale. The structural
+    // guarantee this milestone actually rests on is the LARGE_SCALE_STRUCTURAL_TARGET block below.
     assert.ok(
       before.partitionWriteSyscalls < TOTAL / 10,
-      `syscalls ${before.partitionWriteSyscalls} must be far below ${TOTAL} references`,
+      `smoke: syscalls ${before.partitionWriteSyscalls} must be far below ${TOTAL} references`,
     );
 
     creation.workspace.dispose();
@@ -154,6 +226,189 @@ describe('BR-SOURCE-14B.0H — buffered writer reduces syscalls', () => {
       `peak open ${stats.peakOpen} must respect maxOpenPartitionFiles`,
     );
     creation.workspace.dispose();
+  });
+});
+
+// ─── 1b. LARGE_SCALE_STRUCTURAL_TARGET, and why it does not apply to a small fixture ──
+
+/** The two families, so a test can address BOTH partition files that share one ordinal. */
+const PARTITIONED_FAMILIES = ['empresas', 'estabelecimentos'] as const;
+
+/**
+ * A partition SLOT is one distinct partition FILE: `(ordinal, family)`. Slots are what
+ * `structuralWriteCallUpperBound`'s `activePartitions` counts, because each file — not each ordinal —
+ * owes its own finalization flush.
+ */
+function referenceForSlot(slot: number, round: number): BrazilReceitaFullJoinRowReference {
+  return {
+    sourceFileOrdinal: slot % 3,
+    byteOffset: 1_000_000 * round + slot,
+    byteLength: 10 + (slot % 50),
+    family: PARTITIONED_FAMILIES[slot & 1]!,
+  };
+}
+
+const slotOrdinal = (slot: number): number => slot >> 1;
+
+/**
+ * Appends `rounds` references to each of `slots` partition files, round-robin (every slot touched once
+ * before any is touched again) — the worst case for a handle pool of 32 and the closest synthetic
+ * analogue of near-uniform hash routing, without depending on a hash function's distribution.
+ */
+function appendRoundRobin(
+  workspace: BrazilReceitaFullJoinWorkspace,
+  slots: number,
+  rounds: number,
+): number {
+  let failures = 0;
+  for (let round = 0; round < rounds; round += 1) {
+    for (let slot = 0; slot < slots; slot += 1) {
+      if (!workspace.appendReference(referenceForSlot(slot, round), slotOrdinal(slot)).ok) failures += 1;
+    }
+  }
+  return failures;
+}
+
+describe('BR-SOURCE-14B.0H — LARGE_SCALE_STRUCTURAL_TARGET: one write syscall per >=256 references', () => {
+  it('holds partitionWriteCalls * 256 <= referenceRecordsEncoded once every partition carries a full buffer', () => {
+    // Production-shaped: 1 024 distinct partition FILES (512 ordinals x 2 families), the proposed
+    // profile's partition count, against the proposed 32-handle pool. Sized so the buffer-fill regime
+    // dominates rather than the fixed finalization cost — exactly TWO full buffers per partition, which
+    // is the smallest whole-buffer multiple that clears `largeScaleTargetIsArithmeticallyReachable`
+    // with margin. Everything below is DERIVED from REFERENCES_PER_BUFFER, so changing the buffer
+    // constant rescales the fixture instead of silently invalidating the assertion.
+    const PARTITION_FILES = 1_024;
+    const BUFFERS_PER_PARTITION = 2;
+    const REFERENCES_PER_PARTITION = REFERENCES_PER_BUFFER * BUFFERS_PER_PARTITION;
+    const TOTAL_REFERENCES = PARTITION_FILES * REFERENCES_PER_PARTITION;
+    const EXPECTED_WRITE_CALLS = PARTITION_FILES * BUFFERS_PER_PARTITION;
+
+    assert.ok(
+      PARTITION_FILES <= BRAZIL_RECEITA_FULL_JOIN_MAX_BUFFERED_PARTITIONS,
+      'precondition: below the buffer ceiling, so no partition is flushed partially by an eviction',
+    );
+    assert.equal(
+      largeScaleTargetIsArithmeticallyReachable(TOTAL_REFERENCES, PARTITION_FILES),
+      true,
+      'the fixture must be large enough for the target to be achievable at all',
+    );
+
+    const creation = openWorkspace();
+    assert.equal(creation.ok, true);
+    if (!creation.ok) return;
+
+    assert.equal(
+      appendRoundRobin(creation.workspace, PARTITION_FILES, REFERENCES_PER_PARTITION),
+      0,
+      'every append must succeed',
+    );
+
+    // Read ONE partition back completely, before dispose, so the ratio below is never a ratio over
+    // references that were silently dropped instead of buffered. Reading flushes only this partition's
+    // pending buffer — a flush `dispose` would have paid anyway, so the totals stay exact.
+    const expectedSlotZero = Array.from({ length: REFERENCES_PER_PARTITION }, (_unused, round) =>
+      referenceForSlot(0, round),
+    );
+    const readBack: BrazilReceitaFullJoinRowReference[] = [];
+    let cursor = 0;
+    let exhausted = false;
+    while (!exhausted) {
+      const slice = creation.workspace.readPartitionSlice(
+        PARTITIONED_FAMILIES[0],
+        slotOrdinal(0),
+        cursor,
+        256,
+      );
+      assert.equal(slice.ok, true);
+      if (!slice.ok) return;
+      readBack.push(...slice.references);
+      cursor = slice.nextRecordIndex;
+      exhausted = slice.exhausted;
+    }
+    assert.deepEqual(readBack, expectedSlotZero, 'partition 0 must read back complete and in order');
+
+    creation.workspace.dispose();
+
+    const stats = creation.workspace.writeStats();
+    assert.equal(stats.referenceRecordsAppended, TOTAL_REFERENCES);
+    assert.equal(stats.flushFailures, 0);
+
+    // ── THE TARGET. Integer multiplication, never division: no floating-point edge to drift on. ──
+    assert.ok(
+      stats.partitionWriteSyscalls * LARGE_SCALE_STRUCTURAL_TARGET_DENOMINATOR <= TOTAL_REFERENCES,
+      `LARGE_SCALE_STRUCTURAL_TARGET: ${stats.partitionWriteSyscalls} write calls x ` +
+        `${LARGE_SCALE_STRUCTURAL_TARGET_DENOMINATOR} must not exceed ${TOTAL_REFERENCES} references ` +
+        `(observed ratio 1/${Math.floor(TOTAL_REFERENCES / Math.max(1, stats.partitionWriteSyscalls))})`,
+    );
+
+    // The scale-aware bound, which must hold here too — the target and the bound are different claims.
+    assert.ok(
+      stats.partitionWriteSyscalls <= structuralWriteCallUpperBound(TOTAL_REFERENCES, PARTITION_FILES),
+      `write calls ${stats.partitionWriteSyscalls} must respect the structural bound ` +
+        `${structuralWriteCallUpperBound(TOTAL_REFERENCES, PARTITION_FILES)}`,
+    );
+
+    // And the exact figure the design predicts: two full buffers per partition, one write syscall each,
+    // nothing partial left over. A regression that reintroduced per-reference writes, per-eviction
+    // flushes, or handle-tied buffer lifetimes would miss this by orders of magnitude.
+    assert.equal(
+      stats.partitionWriteSyscalls,
+      EXPECTED_WRITE_CALLS,
+      'each partition must pay exactly one write syscall per full buffer, and no partial extra',
+    );
+    assert.ok(
+      stats.fullBufferFlushes >= PARTITION_FILES,
+      `every partition must have filled at least one buffer, saw ${stats.fullBufferFlushes}`,
+    );
+  });
+
+  it('documents, by arithmetic, why a 100k-scale fixture cannot reach 1/256 no matter how correct the writer is', () => {
+    // The shape the profiler reported at 100k (BR-SOURCE-14B.0H § 5.1): 1 024 ordinals across two
+    // families = 2 048 distinct partition files, each receiving far fewer references than one buffer
+    // holds. Every partition still owes its ONE finalization flush, so write calls are pinned at the
+    // partition count and the ratio is a property of the FIXTURE, not of the writer.
+    const PARTITION_FILES = 2_048;
+    const REFERENCES_PER_PARTITION = 48; // well under REFERENCES_PER_BUFFER (512)
+    const TOTAL_REFERENCES = PARTITION_FILES * REFERENCES_PER_PARTITION; // 98 304, ~ the documented 100k
+
+    assert.ok(REFERENCES_PER_PARTITION < REFERENCES_PER_BUFFER, 'no buffer may fill in this regime');
+    assert.ok(PARTITION_FILES <= BRAZIL_RECEITA_FULL_JOIN_MAX_BUFFERED_PARTITIONS);
+
+    const creation = openWorkspace();
+    assert.equal(creation.ok, true);
+    if (!creation.ok) return;
+    assert.equal(
+      appendRoundRobin(creation.workspace, PARTITION_FILES, REFERENCES_PER_PARTITION),
+      0,
+      'every append must succeed',
+    );
+    creation.workspace.dispose();
+
+    const stats = creation.workspace.writeStats();
+    assert.equal(stats.referenceRecordsAppended, TOTAL_REFERENCES);
+    // Zero full-buffer flushes: every single write syscall here is a fixed finalization flush.
+    assert.equal(stats.fullBufferFlushes, 0, 'no buffer can fill at this references-per-partition');
+    assert.equal(
+      stats.partitionWriteSyscalls,
+      PARTITION_FILES,
+      'exactly one finalization flush per partition file — the fixed floor',
+    );
+
+    // The writer is behaving perfectly (it hit the floor exactly, and respects the scale-aware bound)…
+    assert.ok(
+      stats.partitionWriteSyscalls <= structuralWriteCallUpperBound(TOTAL_REFERENCES, PARTITION_FILES),
+    );
+    // …and STILL cannot reach 1/256, because the floor alone already exceeds it. This is the assertion
+    // that keeps a future reader from "fixing" the small fixture by tightening its ratio.
+    assert.equal(
+      largeScaleTargetIsArithmeticallyReachable(TOTAL_REFERENCES, PARTITION_FILES),
+      false,
+      'the 1/256 target is out of reach below one full buffer per partition',
+    );
+    assert.ok(
+      PARTITION_FILES * LARGE_SCALE_STRUCTURAL_TARGET_DENOMINATOR > TOTAL_REFERENCES,
+      'the unavoidable finalization floor alone already breaks 1/256 at this scale',
+    );
   });
 });
 
