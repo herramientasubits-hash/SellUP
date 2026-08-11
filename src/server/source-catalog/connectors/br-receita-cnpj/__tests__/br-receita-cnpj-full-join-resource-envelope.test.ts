@@ -1637,7 +1637,14 @@ describe('BR-SOURCE-14B.0C — static guards', () => {
   it('keeps both benchmark authorization constants as false literals', () => {
     const source = codeOf('../br-receita-cnpj-full-join-resource-benchmark');
     assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED = false'));
-    assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED = true'));
+    // BR-SOURCE-14B.0J § 4: `_EXECUTED` is now derived from the durable attempt count, so the scan pins
+    // the derivation. The VALUE is still `true` and still asserted, one line below.
+    assert.ok(
+      source.includes(
+        'BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED =\n  (BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED > 0) as true',
+      ),
+    );
+    assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED, true);
     // 14B.0D flipped the IMPLEMENTATION constant and only that one. The two AUTHORIZATION constants
     // above are the ones this test exists to pin, and they are still `false` literals.
     assert.ok(source.includes('BRAZIL_RECEITA_FULL_JOIN_IMPLEMENTATION_EXISTS = true'));
