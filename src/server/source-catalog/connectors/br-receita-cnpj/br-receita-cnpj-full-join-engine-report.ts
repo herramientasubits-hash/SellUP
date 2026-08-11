@@ -120,6 +120,7 @@ export function emptyBrazilReceitaFullJoinResourceObservations(): BrazilReceitaF
     outputRowsMaterialized: 0,
     joinKeysPeakInMemory: 0,
     temporaryStoragePeakBytes: 0,
+    temporaryStorageCurrentBytes: 0,
     checkpointsEvaluated: [],
     cleanupOutcome: null,
   };

@@ -748,6 +748,7 @@ describe('BR-SOURCE-14B.0C — public channel (§ 6, § 7)', () => {
     outputRowsMaterialized: 0,
     joinKeysPeakInMemory: 40,
     temporaryStoragePeakBytes: 0,
+    temporaryStorageCurrentBytes: 0,
     checkpointsEvaluated: ['before_first_access', 'after_empresas_read'] as const,
     cleanupOutcome: 'not_needed' as const,
   };
