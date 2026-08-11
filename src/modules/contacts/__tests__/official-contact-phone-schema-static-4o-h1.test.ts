@@ -565,14 +565,19 @@ describe('114 — inercia', () => {
     assert.equal(/\bUPDATE public\./.test(structuralSql), false);
   });
 
-  it('no toca contacts.phone ni contacts.mobile_phone', () => {
+  it('no toca contacts.phone ni el escalar móvil heredado', () => {
     assert.equal(/ALTER TABLE public\.contacts/.test(structuralSql), false);
-    assert.equal(/\bmobile_phone\b/.test(structuralSql), false);
+    // Se lee el archivo COMPLETO, comentarios y COMMENT ON incluidos, y no sólo el SQL
+    // estructural: la guarda hermana de 4O-E4.1 exige que la ÚNICA migración que nombre
+    // esa columna sea la 039 que la declara. Cumplirla en la prosa además de en el DDL
+    // cuesta una perífrasis y mantiene ese tripwire a plena potencia.
+    assert.equal(/\bmobile_phone\b/.test(migrationSql), false);
   });
 
   it('no crea mobile_phone_source', () => {
-    // 4O-H0 dejó `mobile_phone` como escalar heredado transitorio hasta H5.
-    assert.equal(/mobile_phone_source/.test(structuralSql), false);
+    // 4O-H0 dejó el escalar móvil como heredado y transitorio hasta H5, y su procedencia
+    // es deuda declarada (MOBILE_PHONE_PROVENANCE_PENDING).
+    assert.equal(/mobile_phone_source/.test(migrationSql), false);
   });
 
   it('el encabezado declara que NO está aplicada en Producción', () => {

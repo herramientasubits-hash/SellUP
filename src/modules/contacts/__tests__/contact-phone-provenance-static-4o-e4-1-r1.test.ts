@@ -230,29 +230,41 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
     assert.match(check[0], /'manual'/);
   });
 
-  it('R1 no añade migraciones (la máxima sigue siendo la 113)', () => {
+  it('R1 no añade migraciones (el techo es el del último hito conocido)', () => {
+      // AGENT2A-PHONE-REVEAL-4O-H1 movió el techo a la 114 (el esquema OFICIAL de
+      // múltiples teléfonos, creado INERTE, con su propia guarda estática en
+      // official-contact-phone-schema-static-4o-h1.test.ts). Lo que ESTA guarda protege
+      // no es el número más alto —sube cada vez que un bloque autorizado añade el suyo—
+      // sino que este hito no aportó ninguna migración y que nadie coló una por encima
+      // del último hito conocido.
     const files = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith('.sql'))
       .sort();
     const last = files[files.length - 1];
     assert.equal(
       last,
-      '113_phone_reveal_person_suppression_recheck.sql',
-      'R1 es sin migración: cualquier archivo nuevo aquí sale del alcance',
+      '114_official_contact_phones.sql',
+      'R1 es sin migración: el techo lo movió 4O-H1, no este hito',
+    );
+    assert.equal(
+      files.some((f) => /^1(1[5-9]|[2-9]\d)/.test(f)),
+      false,
+      'ninguna migración 115 o superior',
     );
   });
 
-  it('R1 no crea `contact_phones` ni `mobile_phone_source`', () => {
+  it('sólo 4O-H1 crea `contact_phones`, y `mobile_phone_source` no existe en ninguna', () => {
+    // `mobile_phone_source` sigue sin existir en NINGUNA migración: la procedencia del
+    // escalar móvil es deuda declarada (MOBILE_PHONE_PROVENANCE_PENDING) y pertenece a H5.
+    // `contact_phones` sí existe ya, y sólo en la 114.
+    const creators: string[] = [];
     for (const file of readdirSync(MIGRATIONS_DIR)) {
       if (!file.endsWith('.sql')) continue;
       const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
       assert.equal(/mobile_phone_source/.test(sql), false, `${file} declara mobile_phone_source`);
-      assert.equal(
-        /CREATE TABLE[^;]*\bcontact_phones\b/i.test(sql),
-        false,
-        `${file} crea contact_phones`,
-      );
+      if (/CREATE TABLE[^;]*\bcontact_phones\b/i.test(sql)) creators.push(file);
     }
+    assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
   it('`createContact` declara la procedencia con el MISMO helper (4O-H0.5)', () => {

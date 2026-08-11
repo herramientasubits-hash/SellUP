@@ -338,36 +338,41 @@ describe('4O-E4 estático — la suite está cableada en el check obligatorio', 
 // ═══════════════════════════════════════════════════════════════
 
 describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
-  it('NO se creó ninguna migración nueva (el fix es de código)', () => {
+  it('E4 no aportó ninguna migración (su fix es de código)', () => {
+    // El techo lo movió AGENT2A-PHONE-REVEAL-4O-H1 con la 114 —el esquema OFICIAL de
+    // múltiples teléfonos, creado INERTE y con su propia guarda estática—. Lo que esta
+    // guarda protege es que E4 se resolvió en TypeScript, no cuál es el número más alto.
     const migrations = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith('.sql'))
       .filter((f) => /^11[4-9]|^1[2-9]\d/.test(f));
     assert.deepEqual(
       migrations,
-      [],
+      ['114_official_contact_phones.sql'],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
   });
 
-  it('la migración 113 (E3) es la última del repo', () => {
+  it('la migración 114 (4O-H1) es la última del repo', () => {
     const numbered = readdirSync(MIGRATIONS_DIR)
       .filter((f) => /^\d{3}_/.test(f) && f.endsWith('.sql'))
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 113);
+    assert.equal(numbered[numbered.length - 1], 114);
   });
 
-  it('no se crea ninguna tabla contact_phones', () => {
+  it('sólo 4O-H1 crea la tabla contact_phones', () => {
+    const creators: string[] = [];
     for (const file of readdirSync(MIGRATIONS_DIR)) {
       if (!file.endsWith('.sql')) continue;
-      assert.equal(
+      if (
         /CREATE TABLE[^;]*\bpublic\.contact_phones\b/i.test(
           readFileSync(join(MIGRATIONS_DIR, file), 'utf8'),
-        ),
-        false,
-        `${file} no debe crear contact_phones`,
-      );
+        )
+      ) {
+        creators.push(file);
+      }
     }
+    assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
   it('E4 no toca la colección de candidatos ni sus RPC', () => {
