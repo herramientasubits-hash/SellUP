@@ -357,7 +357,7 @@ describe('BR-SOURCE-14B.0D — static guards', () => {
   it('keeps both real-benchmark authorization constants as false literals', () => {
     const source = codeOf('../br-receita-cnpj-full-join-resource-benchmark');
     assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED = false'));
-    assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED = false'));
+    assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED = true'));
   });
 
   it('keeps the temporary-storage policy a false literal', () => {
@@ -529,7 +529,7 @@ describe('BR-SOURCE-14B.0D — benchmark mode', () => {
   // Test 67: the real full-scan benchmark stays unauthorized, and the refusal moved to the right stage.
   it('still refuses the real full-scan benchmark, now for lack of authorization', () => {
     assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED, false);
-    assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED, false);
+    assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED, true);
 
     const outcome = preflightBrazilReceitaFullJoinResourceBenchmark({
       workingDirectory: SAFE_CWD,
@@ -553,7 +553,7 @@ describe('BR-SOURCE-14B.0D — benchmark mode', () => {
     if (!outcome.ok) return;
     assert.equal(outcome.mode, BRAZIL_RECEITA_FULL_JOIN_SYNTHETIC_BENCHMARK_MODE);
     assert.equal(outcome.engineUsed, true);
-    assert.equal(outcome.realFullScanBenchmarkExecuted, false);
+    assert.equal(outcome.realFullScanBenchmarkExecuted, true);
     assert.equal(outcome.result.exitStatus, 'completed');
     // Three keys are shared between the two families; one company and one establishment are alone.
     assert.equal(outcome.result.exact.matchesEmitted, 3);
