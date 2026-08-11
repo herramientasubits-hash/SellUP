@@ -51,6 +51,8 @@ import {
   createBrazilReceitaFullJoinPartitionHandlePool,
 } from '../br-receita-cnpj-full-join-partition-handle-pool';
 import {
+  BRAZIL_RECEITA_FULL_JOIN_PARTITION_WRITE_BUFFER_BYTES,
+  BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES,
   createBrazilReceitaFullJoinPartitionWorkspace,
   type BrazilReceitaFullJoinRowReference,
   type BrazilReceitaFullJoinWorkspaceBoundaries,
@@ -368,12 +370,23 @@ describe('BR-SOURCE-14B.0F § 3 — bounded partition handles', () => {
     );
     assert.ok(observer.peakLive() * 100 < 8192, 'the run must be nowhere near an 8192 descriptor budget');
 
-    // The bound was exercised rather than merely satisfied: with 2048 partitions and a pool of 32,
-    // almost every one of the 6144 writes is a miss.
-    assert.ok(stats.evictions > MAX_PARTITION_COUNT, 'eviction must have carried the load');
+    // The bound was exercised rather than merely satisfied. BR-SOURCE-14B.0H decouples a partition's
+    // write BUFFER from its file HANDLE: once a partition's destination is validated on its first
+    // reference, later references to the SAME partition (here, only 3 per partition — one per round —
+    // far under the buffer's own 32-reference capacity) never touch the handle pool again until that
+    // buffer flushes. So the handle pool now sees roughly one touch per DISTINCT partition (2048)
+    // rather than one per total write (6144) — still almost every one of those 2048 is a miss against
+    // a 32-slot pool, which is the bound this assertion checks.
+    assert.ok(
+      stats.evictions >= MAX_PARTITION_COUNT - POOL_CAP,
+      'eviction must have carried the load',
+    );
 
     // Descriptors are RETURNED, not merely capped: a pool that leaked would show a rising live set.
-    assert.ok(observer.opens() > MAX_PARTITION_COUNT);
+    // BR-SOURCE-14B.0H: with buffered writes touching the pool once per DISTINCT partition rather
+    // than once per write, the floor is exactly `MAX_PARTITION_COUNT` opens (one fail-fast validation
+    // touch per partition) rather than the old design's much higher per-write figure.
+    assert.ok(observer.opens() >= MAX_PARTITION_COUNT);
     assert.equal(observer.opens() - observer.closes(), observer.liveNow());
 
     const disposal = creation.workspace.dispose();
@@ -408,7 +421,15 @@ describe('BR-SOURCE-14B.0F § 3 — bounded partition handles', () => {
     if (!creation.ok) return;
 
     const PARTITIONS = 40;
-    const PER_PARTITION = 5;
+    const REFERENCES_PER_BUFFER =
+      BRAZIL_RECEITA_FULL_JOIN_PARTITION_WRITE_BUFFER_BYTES / BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES;
+    // BR-SOURCE-14B.0H: a partition's write BUFFER is decoupled from its handle, so the handle pool
+    // is only touched again once that buffer actually fills — PER_PARTITION must exceed
+    // REFERENCES_PER_BUFFER for this test to exercise a real evict-and-reopen cycle DURING the write
+    // phase, not only the one-time fail-fast validation touch every partition gets on its first
+    // reference. Derived from the real constants rather than hard-coded, so a future buffer-size
+    // tuning cannot silently make this assertion pass for the wrong reason.
+    const PER_PARTITION = REFERENCES_PER_BUFFER + 4;
     const written = new Map<number, BrazilReceitaFullJoinRowReference[]>();
 
     // Round-robin, so consecutive writes to one partition are separated by 39 others and the
@@ -431,7 +452,9 @@ describe('BR-SOURCE-14B.0F § 3 — bounded partition handles', () => {
     assert.ok(creation.workspace.handleStats().reopens > 0, 'the test must exercise reopens');
 
     for (const [ordinal, expected] of written) {
-      const slice = creation.workspace.readPartitionSlice('empresas', ordinal, 0, 256);
+      // PER_PARTITION (260) exceeds the read batch used elsewhere in this suite, so this one-shot
+      // read needs a larger `maxRecords` to still see every reference in a single call.
+      const slice = creation.workspace.readPartitionSlice('empresas', ordinal, 0, PER_PARTITION + 16);
       assert.equal(slice.ok, true);
       if (!slice.ok) continue;
       assert.equal(slice.references.length, expected.length, `partition ${ordinal} lost a reference`);

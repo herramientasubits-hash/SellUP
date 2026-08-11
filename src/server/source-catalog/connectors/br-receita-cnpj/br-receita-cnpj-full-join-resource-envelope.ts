@@ -463,6 +463,13 @@ export interface BrazilReceitaFullJoinResourceExactObservations {
   readonly outputRowsMaterialized: number;
   readonly joinKeysPeakInMemory: number;
   readonly temporaryStoragePeakBytes: number;
+  /**
+   * The temporary storage actually held RIGHT NOW, as of the last observation (BR-SOURCE-14B.0H
+   * § 13). Distinct from the peak: this falls back to `0` once cleanup has verifiably released the
+   * workspace, while the peak — a `Math.max` fold — never does. A report that only had the peak
+   * could not distinguish "spilled 4 MiB, still holding it" from "spilled 4 MiB, already freed it".
+   */
+  readonly temporaryStorageCurrentBytes: number;
   readonly checkpointsEvaluated: readonly BrazilReceitaFullJoinResourceCheckpoint[];
   readonly cleanupOutcome: BrazilReceitaFullJoinResourceCleanupOutcome | null;
 }
@@ -577,6 +584,7 @@ export function createBrazilReceitaFullJoinResourceEnforcer(
   let outputRows = 0;
   let joinKeysPeak = 0;
   let temporaryStoragePeak = 0;
+  let temporaryStorageCurrent = 0;
   let cleanupOutcome: BrazilReceitaFullJoinResourceCleanupOutcome | null = null;
 
   /** Latches the first breach and returns it. Subsequent breaches never overwrite it. */
@@ -724,20 +732,26 @@ export function createBrazilReceitaFullJoinResourceEnforcer(
     },
 
     beginPhase(phase) {
-      const blocked = requireArmed();
-      if (blocked !== null) return blocked;
+      // Deliberately NOT gated on `requireArmed()` for its LATCHED case (BR-SOURCE-14B.0H § 14): a
+      // phase that starts after a breach — most notably `cleanup`, which runs on every abort path —
+      // must still get a `startedAtNs`, or its duration can never be measured. An unarmed enforcer is
+      // a different problem (nothing has been validated at all) and is still refused outright.
+      if (!armed) return fail('measurement_unavailable', null, 'before_first_access');
       const now = readClockOrFail();
       if (now === null) return fail('measurement_unavailable', null, null);
       const existing = phaseTimings.get(phase);
       // The first boundary wins: a re-open would silently discard the earlier start.
       if (existing === undefined) phaseTimings.set(phase, { startedAtNs: now, durationNs: null });
       openPhase = phase;
-      return OK;
+      // The already-latched breach (if any) is still reported: recording timing does not un-latch
+      // the enforcer, and a caller checking `.ok` must see the same breach it would have seen before.
+      return latchedOutcome() ?? OK;
     },
 
     endPhase(phase) {
-      const blocked = requireArmed();
-      if (blocked !== null) return blocked;
+      // Same reasoning as `beginPhase`: a phase already open when a breach latched must still get its
+      // `durationNs` measured, so the report does not carry a `null` for the very phase that aborted.
+      if (!armed) return fail('measurement_unavailable', null, 'before_first_access');
       const timing = phaseTimings.get(phase);
       const now = readClockOrFail();
       if (now === null) return fail('measurement_unavailable', null, null);
@@ -746,13 +760,15 @@ export function createBrazilReceitaFullJoinResourceEnforcer(
         if (elapsedNs < BigInt(0)) return fail('measurement_unavailable', null, null);
         timing.durationNs = elapsedNs;
         if (nsToMs(elapsedNs) > caps.maxPhaseRuntimeMs) {
+          // `fail()` is idempotent: if a breach is already latched, this returns THAT breach rather
+          // than overwriting it with the phase-runtime one, so "first breach wins" still holds.
           const outcome = fail('phase_runtime_cap_exceeded', 'maxPhaseRuntimeMs', null);
           openPhase = null;
           return outcome;
         }
       }
       if (openPhase === phase) openPhase = null;
-      return OK;
+      return latchedOutcome() ?? OK;
     },
 
     checkpoint(checkpoint) {
@@ -816,13 +832,17 @@ export function createBrazilReceitaFullJoinResourceEnforcer(
       return OK;
     },
 
-    noteTemporaryStorageBytes(peakBytes) {
+    noteTemporaryStorageBytes(currentBytes) {
       const blocked = requireArmed();
       if (blocked !== null) return blocked;
-      if (!Number.isFinite(peakBytes) || peakBytes < 0) {
+      if (!Number.isFinite(currentBytes) || currentBytes < 0) {
         return fail('measurement_unavailable', null, null);
       }
-      temporaryStoragePeak = Math.max(temporaryStoragePeak, peakBytes);
+      // `current` is a plain assignment — it can fall as well as rise. `peak` is a one-way fold: it
+      // is what makes "peak remains historical after cleanup zeroes current" true by construction,
+      // with no separate bookkeeping needed at the read site.
+      temporaryStorageCurrent = currentBytes;
+      temporaryStoragePeak = Math.max(temporaryStoragePeak, currentBytes);
       if (temporaryStoragePeak > caps.maxTemporaryStorageBytes) {
         return fail('temporary_storage_cap_exceeded', 'maxTemporaryStorageBytes', null);
       }
@@ -833,6 +853,11 @@ export function createBrazilReceitaFullJoinResourceEnforcer(
       cleanupOutcome = outcome;
       // Deliberately NOT behind `requireArmed`: cleanup must be recordable after a breach, because
       // the breach path is exactly when cleanup matters. A latched breach still wins the report.
+      //
+      // `completed`/`not_needed` are the only outcomes that VERIFY the workspace is gone (BR-SOURCE-
+      // 14B.0H § 13), so only they may zero `current` — a `failed`/`unverified` cleanup may still hold
+      // the bytes on disk, and reporting `current: 0` for those would be a claim nobody checked.
+      if (outcome === 'completed' || outcome === 'not_needed') temporaryStorageCurrent = 0;
       if (outcome === 'failed') return fail('cleanup_failed', null, 'after_cleanup');
       if (outcome === 'unverified') return fail('cleanup_unverified', null, 'after_cleanup');
       const already = latchedOutcome();
@@ -862,6 +887,7 @@ export function createBrazilReceitaFullJoinResourceEnforcer(
         outputRowsMaterialized: outputRows,
         joinKeysPeakInMemory: joinKeysPeak,
         temporaryStoragePeakBytes: temporaryStoragePeak,
+        temporaryStorageCurrentBytes: temporaryStorageCurrent,
         checkpointsEvaluated: [...checkpointsEvaluated],
         cleanupOutcome,
       };

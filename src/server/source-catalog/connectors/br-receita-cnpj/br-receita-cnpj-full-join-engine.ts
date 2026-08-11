@@ -525,6 +525,11 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
               }
               tallies.references += 1;
               temporaryBytes = openWorkspace.bytesWritten();
+              // Recorded on EVERY successful append, not just once at final cleanup (BR-SOURCE-
+              // 14B.0H § 13): a run that aborts mid-pass must still be able to report the temporary
+              // storage it actually spilled, and the only way the enforcer can know that is if it is
+              // told as it happens rather than after the fact.
+              guard.noteTemporaryStorageBytes(temporaryBytes);
 
               const loadKey = `${family}:${ordinal}`;
               const load = (partitionLoads.get(loadKey) ?? 0) + 1;
@@ -591,7 +596,13 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
       }
 
       if (referencePassFailure !== null) {
+        // Wrapped in the SAME 'cleanup' phase boundaries as the success path (below), so an early
+        // abort's cleanup gets a measured `durationMs` too, instead of leaving it `null` forever
+        // (BR-SOURCE-14B.0H § 14). `beginPhase`/`endPhase` record timing even when the enforcer is
+        // already latched from `referencePassFailure`'s own breach — see resource-envelope.ts.
+        guard.beginPhase('cleanup');
         releaseWorkspace();
+        guard.endPhase('cleanup');
         return finish(referencePassFailure.code, referencePassFailure.stage, {}, duplicatePolicy);
       }
 
@@ -606,9 +617,20 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
         guard.mayAccessData();
       // The references collected under the coarser map are useless now and are deleted before the
       // finer pass starts, so temporary storage does not accumulate across depths.
-      releaseWorkspace();
-      workspace = null;
-      if (!mayRepartition) {
+      if (mayRepartition) {
+        // An INTERIM disposal, not the run's final cleanup: a fresh workspace is about to be built at
+        // the next depth. Left unwrapped, exactly as before — wrapping it in 'cleanup' here would make
+        // `endPhase('cleanup')` record THIS disposal's duration and leave the real final cleanup's
+        // `durationNs` stuck at `null` (`endPhase` only measures a phase once).
+        releaseWorkspace();
+        workspace = null;
+      } else {
+        // This IS the run's final disposal for a `partition_capacity_exceeded` abort — the same class
+        // of gap as `referencePassFailure` above, and fixed the same way (BR-SOURCE-14B.0H § 14).
+        guard.beginPhase('cleanup');
+        releaseWorkspace();
+        workspace = null;
+        guard.endPhase('cleanup');
         return finish('partition_capacity_exceeded', 'estabelecimentos_reference_pass', {}, duplicatePolicy);
       }
       // Counters that describe the discarded pass are reset; the run is starting its reference
