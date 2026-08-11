@@ -40,6 +40,11 @@
  */
 
 import type { WebSearchResult } from './types';
+import {
+  normalizeSubindustryIdentity,
+  resolveSubindustryPrecisionIdentity,
+  type SubindustryPrecisionIdentityEntry,
+} from './apollo-subindustry-key-resolution';
 
 // ─── Vocabulario del veredicto ────────────────────────────────────────────────
 
@@ -501,14 +506,13 @@ const DECLARED_INDUSTRY_FIELDS: readonly (readonly string[])[] = [
 
 // ─── Normalización ────────────────────────────────────────────────────────────
 
-function normalize(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+/**
+ * PHASE 2A § 3 — una sola normalización para identidad y para evidencia.
+ *
+ * Vivía duplicada aquí y en el resolver. Dos copias de la misma regla es cómo se
+ * cuela una divergencia entre «qué subindustria es» y «qué texto la demuestra».
+ */
+const normalize = normalizeSubindustryIdentity;
 
 // ─── Matching seguro de términos ──────────────────────────────────────────────
 
@@ -617,18 +621,78 @@ function toNormalizedTexts(value: unknown): string[] {
 }
 
 /**
- * Busca la clave de catálogo de una subindustria.
+ * PHASE 2A § 10 — registro de identidad de las subindustrias CON política de
+ * precisión. Dos entradas, las mismas dos de siempre.
  *
- * Coincidencia bidireccional por inclusión, igual que el gate sectorial, para que
- * «Supermercados e Hipermercados (Colombia)» resuelva a la misma clave.
+ * Se declara aquí, junto a los catálogos que indexa, y la suite verifica que sus
+ * claves son EXACTAMENTE las de `SUBINDUSTRY_ANCHOR_TERMS`
+ * (`listSubindustryPrecisionAnchorKeys`): una subindustria con anclas y sin
+ * identidad sería inevaluable, y una con identidad y sin anclas sería una
+ * subindustria «mapeada» que no puede confirmar a nadie.
+ *
+ * `explicitAliases` está VACÍO a propósito (§ 4): hoy la precisión recibe una
+ * etiqueta de texto sin la versión del catálogo que la resolvió, así que conectar
+ * los 127 alias publicados crearía una segunda fuente de verdad. Es la decisión
+ * de Phase 2B — ver `SubindustryPrecisionPhase2BInput`.
+ *
+ * `subindustryId` es `null` por el mismo motivo: ningún consumidor lo trae aún.
+ */
+const SUBINDUSTRY_PRECISION_IDENTITY_REGISTRY: readonly SubindustryPrecisionIdentityEntry[] = [
+  {
+    key: 'supermercados e hipermercados',
+    canonicalName: 'Supermercados e Hipermercados',
+    subindustryId: null,
+    explicitAliases: [],
+  },
+  {
+    key: 'tiendas por departamento, moda y calzado',
+    canonicalName: 'Tiendas por Departamento, Moda y Calzado',
+    subindustryId: null,
+    explicitAliases: [],
+  },
+];
+
+/** § 10 — las subindustrias con política de precisión, para auditoría y pruebas. */
+export function listSubindustryPrecisionIdentityRegistry(): SubindustryPrecisionIdentityEntry[] {
+  return SUBINDUSTRY_PRECISION_IDENTITY_REGISTRY.map((entry) => ({
+    ...entry,
+    explicitAliases: [...entry.explicitAliases],
+  }));
+}
+
+/**
+ * Claves que los catálogos de ANCLAS declaran. Sólo lectura.
+ *
+ * Existe para que la suite pueda probar que el registro de identidad y los
+ * catálogos de precisión hablan del mismo conjunto de subindustrias, sin exponer
+ * los términos.
+ */
+export function listSubindustryPrecisionAnchorKeys(): string[] {
+  return Object.keys(SUBINDUSTRY_ANCHOR_TERMS);
+}
+
+/**
+ * Clave de catálogo de una subindustria, resuelta sólo por coincidencia EXACTA.
+ *
+ * PHASE 2A §§ 1, 2 y 9 — sustituye la contención bidireccional por substring
+ * (`normalized.includes(key) || key.includes(normalized)`), que hacía que
+ * `"super"`, `"moda"`, `"calzado"` y hasta las cadenas de una sola letra `"a"`,
+ * `"e"`, `"s"`, `"o"` e `"y"` resolvieran a una subindustria real y heredaran su
+ * catálogo de anclas, exclusiones y contradicciones —decisiones que deciden si un
+ * candidato cuenta hacia el objetivo y si se persiste—. El ganador, además, lo
+ * elegía el orden de `Object.keys`.
+ *
+ * Ahora: id exacto, canónico normalizado exacto, alias explícito normalizado
+ * exacto, o `null`. Sin fallback al sector padre, sin clave más cercana, sin
+ * primera entrada del registro y sin mapping por defecto.
  */
 function resolveSubindustryKey(subindustry: string | null | undefined): string | null {
-  if (!subindustry?.trim()) return null;
-  const normalized = normalize(subindustry);
-  for (const key of Object.keys(SUBINDUSTRY_ANCHOR_TERMS)) {
-    if (normalized.includes(key) || key.includes(normalized)) return key;
-  }
-  return null;
+  return (
+    resolveSubindustryPrecisionIdentity(
+      { label: subindustry ?? null },
+      SUBINDUSTRY_PRECISION_IDENTITY_REGISTRY,
+    )?.key ?? null
+  );
 }
 
 // ─── Lectura de evidencia ─────────────────────────────────────────────────────
