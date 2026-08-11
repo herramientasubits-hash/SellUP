@@ -510,9 +510,11 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
     const files = readdirSync(join(repoRoot, 'supabase', 'migrations'))
       .filter((f) => f.endsWith('.sql'))
       .sort();
+    // El techo lo movió 4O-H1 con la 114 (esquema oficial multi-teléfono, inerte). Lo que
+    // esta guarda fija es que H0.5 no aportó esquema, no cuál es el número más alto.
     assert.equal(
       files[files.length - 1],
-      '113_phone_reveal_person_suppression_recheck.sql',
+      '114_official_contact_phones.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

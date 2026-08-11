@@ -107,15 +107,22 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
     );
   });
 
-  it('el techo lo movió 4O-E3 con la 113, y nadie más', () => {
+  it('el techo lo movieron 4O-E3 con la 113 y 4O-H1 con la 114, y nadie más', () => {
     // Esta guarda NO fija el número más alto del directorio para siempre —sube cada
     // vez que un bloque AUTORIZADO añade la suya—, sino que por encima de la 112 solo
     // esté la que el hito siguiente declaró: AGENT2A-PHONE-REVEAL-4O-E3, que vuelve a
     // declarar las funciones 110/111 con la re-comprobación de supresión POR PERSONA
     // dentro de la transacción. Tiene su propia guarda estática, que además comprueba
     // que la 112 no se editó retroactivamente.
+    //
+    // AGENT2A-PHONE-REVEAL-4O-H1 añadió la 114: el esquema OFICIAL de múltiples teléfonos
+    // (`contact_phones` + `contact_phone_sources`), creado INERTE y con su propia guarda
+    // estática. No edita la 112 ni ninguna otra de la cadena, que es lo que se vigila.
     const above = files.filter((f) => Number.parseInt(f.slice(0, 3), 10) > 112);
-    assert.deepEqual(above, ['113_phone_reveal_person_suppression_recheck.sql']);
+    assert.deepEqual(above, [
+      '113_phone_reveal_person_suppression_recheck.sql',
+      '114_official_contact_phones.sql',
+    ]);
   });
 
   it('la 112 declara que YA está aplicada, con la versión remota exacta', () => {
@@ -748,17 +755,21 @@ describe('4O-E2 · deuda declarada y alcance no tocado', () => {
     assert.equal(/suppress_candidate_phone_collection/.test(manual), false);
   });
 
-  it('no se crea ninguna tabla `contact_phones` en ninguna migración', () => {
+  it('sólo la 114 (4O-H1) crea la tabla `contact_phones`', () => {
+    // Invertido por 4O-H1, que es quien la crea. Lo que se sigue protegiendo es que tenga
+    // una única dueña: la forma del esquema oficial no puede repartirse entre migraciones.
+    const creators: string[] = [];
     for (const file of readdirSync(MIGRATIONS_DIR)) {
       if (!file.endsWith('.sql')) continue;
-      assert.equal(
+      if (
         /CREATE TABLE[^;]*\bpublic\.contact_phones\b/i.test(
           readFileSync(join(MIGRATIONS_DIR, file), 'utf8'),
-        ),
-        false,
-        `${file} no debe crear contact_phones`,
-      );
+        )
+      ) {
+        creators.push(file);
+      }
     }
+    assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
   it('el hito no activa ni menciona como activable el flag del waterfall', () => {

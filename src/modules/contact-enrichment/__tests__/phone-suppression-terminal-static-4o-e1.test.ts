@@ -190,15 +190,16 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
     // su cierre terminal es un UPDATE condicional y nada más. El techo lo movió
     // AGENT2A-PHONE-REVEAL-4O-E2 con la 112 (propagación de la supresión a la
     // colección) y después AGENT2A-PHONE-REVEAL-4O-E3 con la 113 (re-comprobación de
-    // la supresión POR PERSONA dentro de la transacción de persistencia); las dos
-    // tienen su propia guarda estática.
+    // la supresión POR PERSONA dentro de la transacción de persistencia); después
+    // AGENT2A-PHONE-REVEAL-4O-H1 con la 114 (el esquema OFICIAL de múltiples teléfonos,
+    // creado INERTE); las tres tienen su propia guarda estática.
     const files = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d+.*\.sql$/.test(file))
       .sort();
     const last = files[files.length - 1];
     assert.equal(
       last,
-      '113_phone_reveal_person_suppression_recheck.sql',
+      '114_official_contact_phones.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

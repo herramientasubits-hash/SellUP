@@ -993,3 +993,51 @@ jobs:
 
       - name: Run stored candidate phones UI tests
         run: npm run test:agent2a:stored-candidate-phones-ui
+
+      # AGENT2A-PHONE-REVEAL-4O-H1 — el esquema OFICIAL de múltiples teléfonos
+      # (`contact_phones` + `contact_phone_sources`, migración 114), creado INERTE.
+      #
+      # Qué fija esta suite, que es lo único que un diff futuro no puede recordar:
+      #   * INERCIA: 0 lectores y 0 escritores en runtime, 0 backfill, 0 UI, 0 RPC,
+      #     0 funciones, ningún trigger de negocio y ninguna fila insertada. La
+      #     aprobación de candidatos, `createContact` y `updateContact` no nombran
+      #     las tablas: la propagación es H3 y la convergencia manual es H5;
+      #   * VOCABULARIOS pinneados en AMBAS direcciones contra
+      #     `phone-collection-core.ts`, para que un valor no pueda añadirse en un
+      #     solo lado y producir un 23514 en ejecución — el defecto de #238;
+      #   * UNA sola taxonomía de privacidad: el motivo de supresión es el de la
+      #     109 carácter por carácter, y el de caché/auditoría de la 099 se rechaza
+      #     (los dos conjuntos comparten CERO valores);
+      #   * IDENTIDAD oficial: la FK es a `contacts`, nunca a un candidato, y NO hay
+      #     `account_id` — `contacts.account_id` ya define la propiedad y una segunda
+      #     copia sólo podría contradecirla;
+      #   * DINERO: ninguna columna de coste/crédito/precio. Los punteros a
+      #     `phone_reveal_waterfall_runs` / `..._credit_reservations` /
+      #     `provider_usage_logs` son punteros de auditoría, no importes;
+      #   * PRIVILEGIOS: `authenticated` sólo SELECT (un navegador no puede declarar
+      #     procedencia); DELETE y TRUNCATE a NADIE (borrar un tombstone
+      #     desbloquearía el número suprimido); la procedencia es inmutable porque
+      #     el UPDATE de `contact_phone_sources` es POR COLUMNA y sólo alcanza la
+      #     tríada de supresión;
+      #   * RLS derivada del CONTACTO padre vía EXISTS, no una segunda copia de
+      #     `has_active_access` que divergiría el día que `contacts` gane alcance
+      #     por cuenta.
+      #
+      # Mutantes detectados: un archivo de producción empieza a nombrar las tablas;
+      # aparece una columna de coste; aparece `account_id`; se concede DELETE; el
+      # encabezado afirma estar aplicada en Producción; `phone_type` gana un miembro
+      # coloquial; se añade un trigger de negocio.
+      #
+      # Determinista y offline: sólo lee archivos del disco. Sin red, sin Supabase,
+      # sin proveedores, 0 créditos, y NO toca Producción.
+      #
+      # ⚠️ La suite de PostgreSQL REAL queda FUERA de este check a propósito, igual
+      # que sus hermanas (§ 48 de 4O-F-R2, 4O-E2/E3/E4): exige un binario que se
+      # descarga (`npm install --no-save embedded-postgres@17.6.0-beta.15`) y que
+      # `npm ci` del check obligatorio no necesita. Ahí se miden las garantías que
+      # sólo PostgreSQL puede demostrar — CHECKs, índices parciales, políticas RLS y
+      # privilegios reales, incluida la reinserción imposible de un número
+      # tombstoneado. Se corre con:
+      #   npm run test:agent2a:official-contact-phone-schema:postgres
+      - name: Run official contact phone schema tests
+        run: npm run test:agent2a:official-contact-phone-schema
