@@ -118,6 +118,40 @@ persistencias desde el primer despliegue.
 
 En `full`, operativo ≡ diagnóstico, término por término.
 
+### «No contribuye» es ABSTENERSE, no contribuir neutro
+
+El MIXED-MODE ANY-OF PREFLIGHT encontró que esa distinción no era retórica. La
+primera versión resolvía las ramas negativas de `confirm_only` como
+`NO_OPERATIONAL_CONTRIBUTION` —«sin mapeo, ambigua»—, que es un **participante
+real** del ANY-OF. Y en la precedencia del ANY-OF una duda sin mapeo (20) le gana
+a un rechazo mapeado (11), porque «sin mapeo» significa que SellUp no supo evaluar
+esa subindustria, y eso rescata del rechazo por diseño.
+
+Consecuencia medida, con una regla `full` que rechazaba y una `confirm_only`
+ambigua pedidas juntas:
+
+| | regla `full` sola | + `confirm_only` ambigua al lado |
+|---|---|---|
+| pliegue sectorial | `sector_evidence_contradictory` | `sector_evidence_confirmed` |
+| desenlace | rechazo definitivo, no se persiste | se persiste y sigue vivo |
+
+Es decir: la rama **negativa** de una regla sin calibrar movía la economía de la
+corrida — exactamente lo que `confirm_only` existe para impedir.
+
+El arreglo distingue tres cosas donde antes había dos:
+
+- **contribuir** — la regla participa con su veredicto (todas las `full`, y la
+  rama `confirmed` de `confirm_only`);
+- **abstenerse** — la regla existe y midió, pero su medición no está autorizada a
+  decidir: no entra en la agregación (ramas negativas de `confirm_only`);
+- **sin mapeo** — no hay regla; participa con el comportamiento base de siempre,
+  y sigue rescatando del rechazo ANY-OF como hasta hoy.
+
+Si TODAS las reglas pedidas se abstienen, el resultado es el base/fail-closed de
+siempre. Y con sólo reglas `full` registradas la abstención es inalcanzable, que
+es por qué la paridad golden se mantiene byte a byte (49.973 registros, SHA
+`b49e8912…`).
+
 **Diagnóstico y operativo son distinguibles**, y esa es la mitad que hace
 `confirm_only` útil: la ficha sigue viendo `subindustry_ambiguous` /
 `subindustry_rejected`, que es con lo que se decide si la regla se promueve a
@@ -143,6 +177,29 @@ ninguna fixture existente.
 Si una etiqueta MAPEADA no resuelve en el registro recibido, el modo se asume
 `full`: es el más estricto y es el comportamiento histórico. Suponer
 `confirm_only` ahí desactivaría rechazos que hoy sí aplican.
+
+### `precisionMode` es DIAGNÓSTICO, y sólo eso
+
+`OperationalSubindustryVerdict.precisionMode` nombra el modo de la regla que
+produjo la contribución **ganadora**, y ante empate lo decide el orden en que la
+usuaria pidió las subindustrias. **No es el modo agregado de la evaluación.**
+
+Los dos campos que sí deciden —`subindustryMapped` y `subindustryMatch`— son
+invariantes al orden, y las permutaciones lo comprueban sobre la economía entera
+(pliegue, elegibilidad, `completeValid`, `countsTowardTarget`, `failedConditions`),
+no sólo sobre el objeto de assessment.
+
+Ningún consumidor económico puede leer `precisionMode`: hacerlo ataría una decisión
+de dinero a ese desempate. Hay un **ratchet sobre el código fuente** que recorre
+`src/` y falla si el identificador aparece fuera del módulo que lo produce.
+
+Límite declarado en la misma línea: el **motivo de revisión**
+(`subindustryBlockingReason`) sale del veredicto DIAGNÓSTICO, no del operativo. Con
+`full` rechazada + `confirm_only` ambigua dice `subindustry_ambiguous` donde la
+subindustria sola diría `subindustry_rejected`. Es una etiqueta de ficha, es
+invariante al orden, y no cambia nada de lo que decide: la elegibilidad es
+`not_confirmed` en los dos casos y la no-persistencia la sigue decidiendo el
+pliegue sectorial.
 
 ---
 

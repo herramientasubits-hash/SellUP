@@ -954,9 +954,13 @@ export type SubindustryPrecisionEvaluationOptions = {
 /**
  * Veredicto OPERATIVO: lo único que un consumidor con efecto económico puede leer.
  *
- * `precisionMode` es el modo de la regla que produjo la contribución GANADORA, o
- * `null` cuando ninguna regla contribuyó —porque ninguna estaba mapeada, o porque
- * las que lo estaban son `confirm_only` y no confirmaron—.
+ * `precisionMode` es DIAGNÓSTICO y sólo diagnóstico: nombra el modo de la regla que
+ * produjo la contribución GANADORA —o `null` cuando ninguna contribuyó—, y ante
+ * empate lo decide el orden en que el usuario pidió las subindustrias. NO es el modo
+ * agregado de la evaluación, y por eso ningún consumidor económico puede leerlo:
+ * hacerlo ataría una decisión de dinero a ese desempate. Los dos campos que SÍ
+ * deciden —`subindustryMapped` y `subindustryMatch`— son invariantes al orden.
+ * El ratchet de la suite comprueba que nadie fuera de este módulo lo lee.
  */
 export type OperationalSubindustryVerdict = {
   subindustryMapped: boolean;
@@ -978,11 +982,17 @@ const NO_OPERATIONAL_CONTRIBUTION: OperationalSubindustryVerdict = {
   precisionMode: null,
 };
 
-/** Proyección de UNA evaluación al plano operativo, según el modo de su regla. */
+/**
+ * Proyección de UNA evaluación al plano operativo, según el modo de su regla.
+ *
+ * `null` significa ABSTENCIÓN: esta subindustria no participa en el ANY-OF
+ * operativo. Es distinto de `NO_OPERATIONAL_CONTRIBUTION`, y la diferencia decide
+ * dinero — ver el § de abajo.
+ */
 function projectOneOperationalVerdict(
   evaluation: { subindustryMapped: boolean; subindustryMatch: SubindustryMatchVerdict },
   mode: SubindustryPrecisionMode | null,
-): OperationalSubindustryVerdict {
+): OperationalSubindustryVerdict | null {
   if (!evaluation.subindustryMapped || mode === null) return NO_OPERATIONAL_CONTRIBUTION;
   if (mode === 'full') {
     return {
@@ -992,11 +1002,26 @@ function projectOneOperationalVerdict(
     };
   }
   // `confirm_only`: sólo la rama positiva cruza al plano operativo. `ambiguous` y
-  // `rejected` no se convierten en otra cosa —siguen siendo el diagnóstico— pero
-  // dejan de contribuir, que es distinto de contribuir con un veredicto neutro.
+  // `rejected` no se convierten en otra cosa —siguen siendo el diagnóstico— y
+  // ABSTIENEN a la regla en vez de hacerla contribuir con un veredicto neutro.
+  //
+  // MIXED-MODE ANY-OF FINAL PREFLIGHT § 7 — el defecto que esta distinción cierra.
+  // Antes, la rama negativa devolvía `NO_OPERATIONAL_CONTRIBUTION`, que es un
+  // participante REAL del ANY-OF: «sin mapeo, ambigua», y por precedencia una duda
+  // sin mapeo (20) le gana a un rechazo mapeado (11). Efecto medido: una regla
+  // `full` que rechazaba —`sector_evidence_contradictory`, o sea rechazo definitivo
+  // y candidato no persistido— pasaba a `sector_evidence_confirmed` en cuanto se
+  // pedía junto a una `confirm_only` cuyo veredicto era `ambiguous`. Es decir, la
+  // rama NEGATIVA de una regla sin calibrar movía la economía de la corrida, que es
+  // exactamente lo que `confirm_only` existe para impedir (§ 9).
+  //
+  // «Sin mapeo» sí participa, y debe seguir haciéndolo: que SellUp no sepa evaluar
+  // una subindustria pedida es un hecho sobre la petición, y rescatar del rechazo
+  // ANY-OF es el comportamiento histórico de las reglas `full`. Abstenerse es otra
+  // cosa: la regla existe, midió, y su medición no está autorizada a decidir.
   return evaluation.subindustryMatch === 'confirmed'
     ? { subindustryMapped: true, subindustryMatch: 'confirmed', precisionMode: 'confirm_only' }
-    : NO_OPERATIONAL_CONTRIBUTION;
+    : null;
 }
 
 /**
@@ -1047,9 +1072,15 @@ export function projectOperationalSubindustryVerdict(
       ? (resolveSubindustryRuleSet(evaluation.label, ruleSets, identityRegistry)?.mode ?? 'full')
       : null;
     const projected = projectOneOperationalVerdict(evaluation, mode);
+    // Abstención: la regla no entra en la agregación. Saltarla —en vez de dejarla
+    // competir con un veredicto neutro— es lo que garantiza que una `confirm_only`
+    // negativa deje el resultado EXACTAMENTE como estaría sin ella (§ 7).
+    if (projected === null) continue;
     if (winner === null || verdictScore(projected) > verdictScore(winner)) winner = projected;
   }
 
+  // Todas se abstuvieron (o no había ninguna): comportamiento base/fail-closed de
+  // siempre. Ninguna rama nueva.
   return winner ?? NO_OPERATIONAL_CONTRIBUTION;
 }
 
