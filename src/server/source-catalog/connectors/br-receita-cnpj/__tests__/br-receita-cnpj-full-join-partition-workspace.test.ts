@@ -193,6 +193,11 @@ describe('BR-SOURCE-14B.0D — partition files hold references, not data', () =>
         true,
       );
     }
+    // BR-SOURCE-14B.0H: appends are buffered, so the bytes below are not yet on disk until something
+    // flushes them. `readPartitionSlice` is the same "flush before read" path the engine itself uses.
+    for (const ordinal of [0, 1]) {
+      assert.equal(creation.workspace.readPartitionSlice('empresas', ordinal, 0, 16).ok, true);
+    }
 
     const directory = workspaceDirectoryIn(parent);
     const names = fs.readdirSync(directory);
@@ -277,6 +282,10 @@ describe('BR-SOURCE-14B.0D — temporary storage cap', () => {
     assert.equal(third.ok, false);
     if (third.ok) return;
     assert.equal(third.failure, 'temporary_storage_cap_exceeded');
+
+    // BR-SOURCE-14B.0H: the two accepted records are buffered, not yet on disk. Force the same
+    // "flush before read" the engine relies on before inspecting the real file.
+    assert.equal(creation.workspace.readPartitionSlice('empresas', 0, 0, 16).ok, true);
 
     const directory = workspaceDirectoryIn(parent);
     const bytes = fs.readFileSync(path.join(directory, 'empresas-part-00001.refs'));

@@ -876,6 +876,7 @@ describe('BR-SOURCE-14B.0F § 9 — the private exact metric channel', () => {
     outputRowsMaterialized: 0,
     joinKeysPeakInMemory: 98_304,
     temporaryStoragePeakBytes: 3_221_225_472,
+    temporaryStorageCurrentBytes: 0,
     checkpointsEvaluated: ['before_first_access' as const, 'after_join' as const],
     cleanupOutcome: 'completed' as const,
   };
