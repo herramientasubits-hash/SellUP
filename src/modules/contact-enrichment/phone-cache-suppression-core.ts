@@ -22,11 +22,10 @@
 //                                by the contact's own metadata) and whose phone
 //                                provenance is a PROVEN reveal path — an Apollo
 //                                reveal, an Apollo cache hit or (since 4O-E4) a
-//                                Lusha reveal. `mobile_phone` is additionally nulled
-//                                ONLY on the Apollo paths: see
-//                                MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES for why
-//                                that column cannot be erased on provenance it
-//                                does not have.
+//                                Lusha reveal. `mobile_phone` is NEVER touched, on
+//                                any path (4O-E4.1): the column has no provenance
+//                                model and no provider has ever written it, so this
+//                                provenance-scoped operation cannot claim it.
 //
 // ── Why erasing a contact needs CREATED/PROMOTED provenance (FIX 1) ────────
 // `contact_enrichment_candidates.matched_contacts_id` is NOT a proof of
@@ -167,41 +166,52 @@ export function isSuppressibleContactPhoneSource(
   );
 }
 
-/**
- * Procedencias para las que ADEMÁS se borra `contacts.mobile_phone` (4O-E4).
- *
- * Es un subconjunto ESTRICTO de la allowlist y contiene sólo lo que el contrato
- * aprobado de Apollo ya borraba antes de este hito. `lusha_reveal` queda fuera a
- * propósito y la razón es la única que importa aquí: `mobile_phone` NO TIENE
- * PROCEDENCIA. No existe columna `mobile_phone_source`, y los únicos escritores del
- * campo en todo el repo son los formularios manuales de contacto
- * (`create-contact-drawer` / `edit-contact-drawer` → `modules/contacts/actions.ts`),
- * es decir un HUMANO escribiendo «Celular». Borrarlo porque `phone_source` valga
- * `lusha_reveal` sería exactamente la inferencia que esta cadena de hitos existe
- * para prohibir: la procedencia de UNA columna no se extiende a OTRA.
- *
- * Consecuencia declarada, no oculta: la erasure de Lusha es PARCIAL cuando el
- * contacto tiene `mobile_phone`, y la UI lo prioriza (`mobile_phone ?? phone`), así
- * que un número podría seguir siendo visible. El límite se reporta en los conteos y
- * se prueba explícitamente; no se disimula ampliando el borrado.
- *
- * El caso Apollo se deja EXACTAMENTE como estaba: cambiarlo aquí sería mezclar la
- * deuda de `mobile_phone` con la admisión de Lusha, y esa deuda necesita su propio
- * modelo (`MOBILE_PHONE_PROVENANCE_PENDING`).
- */
-export const MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES: readonly string[] = [
-  'apollo_reveal',
-  'apollo_cache',
-];
-
-export function clearsMobilePhoneForSource(
-  value: string | null | undefined,
-): boolean {
-  return (
-    typeof value === 'string' &&
-    MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES.includes(value.trim())
-  );
-}
+// ── 4O-E4.1: `mobile_phone` NO se borra por procedencia ajena ──
+//
+// Hasta 4O-E4 existía aquí una SEGUNDA allowlist —
+// `MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES = [apollo_reveal, apollo_cache]`— que
+// añadía `mobile_phone: null` al patch cuando la procedencia observada era Apollo.
+// Ese comportamiento era heredado, no demostrado: la única evidencia que lo sostenía
+// era el valor de `contacts.phone_source`, que describe la columna `phone` y ninguna
+// otra.
+//
+// La auditoría de escritores de 4O-E4.1 no encontró NINGUNA ruta —actual ni
+// histórica— por la que un proveedor escriba `contacts.mobile_phone`:
+//
+//   * los únicos escritores son `createContact` y `updateContact`
+//     (`src/modules/contacts/actions.ts`), alimentados por los dos formularios
+//     manuales (`create-contact-drawer` / `edit-contact-drawer`): un HUMANO
+//     escribiendo «Celular»;
+//   * `ContactInsertPayload` —lo que la aprobación de un candidato inserta— NO
+//     tiene la columna, así que ni Apollo ni Lusha la pueblan al promover;
+//   * en Producción no hay trigger que la escriba (sólo `contacts_set_updated_at`),
+//     no es columna generada y NINGUNA función de la base la menciona en su cuerpo;
+//   * el historial completo de git para `mobile_phone` (16 commits) no contiene un
+//     solo escritor de proveedor: las únicas escrituras no manuales que existieron
+//     jamás son las de esta misma supresión, es decir el borrado que aquí se retira.
+//
+// Por tanto el sistema NO PUEDE DEMOSTRAR que `mobile_phone` pertenezca al dataset
+// cuyo borrado se está ejecutando, y el principio vinculante se aplica sin excepción
+// de proveedor:
+//
+//     NO PROVENANCE → NO DESTRUCTIVE ERASURE
+//
+// El caso obligatorio que esto protege es real y trivial de alcanzar: un contacto
+// creado desde un candidato Apollo conserva `phone_source = apollo_reveal` para
+// siempre, y `updateContact` nunca toca esa columna — así que basta con que alguien
+// escriba un celular a mano en el formulario para que la DSAR de Apollo borrase un
+// número que Apollo nunca escribió.
+//
+// Esto NO afirma que `mobile_phone` no sea dato personal. Afirma que esta operación
+// es provenance-scoped y que su alcance no llega a una columna sin procedencia. El
+// borrado integral por persona pertenece al `CANDIDATE_LEVEL / PERSON_LEVEL
+// SUPPRESSION MODEL`, todavía pendiente — igual que `MOBILE_PHONE_PROVENANCE_PENDING`,
+// que sigue abierto: aquí se evita un borrado inseguro, no se crea procedencia.
+//
+// Consecuencia declarada, no disimulada: la erasure es PARCIAL cuando el contacto
+// tiene `mobile_phone`, y la UI lo prioriza (`mobile_phone ?? phone`), así que un
+// número escrito a mano seguirá siendo visible después de la supresión. Eso es lo
+// esperado: es dato de un tercero que esta operación no puede reclamar.
 
 // ── Entrada ────────────────────────────────────────────────────
 
@@ -290,17 +300,18 @@ export interface CandidatePhoneSuppressionPatch {
  * (`phone_reveal_suppression_audit`) es el sitio donde consta que hubo tratamiento,
  * y ahí sí se conserva: sin PII, por hash y por conteos.
  *
- * Las 8 columnas se verificaron contra el esquema REAL de Producción
+ * Las 7 columnas se verificaron contra el esquema REAL de Producción
  * (`information_schema.columns`), no se asumieron.
  *
- * `mobile_phone` es OPCIONAL a propósito: sólo viaja en el patch cuando la
- * procedencia observada está en `MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES`. En el
- * camino Lusha la clave NO se escribe —no se manda `undefined` ni se toca la
- * columna— porque `mobile_phone` no tiene procedencia propia.
+ * ── 4O-E4.1: `mobile_phone` sale del patch, para todas las procedencias ──
+ *
+ * La clave era OPCIONAL y viajaba sólo en el camino Apollo. Ya no viaja en ninguno:
+ * la columna no tiene procedencia que ninguna de estas fuentes pueda reclamar (ver
+ * el bloque 4O-E4.1 más arriba). El patch es ahora el MISMO objeto para toda
+ * procedencia admitida, y por construcción no puede tocar `mobile_phone`.
  */
 export interface ContactPhoneSuppressionPatch {
   phone: null;
-  mobile_phone?: null;
   phone_type: null;
   phone_source: null;
   phone_raw_type: null;
@@ -310,16 +321,20 @@ export interface ContactPhoneSuppressionPatch {
 }
 
 /**
- * Construye el patch de borrado a partir de la procedencia OBSERVADA en la fila.
+ * Construye el patch de borrado del contacto oficial.
  *
- * Es la única fábrica del patch: que `mobile_phone` se incluya o no depende
- * exclusivamente de la procedencia, y tenerlo en un solo sitio evita que las dos
- * decisiones (¿se borra?, ¿se borra también el celular?) se separen.
+ * Única fábrica del patch, y desde 4O-E4.1 INDEPENDIENTE de la procedencia: la
+ * decisión «¿se borra esta fila?» la toma la allowlist + el vínculo probado, y lo
+ * que se borra es siempre la misma tupla. No recibe la procedencia observada a
+ * propósito — un parámetro que sólo sirviera para decidir columnas volvería a
+ * invitar a extender la procedencia de `phone` a otras columnas.
+ *
+ * La procedencia observada sigue siendo obligatoria en el PLAN, pero para el
+ * predicado del UPDATE (`.eq('phone_source', …)`), que es otra cosa: allí evita que
+ * una escritura stale caiga sobre una fila que ya cambió de manos.
  */
-export function buildContactPhoneSuppressionPatch(
-  observedPhoneSource: string,
-): ContactPhoneSuppressionPatch {
-  const base: ContactPhoneSuppressionPatch = {
+export function buildContactPhoneSuppressionPatch(): ContactPhoneSuppressionPatch {
+  return {
     phone: null,
     phone_type: null,
     phone_source: null,
@@ -328,9 +343,6 @@ export function buildContactPhoneSuppressionPatch(
     phone_processing_basis: null,
     phone_confidence: null,
   };
-  return clearsMobilePhoneForSource(observedPhoneSource)
-    ? { ...base, mobile_phone: null }
-    : base;
 }
 
 // ── Proyecciones mínimas de entrada ────────────────────────────
@@ -615,20 +627,20 @@ export function buildPhoneCacheSuppressionPlan(
     if (strength === 'weak') continue;
 
     seenContacts.add(contact.id);
-    // 4O-E4: la procedencia OBSERVADA viaja con el patch. Es lo que autoriza este
-    // borrado concreto, lo que decide si `mobile_phone` entra, y —en el runtime— el
-    // predicado EXACTO del UPDATE. Un `.in(allowlist)` bastaba mientras todas las
-    // procedencias admitidas compartieran el mismo patch; con Lusha ya no es cierto:
-    // si la fila cambiara de `apollo_reveal` a `lusha_reveal` entre la lectura y la
-    // escritura, un `.in(...)` aplicaría el patch de Apollo —que incluye
-    // `mobile_phone: null`— sobre una fila Lusha, borrando un celular sin
-    // procedencia. El `.eq(observado)` hace que esa carrera afecte 0 filas.
+    // 4O-E4: la procedencia OBSERVADA viaja con el plan. Es lo que autoriza este
+    // borrado concreto y —en el runtime— el predicado EXACTO del UPDATE.
+    //
+    // 4O-E4.1: ya NO decide columnas (el patch es uno solo para toda procedencia),
+    // pero el `.eq(observado)` se conserva y es igual de necesario: sin él, una fila
+    // que entre la LECTURA y la ESCRITURA pasa a `manual` —porque alguien tecleó un
+    // número nuevo— recibiría igualmente el borrado. Con `.eq` esa carrera afecta 0
+    // filas y el reemplazo legítimo sobrevive.
     const observedPhoneSource = cleanText(contact.phoneSource) as string;
     contactPatches.push({
       contactId: contact.id,
       linkStrength: strength,
       observedPhoneSource,
-      patch: buildContactPhoneSuppressionPatch(observedPhoneSource),
+      patch: buildContactPhoneSuppressionPatch(),
     });
   }
 

@@ -32,11 +32,18 @@
  *
  * `contacts.mobile_phone` NO tiene procedencia: no existe `mobile_phone_source` y
  * los únicos escritores del campo son los formularios manuales de contacto. Por eso
- * la erasure de Lusha NO lo toca, y por eso es PARCIAL cuando ese campo está
- * poblado — la UI lo prioriza (`mobile_phone ?? phone`), así que un número podría
- * seguir siendo visible. El test lo afirma en voz alta:
+ * la erasure NO lo toca, y por eso es PARCIAL cuando ese campo está poblado — la UI
+ * lo prioriza (`mobile_phone ?? phone`), así que un número podría seguir siendo
+ * visible. El test lo afirma en voz alta:
  *
  *     erasure_partial_due_to_missing_mobile_provenance = true
+ *
+ * ⚠️ 4O-E4.1 extendió ese límite a TODAS las procedencias. En 4O-E4 el camino Apollo
+ * seguía nulando `mobile_phone` por herencia; la auditoría de escritores demostró
+ * que ningún proveedor escribió jamás esa columna, así que el borrado se retiró
+ * también de Apollo. La propiedad de este archivo no cambia —`phone` se borra con
+ * procedencia demostrada, `mobile_phone` nunca—; lo que cambió es que ya no hay
+ * excepción. El detalle vive en `phone-mobile-provenance-erasure-4o-e4-1.test.ts`.
  *
  * Puro y determinista: sin proveedores, sin créditos, sin DSAR real, sin DB, sin
  * flags, sin HubSpot. Todos los teléfonos son sintéticos 555.
@@ -46,11 +53,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES,
   SUPPRESSIBLE_CONTACT_PHONE_SOURCES,
   buildContactPhoneSuppressionPatch,
   buildPhoneCacheSuppressionPlan,
-  clearsMobilePhoneForSource,
   isSuppressibleContactPhoneSource,
   type PhoneCacheSuppressionInput,
   type PhoneCacheSuppressionPlanResult,
@@ -177,14 +182,16 @@ describe('4O-E4 — las procedencias Apollo siguen borrándose igual', () => {
       ]);
     });
 
-    it(`${source} sigue borrando ADEMÁS mobile_phone (contrato previo intacto)`, () => {
+    // 4O-E4.1: hasta este hito la aserción era la contraria —el camino Apollo
+    // nulaba también `mobile_phone`—. Se retiró porque ningún proveedor escribe
+    // esa columna, así que `phone_source = apollo_*` no la autoriza.
+    it(`${source} ya NO borra mobile_phone (4O-E4.1: sin procedencia, sin borrado)`, () => {
       const { patch } = onlyPatch(plan([makeContact({ phoneSource: source })]));
       assert.equal(
         Object.prototype.hasOwnProperty.call(patch, 'mobile_phone'),
-        true,
-        `${source} debe seguir nulando mobile_phone`,
+        false,
+        `${source} describe la columna phone, no mobile_phone`,
       );
-      assert.equal(patch.mobile_phone, null);
     });
   }
 });
@@ -305,7 +312,7 @@ describe('4O-E4 — la tupla telefónica se limpia entera', () => {
 
   it('el patch no escribe NADA fuera de la tupla (ni email, ni nombre, ni metadata)', () => {
     const { patch } = onlyPatch(plan([makeContact()]));
-    const allowed = new Set<string>([...TUPLE, 'mobile_phone']);
+    const allowed = new Set<string>(TUPLE);
     for (const key of Object.keys(patch)) {
       assert.ok(allowed.has(key), `el patch no debe escribir ${key}`);
     }
@@ -326,27 +333,16 @@ describe('4O-E4 — la tupla telefónica se limpia entera', () => {
 // 5. mobile_phone — el límite declarado
 // ═══════════════════════════════════════════════════════════════
 
-describe('4O-E4 — mobile_phone NO se borra por procedencia Lusha', () => {
-  it('la lista de procedencias que borran mobile_phone es SUBCONJUNTO ESTRICTO', () => {
-    assert.deepEqual([...MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES].sort(), [
-      'apollo_cache',
-      'apollo_reveal',
-    ]);
-    for (const source of MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES) {
-      assert.ok(
-        SUPPRESSIBLE_CONTACT_PHONE_SOURCES.includes(source),
-        `${source} debe estar también en la allowlist general`,
+describe('4O-E4 — mobile_phone NO se borra por la procedencia de `phone`', () => {
+  it('NINGUNA procedencia admitida mete mobile_phone en el patch (4O-E4.1)', () => {
+    for (const source of SUPPRESSIBLE_CONTACT_PHONE_SOURCES) {
+      const { patch } = onlyPatch(plan([makeContact({ phoneSource: source })]));
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(patch, 'mobile_phone'),
+        false,
+        `${source} no puede reclamar una columna sin procedencia`,
       );
     }
-    assert.ok(
-      MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES.length <
-        SUPPRESSIBLE_CONTACT_PHONE_SOURCES.length,
-      'debe ser un subconjunto ESTRICTO',
-    );
-  });
-
-  it('lusha_reveal NO borra mobile_phone', () => {
-    assert.equal(clearsMobilePhoneForSource('lusha_reveal'), false);
   });
 
   it('el patch de Lusha NO contiene la clave mobile_phone (no toca la columna)', () => {
@@ -380,7 +376,7 @@ describe('4O-E4 — mobile_phone NO se borra por procedencia Lusha', () => {
 
     const { patch } = onlyPatch(plan([makeContact({ phoneSource: 'lusha_reveal' })]));
     // El UPDATE aplica el patch sobre la fila: sólo las claves presentes cambian.
-    const after = { ...row, ...patch };
+    const after: Record<string, unknown> = { ...row, ...patch };
 
     assert.equal(after.phone, null, 'el teléfono Lusha debe desaparecer');
     assert.equal(after.phone_source, null);
@@ -406,12 +402,16 @@ describe('4O-E4 — mobile_phone NO se borra por procedencia Lusha', () => {
     );
   });
 
-  it('Apollo, en cambio, sí lo borra: el contrato previo no se toca', () => {
+  it('Apollo se comporta IGUAL desde 4O-E4.1: borra el teléfono, no el celular', () => {
     const row = { phone: LUSHA_PHONE, mobile_phone: OTHER_MOBILE };
     const { patch } = onlyPatch(plan([makeContact({ phoneSource: 'apollo_reveal' })]));
     const after = { ...row, ...patch };
     assert.equal(after.phone, null);
-    assert.equal(after.mobile_phone, null);
+    assert.equal(
+      after.mobile_phone,
+      OTHER_MOBILE,
+      'ningún proveedor escribió jamás esta columna: borrarla era una inferencia',
+    );
   });
 });
 
@@ -420,27 +420,20 @@ describe('4O-E4 — mobile_phone NO se borra por procedencia Lusha', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('4O-E4 — buildContactPhoneSuppressionPatch', () => {
-  it('devuelve la tupla sin mobile_phone para lusha_reveal', () => {
-    const patch = buildContactPhoneSuppressionPatch('lusha_reveal');
+  it('devuelve la tupla de `phone` sin mobile_phone (4O-E4.1: para toda procedencia)', () => {
+    const patch = buildContactPhoneSuppressionPatch();
     assert.equal(Object.prototype.hasOwnProperty.call(patch, 'mobile_phone'), false);
     assert.equal(patch.phone, null);
     assert.equal(patch.phone_confidence, null);
   });
 
-  it('devuelve la tupla CON mobile_phone para las procedencias Apollo', () => {
-    for (const source of ['apollo_reveal', 'apollo_cache']) {
-      const patch = buildContactPhoneSuppressionPatch(source);
-      assert.equal(Object.prototype.hasOwnProperty.call(patch, 'mobile_phone'), true);
-      assert.equal(patch.mobile_phone, null);
-    }
+  it('no depende de la procedencia: la fábrica ya no la recibe', () => {
+    assert.equal(buildContactPhoneSuppressionPatch.length, 0);
   });
 
   it('todos los valores del patch son null: nunca escribe un dato', () => {
-    for (const source of SUPPRESSIBLE_CONTACT_PHONE_SOURCES) {
-      const patch = buildContactPhoneSuppressionPatch(source);
-      for (const [key, value] of Object.entries(patch)) {
-        assert.equal(value, null, `${key} debe ser null`);
-      }
+    for (const [key, value] of Object.entries(buildContactPhoneSuppressionPatch())) {
+      assert.equal(value, null, `${key} debe ser null`);
     }
   });
 });
