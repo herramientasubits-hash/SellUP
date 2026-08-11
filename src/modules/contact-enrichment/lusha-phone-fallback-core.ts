@@ -52,6 +52,20 @@
  * type ranking elects, so a valid mobile in slot 1 now beats a work line in slot
  * 0. That is the binding product decision, it is deliberate, and it is the whole
  * point of the milestone.
+ *
+ * ── AGENT2A-PHONE-REVEAL-4O-F ──────────────────────────────────
+ *
+ * El disparo MANUAL de administración pasa a inyectar esa misma dependencia, así que
+ * deja de tirar los teléfonos que la respuesta ya traía —y por los que ya se pagó— y
+ * pasa por la MISMA transacción, con las MISMAS reglas de normalización, deduplicación
+ * entre proveedores, elección de principal y protección de tombstones. No se duplica ni
+ * una regla: lo único que cambia es qué rutas cablean la dep. Sigue siendo UNA llamada
+ * al proveedor, UN evento de facturación y UN principal determinista.
+ *
+ * Y por eso la puerta de privacidad POSTERIOR a la respuesta se evalúa ahora ANTES de
+ * bifurcar entre las dos escrituras: la transacción re-comprueba tombstones y supresión
+ * por persona bajo el lock, pero no lee `do_not_contact`, así que dejarla dentro de la
+ * rama escalar habría hecho que cablear la colección perdiera esa protección en vuelo.
  */
 
 import {
@@ -318,14 +332,15 @@ export interface LushaPhoneFallbackCoreDeps {
    * PRESENTE ⇒ el camino `revealed` deja de escribir el candidato con un UPDATE
    * suelto y pasa a una sola llamada que persiste, atómicamente, las filas
    * canónicas, sus procedencias, el principal, el escalar y el estado terminal.
-   * Es lo que cablean las DOS rutas autorizadas por este hito (waterfall completo
-   * y continuación legacy), ambas por `callLushaFallbackLeg`.
+   * Desde AGENT2A-PHONE-REVEAL-4O-F la cablean las TRES rutas que llegan a Lusha:
+   * el waterfall completo y la continuación legacy (ambas por `callLushaFallbackLeg`)
+   * y el disparo MANUAL de administración (`lusha-phone-fallback-actions.ts`). Las
+   * tres pasan por la misma transacción y por las mismas reglas.
    *
-   * AUSENTE ⇒ comportamiento anterior intacto, vía `persist`. El disparo manual
-   * de administración queda ahí, sin cambios: no estaba en el alcance de este
-   * hito y no se modifica de refilón. Consecuencia declarada: ese camino sigue
-   * guardando un solo teléfono. Lo que sí mejora en él, porque vive en el
-   * cliente y no aquí, es CUÁL de ellos.
+   * AUSENTE ⇒ comportamiento anterior intacto, vía `persist`. Se conserva como
+   * contrato porque es lo que mantiene el core probable sin base de datos y lo que
+   * permite verificar, caso por caso, que la rama escalar no cambió de forma; ninguna
+   * ruta de producción lo ejerce ya.
    *
    * Debe LANZAR si no puede completar. Un fallo aquí es fail-closed: el candidato
    * NO se terminaliza, el usage-log sí se escribe (el gasto ocurrió), y el mismo
@@ -709,6 +724,79 @@ export async function runLushaPhoneFallbackReveal(
     };
   }
 
+  // ── Puerta de privacidad, DESPUÉS de la respuesta (4O-E3) ──────
+  //
+  // La llamada a Lusha es síncrona pero no instantánea, y una DSAR registrada
+  // MIENTRAS el proveedor respondía dejaría el número borrado de vuelta en el campo
+  // visible. Se vuelve a leer el estado duradero justo antes de escribir NADA.
+  //
+  // AGENT2A-PHONE-REVEAL-4O-F — esta puerta se evalúa ANTES de bifurcar entre la
+  // escritura transaccional de la colección y el UPDATE escalar, y no dentro de una
+  // sola de las dos ramas. La transacción (migraciones 111 + 113) vuelve a comprobar,
+  // bajo el lock, los tombstones POR NÚMERO y la supresión POR PERSONA, pero NO lee
+  // `do_not_contact`: dejar la puerta después de la bifurcación haría que cablear la
+  // colección en el disparo manual perdiera, en silencio, la protección de
+  // `do_not_contact` en vuelo que 4O-E3 añadió a este mismo camino.
+  //
+  // Para la pata del waterfall esto es un no-op EXACTO: no inyecta `checkPrivacyGate`
+  // —su core ya ejecutó esta misma puerta antes de autorizar la corrida— así que el
+  // bloque entero sigue sin ejecutarse allí.
+  //
+  // El crédito YA se gastó. Lo que se retiene es el NÚMERO, nunca el cargo: el
+  // usage-log de abajo lleva los créditos REALES que Lusha reportó, y en el caso de
+  // supresión el cierre terminal deja el rastro sin tocar las columnas de costo del
+  // candidato —que describen el reveal de la pata anterior— tal y como fijó 4O-E1.
+  if (deps.checkPrivacyGate) {
+    const gateAfter = await deps.checkPrivacyGate(candidateId);
+    if (gateAfter !== 'clear') {
+      const blockedStatus =
+        gateAfter === 'do_not_contact'
+          ? 'do_not_contact'
+          : gateAfter === 'blocked_suppressed'
+            ? SUPPRESSION_BLOCKED_ERROR_CODE
+            : SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE;
+
+      // Solo la supresión CONFIRMADA deja rastro terminal: es un veredicto de
+      // privacidad definitivo y es lo que saca al candidato del estado que lo hace
+      // elegible para otro reveal pagado. Un `do_not_contact` o una lectura que
+      // falló no afirman eso, así que no cierran nada — el siguiente intento lo para
+      // la puerta PREVIA, con 0 créditos.
+      if (gateAfter === 'blocked_suppressed') {
+        await applyTerminalPhoneSuppression({
+          candidateId,
+          persist: deps.persistTerminalSuppression,
+          patch: buildTerminalPhoneSuppressionPatch({
+            // Mismo token de pertenencia que usa la transacción: la fila tiene que
+            // seguir en el estado que autorizó este intento. Vacío ⇒ no se escribe.
+            expectedStatuses: cleanText(candidate.phoneRevealStatus)
+              ? [candidate.phoneRevealStatus as string]
+              : [],
+            nowIso: deps.nowIso,
+          }),
+        });
+      }
+
+      await deps.logUsage(
+        buildUsageLogEntry({
+          candidateId,
+          actorId: deps.actor.internalUserId,
+          actorRole: deps.actor.roleKey,
+          usageStatus: 'success',
+          // El gasto REAL, íntegro: la llamada ocurrió y se cobró.
+          creditsUsed: result.creditsCharged,
+          costSource: result.costSource ?? 'unknown',
+          errorCode: blockedStatus,
+          waterfallId: deps.phoneRevealWaterfallId,
+        }),
+      );
+      return {
+        ...fail(blockedStatus, blockedStatus),
+        creditsCharged: result.creditsCharged,
+        costSource: result.costSource ?? 'unknown',
+      };
+    }
+  }
+
   // Camino `revealed`: IDÉNTICO en modo manual y en modo waterfall. Lusha sí
   // reveló, así que el candidato pasa legítimamente a provider `lusha` con su
   // costo real y `enrichment_metadata.phone.source = 'lusha_reveal'`.
@@ -915,69 +1003,8 @@ export async function runLushaPhoneFallbackReveal(
     };
   }
 
-  // ── Puerta de privacidad, DESPUÉS de la respuesta (4O-E3) ──────
-  //
-  // Este camino escribe el número con un UPDATE suelto, así que no hay transacción
-  // donde re-comprobar (la migración 113 protege la ruta que sí usa la RPC). La
-  // llamada a Lusha es síncrona pero no instantánea, y una DSAR registrada mientras
-  // el proveedor respondía dejaría el número borrado de vuelta en el escalar. Se
-  // vuelve a leer el estado duradero justo antes de escribir.
-  //
-  // El crédito YA se gastó. Lo que se retiene es el NÚMERO, nunca el cargo: el
-  // usage-log de abajo lleva los créditos REALES que Lusha reportó, y en el caso de
-  // supresión el cierre terminal deja el rastro sin tocar las columnas de costo del
-  // candidato —que describen el reveal de la pata anterior— tal y como fijó 4O-E1.
-  if (deps.checkPrivacyGate) {
-    const gateAfter = await deps.checkPrivacyGate(candidateId);
-    if (gateAfter !== 'clear') {
-      const blockedStatus =
-        gateAfter === 'do_not_contact'
-          ? 'do_not_contact'
-          : gateAfter === 'blocked_suppressed'
-            ? SUPPRESSION_BLOCKED_ERROR_CODE
-            : SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE;
-
-      // Solo la supresión CONFIRMADA deja rastro terminal: es un veredicto de
-      // privacidad definitivo y es lo que saca al candidato del estado que lo hace
-      // elegible para otro reveal pagado. Un `do_not_contact` o una lectura que
-      // falló no afirman eso, así que no cierran nada — el siguiente intento lo para
-      // la puerta PREVIA, con 0 créditos.
-      if (gateAfter === 'blocked_suppressed') {
-        await applyTerminalPhoneSuppression({
-          candidateId,
-          persist: deps.persistTerminalSuppression,
-          patch: buildTerminalPhoneSuppressionPatch({
-            // Mismo token de pertenencia que usa la transacción: la fila tiene que
-            // seguir en el estado que autorizó este intento. Vacío ⇒ no se escribe.
-            expectedStatuses: cleanText(candidate.phoneRevealStatus)
-              ? [candidate.phoneRevealStatus as string]
-              : [],
-            nowIso: deps.nowIso,
-          }),
-        });
-      }
-
-      await deps.logUsage(
-        buildUsageLogEntry({
-          candidateId,
-          actorId: deps.actor.internalUserId,
-          actorRole: deps.actor.roleKey,
-          usageStatus: 'success',
-          // El gasto REAL, íntegro: la llamada ocurrió y se cobró.
-          creditsUsed: result.creditsCharged,
-          costSource: result.costSource ?? 'unknown',
-          errorCode: blockedStatus,
-          waterfallId: deps.phoneRevealWaterfallId,
-        }),
-      );
-      return {
-        ...fail(blockedStatus, blockedStatus),
-        creditsCharged: result.creditsCharged,
-        costSource: result.costSource ?? 'unknown',
-      };
-    }
-  }
-
+  // Sin `persistPhoneCollection` cableada: UPDATE escalar de siempre. La puerta de
+  // privacidad posterior a la respuesta ya se evaluó ARRIBA, común a las dos ramas.
   await deps.persist(candidateId, {
     phone: phoneNumber,
     enrichment_metadata: {

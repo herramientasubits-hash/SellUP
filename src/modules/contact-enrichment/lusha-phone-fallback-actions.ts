@@ -39,6 +39,10 @@ import { checkPhoneRevealPrivacyGate } from './phone-reveal-privacy-gate';
 // posterior a la respuesta puede encontrar una DSAR registrada mientras Lusha
 // respondía, y ese cierre no puede pisar el resultado de otro actor.
 import { persistTerminalPhoneSuppression } from './candidate-phone-suppression-persistence';
+// Escritura TRANSACCIONAL de la colección (AGENT2A-PHONE-REVEAL-4O-F). Es EXACTAMENTE
+// la misma implementación que ya usaba la pata del waterfall desde 4O-D: no hay un
+// segundo algoritmo de normalización, deduplicación, ranking ni elección de principal.
+import { persistCandidateLushaPhoneCollection } from './candidate-lusha-phone-collection-persistence';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
 
 // ── Auth + rol del actor ──────────────────────────────────────
@@ -149,6 +153,30 @@ export async function revealCandidatePhoneViaLushaFallbackAction(
     // Escritura CONDICIONAL del cierre por supresión: si la fila cambió de estado
     // mientras Lusha respondía, se actualizan 0 filas en vez de pisar a nadie.
     persistTerminalSuppression: persistTerminalPhoneSuppression,
+
+    // 4O-F — TODOS los teléfonos de la MISMA respuesta pagada.
+    //
+    // Hasta este hito esta acción era el único camino a Lusha que seguía tirando los
+    // números que la respuesta ya traía: el cliente los devuelve todos desde 4O-D,
+    // pero sin esta dep el core escribía solo el escalar electo y el resto se perdía
+    // — ya pagados, y recuperables únicamente pagando otra vez.
+    //
+    // Se reutiliza la RPC de la migración 111 SIN modificarla y SIN inventar una
+    // corrida: `waterfall_run_id` y `reservation_id` son nulos en su contrato de
+    // procedencia precisamente para admitir una observación que no pertenece a
+    // ninguna orquestación. El disparo manual es ese caso.
+    //
+    // Consecuencias, todas ya garantizadas por la transacción: 1 llamada, 1 evento de
+    // facturación (`billing.creditsCharged` por RESPUESTA, jamás multiplicado por el
+    // número de teléfonos), N filas canónicas, fusión con lo que el otro proveedor
+    // hubiera guardado, un único principal por MEJORA estricta y ningún tombstone
+    // resucitado. Si falla, el core falla cerrado: el candidato no se cierra y no se
+    // vuelve a llamar a Lusha.
+    persistPhoneCollection: persistCandidateLushaPhoneCollection,
+    // El disparo manual no pertenece a ninguna corrida ni reserva: null en vez de
+    // fabricar una correlación, misma convención que la pata del waterfall.
+    phoneRevealWaterfallId: null,
+    phoneCollectionReservationId: null,
 
     loadCandidate: async (candidateId): Promise<LushaPhoneFallbackCandidateRecord | null> => {
       const { data, error } = await supabase

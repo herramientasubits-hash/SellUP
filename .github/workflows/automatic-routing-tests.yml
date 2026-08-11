@@ -403,6 +403,9 @@ jobs:
       - name: Run Apollo phone collection capture tests
         run: npm run test:agent2a:apollo-phone-collection-capture
 
+      - name: Run Lusha phone collection capture tests
+        run: npm run test:agent2a:lusha-phone-collection
+
       # AGENT2A-PHONE-REVEAL-4O-E1 — política TERMINAL de supresión.
       #
       # La auditoría 4O-E0 encontró que ninguna suite de supresión entraba en este
@@ -628,3 +631,6 @@ jobs:
       # depender de un binario que se descarga.
       - name: Run manual contact phone provenance tests
         run: npm run test:agent2a:contact-phone-provenance
+
+      - name: Run manual Lusha multi-phone tests
+        run: npm run test:agent2a:manual-lusha-multi-phone
