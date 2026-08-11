@@ -551,8 +551,10 @@ describe('BR-SOURCE-14B.0J § 7 — the national input completeness gate', () =>
   });
 
   it('15 — returns indeterminate when the expected inventory is unknown', () => {
-    // The standing case, and the reason this milestone blocks: the repository has no inventory at all.
-    assert.equal(BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN, false);
+    // BR-SOURCE-14B.0K landed a publisher-derived inventory, so the repository-level flag is now `true`.
+    // The behaviour under test is unchanged and is the point: the flag is descriptive, the gate reads the
+    // CALLER's records, and a caller that supplies no expectation is still refused.
+    assert.equal(BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN, true);
     const absent = completeness(observedNational(), null);
     assert.equal(absent.verdict, 'indeterminate');
     assert.equal(absent.inputScope, 'indeterminate');
@@ -701,7 +703,10 @@ describe('BR-SOURCE-14B.0J § 7 — the national input completeness gate', () =>
     assert.equal(standing.readsRows, false);
     assert.equal(standing.opensFiles, false);
     assert.equal(standing.gateImplemented, true);
-    assert.equal(standing.expectedInventoryKnown, false);
+    // 14B.0K: known for 2026-07 and no other period, and knowing it still blocks a caller who has not
+    // inspected anything.
+    assert.equal(standing.expectedInventoryKnown, true);
+    assert.deepEqual(standing.expectedInventoryKnownPeriods, ['2026-07']);
     assert.equal(standing.standingVerdictWithoutInventory, 'indeterminate');
     assert.equal(standing.attempt1InputScope, 'staged_subset');
     assert.equal(standing.attempt2RequiredInputScope, 'full_national');
@@ -801,7 +806,10 @@ describe('BR-SOURCE-14B.0J § 12 — authorization remains false', () => {
     assert.equal(readiness.attemptModel.attemptsConsumed, 1);
     assert.equal(readiness.attemptModel.nextAttemptNumber, 2);
     assert.equal(readiness.attemptModel.attempt3Allowed, false);
-    assert.equal(readiness.nationalInputGate.expectedInventoryKnown, false);
+    // 14B.0K supplied the expectation; the readiness path still inspects nothing, so its standing verdict
+    // is still `indeterminate` and Gate 2 is still not ready.
+    assert.equal(readiness.nationalInputGate.expectedInventoryKnown, true);
+    assert.equal(readiness.nationalInputGate.standingVerdictWithoutInventory, 'indeterminate');
 
     // Nothing in the attempt model reports an authorization at all.
     assert.ok(!Object.keys(readiness.attemptModel).includes('authorized'));

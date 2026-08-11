@@ -12,20 +12,29 @@
  * a question nobody asked.
  *
  * ── The verdict this module refuses to fake ─────────────────────────────────────
- * `indeterminate` is the headline outcome, not an edge case. § 7 is explicit: if the repository does not
- * contain enough metadata to know whether a file set is the national whole, the answer is
- * `indeterminate` and it is a HARD STOP — "no declarar 'complete' por ausencia de evidencia".
+ * `indeterminate` is never an edge case here. § 7 is explicit: if the caller does not hold enough
+ * metadata to know whether a file set is the national whole, the answer is `indeterminate` and it is a
+ * HARD STOP — "no declarar 'complete' por ausencia de evidencia".
  *
- * And that is where this connector actually stands. An audit of the whole connector, its scripts and its
- * decision records found NO authoritative statement of the expected 2026-07 part inventory: not a
- * publisher manifest, not a local inventory contract, not a part count anywhere. `roughly ten parts per
- * family`, from a prose caveat, is not a contract — it is an observation with a hedge in it, and a gate
- * that turned it into `expectedPartCount: 10` would be inventing the very evidence § 7 forbids
- * inventing. So `BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN` is `false`, and with no expected
- * inventory supplied this gate returns `indeterminate` every time.
+ * At 14B.0J that was also the STANDING answer: an audit of the whole connector, its scripts and its
+ * decision records found NO authoritative statement of the expected 2026-07 part inventory, so this gate
+ * returned `indeterminate` every time and named the gap. `roughly ten parts per family`, from a prose
+ * caveat, was not a contract — it was an observation with a hedge in it, and a gate that turned it into
+ * `expectedPartCount: 10` would have invented the very evidence § 7 forbids inventing.
  *
- * That is the useful result. It converts "we think the staged data is about a tenth" into a blocking,
- * mechanical refusal that names exactly what an owner must produce before attempt #2 is runnable.
+ * ── BR-SOURCE-14B.0K closed that gap, for one period ────────────────────────────
+ * The expected inventory now exists as a versioned, publisher-derived artifact
+ * (`br-receita-cnpj-14b0k-publisher-inventory`): the Receita's own 2026-07 listing, transcribed verbatim
+ * with exact part identities, parsed fail-closed, and derived into this gate's `expected` input by
+ * `deriveBrazilReceitaNationalExpectedInventory`. So
+ * `BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN` is now `true` — for the periods listed in
+ * `BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN_PERIODS` and no others.
+ *
+ * Nothing about the gate's behaviour changed, and that matters: the constant is DESCRIPTIVE. A caller
+ * that supplies no expectation still gets `indeterminate`, a caller that supplies an operator's own
+ * assurance still gets `indeterminate`, and a period with no transcribed listing still has no
+ * expectation at all. Knowing what the publisher published is a precondition for deciding; it is not a
+ * decision, and it is not authorization.
  *
  * ── Provenance is part of the evidence (§ 7) ────────────────────────────────────
  * An expected inventory is only evidence if someone other than the run said so. An operator asserting
@@ -60,27 +69,36 @@ import {
 // ─── Standing of the repository's own knowledge (§ 7) ─────────────────────────
 
 /**
- * Whether this repository declares the expected national part inventory for any period. `false`.
+ * Whether this repository declares the expected national part inventory for any period. `true` since
+ * BR-SOURCE-14B.0K.
  *
- * The single most important constant in this module. It is what makes the default verdict
- * `indeterminate` instead of an unearned `complete`, and it is `false` on audit rather than on
- * principle: nothing in the connector, its scripts, or its decision records states how many parts the
- * Receita publishes per family for a given period.
- *
- * Flipping it requires landing a real inventory contract — a publisher manifest or a reviewed local
- * declaration — not an edit to this line.
+ * It was `false` on audit at 14B.0J rather than on principle, and it is `true` now for the same reason:
+ * because of what the repository actually contains. 14B.0K landed the Receita's own 2026-07 listing as a
+ * versioned artifact with exact part identities, so the honest value changed — and the flag stayed
+ * DESCRIPTIVE. It grants nothing. `evaluateBrazilReceitaNationalInputCompleteness` reads the caller's
+ * `expected` and `observed` records and never this constant, so a caller with no evidence still gets
+ * `indeterminate` whatever this line says.
  */
-export const BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN = false as const;
+export const BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN = true as const;
 
 /**
- * Why it is unknown, in a form a report can carry.
+ * The periods a publisher-derived inventory exists for. Exactly one.
  *
- * Recorded because "indeterminate" alone tells an owner they are blocked without telling them what
- * would unblock them, and the answer is specific: a per-family expected part count for the period,
- * from a source that is not the run.
+ * Enumerated rather than implied, because "we know what the Receita publishes" is a per-period claim: a
+ * run for 2026-08 has no expectation in this repository, and inferring one from July is precisely the
+ * substitution § 2 of 14B.0K forbids.
  */
-export const BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_GAP =
-  'no_declared_expected_part_inventory_for_any_period' as const;
+export const BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN_PERIODS: readonly string[] = ['2026-07'];
+
+/**
+ * Where the expectation comes from, in a form a report can carry.
+ *
+ * Recorded because a verdict alone tells an owner they are blocked without telling them on whose word:
+ * the answer is the official publisher's listing for the period, transcribed deterministically, and never
+ * the run's own operator.
+ */
+export const BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_SOURCE =
+  'publisher_derived_part_identity_inventory_2026_07' as const;
 
 /** The scope a second real attempt must have. Restated from the attempt ledger for local readers. */
 export const BRAZIL_RECEITA_NATIONAL_REQUIRED_ATTEMPT_2_INPUT_SCOPE = 'full_national' as const;
@@ -509,7 +527,8 @@ export function brazilReceitaNationalInputSatisfiesAttempt2(
 export interface BrazilReceitaNationalInputGateStanding {
   readonly gateImplemented: true;
   readonly expectedInventoryKnown: typeof BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN;
-  readonly expectedInventoryGap: typeof BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_GAP;
+  readonly expectedInventoryKnownPeriods: readonly string[];
+  readonly expectedInventorySource: typeof BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_SOURCE;
   readonly standingVerdictWithoutInventory: 'indeterminate';
   readonly attempt1InputScope: 'staged_subset';
   readonly attempt2RequiredInputScope: typeof BRAZIL_RECEITA_NATIONAL_REQUIRED_ATTEMPT_2_INPUT_SCOPE;
@@ -520,15 +539,17 @@ export interface BrazilReceitaNationalInputGateStanding {
 /**
  * The gate's standing, as data.
  *
- * `gateImplemented: true` and `expectedInventoryKnown: false` are both true at once, and reporting them
- * together is the point: the control exists and it currently blocks, which is the correct state for a
- * milestone that was asked to build the gate and not to open the data.
+ * `expectedInventoryKnown: true` and `standingVerdictWithoutInventory: 'indeterminate'` are both true at
+ * once, and reporting them together is the point: the expectation exists, and a caller that supplies no
+ * observation is still refused. Knowing what the publisher published is not the same as having looked at
+ * what is on disk, and the gate keeps the two apart.
  */
 export function summarizeBrazilReceitaNationalInputGate(): BrazilReceitaNationalInputGateStanding {
   return {
     gateImplemented: true,
     expectedInventoryKnown: BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN,
-    expectedInventoryGap: BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_GAP,
+    expectedInventoryKnownPeriods: BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN_PERIODS,
+    expectedInventorySource: BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_SOURCE,
     standingVerdictWithoutInventory: 'indeterminate',
     attempt1InputScope: 'staged_subset',
     attempt2RequiredInputScope: BRAZIL_RECEITA_NATIONAL_REQUIRED_ATTEMPT_2_INPUT_SCOPE,
