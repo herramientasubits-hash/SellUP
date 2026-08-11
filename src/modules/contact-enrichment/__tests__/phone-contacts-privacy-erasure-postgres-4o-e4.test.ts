@@ -35,6 +35,10 @@
  *     observado). El SQL se genera desde el patch, no se escribe a mano: si el core
  *     cambiara de columnas, este test cambia con él.
  *
+ * ⚠️ 4O-E4.1 amplió el alcance de este archivo: `mobile_phone` SOBREVIVE ahora en
+ * todos los caminos, incluidos los de Apollo, y aquí se demuestra contra el motor —
+ * junto con la carrera en la que alguien teclea un celular mientras la DSAR corre.
+ *
  * NO llama a Apollo, ni a Lusha, ni a HubSpot; no lee un flag; no toca Producción ni
  * ninguna base remota; no gasta un crédito; no ejecuta ninguna DSAR real. Todos los
  * números son sintéticos 555 y todos los ids son ficticios.
@@ -63,6 +67,7 @@ import {
   SUPPRESSIBLE_CONTACT_PHONE_SOURCES,
   buildContactPhoneSuppressionPatch,
 } from '../phone-cache-suppression-core';
+import { resolveManualContactPhoneEdit } from '@/modules/contacts/contact-phone-provenance';
 
 // ═══════════════════════════════════════════════════════════════
 // Resolución del arnés opcional
@@ -246,7 +251,7 @@ describe(
       observedPhoneSource: string;
     }): Promise<number> {
       const conn = args.conn ?? client;
-      const patch = buildContactPhoneSuppressionPatch(args.observedPhoneSource);
+      const patch = buildContactPhoneSuppressionPatch();
       const columns = Object.keys(patch);
       assert.ok(columns.length > 0);
       const setClause = columns.map((c) => `${c} = NULL`).join(', ');
@@ -256,6 +261,49 @@ describe(
           WHERE id = $1 AND account_id = $2 AND phone_source = $3
         RETURNING id`,
         [args.contactId, args.accountId ?? ACCOUNT_A, args.observedPhoneSource],
+      );
+      return rows.length;
+    }
+
+    /**
+     * Ejecuta EXACTAMENTE la escritura de `updateContact` cuando un humano teclea un
+     * teléfono (4O-E4.1-R1).
+     *
+     * ⚠️ Antes de R1, estas pruebas escribían `SET phone_source = 'manual'` a mano.
+     * Eso demostraba una propiedad de un escritor FICTICIO: la app no hacía nada
+     * parecido —dejaba viva la procedencia del proveedor— y el test seguía verde
+     * sobre una premisa falsa. Ahora la decisión y el patch salen del MISMO helper
+     * puro que usa la server action, y el SQL se DERIVA del patch: si el helper
+     * dejara de invalidar la procedencia, estas carreras fallarían.
+     */
+    async function applyManualPhoneEdit(args: {
+      conn?: PgLikeClient;
+      contactId: string;
+      inputPhone: string | null;
+    }): Promise<number> {
+      const conn = args.conn ?? client;
+      const { rows: currentRows } = await conn.query(
+        'SELECT phone FROM public.contacts WHERE id = $1',
+        [args.contactId],
+      );
+      assert.equal(currentRows.length, 1);
+
+      const edit = resolveManualContactPhoneEdit({
+        currentPhone: (currentRows[0].phone as string | null) ?? null,
+        inputPhone: args.inputPhone,
+      });
+      if (edit.kind === 'field_absent' || edit.kind === 'unchanged') return 0;
+
+      const columns = Object.keys(edit.patch);
+      const setClause = columns
+        .map((c, i) => `${c} = $${i + 2}`)
+        .join(', ');
+      const values = columns.map(
+        (c) => (edit.patch as unknown as Record<string, unknown>)[c],
+      );
+      const { rows } = await conn.query(
+        `UPDATE public.contacts SET ${setClause} WHERE id = $1 RETURNING id`,
+        [args.contactId, ...values],
       );
       return rows.length;
     }
@@ -317,7 +365,7 @@ describe(
     // ── 2. Regresión Apollo ────────────────────────────────────
 
     for (const source of ['apollo_reveal', 'apollo_cache']) {
-      it(`${source}: sigue borrándose, incluido mobile_phone (contrato previo)`, async () => {
+      it(`${source}: el teléfono y su tupla se borran`, async () => {
         const id = await insertContact({
           phone: APOLLO_PHONE,
           phoneSource: source,
@@ -329,9 +377,85 @@ describe(
         const row = await readContact(id);
         assert.equal(row.phone, null);
         assert.equal(row.phone_source, null);
-        assert.equal(row.mobile_phone, null, `${source} sí nula mobile_phone`);
+        assert.equal(row.phone_revealed_at, null);
+        assert.equal(row.phone_confidence, null);
+      });
+
+      // 4O-E4.1: la aserción de este caso era la contraria hasta este hito. El
+      // borrado de `mobile_phone` en el camino Apollo era heredado, no demostrado:
+      // ningún proveedor escribe esa columna, ni hoy ni en el historial.
+      it(`${source}: mobile_phone SOBREVIVE (4O-E4.1)`, async () => {
+        const id = await insertContact({
+          phone: APOLLO_PHONE,
+          phoneSource: source,
+          mobilePhone: OTHER_MOBILE,
+        });
+
+        await suppress({ contactId: id, observedPhoneSource: source });
+
+        const row = await readContact(id);
+        assert.equal(row.phone, null);
+        assert.equal(
+          row.mobile_phone,
+          OTHER_MOBILE,
+          `${source} describe la columna phone, no mobile_phone`,
+        );
       });
     }
+
+    it('el SET del UPDATE no nombra mobile_phone para NINGUNA procedencia', () => {
+      // El SQL se deriva del patch; si la columna volviera al core, aparecería aquí.
+      assert.equal(
+        Object.keys(buildContactPhoneSuppressionPatch()).includes('mobile_phone'),
+        false,
+      );
+    });
+
+    // §11 — el caso obligatorio de 4O-E4.1 contra el motor real: la fila lleva un
+    // teléfono de proveedor Y un celular escrito a mano; sólo el primero desaparece.
+    it('CASO OBLIGATORIO: phone de proveedor borrado, celular MANUAL intacto', async () => {
+      const id = await insertContact({
+        phone: APOLLO_PHONE,
+        phoneSource: 'apollo_reveal',
+        mobilePhone: OTHER_MOBILE,
+      });
+
+      assert.equal(
+        await suppress({ contactId: id, observedPhoneSource: 'apollo_reveal' }),
+        1,
+      );
+
+      const row = await readContact(id);
+      assert.equal(row.phone, null);
+      assert.equal(row.mobile_phone, OTHER_MOBILE);
+
+      // Consecuencia declarada (§13): la UI resuelve `mobile_phone ?? phone`, así que
+      // el número manual sigue siendo visible. No se compensa ocultándolo.
+      assert.equal((row.mobile_phone ?? row.phone) as string | null, OTHER_MOBILE);
+    });
+
+    it('CARRERA: un celular escrito DESPUÉS de la lectura sobrevive a la erasure', async () => {
+      const id = await insertContact({
+        phone: APOLLO_PHONE,
+        phoneSource: 'apollo_reveal',
+        mobilePhone: null,
+      });
+
+      // Tx B: alguien teclea un celular en el formulario mientras la DSAR corre.
+      await other.query('UPDATE public.contacts SET mobile_phone = $2 WHERE id = $1', [
+        id,
+        OTHER_MOBILE,
+      ]);
+
+      assert.equal(
+        await suppress({ contactId: id, observedPhoneSource: 'apollo_reveal' }),
+        1,
+      );
+
+      const row = await readContact(id);
+      assert.equal(row.phone, null, 'el teléfono con procedencia sí se borra');
+      assert.equal(row.mobile_phone, OTHER_MOBILE, 'el celular manual sobrevive');
+    });
 
     // ── 3. Preservación: sin procedencia, el teléfono vive ─────
 
@@ -406,14 +530,16 @@ describe(
       assert.equal(observedRows[0].phone_source, 'lusha_reveal');
       await client.query('COMMIT');
 
-      // Tx B: un escritor legítimo reemplaza el número por uno MANUAL y commitea.
-      await other.query(
-        `UPDATE public.contacts
-            SET phone = $2, phone_source = 'manual', phone_type = NULL,
-                phone_raw_type = NULL, phone_revealed_at = NULL,
-                phone_processing_basis = NULL, phone_confidence = NULL
-          WHERE id = $1`,
-        [id, MANUAL_PHONE],
+      // Tx B: el escritor REAL de la app (updateContact vía el helper de R1)
+      // reemplaza el número por uno MANUAL y commitea. La procedencia la invalida
+      // el helper, no esta prueba.
+      assert.equal(
+        await applyManualPhoneEdit({
+          conn: other,
+          contactId: id,
+          inputPhone: MANUAL_PHONE,
+        }),
+        1,
       );
 
       // Tx A: ejecuta su borrado con la procedencia que OBSERVÓ. Llega tarde.
@@ -445,7 +571,7 @@ describe(
         [id],
       );
 
-      // El patch de Lusha (sin mobile_phone) no se aplica…
+      // Con la procedencia vieja el UPDATE no alcanza la fila…
       assert.equal(
         await suppress({ contactId: id, observedPhoneSource: 'lusha_reveal' }),
         0,
@@ -454,14 +580,15 @@ describe(
       assert.equal(row.phone, LUSHA_PHONE, 'nada se borró con la procedencia vieja');
       assert.equal(row.mobile_phone, OTHER_MOBILE);
 
-      // …y con la procedencia real sí, con el patch correcto (que sí nula el celular).
+      // …y con la procedencia REAL sí. El celular sigue intacto también aquí
+      // (4O-E4.1): ninguna procedencia de `phone` lo autoriza.
       assert.equal(
         await suppress({ contactId: id, observedPhoneSource: 'apollo_reveal' }),
         1,
       );
       row = await readContact(id);
       assert.equal(row.phone, null);
-      assert.equal(row.mobile_phone, null);
+      assert.equal(row.mobile_phone, OTHER_MOBILE);
     });
 
     // ── 5. §17 — orden inverso ─────────────────────────────────
@@ -479,10 +606,14 @@ describe(
       );
       assert.equal((await readContact(id)).phone, null);
 
-      // Después, una escritura legítima añade un teléfono manual.
-      await other.query(
-        `UPDATE public.contacts SET phone = $2, phone_source = 'manual' WHERE id = $1`,
-        [id, MANUAL_PHONE],
+      // Después, el escritor REAL de la app añade un teléfono manual.
+      assert.equal(
+        await applyManualPhoneEdit({
+          conn: other,
+          contactId: id,
+          inputPhone: MANUAL_PHONE,
+        }),
+        1,
       );
 
       const row = await readContact(id);
@@ -492,6 +623,152 @@ describe(
         'E4 no prohíbe teléfonos manuales posteriores: eso es del modelo person-level',
       );
       assert.equal(row.phone_source, 'manual');
+    });
+
+    // ── 5b. 4O-E4.1-R1 — la edición manual invalida la procedencia ──
+    //
+    // Estas pruebas cierran el hueco que hacía FALSA la premisa de las de arriba:
+    // que un teléfono tecleado a mano queda en `manual`. Aquí eso NO se asume ni se
+    // escribe a mano — lo produce el helper real contra el motor real, y después se
+    // mide si la supresión alcanza el dato.
+
+    for (const source of SUPPRESSIBLE_CONTACT_PHONE_SOURCES) {
+      it(`R1 ${source}: un reemplazo manual sobrevive a la DSAR posterior`, async () => {
+        const id = await insertContact({
+          phone: LUSHA_PHONE,
+          phoneSource: source,
+          mobilePhone: OTHER_MOBILE,
+        });
+
+        // La fila ES borrable antes de la edición: el escenario no pasa por vacío.
+        const control = await insertContact({ phone: LUSHA_PHONE, phoneSource: source });
+        assert.equal(await suppress({ contactId: control, observedPhoneSource: source }), 1);
+
+        // El humano teclea otro número. La procedencia la invalida el helper.
+        assert.equal(
+          await applyManualPhoneEdit({ contactId: id, inputPhone: MANUAL_PHONE }),
+          1,
+        );
+
+        const edited = await readContact(id);
+        assert.equal(edited.phone, MANUAL_PHONE);
+        assert.equal(edited.phone_source, 'manual');
+        assert.equal(edited.phone_type, null);
+        assert.equal(edited.phone_raw_type, null);
+        assert.equal(edited.phone_revealed_at, null);
+        assert.equal(edited.phone_processing_basis, null);
+        assert.equal(edited.phone_confidence, null);
+
+        // La DSAR llega con la procedencia del proveedor y NO alcanza la fila.
+        assert.equal(await suppress({ contactId: id, observedPhoneSource: source }), 0);
+        const after = await readContact(id);
+        assert.equal(after.phone, MANUAL_PHONE, 'el número manual sobrevive');
+        assert.equal(after.mobile_phone, OTHER_MOBILE);
+      });
+    }
+
+    it('R1: reenviar el MISMO número NO blinda la fila — la DSAR sigue borrando', async () => {
+      const id = await insertContact({
+        phone: LUSHA_PHONE,
+        phoneSource: 'lusha_reveal',
+      });
+
+      // El formulario reenvía el valor guardado: 0 filas escritas, procedencia viva.
+      assert.equal(
+        await applyManualPhoneEdit({ contactId: id, inputPhone: LUSHA_PHONE }),
+        0,
+      );
+      assert.equal((await readContact(id)).phone_source, 'lusha_reveal');
+
+      assert.equal(
+        await suppress({ contactId: id, observedPhoneSource: 'lusha_reveal' }),
+        1,
+      );
+      assert.equal((await readContact(id)).phone, null);
+    });
+
+    it('R1: borrar el teléfono a mano deja la tupla NULL y la DSAR no encuentra nada', async () => {
+      const id = await insertContact({
+        phone: LUSHA_PHONE,
+        phoneSource: 'apollo_reveal',
+        mobilePhone: OTHER_MOBILE,
+      });
+
+      assert.equal(await applyManualPhoneEdit({ contactId: id, inputPhone: '' }), 1);
+
+      const row = await readContact(id);
+      assert.equal(row.phone, null);
+      assert.equal(
+        row.phone_source,
+        null,
+        'nunca `phone = NULL` con procedencia de proveedor viva',
+      );
+      assert.equal(row.mobile_phone, OTHER_MOBILE, '4O-E4.1: el celular no se toca');
+
+      assert.equal(
+        await suppress({ contactId: id, observedPhoneSource: 'apollo_reveal' }),
+        0,
+      );
+    });
+
+    it('R1 CARRERA: el UPDATE stale de privacidad afecta 0 filas y el número manual queda', async () => {
+      const id = await insertContact({
+        phone: LUSHA_PHONE,
+        phoneSource: 'apollo_cache',
+      });
+
+      // Tx A observa `apollo_cache` y aún no escribe.
+      await client.query('BEGIN');
+      const { rows: observed } = await client.query(
+        'SELECT phone_source FROM public.contacts WHERE id = $1',
+        [id],
+      );
+      assert.equal(observed[0].phone_source, 'apollo_cache');
+      await client.query('COMMIT');
+
+      // Tx B: el humano commitea número + procedencia JUNTOS (un solo UPDATE).
+      assert.equal(
+        await applyManualPhoneEdit({
+          conn: other,
+          contactId: id,
+          inputPhone: MANUAL_PHONE,
+        }),
+        1,
+      );
+
+      // Tx A ejecuta con la procedencia observada: llega tarde.
+      assert.equal(
+        await suppress({ contactId: id, observedPhoneSource: 'apollo_cache' }),
+        0,
+      );
+      const row = await readContact(id);
+      assert.equal(row.phone, MANUAL_PHONE);
+      assert.equal(row.phone_source, 'manual');
+    });
+
+    it('R1: la edición manual es UN solo UPDATE — no hay ventana número-sin-procedencia', async () => {
+      const id = await insertContact({
+        phone: LUSHA_PHONE,
+        phoneSource: 'lusha_reveal',
+      });
+
+      // Dentro de una transacción abierta, la fila conserva el estado ANTERIOR
+      // completo para cualquier lector externo: no existe un instante en el que el
+      // número sea el nuevo y la procedencia siga siendo la del proveedor.
+      await client.query('BEGIN');
+      await applyManualPhoneEdit({ contactId: id, inputPhone: MANUAL_PHONE });
+
+      const { rows: outside } = await other.query(
+        'SELECT phone, phone_source FROM public.contacts WHERE id = $1',
+        [id],
+      );
+      assert.equal(outside[0].phone, LUSHA_PHONE);
+      assert.equal(outside[0].phone_source, 'lusha_reveal');
+
+      await client.query('ROLLBACK');
+      const rolled = await readContact(id);
+      assert.equal(rolled.phone, LUSHA_PHONE, 'el rollback devuelve la fila entera');
+      assert.equal(rolled.phone_source, 'lusha_reveal');
     });
 
     // ── 6. Atomicidad y rollback ───────────────────────────────

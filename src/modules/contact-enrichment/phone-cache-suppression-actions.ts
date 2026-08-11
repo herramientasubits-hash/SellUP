@@ -41,11 +41,13 @@
 // aprobación → `contacts.phone_source`), nunca en coincidencia de valor.
 //
 // Dos consecuencias que este archivo materializa:
-//   * el UPDATE ahora filtra por la procedencia EXACTA observada (`.eq`) y no por la
-//     allowlist entera (`.in`), porque el patch dejó de ser el mismo para todas;
-//   * `mobile_phone` NO se toca en el camino Lusha. La columna no tiene procedencia
-//     propia y sus únicos escritores son los formularios manuales, así que la erasure
-//     de Lusha es declaradamente PARCIAL cuando ese campo está poblado.
+//   * el UPDATE filtra por la procedencia EXACTA observada (`.eq`) y no por la
+//     allowlist entera (`.in`): un reemplazo legítimo posterior a la lectura tiene
+//     que sobrevivir a la escritura stale;
+//   * `mobile_phone` NO se toca en NINGÚN camino (4O-E4.1). La columna no tiene
+//     procedencia propia y sus únicos escritores —actuales e históricos— son los
+//     formularios manuales, así que la erasure es declaradamente PARCIAL cuando ese
+//     campo está poblado, venga el teléfono de Apollo o de Lusha.
 //   * Every write is counted from the rows the database actually returned, so
 //     the durable audit reflects reality and not the plan (FIX M2).
 //   * Never returns or logs a phone/email/name/linkedin — only counts and ids.
@@ -423,13 +425,16 @@ export async function suppressPhoneCacheEntryAction(
   //     la escritura no acabe borrando un número manual (FIX M1).
   //
   //     4O-E4: el predicado pasa de `.in(allowlist)` a `.eq(procedencia observada)`.
-  //     Mientras todas las procedencias admitidas compartían un mismo patch, `.in`
-  //     y `.eq` eran equivalentes en efecto. Con `lusha_reveal` admitido ya no lo
-  //     son: el patch de Apollo incluye `mobile_phone: null` y el de Lusha no, así
-  //     que un `.in` permitiría aplicar el patch de una procedencia a una fila que
-  //     entre la lectura y la escritura pasó a ser de OTRA — borrando un celular sin
-  //     procedencia, o dejando sin borrar uno que sí la tenía. Con `.eq` esa carrera
-  //     afecta 0 filas y el operador la ve como supresión incompleta.
+  //
+  //     4O-E4.1: el patch volvió a ser UNO SOLO para todas las procedencias (ya no
+  //     incluye `mobile_phone` en ninguna), pero el `.eq` NO se revierte a `.in` —
+  //     su valor nunca dependió de que los patches divergieran. Lo que protege es la
+  //     carrera del §11: la supresión LEE la fila como `apollo_reveal`, un escritor
+  //     legítimo la reemplaza por un número MANUAL y commitea, y la escritura stale
+  //     llega después. Con `.in(allowlist)` esa fila ya no casaría por ser `manual`,
+  //     pero un cambio ENTRE procedencias admitidas (Apollo → Lusha) sí casaría y
+  //     borraría una tupla que el operador no observó. Con `.eq` la carrera afecta 0
+  //     filas y se ve como supresión incompleta, que es lo correcto.
   //
   //     El `.eq` es además estrictamente MÁS restrictivo que el `.in` anterior, así
   //     que ninguna fila que antes estuviera protegida deja de estarlo: `manual`,

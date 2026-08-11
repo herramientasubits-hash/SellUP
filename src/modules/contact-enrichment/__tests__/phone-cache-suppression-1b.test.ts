@@ -397,14 +397,21 @@ describe('CACHE-1b supresión — hard delete en los tres lugares', () => {
     );
   });
 
-  it('los contactos enlazados pierden phone y mobile_phone y su procedencia', () => {
+  // 4O-E4.1: `mobile_phone` salió del patch. La columna no tiene procedencia que
+  // ninguna de estas fuentes pueda reclamar, así que la erasure alcanza la tupla de
+  // `phone` y nada más.
+  it('los contactos enlazados pierden phone y su procedencia, NO el celular', () => {
     const result = plan();
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.deepEqual(clearedContactIds(result), ['contact-1', 'contact-2']);
     for (const { patch } of result.plan.contactPatches) {
       assert.equal(patch.phone, null);
-      assert.equal(patch.mobile_phone, null);
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(patch, 'mobile_phone'),
+        false,
+        'sin procedencia no hay borrado destructivo',
+      );
       assert.equal(patch.phone_source, null);
       assert.equal(patch.phone_type, null);
       assert.equal(patch.phone_raw_type, null);
