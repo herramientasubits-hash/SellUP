@@ -15,7 +15,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -25,6 +25,27 @@ const repoRoot = join(here, '..', '..', '..', '..');
 
 function readRepo(relative: string): string {
   return readFileSync(join(repoRoot, relative), 'utf8');
+}
+
+/**
+ * Rutas relativas al repo de TODOS los `.ts`/`.tsx` bajo un directorio. Recorrido
+ * propio y sin procesos externos: el barrido tiene que dar el mismo resultado en
+ * cualquier máquina y no depender de que `git` exista en el runner.
+ */
+function listRepoSourceFiles(relativeDir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(join(repoRoot, relativeDir), { withFileTypes: true })) {
+    const relative = `${relativeDir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      // Las suites quedan fuera: nombran el cableado para afirmarlo, y contarlas
+      // como puntos de inyección convertiría cada test nuevo en un falso positivo.
+      if (entry.name === '__tests__') continue;
+      out.push(...listRepoSourceFiles(relative));
+    } else if (/\.tsx?$/.test(entry.name)) {
+      out.push(relative);
+    }
+  }
+  return out;
 }
 
 /** Quita comentarios para que las aserciones miren código y no prosa. */
@@ -226,26 +247,104 @@ describe('4O-D — la ruta del otro proveedor queda intacta', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 3. La escritura nueva solo es alcanzable desde las dos rutas
+// 3. La escritura nueva solo es alcanzable desde las rutas autorizadas
 // ═══════════════════════════════════════════════════════════════
+//
+// AGENT2A-PHONE-REVEAL-4O-F. Este bloque se escribió en 4O-D con DOS rutas
+// autorizadas y una tercera —el disparo manual de administración— explícitamente
+// fuera de alcance. 4O-F la autoriza, así que los asserts se INVIERTEN en vez de
+// borrarse: lo que se sigue protegiendo es que el writer transaccional se cablee
+// SOLO en los puntos declarados, y que ninguno de ellos arme SQL por su cuenta.
 
-describe('4O-D — alcance de la nueva escritura', () => {
-  it('solo phone-reveal-waterfall-deps.ts inyecta el writer transaccional', () => {
-    const wiring = readRepo('src/modules/contact-enrichment/phone-reveal-waterfall-deps.ts');
-    assert.ok(wiring.includes('persistPhoneCollection: persistCandidateLushaPhoneCollection'));
-  });
+/**
+ * Los ÚNICOS módulos del repositorio autorizados a inyectar el writer.
+ *
+ * AGENT2A-PHONE-REVEAL-4O-F-R2 — la lista se REDUCE de dos a UNO, y esa reducción es el
+ * objetivo del hito, no una relajación. 4O-F cableaba el writer DOS veces —una en la
+ * pata compartida del waterfall y otra en la acción manual— porque el disparo manual
+ * llamaba a Lusha por su cuenta. R2 hace converger el disparo manual sobre la MISMA
+ * pata (`callLushaFallbackLeg` con `manualInvocation: true`), así que queda UNA sola
+ * implementación multi-teléfono de Lusha en todo el repositorio.
+ *
+ * El barrido de más abajo sigue siendo REAL sobre `src/`: si alguien vuelve a cablear el
+ * writer en un segundo punto —o si la acción manual recupera su propio camino pagado—
+ * este archivo falla.
+ */
+const AUTHORIZED_COLLECTION_WIRING_MODULES = [
+  // Waterfall completo, continuación legacy Y disparo manual de administración: los
+  // tres pasan por `callLushaFallbackLeg` (4O-D + 4O-F-R2).
+  'src/modules/contact-enrichment/phone-reveal-waterfall-deps.ts',
+] as const;
 
-  it('la acción manual de administración NO lo inyecta (fuera de alcance del hito)', () => {
+describe('4O-D/4O-F — alcance de la nueva escritura', () => {
+  for (const modulePath of AUTHORIZED_COLLECTION_WIRING_MODULES) {
+    it(`${modulePath.split('/').pop()} inyecta el writer transaccional exactamente una vez`, () => {
+      const wiring = readRepo(modulePath);
+      const occurrences =
+        wiring.match(/persistPhoneCollection:\s*persistCandidateLushaPhoneCollection/g) ?? [];
+      assert.equal(occurrences.length, 1);
+    });
+  }
+
+  it('la acción manual llega al writer por la pata COMPARTIDA, no por un cableado propio (4O-F-R2)', () => {
     const action = readRepo('src/modules/contact-enrichment/lusha-phone-fallback-actions.ts');
-    assert.equal(action.includes('persistPhoneCollection'), false);
-    assert.equal(action.includes('persistCandidateLushaPhoneCollection'), false);
+
+    // MANUAL_LUSHA_MULTI_PHONE sigue cerrado, pero por CONVERGENCIA: la acción delega en
+    // el motor `legacy_lusha_only`, que ejecuta la pata compartida y por tanto la MISMA
+    // transacción multi-teléfono. No hay una segunda copia que pueda divergir.
+    assert.ok(
+      action.includes('executeLegacyLushaOnlyPhoneReveal'),
+      'el disparo manual se ejecuta sobre el motor legacy_lusha_only',
+    );
+
+    // Y ya NO cablea deps de proveedor por su cuenta: ni la llamada, ni la persistencia,
+    // ni el usage-log. Si alguna reaparece aquí, volvió a existir un segundo camino
+    // pagado — que es exactamente el defecto que R2 eliminó.
+    for (const forbidden of [
+      'callLusha:',
+      'persistPhoneCollection:',
+      'persist:',
+      'logUsage:',
+      'enrichLushaContactPhonesForFallback',
+      'runLushaPhoneFallbackReveal',
+    ]) {
+      assert.equal(
+        action.includes(forbidden),
+        false,
+        `la acción manual NO puede volver a cablear \`${forbidden}\` por su cuenta`,
+      );
+    }
   });
 
-  it('el writer transaccional se inyecta en exactamente UN sitio del repositorio', () => {
-    const wiring = readRepo('src/modules/contact-enrichment/phone-reveal-waterfall-deps.ts');
-    const occurrences =
-      wiring.match(/persistPhoneCollection:\s*persistCandidateLushaPhoneCollection/g) ?? [];
-    assert.equal(occurrences.length, 1);
+  it('la pata compartida distingue la invocación manual y le conserva su puerta de privacidad', () => {
+    const deps = readRepo('src/modules/contact-enrichment/phone-reveal-waterfall-deps.ts');
+
+    // `manualInvocation` es lo que mantiene DOS propiedades del contrato manual sin
+    // duplicar la implementación: la puerta de privacidad POSTERIOR a la respuesta
+    // (`do_not_contact` en vuelo, que la transacción 111/113 no comprueba) y la
+    // persistencia de los desenlaces que no revelan.
+    assert.ok(deps.includes('manualInvocation'), 'la pata declara el modo manual');
+    assert.ok(
+      deps.includes('checkPrivacyGate: checkPhoneRevealPrivacyGate'),
+      'la invocación manual inyecta la puerta de privacidad en el core del fallback',
+    );
+    assert.ok(
+      deps.includes('waterfallMode: !manual'),
+      'la ruta automática conserva waterfallMode; la manual persiste en el candidato',
+    );
+  });
+
+  it('el writer transaccional se inyecta SOLO en los módulos autorizados', () => {
+    // Barrido REAL de `src/`, no una lista de sospechosos: si mañana aparece un
+    // tercer punto de cableado, este assert lo ve aunque nadie actualice el test.
+    const hits = listRepoSourceFiles('src')
+      .filter((relative) =>
+        readRepo(relative).includes(
+          'persistPhoneCollection: persistCandidateLushaPhoneCollection',
+        ),
+      )
+      .sort();
+    assert.deepEqual(hits, [...AUTHORIZED_COLLECTION_WIRING_MODULES].sort());
   });
 
   it('el core solo persiste colección cuando la dep está presente', () => {
