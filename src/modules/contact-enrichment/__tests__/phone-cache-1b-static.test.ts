@@ -594,10 +594,12 @@ describe('CACHE-1b — FIX M4 descubrimiento de contactos sin filtro JSON', () =
   // La propiedad de FIX M1 no cambia: el UPDATE repite el filtro de procedencia para
   // que una carrera no acabe borrando un número manual. Lo que cambió en 4O-E4 es su
   // FORMA — de `.in(allowlist)` a `.eq(procedencia observada)`, que es estrictamente
-  // más restrictivo. El motivo: con Lusha admitido, el patch dejó de ser el mismo para
-  // todas las procedencias (Apollo nula `mobile_phone`, Lusha no), así que un `.in`
-  // permitiría aplicar el patch de una procedencia a una fila que pasó a ser de otra
-  // entre la lectura y la escritura.
+  // más restrictivo.
+  //
+  // 4O-E4.1 devolvió el patch a UNO SOLO para todas las procedencias (`mobile_phone`
+  // salió de él), pero el `.eq` NO se revierte: lo que protege es que un cambio entre
+  // procedencias admitidas —o a `manual`— entre la lectura y la escritura haga que la
+  // erasure afecte 0 filas en vez de borrar una tupla que el operador no observó.
   it('el UPDATE de contacts repite el filtro de procedencia (FIX M1)', () => {
     assert.match(suppression, /\.eq\('phone_source',\s*observedPhoneSource\)/);
     assert.equal(

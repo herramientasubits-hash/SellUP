@@ -62,6 +62,7 @@ import {
   type BrazilReceitaFullJoinBridgeManifestValidator,
 } from './br-receita-cnpj-full-join-manifest-source-bridge';
 import { assertBrazilReceitaFullJoinNoWrite } from './br-receita-cnpj-full-join-no-write-guard';
+import { sanitizeBrazilReceitaFullJoinReport } from './br-receita-cnpj-full-join-output-sanitizer';
 import {
   createBrazilReceitaFullJoinOpenHandleLedger,
   resolveBrazilReceitaFullJoinHandleCaps,
@@ -79,6 +80,7 @@ import {
   type BrazilReceitaFullJoinPrivateChannelDeclaration,
   type BrazilReceitaFullJoinPrivateChannelFileSystem,
   type BrazilReceitaFullJoinPrivateDestinationRejection,
+  type BrazilReceitaFullJoinPrivateSanitizerResult,
   type BrazilReceitaFullJoinPrivateWriteFailure,
 } from './br-receita-cnpj-full-join-operator-metric-channel';
 import { BRAZIL_RECEITA_FULL_JOIN_PROPOSED_MAX_OPEN_PARTITION_FILES } from './br-receita-cnpj-full-join-partition-handle-pool';
@@ -394,7 +396,15 @@ export interface BrazilReceitaRealFullScanPublicReport {
   readonly exit_status: 'completed' | 'aborted';
   readonly abort_code: BrazilReceitaRealFullScanAbortCode | BrazilReceitaFullJoinEngineAbortCode | 'none';
   readonly abort_stage: BrazilReceitaRealFullScanPreflightStage | 'engine' | 'cleanup' | 'none';
+  /** `null` exactly when `sanitizer_status` is `'failed'` — see `public_report_released`. */
   readonly engine_report: BrazilReceitaFullJoinEnginePublicReport | null;
+  /**
+   * The REAL sanitizer verdict against `engine_report`, computed on every terminal outcome
+   * (BR-SOURCE-14B.0H § 16) — never a label inferred from `abort_code`.
+   */
+  readonly sanitizer_status: BrazilReceitaFullJoinPrivateSanitizerResult;
+  /** `false` whenever `sanitizer_status` is `'failed'`. The primary `abort_code` is unaffected. */
+  readonly public_report_released: boolean;
   readonly files_opened_peak_bucket: BrazilReceitaFullJoinCountBucket;
   readonly cleanup_status: string;
   readonly cleanup_verified_absent: boolean;
@@ -554,6 +564,44 @@ function refuse(
   };
 }
 
+// ─── Sanitizer gate (BR-SOURCE-14B.0H § 16) ───────────────────────────────────
+
+/**
+ * Runs the REAL structural leak sanitizer against the engine's public report, and decides what may
+ * be released.
+ *
+ * Before this milestone, `sanitizerResult` was a hardcoded label derived from `abortCode` — `'passed'`
+ * on success, `'not_run'` on any abort — and `sanitizeBrazilReceitaFullJoinReport` was never actually
+ * called on this path. That made the label a claim nobody had checked, on BOTH branches: a `'passed'`
+ * that no sanitizer had verified is exactly as ungrounded as a `'not_run'` that skips verification
+ * because the run failed. This function is what makes the label a computed fact instead: the
+ * sanitizer runs on every terminal outcome — success, resource-cap breach, reader failure, partition
+ * failure, disk failure, runtime failure, cleanup failure — because a report is not safer for having
+ * come from a run that failed.
+ *
+ * The PRIMARY abort code is never touched here and is not this function's business: a run that
+ * breached `maxRuntimeMs` reports `runtime_cap_exceeded` regardless of what the sanitizer finds.
+ * `sanitizerResult` and `publicReportReleased` are carried separately so a failed sanitization cannot
+ * be confused with, or silently overwrite, the reason the run actually stopped.
+ */
+export function applyBrazilReceitaRealFullScanReportSanitizer(
+  engineReport: BrazilReceitaFullJoinEnginePublicReport,
+): {
+  readonly sanitizerResult: BrazilReceitaFullJoinPrivateSanitizerResult;
+  readonly publicReportReleased: boolean;
+  readonly releasedEngineReport: BrazilReceitaFullJoinEnginePublicReport | null;
+} {
+  const verdict = sanitizeBrazilReceitaFullJoinReport(engineReport);
+  return {
+    sanitizerResult: verdict.ok ? 'passed' : 'failed',
+    publicReportReleased: verdict.ok,
+    // A sanitizer failure withholds the nested engine report itself — the one object in this
+    // module's output built from the run's own figures — rather than merely noting the failure
+    // alongside an unsafe payload the caller could still read.
+    releasedEngineReport: verdict.ok ? engineReport : null,
+  };
+}
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 /**
@@ -696,11 +744,15 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
   const cleanupVerified =
     engineResult.cleanupOutcome === 'completed' || engineResult.cleanupOutcome === 'not_needed';
 
+  // The sanitizer runs on EVERY terminal outcome, success or abort alike (BR-SOURCE-14B.0H § 16) —
+  // see `applyBrazilReceitaRealFullScanReportSanitizer`.
+  const sanitization = applyBrazilReceitaRealFullScanReportSanitizer(engineResult.publicReport);
+
   // The private artifact is written from the run's EXACT observations, and only after cleanup has
   // been accounted for — so a report of a run whose workspace is still on disk cannot claim success.
   const privatePayload = toBrazilReceitaFullJoinPrivateOperatorMeasurements(
     engineResult.exact.resource,
-    engineResult.abortCode === null ? 'passed' : 'not_run',
+    sanitization.sanitizerResult,
     {
       partitionsCreated: engineResult.exact.partitionsCreated,
       largestPartitionReferenceCount: engineResult.exact.largestPartitionReferenceCount,
@@ -740,9 +792,16 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     measurement_complete:
       engineResult.abortCode === null && engineResult.exact.resource.peakRssBytes !== null,
     exit_status: abortCode === 'none' ? 'completed' : 'aborted',
+    // The PRIMARY code, untouched by the sanitizer verdict: a run that breached `maxRuntimeMs` and
+    // whose report also failed sanitization still reports `runtime_cap_exceeded`, because that is
+    // what actually happened first and what an operator has to act on.
     abort_code: abortCode,
     abort_stage: engineResult.abortCode !== null ? 'engine' : abortCode === 'none' ? 'none' : 'cleanup',
-    engine_report: engineResult.publicReport,
+    // Withheld (`null`) when the sanitizer failed — see `sanitizer_status` and
+    // `public_report_released` below, which carry that fact separately from `abort_code`.
+    engine_report: sanitization.releasedEngineReport,
+    sanitizer_status: sanitization.sanitizerResult,
+    public_report_released: sanitization.publicReportReleased,
     files_opened_peak_bucket: toBrazilReceitaFullJoinCountBucket(
       engineResult.exact.filesOpenedPeak,
     ),

@@ -107,6 +107,33 @@ export const BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES = 16 as const;
 /** How many references one bounded read pulls back from a partition file. */
 export const BRAZIL_RECEITA_FULL_JOIN_REFERENCE_READ_BATCH = 256 as const;
 
+/**
+ * The buffered partition writer's bound, per BUFFERED partition (BR-SOURCE-14B.0H).
+ *
+ * Root-cause profiling of BR-SOURCE-14B.0G's reference throughput (~642 rows/s) found one
+ * synchronous `fs.write` syscall per 16-byte reference — a syscall for the smallest possible unit of
+ * work this module does. This buffer absorbs that: up to `8_192 / 16 = 512` references accumulate in
+ * memory per partition before one write syscall carries all of them at once.
+ *
+ * NOT one per currently-open handle: an earlier design tied a buffer's lifetime to its handle's, which
+ * measured out to ZERO benefit at the proposed profile's partition count — under near-uniform hash
+ * routing with 1024+ partitions and only 32 open handles, a handle (and the buffer riding on it) is
+ * evicted before accumulating more than one reference. This buffer survives a handle eviction; see
+ * `BRAZIL_RECEITA_FULL_JOIN_MAX_BUFFERED_PARTITIONS` for the (much larger, independent) ceiling on how
+ * many of these can exist at once — `4_096 * 8_192 = 33_554_432` bytes worst case, half of
+ * `maxExternalMemoryBytes` (64 MiB in the proposed profile).
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_PARTITION_WRITE_BUFFER_BYTES = 8_192 as const;
+
+/**
+ * How many partitions may hold a pending write buffer AT ONCE — independent of, and much larger than,
+ * `maxOpenPartitionFiles`. Twice the proposed `maxPartitionCount` (2 048): the worst case is one
+ * buffer per partition ordinal, per family, ever created in a single run. This is a WORKSPACE-OWNED
+ * safety bound: it does not trust a caller's `partitionCount` to stay inside it, the same discipline
+ * this module applies to every other cap it enforces on itself.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_MAX_BUFFERED_PARTITIONS = 4_096 as const;
+
 /** The only two families this engine partitions. `socios`, `qsa` and `simples` are out of scope. */
 export const BRAZIL_RECEITA_FULL_JOIN_PARTITIONED_FAMILIES = ['empresas', 'estabelecimentos'] as const;
 
@@ -381,6 +408,23 @@ export interface BrazilReceitaFullJoinWorkspaceCleanupResult {
   readonly foreignEntriesLeftInPlace: number;
 }
 
+/**
+ * The buffered writer's own counters (BR-SOURCE-14B.0H § 11, § 26). Every field here is a count —
+ * never a name, a path or a value — matching every other stats accessor this module exposes.
+ */
+export interface BrazilReceitaFullJoinPartitionWriteStats {
+  /** How many references were successfully appended. Mirrors `referenceCount` summed, kept flat. */
+  readonly referenceRecordsAppended: number;
+  /** How many `fs.write`-shaped syscalls the buffered writer actually issued. The whole point. */
+  readonly partitionWriteSyscalls: number;
+  /** How many of those syscalls were a FULL-buffer flush rather than the final partial one. */
+  readonly fullBufferFlushes: number;
+  /** How many times a buffer was flushed for any reason (full, eviction, pre-read, dispose). */
+  readonly flushCount: number;
+  /** A flush that failed. Once nonzero, `appendReference` refuses every further call. */
+  readonly flushFailures: number;
+}
+
 export interface BrazilReceitaFullJoinWorkspace {
   /** Appends one reference to a partition. Refuses BEFORE writing when the cap would be crossed. */
   appendReference(
@@ -415,6 +459,8 @@ export interface BrazilReceitaFullJoinWorkspace {
   bytesWritten(): number;
   /** Live descriptor accounting for the partition pool. Counts only — never a name or a path. */
   handleStats(): BrazilReceitaFullJoinPartitionHandlePoolStats;
+  /** The buffered writer's own counters (BR-SOURCE-14B.0H). Counts only — never a name or a path. */
+  writeStats(): BrazilReceitaFullJoinPartitionWriteStats;
   /** Deletes every file this workspace created, then the directory, then verifies absence. */
   dispose(): BrazilReceitaFullJoinWorkspaceCleanupResult;
 }
@@ -559,6 +605,53 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
   const hardenedFiles = new Set<string>();
   const freeDiskCheckDue = createBrazilReceitaFullJoinFreeDiskCheckSchedule();
 
+  // ── Buffered partition writer (BR-SOURCE-14B.0H) ────────────────────────────
+  //
+  // ROOT-CAUSE FINDING that shaped this design: a buffer tied to a HANDLE's lifetime only helps when
+  // the same partition is revisited before its handle is evicted. Under near-uniform hash routing with
+  // `partitionCount` far above `maxOpenPartitionFiles` (the proposed profile is 1024-2048 vs. 32), the
+  // handle-pool's own cache hit rate measures under 1% — an eviction fires on almost every reference,
+  // flushing a buffer that never held more than one record. Profiling this (BR-SOURCE-14B.0H § 26)
+  // showed a handle-tied buffer earning a ~625x write-call reduction at low partition counts and a ~1x
+  // reduction (no benefit) at the proposed 1024-partition profile — precisely because eviction, not the
+  // write syscall, was already dominating.
+  //
+  // The fix: a partition's write buffer is now bounded independently of whether that partition's FILE
+  // HANDLE is currently open. Buffers survive a handle eviction — the handle pool's own 32-file LRU is
+  // completely unchanged and untouched by this — so a partition keeps accumulating references across
+  // however many unrelated handle evictions happen in between, and the (comparatively rare) open/write/
+  // possible-eviction cycle only happens once per FULL buffer, not once per reference.
+  //
+  // Bounded to `MAX_BUFFERED_PARTITIONS` entries (its own much-larger LRU, independent of the handle
+  // pool's): at `BUFFER_BYTES_PER_PARTITION` bytes each, the worst case is
+  // `4_096 * 8_192 = 33_554_432` bytes — 32 MiB, HALF of `maxExternalMemoryBytes` (64 MiB in the
+  // proposed profile), leaving the other half for the reader's chunk buffer (4 MiB), carry/row
+  // buffers (128 KiB together) and everything else with real headroom. BR-SOURCE-14B.0H's brief
+  // proposed "32 partitions x 64 KiB" (2 MiB) as an INITIAL figure for a design where every buffer
+  // shared the handle pool's own 32-slot ceiling; once buffers were decoupled from handles (see
+  // above), that ceiling no longer bounds this memory, and profiling showed write-call reduction
+  // scaling directly with bytes-per-partition — 32 MiB is the size at which the synthetic engineering
+  // target (>= 5 MiB/s of SYNTHETIC REFERENCE-WRITE bytes, BR-SOURCE-14B.0H § 12) was actually reached
+  // (measured ~7.6 MiB/s of reference-write bytes at 1M references / 1024 partitions), not a round
+  // number chosen a priori. That denominator is 16 bytes per reference WRITTEN — it is not a
+  // source-bytes-READ rate, and it is not comparable with the ~3.2 MiB/s source read the 68 GiB / 6 h
+  // budget implies.
+  interface PendingPartitionBuffer {
+    readonly bytes: Buffer;
+    length: number;
+  }
+  const MAX_BUFFERED_PARTITIONS = BRAZIL_RECEITA_FULL_JOIN_MAX_BUFFERED_PARTITIONS;
+  const BUFFER_BYTES_PER_PARTITION = BRAZIL_RECEITA_FULL_JOIN_PARTITION_WRITE_BUFFER_BYTES;
+  /** Insertion order doubles as LRU order, exactly like the handle pool's own `openHandles` map. */
+  const writeBuffers = new Map<string, PendingPartitionBuffer>();
+  let partitionWriteSyscalls = 0;
+  let fullBufferFlushes = 0;
+  let flushCount = 0;
+  let flushFailures = 0;
+  // Latched, like the resource enforcer: once a flush has failed, a byte may already be unaccounted
+  // for on disk, and every further append refuses rather than building on an uncertain foundation.
+  let flushFailureLatched = false;
+
   function partitionPath(name: string): string {
     return path.join(directory, name);
   }
@@ -586,13 +679,120 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
         return fileSystem.openForAppend(partitionPath(name), BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE);
       },
       close(handle) {
+        // No buffer interaction here, deliberately: buffers are no longer tied to handle lifetime (see
+        // above), so an evicted handle's partition simply keeps accumulating in memory, unaffected,
+        // until ITS OWN buffer decides to flush. A reopen for the same name later lands in append mode
+        // at end-of-file, which is exactly where the last actual flush left it.
         fileSystem.close(handle);
       },
     },
   });
 
+  /**
+   * Acquires a (possibly freshly reopened) handle for `name` and writes its ENTIRE pending buffer
+   * through it in one syscall, then drops the buffer's map entry. Used by every flush trigger: a full
+   * buffer, an evicted buffer slot, a read, and dispose — one function, so "a flush is a flush" holds
+   * regardless of what triggered it.
+   */
+  function flushBufferThroughFreshHandle(name: string): boolean {
+    const pending = writeBuffers.get(name);
+    if (pending === undefined) return true;
+    if (pending.length === 0) {
+      writeBuffers.delete(name);
+      return true;
+    }
+
+    const acquired = handlePool.acquire(`${APPEND_KEY_PREFIX}${name}`);
+    if (!acquired.ok) {
+      flushFailures += 1;
+      flushFailureLatched = true;
+      writeBuffers.delete(name);
+      return false;
+    }
+    const handle = acquired.handle;
+
+    // Permissions are hardened and VERIFIED once per file, not once per flush: `mkdtemp`'s umask
+    // applies at creation, and a file whose mode was already verified cannot change it from under us.
+    if (!hardenedFiles.has(name)) {
+      try {
+        fileSystem.chmod(partitionPath(name), BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE);
+        const mode = fileSystem.statMode(partitionPath(name)) & 0o777;
+        if (mode !== BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE) {
+          flushFailures += 1;
+          flushFailureLatched = true;
+          writeBuffers.delete(name);
+          return false;
+        }
+      } catch {
+        flushFailures += 1;
+        flushFailureLatched = true;
+        writeBuffers.delete(name);
+        return false;
+      }
+      hardenedFiles.add(name);
+    }
+
+    const attemptedLength = pending.length;
+    let bytes: number;
+    try {
+      bytes = fileSystem.write(handle, pending.bytes.subarray(0, attemptedLength));
+    } catch {
+      // Whether zero bytes or some prefix actually reached disk is now UNKNOWABLE from here, so the
+      // buffer is dropped regardless: retrying the same bytes over an unknown amount already written
+      // would risk DUPLICATING a reference on disk, which is strictly worse than losing one —
+      // `flushFailureLatched` is what stops the run instead of continuing on an uncertain file.
+      flushFailures += 1;
+      flushFailureLatched = true;
+      writeBuffers.delete(name);
+      return false;
+    }
+    partitionWriteSyscalls += 1;
+    flushCount += 1;
+    if (attemptedLength === pending.bytes.length) fullBufferFlushes += 1;
+    writeBuffers.delete(name);
+    if (bytes !== attemptedLength) {
+      flushFailures += 1;
+      flushFailureLatched = true;
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Returns the buffer for `name`, creating one if needed and evicting the LEAST-RECENTLY-TOUCHED
+   * existing buffer first if the ceiling (`MAX_BUFFERED_PARTITIONS`) would otherwise be crossed. This
+   * ceiling is a WORKSPACE-OWNED safety bound — it does not trust a caller's `partitionCount` to stay
+   * inside it, the same discipline this module applies to every other cap it enforces on itself.
+   */
+  function touchBuffer(name: string): PendingPartitionBuffer | null {
+    const existing = writeBuffers.get(name);
+    if (existing !== undefined) {
+      // Touch: delete and re-set moves this key to the back of the LRU order, exactly like the
+      // handle pool's own `acquire()`.
+      writeBuffers.delete(name);
+      writeBuffers.set(name, existing);
+      return existing;
+    }
+    if (writeBuffers.size >= MAX_BUFFERED_PARTITIONS) {
+      const oldest = writeBuffers.keys().next();
+      if (!oldest.done && !flushBufferThroughFreshHandle(oldest.value)) return null;
+    }
+    const created: PendingPartitionBuffer = {
+      bytes: Buffer.alloc(BUFFER_BYTES_PER_PARTITION),
+      length: 0,
+    };
+    writeBuffers.set(name, created);
+    return created;
+  }
+
   const workspace: BrazilReceitaFullJoinWorkspace = {
     appendReference(reference, partitionOrdinal) {
+      // Once ANY flush has failed, some previously-accepted reference may not actually be on disk.
+      // Refusing every further call — rather than only the one that happened to trigger the failed
+      // flush — is what keeps "eviction cannot lose a byte" true: a byte lost silently by a LATER
+      // append building on top of an unflushed failure would be worse than stopping here.
+      if (flushFailureLatched) return { ok: false, failure: 'partition_write_failed' };
+
       const name = brazilReceitaFullJoinPartitionFileName(reference.family, partitionOrdinal);
       if (name === null) return { ok: false, failure: 'partition_name_invalid' };
 
@@ -626,41 +826,59 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
         }
       }
 
-      const acquired = handlePool.acquire(`${APPEND_KEY_PREFIX}${name}`);
-      if (!acquired.ok) {
-        return {
-          ok: false,
-          failure:
-            acquired.failure === 'handle_cap_exceeded'
-              ? 'partition_handle_cap_exceeded'
-              : 'partition_open_failed',
-        };
-      }
-      const handle = acquired.handle;
-
-      // Permissions are hardened and VERIFIED once per file, not once per open: `mkdtemp`'s umask
-      // applies at creation, and a reopen of a file whose mode was already verified cannot change it.
-      // Re-verifying on every eviction-driven reopen would add two syscalls per miss for no fact.
-      if (!hardenedFiles.has(name)) {
-        try {
-          fileSystem.chmod(partitionPath(name), BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE);
-          const mode = fileSystem.statMode(partitionPath(name)) & 0o777;
-          if (mode !== BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE) {
+      // FAIL FAST, once per DISTINCT partition rather than once per reference: the very first time
+      // this name is seen, its destination is opened and its permissions hardened/verified right now
+      // — exactly what the pre-14B.0H design did on every single append, just no longer repeated on
+      // every one of the (potentially thousands of) references that land in an already-validated
+      // partition afterward. A destination that is fundamentally broken (unopenable, unverifiable
+      // permissions) is discovered on this partition's FIRST reference, not silently deferred to
+      // whenever its buffer happens to fill.
+      if (!writeBuffers.has(name)) {
+        const acquired = handlePool.acquire(`${APPEND_KEY_PREFIX}${name}`);
+        if (!acquired.ok) {
+          return {
+            ok: false,
+            failure:
+              acquired.failure === 'handle_cap_exceeded'
+                ? 'partition_handle_cap_exceeded'
+                : 'partition_open_failed',
+          };
+        }
+        if (!hardenedFiles.has(name)) {
+          try {
+            fileSystem.chmod(partitionPath(name), BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE);
+            const mode = fileSystem.statMode(partitionPath(name)) & 0o777;
+            if (mode !== BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE) {
+              return { ok: false, failure: 'partition_file_permission_verification_failed' };
+            }
+          } catch {
             return { ok: false, failure: 'partition_file_permission_verification_failed' };
           }
-        } catch {
-          return { ok: false, failure: 'partition_file_permission_verification_failed' };
+          hardenedFiles.add(name);
         }
-        hardenedFiles.add(name);
       }
 
-      try {
-        const bytes = fileSystem.write(handle, encoded.record);
-        if (bytes !== BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES) {
+      // The buffered write itself (BR-SOURCE-14B.0H): the record lands in memory, and the handle pool
+      // above is touched again only when THIS partition's buffer fills, is evicted to make room for
+      // another, or the run reads/disposes — never once per reference.
+      const pending = touchBuffer(name);
+      if (pending === null) return { ok: false, failure: 'partition_write_failed' };
+      if (pending.length + BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES > pending.bytes.length) {
+        if (!flushBufferThroughFreshHandle(name)) {
           return { ok: false, failure: 'partition_write_failed' };
         }
-      } catch {
-        return { ok: false, failure: 'partition_write_failed' };
+        // `flushBufferThroughFreshHandle` always drops the map entry it flushed, so a fresh empty
+        // buffer for the SAME name is created and immediately re-touched to keep LRU order correct.
+        const fresh = touchBuffer(name);
+        if (fresh === null) return { ok: false, failure: 'partition_write_failed' };
+        encoded.record.copy(fresh.bytes, fresh.length);
+        fresh.length += BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES;
+      } else {
+        // Copied into the buffer rather than retained as `encoded.record` itself: reusing one scratch
+        // Buffer per encode call (a future micro-optimization) must not be able to corrupt an EARLIER
+        // reference still sitting unflushed in a partition's buffer.
+        encoded.record.copy(pending.bytes, pending.length);
+        pending.length += BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES;
       }
 
       written = projected;
@@ -683,7 +901,13 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
         return { ok: true, references: [], nextRecordIndex: startRecordIndex, exhausted: true };
       }
 
-      // Writing must be finished before reading: an open append handle may hold unflushed bytes.
+      // Writing must be finished before reading: this partition's buffer (BR-SOURCE-14B.0H) may hold
+      // references never yet written to disk, decoupled from whether its handle happens to be open.
+      if (!flushBufferThroughFreshHandle(name)) {
+        return { ok: false, failure: 'partition_write_failed' };
+      }
+      // An open append handle may ALSO hold OS-level unflushed bytes; closed before the read handle
+      // opens, exactly as before.
       handlePool.closeKey(`${APPEND_KEY_PREFIX}${name}`);
 
       // The READ handle is pooled too, so a partition read back in many bounded slices pays one
@@ -760,7 +984,25 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
       return handlePool.stats();
     },
 
+    writeStats() {
+      return {
+        referenceRecordsAppended: recordsWritten,
+        partitionWriteSyscalls,
+        fullBufferFlushes,
+        flushCount,
+        flushFailures,
+      };
+    },
+
     dispose() {
+      // Every buffered partition (BR-SOURCE-14B.0H) is flushed BEFORE any handle is closed: a buffer
+      // may hold references no handle currently open is even associated with (that is the whole point
+      // of decoupling them), so this is the only place that is guaranteed to see every one of them.
+      // Best-effort — a failure here is already latched via `flushFailureLatched` and reflected in
+      // `bytesWritten()`'s caller-visible history; cleanup still proceeds regardless, exactly like a
+      // failing `port.close` below never blocks the ledger release that follows it.
+      for (const name of [...writeBuffers.keys()]) flushBufferThroughFreshHandle(name);
+
       // Every pooled descriptor — append and read alike — is closed and its ledger slot released
       // BEFORE any deletion is attempted. § 12 orders it this way for a reason: unlinking a file
       // this process still holds open leaves the space allocated until the descriptor goes, so a

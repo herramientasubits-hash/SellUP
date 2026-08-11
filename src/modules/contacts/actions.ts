@@ -11,6 +11,7 @@ import type {
   UpdateContactInput,
   ContactStatus,
 } from './types';
+import { resolveManualContactPhoneEdit } from './contact-phone-provenance';
 import {
   runSyncContactToHubSpot,
   type ContactForSync,
@@ -339,7 +340,30 @@ export async function updateContact(
   if (input.last_name !== undefined) payload.last_name = input.last_name?.trim() || null;
   if (fullName !== current.full_name) payload.full_name = fullName;
   if (input.email !== undefined) payload.email = sanitizeEmail(input.email);
-  if (input.phone !== undefined) payload.phone = input.phone?.trim() || null;
+
+  // 4O-E4.1-R1 — el número y su procedencia viajan JUNTOS o no viajan.
+  //
+  // `contacts.phone_source` es la única evidencia que la supresión de privacidad
+  // acepta para borrar el teléfono oficial. Antes de R1 esta acción escribía `phone`
+  // sin tocar la procedencia, así que un número tecleado a mano heredaba el
+  // `apollo_reveal` / `lusha_reveal` del proveedor y una DSAR posterior lo borraba.
+  //
+  // El patch va dentro del MISMO `update()` de abajo a propósito: dos escrituras
+  // dejarían una ventana con el número nuevo y la procedencia vieja, que es
+  // exactamente el estado que borra el dato equivocado. Y la decisión compara con el
+  // valor guardado, no con la presencia del campo: el formulario reenvía `phone` en
+  // cada guardado, así que reaccionar a la presencia convertiría en `manual` la
+  // procedencia de todos los teléfonos de proveedor al editar cualquier otro campo.
+  const phoneEdit = resolveManualContactPhoneEdit({
+    currentPhone: current.phone,
+    inputPhone: input.phone,
+  });
+  if (phoneEdit.kind === 'replaced' || phoneEdit.kind === 'cleared') {
+    Object.assign(payload, phoneEdit.patch);
+  }
+
+  // `mobile_phone` NO participa de esta procedencia: no la escribe ningún proveedor
+  // y `phone_source` no la describe (4O-E4.1). Se escribe tal cual, como siempre.
   if (input.mobile_phone !== undefined) payload.mobile_phone = input.mobile_phone?.trim() || null;
   if (input.linkedin_url !== undefined) payload.linkedin_url = input.linkedin_url?.trim() || null;
   if (input.job_title !== undefined) payload.job_title = input.job_title?.trim() || null;

@@ -120,37 +120,39 @@ describe('4O-E4 estático — la allowlist de procedencias borrables', () => {
 // 2. mobile_phone — subconjunto estricto, sin provenance no se borra
 // ═══════════════════════════════════════════════════════════════
 
-describe('4O-E4 estático — mobile_phone sólo se borra donde ya se borraba', () => {
-  const mobileList = () => {
+describe('4O-E4 estático — mobile_phone no se borra sin procedencia', () => {
+  // 4O-E4.1: la allowlist específica de `mobile_phone` desapareció. Mientras existió,
+  // el camino Apollo nulaba la columna por herencia; la auditoría de escritores
+  // demostró que ningún proveedor la escribe, así que el borrado se retiró entero.
+  // Las guardas de forma detalladas viven en
+  // `phone-mobile-provenance-erasure-static-4o-e4-1.test.ts`.
+  it('la allowlist específica de mobile_phone ya NO existe', () => {
+    const code = stripComments(read(...CORE));
+    for (const removed of [
+      'MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES',
+      'clearsMobilePhoneForSource',
+    ]) {
+      assert.equal(code.includes(removed), false, `${removed} no puede reaparecer`);
+    }
+  });
+
+  it('`mobile_phone` no está en el patch para NINGUNA procedencia', () => {
     const core = read(...CORE);
-    const m = core.match(
-      /MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES: readonly string\[\] = \[([\s\S]*?)\]/,
+    const iface = core.match(/interface ContactPhoneSuppressionPatch \{([\s\S]*?)\n\}/);
+    assert.ok(iface);
+    assert.equal(
+      /mobile_phone/.test(iface[1]),
+      false,
+      'la procedencia de `phone` no se extiende a otra columna',
     );
-    assert.ok(m, 'MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES debe existir');
-    return [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
-  };
-
-  it('es exactamente las dos procedencias Apollo', () => {
-    assert.deepEqual(mobileList().sort(), ['apollo_cache', 'apollo_reveal']);
   });
 
-  it('NO contiene lusha_reveal: mobile_phone no tiene procedencia propia', () => {
-    assert.equal(mobileList().includes('lusha_reveal'), false);
-  });
-
-  it('`mobile_phone` en el patch es OPCIONAL, no obligatorio', () => {
+  it('el patch se construye por una sola fábrica, independiente de la procedencia', () => {
     const core = read(...CORE);
     assert.match(
       core,
-      /interface ContactPhoneSuppressionPatch \{[\s\S]*?mobile_phone\?: null;/,
-      'mobile_phone debe ser opcional para poder omitirse en el camino Lusha',
+      /export function buildContactPhoneSuppressionPatch\(\): ContactPhoneSuppressionPatch \{/,
     );
-  });
-
-  it('el patch se construye por una sola fábrica que consulta la procedencia', () => {
-    const core = read(...CORE);
-    assert.match(core, /export function buildContactPhoneSuppressionPatch\(/);
-    assert.match(core, /clearsMobilePhoneForSource\(observedPhoneSource\)/);
   });
 
   it('no se creó una columna ni un modelo de procedencia para mobile_phone', () => {
@@ -271,7 +273,10 @@ describe('4O-E4 estático — el write de contacts es condicional por procedenci
   it('el core NO deja escapar un patch sin procedencia observada', () => {
     const core = read(...CORE);
     assert.match(core, /observedPhoneSource: string;/);
-    assert.match(core, /observedPhoneSource,\n\s*patch: buildContactPhoneSuppressionPatch\(observedPhoneSource\)/);
+    assert.match(
+      core,
+      /observedPhoneSource,\n\s*patch: buildContactPhoneSuppressionPatch\(\),/,
+    );
   });
 });
 
