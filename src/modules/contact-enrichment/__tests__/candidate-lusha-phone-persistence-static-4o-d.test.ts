@@ -256,12 +256,24 @@ describe('4O-D — la ruta del otro proveedor queda intacta', () => {
 // borrarse: lo que se sigue protegiendo es que el writer transaccional se cablee
 // SOLO en los puntos declarados, y que ninguno de ellos arme SQL por su cuenta.
 
-/** Los ÚNICOS módulos del repositorio autorizados a inyectar el writer. */
+/**
+ * Los ÚNICOS módulos del repositorio autorizados a inyectar el writer.
+ *
+ * AGENT2A-PHONE-REVEAL-4O-F-R2 — la lista se REDUCE de dos a UNO, y esa reducción es el
+ * objetivo del hito, no una relajación. 4O-F cableaba el writer DOS veces —una en la
+ * pata compartida del waterfall y otra en la acción manual— porque el disparo manual
+ * llamaba a Lusha por su cuenta. R2 hace converger el disparo manual sobre la MISMA
+ * pata (`callLushaFallbackLeg` con `manualInvocation: true`), así que queda UNA sola
+ * implementación multi-teléfono de Lusha en todo el repositorio.
+ *
+ * El barrido de más abajo sigue siendo REAL sobre `src/`: si alguien vuelve a cablear el
+ * writer en un segundo punto —o si la acción manual recupera su propio camino pagado—
+ * este archivo falla.
+ */
 const AUTHORIZED_COLLECTION_WIRING_MODULES = [
-  // Waterfall completo + continuación legacy, ambos vía `callLushaFallbackLeg` (4O-D).
+  // Waterfall completo, continuación legacy Y disparo manual de administración: los
+  // tres pasan por `callLushaFallbackLeg` (4O-D + 4O-F-R2).
   'src/modules/contact-enrichment/phone-reveal-waterfall-deps.ts',
-  // Disparo manual de administración (4O-F).
-  'src/modules/contact-enrichment/lusha-phone-fallback-actions.ts',
 ] as const;
 
 describe('4O-D/4O-F — alcance de la nueva escritura', () => {
@@ -274,19 +286,51 @@ describe('4O-D/4O-F — alcance de la nueva escritura', () => {
     });
   }
 
-  it('la acción manual lo inyecta y ya NO cae al UPDATE escalar suelto (4O-F)', () => {
+  it('la acción manual llega al writer por la pata COMPARTIDA, no por un cableado propio (4O-F-R2)', () => {
     const action = readRepo('src/modules/contact-enrichment/lusha-phone-fallback-actions.ts');
+
+    // MANUAL_LUSHA_MULTI_PHONE sigue cerrado, pero por CONVERGENCIA: la acción delega en
+    // el motor `legacy_lusha_only`, que ejecuta la pata compartida y por tanto la MISMA
+    // transacción multi-teléfono. No hay una segunda copia que pueda divergir.
     assert.ok(
-      action.includes('persistPhoneCollection: persistCandidateLushaPhoneCollection'),
-      'MANUAL_LUSHA_MULTI_PHONE_PENDING queda cerrado cableando la MISMA transacción',
+      action.includes('executeLegacyLushaOnlyPhoneReveal'),
+      'el disparo manual se ejecuta sobre el motor legacy_lusha_only',
+    );
+
+    // Y ya NO cablea deps de proveedor por su cuenta: ni la llamada, ni la persistencia,
+    // ni el usage-log. Si alguna reaparece aquí, volvió a existir un segundo camino
+    // pagado — que es exactamente el defecto que R2 eliminó.
+    for (const forbidden of [
+      'callLusha:',
+      'persistPhoneCollection:',
+      'persist:',
+      'logUsage:',
+      'enrichLushaContactPhonesForFallback',
+      'runLushaPhoneFallbackReveal',
+    ]) {
+      assert.equal(
+        action.includes(forbidden),
+        false,
+        `la acción manual NO puede volver a cablear \`${forbidden}\` por su cuenta`,
+      );
+    }
+  });
+
+  it('la pata compartida distingue la invocación manual y le conserva su puerta de privacidad', () => {
+    const deps = readRepo('src/modules/contact-enrichment/phone-reveal-waterfall-deps.ts');
+
+    // `manualInvocation` es lo que mantiene DOS propiedades del contrato manual sin
+    // duplicar la implementación: la puerta de privacidad POSTERIOR a la respuesta
+    // (`do_not_contact` en vuelo, que la transacción 111/113 no comprueba) y la
+    // persistencia de los desenlaces que no revelan.
+    assert.ok(deps.includes('manualInvocation'), 'la pata declara el modo manual');
+    assert.ok(
+      deps.includes('checkPrivacyGate: checkPhoneRevealPrivacyGate'),
+      'la invocación manual inyecta la puerta de privacidad en el core del fallback',
     );
     assert.ok(
-      action.includes('phoneCollectionReservationId: null'),
-      'el disparo manual no pertenece a ninguna reserva: null explícito, no inventado',
-    );
-    assert.ok(
-      action.includes('phoneRevealWaterfallId: null'),
-      'el disparo manual no pertenece a ninguna corrida: null explícito, no inventado',
+      deps.includes('waterfallMode: !manual'),
+      'la ruta automática conserva waterfallMode; la manual persiste en el candidato',
     );
   });
 

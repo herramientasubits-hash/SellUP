@@ -1071,23 +1071,77 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     );
   });
 
-  it('4O-F no toca flags, HubSpot ni presupuestos desde el camino manual', () => {
+  // AGENT2A-PHONE-REVEAL-4O-F-R2 — este guarda se INVIERTE, no se borra.
+  //
+  // En 4O-F afirmaba que el camino manual no tocaba presupuesto ni reservas. Eso era
+  // una descripción del ALCANCE de 4O-F, y la auditoría 4O-F-M0 la reclasificó como el
+  // defecto `MANUAL_LUSHA_BUDGET_GATE = UNSAFE`: ACCOUNTING sí, ENFORCEMENT no. R2
+  // cierra ese defecto haciendo converger el disparo manual sobre la infraestructura
+  // `legacy_lusha_only`, así que ahora SÍ tiene que consumir presupuesto.
+  //
+  // Lo que se sigue protegiendo, y es lo que importa: HubSpot intacto, y el disparo
+  // manual leyendo EXCLUSIVAMENTE su propio flag — nunca
+  // `ENABLE_PHONE_REVEAL_WATERFALL`, que sigue apagado en Producción y gobierna la UX
+  // del waterfall, no la existencia de la contabilidad.
+  it('R2 — el camino manual consume presupuesto, sigue sin tocar HubSpot y no lee el flag del waterfall', () => {
     const actions = readRepo('src/modules/contact-enrichment/lusha-phone-fallback-actions.ts');
-    // Se mira CÓDIGO, no prosa: la cabecera del módulo nombra HubSpot precisamente
-    // para declarar que no lo toca, y contar esa mención sería medir el comentario.
     const code = actions.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    for (const forbidden of ['hubspot', 'budget', 'reserve']) {
-      assert.equal(
-        code.toLowerCase().includes(forbidden.toLowerCase()),
-        false,
-        `el disparo manual no puede tocar «${forbidden}»`,
+
+    // HubSpot sigue fuera: converger no acerca esta ruta al CRM.
+    assert.equal(
+      code.toLowerCase().includes('hubspot'),
+      false,
+      'el disparo manual no puede tocar HubSpot',
+    );
+
+    // El motor económico es el único camino pagado, y es el que trae la reserva.
+    assert.ok(
+      code.includes('executeLegacyLushaOnlyPhoneReveal'),
+      'el disparo manual se ejecuta sobre el motor legacy_lusha_only',
+    );
+
+    // Los desenlaces de presupuesto son OBSERVABLES en la acción: si desaparecieran,
+    // el gate presupuestal habría vuelto a ser invisible para el operador.
+    for (const status of [
+      'insufficient_credits',
+      'budget_not_configured',
+      'credit_balance_unavailable',
+      'infrastructure_unavailable',
+      'already_attempted',
+    ]) {
+      assert.ok(
+        code.includes(status),
+        `el desenlace «${status}» tiene que llegar al llamador`,
       );
     }
-    // «reservation» aparece EXACTAMENTE una vez, y es la declaración de que no hay
-    // ninguna. Cualquier otro uso sería el disparo manual consumiendo presupuesto.
-    assert.deepEqual(code.match(/[Rr]eservation\w*/g), ['ReservationId']);
-    // El único flag que lee sigue siendo el suyo.
+
+    // EL flag: uno y sólo uno. Este assert es el que impide que R2 arrastre la UX del
+    // waterfall al disparo manual.
     const flags = actions.match(/is\w+Enabled\(/g) ?? [];
     assert.deepEqual([...new Set(flags)], ['isLushaPhoneRevealFallbackEnabled(']);
+    assert.equal(
+      actions.includes('isPhoneRevealWaterfallEnabled'),
+      false,
+      'el disparo manual NO puede depender de ENABLE_PHONE_REVEAL_WATERFALL',
+    );
+  });
+
+  // El motor tampoco puede leer el flag del waterfall: es la otra mitad del contrato
+  // de flags de R2, y vive en un archivo distinto del que comprueba el assert anterior.
+  it('R2 — el motor legacy_lusha_only se autoriza con el flag del fallback manual', () => {
+    const engine = readRepo(
+      'src/modules/contact-enrichment/legacy-lusha-only-reveal-engine.ts',
+    );
+    assert.ok(engine.includes('isLushaPhoneRevealFallbackEnabled()'));
+    assert.equal(
+      engine.includes('isPhoneRevealWaterfallEnabled'),
+      false,
+      'el motor no puede quedar gated tras la UX del waterfall',
+    );
+    // Y conserva la puerta de privacidad posterior a la respuesta para esta ruta.
+    assert.ok(
+      engine.includes('manualInvocation: true'),
+      'la pata manual conserva su puerta de privacidad en vuelo',
+    );
   });
 });

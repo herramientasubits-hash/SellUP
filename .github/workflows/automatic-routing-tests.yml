@@ -634,3 +634,50 @@ jobs:
 
       - name: Run manual Lusha multi-phone tests
         run: npm run test:agent2a:manual-lusha-multi-phone
+
+      # AGENT2A-PHONE-REVEAL-4O-F-R2 — el disparo MANUAL de Lusha converge sobre la
+      # infraestructura `legacy_lusha_only`.
+      #
+      # QUÉ DEFECTO CIERRA. La auditoría 4O-F-M0 fijó
+      # `MANUAL_LUSHA_BUDGET_GATE = UNSAFE`: la acción manual llamaba a Lusha
+      # DIRECTAMENTE — sin gate presupuestal, sin reserva atómica y sin single-flight.
+      # Tres invocaciones concurrentes sobre el mismo candidato pagaban TRES veces, y la
+      # única mitigación era un `useRef` de la UI, que no cubre una invocación directa de
+      # la server action. R2 no le da una reserva propia a ese camino: lo ELIMINA, y la
+      # operación pasa a estar representada de forma duradera como una corrida de un solo
+      # proveedor, que es lo que siempre fue.
+      #
+      # QUÉ SE PROTEGE AQUÍ:
+      #   * presupuesto: 0 disponible y 4-frente-a-5 ⇒ 0 llamadas; exactamente 5 ⇒ 1
+      #     corrida, 1 pata reservada, 1 llamada; regla ausente y lectura caída ⇒
+      #     fail-closed, cada uno con su motivo propio y NUNCA como «no elegible»;
+      #   * single-flight: 3 invocaciones concurrentes ⇒ 1 sola operación pagada, probado
+      #     con presupuesto 5 Y con 100 — si sólo pasara con 5, lo que bloquearía sería el
+      #     saldo y el defecto seguiría vivo en cuanto hubiera pozo;
+      #   * candidatos distintos NO se bloquean entre sí: el cerrojo es por candidato;
+      #   * ledger: el usage-log lleva el id de la corrida REAL, así que
+      #     `computeEffectiveConsumption` deduplica contra la reserva confirmada y una
+      #     llamada de 5 créditos consume 5, nunca 10;
+      #   * privacidad: DNC y supresión ANTES de reservar ⇒ 0 corridas y 0 reservas; DNC
+      #     EN VUELO ⇒ el costo real se conserva y el número NO se persiste (la
+      #     transacción 111/113 revisa tombstones y supresión por persona bajo el lock,
+      #     pero NO lee `do_not_contact`, así que la puerta posterior sigue siendo
+      #     necesaria y está scoped a la invocación manual);
+      #   * multi-teléfono por la MISMA transacción que el waterfall, con facturación por
+      #     RESPUESTA y jamás multiplicada por `phones.length`;
+      #   * FLAGS: con `ENABLE_PHONE_REVEAL_WATERFALL = false` —su estado en Producción—
+      #     el disparo manual SIGUE funcionando. Ese flag gobierna la UX del waterfall
+      #     Apollo→Lusha, no la existencia de la contabilidad. El kill switch del reveal
+      #     manual sigue siendo `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK`.
+      #
+      # Mutantes detectados: el motor manual vuelve a quedar gated tras el flag del
+      # waterfall; el usage-log pierde el id de la corrida (⇒ doble conteo); desaparece la
+      # puerta de privacidad posterior a la respuesta; el multi-teléfono vuelve a
+      # first-phone-only.
+      #
+      # Determinista y offline: sin red (fetch stub), sin Supabase real, sin Lusha, 0
+      # créditos. La atomicidad de `reserve_and_create_phone_reveal_run` vive en la
+      # migración 104 y ya está validada contra PostgreSQL real por
+      # AGENT2A-PHONE-WATERFALL-4G; R2 no modifica ese SQL.
+      - name: Run manual Lusha legacy-run convergence tests
+        run: npm run test:agent2a:manual-lusha-legacy-convergence

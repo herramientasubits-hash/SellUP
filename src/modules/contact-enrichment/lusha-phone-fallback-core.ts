@@ -203,6 +203,35 @@ export type LushaPhoneFallbackActionStatus =
   | typeof SUPPRESSION_BLOCKED_ERROR_CODE
   | 'do_not_contact'
   | typeof SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE
+  // ── Contabilidad durable (AGENT2A-PHONE-REVEAL-4O-F-R2) ──────
+  //
+  // Desde R2 el disparo manual se ejecuta sobre la infraestructura
+  // `legacy_lusha_only`: reserva atómica de créditos + corrida real. Eso le da tres
+  // desenlaces que ANTES no podía tener, porque antes no había gate presupuestal
+  // alguno (auditoría 4O-F-M0: ACCOUNTING sí, ENFORCEMENT no) y la llamada salía
+  // directa al proveedor.
+  //
+  // Vocabulario REUTILIZADO de `LegacyPhoneRevealWaterfallActionStatus`, no inventado:
+  // los dos disparos de Lusha nombran el mismo hecho igual. Ninguno se colapsa en
+  // `error` ni en un motivo de elegibilidad, porque decirle al operador que el
+  // candidato no aplica cuando aplica perfectamente y lo que falta es saldo describe
+  // un problema que no tuvo.
+  //
+  // En los tres: 0 llamadas al proveedor, 0 usage-logs, 0 créditos.
+  | 'insufficient_credits'
+  | 'budget_not_configured'
+  | 'credit_balance_unavailable'
+  /**
+   * La reserva + corrida atómica no se pudo ejecutar (migración 104 ausente, timeout).
+   * Fail-closed, y NUNCA un motivo de elegibilidad: falló la infraestructura.
+   */
+  | 'infrastructure_unavailable'
+  /**
+   * Ya hay una operación pagada VIVA para este candidato. Es el desenlace del
+   * single-flight: de tres invocaciones concurrentes idénticas, dos aterrizan aquí sin
+   * llamar al proveedor. Antes de R2 las tres pagaban.
+   */
+  | 'already_attempted'
   | 'error';
 
 export interface LushaPhoneFallbackActionResult {
