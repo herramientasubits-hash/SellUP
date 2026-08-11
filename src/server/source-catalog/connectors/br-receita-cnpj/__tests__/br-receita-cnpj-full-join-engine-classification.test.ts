@@ -357,7 +357,16 @@ describe('BR-SOURCE-14B.0D — static guards', () => {
   it('keeps both real-benchmark authorization constants as false literals', () => {
     const source = codeOf('../br-receita-cnpj-full-join-resource-benchmark');
     assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED = false'));
-    assert.ok(source.includes('BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED = true'));
+    // BR-SOURCE-14B.0J § 4 made `_EXECUTED` a DERIVATION of the durable attempt count instead of an
+    // independently-written literal, so this scan pins the derivation rather than the old `= true`. That
+    // is the stronger assertion: it fails both if authorization stops being a `false` literal AND if
+    // anyone re-hardcodes the executed flag away from the count it is supposed to follow.
+    assert.ok(
+      source.includes(
+        'BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED =\n  (BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED > 0) as true',
+      ),
+    );
+    assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED, true);
   });
 
   it('keeps the temporary-storage policy a false literal', () => {

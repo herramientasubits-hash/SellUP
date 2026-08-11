@@ -897,7 +897,21 @@ export type PhoneRevealWaterfallLegacyIneligibleReason =
    * volver a llamar a Lusha gastaría créditos repitiendo un resultado ya pagado.
    */
   | 'previous_run_revealed_phone'
-  | 'create_conflict';
+  | 'create_conflict'
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2 — bloqueos de la puerta de privacidad evaluada ANTES
+   * de reservar (`checkPrivacyGateBeforeReserving`, opcional y sólo cableada por el
+   * disparo manual). Vocabulario REUTILIZADO: son los mismos códigos que ya escriben
+   * el webhook, el recovery y la pata Lusha del waterfall.
+   *
+   * En los tres casos: 0 corridas, 0 reservas, 0 llamadas a Lusha, 0 usage-logs, 0
+   * créditos. `suppression_check_unavailable` es fail-closed —bloquea igual que un
+   * tombstone confirmado— pero se registra distinto: el efecto es el mismo, la
+   * afirmación no.
+   */
+  | 'blocked_suppressed'
+  | 'do_not_contact'
+  | 'suppression_check_unavailable';
 
 export interface PhoneRevealWaterfallLegacyEligibility {
   eligible: boolean;
@@ -1081,6 +1095,32 @@ export interface StartLegacyPhoneRevealWaterfallDeps
   findLatestRun: (
     candidateId: string,
   ) => Promise<PhoneRevealWaterfallRunRecord | null>;
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2 — puerta de privacidad ANTES DE RESERVAR. OPCIONAL.
+   *
+   * OMITIDA (defecto) = comportamiento byte-idéntico al anterior: la server action
+   * legacy no la cablea, y la re-comprobación de supresión/DNC sigue ocurriendo donde
+   * ya ocurría, en `continuePhoneRevealWaterfall`, justo antes de llamar a Lusha.
+   *
+   * PRESENTE = el disparo manual, que la cablea para cumplir el orden exigido
+   * `auth → elegibilidad → DNC → supresión → RESERVA → proveedor`. Sin ella, un
+   * candidato ya bloqueado GRATIS consumiría el camino caro: crear una corrida,
+   * reservar 5 créditos, cerrar sin llamar a nadie y liberar. El efecto económico neto
+   * era ya 0 —la liquidación libera la pata no intentada— pero se escribían una corrida
+   * y una reserva innecesarias, y durante ese intervalo la exposición quedaba ocupada
+   * contra el pozo de Lusha. Gatear aquí lo reduce a 0 escrituras.
+   *
+   * Fail-closed: cualquier estado distinto de `clear` bloquea, y un fallo de LECTURA
+   * bloquea igual (se traduce a `check_unavailable` por el llamador). No se degrada a
+   * "adelante".
+   *
+   * NO sustituye a la puerta de `continuePhoneRevealWaterfall`: esa sigue corriendo
+   * después, sobre el estado ya reservado, y es la que protege la ventana entre la
+   * reserva y la llamada.
+   */
+  checkPrivacyGateBeforeReserving?: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallSuppressionState>;
 }
 
 export type StartLegacyPhoneRevealWaterfallResult =
@@ -1148,6 +1188,30 @@ export async function startLegacyPhoneRevealWaterfall(
   );
   if (!historyVerdict.reauthorizable) {
     return { started: false, reason: historyVerdict.reason };
+  }
+
+  // PRIVACIDAD ANTES DE RESERVAR (AGENT2A-PHONE-REVEAL-4O-F-R2). Opcional: sólo el
+  // disparo manual la cablea. Va DESPUÉS de los gates puros y de las dos lecturas de
+  // corrida —que son baratas y ya ocurrían— y ANTES del preflight de presupuesto, que
+  // es el primer paso que escribe. Un candidato bloqueado se para aquí con 0 corridas,
+  // 0 reservas y 0 créditos, en vez de reservar exposición para liberarla acto seguido.
+  //
+  // Fail-closed en las TRES ramas. La puerta posterior de `continuePhoneRevealWaterfall`
+  // NO se sustituye: sigue corriendo sobre la corrida ya creada, y es la que cubre la
+  // ventana entre la reserva y la llamada al proveedor.
+  if (deps.checkPrivacyGateBeforeReserving) {
+    const privacy = await deps.checkPrivacyGateBeforeReserving(candidateId);
+    if (privacy !== 'clear') {
+      return {
+        started: false,
+        reason:
+          privacy === 'blocked_suppressed'
+            ? 'blocked_suppressed'
+            : privacy === 'do_not_contact'
+              ? 'do_not_contact'
+              : 'suppression_check_unavailable',
+      };
+    }
   }
 
   // PREFLIGHT + RESERVA (AGENT2A-PHONE-WATERFALL-4D/4E). Solo se exige y solo se reserva

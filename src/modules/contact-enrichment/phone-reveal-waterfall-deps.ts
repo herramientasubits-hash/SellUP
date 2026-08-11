@@ -649,8 +649,33 @@ export async function callLushaFallbackLeg(args: {
   runId: string;
   authorizedBy: string;
   maxCreditsAuthorized: number;
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2 — invocación MANUAL de administración.
+   *
+   * `false` (defecto) = las dos rutas automáticas que ya existían: el waterfall
+   * completo y la continuación legacy disparada por el webhook / cron / revisión L3.
+   * Su comportamiento queda BYTE-IDÉNTICO: sin `checkPrivacyGate` inyectado y con
+   * `waterfallMode: true`.
+   *
+   * `true` = el disparo manual admin-only, que converge sobre esta misma pata para
+   * heredar la reserva atómica y la corrida real, pero conserva las DOS propiedades
+   * que su contrato ya tenía y que la ruta automática no necesita:
+   *
+   *   1. `checkPrivacyGate` inyectado ⇒ la puerta de privacidad se evalúa también
+   *      DESPUÉS de la respuesta de Lusha. La transacción de las migraciones 111/113
+   *      revisa tombstones por número y supresión por persona bajo el lock, pero NO
+   *      lee `do_not_contact`: sin esta inyección, converger perdería en silencio la
+   *      protección de `do_not_contact` EN VUELO que 4O-E3 añadió a este camino.
+   *      No se cablea en la ruta automática (§24): allí el core ya ejecutó esa misma
+   *      puerta antes de autorizar la corrida.
+   *   2. `waterfallMode: false` ⇒ un `no_phone_found` o un error SÍ se persisten en el
+   *      candidato, que es la semántica observable que el disparo manual ya tenía. En
+   *      la ruta automática ese resultado vive sólo en la corrida.
+   */
+  manualInvocation?: boolean;
 }): Promise<PhoneRevealWaterfallLushaLegResult> {
   const admin = createSupabaseAdminClient();
+  const manual = args.manualInvocation === true;
 
   const result = await runLushaPhoneFallbackReveal(
     {
@@ -665,15 +690,18 @@ export async function callLushaFallbackLeg(args: {
       flagEnabled: isLushaPhoneRevealFallbackEnabled(),
       actor: { internalUserId: args.authorizedBy, roleKey: 'admin' },
       nowIso: new Date().toISOString(),
-      waterfallMode: true,
+      waterfallMode: !manual,
       phoneRevealWaterfallId: args.runId,
+      // Sólo en la invocación manual (ver `manualInvocation`). En la ruta automática
+      // esta clave queda AUSENTE, y el bloque entero del core sigue sin ejecutarse.
+      ...(manual ? { checkPrivacyGate: checkPhoneRevealPrivacyGate } : {}),
 
       // AGENT2A-PHONE-REVEAL-4O-D. Cableada AQUÍ y solo aquí: esta función es el
-      // único punto por el que pasan las DOS rutas que el hito autorizó — el
-      // waterfall completo y la continuación legacy, que comparten
-      // `continuePhoneRevealWaterfall` y por tanto esta pata. El disparo manual de
-      // administración vive en lusha-phone-fallback-actions.ts, no llega hasta
-      // aquí, y por eso conserva su escritura anterior sin cambios.
+      // único punto por el que pasan TODAS las rutas que llegan a Lusha — el
+      // waterfall completo, la continuación legacy y, desde
+      // AGENT2A-PHONE-REVEAL-4O-F-R2, también el disparo manual de administración,
+      // que converge sobre esta misma pata en vez de mantener su propio cableado.
+      // Hay UNA sola implementación multi-teléfono de Lusha, no dos copias.
       //
       // Con la dep presente, el camino `revealed` persiste TODOS los teléfonos de
       // la respuesta, sus procedencias, el principal, el escalar y el estado
@@ -857,13 +885,62 @@ function toWaterfallRunRpcPayload(
  * desde la server action legacy, que es el único punto con un humano autenticado.
  * NO incluye ninguna dependencia de Apollo: no hay nada que llamar.
  */
-export function buildStartLegacyWaterfallDeps(actor: {
-  internalUserId: string;
-  roleKey: string | null;
-}): StartLegacyPhoneRevealWaterfallDeps {
+export function buildStartLegacyWaterfallDeps(
+  actor: {
+    internalUserId: string;
+    roleKey: string | null;
+  },
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2 — separa el flag de PRODUCTO/UX de la
+   * INFRAESTRUCTURA DURABLE de contabilidad.
+   *
+   * Omitido (defecto) = `ENABLE_PHONE_REVEAL_WATERFALL`, byte-idéntico a antes: la
+   * server action legacy sigue exigiendo el flag del waterfall.
+   *
+   * Presente = el llamador ya resolvió su PROPIO permiso de producto y lo pasa. Lo
+   * usa el motor `legacy_lusha_only` del disparo manual, que está autorizado por
+   * `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK`.
+   *
+   * `ENABLE_PHONE_REVEAL_WATERFALL=false` sigue significando exactamente lo que
+   * significaba —la UX del waterfall Apollo→Lusha está inactiva— y NO significa que
+   * la base de datos no pueda contener una corrida `legacy_lusha_only`: esa corrida
+   * es la representación duradera de una operación real de un solo proveedor.
+   */
+  options?: {
+    flagEnabled?: boolean;
+    /**
+     * Cablea la puerta de privacidad PREVIA A LA RESERVA. Se pasa como bandera y no
+     * como función para que el único punto que decide QUÉ puerta se usa siga siendo
+     * este módulo: hay una sola implementación (`checkPhoneRevealPrivacyGate`).
+     *
+     * Ausente ⇒ la clave NO aparece en el objeto de deps (no viaja como `undefined`),
+     * así que la superficie de deps de la ruta legacy automática queda EXACTAMENTE
+     * como estaba.
+     */
+    gatePrivacyBeforeReserving?: boolean;
+  },
+): StartLegacyPhoneRevealWaterfallDeps {
   return {
-    flagEnabled: isPhoneRevealWaterfallEnabled(),
+    flagEnabled: options?.flagEnabled ?? isPhoneRevealWaterfallEnabled(),
     actor,
+    ...(options?.gatePrivacyBeforeReserving
+      ? {
+          // FAIL-CLOSED en el borde de I/O, no en el core: `checkPhoneRevealPrivacyGate`
+          // LANZA cuando no puede leer (tabla ausente, timeout), y una excepción que
+          // subiera hasta el llamador se traduciría en `legacy_run_creation_failed` — un
+          // motivo de infraestructura que NO afirma nada sobre privacidad. Aquí se
+          // convierte en `check_unavailable`, que bloquea igual que un tombstone
+          // confirmado y lo REGISTRA como lo que es: una lectura que falló.
+          // Mismo tratamiento que ya aplica `continuePhoneRevealWaterfall`.
+          checkPrivacyGateBeforeReserving: async (candidateId: string) => {
+            try {
+              return await checkSuppressionAndDoNotContact(candidateId);
+            } catch {
+              return 'check_unavailable' as const;
+            }
+          },
+        }
+      : {}),
     nowIso: new Date().toISOString(),
     loadLegacyEvidence: loadLegacyEvidenceForWaterfall,
     findActiveRun: findActiveWaterfallRunForCandidate,
@@ -879,9 +956,23 @@ export function buildStartLegacyWaterfallDeps(actor: {
  * recovery (cron L2 / revisión manual L3). NO hay actor de sesión: el actor es
  * `authorized_by` de la propia corrida.
  */
-export function buildContinueWaterfallDeps(): ContinuePhoneRevealWaterfallDeps {
+export function buildContinueWaterfallDeps(options?: {
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2. Misma separación que en
+   * `buildStartLegacyWaterfallDeps`: omitido = `ENABLE_PHONE_REVEAL_WATERFALL`
+   * (webhook, cron L2, revisión L3 y server action legacy, sin cambios).
+   */
+  flagEnabled?: boolean;
+  /**
+   * Pata Lusha alternativa. Omitida = la automática. El motor manual pasa la variante
+   * `manualInvocation: true`, que conserva la puerta de privacidad posterior a la
+   * respuesta y la persistencia de los desenlaces que no revelan. Scoped a la
+   * invocación manual: la ruta automática nunca la recibe.
+   */
+  callLushaLeg?: ContinuePhoneRevealWaterfallDeps['callLushaLeg'];
+}): ContinuePhoneRevealWaterfallDeps {
   return {
-    flagEnabled: isPhoneRevealWaterfallEnabled(),
+    flagEnabled: options?.flagEnabled ?? isPhoneRevealWaterfallEnabled(),
     // El fallback Lusha sigue siendo el kill switch real de cualquier reveal
     // Lusha: el flag del waterfall solo automatiza CUÁNDO corre, no lo autoriza.
     lushaFallbackFlagEnabled: isLushaPhoneRevealFallbackEnabled(),
@@ -891,7 +982,7 @@ export function buildContinueWaterfallDeps(): ContinuePhoneRevealWaterfallDeps {
     updateRun: updateWaterfallRun,
     checkSuppressionAndDoNotContact,
     claimLushaAttempt,
-    callLushaLeg: callLushaFallbackLeg,
+    callLushaLeg: options?.callLushaLeg ?? callLushaFallbackLeg,
     // AGENT2A-PHONE-REVEAL-4O-E1 § 7. Se cablea SIN flag propio: el gate previo a
     // Lusha ya existe y ya bloquea la llamada; lo único que añade esta dep es que la
     // decisión de privacidad quede también en el candidato, que es donde la leen el
@@ -935,6 +1026,12 @@ export async function continuePhoneRevealWaterfallForCandidate(args: {
    * que realmente lo pagó. `null` presente sí escribe null + unknown.
    */
   apolloCostCredits?: number | null;
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2. Omitido = cableado automático de siempre (webhook,
+   * cron L2, revisión L3). El motor manual pasa su flag de producto y su pata Lusha
+   * con la puerta de privacidad posterior a la respuesta.
+   */
+  depsOverride?: Parameters<typeof buildContinueWaterfallDeps>[0];
 }): Promise<ContinuePhoneRevealWaterfallResult> {
   try {
     return await continuePhoneRevealWaterfall(
@@ -949,7 +1046,7 @@ export async function continuePhoneRevealWaterfallForCandidate(args: {
           ? { apolloCostCredits: args.apolloCostCredits }
           : {}),
       },
-      buildContinueWaterfallDeps(),
+      buildContinueWaterfallDeps(args.depsOverride),
     );
   } catch (err) {
     // Solo el mensaje mecánico del driver, sin PII: este módulo nunca imprime
@@ -1001,6 +1098,25 @@ export interface StartLegacyPhoneRevealWaterfallRuntimeResult {
 export async function startLegacyPhoneRevealWaterfallForCandidate(
   candidateId: string,
   actor: { internalUserId: string; roleKey: string | null },
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2 — punto de reutilización del MOTOR ECONÓMICO.
+   *
+   * Omitido = la server action legacy, byte-idéntica: flag del waterfall en el
+   * arranque y en la continuación, y pata Lusha automática.
+   *
+   * Presente = el disparo manual admin-only, que reutiliza EXACTAMENTE esta
+   * secuencia —preflight de presupuesto, `reserve_and_create_phone_reveal_run`
+   * (reserva + corrida `legacy_lusha_only` en UNA transacción), claim atómico,
+   * puerta de privacidad previa, UNA llamada a Lusha, usage-log correlacionado con
+   * la corrida REAL, persistencia multi-teléfono y liquidación de la reserva— en vez
+   * de mantener una segunda implementación pagada de la misma operación.
+   */
+  options?: {
+    /** Permiso de PRODUCTO ya resuelto por el llamador. */
+    flagEnabled?: boolean;
+    /** Pata Lusha alternativa (scoped a la invocación manual). */
+    callLushaLeg?: ContinuePhoneRevealWaterfallDeps['callLushaLeg'];
+  },
 ): Promise<StartLegacyPhoneRevealWaterfallRuntimeResult> {
   // Fail-closed: si el store no está disponible (p. ej. las migraciones 102/103 aún
   // no aplicadas en ese entorno) NO se crea corrida y, por tanto, no se llama a
@@ -1009,7 +1125,17 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
   try {
     started = await startLegacyPhoneRevealWaterfall(
       { candidateId },
-      buildStartLegacyWaterfallDeps(actor),
+      buildStartLegacyWaterfallDeps(
+        actor,
+        options
+          ? {
+              flagEnabled: options.flagEnabled,
+              // El disparo manual exige el orden DNC → RESERVA. La ruta legacy
+              // automática NO cablea esta puerta y conserva su superficie de deps.
+              gatePrivacyBeforeReserving: true,
+            }
+          : undefined,
+      ),
     );
   } catch (err) {
     console.error(
@@ -1040,6 +1166,11 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
     candidateId,
     // Desenlace histórico ya demostrado, no fabricado.
     apolloOutcome: 'no_phone_found',
+    // El MISMO permiso y la MISMA pata que autorizaron el arranque: si la
+    // continuación resolviera el flag por su cuenta, el motor manual crearía la
+    // corrida (y reservaría los créditos) y acto seguido saldría en `feature_disabled`
+    // dejando la exposición ocupada sin llamar a nadie.
+    ...(options ? { depsOverride: options } : {}),
   });
 
   return {

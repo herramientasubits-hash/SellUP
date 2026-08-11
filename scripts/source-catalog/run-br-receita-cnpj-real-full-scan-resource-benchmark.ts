@@ -48,6 +48,8 @@ import {
 import { BRAZIL_RECEITA_FULL_JOIN_NO_WRITE_CONTRACT } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-no-write-guard';
 import { createBrazilReceitaFullJoinPrivateChannelFileSystem } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-private-channel-fs';
 import { createBrazilReceitaFullJoinBenchmarkAttemptLedger } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-resource-benchmark';
+import { evaluateBrazilReceitaNationalInputCompleteness } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-national-input-completeness';
+import { evaluateBrazilReceitaRealBenchmarkAttemptRequest } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-real-benchmark-attempt-ledger';
 import { validateBrReceitaCnpjLocalManifest } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-manifest-validator';
 import {
   BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS,
@@ -81,6 +83,12 @@ export const BRAZIL_RECEITA_REAL_FULL_SCAN_CLI_REFUSALS = [
   'dataset_period_not_declared',
   'acknowledgement_not_declared',
   'real_benchmark_not_authorized',
+  // BR-SOURCE-14B.0J § 12. The attempt number is declared, never defaulted, and a real attempt beyond
+  // the first is refused here before any port is built.
+  'real_attempt_number_not_declared',
+  'real_attempt_number_not_an_integer',
+  'real_attempt_owner_declaration_missing',
+  'real_benchmark_attempt_limit_reached',
 ] as const;
 
 export type BrazilReceitaRealFullScanCliRefusal =
@@ -96,6 +104,16 @@ export interface BrazilReceitaRealFullScanCliOptions {
   readonly privateMetricArtifactSlug: string;
   readonly datasetPeriod: string;
   readonly acknowledgement: string;
+  /** Which real attempt this invocation claims to be (BR-SOURCE-14B.0J § 5). Never defaulted. */
+  readonly requestedRealAttemptNumber: number;
+  /**
+   * Whether the operator passed the second-attempt owner declaration flag.
+   *
+   * A SEPARATE thing from the attempt number: `--real-attempt-number 2` says which attempt this is, and
+   * this says an owner approved running it. The CLI refuses when the number is beyond the first and this
+   * is absent, so `--real-attempt-number 2` alone can never start a run.
+   */
+  readonly secondRealAttemptOwnerDeclared: boolean;
 }
 
 export type BrazilReceitaRealFullScanCliParse =
@@ -149,6 +167,10 @@ export function parseBrazilReceitaRealFullScanCliArgs(
         privateMetricArtifactSlug: '',
         datasetPeriod: '',
         acknowledgement: '',
+        // `--readiness` reports; it never runs. A zero here is not an attempt number and cannot be
+        // mistaken for one: the ledger refuses anything below 1 as `real_attempt_number_invalid`.
+        requestedRealAttemptNumber: 0,
+        secondRealAttemptOwnerDeclared: false,
       },
     };
   }
@@ -173,10 +195,22 @@ export function parseBrazilReceitaRealFullScanCliArgs(
   const acknowledgement = flagValue(argv, '--private-metric-acknowledgement');
   if (acknowledgement === null) return { ok: false, refusal: 'acknowledgement_not_declared' };
 
+  // BR-SOURCE-14B.0J § 5. Required of BOTH real and synthetic-smoke modes: the smoke test exists to
+  // prove the wiring, and a smoke run that could skip the attempt declaration would be proving the
+  // wiring of a different code path from the one a real run takes.
+  const rawAttemptNumber = flagValue(argv, '--real-attempt-number');
+  if (rawAttemptNumber === null) return { ok: false, refusal: 'real_attempt_number_not_declared' };
+  const requestedRealAttemptNumber = Number(rawAttemptNumber);
+  if (!Number.isInteger(requestedRealAttemptNumber) || requestedRealAttemptNumber < 1) {
+    return { ok: false, refusal: 'real_attempt_number_not_an_integer' };
+  }
+
   return {
     ok: true,
     options: {
       mode,
+      requestedRealAttemptNumber,
+      secondRealAttemptOwnerDeclared: argv.includes('--second-real-attempt-owner-authorized'),
       manifestPath,
       workspaceParentDirectory,
       privateMetricDestinationDirectory,
@@ -209,6 +243,21 @@ export function buildBrazilReceitaRealFullScanDeclarations(
     capInputPolicyApproved: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZATION_FLAG,
     benchmarkAuthorization: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZATION_FLAG,
     attemptCount: proposal.attemptCount,
+    requestedRealAttemptNumber: options.requestedRealAttemptNumber,
+    // The § 7 gate, evaluated here from the metadata this CLI actually has — which is NONE. No expected
+    // national inventory exists (`BRAZIL_RECEITA_NATIONAL_EXPECTED_INVENTORY_KNOWN` is `false`), so the
+    // observed side is declared as empty and the verdict comes back `indeterminate`.
+    //
+    // This CLI deliberately cannot do better, and that is the § 9 boundary: producing a `complete`
+    // verdict would mean reading an inventory of the operator's staged files, and this milestone opens
+    // nothing. When a real inventory contract lands, this is the one call site that changes.
+    nationalInputCompleteness: evaluateBrazilReceitaNationalInputCompleteness({
+      period: options.datasetPeriod,
+      // `null`, not an empty record: this CLI has not inspected anything, and `null` is how the gate is
+      // told that. An empty record would be read as "inspected, and every field is wrong".
+      observed: null,
+      expected: null,
+    }),
     datasetPeriod: options.datasetPeriod,
     manifestPath: options.manifestPath,
     privateMetricChannelAcknowledgement: options.acknowledgement,
@@ -310,7 +359,8 @@ async function main(): Promise<void> {
     process.stderr.write(
       'usage: --readiness | --synthetic-smoke | --real-full-scan-resource-benchmark ' +
         '--manifest <abs> --workspace-parent <abs> --private-metric-directory <abs> ' +
-        '--dataset-period <YYYY-MM> --private-metric-acknowledgement <phrase>\n',
+        '--dataset-period <YYYY-MM> --private-metric-acknowledgement <phrase> ' +
+        '--real-attempt-number <n> [--second-real-attempt-owner-authorized]\n',
     );
     process.exitCode = 1;
     return;
@@ -318,6 +368,53 @@ async function main(): Promise<void> {
 
   if (parsed.options.mode === 'readiness') {
     process.stdout.write(`${JSON.stringify(summarizeBrazilReceitaRealFullScanReadiness(), null, 2)}\n`);
+    return;
+  }
+
+  // ── Wall order (BR-SOURCE-14B.0J § 12) ──────────────────────────────────────
+  // The second-attempt wall fires BEFORE the authorization wall, deliberately. Both refuse today, so the
+  // order changes only which message the operator sees — and the specific one is the useful one. 14B.0F
+  // built this CLI so that "an operator preparing for a future authorization can find out that their
+  // declarations are complete without being told only 'not authorized'"; an operator preparing attempt #2
+  // should likewise learn that the owner declaration is missing NOW, rather than discovering it after the
+  // authorization constant flips. It also means this wall is demonstrable today instead of being masked.
+  // The ATTEMPT-LIMIT wall (BR-SOURCE-14B.0J § 6). Attempt #3 is refused unconditionally, at the operator
+  // surface as well as inside the entry point's `real_attempt_eligibility` stage. Two independent refusals
+  // for the same rule, on purpose: the entry point's is the guarantee, and a CLI that let a `3` through to
+  // a generic "not authorized" would tell an operator to go and get an authorization that can never make
+  // this run legal. It also holds if the authorization constant is ever flipped.
+  if (parsed.options.mode === 'real-full-scan-resource-benchmark') {
+    const eligibility = evaluateBrazilReceitaRealBenchmarkAttemptRequest(
+      parsed.options.requestedRealAttemptNumber,
+    );
+    if (eligibility.rejectionCode === 'real_benchmark_attempt_limit_reached') {
+      process.stderr.write('real_benchmark_attempt_limit_reached\n');
+      process.stderr.write(
+        `Attempts consumed: ${eligibility.attemptsConsumed}. ` +
+          `Structurally supported: ${eligibility.structurallySupportedAttempts}. ` +
+          'There is no third real attempt, and no authorization can create one.\n',
+      );
+      process.exitCode = 1;
+      return;
+    }
+  }
+
+  // The SECOND-ATTEMPT wall (BR-SOURCE-14B.0J § 12). A real attempt beyond the first needs an owner
+  // declaration on the command line, and this refusal fires whether or not the authorization constant is
+  // ever flipped. Two independent walls rather than one: flipping `..._AUTHORIZED` grants "a real
+  // benchmark may run", and this asks the separate question "which attempt, and who approved a second
+  // one" — the § 6 rule against inferring one declaration from another, applied at the operator surface.
+  if (
+    parsed.options.mode === 'real-full-scan-resource-benchmark' &&
+    parsed.options.requestedRealAttemptNumber > 1 &&
+    !parsed.options.secondRealAttemptOwnerDeclared
+  ) {
+    process.stderr.write('real_attempt_owner_declaration_missing\n');
+    process.stderr.write(
+      'A real attempt beyond the first requires --second-real-attempt-owner-authorized. ' +
+        'Attempts consumed so far: see --readiness. Attempt 3 is refused unconditionally.\n',
+    );
+    process.exitCode = 1;
     return;
   }
 
@@ -366,6 +463,11 @@ async function main(): Promise<void> {
           realDataAccessed: outcome.realDataAccessed,
           rowsEmitted: outcome.rowsEmitted,
           realFullScanBenchmarkExecuted: outcome.realFullScanBenchmarkExecuted,
+          // BR-SOURCE-14B.0J § 5, § 11: a refusal spends nothing, and says so rather than leaving the
+          // operator to infer it from the absence of a complaint.
+          realDataBoundaryCrossed: outcome.realDataBoundaryCrossed,
+          attemptsConsumedAfterRefusal: outcome.attemptsConsumedAfterRefusal,
+          attemptRejectionCode: outcome.attemptRejectionCode,
         },
         null,
         2,

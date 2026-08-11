@@ -291,17 +291,40 @@ describe('4O-E1 § 3.1 · vocabulario', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('4O-E1 · deuda pendiente declarada', () => {
-  it('el disparo manual de Lusha sigue SIN la persistencia de colección', () => {
-    // Es lo que mantiene `MANUAL_LUSHA_MULTI_PHONE_PENDING` y el gate pre-call del
-    // disparo manual fuera de este hito (pertenecen a 4O-E3). Si alguien cablease
-    // `persistPhoneCollection` en la acción manual, este test lo diría.
+  it('el disparo manual de Lusha usa el cierre terminal CONDICIONAL con su colección', () => {
+    // En 4O-E1 este test afirmaba que la acción manual seguía SIN
+    // `persistPhoneCollection`: era la deuda `MANUAL_LUSHA_MULTI_PHONE_PENDING`.
+    // AGENT2A-PHONE-REVEAL-4O-F la cierra cableando la MISMA transacción que el
+    // waterfall. Lo que este hito tiene que seguir garantizando —y es lo que se
+    // afirma ahora— es que ese camino nuevo llegue acompañado del cierre terminal
+    // por supresión CONDICIONAL: sin él, un `suppressed` de la transacción devolvería
+    // el candidato a `no_phone_found`, que es justo el estado que lo vuelve elegible
+    // para volver a comprar el mismo número suprimido.
+    // AGENT2A-PHONE-REVEAL-4O-F-R2: el cableado del disparo manual dejó de estar en la
+    // acción y pasó a la pata COMPARTIDA (`callLushaFallbackLeg`, `manualInvocation:
+    // true`), que es la misma que ya usaban el waterfall y la continuación legacy. La
+    // garantía es la de siempre —colección transaccional acompañada del cierre terminal
+    // CONDICIONAL— sólo que ahora hay UN punto donde verificarla en vez de dos.
+    const deps = read(
+      'src',
+      'modules',
+      'contact-enrichment',
+      'phone-reveal-waterfall-deps.ts',
+    );
+    assert.ok(deps.includes('persistPhoneCollection: persistCandidateLushaPhoneCollection'));
+    assert.ok(
+      deps.includes('persistTerminalSuppression: persistTerminalPhoneSuppression'),
+      'la colección manual sin cierre terminal condicional reabriría la compra del número suprimido',
+    );
+    // Y la acción manual ya no puede tener un camino pagado propio que se salte ese cierre.
     const actions = read(
       'src',
       'modules',
       'contact-enrichment',
       'lusha-phone-fallback-actions.ts',
     );
-    assert.equal(actions.includes('persistPhoneCollection'), false);
+    assert.ok(actions.includes('executeLegacyLushaOnlyPhoneReveal'));
+    assert.equal(actions.includes('callLusha:'), false);
   });
 
   it('la propagación DSAR a la colección sigue sin implementarse', () => {
