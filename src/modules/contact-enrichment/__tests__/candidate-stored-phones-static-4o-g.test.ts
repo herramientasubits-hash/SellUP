@@ -362,7 +362,7 @@ describe('4O-G — el copy no puede prometer una búsqueda', () => {
   it('no se muestra costo por número', () => {
     // Los teléfonos guardados vinieron de respuestas cobradas POR RESPUESTA:
     // un precio unitario sería una cifra que nadie facturó.
-    for (const file of [COPY, DISCLOSURE]) {
+    for (const file of [COPY, DISCLOSURE] as const) {
       assert.equal(
         /crédito|credits|costó|costo/i.test(sources[file]),
         false,

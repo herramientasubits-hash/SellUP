@@ -60,13 +60,26 @@ describe('PHONE-3B — static safety guards', () => {
   });
 
   it('conserva el vocabulario de tipo/fuente conocido (contrato con PHONE-3A)', () => {
-    // Labels prudentes clave presentes.
-    assert.ok(detailSheet.includes('Móvil / posible personal'));
-    assert.ok(detailSheet.includes('Tipo desconocido'));
-    assert.ok(detailSheet.includes('Apollo búsqueda'));
-    // Copy prudente: nunca afirma personal garantizado/confirmado.
-    assert.equal(/personal\s+garantizado/i.test(detailSheet), false);
-    assert.equal(/personal\s+confirmado/i.test(detailSheet), false);
+    // AGENT2A-PHONE-REVEAL-4O-G movió los dos mapas de etiquetas del drawer a
+    // `phone-display-labels.ts` (sin cambiar un solo valor) porque el disclosure
+    // «Ver más números» muestra teléfonos en otra superficie y tiene que
+    // rotularlos igual. El invariante de PHONE-3B no cambia — el vocabulario debe
+    // seguir existiendo y siendo prudente — así que lo que se ajusta es DÓNDE se
+    // lee, no QUÉ se exige. Se comprueba además que el drawer siga consumiéndolo:
+    // un mapa intacto que nadie usa no rotula nada.
+    const labels = readSource('phone-display-labels.ts');
+    assert.ok(labels.includes('Móvil / posible personal'));
+    assert.ok(labels.includes('Tipo desconocido'));
+    assert.ok(labels.includes('Apollo búsqueda'));
+    assert.ok(detailSheet.includes("from './phone-display-labels'"));
+    assert.ok(detailSheet.includes('resolvePhoneTypeLabel'));
+    assert.ok(detailSheet.includes('resolvePhoneSourceLabel'));
+    // Copy prudente: nunca afirma personal garantizado/confirmado. Se exige en
+    // AMBOS archivos, para que mover el mapa no haya abierto un hueco.
+    for (const source of [labels, detailSheet]) {
+      assert.equal(/personal\s+garantizado/i.test(source), false);
+      assert.equal(/personal\s+confirmado/i.test(source), false);
+    }
   });
 
   it('no modifica el run viewer / history para mostrar teléfono', () => {
