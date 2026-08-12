@@ -42,11 +42,14 @@ import {
   BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_2_REQUIRED_INPUT_SCOPE,
   BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_2_REQUIRED_PERIOD,
   BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED,
+  BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_BUDGET_EXHAUSTED,
   BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY,
   BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED,
   BRAZIL_RECEITA_REAL_BENCHMARK_AUTOMATIC_RETRY_COUNT,
   BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS,
+  brazilReceitaNextRealAttemptIsStructurallySupported,
   brazilReceitaNextRealAttemptNumber,
+  brazilReceitaRealBenchmarkAttemptBudgetExhausted,
   brazilReceitaRealBenchmarkAttemptsConsumed,
   brazilReceitaRealBenchmarkExecuted,
   createBrazilReceitaRealBenchmarkAttemptBoundaryLedger,
@@ -257,9 +260,11 @@ function codeOnly(moduleBasename: string): string {
 // ─── § 13 tests 1–10: the attempt model ───────────────────────────────────────
 
 describe('BR-SOURCE-14B.0J § 3–§ 6 — the durable attempt model', () => {
-  it('1 — keeps attempt #1 consumed', () => {
-    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED, 1);
-    assert.equal(brazilReceitaRealBenchmarkAttemptsConsumed(), 1);
+  it('1 — keeps both attempts consumed', () => {
+    // BR-SOURCE-ATTEMPT2-CLOSURE: attempt #2 ran, crossed the boundary and breached a cap, so the durable
+    // count is 2. It moved UP, by a reviewed edit, which is the only direction and the only mechanism.
+    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED, 2);
+    assert.equal(brazilReceitaRealBenchmarkAttemptsConsumed(), 2);
     // Derived, per § 4: `executed` is the count being positive, not an independent boolean.
     assert.equal(brazilReceitaRealBenchmarkExecuted(), true);
     assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED, true);
@@ -270,7 +275,8 @@ describe('BR-SOURCE-14B.0J § 3–§ 6 — the durable attempt model', () => {
   });
 
   it('2 — leaves attempt #1 evidence unchanged, including its staged-subset scope', () => {
-    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY.length, 1);
+    // Two records now, and attempt #1 is still the first of them — appended to, never rewritten.
+    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY.length, 2);
     const [attempt1] = BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY;
     assert.equal(attempt1.attemptNumber, 1);
     assert.equal(attempt1.milestone, 'BR-SOURCE-14B.0G');
@@ -292,49 +298,98 @@ describe('BR-SOURCE-14B.0J § 3–§ 6 — the durable attempt model', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- probing immutability on purpose
       (attempt1 as any).terminalStatus = 'completed';
     });
+    // BR-SOURCE-ATTEMPT2-CLOSURE § 3, mechanically: attempt #1's record carries EXACTLY the nine fields
+    // 14B.0J froze into it. The three fields the closure added are optional precisely so this stays true —
+    // backfilling `abortStage` or a `resourceObservation` onto attempt #1 from the 14B.0G document would
+    // be reconstructing an attempt record from a second source, which is what the ledger exists to stop.
+    assert.deepEqual(Object.keys(attempt1).sort(), [
+      'attemptNumber',
+      'crossedRealDataBoundary',
+      'datasetPeriod',
+      'evidenceDocument',
+      'inputScope',
+      'milestone',
+      'retriesPerformed',
+      'rowsEmitted',
+      'terminalStatus',
+    ]);
   });
 
   it('3 — keeps the attempt counter monotonic and never derives a lower count', () => {
     // The count is a constant, so monotonicity is checked where it could actually be violated: every
     // accessor and every ledger state must report at least the durable figure, never less.
-    assert.ok(brazilReceitaRealBenchmarkAttemptsConsumed() >= 1);
+    assert.ok(brazilReceitaRealBenchmarkAttemptsConsumed() >= 2);
+    // The in-process ledger is the § 11 accounting object, not the record. With the budget spent it can
+    // still be constructed — nothing about it is gated — and the property that matters is that it never
+    // reports a count BELOW the durable one, in either boundary state.
     const ledger = createBrazilReceitaRealBenchmarkAttemptBoundaryLedger(2);
-    assert.equal(ledger.resultingAttemptsConsumed(), 1);
+    assert.equal(ledger.resultingAttemptsConsumed(), 2);
     ledger.commitCrossing();
     assert.equal(ledger.resultingAttemptsConsumed(), 2);
     assert.ok(
-      ledger.resultingAttemptsConsumed() > BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED,
-      'crossing must increase the resulting count, never decrease it',
+      ledger.resultingAttemptsConsumed() >= BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED,
+      'the ledger must never derive a count below the durable record',
     );
+    // And the durable record itself moved up, never down: attempt #1's count was 1.
+    assert.ok(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED > 1);
   });
 
-  it('4 — resolves the next attempt number as 2, and calls it structurally supported', () => {
-    assert.equal(brazilReceitaNextRealAttemptNumber(), 2);
+  it('4 — resolves the next attempt number as 3, and refuses it as unsupported', () => {
+    // The exhausted case, spelled through the contract that already existed rather than a new sentinel:
+    // `nextAttemptNumber` answers "what would a next run claim?" (3), and the companion predicate answers
+    // "may it?" (no). See the ledger's note on why this is not a `null`.
+    assert.equal(brazilReceitaNextRealAttemptNumber(), 3);
     assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS, 2);
-    const eligibility = evaluateBrazilReceitaRealBenchmarkAttemptRequest(2);
-    assert.equal(eligibility.eligible, true);
-    assert.equal(eligibility.attemptNumber, 2);
-    assert.equal(eligibility.rejectionCode, null);
-    // Structurally supported is NOT authorized, and the eligibility result says so itself.
-    assert.equal(eligibility.authorized, false);
+    assert.equal(brazilReceitaNextRealAttemptIsStructurallySupported(), false);
+    assert.equal(brazilReceitaRealBenchmarkAttemptBudgetExhausted(), true);
+    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_BUDGET_EXHAUSTED, true);
+    // The asserted constant and the derivation agree — the constant is documentation, not a second source.
+    assert.equal(
+      BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_BUDGET_EXHAUSTED,
+      brazilReceitaRealBenchmarkAttemptBudgetExhausted(),
+    );
+    // No number is eligible any more. Not the one just spent, not the next one, not any beyond it.
+    for (const requested of [2, 3, 4]) {
+      const eligibility = evaluateBrazilReceitaRealBenchmarkAttemptRequest(requested);
+      assert.equal(eligibility.eligible, false);
+      assert.equal(eligibility.attemptNumber, null);
+      assert.equal(eligibility.authorized, false);
+      assert.equal(
+        eligibility.rejectionCode,
+        requested === 2 ? 'real_attempt_number_already_consumed' : 'real_benchmark_attempt_limit_reached',
+      );
+    }
   });
 
-  it('5 — refuses attempt #2 while it is unauthorized, at the authorization stage', async () => {
+  it('5 — refuses the exhausted attempt budget BEFORE the authorization stage is reached', async () => {
+    // This test used to prove the opposite ordering: every earlier stage passed and the run stopped at
+    // `authorization`, the one gate only an owner could open. BR-SOURCE-ATTEMPT2-CLOSURE inverts it, and
+    // the inversion IS the closure — the attempt wall is stage 3, the authorization wall is stage 11, so
+    // with the budget spent no configuration of approvals can reach the gate that approvals unlock.
     const { request, touched } = benchmarkRequest();
     const outcome = await runBrazilReceitaRealFullScanResourceBenchmark(request);
     assert.equal(outcome.ok, false);
     if (outcome.ok) return;
-    // Every earlier stage passed — including attempt eligibility and the national input gate — and the
-    // run still stops, at the one gate only an owner can open.
-    assert.equal(outcome.failedStage, 'authorization');
-    assert.equal(outcome.abortCode, 'benchmark_not_authorized');
+    assert.equal(outcome.failedStage, 'real_attempt_eligibility');
+    assert.notEqual(outcome.failedStage, 'authorization');
+    assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
     assert.equal(outcome.abortStage, 'ABORT_BEFORE_REAL_FILE_OPEN');
+    // The declarations above carry every approval set to `true`. They change nothing.
+    assert.equal(request.declarations.benchmarkAuthorization, true);
+    assert.equal(request.declarations.temporaryStoragePolicyApproved, true);
+    assert.equal(request.declarations.capInputPolicyApproved, true);
     assert.deepEqual(touched, []);
+    // And the stage that fired really does precede the one that used to.
+    assert.ok(
+      BRAZIL_RECEITA_REAL_FULL_SCAN_PREFLIGHT_STAGES.indexOf('real_attempt_eligibility') <
+        BRAZIL_RECEITA_REAL_FULL_SCAN_PREFLIGHT_STAGES.indexOf('authorization'),
+    );
   });
 
   it('6 — spends nothing when attempt #2 aborts before the real-data boundary', async () => {
-    // § 5 and § 11: a preflight abort leaves the durable count at 1. Checked across a spread of
-    // refusals — an early one, a late one, and today's standing authorization refusal.
+    // § 5 and § 11: a preflight abort leaves the durable count where it was — 2 now. Checked across a
+    // spread of declarations that used to fail at different stages; with the budget spent they all stop at
+    // the attempt wall, and the invariant under test (a refusal spends nothing) is unchanged by that.
     const cases: readonly BrazilReceitaRealFullScanDeclarations[] = [
       declarations({ requestedRealAttemptNumber: 3 }),
       declarations({ nationalInputCompleteness: completeness(observedNational(), null) }),
@@ -347,7 +402,7 @@ describe('BR-SOURCE-14B.0J § 3–§ 6 — the durable attempt model', () => {
       assert.equal(outcome.ok, false);
       if (outcome.ok) continue;
       assert.equal(outcome.realDataBoundaryCrossed, false);
-      assert.equal(outcome.attemptsConsumedAfterRefusal, 1);
+      assert.equal(outcome.attemptsConsumedAfterRefusal, 2);
       assert.equal(outcome.realDataAccessed, false);
       assert.equal(outcome.realManifestOpened, false);
       assert.equal(outcome.rowsEmitted, 0);
@@ -395,15 +450,17 @@ describe('BR-SOURCE-14B.0J § 3–§ 6 — the durable attempt model', () => {
     }
   });
 
-  it('8b — refuses attempt #2 impersonating attempt #1, and every invalid number', async () => {
-    // § 6's anti-impersonation rule. A run declaring itself #1 would leave the durable count at 1 and let
-    // a THIRD run present itself as the second.
-    for (const requested of [1, 0, -1]) {
+  it('8b — refuses a run impersonating an already-consumed attempt, and every invalid number', async () => {
+    // § 6's anti-impersonation rule, now load-bearing for BOTH consumed numbers: a run declaring itself #1
+    // or #2 would leave the durable count where it is and let the run after it present itself as the one
+    // just spent. `2` joining this list is the whole point of the closure edit — before it, `2` was
+    // eligible, and only operator discipline stood between that and a second execution of attempt #2.
+    for (const requested of [1, 2, 0, -1]) {
       const eligibility = evaluateBrazilReceitaRealBenchmarkAttemptRequest(requested);
       assert.equal(eligibility.eligible, false);
       assert.equal(
         eligibility.rejectionCode,
-        requested === 1 ? 'real_attempt_number_already_consumed' : 'real_attempt_number_invalid',
+        requested >= 1 ? 'real_attempt_number_already_consumed' : 'real_attempt_number_invalid',
       );
     }
     // A non-integer, a string, a NaN and an absent value are unanswered questions, never defaults.
@@ -419,7 +476,7 @@ describe('BR-SOURCE-14B.0J § 3–§ 6 — the durable attempt model', () => {
     if (!outcome.ok) {
       assert.equal(outcome.abortCode, 'real_attempt_number_already_consumed');
       assert.equal(outcome.failedStage, 'real_attempt_eligibility');
-      assert.equal(outcome.attemptsConsumedAfterRefusal, 1);
+      assert.equal(outcome.attemptsConsumedAfterRefusal, 2);
     }
     assert.deepEqual(touched, []);
     // An omitted number is a MISSING DECLARATION rather than a rejected one — the operator is told the
@@ -803,9 +860,15 @@ describe('BR-SOURCE-14B.0J § 12 — authorization remains false', () => {
     // The controls being finished and the run being permitted are separate fields with separate values.
     assert.equal(readiness.secondRealBenchmarkControlReady, true);
     assert.equal(readiness.gate2ReadyForOwnerReview, false);
-    assert.equal(readiness.attemptModel.attemptsConsumed, 1);
-    assert.equal(readiness.attemptModel.nextAttemptNumber, 2);
+    assert.equal(readiness.attemptModel.attemptsConsumed, 2);
+    assert.equal(readiness.attemptModel.nextAttemptNumber, 3);
+    assert.equal(readiness.attemptModel.nextAttemptStructurallySupported, false);
+    assert.equal(readiness.attemptModel.attemptBudgetExhausted, true);
     assert.equal(readiness.attemptModel.attempt3Allowed, false);
+    // BR-SOURCE-ATTEMPT2-CLOSURE § 2: `--readiness` must not advertise an authorization that is no longer
+    // obtainable. This field was a hardcoded `true`; it is now derived, and with the budget spent it says
+    // so. The CONTROLS being ready (asserted above) is a separate claim and stays `true`.
+    assert.equal(readiness.realFullScanBenchmarkReadyForOwnerAuthorization, false);
     // 14B.0K supplied the expectation; the readiness path still inspects nothing, so its standing verdict
     // is still `indeterminate` and Gate 2 is still not ready.
     assert.equal(readiness.nationalInputGate.expectedInventoryKnown, true);
@@ -900,18 +963,103 @@ describe('BR-SOURCE-14B.0J § 12 — authorization remains false', () => {
     }
   });
 
-  it('24 — records that the second real benchmark has not been executed', () => {
-    // One attempt in the history, and it is attempt #1.
-    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY.length, 1);
-    assert.ok(
-      !BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY.some((entry) => entry.attemptNumber === 2),
+  it('24 — records that the second real benchmark HAS been executed, with its own evidence', () => {
+    // The inversion of what this test asserted before BR-SOURCE-ATTEMPT2-CLOSURE. Two attempts, both
+    // consumed, and attempt #2 present under its own milestone.
+    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY.length, 2);
+    const attempt2 = BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY.find(
+      (entry) => entry.attemptNumber === 2,
     );
-    assert.equal(brazilReceitaNextRealAttemptNumber(), 2);
+    assert.ok(attempt2, 'attempt #2 must be recorded');
+    assert.equal(attempt2.milestone, 'BR-SOURCE-ATTEMPT2-RUN');
+    assert.equal(attempt2.datasetPeriod, '2026-07');
+    assert.equal(attempt2.terminalStatus, 'resource_cap_breached');
+    // The boundary WAS crossed — that is what spent the attempt, per § 11, regardless of the terminal.
+    assert.equal(attempt2.crossedRealDataBoundary, true);
+    // Attempt #1 was a staged subset; this one was the national whole. That distinction is the reason
+    // attempt #2 existed at all, so recording it wrongly would erase the milestone's only new fact.
+    assert.equal(attempt2.inputScope, 'full_national');
+    assert.equal(attempt2.rowsEmitted, 0);
+    assert.equal(attempt2.retriesPerformed, 0);
+    assert.equal(attempt2.abortStage, 'empresas_reference_pass');
+    assert.equal(Object.isFrozen(attempt2), true);
+    assert.equal(brazilReceitaNextRealAttemptNumber(), 3);
+    // The attempt-2 scope constants stay as they were: they describe the run that happened.
     assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_2_REQUIRED_PERIOD, '2026-07');
     assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_2_REQUIRED_INPUT_SCOPE, 'full_national');
+    assert.equal(attempt2.datasetPeriod, BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_2_REQUIRED_PERIOD);
+    assert.equal(attempt2.inputScope, BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_2_REQUIRED_INPUT_SCOPE);
   });
 
-  it('24b — refuses a period other than the one attempt #2 is scoped to', async () => {
+  it('24a — classifies attempt #2 as an external-memory envelope breach, not a throughput failure', () => {
+    // BR-SOURCE-ATTEMPT2-CLOSURE § 5. The two consumed attempts share a terminal code and nothing else:
+    // attempt #1 exhausted six hours, attempt #2 used 0.05 % of them and died on external memory.
+    // Collapsing the two into "the national join is too slow" is the misreading this pins shut.
+    const attempt2 = BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY.find(
+      (entry) => entry.attemptNumber === 2,
+    );
+    assert.ok(attempt2);
+    assert.equal(attempt2.failureClassification, 'resource_envelope_external_memory');
+    // NO record — neither attempt — is classified as a national throughput failure.
+    assert.ok(
+      !BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY.some(
+        (entry) => entry.failureClassification === 'national_throughput_failure',
+      ),
+      'no attempt may be recorded as a national throughput failure',
+    );
+
+    const observation = attempt2.resourceObservation;
+    assert.ok(observation, 'attempt #2 must carry its sanitized resource observation');
+    assert.equal(observation.breachedCapKey, 'maxExternalMemoryBytes');
+    assert.equal(observation.breachedCapObservedValue, 67_725_759);
+    assert.equal(observation.breachedCapLimitValue, 67_108_864);
+    assert.equal(observation.breachedCapOverage, 616_895);
+    // The overage is the arithmetic, not a separately typed number.
+    assert.equal(
+      observation.breachedCapOverage,
+      observation.breachedCapObservedValue - observation.breachedCapLimitValue,
+    );
+    assert.ok(observation.breachedCapObservedValue > observation.breachedCapLimitValue);
+    assert.equal(observation.durationMs, 9_737);
+    assert.equal(observation.bytesRead, 205_520_896);
+    assert.equal(observation.rowsRead, 2_555_904);
+    assert.equal(observation.peakHeapUsedBytes, 115_595_544);
+    assert.equal(observation.peakRssBytes, 337_002_496);
+    assert.equal(observation.temporaryStoragePeakBytes, 40_894_464);
+    assert.equal(observation.filesOpenedPeakConcurrent, 33);
+    assert.equal(observation.partitionHandlesPeak, 32);
+    assert.equal(observation.partitionsCreated, 1_024);
+    assert.equal(observation.materializedOutputRows, 0);
+    assert.equal(observation.sanitizerPassed, true);
+    assert.equal(observation.cleanupPassed, true);
+    // § 5's other prohibition: nothing here may be read as throughput having been proven.
+    assert.equal(observation.throughputEvidenceProduced, false);
+    assert.equal(Object.isFrozen(observation), true);
+
+    // Privacy: the record is counters and slugs only. The checks are about VALUES — an identifier-shaped
+    // digit run, a filesystem path, a person-linked family label. The connector's own name appears in the
+    // evidence slug and is not what this guards; a check that tripped on it would be a check that gets
+    // deleted rather than one that catches a leak.
+    const serialized = JSON.stringify(attempt2);
+    assert.ok(!/\d{14}/.test(serialized), 'no CNPJ-shaped digit run may appear');
+    assert.ok(!serialized.includes('/'), 'no path separator may appear');
+    for (const forbidden of ['razao', 'socio', 'qsa', 'nome_', 'cpf']) {
+      assert.ok(!serialized.toLowerCase().includes(forbidden), `must not serialize "${forbidden}"`);
+    }
+    // Every leaf is a number, a boolean or a short slug — never free text.
+    for (const value of Object.values(attempt2.resourceObservation ?? {})) {
+      assert.ok(
+        typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string',
+        'the observation must be scalars only',
+      );
+    }
+  });
+
+  it('24b — preempts the period gate too, because the attempt wall precedes it', async () => {
+    // This asserted `dataset_period_not_authorized_for_attempt` at the `national_input_completeness`
+    // stage. That stage is stage 4 and the attempt wall is stage 3, so with the budget spent the period
+    // gate is no longer reachable through the entry point. The period CONSTANT is still asserted (test 24),
+    // and what is proven here is the preemption — a wrong period cannot sneak past a spent budget either.
     const { request, touched } = benchmarkRequest({
       declarations: declarations({
         datasetPeriod: '2026-06',
@@ -927,11 +1075,15 @@ describe('BR-SOURCE-14B.0J § 12 — authorization remains false', () => {
     const outcome = await runBrazilReceitaRealFullScanResourceBenchmark(request);
     assert.equal(outcome.ok, false);
     if (!outcome.ok) {
-      assert.equal(outcome.abortCode, 'dataset_period_not_authorized_for_attempt');
-      assert.equal(outcome.failedStage, 'national_input_completeness');
-      assert.equal(outcome.attemptsConsumedAfterRefusal, 1);
+      assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
+      assert.equal(outcome.failedStage, 'real_attempt_eligibility');
+      assert.equal(outcome.attemptsConsumedAfterRefusal, 2);
     }
     assert.deepEqual(touched, []);
+    assert.ok(
+      BRAZIL_RECEITA_REAL_FULL_SCAN_PREFLIGHT_STAGES.indexOf('real_attempt_eligibility') <
+        BRAZIL_RECEITA_REAL_FULL_SCAN_PREFLIGHT_STAGES.indexOf('national_input_completeness'),
+    );
   });
 });
 
@@ -1041,21 +1193,30 @@ describe('BR-SOURCE-14B.0J § 10, § 15 — caps unchanged and scope respected',
     assert.equal(stages[stages.length - 1], 'authorization');
   });
 
-  it('refuses an incomplete national input before the caps are even parsed', async () => {
+  it('refuses before the national gate and the caps alike, at the attempt wall', async () => {
+    // Previously: the national gate fired before the caps were parsed. Both of those stages sit behind the
+    // attempt wall, so the ordering claim is now made one stage earlier — and made more strongly, since
+    // NEITHER a broken input nor broken caps can produce a different answer while the budget is spent.
     const { request, touched } = benchmarkRequest({
       declarations: declarations({
         nationalInputCompleteness: completeness(observedNational(), null),
-        // Deliberately broken caps too: if the national gate fires first, this is never reached.
+        // Deliberately broken caps too: nothing downstream of stage 3 is consulted.
         resourceCaps: {},
       }),
     });
     const outcome = await runBrazilReceitaRealFullScanResourceBenchmark(request);
     assert.equal(outcome.ok, false);
     if (!outcome.ok) {
-      assert.equal(outcome.abortCode, 'national_input_not_complete');
-      assert.equal(outcome.failedStage, 'national_input_completeness');
+      assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
+      assert.equal(outcome.failedStage, 'real_attempt_eligibility');
+      // Neither later stage ran, so neither reported a finding.
       assert.deepEqual(outcome.capRejections, []);
+      assert.deepEqual(outcome.missingDeclarations, []);
     }
     assert.deepEqual(touched, []);
+    // The declared stage order is what makes that inevitable rather than incidental.
+    const order = BRAZIL_RECEITA_REAL_FULL_SCAN_PREFLIGHT_STAGES;
+    assert.ok(order.indexOf('real_attempt_eligibility') < order.indexOf('national_input_completeness'));
+    assert.ok(order.indexOf('national_input_completeness') < order.indexOf('resource_caps'));
   });
 });

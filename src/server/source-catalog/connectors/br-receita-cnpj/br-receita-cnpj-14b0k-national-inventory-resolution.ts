@@ -67,9 +67,10 @@ import {
 } from './br-receita-cnpj-national-input-completeness';
 import {
   BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED,
-  BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED,
   BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS,
   brazilReceitaNextRealAttemptNumber,
+  brazilReceitaRealBenchmarkAttemptBudgetExhausted,
+  brazilReceitaRealBenchmarkAttemptsConsumed,
 } from './br-receita-cnpj-real-benchmark-attempt-ledger';
 
 // ─── Local metadata inputs ────────────────────────────────────────────────────
@@ -237,17 +238,33 @@ export interface BrazilReceitaNationalInventoryResolution {
   readonly attempt2RequiredInputScope: typeof BRAZIL_RECEITA_NATIONAL_REQUIRED_ATTEMPT_2_INPUT_SCOPE;
   /** `false`, always. Resolving an inventory is evidence, not authorization (§ 13). */
   readonly attempt2Authorized: false;
-  readonly attempt2Executed: false;
+  /**
+   * Whether attempt #2 has been executed — DERIVED from the durable ledger, not asserted.
+   *
+   * This was the literal `false` until BR-SOURCE-ATTEMPT2-CLOSURE, which is precisely how long it stayed
+   * correct: attempt #2 ran on 2026-08-12, and a hardcoded `false` here would now be a resolution report
+   * telling its reader that the run which spent the last attempt never happened. Reading it off the ledger
+   * means the field cannot go stale again the next time the durable record moves.
+   */
+  readonly attempt2Executed: boolean;
   readonly attempt3Allowed: typeof BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED;
-  readonly attemptsConsumed: typeof BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED;
+  readonly attemptsConsumed: number;
   readonly structurallySupportedAttempts: typeof BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS;
   readonly nextRealAttemptNumber: number;
+  /** Derived. `true` once every expressible attempt is consumed, which it now is. */
+  readonly attemptBudgetExhausted: boolean;
   /** Structural assertions (§ 16). No code path can change them. */
   readonly rowsRead: 0;
   readonly sourceReadCalls: 0;
   readonly scanExecuted: false;
   readonly joinExecuted: false;
-  readonly secondRealBenchmarkExecuted: false;
+  /**
+   * Whether the second real benchmark has run. Derived, and the same fact as `attempt2Executed`.
+   *
+   * Both names survive because both are read: `--readiness` and the 14B.0K CLI print this one. They are
+   * computed from one expression rather than written twice, so the pair cannot disagree.
+   */
+  readonly secondRealBenchmarkExecuted: boolean;
 }
 
 function diffFamily(
@@ -376,6 +393,11 @@ export function resolveBrazilReceitaNationalInventory(
     identityVerdict = shortOrSubstituted ? 'incomplete' : 'complete';
   }
 
+  // ── Attempt #2's execution state, read from the durable ledger once and reported under both of the
+  //    names callers already use. `>= 2` rather than `=== 2`: the question is whether the second attempt
+  //    has been spent, and a count that ever moved past 2 would answer it yes just as firmly.
+  const secondRealBenchmarkExecuted = brazilReceitaRealBenchmarkAttemptsConsumed() >= 2;
+
   return {
     period: request.period,
     authoritativeInventoryStatus: publisher.status,
@@ -392,16 +414,17 @@ export function resolveBrazilReceitaNationalInventory(
     attempt1InputScope: 'staged_subset',
     attempt2RequiredInputScope: BRAZIL_RECEITA_NATIONAL_REQUIRED_ATTEMPT_2_INPUT_SCOPE,
     attempt2Authorized: false,
-    attempt2Executed: false,
+    attempt2Executed: secondRealBenchmarkExecuted,
     attempt3Allowed: BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED,
-    attemptsConsumed: BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED,
+    attemptsConsumed: brazilReceitaRealBenchmarkAttemptsConsumed(),
     structurallySupportedAttempts: BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS,
     nextRealAttemptNumber: brazilReceitaNextRealAttemptNumber(),
+    attemptBudgetExhausted: brazilReceitaRealBenchmarkAttemptBudgetExhausted(),
     rowsRead: 0,
     sourceReadCalls: 0,
     scanExecuted: false,
     joinExecuted: false,
-    secondRealBenchmarkExecuted: false,
+    secondRealBenchmarkExecuted,
   };
 }
 
@@ -414,14 +437,32 @@ export const BRAZIL_RECEITA_NATIONAL_RESOLUTION_NEXT_ACTIONS = {
 } as const;
 
 /**
+ * Where a `complete` verdict routes once the attempt budget is spent (BR-SOURCE-ATTEMPT2-CLOSURE § 2).
+ *
+ * The input being complete is still worth reporting — it is what made attempt #2 a national run — but it
+ * can no longer route to "authorize the second benchmark", because the second benchmark has been run. The
+ * honest destination is the resource-envelope decision that attempt #2's breach actually raised, and NOT
+ * a request to authorize a third attempt: § 2 forbids adding that route, and this string is deliberately
+ * not phrased as one.
+ */
+export const BRAZIL_RECEITA_NATIONAL_RESOLUTION_EXHAUSTED_NEXT_ACTION =
+  'OWNER REVIEW — EXTERNAL MEMORY RESOURCE CLOSURE' as const;
+
+/**
  * The owner's next action, derived from the verdict.
  *
- * Never "run attempt #2": even a `complete` verdict routes to an AUTHORIZATION request, because the
- * input being right is a precondition for asking and not a substitute for being answered (§ 13).
+ * Never "run attempt #2": a `complete` verdict used to route to an AUTHORIZATION request, because the
+ * input being right is a precondition for asking and not a substitute for being answered (§ 13). With both
+ * expressible attempts consumed there is nothing left to ask for, so `complete` routes to the resource
+ * closure instead. The other two verdicts are unchanged: an incomplete or unresolvable inventory is still
+ * an inventory problem, whatever the attempt budget says.
  */
 export function brazilReceitaNationalResolutionNextAction(
   resolution: BrazilReceitaNationalInventoryResolution,
 ): string {
+  if (resolution.nationalInputCompleteness === 'complete' && resolution.attemptBudgetExhausted) {
+    return BRAZIL_RECEITA_NATIONAL_RESOLUTION_EXHAUSTED_NEXT_ACTION;
+  }
   return BRAZIL_RECEITA_NATIONAL_RESOLUTION_NEXT_ACTIONS[resolution.nationalInputCompleteness];
 }
 

@@ -109,6 +109,7 @@ import {
 import {
   BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_2_REQUIRED_PERIOD,
   BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED,
+  brazilReceitaNextRealAttemptIsStructurallySupported,
   createBrazilReceitaRealBenchmarkAttemptBoundaryLedger,
   evaluateBrazilReceitaRealBenchmarkAttemptRequest,
   summarizeBrazilReceitaRealBenchmarkAttemptModel,
@@ -1154,9 +1155,15 @@ export function summarizeBrazilReceitaRealFullScanReadiness(): BrazilReceitaReal
     secondRealBenchmarkControlReady: true,
     secondRealBenchmarkAuthorized: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED,
     operatorAuthorization: summarizeBrazilReceitaAttempt2OperatorAuthorization(),
-    // Ready to be AUTHORIZED — every control exists and the path is wired end to end. Not authorized:
-    // those are different facts, and this milestone changes only the first.
-    realFullScanBenchmarkReadyForOwnerAuthorization: true,
+    // Was `true` while an attempt remained: every control exists and the path is wired end to end, so
+    // there was something an owner could authorize. BR-SOURCE-ATTEMPT2-CLOSURE makes it DERIVED, because
+    // with both expressible attempts consumed there is no longer an attempt to be ready FOR. Leaving it
+    // hardcoded `true` would have `--readiness` inviting an authorization that the attempt wall two stages
+    // into preflight refuses unconditionally — the closest thing to a route to attempt #3 this file could
+    // offer. `secondRealBenchmarkControlReady` stays `true` above: the controls really are finished, and
+    // that is a different claim from there being a run left to make.
+    realFullScanBenchmarkReadyForOwnerAuthorization:
+      brazilReceitaNextRealAttemptIsStructurallySupported(),
     realFullScanBenchmarkAuthorized: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED,
     realFullScanBenchmarkExecuted: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_EXECUTED,
     gate2ReadyForOwnerReview: false,

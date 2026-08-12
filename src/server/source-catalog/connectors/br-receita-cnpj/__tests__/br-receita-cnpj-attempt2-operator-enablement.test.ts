@@ -232,7 +232,12 @@ const BASE_CLI_ARGS: readonly string[] = [
   '--private-metric-acknowledgement',
   BRAZIL_RECEITA_FULL_JOIN_PRIVATE_CHANNEL_ACKNOWLEDGEMENT,
   '--real-attempt-number',
-  String(brazilReceitaNextRealAttemptNumber()),
+  // Pinned to `2` rather than derived from `brazilReceitaNextRealAttemptNumber()`. This milestone is about
+  // the invocation an operator would actually retype — the one that ran on 2026-08-12 — and after
+  // BR-SOURCE-ATTEMPT2-CLOSURE the derived value is `3`, which exercises the limit refusal instead of the
+  // already-consumed refusal. Both are asserted in this file; this constant should carry the case the
+  // milestone is named for. `3` and above are covered by the limit tests, `1` by test 7.
+  '2',
 ];
 
 function parseArgs(extra: readonly string[] = []): ReturnType<typeof parseBrazilReceitaRealFullScanCliArgs> {
@@ -314,7 +319,12 @@ describe('BR-SOURCE-ATTEMPT2-OPS § 14 — process-scoped authorization', () => 
   });
 
   // Test 6.
-  it('6 — passes the authorization gate with all three approvals and a valid attempt #2', async () => {
+  it('6 — cannot get past the attempt wall with all three approvals, now that #2 is spent', async () => {
+    // BR-SOURCE-ATTEMPT2-CLOSURE § 6, stated as the test it invalidated. This asserted that all three
+    // approvals carried a run PAST `authorization` and down to the manifest bridge. They did, once —
+    // that run was attempt #2, on 2026-08-12. With the durable count at 2 the same three approvals cannot
+    // reach the authorization stage at all, because the attempt wall is stage 3 and authorization is
+    // stage 11. Approvals grant permission; they do not restore history.
     const parsed = parseArgs(ALL_THREE_FLAGS);
     assert.equal(parsed.ok, true);
     if (!parsed.ok) return;
@@ -323,17 +333,21 @@ describe('BR-SOURCE-ATTEMPT2-OPS § 14 — process-scoped authorization', () => 
     assert.equal(declarations.temporaryStoragePolicyApproved, true);
     assert.equal(declarations.capInputPolicyApproved, true);
     assert.equal(declarations.benchmarkAuthorization, true);
+    // The CLI still builds `2` from the operator's `--real-attempt-number 2`. It is the LEDGER that now
+    // refuses it, which is the difference between a flag being unavailable and a fact being recorded.
     assert.equal(declarations.requestedRealAttemptNumber, 2);
 
     const { outcome, readerCalls } = await runPreboundary({ declarations });
-    // The run got PAST `authorization` — the stage that used to stop it — and stopped at the manifest
-    // bridge, which is the last thing before the real-data boundary.
     assert.equal(outcome.ok, false);
     if (outcome.ok) return;
-    assert.equal(outcome.failedStage, 'authorization');
-    assert.equal(outcome.abortCode, 'manifest_resolution_failed');
-    assert.notEqual(outcome.abortCode, 'benchmark_not_authorized');
-    assert.deepEqual(outcome.missingOperatorApprovals, []);
+    assert.equal(outcome.failedStage, 'real_attempt_eligibility');
+    assert.equal(outcome.abortCode, 'real_attempt_number_already_consumed');
+    assert.equal(outcome.attemptRejectionCode, 'real_attempt_number_already_consumed');
+    // Not an approval problem: nothing was missing. The approvals were complete and irrelevant.
+    assert.deepEqual([...outcome.missingOperatorApprovals], []);
+    assert.notEqual(outcome.abortCode, 'manifest_resolution_failed');
+    assert.equal(outcome.realDataBoundaryCrossed, false);
+    assert.equal(outcome.attemptsConsumedAfterRefusal, 2);
     assert.equal(readerCalls.length, 0);
   });
 
@@ -691,12 +705,23 @@ describe('BR-SOURCE-ATTEMPT2-OPS § 15 — the national-input gate is wired', ()
     const { outcome, readerCalls, bridgeTouched } = await runPreboundary({ declarations });
     assert.equal(outcome.ok, false);
     if (outcome.ok) return;
-    assert.equal(outcome.failedStage, 'national_input_completeness');
-    assert.equal(outcome.abortCode, 'national_input_not_complete');
+    // The input gate is stage 4, behind the attempt wall, so a short manifest is now refused one stage
+    // earlier. The invariant this test exists for is unchanged and is asserted below: a refusal before the
+    // boundary spends nothing, whichever stage raised it. The gate's own verdict logic is a pure function
+    // and is covered directly in `br-receita-cnpj-14b0j-second-benchmark-control.test.ts`.
+    assert.equal(outcome.failedStage, 'real_attempt_eligibility');
+    assert.equal(outcome.abortCode, 'real_attempt_number_already_consumed');
     assert.equal(outcome.realDataBoundaryCrossed, false);
     assert.equal(outcome.attemptsConsumedAfterRefusal, BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED);
+    assert.equal(outcome.attemptsConsumedAfterRefusal, 2);
     assert.equal(readerCalls.length, 0);
     assert.deepEqual(bridgeTouched, []);
+    // And the short manifest really is short — the declaration the CLI built still reports it as
+    // incomplete, so the refusal above is not masking a gate that stopped noticing.
+    assert.notEqual(
+      (declarations.nationalInputCompleteness as { verdict: string }).verdict,
+      'complete',
+    );
   });
 
   it('reports the manifest as unreadable rather than as an empty inventory', () => {
@@ -854,23 +879,29 @@ async function runPreboundary(
 
 describe('BR-SOURCE-ATTEMPT2-OPS § 16 — the whole preboundary path', () => {
   // Test 21.
-  it('21 — walks args → ledger → inventories → completeness → caps → authorization, and stops', async () => {
+  it('21 — walks args → ledger, and stops there, because the ledger is now the terminal stage', async () => {
+    // The original walk reached the manifest bridge with every stage passed. That walk was attempt #2's
+    // walk and it happened. What remains provable through the entry point is the first leg — args parse,
+    // declarations complete, then the ledger refuses — and that is what a durable closure should look
+    // like: the path ends at the record, not at a decision anyone can still make.
     const { outcome, readerCalls } = await runPreboundary();
 
     assert.equal(outcome.ok, false);
     if (outcome.ok) return;
-    // Every preflight stage passed. The run stopped at the manifest bridge — the last thing before the
-    // real-data boundary — and the ONLY reason it stopped is that the scripted validator refused.
-    assert.equal(outcome.abortCode, 'manifest_resolution_failed');
+    assert.equal(outcome.failedStage, 'real_attempt_eligibility');
+    assert.equal(outcome.abortCode, 'real_attempt_number_already_consumed');
     assert.equal(outcome.abortStage, 'ABORT_BEFORE_REAL_FILE_OPEN');
+    assert.equal(outcome.attemptRejectionCode, 'real_attempt_number_already_consumed');
+    // The two stages BEFORE the wall still passed, which is what makes this a refusal by the ledger and
+    // not paperwork: no missing declaration and no unsafe working directory.
     assert.deepEqual([...outcome.missingDeclarations], []);
     assert.deepEqual([...outcome.cwdViolations], []);
+    // Stages after the wall never ran, so they report nothing.
     assert.deepEqual([...outcome.capRejections], []);
     assert.deepEqual([...outcome.privateChannelRejections], []);
     assert.deepEqual([...outcome.missingOperatorApprovals], []);
-    assert.equal(outcome.attemptRejectionCode, null);
 
-    // PREBOUNDARY_READY, and nothing crossed it.
+    // Nothing crossed the boundary, and nothing was spent.
     assert.equal(outcome.realDataBoundaryCrossed, false);
     assert.equal(outcome.realManifestOpened, false);
     assert.equal(outcome.realDataAccessed, false);
@@ -880,18 +911,41 @@ describe('BR-SOURCE-ATTEMPT2-OPS § 16 — the whole preboundary path', () => {
     assert.deepEqual(readerCalls, []);
   });
 
-  it('still refuses the same path when the grant is withdrawn', async () => {
-    // The SAME declarations and the SAME ports, minus the request-level grant. The authorization stage
-    // is reached and refuses, which is what proves the grant — not the declarations — is what opened it.
-    const { outcome, readerCalls } = await runPreboundary({ operatorAuthorization: undefined });
-    assert.equal(outcome.ok, false);
-    if (outcome.ok) return;
-    assert.equal(outcome.failedStage, 'authorization');
-    assert.equal(outcome.abortCode, 'benchmark_not_authorized');
-    assert.deepEqual([...outcome.missingOperatorApprovals], [
-      ...BRAZIL_RECEITA_ATTEMPT_2_OPERATOR_APPROVAL_KEYS,
-    ]);
-    assert.deepEqual(readerCalls, []);
+  it('refuses identically with the grant and without it — the wall is upstream of both', async () => {
+    // Previously these two cases diverged: with the grant the run passed `authorization`, without it the
+    // stage refused, and the difference was the proof that the grant did the opening. With the attempt
+    // budget spent they CONVERGE, and the convergence is the § 6 claim — "authorization flags cannot
+    // resurrect attempt #2" is exactly the statement that granting and withdrawing produce the same answer.
+    const granted = await runPreboundary();
+    const withdrawn = await runPreboundary({ operatorAuthorization: undefined });
+    for (const { outcome, readerCalls } of [granted, withdrawn]) {
+      assert.equal(outcome.ok, false);
+      if (outcome.ok) continue;
+      // The DECISION is identical, and identically upstream of anything a grant affects.
+      assert.equal(outcome.failedStage, 'real_attempt_eligibility');
+      assert.equal(outcome.abortCode, 'real_attempt_number_already_consumed');
+      assert.equal(outcome.realDataBoundaryCrossed, false);
+      assert.deepEqual(readerCalls, []);
+    }
+
+    // What still differs is DIAGNOSTIC context, not the outcome: every refusal carries the approval
+    // shortfall it was constructed with, so a withdrawn grant is still reported as missing even though the
+    // run never reached the stage that would have checked it. That is worth pinning rather than smoothing
+    // over — an operator reading this refusal should not conclude their approvals were the problem.
+    assert.equal(granted.outcome.ok, false);
+    assert.equal(withdrawn.outcome.ok, false);
+    if (!granted.outcome.ok) assert.deepEqual([...granted.outcome.missingOperatorApprovals], []);
+    if (!withdrawn.outcome.ok) {
+      assert.deepEqual(
+        [...withdrawn.outcome.missingOperatorApprovals],
+        [...BRAZIL_RECEITA_ATTEMPT_2_OPERATOR_APPROVAL_KEYS],
+      );
+      // And it is context only — the abort code is still the ledger's, never the authorization stage's.
+      assert.notEqual(withdrawn.outcome.abortCode, 'benchmark_not_authorized');
+      assert.notEqual(withdrawn.outcome.failedStage, 'authorization');
+    }
+    // The grant mechanism itself is untouched — still the three keys the milestone defined.
+    assert.equal(BRAZIL_RECEITA_ATTEMPT_2_OPERATOR_APPROVAL_KEYS.length, 3);
   });
 });
 
@@ -951,9 +1005,11 @@ describe('BR-SOURCE-ATTEMPT2-OPS § 17–§ 19 — nothing else moved', () => {
     }
   });
 
-  it('24 — keeps the safety freeze: no execution, one attempt consumed, gates unapproved', () => {
-    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED, 1);
-    assert.equal(brazilReceitaNextRealAttemptNumber(), 2);
+  it('24 — keeps the safety freeze: no execution here, both attempts consumed, gates unapproved', () => {
+    // "One attempt consumed" was the freeze this milestone shipped under. Attempt #2 has since run, so the
+    // freeze is now tighter, not looser: two consumed, none available, and the same gates unapproved.
+    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED, 2);
+    assert.equal(brazilReceitaNextRealAttemptNumber(), 3);
     assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED, false);
     assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED, false);
     assert.equal(summarizeBrazilReceitaRealFullScanReadiness().gate2ReadyForOwnerReview, false);

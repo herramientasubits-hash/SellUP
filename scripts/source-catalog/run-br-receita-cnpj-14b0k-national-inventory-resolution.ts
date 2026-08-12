@@ -150,6 +150,9 @@ function main(argv: readonly string[]): void {
     `attempt_2_required_input_scope       ${resolution.attempt2RequiredInputScope}`,
     `attempts_consumed                    ${resolution.attemptsConsumed}`,
     `next_real_attempt_number             ${resolution.nextRealAttemptNumber}`,
+    // Printed next to the number, because the number alone reads as an invitation: `3` looks like a run an
+    // operator could ask for until this line says the budget is spent (BR-SOURCE-ATTEMPT2-CLOSURE § 2).
+    `attempt_budget_exhausted             ${resolution.attemptBudgetExhausted}`,
     `attempt_2_authorized                 ${resolution.attempt2Authorized}`,
     `attempt_2_executed                   ${resolution.attempt2Executed}`,
     `attempt_3_allowed                    ${resolution.attempt3Allowed}`,
