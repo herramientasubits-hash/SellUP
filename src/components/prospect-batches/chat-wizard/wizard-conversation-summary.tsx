@@ -13,6 +13,14 @@ import type {
 } from '@/modules/prospect-batches/chat-wizard';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type { WizardLushaCriteriaDecision } from '@/modules/prospect-batches/wizard-lusha-criteria';
+import { isLushaRouteHonored } from '@/modules/prospect-batches/prospect-discovery-provider';
+// AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad del discovery de Agente
+// 1, y el catálogo de países del propio wizard como fuente de verdad.
+import {
+  resolveWizardDiscoveryAvailability,
+  type WizardDiscoveryUnavailableReason,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-discovery-availability';
+import { VALID_COUNTRY_CODES } from '@/modules/prospect-batches/chat-wizard';
 import {
   buildWizardFinalRecap,
   buildWizardSubindustrySelectionRecap,
@@ -210,14 +218,31 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // hidden Lusha provider, the final "Buscar con IA" search runs Lusha read-only
   // (explicit click only, no persistence). Otherwise the existing IA generation
   // (or the "not enabled yet" message) is preserved unchanged.
+  // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — la ruta de Lusha se pregunta por su
+  // predicado, no comparando literales: con el flag apagado `isLushaRouteHonored`
+  // es false y Lusha no corre, que es la propiedad de seguridad de 10C3.
   const useLushaFinalSearch =
-    lushaPreviewEnabled && lushaCriteria.provider === 'lusha' && lushaCriteria.input !== null;
+    lushaPreviewEnabled &&
+    isLushaRouteHonored(lushaCriteria.provider) &&
+    lushaCriteria.input !== null;
 
-  // Q3F-5BB.10C3-FIX-1 (P0-2, STRICT-ALL) — the criteria are Lusha-eligible but
-  // the preview flag is off. This MUST fail closed: no Lusha search, and — the
-  // whole point of the fix — no fall-through to the Agent 1 / Apollo "Generar
-  // prospectos" button. We render a blocked notice and nothing that can spend.
-  const isLushaBlocked = lushaCriteria.provider === 'blocked_lusha_disabled';
+  // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad del discovery de
+  // Agente 1 (Tavily / Apollo), decidida por la FORMA de la búsqueda y por nada
+  // más. No consulta la ruta de Lusha, ni la industria, ni las subindustrias, ni el
+  // criterio adicional, ni el proveedor predeterminado.
+  //
+  // Antes esta pantalla derivaba la disponibilidad de la ruta del proveedor OCULTO
+  // Lusha: con criterios Lusha-elegibles y el flag apagado retiraba el selector y
+  // «Generar prospectos», así que Colombia + Salud + tres subindustrias no tenía
+  // ninguna forma de ejecutarse aunque Apollo estuviera desplegado y con
+  // presupuesto. Un proveedor oculto que el usuario nunca eligió no puede decidir
+  // si la búsqueda que sí eligió es ofrecible.
+  const discoveryAvailability = resolveWizardDiscoveryAvailability({
+    searchMode: state.searchMode,
+    countryCode: state.countryCode,
+    industryId: state.industryId,
+    supportedCountryCodes: VALID_COUNTRY_CODES,
+  });
 
   // Q3F-5BB.3F — human labels (país/sector/subindustria/tamaño/criterio) resolved
   // from the wizard's own catalog for the final "Revisa tu búsqueda" recap.
@@ -226,10 +251,6 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
     () => buildWizardFinalRecap(state, catalog),
     [state, catalog],
   );
-
-  if (isLushaBlocked) {
-    return <LushaDisabledBlockedPanel onEditSearch={onEditSearch} dispatch={dispatch} />;
-  }
 
   // A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 1 — el preflight de persistencia
   // bloqueó la corrida. El texto dice que hay que esperar a que se corrija el
@@ -270,6 +291,12 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         </div>
       )}
 
+      {/* La forma de la búsqueda no admite proveedor externo. Dice la causa real y
+          no ofrece ningún control que pueda gastar. */}
+      {!discoveryAvailability.available && (
+        <DiscoveryUnavailableNotice reason={discoveryAvailability.reason} />
+      )}
+
       {/* MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A.4 — la selección completa,
           en la ÚLTIMA pantalla antes de gastar créditos.
           Hasta ahora la recapitulación de subindustrias sólo existía dentro del
@@ -298,18 +325,15 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         />
       )}
 
-      {/* Real IA generation — only when explicitly enabled, Lusha is not backing
-          this search, and the search is not a blocked Lusha-eligible one. The
-          `!isLushaBlocked` guard is redundant with the early return above but is
-          kept explicit so this Apollo-capable button can never render for a
-          Lusha-eligible + flag-off search (Q3F-5BB.10C3-FIX-1, STRICT-ALL). */}
+      {/* Real IA generation — only when explicitly enabled, the search shape admits
+          an external discovery provider, and Lusha is not backing this search. */}
       {/* A1-APOLLO-QA-CONTROL-SURFACE-1 § 2 — «Proveedor de esta corrida».
           Comparte exactamente el mismo gate que el botón de generación: si esta
           pantalla no puede ejecutar, tampoco ofrece elegir con qué. El propio
           selector se autocensura cuando la capacidad no lo permite, así que para
           un no-admin no se renderiza nada. */}
       {!useLushaFinalSearch &&
-        !isLushaBlocked &&
+        discoveryAvailability.available &&
         executionEnabled &&
         !isPersistenceBlocked &&
         onRequestedProviderChange !== undefined && (
@@ -323,22 +347,26 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           />
         )}
 
-      {/* `!isPersistenceBlocked` va DESPUÉS de `executionEnabled` a propósito: la
-          conjunción `!useLushaFinalSearch && !isLushaBlocked && executionEnabled`
-          es la que fija literalmente el guardrail STRICT-ALL de Lusha
-          (prospect-wizard-route-static.test.ts). El orden es indiferente para la
-          lógica y esa invariante no se toca. */}
-      {!useLushaFinalSearch && !isLushaBlocked && executionEnabled && !isPersistenceBlocked && (
-        <Button
-          type="button"
-          size="sm"
-          className="w-full gap-1.5"
-          onClick={onExecute}
-        >
-          <Sparkles className="h-3.5 w-3.5" aria-hidden />
-          Generar prospectos
-        </Button>
-      )}
+      {/* La conjunción `!useLushaFinalSearch && discoveryAvailability.available &&
+          executionEnabled && !isPersistenceBlocked` es la que fija el gate de
+          generación, y está pinada literalmente por
+          prospect-wizard-route-static.test.ts. `!useLushaFinalSearch` conserva el
+          guardrail de Lusha: una corrida que va a Lusha no ofrece «Generar
+          prospectos». */}
+      {!useLushaFinalSearch &&
+        discoveryAvailability.available &&
+        executionEnabled &&
+        !isPersistenceBlocked && (
+          <Button
+            type="button"
+            size="sm"
+            className="w-full gap-1.5"
+            onClick={onExecute}
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            Generar prospectos
+          </Button>
+        )}
 
       {/* Action hierarchy: primary = "Buscar con IA" (inside the panel above);
           secondary = "Editar búsqueda"; tertiary = "Comenzar de nuevo" (link).
@@ -367,60 +395,56 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   );
 }
 
-// ── Lusha-disabled blocked panel (Q3F-5BB.10C3-FIX-1, STRICT-ALL) ──────────────
-// Shown when the collected criteria are Lusha-eligible but the preview flag is
-// off. Fail closed: it offers only "Editar búsqueda" / "Comenzar de nuevo" — no
-// generation control of any kind, so nothing here can reach a provider, spend
-// Apollo credits, call Tavily, or create a batch.
+// ── Aviso de discovery no aplicable ───────────────────────────────────────────
+// AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — sustituye al aviso de «Lusha
+// deshabilitado», que afirmaba «esta búsqueda utiliza un proveedor que todavía no
+// está habilitado» para una búsqueda cuyo proveedor real —Tavily o Apollo— sí
+// estaba habilitado. Cada motivo trae su propio texto y ninguno menciona un
+// proveedor: la causa que se muestra es la que el código declara.
 
-type LushaDisabledBlockedPanelProps = {
-  onEditSearch: () => void;
-  dispatch: React.Dispatch<ProspectWizardAction>;
+/** Texto por motivo. `Record` exhaustivo: un motivo nuevo no compila sin copy. */
+const DISCOVERY_UNAVAILABLE_COPY: Readonly<
+  Record<WizardDiscoveryUnavailableReason, { title: string; detail: string }>
+> = {
+  search_mode_not_provider_applicable: {
+    title: 'Este tipo de búsqueda todavía no genera empresas automáticamente.',
+    detail:
+      'No se ejecutará ninguna generación ni se consumirán créditos. Elige «Empresas por criterios» para generar candidatos.',
+  },
+  country_not_selected: {
+    title: 'Falta el país de la búsqueda.',
+    detail: 'No se ejecutará ninguna generación ni se consumirán créditos. Vuelve a elegir el país.',
+  },
+  country_not_supported: {
+    title: 'El país seleccionado no está disponible para generar empresas.',
+    detail: 'No se ejecutará ninguna generación ni se consumirán créditos. Elige otro país.',
+  },
+  industry_not_selected: {
+    title: 'Falta la industria de la búsqueda.',
+    detail:
+      'No se ejecutará ninguna generación ni se consumirán créditos. Vuelve a elegir la industria.',
+  },
 };
 
-function LushaDisabledBlockedPanel({ onEditSearch, dispatch }: LushaDisabledBlockedPanelProps) {
+type DiscoveryUnavailableNoticeProps = {
+  reason: WizardDiscoveryUnavailableReason;
+};
+
+function DiscoveryUnavailableNotice({ reason }: DiscoveryUnavailableNoticeProps) {
+  const copy = DISCOVERY_UNAVAILABLE_COPY[reason];
   return (
     <div
-      className="space-y-4 animate-su-fade-in"
+      className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10"
       role="alert"
-      data-testid="wizard-lusha-blocked-notice"
+      data-testid="wizard-discovery-unavailable-notice"
     >
-      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10">
-        <AlertTriangle
-          className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
-          aria-hidden
-        />
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-            La generación con estos criterios no está disponible por ahora.
-          </p>
-          <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
-            Esta búsqueda utiliza un proveedor que todavía no está habilitado. No
-            se ejecutará ninguna generación ni se consumirán créditos. Ajusta los
-            criterios o vuelve a intentarlo más tarde.
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-2 pt-1">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="w-full gap-1.5"
-          onClick={onEditSearch}
-        >
-          <Pencil className="h-3.5 w-3.5" aria-hidden />
-          Editar búsqueda
-        </Button>
-        <button
-          type="button"
-          className="mx-auto flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          onClick={() => dispatch({ type: 'REQUEST_RESTART' })}
-        >
-          <RotateCcw className="h-3 w-3" aria-hidden />
-          Comenzar de nuevo
-        </button>
+      <AlertTriangle
+        className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+        aria-hidden
+      />
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">{copy.title}</p>
+        <p className="text-xs text-amber-600/80 dark:text-amber-400/70">{copy.detail}</p>
       </div>
     </div>
   );

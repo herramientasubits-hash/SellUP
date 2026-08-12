@@ -46,10 +46,26 @@ jobs:
         run: npm run test:agent2a:automatic-routing
 
       # Q3F-5BB.10C3-FIX-1 — Lusha fail-closed routing (STRICT-ALL). Guards the
-      # invariant that a Lusha-eligible search with the preview flag off BLOCKS
-      # and never degrades to the Agent 1 / Apollo generation path.
+      # invariant that a Lusha run never touches Apollo/Tavily and that with
+      # ENABLE_LUSHA_PREVIEW off no route ever resolves to Lusha.
       - name: Run Lusha fail-closed routing tests
         run: npm run test:lusha-fail-closed-routing
+
+      # AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad universal del
+      # proveedor de discovery de Agente 1. Entra al check obligatorio porque el
+      # defecto que cierra era invisible a toda la cobertura anterior: la pantalla
+      # final derivaba la disponibilidad del proveedor de la ruta del proveedor
+      # OCULTO Lusha, así que «Empresas por criterios» con una industria que mapea a
+      # un sector Lusha (salud, educación, tecnología) quedaba sin selector y sin
+      # «Generar prospectos» en los 20 países soportados, con Apollo desplegado,
+      # configurado y con presupuesto — y los tests de entonces PINABAN ese bloqueo
+      # como si fuera correcto. La suite barre los 20 países, los modos aplicables,
+      # 0/1/N subindustrias, el desacople default≠disponible, la paridad UI/servidor,
+      # la conservación de los candados de gasto y los topes 5/2/10/20/5 ⇒ 25, y la
+      # regresión exacta de Salud/Colombia. Determinista: sin flags, sin proveedores,
+      # sin créditos y sin DB real.
+      - name: Run A1 Apollo universal provider availability tests
+        run: npm run test:a1-apollo-universal-provider-availability
 
       # Q3F-5BB.11B — Pure provider routing plan. Guards the 10C3 invariant at
       # the routing-plan layer: an intended-Lusha plan never routes to Apollo,

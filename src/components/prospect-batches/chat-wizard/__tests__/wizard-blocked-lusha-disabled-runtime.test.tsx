@@ -1,15 +1,24 @@
 /**
- * Q3F-5BB.10C3-FIX-1 (P0-2, STRICT-ALL) — blocked Lusha-disabled RUNTIME contract.
+ * AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — ruta de Lusha bloqueada, RUNTIME.
  *
- * Renders the ACTUAL `WizardConversationSummary` at the `validated` step with a
- * `blocked_lusha_disabled` decision AND `executionEnabled: true` (the incident
- * condition) and proves the fail-closed UI:
- *   - a blocked notice is shown;
- *   - the Apollo-capable "Generar prospectos" button is NEVER rendered;
- *   - the Lusha "Buscar con IA" run control is NEVER rendered;
- *   - the positive "La configuración es válida." banner is suppressed;
- *   - only recovery actions (Editar búsqueda / Comenzar de nuevo) remain.
- * No provider is called and no server action module is even loaded on this path.
+ * Renderiza el `WizardConversationSummary` REAL en el paso `validated` con una
+ * decisión `blocked_lusha_disabled` y `executionEnabled: true` — exactamente el
+ * caso que la QA visual reportó (Colombia + Salud + tres subindustrias, flag de
+ * Lusha apagado).
+ *
+ * Antes de este hito esa combinación mostraba «La generación con estos criterios no
+ * está disponible por ahora / Esta búsqueda utiliza un proveedor que todavía no está
+ * habilitado» y retiraba el selector de proveedor y «Generar prospectos», dejando la
+ * búsqueda sin ninguna forma de ejecutarse aunque Tavily y Apollo estuvieran
+ * desplegados, configurados y con presupuesto.
+ *
+ * Lo que este archivo fija ahora:
+ *   - el discovery de Agente 1 SÍ se ofrece: «Generar prospectos» y el selector de
+ *     proveedor (con Apollo elegible) se renderizan;
+ *   - Lusha NUNCA corre con el flag apagado: su control «Buscar con IA» no existe
+ *     en el árbol — la propiedad de seguridad de Q3F-5BB.10C3-FIX-1, intacta;
+ *   - no se pinta ningún aviso de indisponibilidad, porque no la hay.
+ * Ningún proveedor se llama y ninguna acción de servidor se carga en esta ruta.
  */
 
 import { JSDOM } from 'jsdom';
@@ -60,13 +69,14 @@ import type {
   ProspectWizardAction,
 } from '@/modules/prospect-batches/chat-wizard';
 import type { WizardLushaCriteriaDecision } from '@/modules/prospect-batches/wizard-lusha-criteria';
+import type { WizardProviderOverrideCapability } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
 
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
 let cleanup: (typeof import('@testing-library/react'))['cleanup'];
 
-// The validated panel calls useRouter() at the top (before the blocked early
-// return), so next/navigation must be mocked even on the blocked path.
+// El panel validado llama useRouter() en su cuerpo, así que next/navigation debe
+// estar doblado.
 mock.module('next/navigation', {
   namedExports: {
     useRouter: () => ({
@@ -84,20 +94,39 @@ mock.module('next/navigation', {
   },
 });
 
+/** Catálogo del caso real de QA: Salud + tres subindustrias. */
 const CATALOG: ActiveIndustryCatalog = {
   version: 'v1',
   industries: [
-    { id: 'tech', name: 'Tecnología', slug: 'tech', description: null, sortOrder: 0 },
+    { id: 'ind-health', name: 'Salud', slug: 'salud', description: null, sortOrder: 0 },
   ],
   subindustries: [
     {
-      id: 'saas',
-      industryId: 'tech',
-      name: 'Software Empresarial (SaaS / ERP / CRM)',
-      slug: 'saas',
+      id: 'sub-hosp',
+      industryId: 'ind-health',
+      name: 'Redes Hospitalarias y Clínicas',
+      slug: 'redes-hospitalarias-y-clinicas',
       description: null,
       applicableCountries: null,
       sortOrder: 0,
+    },
+    {
+      id: 'sub-lab',
+      industryId: 'ind-health',
+      name: 'Laboratorios Clínicos y Diagnóstico',
+      slug: 'laboratorios-clinicos-y-diagnostico',
+      description: null,
+      applicableCountries: null,
+      sortOrder: 1,
+    },
+    {
+      id: 'sub-eps',
+      industryId: 'ind-health',
+      name: 'Medicina Prepagada y EPS',
+      slug: 'medicina-prepagada-y-eps',
+      description: null,
+      applicableCountries: null,
+      sortOrder: 2,
     },
   ],
 };
@@ -108,6 +137,12 @@ const BLOCKED_DECISION: WizardLushaCriteriaDecision = {
   input: null,
 };
 
+/** Capacidad de un admin con los tres candados de Apollo encendidos. */
+const ADMIN_CAPABILITY: WizardProviderOverrideCapability = {
+  canSelectDiscoveryProvider: true,
+  allowedProviders: ['tavily', 'apollo_organizations'],
+};
+
 let WizardConversationSummary: (typeof import('../wizard-conversation-summary'))['WizardConversationSummary'];
 let createInitialProspectWizardState: (typeof import('@/modules/prospect-batches/chat-wizard'))['createInitialProspectWizardState'];
 
@@ -115,14 +150,15 @@ function makeValidatedState(): ProspectWizardState {
   return {
     ...createInitialProspectWizardState({ catalogVersion: 'v1', defaultRequestedCount: 25 }),
     currentStep: 'validated',
+    searchMode: 'exploratory',
     countryCode: 'CO',
-    industryId: 'tech',
-    subindustryIds: ['saas'],
-    additionalCriteriaRaw: 'empresas de tecnología',
+    industryId: 'ind-health',
+    subindustryIds: ['sub-hosp', 'sub-lab', 'sub-eps'],
+    additionalCriteriaRaw: null,
   };
 }
 
-function renderBlocked() {
+function renderBlocked(withProviderSurface = false) {
   const noop = () => {};
   const dispatch: React.Dispatch<ProspectWizardAction> = () => {};
   return render(
@@ -131,14 +167,20 @@ function renderBlocked() {
       catalog: CATALOG,
       dispatch,
       onClose: noop,
-      // The incident condition: execution IS enabled — the fix must still block.
       executionEnabled: true,
       onExecute: noop,
       onEditSearch: noop,
-      // Flag is off: the panel receives lushaPreviewEnabled=false and a
-      // blocked_lusha_disabled decision.
+      // El flag está apagado: llega `lushaPreviewEnabled=false` y una decisión
+      // `blocked_lusha_disabled`.
       lushaPreviewEnabled: false,
       lushaCriteria: BLOCKED_DECISION,
+      ...(withProviderSurface
+        ? {
+            providerOverrideCapability: ADMIN_CAPABILITY,
+            requestedProvider: undefined,
+            onRequestedProviderChange: noop,
+          }
+        : {}),
     }),
   );
 }
@@ -146,10 +188,8 @@ function renderBlocked() {
 before(async () => {
   ({ render, screen, cleanup } = await import('@testing-library/react'));
   WizardConversationSummary = (await import('../wizard-conversation-summary')).WizardConversationSummary;
-  // Relative specifier (not the `@/` alias): under Node 20 + module-mocks the
-  // dynamic-import loader does not apply tsconfig path aliases, so `@/...` here
-  // resolves relative to the test dir and fails in CI. A relative path always
-  // resolves.
+  // Especificador relativo (no el alias `@/`): con module-mocks el loader dinámico
+  // no aplica los path aliases de tsconfig.
   createInitialProspectWizardState = (
     await import('../../../../modules/prospect-batches/chat-wizard')
   ).createInitialProspectWizardState;
@@ -159,35 +199,51 @@ afterEach(() => {
   cleanup();
 });
 
-describe('WizardConversationSummary — blocked Lusha-disabled (STRICT-ALL)', () => {
-  it('renders the fail-closed blocked notice', () => {
+describe('WizardConversationSummary — Lusha apagado NO bloquea el discovery de Agente 1', () => {
+  it('renderiza «Generar prospectos»', () => {
     renderBlocked();
-    assert.ok(screen.getByTestId('wizard-lusha-blocked-notice'));
-    assert.ok(screen.getByText(/no está disponible por ahora/i));
-    assert.ok(screen.getByText(/no se ejecutará ninguna generación/i));
-  });
-
-  it('NEVER renders the Apollo-capable "Generar prospectos" button', () => {
-    renderBlocked();
-    assert.equal(
-      screen.queryByRole('button', { name: /Generar prospectos/i }),
-      null,
-      'the Agent 1 / Apollo generation button must not render for a blocked search',
+    assert.ok(
+      screen.getByRole('button', { name: /Generar prospectos/i }),
+      'el discovery de Agente 1 debe ofrecerse cuando el proveedor oculto no participa',
     );
   });
 
-  it('NEVER renders the Lusha "Buscar con IA" run control', () => {
+  it('no pinta el aviso viejo de «proveedor que todavía no está habilitado»', () => {
     renderBlocked();
+    assert.equal(screen.queryByTestId('wizard-lusha-blocked-notice'), null);
+    assert.equal(screen.queryByText(/no está disponible por ahora/i), null);
+    assert.equal(screen.queryByText(/todavía no está habilitado/i), null);
+  });
+
+  it('no pinta ningún aviso de indisponibilidad: no la hay', () => {
+    renderBlocked();
+    assert.equal(screen.queryByTestId('wizard-discovery-unavailable-notice'), null);
+  });
+
+  it('conserva el banner de configuración válida', () => {
+    renderBlocked();
+    assert.ok(screen.getByText('La configuración es válida.'));
+  });
+
+  it('ofrece el selector de proveedor con Apollo elegible para un admin', () => {
+    renderBlocked(true);
+    assert.ok(screen.getByTestId('wizard-run-provider-selector'));
+    const apollo = screen
+      .getByTestId('wizard-run-provider-selector')
+      .querySelector<HTMLInputElement>('input[value="apollo_organizations"]');
+    assert.ok(apollo, 'la opción Apollo debe existir');
+    assert.equal(apollo.disabled, false, 'Apollo debe ser elegible');
+    // Y no se anuncia como no disponible.
+    assert.equal(screen.queryByTestId('wizard-run-provider-apollo-unavailable'), null);
+  });
+
+  it('NUNCA renderiza el control de Lusha «Buscar con IA» (STRICT-ALL intacto)', () => {
+    renderBlocked(true);
     assert.equal(screen.queryByTestId('lusha-preview-run'), null);
     assert.equal(screen.queryByRole('button', { name: /Buscar con IA/i }), null);
   });
 
-  it('suppresses the positive "La configuración es válida." banner', () => {
-    renderBlocked();
-    assert.equal(screen.queryByText('La configuración es válida.'), null);
-  });
-
-  it('keeps only recovery actions (Editar búsqueda / Comenzar de nuevo)', () => {
+  it('conserva las acciones de recuperación', () => {
     renderBlocked();
     assert.ok(screen.getByRole('button', { name: /Editar búsqueda/i }));
     assert.ok(screen.getByRole('button', { name: /Comenzar de nuevo/i }));
