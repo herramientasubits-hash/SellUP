@@ -606,6 +606,21 @@ async function main(): Promise<void> {
   }
 
   process.stdout.write(`${JSON.stringify(outcome.publicReport, null, 2)}\n`);
+  // BR-SOURCE-ATTEMPT2-FINAL § 7: reaching the engine is no longer the same event as crossing the
+  // boundary, so the accounting has to be printed rather than inferred from "the run got this far". A
+  // completion with `realDataBoundaryCrossed: false` is an engine abort that read nothing and spent
+  // nothing, and an operator deciding whether an attempt remains needs to be told which one this was.
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        realDataBoundaryCrossed: outcome.realDataBoundaryCrossed,
+        realAttemptNumber: outcome.realAttemptNumber,
+        attemptsConsumedAfterRun: outcome.attemptsConsumedAfterRun,
+      },
+      null,
+      2,
+    )}\n`,
+  );
   if (!outcome.cleanupVerified || !outcome.privateArtifactWritten) process.exitCode = 1;
 }
 

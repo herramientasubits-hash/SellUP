@@ -63,6 +63,8 @@ import {
   type BrazilReceitaAttempt2OperatorAuthorizationStanding,
 } from './br-receita-cnpj-attempt2-operator-authorization';
 import { runBrazilReceitaFullJoinStreamingEngineOnce } from './br-receita-cnpj-full-join-engine';
+import { withBrazilReceitaFullJoinFirstSourceReadBoundary } from './br-receita-cnpj-full-join-first-source-read-boundary';
+import { mintBrazilReceitaFullJoinInvocationTemporaryStorageApproval } from './br-receita-cnpj-full-join-temporary-storage-approval';
 import {
   createBrazilReceitaFullJoinNullBenchmarkSink,
   type BrazilReceitaFullJoinEngineAbortCode,
@@ -407,8 +409,9 @@ export type BrazilReceitaRealFullScanAbortCode =
  * untouched. The in-process ledger at stage 10 is consumed before the authorization refusal at stage 11,
  * and that is deliberately left alone: it is a single-flight token scoped to one process, it dies with
  * the process, and it was never the historical record. The DURABLE count moves only at
- * `commitCrossing()`, past stage 11 — so today's standing refusal spends nothing, exactly as § 5 and
- * § 11 require.
+ * `commitCrossing()`, which BR-SOURCE-ATTEMPT2-FINAL § 7 moved further still — past stage 11, past the
+ * manifest bridge, past the engine call, and onto the first `read` of a source file. Every stage in this
+ * list, and every pre-read validation the engine performs after them, spends nothing.
  */
 export const BRAZIL_RECEITA_REAL_FULL_SCAN_PREFLIGHT_STAGES = [
   'operator_working_directory',
@@ -561,14 +564,19 @@ export interface BrazilReceitaRealFullScanCompletion {
   readonly privateArtifactFailure: BrazilReceitaFullJoinPrivateWriteFailure | null;
   readonly cleanupVerified: boolean;
   /**
-   * The § 11 attempt accounting for a run that CROSSED the boundary.
+   * The § 11 attempt accounting for a run that reached the engine.
    *
-   * `realDataBoundaryCrossed` is `true` on this type by construction — reaching a completion means the
-   * engine ran — and `attemptsConsumedAfterRun` is what the durable record must be edited to. Reported
-   * rather than silently assumed, because the durable count is a source constant: someone has to make
-   * that edit, and this is the number they need.
+   * A BOOLEAN, and it used to be the literal `true` (BR-SOURCE-ATTEMPT2-FINAL § 7). "The engine ran" and
+   * "a real source row was read" were treated as the same fact, and they are not: the engine performs
+   * several pre-read validations of its own, and a run that fails one of them returns here having read
+   * zero bytes. Typing this `true` made that run indistinguishable from a six-hour traversal, and forced
+   * a cast at the construction site that hid the difference.
+   *
+   * `attemptsConsumedAfterRun` follows the same distinction, because it is read off the same ledger: it
+   * is the durable count that must be edited to only when the boundary was actually crossed, and the
+   * unchanged count otherwise.
    */
-  readonly realDataBoundaryCrossed: true;
+  readonly realDataBoundaryCrossed: boolean;
   readonly realAttemptNumber: number;
   readonly attemptsConsumedAfterRun: number;
 }
@@ -940,25 +948,36 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     createBrazilReceitaFullJoinOpenHandleLedger(handleCaps.maxFilesOpened);
   const sink = createBrazilReceitaFullJoinNullBenchmarkSink();
 
-  // ── THE REAL-DATA ATTEMPT BOUNDARY (BR-SOURCE-14B.0J § 11) ────────────────────
+  // ── THE REAL-DATA ATTEMPT BOUNDARY (BR-SOURCE-14B.0J § 11, BR-SOURCE-ATTEMPT2-FINAL § 7–§ 10) ──
   //
-  // Crossing this line is what SPENDS the attempt, and it sits here — immediately before the engine,
-  // which is the first thing in this function that opens a SOURCE ROW.
+  // Crossing this line is what SPENDS the attempt, and where the line falls is the whole question.
   //
-  // Not earlier, at the manifest bridge: § 9 classes manifest metadata as permitted and § 5's marker is
+  // Not at the manifest bridge: § 9 classes manifest metadata as permitted and § 5's marker is
   // `ABORT_BEFORE_REAL_SOURCE_ROW_OPEN`, so a manifest that fails validation has cost the operator a
-  // read of their own control document and nothing else. Putting the commit before the bridge would have
-  // billed a six-hour attempt for a typo in a JSON path, and would have made
-  // `manifest_resolution_failed` report a boundary crossing that never happened.
+  // read of their own control document and nothing else. Committing before the bridge would bill a
+  // six-hour attempt for a typo in a JSON path.
   //
-  // Not later, after the engine returns: that is the failure mode § 11 exists to forbid. A run that
-  // breaches `maxRuntimeMs` at one per cent of the join has spent attempt #2 exactly as completely as a
-  // clean traversal would — the cost was the hours and the data access, not the verdict — so the commit
-  // must precede the work rather than record its success.
+  // Not after the engine returns: that is the failure mode § 11 exists to forbid. A run that breaches
+  // `maxRuntimeMs` at one per cent of the join has spent attempt #2 exactly as completely as a clean
+  // traversal would — the cost was the hours and the data access, not the verdict.
+  //
+  // And — this is what BR-SOURCE-ATTEMPT2-FINAL corrects — not at the engine CALL either, which is where
+  // it used to be. The engine runs its own pre-read validations (caps, descriptors, duplicate policy,
+  // resource arming, the temporary-storage wall) and every one of them returns `before_first_read`. A
+  // commit placed before the call recorded a crossing for runs that read zero bytes: attempt #2's third
+  // authorization died exactly that way, at `temporary_storage_policy_not_approved`, with the ledger
+  // already saying it had crossed.
+  //
+  // So the commit hangs on the reader PORT instead, firing once immediately before the first `read` —
+  // the first access to source CONTENT, and the only event that costs anything. Every abort above it,
+  // inside the engine or not, leaves the attempt unspent; everything after it spends the attempt whatever
+  // the verdict turns out to be.
   const boundaryLedger = createBrazilReceitaRealBenchmarkAttemptBoundaryLedger(
     eligibility.attemptNumber as number,
   );
-  boundaryLedger.commitCrossing();
+  const boundary = withBrazilReceitaFullJoinFirstSourceReadBoundary(request.readerFileSystem, () => {
+    boundaryLedger.commitCrossing();
+  });
 
   const engineResult = await runBrazilReceitaFullJoinStreamingEngineOnce({
     sources: bridge.joinSources,
@@ -967,7 +986,7 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     resourceCaps: capResolution.caps,
     duplicateKeyPolicy: 'pair_with_every_duplicate',
     sink,
-    readerFileSystem: request.readerFileSystem,
+    readerFileSystem: boundary.fileSystem,
     workspaceFileSystem: request.workspaceFileSystem,
     workspaceParentDirectory: declarations.workspaceParentDirectory as string,
     workspaceBoundaries: declarations.workspaceBoundaries as BrazilReceitaFullJoinWorkspaceBoundaries,
@@ -978,9 +997,15 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     minimumFreeDiskBeforeStart: declarations.minimumFreeDiskBeforeStart as number,
     minimumFreeDiskReserve: declarations.minimumFreeDiskReserve as number,
     freeDiskProbe: request.freeDiskProbe,
-    // The engine's temporary-storage policy check is a SECOND, independent gate. The operator's
-    // declaration above does not satisfy it: it is a source constant, and it is `false`.
     realDataRun: true,
+    // The engine's temporary-storage check is a SECOND, INDEPENDENT wall, and it stays one
+    // (BR-SOURCE-ATTEMPT2-FINAL § 4). What changes is that it can now be satisfied by the same
+    // invocation-scoped decision the operator actually made, instead of only by a tracked constant
+    // nobody may flip. The approval is minted HERE, from the grant this call carried, and it is minted
+    // fresh: it is not stored, not reused, and a `null` — which is what an incomplete grant yields — is
+    // forwarded as-is, so the wall refuses exactly as before.
+    invocationTemporaryStorageApproval:
+      mintBrazilReceitaFullJoinInvocationTemporaryStorageApproval(operatorAuthorization),
     sinkMaterializesRows: false,
   });
 
@@ -1069,9 +1094,10 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     privateArtifactFailure: write.written ? null : write.failure,
     cleanupVerified,
     // Read back from the boundary ledger rather than restated: the accounting a report carries and the
-    // accounting the code performed are then the same object, and cannot drift.
-    realDataBoundaryCrossed: (boundaryLedger.boundaryState() ===
-      'crossed_real_data_boundary') as true,
+    // accounting the code performed are then the same object, and cannot drift. No cast — the ledger's
+    // answer is now allowed to be `false`, which is the only way a pre-read engine abort can report
+    // itself honestly.
+    realDataBoundaryCrossed: boundaryLedger.boundaryState() === 'crossed_real_data_boundary',
     realAttemptNumber: eligibility.attemptNumber as number,
     attemptsConsumedAfterRun: boundaryLedger.resultingAttemptsConsumed(),
   };

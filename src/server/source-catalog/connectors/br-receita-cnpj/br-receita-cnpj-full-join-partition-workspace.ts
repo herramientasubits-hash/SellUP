@@ -78,6 +78,10 @@ import {
   createBrazilReceitaFullJoinPartitionHandlePool,
   type BrazilReceitaFullJoinPartitionHandlePoolStats,
 } from './br-receita-cnpj-full-join-partition-handle-pool';
+import {
+  brazilReceitaFullJoinInvocationTemporaryStorageApprovalPresent,
+  type BrazilReceitaFullJoinInvocationTemporaryStorageApproval,
+} from './br-receita-cnpj-full-join-temporary-storage-approval';
 
 // ─── Version & policy ─────────────────────────────────────────────────────────
 
@@ -89,6 +93,11 @@ export const BRAZIL_RECEITA_FULL_JOIN_PARTITION_WORKSPACE_VERSION = 1 as const;
  * A real run must consult this and refuse. It is not configuration, not an environment variable and
  * not a parameter: flipping it takes a source edit, a PR and an owner decision, which is exactly the
  * ceremony a temporary-storage authorization deserves.
+ *
+ * BR-SOURCE-ATTEMPT2-FINAL § 3 adds a SECOND way for the same approval to arrive — an invocation-scoped
+ * one, minted from this invocation's operator grant — and changes nothing here. The constant is still
+ * `false`, nothing in the connector assigns it, and a real run carrying neither it nor a minted approval
+ * still refuses below. See `resolveBrazilReceitaFullJoinTemporaryStoragePolicy`.
  */
 export const BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED = false as const;
 
@@ -489,11 +498,70 @@ export interface BrazilReceitaFullJoinWorkspaceRequest {
   readonly minimumFreeDiskReserve: number;
   readonly freeDiskProbe: BrazilReceitaFullJoinFreeDiskProbe;
   /**
-   * Whether the run is a REAL one. A real run additionally requires
-   * `BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED`, which is `false`, so a real run
-   * refuses here and no amount of parameter passing changes that.
+   * Whether the run is a REAL one. A real run additionally requires a temporary-storage approval, from
+   * the tracked constant or from the field below. Carrying neither refuses here.
    */
   readonly realDataRun: boolean;
+  /**
+   * THIS invocation's temporary-storage approval, if one was minted (BR-SOURCE-ATTEMPT2-FINAL § 3).
+   *
+   * Optional, and absent means no approval: a caller that supplies nothing is refused on a real run
+   * exactly as every caller was before this field existed. It is deliberately not a boolean — a
+   * `temporaryStoragePolicyApproved: true` any caller could pass is a bypass, whereas this value can only
+   * be obtained by minting it from a complete operator grant whose own temporary-storage flag was set.
+   */
+  readonly invocationTemporaryStorageApproval?: BrazilReceitaFullJoinInvocationTemporaryStorageApproval | null;
+}
+
+// ─── The temporary-storage policy (BR-SOURCE-ATTEMPT2-FINAL § 3) ──────────────
+
+/** Where an effective temporary-storage approval came from, or why there is none. */
+export type BrazilReceitaFullJoinTemporaryStoragePolicySource =
+  | 'not_required'
+  | 'tracked_constant'
+  | 'invocation_grant'
+  | 'none';
+
+export interface BrazilReceitaFullJoinTemporaryStoragePolicyVerdict {
+  readonly approved: boolean;
+  readonly source: BrazilReceitaFullJoinTemporaryStoragePolicySource;
+}
+
+/**
+ * The effective policy: the tracked constant OR this invocation's minted approval.
+ *
+ * An OR rather than an AND for the same reason the benchmark's authorization stage is one: they are
+ * alternatives and not halves. The constant says "this repository approves temporary storage for real
+ * runs"; the minted approval says "this operator approved it for THIS run". Requiring both would mean the
+ * source edit is still mandatory, which is the hard stop this milestone exists to remove. Requiring
+ * neither is what fail-open looks like — hence the `none` branch, which is still where every run lands
+ * today unless an operator passed the flag.
+ *
+ * A synthetic run needs no approval at all and reports `not_required`: the whole partition mechanism was
+ * built and tested against synthetic data long before anybody approved a real byte, and gating that would
+ * gate the tests rather than the dataset.
+ *
+ * Pure, and separated from the creation path so a test can interrogate the policy without a filesystem,
+ * a cap set or a destination.
+ */
+export function resolveBrazilReceitaFullJoinTemporaryStoragePolicy(input: {
+  readonly realDataRun: boolean;
+  readonly invocationTemporaryStorageApproval?: unknown;
+}): BrazilReceitaFullJoinTemporaryStoragePolicyVerdict {
+  if (input.realDataRun !== true) return { approved: true, source: 'not_required' };
+  // Widened deliberately: the constant's type is the literal `false`, and comparing it as such would make
+  // this branch a type error rather than a policy. It is read, not assumed away — the day an owner edits
+  // it, this is the branch that must start answering.
+  const trackedApproval: boolean = BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED;
+  if (trackedApproval) return { approved: true, source: 'tracked_constant' };
+  if (
+    brazilReceitaFullJoinInvocationTemporaryStorageApprovalPresent(
+      input.invocationTemporaryStorageApproval,
+    )
+  ) {
+    return { approved: true, source: 'invocation_grant' };
+  }
+  return { approved: false, source: 'none' };
 }
 
 export type BrazilReceitaFullJoinWorkspaceCreation =
@@ -515,7 +583,11 @@ export type BrazilReceitaFullJoinWorkspaceCreation =
 export function createBrazilReceitaFullJoinPartitionWorkspace(
   request: BrazilReceitaFullJoinWorkspaceRequest,
 ): BrazilReceitaFullJoinWorkspaceCreation {
-  if (request.realDataRun && !BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED) {
+  const temporaryStoragePolicy = resolveBrazilReceitaFullJoinTemporaryStoragePolicy({
+    realDataRun: request.realDataRun,
+    invocationTemporaryStorageApproval: request.invocationTemporaryStorageApproval,
+  });
+  if (!temporaryStoragePolicy.approved) {
     return { ok: false, rejections: ['temporary_storage_policy_not_approved'], failure: null };
   }
   if (
