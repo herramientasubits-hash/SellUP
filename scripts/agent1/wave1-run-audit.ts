@@ -36,6 +36,8 @@ import {
   type ApolloSectorEvidenceBootstrapCandidateAudit,
   type ApolloSectorEvidenceBootstrapManualReviewRow,
 } from '@/server/agents/prospecting-toolkit/apollo-sector-evidence-bootstrap-audit';
+import type { ApolloSectorPostEnrichmentAdmissionResult } from '@/server/agents/prospecting-toolkit/apollo-sector-post-enrichment-admission';
+import { APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED } from '@/server/agents/prospecting-toolkit/apollo-sector-evidence-bootstrap';
 import {
   APOLLO_TWO_ROUND_CHECKPOINT_KEY,
   type ApolloTwoRoundCandidateSnapshot,
@@ -47,6 +49,79 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+/**
+ * POST-ENRICHMENT-ADMISSION-1 § 20 — rehidrata el bloque de admisión sectorial.
+ *
+ * Estricto donde afirma algo: sólo devuelve `admittedByRequestedSubindustryPrecision:
+ * true` si el documento lo dice con un booleano de verdad. Un bloque ausente
+ * —lotes anteriores a este hito— se lee como `null`, que significa «nadie lo
+ * registró», no «fue legacy».
+ */
+function readSectorAdmission(raw: unknown): ApolloSectorPostEnrichmentAdmissionResult | null {
+  const record = asRecord(raw);
+  if (record === null) return null;
+  const readString = (key: string): string | null =>
+    typeof record[key] === 'string' ? (record[key] as string) : null;
+  const admitted = record['admitted_by_requested_subindustry_precision'] === true;
+  return {
+    sectorEvidenceState: admitted
+      ? 'sector_evidence_confirmed'
+      : ((readString('post_enrichment_sector_state') ??
+          'sector_not_mapped') as ApolloSectorPostEnrichmentAdmissionResult['sectorEvidenceState']),
+    admittedByRequestedSubindustryPrecision: admitted,
+    admissionSource: (readString('source') ??
+      'legacy_sector_policy') as ApolloSectorPostEnrichmentAdmissionResult['admissionSource'],
+    matchedRequestedSubindustry: readString('matched_requested_subindustry'),
+    // El registro operativo no se rehidrata: su único consumidor es la proyección a
+    // metadata, que ya corrió. Inventarlo aquí crearía una segunda verdad.
+    operationalConfirmation: null,
+    postEnrichmentSectorState: (readString('post_enrichment_sector_state') ??
+      'sector_not_mapped') as ApolloSectorPostEnrichmentAdmissionResult['postEnrichmentSectorState'],
+    blockReason:
+      readString('block_reason') as ApolloSectorPostEnrichmentAdmissionResult['blockReason'],
+  };
+}
+
+/**
+ * BOOTSTRAP-PURCHASE-GATE-THREADING-1 § 14 — rehidrata el gate de COMPRA.
+ *
+ * `null` cuando el bloque no lo trae, que es el caso de todo lote anterior a este
+ * hito: ausencia, no «no autorizado». Estricto con lo que significa gasto — un
+ * `authorized` ausente se lee como `false`, nunca como `true`.
+ */
+function readPurchaseTrace(
+  raw: unknown,
+): ApolloSectorEvidenceBootstrapCandidateAudit['purchase'] {
+  const record = asRecord(raw);
+  if (record === null) return null;
+  const readString = (key: string): string | null =>
+    typeof record[key] === 'string' ? (record[key] as string) : null;
+  const authorized = record['authorized'] === true;
+  return {
+    decision: (authorized
+      ? {
+          authorized: true,
+          reason: 'provider_classification_missing',
+          authorization: {
+            authorized: true,
+            reason: 'valid_catalog_criteria_with_complete_query_coverage',
+          },
+        }
+      : {
+          authorized: false,
+          blockReason: readString('block_reason') ?? 'preconditions_not_evaluated',
+          authorization: APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED,
+        }) as NonNullable<
+      ApolloSectorEvidenceBootstrapCandidateAudit['purchase']
+    >['decision'],
+    cascadeInvoked: record['attempted'] === true,
+    skipReason: readString('skip_reason') as NonNullable<
+      ApolloSectorEvidenceBootstrapCandidateAudit['purchase']
+    >['skipReason'],
+    cascadeIneligibilityReason: readString('cascade_ineligibility_reason'),
+  };
 }
 
 /**
@@ -119,6 +194,8 @@ function readAuditRecord(raw: unknown): ApolloSectorEvidenceBootstrapCandidateAu
     postEnrichmentSectorState:
       (record['post_enrichment_sector_state'] as
         | ApolloSectorEvidenceBootstrapCandidateAudit['postEnrichmentSectorState']) ?? null,
+    sectorAdmission: readSectorAdmission(record['sector_admission']),
+    purchase: readPurchaseTrace(record['purchase']),
     terminalDisposition:
       (record['terminal_disposition'] as
         | ApolloSectorEvidenceBootstrapCandidateAudit['terminalDisposition']) ?? null,
@@ -141,6 +218,8 @@ const COLUMNS = [
   'Bootstrap reason',
   'Selection rank',
   'Post-enrichment sector state',
+  'Sector admission source',
+  'Admitted by requested subindustry',
   'Persisted?',
   'Terminal reason',
   'Manual decision',
@@ -163,6 +242,8 @@ function toTsv(rows: readonly ApolloSectorEvidenceBootstrapManualReviewRow[]): s
       cell(row.bootstrapReason),
       cell(row.selectionRank),
       cell(row.postEnrichmentSectorState),
+      cell(row.sectorAdmissionSource),
+      cell(row.admittedByRequestedSubindustry),
       cell(row.persisted),
       cell(row.terminalReason),
       // Columna a rellenar a mano: TRUE_POSITIVE / FALSE_POSITIVE / UNCERTAIN.

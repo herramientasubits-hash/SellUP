@@ -92,6 +92,13 @@ import {
   type PhoneRevealWaterfallAuditView,
 } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
 import {
+  CANDIDATE_DETAIL_LOAD_ERROR_BODY_COPY,
+  CANDIDATE_DETAIL_LOAD_ERROR_TITLE_COPY,
+  CANDIDATE_DETAIL_NOT_FOUND_BODY_COPY,
+  CANDIDATE_DETAIL_NOT_FOUND_TITLE_COPY,
+  type CandidateDetailLoadOutcome,
+} from './contact-candidate-detail-load-copy';
+import {
   formatWaterfallLegCredits,
   getPhoneRevealWaterfallAuthorizationCopy,
   resolveWaterfallFinalProviderLabel,
@@ -370,7 +377,13 @@ export function ContactCandidateDetailSheet({
   const router = useRouter();
   const [candidate, setCandidate] = React.useState<PendingContactCandidate | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const [notFound, setNotFound] = React.useState(false);
+  /**
+   * AGENT2A-PROD-INCIDENT: antes era un `notFound` booleano que mezclaba «ya no
+   * está en revisión» con «la lectura falló». Ahora el estado dice CUÁL de los
+   * dos fue, que es lo que separa un aviso informativo de un fallo accionable.
+   */
+  const [loadOutcome, setLoadOutcome] =
+    React.useState<CandidateDetailLoadOutcome | null>(null);
 
   // Estado de revisión humana (Hito 17A.4B)
   const [approving, setApproving] = React.useState(false);
@@ -637,7 +650,7 @@ export function ContactCandidateDetailSheet({
       let cancelled = false;
       (async () => {
         setLoading(true);
-        setNotFound(false);
+        setLoadOutcome(null);
         try {
           // § 4.1: SIEMPRE se relee el candidato desde SellUp al abrir. No se
           // confía en el snapshot de la tabla padre, que puede ser anterior al
@@ -645,7 +658,8 @@ export function ContactCandidateDetailSheet({
           const result = await getPendingContactCandidateById(candidateId);
           if (cancelled) return;
           if (!result) {
-            setNotFound(true);
+            // La lectura SÍ funcionó: el candidato salió de `pending_review`.
+            setLoadOutcome('not_found');
             setCandidate(null);
           } else {
             setCandidate(result);
@@ -658,7 +672,17 @@ export function ContactCandidateDetailSheet({
           }
         } catch {
           if (!cancelled) {
-            setNotFound(true);
+            // La lectura FALLÓ: es un fallo real, no un candidato ausente. La
+            // distinción es justo lo que faltaba — antes los dos casos caían en
+            // el mismo estado y en el mismo copy.
+            //
+            // AGENT2A-PROD-INCIDENT: el rastro para diagnosticar NO se emite
+            // aquí. Este componente maneja teléfonos revelados y tiene una
+            // prohibición deliberada de escribir en consola (PHONE-3D.4 /
+            // 3D.6B), así que el fallo se registra en el servidor, dentro de
+            // `getPendingContactCandidateById`, que es además donde queda
+            // recogido en los logs de Producción.
+            setLoadOutcome('load_error');
             setCandidate(null);
           }
         } finally {
@@ -671,7 +695,7 @@ export function ContactCandidateDetailSheet({
     } else if (!open) {
       queueMicrotask(() => {
         setCandidate(null);
-        setNotFound(false);
+        setLoadOutcome(null);
         resetTransientCandidateState();
         resetInFlightGuards();
       });
@@ -1599,8 +1623,10 @@ export function ContactCandidateDetailSheet({
               Por revisar
             </Badge>
           </div>
-        ) : notFound ? (
-          'Candidato no disponible'
+        ) : loadOutcome === 'not_found' ? (
+          CANDIDATE_DETAIL_NOT_FOUND_TITLE_COPY
+        ) : loadOutcome === 'load_error' ? (
+          CANDIDATE_DETAIL_LOAD_ERROR_TITLE_COPY
         ) : (
           'Cargando candidato…'
         )
@@ -1709,13 +1735,27 @@ export function ContactCandidateDetailSheet({
         ) : undefined
       }
     >
-      {notFound ? (
+      {loadOutcome ? (
         <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
-            <Info className="h-5 w-5 text-muted-foreground/40" />
+          {/* El icono acompaña al copy: informativo cuando el candidato salió de
+              revisión, de advertencia cuando la lectura falló. */}
+          <div
+            className={
+              loadOutcome === 'load_error'
+                ? 'flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10'
+                : 'flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60'
+            }
+          >
+            {loadOutcome === 'load_error' ? (
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+            ) : (
+              <Info className="h-5 w-5 text-muted-foreground/40" />
+            )}
           </div>
           <p className="max-w-sm text-sm text-muted-foreground">
-            No fue posible cargar el detalle del candidato.
+            {loadOutcome === 'load_error'
+              ? CANDIDATE_DETAIL_LOAD_ERROR_BODY_COPY
+              : CANDIDATE_DETAIL_NOT_FOUND_BODY_COPY}
           </p>
         </div>
       ) : !candidate ? null : (

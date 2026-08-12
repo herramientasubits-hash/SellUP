@@ -422,7 +422,23 @@ export async function getPendingContactCandidateById(
     .eq('status', 'pending_review')
     .maybeSingle();
 
-  if (error) throw new Error(`getPendingContactCandidateById: ${error.message}`);
+  if (error) {
+    // AGENT2A-PROD-INCIDENT: en el drawer, un fallo de esta lectura y un candidato
+    // que ya salió de `pending_review` se veían EXACTAMENTE igual, y el cliente
+    // descartaba el error en un `catch {}` vacío ⇒ la causa raíz no se podía
+    // diagnosticar desde Producción. El rastro se emite AQUÍ, en el servidor:
+    // el componente tiene prohibido escribir en consola (maneja teléfonos
+    // revelados) y este es además el lado que queda en los logs de Producción.
+    //
+    // Se registran solo códigos del error y el id del candidato (un uuid). NUNCA
+    // la fila: la proyección lleva nombre, email y teléfono.
+    console.error('[getPendingContactCandidateById] read_failed', {
+      candidateId: candidateId.trim(),
+      code: error.code,
+      message: error.message,
+    });
+    throw new Error(`getPendingContactCandidateById: ${error.message}`);
+  }
   if (!data) return null;
 
   return mapPendingContactCandidate(data);

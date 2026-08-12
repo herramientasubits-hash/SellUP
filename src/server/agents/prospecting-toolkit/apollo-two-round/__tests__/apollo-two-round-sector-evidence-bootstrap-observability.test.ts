@@ -314,6 +314,7 @@ type BootstrapBlock = {
   bootstrap_eligible_count: number;
   bootstrap_selected_for_enrichment_count: number;
   bootstrap_enrichment_executed_count: number;
+  sector_admitted_by_requested_subindustry_precision_count: number;
   candidates: Record<string, unknown>[];
 };
 
@@ -366,6 +367,21 @@ const HEALTH_PROFILES: Record<string, EnrichedProfile> = {
   },
 };
 
+/**
+ * El mismo escenario con el perfil comprado trayendo SÓLO la industria padre.
+ *
+ * POST-ENRICHMENT-ADMISSION-1 — desde ese hito, un candidato cuya subindustria
+ * PEDIDA queda `confirmed` tras el enrichment SÍ cruza el gate sectorial y llega
+ * al writer. El caso que este archivo existe para defender —«el gasto se recupera
+ * aunque el candidato muera antes del writer»— sigue existiendo, y es exactamente
+ * éste: clasificación comprada, ninguna hija confirmada, rechazo terminal.
+ */
+const PARENT_ONLY_PROFILES: Record<string, EnrichedProfile> = {
+  'gruposaludco.com.co': { industry: 'hospital & health care', keywords: [] },
+  'laboratorioco.com.co': { industry: 'hospital & health care', keywords: [] },
+  'epsco.com.co': { industry: 'hospital & health care', keywords: [] },
+};
+
 async function runHealthScenario(
   profiles: Record<string, EnrichedProfile> = HEALTH_PROFILES,
 ): Promise<Recorder> {
@@ -380,7 +396,9 @@ async function runHealthScenario(
 
 describe('§ 2 · el candidato bootstrap-enriched no persiste, y su evidencia sí', () => {
   it('el writer no recibe ni un candidato, y aun así recibe la traza', async () => {
-    const recorder = await runHealthScenario();
+    // POST-ENRICHMENT-ADMISSION-1 — con perfil que confirma la hija PEDIDA el
+    // candidato ya no muere; el caso que este § defiende es el de sólo-padre.
+    const recorder = await runHealthScenario(PARENT_ONLY_PROFILES);
 
     // La premisa que hay que sostener: NO hay fila de `prospect_candidates`.
     assert.deepEqual(recorder.persistedCandidateNames, []);
@@ -424,10 +442,20 @@ describe('§ 2 · el candidato bootstrap-enriched no persiste, y su evidencia s�
       assert.equal(typeof item['source'], 'string');
     }
 
-    // Desenlace: el sector sigue sin política y el candidato muere con causa.
-    assert.equal(entry['post_enrichment_sector_state'], 'sector_not_mapped');
-    assert.equal(entry['terminal_disposition'], 'sector_subindustry_rejected_final');
-    assert.equal(entry['terminal_reason'], 'sector_not_mapped');
+    // POST-ENRICHMENT-ADMISSION-1 § 21 — desenlace: el sector sigue sin política
+    // LEGACY, pero la hija PEDIDA quedó confirmada sobre el perfil comprado, así
+    // que el candidato cruza el gate sectorial y sigue hacia el writer.
+    // `sector_not_mapped` ya no puede ser su motivo terminal.
+    assert.equal(entry['post_enrichment_sector_state'], 'sector_evidence_confirmed');
+    assert.notEqual(entry['terminal_reason'], 'sector_not_mapped');
+    assert.equal(entry['terminal_disposition'], 'provisionally_persisted_pending_writer_final');
+
+    // Y la traza dice POR QUÉ cruzó, incluido el estado que tenía antes.
+    const admission = entry['sector_admission'] as Record<string, unknown>;
+    assert.equal(admission['source'], 'confirmed_requested_subindustry_precision');
+    assert.equal(admission['admitted_by_requested_subindustry_precision'], true);
+    assert.equal(admission['matched_requested_subindustry'], 'Redes Hospitalarias y Clínicas');
+    assert.equal(admission['post_enrichment_sector_state'], 'sector_not_mapped');
   });
 
   it('el estado de bootstrap es INTERMEDIO: no sobrevive como estado final', async () => {
@@ -446,7 +474,8 @@ describe('§ 2 · el candidato bootstrap-enriched no persiste, y su evidencia s�
 
 describe('§ 3 · ruta de recuperación sin una sola fila de candidato', () => {
   it('con 0 candidatos persistidos, el pack de revisión manual se arma igual', async () => {
-    const recorder = await runHealthScenario();
+    // Sólo-padre: el escenario donde de verdad no se persiste nadie.
+    const recorder = await runHealthScenario(PARENT_ONLY_PROFILES);
     assert.deepEqual(recorder.persistedCandidateNames, []);
 
     const block = readBootstrapBlock(recorder);
@@ -468,6 +497,10 @@ describe('§ 3 · ruta de recuperación sin una sola fila de candidato', () => {
           enrichedClassification: null,
           postEnrichmentPrecision: null,
           postEnrichmentSectorState: 'sector_not_mapped',
+          sectorAdmission: null,
+          // Este rehidratado no reconstruye el gate de compra: su consumidor es el
+          // pack de revisión manual, que no lo lee.
+          purchase: null,
           terminalDisposition: 'sector_subindustry_rejected_final',
           terminalReason: 'sector_not_mapped',
         }) satisfies ApolloSectorEvidenceBootstrapCandidateAudit,
@@ -527,8 +560,8 @@ describe('§ 6 · red hospitalaria, laboratorio y EPS', () => {
     }
   });
 
-  it('los tres murieron pre-writer y los tres siguen siendo auditables', async () => {
-    const recorder = await runHealthScenario();
+  it('sin hija confirmada los tres mueren pre-writer y siguen siendo auditables', async () => {
+    const recorder = await runHealthScenario(PARENT_ONLY_PROFILES);
     assert.deepEqual(recorder.persistedCandidateNames, []);
     const block = readBootstrapBlock(recorder);
     assert.equal(block.candidates.length, 3);
@@ -538,16 +571,28 @@ describe('§ 6 · red hospitalaria, laboratorio y EPS', () => {
       assert.equal(entry['terminal_reason'], 'sector_not_mapped');
     }
   });
+
+  it('POST-ENRICHMENT-ADMISSION-1 · con su hija confirmada, los tres cruzan', async () => {
+    const recorder = await runHealthScenario();
+    // El desenlace que este hito cambia: los tres llegan al writer.
+    assert.deepEqual(recorder.persistedCandidateNames?.length, 3);
+    const block = readBootstrapBlock(recorder);
+    assert.equal(block.sector_admitted_by_requested_subindustry_precision_count, 3);
+    for (const [domain, expected] of Object.entries(EXPECTED)) {
+      const admission = candidateEntry(block, domain)['sector_admission'] as Record<
+        string,
+        unknown
+      >;
+      assert.equal(admission['matched_requested_subindustry'], expected, domain);
+      assert.equal(admission['source'], 'confirmed_requested_subindustry_precision', domain);
+    }
+  });
 });
 
 // ─── § 7 · sólo la industria PADRE ────────────────────────────────────────────
 
 describe('§ 7 · el perfil comprado trae la industria padre y nada más', () => {
-  const PARENT_ONLY: Record<string, EnrichedProfile> = {
-    'gruposaludco.com.co': { industry: 'hospital & health care', keywords: [] },
-    'laboratorioco.com.co': { industry: 'hospital & health care', keywords: [] },
-    'epsco.com.co': { industry: 'hospital & health care', keywords: [] },
-  };
+  const PARENT_ONLY = PARENT_ONLY_PROFILES;
 
   it('ninguna de las tres subindustrias confirma, y el audit lo demuestra', async () => {
     const recorder = await runHealthScenario(PARENT_ONLY);
@@ -595,11 +640,22 @@ describe('§ 7 · el perfil comprado trae la industria padre y nada más', () =>
 
 describe('§ 8 · un candidato termina exactamente una vez', () => {
   it('bootstrap no es una disposición terminal: la terminal es el rechazo', async () => {
-    const recorder = await runHealthScenario();
+    const recorder = await runHealthScenario(PARENT_ONLY_PROFILES);
     const block = readBootstrapBlock(recorder);
     for (const entry of block.candidates) {
       assert.equal(entry['terminal_disposition'], 'sector_subindustry_rejected_final');
       assert.ok(entry['terminal_reason'], 'la disposición terminal lleva motivo');
+    }
+  });
+
+  it('POST-ENRICHMENT-ADMISSION-1 § 21 · admitido ⇒ la terminal ya no es sectorial', async () => {
+    const recorder = await runHealthScenario();
+    const block = readBootstrapBlock(recorder);
+    for (const entry of block.candidates) {
+      // Exactamente una disposición, y NO `sector_not_mapped`.
+      assert.equal(entry['terminal_disposition'], 'provisionally_persisted_pending_writer_final');
+      assert.notEqual(entry['terminal_reason'], 'sector_not_mapped');
+      assert.notEqual(entry['terminal_reason'], 'sector_evidence_contradictory');
     }
   });
 
@@ -611,18 +667,33 @@ describe('§ 8 · un candidato termina exactamente una vez', () => {
   });
 
   it('el desglose agregado de disposiciones cuenta a los tres una sola vez', async () => {
-    const recorder = await runHealthScenario();
-    const metadata = recorder.writerBatchMetadata!;
-    const observability = metadata[APOLLO_TWO_ROUND_OBSERVABILITY_KEY] as
-      | Record<string, unknown>
-      | undefined;
-    const dispositions = observability?.['candidate_final_dispositions'] as
-      | { total_unique_results: number; unclassified_count: number; breakdown: Record<string, number> }
-      | undefined;
-    assert.ok(dispositions, 'la corrida publica el desglose canónico');
-    assert.equal(dispositions.unclassified_count, 0);
-    assert.equal(dispositions.breakdown['sector_subindustry_rejected_final'], 3);
-    assert.equal(dispositions.total_unique_results, 3);
+    // § 21 — exactamente una disposición por candidato en LOS DOS escenarios.
+    const readDispositions = (recorder: Recorder) => {
+      const observability = recorder.writerBatchMetadata![APOLLO_TWO_ROUND_OBSERVABILITY_KEY] as
+        | Record<string, unknown>
+        | undefined;
+      const dispositions = observability?.['candidate_final_dispositions'] as
+        | {
+            total_unique_results: number;
+            unclassified_count: number;
+            breakdown: Record<string, number>;
+          }
+        | undefined;
+      assert.ok(dispositions, 'la corrida publica el desglose canónico');
+      return dispositions;
+    };
+
+    const parentOnly = readDispositions(await runHealthScenario(PARENT_ONLY_PROFILES));
+    assert.equal(parentOnly.unclassified_count, 0);
+    assert.equal(parentOnly.breakdown['sector_subindustry_rejected_final'], 3);
+    assert.equal(parentOnly.total_unique_results, 3);
+
+    const confirmed = readDispositions(await runHealthScenario());
+    assert.equal(confirmed.unclassified_count, 0);
+    assert.equal(confirmed.total_unique_results, 3);
+    // Los tres migran de cubeta: ninguno queda ya en el rechazo sectorial.
+    assert.equal(confirmed.breakdown['sector_subindustry_rejected_final'], undefined);
+    assert.equal(confirmed.breakdown['provisionally_persisted_pending_writer_final'], 3);
   });
 });
 
@@ -812,6 +883,8 @@ describe('Pack de revisión manual — las columnas del benchmark', () => {
     },
     postEnrichmentPrecision: null,
     postEnrichmentSectorState: 'sector_not_mapped',
+    sectorAdmission: null,
+    purchase: null,
     terminalDisposition: 'sector_subindustry_rejected_final',
     terminalReason: 'sector_not_mapped',
   };

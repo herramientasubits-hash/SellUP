@@ -1084,6 +1084,107 @@ export function projectOperationalSubindustryVerdict(
   return winner ?? NO_OPERATIONAL_CONTRIBUTION;
 }
 
+// ─── AGENT1-SECTOR-POST-ENRICHMENT-ADMISSION-1 · CUÁL subindustria confirmó ───
+//
+// `projectOperationalSubindustryVerdict` responde «¿alguna confirmó?» y es lo
+// único que decide. La admisión sectorial por precisión de hija necesita además
+// CUÁL de las subindustrias PEDIDAS lo hizo, para poder auditar la frase «este
+// candidato cruzó el gate sectorial porque EPS, que se pidió, quedó confirmada
+// tras el enrichment».
+//
+// Vive aquí, junto al productor, por dos razones:
+//
+//   - reutiliza `projectOneOperationalVerdict`, así que no existe una segunda
+//     lectura del modo de la regla que pueda diverger de la que decide;
+//   - `precisionMode` es diagnóstico y su desempate sigue el orden pedido. El
+//     ratchet del § 1 de MIXED-MODE prohíbe nombrarlo fuera de este módulo, y el
+//     consumidor de admisión NO lo nombra: recibe el registro entero como valor
+//     opaco y sólo lee la ETIQUETA. La proyección a metadata también se hace aquí.
+
+/**
+ * La subindustria PEDIDA que confirmó en el plano OPERATIVO.
+ *
+ * `precisionMode` es el modo de la regla que la confirmó, y sigue siendo
+ * diagnóstico: ninguna decisión —ni económica ni de admisión— puede depender de
+ * él. Está aquí porque la calibración de Wave 1 necesita saber si la confirmación
+ * vino de una regla `full` o de una `confirm_only`, no porque cambie nada.
+ */
+export type OperationalConfirmedRequestedSubindustry = {
+  requestedSubindustry: string;
+  precisionMode: SubindustryPrecisionMode;
+};
+
+/**
+ * Resuelve la PRIMERA subindustria pedida cuyo veredicto OPERATIVO es `confirmed`.
+ *
+ * `null` cuando ninguna confirma operativamente — incluidas, por construcción:
+ * una etiqueta sin regla de precisión (`subindustryMapped: false` ⇒ no contribuye),
+ * una regla `confirm_only` cuyo veredicto es `ambiguous` o `rejected` (ABSTIENE,
+ * § 7 de MIXED-MODE) y una regla `full` que no confirmó.
+ *
+ * «Primera» es el orden en que el usuario pidió las subindustrias, y sólo elige
+ * QUÉ etiqueta se reporta cuando varias confirman: la existencia de confirmación
+ * —lo único que decide— es invariante al orden, igual que en
+ * `projectOperationalSubindustryVerdict`.
+ *
+ * Sólo devuelve etiquetas que están en la petición: itera las evaluaciones por
+ * subindustria pedida, que el evaluador construye desde `requestedSubindustries`.
+ * Una subindustria que el candidato demuestra pero que nadie pidió no aparece
+ * aquí y por tanto no puede admitir a nadie.
+ *
+ * Puro.
+ */
+export function resolveOperationalConfirmedRequestedSubindustry(
+  assessment: ApolloSubindustryPrecisionAssessment,
+  options?: SubindustryPrecisionEvaluationOptions,
+): OperationalConfirmedRequestedSubindustry | null {
+  const ruleSets = options?.ruleSets ?? PRECISION_RULE_SETS;
+  const identityRegistry =
+    ruleSets === PRECISION_RULE_SETS
+      ? SUBINDUSTRY_PRECISION_IDENTITY_REGISTRY
+      : toIdentityRegistry(ruleSets);
+
+  // Sólo las evaluaciones POR SUBINDUSTRIA PEDIDA. A diferencia de
+  // `projectOperationalSubindustryVerdict`, aquí NO se cae al agregado cuando la
+  // lista viene vacía: sin evaluación por etiqueta no se sabe QUÉ subindustria
+  // confirmó, y afirmar una sería inventar la atribución. Fail-closed.
+  for (const evaluation of assessment.perRequestedSubindustryEvaluations) {
+    const mode = evaluation.subindustryMapped
+      ? (resolveSubindustryRuleSet(
+          evaluation.requestedSubindustry,
+          ruleSets,
+          identityRegistry,
+        )?.mode ?? 'full')
+      : null;
+    const projected = projectOneOperationalVerdict(
+      {
+        subindustryMapped: evaluation.subindustryMapped,
+        subindustryMatch: evaluation.subindustryMatch,
+      },
+      mode,
+    );
+    if (projected === null) continue;
+    if (projected.subindustryMapped && projected.subindustryMatch === 'confirmed') {
+      return {
+        requestedSubindustry: evaluation.requestedSubindustry,
+        precisionMode: projected.precisionMode ?? 'full',
+      };
+    }
+  }
+  return null;
+}
+
+/** Proyección a metadata. Sólo la etiqueta pedida y el modo de la regla. */
+export function toOperationalConfirmedRequestedSubindustryMetadata(
+  confirmed: OperationalConfirmedRequestedSubindustry | null,
+): Record<string, unknown> | null {
+  if (confirmed === null) return null;
+  return {
+    requested_subindustry: confirmed.requestedSubindustry,
+    precision_mode: confirmed.precisionMode,
+  };
+}
+
 // ─── Proyección a metadata ────────────────────────────────────────────────────
 
 /** Clave bajo la que la precisión de subindustria aterriza en el metadata. */

@@ -9,6 +9,9 @@
  */
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+// AGENT2A-PROD-INCIDENT: las dos búsquedas salen por este helper, que es el que
+// pone el techo de espera. Antes cada una llamaba a `fetch` sin `signal`.
+import { postHubSpotCompanySearch } from './hubspot-company-search-request';
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -118,17 +121,7 @@ async function searchCompaniesByDomain(
     limit: 5,
   };
 
-  const response = await fetch(
-    'https://api.hubapi.com/crm/v3/objects/companies/search',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    }
-  );
+  const response = await postHubSpotCompanySearch(token, body);
 
   if (!response.ok) return [];
 
@@ -159,17 +152,7 @@ async function searchCompaniesByName(
     limit: 5,
   };
 
-  const response = await fetch(
-    'https://api.hubapi.com/crm/v3/objects/companies/search',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    }
-  );
+  const response = await postHubSpotCompanySearch(token, body);
 
   if (!response.ok) return [];
 
