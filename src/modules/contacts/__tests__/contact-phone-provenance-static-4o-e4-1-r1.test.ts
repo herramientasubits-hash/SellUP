@@ -246,14 +246,15 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
     assert.equal(
       last,
       // 4O-H3 movió el techo a la 116 (la APROBACIÓN atómica: una sola función
-      // transaccional, sin DDL). R1 sigue sin aportar ninguna.
-      '116_approve_candidate_with_official_phones.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2 y 4O-H3, no este hito',
+      // transaccional, sin DDL) y 4O-H3-B a la 117 (el MERGE humano hacia un contacto
+      // existente, también una sola función). R1 sigue sin aportar ninguna.
+      '117_merge_candidate_into_existing_contact.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3 y 4O-H3-B, no este hito',
     );
     assert.equal(
-      files.some((f) => /^1(1[7-9]|[2-9]\d)/.test(f)),
+      files.some((f) => /^1(1[89]|[2-9]\d)/.test(f)),
       false,
-      'ninguna migración 117 o superior',
+      'ninguna migración 118 o superior',
     );
   });
 

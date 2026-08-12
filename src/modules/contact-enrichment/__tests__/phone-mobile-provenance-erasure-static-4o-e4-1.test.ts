@@ -224,8 +224,11 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
         // 4O-H3 la nombra por la MISMA razón y con el mismo efecto: un comentario y el
         // `COMMENT ON FUNCTION` que dejan escrito que la aprobación NO la escribe.
         '116_approve_candidate_with_official_phones.sql',
+        // 4O-H3-B, otra vez igual: el merge deja escrito que la columna no está en su UPDATE
+        // y que MOBILE_PHONE_PROVENANCE_PENDING sigue abierto hasta H5.
+        '117_merge_candidate_into_existing_contact.sql',
       ],
-      'las únicas migraciones que pueden NOMBRAR mobile_phone sin tocarla son la 115 (4O-H2) y la 116 (4O-H3), que documentan que no la tocan',
+      'las únicas migraciones que pueden NOMBRAR mobile_phone sin tocarla son la 115 (4O-H2), la 116 (4O-H3) y la 117 (4O-H3-B), que documentan que no la tocan',
     );
   });
 });
@@ -355,7 +358,9 @@ describe('4O-E4.1 estático — alcance', () => {
     // `suppress_official_contact_phone_sources`). Lo que esta guarda fija es que E4.1 se
     // resolvió en TypeScript, no cuál es el número más alto — y se sigue fijando un número
     // EXACTO para que una migración colada por encima rompa la guarda.
-    assert.equal(numbered[numbered.length - 1], 116, 'la 116 (4O-H3) es la última');
+    // 4O-H3-B lo mueve a la 117 (el MERGE humano hacia un contacto existente: otra función
+    // transaccional, que tampoco escribe `mobile_phone`).
+    assert.equal(numbered[numbered.length - 1], 117, 'la 117 (4O-H3-B) es la última');
   });
 
   it('no se introduce `mobile_phone_source` ni ningún modelo de procedencia', () => {

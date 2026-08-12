@@ -14,13 +14,19 @@ import { logContactAudit } from '@/modules/contacts/actions';
 import {
   runApproveCandidate,
   runDiscardCandidate,
+  runMergeCandidateIntoExistingContact,
   type CandidateRecord,
   type CandidateReviewPatch,
   type ExistingContactForDedup,
+  type ExistingContactMergeOffer,
+  type ExistingContactScalarForMerge,
   type IdentityApprovalOverrideInputV1,
+  type MergeIntoExistingContactErrorCode,
 } from './candidate-review-core';
 import { buildCandidateScalarFallback } from './official-contact-approval-core';
 import { approveContactCandidateWithPhones } from './official-contact-approval-persistence';
+import { buildIncumbentContactBootstrap } from './existing-contact-merge-core';
+import { mergeCandidateIntoExistingContact } from './existing-contact-merge-persistence';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
 import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
 import type {
@@ -459,6 +465,7 @@ function getServiceRoleClient() {
 const CANDIDATE_REVIEW_SELECT =
   `id, status, full_name, first_name, last_name, title, seniority, department,
    email, phone, linkedin_url, source, enrichment_metadata, enrichment_run_id,
+   matched_contacts_id,
    run:contact_enrichment_runs ( account_id, hubspot_company_id, company_name, company_domain, company_country_code )`;
 
 function mapCandidateRecord(row: unknown): CandidateRecord {
@@ -495,6 +502,9 @@ function mapCandidateRecord(row: unknown): CandidateRecord {
     company_name: run?.company_name ?? null,
     company_domain: run?.company_domain ?? null,
     country_code: run?.company_country_code ?? null,
+    // 4O-H3-B: el ancla de confianza del merge. Lo escribió el SERVIDOR al detectar el
+    // duplicado, y es lo único contra lo que se valida el contacto destino.
+    matched_contacts_id: (r.matched_contacts_id as string | null) ?? null,
   };
 }
 
@@ -505,6 +515,21 @@ export interface ApproveCandidateActionResult {
   error?: string;
   duplicate?: boolean;
   code?: 'IDENTITY_MISMATCH_REQUIRES_REVIEW' | 'IDENTITY_OVERRIDE_REASON_REQUIRED';
+  /**
+   * 4O-H3-B — sólo acompaña al veredicto `duplicate`. Dice si la UI puede ofrecer «Agregar
+   * información al contacto existente». No fusiona nada por sí mismo.
+   */
+  mergeOffer?: ExistingContactMergeOffer;
+}
+
+/** 4O-H3-B — resultado de la decisión humana de fusionar en el contacto existente. */
+export interface MergeCandidateIntoExistingContactActionResult {
+  ok: boolean;
+  contactId?: string;
+  message?: string;
+  error?: string;
+  alreadyMerged?: boolean;
+  code?: MergeIntoExistingContactErrorCode;
 }
 
 export interface DiscardCandidateActionResult {
@@ -728,6 +753,181 @@ export async function approveContactCandidate(
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aprobando el candidato';
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * AGENT2A-PHONE-REVEAL-4O-H3-B — agrega la información de un candidato DUPLICADO al contacto
+ * existente con el que el servidor lo emparejó, tras una decisión humana explícita.
+ *
+ * Autorización: la MISMA que la aprobación (`requireActiveUserForEnrichment`). No amplía roles y
+ * no introduce un permiso nuevo — es una decisión de revisión de candidatos, igual que aprobar y
+ * rechazar, y quien puede crear un contacto oficial desde un candidato puede añadirle números a
+ * uno existente.
+ *
+ * NO llama a Apollo, ni a Lusha, ni a HubSpot. No reserva ni consume créditos. Todo lo que
+ * escribe ya estaba almacenado.
+ */
+export async function mergeContactCandidateIntoExistingContactAction(
+  candidateId: string,
+  contactId: string,
+): Promise<MergeCandidateIntoExistingContactActionResult> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+    // Sólo el cliente del USUARIO: todas las lecturas de este camino pasan por RLS. No hay
+    // service role aquí — la única escritura la hace la RPC de la 117, que ya corre con el suyo
+    // y bajo el techo de privilegios de la 114.
+    const supabase = await createClient();
+
+    return await runMergeCandidateIntoExistingContact(candidateId, contactId, {
+      actorId: internalUserId,
+      nowIso: new Date().toISOString(),
+      loadCandidate: async (id) => {
+        const { data, error } = await supabase
+          .from('contact_enrichment_candidates')
+          .select(CANDIDATE_REVIEW_SELECT)
+          .eq('id', id)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        return data ? mapCandidateRecord(data) : null;
+      },
+      // La MISMA lectura que usa la deduplicación de la aprobación, para que la identidad se
+      // resuelva sobre exactamente el mismo conjunto: contactos vivos de la cuenta.
+      loadExistingContacts: async (accountId): Promise<ExistingContactForDedup[]> => {
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('id, email, linkedin_url, full_name')
+          .eq('account_id', accountId)
+          .is('archived_at', null);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as ExistingContactForDedup[];
+      },
+      loadExistingContactScalar: async (
+        targetContactId,
+        accountId,
+      ): Promise<ExistingContactScalarForMerge | null> => {
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('id, phone, phone_type, phone_source, phone_raw_type')
+          .eq('id', targetContactId)
+          .eq('account_id', accountId)
+          .is('archived_at', null)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!data) return null;
+        const r = data as Record<string, unknown>;
+        return {
+          id: r.id as string,
+          phone: (r.phone as string | null) ?? null,
+          phone_type: (r.phone_type as string | null) ?? null,
+          phone_source: (r.phone_source as string | null) ?? null,
+          phone_raw_type: (r.phone_raw_type as string | null) ?? null,
+        };
+      },
+      mergeTransactionally: async ({
+        candidateId: id,
+        contactId: targetContactId,
+        accountId,
+        reviewPatch,
+        candidate,
+        incumbentScalar,
+      }) => {
+        const outcome = await mergeCandidateIntoExistingContact({
+          candidateId: id,
+          contactId: targetContactId,
+          accountId,
+          reviewPatch: reviewPatch as unknown as Record<string, unknown>,
+          // Idéntico al de la aprobación, y por la misma razón: el candidato escalar-only es la
+          // mayoría en Producción, y su procedencia sólo se promueve cuando invierte fielmente.
+          scalarFallback: buildCandidateScalarFallback({
+            phone: candidate.phone,
+            phoneMetadata: candidate.enrichment_metadata?.phone as
+              | { type?: unknown; source?: unknown; raw_type?: unknown }
+              | null
+              | undefined,
+            countryCode: candidate.country_code,
+          }),
+          // El escalar HEREDADO del contacto destino. `null` cuando su procedencia no invierte
+          // (`provider_payload`, `unknown`, ausente): entonces no se bootstrappea nada y el
+          // número que ya tenía el contacto se queda exactamente como está.
+          incumbentBootstrap: buildIncumbentContactBootstrap({
+            phone: incumbentScalar.phone,
+            phoneType: incumbentScalar.phone_type,
+            phoneSource: incumbentScalar.phone_source,
+            phoneRawType: incumbentScalar.phone_raw_type,
+            countryCode: candidate.country_code,
+          }),
+          actorId: internalUserId,
+          nowIso: new Date().toISOString(),
+        });
+
+        if (outcome.status === 'merged' || outcome.status === 'already_merged') {
+          if (!outcome.contactId) {
+            return { ok: false, error: 'No fue posible agregar la información al contacto existente.' };
+          }
+          return {
+            ok: true,
+            contactId: outcome.contactId,
+            alreadyMerged: outcome.status === 'already_merged',
+            phonesInserted: outcome.phonesInserted,
+            sourcesInserted: outcome.sourcesInserted,
+          };
+        }
+        if (outcome.status === 'person_suppressed') {
+          // Mensaje deliberadamente genérico: no confirma ni niega que exista una solicitud de
+          // borrado sobre esa persona.
+          return { ok: false, error: 'No fue posible agregar la información al contacto existente.' };
+        }
+        if (outcome.status === 'contact_mismatch') {
+          return {
+            ok: false,
+            error: 'El contacto indicado no coincide con el que se registró como duplicado.',
+            code: 'CONTACT_MISMATCH' as const,
+          };
+        }
+        if (
+          outcome.status === 'candidate_not_mergeable' ||
+          outcome.status === 'contact_not_mergeable'
+        ) {
+          return {
+            ok: false,
+            error: 'Este candidato ya no puede agregarse al contacto existente.',
+            code: 'CANDIDATE_NOT_MERGEABLE' as const,
+          };
+        }
+        return { ok: false, error: 'No fue posible agregar la información al contacto existente.' };
+      },
+      logAudit: async ({
+        contactId: targetContactId,
+        accountId,
+        candidateId: sourceCandidateId,
+        actorUserId,
+        matchSignal,
+        phonesInserted,
+        sourcesInserted,
+      }) => {
+        // `contact_updated` es el miembro que la CHECK de la 039 ya admite para «se le añadió
+        // información a un contacto existente». No se extiende el vocabulario para esto.
+        // Los detalles son conteos, ids opacos y la señal: ni nombre, ni email, ni teléfono.
+        await logContactAudit({
+          contactId: targetContactId,
+          accountId,
+          actorUserId,
+          actionType: 'contact_updated',
+          details: {
+            source: 'contact_enrichment_candidate_merge',
+            candidate_id: sourceCandidateId,
+            match_signal: matchSignal,
+            official_phones_inserted: phonesInserted,
+            official_phone_sources_inserted: sourcesInserted,
+          },
+        });
+      },
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Error agregando la información al contacto existente';
     return { ok: false, error: message };
   }
 }

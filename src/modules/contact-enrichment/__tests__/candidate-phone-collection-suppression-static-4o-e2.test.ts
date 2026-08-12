@@ -131,6 +131,10 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // 4O-H3: la aprobación ATÓMICA del candidato sobre el esquema oficial. Sólo una
       // función transaccional; no toca la colección de staging que esta suite protege.
       '116_approve_candidate_with_official_phones.sql',
+      // 4O-H3-B: el MERGE humano hacia un contacto existente. LEE la colección de staging
+      // para promoverla, pero no la escribe ni la altera — la 112 sigue siendo su única
+      // dueña, que es exactamente lo que esta guarda vigila.
+      '117_merge_candidate_into_existing_contact.sql',
     ]);
   });
 

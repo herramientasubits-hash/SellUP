@@ -517,9 +517,11 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
     // que esta guarda fija es que H0.5 no aportó esquema, no cuál es el número más alto; el
     // nombre exacto se mantiene para que una migración colada por encima del último hito
     // conocido rompa la guarda.
+    // Y después 4O-H3-B con la 117 (el MERGE humano hacia un contacto existente: otra
+    // función transaccional, sin DDL).
     assert.equal(
       files[files.length - 1],
-      '116_approve_candidate_with_official_phones.sql',
+      '117_merge_candidate_into_existing_contact.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

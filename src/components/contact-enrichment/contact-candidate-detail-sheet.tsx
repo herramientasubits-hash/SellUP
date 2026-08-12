@@ -51,6 +51,7 @@ import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card
 import {
   getPendingContactCandidateById,
   approveContactCandidate,
+  mergeContactCandidateIntoExistingContactAction,
   discardContactCandidate,
 } from '@/modules/contact-enrichment/actions';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
@@ -386,6 +387,18 @@ export function ContactCandidateDetailSheet({
   const [overrideReason, setOverrideReason] = React.useState('');
   const [overrideValidationError, setOverrideValidationError] = React.useState<string | null>(null);
 
+  // Duplicado con contacto existente (AGENT2A-PHONE-REVEAL-4O-H3-B). El veredicto no cambia —
+  // el candidato pasa a `duplicate` igual que antes de este hito —, pero cuando la identidad del
+  // contacto existente es exacta e inequívoca el humano puede además AGREGARLE la información en
+  // vez de limitarse a descartar. Este estado sólo controla el diálogo: la decisión de si la
+  // acción es siquiera ofrecible la toma el servidor, y volverá a tomarla al ejecutarla.
+  const [duplicateDecision, setDuplicateDecision] = React.useState<{
+    contactId: string;
+    signal: 'email' | 'linkedin';
+  } | null>(null);
+  const [mergingIntoExisting, setMergingIntoExisting] = React.useState(false);
+  const mergeInFlightRef = React.useRef(false);
+
   // Reveal de teléfono (APOLLO-PHONE-ASYNC-5) — flujo ONE-CLICK sin modal. Al
   // hacer clic se solicita de inmediato la revelación asíncrona con base fija
   // (interés legítimo B2B). Todo el estado es local; la autoridad real (flag,
@@ -563,6 +576,10 @@ export function ContactCandidateDetailSheet({
     setOverrideAcknowledged(false);
     setOverrideReason('');
     setOverrideValidationError(null);
+    // 4O-H3-B: la decisión de duplicado pertenece al candidato que la produjo. Arrastrarla al
+    // siguiente sería ofrecerle al operador fusionar a OTRA persona en el mismo contacto.
+    setDuplicateDecision(null);
+    setMergingIntoExisting(false);
     setRevealingPhone(false);
     setPhoneRevealError(null);
     setPhoneRevealNotice(null);
@@ -717,7 +734,18 @@ export function ContactCandidateDetailSheet({
         router.refresh();
         onClose();
       } else if (result.duplicate) {
-        // El candidato pasó a `duplicate` y sale de revisión: refrescamos y cerramos.
+        // El candidato pasó a `duplicate` y sale de revisión — eso no ha cambiado. Lo que cambia
+        // (4O-H3-B) es que, si el servidor confirma que el contacto existente es la MISMA persona
+        // por una señal exacta, no cerramos sin preguntar: se le muestra la decisión. Sin oferta,
+        // el comportamiento es exactamente el de antes.
+        if (result.mergeOffer?.offered && result.contactId) {
+          setDuplicateDecision({
+            contactId: result.contactId,
+            signal: result.mergeOffer.signal,
+          });
+          router.refresh();
+          return;
+        }
         toast.warning(result.error ?? 'Este candidato parece estar duplicado.');
         router.refresh();
         onClose();
@@ -740,6 +768,55 @@ export function ContactCandidateDetailSheet({
       toast.error('No fue posible aprobar el candidato.');
     } finally {
       setApproving(false);
+    }
+  }
+
+  /**
+   * 4O-H3-B — «Descartar como duplicado». No escribe NADA: el veredicto duplicado ya
+   * terminalizó al candidato cuando se detectó. Cerrar es exactamente el comportamiento que
+   * existía antes de este hito, y por eso este camino no llama a ninguna acción.
+   */
+  function handleDiscardDuplicate() {
+    if (mergingIntoExisting) return;
+    setDuplicateDecision(null);
+    toast.warning('Candidato marcado como duplicado.');
+    router.refresh();
+    onClose();
+  }
+
+  /**
+   * 4O-H3-B — «Agregar información al contacto existente». La decisión humana explícita.
+   *
+   * El id del contacto viaja como CONFIRMACIÓN, no como instrucción: el servidor lo revalida
+   * contra el `matched_contacts_id` que él mismo escribió y la transacción lo vuelve a
+   * comprobar bajo el lock. Un doble clic queda cortado aquí por el ref y, si aun así llegaran
+   * dos peticiones, la transacción devuelve `already_merged` sin escribir por segunda vez.
+   */
+  async function handleMergeIntoExistingContact() {
+    if (!candidate || !duplicateDecision) return;
+    if (mergeInFlightRef.current) return;
+    mergeInFlightRef.current = true;
+    setMergingIntoExisting(true);
+    try {
+      const result = await mergeContactCandidateIntoExistingContactAction(
+        candidate.id,
+        duplicateDecision.contactId,
+      );
+      if (result.ok) {
+        toast.success(result.message ?? 'Información agregada al contacto existente.');
+        setDuplicateDecision(null);
+        router.refresh();
+        onClose();
+      } else {
+        toast.error(
+          result.error ?? 'No fue posible agregar la información al contacto existente.',
+        );
+      }
+    } catch {
+      toast.error('No fue posible agregar la información al contacto existente.');
+    } finally {
+      mergeInFlightRef.current = false;
+      setMergingIntoExisting(false);
     }
   }
 
@@ -2526,6 +2603,67 @@ export function ContactCandidateDetailSheet({
               </>
             ) : (
               'Aprobar de todas formas'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* AGENT2A-PHONE-REVEAL-4O-H3-B — decisión humana sobre un duplicado con identidad exacta.
+        Sólo se abre cuando el SERVIDOR confirmó que el contacto existente es la misma persona
+        por email o LinkedIn exactos; con identidad ambigua, por nombre o sin señal exacta, este
+        diálogo no aparece y el flujo es el de siempre. No muestra internals: ni ids, ni el
+        nombre de la columna, ni la evidencia cruda. */}
+    <Dialog
+      open={duplicateDecision !== null}
+      onOpenChange={(v) => {
+        if (mergingIntoExisting) return;
+        if (!v) handleDiscardDuplicate();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Candidato duplicado</DialogTitle>
+          <DialogDescription>
+            Este candidato coincide con un contacto que ya existe en SellUp
+            {duplicateDecision?.signal === 'email'
+              ? ', con el mismo correo electrónico.'
+              : ', con el mismo perfil de LinkedIn.'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="rounded-xl border border-dashed border-border/60 bg-muted/30 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Puedes agregarle la información de este candidato al contacto existente. No se
+              reemplaza nada de lo que ya tiene: su teléfono principal y los datos cargados a
+              mano se conservan tal como están.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={mergingIntoExisting}
+            onClick={handleDiscardDuplicate}
+          >
+            Descartar como duplicado
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={mergingIntoExisting}
+            onClick={handleMergeIntoExistingContact}
+          >
+            {mergingIntoExisting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Agregando…
+              </>
+            ) : (
+              'Agregar información al contacto existente'
             )}
           </Button>
         </DialogFooter>

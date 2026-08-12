@@ -429,9 +429,10 @@ describe('4O-G — alcance', () => {
       .map((file) => Number(file.slice(0, 3)))
       .sort((a, b) => a - b);
     // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
-    // candidato sobre el esquema oficial. 4O-G sigue sin aportar ni editar SQL.
-    assert.equal(numbered[numbered.length - 1], 116);
-    assert.equal(numbered.length, 116);
+    // candidato sobre el esquema oficial. 4O-H3-B lo sube a la 117: el MERGE humano hacia un
+    // contacto EXISTENTE, otra función transaccional. 4O-G sigue sin aportar ni editar SQL.
+    assert.equal(numbered[numbered.length - 1], 117);
+    assert.equal(numbered.length, 117);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

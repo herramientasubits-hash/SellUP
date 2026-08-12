@@ -203,14 +203,16 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
       // candidato sobre ese mismo esquema oficial (una sola función transaccional,
       // `approve_contact_candidate_with_phones`, con su propia guarda estática). Tampoco
-      // edita la 110 ni ninguna otra de la cadena 109–115.
-      '116_approve_candidate_with_official_phones.sql',
-      'el techo conocido es la 116 (4O-H3), que añade la aprobación atómica sin editar la 110',
+      // edita la 110 ni ninguna otra de la cadena 109–115. 4O-H3-B lo sube a la 117 con el
+      // MERGE humano hacia un contacto existente: otra función transaccional, que tampoco
+      // edita la 110 ni re-emite la 116.
+      '117_merge_candidate_into_existing_contact.sql',
+      'el techo conocido es la 117 (4O-H3-B), que añade el merge humano sin editar la 110',
     );
     assert.equal(
-      files.some((file) => /^1(1[7-9]|[2-9]\d)/.test(file)),
+      files.some((file) => /^1(1[89]|[2-9]\d)/.test(file)),
       false,
-      'ninguna migración 117 o superior',
+      'ninguna migración 118 o superior',
     );
   });
 

@@ -130,10 +130,14 @@ describe('114 — numeración', () => {
     const numbers = readdirSync(migrationsDir)
       .filter((file) => /^\d{3}[_-].*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)));
-    // AGENT2A-PHONE-REVEAL-4O-H3 sube el techo a la 116: la APROBACIÓN atómica del candidato
+    // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del candidato
     // sobre ese mismo esquema oficial (una sola función transaccional, `approve_contact_candidate_with_phones`). La 116 NO añade tabla, columna, constraint, índice ni GRANT:
     // sólo una función, que es lo que la hace retrocompatible con el runtime vivo.
-    assert.equal(Math.max(...numbers), 116);
+    // AGENT2A-PHONE-REVEAL-4O-H3-B lo sube a la 117 por la misma razón exacta: el MERGE humano
+    // hacia un contacto existente (`merge_contact_candidate_into_existing_contact`) es otra
+    // función transaccional y nada más. Sigue sin haber tabla, columna, constraint, índice ni
+    // GRANT nuevos sobre las dos tablas oficiales, así que la 114 sigue siendo su única dueña.
+    assert.equal(Math.max(...numbers), 117);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

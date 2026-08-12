@@ -38,8 +38,13 @@ export const APPROVE_CONTACT_CANDIDATE_WITH_PHONES_FN =
  *     procedencia es exactamente lo que la tabla existe para hacer imposible.
  *
  * Un `source` ausente, nulo o fuera del vocabulario cae en el mismo sitio: no se promueve.
+ *
+ * EXPORTADA desde 4O-H3-B: el bootstrap del escalar heredado de un contacto EXISTENTE
+ * (`existing-contact-merge-core.ts`) aplica exactamente esta inversión sobre
+ * `contacts.phone_source`, que es el MISMO vocabulario fusionado. Una segunda copia sería la
+ * misma tabla divergiendo según quién la lea.
  */
-const LEGACY_SOURCE_TO_OFFICIAL_PAIR: Readonly<
+export const LEGACY_SOURCE_TO_OFFICIAL_PAIR: Readonly<
   Record<string, { provider: string; acquisitionMode: string }>
 > = {
   apollo_search: { provider: 'apollo', acquisitionMode: 'search' },
