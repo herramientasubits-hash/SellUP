@@ -201,7 +201,9 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
     const last = files[files.length - 1];
     assert.equal(
       last,
-      '115_official_contact_phone_privacy.sql',
+      // 4O-H3 movió el techo a la 116: la APROBACIÓN atómica del candidato sobre ese mismo
+      // esquema oficial. Sólo una función transaccional; ninguna DDL, ningún GRANT de tabla.
+      '116_approve_candidate_with_official_phones.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.
