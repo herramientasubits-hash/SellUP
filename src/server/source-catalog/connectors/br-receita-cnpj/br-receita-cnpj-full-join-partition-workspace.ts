@@ -188,14 +188,14 @@ export type BrazilReceitaFullJoinReferenceCodecFailure =
   | 'record_truncated';
 
 /**
- * Encodes one reference into exactly `BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES` bytes.
- *
- * Layout: ordinal u32 LE | offset u48 LE | length u32 LE | family u8 | reserved u8.
+ * Validates one reference WITHOUT encoding it, so a caller can reject a bad reference before it has
+ * anywhere to put a good one. Every check here is the one `encode...Into` would make; keeping them
+ * in a single function is what stops the two from drifting apart.
  */
-export function encodeBrazilReceitaFullJoinRowReference(
+export function validateBrazilReceitaFullJoinRowReference(
   reference: BrazilReceitaFullJoinRowReference,
 ):
-  | { readonly ok: true; readonly record: Buffer }
+  | { readonly ok: true }
   | { readonly ok: false; readonly failure: BrazilReceitaFullJoinReferenceCodecFailure } {
   const { sourceFileOrdinal, byteOffset, byteLength, family } = reference;
   if (!Number.isInteger(sourceFileOrdinal) || sourceFileOrdinal < 0 || sourceFileOrdinal > MAX_ENCODABLE_UINT32) {
@@ -207,14 +207,68 @@ export function encodeBrazilReceitaFullJoinRowReference(
   if (!Number.isInteger(byteLength) || byteLength <= 0 || byteLength > MAX_ENCODABLE_UINT32) {
     return { ok: false, failure: 'length_out_of_range' };
   }
-  const familyCode = FAMILY_CODES[family];
-  if (familyCode === undefined) return { ok: false, failure: 'family_unknown' };
+  if (FAMILY_CODES[family] === undefined) return { ok: false, failure: 'family_unknown' };
+  return { ok: true };
+}
 
+/**
+ * Encodes one reference DIRECTLY INTO `target` at `targetOffset`, allocating nothing.
+ *
+ * Layout: ordinal u32 LE | offset u48 LE | length u32 LE | family u8 | reserved u8.
+ *
+ * This is the form the append path uses (BR-SOURCE external-memory closure). The previous shape
+ * returned a freshly allocated 16-byte Buffer per reference, which the caller then copied into the
+ * partition's pending buffer and dropped: at national scale that is tens of millions of pooled
+ * allocations whose only purpose was to be copied once, and their un-reclaimed remains were the
+ * second-largest contributor to `process.memoryUsage().external`. Writing in place removes both the
+ * allocation and the copy — and, incidentally, removes the aliasing hazard a shared scratch buffer
+ * would have introduced, because there is no intermediate buffer left to alias.
+ */
+export function encodeBrazilReceitaFullJoinRowReferenceInto(
+  target: Buffer,
+  targetOffset: number,
+  reference: BrazilReceitaFullJoinRowReference,
+):
+  | { readonly ok: true }
+  | { readonly ok: false; readonly failure: BrazilReceitaFullJoinReferenceCodecFailure } {
+  const validation = validateBrazilReceitaFullJoinRowReference(reference);
+  if (!validation.ok) return validation;
+  // A write that would run past the end is `record_truncated` for the same reason a short READ is:
+  // a partially written record is one no reader could interpret.
+  if (
+    !Number.isInteger(targetOffset) ||
+    targetOffset < 0 ||
+    targetOffset + BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES > target.length
+  ) {
+    return { ok: false, failure: 'record_truncated' };
+  }
+
+  const familyCode = FAMILY_CODES[reference.family] as number;
+  target.writeUInt32LE(reference.sourceFileOrdinal, targetOffset);
+  target.writeUIntLE(reference.byteOffset, targetOffset + 4, 6);
+  target.writeUInt32LE(reference.byteLength, targetOffset + 10);
+  target.writeUInt8(familyCode, targetOffset + 14);
+  // The reserved byte is written explicitly rather than left as whatever the reused buffer held:
+  // `Buffer.alloc` used to zero it for free, and a record whose 16th byte varies with history is
+  // not the fixed-width record this codec promises.
+  target.writeUInt8(0, targetOffset + 15);
+  return { ok: true };
+}
+
+/**
+ * Encodes one reference into a NEW `BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES`-byte buffer.
+ *
+ * Retained for callers that genuinely want their own record (tests, the 14B.0H profiler). The hot
+ * append path deliberately does NOT use this — see `encodeBrazilReceitaFullJoinRowReferenceInto`.
+ */
+export function encodeBrazilReceitaFullJoinRowReference(
+  reference: BrazilReceitaFullJoinRowReference,
+):
+  | { readonly ok: true; readonly record: Buffer }
+  | { readonly ok: false; readonly failure: BrazilReceitaFullJoinReferenceCodecFailure } {
   const record = Buffer.alloc(BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES);
-  record.writeUInt32LE(sourceFileOrdinal, 0);
-  record.writeUIntLE(byteOffset, 4, 6);
-  record.writeUInt32LE(byteLength, 10);
-  record.writeUInt8(familyCode, 14);
+  const written = encodeBrazilReceitaFullJoinRowReferenceInto(record, 0, reference);
+  if (!written.ok) return written;
   return { ok: true, record };
 }
 
@@ -716,6 +770,23 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
   const BUFFER_BYTES_PER_PARTITION = BRAZIL_RECEITA_FULL_JOIN_PARTITION_WRITE_BUFFER_BYTES;
   /** Insertion order doubles as LRU order, exactly like the handle pool's own `openHandles` map. */
   const writeBuffers = new Map<string, PendingPartitionBuffer>();
+  /**
+   * Flushed buffers, kept for reuse instead of being dropped as garbage (BR-SOURCE external-memory
+   * closure).
+   *
+   * A flush always removes its partition's map entry, so before this free list every flush retired
+   * an 8 KiB buffer and the very next append allocated an identical replacement. Over a reference
+   * pass that is one allocation per `BUFFER_BYTES_PER_PARTITION / RECORD_BYTES` references — tens of
+   * MiB of short-lived ArrayBuffers whose un-reclaimed remains land in `external`, which is the
+   * cap that ended attempt #2. The buffers are interchangeable (same fixed size, no identity, fully
+   * consumed by the synchronous write that precedes their release), so reuse is sound.
+   *
+   * Bounded by `MAX_BUFFERED_PARTITIONS`: the free list plus the live map can never together exceed
+   * the ceiling this workspace already enforces on itself, so recycling cannot become a leak.
+   */
+  const recycledBuffers: Buffer[] = [];
+  /** The reusable read-back buffer. Grown on demand, never shrunk. See `readPartitionSlice`. */
+  let sliceScratch: Buffer | null = null;
   let partitionWriteSyscalls = 0;
   let fullBufferFlushes = 0;
   let flushCount = 0;
@@ -761,6 +832,24 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
   });
 
   /**
+   * Drops `name`'s map entry and returns its buffer to the free list for the next partition that
+   * needs one. The ONLY way a flushed buffer leaves `writeBuffers`, so every release recycles.
+   */
+  function releaseBuffer(name: string): void {
+    const pending = writeBuffers.get(name);
+    if (pending === undefined) return;
+    writeBuffers.delete(name);
+    // Guarded so a recycled buffer of the wrong size could never be handed out, and so the free
+    // list cannot outgrow the ceiling the live map is already held to.
+    if (
+      pending.bytes.length === BUFFER_BYTES_PER_PARTITION &&
+      recycledBuffers.length < MAX_BUFFERED_PARTITIONS
+    ) {
+      recycledBuffers.push(pending.bytes);
+    }
+  }
+
+  /**
    * Acquires a (possibly freshly reopened) handle for `name` and writes its ENTIRE pending buffer
    * through it in one syscall, then drops the buffer's map entry. Used by every flush trigger: a full
    * buffer, an evicted buffer slot, a read, and dispose — one function, so "a flush is a flush" holds
@@ -770,7 +859,7 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
     const pending = writeBuffers.get(name);
     if (pending === undefined) return true;
     if (pending.length === 0) {
-      writeBuffers.delete(name);
+      releaseBuffer(name);
       return true;
     }
 
@@ -778,7 +867,7 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
     if (!acquired.ok) {
       flushFailures += 1;
       flushFailureLatched = true;
-      writeBuffers.delete(name);
+      releaseBuffer(name);
       return false;
     }
     const handle = acquired.handle;
@@ -792,13 +881,13 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
         if (mode !== BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE) {
           flushFailures += 1;
           flushFailureLatched = true;
-          writeBuffers.delete(name);
+          releaseBuffer(name);
           return false;
         }
       } catch {
         flushFailures += 1;
         flushFailureLatched = true;
-        writeBuffers.delete(name);
+        releaseBuffer(name);
         return false;
       }
       hardenedFiles.add(name);
@@ -815,13 +904,15 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
       // `flushFailureLatched` is what stops the run instead of continuing on an uncertain file.
       flushFailures += 1;
       flushFailureLatched = true;
-      writeBuffers.delete(name);
+      releaseBuffer(name);
       return false;
     }
     partitionWriteSyscalls += 1;
     flushCount += 1;
     if (attemptedLength === pending.bytes.length) fullBufferFlushes += 1;
-    writeBuffers.delete(name);
+    // Released only AFTER the synchronous write has returned, so no recycled buffer can ever be
+    // handed out while its bytes are still in flight.
+    releaseBuffer(name);
     if (bytes !== attemptedLength) {
       flushFailures += 1;
       flushFailureLatched = true;
@@ -849,8 +940,12 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
       const oldest = writeBuffers.keys().next();
       if (!oldest.done && !flushBufferThroughFreshHandle(oldest.value)) return null;
     }
+    // A recycled buffer before a new one. Its bytes are stale, which is harmless and always was:
+    // only `[0, length)` is ever read back, `length` starts at zero here, and every write into it
+    // goes through `encode...Into`, which fills all sixteen bytes of every record it writes.
+    const recycled = recycledBuffers.pop();
     const created: PendingPartitionBuffer = {
-      bytes: Buffer.alloc(BUFFER_BYTES_PER_PARTITION),
+      bytes: recycled ?? Buffer.alloc(BUFFER_BYTES_PER_PARTITION),
       length: 0,
     };
     writeBuffers.set(name, created);
@@ -868,8 +963,12 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
       const name = brazilReceitaFullJoinPartitionFileName(reference.family, partitionOrdinal);
       if (name === null) return { ok: false, failure: 'partition_name_invalid' };
 
-      const encoded = encodeBrazilReceitaFullJoinRowReference(reference);
-      if (!encoded.ok) return { ok: false, failure: 'reference_encoding_failed' };
+      // VALIDATED here, WRITTEN further down straight into the partition's pending buffer. The two
+      // halves are deliberately split so an unencodable reference is still refused before the
+      // storage cap, the free-disk reserve and the first-open are consulted — the same precedence
+      // the single `encode`-then-copy call used to give it, now without the throwaway allocation.
+      const validated = validateBrazilReceitaFullJoinRowReference(reference);
+      if (!validated.ok) return { ok: false, failure: 'reference_encoding_failed' };
 
       // The hard cap, checked on the PROJECTED total before a single byte is written. A partially
       // written record would leave a truncated file that no reader could interpret.
@@ -943,13 +1042,19 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
         // buffer for the SAME name is created and immediately re-touched to keep LRU order correct.
         const fresh = touchBuffer(name);
         if (fresh === null) return { ok: false, failure: 'partition_write_failed' };
-        encoded.record.copy(fresh.bytes, fresh.length);
+        const written = encodeBrazilReceitaFullJoinRowReferenceInto(fresh.bytes, fresh.length, reference);
+        if (!written.ok) return { ok: false, failure: 'reference_encoding_failed' };
         fresh.length += BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES;
       } else {
-        // Copied into the buffer rather than retained as `encoded.record` itself: reusing one scratch
-        // Buffer per encode call (a future micro-optimization) must not be able to corrupt an EARLIER
-        // reference still sitting unflushed in a partition's buffer.
-        encoded.record.copy(pending.bytes, pending.length);
+        // Written STRAIGHT into this partition's pending buffer: no intermediate record exists, so
+        // there is nothing to copy and nothing that could alias an EARLIER reference still sitting
+        // unflushed in the same buffer.
+        const written = encodeBrazilReceitaFullJoinRowReferenceInto(
+          pending.bytes,
+          pending.length,
+          reference,
+        );
+        if (!written.ok) return { ok: false, failure: 'reference_encoding_failed' };
         pending.length += BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES;
       }
 
@@ -999,8 +1104,20 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
 
       const wanted = Math.min(maxRecords, total - startRecordIndex);
       const sliceBytes = BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES * wanted;
-      // Allocated per slice and bounded by `maxRecords`, never by the partition's size.
-      const buffer = Buffer.alloc(sliceBytes);
+      // REUSED across slices, grown only when a slice needs more than the high-water mark, and
+      // bounded by `maxRecords` exactly as the per-slice allocation it replaces was — never by the
+      // partition's size (BR-SOURCE external-memory closure). The join stage reads every partition
+      // back in `REFERENCE_READ_BATCH`-sized slices, so allocating here meant one throwaway buffer
+      // per slice: measured at ~40 MiB of transient `external` bytes on a synthetic national-scale
+      // run, second only to the reader's own per-chunk garbage. Peak LIVE bytes are unchanged,
+      // because this buffer is never larger than the one a single call already allocated.
+      //
+      // Safe to reuse: every reference is decoded out of it into a plain object before this
+      // function returns, so no caller ever holds a view over it.
+      if (sliceScratch === null || sliceScratch.length < sliceBytes) {
+        sliceScratch = Buffer.alloc(sliceBytes);
+      }
+      const buffer = sliceScratch;
       const position = startRecordIndex * BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES;
       const references: BrazilReceitaFullJoinRowReference[] = [];
 
@@ -1074,6 +1191,12 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
       // `bytesWritten()`'s caller-visible history; cleanup still proceeds regardless, exactly like a
       // failing `port.close` below never blocks the ledger release that follows it.
       for (const name of [...writeBuffers.keys()]) flushBufferThroughFreshHandle(name);
+
+      // The flush above recycles every buffer it retires, so the free list is at its fullest right
+      // here. Dropped explicitly rather than left for whenever this closure dies, so the bytes are
+      // gone before cleanup and sanitization are measured against the same memory caps.
+      recycledBuffers.length = 0;
+      sliceScratch = null;
 
       // Every pooled descriptor — append and read alike — is closed and its ledger slot released
       // BEFORE any deletion is attempted. § 12 orders it this way for a reason: unlinking a file
