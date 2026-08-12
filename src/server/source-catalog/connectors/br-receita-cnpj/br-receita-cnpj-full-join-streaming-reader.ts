@@ -19,8 +19,9 @@
  * be bounded, provided the amount of memory it holds at any instant is capped and independent of the
  * file's length. So the caps here are all per-instant caps —
  *
- *   `maxChunkBytes`      the read buffer, allocated ONCE and reused for every chunk;
- *   `maxCarryBytes`      the partial row kept across a chunk boundary;
+ *   `maxChunkBytes`      the per-read span of the read buffer, allocated ONCE and reused;
+ *   `maxCarryBytes`      the partial row kept across a chunk boundary, held as that same
+ *                        buffer's prefix so joining it to the next chunk allocates nothing;
  *   `maxRowBytes`        one row's content;
  *   `maxColumnsPerRow`   one row's field count;
  *
@@ -344,7 +345,6 @@ export function readBrazilReceitaFullJoinFieldAt(
 
 const NEWLINE_BYTE = 0x0a;
 const CARRIAGE_RETURN_BYTE = 0x0d;
-const EMPTY_BUFFER = Buffer.alloc(0);
 
 function refuse(
   abortCode: BrazilReceitaFullJoinReaderAbortCode,
@@ -363,13 +363,17 @@ function refuse(
  *
  * The loop's shape is the whole point, so it is worth stating plainly:
  *
- *   1. The read buffer is allocated ONCE, before the loop, at `maxChunkBytes`. It is reused for
- *      every chunk, so buffer memory is constant in the file's length.
+ *   1. The read buffer is allocated ONCE, before the loop, at `maxCarryBytes + maxChunkBytes`. It
+ *      is reused for every chunk, so buffer memory is constant in the file's length AND constant in
+ *      the number of chunks — see point 3.
  *   2. EOF is `position >= declaredBytes`, taken from the size the port reported before opening. A
  *      read that returns nothing while bytes remain is `non_progressing_reader` — a hang caught as
  *      a terminal abort instead of a loop that never ends.
- *   3. A row split across a chunk boundary is preserved in `carry`, whose size is capped
- *      independently. `carry` holds a PARTIAL ROW, never a window over the file.
+ *   3. A row split across a chunk boundary is preserved as a PREFIX of that same buffer
+ *      (`window[0 .. carryLength)`), and the next chunk is read in directly behind it. Joining a
+ *      partial row to its continuation is therefore a `subarray` VIEW, not a concatenation, and
+ *      costs ZERO allocations per chunk. `carryLength` is capped independently and holds a PARTIAL
+ *      ROW, never a window over the file.
  *   4. The final row is flushed after the loop, because the official files' last row may have no
  *      trailing newline and dropping it would silently lose a record.
  *   5. The descriptor is closed in `finally`, on success and on every failure path.
@@ -457,12 +461,23 @@ export function readBrazilReceitaFullJoinFileSequentially(
     );
   }
 
-  // Allocated once, reused for every chunk. This single line is why memory is independent of file
-  // length.
-  const chunk = Buffer.allocUnsafe(caps.maxChunkBytes);
+  // Allocated once, reused for every chunk, and sized to hold a retained partial row AHEAD of the
+  // chunk that row will be joined to. This single line is why memory is independent of file length;
+  // the `carryLength` prefix protocol below is why it is also independent of the CHUNK COUNT.
+  //
+  // ROOT CAUSE this replaces (BR-SOURCE external-memory closure): the previous shape read into a
+  // `maxChunkBytes` buffer and rebuilt "carry + chunk" with `Buffer.concat` on every iteration
+  // whose predecessor left a partial row — which, at the official row widths, is very nearly EVERY
+  // iteration. Each of those concatenations allocated a fresh ~`maxChunkBytes` ArrayBuffer that
+  // became garbage immediately, so `process.memoryUsage().external` tracked the GC's lag rather
+  // than the reader's working set: a synthetic reproduction of attempt #2 measured 88 MiB of
+  // transient concat garbage against a ~12 MiB live set, and breached `maxExternalMemoryBytes`
+  // (64 MiB) with room to spare. Reading the chunk in BEHIND the carry makes the join a view.
+  const window = Buffer.allocUnsafe(caps.maxCarryBytes + caps.maxChunkBytes);
 
   let position = 0;
-  let carry: Buffer = EMPTY_BUFFER;
+  /** Bytes of a retained partial row, living at `window[0 .. carryLength)`. Capped independently. */
+  let carryLength = 0;
   let carryStartOffset = 0;
   let bytesRead = 0;
   let rowsRead = 0;
@@ -533,7 +548,16 @@ export function readBrazilReceitaFullJoinFileSequentially(
       const previousOffset = position;
       let chunkBytes: number;
       try {
-        chunkBytes = request.fileSystem.read(handle, chunk, 0, caps.maxChunkBytes, position);
+        // Read in BEHIND the retained partial row, never at offset zero: that is what keeps the
+        // two contiguous and makes the join below a view. `carryLength <= maxCarryBytes` is
+        // enforced at every assignment, so this can never run past the end of `window`.
+        chunkBytes = request.fileSystem.read(
+          handle,
+          window,
+          carryLength,
+          caps.maxChunkBytes,
+          position,
+        );
       } catch {
         failure = refuse(
           'file_read_failed',
@@ -588,12 +612,11 @@ export function readBrazilReceitaFullJoinFileSequentially(
         break;
       }
 
-      // `carry` + this chunk. Bounded by `maxCarryBytes + maxChunkBytes`, never by the file.
-      const combined =
-        carry.length === 0
-          ? chunk.subarray(0, chunkBytes)
-          : Buffer.concat([carry, chunk.subarray(0, chunkBytes)]);
-      const combinedStartOffset = carry.length === 0 ? position - chunkBytes : carryStartOffset;
+      // The retained partial row is already at the front of `window` and this chunk was just read
+      // in directly behind it, so "carry + chunk" is a VIEW over bytes already in place — no
+      // concatenation, no allocation. Bounded by `maxCarryBytes + maxChunkBytes`, never by the file.
+      const combined = window.subarray(0, carryLength + chunkBytes);
+      const combinedStartOffset = carryLength === 0 ? position - chunkBytes : carryStartOffset;
 
       let cursor = 0;
       while (cursor < combined.length) {
@@ -617,8 +640,8 @@ export function readBrazilReceitaFullJoinFileSequentially(
 
       // What remains is a PARTIAL ROW, kept for the next chunk. Its own cap is checked before it is
       // retained, so an unterminated 60 GB "row" fails here rather than growing the buffer.
-      const tail = combined.subarray(cursor);
-      if (tail.length > caps.maxCarryBytes) {
+      const tailLength = combined.length - cursor;
+      if (tailLength > caps.maxCarryBytes) {
         failure = refuse(
           'carry_bytes_cap_exceeded',
           BRAZIL_RECEITA_FULL_JOIN_READER_ABORT_DURING_READ,
@@ -628,20 +651,23 @@ export function readBrazilReceitaFullJoinFileSequentially(
         );
         break;
       }
-      // Copied, because `tail` may be a view over the reusable chunk buffer, which the next
-      // iteration overwrites.
-      carry = tail.length === 0 ? EMPTY_BUFFER : Buffer.from(tail);
+      // MOVED to the front of the same buffer rather than copied out into a new one: the next
+      // iteration reads its chunk in at `carryLength`, which puts the partial row and its
+      // continuation back-to-back without allocating. `copyWithin` is defined for overlapping
+      // ranges, which is exactly the case whenever `cursor < tailLength`.
+      if (tailLength > 0 && cursor > 0) window.copyWithin(0, cursor, cursor + tailLength);
+      carryLength = tailLength;
       carryStartOffset = combinedStartOffset + cursor;
-      peakCarryBytes = Math.max(peakCarryBytes, carry.length);
+      peakCarryBytes = Math.max(peakCarryBytes, carryLength);
     }
 
     // The last row of an official file may have no trailing newline. Flushing it here is the
     // difference between reading a file and reading all but its final record.
-    if (failure === null && !stoppedByVisitor && carry.length > 0) {
-      const outcome = emitRow(carry, carryStartOffset);
+    if (failure === null && !stoppedByVisitor && carryLength > 0) {
+      const outcome = emitRow(window.subarray(0, carryLength), carryStartOffset);
       if (outcome === 'stop') stoppedByVisitor = true;
       else if (outcome !== null) failure = outcome;
-      carry = EMPTY_BUFFER;
+      carryLength = 0;
     }
   } finally {
     try {
@@ -667,7 +693,7 @@ export function readBrazilReceitaFullJoinFileSequentially(
 
   return {
     ok: true,
-    reachedEndOfFile: !stoppedByVisitor && position >= declaredBytes && carry.length === 0,
+    reachedEndOfFile: !stoppedByVisitor && position >= declaredBytes && carryLength === 0,
     stoppedByVisitor,
     bytesRead,
     rowsRead,

@@ -167,8 +167,11 @@ describe('BR-SOURCE-14B.0D — the reader advances, and nothing materializes a f
       'the loop must assert that it advanced',
     );
     assert.ok(reader.includes("'non_progressing_reader'"), 'non-progression must be terminal');
+    // Sized from the CAPS and allocated once, never from the file's length and never per chunk.
+    // The carry prefix shares this one buffer (BR-SOURCE external-memory closure), which is why the
+    // cap expression is a sum rather than `maxChunkBytes` alone.
     assert.ok(
-      reader.includes('Buffer.allocUnsafe(caps.maxChunkBytes)'),
+      reader.includes('Buffer.allocUnsafe(caps.maxCarryBytes + caps.maxChunkBytes)'),
       'the read buffer must be allocated once, at the cap',
     );
   });
@@ -177,7 +180,12 @@ describe('BR-SOURCE-14B.0D — the reader advances, and nothing materializes a f
     const reader = codeOf('../br-receita-cnpj-full-join-streaming-reader');
     // 14B.0C's evidence for Model D was `readSync(fd, buffer, 0, n, 0)` — a literal zero position.
     // The engine's reader passes `position`, and that difference IS the model change.
-    assert.ok(reader.includes('caps.maxChunkBytes, position)'));
+    assert.ok(
+      /fileSystem\.read\(\s*handle,\s*window,\s*carryLength,\s*caps\.maxChunkBytes,\s*position,?\s*\)/.test(
+        reader,
+      ),
+      'the read must take its length from the cap and its offset from the advancing position',
+    );
     assert.ok(
       !/read\([^)]*,\s*0\s*\)\s*;/.test(reader),
       'no read may hard-code position zero',
