@@ -594,7 +594,7 @@ describe('Post-enrichment — el perfil comprado decide, no la industria pedida'
       RUN1_SALUD_REQUEST.subindustries,
     );
     assert.equal(precision.subindustryMatch, 'ambiguous');
-    assert.equal(paidDecision(result, { bootstrap: null ?? undefined }), 'sector_not_mapped');
+    assert.equal(paidDecision(result), 'sector_not_mapped');
   });
 });
 
