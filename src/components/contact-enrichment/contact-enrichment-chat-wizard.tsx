@@ -32,6 +32,11 @@ import type {
   ContactEnrichmentChatStep,
   ContactEnrichmentInitialCompany,
 } from './contact-enrichment-chat-types';
+import {
+  CONTACT_ENRICHMENT_COMPANY_SEARCH_UNEXPECTED_ERROR_COPY,
+  CONTACT_ENRICHMENT_REQUEST_UNEXPECTED_ERROR_COPY,
+  CONTACT_ENRICHMENT_SEARCH_CONTACTS_UNEXPECTED_ERROR_COPY,
+} from './contact-enrichment-chat-error-copy';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { SourceBadge, CompanyChip, RunResultSnapshot } from './contact-enrichment-chat-result';
 import type { ManualContactContext } from './contact-enrichment-chat-types';
@@ -133,7 +138,20 @@ export function ContactEnrichmentChatWizard({
     setComposerText('');
     dispatch({ type: 'SUBMIT_QUERY', query });
 
-    const result = await resolveContactEnrichmentCompanyAction(buildResolveInput(query));
+    // AGENT2A-PROD-INCIDENT: el `catch` es lo que garantiza que el paso de carga
+    // SIEMPRE se cierre. Sin él, una llamada que rechaza (invocación cortada,
+    // red caída, función matada por la plataforma tras esperar a HubSpot) dejaba
+    // el wizard en `resolving` para siempre: el spinner infinito del incidente.
+    let result: Awaited<ReturnType<typeof resolveContactEnrichmentCompanyAction>>;
+    try {
+      result = await resolveContactEnrichmentCompanyAction(buildResolveInput(query));
+    } catch {
+      dispatch({
+        type: 'RESOLVE_FAILED',
+        message: CONTACT_ENRICHMENT_COMPANY_SEARCH_UNEXPECTED_ERROR_COPY,
+      });
+      return;
+    }
     if (!result.success || !result.data) {
       dispatch({ type: 'RESOLVE_FAILED', message: result.error ?? 'Error buscando empresa' });
       return;
@@ -165,7 +183,18 @@ export function ContactEnrichmentChatWizard({
     if (!candidate) return;
     dispatch({ type: 'CONFIRM' });
 
-    const result = await createContactEnrichmentRequestAction(candidate);
+    // Mismo contrato que `handleSubmitCompany`: el paso de carga se cierra
+    // incluso si la llamada rechaza (AGENT2A-PROD-INCIDENT).
+    let result: Awaited<ReturnType<typeof createContactEnrichmentRequestAction>>;
+    try {
+      result = await createContactEnrichmentRequestAction(candidate);
+    } catch {
+      dispatch({
+        type: 'RUN_FAILED',
+        message: CONTACT_ENRICHMENT_REQUEST_UNEXPECTED_ERROR_COPY,
+      });
+      return;
+    }
 
     if (!result.success || !result.requestId) {
       dispatch({ type: 'RUN_FAILED', message: result.error ?? 'Error creando la request de enriquecimiento' });
@@ -192,7 +221,17 @@ export function ContactEnrichmentChatWizard({
     if (!requestId || state.step !== 'done') return;
     dispatch({ type: 'AUTOMATIC_ROUTING_START' });
 
-    const result = await runAutomaticContactEnrichmentForRequestAction(requestId);
+    // Mismo contrato que los otros dos pasos (AGENT2A-PROD-INCIDENT).
+    let result: Awaited<ReturnType<typeof runAutomaticContactEnrichmentForRequestAction>>;
+    try {
+      result = await runAutomaticContactEnrichmentForRequestAction(requestId);
+    } catch {
+      dispatch({
+        type: 'RUN_FAILED',
+        message: CONTACT_ENRICHMENT_SEARCH_CONTACTS_UNEXPECTED_ERROR_COPY,
+      });
+      return;
+    }
 
     if (!result.success) {
       dispatch({
