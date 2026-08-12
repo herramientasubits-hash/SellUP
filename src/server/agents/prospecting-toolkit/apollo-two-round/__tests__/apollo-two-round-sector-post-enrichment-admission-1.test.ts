@@ -462,6 +462,7 @@ describe('§ 20 · el pack de revisión manual dice POR QUÉ cruzó', () => {
           postEnrichmentSectorState: 'sector_not_mapped',
           blockReason: null,
         },
+        purchase: null,
         terminalDisposition: 'provisionally_persisted_pending_writer_final',
         terminalReason: null,
       } satisfies ApolloSectorEvidenceBootstrapCandidateAudit;
