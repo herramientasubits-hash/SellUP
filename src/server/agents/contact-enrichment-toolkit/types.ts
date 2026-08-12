@@ -42,8 +42,15 @@ export interface CompanyResolverDeps {
   searchSellUpByHubSpotId?: (hsId: string) => Promise<SellUpAccountMatch[]>;
   searchSellUpByDomain?: (domain: string) => Promise<SellUpAccountMatch[]>;
   searchSellUpByName?: (name: string) => Promise<SellUpAccountMatch[]>;
+  /**
+   * `null` ⇒ HubSpot no se pudo consultar (no conectado, sin token, error o
+   * techo de espera agotado). Es DISTINTO de `[]`, que significa «HubSpot
+   * contestó y no hay coincidencias»: el resolver solo declara
+   * `skippedHubSpot` con `null`, y de eso depende que la UI avise en vez de
+   * afirmar que la empresa no está en HubSpot (AGENT2A-PROD-INCIDENT).
+   */
   searchHubSpot?: (opts: {
     domain?: string;
     name?: string;
-  }) => Promise<HubSpotCompanyMatch[]>;
+  }) => Promise<HubSpotCompanyMatch[] | null>;
 }
