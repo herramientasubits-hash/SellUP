@@ -351,19 +351,24 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       .sort();
     assert.deepEqual(
       migrations,
-      ['114_official_contact_phones.sql', '115_official_contact_phone_privacy.sql'],
+      [
+        '114_official_contact_phones.sql',
+        '115_official_contact_phone_privacy.sql',
+        // 4O-H3: la aprobación ATÓMICA. Tampoco es DDL de 4O-E4: sólo una función.
+        '116_approve_candidate_with_official_phones.sql',
+      ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
   });
 
-  it('la migración 115 (4O-H2) es la última del repo', () => {
+  it('la migración 116 (4O-H3) es la última del repo', () => {
     // 4O-H2 mueve el techo de la 114 a la 115. Se sigue fijando un número EXACTO: una
     // migración por encima del último hito conocido tiene que romper esta guarda.
     const numbered = readdirSync(MIGRATIONS_DIR)
       .filter((f) => /^\d{3}_/.test(f) && f.endsWith('.sql'))
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 115);
+    assert.equal(numbered[numbered.length - 1], 116);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

@@ -1222,3 +1222,31 @@ jobs:
       # READ-ONLY del lote. Sin proveedores, sin red, sin DB, 0 créditos.
       - name: Run A1 Apollo sector evidence bootstrap tests
         run: npm run test:a1-apollo-sector-evidence-bootstrap
+
+      # ── AGENT2A-PHONE-REVEAL-4O-H3 — aprobación ATÓMICA ────────────
+      #
+      # Qué protege este paso: que aprobar un candidato siga siendo UNA transacción y siga
+      # llevándose la colección ENTERA de teléfonos. Falla si vuelve a aparecer una segunda
+      # autoridad de escritura junto a la RPC (el `contacts` INSERT suelto que este hito
+      # eliminó); si el candidato deja de terminalizarse dentro de la misma transacción; si la
+      # promoción deja de filtrar los tombstones de staging; si la clave de evento oficial pasa
+      # a llevar el id del candidato; si la 116 amplía un GRANT de la 114, aparece un DELETE o
+      # un `suppressed_at = NULL`; si se toca `mobile_phone`; o si la migración deja de ser
+      # retrocompatible con el runtime de la H2 —que es lo que hace seguro el despliegue
+      # SCHEMA-FIRST—.
+      #
+      # Determinista y offline: sólo lee archivos del disco y ejecuta la persistencia contra un
+      # driver simulado. Sin red, sin Supabase, sin proveedores, 0 créditos, y NO toca
+      # Producción ni aprueba ningún candidato real.
+      #
+      # ⚠️ La suite de PostgreSQL REAL queda FUERA de este check a propósito, igual que sus
+      # hermanas (4O-E2/E3/E4, 4O-F-R2, 4O-H1, 4O-H2): exige un binario que se descarga
+      # (`npm install --no-save embedded-postgres@17.6.0-beta.15`) y que `npm ci` del check
+      # obligatorio no necesita. Ahí se miden las garantías que sólo PostgreSQL puede demostrar
+      # — la transacción y su rollback completo, el lock del candidato, la carrera de dos
+      # conexiones con interleaving forzado, la supresión por persona re-comprobada bajo el
+      # lock, la propagación multi-número y cross-provider, y los privilegios de EXECUTE. Se
+      # corre con:
+      #   npm run test:agent2a:official-contact-phone-approval:postgres
+      - name: Run official contact approval tests
+        run: npm run test:agent2a:official-contact-phone-approval

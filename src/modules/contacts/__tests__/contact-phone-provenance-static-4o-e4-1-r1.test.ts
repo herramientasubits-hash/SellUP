@@ -245,13 +245,15 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
     const last = files[files.length - 1];
     assert.equal(
       last,
-      '115_official_contact_phone_privacy.sql',
-      'R1 es sin migración: el techo lo movió 4O-H2, no este hito',
+      // 4O-H3 movió el techo a la 116 (la APROBACIÓN atómica: una sola función
+      // transaccional, sin DDL). R1 sigue sin aportar ninguna.
+      '116_approve_candidate_with_official_phones.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2 y 4O-H3, no este hito',
     );
     assert.equal(
-      files.some((f) => /^1(1[6-9]|[2-9]\d)/.test(f)),
+      files.some((f) => /^1(1[7-9]|[2-9]\d)/.test(f)),
       false,
-      'ninguna migración 116 o superior',
+      'ninguna migración 117 o superior',
     );
   });
 

@@ -107,7 +107,7 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
     );
   });
 
-  it('el techo lo movieron 4O-E3 con la 113, 4O-H1 con la 114 y 4O-H2 con la 115, y nadie más', () => {
+  it('el techo lo movieron 4O-E3 (113), 4O-H1 (114), 4O-H2 (115) y 4O-H3 (116), y nadie más', () => {
     // Esta guarda NO fija el número más alto del directorio para siempre —sube cada
     // vez que un bloque AUTORIZADO añade la suya—, sino que por encima de la 112 solo
     // esté la que el hito siguiente declaró: AGENT2A-PHONE-REVEAL-4O-E3, que vuelve a
@@ -128,6 +128,9 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '113_phone_reveal_person_suppression_recheck.sql',
       '114_official_contact_phones.sql',
       '115_official_contact_phone_privacy.sql',
+      // 4O-H3: la aprobación ATÓMICA del candidato sobre el esquema oficial. Sólo una
+      // función transaccional; no toca la colección de staging que esta suite protege.
+      '116_approve_candidate_with_official_phones.sql',
     ]);
   });
 

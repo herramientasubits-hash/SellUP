@@ -413,7 +413,7 @@ describe('4O-G — alcance', () => {
 
   const MIGRATIONS_DIR = join(repoRoot, 'supabase/migrations');
 
-  it('4O-G no añade ninguna migración: el techo lo movió 4O-H2 con la 115', () => {
+  it('4O-G no añade ninguna migración: el techo lo movió 4O-H3 con la 116', () => {
     // 4O-B ya creó todo el esquema necesario. Si hiciera falta schema para
     // MOSTRAR teléfonos, el hito estaría mal planteado y esto es el HARD STOP.
     //
@@ -428,8 +428,10 @@ describe('4O-G — alcance', () => {
       .filter((file) => /^\d{3}_.*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 115);
-    assert.equal(numbered.length, 115);
+    // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
+    // candidato sobre el esquema oficial. 4O-G sigue sin aportar ni editar SQL.
+    assert.equal(numbered[numbered.length - 1], 116);
+    assert.equal(numbered.length, 116);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {
