@@ -116,6 +116,52 @@ export const SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING = [
 ] as const;
 
 /**
+ * PHASE 2C — subindustrias con política de PRECISIÓN en modo `full`.
+ *
+ * Son las DOS históricas, y coinciden con las de búsqueda por accidente de la
+ * historia, no por definición: `search_covered` y `precision_mapped` son
+ * propiedades INDEPENDIENTES (73/73 frente a 11/73). Se declara aparte de
+ * `SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING` justamente para que ampliar una no
+ * arrastre a la otra en silencio.
+ */
+export const SELLUP_SUBINDUSTRIES_WITH_PRECISION_FULL = [
+  'Supermercados e Hipermercados',
+  'Tiendas por Departamento, Moda y Calzado',
+] as const;
+
+/**
+ * PHASE 2C · Ola 1 — las NUEVE subindustrias con política de precisión en modo
+ * `confirm_only`, con el nombre canónico EXACTO del catálogo activo.
+ *
+ * Los nombres se leyeron de `active_industry_catalog` en Producción (sólo lectura) y
+ * NO son las abreviaturas del encargo: cinco de las nueve difieren. La identidad de
+ * precisión se resuelve por igualdad exacta desde PHASE 2A, así que una regla
+ * declarada como «Farmacias Cadena» o «Redes Hospitalarias» no resolvería nunca y
+ * sería código muerto.
+ *
+ * «Formación Corporativa y Corporate Training» NO está: § 21. Es la subindustria con
+ * más demanda observada sin mapear (13 búsquedas) y la decisión de dejarla fuera es
+ * de la dueña del producto.
+ */
+export const SELLUP_SUBINDUSTRIES_WITH_PRECISION_CONFIRM_ONLY = [
+  'Banca Tradicional',
+  'Ciberseguridad',
+  'Escuelas de Negocios y Formación Ejecutiva',
+  'Fabricantes de Alimentos y Bebidas (FMCG)',
+  'Farmacias Cadena y Retail de Salud',
+  'Laboratorios Clínicos y Diagnóstico',
+  'Medicina Prepagada y EPS',
+  'Redes Hospitalarias y Clínicas',
+  'Universidades e Institutos Privados',
+] as const;
+
+/** Las 11 subindustrias con política de precisión: 2 en `full` + 9 en `confirm_only`. */
+export const SELLUP_SUBINDUSTRIES_WITH_PRECISION_MAPPING = [
+  ...SELLUP_SUBINDUSTRIES_WITH_PRECISION_FULL,
+  ...SELLUP_SUBINDUSTRIES_WITH_PRECISION_CONFIRM_ONLY,
+] as const;
+
+/**
  * Nombres genéricos que NO son subindustrias del catálogo y que la contención
  * bidireccional anterior resolvía por error a «Supermercados e Hipermercados»:
  * `retail` cabía en el alias `grocery retail`, `alimentos` en `retail de alimentos`

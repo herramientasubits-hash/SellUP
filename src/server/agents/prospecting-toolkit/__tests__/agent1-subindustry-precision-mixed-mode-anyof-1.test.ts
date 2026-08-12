@@ -628,26 +628,31 @@ describe('§ 12–13 · el diagnóstico puede depender del orden; la economía n
 
 // ─── § 15 · producción intacta ────────────────────────────────────────────────
 
-describe('§ 15 · el registro de producción no se movió', () => {
-  test('exactamente 2 reglas, ambas `full`, cobertura 2 de 73', () => {
+describe('§ 15 · el registro de producción: 2 `full` intactas + 9 `confirm_only`', () => {
+  test('las 2 primeras reglas siguen siendo las `full`, en su orden histórico', () => {
     const production = listSubindustryPrecisionRuleSets();
-    assert.equal(production.length, 2);
+    assert.equal(production.length, 11);
+    // El ORDEN de las dos `full` no cambia: de él dependen los desempates de
+    // atribución del ANY-OF (§ 20). La Ola 1 se concatena DESPUÉS.
     assert.deepEqual(
-      production.map((ruleSet) => ruleSet.mode),
+      production.slice(0, 2).map((ruleSet) => ruleSet.mode),
       ['full', 'full'],
     );
+    assert.deepEqual(production.slice(2).map((ruleSet) => ruleSet.mode), Array(9).fill('confirm_only'));
   });
 
-  test('sin reglas inyectadas, la abstención no existe y nada cambia', () => {
-    // Con sólo reglas `full` en juego, `projectOneOperationalVerdict` no puede
-    // abstenerse nunca: el arreglo del § 7 es inalcanzable en producción, y por eso
-    // la paridad golden se mantiene byte a byte.
+  test('en `full` el operativo ≡ el diagnóstico, término por término', () => {
+    // Con una regla `full` en juego, `projectOneOperationalVerdict` no puede
+    // abstenerse nunca: las TRES ramas cruzan al plano operativo. Es el invariante
+    // que sostiene la paridad golden byte a byte de las dos reglas históricas.
     //
-    // Se recorren las TRES ramas de cada regla vigente. `rejected` se alcanza por
-    // modelo excluyente cuando la regla lo tiene, y por industria declarada
-    // contradictoria cuando no —«Tiendas por Departamento» no declara excluyentes—.
-    const production = listSubindustryPrecisionRuleSets();
-    assert.ok(production.length > 0);
+    // `rejected` se alcanza por modelo excluyente cuando la regla lo tiene, y por
+    // industria declarada contradictoria cuando no —«Tiendas por Departamento» no
+    // declara excluyentes—.
+    const production = listSubindustryPrecisionRuleSets().filter(
+      (ruleSet) => ruleSet.mode === 'full',
+    );
+    assert.equal(production.length, 2);
 
     for (const ruleSet of production) {
       const fixtures: [Verdict, Record<string, unknown>][] = [
