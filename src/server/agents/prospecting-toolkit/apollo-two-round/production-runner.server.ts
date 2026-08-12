@@ -79,7 +79,15 @@ import {
   readApolloSectorEvidenceBootstrapPreconditionsFromMetadata,
   toApolloSectorEvidenceBootstrapAuthorizationMetadata,
   type ApolloSectorEvidenceBootstrapAuthorization,
+  type ApolloSectorEvidenceBootstrapCandidateReason,
 } from '../apollo-sector-evidence-bootstrap';
+// § 17 — la traza durable de un candidato que pagó su enrichment y murió antes
+// del writer. Sin ella la corrida que existe para CALIBRAR pierde lo que compró.
+import {
+  APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_METADATA_KEY,
+  buildApolloSectorEvidenceBootstrapAudit,
+  toApolloSectorEvidenceBootstrapAuditMetadata,
+} from '../apollo-sector-evidence-bootstrap-audit';
 import {
   evaluateApolloFreeSectorContradictionAnyOf,
   resolveAllApolloSubindustrySearchMappings,
@@ -865,7 +873,10 @@ export async function runApolloTwoRoundWizardDiscovery(
    * registro, una auditoría posterior no podría responder «este candidato se
    * enriqueció porque la búsqueda no traía clasificación».
    */
-  const bootstrapEligibleReasonByKey = new Map<string, string>();
+  const bootstrapEligibleReasonByKey = new Map<
+    string,
+    ApolloSectorEvidenceBootstrapCandidateReason
+  >();
 
   /**
    * § 2 — el prefetch de admisión, UNA sola vez por corrida y de forma perezosa.
@@ -2005,23 +2016,34 @@ export async function runApolloTwoRoundWizardDiscovery(
       bootstrapSelectionRankByKey.set(selection.candidateKey, index + 1);
     }
   });
-  const bootstrapCandidates = [...bootstrapEligibleReasonByKey.entries()].map(([key, reason]) => ({
-    candidate_key: key,
-    bootstrap_reason: reason,
-    selected_for_enrichment: bootstrapSelectionRankByKey.has(key),
-    selection_rank: bootstrapSelectionRankByKey.get(key) ?? null,
-    post_enrichment_sector_state: sectorEvidenceStateByKey.get(key) ?? null,
-  }));
+  // La disposición terminal se recalcula aquí en vez de recibirse: la proyección
+  // es PURA sobre `runResult` y `buildObservabilityMetadata` la vuelve a hacer con
+  // la misma entrada, así que las dos no pueden discrepar. Pasarla por parámetro
+  // sólo añadiría un acoplamiento entre dos proyecciones independientes.
+  const bootstrapAudit = buildApolloSectorEvidenceBootstrapAudit({
+    bootstrapEligibleReasonByKey,
+    selectionRankByKey: bootstrapSelectionRankByKey,
+    enrichmentStatusByKey,
+    evidenceByKey,
+    precisionByKey: subindustryPrecisionByKey,
+    sectorEvidenceStateByKey,
+    finalDispositions: evaluateApolloCandidateFinalDispositions(runResult),
+  });
   const bootstrapObservability = {
-    apollo_sector_evidence_bootstrap: {
+    [APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_METADATA_KEY]: {
       ...toApolloSectorEvidenceBootstrapAuthorizationMetadata(
         sectorEvidenceBootstrapAuthorization(),
       ),
-      bootstrap_eligible_count: bootstrapCandidates.length,
-      bootstrap_selected_for_enrichment_count: bootstrapCandidates.filter(
-        (candidate) => candidate.selected_for_enrichment,
+      bootstrap_eligible_count: bootstrapAudit.length,
+      bootstrap_selected_for_enrichment_count: bootstrapAudit.filter(
+        (candidate) => candidate.selectedForEnrichment,
       ).length,
-      candidates: bootstrapCandidates,
+      // Distinto de «seleccionado»: un cupo puede gastarse y volver `no_match` o
+      // quedar indeterminado. Para calibrar Wave 1 sólo cuenta lo que se ejecutó.
+      bootstrap_enrichment_executed_count: bootstrapAudit.filter(
+        (candidate) => candidate.enrichmentExecuted,
+      ).length,
+      candidates: toApolloSectorEvidenceBootstrapAuditMetadata(bootstrapAudit),
     },
   };
 

@@ -1208,6 +1208,16 @@ jobs:
       #   * los topes: <=5 enrichments, selección determinística e invariante al
       #     orden de entrada.
       #
+      # § 17 — y, atravesando el runner de producción REAL, que lo que ese crédito
+      # COMPRA sobreviva al rechazo anterior al writer. La corrida existe para
+      # calibrar Wave 1, y el candidato que la calibra muere pre-writer por
+      # construcción: la reevaluación posterior corre sin autorización, vuelve a
+      # `sector_not_mapped` y no llega a `prospect_candidates`. Se prueba que con
+      # CERO filas de candidato el lote conserve, por candidato enriquecido, la
+      # clasificación comprada, las evaluaciones de precisión por subindustria
+      # pedida con su evidencia `término@campo(fuente)`, el estado sectorial
+      # posterior y una única disposición terminal con motivo.
+      #
       # Determinista y offline: el fixture son los 20 snapshots reales exportados
       # READ-ONLY del lote. Sin proveedores, sin red, sin DB, 0 créditos.
       - name: Run A1 Apollo sector evidence bootstrap tests
