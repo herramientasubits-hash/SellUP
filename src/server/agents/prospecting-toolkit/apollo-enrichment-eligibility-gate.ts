@@ -26,6 +26,7 @@ import {
   evaluateApolloSectorRelevanceForPaidOperationAnyOf,
   type ApolloPaidSectorRelevanceDecision,
 } from './apollo-sector-relevance-gate';
+import type { ApolloSectorEvidenceBootstrapAuthorization } from './apollo-sector-evidence-bootstrap';
 
 // ─── Skip reasons ─────────────────────────────────────────────────────────────
 
@@ -266,6 +267,15 @@ export type ApolloEnrichmentEligibilityContext = {
    */
   subindustries?: readonly (string | null | undefined)[] | null;
   /**
+   * SECTOR-EVIDENCE-BOOTSTRAP-1 — whether this run may spend to ACQUIRE the
+   * classification evidence the search never returned, for a sector with no
+   * signal policy.
+   *
+   * Absent ⇒ not authorised, so an unmapped sector stays `sector_not_mapped` and
+   * every existing caller keeps its exact decisions.
+   */
+  sectorEvidenceBootstrap?: ApolloSectorEvidenceBootstrapAuthorization | null;
+  /**
    * Domains under cooldown, lowercase and `www.`-stripped.
    *
    * Keyed by the FULL domain, not the registrable one: Apollo's enrichment is
@@ -291,10 +301,16 @@ export type ApolloEnrichmentEligibility =
       registrableDomain: string;
       /** How the domain was obtained. Drives the ownership policy. */
       domainSource: 'asserted' | 'inferred';
-      /** Either a positive match or "the provider said nothing about sector". */
+      /**
+       * A positive match, "the provider said nothing about sector", or — under
+       * SECTOR-EVIDENCE-BOOTSTRAP-1 — "there is no policy for this sector and the
+       * provider said nothing either, and this run may pay to find out".
+       */
       sectorDecision: Extract<
         ApolloPaidSectorRelevanceDecision,
-        'relevant' | 'sector_evidence_missing_needs_enrichment'
+        | 'relevant'
+        | 'sector_evidence_missing_needs_enrichment'
+        | 'sector_evidence_missing_bootstrap_eligible'
       >;
       matchedSectorTerms: string[];
       /** Non-blocking observations recorded for later review. */
@@ -531,10 +547,14 @@ export function evaluateApolloEnrichmentEligibility(
   //                                    passthrough — a structured reason.
   // ADDENDUM § 2 — ANY-OF sobre TODAS las subindustrias pedidas. Un candidato
   // plausible para la segunda ya no lo rechaza el veredicto de la primera.
+  // SECTOR-EVIDENCE-BOOTSTRAP-1 — la autorización de la corrida viaja al veredicto:
+  // es lo único que puede convertir «no hay política» en «se puede preguntar», y
+  // sólo cuando el proveedor no declaró NADA que juzgar.
   const sectorRelevance = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
     result,
     context.sector,
     context.subindustries ?? null,
+    { sectorEvidenceBootstrap: context.sectorEvidenceBootstrap ?? null },
   );
   if (
     sectorRelevance.decision === 'sector_not_mapped' ||
