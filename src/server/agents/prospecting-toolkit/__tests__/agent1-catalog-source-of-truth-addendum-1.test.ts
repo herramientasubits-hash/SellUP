@@ -755,22 +755,28 @@ describe('§ 7 · discovery 73/73, precisión 2/73', () => {
   });
 
   test('cubierta por catálogo NO significa mapeada para precisión', () => {
+    // PHASE 2C — el ejemplo ya no puede ser «Ciberseguridad»: la Ola 1 le dio regla
+    // de precisión. La propiedad que este test fija —`search_covered` y
+    // `precision_mapped` son INDEPENDIENTES— sigue siendo cierta y sigue importando:
+    // 73/73 tienen términos de búsqueda y sólo 11/73 tienen precisión. Se usa
+    // «Formación Corporativa», que el § 21 mantiene deliberadamente sin mapeo.
+    const PRECISION_UNMAPPED = 'Formación Corporativa y Corporate Training';
     const coverage = resolveApolloSubindustrySearchCoverage({
-      requestedSubindustries: [CYBERSECURITY],
+      requestedSubindustries: [PRECISION_UNMAPPED],
       catalogSearchTerms: PUBLISHED_LOOKUP,
     });
     assert.equal(coverage.entries[0].covered, true);
-    assert.equal(resolveApolloSubindustrySearchMapping(CYBERSECURITY), null);
+    assert.equal(resolveApolloSubindustrySearchMapping(PRECISION_UNMAPPED), null);
 
     const precision = assessApolloSubindustryPrecisionForRequest(
       {
         title: 'Empresa Cualquiera',
         url: 'https://ejemplo.com',
-        snippet: 'ciberseguridad empresas',
+        snippet: 'formacion corporativa empresas',
         rank: 1,
         provider: 'apollo_organizations',
       } as WebSearchResult,
-      [CYBERSECURITY],
+      [PRECISION_UNMAPPED],
     );
     assert.equal(precision.subindustryMapped, false);
     assert.notEqual(precision.subindustryMatch, 'confirmed');

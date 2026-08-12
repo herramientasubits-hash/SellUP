@@ -48,6 +48,9 @@ import { foldSubindustryPrecisionIntoSectorState } from '../apollo-two-round/pro
 import {
   SELLUP_ACTIVE_SUBINDUSTRY_NAMES,
   SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING,
+  SELLUP_SUBINDUSTRIES_WITH_PRECISION_CONFIRM_ONLY,
+  SELLUP_SUBINDUSTRIES_WITH_PRECISION_FULL,
+  SELLUP_SUBINDUSTRIES_WITH_PRECISION_MAPPING,
 } from './fixtures/sellup-subindustry-catalog-names';
 import { SELLUP_ACTIVE_SUBINDUSTRY_ALIASES } from './fixtures/sellup-subindustry-catalog-aliases';
 import type { WebSearchResult } from '../types';
@@ -70,13 +73,13 @@ const blank = (): WebSearchResult => result('Empresa Neutra', {});
 
 // ─── § 3, § 4 · el contrato y el registro ─────────────────────────────────────
 
-describe('§ 3–4 · el registro tipado declara EXACTAMENTE las dos reglas de siempre', () => {
-  test('dos entradas, con los nombres canónicos del catálogo activo', () => {
+describe('§ 3–4 · el registro tipado declara las 2 reglas `full` y las 9 de la Ola 1', () => {
+  test('once entradas, con los nombres canónicos del catálogo activo', () => {
     const ruleSets = listSubindustryPrecisionRuleSets();
-    assert.equal(ruleSets.length, 2);
+    assert.equal(ruleSets.length, 11);
     assert.deepEqual(
       ruleSets.map((ruleSet) => ruleSet.canonicalName).sort(),
-      [...SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING].sort(),
+      [...SELLUP_SUBINDUSTRIES_WITH_PRECISION_MAPPING].sort(),
     );
   });
 
@@ -115,9 +118,18 @@ describe('§ 3–4 · el registro tipado declara EXACTAMENTE las dos reglas de s
     );
   });
 
-  test('los dos modos vigentes son `full`: el port no cambió la potestad de ninguna regla', () => {
-    for (const ruleSet of listSubindustryPrecisionRuleSets()) {
-      assert.equal(ruleSet.mode, 'full', `${ruleSet.canonicalName} debe seguir en modo full`);
+  test('§ 25 · las 2 históricas siguen en `full` y las 9 de la Ola 1 son TODAS `confirm_only`', () => {
+    const byName = new Map(
+      listSubindustryPrecisionRuleSets().map((ruleSet) => [ruleSet.canonicalName, ruleSet.mode]),
+    );
+    for (const name of SELLUP_SUBINDUSTRIES_WITH_PRECISION_FULL) {
+      assert.equal(byName.get(name), 'full', `${name} debe seguir en modo full`);
+    }
+    // § 25 — ninguna regla de la Ola 1 se promociona a `full` en este PR, por
+    // perfectas que estén sus pruebas: la promoción exige evidencia de calibración
+    // live que esta fase no produce.
+    for (const name of SELLUP_SUBINDUSTRIES_WITH_PRECISION_CONFIRM_ONLY) {
+      assert.equal(byName.get(name), 'confirm_only', `${name} debe ser confirm_only`);
     }
   });
 
@@ -286,35 +298,47 @@ describe('§ 7 · identidad por igualdad exacta: sin substring, sin fuzzy, sin p
 
 // ─── § 12 · ratchet de cobertura ──────────────────────────────────────────────
 
-describe('§ 12 · la cobertura de precisión sigue siendo 2 de 73', () => {
-  test('el conteo de reglas es EXACTAMENTE 2', () => {
-    assert.equal(listSubindustryPrecisionRuleSets().length, 2);
-    assert.equal(SUBINDUSTRY_PRECISION_RULE_SETS.length, 2);
+describe('§ 21 · la cobertura de precisión es 11 de 73', () => {
+  test('el conteo de reglas es EXACTAMENTE 11', () => {
+    assert.equal(listSubindustryPrecisionRuleSets().length, 11);
+    assert.equal(SUBINDUSTRY_PRECISION_RULE_SETS.length, 11);
   });
 
-  test('los nombres canónicos son EXACTAMENTE esos dos, nombrados aquí uno a uno', () => {
+  test('los nombres canónicos son EXACTAMENTE esos once, nombrados aquí uno a uno', () => {
     assert.deepEqual(
       listSubindustryPrecisionRuleSets()
         .map((ruleSet) => ruleSet.canonicalName)
         .sort(),
-      ['Supermercados e Hipermercados', 'Tiendas por Departamento, Moda y Calzado'],
+      [
+        'Banca Tradicional',
+        'Ciberseguridad',
+        'Escuelas de Negocios y Formación Ejecutiva',
+        'Fabricantes de Alimentos y Bebidas (FMCG)',
+        'Farmacias Cadena y Retail de Salud',
+        'Laboratorios Clínicos y Diagnóstico',
+        'Medicina Prepagada y EPS',
+        'Redes Hospitalarias y Clínicas',
+        'Supermercados e Hipermercados',
+        'Tiendas por Departamento, Moda y Calzado',
+        'Universidades e Institutos Privados',
+      ],
     );
   });
 
-  test('de las 73 subindustrias del catálogo activo, exactamente 2 tienen precisión', () => {
+  test('de las 73 subindustrias del catálogo activo, exactamente 11 tienen precisión', () => {
     assert.equal(SELLUP_ACTIVE_SUBINDUSTRY_NAMES.length, 73);
     const mapped = SELLUP_ACTIVE_SUBINDUSTRY_NAMES.filter(
       (name) => assessApolloSubindustryPrecision(blank(), name).subindustryMapped,
     );
-    assert.equal(mapped.length, 2, `cobertura inesperada: ${JSON.stringify(mapped)}`);
-    assert.deepEqual([...mapped].sort(), [...SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING].sort());
+    assert.equal(mapped.length, 11, `cobertura inesperada: ${JSON.stringify(mapped)}`);
+    assert.deepEqual([...mapped].sort(), [...SELLUP_SUBINDUSTRIES_WITH_PRECISION_MAPPING].sort());
   });
 
-  test('las 71 restantes siguen sin mapeo y ninguna confirma a nadie', () => {
+  test('las 62 restantes siguen sin mapeo y ninguna confirma a nadie', () => {
     const unmapped = SELLUP_ACTIVE_SUBINDUSTRY_NAMES.filter(
       (name) => !assessApolloSubindustryPrecision(blank(), name).subindustryMapped,
     );
-    assert.equal(unmapped.length, 71);
+    assert.equal(unmapped.length, 62);
     for (const name of unmapped) {
       const assessment = assessApolloSubindustryPrecision(
         result('Cadena Norte', { industry: 'retail', keywords: ['hipermercados', 'shoe store'] }),
@@ -714,13 +738,11 @@ const REJECTED_BIKE = (): ApolloSubindustryPrecisionAssessment =>
     keywords: ['bicycle manufacturing'],
   });
 
-describe('§ 9 · `confirm_only` está implementado y NINGUNA regla de producción lo usa', () => {
-  test('el registro de producción no contiene ninguna regla `confirm_only`', () => {
-    assert.equal(
-      listSubindustryPrecisionRuleSets().filter((ruleSet) => ruleSet.mode === 'confirm_only')
-        .length,
-      0,
-    );
+describe('§ 9 · `confirm_only` está implementado y lo usan las NUEVE reglas de la Ola 1', () => {
+  test('el registro de producción contiene exactamente 9 reglas `confirm_only` y 2 `full`', () => {
+    const modes = listSubindustryPrecisionRuleSets().map((ruleSet) => ruleSet.mode);
+    assert.equal(modes.filter((mode) => mode === 'confirm_only').length, 9);
+    assert.equal(modes.filter((mode) => mode === 'full').length, 2);
   });
 
   test('la regla sintética NO está registrada en producción', () => {
