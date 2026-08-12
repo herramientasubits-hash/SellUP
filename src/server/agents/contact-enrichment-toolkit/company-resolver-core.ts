@@ -108,13 +108,47 @@ async function defaultSearchByName(name: string): Promise<SellUpAccountMatch[]> 
   return data ?? [];
 }
 
-async function defaultSearchHubSpot(opts: { domain?: string; name?: string }): Promise<HubSpotCompanyMatch[]> {
-  const result = await searchHubSpotCompaniesForResolver({
-    domain: opts.domain,
-    name: opts.name,
-  });
-  if (result.skipped || result.error) return [];
+/**
+ * AGENT2A-PROD-INCIDENT — «no se pudo consultar» deja de confundirse con «no hay
+ * coincidencias».
+ *
+ * Antes devolvía `[]` en los dos casos, así que la rama `hsMatches === null` que
+ * enciende `skippedHubSpot` era inalcanzable y una caída de HubSpot se le
+ * presentaba a la operadora como que la empresa no existe en HubSpot. Ahora
+ * `null` marca el no-resultado y el aviso que la UI ya tenía escrito vuelve a
+ * salir. `[]` sigue reservado para una respuesta real sin coincidencias.
+ */
+/**
+ * AGENT2A-PROD-INCIDENT — «no se pudo consultar» deja de confundirse con «no hay
+ * coincidencias».
+ *
+ * `null` ⇒ HubSpot no se pudo consultar (no conectado, sin token, error o techo
+ * de espera vencido). `[]` ⇒ HubSpot contestó y no hay coincidencias.
+ *
+ * Antes esto devolvía `[]` en los dos casos, así que la rama que enciende
+ * `skippedHubSpot` era inalcanzable y una caída de HubSpot se le presentaba a la
+ * operadora como que la empresa no existe en HubSpot. Con `null`, el aviso que la
+ * UI ya tenía escrito vuelve a salir.
+ */
+export function mapHubSpotSearchResultToMatches(result: {
+  companies: HubSpotCompanyMatch[];
+  skipped: boolean;
+  error?: string;
+}): HubSpotCompanyMatch[] | null {
+  if (result.skipped || result.error) return null;
   return result.companies;
+}
+
+async function defaultSearchHubSpot(opts: {
+  domain?: string;
+  name?: string;
+}): Promise<HubSpotCompanyMatch[] | null> {
+  return mapHubSpotSearchResultToMatches(
+    await searchHubSpotCompaniesForResolver({
+      domain: opts.domain,
+      name: opts.name,
+    }),
+  );
 }
 
 // ── Helpers de conversión ────────────────────────────────────

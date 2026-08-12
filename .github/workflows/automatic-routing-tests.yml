@@ -1280,3 +1280,28 @@ jobs:
       #   npm run test:agent2a:official-contact-phone-approval:postgres
       - name: Run official contact approval tests
         run: npm run test:agent2a:official-contact-phone-approval
+
+      # AGENT2A-PROD-INCIDENT — regresiones del incidente P0 de Producción en la
+      # lectura del detalle de candidato y en la búsqueda de empresa.
+      #
+      # Qué protege este paso:
+      #
+      #   · Incidente B (spinner infinito). Falla si la petición de búsqueda de empresas a
+      #     HubSpot vuelve a salir SIN techo de espera —era el único `fetch` del flujo sin
+      #     `AbortSignal`, y sin él un HubSpot que no responde deja el server action esperando
+      #     hasta que la plataforma corta la invocación—, y falla si el wizard vuelve a hacer
+      #     `await` de un server action sin `catch`: cuando la llamada RECHAZA en vez de
+      #     devolver, el paso de carga se quedaba puesto para siempre.
+      #   · Que «HubSpot no se pudo consultar» no vuelva a confundirse con «HubSpot contestó
+      #     que no hay coincidencias»: el adaptador devolvía `[]` para ambos, así que el aviso
+      #     que la UI ya tenía escrito era inalcanzable y una caída se presentaba como que la
+      #     empresa no está en HubSpot.
+      #   · Incidente A (detalle de candidato). Falla si «este candidato ya salió de revisión»
+      #     y «la lectura falló» vuelven a colapsar en un único estado con el mismo copy, y si
+      #     el fallo de lectura vuelve a perderse en un `catch {}` vacío —que es lo que hizo
+      #     que la causa raíz no se pudiera diagnosticar desde Producción—.
+      #
+      # Determinista y offline: jsdom + dobles de los server actions y de `fetch`. Sin red, sin
+      # Supabase, sin HubSpot, sin Apollo, sin Lusha, 0 créditos, 0 escrituras y 0 PII.
+      - name: Run prod incident contact read/search regression tests
+        run: npm run test:agent2a:prod-incident-contact-read-search
