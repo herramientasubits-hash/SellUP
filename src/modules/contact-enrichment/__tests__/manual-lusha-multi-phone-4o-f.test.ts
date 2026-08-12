@@ -1073,12 +1073,16 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
-  it('4O-F no añade migración: el techo lo movió 4O-H1 con la 114', () => {
+  it('4O-F no añade migración: el techo lo movió 4O-H2 con la 115', () => {
+    // AGENT2A-PHONE-REVEAL-4O-H2 mueve el techo de la 114 a la 115 (la privacidad del
+    // esquema oficial: contadores de auditoría + `suppress_official_contact_phone_sources`).
+    // 4O-F sigue sin aportar SQL —reutiliza la 111— y eso es lo que esta guarda afirma; el
+    // número exacto se mantiene fijado para que nadie cuele una migración inadvertida.
     const numbered = readdirSync(join(repoRoot, 'supabase/migrations'))
       .filter((file) => /^\d{3}_.*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 114, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    assert.equal(numbered[numbered.length - 1], 115, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   it('la aprobación del candidato sigue siendo ESCALAR', () => {
