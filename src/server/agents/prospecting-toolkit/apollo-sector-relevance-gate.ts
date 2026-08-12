@@ -859,6 +859,19 @@ export type ApolloPaidSectorRelevanceResult = {
    * de sector. Ausente cuando la pregunta no llegó a plantearse porque sí la había.
    */
   bootstrap?: ApolloSectorEvidenceBootstrapCandidateDecision | null;
+  /**
+   * POST-ENRICHMENT-ADMISSION-1 — ¿existía una política legacy (`SECTOR_SIGNAL_TERMS`)
+   * con la que juzgar a este candidato?
+   *
+   * Hasta este hito la ausencia de política sólo era observable por implicación
+   * —`sector_not_mapped` se devuelve ÚNICAMENTE desde la rama sin política—, y la
+   * precedencia de admisión del § 9 no puede depender de una implicación: si mañana
+   * otro camino produjera ese mismo veredicto, la vía nueva se activaría donde la
+   * legacy sí tenía algo que decir. Aquí es un hecho declarado.
+   *
+   * No cambia ninguna decisión: es puramente informativo para el consumidor.
+   */
+  sectorPolicyPresent: boolean;
 };
 
 /** Opciones de evaluación. Ausentes ⇒ comportamiento idéntico al previo al hito. */
@@ -1094,6 +1107,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
       subindustrySignalUsed,
       sectorEvidenceFields,
       bootstrap,
+      sectorPolicyPresent: false,
     };
   }
 
@@ -1101,7 +1115,13 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
   const matchedTerms = findMatchedTerms(text, entry.signals);
 
   if (matchedTerms.length > 0) {
-    return { decision: 'relevant', matchedTerms, subindustrySignalUsed, sectorEvidenceFields };
+    return {
+      decision: 'relevant',
+      matchedTerms,
+      subindustrySignalUsed,
+      sectorEvidenceFields,
+      sectorPolicyPresent: true,
+    };
   }
 
   // A1-APOLLO-TWO-ROUND-QUALITY-1 § 5 — sin señales específicas, la INDUSTRIA
@@ -1125,6 +1145,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
       matchedTerms: [],
       subindustrySignalUsed,
       sectorEvidenceFields,
+      sectorPolicyPresent: true,
     };
   }
   if (industryClass === 'broad_compatible') {
@@ -1133,6 +1154,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
       matchedTerms: [],
       subindustrySignalUsed,
       sectorEvidenceFields,
+      sectorPolicyPresent: true,
     };
   }
 
@@ -1144,6 +1166,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
     matchedTerms: [],
     subindustrySignalUsed,
     sectorEvidenceFields,
+    sectorPolicyPresent: true,
   };
 }
 
@@ -1263,6 +1286,13 @@ export function evaluateApolloSectorRelevanceForPaidOperationAnyOf(
 
   return {
     ...winner.assessment,
+    // POST-ENRICHMENT-ADMISSION-1 — la presencia de política legacy es del ANY-OF
+    // entero, no del ganador. `entry` se resuelve por etiqueta
+    // (`subindustryEntry ?? sectorEntry`), así que con un sector sin política y dos
+    // subindustrias de las que sólo una tiene señales propias, el ganador puede ser
+    // la que NO las tiene. Reportar entonces «sin política» abriría la vía nueva
+    // sobre una petición donde la legacy sí tenía algo que decir. OR = conservador.
+    sectorPolicyPresent: evaluated.some(({ assessment }) => assessment.sectorPolicyPresent),
     requestedSubindustries: requested,
     matchedRequestedSubindustry: winner.label,
     perRequestedSubindustryDecisions: evaluated.map(({ label, assessment }) => ({

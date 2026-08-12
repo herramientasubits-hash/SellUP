@@ -70,6 +70,13 @@ import {
   evaluateApolloSectorRelevanceForPaidOperationAnyOf,
   type ApolloPaidSectorRelevanceDecision,
 } from '../apollo-sector-relevance-gate';
+// POST-ENRICHMENT-ADMISSION-1 — una subindustria PEDIDA y confirmada tras el
+// enrichment satisface la admisión sectorial cuando no hay política legacy para el
+// sector padre. Genérica: no mira el nombre del sector.
+import {
+  resolveApolloSectorPostEnrichmentAdmission,
+  type ApolloSectorPostEnrichmentAdmissionResult,
+} from '../apollo-sector-post-enrichment-admission';
 // SECTOR-EVIDENCE-BOOTSTRAP-1 — autorización para ADQUIRIR la clasificación que
 // `mixed_companies/search` no devuelve. No confirma nada: sólo permite preguntar.
 import {
@@ -877,6 +884,16 @@ export async function runApolloTwoRoundWizardDiscovery(
     string,
     ApolloSectorEvidenceBootstrapCandidateReason
   >();
+  /**
+   * POST-ENRICHMENT-ADMISSION-1 § 20 — cómo cruzó cada candidato el gate sectorial.
+   *
+   * Aparte de `sectorEvidenceStateByKey` por la misma razón que
+   * `bootstrapEligibleReasonByKey`: ese mapa guarda el estado RESULTANTE, y desde
+   * `sector_evidence_confirmed` no se puede saber si lo confirmó la política legacy
+   * o una hija pedida. La auditoría necesita responder «este candidato cruzó porque
+   * EPS, que se pidió, quedó confirmada tras el enrichment».
+   */
+  const sectorAdmissionByKey = new Map<string, ApolloSectorPostEnrichmentAdmissionResult>();
 
   /**
    * § 2 — el prefetch de admisión, UNA sola vez por corrida y de forma perezosa.
@@ -1693,10 +1710,31 @@ export async function runApolloTwoRoundWizardDiscovery(
       );
       subindustryPrecisionByKey.set(candidateKey, enrichedPrecision);
       enrichmentUsageKeyByCandidate.set(candidateKey, usageKey);
-      const sectorEvidenceState = foldSubindustryPrecisionIntoSectorState(
+      const foldedSectorEvidenceState = foldSubindustryPrecisionIntoSectorState(
         toSectorEvidenceState(sector.decision),
         enrichedPrecision,
       );
+      // POST-ENRICHMENT-ADMISSION-1 — el hueco que quedaba abierto tras #274: el
+      // crédito compra la clasificación, la precisión CONFIRMA la subindustria que
+      // el usuario pidió, y el sector vuelve a `sector_not_mapped` porque no hay
+      // política legacy para el padre. Eso es un rechazo terminal por una política
+      // AUSENTE, no por evidencia en contra.
+      //
+      // Sólo actúa en ese hueco: con política legacy presente el veredicto de
+      // siempre manda, y un estado ya medido —confirmado, contradicho, pendiente—
+      // sale intacto. El pliegue de arriba conserva su invariante de sólo degradar.
+      const sectorAdmission = resolveApolloSectorPostEnrichmentAdmission({
+        postEnrichmentSectorState: foldedSectorEvidenceState,
+        legacySectorPolicyPresent: sector.sectorPolicyPresent,
+        // Un `no_match` o un `enrichment_failed` llegan hasta aquí y NO compraron
+        // perfil: su precisión se evaluó sobre la evidencia de búsqueda.
+        candidateEnriched: entry.enriched === true,
+        requestedSubindustries: input.subindustries,
+        precision: enrichedPrecision,
+        catalogAuthorization: sectorEvidenceBootstrapAuthorization(),
+      });
+      sectorAdmissionByKey.set(candidateKey, sectorAdmission);
+      const sectorEvidenceState = sectorAdmission.sectorEvidenceState;
       // ADAPTIVE-EARLY-STOP § 5 — el veredicto que el crédito acaba de comprar
       // entra en la proyección de completitud del LOTE, que es lo que reordena el
       // cupo COMPLETE-FIRST.
@@ -2027,6 +2065,7 @@ export async function runApolloTwoRoundWizardDiscovery(
     evidenceByKey,
     precisionByKey: subindustryPrecisionByKey,
     sectorEvidenceStateByKey,
+    sectorAdmissionByKey,
     finalDispositions: evaluateApolloCandidateFinalDispositions(runResult),
   });
   const bootstrapObservability = {
@@ -2042,6 +2081,13 @@ export async function runApolloTwoRoundWizardDiscovery(
       // quedar indeterminado. Para calibrar Wave 1 sólo cuenta lo que se ejecutó.
       bootstrap_enrichment_executed_count: bootstrapAudit.filter(
         (candidate) => candidate.enrichmentExecuted,
+      ).length,
+      // POST-ENRICHMENT-ADMISSION-1 § 20 — cuántos cruzaron el gate sectorial por
+      // una subindustria PEDIDA y confirmada, en vez de por política legacy. Es la
+      // cifra que dice si la vía nueva sirvió de algo en esta corrida.
+      sector_admitted_by_requested_subindustry_precision_count: bootstrapAudit.filter(
+        (candidate) =>
+          candidate.sectorAdmission?.admittedByRequestedSubindustryPrecision === true,
       ).length,
       candidates: toApolloSectorEvidenceBootstrapAuditMetadata(bootstrapAudit),
     },
