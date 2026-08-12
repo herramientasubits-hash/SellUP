@@ -200,13 +200,17 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     );
     assert.equal(
       files[files.length - 1],
-      '115_official_contact_phone_privacy.sql',
-      'el techo conocido es la 115 (4O-H2), que añade la privacidad oficial sin editar la 110',
+      // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
+      // candidato sobre ese mismo esquema oficial (una sola función transaccional,
+      // `approve_contact_candidate_with_phones`, con su propia guarda estática). Tampoco
+      // edita la 110 ni ninguna otra de la cadena 109–115.
+      '116_approve_candidate_with_official_phones.sql',
+      'el techo conocido es la 116 (4O-H3), que añade la aprobación atómica sin editar la 110',
     );
     assert.equal(
-      files.some((file) => /^1(1[6-9]|[2-9]\d)/.test(file)),
+      files.some((file) => /^1(1[7-9]|[2-9]\d)/.test(file)),
       false,
-      'ninguna migración 116 o superior',
+      'ninguna migración 117 o superior',
     );
   });
 

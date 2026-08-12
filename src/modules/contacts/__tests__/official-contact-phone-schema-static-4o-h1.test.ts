@@ -117,7 +117,7 @@ describe('114 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('115 es el número más alto del repo', () => {
+  it('116 es el número más alto del repo', () => {
     // Si otra migración pasara a 115+ sin renumerar esta, dos archivos distintos
     // compartirían orden de aplicación — el defecto que la 109 evitó dejando un hueco.
     //
@@ -130,7 +130,10 @@ describe('114 — numeración', () => {
     const numbers = readdirSync(migrationsDir)
       .filter((file) => /^\d{3}[_-].*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)));
-    assert.equal(Math.max(...numbers), 115);
+    // AGENT2A-PHONE-REVEAL-4O-H3 sube el techo a la 116: la APROBACIÓN atómica del candidato
+    // sobre ese mismo esquema oficial (una sola función transaccional, `approve_contact_candidate_with_phones`). La 116 NO añade tabla, columna, constraint, índice ni GRANT:
+    // sólo una función, que es lo que la hace retrocompatible con el runtime vivo.
+    assert.equal(Math.max(...numbers), 116);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

@@ -219,8 +219,13 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
     }
     assert.deepEqual(
       proseOnly.sort(),
-      ['115_official_contact_phone_privacy.sql'],
-      'la única migración que puede NOMBRAR mobile_phone sin tocarla es la 115 (4O-H2), que documenta que no la toca',
+      [
+        '115_official_contact_phone_privacy.sql',
+        // 4O-H3 la nombra por la MISMA razón y con el mismo efecto: un comentario y el
+        // `COMMENT ON FUNCTION` que dejan escrito que la aprobación NO la escribe.
+        '116_approve_candidate_with_official_phones.sql',
+      ],
+      'las únicas migraciones que pueden NOMBRAR mobile_phone sin tocarla son la 115 (4O-H2) y la 116 (4O-H3), que documentan que no la tocan',
     );
   });
 });
@@ -350,7 +355,7 @@ describe('4O-E4.1 estático — alcance', () => {
     // `suppress_official_contact_phone_sources`). Lo que esta guarda fija es que E4.1 se
     // resolvió en TypeScript, no cuál es el número más alto — y se sigue fijando un número
     // EXACTO para que una migración colada por encima rompa la guarda.
-    assert.equal(numbered[numbered.length - 1], 115, 'la 115 (4O-H2) es la última');
+    assert.equal(numbered[numbered.length - 1], 116, 'la 116 (4O-H3) es la última');
   });
 
   it('no se introduce `mobile_phone_source` ni ningún modelo de procedencia', () => {

@@ -591,14 +591,37 @@ export interface AuditEntry {
   identityOverrideApplied?: boolean;
 }
 
+/**
+ * Resultado de la transacción de aprobación (4O-H3). `alreadyApproved` NO es un fallo: es el
+ * candidato que otra ejecución —o el segundo clic de la misma— ya aprobó, devolviendo el
+ * contacto que existe en vez de crear un segundo.
+ */
+export type ApproveTransactionResult =
+  | { ok: true; contactId: string; alreadyApproved: boolean }
+  | { ok: false; error: string; personSuppressed?: boolean };
+
+export interface ApproveTransactionInput {
+  candidateId: string;
+  accountId: string;
+  contactPayload: ContactInsertPayload;
+  reviewPatch: CandidateReviewPatch;
+  candidate: CandidateRecord;
+}
+
 export interface ApproveDeps {
   actorId: string;
   nowIso: string;
   loadCandidate: (id: string) => Promise<CandidateRecord | null>;
   loadExistingContacts: (accountId: string) => Promise<ExistingContactForDedup[]>;
-  insertContact: (
-    payload: ContactInsertPayload,
-  ) => Promise<{ id: string } | { error: string }>;
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-H3 — la ÚNICA autoridad transaccional de la aprobación. Crea el
+   * contacto, promueve la colección oficial de teléfonos con su procedencia, proyecta el
+   * escalar y marca el candidato aprobado, todo en UNA transacción de PostgreSQL. Sustituye al
+   * par `insertContact` + `updateCandidate(approved)` que antes eran dos escrituras sueltas con
+   * una ventana entre ellas en la que el contacto existía y el candidato seguía pendiente.
+   */
+  approveTransactionally: (input: ApproveTransactionInput) => Promise<ApproveTransactionResult>;
+  /** Sigue usándose SOLO para el veredicto `duplicate`, que no crea contacto. */
   updateCandidate: (id: string, patch: CandidateReviewPatch) => Promise<{ error?: string }>;
   logAudit?: (entry: AuditEntry) => Promise<void>;
   /**
@@ -737,51 +760,70 @@ export async function runApproveCandidate(
     return { ok: false, error: MSG.duplicate, duplicate: true, contactId: duplicate.contactId };
   }
 
-  // Crear contacto oficial.
+  // ── Aprobación ATÓMICA (4O-H3) ────────────────────────────────
+  // Antes eran dos escrituras: `contacts` INSERT y luego el patch del candidato. Entre las dos
+  // había una ventana real —documentada en el propio `return` que devolvía `approveFailed` CON
+  // un `contactId`— en la que el contacto existía y el candidato seguía `pending_review`, de
+  // modo que el siguiente clic creaba un segundo contacto para la misma persona. Y el INSERT
+  // sólo llevaba `candidate.phone`: los demás números revelados se perdían.
+  //
+  // Ahora las dos escrituras y la propagación de TODA la colección de teléfonos ocurren dentro
+  // de una única transacción de PostgreSQL, que además vuelve a bloquear el candidato y a
+  // comprobar la supresión por persona bajo ese lock — cosas que esta capa, que leyó antes,
+  // no puede prometer.
+  //
+  // `matched_contacts_id` lo escribe la transacción con el id del contacto que acaba de crear:
+  // el llamador no puede conocerlo antes del INSERT, y ese campo es también el vínculo durable
+  // que hace idempotente una segunda aprobación.
   const payload = buildContactInsertPayload({
     candidate,
     accountId,
     internalUserId: deps.actorId,
   });
-  const insertResult = await deps.insertContact(payload);
-  if ('error' in insertResult) {
-    return { ok: false, error: MSG.createFailed };
-  }
 
-  const contactId = insertResult.id;
-
-  // Marcar candidato approved con referencia al contacto creado. El override
-  // de identidad solo se persiste cuando el estado evaluado fue `mismatch`;
-  // nunca se escribe para consistent/insufficient_evidence/no_evidence aunque
-  // el llamador haya enviado un payload de override innecesario.
+  // El override de identidad solo se persiste cuando el estado evaluado fue `mismatch`; nunca
+  // se escribe para consistent/insufficient_evidence/no_evidence aunque el llamador haya
+  // enviado un payload de override innecesario.
   const review: ReviewMetadata = {
     status: 'approved',
     reviewed_at: deps.nowIso,
     reviewed_by: deps.actorId,
-    created_contact_id: contactId,
     ...(identityOverrideEvidence ? { identity_override: identityOverrideEvidence } : {}),
   };
-  const updateResult = await deps.updateCandidate(candidate.id, {
+  const reviewPatch: CandidateReviewPatch = {
     status: 'approved',
     duplicate_status: 'no_match',
-    matched_contacts_id: contactId,
     review_notes: null,
     reviewed_by: deps.actorId,
     reviewed_at: deps.nowIso,
     enrichment_metadata: mergeReview(candidate.enrichment_metadata, review),
+  };
+
+  const approved = await deps.approveTransactionally({
+    candidateId: candidate.id,
+    accountId,
+    contactPayload: payload,
+    reviewPatch,
+    candidate,
   });
-  if (updateResult.error) {
-    // El contacto ya existe; la falla al marcar el candidato no debe ocultar el
-    // éxito de creación. Se reporta como error suave para revisar el candidato.
-    return { ok: false, error: MSG.approveFailed, contactId };
+  if (!approved.ok) {
+    return { ok: false, error: approved.error };
   }
 
-  await deps.logAudit?.({
-    contactId,
-    accountId,
-    actorUserId: deps.actorId,
-    identityOverrideApplied: identityOverrideEvidence !== undefined,
-  });
+  const contactId = approved.contactId;
+
+  // La auditoría queda FUERA de la transacción a propósito, y sólo puede correr después de que
+  // ésta haya confirmado. Al revés —dentro— una fila que dice `contact_created` sobreviviría a
+  // un rollback del contacto que dice haber creado. Un candidato ya aprobado no se vuelve a
+  // auditar: no se creó ningún contacto en esta ejecución.
+  if (!approved.alreadyApproved) {
+    await deps.logAudit?.({
+      contactId,
+      accountId,
+      actorUserId: deps.actorId,
+      identityOverrideApplied: identityOverrideEvidence !== undefined,
+    });
+  }
 
   let message: string = MSG.approved;
   if (resolvedAccountOutcome === 'created') message = MSG.approvedNewAccount;

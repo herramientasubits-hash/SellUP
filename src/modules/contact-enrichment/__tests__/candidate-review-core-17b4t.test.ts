@@ -82,9 +82,12 @@ function makeApproveHubSpotDeps(
     nowIso: '2026-07-06T10:00:00.000Z',
     loadCandidate: async () => makeLushaCandidate(),
     loadExistingContacts: async () => [],
-    insertContact: async () => {
+    // 4O-H3: una transacción cubre el INSERT del contacto y el patch del candidato. Los dos
+    // contadores se mantienen para que lo que estas pruebas cuentan siga siendo lo mismo.
+    approveTransactionally: async () => {
       calls.insertContact++;
-      return { id: contactId };
+      calls.updateCandidate++;
+      return { ok: true, contactId, alreadyApproved: false };
     },
     updateCandidate: async () => {
       calls.updateCandidate++;
@@ -210,7 +213,10 @@ describe('17B.4T — B. Approval — candidato SellUp con account_id conocido', 
       nowIso: '2026-07-06T10:00:00.000Z',
       loadCandidate: async () => makeLushaCandidate({ account_id: 'acc-sellup-1', hubspot_company_id: null }),
       loadExistingContacts: async () => [],
-      insertContact: async () => { calls.insertContact++; return { id: 'c-1' }; },
+      approveTransactionally: async () => {
+        calls.insertContact++;
+        return { ok: true, contactId: 'c-1', alreadyApproved: false };
+      },
       updateCandidate: async () => ({}),
       resolveOrCreateAccount: async () => {
         calls.resolveOrCreate++;
@@ -318,9 +324,9 @@ describe('17B.4T — B. Approval — candidato HubSpot-only (Lusha, account_id=n
     const { deps } = makeApproveHubSpotDeps({ accountId: 'acc-resolved-123' });
     const captureDeps: ApproveDeps = {
       ...deps,
-      insertContact: async (payload) => {
-        insertPayloads.push(payload);
-        return { id: 'c-new' };
+      approveTransactionally: async ({ contactPayload }) => {
+        insertPayloads.push(contactPayload);
+        return { ok: true, contactId: 'c-new', alreadyApproved: false };
       },
     };
     await runApproveCandidate('lusha-cand-1', captureDeps);
@@ -472,7 +478,10 @@ describe('17B.4T — E. Apollo parity', () => {
       nowIso: '2026-07-06T10:00:00.000Z',
       loadCandidate: async () => apolloCandidate,
       loadExistingContacts: async () => [],
-      insertContact: async () => { calls.insertContact++; return { id: 'c-apollo' }; },
+      approveTransactionally: async () => {
+        calls.insertContact++;
+        return { ok: true, contactId: 'c-apollo', alreadyApproved: false };
+      },
       updateCandidate: async () => ({}),
     };
     const result = await runApproveCandidate('apollo-cand-1', deps);
@@ -493,7 +502,11 @@ describe('17B.4T — E. Apollo parity', () => {
       nowIso: '2026-07-06T10:00:00.000Z',
       loadCandidate: async () => apolloHubSpotCandidate,
       loadExistingContacts: async () => [],
-      insertContact: async () => ({ id: 'c-ap' }),
+      approveTransactionally: async () => ({
+        ok: true,
+        contactId: 'c-ap',
+        alreadyApproved: false,
+      }),
       updateCandidate: async () => ({}),
       resolveOrCreateAccount: async () => {
         calls.resolveOrCreate++;
@@ -611,13 +624,13 @@ describe('17B.4T — resolveOrCreateAccountForHubSpotCandidate', () => {
   });
 
   it('H14: candidate queda approved después del flujo completo', async () => {
-    const { deps, calls } = makeApproveHubSpotDeps();
+    const { deps } = makeApproveHubSpotDeps();
     const updatedPatches: unknown[] = [];
     const captureDeps: ApproveDeps = {
       ...deps,
-      updateCandidate: async (id, patch) => {
-        updatedPatches.push({ id, patch });
-        return {};
+      approveTransactionally: async ({ candidateId, reviewPatch }) => {
+        updatedPatches.push({ id: candidateId, patch: reviewPatch });
+        return { ok: true, contactId: 'contact-new-1', alreadyApproved: false };
       },
     };
     await runApproveCandidate('lusha-cand-1', captureDeps);

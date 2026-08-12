@@ -308,7 +308,9 @@
     "test:agent2a:official-contact-phone-schema": "node --import tsx --test src/modules/contacts/__tests__/official-contact-phone-schema-static-4o-h1.test.ts",
     "test:agent2a:official-contact-phone-schema:postgres": "node --import tsx --test src/modules/contacts/__tests__/official-contact-phone-schema-postgres-4o-h1.test.ts",
     "test:agent2a:official-contact-phone-privacy": "node --experimental-test-module-mocks --import tsx --test src/modules/contact-enrichment/__tests__/official-contact-phone-privacy-core-4o-h2.test.ts src/modules/contact-enrichment/__tests__/official-contact-phone-privacy-static-4o-h2.test.ts src/modules/contact-enrichment/__tests__/official-contact-phone-privacy-runtime-4o-h2.test.ts",
-    "test:agent2a:official-contact-phone-privacy:postgres": "node --import tsx --test src/modules/contact-enrichment/__tests__/official-contact-phone-privacy-postgres-4o-h2.test.ts"
+    "test:agent2a:official-contact-phone-privacy:postgres": "node --import tsx --test src/modules/contact-enrichment/__tests__/official-contact-phone-privacy-postgres-4o-h2.test.ts",
+    "test:agent2a:official-contact-phone-approval": "node --experimental-test-module-mocks --import tsx --test src/modules/contact-enrichment/__tests__/official-contact-approval-core-4o-h3.test.ts src/modules/contact-enrichment/__tests__/official-contact-approval-static-4o-h3.test.ts src/modules/contact-enrichment/__tests__/official-contact-approval-runtime-4o-h3.test.ts",
+    "test:agent2a:official-contact-phone-approval:postgres": "node --import tsx --test src/modules/contact-enrichment/__tests__/official-contact-approval-postgres-4o-h3.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

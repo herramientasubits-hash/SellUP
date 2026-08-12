@@ -16,10 +16,11 @@ import {
   runDiscardCandidate,
   type CandidateRecord,
   type CandidateReviewPatch,
-  type ContactInsertPayload,
   type ExistingContactForDedup,
   type IdentityApprovalOverrideInputV1,
 } from './candidate-review-core';
+import { buildCandidateScalarFallback } from './official-contact-approval-core';
+import { approveContactCandidateWithPhones } from './official-contact-approval-persistence';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
 import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
 import type {
@@ -546,14 +547,59 @@ export async function approveContactCandidate(
         if (error) throw new Error(error.message);
         return (data ?? []) as ExistingContactForDedup[];
       },
-      insertContact: async (payload: ContactInsertPayload) => {
-        const { data, error } = await supabase
-          .from('contacts')
-          .insert(payload)
-          .select('id')
-          .single();
-        if (error) return { error: error.message };
-        return { id: data.id as string };
+      // AGENT2A-PHONE-REVEAL-4O-H3 — la ÚNICA escritura de la aprobación. Sustituye al par
+      // `contacts` INSERT + patch del candidato, que eran dos llamadas PostgREST independientes
+      // con una ventana entre ellas. La RPC vuelve a bloquear el candidato y a comprobar la
+      // supresión por persona DENTRO de la transacción: esta capa leyó antes del lock y no
+      // puede prometer ninguna de las dos cosas.
+      approveTransactionally: async ({
+        candidateId: id,
+        accountId,
+        contactPayload,
+        reviewPatch,
+        candidate,
+      }) => {
+        const outcome = await approveContactCandidateWithPhones({
+          candidateId: id,
+          accountId,
+          contactPayload: contactPayload as unknown as Record<string, unknown>,
+          reviewPatch: reviewPatch as unknown as Record<string, unknown>,
+          // El escalar sólo se promueve cuando su procedencia heredada invierte fielmente hacia
+          // el par de la 114. Cuando no —`provider_payload`, `unknown`, ausente— esto es `null`
+          // y la colección oficial se queda vacía: exactamente el estado de hoy, sin inventar
+          // un proveedor que después sobreviviría a un borrado que debía alcanzarlo.
+          scalarFallback: buildCandidateScalarFallback({
+            phone: candidate.phone,
+            phoneMetadata: candidate.enrichment_metadata?.phone as
+              | { type?: unknown; source?: unknown; raw_type?: unknown }
+              | null
+              | undefined,
+            countryCode: candidate.country_code,
+          }),
+          actorId: internalUserId,
+          nowIso: new Date().toISOString(),
+        });
+
+        if (outcome.status === 'approved' || outcome.status === 'already_approved') {
+          if (!outcome.contactId) {
+            return { ok: false, error: 'No fue posible aprobar el candidato.' };
+          }
+          return {
+            ok: true,
+            contactId: outcome.contactId,
+            alreadyApproved: outcome.status === 'already_approved',
+          };
+        }
+        if (outcome.status === 'person_suppressed') {
+          // Mensaje deliberadamente genérico: no confirma ni niega que exista una solicitud de
+          // borrado sobre esa persona.
+          return {
+            ok: false,
+            error: 'No fue posible aprobar este candidato.',
+            personSuppressed: true,
+          };
+        }
+        return { ok: false, error: 'No fue posible crear el contacto oficial.' };
       },
       updateCandidate: async (id, patch: CandidateReviewPatch) => {
         const { error } = await admin

@@ -1073,7 +1073,7 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
-  it('4O-F no añade migración: el techo lo movió 4O-H2 con la 115', () => {
+  it('4O-F no añade migración: el techo lo movió 4O-H3 con la 116', () => {
     // AGENT2A-PHONE-REVEAL-4O-H2 mueve el techo de la 114 a la 115 (la privacidad del
     // esquema oficial: contadores de auditoría + `suppress_official_contact_phone_sources`).
     // 4O-F sigue sin aportar SQL —reutiliza la 111— y eso es lo que esta guarda afirma; el
@@ -1082,10 +1082,19 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
       .filter((file) => /^\d{3}_.*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 115, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT2A-PHONE-REVEAL-4O-H3 mueve el techo de la 115 a la 116 (la APROBACIÓN atómica
+    // sobre ese mismo esquema oficial). 4O-F sigue sin aportar SQL.
+    assert.equal(numbered[numbered.length - 1], 116, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
-  it('la aprobación del candidato sigue siendo ESCALAR', () => {
+  // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.
+  //
+  // Cuando 4O-F lo escribió afirmaba que la aprobación NO propagaba la colección y que
+  // `OFFICIAL_MULTI_PHONE_MODEL_PENDING` seguía abierto. 4O-H3 lo CERRÓ. Lo que sigue siendo
+  // cierto —y lo que ahora se fija— es que el PAYLOAD sigue siendo escalar: la colección no
+  // viaja por él, porque la transacción de la 116 la lee de la base BAJO EL LOCK. Pasarla por
+  // el payload significaría propagar lo que el servidor leyó ANTES de bloquear.
+  it('el payload de contacto sigue siendo ESCALAR; la colección la lee la transacción', () => {
     const core = readRepo('src/modules/contact-enrichment/candidate-review-core.ts');
     const payload = core.match(/interface ContactInsertPayload \{([\s\S]*?)\n\}/);
     assert.ok(payload, '`ContactInsertPayload` debe seguir existiendo');
@@ -1093,8 +1102,15 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     assert.equal(
       /phones\s*:\s*(readonly )?\w+\[\]|phones\s*:\s*Array</.test(payload[1]),
       false,
-      'la aprobación no propaga la colección: OFFICIAL_MULTI_PHONE_MODEL_PENDING sigue abierto',
+      'la colección no viaja por el payload: la lee la transacción de la 116 bajo el lock',
     );
+    // Y la propagación SÍ existe ahora, en el único sitio que puede garantizarla.
+    assert.match(core, /approveTransactionally/);
+    const migration = readRepo(
+      'supabase/migrations/116_approve_candidate_with_official_phones.sql',
+    );
+    assert.match(migration, /INSERT INTO public\.contact_phones/);
+    assert.match(migration, /INSERT INTO public\.contact_phone_sources/);
   });
 
   // AGENT2A-PHONE-REVEAL-4O-F-R2 — este guarda se INVIERTE, no se borra.
