@@ -1173,3 +1173,42 @@ jobs:
       #   npm run test:agent2a:official-contact-phone-privacy:postgres
       - name: Run official contact phone privacy tests
         run: npm run test:agent2a:official-contact-phone-privacy
+
+      # AGENT1-APOLLO-SECTOR-EVIDENCE-BOOTSTRAP-1 — el bloqueo estructural que la
+      # corrida live `f4c8a60f` (Salud, CO, 2026-08-12) hizo visible: 20 créditos,
+      # 0 enrichments, 0 candidatos, y la causa NO era la calidad de las reglas.
+      #
+      #   `mixed_companies/search` devolvió las 20 organizaciones sin `industry`,
+      #   sin `keywords`, sin descripciones y sin `employee_count` — la única
+      #   fuente de esos campos es `organization_enrichment` —, y a la vez
+      #   `SECTOR_SIGNAL_TERMS` no tenía política para el sector pedido, así que el
+      #   veredicto era `sector_not_mapped` INCONDICIONAL y terminal ANTES del
+      #   enrichment. La evidencia necesaria para juzgar el sector no se podía
+      #   adquirir nunca: el pipeline no podía producir un candidato ni en teoría.
+      #
+      # Lo que este paso guarda, en las DOS direcciones:
+      #
+      #   * que los 20 resultados REALES del checkpoint de esa corrida vuelvan a
+      #     bloquearse sin autorización (17 rechazos sectoriales, los mismos), y
+      #     que con la corrida autorizada lleguen a competir por los <=5 slots;
+      #   * que la autorización exija las CUATRO precondiciones observadas de la
+      #     búsqueda emitida — búsqueda real, cobertura de consulta completa,
+      #     versión de catálogo coherente, términos resueltos —, y que una
+      #     precondición AUSENTE en la metadata no se lea como cumplida;
+      #   * que la adquisición NO confirme nada: ni sector, ni subindustria, ni
+      #     elegibilidad para el objetivo, y que pedir «Salud» no confirme ninguna
+      #     subindustria de Salud;
+      #   * que un candidato con clasificación DECLARADA no entre por esta puerta
+      #     — a Citigroup se le rechaza porque Apollo dice «retail banking», y eso
+      #     no cambia;
+      #   * que las ramas negativas `confirm_only` sigan ABSTENIÉNDOSE y no sean lo
+      #     que autoriza el gasto;
+      #   * paridad de Retail: las rutas con política de sector deciden IGUAL con y
+      #     sin autorización;
+      #   * los topes: <=5 enrichments, selección determinística e invariante al
+      #     orden de entrada.
+      #
+      # Determinista y offline: el fixture son los 20 snapshots reales exportados
+      # READ-ONLY del lote. Sin proveedores, sin red, sin DB, 0 créditos.
+      - name: Run A1 Apollo sector evidence bootstrap tests
+        run: npm run test:a1-apollo-sector-evidence-bootstrap

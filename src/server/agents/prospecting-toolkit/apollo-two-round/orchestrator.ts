@@ -2069,6 +2069,23 @@ export async function runApolloTwoRoundDiscovery(
       if (metricsForRound) tallyRejection(metricsForRound, 'sector_evidence_contradictory');
       observedRejectionReasons.add('sector_evidence_contradictory');
     }
+    // SECTOR-EVIDENCE-BOOTSTRAP-1 — el desenlace del bootstrap, con nombre.
+    //
+    // Un candidato que compitió por ADQUIRIR su clasificación termina aquí cuando,
+    // pagada la adquisición, el sector sigue sin política que aplique: eso es un
+    // rechazo sectorial con causa, no una duda pendiente, y no puede persistirse
+    // como `needs_review`. Sin esta rama caería en `insufficient_evidence_not_
+    // enriched_final`, cuyo nombre afirma que nunca llegó a competir — y sí compitió,
+    // y se pagó por él.
+    //
+    // Inalcanzable para las corridas con política de sector: ahí `sector_not_mapped`
+    // es un rechazo BARATO, así que el candidato jamás llega a la fase de enrichment.
+    if (result.sectorEvidenceState === 'sector_not_mapped') {
+      candidate.definitivelyRejected = true;
+      candidate.definitiveRejectionReason = 'sector_not_mapped';
+      if (metricsForRound) tallyRejection(metricsForRound, 'sector_not_mapped');
+      observedRejectionReasons.add('sector_not_mapped');
+    }
     const nowEligible = isEligible(candidate.assessment.rejection, result.sectorEvidenceState);
     if (nowEligible && !candidate.eligible) {
       candidate.eligible = true;

@@ -26,7 +26,16 @@ export type CandidateSectorEvidenceState =
   | 'sector_evidence_confirmed'
   | 'sector_evidence_missing_needs_enrichment'
   | 'sector_evidence_contradictory'
-  | 'sector_not_mapped';
+  | 'sector_not_mapped'
+  /**
+   * SECTOR-EVIDENCE-BOOTSTRAP-1 — no hay política de sector Y el proveedor no
+   * declaró clasificación alguna, y la corrida está autorizada a adquirirla.
+   *
+   * Compite por un enrichment igual que `sector_evidence_missing_needs_enrichment`
+   * y, como él, NO confirma nada y NO cuenta para el objetivo: `isEligible` exige
+   * `sector_evidence_confirmed` y este estado no lo es.
+   */
+  | 'sector_evidence_missing_bootstrap_eligible';
 
 /** Señales que ya están en la respuesta de búsqueda: leerlas no cuesta un crédito. */
 export type FreeCandidateSignals = {
@@ -312,7 +321,13 @@ export function evaluateApolloEnrichmentNeed(
   }
 
   const missing: ApolloResolvableEvidenceField[] = [];
-  if (candidate.sectorEvidenceState === 'sector_evidence_missing_needs_enrichment') {
+  if (
+    candidate.sectorEvidenceState === 'sector_evidence_missing_needs_enrichment' ||
+    // SECTOR-EVIDENCE-BOOTSTRAP-1 — la evidencia sectorial falta igual, y el
+    // proveedor puede resolverla igual. La diferencia entre los dos estados no es
+    // qué falta, sino si existía política para juzgarlo antes de preguntar.
+    candidate.sectorEvidenceState === 'sector_evidence_missing_bootstrap_eligible'
+  ) {
     missing.push('sector_evidence');
   }
   if (!candidate.hasCompanySizeSignal) missing.push('employee_count');
@@ -346,6 +361,16 @@ export function evaluateApolloEnrichmentNeed(
   };
 }
 
+
+/**
+ * SECTOR-EVIDENCE-BOOTSTRAP-1 § 7 — desempate declarado entre estados que compiten.
+ *
+ * Menor gana. Sólo se consulta con puntajes EMPATADOS, así que nunca desplaza a
+ * un candidato con mejores señales gratuitas: describe una preferencia, no un peso.
+ */
+function sectorEvidenceStateSelectionRank(state: CandidateSectorEvidenceState): number {
+  return state === 'sector_evidence_missing_bootstrap_eligible' ? 1 : 0;
+}
 
 /**
  * Selecciona a lo sumo `remainingEnrichmentBudget` candidatos para enrichment.
@@ -414,8 +439,17 @@ export function selectCandidatesForEnrichment(
   // Orden estable: puntaje descendente, luego ronda, luego posición original del
   // proveedor. Sin el desempate, dos candidatos empatados podrían alternar entre
   // ejecuciones y romper la idempotencia de un reintento.
+  //
+  // SECTOR-EVIDENCE-BOOTSTRAP-1 — entre puntajes IGUALES, una duda que sí se pudo
+  // medir se resuelve antes que una que ni siquiera tenía política con que
+  // medirse. No mueve nada en las corridas existentes: una corrida tiene un solo
+  // sector, así que o todos sus candidatos tienen política o ninguno la tiene, y
+  // con un único rango el orden es byte-idéntico al anterior.
   contenders.sort((a, b) => {
     if (b.score.score !== a.score.score) return b.score.score - a.score.score;
+    const stateRankA = sectorEvidenceStateSelectionRank(a.candidate.sectorEvidenceState);
+    const stateRankB = sectorEvidenceStateSelectionRank(b.candidate.sectorEvidenceState);
+    if (stateRankA !== stateRankB) return stateRankA - stateRankB;
     if (a.candidate.roundNumber !== b.candidate.roundNumber) {
       return a.candidate.roundNumber - b.candidate.roundNumber;
     }
