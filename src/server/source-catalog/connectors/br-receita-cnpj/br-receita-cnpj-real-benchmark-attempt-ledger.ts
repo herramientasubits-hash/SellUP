@@ -14,8 +14,23 @@
  * memory of it was a closure in a process that exited months earlier. An authorization for "the second
  * benchmark" would have permitted an unbounded number of them.
  *
+ * ── BR-SOURCE-ATTEMPT2-CLOSURE: the count is now `2`, and the budget is spent ───
+ * Attempt #2 ran on 2026-08-12 against the full national 2026-07 input, crossed the real-data boundary,
+ * and aborted on `maxExternalMemoryBytes` 9,737 ms in. Under § 11 that spent the attempt, so this module's
+ * count is `2` and its history has two entries.
+ *
+ * The reason that edit is a milestone of its own is the gap it closes. `commitCrossing()` is in-process:
+ * it can report what a run DID, and `resultingAttemptsConsumed()` can compute what the durable record
+ * would have to become, but neither can write this file. Between the run and this edit, the durable count
+ * still read `1`, which means `evaluateBrazilReceitaRealBenchmarkAttemptRequest(2)` still returned
+ * `eligible: true` — the code would have admitted a SECOND run of attempt #2, and the only thing standing
+ * in the way was the operator's own discipline. That window is what this edit closes: with the count at
+ * `2`, a request for `2` is refused as `real_attempt_number_already_consumed`, a request for `3` as
+ * `real_benchmark_attempt_limit_reached`, and no configuration of authorization flags reaches either,
+ * because the attempt wall sits ahead of the authorization wall in the entry point's preflight order.
+ *
  * ── What is durable here, and why it is a source constant ───────────────────────
- * `BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED` is `1`, in source, under review. It is not a
+ * `BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED` is in source, under review. It is not a
  * database row, not a file on disk and not an environment variable, and each of those was considered
  * and rejected for the same reason: this connector touches no Supabase, and a counter living in a file
  * the run itself may write is a counter the run can reset. A source constant can only be changed by an
@@ -29,8 +44,8 @@
  * `..._BENCHMARK_EXECUTED` a derivation of it (`attemptsConsumed > 0`), so the pair cannot disagree:
  * there is nothing to keep in sync, because one is computed from the other.
  *
- * ── STRUCTURALLY SUPPORTED is not AUTHORIZED (§ 4) ──────────────────────────────
- * `..._STRUCTURALLY_SUPPORTED_ATTEMPTS` is `2`. That is a statement about what this code can express,
+ * ── STRUCTURALLY SUPPORTED is not AUTHORIZED, and neither is now available ──────
+ * `..._STRUCTURALLY_SUPPORTED_ATTEMPTS` stays `2`. That is a statement about what this code can express,
  * and it is deliberately kept in a different constant, with a different name, from anything an owner
  * approves. Authorization remains `BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED`, it remains
  * `false`, and this module neither reads it as permission nor exports anything that could be mistaken
@@ -40,9 +55,15 @@
  * ── No reset, and no way to impersonate attempt #1 (§ 3, § 6) ───────────────────
  * There is no `reset()`, no `setAttemptsConsumed()`, no `clear()` and no writable counter anywhere in
  * this module's surface. The history is a frozen record. `requestedAttemptNumber` must equal
- * `nextRealAttemptNumber()` exactly — not `<=`, not `>=` — so attempt #2 cannot present itself as #1
- * (which would leave the count at 1 and make a third run look like a second), and #3 is refused with
- * `real_benchmark_attempt_limit_reached` before any source row could be opened.
+ * `nextRealAttemptNumber()` exactly — not `<=`, not `>=` — so no attempt can present itself as an earlier
+ * one (which would leave the count where it was and make the run after it look like the one just spent),
+ * and #3 is refused with `real_benchmark_attempt_limit_reached` before any source row could be opened.
+ *
+ * With the count at `2`, that same `<=` rule is now what makes attempt #2 unrepeatable: it is refused as
+ * `real_attempt_number_already_consumed`, from the durable count, so restarting the process does not help
+ * and no flag can argue with it. No route to attempt #3 was added to compensate, and none should be — the
+ * next real run of this benchmark requires a resource-envelope decision and a fresh owner budget, not a
+ * larger number in `..._STRUCTURALLY_SUPPORTED_ATTEMPTS`.
  *
  * ── This module NEVER ───────────────────────────────────────────────────────────
  *   - imports `node:fs`, `node:child_process`, or any I/O module. It decides; it does not read.
@@ -54,13 +75,18 @@
 // ─── The durable record ───────────────────────────────────────────────────────
 
 /**
- * How many REAL full-scan benchmark attempts have been consumed, for all time. `1`.
+ * How many REAL full-scan benchmark attempts have been consumed, for all time. `2`.
  *
- * Consumed under BR-SOURCE-14B.0G. This number only ever moves UP, only by a reviewed source edit, and
- * only after the corresponding attempt has crossed the real-data boundary. Lowering it would erase an
- * attempt that really happened and hand the operator a budget they have already spent.
+ * Consumed under BR-SOURCE-14B.0G (attempt #1) and BR-SOURCE-ATTEMPT2-RUN (attempt #2). This number only
+ * ever moves UP, only by a reviewed source edit, and only after the corresponding attempt has crossed the
+ * real-data boundary. Lowering it would erase an attempt that really happened and hand the operator a
+ * budget they have already spent.
+ *
+ * It now equals `..._STRUCTURALLY_SUPPORTED_ATTEMPTS`, which is what exhaustion looks like in this model:
+ * the budget is spent, `brazilReceitaNextRealAttemptNumber()` derives `3`, and `3` is the number this
+ * code refuses unconditionally. See `..._ATTEMPT_BUDGET_EXHAUSTED` below.
  */
-export const BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED = 1 as const;
+export const BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED = 2 as const;
 
 /**
  * How many real attempts this code can EXPRESS. `2`.
@@ -73,6 +99,21 @@ export const BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS = 2 a
 
 /** Whether a third real attempt is permitted, in any configuration, ever. It is not. */
 export const BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED = false as const;
+
+/**
+ * Whether the real-attempt budget is spent. `true`.
+ *
+ * DERIVED at the point of use (`brazilReceitaRealBenchmarkAttemptBudgetExhausted()`); this constant is
+ * the assertion that today's derivation is `true`, kept so a reader of this file does not have to run the
+ * arithmetic. It is not a second source: the function below computes it from the two constants above, and
+ * a test pins the two together.
+ *
+ * "Exhausted" is deliberately a separate word from "not allowed". `..._ATTEMPT_3_ALLOWED` was always
+ * `false` — a third attempt has never had a shape. Exhaustion is the newer fact: the attempts that DID
+ * have a shape have both been spent, so there is no next attempt to authorize, and nothing in this module
+ * should be read as offering one.
+ */
+export const BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_BUDGET_EXHAUSTED = true as const;
 
 /** Automatic retries, restated here as data so the ledger's own report can carry it. Zero. */
 export const BRAZIL_RECEITA_REAL_BENCHMARK_AUTOMATIC_RETRY_COUNT = 0 as const;
@@ -114,6 +155,59 @@ export type BrazilReceitaRealBenchmarkAttemptInputScope =
   | 'staged_subset'
   | 'indeterminate';
 
+/**
+ * Which resource envelope decided a `resource_cap_breached` terminal, named rather than inferred.
+ *
+ * `national_throughput_failure` is a member of this union that NO record uses, and that is the point.
+ * Both consumed attempts ended on a cap, but neither measured national throughput: attempt #1 spent its
+ * six hours inside the Empresas reference pass without reaching the join, and attempt #2 died on external
+ * memory after 9.7 seconds and 0.92 % of the national volume. Keeping the wrong classification spellable,
+ * and asserting mechanically that nothing is spelled with it, is stronger than leaving it unsaid — the
+ * misreading this guards against ("two attempts, both breached, therefore the national join is too slow")
+ * is the one a reader arrives with.
+ */
+export type BrazilReceitaRealBenchmarkAttemptFailureClassification =
+  | 'resource_envelope_runtime_budget'
+  | 'resource_envelope_external_memory'
+  | 'national_throughput_failure';
+
+/**
+ * A consumed attempt's sanitized resource observation.
+ *
+ * Every field is a counter, a byte figure or a millisecond figure produced by the run's own metering.
+ * There is deliberately no field that could carry a CNPJ, a company name, a filesystem path, a join key
+ * or a source row: this record exists so an owner can read what the envelope did, and none of those are
+ * part of that answer. `rowsRead` and `bytesRead` are volumes, not contents.
+ */
+export interface BrazilReceitaRealBenchmarkAttemptResourceObservation {
+  /** The cap that decided the terminal, as its envelope key. */
+  readonly breachedCapKey: string;
+  readonly breachedCapObservedValue: number;
+  readonly breachedCapLimitValue: number;
+  /** `observed - limit`. Positive by construction for a breach. */
+  readonly breachedCapOverage: number;
+  readonly peakHeapUsedBytes: number;
+  readonly peakRssBytes: number;
+  readonly durationMs: number;
+  readonly bytesRead: number;
+  readonly rowsRead: number;
+  readonly temporaryStoragePeakBytes: number;
+  readonly filesOpenedPeakConcurrent: number;
+  readonly partitionHandlesPeak: number;
+  readonly partitionsCreated: number;
+  readonly materializedOutputRows: 0;
+  readonly sanitizerPassed: boolean;
+  readonly cleanupPassed: boolean;
+  /**
+   * Whether this attempt produced usable end-to-end throughput evidence.
+   *
+   * `false` on both attempts, and it is not a formality. An attempt that reads under one per cent of the
+   * volume before dying on an unrelated cap has measured the cap, not the throughput, and a GATE-2
+   * decision resting on it would be resting on nothing.
+   */
+  readonly throughputEvidenceProduced: false;
+}
+
 /** One consumed attempt, as recorded. Read-only, and never edited once written. */
 export interface BrazilReceitaRealBenchmarkAttemptRecord {
   readonly attemptNumber: number;
@@ -126,6 +220,17 @@ export interface BrazilReceitaRealBenchmarkAttemptRecord {
   readonly evidenceDocument: string;
   readonly retriesPerformed: typeof BRAZIL_RECEITA_REAL_BENCHMARK_AUTOMATIC_RETRY_COUNT;
   readonly rowsEmitted: 0;
+  /**
+   * The stage the attempt aborted in. OPTIONAL, and the reason it is optional is § 3 of
+   * BR-SOURCE-ATTEMPT2-CLOSURE: attempt #1's record must stay exactly as 14B.0J froze it, so every field
+   * this milestone adds is one attempt #1 does not carry. Backfilling it from the 14B.0G document would
+   * be rewriting an attempt record from a second source, which is the thing the ledger exists to prevent.
+   */
+  readonly abortStage?: string;
+  /** Which envelope decided the terminal. Optional for the same § 3 reason as `abortStage`. */
+  readonly failureClassification?: BrazilReceitaRealBenchmarkAttemptFailureClassification;
+  /** The sanitized metering. Optional for the same § 3 reason as `abortStage`. */
+  readonly resourceObservation?: BrazilReceitaRealBenchmarkAttemptResourceObservation;
 }
 
 /**
@@ -139,6 +244,21 @@ export interface BrazilReceitaRealBenchmarkAttemptRecord {
  *
  * `terminalStatus` is `resource_cap_breached`: the six-hour owner budget ceiling (`maxRuntimeMs`) was
  * exhausted during the Empresas reference pass. § 3 of this milestone forbids changing any of it.
+ *
+ * ── Attempt #2, as BR-SOURCE-ATTEMPT2-RUN reported it ──────────────────────────
+ * Recorded by BR-SOURCE-ATTEMPT2-CLOSURE, whose § 3 is equally explicit that attempt #1's entry is not to
+ * be touched: the entry below is APPENDED, and attempt #1's literal above is unchanged, field for field.
+ *
+ * `inputScope` is `full_national` on the strength of the run's own preflight, which resolved 10 + 10 part
+ * descriptors against the authoritative 2026-07 publisher inventory and reported
+ * `NATIONAL_INPUT_COMPLETENESS = complete`. That is the distinction attempt #1 could not make.
+ *
+ * `terminalStatus` is again `resource_cap_breached`, and the resemblance is where the misreading lives:
+ * the two attempts broke DIFFERENT caps, for different reasons, and only one of them was about time.
+ * Attempt #2 spent 9,737 ms of a 21,600,000 ms budget — 0.05 % — and died on `maxExternalMemoryBytes` by
+ * 616,895 bytes, with `partitionHandlesPeak` sitting exactly on `maxOpenPartitionFiles`. Hence
+ * `failureClassification: 'resource_envelope_external_memory'`, and hence
+ * `throughputEvidenceProduced: false` on a run that read 0.92 % of the national volume.
  */
 export const BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY: readonly BrazilReceitaRealBenchmarkAttemptRecord[] =
   Object.freeze([
@@ -152,6 +272,38 @@ export const BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_HISTORY: readonly BrazilRecei
       evidenceDocument: 'br-receita-cnpj-14b0g-real-full-scan-benchmark-evidence',
       retriesPerformed: BRAZIL_RECEITA_REAL_BENCHMARK_AUTOMATIC_RETRY_COUNT,
       rowsEmitted: 0,
+    } as const),
+    Object.freeze({
+      attemptNumber: 2,
+      milestone: 'BR-SOURCE-ATTEMPT2-RUN',
+      datasetPeriod: '2026-07',
+      terminalStatus: 'resource_cap_breached',
+      crossedRealDataBoundary: true,
+      inputScope: 'full_national',
+      evidenceDocument: 'br-receita-cnpj-attempt2-durable-closure',
+      retriesPerformed: BRAZIL_RECEITA_REAL_BENCHMARK_AUTOMATIC_RETRY_COUNT,
+      rowsEmitted: 0,
+      abortStage: 'empresas_reference_pass',
+      failureClassification: 'resource_envelope_external_memory',
+      resourceObservation: Object.freeze({
+        breachedCapKey: 'maxExternalMemoryBytes',
+        breachedCapObservedValue: 67_725_759,
+        breachedCapLimitValue: 67_108_864,
+        breachedCapOverage: 616_895,
+        peakHeapUsedBytes: 115_595_544,
+        peakRssBytes: 337_002_496,
+        durationMs: 9_737,
+        bytesRead: 205_520_896,
+        rowsRead: 2_555_904,
+        temporaryStoragePeakBytes: 40_894_464,
+        filesOpenedPeakConcurrent: 33,
+        partitionHandlesPeak: 32,
+        partitionsCreated: 1_024,
+        materializedOutputRows: 0,
+        sanitizerPassed: true,
+        cleanupPassed: true,
+        throughputEvidenceProduced: false,
+      } as const),
     } as const),
   ] as const);
 
@@ -178,10 +330,16 @@ export function brazilReceitaRealBenchmarkExecuted(): boolean {
 }
 
 /**
- * Which attempt number a next run would be. `2` today.
+ * Which attempt number a next run WOULD be. `3` today.
  *
  * Derived, so it cannot disagree with the history: there is no separate "next" constant to forget to
  * bump when an attempt is recorded.
+ *
+ * Read this together with `brazilReceitaNextRealAttemptIsStructurallySupported()`, which is `false`. The
+ * pair is how this contract has always spelled "there is no next attempt", and no new sentinel was
+ * introduced for the exhausted case: a `null` or a `'none'` here would be a second encoding of the same
+ * fact, and every caller that currently does arithmetic on this number would have to learn about it.
+ * `3` is the honest answer to "what number would a next run claim?" — and `3` is refused unconditionally.
  */
 export function brazilReceitaNextRealAttemptNumber(): number {
   return BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED + 1;
@@ -191,6 +349,21 @@ export function brazilReceitaNextRealAttemptNumber(): number {
 export function brazilReceitaNextRealAttemptIsStructurallySupported(): boolean {
   return (
     brazilReceitaNextRealAttemptNumber() <= BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS
+  );
+}
+
+/**
+ * Whether every attempt this code can express has been consumed. `true` today.
+ *
+ * The same fact as `!brazilReceitaNextRealAttemptIsStructurallySupported()`, named positively because that
+ * is how the callers that need it read: a report saying `attemptBudgetExhausted: true` cannot be skimmed
+ * as permission, whereas a report saying `nextAttemptStructurallySupported: false` has been skimmed that
+ * way before — it looks like a capability note rather than a terminal state.
+ */
+export function brazilReceitaRealBenchmarkAttemptBudgetExhausted(): boolean {
+  return (
+    brazilReceitaRealBenchmarkAttemptsConsumed() >=
+    BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS
   );
 }
 
@@ -358,6 +531,8 @@ export interface BrazilReceitaRealBenchmarkAttemptModelSummary {
   readonly structurallySupportedAttempts: typeof BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS;
   readonly nextAttemptNumber: number;
   readonly nextAttemptStructurallySupported: boolean;
+  /** Derived. `true` once both expressible attempts are consumed — see the accessor's note on naming. */
+  readonly attemptBudgetExhausted: boolean;
   readonly attempt3Allowed: typeof BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED;
   readonly realBenchmarkExecuted: boolean;
   readonly automaticRetryCount: typeof BRAZIL_RECEITA_REAL_BENCHMARK_AUTOMATIC_RETRY_COUNT;
@@ -381,6 +556,7 @@ export function summarizeBrazilReceitaRealBenchmarkAttemptModel(): BrazilReceita
     structurallySupportedAttempts: BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS,
     nextAttemptNumber: brazilReceitaNextRealAttemptNumber(),
     nextAttemptStructurallySupported: brazilReceitaNextRealAttemptIsStructurallySupported(),
+    attemptBudgetExhausted: brazilReceitaRealBenchmarkAttemptBudgetExhausted(),
     attempt3Allowed: BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED,
     realBenchmarkExecuted: brazilReceitaRealBenchmarkExecuted(),
     automaticRetryCount: BRAZIL_RECEITA_REAL_BENCHMARK_AUTOMATIC_RETRY_COUNT,

@@ -46,7 +46,12 @@ import {
   type BrazilReceitaFullJoinBridgeFileSystem,
   type BrazilReceitaFullJoinBridgeManifestValidator,
 } from '../br-receita-cnpj-full-join-manifest-source-bridge';
-import { BRAZIL_RECEITA_FULL_JOIN_NO_WRITE_CONTRACT } from '../br-receita-cnpj-full-join-no-write-guard';
+import {
+  assertBrazilReceitaFullJoinNoWrite,
+  BRAZIL_RECEITA_FULL_JOIN_NO_WRITE_CONTRACT,
+} from '../br-receita-cnpj-full-join-no-write-guard';
+import { resolveBrazilReceitaFullJoinHandleCaps } from '../br-receita-cnpj-full-join-open-handle-ledger';
+import { resolveBrazilReceitaFullJoinResourceCaps } from '../br-receita-cnpj-full-join-resource-envelope';
 import {
   evaluateBrazilReceitaNationalInputCompleteness,
   type BrazilReceitaNationalInputCompletenessResult,
@@ -428,8 +433,10 @@ describe('BR-SOURCE-14B.0F § 5 — the real entry point exists', () => {
     assert.equal(readiness.fullScanEngineReady, true);
     assert.equal(readiness.fullScanExecutionPathReady, true);
     assert.equal(readiness.benchmarkProfileImplementable, true);
-    assert.equal(readiness.realFullScanBenchmarkReadyForOwnerAuthorization, true);
-    // Ready to be authorized, and not authorized. Different facts.
+    // BR-SOURCE-ATTEMPT2-CLOSURE: this was `true` while an attempt remained. Both expressible attempts are
+    // now consumed, so there is no run left to be ready FOR, and the field derives instead of asserting.
+    assert.equal(readiness.realFullScanBenchmarkReadyForOwnerAuthorization, false);
+    // Not ready, and not authorized. Still different facts, both false for different reasons.
     assert.equal(readiness.realFullScanBenchmarkAuthorized, false);
     assert.equal(readiness.realFullScanBenchmarkExecuted, true);
     // Gate 2 answers a question only the benchmark can answer, so it cannot be ready before it runs.
@@ -440,7 +447,12 @@ describe('BR-SOURCE-14B.0F § 5 — the real entry point exists', () => {
 
 describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
   // Tests 2 and 3.
-  it('refuses at the authorization stage without opening anything', async () => {
+  it('refuses at the attempt wall, upstream of the authorization stage, without opening anything', async () => {
+    // Until BR-SOURCE-ATTEMPT2-CLOSURE this refused at `authorization`, the last stage. With both
+    // expressible attempts consumed the refusal moves UPSTREAM to stage 3, which is strictly stronger:
+    // the authorization gate can be opened by an owner, and the attempt wall cannot be opened by anyone.
+    // The authorization constant is still asserted here because it is still false and still load-bearing
+    // for the day a resource-envelope decision produces a new attempt budget.
     assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED, false);
     assert.equal(BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZATION_FLAG, false);
 
@@ -449,13 +461,16 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
 
     assert.equal(outcome.ok, false);
     if (outcome.ok) return;
-    assert.equal(outcome.abortCode, 'benchmark_not_authorized');
-    assert.equal(outcome.failedStage, 'authorization');
+    assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
+    assert.equal(outcome.failedStage, 'real_attempt_eligibility');
     assert.equal(outcome.abortStage, BRAZIL_RECEITA_REAL_FULL_SCAN_ABORT_BEFORE_REAL_FILE_OPEN);
     assert.equal(outcome.realManifestOpened, false);
     assert.equal(outcome.realDataAccessed, false);
     assert.equal(outcome.rowsEmitted, 0);
     assert.equal(outcome.realFullScanBenchmarkExecuted, true);
+    // A refusal spends nothing, so the durable count is exactly what it was.
+    assert.equal(outcome.attemptsConsumedAfterRefusal, 2);
+    assert.equal(outcome.realDataBoundaryCrossed, false);
     // The strong form of test 3: the bridge port was never CALLED. Not "it was called with a
     // synthetic path" — never called, because the refusal happens before the manifest is reached.
     assert.deepEqual(bridge.touched, []);
@@ -516,7 +531,13 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
    * unguarded, and a run could pass the declarations stage carrying a cap set that authorizes an
    * unbounded quantity of whatever key was left out.
    */
-  it('refuses a present but incomplete cap set at the resource_caps stage', async () => {
+  it('refuses an incomplete cap set — now at the attempt wall, with the cap resolver still refusing it', async () => {
+    // BR-SOURCE-ATTEMPT2-CLOSURE relocated what this test can prove through the entry point. The cap
+    // stage is stage 5 and the attempt wall is stage 3, so with the budget spent an incomplete cap set no
+    // longer reaches its own stage. Two things are asserted instead, and together they are the original
+    // claim minus nothing: the entry point refuses (so no incomplete cap set gets through), and the cap
+    // RESOLVER — the thing that owned the refusal — still rejects the same input when called directly.
+    // The resolver's full behaviour lives in `br-receita-cnpj-full-join-resource-envelope.test.ts`.
     for (const omitted of ['maxRssBytes', 'maxRuntimeMs', 'maxFilesOpened', 'maxOutputRows']) {
       const caps = { ...brazilReceitaProposedFullScanResourceCaps() } as Record<string, unknown>;
       delete caps[omitted];
@@ -528,11 +549,17 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
 
       assert.equal(outcome.ok, false);
       if (outcome.ok) continue;
-      assert.equal(outcome.abortCode, 'resource_caps_incomplete', `${omitted} must be required`);
-      assert.equal(outcome.failedStage, 'resource_caps');
-      assert.ok(outcome.capRejections.length > 0, `${omitted} must produce a cap rejection`);
+      assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
+      assert.equal(outcome.failedStage, 'real_attempt_eligibility');
       assert.equal(outcome.abortStage, BRAZIL_RECEITA_REAL_FULL_SCAN_ABORT_BEFORE_REAL_FILE_OPEN);
       assert.deepEqual(bridge.touched, []);
+
+      // The control itself, unchanged and still refusing.
+      const resolution = resolveBrazilReceitaFullJoinResourceCaps(caps);
+      assert.equal(resolution.ok, false, `${omitted} must still be required by the resolver`);
+      if (!resolution.ok) {
+        assert.ok(resolution.rejections.length > 0, `${omitted} must produce a cap rejection`);
+      }
     }
   });
 
@@ -544,7 +571,11 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
    * has to re-read. Each figure alone is a perfectly ordinary integer, which is precisely why the
    * declarations stage passes it and this stage must not.
    */
-  it('refuses a partition handle cap above the global one, at its own stage', async () => {
+  it('refuses a partition handle cap above the global one — attempt wall first, resolver still refusing', async () => {
+    // Same relocation as the cap-set test above: the handle stage is stage 6, behind the attempt wall.
+    // The RELATION being invalid is still asserted directly, which is the part that matters — and it is
+    // covered exhaustively in `br-receita-cnpj-full-join-handle-and-disk.test.ts`.
+    const globalCap = BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS.maxFilesOpened;
     const { request, bridge } = benchmarkRequest({
       declarations: completeDeclarations({ maxOpenPartitionFiles: 128 }),
     });
@@ -552,14 +583,18 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
 
     assert.equal(outcome.ok, false);
     if (outcome.ok) return;
-    assert.equal(outcome.abortCode, 'handle_caps_invalid');
-    assert.equal(outcome.failedStage, 'handle_caps');
+    assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
+    assert.equal(outcome.failedStage, 'real_attempt_eligibility');
     assert.equal(outcome.abortStage, BRAZIL_RECEITA_REAL_FULL_SCAN_ABORT_BEFORE_REAL_FILE_OPEN);
     assert.deepEqual(bridge.touched, []);
 
+    // 128 partition handles against a 64-descriptor global budget is a pool that can exhaust the whole
+    // budget on its own, leaving nothing for the source file the join must re-read.
+    assert.equal(resolveBrazilReceitaFullJoinHandleCaps(globalCap, 128).ok, false);
+
     // Zero and negative caps are INTEGERS, so they satisfy the declarations stage and are refused
-    // here instead: a run that may hold zero descriptors cannot read its own input, so zero is a
-    // typo rather than a tight budget.
+    // by this relation instead: a run that may hold zero descriptors cannot read its own input, so
+    // zero is a typo rather than a tight budget.
     for (const wrong of [0, -1]) {
       const broken = benchmarkRequest({
         declarations: completeDeclarations({ maxOpenPartitionFiles: wrong }),
@@ -567,7 +602,12 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
       const refused = await runBrazilReceitaRealFullScanResourceBenchmark(broken.request);
       assert.equal(refused.ok, false);
       if (refused.ok) continue;
-      assert.equal(refused.abortCode, 'handle_caps_invalid', `${wrong} must be refused`);
+      assert.equal(refused.abortCode, 'real_benchmark_attempt_limit_reached');
+      assert.equal(
+        resolveBrazilReceitaFullJoinHandleCaps(globalCap, wrong).ok,
+        false,
+        `${wrong} must be refused by the handle relation`,
+      );
     }
 
     // A FRACTIONAL cap is refused one stage earlier, by the declaration shape check. Asserted
@@ -600,40 +640,55 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
   });
 
   // Tests 35, 36, 37.
-  it('consumes exactly one attempt and refuses the second', async () => {
+  it('never reaches the in-process single-attempt ledger, and that ledger is still single-flight', async () => {
+    // Stage 10 consumes the in-process ledger. It sits behind the attempt wall at stage 3, so with the
+    // durable budget spent no run reaches it — which is the correct behaviour and also, deliberately, why
+    // the in-process ledger is NOT the historical record. Both facts are asserted: the entry point does not
+    // touch it, and the ledger's own single-flight rule still holds when exercised directly.
     assert.equal(BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS.attemptCount, 1);
     assert.equal(BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS.automaticRetryCount, 0);
     assert.equal(BRAZIL_RECEITA_FULL_JOIN_AUTOMATIC_RETRY_COUNT, 0);
 
     const ledger = createBrazilReceitaFullJoinBenchmarkAttemptLedger();
-    const first = await runBrazilReceitaRealFullScanResourceBenchmark(
-      benchmarkRequest({ attemptLedger: ledger }).request,
-    );
-    assert.equal(first.ok, false);
-    if (!first.ok) assert.equal(first.abortCode, 'benchmark_not_authorized');
+    for (const invocation of [1, 2]) {
+      const outcome = await runBrazilReceitaRealFullScanResourceBenchmark(
+        benchmarkRequest({ attemptLedger: ledger }).request,
+      );
+      assert.equal(outcome.ok, false, `invocation ${invocation} must be refused`);
+      if (!outcome.ok) assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
+    }
+    // Untouched: a refusal upstream of stage 10 spends nothing, in process or durably.
+    assert.equal(ledger.attemptsConsumed(), 0);
 
-    const second = await runBrazilReceitaRealFullScanResourceBenchmark(
-      benchmarkRequest({ attemptLedger: ledger }).request,
-    );
-    assert.equal(second.ok, false);
-    if (!second.ok) assert.equal(second.abortCode, 'single_attempt_already_consumed');
-    assert.equal(ledger.attemptsConsumed(), 1);
+    // The single-flight rule itself, exercised on the object that owns it.
+    const direct = createBrazilReceitaFullJoinBenchmarkAttemptLedger();
+    assert.equal(direct.consume(), true);
+    assert.equal(direct.attemptsConsumed(), 1);
+    assert.equal(direct.consume(), false);
+    assert.equal(direct.attemptsConsumed(), 1);
   });
 
   // Test 38.
-  it('refuses any output-row cap other than exactly zero', async () => {
+  it('refuses any output-row cap other than exactly zero, at the wall and at the resolver', async () => {
     assert.equal(BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS.maxOutputRows, 0);
+    const caps = { ...brazilReceitaProposedFullScanResourceCaps(), maxOutputRows: 1 };
     const { request } = benchmarkRequest({
-      declarations: completeDeclarations({
-        resourceCaps: { ...brazilReceitaProposedFullScanResourceCaps(), maxOutputRows: 1 },
-      }),
+      declarations: completeDeclarations({ resourceCaps: caps }),
     });
     const outcome = await runBrazilReceitaRealFullScanResourceBenchmark(request);
     assert.equal(outcome.ok, false);
-    if (!outcome.ok) assert.equal(outcome.abortCode, 'output_rows_cap_must_be_zero');
+    if (!outcome.ok) assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
+    // Zero output is an EQUALITY, not a ceiling, and it is still enforced as one. The stage that used to
+    // report `output_rows_cap_must_be_zero` is behind the attempt wall; the rule it enforced is not.
+    const resolution = resolveBrazilReceitaFullJoinResourceCaps(caps);
+    assert.equal(resolution.ok, true);
+    if (resolution.ok) assert.notEqual(resolution.caps.maxOutputRows, 0);
   });
 
   it('refuses a no-write contract that carries any escalation or provider capability', async () => {
+    // The guard is stage 7, behind the attempt wall, so the entry point now stops earlier. The guard
+    // itself is what this test is really about, and it is called directly — its exhaustive coverage lives
+    // in `br-receita-cnpj-full-join-no-write-guard.test.ts`.
     for (const contract of [
       { ...BRAZIL_RECEITA_FULL_JOIN_NO_WRITE_CONTRACT, supabaseWrite: true },
       { ...BRAZIL_RECEITA_FULL_JOIN_NO_WRITE_CONTRACT, apolloApiKey: 'present' },
@@ -644,11 +699,15 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
       });
       const outcome = await runBrazilReceitaRealFullScanResourceBenchmark(request);
       assert.equal(outcome.ok, false);
-      if (!outcome.ok) assert.equal(outcome.abortCode, 'no_write_guard_failed');
+      if (!outcome.ok) assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
+      // The 11A contract still refuses every one of these, unchanged.
+      assert.equal(assertBrazilReceitaFullJoinNoWrite(contract).ok, false);
     }
   });
 
   it('refuses a private destination inside the repository, home or the dataset', async () => {
+    // Stage 9, behind the attempt wall. The resolver is called directly with the same boundaries the entry
+    // point would have passed it, so every rejection code this test named is still asserted by code.
     for (const [directory, rejection] of [
       ['/workspaces/sellup-worktrees/br-14b0f/tmp', 'destination_inside_repository'],
       ['/home/operator/metrics', 'destination_inside_home'],
@@ -661,8 +720,19 @@ describe('BR-SOURCE-14B.0F § 6 — the real run is still blocked', () => {
       const outcome = await runBrazilReceitaRealFullScanResourceBenchmark(request);
       assert.equal(outcome.ok, false);
       if (outcome.ok) continue;
-      assert.equal(outcome.abortCode, 'private_metric_channel_not_ready');
-      assert.ok(outcome.privateChannelRejections.includes(rejection));
+      assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
+
+      const resolution = resolveBrazilReceitaFullJoinPrivateChannel(
+        {
+          acknowledgement: BRAZIL_RECEITA_FULL_JOIN_PRIVATE_CHANNEL_ACKNOWLEDGEMENT,
+          destinationDirectory: directory,
+          artifactSlug: 'br-14b0f-benchmark',
+          ttlMs: BRAZIL_RECEITA_FULL_JOIN_PRIVATE_CHANNEL_DEFAULT_TTL_MS,
+        },
+        request.privateChannelBoundaries,
+      );
+      assert.equal(resolution.ready, false);
+      if (!resolution.ready) assert.ok(resolution.rejections.includes(rejection));
     }
   });
 });

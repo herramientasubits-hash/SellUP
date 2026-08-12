@@ -750,18 +750,22 @@ describe('BR-SOURCE-ATTEMPT2-FINAL § C — the first real source read', () => {
 
 describe('BR-SOURCE-ATTEMPT2-FINAL § D — attempt state', () => {
   // Tests 15, 16, 17.
-  it('15, 16, 17 — attempt #1 stays consumed, #2 stays available and unauthorized, #3 prohibited', () => {
-    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED, 1);
-    assert.equal(brazilReceitaNextRealAttemptNumber(), 2);
+  it('15, 16, 17 — both attempts stay consumed, none stays available, #3 prohibited', () => {
+    // Attempt #2 was "available and unauthorized" when this milestone shipped. It has since been spent, and
+    // BR-SOURCE-ATTEMPT2-CLOSURE recorded that; the invariants this test guards are otherwise unchanged.
+    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED, 2);
+    assert.equal(brazilReceitaNextRealAttemptNumber(), 3);
     assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS, 2);
     assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED, false);
 
-    // #1 cannot be re-requested, #2 is structurally eligible, #3 is refused by the limit.
-    assert.equal(evaluateBrazilReceitaRealBenchmarkAttemptRequest(1).rejectionCode, 'real_attempt_number_already_consumed');
-    const second = evaluateBrazilReceitaRealBenchmarkAttemptRequest(2);
-    assert.equal(second.eligible, true);
-    // Eligible is not authorized, and the ledger says so itself.
-    assert.equal(second.authorized, false);
+    // Neither consumed number can be re-requested; #3 is refused by the limit.
+    for (const consumed of [1, 2]) {
+      assert.equal(
+        evaluateBrazilReceitaRealBenchmarkAttemptRequest(consumed).rejectionCode,
+        'real_attempt_number_already_consumed',
+      );
+      assert.equal(evaluateBrazilReceitaRealBenchmarkAttemptRequest(consumed).eligible, false);
+    }
     assert.equal(
       evaluateBrazilReceitaRealBenchmarkAttemptRequest(3).rejectionCode,
       'real_benchmark_attempt_limit_reached',
@@ -775,9 +779,17 @@ describe('BR-SOURCE-ATTEMPT2-FINAL § D — attempt state', () => {
       readConnectorSource('br-receita-cnpj-real-benchmark-attempt-ledger.ts'),
     );
     assert.ok(!/\breset\s*\(/.test(ledger), 'the attempt ledger must have no reset');
+    // The count is `2` after BR-SOURCE-ATTEMPT2-CLOSURE. What this guard is really about is the FORM, not
+    // the value: a reviewed `as const` literal, never an expression, because the whole durability argument
+    // is that only an edit-plus-review can move it. Pinning the value alone made this assertion break on a
+    // legitimate edit while saying nothing about the property it was defending.
     assert.ok(
-      ledger.includes('BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED = 1'),
-      'the durable count must stay a literal one',
+      /BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED = 2 as const/.test(ledger),
+      'the durable count must be a reviewed literal, and today that literal is two',
+    );
+    assert.ok(
+      !/BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED\s*=\s*[^;]*[+\-*/(]/.test(ledger),
+      'the durable count must never be assigned from an expression',
     );
   });
 });
@@ -1092,36 +1104,45 @@ describe('BR-SOURCE-ATTEMPT2-FINAL § F — the benchmark, end to end', () => {
     return { outcome, reads };
   }
 
-  it('gets a fully-granted invocation PAST the engine wall, which used to be the hard stop', async () => {
+  /**
+   * These two tests proved that a fully-granted invocation reached the engine and, on the `'throw'` script,
+   * a first source read. That was this milestone's deliverable and it worked: the invocation it unblocked
+   * IS attempt #2, which ran on 2026-08-12 and is now recorded as consumed.
+   *
+   * BR-SOURCE-ATTEMPT2-CLOSURE makes both scenarios unreachable through the entry point, and reachability
+   * is the thing being asserted now. What the tests used to prove about the boundary SEMANTICS — that
+   * reaching the engine is not crossing, that the crossing latches on the first `read` and only the first,
+   * that a throwing notifier still leaves it crossed — is proven directly against
+   * `withBrazilReceitaFullJoinFirstSourceReadBoundary` earlier in this file, without needing an eligible
+   * attempt. Those tests are unchanged and still passing.
+   */
+  it('cannot get a fully-granted invocation to a source read at all, now that the budget is spent', async () => {
     const { outcome, reads } = await runEndToEnd('throw');
-    assert.equal(outcome.ok, true, JSON.stringify(outcome));
-    if (!outcome.ok) return;
 
-    // The exact terminal code attempt #2 died on, and it is gone.
-    assert.notEqual(outcome.publicReport.abort_code, 'temporary_storage_policy_not_approved');
-    // It reached a source read instead — the first one, and only the first.
-    assert.equal(reads, 1);
-    assert.equal(outcome.realDataBoundaryCrossed, true);
-    assert.equal(outcome.realAttemptNumber, brazilReceitaNextRealAttemptNumber());
-    // Crossed, then failed. § 11: the attempt is spent regardless of the verdict.
-    assert.equal(outcome.attemptsConsumedAfterRun, brazilReceitaNextRealAttemptNumber());
-    // The constant that could not be flipped was not flipped.
+    // The whole invocation — every approval, every grant, a valid national manifest — is refused.
+    assert.equal(outcome.ok, false, JSON.stringify(outcome));
+    if (outcome.ok) return;
+    assert.equal(outcome.failedStage, 'real_attempt_eligibility');
+    assert.equal(outcome.abortCode, 'real_benchmark_attempt_limit_reached');
+    // The load-bearing assertion: the reader port was never called, so the `'throw'` script never fired.
+    assert.equal(reads, 0);
+    assert.equal(outcome.realDataBoundaryCrossed, false);
+    assert.equal(outcome.realManifestOpened, false);
+    assert.equal(outcome.attemptsConsumedAfterRefusal, BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED);
+    // The constant that could not be flipped still is not flipped.
     assert.equal(BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED, false);
   });
 
-  it('reports a pre-read engine abort as an UNCROSSED boundary that spent nothing', async () => {
+  it('never reaches the engine, so no engine abort can be reported either', async () => {
     const { outcome, reads } = await runEndToEnd('never');
-    assert.equal(outcome.ok, true, JSON.stringify(outcome));
-    if (!outcome.ok) return;
 
-    // The engine ran and refused before reading anything.
-    assert.equal(outcome.publicReport.abort_stage, 'engine');
-    assert.equal(outcome.publicReport.exit_status, 'aborted');
+    assert.equal(outcome.ok, false, JSON.stringify(outcome));
+    if (outcome.ok) return;
+    // Not an engine abort — the run stopped in preflight, so there is no engine stage to report.
+    assert.equal(outcome.abortStage, 'ABORT_BEFORE_REAL_FILE_OPEN');
+    assert.equal(outcome.failedStage, 'real_attempt_eligibility');
     assert.equal(reads, 0);
-
-    // The whole of defect B: reaching the engine is not crossing the boundary, and the durable count
-    // stays where it was. Before this milestone both of these were `true` and `2`.
     assert.equal(outcome.realDataBoundaryCrossed, false);
-    assert.equal(outcome.attemptsConsumedAfterRun, BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED);
+    assert.equal(outcome.attemptsConsumedAfterRefusal, BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED);
   });
 });

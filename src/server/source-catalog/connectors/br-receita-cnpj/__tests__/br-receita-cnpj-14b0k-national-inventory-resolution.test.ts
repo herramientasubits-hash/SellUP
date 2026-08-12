@@ -297,9 +297,12 @@ describe('BR-SOURCE-14B.0K · local comparison (tests 10–16)', () => {
     assert.equal(resolution.nationalInputCompleteness, 'complete');
     assert.equal(resolution.gate.verdict, 'complete');
     assert.equal(resolution.gate.inputScope, 'full_national');
+    // The verdict is unchanged — a complete input is still complete, and it is what made attempt #2 a
+    // national run. Its DESTINATION changed with BR-SOURCE-ATTEMPT2-CLOSURE: the second benchmark has been
+    // run, so routing the owner at authorizing it would be routing them at an attempt that cannot exist.
     assert.equal(
       brazilReceitaNationalResolutionNextAction(resolution),
-      'OWNER AUTHORIZATION — SECOND REAL FULL-NATIONAL BENCHMARK',
+      'OWNER REVIEW — EXTERNAL MEMORY RESOURCE CLOSURE',
     );
   });
 
@@ -553,8 +556,13 @@ describe('BR-SOURCE-14B.0K · safety and attempt model (tests 21–26)', () => {
   });
 
   it('23 · no benchmark is executed by any code path in this milestone', () => {
+    // `secondRealBenchmarkExecuted` is now a REPORT of the durable ledger, not a claim about this
+    // milestone's own behaviour, and it reads `true` because attempt #2 ran on 2026-08-12. What this test
+    // is actually about — that no code path HERE can run a benchmark — is the static scan below, and that
+    // is unchanged. The two were conflated while the field was a hardcoded `false`.
     const resolution = resolve();
-    assert.equal(resolution.secondRealBenchmarkExecuted, false);
+    assert.equal(resolution.secondRealBenchmarkExecuted, true);
+    assert.equal(resolution.attempt2Executed, resolution.secondRealBenchmarkExecuted);
     for (const moduleName of MILESTONE_MODULES) {
       const source = connectorSource(moduleName);
       for (const forbidden of [
@@ -567,24 +575,35 @@ describe('BR-SOURCE-14B.0K · safety and attempt model (tests 21–26)', () => {
     }
   });
 
-  it('24 · attemptsConsumed remains 1 and the structural ceiling remains 2', () => {
+  it('24 · attemptsConsumed is 2 and the structural ceiling still remains 2', () => {
     const resolution = resolve();
-    assert.equal(resolution.attemptsConsumed, 1);
-    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED, 1);
+    assert.equal(resolution.attemptsConsumed, 2);
+    assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED, 2);
+    // The ceiling did NOT move to make room for the consumed attempt. Raising it is what "adding a route
+    // to attempt #3" would look like, and BR-SOURCE-ATTEMPT2-CLOSURE § 2 forbids it.
     assert.equal(resolution.structurallySupportedAttempts, 2);
     assert.equal(BRAZIL_RECEITA_REAL_BENCHMARK_STRUCTURALLY_SUPPORTED_ATTEMPTS, 2);
-    assert.equal(resolution.nextRealAttemptNumber, 2);
+    assert.equal(resolution.nextRealAttemptNumber, 3);
+    assert.equal(resolution.attemptBudgetExhausted, true);
+    // Attempt #1's recorded scope is untouched, and the attempt-2 requirement still describes the run
+    // that happened.
     assert.equal(resolution.attempt1InputScope, 'staged_subset');
     assert.equal(resolution.attempt2RequiredInputScope, 'full_national');
   });
 
-  it('25 · attempt #2 stays unauthorized and unexecuted even on a complete verdict', () => {
+  it('25 · attempt #2 stays unauthorized, and is reported as executed, on a complete verdict', () => {
     const complete = resolve();
     assert.equal(complete.nationalInputCompleteness, 'complete');
+    // Resolving an inventory never authorized anything and still does not (§ 13).
     assert.equal(complete.attempt2Authorized, false);
-    assert.equal(complete.attempt2Executed, false);
-    // The next action is an authorization REQUEST, never an execution.
-    assert.ok(brazilReceitaNationalResolutionNextAction(complete).startsWith('OWNER AUTHORIZATION'));
+    // But it is no longer unexecuted. These two were both `false` and only one of them was a policy claim;
+    // the other was a fact with an expiry date, and it expired on 2026-08-12.
+    assert.equal(complete.attempt2Executed, true);
+    // The next action is a REVIEW of the resource envelope — never an execution, and never a request to
+    // authorize a further attempt.
+    const nextAction = brazilReceitaNationalResolutionNextAction(complete);
+    assert.ok(nextAction.startsWith('OWNER REVIEW'));
+    assert.ok(!/AUTHORIZATION/i.test(nextAction));
   });
 
   it('26 · attempt #3 remains impossible and there is no reset path', () => {
