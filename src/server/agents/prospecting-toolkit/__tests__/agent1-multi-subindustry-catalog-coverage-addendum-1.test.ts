@@ -292,22 +292,49 @@ describe('§ 2 · resolveApolloSubindustrySearchCoverage', () => {
 // ─── § 4: discovery ⟂ precision ────────────────────────────────────────────────
 
 describe('§ 4 · la cobertura de catálogo NO implica mapping de precisión', () => {
-  test('«Ciberseguridad» tiene términos de catálogo pero sigue sin anclas de precisión', () => {
+  test('«Formación Corporativa» tiene términos de catálogo pero sigue sin anclas de precisión', () => {
+    // PHASE 2C — el ejemplo ya no puede ser «Ciberseguridad»: la Ola 1 le dio regla de
+    // precisión. Lo que este test fija es que cobertura de BÚSQUEDA y mapping de
+    // PRECISIÓN son propiedades independientes, y para eso hace falta una subindustria
+    // que siga sin precisión. «Formación Corporativa» lo está por decisión (§ 21).
+    const PRECISION_UNMAPPED = 'Formación Corporativa y Corporate Training';
     const coverage = resolveApolloSubindustrySearchCoverage({
-      requestedSubindustries: ['Ciberseguridad'],
+      requestedSubindustries: [PRECISION_UNMAPPED],
       catalogSearchTerms: CATALOG_TERMS_LOOKUP,
     });
     assert.equal(coverage.entries[0].covered, true);
 
     const precision = assessApolloSubindustryPrecisionForRequest(
       searchResult({ title: 'Empresa Cualquiera S.A.S.' }),
-      ['Ciberseguridad'],
+      [PRECISION_UNMAPPED],
     );
     assert.equal(precision.subindustryMapped, false);
     assert.notEqual(precision.subindustryMatch, 'confirmed');
   });
 
-  test('el catálogo especializado (2/73) sigue siendo la única fuente de precisión', () => {
+  test('«Ciberseguridad» sí obtuvo precisión en la Ola 1, y su cobertura no cambió', () => {
+    const coverage = resolveApolloSubindustrySearchCoverage({
+      requestedSubindustries: ['Ciberseguridad'],
+      catalogSearchTerms: CATALOG_TERMS_LOOKUP,
+    });
+    assert.equal(coverage.entries[0].covered, true);
+    // El mapping de precisión NO alteró el catálogo de discovery: sigue resolviendo
+    // por `catalog_search_terms` y no por el catálogo explícito de 2 entradas.
+    assert.equal(resolveApolloSubindustrySearchMapping('Ciberseguridad'), null);
+
+    const precision = assessApolloSubindustryPrecisionForRequest(
+      searchResult({ title: 'Empresa Cualquiera S.A.S.' }),
+      ['Ciberseguridad'],
+    );
+    assert.equal(precision.subindustryMapped, true);
+    // Y sin evidencia sigue sin confirmar: tener regla no es auto-confirmarse.
+    assert.notEqual(precision.subindustryMatch, 'confirmed');
+  });
+
+  test('el catálogo especializado de DISCOVERY sigue teniendo 2 entradas, ajeno a la precisión', () => {
+    // PHASE 2C — la precisión pasó a 11/73 y este catálogo NO se movió: son dos cosas
+    // distintas. `resolveApolloSubindustrySearchMapping` es el catálogo de discovery
+    // (`APOLLO_SUBINDUSTRY_CATALOG`, 2 entradas), no el registro de precisión.
     assert.equal(resolveApolloSubindustrySearchMapping('Ciberseguridad'), null);
     assert.notEqual(resolveApolloSubindustrySearchMapping('Supermercados e Hipermercados'), null);
   });

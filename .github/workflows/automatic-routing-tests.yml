@@ -612,6 +612,32 @@ jobs:
       - name: Run A1 subindustry precision rule-set registry tests
         run: npm run test:a1-subindustry-precision-ruleset-registry
 
+      # AGENT1-SUBINDUSTRY-PRECISION-COVERAGE-1 · PHASE 2C — la Ola 1 entra al check
+      # obligatorio. Nueve subindustrias nuevas en `confirm_only`, cobertura de
+      # precisión 2/73 → 11/73. Lo que esta suite impide que se rompa en silencio:
+      #
+      #   * § 19 toda rama NEGATIVA de una `confirm_only` es económicamente INERTE:
+      #     el pliegue sectorial es la identidad sobre los cuatro estados base, la
+      #     condición de subindustria del contrato de objetivo NO queda satisfecha, y
+      #     el candidato no deja de persistirse. El único cambio económico que una
+      #     regla nueva puede producir es un CONFIRMED positivo;
+      #   * §§ 4, 13, 15 y 17 la industria PADRE de Apollo nunca confirma la hija —el
+      #     defecto real que la fase encontró y corrigió: `hospital` a secas es token
+      #     de `hospital & health care`, la industria de TODA la salud;
+      #   * § 5 ningún alias publicado del catálogo resuelve identidad de precisión
+      #     (`banco`, `bank`, `EPS`, `CPG`, `consumo masivo`, `protección de datos`);
+      #   * § 20 ANY-OF mixto `full` + `confirm_only`: [A,B] == [B,A] en veredicto,
+      #     pliegue y condición de objetivo, sobre todos los pares de las 11 reglas;
+      #   * § 22 las dos reglas históricas conservan TODAS sus decisiones;
+      #   * §§ 21 y 25 «Formación Corporativa» sigue sin mapeo y ninguna regla de la
+      #     Ola 1 se promociona a `full`.
+      #
+      # 0 migraciones, 0 escrituras en Producción, 0 créditos. Determinista y
+      # offline: sin Apollo, sin Tavily, sin Lusha, sin HubSpot, sin Supabase y sin
+      # flags.
+      - name: Run A1 subindustry precision Wave 1 tests
+        run: npm run test:a1-subindustry-precision-wave1
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)

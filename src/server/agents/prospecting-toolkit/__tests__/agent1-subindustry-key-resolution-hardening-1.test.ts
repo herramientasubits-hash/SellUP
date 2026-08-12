@@ -39,7 +39,7 @@ import {
 import type { WebSearchResult } from '../types';
 import {
   SELLUP_ACTIVE_SUBINDUSTRY_NAMES,
-  SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING,
+  SELLUP_SUBINDUSTRIES_WITH_PRECISION_MAPPING,
 } from './fixtures/sellup-subindustry-catalog-names';
 import {
   SELLUP_ACTIVE_SUBINDUSTRY_ALIASES,
@@ -448,17 +448,21 @@ describe('§ 8 · ANY-OF, aislamiento por ítem e invariancia de orden', () => {
   } as unknown as WebSearchResult;
 
   test('cada ítem pedido se resuelve por separado', () => {
+    // «Formación Corporativa» en vez de «Ciberseguridad»: la segunda obtuvo regla de
+    // precisión en la Ola 1 (PHASE 2C) y ya no sirve de ejemplo de SIN MAPEO. La
+    // primera sigue deliberadamente sin mapeo (§ 21) y lo seguirá estando.
+    const UNMAPPED = 'Formación Corporativa y Corporate Training';
     const precision = assessApolloSubindustryPrecisionForRequest(CONFIRMS_SUPERMARKET, [
       SUPERMARKETS,
-      'Ciberseguridad',
+      UNMAPPED,
     ]);
 
     const bySubindustry = new Map(
       precision.perRequestedSubindustryEvaluations.map((item) => [item.requestedSubindustry, item]),
     );
     assert.equal(bySubindustry.get(SUPERMARKETS)?.subindustryMapped, true);
-    assert.equal(bySubindustry.get('Ciberseguridad')?.subindustryMapped, false);
-    assert.equal(bySubindustry.get('Ciberseguridad')?.verdictReason, 'subindustry_not_mapped');
+    assert.equal(bySubindustry.get(UNMAPPED)?.subindustryMapped, false);
+    assert.equal(bySubindustry.get(UNMAPPED)?.verdictReason, 'subindustry_not_mapped');
   });
 
   test('un ítem no reconocido no contamina al otro', () => {
@@ -560,13 +564,13 @@ describe('§ 9 · sin resolución no hay sustituto', () => {
 
 // ─── § 10 · la cobertura no cambia ────────────────────────────────────────────
 
-describe('§ 10 · la cobertura de precisión sigue siendo 2 de 73', () => {
-  test('el registro declara exactamente dos subindustrias, las de siempre', () => {
+describe('§ 10 · la cobertura de precisión es 11 de 73', () => {
+  test('el registro declara exactamente once subindustrias', () => {
     const registry = listSubindustryPrecisionIdentityRegistry();
-    assert.equal(registry.length, 2);
+    assert.equal(registry.length, 11);
     assert.deepEqual(
       registry.map((entry) => entry.canonicalName).sort(),
-      [...SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING].sort(),
+      [...SELLUP_SUBINDUSTRIES_WITH_PRECISION_MAPPING].sort(),
     );
   });
 
@@ -577,11 +581,14 @@ describe('§ 10 · la cobertura de precisión sigue siendo 2 de 73', () => {
     );
   });
 
-  test('de las 73 subindustrias del catálogo activo, exactamente 2 tienen precisión', () => {
+  test('de las 73 subindustrias del catálogo activo, exactamente 11 tienen precisión', () => {
     const mappedNames = SELLUP_ACTIVE_SUBINDUSTRY_NAMES.filter((name) => mapped(name));
     assert.equal(SELLUP_ACTIVE_SUBINDUSTRY_NAMES.length, 73);
-    assert.equal(mappedNames.length, 2, `cobertura inesperada: ${JSON.stringify(mappedNames)}`);
-    assert.deepEqual([...mappedNames].sort(), [...SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING].sort());
+    assert.equal(mappedNames.length, 11, `cobertura inesperada: ${JSON.stringify(mappedNames)}`);
+    assert.deepEqual(
+      [...mappedNames].sort(),
+      [...SELLUP_SUBINDUSTRIES_WITH_PRECISION_MAPPING].sort(),
+    );
   });
 
   test('ningún alias publicado del catálogo resuelve precisión todavía (§ 4)', () => {
@@ -600,9 +607,9 @@ describe('§ 10 · la cobertura de precisión sigue siendo 2 de 73', () => {
     );
   });
 
-  test('las 71 subindustrias sin precisión siguen sin mapeo', () => {
+  test('las 62 subindustrias sin precisión siguen sin mapeo', () => {
     const unmapped = SELLUP_ACTIVE_SUBINDUSTRY_NAMES.filter((name) => !mapped(name));
-    assert.equal(unmapped.length, 71);
+    assert.equal(unmapped.length, 62);
     for (const name of unmapped) {
       assert.equal(
         assessApolloSubindustryPrecision(blank(), name).verdictReason,
