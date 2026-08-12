@@ -14,12 +14,18 @@
  *   manifest → validated descriptors → streaming full-join engine → NullBenchmarkSink
  *            → public bucketed report → private exact metric artifact → verified cleanup
  *
- * ── And it still refuses ────────────────────────────────────────────────────────
+ * ── And it still refuses, by default ────────────────────────────────────────────
  * `BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED` is `false`, and this module imports that
- * constant from 14B.0C rather than declaring its own. There is exactly one authorization flag in the
- * connector; a second one here would be a second place to flip, and the two would eventually
- * disagree. Every real run refuses at the AUTHORIZATION stage, before a manifest is opened, and the
- * refusal is reported as `ABORT_BEFORE_REAL_FILE_OPEN`.
+ * constant from 14B.0C rather than declaring its own. There is exactly one authorization CONSTANT in
+ * the connector; a second one here would be a second place to flip, and the two would eventually
+ * disagree.
+ *
+ * BR-SOURCE-ATTEMPT2-OPS adds the one thing that constant could never express: an owner decision scoped
+ * to a single invocation. `request.operatorAuthorization` carries three separate approvals, each `false`
+ * unless the operator passed its own explicit flag, and a COMPLETE grant satisfies the authorization
+ * stage on its own. The constant did not move and the default did not move — a request with no grant is
+ * refused at the AUTHORIZATION stage, before a manifest is opened, and the refusal is reported as
+ * `ABORT_BEFORE_REAL_FILE_OPEN` exactly as it always was.
  *
  * ── Nothing is inferred from anything else ──────────────────────────────────────
  * § 6 is emphatic about this and it is the module's main structural rule: nine declarations are
@@ -47,6 +53,15 @@
  *   - retries, and cannot be run twice: the attempt ledger is consumed and there is no reset.
  */
 
+import {
+  BRAZIL_RECEITA_ATTEMPT_2_OPERATOR_AUTHORIZATION_DEFAULT,
+  brazilReceitaAttempt2OperatorAuthorizationGranted,
+  findBrazilReceitaAttempt2MissingOperatorApprovals,
+  summarizeBrazilReceitaAttempt2OperatorAuthorization,
+  type BrazilReceitaAttempt2OperatorApprovalKey,
+  type BrazilReceitaAttempt2OperatorAuthorization,
+  type BrazilReceitaAttempt2OperatorAuthorizationStanding,
+} from './br-receita-cnpj-attempt2-operator-authorization';
 import { runBrazilReceitaFullJoinStreamingEngineOnce } from './br-receita-cnpj-full-join-engine';
 import {
   createBrazilReceitaFullJoinNullBenchmarkSink,
@@ -433,6 +448,20 @@ export interface BrazilReceitaRealFullScanBenchmarkRequest {
   readonly freeDiskProbe: BrazilReceitaFullJoinFreeDiskProbe;
   readonly resourceDependencies?: BrazilReceitaFullJoinResourceDependencies;
   /**
+   * The PROCESS-SCOPED operator grant for THIS invocation (BR-SOURCE-ATTEMPT2-OPS § 2, § 13).
+   *
+   * Optional, and absent means the frozen all-`false` default: a caller that supplies nothing is
+   * refused at the `authorization` stage exactly as every caller was before this field existed. It is a
+   * SECOND, independent way for the authorization to arrive — never a replacement for
+   * `BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED`, which is untouched and still `false`, and
+   * never a way to change it.
+   *
+   * It is a request FIELD rather than a module constant on purpose: a value that arrives with the call
+   * dies with the call. There is nowhere for it to be written, so the next invocation starts from the
+   * default and an authorization cannot outlive the run it was granted for.
+   */
+  readonly operatorAuthorization?: BrazilReceitaAttempt2OperatorAuthorization;
+  /**
    * Wall-clock milliseconds, supplied rather than read.
    *
    * The private artifact stamps a creation time and an expiry, and both belong to the CALLER's clock:
@@ -512,6 +541,15 @@ export interface BrazilReceitaRealFullScanRefusal {
   readonly attemptsConsumedAfterRefusal: number;
   /** The durable ledger's verdict on the requested attempt number, when that is why the run stopped. */
   readonly attemptRejectionCode: BrazilReceitaRealBenchmarkAttemptRejectionCode | null;
+  /**
+   * Which of the three process-scoped approvals this invocation did not carry
+   * (BR-SOURCE-ATTEMPT2-OPS § 4, § 14).
+   *
+   * Reported on every refusal, so an operator preparing attempt #2 learns which flag is missing rather
+   * than only that the run was "not authorized". Empty when the grant was complete — including on
+   * refusals that happened for some other reason entirely.
+   */
+  readonly missingOperatorApprovals: readonly BrazilReceitaAttempt2OperatorApprovalKey[];
 }
 
 export interface BrazilReceitaRealFullScanCompletion {
@@ -653,6 +691,7 @@ function refuse(
     privateChannelRejections?: readonly BrazilReceitaFullJoinPrivateDestinationRejection[];
     bridgeFindings?: readonly BrazilReceitaFullJoinBridgeFinding[];
     attemptRejectionCode?: BrazilReceitaRealBenchmarkAttemptRejectionCode | null;
+    missingOperatorApprovals?: readonly BrazilReceitaAttempt2OperatorApprovalKey[];
   } = {},
 ): BrazilReceitaRealFullScanRefusal {
   return {
@@ -677,6 +716,7 @@ function refuse(
     realDataBoundaryCrossed: false,
     attemptsConsumedAfterRefusal: BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPTS_CONSUMED,
     attemptRejectionCode: details.attemptRejectionCode ?? null,
+    missingOperatorApprovals: details.missingOperatorApprovals ?? [],
   };
 }
 
@@ -739,13 +779,29 @@ export function applyBrazilReceitaRealFullScanReportSanitizer(
 export async function runBrazilReceitaRealFullScanResourceBenchmark(
   request: BrazilReceitaRealFullScanBenchmarkRequest,
 ): Promise<BrazilReceitaRealFullScanOutcome> {
+  // 0 — The PROCESS-SCOPED operator grant, read once from the request and never from ambient state.
+  //
+  // Resolved before anything else so that EVERY refusal below can name the approvals this invocation was
+  // missing. It grants nothing on its own: the value is consumed at the `authorization` stage, and an
+  // absent field resolves to the frozen all-`false` default.
+  const operatorAuthorization =
+    request.operatorAuthorization ?? BRAZIL_RECEITA_ATTEMPT_2_OPERATOR_AUTHORIZATION_DEFAULT;
+  const missingOperatorApprovals =
+    findBrazilReceitaAttempt2MissingOperatorApprovals(operatorAuthorization);
+  const stop = (
+    abortCode: BrazilReceitaRealFullScanAbortCode,
+    failedStage: BrazilReceitaRealFullScanPreflightStage,
+    details: Parameters<typeof refuse>[2] = {},
+  ): BrazilReceitaRealFullScanRefusal =>
+    refuse(abortCode, failedStage, { ...details, missingOperatorApprovals });
+
   // 1 — Working directory. First, because an unsafe cwd is the one hazard that can damage something
   // outside this run, and it must be caught before any other work happens.
   const cwdViolations = evaluateBrazilReceitaFullJoinBenchmarkWorkingDirectory(
     request.workingDirectory,
   );
   if (cwdViolations.length > 0) {
-    return refuse('unsafe_operator_working_directory', 'operator_working_directory', {
+    return stop('unsafe_operator_working_directory', 'operator_working_directory', {
       cwdViolations,
     });
   }
@@ -753,7 +809,7 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
   // 2 — Declarations. Nothing below may be inferred from anything here.
   const missingDeclarations = findBrazilReceitaRealFullScanMissingDeclarations(request.declarations);
   if (missingDeclarations.length > 0) {
-    return refuse('declaration_missing', 'declarations', { missingDeclarations });
+    return stop('declaration_missing', 'declarations', { missingDeclarations });
   }
   const declarations = request.declarations;
 
@@ -767,7 +823,7 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     // The ledger's rejection code IS the abort code. They are deliberately the same strings: a second
     // vocabulary here would mean a future reader has to maintain a mapping, and a stale mapping is how
     // `real_benchmark_attempt_limit_reached` would quietly become something softer.
-    return refuse(
+    return stop(
       eligibility.rejectionCode as BrazilReceitaRealFullScanAbortCode,
       'real_attempt_eligibility',
       { attemptRejectionCode: eligibility.rejectionCode },
@@ -782,14 +838,14 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
   // declarations: `datasetPeriod` being a well-formed `YYYY-MM` is a shape question, and being the
   // period this ATTEMPT was approved for is a policy question.
   if (declarations.datasetPeriod !== BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_2_REQUIRED_PERIOD) {
-    return refuse('dataset_period_not_authorized_for_attempt', 'national_input_completeness');
+    return stop('dataset_period_not_authorized_for_attempt', 'national_input_completeness');
   }
   if (
     !brazilReceitaNationalInputSatisfiesAttempt2(
       declarations.nationalInputCompleteness as BrazilReceitaNationalInputCompletenessResult,
     )
   ) {
-    return refuse('national_input_not_complete', 'national_input_completeness');
+    return stop('national_input_not_complete', 'national_input_completeness');
   }
 
   // 5 — Resource caps.
@@ -797,7 +853,7 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     declarations.resourceCaps as Readonly<Partial<Record<BrazilReceitaFullJoinResourceCapKey, unknown>>>,
   );
   if (!capResolution.ok) {
-    return refuse('resource_caps_incomplete', 'resource_caps', {
+    return stop('resource_caps_incomplete', 'resource_caps', {
       capRejections: capResolution.rejections,
     });
   }
@@ -807,15 +863,15 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     capResolution.caps.maxFilesOpened,
     declarations.maxOpenPartitionFiles,
   );
-  if (!handleCaps.ok) return refuse('handle_caps_invalid', 'handle_caps');
+  if (!handleCaps.ok) return stop('handle_caps_invalid', 'handle_caps');
 
   // 7 — The 11A no-write contract, over the whole configuration.
   const guardResult = assertBrazilReceitaFullJoinNoWrite(declarations.noWriteContract);
-  if (!guardResult.ok) return refuse('no_write_guard_failed', 'no_write_contract');
+  if (!guardResult.ok) return stop('no_write_guard_failed', 'no_write_contract');
 
   // 8 — Zero output. An equality, not a ceiling.
   if (capResolution.caps.maxOutputRows !== 0) {
-    return refuse('output_rows_cap_must_be_zero', 'zero_output');
+    return stop('output_rows_cap_must_be_zero', 'zero_output');
   }
 
   // 9 — The private channel, resolved BEFORE the run rather than after. A six-hour benchmark that
@@ -832,22 +888,38 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     request.privateChannelBoundaries,
   );
   if (!privateChannel.ready) {
-    return refuse('private_metric_channel_not_ready', 'private_metric_channel', {
+    return stop('private_metric_channel_not_ready', 'private_metric_channel', {
       privateChannelRejections: privateChannel.rejections,
     });
   }
 
   // 10 — The single attempt, consumed only now that the run is otherwise well-formed.
   if (!request.attemptLedger.consume()) {
-    return refuse('single_attempt_already_consumed', 'single_attempt');
+    return stop('single_attempt_already_consumed', 'single_attempt');
   }
 
-  // 11 — AUTHORIZATION. The gate that stops every run today, and the last thing checked before the
-  // manifest would be opened. Both the source constant and the operator's declaration must agree:
-  // the declaration alone cannot authorize a run, and the constant alone does not mean the operator
-  // asked for one.
-  if (!BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED) {
-    return refuse('benchmark_not_authorized', 'authorization');
+  // 11 — AUTHORIZATION. The last thing checked before the manifest would be opened.
+  //
+  // TWO independent ways for an authorization to exist, and the run needs exactly one of them:
+  //
+  //   - `BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED`, the tracked constant. Still `false`, still
+  //     14B.0C's, still the only one in the connector, and untouched by this milestone.
+  //   - a COMPLETE process-scoped operator grant on the request (BR-SOURCE-ATTEMPT2-OPS § 2, § 4). All
+  //     three approvals, each set only by its own explicit flag on this one invocation.
+  //
+  // An OR between them rather than an AND, because they are alternatives and not halves: the constant
+  // says "this repository authorizes real benchmarks", the grant says "this operator authorized THIS
+  // run". Requiring both would mean the source edit is still mandatory, which is the hard stop this
+  // milestone exists to remove; requiring neither is what fail-open looks like.
+  //
+  // Inside the grant the composition is an AND, and the declarations at stage 2 already required the
+  // same three approvals as literal `true`. That duplication is deliberate: stage 2 checks that the
+  // operator STATED three approvals, this checks that the invocation CARRIED them, and a future caller
+  // that hand-built declarations without a grant is refused here.
+  const processScopedAuthorization =
+    brazilReceitaAttempt2OperatorAuthorizationGranted(operatorAuthorization);
+  if (!BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED && !processScopedAuthorization) {
+    return stop('benchmark_not_authorized', 'authorization');
   }
 
   // ── Beyond this line a real file may be opened. Nothing above has opened one. ──
@@ -859,7 +931,7 @@ export async function runBrazilReceitaRealFullScanResourceBenchmark(
     allowRealLocalFiles: true,
   });
   if (!bridge.ok) {
-    return refuse('manifest_resolution_failed', 'authorization', {
+    return stop('manifest_resolution_failed', 'authorization', {
       bridgeFindings: bridge.findings,
     });
   }
@@ -1034,6 +1106,15 @@ export interface BrazilReceitaRealFullScanReadiness {
   readonly nationalInputGate: BrazilReceitaNationalInputGateStanding;
   readonly secondRealBenchmarkControlReady: true;
   readonly secondRealBenchmarkAuthorized: typeof BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED;
+  /**
+   * How a process-scoped grant is expressed, and what it defaults to (BR-SOURCE-ATTEMPT2-OPS § 24).
+   *
+   * Reported next to `secondRealBenchmarkAuthorized: false` on purpose. The mechanism being ready and
+   * nothing being approved are both true, and an operator reading `--readiness` needs the flag names to
+   * prepare an invocation without reading source — while still being told, in the field above, that no
+   * authorization exists.
+   */
+  readonly operatorAuthorization: BrazilReceitaAttempt2OperatorAuthorizationStanding;
 }
 
 export function summarizeBrazilReceitaRealFullScanReadiness(): BrazilReceitaRealFullScanReadiness {
@@ -1046,6 +1127,7 @@ export function summarizeBrazilReceitaRealFullScanReadiness(): BrazilReceitaReal
     // The CONTROLS are ready. Authorization is the next field and it is `false`.
     secondRealBenchmarkControlReady: true,
     secondRealBenchmarkAuthorized: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED,
+    operatorAuthorization: summarizeBrazilReceitaAttempt2OperatorAuthorization(),
     // Ready to be AUTHORIZED — every control exists and the path is wired end to end. Not authorized:
     // those are different facts, and this milestone changes only the first.
     realFullScanBenchmarkReadyForOwnerAuthorization: true,
