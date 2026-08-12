@@ -498,6 +498,9 @@ describe('§ 3 · ruta de recuperación sin una sola fila de candidato', () => {
           postEnrichmentPrecision: null,
           postEnrichmentSectorState: 'sector_not_mapped',
           sectorAdmission: null,
+          // Este rehidratado no reconstruye el gate de compra: su consumidor es el
+          // pack de revisión manual, que no lo lee.
+          purchase: null,
           terminalDisposition: 'sector_subindustry_rejected_final',
           terminalReason: 'sector_not_mapped',
         }) satisfies ApolloSectorEvidenceBootstrapCandidateAudit,
@@ -881,6 +884,7 @@ describe('Pack de revisión manual — las columnas del benchmark', () => {
     postEnrichmentPrecision: null,
     postEnrichmentSectorState: 'sector_not_mapped',
     sectorAdmission: null,
+    purchase: null,
     terminalDisposition: 'sector_subindustry_rejected_final',
     terminalReason: 'sector_not_mapped',
   };
