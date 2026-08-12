@@ -19,12 +19,18 @@
  * length. That single sentence is the Model A claim, and it is the only claim this module makes.
  *
  * ── What "bounded" does NOT mean here ───────────────────────────────────────────
- * It does not mean the run is authorized. GATE-2 is not approved, temporary storage remains
- * unauthorized for real data (`BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED` is
- * `false`), the real full-scan benchmark remains unauthorized, and no import, runtime hop or
+ * It does not mean the run is authorized. GATE-2 is not approved, the tracked
+ * `BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED` is still `false` and nothing here
+ * assigns it, the real full-scan benchmark remains unauthorized, and no import, runtime hop or
  * Agent 1 integration exists anywhere in this path. The engine is exercised against SYNTHETIC
  * fixtures only. An engine that exists and a run that is permitted are different facts, and this
  * module is careful never to let the first imply the second.
+ *
+ * BR-SOURCE-ATTEMPT2-FINAL § 3 gives a real run a SECOND way to hold the temporary-storage approval —
+ * one minted from an operator grant, scoped to a single invocation. This module forwards that value to
+ * the workspace and neither reads nor interprets it: the wall is still the workspace's, and a real run
+ * carrying no approval at all still refuses with `temporary_storage_policy_not_approved`, before the
+ * first read, having opened nothing.
  *
  * ── Repartition is not a retry ──────────────────────────────────────────────────
  * A repartition (§ 6.2) re-runs the two REFERENCE passes at a higher partition count when a
@@ -109,6 +115,7 @@ import {
   type BrazilReceitaFullJoinWorkspaceFileSystem,
   type BrazilReceitaFullJoinWorkspaceRejection,
 } from './br-receita-cnpj-full-join-partition-workspace';
+import type { BrazilReceitaFullJoinInvocationTemporaryStorageApproval } from './br-receita-cnpj-full-join-temporary-storage-approval';
 import {
   createBrazilReceitaFullJoinResourceEnforcer,
   resolveBrazilReceitaFullJoinResourceCaps,
@@ -158,8 +165,19 @@ export interface BrazilReceitaFullJoinEngineRequest {
   readonly minimumFreeDiskBeforeStart: number;
   readonly minimumFreeDiskReserve: number;
   readonly freeDiskProbe: BrazilReceitaFullJoinFreeDiskProbe;
-  /** `true` for a real dataset run, which the temporary-storage policy still refuses. */
+  /** `true` for a real dataset run, which still needs a temporary-storage approval to proceed. */
   readonly realDataRun: boolean;
+  /**
+   * THIS invocation's temporary-storage approval, forwarded verbatim to the workspace
+   * (BR-SOURCE-ATTEMPT2-FINAL § 3, § 4).
+   *
+   * The engine does not interpret it, cannot construct one, and does not become a second authority by
+   * carrying it: the wall stays in the workspace, where the temporary storage actually gets created. What
+   * the engine does is stop DROPPING the operator's approval on the floor — which is the whole of the
+   * defect. Absent means no approval, and a real run without one refuses at `before_first_read` exactly
+   * as it always did.
+   */
+  readonly invocationTemporaryStorageApproval?: BrazilReceitaFullJoinInvocationTemporaryStorageApproval | null;
   /**
    * Whether the sink MATERIALIZES a row (persists it, prints it, or keeps it). Required, not
    * optional: a caller must state it, and stating it is what makes `maxOutputRows` enforceable.
@@ -447,6 +465,7 @@ export function createBrazilReceitaFullJoinStreamingEngine(): BrazilReceitaFullJ
         minimumFreeDiskReserve: request.minimumFreeDiskReserve,
         freeDiskProbe: request.freeDiskProbe,
         realDataRun: request.realDataRun,
+        invocationTemporaryStorageApproval: request.invocationTemporaryStorageApproval,
       });
       if (!creation.ok) {
         return finish(
