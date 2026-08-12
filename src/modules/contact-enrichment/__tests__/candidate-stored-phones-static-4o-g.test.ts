@@ -430,8 +430,12 @@ describe('4O-G — alcance', () => {
       .sort((a, b) => a - b);
     // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
     // candidato sobre el esquema oficial. 4O-G sigue sin aportar ni editar SQL.
-    assert.equal(numbered[numbered.length - 1], 116);
-    assert.equal(numbered.length, 116);
+    // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+    // Macro Industrias (siembra en `draft` y cutover), sin relación con teléfono.
+    assert.equal(numbered[numbered.length - 1], 119);
+    // El CONTEO, no el techo: sube de 116 a 118 porque el catálogo macro aporta dos
+    // archivos (118 y 119) y la numeración arranca en 001 con huecos históricos.
+    assert.equal(numbered.length, 118);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

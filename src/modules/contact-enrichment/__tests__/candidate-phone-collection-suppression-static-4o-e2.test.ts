@@ -131,6 +131,10 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // 4O-H3: la aprobación ATÓMICA del candidato sobre el esquema oficial. Sólo una
       // función transaccional; no toca la colección de staging que esta suite protege.
       '116_approve_candidate_with_official_phones.sql',
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1: catálogo de Macro Industrias.
+      // Ninguna de las dos toca la colección de staging que esta suite protege.
+      '118_macro_industry_catalog_v2_draft.sql',
+      '119_publish_macro_industry_catalog_v2_cutover.sql',
     ]);
   });
 

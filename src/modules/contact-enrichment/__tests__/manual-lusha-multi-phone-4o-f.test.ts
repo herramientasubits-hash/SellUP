@@ -1084,7 +1084,9 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
       .sort((a, b) => a - b);
     // AGENT2A-PHONE-REVEAL-4O-H3 mueve el techo de la 115 a la 116 (la APROBACIÓN atómica
     // sobre ese mismo esquema oficial). 4O-F sigue sin aportar SQL.
-    assert.equal(numbered[numbered.length - 1], 116, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119 (catálogo de
+    // Macro Industrias). 4O-F sigue sin aportar SQL.
+    assert.equal(numbered[numbered.length - 1], 119, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

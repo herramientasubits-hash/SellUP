@@ -519,7 +519,9 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
     // conocido rompa la guarda.
     assert.equal(
       files[files.length - 1],
-      '116_approve_candidate_with_official_phones.sql',
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119 (catálogo de
+      // Macro Industrias, sin relación con teléfono). H0.5 sigue sin aportar esquema.
+      '119_publish_macro_industry_catalog_v2_cutover.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });
