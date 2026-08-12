@@ -654,6 +654,36 @@ jobs:
       - name: Run A1 subindustry precision Wave 1 tests
         run: npm run test:a1-subindustry-precision-wave1
 
+      # AGENT1-SECTOR-POST-ENRICHMENT-ADMISSION-1 — la admisión sectorial por
+      # precisión de hija entra al check obligatorio.
+      #
+      # El bloqueo que cierra, descubierto justo después de #274: el bootstrap
+      # autoriza a COMPRAR la clasificación que `mixed_companies/search` no devuelve,
+      # el perfil comprado CONFIRMA la subindustria que el usuario pidió, y el
+      # veredicto sectorial vuelve igualmente a `sector_not_mapped` —porque no hay
+      # política legacy para el sector padre— y mata al candidato antes del writer.
+      #
+      # Lo que estas suites fijan, y por qué tienen que correr en cada PR:
+      #
+      #   * §§ 3-7 una hija PEDIDA y confirmada OPERATIVAMENTE admite; la industria
+      #     PADRE sola nunca admite, y la implicación no se invierte;
+      #   * § 14 una subindustria que el usuario NO pidió no puede admitir a nadie;
+      #   * §§ 5-6 las ramas negativas de `confirm_only` siguen ABSTENIÉNDOSE: no
+      #     admiten y tampoco añaden rechazo;
+      #   * §§ 8, 10, 11 fail-closed ante catálogo incoherente, búsqueda sin
+      #     subindustrias y subindustria sin regla de precisión;
+      #   * §§ 9, 16 precedencia: la política legacy manda donde existe, y Retail y
+      #     Educación conservan sus decisiones EXACTAS — deriva cero;
+      #   * §§ 17, 21 la cadena entera por el runner real: admitir NO es persistir, y
+      #     un gate posterior (ownership) sigue rechazando con SU motivo;
+      #   * § 22 replay offline de la cohorte real de RUN 1 `f4c8a60f` con enrichment
+      #     simulado, sin una sola llamada al proveedor.
+      #
+      # 0 migraciones, 0 escrituras en Producción, 0 créditos, 0 llamadas a Apollo,
+      # Tavily, Lusha, HubSpot o Supabase.
+      - name: Run A1 sector post-enrichment admission tests
+        run: npm run test:a1-sector-post-enrichment-admission
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)
