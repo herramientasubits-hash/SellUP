@@ -227,19 +227,1137 @@ const DEPARTMENT_STORE_ANCHOR_FAMILIES: Readonly<Record<string, SubindustryMatch
   'venta de calzado': 'footwear',
 };
 
+// ─── Ola 1 · reglas `confirm_only` (PHASE 2C) ─────────────────────────────────
+
+/**
+ * Las nueve subindustrias de la Ola 1, todas en `confirm_only`.
+ *
+ * PHASE 2C · §§ 2, 3, 4, 5, 6, 7, 9 y 25. Se declaran aparte del array final sólo
+ * para que este bloque de comentario cubra lo que las nueve comparten; el registro
+ * las concatena y el validador de colisiones las trata igual que a las dos de
+ * `full`.
+ *
+ * ── Por qué NINGUNA es `full` (§ 3, § 25) ─────────────────────────────────────
+ *
+ * En `confirm_only` sólo la rama POSITIVA cruza al plano operativo. `ambiguous` y
+ * `rejected` quedan como diagnóstico y ABSTIENEN: no mueven el estado sectorial, no
+ * crean prioridad de enrichment y no impiden persistir. Eso invierte el coste de
+ * equivocarse y decide cómo están escritas estas nueve reglas:
+ *
+ *   un FALSO NEGATIVO es gratis  — la regla se abstiene y la corrida queda
+ *                                  exactamente como si la regla no existiera;
+ *   un FALSO POSITIVO cuesta     — `confirmed` sí puede contar hacia el objetivo.
+ *
+ * De ahí la asimetría deliberada: las anclas son estrechas y las listas negativas
+ * son generosas. Un término dudoso NUNCA es ancla; va a `broadProviderIndustries`
+ * (sólo puede producir ambiguo) o a `conflictingBusinessModels` (con ancla,
+ * ambiguo). Ampliar una lista negativa no puede crear una confirmación falsa.
+ *
+ * ── La industria PADRE no puede confirmar a la hija (§ 4, § 13, § 15) ─────────
+ *
+ * `classifyDeclaredIndustry` comprueba las anclas contra la industria DECLARADA, y
+ * el matcher casa subsecuencias de tokens. Así que un ancla de una sola palabra que
+ * sea token de la industria padre de Apollo convierte al padre en confirmación de
+ * la hija. Cada regla se auditó contra su padre:
+ *
+ *   Banca Tradicional        `banking` ES el valor de Apollo para la banca
+ *                            comercial —`investment banking` y `capital markets`
+ *                            son valores DISTINTOS—, y el padre `financial
+ *                            services` es AMPLIO. Ancla legítima.
+ *   Ciberseguridad           `network security` casa dentro de `computer & network
+ *                            security` (valor de Apollo para el sector) pero NO
+ *                            dentro de `information technology` ni `software`, que
+ *                            son AMPLIOS. `security` a secas es AMPLIO.
+ *   Fabricantes de Alimentos `food production` es el valor de fabricación de
+ *                            Apollo; `food and beverages` es AMPLIO.
+ *   Redes Hospitalarias      `hospital` y `clinica` a secas están EXCLUIDOS de las
+ *                            anclas: `hospital` es token de `hospital & health
+ *                            care`, el valor de Apollo para TODA la salud, y con él
+ *                            un laboratorio, una EPS o una farmacia quedaban
+ *                            confirmados como red hospitalaria por su industria
+ *                            padre. Sólo confirman las formas COMPUESTAS.
+ *   Laboratorios Clínicos    `laboratorio`/`laboratory` a secas son AMPLIOS (§ 16).
+ *   Universidades            `higher education` y `education management` son
+ *                            AMPLIOS; sólo `higher education institution` confirma.
+ *   Escuelas de Negocios     `professional training & coaching` —el único valor de
+ *                            proveedor observado, y compartido con Formación
+ *                            Corporativa y Certificación B2B— es AMPLIO (§ 7).
+ *
+ * ── Alias de catálogo que NO se promueven (§ 5) ───────────────────────────────
+ *
+ * `precisionAliases` está VACÍO en las nueve. Los alias publicados que se revisaron
+ * y se RECHAZARON como identidad, uno a uno:
+ *
+ *   `banco`, `bank`         una sola palabra genérica; «banco de alimentos» y
+ *                           «banco de sangre» no son bancos. Van a AMPLIAS.
+ *   `EPS`                   tres letras que colisionan con poliestireno expandido y
+ *                           con «earnings per share». Ni alias ni ancla.
+ *   `CPG`, `FMCG alimentos`,
+ *   `consumo masivo`        nombran la CATEGORÍA, no la fabricación (§ 17). AMPLIAS.
+ *   `protección de datos`   lo usan despachos de abogados y consultoras de
+ *                           cumplimiento tanto como las firmas de seguridad. Fuera.
+ *   `infosec`, `cybersecurity`,
+ *   `seguridad informática` inequívocos, pero entran como ANCLAS —evidencia—, no
+ *                           como identidad de la regla (§ 5).
+ *
+ * ── Términos de búsqueda que NO son anclas (§ 4) ──────────────────────────────
+ *
+ * Los `keyword` del catálogo son FRASES DE CONSULTA («droguerías cadena retail
+ * farmacia», «corporativo banca empresas», «grupo hospitalario clínicas»), no
+ * anclas. Ninguna se promovió entera. Cuando de una frase se extrajo un fragmento
+ * —`grupo hospitalario`, `red de laboratorios`, `escuela de negocios`— fue por
+ * revisión manual del fragmento, no por partir la frase en tokens.
+ *
+ * `subindustryId` y `catalogVersionId` siguen en `null`: estas reglas son
+ * code-owned y la precisión no recibe la versión del catálogo (§ 26).
+ */
+const WAVE_1_CONFIRM_ONLY_RULE_SETS: readonly SubindustryPrecisionRuleSet[] = [
+  {
+    key: 'banca tradicional',
+    canonicalName: 'Banca Tradicional',
+    subindustryId: null,
+    precisionAliases: [],
+    mode: 'confirm_only',
+    catalogVersionId: null,
+    anchors: [
+      // `banking` es el valor de Apollo para la banca comercial, y el único de las
+      // nueve reglas OBSERVADO en Producción. Sus hermanas —`investment banking`,
+      // `capital markets`, `investment management`— son valores distintos y están
+      // declaradas abajo como contradictorias y en conflicto.
+      'banking',
+      'retail banking',
+      'commercial banking',
+      'credit institution',
+      // Español
+      'banca comercial',
+      'banca minorista',
+      'banca de personas',
+      'banca empresarial',
+      'banco comercial',
+      'bancos comerciales',
+      'banco multiple',
+      'entidad bancaria',
+      'entidades bancarias',
+      'institucion bancaria',
+      'instituciones bancarias',
+      'establecimiento bancario',
+      'establecimientos bancarios',
+      'caja de ahorros',
+      'cooperativa de ahorro y credito',
+    ],
+    anchorFamilies: null,
+    exclusiveBusinessModels: [
+      // Tecnología financiera: comparte el vocabulario de la banca sin ser un banco.
+      'neobank',
+      'neobanco',
+      'challenger bank',
+      'banking as a service',
+      'core banking software',
+      'banking software',
+      'software bancario',
+      'fintech platform',
+      'payment processor',
+      'procesador de pagos',
+      'pasarela de pagos',
+      'payment gateway',
+    ],
+    conflictingBusinessModels: [
+      // Hermanas de Servicios Financieros: pueden coexistir en la ficha de un banco
+      // universal, y por sí solas no demuestran banca comercial.
+      'investment banking',
+      'banca de inversion',
+      'capital markets',
+      'mercado de capitales',
+      'investment management',
+      'asset management',
+      'gestion de activos',
+      'administradora de fondos',
+      'private equity',
+      'venture capital',
+      'hedge fund',
+      'fondo de inversion',
+      'brokerage',
+      'comisionista de bolsa',
+      'casa de bolsa',
+      'stock broker',
+      'fintech',
+      'insurtech',
+      'factoring',
+      'microfinanzas',
+      'microfinance',
+    ],
+    broadProviderIndustries: [
+      // § 7 — `financial services` por sí solo NO confirma banca tradicional.
+      'financial services',
+      'servicios financieros',
+      'finance',
+      'financiero',
+      // § 5 — los alias `banco`/`bank` viven aquí, no en las anclas: su único
+      // efecto posible es «por confirmar».
+      'banca',
+      'banco',
+      'bank',
+      'banks',
+      'credit',
+      'credito',
+      'lending',
+      'consumer lending',
+    ],
+    contradictoryProviderIndustries: [
+      // `retail` a secas NO está: es token de `retail banking`, que es un POSITIVO
+      // de esta regla, y declararlo contradictorio rechazaría a la banca minorista.
+      // Lo mismo con `internet`, token de «internet banking».
+      'investment banking',
+      'capital markets',
+      'investment management',
+      'venture capital & private equity',
+      'insurance',
+      'seguros',
+      'accounting',
+      'management consulting',
+      'software',
+      'computer software',
+      'saas',
+      'information technology',
+      'real estate',
+      'education management',
+      'hospital & health care',
+    ],
+    metadata: {
+      rationale:
+        'Ola 1 · confirm_only. `banking` es el único valor de industria de proveedor ' +
+        'observado en Prod para esta subindustria; sus hermanas de inversión y mercado ' +
+        'de capitales son valores distintos y se declaran negativas. Los alias de ' +
+        'catálogo `banco` y `bank` NO se promueven: son palabras genéricas de una pieza.',
+    },
+  },
+  {
+    key: 'farmacias cadena y retail de salud',
+    canonicalName: 'Farmacias Cadena y Retail de Salud',
+    subindustryId: null,
+    precisionAliases: [],
+    mode: 'confirm_only',
+    catalogVersionId: null,
+    anchors: [
+      'farmacia',
+      'farmacias',
+      'cadena de farmacias',
+      'cadenas de farmacias',
+      'drogueria',
+      'droguerias',
+      'botica',
+      'boticas',
+      'pharmacy',
+      'pharmacies',
+      'pharmacy chain',
+      'pharmacy chains',
+      'chain pharmacy',
+      'retail pharmacy',
+      'drugstore',
+      'drugstores',
+      'drug store',
+      'drug stores',
+    ],
+    anchorFamilies: null,
+    exclusiveBusinessModels: [
+      // § 11 — fabricación y distribución farmacéutica comparten el vocabulario de
+      // «pharma» sin ser retail de farmacia.
+      'laboratorio farmaceutico',
+      'laboratorios farmaceuticos',
+      'pharmaceutical manufacturer',
+      'pharmaceutical manufacturing',
+      'fabricante de medicamentos',
+      'fabricantes de medicamentos',
+      'drug manufacturer',
+      'drug manufacturing',
+      'distribuidor farmaceutico',
+      'distribuidores farmaceuticos',
+      'distribucion farmaceutica',
+      'pharmaceutical distributor',
+      'pharmaceutical distribution',
+      'wholesale distributor',
+      'venta al por mayor',
+      'contract research organization',
+    ],
+    conflictingBusinessModels: [
+      // § 11 — la farmacia de un hospital o de una clínica no es una cadena de
+      // farmacias, y `farmacia`/`pharmacy` casan dentro de ambas formas.
+      'farmacia hospitalaria',
+      'hospital pharmacy',
+      'farmacia clinica',
+      'clinical pharmacy',
+      // Formas COMPUESTAS: `hospital` y `clinica` a secas NO pueden estar aquí. Son
+      // tokens de `hospital & health care`, la industria que Apollo asigna a toda la
+      // salud, y las listas de modelo de negocio se comprueban contra TODOS los
+      // campos clasificadores —incluida la industria—. Con la palabra suelta, una
+      // cadena de farmacias clasificada en esa industria quedaba en conflicto
+      // consigo misma y no podía confirmar nunca.
+      'red hospitalaria',
+      'grupo hospitalario',
+      'hospital privado',
+      'clinica privada',
+      'centro medico',
+      'laboratorio clinico',
+      'clinical laboratory',
+      'eps',
+      'medicina prepagada',
+      'veterinaria',
+      'veterinary',
+      'telemedicina',
+      'telemedicine',
+      'healthtech',
+      'marketplace',
+      'ecommerce platform',
+      'delivery app',
+      'domicilios',
+    ],
+    broadProviderIndustries: [
+      'retail',
+      'retailer',
+      'consumer goods',
+      'comercio',
+      'consumo',
+      'wholesale',
+      // La industria de Apollo para la salud y para el sector farmacéutico contiene
+      // a la subindustria sin demostrarla; con un ancla en otro campo, confirma.
+      'health care',
+      'healthcare',
+      'salud',
+      'pharmaceuticals',
+      'pharmaceutical',
+      'farmaceutica',
+    ],
+    contradictoryProviderIndustries: [
+      // `hospital & health care` NO está: casa `health care`, que es AMPLIO, y una
+      // cadena de farmacias clasificada así seguiría pudiendo confirmar por ancla.
+      'biotechnology',
+      'medical devices',
+      'chemicals',
+      'software',
+      'saas',
+      'information technology',
+      'insurance',
+      'banking',
+      'financial services',
+      'consulting',
+      'education management',
+      'food production',
+      'agriculture',
+    ],
+    metadata: {
+      rationale:
+        'Ola 1 · confirm_only. § 11 — el riesgo no es «pharma» sino confundir el ' +
+        'retail de farmacia con el laboratorio, el distribuidor y la farmacia ' +
+        'hospitalaria; las tres se declaran negativas y las dos últimas contienen el ' +
+        'ancla `farmacia`, así que sólo abstención es posible ahí.',
+    },
+  },
+  {
+    key: 'medicina prepagada y eps',
+    canonicalName: 'Medicina Prepagada y EPS',
+    subindustryId: null,
+    precisionAliases: [],
+    mode: 'confirm_only',
+    catalogVersionId: null,
+    anchors: [
+      // § 12 — `EPS` a secas NO es ancla: tres letras que colisionan con el
+      // poliestireno expandido y con «earnings per share». La forma desplegada sí.
+      'entidad promotora de salud',
+      'entidades promotoras de salud',
+      'medicina prepagada',
+      'isapre',
+      'isapres',
+      'plano de saude',
+      'planos de saude',
+      'operadora de saude',
+      'operadoras de saude',
+      'plan de salud corporativo',
+      'planes de salud corporativos',
+      'plan complementario de salud',
+      'prepaid health plan',
+      'prepaid medicine',
+      'health maintenance organization',
+      'aseguradora en salud',
+      'aseguradoras en salud',
+    ],
+    anchorFamilies: null,
+    exclusiveBusinessModels: [
+      // § 12 — seguros generales y su intermediación no son aseguramiento en salud.
+      'seguros generales',
+      'life insurance',
+      'seguro de vida',
+      'auto insurance',
+      'seguro de automoviles',
+      'property insurance',
+      'insurance broker',
+      'insurance brokerage',
+      'corredor de seguros',
+      'corredores de seguros',
+      'reinsurance',
+      'reaseguro',
+      // Prestadores y proveedores: el otro lado de la relación.
+      'laboratorio clinico',
+      'clinical laboratory',
+      'farmacia',
+      'drogueria',
+    ],
+    conflictingBusinessModels: [
+      // § 12 — hospitales y clínicas son el PRESTADOR, no el asegurador. El propio
+      // catálogo lo declara como exclusión de esta subindustria.
+      //
+      // En forma COMPUESTA, y no por gusto: `hospital` a secas es token de
+      // `hospital & health care`, la industria que Apollo asigna a toda la salud —y
+      // que esta regla declara AMPLIA—. Como los modelos de negocio se comprueban
+      // contra todos los campos clasificadores, la palabra suelta ponía en conflicto
+      // a cualquier EPS clasificada en su propia industria padre, y la regla no podía
+      // confirmar nunca.
+      'red hospitalaria',
+      'redes hospitalarias',
+      'grupo hospitalario',
+      'hospital privado',
+      'hospitales privados',
+      'clinica privada',
+      'clinicas privadas',
+      'centro medico',
+      'institucion prestadora de servicios de salud',
+      'consultorio',
+      'medical practice',
+      'telemedicina',
+      'telemedicine',
+      'healthtech',
+      'health tech',
+      'software',
+      'saas',
+    ],
+    broadProviderIndustries: [
+      // § 12 — ni `salud` ni `insurance` confirman por sí solos.
+      'insurance',
+      'seguros',
+      'health insurance',
+      'health care',
+      'healthcare',
+      'hospital & health care',
+      'salud',
+      'medicina',
+    ],
+    contradictoryProviderIndustries: [
+      // `insurance` a secas NO está: es AMPLIO, y una EPS clasificada así debe poder
+      // confirmar por ancla. Las formas COMPUESTAS de seguro no-salud sí contradicen.
+      'life insurance',
+      'auto insurance',
+      'property & casualty insurance',
+      'insurance brokers',
+      'reinsurance',
+      'pharmaceuticals',
+      'medical devices',
+      'biotechnology',
+      'banking',
+      'software',
+      'information technology',
+      'education management',
+      'retail',
+      'construction',
+    ],
+    metadata: {
+      rationale:
+        'Ola 1 · confirm_only. § 12 — el alias más específico del catálogo (`EPS`) es ' +
+        'inutilizable como ancla por longitud; la regla se sostiene en las formas ' +
+        'desplegadas y en los términos locales inequívocos (`ISAPRE`, `plano de saúde`, ' +
+        '`medicina prepagada`). Hospitales y seguros generales se declaran negativos.',
+    },
+  },
+  {
+    key: 'universidades e institutos privados',
+    canonicalName: 'Universidades e Institutos Privados',
+    subindustryId: null,
+    precisionAliases: [],
+    mode: 'confirm_only',
+    catalogVersionId: null,
+    anchors: [
+      'universidad',
+      'universidades',
+      'universidade',
+      'university',
+      'universities',
+      'universidad privada',
+      'universidades privadas',
+      'private university',
+      // § 13 — la forma con `institution` confirma; `higher education` a secas es
+      // AMPLIA y no casa esta secuencia de tres tokens.
+      'higher education institution',
+      'higher education institutions',
+      'institucion de educacion superior',
+      'instituciones de educacion superior',
+      'instituto de educacion superior',
+      'institutos de educacion superior',
+      'campus universitario',
+    ],
+    anchorFamilies: null,
+    exclusiveBusinessModels: [
+      // El propio catálogo declara «universidad pública estatal» como exclusión.
+      'universidad publica',
+      'universidades publicas',
+      'universidad estatal',
+      'universidad nacional',
+      'public university',
+      'state university',
+      'plataforma de aprendizaje',
+      'learning management system',
+      'e-learning platform',
+      'edtech',
+    ],
+    conflictingBusinessModels: [
+      // § 13 — la universidad CORPORATIVA es formación de empresa, no educación
+      // superior, y `universidad` casa dentro de ella.
+      'universidad corporativa',
+      'corporate university',
+      'corporate training',
+      'formacion corporativa',
+      'capacitacion empresarial',
+      'formacion in company',
+      // Hermanas de Educación.
+      'escuela de negocios',
+      'business school',
+      'executive education',
+      'educacion ejecutiva',
+      'instituto tecnico',
+      'institutos tecnicos',
+      'instituto tecnologico',
+      'vocational training',
+      'formacion vocacional',
+      'colegio',
+      'colegios',
+      'bootcamp',
+      'academia de idiomas',
+      'language school',
+      'consultoria',
+      'consulting',
+    ],
+    broadProviderIndustries: [
+      // § 13 — parent-only: ninguno de estos confirma.
+      'education',
+      'educacion',
+      'higher education',
+      'education management',
+      'educational services',
+      'e-learning',
+      'training',
+    ],
+    contradictoryProviderIndustries: [
+      'primary/secondary education',
+      'government administration',
+      'staffing & recruiting',
+      'management consulting',
+      'publishing',
+      'software',
+      'saas',
+      'information technology',
+      'banking',
+      'financial services',
+      'retail',
+      'hospital & health care',
+    ],
+    metadata: {
+      rationale:
+        'Ola 1 · confirm_only. § 13 — `education`, `higher education` y `education ' +
+        'management` quedan AMPLIAS a propósito: son la industria padre y no pueden ' +
+        'confirmar la hija. La universidad corporativa y las escuelas de negocios se ' +
+        'declaran en conflicto porque `universidad` casa dentro de la primera.',
+    },
+  },
+  {
+    key: 'ciberseguridad',
+    canonicalName: 'Ciberseguridad',
+    subindustryId: null,
+    precisionAliases: [],
+    mode: 'confirm_only',
+    catalogVersionId: null,
+    anchors: [
+      // § 14 — ninguna ancla es `security`, `seguridad`, `software` ni `IT` a secas.
+      'ciberseguridad',
+      'cybersecurity',
+      'cyber security',
+      'seguridad informatica',
+      'seguridad de la informacion',
+      'information security',
+      'infosec',
+      // Casa dentro de `computer & network security`, el valor de Apollo para el
+      // sector, y NO dentro de `information technology` ni `software`.
+      'network security',
+      'endpoint security',
+      'application security',
+      'cloud security',
+      'threat intelligence',
+      'vulnerability management',
+      'gestion de vulnerabilidades',
+      'penetration testing',
+      'pentesting',
+      'ethical hacking',
+      'hacking etico',
+      'security operations center',
+      'centro de operaciones de seguridad',
+      'managed security services',
+      'servicios de seguridad gestionados',
+      'identity and access management',
+      'zero trust',
+      'siem',
+    ],
+    anchorFamilies: null,
+    exclusiveBusinessModels: [
+      // El catálogo declara «antivirus consumidor final» como exclusión.
+      'antivirus consumidor final',
+      'consumer antivirus',
+      // Seguridad FÍSICA: en la región es el uso más frecuente de «seguridad», y no
+      // es ciberseguridad.
+      'seguridad fisica',
+      'physical security',
+      'vigilancia privada',
+      'guardias de seguridad',
+      'security guards',
+      'private security',
+      'circuito cerrado de television',
+      'alarmas',
+    ],
+    conflictingBusinessModels: [
+      'it services',
+      'servicios de ti',
+      'it consulting',
+      'consultoria de ti',
+      'system integrator',
+      'integrador de sistemas',
+      'telecomunicaciones',
+      'internet service provider',
+      'cloud provider',
+      'hosting',
+      'data center',
+      'centro de datos',
+      'staffing',
+      'outsourcing',
+      'legal services',
+      'abogados',
+      'bufete',
+    ],
+    broadProviderIndustries: [
+      // § 14 — `security` y `seguridad` sueltos sólo pueden producir ambiguo.
+      'security',
+      'seguridad',
+      'software',
+      'computer software',
+      'saas',
+      'information technology',
+      'tecnologia',
+      'internet',
+    ],
+    contradictoryProviderIndustries: [
+      // El valor de Apollo para la seguridad física y las investigaciones.
+      'security & investigations',
+      'telecommunications',
+      'staffing & recruiting',
+      'law practice',
+      'insurance',
+      'banking',
+      'financial services',
+      'retail',
+      'education management',
+      'construction',
+      'real estate',
+      'hospital & health care',
+    ],
+    metadata: {
+      rationale:
+        'Ola 1 · confirm_only. § 14 — el alias de catálogo `protección de datos` NO se ' +
+        'promueve: lo usan despachos de abogados y consultoras de cumplimiento tanto ' +
+        'como las firmas de seguridad. `SOC` tampoco: casa dentro de «SOC 2», que ' +
+        'cualquier SaaS declara. La seguridad FÍSICA se declara excluyente.',
+    },
+  },
+  {
+    key: 'redes hospitalarias y clinicas',
+    canonicalName: 'Redes Hospitalarias y Clínicas',
+    subindustryId: null,
+    precisionAliases: [],
+    mode: 'confirm_only',
+    catalogVersionId: null,
+    anchors: [
+      // § 15 — `hospital` y `clinica` a secas están DELIBERADAMENTE fuera. `hospital`
+      // es token de `hospital & health care`, el valor de Apollo para TODA la salud:
+      // con él, un laboratorio clínico, una EPS o una cadena de farmacias quedaban
+      // confirmados como red hospitalaria por su industria PADRE. Sólo confirman las
+      // formas compuestas, que son además las que el catálogo publica como alias.
+      'red hospitalaria',
+      'redes hospitalarias',
+      'grupo hospitalario',
+      'grupos hospitalarios',
+      'hospital network',
+      'hospital networks',
+      'hospital privado',
+      'hospitales privados',
+      'private hospital',
+      'private hospitals',
+      'hospital universitario',
+      'clinica privada',
+      'clinicas privadas',
+      'private clinic',
+      'centro medico',
+      'centros medicos',
+      'medical center',
+      'medical centers',
+      'institucion prestadora de servicios de salud',
+    ],
+    anchorFamilies: null,
+    exclusiveBusinessModels: [
+      // El catálogo declara «hospital público gobierno» como exclusión.
+      'hospital publico',
+      'hospitales publicos',
+      'public hospital',
+      'hospital del gobierno',
+      'secretaria de salud',
+      'ministerio de salud',
+      // Y «empresa tecnología salud plataforma».
+      'hospital software',
+      'healthcare software',
+      'software hospitalario',
+      'suministros hospitalarios',
+      'hospital supplies',
+      'proveedor hospitalario',
+      'dispositivos medicos',
+      'equipos medicos',
+      'clinica veterinaria',
+      'veterinary clinic',
+      'veterinary hospital',
+    ],
+    conflictingBusinessModels: [
+      // Hermanas de Salud: comparten la industria padre y no son red hospitalaria.
+      'laboratorio clinico',
+      'laboratorios clinicos',
+      'clinical laboratory',
+      'diagnostic laboratory',
+      'laboratorio de diagnostico',
+      'entidad promotora de salud',
+      'medicina prepagada',
+      'isapre',
+      'plano de saude',
+      'eps',
+      'farmacia',
+      'drogueria',
+      'pharmacy',
+      'telemedicina',
+      'telemedicine',
+      'healthtech',
+      'consultorio',
+      'consultorios',
+      'clinica dental',
+      'dental clinic',
+      'medicina estetica',
+      'clinica estetica',
+      'universidad',
+      'university',
+    ],
+    broadProviderIndustries: [
+      // § 15 — la industria padre de Apollo queda AMPLIA: por sí sola, ambiguo.
+      'hospital & health care',
+      'health care',
+      'healthcare',
+      'salud',
+      'medical practice',
+      'medicina',
+    ],
+    contradictoryProviderIndustries: [
+      'pharmaceuticals',
+      'biotechnology',
+      'medical devices',
+      'software',
+      'saas',
+      'information technology',
+      'insurance',
+      'banking',
+      'financial services',
+      'retail',
+      'education management',
+      'construction',
+      'veterinary',
+    ],
+    metadata: {
+      rationale:
+        'Ola 1 · confirm_only. El defecto que la forma COMPUESTA evita: con `hospital` ' +
+        'como ancla de una palabra, la industria `hospital & health care` —que Apollo ' +
+        'asigna a toda la salud, incluidas EPS, laboratorios y farmacias— confirmaba ' +
+        'esta subindustria por sí sola, que es exactamente el parent-only que el § 15 ' +
+        'prohíbe. Coste aceptado: «Hospital San X» en el nombre comercial ya no ' +
+        'confirma; en confirm_only un falso negativo es inerte.',
+    },
+  },
+  {
+    key: 'laboratorios clinicos y diagnostico',
+    canonicalName: 'Laboratorios Clínicos y Diagnóstico',
+    subindustryId: null,
+    precisionAliases: [],
+    mode: 'confirm_only',
+    catalogVersionId: null,
+    anchors: [
+      // § 16 — ninguna ancla es `laboratorio`/`laboratory` a secas: todas nombran el
+      // análisis o el diagnóstico clínico.
+      'laboratorio clinico',
+      'laboratorios clinicos',
+      'clinical laboratory',
+      'clinical laboratories',
+      'clinical lab',
+      'clinical labs',
+      'medical laboratory',
+      'medical laboratories',
+      'laboratorio de diagnostico',
+      'laboratorios de diagnostico',
+      'diagnostic laboratory',
+      'diagnostic laboratories',
+      'analisis clinicos',
+      'laboratorio de analisis clinicos',
+      'patologia clinica',
+      'medical diagnostics',
+      'diagnostico medico',
+      'red de laboratorios',
+      'toma de muestras',
+      'imagenes diagnosticas',
+      'diagnostic imaging',
+    ],
+    anchorFamilies: null,
+    exclusiveBusinessModels: [
+      // § 16 — el laboratorio FARMACÉUTICO y el de investigación no son diagnóstico.
+      'laboratorio farmaceutico',
+      'laboratorios farmaceuticos',
+      'pharmaceutical laboratory',
+      'pharmaceutical manufacturer',
+      'pharmaceutical manufacturing',
+      'fabricante de medicamentos',
+      'drug manufacturer',
+      'laboratorio de investigacion',
+      'research laboratory',
+      'contract research organization',
+      'laboratorio de alimentos',
+      'laboratorio ambiental',
+      'environmental laboratory',
+      'laboratorio veterinario',
+      'veterinary laboratory',
+    ],
+    conflictingBusinessModels: [
+      // Formas COMPUESTAS. `hospital` a secas aquí era un DEFECTO medido: es token de
+      // `hospital & health care`, la industria que Apollo asigna a toda la salud y la
+      // clasificación más probable de un laboratorio clínico. Como los modelos de
+      // negocio se comprueban contra todos los campos clasificadores —la industria
+      // incluida—, la palabra suelta ponía en conflicto al laboratorio con su propia
+      // industria padre: con ancla quedaba `ambiguous` y la regla no podía confirmar
+      // a NADIE por esa vía. Es el mismo defecto de parent-only que obligó a
+      // «Redes Hospitalarias» a usar sólo anclas compuestas, visto del otro lado.
+      'red hospitalaria',
+      'redes hospitalarias',
+      'grupo hospitalario',
+      'hospital privado',
+      'clinica privada',
+      'centro medico',
+      'universidad',
+      'university',
+      'instituto de investigacion',
+      'research institute',
+      'entidad promotora de salud',
+      'medicina prepagada',
+      'eps',
+      'farmacia',
+      'drogueria',
+      'reactivos',
+      'software',
+      'saas',
+    ],
+    broadProviderIndustries: [
+      // § 16 — `laboratorio`/`laboratory` sueltos: sólo ambiguo.
+      'laboratory',
+      'laboratories',
+      'laboratorio',
+      'diagnostics',
+      'hospital & health care',
+      'health care',
+      'healthcare',
+      'salud',
+      'medical practice',
+    ],
+    contradictoryProviderIndustries: [
+      'pharmaceuticals',
+      'biotechnology',
+      'medical devices',
+      'chemicals',
+      'higher education',
+      'education management',
+      'software',
+      'saas',
+      'information technology',
+      'banking',
+      'financial services',
+      'insurance',
+      'retail',
+      'food production',
+      'agriculture',
+    ],
+    metadata: {
+      rationale:
+        'Ola 1 · confirm_only. § 16 — la separación que la regla sostiene es ' +
+        '`laboratorio clínico` frente a `laboratorio farmacéutico`: el primero es ' +
+        'ancla, el segundo excluyente, y `laboratorio` a secas es AMPLIO para que ' +
+        'ninguno de los dos se confirme por la palabra compartida.',
+    },
+  },
+  {
+    key: 'fabricantes de alimentos y bebidas (fmcg)',
+    canonicalName: 'Fabricantes de Alimentos y Bebidas (FMCG)',
+    subindustryId: null,
+    precisionAliases: [],
+    mode: 'confirm_only',
+    catalogVersionId: null,
+    anchors: [
+      // § 17 — cada ancla nombra la FABRICACIÓN. Ninguna es una categoría de
+      // producto: `alimentos`, `bebidas`, `FMCG`, `CPG` y `consumo masivo` viven en
+      // AMPLIAS, y son además los alias que el § 5 rehúsa promover.
+      'fabricante de alimentos',
+      'fabricantes de alimentos',
+      'fabricante de bebidas',
+      'fabricantes de bebidas',
+      'food manufacturer',
+      'food manufacturers',
+      'food manufacturing',
+      'food production',
+      'food processing',
+      'beverage manufacturer',
+      'beverage manufacturers',
+      'beverage manufacturing',
+      'beverage production',
+      'food and beverage manufacturing',
+      'produccion de alimentos',
+      'produccion de bebidas',
+      'procesamiento de alimentos',
+      'planta procesadora de alimentos',
+      'industria de alimentos',
+      'consumer packaged goods',
+      'embotelladora',
+      'embotelladoras',
+      'bottling company',
+      'bottler',
+      'cerveceria',
+      'brewery',
+      'breweries',
+    ],
+    anchorFamilies: null,
+    exclusiveBusinessModels: [
+      // § 17 — distribución, servicio de comida y venta al por mayor no fabrican.
+      'distribuidor de alimentos',
+      'distribuidores de alimentos',
+      'distribucion de alimentos',
+      'food distributor',
+      'food distributors',
+      'food distribution',
+      'restaurante',
+      'restaurantes',
+      'restaurant',
+      'restaurants',
+      'cadena de restaurantes',
+      'food service',
+      'foodservice',
+      'catering',
+      'wholesale distributor',
+      'distribuidor mayorista',
+      'venta al por mayor',
+      'delivery app',
+      'domicilios',
+    ],
+    conflictingBusinessModels: [
+      // § 17 — el canal RETAIL coexiste con la fabricación (un fabricante vende a
+      // supermercados) pero no la demuestra. Es también el par de conflicto que las
+      // dos reglas `full` ya declaraban en sentido inverso.
+      'supermercado',
+      'supermercados',
+      'hipermercado',
+      'hipermercados',
+      'supermarket',
+      'supermarkets',
+      'grocery store',
+      'grocery stores',
+      'retailer',
+      'marketplace',
+      'ecommerce platform',
+      'importador',
+      'importer',
+      'trading company',
+      'packaging',
+      'envases',
+    ],
+    broadProviderIndustries: [
+      // § 17 — la categoría por sí sola nunca demuestra fabricación.
+      'food',
+      'foods',
+      'food and beverages',
+      'food & beverages',
+      'beverage',
+      'beverages',
+      'alimentos',
+      'bebidas',
+      'consumer goods',
+      'retail',
+      'comercio',
+      'consumo',
+      'manufacturing',
+      'fmcg',
+      'cpg',
+      'consumo masivo',
+    ],
+    contradictoryProviderIndustries: [
+      'restaurants',
+      'hospitality',
+      'agriculture',
+      'farming',
+      'supermarkets',
+      'banking',
+      'financial services',
+      'insurance',
+      'software',
+      'saas',
+      'information technology',
+      'consulting',
+      'pharmaceuticals',
+      'hospital & health care',
+      'education management',
+      'construction',
+      'real estate',
+      'apparel & fashion',
+    ],
+    metadata: {
+      rationale:
+        'Ola 1 · confirm_only. § 17 — cierra un par de conflicto YA activo: ' +
+        '`food production` y `fabricante de alimentos` son hoy contradicciones ' +
+        'declaradas de «Tiendas por Departamento, Moda y Calzado», así que un ' +
+        'fabricante pedido junto a ella queda rechazado por esa regla `full` y ' +
+        'confirmado por esta — y el ANY-OF resuelve a confirmado, que es el desenlace ' +
+        'correcto y el caso que el § 20 exige probar.',
+    },
+  },
+  {
+    key: 'escuelas de negocios y formacion ejecutiva',
+    canonicalName: 'Escuelas de Negocios y Formación Ejecutiva',
+    subindustryId: null,
+    precisionAliases: [],
+    mode: 'confirm_only',
+    catalogVersionId: null,
+    anchors: [
+      // § 18 — evidencia específica de escuela de negocios o de programa ejecutivo.
+      // `formacion ejecutiva` entra porque es literalmente la mitad del nombre
+      // canónico publicado y el término del propio catálogo.
+      'escuela de negocios',
+      'escuelas de negocios',
+      'escola de negocios',
+      'business school',
+      'business schools',
+      'management school',
+      'escuela de direccion',
+      'escuela de administracion',
+      'executive education',
+      'educacion ejecutiva',
+      'formacion ejecutiva',
+      'executive mba',
+      'mba ejecutivo',
+      'programa de alta direccion',
+      'programas de alta direccion',
+      'executive development program',
+    ],
+    anchorFamilies: null,
+    exclusiveBusinessModels: [
+      // El catálogo declara «plataforma LMS e-learning tecnológica» como exclusión de
+      // la hermana Formación Corporativa; aquí vale igual.
+      'plataforma de aprendizaje',
+      'plataforma lms',
+      'learning management system',
+      'e-learning platform',
+      'edtech',
+      'colegio',
+      'primary school',
+      'secondary school',
+      'bootcamp',
+      'academia de idiomas',
+      'staffing',
+      'reclutamiento',
+    ],
+    conflictingBusinessModels: [
+      // § 18 y § 21 — «Formación Corporativa y Corporate Training» sigue SIN mapeo a
+      // propósito. Declararla en conflicto es lo que impide que un proveedor de
+      // capacitación de empresa se confirme bajo esta etiqueta.
+      'corporate training',
+      'formacion corporativa',
+      'capacitacion empresarial',
+      'formacion in company',
+      'proveedor de capacitacion',
+      'training provider',
+      // Hermana Universidades: una universidad completa confirma la suya, no ésta.
+      'universidad',
+      'universidades',
+      'university',
+      'instituto de educacion superior',
+      'certificacion profesional',
+      'professional certification',
+      'consultoria',
+      'consulting',
+      'management consulting',
+      'consultora',
+    ],
+    broadProviderIndustries: [
+      // § 7 — `professional training & coaching` es el ÚNICO valor de proveedor
+      // observado, y Prod lo comparte entre Formación Corporativa, Escuelas de
+      // Negocios y Certificación B2B. Por eso es AMPLIO y nunca confirma.
+      'professional training & coaching',
+      'education',
+      'educacion',
+      'higher education',
+      'education management',
+      'educational services',
+      'e-learning',
+      'training',
+      'management',
+    ],
+    contradictoryProviderIndustries: [
+      'primary/secondary education',
+      'government administration',
+      'staffing & recruiting',
+      'publishing',
+      'software',
+      'saas',
+      'information technology',
+      'banking',
+      'financial services',
+      'insurance',
+      'retail',
+      'hospital & health care',
+      'construction',
+    ],
+    metadata: {
+      rationale:
+        'Ola 1 · confirm_only. § 18 — la frontera que sostiene es con Formación ' +
+        'Corporativa, que el § 21 mantiene sin mapeo: sus términos se declaran en ' +
+        'conflicto para que la superposición ABSTENGA en vez de confirmar. ' +
+        '`professional training & coaching` queda AMPLIO porque Prod lo observa ' +
+        'repartido entre tres subindustrias.',
+    },
+  },
+];
+
 // ─── El registro (§ 4) ────────────────────────────────────────────────────────
 
 /**
- * Las subindustrias con política de PRECISIÓN. EXACTAMENTE dos, las de siempre.
+ * Las subindustrias con política de PRECISIÓN: las DOS de siempre en `full`, más
+ * las NUEVE de la Ola 1 en `confirm_only`.
  *
- * Añadir una tercera es el trabajo de Phase 2C y exige, por sí solo, un rule-set
- * completo más sus fixtures: el ratchet de cobertura de la suite falla si el
- * conteo deja de ser 2, y el validador de colisiones falla si dos reglas
- * comparten identidad.
+ * El ratchet de cobertura de la suite falla si el conteo deja de ser 11, si alguna
+ * de las dos históricas deja de ser `full`, o si alguna de las nueve nuevas deja de
+ * ser `confirm_only`. El validador de colisiones falla si dos reglas comparten
+ * identidad.
  *
- * «Formación Corporativa» NO está aquí a propósito (§ 17): sigue siendo buscable y
+ * «Formación Corporativa» NO está aquí a propósito (§ 21): sigue siendo buscable y
  * revisable, y no obtiene mapeo de precisión, ni auto-confirmación, ni conteo
- * hacia el objetivo por una regla nueva.
+ * hacia el objetivo por una regla nueva. Es la subindustria con MÁS demanda
+ * observada sin mapear (13 búsquedas), y esa decisión es de la dueña del producto,
+ * no del diseño.
  */
 export const SUBINDUSTRY_PRECISION_RULE_SETS: readonly SubindustryPrecisionRuleSet[] = [
   {
@@ -429,6 +1547,9 @@ export const SUBINDUSTRY_PRECISION_RULE_SETS: readonly SubindustryPrecisionRuleS
         'departamentos, moda o calzado.',
     },
   },
+  // PHASE 2C · Ola 1. Se concatenan al final para que el ORDEN de las dos reglas
+  // `full` no cambie: de él dependen los desempates de atribución del ANY-OF.
+  ...WAVE_1_CONFIRM_ONLY_RULE_SETS,
 ];
 
 // ─── Validación de colisiones (§ 14) ──────────────────────────────────────────
