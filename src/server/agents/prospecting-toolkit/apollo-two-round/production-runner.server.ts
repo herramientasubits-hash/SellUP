@@ -66,7 +66,28 @@ import {
   evaluateApolloEnrichmentEligibility,
   type ApolloEnrichmentIneligibilityReason,
 } from '../apollo-enrichment-eligibility-gate';
-import { evaluateApolloSectorRelevanceForPaidOperationAnyOf } from '../apollo-sector-relevance-gate';
+import {
+  evaluateApolloSectorRelevanceForPaidOperationAnyOf,
+  type ApolloPaidSectorRelevanceDecision,
+} from '../apollo-sector-relevance-gate';
+// SECTOR-EVIDENCE-BOOTSTRAP-1 — autorización para ADQUIRIR la clasificación que
+// `mixed_companies/search` no devuelve. No confirma nada: sólo permite preguntar.
+import {
+  APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED,
+  combineApolloSectorEvidenceBootstrapAuthorizations,
+  evaluateApolloSectorEvidenceBootstrapAuthorization,
+  readApolloSectorEvidenceBootstrapPreconditionsFromMetadata,
+  toApolloSectorEvidenceBootstrapAuthorizationMetadata,
+  type ApolloSectorEvidenceBootstrapAuthorization,
+  type ApolloSectorEvidenceBootstrapCandidateReason,
+} from '../apollo-sector-evidence-bootstrap';
+// § 17 — la traza durable de un candidato que pagó su enrichment y murió antes
+// del writer. Sin ella la corrida que existe para CALIBRAR pierde lo que compró.
+import {
+  APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_METADATA_KEY,
+  buildApolloSectorEvidenceBootstrapAudit,
+  toApolloSectorEvidenceBootstrapAuditMetadata,
+} from '../apollo-sector-evidence-bootstrap-audit';
 import {
   evaluateApolloFreeSectorContradictionAnyOf,
   resolveAllApolloSubindustrySearchMappings,
@@ -404,11 +425,7 @@ export function toCheapRejectionReason(
 
 /** Traduce el veredicto sectorial pagado al estado del § 5. */
 export function toSectorEvidenceState(
-  decision:
-    | 'relevant'
-    | 'sector_not_mapped'
-    | 'sector_relevance_contradicted'
-    | 'sector_evidence_missing_needs_enrichment',
+  decision: ApolloPaidSectorRelevanceDecision,
 ): CandidateSectorEvidenceState {
   switch (decision) {
     case 'relevant':
@@ -419,6 +436,12 @@ export function toSectorEvidenceState(
       return 'sector_evidence_contradictory';
     case 'sector_evidence_missing_needs_enrichment':
       return 'sector_evidence_missing_needs_enrichment';
+    // SECTOR-EVIDENCE-BOOTSTRAP-1 — estado propio, no un alias del anterior: el
+    // motivo por el que se paga es distinto («no hay política y el proveedor no
+    // dijo nada» frente a «hay política y el proveedor no dijo nada»), y la
+    // auditoría posterior necesita poder distinguirlos.
+    case 'sector_evidence_missing_bootstrap_eligible':
+      return 'sector_evidence_missing_bootstrap_eligible';
   }
 }
 
@@ -813,6 +836,47 @@ export async function runApolloTwoRoundWizardDiscovery(
    * `sector_evidence_missing_needs_enrichment`, que es el estado que NO cuenta.
    */
   const sectorEvidenceStateByKey = new Map<string, CandidateSectorEvidenceState>();
+
+  /**
+   * SECTOR-EVIDENCE-BOOTSTRAP-1 — autorización de la corrida para ADQUIRIR la
+   * evidencia clasificatoria que `mixed_companies/search` no devuelve.
+   *
+   * Se acumula por ronda a partir de las precondiciones que el provider OBSERVÓ en
+   * la búsqueda que emitió, y se combinan en conjunción: basta que una ronda saliera
+   * con la pregunta equivocada para que la corrida deje de autorizar gasto
+   * adicional. Sin ninguna ronda, no autorizada — el estado inicial y el
+   * fail-closed.
+   *
+   * Consecuencia declarada: un reintento que se recupera de un checkpoint SIN
+   * emitir búsqueda nueva no tiene precondiciones que observar y no autoriza
+   * adquisición. Puede costar candidatos; nunca créditos.
+   */
+  const searchBootstrapAuthorizations: ApolloSectorEvidenceBootstrapAuthorization[] = [];
+  const registerSearchBootstrapPreconditions = (output: WebSearchOutput): void => {
+    const preconditions = readApolloSectorEvidenceBootstrapPreconditionsFromMetadata(
+      output.metadata,
+    );
+    searchBootstrapAuthorizations.push(
+      preconditions === null
+        ? APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED
+        : evaluateApolloSectorEvidenceBootstrapAuthorization(preconditions),
+    );
+  };
+  const sectorEvidenceBootstrapAuthorization = (): ApolloSectorEvidenceBootstrapAuthorization =>
+    combineApolloSectorEvidenceBootstrapAuthorizations(searchBootstrapAuthorizations);
+  /**
+   * § 17 — candidatos que quedaron elegibles para ADQUIRIR evidencia, con su
+   * motivo, tal como se evaluaron ANTES de gastar.
+   *
+   * Aparte de `sectorEvidenceStateByKey` porque ese mapa guarda el veredicto MÁS
+   * RECIENTE, y tras el enrichment el estado de bootstrap ya no existe: sin este
+   * registro, una auditoría posterior no podría responder «este candidato se
+   * enriqueció porque la búsqueda no traía clasificación».
+   */
+  const bootstrapEligibleReasonByKey = new Map<
+    string,
+    ApolloSectorEvidenceBootstrapCandidateReason
+  >();
 
   /**
    * § 2 — el prefetch de admisión, UNA sola vez por corrida y de forma perezosa.
@@ -1270,6 +1334,10 @@ export async function runApolloTwoRoundWizardDiscovery(
         searchOptions,
       );
       searchOutputs.push(output);
+      // SECTOR-EVIDENCE-BOOTSTRAP-1 — la autorización se acumula desde las búsquedas
+      // REALMENTE emitidas. Una ronda saltada, en dry-run o bloqueada por el gate de
+      // gasto no aporta autorización alguna.
+      registerSearchBootstrapPreconditions(output);
 
       const credits = readRecordedSearchCredits(output);
       // § 2 CAS-CLOSE — el gasto se atribuye a ESTA operación. Los créditos que el
@@ -1310,10 +1378,15 @@ export async function runApolloTwoRoundWizardDiscovery(
       // 3-9. Gates baratos reales: país, dominio, TLD, correo, ownership,
       // plataforma externa, cooldown e historial. Cero llamadas, cero créditos.
       // ADDENDUM § 2 — el gate de gasto evalúa las CINCO selecciones con ANY-OF.
+      // SECTOR-EVIDENCE-BOOTSTRAP-1 — un sector sin política deja de ser un rechazo
+      // incondicional CUANDO la corrida está autorizada y el proveedor no declaró
+      // clasificación alguna. Sigue sin confirmar nada: sólo permite preguntar.
+      const bootstrapAuthorization = sectorEvidenceBootstrapAuthorization();
       const eligibility = evaluateApolloEnrichmentEligibility(result, {
         targetCountryCode: input.countryCode,
         sector: input.industry,
         subindustries: input.subindustries,
+        sectorEvidenceBootstrap: bootstrapAuthorization,
         domainsInCooldown: negativeMemory.excludedDomains,
       });
 
@@ -1321,6 +1394,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         result,
         input.industry,
         input.subindustries,
+        { sectorEvidenceBootstrap: bootstrapAuthorization },
       );
       // QUERY-QUALITY-2 § 7 — contradicción visible en campos GRATUITOS. El QA
       // gastó su único enrichment en Citigroup buscando supermercados: la
@@ -1350,6 +1424,13 @@ export async function runApolloTwoRoundWizardDiscovery(
       // ADAPTIVE-EARLY-STOP § 5 — el veredicto queda disponible para la
       // proyección de completitud del LOTE, no sólo para este candidato.
       sectorEvidenceStateByKey.set(key, sectorEvidenceState);
+      // § 17 — por qué este candidato puede competir sin política de sector.
+      if (
+        sectorEvidenceState === 'sector_evidence_missing_bootstrap_eligible' &&
+        sector.bootstrap?.bootstrapEligible === true
+      ) {
+        bootstrapEligibleReasonByKey.set(key, sector.bootstrap.reason);
+      }
 
       // 10-11. Duplicado en SellUp y en HubSpot — una sola consulta por
       // organización, la misma que el pipeline de producción ya hace, y cacheada
@@ -1587,10 +1668,19 @@ export async function runApolloTwoRoundWizardDiscovery(
       // ADDENDUM § 2 — misma semántica ANY-OF que antes del gasto. Reevaluar el
       // perfil comprado contra una sola subindustria podría degradar a un
       // candidato que el enrichment acababa de confirmar para otra de las pedidas.
+      //
+      // SECTOR-EVIDENCE-BOOTSTRAP-1 — DELIBERADAMENTE sin autorización de
+      // adquisición. El bootstrap autoriza a PREGUNTAR, y la pregunta ya se hizo:
+      // pasado el enrichment el candidato se juzga con el contrato normal. Si el
+      // perfil comprado trajo clasificación, el veredicto sale de ella; si no trajo
+      // nada y el sector sigue sin política, vuelve a ser `sector_not_mapped` — que
+      // es la verdad («pagamos y seguimos sin poder juzgar este sector») y garantiza
+      // que el estado de bootstrap sea INTERMEDIO y jamás un estado final.
       const sector = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
         enrichedResult,
         input.industry,
         input.subindustries,
+        { sectorEvidenceBootstrap: APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED },
       );
       // § 5 — la reevaluación posterior al enrichment vuelve a pasar por la
       // precisión de subindustria. Un perfil enriquecido puede confirmar la
@@ -1911,7 +2001,53 @@ export async function runApolloTwoRoundWizardDiscovery(
     ? []
     : await resolvePersistableCandidates();
 
-  const observability = buildObservabilityMetadata({
+  /**
+   * SECTOR-EVIDENCE-BOOTSTRAP-1 § 17 — la traza que permite auditar este gasto sin
+   * una segunda fuente de verdad: la autorización de la corrida, quién quedó
+   * elegible para adquirir evidencia y por qué, quién recibió el enrichment, en qué
+   * puesto del ranking, y en qué estado sectorial terminó.
+   *
+   * Sólo códigos estáticos y claves de candidato — las mismas que ya viajan en
+   * `enrichment_snapshots`. Sin nombres de empresa, sin secretos.
+   */
+  const bootstrapSelectionRankByKey = new Map<string, number>();
+  runResult.enrichmentSelections.forEach((selection, index) => {
+    if (!bootstrapSelectionRankByKey.has(selection.candidateKey)) {
+      bootstrapSelectionRankByKey.set(selection.candidateKey, index + 1);
+    }
+  });
+  // La disposición terminal se recalcula aquí en vez de recibirse: la proyección
+  // es PURA sobre `runResult` y `buildObservabilityMetadata` la vuelve a hacer con
+  // la misma entrada, así que las dos no pueden discrepar. Pasarla por parámetro
+  // sólo añadiría un acoplamiento entre dos proyecciones independientes.
+  const bootstrapAudit = buildApolloSectorEvidenceBootstrapAudit({
+    bootstrapEligibleReasonByKey,
+    selectionRankByKey: bootstrapSelectionRankByKey,
+    enrichmentStatusByKey,
+    evidenceByKey,
+    precisionByKey: subindustryPrecisionByKey,
+    sectorEvidenceStateByKey,
+    finalDispositions: evaluateApolloCandidateFinalDispositions(runResult),
+  });
+  const bootstrapObservability = {
+    [APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_METADATA_KEY]: {
+      ...toApolloSectorEvidenceBootstrapAuthorizationMetadata(
+        sectorEvidenceBootstrapAuthorization(),
+      ),
+      bootstrap_eligible_count: bootstrapAudit.length,
+      bootstrap_selected_for_enrichment_count: bootstrapAudit.filter(
+        (candidate) => candidate.selectedForEnrichment,
+      ).length,
+      // Distinto de «seleccionado»: un cupo puede gastarse y volver `no_match` o
+      // quedar indeterminado. Para calibrar Wave 1 sólo cuenta lo que se ejecutó.
+      bootstrap_enrichment_executed_count: bootstrapAudit.filter(
+        (candidate) => candidate.enrichmentExecuted,
+      ).length,
+      candidates: toApolloSectorEvidenceBootstrapAuditMetadata(bootstrapAudit),
+    },
+  };
+
+  const runObservability = buildObservabilityMetadata({
     runResult,
     budget,
     reservedCredits: input.reservedCredits,
@@ -1928,6 +2064,8 @@ export async function runApolloTwoRoundWizardDiscovery(
     catalogTerms: input.subindustryCatalogTerms ?? null,
     selectionCatalogVersion: input.selectionCatalogVersion ?? null,
   });
+
+  const observability = { ...bootstrapObservability, ...runObservability };
 
   let candidatesCreated = persistedCandidateIds.length;
   // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — resultado real de la escritura, que

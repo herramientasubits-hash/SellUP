@@ -104,6 +104,11 @@ import {
 } from '../apollo-organizations-error-taxonomy';
 import { toRateLimitLogMetadata } from '@/server/integrations/apollo-rate-limit-headers';
 import { applyApolloSectorRelevanceGateAnyOf } from '../apollo-sector-relevance-gate';
+// SECTOR-EVIDENCE-BOOTSTRAP-1 — precondiciones OBSERVADAS de la búsqueda emitida.
+import {
+  APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_PRECONDITIONS_KEY,
+  toApolloSectorEvidenceBootstrapPreconditionsMetadata,
+} from '../apollo-sector-evidence-bootstrap';
 import { ingestApolloOrganizationIndustryRawLabels } from '@/modules/industry-mapping/apollo-industry-raw-label-ingestion';
 import { normalizeClassificationValue } from '@/modules/prospect-batches/import-classification/catalog-normalization';
 import { captureProviderIndustryRawLabelObservations } from '../provider-industry-raw-label-capture';
@@ -1389,6 +1394,17 @@ export async function runApolloOrganizationsSearch(
       apollo_raw_result_samples_sanitized: rawResultSamples,
       // L2.15: metadata del enrichment cascade (enabled=false cuando flag OFF)
       apollo_enrichment_cascade: enrichmentCascadeMeta,
+      // SECTOR-EVIDENCE-BOOTSTRAP-1 — precondiciones OBSERVADAS de la búsqueda que
+      // acaba de emitirse. Es lo único que puede autorizar a adquirir la
+      // clasificación que `mixed_companies/search` no devuelve, y viaja como hecho
+      // de la consulta pagada, no como intención de quien la construyó.
+      [APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_PRECONDITIONS_KEY]:
+        toApolloSectorEvidenceBootstrapPreconditionsMetadata({
+          providerSearchExecuted: true,
+          queryCoverageComplete: effective.subindustryCoverageSpendGate.coverage.complete,
+          catalogVersionCoherent: effective.catalogVersionCoherence.allowed,
+          catalogTermsResolved: input.subindustryCatalogTerms != null,
+        }),
       // A1-APOLLO-WIZARD-1: paginación, presupuesto, cuota y trazabilidad por página.
       apollo_pagination: apolloPaginationMetadata,
       apollo_page_logs: apolloPageLogs,
