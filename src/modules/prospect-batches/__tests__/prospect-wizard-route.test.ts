@@ -1,11 +1,18 @@
 /**
  * Q3F-5BB.10C3-FIX-1 (P1-3) — resolveProspectWizardRoute dry-route matrix.
  *
- * Pure resolver: no I/O, no env, no network. Proves the routing invariant that
- * the 10C3 incident violated: a Lusha-eligible intent can only be honored
- * (`lusha`) or blocked (`blocked_lusha_disabled`) — it can NEVER be re-routed to
- * the Apollo-capable Agent 1 generation action. Every Lusha-intent row must have
- * `wouldUseApollo: false`.
+ * Pure resolver: no I/O, no env, no network.
+ *
+ * Invariant proved here (10C3, unchanged): a run whose EFFECTIVE provider is Lusha
+ * never touches Apollo or Tavily.
+ *
+ * AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — the complementary row changed: a
+ * Lusha-eligible intent with the flag OFF used to resolve to `wouldCallAction:
+ * null`, i.e. nothing runnable at all. That is what left «Empresas por criterios»
+ * with no executable path in all 20 supported countries for every industry mapping
+ * to a Lusha sector. Lusha is a HIDDEN provider the user never selects, so with the
+ * flag OFF the search now takes the ordinary Agent 1 discovery route — the same one
+ * every non-Lusha-eligible search already took.
  */
 
 import { describe, it } from 'node:test';
@@ -67,12 +74,20 @@ describe('resolveProspectWizardRoute — dry-route matrix', () => {
     assert.equal(r.wouldUseApollo, false);
   });
 
-  it('eligible + flag off → blocked, no action, no Apollo (STRICT-ALL)', () => {
-    // Even with execution enabled, the blocked row must call nothing.
+  it('eligible + flag off → Lusha fuera, Agent 1 discovery disponible', () => {
     const r = route(ELIGIBLE, false, true);
     assert.equal(r.intendedProvider, 'lusha');
     assert.equal(r.effectiveProvider, 'blocked_lusha_disabled');
+    // El motivo sigue siendo observable: explica por qué Lusha no participa.
     assert.equal(r.blockedReason, 'lusha_preview_disabled');
+    // Y la búsqueda sí tiene camino: el discovery ordinario de Agente 1.
+    assert.equal(r.wouldCallAction, 'executeProspectWizardGenerationAction');
+    assert.equal(r.wouldUseApollo, true);
+  });
+
+  it('eligible + flag off + ejecución apagada → nada runnable (por el flag de ejecución)', () => {
+    const r = route(ELIGIBLE, false, false);
+    assert.equal(r.effectiveProvider, 'blocked_lusha_disabled');
     assert.equal(r.wouldCallAction, null);
     assert.equal(r.wouldUseApollo, false);
   });
@@ -94,19 +109,30 @@ describe('resolveProspectWizardRoute — dry-route matrix', () => {
     assert.equal(r.wouldUseApollo, false);
   });
 
-  it('INVARIANT: every Lusha-intent row has wouldUseApollo === false', () => {
-    // Sweep the full flag x execution grid for the eligible criteria.
+  it('INVARIANT: una corrida cuyo proveedor EFECTIVO es Lusha nunca usa Apollo', () => {
+    // Barrido de la rejilla completa flag x ejecución para los criterios elegibles.
     for (const lushaPreviewEnabled of [true, false]) {
       for (const executionEnabled of [true, false]) {
         const r = route(ELIGIBLE, lushaPreviewEnabled, executionEnabled);
         assert.equal(r.intendedProvider, 'lusha');
-        assert.equal(
-          r.wouldUseApollo,
-          false,
-          `Lusha intent reached Apollo (flag=${lushaPreviewEnabled}, exec=${executionEnabled})`,
-        );
-        assert.notEqual(r.effectiveProvider, 'default_ai');
-        assert.notEqual(r.wouldCallAction, 'executeProspectWizardGenerationAction');
+        if (r.effectiveProvider === 'lusha') {
+          assert.equal(
+            r.wouldUseApollo,
+            false,
+            `una corrida Lusha alcanzó Apollo (flag=${lushaPreviewEnabled}, exec=${executionEnabled})`,
+          );
+          assert.equal(r.wouldCallAction, 'generateLushaPendingReviewBatchAction');
+        }
+      }
+    }
+  });
+
+  it('INVARIANT: con el flag apagado ninguna ruta resuelve a Lusha', () => {
+    for (const criteria of [ELIGIBLE, NOT_ELIGIBLE]) {
+      for (const executionEnabled of [true, false]) {
+        const r = route(criteria, false, executionEnabled);
+        assert.notEqual(r.effectiveProvider, 'lusha');
+        assert.notEqual(r.wouldCallAction, 'generateLushaPendingReviewBatchAction');
       }
     }
   });

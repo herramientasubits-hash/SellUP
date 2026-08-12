@@ -73,8 +73,17 @@ export type WizardProviderIndicatorInput = {
  *   2. El proveedor resuelto POR CORRIDA: es un hecho del servidor sobre esta
  *      ejecución concreta, así que manda sobre cualquier predeterminado global.
  *   3. Ruta Lusha honrada → Lusha.
- *   4. Ruta Lusha bloqueada → no disponible, sin nombre (no hubo selección).
- *   5. Ruta default_ai (o sin dato de ruta) → lo que resolvió el servidor.
+ *   4. Cualquier otra ruta (incluida la de Lusha bloqueada) → lo que resolvió el
+ *      servidor para el discovery de Agente 1.
+ *
+ * AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — la ruta `blocked_lusha_disabled` ya no
+ * produce «no disponible». Antes lo hacía, y eso era falso: el proveedor que iba a
+ * correr esa búsqueda —Tavily por defecto, Apollo si la corrida lo pide— estaba
+ * perfectamente disponible. El indicador nombraba la indisponibilidad de un
+ * proveedor OCULTO que el usuario nunca eligió y que no era el de la búsqueda.
+ *
+ * `unavailable` queda reservado para lo que de verdad lo es: un proveedor que el
+ * backend intentó y omitió (`skippedProvider`).
  */
 export function resolveWizardProviderIndicator(
   input: WizardProviderIndicatorInput,
@@ -89,10 +98,6 @@ export function resolveWizardProviderIndicator(
 
   if (input.lushaRoute === 'lusha') {
     return { status: 'resolved', provider: 'lusha' };
-  }
-
-  if (input.lushaRoute === 'blocked_lusha_disabled') {
-    return { status: 'unavailable', provider: null };
   }
 
   if (input.serverDiscoveryProvider === null) {

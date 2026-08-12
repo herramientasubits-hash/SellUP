@@ -124,6 +124,10 @@ const NO_LUSHA: WizardLushaCriteriaDecision = {
 function validatedState(): ProspectWizardState {
   return {
     currentStep: 'validated',
+    // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — el modo es parte del estado que
+    // `canValidateWizard` exige para llegar a `validated`, y ahora también decide si
+    // la búsqueda admite un proveedor externo. El fixture lo omitía.
+    searchMode: 'exploratory',
     countryCode: 'CO',
     industryId: 'ind-1',
     subindustryIds: [],

@@ -263,6 +263,9 @@ describe('§ A.4 — la pantalla previa al gasto muestra la selección completa'
   function validatedState(subindustryIds: string[]): ProspectWizardState {
     return {
       currentStep: 'validated',
+      // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — el modo decide si la búsqueda
+      // admite proveedor externo; sin él el fixture no describe un estado alcanzable.
+      searchMode: 'exploratory',
       countryCode: 'CO',
       industryId: INDUSTRY_ID,
       subindustryIds,
