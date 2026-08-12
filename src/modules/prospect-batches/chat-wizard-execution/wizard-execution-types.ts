@@ -6,6 +6,7 @@ import type {
   ProviderResolutionReason,
   WizardDiscoveryProvider,
 } from './wizard-run-provider-selection';
+import type { DiscoveryTaxonomyCapability } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 
 // ── Run-level provider outcome (A1-APOLLO-QA-CONTROL-SURFACE-1 § 10) ──────────
 
@@ -161,12 +162,28 @@ export type ResolvedWizardExecution = {
 // GenerateAIBatchInput has no fields for subindustries, additional criteria,
 // or catalog metadata. These are preserved here for traceability and future use.
 
+/**
+ * MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — bajo qué taxonomía se creó la
+ * solicitud, declarado y persistido.
+ *
+ * Extiende la capacidad resuelta con la identidad de la macro industria pedida.
+ * `macroIndustryKey` es `null` en toda corrida legacy y también cuando la
+ * industria publicada no corresponde a ninguna de las 12 —ese `null` es un dato,
+ * no un error: dice que el catálogo publicado y el módulo de código no
+ * coincidían en el momento de la corrida—.
+ */
+export type WizardTaxonomyContext = DiscoveryTaxonomyCapability & {
+  macroIndustryKey: string | null;
+  macroIndustryDisplayName: string;
+};
+
 export type WizardContext = {
   catalogVersion: string;
   industryId: string;
   subindustries: ResolvedSubindustry[];
   additionalCriteria: string | null;
   clientRequestId: string;
+  taxonomy: WizardTaxonomyContext;
   employeeSizeCriteria: {
     minEmployeeCountExclusive: number;
     enforcement: 'hard_filter';
