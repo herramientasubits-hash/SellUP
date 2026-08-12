@@ -38,6 +38,7 @@
 // dentro: no se construyen mensajes aquí.
 
 import type { PhoneSource, PhoneType } from '@/server/agents/contact-enrichment-toolkit/phone-classification';
+import { projectStoredPhoneSources } from './stored-phone-provenance-mapping';
 import {
   isCandidatePhoneEligibleForPrimary,
   normalizeCandidatePhone,
@@ -113,59 +114,13 @@ const PHONE_TYPES: readonly PhoneType[] = [
 const PHONE_STATUSES: readonly CandidatePhoneStatus[] = ['valid', 'invalid', 'unknown'];
 
 /**
- * Orden de presentación de las procedencias de UN número. Fijo, para que
- * «Apollo · Lusha» no cambie de orden entre dos renders del mismo dato.
+ * El mapa `(provider, acquisition_mode)` → `PhoneSource` VIVÍA aquí. 4O-H4 lo movió
+ * a `stored-phone-provenance-mapping.ts` —sin cambiar un solo valor— porque la
+ * colección OFICIAL del contacto (migración 114) necesita traducir el MISMO par al
+ * MISMO vocabulario, y dos copias del mismo mapa divergen en cuanto alguien toca
+ * una sola. Se re-exporta para que la API pública de este módulo no cambie.
  */
-const SOURCE_DISPLAY_ORDER: readonly PhoneSource[] = [
-  'apollo_reveal',
-  'lusha_reveal',
-  'apollo_cache',
-  'apollo_search',
-  'provider_payload',
-  'manual',
-  'unknown',
-];
-
-/**
- * Traduce `(provider, acquisition_mode)` de la tabla de procedencias al
- * vocabulario `PhoneSource` del drawer.
- *
- * FAIL-SAFE hacia `unknown`: una combinación que este mapa no reconozca se rotula
- * «Fuente desconocida» y NUNCA se asimila a una conocida. Rotular de más es peor
- * que rotular de menos — «Apollo reveal» sobre algo que no lo era es una
- * afirmación falsa sobre de dónde salió un dato personal.
- */
-export function resolveStoredPhoneSourceKey(
-  provider: string | null,
-  acquisitionMode: string | null,
-): PhoneSource {
-  const mode = typeof acquisitionMode === 'string' ? acquisitionMode.trim() : '';
-  switch (typeof provider === 'string' ? provider.trim() : '') {
-    case 'apollo':
-      if (mode === 'search') return 'apollo_search';
-      if (mode === 'cache') return 'apollo_cache';
-      // `reveal`, `waterfall` y `manual` son el MISMO hecho para quien lee la
-      // pantalla: Apollo reveló este número. El disparo (automático, en cascada o
-      // a mano) es contabilidad de la corrida, no procedencia del dato.
-      if (mode === 'reveal' || mode === 'waterfall' || mode === 'manual') {
-        return 'apollo_reveal';
-      }
-      return 'unknown';
-    case 'apollo_cache':
-      // Reutilización de un reveal ya pagado: distinta de `apollo_reveal` a
-      // propósito, y esa distinción ya es doctrina del subsistema.
-      return 'apollo_cache';
-    case 'lusha':
-      if (mode === 'reveal' || mode === 'waterfall' || mode === 'manual') {
-        return 'lusha_reveal';
-      }
-      return 'unknown';
-    case 'manual':
-      return 'manual';
-    default:
-      return 'unknown';
-  }
-}
+export { resolveStoredPhoneSourceKey } from './stored-phone-provenance-mapping';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -245,11 +200,7 @@ function toRecord(
 function projectSources(
   sources: readonly StoredCandidatePhoneSourceRow[],
 ): readonly PhoneSource[] {
-  const keys = new Set<PhoneSource>();
-  for (const source of sources) {
-    keys.add(resolveStoredPhoneSourceKey(source.provider, source.acquisition_mode));
-  }
-  return SOURCE_DISPLAY_ORDER.filter((key) => keys.has(key));
+  return projectStoredPhoneSources(sources);
 }
 
 // ── Construcción de la colección mostrable ─────────────────────

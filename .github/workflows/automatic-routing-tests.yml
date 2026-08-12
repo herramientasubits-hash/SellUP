@@ -1250,3 +1250,19 @@ jobs:
       #   npm run test:agent2a:official-contact-phone-approval:postgres
       - name: Run official contact approval tests
         run: npm run test:agent2a:official-contact-phone-approval
+
+      # AGENT2A-PHONE-REVEAL-4O-H4 — «Ver más números» del contacto OFICIAL.
+      #
+      # Hito de SÓLO LECTURA: la cadena entera (acción → lectura → núcleo puro) hace
+      # tres SELECT sobre `contact_phones` / `contact_phone_sources` y nada más. Cero
+      # proveedor, cero créditos, cero reservas, cero usage logs, cero escrituras,
+      # cero migraciones.
+      #
+      # Las guardas estáticas son las que sostienen ese contrato cuando ya nadie
+      # recuerde por qué: prueban que la llamada que gastaría NO ESTÁ ESCRITA, y
+      # fallan en el momento en que alguien la añada.
+      - name: Run official contact stored phones tests
+        run: npm run test:agent2a:official-contact-stored-phones
+
+      - name: Run official contact stored phones UI tests
+        run: npm run test:agent2a:official-contact-stored-phones-ui

@@ -41,6 +41,11 @@ import {
 import type { AccountWithOwner } from '@/modules/accounts/types';
 import { ContactRowActions } from './contact-row-actions';
 import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
+// AGENT2A-PHONE-REVEAL-4O-H4 — «Ver más números» del contacto OFICIAL.
+// Sólo LECTURA: abrirlo hace un SELECT sobre la colección oficial de
+// teléfonos del contacto y nada más. Ni proveedor, ni crédito, ni escritura.
+import { getOfficialContactStoredPhoneSummaryAction } from '@/modules/contact-enrichment/official-contact-stored-phones-actions';
+import { OfficialContactStoredPhonesDisclosure } from './official-contact-stored-phones-disclosure';
 
 const STATUS_STYLES: Record<ContactStatus, string> = {
   active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
@@ -95,6 +100,9 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   const [auditLog, setAuditLog] = React.useState<ContactAuditEntry[]>([]);
   const [account, setAccount] = React.useState<AccountWithOwner | null>(null);
   const [loading, setLoading] = React.useState(false);
+  // 4O-H4: CUÁNTOS números adicionales hay almacenados. Es un entero y nada más —
+  // ningún número viaja al navegador hasta que el operador abre el disclosure.
+  const [additionalPhoneCount, setAdditionalPhoneCount] = React.useState(0);
 
   const loadData = React.useCallback(async (id: string) => {
     setLoading(true);
@@ -102,12 +110,14 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       const c = await getContactById(id);
       if (!c) return;
       setContact(c);
-      const [log, acc] = await Promise.all([
+      const [log, acc, storedPhones] = await Promise.all([
         getContactAudit(id),
         getAccountById(c.account_id),
+        getOfficialContactStoredPhoneSummaryAction({ contactId: id }),
       ]);
       setAuditLog(log);
       setAccount(acc);
+      setAdditionalPhoneCount(storedPhones.additionalCount);
     } finally {
       setLoading(false);
     }
@@ -126,6 +136,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
         setContact(null);
         setAuditLog([]);
         setAccount(null);
+        setAdditionalPhoneCount(0);
       });
     }
   }, [open, contactId, loadData]);
@@ -229,6 +240,18 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                               {contact.phone}
                             </a>
                           </DetailRow>
+                        )}
+                        {/*
+                          4O-H4 — «Ver N números más». El CTA existe SÓLO si el
+                          servidor contó extras, y los escalares de arriba siguen
+                          visibles exactamente como estaban: esto AÑADE una
+                          superficie de lectura, no reemplaza ninguna.
+                        */}
+                        {additionalPhoneCount > 0 && (
+                          <OfficialContactStoredPhonesDisclosure
+                            contactId={contact.id}
+                            additionalCount={additionalPhoneCount}
+                          />
                         )}
                         {contact.linkedin_url && (
                           <DetailRow icon={Link2} label="LinkedIn">
