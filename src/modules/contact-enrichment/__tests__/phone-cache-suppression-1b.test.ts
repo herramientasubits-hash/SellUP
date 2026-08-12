@@ -711,6 +711,16 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
       candidatePhoneRowsSuppressed: 3,
       candidatePhoneSurvivorCount: 0,
       candidatePhonePrimaryChanged: true,
+      // 4O-H2: la superficie OFICIAL. Ceros aquí porque esta suite fija el contrato de
+      // 4O-E4/1b, cuyos contactos no tienen colección oficial: la propiedad «la 115 no
+      // toca nada cuando no hay colección» se mide contra PostgreSQL real en la suite
+      // de H2, y la de auditoría con conteos no nulos también.
+      officialPhoneSourcesSuppressed: 0,
+      officialPhoneRowsTombstoned: 0,
+      officialPhoneContactsTargeted: 0,
+      officialPhoneSurvivorCount: 0,
+      officialPhonePrimaryChanged: false,
+      officialPhoneScalarGuarded: 0,
       contactsCleared: 1,
     });
     assert.equal(row.provider, 'apollo');
@@ -745,6 +755,16 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
       candidatePhoneRowsSuppressed: 2,
       candidatePhoneSurvivorCount: 0,
       candidatePhonePrimaryChanged: true,
+      // 4O-H2: la superficie OFICIAL. Ceros aquí porque esta suite fija el contrato de
+      // 4O-E4/1b, cuyos contactos no tienen colección oficial: la propiedad «la 115 no
+      // toca nada cuando no hay colección» se mide contra PostgreSQL real en la suite
+      // de H2, y la de auditoría con conteos no nulos también.
+      officialPhoneSourcesSuppressed: 0,
+      officialPhoneRowsTombstoned: 0,
+      officialPhoneContactsTargeted: 0,
+      officialPhoneSurvivorCount: 0,
+      officialPhonePrimaryChanged: false,
+      officialPhoneScalarGuarded: 0,
       contactsCleared: 2,
     });
     const serialized = JSON.stringify(row);
@@ -769,6 +789,16 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
       candidatePhoneRowsSuppressed: 2,
       candidatePhoneSurvivorCount: 0,
       candidatePhonePrimaryChanged: true,
+      // 4O-H2: la superficie OFICIAL. Ceros aquí porque esta suite fija el contrato de
+      // 4O-E4/1b, cuyos contactos no tienen colección oficial: la propiedad «la 115 no
+      // toca nada cuando no hay colección» se mide contra PostgreSQL real en la suite
+      // de H2, y la de auditoría con conteos no nulos también.
+      officialPhoneSourcesSuppressed: 0,
+      officialPhoneRowsTombstoned: 0,
+      officialPhoneContactsTargeted: 0,
+      officialPhoneSurvivorCount: 0,
+      officialPhonePrimaryChanged: false,
+      officialPhoneScalarGuarded: 0,
       contactsCleared: 2,
     });
     // En v1 la única fuerza que puede aparecer es `provenance_proven`: nada más

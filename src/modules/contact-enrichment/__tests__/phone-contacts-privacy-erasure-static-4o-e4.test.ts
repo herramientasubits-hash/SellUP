@@ -340,24 +340,30 @@ describe('4O-E4 estático — la suite está cableada en el check obligatorio', 
 describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
   it('E4 no aportó ninguna migración (su fix es de código)', () => {
     // El techo lo movió AGENT2A-PHONE-REVEAL-4O-H1 con la 114 —el esquema OFICIAL de
-    // múltiples teléfonos, creado INERTE y con su propia guarda estática—. Lo que esta
-    // guarda protege es que E4 se resolvió en TypeScript, no cuál es el número más alto.
+    // múltiples teléfonos, creado INERTE y con su propia guarda estática— y después
+    // AGENT2A-PHONE-REVEAL-4O-H2 con la 115 —la PRIVACIDAD de ese esquema: dos contadores
+    // de auditoría y `suppress_official_contact_phone_sources`, también con su propia
+    // guarda estática—. Lo que esta guarda protege es que E4 se resolvió en TypeScript, no
+    // cuál es el número más alto; por eso la lista sigue siendo EXACTA y enumerada.
     const migrations = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith('.sql'))
-      .filter((f) => /^11[4-9]|^1[2-9]\d/.test(f));
+      .filter((f) => /^11[4-9]|^1[2-9]\d/.test(f))
+      .sort();
     assert.deepEqual(
       migrations,
-      ['114_official_contact_phones.sql'],
+      ['114_official_contact_phones.sql', '115_official_contact_phone_privacy.sql'],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
   });
 
-  it('la migración 114 (4O-H1) es la última del repo', () => {
+  it('la migración 115 (4O-H2) es la última del repo', () => {
+    // 4O-H2 mueve el techo de la 114 a la 115. Se sigue fijando un número EXACTO: una
+    // migración por encima del último hito conocido tiene que romper esta guarda.
     const numbered = readdirSync(MIGRATIONS_DIR)
       .filter((f) => /^\d{3}_/.test(f) && f.endsWith('.sql'))
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 114);
+    assert.equal(numbered[numbered.length - 1], 115);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {
@@ -468,10 +474,35 @@ describe('4O-E4 estático — las deudas siguen declaradas', () => {
 
   it('el core no introduce un modelo multi-phone para el contacto oficial', () => {
     const core = read(...CORE);
-    // El patch sigue siendo de UNA tupla escalar. Si apareciera un array de
-    // teléfonos aquí, `OFFICIAL_MULTI_PHONE_MODEL_PENDING` habría dejado de ser
-    // cierto sin que nadie lo decidiera.
-    assert.equal(/contact_phones\b/.test(core), false);
+    // AGENT2A-PHONE-REVEAL-4O-H2 — esta guarda se ESTRECHA, no se borra.
+    //
+    // En 4O-E4 afirmaba que el core no había colado el modelo oficial multi-teléfono, y
+    // era cierto: no existía. Ahora existe, y llegó por decisión declarada en DOS hitos
+    // separados y fijados cada uno por su propia guarda: la FORMA en 4O-H1 (migración 114,
+    // `contact_phones` + `contact_phone_sources`, INERTE) y su PRIVACIDAD en 4O-H2
+    // (migración 115). Lo que 4O-E4 tiene que seguir impidiendo es que su propio core
+    // crezca un modelo multi-teléfono POR SU CUENTA, y eso se sigue midiendo:
+    //
+    //   1. el conjunto de tablas oficiales que el core nombra es EXACTO —las dos de la
+    //      114 y ninguna más—, así que una tercera tabla de teléfonos rompe la guarda;
+    //   2. en CÓDIGO (sin comentarios) el core no nombra ninguna: la colección oficial se
+    //      toca únicamente por la transacción de la 115 detrás de la RPC, nunca desde
+    //      aquí, así que el core sigue siendo puro y sin acceso directo;
+    //   3. el patch del contacto oficial sigue siendo UNA tupla escalar.
+    const OFFICIAL_TABLES_ALLOWLIST = ['contact_phone_sources', 'contact_phones'];
+    const named = [
+      ...new Set([...core.matchAll(/\bcontact_phone[a-z_]*\b/g)].map((m) => m[0])),
+    ].sort();
+    assert.deepEqual(
+      named,
+      OFFICIAL_TABLES_ALLOWLIST,
+      'el core sólo puede nombrar las DOS tablas oficiales de la 114, y sólo para documentar 4O-H2',
+    );
+    assert.equal(
+      /\bcontact_phone[a-z_]*\b/.test(stripComments(core)),
+      false,
+      'el core no accede a la colección oficial en código: eso vive en la transacción de la 115',
+    );
     const iface = core.match(
       /interface ContactPhoneSuppressionPatch \{([\s\S]*?)\n\}/,
     );

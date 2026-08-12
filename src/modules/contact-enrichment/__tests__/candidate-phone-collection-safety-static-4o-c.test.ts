@@ -184,6 +184,12 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     // que es la que fija su forma, sus vocabularios y sus privilegios. La 114 NO edita
     // la 110 ni ninguna otra de la cadena 109–113, que es la propiedad que esta guarda
     // vigila desde 4O-C-R1.
+    //
+    // AGENT2A-PHONE-REVEAL-4O-H2 sube el techo a la 115: la PRIVACIDAD de ese esquema
+    // oficial (dos contadores de auditoría sobre `phone_reveal_suppression_audit` y la
+    // función transaccional `suppress_official_contact_phone_sources`), con su propia
+    // guarda estática. Tampoco edita la 110 ni ninguna otra de la cadena 109–114: 4O-C-R1
+    // sigue aportando EXACTAMENTE la 110, que es lo único que esta guarda afirma.
     const files = migrations();
     assert.ok(files.includes('109_contact_enrichment_candidate_phones.sql'));
     assert.ok(files.includes('110_persist_candidate_apollo_phone_reveal_result.sql'));
@@ -194,13 +200,13 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     );
     assert.equal(
       files[files.length - 1],
-      '114_official_contact_phones.sql',
-      'el techo conocido es la 114 (4O-H1), que crea el esquema oficial sin editar la 110',
+      '115_official_contact_phone_privacy.sql',
+      'el techo conocido es la 115 (4O-H2), que añade la privacidad oficial sin editar la 110',
     );
     assert.equal(
-      files.some((file) => /^1(1[5-9]|[2-9]\d)/.test(file)),
+      files.some((file) => /^1(1[6-9]|[2-9]\d)/.test(file)),
       false,
-      'ninguna migración 115 o superior',
+      'ninguna migración 116 o superior',
     );
   });
 
