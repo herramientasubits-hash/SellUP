@@ -233,23 +233,25 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
   it('R1 no añade migraciones (el techo es el del último hito conocido)', () => {
       // AGENT2A-PHONE-REVEAL-4O-H1 movió el techo a la 114 (el esquema OFICIAL de
       // múltiples teléfonos, creado INERTE, con su propia guarda estática en
-      // official-contact-phone-schema-static-4o-h1.test.ts). Lo que ESTA guarda protege
-      // no es el número más alto —sube cada vez que un bloque autorizado añade el suyo—
-      // sino que este hito no aportó ninguna migración y que nadie coló una por encima
-      // del último hito conocido.
+      // official-contact-phone-schema-static-4o-h1.test.ts) y AGENT2A-PHONE-REVEAL-4O-H2
+      // a la 115 (la PRIVACIDAD de ese esquema: contadores de auditoría y
+      // `suppress_official_contact_phone_sources`, con su propia guarda). Lo que ESTA
+      // guarda protege no es el número más alto —sube cada vez que un bloque autorizado
+      // añade el suyo— sino que este hito no aportó ninguna migración y que nadie coló
+      // una por encima del último hito conocido.
     const files = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith('.sql'))
       .sort();
     const last = files[files.length - 1];
     assert.equal(
       last,
-      '114_official_contact_phones.sql',
-      'R1 es sin migración: el techo lo movió 4O-H1, no este hito',
+      '115_official_contact_phone_privacy.sql',
+      'R1 es sin migración: el techo lo movió 4O-H2, no este hito',
     );
     assert.equal(
-      files.some((f) => /^1(1[5-9]|[2-9]\d)/.test(f)),
+      files.some((f) => /^1(1[6-9]|[2-9]\d)/.test(f)),
       false,
-      'ninguna migración 115 o superior',
+      'ninguna migración 116 o superior',
     );
   });
 

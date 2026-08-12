@@ -48,6 +48,33 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
 
+/**
+ * SQL EJECUTABLE: el archivo sin las líneas de comentario `--` ni los bloques de
+ * comentario delimitados. Misma convención (y mismo nombre) que `executable()` en
+ * src/modules/contacts/__tests__/official-contact-phone-schema-static-4o-h1.test.ts.
+ */
+function executableSql(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('--'))
+    .join('\n');
+}
+
+/**
+ * SQL ESTRUCTURAL: lo ejecutable menos los `COMMENT ON … IS '…';`, que son prosa dentro
+ * de una sentencia. Misma convención que `structuralSql` en la suite hermana de 4O-H1,
+ * que la definió para exactamente esta aserción de AUSENCIA.
+ *
+ * AGENT2A-PHONE-REVEAL-4O-H2: la 115 nombra `mobile_phone` en un comentario `--` y en el
+ * `COMMENT ON FUNCTION`, y en los dos sitios lo que dice es que NO la toca. Una guarda que
+ * leyera el texto crudo castigaría precisamente la frase que declara el límite, y la forma
+ * de aprobarla sería borrarla.
+ */
+function structuralSql(source: string): string {
+  return executableSql(source).replace(/COMMENT ON [\s\S]*?';\n/g, '');
+}
+
 const CORE = ['src', 'modules', 'contact-enrichment', 'phone-cache-suppression-core.ts'];
 const ACTIONS = [
   'src',
@@ -160,10 +187,25 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
   });
 
   it('ninguna migración escribe mobile_phone (sólo la 039 declara la columna)', () => {
+    // AGENT2A-PHONE-REVEAL-4O-H2 — la guarda pasa a leer SQL ESTRUCTURAL, la misma vista
+    // que la suite hermana de 4O-H1 definió para las aserciones de AUSENCIA.
+    //
+    // La 115 nombra `mobile_phone` en un comentario `--` y en su `COMMENT ON FUNCTION`, y
+    // en los dos sitios lo que dice es que el borrado oficial NO la toca porque la columna
+    // no tiene procedencia (MOBILE_PHONE_PROVENANCE_PENDING). Castigar la prosa empujaría
+    // a borrar exactamente la frase que declara el límite. Los DIENTES no se caen: una
+    // escritura en SQL estructural sobrevive al filtro y sigue rompiendo la guarda, y la
+    // lista de migraciones que la mencionan SÓLO en prosa se fija abajo, nombre a nombre,
+    // para que nadie añada una mención nueva sin que se note.
+    const proseOnly: string[] = [];
     for (const file of readdirSync(MIGRATIONS_DIR)) {
       if (!file.endsWith('.sql')) continue;
       const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
       if (!/mobile_phone/i.test(sql)) continue;
+      if (!/mobile_phone/i.test(structuralSql(sql))) {
+        proseOnly.push(file);
+        continue;
+      }
       assert.equal(
         file,
         '039_create_contacts_foundation.sql',
@@ -175,6 +217,11 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
         'la 039 sólo DECLARA la columna; ninguna migración la puebla',
       );
     }
+    assert.deepEqual(
+      proseOnly.sort(),
+      ['115_official_contact_phone_privacy.sql'],
+      'la única migración que puede NOMBRAR mobile_phone sin tocarla es la 115 (4O-H2), que documenta que no la toca',
+    );
   });
 });
 
@@ -298,9 +345,12 @@ describe('4O-E4.1 estático — alcance', () => {
       .filter((f) => /^\d{3}_/.test(f) && f.endsWith('.sql'))
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .sort((a, b) => a - b);
-    // El techo lo movió 4O-H1 con la 114 (esquema oficial multi-teléfono, INERTE). Lo que
-    // esta guarda fija es que E4.1 se resolvió en TypeScript, no cuál es el número más alto.
-    assert.equal(numbered[numbered.length - 1], 114, 'la 114 (4O-H1) es la última');
+    // El techo lo movió 4O-H1 con la 114 (esquema oficial multi-teléfono, INERTE) y
+    // después 4O-H2 con la 115 (su privacidad: contadores de auditoría y
+    // `suppress_official_contact_phone_sources`). Lo que esta guarda fija es que E4.1 se
+    // resolvió en TypeScript, no cuál es el número más alto — y se sigue fijando un número
+    // EXACTO para que una migración colada por encima rompa la guarda.
+    assert.equal(numbered[numbered.length - 1], 115, 'la 115 (4O-H2) es la última');
   });
 
   it('no se introduce `mobile_phone_source` ni ningún modelo de procedencia', () => {

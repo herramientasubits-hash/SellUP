@@ -117,13 +117,20 @@ describe('114 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('114 es el número más alto del repo', () => {
-    // Si otra migración pasara a 114+ sin renumerar esta, dos archivos distintos
+  it('115 es el número más alto del repo', () => {
+    // Si otra migración pasara a 115+ sin renumerar esta, dos archivos distintos
     // compartirían orden de aplicación — el defecto que la 109 evitó dejando un hueco.
+    //
+    // AGENT2A-PHONE-REVEAL-4O-H2 sube el techo a la 115: la PRIVACIDAD de este mismo
+    // esquema (dos contadores en `phone_reveal_suppression_audit` y la función
+    // `suppress_official_contact_phone_sources`). La 115 NO añade columna, constraint ni
+    // índice a `contact_phones` ni a `contact_phone_sources` —el test siguiente sigue
+    // exigiendo que la 114 sea su única dueña—, así que el número exacto se mantiene
+    // fijado aquí y una migración por encima de la 115 rompe la guarda.
     const numbers = readdirSync(migrationsDir)
       .filter((file) => /^\d{3}[_-].*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)));
-    assert.equal(Math.max(...numbers), 114);
+    assert.equal(Math.max(...numbers), 115);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {
@@ -610,15 +617,48 @@ describe('114 — inercia', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('4O-H1 — cero lectores y cero escritores en runtime', () => {
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-H2 — los ÚNICOS archivos de producción que pueden nombrar las
+   * dos tablas oficiales. Lista EXACTA y ordenada: cualquier otro archivo que las nombre
+   * rompe la guarda, y borrar uno de estos también.
+   *
+   * H1 declaró las tablas INERTES —0 lectores, 0 escritores— y esa era la afirmación
+   * central del hito. 4O-H2 añade DELIBERADAMENTE el ÚNICO borrado, y lo añade ANTES de
+   * que H3 permita que la aprobación las ESCRIBA: una colección que se puede escribir y no
+   * se puede borrar es una colección que no puede honrar un DSAR. Por eso la privacidad
+   * aterriza primero, con las dos tablas todavía vacías en todos los entornos.
+   */
+  const OFFICIAL_TABLE_NAMING_ALLOWLIST = [
+    'src/modules/contact-enrichment/official-contact-phone-suppression-core.ts',
+    'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
+    'src/modules/contact-enrichment/phone-cache-suppression-core.ts',
+  ];
+
   it('ningún archivo de producción nombra las tablas oficiales', () => {
+    // Los dientes que QUEDAN: la aprobación (`candidate-review-core.ts`,
+    // `approveContactCandidate`), `createContact`, `updateContact`, «Buscar más números» y
+    // cualquier UI siguen sin poder nombrarlas —lo comprueban los tests de abajo— y ningún
+    // archivo de producción puede hacer `from()`/`insert()`/`update()` sobre ellas: el
+    // único acceso autorizado es la transacción de la 115 detrás de la RPC.
     const offenders = productionSources.filter((file) =>
       BARE_TABLES.some((table) => new RegExp(`['"\`]${table}['"\`]`).test(file.body)),
     );
     assert.deepEqual(
-      offenders.map((file) => file.path),
-      [],
-      'H1 declara las tablas INERTES: 0 lectores y 0 escritores en runtime',
+      offenders.map((file) => file.path).sort(),
+      OFFICIAL_TABLE_NAMING_ALLOWLIST,
+      'sólo el camino de PRIVACIDAD de 4O-H2 puede nombrar las tablas oficiales; el resto del runtime sigue sin conocerlas',
     );
+    // Y la allowlist no se puede reutilizar por accidente: cada archivo admitido tiene que
+    // declarar a qué hito pertenece.
+    for (const path of OFFICIAL_TABLE_NAMING_ALLOWLIST) {
+      const file = allSources.find((candidate) => candidate.path === path);
+      assert.ok(file, `${path} debe existir`);
+      assert.match(
+        file.body,
+        /4O-H2/,
+        `${path} está en la allowlist: tiene que declarar que la nombra por 4O-H2`,
+      );
+    }
   });
 
   it('ningún archivo de producción hace from()/insert()/update() sobre ellas', () => {

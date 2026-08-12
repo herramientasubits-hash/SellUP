@@ -413,20 +413,23 @@ describe('4O-G — alcance', () => {
 
   const MIGRATIONS_DIR = join(repoRoot, 'supabase/migrations');
 
-  it('4O-G no añade ninguna migración: el techo lo movió 4O-H1 con la 114', () => {
+  it('4O-G no añade ninguna migración: el techo lo movió 4O-H2 con la 115', () => {
     // 4O-B ya creó todo el esquema necesario. Si hiciera falta schema para
     // MOSTRAR teléfonos, el hito estaría mal planteado y esto es el HARD STOP.
     //
     // El techo lo movió AGENT2A-PHONE-REVEAL-4O-H1 con la 114 —el esquema OFICIAL de
-    // múltiples teléfonos, creado INERTE—, que es un hito distinto y con su propia guarda.
-    // Lo que aquí se protege es que 4O-G no aportó SQL, y el test siguiente que tampoco
-    // editó el existente.
+    // múltiples teléfonos, creado INERTE— y después AGENT2A-PHONE-REVEAL-4O-H2 con la 115
+    // —la PRIVACIDAD de ese esquema: contadores de auditoría y
+    // `suppress_official_contact_phone_sources`—, dos hitos distintos y cada uno con su
+    // propia guarda. Lo que aquí se protege es que 4O-G no aportó SQL, y el test siguiente
+    // que tampoco editó el existente. Se siguen fijando el número más alto Y la CUENTA:
+    // dos archivos con el mismo número, o uno colado sin renumerar, rompen la guarda.
     const numbered = readdirSync(MIGRATIONS_DIR)
       .filter((file) => /^\d{3}_.*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 114);
-    assert.equal(numbered.length, 114);
+    assert.equal(numbered[numbered.length - 1], 115);
+    assert.equal(numbered.length, 115);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

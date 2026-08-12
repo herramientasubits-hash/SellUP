@@ -32,20 +32,49 @@ export const COMPANIES_BY_CRITERIA_SEARCH_TYPES: ReadonlySet<string> = new Set([
  * Q3F-5BB.10C3-FIX-1 (P0-2): three-state routing.
  *   - `lusha`                  — Lusha-eligible criteria AND the preview flag is on.
  *   - `blocked_lusha_disabled` — Lusha-eligible criteria BUT the preview flag is
- *                                off/absent. STRICT-ALL fail-closed: the wizard
- *                                must BLOCK, never fall back to `default_ai`.
+ *                                off/absent. STRICT-ALL fail-closed: the HIDDEN
+ *                                Lusha provider must never run.
  *   - `default_ai`             — the criteria are NOT Lusha-eligible; existing
  *                                Agent 1 behavior is preserved unchanged.
  *
  * Invariant: a Lusha-eligible intent NEVER resolves to `default_ai`. Eligibility
  * is decided BEFORE the flag, so the flag can only ever gate a Lusha row between
- * `lusha` (on) and `blocked_lusha_disabled` (off) — it can never demote it to the
- * default-AI generation path (the path that spends provider credits).
+ * `lusha` (on) and `blocked_lusha_disabled` (off).
+ *
+ * ── AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — qué significa y qué NO ─────────
+ * `blocked_lusha_disabled` describe UNA ruta: la del proveedor oculto. Significa
+ * «Lusha no va a correr», y nada más. NO significa que la búsqueda esté bloqueada.
+ *
+ * Hasta este hito la UI lo leía como lo segundo: con la ruta bloqueada retiraba el
+ * selector de proveedor y «Generar prospectos», de modo que país + industria + N
+ * subindustrias podía quedar sin ninguna forma de ejecutar aunque Tavily y Apollo
+ * estuvieran desplegados. Lusha es un proveedor OCULTO que el usuario nunca elige,
+ * así que no había una intención de Lusha que degradar: la intención era «empresas
+ * por criterios», y su camino normal —el mismo de toda industria que no mapea a un
+ * sector Lusha— es el discovery de Agente 1. La disponibilidad de ese camino la
+ * decide ahora `resolveWizardDiscoveryAvailability`, que no puede leer esta ruta.
+ *
+ * Lo que se conserva íntegro es la propiedad de seguridad real: con el flag
+ * apagado esta función NUNCA devuelve `lusha`, y el guard server-side
+ * (`guardLushaPreviewEnabled`) sigue siendo la última barrera. Ninguna ruta puede
+ * llamar a Lusha con el flag apagado.
  */
 export type ProspectDiscoveryProvider =
   | 'lusha'
   | 'blocked_lusha_disabled'
   | 'default_ai';
+
+/**
+ * AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — ¿esta decisión hace correr a Lusha?
+ *
+ * Único predicado con el que las capas superiores deben preguntar por Lusha. Se
+ * expone para que nadie tenga que comparar contra el literal
+ * `'blocked_lusha_disabled'` para saber si el proveedor oculto participa: esa
+ * comparación es la que, leída como «búsqueda bloqueada», produjo el defecto.
+ */
+export function isLushaRouteHonored(provider: ProspectDiscoveryProvider): boolean {
+  return provider === 'lusha';
+}
 
 export interface ProspectDiscoveryCriteria {
   /** Mirrors ENABLE_LUSHA_PREVIEW — when false, Lusha is never selected. */

@@ -84,6 +84,8 @@ import { PHONE_CACHE_PROVIDER } from './phone-cache-core';
 import { DSAR_CANDIDATE_PHONE_SUPPRESSION_SCOPE } from './candidate-phone-collection-suppression-core';
 import { suppressCandidatePhoneCollection } from './candidate-phone-collection-suppression-persistence';
 import { mapSuppressionReasonToCandidatePhoneReason } from './candidate-phone-suppression-reason-mapping';
+import { DSAR_OFFICIAL_PHONE_SUPPRESSION_SCOPE } from './official-contact-phone-suppression-core';
+import { suppressOfficialContactPhoneSources } from './official-contact-phone-suppression-persistence';
 import {
   hashProviderPersonId,
   PHONE_REVEAL_CACHE_TABLE,
@@ -117,6 +119,8 @@ function rejected(
     candidatesCleared: 0,
     candidatePhoneRowsSuppressed: 0,
     contactsCleared: 0,
+    officialPhoneSourcesSuppressed: 0,
+    officialPhoneRowsTombstoned: 0,
     auditPersisted: false,
   };
 }
@@ -134,6 +138,8 @@ function failed(
     candidatesCleared: 0,
     candidatePhoneRowsSuppressed: 0,
     contactsCleared: 0,
+    officialPhoneSourcesSuppressed: 0,
+    officialPhoneRowsTombstoned: 0,
     auditPersisted: false,
   };
 }
@@ -279,10 +285,23 @@ export async function suppressPhoneCacheEntryAction(
   let candidatePhoneSurvivorCount = 0;
   let candidatePhonePrimaryChanged = false;
   let contactsCleared = 0;
+  // 4O-H2 — superficie OFICIAL. Conteos separados de los del candidato a propósito: son
+  // dos colecciones distintas con dos identidades distintas, y sumarlas haría imposible
+  // saber si la que quedó sin borrar fue la de staging o la oficial.
+  let officialPhoneSourcesSuppressed = 0;
+  let officialPhoneRowsTombstoned = 0;
+  let officialPhoneSurvivorCount = 0;
+  let officialPhonePrimaryChanged = false;
+  let officialPhoneScalarGuarded = 0;
   let plan: PhoneCacheSuppressionPlan = {
     ...tombstone,
     candidatePatches: [],
     contactPatches: [],
+    // Plan VACÍO de arranque: si la lectura de candidatos o de contactos falla, no se
+    // propaga a ninguna superficie. La colección oficial se comporta como las otras
+    // dos — sin objetivos no se llama a la RPC, y el `failureCode` de la lectura ya
+    // deja el resultado en `ok: false`.
+    officialContactTargets: [],
   };
 
   // 2a. Candidatos que llevan ese Apollo person id. El filtro por cuenta lo
@@ -456,6 +475,77 @@ export async function suppressPhoneCacheEntryAction(
     contactsCleared += updated?.length ?? 0;
   }
 
+  // 2e. Colección OFICIAL de teléfonos del contacto (4O-H2): `contact_phones` +
+  //     `contact_phone_sources` de la migración 114, borradas por la transacción de la
+  //     115 — retirada de procedencia, tombstone del canónico que se quedó sin
+  //     procedencia viva, reelección del principal sólo si el titular dejó de estar
+  //     vivo, y reproyección del escalar heredado, todo en UNA transacción.
+  //
+  //     ── POR QUÉ VA **DESPUÉS** DE 2d, Y NO ANTES ──────────────────
+  //     Porque así este hito es estrictamente ADITIVO. Con 2d primero, el borrado del
+  //     escalar heredado ocurre exactamente como hoy —mismo patch, mismo predicado,
+  //     mismos conteos— y la 115 encuentra `phone_source = NULL`, que no está en la
+  //     allowlist, así que su guarda lo deja intacto en vez de reescribir una tupla
+  //     que 4O-E4 acaba de dejar en el estado correcto. E1–E4.1 no cambian de
+  //     comportamiento en una sola fila.
+  //
+  //     Al revés —la 115 primero— la reproyección oficial escribiría el escalar y el
+  //     `.eq('phone_source', observado)` de 2d casaría 0 filas, dejando
+  //     `contactsCleared = 0` en la auditoría sobre un escalar que SÍ se limpió. Es
+  //     decir: el modelo oficial pasaría a ser autoritativo sobre el escalar ANTES de
+  //     que H3 lo poblara y H4 lo leyera. Ese es el orden que hay que evitar.
+  //
+  //     Consecuencia DECLARADA: en el camino cableado la reproyección de la 115 casi
+  //     siempre queda guardada, y la propiedad §23 —un escalar nunca afirma una
+  //     procedencia retirada, Apollo → Lusha en la misma transacción— vive en la RPC y
+  //     se mide contra PostgreSQL real, no aquí. Es infraestructura para H3/H4, y en
+  //     H2 no se le deja mover lo que el producto muestra.
+  //
+  //     ── ALCANCE **DE PERSONA**, NO DE PROVEEDOR ───────────────────
+  //     `DSAR_OFFICIAL_PHONE_SUPPRESSION_SCOPE` = `all_suppressible_providers`, en
+  //     espejo exacto de `DSAR_CANDIDATE_PHONE_SUPPRESSION_SCOPE` =
+  //     `all_candidate_phones`. La clave de Apollo identifica a QUÉ PERSONA, no qué
+  //     proveedor se borra: esta operación ya cruza proveedores hoy (2d limpia un
+  //     escalar `lusha_reveal`). Cablearla a `single_provider = apollo` habría dejado
+  //     viva la procedencia de Lusha y el número canónico con ella.
+  //
+  //     El conjunto de contactos es `officialContactTargets` y NO `contactPatches`:
+  //     más ancho a propósito, porque la allowlist de `phone_source` protege el
+  //     ESCALAR y no autoriza la colección oficial. Un contacto con un número manual
+  //     puede tener filas oficiales de Apollo pagadas, y excluirlo las dejaría vivas.
+  for (const { contactId } of plan.officialContactTargets) {
+    try {
+      const official = await suppressOfficialContactPhoneSources({
+        contactId,
+        scope: DSAR_OFFICIAL_PHONE_SUPPRESSION_SCOPE,
+        provider: null,
+        dedupeKey: null,
+        suppressionReason: collectionReason,
+        suppressedBy: plan.actorUserId,
+        suppressedAt: nowIso,
+      });
+      officialPhoneSourcesSuppressed += official.sourcesSuppressed;
+      officialPhoneRowsTombstoned += official.phonesTombstoned;
+      officialPhoneSurvivorCount += official.survivorCount;
+      officialPhonePrimaryChanged =
+        officialPhonePrimaryChanged || official.primaryChanged;
+      if (official.scalarGuardedByProvenance) officialPhoneScalarGuarded += 1;
+      if (!official.contactSettled) {
+        // `contact_settled` viene CRUZADO contra la lista de estados liquidados en el
+        // parser, así que un `true` junto a un estado que no liquida no llega hasta
+        // aquí. `no_official_collection` SÍ liquida: no había nada que borrar.
+        failureCode = failureCode ?? 'official_phone_suppression_failed';
+      }
+    } catch {
+      // Sin PII y sin el mensaje del driver: PostgreSQL cita valores de la query en
+      // sus errores, y aquí uno de esos valores es un teléfono.
+      console.error(
+        '[phone-cache] suppression official phone propagation failed',
+      );
+      failureCode = failureCode ?? 'official_phone_suppression_failed';
+    }
+  }
+
   // 3. Auditoría DURABLE sin PII (FIX H3): hash del person id, cuenta, motivo de
   //    la allowlist y conteos REALES. Se intenta SIEMPRE — también tras un fallo
   //    parcial — porque la constancia de la supresión es parte de la garantía.
@@ -469,6 +559,12 @@ export async function suppressPhoneCacheEntryAction(
     candidatePhoneSurvivorCount,
     candidatePhonePrimaryChanged,
     contactsCleared,
+    officialPhoneSourcesSuppressed,
+    officialPhoneRowsTombstoned,
+    officialPhoneContactsTargeted: plan.officialContactTargets.length,
+    officialPhoneSurvivorCount,
+    officialPhonePrimaryChanged,
+    officialPhoneScalarGuarded,
   });
   const { error: auditError } = await admin
     .from(PHONE_CACHE_SUPPRESSION_AUDIT_TABLE)
@@ -489,6 +585,8 @@ export async function suppressPhoneCacheEntryAction(
     candidatesCleared,
     candidatePhoneRowsSuppressed,
     contactsCleared,
+    officialPhoneSourcesSuppressed,
+    officialPhoneRowsTombstoned,
     auditPersisted,
   };
 }
