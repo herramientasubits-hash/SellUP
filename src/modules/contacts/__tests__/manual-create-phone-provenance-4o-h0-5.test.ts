@@ -510,11 +510,14 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
     const files = readdirSync(join(repoRoot, 'supabase', 'migrations'))
       .filter((f) => f.endsWith('.sql'))
       .sort();
-    // El techo lo movió 4O-H1 con la 114 (esquema oficial multi-teléfono, inerte). Lo que
-    // esta guarda fija es que H0.5 no aportó esquema, no cuál es el número más alto.
+    // El techo lo movió 4O-H1 con la 114 (esquema oficial multi-teléfono, inerte) y
+    // después 4O-H2 con la 115 (su privacidad: contadores de auditoría y la función
+    // `suppress_official_contact_phone_sources`). Lo que esta guarda fija es que H0.5 no
+    // aportó esquema, no cuál es el número más alto; el nombre exacto se mantiene para que
+    // una migración colada por encima del último hito conocido rompa la guarda.
     assert.equal(
       files[files.length - 1],
-      '114_official_contact_phones.sql',
+      '115_official_contact_phone_privacy.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

@@ -1087,3 +1087,47 @@ jobs:
       #   npm run test:agent2a:official-contact-phone-schema:postgres
       - name: Run official contact phone schema tests
         run: npm run test:agent2a:official-contact-phone-schema
+
+      # AGENT2A-PHONE-REVEAL-4O-H2 — privacidad del modelo OFICIAL de múltiples teléfonos.
+      #
+      # Qué fija esta suite, que es lo único que un diff futuro no puede recordar:
+      #   * SUPRIMIBILIDAD DERIVADA: el par `(provider, acquisition_mode)` se traduce con el
+      #     mapeo exhaustivo de la 112 y se pregunta a la allowlist de 4O-E4, así que NO hay
+      #     una segunda autoridad sobre qué procedencia puede borrarse. La paridad se mide
+      #     sobre los 25 pares representables y en AMBAS direcciones (SQL ⇔ TypeScript);
+      #   * `manual`, `unknown` y `(apollo, search)` SOBREVIVEN a una supresión de Apollo Y a
+      #     una de Lusha: una DSAR dirigida a un proveedor no tiene autoridad sobre evidencia
+      #     humana, y atribuir procedencia sin atribuir sería una conjetura ejecutada;
+      #   * ALCANCE DE PERSONA en el camino cableado: la clave de Apollo identifica a QUÉ
+      #     PERSONA, no qué proveedor se borra. Cablearlo a `single_provider` habría dejado
+      #     viva la procedencia de Lusha y el número canónico con ella;
+      #   * el alcance OFICIAL es MÁS ANCHO que el del escalar — la allowlist de
+      #     `contacts.phone_source` protege el escalar y NO autoriza la colección oficial, así
+      #     que un contacto con un número manual no puede blindar filas de Apollo ya pagadas;
+      #   * ORDEN: candidato → escalar heredado → oficial, que es lo que hace el hito
+      #     estrictamente ADITIVO sobre E1–E4.1;
+      #   * INERCIA: sin colección oficial la RPC devuelve `no_official_collection` y NO
+      #     escribe nada, que es todo contacto de Producción hoy — sin esa guarda, reproyectar
+      #     desde un conjunto vacío convertiría la privacidad en pérdida de datos;
+      #   * un fallo oficial NO se reporta como éxito, y tiene código PROPIO.
+      #
+      # Mutantes detectados: se retira `manual`; se retira `unknown`; desaparece el
+      # `NOT EXISTS` del último origen; se quita la guarda de colección vacía; se quita la
+      # guarda de procedencia del escalar; se pierde la estabilidad del titular; la proyección
+      # deja de filtrar fuentes vivas; desaparece el tier manual de la reelección; se pierden
+      # los locks; se ensancha un GRANT de la 114; aparece un DELETE; se toca `mobile_phone`.
+      #
+      # Determinista y offline: sólo lee archivos del disco y ejecuta la server action contra
+      # un driver simulado. Sin red, sin Supabase, sin proveedores, 0 créditos, y NO toca
+      # Producción ni ejecuta ninguna DSAR real.
+      #
+      # ⚠️ La suite de PostgreSQL REAL queda FUERA de este check a propósito, igual que sus
+      # hermanas (4O-E2/E3/E4, 4O-F-R2, 4O-H1): exige un binario que se descarga
+      # (`npm install --no-save embedded-postgres@17.6.0-beta.15`) y que `npm ci` del check
+      # obligatorio no necesita. Ahí se miden las garantías que sólo PostgreSQL puede
+      # demostrar — la transacción, los locks, la supervivencia cruzada real, el tombstone del
+      # último origen, la reelección determinista, la sincronización del escalar, la
+      # concurrencia con dos conexiones y los privilegios de EXECUTE. Se corre con:
+      #   npm run test:agent2a:official-contact-phone-privacy:postgres
+      - name: Run official contact phone privacy tests
+        run: npm run test:agent2a:official-contact-phone-privacy

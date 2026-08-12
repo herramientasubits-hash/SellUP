@@ -107,7 +107,7 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
     );
   });
 
-  it('el techo lo movieron 4O-E3 con la 113 y 4O-H1 con la 114, y nadie más', () => {
+  it('el techo lo movieron 4O-E3 con la 113, 4O-H1 con la 114 y 4O-H2 con la 115, y nadie más', () => {
     // Esta guarda NO fija el número más alto del directorio para siempre —sube cada
     // vez que un bloque AUTORIZADO añade la suya—, sino que por encima de la 112 solo
     // esté la que el hito siguiente declaró: AGENT2A-PHONE-REVEAL-4O-E3, que vuelve a
@@ -118,10 +118,16 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
     // AGENT2A-PHONE-REVEAL-4O-H1 añadió la 114: el esquema OFICIAL de múltiples teléfonos
     // (`contact_phones` + `contact_phone_sources`), creado INERTE y con su propia guarda
     // estática. No edita la 112 ni ninguna otra de la cadena, que es lo que se vigila.
+    //
+    // AGENT2A-PHONE-REVEAL-4O-H2 añadió la 115: la PRIVACIDAD de ese esquema oficial —dos
+    // contadores en `phone_reveal_suppression_audit` y la función transaccional
+    // `suppress_official_contact_phone_sources`—, también con su propia guarda estática.
+    // Tampoco edita la 112: la lista sigue siendo EXACTA, no un rango abierto.
     const above = files.filter((f) => Number.parseInt(f.slice(0, 3), 10) > 112);
     assert.deepEqual(above, [
       '113_phone_reveal_person_suppression_recheck.sql',
       '114_official_contact_phones.sql',
+      '115_official_contact_phone_privacy.sql',
     ]);
   });
 

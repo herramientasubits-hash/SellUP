@@ -192,14 +192,16 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
     // colección) y después AGENT2A-PHONE-REVEAL-4O-E3 con la 113 (re-comprobación de
     // la supresión POR PERSONA dentro de la transacción de persistencia); después
     // AGENT2A-PHONE-REVEAL-4O-H1 con la 114 (el esquema OFICIAL de múltiples teléfonos,
-    // creado INERTE); las tres tienen su propia guarda estática.
+    // creado INERTE) y AGENT2A-PHONE-REVEAL-4O-H2 con la 115 (la PRIVACIDAD de ese
+    // esquema: dos contadores de auditoría y `suppress_official_contact_phone_sources`);
+    // las cuatro tienen su propia guarda estática.
     const files = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d+.*\.sql$/.test(file))
       .sort();
     const last = files[files.length - 1];
     assert.equal(
       last,
-      '114_official_contact_phones.sql',
+      '115_official_contact_phone_privacy.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.
