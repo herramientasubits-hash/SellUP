@@ -3,7 +3,11 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { TabsNav, type Tab } from "@/components/navigation/tabs-nav";
-import { CONTACTS_ROUTE, CONTACTS_CANDIDATES_ROUTE } from "@/config/navigation";
+import {
+  CONTACTS_ROUTE,
+  CONTACTS_CANDIDATES_ROUTE,
+  CONTACTS_DUPLICATES_ROUTE,
+} from "@/config/navigation";
 
 /**
  * Module-level pill switcher for the unified "Contactos" module (Hito 17A.4A).
@@ -18,11 +22,12 @@ import { CONTACTS_ROUTE, CONTACTS_CANDIDATES_ROUTE } from "@/config/navigation";
  * Reutiliza el styling de pills compartido <TabsNav> (Foundation § tokens) — sin
  * estilos visuales nuevos. Mismo patrón que <ModuleTabsNav> de Empresas/Prospectos.
  */
-export type ContactsTabId = "approved" | "candidates";
+export type ContactsTabId = "approved" | "candidates" | "duplicates";
 
 const TAB_ROUTES: Record<ContactsTabId, string> = {
   approved: CONTACTS_ROUTE,
   candidates: CONTACTS_CANDIDATES_ROUTE,
+  duplicates: CONTACTS_DUPLICATES_ROUTE,
 };
 
 interface ContactsModuleTabsNavProps {
@@ -37,9 +42,13 @@ export function ContactsModuleTabsNav({
   // Pills limpias, sin badge de conteo (ajuste posterior a 17A.4A): el número
   // de candidatos generaba ruido visual y forzaba una query extra en el tab
   // por defecto. Las labels quedan simples; el routing por tab no cambia.
+  // 4O-H3-B-R1: «Duplicados» es una pill hermana, no un filtro escondido dentro de «Por
+  // revisar». Separarlas es lo que evita presentar un duplicado como si aún fuera una
+  // aprobación pendiente, y lo que hace que un duplicado se pueda volver a encontrar.
   const tabs: Tab[] = [
     { id: "approved", label: "Contactos aprobados" },
     { id: "candidates", label: "Candidatos por revisar" },
+    { id: "duplicates", label: "Duplicados" },
   ];
 
   return (

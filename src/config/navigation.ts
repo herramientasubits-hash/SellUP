@@ -66,6 +66,11 @@ export const PROSPECTOS_TAB_ROUTE = "/accounts?tab=prospectos";
 export const CONTACTS_ROUTE = "/contacts";
 export const CONTACTS_APPROVED_ROUTE = "/contacts?tab=approved";
 export const CONTACTS_CANDIDATES_ROUTE = "/contacts?tab=candidates";
+/**
+ * 4O-H3-B-R1 — cola de candidatos DUPLICADOS. Sin esta ruta un duplicado era inalcanzable:
+ * la detección lo movía a `duplicate` y ninguna vista de la UI volvía a mirar ese estado.
+ */
+export const CONTACTS_DUPLICATES_ROUTE = "/contacts?tab=duplicates";
 
 export const mainNavItems: NavItem[] = [
   {

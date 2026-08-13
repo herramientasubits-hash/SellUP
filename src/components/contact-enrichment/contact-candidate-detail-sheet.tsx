@@ -49,10 +49,13 @@ import {
 } from '@/components/ui/select';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import {
-  getPendingContactCandidateById,
+  getReviewableContactCandidateById,
+  getDuplicateCandidateMergeOffer,
   approveContactCandidate,
+  mergeContactCandidateIntoExistingContactAction,
   discardContactCandidate,
 } from '@/modules/contact-enrichment/actions';
+import type { ExistingContactMergeOffer } from '@/modules/contact-enrichment/candidate-review-core';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
 import { recoverCandidatePhoneRevealNowAction } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-actions';
 // Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1): SOLO tras `no_phone_found` de
@@ -399,6 +402,30 @@ export function ContactCandidateDetailSheet({
   const [overrideReason, setOverrideReason] = React.useState('');
   const [overrideValidationError, setOverrideValidationError] = React.useState<string | null>(null);
 
+  // Duplicado con contacto existente (AGENT2A-PHONE-REVEAL-4O-H3-B). El veredicto no cambia —
+  // el candidato pasa a `duplicate` igual que antes de este hito —, pero cuando la identidad del
+  // contacto existente es exacta e inequívoca el humano puede además AGREGARLE la información en
+  // vez de limitarse a descartar. Este estado sólo controla el diálogo: la decisión de si la
+  // acción es siquiera ofrecible la toma el servidor, y volverá a tomarla al ejecutarla.
+  const [duplicateDecision, setDuplicateDecision] = React.useState<{
+    contactId: string;
+    signal: 'email' | 'linkedin';
+  } | null>(null);
+  const [mergingIntoExisting, setMergingIntoExisting] = React.useState(false);
+  const mergeInFlightRef = React.useRef(false);
+
+  /**
+   * 4O-H3-B-R1 — la oferta DURADERA, releída del servidor cada vez que se abre un candidato ya
+   * marcado como `duplicate`.
+   *
+   * `duplicateDecision` (arriba) sólo vive el instante posterior a la detección; si el operador
+   * cerraba el drawer, la decisión desaparecía. Esta es la que sobrevive a un refresh y a navegar
+   * a otra parte: el servidor vuelve a resolver la identidad con las mismas reglas exactas y la
+   * UI sólo pinta lo que él autoriza.
+   */
+  const [durableMergeOffer, setDurableMergeOffer] =
+    React.useState<ExistingContactMergeOffer | null>(null);
+
   // Reveal de teléfono (APOLLO-PHONE-ASYNC-5) — flujo ONE-CLICK sin modal. Al
   // hacer clic se solicita de inmediato la revelación asíncrona con base fija
   // (interés legítimo B2B). Todo el estado es local; la autoridad real (flag,
@@ -548,6 +575,29 @@ export function ContactCandidateDetailSheet({
   );
 
   /**
+   * 4O-H3-B-R1 — relee la oferta de merge de un candidato DUPLICADO.
+   *
+   * Igual que la auditoría del waterfall y el conteo de teléfonos: en paralelo, sin bloquear el
+   * render del candidato, y su ausencia sólo oculta el CTA. Si falla, se deja `null` — el estado
+   * seguro es NO ofrecer la fusión, nunca ofrecerla de más.
+   */
+  const reloadDurableMergeOffer = React.useCallback(
+    async (targetCandidateId: string): Promise<void> => {
+      try {
+        const offer = await getDuplicateCandidateMergeOffer(targetCandidateId);
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setDurableMergeOffer(offer);
+        }
+      } catch {
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setDurableMergeOffer(null);
+        }
+      }
+    },
+    [],
+  );
+
+  /**
    * Descarta TODO el estado local temporal del candidato en pantalla
    * (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 4.2 / § 4.3).
    *
@@ -576,6 +626,13 @@ export function ContactCandidateDetailSheet({
     setOverrideAcknowledged(false);
     setOverrideReason('');
     setOverrideValidationError(null);
+    // 4O-H3-B: la decisión de duplicado pertenece al candidato que la produjo. Arrastrarla al
+    // siguiente sería ofrecerle al operador fusionar a OTRA persona en el mismo contacto.
+    setDuplicateDecision(null);
+    setMergingIntoExisting(false);
+    // 4O-H3-B-R1: por la misma razón, la oferta duradera tampoco se hereda. Se vuelve a pedir al
+    // servidor para el candidato que se está abriendo.
+    setDurableMergeOffer(null);
     setRevealingPhone(false);
     setPhoneRevealError(null);
     setPhoneRevealNotice(null);
@@ -638,10 +695,10 @@ export function ContactCandidateDetailSheet({
           // § 4.1: SIEMPRE se relee el candidato desde SellUp al abrir. No se
           // confía en el snapshot de la tabla padre, que puede ser anterior al
           // webhook. Lectura de solo lectura: 0 llamadas a proveedor, 0 créditos.
-          const result = await getPendingContactCandidateById(candidateId);
+          const result = await getReviewableContactCandidateById(candidateId);
           if (cancelled) return;
           if (!result) {
-            // La lectura SÍ funcionó: el candidato salió de `pending_review`.
+            // La lectura SÍ funcionó: el candidato ya no está en un estado revisable.
             setLoadOutcome('not_found');
             setCandidate(null);
           } else {
@@ -652,6 +709,12 @@ export function ContactCandidateDetailSheet({
             // 4O-G: conteo de teléfonos adicionales ya almacenados. Igual que la
             // auditoría, en paralelo y sin bloquear; su ausencia sólo oculta el CTA.
             void reloadStoredPhoneSummary(candidateId);
+            // 4O-H3-B-R1: si el candidato ya está marcado como duplicado, se le vuelve a
+            // preguntar al servidor si la fusión sigue siendo ofrecible. Esto es lo que hace que
+            // la decisión humana sobreviva a cerrar el drawer, refrescar o navegar a otra parte.
+            if (result.status === 'duplicate') {
+              void reloadDurableMergeOffer(candidateId);
+            }
           }
         } catch {
           if (!cancelled) {
@@ -663,7 +726,7 @@ export function ContactCandidateDetailSheet({
             // aquí. Este componente maneja teléfonos revelados y tiene una
             // prohibición deliberada de escribir en consola (PHONE-3D.4 /
             // 3D.6B), así que el fallo se registra en el servidor, dentro de
-            // `getPendingContactCandidateById`, que es además donde queda
+            // `getReviewableContactCandidateById`, que es además donde queda
             // recogido en los logs de Producción.
             setLoadOutcome('load_error');
             setCandidate(null);
@@ -688,6 +751,7 @@ export function ContactCandidateDetailSheet({
     candidateId,
     reloadWaterfallAudit,
     reloadStoredPhoneSummary,
+    reloadDurableMergeOffer,
     resetTransientCandidateState,
     resetInFlightGuards,
   ]);
@@ -708,7 +772,7 @@ export function ContactCandidateDetailSheet({
     if (inFlight) return inFlight;
     const request = (async () => {
       try {
-        const fresh = await getPendingContactCandidateById(candidateId);
+        const fresh = await getReviewableContactCandidateById(candidateId);
         if (fresh && currentCandidateIdRef.current === candidateId) setCandidate(fresh);
       } catch {
         // Silencioso: mantenemos la vista actual si el refetch falla.
@@ -741,7 +805,18 @@ export function ContactCandidateDetailSheet({
         router.refresh();
         onClose();
       } else if (result.duplicate) {
-        // El candidato pasó a `duplicate` y sale de revisión: refrescamos y cerramos.
+        // El candidato pasó a `duplicate` y sale de revisión — eso no ha cambiado. Lo que cambia
+        // (4O-H3-B) es que, si el servidor confirma que el contacto existente es la MISMA persona
+        // por una señal exacta, no cerramos sin preguntar: se le muestra la decisión. Sin oferta,
+        // el comportamiento es exactamente el de antes.
+        if (result.mergeOffer?.offered && result.contactId) {
+          setDuplicateDecision({
+            contactId: result.contactId,
+            signal: result.mergeOffer.signal,
+          });
+          router.refresh();
+          return;
+        }
         toast.warning(result.error ?? 'Este candidato parece estar duplicado.');
         router.refresh();
         onClose();
@@ -764,6 +839,60 @@ export function ContactCandidateDetailSheet({
       toast.error('No fue posible aprobar el candidato.');
     } finally {
       setApproving(false);
+    }
+  }
+
+  /**
+   * 4O-H3-B — «Descartar como duplicado». No escribe NADA: el veredicto duplicado ya
+   * terminalizó al candidato cuando se detectó. Cerrar es exactamente el comportamiento que
+   * existía antes de este hito, y por eso este camino no llama a ninguna acción.
+   */
+  function handleDiscardDuplicate() {
+    if (mergingIntoExisting) return;
+    setDuplicateDecision(null);
+    toast.warning('Candidato marcado como duplicado.');
+    router.refresh();
+    onClose();
+  }
+
+  /**
+   * 4O-H3-B — «Agregar información al contacto existente». La decisión humana explícita.
+   *
+   * El id del contacto viaja como CONFIRMACIÓN, no como instrucción: el servidor lo revalida
+   * contra el `matched_contacts_id` que él mismo escribió y la transacción lo vuelve a
+   * comprobar bajo el lock. Un doble clic queda cortado aquí por el ref y, si aun así llegaran
+   * dos peticiones, la transacción devuelve `already_merged` sin escribir por segunda vez.
+   */
+  async function handleMergeIntoExistingContact(targetContactId?: string) {
+    // 4O-H3-B-R1: el destino puede venir de la decisión recién detectada (el diálogo) o de la
+    // oferta DURADERA releída al reabrir un duplicado. Son dos caminos hacia la misma acción, y
+    // el servidor revalida el id en los dos casos por igual.
+    const contactId = targetContactId ?? duplicateDecision?.contactId;
+    if (!candidate || !contactId) return;
+    if (mergeInFlightRef.current) return;
+    mergeInFlightRef.current = true;
+    setMergingIntoExisting(true);
+    try {
+      const result = await mergeContactCandidateIntoExistingContactAction(
+        candidate.id,
+        contactId,
+      );
+      if (result.ok) {
+        toast.success(result.message ?? 'Información agregada al contacto existente.');
+        setDuplicateDecision(null);
+        setDurableMergeOffer(null);
+        router.refresh();
+        onClose();
+      } else {
+        toast.error(
+          result.error ?? 'No fue posible agregar la información al contacto existente.',
+        );
+      }
+    } catch {
+      toast.error('No fue posible agregar la información al contacto existente.');
+    } finally {
+      mergeInFlightRef.current = false;
+      setMergingIntoExisting(false);
     }
   }
 
@@ -1539,12 +1668,23 @@ export function ContactCandidateDetailSheet({
         candidate ? (
           <div className="flex items-center justify-between gap-4 mr-6">
             <span className="truncate">{candidate.full_name || 'Sin nombre'}</span>
-            <Badge
-              variant="outline"
-              className="shrink-0 border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold"
-            >
-              Por revisar
-            </Badge>
+            {/* 4O-H3-B-R1: el badge dice el estado REAL. Un duplicado ya no se presenta como si
+                siguiera siendo una aprobación normal pendiente. */}
+            {candidate.status === 'duplicate' ? (
+              <Badge
+                variant="outline"
+                className="shrink-0 border-transparent bg-muted text-muted-foreground text-xs font-semibold"
+              >
+                Duplicado
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="shrink-0 border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold"
+              >
+                Por revisar
+              </Badge>
+            )}
           </div>
         ) : loadOutcome === 'not_found' ? (
           CANDIDATE_DETAIL_NOT_FOUND_TITLE_COPY
@@ -1562,7 +1702,11 @@ export function ContactCandidateDetailSheet({
           : undefined
       }
       actions={
-        candidate ? (
+        // 4O-H3-B-R1: un candidato ya marcado como duplicado NO ofrece «Aprobar» / «Rechazar».
+        // Su veredicto ya está tomado; lo único que queda es la decisión de duplicado, que vive
+        // en el cuerpo del drawer. Presentarlo con la barra de aprobación normal era justamente
+        // mezclarlo con una aprobación pendiente.
+        candidate && candidate.status !== 'duplicate' ? (
           !showRejectForm ? (
             <>
               <p className="flex-1 text-[11px] text-muted-foreground/70">
@@ -1683,6 +1827,61 @@ export function ContactCandidateDetailSheet({
         </div>
       ) : !candidate ? null : (
         <div className="space-y-4">
+          {/* 4O-H3-B-R1 — aviso DURADERO de duplicado.
+              Vive en el cuerpo del drawer, no en un diálogo, y por eso sigue ahí después de
+              cerrar, refrescar o navegar. Con una identidad exacta confirmada por el servidor
+              ofrece la fusión; sin ella lo dice con claridad y NO ofrece ningún CTA. No expone
+              internals: ni ids, ni nombres de columnas, ni evidencia cruda. */}
+          {candidate.status === 'duplicate' ? (
+            <SurfaceCard>
+              <div className="flex items-start gap-2.5">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+                <div className="space-y-2.5">
+                  <p className="text-sm font-medium text-foreground">
+                    Este candidato coincide con un contacto existente.
+                  </p>
+                  {durableMergeOffer?.offered ? (
+                    <>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        {durableMergeOffer.signal === 'email'
+                          ? 'Tiene el mismo correo electrónico que un contacto que ya está en SellUp.'
+                          : 'Tiene el mismo perfil de LinkedIn que un contacto que ya está en SellUp.'}{' '}
+                        Puedes agregarle la información de este candidato. No se reemplaza nada de
+                        lo que ya tiene: su teléfono principal y los datos cargados a mano se
+                        conservan tal como están.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={mergingIntoExisting}
+                        onClick={() =>
+                          void handleMergeIntoExistingContact(
+                            durableMergeOffer.offered ? durableMergeOffer.contactId : undefined,
+                          )
+                        }
+                      >
+                        {mergingIntoExisting ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Agregando…
+                          </>
+                        ) : (
+                          'Agregar información al contacto existente'
+                        )}
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      No podemos confirmar que sea la misma persona con suficiente certeza, así que
+                      no ofrecemos asociarlo automáticamente. Queda registrado como duplicado para
+                      que puedas revisarlo cuando quieras.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </SurfaceCard>
+          ) : null}
+
           {/* 1. Información principal */}
           <SurfaceCard>
             <SurfaceCardHeader title="Información principal" />
@@ -2566,6 +2765,67 @@ export function ContactCandidateDetailSheet({
               </>
             ) : (
               'Aprobar de todas formas'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* AGENT2A-PHONE-REVEAL-4O-H3-B — decisión humana sobre un duplicado con identidad exacta.
+        Sólo se abre cuando el SERVIDOR confirmó que el contacto existente es la misma persona
+        por email o LinkedIn exactos; con identidad ambigua, por nombre o sin señal exacta, este
+        diálogo no aparece y el flujo es el de siempre. No muestra internals: ni ids, ni el
+        nombre de la columna, ni la evidencia cruda. */}
+    <Dialog
+      open={duplicateDecision !== null}
+      onOpenChange={(v) => {
+        if (mergingIntoExisting) return;
+        if (!v) handleDiscardDuplicate();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Candidato duplicado</DialogTitle>
+          <DialogDescription>
+            Este candidato coincide con un contacto que ya existe en SellUp
+            {duplicateDecision?.signal === 'email'
+              ? ', con el mismo correo electrónico.'
+              : ', con el mismo perfil de LinkedIn.'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="rounded-xl border border-dashed border-border/60 bg-muted/30 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Puedes agregarle la información de este candidato al contacto existente. No se
+              reemplaza nada de lo que ya tiene: su teléfono principal y los datos cargados a
+              mano se conservan tal como están.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={mergingIntoExisting}
+            onClick={handleDiscardDuplicate}
+          >
+            Descartar como duplicado
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={mergingIntoExisting}
+            onClick={() => void handleMergeIntoExistingContact()}
+          >
+            {mergingIntoExisting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Agregando…
+              </>
+            ) : (
+              'Agregar información al contacto existente'
             )}
           </Button>
         </DialogFooter>

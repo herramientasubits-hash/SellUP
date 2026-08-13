@@ -377,6 +377,20 @@ export interface SuppressibleContact {
    */
   sourceCandidateId: string | null;
   /**
+   * 4O-H3-B — `contacts.metadata.merged_candidate_ids`: los candidatos cuya colección oficial
+   * de teléfonos fue FUSIONADA en este contacto por la transacción de la 117.
+   *
+   * Es procedencia probada con la MISMA fuerza que `source_candidate_id`, y no una
+   * flexibilización de FIX 1. FIX 1 rechaza la INFERENCIA — un duplicado identifica a la
+   * persona, no demuestra quién escribió el número —; una fusión no infiere nada: es la
+   * escritura misma, registrada por la transacción que la hizo. Sin esto, un merge dejaría
+   * números de proveedor en una fila que un borrado posterior podría encontrar (vía
+   * `matched_contacts_id`) pero no borrar, que es justo el agujero que H3-B no puede abrir.
+   *
+   * Un duplicado DESCARTADO no escribe aquí y sigue siendo tan inborrable como hoy.
+   */
+  mergedCandidateIds?: readonly string[] | null;
+  /**
    * `contacts.phone_source`. Solo apollo_reveal / apollo_cache / lusha_reveal son
    * borrables (4O-E4). `manual`, `unknown`, `apollo_search`, `provider_payload` y
    * `null` sobreviven siempre.
@@ -388,8 +402,10 @@ export interface SuppressibleContact {
 
 export type CandidateContactLinkStrength =
   /**
-   * El contacto fue CREADO/PROMOVIDO desde el candidato suprimido y él mismo lo
-   * acredita (`metadata.source_candidate_id`). Único nivel que autoriza borrar.
+   * El contacto fue CREADO/PROMOVIDO desde el candidato suprimido —y él mismo lo acredita en
+   * `metadata.source_candidate_id`— o su colección oficial fue FUSIONADA desde ese candidato,
+   * acreditado en `metadata.merged_candidate_ids` por la transacción de la 117 (4O-H3-B).
+   * Único nivel que autoriza borrar.
    */
   | 'provenance_proven'
   /**
@@ -403,15 +419,22 @@ export type CandidateContactLinkStrength =
 
 /**
  * Clasifica el vínculo candidato → contacto con la regla estricta de v1: el
- * contacto solo es borrable si ÉL MISMO acredita haber nacido de un candidato del
- * conjunto suprimido, vía `contacts.metadata.source_candidate_id`.
+ * contacto solo es borrable si ÉL MISMO acredita que un candidato del conjunto
+ * suprimido escribió en él. Hay exactamente dos formas de acreditarlo, y las dos
+ * las escribe una transacción que efectivamente escribió:
+ *
+ *   * `metadata.source_candidate_id`  — el contacto NACIÓ de ese candidato
+ *     (`buildContactTraceMetadata`, aprobación / migración 116);
+ *   * `metadata.merged_candidate_ids` — la colección oficial de ese candidato fue
+ *     FUSIONADA en este contacto (migración 117, 4O-H3-B).
  *
  * Deliberadamente NO recibe la evidencia de revisión del candidato
- * (`duplicate_status` / `matched_by` / `created_contact_id`): ninguna de ellas
- * demuestra procedencia del teléfono, y aceptarlas fue el riesgo residual que
- * este endurecimiento cierra. Un match por NOMBRE ("José Pérez" vs "Jose Perez")
- * y un duplicado exacto por email quedan igualados en `weak`, porque en ambos
- * casos el contacto es una fila preexistente que este candidato nunca escribió.
+ * (`duplicate_status` / `matched_by` / `created_contact_id` / `matched_contacts_id`):
+ * ninguna de ellas demuestra procedencia del teléfono, y aceptarlas fue el riesgo
+ * residual que este endurecimiento cierra. Un match por NOMBRE ("José Pérez" vs
+ * "Jose Perez") y un duplicado exacto por email quedan igualados en `weak` mientras
+ * NADIE haya fusionado: en ambos casos el contacto es una fila preexistente que ese
+ * candidato nunca escribió. Un duplicado descartado nunca aparece en el array.
  */
 export function resolveContactErasureProvenance(args: {
   contact: SuppressibleContact;
@@ -419,10 +442,16 @@ export function resolveContactErasureProvenance(args: {
   suppressedCandidateIds: ReadonlySet<string>;
 }): CandidateContactLinkStrength {
   const sourceCandidateId = cleanText(args.contact.sourceCandidateId);
-  if (!sourceCandidateId) return 'weak';
-  return args.suppressedCandidateIds.has(sourceCandidateId)
-    ? 'provenance_proven'
-    : 'weak';
+  if (sourceCandidateId && args.suppressedCandidateIds.has(sourceCandidateId)) {
+    return 'provenance_proven';
+  }
+
+  for (const raw of args.contact.mergedCandidateIds ?? []) {
+    const mergedId = cleanText(raw);
+    if (mergedId && args.suppressedCandidateIds.has(mergedId)) return 'provenance_proven';
+  }
+
+  return 'weak';
 }
 
 // ── Plan de supresión (resultado puro) ─────────────────────────

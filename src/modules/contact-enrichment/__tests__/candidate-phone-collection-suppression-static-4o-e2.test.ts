@@ -133,9 +133,12 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '116_approve_candidate_with_official_phones.sql',
       // 4O-H3-B: `merge_contact_candidate_into_existing_contact`, aplicada en Producción
       // desde el 2026-08-12 pero reconciliada al repo después de que esta guarda se
-      // escribiera (de ahí que faltara aquí). Es DML sobre `contacts`/`contact_phones`,
-      // no crea, altera ni borra ninguna tabla, y no toca `phone_reveal_suppression_audit`
-      // — no es dueña de la forma de ninguna tabla de la colección que esta suite protege.
+      // escribiera (de ahí que faltara aquí). LEE la colección de staging (112) para
+      // promoverla hacia el contacto existente, pero no la escribe ni la altera — la 112
+      // sigue siendo su única dueña, que es exactamente lo que esta guarda vigila. Es DML
+      // sobre `contacts`/`contact_phones`, no crea, altera ni borra ninguna tabla, y no
+      // toca `phone_reveal_suppression_audit` — no es dueña de la forma de ninguna tabla
+      // de la colección que esta suite protege.
       '117_merge_candidate_into_existing_contact.sql',
       // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1: catálogo de Macro Industrias.
       // Ninguna de las dos toca la colección de staging que esta suite protege.

@@ -30,7 +30,7 @@
  *
  * El rastro NO se emite desde este componente a propósito: maneja teléfonos
  * revelados y tiene prohibido escribir en consola (PHONE-3D.4 / 3D.6B lo fijan
- * leyendo su código fuente). Vive en `getPendingContactCandidateById`, que es
+ * leyendo su código fuente). Vive en `getReviewableContactCandidateById`, que es
  * además el lado que queda en los logs de Producción.
  *
  * El server action está mockeado: 0 servidor, 0 DB, 0 proveedores, 0 créditos.
@@ -125,7 +125,7 @@ const mockGetById = mock.fn<() => Promise<PendingContactCandidate | null>>(() =>
 
 mock.module('@/modules/contact-enrichment/actions', {
   namedExports: {
-    getPendingContactCandidateById: () => mockGetById(),
+    getReviewableContactCandidateById: () => mockGetById(),
     approveContactCandidate: async () => ({ ok: true }),
     discardContactCandidate: async () => ({ ok: true }),
   },
@@ -290,7 +290,7 @@ describe('AGENT2A-PROD-INCIDENT — estados de carga del detalle de candidato', 
 
   it('C. la lectura lanza ⇒ estado tipado de ERROR, distinto del ausente', async () => {
     getByIdImpl = async () => {
-      throw new Error('getPendingContactCandidateById: boom');
+      throw new Error('getReviewableContactCandidateById: boom');
     };
 
     render(
@@ -334,7 +334,7 @@ describe('AGENT2A-PROD-INCIDENT — estados de carga del detalle de candidato', 
     // rastro para diagnosticar vive en el server action, que es además el lado
     // que queda en los logs de Producción.
     getByIdImpl = async () => {
-      throw new Error('getPendingContactCandidateById: permission denied');
+      throw new Error('getReviewableContactCandidateById: permission denied');
     };
 
     render(
@@ -358,7 +358,7 @@ describe('AGENT2A-PROD-INCIDENT — estados de carga del detalle de candidato', 
     // el resto de invariantes estáticas de este módulo.
     const actionsCode = await readSource('src/modules/contact-enrichment/actions.ts');
     const logCall =
-      /console\.error\(\s*'\[getPendingContactCandidateById\] read_failed'[\s\S]{0,400}?\}\s*\);/.exec(
+      /console\.error\(\s*'\[getReviewableContactCandidateById\] read_failed'[\s\S]{0,400}?\}\s*\);/.exec(
         actionsCode,
       );
     assert.ok(logCall, 'el fallo de lectura debe dejar rastro en el servidor');

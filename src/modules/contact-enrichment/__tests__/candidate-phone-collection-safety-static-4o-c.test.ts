@@ -236,6 +236,11 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       'contact_phone_sources',
       'phone_reveal_suppression_audit',
     ];
+    // El barrido arranca en la 118, no en la 117. La 117 (4O-H3-B) NOMBRA
+    // `contact_enrichment_candidate_phones` porque LEE la colección para promoverla al contacto
+    // existente — leerla es justamente su trabajo—, y que no la escriba ni la altere lo fija su
+    // propia guarda estática (`existing-contact-merge-static-4o-h3b`), que sabe distinguir una
+    // lectura de una escritura. Un `includes` de la tabla no puede: marcaría la 117 por leerla.
     for (const file of files.filter((f) => /^1(1[89]|[2-9]\d)/.test(f))) {
       const sql = readFileSync(join(repoRoot, 'supabase/migrations', file), 'utf8');
       for (const table of PHONE_CHAIN_TABLES) {
