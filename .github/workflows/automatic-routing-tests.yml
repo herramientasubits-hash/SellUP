@@ -51,6 +51,67 @@ jobs:
       - name: Run Lusha fail-closed routing tests
         run: npm run test:lusha-fail-closed-routing
 
+      # AGENT1-SHARED-INTAKE-CI-GUARD-1 — el pipeline de admisión COMPARTIDO y
+      # NEUTRAL AL PROVEEDOR entra al check obligatorio.
+      #
+      # Estas suites no son nuevas: existen desde 10B1/10B2/10C1/10C2 y describen la
+      # arquitectura que Lusha SÍ adoptó — contratos por proveedor
+      # (ProviderDiscoveredCompany), normalización única
+      # (NormalizedProspectCandidate), gate obligatorio, enrichment de fuente oficial
+      # neutral al proveedor, estado de duplicado y orden de persistencia. Lo que no
+      # existía era su protección: tenían script en package.json pero NINGUNA corría
+      # en CI, así que el único check obligatorio del repo — «Automatic routing safety
+      # tests» — se ponía verde con el contrato compartido roto. Apollo pudo así
+      # construir su propia ruta de admisión sin que un solo check se pusiera rojo, y
+      # el diagnóstico correcto no es «no se construyó» sino
+      # EXISTING_SHARED_FLOW_NOT_ADOPTED_BY_APOLLO.
+      #
+      # Los pasos van SEPARADOS a propósito: cuando uno falle, GitHub Actions nombra
+      # el contrato exacto que se rompió, no «los tests». Van aquí arriba, junto al
+      # resto de contratos de proveedor, para que una rotura de la base falle antes de
+      # los ~50 pasos que dependen de ella.
+      #
+      # Este PR NO cambia runtime: ni Apollo, ni Lusha, ni routing, ni presupuesto,
+      # ni flags. Es cableado de CI sobre suites y scripts que ya existían.
+      #
+      # Deterministas y offline las cinco: sólo `node:test`, fixtures y lectura
+      # ESTÁTICA de código fuente. Sin Supabase, sin Socrata/co_siis, sin API de
+      # proveedor, sin créditos y sin escrituras. La única variable de entorno que se
+      # toca es ENABLE_LUSHA_PREVIEW DENTRO del proceso de test —para ejercitar el
+      # parser del flag— y se restaura en `finally`; Producción no se toca.
+
+      # 10B1 — contrato de admisión por proveedor. Guarda que los TRES adaptadores
+      # (Lusha, Apollo, Tavily) satisfagan el MISMO contrato normalizado. Incluye el
+      # adaptador Apollo ya existente (`mapApolloCompanyToProviderDiscoveredCompany`),
+      # que es la pieza sobre la que el siguiente PR hará que Apollo adopte el seam
+      # compartido — sin este paso, ese contrato podría desviarse en silencio.
+      - name: Run shared provider intake contract tests
+        run: npm run test:prospect-intake-contracts
+
+      # 10B2 — gate obligatorio compartido. Guarda que un candidato excluido en
+      # duro NUNCA continúe hacia el flujo caro (enrichment) ni hacia la deduplicación.
+      - name: Run shared mandatory intake gate tests
+        run: npm run test:prospect-intake-gate
+
+      # 10C1 — enrichment de fuente oficial NEUTRAL al proveedor. Guarda que funcione
+      # igual contra fixtures de Lusha, Apollo y Tavily, y que el resolvedor se
+      # mantenga inyectado, read-only y fail-soft (sin consultar co_siis en vivo).
+      - name: Run shared official-source enrichment tests
+        run: npm run test:prospect-intake-source-enrichment
+
+      # 10C2 — el pipeline compartido de punta a punta, tal como Lusha lo adoptó:
+      # resultado del proveedor → map → normalize → gate obligatorio → enrichment
+      # oficial → estado de duplicado → orden de persistencia. Incluye la prueba
+      # estática de que el resolvedor de fuente oficial no abre clientes por su cuenta.
+      - name: Run shared intake pipeline adoption tests
+        run: npm run test:lusha-shared-pipeline
+
+      # Guarda que el flag SERVIDOR detenga a Lusha ANTES de crear el cliente, de
+      # buscar y de escribir. Es prueba ESTÁTICA de orden sobre el código: no crea
+      # clientes, no llama a Lusha y no cambia el flag en Producción.
+      - name: Run Lusha preview flag guard tests
+        run: npm run test:lusha-preview-flag-guard
+
       # AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad universal del
       # proveedor de discovery de Agente 1. Entra al check obligatorio porque el
       # defecto que cierra era invisible a toda la cobertura anterior: la pantalla
