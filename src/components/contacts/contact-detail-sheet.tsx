@@ -44,6 +44,11 @@ import {
 import type { AccountWithOwner } from '@/modules/accounts/types';
 import { ContactRowActions } from './contact-row-actions';
 import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
+// AGENT2A-PHONE-REVEAL-4O-H4 — «Ver más números» del contacto OFICIAL.
+// Sólo LECTURA: abrirlo hace un SELECT sobre la colección oficial de
+// teléfonos del contacto y nada más. Ni proveedor, ni crédito, ni escritura.
+import { getOfficialContactStoredPhoneSummaryAction } from '@/modules/contact-enrichment/official-contact-stored-phones-actions';
+import { OfficialContactStoredPhonesDisclosure } from './official-contact-stored-phones-disclosure';
 // AGENT2A-P0-R2 — el drawer del contacto SIEMPRE termina de cargar: o hay contacto, o hay
 // un estado terminal declarado. Nunca un spinner eterno.
 import { isNextControlFlowSignal } from '@/modules/contact-enrichment/next-control-flow-signal';
@@ -110,6 +115,9 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   const [auditLog, setAuditLog] = React.useState<ContactAuditEntry[]>([]);
   const [account, setAccount] = React.useState<AccountWithOwner | null>(null);
   const [loading, setLoading] = React.useState(false);
+  // 4O-H4: CUÁNTOS números adicionales hay almacenados. Es un entero y nada más —
+  // ningún número viaja al navegador hasta que el operador abre el disclosure.
+  const [additionalPhoneCount, setAdditionalPhoneCount] = React.useState(0);
   // AGENT2A-P0-R2: por qué el contacto no está. `null` ⇒ hay contacto, o sigue cargando.
   // Sin este estado, «no encontrado» y «la lectura falló» eran indistinguibles de «todavía
   // cargando», y las tres se pintaban como el mismo spinner que nunca se iba.
@@ -130,15 +138,26 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       }
       setContact(c);
 
-      // El contexto (auditoría y cuenta) es COMPLEMENTARIO: el contacto ya está en pantalla
-      // y que falte no justifica tumbar el detalle entero. Se resuelve por separado para que
-      // un fallo aquí no se confunda con «no se pudo cargar el contacto».
-      const [log, acc] = await Promise.all([
+      // El contexto (auditoría, cuenta y el CONTEO de números adicionales) es
+      // COMPLEMENTARIO: el contacto ya está en pantalla y que falte no justifica tumbar el
+      // detalle entero. Se resuelve por separado para que un fallo aquí no se confunda con
+      // «no se pudo cargar el contacto».
+      //
+      // 4O-H4 entra por esta misma puerta a propósito. La acción ya devuelve `0` ante sus
+      // propios fallos, pero un fallo de TRANSPORTE de la Server Action lanza aquí; sin este
+      // `catch` un tropiezo leyendo teléfonos adicionales dejaría el drawer entero en «no se
+      // pudo cargar el contacto» con el contacto ya cargado. Fail-closed hacia «no ofrecer el
+      // CTA»: se pierde un botón, nunca la ficha.
+      const [log, acc, storedPhones] = await Promise.all([
         getContactAudit(id).catch(() => [] as ContactAuditEntry[]),
         getAccountById(c.account_id).catch(() => null),
+        getOfficialContactStoredPhoneSummaryAction({ contactId: id }).catch(() => ({
+          additionalCount: 0,
+        })),
       ]);
       setAuditLog(log);
       setAccount(acc);
+      setAdditionalPhoneCount(storedPhones.additionalCount);
     } catch (caught) {
       // `redirect()` de Next señaliza LANZANDO (`NEXT_REDIRECT`). Tragarlo aquí convertiría
       // una sesión caducada en «no se pudo cargar el contacto» en vez de llevar al login.
@@ -165,6 +184,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
         setContact(null);
         setAuditLog([]);
         setAccount(null);
+        setAdditionalPhoneCount(0);
         // Sin esto, reabrir el drawer tras un fallo mostraría el estado terminal
         // anterior antes de que la nueva lectura terminara.
         setLoadOutcome(null);
@@ -318,6 +338,18 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                               {contact.phone}
                             </a>
                           </DetailRow>
+                        )}
+                        {/*
+                          4O-H4 — «Ver N números más». El CTA existe SÓLO si el
+                          servidor contó extras, y los escalares de arriba siguen
+                          visibles exactamente como estaban: esto AÑADE una
+                          superficie de lectura, no reemplaza ninguna.
+                        */}
+                        {additionalPhoneCount > 0 && (
+                          <OfficialContactStoredPhonesDisclosure
+                            contactId={contact.id}
+                            additionalCount={additionalPhoneCount}
+                          />
                         )}
                         {contact.linkedin_url && (
                           <DetailRow icon={Link2} label="LinkedIn">

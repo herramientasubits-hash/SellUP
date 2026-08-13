@@ -633,11 +633,24 @@ describe('4O-H1 — cero lectores y cero escritores en runtime', () => {
    * se puede borrar es una colección que no puede honrar un DSAR. Por eso la privacidad
    * aterriza primero, con las dos tablas todavía vacías en todos los entornos.
    */
-  const OFFICIAL_TABLE_NAMING_ALLOWLIST = [
-    'src/modules/contact-enrichment/official-contact-phone-suppression-core.ts',
-    'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
-    'src/modules/contact-enrichment/phone-cache-suppression-core.ts',
-  ];
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-H4 añade el PRIMER —y único— LECTOR.
+   *
+   * Hasta aquí la lista sólo admitía el camino de BORRADO. H4 abre «Ver más números» en la
+   * ficha del contacto, que necesita nombrar las dos tablas para hacerles `SELECT`. Es un
+   * hito de sólo lectura: no escribe, no gasta y no llama a ningún proveedor, y sus propias
+   * guardas estáticas lo fijan. Se admite UN archivo —la lectura— y no la acción, ni el
+   * núcleo puro, ni la UI: nadie más tiene por qué saber cómo se llaman las tablas.
+   *
+   * Cada entrada declara el hito que la autorizó, y el test de abajo lo comprueba: una
+   * allowlist en la que no se sabe quién metió cada línea deja de ser una decisión revisada.
+   */
+  const OFFICIAL_TABLE_NAMING_ALLOWLIST: Readonly<Record<string, RegExp>> = {
+    'src/modules/contact-enrichment/official-contact-phone-suppression-core.ts': /4O-H2/,
+    'src/modules/contact-enrichment/official-contact-stored-phones-read.ts': /4O-H4/,
+    'src/modules/contact-enrichment/phone-cache-suppression-actions.ts': /4O-H2/,
+    'src/modules/contact-enrichment/phone-cache-suppression-core.ts': /4O-H2/,
+  };
 
   it('ningún archivo de producción nombra las tablas oficiales', () => {
     // Los dientes que QUEDAN: la aprobación (`candidate-review-core.ts`,
@@ -650,32 +663,86 @@ describe('4O-H1 — cero lectores y cero escritores en runtime', () => {
     );
     assert.deepEqual(
       offenders.map((file) => file.path).sort(),
-      OFFICIAL_TABLE_NAMING_ALLOWLIST,
-      'sólo el camino de PRIVACIDAD de 4O-H2 puede nombrar las tablas oficiales; el resto del runtime sigue sin conocerlas',
+      Object.keys(OFFICIAL_TABLE_NAMING_ALLOWLIST).sort(),
+      'sólo el BORRADO de 4O-H2 y la LECTURA de 4O-H4 pueden nombrar las tablas oficiales; el resto del runtime sigue sin conocerlas',
     );
     // Y la allowlist no se puede reutilizar por accidente: cada archivo admitido tiene que
     // declarar a qué hito pertenece.
-    for (const path of OFFICIAL_TABLE_NAMING_ALLOWLIST) {
+    for (const [path, milestone] of Object.entries(OFFICIAL_TABLE_NAMING_ALLOWLIST)) {
       const file = allSources.find((candidate) => candidate.path === path);
       assert.ok(file, `${path} debe existir`);
       assert.match(
         file.body,
-        /4O-H2/,
-        `${path} está en la allowlist: tiene que declarar que la nombra por 4O-H2`,
+        milestone,
+        `${path} está en la allowlist: tiene que declarar el hito que lo autorizó`,
       );
     }
   });
 
   it('ningún archivo de producción hace from()/insert()/update() sobre ellas', () => {
+    // AGENT2A-PHONE-REVEAL-4O-H4: esta guarda buscaba SÓLO el nombre literal dentro de
+    // `from(...)`. Un archivo que declare la tabla en una constante y luego haga
+    // `from(TABLA)` la esquivaba entera — y la lectura de H4 hace exactamente eso, porque
+    // declarar las columnas y la tabla en constantes es el estilo del subsistema. Dejarla
+    // pasar por esa rendija habría convertido «cero accesos» en «cero accesos escritos de
+    // una forma concreta», que no es una garantía.
+    //
+    // Así que ahora se resuelven también las constantes: cualquier `const X = 'contact_phones'`
+    // convierte a `X` en un alias vigilado dentro de ese archivo.
     const offenders: string[] = [];
     for (const file of productionSources) {
+      const aliases = new Set<string>(BARE_TABLES);
       for (const table of BARE_TABLES) {
-        if (new RegExp(`from\\(\\s*['"\`]${table}['"\`]`).test(file.body)) {
-          offenders.push(`${file.path} → from('${table}')`);
+        // Sólo DECLARACIONES, y sin cruzar saltos de línea: un `[^=]` suelto se come
+        // los comentarios de arriba y acaba capturando una palabra cualquiera de la
+        // prosa en vez del nombre de la constante.
+        for (const match of file.body.matchAll(
+          new RegExp(
+            `\\b(?:const|let|var)\\s+(\\w+)(?:\\s*:[^=\\n]+)?\\s*=\\s*['"\`]${table}['"\`]`,
+            'g',
+          ),
+        )) {
+          aliases.add(match[1]);
+        }
+      }
+      for (const alias of aliases) {
+        const quoted = BARE_TABLES.includes(alias as (typeof BARE_TABLES)[number])
+          ? `['"\`]${alias}['"\`]`
+          : alias;
+        if (new RegExp(`from\\(\\s*${quoted}\\s*\\)`).test(file.body)) {
+          offenders.push(`${file.path} → from(${alias})`);
         }
       }
     }
-    assert.deepEqual(offenders, []);
+
+    // El ÚNICO acceso autorizado es la LECTURA de 4O-H4, y sólo puede leer.
+    assert.deepEqual(offenders.sort(), [
+      'src/modules/contact-enrichment/official-contact-stored-phones-read.ts → from(OFFICIAL_CONTACT_PHONES_TABLE)',
+      'src/modules/contact-enrichment/official-contact-stored-phones-read.ts → from(OFFICIAL_CONTACT_PHONE_SOURCES_TABLE)',
+    ]);
+
+    const reader = productionSources.find(
+      (file) =>
+        file.path === 'src/modules/contact-enrichment/official-contact-stored-phones-read.ts',
+    );
+    assert.ok(reader, 'la lectura de 4O-H4 debe existir');
+    // Sobre el código EJECUTABLE: el encabezado de ese archivo enumera en prosa las
+    // llamadas que promete no contener, y compararlas contra el texto crudo haría
+    // fallar la guarda por citar la regla que cumple.
+    const readerCode = reader.body
+      .split('\n')
+      .filter((line) => {
+        const trimmed = line.trimStart();
+        return !trimmed.startsWith('//') && !trimmed.startsWith('*') && !trimmed.startsWith('/*');
+      })
+      .join('\n');
+    for (const mutation of ['.insert(', '.update(', '.upsert(', '.delete(', '.rpc(']) {
+      assert.equal(
+        readerCode.includes(mutation),
+        false,
+        `la lectura de 4O-H4 no puede contener ${mutation}`,
+      );
+    }
   });
 
   it('la aprobación de candidatos no las conoce', () => {
