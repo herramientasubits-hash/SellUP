@@ -129,14 +129,18 @@ describe('§ 1 — la pantalla no ofrece relanzar de inmediato', () => {
     // Se afirman las DOS conjunciones concretas en vez de contar apariciones del
     // token: un contador se rompe en cuanto un comentario menciona el nombre, y
     // eso lo vuelve una prueba sobre la prosa en vez de sobre el gate.
+    //
+    // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — `!isBudgetBlocked` se sumó DESPUÉS de
+    // `!isPersistenceBlocked` en la misma conjunción: sigue siendo el mismo gate
+    // compartido, con un motivo de bloqueo más.
     assert.match(
       src.summary,
-      /executionEnabled &&\s*!isPersistenceBlocked && \(\s*<Button/,
+      /executionEnabled &&\s*!isPersistenceBlocked &&\s*\n\s*!isBudgetBlocked && \(\s*<Button/,
       'el botón «Generar prospectos» debe estar gateado por !isPersistenceBlocked',
     );
     assert.match(
       src.summary,
-      /!isPersistenceBlocked &&\s*\n\s*onRequestedProviderChange !== undefined/,
+      /!isPersistenceBlocked &&\s*\n\s*!isBudgetBlocked &&\s*\n\s*onRequestedProviderChange !== undefined/,
       'el selector de proveedor debe estar gateado por !isPersistenceBlocked',
     );
   });
