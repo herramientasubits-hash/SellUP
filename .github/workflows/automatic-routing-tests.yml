@@ -1345,3 +1345,26 @@ jobs:
       # Supabase, sin HubSpot, sin Apollo, sin Lusha, 0 créditos, 0 escrituras y 0 PII.
       - name: Run prod incident contact read/search regression tests
         run: npm run test:agent2a:prod-incident-contact-read-search
+
+      # AGENT2A-P0-R2 — incidente cross-flow de QA (2026-08-13).
+      #
+      # Cubre las DOS regresiones de producto que la QA de la dueña dejó a la vista y que
+      # ninguna suite anterior podía ver, porque las dos viven en la COMPOSICIÓN de la
+      # pantalla, no en las piezas que ya estaban probadas:
+      #
+      #   · Drawer del contacto OFICIAL: falla si «contacto no encontrado» o «la lectura
+      #     falló» vuelven a pintarse como el spinner de carga. El render era
+      #     `loading || !contact ? spinner`, así que al terminar la carga sin contacto la
+      #     condición reponía el spinner y ya no había nada que lo quitara: cualquier fallo
+      #     —y también un contacto ausente— terminaba girando para siempre, sin mensaje ni
+      #     reintento. Es el mismo contrato que 4O-H3-B-R1 ya le dio al drawer de CANDIDATO.
+      #   · Tabla de candidatos: falla si la cola «Duplicados» vuelve a anunciarse como
+      #     «Candidatos por revisar». La consulta siempre estuvo bien (los edge_logs de
+      #     Producción del momento de la QA muestran `status=eq.duplicate` en 200); lo que
+      #     no distinguía la cola era el título, la descripción y el estado vacío de la
+      #     tabla, hardcodeados en un componente que no recibía la cola.
+      #
+      # Determinista y offline: jsdom + dobles de los server actions. Sin red, sin Supabase,
+      # sin HubSpot, sin Apollo, sin Lusha, 0 créditos, 0 escrituras y 0 PII.
+      - name: Run P0-R2 cross-flow runtime incident regression tests
+        run: npm run test:agent2a:p0-r2-crossflow

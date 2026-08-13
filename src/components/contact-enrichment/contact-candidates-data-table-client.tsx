@@ -14,6 +14,8 @@ import type {
   ContactSource,
 } from '@/modules/contact-enrichment/types';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
+import type { ContactCandidatesQueue } from './contact-candidates-panel-queue';
+import { CONTACT_CANDIDATES_QUEUE_COPY } from './contact-candidates-queue-copy';
 import {
   ScopeFilterDrawerSection,
   type ScopeFilterState,
@@ -136,6 +138,11 @@ function QualityCell({ candidate }: { candidate: PendingContactCandidate }) {
 
 interface ContactCandidatesDataTableClientProps {
   candidates: PendingContactCandidate[];
+  /**
+   * AGENT2A-P0-R2 — cola que se está renderizando. Gobierna título, descripción y
+   * estado vacío. Por defecto `pending`, que es el comportamiento histórico.
+   */
+  queue?: ContactCandidatesQueue;
   /** owner_id keyed by account_id — used for scope pre-filtering (candidate → account → owner). */
   accountOwners?: Map<string, string>;
   scopeFilterOptions?: ScopeFilterOptions;
@@ -164,6 +171,7 @@ interface ContactCandidatesDataTableClientProps {
 
 export function ContactCandidatesDataTableClient({
   candidates,
+  queue = 'pending',
   accountOwners,
   scopeFilterOptions,
   phoneRevealEnabled = false,
@@ -173,6 +181,11 @@ export function ContactCandidatesDataTableClient({
   phoneRevealWaterfallEnabled = false,
   phoneRevealWaterfallAuthorized = false,
 }: ContactCandidatesDataTableClientProps) {
+  // AGENT2A-P0-R2: título, descripción y estado vacío se derivan de la cola. Antes estaban
+  // escritos a mano aquí y la tabla se anunciaba como «Candidatos por revisar» incluso bajo
+  // la pill «Duplicados».
+  const queueCopy = CONTACT_CANDIDATES_QUEUE_COPY[queue];
+
   // Side panel de detalle (ajuste posterior a 17A.4A): click en fila abre un
   // drawer read-only con el detalle del candidato. Solo lectura — sin acciones.
   const [detailId, setDetailId] = React.useState<string | null>(null);
@@ -365,8 +378,8 @@ export function ContactCandidatesDataTableClient({
       columns={columns}
       data={filteredCandidates}
       getRowId={(row) => row.id}
-      title="Candidatos por revisar"
-      description="Perfiles encontrados por el Agente de contactos que pasaron el filtro de relevancia y esperan revisión humana."
+      title={queueCopy.title}
+      description={queueCopy.description}
       count={filteredCandidates.length}
       settingsExtraSections={
         scopeFilterOptions?.showScopeFilters ? (
@@ -389,13 +402,13 @@ export function ContactCandidatesDataTableClient({
           <div className="mb-3 rounded-full bg-muted/60 p-3">
             <UserSearch className="h-6 w-6 text-muted-foreground/40" />
           </div>
-          <p className="text-sm font-medium text-foreground">No hay candidatos por revisar.</p>
-          <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-            Cuando el Agente de contactos encuentre perfiles relevantes, aparecerán aquí.
-          </p>
-          <div className="mt-4">
-            <ContactsEnrichmentCTA />
-          </div>
+          <p className="text-sm font-medium text-foreground">{queueCopy.emptyTitle}</p>
+          <p className="mt-1 max-w-sm text-xs text-muted-foreground">{queueCopy.emptyBody}</p>
+          {queueCopy.showEnrichmentCta && (
+            <div className="mt-4">
+              <ContactsEnrichmentCTA />
+            </div>
+          )}
         </div>
       }
     />

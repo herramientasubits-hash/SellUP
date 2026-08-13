@@ -19,9 +19,12 @@ import {
   XCircle,
   Bot,
   FileCheck2,
+  AlertCircle,
+  UserX,
 } from 'lucide-react';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
@@ -41,6 +44,18 @@ import {
 import type { AccountWithOwner } from '@/modules/accounts/types';
 import { ContactRowActions } from './contact-row-actions';
 import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
+// AGENT2A-P0-R2 — el drawer del contacto SIEMPRE termina de cargar: o hay contacto, o hay
+// un estado terminal declarado. Nunca un spinner eterno.
+import { isNextControlFlowSignal } from '@/modules/contact-enrichment/next-control-flow-signal';
+import {
+  CONTACT_DETAIL_LOADING_TITLE_COPY,
+  CONTACT_DETAIL_NOT_FOUND_TITLE_COPY,
+  CONTACT_DETAIL_NOT_FOUND_BODY_COPY,
+  CONTACT_DETAIL_LOAD_ERROR_TITLE_COPY,
+  CONTACT_DETAIL_LOAD_ERROR_BODY_COPY,
+  CONTACT_DETAIL_RETRY_COPY,
+  type ContactDetailLoadOutcome,
+} from './contact-detail-load-copy';
 
 const STATUS_STYLES: Record<ContactStatus, string> = {
   active: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-transparent',
@@ -95,20 +110,44 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   const [auditLog, setAuditLog] = React.useState<ContactAuditEntry[]>([]);
   const [account, setAccount] = React.useState<AccountWithOwner | null>(null);
   const [loading, setLoading] = React.useState(false);
+  // AGENT2A-P0-R2: por qué el contacto no está. `null` ⇒ hay contacto, o sigue cargando.
+  // Sin este estado, «no encontrado» y «la lectura falló» eran indistinguibles de «todavía
+  // cargando», y las tres se pintaban como el mismo spinner que nunca se iba.
+  const [loadOutcome, setLoadOutcome] =
+    React.useState<ContactDetailLoadOutcome | null>(null);
 
   const loadData = React.useCallback(async (id: string) => {
     setLoading(true);
+    setLoadOutcome(null);
     try {
       const c = await getContactById(id);
-      if (!c) return;
+      // La lectura funcionó y no hay fila: archivado, eliminado o fuera del alcance del
+      // actor. Es terminal e informativo — antes se salía con un `return` que dejaba el
+      // spinner puesto para siempre.
+      if (!c) {
+        setLoadOutcome('not_found');
+        return;
+      }
       setContact(c);
+
+      // El contexto (auditoría y cuenta) es COMPLEMENTARIO: el contacto ya está en pantalla
+      // y que falte no justifica tumbar el detalle entero. Se resuelve por separado para que
+      // un fallo aquí no se confunda con «no se pudo cargar el contacto».
       const [log, acc] = await Promise.all([
-        getContactAudit(id),
-        getAccountById(c.account_id),
+        getContactAudit(id).catch(() => [] as ContactAuditEntry[]),
+        getAccountById(c.account_id).catch(() => null),
       ]);
       setAuditLog(log);
       setAccount(acc);
+    } catch (caught) {
+      // `redirect()` de Next señaliza LANZANDO (`NEXT_REDIRECT`). Tragarlo aquí convertiría
+      // una sesión caducada en «no se pudo cargar el contacto» en vez de llevar al login.
+      if (isNextControlFlowSignal(caught)) throw caught;
+      // Cualquier otro fallo es terminal y se DECLARA. El drawer tiene prohibido `console.*`
+      // (AGENT2A-PROD-INCIDENT #279), así que el rastro lo deja el servidor, no el cliente.
+      setLoadOutcome('load_error');
     } finally {
+      // Invariante del hito: pase lo que pase, el paso de carga se cierra.
       setLoading(false);
     }
   }, []);
@@ -126,6 +165,9 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
         setContact(null);
         setAuditLog([]);
         setAccount(null);
+        // Sin esto, reabrir el drawer tras un fallo mostraría el estado terminal
+        // anterior antes de que la nueva lectura terminara.
+        setLoadOutcome(null);
       });
     }
   }, [open, contactId, loadData]);
@@ -137,7 +179,15 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       side="right"
       className="w-full sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none"
       icon={<User className="h-5 w-5 text-su-brand" />}
-      title={contact ? contact.full_name : 'Cargando contacto...'}
+      title={
+        contact
+          ? contact.full_name
+          : loadOutcome === 'not_found'
+            ? CONTACT_DETAIL_NOT_FOUND_TITLE_COPY
+            : loadOutcome === 'load_error'
+              ? CONTACT_DETAIL_LOAD_ERROR_TITLE_COPY
+              : CONTACT_DETAIL_LOADING_TITLE_COPY
+      }
       titleBadge={
         contact ? (
           <div className="flex items-center gap-2">
@@ -190,9 +240,48 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
         ) : undefined
       }
     >
-      {loading || !contact ? (
+      {/*
+        AGENT2A-P0-R2 — el spinner sólo representa CARGA EN CURSO.
+        Antes la condición era `loading || !contact`, así que en cuanto la carga terminaba sin
+        contacto —por fallo o por no encontrado— volvía a caer en el spinner y ya no había
+        nada que lo quitara. Ahora, terminada la carga, hay exactamente tres salidas y las
+        tres son estables: contacto, «no disponible» o «no se pudo cargar».
+      */}
+      {loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
+        </div>
+      ) : !contact ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="mb-3 rounded-full bg-muted/60 p-3">
+            {loadOutcome === 'load_error' ? (
+              <AlertCircle className="h-6 w-6 text-destructive/70" />
+            ) : (
+              <UserX className="h-6 w-6 text-muted-foreground/40" />
+            )}
+          </div>
+          <p className="text-sm font-medium text-foreground">
+            {loadOutcome === 'load_error'
+              ? CONTACT_DETAIL_LOAD_ERROR_TITLE_COPY
+              : CONTACT_DETAIL_NOT_FOUND_TITLE_COPY}
+          </p>
+          <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+            {loadOutcome === 'load_error'
+              ? CONTACT_DETAIL_LOAD_ERROR_BODY_COPY
+              : CONTACT_DETAIL_NOT_FOUND_BODY_COPY}
+          </p>
+          {/* Reintentar sólo tiene sentido ante un fallo: si el contacto no está, insistir
+              no lo va a traer. */}
+          {loadOutcome === 'load_error' && contactId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4"
+              onClick={() => loadData(contactId)}
+            >
+              {CONTACT_DETAIL_RETRY_COPY}
+            </Button>
+          )}
         </div>
       ) : (
         <Tabs defaultValue="resumen">
