@@ -88,7 +88,15 @@ import * as React from 'react';
 import { describe, it, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Contact } from '@/modules/contacts/types';
+import type { AccountWithOwner } from '@/modules/accounts/types';
 import type { StoredOfficialPhonesResult } from '@/modules/contact-enrichment/official-contact-stored-phones-actions';
+// Los estados terminales que #284 (P0-R2) le dio al drawer: aquí se usan para
+// comprobar que un fallo de H4 NO los dispara.
+import {
+  CONTACT_DETAIL_LOAD_ERROR_TITLE_COPY,
+  CONTACT_DETAIL_NOT_FOUND_TITLE_COPY,
+  CONTACT_DETAIL_RETRY_COPY,
+} from '../contact-detail-load-copy';
 
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
@@ -169,6 +177,12 @@ const SCALAR_PHONE = '+57 601 111 2222';
 const SCALAR_MOBILE = '+57 300 111 2222';
 const EXTRA_MOBILE = '+57 300 444 5555';
 const EXTRA_WORK = '+57 601 777 8888';
+
+/**
+ * La cuenta del contacto. Se pinta por su nombre, así que sirve de testigo de que
+ * el contexto complementario llegó a la pantalla.
+ */
+const ACCOUNT = { id: 'acct-1', name: 'Empresa Ejemplo SAS' } as unknown as AccountWithOwner;
 
 function makeContact(overrides: Partial<Contact> = {}): Contact {
   return {
@@ -534,5 +548,84 @@ describe('4O-H4 UI — abrir, cerrar y reabrir', () => {
     await waitFor(() => {
       assert.ok(document.getElementById(controls));
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 4. H4 dentro del contrato P0-R2: un fallo de H4 no tumba la ficha
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * #284 (P0-R2) dejó `loadData` con un `try/catch` que DECLARA el desenlace del
+ * drawer, y el hito prohíbe el spinner eterno. H4 añade una tercera lectura a esa
+ * misma función, así que hay que demostrar que no reabre la puerta que #284 cerró:
+ * el CONTEO de números adicionales es información COMPLEMENTARIA —como la
+ * auditoría y la cuenta— y su fallo no puede convertir un contacto que SÍ cargó en
+ * «No se pudo cargar el contacto».
+ *
+ * El aislamiento se comprueba en las dos direcciones: H4 no tumba la ficha, y un
+ * contexto que falla no esconde el CTA de H4.
+ */
+describe('4O-H4 UI — un fallo de H4 no regresa el drawer del contacto', () => {
+  it('la lectura del conteo LANZA: el contacto sigue usable, con su contexto y sin CTA', async () => {
+    // Un fallo de TRANSPORTE de la Server Action: la acción no llega a devolver su
+    // propio `{ additionalCount: 0 }`, lanza.
+    //
+    // Las tres lecturas complementarias comparten un `Promise.all`. Sin un `catch`
+    // PROPIO para la de H4, su rechazo tumba el `Promise.all` entero: la auditoría y
+    // la cuenta ya habían resuelto bien y aun así no llegan a pintarse, y el drawer
+    // pasa por el `catch` terminal de #284. Que el contacto siga en pantalla no basta
+    // como prueba —`setContact` ocurre antes—; lo que demuestra el aislamiento es que
+    // el CONTEXTO sobreviva.
+    mockGetAccountById.mock.mockImplementation(async () => ACCOUNT);
+    mockStoredSummary.mock.mockImplementation(async () => {
+      throw new Error('transport failure');
+    });
+
+    renderSheet();
+    await waitForLoaded();
+
+    // El contacto está en pantalla y con sus escalares intactos.
+    assert.ok(screen.getByText(SCALAR_PHONE), '`contacts.phone` sigue a la vista');
+
+    // El contexto que resolvió bien SÍ se pintó: el fallo de H4 quedó contenido.
+    await waitFor(() => {
+      assert.ok(
+        screen.getAllByText(ACCOUNT.name).length > 0,
+        'la cuenta resolvió y debe verse pese al fallo de H4',
+      );
+    });
+
+    // Ni estado terminal de fallo, ni spinner, ni reintento del drawer entero.
+    assert.equal(screen.queryByText(CONTACT_DETAIL_LOAD_ERROR_TITLE_COPY), null);
+    assert.equal(screen.queryByText(CONTACT_DETAIL_NOT_FOUND_TITLE_COPY), null);
+    assert.equal(screen.queryByRole('button', { name: CONTACT_DETAIL_RETRY_COPY }), null);
+    assert.equal(document.querySelector('.animate-spin'), null, 'ningún spinner vivo');
+
+    // Fail-closed: sin conteo no se ofrece abrir nada, y no se pide ningún número.
+    assert.equal(ctaButton(), null);
+    assert.equal(mockStoredPhones.mock.callCount(), 0);
+    assertNoWrites();
+  });
+
+  it('la auditoría y la cuenta fallan: el CTA de H4 sigue ahí', async () => {
+    // La otra dirección del mismo aislamiento — el contexto que #284 volvió
+    // opcional no puede llevarse por delante la superficie de H4.
+    mockGetContactAudit.mock.mockImplementation(async () => {
+      throw new Error('audit unavailable');
+    });
+    mockGetAccountById.mock.mockImplementation(async () => {
+      throw new Error('account unavailable');
+    });
+    mockStoredSummary.mock.mockImplementation(async () => ({ additionalCount: 2 }));
+
+    renderSheet();
+    await waitForLoaded();
+
+    assert.equal(screen.queryByText(CONTACT_DETAIL_LOAD_ERROR_TITLE_COPY), null);
+    await waitFor(() => {
+      assert.ok(screen.getByRole('button', { name: /Ver 2 números más/ }));
+    });
+    assertNoWrites();
   });
 });
