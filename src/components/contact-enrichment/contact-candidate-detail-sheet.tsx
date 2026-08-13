@@ -126,6 +126,7 @@ import {
 // seguro en el bundle cliente): cliente y servidor comparten LA MISMA definición
 // de "ya pasaron 2 min desde la solicitud" y no pueden desincronizarse.
 import { isManualRecoveryRequestWindowOpen } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-core';
+import { isCandidateCreatedToday } from '@/modules/contact-enrichment/candidate-date-utils';
 import type {
   PendingContactCandidate,
   ContactRelevanceStatus,
@@ -1668,23 +1669,32 @@ export function ContactCandidateDetailSheet({
         candidate ? (
           <div className="flex items-center justify-between gap-4 mr-6">
             <span className="truncate">{candidate.full_name || 'Sin nombre'}</span>
-            {/* 4O-H3-B-R1: el badge dice el estado REAL. Un duplicado ya no se presenta como si
-                siguiera siendo una aprobación normal pendiente. */}
-            {candidate.status === 'duplicate' ? (
-              <Badge
-                variant="outline"
-                className="shrink-0 border-transparent bg-muted text-muted-foreground text-xs font-semibold"
-              >
-                Duplicado
-              </Badge>
-            ) : (
-              <Badge
-                variant="outline"
-                className="shrink-0 border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold"
-              >
-                Por revisar
-              </Badge>
-            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Parity with Agent 1's "Nuevo": independent of workflow status,
+                  same calendar-day (America/Bogota) freshness check. */}
+              {candidate.created_at && isCandidateCreatedToday(candidate.created_at) && (
+                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
+                  Nuevo
+                </Badge>
+              )}
+              {/* 4O-H3-B-R1: el badge dice el estado REAL. Un duplicado ya no se presenta como si
+                  siguiera siendo una aprobación normal pendiente. */}
+              {candidate.status === 'duplicate' ? (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 border-transparent bg-muted text-muted-foreground text-xs font-semibold"
+                >
+                  Duplicado
+                </Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="shrink-0 border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold"
+                >
+                  Por revisar
+                </Badge>
+              )}
+            </div>
           </div>
         ) : loadOutcome === 'not_found' ? (
           CANDIDATE_DETAIL_NOT_FOUND_TITLE_COPY
