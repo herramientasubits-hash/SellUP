@@ -119,7 +119,11 @@ const mockRouterRefresh = mock.fn<() => void>();
 
 mock.module('@/modules/contact-enrichment/actions', {
   namedExports: {
-    getPendingContactCandidateById: (...args: unknown[]) => mockGetById(...(args as [])),
+    getReviewableContactCandidateById: (...args: unknown[]) => mockGetById(...(args as [])),
+    // 4O-H3-B-R1: el drawer relee la oferta duradera al abrir un candidato ya `duplicate`. En
+    // esta suite los candidatos entran en `pending_review`, así que no se llama; se declara para
+    // que el módulo mockeado siga siendo completo.
+    getDuplicateCandidateMergeOffer: async () => null,
     approveContactCandidate: (...args: unknown[]) => mockApprove(...(args as [])),
     mergeContactCandidateIntoExistingContactAction: (...args: [string, string]) =>
       mockMerge(...args),

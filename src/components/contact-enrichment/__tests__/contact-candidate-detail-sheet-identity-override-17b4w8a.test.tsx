@@ -134,7 +134,7 @@ const mockRouterRefresh = mock.fn<() => void>();
 
 mock.module('@/modules/contact-enrichment/actions', {
   namedExports: {
-    getPendingContactCandidateById: (...args: unknown[]) =>
+    getReviewableContactCandidateById: (...args: unknown[]) =>
       mockGetById(...(args as [])),
     approveContactCandidate: (...args: [string, { acknowledged: boolean; reason: string }?]) =>
       mockApprove(...args),

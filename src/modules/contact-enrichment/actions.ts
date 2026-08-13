@@ -12,6 +12,7 @@ import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { isLushaContactEnrichmentEnabled, resolveLushaSearchTimeoutMs } from '@/lib/feature-flags.server';
 import { logContactAudit } from '@/modules/contacts/actions';
 import {
+  resolveExistingContactMergeOffer,
   runApproveCandidate,
   runDiscardCandidate,
   runMergeCandidateIntoExistingContact,
@@ -23,6 +24,8 @@ import {
   type IdentityApprovalOverrideInputV1,
   type MergeIntoExistingContactErrorCode,
 } from './candidate-review-core';
+import { isNextControlFlowSignal } from './next-control-flow-signal';
+import { REVIEWABLE_CONTACT_CANDIDATE_STATUSES } from './reviewable-candidate-statuses';
 import { buildCandidateScalarFallback } from './official-contact-approval-core';
 import { approveContactCandidateWithPhones } from './official-contact-approval-persistence';
 import { buildIncumbentContactBootstrap } from './existing-contact-merge-core';
@@ -400,48 +403,79 @@ export async function getPendingContactCandidates(
 }
 
 /**
- * Detalle de un único candidato en `pending_review` para el side panel de
- * revisión (ajuste posterior a 17A.4A). Misma proyección de solo lectura que el
- * listado — sin payloads crudos del proveedor — pero filtrada por id. Devuelve
- * `null` si el candidato no existe o ya salió de `pending_review`, para que el
- * panel muestre su estado "no disponible" sin reventar.
+ * Detalle de un único candidato REVISABLE para el side panel de revisión.
+ *
+ * Misma proyección de solo lectura que el listado — sin payloads crudos del proveedor — pero
+ * filtrada por id. Devuelve `null` si el candidato no existe o ya salió de los estados
+ * revisables, para que el panel muestre su estado "no disponible" sin reventar.
+ *
+ * Antes se llamaba `getReviewableContactCandidateById`. El nombre se corrigió al ampliar el
+ * contrato: una función llamada "Pending" que además acepta `duplicate` miente.
  */
-export async function getPendingContactCandidateById(
+export async function getReviewableContactCandidateById(
   candidateId: string,
 ): Promise<PendingContactCandidate | null> {
-  await requireActiveUserForEnrichment();
+  // AGENT2A-4O-H3-B-R1 — por qué el rastro cubre TODA la función y no sólo la query.
+  //
+  // El diagnóstico que dejó #279 estaba DESPUÉS de la lectura, así que sólo podía ver un fallo
+  // de PostgREST. En el fallo real observado en QA (2026-08-12 23:45–23:47 UTC) los logs de
+  // Supabase no registran ni la lectura por id ni la comprobación de `internal_users` del guard
+  // de sesión: entre 23:45:40 y 23:52 no hubo NINGUNA petición. Es decir, el fallo ocurrió
+  // ARRIBA de la query, donde el rastro de #279 no llega — y por eso no hubo nada que leer.
+  //
+  // Aquí se instrumenta cada frontera (sesión, cliente, lectura, mapeo) con su `stage`, de modo
+  // que la próxima vez el log diga en qué punto se rompió. Se registran SÓLO códigos y el id del
+  // candidato (un uuid). NUNCA la fila: la proyección lleva nombre, email y teléfono.
+  const trimmedId = typeof candidateId === 'string' ? candidateId.trim() : '';
 
-  if (typeof candidateId !== 'string' || !candidateId.trim()) return null;
+  let stage: 'session' | 'client' | 'read' | 'map' = 'session';
+  try {
+    await requireActiveUserForEnrichment();
 
-  const supabase = await createClient();
+    if (!trimmedId) return null;
 
-  const { data, error } = await supabase
-    .from('contact_enrichment_candidates')
-    .select(CANDIDATE_SELECT)
-    .eq('id', candidateId.trim())
-    .eq('status', 'pending_review')
-    .maybeSingle();
+    stage = 'client';
+    const supabase = await createClient();
 
-  if (error) {
-    // AGENT2A-PROD-INCIDENT: en el drawer, un fallo de esta lectura y un candidato
-    // que ya salió de `pending_review` se veían EXACTAMENTE igual, y el cliente
-    // descartaba el error en un `catch {}` vacío ⇒ la causa raíz no se podía
-    // diagnosticar desde Producción. El rastro se emite AQUÍ, en el servidor:
-    // el componente tiene prohibido escribir en consola (maneja teléfonos
-    // revelados) y este es además el lado que queda en los logs de Producción.
-    //
-    // Se registran solo códigos del error y el id del candidato (un uuid). NUNCA
-    // la fila: la proyección lleva nombre, email y teléfono.
-    console.error('[getPendingContactCandidateById] read_failed', {
-      candidateId: candidateId.trim(),
-      code: error.code,
-      message: error.message,
-    });
-    throw new Error(`getPendingContactCandidateById: ${error.message}`);
+    stage = 'read';
+    const { data, error } = await supabase
+      .from('contact_enrichment_candidates')
+      .select(CANDIDATE_SELECT)
+      .eq('id', trimmedId)
+      .in('status', REVIEWABLE_CONTACT_CANDIDATE_STATUSES)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[getReviewableContactCandidateById] read_failed', {
+        candidateId: trimmedId,
+        stage,
+        code: error.code,
+        message: error.message,
+      });
+      throw new Error(`getReviewableContactCandidateById: ${error.message}`);
+    }
+    if (!data) return null;
+
+    stage = 'map';
+    return mapPendingContactCandidate(data);
+  } catch (caught) {
+    // `redirect()` de Next señaliza LANZANDO (`NEXT_REDIRECT`). Si lo tragáramos aquí, una
+    // sesión caducada se vería como "no se pudo cargar el candidato" en vez de llevar al login,
+    // que es exactamente la clase de confusión que este hito viene a cerrar. Se re-lanza intacto
+    // y sin registrarlo: no es un fallo.
+    if (isNextControlFlowSignal(caught)) throw caught;
+
+    // Cualquier otro fallo YA quedó registrado si venía de la lectura; el resto (sesión, cliente,
+    // mapeo) sólo se veía en el cliente, que tiene prohibido escribir en consola.
+    if (stage !== 'read') {
+      console.error('[getReviewableContactCandidateById] load_failed', {
+        candidateId: trimmedId || null,
+        stage,
+        errorName: caught instanceof Error ? caught.name : typeof caught,
+      });
+    }
+    throw caught;
   }
-  if (!data) return null;
-
-  return mapPendingContactCandidate(data);
 }
 
 /**
@@ -459,6 +493,117 @@ export async function getPendingContactCandidatesCount(): Promise<number> {
 
   if (error) throw new Error(`getPendingContactCandidatesCount: ${error.message}`);
   return count ?? 0;
+}
+
+/**
+ * 4O-H3-B-R1 — listado de candidatos DUPLICADOS.
+ *
+ * Es una cola distinta, no una ampliación de «Por revisar»: se cuenta y se muestra aparte para
+ * que el número de pendientes siga significando exactamente lo mismo que antes de este hito.
+ * Sin esta lectura un duplicado era inalcanzable — la detección lo movía a `duplicate` y ninguna
+ * consulta de la UI volvía a mirar ese estado.
+ */
+export async function getDuplicateContactCandidates(
+  limit = 500,
+): Promise<PendingContactCandidate[]> {
+  await requireActiveUserForEnrichment();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select(CANDIDATE_SELECT)
+    .eq('status', 'duplicate')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(`getDuplicateContactCandidates: ${error.message}`);
+
+  return (data ?? []).map(mapPendingContactCandidate);
+}
+
+/** 4O-H3-B-R1 — conteo de duplicados. Separado del de pendientes a propósito (§ 11). */
+export async function getDuplicateContactCandidatesCount(): Promise<number> {
+  await requireActiveUserForEnrichment();
+  const supabase = await createClient();
+
+  const { count, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'duplicate');
+
+  if (error) throw new Error(`getDuplicateContactCandidatesCount: ${error.message}`);
+  return count ?? 0;
+}
+
+/**
+ * 4O-H3-B-R1 — ¿puede el humano AGREGARLE la información de este duplicado al contacto
+ * existente? La pregunta se responde de nuevo cada vez que se abre el candidato.
+ *
+ * Esto es lo que hace DURADERA la decisión de H3-B. Antes la oferta viajaba únicamente en el
+ * resultado de la aprobación que acababa de detectar el duplicado, así que cerrar el drawer la
+ * perdía para siempre: al reabrir, el candidato ya era `duplicate` y nadie recalculaba nada.
+ *
+ * Reutiliza EXACTAMENTE el mismo resolutor puro que la detección (`resolveExistingContactMergeOffer`)
+ * sobre el mismo conjunto (contactos vivos de la cuenta) y contra el mismo ancla que escribió el
+ * servidor (`matched_contacts_id`). No hay una segunda regla de confianza: identidad exacta por
+ * email o LinkedIn, contada una sola vez; nombre o señales ambiguas ⇒ `offered: false` con motivo.
+ *
+ * Lectura pura: 0 escrituras, 0 proveedores, 0 créditos. Cliente de SESIÓN — todo pasa por RLS.
+ */
+export async function getDuplicateCandidateMergeOffer(
+  candidateId: string,
+): Promise<ExistingContactMergeOffer | null> {
+  await requireActiveUserForEnrichment();
+
+  const trimmedId = typeof candidateId === 'string' ? candidateId.trim() : '';
+  if (!trimmedId) return null;
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select(CANDIDATE_REVIEW_SELECT)
+    .eq('id', trimmedId)
+    .eq('status', 'duplicate')
+    .maybeSingle();
+
+  if (error) {
+    console.error('[getDuplicateCandidateMergeOffer] read_failed', {
+      candidateId: trimmedId,
+      code: error.code,
+      message: error.message,
+    });
+    throw new Error(`getDuplicateCandidateMergeOffer: ${error.message}`);
+  }
+  // No es un duplicado (o ya salió de ese estado): no hay oferta que ofrecer. `null` deja al
+  // drawer sin CTA, que es el estado seguro.
+  if (!data) return null;
+
+  const candidate = mapCandidateRecord(data);
+  const accountId = candidate.account_id;
+  // Sin cuenta resuelta no hay conjunto contra el que comparar identidades ⇒ no se ofrece.
+  if (!accountId) return { offered: false, reason: 'no_recorded_match' };
+
+  const { data: contacts, error: contactsError } = await supabase
+    .from('contacts')
+    .select('id, email, linkedin_url, full_name')
+    .eq('account_id', accountId)
+    .is('archived_at', null);
+
+  if (contactsError) {
+    console.error('[getDuplicateCandidateMergeOffer] contacts_read_failed', {
+      candidateId: trimmedId,
+      code: contactsError.code,
+      message: contactsError.message,
+    });
+    throw new Error(`getDuplicateCandidateMergeOffer: ${contactsError.message}`);
+  }
+
+  return resolveExistingContactMergeOffer({
+    candidate: { email: candidate.email, linkedin_url: candidate.linkedin_url },
+    existingContacts: (contacts ?? []) as ExistingContactForDedup[],
+    recordedMatchContactId: candidate.matched_contacts_id,
+  });
 }
 
 // ── Revisión humana: aprobar / rechazar (Hito 17A.4B) ─────────

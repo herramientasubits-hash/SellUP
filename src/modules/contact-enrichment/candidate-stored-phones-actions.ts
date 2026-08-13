@@ -19,7 +19,7 @@
 //
 // ── POR QUÉ «ACCIÓN» Y NO OTRA COSA ────────────────────────────
 //
-// El drawer es un componente cliente que ya lee así (`getPendingContactCandidateById`,
+// El drawer es un componente cliente que ya lee así (`getReviewableContactCandidateById`,
 // `getPhoneRevealWaterfallAuditAction`). Introducir aquí una ruta API o un loader
 // nuevo sería un segundo patrón de lectura para la misma pantalla. Los nombres
 // dicen lo que hacen —`get…`— y ninguna de las dos funciones muta nada.
