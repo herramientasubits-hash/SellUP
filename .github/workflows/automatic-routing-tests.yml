@@ -654,6 +654,76 @@ jobs:
       - name: Run A1 subindustry precision Wave 1 tests
         run: npm run test:a1-subindustry-precision-wave1
 
+      # AGENT1-SECTOR-POST-ENRICHMENT-ADMISSION-1 — la admisión sectorial por
+      # precisión de hija entra al check obligatorio.
+      #
+      # El bloqueo que cierra, descubierto justo después de #274: el bootstrap
+      # autoriza a COMPRAR la clasificación que `mixed_companies/search` no devuelve,
+      # el perfil comprado CONFIRMA la subindustria que el usuario pidió, y el
+      # veredicto sectorial vuelve igualmente a `sector_not_mapped` —porque no hay
+      # política legacy para el sector padre— y mata al candidato antes del writer.
+      #
+      # Lo que estas suites fijan, y por qué tienen que correr en cada PR:
+      #
+      #   * §§ 3-7 una hija PEDIDA y confirmada OPERATIVAMENTE admite; la industria
+      #     PADRE sola nunca admite, y la implicación no se invierte;
+      #   * § 14 una subindustria que el usuario NO pidió no puede admitir a nadie;
+      #   * §§ 5-6 las ramas negativas de `confirm_only` siguen ABSTENIÉNDOSE: no
+      #     admiten y tampoco añaden rechazo;
+      #   * §§ 8, 10, 11 fail-closed ante catálogo incoherente, búsqueda sin
+      #     subindustrias y subindustria sin regla de precisión;
+      #   * §§ 9, 16 precedencia: la política legacy manda donde existe, y Retail y
+      #     Educación conservan sus decisiones EXACTAS — deriva cero;
+      #   * §§ 17, 21 la cadena entera por el runner real: admitir NO es persistir, y
+      #     un gate posterior (ownership) sigue rechazando con SU motivo;
+      #   * § 22 replay offline de la cohorte real de RUN 1 `f4c8a60f` con enrichment
+      #     simulado, sin una sola llamada al proveedor.
+      #
+      # 0 migraciones, 0 escrituras en Producción, 0 créditos, 0 llamadas a Apollo,
+      # Tavily, Lusha, HubSpot o Supabase.
+      - name: Run A1 sector post-enrichment admission tests
+        run: npm run test:a1-sector-post-enrichment-admission
+
+      # AGENT1-APOLLO-BOOTSTRAP-PURCHASE-GATE-THREADING-1 — el gate que guarda la
+      # COMPRA recibe la autorización que dejó competir al candidato.
+      #
+      # El defecto que fija, medido en producción (lote `74a49b01`, SHA `6808835f`,
+      # que ya incluía #274 y #276): 20 candidatos bootstrap-eligible, 5
+      # seleccionados y CERO enrichments ejecutados, porque el runner llamaba al
+      # cascade sin `sectorEvidenceBootstrap` y el gate volvía a juzgar sin
+      # autorización — `sector_not_mapped` ⇒ `eligibility_blocked`. 20 créditos de
+      # búsqueda, 0 candidatos, y la evidencia que el hito compra siguió sin
+      # comprarse.
+      #
+      # Por qué NINGUNA suite anterior lo vio, y por qué esta sí: todas las demás
+      # mockean `enrichCascade` entero, y un cascade mockeado siempre devuelve
+      # `enriched: true`, así que el gate que rechazaba nunca llegaba a ejecutarse
+      # en una prueba. Esta suite atraviesa el cascade de PRODUCCIÓN y sólo simula
+      # el transporte HTTP.
+      #
+      # Lo que fija, y por qué tiene que correr en cada PR:
+      #
+      #   * § 13 replay de la cohorte real: BEFORE 5 seleccionados / 0 ejecutados
+      #     con `eligibility_blocked` + `sector_not_mapped`; AFTER 5 de 5 compran,
+      #     con la MISMA selección — cero deriva de ranking;
+      #   * § 4 la autorización es de CANDIDATO y está acotada por el cap: una
+      #     corrida autorizada NO autoriza a los 20, y un elegible no seleccionado
+      #     no llega ni al gate de compra;
+      #   * § 3 fail-closed por las cuatro precondiciones de #274, a través del
+      #     runner: una sola ronda con la pregunta equivocada ⇒ 0 compras;
+      #   * § 6 una compra que NUNCA se intentó no degrada al candidato — la
+      #     regresión que dejó a los 5 mejores de `74a49b01` en `needs_enrichment`;
+      #   * § 9 la cadena entera hasta la admisión de #276, y el límite declarado
+      #     de que la hija que el retest pidió no tiene regla de precisión;
+      #   * §§ 8, 12 caps intactos (<= 2 búsquedas, <= 5 enrichments, <= 25
+      #     créditos) y reconciliación terminal sin `unclassified_final`;
+      #   * § 11 Retail y Educación conservan sus decisiones EXACTAS.
+      #
+      # 0 migraciones, 0 escrituras en Producción, 0 créditos, 0 llamadas a Apollo,
+      # Tavily, Lusha, HubSpot o Supabase.
+      - name: Run A1 bootstrap purchase gate threading tests
+        run: npm run test:a1-apollo-bootstrap-purchase-gate-threading
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)
@@ -1266,3 +1336,28 @@ jobs:
 
       - name: Run official contact stored phones UI tests
         run: npm run test:agent2a:official-contact-stored-phones-ui
+
+      # AGENT2A-PROD-INCIDENT — regresiones del incidente P0 de Producción en la
+      # lectura del detalle de candidato y en la búsqueda de empresa.
+      #
+      # Qué protege este paso:
+      #
+      #   · Incidente B (spinner infinito). Falla si la petición de búsqueda de empresas a
+      #     HubSpot vuelve a salir SIN techo de espera —era el único `fetch` del flujo sin
+      #     `AbortSignal`, y sin él un HubSpot que no responde deja el server action esperando
+      #     hasta que la plataforma corta la invocación—, y falla si el wizard vuelve a hacer
+      #     `await` de un server action sin `catch`: cuando la llamada RECHAZA en vez de
+      #     devolver, el paso de carga se quedaba puesto para siempre.
+      #   · Que «HubSpot no se pudo consultar» no vuelva a confundirse con «HubSpot contestó
+      #     que no hay coincidencias»: el adaptador devolvía `[]` para ambos, así que el aviso
+      #     que la UI ya tenía escrito era inalcanzable y una caída se presentaba como que la
+      #     empresa no está en HubSpot.
+      #   · Incidente A (detalle de candidato). Falla si «este candidato ya salió de revisión»
+      #     y «la lectura falló» vuelven a colapsar en un único estado con el mismo copy, y si
+      #     el fallo de lectura vuelve a perderse en un `catch {}` vacío —que es lo que hizo
+      #     que la causa raíz no se pudiera diagnosticar desde Producción—.
+      #
+      # Determinista y offline: jsdom + dobles de los server actions y de `fetch`. Sin red, sin
+      # Supabase, sin HubSpot, sin Apollo, sin Lusha, 0 créditos, 0 escrituras y 0 PII.
+      - name: Run prod incident contact read/search regression tests
+        run: npm run test:agent2a:prod-incident-contact-read-search

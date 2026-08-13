@@ -211,6 +211,165 @@ export function decideApolloSectorEvidenceBootstrapForCandidate(input: {
   return { bootstrapEligible: true, reason: 'provider_classification_missing' };
 }
 
+// ─── Autorización del GATE DE COMPRA ──────────────────────────────────────────
+
+/**
+ * AGENT1-APOLLO-BOOTSTRAP-PURCHASE-GATE-THREADING-1.
+ *
+ * El defecto que este bloque cierra, medido en producción (lote
+ * `74a49b01-aa34-4160-a59a-1c84a7f85e13`, 2026-08-12, SHA `6808835f`):
+ *
+ *   #274 hizo llegar la autorización al gate BARATO —el que decide quién compite—
+ *   y NO al gate que guarda la COMPRA, que vive dentro del cascade. La corrida
+ *   dejó 20 candidatos `bootstrap_eligible`, seleccionó los 5 mejores… y ejecutó
+ *   CERO enrichments: `evaluateApolloEnrichmentEligibility` volvía a juzgar sin
+ *   autorización, un sector sin política volvía a `sector_not_mapped`, y el
+ *   cascade devolvía `eligibility_blocked`. 20 créditos de búsqueda, 0 de
+ *   adquisición, 0 candidatos, y la evidencia que el hito existe para comprar
+ *   siguió sin comprarse.
+ *
+ * La corrección NO es recalcular el bootstrap por segunda vez junto al gasto: dos
+ * evaluaciones independientes pueden discrepar, y la que guarda el dinero sería
+ * la que decidiera sin contexto. Es ENHEBRAR la misma autorización que ya dejó
+ * competir al candidato, y hacerlo con dos límites que un booleano de corrida no
+ * tiene:
+ *
+ *   1. por CANDIDATO — sólo autoriza a quien el gate barato registró como
+ *      bootstrap-eligible; nadie más hereda la autorización de la corrida;
+ *   2. por SELECCIÓN — la corrida no puede emitir más autorizaciones de compra
+ *      que enrichments permite su cap, así que una autorización de corrida jamás
+ *      se convierte en permiso para los 20.
+ *
+ * Puro: sin I/O, sin estado, sin reloj.
+ */
+
+/** Por qué un candidato SELECCIONADO no puede llegar a la operación pagada. */
+export type ApolloSectorEvidenceBootstrapPurchaseBlockReason =
+  /** La corrida entera no autoriza adquisición. Se propaga tal cual. */
+  | ApolloSectorEvidenceBootstrapBlockReason
+  /**
+   * El gate BARATO no registró a este candidato como bootstrap-eligible. Puede
+   * ser porque el proveedor sí declaró clasificación, o porque su sector tiene
+   * política y no necesita bootstrap alguno. En ambos casos la compra se juzga
+   * con el contrato de siempre: cero deriva para las rutas existentes.
+   */
+  | 'candidate_not_bootstrap_eligible_at_cheap_gate'
+  /**
+   * La corrida ya emitió tantas autorizaciones de compra como enrichments
+   * permite su cap. Es el límite que convierte «esta corrida está autorizada» en
+   * «estos <= N candidatos lo están», y el que impide que una autorización de
+   * corrida acabe cubriendo a toda la cohorte.
+   */
+  | 'purchase_authorization_cap_reached';
+
+/** Desenlace de una operación de compra que la autorización SÍ alcanzó a habilitar. */
+export type ApolloSectorEvidenceBootstrapPurchaseSkipReason =
+  /** No hay pricing activo para `organization_enrichment`. */
+  | 'enrichment_pricing_unavailable'
+  /** El presupuesto de la corrida ya no admite otra operación pagada. */
+  | 'budget_exhausted'
+  /** El resultado original del proveedor ya no está disponible para evaluar. */
+  | 'candidate_evidence_unavailable'
+  /** El candidato no tiene dominio normalizado con el que llamar a Apollo. */
+  | 'candidate_domain_missing'
+  /** El cascade no devolvió entrada para el único candidato que se le pasó. */
+  | 'cascade_returned_no_entry'
+  /** El gate de compra del cascade rechazó. El motivo fino viaja aparte. */
+  | 'cascade_eligibility_blocked'
+  /** El cascade agotó su propio cap antes de llamar. */
+  | 'cascade_cap_reached'
+  /** El cascade no encontró dominio en el resultado. */
+  | 'cascade_missing_domain'
+  /** El cascade está deshabilitado. */
+  | 'cascade_disabled';
+
+export type ApolloSectorEvidenceBootstrapPurchaseDecision =
+  | {
+      authorized: true;
+      reason: ApolloSectorEvidenceBootstrapCandidateReason;
+      /**
+       * La autorización que viaja al gate de la operación PAGADA.
+       *
+       * Es el MISMO valor que autorizó al gate barato, no una reconstrucción: una
+       * segunda evaluación podría discrepar de la primera, y la que guarda el
+       * dinero sería la que decidiera sin contexto.
+       */
+      authorization: ApolloSectorEvidenceBootstrapAuthorization;
+    }
+  | {
+      authorized: false;
+      blockReason: ApolloSectorEvidenceBootstrapPurchaseBlockReason;
+      /** Siempre NO autorizada: fallar cerrado es el default de este módulo. */
+      authorization: ApolloSectorEvidenceBootstrapAuthorization;
+    };
+
+/**
+ * ¿Puede ESTA compra ejecutarse bajo la autorización de bootstrap de la corrida?
+ *
+ * Comprueba de lo más fundamental a lo más derivado, para que el motivo reportado
+ * sea el que de verdad explica el bloqueo.
+ *
+ * Fail-closed en todos los caminos: lo que no está explícitamente autorizado
+ * viaja como `APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED`, que es exactamente
+ * el valor con el que se comportaban las rutas anteriores a este hito.
+ */
+export function resolveApolloSectorEvidenceBootstrapPurchaseAuthorization(input: {
+  /** Autorización de la CORRIDA, combinada sobre las búsquedas emitidas. */
+  runAuthorization: ApolloSectorEvidenceBootstrapAuthorization;
+  /**
+   * El motivo que el gate BARATO registró para este candidato, o `null` si nunca
+   * lo registró. `null` no se interpreta como «se puede»: es lo que fuerza que la
+   * autorización sea de candidato y no de corrida.
+   */
+  cheapGateBootstrapReason: ApolloSectorEvidenceBootstrapCandidateReason | null;
+  /** Autorizaciones de compra que esta corrida ya emitió. */
+  authorizedPurchasesSoFar: number;
+  /** Cap de enrichments de la corrida. Nunca se emiten más autorizaciones. */
+  maxAuthorizedPurchases: number;
+}): ApolloSectorEvidenceBootstrapPurchaseDecision {
+  const denied = (
+    blockReason: ApolloSectorEvidenceBootstrapPurchaseBlockReason,
+  ): ApolloSectorEvidenceBootstrapPurchaseDecision => ({
+    authorized: false,
+    blockReason,
+    authorization: APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED,
+  });
+
+  if (!input.runAuthorization.authorized) return denied(input.runAuthorization.blockReason);
+  if (input.cheapGateBootstrapReason === null) {
+    return denied('candidate_not_bootstrap_eligible_at_cheap_gate');
+  }
+  if (input.authorizedPurchasesSoFar >= input.maxAuthorizedPurchases) {
+    return denied('purchase_authorization_cap_reached');
+  }
+  return {
+    authorized: true,
+    reason: input.cheapGateBootstrapReason,
+    authorization: input.runAuthorization,
+  };
+}
+
+/**
+ * La traza durable de una compra de bootstrap: qué se autorizó, si se llegó a
+ * intentar, y por qué no si no se llegó.
+ *
+ * Vive aquí y no en el módulo de auditoría porque es el vocabulario del gate de
+ * compra, y porque el runner la produce mientras decide — no después.
+ */
+export type ApolloSectorEvidenceBootstrapPurchaseTrace = {
+  decision: ApolloSectorEvidenceBootstrapPurchaseDecision;
+  /** ¿Se llegó a invocar el cascade con este candidato? */
+  cascadeInvoked: boolean;
+  /** Por qué no se ejecutó la operación pagada. `null` si se ejecutó. */
+  skipReason: ApolloSectorEvidenceBootstrapPurchaseSkipReason | null;
+  /**
+   * Motivo fino del gate de compra del cascade cuando bloqueó. Es el campo que
+   * habría respondido la forense de `74a49b01` sin un replay: decía
+   * `sector_not_mapped` y nadie podía verlo.
+   */
+  cascadeIneligibilityReason: string | null;
+};
+
 // ─── Transporte de las precondiciones ─────────────────────────────────────────
 
 /**

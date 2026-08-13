@@ -43,9 +43,19 @@ import type {
   ApolloTwoRoundEnrichmentStatus,
 } from './apollo-two-round/checkpoint';
 import type { CandidateSectorEvidenceState } from './apollo-two-round/enrichment-ranking';
-import type { ApolloSectorEvidenceBootstrapCandidateReason } from './apollo-sector-evidence-bootstrap';
+import type {
+  ApolloSectorEvidenceBootstrapCandidateReason,
+  ApolloSectorEvidenceBootstrapPurchaseTrace,
+} from './apollo-sector-evidence-bootstrap';
 import type { ApolloSubindustryPrecisionAssessment } from './apollo-subindustry-precision';
-import { toApolloSubindustryPrecisionMetadata } from './apollo-subindustry-precision';
+import {
+  toApolloSubindustryPrecisionMetadata,
+  toOperationalConfirmedRequestedSubindustryMetadata,
+} from './apollo-subindustry-precision';
+import type {
+  ApolloSectorAdmissionSource,
+  ApolloSectorPostEnrichmentAdmissionResult,
+} from './apollo-sector-post-enrichment-admission';
 
 // ─── Dónde aterriza ───────────────────────────────────────────────────────────
 
@@ -135,6 +145,20 @@ export type ApolloSectorEvidenceBootstrapCandidateAudit = {
   /** Veredicto de precisión POSTERIOR al enrichment. `null` por la misma razón. */
   postEnrichmentPrecision: ApolloSubindustryPrecisionAssessment | null;
   postEnrichmentSectorState: CandidateSectorEvidenceState | null;
+  /**
+   * POST-ENRICHMENT-ADMISSION-1 § 20 — cómo cruzó (o no) el gate sectorial.
+   *
+   * `null` cuando el candidato nunca llegó a la resolución de admisión: no
+   * compitió, o su enrichment quedó indeterminado. Ausencia, no `legacy`.
+   */
+  sectorAdmission: ApolloSectorPostEnrichmentAdmissionResult | null;
+  /**
+   * BOOTSTRAP-PURCHASE-GATE-THREADING-1 § 14 — qué ocurrió en el GATE DE COMPRA.
+   *
+   * `null` en un candidato elegible que nunca fue seleccionado: nadie le preguntó
+   * al gate de compra por él. Ausencia, no negativa.
+   */
+  purchase: ApolloSectorEvidenceBootstrapPurchaseTrace | null;
   /** Disposición terminal canónica. Exactamente una por candidato (§ E). */
   terminalDisposition: ApolloCandidateFinalDisposition | null;
   terminalReason: string | null;
@@ -150,6 +174,13 @@ export type ApolloSectorEvidenceBootstrapAuditInput = {
   evidenceByKey: ReadonlyMap<string, ApolloTwoRoundCandidateEvidenceSnapshot>;
   precisionByKey: ReadonlyMap<string, ApolloSubindustryPrecisionAssessment>;
   sectorEvidenceStateByKey: ReadonlyMap<string, CandidateSectorEvidenceState>;
+  /** POST-ENRICHMENT-ADMISSION-1 § 20. Ausente ⇒ todos los registros con `null`. */
+  sectorAdmissionByKey?: ReadonlyMap<string, ApolloSectorPostEnrichmentAdmissionResult>;
+  /**
+   * BOOTSTRAP-PURCHASE-GATE-THREADING-1 § 14. Ausente ⇒ todos con `null`, que es
+   * lo que ya significaba antes de este hito: nadie registró el gate de compra.
+   */
+  purchaseTraceByKey?: ReadonlyMap<string, ApolloSectorEvidenceBootstrapPurchaseTrace>;
   finalDispositions: readonly ApolloCandidateFinalDispositionEntry[];
 };
 
@@ -189,6 +220,8 @@ export function buildApolloSectorEvidenceBootstrapAudit(
           ? (input.precisionByKey.get(candidateKey) ?? null)
           : null,
         postEnrichmentSectorState: input.sectorEvidenceStateByKey.get(candidateKey) ?? null,
+        sectorAdmission: input.sectorAdmissionByKey?.get(candidateKey) ?? null,
+        purchase: input.purchaseTraceByKey?.get(candidateKey) ?? null,
         terminalDisposition: disposition?.finalDisposition ?? null,
         terminalReason: disposition?.finalReason ?? null,
       } satisfies ApolloSectorEvidenceBootstrapCandidateAudit;
@@ -241,6 +274,46 @@ export function toApolloSectorEvidenceBootstrapAuditMetadata(
         ? null
         : toApolloSubindustryPrecisionMetadata(record.postEnrichmentPrecision),
     post_enrichment_sector_state: record.postEnrichmentSectorState,
+    // POST-ENRICHMENT-ADMISSION-1 § 20 — la traza que permite auditar «este
+    // candidato cruzó el gate sectorial porque EPS, que se pidió, quedó confirmada
+    // tras el enrichment». `post_enrichment_sector_state` de arriba es el estado
+    // RESUELTO; `sector_admission.post_enrichment_sector_state` es el que había
+    // antes de resolver, así que el cambio queda visible sin deducirlo.
+    sector_admission:
+      record.sectorAdmission === null
+        ? null
+        : {
+            source: record.sectorAdmission.admissionSource,
+            admitted_by_requested_subindustry_precision:
+              record.sectorAdmission.admittedByRequestedSubindustryPrecision,
+            matched_requested_subindustry: record.sectorAdmission.matchedRequestedSubindustry,
+            operational_confirmation: toOperationalConfirmedRequestedSubindustryMetadata(
+              record.sectorAdmission.operationalConfirmation,
+            ),
+            post_enrichment_sector_state: record.sectorAdmission.postEnrichmentSectorState,
+            block_reason: record.sectorAdmission.blockReason,
+          },
+    // BOOTSTRAP-PURCHASE-GATE-THREADING-1 § 14 — los seis estados del recorrido,
+    // distinguibles sin un replay: elegible (este registro existe), seleccionado
+    // (`selection_rank`), autorizado a comprar, intentado, ejecutado
+    // (`enrichment_executed`) y por qué no.
+    purchase:
+      record.purchase === null
+        ? null
+        : {
+            authorized: record.purchase.decision.authorized,
+            authorization_reason: record.purchase.decision.authorized
+              ? record.purchase.decision.reason
+              : null,
+            block_reason: record.purchase.decision.authorized
+              ? null
+              : record.purchase.decision.blockReason,
+            attempted: record.purchase.cascadeInvoked,
+            skip_reason: record.purchase.skipReason,
+            // El motivo fino del gate del cascade. En `74a49b01` decía
+            // `sector_not_mapped` y no había dónde leerlo.
+            cascade_ineligibility_reason: record.purchase.cascadeIneligibilityReason,
+          },
     terminal_disposition: record.terminalDisposition,
     terminal_reason: record.terminalReason,
   }));
@@ -280,6 +353,16 @@ export type ApolloSectorEvidenceBootstrapManualReviewRow = {
   bootstrapReason: ApolloSectorEvidenceBootstrapCandidateReason;
   selectionRank: number | null;
   postEnrichmentSectorState: CandidateSectorEvidenceState | null;
+  /**
+   * POST-ENRICHMENT-ADMISSION-1 § 20 — por qué cruzó el gate sectorial.
+   *
+   * Sin esto, un revisor que ve `sector_evidence_confirmed` en una corrida SIN
+   * política de sector no puede saber si lo confirmó una hija pedida o de dónde
+   * salió. `null` cuando el candidato nunca llegó a la resolución de admisión.
+   */
+  sectorAdmissionSource: ApolloSectorAdmissionSource | null;
+  /** La subindustria PEDIDA que produjo la admisión. `null` si no hubo. */
+  admittedByRequestedSubindustry: string | null;
   /** SIEMPRE derivado de la disposición terminal, nunca supuesto. */
   persisted: boolean;
   terminalReason: string | null;
@@ -334,6 +417,13 @@ export function toApolloSectorEvidenceBootstrapManualReviewRows(input: {
       bootstrapReason: record.bootstrapReason,
       selectionRank: record.selectionRank,
       postEnrichmentSectorState: record.postEnrichmentSectorState,
+      sectorAdmissionSource: record.sectorAdmission?.admissionSource ?? null,
+      // Sólo se nombra la hija cuando ELLA produjo la admisión. Con política legacy
+      // la etiqueta existe igual y atribuirle el pase sería falso.
+      admittedByRequestedSubindustry:
+        record.sectorAdmission?.admittedByRequestedSubindustryPrecision === true
+          ? record.sectorAdmission.matchedRequestedSubindustry
+          : null,
       persisted:
         record.terminalDisposition !== null &&
         PERSISTED_DISPOSITIONS.has(record.terminalDisposition),

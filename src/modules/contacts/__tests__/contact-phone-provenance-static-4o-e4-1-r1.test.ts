@@ -247,13 +247,15 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       last,
       // 4O-H3 movió el techo a la 116 (la APROBACIÓN atómica: una sola función
       // transaccional, sin DDL). R1 sigue sin aportar ninguna.
-      '116_approve_candidate_with_official_phones.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2 y 4O-H3, no este hito',
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+      // Macro Industrias, sin relación con teléfono. R1 sigue sin aportar ninguna.
+      '119_publish_macro_industry_catalog_v2_cutover.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3 y el catálogo macro, no este hito',
     );
     assert.equal(
-      files.some((f) => /^1(1[7-9]|[2-9]\d)/.test(f)),
+      files.some((f) => /^1(2[0-9]|[3-9]\d)/.test(f)),
       false,
-      'ninguna migración 117 o superior',
+      'ninguna migración 120 o superior',
     );
   });
 

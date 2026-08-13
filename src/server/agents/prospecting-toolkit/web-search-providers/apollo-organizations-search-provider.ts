@@ -109,6 +109,7 @@ import {
   APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_PRECONDITIONS_KEY,
   toApolloSectorEvidenceBootstrapPreconditionsMetadata,
 } from '../apollo-sector-evidence-bootstrap';
+import { toDiscoveryTaxonomyMetadata } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { ingestApolloOrganizationIndustryRawLabels } from '@/modules/industry-mapping/apollo-industry-raw-label-ingestion';
 import { normalizeClassificationValue } from '@/modules/prospect-batches/import-classification/catalog-normalization';
 import { captureProviderIndustryRawLabelObservations } from '../provider-industry-raw-label-capture';
@@ -1398,13 +1399,43 @@ export async function runApolloOrganizationsSearch(
       // acaba de emitirse. Es lo único que puede autorizar a adquirir la
       // clasificación que `mixed_companies/search` no devuelve, y viaja como hecho
       // de la consulta pagada, no como intención de quien la construyó.
+      //
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 11 — en la taxonomía macro las dos
+      // precondiciones de catálogo se calculan sobre el catálogo que gobierna esa
+      // taxonomía. `catalogTermsResolved: input.subindustryCatalogTerms != null`
+      // sería INCONDICIONALMENTE falso bajo el catálogo v2 —no hay subindustrias,
+      // y por tanto tampoco `subindustry_search_terms`—, así que toda corrida
+      // macro quedaría sin autorización de bootstrap, sin enrichment y sin
+      // candidatos: el deadlock que #274 cerró, reabierto por la puerta de al
+      // lado. Sigue siendo una comprobación, no una excepción: la macro industria
+      // pedida tiene que existir en el catálogo y su consulta efectiva tiene que
+      // representarla.
       [APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_PRECONDITIONS_KEY]:
-        toApolloSectorEvidenceBootstrapPreconditionsMetadata({
-          providerSearchExecuted: true,
-          queryCoverageComplete: effective.subindustryCoverageSpendGate.coverage.complete,
-          catalogVersionCoherent: effective.catalogVersionCoherence.allowed,
-          catalogTermsResolved: input.subindustryCatalogTerms != null,
-        }),
+        toApolloSectorEvidenceBootstrapPreconditionsMetadata(
+          effective.macroIndustryRequest.mode === 'macro_industry'
+            ? {
+                providerSearchExecuted: true,
+                queryCoverageComplete:
+                  effective.macroIndustryBootstrapPreconditions.queryCoverageComplete,
+                // La coherencia de versión en modo macro es que la selección
+                // declare la versión del catálogo macro, que es exactamente lo
+                // que `resolveDiscoveryTaxonomyCapability` acaba de comprobar
+                // para llegar hasta aquí.
+                catalogVersionCoherent: true,
+                catalogTermsResolved:
+                  effective.macroIndustryBootstrapPreconditions.catalogTermsResolved,
+              }
+            : {
+                providerSearchExecuted: true,
+                queryCoverageComplete: effective.subindustryCoverageSpendGate.coverage.complete,
+                catalogVersionCoherent: effective.catalogVersionCoherence.allowed,
+                catalogTermsResolved: input.subindustryCatalogTerms != null,
+              },
+        ),
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 — qué taxonomía gobernó esta búsqueda.
+      apollo_discovery_taxonomy: toDiscoveryTaxonomyMetadata(
+        effective.macroIndustryRequest.capability,
+      ),
       // A1-APOLLO-WIZARD-1: paginación, presupuesto, cuota y trazabilidad por página.
       apollo_pagination: apolloPaginationMetadata,
       apollo_page_logs: apolloPageLogs,

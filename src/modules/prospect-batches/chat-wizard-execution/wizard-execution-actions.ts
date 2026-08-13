@@ -115,6 +115,15 @@ import {
   readWizardConsumedCreditsFromDb,
 } from './wizard-budget-reconciliation';
 import { estimateCreditsForProvider } from './wizard-budget-estimate';
+// MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — la taxonomía de la solicitud, declarada.
+import {
+  resolveDiscoveryTaxonomyCapability,
+  toDiscoveryTaxonomyMetadata,
+} from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+import {
+  getMacroIndustryBySlug,
+  resolveMacroIndustryByDisplayName,
+} from '@/modules/macro-industry-catalog/macro-industries';
 // A1-APOLLO-BUDGET-RECONCILIATION-1 — correlación del run y reconciliación por proveedor.
 import {
   buildWizardRunCorrelation,
@@ -916,6 +925,20 @@ export async function executeProspectWizardGeneration(
         // explícita no dejaba rastro de que se pidió otra cosa. También es la fila
         // que un reintento relee para conservar su proveedor (§ 9).
         runProviderSelection: toRunProviderSelectionMetadata(runProviderSelection),
+        // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — taxonomía declarada, no
+        // deducida: `subindustry_ids: []` no distingue «no había paso» de
+        // «la persona no quiso acotar».
+        discoveryTaxonomy: {
+          ...toDiscoveryTaxonomyMetadata(
+            resolveDiscoveryTaxonomyCapability(catalogResolution.catalog.version),
+          ),
+          macro_industry_key:
+            getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ??
+            resolveMacroIndustryByDisplayName(catalogResolution.industry.name)?.key ??
+            null,
+          macro_industry_display_name: catalogResolution.industry.name,
+          requested_subindustries: catalogResolution.subindustries.map((s) => s.name),
+        },
       },
     });
   } catch {

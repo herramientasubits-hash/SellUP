@@ -107,7 +107,7 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
     );
   });
 
-  it('el techo lo movieron 4O-E3 (113), 4O-H1 (114), 4O-H2 (115) y 4O-H3 (116), y nadie más', () => {
+  it('el techo lo movieron 4O-E3 (113), 4O-H1 (114), 4O-H2 (115), 4O-H3 (116) y 4O-H3-B (117), y nadie más', () => {
     // Esta guarda NO fija el número más alto del directorio para siempre —sube cada
     // vez que un bloque AUTORIZADO añade la suya—, sino que por encima de la 112 solo
     // esté la que el hito siguiente declaró: AGENT2A-PHONE-REVEAL-4O-E3, que vuelve a
@@ -131,6 +131,19 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // 4O-H3: la aprobación ATÓMICA del candidato sobre el esquema oficial. Sólo una
       // función transaccional; no toca la colección de staging que esta suite protege.
       '116_approve_candidate_with_official_phones.sql',
+      // 4O-H3-B: `merge_contact_candidate_into_existing_contact`, aplicada en Producción
+      // desde el 2026-08-12 pero reconciliada al repo después de que esta guarda se
+      // escribiera (de ahí que faltara aquí). LEE la colección de staging (112) para
+      // promoverla hacia el contacto existente, pero no la escribe ni la altera — la 112
+      // sigue siendo su única dueña, que es exactamente lo que esta guarda vigila. Es DML
+      // sobre `contacts`/`contact_phones`, no crea, altera ni borra ninguna tabla, y no
+      // toca `phone_reveal_suppression_audit` — no es dueña de la forma de ninguna tabla
+      // de la colección que esta suite protege.
+      '117_merge_candidate_into_existing_contact.sql',
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1: catálogo de Macro Industrias.
+      // Ninguna de las dos toca la colección de staging que esta suite protege.
+      '118_macro_industry_catalog_v2_draft.sql',
+      '119_publish_macro_industry_catalog_v2_cutover.sql',
     ]);
   });
 

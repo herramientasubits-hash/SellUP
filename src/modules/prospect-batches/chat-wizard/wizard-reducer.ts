@@ -1,5 +1,7 @@
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
-import { SEARCH_MODE_DEFINITIONS, VALID_COUNTRY_CODES, GO_BACK_MAP } from './wizard-config';
+import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+import { SEARCH_MODE_DEFINITIONS, VALID_COUNTRY_CODES } from './wizard-config';
+import { getPreviousWizardStep } from './wizard-selectors';
 import type {
   ProspectWizardState,
   ProspectWizardAction,
@@ -192,8 +194,13 @@ export function prospectWizardReducer(
       return {
         ...state,
         industryId: action.industryId,
+        // § 7 — la selección de subindustria se limpia SIEMPRE al elegir
+        // industria, en las dos taxonomías. Bajo el catálogo macro, además,
+        // el paso siguiente ya no existe.
         subindustryIds: [],
-        currentStep: 'subindustries',
+        currentStep: isSubindustrySelectionEnabled(state.catalogVersion)
+          ? 'subindustries'
+          : 'additional_criteria',
         warnings: withoutWarningCode(
           state.warnings,
           'SUBINDUSTRIES_REMOVED_AFTER_COUNTRY_CHANGE',
@@ -408,17 +415,26 @@ export function prospectWizardReducer(
 
     // ── GO_BACK ─────────────────────────────────────────────────────────────
     case 'GO_BACK': {
-      const prev = GO_BACK_MAP[state.currentStep as keyof typeof GO_BACK_MAP];
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 7 — sin paso de subindustria, volver
+      // atrás desde el criterio adicional lleva a la industria. Dejar el mapa
+      // estático llevaría a un paso que no se renderiza: un hueco visual, que es
+      // exactamente lo que el § 7 prohíbe.
+      const prev = getPreviousWizardStep(state.currentStep, state.catalogVersion);
       if (!prev) return state;
 
       return {
         ...state,
-        currentStep: prev as ProspectWizardStep,
+        currentStep: prev,
       };
     }
 
     // ── EDIT_STEP ───────────────────────────────────────────────────────────
     case 'EDIT_STEP': {
+      // § 7 — un paso que no existe en esta taxonomía tampoco se puede editar.
+      // El botón no se renderiza; esto cierra la vía por acción directa.
+      if (action.step === 'subindustries' && !isSubindustrySelectionEnabled(state.catalogVersion)) {
+        return state;
+      }
       return {
         ...state,
         currentStep: action.step,

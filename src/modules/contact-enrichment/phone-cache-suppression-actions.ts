@@ -369,11 +369,20 @@ export async function suppressPhoneCacheEntryAction(
       const r = row as Record<string, unknown>;
       const metadata = (r.metadata as Record<string, unknown> | null) ?? null;
       const sourceCandidateId = metadata?.source_candidate_id;
+      // 4O-H3-B: los candidatos cuya colección oficial se FUSIONÓ en esta fila. Se lee de la
+      // metadata del propio contacto —igual que `source_candidate_id`— y autoriza el borrado con
+      // la misma fuerza, porque también lo escribió la transacción que efectivamente escribió
+      // los números. Un valor con forma inesperada se ignora en vez de asumirse.
+      const mergedRaw = metadata?.merged_candidate_ids;
+      const mergedCandidateIds = Array.isArray(mergedRaw)
+        ? mergedRaw.filter((v): v is string => typeof v === 'string')
+        : null;
       return {
         id: r.id as string,
         accountId: (r.account_id as string | null) ?? null,
         sourceCandidateId:
           typeof sourceCandidateId === 'string' ? sourceCandidateId : null,
+        mergedCandidateIds,
         phoneSource: (r.phone_source as string | null) ?? null,
       };
     });

@@ -429,9 +429,17 @@ describe('4O-G — alcance', () => {
       .map((file) => Number(file.slice(0, 3)))
       .sort((a, b) => a - b);
     // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
-    // candidato sobre el esquema oficial. 4O-G sigue sin aportar ni editar SQL.
-    assert.equal(numbered[numbered.length - 1], 116);
-    assert.equal(numbered.length, 116);
+    // candidato sobre el esquema oficial. 4O-H3-B lo sube a la 117: el MERGE humano hacia un
+    // contacto EXISTENTE, otra función transaccional. 4O-G sigue sin aportar ni editar SQL.
+    // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+    // Macro Industrias (siembra en `draft` y cutover), sin relación con teléfono.
+    assert.equal(numbered[numbered.length - 1], 119);
+    // El CONTEO, no el techo: 119 archivos para los números 001–119, es decir SIN un solo
+    // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
+    // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
+    // historia, cuenta y techo coinciden, y esa coincidencia es en sí misma la guarda:
+    // vuelve a fallar si alguien borra un archivo aplicado o cuela uno sin renumerar.
+    assert.equal(numbered.length, 119);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {
