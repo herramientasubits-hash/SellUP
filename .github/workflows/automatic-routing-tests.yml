@@ -343,6 +343,48 @@ jobs:
       - name: Run A1 catalog source-of-truth and version-coherence tests
         run: npm run test:a1-catalog-source-of-truth
 
+      # AGENT1-MACRO-CATALOG-PRE119-LEGACY-READERS-1 — la COMPATIBILIDAD DE LOS
+      # LECTORES DE CATÁLOGO con el cutover a la taxonomía macro entra al check
+      # obligatorio, ANTES de que la migración 119 se aplique.
+      #
+      # El defecto que guarda no falla al compilar y no se ve en Producción hoy:
+      # sólo aparece en el instante en que v2 se publica. `active_industry_catalog`
+      # hace INNER JOIN con `subindustries`, así que bajo el catálogo macro devuelve
+      # CERO filas — su respuesta CORRECTA. Dos consumidores vivos leían ese cero
+      # como «no hay catálogo»:
+      #
+      #   * `validateExploratorySearch` devolvía `_catalog`, y las DOS superficies
+      #     del wizard (`prospect-chat-wizard`, `exploratory-search-form-v2`) se
+      #     quedaban sin poder validar una búsqueda perfectamente válida;
+      #   * `loadImportCatalog` devolvía `empty_catalog`, y las CUATRO rutas de
+      #     importación respondían 503.
+      #
+      # Lo que este paso guarda:
+      #
+      #   * que la disponibilidad del catálogo la decida la CAPACIDAD de la versión
+      #     publicada y NUNCA el número de filas de la vista de subindustrias;
+      #   * que bajo v2 la vista legacy no se consulte en absoluto, y que bajo v1 el
+      #     comportamiento sea el de siempre — 8 industrias, 73 subindustrias, alias
+      #     y los mismos códigos de error, incluido el rechazo de una lectura que
+      #     atraviese un publish;
+      #   * que una hija obsoleta bajo v2 se RECHACE en vez de ignorarse, para que un
+      #     lote nuevo no arrastre criterios que la persona nunca vio;
+      #   * que la clasificación de importación macro-only no invente ninguna hija ni
+      #     marque filas inválidas, y que las importaciones históricas ancladas a
+      #     `1.0.0` conserven industria Y subindustria;
+      #   * que Educación siga siendo válida bajo v1, ausente bajo v2 y NUNCA mapeada
+      #     a «Compañía de Servicios» (decisión de la owner, 2026-08-13);
+      #   * que una versión de catálogo desconocida siga siendo fail-closed a la
+      #     taxonomía legacy, sin entrar en modo macro por accidente;
+      #   * que el contrato de descubrimiento no se mueva: Salud sigue emitiendo 15
+      #     términos específicos y 2 amplios, y siguen siendo 12 macro industrias.
+      #
+      # Determinista y offline: sin DB real, sin flags de Producción, sin proveedor,
+      # sin créditos y sin escrituras. La migración 119 NO se aplica aquí — se SIMULA
+      # su efecto sobre las dos vistas.
+      - name: Run A1 pre-119 catalog reader compatibility tests
+        run: npm run test:a1-pre119-catalog-reader-compatibility
+
       # AGENT1-APOLLO-FINALIZATION-HARDENING-1 + STABLE-TARGET-WRITER-PARITY —
       # la SEMÁNTICA DE OBJETIVO entra al check obligatorio.
       #

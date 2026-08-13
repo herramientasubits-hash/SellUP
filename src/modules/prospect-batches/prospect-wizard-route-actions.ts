@@ -19,6 +19,27 @@
  * action, no Lusha/Apollo/Tavily client, no DB-write helper. Its only reads are
  * the authenticated user (auth) and the active industry catalog (needed to map
  * industria → Lusha sector).
+ *
+ * ── Estado: entrypoint DORMIDO (AGENT1-MACRO-CATALOG-PRE119-LEGACY-READERS-1 § 9)
+ *
+ * `resolveProspectWizardRouteAction` no tiene NINGÚN importador en runtime: la
+ * única referencia en el repositorio es la ruta de este fichero dentro de
+ * `prospect-wizard-route-static.test.ts`, que verifica su disciplina de imports.
+ * Nadie —ni página, ni componente, ni otra acción— lo invoca. Se creó como puerta
+ * de verificación previa a una QA manual y se dejó disponible para la siguiente.
+ *
+ * Por eso sigue usando `loadActiveCatalog`, que lee `active_industry_catalog` y
+ * por tanto queda vacío bajo la taxonomía macro (esa vista hace INNER JOIN con
+ * `subindustries`). La consecuencia está ACOTADA y es fail-closed: bajo el
+ * catálogo v2 esta acción devolvería `CATALOG_UNAVAILABLE` en vez de una ruta.
+ * No degrada a una ruta que pueda gastar, no afecta a ninguna superficie viva, y
+ * su propósito —mapear industria → sector Lusha— es intrínsecamente de la
+ * taxonomía legacy: `resolveProspectWizardRoute` razona sobre subindustrias.
+ *
+ * Si algún día se vuelve a conectar a una superficie viva, el cambio que toca es
+ * enrutarlo por `loadActiveDiscoveryCatalog` y decidir qué significa la ruta
+ * Lusha sin subindustrias — una decisión de producto, no una de compatibilidad.
+ * Reescribirlo ahora sería ampliar el diff sin retirar ningún riesgo real.
  */
 
 import {

@@ -29,6 +29,25 @@
  * `select` sobre dos vistas `security_invoker` que sólo tienen `GRANT SELECT`
  * (migraciones 058/059). Cero escrituras, cero créditos, cero llamadas a Apollo o
  * Tavily.
+ *
+ * ── Consumidor LEGACY-ONLY por naturaleza (PRE119-LEGACY-READERS-1 §§ 10 y 18) ─
+ *
+ * Este cargador lee `active_industry_catalog` a propósito y NO se hace
+ * capability-aware: su objeto son los términos de búsqueda DE SUBINDUSTRIA, que
+ * sólo existen en la taxonomía legacy. Bajo el catálogo v2 devuelve
+ * `empty_catalog`, y eso es el resultado CORRECTO, no una avería.
+ *
+ * Que ese `empty_catalog` no rompa nada ya lo garantiza #281, y no por casualidad:
+ * en modo macro las precondiciones de bootstrap NO se calculan sobre
+ * `subindustryCatalogTerms` sino sobre `macroIndustryBootstrapPreconditions`
+ * (ver `apollo-macro-industry-request.ts` y la rama macro de
+ * `apollo-organizations-search-provider.ts`). Si se hubiera dejado
+ * `catalogTermsResolved: input.subindustryCatalogTerms != null` para las dos
+ * taxonomías, toda corrida macro habría quedado sin autorización de bootstrap.
+ *
+ * Conclusión operativa: cero filas aquí bajo v2 NO significa «catálogo no
+ * disponible». Es el único consumidor vivo al que le corresponde legítimamente la
+ * capacidad legacy, y por eso queda tal cual.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
