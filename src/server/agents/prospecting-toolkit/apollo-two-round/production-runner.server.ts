@@ -77,6 +77,15 @@ import {
   resolveApolloSectorPostEnrichmentAdmission,
   type ApolloSectorPostEnrichmentAdmissionResult,
 } from '../apollo-sector-post-enrichment-admission';
+// MACRO-INDUSTRY-CATALOG-DISCOVERY-1 — taxonomía de la corrida y evidencia macro.
+import {
+  resolveDiscoveryTaxonomyCapability,
+  toDiscoveryTaxonomyMetadata,
+} from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+import {
+  assessMacroIndustryEvidence,
+  toMacroIndustryEvidenceMetadata,
+} from '../apollo-macro-industry-evidence';
 // SECTOR-EVIDENCE-BOOTSTRAP-1 — autorización para ADQUIRIR la clasificación que
 // `mixed_companies/search` no devuelve. No confirma nada: sólo permite preguntar.
 import {
@@ -866,6 +875,17 @@ export async function runApolloTwoRoundWizardDiscovery(
    * emitir búsqueda nueva no tiene precondiciones que observar y no autoriza
    * adquisición. Puede costar candidatos; nunca créditos.
    */
+  /**
+   * MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 13 — la taxonomía de ESTA corrida.
+   *
+   * Se resuelve una vez, de la versión de catálogo con la que se resolvió la
+   * selección, y gobierna la vía de admisión de todos los candidatos. Nunca se
+   * deriva de `input.subindustries.length`: ese array ya podía llegar vacío en el
+   * catálogo legacy y usarlo como interruptor habría cambiado de camino a toda
+   * búsqueda v1 que no acotara por subindustria.
+   */
+  const discoveryTaxonomy = resolveDiscoveryTaxonomyCapability(input.selectionCatalogVersion);
+
   const searchBootstrapAuthorizations: ApolloSectorEvidenceBootstrapAuthorization[] = [];
   const registerSearchBootstrapPreconditions = (output: WebSearchOutput): void => {
     const preconditions = readApolloSectorEvidenceBootstrapPreconditionsFromMetadata(
@@ -1799,6 +1819,18 @@ export async function runApolloTwoRoundWizardDiscovery(
       // Sólo actúa en ese hueco: con política legacy presente el veredicto de
       // siempre manda, y un estado ya medido —confirmado, contradicho, pendiente—
       // sale intacto. El pliegue de arriba conserva su invariante de sólo degradar.
+      //
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 §§ 10 y 12 — en la taxonomía macro la
+      // evidencia se evalúa AQUÍ, sobre el perfil ya comprado, y nunca sobre el
+      // resultado de búsqueda: es lo que impide que la cobertura de consulta se
+      // convierta en evidencia de admisión.
+      const macroIndustryEvidence =
+        discoveryTaxonomy.mode === 'macro_industry'
+          ? assessMacroIndustryEvidence({
+              result: enrichedResult,
+              macroIndustryDisplayName: input.industry,
+            })
+          : null;
       const sectorAdmission = resolveApolloSectorPostEnrichmentAdmission({
         postEnrichmentSectorState: foldedSectorEvidenceState,
         legacySectorPolicyPresent: sector.sectorPolicyPresent,
@@ -1808,6 +1840,8 @@ export async function runApolloTwoRoundWizardDiscovery(
         requestedSubindustries: input.subindustries,
         precision: enrichedPrecision,
         catalogAuthorization: sectorEvidenceBootstrapAuthorization(),
+        taxonomyMode: discoveryTaxonomy.mode,
+        macroIndustryEvidence,
       });
       sectorAdmissionByKey.set(candidateKey, sectorAdmission);
       const sectorEvidenceState = sectorAdmission.sectorEvidenceState;
@@ -2175,8 +2209,33 @@ export async function runApolloTwoRoundWizardDiscovery(
         (candidate) =>
           candidate.sectorAdmission?.admittedByRequestedSubindustryPrecision === true,
       ).length,
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 12 — la cifra equivalente para la
+      // taxonomía macro: cuántos cruzaron el gate porque la evidencia comprada
+      // CONFIRMÓ la macro industria pedida. Cero en toda corrida legacy.
+      sector_admitted_by_confirmed_macro_industry_evidence_count: bootstrapAudit.filter(
+        (candidate) =>
+          candidate.sectorAdmission?.admissionSource === 'confirmed_macro_industry_evidence',
+      ).length,
+      // Reparto de veredictos macro, para calibrar sin volver a gastar (§ 17 de
+      // #274 aplicado a la taxonomía nueva).
+      macro_industry_evidence_verdicts: bootstrapAudit.reduce<Record<string, number>>(
+        (acc, candidate) => {
+          const verdict = candidate.sectorAdmission?.macroIndustryEvidence?.verdict;
+          if (verdict) acc[verdict] = (acc[verdict] ?? 0) + 1;
+          return acc;
+        },
+        {},
+      ),
       candidates: toApolloSectorEvidenceBootstrapAuditMetadata(bootstrapAudit),
     },
+    // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — bajo qué taxonomía corrió el lote.
+    apollo_discovery_taxonomy: toDiscoveryTaxonomyMetadata(discoveryTaxonomy),
+    // Muestra del veredicto macro por candidato admitido, sin nombres de empresa.
+    apollo_macro_industry_evidence_samples: bootstrapAudit
+      .map((candidate) => candidate.sectorAdmission?.macroIndustryEvidence ?? null)
+      .filter((assessment): assessment is NonNullable<typeof assessment> => assessment !== null)
+      .slice(0, 5)
+      .map(toMacroIndustryEvidenceMetadata),
   };
 
   const runObservability = buildObservabilityMetadata({

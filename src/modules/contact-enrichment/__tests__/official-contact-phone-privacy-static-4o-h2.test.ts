@@ -125,7 +125,9 @@ describe('115 — numeración', () => {
     // AGENT2A-PHONE-REVEAL-4O-H3 sube el techo a la 116: la APROBACIÓN atómica del candidato
     // sobre ese mismo esquema oficial (una sola función transaccional, `approve_contact_candidate_with_phones`). La 116 NO añade tabla, columna, constraint, índice ni GRANT:
     // sólo una función, que es lo que la hace retrocompatible con el runtime vivo.
-    assert.equal(Math.max(...numbers), 116);
+    // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+    // Macro Industrias (siembra en `draft` y cutover), sin relación con teléfono.
+    assert.equal(Math.max(...numbers), 119);
   });
 
   it('declara NO estar aplicada en Producción', () => {

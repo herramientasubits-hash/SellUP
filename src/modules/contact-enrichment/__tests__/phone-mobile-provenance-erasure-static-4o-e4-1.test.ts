@@ -355,7 +355,9 @@ describe('4O-E4.1 estático — alcance', () => {
     // `suppress_official_contact_phone_sources`). Lo que esta guarda fija es que E4.1 se
     // resolvió en TypeScript, no cuál es el número más alto — y se sigue fijando un número
     // EXACTO para que una migración colada por encima rompa la guarda.
-    assert.equal(numbered[numbered.length - 1], 116, 'la 116 (4O-H3) es la última');
+    // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+    // Macro Industrias, sin relación con teléfono ni con `mobile_phone`.
+    assert.equal(numbered[numbered.length - 1], 119, 'la 119 (catálogo macro) es la última');
   });
 
   it('no se introduce `mobile_phone_source` ni ningún modelo de procedencia', () => {
