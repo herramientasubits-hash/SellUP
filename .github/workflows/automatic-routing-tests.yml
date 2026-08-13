@@ -1373,6 +1373,17 @@ jobs:
       # Las guardas estáticas son las que sostienen ese contrato cuando ya nadie
       # recuerde por qué: prueban que la llamada que gastaría NO ESTÁ ESCRITA, y
       # fallan en el momento en que alguien la añada.
+      #
+      # ⚠️ La suite de PostgreSQL REAL (R2.1) queda FUERA de este check a propósito, igual
+      # que sus hermanas (4O-E2/E3/E4, 4O-F-R2, 4O-H1, 4O-H2, 4O-H3, 4O-H3-B): exige un
+      # binario que se descarga (`npm install --no-save embedded-postgres@17.6.0-beta.15`)
+      # y que el `npm ci` del check obligatorio no necesita. Ahí se mide lo que ni el núcleo
+      # puro ni las guardas estáticas pueden medir, porque no es código sino base de datos:
+      # qué filas seleccionan de verdad los tres SELECT, que las policies de la 114 —y no un
+      # `if` de TypeScript— son las que esconden la colección de un usuario sin acceso
+      # activo, y que una erasure REAL de la 115 deja el número visible mientras otro
+      # proveedor lo sostiene y lo retira cuando cae el último. Se corre con:
+      #   npm run test:agent2a:official-contact-stored-phones:postgres
       - name: Run official contact stored phones tests
         run: npm run test:agent2a:official-contact-stored-phones
 

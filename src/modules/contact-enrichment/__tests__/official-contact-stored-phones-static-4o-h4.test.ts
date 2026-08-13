@@ -592,6 +592,11 @@ describe('4O-H4 — alcance', () => {
       'src/modules/contact-enrichment/__tests__/official-contact-stored-phones-core-4o-h4.test.ts',
       'src/modules/contact-enrichment/__tests__/official-contact-stored-phones-static-4o-h4.test.ts',
       'src/components/contacts/__tests__/official-contact-stored-phones-ui-4o-h4.test.tsx',
+      // R2.1 — el arnés de PostgreSQL REAL. Importa la lectura, el núcleo y las dos
+      // acciones a propósito: es la única suite que ejecuta la cadena entera contra un
+      // servidor de verdad, y lo que mide —qué filas selecciona cada `SELECT` y qué
+      // esconden las policies de la 114— no se puede medir sobre arrays escritos a mano.
+      'src/modules/contact-enrichment/__tests__/official-contact-stored-phones-postgres-4o-h4.test.ts',
       // La guarda de 4O-H1 nombra la LECTURA porque es quien la admitió en su
       // allowlist de acceso a las tablas oficiales: H1 declaró «cero lectores» y
       // este hito añade el primero, así que el registro de esa decisión vive allí.
