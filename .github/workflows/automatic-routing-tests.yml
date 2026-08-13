@@ -1410,3 +1410,22 @@ jobs:
       # sin HubSpot, sin Apollo, sin Lusha, 0 créditos, 0 escrituras y 0 PII.
       - name: Run P0-R2 cross-flow runtime incident regression tests
         run: npm run test:agent2a:p0-r2-crossflow
+
+      # P0-R4 — el contrato de exportación de los módulos `'use server'`.
+      #
+      # Next envuelve TODA exportación de un módulo con esa directiva como Server Action y
+      # valida en tiempo de EJECUCIÓN que cada una sea una función. Un `export const` de un
+      # array compila, tipa, lintea, CONSTRUYE y despliega sin una advertencia, y después
+      # tumba con 500 todas las acciones de la página que lo arrastra: es exactamente lo que
+      # `CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS` le hizo a /contacts en Producción el
+      # 2026-08-13 (deployment dpl_4p7vnWvZHC6D1rn6RCrFuW3L4yHk, digest 3688566645@E352).
+      #
+      # Por eso este paso existe aparte de `npm run build`: el build NO ve esta clase. La
+      # suite recorre TODOS los módulos `'use server'` del repositorio con el AST de
+      # TypeScript —no sólo el símbolo culpable, porque la clase ya reincidió— y además
+      # ejecuta el validador real de Next sobre los tres módulos de acciones que cayeron.
+      #
+      # Determinista y offline: sólo lee ficheros y evalúa módulos. Sin red, sin Supabase,
+      # sin proveedores, 0 créditos, 0 escrituras y 0 PII.
+      - name: Run P0-R4 invalid use-server export ratchet
+        run: npm run test:agent2a:p0-r4-use-server

@@ -80,11 +80,16 @@ async function requireAdmin(): Promise<{ internalUserId: string }> {
 }
 
 // ============================================================
-// Validaciones puras (exportadas para tests)
+// Validaciones puras
 // ============================================================
+//
+// Se IMPORTAN, no se reexportan. Este módulo lleva `'use server'`, y Next
+// convierte en Server Action todo lo que salga de él exigiendo que sea una
+// función async; `checkAccountActiveForContact` es una función SÍNCRONA y pura.
+// Quien la necesite —los tests incluidos— la toma de `./account-active-guard`,
+// que es donde vive y donde ya la buscan.
 
 import { checkAccountActiveForContact } from './account-active-guard';
-export { checkAccountActiveForContact };
 
 import { findContactDuplicate, dedupErrorMessage } from './contact-dedup';
 export type { ExistingContactForDedup, ContactDedupInput, DedupMatch } from './contact-dedup';
