@@ -802,6 +802,21 @@ jobs:
       - name: Run phone budget accounting tests
         run: npm run test:agent2a:phone-budget-accounting
 
+      # AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1-R2 — CRITICAL CI GAP. Estas cinco
+      # suites (phone-reveal-action-3d3, phone-reveal-async15,
+      # phone-reveal-start-contract-1, phone-reveal-apollo-person-id-cache-1a,
+      # phone-reveal-privacy-gate-not-evaluable-p0) ejercen el mismo endurecimiento
+      # fail-closed del P0 de supresión sin clave (START/WEBHOOK/RECOVERY/
+      # puerta-Lusha ahora bloquean `not_evaluable` en vez de dejarlo pasar). Las
+      # TRES últimas NO estaban cableadas a NINGÚN script de npm — invisibles a CI
+      # por completo, no solo a este workflow (la última ni siquiera existía antes
+      # del propio hito P0) — así que un PR podía romper la resolución de
+      # identidad de la supresión (o revertir el fail-closed) sin que ningún check
+      # lo viera. Determinista: sin flags, sin proveedores, sin créditos y sin DB
+      # real.
+      - name: Run phone reveal action + P0 suppression identity tests
+        run: npm run test:agent2a:phone-reveal-action
+
       # El módulo de presupuestos, cuyo resolver es ahora la fuente económica canónica.
       - name: Run budget module tests
         run: npm run test:budgets

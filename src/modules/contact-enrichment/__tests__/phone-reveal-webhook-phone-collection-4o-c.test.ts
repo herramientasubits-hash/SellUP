@@ -73,6 +73,11 @@ function harness(
     accountId: 'acct-1',
     enrichmentMetadata: {},
     phoneRevealStatus: 'requested',
+    // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: sin una clave resoluble la
+    // comprobación de supresión en vuelo ahora bloquea (`not_evaluable` ⇒
+    // fail-closed). Este archivo prueba la captura de teléfonos y el writer de
+    // colección, no la resolución de identidad de la supresión.
+    apolloPersonId: PERSON_ID,
     ...options.candidate,
   };
   // El doble y este fixture son EL MISMO candidato: en Producción son una sola

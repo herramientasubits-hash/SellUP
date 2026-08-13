@@ -506,7 +506,7 @@ describe('FIX 3 — WEBHOOK: el tombstone bloquea la persistencia tardía', () =
     assert.equal(cap.webhookLogs[0].metadata.suppression_state, 'checked_not_suppressed');
   });
 
-  it('sin person id resoluble NO bloquea por inferencia y lo deja auditado', async () => {
+  it('P0: sin person id resoluble AHORA BLOQUEA fail-closed (antes: revealed)', async () => {
     const result = await runApolloPhoneRevealWebhook
       (
         {
@@ -527,22 +527,38 @@ describe('FIX 3 — WEBHOOK: el tombstone bloquea la persistencia tardía', () =
         ),
       );
 
-    assert.equal(result.outcome, 'revealed', 'comportamiento actual conservado');
+    assert.equal(result.outcome, 'suppression_check_unavailable');
+    assert.equal(result.httpStatus, 200);
     assert.deepEqual(cap.lookupKeys, [], 'no se consulta: no hay clave');
+    assert.deepEqual(cap.persisted, [], 'no persiste NADA: sigue en vuelo');
+    assert.deepEqual(cap.cacheWrites, []);
+    assertNoPhoneAnywhere();
+
+    assert.equal(cap.webhookLogs.length, 1);
+    assert.equal(cap.webhookLogs[0].status, 'error');
+    assert.equal(
+      cap.webhookLogs[0].errorCode,
+      SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+    );
+    // La etiqueta de auditoría sigue distinguiendo el motivo EXACTO: no colapsa a
+    // 'check_unavailable' genérico, aunque el desenlace del reveal sea el mismo.
     assert.equal(
       cap.webhookLogs[0].metadata.suppression_state,
       'not_evaluable_missing_provider_person_id',
     );
   });
 
-  it('sin account_id tampoco se evalúa (y se reporta el motivo exacto)', async () => {
-    await runApolloPhoneRevealWebhook(
+  it('P0: sin account_id tampoco se evalúa ⇒ BLOQUEA (motivo exacto conservado)', async () => {
+    const result = await runApolloPhoneRevealWebhook(
       { tokenProvided: TOKEN, payload: webhookPayload() },
       webhookDeps(webhookCandidate({ accountId: null }), {
         lookupPhoneCacheSuppression: suppressedLookup(),
       }),
     );
+    assert.equal(result.outcome, 'suppression_check_unavailable');
     assert.deepEqual(cap.lookupKeys, []);
+    assert.deepEqual(cap.persisted, []);
+    assertNoPhoneAnywhere();
     assert.equal(
       cap.webhookLogs[0].metadata.suppression_state,
       'not_evaluable_missing_account_id',
@@ -597,6 +613,47 @@ describe('FIX 3 — WEBHOOK: el tombstone bloquea la persistencia tardía', () =
     assert.equal(result.outcome, 'already_terminal');
     assert.deepEqual(cap.persisted, []);
     assert.deepEqual(cap.lookupKeys, []);
+  });
+
+  // ── P0 TOCTOU: START ve "clear", la supresión llega DESPUÉS, WEBHOOK bloquea ──
+  it('TOCTOU: clave completa "clear" en el START ⇒ una supresión registrada ANTES de que llegue el webhook bloquea la persistencia', async () => {
+    // Simula la ventana real: el START (representado aquí por la primera lectura
+    // del tombstone) no encuentra nada — exactamente lo que `evaluateInFlightPhoneSuppression`
+    // ya devolvería como `allowed` — y SOLO DESPUÉS, antes de que el webhook llegue,
+    // se registra el tombstone. El webhook no puede confiar en un chequeo pasado:
+    // vuelve a consultar la MISMA clave y encuentra la fila ya suprimida.
+    let suppressedAt: string | null = null;
+    const raceLookup = async (key: PhoneCacheSuppressionLookupKey) => {
+      cap.lookupKeys.push(key);
+      return suppressedAt ? { suppressedAt } : null;
+    };
+
+    // 1. "START": el mismo lookup, en ese instante, no ve supresión (allowed).
+    const atStart = await evaluateInFlightPhoneSuppression({
+      personId: PERSON_ID,
+      accountId: ACCOUNT_ID,
+      lookup: raceLookup,
+    });
+    assert.deepEqual(atStart, { kind: 'allowed' });
+
+    // 2. Entre el START y el webhook, una DSAR registra el tombstone.
+    suppressedAt = SUPPRESSED_AT;
+
+    // 3. El WEBHOOK llega con el teléfono y RE-CONSULTA por su cuenta: no hereda
+    //    el resultado del START, así que ve la fila ya suprimida.
+    const result = await runApolloPhoneRevealWebhook(
+      { tokenProvided: TOKEN, payload: webhookPayload() },
+      webhookDeps(webhookCandidate(), { lookupPhoneCacheSuppression: raceLookup }),
+    );
+
+    assert.equal(result.outcome, 'blocked_suppressed');
+    assert.deepEqual(cap.persisted.length, 1);
+    assert.equal('phone' in cap.persisted[0], false, 'el teléfono NUNCA se escribe');
+    assert.deepEqual(cap.cacheWrites, []);
+    assertNoPhoneAnywhere();
+    // La segunda consulta (la del webhook) es la que ve el tombstone — prueba de
+    // que no hubo un cache de la decisión del START.
+    assert.equal(cap.lookupKeys.length, 2);
   });
 });
 
@@ -684,7 +741,7 @@ describe('FIX 3 — RECOVERY: el tombstone bloquea la persistencia tardía', () 
     assert.equal(cap.recoveryLogs[0].metadata.suppression_state, 'checked_not_suppressed');
   });
 
-  it('sin person id resoluble NO bloquea por inferencia y lo deja auditado', async () => {
+  it('P0: sin person id resoluble AHORA BLOQUEA fail-closed (antes: revealed)', async () => {
     const result = await recoverApolloPhoneRevealForCandidate(
       { candidateId: CANDIDATE_ID },
       recoveryDeps(
@@ -697,8 +754,18 @@ describe('FIX 3 — RECOVERY: el tombstone bloquea la persistencia tardía', () 
         { lookupPhoneCacheSuppression: suppressedLookup() },
       ),
     );
-    assert.equal(result.outcome, 'revealed');
+    assert.equal(result.outcome, 'suppression_check_unavailable');
+    assert.equal(result.phoneRevealed, false);
     assert.deepEqual(cap.lookupKeys, []);
+    // No terminal: solo se sella la última verificación, sigue en vuelo.
+    assert.deepEqual(cap.persisted, [{ phone_reveal_last_checked_at: NOW }]);
+    assert.deepEqual(cap.cacheWrites, []);
+    assertNoPhoneAnywhere();
+    assert.equal(cap.recoveryLogs[0].status, 'error');
+    assert.equal(
+      cap.recoveryLogs[0].errorCode,
+      SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+    );
     assert.equal(
       cap.recoveryLogs[0].metadata.suppression_state,
       'not_evaluable_missing_provider_person_id',

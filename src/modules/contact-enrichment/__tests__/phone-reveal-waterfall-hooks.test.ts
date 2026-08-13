@@ -46,6 +46,12 @@ const TOKEN = 'webhook-secret-token';
 const REQUEST_ID = 'apollo-req-waterfall';
 const RUN_ID = 'run-waterfall-1';
 const MOBILE = '+573001112233';
+/** Apollo person id sintético (24 hex), opaco e inventado. Necesario para que la
+ * comprobación de supresión en vuelo sea evaluable (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1):
+ * sin él el gate ahora bloquea (`not_evaluable` ⇒ fail-closed). Este archivo
+ * prueba el cableado del waterfall, no la resolución de identidad de la
+ * supresión. */
+const PERSON_ID = '2b3c4d5e6f7a8b9c0d1e2f3a';
 
 // ═══════════════════════════════════════════════════════════════
 // Harness del WEBHOOK
@@ -76,6 +82,7 @@ function webhookDeps(
         accountId: 'acct-1',
         enrichmentMetadata: {},
         phoneRevealStatus: 'requested',
+        apolloPersonId: PERSON_ID,
       },
     persist: async (id, patch) => {
       cap.persisted.push({ id, patch });
@@ -300,6 +307,7 @@ function recoveryCandidate(
     existingPhone: null,
     enrichmentMetadata: {},
     phoneProcessingBasis: 'legitimate_interest_b2b',
+    apolloPersonId: PERSON_ID,
     ...overrides,
   };
 }

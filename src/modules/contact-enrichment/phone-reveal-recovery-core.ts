@@ -390,8 +390,9 @@ export interface RecoverApolloPhoneRevealDeps {
   /**
    * Notifica que la supresión no se pudo EVALUAR (FIX 4): sin Apollo person id
    * resoluble o sin cuenta no existe clave con la que emparejar un tombstone. El
-   * teléfono recuperado se persiste igual — no se bloquea por inferencia — pero el
-   * caso queda registrado con un evento de forma CERRADA y sin PII.
+   * caso queda registrado con un evento de forma CERRADA y sin PII, y (desde
+   * AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1) el teléfono recuperado NO se persiste —
+   * se bloquea igual que `check_unavailable`, nunca por inferencia.
    */
   onSuppressionNotEvaluable?: PhoneSuppressionNotEvaluableSink;
 
@@ -803,10 +804,8 @@ async function handleRecoveredPayload(args: {
     });
     const suppressionState = describeInFlightSuppression(suppression);
 
-    // FIX 4 — no EVALUABLE (sin person id resoluble o sin cuenta): la política no
-    // cambia — no hay fuzzy matching por teléfono/email/nombre/LinkedIn y el
-    // teléfono recuperado se persiste igual — pero el caso se registra en vez de
-    // quedar invisible. Es un efecto de auditoría: no bloquea ni desbloquea nada.
+    // FIX 4 — no EVALUABLE (sin person id resoluble o sin cuenta): se AUDITA con
+    // un evento PII-free antes de decidir el bloqueo de abajo.
     if (suppression.kind === 'not_evaluable') {
       reportPhoneSuppressionNotEvaluable({
         phase: 'recovery',
@@ -819,9 +818,15 @@ async function handleRecoveredPayload(args: {
 
     // No verificable ⇒ fail-closed por el camino NO terminal que ya existe: solo
     // se marca `phone_reveal_last_checked_at`, el status sigue en vuelo y el mismo
-    // resultado se puede repolear sin gastar créditos.
-    if (suppression.kind === 'check_unavailable') {
-      deps.onSuppressionCheckUnavailable?.(suppression.message);
+    // resultado se puede repolear sin gastar créditos. AGENT2A-P0-PHONE-SUPPRESSION-
+    // NOKEY-1 amplió esta misma rama al caso `not_evaluable`: "no pude confirmar
+    // que NO está suprimido" nunca equivale a "no está suprimido", así que un
+    // candidato sin clave posible (típicamente origen Lusha) ya no recupera su
+    // teléfono sin más — se bloquea igual, nunca por inferencia.
+    if (suppression.kind === 'check_unavailable' || suppression.kind === 'not_evaluable') {
+      if (suppression.kind === 'check_unavailable') {
+        deps.onSuppressionCheckUnavailable?.(suppression.message);
+      }
       const nonTerminal = await finalizeNonTerminal({
         candidate,
         recoveryRequestId,
@@ -834,9 +839,10 @@ async function handleRecoveredPayload(args: {
         input,
         deps,
       });
-      // Waterfall: la supresión no se pudo verificar ⇒ la 2ª pata NO se gasta. El
-      // candidato sigue recuperable (nada terminal se persistió), pero la corrida
-      // se cierra fail-closed: no se lee "no verificable" como "sin tombstone".
+      // Waterfall: la supresión no se pudo verificar (o no se pudo evaluar) ⇒ la
+      // 2ª pata NO se gasta. El candidato sigue recuperable (nada terminal se
+      // persistió), pero la corrida se cierra fail-closed: no se lee "no
+      // verificable"/"no evaluable" como "sin tombstone".
       await continueWaterfallBestEffort(deps, {
         candidateId: candidate.id,
         apolloOutcome: SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,

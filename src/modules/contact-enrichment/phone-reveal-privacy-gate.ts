@@ -32,10 +32,15 @@
 // créditos). Lo que importa del orden no es cuál gana, sino que sea SIEMPRE el
 // mismo: dos actores que evalúan al mismo candidato obtienen la misma razón.
 //
-// `not_evaluable` (sin Apollo person id resoluble o sin cuenta) se traduce a `clear`,
-// exactamente como en el START, el webhook y el recovery (FIX 4): sin clave no hay
-// tombstone que emparejar, y NO se bloquea por inferencia ni se hace matching difuso
-// por teléfono, email, nombre o LinkedIn.
+// `not_evaluable` (sin Apollo person id resoluble o sin cuenta) se traduce a
+// `check_unavailable` (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1): sin clave no hay
+// tombstone que emparejar, y eso NUNCA se resuelve por inferencia ni por matching
+// difuso (teléfono, email, nombre, LinkedIn) — pero tampoco se traduce ya a `clear`.
+// "No pude confirmar que NO está suprimido" nunca equivale a "no está suprimido", y
+// esta puerta es la que corre justo antes de llamar a LUSHA: un candidato sin clave
+// Apollo resoluble es, en la práctica, el caso típico de un candidato de origen
+// Lusha, exactamente el que un tombstone real no podía alcanzar por falta de clave.
+// Antes de este hito ese candidato pasaba como `clear` y Lusha se llamaba igual.
 //
 // ═══════════════════════════════════════════════════════════════════
 // LÍMITES
@@ -197,7 +202,12 @@ export async function checkPhoneRevealPrivacyGate(
       return 'blocked_suppressed';
     case 'check_unavailable':
       return 'check_unavailable';
+    // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: sin clave posible no se puede
+    // confirmar ausencia de supresión para NINGÚN proveedor (esta puerta corre
+    // antes de Lusha), así que bloquea igual que `check_unavailable` en vez de
+    // dejar pasar como `clear`.
     case 'not_evaluable':
+      return 'check_unavailable';
     case 'allowed':
     default:
       return 'clear';

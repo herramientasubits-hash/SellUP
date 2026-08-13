@@ -44,6 +44,12 @@ const WEBHOOK_URL =
   'https://app.example.com/api/integrations/apollo/phone-reveal/webhook?token=secret';
 const ASYNC_HANDLE = 'pe-async-handle-1';
 const HTTP_REQUEST_ID = '-4594297923800105423';
+/** Apollo person id sintético (24 hex), opaco e inventado. Necesario para que la
+ * comprobación de supresión del START sea evaluable (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1):
+ * sin él el gate ahora bloquea (`not_evaluable` ⇒ fail-closed) antes de llegar a
+ * Apollo. Este archivo prueba el invariante de recuperabilidad post-Apollo (START-
+ * CONTRACT-1), no la resolución de identidad de la supresión. */
+const PERSON_ID = '5f6a7b8c9d0e1f2a3b4c5d6e';
 
 function baseTrace(
   overrides: Partial<ApolloPhoneRevealTraceMetadata> = {},
@@ -74,6 +80,9 @@ function baseCandidate(
     // El candidato del incidente era origen Lusha; el id no se reenvía a Apollo.
     source: 'lusha',
     sourceContactId: 'v1.some-lusha-token',
+    // Identidad evaluable para la supresión (columna apollo_person_id, captura
+    // previa independiente del source Lusha): AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1.
+    apolloPersonId: PERSON_ID,
     email: 'jane.doe@acme.com',
     linkedinUrl: 'https://linkedin.com/in/jane-doe',
     firstName: 'Jane',

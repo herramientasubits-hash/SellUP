@@ -370,16 +370,17 @@ describe('CACHE-1b fast path — cache MISS', () => {
     assert.equal(captured.cacheHitPatches.length, 0);
   });
 
-  it('SIN CUENTA: ni siquiera se consulta la caché', async () => {
+  it('P0: SIN CUENTA ⇒ BLOQUEA (la supresión no evaluable ya no llega ni a la caché)', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       deps({}, candidate({ accountId: null })),
     );
-    assert.equal(result.status, 'requested');
+    assert.equal(result.status, 'suppression_check_unavailable');
     assert.equal(captured.cacheLookups.length, 0);
+    assert.equal(captured.apolloCalls.length, 0);
   });
 
-  it('ID LUSHA `v1.*`: no se lee caché en absoluto', async () => {
+  it('P0: ID LUSHA `v1.*` ⇒ BLOQUEA (no se lee caché ni se llama a Apollo)', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       deps(
@@ -391,8 +392,9 @@ describe('CACHE-1b fast path — cache MISS', () => {
         }),
       ),
     );
-    assert.equal(result.status, 'requested');
+    assert.equal(result.status, 'suppression_check_unavailable');
     assert.equal(captured.cacheLookups.length, 0);
+    assert.equal(captured.apolloCalls.length, 0);
   });
 
   it('la clave de búsqueda siempre lleva provider/persona/cuenta/país', async () => {
@@ -850,7 +852,7 @@ describe('CACHE-1b supresión — FIX 2 independiente del flag de caché', () =>
     assert.equal(captured.suppressionLookups.length, 0);
   });
 
-  it('sin Apollo person id no hay tombstone posible: reveal normal', async () => {
+  it('P0: sin Apollo person id ⇒ BLOQUEA (no hay tombstone posible, pero ya no es "reveal normal")', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       deps(
@@ -862,18 +864,21 @@ describe('CACHE-1b supresión — FIX 2 independiente del flag de caché', () =>
         }),
       ),
     );
-    assert.equal(result.status, 'requested');
+    assert.equal(result.status, 'suppression_check_unavailable');
     assert.equal(captured.suppressionLookups.length, 0);
-    assert.equal(captured.apolloCalls.length, 1);
+    // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: antes esto llamaba a Apollo (1);
+    // ahora el gate bloquea ANTES, así que Apollo nunca se llama.
+    assert.equal(captured.apolloCalls.length, 0);
   });
 
-  it('sin cuenta no hay alcance de supresión: reveal normal', async () => {
+  it('P0: sin cuenta ⇒ BLOQUEA (no hay alcance de supresión posible)', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       deps({ cacheEnabled: false }, candidate({ accountId: null })),
     );
-    assert.equal(result.status, 'requested');
+    assert.equal(result.status, 'suppression_check_unavailable');
     assert.equal(captured.suppressionLookups.length, 0);
+    assert.equal(captured.apolloCalls.length, 0);
   });
 });
 
