@@ -2102,11 +2102,19 @@ export async function runApolloTwoRoundWizardDiscovery(
   // the shared intake seam. Built once per run, not per candidate; the resolver
   // set (read-only Colombia co_siis) is also built once and reused across every
   // candidate this run persists.
+  //
+  // `ProspectSearchCriteria.subindustry` is intentionally left unset here: it
+  // is a single string field and a wizard run can request several
+  // subindustries — reading only `subindustries[0]` is the exact anti-pattern
+  // `agent1-subindustry-fail-closed-target-integrity-1.test.ts` guards
+  // against elsewhere in this file. The Colombia resolver's `canResolve` /
+  // `resolve` never branch on `subindustry` (only country + candidate name),
+  // so omitting it costs nothing today; a future resolver that does need it
+  // should carry the FULL list, not the first element.
   const officialSourceCriteria: ProspectSearchCriteria = {
     country: input.country,
     countryCode: input.countryCode,
     sector: input.industry,
-    subindustry: input.subindustries[0] ?? null,
   };
   const officialSourceResolvers = buildApolloOfficialSourceResolvers();
 
