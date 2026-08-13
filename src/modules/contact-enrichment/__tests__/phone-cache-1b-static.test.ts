@@ -740,12 +740,23 @@ describe('CACHE-1b — FIX H2 estados nuevos mapeados en la UI', () => {
     assert.match(body, /intenta de nuevo/i);
   });
 
-  it('suppression_check_unavailable es explícito, seguro y reintentable (FIX 2)', () => {
+  it('suppression_check_unavailable es explícito y seguro, sin prometer una ventana de reintento (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1-R2)', () => {
+    // Antes de AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1 este estado sólo cubría dep no
+    // cableada / lectura fallida — genuinamente reintentable ("intenta de nuevo en
+    // unos minutos" era una promesa razonable. Desde ese hito el MISMO estado
+    // también cubre el caso sin `provider_person_id` resoluble o sin cuenta
+    // (típicamente un candidato de origen Lusha sin identidad Apollo capturada),
+    // que puede quedar PERMANENTEMENTE sin evaluar. El mensaje ya NO promete una
+    // ventana de reintento porque no puede distinguir ambos sub-casos.
     const body = caseBody('suppression_check_unavailable');
     assert.notEqual(body, '', 'falta el case suppression_check_unavailable');
     assert.match(body, /setPhoneRevealError/);
     assert.match(body, /supresión/i);
-    assert.match(body, /intenta de nuevo/i);
+    assert.equal(
+      /intenta de nuevo/i.test(body),
+      false,
+      'no debe prometer una ventana de reintento: el sub-caso sin clave puede ser permanente',
+    );
     // No es un éxito: no recarga el candidato ni muestra un toast de éxito.
     assert.equal(/reloadCandidate\(\)/.test(body), false);
     assert.equal(/toast\.success/.test(body), false);

@@ -61,6 +61,16 @@ const REQUEST_ID = 'apollo-req-123';
 // START-CONTRACT-1: id recuperable (apollo_http_request_id) que Apollo devuelve
 // en el START. Sin él el core marca `error` (no `requested`).
 const HTTP_REQUEST_ID = '-4594297923800105423';
+/** Apollo person id sintético (24 hex), opaco e inventado. Necesario para que la
+ * comprobación de supresión del START sea evaluable (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1):
+ * `sourceContactId: 'apollo-person-1'` no tiene forma de Apollo id (24 hex) y sin
+ * clave el gate ahora bloquea antes de llegar a Apollo. Se persiste en la columna
+ * apollo_person_id (prioridad sobre source_contact_id en la resolución de la
+ * clave), así que no interfiere con las aserciones que fijan el `id` literal
+ * enviado a Apollo (`apollo-person-1`, `v1.*`, etc.) — esas viajan por
+ * source_contact_id, no por esta columna. Este archivo prueba el contrato de la
+ * action START (ASYNC-1/ASYNC-12), no la resolución de identidad de la supresión. */
+const PERSON_ID = '7b8c9d0e1f2a3b4c5d6e7f8a';
 
 /**
  * Traza técnica mínima (sin PII) del START feliz: incluye el
@@ -96,6 +106,7 @@ function baseCandidate(
     accountId: 'acct-1',
     source: 'apollo',
     sourceContactId: 'apollo-person-1',
+    apolloPersonId: PERSON_ID,
     email: 'jane.doe@acme.com',
     linkedinUrl: 'https://linkedin.com/in/jane-doe',
     firstName: 'Jane',
@@ -377,24 +388,37 @@ describe('ASYNC-1 — START aceptado', () => {
   });
 });
 
-// ── account_id null soportado ──────────────────────────────────
-
-describe('ASYNC-1 — candidato sin account_id (identidad suficiente)', () => {
+// ── account_id null: identidad suficiente pero SUPRESIÓN NO EVALUABLE ──
+//
+// PHONE-3D.6C dejó a account_id como opcional para la IDENTIDAD (gate 13, el
+// candidato puede resolverse por source_contact_id/email/linkedin sin cuenta).
+// Pero la clave de SUPRESIÓN (gate 13b) exige (persona, CUENTA): sin cuenta no
+// hay clave con la que emparejar un tombstone, así que — desde
+// AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1 — el reveal ya NO "procede sin
+// account_id": el gate de supresión bloquea ANTES de llegar a Apollo,
+// exactamente igual que sin provider_person_id resoluble. Las dos
+// precondiciones (identidad suficiente, cuenta resoluble) son independientes;
+// la ausencia de cualquiera de las dos bloquea. Antes de este hito el reveal SÍ
+// procedía sin cuenta (esta describe se llamaba "identidad suficiente"); ahora
+// account_id es, en la práctica, también obligatorio para llegar a Apollo.
+describe('ASYNC-1 — candidato sin account_id (supresión no evaluable ⇒ bloqueado)', () => {
   function lushaNoAccountCandidate(): RevealCandidateRecord {
     return baseCandidate({ accountId: null, sourceContactId: null, firstName: null, lastName: null });
   }
 
-  it('START procede sin account_id (una sola llamada)', async () => {
+  it('sin account_id → bloqueado en el gate de supresión, sin llamada a Apollo, sin persistencia', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
       makeDeps(cap, { candidate: lushaNoAccountCandidate() }),
     );
-    assert.equal(res.status, 'requested');
-    assert.equal(cap.apolloCalls.length, 1);
-    assert.equal(cap.persisted[0].patch.phone_reveal_status, 'requested');
+    assert.equal(res.ok, false);
+    assert.equal(res.status, 'suppression_check_unavailable');
+    assert.equal(res.errorCode, 'suppression_check_unavailable');
+    assert.equal(cap.apolloCalls.length, 0);
+    assert.equal(cap.persisted.length, 0);
   });
 
-  it('nunca emite candidate_account_invalid con identidad suficiente', async () => {
+  it('nunca emite candidate_account_invalid con identidad suficiente (sigue distinto de un bloqueo por cuenta inválida)', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
       makeDeps(cap, { candidate: lushaNoAccountCandidate() }),
@@ -402,16 +426,18 @@ describe('ASYNC-1 — candidato sin account_id (identidad suficiente)', () => {
     assert.notEqual(res.status, 'candidate_account_invalid');
   });
 
-  it('usage-log sin PII y con account_id null', async () => {
+  it('bloqueado antes del usage-log: 0 logs, ninguna PII puede haber salido (nada que serializar)', async () => {
     await runRevealCandidatePhone(
       validInput(),
       makeDeps(cap, { candidate: lushaNoAccountCandidate() }),
     );
-    assert.equal(cap.logs.length, 1);
-    const serialized = JSON.stringify(cap.logs[0]);
-    assert.equal(serialized.includes('jane.doe@acme.com'), false);
-    assert.equal(serialized.includes('linkedin.com/in/jane-doe'), false);
-    assert.equal(cap.logs[0].metadata.account_id, null);
+    // El bloqueo de supresión retorna ANTES de deps.persist/deps.logUsage (igual
+    // que sin provider_person_id resoluble): no hay usage-log que auditar para
+    // este intento. La cobertura de "usage-log sin PII con account_id null" para
+    // un reveal que SÍ procede ya no es alcanzable por el START — account_id
+    // ausente ahora bloquea antes de loguear.
+    assert.equal(cap.logs.length, 0);
+    assert.equal(cap.persisted.length, 0);
   });
 });
 

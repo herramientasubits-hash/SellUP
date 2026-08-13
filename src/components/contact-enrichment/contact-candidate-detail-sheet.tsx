@@ -973,10 +973,17 @@ export function ContactCandidateDetailSheet({
       // APOLLO-PHONE-CACHE-1b (FIX 2): no se pudo verificar si hay una supresión
       // registrada, así que NO se llamó a Apollo. Ocurre con el flag de caché
       // encendido o apagado: el flag gobierna la reutilización, no el
-      // cumplimiento de la supresión. Sin cargo y reintentable.
+      // cumplimiento de la supresión. Sin cargo.
+      //
+      // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1-R2: este mismo estado también cubre,
+      // desde ese hito, el caso sin `provider_person_id` resoluble o sin cuenta —
+      // típicamente un candidato de origen Lusha sin identidad Apollo capturada.
+      // Ese sub-caso puede quedar PERMANENTEMENTE sin evaluar (no se resuelve con
+      // el tiempo ni reintentando); "intenta de nuevo en unos minutos" sería una
+      // promesa falsa para él. El mensaje ya no sugiere un plazo.
       case 'suppression_check_unavailable':
         setPhoneRevealError(
-          'No fue posible verificar si existe una supresión registrada para este teléfono. No se hizo ningún cargo; intenta de nuevo en unos minutos.',
+          'No fue posible verificar si existe una supresión registrada para este teléfono. No se hizo ningún cargo.',
         );
         return;
       // APOLLO-PHONE-CACHE-1b (FIX H4 + H4-b): no se pudo consultar la caché, o

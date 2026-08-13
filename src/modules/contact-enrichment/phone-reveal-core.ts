@@ -527,7 +527,18 @@ export type RevealCandidatePhoneStatus =
   // resoluble o sin cuenta): antes continuaba sin bloquear, ahora comparte esta
   // misma garantía fail-closed. Fail-closed: NO se llama a Apollo, porque podría
   // existir un tombstone sin haber sido visto (o sin poder emparejarse).
-  // Independiente del flag de caché. 0 créditos, sin teléfono, reintentable.
+  // Independiente del flag de caché. 0 créditos, sin teléfono, bloqueado mientras
+  // la supresión no se pueda evaluar.
+  //
+  // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1-R2: "reintentable" describe con
+  // precisión SOLO el sub-caso de dep no cableada / lectura fallida (un reintento
+  // posterior puede encontrar la dep ya cableada o la lectura ya resuelta). NO se
+  // afirma lo mismo del sub-caso sin clave posible: un candidato sin
+  // `provider_person_id` resoluble o sin cuenta puede quedar permanentemente sin
+  // evaluar salvo que algún proceso independiente le resuelva esa identidad más
+  // tarde (p. ej. una enriquecimiento posterior que capture su
+  // `apollo_person_id`); el código de este módulo no reintenta ni resuelve esa
+  // identidad por sí solo.
   | 'suppression_check_unavailable'
   // APOLLO-PHONE-CACHE-1b (FIX H4): la caché no se pudo consultar. Fail-closed:
   // NO se llama a Apollo. Solo alcanzable con el flag de caché encendido (con el
@@ -1009,7 +1020,13 @@ function describeStartSuppressionAudit(
  *     clave posible (sin `provider_person_id` resoluble o sin cuenta). Los tres
  *     casos comparten el mismo resultado porque comparten la misma garantía: "no
  *     pude confirmar que NO está suprimido" nunca equivale a "no está suprimido".
- *     No se llama a Apollo, reintentable, 0 créditos;
+ *     No se llama a Apollo, 0 créditos, bloqueado mientras la supresión no se
+ *     pueda evaluar. "Reintentable" describe con precisión el sub-caso de dep/
+ *     lectura (R2): un reintento posterior puede encontrar la dep ya cableada o
+ *     la lectura ya resuelta. NO es una promesa para el sub-caso sin clave — ese
+ *     candidato puede quedar permanentemente sin evaluar salvo que un proceso
+ *     independiente le resuelva la identidad más tarde; esta función no la
+ *     resuelve ni la reintenta por sí sola;
  *   * `null` — se confirmó que no hay supresión y el reveal continúa.
  *
  * Límite conocido y deliberado: el tombstone se identifica por Apollo person id +
