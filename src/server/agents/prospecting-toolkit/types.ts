@@ -550,6 +550,23 @@ export type ProspectingPipelineCandidate = {
   providerEnrichmentCapture?:
     | import('./apollo-enrichment-persistence-capture').ApolloEnrichmentPersistenceCapture
     | null;
+  /**
+   * AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — official-source identity (tax
+   * ID / legal name) produced by the shared, provider-neutral intake seam
+   * (`@/server/agents/prospect-intake`) via
+   * `deriveOfficialIdentityForApolloCandidate`. `undefined` when the seam
+   * did not run for this candidate; `strongIdentityAvailable: false` when it
+   * ran but found no strong match — never invented.
+   */
+  officialSourceIdentity?: {
+    officialSourceMetadata: ReturnType<
+      typeof import('@/server/agents/prospect-intake').buildOfficialSourceEnrichmentMetadata
+    >;
+    typedColumns: ReturnType<
+      typeof import('@/server/agents/prospect-intake').buildOfficialSourceTypedColumns
+    >;
+    strongIdentityAvailable: boolean;
+  } | null;
 };
 
 export type ProspectingPipelineSummary = {

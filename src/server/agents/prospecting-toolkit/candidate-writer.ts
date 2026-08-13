@@ -2364,17 +2364,36 @@ export async function writeProspectingCandidates(
           }
       : baseFitBreakdown;
 
+    // AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — bounded official-source columns
+    // (tax_identifier / tax_identifier_type / legal_name / legal_status),
+    // produced by the shared provider-neutral intake seam when a strong match
+    // was found. `null` in every field when the candidate carries no
+    // `officialSourceIdentity` (e.g. Apollo candidates that predate this
+    // adoption, or any candidate the seam did not find a strong match for) —
+    // never invented.
+    const officialSourceTypedColumns = candidate.officialSourceIdentity?.typedColumns ?? {
+      tax_identifier: null,
+      tax_identifier_type: null,
+      legal_name: null,
+      legal_status: null,
+    };
+
     // Q3F-5AW.2 (Phase 1) — identidad canónica determinística para el candidato.
     // Se persiste en la columna nullable identity_key. NO se usa ON CONFLICT ni
     // unique index todavía; es aditivo/observable. NULL si no hay identidad
     // suficiente (nunca bloquea el insert).
-    // Los candidatos web de Agente 1 no traen identificador fiscal (candidateInsert
-    // tampoco setea tax_identifier), así que la clave se compone de dominio → nombre.
+    // AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — antes del adoption, ningún
+    // candidato de Agente 1 traía identificador fiscal y la clave se componía
+    // SIEMPRE de dominio → nombre. Con la costura compartida, un candidato con
+    // identidad fiscal FUERTE sube al primer nivel (`tax:<cc>:<nit>`) por la
+    // MISMA precedencia que ya usa la aprobación de candidatos — no se
+    // introduce un algoritmo nuevo.
     const candidateIdentityKey = buildProspectCandidateIdentityKey({
       name: persistedName,
       domain: domain ?? null,
       website: candidate.website ?? null,
       countryCode: candidate.countryCode ?? null,
+      taxIdentifier: officialSourceTypedColumns.tax_identifier,
     });
 
     // `providerCompanyFields` se resolvió al principio de la iteración (§ D): es la
@@ -2566,6 +2585,11 @@ export async function writeProspectingCandidates(
       ...(candidate.providerEnrichmentCapture
         ? toApolloEnrichmentCandidateColumns(candidate.providerEnrichmentCapture)
         : {}),
+      // AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — official-source identity in
+      // its normal columns, reusing the exact same `buildOfficialSourceTypedColumns`
+      // projection the Lusha flow already writes through. Every key is `null`
+      // when the seam found no strong match — never a fabricated identity.
+      ...(candidate.officialSourceIdentity ? officialSourceTypedColumns : {}),
       metadata: {
         ...candidateBaseMetadata,
         scoring: {
@@ -2644,6 +2668,14 @@ export async function writeProspectingCandidates(
                 matched_subindustry_family: targetEligibility.matchedSubindustryFamily,
               },
             }
+          : {}),
+        // AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — whether official-source
+        // enrichment was ACTUALLY attempted for this candidate, distinct from
+        // the static `catalog_sources` recommendation elsewhere in this
+        // object: attempted/source/status/confidence/matched/which legal
+        // fields changed, all bounded (no raw registry payload).
+        ...(candidate.officialSourceIdentity
+          ? { official_source_enrichment: candidate.officialSourceIdentity.officialSourceMetadata }
           : {}),
         // HARDENING § 4 — evidencia de subindustria y procedencia del dato.
         // `prospect_candidates` no tiene columnas para ninguna de las dos, así que
