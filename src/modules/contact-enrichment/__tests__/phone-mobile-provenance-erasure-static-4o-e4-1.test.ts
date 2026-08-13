@@ -224,8 +224,11 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
         // 4O-H3 la nombra por la MISMA razón y con el mismo efecto: un comentario y el
         // `COMMENT ON FUNCTION` que dejan escrito que la aprobación NO la escribe.
         '116_approve_candidate_with_official_phones.sql',
+        // 4O-H3-B la nombra por la MISMA razón: un comentario dentro de la función y el
+        // `COMMENT ON FUNCTION` afirman explícitamente «NEVER touches mobile_phone (4O-E4.1)».
+        '117_merge_candidate_into_existing_contact.sql',
       ],
-      'las únicas migraciones que pueden NOMBRAR mobile_phone sin tocarla son la 115 (4O-H2) y la 116 (4O-H3), que documentan que no la tocan',
+      'las únicas migraciones que pueden NOMBRAR mobile_phone sin tocarla son la 115 (4O-H2), la 116 (4O-H3) y la 117 (4O-H3-B), que documentan que no la tocan',
     );
   });
 });
