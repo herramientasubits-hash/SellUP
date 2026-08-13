@@ -434,8 +434,11 @@ describe('4O-G — alcance', () => {
     // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
     // Macro Industrias (siembra en `draft` y cutover), sin relación con teléfono.
     assert.equal(numbered[numbered.length - 1], 119);
-    // El CONTEO, no el techo: en main son 118 archivos; aquí son 119 porque esta rama
-    // aporta ADEMÁS la 117 (4O-H3-B). La numeración arranca en 001 con huecos históricos.
+    // El CONTEO, no el techo: 119 archivos para los números 001–119, es decir SIN un solo
+    // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
+    // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
+    // historia, cuenta y techo coinciden, y esa coincidencia es en sí misma la guarda:
+    // vuelve a fallar si alguien borra un archivo aplicado o cuela uno sin renumerar.
     assert.equal(numbered.length, 119);
   });
 

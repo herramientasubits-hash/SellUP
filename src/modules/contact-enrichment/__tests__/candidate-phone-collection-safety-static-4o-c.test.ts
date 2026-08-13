@@ -220,9 +220,16 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       'ninguna migración 120 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
-    // ninguna migración posterior a la 116 escribe sobre las tablas de la cadena de
-    // teléfono. Una migración nueva que las tocara fallaría aquí aunque su número
-    // fuera el esperado.
+    // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus
+    // tablas. Una migración nueva que las tocara fallaría aquí aunque su número fuera el
+    // esperado.
+    //
+    // Esa última es la 117 (4O-H3-B, `merge_contact_candidate_into_existing_contact`), no
+    // la 116. El corte decía «posterior a la 116» porque cuando se redactó el fichero de
+    // la 117 no estaba en `main` pese a estar APLICADA en Producción: el corte describía
+    // el hueco del repo, no la cadena real. Reconciliada la historia, el corte vuelve a
+    // significar lo que siempre quiso decir, y lo que la 117 puede hacer se afirma abajo
+    // de forma DIRECTA en vez de por omisión.
     const PHONE_CHAIN_TABLES = [
       'contact_enrichment_candidate_phones',
       'contact_phones',
@@ -243,6 +250,43 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
         );
       }
     }
+
+    // La 117 queda EXENTA del barrido de arriba porque sí toca la cadena — y por eso su
+    // límite se afirma explícitamente aquí, que es más fuerte que exentarla y callar.
+    // Primero: tiene que existir. Si vuelve a desaparecer del repo, la exención se
+    // quedaría vacía y este bloque dejaría de proteger nada en silencio; es exactamente
+    // el drift que esta reconciliación cierra, así que se vigila.
+    const MERGE_117 = '117_merge_candidate_into_existing_contact.sql';
+    assert.ok(
+      files.includes(MERGE_117),
+      'la 117 está APLICADA en Producción: su fichero no puede faltar del repo',
+    );
+    // Segundo: la 117 toca la cadena SOLO como DML dentro de su función. No es dueña de
+    // la forma de ninguna tabla —eso siguen siendo la 109/112 (staging) y la 114
+    // (oficial)— y no roza la auditoría de supresión.
+    const sql117 = readFileSync(join(repoRoot, 'supabase/migrations', MERGE_117), 'utf8');
+    const executable117 = sql117
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n');
+    for (const forbidden of [
+      'CREATE TABLE',
+      'ALTER TABLE',
+      'DROP TABLE',
+      'CREATE INDEX',
+      'CREATE TRIGGER',
+      'TRUNCATE',
+    ]) {
+      assert.equal(
+        new RegExp(forbidden, 'i').test(executable117),
+        false,
+        `la 117 no debe contener ${forbidden}: no es dueña de la forma de ninguna tabla`,
+      );
+    }
+    assert.ok(
+      !sql117.includes('phone_reveal_suppression_audit'),
+      'la 117 no puede tocar la auditoría de supresión',
+    );
   });
 
   it('la 110 no crea, altera ni borra ninguna tabla: solo una función', () => {

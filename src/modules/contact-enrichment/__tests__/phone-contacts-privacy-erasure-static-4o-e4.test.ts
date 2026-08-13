@@ -356,8 +356,10 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
         '115_official_contact_phone_privacy.sql',
         // 4O-H3: la aprobación ATÓMICA. Tampoco es DDL de 4O-E4: sólo una función.
         '116_approve_candidate_with_official_phones.sql',
-        // 4O-H3-B: el MERGE humano hacia un contacto existente. Tampoco es DDL de 4O-E4 —
-        // otra función transaccional— y tampoco toca la allowlist del escalar que E4 fijó.
+        // 4O-H3-B: el merge del candidato duplicado sobre un contacto existente. Tampoco es
+        // DDL de 4O-E4 — otra función transaccional— y tampoco toca la allowlist del escalar
+        // que E4 fijó. Su propio COMMENT ON FUNCTION documenta que NUNCA toca mobile_phone
+        // (4O-E4.1 sigue abierto).
         '117_merge_candidate_into_existing_contact.sql',
         // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1: catálogo de Macro Industrias.
         // Ninguna es DDL de teléfono.
