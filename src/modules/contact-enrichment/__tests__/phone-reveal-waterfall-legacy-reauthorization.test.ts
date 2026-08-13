@@ -115,6 +115,17 @@ const store: Store = {
 };
 
 const CANDIDATE_ID = 'cand-legacy-reauth';
+/**
+ * Apollo person id sintético (24 hex), opaco e inventado. CACHE-1a (mig. 098) ya
+ * habría poblado esta columna cuando el intento Apollo previo emparejó una
+ * persona (aunque no encontrara teléfono), así que el candidato legacy trae este
+ * valor por defecto: sin él la puerta de privacidad ahora bloquea por falta de
+ * clave (`not_evaluable` ⇒ fail-closed, AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1) y
+ * esta suite deja de poder ejercitar la REAUTORIZACIÓN, que es lo que prueba.
+ * `source: 'lusha'` y `source_contact_id` siguen intactos: el caso cross-provider
+ * a propósito de este archivo.
+ */
+const CANDIDATE_APOLLO_PERSON_ID = 'ab01cd23ef45ab01cd23ef46';
 
 /** Candidato ELEGIBLE: terna de evidencia completa, sin teléfono, id Lusha propio. */
 let candidateRow: Row = {};
@@ -133,7 +144,7 @@ function resetCandidateRow(): void {
     phone_reveal_provider: 'apollo',
     phone_reveal_completed_at: '2026-07-01T10:00:00.000Z',
     phone_reveal_attempt_count: 1,
-    apollo_person_id: null,
+    apollo_person_id: CANDIDATE_APOLLO_PERSON_ID,
     run: { account_id: 'acct-legacy' },
   };
 }

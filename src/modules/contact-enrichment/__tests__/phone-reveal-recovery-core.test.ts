@@ -47,6 +47,16 @@ const RECOVERY_ID = '-4594297923800105423';
 /** phone_enrichment.request_id: NO sirve para recovery (devuelve 404). */
 const ENRICHMENT_ID = '6a6826ba804c600014ead739';
 const NOW = '2026-07-28T12:00:00.000Z';
+/**
+ * Apollo person id sintético (24 hex), opaco e inventado. Necesario para que la
+ * comprobación de supresión sea EVALUABLE (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1):
+ * sin él el gate ahora BLOQUEA (`not_evaluable` ⇒ fail-closed). El candidato de
+ * este archivo es `source: 'lusha'` a propósito (prueba el camino cross-provider),
+ * pero CACHE-1a ya habría poblado esta columna tras el START real, así que este
+ * valor simula ese estado y deja estas pruebas centradas en la recuperación, no
+ * en la supresión.
+ */
+const PERSON_ID = 'ab01cd23ef45ab01cd23ef45';
 
 function candidate(
   overrides: Partial<RecoveryCandidateRecord> = {},
@@ -56,6 +66,7 @@ function candidate(
     accountId: 'acct-1',
     phoneRevealProvider: 'apollo',
     source: 'lusha',
+    apolloPersonId: PERSON_ID,
     phoneRevealStatus: 'requested',
     existingPhone: null,
     enrichmentMetadata: {},
@@ -92,6 +103,11 @@ function makeDeps(args: {
     logUsage: async (entry) => {
       args.captured.logs.push(entry);
     },
+    // FIX 3 / AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: la comprobación de
+    // supresión en vuelo es obligatoria cuando llega un teléfono. Estas
+    // pruebas de recovery la cablean como "sin tombstone" — su fail-closed
+    // por tombstone real se prueba en el suite dedicado de FIX 3.
+    lookupPhoneCacheSuppression: async () => null,
   };
 }
 

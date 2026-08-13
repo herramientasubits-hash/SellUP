@@ -214,6 +214,12 @@ describe('CACHE-1b write path — WEBHOOK', () => {
   });
 
   it('un id Lusha `v1.*` no produce una entrada cacheable', async () => {
+    // El payload trae un id con forma Lusha (no evaluable como clave Apollo),
+    // así que la comprobación de supresión en vuelo resuelve por la COLUMNA
+    // `apollo_person_id` ya persistida del candidato (mismo orden de
+    // prioridad que producción) para que el reveal no bloquee por falta de
+    // clave: lo que esta prueba verifica es la elegibilidad de CACHÉ del id
+    // crudo del payload, no la resolución de identidad de la supresión.
     await runApolloPhoneRevealWebhook(
       {
         tokenProvided: TOKEN,
@@ -226,7 +232,7 @@ describe('CACHE-1b write path — WEBHOOK', () => {
           ],
         }),
       },
-      webhookDeps(),
+      webhookDeps(webhookCandidate({ apolloPersonId: PERSON_ID })),
     );
     assert.equal(cacheWrites.length, 1);
     assert.equal(cacheWrites[0].providerPersonId, null);
@@ -245,12 +251,25 @@ describe('CACHE-1b write path — WEBHOOK', () => {
     assert.equal(decision.write === false && decision.reason, 'unknown_country');
   });
 
-  it('sin cuenta no produce una entrada cacheable', async () => {
-    await runApolloPhoneRevealWebhook(
-      { tokenProvided: TOKEN, payload: payloadWithPhone() },
-      webhookDeps(webhookCandidate({ accountId: null })),
-    );
-    const decision = buildPhoneCacheWriteDecision(cacheWrites[0], true);
+  it('sin cuenta no produce una entrada cacheable', () => {
+    // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: sin cuenta, la comprobación de
+    // supresión del webhook ahora BLOQUEA antes de llegar a construir la entrada
+    // de caché (mismo `accountId` alimenta la clave de supresión Y la fila de
+    // caché — no se pueden separar pasando por el webhook completo). Esta prueba
+    // es sobre la decisión PURA de `buildPhoneCacheWriteDecision`, no sobre el
+    // webhook, así que se construye la entrada directamente — exactamente la
+    // forma que el webhook habría producido si hubiera llegado hasta ahí.
+    const input: PhoneCacheWriteInput = {
+      provider: 'apollo',
+      providerPersonId: PERSON_ID,
+      accountId: null,
+      countryCode: 'CO',
+      normalizedPhone: FAKE_PHONE,
+      phoneType: 'mobile',
+      phoneSource: 'apollo_reveal',
+      originalRevealedAt: NOW,
+    };
+    const decision = buildPhoneCacheWriteDecision(input, true);
     assert.equal(decision.write === false && decision.reason, 'missing_account');
   });
 });

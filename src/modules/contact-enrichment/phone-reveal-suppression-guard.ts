@@ -27,6 +27,20 @@
 // en una adivinanza, y tanto un falso bloqueo como un falso permiso serían
 // decididos por azar. El caso se reporta como `not_evaluable` para que quede en
 // la auditoría técnica (sin PII) en lugar de desaparecer en silencio.
+//
+// AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1 (P0 privacidad): lo de arriba describe
+// CÓMO se resuelve la clave, no qué hace el llamador con `not_evaluable`. Hasta
+// ese hito los CUATRO llamadores (START, WEBHOOK, RECOVERY y la puerta previa a
+// Lusha) trataban `not_evaluable` como "seguir adelante" — auditaban el caso y
+// dejaban pasar el reveal igual. Eso era fail-OPEN: "no pude confirmar que NO
+// está suprimido" NO equivale a "no está suprimido", y el caso típico sin clave
+// resoluble es precisamente un candidato de origen Lusha, que un tombstone Apollo
+// real no podía alcanzar por falta de clave. Desde ese hito los cuatro llamadores
+// tratan `not_evaluable` igual que `check_unavailable`: bloquean (fail-closed,
+// reintentable, 0 créditos nuevos), reutilizando el mismo estado ya existente en
+// vez de vocabulario nuevo. Esta guarda sigue devolviendo `not_evaluable` tal
+// cual — con su motivo — para que la etiqueta de auditoría (`not_evaluable_*`)
+// no se pierda; es el LLAMADOR quien decide bloquear.
 
 import {
   evaluatePhoneCacheSuppressionState,
