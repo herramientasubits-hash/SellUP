@@ -148,3 +148,40 @@ export function mapProviderSkip(
   const presentation = presentProviderSkip(skipReason);
   return { message: presentation.detail, retryable: presentation.canRetry };
 }
+
+// ── Copy de presupuesto agotado vs. insuficiente (AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1) ─
+//
+// El mensaje genérico de `BUDGET_EXCEEDED` («se agotó») es correcto sólo cuando
+// no queda NADA. Con presupuesto disponible > 0 pero por debajo de lo que esta
+// corrida necesita —el caso real de producción con available=5, required=25—
+// "se agotó" es falso: sugiere esperar al siguiente período cuando lo que
+// realmente bloquea es el tamaño de ESTA corrida.
+
+export const BUDGET_EXHAUSTED_MESSAGE = EXECUTION_ERROR_MESSAGES.BUDGET_EXCEEDED.message;
+export const BUDGET_INSUFFICIENT_FOR_RUN_MESSAGE =
+  'El presupuesto disponible no alcanza para esta corrida.';
+
+function formatCredits(count: number): string {
+  return `${count} ${count === 1 ? 'crédito' : 'créditos'}`;
+}
+
+/**
+ * AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — mensaje de un `BUDGET_EXCEEDED`,
+ * resuelto desde el detalle ESTRUCTURADO que el servidor adjunta cuando pudo
+ * leer el período (de sólo lectura, best-effort).
+ *
+ * Sin detalle se cae al mensaje genérico exhausted-style de siempre: la
+ * distinción exhausted/insufficient nunca inventa un número que el servidor no
+ * confirmó.
+ */
+export function mapBudgetExceeded(
+  detail:
+    | { reason: 'exhausted' | 'insufficient_for_run'; availableCredits: number; requiredCredits: number }
+    | undefined,
+): ExecutionErrorPresentation {
+  if (!detail) return mapExecutionError('BUDGET_EXCEEDED');
+  const lead =
+    detail.reason === 'exhausted' ? BUDGET_EXHAUSTED_MESSAGE : BUDGET_INSUFFICIENT_FOR_RUN_MESSAGE;
+  const counts = `Disponibles: ${formatCredits(detail.availableCredits)}. Requeridos: ${formatCredits(detail.requiredCredits)}.`;
+  return { message: `${lead} ${counts}`, retryable: false };
+}

@@ -14,6 +14,12 @@ import type {
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type { WizardLushaCriteriaDecision } from '@/modules/prospect-batches/wizard-lusha-criteria';
 import { isLushaRouteHonored } from '@/modules/prospect-batches/prospect-discovery-provider';
+// AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — bajo el catálogo v2 (macro industria) la
+// selección de subindustria no existe: el resumen no puede seguir preguntando
+// por ella con la señal equivocada (`subindustryIds.length === 0`, que también es
+// alcanzable en v1 cuando el usuario decide no acotar). El gate es la MISMA
+// capacidad que ya decide si el paso del wizard se renderiza.
+import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad del discovery de Agente
 // 1, y el catálogo de países del propio wizard como fuente de verdad.
 import {
@@ -260,11 +266,27 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // puede ejecutar, tampoco ofrece elegir con qué.
   const isPersistenceBlocked = executionError?.code === 'PERSISTENCE_NOT_READY';
 
+  // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 § 4 — un intento anterior ya volvió con
+  // `BUDGET_EXCEEDED`: reintentar sin cambiar nada fallaría exactamente igual, y
+  // la reserva atómica del servidor sigue siendo quien decide de verdad (fail-
+  // closed) — esto sólo evita ofrecer un botón que la UI ya sabe que va a
+  // rechazarse. Comparte gate con el selector de proveedor por el mismo motivo
+  // que `isPersistenceBlocked`: si esta pantalla no puede ejecutar, tampoco
+  // ofrece elegir con qué.
+  const isBudgetBlocked = executionError?.code === 'BUDGET_EXCEEDED';
+
+  // § 6 — «la configuración es válida» describe los CRITERIOS (país, industria,
+  // proveedor…), no si la corrida puede ejecutarse ahora mismo. Con un bloqueo
+  // conocido (presupuesto o persistencia) el cuerpo del banner verde deja de
+  // prometer una ejecución que no va a ocurrir; el motivo concreto vive en el
+  // banner rojo de abajo, nunca duplicado aquí.
   const validBody = useLushaFinalSearch
     ? 'Revisa los criterios y ejecuta la búsqueda. Nada se guarda todavía.'
-    : executionEnabled
-      ? 'La búsqueda puede tardar unos segundos. No cierres esta ventana mientras se generan los candidatos.'
-      : 'La generación real todavía no está habilitada.';
+    : isPersistenceBlocked || isBudgetBlocked
+      ? 'Los criterios de la búsqueda son correctos, pero todavía no puede ejecutarse. Revisa el aviso debajo.'
+      : executionEnabled
+        ? 'La búsqueda puede tardar unos segundos. No cierres esta ventana mientras se generan los candidatos.'
+        : 'La generación real todavía no está habilitada.';
 
   return (
     <div className="space-y-4 animate-su-fade-in" role="status">
@@ -303,7 +325,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           panel de Lusha: la ruta que de verdad gasta (Apollo / «Generar
           prospectos») no mostraba ninguna, así que perder una subindustria entre
           dos clics era indetectable hasta leer el lote ya creado. */}
-      {!useLushaFinalSearch && (
+      {!useLushaFinalSearch && isSubindustrySelectionEnabled(state.catalogVersion) && (
         <SubindustrySelectionRecap state={state} catalog={catalog} />
       )}
 
@@ -336,6 +358,7 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         discoveryAvailability.available &&
         executionEnabled &&
         !isPersistenceBlocked &&
+        !isBudgetBlocked &&
         onRequestedProviderChange !== undefined && (
           <WizardRunProviderSelector
             capability={providerOverrideCapability}
@@ -356,7 +379,8 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
       {!useLushaFinalSearch &&
         discoveryAvailability.available &&
         executionEnabled &&
-        !isPersistenceBlocked && (
+        !isPersistenceBlocked &&
+        !isBudgetBlocked && (
           <Button
             type="button"
             size="sm"
@@ -579,6 +603,12 @@ type SummaryPanelProps = {
 function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
   const countryEntry = LATAM_COUNTRIES.find((c) => c.code === state.countryCode);
   const industryEntry = catalog.industries.find((i) => i.id === state.industryId);
+  // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — catálogo v2 (macro industria): la
+  // selección de subindustria NO EXISTE, así que la fila y la recapitulación de
+  // abajo deben desaparecer por completo, no mostrar «Toda la industria» /
+  // «Sin subindustrias seleccionadas» como si el usuario hubiera decidido no
+  // acotar. v1 legacy conserva el comportamiento exacto de siempre.
+  const subindustrySelectionEnabled = isSubindustrySelectionEnabled(state.catalogVersion);
   // § A.4 — el mismo recapitulador puro que la pantalla previa al gasto: orden de
   // selección conservado y ningún id descartado en silencio.
   const subsRecap = buildWizardSubindustrySelectionRecap(state, catalog);
@@ -612,16 +642,18 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
           onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'country' })}
         />
         <SummaryRow
-          label="Industria"
+          label={subindustrySelectionEnabled ? 'Industria' : 'Macro Industria'}
           value={industryLabel}
           onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'industry' })}
         />
-        <SummaryRow
-          label={WIZARD_SUBINDUSTRY_RECAP_LABEL}
-          value={subsLabel}
-          onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'subindustries' })}
-          wrap
-        />
+        {subindustrySelectionEnabled && (
+          <SummaryRow
+            label={WIZARD_SUBINDUSTRY_RECAP_LABEL}
+            value={subsLabel}
+            onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'subindustries' })}
+            wrap
+          />
+        )}
         <SummaryRow
           label="Criterio adicional"
           value={criteriaLabel}
@@ -636,8 +668,11 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         />
       </div>
 
-      {/* § A.4 — la multiselección completa, explícita y contada. */}
-      <SubindustrySelectionRecap state={state} catalog={catalog} />
+      {/* § A.4 — la multiselección completa, explícita y contada. Ausente por
+          completo en macro mode: no hay selección de subindustria que recapitular. */}
+      {subindustrySelectionEnabled && (
+        <SubindustrySelectionRecap state={state} catalog={catalog} />
+      )}
 
       <div className="rounded-lg bg-muted/40 px-4 py-3">
         <p className="text-xs text-muted-foreground leading-relaxed">

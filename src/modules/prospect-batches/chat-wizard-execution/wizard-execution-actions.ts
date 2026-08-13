@@ -107,8 +107,14 @@ import {
   confirmWizardPilotCredits,
   releaseWizardPilotCredits,
   fetchWizardReservationRecord,
+  readWizardBudgetPeriodSnapshot,
 } from './wizard-budget-reservations';
-import type { BudgetReservationsRpcClient, ReservationLookupClient } from './wizard-budget-reservations';
+import type {
+  BudgetReservationsRpcClient,
+  ReservationLookupClient,
+  BudgetPeriodLookupClient,
+  WizardBudgetPeriodSnapshot,
+} from './wizard-budget-reservations';
 import {
   estimateWizardTavilyMaxCredits,
   getPilotBudgetPeriodStart,
@@ -147,7 +153,18 @@ import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 export type ReserveBudgetDepResult =
   | { status: 'reserved'; reservationId: string; creditsReserved: number }
   | { status: 'already_reserved'; reservationId: string; creditsReserved: number }
-  | { status: 'blocked'; code: PilotGuardrailCode; message: string };
+  | {
+      status: 'blocked';
+      code: PilotGuardrailCode;
+      message: string;
+      /**
+       * AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — presente sólo cuando `code` es
+       * `BUDGET_EXCEEDED` y la lectura de diagnóstico (best-effort, de sólo
+       * lectura) pudo leer el período. `null`/ausente ⇒ el llamador cae al copy
+       * genérico en vez de adivinar un número.
+       */
+      budgetSnapshot?: WizardBudgetPeriodSnapshot | null;
+    };
 
 export type WizardExecutionDeps = {
   getActiveUserId: () => Promise<string>;
@@ -334,7 +351,21 @@ export async function executeProspectWizardGenerationAction(
         { userId, clientRequestId, requestedCredits, periodStart },
         budgetClient as unknown as BudgetReservationsRpcClient,
       );
-      if (rpcResult.status === 'blocked') return rpcResult;
+      if (rpcResult.status === 'blocked') {
+        // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — la RPC ya decidió el bloqueo; esto
+        // sólo LEE el mismo período para poder explicarlo (agotado vs. no alcanza
+        // para esta corrida). Best-effort y de sólo lectura: un fallo de esta
+        // lectura no cambia el bloqueo ni lo convierte en otra cosa, sólo deja
+        // `budgetSnapshot` en `null` y el llamador cae al copy genérico.
+        const budgetSnapshot =
+          rpcResult.code === 'BUDGET_EXCEEDED'
+            ? await readWizardBudgetPeriodSnapshot(
+                periodStart,
+                budgetClient as unknown as BudgetPeriodLookupClient,
+              )
+            : null;
+        return { ...rpcResult, budgetSnapshot };
+      }
 
       // Both 'reserved' and 'already_reserved' need the reservation ID for later reconciliation.
       const record = await fetchWizardReservationRecord(
@@ -817,6 +848,22 @@ export async function executeProspectWizardGeneration(
       discoveryProvider === 'apollo_organizations' && isApolloTwoRoundDiscoveryEnabled()
         ? BUDGET_EXCEEDED_TWO_ROUND_APOLLO
         : null;
+    // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — «se agotó» sólo es cierto cuando no
+    // queda NADA. Con presupuesto disponible > 0 pero por debajo de lo que esta
+    // corrida necesita, decir «se agotó» es falso y confunde con un estado
+    // recuperable distinto (esperar al siguiente período) del real (esta corrida
+    // en concreto no cabe). `requiredCredits` es el MISMO número ya reservado
+    // arriba (`requestedCredits`), nunca una estimación distinta.
+    const budgetExceeded =
+      budgetResult.code === 'BUDGET_EXCEEDED' && budgetResult.budgetSnapshot
+        ? {
+            reason: (budgetResult.budgetSnapshot.availableCredits <= 0
+              ? 'exhausted'
+              : 'insufficient_for_run') as 'exhausted' | 'insufficient_for_run',
+            availableCredits: budgetResult.budgetSnapshot.availableCredits,
+            requiredCredits: requestedCredits,
+          }
+        : null;
     return {
       ok: false,
       code: budgetResult.code,
@@ -824,6 +871,7 @@ export async function executeProspectWizardGeneration(
       retryable: false,
       runProvider: runProviderOutcome,
       ...(twoRoundBlockDetail !== null ? { blockDetail: twoRoundBlockDetail } : {}),
+      ...(budgetExceeded !== null ? { budgetExceeded } : {}),
     };
   }
 

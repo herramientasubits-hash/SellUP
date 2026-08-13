@@ -354,4 +354,22 @@ export type WizardExecutionActionResult =
         reason: 'identity_key_missing' | 'probe_failed';
         stage: 'schema_preflight';
       };
+      /**
+       * AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — motivo estructurado de un
+       * `BUDGET_EXCEEDED`.
+       *
+       * La reserva atómica sigue siendo la ÚNICA autoridad que decide el
+       * bloqueo; este campo no puede desbloquear nada, sólo explicarlo.
+       * `reason` distingue «no queda nada» (`exhausted`) de «queda presupuesto
+       * pero no alcanza para ESTA corrida» (`insufficient_for_run`), que es lo
+       * que decide si el copy dice «se agotó» o «no alcanza». Ausente cuando la
+       * lectura de diagnóstico (de sólo lectura, best-effort) no pudo leer el
+       * período — la UI cae entonces al copy genérico en vez de adivinar un
+       * número.
+       */
+      budgetExceeded?: {
+        reason: 'exhausted' | 'insufficient_for_run';
+        availableCredits: number;
+        requiredCredits: number;
+      };
     };

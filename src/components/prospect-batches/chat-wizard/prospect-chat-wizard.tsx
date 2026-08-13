@@ -65,6 +65,7 @@ import {
   mapExecutionError,
   mapPersistenceNotReady,
   mapProviderSkip,
+  mapBudgetExceeded,
 } from './wizard-execution-error-map';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -667,7 +668,9 @@ export function ProspectChatWizard({
             ? mapProviderSkip(result.providerSkipped?.skipReason)
             : result.code === 'PERSISTENCE_NOT_READY'
               ? mapPersistenceNotReady(result.persistenceNotReady, result.retryable)
-              : mapExecutionError(result.code);
+              : result.code === 'BUDGET_EXCEEDED'
+                ? mapBudgetExceeded(result.budgetExceeded)
+                : mapExecutionError(result.code);
         // El nombre del proveedor omitido se conserva visible; el motivo técnico
         // NO se muestra: el usuario ve el mensaje funcional ya mapeado.
         if (result.code === 'PROVIDER_UNAVAILABLE' && result.providerSkipped) {
