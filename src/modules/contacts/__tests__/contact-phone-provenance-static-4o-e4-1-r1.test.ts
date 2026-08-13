@@ -246,15 +246,16 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
     assert.equal(
       last,
       // 4O-H3 movió el techo a la 116 (la APROBACIÓN atómica: una sola función
-      // transaccional, sin DDL) y 4O-H3-B a la 117 (el MERGE humano hacia un contacto
-      // existente, también una sola función). R1 sigue sin aportar ninguna.
-      '117_merge_candidate_into_existing_contact.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3 y 4O-H3-B, no este hito',
+      // transaccional, sin DDL). R1 sigue sin aportar ninguna.
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+      // Macro Industrias, sin relación con teléfono. R1 sigue sin aportar ninguna.
+      '119_publish_macro_industry_catalog_v2_cutover.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3 y el catálogo macro, no este hito',
     );
     assert.equal(
-      files.some((f) => /^1(1[89]|[2-9]\d)/.test(f)),
+      files.some((f) => /^1(2[0-9]|[3-9]\d)/.test(f)),
       false,
-      'ninguna migración 118 o superior',
+      'ninguna migración 120 o superior',
     );
   });
 

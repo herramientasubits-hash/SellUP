@@ -431,8 +431,12 @@ describe('4O-G — alcance', () => {
     // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
     // candidato sobre el esquema oficial. 4O-H3-B lo sube a la 117: el MERGE humano hacia un
     // contacto EXISTENTE, otra función transaccional. 4O-G sigue sin aportar ni editar SQL.
-    assert.equal(numbered[numbered.length - 1], 117);
-    assert.equal(numbered.length, 117);
+    // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+    // Macro Industrias (siembra en `draft` y cutover), sin relación con teléfono.
+    assert.equal(numbered[numbered.length - 1], 119);
+    // El CONTEO, no el techo: en main son 118 archivos; aquí son 119 porque esta rama
+    // aporta ADEMÁS la 117 (4O-H3-B). La numeración arranca en 001 con huecos históricos.
+    assert.equal(numbered.length, 119);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

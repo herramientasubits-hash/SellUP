@@ -135,6 +135,10 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // para promoverla, pero no la escribe ni la altera — la 112 sigue siendo su única
       // dueña, que es exactamente lo que esta guarda vigila.
       '117_merge_candidate_into_existing_contact.sql',
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1: catálogo de Macro Industrias.
+      // Ninguna de las dos toca la colección de staging que esta suite protege.
+      '118_macro_industry_catalog_v2_draft.sql',
+      '119_publish_macro_industry_catalog_v2_cutover.sql',
     ]);
   });
 

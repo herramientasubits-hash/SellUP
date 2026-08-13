@@ -118,19 +118,16 @@ describe('115 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('117 es el número más alto del repo', () => {
+  it('116 es el número más alto del repo', () => {
     const numbers = readdirSync(migrationsDir)
       .filter((file) => /^\d{3}[_-].*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)));
-    // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del candidato
+    // AGENT2A-PHONE-REVEAL-4O-H3 sube el techo a la 116: la APROBACIÓN atómica del candidato
     // sobre ese mismo esquema oficial (una sola función transaccional, `approve_contact_candidate_with_phones`). La 116 NO añade tabla, columna, constraint, índice ni GRANT:
     // sólo una función, que es lo que la hace retrocompatible con el runtime vivo.
-    // AGENT2A-PHONE-REVEAL-4O-H3-B lo sube a la 117: el MERGE humano hacia un contacto
-    // existente (`merge_contact_candidate_into_existing_contact`), otra función transaccional y
-    // nada más. La 115 sigue siendo la única dueña de la supresión oficial: la 117 no la
-    // re-emite, no la sustituye y no la invoca — son dos operaciones distintas sobre el mismo
-    // esquema, que es justo lo que esta guarda vigila.
-    assert.equal(Math.max(...numbers), 117);
+    // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+    // Macro Industrias (siembra en `draft` y cutover), sin relación con teléfono.
+    assert.equal(Math.max(...numbers), 119);
   });
 
   it('declara NO estar aplicada en Producción', () => {

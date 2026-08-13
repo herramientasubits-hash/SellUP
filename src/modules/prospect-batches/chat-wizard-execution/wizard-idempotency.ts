@@ -45,6 +45,16 @@ export type WizardExecutionReservationInput = {
      * Ausente ⇒ el metadata queda EXACTAMENTE igual que antes del hito.
      */
     runProviderSelection?: WizardRunProviderSelectionMetadata;
+    /**
+     * MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — bajo qué taxonomía se creó la
+     * solicitud.
+     *
+     * Aterriza en el INSERT inicial por la misma razón que
+     * `runProviderSelection`: es un hecho de la PETICIÓN, hace falta para TODOS
+     * los proveedores, y la costura `extraBatchMetadata` sólo existe en la ruta
+     * de Apollo. Ausente ⇒ el metadata queda exactamente igual que antes.
+     */
+    discoveryTaxonomy?: Record<string, unknown>;
   };
 };
 
@@ -207,6 +217,9 @@ function buildMetadata(
     // Aditivo: sin selección el objeto no gana ninguna clave nueva.
     ...(payload.runProviderSelection
       ? { [RUN_PROVIDER_SELECTION_METADATA_KEY]: payload.runProviderSelection }
+      : {}),
+    ...(payload.discoveryTaxonomy
+      ? { apollo_discovery_taxonomy: payload.discoveryTaxonomy }
       : {}),
   };
 }

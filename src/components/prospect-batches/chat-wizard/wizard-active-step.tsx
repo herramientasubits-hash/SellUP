@@ -13,6 +13,7 @@ import { SearchableSelect } from '@/components/forms/searchable-select';
 import { MultiSelect } from '@/components/forms/multi-select';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
+import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import { SEARCH_MODE_DEFINITIONS } from '@/modules/prospect-batches/chat-wizard';
 import type {
@@ -80,6 +81,11 @@ export function WizardActiveStep({
       );
 
     case 'subindustries':
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 7 — con la selección desactivada el
+      // paso no se renderiza NI VACÍO NI DESHABILITADO: devuelve `null`, que es
+      // lo que produce la ausencia sin hueco. El reducer ya no puede traer aquí
+      // el paso activo; esto cubre el caso de un estado restaurado.
+      if (!isSubindustrySelectionEnabled(state.catalogVersion)) return null;
       return (
         <SubindustriesStep
           state={state}
@@ -313,9 +319,18 @@ function IndustryStep({
   industryOptions,
   titleRef,
 }: IndustryStepProps) {
+  // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 §§ 5, 7 y 18 — bajo la taxonomía macro el
+  // control es el mismo (selección única y obligatoria) y sólo cambia cómo se
+  // NOMBRA lo que se está eligiendo. `SearchableSelect` ya es single-select: el
+  // contrato de «exactamente una» no se añade aquí, se hereda.
+  const macro = !isSubindustrySelectionEnabled(state.catalogVersion);
   return (
     <StepWrapper
-      title="¿En qué industria deberían operar las empresas?"
+      title={
+        macro
+          ? '¿En qué macro industria deberían operar las empresas?'
+          : '¿En qué industria deberían operar las empresas?'
+      }
       titleRef={titleRef}
     >
       <SearchableSelect
@@ -324,9 +339,11 @@ function IndustryStep({
         onValueChange={(id) =>
           dispatch({ type: 'SELECT_INDUSTRY', industryId: id })
         }
-        placeholder="Seleccionar industria"
-        searchPlaceholder="Buscar industria..."
-        emptyMessage="No se encontraron industrias."
+        placeholder={macro ? 'Seleccionar macro industria' : 'Seleccionar industria'}
+        searchPlaceholder={macro ? 'Buscar macro industria...' : 'Buscar industria...'}
+        emptyMessage={
+          macro ? 'No se encontraron macro industrias.' : 'No se encontraron industrias.'
+        }
         compact
       />
       <StepBlockingIssues state={state} step="industry" />

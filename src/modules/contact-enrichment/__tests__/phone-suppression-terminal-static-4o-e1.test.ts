@@ -203,9 +203,11 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       last,
       // 4O-H3 movió el techo a la 116: la APROBACIÓN atómica del candidato sobre ese mismo
       // esquema oficial. Sólo una función transaccional; ninguna DDL, ningún GRANT de tabla.
-      // 4O-H3-B lo mueve a la 117 por lo mismo: el MERGE humano hacia un contacto EXISTENTE
-      // (`merge_contact_candidate_into_existing_contact`), otra función transaccional sin DDL.
-      '117_merge_candidate_into_existing_contact.sql',
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119. Las 118 y
+      // 119 NO son de teléfono: publican el catálogo de Macro Industrias (siembra en
+      // `draft` y cutover). Lo que esta guarda afirma —que este hito no aportó SQL y
+      // que nadie coló una migración por encima del último hito conocido— no cambia.
+      '119_publish_macro_industry_catalog_v2_cutover.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

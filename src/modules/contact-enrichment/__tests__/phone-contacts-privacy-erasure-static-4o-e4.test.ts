@@ -359,19 +359,26 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
         // 4O-H3-B: el MERGE humano hacia un contacto existente. Tampoco es DDL de 4O-E4 —
         // otra función transaccional— y tampoco toca la allowlist del escalar que E4 fijó.
         '117_merge_candidate_into_existing_contact.sql',
+        // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1: catálogo de Macro Industrias.
+        // Ninguna es DDL de teléfono.
+        '118_macro_industry_catalog_v2_draft.sql',
+        '119_publish_macro_industry_catalog_v2_cutover.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
   });
 
-  it('la migración 117 (4O-H3-B) es la última del repo', () => {
+  it('la migración 119 (catálogo macro) es la última del repo', () => {
     // 4O-H2 mueve el techo de la 114 a la 115. Se sigue fijando un número EXACTO: una
     // migración por encima del último hito conocido tiene que romper esta guarda.
     const numbered = readdirSync(MIGRATIONS_DIR)
       .filter((f) => /^\d{3}_/.test(f) && f.endsWith('.sql'))
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 117);
+    // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+    // Macro Industrias, sin relación con teléfono. La 117 (4O-H3-B) queda por debajo.
+    // El número sigue siendo EXACTO.
+    assert.equal(numbered[numbered.length - 1], 119);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

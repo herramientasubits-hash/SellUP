@@ -203,17 +203,46 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // AGENT2A-PHONE-REVEAL-4O-H3 subió el techo a la 116: la APROBACIÓN atómica del
       // candidato sobre ese mismo esquema oficial (una sola función transaccional,
       // `approve_contact_candidate_with_phones`, con su propia guarda estática). Tampoco
-      // edita la 110 ni ninguna otra de la cadena 109–115. 4O-H3-B lo sube a la 117 con el
-      // MERGE humano hacia un contacto existente: otra función transaccional, que tampoco
-      // edita la 110 ni re-emite la 116.
-      '117_merge_candidate_into_existing_contact.sql',
-      'el techo conocido es la 117 (4O-H3-B), que añade el merge humano sin editar la 110',
+      // edita la 110 ni ninguna otra de la cadena 109–115.
+      //
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 sube el techo a la 119. Las 118 y 119
+      // NO son de teléfono: publican el catálogo de Macro Industrias (una siembra en
+      // `draft`, la otra el cutover). Lo que esta guarda vigila desde 4O-C-R1 —que
+      // 4O-C-R1 aporte EXACTAMENTE la 110 y que nadie edite la cadena 109–116— sigue
+      // afirmándose abajo, ahora de forma directa en vez de por implicación del número
+      // más alto del directorio.
+      '119_publish_macro_industry_catalog_v2_cutover.sql',
+      'el techo conocido es la 119 (catálogo macro), que no toca la cadena de teléfono',
     );
     assert.equal(
-      files.some((file) => /^1(1[89]|[2-9]\d)/.test(file)),
+      files.some((file) => /^1(2[0-9]|[3-9]\d)/.test(file)),
       false,
-      'ninguna migración 118 o superior',
+      'ninguna migración 120 o superior',
     );
+    // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
+    // ninguna migración posterior a la 116 escribe sobre las tablas de la cadena de
+    // teléfono. Una migración nueva que las tocara fallaría aquí aunque su número
+    // fuera el esperado.
+    const PHONE_CHAIN_TABLES = [
+      'contact_enrichment_candidate_phones',
+      'contact_phones',
+      'contact_phone_sources',
+      'phone_reveal_suppression_audit',
+    ];
+    // El barrido arranca en la 118, no en la 117. La 117 (4O-H3-B) NOMBRA
+    // `contact_enrichment_candidate_phones` porque LEE la colección para promoverla al contacto
+    // existente — leerla es justamente su trabajo—, y que no la escriba ni la altere lo fija su
+    // propia guarda estática (`existing-contact-merge-static-4o-h3b`), que sabe distinguir una
+    // lectura de una escritura. Un `includes` de la tabla no puede: marcaría la 117 por leerla.
+    for (const file of files.filter((f) => /^1(1[89]|[2-9]\d)/.test(f))) {
+      const sql = readFileSync(join(repoRoot, 'supabase/migrations', file), 'utf8');
+      for (const table of PHONE_CHAIN_TABLES) {
+        assert.ok(
+          !sql.includes(table),
+          `la migración ${file} no puede tocar ${table}`,
+        );
+      }
+    }
   });
 
   it('la 110 no crea, altera ni borra ninguna tabla: solo una función', () => {

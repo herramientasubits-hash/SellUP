@@ -1,3 +1,4 @@
+import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { SEARCH_MODE_DEFINITIONS } from './wizard-config';
 import type {
   ProspectWizardState,
@@ -146,7 +147,9 @@ export function deriveWizardMessages(
       id: 'assistant-industry-question',
       role: 'assistant',
       messageType: 'choice',
-      content: '¿En qué industria?',
+      content: isSubindustrySelectionEnabled(state.catalogVersion)
+        ? '¿En qué industria?'
+        : '¿En qué macro industria?',
       step: 'industry',
     });
 
@@ -164,7 +167,18 @@ export function deriveWizardMessages(
   }
 
   // ── Subindustries ─────────────────────────────────────────────────────────
-  if (hasReached(state.currentStep, 'subindustries') && state.industryId) {
+  //
+  // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 7 — con la selección desactivada NO se
+  // emite ningún mensaje de este bloque. Ni la pregunta «¿Quieres enfocar la
+  // búsqueda en subindustrias específicas?», ni el «Sin filtro de subindustria»
+  // que la hilera de mensajes mostraría al pasar de largo. Un hilo de
+  // conversación que menciona un paso inexistente es la versión textual del
+  // hueco visual que el § 7 prohíbe.
+  if (
+    isSubindustrySelectionEnabled(state.catalogVersion) &&
+    hasReached(state.currentStep, 'subindustries') &&
+    state.industryId
+  ) {
     messages.push({
       id: 'assistant-subindustries-question',
       role: 'assistant',
