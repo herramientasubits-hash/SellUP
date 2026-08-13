@@ -1456,3 +1456,28 @@ jobs:
       # sin proveedores, 0 créditos, 0 escrituras y 0 PII.
       - name: Run P0-R4 invalid use-server export ratchet
         run: npm run test:agent2a:p0-r4-use-server
+
+      # AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — el bloqueo de presupuesto ANTES del
+      # primer clic.
+      #
+      # AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 (#286) sí distingue «se agotó» de «no alcanza
+      # para esta corrida», pero derivaba TODO el bloqueo de
+      # `executionError?.code === 'BUDGET_EXCEEDED'`: es decir, sólo después de una
+      # ejecución fallida. La QA visual de Producción del 2026-08-13, con el presupuesto
+      # real 244/239/0 ⇒ 5 disponibles y una corrida de Apollo que necesita 25, encontró la
+      # pantalla intacta — sin aviso, con el selector de proveedor y con «Generar
+      # prospectos» a un clic. El aviso llegaba como premio por fallar.
+      #
+      # El estado que ninguna suite cubría es exactamente ése: wizard configurado +
+      # presupuesto insuficiente CONOCIDO + NINGÚN error de ejecución previo.
+      #
+      # También fija las propiedades que impiden que el remedio sea peor: sin instantánea
+      # NO se bloquea (una lectura fallida no puede dejar a todo el mundo sin ejecutar),
+      # la comparación es estricta (25/25 cabe y se ofrece), y la reserva atómica
+      # `try_reserve_wizard_credits` sigue siendo la única autoridad — la UI sólo puede
+      # retirar una oferta, nunca añadirla.
+      #
+      # Determinista y offline: jsdom + módulos puros. Sin red, sin Supabase, sin Apollo,
+      # sin Tavily, sin Lusha, 0 créditos, 0 reservas, 0 escrituras y 0 PII.
+      - name: Run A1 macro v2 pre-execution budget gate tests
+        run: npm run test:a1-macro-v2-budget-gate-preflight

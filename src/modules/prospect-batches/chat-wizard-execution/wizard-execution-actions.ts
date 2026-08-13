@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
 import {
   isProspectChatWizardExecutionEnabled,
@@ -121,6 +121,12 @@ import {
   readWizardConsumedCreditsFromDb,
 } from './wizard-budget-reconciliation';
 import { estimateCreditsForProvider } from './wizard-budget-estimate';
+// AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — huso y cliente service_role del
+// presupuesto, compartidos con la lectura previa al primer clic.
+import {
+  WIZARD_BUDGET_TIMEZONE,
+  createWizardBudgetServiceClient,
+} from './wizard-budget-preflight.server';
 // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — la taxonomía de la solicitud, declarada.
 import {
   resolveDiscoveryTaxonomyCapability,
@@ -266,7 +272,13 @@ export type WizardExecutionDeps = {
 // Thin entrypoint for Next.js. Builds real deps from server context, delegates
 // to executeProspectWizardGeneration for the actual logic.
 
-const BOGOTA_TIMEZONE = 'America/Bogota';
+// AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — el huso y el cliente service_role
+// del presupuesto viven ahora en `wizard-budget-preflight.server.ts`, para que la
+// lectura que AVISA antes del primer clic y la reserva que BLOQUEA de verdad
+// miren la misma fila del mismo período con las mismas credenciales. Dos husos o
+// dos clientes es como se consigue una UI que avisa sobre un período que la
+// reserva no mira.
+const BOGOTA_TIMEZONE = WIZARD_BUDGET_TIMEZONE;
 
 /**
  * A1-APOLLO-WIZARD-1 — rol admitido para discovery de empresas con Apollo.
@@ -284,12 +296,10 @@ const resolveIsApolloDiscoveryRolePermitted = isWizardApolloDiscoveryRolePermitt
 // Budget RPC functions (try_reserve_wizard_credits, confirm_wizard_credits, release_wizard_credits)
 // and the wizard_budget_reservations table are REVOKE'd from the `authenticated` role — they require
 // service_role. The user-session client (publishable key) cannot call them.
-function createWizardBudgetClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase service_role credentials required for wizard budget operations');
-  return createAdminClient(url, key);
-}
+// AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — la fábrica se comparte con la lectura
+// de diagnóstico de la superficie: un segundo constructor podría desviarse de
+// éste y dejar el aviso leyendo con credenciales que no ven la tabla.
+const createWizardBudgetClient = createWizardBudgetServiceClient;
 
 export async function executeProspectWizardGenerationAction(
   request: unknown,
