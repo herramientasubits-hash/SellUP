@@ -27,12 +27,16 @@ const repoRoot = join(here, '..', '..', '..', '..');
 const CORE = 'src/modules/contact-enrichment/candidate-stored-phones-core.ts';
 const READ = 'src/modules/contact-enrichment/candidate-stored-phones-read.ts';
 const ACTIONS = 'src/modules/contact-enrichment/candidate-stored-phones-actions.ts';
+// P0-R4: la lista de roles salió del fichero de acciones. No podía vivir ahí —un
+// módulo `'use server'` sólo puede exportar funciones async— pero sigue siendo
+// parte del alcance de 4O-G y se vigila con las mismas guardas.
+const ROLES = 'src/modules/contact-enrichment/candidate-stored-phones-authorized-roles.ts';
 const DISCLOSURE = 'src/components/contact-enrichment/candidate-stored-phones-disclosure.tsx';
 const COPY = 'src/components/contact-enrichment/candidate-stored-phones-copy.ts';
 const LABELS = 'src/components/contact-enrichment/phone-display-labels.ts';
 
 /** Todo lo que 4O-G añade. La lista es el alcance. */
-const NEW_FILES = [CORE, READ, ACTIONS, DISCLOSURE, COPY, LABELS] as const;
+const NEW_FILES = [CORE, READ, ACTIONS, ROLES, DISCLOSURE, COPY, LABELS] as const;
 
 function read(relativePath: string): string {
   return readFileSync(join(repoRoot, relativePath), 'utf8');
@@ -265,8 +269,13 @@ describe('4O-G — autorización de servidor, no de UI', () => {
 
   it('el rol autorizado es el mismo `admin` de la revisión del candidato', () => {
     assert.match(
-      sources[ACTIONS],
+      sources[ROLES],
       /CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS: readonly string\[\] = \['admin'\]/,
+    );
+    // Y la acción lo consume de ahí, en vez de declarar una segunda lista propia.
+    assert.match(
+      sources[ACTIONS],
+      /import \{ CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS \} from '\.\/candidate-stored-phones-authorized-roles'/,
     );
     // Espejo declarado del waterfall: si una de las dos cambia, esto avisa.
     assert.match(
@@ -463,10 +472,14 @@ describe('4O-G — alcance', () => {
       'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
       'src/components/contact-enrichment/candidate-stored-phones-disclosure.tsx',
       'src/modules/contact-enrichment/candidate-stored-phones-actions.ts',
+      'src/modules/contact-enrichment/candidate-stored-phones-authorized-roles.ts',
       'src/modules/contact-enrichment/candidate-stored-phones-read.ts',
       'src/modules/contact-enrichment/__tests__/candidate-stored-phones-core-4o-g.test.ts',
       'src/modules/contact-enrichment/__tests__/candidate-stored-phones-static-4o-g.test.ts',
       'src/components/contact-enrichment/__tests__/candidate-stored-phones-ui-4o-g.test.tsx',
+      // No importa nada: nombra el módulo para fijar que el barrido de P0-R4
+      // sigue cubriéndolo. Es una guarda sobre 4O-G, no un consumidor suyo.
+      'src/__tests__/use-server-export-contract-p0-r4.test.ts',
     ];
     const offenders = sourceFiles(join(repoRoot, 'src'))
       .map((absolute) => absolute.slice(repoRoot.length + 1))
