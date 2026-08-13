@@ -25,14 +25,10 @@ import { PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS } from '@/modules/contact-e
 // y Manager comercial. Resuelto server-side; el server action revalida el rol.
 const PHONE_REVEAL_AUTHORIZED_ROLE_KEYS = ['admin', 'commercial_manager'] as const;
 
-/**
- * 4O-H3-B-R1 — qué cola de revisión renderiza el panel.
- *
- * `pending` es el comportamiento histórico (`pending_review`). `duplicates` es la cola nueva:
- * candidatos que la detección movió a `duplicate` y que, hasta este hito, quedaban inalcanzables
- * porque ninguna consulta de la UI volvía a mirar ese estado.
- */
-export type ContactCandidatesQueue = 'pending' | 'duplicates';
+// 4O-H3-B-R1 / AGENT2A-P0-R2 — el tipo de cola vive en su propio módulo sin runtime para que
+// también lo pueda importar la tabla (client component) sin arrastrar este server component.
+export type { ContactCandidatesQueue } from './contact-candidates-panel-queue';
+import type { ContactCandidatesQueue } from './contact-candidates-panel-queue';
 
 interface ContactCandidatesPanelProps {
   queue?: ContactCandidatesQueue;
@@ -175,6 +171,10 @@ export async function ContactCandidatesPanel({
     >
       <ContactCandidatesDataTableClient
         candidates={candidates}
+        // AGENT2A-P0-R2: la tabla necesita saber en qué cola está. Sin esto su título y su
+        // estado vacío se anunciaban siempre como «Candidatos por revisar», contradiciendo
+        // a la pill «Duplicados» que estaba justo encima.
+        queue={queue}
         accountOwners={accountOwners}
         scopeFilterOptions={scopeFilterOptions}
         phoneRevealEnabled={phoneRevealEnabled}
