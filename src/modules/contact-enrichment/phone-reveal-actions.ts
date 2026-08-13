@@ -565,9 +565,15 @@ export async function revealCandidatePhoneAction(
       console.error('[phone-cache] suppression check unavailable:', message);
     },
     // FIX 4: sin Apollo person id resoluble (o sin cuenta) la supresión NO se
-    // puede evaluar. El reveal continúa —no se empareja por otros datos ni se
-    // rellena el id que falta—, pero el caso se registra para que sea visible. El
-    // evento tiene forma cerrada y sin PII: fase, estado, candidato y cuenta.
+    // puede evaluar, y el caso se registra para que sea visible. El evento tiene
+    // forma cerrada y sin PII: fase, estado, candidato y cuenta.
+    //
+    // P0 (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1, PR #289): el reveal NO continúa.
+    // Hasta ese hito este comentario decía que sí, y era cierto entonces; desde el
+    // hito el core devuelve `suppression_check_unavailable` y se detiene sin llamar
+    // al proveedor (0 créditos). Sigue sin emparejarse por teléfono/email/nombre/
+    // LinkedIn ni rellenarse el id que falta: eso seguiría siendo inferencia. Este
+    // sumidero solo AUDITA — no decide nada.
     onSuppressionNotEvaluable: (event): void => {
       console.warn('[phone-cache] suppression not evaluable:', event);
     },

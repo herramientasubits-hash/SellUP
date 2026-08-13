@@ -817,6 +817,19 @@ jobs:
       - name: Run phone reveal action + P0 suppression identity tests
         run: npm run test:agent2a:phone-reveal-action
 
+      # AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2 — el fail-closed del P0 anterior es
+      # correcto, pero la UI seguía ofreciendo «Revelar teléfono» HABILITADO a
+      # candidatos cuya supresión no se puede evaluar: el operador hacía clic y
+      # recibía un error rojo de privacidad por algo imposible antes del clic. Estas
+      # suites fijan que el botón y el backend usen LA MISMA resolución de identidad
+      # (paridad comprobada contra `resolvePhoneCachePersonId` sobre la matriz
+      # completa de formas de id × origen × cuenta) y que el bloqueo sea visible sin
+      # gastar un clic. Se acompañan de las suites del backend que definen esa misma
+      # regla, para que un cambio en una sola de las dos capas rompa el check.
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run P0 pre-approval phone identity eligibility tests
+        run: npm run test:agent2a:p0-preapproval-phone-identity
+
       # El módulo de presupuestos, cuyo resolver es ahora la fuente económica canónica.
       - name: Run budget module tests
         run: npm run test:budgets
