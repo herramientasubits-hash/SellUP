@@ -127,7 +127,9 @@ import type { CandidatePersistenceOutcome } from '../prospect-candidate-persiste
 // provider-neutral official-source intake seam (see the module docstring for
 // the full seam and the safety rationale).
 import { deriveOfficialIdentityForApolloCandidate } from './apollo-shared-intake-bridge';
-import { buildApolloOfficialSourceResolvers } from './apollo-official-source-resolvers';
+// Provider-neutral wiring — the SAME resolver factory the Lusha flow uses
+// (`lusha-pending-review-actions.ts`), not an Apollo-specific copy.
+import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
 import type { ProspectSearchCriteria } from '@/server/agents/prospect-intake';
 import {
   loadDiscoveryNegativeMemory,
@@ -2116,7 +2118,7 @@ export async function runApolloTwoRoundWizardDiscovery(
     countryCode: input.countryCode,
     sector: input.industry,
   };
-  const officialSourceResolvers = buildApolloOfficialSourceResolvers();
+  const officialSourceResolvers = buildColombiaOfficialSourceResolvers();
 
   /**
    * AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — runs the shared, provider-neutral

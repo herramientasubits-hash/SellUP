@@ -25,11 +25,13 @@
  * only RE-CHECKS with the stronger tax signal. It never replaces the cheap
  * layer and never runs before it.
  *
- * SAFE CLIENT PATTERN (§ 8): mirrors the read-only pattern already used for the
- * Lusha flow (`lusha-official-source-resolvers.ts`) — the co_siis Supabase read
- * is injected via `createColombiaOfficialSourceResolver` + the approved
- * service-role factory, never inlined here. This module never imports the
- * Apollo runtime, never calls Apollo/Lusha/Tavily, and never writes.
+ * SAFE CLIENT PATTERN (§ 8): resolvers come from the SAME provider-neutral
+ * factory the Lusha flow also calls (`@/server/prospect-batches/
+ * official-source-resolvers.ts` — `buildColombiaOfficialSourceResolvers`,
+ * shared, not duplicated) — the co_siis Supabase read is injected via
+ * `createColombiaOfficialSourceResolver` + the approved service-role factory,
+ * never inlined here. This module never imports the Apollo runtime, never
+ * calls Apollo/Lusha/Tavily, and never writes.
  *
  * NO new duplicate-check implementation, NO new official-source resolver
  * implementation, NO new identity-key builder — every piece is reused as-is.

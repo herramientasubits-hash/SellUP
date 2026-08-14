@@ -49,9 +49,11 @@ import {
   type LushaPendingReviewCandidateRow,
   type PersistLushaPendingReviewResult,
 } from '@/server/prospect-batches/lusha-pending-review';
-// Q3F-5BB.10C2 — read-only official-source resolvers (injected into the pure core)
-// + server-side flag gate. Neither path carries a forbidden import substring.
-import { buildLushaOfficialSourceResolvers } from '@/server/prospect-batches/lusha-official-source-resolvers';
+// Q3F-5BB.10C2 / AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — read-only
+// official-source resolvers (injected into the pure core), now the SAME
+// provider-neutral wiring Apollo also uses + server-side flag gate. Neither
+// path carries a forbidden import substring.
+import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
 import {
   guardLushaPreviewEnabled,
   buildLushaPendingReviewDisabledResult,
@@ -217,7 +219,7 @@ async function runGenerateLushaPendingReviewBatch(
         // Read-only official-source resolvers (Q3F-5BB.10C2). Today: Colombia
         // (co_siis) name→NIT via an approved service-role read. Best-effort:
         // yields [] when a safe client is unavailable → enrichment fails soft.
-        officialSourceResolvers: buildLushaOfficialSourceResolvers(),
+        officialSourceResolvers: buildColombiaOfficialSourceResolvers(),
       },
       parsed.data,
       { internalUserId },

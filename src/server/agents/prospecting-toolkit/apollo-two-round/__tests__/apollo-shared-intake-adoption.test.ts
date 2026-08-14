@@ -2,7 +2,9 @@
  * AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1
  *
  * Runtime-level test suite for the Apollo → shared intake seam bridge
- * (`apollo-shared-intake-bridge.ts` + `apollo-official-source-resolvers.ts`).
+ * (`apollo-shared-intake-bridge.ts` + the provider-neutral
+ * `@/server/prospect-batches/official-source-resolvers.ts`, the SAME resolver
+ * factory the Lusha flow uses — not an Apollo-specific copy).
  *
  * Complements `src/server/agents/prospect-intake/__tests__/apollo-adoption.test.ts`
  * (pure adapter/normalize/enrich coverage) with:
@@ -388,12 +390,20 @@ describe('AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — static regression guard (§
     );
   });
 
-  it('wires the official-source resolvers (not a hardcoded empty array)', () => {
+  it('wires the official-source resolvers via the shared, provider-neutral factory (not a hardcoded empty array, not an Apollo-specific copy)', () => {
     assert.match(
       source,
-      /buildApolloOfficialSourceResolvers\(\)/,
-      'production-runner.server.ts must call buildApolloOfficialSourceResolvers() — ' +
+      /buildColombiaOfficialSourceResolvers\(\)/,
+      'production-runner.server.ts must call buildColombiaOfficialSourceResolvers() — ' +
         'passing resolvers: [] unconditionally would silently disable the seam.',
+    );
+    assert.match(
+      source,
+      /from ['"]@\/server\/prospect-batches\/official-source-resolvers['"]/,
+      'production-runner.server.ts must import the resolver factory from the ' +
+        'SHARED @/server/prospect-batches/official-source-resolvers module — the ' +
+        'same one the Lusha flow imports. A reintroduced Apollo-specific copy of ' +
+        'this factory would be exactly the duplication this refactor removed.',
     );
   });
 
@@ -405,5 +415,18 @@ describe('AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — static regression guard (§
     assert.match(bridgeSource, /enrichNormalizedProspectWithOfficialSources/);
     // Must import from the shared prospect-intake tree, not a local reimplementation.
     assert.match(bridgeSource, /@\/server\/agents\/prospect-intake/);
+  });
+
+  it('no Apollo-specific copy of the resolver factory exists on disk', () => {
+    assert.throws(
+      () =>
+        readFileSync(
+          join(__dirname, '..', 'apollo-official-source-resolvers.ts'),
+          'utf8',
+        ),
+      /ENOENT/,
+      'an Apollo-specific apollo-official-source-resolvers.ts file has reappeared — ' +
+        'the resolver factory must live ONLY in the shared, provider-neutral module.',
+    );
   });
 });
