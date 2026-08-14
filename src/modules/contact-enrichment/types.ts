@@ -315,6 +315,22 @@ export interface PendingContactCandidate {
    * al server action (solo viaja `candidateId`).
    */
   source_contact_id: string | null;
+  /**
+   * Apollo person id persistido en el candidato (`apollo_person_id`, mig. 098). Id
+   * OPACO de correlación (24 hex), NO dato personal de contacto: no es teléfono,
+   * email, nombre ni LinkedIn.
+   *
+   * Se proyecta —y NO se muestra— por una sola razón
+   * (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2): junto con `source`,
+   * `source_contact_id` y `account_id` es lo que permite a la UI evaluar, con la
+   * MISMA función pura que usa el servidor, si la supresión de este candidato es
+   * siquiera consultable. Sin él el botón «Revelar teléfono» se ofrecía habilitado a
+   * candidatos que el backend iba a bloquear fail-closed desde PR #289.
+   *
+   * OPCIONAL a propósito: aditivo, así que fixtures y proyecciones previas siguen
+   * siendo válidas y la elegibilidad simplemente cae al resto de señales.
+   */
+  apollo_person_id?: string | null;
   phone: string | null;
   source: ContactSource;
   status: ContactCandidateStatus;
