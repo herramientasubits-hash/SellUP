@@ -414,10 +414,14 @@ export interface RevealCandidatePhoneDeps {
   /**
    * Notifica que la supresión no se pudo EVALUAR (APOLLO-PHONE-CACHE-1b, FIX 4):
    * sin Apollo person id resoluble o sin cuenta no existe clave con la que
-   * emparejar un tombstone. El reveal continúa igual — no se empareja por
-   * teléfono/email/nombre/linkedin ni se rellena el id que falta — pero el caso
-   * queda registrado en vez de desaparecer en silencio. Recibe un evento de forma
-   * CERRADA y sin PII (ver `phone-reveal-suppression-audit.ts`).
+   * emparejar un tombstone. Sigue sin emparejarse por teléfono/email/nombre/linkedin
+   * y sin rellenarse el id que falta, y el caso queda registrado en vez de
+   * desaparecer en silencio. Recibe un evento de forma CERRADA y sin PII (ver
+   * `phone-reveal-suppression-audit.ts`).
+   *
+   * P0 (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1, PR #289): este sumidero solo AUDITA.
+   * El reveal NO continúa — `enforcePhoneRevealSuppression` devuelve
+   * `suppression_check_unavailable` y se detiene sin llamar al proveedor.
    */
   onSuppressionNotEvaluable?: PhoneSuppressionNotEvaluableSink;
 

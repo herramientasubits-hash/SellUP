@@ -126,6 +126,14 @@ import {
 // seguro en el bundle cliente): cliente y servidor comparten LA MISMA definición
 // de "ya pasaron 2 min desde la solicitud" y no pueden desincronizarse.
 import { isManualRecoveryRequestWindowOpen } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-core';
+// Elegibilidad de IDENTIDAD del reveal (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2).
+// Núcleo PURO compartido con el servidor: reutiliza `resolvePhoneCachePersonId`, la
+// misma resolución que aplican START, webhook, recovery y la puerta previa a Lusha,
+// así que el botón no puede ofrecer lo que el backend va a bloquear fail-closed.
+import {
+  evaluatePhoneRevealIdentityEligibility,
+  PHONE_REVEAL_IDENTITY_BLOCKED_COPY,
+} from '@/modules/contact-enrichment/phone-reveal-identity-eligibility';
 import type {
   PendingContactCandidate,
   ContactRelevanceStatus,
@@ -1540,6 +1548,25 @@ export function ContactCandidateDetailSheet({
     phoneRevealAuthorized === true &&
     candidate?.phone_reveal_recovery_id_present === true &&
     phoneRecoveryRequestWindowOpen;
+  // ── Elegibilidad de IDENTIDAD (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2) ────
+  // Distinta de `hasSufficientPhoneRevealIdentity`, que responde «¿con qué datos
+  // buscaría Apollo a esta persona?». Esta responde «¿existe la clave
+  // (apollo, provider_person_id, account_id) con la que la supresión podría
+  // consultarse?». Desde PR #289 la respuesta «no» BLOQUEA el reveal en las cuatro
+  // fases del backend, así que ofrecer el botón habilitado era prometer algo que se
+  // sabía imposible antes del clic: el operador gastaba un clic para recibir un
+  // error rojo de privacidad.
+  //
+  // Es CONVENIENCIA de UI, nunca autorización: el servidor revalida la supresión por
+  // su cuenta y sigue siendo el único que decide si se llama al proveedor.
+  const phoneRevealIdentityEligibility = evaluatePhoneRevealIdentityEligibility({
+    apolloPersonId: candidate?.apollo_person_id ?? null,
+    source: candidate?.source ?? null,
+    sourceContactId: candidate?.source_contact_id ?? null,
+    accountId: candidate?.account_id ?? null,
+  });
+  const phoneRevealIdentityEligible = phoneRevealIdentityEligibility === 'eligible';
+
   const canOfferPhoneReveal =
     !!candidate &&
     phoneRevealEnabled === true &&
@@ -2184,7 +2211,18 @@ export function ContactCandidateDetailSheet({
                         variant="outline"
                         size="sm"
                         className="h-7 gap-1.5 text-xs"
-                        disabled={busy || revealingPhone || revealingLegacyPhone}
+                        // Sin clave de supresión el botón se DESHABILITA en vez de
+                        // aceptar un clic que el backend ya sabe que va a bloquear
+                        // (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2). Cubre las dos
+                        // modalidades porque las dos pasan por la misma comprobación:
+                        // el START de Apollo y la puerta previa a Lusha usan la misma
+                        // resolución de identidad.
+                        disabled={
+                          busy ||
+                          revealingPhone ||
+                          revealingLegacyPhone ||
+                          !phoneRevealIdentityEligible
+                        }
                         // Un clic = una corrida. Con el waterfall activo se dispara la
                         // modalidad que corresponde (legacy solo-Lusha o waterfall
                         // completo); sin él conserva el one-click validado del reveal
@@ -2218,15 +2256,24 @@ export function ContactCandidateDetailSheet({
                           </>
                         )}
                       </Button>
+                      {/* Con el botón deshabilitado por falta de clave de supresión NO
+                          se muestra el copy de autorización: prometer "puede consumir
+                          hasta N créditos" describiría un gasto que no puede ocurrir.
+                          En su lugar se explica, en una línea, por qué no se puede
+                          revelar. No se nombra proveedor ni se invita a reintentar: la
+                          carencia puede ser permanente
+                          (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2). */}
                       <p className="text-[11px] text-muted-foreground">
-                        {waterfallActive
-                          ? waterfallAuthorizationCopy.helperText
-                          : `Consulta individual con Apollo. Puede consumir hasta ${PHONE_REVEAL_MAX_CREDITS} créditos y tardar algunos minutos.`}
+                        {!phoneRevealIdentityEligible
+                          ? PHONE_REVEAL_IDENTITY_BLOCKED_COPY
+                          : waterfallActive
+                            ? waterfallAuthorizationCopy.helperText
+                            : `Consulta individual con Apollo. Puede consumir hasta ${PHONE_REVEAL_MAX_CREDITS} créditos y tardar algunos minutos.`}
                       </p>
                       {/* Desglose por proveedor + advertencias: lo que antes vivía en
                           el modal ahora precede al clic (4D). Solo con el waterfall
                           activo — el flujo con flag OFF conserva su copy histórico. */}
-                      {waterfallActive && (
+                      {waterfallActive && phoneRevealIdentityEligible && (
                         <>
                           {waterfallAuthorizationCopy.creditBreakdown && (
                             <>
