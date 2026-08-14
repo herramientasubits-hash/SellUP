@@ -80,6 +80,7 @@
     "test:prospect-intake-contracts": "node --import tsx --test src/server/agents/prospect-intake/__tests__/provider-intake-contracts.test.ts src/server/agents/prospect-intake/__tests__/static-safety.test.ts",
     "test:prospect-intake-gate": "node --import tsx --test src/server/agents/prospect-intake/__tests__/mandatory-gate.test.ts src/server/agents/prospect-intake/__tests__/static-safety.test.ts",
     "test:prospect-intake-source-enrichment": "node --import tsx --test src/server/agents/prospect-intake/__tests__/official-source-enrichment.test.ts src/server/agents/prospect-intake/__tests__/official-source-enrichment-static.test.ts src/server/agents/prospect-intake/__tests__/static-safety.test.ts",
+    "test:a1-apollo-shared-intake-adoption": "node --experimental-test-module-mocks --import tsx --test src/server/agents/prospect-intake/__tests__/apollo-adoption.test.ts src/server/agents/prospecting-toolkit/apollo-two-round/__tests__/apollo-shared-intake-adoption.test.ts",
     "test:import-classification": "node --import tsx --test src/modules/prospect-batches/import-classification/__tests__/import-classification.test.ts",
     "test:import-classification-backend": "node --import tsx --test src/modules/prospect-batches/import-classification/__tests__/import-classification-backend.test.ts",
     "test:wizard-execution": "node --import tsx --test src/modules/prospect-batches/chat-wizard-execution/__tests__/wizard-pipeline-adapter.test.ts",
