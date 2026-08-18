@@ -1570,3 +1570,32 @@ jobs:
       # sin Tavily, sin Lusha, 0 créditos, 0 reservas, 0 escrituras y 0 PII.
       - name: Run A1 macro v2 pre-execution budget gate tests
         run: npm run test:a1-macro-v2-budget-gate-preflight
+
+      # AGENT1-APOLLO-TAX-DEDUPE-RECHECK-1 — la identidad fiscal oficial tiene que
+      # LLEGAR al chequeo canónico de duplicados, no sólo existir en el objeto.
+      #
+      # La única corrida de QA en vivo autorizada (batch 28636188…, SHA 59e1b4a2)
+      # produjo un match fuerte real de Colombia —Quimiolab, NIT 830024737, 0.85— pero
+      # los edge logs sólo mostraron TRES de las cuatro consultas a `accounts` que el
+      # checker canónico emite cuando recibe un identificador fiscal: faltaba el tier
+      # `tax_identifier`. Los edge logs son transporte MUESTREADO, no contrato, así que
+      # una línea ausente no distingue «nunca se emitió» de «no se registró» — y los
+      # conteos por tier tampoco lo resuelven, porque una línea de tax perdida falta a
+      # la vez del total y del conteo del tier.
+      #
+      # Este paso sustituye esa ambigüedad por una aserción determinista en el límite
+      # más estrecho que aún prueba lo real: la petición HTTP literal que emite el
+      # cliente de Supabase. Cubre que el tier fiscal se intente y PRECEDA a los tiers
+      # débiles de nombre, que un mismo NIT en OTRO dominio se detecte como
+      # `existing_in_sellup` propagando la cuenta encontrada, que un match de baja
+      # confianza NUNCA llegue al tier fiscal ni a las columnas tipadas, y que la clave
+      # de identidad canónica use el nivel `tax`.
+      #
+      # Entra al check OBLIGATORIO porque el defecto que vigila es invisible en verde:
+      # si la propagación del NIT se rompe, el pipeline sigue pasando y el único
+      # síntoma es un duplicado fiscal que se persiste como empresa nueva.
+      #
+      # Determinista y offline: `globalThis.fetch` se sustituye por un grabador. Sin
+      # red, sin Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      - name: Run A1 Apollo tax dedupe recheck tests
+        run: npm run test:agent1:apollo-tax-dedupe-recheck
