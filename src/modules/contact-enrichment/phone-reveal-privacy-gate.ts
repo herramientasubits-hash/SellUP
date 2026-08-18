@@ -58,10 +58,11 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type { ContactSource } from './types';
 import type { PhoneRevealWaterfallSuppressionState } from './phone-reveal-waterfall-core';
 import {
-  evaluateInFlightPhoneSuppression,
-  resolveInFlightSuppressionPersonId,
-} from './phone-reveal-suppression-guard';
-import { readPhoneCacheSuppression } from './phone-cache-store';
+  evaluatePhoneRevealSuppression,
+  resolveInFlightProviderIdentity,
+} from './provider-suppression-core';
+import { readPhoneRevealSuppression } from './provider-suppression-store';
+import { redactDriverMessage } from './phone-reveal-core';
 
 /**
  * Vocabulario del veredicto. Alias del que ya define el core del waterfall: el
@@ -187,14 +188,23 @@ export async function checkPhoneRevealPrivacyGate(
     return 'check_unavailable';
   }
 
-  const suppression = await evaluateInFlightPhoneSuppression({
-    personId: resolveInFlightSuppressionPersonId({
+  // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4). Esta puerta es la que corre
+  // INMEDIATAMENTE antes de llamar a LUSHA, así que es donde el cambio importa más: un
+  // candidato de origen Lusha ya NO necesita una identidad de Apollo para que su
+  // privacidad se pueda evaluar. Usa su `source_contact_id` nativo, en su propio espacio
+  // de nombres, y una supresión registrada para ese id bloquea la llamada con 0 créditos.
+  //
+  // La cuenta sigue viajando pero ya no es requisito: sólo habilita la mitad LEGADO
+  // (tombstone de `phone_reveal_cache`) como bloqueo adicional cuando existe.
+  const suppression = await evaluatePhoneRevealSuppression({
+    identity: resolveInFlightProviderIdentity({
       candidateApolloPersonId: row.apolloPersonId,
       candidateSource: row.source,
       candidateSourceContactId: row.sourceContactId,
     }),
     accountId: row.accountId,
-    lookup: readPhoneCacheSuppression,
+    lookup: readPhoneRevealSuppression,
+    redactError: redactDriverMessage,
   });
 
   switch (suppression.kind) {
@@ -202,10 +212,11 @@ export async function checkPhoneRevealPrivacyGate(
       return 'blocked_suppressed';
     case 'check_unavailable':
       return 'check_unavailable';
-    // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: sin clave posible no se puede
-    // confirmar ausencia de supresión para NINGÚN proveedor (esta puerta corre
-    // antes de Lusha), así que bloquea igual que `check_unavailable` en vez de
-    // dejar pasar como `clear`.
+    // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: sin identidad resoluble no se puede
+    // confirmar ausencia de supresión, así que bloquea igual que `check_unavailable`
+    // en vez de dejar pasar como `clear`. FASE 1 estrecha ese caso: ya NO lo produce
+    // la falta de cuenta, ni el hecho de que el candidato sea de origen Lusha — sólo
+    // la ausencia de TODA identidad nativa.
     case 'not_evaluable':
       return 'check_unavailable';
     case 'allowed':

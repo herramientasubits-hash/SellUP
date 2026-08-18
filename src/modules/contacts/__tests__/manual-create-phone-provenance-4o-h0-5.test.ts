@@ -521,7 +521,12 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       files[files.length - 1],
       // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119 (catálogo de
       // Macro Industrias, sin relación con teléfono). H0.5 sigue sin aportar esquema.
-      '119_publish_macro_industry_catalog_v2_cutover.sql',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+      // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
+      // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
+      // columna, no suelta constraint y no reescribe ninguna migración anterior.
+      '120_provider_native_phone_suppression.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

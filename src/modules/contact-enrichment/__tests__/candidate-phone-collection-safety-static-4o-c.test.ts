@@ -211,13 +211,21 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // 4O-C-R1 aporte EXACTAMENTE la 110 y que nadie edite la cadena 109–116— sigue
       // afirmándose abajo, ahora de forma directa en vez de por implicación del número
       // más alto del directorio.
-      '119_publish_macro_industry_catalog_v2_cutover.sql',
-      'el techo conocido es la 119 (catálogo macro), que no toca la cadena de teléfono',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+      // identidad NATIVA del proveedor y SIN cuenta. ADITIVA: no borra columna, no suelta
+      // constraint y no reescribe ninguna migración anterior.
+      '120_provider_native_phone_suppression.sql',
+      'el techo conocido es la 120 (supresión nativa), que no toca la cadena de teléfono 109–117',
     );
     assert.equal(
-      files.some((file) => /^1(2[0-9]|[3-9]\d)/.test(file)),
+      files.some((file) => /^1(2[1-9]|[3-9]\d)/.test(file)),
       false,
-      'ninguna migración 120 o superior',
+      // La 120 es AUTORIZADA (Fase 1 de AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4). Lo que
+      // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
+      // conocido sin declararla; la afirmación de que la 120 no escribe sobre las tablas de
+      // la cadena de teléfono se comprueba justo abajo, de forma directa.
+      'ninguna migración 121 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus
@@ -241,8 +249,29 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     // existente — leerla es justamente su trabajo—, y que no la escriba ni la altere lo fija su
     // propia guarda estática (`existing-contact-merge-static-4o-h3b`), que sabe distinguir una
     // lectura de una escritura. Un `includes` de la tabla no puede: marcaría la 117 por leerla.
+    //
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) — el barrido se hace sobre el SQL
+    // SIN COMENTARIOS. Es la MISMA lección que este bloque ya había aprendido con la 117:
+    // un `includes` crudo no distingue lo que una migración HACE de lo que EXPLICA. La 120
+    // NOMBRA `phone_reveal_suppression_audit` en su cabecera para documentar por qué crea
+    // una tabla de auditoría NUEVA en vez de extender la vieja (la vieja tiene
+    // `account_id NOT NULL REFERENCES accounts ON DELETE CASCADE`, así que su evidencia no
+    // sobrevive al borrado de la cuenta). Prohibir esa explicación empeoraría la migración
+    // sin proteger nada, y borrarla para que la guarda pasara sería exactamente al revés
+    // de lo que la guarda existe para conseguir.
+    //
+    // Lo que se sigue prohibiendo —y ahora con más precisión— es que el SQL EJECUTABLE de
+    // una migración por encima de la cadena toque esas tablas.
+    const stripSqlComments = (sql: string) =>
+      sql
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n');
+
     for (const file of files.filter((f) => /^1(1[89]|[2-9]\d)/.test(f))) {
-      const sql = readFileSync(join(repoRoot, 'supabase/migrations', file), 'utf8');
+      const sql = stripSqlComments(
+        readFileSync(join(repoRoot, 'supabase/migrations', file), 'utf8'),
+      );
       for (const table of PHONE_CHAIN_TABLES) {
         assert.ok(
           !sql.includes(table),

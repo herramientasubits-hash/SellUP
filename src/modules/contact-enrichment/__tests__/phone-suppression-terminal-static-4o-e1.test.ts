@@ -207,7 +207,11 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // 119 NO son de teléfono: publican el catálogo de Macro Industrias (siembra en
       // `draft` y cutover). Lo que esta guarda afirma —que este hito no aportó SQL y
       // que nadie coló una migración por encima del último hito conocido— no cambia.
-      '119_publish_macro_industry_catalog_v2_cutover.sql',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit`. Lo que esta guarda afirma
+      // —que 4O-E1 no aportó SQL y que nadie coló una migración por encima del último hito
+      // conocido— no cambia.
+      '120_provider_native_phone_suppression.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

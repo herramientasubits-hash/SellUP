@@ -53,18 +53,19 @@ import {
 import {
   PHONE_REVEAL_OPERATION_KEY,
   PHONE_REVEAL_PROVIDER,
+  redactDriverMessage,
 } from './phone-reveal-core';
 import {
   applyTerminalPhoneSuppression,
   buildTerminalPhoneSuppressionPatch,
   describeInFlightSuppression,
-  evaluateInFlightPhoneSuppression,
-  resolveInFlightSuppressionPersonId,
+  evaluatePhoneRevealSuppression,
+  resolveInFlightProviderIdentity,
   IN_FLIGHT_TERMINAL_SUPPRESSION_EXPECTED_STATUSES,
   SUPPRESSION_BLOCKED_ERROR_CODE,
   SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
   type InFlightSuppressionAuditState,
-  type InFlightSuppressionLookup,
+  type PhoneRevealSuppressionLookup,
   type PersistTerminalPhoneSuppression,
 } from './phone-reveal-suppression-guard';
 import {
@@ -377,7 +378,12 @@ export interface ApolloPhoneRevealWebhookDeps {
    * cableada el resultado es el mismo — no hay persistencia tardía sin
    * comprobación de supresión.
    */
-  lookupPhoneCacheSuppression?: InFlightSuppressionLookup;
+  /**
+   * FASE 1: la clave es la identidad NATIVA del proveedor y la cuenta es OPCIONAL
+   * (sólo habilita la mitad LEGADO de la lectura compuesta). El nombre de la dep se
+   * conserva para no romper el cableado de los cuatro llamadores ni de sus suites.
+   */
+  lookupPhoneCacheSuppression?: PhoneRevealSuppressionLookup;
   /**
    * Notifica que la supresión no se pudo verificar. Recibe SOLO un mensaje
    * mecánico YA redactado: nunca teléfono, person id, email, nombre ni linkedin.
@@ -773,8 +779,14 @@ export async function runApolloPhoneRevealWebhook(
     // tombstone antes de escribir nada, con el flag de caché encendido o apagado.
     // Solo se ejecuta en este camino: si Apollo no entregó teléfono no hay número
     // que suprimir, y el camino `no_phone_found` queda idéntico (0 lecturas).
-    const suppression = await evaluateInFlightPhoneSuppression({
-      personId: resolveInFlightSuppressionPersonId({
+    // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4): la identidad es NATIVA del
+    // proveedor y la cuenta ya NO es requisito. Un candidato sin `account_id` —o de
+    // origen Lusha sin id de Apollo— ya se puede EVALUAR; la cuenta sólo añade el
+    // tombstone LEGADO como bloqueo adicional cuando existe. El orden de Apollo y su
+    // validador de 24 hex no cambian, así que ningún candidato que hoy se evalúa contra
+    // un tombstone de Apollo empieza a evaluarse contra otra cosa.
+    const suppression = await evaluatePhoneRevealSuppression({
+      identity: resolveInFlightProviderIdentity({
         payloadPersonId: apolloPersonId,
         candidateApolloPersonId: candidate.apolloPersonId ?? null,
         candidateSource: candidate.source ?? null,
@@ -782,11 +794,13 @@ export async function runApolloPhoneRevealWebhook(
       }),
       accountId: candidate.accountId,
       lookup: deps.lookupPhoneCacheSuppression,
+      redactError: redactDriverMessage,
     });
     const suppressionState = describeInFlightSuppression(suppression);
 
-    // FIX 4 — no EVALUABLE (sin person id resoluble o sin cuenta): se AUDITA con
-    // un evento PII-free antes de decidir el bloqueo de abajo.
+    // FIX 4 — no EVALUABLE: se AUDITA con un evento PII-free antes de decidir el
+    // bloqueo de abajo. Desde la Fase 1 este caso significa SÓLO "ninguna identidad
+    // nativa resoluble"; la falta de cuenta ya no lo produce.
     if (suppression.kind === 'not_evaluable') {
       reportPhoneSuppressionNotEvaluable({
         phase: 'webhook',

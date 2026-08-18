@@ -1086,7 +1086,10 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // sobre ese mismo esquema oficial). 4O-F sigue sin aportar SQL.
     // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119 (catálogo de
     // Macro Industrias). 4O-F sigue sin aportar SQL.
-    assert.equal(numbered[numbered.length - 1], 119, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120: la
+    // supresión de teléfono por identidad NATIVA del proveedor. 4O-F sigue reutilizando la
+    // 111 sin crear SQL nuevo, que es lo que esta guarda afirma.
+    assert.equal(numbered[numbered.length - 1], 120, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

@@ -135,7 +135,10 @@ describe('114 — numeración', () => {
     // sólo una función, que es lo que la hace retrocompatible con el runtime vivo.
     // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
     // Macro Industrias (siembra en `draft` y cutover), sin relación con teléfono.
-    assert.equal(Math.max(...numbers), 119);
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120: la
+    // supresión de teléfono por identidad NATIVA del proveedor. NO toca `contact_phones`
+    // ni `contact_phone_sources`, que es el esquema que esta guarda protege.
+    assert.equal(Math.max(...numbers), 120);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

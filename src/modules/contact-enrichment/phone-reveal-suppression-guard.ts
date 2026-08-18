@@ -424,3 +424,44 @@ export {
   type PhoneSuppressionNotEvaluableSink,
   type PhoneSuppressionNotEvaluableState,
 } from './phone-reveal-suppression-audit';
+
+// ── FASE 1: la evaluación NATIVA vive en el módulo LEAF ─────────
+//
+// (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4)
+//
+// `evaluateInFlightPhoneSuppression`, arriba, se conserva TAL CUAL y sigue siendo la
+// evaluación del modelo LEGADO: clave (apollo, persona, cuenta) y `not_evaluable`
+// cuando falta cualquiera de las dos. No se toca porque describe con exactitud lo que
+// ese modelo puede y no puede hacer, y porque #289 se apoya en ella.
+//
+// Lo que cambia es CUÁL de las dos consultan los cuatro gates: a partir de la Fase 1
+// consultan `evaluatePhoneRevealSuppression`, que resuelve identidad nativa del
+// proveedor y NO exige cuenta.
+//
+// Esa función NO puede vivir en este archivo. Este módulo importa `redactDriverMessage`
+// de `phone-reveal-core`, y el START —que está EN `phone-reveal-core`— tiene que poder
+// llamarla: definirla aquí crearía el ciclo de imports que este subsistema ya evitó una
+// vez sacando el vocabulario de auditoría a su propio módulo. Vive por tanto en
+// `provider-suppression-core.ts`, que es hoja (sólo depende del validador de id de
+// Apollo), y recibe el redactor por inyección.
+//
+// Se re-exporta aquí para que quien ya conoce esta guarda no tenga que aprender un
+// módulo nuevo para encontrarla.
+
+export {
+  checkProviderSuppression,
+  evaluatePhoneRevealSuppression,
+  evaluateProviderSuppressionRecord,
+  isSuppressionProvider,
+  PROVIDER_SUPPRESSION_PROVIDERS,
+  resolveAllPhoneRevealProviderIdentities,
+  resolveInFlightProviderIdentity,
+  resolvePhoneRevealProviderIdentity,
+  type PhoneRevealSuppressionLookup,
+  type PhoneRevealSuppressionLookupKey,
+  type ProviderIdentityInput,
+  type ProviderSuppressionIdentity,
+  type ProviderSuppressionOutcome,
+  type ProviderSuppressionRecord,
+  type SuppressionProvider,
+} from './provider-suppression-core';

@@ -25,6 +25,7 @@
 // official contact nor approves the candidate.
 
 import { redirect } from 'next/navigation';
+import { readPhoneRevealSuppression } from './provider-suppression-store';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import {
@@ -38,7 +39,6 @@ import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import {
   hashProviderPersonId,
   readPhoneCacheEntry,
-  readPhoneCacheSuppression,
   touchPhoneCacheEntry,
 } from './phone-cache-store';
 import type { PhoneCacheHitUsageLogEntry } from './phone-cache-core';
@@ -560,7 +560,7 @@ export async function revealCandidatePhoneAction(
     // comprueba el tombstone sin leer ningún teléfono. Requiere la migración 099
     // aplicada: sin la tabla, la comprobación falla y el reveal se detiene
     // (fail-closed, 0 créditos) en vez de saltarse la supresión.
-    lookupPhoneCacheSuppression: readPhoneCacheSuppression,
+    lookupPhoneCacheSuppression: readPhoneRevealSuppression,
     onSuppressionCheckUnavailable: (message: string): void => {
       console.error('[phone-cache] suppression check unavailable:', message);
     },

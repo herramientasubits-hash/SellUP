@@ -127,7 +127,11 @@ describe('115 — numeración', () => {
     // sólo una función, que es lo que la hace retrocompatible con el runtime vivo.
     // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
     // Macro Industrias (siembra en `draft` y cutover), sin relación con teléfono.
-    assert.equal(Math.max(...numbers), 119);
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) lo mueve a la 120: la supresión de
+    // teléfono por identidad NATIVA del proveedor y SIN cuenta. Sí es de teléfono, pero es
+    // ADITIVA sobre el esquema oficial que esta suite protege: no toca `contact_phones`,
+    // ni `contact_phone_sources`, ni la función de la 115.
+    assert.equal(Math.max(...numbers), 120);
   });
 
   it('declara NO estar aplicada en Producción', () => {
