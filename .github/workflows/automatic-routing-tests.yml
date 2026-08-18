@@ -850,6 +850,18 @@ jobs:
       - name: Run phone drawer sync tests
         run: npm run test:agent2a:phone-drawer-sync
 
+      # AGENT2A-PHONE-REVEAL-ASYNC-UI-REFRESH-1 — el ciclo de vida asíncrono del reveal
+      # entra al check obligatorio. La QA de Producción del 18-08 mostró el hueco entero:
+      # backend perfecto (revealed en ~20 s, 1 teléfono persistido) y una UI que no se
+      # movía, porque el estado de espera Y el sondeo se derivaban los dos del mismo
+      # `phone_reveal_status` LEÍDO — así que un refetch que fallara o llegara sin el
+      # estado nuevo dejaba el CTA idle sin que nadie volviera a mirar. La suite fija el
+      # contrato que lo cierra: espera visible en el mismo tick del envío, sin segundo
+      # envío posible, revalidación automática aunque el primer refetch reviente, parada
+      # en todo terminal, y 0 llamadas a proveedor / 0 créditos desde el sondeo.
+      - name: Run phone async UI refresh tests
+        run: npm run test:agent2a:phone-async-ui-refresh
+
       # AGENT2A-PHONE-REVEAL-4N — la contabilidad del presupuesto entra al check
       # obligatorio. Es donde vive el defecto que este hito cierra y ninguna suite lo
       # cubría: la reserva confirmada de Apollo (8 créditos, `assumed_cap`) no entraba en
