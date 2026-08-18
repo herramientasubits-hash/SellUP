@@ -35,20 +35,30 @@
  *     que es justo lo que hace que la RLS NO sea la capa que protege estas tablas de él;
  *   * `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES`, para que las tablas nuevas
  *     NAZCAN con los 8 privilegios y el REVOKE de la 120 tenga algo que quitar;
- *   * un esqueleto MÍNIMO de `accounts` e `internal_users` (sólo lo que las FK de la 120
- *     y de la 099 necesitan) más la parte de `phone_reveal_cache` que el backfill lee.
- *     No se aplica la cadena completa de migraciones porque la 099 arrastra media docena
- *     de tablas ajenas al hito; lo que se reproduce con exactitud es lo que la 120 TOCA.
+ *   * la CADENA REAL, verbatim: 099, 107, 109, 110, 111, 112, 113, 114, 115 y 120, leídas
+ *     de `supabase/migrations` sin recortes ni slices. Sólo se levanta a mano el borde
+ *     AJENO a la cadena (roles, `auth.uid()`, `accounts`, `contacts`, `internal_users`, el
+ *     staging de enriquecimiento), y no por comodidad: la 002 declara una FK contra
+ *     `auth.users`, que pertenece a la plataforma Supabase y que ninguna migración del
+ *     repo crea, así que aplicar 001→120 sobre un PostgreSQL desnudo es imposible.
  *
  * DATOS SINTÉTICOS. Ni una fila viene de Producción: no se leyó, ni se copió, ni se
  * inspeccionó un teléfono real para construir estos fixtures. La 120 no tiene columna de
  * teléfono, así que aquí no hay ningún número que escribir — y eso es parte de lo que se
  * comprueba.
  *
- * ARNÉS OPCIONAL. `embedded-postgres` NO es dependencia del repo a propósito:
- * descargaría un binario de PostgreSQL en cada `npm ci`, incluido el del check
- * obligatorio, que no necesita esta suite. Si el módulo no está resuelto, el archivo se
- * SALTA con un motivo explícito en lugar de fallar. Para correrla:
+ * ARNÉS OBLIGATORIO EN CI DESDE R2. `embedded-postgres` sigue sin ser dependencia del
+ * repo —descargaría un binario de PostgreSQL en cada `npm ci` de cualquier check—, pero el
+ * paso del check obligatorio lo instala PINCHADO y corre esta suite con
+ * `SELLUP_REQUIRE_POSTGRES_HARNESS` puesta, que convierte el skip en FALLO.
+ *
+ * Esa distinción es el contenido de R2. Antes, la única barrera dentro del check era un
+ * lexer de comillas en TypeScript, y ese lexer mide PARIDAD, no sintaxis: con el defecto
+ * real de este hito reinyectado —un apóstrofo sin escapar en un `COMMENT ON TABLE`— la
+ * suite estática pasa 20/20 y sólo PostgreSQL falla (42601). Un arnés que se salta solo
+ * cuando falta una dependencia habría dejado ese fallo pasar igualmente.
+ *
+ * En local, sin la variable, el archivo se SALTA con un motivo explícito. Para correrla:
  *
  *   npm install --no-save embedded-postgres@17.6.0-beta.15
  *   npm run test:agent2a:provider-native-suppression:postgres
@@ -63,17 +73,26 @@
 
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { createRequire } from 'node:module';
+
+import {
+  applyPhoneRevealRealChain,
+  bootstrapPlatform,
+  MIGRATION_120,
+  PHONE_REVEAL_REAL_CHAIN,
+  readMigration as readChainMigration,
+  resolveEmbeddedPostgres,
+  type EmbeddedPostgresLike,
+  type PgLikeClient,
+} from './support/phone-reveal-real-migration-chain';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // __tests__ → contact-enrichment → modules → src → repo root
 const repoRoot = join(here, '..', '..', '..', '..');
-const migrationsDir = join(repoRoot, 'supabase/migrations');
-const MIGRATION_FILE = '120_provider_native_phone_suppression.sql';
+const MIGRATION_FILE = MIGRATION_120;
 
 /** Los 8 privilegios de tabla de PostgreSQL 17. `MAINTAIN` sólo existe desde la 17. */
 const TABLE_PRIVILEGES = [
@@ -111,61 +130,40 @@ const ACCOUNT_A = '00000000-0000-4000-8000-0000000000a1';
 const ACCOUNT_B = '00000000-0000-4000-8000-0000000000a2';
 const USER_A = '00000000-0000-4000-8000-0000000000b1';
 
+/**
+ * Las columnas que la 099 REAL exige y que el esqueleto de antes de R2 no tenía:
+ * `country_code` con formato `^[A-Z]{2}$` (el alcance de reutilización), y la TTL
+ * (`original_revealed_at` + `expires_at`). Un fixture legado que las omita ya no se
+ * inserta — y eso es exactamente lo que se ganó al aplicar el archivo real.
+ */
+const LEGACY_CACHE_SCOPE_COLUMNS = 'country_code, original_revealed_at, expires_at';
+const LEGACY_CACHE_SCOPE_VALUES =
+  `'CO', '2026-01-01T00:00:00Z', '2026-04-01T00:00:00Z'`;
+
 const APOLLO_ID = '0123456789abcdef01234567';
 const LUSHA_ID = 'v1.eyJhIjoiYiIsImMiOiJkIn0';
 
 // ═══════════════════════════════════════════════════════════════
-// Resolución del arnés opcional
+// Resolución del arnés — FAIL-CLOSED cuando el check obligatorio la exige
 // ═══════════════════════════════════════════════════════════════
+//
+// La política vive en el módulo de soporte compartido: con
+// `SELLUP_REQUIRE_POSTGRES_HARNESS` puesta (la pone el paso obligatorio del workflow),
+// que `embedded-postgres` no resuelva LANZA en vez de saltarse. Sin esa mitad, un paso
+// «obligatorio» se pondría verde con una migración que PostgreSQL no puede aplicar.
 
-type PgLikeClient = {
-  query: (sql: string) => Promise<{ rows: Record<string, unknown>[] }>;
-  end: () => Promise<void>;
-};
-
-type EmbeddedPostgresLike = {
-  initialise: () => Promise<void>;
-  start: () => Promise<void>;
-  stop: () => Promise<void>;
-  getPgClient: () => PgLikeClient;
-};
-
-let EmbeddedPostgresCtor:
-  | (new (options: Record<string, unknown>) => EmbeddedPostgresLike)
-  | null = null;
-let harnessSkipReason: string | false = false;
-
-/**
- * Resolución SÍNCRONA con `createRequire`, no con `await import()`: este archivo se
- * transpila a CJS, donde un `await` de nivel superior no compila, y la razón del skip
- * tiene que estar disponible ANTES de que `describe()` decida si corre.
- */
-try {
-  const require = createRequire(import.meta.url);
-  const mod = require('embedded-postgres') as {
-    default?: new (options: Record<string, unknown>) => EmbeddedPostgresLike;
-  };
-  const ctor =
-    mod.default ??
-    (mod as unknown as new (o: Record<string, unknown>) => EmbeddedPostgresLike);
-  if (typeof ctor !== 'function') {
-    harnessSkipReason = 'embedded-postgres resolvió sin constructor utilizable';
-  } else {
-    EmbeddedPostgresCtor = ctor;
-  }
-} catch {
-  harnessSkipReason =
-    'embedded-postgres no está instalado (arnés opcional a propósito: `npm install --no-save embedded-postgres@17.6.0-beta.15`)';
-}
+const { ctor: EmbeddedPostgresCtor, skip: harnessSkipReason } =
+  resolveEmbeddedPostgres(import.meta.url);
 
 let client: PgLikeClient;
 let postgres: EmbeddedPostgresLike;
 let dataDir = '';
 
-const readMigration = (file: string) => readFileSync(join(migrationsDir, file), 'utf8');
+const readMigration = (file: string) => readChainMigration(repoRoot, file);
 const applyMigration = async (file: string) => {
   await client.query(readMigration(file));
 };
+/** Re-aplica el hito VERBATIM (idempotencia y backfill lo hacen más de una vez). */
 const apply120 = () => applyMigration(MIGRATION_FILE);
 
 const scalar = async <T>(sql: string): Promise<T> => {
@@ -195,65 +193,23 @@ const privilegesOfRole = async (role: string, table: string) => {
 };
 
 /**
- * Esqueleto mínimo: sólo lo que las FK de la 120 exigen y lo que su backfill LEE. No es
- * la cadena completa de migraciones a propósito — la 099 arrastra tablas ajenas al hito y
- * lo que aquí importa es exactamente lo que la 120 toca.
+ * Antes de R2 este archivo levantaba un ESQUELETO de `phone_reveal_cache` escrito a mano.
+ * Ya no: la cadena real —099, 107, 109, 110, 111, 112, 113, 114, 115 y por fin la 120— se
+ * aplica leyendo los archivos VERBATIM de `supabase/migrations`. La diferencia no es
+ * estética. Un esqueleto reproduce lo que quien lo escribió CREÍA que dice la 099, y por
+ * construcción nunca reproduce lo que la 099 dice de más: aquí, que la caché exige
+ * `country_code` con formato, `original_revealed_at` y `expires_at`, y que un tombstone no
+ * puede convivir con un teléfono. Un arnés que se salta esas constraints puede dar por
+ * bueno un backfill que en Producción rebotaría.
+ *
+ * Lo único que se sigue levantando a mano es el borde AJENO a la cadena (roles de
+ * Supabase, `auth.uid()`, `set_updated_at`, `accounts`, `contacts`, `internal_users`, el
+ * staging de enriquecimiento). No es una elección de comodidad: la 002 declara una FK
+ * contra `auth.users`, que pertenece a la plataforma y que ninguna migración del repo
+ * crea, así que aplicar 001→120 sobre un PostgreSQL desnudo es IMPOSIBLE. Ese borde vive
+ * en `support/phone-reveal-real-migration-chain.ts`, compartido con la suite de carreras
+ * para que las dos midan el mismo esquema.
  */
-const BOOTSTRAP_SQL = `
-  CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
-  -- El trigger de updated_at que la 120 engancha (definido en 038 en el repo real).
-  CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger
-  LANGUAGE plpgsql AS $$
-  BEGIN
-    NEW.updated_at := now();
-    RETURN NEW;
-  END $$;
-
-  CREATE TABLE IF NOT EXISTS public.accounts (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid()
-  );
-
-  CREATE TABLE IF NOT EXISTS public.internal_users (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid()
-  );
-
-  -- Sólo las columnas de la 099 que el backfill de la 120 lee, con la MISMA
-  -- unicidad (provider, provider_person_id, account_id) y la MISMA cascada
-  -- ON DELETE CASCADE desde accounts — que es justo lo que hacía que el modelo
-  -- legado no sobreviviera al borrado de la cuenta.
-  CREATE TABLE IF NOT EXISTS public.phone_reveal_cache (
-    id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    provider           text NOT NULL DEFAULT 'apollo'
-      CONSTRAINT phone_reveal_cache_provider_check CHECK (provider IN ('apollo')),
-    provider_person_id text NOT NULL,
-    account_id         uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
-    suppressed_at      timestamptz NULL,
-    suppression_reason text NULL,
-    suppressed_by      uuid NULL REFERENCES public.internal_users(id) ON DELETE SET NULL
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS phone_reveal_cache_provider_person_account_key
-    ON public.phone_reveal_cache (provider, provider_person_id, account_id);
-`;
-
-/** Roles y DEFAULT PRIVILEGES de Supabase, para que el REVOKE de la 120 tenga qué quitar. */
-const SUPABASE_ROLES_SQL = `
-  DO $$
-  BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-      CREATE ROLE anon NOLOGIN;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-      CREATE ROLE authenticated NOLOGIN;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
-      CREATE ROLE service_role NOLOGIN BYPASSRLS;
-    END IF;
-  END $$;
-  GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-  ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    GRANT ALL ON TABLES TO anon, authenticated, service_role;
-`;
 
 const seedFixtures = async () => {
   await client.query(`
@@ -277,9 +233,10 @@ describe('120 — supresión nativa del proveedor contra PostgreSQL real', { ski
     await postgres.initialise();
     await postgres.start();
     client = postgres.getPgClient();
-    await (client as unknown as { connect: () => Promise<void> }).connect();
-    await client.query(SUPABASE_ROLES_SQL);
-    await client.query(BOOTSTRAP_SQL);
+    await client.connect();
+    await bootstrapPlatform(client);
+    // La cadena REAL, verbatim. Incluye la 120: por eso §1 sólo tiene que RE-aplicarla.
+    await applyPhoneRevealRealChain(client, repoRoot);
     await seedFixtures();
   });
 
@@ -301,8 +258,19 @@ describe('120 — supresión nativa del proveedor contra PostgreSQL real', { ski
   // ═══════════════════════════════════════════════════════════════
 
   describe('§1 — aplicación e idempotencia', () => {
-    it('la 120 aplica limpiamente sobre el esqueleto', async () => {
-      await apply120();
+    // Este es EL test que R2 existe para tener dentro del check obligatorio. No afirma
+    // nada sobre el texto de la 120: afirma que PostgreSQL la aplicó, al final de la
+    // cadena real, y que dejó lo que dice dejar. Es la única forma de fallar ante un
+    // apóstrofo sin escapar en un `COMMENT ON TABLE` — el defecto 42601 que el lexer
+    // estático NO ve, porque la paridad de comillas del archivo sigue cuadrando.
+    it('la cadena real 099→120 aplicó y la 120 dejó sus dos tablas', async () => {
+      // `before()` ya aplicó la cadena; si algún archivo no hubiera aplicado, habría
+      // lanzado con nombre de archivo y SQLSTATE y esta suite entera estaría roja.
+      assert.equal(
+        PHONE_REVEAL_REAL_CHAIN[PHONE_REVEAL_REAL_CHAIN.length - 1],
+        MIGRATION_FILE,
+        'el hito tiene que ser el ÚLTIMO eslabón: aplicarlo antes no probaría restatement',
+      );
       assert.equal(
         await scalar<string>(
           `SELECT to_regclass('public.provider_suppressions')::text`,
@@ -315,6 +283,36 @@ describe('120 — supresión nativa del proveedor contra PostgreSQL real', { ski
         ),
         'provider_suppression_audit',
       );
+      // Y las de la cadena de la que DEPENDE, para que «aplicó» no se confunda con
+      // «aplicó la 120 sola sobre un esqueleto».
+      for (const table of [
+        'phone_reveal_cache',
+        'phone_reveal_suppression_audit',
+        'contact_enrichment_candidate_phones',
+        'contact_phones',
+      ]) {
+        assert.equal(
+          await scalar<string>(`SELECT to_regclass('public.${table}')::text`),
+          table,
+          `${table} sale de la cadena real: si falta, no se aplicó`,
+        );
+      }
+      // Las funciones que la 120 RE-DECLARA sólo son restatement si ya existían.
+      for (const fn of [
+        'persist_candidate_apollo_phone_reveal_result',
+        'persist_candidate_lusha_phone_reveal_result',
+        'phone_reveal_person_suppression_exists',
+        'provider_suppression_exists',
+      ]) {
+        assert.equal(
+          await scalar<string>(`
+            SELECT count(*)::text FROM pg_proc p
+              JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'public' AND p.proname = '${fn}'`),
+          '1',
+          `${fn} tiene que existir exactamente una vez tras la cadena`,
+        );
+      }
     });
 
     it('re-aplicarla NO falla y NO cambia ninguna fila (idempotencia)', async () => {
@@ -560,8 +558,10 @@ describe('120 — supresión nativa del proveedor contra PostgreSQL real', { ski
       // 1. Una cuenta que va a desaparecer, con una fila LEGADA que la referencia.
       await client.query(`
         INSERT INTO public.phone_reveal_cache
-          (provider, provider_person_id, account_id, suppressed_at, suppression_reason, suppressed_by)
-        VALUES ('apollo', '${SURVIVOR}', '${ACCOUNT_B}', now(), 'dsar_erasure_request', '${USER_A}');
+          (provider, provider_person_id, account_id, ${LEGACY_CACHE_SCOPE_COLUMNS},
+           suppressed_at, suppression_reason, suppressed_by)
+        VALUES ('apollo', '${SURVIVOR}', '${ACCOUNT_B}', ${LEGACY_CACHE_SCOPE_VALUES},
+                now(), 'dsar_erasure_request', '${USER_A}');
       `);
 
       // 2. La supresión NUEVA para la misma persona, sin cuenta en ninguna parte.
@@ -659,8 +659,10 @@ describe('120 — supresión nativa del proveedor contra PostgreSQL real', { ski
         VALUES ('apollo', '${ONLY_NEW}', now(), 'dsar_erasure_request')
         ON CONFLICT DO NOTHING;
         INSERT INTO public.phone_reveal_cache
-          (provider, provider_person_id, account_id, suppressed_at, suppression_reason)
-        VALUES ('apollo', '${ONLY_LEGACY}', '${ACCOUNT_A}', now(), 'dsar_erasure_request')
+          (provider, provider_person_id, account_id, ${LEGACY_CACHE_SCOPE_COLUMNS},
+           suppressed_at, suppression_reason)
+        VALUES ('apollo', '${ONLY_LEGACY}', '${ACCOUNT_A}', ${LEGACY_CACHE_SCOPE_VALUES},
+                now(), 'dsar_erasure_request')
         ON CONFLICT DO NOTHING;
       `);
     });
@@ -774,12 +776,15 @@ describe('120 — supresión nativa del proveedor contra PostgreSQL real', { ski
       await client.query(`
         INSERT INTO public.accounts (id) VALUES ('${accountC}') ON CONFLICT DO NOTHING;
         INSERT INTO public.phone_reveal_cache
-          (provider, provider_person_id, account_id, suppressed_at, suppression_reason)
+          (provider, provider_person_id, account_id, ${LEGACY_CACHE_SCOPE_COLUMNS},
+           suppressed_at, suppression_reason)
         VALUES
-          ('apollo', '${BF_1}', '${ACCOUNT_A}', '2026-01-02T00:00:00Z', 'legal_privacy_request'),
-          ('apollo', '${BF_1}', '${accountC}',  '2026-01-01T00:00:00Z', 'legal_privacy_request'),
+          ('apollo', '${BF_1}', '${ACCOUNT_A}', ${LEGACY_CACHE_SCOPE_VALUES},
+           '2026-01-02T00:00:00Z', 'legal_privacy_request'),
+          ('apollo', '${BF_1}', '${accountC}',  ${LEGACY_CACHE_SCOPE_VALUES},
+           '2026-01-01T00:00:00Z', 'legal_privacy_request'),
           -- Una fila ACTIVA (sin tombstone): NO debe copiarse.
-          ('apollo', '${BF_2}', '${ACCOUNT_A}', NULL, NULL);
+          ('apollo', '${BF_2}', '${ACCOUNT_A}', ${LEGACY_CACHE_SCOPE_VALUES}, NULL, NULL);
       `);
 
       const auditBefore = Number(

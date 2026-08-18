@@ -7,15 +7,28 @@
  * ═══════════════════════════════════════════════════════════════════
  *
  * La prueba de VERDAD de este hito corre contra PostgreSQL real
- * (`provider-native-inflight-race-postgres-p0-identity-4-r1.test.ts`): sólo dos
- * conexiones compitiendo por el mismo lock demuestran una carrera. Pero ese arnés es
- * OPCIONAL a propósito —`embedded-postgres` no es dependencia del repo—, así que en el
- * check obligatorio se SALTA.
+ * (`provider-native-inflight-race-postgres-p0-identity-4-r1.test.ts` y
+ * `provider-native-suppression-postgres-p0-identity-4.test.ts`): sólo dos conexiones
+ * compitiendo por el mismo lock demuestran una carrera. Desde R2 esas dos suites SÍ
+ * corren dentro del check obligatorio, con la cadena real de migraciones y con el arnés
+ * en modo fail-closed, así que este archivo ya NO es el último recurso.
  *
- * Es decir: sin este archivo, la garantía que R1 cierra no estaría protegida por CI. Un
- * cambio futuro podría volver a derivar la identidad con reglas de Apollo, o volver a
- * exigir cuenta, y el check obligatorio seguiría verde. Estos ratchets son texto sobre
- * la migración 120, que es barato y corre siempre.
+ * Lo que sigue aportando es distinto y más barato: afirmaciones sobre el TEXTO de la 120
+ * —qué firma tiene el helper, que no gane un parámetro de cuenta, que la identidad se
+ * resuelva con la misma precedencia en los dos caminos—. Eso son invariantes de diseño
+ * que PostgreSQL no puede comprobar, porque una migración con la firma «equivocada»
+ * aplica igual de bien.
+ *
+ * ⚠️ LO QUE ESTE ARCHIVO NO PRUEBA (y antes de R2 se afirmaba que sí):
+ *
+ * `scanQuoteState` NO es un parser de PostgreSQL y NO demuestra que una migración sea
+ * aplicable. Mide PARIDAD de comillas en todo el archivo, nada más. El defecto real que
+ * este hito sufrió —un apóstrofo sin escapar dentro de un `COMMENT ON TABLE`, que hacía
+ * fallar la 120 entera con SQLSTATE 42601— deja la paridad INTACTA, porque las comillas
+ * posteriores del archivo la reequilibran. Reinyectado ese defecto exacto, esta suite
+ * pasa 20/20 y la suite de PostgreSQL real falla. La detección de SQL inaplicable vive
+ * allí; aquí queda una heurística estrecha que sólo caza el caso en que la paridad SÍ se
+ * rompe.
  *
  * No abren PostgreSQL, no llaman a ningún proveedor, no leen ningún flag y no tocan
  * Producción.
@@ -68,11 +81,19 @@ function functionBody(sql: string, fn: string): string {
 const codeOnly = (sql: string) => sql.replace(/--[^\n]*/g, '');
 
 /**
- * Lexer mínimo de SQL: normal / literal de comilla simple / dollar-quote / comentario de
- * línea. Existe porque un apóstrofo sin escapar dentro de un `COMMENT ON ... IS '...'`
- * cierra el literal antes de tiempo y convierte el resto del archivo en basura — la
- * migración deja de aplicar ENTERA. Es un fallo que no se ve leyendo el diff y que
- * ningún test de TypeScript nota, porque el archivo sólo se ejecuta contra PostgreSQL.
+ * Heurística de PARIDAD de comillas: normal / literal de comilla simple / dollar-quote /
+ * comentario. NO es un parser de PostgreSQL y NO prueba que una migración aplique.
+ *
+ * ALCANCE EXACTO, porque la diferencia importa: detecta el caso en que un apóstrofo de
+ * más deja el archivo con las comillas DESBALANCEADAS. No detecta el caso —el que este
+ * hito sufrió de verdad— en que el apóstrofo de más cierra el literal antes de tiempo
+ * pero las comillas posteriores del archivo vuelven a cuadrar la paridad: ahí el SQL
+ * resultante es basura sintáctica (42601) y esta función devuelve `ok`. Probado: con ese
+ * defecto reinyectado en la 120, esta suite pasa entera.
+ *
+ * Se conserva porque es gratis y corre sobre las 120 migraciones del repo, no porque
+ * pruebe aplicabilidad. Quien necesite esa garantía tiene que mirar las suites de
+ * PostgreSQL real, que desde R2 son parte del check obligatorio.
  */
 function scanQuoteState(sql: string): { ok: boolean; detail: string } {
   let i = 0;
@@ -128,25 +149,56 @@ describe('P0-IDENTITY-4-R1 — ratchets estáticos del re-chequeo transaccional'
   // 0. La migración tiene que poder APLICAR
   // ═══════════════════════════════════════════════════════════════
 
-  it('la 120 no tiene ningún literal de comilla simple sin cerrar', () => {
+  it('la 120 tiene la paridad de comillas equilibrada', () => {
     const state = scanQuoteState(read(M120));
-    assert.equal(state.ok, true, `la 120 no aplicaría: ${state.detail}`);
+    // «Paridad equilibrada» NO es «aplica»: eso lo dice PostgreSQL, en las suites reales.
+    assert.equal(state.ok, true, `paridad de comillas rota en la 120: ${state.detail}`);
   });
 
-  it('NINGUNA migración del repo tiene un literal sin cerrar', () => {
+  it('NINGUNA migración del repo tiene la paridad de comillas rota', () => {
     const broken: string[] = [];
     for (const file of readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'))) {
       const state = scanQuoteState(read(file));
       if (!state.ok) broken.push(`${file}: ${state.detail}`);
     }
-    assert.deepEqual(broken, [], `migraciones que no aplicarían:\n${broken.join('\n')}`);
+    assert.deepEqual(broken, [], `migraciones con paridad rota:\n${broken.join('\n')}`);
   });
 
-  it('el lexer DETECTA de verdad el fallo que busca (si no, no probaría nada)', () => {
+  it('la heurística caza el desbalance… y NO caza el 42601 con paridad intacta', () => {
+    // Caso que SÍ caza: el apóstrofo de más deja la paridad impar.
     const withStrayQuote = "COMMENT ON TABLE t IS 'see this migration's header';";
     assert.equal(scanQuoteState(withStrayQuote).ok, false);
     const escaped = "COMMENT ON TABLE t IS 'see this migration''s header';";
     assert.equal(scanQuoteState(escaped).ok, true);
+
+    // Caso que NO caza — y no es hipotético: es EL defecto que este hito sufrió. Se
+    // reinyecta sobre el archivo REAL desescapando el apóstrofo de `migration''s`, que es
+    // exactamente la diferencia entre el head previo (donde la 120 fallaba con 42601) y
+    // el actual. El fixture se DERIVA del archivo para que no pueda degenerar en un caso
+    // artificial: si el ancla desaparece, el test lo dice en vez de pasar por inercia.
+    const ANCHOR_ESCAPED = "migration''s header for the exact table";
+    const ANCHOR_BROKEN = "migration's header for the exact table";
+    const original = read(M120);
+    // Se tolera que el archivo YA esté desescapado. Esto importa: durante un control
+    // negativo se inyecta ese defecto a propósito, y este ratchet tiene que seguir
+    // afirmando la CEGUERA —no convertirse en un detector accidental que confunda la
+    // lectura del experimento—. Su única tesis es «la heurística dice ok en los dos casos».
+    const reinjected = original.includes(ANCHOR_ESCAPED)
+      ? original.replace(ANCHOR_ESCAPED, ANCHOR_BROKEN)
+      : original;
+    assert.ok(
+      reinjected.includes(ANCHOR_BROKEN),
+      'el ancla del defecto conocido ya no está en la 120: actualiza este ratchet',
+    );
+    assert.equal(
+      scanQuoteState(reinjected).ok,
+      true,
+      'si esto pasa a false, la heurística mejoró de verdad: actualiza el encabezado, ' +
+        'que hoy declara justo esta ceguera',
+    );
+    // Y la contraparte, que es el punto entero de R2: PostgreSQL SÍ lo caza. Esa
+    // afirmación no se puede hacer aquí, y por eso
+    // `provider-native-suppression-postgres-p0-identity-4.test.ts` es obligatoria.
   });
 
   // ═══════════════════════════════════════════════════════════════

@@ -43,78 +43,59 @@
  *   * `contact_enrichment_candidates` con los tipos reales de las columnas del reveal,
  *     más `source` / `source_contact_id`, que son de donde sale la identidad nativa;
  *   * `phone_reveal_cache` TAL CUAL la declara la 099 — el tombstone LEGADO, que sigue
- *     siendo honrado;
- *   * las migraciones 109, 110, 111, 112, 113 y 120 tal cual están en disco.
+ *     siendo honrado. Desde R2 la 099 entra COMPLETA: antes se recortaba entre dos
+ *     marcadores de comentario y la caché se levantaba sin sus constraints;
+ *   * la cadena REAL y verbatim 099, 107, 109, 110, 111, 112, 113, 114, 115 y 120 tal
+ *     cual está en disco, aplicada por `support/phone-reveal-real-migration-chain.ts`.
  *
  * NO llama a Apollo, ni a Lusha, ni a HubSpot; no lee un flag; no toca Producción ni
  * ninguna base remota; no gasta un crédito; no ejecuta ninguna DSAR real. Todos los
  * números son sintéticos 555 y todos los ids son ficticios.
  *
- * ARNÉS OPCIONAL, por la misma razón que en 4O-E3: `embedded-postgres` no es
- * dependencia del repo para no descargar un binario de PostgreSQL en cada `npm ci`. Si
- * el módulo no resuelve, el archivo se SALTA con motivo explícito. Para correrla:
+ * ARNÉS OBLIGATORIO EN CI DESDE R2. `embedded-postgres` sigue sin ser dependencia del
+ * repo —no se descarga un binario de PostgreSQL en cada `npm ci` de cualquier check—,
+ * pero el paso del check obligatorio lo instala PINCHADO y corre esta suite con
+ * `SELLUP_REQUIRE_POSTGRES_HARNESS` puesta, que convierte el skip en FALLO. Esta es la
+ * suite que prueba la carrera de Lusha: dejarla auto-excluible era dejar la garantía de
+ * R1 sin check obligatorio detrás.
+ *
+ * En local, sin la variable, el archivo se SALTA con motivo explícito. Para correrla:
  *
  *   npm install --no-save embedded-postgres@17.6.0-beta.15
- *   npm run test:agent2a:provider-native-race-postgres
+ *   npm run test:agent2a:provider-native-race:postgres
  *
  * ⚠️ El rango `embedded-postgres@17` NO resuelve (todas las versiones son prerelease).
  */
 
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createRequire } from 'node:module';
+
+import {
+  applyPhoneRevealRealChain,
+  bootstrapPlatform,
+  resolveEmbeddedPostgres,
+  type EmbeddedPostgresLike,
+  type PgLikeClient,
+} from './support/phone-reveal-real-migration-chain';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // __tests__ → contact-enrichment → modules → src → repo root
 const repoRoot = join(here, '..', '..', '..', '..');
-const migrationsDir = join(repoRoot, 'supabase/migrations');
-
-const MIGRATION_113 = '113_phone_reveal_person_suppression_recheck.sql';
-const MIGRATION_120 = '120_provider_native_phone_suppression.sql';
 const APOLLO_FN = 'persist_candidate_apollo_phone_reveal_result';
 const LUSHA_FN = 'persist_candidate_lusha_phone_reveal_result';
 
 const UNDEFINED_TABLE = '42P01';
 
-type PgLikeClient = {
-  connect: () => Promise<void>;
-  query: (sql: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
-  end: () => Promise<void>;
-};
-
-type EmbeddedPostgresLike = {
-  initialise: () => Promise<void>;
-  start: () => Promise<void>;
-  stop: () => Promise<void>;
-  getPgClient: () => PgLikeClient;
-};
-
-let EmbeddedPostgresCtor:
-  | (new (options: Record<string, unknown>) => EmbeddedPostgresLike)
-  | null = null;
-let harnessSkipReason: string | false = false;
-
-try {
-  const require = createRequire(import.meta.url);
-  const mod = require('embedded-postgres') as {
-    default?: new (options: Record<string, unknown>) => EmbeddedPostgresLike;
-  };
-  const ctor =
-    mod.default ??
-    (mod as unknown as new (o: Record<string, unknown>) => EmbeddedPostgresLike);
-  if (typeof ctor !== 'function') {
-    harnessSkipReason = 'embedded-postgres resolvió sin constructor utilizable';
-  } else {
-    EmbeddedPostgresCtor = ctor;
-  }
-} catch {
-  harnessSkipReason =
-    'embedded-postgres no está instalado (arnés opcional a propósito: `npm install --no-save embedded-postgres@17.6.0-beta.15`)';
-}
+// Resolución FAIL-CLOSED compartida: con `SELLUP_REQUIRE_POSTGRES_HARNESS` puesta —la
+// pone el paso obligatorio del workflow— que el arnés no resuelva LANZA en vez de
+// saltarse. Sin eso, esta suite (la que prueba la carrera de Lusha) se auto-excluiría del
+// check en cuanto `npm ci` no trajera el binario.
+const { ctor: EmbeddedPostgresCtor, skip: harnessSkipReason } =
+  resolveEmbeddedPostgres(import.meta.url);
 
 // ═══════════════════════════════════════════════════════════════
 // Datos de prueba — sintéticos
@@ -158,18 +139,13 @@ describe(
     let observer: PgLikeClient;
     let dataDir = '';
 
-    const readMigration = (file: string) =>
-      readFileSync(join(migrationsDir, file), 'utf8');
-
-    function sliceMigration(file: string, from: string, to: string): string {
-      const sql = readMigration(file);
-      const start = sql.indexOf(from);
-      const end = sql.indexOf(to);
-      assert.notEqual(start, -1, `marcador inicial ausente en ${file}`);
-      assert.notEqual(end, -1, `marcador final ausente en ${file}`);
-      assert.ok(end > start, `marcadores invertidos en ${file}`);
-      return sql.slice(start, end);
-    }
+    // R2 se llevó por delante `readMigration` y `sliceMigration` de este archivo. El
+    // segundo recortaba la 099 entre dos marcadores de comentario para quedarse sólo con
+    // la tabla de caché, y eso tenía dos costes: el arnés dejaba de ver el resto del
+    // archivo real (constraints, RLS, la auditoría legada), y un comentario renombrado en
+    // la 099 cambiaba en silencio lo que se levantaba. Ahora la cadena entra VERBATIM y la
+    // lee `applyPhoneRevealRealChain`, así que esta suite ya no abre ningún .sql por su
+    // cuenta.
 
     /** Llama la RPC de Apollo con parámetros NOMBRADOS, igual que PostgREST. */
     async function callApollo(
@@ -469,103 +445,17 @@ describe(
       observer = postgres.getPgClient();
       await observer.connect();
 
-      await client.query(`DO $$ BEGIN
-        CREATE ROLE anon NOLOGIN;
-        CREATE ROLE authenticated NOLOGIN;
-        CREATE ROLE service_role NOLOGIN BYPASSRLS;
-      END $$;`);
-      await client.query(`
-        GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-        ALTER DEFAULT PRIVILEGES IN SCHEMA public
-          GRANT ALL ON TABLES TO anon, authenticated, service_role;
-        ALTER DEFAULT PRIVILEGES IN SCHEMA public
-          GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
-        CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
+      // Roles de Supabase + el borde AJENO a la cadena (`auth.uid`, `set_updated_at`,
+      // `accounts`, `contacts`, `internal_users`, la contabilidad del waterfall y el
+      // staging de enriquecimiento). Compartido con la suite de la 120 para que las dos
+      // midan el MISMO esquema.
+      await bootstrapPlatform(client);
 
-      await client.query(`
-        CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger
-        LANGUAGE plpgsql AS $$
-        BEGIN NEW.updated_at := now(); RETURN NEW; END $$;`);
-
-      await client.query(`
-        CREATE TABLE public.accounts (
-          id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-
-        CREATE TABLE public.contacts (
-          id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-
-        CREATE TABLE public.internal_users (
-          id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-
-        CREATE TABLE public.contact_enrichment_runs (
-          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-          account_id uuid REFERENCES public.accounts(id));
-
-        CREATE TABLE public.contact_enrichment_candidates (
-          id                               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-          enrichment_run_id                uuid NOT NULL
-            REFERENCES public.contact_enrichment_runs(id) ON DELETE CASCADE,
-          source                           text,
-          source_contact_id                text,
-          phone                            text,
-          enrichment_metadata              jsonb NOT NULL DEFAULT '{}'::jsonb,
-          phone_reveal_status              text,
-          phone_revealed_at                timestamptz,
-          phone_revealed_by                uuid,
-          phone_reveal_provider            text,
-          phone_reveal_error_code          text,
-          phone_reveal_cost_credits        integer,
-          phone_reveal_cost_source         text,
-          phone_processing_basis           text,
-          phone_reveal_request_id          text,
-          phone_reveal_completed_at        timestamptz,
-          phone_reveal_webhook_received_at timestamptz,
-          phone_reveal_attempt_count       integer NOT NULL DEFAULT 0,
-          phone_reveal_last_checked_at     timestamptz,
-          apollo_person_id                 text
-        );
-
-        CREATE TABLE public.phone_reveal_waterfall_runs (
-          id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-        CREATE TABLE public.phone_reveal_credit_reservations (
-          id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-        CREATE TABLE public.provider_usage_logs (
-          id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-
-        CREATE TABLE public.phone_reveal_suppression_audit (
-          id                             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-          provider                       text NOT NULL DEFAULT 'apollo',
-          provider_person_id_hash        text NOT NULL,
-          account_id                     uuid,
-          country_code                   text,
-          actor_user_id                  uuid,
-          reason_code                    text NOT NULL,
-          candidates_cleared             integer NOT NULL DEFAULT 0,
-          contacts_cleared               integer NOT NULL DEFAULT 0,
-          cache_rows_suppressed          integer NOT NULL DEFAULT 0,
-          tombstone_created              boolean NOT NULL DEFAULT false,
-          created_at                     timestamptz NOT NULL DEFAULT now(),
-          metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-        );`);
-
-      await client.query(
-        sliceMigration(
-          '099_apollo_phone_reveal_cache.sql',
-          '-- ── 1. Cache table',
-          '-- ── 4. updated_at trigger',
-        ),
-      );
-
-      await client.query(readMigration('109_contact_enrichment_candidate_phones.sql'));
-      await client.query(
-        readMigration('110_persist_candidate_apollo_phone_reveal_result.sql'),
-      );
-      await client.query(
-        readMigration('111_persist_candidate_lusha_phone_reveal_result.sql'),
-      );
-      await client.query(readMigration('112_suppress_candidate_phone_collection.sql'));
-      await client.query(readMigration(MIGRATION_113));
-      await client.query(readMigration(MIGRATION_120));
+      // La cadena REAL, verbatim: 099, 107, 109, 110, 111, 112, 113, 114, 115, 120.
+      // Antes de R2 la 099 entraba RECORTADA y la 107/114/115 no entraban en absoluto,
+      // así que la carrera se medía sobre una caché sin sus constraints y sin los
+      // GRANT/REVOKE que la 120 dice espejar.
+      await applyPhoneRevealRealChain(client, repoRoot);
 
       await client.query('INSERT INTO public.accounts (id) VALUES ($1)', [ACCOUNT_ID]);
       await client.query('INSERT INTO public.internal_users (id) VALUES ($1)', [ACTOR_ID]);
