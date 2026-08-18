@@ -58,6 +58,34 @@ import {
   guardLushaPreviewEnabled,
   buildLushaPendingReviewDisabledResult,
 } from '@/modules/prospect-batches/lusha-preview-flag-guard';
+// AGENT1-LUSHA-BUDGET-GATE-1 — puerta económica global. El seam es puro (sin env,
+// sin proveedor, sin DB): sólo decide que nada llegue a Lusha sin reserva.
+import {
+  guardLushaRunBudget,
+  decideLushaCreditsToConfirm,
+  shouldReleaseLushaReservation,
+  type LushaBudgetReserveOutcome,
+  type LushaBudgetReservation,
+} from '@/modules/prospect-batches/lusha-budget-gate';
+import { estimateLushaRunCredits } from '@/server/prospect-batches/lusha-run-liability';
+// Las MISMAS primitivas de reserva que usan Apollo y Tavily. Un segundo
+// mecanismo de reserva sería un segundo presupuesto, que es justo lo que este
+// trabajo prohíbe.
+import {
+  reserveWizardPilotCredits,
+  confirmWizardPilotCredits,
+  releaseWizardPilotCredits,
+  fetchWizardReservationRecord,
+  readWizardBudgetPeriodSnapshot,
+  type BudgetReservationsRpcClient,
+  type ReservationLookupClient,
+  type BudgetPeriodLookupClient,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-reservations';
+import {
+  createWizardBudgetServiceClient,
+  WIZARD_BUDGET_TIMEZONE,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight.server';
+import { getPilotBudgetPeriodStart } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-reconciliation';
 // Q3F-5BB.11D — OBSERVATIONAL provider-routing wiring. The adapter is pure (no
 // env, no provider client, no Supabase). The barrel exposes the pure 11B resolver
 // + 11C metadata builder. This produces routing metadata + a safety assert ONLY;
@@ -82,6 +110,18 @@ import { checkCompanyDuplicate } from '@/server/agents/prospecting-toolkit/dupli
 import { fetchActiveCandidatesForGuard } from '@/server/agents/prospecting-toolkit/candidate-writer';
 
 const GenerateInputSchema = z.object({
+  /**
+   * AGENT1-LUSHA-BUDGET-GATE-1 § 8 — ancla de idempotencia de la reserva.
+   *
+   * `try_reserve_wizard_credits` identifica una corrida por
+   * `(user_id, client_request_id)`: es lo que hace que un doble clic reutilice la
+   * reserva en lugar de abrir una segunda. Es OBLIGATORIO, no opcional: una
+   * ausencia se rechaza como entrada inválida antes de tocar al proveedor.
+   * Derivarlo en el servidor a partir de los criterios sería peor — dos búsquedas
+   * legítimas idénticas colisionarían y la segunda gastaría contra la reserva ya
+   * liquidada de la primera.
+   */
+  clientRequestId: z.string().trim().uuid(),
   countryCode: z.string().trim().min(2).max(4),
   sectorKey: z.string().trim().min(1).max(40),
   subIndustryId: z.number().int().positive().nullable().optional(),
@@ -162,7 +202,160 @@ async function runGenerateLushaPendingReviewBatch(
     fallbackReason: 'lusha_intent_never_chains',
   });
 
+  // ── AGENT1-LUSHA-BUDGET-GATE-1 § 7 — puerta económica, ANTES del proveedor ──
+  //
+  // Orden (§ 10): flag → autenticación → validación → PRESUPUESTO → credencial →
+  // cliente → búsqueda. Nada por debajo de esta línea corre sin reserva
+  // concedida, y la credencial (`getLushaApiKey`) sigue resolviéndose de forma
+  // perezosa dentro de `runSearch`, así que un bloqueo no llega ni a pedirla.
+  const requiredCredits = estimateLushaRunCredits();
+  const { clientRequestId, ...searchInput } = parsed.data;
+
+  return guardLushaRunBudget(
+    () => reserveLushaRunCredits({ userId: internalUserId, clientRequestId, requiredCredits }),
+    (block) => ({
+      ...buildLushaPendingReviewFailure(block.message, block.code),
+      ...(block.budgetExceeded !== null ? { budgetExceeded: block.budgetExceeded } : {}),
+    }),
+    (reservation) =>
+      runLushaSearchWithReservation({
+        searchInput,
+        internalUserId,
+        reservation,
+        routingMetadata,
+        routingPlan,
+      }),
+    requiredCredits,
+  );
+}
+
+/**
+ * Reserva atómica en el período GLOBAL de Agente 1, con las MISMAS RPC que
+ * Apollo/Tavily y contra la MISMA fila (`wizard_monthly_budget_periods`).
+ *
+ * Requiere `service_role`: las RPC y `wizard_budget_reservations` están REVOKE'd
+ * para `authenticated`, y el período sólo tiene policy de `service_role` — un
+ * cliente de sesión leería CERO filas SIEMPRE y eso se confundiría con «no hay
+ * período». Un fallo aquí (credenciales ausentes, RPC caída) se propaga como
+ * excepción y el seam lo convierte en bloqueo: fail-closed.
+ */
+async function reserveLushaRunCredits(input: {
+  userId: string;
+  clientRequestId: string;
+  requiredCredits: number;
+}): Promise<LushaBudgetReserveOutcome> {
+  const budgetClient = createWizardBudgetServiceClient();
+  const periodStart = getPilotBudgetPeriodStart(WIZARD_BUDGET_TIMEZONE);
+
+  const rpcResult = await reserveWizardPilotCredits(
+    {
+      userId: input.userId,
+      clientRequestId: input.clientRequestId,
+      requestedCredits: input.requiredCredits,
+      periodStart,
+    },
+    budgetClient as unknown as BudgetReservationsRpcClient,
+  );
+
+  if (rpcResult.status === 'blocked') {
+    // La RPC ya decidió. Esto sólo LEE el mismo período para poder explicarlo
+    // (agotado vs. no alcanza). Best-effort: un fallo de lectura no cambia el
+    // bloqueo, sólo deja el detalle en `null`.
+    const budgetSnapshot =
+      rpcResult.code === 'BUDGET_EXCEEDED'
+        ? await readWizardBudgetPeriodSnapshot(
+            periodStart,
+            budgetClient as unknown as BudgetPeriodLookupClient,
+          ).catch(() => null)
+        : null;
+    return {
+      status: 'blocked',
+      code: rpcResult.code,
+      message: rpcResult.message,
+      budgetSnapshot,
+    };
+  }
+
+  // Tanto 'reserved' como 'already_reserved' necesitan el id para reconciliar.
+  const record = await fetchWizardReservationRecord(
+    input.userId,
+    input.clientRequestId,
+    budgetClient as unknown as ReservationLookupClient,
+  );
+  if (!record) {
+    return {
+      status: 'blocked',
+      code: 'BUDGET_RESERVATION_FAILED',
+      message: 'reservation_record_not_found',
+      budgetSnapshot: null,
+    };
+  }
+
+  return {
+    status: rpcResult.status,
+    reservationId: record.id,
+    creditsReserved: record.credits_reserved,
+  };
+}
+
+/**
+ * Ejecuta la búsqueda con la reserva ya concedida y la reconcilia.
+ *
+ * Sólo se llega aquí desde `run()` del seam de presupuesto, así que la existencia
+ * de esta función ya implica que hay reserva.
+ */
+async function runLushaSearchWithReservation(args: {
+  searchInput: Omit<GenerateLushaPendingReviewBatchInput, 'clientRequestId'>;
+  internalUserId: string;
+  reservation: LushaBudgetReservation;
+  routingMetadata: ReturnType<typeof buildProviderRoutingMetadata>;
+  routingPlan: ReturnType<typeof resolveProviderRoutingPlan>;
+}): Promise<GenerateLushaPendingReviewBatchActionResult> {
+  const { searchInput, internalUserId, reservation, routingMetadata, routingPlan } = args;
   const supabase = await createClient();
+
+  /**
+   * Liquidación de la reserva. Se llama en TODOS los caminos de salida por
+   * debajo de este punto — incluido el fallo — porque a partir de la primera
+   * petición el proveedor pudo cobrar. Best-effort: un fallo de liquidación no
+   * convierte una corrida exitosa en un error, igual que en la ruta Apollo.
+   */
+  const settleReservation = async (
+    result: PersistLushaPendingReviewResult | null,
+  ): Promise<void> => {
+    const budgetClient = createWizardBudgetServiceClient();
+    const rpc = budgetClient as unknown as BudgetReservationsRpcClient;
+
+    if (
+      result !== null &&
+      shouldReleaseLushaReservation({
+        pagesRequested: result.pagesRequested,
+        creditsChargedTotal: result.creditsChargedTotal,
+      })
+    ) {
+      await releaseWizardPilotCredits(
+        {
+          reservationId: reservation.reservationId,
+          batchId: result.batchId,
+          reason: 'lusha_no_provider_page_requested',
+        },
+        rpc,
+      );
+      return;
+    }
+
+    await confirmWizardPilotCredits(
+      {
+        reservationId: reservation.reservationId,
+        actualCreditsConsumed: decideLushaCreditsToConfirm({
+          creditsReserved: reservation.creditsReserved,
+          creditsChargedTotal: result?.creditsChargedTotal ?? null,
+        }),
+        batchId: result?.batchId ?? null,
+      },
+      rpc,
+    );
+  };
 
   try {
     const result = await persistLushaPendingReviewBatch(
@@ -221,11 +414,15 @@ async function runGenerateLushaPendingReviewBatch(
         // yields [] when a safe client is unavailable → enrichment fails soft.
         officialSourceResolvers: buildColombiaOfficialSourceResolvers(),
       },
-      parsed.data,
+      searchInput,
       { internalUserId },
       // Q3F-5BB.11D — additive OBSERVATIONAL routing metadata (never gates).
       { routingMetadata, routingPlan },
     );
+
+    // § 9 — reconciliación: se confirma lo que Lusha reportó, y la reserva
+    // entera cuando no reportó nada (gasto no verificable).
+    await settleReservation(result).catch(() => undefined);
 
     // Safe server-side log — no secrets, no raw payload, no PII.
     console.warn('[lusha-pending-review]', {
@@ -234,8 +431,10 @@ async function runGenerateLushaPendingReviewBatch(
       skippedCount: result.skippedCount,
       creditsCharged: result.creditsCharged,
       resultsReturned: result.resultsReturned,
-      country: parsed.data.countryCode,
-      sector: parsed.data.sectorKey,
+      country: searchInput.countryCode,
+      sector: searchInput.sectorKey,
+      reservedCredits: reservation.creditsReserved,
+      creditsChargedTotal: result.creditsChargedTotal,
     });
 
     if (result.status === 'success') {
@@ -245,6 +444,10 @@ async function runGenerateLushaPendingReviewBatch(
 
     return result;
   } catch (err: unknown) {
+    // § 9 — un fallo DESPUÉS de la reserva se liquida conservador: sin resultado
+    // no se sabe si el proveedor cobró, y devolver headroom que sí se gastó
+    // dejaría el período mintiendo por encima de lo real.
+    await settleReservation(null).catch(() => undefined);
     const msg = err instanceof Error ? err.message : 'Error desconocido';
     return buildLushaPendingReviewFailure(
       'No fue posible guardar los prospectos. Intenta de nuevo.',

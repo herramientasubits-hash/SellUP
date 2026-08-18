@@ -396,6 +396,19 @@ export interface PersistLushaPendingReviewResult {
   hardExcludedByGateCount?: number;
   /** Persisted candidates that got a STRONG official-source identity (typed columns filled). */
   enrichedWithOfficialSourceCount?: number;
+  // ── Global Agent1 budget gate (AGENT1-LUSHA-BUDGET-GATE-1) ──
+  /**
+   * Detalle ESTRUCTURADO de un bloqueo de presupuesto, con la misma forma que el
+   * `budgetExceeded` de la ruta Apollo, para que el cliente lo redacte con
+   * `mapBudgetExceeded` y los dos avisos no puedan divergir. Ausente cuando el
+   * bloqueo no fue de presupuesto o cuando el período no se pudo leer (nunca se
+   * inventan cifras).
+   */
+  budgetExceeded?: {
+    reason: 'exhausted' | 'insufficient_for_run';
+    availableCredits: number;
+    requiredCredits: number;
+  };
 }
 
 /** Baseline metrics used by non-success (error/empty) results. */
