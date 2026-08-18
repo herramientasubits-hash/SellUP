@@ -249,13 +249,21 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // transaccional, sin DDL). R1 sigue sin aportar ninguna.
       // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
       // Macro Industrias, sin relación con teléfono. R1 sigue sin aportar ninguna.
-      '119_publish_macro_industry_catalog_v2_cutover.sql',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+      // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
+      // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
+      // columna, no suelta constraint y no reescribe ninguna migración anterior.
+      '120_provider_native_phone_suppression.sql',
       'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3 y el catálogo macro, no este hito',
     );
     assert.equal(
-      files.some((f) => /^1(2[0-9]|[3-9]\d)/.test(f)),
+      files.some((f) => /^1(2[1-9]|[3-9]\d)/.test(f)),
       false,
-      'ninguna migración 120 o superior',
+      // La 120 es de la Fase 1 de AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 y es AUTORIZADA;
+      // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
+      // hito conocido sin declararla.
+      'ninguna migración 121 o superior',
     );
   });
 

@@ -144,6 +144,13 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // Ninguna de las dos toca la colección de staging que esta suite protege.
       '118_macro_industry_catalog_v2_draft.sql',
       '119_publish_macro_industry_catalog_v2_cutover.sql',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit`, la supresión de teléfono
+      // por identidad NATIVA del proveedor y SIN cuenta, más el backfill idempotente de
+      // los tombstones legados y el `CREATE OR REPLACE` del helper transaccional
+      // `phone_reveal_person_suppression_exists`. Es ADITIVA: no borra columna, no
+      // suelta constraint y no reescribe ninguna migración anterior.
+      '120_provider_native_phone_suppression.sql',
     ]);
   });
 

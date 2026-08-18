@@ -891,6 +891,80 @@ jobs:
       - name: Run P0 pre-approval phone identity eligibility tests
         run: npm run test:agent2a:p0-preapproval-phone-identity
 
+      # AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) — la privacidad del teléfono deja
+      # de estar clavada a la CACHÉ de Apollo: pasa a `provider_suppressions`, con clave
+      # (provider, provider_person_id) y SIN cuenta. Estas suites fijan lo que sólo se
+      # rompe en silencio: que la identidad se resuelva con la MISMA precedencia en la
+      # puerta y en el escritor, que un titular de LUSHA sea expresable, que un fallo de
+      # lectura NO se lea como «no suprimido», y que la firma del helper no gane un
+      # parámetro de cuenta —el momento en que «sin cuenta» volvería a significar «sin
+      # privacidad»—. Determinista: sin flags, sin proveedores, sin créditos, sin DB real.
+      - name: Run provider-native phone suppression tests
+        run: npm run test:agent2a:provider-native-suppression
+
+      # AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4-R1 — la última capa. La Fase 1 dejaba el
+      # re-chequeo DENTRO de la transacción final resolviendo la clave con reglas de
+      # Apollo, así que un candidato de origen Lusha sin `apollo_person_id` no era
+      # comprobado en absoluto ahí: para Lusha la última palabra la tenía una lectura
+      # previa a la llamada al proveedor y fuera del lock.
+      #
+      # Estos ratchets son ESTÁTICOS: afirman cosas sobre el TEXTO de la 120 —la firma del
+      # helper, que no gane un parámetro de cuenta, que la identidad se resuelva con la
+      # misma precedencia en los dos caminos— que son invariantes de DISEÑO, y que
+      # PostgreSQL no puede comprobar porque una migración con la firma equivocada aplica
+      # igual de bien.
+      #
+      # ⚠️ CORRECCIÓN DE R2: este paso incluye una heurística de comillas que ANTES se
+      # describía aquí como detector de «un literal SQL sin cerrar». No lo es. Mide
+      # PARIDAD, no sintaxis: con el defecto real de este hito reinyectado —un apóstrofo
+      # sin escapar dentro de un `COMMENT ON TABLE`, que hacía fallar la 120 entera con
+      # SQLSTATE 42601— esta suite pasa 20/20. La aplicabilidad de la migración la prueban
+      # los dos pasos de PostgreSQL real que vienen justo después, y ésa es la razón por
+      # la que ahora son obligatorios.
+      - name: Run provider-native transactional re-check ratchets
+        run: npm run test:agent2a:provider-native-transactional-recheck
+
+      # ── AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4-R2 ─────────────────────────────────
+      # UNA MIGRACIÓN QUE PostgreSQL NO PUEDE APLICAR TIENE QUE ROMPER ESTE CHECK.
+      #
+      # Hasta R2 no lo rompía. El repo tenía suites de PostgreSQL real desde 4O-C, pero
+      # TODAS quedaban fuera del check obligatorio porque `embedded-postgres` no es
+      # dependencia del repo, y la única barrera aquí dentro era la heurística de comillas
+      # del paso anterior. Prueba independiente de que eso no bastaba: en el head previo
+      # `6002a153` la 120 fallaba con SQLSTATE 42601 por un apóstrofo sin escapar en un
+      # `COMMENT ON TABLE`, y la suite estática pasaba. Reinyectado ese defecto exacto:
+      # estática 20/20 verde, PostgreSQL real 27 fallos con `syntax error at or near "s"`.
+      #
+      # `embedded-postgres` sigue instalándose APARTE, con `--no-save` y la versión
+      # PINCHADA, en vez de entrar en `package.json`: como dependencia normal descargaría
+      # un binario de PostgreSQL en cada `npm ci` de cualquier workflow, no sólo aquí.
+      # ⚠️ El rango `@17` NO resuelve (toda la serie 17 se publica como prerelease);
+      # 17.6.0-beta.15 es además la serie de Producción.
+      - name: Install embedded PostgreSQL harness
+        run: npm install --no-save embedded-postgres@17.6.0-beta.15
+
+      # `SELLUP_REQUIRE_POSTGRES_HARNESS` es la mitad que faltaba. Estas suites se SALTAN
+      # solas cuando el módulo no resuelve —lo correcto en local, donde nadie debería
+      # necesitar un binario de PostgreSQL para correr tests de TypeScript—, y ese mismo
+      # skip convertiría este paso en decorativo: bastaría con que el `npm install` de
+      # arriba fallara para que el check se pusiera verde con una migración inaplicable.
+      # Con la variable puesta, no resolver el arnés LANZA. Sin `continue-on-error`, sin
+      # `|| true` y sin condición de salto: si PostgreSQL no aplica la 120, esto es rojo.
+      - name: Run provider-native suppression tests against real PostgreSQL
+        run: npm run test:agent2a:provider-native-suppression:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # La carrera de Lusha, que es la garantía que R1 cerró: la supresión que commitea
+      # MIENTRAS la RPC espera el lock tiene que bloquear la persistencia. Eso no se puede
+      # afirmar leyendo SQL — hacen falta dos conexiones compitiendo de verdad. Ambas
+      # suites aplican la cadena REAL (099, 107, 109, 110, 111, 112, 113, 114, 115, 120)
+      # leyendo los archivos verbatim de `supabase/migrations`.
+      - name: Run provider-native in-flight race tests against real PostgreSQL
+        run: npm run test:agent2a:provider-native-race:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
       # El módulo de presupuestos, cuyo resolver es ahora la fuente económica canónica.
       - name: Run budget module tests
         run: npm run test:budgets

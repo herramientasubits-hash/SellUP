@@ -365,6 +365,12 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
         // Ninguna es DDL de teléfono.
         '118_macro_industry_catalog_v2_draft.sql',
         '119_publish_macro_industry_catalog_v2_cutover.sql',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+      // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
+      // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
+      // columna, no suelta constraint y no reescribe ninguna migración anterior.
+      '120_provider_native_phone_suppression.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -380,7 +386,7 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
     // Macro Industrias, sin relación con teléfono. La 117 (4O-H3-B) queda por debajo.
     // El número sigue siendo EXACTO.
-    assert.equal(numbered[numbered.length - 1], 119);
+    assert.equal(numbered[numbered.length - 1], 120);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

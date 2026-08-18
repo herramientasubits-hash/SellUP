@@ -27,7 +27,8 @@ import {
   isPhoneRevealWaterfallEnabled,
 } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
-import { readPhoneCacheSuppression, writePhoneCacheEntry } from './phone-cache-store';
+import { writePhoneCacheEntry } from './phone-cache-store';
+import { readPhoneRevealSuppression } from './provider-suppression-store';
 import { persistCandidatePhoneCollection } from './candidate-phone-collection-persistence';
 import { persistTerminalPhoneSuppression } from './candidate-phone-suppression-persistence';
 import {
@@ -289,7 +290,7 @@ export function buildRecoveryCoreDeps(
     // tardía del teléfono con la caché encendida o apagada. La lectura pide solo
     // `suppressed_at`, así que con el flag apagado no se lee ningún número. Si
     // LANZA, el core no persiste teléfono y el candidato sigue recuperable.
-    lookupPhoneCacheSuppression: readPhoneCacheSuppression,
+    lookupPhoneCacheSuppression: readPhoneRevealSuppression,
     onSuppressionCheckUnavailable: (message) => {
       console.error(
         '[phone-reveal-recovery] suppression check unavailable:',

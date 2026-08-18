@@ -338,13 +338,21 @@ describe('botón HABILITADO cuando la supresión es evaluable', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('botón DESHABILITADO cuando la supresión no es evaluable', () => {
-  it('B. sin cuenta (candidato lanzado desde HubSpot, sin cuenta SellUp)', async () => {
+  // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4) — RE-ESPECIFICADO.
+  //
+  // Los casos B, C y D de #291 afirmaban que el botón se deshabilitaba sin cuenta y para un
+  // candidato de Lusha. Ese era el síntoma correcto del backend de entonces, y es
+  // exactamente lo que la Fase 1 repara: los tres casos son ahora los del PRODUCTO que este
+  // hito habilita —candidato descubierto antes de que exista cuenta, y candidato de Lusha
+  // con su identidad propia— así que el botón tiene que estar HABILITADO y el copy de
+  // bloqueo NO debe aparecer.
+  it('B. FASE 1: sin cuenta SellUp el botón está HABILITADO', async () => {
     await renderSheet(baseCandidate({ account_id: null, hubspot_company_id: 'hs-1' }));
-    assert.equal(revealButton().disabled, true);
-    assert.ok(bodyText().includes(PHONE_REVEAL_IDENTITY_BLOCKED_COPY));
+    assert.equal(revealButton().disabled, false);
+    assert.equal(bodyText().includes(PHONE_REVEAL_IDENTITY_BLOCKED_COPY), false);
   });
 
-  it('C. sin identidad de persona (candidato Lusha sin apollo_person_id)', async () => {
+  it('C. FASE 1: candidato Lusha sin apollo_person_id ⇒ botón HABILITADO', async () => {
     await renderSheet(
       baseCandidate({
         source: 'lusha',
@@ -352,15 +360,32 @@ describe('botón DESHABILITADO cuando la supresión no es evaluable', () => {
         apollo_person_id: null,
       }),
     );
-    assert.equal(revealButton().disabled, true);
-    assert.ok(bodyText().includes(PHONE_REVEAL_IDENTITY_BLOCKED_COPY));
+    assert.equal(revealButton().disabled, false);
+    assert.equal(bodyText().includes(PHONE_REVEAL_IDENTITY_BLOCKED_COPY), false);
   });
 
-  it('D. sin ninguna de las dos', async () => {
+  it('D. FASE 1: candidato Lusha SIN cuenta ⇒ botón HABILITADO', async () => {
     await renderSheet(
       baseCandidate({
         source: 'lusha',
         source_contact_id: LUSHA_ID,
+        apollo_person_id: null,
+        account_id: null,
+        hubspot_company_id: 'hs-1',
+      }),
+    );
+    assert.equal(revealButton().disabled, false);
+    assert.equal(bodyText().includes(PHONE_REVEAL_IDENTITY_BLOCKED_COPY), false);
+  });
+
+  // El bloqueo de #291 SIGUE existiendo, con su copy intacto, para el único caso que de
+  // verdad no tiene identidad: ni id de Apollo ni identidad nativa de un proveedor con
+  // supresión propia. Es lo que impide que este hito se lea como «se quitó el bloqueo».
+  it('D bis. sin NINGUNA identidad nativa ⇒ botón deshabilitado y copy de #291', async () => {
+    await renderSheet(
+      baseCandidate({
+        source: 'hubspot',
+        source_contact_id: null,
         apollo_person_id: null,
         account_id: null,
         hubspot_company_id: 'hs-1',
@@ -378,10 +403,12 @@ describe('botón DESHABILITADO cuando la supresión no es evaluable', () => {
   });
 
   it('no promete créditos ni nombra proveedores mientras está bloqueado', async () => {
+    // FASE 1: el candidato de Lusha ya NO está bloqueado, así que el caso se ejerce con el
+    // candidato que sí lo está — sin ninguna identidad nativa.
     await renderSheet(
       baseCandidate({
-        source: 'lusha',
-        source_contact_id: LUSHA_ID,
+        source: 'hubspot',
+        source_contact_id: null,
         apollo_person_id: null,
       }),
     );
@@ -411,10 +438,12 @@ describe('L. 0 llamadas a proveedor', () => {
   });
 
   it('hacer clic en el botón deshabilitado no dispara nada', async () => {
+    // FASE 1: mismo motivo que arriba — el candidato deshabilitado es el que no tiene
+    // NINGUNA identidad nativa.
     await renderSheet(
       baseCandidate({
-        source: 'lusha',
-        source_contact_id: LUSHA_ID,
+        source: 'hubspot',
+        source_contact_id: null,
         apollo_person_id: null,
       }),
     );

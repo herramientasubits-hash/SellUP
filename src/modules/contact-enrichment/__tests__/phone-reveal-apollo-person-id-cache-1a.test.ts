@@ -207,13 +207,21 @@ describe('CACHE-1a START — captura apollo_person_id', () => {
     assert.equal(sc.persisted[0].patch.apollo_person_id, APOLLO_PERSON_ID_2);
   });
 
-  it('TEST 2b (RE-SPECIFY, AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1): START sin person.id, candidato Lusha sin identidad Apollo resoluble → BLOQUEADO, no "no falla"', async () => {
-    // Antes de este hito: sin clave posible la supresión se auditaba y el
-    // reveal CONTINUABA (fail-open) — el propio título original decía "no
-    // falla". Ese es EXACTAMENTE el caso típico sin clave (candidato de origen
-    // Lusha) que un tombstone Apollo real no podía alcanzar. Ahora bloquea
-    // igual que `suppression_check_unavailable`: 0 llamadas a Apollo, 0
-    // persistencia, 0 créditos, reintentable.
+  // TEST 2b — RE-ESPECIFICADO DOS VECES, y merece explicarse porque la historia es la del
+  // hito entero:
+  //
+  //   * originalmente el candidato de Lusha sin id de Apollo pasaba de largo: la supresión
+  //     se auditaba y el reveal CONTINUABA (fail-open). El título decía "no falla";
+  //   * #289 lo pasó a BLOQUEAR con `suppression_check_unavailable`, porque "no pude
+  //     confirmar que no está suprimido" no equivale a "no está suprimido";
+  //   * la Fase 1 hace lo que ninguna de las dos podía: EVALUARLO. El `source_contact_id`
+  //     de Lusha es su identidad nativa, así que la supresión se consulta con
+  //     `provider: 'lusha'` y —sin supresión registrada— el reveal continúa por la razón
+  //     correcta: porque se comprobó.
+  //
+  // Lo que sigue estando prohibido: usar el id de Lusha como id de APOLLO. Se comprueba
+  // abajo (`apollo_person_id` persistido = null).
+  it('FASE 1: candidato Lusha sin id de Apollo se EVALÚA con identidad de Lusha y continúa', async () => {
     const res = await runRevealCandidatePhone(
       startInput(),
       startDeps(
@@ -222,12 +230,11 @@ describe('CACHE-1a START — captura apollo_person_id', () => {
         startCandidate(), // source lusha, sourceContactId v1.*, sin apollo_person_id
       ),
     );
-    assert.equal(res.ok, false);
-    assert.equal(res.status, 'suppression_check_unavailable');
-    assert.equal(res.errorCode, 'suppression_check_unavailable');
-    assert.equal(sc.apolloCalls.length, 0);
-    assert.equal(sc.persisted.length, 0);
-    assert.equal(sc.logs.length, 0);
+    assert.equal(res.ok, true);
+    assert.equal(res.status, 'requested');
+    assert.equal(sc.apolloCalls.length, 1);
+    // El id de Lusha NO se promociona a identidad de Apollo en ningún punto.
+    assert.equal(sc.persisted[0].patch.apollo_person_id, null);
   });
 
   it('TEST 6 (RE-SPECIFY, AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1): id Lusha v1.* nunca resuelve identidad ⇒ BLOQUEADO, no "requested" con id null', async () => {

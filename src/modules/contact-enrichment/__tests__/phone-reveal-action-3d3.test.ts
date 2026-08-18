@@ -406,16 +406,22 @@ describe('ASYNC-1 — candidato sin account_id (supresión no evaluable ⇒ bloq
     return baseCandidate({ accountId: null, sourceContactId: null, firstName: null, lastName: null });
   }
 
-  it('sin account_id → bloqueado en el gate de supresión, sin llamada a Apollo, sin persistencia', async () => {
+  // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4) — RE-ESPECIFICADO. Este candidato
+  // tiene `apollo_person_id` (lo pone `baseCandidate`) pero NO tiene cuenta. Hasta la Fase 1
+  // eso lo bloqueaba: la clave de la supresión exigía cuenta porque la había heredado de la
+  // caché. Ahora la identidad de Apollo se consulta y el reveal procede.
+  //
+  // Éste es literalmente el candidato que el producto de pre-aprobación necesita: descubierto
+  // antes de que exista cuenta alguna en SellUp.
+  it('FASE 1: sin account_id el reveal procede — la privacidad se evaluó sin cuenta', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
       makeDeps(cap, { candidate: lushaNoAccountCandidate() }),
     );
-    assert.equal(res.ok, false);
-    assert.equal(res.status, 'suppression_check_unavailable');
-    assert.equal(res.errorCode, 'suppression_check_unavailable');
-    assert.equal(cap.apolloCalls.length, 0);
-    assert.equal(cap.persisted.length, 0);
+    assert.equal(res.ok, true);
+    assert.equal(res.status, 'requested');
+    assert.equal(cap.apolloCalls.length, 1);
+    assert.equal(cap.persisted.length, 1);
   });
 
   it('nunca emite candidate_account_invalid con identidad suficiente (sigue distinto de un bloqueo por cuenta inválida)', async () => {
@@ -426,18 +432,35 @@ describe('ASYNC-1 — candidato sin account_id (supresión no evaluable ⇒ bloq
     assert.notEqual(res.status, 'candidate_account_invalid');
   });
 
-  it('bloqueado antes del usage-log: 0 logs, ninguna PII puede haber salido (nada que serializar)', async () => {
+  // FASE 1 — RE-ESPECIFICADO, y recupera la cobertura que #289 había hecho inalcanzable.
+  //
+  // El comentario anterior decía: «la cobertura de "usage-log sin PII con account_id null"
+  // para un reveal que SÍ procede ya no es alcanzable por el START». Volvió a serlo, porque
+  // ahora un candidato sin cuenta sí procede. Así que en vez de comprobar que no hay log,
+  // se comprueba lo que originalmente importaba: que el log que SÍ se emite no lleva PII y
+  // registra la cuenta como nula.
+  it('sin account_id el usage-log se emite SIN PII y con la cuenta nula', async () => {
     await runRevealCandidatePhone(
       validInput(),
       makeDeps(cap, { candidate: lushaNoAccountCandidate() }),
     );
-    // El bloqueo de supresión retorna ANTES de deps.persist/deps.logUsage (igual
-    // que sin provider_person_id resoluble): no hay usage-log que auditar para
-    // este intento. La cobertura de "usage-log sin PII con account_id null" para
-    // un reveal que SÍ procede ya no es alcanzable por el START — account_id
-    // ausente ahora bloquea antes de loguear.
-    assert.equal(cap.logs.length, 0);
-    assert.equal(cap.persisted.length, 0);
+    assert.equal(cap.logs.length, 1);
+    const dump = JSON.stringify(cap.logs);
+    for (const forbidden of [
+      'jane.doe@acme.com',
+      'https://linkedin.com/in/jane-doe',
+    ]) {
+      assert.equal(
+        dump.includes(forbidden),
+        false,
+        `el usage-log no puede contener ${forbidden}`,
+      );
+    }
+    assert.equal(
+      cap.logs[0].metadata.suppression_state,
+      'checked_not_suppressed',
+      'la supresión se COMPROBÓ: no se dejó pasar sin comprobar',
+    );
   });
 });
 

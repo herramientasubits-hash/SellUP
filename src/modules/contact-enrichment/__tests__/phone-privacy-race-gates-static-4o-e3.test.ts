@@ -226,7 +226,14 @@ describe('4O-E3 — la puerta de privacidad es UNA y está cableada', () => {
     const gate = readModule('phone-reveal-privacy-gate.ts');
     assert.ok(gate.includes('export async function checkPhoneRevealPrivacyGate'));
     assert.ok(gate.includes('export async function isPhoneRevealCandidateDoNotContact'));
-    assert.ok(gate.includes('readPhoneCacheSuppression'));
+    // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4): la puerta previa a Lusha lee ahora
+    // el modelo NATIVO del proveedor a través del lector COMPUESTO. La propiedad protegida
+    // es la misma —hay UNA puerta y usa UN lector, no una copia por camino— y además esto
+    // es lo que hace que un candidato de origen Lusha tenga por fin privacidad evaluable
+    // justo antes de la llamada a Lusha.
+    assert.ok(gate.includes('readPhoneRevealSuppression'));
+    assert.ok(gate.includes('evaluatePhoneRevealSuppression'));
+    assert.ok(gate.includes('resolveInFlightProviderIdentity'));
   });
 
   test('el waterfall delega en la puerta compartida y no conserva una copia', () => {

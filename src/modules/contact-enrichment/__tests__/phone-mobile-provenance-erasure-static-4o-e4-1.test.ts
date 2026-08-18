@@ -363,7 +363,11 @@ describe('4O-E4.1 estático — alcance', () => {
     // EXACTO para que una migración colada por encima rompa la guarda.
     // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
     // Macro Industrias, sin relación con teléfono ni con `mobile_phone`.
-    assert.equal(numbered[numbered.length - 1], 119, 'la 119 (catálogo macro) es la última');
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120: la
+    // supresión de teléfono por identidad NATIVA del proveedor. SÍ es de teléfono, pero
+    // NO introduce procedencia de `mobile_phone` —que es lo que esta guarda vigila— ni
+    // toca esa columna en ninguna parte.
+    assert.equal(numbered[numbered.length - 1], 120, 'la 120 (supresión nativa) es la última');
   });
 
   it('no se introduce `mobile_phone_source` ni ningún modelo de procedencia', () => {

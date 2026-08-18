@@ -91,6 +91,14 @@ import {
   PHONE_REVEAL_CACHE_TABLE,
 } from './phone-cache-store';
 import {
+  resolveAllPhoneRevealProviderIdentities,
+  type ProviderSuppressionIdentity,
+} from './provider-suppression-core';
+import {
+  insertProviderSuppression,
+  insertProviderSuppressionAudit,
+} from './provider-suppression-store';
+import {
   buildPhoneCacheSuppressionAuditRow,
   buildPhoneCacheSuppressionPlan,
   buildPhoneCacheTombstoneDecision,
@@ -122,6 +130,10 @@ function rejected(
     officialPhoneSourcesSuppressed: 0,
     officialPhoneRowsTombstoned: 0,
     auditPersisted: false,
+    providerSuppressionsCreated: 0,
+    providerSuppressionsAlreadyPresent: 0,
+    providerSuppressionsByProvider: { apollo: 0, lusha: 0 },
+    providerSuppressionAuditPersisted: false,
   };
 }
 
@@ -141,6 +153,10 @@ function failed(
     officialPhoneSourcesSuppressed: 0,
     officialPhoneRowsTombstoned: 0,
     auditPersisted: false,
+    providerSuppressionsCreated: 0,
+    providerSuppressionsAlreadyPresent: 0,
+    providerSuppressionsByProvider: { apollo: 0, lusha: 0 },
+    providerSuppressionAuditPersisted: false,
   };
 }
 
@@ -237,6 +253,94 @@ export async function suppressPhoneCacheEntryAction(
   if (!decided.ok) return rejected(decided.rejection);
   const { tombstone } = decided;
 
+  // ── 0b. SUPRESIÓN NATIVA DEL PROVEEDOR (Fase 1, migración 120) ──
+  //
+  // Va PRIMERO, incluso antes del tombstone legado de la caché, y el orden es el
+  // argumento: de las dos escrituras de bloqueo, ésta es la ÚNICA que bloquea a la
+  // persona en todas partes. El tombstone legado sólo bloquea dentro de UNA cuenta, así
+  // que si se escribiera primero y esto fallara, la operación habría dejado a la persona
+  // revelable desde cualquier otra cuenta —y desde cualquier candidato sin cuenta— con
+  // una supresión que parece completa.
+  //
+  // La identidad de esta primera escritura es la del PROPIO request: el
+  // `providerPersonId` que el operador pidió suprimir es, por el contrato de esta acción,
+  // un id de Apollo. No se deduce de nada.
+  //
+  // Un fallo aquí NO aborta el resto. Se registra como `provider_suppression_failed` y la
+  // operación sigue borrando todo lo que sí puede borrar: una supresión parcial reportada
+  // con precisión es mejor que un `return` temprano que además deja los números vivos.
+  const providerSuppressionsByProvider = { apollo: 0, lusha: 0 };
+  let providerSuppressionsCreated = 0;
+  let providerSuppressionsAlreadyPresent = 0;
+  let providerSuppressionAuditPersisted = true;
+  const providerIdentitiesRecorded = new Set<string>();
+  let providerSuppressionFailed = false;
+
+  /**
+   * Registra UNA identidad nativa + su evidencia durable. Idempotente por la clave única
+   * de la 120, así que repetir la misma identidad en el fan-out no duplica nada.
+   *
+   * La auditoría se intenta SIEMPRE, también cuando la escritura falló: la constancia del
+   * INTENTO es parte de la garantía, y una DSAR que no se pudo completar tiene que ser
+   * visible en lugar de invisible.
+   */
+  const recordProviderSuppression = async (
+    identity: ProviderSuppressionIdentity,
+  ): Promise<void> => {
+    const dedupeKey = `${identity.provider}::${identity.providerPersonId}`;
+    if (providerIdentitiesRecorded.has(dedupeKey)) return;
+    providerIdentitiesRecorded.add(dedupeKey);
+
+    const written = await insertProviderSuppression({
+      identity,
+      suppressedAt: nowIso,
+      suppressionReason: tombstone.reasonCode,
+      suppressedBy: actor.internalUserId,
+    });
+
+    if (written.kind === 'created') providerSuppressionsCreated += 1;
+    if (written.kind === 'already_present') providerSuppressionsAlreadyPresent += 1;
+    if (written.kind === 'failed') {
+      providerSuppressionFailed = true;
+      // Sin el mensaje del driver junto al id: Postgres cita valores de la query en sus
+      // errores y uno de esos valores es el identificador de la persona.
+      console.error('[provider-suppression] write failed for', identity.provider);
+    } else {
+      providerSuppressionsByProvider[identity.provider] += 1;
+    }
+
+    const audited = await insertProviderSuppressionAudit({
+      provider: identity.provider,
+      providerPersonIdHash: hashProviderPersonId(identity.providerPersonId),
+      operation:
+        written.kind === 'already_present'
+          ? 'suppression_reaffirmed'
+          : 'suppression_created',
+      result:
+        written.kind === 'created'
+          ? 'applied'
+          : written.kind === 'already_present'
+            ? 'already_present'
+            : 'failed',
+      reasonCode: tombstone.reasonCode,
+      origin: 'dsar_action',
+      actorUserId: actor.internalUserId,
+      metadata: {
+        actor_role_key: actor.roleKey,
+        // El alcance de la operación se registra SIN la cuenta: esta evidencia no tiene
+        // tenant a propósito (no hay FK ni cascada), y meter el id de cuenta en el jsonb
+        // la volvería a atar a algo que un borrado puede llevarse.
+        request_scope: 'single_person',
+      },
+    });
+    if (!audited.persisted) providerSuppressionAuditPersisted = false;
+  };
+
+  await recordProviderSuppression({
+    provider: PHONE_CACHE_PROVIDER,
+    providerPersonId: tombstone.providerPersonId,
+  });
+
   // 1. TOMBSTONE — lo primero que se escribe: bloquea el cache hit y el reveal
   //    automático posteriores aunque todo lo demás fallara.
   const { data: suppressedRows, error: cacheError } = await admin
@@ -310,8 +414,13 @@ export async function suppressPhoneCacheEntryAction(
   const { data: candidateRows, error: candidateError } = await admin
     .from('contact_enrichment_candidates')
     .select(
-      `id, enrichment_run_id, enrichment_metadata,
-       matched_contacts_id, run:contact_enrichment_runs ( account_id )`,
+      // Fase 1: `source`, `source_contact_id` y `apollo_person_id` se leen para resolver
+      // las identidades NATIVAS que ESTA MISMA fila declara. No se lee nombre, email ni
+      // LinkedIn: el fan-out del §11 es por identidad declarada en el registro, nunca por
+      // parecido entre registros.
+      `id, enrichment_run_id, enrichment_metadata, source, source_contact_id,
+       apollo_person_id, matched_contacts_id,
+       run:contact_enrichment_runs ( account_id )`,
     )
     .eq('apollo_person_id', tombstone.providerPersonId);
   if (candidateError) {
@@ -335,8 +444,48 @@ export async function suppressPhoneCacheEntryAction(
       createdContactId: readCreatedContactId(enrichmentMetadata),
       enrichmentMetadata,
       matchedContactId: (r.matched_contacts_id as string | null) ?? null,
+      // Fase 1 — identidades nativas declaradas por ESTA fila (fan-out del §11).
+      source: (r.source as string | null) ?? null,
+      sourceContactId: (r.source_contact_id as string | null) ?? null,
+      apolloPersonId: (r.apollo_person_id as string | null) ?? null,
     };
   });
+
+  // 2a-bis. FAN-OUT de identidades NATIVAS del MISMO registro (Fase 1, §11/§17).
+  //
+  // Un candidato puede llevar, EN SU PROPIA FILA, dos identidades de dos proveedores: la
+  // columna `apollo_person_id` (que un enrichment de Apollo le escribió) y su
+  // `source_contact_id` nativo de Lusha. Cuando eso ocurre, esta operación registra las
+  // DOS supresiones.
+  //
+  // Esto NO es inferencia entre proveedores y no convierte la Fase 1 en supresión global:
+  //
+  //   * las dos identidades están escritas en la MISMA fila del MISMO candidato, que
+  //     representa a UNA persona. Es el registro el que las declara juntas, no este código
+  //     el que las empareja;
+  //   * NO se mira nombre, email, LinkedIn, empresa ni dominio, y no se cruza con ningún
+  //     otro registro. Dos candidatos distintos "con el mismo aspecto" no aportan ni una
+  //     identidad;
+  //   * dos identidades del mismo humano que nunca coincidieron en una fila siguen sin
+  //     poder emparejarse. Eso es exactamente lo que queda para la Fase 2.
+  //
+  // Se acota a los candidatos que la lectura de 2a ya seleccionó por `apollo_person_id`,
+  // que es el mismo conjunto que el resto de la operación propaga.
+  for (const candidate of candidates) {
+    if (candidate.accountId !== tombstone.accountId) continue;
+    const identities = resolveAllPhoneRevealProviderIdentities({
+      apolloPersonId: candidate.apolloPersonId,
+      source: candidate.source,
+      sourceContactId: candidate.sourceContactId,
+    });
+    for (const identity of identities) {
+      await recordProviderSuppression(identity);
+    }
+  }
+
+  if (providerSuppressionFailed) {
+    failureCode = failureCode ?? 'provider_suppression_failed';
+  }
 
   // 2b. Contactos oficiales candidatos a supresión. Se descubren por los ids que
   //     los propios candidatos ya referencian (FK `matched_contacts_id` y
@@ -597,5 +746,9 @@ export async function suppressPhoneCacheEntryAction(
     officialPhoneSourcesSuppressed,
     officialPhoneRowsTombstoned,
     auditPersisted,
+    providerSuppressionsCreated,
+    providerSuppressionsAlreadyPresent,
+    providerSuppressionsByProvider,
+    providerSuppressionAuditPersisted,
   };
 }

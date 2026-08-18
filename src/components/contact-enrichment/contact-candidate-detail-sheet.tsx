@@ -1548,17 +1548,28 @@ export function ContactCandidateDetailSheet({
     phoneRevealAuthorized === true &&
     candidate?.phone_reveal_recovery_id_present === true &&
     phoneRecoveryRequestWindowOpen;
-  // ── Elegibilidad de IDENTIDAD (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2) ────
+  // ── Elegibilidad de IDENTIDAD (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2,
+  //    repuntada en la Fase 1 de AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4) ────
   // Distinta de `hasSufficientPhoneRevealIdentity`, que responde «¿con qué datos
-  // buscaría Apollo a esta persona?». Esta responde «¿existe la clave
-  // (apollo, provider_person_id, account_id) con la que la supresión podría
-  // consultarse?». Desde PR #289 la respuesta «no» BLOQUEA el reveal en las cuatro
-  // fases del backend, así que ofrecer el botón habilitado era prometer algo que se
-  // sabía imposible antes del clic: el operador gastaba un clic para recibir un
+  // buscaría Apollo a esta persona?». Esta responde «¿existe la IDENTIDAD con la que la
+  // privacidad podría consultarse?». Desde PR #289 la respuesta «no» BLOQUEA el reveal en
+  // las cuatro fases del backend, así que ofrecer el botón habilitado era prometer algo
+  // que se sabía imposible antes del clic: el operador gastaba un clic para recibir un
   // error rojo de privacidad.
   //
-  // Es CONVENIENCIA de UI, nunca autorización: el servidor revalida la supresión por
-  // su cuenta y sigue siendo el único que decide si se llama al proveedor.
+  // FASE 1 — la pregunta cambió, y con ella la respuesta para la mayoría de candidatos.
+  // Antes la clave era `(apollo, provider_person_id, account_id)`, así que un candidato
+  // sin cuenta —o de origen Lusha— quedaba deshabilitado para siempre. Ahora la clave es
+  // la identidad NATIVA del proveedor y la cuenta no participa: un candidato Apollo con
+  // su id de Apollo y un candidato Lusha con su `source_contact_id` quedan HABILITADOS
+  // aunque no exista ninguna cuenta de SellUp todavía.
+  //
+  // `accountId` se sigue pasando y la función lo IGNORA a propósito (ver el módulo): se
+  // conserva para que este llamador documente que la cuenta se consideró y se descartó,
+  // en lugar de que su desaparición parezca un olvido.
+  //
+  // Es CONVENIENCIA de UI, nunca autorización: el servidor revalida la supresión por su
+  // cuenta y sigue siendo el único que decide si se llama al proveedor.
   const phoneRevealIdentityEligibility = evaluatePhoneRevealIdentityEligibility({
     apolloPersonId: candidate?.apollo_person_id ?? null,
     source: candidate?.source ?? null,
