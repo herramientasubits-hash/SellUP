@@ -1599,3 +1599,19 @@ jobs:
       # red, sin Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
       - name: Run A1 Apollo tax dedupe recheck tests
         run: npm run test:agent1:apollo-tax-dedupe-recheck
+
+      # AGENT1-APOLLO-SHARED-ADOPTION-CI-GUARD-1 — la suite de adopción del seam
+      # compartido de #292 ya existía y pasaba 20/20 en local, pero NINGÚN paso del
+      # check obligatorio la ejecutaba: el log del último run en main no contiene ni
+      # una sola aparición de `apollo-shared-intake-adoption`. El paso vecino «shared
+      # intake pipeline adoption tests» corre `test:lusha-shared-pipeline`, otra suite;
+      # el parecido del nombre es justo lo que hacía pasar la cobertura por hecha.
+      #
+      # Entra al check OBLIGATORIO porque lo que vigila es invisible en verde: si
+      # Apollo deja de adoptar el adapter/normalizer/enrichment compartidos y vuelve a
+      # una copia propia, el pipeline sigue pasando y la regresión sólo se ve en vivo.
+      #
+      # Determinista y offline: mocks de módulo por alias, sin red, sin Supabase, sin
+      # Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      - name: Run A1 Apollo shared intake adoption tests
+        run: npm run test:a1-apollo-shared-intake-adoption
