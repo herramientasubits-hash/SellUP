@@ -106,21 +106,65 @@ describe('Pure core cannot perform I/O of its own', () => {
 });
 
 describe('No new migrations ship with this feature', () => {
-  it('the highest migration number stays at the current 097 baseline', () => {
-    // Baseline tracks the repo max, currently 097 (097_apollo_phone_reveal_async
-    // — a DIFFERENT, authorized feature: Apollo async phone reveal, PR #109. The
-    // prior baseline was 096, Q3F-5BB.7E accounts.linkedin_url). Neither is a
-    // Lusha migration. Q3F-5BB.7 itself adds NO migration: it reuses existing
-    // nullable columns (duplicate_status / matched_account_id /
-    // matched_hubspot_company_id) that the canonical candidate-writer already
-    // populates. The precise name-based guards below prove no Lusha pending-review
-    // migration was added; this coarse pin just bounds the repo max.
-    const dir = join(ROOT, 'supabase/migrations');
-    const numbers = readdirSync(dir)
-      .map((f) => Number.parseInt(f.slice(0, 3), 10))
-      .filter((n) => Number.isFinite(n));
-    const max = Math.max(...numbers);
-    assert.ok(max <= 97, `unexpected migration number ${max} — this feature must not add migrations`);
+  // AGENT1-LUSHA-CI-GUARD-1 — this block used to pin the repo MAXIMUM (`max <= 97`).
+  // That number never expressed the invariant: it asserted that nobody, anywhere in
+  // the repo, would ever add another migration. Every unrelated feature broke it
+  // (098…119: Apollo, phone reveal, macro industry catalog v2), and the only
+  // available "repair" was bumping the constant by hand from a PR that had nothing
+  // to do with Lusha — which is exactly what had already happened going from 096 to
+  // 097, both of them unrelated features. The original comment admitted as much:
+  // "this coarse pin just bounds the repo max", delegating the real proof to the
+  // name-based guards below.
+  //
+  // The invariant worth protecting is: this Lusha feature adds no migrations of its
+  // own. The documented reason it needs none is that it REUSES nullable columns that
+  // already existed. That is what is checked now, without depending on the repo max:
+  //   a) the three columns it persists are born in a migration at or before the
+  //      feature baseline (all of them in 040_prospect_batches_foundation, inside
+  //      CREATE TABLE), and
+  //   b) no migration — at any number — retro-adds them via ALTER TABLE.
+  //
+  // Declared limit: a static guard cannot attribute AUTHORSHIP of a migration to a
+  // feature. What it does pin down is this feature's schema surface (a + b) and its
+  // naming vocabulary (the two guards that follow). An unrelated feature's migration
+  // no longer falsifies the result, which was the actual defect.
+  const FEATURE_MIGRATION_BASELINE = 97;
+
+  /** Columns this feature persists, which by contract must already exist. */
+  const REUSED_COLUMNS = ['duplicate_status', 'matched_account_id', 'matched_hubspot_company_id'];
+
+  const migrationNumber = (file: string): number => Number.parseInt(file.slice(0, 3), 10);
+
+  function migrationFiles(): string[] {
+    return readdirSync(join(ROOT, 'supabase/migrations'))
+      .filter((f) => f.endsWith('.sql') && Number.isFinite(migrationNumber(f)))
+      .sort();
+  }
+
+  function migrationSql(file: string): string {
+    return readFileSync(join(ROOT, 'supabase/migrations', file), 'utf-8');
+  }
+
+  it('the columns this feature persists predate its migration baseline', () => {
+    for (const column of REUSED_COLUMNS) {
+      const mentioning = migrationFiles().filter((f) => migrationSql(f).includes(column));
+      assert.ok(mentioning.length > 0, `${column} must already exist in the schema`);
+      const earliest = Math.min(...mentioning.map(migrationNumber));
+      assert.ok(
+        earliest <= FEATURE_MIGRATION_BASELINE,
+        `${column} first appears in migration ${earliest}, after the ${FEATURE_MIGRATION_BASELINE} baseline — this feature must reuse pre-existing columns, not add them`,
+      );
+    }
+  });
+
+  it('no migration adds the columns this feature persists', () => {
+    const offending = migrationFiles().filter((f) => {
+      const sql = migrationSql(f);
+      return REUSED_COLUMNS.some((column) =>
+        new RegExp(`ADD\\s+COLUMN\\s+(IF\\s+NOT\\s+EXISTS\\s+)?"?${column}"?`, 'i').test(sql),
+      );
+    });
+    assert.deepEqual(offending, [], 'this feature must not add its persisted columns via a migration');
   });
 
   it('no migration references a lusha pending-review schema change', () => {
