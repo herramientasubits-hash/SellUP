@@ -268,7 +268,21 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
         .filter((line) => !line.trim().startsWith('--'))
         .join('\n');
 
-    for (const file of files.filter((f) => /^1(1[89]|[2-9]\d)/.test(f))) {
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4-R1 — la 120 queda EXENTA del barrido ciego
+    // por la MISMA razón que la 117, y su límite se afirma directamente justo debajo. La
+    // 120 nombra `contact_enrichment_candidate_phones` en SQL ejecutable porque RESTATEA
+    // las funciones de la 110 y la 111, cuyos cuerpos escriben la colección. Ese
+    // restatement no es una ampliación de alcance: es el único instrumento que PostgreSQL
+    // ofrece para cambiar una sentencia dentro de un cuerpo de función, y lo que se cambió
+    // es una sola —el re-chequeo de supresión pasa a ser provider-native, para que un
+    // candidato de origen Lusha deje de persistir teléfono sin comprobación alguna dentro
+    // de la transacción final—. Exentarla y callar sería más débil que lo que sigue.
+    const RESTATED_120 = '120_provider_native_phone_suppression.sql';
+    const BLIND_SWEEP_EXEMPT = new Set([RESTATED_120]);
+
+    for (const file of files.filter(
+      (f) => /^1(1[89]|[2-9]\d)/.test(f) && !BLIND_SWEEP_EXEMPT.has(f),
+    )) {
       const sql = stripSqlComments(
         readFileSync(join(repoRoot, 'supabase/migrations', file), 'utf8'),
       );
@@ -278,6 +292,64 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
           `la migración ${file} no puede tocar ${table}`,
         );
       }
+    }
+
+    // ── El límite de la 120, afirmado de forma DIRECTA ───────────────
+    assert.ok(files.includes(RESTATED_120), 'el fichero de la 120 no puede faltar');
+    const exec120 = stripSqlComments(
+      readFileSync(join(repoRoot, 'supabase/migrations', RESTATED_120), 'utf8'),
+    );
+
+    // 1. De las cuatro tablas de la cadena, la 120 sólo puede nombrar la de staging. Las
+    //    dos oficiales y la auditoría legada siguen prohibidas con la misma dureza.
+    for (const table of PHONE_CHAIN_TABLES.filter(
+      (t) => t !== 'contact_enrichment_candidate_phones',
+    )) {
+      assert.ok(
+        !exec120.includes(table),
+        `la 120 no puede tocar ${table}: su restatement es de la 110/111, no de la cadena oficial`,
+      );
+    }
+
+    // 2. La 120 NO es dueña de la forma de la colección — eso siguen siendo la 109 y la
+    //    112—, así que no puede crearla, alterarla, borrarla ni vaciarla.
+    for (const verb of ['CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'TRUNCATE', 'DELETE FROM']) {
+      assert.ok(
+        !new RegExp(`${verb}[^;]*contact_enrichment_candidate_phones`, 'i').test(exec120),
+        `la 120 no puede ejecutar ${verb} sobre la colección`,
+      );
+    }
+
+    // 3. Y lo más importante: CADA mención de la colección tiene que estar DENTRO de uno
+    //    de los dos cuerpos restateados. Una sentencia suelta —un backfill, un UPDATE de
+    //    migración— caería fuera y fallaría aquí, que es justo lo que este bloque existe
+    //    para impedir. Los límites se toman por la etiqueta de dollar-quote de cada
+    //    función, no por un `END $$` fijo: los helpers de este hito usan `$fn$`.
+    const restatedRanges: Array<[number, number]> = [];
+    for (const fn of [
+      'persist_candidate_apollo_phone_reveal_result',
+      'persist_candidate_lusha_phone_reveal_result',
+    ]) {
+      const start = exec120.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}(`);
+      assert.notEqual(start, -1, `la 120 tiene que restatear ${fn}`);
+      const tag = /\bAS (\$[A-Za-z_]*\$)/.exec(exec120.slice(start));
+      assert.ok(tag, `${fn}: no se localizó la etiqueta de dollar-quote`);
+      const bodyStart = start + (tag.index ?? 0) + tag[0].length;
+      const close = exec120.indexOf(tag[1], bodyStart);
+      assert.notEqual(close, -1, `${fn}: dollar-quote sin cerrar`);
+      restatedRanges.push([start, close + tag[1].length]);
+    }
+
+    const insideRestatement = (index: number) =>
+      restatedRanges.some(([from, to]) => index >= from && index < to);
+
+    for (let at = exec120.indexOf('contact_enrichment_candidate_phones'); at !== -1; ) {
+      assert.ok(
+        insideRestatement(at),
+        `la 120 menciona la colección FUERA de los cuerpos restateados (offset ${at}): ` +
+          'una sentencia suelta sobre la cadena de teléfono no está autorizada',
+      );
+      at = exec120.indexOf('contact_enrichment_candidate_phones', at + 1);
     }
 
     // La 117 queda EXENTA del barrido de arriba porque sí toca la cadena — y por eso su
