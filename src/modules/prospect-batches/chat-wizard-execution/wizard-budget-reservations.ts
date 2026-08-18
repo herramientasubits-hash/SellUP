@@ -12,6 +12,12 @@
  * callers SHOULD pass actualCreditsConsumed = reservation.creditsReserved to avoid
  * underestimating budget. This is a caller convention enforced upstream; this file
  * does not implement the reconciliation logic.
+ *
+ * AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 (migración 121): `actualCreditsConsumed`
+ * puede ser MAYOR que lo reservado y eso ya no es un error. La RPC lo liquida y
+ * devuelve `confirmed_with_overage`; este wrapper lo traduce a un resultado
+ * EXITOSO con las cifras del sobrepaso. Nada aquí recorta el gasto real a la
+ * reserva: `min(actual, reserved)` parecería un arreglo y sería un subconteo.
  */
 
 import type {
@@ -131,6 +137,26 @@ export async function confirmWizardPilotCredits(
 
   switch (result) {
     case 'confirmed':         return { status: 'confirmed' };
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 8 — ÉXITO, no error. La reserva quedó
+    // cerrada y el período registró el gasto real completo; lo único distinto es
+    // que el proveedor cobró por encima de lo reservado. Caer en el `default`
+    // aquí convertiría la liquidación correcta en un fallo de reconciliación y
+    // reintroduciría, desde el llamador, el defecto que la migración 121 cierra.
+    case 'confirmed_with_overage': {
+      const creditsReserved =
+        typeof input.creditsReserved === 'number' ? input.creditsReserved : null;
+      return {
+        status: 'confirmed_with_overage',
+        creditsReserved,
+        creditsActual: input.actualCreditsConsumed,
+        // `null` cuando el llamador no pasó la reserva: la magnitud se declara
+        // desconocida en lugar de calcularse contra un número que no existe.
+        overageCredits:
+          creditsReserved === null
+            ? null
+            : input.actualCreditsConsumed - creditsReserved,
+      };
+    }
     case 'already_confirmed': return { status: 'already_confirmed' };
     default:
       return {

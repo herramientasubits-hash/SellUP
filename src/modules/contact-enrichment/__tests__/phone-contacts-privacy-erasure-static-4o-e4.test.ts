@@ -371,12 +371,17 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
       // columna, no suelta constraint y no reescribe ninguna migración anterior.
       '120_provider_native_phone_suppression.sql',
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). Tampoco es DDL de
+      // teléfono — reemplaza una constraint de `wizard_budget_reservations` y el cuerpo de
+      // `confirm_wizard_credits`— y no toca la allowlist del escalar que E4 fijó.
+      '121_wizard_budget_overage_reconciliation.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
   });
 
-  it('la migración 119 (catálogo macro) es la última del repo', () => {
+  it('la migración 121 (contabilidad de presupuesto) es la última del repo', () => {
     // 4O-H2 mueve el techo de la 114 a la 115. Se sigue fijando un número EXACTO: una
     // migración por encima del último hito conocido tiene que romper esta guarda.
     const numbered = readdirSync(MIGRATIONS_DIR)
@@ -385,8 +390,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       .sort((a, b) => a - b);
     // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
     // Macro Industrias, sin relación con teléfono. La 117 (4O-H3-B) queda por debajo.
-    // El número sigue siendo EXACTO.
-    assert.equal(numbered[numbered.length - 1], 120);
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) lo mueve a la 120, y
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 a la 121 (contabilidad de presupuesto, sin
+    // relación con teléfono). El número sigue siendo EXACTO: una migración no declarada
+    // por encima del último hito conocido rompe esta guarda.
+    assert.equal(numbered[numbered.length - 1], 121);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

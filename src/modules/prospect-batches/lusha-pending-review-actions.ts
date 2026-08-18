@@ -64,8 +64,11 @@ import {
   guardLushaRunBudget,
   decideLushaCreditsToConfirm,
   shouldReleaseLushaReservation,
+  buildLushaBudgetSettlementTelemetry,
+  LUSHA_BUDGET_SETTLEMENT_THREW_CODE,
   type LushaBudgetReserveOutcome,
   type LushaBudgetReservation,
+  type LushaBudgetSettlementOutcome,
 } from '@/modules/prospect-batches/lusha-budget-gate';
 import { estimateLushaRunCredits } from '@/server/prospect-batches/lusha-run-liability';
 // Las MISMAS primitivas de reserva que usan Apollo y Tavily. Un segundo
@@ -319,10 +322,17 @@ async function runLushaSearchWithReservation(args: {
    * debajo de este punto — incluido el fallo — porque a partir de la primera
    * petición el proveedor pudo cobrar. Best-effort: un fallo de liquidación no
    * convierte una corrida exitosa en un error, igual que en la ruta Apollo.
+   *
+   * AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 10 — devuelve un resultado
+   * DISCRIMINADO en lugar de `void`. Antes esta función era `Promise<void>` y sus
+   * llamadas hacían `.catch(() => undefined)`, así que «liquidada», «liquidada con
+   * sobrepaso» y «no liquidada» eran indistinguibles: no dejaban rastro ninguna de
+   * las tres. Sigue sin lanzar —la contabilidad no puede tumbar una corrida que el
+   * proveedor ya cobró— pero ahora el resultado EXISTE y se registra.
    */
   const settleReservation = async (
     result: PersistLushaPendingReviewResult | null,
-  ): Promise<void> => {
+  ): Promise<LushaBudgetSettlementOutcome> => {
     const budgetClient = createWizardBudgetServiceClient();
     const rpc = budgetClient as unknown as BudgetReservationsRpcClient;
 
@@ -333,7 +343,7 @@ async function runLushaSearchWithReservation(args: {
         creditsChargedTotal: result.creditsChargedTotal,
       })
     ) {
-      await releaseWizardPilotCredits(
+      const released = await releaseWizardPilotCredits(
         {
           reservationId: reservation.reservationId,
           batchId: result.batchId,
@@ -341,20 +351,93 @@ async function runLushaSearchWithReservation(args: {
         },
         rpc,
       );
-      return;
+      if (released.status === 'released') return { status: 'released' };
+      // `already_released` / `already_confirmed`: la reserva ya está cerrada, no
+      // hay nada que liquidar y no es un fallo.
+      if (released.status === 'error') {
+        return {
+          status: 'failed',
+          code: released.code,
+          creditsReportedActual: null,
+        };
+      }
+      return { status: 'already_terminal' };
     }
 
-    await confirmWizardPilotCredits(
+    const actualCreditsConsumed = decideLushaCreditsToConfirm({
+      creditsReserved: reservation.creditsReserved,
+      creditsChargedTotal: result?.creditsChargedTotal ?? null,
+    });
+
+    const confirmed = await confirmWizardPilotCredits(
       {
         reservationId: reservation.reservationId,
-        actualCreditsConsumed: decideLushaCreditsToConfirm({
-          creditsReserved: reservation.creditsReserved,
-          creditsChargedTotal: result?.creditsChargedTotal ?? null,
-        }),
+        actualCreditsConsumed,
         batchId: result?.batchId ?? null,
+        // Sólo para que el wrapper pueda declarar la MAGNITUD del sobrepaso. No
+        // interviene en la decisión: quien decide si lo hubo es la RPC, que tiene
+        // la fila bloqueada.
+        creditsReserved: reservation.creditsReserved,
       },
       rpc,
     );
+
+    switch (confirmed.status) {
+      case 'confirmed':
+        return { status: 'confirmed' };
+      case 'confirmed_with_overage':
+        return {
+          status: 'confirmed_with_overage',
+          creditsReserved: confirmed.creditsReserved ?? reservation.creditsReserved,
+          creditsActual: confirmed.creditsActual,
+          overageCredits:
+            confirmed.overageCredits ??
+            confirmed.creditsActual - reservation.creditsReserved,
+        };
+      case 'already_confirmed':
+        return { status: 'already_terminal' };
+      default:
+        return {
+          status: 'failed',
+          code: confirmed.code,
+          creditsReportedActual: actualCreditsConsumed,
+        };
+    }
+  };
+
+  /**
+   * Liquida y DEJA CONSTANCIA. Nunca lanza y nunca cambia el resultado de la
+   * corrida: § 12 es explícito en que un fallo de contabilidad no debe convertir un
+   * descubrimiento exitoso en un fallo de proveedor. Lo que sí hace es que el fallo
+   * —y el sobrepaso— dejen de ser silenciosos.
+   */
+  const settleReservationObservably = async (
+    result: PersistLushaPendingReviewResult | null,
+  ): Promise<void> => {
+    let outcome: LushaBudgetSettlementOutcome;
+    try {
+      outcome = await settleReservation(result);
+    } catch (settlementError: unknown) {
+      // La liquidación lanzó (credenciales de servicio ausentes, RPC inalcanzable).
+      // Se clasifica; el mensaje crudo no entra en el log.
+      outcome = {
+        status: 'failed',
+        code: LUSHA_BUDGET_SETTLEMENT_THREW_CODE,
+        creditsReportedActual: null,
+      };
+      void settlementError;
+    }
+
+    const telemetry = buildLushaBudgetSettlementTelemetry(outcome, {
+      reservationId: reservation.reservationId,
+      creditsReserved: reservation.creditsReserved,
+      batchId: result?.batchId ?? null,
+    });
+    if (telemetry) {
+      // Log de servidor seguro: cifras e IDs internos. Sin payload del proveedor,
+      // sin clave de API, sin datos de empresa ni de persona.
+      console.warn(`[${telemetry.code}]`, telemetry.payload);
+    }
   };
 
   try {
@@ -421,8 +504,9 @@ async function runLushaSearchWithReservation(args: {
     );
 
     // § 9 — reconciliación: se confirma lo que Lusha reportó, y la reserva
-    // entera cuando no reportó nada (gasto no verificable).
-    await settleReservation(result).catch(() => undefined);
+    // entera cuando no reportó nada (gasto no verificable). Un sobrepaso o un
+    // fallo de liquidación quedan registrados (§ 11/§ 12) sin alterar el resultado.
+    await settleReservationObservably(result);
 
     // Safe server-side log — no secrets, no raw payload, no PII.
     console.warn('[lusha-pending-review]', {
@@ -447,7 +531,7 @@ async function runLushaSearchWithReservation(args: {
     // § 9 — un fallo DESPUÉS de la reserva se liquida conservador: sin resultado
     // no se sabe si el proveedor cobró, y devolver headroom que sí se gastó
     // dejaría el período mintiendo por encima de lo real.
-    await settleReservation(null).catch(() => undefined);
+    await settleReservationObservably(null);
     const msg = err instanceof Error ? err.message : 'Error desconocido';
     return buildLushaPendingReviewFailure(
       'No fue posible guardar los prospectos. Intenta de nuevo.',

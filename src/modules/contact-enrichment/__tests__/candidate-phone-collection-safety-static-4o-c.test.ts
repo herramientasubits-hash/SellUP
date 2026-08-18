@@ -215,17 +215,24 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
       // identidad NATIVA del proveedor y SIN cuenta. ADITIVA: no borra columna, no suelta
       // constraint y no reescribe ninguna migración anterior.
-      '120_provider_native_phone_suppression.sql',
-      'el techo conocido es la 120 (supresión nativa), que no toca la cadena de teléfono 109–117',
+      //
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121, y NO es de teléfono:
+      // reemplaza la constraint de `wizard_budget_reservations` y el cuerpo de
+      // `confirm_wizard_credits` para que un sobrepaso real del proveedor se pueda liquidar
+      // (Agente 1, contabilidad de presupuesto). No nombra ninguna tabla de teléfono, y el
+      // barrido de más abajo —que ya cubre 118 y superiores— lo comprueba sobre su SQL
+      // ejecutable en vez de fiarse de este número.
+      '121_wizard_budget_overage_reconciliation.sql',
+      'el techo conocido es la 121 (contabilidad de presupuesto), que no toca la cadena de teléfono 109–117',
     );
     assert.equal(
-      files.some((file) => /^1(2[1-9]|[3-9]\d)/.test(file)),
+      files.some((file) => /^1(2[2-9]|[3-9]\d)/.test(file)),
       false,
-      // La 120 es AUTORIZADA (Fase 1 de AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4). Lo que
+      // La 120 y la 121 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
-      // conocido sin declararla; la afirmación de que la 120 no escribe sobre las tablas de
-      // la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 121 o superior',
+      // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
+      // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
+      'ninguna migración 122 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

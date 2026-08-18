@@ -118,7 +118,7 @@ describe('115 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('116 es el número más alto del repo', () => {
+  it('121 es el número más alto del repo', () => {
     const numbers = readdirSync(migrationsDir)
       .filter((file) => /^\d{3}[_-].*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)));
@@ -131,7 +131,11 @@ describe('115 — numeración', () => {
     // teléfono por identidad NATIVA del proveedor y SIN cuenta. Sí es de teléfono, pero es
     // ADITIVA sobre el esquema oficial que esta suite protege: no toca `contact_phones`,
     // ni `contact_phone_sources`, ni la función de la 115.
-    assert.equal(Math.max(...numbers), 120);
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación TRUTHFUL
+    // del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono en absoluto
+    // —reemplaza una constraint de `wizard_budget_reservations` y el cuerpo de
+    // `confirm_wizard_credits`— y no toca `contact_phones` ni `contact_phone_sources`.
+    assert.equal(Math.max(...numbers), 121);
   });
 
   it('declara NO estar aplicada en Producción', () => {

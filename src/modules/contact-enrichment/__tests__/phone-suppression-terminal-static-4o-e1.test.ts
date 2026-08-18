@@ -211,7 +211,13 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // `provider_suppressions` + `provider_suppression_audit`. Lo que esta guarda afirma
       // —que 4O-E1 no aportó SQL y que nadie coló una migración por encima del último hito
       // conocido— no cambia.
-      '120_provider_native_phone_suppression.sql',
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). Reemplaza la
+      // constraint de `wizard_budget_reservations` y el cuerpo de
+      // `confirm_wizard_credits`; no nombra ninguna tabla de teléfono. Lo que esta guarda afirma sigue intacto: la
+      // AUTORÍA se comprueba abajo archivo por archivo, así que una migración nueva no
+      // puede atribuirse a 4O-E1 por el hecho de mover este número.
+      '121_wizard_budget_overage_reconciliation.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.
