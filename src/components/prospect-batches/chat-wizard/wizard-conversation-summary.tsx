@@ -408,6 +408,10 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         <WizardLushaFinalSearch
           input={lushaCriteria.input}
           recap={finalRecap}
+          // AGENT1-LUSHA-BUDGET-GATE-1 § 6 — la MISMA instantánea que ya usa el
+          // bloqueo previo de Apollo/Tavily unos bloques más arriba. Un segundo
+          // canal para Lusha podría desviarse y avisar sobre otro período.
+          budgetPreflight={budgetPreflight}
           onViewProspects={() => {
             router.push(PROSPECTOS_TAB_ROUTE);
             router.refresh();

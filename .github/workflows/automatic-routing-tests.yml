@@ -1722,3 +1722,67 @@ jobs:
 
       - name: Run Lusha LinkedIn and excluded duplicates tests
         run: npm run test:lusha-linkedin-and-excluded-duplicates
+
+      # AGENT1-LUSHA-BUDGET-GATE-1 § 14 — la ruta Lusha de Agente 1 no tenía NINGUNA
+      # puerta económica: con `ENABLE_LUSHA_PREVIEW` encendido resolvía la credencial,
+      # construía el cliente y llamaba al proveedor sin que nada hubiera reservado
+      # créditos, mientras Apollo/Tavily no pueden dar un paso sin
+      # `try_reserve_wizard_credits`. Este paso vigila que la reserva siga estando
+      # ARRIBA de la llamada al proveedor.
+      #
+      # Entra al check OBLIGATORIO porque el defecto que cubre es invisible en verde:
+      # un `guardLushaRunBudget` correcto y NO cableado deja el gasto exactamente
+      # donde estaba, y eso sólo se notaría con créditos reales. Por eso la suite
+      # incluye un ratchet ESTÁTICO de orden dentro de la propia server action, no
+      # sólo pruebas del seam puro.
+      #
+      # Determinista y offline: seam puro con contadores + ratchet estático + render
+      # jsdom. Sin red, sin Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y
+      # 0 escrituras. ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa nada.
+      - name: Run A1 Lusha global budget gate tests
+        run: npm run test:lusha-budget-gate
+
+      # AGENT1-LUSHA-HIDDEN-PROVIDER-TEST-REPAIR-1 § 5 — Lusha es un proveedor
+      # OCULTO: el usuario nunca lo elige. Esta suite es la que vigila esa propiedad
+      # de extremo a extremo — que no reaparezcan pestañas ni selector de fuente, que
+      # el paso final monte `WizardLushaFinalSearch` SÓLO cuando la ruta está honrada
+      # (`ENABLE_LUSHA_PREVIEW` encendido Y `isLushaRouteHonored`), que ese paso no
+      # auto-ejecute ni exponga CTA de persistencia/HubSpot/enriquecimiento, y que el
+      # resolver y el puente de criterios sigan siendo módulos PUROS que no importan
+      # runtime de proveedor, red ni DB.
+      #
+      # Entra al check OBLIGATORIO porque estaba ausente de él y llevaba dos
+      # aserciones caducadas fallando en `main` sin bloquear nada: una suite que puede
+      # fallar en rojo sin consecuencia deja de ser una garantía. Cableada aquí, una
+      # regresión del proveedor oculto —o un import de proveedor colado en el
+      # resolver— rompe el merge en vez de pasar inadvertida.
+      #
+      # Determinista y offline: lectura de fuente + render jsdom. Sin red, sin
+      # Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      - name: Run Lusha hidden-provider safety tests
+        run: npm run test:lusha-hidden-provider
+
+      # AGENT1-LUSHA-MACRO-V2-PLAN-CATALOG-1 § 9 — el catálogo de planes de búsqueda
+      # de Lusha para las 12 Macro Industrias es una lista de IDs numéricos, que es
+      # exactamente la clase de dato que una revisión humana aprueba mal: `12` y `13`
+      # se leen igual, y un sub colgado del padre equivocado produce un filtro que el
+      # proveedor ACEPTA y que devuelve otro sector. El fallo no sale en rojo, sale
+      # como «Lusha trajo empresas raras» DESPUÉS de gastar créditos.
+      #
+      # Entra al check OBLIGATORIO por dos invariantes que sólo se pueden vigilar
+      # automáticamente:
+      #   1. cada ID se compara contra `LUSHA_INDUSTRY_METADATA`, la captura literal
+      #      del endpoint gratuito del proveedor — no contra una constante escrita al
+      #      lado, que se movería junto con el error;
+      #   2. un ratchet estático prueba que NINGÚN módulo de runtime importa el
+      #      catálogo. Ése es el corazón del PR: el ejecutor de hoy pagina UNA
+      #      búsqueda, así que si el catálogo mandara ya, una macro de 3 ramas se
+      #      anunciaría soportada y se ejecutaría como su PRIMERA rama solamente.
+      #      Un cableado accidental no se nota en verde; aquí rompe el merge.
+      #
+      # Determinista y offline: módulos puros + lectura de fuente. Sin red, sin
+      # Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      - name: Run A1 Lusha Macro-v2 search-plan catalog tests
+        run: npm run test:lusha-macro-v2-plan-catalog

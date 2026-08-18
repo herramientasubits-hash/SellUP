@@ -39,6 +39,19 @@ import type { WizardRunSelectableProvider } from './wizard-run-provider-capabili
 export type WizardBudgetPreflight = {
   availableCredits: number;
   requiredCreditsByProvider: Record<WizardRunSelectableProvider, number>;
+  /**
+   * AGENT1-LUSHA-BUDGET-GATE-1 § 6 — techo de la ruta Lusha.
+   *
+   * Va en un campo APARTE en lugar de dentro de `requiredCreditsByProvider`
+   * porque esa clave está indexada por `WizardRunSelectableProvider`, y
+   * ensanchar esa unión con `'lusha'` volvería a Lusha elegible en el radio de
+   * «Proveedor de esta corrida». Lusha es un proveedor OCULTO: comparte el
+   * presupuesto global, no la visibilidad.
+   *
+   * `null`/ausente = no resoluble ⇒ no bloquea (la reserva sigue siendo la
+   * autoridad).
+   */
+  lushaRequiredCredits?: number | null;
 };
 
 /**
@@ -69,14 +82,46 @@ export function resolveWizardPreExecutionBudgetBlock(
   provider: WizardRunSelectableProvider,
 ): WizardBudgetPreflightBlock | null {
   if (!preflight) return null;
+  return comparePreflightBudget(
+    preflight.availableCredits,
+    preflight.requiredCreditsByProvider[provider],
+  );
+}
 
-  const requiredCredits = preflight.requiredCreditsByProvider[provider];
+/**
+ * AGENT1-LUSHA-BUDGET-GATE-1 § 6 — mismo aviso previo para la ruta Lusha.
+ *
+ * Llama al MISMO comparador que Apollo/Tavily: si la regla de bloqueo cambia,
+ * cambia para las dos rutas a la vez. Lo único distinto es de dónde sale el
+ * número requerido, porque Lusha no vive en la unión de proveedores elegibles.
+ */
+export function resolveLushaPreExecutionBudgetBlock(
+  preflight: WizardBudgetPreflight | null | undefined,
+): WizardBudgetPreflightBlock | null {
+  if (!preflight) return null;
+  return comparePreflightBudget(preflight.availableCredits, preflight.lushaRequiredCredits);
+}
+
+/**
+ * Núcleo de la comparación, compartido por todas las rutas.
+ *
+ * `null` = no bloquear. Cubre los casos en los que la UI no tiene derecho a
+ * adelantarse: coste no resoluble, disponible no resoluble, y presupuesto
+ * suficiente.
+ *
+ * La comparación es ESTRICTA (`available < required`): con 25 disponibles y 25
+ * requeridos la corrida cabe exacta y debe ofrecerse, que es justo lo que la
+ * reserva atómica aceptaría.
+ */
+function comparePreflightBudget(
+  availableCredits: number,
+  requiredCredits: number | null | undefined,
+): WizardBudgetPreflightBlock | null {
   // Un coste no resoluble (proveedor sin entrada, valor no finito o no positivo)
   // no puede sostener un bloqueo: sin número que enseñar el aviso mentiría.
   if (typeof requiredCredits !== 'number' || !Number.isFinite(requiredCredits)) return null;
   if (requiredCredits <= 0) return null;
 
-  const { availableCredits } = preflight;
   if (!Number.isFinite(availableCredits)) return null;
   if (availableCredits >= requiredCredits) return null;
 

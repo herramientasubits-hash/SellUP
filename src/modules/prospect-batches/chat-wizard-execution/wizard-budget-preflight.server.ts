@@ -24,6 +24,11 @@ import { readWizardBudgetPeriodSnapshot } from './wizard-budget-reservations';
 import type { BudgetPeriodLookupClient } from './wizard-budget-reservations';
 import { getPilotBudgetPeriodStart } from './wizard-budget-reconciliation';
 import { estimateCreditsForProvider } from './wizard-budget-estimate';
+// AGENT1-LUSHA-BUDGET-GATE-1 § 5/§ 6 — el techo de Lusha sale de la MISMA función
+// cuyo resultado reserva la acción de Lusha. Se resuelve aparte de
+// `estimateCreditsForProvider` porque Lusha no pertenece a la unión de
+// proveedores elegibles (ver la nota de `WizardBudgetPreflight`).
+import { estimateLushaRunCredits } from '@/server/prospect-batches/lusha-run-liability';
 import { WIZARD_RUN_SELECTABLE_PROVIDERS } from './wizard-run-provider-capability';
 import type { WizardRunSelectableProvider } from './wizard-run-provider-capability';
 import type { WizardBudgetPreflight } from './wizard-budget-preflight';
@@ -60,9 +65,10 @@ export function createWizardBudgetServiceClient() {
  * autoridad, y un fallo de diagnóstico no puede convertirse en un bloqueo
  * universal.
  *
- * Los dos costes salen de `estimateCreditsForProvider`, la misma función cuyo
- * resultado se reserva en la ejecución. No hay una segunda fórmula: si el techo
- * de Apollo cambia, el aviso cambia con él.
+ * Los costes de Apollo/Tavily salen de `estimateCreditsForProvider` y el de
+ * Lusha de `estimateLushaRunCredits`: en los tres casos, la misma función cuyo
+ * resultado se reserva en la ejecución. No hay una segunda fórmula — si el techo
+ * de un proveedor cambia, el aviso cambia con él.
  */
 export async function resolveWizardBudgetPreflightForSurface(): Promise<WizardBudgetPreflight | null> {
   try {
@@ -80,7 +86,20 @@ export async function resolveWizardBudgetPreflightForSurface(): Promise<WizardBu
       ]),
     ) as Record<WizardRunSelectableProvider, number>;
 
-    return { availableCredits: snapshot.availableCredits, requiredCreditsByProvider };
+    // Un techo de Lusha no resoluble no puede bloquear ni inventar un número: se
+    // publica `null` y la reserva atómica sigue siendo la autoridad.
+    let lushaRequiredCredits: number | null = null;
+    try {
+      lushaRequiredCredits = estimateLushaRunCredits();
+    } catch {
+      lushaRequiredCredits = null;
+    }
+
+    return {
+      availableCredits: snapshot.availableCredits,
+      requiredCreditsByProvider,
+      lushaRequiredCredits,
+    };
   } catch {
     // Mismo criterio que el resto de la superficie: un diagnóstico que falla
     // desaparece, no bloquea ni inventa un número.
