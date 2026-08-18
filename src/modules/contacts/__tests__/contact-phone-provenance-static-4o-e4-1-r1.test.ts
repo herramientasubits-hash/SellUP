@@ -254,16 +254,20 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
       // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
       // columna, no suelta constraint y no reescribe ninguna migración anterior.
-      '120_provider_native_phone_suppression.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3 y el catálogo macro, no este hito',
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono
+      // y R1 sigue sin aportar ninguna.
+      '121_wizard_budget_overage_reconciliation.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa y la contabilidad de presupuesto, no este hito',
     );
     assert.equal(
-      files.some((f) => /^1(2[1-9]|[3-9]\d)/.test(f)),
+      files.some((f) => /^1(2[2-9]|[3-9]\d)/.test(f)),
       false,
-      // La 120 es de la Fase 1 de AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 y es AUTORIZADA;
+      // La 120 (Fase 1 de AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4) y la 121
+      // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 121 o superior',
+      'ninguna migración 122 o superior',
     );
   });
 

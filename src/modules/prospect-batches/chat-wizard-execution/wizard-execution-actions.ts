@@ -202,6 +202,8 @@ export type WizardExecutionDeps = {
     reservationId: string;
     actualCreditsConsumed: number;
     batchId?: string | null;
+    /** Sólo descriptivo: permite nombrar la magnitud de un sobrepaso (§ 8). */
+    creditsReserved?: number | null;
   }) => Promise<ConfirmWizardCreditsOutput>;
   releaseBudget: (input: {
     reservationId: string;
@@ -1099,11 +1101,26 @@ export async function executeProspectWizardGeneration(
 
   let reconciliationFailed = false;
   try {
-    await deps.confirmBudget({
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 13 — el resultado de la liquidación se
+    // MIRA. Antes se descartaba, y el wrapper no lanza: devuelve
+    // `{ status: 'error' }`. Así que una liquidación RECHAZADA por la RPC —el caso
+    // exacto que la migración 121 cierra, `actual > reserved` →
+    // `invalid_actual_credits`— era indistinguible de una exitosa, y la reserva se
+    // quedaba en `reserved` bloqueando la corrida siguiente sin que nada lo dijera.
+    //
+    // `confirmed_with_overage` es un ÉXITO y NO enciende el aviso: el gasto real
+    // entero quedó en el período y la reserva quedó cerrada. Tratarlo como fallo
+    // sería el mismo error de lectura, sólo en el otro sentido.
+    const settlement = await deps.confirmBudget({
       reservationId,
       actualCreditsConsumed: actualToConfirm,
       batchId: reservedBatchId,
+      // Sólo para describir la magnitud de un sobrepaso; no decide nada.
+      creditsReserved,
     });
+    if (settlement.status === 'error') {
+      reconciliationFailed = true;
+    }
   } catch {
     // Generation succeeded — do NOT convert to failure. Log warning internally.
     reconciliationFailed = true;

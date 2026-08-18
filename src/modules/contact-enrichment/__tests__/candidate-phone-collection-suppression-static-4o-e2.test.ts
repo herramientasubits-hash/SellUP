@@ -151,6 +151,12 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // `phone_reveal_person_suppression_exists`. Es ADITIVA: no borra columna, no
       // suelta constraint y no reescribe ninguna migración anterior.
       '120_provider_native_phone_suppression.sql',
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). Reemplaza la
+      // constraint de `wizard_budget_reservations` y el cuerpo de
+      // `confirm_wizard_credits`; no nombra ninguna tabla de teléfono. No crea, altera ni borra ninguna tabla de la
+      // colección de staging que esta suite protege, y la 112 sigue siendo su única dueña.
+      '121_wizard_budget_overage_reconciliation.sql',
     ]);
   });
 

@@ -367,7 +367,15 @@ describe('4O-E4.1 estático — alcance', () => {
     // supresión de teléfono por identidad NATIVA del proveedor. SÍ es de teléfono, pero
     // NO introduce procedencia de `mobile_phone` —que es lo que esta guarda vigila— ni
     // toca esa columna en ninguna parte.
-    assert.equal(numbered[numbered.length - 1], 120, 'la 120 (supresión nativa) es la última');
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación TRUTHFUL
+    // del sobrepaso de presupuesto (Agente 1, contabilidad). NO es de teléfono en absoluto
+    // —toca `wizard_budget_reservations` y `confirm_wizard_credits`— y no nombra
+    // `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
+    assert.equal(
+      numbered[numbered.length - 1],
+      121,
+      'la 121 (contabilidad de presupuesto) es la última',
+    );
   });
 
   it('no se introduce `mobile_phone_source` ni ningún modelo de procedencia', () => {

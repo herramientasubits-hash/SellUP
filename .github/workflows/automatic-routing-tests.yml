@@ -1786,3 +1786,50 @@ jobs:
       # ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
       - name: Run A1 Lusha Macro-v2 search-plan catalog tests
         run: npm run test:lusha-macro-v2-plan-catalog
+
+      # AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 19 — la liquidación del presupuesto
+      # cuando el proveedor cobra MÁS de lo reservado.
+      #
+      # Por qué entra al check obligatorio y no basta con la revisión: el defecto que
+      # cierra la migración 121 no producía ningún rojo. `confirm_wizard_credits`
+      # devolvía `invalid_actual_credits`, no cambiaba nada, y las TRES rutas que
+      # liquidan —Lusha, Apollo y Tavily— descartaban ese valor (la de Lusha con
+      # `.catch(() => undefined)` sobre un `Promise<void>`; la compartida ignorando el
+      # `ConfirmWizardCreditsOutput` devuelto, que nunca lanza). El síntoma llegaba
+      # después y en otro sitio: la reserva se quedaba en `status = 'reserved'` para
+      # siempre y el índice único parcial `(user_id) WHERE status = 'reserved'`
+      # bloqueaba la corrida SIGUIENTE con `concurrent_execution_active`.
+      #
+      # Las dos invariantes que sólo se pueden vigilar automáticamente:
+      #   1. que el gasto real se guarde ENTERO. Un `LEAST(actual, reserved)` cabe en
+      #      una línea, arregla el síntoma y subcuenta exactamente la parte que
+      #      importa. El ratchet compara el delta del período contra 7 y contra 6;
+      #   2. que `confirmed_with_overage` se lea como ÉXITO en el wrapper y en las
+      #      tres rutas. Tratarlo como fallo reintroduciría el defecto desde el
+      #      llamador, con la reserva ya cerrada.
+      #
+      # Determinista y offline: módulos puros, dobles inyectados y lectura de fuente.
+      # Sin red, sin Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0
+      # escrituras. ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      - name: Run A1 budget overage reconciliation tests
+        run: npm run test:agent1:budget-overage-reconciliation
+
+      # La mitad que NINGUNA suite de TypeScript puede cubrir: que la 121 APLIQUE y que
+      # PostgreSQL se comporte como el hito afirma. Tres cosas concretas que sólo se
+      # demuestran con una base real —el 23514 de un sobrepaso en una reserva viva
+      # frente a su ausencia en una confirmada; que un solo UPDATE que mueve `status` y
+      # `credits_consumed` juntos se valide contra la fila FINAL; y que la corrida
+      # siguiente reciba `insufficient_budget` por la ARITMÉTICA del paso 10 de
+      # `try_reserve_wizard_credits`, no por ninguna constraint—. Aplica la cadena REAL
+      # (064 y 121) leyendo los archivos verbatim de `supabase/migrations`, e incluye
+      # una base paralela con SÓLO la 064 que prueba que el defecto existía.
+      #
+      # `embedded-postgres` ya está instalado por el paso de Agente 2A de más arriba, con
+      # la versión PINCHADA 17.6.0-beta.15 (la serie de Producción; el rango `@17` no
+      # resuelve). `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el skip en FALLO: sin
+      # ella, que el arnés no resolviera pondría este paso verde con una migración
+      # inaplicable. Sin `continue-on-error` y sin `|| true`.
+      - name: Run A1 budget overage tests against real PostgreSQL
+        run: npm run test:agent1:budget-overage-reconciliation:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
