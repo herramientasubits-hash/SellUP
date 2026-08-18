@@ -925,13 +925,37 @@ describe('§ 15 — descubrimiento macro intacto', () => {
 // ══════════════════════════════════════════════════════════════════════════════
 
 describe('§ 22 — este hito no añade ni aplica migraciones', () => {
-  it('la última migración del repositorio sigue siendo la 119', () => {
+  // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+  // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+  // identidad NATIVA del proveedor y SIN cuenta. Nada que ver con el catálogo de industrias:
+  // no toca `industry_catalog_versions`, ni `macro_industry_catalog`, ni la 118/119.
+  //
+  // Lo que ESTA guarda protege no es el número más alto del directorio —sube cada vez que un
+  // bloque autorizado añade el suyo— sino que este hito de catálogo no aportó migración y que
+  // la 119 siga siendo el cutover y sólo eso, que es lo que se afirma justo abajo.
+  it('la última migración del repositorio es la 120, y el catálogo no aportó ninguna', () => {
     const files = execSync('ls supabase/migrations', { cwd: ROOT, encoding: 'utf8' })
       .split('\n')
       .filter((f) => f.endsWith('.sql'))
       .sort();
     const last = files[files.length - 1];
-    assert.match(last, /^119_/);
+    assert.match(last, /^120_/);
+    // Y por encima de la 119 no hay NINGUNA migración de catálogo.
+    const aboveCatalog = files.filter((f) => Number.parseInt(f.slice(0, 3), 10) > 119);
+    assert.deepEqual(aboveCatalog, ['120_provider_native_phone_suppression.sql']);
+    const sql = read('supabase/migrations/120_provider_native_phone_suppression.sql');
+    for (const table of [
+      'industry_catalog_versions',
+      'macro_industry_catalog',
+      'active_macro_industry_catalog',
+      'active_industry_catalog',
+    ]) {
+      assert.equal(
+        sql.includes(table),
+        false,
+        `la 120 no puede tocar ${table}`,
+      );
+    }
   });
 
   it('la 119 sigue siendo el cutover, y sólo eso', () => {
