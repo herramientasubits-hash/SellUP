@@ -477,6 +477,11 @@ describe('4O-G — alcance', () => {
       'src/modules/contact-enrichment/__tests__/candidate-stored-phones-core-4o-g.test.ts',
       'src/modules/contact-enrichment/__tests__/candidate-stored-phones-static-4o-g.test.ts',
       'src/components/contact-enrichment/__tests__/candidate-stored-phones-ui-4o-g.test.tsx',
+      // ASYNC-UI-REFRESH-1: consumidor de PRUEBA, no de producción. Mockea la acción
+      // de resumen para fijar las dos mitades de la regla de 4O-G sobre el ciclo de
+      // vida asíncrono — 1 teléfono guardado NO ofrece el CTA, >1 sí— justo después de
+      // que el reveal cierre. No importa la lectura ni ningún camino de gasto.
+      'src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-async-ui-refresh.test.tsx',
       // No importa nada: nombra el módulo para fijar que el barrido de P0-R4
       // sigue cubriéndolo. Es una guarda sobre 4O-G, no un consumidor suyo.
       'src/__tests__/use-server-export-contract-p0-r4.test.ts',
