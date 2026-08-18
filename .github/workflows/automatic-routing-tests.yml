@@ -1688,3 +1688,27 @@ jobs:
       # ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
       - name: Run Lusha hidden-provider safety tests
         run: npm run test:lusha-hidden-provider
+
+      # AGENT1-LUSHA-MACRO-V2-PLAN-CATALOG-1 § 9 — el catálogo de planes de búsqueda
+      # de Lusha para las 12 Macro Industrias es una lista de IDs numéricos, que es
+      # exactamente la clase de dato que una revisión humana aprueba mal: `12` y `13`
+      # se leen igual, y un sub colgado del padre equivocado produce un filtro que el
+      # proveedor ACEPTA y que devuelve otro sector. El fallo no sale en rojo, sale
+      # como «Lusha trajo empresas raras» DESPUÉS de gastar créditos.
+      #
+      # Entra al check OBLIGATORIO por dos invariantes que sólo se pueden vigilar
+      # automáticamente:
+      #   1. cada ID se compara contra `LUSHA_INDUSTRY_METADATA`, la captura literal
+      #      del endpoint gratuito del proveedor — no contra una constante escrita al
+      #      lado, que se movería junto con el error;
+      #   2. un ratchet estático prueba que NINGÚN módulo de runtime importa el
+      #      catálogo. Ése es el corazón del PR: el ejecutor de hoy pagina UNA
+      #      búsqueda, así que si el catálogo mandara ya, una macro de 3 ramas se
+      #      anunciaría soportada y se ejecutaría como su PRIMERA rama solamente.
+      #      Un cableado accidental no se nota en verde; aquí rompe el merge.
+      #
+      # Determinista y offline: módulos puros + lectura de fuente. Sin red, sin
+      # Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      - name: Run A1 Lusha Macro-v2 search-plan catalog tests
+        run: npm run test:lusha-macro-v2-plan-catalog

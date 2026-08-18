@@ -38,6 +38,7 @@ import {
   LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
 } from './lusha-pending-review';
 import type { LushaCompanyProspectingPricingConfig } from '@/server/integrations/lusha-company-prospecting-billing';
+import type { LushaMacroSearchPlan } from './lusha-macro-search-plan';
 
 /**
  * Desglose del peor caso económico de una corrida Lusha.
@@ -146,4 +147,54 @@ export function toLushaRunLiabilityMetadata(
     normalized_budget_credits: liability.normalizedBudgetCredits,
     estimated_max_cost_usd: liability.estimatedMaxCostUsd,
   };
+}
+
+// ── Techo por PLAN de macro industria (§ 4 de PLAN-CATALOG-1) ─────────────────
+
+/**
+ * Peor caso económico de una macro industria compuesta.
+ *
+ * Cada rama de `LushaMacroSearchPlan` es una búsqueda propia y se pagina por
+ * separado, así que el techo se multiplica por el número de ramas:
+ *
+ *     ramas × LUSHA_PENDING_REVIEW_MAX_PAGES × créditos por página
+ *     1 rama → 2 · 2 ramas → 4 · 3 ramas → 6
+ *
+ * Con el catálogo aprobado el máximo del catálogo entero es **6**
+ * (`energy_mining_environment` y `services_company`, de 3 ramas cada una).
+ *
+ * ── 🔴 Por qué NADIE llama a esto todavía ─────────────────────────────────────
+ *
+ * `estimateLushaRunCredits()` sigue siendo la única función que la reserva usa,
+ * y sigue devolviendo 2. Esto NO es un olvido de cableado: el ejecutor de hoy
+ * pagina una sola búsqueda, así que una corrida real no puede gastar más de 2 y
+ * reservar 6 bloquearía corridas que caben. El día que el ejecutor itere ramas,
+ * el número que reserva y el número que puede gastar cambian EN EL MISMO commit,
+ * y esta función es la que ya está probada para ese momento.
+ *
+ * El tipo llega por `import type`: este módulo no crea ninguna arista de runtime
+ * hacia el catálogo, y una suite estática vigila esa propiedad.
+ *
+ * Puro: `plan` entra por parámetro y sólo se lee `branches.length`.
+ */
+export function resolveLushaMacroPlanMaxProviderCredits(
+  plan: Pick<LushaMacroSearchPlan, 'branches'>,
+): number {
+  return plan.branches.length * resolveLushaRunMaxProviderCredits();
+}
+
+/**
+ * El techo de la macro industria MÁS cara del catálogo que se le pase.
+ *
+ * Es la cifra que un futuro gate de presupuesto multi-rama tendría que poder
+ * cubrir en el peor caso. Se calcula sobre los planes recibidos —no sobre una
+ * constante— para que añadir una rama a cualquier macro lo mueva solo.
+ */
+export function resolveLushaMacroCatalogMaxProviderCredits(
+  plans: readonly Pick<LushaMacroSearchPlan, 'branches'>[],
+): number {
+  return plans.reduce(
+    (max, plan) => Math.max(max, resolveLushaMacroPlanMaxProviderCredits(plan)),
+    0,
+  );
 }
