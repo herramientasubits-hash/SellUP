@@ -1648,3 +1648,22 @@ jobs:
 
       - name: Run Lusha LinkedIn and excluded duplicates tests
         run: npm run test:lusha-linkedin-and-excluded-duplicates
+
+      # AGENT1-LUSHA-BUDGET-GATE-1 § 14 — la ruta Lusha de Agente 1 no tenía NINGUNA
+      # puerta económica: con `ENABLE_LUSHA_PREVIEW` encendido resolvía la credencial,
+      # construía el cliente y llamaba al proveedor sin que nada hubiera reservado
+      # créditos, mientras Apollo/Tavily no pueden dar un paso sin
+      # `try_reserve_wizard_credits`. Este paso vigila que la reserva siga estando
+      # ARRIBA de la llamada al proveedor.
+      #
+      # Entra al check OBLIGATORIO porque el defecto que cubre es invisible en verde:
+      # un `guardLushaRunBudget` correcto y NO cableado deja el gasto exactamente
+      # donde estaba, y eso sólo se notaría con créditos reales. Por eso la suite
+      # incluye un ratchet ESTÁTICO de orden dentro de la propia server action, no
+      # sólo pruebas del seam puro.
+      #
+      # Determinista y offline: seam puro con contadores + ratchet estático + render
+      # jsdom. Sin red, sin Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y
+      # 0 escrituras. ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa nada.
+      - name: Run A1 Lusha global budget gate tests
+        run: npm run test:lusha-budget-gate

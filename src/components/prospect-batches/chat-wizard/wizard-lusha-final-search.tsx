@@ -38,6 +38,11 @@ import {
 } from '@/modules/prospect-batches/lusha-pending-review-actions';
 import type { WizardLushaInput } from '@/modules/prospect-batches/wizard-lusha-criteria';
 import type { WizardFinalRecap } from '@/modules/prospect-batches/wizard-final-summary';
+// AGENT1-LUSHA-BUDGET-GATE-1 § 6 — mismo comparador y mismo redactor que la ruta
+// Apollo, para que el aviso previo de Lusha no pueda divergir del suyo.
+import type { WizardBudgetPreflight } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
+import { resolveLushaPreExecutionBudgetBlock } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
+import { mapBudgetExceeded } from './wizard-execution-error-map';
 
 export const WIZARD_LUSHA_SEARCH_LABEL = 'Buscar con IA';
 export const WIZARD_LUSHA_SEARCH_LOADING_LABEL = 'Buscando con IA…';
@@ -70,7 +75,7 @@ export const WIZARD_LUSHA_TOPUP_COST_NOTICE =
 
 /** Injectable persist runner (tests). Default = real server action. */
 export type RunLushaPendingReviewSearch = (
-  input: WizardLushaInput,
+  input: WizardLushaInput & { clientRequestId: string },
 ) => Promise<GenerateLushaPendingReviewBatchActionResult>;
 
 /** The step labels shown while the search + persistence runs (display only). */
@@ -93,6 +98,18 @@ export interface WizardLushaFinalSearchProps {
   recap?: WizardFinalRecap;
   /** Inyectable para tests. Por defecto usa la server action real. */
   runPersist?: RunLushaPendingReviewSearch;
+  /**
+   * AGENT1-LUSHA-BUDGET-GATE-1 § 6 — instantánea del período global de Agente 1,
+   * resuelta en el servidor. `null` = no se pudo leer ⇒ NO se bloquea nada: la
+   * reserva atómica del servidor sigue siendo la única autoridad y este aviso
+   * sólo puede retirar una oferta cuyo rechazo ya se conoce.
+   */
+  budgetPreflight?: WizardBudgetPreflight | null;
+  /**
+   * Acuñador del `clientRequestId` de la reserva. Inyectable para tests
+   * deterministas; por defecto `crypto.randomUUID()`.
+   */
+  newClientRequestId?: () => string;
   /** Ir a Prospectos (cierra el drawer y refresca la lista). */
   onViewProspects?: () => void;
   /** Reiniciar el wizard para una nueva búsqueda. */
@@ -103,6 +120,8 @@ export function WizardLushaFinalSearch({
   input,
   recap,
   runPersist = generateLushaPendingReviewBatchAction,
+  budgetPreflight = null,
+  newClientRequestId = () => crypto.randomUUID(),
   onViewProspects,
   onGenerateAnother,
 }: WizardLushaFinalSearchProps) {
@@ -110,13 +129,36 @@ export function WizardLushaFinalSearch({
   const [result, setResult] =
     React.useState<GenerateLushaPendingReviewBatchActionResult | null>(null);
 
+  // AGENT1-LUSHA-BUDGET-GATE-1 § 6 — bloqueo PREVIO al primer clic.
+  //
+  // Tres propiedades que este bloque no puede romper (las mismas que rigen el
+  // preflight de Apollo):
+  //   · No autoriza nada. Sólo retira una oferta; la reserva atómica sigue
+  //     decidiendo, y la carrera «la UI dice que cabe / otra corrida se lo gasta»
+  //     la resuelve ella.
+  //   · Sin instantánea no bloquea: convertir «no pude leer» en «no puedes
+  //     ejecutar» bloquearía a todo el mundo por un error de diagnóstico.
+  //   · No inventa cifras: sin techo resoluble no hay aviso.
+  const budgetBlock = resolveLushaPreExecutionBudgetBlock(budgetPreflight);
+  const budgetMessage = budgetBlock !== null ? mapBudgetExceeded(budgetBlock).message : null;
+  const requiredCredits = budgetPreflight?.lushaRequiredCredits ?? null;
+  const availableCredits = budgetPreflight?.availableCredits ?? null;
+
   // IMPORTANTE: única vía de ejecución. Invocada solo por el onClick del botón.
   async function handleSearch() {
     if (status === 'loading') return;
+    // El aviso es informativo; el bloqueo real lo aplica la reserva atómica del
+    // servidor. Esta salida temprana sólo evita un viaje que ya se sabe rechazado.
+    if (budgetBlock !== null) return;
     setStatus('loading');
     setResult(null);
     try {
-      const res = await runPersist(input);
+      // § 8 — clientRequestId FRESCO por clic. A diferencia del wizard Apollo
+      // —que lo conserva porque además ancla un slot de ejecución durable— aquí
+      // reutilizarlo dejaría que un reintento cabalgue una reserva YA liquidada
+      // (se liquida también en el camino de error), es decir, gastar sin reserva
+      // viva. Un id nuevo obliga a que cada llamada al proveedor tenga la suya.
+      const res = await runPersist({ ...input, clientRequestId: newClientRequestId() });
       setResult(res);
     } catch (err) {
       setResult({
@@ -190,11 +232,46 @@ export function WizardLushaFinalSearch({
           </AlertDescription>
         </Alert>
 
+        {/* § 6 — el presupuesto GLOBAL de Agente 1, el mismo que gobierna Apollo y
+            Tavily. Se muestra sólo cuando el servidor pudo resolver las dos
+            cifras: media instantánea no explica nada. */}
+        {availableCredits !== null && requiredCredits !== null && (
+          <dl
+            className="rounded-xl border border-border bg-card divide-y divide-border/60 text-sm"
+            data-testid="lusha-budget-preflight"
+          >
+            <DetailRow
+              label="Presupuesto disponible"
+              value={String(availableCredits)}
+              testId="lusha-budget-available"
+            />
+            <DetailRow
+              label="Máximo que puede consumir esta búsqueda"
+              value={String(requiredCredits)}
+              testId="lusha-budget-required"
+            />
+          </dl>
+        )}
+
+        {/* Mismo tratamiento visual que el bloqueo previo de Apollo, y el mismo
+            redactor: el bloqueo es igual de real, sólo se conoce antes.
+            `role="alert"` porque aparece sin que la usuaria haya actuado. */}
+        {budgetMessage !== null && (
+          <div
+            className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3"
+            role="alert"
+            data-testid="lusha-budget-preflight-notice"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+            <p className="text-xs text-destructive">{budgetMessage}</p>
+          </div>
+        )}
+
         <Button
           type="button"
           size="sm"
           className="gap-2"
-          disabled={status === 'loading'}
+          disabled={status === 'loading' || budgetBlock !== null}
           onClick={handleSearch}
           data-testid="lusha-preview-run"
         >
