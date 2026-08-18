@@ -526,7 +526,11 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
       // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
       // columna, no suelta constraint y no reescribe ninguna migración anterior.
-      '120_provider_native_phone_suppression.sql',
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono
+      // —toca `wizard_budget_reservations` y `confirm_wizard_credits`— y H0.5 sigue sin
+      // aportar esquema.
+      '121_wizard_budget_overage_reconciliation.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

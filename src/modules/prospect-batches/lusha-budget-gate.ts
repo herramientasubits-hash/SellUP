@@ -181,3 +181,97 @@ export function shouldReleaseLushaReservation(input: {
   if (typeof creditsChargedTotal === 'number' && creditsChargedTotal > 0) return false;
   return pagesRequested === 0;
 }
+
+// ── Liquidación observable (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 10/§ 11/§ 12) ──
+//
+// Lo que faltaba: `settleReservation` devolvía `Promise<void>` y sus dos llamadas
+// hacían `.catch(() => undefined)`. Eso deja TRES hechos distintos —liquidada,
+// liquidada con sobrepaso, y no liquidada— con exactamente la misma huella: ninguna.
+// El sobrepaso que la migración 121 ahora sabe registrar seguiría siendo invisible,
+// y un fallo de reconciliación (la RPC caída, credenciales de servicio ausentes)
+// también.
+//
+// Estos tipos y funciones son PUROS: no escriben en consola, no leen entorno y no
+// tocan la DB. Deciden QUÉ es digno de registrarse y con qué campos; quién lo
+// escribe es la server action. Así el contenido del log se puede probar sin
+// interceptar `console`.
+
+/** Resultado de liquidar la reserva de una corrida Lusha. Nunca lanza. */
+export type LushaBudgetSettlementOutcome =
+  | { status: 'confirmed' }
+  | {
+      status: 'confirmed_with_overage';
+      creditsReserved: number;
+      creditsActual: number;
+      overageCredits: number;
+    }
+  | { status: 'released' }
+  /** La reserva ya estaba cerrada (confirmada o liberada): nada que liquidar. */
+  | { status: 'already_terminal' }
+  /** La liquidación NO ocurrió. `code` es una clasificación estable, nunca un mensaje crudo. */
+  | {
+      status: 'failed';
+      code: string;
+      /**
+       * Los créditos que se INTENTÓ liquidar. `null` cuando la liquidación fue una
+       * liberación (no hay número que confirmar) o cuando lanzó antes de decidirlo.
+       */
+      creditsReportedActual: number | null;
+    };
+
+/** Código estable del log de sobrepaso confirmado. */
+export const LUSHA_BUDGET_OVERAGE_LOG_CODE = 'lusha_budget_overage_confirmed' as const;
+
+/** Código estable del log de liquidación fallida. */
+export const LUSHA_BUDGET_SETTLEMENT_FAILED_LOG_CODE =
+  'lusha_budget_settlement_failed' as const;
+
+/** Clasificación cuando la liquidación lanzó en lugar de devolver un código de la RPC. */
+export const LUSHA_BUDGET_SETTLEMENT_THREW_CODE = 'settlement_threw' as const;
+
+/**
+ * Telemetría segura de una liquidación, o `null` cuando no hay nada que reportar.
+ *
+ * Sólo dos salidas producen log: el sobrepaso (§ 11) y el fallo (§ 12). Una
+ * liquidación normal, una liberación y un `already_terminal` son el curso esperado
+ * y ya viajan en el log de la corrida.
+ *
+ * Los campos son deliberadamente CIFRAS e IDs internos. Nada de payload crudo del
+ * proveedor, nada de clave de API, ningún dato de la empresa o de la persona: un log
+ * de contabilidad no necesita saber a quién se buscó, y si lo supiera se convertiría
+ * en una copia no gobernada de los datos del proveedor.
+ */
+export function buildLushaBudgetSettlementTelemetry(
+  outcome: LushaBudgetSettlementOutcome,
+  context: { reservationId: string; creditsReserved: number; batchId?: string | null },
+): { code: string; payload: Record<string, unknown> } | null {
+  if (outcome.status === 'confirmed_with_overage') {
+    return {
+      code: LUSHA_BUDGET_OVERAGE_LOG_CODE,
+      payload: {
+        provider: 'lusha',
+        reservationId: context.reservationId,
+        creditsReserved: outcome.creditsReserved,
+        creditsReportedActual: outcome.creditsActual,
+        overageCredits: outcome.overageCredits,
+        batchId: context.batchId ?? null,
+      },
+    };
+  }
+
+  if (outcome.status === 'failed') {
+    return {
+      code: LUSHA_BUDGET_SETTLEMENT_FAILED_LOG_CODE,
+      payload: {
+        provider: 'lusha',
+        reservationId: context.reservationId,
+        creditsReserved: context.creditsReserved,
+        creditsReportedActual: outcome.creditsReportedActual,
+        rpcCode: outcome.code,
+        batchId: context.batchId ?? null,
+      },
+    };
+  }
+
+  return null;
+}

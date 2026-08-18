@@ -78,6 +78,14 @@ export type ReserveCreditsResult =
 
 export type ConfirmCreditsResult =
   | 'confirmed'
+  // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 (migración 121) — la liquidación SÍ ocurrió
+  // y es terminal; lo que la distingue de `confirmed` es que el proveedor cobró MÁS
+  // de lo reservado y el período registró el excedente entero. Es un ÉXITO, no un
+  // error: tratarla como fallo devolvería el defecto que la 121 cierra (la reserva
+  // se quedaba en `reserved` y bloqueaba la corrida siguiente). Se mantiene como
+  // código propio —y no colapsado en `confirmed`— porque un sobrepaso real es lo
+  // único que el llamador tiene que poder registrar sin volver a leer la fila.
+  | 'confirmed_with_overage'
   | 'already_confirmed'
   | 'reservation_not_found'
   | 'invalid_actual_credits';
@@ -133,10 +141,38 @@ export type ConfirmWizardCreditsInput = {
   reservationId: string;
   actualCreditsConsumed: number;
   batchId?: string | null;
+  /**
+   * Lo que la reserva sostiene, SÓLO para poder describir un sobrepaso.
+   *
+   * Opcional y sin efecto sobre la liquidación: quien decide si hubo sobrepaso es
+   * la RPC (que tiene la fila bloqueada), nunca este número. Cuando falta, la
+   * salida `confirmed_with_overage` llega con `creditsReserved`/`overageCredits`
+   * en `null` — el sobrepaso sigue siendo un hecho, sólo sin su magnitud, y eso
+   * es preferible a inventarla o a hacer una segunda lectura que puede fallar.
+   */
+  creditsReserved?: number | null;
 };
 
 export type ConfirmWizardCreditsOutput =
   | { status: 'confirmed' }
+  /**
+   * Liquidada con sobrepaso (migración 121). Es un resultado EXITOSO.
+   *
+   * Lleva las dos cifras porque el llamador ya no puede derivarlas: la RPC no
+   * devuelve la fila, y `credits_reserved` se conserva a propósito sin reescribir
+   * (el par reservado/consumido ES la evidencia del sobrepaso). Sin ellas, un log
+   * de sobrepaso tendría que releer `wizard_budget_reservations` —una segunda
+   * lectura que puede fallar— para poder decir de cuánto fue.
+   *
+   * `creditsReserved` y `creditsActual` son lo que el llamador pidió y lo que la
+   * RPC confirmó; `overageCredits` es la diferencia, siempre > 0 en esta rama.
+   */
+  | {
+      status: 'confirmed_with_overage';
+      creditsReserved: number | null;
+      creditsActual: number;
+      overageCredits: number | null;
+    }
   | { status: 'already_confirmed' }
   | { status: 'error'; code: ConfirmCreditsResult; message: string };
 
