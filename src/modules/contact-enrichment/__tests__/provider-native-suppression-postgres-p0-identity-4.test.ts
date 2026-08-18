@@ -712,7 +712,10 @@ describe('120 — supresión nativa del proveedor contra PostgreSQL real', { ski
       }
     });
 
-    it('la firma sigue siendo (text, uuid): las 110/111 no se restataron', async () => {
+    // R1 restató 110/111 para cablear el re-chequeo nativo de Lusha en el call site. La
+    // FIRMA de este helper sigue siendo la misma a propósito: #289 la nombra, y cambiarla
+    // volvería a hacer de "sin cuenta" un "sin privacidad".
+    it('la firma sigue siendo (text, uuid), que es de lo que depende #289', async () => {
       assert.equal(
         await scalar<string>(`
           SELECT pg_get_function_identity_arguments(p.oid)

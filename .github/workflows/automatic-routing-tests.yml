@@ -891,6 +891,30 @@ jobs:
       - name: Run P0 pre-approval phone identity eligibility tests
         run: npm run test:agent2a:p0-preapproval-phone-identity
 
+      # AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) — la privacidad del teléfono deja
+      # de estar clavada a la CACHÉ de Apollo: pasa a `provider_suppressions`, con clave
+      # (provider, provider_person_id) y SIN cuenta. Estas suites fijan lo que sólo se
+      # rompe en silencio: que la identidad se resuelva con la MISMA precedencia en la
+      # puerta y en el escritor, que un titular de LUSHA sea expresable, que un fallo de
+      # lectura NO se lea como «no suprimido», y que la firma del helper no gane un
+      # parámetro de cuenta —el momento en que «sin cuenta» volvería a significar «sin
+      # privacidad»—. Determinista: sin flags, sin proveedores, sin créditos, sin DB real.
+      - name: Run provider-native phone suppression tests
+        run: npm run test:agent2a:provider-native-suppression
+
+      # AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4-R1 — la última capa. La Fase 1 dejaba el
+      # re-chequeo DENTRO de la transacción final resolviendo la clave con reglas de
+      # Apollo, así que un candidato de origen Lusha sin `apollo_person_id` no era
+      # comprobado en absoluto ahí: para Lusha la última palabra la tenía una lectura
+      # previa a la llamada al proveedor y fuera del lock. Estos ratchets son ESTÁTICOS a
+      # propósito: la prueba de la carrera necesita PostgreSQL real y su arnés es opcional
+      # (`embedded-postgres` no es dependencia del repo), así que sin estas afirmaciones
+      # sobre el texto de la 120 la garantía no estaría protegida por el check
+      # obligatorio. Incluyen el lexer que detecta un literal SQL sin cerrar — la clase de
+      # fallo que impide aplicar una migración ENTERA y que ningún test de TypeScript ve.
+      - name: Run provider-native transactional re-check ratchets
+        run: npm run test:agent2a:provider-native-transactional-recheck
+
       # El módulo de presupuestos, cuyo resolver es ahora la fuente económica canónica.
       - name: Run budget module tests
         run: npm run test:budgets
