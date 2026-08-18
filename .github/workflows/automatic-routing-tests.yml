@@ -1623,3 +1623,52 @@ jobs:
       # red, sin Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
       - name: Run A1 Apollo tax dedupe recheck tests
         run: npm run test:agent1:apollo-tax-dedupe-recheck
+
+      # AGENT1-APOLLO-SHARED-ADOPTION-CI-GUARD-1 — la suite de adopción del seam
+      # compartido de #292 ya existía y pasaba 20/20 en local, pero NINGÚN paso del
+      # check obligatorio la ejecutaba: el log del último run en main no contiene ni
+      # una sola aparición de `apollo-shared-intake-adoption`. El paso vecino «shared
+      # intake pipeline adoption tests» corre `test:lusha-shared-pipeline`, otra suite;
+      # el parecido del nombre es justo lo que hacía pasar la cobertura por hecha.
+      #
+      # Entra al check OBLIGATORIO porque lo que vigila es invisible en verde: si
+      # Apollo deja de adoptar el adapter/normalizer/enrichment compartidos y vuelve a
+      # una copia propia, el pipeline sigue pasando y la regresión sólo se ve en vivo.
+      #
+      # Determinista y offline: mocks de módulo por alias, sin red, sin Supabase, sin
+      # Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      - name: Run A1 Apollo shared intake adoption tests
+        run: npm run test:a1-apollo-shared-intake-adoption
+
+      # AGENT1-LUSHA-CI-GUARD-1 — la superficie de regresión de Lusha Agente 1 ya
+      # estaba CONSTRUIDA (253 tests entre las cinco suites) pero NINGUNA entraba al
+      # check obligatorio: el runtime que se pretende activar no tenía red de
+      # seguridad en CI. Se cablea ANTES de cualquier activación, no después.
+      #
+      # Los cinco pasos son directos y fail-closed (sin `continue-on-error`, sin
+      # `|| true`): lo que vigilan —pending-review, paridad de duplicados, preview,
+      # mapeo de sector y LinkedIn/duplicados excluidos— es invisible en verde, y una
+      # regresión ahí sólo se vería con gasto real de proveedor.
+      #
+      # `test:lusha-pending-review` incluye por diseño los ficheros de
+      # duplicate-parity y topup (el solape es del script npm existente, no se
+      # introduce aquí); el paso propio de duplicate-parity se mantiene porque es el
+      # que nombra el invariante y el que falla solo si esa paridad se rompe.
+      #
+      # Deterministas y offline: mocks de módulo por alias, sin red, sin Supabase, sin
+      # Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: estas suites no activan el proveedor.
+      - name: Run Lusha pending-review persistence tests
+        run: npm run test:lusha-pending-review
+
+      - name: Run Lusha duplicate parity tests
+        run: npm run test:lusha-duplicate-parity
+
+      - name: Run Lusha preview tests
+        run: npm run test:lusha-preview
+
+      - name: Run Lusha sector mapping tests
+        run: npm run test:lusha-sector-mapping
+
+      - name: Run Lusha LinkedIn and excluded duplicates tests
+        run: npm run test:lusha-linkedin-and-excluded-duplicates
