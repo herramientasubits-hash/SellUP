@@ -1667,3 +1667,24 @@ jobs:
       # 0 escrituras. ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa nada.
       - name: Run A1 Lusha global budget gate tests
         run: npm run test:lusha-budget-gate
+
+      # AGENT1-LUSHA-HIDDEN-PROVIDER-TEST-REPAIR-1 § 5 — Lusha es un proveedor
+      # OCULTO: el usuario nunca lo elige. Esta suite es la que vigila esa propiedad
+      # de extremo a extremo — que no reaparezcan pestañas ni selector de fuente, que
+      # el paso final monte `WizardLushaFinalSearch` SÓLO cuando la ruta está honrada
+      # (`ENABLE_LUSHA_PREVIEW` encendido Y `isLushaRouteHonored`), que ese paso no
+      # auto-ejecute ni exponga CTA de persistencia/HubSpot/enriquecimiento, y que el
+      # resolver y el puente de criterios sigan siendo módulos PUROS que no importan
+      # runtime de proveedor, red ni DB.
+      #
+      # Entra al check OBLIGATORIO porque estaba ausente de él y llevaba dos
+      # aserciones caducadas fallando en `main` sin bloquear nada: una suite que puede
+      # fallar en rojo sin consecuencia deja de ser una garantía. Cableada aquí, una
+      # regresión del proveedor oculto —o un import de proveedor colado en el
+      # resolver— rompe el merge en vez de pasar inadvertida.
+      #
+      # Determinista y offline: lectura de fuente + render jsdom. Sin red, sin
+      # Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      - name: Run Lusha hidden-provider safety tests
+        run: npm run test:lusha-hidden-provider
