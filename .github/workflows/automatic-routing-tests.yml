@@ -1930,6 +1930,40 @@ jobs:
       - name: Run A1 Lusha target exactness + Macro-v2 precision tests
         run: npm run test:a1-lusha-target-precision
 
+      # AGENT1-LUSHA-PROVIDER-USAGE-OBSERVABILITY-1 — la corrida Lusha deja UNA fila
+      # canónica en `provider_usage_logs`, que es lo único que la primera corrida REAL
+      # (19-08) NO dejó: facturó de forma veraz en la reserva, en el lote y en la
+      # telemetría multi-rama, y fue invisible en el ledger que Apollo y Tavily sí
+      # alimentan. Lo que esta suite hace obligatorio, y que ninguna anterior veía:
+      #
+      #   · UNA fila AGREGADA por corrida. Una por rama o una por página
+      #     multiplicaría el mismo gasto por el número de páginas — la mutación M1
+      #     comprueba que emitir una por rama vuelve a poner la suite en rojo.
+      #   · el importe es el LIQUIDADO, no el reservado (M2), y un sobrepaso se
+      #     publica SIN recorte: M121 sigue siendo la única autoridad de gasto.
+      #   · `results_returned` son las filas CRUDAS que la petición pagó, no los
+      #     candidatos persistidos (M3) — 30, nunca 5.
+      #   · la idempotencia se apoya en `usage_key`, el ÚNICO índice único que
+      #     Producción tiene para esto (`idempotency_key` está indexada pero NO es
+      #     única), así que una reentrada no puede abrir una 2ª fila económica (M4).
+      #   · un fallo de observabilidad NO puede replay-ear al proveedor ni volver a
+      #     liquidar (M5): si se propagara, el `catch` de la acción liquidaría dos
+      #     veces y devolvería un error por una corrida ya cobrada, invitando a un
+      #     reintento que gastaría otra vez.
+      #   · el registrador no puede reservar/confirmar/liberar créditos (M6) ni
+      #     escribir `agent_runs` (M7): la frontera de este hito es UNA tabla.
+      #
+      # Arrastra las suites que el cambio TOCA —el ratchet estático de la acción
+      # (invertido, no aflojado), pending-review, la correlación de corrida que se
+      # reutiliza, el gate de presupuesto— y la de columnas de correlación de Apollo,
+      # porque el motor de inserción se EXTRAJO a un módulo neutral compartido: una
+      # regresión ahí cambiaría las filas de las DOS rutas.
+      #
+      # Entra en el MISMO job que el resto de las guardas: un contexto requerido
+      # nuevo no protegería nada hasta que alguien lo marcara obligatorio.
+      - name: Run A1 Lusha provider usage observability tests
+        run: npm run test:a1-lusha-provider-usage-observability
+
       - name: Run A1 budget overage reconciliation tests
         run: npm run test:agent1:budget-overage-reconciliation
 
