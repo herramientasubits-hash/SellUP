@@ -1903,6 +1903,33 @@ jobs:
       - name: Run A1 Lusha Macro-v2 routing cutover tests
         run: npm run test:lusha-macro-v2-routing-cutover
 
+      # AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 §§ 2, 4, 5, 7, 9, 10, 11 — los dos
+      # defectos que sólo aparecieron cuando Lusha corrió DE VERDAD en Producción, y
+      # que ninguna suite anterior podía ver porque las dos son invisibles mientras
+      # el resultado «parece» correcto:
+      #
+      #   · EXACTITUD — con objetivo 5 se persistieron NUEVE. El tope de PETICIONES
+      #     funcionaba y por eso nadie lo notó: lo que faltaba era el tope de
+      #     ACEPTACIÓN dentro de una página ya pagada. El caso A reproduce la forma
+      #     literal del lote (4 + 5 revisables) y exige 5 exactos; la mutación
+      #     comprueba que sin el tope la aritmética vuelve a dar 9.
+      #   · PRECISIÓN — cinco Manufacturing genéricos entraron en una revisión de
+      #     salud con 100/100, porque el contraste comparaba en los dos sentidos y
+      #     `Pharmaceuticals Manufacturing` CONTIENE a `Manufacturing`. El ratchet
+      #     lee el cuerpo de `industryMatches` y prohíbe el `||` invertido; el caso D
+      #     es el negativo peligroso —la macro cuyo main ES Manufacturing tiene que
+      #     seguir admitiéndolo, o el arreglo vaciaría una macro entera—.
+      #
+      # Arrastra las suites que el arreglo TOCA (ejecutor multi-rama, preview,
+      # pending-review, paridad de duplicados) y las dos del catálogo macro, porque
+      # la decisión de evidencia se extrajo a un núcleo neutral compartido con Apollo:
+      # una regresión ahí cambiaría los veredictos de las DOS rutas.
+      #
+      # Entra en el MISMO job que el resto de las guardas: un contexto requerido
+      # nuevo no protegería nada hasta que alguien lo marcara obligatorio.
+      - name: Run A1 Lusha target exactness + Macro-v2 precision tests
+        run: npm run test:a1-lusha-target-precision
+
       - name: Run A1 budget overage reconciliation tests
         run: npm run test:agent1:budget-overage-reconciliation
 
