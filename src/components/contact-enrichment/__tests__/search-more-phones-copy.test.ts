@@ -26,8 +26,9 @@ import {
   getSearchMoreSuccessCopy,
   getSearchMoreProviderLine,
   getSearchMoreMaxCreditsLine,
-  getSearchMoreDeferredProvidersLine,
   getSearchMoreDisabledCopy,
+  SEARCH_MORE_CONFIRM_COST_WARNING,
+  SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY,
 } from '../search-more-phones-copy';
 import { PHONE_REVEAL_IDENTITY_BLOCKED_COPY } from '@/modules/contact-enrichment/phone-reveal-identity-eligibility';
 
@@ -40,14 +41,33 @@ const storedPhonesSource = readFileSync(STORED_PHONES_FILE, 'utf8');
 
 describe('AGENT2A-SEARCH-MORE-PHONES-1 · el costo se nombra ANTES del clic que gasta', () => {
   it('la confirmación dice explícitamente que puede consumir créditos', () => {
-    assert.match(SEARCH_MORE_CONFIRM_BODY, /puede consumir créditos/i);
+    assert.match(SEARCH_MORE_CONFIRM_COST_WARNING, /puede consumir créditos/i);
+  });
+
+  it('la advertencia de costo cubre el caso en que Lusha NO encuentre nada', () => {
+    // El punto entero de la frase. El desenlace más probable de esta compra es
+    // `no_new_distinct_phone`: Lusha contesta, cobra, y devuelve lo que ya estaba. Si la
+    // confirmación no dice eso, el operador cree que sólo paga cuando gana algo.
+    assert.match(SEARCH_MORE_CONFIRM_COST_WARNING, /aunque/i);
+    assert.match(SEARCH_MORE_CONFIRM_COST_WARNING, /no encuentre/i);
   });
 
   it('la confirmación NO promete encontrar nada', () => {
     // El resultado honesto más probable es que no haya números adicionales. Un copy que
     // prometiera hallazgos dejaría al operador leyendo el resultado como un fallo.
-    assert.match(SEARCH_MORE_CONFIRM_BODY, /intentará/i);
+    assert.match(SEARCH_MORE_CONFIRM_BODY, /intentar/i);
     assert.doesNotMatch(SEARCH_MORE_CONFIRM_BODY, /encontrarás|obtendrás|garantiza/i);
+  });
+
+  it('la confirmación NOMBRA a Lusha: el operador acepta un gasto concreto', () => {
+    // v1 es Lusha-only, así que «otra fuente disponible» sería una abstracción innecesaria
+    // sobre una decisión de compra. Se nombra el proveedor que se va a cobrar.
+    assert.match(SEARCH_MORE_CONFIRM_BODY, /lusha/i);
+    assert.doesNotMatch(
+      SEARCH_MORE_CONFIRM_BODY,
+      /apollo/i,
+      'Apollo no se consulta en esta operación: nombrarlo sería falso',
+    );
   });
 
   it('la confirmación ofrece las DOS salidas, y cancelar es una de ellas', () => {
@@ -72,18 +92,19 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · el costo se nombra ANTES del clic que 
 
   it('la fuente se nombra cuando se puede, y NUNCA se escribe «ninguna fuente»', () => {
     assert.equal(getSearchMoreProviderLine(['lusha']), 'Fuente que se consultará: Lusha.');
-    assert.equal(getSearchMoreProviderLine(['apollo']), 'Fuente que se consultará: Apollo.');
-    assert.equal(
-      getSearchMoreProviderLine(['lusha', 'apollo']),
-      'Fuentes que se consultarán: Lusha, Apollo.',
-    );
     assert.equal(getSearchMoreProviderLine([]), null, 'sin fuente, se omite la línea');
   });
 
-  it('avisa cuando aún quedará otra fuente después de esta corrida', () => {
-    // Sin esto, el operador leería el resultado de UNA fuente como el veredicto de todas.
-    assert.match(String(getSearchMoreDeferredProvidersLine(['apollo'])), /otra fuente/i);
-    assert.equal(getSearchMoreDeferredProvidersLine([]), null);
+  it('NO existe una línea de «fuentes diferidas», porque sería una promesa falsa', () => {
+    // Con UN solo proveedor, una corrida elegible agota todas las fuentes disponibles.
+    // Anunciar que «quedará otra fuente por consultar aparte» prometería una segunda
+    // operación que no existe — el tipo exacto de afirmación que este archivo prohíbe.
+    assert.doesNotMatch(
+      searchMoreSource,
+      /export function getSearchMoreDeferredProvidersLine/,
+      'la línea de diferidos no puede volver mientras v1 sea Lusha-only',
+    );
+    assert.doesNotMatch(searchMoreSource, /quedará otra fuente/i);
   });
 });
 
@@ -108,19 +129,72 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · el resultado no afirma más de lo que 
     assert.doesNotMatch(SEARCH_MORE_EXHAUSTED_COPY, /vuelve a intentar|más tarde|reintent/i);
   });
 
+  it('§18: el fallo del proveedor TAMPOCO promete un reintento', () => {
+    // Una corrida `search_more` terminal agota Lusha para este candidato, y eso incluye el
+    // desenlace `error`. Prometer «vuelve a intentarlo» ofrecería una compra que el
+    // planificador ya no autoriza, y el operador encontraría el botón deshabilitado.
+    assert.doesNotMatch(
+      SEARCH_MORE_PROVIDER_ERROR_COPY,
+      /vuelve a intentar|inténtalo de nuevo|reintent/i,
+    );
+    // Lo que SÍ dice: que no se perdió nada. El teléfono que ya había sigue ahí.
+    assert.match(SEARCH_MORE_PROVIDER_ERROR_COPY, /sigue disponible/i);
+  });
+
   it('el bloqueo de privacidad REUTILIZA el copy del reveal, no escribe otro', () => {
     // Dos redacciones del mismo bloqueo se separarían en cuanto una se corrigiera.
     assert.equal(SEARCH_MORE_PRIVACY_BLOCKED_COPY, PHONE_REVEAL_IDENTITY_BLOCKED_COPY);
   });
 
-  it('ningún copy de resultado nombra un proveedor: el operador no compra por marca', () => {
+  // ── El desenlace que SÓLO esta operación produce ──────────────
+
+  it('«no hay números DISTINTOS» es una cadena propia, no un alias de «no encontramos»', () => {
+    // Los dos hechos son distintos y el copy no puede colapsarlos: en `no_phone_found`
+    // Lusha no tiene nada; en `no_new_distinct_phone` Lusha tiene, cobró, y es el mismo.
+    assert.notEqual(
+      SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY,
+      SEARCH_MORE_NO_NEW_PHONES_COPY,
+    );
+    assert.match(SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY, /diferentes/i);
+    assert.doesNotMatch(
+      SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY,
+      /no tiene teléfono|sin teléfono|no encontramos números adicionales/i,
+      'Lusha SÍ tiene teléfono para esta persona: es el que ya está guardado',
+    );
+  });
+
+  it('ningún copy de resultado afirma que el contacto NO tiene teléfono', () => {
     for (const copy of [
       SEARCH_MORE_NO_NEW_PHONES_COPY,
+      SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY,
       SEARCH_MORE_EXHAUSTED_COPY,
       SEARCH_MORE_PROVIDER_ERROR_COPY,
       getSearchMoreSuccessCopy(2),
     ]) {
-      assert.doesNotMatch(copy, /apollo|lusha/i, copy);
+      assert.doesNotMatch(copy, /no tiene teléfono|sin teléfono/i, copy);
+    }
+  });
+
+  // INVERSIÓN DELIBERADA (v1 Lusha-only). La versión anterior de esta suite exigía que
+  // NINGÚN copy de resultado nombrara un proveedor, con el argumento de que «el operador no
+  // compra por marca». La decisión de la dueña invierte la premisa: v1 consulta a Lusha y
+  // sólo a Lusha, así que el resultado puede —y debe— decir DE QUÉ FUENTE habla. La regla
+  // que sobrevive, y que es la que realmente protegía algo, es que NINGÚN copy pueda nombrar
+  // a APOLLO: Apollo no se consulta aquí, y nombrarlo describiría una operación inexistente.
+  it('ningún copy de esta operación nombra a APOLLO', () => {
+    for (const copy of [
+      SEARCH_MORE_CTA_LABEL,
+      SEARCH_MORE_CONFIRM_TITLE,
+      SEARCH_MORE_CONFIRM_BODY,
+      SEARCH_MORE_CONFIRM_COST_WARNING,
+      SEARCH_MORE_NO_NEW_PHONES_COPY,
+      SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY,
+      SEARCH_MORE_EXHAUSTED_COPY,
+      SEARCH_MORE_PROVIDER_ERROR_COPY,
+      getSearchMoreSuccessCopy(2),
+      String(getSearchMoreProviderLine(['lusha'])),
+    ]) {
+      assert.doesNotMatch(copy, /apollo/i, copy);
     }
   });
 });

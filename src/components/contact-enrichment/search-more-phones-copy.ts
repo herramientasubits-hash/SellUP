@@ -20,6 +20,10 @@
 //    con la pagada. Un test estático verifica que este archivo NO reutilice el verbo VER
 //    para su acción, y que el de 4O-G no use verbos de búsqueda.
 //
+//    Por eso el proveedor se NOMBRA. v1 consulta a Lusha y sólo a Lusha, así que la
+//    confirmación puede decir «Lusha» en vez de «otra fuente disponible»: el operador
+//    acepta un gasto concreto contra un proveedor concreto, no una abstracción.
+//
 // 2. NUNCA SE AFIRMA MÁS DE LO QUE SE SABE.
 //
 //    En particular, la diferencia entre «no encontramos números adicionales» y «este
@@ -65,15 +69,28 @@ export const SEARCH_MORE_CONFIRM_TITLE = 'Buscar números adicionales';
  * operador para lo contrario.
  */
 export const SEARCH_MORE_CONFIRM_BODY =
-  'SellUp intentará consultar otra fuente disponible para encontrar números diferentes a ' +
-  'los que ya tienes. Esta acción puede consumir créditos.';
+  'SellUp consultará Lusha para intentar encontrar números diferentes a los que ya tienes.';
+
+/**
+ * La advertencia que hace honesta la confirmación. El desenlace MÁS PROBABLE de esta
+ * operación es que Lusha devuelva los mismos números que ya están guardados, y en ese caso
+ * se cobra igual: Lusha cobra por contestar, no por sorprender.
+ *
+ * Va en su propia constante y no dentro del cuerpo para que la UI pueda destacarla y para
+ * que un test pueda afirmarla por separado. Es la frase que separa «autorizar una búsqueda»
+ * de «comprar un resultado».
+ */
+export const SEARCH_MORE_CONFIRM_COST_WARNING =
+  'Puede consumir créditos aunque Lusha no encuentre un número nuevo.';
 
 export const SEARCH_MORE_CONFIRM_CANCEL_LABEL = 'Cancelar';
 export const SEARCH_MORE_CONFIRM_ACCEPT_LABEL = 'Buscar más números';
 
-/** Nombre visible del proveedor. Cerrado: un proveedor nuevo obliga a nombrarlo aquí. */
+/**
+ * Nombre visible del proveedor. Mapa exhaustivo sobre `SearchMoreProvider`, así que un
+ * proveedor nuevo rompe la compilación antes de poder mostrarse sin nombre.
+ */
 const PROVIDER_DISPLAY_NAMES: Readonly<Record<SearchMoreProvider, string>> = {
-  apollo: 'Apollo',
   lusha: 'Lusha',
 };
 
@@ -103,16 +120,9 @@ export function getSearchMoreMaxCreditsLine(maxCredits: number): string | null {
     : `Máximo autorizado: ${maxCredits} créditos.`;
 }
 
-/**
- * Cuando aún quedará otra fuente DESPUÉS de esta corrida. Existe para que el operador no
- * lea el resultado de una corrida como el veredicto de todas las fuentes.
- */
-export function getSearchMoreDeferredProvidersLine(
-  deferred: readonly SearchMoreProvider[],
-): string | null {
-  if (deferred.length === 0) return null;
-  return 'Si no aparecen números nuevos, quedará otra fuente por consultar aparte.';
-}
+// No existe una línea de «fuentes diferidas». En v1 hay UN proveedor, así que una corrida
+// elegible agota todas las fuentes disponibles, y anunciar una fuente pendiente para
+// después sería una promesa falsa — exactamente lo que este archivo prohíbe.
 
 // ── 3. El resultado ────────────────────────────────────────────
 
@@ -135,14 +145,27 @@ export function getSearchMoreSuccessCopy(newDistinctCount: number): string {
  * tiene teléfono: sigue visible arriba.
  */
 export const SEARCH_MORE_NO_NEW_PHONES_COPY =
-  'No encontramos números adicionales en las fuentes disponibles.';
+  'No encontramos números adicionales en Lusha.';
+
+/**
+ * SIN NÚMEROS **DISTINTOS**. Lusha CONTESTÓ, se cobró, y todos los números que devolvió ya
+ * estaban guardados.
+ *
+ * Es una cadena PROPIA y no un alias de la anterior porque afirma un hecho distinto, y el
+ * hecho importa en las dos direcciones: decir «no encontramos números adicionales en Lusha»
+ * cuando Lusha sí devolvió números sugeriría que Lusha no tiene nada para esta persona —lo
+ * tiene, y es el mismo—, y decir «no tiene teléfono» sería directamente falso. Éste es el
+ * único desenlace que sólo «Buscar más números» puede producir.
+ */
+export const SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY =
+  'Lusha no encontró números diferentes a los que ya tienes.';
 
 /**
  * AGOTADO. No invita a reintentar, porque la carencia es estructural: no hay otra fuente
  * con identidad nativa para este contacto, y esperar no le crea una.
  */
 export const SEARCH_MORE_EXHAUSTED_COPY =
-  'No hay más fuentes disponibles para este contacto.';
+  'No hay otra fuente disponible para buscar números adicionales.';
 
 /**
  * FALLO DEL PROVEEDOR. Se dice que falló la CONSULTA. Nunca se degrada a «no encontramos
@@ -150,7 +173,7 @@ export const SEARCH_MORE_EXHAUSTED_COPY =
  * como tal cerraría la puerta a un reintento legítimo.
  */
 export const SEARCH_MORE_PROVIDER_ERROR_COPY =
-  'No pudimos completar la consulta a la fuente adicional. Vuelve a intentarlo más tarde.';
+  'No pudimos completar la consulta a Lusha. El teléfono que ya tenías sigue disponible.';
 
 /**
  * BLOQUEO DE PRIVACIDAD. Se reutiliza el copy YA existente del reveal

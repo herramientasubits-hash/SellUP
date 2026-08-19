@@ -6,9 +6,14 @@
 // cada caso está escrito desde la consecuencia económica o de privacidad, no desde la
 // forma del objeto.
 //
-// La regla que más vigilancia recibe es la primera del módulo: un proveedor que YA
-// contestó no se vuelve a llamar. No es una optimización — es que su respuesta completa ya
-// está guardada, así que repetirlo cobraría por el mismo payload.
+// La regla que más vigilancia recibe es la primera del módulo: Lusha, el ÚNICO proveedor
+// de v1, no se llama dos veces. No es una optimización — es que su respuesta completa ya
+// está guardada desde 4O-D, así que repetirla cobraría por el mismo payload.
+//
+// Y la que más consecuencia tiene si se relaja: v1 es LUSHA-ONLY. Ninguna entrada —una
+// identidad de Apollo, una colección sin procedencia, un `source` desconocido— puede hacer
+// que el plan proponga a Apollo, porque no existe operación de Apollo que produzca números
+// que Apollo no haya dado ya.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,15 +21,13 @@ import assert from 'node:assert/strict';
 import {
   planSearchMorePhones,
   resolveSearchMoreNativeProviders,
+  SEARCH_MORE_PROVIDER,
   SEARCH_MORE_PROVIDERS,
   type SearchMorePlannerInput,
 } from '../search-more-phones-planner';
-import {
-  PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
-  PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
-} from '../phone-reveal-credit-budget-core';
+import { PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS } from '../phone-reveal-credit-budget-core';
 
-/** Un id de Apollo REAL en forma: 24 hex. Otra forma se normaliza a NULL. */
+/** Un id de Apollo REAL en forma: 24 hex. En v1 NUNCA habilita nada. */
 const APOLLO_ID = 'a1b2c3d4e5f60718293a4b5c';
 /** Un id nativo de Lusha REAL en forma: prefijo `v1.`. */
 const LUSHA_ID = 'v1.lusha-native-token';
@@ -32,7 +35,7 @@ const LUSHA_ID = 'v1.lusha-native-token';
 /**
  * La forma CANÓNICA del candidato que llega a este flujo, y que es exactamente la que la
  * inspección READ-ONLY de Producción encontró: revelado por APOLLO, con UN teléfono
- * guardado, y con las DOS identidades nativas en la misma fila — así que Lusha es el
+ * guardado, y con identidad nativa de LUSHA en la misma fila — así que Lusha es el
  * proveedor que falta.
  */
 function eligibleInput(
@@ -44,7 +47,6 @@ function eligibleInput(
     candidateId: 'candidate-1',
     candidateStatus: 'pending_review',
     storedUnsuppressedPhoneCount: 1,
-    apolloPersonId: APOLLO_ID,
     source: 'lusha',
     sourceContactId: LUSHA_ID,
     providersWithStoredProvenance: ['apollo'],
@@ -81,42 +83,34 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
     assert.notEqual(plan.maxCreditRequirement, 13);
   });
 
-  it('UNA corrida = UN proveedor: el resto queda para una autorización POSTERIOR', () => {
-    // Colección sin procedencia de ninguno de los dos (sólo caché): los dos son
-    // consultables, pero esta corrida autoriza uno solo.
+  it('una colección SIN procedencia de nadie sigue autorizando SÓLO a Lusha', () => {
+    // Sólo caché en la colección: nadie escribió procedencia nativa. Aun así el plan no
+    // puede proponer a Apollo — no existe una pata de Apollo que ejecutar.
     const plan = planSearchMorePhones(
       eligibleInput({ providersWithStoredProvenance: ['apollo_cache'] }),
     );
 
-    assert.deepEqual(plan.providersToTry, ['lusha'], 'se consulta uno');
-    assert.deepEqual(
-      plan.providersDeferred,
-      ['apollo'],
-      'el otro se declara diferido, para que la UI no dé a entender que ya se agotó',
-    );
+    assert.deepEqual(plan.providersToTry, ['lusha']);
     assert.equal(
       plan.maxCreditRequirement,
       PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
-      'no se autoriza el pozo del proveedor que quizá nunca se consulte',
+      'un solo pozo, el de Lusha: el de Apollo no se lee ni se ocupa',
     );
   });
 
-  it('el techo de una pata de APOLLO es el de Apollo (8), no el de Lusha (5)', () => {
-    // Reutilizar la cifra de Lusha autorizaría por DEBAJO de lo que Apollo puede cobrar.
+  it('LUSHA ya contestó ⇒ NO elegible: Apollo NO es un plan alternativo', () => {
+    // La trampa que v1 cierra. Con la procedencia de Lusha ya en la colección, el diseño
+    // de dos proveedores habría propuesto una pata de Apollo con techo 8. No hay tal pata:
+    // la respuesta de Apollo ya está guardada ENTERA desde 4O-C.
     const plan = planSearchMorePhones(
       eligibleInput({ providersWithStoredProvenance: ['lusha'] }),
     );
 
-    assert.deepEqual(plan.providersToTry, ['apollo']);
-    assert.equal(
-      plan.maxCreditRequirement,
-      PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
-    );
-    assert.notEqual(
-      plan.maxCreditRequirement,
-      PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
-    );
-    assert.equal(plan.budgetMode, 'search_more_apollo');
+    assert.equal(plan.eligible, false);
+    assert.deepEqual(plan.providersToTry, []);
+    assert.equal(plan.reason, 'no_additional_provider');
+    assert.equal(plan.maxCreditRequirement, 0, 'NI UN crédito, y menos los 8 de Apollo');
+    assert.equal(plan.budgetMode, null);
   });
 
   // ───────────────────────────────────────────────────────────────
@@ -197,9 +191,9 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
     assert.equal(plan.maxCreditRequirement, 0);
   });
 
-  it('una identidad nativa NUEVA reabre la elegibilidad aunque otra esté agotada', () => {
-    // Lusha ya se consultó por adicionales, pero la colección no tiene procedencia de
-    // Apollo. Apollo sigue siendo una fuente legítima no preguntada.
+  it('Lusha agotada NO se reabre porque la colección esté vacía de procedencia', () => {
+    // Colección sin ninguna procedencia nativa Y Lusha ya consultada por adicionales. No
+    // queda nada: el agotamiento de la ÚNICA fuente es el agotamiento de todas.
     const plan = planSearchMorePhones(
       eligibleInput({
         providersWithStoredProvenance: [],
@@ -207,17 +201,32 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
       }),
     );
 
-    assert.equal(plan.eligible, true);
-    assert.deepEqual(plan.providersToTry, ['apollo']);
+    assert.equal(plan.eligible, false);
+    assert.equal(plan.phase, 'providers_exhausted');
+    assert.equal(plan.reason, 'providers_exhausted');
+    assert.deepEqual(plan.providersToTry, []);
+    assert.equal(plan.maxCreditRequirement, 0);
+  });
+
+  it('§18: el agotamiento NO depende del desenlace de la corrida anterior', () => {
+    // `revealed`, `no_phone_found`, `no_new_distinct_phone` y `error` producen todos la
+    // MISMA entrada aquí —Lusha en `providersAlreadySearchedForMore`— porque el planificador
+    // lee que la corrida fue TERMINAL, no cómo terminó. Un error del proveedor no compra un
+    // reintento pagado automático.
+    const plan = planSearchMorePhones(
+      eligibleInput({ providersAlreadySearchedForMore: ['LUSHA'] }),
+    );
+    assert.equal(plan.eligible, false);
+    assert.equal(plan.reason, 'providers_exhausted');
   });
 
   // ───────────────────────────────────────────────────────────────
   // §18.11 / §18.12 — identidad: sin id nativo no hay pata, y NUNCA hay búsqueda
   // ───────────────────────────────────────────────────────────────
 
-  it('sin identidad de Lusha, Lusha NO entra al plan (jamás se busca por nombre o email)', () => {
-    // Candidato de origen Apollo: su `source_contact_id` pertenece al espacio de ids de
-    // Apollo y reenviarlo a Lusha es la causa raíz del HTTP 422 del RCA.
+  it('un candidato de origen APOLLO no tiene fuente adicional (jamás se busca por nombre)', () => {
+    // Su `source_contact_id` pertenece al espacio de ids de Apollo, y reenviarlo a Lusha es
+    // la causa raíz del HTTP 422 del RCA. No hay identidad de Lusha ⇒ no hay operación.
     const plan = planSearchMorePhones(
       eligibleInput({
         source: 'apollo',
@@ -227,7 +236,11 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
     );
 
     assert.equal(plan.eligible, false);
-    assert.equal(plan.reason, 'no_additional_provider');
+    assert.equal(
+      plan.reason,
+      'missing_person_identity',
+      'no es «no queda fuente»: es que este candidato nunca tuvo identidad de Lusha',
+    );
     assert.deepEqual(
       plan.providersToTry,
       [],
@@ -235,10 +248,8 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
     );
   });
 
-  it('sin NINGUNA identidad nativa ⇒ `missing_person_identity`, no un bloqueo genérico', () => {
-    const plan = planSearchMorePhones(
-      eligibleInput({ apolloPersonId: null, source: null, sourceContactId: null }),
-    );
+  it('sin identidad nativa ⇒ `missing_person_identity`, no un bloqueo genérico', () => {
+    const plan = planSearchMorePhones(eligibleInput({ source: null, sourceContactId: null }));
 
     assert.equal(plan.eligible, false);
     assert.equal(plan.reason, 'missing_person_identity');
@@ -248,7 +259,6 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
   it('un `source_contact_id` en blanco NO cuenta como identidad', () => {
     for (const blank of ['', '   ', null]) {
       const providers = resolveSearchMoreNativeProviders({
-        apolloPersonId: null,
         source: 'lusha',
         sourceContactId: blank,
       });
@@ -256,30 +266,62 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
     }
   });
 
-  it('un id de Apollo mal formado NO resuelve identidad de Apollo', () => {
-    const providers = resolveSearchMoreNativeProviders({
-      apolloPersonId: 'apollo-person-1',
-      source: null,
-      sourceContactId: null,
-    });
+  it('SÓLO `source = lusha` resuelve identidad: ninguna otra fuente cuenta', () => {
+    for (const source of ['apollo', 'tavily', 'manual', 'hubspot', null, '']) {
+      const providers = resolveSearchMoreNativeProviders({
+        source,
+        sourceContactId: LUSHA_ID,
+      });
+      assert.deepEqual(
+        providers,
+        [],
+        `source «${source}» no puede habilitar una consulta a Lusha`,
+      );
+    }
     assert.deepEqual(
-      providers,
-      [],
-      'la forma la valida `resolvePhoneRevealProviderIdentity`, no este módulo',
+      resolveSearchMoreNativeProviders({ source: ' Lusha ', sourceContactId: LUSHA_ID }),
+      ['lusha'],
+      'el recorte y las mayúsculas sí se normalizan',
     );
   });
 
-  it('las DOS identidades de la MISMA fila se leen, y eso NO es la Fase 2', () => {
-    const providers = resolveSearchMoreNativeProviders({
-      apolloPersonId: APOLLO_ID,
-      source: 'lusha',
-      sourceContactId: LUSHA_ID,
-    });
-    assert.deepEqual(providers.slice().sort(), ['apollo', 'lusha']);
+  it('el conjunto de proveedores es CERRADO y contiene SÓLO Lusha', () => {
+    assert.deepEqual(
+      [...SEARCH_MORE_PROVIDERS],
+      ['lusha'],
+      'Apollo en este conjunto autorizaría un gasto que ninguna rama puede cobrar',
+    );
+    assert.equal(SEARCH_MORE_PROVIDER, 'lusha');
   });
 
-  it('el conjunto de proveedores es CERRADO', () => {
-    assert.deepEqual([...SEARCH_MORE_PROVIDERS], ['apollo', 'lusha']);
+  it('NINGUNA entrada consigue que el plan proponga a Apollo', () => {
+    // Barrido adversarial sobre los ejes que el diseño de dos proveedores usaba para
+    // elegir a Apollo: la fuente, la procedencia almacenada y el historial de búsquedas.
+    for (const source of ['lusha', 'apollo', 'tavily', null]) {
+      for (const provenance of [[], ['apollo'], ['lusha'], ['apollo_cache'], ['apollo', 'lusha']]) {
+        for (const searched of [[], ['lusha'], ['apollo']]) {
+          const plan = planSearchMorePhones(
+            eligibleInput({
+              source,
+              providersWithStoredProvenance: provenance,
+              providersAlreadySearchedForMore: searched,
+            }),
+          );
+          assert.ok(
+            !plan.providersToTry.includes('apollo' as never),
+            `source=${source} provenance=${provenance} searched=${searched} propuso Apollo`,
+          );
+          if (plan.eligible) {
+            assert.deepEqual(plan.providersToTry, ['lusha']);
+            assert.equal(plan.budgetMode, 'search_more_lusha');
+            assert.equal(
+              plan.maxCreditRequirement,
+              PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+            );
+          }
+        }
+      }
+    }
   });
 
   // ───────────────────────────────────────────────────────────────
@@ -341,7 +383,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
       eligibleInput({
         hasActivePhoneRun: true,
         privacyState: 'blocked_suppressed',
-        providersWithStoredProvenance: ['apollo', 'lusha'],
+        providersWithStoredProvenance: ['lusha'],
       }),
     );
     assert.equal(plan.reason, 'active_run_exists');

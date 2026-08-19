@@ -19,43 +19,48 @@
 // cliente y ejecutable offline.
 //
 // ═══════════════════════════════════════════════════════════════════
+// v1 ES LUSHA-ONLY, Y ESO NO ES UN RECORTE DE ALCANCE
+// ═══════════════════════════════════════════════════════════════════
+//
+// «Buscar más números» consulta EXACTAMENTE UN proveedor: Lusha. Apollo NO tiene camino
+// aquí, y no por prudencia sino porque no existe la operación:
+//
+//   * el payload terminal de Apollo trae TODOS los teléfonos que Apollo tiene —en hasta
+//     tres ubicaciones— y desde 4O-C `apollo-phone-collection-capture.ts` persiste todos.
+//     Apollo no expone ninguna operación de «más teléfonos» ni pagina su respuesta, así
+//     que repetirlo cobraría otra vez por el payload que ya está guardado;
+//   * `/v3/contacts/enrich` de Lusha con `reveal: ['phones']` devuelve
+//     `results[0].phones[]` completo y desde 4O-D `lusha-phone-fallback-phones.ts` lee el
+//     array entero. Lo mismo: su respuesta ya está entera.
+//
+// Lo que esta operación compra, entonces, no es «pedir más al mismo proveedor»: es
+// consultar al OTRO proveedor cuya identidad nativa el candidato ya lleva. En la práctica
+// el candidato que llega aquí fue revelado por Apollo (Apollo es la primera pata del
+// waterfall), así que el proveedor que falta es SIEMPRE Lusha. Un conjunto de proveedores
+// de dos elementos describiría una pata de Apollo que ninguna rama puede ejecutar, y un
+// techo de crédito para Apollo autorizaría un gasto que nadie puede cobrar.
+//
+// ═══════════════════════════════════════════════════════════════════
 // LAS TRES REGLAS QUE NO SE NEGOCIAN
 // ═══════════════════════════════════════════════════════════════════
 //
-// 1. UN PROVEEDOR QUE YA RESPONDIÓ NO SE VUELVE A LLAMAR.
+// 1. LUSHA NO SE LLAMA DOS VECES. Si su procedencia ya está en la colección, ya contestó
+//    y su respuesta completa está guardada. Si ya se le consultó por adicionales en una
+//    corrida `search_more` TERMINAL, está agotada — y lo está para CUALQUIER desenlace,
+//    incluido el error. No hay reintento pagado automático.
 //
-//    No es una heurística de ahorro: es una consecuencia del contrato de los dos
-//    proveedores. El payload terminal de Apollo trae TODOS los teléfonos que Apollo tiene
-//    —en hasta tres ubicaciones— y desde 4O-C `apollo-phone-collection-capture.ts`
-//    persiste todos. `/v3/contacts/enrich` de Lusha con `reveal: ['phones']` devuelve
-//    `results[0].phones[]` completo y desde 4O-D `lusha-phone-fallback-phones.ts` lee el
-//    array entero. Ninguno de los dos expone una operación de «más teléfonos» ni pagina
-//    su respuesta.
-//
-//    Así que repetir un proveedor que ya contestó cobraría otra vez por recibir el payload
-//    que ya está guardado. No hay reintento pagado a ciegas.
-//
-// 2. SÓLO IDENTIDADES NATIVAS QUE EL CANDIDATO YA LLEVA.
-//
-//    Un proveedor es consultable únicamente si la FILA del candidato ya carga su id
-//    nativo. No se busca por nombre + empresa, no se busca por email, no se hace enlace
-//    difuso y no se cruzan identidades entre proveedores. En particular NO existe ninguna
-//    ruta a la búsqueda general de personas de Lusha: sin `source = 'lusha'` +
-//    `source_contact_id`, la pata de Lusha simplemente no existe — la misma regla, sin
-//    relajar, que `resolveLushaContactId` y `evaluatePhoneRevealWaterfallLushaLeg`.
-//
-//    Las dos identidades que este planificador lee viven en la MISMA fila del MISMO
-//    candidato, que representa a UNA persona. Eso es exactamente el alcance ya sancionado
-//    de `resolveAllPhoneRevealProviderIdentities` (usado por el camino de escritura de la
-//    supresión desde #295) y NO convierte esto en la Fase 2.
+// 2. SÓLO LA IDENTIDAD NATIVA QUE EL CANDIDATO YA LLEVA. Lusha es consultable únicamente
+//    si la FILA del candidato declara `source = 'lusha'` + `source_contact_id`, la MISMA
+//    condición que `resolveLushaContactId` y `evaluatePhoneRevealWaterfallLushaLeg`. No se
+//    busca por nombre + empresa, ni por email, ni por LinkedIn; no se hace enlace difuso;
+//    no se cruzan identidades entre proveedores; y NO existe ninguna ruta a la búsqueda
+//    general de personas de Lusha. Sin esa identidad, la operación no existe.
 //
 // 3. FAIL-CLOSED. Cualquier duda devuelve NO elegible. Un dato ausente, un estado
 //    ilegible, una supresión no evaluable: todos bloquean. Nunca se degrada a «adelante».
 
-import { resolvePhoneRevealProviderIdentity } from './provider-suppression-core';
 import { PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS } from './phone-reveal-waterfall-core';
 import {
-  PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
   PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
   type PhoneRevealCreditBudgetMode,
 } from './phone-reveal-credit-budget-core';
@@ -65,13 +70,20 @@ import {
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Proveedores a los que «Buscar más números» puede llegar a consultar. Conjunto CERRADO y
- * deliberadamente igual al de `PHONE_REVEAL_CREDIT_PROVIDER_KEYS`: añadir uno aquí sin
- * añadirle presupuesto sería autorizar un gasto sin pozo contra el que reservarlo.
+ * Proveedores a los que «Buscar más números» puede llegar a consultar. Conjunto CERRADO de
+ * UN elemento: Lusha.
+ *
+ * Es deliberadamente MÁS ESTRECHO que `PHONE_REVEAL_CREDIT_PROVIDER_KEYS`, y la diferencia
+ * es el contrato de v1. Añadir `apollo` aquí sin una operación de Apollo que produzca
+ * números que Apollo no haya dado ya sería declarar consultable a un proveedor cuya
+ * respuesta completa está guardada desde 4O-C: autorizaría un gasto por el mismo payload.
  */
-export const SEARCH_MORE_PROVIDERS = ['apollo', 'lusha'] as const;
+export const SEARCH_MORE_PROVIDERS = ['lusha'] as const;
 
 export type SearchMoreProvider = (typeof SEARCH_MORE_PROVIDERS)[number];
+
+/** El único proveedor de v1. Se nombra para que ninguna rama tenga que elegirlo. */
+export const SEARCH_MORE_PROVIDER: SearchMoreProvider = 'lusha';
 
 /**
  * Estado del candidato respecto de esta operación. Es lo que distingue «revelar» de
@@ -82,13 +94,13 @@ export type SearchMoreProvider = (typeof SEARCH_MORE_PROVIDERS)[number];
 export type SearchMorePhase =
   /** Sin teléfono almacenado. El camino correcto es «Revelar teléfono», no este. */
   | 'no_phone_yet'
-  /** Hay teléfono y queda al menos un proveedor seguro por consultar. */
+  /** Hay teléfono y Lusha queda por consultar. */
   | 'has_phone_provider_available'
-  /** Hay teléfono y NO queda proveedor seguro. */
+  /** Hay teléfono y Lusha NO es consultable. */
   | 'has_phone_no_provider_available'
   /** Ya hay una operación de teléfono viva sobre este candidato. */
   | 'search_more_already_running'
-  /** Todos los proveedores con identidad nativa ya fueron consultados por adicionales. */
+  /** Lusha ya fue consultada por adicionales en una corrida terminal. */
   | 'providers_exhausted'
   /** Bloqueo de privacidad (suprimido o no evaluable). Fail-closed. */
   | 'privacy_blocked';
@@ -104,9 +116,12 @@ export type SearchMoreIneligibleReason =
   | 'candidate_not_editable'
   /** Sin teléfono almacenado: corresponde el reveal normal. */
   | 'no_stored_phone'
-  /** Ningún proveedor con identidad nativa queda sin consultar. */
+  /**
+   * Lusha ya CONTESTÓ para este candidato: su procedencia está en la colección, así que su
+   * respuesta completa ya está guardada y no queda otra fuente que consultar.
+   */
   | 'no_additional_provider'
-  /** Todos los proveedores elegibles ya se consultaron por adicionales. */
+  /** Lusha ya se consultó por adicionales en una corrida `search_more` terminal. */
   | 'providers_exhausted'
   /** Hay una corrida de teléfono NO terminal sobre este candidato. */
   | 'active_run_exists'
@@ -119,7 +134,11 @@ export type SearchMoreIneligibleReason =
    * veredicto de privacidad que nunca obtuvo.
    */
   | 'suppression_check_unavailable'
-  /** No existe identidad nativa con la que la privacidad pudiera evaluarse. */
+  /**
+   * El candidato NO lleva identidad nativa de Lusha (`source = 'lusha'` +
+   * `source_contact_id`), así que no hay a quién consultar ni identidad sobre la que la
+   * privacidad pudiera evaluarse. Es el mismo bloqueo que #291 puso en el reveal normal.
+   */
   | 'missing_person_identity';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -156,11 +175,14 @@ export interface SearchMorePlannerInput {
    */
   storedUnsuppressedPhoneCount: number;
 
-  /** `apollo_person_id` (mig. 098). */
-  apolloPersonId: string | null;
-  /** `source` del candidato. */
+  /**
+   * `source` del candidato. La identidad de Lusha exige EXACTAMENTE `'lusha'`.
+   *
+   * `apollo_person_id` NO se lee: en v1 no existe pata de Apollo, y leerlo sugeriría que
+   * una identidad de Apollo puede habilitar una consulta que ninguna rama ejecuta.
+   */
   source: string | null;
-  /** `source_contact_id`. */
+  /** `source_contact_id` — el id de contacto de Lusha cuando `source = 'lusha'`. */
   sourceContactId: string | null;
 
   /**
@@ -188,23 +210,33 @@ export interface SearchMorePlannerInput {
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Techo de UNA pata, por proveedor. NO son intercambiables: reutilizar la cifra de Lusha
- * para una pata de Apollo autorizaría por DEBAJO de lo que Apollo puede cobrar, y el tope
- * autorizado dejaría de ser un tope.
+ * Techo de la ÚNICA pata que esta operación puede cobrar: 5 créditos, el tope de una pata
+ * de Lusha. Es la MISMA cifra que `legacy_lusha_only`, y viene de la misma constante en vez
+ * de repetirse como literal para que no puedan separarse.
+ *
+ * NUNCA son los 13 del waterfall completo ni los 8 de Apollo: Apollo no corre bajo esta
+ * autorización, así que su techo no tiene nada que autorizar aquí.
+ */
+export const SEARCH_MORE_MAX_CREDITS =
+  PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS;
+
+/**
+ * Techo por proveedor. Se conserva la forma de mapa —con una sola clave— porque es lo que
+ * leen el servidor y la confirmación, y porque un mapa exhaustivo sobre
+ * `SearchMoreProvider` hace que añadir un proveedor rompa la compilación en vez de
+ * autorizarlo con un techo por defecto.
  */
 export const SEARCH_MORE_PROVIDER_MAX_CREDITS: Readonly<
   Record<SearchMoreProvider, number>
 > = {
-  lusha: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
-  apollo: PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
+  lusha: SEARCH_MORE_MAX_CREDITS,
 };
 
-/** Modalidad presupuestaria de cada proveedor. Una pata, un pozo. */
+/** Modalidad presupuestaria. Una pata, un pozo: el de Lusha, y sólo el de Lusha. */
 const SEARCH_MORE_BUDGET_MODE: Readonly<
   Record<SearchMoreProvider, PhoneRevealCreditBudgetMode>
 > = {
   lusha: 'search_more_lusha',
-  apollo: 'search_more_apollo',
 };
 
 export interface SearchMorePlan {
@@ -212,30 +244,15 @@ export interface SearchMorePlan {
   phase: SearchMorePhase;
   reason: SearchMoreIneligibleReason | null;
   /**
-   * Proveedores que ESTA corrida consultará. Vacío cuando no es elegible, y como máximo
-   * UNO cuando lo es.
+   * Proveedores que ESTA corrida consultará: `['lusha']` cuando es elegible, `[]` cuando
+   * no. Se mantiene como lista —y no como un booleano— porque es lo que la confirmación
+   * necesita para NOMBRAR la fuente, y nombrarla es parte de lo que el operador acepta.
    *
-   * ── POR QUÉ UNA CORRIDA = UN PROVEEDOR ────────────────────────
-   *
-   * Porque el techo que se autoriza tiene que ser el que realmente puede cobrarse.
-   * Pre-autorizar los dos proveedores obligaría a reservar un pozo que probablemente no se
-   * toca —y a liberarlo después— y, sobre todo, le pediría al operador aceptar un gasto
-   * por un proveedor que quizá nunca se consulte. En una operación PAGADA eso es peor que
-   * pedir un segundo clic.
-   *
-   * En la práctica esto casi nunca es una restricción: un candidato con teléfono guardado
-   * SIEMPRE tiene procedencia del proveedor que lo entregó, así que de los dos que existen
-   * queda como máximo uno sin consultar. El caso de dos disponibles exige que la colección
-   * no tenga procedencia de ninguno de los dos (p. ej. sólo `apollo_cache`), y ahí el
-   * segundo proveedor sigue alcanzable con una segunda autorización explícita.
+   * No existe una lista de «diferidos»: con un solo proveedor posible, una corrida elegible
+   * agota todas las fuentes disponibles, y prometerle al operador que «quedará otra fuente
+   * por consultar aparte» sería falso.
    */
   providersToTry: readonly SearchMoreProvider[];
-  /**
-   * Los que quedarían para una autorización POSTERIOR. Se expone para que la UI pueda ser
-   * honesta sobre que aún habrá otra fuente después, en vez de dar a entender que esta
-   * corrida agota todas.
-   */
-  providersDeferred: readonly SearchMoreProvider[];
   /**
    * Techo de créditos que el operador debe aceptar. Es el UMBRAL de confirmación, no una
    * predicción del cobro: el costo real sale de lo que reporte el proveedor. Coincide
@@ -257,7 +274,6 @@ const NOT_ELIGIBLE = (
   phase,
   reason,
   providersToTry: [],
-  providersDeferred: [],
   maxCreditRequirement: 0,
   budgetMode: null,
   alreadyExhausted,
@@ -283,50 +299,27 @@ const NON_EDITABLE_CANDIDATE_STATUSES: readonly string[] = [
 ];
 
 /**
- * TODAS las identidades nativas que ESTA fila del candidato declara. No es inferencia
- * entre proveedores: las dos están escritas en la MISMA fila, que representa a UNA
- * persona. No se mira nombre, email, LinkedIn, empresa ni dominio, y no se cruza con
- * ningún otro registro.
+ * La identidad nativa que ESTA fila del candidato declara para el ÚNICO proveedor de v1.
  *
- * Espejo por REUTILIZACIÓN de las reglas del servidor:
- *   * Apollo  — `resolvePhoneRevealProviderIdentity`, que ya conoce la precedencia
- *               (`apollo_person_id`, y `source_contact_id` sólo si `source = 'apollo'`);
- *   * Lusha   — `source = 'lusha'` + `source_contact_id`, la MISMA condición que
- *               `resolveLushaContactId`. Sin ella no hay pata Lusha, y NO existe ninguna
- *               vía alternativa: la búsqueda general de Lusha no se contempla aquí.
+ * Condición ÚNICA y exacta: `source = 'lusha'` + `source_contact_id` no vacío. Es la MISMA
+ * que aplica `resolveLushaContactId`, reafirmada aquí sin relajar nada. Lo que NO se mira,
+ * y no es una omisión: nombre, email, LinkedIn, empresa, dominio, `apollo_person_id`, ni
+ * ningún otro registro. No hay enlace difuso, no hay cruce entre proveedores y no hay vía
+ * a la búsqueda general de personas de Lusha.
+ *
+ * Devuelve una lista (de 0 o 1 elementos) y no un booleano porque es lo que consume el
+ * plan, y porque así el día que exista una segunda fuente REAL el tipo ya la admite sin
+ * que nadie tenga que recordar convertirlo.
  */
 export function resolveSearchMoreNativeProviders(
-  input: Pick<SearchMorePlannerInput, 'apolloPersonId' | 'source' | 'sourceContactId'>,
+  input: Pick<SearchMorePlannerInput, 'source' | 'sourceContactId'>,
 ): readonly SearchMoreProvider[] {
-  const found: SearchMoreProvider[] = [];
-
-  const primary = resolvePhoneRevealProviderIdentity({
-    apolloPersonId: input.apolloPersonId ?? null,
-    source: input.source ?? null,
-    sourceContactId: input.sourceContactId ?? null,
-  });
-  if (primary?.provider === 'apollo') found.push('apollo');
-
-  // La identidad de Lusha del MISMO registro, que la precedencia de Apollo habría tapado.
-  // Se pide explícitamente en vez de reordenar la precedencia, porque el orden de lectura
-  // del servidor tiene que seguir siendo idéntico al histórico.
-  if (
+  const isLushaNative =
     cleanText(input.source)?.toLowerCase() === 'lusha' &&
-    cleanText(input.sourceContactId)
-  ) {
-    if (!found.includes('lusha')) found.push('lusha');
-  }
+    !!cleanText(input.sourceContactId);
 
-  return found;
+  return isLushaNative ? ['lusha'] : [];
 }
-
-/**
- * Orden de consulta. Lusha primero cuando los dos están disponibles, porque en la práctica
- * el candidato que llega aquí fue revelado por Apollo (Apollo es la primera pata del
- * waterfall), así que Lusha es casi siempre el que falta. El orden NO es una preferencia de
- * calidad: cualquiera de los dos que quede sin consultar se consulta.
- */
-const SEARCH_MORE_PROVIDER_ORDER: readonly SearchMoreProvider[] = ['lusha', 'apollo'];
 
 /**
  * EL planificador. Orden barato→caro, y todo lo que puede evitar una compra se evalúa
@@ -377,8 +370,10 @@ export function planSearchMorePhones(input: SearchMorePlannerInput): SearchMoreP
 
   const nativeProviders = resolveSearchMoreNativeProviders(input);
   if (nativeProviders.length === 0) {
-    // Sin identidad nativa la privacidad no es ni formulable, así que tampoco se podría
-    // llamar a nadie. Es el mismo bloqueo que #291 puso en el reveal normal.
+    // Sin identidad nativa de Lusha no hay a quién llamar Y la privacidad no es ni
+    // formulable: el gate de supresión de #295 se resuelve por `(provider,
+    // provider_person_id)`, así que sin ese id no hay pregunta que hacerle. Es el mismo
+    // bloqueo que #291 puso en el reveal normal.
     return NOT_ELIGIBLE('has_phone_no_provider_available', 'missing_person_identity');
   }
 
@@ -393,22 +388,19 @@ export function planSearchMorePhones(input: SearchMorePlannerInput): SearchMoreP
       .filter((p): p is string => !!p),
   );
 
-  // REGLA 1, aplicada. Un proveedor queda fuera por CUALQUIERA de dos motivos, y son
-  // distintos:
+  // REGLA 1, aplicada. Lusha queda fuera por CUALQUIERA de dos motivos, y son distintos:
   //   * ya tiene procedencia almacenada ⇒ ya contestó, y su respuesta completa está
-  //     guardada. Volver a llamarlo pagaría por el mismo payload;
-  //   * ya se le consultó por adicionales en una corrida `search_more` terminal ⇒ agotado.
-  const candidates = SEARCH_MORE_PROVIDER_ORDER.filter(
-    (provider) =>
-      nativeProviders.includes(provider) &&
-      !withProvenance.has(provider) &&
-      !alreadySearched.has(provider),
+  //     guardada desde 4O-D. Volver a llamarla pagaría por el mismo payload;
+  //   * ya se le consultó por adicionales en una corrida `search_more` TERMINAL ⇒ agotada,
+  //     y lo está para cualquier desenlace de esa corrida, error incluido (§18).
+  const candidates = nativeProviders.filter(
+    (provider) => !withProvenance.has(provider) && !alreadySearched.has(provider),
   );
 
   if (candidates.length === 0) {
-    // Se distingue «agotado por haber buscado ya» de «no hay otra fuente». Los dos
+    // Se distingue «agotado por haber buscado ya» de «Lusha ya contestó». Los dos
     // deshabilitan el botón, pero el copy honesto es diferente y el operador merece saber
-    // cuál de los dos es.
+    // cuál de los dos es: el primero ya gastó créditos, el segundo nunca los necesitó.
     const exhausted = nativeProviders.some((provider) => alreadySearched.has(provider));
     return exhausted
       ? NOT_ELIGIBLE('providers_exhausted', 'providers_exhausted', true)
@@ -430,16 +422,17 @@ export function planSearchMorePhones(input: SearchMorePlannerInput): SearchMoreP
     return NOT_ELIGIBLE('privacy_blocked', 'suppression_check_unavailable');
   }
 
-  const [providerToTry, ...deferred] = candidates;
+  // `candidates` tiene exactamente un elemento aquí: `nativeProviders` sale de un conjunto
+  // de un solo proveedor y este punto sólo se alcanza si no quedó filtrado.
+  const providerToTry = candidates[0];
 
   return {
     eligible: true,
     phase: 'has_phone_provider_available',
     reason: null,
     providersToTry: [providerToTry],
-    providersDeferred: deferred,
-    // El techo de ESE proveedor, no una suma. Nunca son los 13 del waterfall completo:
-    // Apollo no corre aquí como primera pata de un reveal.
+    // El techo de ESA pata, no una suma. Nunca los 13 del waterfall completo ni los 8 de
+    // Apollo: Apollo no corre bajo esta autorización.
     maxCreditRequirement: SEARCH_MORE_PROVIDER_MAX_CREDITS[providerToTry],
     budgetMode: SEARCH_MORE_BUDGET_MODE[providerToTry],
     alreadyExhausted: false,

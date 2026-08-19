@@ -13,10 +13,18 @@
 --     calls, zero credits. It touches nothing in this migration.
 --
 -- "Buscar más números" is a THIRD operation: the candidate ALREADY has a visible
--- phone, and the operator explicitly asks SellUp to consult a provider that has NOT
--- yet been asked, in order to APPEND numbers the collection does not have. It can
--- cost credits, so it is authorized like every other paid reveal — a run, a
--- reservation, a privacy gate — and it is never triggered by a background process.
+-- phone, and the operator explicitly asks SellUp to consult LUSHA — the one provider
+-- whose native identity the candidate row already carries and which has not yet been
+-- asked — in order to APPEND numbers the collection does not have. It can cost
+-- credits, so it is authorized like every other paid reveal — a run, a reservation, a
+-- privacy gate — and it is never triggered by a background process.
+--
+-- v1 IS LUSHA-ONLY, AND THAT IS A CAPABILITY FACT, NOT A PHASING DECISION. There is no
+-- Apollo Search More leg anywhere in this migration or in the application layer: Apollo's
+-- terminal payload is already persisted in full (see the provider-capability note below),
+-- so an Apollo leg here would reserve a budget pool for a charge no branch can make. The
+-- ceiling of a Search More authorization is therefore ALWAYS 5 — one Lusha leg — never the
+-- 8 of an Apollo leg and never the 13 of a full waterfall.
 --
 -- ═══════════════════════════════════════════════════════════════════
 -- WHY `search_more` IS A NEW `run_mode` AND NOT A REUSED ONE
@@ -87,10 +95,14 @@
 -- an "additional phones" operation, and neither response is a page of a larger set.
 --
 -- Therefore calling a provider that already answered for this candidate would charge
--- again to receive the payload already stored. Search More only ever consults a provider
--- that has NOT been asked, identified by a provider-NATIVE id the candidate row already
--- carries. There is no name+company search, no email lookup, no fuzzy linkage and no
--- cross-provider identity inference: Phase 2 is untouched.
+-- again to receive the payload already stored. That is what makes Apollo structurally
+-- ineligible for this operation and leaves exactly one consultable provider: LUSHA, and
+-- only when the candidate row declares `source = 'lusha'` + `source_contact_id`, which is
+-- Lusha's provider-NATIVE contact id.
+--
+-- There is no name+company search, no email lookup, no LinkedIn lookup, no fuzzy linkage,
+-- no cross-provider identity inference and NO path to Lusha's general person search:
+-- Phase 2 is untouched.
 --
 -- ═══════════════════════════════════════════════════════════════════
 -- WHAT THIS MIGRATION DOES NOT DO
@@ -150,9 +162,9 @@ BEGIN
         -- table existed. ONLY the Lusha leg is authorized. Ceiling 5.
         'legacy_lusha_only',
         -- AGENT2A-SEARCH-MORE-PHONES-1. The candidate ALREADY has a stored phone and the
-        -- operator explicitly authorized consulting the remaining provider for
-        -- ADDITIONAL numbers. ONLY that provider's leg is authorized (ceiling 5), Apollo
-        -- is never re-called, and the existing phone is never replaced or deleted.
+        -- operator explicitly authorized consulting LUSHA for ADDITIONAL numbers. ONLY
+        -- the Lusha leg is authorized (ceiling 5 — never 8, never 13), Apollo is never
+        -- re-called, and the existing phone is never replaced or deleted.
         'search_more'
       )
     ) NOT VALID;
@@ -162,7 +174,7 @@ BEGIN
 END $$;
 
 COMMENT ON COLUMN public.phone_reveal_waterfall_runs.run_mode IS
-  'Modality of the authorization: full_waterfall (Apollo then conditionally Lusha, ceiling 13) | legacy_lusha_only (Apollo already returned no_phone_found historically; ONLY the Lusha leg, ceiling 5, Apollo never re-called) | search_more (AGENT2A-SEARCH-MORE-PHONES-1: the candidate ALREADY has a stored phone and the operator authorized consulting the remaining provider for ADDITIONAL numbers; ceiling 5, Apollo never re-called, the existing collection is never replaced). Directly queryable so an audit never infers the modality from apollo_attempted_at IS NULL. The three are mutually exclusive and none is a relabelling of another: legacy_lusha_only requires the candidate to have NO phone, search_more requires it to HAVE one.';
+  'Modality of the authorization: full_waterfall (Apollo then conditionally Lusha, ceiling 13) | legacy_lusha_only (Apollo already returned no_phone_found historically; ONLY the Lusha leg, ceiling 5, Apollo never re-called) | search_more (AGENT2A-SEARCH-MORE-PHONES-1: the candidate ALREADY has a stored phone and the operator authorized consulting LUSHA for ADDITIONAL numbers; Lusha-only, ceiling ALWAYS 5, Apollo never re-called, the existing collection is never replaced). Directly queryable so an audit never infers the modality from apollo_attempted_at IS NULL. The three are mutually exclusive and none is a relabelling of another: legacy_lusha_only requires the candidate to have NO phone, search_more requires it to HAVE one.';
 
 -- ═══════════════════════════════════════════════════════════════════
 -- 2. `lusha_outcome` — telling "no new number" from "no number"
