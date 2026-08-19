@@ -973,34 +973,79 @@ describe('4O-H2 — alcance', () => {
   //
   // Así que la guarda pasa a afirmar lo que sí sigue siendo cierto y es más fuerte que la
   // versión anterior: que el hito vive SÓLO donde le corresponde.
+  //
+  // AGENT2A-SEARCH-MORE-PHONES-1G — la guarda se PARTE en dos listas, no se relaja.
+  //
+  // La versión de 1E mantenía UNA lista cerrada y la comparaba contra el cuerpo CRUDO del
+  // archivo. Eso confundió dos cosas distintas: NOMBRAR el hito en código (ser su
+  // superficie) y MENCIONAR el nombre del hito en un comentario. El diagnóstico admin-only
+  // de 1E escribe «AGENT2A-SEARCH-MORE-PHONES-1E» en su prosa para explicar POR QUÉ publica
+  // el flag, y con eso dos archivos que no importan ni invocan nada del hito entraron en la
+  // lista de «implementadores» y rompieron el check obligatorio.
+  //
+  // La corrección no borra la lista ni la abre con una excepción de regex: la PARTE. El
+  // conjunto de archivos que nombran el hito sigue CERRADO —su unión tiene que coincidir
+  // exactamente—, pero ahora cada mitad carga su propia obligación:
+  //   * `MILESTONE_SURFACE`: los archivos del hito. Sin cambios respecto a 1E.
+  //   * `MILESTONE_PROSE_ONLY`: archivos que sólo lo mencionan en prosa, y que tienen que
+  //     DEMOSTRARLO — su código, ya sin comentarios, no puede nombrarlo ni importarlo ni
+  //     invocar ninguno de sus puntos de entrada.
+  // Un archivo nuevo sigue teniendo que entrar aquí a mano, y ahora además tiene que elegir
+  // mitad, que es exactamente la pregunta que esta guarda existe para forzar.
   it('«Buscar más números» existe SÓLO en la superficie del candidato, nunca en la oficial', () => {
     const SEARCH_MORE_PATTERN = /buscar_mas_numeros|searchMorePhones|search_more_phones|search-more-phones/i;
 
-    // Los módulos del contacto OFICIAL no lo conocen.
+    // Los puntos de entrada que COBRAN o que montan el CTA. Ninguno de ellos deletrea
+    // `searchMorePhones`, así que el patrón de arriba no los cubre y hay que nombrarlos.
+    const SEARCH_MORE_ENTRY_POINTS = [
+      'searchMoreCandidatePhonesAction',
+      'getSearchMorePhonesPreflightAction',
+      'executeSearchMorePhonesForCandidate',
+      'CandidateSearchMorePhonesCta',
+    ];
+
     // El prefijo `official-contact-` cubre TODA la superficie oficial de una vez —el
     // esquema, su privacidad y la lectura de 4O-H4— sin deletrear el nombre de ningún
     // módulo concreto. Deletrearlos haría que este archivo apareciera como consumidor de
     // 4O-H4 ante su propio ratchet, que es exactamente el tipo de acoplamiento que esas
     // guardas existen para impedir.
-    const officialSurface = productionSources.filter(
-      (file) =>
-        /official-contact-|contact-phone-provenance/.test(file.path) &&
-        SEARCH_MORE_PATTERN.test(file.body),
+    const officialFiles = productionSources.filter((file) =>
+      /official-contact-|contact-phone-provenance/.test(file.path),
     );
+
+    // La aserción de abajo se cumpliría SOLA si este filtro dejara de encontrar archivos
+    // (un renombre del prefijo, una reorganización de carpetas). Un conjunto vacío no es una
+    // garantía, es una guarda apagada, así que se comprueba que hay algo que vigilar.
+    assert.ok(
+      officialFiles.length > 0,
+      'el filtro de la superficie oficial no encuentra archivos: la guarda estaría vacía',
+    );
+
+    // Los módulos del contacto OFICIAL no lo conocen — ni en código ni en prosa.
+    const officialSurface = officialFiles.filter((file) => SEARCH_MORE_PATTERN.test(file.body));
     assert.deepEqual(
       officialSurface.map((f) => f.path),
       [],
       'la superficie del contacto oficial no debe ofrecer una búsqueda pagada de candidato',
     );
 
-    // Y los archivos que sí lo implementan son EXACTAMENTE los del hito. La lista es cerrada
-    // a propósito: un archivo nuevo que empiece a nombrarlo tiene que entrar aquí, y ese es
-    // el momento de preguntarse si la operación se está filtrando a otra superficie.
-    const implementors = productionSources
-      .filter((file) => SEARCH_MORE_PATTERN.test(file.body))
-      .map((f) => f.path)
-      .sort();
-    assert.deepEqual(implementors, [
+    // Prueba NEGATIVA explícita (1G): además de no NOMBRARLO, la superficie oficial no
+    // IMPORTA ninguno de sus módulos ni INVOCA ninguno de sus puntos de entrada. El patrón
+    // de arriba ya cubre los especificadores de import —todos contienen
+    // `search-more-phones`— pero no los identificadores exportados.
+    for (const file of officialFiles) {
+      const code = stripTsComments(file.body);
+      for (const entry of SEARCH_MORE_ENTRY_POINTS) {
+        assert.equal(
+          code.includes(entry),
+          false,
+          `${file.path} no puede invocar ${entry}: es una operación del CANDIDATO`,
+        );
+      }
+    }
+
+    // Los archivos del hito. Es la lista de 1E, sin quitar ni añadir nada.
+    const MILESTONE_SURFACE = [
       // ── UI, y SÓLO la del candidato ────────────────────────────
       // El CTA pagado, con su modal y su máquina de estados. Vive en su propio componente
       // para que el drawer no crezca con ellos y para que sus garantías —el primer clic no
@@ -1033,7 +1078,53 @@ describe('4O-H2 — alcance', () => {
       // La secuencia que puede cobrar: reserva, privacidad, claim, UNA llamada, append,
       // cierre. Es el único módulo de esta lista que llega a un proveedor.
       'src/modules/contact-enrichment/search-more-phones-runtime.ts',
-    ]);
+    ];
+
+    // Archivos que mencionan el hito SÓLO en prosa. No son su superficie: son diagnóstico
+    // admin-only de sólo lectura, y citan el nombre del hito para explicar por qué existen.
+    // La aserción de más abajo es la que los obliga a seguir siéndolo.
+    const MILESTONE_PROSE_ONLY = [
+      // El endpoint de diagnóstico de 1E: publica dos booleanos —presencia y resolución— del
+      // flag `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` y el NOMBRE de la variable, nunca su
+      // valor. Cita el hito porque ese flag es el permiso que lo gobierna: con él OFF el
+      // planificador devuelve `feature_disabled`, cuyo copy es `null` a propósito, así que
+      // el síntoma visible es «ni CTA ni explicación». No llama a ningún proveedor, no
+      // escribe, y no conoce ningún módulo del hito.
+      'src/app/api/debug/agent2a-phone-waterfall-config/route.ts',
+      // El lector de PRESENCIA de ese mismo flag. Cita el hito por el mismo motivo y por
+      // nada más: lee `process.env`, hace `trim()` y devuelve un booleano.
+      'src/lib/feature-flags.server.ts',
+    ];
+
+    // La unión sigue CERRADA: un archivo nuevo que nombre el hito tiene que entrar en una de
+    // las dos mitades, y ese es el momento de preguntarse si la operación se está filtrando
+    // a otra superficie.
+    const named = productionSources
+      .filter((file) => SEARCH_MORE_PATTERN.test(file.body))
+      .map((f) => f.path)
+      .sort();
+    assert.deepEqual(named, [...MILESTONE_SURFACE, ...MILESTONE_PROSE_ONLY].sort());
+
+    // Y la segunda mitad tiene que DEMOSTRAR que es prosa: sin comentarios, su código no
+    // nombra el hito, no importa ninguno de sus módulos —todos los especificadores llevan
+    // `search-more-phones`— y no invoca ninguno de sus puntos de entrada.
+    for (const path of MILESTONE_PROSE_ONLY) {
+      const file = productionSources.find((f) => f.path === path);
+      assert.ok(file, `${path} ya no existe: revisa esta lista`);
+      const code = stripTsComments(file.body);
+      assert.doesNotMatch(
+        code,
+        SEARCH_MORE_PATTERN,
+        `${path} pasó de mencionar el hito a implementarlo: muévelo a MILESTONE_SURFACE y revisa la frontera`,
+      );
+      for (const entry of SEARCH_MORE_ENTRY_POINTS) {
+        assert.equal(
+          code.includes(entry),
+          false,
+          `${path} no puede invocar ${entry}: sólo lo menciona en prosa`,
+        );
+      }
+    }
   });
 
   it('las deudas fuera de alcance siguen DECLARADAS', () => {
