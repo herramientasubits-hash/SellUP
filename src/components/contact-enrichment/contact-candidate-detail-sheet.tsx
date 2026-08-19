@@ -2136,17 +2136,30 @@ export function ContactCandidateDetailSheet({
                       additionalCount={storedPhoneAdditionalCount}
                     />
                   )}
-                  {/* «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1). La operación
-                      PAGADA, y la única de este bloque que puede cobrar.
+                  {/* «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1, acción DIRECTA
+                      desde 1J). La operación PAGADA, y la única de este bloque que puede
+                      cobrar.
 
                       Vive DEBAJO de «Ver más números» a propósito: la gratuita primero. Las
                       dos están a centímetros y el riesgo real no es estético — es que el
                       operador confunda cuál gasta. Por eso los verbos son distintos (VER
-                      frente a BUSCAR), el icono es distinto, y ésta exige una confirmación
-                      que nombra el proveedor y el techo antes del clic que cobra.
+                      frente a BUSCAR) y el icono es distinto.
 
-                      El teléfono de arriba NO se toca mientras busca: este componente sólo
-                      añade una línea de estado. Sustituir el número por un esqueleto
+                      1J RETIRA su modal de confirmación: un clic ejecuta. El drawer del
+                      candidato ya es una superficie inmersiva y apilarle un diálogo encima
+                      rompía el flujo para volver a pedir una autorización que el operador
+                      acababa de dar. Lo que el modal decía —qué fuente se consulta y hasta
+                      cuánto puede costar— pasa a leerse ANTES del clic, en la línea de texto
+                      secundario que el propio componente pinta debajo del botón; si esa línea
+                      no se puede escribir, el botón NO se renderiza.
+
+                      Nada del servidor se relaja con eso: el flag, la autorización, la
+                      elegibilidad, el preflight y la RE-comprobación de privacidad, la
+                      reserva, el techo de 5 créditos, el claim atómico y la liquidación
+                      siguen todos del otro lado.
+
+                      El teléfono de arriba NO se toca mientras busca: el componente sólo
+                      cambia su propio botón a spinner. Sustituir el número por un esqueleto
                       esconderría un dato que ya se pagó, y si la búsqueda falla lo habría
                       escondido para nada.
 

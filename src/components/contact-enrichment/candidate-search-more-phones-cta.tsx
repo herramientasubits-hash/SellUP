@@ -1,7 +1,7 @@
 'use client';
 
 // «Buscar más números» — el CTA PAGADO
-// (AGENT2A-SEARCH-MORE-PHONES-1)
+// (AGENT2A-SEARCH-MORE-PHONES-1 · acción DIRECTA desde 1J)
 //
 // ═══════════════════════════════════════════════════════════════════
 // POR QUÉ ES UN COMPONENTE PROPIO Y NO CÓDIGO EN EL DRAWER
@@ -9,38 +9,55 @@
 //
 // Dos razones, y la segunda es la que importa:
 //
-//   1. `contact-candidate-detail-sheet.tsx` pasa de 3 000 líneas. Añadirle un modal, una
-//      máquina de estados y un sondeo lo haría ilegible justo en el archivo que ya cuesta
+//   1. `contact-candidate-detail-sheet.tsx` pasa de 3 000 líneas. Añadirle una máquina de
+//      estados y un refresco acotado lo haría ilegible justo en el archivo que ya cuesta
 //      revisar;
-//   2. este componente se puede probar SOLO. Las garantías que hay que demostrar —el primer
-//      clic no gasta, el teléfono actual sigue visible mientras se busca, el sondeo no
-//      gasta— son afirmaciones sobre ESTE árbol, y montarlo aislado las hace verificables
-//      sin construir un candidato entero.
+//   2. este componente se puede probar SOLO. Las garantías que hay que demostrar —un clic
+//      produce UNA compra, el teléfono actual sigue visible mientras se busca, el refresco no
+//      gasta— son afirmaciones sobre ESTE árbol, y montarlo aislado las hace verificables sin
+//      construir un candidato entero.
 //
 // ═══════════════════════════════════════════════════════════════════
-// EL PRIMER CLIC NO GASTA
+// 1J — UN CLIC EJECUTA, Y POR ESO EL COSTO SE LEE ANTES
 // ═══════════════════════════════════════════════════════════════════
 //
-// Es la propiedad central. El CTA abre un modal; SÓLO el botón de confirmación invoca
-// `searchMoreCandidatePhonesAction`. Este componente no importa el cliente de Lusha, ni el
-// de Apollo, ni el reservador de créditos: la única acción que gasta es esa, y llega por una
-// sola línea que un test puede vigilar.
+// La versión anterior abría un modal y sólo su botón de confirmación gastaba. 1J RETIRA ese
+// modal por decisión de producto: el drawer del candidato ya es una superficie inmersiva, y
+// apilarle un diálogo encima rompía el flujo para pedir una autorización que el operador
+// acababa de dar al pulsar.
 //
-// La confirmación NOMBRA el proveedor (Lusha) y el TECHO (5 créditos), y dice que puede
-// cobrarse aunque no aparezca nada nuevo — que es el desenlace más probable. Un operador que
-// pulsa «Buscar más números» tiene que poder saber qué está comprando antes de comprarlo.
+// Retirar la confirmación NO relaja nada del servidor, y ésa es la frontera que este archivo
+// respeta: el flag de producto, la autorización del actor, la elegibilidad, la identidad
+// nativa de Lusha, el preflight y la RE-comprobación de privacidad, la reserva, el techo de
+// 5 créditos, el claim atómico, la única llamada, el registro de uso y la liquidación siguen
+// TODOS del otro lado. Este componente no decide nada de eso; sólo deja de preguntar dos
+// veces.
+//
+// Lo que sí se traslada aquí es la DIVULGACIÓN. Lo que antes el operador aceptaba dentro del
+// diálogo ahora tiene que estar leído antes del clic, así que la línea de costo vive debajo
+// del botón de forma permanente y NO es opcional: si `getSearchMoreCostDisclosure` no puede
+// afirmar la fuente y el techo, el botón NO SE RENDERIZA. Un botón que gasta sin divulgar el
+// gasto sería estrictamente peor que el modal que 1J retira.
+//
+// El botón es el SECUNDARIO canónico del producto —`variant="outline" size="sm"` con
+// `h-7 gap-1.5 text-xs`—, el mismo de «Revelar teléfono», «Revisar resultado ahora» y el
+// fallback manual de Lusha, que viven a centímetros en este mismo panel. Antes era un
+// `variant="ghost"` con `px-0` y `hover:underline`, es decir un enlace de texto pegado a los
+// badges del teléfono: la operación más cara del bloque tenía el peso visual más bajo.
 //
 // ═══════════════════════════════════════════════════════════════════
 // MIENTRAS BUSCA, EL TELÉFONO SIGUE VISIBLE
 // ═══════════════════════════════════════════════════════════════════
 //
 // Este componente NO renderiza el teléfono: lo renderiza el drawer, justo encima, y se queda
-// donde está. Aquí sólo aparece una línea de estado. Sustituir el número por un esqueleto
-// mientras se busca un ADICIONAL sería esconder un dato que el operador ya tiene y ya pagó —
-// y si la búsqueda falla, lo habría escondido para nada.
+// donde está. Aquí sólo cambia el propio botón, que pasa a spinner y queda deshabilitado.
+// Sustituir el número por un esqueleto mientras se busca un ADICIONAL sería esconder un dato
+// que el operador ya tiene y ya pagó — y si la búsqueda falla, lo habría escondido para nada.
+//
+// Tampoco hay overlay ni segunda hoja: el resto del drawer sigue legible durante la corrida.
 //
 // ═══════════════════════════════════════════════════════════════════
-// EL SONDEO NO GASTA
+// EL REFRESCO NO GASTA
 // ═══════════════════════════════════════════════════════════════════
 //
 // La server action de la compra es SÍNCRONA: devuelve el desenlace en la misma llamada. Así
@@ -57,28 +74,15 @@ import { Loader2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   getSearchMorePhonesPreflightAction,
   searchMoreCandidatePhonesAction,
 } from '@/modules/contact-enrichment/search-more-phones-actions';
 import type { SearchMorePreflightSummary } from '@/modules/contact-enrichment/search-more-phones-read';
 import {
+  getSearchMoreCostDisclosure,
   getSearchMoreDisabledCopy,
-  getSearchMoreMaxCreditsLine,
-  getSearchMoreProviderLine,
   getSearchMoreSuccessCopy,
-  SEARCH_MORE_CONFIRM_ACCEPT_LABEL,
-  SEARCH_MORE_CONFIRM_BODY,
-  SEARCH_MORE_CONFIRM_CANCEL_LABEL,
-  SEARCH_MORE_CONFIRM_COST_WARNING,
-  SEARCH_MORE_CONFIRM_TITLE,
+  SEARCH_MORE_COST_HONESTY_COPY,
   SEARCH_MORE_CTA_LABEL,
   SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY,
   SEARCH_MORE_NO_NEW_PHONES_COPY,
@@ -123,7 +127,13 @@ type RunState =
   /** La compra está en vuelo. El teléfono de arriba SIGUE visible. */
   | { readonly kind: 'running' }
   /** Terminó, y esto es lo que se le dice al operador. */
-  | { readonly kind: 'settled'; readonly message: string };
+  | {
+      readonly kind: 'settled';
+      readonly message: string;
+      readonly tone: SettledTone;
+    };
+
+type SettledTone = 'success' | 'neutral' | 'error';
 
 /**
  * Traduce el desenlace de la acción a la ÚNICA cadena que el operador debe leer.
@@ -142,7 +152,7 @@ type RunState =
  */
 function resolveSettledMessage(
   result: Awaited<ReturnType<typeof searchMoreCandidatePhonesAction>>,
-): { readonly message: string; readonly tone: 'success' | 'neutral' | 'error' } {
+): { readonly message: string; readonly tone: SettledTone } {
   switch (result.outcome) {
     case 'new_phones_found':
       return {
@@ -200,12 +210,14 @@ export function CandidateSearchMorePhonesCta({
   onCollectionMayHaveChanged,
   disabled = false,
 }: CandidateSearchMorePhonesCtaProps) {
-  const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [state, setState] = React.useState<RunState>({ kind: 'idle' });
 
   // PESTILLO de solicitud, con la forma de #300. `useRef` y no estado porque tiene que ser
   // legible SINCRÓNICAMENTE dentro del handler: un segundo clic llega antes de que React
   // haya re-renderizado con `running`, así que un booleano de estado no lo pararía.
+  //
+  // Desde 1J es la PRIMERA barrera del cliente, no la segunda: sin modal, el botón es lo
+  // único que hay entre dos clics rápidos y dos compras.
   const inFlight = React.useRef(false);
 
   // Cambiar de candidato invalida todo. Se ajusta durante el render —el mismo patrón que el
@@ -216,8 +228,8 @@ export function CandidateSearchMorePhonesCta({
   //
   //   * un ref no puede mutarse durante el render (React no garantiza cuántas veces corre, y
   //     el linter lo prohíbe con razón);
-  //   * pero además no hace falta. El `finally` de `handleConfirm` lo libera SIEMPRE, así que
-  //     no existe el camino en que se quede trabado;
+  //   * pero además no hace falta. El `finally` de `handleSearchMore` lo libera SIEMPRE, así
+  //     que no existe el camino en que se quede trabado;
   //   * y dejarlo puesto es la dirección CONSERVADORA: si hay una compra en vuelo para el
   //     candidato A y el operador salta a B, el pestillo sigue cerrado hasta que A liquide, así
   //     que un clic apresurado en B no abre una segunda operación pagada. Limpiarlo aquí
@@ -226,7 +238,6 @@ export function CandidateSearchMorePhonesCta({
   if (ownerId !== candidateId) {
     setOwnerId(candidateId);
     setState({ kind: 'idle' });
-    setConfirmOpen(false);
   }
 
   /**
@@ -264,23 +275,25 @@ export function CandidateSearchMorePhonesCta({
   );
 
   /**
-   * LA compra. Es la ÚNICA función de este archivo que puede gastar un crédito, y sólo la
-   * invoca el botón de confirmación del modal.
+   * LA compra. Es la ÚNICA función de este archivo que puede gastar un crédito, y desde 1J la
+   * invoca el `onClick` del botón: un clic, una corrida.
+   *
+   * Que la haya UN solo sitio de llamada es lo que hace verificable la propiedad. No hay un
+   * segundo camino —ni un efecto, ni un reintento automático— capaz de gastar.
    */
-  const handleConfirm = React.useCallback(async () => {
-    // Doble submit: el segundo sale aquí, ANTES de la acción. Junto con la clave de
+  const handleSearchMore = React.useCallback(async () => {
+    // Doble clic: el segundo sale aquí, ANTES de la acción. Junto con la clave de
     // idempotencia de la autorización, el índice único de corrida activa y el claim atómico
     // del servidor, son cuatro barreras y ninguna sola es la única.
     if (inFlight.current) return;
     inFlight.current = true;
 
-    setConfirmOpen(false);
     setState({ kind: 'running' });
 
     try {
       const result = await searchMoreCandidatePhonesAction({ candidateId });
       const settled = resolveSettledMessage(result);
-      setState({ kind: 'settled', message: settled.message });
+      setState({ kind: 'settled', message: settled.message, tone: settled.tone });
 
       if (settled.tone === 'success') {
         toast.success(settled.message);
@@ -302,7 +315,11 @@ export function CandidateSearchMorePhonesCta({
         '[search-more-phones] action failed:',
         err instanceof Error ? err.message : 'unknown error',
       );
-      setState({ kind: 'settled', message: SEARCH_MORE_PROVIDER_ERROR_COPY });
+      setState({
+        kind: 'settled',
+        message: SEARCH_MORE_PROVIDER_ERROR_COPY,
+        tone: 'error',
+      });
       toast.error(SEARCH_MORE_PROVIDER_ERROR_COPY);
       await refreshPreflight(candidateId);
     } finally {
@@ -312,21 +329,42 @@ export function CandidateSearchMorePhonesCta({
 
   // ── Qué se renderiza ─────────────────────────────────────────
 
-  // Mientras la compra está en vuelo se muestra el estado, SIEMPRE, incluso si el resumen
-  // recién leído ya dice que la operación se agotó. Ocultar el estado en el instante en que
-  // el plan cambia dejaría al operador sin ver qué pasó con el crédito que autorizó.
+  // Mientras la compra está en vuelo se muestra el BOTÓN en estado de carga, no una línea de
+  // texto que lo reemplace: el operador tiene que seguir viendo dónde estaba la acción que
+  // acaba de disparar, y un botón deshabilitado con spinner dice a la vez «va en camino» y
+  // «no lo pulses otra vez». Se muestra SIEMPRE, incluso si el resumen recién leído ya dice
+  // que la operación se agotó: ocultarlo en el instante en que el plan cambia dejaría al
+  // operador sin ver qué pasó con el crédito que autorizó.
   if (state.kind === 'running') {
     return (
-      <p className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        {SEARCH_MORE_RUNNING_LABEL}
-      </p>
+      <div className="space-y-1.5 pt-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1.5 text-xs"
+          disabled
+        >
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {SEARCH_MORE_RUNNING_LABEL}
+        </Button>
+      </div>
     );
   }
 
+  // Estado TERMINAL. El botón desaparece a propósito: una corrida `search_more` agota Lusha
+  // para este candidato, así que un segundo clic sería una compra que el planificador ya no
+  // autoriza. Retirarlo aquí no depende de que el refresco del preflight llegue a tiempo.
   if (state.kind === 'settled') {
     return (
-      <p className="text-[11px] text-muted-foreground" role="status">
+      <p
+        className={
+          state.tone === 'error'
+            ? 'pt-1 text-[11px] text-destructive'
+            : 'pt-1 text-[11px] text-muted-foreground'
+        }
+        role="status"
+      >
         {state.message}
       </p>
     );
@@ -343,74 +381,47 @@ export function CandidateSearchMorePhonesCta({
     // entender y que describen algo real sobre ESTE candidato.
     const blockedCopy = plan.reason ? getSearchMoreDisabledCopy(plan.reason) : null;
     if (!blockedCopy) return null;
-    return <p className="text-[11px] text-muted-foreground">{blockedCopy}</p>;
+    return <p className="pt-1 text-[11px] text-muted-foreground">{blockedCopy}</p>;
   }
 
-  const providerLine = getSearchMoreProviderLine(plan.providersToTry);
-  const creditsLine = getSearchMoreMaxCreditsLine(plan.maxCreditRequirement);
+  const costDisclosure = getSearchMoreCostDisclosure(
+    plan.providersToTry,
+    plan.maxCreditRequirement,
+  );
+
+  // FAIL-CLOSED sobre la divulgación, y es la guarda que 1J añade. Sin modal el clic ejecuta,
+  // así que un botón cuya línea de costo no se puede escribir sería un gasto sin advertencia.
+  // Un plan elegible siempre trae proveedor y techo, de modo que este camino describe un
+  // estado imposible — y precisamente por eso la respuesta correcta es no pintar el botón,
+  // nunca pintarlo sin la línea.
+  if (!costDisclosure) return null;
 
   return (
-    <>
+    // El bloque propio es lo que separa la ACCIÓN de los datos del teléfono. El número, su
+    // tipo y su procedencia viven en su propia fila, arriba; aquí abajo empieza otra cosa, y
+    // el `pt-1` lo dice sin una regla ni un separador.
+    <div className="space-y-1.5 pt-1">
       <Button
         type="button"
-        variant="ghost"
+        variant="outline"
         size="sm"
+        className="h-7 gap-1.5 text-xs"
         disabled={disabled}
-        onClick={() => setConfirmOpen(true)}
-        className="h-auto gap-1.5 px-0 text-[11px] font-medium text-su-brand hover:bg-transparent hover:underline"
+        // Un clic = una compra (1J). El pestillo síncrono de `handleSearchMore` es lo que
+        // impide que dos clics en el mismo tick abran dos corridas.
+        onClick={() => void handleSearchMore()}
       >
-        <Search className="h-3 w-3" />
+        <Search className="h-3.5 w-3.5" />
         {SEARCH_MORE_CTA_LABEL}
       </Button>
-
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{SEARCH_MORE_CONFIRM_TITLE}</DialogTitle>
-            <DialogDescription>{SEARCH_MORE_CONFIRM_BODY}</DialogDescription>
-          </DialogHeader>
-
-          {/* El proveedor y el techo, cada uno en su línea y con su etiqueta. Van como
-              datos y no dentro de un párrafo porque son lo que el operador ACEPTA: qué
-              fuente se consulta y hasta cuánto puede costar. */}
-          <dl className="space-y-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2.5 text-xs">
-            {providerLine && (
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-muted-foreground">Proveedor</dt>
-                <dd className="font-medium text-foreground">Lusha</dd>
-              </div>
-            )}
-            {creditsLine && (
-              <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-muted-foreground">Costo máximo autorizado</dt>
-                <dd className="font-medium text-foreground">
-                  {plan.maxCreditRequirement} créditos
-                </dd>
-              </div>
-            )}
-          </dl>
-
-          {/* La frase que separa «autorizar una búsqueda» de «comprar un resultado». El
-              desenlace más probable de esta operación es que Lusha devuelva los números que
-              ya están guardados, y en ese caso se cobra igual. */}
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            {SEARCH_MORE_CONFIRM_COST_WARNING}
-          </p>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setConfirmOpen(false)}
-            >
-              {SEARCH_MORE_CONFIRM_CANCEL_LABEL}
-            </Button>
-            <Button type="button" onClick={handleConfirm}>
-              {SEARCH_MORE_CONFIRM_ACCEPT_LABEL}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+      {/* La divulgación de costo, en texto secundario y en una sola línea. NO es un bloque de
+          advertencia: el aviso amarillo pertenecía al modal, y una alarma permanente junto a
+          un botón se vuelve invisible a la tercera vez que se ve. Dice qué fuente se consulta,
+          hasta cuánto puede costar, y que puede cobrarse sin encontrar nada nuevo — que es el
+          desenlace más probable. */}
+      <p className="text-[11px] text-muted-foreground">
+        {costDisclosure}. {SEARCH_MORE_COST_HONESTY_COPY}
+      </p>
+    </div>
   );
 }

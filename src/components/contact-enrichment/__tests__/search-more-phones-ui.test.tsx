@@ -111,6 +111,8 @@ import {
   type SearchMorePlannerInput,
 } from '@/modules/contact-enrichment/search-more-phones-planner';
 import {
+  getSearchMoreCostDisclosure,
+  SEARCH_MORE_COST_HONESTY_COPY,
   SEARCH_MORE_CTA_LABEL,
   SEARCH_MORE_RUNNING_LABEL,
 } from '../search-more-phones-copy';
@@ -395,6 +397,57 @@ function assertExistingPhoneVisible() {
   );
 }
 
+/**
+ * El drawer del candidato ES un diálogo: `DrawerShell` monta un `Sheet` de radix, que expone
+ * `role="dialog"`. Así que la propiedad de 1J no es «cero diálogos» —eso sería falso incluso
+ * antes del clic— sino que NO SE APILE UN SEGUNDO encima. Ese apilamiento era el síntoma que
+ * la QA de Producción describió como modal-sobre-modal.
+ */
+const DRAWER_DIALOG_COUNT = 1;
+
+/**
+ * Ningún diálogo APILADO sobre el drawer. Se afirma por ROL, que es lo que un lector de
+ * pantalla —y radix— entienden por diálogo, en vez de por una clase CSS.
+ *
+ * `alertdialog` se cuenta aparte y su cuenta permitida es CERO: es un rol distinto, así que
+ * medir sólo `dialog` dejaría pasar un `AlertDialog` de confirmación, que es exactamente la
+ * forma que 1J prohíbe.
+ */
+function assertNoStackedDialog(context: string) {
+  assert.equal(
+    screen.queryAllByRole('dialog').length,
+    DRAWER_DIALOG_COUNT,
+    `${context}: el único diálogo en pantalla tiene que seguir siendo el drawer`,
+  );
+  assert.equal(
+    screen.queryAllByRole('alertdialog').length,
+    0,
+    `${context}: una confirmación es exactamente lo que 1J retira`,
+  );
+}
+
+/**
+ * Renderiza el drawer, espera el CTA y lo PULSA. Un solo paso, porque desde 1J un clic es
+ * toda la interacción: no hay confirmación que abrir ni un segundo botón que buscar.
+ */
+async function clickSearchMore(facts: PreflightFacts = {}) {
+  await renderSheetWith(facts);
+  await waitFor(() => {
+    if (searchMoreCta() === null) throw new Error('CTA no renderizado');
+  });
+  fireEvent.click(searchMoreCta()!);
+}
+
+/**
+ * La fila del teléfono: el elemento que contiene el NÚMERO junto con sus badges de tipo y
+ * procedencia. Es el contenedor del que la acción tiene que estar fuera.
+ */
+function phoneBadgeRow(): HTMLElement {
+  const row = screen.getAllByText(PRIMARY_PHONE)[0].parentElement;
+  assert.ok(row, 'no se encontró la fila del teléfono');
+  return row;
+}
+
 // ── Setup/Teardown ───────────────────────────────────────────────────────────
 
 before(async () => {
@@ -539,173 +592,143 @@ describe('SEARCH-MORE UI — cuándo existe «Buscar más números»', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// §14 — la confirmación, y que el primer clic NO gasta
+// 1J — LA FORMA DEL BOTÓN, Y QUE UN CLIC EJECUTA
 // ═══════════════════════════════════════════════════════════════
+//
+// El bloque anterior de esta suite (§14) demostraba lo CONTRARIO: que el primer clic abría un
+// modal y NO gastaba. 1J retira ese modal por decisión de producto, así que esas aserciones se
+// INVIERTEN — no se borran, y ninguna propiedad de seguridad se pierde con ellas:
+//
+//   * «abrir el modal no cuesta un crédito» se sustituye por «un clic produce EXACTAMENTE una
+//     compra», que es la garantía que de verdad protegía el crédito;
+//   * «sólo confirmar invoca la compra, con el candidato como único argumento» se conserva
+//     ENTERA: la acción sigue recibiendo `{ candidateId }` y nada más, así que el cliente
+//     sigue sin poder imponer proveedor ni techo;
+//   * «la confirmación nombra a Lusha y su techo de 5» se traslada a la DIVULGACIÓN pre-clic,
+//     que ahora es permanente en vez de aparecer al abrir un diálogo. Sigue siendo la misma
+//     pregunta —¿el operador sabe qué compra antes de comprarlo?— sobre otra superficie;
+//   * «cancelar cierra sin gastar» desaparece porque no hay diálogo del que salir. Lo que
+//     ocupa su sitio es la aserción de que NINGÚN diálogo llega a montarse.
 
-describe('SEARCH-MORE UI — el primer clic NO gasta', () => {
-  async function openCta() {
+describe('SEARCH-MORE UI 1J — el CTA es un botón secundario, no un enlace de texto', () => {
+  it('§12.1 el CTA es un <button> con la forma del secundario canónico', async () => {
     await renderSheetWith();
     await waitFor(() => {
       if (searchMoreCta() === null) throw new Error('CTA no renderizado');
     });
-    fireEvent.click(searchMoreCta()!);
-  }
-
-  it('§20.8/§20.9 el primer clic abre una CONFIRMACIÓN y NO invoca la compra', async () => {
-    await openCta();
-    // Se detecta por ROL. El TÍTULO del modal y la etiqueta del CTA comparten palabras a
-    // propósito —el operador tiene que reconocer que es la misma acción— así que buscar por
-    // texto encontraría los dos.
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    assert.equal(
-      mockSearchMore.mock.callCount(),
-      0,
-      'ÉSTA es la propiedad central: abrir el modal no puede costar un crédito',
-    );
-    assertNoProviderCalls('al abrir la confirmación');
-  });
-
-  it('§20.10 la confirmación NOMBRA a Lusha', async () => {
-    await openCta();
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    const dialog = screen.getByRole('dialog');
-    assert.match(
-      dialog.textContent ?? '',
-      /lusha/i,
-      'el operador acepta un gasto concreto contra un proveedor concreto',
+    const cta = searchMoreCta()!;
+    assert.equal(cta.tagName, 'BUTTON');
+    // `variant="outline"`: borde y superficie de tarjeta. Es lo que lo hace leerse como una
+    // ACCIÓN y no como el enlace de texto que la QA de Producción encontró.
+    assert.match(cta.className, /\bborder\b/);
+    assert.doesNotMatch(
+      cta.className,
+      /underline/,
+      'un subrayado al pasar el ratón lo devolvería a parecer un enlace',
     );
     assert.doesNotMatch(
-      dialog.textContent ?? '',
-      /apollo/i,
-      'Apollo no se consulta en esta operación: nombrarlo sería falso',
+      cta.className,
+      /px-0/,
+      'sin relleno horizontal el botón no tiene cuerpo: era el `ghost` de antes',
     );
   });
 
-  it('§20.11 la confirmación muestra el techo de 5 créditos', async () => {
-    await openCta();
+  it('§12.2 el CTA vive FUERA de la fila del teléfono y sus badges', async () => {
+    await renderSheetWith();
     await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
+      if (searchMoreCta() === null) throw new Error('CTA no renderizado');
     });
-    const dialog = screen.getByRole('dialog');
-    assert.match(dialog.textContent ?? '', /5 créditos/);
-    assert.match(dialog.textContent ?? '', /máximo autorizado/i);
-    // Ni el techo de Apollo ni el del waterfall completo.
-    assert.doesNotMatch(dialog.textContent ?? '', /8 créditos|13 créditos/);
-  });
+    const row = phoneBadgeRow();
+    // Prueba de no-vacuidad: la fila que se está usando como referencia es de verdad la del
+    // número CON sus badges. Sin esto, un `parentElement` que fuera otro contenedor haría
+    // pasar la aserción de abajo sin demostrar nada.
+    assert.match(row.textContent ?? '', /Móvil/);
+    assert.match(row.textContent ?? '', /Apollo reveal/);
 
-  it('la confirmación advierte que puede cobrarse SIN encontrar nada nuevo', async () => {
-    await openCta();
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    // El desenlace más probable es `no_new_distinct_phone`: Lusha contesta, cobra, y devuelve
-    // lo que ya estaba. Sin esta frase el operador cree que sólo paga cuando gana algo.
-    assert.match(screen.getByRole('dialog').textContent ?? '', /aunque.*no encuentre/i);
-  });
-
-  it('CANCELAR cierra sin gastar', async () => {
-    await openCta();
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    fireEvent.click(screen.getByRole('button', { name: /^Cancelar$/i }));
-    assert.equal(mockSearchMore.mock.callCount(), 0);
-    assertNoProviderCalls('tras cancelar');
-  });
-
-  it('sólo CONFIRMAR invoca la compra, y con el candidato como ÚNICO argumento', async () => {
-    await openCta();
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    const confirm = screen
-      .getAllByRole('button', { name: new RegExp(SEARCH_MORE_CTA_LABEL, 'i') })
-      .at(-1)!;
-    fireEvent.click(confirm);
-
-    await waitFor(() => {
-      if (mockSearchMore.mock.callCount() === 0) throw new Error('compra no invocada');
-    });
-    assert.equal(mockSearchMore.mock.callCount(), 1);
-
-    // §20.18/§20.19 — el cliente NO puede imponer proveedor ni techo: no existe el parámetro.
-    const args = mockSearchMore.mock.calls[0].arguments[0];
-    assert.deepEqual(
-      Object.keys(args),
-      ['candidateId'],
-      'un argumento de proveedor o de techo sería la puerta para pedir 50 créditos',
+    assert.equal(
+      row.contains(searchMoreCta()!),
+      false,
+      'la acción pegada a los badges era el problema de jerarquía: el dato y la acción son cosas distintas',
     );
+  });
+
+  it('§12.12/§9 la divulgación de costo se lee ANTES del clic', async () => {
+    await renderSheetWith();
+    await waitFor(() => {
+      if (searchMoreCta() === null) throw new Error('CTA no renderizado');
+    });
+    // Sin modal, ésta es la ÚNICA oportunidad de decir qué se compra. Tiene que estar en
+    // pantalla con el botón todavía sin pulsar.
+    const disclosure = String(getSearchMoreCostDisclosure(['lusha'], SEARCH_MORE_MAX_CREDITS));
+    assert.match(document.body.textContent ?? '', new RegExp('hasta 5 créditos'));
+    assert.match(document.body.textContent ?? '', new RegExp('Lusha'));
+    assert.ok(
+      (document.body.textContent ?? '').includes(disclosure),
+      'la línea de costo canónica tiene que estar renderizada tal cual',
+    );
+    assert.ok(
+      (document.body.textContent ?? '').includes(SEARCH_MORE_COST_HONESTY_COPY),
+      'y la frase que dice que puede cobrarse sin encontrar nada nuevo',
+    );
+    // La divulgación es texto secundario, no un bloque de alarma: nada la envuelve en un
+    // recuadro de advertencia.
+    assert.equal(
+      document.querySelectorAll('[role="alert"]').length,
+      0,
+      'el aviso amarillo pertenecía al modal',
+    );
+    assertNoProviderCalls('sólo por leer la divulgación');
+  });
+
+  it('§12.14 con el permiso de producto apagado no hay botón NI divulgación de costo', async () => {
+    await renderSheetWith({ featureEnabled: false });
+    assert.equal(searchMoreCta(), null);
+    assert.doesNotMatch(
+      document.body.textContent ?? '',
+      /hasta 5 créditos/,
+      'anunciar un costo de una operación que no existe describiría un gasto imposible',
+    );
+    assertNoProviderCalls('con el flag apagado');
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// §15/§16 — mientras busca, y al terminar
-// ═══════════════════════════════════════════════════════════════
-
-describe('SEARCH-MORE UI — el teléfono NO desaparece', () => {
-  async function confirmSearch() {
+describe('SEARCH-MORE UI 1J — un clic EJECUTA, y sin diálogo', () => {
+  it('§12.3 el drawer NO monta ningún diálogo: ni antes del clic, ni después', async () => {
     await renderSheetWith();
     await waitFor(() => {
       if (searchMoreCta() === null) throw new Error('CTA no renderizado');
     });
+    assertNoStackedDialog('antes del clic');
+
     fireEvent.click(searchMoreCta()!);
     await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
+      if (mockSearchMore.mock.callCount() === 0) throw new Error('compra no invocada');
     });
-    fireEvent.click(
-      screen
-        .getAllByRole('button', { name: new RegExp(SEARCH_MORE_CTA_LABEL, 'i') })
-        .at(-1)!,
-    );
-  }
+    assertNoStackedDialog('durante la corrida');
 
-  it('§20.20 mientras BUSCA, el teléfono existente sigue visible y se ve el estado', async () => {
-    // La compra queda colgada a propósito: así el render intermedio es observable.
-    let release: (value: unknown) => void = () => {};
-    mockSearchMore.mock.mockImplementation(
-      () => new Promise((resolve) => {
-        release = resolve;
-      }) as Promise<unknown>,
-    );
-
-    await confirmSearch();
-
-    await waitFor(() => {
-      if (screen.queryByText(new RegExp(SEARCH_MORE_RUNNING_LABEL, 'i')) === null) {
-        throw new Error('estado «Buscando…» no renderizado');
-      }
-    });
-    // LA propiedad de §15: sustituir el número por un esqueleto esconderría un dato ya pagado.
-    assertExistingPhoneVisible();
-
-    release({
-      outcome: 'no_new_phones',
-      reason: null,
-      newDistinctPhoneCount: 0,
-      lushaOutcome: 'no_new_distinct_phone',
-      maxCreditsAuthorized: 5,
-    });
+    await settledMessage();
+    assertNoStackedDialog('al terminar');
   });
 
-  it('§20.13 un DOBLE clic en confirmar produce UNA sola invocación', async () => {
+  it('§12.4/§12.5 el PRIMER clic invoca la compra, exactamente UNA vez', async () => {
+    await clickSearchMore();
+    await waitFor(() => {
+      if (mockSearchMore.mock.callCount() === 0) throw new Error('compra no invocada');
+    });
+    assert.equal(
+      mockSearchMore.mock.callCount(),
+      1,
+      'un clic = una corrida: ni cero (el modal de antes) ni dos',
+    );
+
+    // §20.18/§20.19 — el cliente NO puede imponer proveedor ni techo: no existe el parámetro.
+    // Esta aserción sobrevive intacta a la retirada del modal, y es la que de verdad impedía
+    // pedir 50 créditos desde el navegador.
+    const args = mockSearchMore.mock.calls[0].arguments[0];
+    assert.deepEqual(Object.keys(args), ['candidateId']);
+  });
+
+  it('§20.13 un DOBLE clic produce UNA sola invocación', async () => {
     let release: (value: unknown) => void = () => {};
     mockSearchMore.mock.mockImplementation(
       () => new Promise((resolve) => {
@@ -717,20 +740,13 @@ describe('SEARCH-MORE UI — el teléfono NO desaparece', () => {
     await waitFor(() => {
       if (searchMoreCta() === null) throw new Error('CTA no renderizado');
     });
-    fireEvent.click(searchMoreCta()!);
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    const confirm = screen
-      .getAllByRole('button', { name: new RegExp(SEARCH_MORE_CTA_LABEL, 'i') })
-      .at(-1)!;
+    const cta = searchMoreCta()!;
 
     // Dos clics SINCRÓNICOS, antes de que React haya re-renderizado. Un booleano de estado no
-    // los pararía: por eso el pestillo vive en un ref.
-    fireEvent.click(confirm);
-    fireEvent.click(confirm);
+    // los pararía: por eso el pestillo vive en un ref. Sin modal, este pestillo es la PRIMERA
+    // barrera del cliente y no la segunda, así que la prueba pesa más que antes.
+    fireEvent.click(cta);
+    fireEvent.click(cta);
 
     await waitFor(() => {
       if (mockSearchMore.mock.callCount() === 0) throw new Error('compra no invocada');
@@ -745,6 +761,98 @@ describe('SEARCH-MORE UI — el teléfono NO desaparece', () => {
       maxCreditsAuthorized: 5,
     });
   });
+
+  it('§10 tras un desenlace TERMINAL el botón ya no está: no hay repetición accidental', async () => {
+    // Sin confirmación, la única cosa entre un operador y una segunda compra es que el botón
+    // deje de existir. Se retira desde el estado local y no esperando al refresco del
+    // preflight: si la relectura fallara, un botón vivo ofrecería una compra que el
+    // planificador ya no autoriza —una corrida `search_more` terminal AGOTA Lusha para este
+    // candidato— y el clic terminaría en un error que el operador no puede entender.
+    await clickSearchMore();
+
+    const message = await settledMessage();
+    assert.match(message, /1 número adicional/i);
+    assert.equal(
+      searchMoreCta(),
+      null,
+      'el CTA no puede sobrevivir a su propio desenlace terminal',
+    );
+    // Y el desenlace se queda LEÍDO en su sitio, junto al teléfono: un toast desaparece.
+    assert.ok((document.body.textContent ?? '').includes(message));
+    assert.equal(mockSearchMore.mock.callCount(), 1);
+  });
+
+  it('§8/§12.11 un fallo del proveedor se dice INLINE y con tono de error', async () => {
+    mockSearchMore.mock.mockImplementation(async () => ({
+      outcome: 'provider_error',
+      reason: 'provider_error',
+      newDistinctPhoneCount: 0,
+      lushaOutcome: 'error',
+      maxCreditsAuthorized: 5,
+    }));
+
+    await clickSearchMore();
+    await settledMessage();
+
+    // El mismo sitio que el éxito —la sección de Teléfono, en línea— pero con el color del
+    // producto para los fallos, igual que `phoneRecoveryError` y el error del fallback manual
+    // en este mismo panel. Sin modal, sin overlay y sin recuadro.
+    const status = screen.getAllByRole('status').at(-1)!;
+    assert.match(status.className, /text-destructive/);
+    assertNoStackedDialog('tras un fallo del proveedor');
+    assertExistingPhoneVisible();
+  });
+
+  it('§12.6/§12.7/§5 mientras BUSCA: el BOTÓN se deshabilita y el teléfono sigue visible', async () => {
+    // La compra queda colgada a propósito: así el render intermedio es observable.
+    let release: (value: unknown) => void = () => {};
+    mockSearchMore.mock.mockImplementation(
+      () => new Promise((resolve) => {
+        release = resolve;
+      }) as Promise<unknown>,
+    );
+
+    await clickSearchMore();
+
+    // El estado de carga vive DENTRO del botón (§5): el operador tiene que seguir viendo
+    // dónde estaba la acción que acaba de disparar.
+    const running = await waitFor(() => {
+      const button = screen.queryByRole('button', {
+        name: new RegExp(SEARCH_MORE_RUNNING_LABEL, 'i'),
+      });
+      if (button === null) throw new Error('el botón no entró en estado de carga');
+      return button;
+    });
+    assert.equal(running.tagName, 'BUTTON');
+    assert.ok(
+      (running as HTMLButtonElement).disabled,
+      'un botón vivo durante la corrida invitaría a un segundo gasto',
+    );
+
+    // LA propiedad de §15/§5: sustituir el número por un esqueleto esconderría un dato ya
+    // pagado. Y nada bloquea el resto del drawer: sin overlay y sin segunda hoja.
+    assertExistingPhoneVisible();
+    assertNoStackedDialog('mientras busca');
+    assert.ok(
+      screen.getAllByText(makeCandidate().full_name).length > 0,
+      'el resto del drawer sigue legible durante la corrida',
+    );
+
+    release({
+      outcome: 'no_new_phones',
+      reason: null,
+      newDistinctPhoneCount: 0,
+      lushaOutcome: 'no_new_distinct_phone',
+      maxCreditsAuthorized: 5,
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// §15/§16 — mientras busca, y al terminar
+// ═══════════════════════════════════════════════════════════════
+
+describe('SEARCH-MORE UI — el teléfono NO desaparece', () => {
 
   it('§20.31 con un número NUEVO, «Ver más números» aparece SIN recargar la página', async () => {
     // Antes de la compra: 1 solo teléfono, así que el CTA gratuito no existe.
@@ -764,17 +872,8 @@ describe('SEARCH-MORE UI — el teléfono NO desaparece', () => {
       }),
     );
 
+    // 1J: un clic ejecuta. No hay confirmación que abrir.
     fireEvent.click(searchMoreCta()!);
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    fireEvent.click(
-      screen
-        .getAllByRole('button', { name: new RegExp(SEARCH_MORE_CTA_LABEL, 'i') })
-        .at(-1)!,
-    );
 
     // Sin F5: el refresco del preflight dispara la relectura del conteo, y el CTA gratuito
     // aparece solo.
@@ -795,17 +894,8 @@ describe('SEARCH-MORE UI — el teléfono NO desaparece', () => {
     await waitFor(() => {
       if (searchMoreCta() === null) throw new Error('CTA no renderizado');
     });
+    // 1J: un clic ejecuta. No hay confirmación que abrir.
     fireEvent.click(searchMoreCta()!);
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    fireEvent.click(
-      screen
-        .getAllByRole('button', { name: new RegExp(SEARCH_MORE_CTA_LABEL, 'i') })
-        .at(-1)!,
-    );
 
     await waitFor(() => {
       if (mockSearchMore.mock.callCount() === 0) throw new Error('compra no invocada');
@@ -836,17 +926,8 @@ describe('SEARCH-MORE UI — el teléfono NO desaparece', () => {
     await waitFor(() => {
       if (searchMoreCta() === null) throw new Error('CTA no renderizado');
     });
+    // 1J: un clic ejecuta. No hay confirmación que abrir.
     fireEvent.click(searchMoreCta()!);
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    fireEvent.click(
-      screen
-        .getAllByRole('button', { name: new RegExp(SEARCH_MORE_CTA_LABEL, 'i') })
-        .at(-1)!,
-    );
 
     const message = await settledMessage();
     assertExistingPhoneVisible();
@@ -876,17 +957,8 @@ describe('SEARCH-MORE UI — el teléfono NO desaparece', () => {
     await waitFor(() => {
       if (searchMoreCta() === null) throw new Error('CTA no renderizado');
     });
+    // 1J: un clic ejecuta. No hay confirmación que abrir.
     fireEvent.click(searchMoreCta()!);
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    fireEvent.click(
-      screen
-        .getAllByRole('button', { name: new RegExp(SEARCH_MORE_CTA_LABEL, 'i') })
-        .at(-1)!,
-    );
 
     const message = await settledMessage();
     assert.match(message, /no encontró números diferentes/i);
@@ -911,17 +983,8 @@ describe('SEARCH-MORE UI — el teléfono NO desaparece', () => {
     await waitFor(() => {
       if (searchMoreCta() === null) throw new Error('CTA no renderizado');
     });
+    // 1J: un clic ejecuta. No hay confirmación que abrir.
     fireEvent.click(searchMoreCta()!);
-    await waitFor(() => {
-      if (screen.queryAllByRole('dialog').length === 0) {
-        throw new Error('confirmación no abierta');
-      }
-    });
-    fireEvent.click(
-      screen
-        .getAllByRole('button', { name: new RegExp(SEARCH_MORE_CTA_LABEL, 'i') })
-        .at(-1)!,
-    );
 
     // Los dos casos comparten desenlace para el operador pero NO comparten cadena.
     assert.match(
