@@ -426,17 +426,53 @@ describe('§ D — cableado en lusha-pending-review-actions.ts', () => {
     assert.match(actionCode, /case 'confirmed_with_overage':/);
   });
 
+  /**
+   * RATCHET INVERTIDO, no aflojado (AGENT1-LUSHA-PROVIDER-USAGE-OBSERVABILITY-1).
+   *
+   * La garantía que esta prueba protege —una liquidación fallida NO convierte una
+   * corrida exitosa en fallo de proveedor— sigue INTACTA y sigue demostrada. Lo
+   * que cambia es el PROXY con el que se demostraba: antes se exigía la firma
+   * `Promise<void>`, leyendo «no devuelve nada» como «nadie puede usar el
+   * desenlace para alterar el resultado».
+   *
+   * Ese proxy dejó de ser correcto: la fila canónica de `provider_usage_logs`
+   * necesita saber CUÁNTO se liquidó de verdad —reportado, conservador o con
+   * sobrepaso— y sin el desenlace tendría que adivinarlo, que es exactamente el
+   * tipo de invención que el ledger existe para no hacer.
+   *
+   * Así que la guarda pasa a exigir la garantía DIRECTAMENTE, y queda más fuerte
+   * que la firma que sustituye:
+   *   · la liquidación sigue CAPTURANDO (no lanza);
+   *   · el desenlace se usa para OBSERVAR, nunca para decidir qué se devuelve: el
+   *     `return result` no puede depender de él;
+   *   · y ninguna rama convierte un desenlace de liquidación en un resultado de
+   *     fallo.
+   */
   it('una liquidación fallida NO convierte la corrida exitosa en fallo de proveedor', () => {
-    // `settleReservationObservably` devuelve `Promise<void>` y captura: el resultado
-    // de la búsqueda se devuelve igual. Lo que cambia es que el fallo se registra.
-    assert.match(
-      actionCode,
-      /const settleReservationObservably[\s\S]{0,400}?Promise<void>/,
-    );
+    // Sigue capturando: un fallo de contabilidad no puede propagarse.
     assert.match(
       actionCode,
       /try \{\s*outcome = await settleReservation\(result\);\s*\} catch/,
     );
+
+    // El desenlace se CONSUME como observabilidad...
+    assert.match(actionCode, /const settlement = await settleReservationObservably\(result\)/);
+    assert.match(actionCode, /recordRunUsageObservably\(result, settlement\)/);
+
+    // ...y NUNCA decide el resultado devuelto. Ninguna rama construye un fallo a
+    // partir del desenlace de la liquidación ni condiciona el `return` a él.
+    assert.doesNotMatch(
+      actionCode,
+      /buildLushaPendingReviewFailure\([^)]*\b(settlement|outcome)\b/,
+      'un desenlace de liquidación no puede fabricar un resultado de fallo',
+    );
+    assert.doesNotMatch(
+      actionCode,
+      /if\s*\(\s*settlement[\s\S]{0,120}?return\s+build/,
+      'el resultado devuelto no puede depender de la liquidación',
+    );
+    // El camino de éxito devuelve el resultado de la búsqueda, tal cual.
+    assert.match(actionCode, /if \(result\.status === 'success'\)[\s\S]{0,200}?return result;/);
   });
 
   it('el techo de la corrida Lusha sigue siendo 2: este PR no toca el runtime', () => {

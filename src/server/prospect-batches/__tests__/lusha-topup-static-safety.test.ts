@@ -88,14 +88,53 @@ describe('Q3F-5BB.7B static safety', () => {
     }
   });
 
-  it('35/36. writer + action never ACCESS provider_usage_logs or agent_runs (doc comments allowed)', () => {
+  /**
+   * 35/36 — RATCHET INVERTIDO, no aflojado.
+   *
+   * AGENT1-LUSHA-PROVIDER-USAGE-OBSERVABILITY-1 ensancha la frontera de escritura
+   * por EXACTAMENTE una tabla existente: `provider_usage_logs`, y sólo desde la
+   * ACCIÓN. Lo que la guarda original protegía sigue protegido, y de hecho queda
+   * MÁS estrecho que antes:
+   *
+   *   · el WRITER puro conserva la prohibición COMPLETA — la fila de uso necesita
+   *     el desenlace de la liquidación, que el núcleo puro no conoce y no debe
+   *     conocer;
+   *   · `agent_runs` / `agent_run_steps` siguen PROHIBIDOS en los dos (§ 15). Esa
+   *     mitad de la guarda no se toca;
+   *   · la acción sigue sin poder tocar la tabla POR SU CUENTA: un `.from()`
+   *     suelto está prohibido igual, así que el acceso sólo puede pasar por el
+   *     seam canónico revisado;
+   *   · y se añade lo que antes no existía: la acción DEBE usar ese seam. Una
+   *     prohibición que se levanta sin exigir por dónde pasa el sustituto deja la
+   *     puerta abierta a un segundo mecanismo improvisado.
+   */
+  it('35/36. el WRITER puro sigue sin poder registrar uso, y nadie escribe agent_runs', () => {
+    const writer = readCode(WRITER);
+    assert.doesNotMatch(writer, /\.from\(\s*['"]provider_usage_logs['"]\s*\)/);
+    assert.doesNotMatch(writer, /logProviderUsage|insertProviderUsage|recordLushaRunProviderUsage/i);
+
+    // § 15 — la frontera de `agent_runs` NO se ensancha en ninguno de los dos.
     for (const p of [WRITER, ACTION]) {
       const s = readCode(p);
-      // Only actual table access is forbidden — a doc comment naming the table is fine.
-      assert.doesNotMatch(s, /\.from\(\s*['"]provider_usage_logs['"]\s*\)/);
       assert.doesNotMatch(s, /\.from\(\s*['"]agent_runs['"]\s*\)/);
-      assert.doesNotMatch(s, /logProviderUsage|insertProviderUsage|recordAgentRun|insertAgentRun/i);
+      assert.doesNotMatch(s, /\.from\(\s*['"]agent_run_steps['"]\s*\)/);
+      assert.doesNotMatch(s, /recordAgentRun|insertAgentRun|createAgentRun/i);
     }
+  });
+
+  it('35/36b. la acción registra uso SÓLO por el seam canónico, nunca por su cuenta', () => {
+    const action = readCode(ACTION);
+    // Acceso directo a la tabla: sigue prohibido.
+    assert.doesNotMatch(action, /\.from\(\s*['"]provider_usage_logs['"]\s*\)/);
+    assert.doesNotMatch(action, /logProviderUsage|insertProviderUsage/i);
+    // Y el seam autorizado es OBLIGATORIO: la observabilidad no puede volver a
+    // ser un mecanismo improvisado dentro de la acción.
+    assert.match(
+      action,
+      /from '@\/server\/prospect-batches\/lusha-provider-usage-recorder'/,
+      'la acción debe registrar uso por el recolector canónico',
+    );
+    assert.match(action, /recordLushaRunProviderUsage/);
   });
 
   it('writer only writes prospect_batches + prospect_candidates (via injected deps)', () => {

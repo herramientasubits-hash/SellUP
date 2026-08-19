@@ -191,3 +191,24 @@ async function loadActiveLushaPerCreditPricing(
 export async function loadActiveLushaCreditPricing(): Promise<ActiveProviderCreditPricingV1 | null> {
   return loadActiveLushaPerCreditPricing('credit');
 }
+
+/**
+ * Carga la configuración activa de pricing Lusha para
+ * operation_key='company_prospecting_v3' — el company discovery de Agente 1
+ * (AGENT1-LUSHA-PROVIDER-USAGE-OBSERVABILITY-1 § 9).
+ *
+ * La fila EXISTE y está activa en Producción (lusha/company_prospecting_v3/
+ * per_credit). Se lee la del `operation_key` propio de la operación, no la
+ * genérica `credit`, por la misma razón que Apollo lee
+ * `organizations_search` en lugar de su `credit`: si mañana la tarifa del
+ * prospecting divergiera, una corrida seguiría publicando la tarifa equivocada
+ * sin que nada fallara.
+ *
+ * Retorna null bajo las MISMAS condiciones que el resto de los loaders — sin
+ * fila activa, unidad distinta de per_credit, costo no finito o negativo, o
+ * query fallida. El caller trata null como costo DESCONOCIDO (SQL NULL),
+ * nunca como costo 0.
+ */
+export async function loadActiveLushaCompanyProspectingPricing(): Promise<ActiveProviderCreditPricingV1 | null> {
+  return loadActiveLushaPerCreditPricing('company_prospecting_v3');
+}
