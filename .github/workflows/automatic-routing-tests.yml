@@ -1872,3 +1872,57 @@ jobs:
         run: npm run test:agent1:budget-overage-reconciliation:postgres
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # ── AGENT2A-SEARCH-MORE-PHONES-1 ────────────────────────────────────
+      #
+      # «Buscar más números»: la tercera operación de teléfono. No es «Revelar teléfono»
+      # (que parte de un candidato SIN teléfono) ni «Ver más números» (que sólo abre lo ya
+      # guardado, gratis). Ésta PAGA, así que sus reglas entran al check obligatorio.
+      #
+      # Las dos suites puras fijan lo que decide si esa compra puede ocurrir y lo que se
+      # afirma al cerrarla:
+      #   * el PLANIFICADOR — un proveedor que YA contestó no se vuelve a llamar (su
+      #     respuesta completa está guardada desde 4O-C/4O-D, así que repetirlo cobraría
+      #     por el mismo payload); sólo identidades NATIVAS que la fila ya lleva, sin
+      #     búsqueda general de Lusha, sin nombre+empresa y sin cruce entre proveedores; y
+      #     fail-closed en las tres ramas de privacidad;
+      #   * el DESENLACE — `no_new_distinct_phone` nunca se colapsa en `no_phone_found`, un
+      #     fallo del proveedor nunca se degrada a «no encontramos», y el costo se registra
+      #     ENTERO incluso cuando la corrida no aportó nada nuevo.
+      #
+      # Deterministas y offline: módulos puros, sin red, sin Supabase, sin Apollo, sin
+      # Lusha, 0 créditos y 0 escrituras.
+      - name: Run A2A search-more-phones planner and outcome tests
+        run: npm run test:agent2a:search-more-phones
+
+      # La frontera de COPY entre la acción gratuita y la pagada, que viven a centímetros
+      # en el mismo panel. Lee los DOS archivos: éste tiene que decir BUSCAR y nombrar el
+      # costo antes del clic, y el de 4O-G tiene que seguir sin poder usar ningún verbo de
+      # búsqueda. El riesgo que cubre no es un copy feo, es que el operador confunda cuál
+      # de las dos gasta.
+      - name: Run A2A search-more-phones copy boundary tests
+        run: npm run test:agent2a:search-more-phones-copy
+
+      # La mitad que NINGUNA suite de TypeScript puede cubrir: que la 122 APLIQUE y que
+      # PostgreSQL se comporte como el hito afirma. Aplica la cadena REAL leyendo los
+      # archivos verbatim de `supabase/migrations` —099, 107, 102, 103, 109, 110, 111, 112,
+      # 113, 114, 115, 120 y 122— y descarta el stub de una sola columna de
+      # `phone_reveal_waterfall_runs` que trae el bootstrap, porque la 122 ensancha CHECKs
+      # de columnas REALES que sólo existen si la 102/103 se aplican de verdad.
+      #
+      # Lo que se ejercita después de aplicar es el comportamiento: que un número adicional
+      # de rango inferior se AÑADA sin desplazar al principal; que uno de rango superior sí
+      # pase a principal y AUN ASÍ no reescriba `phone_reveal_provider` ni el costo del
+      # reveal de Apollo; que un duplicado gane procedencia SIN duplicar la fila; la
+      # idempotencia; que la supresión por PERSONA bloquee desde las DOS identidades
+      # nativas del candidato; que un tombstone por número no revive; y que la función siga
+      # sin poder borrar una fila de teléfono.
+      #
+      # `embedded-postgres` ya está instalado por el paso de Agente 2A de más arriba, con la
+      # versión PINCHADA 17.6.0-beta.15. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el skip
+      # en FALLO: sin ella, que el arnés no resolviera pondría este paso verde con una
+      # migración inaplicable. Sin `continue-on-error` y sin `|| true`.
+      - name: Run A2A search-more-phones tests against real PostgreSQL
+        run: npm run test:agent2a:search-more-phones:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'

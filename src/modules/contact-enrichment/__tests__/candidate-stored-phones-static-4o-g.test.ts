@@ -493,6 +493,17 @@ describe('4O-G — alcance', () => {
       // No importa nada: nombra el módulo para fijar que el barrido de P0-R4
       // sigue cubriéndolo. Es una guarda sobre 4O-G, no un consumidor suyo.
       'src/__tests__/use-server-export-contract-p0-r4.test.ts',
+      // SEARCH-MORE-PHONES-1: el copy de «Buscar más números». NO importa ningún módulo
+      // de 4O-G — sólo lo NOMBRA en un comentario, para explicar que su regla del verbo
+      // es el ESPEJO de la de 4O-G: allí ninguna cadena puede sugerir que se busca algo
+      // (la acción es gratis y abre lo ya guardado), y aquí el verbo tiene que ser BUSCAR
+      // porque la acción PAGA. Las dos viven a centímetros en el mismo panel.
+      'src/components/contact-enrichment/search-more-phones-copy.ts',
+      // Y su suite, que LEE el archivo de 4O-G con `readFileSync` —no lo importa— para
+      // afirmar la frontera en las DOS direcciones: que este copy diga BUSCAR y que el de
+      // 4O-G siga sin poder usar ningún verbo de búsqueda. Es exactamente la guarda que
+      // esta lista protege, aplicada desde el otro lado.
+      'src/components/contact-enrichment/__tests__/search-more-phones-copy.test.ts',
     ];
     const offenders = sourceFiles(join(repoRoot, 'src'))
       .map((absolute) => absolute.slice(repoRoot.length + 1))
