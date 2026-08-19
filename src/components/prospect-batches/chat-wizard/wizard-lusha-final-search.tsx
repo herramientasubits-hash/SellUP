@@ -53,28 +53,37 @@ export const WIZARD_LUSHA_SEARCH_LOADING_LABEL = 'Buscando con IA…';
 export const WIZARD_LUSHA_PROVIDER_LABEL = 'Lusha';
 
 /**
- * Display-only mirrors of the server-authoritative guardrails
- * (LUSHA_PENDING_REVIEW_MAX_PAGES / page size). These are used ONLY to build
- * UI copy — they never alter the request sent to Lusha.
- */
-const LUSHA_MAX_PAGES = 2;
-const LUSHA_EXPECTED_RESULTS_PER_PAGE = 10;
-/** Upper bound of companies a search can return (pages × page size). */
-const LUSHA_EXPECTED_MAX_RESULTS = LUSHA_MAX_PAGES * LUSHA_EXPECTED_RESULTS_PER_PAGE;
-
-/**
- * Pre-search cost notice (Q3F-5BB.10A).
+ * Pre-search cost notice (Q3F-5BB.10A · AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0).
  *
  * IMPORTANT: We do NOT promise a fixed credit count. Lusha may bill per company
- * returned (api_search), so the honest guardrail is the search *shape* (pages /
- * page size / max companies) plus the fact that billing follows the user's Lusha
- * plan. The real cost + returned results are shown after the search finishes.
+ * returned (api_search), so the honest guardrail is that billing follows the
+ * user's Lusha plan and that the real cost is reported after the search.
+ *
+ * 🔴 Ya no describe la FORMA de la búsqueda con cifras propias. Hasta
+ * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 toda corrida de Lusha era una
+ * búsqueda paginada —2 páginas × 10 resultados = 20 empresas— y esas tres cifras
+ * eran ciertas para todo el mundo. Con el ejecutor multirrama dejaron de serlo:
+ * una macro industria de 3 ramas hace hasta 6 peticiones y puede devolver hasta
+ * 60 filas, así que la pantalla prometía un techo TRES veces menor que el real.
+ *
+ * Y no se sustituyen por «6 peticiones / 60 empresas»: ese número tampoco es
+ * universal —depende de cuántas ramas tenga el plan de la macro (2, 4 o 6)— y
+ * reescribirlo aquí duplicaría en la UI una regla que vive en el ejecutor, lista
+ * para divergir otra vez. La única cifra cuantitativa que esta pantalla enseña
+ * es `requiredCredits`, que llega del preflight consciente del plan.
  */
 export const WIZARD_LUSHA_TOPUP_COST_NOTICE =
-  `Esta búsqueda puede revisar hasta ${LUSHA_MAX_PAGES} páginas de Lusha ` +
-  `(${LUSHA_EXPECTED_RESULTS_PER_PAGE} resultados por página, hasta ${LUSHA_EXPECTED_MAX_RESULTS} empresas devueltas), sin signals. ` +
+  `Esta búsqueda consulta Lusha siguiendo el plan configurado para la macroindustria seleccionada, sin signals. ` +
   `Cada empresa devuelta puede ser facturable según tu plan de Lusha. ` +
   `El costo real se muestra al finalizar.`;
+
+/**
+ * Complemento del aviso anterior, mostrado SÓLO cuando el preflight resolvió el
+ * techo: sin esas dos cifras en pantalla, «se muestra abajo» apuntaría a nada.
+ */
+export const WIZARD_LUSHA_AUTHORIZED_MAX_NOTICE =
+  `El máximo de créditos autorizado para esta búsqueda se muestra abajo. ` +
+  `El consumo real puede ser menor.`;
 
 /** Injectable persist runner (tests). Default = real server action. */
 export type RunLushaPendingReviewSearch = (
@@ -244,6 +253,7 @@ export function WizardLushaFinalSearch({
           <Info className="h-4 w-4" />
           <AlertDescription className="text-xs" data-testid="lusha-preview-cost-notice">
             {WIZARD_LUSHA_TOPUP_COST_NOTICE}
+            {requiredCredits !== null ? ` ${WIZARD_LUSHA_AUTHORIZED_MAX_NOTICE}` : ''}
           </AlertDescription>
         </Alert>
 
@@ -417,9 +427,13 @@ function PersistConfirmation({
           value={String(result.excludedExactDuplicatesCount)}
           testId="wizard-lusha-persist-excluded"
         />
+        {/* § P0 — sin denominador estático: el techo de peticiones depende de las
+            ramas del plan de la macro industria (2, 4 o 6), así que «/ 2» era
+            falso en cuanto la corrida tenía más de una rama. Lo que sí es un
+            hecho es cuántas consultó ESTA corrida. */}
         <DetailRow
           label="Páginas consultadas"
-          value={`${result.pagesRequested} / ${LUSHA_MAX_PAGES}`}
+          value={String(result.pagesRequested)}
           testId="wizard-lusha-persist-pages"
         />
         <DetailRow
@@ -431,9 +445,13 @@ function PersistConfirmation({
       </dl>
 
       <div className="rounded-lg bg-muted/40 px-4 py-3 space-y-1">
+        {/* § P0 — misma razón que arriba: «hasta 20 empresas (2 × 10)» describía
+            el ejecutor de una sola rama. El número de empresas que una corrida
+            puede devolver lo fija el plan de su macro industria; lo que sí puede
+            afirmarse sin divergir es la base de facturación. */}
         <p className="text-xs text-muted-foreground" data-testid="wizard-lusha-persist-billing-note">
-          Lusha puede devolver hasta {LUSHA_EXPECTED_MAX_RESULTS} empresas ({LUSHA_MAX_PAGES}{' '}
-          páginas × {LUSHA_EXPECTED_RESULTS_PER_PAGE}). El costo depende de tu plan de Lusha.
+          Las empresas devueltas se facturan según tu plan de Lusha. Los créditos que Lusha
+          reportó para esta búsqueda están arriba.
         </p>
         <p className="text-xs text-muted-foreground">Nada fue enviado a HubSpot.</p>
         <p className="text-xs text-muted-foreground">Ninguna empresa fue creada todavía.</p>

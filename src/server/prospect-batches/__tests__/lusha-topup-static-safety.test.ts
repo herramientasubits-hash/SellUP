@@ -125,14 +125,25 @@ describe('Q3F-5BB.7B static safety', () => {
     assert.equal(files.some((f) => /5bb7b|topup|duplicate_details/i.test(f)), false);
   });
 
-  it('wizard pre-search notice is non-contractual: shape + billing basis, no fixed-credit promise (Q3F-5BB.10A)', () => {
+  // AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0 — ratchet INVERTIDO en sus dos
+  // primeras aserciones de forma.
+  //
+  // «N páginas de Lusha / N resultados por página» describía el ejecutor de UNA
+  // rama, y era cierto cuando se escribió. Con el ejecutor Macro-v2 el techo
+  // depende del plan de la macro industria (2, 4 o 6 peticiones), así que una
+  // cifra de forma escrita en la UI sólo puede divergir del runtime: ahora se
+  // exige su AUSENCIA. La base de facturación —lo único que no depende del
+  // plan— se sigue exigiendo igual.
+  it('wizard pre-search notice is non-contractual: billing basis, no fixed-credit promise, no stale shape (Q3F-5BB.10A)', () => {
     const w = read(WIZARD);
     // The old fixed-credit promise is gone.
     assert.doesNotMatch(w, /hasta 2 créditos/);
     assert.doesNotMatch(w, /máx 2 créditos/);
-    // The honest guardrail shape + billing basis are stated instead.
-    assert.match(w, /páginas de Lusha/i);
-    assert.match(w, /resultados por página/i);
+    // The stale single-branch shape figures are gone too.
+    assert.doesNotMatch(w, /páginas de Lusha/i);
+    assert.doesNotMatch(w, /resultados por página/i);
+    // The billing basis stays stated.
+    assert.match(w, /plan configurado para la macroindustria/i);
     assert.match(w, /sin signals/i);
     assert.match(w, /facturable según tu plan de Lusha/i);
     assert.match(w, /costo real/i);

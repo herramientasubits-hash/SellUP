@@ -109,13 +109,25 @@ describe('Q3F-5BB.10A — Lusha billing copy is non-contractual (copy/UI only)',
     assert.doesNotMatch(src.finalSearch, /máx \$\{result\.expectedMaxCredits\}/);
   });
 
-  it('final-search states the honest guardrail shape + billing basis', () => {
+  // AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0 — ratchet INVERTIDO.
+  //
+  // Los espejos de sólo-presentación (`LUSHA_MAX_PAGES` / `…_RESULTS_PER_PAGE` /
+  // `…_MAX_RESULTS`) reflejaban un ejecutor de UNA rama. Con el ejecutor Macro-v2
+  // el techo depende del plan de la macro industria, así que un espejo estático ya
+  // no puede seguir al runtime: aquí se exige que no exista ninguno. La cifra
+  // cuantitativa autoritativa de la pantalla es `requiredCredits`, resuelto por el
+  // preflight consciente del plan.
+  it('final-search states the billing basis without static shape constants', () => {
     assert.match(src.finalSearch, /sin signals/i);
     assert.match(src.finalSearch, /facturable según tu plan de Lusha/i);
     assert.match(src.finalSearch, /costo real/i);
-    // Numbers come from display-only constants (no magic numbers in prose).
-    assert.match(src.finalSearch, /LUSHA_EXPECTED_RESULTS_PER_PAGE/);
-    assert.match(src.finalSearch, /LUSHA_EXPECTED_MAX_RESULTS/);
+    assert.match(src.finalSearch, /plan configurado para la macroindustria/i);
+    // Ningún espejo estático de la forma de la búsqueda sobrevive en la UI.
+    assert.doesNotMatch(src.finalSearch, /LUSHA_MAX_PAGES/);
+    assert.doesNotMatch(src.finalSearch, /LUSHA_EXPECTED_RESULTS_PER_PAGE/);
+    assert.doesNotMatch(src.finalSearch, /LUSHA_EXPECTED_MAX_RESULTS/);
+    // El techo plan-aware se lee del preflight, nunca se recalcula en la UI.
+    assert.match(src.finalSearch, /resolveLushaPreflightRequiredCredits/);
   });
 
   it('final-summary estimated cost is a non-contractual descriptor', () => {
