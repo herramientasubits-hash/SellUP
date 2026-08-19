@@ -49,6 +49,9 @@
 
 import { describe, it, before, beforeEach, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   planSearchMorePhones,
@@ -996,5 +999,249 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · runtime · el reveal INICIAL no se toc
       [],
     );
     assert.deepEqual(world.forbiddenWrites, []);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// GUARDAS ESTÁTICAS — lo que ninguna ejecución puede demostrar
+// ═══════════════════════════════════════════════════════════════
+//
+// Los casos de arriba observan el comportamiento con las dependencias simuladas. Estas
+// guardas leen el FICHERO, y cubren justo lo que un mock no puede: que la garantía no depende
+// de que el arnés haya cableado bien las cosas, sino de que la llamada peligrosa NO EXISTE en
+// el código.
+
+const here = dirname(fileURLToPath(import.meta.url));
+const moduleDir = join(here, '..');
+const readModule = (name: string): string =>
+  readFileSync(join(moduleDir, name), 'utf8');
+
+/** Quita comentarios de línea y de bloque: sólo queda lo EJECUTABLE. */
+function executable(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+}
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1 · el preflight sólo puede LEER', () => {
+  const read = executable(readModule('search-more-phones-read.ts'));
+
+  it('§3 la lectura de preflight NO contiene ninguna llamada de escritura', () => {
+    // El sondeo de la UI llama a esta cadena en bucle. Si aquí existiera un `.insert()`, un
+    // `.update()`, un `.delete()` o un `.rpc()`, mirar la pantalla podría escribir o gastar —
+    // y «sondear no gasta» dejaría de ser una propiedad del código para pasar a ser una
+    // intención de quien lo escribió.
+    for (const forbidden of ['.insert(', '.update(', '.delete(', '.upsert(', '.rpc(']) {
+      assert.equal(
+        read.includes(forbidden),
+        false,
+        `la lectura de preflight no puede contener ${forbidden}`,
+      );
+    }
+  });
+
+  it('§3 la lectura de preflight NO importa ningún camino que gaste', () => {
+    for (const forbidden of [
+      'lusha-phone-fallback-client',
+      'apollo',
+      'phone-reveal-credit-reservation-deps',
+      'phone-reveal-credit-budget-deps',
+      'usage-tracking/logging',
+      'append_candidate_search_more_phones',
+      'candidate-search-more-phone-append-persistence',
+    ]) {
+      assert.equal(
+        read.includes(forbidden),
+        false,
+        `la lectura de preflight no puede alcanzar ${forbidden}`,
+      );
+    }
+  });
+
+  it('§2 la privacidad la resuelve la puerta REAL, no una aproximación local', () => {
+    // Si este módulo derivara la privacidad por su cuenta, el veredicto que la UI muestra y el
+    // que bloquea la llamada a Lusha podrían discrepar — y la primera divergencia sería un
+    // botón que ofrece una compra que el servidor va a rechazar por supresión.
+    assert.match(read, /checkPhoneRevealPrivacyGate/);
+    assert.equal(
+      read.includes("privacyState: 'clear'"),
+      false,
+      'el estado de privacidad NUNCA se fija a mano',
+    );
+  });
+
+  it('§3 el id nativo de Lusha NO viaja al resumen que cruza al navegador', () => {
+    // Los HECHOS lo llevan (la llamada a Lusha lo necesita) pero el RESUMEN sólo lleva un
+    // booleano. Es la diferencia entre lo que el servidor sabe y lo que el navegador recibe.
+    const summaryBlock = read.slice(read.indexOf('export interface SearchMorePreflightSummary'));
+    const summaryShape = summaryBlock.slice(0, summaryBlock.indexOf('}'));
+    assert.equal(
+      /sourceContactId/.test(summaryShape),
+      false,
+      'el id de contacto de proveedor es PII: no cruza al navegador',
+    );
+    assert.match(summaryShape, /hasLushaNativeIdentity/);
+  });
+});
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1 · el runtime no puede alcanzar lo prohibido', () => {
+  const runtime = executable(readModule('search-more-phones-runtime.ts'));
+
+  it('§7 NO existe ninguna ruta a la búsqueda GENERAL de personas de Lusha', () => {
+    // La entrada es el id nativo y sólo el id nativo. Cualquier búsqueda por nombre, email o
+    // empresa sería la Fase 2, que está explícitamente fuera de alcance.
+    assert.match(
+      runtime,
+      /enrichLushaContactPhonesForFallback/,
+      'la única vía sancionada es el enriquecimiento POR ID',
+    );
+    for (const forbidden of [
+      'searchLushaContacts',
+      'lusha-contact-search',
+      'prospecting/search',
+      '/v2/person',
+      'firstName',
+      'companyName',
+      'linkedinUrl',
+    ]) {
+      assert.equal(
+        runtime.includes(forbidden),
+        false,
+        `el runtime no puede alcanzar ${forbidden}: sería enlace difuso o búsqueda general`,
+      );
+    }
+  });
+
+  it('§9 el runtime NO usa el writer TERMINAL del reveal', () => {
+    // Ése escribe SIEMPRE `phone_reveal_provider` y el costo: en `search_more` atribuiría un
+    // número de Apollo a Lusha y borraría lo que costó el reveal de Apollo.
+    for (const forbidden of [
+      'persistCandidateLushaPhoneCollection',
+      'persist_candidate_lusha_phone_reveal_result',
+      'candidate-lusha-phone-collection-persistence',
+    ]) {
+      assert.equal(runtime.includes(forbidden), false, `el runtime no puede usar ${forbidden}`);
+    }
+    assert.match(runtime, /appendCandidateSearchMorePhones/);
+  });
+
+  it('§20.37/38/39 el runtime NO aprueba, NO toca el contacto oficial y NO llama a HubSpot', () => {
+    for (const forbidden of [
+      'approveContactCandidate',
+      'approve_contact_candidate_with_phones',
+      'contact_phones',
+      'hubspot',
+      'HubSpot',
+    ]) {
+      assert.equal(runtime.includes(forbidden), false, `el runtime no puede alcanzar ${forbidden}`);
+    }
+  });
+
+  it('§4 el runtime NO puede insertar la corrida por su cuenta: sólo por la RPC atómica', () => {
+    // `createWaterfallRun` es el INSERT suelto. Usarlo aquí crearía la corrida FUERA de la
+    // transacción que reserva los créditos, que es exactamente la reserva huérfana que 4F
+    // cerró.
+    assert.equal(runtime.includes('createWaterfallRun'), false);
+    assert.match(runtime, /reserveWaterfallCreditsAndCreateRunOrBlock/);
+  });
+
+  it('§12 el resultado es PII-MINIMIZADO: ni teléfono, ni id de corrida, ni id nativo', () => {
+    const resultBlock = runtime.slice(runtime.indexOf('export interface SearchMoreRuntimeResult'));
+    const resultShape = resultBlock.slice(0, resultBlock.indexOf('\n}'));
+    for (const forbidden of ['runId', 'reservationId', 'phone', 'contactId', 'sourceContactId']) {
+      assert.equal(
+        new RegExp(`\\b${forbidden}\\b`).test(resultShape),
+        false,
+        `el resultado no puede llevar ${forbidden}`,
+      );
+    }
+  });
+});
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1 · la acción no acepta overrides del cliente', () => {
+  const actions = executable(readModule('search-more-phones-actions.ts'));
+
+  it('§12/§20.18/§20.19 la compra recibe EXACTAMENTE `{ candidateId }`', () => {
+    // La forma del argumento es la PRIMERA defensa. El gate de rol impide que un no admin
+    // gaste, pero no impediría que un admin —o un script con su sesión— pidiera un techo de 50.
+    const signature = actions.slice(
+      actions.indexOf('export async function searchMoreCandidatePhonesAction'),
+    );
+    const params = signature.slice(0, signature.indexOf('):'));
+    assert.match(params, /candidateId:\s*string/);
+    for (const forbidden of ['provider', 'maxCredits', 'creditCap', 'privacyState', 'contactId']) {
+      assert.equal(
+        params.includes(forbidden),
+        false,
+        `la acción no puede aceptar ${forbidden} del cliente: lo DERIVA el servidor`,
+      );
+    }
+  });
+
+  it('§12 la acción NO llama al proveedor por su cuenta: delega en el runtime', () => {
+    for (const forbidden of [
+      'enrichLushaContactPhonesForFallback',
+      'getLushaApiKey',
+      'reservePhoneRevealCreditsAndCreateRun',
+      'claimLushaAttempt',
+    ]) {
+      assert.equal(actions.includes(forbidden), false, `la acción no puede alcanzar ${forbidden}`);
+    }
+    assert.match(actions, /executeSearchMorePhonesForCandidate/);
+  });
+});
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1 · el CTA sólo puede gastar tras confirmar', () => {
+  const cta = executable(
+    readFileSync(
+      join(moduleDir, '..', '..', 'components', 'contact-enrichment', 'candidate-search-more-phones-cta.tsx'),
+      'utf8',
+    ),
+  );
+
+  it('§14/§20.9 la acción que PAGA se invoca en UN solo sitio', () => {
+    // La propiedad central del hito, afirmada sobre el fichero: UN solo sitio de llamada
+    // significa que no puede haber un segundo camino —un `onClick` directo, un efecto— que
+    // gaste sin pasar por la confirmación.
+    //
+    // Se cuentan SITIOS DE LLAMADA (`nombre(`) y no apariciones del nombre: el fichero también
+    // lo menciona en un `ReturnType<typeof …>`, que es una referencia de TIPO y se borra al
+    // compilar. Contar nombres haría que añadir una anotación de tipo rompiera la guarda, y la
+    // tentación entonces sería subir el número — es decir, aflojarla justo donde importa.
+    const callSites = cta.split('searchMoreCandidatePhonesAction(').length - 1;
+    assert.equal(callSites, 1, 'UNA sola invocación, dentro de `handleConfirm`');
+    assert.match(
+      cta,
+      /handleConfirm[\s\S]{0,900}searchMoreCandidatePhonesAction/,
+      'la invocación tiene que vivir dentro del handler de CONFIRMACIÓN',
+    );
+  });
+
+  it('§14 el CTA sólo ABRE el modal: su `onClick` no puede gastar', () => {
+    assert.match(cta, /onClick=\{\(\) => setConfirmOpen\(true\)\}/);
+  });
+
+  it('§15 el CTA no importa ningún cliente de proveedor ni el reservador de créditos', () => {
+    for (const forbidden of [
+      'lusha-phone-fallback-client',
+      'phone-reveal-credit-reservation-deps',
+      'phone-reveal-credit-budget-deps',
+      'search-more-phones-runtime',
+      'supabase',
+    ]) {
+      assert.equal(cta.includes(forbidden), false, `el CTA no puede alcanzar ${forbidden}`);
+    }
+  });
+
+  it('§15/§16 el refresco está ACOTADO: un bucle sin techo fue el defecto de #279', () => {
+    assert.match(cta, /PREFLIGHT_REFRESH_MAX_ATTEMPTS/);
+    assert.match(cta, /attempt < PREFLIGHT_REFRESH_MAX_ATTEMPTS/);
+    // Y lo único que el refresco llama es la LECTURA.
+    assert.match(cta, /getSearchMorePhonesPreflightAction/);
+  });
+
+  it('§20.13 el pestillo anti-doble-clic vive en un REF, no en estado', () => {
+    // Un segundo clic llega ANTES de que React haya re-renderizado con `running`, así que un
+    // booleano de estado no lo pararía.
+    assert.match(cta, /const inFlight = React\.useRef\(false\)/);
+    assert.match(cta, /if \(inFlight\.current\) return;/);
   });
 });
