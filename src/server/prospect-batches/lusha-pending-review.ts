@@ -95,6 +95,7 @@ import {
 } from './lusha-pending-review-limits';
 import {
   LUSHA_RUN_MAX_RAW_RESULTS,
+  canAcceptLushaUsefulCandidate,
   decideLushaProviderRequest,
   resolveLushaExecutionBranches,
   resolveLushaProviderRequestsAllowed,
@@ -115,6 +116,22 @@ import {
   type LushaRunIdentityRegistry,
 } from './lusha-run-identity-registry';
 import type { LushaMacroSearchPlan } from './lusha-macro-search-plan';
+// AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 §§ 3, 5, 7 — la autoridad de PRECISIÓN de
+// macro industria, branch-aware y apoyada en el catálogo canónico. Módulo puro.
+import {
+  assessLushaMacroPrecision,
+  describeLushaBranchProvenance,
+  isLushaMacroPrecisionAdmitted,
+  toLushaMacroPrecisionMetadata,
+  type LushaBranchProvenance,
+  type LushaMacroPrecisionAssessment,
+} from './lusha-macro-precision';
+// § 12 — el MISMO evaluador de tamaño ICP que el escritor canónico de Agente 1.
+// Puro y determinista; no se inventa un segundo gate de tamaño.
+import {
+  evaluateIcpSizeGate,
+  type IcpSizeGateResult,
+} from '@/server/agents/prospecting-toolkit/icp-size-gate';
 
 // ─── Contract constants (see data-contract in migrations 040/045/093) ─────────
 
@@ -244,6 +261,18 @@ export interface ResolvedLushaCandidate {
   enriched?: EnrichedProspectCandidateIdentity;
   /** Soft signals from the shared mandatory gate (reviewable_with_warnings). */
   gateWarnings?: string[];
+  /**
+   * AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 § 7 — qué RAMA trajo a esta empresa.
+   * Ids de industria y nada más: sin payload del proveedor y sin PII. Opcional
+   * porque la ruta legacy de un sector no ejecuta ramas.
+   */
+  branchProvenance?: LushaBranchProvenance;
+  /**
+   * § 5 — el veredicto de precisión de macro que la ADMITIÓ. Sólo lo llevan las
+   * empresas aceptadas: un candidato persistido sin este bloque es un candidato
+   * de la ruta legacy, nunca uno que la precisión dejó pasar sin mirar.
+   */
+  macroPrecision?: LushaMacroPrecisionAssessment;
 }
 
 // ─── Excluded exact-duplicate audit detail (Q3F-5BB.7D) ────────────────────────
@@ -306,6 +335,24 @@ export interface LushaPendingReviewCandidateRow {
   country_code: string | null;
   industry: string | null;
   company_size: string | null;
+  /**
+   * AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 § 12 — el conteo EXACTO de empleados en su
+   * columna tipada, no sólo como texto en `company_size` y en la metadata.
+   *
+   * El defecto que cierra: DINISSAN llegó con 682 empleados exactos del proveedor,
+   * la ficha los mostraba en «Datos Comerciales y Web»… y el bloque «Tamaño ICP»
+   * decía «Sin evaluación de tamaño», porque nadie había escrito ni la columna ni
+   * el gate. Columnas existentes (nada de migración): `employee_count` con su
+   * CHECK de no-negativo, y `employee_count_source` como texto libre.
+   *
+   * 🔴 `employee_count_status` se deja intencionadamente sin escribir. Su CHECK
+   * sólo admite un vocabulario de umbral 100 (`confirmed_100_plus`, …) mientras el
+   * ICP de SellUp son 200: rellenarlo obligaría a afirmar un umbral que no es el
+   * del producto. Es exactamente lo que hace hoy el escritor de Apollo, que lo
+   * deja nulo en las 13 filas de Producción.
+   */
+  employee_count: number | null;
+  employee_count_source: string | null;
   // Q3F-5BB.10C2 — typed identity columns, populated ONLY on a STRONG official-source
   // match (else null). Columns already exist on prospect_candidates (migrations
   // 040/045); no migration is added here. `identity_key` is deliberately NOT touched.
@@ -471,6 +518,17 @@ export interface PersistLushaPendingReviewResult {
   rawResultsTotal?: number;
   /** Por qué la corrida dejó de pedir. */
   stopReason?: LushaRunStopReason;
+  // ── Exactitud de objetivo + precisión de macro (P0-FIX-1 §§ 2, 3) ──
+  /**
+   * Empresas nuevas y PRECISAS que la corrida encontró: aceptadas + sobrantes.
+   * Puede superar `targetGap` — es lo que permite ver que una página ya pagada
+   * rindió más de lo que el objetivo podía absorber.
+   */
+  reviewableFoundTotal?: number;
+  /** De las anteriores, cuántas se descartaron por objetivo ya cerrado. */
+  targetOverflowDiscarded?: number;
+  /** Empresas nuevas que el catálogo NO confirmó para la macro pedida. */
+  precisionRejectedTotal?: number;
   /** Telemetría completa de corrida + ramas (§§ 18/19). Sin PII. */
   multiBranch?: LushaRunTelemetry;
 }
@@ -542,6 +600,29 @@ function employeesLabel(company: LushaPreviewCompany): string | null {
     return `${company.employeesMin ?? '?'}-${company.employeesMax ?? '?'}`;
   }
   return null;
+}
+
+/**
+ * § 12 — el tamaño de una empresa Lusha, evaluado por el gate ICP CANÓNICO.
+ *
+ * No se inventa un segundo gate: se llama a `evaluateIcpSizeGate`, el mismo
+ * evaluador puro que usa el escritor de Agente 1, con el conteo exacto cuando
+ * Lusha lo trae y con el rango cuando sólo hay rango. Sin dato ⇒ el gate devuelve
+ * `needs_validation` por su propia regla («desconocido ≠ menor que el umbral»),
+ * que es la respuesta correcta y no una que este módulo elija.
+ *
+ * 🔴 Lo que este bloque NO hace: cambiar la admisión. `resolveIcpSizeGateWriterAction`
+ * —el lado del contrato que bloquea candidatos y fuerza revisión— NO se cablea
+ * aquí. Escribir el veredicto es honestidad de ficha; convertirlo en un filtro de
+ * persistencia sería un segundo gate de admisión sin QA, y queda como seguimiento
+ * explícito.
+ */
+export function buildLushaIcpSizeGate(company: LushaPreviewCompany): IcpSizeGateResult {
+  return evaluateIcpSizeGate({
+    employeeCount: typeof company.employeesExact === 'number' ? company.employeesExact : null,
+    sizeRange: employeesLabel(company),
+    source: LUSHA_PENDING_REVIEW_PROVIDER,
+  });
 }
 
 const UUID_RE =
@@ -1116,7 +1197,7 @@ export function buildLushaPendingReviewCandidateRows(
   batchId: string,
   resolved: ResolvedLushaCandidate[],
 ): LushaPendingReviewCandidateRow[] {
-  return resolved.map(({ company, resolution, enriched, gateWarnings }) => {
+  return resolved.map(({ company, resolution, enriched, gateWarnings, branchProvenance, macroPrecision }) => {
     // Typed identity columns — filled ONLY on a STRONG official-source match.
     const typedColumns = enriched
       ? buildOfficialSourceTypedColumns(enriched)
@@ -1132,6 +1213,10 @@ export function buildLushaPendingReviewCandidateRows(
     country_code: company.countryIso2,
     industry: company.industry,
     company_size: employeesLabel(company),
+    // § 12 — la columna tipada, no sólo la etiqueta de texto.
+    employee_count: typeof company.employeesExact === 'number' ? company.employeesExact : null,
+    employee_count_source:
+      typeof company.employeesExact === 'number' ? LUSHA_PENDING_REVIEW_PROVIDER : null,
     // Strong official-source identity (or nulls) — Q3F-5BB.10C2.
     tax_identifier: typedColumns.tax_identifier,
     tax_identifier_type: typedColumns.tax_identifier_type,
@@ -1190,6 +1275,22 @@ export function buildLushaPendingReviewCandidateRows(
         min: company.employeesMin,
         max: company.employeesMax,
       },
+      // § 12 — el bloque que la ficha de revisión LEE para «Tamaño ICP»
+      // (`getIcpSizeGateUiState`). Sin él el candidato salía como «Sin evaluación
+      // de tamaño» aunque el proveedor hubiera entregado el conteo exacto.
+      icp_size_gate: buildLushaIcpSizeGate(company),
+      // §§ 5/7 — por qué este candidato cuenta como de la macro pedida, y qué
+      // rama lo trajo. Ids y códigos: sin payload del proveedor y sin PII.
+      ...(macroPrecision ? { macro_precision: toLushaMacroPrecisionMetadata(macroPrecision) } : {}),
+      ...(branchProvenance
+        ? {
+            branch_provenance: {
+              branch_index: branchProvenance.branchIndex,
+              main_industry_id: branchProvenance.mainIndustryId,
+              sub_industry_id: branchProvenance.subIndustryId,
+            },
+          }
+        : {}),
       // Canonical duplicate metadata so the EXISTING review UI (list tooltip +
       // detail dialog, and the sheet's Validación tab) shows the matched entity
       // instead of a generic label (Q3F-5BB.7B).
@@ -1499,6 +1600,9 @@ export async function persistLushaPendingReviewBatch(
   const plan = execution?.plan ?? null;
   const branches = resolveLushaExecutionBranches(plan);
   const targetGap = resolveLushaTargetGap(execution?.targetGap);
+  // § 5 — la macro contra la que se juzga la precisión. `null` = ruta legacy de un
+  // sector, donde no hay macro industria y el comportamiento es el de hoy.
+  const macroKeyForPrecision = plan?.macroKey ?? null;
   const providerRequestsAllowed = resolveLushaProviderRequestsAllowed(branches.length);
   const expectedMaxCredits = branches.length * LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS;
 
@@ -1520,6 +1624,12 @@ export async function persistLushaPendingReviewBatch(
   let skippedActiveDuplicatesCount = 0;
   let skippedUnusableCount = 0;
   let crossBranchDuplicatesRemoved = 0;
+  // §§ 2/3 — los tres desenlaces NUEVOS de una empresa revisable, contados aparte
+  // de todo lo de dedupe: precisión, sobrante de objetivo y aceptación.
+  let precisionRejectedTotal = 0;
+  let targetOverflowDiscarded = 0;
+  let reviewableFoundTotal = 0;
+  const precisionReasonCounts: Record<string, number> = {};
   const duplicateReasonCounts: Record<LushaIdentityDuplicateReason, number> = {
     provider_company_id: 0,
     normalized_domain: 0,
@@ -1549,6 +1659,8 @@ export async function persistLushaPendingReviewBatch(
       remainingGapBefore: number;
       remainingGapAfter: number;
       providerCreditsReported: number | null;
+      precisionRejected: number;
+      targetOverflowDiscarded: number;
     },
   ): void => {
     branchTelemetry.push({
@@ -1578,6 +1690,8 @@ export async function persistLushaPendingReviewBatch(
         remainingGapBefore,
         remainingGapAfter: remainingGapBefore,
         providerCreditsReported: null,
+        precisionRejected: 0,
+        targetOverflowDiscarded: 0,
       });
       continue;
     }
@@ -1590,6 +1704,8 @@ export async function persistLushaPendingReviewBatch(
     let branchUniqueResults = 0;
     let branchCredits: number | null = null;
     let branchOutcome: LushaBranchOutcome = 'completed';
+    let branchPrecisionRejected = 0;
+    let branchTargetOverflow = 0;
 
     for (let page = 0; page < LUSHA_PENDING_REVIEW_MAX_PAGES; page++) {
       // § 6/§ 16/§ 17 — la decisión de pedir es explícita y de ámbito de corrida.
@@ -1696,15 +1812,65 @@ export async function persistLushaPendingReviewBatch(
       enrichmentSummary.unsupportedCount += enrichment.unsupportedCount;
       enrichmentSummary.errorCount += enrichment.errorCount;
 
+      // ── Aceptación: duplicado exacto → precisión → tope de objetivo ──
+      //
+      // AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 §§ 2, 3, 5, 7. El orden importa y los
+      // tres desenlaces son DISTINTOS entre sí; mezclarlos fue lo que hizo
+      // ilegible la corrida de producción:
+      //
+      //   · duplicado exacto  — ya existe en SellUp/HubSpot. Conteo de dedupe.
+      //   · precisión         — existe y es nueva, pero el catálogo NO confirma
+      //                         que pertenezca a la macro pedida. NO es duplicado.
+      //   · sobrante          — nueva Y precisa, pero el objetivo ya está cerrado.
+      //                         Tampoco es duplicado, y la página ya se pagó.
+      const branchProvenance = describeLushaBranchProvenance(branch, branchIndex);
       for (const candidate of resolved) {
         if (candidate.resolution.dbDuplicateStatus === 'exact_duplicate') {
           // Exact duplicates are excluded from persistence — never reviewable.
           // We keep a safe, auditable detail record (Q3F-5BB.7D).
           excludedExactDuplicates.push(buildLushaExcludedExactDuplicate(candidate));
-        } else {
-          // § 12 — AQUÍ, y sólo aquí, una empresa cierra hueco.
-          useful.push(candidate);
+          continue;
         }
+
+        // § 5 — la precisión sólo gobierna la ruta MODERNA. Sin `plan.macroKey`
+        // no hay macro industria contra la que juzgar, y la corrida legacy de un
+        // sector se comporta exactamente como hoy. Ausencia = comportamiento
+        // actual, no una degradación silenciosa.
+        if (macroKeyForPrecision !== null) {
+          const precision = assessLushaMacroPrecision({
+            macroIndustryKey: macroKeyForPrecision,
+            branch,
+            branchIndex,
+            declaredIndustry: candidate.company.industry,
+          });
+          precisionReasonCounts[precision.reason] =
+            (precisionReasonCounts[precision.reason] ?? 0) + 1;
+          if (!isLushaMacroPrecisionAdmitted(precision)) {
+            // NO cierra hueco, NO se persiste, y NO cuenta como duplicado.
+            precisionRejectedTotal++;
+            branchPrecisionRejected++;
+            continue;
+          }
+          reviewableFoundTotal++;
+          // § 2 — el tope de ACEPTACIÓN. El de peticiones ya paró de pedir; éste
+          // impide rebasar el objetivo dentro de una página ya pagada.
+          if (!canAcceptLushaUsefulCandidate(targetGap, useful.length)) {
+            targetOverflowDiscarded++;
+            branchTargetOverflow++;
+            continue;
+          }
+          // § 12 — AQUÍ, y sólo aquí, una empresa cierra hueco.
+          useful.push({ ...candidate, branchProvenance, macroPrecision: precision });
+          continue;
+        }
+
+        reviewableFoundTotal++;
+        if (!canAcceptLushaUsefulCandidate(targetGap, useful.length)) {
+          targetOverflowDiscarded++;
+          branchTargetOverflow++;
+          continue;
+        }
+        useful.push(candidate);
       }
 
       // § 16 — el proveedor no ofrece continuación si esta página vino vacía:
@@ -1723,6 +1889,8 @@ export async function persistLushaPendingReviewBatch(
       remainingGapBefore,
       remainingGapAfter,
       providerCreditsReported: branchCredits,
+      precisionRejected: branchPrecisionRejected,
+      targetOverflowDiscarded: branchTargetOverflow,
     });
   }
 
@@ -1782,6 +1950,11 @@ export async function persistLushaPendingReviewBatch(
     duplicateReasonCounts,
     uniqueResultsTotal: normalizedCount,
     usefulResultsTotal: useful.length,
+    reviewableFoundTotal,
+    acceptedForTargetTotal: useful.length,
+    targetOverflowDiscarded,
+    precisionRejectedTotal,
+    precisionReasonCounts,
     remainingGapFinal,
     creditsReserved: execution?.creditsReserved ?? null,
     creditsReportedActual: creditsChargedTotal,
@@ -1810,6 +1983,9 @@ export async function persistLushaPendingReviewBatch(
     crossBranchDuplicatesRemoved,
     rawResultsTotal,
     stopReason,
+    reviewableFoundTotal,
+    targetOverflowDiscarded,
+    precisionRejectedTotal,
     multiBranch: runTelemetry,
   };
 

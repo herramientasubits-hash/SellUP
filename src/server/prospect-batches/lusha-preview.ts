@@ -294,6 +294,24 @@ function countryMatches(company: LushaCompanyProspectingV3Company, criteria: Lus
   return normalizedCompany === normalizedExpected || normalizedCompany.includes(normalizedExpected);
 }
 
+/**
+ * ¿La industria DECLARADA por el proveedor encaja con alguna palabra de contraste?
+ *
+ * 🔴 AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 § 4 — la comparación es ASIMÉTRICA y va
+ * en un solo sentido: la declarada debe CONTENER la palabra.
+ *
+ * El sentido inverso —`palabra.includes(declarada)`— estuvo vivo hasta la primera
+ * corrida real de Macro-v2 y es una falsa confirmación por construcción: con la
+ * palabra `Pharmaceuticals Manufacturing` en el contraste de `health_pharma`,
+ * una empresa que declara `Manufacturing` a secas pasaba, porque la palabra
+ * específica contiene a su propio padre. Cinco fabricantes genéricos —cervecera,
+ * electrodomésticos, concesionario, astillero, cosmética— entraron así en una
+ * revisión de salud con 100/100 y sin un solo `industry_mismatch`.
+ *
+ * Un padre más amplio NO puede convertirse en coincidencia porque una frase de
+ * confirmación más específica lo contenga. Una prueba de mutación vigila que el
+ * `||` no vuelva.
+ */
 function industryMatches(industry: string | null | undefined, keywords: string[]): boolean {
   if (!industry) return false;
   const normalized = normalizeText(industry);
@@ -301,7 +319,7 @@ function industryMatches(industry: string | null | undefined, keywords: string[]
   return keywords.some((keyword) => {
     const normalizedKeyword = normalizeText(keyword);
     if (!normalizedKeyword) return false;
-    return normalized.includes(normalizedKeyword) || normalizedKeyword.includes(normalized);
+    return normalized.includes(normalizedKeyword);
   });
 }
 
