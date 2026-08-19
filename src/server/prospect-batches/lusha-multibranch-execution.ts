@@ -197,6 +197,33 @@ export function resolveLushaRemainingGap(targetGap: number, usefulCount: number)
   return Math.max(0, targetGap - usefulCount);
 }
 
+/**
+ * ¿Cabe UNA empresa revisable más dentro del objetivo?
+ *
+ * 🔴 AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 § 2 — este es el tope que faltaba, y no
+ * es el mismo que `decideLushaProviderRequest`.
+ *
+ * El tope de PETICIONES pregunta «¿pido otra página?» y funcionaba: la corrida de
+ * producción paró de pedir en cuanto el objetivo se cerró. Lo que no existía era
+ * el tope de ACEPTACIÓN dentro de una página ya pagada: con el objetivo en 5, la
+ * rama 0 dejó 4 útiles y la página siguiente aportó 5 revisables — el ejecutor
+ * empujó las cinco y persistió NUEVE. El objetivo se rebasó en el último tramo,
+ * donde ya no había ninguna petición que frenar.
+ *
+ * Aceptar exactamente lo que cabe no descarta información: lo que sobra se
+ * CUENTA (`target_overflow_discarded`), porque la página ya se pagó y esconder
+ * cuánto rindió haría ilegible el rendimiento real de una rama.
+ *
+ * 🔴 Un sobrante NO es un duplicado ni un descarte del guard: no toca ninguno de
+ * los conteos de dedupe.
+ */
+export function canAcceptLushaUsefulCandidate(
+  targetGap: number,
+  usefulCount: number,
+): boolean {
+  return resolveLushaRemainingGap(targetGap, usefulCount) > 0;
+}
+
 // ─── Telemetría (§§ 18, 19) ───────────────────────────────────────────────────
 
 /** Cómo terminó UNA rama. */
@@ -220,6 +247,16 @@ export type LushaBranchTelemetry = {
   remainingGapBefore: number;
   remainingGapAfter: number;
   providerCreditsReported: number | null;
+  /**
+   * § 3 — empresas de esta rama que el catálogo NO confirmó para la macro pedida.
+   * Ni duplicados ni descartes del guard: precisión.
+   */
+  precisionRejected: number;
+  /**
+   * § 2 — empresas revisables y precisas que llegaron con el objetivo YA cerrado.
+   * La página estaba pagada; se cuentan para no perder el rendimiento real.
+   */
+  targetOverflowDiscarded: number;
   outcome: LushaBranchOutcome;
 };
 
@@ -238,6 +275,19 @@ export type LushaRunTelemetry = {
   duplicateReasonCounts: Record<LushaIdentityDuplicateReason, number>;
   uniqueResultsTotal: number;
   usefulResultsTotal: number;
+  /**
+   * § 2 — revisables (no duplicados exactos) que ADEMÁS pasaron la precisión de
+   * macro. Es `accepted + overflow`, y por tanto puede superar `targetGap`.
+   */
+  reviewableFoundTotal: number;
+  /** Cuántas de esas se aceptaron. Invariante: `<= targetGap`, SIEMPRE. */
+  acceptedForTargetTotal: number;
+  /** Cuántas se descartaron por sobrepasar el objetivo. */
+  targetOverflowDiscarded: number;
+  /** Cuántas empresas revisables no probaron pertenecer a la macro pedida. */
+  precisionRejectedTotal: number;
+  /** Desglose por motivo del veredicto de precisión. Sin PII. */
+  precisionReasonCounts: Record<string, number>;
   remainingGapFinal: number;
   creditsReserved: number | null;
   creditsReportedActual: number | null;
@@ -262,6 +312,11 @@ export function toLushaRunTelemetryMetadata(
     duplicate_reason_counts: { ...telemetry.duplicateReasonCounts },
     unique_results_total: telemetry.uniqueResultsTotal,
     useful_results_total: telemetry.usefulResultsTotal,
+    reviewable_found_total: telemetry.reviewableFoundTotal,
+    accepted_for_target_total: telemetry.acceptedForTargetTotal,
+    target_overflow_discarded: telemetry.targetOverflowDiscarded,
+    precision_rejected_total: telemetry.precisionRejectedTotal,
+    precision_reason_counts: { ...telemetry.precisionReasonCounts },
     remaining_gap_final: telemetry.remainingGapFinal,
     credits_reserved: telemetry.creditsReserved,
     credits_reported_actual: telemetry.creditsReportedActual,
@@ -279,6 +334,8 @@ export function toLushaRunTelemetryMetadata(
       remaining_gap_before: branch.remainingGapBefore,
       remaining_gap_after: branch.remainingGapAfter,
       provider_credits_reported: branch.providerCreditsReported,
+      precision_rejected: branch.precisionRejected,
+      target_overflow_discarded: branch.targetOverflowDiscarded,
       outcome: branch.outcome,
     })),
   };
