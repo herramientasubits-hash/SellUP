@@ -3,6 +3,14 @@
 /**
  * Lusha → pending-review persistence — Server Action (Q3F-5BB.4)
  *
+ * AGENT1-LUSHA-PROVIDER-USAGE-OBSERVABILITY-1 — la frontera de escritura de esta
+ * acción se ENSANCHA por exactamente UNA tabla existente: `provider_usage_logs`.
+ * Sigue prohibido `agent_runs` / `agent_run_steps`, y la reserva + su liquidación
+ * (M121) siguen siendo la ÚNICA autoridad de gasto: la fila de uso es
+ * observabilidad y analítica, jamás una segunda contabilidad. Se escribe DESPUÉS
+ * de que la liquidación es terminal, y no puede provocar otra petición al
+ * proveedor ni otra liquidación.
+ *
  * Runs a single Lusha company search from the "Generar con IA" wizard and
  * persists the results as a pending-review prospect batch + candidates. Thin
  * wrapper over the pure `persistLushaPendingReviewBatch` core:
@@ -21,10 +29,10 @@
  * impossible (no such dep exists).
  *
  * Hard limits (authorized scope Q3F-5BB.4 + Q3F-5BB.7):
- *   - DB writes limited to prospect_batches + prospect_candidates. Nothing else.
+ *   - DB writes limited to prospect_batches + prospect_candidates + the ONE
+ *     aggregate provider_usage_logs row per run authorized above. Nothing else.
  *   - Does NOT create accounts/companies. Does NOT WRITE to HubSpot. Does NOT call
- *     enrichment / people search / Apollo / Tavily. Does NOT write
- *     provider_usage_logs or agent_runs.
+ *     enrichment / people search / Apollo / Tavily. Does NOT write agent_runs.
  *   - Duplicate checks are read-only (SellUp accounts + HubSpot + active
  *     candidates) and run before insert to populate duplicate_status / matched ids.
  *   - No auto-run: invoked only from the explicit "Buscar con IA" click.
@@ -72,6 +80,21 @@ import {
   type LushaBudgetSettlementOutcome,
 } from '@/modules/prospect-batches/lusha-budget-gate';
 import { estimateLushaRunCredits } from '@/server/prospect-batches/lusha-run-liability';
+// AGENT1-LUSHA-PROVIDER-USAGE-OBSERVABILITY-1 §§ 5/6/12 — la fila canónica de uso.
+// El recolector no conoce el cliente de Lusha ni las RPC de presupuesto, así que
+// por construcción no puede pedir otra vez ni liquidar otra vez.
+import {
+  recordLushaRunProviderUsage,
+  LUSHA_PROVIDER_USAGE_LOG_FAILED_CODE,
+} from '@/server/prospect-batches/lusha-provider-usage-recorder';
+import { buildLushaRunRequestSignature } from '@/server/prospect-batches/lusha-provider-usage-observability';
+// La correlación de corrida CANÓNICA, la misma que Apollo dejó en Producción. Se
+// construye ANTES de salir al proveedor: una identidad acuñada después de gastar
+// no puede identificar lo que se gastó.
+import {
+  buildWizardRunCorrelation,
+  withResolvedIds,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 2/12 — el plan sale de la MISMA
 // puerta que decidió la elegibilidad, así que no puede haber ruta anunciada sin
 // plan ni plan ejecutable sin reserva calculable.
@@ -243,6 +266,24 @@ async function runGenerateLushaPendingReviewBatch(
   const requiredCredits = estimateLushaRunCredits(searchPlan);
   const { clientRequestId, ...searchInput } = parsed.data;
 
+  // §§ 5/6 — identidad de la corrida, ANTES del proveedor. `request_fingerprint`
+  // describe lo pedido sin PII y sin nombres de empresa; el `idempotencyKey` que
+  // gobierna la única fila de uso sale de (user, clientRequestId, reservationId),
+  // que es la MISMA identidad sobre la que la RPC reserva.
+  const baseCorrelation = buildWizardRunCorrelation({
+    userId: internalUserId,
+    clientRequestId,
+    providerKey: 'lusha',
+    requestSignature: buildLushaRunRequestSignature({
+      countryCode: parsed.data.countryCode,
+      macroIndustryKey: parsed.data.macroIndustryKey,
+      subIndustryId: parsed.data.subIndustryId ?? null,
+      sizeBandKey: parsed.data.sizeBandKey ?? null,
+      branchCountPlanned: searchPlan?.branches.length ?? 1,
+      requiredCredits,
+    }),
+  });
+
   return guardLushaRunBudget(
     () => reserveLushaRunCredits({ userId: internalUserId, clientRequestId, requiredCredits }),
     (block) => ({
@@ -257,6 +298,7 @@ async function runGenerateLushaPendingReviewBatch(
         routingMetadata,
         routingPlan,
         searchPlan,
+        baseCorrelation,
       }),
     requiredCredits,
   );
@@ -350,10 +392,31 @@ async function runLushaSearchWithReservation(args: {
    * posibilidad de negarse.
    */
   searchPlan: ReturnType<typeof resolveLushaRoutedSearchPlan>;
+  /** Correlación de la corrida, ya construida antes de la reserva (§ 5). */
+  baseCorrelation: ReturnType<typeof buildWizardRunCorrelation>;
 }): Promise<GenerateLushaPendingReviewBatchActionResult> {
-  const { searchInput, internalUserId, reservation, routingMetadata, routingPlan, searchPlan } =
-    args;
+  const {
+    searchInput,
+    internalUserId,
+    reservation,
+    routingMetadata,
+    routingPlan,
+    searchPlan,
+    baseCorrelation,
+  } = args;
   const supabase = await createClient();
+
+  // La reserva YA existe aquí, así que la identidad de la corrida queda cerrada:
+  // `withResolvedIds` recalcula el `idempotencyKey` con ella, y el `batchId` que
+  // se resuelve más tarde NO lo altera. Esa es la razón de que un reintento sobre
+  // la misma reserva produzca la misma clave y, por tanto, una sola fila.
+  const reservedCorrelation = withResolvedIds(baseCorrelation, {
+    reservationId: reservation.reservationId,
+  });
+
+  // § 12 — duración de la corrida, para la fila de uso. Se toma aquí y no en el
+  // núcleo puro: el writer no mide tiempo y no debe empezar a hacerlo.
+  const runStartedAtMs = Date.now();
 
   /**
    * Liquidación de la reserva. Se llama en TODOS los caminos de salida por
@@ -451,7 +514,7 @@ async function runLushaSearchWithReservation(args: {
    */
   const settleReservationObservably = async (
     result: PersistLushaPendingReviewResult | null,
-  ): Promise<void> => {
+  ): Promise<LushaBudgetSettlementOutcome> => {
     let outcome: LushaBudgetSettlementOutcome;
     try {
       outcome = await settleReservation(result);
@@ -475,6 +538,78 @@ async function runLushaSearchWithReservation(args: {
       // Log de servidor seguro: cifras e IDs internos. Sin payload del proveedor,
       // sin clave de API, sin datos de empresa ni de persona.
       console.warn(`[${telemetry.code}]`, telemetry.payload);
+    }
+    // §§ 7/8 — el DESENLACE de la liquidación se devuelve porque la fila de uso lo
+    // necesita para declarar la verdad: cuánto se liquidó de verdad, si hubo
+    // sobrepaso y si la liquidación llegó a ocurrir. Sigue sin lanzar y sigue sin
+    // alterar el resultado de la corrida.
+    return outcome;
+  };
+
+  /**
+   * Observabilidad de uso: UNA fila por corrida, DESPUÉS de la liquidación (§ 12).
+   *
+   * Mismo patrón probado que la liquidación: nunca lanza y nunca cambia el
+   * resultado. Es deliberado y no es defensa redundante — si un fallo de
+   * observabilidad se propagara, el `catch` de abajo liquidaría por SEGUNDA vez y
+   * devolvería un error al usuario por una corrida que el proveedor YA cobró,
+   * ofreciéndole un reintento que volvería a gastar.
+   *
+   * No puede reservar, confirmar ni liberar créditos: el recolector no importa
+   * ninguna RPC de presupuesto. Tampoco puede pedir otra vez al proveedor: no
+   * conoce el cliente de Lusha.
+   */
+  const recordRunUsageObservably = async (
+    result: PersistLushaPendingReviewResult | null,
+    settlement: LushaBudgetSettlementOutcome,
+  ): Promise<void> => {
+    try {
+      const outcome = await recordLushaRunProviderUsage({
+        // El `batchId` entra ahora que existe; no altera la clave de idempotencia.
+        correlation: withResolvedIds(reservedCorrelation, {
+          batchId: result?.batchId ?? null,
+        }),
+        triggeredByUserId: internalUserId,
+        countryCode: searchInput.countryCode,
+        macroIndustryKey: searchInput.macroIndustryKey,
+        creditsReserved: reservation.creditsReserved,
+        settlement,
+        durationMs: Date.now() - runStartedAtMs,
+        run: {
+          status: result?.status ?? 'error',
+          creditsChargedTotal: result?.creditsChargedTotal ?? null,
+          resultsReturned: result?.resultsReturned ?? null,
+          rawResultsTotal: result?.rawResultsTotal ?? null,
+          pagesRequested: result?.pagesRequested ?? null,
+          providerRequestsUsed: result?.providerRequestsUsed ?? null,
+          stopReason: result?.stopReason ?? null,
+          reviewableFoundTotal: result?.reviewableFoundTotal ?? null,
+          acceptedForTargetTotal: result?.usefulCandidatesCount ?? 0,
+          targetOverflowDiscarded: result?.targetOverflowDiscarded ?? null,
+          precisionRejectedTotal: result?.precisionRejectedTotal ?? null,
+          historicalActiveSkips: result?.skippedActiveDuplicatesCount ?? 0,
+          exactDuplicates: result?.excludedExactDuplicatesCount ?? 0,
+          possibleDuplicates: result?.possibleDuplicatesCount ?? 0,
+          telemetry: result?.multiBranch ?? null,
+        },
+      });
+
+      if (outcome.kind === 'failed') {
+        // Observable, nunca silencioso — y nunca un reintento del proveedor.
+        console.warn(`[${LUSHA_PROVIDER_USAGE_LOG_FAILED_CODE}]`, {
+          reservation_id: reservation.reservationId,
+          batch_id: result?.batchId ?? null,
+          wizard_run_id: reservedCorrelation.wizardRunId,
+        });
+      }
+    } catch {
+      // Ya no debería poder ocurrir (el recolector es total), pero si ocurriera,
+      // aquí se detiene: la corrida y su liquidación son terminales.
+      console.warn(`[${LUSHA_PROVIDER_USAGE_LOG_FAILED_CODE}]`, {
+        reservation_id: reservation.reservationId,
+        wizard_run_id: reservedCorrelation.wizardRunId,
+        threw: true,
+      });
     }
   };
 
@@ -553,7 +688,11 @@ async function runLushaSearchWithReservation(args: {
     // § 9 — reconciliación: se confirma lo que Lusha reportó, y la reserva
     // entera cuando no reportó nada (gasto no verificable). Un sobrepaso o un
     // fallo de liquidación quedan registrados (§ 11/§ 12) sin alterar el resultado.
-    await settleReservationObservably(result);
+    const settlement = await settleReservationObservably(result);
+
+    // § 12 — la observabilidad va DESPUÉS de una liquidación ya terminal, para
+    // poder registrar el importe REALMENTE liquidado y no una estimación.
+    await recordRunUsageObservably(result, settlement);
 
     // Safe server-side log — no secrets, no raw payload, no PII.
     console.warn('[lusha-pending-review]', {
@@ -585,7 +724,11 @@ async function runLushaSearchWithReservation(args: {
     // § 9 — un fallo DESPUÉS de la reserva se liquida conservador: sin resultado
     // no se sabe si el proveedor cobró, y devolver headroom que sí se gastó
     // dejaría el período mintiendo por encima de lo real.
-    await settleReservationObservably(null);
+    const settlement = await settleReservationObservably(null);
+    // § 13 — si la corrida no llegó a pedir al proveedor, el recolector no emite
+    // ninguna fila pagada. Un fallo DESPUÉS de la primera petición sí se registra,
+    // porque el proveedor pudo cobrarla.
+    await recordRunUsageObservably(null, settlement);
     const msg = err instanceof Error ? err.message : 'Error desconocido';
     return buildLushaPendingReviewFailure(
       'No fue posible guardar los prospectos. Intenta de nuevo.',
