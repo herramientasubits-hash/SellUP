@@ -163,7 +163,7 @@ describe('§ 9 — el servidor no rechaza por Lusha-elegible lo que la UI ofrece
       const decision = resolveProspectDiscoveryProvider({
         lushaPreviewEnabled: false,
         searchType: 'exploratory',
-        sectorKey: 'healthcare',
+        macroIndustryKey: 'health_pharma',
         countryCode,
       });
       assert.equal(isLushaRouteHonored(decision.provider), false, `${countryCode} honró Lusha`);

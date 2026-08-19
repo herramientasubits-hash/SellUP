@@ -1,37 +1,35 @@
 /**
- * lusha-branch-plan-resolution.ts — el puente entre la ruta Lusha que HOY está
- * viva y los planes Macro-v2 aprobados.
+ * lusha-branch-plan-resolution.ts — 🔴 PUENTE DE COMPATIBILIDAD. YA NO ES
+ * AUTORIDAD DE ROUTING.
  *
- * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 §§ 2, 21, 22.
+ * AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 5.
  *
- * ── El problema exacto ────────────────────────────────────────────────────────
+ * ── Qué era y por qué ya no lo es ─────────────────────────────────────────────
  *
- * El catálogo del PR #299 está indexado por `MacroIndustryKey` (12 claves). La
- * elegibilidad de proveedor que hoy manda está indexada por `LushaSectorKey`
- * (`healthcare | education | technology`) y la decide
- * `resolveProspectDiscoveryProvider` a través de `resolveLushaSectorOption`. Son
- * dos vocabularios, y el ejecutor multi-rama necesita el primero mientras que la
- * puerta de entrada sigue siendo el segundo.
+ * El PR #302 lo construyó como puente TEMPORAL entre la elegibilidad legacy
+ * (`LushaSectorKey`) y los planes Macro-v2, en un momento en el que la puerta de
+ * entrada seguía siendo el sector. Su firma —entrada `LushaSectorKey`, no
+ * `MacroIndustryKey`— era la garantía de que el catálogo no pudiera abrir rutas
+ * nuevas: una macro sin sector equivalente no tenía forma de nombrarse.
  *
- * ── 🔴 Este módulo NO ensancha la elegibilidad. No puede ──────────────────────
+ * El cutover invierte esa relación. La autoridad es ahora
+ * `resolveLushaMacroCapability`, indexada por `MacroIndustryKey` y derivada de la
+ * membresía en el catálogo de planes, y el camino
  *
- * La propiedad que hay que preservar (§ 21) es que este PR no convierta las 12
- * entradas del catálogo en 12 rutas Lusha. Aquí se preserva por CONSTRUCCIÓN, no
- * por convención:
+ *     MacroIndustryKey → sector legacy → MacroIndustryKey
  *
- *   · La entrada de `resolveLushaSearchPlanForSector` es un `LushaSectorKey`, no
- *     una `MacroIndustryKey`. Una macro que la autoridad legacy no admite no
- *     tiene forma de nombrarse: `energy_mining_environment` no es un sector, así
- *     que no hay argumento que se pueda pasar para que ejecute su plan.
- *   · Un sector desconocido devuelve `null`. La autoridad legacy ya lo habría
- *     rechazado antes; esto sólo se niega a inventar un plan por si algún día el
- *     orden cambiara.
- *   · Un sector admitido SIN macro equivalente devuelve `null`, y `null`
- *     significa «ejecuta como hoy» — una sola búsqueda derivada del sector. No
- *     significa «bloquea».
+ * desapareció: era una ida y vuelta innecesaria y, peor, dos taxonomías capaces de
+ * discrepar. Este módulo ya NO tiene ningún consumidor de runtime, y una prueba
+ * estática del cutover lo vigila — si alguien vuelve a importarlo desde código de
+ * producción, la suite se pone roja.
  *
- * Es decir: el catálogo puede AÑADIR ramas a una ruta que ya estaba viva, y no
- * puede abrir ninguna ruta nueva. El cableado 12/12 es el PR siguiente.
+ * ── Por qué se conserva en lugar de borrarse ──────────────────────────────────
+ *
+ * Sigue siendo la única descripción ejecutable de la correspondencia histórica
+ * sector→macro, y las suites que documentan el comportamiento anterior lo usan
+ * para probar que la traducción legacy sigue diciendo lo que decía. Borrarlo
+ * perdería esa documentación viva sin ganar nada: no gasta, no decide y no puede
+ * ser alcanzado desde el wizard.
  *
  * ── Educación: el `null` que NO es un hueco ───────────────────────────────────
  *
@@ -39,7 +37,9 @@
  * SellUp: la dueña lo decidió el 2026-08-13 y el catálogo lo prueba
  * (`education_is_not_a_sellup_macro`). Su `null` aquí no es un mapeo pendiente;
  * es esa decisión, y mapearlo a «Compañía de Servicios» —la tentación obvia—
- * sería reintroducir una decisión ya tomada.
+ * sería reintroducir una decisión ya tomada. Tras el cutover Educación tampoco es
+ * alcanzable por la ruta moderna: no es una `MacroIndustryKey`, así que la
+ * capacidad la rechaza por construcción.
  *
  * Puro: sin env, sin I/O, sin cliente de proveedor, sin DB.
  */

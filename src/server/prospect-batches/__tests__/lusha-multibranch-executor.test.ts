@@ -47,7 +47,7 @@ import type {
 
 const INPUT: LushaPreviewInput = {
   countryCode: 'CO',
-  sectorKey: 'healthcare',
+  macroIndustryKey: 'health_pharma',
   subIndustryId: null,
   sizeBandKey: '201-5000',
   searchText: null,
@@ -102,7 +102,8 @@ function successResult(results: LushaPreviewCompany[]): LushaPreviewResult {
       country: 'Colombia',
       countryCode: 'CO',
       sector: 'Salud',
-      sectorKey: 'healthcare',
+      industryKey: 'health_pharma',
+      macroIndustryKey: 'health_pharma',
       mainIndustriesIds: [11],
       subIndustryId: null,
       sizeBand: { min: 201, max: 5000 },

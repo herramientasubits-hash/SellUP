@@ -513,31 +513,48 @@ function collectSourceFiles(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-describe('ratchet — el catálogo manda sobre el EJECUTOR, no sobre la elegibilidad', () => {
+describe('ratchet — quién puede resolver planes en runtime (lista CERRADA)', () => {
   const SOURCES = collectSourceFiles(SRC_ROOT);
 
   /**
-   * MULTIBRANCH-EXECUTOR-1 §§ 21/22 re-apunta este ratchet.
+   * ── Historia de este ratchet, en dos re-apuntados ───────────────────────────
    *
-   * Antes prohibía TODA arista de runtime hacia el catálogo, porque el ejecutor no
-   * sabía ejecutar un plan y anunciarlo habría sido mentir. Ahora sabe, así que la
-   * prohibición absoluta perdió sentido — pero la propiedad que la motivaba no: el
-   * catálogo no puede convertirse en la autoridad de elegibilidad.
+   * 1. PLAN-CATALOG-1 prohibía TODA arista de runtime hacia el catálogo: el
+   *    ejecutor no sabía ejecutar un plan y anunciarlo habría sido mentir.
+   * 2. MULTIBRANCH-EXECUTOR-1 §§ 21/22 lo convirtió en LISTA CERRADA y añadió el
+   *    ejecutor, pero mantuvo la propiedad «el catálogo no es la autoridad de
+   *    elegibilidad», porque las rutas seguían siendo tres.
+   * 3. ROUTING-CUTOVER-1 §§ 2/19 invierte esa última mitad a propósito: el
+   *    catálogo AHORA SÍ es la autoridad de elegibilidad, y esa es la razón de ser
+   *    del hito. Ver el bloque «completitud del catálogo ES elegibilidad» abajo.
    *
-   * De prohibición pasa a LISTA CERRADA. Un módulo nuevo que importe el catálogo
-   * en runtime hace fallar esta prueba, y quien la actualice tiene que justificar
+   * Lo que NO cambia —y es lo que sigue defendiendo esta prueba— es que la lista
+   * de quién puede resolver planes en runtime está CERRADA. Un módulo nuevo que
+   * importe el catálogo hace fallar esto, y quien la actualice tiene que justificar
    * por qué ese módulo puede resolver planes.
    */
   /**
-   * Quién puede leer LOS PLANES en runtime. Lista de UNO.
+   * Quién puede leer LOS PLANES en runtime. Lista de DOS.
    *
    * Se distingue de quién puede leer los TECHOS del catálogo
    * (`LUSHA_MACRO_SEARCH_PLAN_MAX_BRANCHES`) porque las dos cosas conceden poderes
    * muy distintos: un techo es una cota de gasto, y los planes son las industrias
    * que se le piden al proveedor. El ejecutor necesita lo primero y no debe poder
    * hacer lo segundo — resuelve el plan que le PASAN, nunca uno que él elija.
+   *
+   * `lusha-macro-capability` es la autoridad del cutover: resuelve elegibilidad y
+   * plan por la MISMA puerta, que es lo que garantiza que no exista ruta sin plan
+   * ni plan sin reserva calculable (§ 12).
+   *
+   * `lusha-branch-plan-resolution` sigue en la lista aunque ya no tenga
+   * consumidores de runtime: es el puente de compatibilidad, y su presencia aquí
+   * es inocua porque la prueba mide capacidad, no uso. Quien vigila que nadie lo
+   * llame es la suite del cutover.
    */
-  const PLAN_READERS = ['src/server/prospect-batches/lusha-branch-plan-resolution.ts'];
+  const PLAN_READERS = [
+    'src/server/prospect-batches/lusha-macro-capability.ts',
+    'src/server/prospect-batches/lusha-branch-plan-resolution.ts',
+  ];
   /** Quién puede tener cualquier arista de runtime hacia el módulo del catálogo. */
   const RUNTIME_IMPORTERS = [
     ...PLAN_READERS,
@@ -594,43 +611,52 @@ describe('ratchet — el catálogo manda sobre el EJECUTOR, no sobre la elegibil
     }
   });
 
-  it('🔴 completitud del catálogo NO es elegibilidad de proveedor', () => {
-    // § 21 — la propiedad central de este PR. Las 12 macro tienen plan; la
-    // elegibilidad sigue siendo la de los sectores legacy, y una macro sin sector
-    // que la respalde no obtiene plan ejecutable por ninguna vía.
+  it('🔴 completitud del catálogo ES elegibilidad de proveedor (ROUTING-CUTOVER-1)', () => {
+    // § 2 — la propiedad central del cutover, y la INVERSIÓN deliberada del
+    // ratchet que #302 dejaba aquí.
+    //
+    // Antes se afirmaba lo contrario («completitud NO es elegibilidad») porque las
+    // rutas eran tres y anunciar doce habría prometido rutas sin respaldo. Ese
+    // respaldo ya existe: el ejecutor multi-rama corre planes, la reserva es
+    // consciente del plan y la liquidación es veraz. Así que las 12 macro con plan
+    // son las 12 rutas, y el conjunto se DERIVA — no se escribe.
     assert.equal(LUSHA_MACRO_SEARCH_PLANS.length, MACRO_INDUSTRY_COUNT);
 
-    const eligibleSectorKeys = getLushaSectorOptions().map((option) => option.key).sort();
-    assert.deepEqual(eligibleSectorKeys, ['education', 'healthcare', 'technology']);
-
-    // 🔑 `technology` es la MISMA cadena en los dos vocabularios: es una clave de
-    // macro Y una clave de sector legacy. No es una fuga: ese sector ya era
-    // elegible antes de este PR y su plan es una sola rama con el mismo main 17
-    // que el sector ya enviaba. Excluirlo aquí es lo correcto; lo que se prueba es
-    // que NINGUNA de las otras once se cuele por parecerse a un sector.
-    const macroOnlyKeys = LUSHA_MACRO_SEARCH_PLANS.map((plan) => plan.macroKey).filter(
-      (macroKey) => !(eligibleSectorKeys as string[]).includes(macroKey),
-    );
-    assert.equal(macroOnlyKeys.length, MACRO_INDUSTRY_COUNT - 1);
-
-    for (const macroKey of macroOnlyKeys) {
-      // Una clave de macro NO es una clave de sector: el puente la rechaza, y la
-      // autoridad de routing la rechaza también.
-      assert.equal(
-        resolveLushaSearchPlanForSector(macroKey),
-        null,
-        `${macroKey} no debe resolverse como sector`,
-      );
+    for (const plan of LUSHA_MACRO_SEARCH_PLANS) {
       assert.equal(
         isProspectLushaEligible({
           searchType: 'exploratory',
-          sectorKey: macroKey,
+          macroIndustryKey: plan.macroKey,
+          countryCode: 'CO',
+        }),
+        true,
+        `${plan.macroKey} debe ser elegible tras el cutover`,
+      );
+    }
+
+    // 🔴 Y el vocabulario legacy dejó de nombrar rutas. `healthcare` y `education`
+    // eran los dos sectores que NO son claves de macro; ninguno es ya elegible.
+    // (`technology` es la misma cadena en los dos vocabularios y sigue siendo ruta
+    // por ser una MACRO, no por ser un sector.)
+    for (const legacySectorKey of ['healthcare', 'education']) {
+      assert.equal(
+        isProspectLushaEligible({
+          searchType: 'exploratory',
+          macroIndustryKey: legacySectorKey,
           countryCode: 'CO',
         }),
         false,
-        `${macroKey} no debe ser elegible como sector`,
+        `el sector legacy ${legacySectorKey} no debe ser elegible`,
       );
     }
+
+    // El catálogo legacy sigue publicando sus tres sectores: no se borró, se
+    // desconectó de la decisión.
+    assert.deepEqual(getLushaSectorOptions().map((option) => option.key).sort(), [
+      'education',
+      'healthcare',
+      'technology',
+    ]);
   });
 
   it('un sector admitido ejecuta su plan; sin macro equivalente sigue como hoy', () => {
@@ -657,19 +683,32 @@ describe('ratchet — el catálogo manda sobre el EJECUTOR, no sobre la elegibil
     assert.equal(resolveLushaSearchPlanForSector(null), null);
   });
 
-  it('el mapper de compatibilidad y el registry siguen intactos', () => {
-    // § 5: no se retira `LushaSectorKey` ni la lista del registry en este PR.
+  it('el mapper legacy se conserva; el censo del registry ya NO lo espeja', () => {
+    // ROUTING-CUTOVER-1 § 5 — el mapper no se borra: sigue describiendo la
+    // correspondencia histórica y lo usan las suites que documentan el
+    // comportamiento anterior.
     const mapper = readFileSync(
       path.join(SRC_ROOT, 'server/prospect-batches/lusha-sector-mapping.ts'),
       'utf8',
     );
     assert.ok(mapper.includes("export type LushaSectorKey = 'healthcare' | 'education' | 'technology'"));
 
+    // § 6 — pero el registry deja de tener su propio censo de tres sectores. Era un
+    // segundo padrón de rutas, y además nombraba `education`, que no es una macro
+    // de SellUp. Ahora su cobertura de industria se DERIVA del catálogo.
     const registry = readFileSync(
       path.join(SRC_ROOT, 'modules/prospect-batches/provider-routing/provider-registry.ts'),
       'utf8',
     );
-    assert.ok(registry.includes('LUSHA_SUPPORTED_SECTORS'));
+    // Se afirma sobre la DECLARACIÓN, no sobre el texto: la cabecera del registry
+    // nombra la constante retirada para explicar por qué se fue, y castigar esa
+    // explicación sería castigar la documentación del cambio.
+    assert.equal(registry.includes('const LUSHA_SUPPORTED_SECTORS'), false);
+    // La cobertura de industria queda declarada ABIERTA: este registry no es
+    // autoridad de industria para Lusha, y el plan 11D ya la ensanchaba antes de
+    // resolver. Derivar aquí las 12 habría invertido la dependencia del paquete,
+    // que es DATA-ONLY y tiene su propio ratchet de imports.
+    assert.ok(registry.includes('supportedIndustries: COVERAGE_ALL'));
   });
 
   it('el catálogo es puro: no importa red, DB, env ni cliente de proveedor', () => {
