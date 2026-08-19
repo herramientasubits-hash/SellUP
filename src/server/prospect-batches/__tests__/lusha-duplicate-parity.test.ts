@@ -56,9 +56,28 @@ const INPUT: LushaPreviewInput = {
 const ACTOR = { internalUserId: 'user-1' };
 const ACCOUNT_UUID = '11111111-2222-4333-8444-555555555555';
 
+/**
+ * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 10 — la identidad por defecto se
+ * DERIVA del dominio (o del nombre) de cada empresa.
+ *
+ * Antes la fábrica daba `providerCompanyId: 'pc-1'` a TODAS. Mientras el
+ * dedupe miraba sólo el dominio eso era inofensivo; con el registro de identidad
+ * de la corrida deja de serlo, porque dos filas que declaran ser empresas
+ * distintas —dominios distintos— afirmaban a la vez ser la MISMA empresa del
+ * proveedor. La contradicción estaba en la fábrica, no en el dedupe: dos filas con
+ * el mismo id de empresa del proveedor SON la misma empresa.
+ *
+ * Derivarla mantiene el determinismo y no depende del orden de ejecución. Una
+ * prueba que quiera un duplicado lo dice explícitamente (mismo dominio, mismo
+ * nombre, o un `providerCompanyId` repetido a mano).
+ */
+function identitySlug(domain: string | null, name: string | null): string {
+  const base = domain ?? name ?? 'sin-identidad';
+  return base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'sin-identidad';
+}
+
 function company(overrides: Partial<LushaPreviewCompany> = {}): LushaPreviewCompany {
-  return {
-    providerCompanyId: 'pc-1',
+  const merged = {
     name: 'Acme',
     domain: 'acme.com',
     country: 'Colombia',
@@ -72,6 +91,11 @@ function company(overrides: Partial<LushaPreviewCompany> = {}): LushaPreviewComp
     passesGate: true,
     issues: [],
     ...overrides,
+  };
+  const slug = identitySlug(merged.domain ?? null, merged.name ?? null);
+  return {
+    ...merged,
+    providerCompanyId: overrides.providerCompanyId ?? `pc-${slug}`,
   };
 }
 

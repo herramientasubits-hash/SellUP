@@ -1799,6 +1799,33 @@ jobs:
       - name: Run A1 Lusha Macro-v2 search-plan catalog tests
         run: npm run test:lusha-macro-v2-plan-catalog
 
+      # AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 27 — el ejecutor multi-rama:
+      # UN objetivo global, UNA reserva consciente del plan, dedupe de identidad en
+      # toda la corrida y techos de peticiones y de filas crudas.
+      #
+      # Por qué entra al check obligatorio y no basta con la revisión: los tres
+      # defectos que estas suites cierran NO producen ningún rojo ni ningún síntoma
+      # visible en el resultado.
+      #
+      #   · Perder la parada por objetivo gasta hasta 6 créditos para conseguir lo
+      #     que cabía en 1. El lote sale idéntico; sólo la factura cambia.
+      #   · Reiniciar el hueco por rama, o dejar el conjunto de vistas en ámbito de
+      #     rama, cuenta la misma empresa varias veces: la corrida se declara
+      #     cumplida con menos candidatos revisables de los que dice.
+      #   · Dejar la reserva en 2 mientras el ejecutor puede gastar 6 produce un
+      #     sobrepaso real. La migración 121 lo registra fielmente —lo cual es
+      #     correcto— pero el dinero ya se fue, y la reserva es lo único que podía
+      #     haberlo evitado.
+      #
+      # También fija el ratchet de § 21: completitud del catálogo (12 planes) NO es
+      # elegibilidad de proveedor (3 sectores legacy). El cableado 12/12 es otro PR.
+      #
+      # Determinista y offline: módulos puros con `runSearch` inyectado. Sin red, sin
+      # Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: estas suites no activan el proveedor.
+      - name: Run A1 Lusha Macro-v2 multi-branch executor tests
+        run: npm run test:lusha-multibranch-executor
+
       # AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 19 — la liquidación del presupuesto
       # cuando el proveedor cobra MÁS de lo reservado.
       #

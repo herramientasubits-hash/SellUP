@@ -26,6 +26,10 @@ const FILES = {
   finalSearch: join(ROOT, 'src/components/prospect-batches/chat-wizard/wizard-lusha-final-search.tsx'),
   finalSummary: join(ROOT, 'src/modules/prospect-batches/wizard-final-summary.ts'),
   pendingReview: join(ROOT, 'src/server/prospect-batches/lusha-pending-review.ts'),
+  // MULTIBRANCH-EXECUTOR-1 § 6 — los topes por rama se extrajeron a su propio
+  // módulo (mismos nombres, mismos valores) para que el ejecutor multi-rama derive
+  // de ellos sin cerrar un ciclo. Esta guarda los busca donde ahora viven.
+  pendingReviewLimits: join(ROOT, 'src/server/prospect-batches/lusha-pending-review-limits.ts'),
   preview: join(ROOT, 'src/server/prospect-batches/lusha-preview.ts'),
 };
 
@@ -38,6 +42,7 @@ const src = {
   finalSearch: readFileSync(FILES.finalSearch, 'utf-8'),
   finalSummary: readFileSync(FILES.finalSummary, 'utf-8'),
   pendingReview: readFileSync(FILES.pendingReview, 'utf-8'),
+  pendingReviewLimits: readFileSync(FILES.pendingReviewLimits, 'utf-8'),
   preview: readFileSync(FILES.preview, 'utf-8'),
 };
 
@@ -124,7 +129,7 @@ describe('Q3F-5BB.10A — Lusha billing copy is non-contractual (copy/UI only)',
 
   // Behavior guardrails untouched — copy fix must not move any server dial.
   it('server MAX_PAGES stays 2 and page size stays 10', () => {
-    assert.match(src.pendingReview, /LUSHA_PENDING_REVIEW_MAX_PAGES\s*=\s*2\b/);
+    assert.match(src.pendingReviewLimits, /LUSHA_PENDING_REVIEW_MAX_PAGES\s*=\s*2\b/);
     assert.match(src.preview, /LUSHA_PREVIEW_SIZE\s*=\s*10\b/);
   });
 

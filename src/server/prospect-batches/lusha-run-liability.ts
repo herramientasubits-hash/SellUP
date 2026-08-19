@@ -39,6 +39,10 @@ import {
 } from './lusha-pending-review';
 import type { LushaCompanyProspectingPricingConfig } from '@/server/integrations/lusha-company-prospecting-billing';
 import type { LushaMacroSearchPlan } from './lusha-macro-search-plan';
+// § 9 — sectores ADMITIDOS por la autoridad legacy y el plan que le corresponde a
+// cada uno. Los dos módulos son puros; el puente no puede ensanchar elegibilidad.
+import { getLushaSectorOptions } from './lusha-sector-mapping';
+import { resolveLushaSearchPlanForSector } from './lusha-branch-plan-resolution';
 
 /**
  * Desglose del peor caso económico de una corrida Lusha.
@@ -130,9 +134,32 @@ export function resolveLushaRunLiability(
  * `'tavily' | 'apollo_organizations'` y ensanchar esa unión con `'lusha'`
  * volvería a Lusha SELECCIONABLE en el radio de «Proveedor de esta corrida».
  * Lusha es un proveedor oculto; su economía se comparte, su visibilidad no.
+ *
+ * ── AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 7 — ahora CONSCIENTE DEL PLAN ─
+ *
+ * `plan` ausente o `null` ⇒ 2, el valor de siempre: es lo que gasta una corrida
+ * de una sola búsqueda, y era lo único que esta función sabía devolver mientras
+ * el ejecutor no iteraba ramas.
+ *
+ * `plan` presente ⇒ ramas × 2 (1 → 2 · 2 → 4 · 3 → 6), delegado en
+ * `resolveLushaMacroPlanMaxProviderCredits`, que ya estaba probado esperando este
+ * momento. NO hay una segunda tabla de responsabilidad y NO se codifica ningún
+ * número por clave de macro: el techo sale del número de ramas del plan que se
+ * pasa, así que añadir una rama a cualquier macro mueve la reserva sola.
+ *
+ * 🔑 Es la MISMA función que llama el aviso previo de la UI. Si la reserva y el
+ * aviso salieran de dos cuentas distintas, la UI podría ofrecer una corrida que
+ * la reserva rechaza —o retirar una que cabía—.
+ *
+ * El tipo llega por `import type`: este módulo sigue sin crear ninguna arista de
+ * runtime hacia el catálogo de planes.
  */
-export function estimateLushaRunCredits(): number {
-  return resolveLushaRunLiability().normalizedBudgetCredits;
+export function estimateLushaRunCredits(
+  plan?: Pick<LushaMacroSearchPlan, 'branches'> | null,
+): number {
+  if (!plan) return resolveLushaRunLiability().normalizedBudgetCredits;
+  assertLushaRunLiabilityCoherent();
+  return resolveLushaMacroPlanMaxProviderCredits(plan);
 }
 
 /** Metadatos seguros (sin secretos) del techo, para logs y tests. */
@@ -163,14 +190,16 @@ export function toLushaRunLiabilityMetadata(
  * Con el catálogo aprobado el máximo del catálogo entero es **6**
  * (`energy_mining_environment` y `services_company`, de 3 ramas cada una).
  *
- * ── 🔴 Por qué NADIE llama a esto todavía ─────────────────────────────────────
+ * ── 🟢 Ya está cableado (MULTIBRANCH-EXECUTOR-1 § 7) ──────────────────────────
  *
- * `estimateLushaRunCredits()` sigue siendo la única función que la reserva usa,
- * y sigue devolviendo 2. Esto NO es un olvido de cableado: el ejecutor de hoy
- * pagina una sola búsqueda, así que una corrida real no puede gastar más de 2 y
- * reservar 6 bloquearía corridas que caben. El día que el ejecutor itere ramas,
- * el número que reserva y el número que puede gastar cambian EN EL MISMO commit,
- * y esta función es la que ya está probada para ese momento.
+ * Éste es el momento que esta función esperaba: `estimateLushaRunCredits(plan)`
+ * delega aquí cuando recibe un plan, y el ejecutor multi-rama acota sus
+ * peticiones con el MISMO producto (`resolveLushaProviderRequestsAllowed`). El
+ * número que se reserva y el número que se puede gastar cambian a la vez, que era
+ * la condición para cablearlo.
+ *
+ * Sin plan `estimateLushaRunCredits()` sigue devolviendo 2: una corrida de una
+ * sola búsqueda no puede gastar más, y reservar 6 bloquearía corridas que caben.
  *
  * El tipo llega por `import type`: este módulo no crea ninguna arista de runtime
  * hacia el catálogo, y una suite estática vigila esa propiedad.
@@ -196,5 +225,29 @@ export function resolveLushaMacroCatalogMaxProviderCredits(
   return plans.reduce(
     (max, plan) => Math.max(max, resolveLushaMacroPlanMaxProviderCredits(plan)),
     0,
+  );
+}
+
+// ── Techo por SECTOR admitido (§ 9 de MULTIBRANCH-EXECUTOR-1) ────────────────
+
+/**
+ * Cuántos créditos requiere la corrida de cada sector Lusha ADMITIDO.
+ *
+ * Existe para el aviso previo del wizard: el techo dejó de ser un número único
+ * —depende de las ramas del plan de la macro elegida— y la selección ocurre en el
+ * cliente después de renderizar. El servidor publica la tabla resuelta con ESTA
+ * función, la misma que la reserva usa, para que el aviso y la reserva no puedan
+ * salir de dos cuentas distintas.
+ *
+ * 🔴 Las claves son los sectores que la autoridad legacy admite
+ * (`getLushaSectorOptions`), NO las 12 macro del catálogo. Publicar las 12
+ * anunciaría rutas que no existen, que es exactamente lo que § 21 prohíbe.
+ */
+export function resolveLushaRequiredCreditsBySector(): Record<string, number> {
+  return Object.fromEntries(
+    getLushaSectorOptions().map((option) => [
+      option.key,
+      estimateLushaRunCredits(resolveLushaSearchPlanForSector(option.key)),
+    ]),
   );
 }

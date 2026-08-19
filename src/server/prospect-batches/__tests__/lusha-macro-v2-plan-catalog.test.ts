@@ -64,6 +64,12 @@ import {
 } from '@/server/prospect-batches/lusha-run-liability';
 import { LUSHA_PENDING_REVIEW_MAX_PAGES } from '@/server/prospect-batches/lusha-pending-review';
 import { LUSHA_PREVIEW_EXPECTED_MAX_CREDITS } from '@/server/prospect-batches/lusha-preview';
+// MULTIBRANCH-EXECUTOR-1 §§ 7/21 — el puente sector→plan, el techo de peticiones
+// del ejecutor y la autoridad de elegibilidad que NO debe ensancharse.
+import { resolveLushaSearchPlanForSector } from '@/server/prospect-batches/lusha-branch-plan-resolution';
+import { resolveLushaProviderRequestsAllowed } from '@/server/prospect-batches/lusha-multibranch-execution';
+import { getLushaSectorOptions } from '@/server/prospect-batches/lusha-sector-mapping';
+import { isProspectLushaEligible } from '@/modules/prospect-batches/prospect-discovery-provider';
 
 // ── La tabla aprobada, transcrita aparte del módulo ───────────────────────────
 //
@@ -452,12 +458,41 @@ describe('modelo de responsabilidad económica (PURO)', () => {
     );
   });
 
-  it('🔴 la reserva en vivo NO cambió: sigue reservando 2', () => {
-    // La prueba que impide que este PR se convierta en un cambio de runtime.
-    // `estimateLushaRunCredits` es lo único que la server action llama, y no
-    // conoce planes.
+  it('sin plan la reserva sigue siendo 2 (ruta legacy intacta)', () => {
+    // MULTIBRANCH-EXECUTOR-1 § 7 re-apunta este ratchet. Lo que protegía —que el
+    // catálogo no moviera el gasto en vivo— ya no aplica: el ejecutor itera ramas
+    // y la reserva DEBE seguirle. Lo que sigue protegiendo, y es lo que importa,
+    // es que la AUSENCIA de plan no cambie ni un crédito.
     assert.equal(estimateLushaRunCredits(), 2);
+    assert.equal(estimateLushaRunCredits(null), 2);
     assert.equal(estimateLushaRunCredits(), resolveLushaRunMaxProviderCredits());
+  });
+
+  it('con plan la reserva es ramas × 2, y sale de la MISMA función', () => {
+    for (const plan of LUSHA_MACRO_SEARCH_PLANS) {
+      assert.equal(
+        estimateLushaRunCredits(plan),
+        plan.branches.length * 2,
+        `${plan.macroKey} debe reservar ramas × 2`,
+      );
+      // Sin segunda tabla: el techo por plan y la reserva son el mismo número.
+      assert.equal(
+        estimateLushaRunCredits(plan),
+        resolveLushaMacroPlanMaxProviderCredits(plan),
+      );
+    }
+  });
+
+  it('🔴 el techo de peticiones del ejecutor y la reserva son el MISMO producto', () => {
+    // Si divergieran, la corrida podría intentar gastar por encima de lo
+    // reservado sin que ningún defecto fuera visible.
+    for (const plan of LUSHA_MACRO_SEARCH_PLANS) {
+      assert.equal(
+        resolveLushaProviderRequestsAllowed(plan.branches.length),
+        estimateLushaRunCredits(plan),
+        `${plan.macroKey}: peticiones permitidas ≠ créditos reservados`,
+      );
+    }
   });
 });
 
@@ -478,16 +513,59 @@ function collectSourceFiles(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-describe('ratchet — el catálogo no está cableado a runtime', () => {
+describe('ratchet — el catálogo manda sobre el EJECUTOR, no sobre la elegibilidad', () => {
   const SOURCES = collectSourceFiles(SRC_ROOT);
 
-  it('ningún módulo de runtime importa el catálogo de planes', () => {
+  /**
+   * MULTIBRANCH-EXECUTOR-1 §§ 21/22 re-apunta este ratchet.
+   *
+   * Antes prohibía TODA arista de runtime hacia el catálogo, porque el ejecutor no
+   * sabía ejecutar un plan y anunciarlo habría sido mentir. Ahora sabe, así que la
+   * prohibición absoluta perdió sentido — pero la propiedad que la motivaba no: el
+   * catálogo no puede convertirse en la autoridad de elegibilidad.
+   *
+   * De prohibición pasa a LISTA CERRADA. Un módulo nuevo que importe el catálogo
+   * en runtime hace fallar esta prueba, y quien la actualice tiene que justificar
+   * por qué ese módulo puede resolver planes.
+   */
+  /**
+   * Quién puede leer LOS PLANES en runtime. Lista de UNO.
+   *
+   * Se distingue de quién puede leer los TECHOS del catálogo
+   * (`LUSHA_MACRO_SEARCH_PLAN_MAX_BRANCHES`) porque las dos cosas conceden poderes
+   * muy distintos: un techo es una cota de gasto, y los planes son las industrias
+   * que se le piden al proveedor. El ejecutor necesita lo primero y no debe poder
+   * hacer lo segundo — resuelve el plan que le PASAN, nunca uno que él elija.
+   */
+  const PLAN_READERS = ['src/server/prospect-batches/lusha-branch-plan-resolution.ts'];
+  /** Quién puede tener cualquier arista de runtime hacia el módulo del catálogo. */
+  const RUNTIME_IMPORTERS = [
+    ...PLAN_READERS,
+    // Sólo `LUSHA_MACRO_SEARCH_PLAN_MAX_BRANCHES`, para derivar sus techos.
+    'src/server/prospect-batches/lusha-multibranch-execution.ts',
+  ];
+
+  /** Los bindings que el fichero importa en runtime desde el catálogo. */
+  function runtimeBindings(body: string): string[] {
+    const named = /import\s+(?!type\b)\{([^}]*)\}\s*from\s+['"][^'"]*lusha-macro-search-plan['"]/g;
+    const bindings: string[] = [];
+    for (const match of body.matchAll(named)) {
+      for (const raw of (match[1] ?? '').split(',')) {
+        const binding = raw.trim();
+        // `type X` dentro de las llaves tampoco crea arista de runtime.
+        if (binding !== '' && !binding.startsWith('type ')) bindings.push(binding);
+      }
+    }
+    return bindings;
+  }
+
+  it('sólo los módulos autorizados importan el catálogo en runtime', () => {
     const importers: string[] = [];
     for (const file of SOURCES) {
       if (file.endsWith('lusha-macro-search-plan.ts')) continue;
       const body = readFileSync(file, 'utf8');
       if (!body.includes('lusha-macro-search-plan')) continue;
-      // `import type` no crea arista de runtime: es lo único permitido.
+      // `import type` no crea arista de runtime: siempre está permitido.
       const valueImport = /import\s+(?!type\b)[^;]*from\s+['"][^'"]*lusha-macro-search-plan['"]/;
       const dynamicImport = /import\s*\(\s*['"][^'"]*lusha-macro-search-plan['"]/;
       if (valueImport.test(body) || dynamicImport.test(body)) {
@@ -495,10 +573,88 @@ describe('ratchet — el catálogo no está cableado a runtime', () => {
       }
     }
     assert.deepEqual(
-      importers,
-      [],
-      `el catálogo no debe mandar todavía; lo importan: ${importers.join(', ')}`,
+      [...importers].sort(),
+      [...RUNTIME_IMPORTERS].sort(),
+      `importadores de runtime inesperados: ${importers.join(', ')}`,
     );
+  });
+
+  it('🔴 sólo el puente puede LEER los planes; el resto, sólo los techos', () => {
+    for (const file of SOURCES) {
+      if (file.endsWith('lusha-macro-search-plan.ts')) continue;
+      const relative = path.relative(process.cwd(), file);
+      if (PLAN_READERS.includes(relative)) continue;
+      const bindings = runtimeBindings(readFileSync(file, 'utf8'));
+      for (const binding of bindings) {
+        assert.ok(
+          binding.startsWith('LUSHA_MACRO_SEARCH_PLAN_M'),
+          `${relative} no debe leer los planes en runtime (importa ${binding})`,
+        );
+      }
+    }
+  });
+
+  it('🔴 completitud del catálogo NO es elegibilidad de proveedor', () => {
+    // § 21 — la propiedad central de este PR. Las 12 macro tienen plan; la
+    // elegibilidad sigue siendo la de los sectores legacy, y una macro sin sector
+    // que la respalde no obtiene plan ejecutable por ninguna vía.
+    assert.equal(LUSHA_MACRO_SEARCH_PLANS.length, MACRO_INDUSTRY_COUNT);
+
+    const eligibleSectorKeys = getLushaSectorOptions().map((option) => option.key).sort();
+    assert.deepEqual(eligibleSectorKeys, ['education', 'healthcare', 'technology']);
+
+    // 🔑 `technology` es la MISMA cadena en los dos vocabularios: es una clave de
+    // macro Y una clave de sector legacy. No es una fuga: ese sector ya era
+    // elegible antes de este PR y su plan es una sola rama con el mismo main 17
+    // que el sector ya enviaba. Excluirlo aquí es lo correcto; lo que se prueba es
+    // que NINGUNA de las otras once se cuele por parecerse a un sector.
+    const macroOnlyKeys = LUSHA_MACRO_SEARCH_PLANS.map((plan) => plan.macroKey).filter(
+      (macroKey) => !(eligibleSectorKeys as string[]).includes(macroKey),
+    );
+    assert.equal(macroOnlyKeys.length, MACRO_INDUSTRY_COUNT - 1);
+
+    for (const macroKey of macroOnlyKeys) {
+      // Una clave de macro NO es una clave de sector: el puente la rechaza, y la
+      // autoridad de routing la rechaza también.
+      assert.equal(
+        resolveLushaSearchPlanForSector(macroKey),
+        null,
+        `${macroKey} no debe resolverse como sector`,
+      );
+      assert.equal(
+        isProspectLushaEligible({
+          searchType: 'exploratory',
+          sectorKey: macroKey,
+          countryCode: 'CO',
+        }),
+        false,
+        `${macroKey} no debe ser elegible como sector`,
+      );
+    }
+  });
+
+  it('un sector admitido ejecuta su plan; sin macro equivalente sigue como hoy', () => {
+    // technology: 1 rama (main 17) — idéntico a la búsqueda de hoy, reserva 2.
+    const technology = resolveLushaSearchPlanForSector('technology');
+    assert.equal(technology?.macroKey, 'technology');
+    assert.equal(technology?.branches.length, 1);
+    assert.equal(estimateLushaRunCredits(technology), 2);
+
+    // healthcare: 3 ramas — la ganancia real. `main 11` a secas perdía
+    // farmacéuticas (12/71) y dispositivos médicos (12/80).
+    const health = resolveLushaSearchPlanForSector('healthcare');
+    assert.equal(health?.macroKey, 'health_pharma');
+    assert.equal(health?.branches.length, 3);
+    assert.equal(estimateLushaRunCredits(health), 6);
+
+    // education: sector VIVO en Lusha y NO macro de SellUp (decisión de la dueña,
+    // 2026-08-13). Sin plan ⇒ búsqueda legacy única y reserva 2. No es un bloqueo.
+    assert.equal(resolveLushaSearchPlanForSector('education'), null);
+    assert.equal(estimateLushaRunCredits(resolveLushaSearchPlanForSector('education')), 2);
+
+    // Un sector inexistente tampoco obtiene plan.
+    assert.equal(resolveLushaSearchPlanForSector('energia'), null);
+    assert.equal(resolveLushaSearchPlanForSector(null), null);
   });
 
   it('el mapper de compatibilidad y el registry siguen intactos', () => {

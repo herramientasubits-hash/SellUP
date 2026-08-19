@@ -71,6 +71,12 @@ import {
   type LushaBudgetSettlementOutcome,
 } from '@/modules/prospect-batches/lusha-budget-gate';
 import { estimateLushaRunCredits } from '@/server/prospect-batches/lusha-run-liability';
+// AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 §§ 2/21 — el plan Macro-v2 de la
+// corrida. El puente es puro y NO ensancha la elegibilidad: su entrada es el
+// `sectorKey` que la autoridad legacy ya admitió, así que sólo puede añadir ramas
+// a una ruta viva, nunca abrir una nueva. Ausencia de plan ⇒ búsqueda única, como
+// hoy. Ver la cabecera de `lusha-branch-plan-resolution`.
+import { resolveLushaSearchPlanForSector } from '@/server/prospect-batches/lusha-branch-plan-resolution';
 // Las MISMAS primitivas de reserva que usan Apollo y Tavily. Un segundo
 // mecanismo de reserva sería un segundo presupuesto, que es justo lo que este
 // trabajo prohíbe.
@@ -211,7 +217,13 @@ async function runGenerateLushaPendingReviewBatch(
   // cliente → búsqueda. Nada por debajo de esta línea corre sin reserva
   // concedida, y la credencial (`getLushaApiKey`) sigue resolviéndose de forma
   // perezosa dentro de `runSearch`, así que un bloqueo no llega ni a pedirla.
-  const requiredCredits = estimateLushaRunCredits();
+  //
+  // § 7/§ 8 — UNA reserva por corrida, consciente del plan. `estimateLushaRunCredits`
+  // devuelve 2 sin plan y ramas × 2 con plan (2/4/6), y es la MISMA función de la
+  // que sale el aviso previo de la UI. El ejecutor acota sus peticiones con el
+  // mismo producto, así que no puede intentar gastar por encima de lo reservado.
+  const searchPlan = resolveLushaSearchPlanForSector(parsed.data.sectorKey);
+  const requiredCredits = estimateLushaRunCredits(searchPlan);
   const { clientRequestId, ...searchInput } = parsed.data;
 
   return guardLushaRunBudget(
@@ -227,6 +239,7 @@ async function runGenerateLushaPendingReviewBatch(
         reservation,
         routingMetadata,
         routingPlan,
+        searchPlan,
       }),
     requiredCredits,
   );
@@ -313,8 +326,11 @@ async function runLushaSearchWithReservation(args: {
   reservation: LushaBudgetReservation;
   routingMetadata: ReturnType<typeof buildProviderRoutingMetadata>;
   routingPlan: ReturnType<typeof resolveProviderRoutingPlan>;
+  /** Plan Macro-v2 de la corrida, o `null` para la búsqueda legacy única. */
+  searchPlan: ReturnType<typeof resolveLushaSearchPlanForSector>;
 }): Promise<GenerateLushaPendingReviewBatchActionResult> {
-  const { searchInput, internalUserId, reservation, routingMetadata, routingPlan } = args;
+  const { searchInput, internalUserId, reservation, routingMetadata, routingPlan, searchPlan } =
+    args;
   const supabase = await createClient();
 
   /**
@@ -501,6 +517,15 @@ async function runLushaSearchWithReservation(args: {
       { internalUserId },
       // Q3F-5BB.11D — additive OBSERVATIONAL routing metadata (never gates).
       { routingMetadata, routingPlan },
+      // §§ 3/4/8 — ejecución de la corrida. `targetGap` NO se pasa: no existe
+      // todavía ninguna fuente de hueco aguas arriba (el descubrimiento por país
+      // es trabajo posterior), así que el ejecutor resuelve su objetivo por
+      // defecto y el comportamiento de producto no cambia. `creditsReserved` es
+      // sólo telemetría, para que el lote registre contra qué reserva corrió.
+      {
+        plan: searchPlan,
+        creditsReserved: reservation.creditsReserved,
+      },
     );
 
     // § 9 — reconciliación: se confirma lo que Lusha reportó, y la reserva
@@ -519,6 +544,14 @@ async function runLushaSearchWithReservation(args: {
       sector: searchInput.sectorKey,
       reservedCredits: reservation.creditsReserved,
       creditsChargedTotal: result.creditsChargedTotal,
+      // §§ 18/19 — por qué paró y cuánto pidió. Sin PII, sin payload, sin clave.
+      macroKey: searchPlan?.macroKey ?? null,
+      branchCountPlanned: result.branchCountPlanned,
+      branchCountAttempted: result.branchCountAttempted,
+      providerRequestsAllowed: result.providerRequestsAllowed,
+      providerRequestsUsed: result.providerRequestsUsed,
+      crossBranchDuplicatesRemoved: result.crossBranchDuplicatesRemoved,
+      stopReason: result.stopReason,
     });
 
     if (result.status === 'success') {

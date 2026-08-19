@@ -41,7 +41,10 @@ import type { WizardFinalRecap } from '@/modules/prospect-batches/wizard-final-s
 // AGENT1-LUSHA-BUDGET-GATE-1 § 6 — mismo comparador y mismo redactor que la ruta
 // Apollo, para que el aviso previo de Lusha no pueda divergir del suyo.
 import type { WizardBudgetPreflight } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
-import { resolveLushaPreExecutionBudgetBlock } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
+import {
+  resolveLushaPreExecutionBudgetBlock,
+  resolveLushaPreflightRequiredCredits,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
 import { mapBudgetExceeded } from './wizard-execution-error-map';
 
 export const WIZARD_LUSHA_SEARCH_LABEL = 'Buscar con IA';
@@ -139,9 +142,16 @@ export function WizardLushaFinalSearch({
   //   · Sin instantánea no bloquea: convertir «no pude leer» en «no puedes
   //     ejecutar» bloquearía a todo el mundo por un error de diagnóstico.
   //   · No inventa cifras: sin techo resoluble no hay aviso.
-  const budgetBlock = resolveLushaPreExecutionBudgetBlock(budgetPreflight);
+  //
+  // AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 9 — el techo que se compara y
+  // el que se muestra son el MISMO, y ahora dependen del plan de la macro
+  // industria que el wizard resolvió: una macro compuesta ejecuta varias ramas y
+  // su peor caso son 4 o 6 créditos, no 2. El número lo resolvió el servidor con
+  // la misma función que la reserva usa; aquí sólo se elige la fila del sector.
+  const budgetBlock = resolveLushaPreExecutionBudgetBlock(budgetPreflight, input.sectorKey);
   const budgetMessage = budgetBlock !== null ? mapBudgetExceeded(budgetBlock).message : null;
-  const requiredCredits = budgetPreflight?.lushaRequiredCredits ?? null;
+  const requiredCredits =
+    resolveLushaPreflightRequiredCredits(budgetPreflight, input.sectorKey) ?? null;
   const availableCredits = budgetPreflight?.availableCredits ?? null;
 
   // IMPORTANTE: única vía de ejecución. Invocada solo por el onClick del botón.

@@ -28,7 +28,11 @@ import { estimateCreditsForProvider } from './wizard-budget-estimate';
 // cuyo resultado reserva la acción de Lusha. Se resuelve aparte de
 // `estimateCreditsForProvider` porque Lusha no pertenece a la unión de
 // proveedores elegibles (ver la nota de `WizardBudgetPreflight`).
-import { estimateLushaRunCredits } from '@/server/prospect-batches/lusha-run-liability';
+import {
+  estimateLushaRunCredits,
+  resolveLushaRequiredCreditsBySector,
+} from '@/server/prospect-batches/lusha-run-liability';
+
 import { WIZARD_RUN_SELECTABLE_PROVIDERS } from './wizard-run-provider-capability';
 import type { WizardRunSelectableProvider } from './wizard-run-provider-capability';
 import type { WizardBudgetPreflight } from './wizard-budget-preflight';
@@ -95,10 +99,33 @@ export async function resolveWizardBudgetPreflightForSurface(): Promise<WizardBu
       lushaRequiredCredits = null;
     }
 
+    // ── AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 9 ──
+    //
+    // El techo de Lusha ya no es uno solo: depende de cuántas RAMAS ejecute el
+    // plan de la macro industria elegida (2 · 4 · 6). La selección ocurre en el
+    // cliente después de renderizar, así que el servidor publica el número de cada
+    // sector Lusha-elegible y el cliente elige la fila que corresponde.
+    //
+    // Por qué un mapa resuelto en el servidor y no una cuenta en el cliente: la
+    // función autoritativa (`estimateLushaRunCredits`) vive en el módulo de
+    // responsabilidad del servidor, y arrastrarla al bundle del navegador para
+    // reproducir la cuenta abriría la puerta a que las dos versiones divergieran.
+    // Es la MISMA función que la reserva usa, llamada con el MISMO plan.
+    //
+    // Sectores, no macro industrias: la clave es el `sectorKey` que la autoridad
+    // legacy admite, así que este mapa no puede anunciar una ruta que no exista.
+    let lushaRequiredCreditsBySector: Record<string, number> | null = null;
+    try {
+      lushaRequiredCreditsBySector = resolveLushaRequiredCreditsBySector();
+    } catch {
+      lushaRequiredCreditsBySector = null;
+    }
+
     return {
       availableCredits: snapshot.availableCredits,
       requiredCreditsByProvider,
       lushaRequiredCredits,
+      lushaRequiredCreditsBySector,
     };
   } catch {
     // Mismo criterio que el resto de la superficie: un diagnóstico que falla

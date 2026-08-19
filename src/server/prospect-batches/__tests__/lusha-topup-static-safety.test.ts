@@ -20,6 +20,13 @@ const WRITER = resolve(SRC, 'server/prospect-batches/lusha-pending-review.ts');
 const ACTION = resolve(SRC, 'modules/prospect-batches/lusha-pending-review-actions.ts');
 const WIZARD = resolve(SRC, 'components/prospect-batches/chat-wizard/wizard-lusha-final-search.tsx');
 const PREVIEW = resolve(SRC, 'server/prospect-batches/lusha-preview.ts');
+// AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 6 — los topes se EXTRAJERON del
+// writer a su propio módulo (mismos nombres, mismos valores) porque el ejecutor
+// multi-rama los necesita sin cerrar un ciclo de inicialización con el writer.
+// Esta guarda los busca donde ahora VIVEN, y sigue comprobando que el bucle del
+// writer se acota con la constante y no con un valor de la respuesta.
+const LIMITS = resolve(SRC, 'server/prospect-batches/lusha-pending-review-limits.ts');
+const EXECUTION = resolve(SRC, 'server/prospect-batches/lusha-multibranch-execution.ts');
 
 const read = (p: string) => readFileSync(p, 'utf8');
 
@@ -33,14 +40,30 @@ function readCode(p: string): string {
 
 describe('Q3F-5BB.7B static safety', () => {
   it('37/38. page + credit ceilings are hard constants (not client-supplied)', () => {
-    const w = read(WRITER);
-    assert.match(w, /LUSHA_PENDING_REVIEW_MAX_PAGES\s*=\s*2/);
-    assert.match(w, /LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS\s*=\s*2/);
-    assert.match(w, /LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES\s*=\s*5/);
+    const limits = read(LIMITS);
+    assert.match(limits, /LUSHA_PENDING_REVIEW_MAX_PAGES\s*=\s*2/);
+    assert.match(limits, /LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS\s*=\s*2/);
+    assert.match(limits, /LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES\s*=\s*5/);
     // The loop is bounded by the constant, not by any request/response value.
-    assert.match(w, /page\s*<\s*LUSHA_PENDING_REVIEW_MAX_PAGES/);
+    assert.match(read(WRITER), /page\s*<\s*LUSHA_PENDING_REVIEW_MAX_PAGES/);
     // Preview clamps the page — deep pagination is impossible.
     assert.match(read(PREVIEW), /LUSHA_PREVIEW_MAX_PAGE\s*=\s*1/);
+  });
+
+  it('el techo de peticiones de la corrida se DERIVA, no se escribe a mano', () => {
+    // § 6 — ramas × páginas. Un número literal aquí sería un techo que puede
+    // dejar de coincidir con el que se reserva.
+    const execution = readCode(EXECUTION);
+    assert.match(
+      execution,
+      /safeBranchCount \* LUSHA_PENDING_REVIEW_MAX_PAGES/,
+      'el techo de peticiones debe salir de ramas × páginas',
+    );
+    assert.match(
+      execution,
+      /LUSHA_MACRO_SEARCH_PLAN_MAX_BRANCHES \*\s*LUSHA_PENDING_REVIEW_MAX_PAGES \*\s*LUSHA_PREVIEW_SIZE/,
+      'el techo de filas crudas debe salir de ramas × páginas × tamaño de página',
+    );
   });
 
   it('32. writer never creates accounts / companies / contacts', () => {
