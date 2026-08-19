@@ -23,7 +23,19 @@
 // test estático lo verifica leyendo el fichero: la garantía «mirar si se puede buscar no
 // gasta nada» no se sostiene en la intención de quien lo escribió, sino en que no exista
 // aquí la llamada que gastaría. Tampoco importa el cliente de Lusha, el de Apollo, el
-// reservador de créditos ni el logger de uso.
+// RESERVADOR de créditos ni el logger de uso.
+//
+// Desde 1K sí importa el RESOLVER del presupuesto, y la distinción es toda la frontera:
+//
+//   * `phone-reveal-credit-budget-deps` (`readPhoneRevealCreditPools` → `checkBudget`) sólo
+//     AGREGA con `SELECT` las reglas, el consumo y las reservas vivas. Mirar cuánto saldo
+//     hay no ocupa saldo;
+//   * `phone-reveal-credit-reservation-deps` es el que ESCRIBE la exposición, y ése sigue
+//     prohibido aquí — igual que el `.rpc(` con el que se invocaría.
+//
+// El test estático que prohibía los DOS confundía «leer el presupuesto» con «gastarlo», y
+// esa confusión es justamente lo que dejó al preflight ciego al pozo mientras el runtime lo
+// miraba. Se invierte a propósito: prohíbe el reservador y EXIGE el resolver.
 //
 // ── POR QUÉ SERVICE ROLE ───────────────────────────────────────
 //
@@ -56,6 +68,12 @@
 // imprimen el código de la operación, nunca la fila.
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import {
+  evaluatePhoneRevealCreditBudget,
+  resolvePhoneRevealCreditBudgetProviders,
+  type PhoneRevealCreditBudgetDecision,
+} from './phone-reveal-credit-budget-core';
+import { readPhoneRevealCreditPools } from './phone-reveal-credit-budget-deps';
 import { checkPhoneRevealPrivacyGate } from './phone-reveal-privacy-gate';
 import {
   PHONE_REVEAL_WATERFALL_ACTIVE_STATUSES,
@@ -64,6 +82,7 @@ import {
 import {
   planSearchMorePhones,
   resolveSearchMoreNativeProviders,
+  SEARCH_MORE_BUDGET_MODE,
   type SearchMorePlan,
   type SearchMorePrivacyState,
 } from './search-more-phones-planner';
@@ -101,6 +120,17 @@ export interface SearchMorePreflightFacts {
   readonly providersAlreadySearchedForMore: readonly string[];
   readonly hasActivePhoneRun: boolean;
   readonly privacyState: SearchMorePrivacyState;
+  /**
+   * Veredicto del pozo de LUSHA para el techo de esta operación
+   * (AGENT2A-SEARCH-MORE-PHONES-1K). Se resuelve con el MISMO resolver que usa la reserva
+   * del runtime, así que incluye la exposición ya reservada y no sólo el consumo liquidado.
+   *
+   * Vive en los HECHOS y NO en el resumen que cruza al navegador: el plan ya lleva el motivo
+   * mecánico que la UI necesita para su copy, y publicar además el veredicto crudo no le
+   * daría al cliente nada que no tenga. Ni el límite, ni el consumo, ni el scope, ni el id de
+   * la regla salen de aquí en ninguna forma.
+   */
+  readonly budgetDecision: PhoneRevealCreditBudgetDecision;
 }
 
 /**
@@ -161,13 +191,85 @@ function toPlannerPrivacyState(
 }
 
 /**
+ * Veredicto del PRESUPUESTO de Lusha para el techo de esta operación
+ * (AGENT2A-SEARCH-MORE-PHONES-1K).
+ *
+ * ── POR QUÉ EXISTE ─────────────────────────────────────────────
+ *
+ * El preflight resolvía todo lo que describe al candidato y NADA sobre el dinero, mientras el
+ * runtime resolvía el pozo antes de reservar. Esa asimetría es la que Producción encontró: la
+ * UI ofrecía el CTA pagado y el clic devolvía «No pudimos iniciar la búsqueda», porque no hay
+ * ninguna regla de crédito activa para Lusha. La operación era segura —0 llamadas, 0
+ * créditos— pero la pantalla afirmaba algo falso antes del clic.
+ *
+ * ── NO HAY UNA SEGUNDA IMPLEMENTACIÓN ──────────────────────────
+ *
+ * Se reutiliza la cadena CANÓNICA de crédito entera y no se recalcula nada:
+ *
+ *   * `resolvePhoneRevealCreditBudgetProviders(SEARCH_MORE_BUDGET_MODE)` dice de QUIÉN se lee
+ *     el pozo — sólo Lusha, la misma modalidad con la que el runtime reserva;
+ *   * `readPhoneRevealCreditPools` es EL resolver que el gate del runtime usa, y por eso la
+ *     disponibilidad incluye la EXPOSICIÓN YA RESERVADA (`checkBudget` la devuelve en
+ *     `reservedCredits`). Aproximarla con `límite - consumo` daría un CTA que promete saldo
+ *     comprometido por otra autorización en vuelo;
+ *   * `evaluatePhoneRevealCreditBudget` compara contra el requisito de la MODALIDAD, que para
+ *     `search_more_lusha` son exactamente los 5 créditos que se reservarán.
+ *
+ * ── SIGUE SIENDO SÓLO LECTURA ──────────────────────────────────
+ *
+ * `checkBudget` agrega `budget_rules`, `provider_usage_logs` y las reservas con `SELECT`: no
+ * escribe, no reserva y no descuenta. Lo que este archivo sigue sin poder alcanzar es el
+ * RESERVADOR (`phone-reveal-credit-reservation-deps`), que es la pieza que ocupa saldo — y un
+ * test estático lo verifica leyendo el fichero.
+ *
+ * ── FAIL-CLOSED, Y SIN MENTIR SOBRE POR QUÉ ────────────────────
+ *
+ * Sin actor no hay pozo que resolver (`checkBudget` resuelve la regla POR USUARIO), y un
+ * fallo inesperado tampoco autoriza: los dos vuelven como `balance_unavailable`, que bloquea
+ * igual que los otros dos rechazos pero no afirma ni que falten créditos ni que falte la
+ * regla. Es la única de las tres que no declara un hecho que nadie comprobó.
+ */
+async function resolveSearchMoreBudgetDecision(
+  actorInternalUserId: string | null,
+): Promise<PhoneRevealCreditBudgetDecision> {
+  const internalUserId = cleanText(actorInternalUserId);
+  if (!internalUserId) return 'balance_unavailable';
+
+  try {
+    const pools = await readPhoneRevealCreditPools(
+      resolvePhoneRevealCreditBudgetProviders(SEARCH_MORE_BUDGET_MODE),
+      internalUserId,
+    );
+    return evaluatePhoneRevealCreditBudget({
+      mode: SEARCH_MORE_BUDGET_MODE,
+      budget: { model: 'per_provider', pools },
+    }).decision;
+  } catch (err) {
+    // El resolver ya falla cerrado por su cuenta (cualquier excepción suya vuelve como pozo
+    // `unavailable`), así que esto cubre lo que quede fuera de su `try`. Se registra sin PII.
+    console.error(
+      '[search-more-phones] budget preflight failed, failing closed:',
+      err instanceof Error ? err.message : 'unknown error',
+    );
+    return 'balance_unavailable';
+  }
+}
+
+/**
  * Lee TODO lo que decide la compra y devuelve los hechos + el plan.
  *
  * ORDEN DE LAS LECTURAS: barato→caro, y cada una puede acortar la siguiente. El candidato
  * primero (sin él no hay nada), la colección después, la procedencia sólo si hay teléfonos,
- * las corridas siempre (son el bloqueo más barato de una segunda autorización) y la
- * privacidad AL FINAL: es la más costosa —consulta `contacts` y `provider_suppressions`— y
- * no tiene sentido resolver la supresión de una operación que ya está descartada.
+ * las corridas siempre (son el bloqueo más barato de una segunda autorización) y, AL FINAL y
+ * en paralelo, las dos caras: la privacidad —que consulta `contacts` y
+ * `provider_suppressions`— y el presupuesto de Lusha, que agrega reglas, consumo y reservas.
+ *
+ * Las dos se resuelven SIEMPRE, aunque un hecho anterior ya baste para bloquear. Es
+ * deliberado: el planificador aplica los gates en SU orden, así que un candidato sin teléfono
+ * seguirá diciendo `no_stored_phone` y no `budget_not_configured`. Saltarse la lectura
+ * obligaría a inventar un valor de presupuesto «no evaluado» y a confiar en que el
+ * planificador nunca lo mire — un permiso silencioso esperando a que alguien reordene los
+ * gates.
  *
  * LANZA si una lectura falla. No devuelve un preflight degradado: «no pudimos leer» y «no se
  * puede buscar» son hechos distintos, y confundirlos le diría al operador que la operación
@@ -178,6 +280,12 @@ export async function readSearchMorePreflight(args: {
   candidateId: string;
   featureEnabled: boolean;
   actorRoleKey: string | null;
+  /**
+   * `internal_users.id` del actor. Lo exige el presupuesto y NO el candidato: la regla de
+   * crédito se resuelve caminando user → group → role → global, así que sin actor no hay
+   * pozo que mirar. Ausente ⇒ el veredicto es `balance_unavailable`, que bloquea.
+   */
+  actorInternalUserId: string | null;
 }): Promise<SearchMorePreflight> {
   const admin = createSupabaseAdminClient();
   const candidateId = args.candidateId;
@@ -277,12 +385,24 @@ export async function readSearchMorePreflight(args: {
     ? ['lusha']
     : [];
 
-  // ── 5. La privacidad, AUTORITATIVA ───────────────────────────
-  // La MISMA puerta que corre inmediatamente antes de llamar a Lusha. Nunca lanza: cualquier
-  // fallo de lectura vuelve como `check_unavailable`.
-  const privacyState = toPlannerPrivacyState(
-    await checkPhoneRevealPrivacyGate(candidateId),
-  );
+  // ── 5. La privacidad y el PRESUPUESTO, las dos AUTORITATIVAS ─
+  //
+  // Las dos son las lecturas caras de esta cadena, las dos son independientes entre sí y
+  // ninguna puede acortar a la otra, así que van EN PARALELO. Secuenciarlas sólo sumaría
+  // latencia a una pantalla que el operador abre en cada candidato.
+  //
+  //   * la privacidad la resuelve la MISMA puerta que corre inmediatamente antes de llamar a
+  //     Lusha. Nunca lanza: cualquier fallo de lectura vuelve como `check_unavailable`;
+  //   * el presupuesto lo resuelve el MISMO resolver que usa la reserva del runtime
+  //     (AGENT2A-SEARCH-MORE-PHONES-1K), con la exposición ya reservada incluida.
+  //
+  // Ninguna de las dos escribe, y ninguna de las dos autoriza por su cuenta: las dos son
+  // insumos del planificador, que es quien decide.
+  const [privacyGate, budgetDecision] = await Promise.all([
+    checkPhoneRevealPrivacyGate(candidateId),
+    resolveSearchMoreBudgetDecision(args.actorInternalUserId),
+  ]);
+  const privacyState = toPlannerPrivacyState(privacyGate);
 
   const facts: SearchMorePreflightFacts = {
     candidateId,
@@ -294,6 +414,7 @@ export async function readSearchMorePreflight(args: {
     providersAlreadySearchedForMore,
     hasActivePhoneRun,
     privacyState,
+    budgetDecision,
   };
 
   // EL plan. Mismo módulo puro que consume la UI: no se reimplementa ni se ajusta aquí.
@@ -311,6 +432,7 @@ export async function readSearchMorePreflight(args: {
     providersAlreadySearchedForMore,
     hasActivePhoneRun,
     privacyState,
+    budgetDecision,
   });
 
   return {

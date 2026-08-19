@@ -189,6 +189,12 @@ function resolveSettledMessage(
       // No se creó corrida: 0 llamadas y 0 créditos. El motivo puede ser de saldo, de
       // infraestructura o de elegibilidad, y ninguno se presenta como «no encontramos
       // números» — eso afirmaría un hecho sobre los datos que nadie consultó.
+      //
+      // Los motivos de PRESUPUESTO del gate del runtime —`insufficient_credits`,
+      // `budget_not_configured`, `credit_balance_unavailable`— son las MISMAS cadenas que el
+      // planificador produce (1K), así que este mapa los traduce sin un caso aparte. Es lo
+      // que hace que el saldo que se agota ENTRE el render y el clic se explique con su
+      // frase exacta en vez de con el genérico de abajo.
       const disabledCopy = result.reason
         ? getSearchMoreDisabledCopy(
             result.reason as Parameters<typeof getSearchMoreDisabledCopy>[0],
@@ -379,6 +385,12 @@ export function CandidateSearchMorePhonesCta({
     // `null` = NO RENDERIZAR, que es la lección de #287: «deshabilitado» no puede ser mostrar
     // una función que no existe. El copy sólo aparece para bloqueos que el operador puede
     // entender y que describen algo real sobre ESTE candidato.
+    //
+    // Desde 1K por aquí llegan además los TRES bloqueos de PRESUPUESTO, y por el mismo camino
+    // a propósito: son hechos que el servidor ya conoce al pintar, así que su sitio es esta
+    // línea informativa y NO un botón que gasta un clic para contar lo que ya se sabía. No
+    // hablan del contacto —la fuente sigue ahí y la identidad también—, hablan de la
+    // plataforma, y cada uno dice cuál de los tres es.
     const blockedCopy = plan.reason ? getSearchMoreDisabledCopy(plan.reason) : null;
     if (!blockedCopy) return null;
     return <p className="pt-1 text-[11px] text-muted-foreground">{blockedCopy}</p>;
