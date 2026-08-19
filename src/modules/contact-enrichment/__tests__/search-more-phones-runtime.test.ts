@@ -91,14 +91,30 @@ const CANDIDATE_ID = '11111111-1111-4111-8111-111111111111';
 const LUSHA_CONTACT_ID = 'v1.lusha-native-token';
 const ADMIN = { internalUserId: 'admin-1', roleKey: 'admin' } as const;
 
-/** Estado del proveedor en cada test. */
+/**
+ * Estado del proveedor en cada test.
+ *
+ * ── LA FORMA IMPORTA, Y ES CONTRAINTUITIVA ──────────────────────
+ *
+ * `ok: false` cubre SÓLO el timeout y el error de red. TODA respuesta HTTP —402, 429, 401,
+ * 403, 404, 5xx— vuelve del cliente con `ok: true`, `phones: []` y un MAPEO que declara
+ * `candidateStatus: 'error'`.
+ *
+ * Un mock que devolviera `ok: false` para un 429 escondería el defecto que este arnés existe
+ * para cazar: leer `phones.length === 0` como «Lusha no tiene teléfono» registra un fallo de
+ * transporte como un hecho sobre la PERSONA, y además agota la fuente para siempre.
+ */
 interface LushaScript {
-  /** `false` ⇒ la llamada falla técnicamente (red, HTTP, respuesta malformada). */
+  /** `false` ⇒ SÓLO timeout o error de red. Un error HTTP NO se expresa así. */
   ok: boolean;
-  /** Teléfonos que devuelve. Vacío = contestó y no tiene. */
+  /** Teléfonos que devuelve. Vacío = contestó y no tiene… o falló con HTTP. */
   phones: readonly { number: string; phoneType: string; rawType: string | null }[];
   /** `billing.creditsCharged`. `null` = no reportado, que NUNCA es 0. */
   creditsCharged: number | null;
+  /** Veredicto del clasificador. Es lo que separa `no_phone_found` de un error HTTP. */
+  candidateStatus?: 'revealed' | 'no_phone_found' | 'error';
+  usageStatus?: 'success' | 'error' | 'rate_limited' | 'quota_exceeded';
+  errorCode?: string | null;
 }
 
 interface World {
@@ -471,6 +487,8 @@ mock.module('@/server/integrations/lusha-phone-fallback-client', {
       }
       const phones = world.lusha.phones;
       const elected = phones.length > 0 ? phones[0] : null;
+      const candidateStatus =
+        world.lusha.candidateStatus ?? (phones.length > 0 ? 'revealed' : 'no_phone_found');
       return {
         ok: true,
         httpStatus: 200,
@@ -479,9 +497,15 @@ mock.module('@/server/integrations/lusha-phone-fallback-client', {
         phoneType: elected?.phoneType ?? 'unknown',
         phoneRawType: elected?.rawType ?? null,
         creditsCharged: world.lusha.creditsCharged,
-        status: phones.length > 0 ? 'revealed' : 'no_phone_found',
-        errorCode: null,
+        // Forma EXACTA de `LushaPhoneFallbackStatusMapping`, que viaja aplanada en la
+        // respuesta `ok: true`.
+        candidateStatus,
+        usageStatus:
+          world.lusha.usageStatus ?? (candidateStatus === 'error' ? 'error' : 'success'),
+        errorCode: world.lusha.errorCode ?? null,
         costSource: world.lusha.creditsCharged === null ? 'unknown' : 'reported',
+        availabilitySource: null,
+        phonesReturned: phones.length,
       };
     },
   },
@@ -908,6 +932,78 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · runtime · los cuatro desenlaces', () 
       'el usage-log se escribió ANTES de persistir, para sobrevivir a este fallo',
     );
     assert.equal(world.settlements.at(-1)?.credits, 5);
+  });
+
+  // ── Los errores HTTP NO son «no hay teléfono» ────────────────
+  //
+  // Estos cuatro casos cazan un defecto REAL que esta suite encontró: el runtime derivaba el
+  // desenlace de `phones.length`, y como el cliente devuelve `ok: true` con `phones: []` para
+  // TODA respuesta HTTP, un 429 o un 5xx quedaban registrados como `no_phone_found`.
+  //
+  // Las dos consecuencias eran caras: el ledger afirmaba que Lusha no tiene teléfono para esa
+  // persona (falso, y §10 lo prohíbe), y el planificador marcaba a Lusha AGOTADA para ese
+  // candidato (§18), retirando el CTA para siempre por una caída pasajera.
+  for (const httpFailure of [
+    { label: '429 rate limited', usageStatus: 'rate_limited' as const, errorCode: 'rate_limited' },
+    {
+      label: '402 sin crédito en el plan',
+      usageStatus: 'quota_exceeded' as const,
+      errorCode: 'insufficient_credits',
+    },
+    { label: '5xx del proveedor', usageStatus: 'error' as const, errorCode: 'provider_error' },
+    {
+      label: '403 sin la entitlement de phones',
+      usageStatus: 'error' as const,
+      errorCode: 'provider_permission_error',
+    },
+  ]) {
+    it(`§10 un ${httpFailure.label} es \`error\`, NUNCA \`no_phone_found\``, async () => {
+      world.lusha = {
+        // El cliente devuelve `ok: true` para todo error HTTP. Ésta es la trampa.
+        ok: true,
+        phones: [],
+        creditsCharged: null,
+        candidateStatus: 'error',
+        usageStatus: httpFailure.usageStatus,
+        errorCode: httpFailure.errorCode,
+      };
+
+      const result = await run();
+
+      assert.equal(result.outcome, 'provider_error');
+      assert.equal(
+        result.lushaOutcome,
+        'error',
+        'registrarlo como `no_phone_found` afirmaría un hecho sobre la PERSONA a partir de un fallo de TRANSPORTE',
+      );
+      assert.notEqual(result.lushaOutcome, 'no_phone_found');
+      assert.equal(result.reason, httpFailure.errorCode, 'el código REAL, no un genérico');
+      // La colección NO se toca: no hay nada que añadir y nada que afirmar.
+      assert.equal(world.appendCalls, 0);
+      // El usage-log conserva la CLASE del fallo, que es la granularidad que el ledger ya
+      // tenía para esta pata.
+      assert.equal(world.usageLogs.at(-1)?.status, httpFailure.usageStatus);
+    });
+  }
+
+  it('§18 el copy y el ledger de un 429 NO afirman que la fuente esté vacía', async () => {
+    // La consecuencia de §18 que hace caro el defecto: el planificador lee que la corrida fue
+    // TERMINAL, así que Lusha queda agotada. Que el desenlace sea `error` y no
+    // `no_phone_found` es lo que deja el rastro honesto de POR QUÉ se agotó — y lo que permite
+    // que la dueña decida si ese caso merece una reautorización manual.
+    world.lusha = {
+      ok: true,
+      phones: [],
+      creditsCharged: null,
+      candidateStatus: 'error',
+      usageStatus: 'rate_limited',
+      errorCode: 'rate_limited',
+    };
+    await run();
+    const patch = world.runPatches.at(-1)?.patch;
+    assert.equal(patch?.lushaOutcome, 'error');
+    assert.equal(patch?.status, 'error');
+    assert.notEqual(patch?.status, 'exhausted', '`exhausted` es el cierre de «la fuente no tiene»');
   });
 
   it('§11 un costo NO reportado se liquida con el TOPE, nunca con 0', async () => {

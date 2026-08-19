@@ -415,29 +415,56 @@ export async function executeSearchMorePhonesForCandidate(args: {
   // Se escribe SIEMPRE que la llamada salió, y ANTES de persistir: vive fuera de la
   // transacción de la 122 precisamente para sobrevivir a un fallo de ésta. Es lo que impide
   // que un cobro real desaparezca del ledger porque la escritura posterior falló.
+  //
+  // ── EL DESENLACE NO SE INFIERE DEL NÚMERO DE TELÉFONOS ───────
+  //
+  // `ok: false` cubre SÓLO el timeout y el error de red. TODA respuesta HTTP —incluidos
+  // 402, 429, 401, 403, 404 y 5xx— vuelve con `ok: true`, `phones: []` y un MAPEO que
+  // declara `candidateStatus: 'error'` con su `errorCode`.
+  //
+  // Así que leer `phones.length === 0` como «Lusha no tiene teléfono» registraría un 429 o
+  // un 5xx como `no_phone_found`. Eso es exactamente la mentira que §10 prohíbe —afirmaría
+  // un hecho sobre la PERSONA a partir de un fallo de TRANSPORTE— y además agotaría a Lusha
+  // para ese candidato (§18), retirando el CTA para siempre por una caída pasajera.
+  //
+  // El veredicto lo da el clasificador (`mapLushaPhoneRevealResponseToInternalStatus`), que
+  // ya distingue las nueve situaciones. Aquí sólo se traduce.
+  const providerFailed = !response.ok || response.candidateStatus === 'error';
   const creditsCharged = response.ok ? response.creditsCharged : null;
   await logSearchMoreUsage({
     candidateId,
     runId,
     actor,
-    ok: response.ok,
+    // `usageStatus` del clasificador cuando la respuesta llegó: distingue `rate_limited` y
+    // `quota_exceeded` de un `error` genérico, que es la granularidad que el ledger ya tiene
+    // para esta pata y que colapsar aquí perdería.
+    usageStatus: response.ok ? response.usageStatus : 'error',
     creditsCharged,
-    errorCode: response.ok ? null : 'provider_error',
+    // El código REAL del proveedor (`rate_limited`, `insufficient_credits`,
+    // `provider_auth_error`…) y no un `provider_error` genérico. Sin esto, diagnosticar por
+    // qué falló una compra exigiría leer los logs de Lusha.
+    errorCode: response.ok
+      ? response.errorCode
+      : 'provider_network_error',
   });
 
-  if (!response.ok) {
-    // `error` y NO `no_phone_found`: un fallo de red o de HTTP no es evidencia de que Lusha
-    // no tenga teléfono para esa persona, y registrarlo como tal mentiría en el ledger.
+  if (providerFailed) {
+    // `error` y NO `no_phone_found`: ni un fallo de red ni un 429 ni un 5xx son evidencia de
+    // que Lusha no tenga teléfono para esa persona, y registrarlo como tal mentiría en el
+    // ledger Y agotaría la fuente por un motivo que no lo justifica.
     return closeRunWith(
       runId,
       resolveSearchMoreOutcome({
         providerOutcome: 'error',
         persistStatus: null,
         newDistinctPhoneCount: 0,
+        // El costo se conserva tal como lo reportó el proveedor. En 402 y 429 el mapeo deja
+        // `costSource: null` porque nada se cobró, pero no se fuerza un 0 aquí: la
+        // liquidación decide, y su regla —desconocido ⇒ el TOPE— es la conservadora.
         costCredits: creditsCharged,
         nowIso: new Date().toISOString(),
       }),
-      'provider_error',
+      response.ok ? (response.errorCode ?? 'provider_error') : 'provider_network_error',
     );
   }
 
@@ -560,7 +587,13 @@ async function logSearchMoreUsage(args: {
   candidateId: string;
   runId: string;
   actor: { internalUserId: string; roleKey: string | null };
-  ok: boolean;
+  /**
+   * Status del clasificador del proveedor, NO un booleano. `rate_limited` y
+   * `quota_exceeded` son clases propias en el ledger de esta pata desde
+   * LUSHA-PHONE-FALLBACK-1S, y colapsarlas en `error` perdería justo la distinción que
+   * permite saber si un fallo fue del plan, del ritmo o del proveedor.
+   */
+  usageStatus: 'success' | 'error' | 'rate_limited' | 'quota_exceeded';
   creditsCharged: number | null;
   errorCode: string | null;
 }): Promise<void> {
@@ -569,10 +602,10 @@ async function logSearchMoreUsage(args: {
       provider_key: 'lusha',
       operation_key: SEARCH_MORE_LUSHA_OPERATION_KEY,
       credits_used: args.creditsCharged ?? undefined,
-      status: args.ok ? 'success' : 'error',
+      status: args.usageStatus,
       error_code: args.errorCode ?? undefined,
       triggered_by: args.actor.internalUserId,
-      results_returned: args.ok ? 1 : 0,
+      results_returned: args.usageStatus === 'success' ? 1 : 0,
       metadata: {
         candidate_id: args.candidateId,
         phone_reveal_waterfall_id: args.runId,
