@@ -1,0 +1,1000 @@
+/**
+ * Tests — el RUNTIME de «Buscar más números»
+ * (Agente 2A · AGENT2A-SEARCH-MORE-PHONES-1)
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * QUÉ SE AFIRMA AQUÍ, Y POR QUÉ NO EN OTRO SITIO
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * Esta es la única suite que puede observar el GASTO. El planificador puro decide si una
+ * compra es autorizable y el arnés de PostgreSQL decide qué queda escrito; lo que sólo se ve
+ * desde aquí es cuántas veces se llamó al proveedor, en qué orden ocurrieron los gates, y qué
+ * pasa cuando uno de ellos falla a mitad de la secuencia.
+ *
+ * Cada caso está escrito desde la consecuencia económica o de privacidad. El contador que más
+ * se mira es `world.lushaCalls`: casi todos los defectos caros de este subsistema se
+ * manifiestan como una llamada de más.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * CONTRATO FIJADO
+ * ═══════════════════════════════════════════════════════════════
+ *
+ *   Elegibilidad   plan no elegible ⇒ 0 corridas, 0 reservas, 0 llamadas. La elegibilidad la
+ *                  decide el planificador REAL (no un mock): el arnés le da hechos y usa su
+ *                  veredicto, así que un cambio en el planificador se ve aquí.
+ *   Presupuesto    reserva rechazada ⇒ 0 llamadas. Sin exposición no hay corrida.
+ *   Idempotencia   dos submits ⇒ 1 corrida, 1 claim, 1 llamada. Se prueba con presupuesto
+ *                  abundante: si sólo pasara con el pozo justo, lo que bloquearía sería el
+ *                  saldo y no la idempotencia.
+ *   Privacidad     supresión / DNC / no evaluable ANTES del claim ⇒ 0 llamadas y 0 créditos.
+ *                  Supresión bajo el LOCK ⇒ el número se retiene y el costo se conserva ENTERO.
+ *   Identidad      SOLO `POST /v3/contacts/enrich` con el id NATIVO. Nunca la búsqueda general.
+ *   Overrides      el cliente no puede imponer proveedor ni techo: la entrada es escalar.
+ *   Desenlaces     los cuatro se distinguen, y `no_new_distinct_phone` NUNCA se colapsa en
+ *                  `no_phone_found`.
+ *   Liquidación    el cierre siempre pasa por `updateWaterfallRun`, que es donde vive la
+ *                  reconciliación. Un fallo de persistencia no borra el costo.
+ *   Agotamiento    una corrida `search_more` terminal impide una segunda compra, con
+ *                  CUALQUIER desenlace — error incluido.
+ *   Alcance        0 aprobaciones de candidato, 0 escrituras en contacto oficial, 0 HubSpot.
+ *
+ * Offline por construcción: sin red, sin Supabase, sin Lusha, 0 créditos. La atomicidad real
+ * vive en las migraciones 104 y 122 y se valida contra PostgreSQL en
+ * `search-more-phones-postgres.test.ts`; aquí el ledger simulado REPRODUCE sus invariantes
+ * (unicidad de corrida activa por candidato, y el claim como UPDATE condicional) para que el
+ * comportamiento del motor sea observable sin base de datos.
+ *
+ * Requiere --experimental-test-module-mocks (mock.module).
+ */
+
+import { describe, it, before, beforeEach, after, mock } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  planSearchMorePhones,
+  SEARCH_MORE_MAX_CREDITS,
+  type SearchMorePlannerInput,
+} from '../search-more-phones-planner';
+
+// ═══════════════════════════════════════════════════════════════
+// Red cortada de raíz
+// ═══════════════════════════════════════════════════════════════
+//
+// Cualquier `fetch` que se escape queda registrado. Un test que pasara porque el módulo llamó
+// de verdad a un proveedor no probaría nada — y en este subsistema costaría dinero.
+
+const originalFetch = globalThis.fetch;
+let httpRequests: string[] = [];
+
+globalThis.fetch = (async (input: unknown): Promise<Response> => {
+  const url =
+    typeof input === 'string' ? input : ((input as { url?: string })?.url ?? String(input));
+  httpRequests.push(url);
+  return new Response('[]', {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}) as typeof fetch;
+
+after(() => {
+  globalThis.fetch = originalFetch;
+});
+
+// ═══════════════════════════════════════════════════════════════
+// El mundo simulado
+// ═══════════════════════════════════════════════════════════════
+
+const CANDIDATE_ID = '11111111-1111-4111-8111-111111111111';
+const LUSHA_CONTACT_ID = 'v1.lusha-native-token';
+const ADMIN = { internalUserId: 'admin-1', roleKey: 'admin' } as const;
+
+/** Estado del proveedor en cada test. */
+interface LushaScript {
+  /** `false` ⇒ la llamada falla técnicamente (red, HTTP, respuesta malformada). */
+  ok: boolean;
+  /** Teléfonos que devuelve. Vacío = contestó y no tiene. */
+  phones: readonly { number: string; phoneType: string; rawType: string | null }[];
+  /** `billing.creditsCharged`. `null` = no reportado, que NUNCA es 0. */
+  creditsCharged: number | null;
+}
+
+interface World {
+  /** Hechos con los que el planificador REAL decide. */
+  facts: {
+    candidateStatus: string | null;
+    source: string | null;
+    sourceContactId: string | null;
+    storedUnsuppressedPhoneCount: number;
+    providersWithStoredProvenance: string[];
+    providersAlreadySearchedForMore: string[];
+    hasActivePhoneRun: boolean;
+  };
+  /** `null` ⇒ la lectura de preflight LANZA (fail-closed de infraestructura). */
+  preflightThrows: boolean;
+  featureEnabled: boolean;
+  actorRoleKey: string | null;
+
+  /** Verdictos de la puerta de privacidad, en orden. El último se repite. */
+  privacyVerdicts: string[];
+  privacyCalls: number;
+
+  /** Pozo de Lusha disponible. */
+  lushaPoolAvailable: number;
+  /** `true` ⇒ la escritura atómica de reserva+corrida no se puede ejecutar. */
+  reserveUnavailable: boolean;
+
+  /** Corridas activas por candidato: reproduce el índice único parcial de la 102. */
+  activeRuns: Map<string, string>;
+  /** Claves de idempotencia ya vistas: reproduce `authorization_key`. */
+  authorizationKeys: Set<string>;
+  /** Patas ya reclamadas: reproduce `UPDATE … WHERE lusha_attempted_at IS NULL`. */
+  claimedRuns: Set<string>;
+  /** Cierres aplicados, en orden. */
+  runPatches: { runId: string; patch: Record<string, unknown> }[];
+  /** Reservas liquidadas por el cierre terminal. */
+  settlements: { runId: string; credits: number | null; truth: string }[];
+
+  lusha: LushaScript;
+  /** Ids nativos con los que se llamó a Lusha. Su LONGITUD es el contador de gasto. */
+  lushaCalls: string[];
+  usageLogs: {
+    providerKey: string;
+    operationKey: string;
+    creditsUsed: number | null;
+    status: string;
+    runId: string | null;
+  }[];
+
+  /** Respuesta del append de la 122. */
+  appendResult:
+    | { status: string; new_distinct_phone_count: number; updated_phone_count: number }
+    | 'throw';
+  appendCalls: number;
+
+  /** Escrituras que esta operación NO puede hacer. Cualquier entrada es un fallo. */
+  forbiddenWrites: string[];
+}
+
+let world: World;
+
+function freshWorld(): World {
+  return {
+    facts: {
+      candidateStatus: 'pending_review',
+      source: 'lusha',
+      sourceContactId: LUSHA_CONTACT_ID,
+      storedUnsuppressedPhoneCount: 1,
+      // La forma canónica: revelado por APOLLO, con identidad nativa de LUSHA en la misma
+      // fila, así que Lusha es la fuente que falta.
+      providersWithStoredProvenance: ['apollo'],
+      providersAlreadySearchedForMore: [],
+      hasActivePhoneRun: false,
+    },
+    preflightThrows: false,
+    featureEnabled: true,
+    actorRoleKey: 'admin',
+    privacyVerdicts: ['clear'],
+    privacyCalls: 0,
+    lushaPoolAvailable: 100,
+    reserveUnavailable: false,
+    activeRuns: new Map(),
+    authorizationKeys: new Set(),
+    claimedRuns: new Set(),
+    runPatches: [],
+    settlements: [],
+    lusha: {
+      ok: true,
+      phones: [{ number: '+573009998877', phoneType: 'mobile', rawType: 'mobile' }],
+      creditsCharged: 5,
+    },
+    lushaCalls: [],
+    usageLogs: [],
+    appendResult: {
+      status: 'persisted',
+      new_distinct_phone_count: 1,
+      updated_phone_count: 0,
+    },
+    appendCalls: 0,
+    forbiddenWrites: [],
+  };
+}
+
+function nextPrivacyVerdict(): string {
+  const index = Math.min(world.privacyCalls, world.privacyVerdicts.length - 1);
+  world.privacyCalls += 1;
+  return world.privacyVerdicts[index];
+}
+
+/**
+ * Construye el plan con el planificador REAL a partir de los hechos del mundo.
+ *
+ * `privacyState` entra como ARGUMENTO y no se lee del mundo porque el veredicto lo produce la
+ * puerta, y la puerta se consulta DOS veces por operación: una en el preflight y otra después
+ * de crear la corrida. Leerlo del mundo haría que las dos consultas vieran el mismo valor y la
+ * suite no podría expresar el caso que más importa — una DSAR registrada EN EL HUECO entre las
+ * dos.
+ */
+function planFromWorld(privacyState: string) {
+  const input: SearchMorePlannerInput = {
+    featureEnabled: world.featureEnabled,
+    actorRoleKey: world.actorRoleKey,
+    candidateId: CANDIDATE_ID,
+    candidateStatus: world.facts.candidateStatus,
+    storedUnsuppressedPhoneCount: world.facts.storedUnsuppressedPhoneCount,
+    source: world.facts.source,
+    sourceContactId: world.facts.sourceContactId,
+    providersWithStoredProvenance: world.facts.providersWithStoredProvenance,
+    providersAlreadySearchedForMore: world.facts.providersAlreadySearchedForMore,
+    hasActivePhoneRun: world.facts.hasActivePhoneRun,
+    // El SERVIDOR nunca pasa `unknown`: la puerta real produce un hecho o `check_unavailable`.
+    privacyState: privacyState as SearchMorePlannerInput['privacyState'],
+  };
+  return planSearchMorePhones(input);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Mocks — la frontera de I/O, y nada más
+// ═══════════════════════════════════════════════════════════════
+
+mock.module('@/lib/feature-flags.server', {
+  namedExports: {
+    isLushaPhoneRevealFallbackEnabled: () => world.featureEnabled,
+    isPhoneRevealWaterfallEnabled: () => false,
+    resolveLushaSearchTimeoutMs: () => 10_000,
+  },
+});
+
+// El PLANIFICADOR es real. Lo que se simula es la LECTURA que le da los hechos.
+mock.module('@/modules/contact-enrichment/search-more-phones-read', {
+  namedExports: {
+    readSearchMorePreflight: async () => {
+      if (world.preflightThrows) throw new Error('preflight read failed');
+      // La lectura REAL consulta la puerta de privacidad, así que el arnés consume un
+      // veredicto aquí. Sin esto, la re-comprobación del runtime recibiría el PRIMER valor y
+      // la suite no podría expresar «autorizado en el preflight, suprimido un instante
+      // después», que es exactamente el hueco que la segunda puerta existe para cerrar.
+      const observedPrivacy = nextPrivacyVerdict();
+      const plan = planFromWorld(observedPrivacy);
+      return {
+        facts: {
+          candidateId: CANDIDATE_ID,
+          candidateStatus: world.facts.candidateStatus,
+          source: world.facts.source,
+          sourceContactId: world.facts.sourceContactId,
+          storedUnsuppressedPhoneCount: world.facts.storedUnsuppressedPhoneCount,
+          providersWithStoredProvenance: world.facts.providersWithStoredProvenance,
+          providersAlreadySearchedForMore: world.facts.providersAlreadySearchedForMore,
+          hasActivePhoneRun: world.facts.hasActivePhoneRun,
+          privacyState: observedPrivacy,
+        },
+        summary: {
+          candidateId: CANDIDATE_ID,
+          storedPhoneCount: world.facts.storedUnsuppressedPhoneCount,
+          hasLushaNativeIdentity: world.facts.source === 'lusha',
+          hasActivePhoneRun: world.facts.hasActivePhoneRun,
+          lushaAlreadySearched:
+            world.facts.providersAlreadySearchedForMore.includes('lusha'),
+          lushaHasStoredProvenance:
+            world.facts.providersWithStoredProvenance.includes('lusha'),
+          plan,
+        },
+      };
+    },
+  },
+});
+
+mock.module('@/modules/contact-enrichment/phone-reveal-privacy-gate', {
+  namedExports: {
+    checkPhoneRevealPrivacyGate: async () => nextPrivacyVerdict(),
+  },
+});
+
+mock.module('@/modules/contact-enrichment/phone-reveal-credit-budget-deps', {
+  namedExports: {
+    readPhoneRevealCreditPools: async (providerKeys: readonly string[]) => {
+      // Que se pida SÓLO el pozo de Lusha es parte del contrato: pedir el de Apollo lo haría
+      // capaz de bloquear una operación que Apollo no ejecuta.
+      assert.deepEqual(
+        [...providerKeys],
+        ['lusha'],
+        'search_more sólo puede leer el pozo de Lusha',
+      );
+      // Forma EXACTA de `PhoneRevealCreditPool[]`: una LISTA de `{ providerKey, state }`, y
+      // la disponibilidad se DERIVA de `limitCredits - consumedCredits`. Un mock con un
+      // `available` plano haría que el core cayera en su rama fail-closed y el arnés mediría
+      // un bloqueo de presupuesto en vez del camino que cada test afirma.
+      const LIMIT = 1000;
+      return [
+        {
+          providerKey: 'lusha',
+          state: {
+            kind: 'configured',
+            limitCredits: LIMIT,
+            consumedCredits: LIMIT - world.lushaPoolAvailable,
+            scopeType: 'global',
+            scopeId: null,
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-31',
+          },
+        },
+      ];
+    },
+  },
+});
+
+mock.module('@/modules/contact-enrichment/phone-reveal-credit-reservation-deps', {
+  namedExports: {
+    reservePhoneRevealCreditsAndCreateRun: async (args: {
+      reservation: {
+        candidateId: string;
+        authorizationKey: string;
+        reservationGroupId: string;
+        legs: readonly { providerKey: string; credits: number }[];
+      };
+      run: Record<string, unknown>;
+    }) => {
+      const { reservation, run } = args;
+
+      if (world.reserveUnavailable) {
+        return { status: 'unavailable', detail: 'reserve_and_create_rpc_error' };
+      }
+
+      // Golpe idempotente: la MISMA clave devuelve la corrida que ya existía.
+      if (world.authorizationKeys.has(reservation.authorizationKey)) {
+        return {
+          status: 'already_created',
+          runId: world.activeRuns.get(reservation.candidateId) ?? 'run-1',
+          reservationGroupId: reservation.reservationGroupId,
+        };
+      }
+
+      // El TECHO que se reserva es el que se va a poder cobrar. Se afirma aquí y no sólo en
+      // el resultado porque es lo que ocupa el pozo.
+      assert.deepEqual(
+        reservation.legs.map((leg) => leg.providerKey),
+        ['lusha'],
+        'una corrida search_more reserva UNA pata, y es de Lusha',
+      );
+      assert.equal(reservation.legs[0].credits, SEARCH_MORE_MAX_CREDITS);
+      assert.equal(run.run_mode, 'search_more');
+      assert.equal(
+        run.status,
+        'lusha_pending',
+        'nacer en `authorized` dejaría la pata inalcanzable para el claim',
+      );
+      assert.equal(
+        run.apollo_attempted_at,
+        null,
+        'Apollo no corre bajo esta autorización: su timestamp no se inventa',
+      );
+
+      if (reservation.legs[0].credits > world.lushaPoolAvailable) {
+        return {
+          status: 'insufficient_credits',
+          legs: [
+            {
+              providerKey: 'lusha',
+              requiredCredits: reservation.legs[0].credits,
+              availableCredits: world.lushaPoolAvailable,
+            },
+          ],
+        };
+      }
+
+      // ÍNDICE ÚNICO PARCIAL de la 102, reproducido: una corrida activa por candidato.
+      if (world.activeRuns.has(reservation.candidateId)) {
+        return { status: 'already_reserved' };
+      }
+
+      const runId = `run-${world.activeRuns.size + 1}`;
+      world.activeRuns.set(reservation.candidateId, runId);
+      world.authorizationKeys.add(reservation.authorizationKey);
+      return {
+        status: 'created',
+        runId,
+        reservationGroupId: reservation.reservationGroupId,
+        reservations: [
+          {
+            id: `res-${runId}`,
+            providerKey: 'lusha',
+            creditsReserved: reservation.legs[0].credits,
+          },
+        ],
+      };
+    },
+  },
+});
+
+mock.module('@/modules/contact-enrichment/phone-reveal-waterfall-deps', {
+  namedExports: {
+    // CLAIM ATÓMICO reproducido: el segundo intento sobre la misma corrida devuelve false.
+    claimLushaAttempt: async (runId: string) => {
+      if (world.claimedRuns.has(runId)) return false;
+      world.claimedRuns.add(runId);
+      return true;
+    },
+    updateWaterfallRun: async (runId: string, patch: Record<string, unknown>) => {
+      world.runPatches.push({ runId, patch });
+      // La LIQUIDACIÓN vive enganchada a este paso en el código real. Se reproduce para que
+      // «se liquidó» sea observable: costo reportado ⇒ esa cifra; desconocido ⇒ el TOPE,
+      // nunca 0 y nunca release.
+      const TERMINAL = [
+        'completed_apollo',
+        'completed_lusha',
+        'exhausted',
+        'error',
+        'aborted',
+      ];
+      if (typeof patch.status === 'string' && TERMINAL.includes(patch.status)) {
+        const attempted = world.claimedRuns.has(runId);
+        const credits =
+          typeof patch.lushaCostCredits === 'number' ? patch.lushaCostCredits : null;
+        world.settlements.push({
+          runId,
+          credits: attempted ? (credits ?? SEARCH_MORE_MAX_CREDITS) : null,
+          truth: !attempted
+            ? 'released'
+            : credits === null
+              ? 'assumed_cap'
+              : 'reported',
+        });
+        world.activeRuns.delete(CANDIDATE_ID);
+      }
+    },
+  },
+});
+
+mock.module('@/server/services/lusha-connection', {
+  namedExports: {
+    getLushaApiKey: async () => 'test-key',
+  },
+});
+
+mock.module('@/server/integrations/lusha-phone-fallback-client', {
+  namedExports: {
+    // ÚNICA vía sancionada: enriquecimiento POR ID. Este mock no expone ninguna función de
+    // búsqueda general, así que si el runtime la buscara, fallaría al importar.
+    enrichLushaContactPhonesForFallback: async ({
+      contactId,
+      allowPhoneReveal,
+    }: {
+      contactId: string;
+      allowPhoneReveal: boolean;
+    }) => {
+      assert.equal(allowPhoneReveal, true, 'el reveal se pide explícitamente');
+      world.lushaCalls.push(contactId);
+      if (!world.lusha.ok) {
+        return { ok: false, errorMessage: 'lusha upstream 500' };
+      }
+      const phones = world.lusha.phones;
+      const elected = phones.length > 0 ? phones[0] : null;
+      return {
+        ok: true,
+        httpStatus: 200,
+        phones,
+        phoneNumber: elected?.number ?? null,
+        phoneType: elected?.phoneType ?? 'unknown',
+        phoneRawType: elected?.rawType ?? null,
+        creditsCharged: world.lusha.creditsCharged,
+        status: phones.length > 0 ? 'revealed' : 'no_phone_found',
+        errorCode: null,
+        costSource: world.lusha.creditsCharged === null ? 'unknown' : 'reported',
+      };
+    },
+  },
+});
+
+mock.module('@/modules/usage-tracking/logging', {
+  namedExports: {
+    logProviderUsage: async (entry: Record<string, unknown>) => {
+      const metadata = (entry.metadata as Record<string, unknown> | undefined) ?? {};
+      world.usageLogs.push({
+        providerKey: String(entry.provider_key),
+        operationKey: String(entry.operation_key),
+        creditsUsed: typeof entry.credits_used === 'number' ? entry.credits_used : null,
+        status: String(entry.status),
+        runId:
+          typeof metadata.phone_reveal_waterfall_id === 'string'
+            ? metadata.phone_reveal_waterfall_id
+            : null,
+      });
+    },
+  },
+});
+
+mock.module('@/modules/contact-enrichment/candidate-search-more-phone-append-persistence', {
+  namedExports: {
+    appendCandidateSearchMorePhones: async (request: {
+      candidateId: string;
+      phones: readonly unknown[];
+    }) => {
+      world.appendCalls += 1;
+      // TODOS los teléfonos de la respuesta, no sólo el primero. Es la propiedad que 4O-D
+      // compró y que este camino no puede perder.
+      assert.equal(
+        request.phones.length,
+        world.lusha.phones.length,
+        'la colección tiene que llevar TODOS los números que Lusha devolvió',
+      );
+      if (world.appendResult === 'throw') {
+        throw new Error('append rpc failed');
+      }
+      return {
+        ...world.appendResult,
+        inserted_phone_count: world.appendResult.new_distinct_phone_count,
+        inserted_source_count: 1,
+        suppressed_skipped_count: 0,
+        primary_dedupe_key: 'abc',
+        primary_persisted: true,
+        candidate_scalar_updated: false,
+      };
+    },
+  },
+});
+
+// Superficies que esta operación NO puede tocar. Se cablean para que un import accidental
+// quede REGISTRADO en vez de pasar desapercibido.
+mock.module('@/modules/contact-enrichment/candidate-lusha-phone-collection-persistence', {
+  namedExports: {
+    persistCandidateLushaPhoneCollection: async () => {
+      world.forbiddenWrites.push('terminal_reveal_writer');
+      return { status: 'persisted', candidate_terminalized: true };
+    },
+  },
+});
+
+// El módulo se importa DENTRO de `before` y no en el tope del fichero: tsx compila `.ts` a
+// CJS, así que un `await` de nivel superior no compila. El `import()` diferido además
+// garantiza que los `mock.module` de arriba ya estén registrados cuando el runtime resuelva
+// sus dependencias.
+let executeSearchMorePhonesForCandidate: typeof import('../search-more-phones-runtime').executeSearchMorePhonesForCandidate;
+let SEARCH_MORE_LUSHA_OPERATION_KEY: string;
+
+before(async () => {
+  const mod = await import('../search-more-phones-runtime');
+  executeSearchMorePhonesForCandidate = mod.executeSearchMorePhonesForCandidate;
+  SEARCH_MORE_LUSHA_OPERATION_KEY = mod.SEARCH_MORE_LUSHA_OPERATION_KEY;
+});
+
+async function run() {
+  return executeSearchMorePhonesForCandidate({
+    candidateId: CANDIDATE_ID,
+    actor: { ...ADMIN },
+  });
+}
+
+beforeEach(() => {
+  world = freshWorld();
+  httpRequests = [];
+});
+
+// ═══════════════════════════════════════════════════════════════
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1 · runtime · el camino que SÍ paga', () => {
+  it('§10 CASE C — un número nuevo: `revealed`, 1 adicional, y se liquida con el costo REAL', async () => {
+    const result = await run();
+
+    assert.equal(result.outcome, 'new_phones_found');
+    assert.equal(result.newDistinctPhoneCount, 1);
+    assert.equal(result.lushaOutcome, 'revealed');
+    assert.equal(result.maxCreditsAuthorized, SEARCH_MORE_MAX_CREDITS);
+    assert.equal(world.lushaCalls.length, 1, 'UNA llamada, sin retry');
+    assert.equal(world.appendCalls, 1);
+
+    const settlement = world.settlements.at(-1);
+    assert.equal(settlement?.credits, 5);
+    assert.equal(settlement?.truth, 'reported');
+  });
+
+  it('el techo autorizado es 5 — nunca los 8 de Apollo ni los 13 del waterfall', async () => {
+    const result = await run();
+    assert.equal(result.maxCreditsAuthorized, 5);
+    assert.notEqual(result.maxCreditsAuthorized, 8);
+    assert.notEqual(result.maxCreditsAuthorized, 13);
+  });
+
+  it('§17 el usage-log lleva `operation_key` PROPIO y el id de la corrida REAL', async () => {
+    await run();
+    const log = world.usageLogs.at(-1);
+    assert.equal(log?.providerKey, 'lusha');
+    assert.equal(
+      log?.operationKey,
+      SEARCH_MORE_LUSHA_OPERATION_KEY,
+      'mezclarlo con el del reveal sumaría créditos de dos operaciones distintas',
+    );
+    assert.notEqual(log?.operationKey, 'person_phone_reveal');
+    // Comparte identidad de corrida con la reserva, así que `computeEffectiveConsumption`
+    // deduplica: una llamada de 5 créditos consume 5, nunca 10.
+    assert.equal(log?.runId, world.runPatches.at(-1)?.runId);
+  });
+
+  it('§7 la llamada usa el id NATIVO de Lusha y NADA más', async () => {
+    await run();
+    assert.deepEqual(world.lushaCalls, [LUSHA_CONTACT_ID]);
+  });
+
+  it('§7/§17 NUNCA se toca la búsqueda general de Lusha ni ningún host de proveedor', async () => {
+    await run();
+    // El cliente está mockeado, así que ni un `fetch` debería haber salido. Si aparece uno,
+    // significa que alguna ruta se saltó la frontera de I/O sancionada.
+    assert.deepEqual(
+      httpRequests.filter((url) => /lusha\.com|apollo\.io|hubapi\.com/.test(url)),
+      [],
+    );
+  });
+});
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1 · runtime · nada se gasta sin autorización', () => {
+  it('§20.12 reserva RECHAZADA por saldo ⇒ 0 llamadas a Lusha', async () => {
+    world.lushaPoolAvailable = 4;
+    const result = await run();
+
+    assert.equal(result.outcome, 'not_started');
+    assert.equal(result.reason, 'insufficient_credits');
+    assert.equal(world.lushaCalls.length, 0, 'sin exposición reservada NO se llama');
+    assert.equal(world.appendCalls, 0);
+    assert.equal(result.maxCreditsAuthorized, null);
+  });
+
+  it('§20.12 la escritura atómica NO disponible ⇒ 0 llamadas, y NO se culpa al saldo', async () => {
+    world.reserveUnavailable = true;
+    const result = await run();
+
+    assert.equal(result.outcome, 'not_started');
+    assert.equal(
+      result.reason,
+      'run_creation_unavailable',
+      'el saldo se verificó bien: decir `insufficient_credits` describiría un problema que no tuvo',
+    );
+    assert.equal(world.lushaCalls.length, 0);
+  });
+
+  it('una lectura de preflight que LANZA es fail-closed, y no se reporta como «no elegible»', async () => {
+    world.preflightThrows = true;
+    const result = await run();
+
+    assert.equal(result.outcome, 'not_started');
+    assert.equal(
+      result.reason,
+      'preflight_unavailable',
+      'el candidato puede aplicar perfectamente: lo que falló fue mirar',
+    );
+    assert.equal(world.lushaCalls.length, 0);
+  });
+
+  it('§20.7 un rol NO admin ⇒ 0 corridas y 0 llamadas, aunque invoque el runtime directo', async () => {
+    world.actorRoleKey = 'commercial_manager';
+    const result = await run();
+
+    assert.equal(result.outcome, 'not_started');
+    assert.equal(result.reason, 'role_not_allowed');
+    assert.equal(world.activeRuns.size, 0);
+    assert.equal(world.lushaCalls.length, 0);
+  });
+
+  it('§20.1 sin teléfono guardado ⇒ 0 llamadas (ahí toca «Revelar teléfono»)', async () => {
+    world.facts.storedUnsuppressedPhoneCount = 0;
+    const result = await run();
+    assert.equal(result.reason, 'no_stored_phone');
+    assert.equal(world.lushaCalls.length, 0);
+  });
+
+  it('§20.3 sin identidad nativa de Lusha ⇒ 0 llamadas y NUNCA una búsqueda por nombre', async () => {
+    world.facts.source = 'apollo';
+    world.facts.sourceContactId = 'a1b2c3d4e5f60718293a4b5c';
+    const result = await run();
+
+    assert.equal(result.reason, 'missing_person_identity');
+    assert.equal(world.lushaCalls.length, 0);
+  });
+
+  it('§20.4 Lusha ya tiene procedencia almacenada ⇒ 0 llamadas (su respuesta ya está)', async () => {
+    world.facts.providersWithStoredProvenance = ['apollo', 'lusha'];
+    const result = await run();
+
+    assert.equal(result.reason, 'no_additional_provider');
+    assert.equal(world.lushaCalls.length, 0);
+  });
+
+  it('§20.6 con una corrida de teléfono ACTIVA ⇒ 0 llamadas', async () => {
+    world.facts.hasActivePhoneRun = true;
+    const result = await run();
+
+    assert.equal(result.reason, 'active_run_exists');
+    assert.equal(world.lushaCalls.length, 0);
+  });
+
+  it('§20.5/§18 una corrida `search_more` TERMINAL impide una segunda compra', async () => {
+    world.facts.providersAlreadySearchedForMore = ['lusha'];
+    const result = await run();
+
+    assert.equal(result.reason, 'providers_exhausted');
+    assert.equal(world.lushaCalls.length, 0);
+  });
+
+  it('§18 el agotamiento NO depende del desenlace: un `error` previo tampoco reabre', async () => {
+    // El planificador lee que la corrida fue TERMINAL, no cómo terminó. Los cuatro
+    // desenlaces —`revealed`, `no_phone_found`, `no_new_distinct_phone`, `error`— producen la
+    // misma entrada, así que un fallo del proveedor no compra un reintento pagado.
+    world.facts.providersAlreadySearchedForMore = ['lusha'];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await run();
+      assert.equal(result.outcome, 'not_started');
+      assert.equal(result.reason, 'providers_exhausted');
+    }
+    assert.equal(world.lushaCalls.length, 0, 'ni una llamada en tres intentos');
+  });
+});
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1 · runtime · idempotencia', () => {
+  it('§20.13/§20.14 DOS submits ⇒ 1 corrida, 1 claim y 1 SOLA llamada a Lusha', async () => {
+    // Pozo ABUNDANTE a propósito: si esto sólo pasara con el pozo justo, lo que estaría
+    // bloqueando la segunda compra sería el saldo y no la idempotencia — y el defecto
+    // seguiría vivo en cuanto hubiera créditos.
+    world.lushaPoolAvailable = 1000;
+
+    const [first, second] = await Promise.all([run(), run()]);
+
+    assert.equal(world.lushaCalls.length, 1, 'UNA sola llamada pagada');
+    assert.equal(world.appendCalls <= 1, true, 'como máximo una escritura');
+
+    // Uno gana; el otro es rechazado ANTES de pagar por el índice único de corrida activa.
+    const outcomes = [first.outcome, second.outcome].sort();
+    assert.ok(
+      outcomes.includes('new_phones_found'),
+      `uno de los dos tenía que completarse: ${JSON.stringify(outcomes)}`,
+    );
+    const loser = [first, second].find((r) => r.outcome !== 'new_phones_found');
+    assert.ok(
+      loser?.reason === 'active_run_exists' || loser?.outcome === 'already_attempted',
+      `el perdedor tiene que salir por el índice único o por el claim: ${JSON.stringify(loser)}`,
+    );
+  });
+
+  it('el CLAIM perdido no cierra la corrida ajena ni vuelve a llamar', async () => {
+    // La corrida existe y su pata ya está reclamada por otro disparador.
+    world.activeRuns.clear();
+    world.claimedRuns.add('run-1');
+
+    const result = await run();
+
+    assert.equal(result.outcome, 'already_attempted');
+    assert.equal(result.reason, 'lusha_claim_lost');
+    assert.equal(world.lushaCalls.length, 0);
+    assert.equal(
+      world.runPatches.length,
+      0,
+      'cerrar la corrida ajena le robaría el cierre al que sí está pagando',
+    );
+  });
+});
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1 · runtime · privacidad', () => {
+  it('§20.15 supresión confirmada ANTES del claim ⇒ 0 llamadas y 0 créditos', async () => {
+    world.privacyVerdicts = ['clear', 'blocked_suppressed'];
+    const result = await run();
+
+    assert.equal(result.outcome, 'privacy_blocked');
+    assert.equal(result.lushaCalled, false);
+    assert.equal(world.lushaCalls.length, 0);
+    assert.equal(result.lushaOutcome, null, 'la pata nunca se intentó');
+
+    const patch = world.runPatches.at(-1)?.patch;
+    assert.equal(patch?.status, 'aborted');
+    assert.equal(patch?.errorCode, 'blocked_suppressed');
+    // La pata no se intentó, así que la exposición se LIBERA entera.
+    assert.equal(world.settlements.at(-1)?.truth, 'released');
+  });
+
+  it('§20.16 privacidad NO EVALUABLE bloquea igual, y se registra DISTINTO', async () => {
+    world.privacyVerdicts = ['clear', 'check_unavailable'];
+    const result = await run();
+
+    assert.equal(result.outcome, 'privacy_blocked');
+    assert.equal(world.lushaCalls.length, 0, 'fail-closed: el efecto es el mismo');
+    assert.equal(
+      world.runPatches.at(-1)?.patch.errorCode,
+      'suppression_check_unavailable',
+      'la afirmación NO es la misma: SellUp no declara un veredicto que nunca obtuvo',
+    );
+  });
+
+  it('`do_not_contact` en vuelo bloquea con su propio código', async () => {
+    world.privacyVerdicts = ['clear', 'do_not_contact'];
+    await run();
+    assert.equal(world.runPatches.at(-1)?.patch.errorCode, 'do_not_contact');
+    assert.equal(world.lushaCalls.length, 0);
+  });
+
+  it('la privacidad se resuelve DOS veces: en el preflight y otra vez tras crear la corrida', async () => {
+    await run();
+    assert.equal(
+      world.privacyCalls,
+      2,
+      'entre el preflight y la llamada pueden pasar minutos: el veredicto NO se hereda',
+    );
+  });
+
+  it('§11 supresión bajo el LOCK: se retiene el NÚMERO y el costo se conserva ENTERO', async () => {
+    world.appendResult = {
+      status: 'suppressed',
+      new_distinct_phone_count: 0,
+      updated_phone_count: 0,
+    };
+    const result = await run();
+
+    assert.equal(result.outcome, 'privacy_blocked');
+    assert.equal(result.newDistinctPhoneCount, 0);
+    assert.equal(world.lushaCalls.length, 1, 'Lusha YA se llamó y YA cobró');
+
+    // El gasto se registra ENTERO: fingir 0 aquí perdería un cobro real.
+    const patch = world.runPatches.at(-1)?.patch;
+    assert.equal(patch?.lushaCostCredits, 5);
+    assert.equal(patch?.lushaCostSource, 'reported');
+    assert.equal(world.settlements.at(-1)?.credits, 5);
+    assert.equal(
+      world.usageLogs.at(-1)?.creditsUsed,
+      5,
+      'el usage-log vive fuera de la transacción para sobrevivir a este bloqueo',
+    );
+  });
+});
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1 · runtime · los cuatro desenlaces', () => {
+  it('§10 CASE A — `phones: []` ⇒ `no_phone_found`, y NO se llama al append', async () => {
+    world.lusha.phones = [];
+    const result = await run();
+
+    assert.equal(result.outcome, 'no_new_phones');
+    assert.equal(result.lushaOutcome, 'no_phone_found');
+    assert.equal(
+      world.appendCalls,
+      0,
+      'no hay nada que añadir: fabricar un `no_incoming_phones` inventaría un hecho',
+    );
+    // Contestar «no tengo» también se cobra.
+    assert.equal(world.runPatches.at(-1)?.patch.lushaCostCredits, 5);
+  });
+
+  it('§10 CASE B — sólo duplicados ⇒ `no_new_distinct_phone`, NUNCA `no_phone_found`', async () => {
+    world.appendResult = {
+      status: 'persisted',
+      new_distinct_phone_count: 0,
+      updated_phone_count: 1,
+    };
+    const result = await run();
+
+    assert.equal(result.outcome, 'no_new_phones');
+    assert.equal(
+      result.lushaOutcome,
+      'no_new_distinct_phone',
+      'colapsarlo en `no_phone_found` afirmaría que Lusha no tiene teléfono, y lo tiene',
+    );
+    assert.notEqual(result.lushaOutcome, 'no_phone_found');
+    assert.notEqual(result.lushaOutcome, 'revealed');
+    assert.equal(result.newDistinctPhoneCount, 0);
+    // Y se cobró igual.
+    assert.equal(world.runPatches.at(-1)?.patch.lushaCostCredits, 5);
+    assert.equal(world.settlements.at(-1)?.credits, 5);
+  });
+
+  it('§10 CASE D — fallo del proveedor ⇒ `error`, y NUNCA se degrada a not-found', async () => {
+    world.lusha.ok = false;
+    const result = await run();
+
+    assert.equal(result.outcome, 'provider_error');
+    assert.equal(result.lushaOutcome, 'error');
+    assert.notEqual(
+      result.lushaOutcome,
+      'no_phone_found',
+      'un fallo de red no es evidencia de que Lusha no tenga teléfono',
+    );
+    assert.equal(world.appendCalls, 0);
+    assert.equal(world.usageLogs.at(-1)?.status, 'error');
+  });
+
+  it('§11 un append que FALLA no borra el costo: se cierra como error y se liquida', async () => {
+    world.appendResult = 'throw';
+    const result = await run();
+
+    assert.equal(result.outcome, 'provider_error');
+    assert.equal(world.lushaCalls.length, 1, 'Lusha ya cobró');
+    assert.equal(
+      world.usageLogs.at(-1)?.creditsUsed,
+      5,
+      'el usage-log se escribió ANTES de persistir, para sobrevivir a este fallo',
+    );
+    assert.equal(world.settlements.at(-1)?.credits, 5);
+  });
+
+  it('§11 un costo NO reportado se liquida con el TOPE, nunca con 0', async () => {
+    world.lusha.creditsCharged = null;
+    const result = await run();
+
+    assert.equal(result.outcome, 'new_phones_found');
+    const patch = world.runPatches.at(-1)?.patch;
+    assert.equal(patch?.lushaCostCredits, null, 'no reportado NO es 0');
+    assert.equal(patch?.lushaCostSource, 'unknown');
+    assert.equal(world.settlements.at(-1)?.credits, SEARCH_MORE_MAX_CREDITS);
+    assert.equal(world.settlements.at(-1)?.truth, 'assumed_cap');
+  });
+
+  it('la corrida SIEMPRE se cierra: una viva bloquearía el botón para siempre', async () => {
+    for (const script of [
+      () => {
+        world.lusha.phones = [];
+      },
+      () => {
+        world.lusha.ok = false;
+      },
+      () => {
+        world.appendResult = 'throw';
+      },
+      () => {
+        world.appendResult = {
+          status: 'persisted',
+          new_distinct_phone_count: 0,
+          updated_phone_count: 1,
+        };
+      },
+    ]) {
+      world = freshWorld();
+      script();
+      await run();
+      const TERMINAL = ['completed_lusha', 'exhausted', 'error', 'aborted'];
+      assert.ok(
+        TERMINAL.includes(String(world.runPatches.at(-1)?.patch.status)),
+        `la corrida quedó en ${world.runPatches.at(-1)?.patch.status}`,
+      );
+    }
+  });
+});
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1 · runtime · el reveal INICIAL no se toca', () => {
+  it('§9/§20.30 ningún patch de la corrida reescribe una columna del reveal del candidato', async () => {
+    await run();
+
+    // El patch describe la CORRIDA, no el candidato. Si aquí apareciera una clave del reveal,
+    // el cierre estaría re-atribuyendo el teléfono de Apollo a Lusha.
+    const FORBIDDEN = [
+      'phoneRevealProvider',
+      'phoneRevealRequestedAt',
+      'phoneRevealCompletedAt',
+      'phoneRevealCostCredits',
+      'phoneRevealCostSource',
+      'phoneRevealStatus',
+      'phoneRevealAttemptCount',
+    ];
+    for (const { patch } of world.runPatches) {
+      for (const key of FORBIDDEN) {
+        assert.equal(
+          key in patch,
+          false,
+          `el patch de la corrida NO puede llevar ${key}: describe el reveal INICIAL`,
+        );
+      }
+    }
+  });
+
+  it('§9 el writer TERMINAL del reveal (111/120) NUNCA se invoca por esta ruta', async () => {
+    await run();
+    assert.deepEqual(
+      world.forbiddenWrites,
+      [],
+      'usar el writer terminal pondría provider=lusha sobre un número de Apollo y borraría su costo',
+    );
+  });
+
+  it('§20.37/38/39 0 aprobaciones, 0 escrituras en contacto oficial y 0 HubSpot', async () => {
+    await run();
+
+    // Ninguna de esas superficies se importa en el runtime, así que la comprobación fuerte es
+    // estática (ver la suite de contrato de imports). Aquí se afirma la consecuencia
+    // observable: ni un `fetch` a HubSpot y ninguna escritura prohibida registrada.
+    assert.deepEqual(
+      httpRequests.filter((url) => url.includes('hubapi.com')),
+      [],
+    );
+    assert.deepEqual(world.forbiddenWrites, []);
+  });
+});

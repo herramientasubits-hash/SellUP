@@ -1926,3 +1926,40 @@ jobs:
         run: npm run test:agent2a:search-more-phones:postgres
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # La mitad que GASTA. Esta suite es la única que puede observar el gasto: el planificador
+      # decide si la compra es autorizable y el arnés de PostgreSQL decide qué queda escrito,
+      # pero cuántas veces se llamó al proveedor —y qué pasa cuando un gate falla a mitad de la
+      # secuencia— sólo se ve desde aquí.
+      #
+      # Lo que fija, en orden de lo que costaría perderlo:
+      #   * reserva rechazada / privacidad bloqueada / plan no elegible ⇒ 0 llamadas;
+      #   * DOS submits concurrentes ⇒ 1 corrida, 1 claim y 1 SOLA llamada pagada, probado con
+      #     el pozo ABUNDANTE (con el pozo justo lo que bloquearía sería el saldo, no la
+      #     idempotencia, y el defecto seguiría vivo en cuanto hubiera créditos);
+      #   * supresión bajo el LOCK ⇒ se retiene el NÚMERO y el costo se registra ENTERO;
+      #   * `no_new_distinct_phone` nunca se colapsa en `no_phone_found`, y un fallo del
+      #     proveedor nunca se degrada a «no encontramos»;
+      #   * un costo NO reportado se liquida con el TOPE, jamás con 0;
+      #   * ningún patch de la corrida lleva una columna del reveal INICIAL, y el writer
+      #     terminal de la 111/120 no se invoca por esta ruta.
+      #
+      # El planificador que decide la elegibilidad es el REAL, no un mock: el arnés le da
+      # hechos y usa su veredicto, así que aflojar el planificador rompe también esta suite.
+      #
+      # Offline: sin red, sin Supabase, sin Lusha, 0 créditos.
+      - name: Run A2A search-more-phones runtime tests
+        run: npm run test:agent2a:search-more-phones-runtime
+
+      # La UI, renderizada de verdad (jsdom) y sobre el drawer COMPLETO — no un componente
+      # aislado. Lo que hay que demostrar es que el CTA aparece, y SÓLO aparece, junto al CTA
+      # GRATUITO con el que un operador podría confundirlo.
+      #
+      # La propiedad más caliente del hito: EL PRIMER CLIC NO GASTA. El CTA abre una
+      # confirmación; sólo confirmar invoca la acción que paga, y se afirma con el contador de
+      # esa acción. Además: la confirmación NOMBRA a Lusha y muestra el techo de 5 créditos; un
+      # doble clic sincrónico produce UNA invocación; el teléfono existente sigue visible
+      # mientras busca; «Ver más números» aparece SIN F5 cuando la colección crece; y el
+      # refresco posterior no gasta.
+      - name: Run A2A search-more-phones UI tests
+        run: npm run test:agent2a:search-more-phones-ui
