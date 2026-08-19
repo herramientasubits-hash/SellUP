@@ -52,7 +52,7 @@
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { isLushaPhoneRevealFallbackEnabled } from '@/lib/feature-flags.server';
+import { isSearchMorePhonesEnabled } from '@/lib/feature-flags.server';
 import { readSearchMorePreflight } from './search-more-phones-read';
 import type { SearchMorePreflightSummary } from './search-more-phones-read';
 import { executeSearchMorePhonesForCandidate } from './search-more-phones-runtime';
@@ -166,12 +166,15 @@ export async function getSearchMorePhonesPreflightAction(input: {
   try {
     const preflight = await readSearchMorePreflight({
       candidateId,
-      // El permiso de PRODUCTO es el del fallback de Lusha —el kill switch real de cualquier
-      // reveal de Lusha— y NO `ENABLE_PHONE_REVEAL_WATERFALL`, que gobierna la UX del
-      // waterfall Apollo→Lusha. Misma distinción que fijó 4O-F-R2. Se resuelve aquí, en el
+      // El permiso de PRODUCTO es el flag DEDICADO de este hito (AGENT2A-SEARCH-MORE-PHONES-1H):
+      // `ENABLE_SEARCH_MORE_PHONES`, y NINGÚN otro. Hasta 1G se reutilizaba
+      // `isLushaPhoneRevealFallbackEnabled()` con el argumento de que es "el kill switch real
+      // de cualquier reveal de Lusha", pero eso acoplaba dos rollouts que el producto quiere
+      // independientes: encender este flag para QA encendía también el fallback manual de
+      // Lusha, el `legacy_lusha_only` y la pata Lusha del waterfall. Se resuelve aquí, en el
       // mismo sitio que lo resolverá la compra, para que el botón y el servidor no puedan
       // discrepar sobre si la función existe.
-      featureEnabled: isLushaPhoneRevealFallbackEnabled(),
+      featureEnabled: isSearchMorePhonesEnabled(),
       actorRoleKey: actor.roleKey,
     });
     return { status: 'ok', summary: preflight.summary };

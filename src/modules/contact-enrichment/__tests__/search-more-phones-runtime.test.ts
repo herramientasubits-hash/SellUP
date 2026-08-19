@@ -279,9 +279,14 @@ function planFromWorld(privacyState: string) {
 // Mocks — la frontera de I/O, y nada más
 // ═══════════════════════════════════════════════════════════════
 
+// AGENT2A-SEARCH-MORE-PHONES-1H: el runtime lee EXCLUSIVAMENTE `isSearchMorePhonesEnabled`
+// para decidir si «Buscar más números» existe. `isLushaPhoneRevealFallbackEnabled` YA NO
+// se importa desde `search-more-phones-runtime.ts` — si volviera a importarse, este mock NO
+// lo proveería y la suite fallaría al cargar el módulo, así que un acoplamiento accidental
+// hacia atrás rompe la suite en vez de pasar en silencio.
 mock.module('@/lib/feature-flags.server', {
   namedExports: {
-    isLushaPhoneRevealFallbackEnabled: () => world.featureEnabled,
+    isSearchMorePhonesEnabled: () => world.featureEnabled,
     isPhoneRevealWaterfallEnabled: () => false,
     resolveLushaSearchTimeoutMs: () => 10_000,
   },

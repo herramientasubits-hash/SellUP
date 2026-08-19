@@ -986,12 +986,24 @@ describe('4O-H2 — alcance', () => {
   // La corrección no borra la lista ni la abre con una excepción de regex: la PARTE. El
   // conjunto de archivos que nombran el hito sigue CERRADO —su unión tiene que coincidir
   // exactamente—, pero ahora cada mitad carga su propia obligación:
-  //   * `MILESTONE_SURFACE`: los archivos del hito. Sin cambios respecto a 1E.
+  //   * `MILESTONE_SURFACE`: los archivos del hito.
   //   * `MILESTONE_PROSE_ONLY`: archivos que sólo lo mencionan en prosa, y que tienen que
   //     DEMOSTRARLO — su código, ya sin comentarios, no puede nombrarlo ni importarlo ni
   //     invocar ninguno de sus puntos de entrada.
   // Un archivo nuevo sigue teniendo que entrar aquí a mano, y ahora además tiene que elegir
   // mitad, que es exactamente la pregunta que esta guarda existe para forzar.
+  //
+  // AGENT2A-SEARCH-MORE-PHONES-1H — dos archivos MIGRAN de mitad; la partición se conserva.
+  //
+  // El endpoint de diagnóstico (`route.ts`) y el módulo de flags (`feature-flags.server.ts`)
+  // nacieron en `MILESTONE_PROSE_ONLY` en 1E porque sólo CITABAN el nombre del hito para
+  // justificar por qué publicaban `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK`. 1H les añade el flag
+  // DEDICADO de rollout de este hito —`ENABLE_SEARCH_MORE_PHONES` / `isSearchMorePhonesEnabled`
+  // en uno, sus dos booleanos de diagnóstico en el otro— y esos identificadores son CÓDIGO, no
+  // un comentario: ya no pueden demostrar la propiedad que exige `MILESTONE_PROSE_ONLY` (código
+  // sin comentarios que no nombre el hito), así que suben a `MILESTONE_SURFACE`. La partición en
+  // dos listas sigue siendo la estructura correcta — es la que hace posible mover un archivo de
+  // mitad sin reabrir el patrón ni la unión cerrada.
   it('«Buscar más números» existe SÓLO en la superficie del candidato, nunca en la oficial', () => {
     const SEARCH_MORE_PATTERN = /buscar_mas_numeros|searchMorePhones|search_more_phones|search-more-phones/i;
 
@@ -1044,8 +1056,39 @@ describe('4O-H2 — alcance', () => {
       }
     }
 
-    // Los archivos del hito. Es la lista de 1E, sin quitar ni añadir nada.
+    // AGENT2A-SEARCH-MORE-PHONES-1H — dos archivos SUBEN de MILESTONE_PROSE_ONLY a
+    // MILESTONE_SURFACE, y no se relaja el patrón para dejarlos donde estaban.
+    //
+    // Los dos nacieron en MILESTONE_PROSE_ONLY (1E) porque sólo CITABAN el nombre del hito en
+    // un comentario para explicar por qué publicaban `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK`. 1H
+    // les añade el flag DEDICADO de este hito — `ENABLE_SEARCH_MORE_PHONES` en
+    // `feature-flags.server.ts`, y sus dos booleanos de diagnóstico en `route.ts`— y esos
+    // nombres (`isSearchMorePhonesEnabled`, `SEARCH_MORE_PHONES_FLAG`,
+    // `search_more_phones_flag_configured`, `search_more_phones_enabled_resolved`) son CÓDIGO,
+    // no prosa: contienen literalmente `searchMorePhones` / `search_more_phones`, así que ya
+    // no pueden demostrar la propiedad que exige `MILESTONE_PROSE_ONLY` (código sin comentarios
+    // que NO nombre el hito). Quedarse en esa lista habría exigido mentir sobre lo que el
+    // archivo hace ahora: declarar la SUPERFICIE del rollout switch del hito no es lo mismo que
+    // mencionarlo para justificar un diagnóstico ajeno.
+    //
+    // Ninguno de los dos gana por eso una dependencia hacia la superficie del CANDIDATO: no
+    // importan ni invocan ningún SEARCH_MORE_ENTRY_POINT, y `feature-flags.server.ts` sigue sin
+    // tener I/O — sólo declara el flag y su parser, igual que hace para cualquier otro flag del
+    // módulo.
     const MILESTONE_SURFACE = [
+      // El flag DEDICADO de rollout (1H): `ENABLE_SEARCH_MORE_PHONES` +
+      // `isSearchMorePhonesEnabled` + `isSearchMorePhonesFlagConfigured`. Es la superficie
+      // MÁS estrecha posible de un hito — una constante y dos funciones puras sobre
+      // `process.env`— pero es la que autoriza («Buscar más números» existe SÓLO si esta
+      // función resuelve `true`), así que cuenta como superficie y no como prosa.
+      'src/lib/feature-flags.server.ts',
+      // El diagnóstico admin-only de 1E, que 1H amplía con el par presencia/resolución del
+      // flag dedicado (`search_more_phones_flag_configured` / `_enabled_resolved`). Sigue
+      // siendo de SOLO LECTURA —no llama a Lusha, no llama a Apollo, no escribe— y su
+      // propósito (permitir distinguir "flag apagado" de "preflight roto" sin adivinar) no
+      // cambia; lo que cambia es que ahora nombra el flag correcto en CÓDIGO, no sólo el
+      // viejo en prosa.
+      'src/app/api/debug/agent2a-phone-waterfall-config/route.ts',
       // ── UI, y SÓLO la del candidato ────────────────────────────
       // El CTA pagado, con su modal y su máquina de estados. Vive en su propio componente
       // para que el drawer no crezca con ellos y para que sus garantías —el primer clic no
@@ -1080,21 +1123,17 @@ describe('4O-H2 — alcance', () => {
       'src/modules/contact-enrichment/search-more-phones-runtime.ts',
     ];
 
-    // Archivos que mencionan el hito SÓLO en prosa. No son su superficie: son diagnóstico
-    // admin-only de sólo lectura, y citan el nombre del hito para explicar por qué existen.
-    // La aserción de más abajo es la que los obliga a seguir siéndolo.
-    const MILESTONE_PROSE_ONLY = [
-      // El endpoint de diagnóstico de 1E: publica dos booleanos —presencia y resolución— del
-      // flag `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` y el NOMBRE de la variable, nunca su
-      // valor. Cita el hito porque ese flag es el permiso que lo gobierna: con él OFF el
-      // planificador devuelve `feature_disabled`, cuyo copy es `null` a propósito, así que
-      // el síntoma visible es «ni CTA ni explicación». No llama a ningún proveedor, no
-      // escribe, y no conoce ningún módulo del hito.
-      'src/app/api/debug/agent2a-phone-waterfall-config/route.ts',
-      // El lector de PRESENCIA de ese mismo flag. Cita el hito por el mismo motivo y por
-      // nada más: lee `process.env`, hace `trim()` y devuelve un booleano.
-      'src/lib/feature-flags.server.ts',
-    ];
+    // Archivos que mencionan el hito SÓLO en prosa. No son su superficie: serían diagnóstico
+    // admin-only de sólo lectura que cita el nombre del hito sin nombrarlo en código. La
+    // aserción de más abajo es la que los obligaría a seguir siéndolo.
+    //
+    // VACÍA desde 1H: los dos únicos miembros que tuvo (el endpoint de diagnóstico y el lector
+    // de flags) subieron a `MILESTONE_SURFACE` porque 1H les añadió el flag DEDICADO del hito
+    // en código, no sólo en un comentario — ver la nota junto a esos dos elementos arriba. No
+    // se borra la lista ni el mecanismo: un archivo nuevo que sólo mencione el hito en prosa
+    // (sin implementar nada suyo) sigue teniendo que declararse aquí para poder pasar la
+    // aserción de unión de más abajo.
+    const MILESTONE_PROSE_ONLY: string[] = [];
 
     // La unión sigue CERRADA: un archivo nuevo que nombre el hito tiene que entrar en una de
     // las dos mitades, y ese es el momento de preguntarse si la operación se está filtrando

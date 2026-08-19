@@ -2004,6 +2004,19 @@ jobs:
       - name: Run A2A search-more-phones runtime tests
         run: npm run test:agent2a:search-more-phones-runtime
 
+      # AGENT2A-SEARCH-MORE-PHONES-1H — el permiso de producto es un flag DEDICADO
+      # (`ENABLE_SEARCH_MORE_PHONES`), y ya NO `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` (el kill
+      # switch del fallback MANUAL de Lusha, que hasta 1G esta operación reutilizaba). Dos
+      # suites, offline y deterministas:
+      #   * el parser del flag nuevo + la matriz de independencia CASO A/B/C/D contra
+      #     variables de entorno reales — el CASO C (search_more=true, lusha_fallback=false
+      #     ⇒ activo) es la prueba crítica del hito;
+      #   * la guarda ESTÁTICA que lee el código (sin comentarios) de las dos server actions
+      #     y del runtime, y prueba en ambas direcciones que ninguno de los dos flags se
+      #     coló en el consumidor del otro.
+      - name: Run A2A search-more-phones dedicated flag tests
+        run: npm run test:agent2a:search-more-phones-flag
+
       # La UI, renderizada de verdad (jsdom) y sobre el drawer COMPLETO — no un componente
       # aislado. Lo que hay que demostrar es que el CTA aparece, y SÓLO aparece, junto al CTA
       # GRATUITO con el que un operador podría confundirlo.

@@ -77,7 +77,7 @@
 // API key. Sólo códigos mecánicos y el mensaje recortado del driver.
 
 import {
-  isLushaPhoneRevealFallbackEnabled,
+  isSearchMorePhonesEnabled,
   resolveLushaSearchTimeoutMs,
 } from '@/lib/feature-flags.server';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
@@ -209,11 +209,14 @@ export async function executeSearchMorePhonesForCandidate(args: {
 }): Promise<SearchMoreRuntimeResult> {
   const { candidateId, actor } = args;
 
-  // El permiso de PRODUCTO es el del fallback de Lusha, que es el kill switch real de
-  // cualquier reveal de Lusha. NO se lee `ENABLE_PHONE_REVEAL_WATERFALL`: ese flag gobierna
-  // la UX del waterfall Apollo→Lusha, no la existencia de esta operación — la misma
-  // distinción que fijó 4O-F-R2.
-  const featureEnabled = isLushaPhoneRevealFallbackEnabled();
+  // El permiso de PRODUCTO es el flag DEDICADO de este hito (AGENT2A-SEARCH-MORE-PHONES-1H):
+  // `ENABLE_SEARCH_MORE_PHONES`. NO se lee `ENABLE_PHONE_REVEAL_WATERFALL` (gobierna la UX del
+  // waterfall Apollo→Lusha) ni `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` (gobierna el fallback
+  // MANUAL de Lusha, un candidato a la vez): hasta 1G esta operación reutilizaba ese último
+  // flag, y eso acoplaba dos rollouts que el producto quiere independientes — encender
+  // «Buscar más números» para QA encendía también el fallback manual y la pata Lusha del
+  // waterfall, tres caminos pagados preexistentes que nadie pidió activar.
+  const featureEnabled = isSearchMorePhonesEnabled();
 
   // ── 1. PLAN sobre estado RECARGADO ───────────────────────────
   // Lo que el navegador envió NO participa: ni el proveedor, ni el techo, ni el id nativo,
