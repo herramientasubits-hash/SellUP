@@ -62,7 +62,7 @@
 -- retained is decided UNDER THE LOCK, after the caller has already passed its arguments.
 -- So the distinction has to live inside a function.
 --
--- Section 4 therefore adds `append_candidate_search_more_phones`: the same collection
+-- Section 3 therefore adds `append_candidate_search_more_phones`: the same collection
 -- semantics, minus the terminal patch. It is STRICTLY SMALLER than the reveal writer —
 -- no ownership token, no status/provider validation, no request-id clearing, no attempt
 -- counter, no legacy scalar fallback — because a Search More run has no reveal lifecycle
@@ -111,8 +111,11 @@
 --   * does NOT call a provider, reveal a phone, spend a credit or approve a candidate
 --   * contains NO phone, email, name, LinkedIn URL or provider contact id
 --
--- Safety: strictly additive. Two CHECK vocabularies are widened and one function is
--- created. The CHECKs are widened with `NOT VALID` + `VALIDATE CONSTRAINT`, which is the
+-- Safety: strictly additive. Exactly TWO CHECK vocabularies are widened — `run_mode` and
+-- `lusha_outcome` — and one function is created. `lusha_skipped_reason` is deliberately NOT
+-- widened: a Search More run is refused by the planner BEFORE any run row is created, so
+-- no row would ever carry a "providers exhausted" skip reason, and adding a value nothing
+-- writes would be vocabulary for its own sake. The CHECKs are widened with `NOT VALID` + `VALIDATE CONSTRAINT`, which is the
 -- convention for a table that already holds rows (migrations 095/097/100/101): the
 -- rewrite is cheap and the validation scan is separated from it. Idempotent: every
 -- statement is guarded, so the migration can be re-run without error.
@@ -208,53 +211,7 @@ COMMENT ON COLUMN public.phone_reveal_waterfall_runs.lusha_outcome IS
   'Outcome of the Lusha leg: revealed | no_phone_found | error | no_new_distinct_phone. The last one (AGENT2A-SEARCH-MORE-PHONES-1) means Lusha ANSWERED and was charged but every number it returned was already stored — it is never collapsed into no_phone_found, which asserts the provider has no phone at all, nor into revealed, which asserts SellUp gained a number it did not have.';
 
 -- ═══════════════════════════════════════════════════════════════════
--- 3. `lusha_skipped_reason` — why an authorized leg was not spent
--- ═══════════════════════════════════════════════════════════════════
--- A Search More run can close WITHOUT calling the provider for a reason the reveal path
--- never has: between the planner's read and the atomic claim, the collection can change
--- so that nothing is left to look for, or the provider identity that made the run
--- eligible can be the one already exhausted. Both are honest skips, not errors, and
--- neither is `not_needed` (which means "Apollo already revealed inside this run").
-
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'phone_reveal_waterfall_runs_lusha_skipped_reason_check'
-  ) THEN
-    ALTER TABLE public.phone_reveal_waterfall_runs
-      DROP CONSTRAINT phone_reveal_waterfall_runs_lusha_skipped_reason_check;
-  END IF;
-
-  ALTER TABLE public.phone_reveal_waterfall_runs
-    ADD CONSTRAINT phone_reveal_waterfall_runs_lusha_skipped_reason_check
-    CHECK (
-      lusha_skipped_reason IS NULL
-      OR lusha_skipped_reason IN (
-        'missing_lusha_contact_id',
-        'apollo_revealed',
-        'suppressed',
-        'suppression_check_unavailable',
-        'dnc',
-        'authorization_expired',
-        'role_not_allowed',
-        'feature_disabled',
-        'already_attempted',
-        'not_needed',
-        'provider_error',
-        -- AGENT2A-SEARCH-MORE-PHONES-1. Every provider this candidate carries a native
-        -- identity for has ALREADY been asked for additional numbers. The run closes
-        -- without a call and without a charge.
-        'providers_exhausted'
-      )
-    ) NOT VALID;
-
-  ALTER TABLE public.phone_reveal_waterfall_runs
-    VALIDATE CONSTRAINT phone_reveal_waterfall_runs_lusha_skipped_reason_check;
-END $$;
-
--- ═══════════════════════════════════════════════════════════════════
--- 4. `append_candidate_search_more_phones`
+-- 3. `append_candidate_search_more_phones`
 -- ═══════════════════════════════════════════════════════════════════
 --
 -- ONE transaction that APPENDS a provider response to a collection that already has a
@@ -731,7 +688,7 @@ COMMENT ON FUNCTION public.append_candidate_search_more_phones(
   'AGENT2A-SEARCH-MORE-PHONES-1 — APPENDS a provider response to a candidate phone collection whose reveal ALREADY closed, in ONE transaction: canonical phone rows, their provenance, and the single primary designation. Writes NO phone_reveal_* column on any branch: the reveal was closed by another authorization, with another provider and another cost, and re-stating it would attribute an Apollo number to Lusha and overwrite Apollo recorded cost. Never deletes or replaces an existing phone. Locks the candidate with SELECT FOR UPDATE, re-checks PERSON-level provider-native suppression inside the lock via phone_reveal_candidate_suppression_exists (the #295 / M120 guarantee) and re-states the per-number tombstone guard in its ON CONFLICT clause, so a tombstoned number is never rewritten, never gains provenance and never becomes primary. Elects a primary only on a STRICT improvement over the live incumbent by (type rank, status rank), so an additional work line never displaces an existing mobile; when the incumbent is retained the candidate row is not written at all. Merges rather than replaces: a number the other provider already stored keeps its row and gains a second provenance. Idempotent by (candidate_id, dedupe_key) and (candidate_phone_id, source_event_key). Returns new_distinct_phone_count DERIVED from what did not exist before, so no redundant column is added. Writes NO usage log, NO reservation and NO waterfall row: that accounting lives in phone_reveal_waterfall_runs / phone_reveal_credit_reservations / provider_usage_logs and must survive a failure this function reports. SECURITY INVOKER on purpose so migration 109 privilege ceiling still applies: it cannot DELETE a phone row or UPDATE a provenance row. No dynamic SQL, every written column named literally. Returns counts, flags and a SHA-256 dedupe key, never a phone number. Service-role only.';
 
 -- ═══════════════════════════════════════════════════════════════════
--- 5. Privileges — the same ceiling as 110 / 111 / 120
+-- 4. Privileges — the same ceiling as 110 / 111 / 120
 -- ═══════════════════════════════════════════════════════════════════
 -- Declared explicitly rather than inherited, so this migration end state is readable
 -- without opening another file. `PUBLIC`, `anon` and `authenticated` are revoked; only

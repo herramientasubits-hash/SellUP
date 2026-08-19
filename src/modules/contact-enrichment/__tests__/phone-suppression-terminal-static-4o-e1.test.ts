@@ -217,7 +217,10 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // `confirm_wizard_credits`; no nombra ninguna tabla de teléfono. Lo que esta guarda afirma sigue intacto: la
       // AUTORÍA se comprueba abajo archivo por archivo, así que una migración nueva no
       // puede atribuirse a 4O-E1 por el hecho de mover este número.
-      '121_wizard_budget_overage_reconciliation.sql',
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números», la
+      // modalidad `search_more` y el writer que AÑADE teléfonos sin reescribir el estado
+      // terminal del reveal ajeno. Es de teléfono, pero no de este hito.
+      '122_phone_reveal_search_more.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

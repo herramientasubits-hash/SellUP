@@ -446,13 +446,17 @@ describe('4O-G — alcance', () => {
     // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 a la 121 (contabilidad de presupuesto: la
     // liquidación TRUTHFUL del sobrepaso, sin relación con teléfono). 4O-G sigue sin
     // aportar ni editar SQL.
-    assert.equal(numbered[numbered.length - 1], 121);
+    // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números» (la
+    // modalidad `search_more` y el writer append-only). Toca la MISMA colección que 4O-G
+    // LEE, pero sólo la escribe: los módulos de 4O-G siguen siendo de sólo lectura y
+    // siguen sin aportar SQL, que es lo que esta guarda afirma.
+    assert.equal(numbered[numbered.length - 1], 122);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
     // historia, cuenta y techo coinciden, y esa coincidencia es en sí misma la guarda:
     // vuelve a fallar si alguien borra un archivo aplicado o cuela uno sin renumerar.
-    assert.equal(numbered.length, 121);
+    assert.equal(numbered.length, 122);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

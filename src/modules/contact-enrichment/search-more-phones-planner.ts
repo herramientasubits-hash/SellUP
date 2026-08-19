@@ -53,10 +53,12 @@
 //    ilegible, una supresión no evaluable: todos bloquean. Nunca se degrada a «adelante».
 
 import { resolvePhoneRevealProviderIdentity } from './provider-suppression-core';
+import { PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS } from './phone-reveal-waterfall-core';
 import {
-  PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS,
-  PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS,
-} from './phone-reveal-waterfall-core';
+  PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
+  PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+  type PhoneRevealCreditBudgetMode,
+} from './phone-reveal-credit-budget-core';
 
 // ═══════════════════════════════════════════════════════════════════
 // 1. Vocabulario
@@ -185,20 +187,63 @@ export interface SearchMorePlannerInput {
 // 3. Salida
 // ═══════════════════════════════════════════════════════════════════
 
+/**
+ * Techo de UNA pata, por proveedor. NO son intercambiables: reutilizar la cifra de Lusha
+ * para una pata de Apollo autorizaría por DEBAJO de lo que Apollo puede cobrar, y el tope
+ * autorizado dejaría de ser un tope.
+ */
+export const SEARCH_MORE_PROVIDER_MAX_CREDITS: Readonly<
+  Record<SearchMoreProvider, number>
+> = {
+  lusha: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+  apollo: PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
+};
+
+/** Modalidad presupuestaria de cada proveedor. Una pata, un pozo. */
+const SEARCH_MORE_BUDGET_MODE: Readonly<
+  Record<SearchMoreProvider, PhoneRevealCreditBudgetMode>
+> = {
+  lusha: 'search_more_lusha',
+  apollo: 'search_more_apollo',
+};
+
 export interface SearchMorePlan {
   eligible: boolean;
   phase: SearchMorePhase;
   reason: SearchMoreIneligibleReason | null;
   /**
-   * Proveedores a consultar, EN ORDEN. Vacío cuando no es elegible. Nunca contiene un
-   * proveedor que ya tenga procedencia almacenada ni uno ya consultado por adicionales.
+   * Proveedores que ESTA corrida consultará. Vacío cuando no es elegible, y como máximo
+   * UNO cuando lo es.
+   *
+   * ── POR QUÉ UNA CORRIDA = UN PROVEEDOR ────────────────────────
+   *
+   * Porque el techo que se autoriza tiene que ser el que realmente puede cobrarse.
+   * Pre-autorizar los dos proveedores obligaría a reservar un pozo que probablemente no se
+   * toca —y a liberarlo después— y, sobre todo, le pediría al operador aceptar un gasto
+   * por un proveedor que quizá nunca se consulte. En una operación PAGADA eso es peor que
+   * pedir un segundo clic.
+   *
+   * En la práctica esto casi nunca es una restricción: un candidato con teléfono guardado
+   * SIEMPRE tiene procedencia del proveedor que lo entregó, así que de los dos que existen
+   * queda como máximo uno sin consultar. El caso de dos disponibles exige que la colección
+   * no tenga procedencia de ninguno de los dos (p. ej. sólo `apollo_cache`), y ahí el
+   * segundo proveedor sigue alcanzable con una segunda autorización explícita.
    */
   providersToTry: readonly SearchMoreProvider[];
   /**
+   * Los que quedarían para una autorización POSTERIOR. Se expone para que la UI pueda ser
+   * honesta sobre que aún habrá otra fuente después, en vez de dar a entender que esta
+   * corrida agota todas.
+   */
+  providersDeferred: readonly SearchMoreProvider[];
+  /**
    * Techo de créditos que el operador debe aceptar. Es el UMBRAL de confirmación, no una
-   * predicción del cobro: el costo real sale de lo que reporte el proveedor.
+   * predicción del cobro: el costo real sale de lo que reporte el proveedor. Coincide
+   * EXACTAMENTE con lo que se reservará.
    */
   maxCreditRequirement: number;
+  /** Modalidad presupuestaria con la que se reservará. null cuando no es elegible. */
+  budgetMode: PhoneRevealCreditBudgetMode | null;
   /** true cuando ya no queda ningún proveedor seguro por consultar. */
   alreadyExhausted: boolean;
 }
@@ -212,7 +257,9 @@ const NOT_ELIGIBLE = (
   phase,
   reason,
   providersToTry: [],
+  providersDeferred: [],
   maxCreditRequirement: 0,
+  budgetMode: null,
   alreadyExhausted,
 });
 
@@ -383,15 +430,18 @@ export function planSearchMorePhones(input: SearchMorePlannerInput): SearchMoreP
     return NOT_ELIGIBLE('privacy_blocked', 'suppression_check_unavailable');
   }
 
+  const [providerToTry, ...deferred] = candidates;
+
   return {
     eligible: true,
     phase: 'has_phone_provider_available',
     reason: null,
-    providersToTry: candidates,
-    // El techo es el de UNA pata de proveedor por cada uno que pueda ejecutarse. No es la
-    // suma de los dos salvo que los dos estén realmente disponibles, y nunca son los 13
-    // del waterfall completo: Apollo no corre como primera pata aquí.
-    maxCreditRequirement: candidates.length * PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS,
+    providersToTry: [providerToTry],
+    providersDeferred: deferred,
+    // El techo de ESE proveedor, no una suma. Nunca son los 13 del waterfall completo:
+    // Apollo no corre aquí como primera pata de un reveal.
+    maxCreditRequirement: SEARCH_MORE_PROVIDER_MAX_CREDITS[providerToTry],
+    budgetMode: SEARCH_MORE_BUDGET_MODE[providerToTry],
     alreadyExhausted: false,
   };
 }

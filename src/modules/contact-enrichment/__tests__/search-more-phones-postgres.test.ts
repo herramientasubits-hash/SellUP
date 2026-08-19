@@ -43,6 +43,21 @@ import {
 } from './support/phone-reveal-real-migration-chain';
 import { normalizeCandidatePhone } from '../phone-collection-core';
 
+/**
+ * Lector TIPADO sobre el cliente compartido, cuyo `query` devuelve
+ * `Record<string, unknown>[]` a propósito. Se envuelve aquí en vez de ensanchar el tipo de
+ * `support/`, del que dependen otras suites: un cambio allí para comodidad de esta suite
+ * relajaría el tipo de todas las demás.
+ */
+async function rowsOf<T>(
+  c: PgLikeClient,
+  sql: string,
+  values?: unknown[],
+): Promise<T[]> {
+  const { rows } = await c.query(sql, values);
+  return rows as T[];
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(here, '../../../..');
 
@@ -128,7 +143,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
   // ─────────────────────────────────────────────────────────────────
 
   it('los tres CHECKs ensanchados quedan convalidated (sin mantenimiento pendiente)', async () => {
-    const { rows } = await client.query<{ conname: string; convalidated: boolean }>(
+    const rows = await rowsOf<{ conname: string; convalidated: boolean }>(client, 
       `SELECT conname, convalidated FROM pg_constraint
         WHERE conname IN (
           'phone_reveal_waterfall_runs_run_mode_check',
@@ -145,7 +160,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
   it('acepta run_mode=search_more y sigue aceptando las dos modalidades previas', async () => {
     const runIds: string[] = [];
     for (const mode of ['full_waterfall', 'legacy_lusha_only', 'search_more']) {
-      const { rows } = await client.query<{ id: string }>(
+      const rows = await rowsOf<{ id: string }>(client, 
         `INSERT INTO public.phone_reveal_waterfall_runs
            (candidate_id, status, authorized_by, max_credits_authorized, run_mode)
          VALUES ($1, 'authorized', gen_random_uuid(), 5, $2) RETURNING id`,
@@ -204,7 +219,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
   // ─────────────────────────────────────────────────────────────────
 
   it('sólo service_role puede EJECUTAR la función de append', async () => {
-    const { rows } = await client.query<{ role: string; allowed: boolean }>(
+    const rows = await rowsOf<{ role: string; allowed: boolean }>(client, 
       `SELECT r.rolname AS role,
               has_function_privilege(
                 r.rolname,
@@ -221,7 +236,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
   });
 
   it('es SECURITY INVOKER, para que el techo de privilegios de la 109 siga aplicando', async () => {
-    const { rows } = await client.query<{ prosecdef: boolean }>(
+    const rows = await rowsOf<{ prosecdef: boolean }>(client, 
       `SELECT prosecdef FROM pg_proc WHERE proname = 'append_candidate_search_more_phones'`,
     );
     assert.equal(rows.length, 1);
@@ -253,7 +268,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
       'un work NO puede desplazar a un mobile',
     );
 
-    const { rows } = await client.query<{ dedupe_key: string; is_primary: boolean }>(
+    const rows = await rowsOf<{ dedupe_key: string; is_primary: boolean }>(client, 
       `SELECT dedupe_key, is_primary FROM public.contact_enrichment_candidate_phones
         WHERE candidate_id = $1 ORDER BY is_primary DESC`,
       [candidateId],
@@ -302,7 +317,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
       'search_more NUNCA sobrescribe el costo del reveal',
     );
     assert.equal(
-      candidate.enrichment_metadata.phone.source,
+      candidate.enrichment_metadata.phone?.source,
       'search_more_reveal',
       'la metadata del número visible sí declara de dónde salió',
     );
@@ -331,7 +346,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
     assert.equal(result.updated_phone_count, 1, 'la fila existente se refrescó');
     assert.equal(result.inserted_source_count, 1, 'y ganó UNA procedencia nueva');
 
-    const { rows: phones } = await client.query<{ id: string; phone_status: string }>(
+    const phones = await rowsOf<{ id: string; phone_status: string }>(client, 
       `SELECT id, phone_status FROM public.contact_enrichment_candidate_phones
         WHERE candidate_id = $1`,
       [candidateId],
@@ -343,7 +358,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
       'un `unknown` de Lusha no degrada el `valid` de Apollo',
     );
 
-    const { rows: sources } = await client.query<{ provider: string }>(
+    const sources = await rowsOf<{ provider: string }>(client, 
       `SELECT provider FROM public.contact_enrichment_candidate_phone_sources
         WHERE candidate_phone_id = $1 ORDER BY provider`,
       [phones[0].id],
@@ -382,7 +397,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
       'la MISMA source_event_key no vuelve a insertarse',
     );
 
-    const { rows } = await client.query<{ count: string }>(
+    const rows = await rowsOf<{ count: string }>(client, 
       `SELECT COUNT(*) AS count FROM public.contact_enrichment_candidate_phones
         WHERE candidate_id = $1`,
       [candidateId],
@@ -419,7 +434,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
     assert.equal(result.inserted_phone_count, 0);
     assert.equal(result.new_distinct_phone_count, 0);
 
-    const { rows } = await client.query<{ count: string }>(
+    const rows = await rowsOf<{ count: string }>(client, 
       `SELECT COUNT(*) AS count FROM public.contact_enrichment_candidate_phones
         WHERE candidate_id = $1`,
       [candidateId],
@@ -491,7 +506,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
     assert.equal(result.inserted_source_count, 0, 'un tombstone NO gana procedencia');
     assert.equal(result.candidate_scalar_updated, false);
 
-    const { rows } = await client.query<{ normalized_phone: string | null }>(
+    const rows = await rowsOf<{ normalized_phone: string | null }>(client, 
       `SELECT normalized_phone FROM public.contact_enrichment_candidate_phones
         WHERE candidate_id = $1 AND dedupe_key = $2`,
       [candidateId, phoneOf(erased)],
@@ -515,7 +530,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
   });
 
   it('la función NO puede borrar una fila de teléfono (techo de la 109 intacto)', async () => {
-    const { rows } = await client.query<{ allowed: boolean }>(
+    const rows = await rowsOf<{ allowed: boolean }>(client, 
       `SELECT has_table_privilege(
                 'service_role', 'public.contact_enrichment_candidate_phones', 'DELETE'
               ) AS allowed`,
@@ -529,10 +544,10 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
     c: PgLikeClient,
     opts: { apolloPersonId?: string; sourceContactId?: string } = {},
   ): Promise<string> {
-    const { rows: runRows } = await c.query<{ id: string }>(
+    const runRows = await rowsOf<{ id: string }>(c, 
       `INSERT INTO public.contact_enrichment_runs (id) VALUES (gen_random_uuid()) RETURNING id`,
     );
-    const { rows } = await c.query<{ id: string }>(
+    const rows = await rowsOf<{ id: string }>(c, 
       `INSERT INTO public.contact_enrichment_candidates
          (enrichment_run_id, source, source_contact_id, apollo_person_id,
           phone_reveal_status, phone_reveal_provider)
@@ -559,7 +574,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
     phoneType: string,
   ): Promise<void> {
     const key = phoneOf(phone);
-    const { rows } = await c.query<{ id: string }>(
+    const rows = await rowsOf<{ id: string }>(c, 
       `INSERT INTO public.contact_enrichment_candidate_phones
          (candidate_id, normalized_phone, display_phone, dedupe_key, phone_type,
           phone_status, is_primary, first_seen_at, last_seen_at)
@@ -594,13 +609,6 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
       displayPhone: phone,
       sanitizedPhone: phone,
       countryCode: 'CO',
-      phoneType: 'unknown',
-      phoneStatus: 'unknown',
-      source: {
-        provider: 'lusha',
-        acquisitionMode: 'reveal',
-        observedAt: '2026-08-18T00:00:00.000Z',
-      },
     }).dedupeKey;
   }
 
@@ -658,7 +666,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
     candidateId: string,
     payload: { phones: unknown[]; sources: unknown[]; primaryCandidates: unknown[] },
   ): Promise<AppendResult> {
-    const { rows } = await c.query<{ result: AppendResult }>(
+    const rows = await rowsOf<{ result: AppendResult }>(c, 
       `SELECT public.append_candidate_search_more_phones($1, $2, $3::jsonb, $4::jsonb, $5::jsonb) AS result`,
       [
         candidateId,
@@ -672,12 +680,12 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
   }
 
   async function readCandidate(c: PgLikeClient, candidateId: string) {
-    const { rows } = await c.query<{
+    const rows = await rowsOf<{
       phone: string | null;
       phone_reveal_provider: string | null;
       phone_reveal_cost_credits: number | null;
       enrichment_metadata: { phone?: { source?: string } };
-    }>(
+    }>(c, 
       `SELECT phone, phone_reveal_provider, phone_reveal_cost_credits, enrichment_metadata
          FROM public.contact_enrichment_candidates WHERE id = $1`,
       [candidateId],

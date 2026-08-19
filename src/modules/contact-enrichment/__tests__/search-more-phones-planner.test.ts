@@ -19,7 +19,10 @@ import {
   SEARCH_MORE_PROVIDERS,
   type SearchMorePlannerInput,
 } from '../search-more-phones-planner';
-import { PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS } from '../phone-reveal-waterfall-core';
+import {
+  PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
+  PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+} from '../phone-reveal-credit-budget-core';
 
 /** Un id de Apollo REAL en forma: 24 hex. Otra forma se normaliza a NULL. */
 const APOLLO_ID = 'a1b2c3d4e5f60718293a4b5c';
@@ -71,19 +74,49 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
     assert.equal(plan.alreadyExhausted, false);
   });
 
-  it('el techo es UNA pata por proveedor consultable, nunca los 13 del waterfall', () => {
-    const one = planSearchMorePhones(eligibleInput());
-    assert.equal(one.maxCreditRequirement, PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS);
+  it('el techo es el de LA pata que se va a reservar, nunca los 13 del waterfall', () => {
+    const plan = planSearchMorePhones(eligibleInput());
+    assert.equal(plan.maxCreditRequirement, PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS);
+    assert.equal(plan.budgetMode, 'search_more_lusha');
+    assert.notEqual(plan.maxCreditRequirement, 13);
+  });
 
-    // Un candidato cuya colección no tiene procedencia de NINGUNO de los dos: los dos son
-    // consultables, así que el techo es el doble. Sigue sin ser 13: Apollo no corre como
-    // primera pata de un reveal aquí, corre como fuente adicional.
-    const two = planSearchMorePhones(
+  it('UNA corrida = UN proveedor: el resto queda para una autorización POSTERIOR', () => {
+    // Colección sin procedencia de ninguno de los dos (sólo caché): los dos son
+    // consultables, pero esta corrida autoriza uno solo.
+    const plan = planSearchMorePhones(
       eligibleInput({ providersWithStoredProvenance: ['apollo_cache'] }),
     );
-    assert.deepEqual(two.providersToTry, ['lusha', 'apollo']);
-    assert.equal(two.maxCreditRequirement, 2 * PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS);
-    assert.notEqual(two.maxCreditRequirement, 13);
+
+    assert.deepEqual(plan.providersToTry, ['lusha'], 'se consulta uno');
+    assert.deepEqual(
+      plan.providersDeferred,
+      ['apollo'],
+      'el otro se declara diferido, para que la UI no dé a entender que ya se agotó',
+    );
+    assert.equal(
+      plan.maxCreditRequirement,
+      PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+      'no se autoriza el pozo del proveedor que quizá nunca se consulte',
+    );
+  });
+
+  it('el techo de una pata de APOLLO es el de Apollo (8), no el de Lusha (5)', () => {
+    // Reutilizar la cifra de Lusha autorizaría por DEBAJO de lo que Apollo puede cobrar.
+    const plan = planSearchMorePhones(
+      eligibleInput({ providersWithStoredProvenance: ['lusha'] }),
+    );
+
+    assert.deepEqual(plan.providersToTry, ['apollo']);
+    assert.equal(
+      plan.maxCreditRequirement,
+      PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
+    );
+    assert.notEqual(
+      plan.maxCreditRequirement,
+      PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+    );
+    assert.equal(plan.budgetMode, 'search_more_apollo');
   });
 
   // ───────────────────────────────────────────────────────────────

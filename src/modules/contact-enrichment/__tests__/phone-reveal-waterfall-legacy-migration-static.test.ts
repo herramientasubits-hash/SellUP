@@ -35,9 +35,27 @@ const executableSql = migrationSql
   .filter((line) => !line.trimStart().startsWith('--'))
   .join('\n');
 
-/** Literales del `IN (...)` del CHECK de run_mode, leídos del SQL. */
-function runModeSqlValues(): string[] {
-  const statement = migrationSql.match(
+/**
+ * Las migraciones autorizadas a DECLARAR el CHECK de `run_mode`, en orden de aplicación.
+ * La última de la lista es la que fija el vocabulario VIGENTE.
+ *
+ * AGENT2A-SEARCH-MORE-PHONES-1 — la 122 entra aquí porque «Buscar más números» es una
+ * modalidad REAL y nueva (`search_more`), no un reetiquetado: `legacy_lusha_only` exige que
+ * el candidato NO tenga teléfono y `search_more` exige que SÍ lo tenga, así que reusar ese
+ * valor haría que una auditoría de «¿se agotó Apollo?» respondiera al revés.
+ *
+ * Esta lista es la parte que hay que ampliar a propósito para ensanchar el vocabulario. El
+ * ratchet de abajo sigue prohibiendo que CUALQUIER otra migración toque el constraint, que
+ * es la garantía que importaba: lo que se impide es un ensanche SILENCIOSO, no un ensanche.
+ */
+const RUN_MODE_DECLARING_MIGRATIONS = [
+  MIGRATION_FILE,
+  '122_phone_reveal_search_more.sql',
+] as const;
+
+/** Literales del `IN (...)` del CHECK de run_mode, leídos del SQL de UNA migración. */
+function runModeSqlValuesOf(sql: string): string[] {
+  const statement = sql.match(
     new RegExp(`ADD CONSTRAINT ${RUN_MODE_CONSTRAINT}[\\s\\S]*?;`),
   );
   assert.ok(statement, `no se encontró el ADD CONSTRAINT de ${RUN_MODE_CONSTRAINT}`);
@@ -46,6 +64,16 @@ function runModeSqlValues(): string[] {
     .filter((line) => !line.trimStart().startsWith('--'))
     .join('\n');
   return [...withoutComments.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+}
+
+/** El vocabulario VIGENTE: el que declara la última migración autorizada. */
+function effectiveRunModeSqlValues(): string[] {
+  const last = RUN_MODE_DECLARING_MIGRATIONS[RUN_MODE_DECLARING_MIGRATIONS.length - 1];
+  return runModeSqlValuesOf(readFileSync(join(migrationsDir, last), 'utf8'));
+}
+
+function runModeSqlValues(): string[] {
+  return runModeSqlValuesOf(migrationSql);
 }
 
 describe('103 — numeración y orden', () => {
@@ -71,16 +99,29 @@ describe('103 — numeración y orden', () => {
     assert.ok(/102 then 103|102 y luego 103|AFTER it/i.test(migrationSql));
   });
 
-  it('ninguna otra migración toca el constraint de run_mode', () => {
+  it('ninguna migración FUERA de la lista autorizada toca el constraint de run_mode', () => {
     const others = readdirSync(migrationsDir).filter(
-      (file) => file.endsWith('.sql') && file !== MIGRATION_FILE,
+      (file) =>
+        file.endsWith('.sql') &&
+        !(RUN_MODE_DECLARING_MIGRATIONS as readonly string[]).includes(file),
     );
     for (const file of others) {
       const sql = readFileSync(join(migrationsDir, file), 'utf8');
       assert.equal(
         sql.includes(RUN_MODE_CONSTRAINT),
         false,
-        `${file} no debe tocar ${RUN_MODE_CONSTRAINT}: la 103 ya lo deja validado`,
+        `${file} no debe tocar ${RUN_MODE_CONSTRAINT}: ensancharlo exige entrar en ` +
+          'RUN_MODE_DECLARING_MIGRATIONS, que es lo que hace el ensanche revisable',
+      );
+    }
+  });
+
+  it('todas las migraciones autorizadas existen y declaran de verdad el constraint', () => {
+    for (const file of RUN_MODE_DECLARING_MIGRATIONS) {
+      const sql = readFileSync(join(migrationsDir, file), 'utf8');
+      assert.ok(
+        sql.includes(`ADD CONSTRAINT ${RUN_MODE_CONSTRAINT}`),
+        `${file} está en la lista pero no declara el constraint`,
       );
     }
   });
@@ -109,16 +150,28 @@ describe('103 — campo explícito de modalidad', () => {
 });
 
 describe('103 — vocabulario SQL ↔ TypeScript', () => {
-  it('el vocabulario del SQL es exactamente el de TypeScript (ambos sentidos)', () => {
-    const sqlValues = runModeSqlValues().sort();
+  it('el vocabulario VIGENTE es exactamente el de TypeScript (ambos sentidos)', () => {
+    // Se compara contra el vocabulario EFECTIVO —el de la última migración autorizada— y no
+    // contra el de la 103, porque es el efectivo el que la base de datos impone. Comparar
+    // contra la 103 dejaría pasar una modalidad de TypeScript que ninguna migración acepta,
+    // que es precisamente el `CHECK` violado en runtime que este test existe para impedir.
+    const sqlValues = effectiveRunModeSqlValues().sort();
     const tsValues = [...PHONE_REVEAL_WATERFALL_RUN_MODES].sort();
     assert.deepEqual(sqlValues, tsValues);
   });
 
-  it('cada modalidad de TypeScript aparece en el CHECK', () => {
+  it('cada modalidad de TypeScript aparece en el CHECK vigente', () => {
+    const effective = effectiveRunModeSqlValues();
     for (const mode of PHONE_REVEAL_WATERFALL_RUN_MODES) {
-      assert.ok(executableSql.includes(`'${mode}'`), mode);
+      assert.ok(effective.includes(mode), mode);
     }
+  });
+
+  it('la 103 sigue declarando SU vocabulario histórico, sin reescribirse', () => {
+    // La 103 está mergeada y aplicada: ensancharla editándola sería reescribir historia. El
+    // valor nuevo vive en la 122.
+    assert.deepEqual(runModeSqlValues().sort(), ['full_waterfall', 'legacy_lusha_only']);
+    assert.equal(migrationSql.includes('search_more'), false);
   });
 });
 

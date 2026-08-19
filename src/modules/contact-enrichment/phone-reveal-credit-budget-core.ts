@@ -70,7 +70,18 @@ export type PhoneRevealCreditBudgetMode =
   /** Solo Apollo: el candidato no tiene identificador Lusha reutilizable. Total 8. */
   | 'apollo_only'
   /** Solo Lusha: Apollo ya se intentó bajo OTRA autorización. Total 5. */
-  | 'legacy_lusha_only';
+  | 'legacy_lusha_only'
+  /**
+   * «Buscar más números» consultando a LUSHA por números adicionales
+   * (AGENT2A-SEARCH-MORE-PHONES-1). Total 5, el tope de UNA pata de Lusha.
+   */
+  | 'search_more_lusha'
+  /**
+   * «Buscar más números» consultando a APOLLO por números adicionales. Total 8, el tope
+   * de UNA pata de Apollo — NO 5: el tope lo fija el proveedor que se va a cobrar, y
+   * reutilizar la cifra de Lusha autorizaría por debajo de lo que Apollo puede cobrar.
+   */
+  | 'search_more_apollo';
 
 /** Proveedores que una autorización de reveal puede llegar a cobrar. Conjunto CERRADO. */
 export const PHONE_REVEAL_CREDIT_PROVIDER_KEYS = ['apollo', 'lusha'] as const;
@@ -124,6 +135,25 @@ export function resolvePhoneRevealCreditRequirements(
         },
       ];
     case 'apollo_only':
+      return [
+        {
+          providerKey: 'apollo',
+          credits: PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
+        },
+      ];
+    // Una corrida `search_more` autoriza EXACTAMENTE UNA pata, la del proveedor que le
+    // falta. No es una limitación heredada: es que el techo autorizado tiene que ser el
+    // que realmente puede cobrarse. Pre-autorizar los dos proveedores obligaría a
+    // reservar un pozo que probablemente no se toca y a liberarlo después, y le pediría
+    // al operador aceptar un gasto por un proveedor que quizá nunca se consulte.
+    case 'search_more_lusha':
+      return [
+        {
+          providerKey: 'lusha',
+          credits: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+        },
+      ];
+    case 'search_more_apollo':
       return [
         {
           providerKey: 'apollo',
