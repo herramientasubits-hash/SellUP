@@ -14,7 +14,7 @@
 //
 // LA CADENA. `PHONE_REVEAL_REAL_CHAIN` no sirve tal cual: su bootstrap crea
 // `phone_reveal_waterfall_runs` como STUB de una sola columna, porque la 120 no la toca.
-// La 122 SÍ la toca — ensancha tres CHECKs suyos — así que el stub se descarta y se aplican
+// La 122 SÍ la toca — ensancha DOS CHECKs suyos — así que el stub se descarta y se aplican
 // las 102/103 REALES antes de la 109 (que las referencia por FK).
 //
 // La 104 se queda FUERA y el stub de `phone_reveal_credit_reservations` se conserva: la 122
@@ -142,7 +142,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
   // 2. Los tres vocabularios ensanchados quedan VALIDADOS
   // ─────────────────────────────────────────────────────────────────
 
-  it('los tres CHECKs ensanchados quedan convalidated (sin mantenimiento pendiente)', async () => {
+  it('los CHECKs del vocabulario quedan convalidated (sin mantenimiento pendiente)', async () => {
     const rows = await rowsOf<{ conname: string; convalidated: boolean }>(client, 
       `SELECT conname, convalidated FROM pg_constraint
         WHERE conname IN (
@@ -151,6 +151,8 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
           'phone_reveal_waterfall_runs_lusha_skipped_reason_check'
         ) ORDER BY conname`,
     );
+    // Los tres siguen existiendo; la 122 ensancha DOS (run_mode y lusha_outcome) y deja
+    // `lusha_skipped_reason` intacto — el test de más abajo fija esa decisión.
     assert.equal(rows.length, 3, 'los tres CHECKs existen');
     for (const row of rows) {
       assert.equal(row.convalidated, true, `${row.conname} quedó sin validar`);
@@ -205,12 +207,33 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · migración 122 en PostgreSQL real', { 
     );
   });
 
-  it('acepta lusha_skipped_reason=providers_exhausted', async () => {
+  it('NO ensancha lusha_skipped_reason: la 122 lo deja exactamente como estaba', async () => {
+    // Decisión deliberada de la 122, y este test es lo que la fija. Un «no queda proveedor»
+    // se rechaza en el PLANIFICADOR antes de crear la corrida, así que ninguna fila llevaría
+    // ese motivo: añadir un valor que nadie escribe sería vocabulario por sí mismo.
+    //
+    // Se afirma por el efecto en la BASE y no leyendo el SQL, porque es la base la que
+    // impone el vocabulario. Si un hito futuro decidiera que sí hace falta, este test es el
+    // que le exige justificarlo.
+    const candidateId = await seedCandidate(client);
+    await assert.rejects(
+      () =>
+        client.query(
+          `INSERT INTO public.phone_reveal_waterfall_runs
+             (candidate_id, status, authorized_by, max_credits_authorized, run_mode, lusha_skipped_reason)
+           VALUES ($1, 'exhausted', gen_random_uuid(), 5, 'search_more', 'providers_exhausted')`,
+          [candidateId],
+        ),
+      /lusha_skipped_reason_check/,
+      'el vocabulario de motivos de omisión sigue cerrado y sin valores nuevos',
+    );
+
+    // Y los motivos que YA existían siguen aceptándose en una corrida `search_more`.
     await client.query(
       `INSERT INTO public.phone_reveal_waterfall_runs
          (candidate_id, status, authorized_by, max_credits_authorized, run_mode, lusha_skipped_reason)
-       VALUES ($1, 'exhausted', gen_random_uuid(), 5, 'search_more', 'providers_exhausted')`,
-      [await seedCandidate(client)],
+       VALUES ($1, 'aborted', gen_random_uuid(), 5, 'search_more', 'suppressed')`,
+      [candidateId],
     );
   });
 
