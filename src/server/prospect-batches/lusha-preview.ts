@@ -29,6 +29,12 @@ import {
   resolveLushaSectorOption,
   type LushaSectorKey,
 } from '@/server/prospect-batches/lusha-sector-mapping';
+// AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 2 — verdad del PROVEEDOR sobre
+// qué sub-industria cuelga de qué industria principal, capturada del endpoint
+// gratuito de metadata. Es lo que valida una rama, porque una rama no vive dentro
+// de un sector legacy (`12/71` es farmacéuticas bajo Manufacturing, y ningún
+// sector legacy la contiene). Módulo puro: sin env, sin red, sin DB.
+import { isLushaSubIndustryOfMain } from '@/server/prospect-batches/lusha-industry-metadata';
 
 // ─── Guardrails de crédito (server-authoritative) ────────────────────────────
 
@@ -419,6 +425,41 @@ export interface LushaPreviewInput {
    * profunda. No forma parte de la superficie del cliente (no viaja desde el navegador).
    */
   page?: number | null;
+  /**
+   * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 2 — la RAMA que esta petición
+   * ejecuta.
+   *
+   * Ausente = comportamiento de hoy, sin un solo byte de diferencia: la industria
+   * la deriva el `sectorKey`. Presente = la rama es autoritativa para
+   * `mainIndustriesIds` y `subIndustriesIds` de ESTA petición.
+   *
+   * ── 🔴 Lo que esto NO es ────────────────────────────────────────────────────
+   *
+   * No es una vía de elegibilidad. La resolución del sector sigue ocurriendo
+   * ANTES y sigue siendo fail-closed: un `sectorKey` que la autoridad legacy no
+   * reconoce devuelve `missing_mapping` y no llega a mirar la rama. Quien elige
+   * la rama es un plan que sólo se resuelve para un sector YA admitido
+   * (`resolveLushaSearchPlanForSector`), así que una rama no puede abrir una ruta
+   * que estuviera cerrada — sólo puede cambiar qué se le pide al proveedor dentro
+   * de una ruta que ya estaba viva.
+   *
+   * ── Por qué la rama no se valida contra el sector ───────────────────────────
+   *
+   * `isSubIndustryValidForSector` comprueba pertenencia al catálogo LEGACY, y las
+   * ramas aprobadas la incumplen a propósito: la rama 2 de `health_pharma` es
+   * `main 12 + sub 71` (farmacéuticas, bajo Manufacturing) y el sector legacy
+   * `healthcare` es `main 11`. Validar la rama contra el sector descartaría la sub
+   * y enviaría `main 12` desnudo — es decir, TODO Manufacturing dentro de una
+   * búsqueda de salud. Por eso la rama se valida contra la metadata del proveedor
+   * (`isLushaSubIndustryOfMain`), que es la única fuente que sabe de qué padre
+   * cuelga cada sub.
+   *
+   * No forma parte de la superficie del cliente: no viaja desde el navegador.
+   */
+  industryBranch?: {
+    mainIndustryId: number;
+    subIndustryId?: number | null;
+  } | null;
 }
 
 export type LushaPreviewStatus =
@@ -519,9 +560,30 @@ export async function executeLushaPreview(
     };
   }
 
-  // Sub-industria: validar pertenencia. Si no pertenece, se descarta con warning.
+  // ── Industria efectiva: la RAMA manda si viene; si no, el sector, como hoy ──
+  //
+  // Dos caminos deliberadamente distintos porque validan contra fuentes
+  // distintas: la sub de un sector se valida contra el catálogo legacy, y la sub
+  // de una rama contra la metadata del proveedor. Ver la nota de `industryBranch`.
+  const branch = input.industryBranch ?? null;
+  let effectiveMainIndustryId = sector.mainIndustryId;
   let effectiveSubId: number | null = null;
-  if (typeof input.subIndustryId === 'number') {
+
+  if (branch !== null) {
+    effectiveMainIndustryId = branch.mainIndustryId;
+    if (typeof branch.subIndustryId === 'number') {
+      if (isLushaSubIndustryOfMain(branch.mainIndustryId, branch.subIndustryId)) {
+        effectiveSubId = branch.subIndustryId;
+      } else {
+        // Fail-closed en la sub, no en la rama: se pide la industria principal sin
+        // estrechar y queda constancia. Aceptar una sub de otro padre haría un AND
+        // imposible y devolvería cero resultados pagando la petición.
+        warnings.push('branch_subindustry_not_under_main');
+      }
+    }
+    warnings.push('macro_branch_request');
+  } else if (typeof input.subIndustryId === 'number') {
+    // Sub-industria: validar pertenencia. Si no pertenece, se descarta con warning.
     if (isSubIndustryValidForSector(sector.key, input.subIndustryId)) {
       effectiveSubId = input.subIndustryId;
     } else {
@@ -539,7 +601,9 @@ export async function executeLushaPreview(
     countryCode: input.countryCode,
     sector: sector.label,
     sectorKey: sector.key,
-    mainIndustriesIds: [sector.mainIndustryId],
+    // Lo que REALMENTE se pide, no lo que el sector implicaría: el resumen viaja a
+    // los metadatos del lote y es la única forma de auditar qué rama se ejecutó.
+    mainIndustriesIds: [effectiveMainIndustryId],
     subIndustryId: effectiveSubId,
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,
     hasSearchText,
@@ -560,7 +624,10 @@ export async function executeLushaPreview(
 
   const request = buildLushaPreviewRequest({
     countryName,
-    mainIndustriesIds: [sector.mainIndustryId],
+    // Exactamente UN main y a lo sumo UNA sub por petición: `subIndustriesIds` se
+    // combina en AND, así que varios mains en una rama sería una promesa de OR que
+    // el proveedor no cumple. La unión de ramas la hace el ejecutor.
+    mainIndustriesIds: [effectiveMainIndustryId],
     subIndustryId: effectiveSubId,
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,
     searchText: hasSearchText ? trimmedSearch : null,

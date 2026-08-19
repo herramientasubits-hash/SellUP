@@ -34,23 +34,28 @@
  * cuelgue de otro padre, que falte una macro— lo prueba
  * `validateLushaMacroSearchPlanCatalog` contra la captura real del proveedor.
  *
- * ── 🔴 Este módulo NO está cableado, y eso es el punto ────────────────────────
+ * ── 🟢 Cableado al EJECUTOR; 🔴 NO a la elegibilidad ──────────────────────────
  *
- * `resolveLushaMacroSearchPlan` NO es todavía la autoridad de elegibilidad de
- * proveedor. `LushaSectorKey`, el mapper de compatibilidad y el registry siguen
- * intactos y siguen mandando.
+ * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 cambió la mitad de esta nota, y
+ * hay que leer con cuidado CUÁL:
  *
- * La razón es de honestidad operativa: el ejecutor de hoy pagina UNA búsqueda
- * (`LUSHA_PENDING_REVIEW_MAX_PAGES`), no itera ramas. Si este catálogo mandara
- * ya, `energy_mining_environment` quedaría anunciada como soportada y se
- * ejecutaría como su PRIMERA rama solamente — devolvería petróleo y minería, y
- * callaría utilities y medio ambiente. Un fallo silencioso y sesgado es peor que
- * un `sector_not_mapped` ruidoso, porque el segundo se ve y el primero se
- * confunde con «Lusha no encontró más».
+ *   · 🟢 El ejecutor ya itera ramas (`resolveLushaExecutionBranches`), ya
+ *     deduplica entre ellas con un registro de corrida y ya reserva ramas × 2.
+ *     Así que este catálogo SÍ manda sobre lo que se le pide al proveedor.
+ *   · 🔴 `resolveLushaMacroSearchPlan` sigue NO siendo la autoridad de
+ *     elegibilidad. `LushaSectorKey`, el mapper de compatibilidad y el registry
+ *     siguen intactos y siguen decidiendo QUÉ rutas existen. El único puente es
+ *     `resolveLushaSearchPlanForSector`, cuya entrada es un sector YA admitido:
+ *     puede añadir ramas a una ruta viva y no puede abrir ninguna nueva.
  *
- * El cableado pertenece al PR del ejecutor multi-rama. Hasta entonces esto es
- * una DECLARACIÓN probada, y la degradación sigue siendo la de hoy: fail-closed
- * a `default_ai`.
+ * El motivo de conservar esa segunda mitad es el mismo que antes, invertido: si
+ * este catálogo decidiera elegibilidad hoy, `energy_mining_environment` quedaría
+ * anunciada como soportada sin que ningún sector la respalde. Las 12 rutas son el
+ * cableado del PR siguiente, y una prueba vigila que completitud del catálogo
+ * NO signifique elegibilidad de proveedor.
+ *
+ * Para una macro sin sector que la respalde la degradación sigue siendo la de
+ * hoy: fail-closed a `default_ai`.
  *
  * Puro: sin env, sin I/O, sin cliente de proveedor, sin DB.
  */
@@ -270,10 +275,11 @@ export const LUSHA_MACRO_SEARCH_PLANS: readonly LushaMacroSearchPlan[] = [
 /**
  * El plan de una macro industria, o `null` si no lo tiene.
  *
- * 🔴 NO es la autoridad de elegibilidad de proveedor. Ver la cabecera: mientras
- * el ejecutor sea de una sola rama, hacer que esto mande anunciaría soporte que
- * el sistema no puede cumplir. Una suite estática vigila que ningún módulo de
- * runtime importe este catálogo.
+ * 🔴 NO es la autoridad de elegibilidad de proveedor. Ver la cabecera: el
+ * ejecutor ya sabe ejecutar un plan, pero quién decide que una ruta exista sigue
+ * siendo el sector legacy. El único llamador de runtime autorizado es
+ * `resolveLushaSearchPlanForSector`, y una suite estática vigila esa lista de
+ * llamadores.
  */
 export function resolveLushaMacroSearchPlan(
   macroKey: MacroIndustryKey,
