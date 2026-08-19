@@ -51,9 +51,15 @@ import {
   executeLushaPreview,
   LUSHA_PREVIEW_TIMEOUT_MS,
 } from '@/server/prospect-batches/lusha-preview';
+// AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/15/25 — la capa GRATUITA,
+// idéntica para Apollo y para Lusha, que corre ANTES de que exista una reserva.
+import { runPrePaidNoveltyDiscovery } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
+import { LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES } from '@/server/prospect-batches/lusha-pending-review-limits';
+import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
   persistLushaPendingReviewBatch,
   buildLushaPendingReviewFailure,
+  buildLushaProviderNotRequiredResult,
   type LushaPendingReviewBatchRow,
   type LushaPendingReviewCandidateRow,
   type PersistLushaPendingReviewResult,
@@ -262,9 +268,61 @@ async function runGenerateLushaPendingReviewBatch(
   // § 12 — plan y responsabilidad económica salen de la MISMA fuente canónica.
   // Una macro admitida SIEMPRE tiene plan (la capacidad es la que lo garantiza),
   // así que aquí no puede aparecer un `null` que degradase la reserva a 2.
-  const searchPlan = resolveLushaRoutedSearchPlan(parsed.data.macroIndustryKey);
-  const requiredCredits = estimateLushaRunCredits(searchPlan);
   const { clientRequestId, ...searchInput } = parsed.data;
+
+  // ── AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/15 — TODO lo gratuito ──
+  //
+  // Va ANTES de `estimateLushaRunCredits` y ANTES de la reserva, y ese orden es el
+  // hito entero. La corrida real del 2026-08-19 hizo lo contrario: reservó 6
+  // créditos, los gastó, y sólo entonces descubrió que 24 empresas eran candidatos
+  // históricos activos, 10 duplicados exactos y 6 fuera de la macro — todo ello ya
+  // sabido en SellUp antes de preguntar. Cero empresas nuevas por $0.529.
+  //
+  // Fail-open (§ 12): país sin fuente, fuente sin cablear, macro sin cobertura o
+  // lectura caída terminan en `residualGap = requestedTarget`, y desde ahí la ruta
+  // de pago se comporta EXACTAMENTE como antes de este hito.
+  const requestedTarget = LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES;
+  const countryName =
+    LATAM_COUNTRIES.find((c) => c.code === parsed.data.countryCode)?.name ??
+    parsed.data.countryCode;
+
+  // Las empresas gratuitas aceptadas se persisten por la ingesta CANÓNICA de
+  // fuentes (§ 13) dentro de este mismo runner —el MISMO que usa la ruta
+  // Apollo—, así que la capa previa al pago no puede divergir entre proveedores.
+  //
+  // `partialGapSupported: true` porque Lusha SÍ sabe aceptar un objetivo
+  // reducido: `resolveLushaTargetGap` lo recibe y `canAcceptLushaUsefulCandidate`
+  // lo hace cumplir dentro de cada página pagada. La ruta Apollo pasa `false` —
+  // ver la cabecera del runner.
+  const prePaid = await runPrePaidNoveltyDiscovery(await createClient(), {
+    countryCode: parsed.data.countryCode,
+    countryName,
+    macroIndustryKey: parsed.data.macroIndustryKey,
+    requestedTarget,
+    requestedByUserId: internalUserId,
+    partialGapSupported: true,
+  });
+
+  // § 15 — hueco cerrado gratis ⇒ ni estimación, ni reserva, ni credencial, ni
+  // cliente, ni petición. La salida ocurre AQUÍ, por encima de todo eso.
+  if (!prePaid.providerRequired) {
+    return buildLushaProviderNotRequiredResult({
+      batchId: prePaid.batchId,
+      createdCandidatesCount: prePaid.persistedCount,
+      targetGap: requestedTarget,
+      message:
+        prePaid.persistedCount > 0
+          ? `Se encontraron ${prePaid.persistedCount} empresas nuevas en fuentes oficiales, sin consultar proveedores de pago.`
+          : 'La búsqueda se resolvió con fuentes oficiales, sin consultar proveedores de pago.',
+    });
+  }
+
+  const searchPlan = resolveLushaRoutedSearchPlan(parsed.data.macroIndustryKey);
+  // 🔴 § 16 — la responsabilidad económica NO es el hueco. El planificador del
+  // proveedor sigue decidiéndola desde su plan de ramas (2/4/6), porque con hueco
+  // 1 una rama puede necesitar dos páginas igual. Lo que el hueco cambia es
+  // cuántas empresas se ACEPTAN, no cuánto se reserva.
+  const requiredCredits = estimateLushaRunCredits(searchPlan);
 
   // §§ 5/6 — identidad de la corrida, ANTES del proveedor. `request_fingerprint`
   // describe lo pedido sin PII y sin nombres de empresa; el `idempotencyKey` que
@@ -299,6 +357,7 @@ async function runGenerateLushaPendingReviewBatch(
         routingPlan,
         searchPlan,
         baseCorrelation,
+        prePaid,
       }),
     requiredCredits,
   );
@@ -394,6 +453,12 @@ async function runLushaSearchWithReservation(args: {
   searchPlan: ReturnType<typeof resolveLushaRoutedSearchPlan>;
   /** Correlación de la corrida, ya construida antes de la reserva (§ 5). */
   baseCorrelation: ReturnType<typeof buildWizardRunCorrelation>;
+  /**
+   * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 11/14 — el plan gratuito ya
+   * resuelto. Aporta dos cosas y sólo dos: el hueco REAL que el ejecutor debe
+   * cerrar y los dominios que no hace falta volver a pagar.
+   */
+  prePaid: Awaited<ReturnType<typeof runPrePaidNoveltyDiscovery>>;
 }): Promise<GenerateLushaPendingReviewBatchActionResult> {
   const {
     searchInput,
@@ -403,6 +468,7 @@ async function runLushaSearchWithReservation(args: {
     routingPlan,
     searchPlan,
     baseCorrelation,
+    prePaid,
   } = args;
   const supabase = await createClient();
 
@@ -628,7 +694,13 @@ async function runLushaSearchWithReservation(args: {
                   request,
                 }),
             },
-            input,
+            {
+              ...input,
+              // § 11 — pista ECONÓMICA, no autoridad de dedupe. Es la única
+              // exclusión que el contrato verificado de Lusha V3 soporta; el
+              // dedupe local posterior sigue corriendo entero.
+              excludeDomains: prePaid.exclusionDomains,
+            },
           ),
         // Write dep #1 — prospect_batches ONLY.
         insertBatch: async (row: LushaPendingReviewBatchRow) => {
@@ -674,14 +746,20 @@ async function runLushaSearchWithReservation(args: {
       { internalUserId },
       // Q3F-5BB.11D — additive OBSERVATIONAL routing metadata (never gates).
       { routingMetadata, routingPlan },
-      // §§ 3/4/8 — ejecución de la corrida. `targetGap` NO se pasa: no existe
-      // todavía ninguna fuente de hueco aguas arriba (el descubrimiento por país
-      // es trabajo posterior), así que el ejecutor resuelve su objetivo por
-      // defecto y el comportamiento de producto no cambia. `creditsReserved` es
-      // sólo telemetría, para que el lote registre contra qué reserva corrió.
+      // §§ 3/4/8 — ejecución de la corrida.
+      //
+      // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 14 — `targetGap` YA existe:
+      // es el hueco que la capa gratuita dejó abierto. `resolveLushaTargetGap` lo
+      // recorta al objetivo de producto, así que un hueco sólo puede ser MENOR,
+      // nunca una vía para subir el gasto por parámetro. Con la fuente ausente o
+      // caída vale el objetivo entero y el comportamiento es el de siempre.
+      //
+      // 🔴 Esto NO toca la reserva: `requiredCredits` se calculó con el plan del
+      // proveedor (§ 16). El hueco gobierna cuántas empresas se aceptan.
       {
         plan: searchPlan,
         creditsReserved: reservation.creditsReserved,
+        targetGap: prePaid.residualGap,
       },
     );
 

@@ -109,6 +109,7 @@ function fixtureTelemetry(overrides: Partial<LushaRunTelemetry> = {}): LushaRunT
     branchCountAttempted: 3,
     providerRequestsAllowed: 6,
     providerRequestsUsed: 3,
+    pagesSkippedZeroNovelty: 0,
     maxRawResults: 60,
     rawResultsTotal: 30,
     crossBranchDuplicatesRemoved: 4,
