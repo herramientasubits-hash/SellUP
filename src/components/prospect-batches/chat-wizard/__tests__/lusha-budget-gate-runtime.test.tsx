@@ -99,6 +99,11 @@ const ENOUGH_FOR_LUSHA_ONLY: WizardBudgetPreflight = {
 type RenderOptions = {
   budgetPreflight?: WizardBudgetPreflight | null;
   runPersist?: (input: WizardLushaInput & { clientRequestId: string }) => Promise<never>;
+  /**
+   * MULTIBRANCH-EXECUTOR-1 § 25 — el sector de la corrida, porque el techo dejó de
+   * ser un número único: depende de las ramas del plan de esa macro industria.
+   */
+  input?: WizardLushaInput;
 };
 
 let calls: Array<WizardLushaInput & { clientRequestId: string }>;
@@ -113,7 +118,7 @@ function renderPanel(options: RenderOptions = {}) {
     });
   return render(
     <WizardLushaFinalSearch
-      input={INPUT}
+      input={options.input ?? INPUT}
       budgetPreflight={options.budgetPreflight ?? null}
       runPersist={runPersist as never}
       newClientRequestId={() => '11111111-2222-4333-8444-555555555555'}
@@ -247,5 +252,79 @@ describe('§ safety — la pantalla sigue sin prometer un costo fijo', () => {
   it('no hay auto-run: sin clic no se llama a nada', () => {
     renderPanel({ budgetPreflight: ENOUGH_FOR_LUSHA_ONLY });
     assert.equal(calls.length, 0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §§ 9/25 — el aviso previo es CONSCIENTE DEL PLAN
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// El techo de una corrida Lusha ya no es 2 para todo el mundo: una macro industria
+// compuesta ejecuta varias RAMAS y cada rama es una búsqueda paginada, así que su
+// peor caso son 4 o 6. Si el aviso siguiera diciendo 2, ofrecería corridas que la
+// reserva del servidor rechaza —y la usuaria vería «cabe» seguido de un bloqueo—.
+
+const inputForSector = (sectorKey: string): WizardLushaInput =>
+  ({ countryCode: 'CO', sectorKey, searchText: null }) as unknown as WizardLushaInput;
+
+/** Instantánea con la tabla por sector, como la publica el servidor. */
+const withBySector = (available: number): WizardBudgetPreflight => ({
+  availableCredits: available,
+  requiredCreditsByProvider: { tavily: 20, apollo_organizations: 25 },
+  lushaRequiredCredits: 2,
+  lushaRequiredCreditsBySector: { technology: 2, healthcare: 6, education: 2 },
+});
+
+describe('§ 25 — cifras y bloqueo según las ramas del plan', () => {
+  it('macro de 1 rama (technology) muestra 2 requeridos', () => {
+    renderPanel({ budgetPreflight: withBySector(10), input: inputForSector('technology') });
+    assert.equal(screen.getByTestId('lusha-budget-required').textContent, '2');
+  });
+
+  it('macro de 3 ramas (healthcare) muestra 6 requeridos', () => {
+    renderPanel({ budgetPreflight: withBySector(10), input: inputForSector('healthcare') });
+    assert.equal(screen.getByTestId('lusha-budget-required').textContent, '6');
+  });
+
+  it('🔴 con 5 disponibles la macro de 3 ramas se BLOQUEA y la de 1 no', () => {
+    // El caso exacto que el aviso de un solo número escondía: 5 alcanzan para 2 y
+    // no para 6, y antes las dos corridas se ofrecían igual.
+    renderPanel({ budgetPreflight: withBySector(5), input: inputForSector('healthcare') });
+    assert.equal((screen.getByTestId('lusha-preview-run') as HTMLButtonElement).disabled, true);
+    assert.match(
+      screen.getByTestId('lusha-budget-preflight-notice').textContent ?? '',
+      /no alcanza/i,
+    );
+    cleanup();
+
+    renderPanel({ budgetPreflight: withBySector(5), input: inputForSector('technology') });
+    assert.equal((screen.getByTestId('lusha-preview-run') as HTMLButtonElement).disabled, false);
+    assert.equal(screen.queryByTestId('lusha-budget-preflight-notice'), null);
+  });
+
+  it('un clic bloqueado por el techo del plan NO llega al servidor', () => {
+    renderPanel({ budgetPreflight: withBySector(5), input: inputForSector('healthcare') });
+    screen.getByTestId('lusha-preview-run').click();
+    assert.equal(calls.length, 0);
+  });
+
+  it('6 disponibles y 6 requeridos CABE (comparación estricta)', () => {
+    renderPanel({ budgetPreflight: withBySector(6), input: inputForSector('healthcare') });
+    assert.equal((screen.getByTestId('lusha-preview-run') as HTMLButtonElement).disabled, false);
+  });
+
+  it('sin tabla por sector se conserva el aviso de hoy (respaldo)', () => {
+    // Un cliente servido por un despliegue anterior mantiene su aviso en vez de
+    // quedarse sin ninguno.
+    renderPanel({ budgetPreflight: ENOUGH_FOR_LUSHA_ONLY, input: inputForSector('healthcare') });
+    assert.equal(screen.getByTestId('lusha-budget-required').textContent, '2');
+    assert.equal((screen.getByTestId('lusha-preview-run') as HTMLButtonElement).disabled, false);
+  });
+
+  it('Lusha sigue sin aparecer como proveedor elegible en la pantalla', () => {
+    // § 9 — nada de esto expone Lusha donde hoy está oculto.
+    renderPanel({ budgetPreflight: withBySector(10), input: inputForSector('healthcare') });
+    assert.equal(screen.queryByRole('radiogroup'), null);
+    assert.equal(screen.queryByLabelText(/proveedor/i), null);
   });
 });
