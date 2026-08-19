@@ -549,8 +549,15 @@ export type PhoneRevealWaterfallCreditReserverAndRunCreator = (args: {
   run: PhoneRevealWaterfallRunDraft;
 }) => Promise<PhoneRevealCreditReservationAndRunOutcome>;
 
-/** Deps de reserva compartidas por los DOS arranques (completo y legacy). */
-interface PhoneRevealWaterfallCreditReservationDeps {
+/**
+ * Deps de reserva compartidas por los TRES arranques: completo, legacy y —desde
+ * AGENT2A-SEARCH-MORE-PHONES-1— «Buscar más números».
+ *
+ * EXPORTADA para que la tercera modalidad reutilice el MISMO motor económico en vez de
+ * llevar una segunda implementación de «reservar y crear la corrida». Exportar el tipo no
+ * cambia nada de lo que hace: es el contrato que los tres cableados ya cumplían.
+ */
+export interface PhoneRevealWaterfallCreditReservationDeps {
   /** Presupuesto por proveedor, resuelto ANTES de reservar. Fail-closed. */
   readCreditPools: PhoneRevealWaterfallCreditPoolReader;
   /**
@@ -630,7 +637,7 @@ export type StartPhoneRevealWaterfallResult =
 // ── Reserva + corrida atómicas, compartidas por los dos arranques ──
 
 /** Desenlace del gate: o existe la corrida con su exposición, o hay un motivo. */
-type PhoneRevealWaterfallCreditGate =
+export type PhoneRevealWaterfallCreditGate =
   | {
       started: true;
       runId: string;
@@ -672,8 +679,14 @@ type PhoneRevealWaterfallCreditGate =
  *
  * `already_reserved` se traduce a `active_run_exists`: ese candidato ya tiene exposición
  * viva, así que hay una autorización en curso y no se abre una segunda.
+ *
+ * EXPORTADA en AGENT2A-SEARCH-MORE-PHONES-1. «Buscar más números» es la tercera modalidad
+ * pagada y necesita EXACTAMENTE esta secuencia —evaluación pura, reserva + corrida en una
+ * transacción, clave de idempotencia generada antes de la operación—. Reimplementarla
+ * habría sido una segunda ruta que puede dejar reservas huérfanas, que es el defecto que 4F
+ * cerró. La función no cambia: sólo deja de ser privada.
  */
-async function reserveWaterfallCreditsAndCreateRunOrBlock(args: {
+export async function reserveWaterfallCreditsAndCreateRunOrBlock(args: {
   mode: PhoneRevealCreditBudgetMode;
   candidateId: string;
   authorizedBy: string;
