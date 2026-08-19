@@ -1001,14 +1001,38 @@ describe('4O-H2 — alcance', () => {
       .map((f) => f.path)
       .sort();
     assert.deepEqual(implementors, [
+      // ── UI, y SÓLO la del candidato ────────────────────────────
+      // El CTA pagado, con su modal y su máquina de estados. Vive en su propio componente
+      // para que el drawer no crezca con ellos y para que sus garantías —el primer clic no
+      // gasta, el teléfono no desaparece— se puedan probar montándolo solo.
+      'src/components/contact-enrichment/candidate-search-more-phones-cta.tsx',
+      // El drawer del CANDIDATO en revisión, que lo monta por COMPOSICIÓN. Es la superficie
+      // correcta y la ÚNICA: un contacto ya aprobado no tiene corrida, ni reserva, ni
+      // candidato al que añadir números, así que el mismo botón allí prometería algo que no
+      // existe detrás. La primera aserción de este caso es la que lo vigila.
+      'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
       'src/components/contact-enrichment/search-more-phones-copy.ts',
-      // Los dos vocabularios compartidos: el `run_mode` de la corrida y las dos modalidades
-      // presupuestarias. Nombran `search_more` porque el valor VIVE ahí — y ninguno de los
+      // ── Escritura ──────────────────────────────────────────────
+      // Envoltorio de `append_candidate_search_more_phones` (mig. 122). Es un writer NUEVO y
+      // no el terminal de la 111/120 porque ése reescribe SIEMPRE el estado del reveal: en
+      // una corrida `search_more` pondría `phone_reveal_provider = 'lusha'` sobre un número
+      // que produjo Apollo y borraría su costo.
+      'src/modules/contact-enrichment/candidate-search-more-phone-append-persistence.ts',
+      // Los dos vocabularios compartidos: el `run_mode` de la corrida y la modalidad
+      // presupuestaria. Nombran `search_more` porque el valor VIVE ahí — y ninguno de los
       // dos pertenece a la superficie oficial.
       'src/modules/contact-enrichment/phone-reveal-credit-budget-core.ts',
       'src/modules/contact-enrichment/phone-reveal-waterfall-core.ts',
+      // ── Runtime ────────────────────────────────────────────────
+      // Las dos server actions: el preflight (0 gasto, es lo que lee la UI) y la compra.
+      'src/modules/contact-enrichment/search-more-phones-actions.ts',
       'src/modules/contact-enrichment/search-more-phones-core.ts',
       'src/modules/contact-enrichment/search-more-phones-planner.ts',
+      // LA lectura de preflight, que da los hechos al planificador. Sólo `SELECT`.
+      'src/modules/contact-enrichment/search-more-phones-read.ts',
+      // La secuencia que puede cobrar: reserva, privacidad, claim, UNA llamada, append,
+      // cierre. Es el único módulo de esta lista que llega a un proveedor.
+      'src/modules/contact-enrichment/search-more-phones-runtime.ts',
     ]);
   });
 
