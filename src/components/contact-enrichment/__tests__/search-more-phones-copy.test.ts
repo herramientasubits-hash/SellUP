@@ -1,10 +1,30 @@
 // Agente 2A — EL COPY de «Buscar más números», y su frontera con «Ver más números»
-// (AGENT2A-SEARCH-MORE-PHONES-1)
+// (AGENT2A-SEARCH-MORE-PHONES-1 · divulgación pre-clic desde 1J)
 //
 // Las dos operaciones viven a centímetros una de otra en el mismo panel: una es GRATIS y
 // abre lo ya guardado, la otra PAGA y consulta a un proveedor. El riesgo real no es un copy
 // feo, es que el operador confunda cuál es cuál. Esta suite vigila esa frontera en las DOS
 // direcciones, leyendo los dos archivos.
+//
+// ═══════════════════════════════════════════════════════════════════
+// 1J — LA CONFIRMACIÓN SE FUE; SUS ASERCIONES NO
+// ═══════════════════════════════════════════════════════════════════
+//
+// 1J retira el modal: «Buscar más números» es una acción DIRECTA. Con él se van cuatro
+// constantes (`SEARCH_MORE_CONFIRM_TITLE`, `…_BODY`, `…_CANCEL_LABEL`, `…_ACCEPT_LABEL`) y las
+// dos líneas del `<dl>` que sólo ese diálogo montaba (`getSearchMoreProviderLine`,
+// `getSearchMoreMaxCreditsLine`).
+//
+// NINGUNA de sus reglas se relaja: las tres que protegían algo real —nombrar a LUSHA, no
+// prometer un hallazgo, y presentar el techo como MÁXIMO y jamás como precio— se reafirman
+// aquí sobre `getSearchMoreCostDisclosure`, que es la línea que ahora se lee ANTES del clic.
+// Y la frase de honestidad sobrevive palabra por palabra bajo su nombre nuevo
+// (`SEARCH_MORE_COST_HONESTY_COPY`): sin diálogo intermedio es la ÚNICA advertencia del flujo,
+// así que se vigila MÁS, no menos.
+//
+// Lo que sí desaparece es la aserción de «las dos salidas, y cancelar es una de ellas»: no
+// hay diálogo del que salir, y el operador cancela no pulsando. Mantenerla habría exigido
+// conservar dos etiquetas de botones que no se renderizan.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,19 +35,14 @@ import { dirname, join } from 'node:path';
 import {
   SEARCH_MORE_CTA_LABEL,
   SEARCH_MORE_RUNNING_LABEL,
-  SEARCH_MORE_CONFIRM_TITLE,
-  SEARCH_MORE_CONFIRM_BODY,
-  SEARCH_MORE_CONFIRM_ACCEPT_LABEL,
-  SEARCH_MORE_CONFIRM_CANCEL_LABEL,
   SEARCH_MORE_NO_NEW_PHONES_COPY,
   SEARCH_MORE_EXHAUSTED_COPY,
   SEARCH_MORE_PROVIDER_ERROR_COPY,
   SEARCH_MORE_PRIVACY_BLOCKED_COPY,
   getSearchMoreSuccessCopy,
-  getSearchMoreProviderLine,
-  getSearchMoreMaxCreditsLine,
+  getSearchMoreCostDisclosure,
   getSearchMoreDisabledCopy,
-  SEARCH_MORE_CONFIRM_COST_WARNING,
+  SEARCH_MORE_COST_HONESTY_COPY,
   SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY,
 } from '../search-more-phones-copy';
 import { PHONE_REVEAL_IDENTITY_BLOCKED_COPY } from '@/modules/contact-enrichment/phone-reveal-identity-eligibility';
@@ -40,59 +55,90 @@ const searchMoreSource = readFileSync(SEARCH_MORE_FILE, 'utf8');
 const storedPhonesSource = readFileSync(STORED_PHONES_FILE, 'utf8');
 
 describe('AGENT2A-SEARCH-MORE-PHONES-1 · el costo se nombra ANTES del clic que gasta', () => {
-  it('la confirmación dice explícitamente que puede consumir créditos', () => {
-    assert.match(SEARCH_MORE_CONFIRM_COST_WARNING, /puede consumir créditos/i);
+  // La divulgación canónica del flujo: UN proveedor, el techo real de 5.
+  const DISCLOSURE = getSearchMoreCostDisclosure(['lusha'], 5);
+
+  it('la divulgación pre-clic dice explícitamente que puede consumir créditos', () => {
+    assert.match(SEARCH_MORE_COST_HONESTY_COPY, /puede consumir créditos/i);
   });
 
   it('la advertencia de costo cubre el caso en que Lusha NO encuentre nada', () => {
     // El punto entero de la frase. El desenlace más probable de esta compra es
     // `no_new_distinct_phone`: Lusha contesta, cobra, y devuelve lo que ya estaba. Si la
-    // confirmación no dice eso, el operador cree que sólo paga cuando gana algo.
-    assert.match(SEARCH_MORE_CONFIRM_COST_WARNING, /aunque/i);
-    assert.match(SEARCH_MORE_CONFIRM_COST_WARNING, /no encuentre/i);
+    // divulgación no dice eso, el operador cree que sólo paga cuando gana algo — y desde 1J
+    // no hay un diálogo detrás que se lo repita.
+    assert.match(SEARCH_MORE_COST_HONESTY_COPY, /aunque/i);
+    assert.match(SEARCH_MORE_COST_HONESTY_COPY, /no encuentre/i);
   });
 
-  it('la confirmación NO promete encontrar nada', () => {
-    // El resultado honesto más probable es que no haya números adicionales. Un copy que
-    // prometiera hallazgos dejaría al operador leyendo el resultado como un fallo.
-    assert.match(SEARCH_MORE_CONFIRM_BODY, /intentar/i);
-    assert.doesNotMatch(SEARCH_MORE_CONFIRM_BODY, /encontrarás|obtendrás|garantiza/i);
+  it('§9 el techo de 5 créditos se lee ANTES del clic, no dentro de un diálogo', () => {
+    // 1J: no hay confirmación, así que ésta es la única oportunidad de decir el techo.
+    assert.match(String(DISCLOSURE), /hasta 5 créditos/);
+    // Ni el techo de Apollo ni el del waterfall completo.
+    assert.doesNotMatch(String(DISCLOSURE), /8 créditos|13 créditos/);
   });
 
-  it('la confirmación NOMBRA a Lusha: el operador acepta un gasto concreto', () => {
+  it('la divulgación NOMBRA a Lusha: el operador autoriza un gasto concreto', () => {
     // v1 es Lusha-only, así que «otra fuente disponible» sería una abstracción innecesaria
     // sobre una decisión de compra. Se nombra el proveedor que se va a cobrar.
-    assert.match(SEARCH_MORE_CONFIRM_BODY, /lusha/i);
+    assert.match(String(DISCLOSURE), /lusha/i);
     assert.doesNotMatch(
-      SEARCH_MORE_CONFIRM_BODY,
+      String(DISCLOSURE),
       /apollo/i,
       'Apollo no se consulta en esta operación: nombrarlo sería falso',
     );
   });
 
-  it('la confirmación ofrece las DOS salidas, y cancelar es una de ellas', () => {
-    assert.equal(SEARCH_MORE_CONFIRM_CANCEL_LABEL, 'Cancelar');
-    assert.ok(SEARCH_MORE_CONFIRM_ACCEPT_LABEL.length > 0);
-    assert.notEqual(SEARCH_MORE_CONFIRM_CANCEL_LABEL, SEARCH_MORE_CONFIRM_ACCEPT_LABEL);
-  });
-
-  it('el techo se presenta como MÁXIMO, nunca como precio', () => {
-    assert.equal(getSearchMoreMaxCreditsLine(5), 'Máximo autorizado: 5 créditos.');
-    assert.equal(getSearchMoreMaxCreditsLine(1), 'Máximo autorizado: 1 crédito.');
-    for (const line of [getSearchMoreMaxCreditsLine(5), getSearchMoreMaxCreditsLine(8)]) {
-      assert.doesNotMatch(String(line), /costará|precio|cuesta/i);
+  it('la divulgación NO promete encontrar nada', () => {
+    // El resultado honesto más probable es que no haya números adicionales. Un copy que
+    // prometiera hallazgos dejaría al operador leyendo el resultado como un fallo.
+    for (const copy of [String(DISCLOSURE), SEARCH_MORE_COST_HONESTY_COPY]) {
+      assert.doesNotMatch(copy, /encontrarás|obtendrás|garantiza/i, copy);
     }
   });
 
-  it('un techo ausente o absurdo NO produce una línea de costo', () => {
+  it('el techo se presenta como MÁXIMO, nunca como precio', () => {
+    // Heredado de `getSearchMoreMaxCreditsLine`, que 1J retira con el `<dl>` del modal. La
+    // regla sobrevive: «hasta» es un techo; «costará» inventaría una cifra que sólo el
+    // proveedor conoce, y que suele ser menor.
+    assert.equal(getSearchMoreCostDisclosure(['lusha'], 5), 'Consulta con Lusha · hasta 5 créditos');
+    assert.equal(getSearchMoreCostDisclosure(['lusha'], 1), 'Consulta con Lusha · hasta 1 crédito');
+    for (const credits of [1, 5, 8]) {
+      assert.doesNotMatch(
+        String(getSearchMoreCostDisclosure(['lusha'], credits)),
+        /costará|precio|cuesta/i,
+      );
+    }
+  });
+
+  it('un techo ausente o absurdo NO produce divulgación, y por tanto NO produce botón', () => {
+    // Fail-closed. La UI trata este null como «no renderizar»: con el modal fuera, un botón
+    // pagado sin línea de costo sería un clic que gasta sin advertencia previa.
     for (const value of [0, -1, 2.5, Number.NaN]) {
-      assert.equal(getSearchMoreMaxCreditsLine(value), null, String(value));
+      assert.equal(getSearchMoreCostDisclosure(['lusha'], value), null, String(value));
     }
   });
 
   it('la fuente se nombra cuando se puede, y NUNCA se escribe «ninguna fuente»', () => {
-    assert.equal(getSearchMoreProviderLine(['lusha']), 'Fuente que se consultará: Lusha.');
-    assert.equal(getSearchMoreProviderLine([]), null, 'sin fuente, se omite la línea');
+    assert.equal(getSearchMoreCostDisclosure([], 5), null, 'sin fuente, no hay divulgación');
+  });
+
+  it('las cuatro constantes del modal NO pueden volver por la puerta de atrás', () => {
+    // 1J retira la confirmación. Reintroducir cualquiera de sus etiquetas sería el primer
+    // paso para volver a montar el diálogo sobre el drawer.
+    for (const removed of [
+      'SEARCH_MORE_CONFIRM_TITLE',
+      'SEARCH_MORE_CONFIRM_BODY',
+      'SEARCH_MORE_CONFIRM_ACCEPT_LABEL',
+      'SEARCH_MORE_CONFIRM_CANCEL_LABEL',
+      'SEARCH_MORE_CONFIRM_COST_WARNING',
+    ]) {
+      assert.equal(
+        searchMoreSource.includes(`export const ${removed}`),
+        false,
+        `${removed} pertenece al modal que 1J retira`,
+      );
+    }
   });
 
   it('NO existe una línea de «fuentes diferidas», porque sería una promesa falsa', () => {
@@ -184,15 +230,14 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · el resultado no afirma más de lo que 
   it('ningún copy de esta operación nombra a APOLLO', () => {
     for (const copy of [
       SEARCH_MORE_CTA_LABEL,
-      SEARCH_MORE_CONFIRM_TITLE,
-      SEARCH_MORE_CONFIRM_BODY,
-      SEARCH_MORE_CONFIRM_COST_WARNING,
+      SEARCH_MORE_RUNNING_LABEL,
+      SEARCH_MORE_COST_HONESTY_COPY,
       SEARCH_MORE_NO_NEW_PHONES_COPY,
       SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY,
       SEARCH_MORE_EXHAUSTED_COPY,
       SEARCH_MORE_PROVIDER_ERROR_COPY,
       getSearchMoreSuccessCopy(2),
-      String(getSearchMoreProviderLine(['lusha'])),
+      String(getSearchMoreCostDisclosure(['lusha'], 5)),
     ]) {
       assert.doesNotMatch(copy, /apollo/i, copy);
     }
@@ -235,8 +280,13 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · la frontera con «Ver más números»'
     assert.match(SEARCH_MORE_RUNNING_LABEL, /Buscando/);
   });
 
-  it('el título de la confirmación también dice BUSCAR', () => {
-    assert.match(SEARCH_MORE_CONFIRM_TITLE, /Buscar/);
+  it('la divulgación pre-clic tampoco reusa el verbo VER', () => {
+    // 1J retira el título del modal, que era donde antes se afirmaba el verbo por segunda
+    // vez. La línea que lo sustituye habla de CONSULTAR una fuente, que es lo que ocurre, y
+    // en ningún caso de VER algo ya guardado — el verbo del CTA gratuito de al lado.
+    const disclosure = String(getSearchMoreCostDisclosure(['lusha'], 5));
+    assert.match(disclosure, /^Consulta con/);
+    assert.doesNotMatch(disclosure, /\bVer\b/);
   });
 
   it('«Ver más números» sigue SIN usar ningún verbo de búsqueda', () => {

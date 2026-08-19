@@ -1090,9 +1090,10 @@ describe('4O-H2 — alcance', () => {
       // viejo en prosa.
       'src/app/api/debug/agent2a-phone-waterfall-config/route.ts',
       // ── UI, y SÓLO la del candidato ────────────────────────────
-      // El CTA pagado, con su modal y su máquina de estados. Vive en su propio componente
-      // para que el drawer no crezca con ellos y para que sus garantías —el primer clic no
-      // gasta, el teléfono no desaparece— se puedan probar montándolo solo.
+      // El CTA pagado, con su máquina de estados. Vive en su propio componente para que el
+      // drawer no crezca con ella y para que sus garantías —un clic produce UNA compra, el
+      // teléfono no desaparece— se puedan probar montándolo solo. Desde 1J ya no lleva modal:
+      // el clic ejecuta, y la divulgación de costo se lee antes de pulsar.
       'src/components/contact-enrichment/candidate-search-more-phones-cta.tsx',
       // El drawer del CANDIDATO en revisión, que lo monta por COMPOSICIÓN. Es la superficie
       // correcta y la ÚNICA: un contacto ya aprobado no tiene corrida, ni reserva, ni

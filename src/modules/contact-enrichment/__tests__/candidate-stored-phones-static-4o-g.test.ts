@@ -406,8 +406,8 @@ describe('4O-G — el copy no puede prometer una búsqueda', () => {
       'el copy de 4O-G tampoco: cada operación tiene su propio archivo de copy',
     );
 
-    // El drawer sí lo monta —es la superficie del CANDIDATO— pero por COMPOSICIÓN: el CTA, su
-    // modal y su máquina de estados viven en `candidate-search-more-phones-cta.tsx`.
+    // El drawer sí lo monta —es la superficie del CANDIDATO— pero por COMPOSICIÓN: el CTA y
+    // su máquina de estados viven en `candidate-search-more-phones-cta.tsx`.
     const sheet = executable(
       read('src/components/contact-enrichment/contact-candidate-detail-sheet.tsx'),
     );
@@ -419,7 +419,7 @@ describe('4O-G — el copy no puede prometer una búsqueda', () => {
     assert.equal(
       sheet.includes('searchMoreCandidatePhonesAction'),
       false,
-      'el drawer NO invoca la acción que paga: sólo el componente, y sólo tras confirmar',
+      'el drawer NO invoca la acción que paga: sólo el componente, y sólo desde su propio botón',
     );
   });
 });

@@ -1613,34 +1613,101 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · la acción no acepta overrides del cli
   });
 });
 
-describe('AGENT2A-SEARCH-MORE-PHONES-1 · el CTA sólo puede gastar tras confirmar', () => {
-  const cta = executable(
-    readFileSync(
-      join(moduleDir, '..', '..', 'components', 'contact-enrichment', 'candidate-search-more-phones-cta.tsx'),
-      'utf8',
-    ),
+// ═══════════════════════════════════════════════════════════════
+// 1J — EL CTA ES UNA ACCIÓN DIRECTA, Y EL MODAL NO PUEDE VOLVER
+// ═══════════════════════════════════════════════════════════════
+//
+// DOS ratchets de este bloque se INVIERTEN a propósito, y ninguno se borra:
+//
+//   * «la invocación vive dentro del handler de CONFIRMACIÓN» pasa a vivir dentro de
+//     `handleSearchMore`, el handler del propio botón. La propiedad que protegía —UN SOLO
+//     sitio de llamada, así que no hay un segundo camino capaz de gastar— se conserva
+//     INTACTA, y es la que sigue afirmándose con un conteo exacto;
+//   * «el `onClick` sólo abre el modal» se invierte a su contrario exacto: el `onClick`
+//     ejecuta. Es la decisión de producto de 1J, y sustituirla por nada habría dejado el
+//     `onClick` sin ninguna guarda.
+//
+// A cambio se AÑADE la guarda que 1J necesita y antes no existía: el fichero no puede montar
+// ningún diálogo. Sin ella, «quitamos el modal» sería una afirmación sobre un commit y no
+// sobre el código, y volver a montarlo no rompería nada.
+describe('AGENT2A-SEARCH-MORE-PHONES-1J · el CTA gasta en UN clic y sin diálogo', () => {
+  const ctaPath = join(
+    moduleDir,
+    '..',
+    '..',
+    'components',
+    'contact-enrichment',
+    'candidate-search-more-phones-cta.tsx',
   );
+  const cta = executable(readFileSync(ctaPath, 'utf8'));
 
   it('§14/§20.9 la acción que PAGA se invoca en UN solo sitio', () => {
     // La propiedad central del hito, afirmada sobre el fichero: UN solo sitio de llamada
-    // significa que no puede haber un segundo camino —un `onClick` directo, un efecto— que
-    // gaste sin pasar por la confirmación.
+    // significa que no puede haber un segundo camino —un efecto, un reintento automático—
+    // que gaste al margen del clic del operador.
     //
     // Se cuentan SITIOS DE LLAMADA (`nombre(`) y no apariciones del nombre: el fichero también
     // lo menciona en un `ReturnType<typeof …>`, que es una referencia de TIPO y se borra al
     // compilar. Contar nombres haría que añadir una anotación de tipo rompiera la guarda, y la
     // tentación entonces sería subir el número — es decir, aflojarla justo donde importa.
     const callSites = cta.split('searchMoreCandidatePhonesAction(').length - 1;
-    assert.equal(callSites, 1, 'UNA sola invocación, dentro de `handleConfirm`');
+    assert.equal(callSites, 1, 'UNA sola invocación, dentro de `handleSearchMore`');
     assert.match(
       cta,
-      /handleConfirm[\s\S]{0,900}searchMoreCandidatePhonesAction/,
-      'la invocación tiene que vivir dentro del handler de CONFIRMACIÓN',
+      /handleSearchMore[\s\S]{0,900}searchMoreCandidatePhonesAction/,
+      'la invocación tiene que vivir dentro del handler del BOTÓN',
     );
   });
 
-  it('§14 el CTA sólo ABRE el modal: su `onClick` no puede gastar', () => {
-    assert.match(cta, /onClick=\{\(\) => setConfirmOpen\(true\)\}/);
+  it('§3/§4 el `onClick` del CTA invoca la compra DIRECTAMENTE: no abre nada', () => {
+    // La inversión de 1J. Antes: `onClick={() => setConfirmOpen(true)}`.
+    assert.match(cta, /onClick=\{\(\) => void handleSearchMore\(\)\}/);
+    assert.equal(
+      cta.includes('setConfirmOpen'),
+      false,
+      'el estado del modal desaparece con el modal',
+    );
+  });
+
+  it('§3 el CTA no monta NINGÚN diálogo, ni de radix ni propio', () => {
+    // Se lee el fichero SIN comentarios (la prosa de arriba explica por qué se retiró el
+    // modal y nombrarlo ahí no puede contar como montarlo).
+    for (const forbidden of [
+      '@/components/ui/dialog',
+      '@/components/ui/alert-dialog',
+      '@/components/ui/sheet',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-alert-dialog',
+    ]) {
+      assert.equal(cta.includes(forbidden), false, `el CTA no puede importar ${forbidden}`);
+    }
+    for (const forbidden of [
+      '<Dialog',
+      '<AlertDialog',
+      '<DialogContent',
+      '<AlertDialogContent',
+      '<Sheet',
+      'DialogFooter',
+    ]) {
+      assert.equal(cta.includes(forbidden), false, `el CTA no puede renderizar ${forbidden}`);
+    }
+  });
+
+  it('§9 la divulgación de costo es FAIL-CLOSED: sin línea de costo no hay botón', () => {
+    // La guarda que sustituye al modal. Un clic que gasta exige que el techo y la fuente se
+    // hayan podido escribir; si no, no se pinta el botón — nunca se pinta sin la línea.
+    assert.match(cta, /getSearchMoreCostDisclosure/);
+    assert.match(cta, /if \(!costDisclosure\) return null;/);
+  });
+
+  it('§2 el CTA usa el botón SECUNDARIO canónico, no un enlace de texto', () => {
+    // El mismo `variant`/`size`/`className` que «Revelar teléfono», «Revisar resultado ahora»
+    // y el fallback manual de Lusha, que viven en este mismo panel. Antes era un `ghost` con
+    // `px-0` y `hover:underline`: la operación más cara del bloque con el peso visual más bajo.
+    assert.match(cta, /variant="outline"/);
+    assert.equal(cta.includes('variant="ghost"'), false);
+    assert.equal(cta.includes('hover:underline'), false);
+    assert.match(cta, /className="h-7 gap-1\.5 text-xs"/);
   });
 
   it('§15 el CTA no importa ningún cliente de proveedor ni el reservador de créditos', () => {
