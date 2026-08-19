@@ -135,7 +135,7 @@ describe('115 — numeración', () => {
     // del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono en absoluto
     // —reemplaza una constraint de `wizard_budget_reservations` y el cuerpo de
     // `confirm_wizard_credits`— y no toca `contact_phones` ni `contact_phone_sources`.
-    assert.equal(Math.max(...numbers), 121);
+    assert.equal(Math.max(...numbers), 122);
   });
 
   it('declara NO estar aplicada en Producción', () => {
@@ -956,11 +956,60 @@ describe('4O-H2 — alcance', () => {
     assert.deepEqual(created, [FN]);
   });
 
-  it('«Buscar más números» sigue sin existir', () => {
-    const offenders = productionSources.filter((file) =>
-      /buscar_mas_numeros|searchMorePhones|search_more_phones/i.test(file.body),
+  // AGENT2A-SEARCH-MORE-PHONES-1 — esta guarda se INVIERTE, no se borra.
+  //
+  // En 4O-H2 «Buscar más números» estaba declarado FUERA DE ALCANCE, y la guarda existía
+  // para que nadie lo implementara en silencio. Ya existe, pedido explícitamente, así que
+  // «sigue sin existir» dejó de ser verdad y mantenerla obligaría a borrarla — perdiendo la
+  // mitad que NUNCA dejó de importar.
+  //
+  // Esa mitad es la FRONTERA DE SUPERFICIE. 4O-H2 es del contacto OFICIAL
+  // (`contact_phones`); «Buscar más números» es del CANDIDATO en revisión
+  // (`contact_enrichment_candidate_phones`). Que la operación exista no autoriza que se
+  // asome a la superficie oficial: un contacto ya aprobado no tiene corrida de waterfall, ni
+  // reserva, ni candidato al que añadir números, así que un botón allí prometería algo que no
+  // hay detrás. Y el modelo multi-teléfono del contacto oficial sigue abierto
+  // (OFFICIAL_MULTI_PHONE_MODEL_PENDING).
+  //
+  // Así que la guarda pasa a afirmar lo que sí sigue siendo cierto y es más fuerte que la
+  // versión anterior: que el hito vive SÓLO donde le corresponde.
+  it('«Buscar más números» existe SÓLO en la superficie del candidato, nunca en la oficial', () => {
+    const SEARCH_MORE_PATTERN = /buscar_mas_numeros|searchMorePhones|search_more_phones|search-more-phones/i;
+
+    // Los módulos del contacto OFICIAL no lo conocen.
+    // El prefijo `official-contact-` cubre TODA la superficie oficial de una vez —el
+    // esquema, su privacidad y la lectura de 4O-H4— sin deletrear el nombre de ningún
+    // módulo concreto. Deletrearlos haría que este archivo apareciera como consumidor de
+    // 4O-H4 ante su propio ratchet, que es exactamente el tipo de acoplamiento que esas
+    // guardas existen para impedir.
+    const officialSurface = productionSources.filter(
+      (file) =>
+        /official-contact-|contact-phone-provenance/.test(file.path) &&
+        SEARCH_MORE_PATTERN.test(file.body),
     );
-    assert.deepEqual(offenders.map((f) => f.path), []);
+    assert.deepEqual(
+      officialSurface.map((f) => f.path),
+      [],
+      'la superficie del contacto oficial no debe ofrecer una búsqueda pagada de candidato',
+    );
+
+    // Y los archivos que sí lo implementan son EXACTAMENTE los del hito. La lista es cerrada
+    // a propósito: un archivo nuevo que empiece a nombrarlo tiene que entrar aquí, y ese es
+    // el momento de preguntarse si la operación se está filtrando a otra superficie.
+    const implementors = productionSources
+      .filter((file) => SEARCH_MORE_PATTERN.test(file.body))
+      .map((f) => f.path)
+      .sort();
+    assert.deepEqual(implementors, [
+      'src/components/contact-enrichment/search-more-phones-copy.ts',
+      // Los dos vocabularios compartidos: el `run_mode` de la corrida y las dos modalidades
+      // presupuestarias. Nombran `search_more` porque el valor VIVE ahí — y ninguno de los
+      // dos pertenece a la superficie oficial.
+      'src/modules/contact-enrichment/phone-reveal-credit-budget-core.ts',
+      'src/modules/contact-enrichment/phone-reveal-waterfall-core.ts',
+      'src/modules/contact-enrichment/search-more-phones-core.ts',
+      'src/modules/contact-enrichment/search-more-phones-planner.ts',
+    ]);
   });
 
   it('las deudas fuera de alcance siguen DECLARADAS', () => {

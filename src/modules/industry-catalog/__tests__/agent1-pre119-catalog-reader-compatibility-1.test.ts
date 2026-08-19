@@ -933,23 +933,29 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
   // Lo que ESTA guarda protege no es el número más alto del directorio —sube cada vez que un
   // bloque autorizado añade el suyo— sino que este hito de catálogo no aportó migración y que
   // la 119 siga siendo el cutover y sólo eso, que es lo que se afirma justo abajo.
-  it('la última migración del repositorio es la 121, y el catálogo no aportó ninguna', () => {
+  it('la última migración del repositorio es la 122, y el catálogo no aportó ninguna', () => {
     const files = execSync('ls supabase/migrations', { cwd: ROOT, encoding: 'utf8' })
       .split('\n')
       .filter((f) => f.endsWith('.sql'))
       .sort();
     const last = files[files.length - 1];
-    assert.match(last, /^121_/);
+    assert.match(last, /^122_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
     // pasa por el mismo barrido de tablas — así el techo no se puede subir «de paso».
     //   120 — supresión nativa del teléfono (Agente 2A).
     //   121 — liquidación del sobrepaso de presupuesto (Agente 1, contabilidad).
+    //   122 — «Buscar más números» (Agente 2A): la modalidad `search_more` y el writer que
+    //         AÑADE teléfonos a una colección cuyo reveal ya cerró. Toca
+    //         `phone_reveal_waterfall_runs` y las dos tablas de la colección de teléfonos;
+    //         no nombra ninguna tabla ni vista del catálogo, y el barrido de abajo es lo
+    //         que lo comprueba archivo por archivo en vez de creerle a este comentario.
     const aboveCatalog = files.filter((f) => Number.parseInt(f.slice(0, 3), 10) > 119);
     assert.deepEqual(aboveCatalog, [
       '120_provider_native_phone_suppression.sql',
       '121_wizard_budget_overage_reconciliation.sql',
+      '122_phone_reveal_search_more.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);
