@@ -155,6 +155,14 @@ import {
   PHONE_REVEAL_LIVE_REFRESH_COPY,
 } from './phone-reveal-live-refresh-core';
 import { usePhoneRevealLiveRefresh } from './use-phone-reveal-live-refresh';
+// Pestillo de solicitud del reveal asíncrono (ASYNC-UI-REFRESH-1). Núcleo PURO: la
+// política de "sigo esperando" no depende de React ni de ningún timer.
+import {
+  isPhoneRevealSubmissionAccepted,
+  isPhoneRevealSubmissionLatchActive,
+  PHONE_REVEAL_SUBMITTED_COPY,
+  PHONE_REVEAL_SUBMITTED_HELPER_COPY,
+} from './phone-reveal-submission-latch-core';
 import {
   shouldClearLocalPhoneRevealState,
   PHONE_REVEAL_LIVE_REFRESH_EXHAUSTED_COPY,
@@ -439,6 +447,17 @@ export function ContactCandidateDetailSheet({
   // (interés legítimo B2B). Todo el estado es local; la autoridad real (flag,
   // rol, costo, base, do_not_contact, re-reveal) vive en el server action.
   const [revealingPhone, setRevealingPhone] = React.useState(false);
+  /**
+   * Pestillo de solicitud (ASYNC-UI-REFRESH-1): se enciende en cuanto el servidor
+   * ACEPTA un envío y sólo se apaga cuando el servidor dice algo — en vuelo o
+   * terminal — o cuando el candidato deja de ser el de la pantalla.
+   *
+   * No es una segunda fuente de verdad sobre el reveal: es el único hecho que el
+   * servidor no puede contarnos todavía («este cliente ya pidió»). Sin él, entre el
+   * `finally` del handler y la llegada del refetch el drawer volvía a pintarse
+   * IDLE, y si ese refetch fallaba nadie volvía a mirar nunca.
+   */
+  const [phoneRevealSubmitted, setPhoneRevealSubmitted] = React.useState(false);
   const [phoneRevealError, setPhoneRevealError] = React.useState<string | null>(null);
   const [phoneRevealNotice, setPhoneRevealNotice] = React.useState<string | null>(null);
   // Guard síncrono contra doble clic: `revealingPhone` (estado) solo deshabilita
@@ -642,6 +661,7 @@ export function ContactCandidateDetailSheet({
     // servidor para el candidato que se está abriendo.
     setDurableMergeOffer(null);
     setRevealingPhone(false);
+    setPhoneRevealSubmitted(false);
     setPhoneRevealError(null);
     setPhoneRevealNotice(null);
     setRecoveringPhone(false);
@@ -947,6 +967,13 @@ export function ContactCandidateDetailSheet({
   function applyPhoneRevealResult(
     result: Awaited<ReturnType<typeof revealCandidatePhoneAction>>,
   ) {
+    // ASYNC-UI-REFRESH-1 — el pestillo se enciende ANTES de cualquier refetch, para
+    // los resultados que dejan una solicitud realmente en vuelo. Ese orden es el
+    // arreglo: el estado de espera pasa a existir en el mismo tick del resultado, sin
+    // depender de que la lectura posterior llegue, llegue a tiempo o llegue completa.
+    if (isPhoneRevealSubmissionAccepted(result.status)) {
+      setPhoneRevealSubmitted(true);
+    }
     switch (result.status) {
       case 'requested':
         toast.success('Revelación solicitada. Apollo puede tardar algunos minutos.');
@@ -1499,10 +1526,22 @@ export function ContactCandidateDetailSheet({
   // inicia reveals. Se apaga solo al llegar un estado terminal, al aparecer un
   // teléfono, al cerrar el drawer, al cambiar de candidato y al agotar su
   // presupuesto de tiempo (no hay bucle infinito ni setInterval).
+  // ASYNC-UI-REFRESH-1 — ventana entre "el servidor aceptó" y "la lectura lo
+  // refleja". Mientras dura, el CTA NO puede volver a parecer idle y el refresco
+  // automático tiene que estar encendido. Se DERIVA (no es un estado nuevo que
+  // limpiar): en cuanto el servidor confirma en vuelo o cierra el caso, se apaga
+  // solo, y con un teléfono en pantalla ya no hay nada que esperar.
+  const phoneRevealAwaitingConfirmation = isPhoneRevealSubmissionLatchActive({
+    submitted: phoneRevealSubmitted,
+    phoneRevealStatus: candidate?.phone_reveal_status ?? null,
+    hasPhone,
+  });
+
   const liveRefreshEligible = isPhoneRevealLiveRefreshEligible({
     phoneRevealStatus: candidate?.phone_reveal_status ?? null,
     hasPhone,
     busy,
+    submissionLatchActive: phoneRevealAwaitingConfirmation,
   });
   const { active: liveRefreshActive, budgetExhausted: liveRefreshExhausted } =
     usePhoneRevealLiveRefresh({
@@ -2228,10 +2267,17 @@ export function ContactCandidateDetailSheet({
                         // modalidades porque las dos pasan por la misma comprobación:
                         // el START de Apollo y la puerta previa a Lusha usan la misma
                         // resolución de identidad.
+                        // ASYNC-UI-REFRESH-1: con una solicitud ya aceptada el
+                        // botón queda inerte hasta que el servidor confirme. Es el
+                        // guard que faltaba: el ref de doble clic sólo cubre el
+                        // mismo tick, y `revealingPhone` se apaga en su `finally`,
+                        // así que sin esto quedaba una ventana real en la que un
+                        // segundo clic salía y podía gastar créditos de nuevo.
                         disabled={
                           busy ||
                           revealingPhone ||
                           revealingLegacyPhone ||
+                          phoneRevealAwaitingConfirmation ||
                           !phoneRevealIdentityEligible
                         }
                         // Un clic = una corrida. Con el waterfall activo se dispara la
@@ -2260,6 +2306,14 @@ export function ContactCandidateDetailSheet({
                                 ? 'Revelando…'
                                 : 'Solicitando…'}
                           </>
+                        ) : phoneRevealAwaitingConfirmation ? (
+                          // La solicitud ya fue aceptada y el servidor todavía no lo
+                          // refleja. El copy describe lo que está pasando de verdad
+                          // (se está buscando el teléfono) sin prometer un plazo.
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            {PHONE_REVEAL_SUBMITTED_COPY}
+                          </>
                         ) : (
                           <>
                             <PhoneCall className="h-3.5 w-3.5" />
@@ -2277,14 +2331,60 @@ export function ContactCandidateDetailSheet({
                       <p className="text-[11px] text-muted-foreground">
                         {!phoneRevealIdentityEligible
                           ? PHONE_REVEAL_IDENTITY_BLOCKED_COPY
-                          : waterfallActive
-                            ? waterfallAuthorizationCopy.helperText
-                            : `Consulta individual con Apollo. Puede consumir hasta ${PHONE_REVEAL_MAX_CREDITS} créditos y tardar algunos minutos.`}
+                          : // Con la solicitud ya aceptada, el copy de autorización
+                            // describiría un gasto que el usuario YA autorizó y que
+                            // este botón no va a repetir. Se dice en su lugar qué
+                            // está ocurriendo — y que la pantalla se actualiza sola.
+                            phoneRevealAwaitingConfirmation
+                            ? PHONE_REVEAL_SUBMITTED_HELPER_COPY
+                            : waterfallActive
+                              ? waterfallAuthorizationCopy.helperText
+                              : `Consulta individual con Apollo. Puede consumir hasta ${PHONE_REVEAL_MAX_CREDITS} créditos y tardar algunos minutos.`}
                       </p>
+                      {/* ASYNC-UI-REFRESH-1 — salida manual mientras la espera aún
+                          no está confirmada. Es la MISMA lectura de la base que el
+                          bloque en vuelo (0 proveedores, 0 créditos, 0 escrituras) y
+                          existe por lo mismo: el refresco automático está acotado, y
+                          cuando se agota el usuario tiene que poder mirar sin
+                          recargar el navegador — que es exactamente lo que acabó
+                          haciendo en la QA. */}
+                      {phoneRevealAwaitingConfirmation && (
+                        <div className="space-y-1.5 pt-0.5">
+                          {liveRefreshExhausted && (
+                            <p className="text-[11px] text-muted-foreground/70">
+                              {PHONE_REVEAL_LIVE_REFRESH_EXHAUSTED_COPY}
+                            </p>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            disabled={busy || refreshingFromDatabase}
+                            onClick={handleRefreshFromDatabase}
+                          >
+                            {refreshingFromDatabase ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Actualizando…
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                Actualizar desde SellUp
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      )}
                       {/* Desglose por proveedor + advertencias: lo que antes vivía en
                           el modal ahora precede al clic (4D). Solo con el waterfall
-                          activo — el flujo con flag OFF conserva su copy histórico. */}
-                      {waterfallActive && phoneRevealIdentityEligible && (
+                          activo — el flujo con flag OFF conserva su copy histórico. Con
+                          la solicitud ya aceptada se retira: describe una autorización
+                          que ya se dio y que este botón no va a volver a pedir. */}
+                      {waterfallActive &&
+                        phoneRevealIdentityEligible &&
+                        !phoneRevealAwaitingConfirmation && (
                         <>
                           {waterfallAuthorizationCopy.creditBreakdown && (
                             <>

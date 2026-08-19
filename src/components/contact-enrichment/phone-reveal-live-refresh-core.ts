@@ -51,20 +51,36 @@ export interface PhoneRevealLiveRefreshEligibilityInput {
   readonly hasPhone: boolean;
   /** `true` si hay una acción de aprobar/rechazar en curso. */
   readonly busy: boolean;
+  /**
+   * `true` mientras hay una solicitud ACEPTADA por el servidor que el estado leído
+   * todavía no refleja (ASYNC-UI-REFRESH-1; lo decide
+   * `isPhoneRevealSubmissionLatchActive`).
+   *
+   * Por qué existe: antes el refresco sólo podía arrancar si la lectura YA traía
+   * `requested`/`pending`. Esa lectura es justamente la que puede fallar, llegar
+   * tarde o adelantarse al START — y cuando fallaba nadie volvía a mirar, porque el
+   * único disparador del sondeo era el dato que faltaba. Con el pestillo, el
+   * refresco arranca por el HECHO de haber solicitado, no por haberlo leído.
+   *
+   * No relaja ninguna parada: el presupuesto de tiempo, el teléfono presente, el
+   * estado terminal y el cierre del drawer siguen apagándolo igual.
+   */
+  readonly submissionLatchActive?: boolean;
 }
 
 /**
  * Decide si el drawer debe refrescar el candidato por su cuenta.
  *
- * Fail-closed: cualquier estado desconocido, ausente o terminal devuelve `false`.
- * Un teléfono ya presente también apaga el refresco aunque el estado siguiera en
- * vuelo (el dato que se esperaba ya está en pantalla).
+ * Fail-closed: sin estado en vuelo leído y sin solicitud aceptada pendiente de
+ * confirmar, devuelve `false`. Un teléfono ya presente también apaga el refresco
+ * aunque el estado siguiera en vuelo (el dato que se esperaba ya está en pantalla).
  */
 export function isPhoneRevealLiveRefreshEligible(
   input: PhoneRevealLiveRefreshEligibilityInput,
 ): boolean {
   if (input.hasPhone) return false;
   if (input.busy) return false;
+  if (input.submissionLatchActive === true) return true;
   const status = input.phoneRevealStatus;
   if (typeof status !== 'string') return false;
   return (PHONE_REVEAL_LIVE_REFRESH_IN_FLIGHT_STATUSES as readonly string[]).includes(
