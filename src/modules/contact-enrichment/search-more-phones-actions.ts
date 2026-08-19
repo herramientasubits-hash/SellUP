@@ -146,6 +146,10 @@ function cleanCandidateId(value: unknown): string {
  *   0 llamadas a Lusha · 0 llamadas a Apollo · 0 corridas · 0 reservas
  *   0 usage logs · 0 créditos · 0 escrituras de ningún tipo
  *
+ * Desde 1K la cadena además AGREGA el presupuesto de Lusha, y eso no toca el contrato: leer
+ * `budget_rules`, `provider_usage_logs` y las reservas vivas son `SELECT`. Mirar cuánto saldo
+ * queda no ocupa saldo.
+ *
  * No es una promesa del comentario: la cadena entera —esta acción y
  * `readSearchMorePreflight`— sólo hace `SELECT`, no importa ningún cliente de proveedor y no
  * importa el reservador de créditos. Un test estático falla si alguna de esas importaciones
@@ -176,6 +180,11 @@ export async function getSearchMorePhonesPreflightAction(input: {
       // discrepar sobre si la función existe.
       featureEnabled: isSearchMorePhonesEnabled(),
       actorRoleKey: actor.roleKey,
+      // El presupuesto de Lusha se resuelve POR USUARIO (la regla se busca user → group →
+      // role → global), así que el preflight necesita al actor para poder mirar el pozo
+      // (AGENT2A-SEARCH-MORE-PHONES-1K). Es el MISMO id con el que el runtime reservará, de
+      // modo que el saldo que la UI promete y el que la reserva ocupa salen del mismo sitio.
+      actorInternalUserId: actor.internalUserId,
     });
     return { status: 'ok', summary: preflight.summary };
   } catch (err) {
