@@ -107,6 +107,7 @@ import {
   type SearchMoreProviderCallOutcome,
 } from './search-more-phones-core';
 import {
+  SEARCH_MORE_BUDGET_MODE,
   SEARCH_MORE_MAX_CREDITS,
   type SearchMoreIneligibleReason,
 } from './search-more-phones-planner';
@@ -227,6 +228,9 @@ export async function executeSearchMorePhonesForCandidate(args: {
       candidateId,
       featureEnabled,
       actorRoleKey: actor.roleKey,
+      // MISMO actor que reservará abajo (AGENT2A-SEARCH-MORE-PHONES-1K): el pozo que el plan
+      // evalúa y el que la transacción ocupa son el mismo, resuelto con el mismo id.
+      actorInternalUserId: actor.internalUserId,
     });
   } catch (err) {
     // FAIL-CLOSED. Una lectura que falló no autoriza nada, y se registra como fallo de
@@ -285,7 +289,13 @@ export async function executeSearchMorePhonesForCandidate(args: {
     gate = await reserveWaterfallCreditsAndCreateRunOrBlock({
       // SÓLO el pozo de Lusha se lee y sólo el de Lusha se ocupa. El presupuesto de Apollo
       // no puede bloquear esta operación ni quedar reservado por ella.
-      mode: 'search_more_lusha',
+      //
+      // La modalidad viene de la CONSTANTE que el preflight también usa
+      // (AGENT2A-SEARCH-MORE-PHONES-1K): de ella salen a la vez el proveedor cuyo pozo se
+      // mira y los créditos que se exigen, así que el plan no puede evaluar un pozo y la
+      // reserva ocupar otro. Y esta re-resolución NO se elimina: el preflight puede haber
+      // quedado obsoleto entre el render y el clic, y la autoridad es esta transacción.
+      mode: SEARCH_MORE_BUDGET_MODE,
       candidateId,
       authorizedBy: actor.internalUserId,
       deps: {

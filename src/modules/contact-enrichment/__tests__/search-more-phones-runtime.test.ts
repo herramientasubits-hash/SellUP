@@ -58,6 +58,7 @@ import {
   SEARCH_MORE_MAX_CREDITS,
   type SearchMorePlannerInput,
 } from '../search-more-phones-planner';
+import type { PhoneRevealCreditBudgetDecision } from '../phone-reveal-credit-budget-core';
 
 // ═══════════════════════════════════════════════════════════════
 // Red cortada de raíz
@@ -136,6 +137,8 @@ interface World {
   /** Verdictos de la puerta de privacidad, en orden. El último se repite. */
   privacyVerdicts: string[];
   privacyCalls: number;
+  /** Veredicto del pozo tal como lo resolvió la LECTURA de preflight. */
+  preflightBudgetDecision: PhoneRevealCreditBudgetDecision;
 
   /** Pozo de Lusha disponible. */
   lushaPoolAvailable: number;
@@ -215,6 +218,11 @@ function freshWorld(): World {
     privacyVerdicts: ['clear'],
     privacyCalls: 0,
     lushaPoolAvailable: 100,
+    // Lo que el PREFLIGHT vio del pozo (AGENT2A-SEARCH-MORE-PHONES-1K). Es un campo aparte de
+    // `lushaPoolAvailable` a propósito: el preflight y la reserva miran el presupuesto en dos
+    // instantes distintos, y el caso que importa —el saldo que se va ENTRE el render y el
+    // clic— sólo se puede expresar si los dos se pueden fijar por separado.
+    preflightBudgetDecision: 'authorized',
     reserveUnavailable: false,
     activeRuns: new Map(),
     authorizationKeys: new Set(),
@@ -271,6 +279,9 @@ function planFromWorld(privacyState: string) {
     hasActivePhoneRun: world.facts.hasActivePhoneRun,
     // El SERVIDOR nunca pasa `unknown`: la puerta real produce un hecho o `check_unavailable`.
     privacyState: privacyState as SearchMorePlannerInput['privacyState'],
+    // Igual que la privacidad: el veredicto del pozo entra como HECHO, y el planificador que
+    // decide es el REAL. Aflojar su gate de presupuesto rompe también esta suite.
+    budgetDecision: world.preflightBudgetDecision,
   };
   return planSearchMorePhones(input);
 }
@@ -738,6 +749,59 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · runtime · nada se gasta sin autorizac
     assert.equal(world.lushaCalls.length, 0, 'sin exposición reservada NO se llama');
     assert.equal(world.appendCalls, 0);
     assert.equal(result.maxCreditsAuthorized, null);
+  });
+
+  // ── 1K — el runtime sigue siendo LA autoridad sobre el dinero ──
+  //
+  // El preflight se volvió consciente del presupuesto para no ofrecer lo que no se puede
+  // pagar, y eso NO desplaza la decisión: entre el render y el clic pueden pasar minutos, así
+  // que el saldo que el operador vio puede haberse ido. Estos dos casos fijan las dos mitades
+  // de esa frontera.
+
+  it('CASO G — el preflight vio saldo y para el clic ya no lo hay ⇒ el runtime rechaza ANTES del proveedor', async () => {
+    // El plan que el runtime recomputa dice ELEGIBLE —el preflight de este mundo vio el pozo
+    // autorizado— pero la reserva mira el presupuesto de verdad y encuentra 4 créditos.
+    world.preflightBudgetDecision = 'authorized';
+    world.lushaPoolAvailable = 4;
+
+    const result = await run();
+
+    assert.equal(result.outcome, 'not_started');
+    assert.equal(
+      result.reason,
+      'insufficient_credits',
+      'un plan elegible NO es una autorización de gasto: la reserva atómica es la autoridad',
+    );
+    assert.equal(world.lushaCalls.length, 0, 'el proveedor no se llama con el saldo ya ido');
+    assert.equal(world.activeRuns.size, 0, 'sin reserva no hay corrida');
+    assert.equal(world.appendCalls, 0);
+    assert.equal(result.maxCreditsAuthorized, null);
+  });
+
+  it('CASO G (inverso) — un preflight que bloquea por presupuesto NO crea corrida ni reserva', async () => {
+    // La otra dirección: el pozo ya estaba bloqueado al leer, así que el runtime ni siquiera
+    // llega a la transacción. El motivo que devuelve es el MISMO código que el gate de la
+    // reserva usaría, para que la UI lo traduzca con una sola frase en los dos caminos.
+    world.preflightBudgetDecision = 'budget_not_configured';
+    world.lushaPoolAvailable = 1000;
+
+    const result = await run();
+
+    assert.equal(result.outcome, 'not_started');
+    assert.equal(result.reason, 'budget_not_configured');
+    assert.equal(world.activeRuns.size, 0);
+    assert.equal(world.lushaCalls.length, 0);
+    assert.equal(world.appendCalls, 0);
+  });
+
+  it('CASO E (runtime) — un presupuesto ILEGIBLE en el preflight tampoco autoriza', async () => {
+    world.preflightBudgetDecision = 'balance_unavailable';
+
+    const result = await run();
+
+    assert.equal(result.outcome, 'not_started');
+    assert.equal(result.reason, 'credit_balance_unavailable');
+    assert.equal(world.lushaCalls.length, 0);
   });
 
   it('§20.12 la escritura atómica NO disponible ⇒ 0 llamadas, y NO se culpa al saldo', async () => {
@@ -1463,11 +1527,23 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · el preflight sólo puede LEER', () => 
   });
 
   it('§3 la lectura de preflight NO importa ningún camino que gaste', () => {
+    // 1K RETIRA `phone-reveal-credit-budget-deps` de esta lista, y la inversión es
+    // deliberada. La lista original prohibía a la vez el RESOLVER del presupuesto y el
+    // RESERVADOR, es decir confundía «mirar cuánto saldo hay» con «ocuparlo»:
+    //
+    //   * `readPhoneRevealCreditPools` → `checkBudget` sólo agrega reglas, consumo y reservas
+    //     vivas con `SELECT`. Mirar el pozo no lo toca;
+    //   * `phone-reveal-credit-reservation-deps` es el que ESCRIBE la exposición, y sigue
+    //     prohibido aquí, igual que el `.rpc(` con el que se invocaría (caso de arriba).
+    //
+    // Prohibir el resolver es lo que dejó al preflight ciego al presupuesto mientras el
+    // runtime lo resolvía, y de ahí salió el CTA que Producción vio ofrecer una compra que el
+    // primer clic rechazaba. La garantía que esta suite protege —«mirar no gasta»— la sigue
+    // sosteniendo la ausencia de escrituras, no la ausencia de esta lectura.
     for (const forbidden of [
       'lusha-phone-fallback-client',
       'apollo',
       'phone-reveal-credit-reservation-deps',
-      'phone-reveal-credit-budget-deps',
       'usage-tracking/logging',
       'append_candidate_search_more_phones',
       'candidate-search-more-phone-append-persistence',
@@ -1476,6 +1552,46 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · el preflight sólo puede LEER', () => 
         read.includes(forbidden),
         false,
         `la lectura de preflight no puede alcanzar ${forbidden}`,
+      );
+    }
+  });
+
+  it('§1K la lectura de preflight resuelve el presupuesto con la cadena CANÓNICA', () => {
+    // La otra mitad de la inversión de arriba, y la que impide que el hito se deshaga en
+    // silencio: no basta con permitir el resolver, hay que EXIGIRLO. Si alguien lo quitara, el
+    // preflight volvería a autorizar un CTA sin haber mirado el pozo y ningún test de
+    // comportamiento lo notaría — el plan seguiría siendo elegible.
+    assert.match(read, /readPhoneRevealCreditPools/);
+    assert.match(read, /evaluatePhoneRevealCreditBudget/);
+    assert.match(
+      read,
+      /resolvePhoneRevealCreditBudgetProviders/,
+      'de QUIÉN se lee el pozo lo decide la modalidad, no una lista escrita a mano',
+    );
+    assert.match(
+      read,
+      /SEARCH_MORE_BUDGET_MODE/,
+      'la modalidad tiene que ser la MISMA constante con la que el runtime reserva',
+    );
+  });
+
+  it('§1K la lectura de preflight NO reimplementa la fórmula de disponibilidad', () => {
+    // El defecto simétrico del anterior: un preflight que restara por su cuenta
+    // `límite - consumo` sería una SEGUNDA implementación del presupuesto, se olvidaría de la
+    // exposición reservada, y volvería a divergir del SQL de la migración 104 — sólo que esta
+    // vez ofreciendo saldo ya comprometido por otra autorización en vuelo.
+    for (const forbidden of [
+      'limitCredits',
+      'consumedCredits',
+      'reservedCredits',
+      'availableCredits',
+      'budget_rules',
+      'provider_usage_logs',
+    ]) {
+      assert.equal(
+        read.includes(forbidden),
+        false,
+        `el preflight no puede calcular el saldo por su cuenta (${forbidden}): eso vive en el core`,
       );
     }
   });

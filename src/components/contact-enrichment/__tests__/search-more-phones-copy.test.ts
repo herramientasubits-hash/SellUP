@@ -44,6 +44,9 @@ import {
   getSearchMoreDisabledCopy,
   SEARCH_MORE_COST_HONESTY_COPY,
   SEARCH_MORE_NO_NEW_DISTINCT_PHONES_COPY,
+  SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY,
+  SEARCH_MORE_INSUFFICIENT_CREDITS_COPY,
+  SEARCH_MORE_BUDGET_UNAVAILABLE_COPY,
 } from '../search-more-phones-copy';
 import { PHONE_REVEAL_IDENTITY_BLOCKED_COPY } from '@/modules/contact-enrichment/phone-reveal-identity-eligibility';
 
@@ -311,6 +314,110 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · la frontera con «Ver más números»'
     const literals = [...searchMoreSource.matchAll(/'([^']*)'/g)].map((m) => m[1]);
     for (const literal of literals) {
       assert.doesNotMatch(literal, /\+\d{6,}|\d{7,}/, literal);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 1K — LOS TRES HECHOS DE PRESUPUESTO, Y QUE SIGUEN SIENDO TRES
+// ═══════════════════════════════════════════════════════════════
+//
+// El síntoma de Producción era una frase: «No pudimos iniciar la búsqueda. No se consumió
+// ningún crédito.» — el genérico del clic — para una condición que el servidor ya conocía
+// antes de pintar la pantalla. Estos casos fijan que cada uno de los tres hechos tenga su
+// propia frase, que ninguna afirme lo que no se comprobó, y que ninguna hable de la persona.
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1K · el presupuesto se explica sin mentir', () => {
+  const BUDGET_REASONS = [
+    'budget_not_configured',
+    'insufficient_credits',
+    'credit_balance_unavailable',
+  ] as const;
+
+  it('los tres motivos producen copy, y TRES cadenas DISTINTAS', () => {
+    const copies = BUDGET_REASONS.map((reason) => getSearchMoreDisabledCopy(reason));
+    for (const [index, copy] of copies.entries()) {
+      assert.ok(copy, `${BUDGET_REASONS[index]} tiene que poder explicarse`);
+    }
+    assert.equal(
+      new Set(copies).size,
+      3,
+      'colapsarlas mandaría al operador a la gestión equivocada: créditos vs configuración vs reintento',
+    );
+  });
+
+  it('«no hay presupuesto» NO habla de créditos: lo que falta es la regla', () => {
+    assert.equal(
+      getSearchMoreDisabledCopy('budget_not_configured'),
+      SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY,
+    );
+    assert.match(SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY, /presupuesto/i);
+    assert.doesNotMatch(
+      SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY,
+      /créditos suficientes|saldo insuficiente/i,
+      'mandar a conseguir créditos no desbloquearía nada: no hay regla contra la que reservar',
+    );
+  });
+
+  it('«no alcanza» SÍ habla de créditos, y nombra la fuente concreta', () => {
+    assert.equal(
+      getSearchMoreDisabledCopy('insufficient_credits'),
+      SEARCH_MORE_INSUFFICIENT_CREDITS_COPY,
+    );
+    assert.match(SEARCH_MORE_INSUFFICIENT_CREDITS_COPY, /créditos/i);
+    assert.match(SEARCH_MORE_INSUFFICIENT_CREDITS_COPY, /lusha/i);
+  });
+
+  it('«no se pudo verificar» no afirma NI que falte saldo NI que falte regla', () => {
+    assert.equal(
+      getSearchMoreDisabledCopy('credit_balance_unavailable'),
+      SEARCH_MORE_BUDGET_UNAVAILABLE_COPY,
+    );
+    assert.match(SEARCH_MORE_BUDGET_UNAVAILABLE_COPY, /no pudimos verificar/i);
+    assert.doesNotMatch(
+      SEARCH_MORE_BUDGET_UNAVAILABLE_COPY,
+      /no hay créditos|no hay presupuesto activo/i,
+      'no se pudo mirar el pozo: decir por qué sería inventarse el hecho',
+    );
+  });
+
+  it('ninguna de las tres dice nada sobre la PERSONA ni sobre su teléfono', () => {
+    for (const copy of [
+      SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY,
+      SEARCH_MORE_INSUFFICIENT_CREDITS_COPY,
+      SEARCH_MORE_BUDGET_UNAVAILABLE_COPY,
+    ]) {
+      assert.doesNotMatch(
+        copy,
+        /no tiene teléfono|sin teléfono|no encontramos|contacto no|privacidad/i,
+        `un hecho de tesorería no puede leerse como un hecho sobre el contacto: ${copy}`,
+      );
+      assert.doesNotMatch(copy, /apollo/i, copy);
+    }
+  });
+
+  it('ninguna de las tres expone la forma INTERNA del presupuesto', () => {
+    // Ni el id de la regla, ni su scope, ni el consumo exacto, ni el techo. El operador
+    // necesita saber qué hacer, no cómo está modelado el pozo.
+    for (const copy of [
+      SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY,
+      SEARCH_MORE_INSUFFICIENT_CREDITS_COPY,
+      SEARCH_MORE_BUDGET_UNAVAILABLE_COPY,
+    ]) {
+      assert.doesNotMatch(copy, /budget_rules|scope|regla id|uuid|[0-9a-f]{8}-[0-9a-f]{4}/i, copy);
+      assert.doesNotMatch(copy, /\d+\s*(créditos|crédito)/i, copy);
+    }
+  });
+
+  it('el genérico del clic NO es el copy de ninguna de las tres', () => {
+    // Ese texto existe para lo que de verdad se descubre al pulsar. Usarlo para una condición
+    // conocida ANTES del clic es exactamente lo que la QA de Producción vio.
+    for (const copy of [
+      SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY,
+      SEARCH_MORE_INSUFFICIENT_CREDITS_COPY,
+      SEARCH_MORE_BUDGET_UNAVAILABLE_COPY,
+    ]) {
+      assert.doesNotMatch(copy, /No pudimos iniciar la búsqueda/i, copy);
     }
   });
 });

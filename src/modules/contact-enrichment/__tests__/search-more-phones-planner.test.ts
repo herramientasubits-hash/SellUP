@@ -21,11 +21,18 @@ import assert from 'node:assert/strict';
 import {
   planSearchMorePhones,
   resolveSearchMoreNativeProviders,
+  SEARCH_MORE_BUDGET_MODE,
+  SEARCH_MORE_MAX_CREDITS,
   SEARCH_MORE_PROVIDER,
   SEARCH_MORE_PROVIDERS,
   type SearchMorePlannerInput,
 } from '../search-more-phones-planner';
-import { PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS } from '../phone-reveal-credit-budget-core';
+import {
+  evaluatePhoneRevealCreditBudget,
+  PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+  resolvePhoneRevealCreditBudgetProviders,
+  resolvePhoneRevealCreditBudgetRequiredCredits,
+} from '../phone-reveal-credit-budget-core';
 
 /** Un id de Apollo REAL en forma: 24 hex. En v1 NUNCA habilita nada. */
 const APOLLO_ID = 'a1b2c3d4e5f60718293a4b5c';
@@ -53,6 +60,10 @@ function eligibleInput(
     providersAlreadySearchedForMore: [],
     hasActivePhoneRun: false,
     privacyState: 'clear',
+    // El pozo de Lusha respalda el techo. Es un HECHO más del preflight desde 1K, y su
+    // default es «hay saldo» para que los casos de este archivo sigan hablando de lo que
+    // hablaban; los casos de presupuesto lo sobreescriben explícitamente.
+    budgetDecision: 'authorized',
     ...overrides,
   };
 }
@@ -429,5 +440,178 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · planificador', () => {
     const b = planSearchMorePhones(input);
     assert.deepEqual(a, b);
     assert.equal(JSON.stringify(input), snapshot, 'el planificador no muta su entrada');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 1K — EL PRESUPUESTO ES UN GATE MÁS, Y FALLA CERRADO
+// ═══════════════════════════════════════════════════════════════
+//
+// Hasta 1J este planificador no sabía nada del dinero: un candidato impecable devolvía un
+// plan ELEGIBLE aunque no existiera ninguna regla de crédito para Lusha, y el rechazo llegaba
+// después del clic. Los casos de abajo fijan que el veredicto del pozo entra como un hecho
+// más, que los tres rechazos se distinguen, y que el orden respecto de la privacidad es el
+// que le dice al operador la verdad más importante primero.
+
+describe('AGENT2A-SEARCH-MORE-PHONES-1K · el presupuesto en el planificador', () => {
+  it('CASO A — sin regla de crédito para Lusha ⇒ NO elegible, y lo dice como configuración', () => {
+    const plan = planSearchMorePhones(
+      eligibleInput({ budgetDecision: 'budget_not_configured' }),
+    );
+
+    assert.equal(
+      plan.eligible,
+      false,
+      'un plan elegible aquí es exactamente el CTA fantasma que Producción encontró',
+    );
+    assert.equal(plan.reason, 'budget_not_configured');
+    assert.equal(plan.phase, 'budget_blocked');
+    assert.deepEqual(plan.providersToTry, [], 'no se nombra una fuente que no se va a llamar');
+    assert.equal(plan.maxCreditRequirement, 0);
+    assert.equal(plan.budgetMode, null);
+    assert.equal(
+      plan.alreadyExhausted,
+      false,
+      'el candidato NO está agotado: lo que falta es presupuesto, y eso se arregla',
+    );
+  });
+
+  it('CASO B — el saldo no cubre el techo ⇒ NO elegible, y NO se confunde con falta de regla', () => {
+    const plan = planSearchMorePhones(
+      eligibleInput({ budgetDecision: 'insufficient_credits' }),
+    );
+
+    assert.equal(plan.eligible, false);
+    assert.equal(plan.reason, 'insufficient_credits');
+    assert.equal(plan.phase, 'budget_blocked');
+  });
+
+  it('CASO E — un presupuesto ILEGIBLE bloquea igual, sin afirmar cuál de los otros dos es', () => {
+    const plan = planSearchMorePhones(
+      eligibleInput({ budgetDecision: 'balance_unavailable' }),
+    );
+
+    assert.equal(plan.eligible, false, 'no haber podido mirar NUNCA es un permiso');
+    assert.equal(
+      plan.reason,
+      'credit_balance_unavailable',
+      'decir «no hay créditos» o «no hay regla» aquí sería declarar un hecho no comprobado',
+    );
+  });
+
+  it('CASOS C y D — con el pozo autorizado el plan es elegible y reserva la pata de Lusha', () => {
+    const plan = planSearchMorePhones(eligibleInput({ budgetDecision: 'authorized' }));
+
+    assert.equal(plan.eligible, true);
+    assert.deepEqual(plan.providersToTry, ['lusha']);
+    assert.equal(plan.maxCreditRequirement, SEARCH_MORE_MAX_CREDITS);
+    assert.equal(plan.budgetMode, SEARCH_MORE_BUDGET_MODE);
+  });
+
+  it('el techo del plan y lo que la MODALIDAD exige son el mismo número: 5', () => {
+    // Es la unión que hace honesta la paridad. Si el plan pidiera 5 y la modalidad exigiera
+    // otra cosa, el preflight evaluaría un requisito y la reserva ocuparía otro, y el CTA
+    // volvería a prometer lo que el runtime rechaza — por el camino contrario al de 1K.
+    assert.equal(
+      resolvePhoneRevealCreditBudgetRequiredCredits(SEARCH_MORE_BUDGET_MODE),
+      SEARCH_MORE_MAX_CREDITS,
+    );
+    assert.deepEqual(
+      [...resolvePhoneRevealCreditBudgetProviders(SEARCH_MORE_BUDGET_MODE)],
+      ['lusha'],
+      'esta modalidad no puede leer ni ocupar el pozo de ningún otro proveedor',
+    );
+  });
+
+  it('CASO F — la exposición RESERVADA cuenta: 5 disponibles con 5 ya reservados NO alcanza', () => {
+    // El veredicto se produce con el core CANÓNICO —el mismo que usa la reserva del runtime—
+    // sobre un pozo con reserva viva. Es la mitad que una aproximación `límite - consumo`
+    // perdería: 10 de límite, 0 consumido y 5 comprometidos por otra autorización en vuelo
+    // dejan 5, pero comprometer los mismos 5 dos veces es el sobregiro que la migración 104
+    // impide. Con 6 reservados ya ni siquiera empata.
+    const verdictWithReservation = evaluatePhoneRevealCreditBudget({
+      mode: SEARCH_MORE_BUDGET_MODE,
+      budget: {
+        model: 'per_provider',
+        pools: [
+          {
+            providerKey: 'lusha',
+            state: {
+              kind: 'configured',
+              limitCredits: 10,
+              consumedCredits: 0,
+              reservedCredits: 6,
+              scopeType: 'global',
+              scopeId: null,
+              periodStart: '2026-08-01T00:00:00.000Z',
+              periodEnd: '2026-08-31T23:59:59.999Z',
+            },
+          },
+        ],
+      },
+    });
+    assert.equal(verdictWithReservation.decision, 'insufficient_credits');
+
+    const plan = planSearchMorePhones(
+      eligibleInput({ budgetDecision: verdictWithReservation.decision }),
+    );
+    assert.equal(plan.eligible, false);
+    assert.equal(plan.reason, 'insufficient_credits');
+  });
+
+  it('la MISMA exposición sin reserva SÍ alcanza: lo que bloquea es lo comprometido', () => {
+    const verdict = evaluatePhoneRevealCreditBudget({
+      mode: SEARCH_MORE_BUDGET_MODE,
+      budget: {
+        model: 'per_provider',
+        pools: [
+          {
+            providerKey: 'lusha',
+            state: {
+              kind: 'configured',
+              limitCredits: 10,
+              consumedCredits: 0,
+              reservedCredits: 0,
+              scopeType: 'global',
+              scopeId: null,
+              periodStart: '2026-08-01T00:00:00.000Z',
+              periodEnd: '2026-08-31T23:59:59.999Z',
+            },
+          },
+        ],
+      },
+    });
+    assert.equal(verdict.decision, 'authorized');
+    assert.equal(planSearchMorePhones(eligibleInput({ budgetDecision: verdict.decision })).eligible, true);
+  });
+
+  it('la PRIVACIDAD se evalúa antes: un candidato suprimido lo dice, aunque además falte saldo', () => {
+    const plan = planSearchMorePhones(
+      eligibleInput({
+        privacyState: 'blocked_suppressed',
+        budgetDecision: 'budget_not_configured',
+      }),
+    );
+
+    assert.equal(plan.eligible, false);
+    assert.equal(
+      plan.reason,
+      'blocked_suppressed',
+      'un hecho sobre la persona no puede quedar tapado por uno de tesorería',
+    );
+  });
+
+  it('un bloqueo ANTERIOR gana al presupuesto: sin teléfono se sigue ofreciendo el reveal', () => {
+    // El orden importa hacia los dos lados. `no_stored_phone` tiene que seguir mandando al
+    // operador al botón correcto («Revelar teléfono»), no a una queja de presupuesto.
+    const plan = planSearchMorePhones(
+      eligibleInput({
+        storedUnsuppressedPhoneCount: 0,
+        budgetDecision: 'budget_not_configured',
+      }),
+    );
+
+    assert.equal(plan.reason, 'no_stored_phone');
+    assert.equal(plan.phase, 'no_phone_yet');
   });
 });

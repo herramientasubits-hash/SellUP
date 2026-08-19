@@ -191,6 +191,45 @@ export const SEARCH_MORE_PROVIDER_ERROR_COPY =
  */
 export const SEARCH_MORE_PRIVACY_BLOCKED_COPY = PHONE_REVEAL_IDENTITY_BLOCKED_COPY;
 
+// ── 4. El presupuesto (AGENT2A-SEARCH-MORE-PHONES-1K) ──────────
+//
+// Tres cadenas para tres hechos OPERATIVOS, y ninguna dice nada de la persona. Es la
+// distinción que gobierna este archivo aplicada a un caso nuevo: «no hay presupuesto»,
+// «no alcanza el saldo» y «no pudimos comprobarlo» son tres cosas distintas, y presentarlas
+// como una sola —o peor, como «no encontramos números»— convertiría un problema de tesorería
+// en una afirmación sobre el contacto.
+//
+// Las tres se muestran ANTES del clic y sin botón: son condiciones que el servidor ya conoce
+// al pintar la pantalla, así que ofrecer un botón que va a fallar y explicarlo después sería
+// gastar un clic del operador para contarle algo que ya se sabía. El genérico «No pudimos
+// iniciar la búsqueda. No se consumió ningún crédito.» sigue existiendo para lo que de
+// verdad se descubre al pulsar, no para esto.
+//
+// Ninguna nombra la regla, su scope, su id ni el consumo exacto: el operador necesita saber
+// qué hacer —esperar, pedir configuración, reintentar—, no la forma interna del presupuesto.
+
+/**
+ * NO hay regla de crédito para Lusha. El operador no tiene que conseguir créditos: tiene que
+ * pedir que un administrador configure el presupuesto, y por eso la frase no habla de saldo.
+ */
+export const SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY =
+  'Buscar más números no está disponible: no hay presupuesto activo para Lusha.';
+
+/**
+ * HAY regla, pero no cubre el techo de la pata. Aquí sí falta saldo, y decirlo así es lo que
+ * separa este caso del anterior: uno se arregla con créditos y el otro con configuración.
+ */
+export const SEARCH_MORE_INSUFFICIENT_CREDITS_COPY =
+  'No hay créditos suficientes de Lusha para buscar más números.';
+
+/**
+ * El presupuesto NO se pudo leer. Deliberadamente distinta de las dos anteriores: no se sabe
+ * si alcanza NI si existe regla, así que afirmar cualquiera de las dos sería inventarse un
+ * hecho. Bloquea igual, y no promete un reintento que no se puede garantizar.
+ */
+export const SEARCH_MORE_BUDGET_UNAVAILABLE_COPY =
+  'No pudimos verificar el presupuesto de Lusha.';
+
 /**
  * Copy del botón DESHABILITADO, por motivo. Devuelve null cuando el motivo no debe
  * producir un botón deshabilitado sino su AUSENCIA —`no_stored_phone`, donde lo correcto es
@@ -223,6 +262,16 @@ export function getSearchMoreDisabledCopy(
       return SEARCH_MORE_PRIVACY_BLOCKED_COPY;
     case 'invalid_candidate':
       return 'No pudimos identificar este candidato.';
+    // Los tres motivos de PRESUPUESTO. Se listan por separado —y no con un `case` compartido—
+    // porque el compilador es lo único que garantiza que sigan siendo tres: colapsarlos aquí
+    // sería perder en la última línea la distinción que el planificador y el gate del runtime
+    // mantienen a propósito en todo el camino.
+    case 'budget_not_configured':
+      return SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY;
+    case 'insufficient_credits':
+      return SEARCH_MORE_INSUFFICIENT_CREDITS_COPY;
+    case 'credit_balance_unavailable':
+      return SEARCH_MORE_BUDGET_UNAVAILABLE_COPY;
     default: {
       // Un motivo nuevo rompe la compilación: decidir qué se le dice al operador cuando una
       // compra se bloquea es una decisión de producto, no un default.

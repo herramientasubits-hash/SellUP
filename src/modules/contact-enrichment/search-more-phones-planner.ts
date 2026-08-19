@@ -58,10 +58,31 @@
 //
 // 3. FAIL-CLOSED. Cualquier duda devuelve NO elegible. Un dato ausente, un estado
 //    ilegible, una supresión no evaluable: todos bloquean. Nunca se degrada a «adelante».
+//
+// ═══════════════════════════════════════════════════════════════════
+// 4. Y EL PRESUPUESTO ES UN HECHO MÁS (AGENT2A-SEARCH-MORE-PHONES-1K)
+// ═══════════════════════════════════════════════════════════════════
+//
+// Hasta 1J este planificador decidía sobre el CANDIDATO —identidad, fuentes, privacidad— y
+// no sobre el DINERO. La consecuencia se vio en Producción: un candidato perfectamente
+// elegible mostraba el CTA pagado y el primer clic devolvía «No pudimos iniciar la
+// búsqueda», porque el runtime SÍ resolvía el pozo de Lusha y no había ninguna regla de
+// crédito activa. 0 llamadas y 0 créditos —el servidor hizo lo correcto— pero la afirmación
+// de la pantalla era falsa antes de pulsarla.
+//
+// Desde 1K el veredicto del presupuesto entra como un hecho más, con el MISMO tipo canónico
+// que el gate de reserva del runtime consume, y bloquea igual que los demás. El módulo sigue
+// siendo PURO: no lee el pozo, lo recibe.
+//
+// Esto NO desplaza la autoridad. El runtime vuelve a resolver el presupuesto y a reservar
+// dentro de la transacción, porque entre el render y el clic pueden pasar minutos y el saldo
+// que se vio puede haberse ido. El plan es una PROMESA HONESTA de la UI; la reserva atómica
+// sigue siendo la única autoridad.
 
 import { PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS } from './phone-reveal-waterfall-core';
 import {
   PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+  type PhoneRevealCreditBudgetDecision,
   type PhoneRevealCreditBudgetMode,
 } from './phone-reveal-credit-budget-core';
 
@@ -103,7 +124,16 @@ export type SearchMorePhase =
   /** Lusha ya fue consultada por adicionales en una corrida terminal. */
   | 'providers_exhausted'
   /** Bloqueo de privacidad (suprimido o no evaluable). Fail-closed. */
-  | 'privacy_blocked';
+  | 'privacy_blocked'
+  /**
+   * El pozo de Lusha no puede respaldar los 5 créditos que esta operación reserva
+   * (AGENT2A-SEARCH-MORE-PHONES-1K). Es una fase PROPIA y no `has_phone_no_provider_available`
+   * porque no dice nada del candidato: la fuente sigue ahí y la identidad también; lo que
+   * falta es saldo, configuración, o la lectura misma del presupuesto. Colapsarla en la fase
+   * de «no queda proveedor» le diría al operador que este contacto está agotado cuando lo
+   * que ocurre es que la plataforma no puede pagar.
+   */
+  | 'budget_blocked';
 
 /**
  * Por qué NO se puede. Vocabulario cerrado, PII-free y mecánico: viaja a la UI y al
@@ -139,7 +169,27 @@ export type SearchMoreIneligibleReason =
    * `source_contact_id`), así que no hay a quién consultar ni identidad sobre la que la
    * privacidad pudiera evaluarse. Es el mismo bloqueo que #291 puso en el reveal normal.
    */
-  | 'missing_person_identity';
+  | 'missing_person_identity'
+  // ── Presupuesto (AGENT2A-SEARCH-MORE-PHONES-1K) ──────────────
+  //
+  // Los TRES códigos son EXACTAMENTE los que el gate de reserva del runtime
+  // (`reserveWaterfallCreditsAndCreateRunOrBlock`) devuelve para esos mismos tres hechos. No
+  // se inventa un vocabulario paralelo, y no es cosmética: cuando el runtime bloquea, su
+  // motivo viaja como `not_started(reason)` y la UI lo traduce con el MISMO mapa de copy que
+  // usa para el plan. Un código distinto a cada lado obligaría a mantener dos traducciones
+  // del mismo bloqueo, y la que se olvidara caería en el genérico «No pudimos iniciar la
+  // búsqueda» — que es exactamente el síntoma que este hito elimina.
+  //
+  // Y NO se colapsan entre sí. Los tres deshabilitan igual, pero le dicen al operador cosas
+  // distintas: al primero le falta saldo, al segundo le falta que un administrador configure
+  // la regla, y del tercero no se sabe nada — afirmar cualquiera de los otros dos sería
+  // declarar un hecho que nadie comprobó.
+  /** Hay regla de crédito de Lusha, pero no cubre los 5 créditos de la pata. */
+  | 'insufficient_credits'
+  /** NO hay regla de crédito EN CRÉDITOS para Lusha: no hay disponibilidad que reservar. */
+  | 'budget_not_configured'
+  /** El presupuesto NO se pudo leer. Fail-closed, y sin afirmar cuál de los otros dos es. */
+  | 'credit_balance_unavailable';
 
 // ═══════════════════════════════════════════════════════════════════
 // 2. Entrada
@@ -203,6 +253,31 @@ export interface SearchMorePlannerInput {
   hasActivePhoneRun: boolean;
 
   privacyState: SearchMorePrivacyState;
+
+  /**
+   * Veredicto del PRESUPUESTO de Lusha, ya resuelto por quien llama
+   * (AGENT2A-SEARCH-MORE-PHONES-1K).
+   *
+   * Es el tipo CANÓNICO del core de crédito —el mismo valor que produce
+   * `evaluatePhoneRevealCreditBudget` y el mismo que el gate del runtime consume— y no un
+   * booleano ni un número de créditos disponibles, por dos razones:
+   *
+   *   * un booleano colapsaría «no alcanza», «no hay regla» y «no se pudo leer» en un solo
+   *     hecho, y son tres cosas distintas que el operador tiene que poder distinguir;
+   *   * un número obligaría a este módulo a repetir la fórmula
+   *     `limite - consumido - reservado` y a compararla contra su propio techo. Esa fórmula
+   *     ya vive en UN sitio (el core, espejo del SQL de la migración 104) y duplicarla aquí
+   *     es exactamente la divergencia que este hito existe para cerrar: el preflight
+   *     autorizaba un CTA que el runtime rechazaba porque el preflight NO miraba el pozo.
+   *
+   * Sigue siendo PURO: el veredicto llega como dato, igual que `privacyState`.
+   *
+   * NO admite un valor «todavía no lo sé». `privacyState` sí lo admite porque el cliente
+   * puede pintar antes de resolverla y el servidor revalida; el presupuesto lo resuelve
+   * SIEMPRE el servidor en la misma lectura que produce el plan, así que un estado
+   * permisivo aquí sólo podría servir para autorizar un CTA sin haber mirado el pozo.
+   */
+  budgetDecision: PhoneRevealCreditBudgetDecision;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -232,11 +307,24 @@ export const SEARCH_MORE_PROVIDER_MAX_CREDITS: Readonly<
   lusha: SEARCH_MORE_MAX_CREDITS,
 };
 
-/** Modalidad presupuestaria. Una pata, un pozo: el de Lusha, y sólo el de Lusha. */
-const SEARCH_MORE_BUDGET_MODE: Readonly<
+/**
+ * LA modalidad presupuestaria de esta operación. Una pata, un pozo: el de Lusha, y sólo el
+ * de Lusha.
+ *
+ * Se EXPORTA desde 1K porque tiene que ser la misma en los tres sitios que la usan —el
+ * preflight que decide si el CTA existe, el planificador que declara el plan, y la reserva
+ * atómica del runtime— y porque de ella salen a la vez el proveedor cuyo pozo se lee y los
+ * créditos que se exigen. Escrita tres veces como literal, la primera corrección movería una
+ * sola: el preflight miraría un pozo y el runtime reservaría contra otro, que es la clase de
+ * divergencia que este hito cierra.
+ */
+export const SEARCH_MORE_BUDGET_MODE: PhoneRevealCreditBudgetMode = 'search_more_lusha';
+
+/** Modalidad por proveedor. DERIVADA de la de arriba: no puede separarse de ella. */
+const SEARCH_MORE_BUDGET_MODE_BY_PROVIDER: Readonly<
   Record<SearchMoreProvider, PhoneRevealCreditBudgetMode>
 > = {
-  lusha: 'search_more_lusha',
+  lusha: SEARCH_MORE_BUDGET_MODE,
 };
 
 export interface SearchMorePlan {
@@ -422,6 +510,34 @@ export function planSearchMorePhones(input: SearchMorePlannerInput): SearchMoreP
     return NOT_ELIGIBLE('privacy_blocked', 'suppression_check_unavailable');
   }
 
+  // PRESUPUESTO, y es el ÚLTIMO gate (AGENT2A-SEARCH-MORE-PHONES-1K). Va después de todo lo
+  // que describe al CANDIDATO —identidad, fuentes, privacidad— y antes de declarar el plan
+  // elegible, por dos motivos:
+  //
+  //   * el orden decide qué motivo GANA cuando dos bloquean a la vez, y un candidato
+  //     suprimido tiene que decir que está suprimido aunque además falte saldo: el bloqueo de
+  //     privacidad es un hecho sobre la persona y el de presupuesto es operativo. Al revés,
+  //     un problema de tesorería taparía una restricción de privacidad;
+  //   * y porque es lo que el runtime hará de todos modos: sin exposición reservada no hay
+  //     corrida. Declarar elegible un plan que la reserva va a rechazar es exactamente el
+  //     CTA fantasma que este hito elimina.
+  //
+  // FAIL-CLOSED: sólo `authorized` continúa. Los otros tres bloquean con su motivo EXACTO, y
+  // el `default` —inalcanzable hoy— bloquea con el más incierto de los tres, que es el único
+  // que no afirma nada que no se haya comprobado.
+  if (input.budgetDecision !== 'authorized') {
+    switch (input.budgetDecision) {
+      case 'insufficient_credits':
+        return NOT_ELIGIBLE('budget_blocked', 'insufficient_credits');
+      case 'budget_not_configured':
+        return NOT_ELIGIBLE('budget_blocked', 'budget_not_configured');
+      case 'balance_unavailable':
+        return NOT_ELIGIBLE('budget_blocked', 'credit_balance_unavailable');
+      default:
+        return NOT_ELIGIBLE('budget_blocked', 'credit_balance_unavailable');
+    }
+  }
+
   // `candidates` tiene exactamente un elemento aquí: `nativeProviders` sale de un conjunto
   // de un solo proveedor y este punto sólo se alcanza si no quedó filtrado.
   const providerToTry = candidates[0];
@@ -434,7 +550,7 @@ export function planSearchMorePhones(input: SearchMorePlannerInput): SearchMoreP
     // El techo de ESA pata, no una suma. Nunca los 13 del waterfall completo ni los 8 de
     // Apollo: Apollo no corre bajo esta autorización.
     maxCreditRequirement: SEARCH_MORE_PROVIDER_MAX_CREDITS[providerToTry],
-    budgetMode: SEARCH_MORE_BUDGET_MODE[providerToTry],
+    budgetMode: SEARCH_MORE_BUDGET_MODE_BY_PROVIDER[providerToTry],
     alreadyExhausted: false,
   };
 }

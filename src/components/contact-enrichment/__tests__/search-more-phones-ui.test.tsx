@@ -112,8 +112,11 @@ import {
 } from '@/modules/contact-enrichment/search-more-phones-planner';
 import {
   getSearchMoreCostDisclosure,
+  SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY,
+  SEARCH_MORE_BUDGET_UNAVAILABLE_COPY,
   SEARCH_MORE_COST_HONESTY_COPY,
   SEARCH_MORE_CTA_LABEL,
+  SEARCH_MORE_INSUFFICIENT_CREDITS_COPY,
   SEARCH_MORE_RUNNING_LABEL,
 } from '../search-more-phones-copy';
 
@@ -289,6 +292,8 @@ interface PreflightFacts {
   providersAlreadySearchedForMore?: readonly string[];
   hasActivePhoneRun?: boolean;
   privacyState?: SearchMorePlannerInput['privacyState'];
+  /** Veredicto del pozo de Lusha (AGENT2A-SEARCH-MORE-PHONES-1K). Default: hay saldo. */
+  budgetDecision?: SearchMorePlannerInput['budgetDecision'];
 }
 
 /** Plan construido con el planificador REAL. Nunca a mano. */
@@ -305,6 +310,7 @@ function planFor(facts: PreflightFacts = {}): SearchMorePlan {
     providersAlreadySearchedForMore: facts.providersAlreadySearchedForMore ?? [],
     hasActivePhoneRun: facts.hasActivePhoneRun ?? false,
     privacyState: facts.privacyState ?? 'clear',
+    budgetDecision: facts.budgetDecision ?? 'authorized',
   });
 }
 
@@ -588,6 +594,132 @@ describe('SEARCH-MORE UI — cuándo existe «Buscar más números»', () => {
     assert.match(searchMoreCta()!.textContent ?? '', /buscar/i);
     assert.doesNotMatch(searchMoreCta()!.textContent ?? '', /^ver/i);
     assert.match(storedPhonesCta()!.textContent ?? '', /ver/i);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 1K — EL CTA PAGADO NO SE OFRECE SI EL POZO NO PUEDE RESPALDARLO
+// ═══════════════════════════════════════════════════════════════
+//
+// Lo que Producción encontró: el CTA se pintaba con su línea de costo, el operador pulsaba, y
+// la respuesta era «No pudimos iniciar la búsqueda. No se consumió ningún crédito.» — porque
+// no hay NINGUNA regla de crédito activa para Lusha y el runtime sí resolvía el pozo. Cero
+// gasto, pero la pantalla afirmaba algo que el servidor podía desmentir antes del clic.
+//
+// Estos casos afirman las dos mitades de la corrección: el botón NO se renderiza, y la línea
+// que ocupa su sitio dice CUÁL de los tres hechos de presupuesto ocurrió. Los tres son hechos
+// OPERATIVOS: ninguna de las tres frases dice nada sobre la persona ni sobre su teléfono.
+
+describe('SEARCH-MORE UI 1K — el presupuesto decide ANTES del clic', () => {
+  it('CASO A — todo elegible pero SIN presupuesto de Lusha ⇒ 0 botón y copy de no-configurado', async () => {
+    await renderSheetWith({ budgetDecision: 'budget_not_configured' });
+
+    assert.equal(
+      searchMoreCta(),
+      null,
+      'ofrecer la compra que el runtime ya puede rechazar es el defecto que 1K cierra',
+    );
+    await waitFor(() => {
+      if (screen.queryAllByText(SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY).length === 0) {
+        throw new Error('sin la línea de presupuesto no configurado');
+      }
+    });
+    // La línea de costo pertenece al botón: sin botón no puede quedarse suelta prometiendo
+    // una compra que no existe.
+    assert.equal(
+      screen.queryAllByText(new RegExp(SEARCH_MORE_COST_HONESTY_COPY, 'i')).length,
+      0,
+      'la divulgación de costo no sobrevive al botón que la justificaba',
+    );
+    assertNoProviderCalls('cuando no hay presupuesto configurado');
+    assertExistingPhoneVisible();
+  });
+
+  it('CASO B — hay regla pero NO alcanza ⇒ 0 botón y copy de créditos insuficientes', async () => {
+    await renderSheetWith({ budgetDecision: 'insufficient_credits' });
+
+    assert.equal(searchMoreCta(), null);
+    await waitFor(() => {
+      if (screen.queryAllByText(SEARCH_MORE_INSUFFICIENT_CREDITS_COPY).length === 0) {
+        throw new Error('sin la línea de créditos insuficientes');
+      }
+    });
+    // Y NO la del caso A: mandar al operador a conseguir créditos cuando lo que falta es la
+    // regla —o al revés— le hace perder el día en la gestión equivocada.
+    assert.equal(
+      screen.queryAllByText(SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY).length,
+      0,
+      'falta de saldo y falta de configuración NO se colapsan',
+    );
+    assertNoProviderCalls('cuando el saldo no cubre el techo');
+  });
+
+  it('CASO E — el presupuesto NO se pudo verificar ⇒ 0 botón, y no se afirma cuál de los otros dos', async () => {
+    await renderSheetWith({ budgetDecision: 'balance_unavailable' });
+
+    assert.equal(searchMoreCta(), null, 'un presupuesto ilegible NO autoriza una compra');
+    await waitFor(() => {
+      if (screen.queryAllByText(SEARCH_MORE_BUDGET_UNAVAILABLE_COPY).length === 0) {
+        throw new Error('sin la línea de presupuesto no verificable');
+      }
+    });
+    for (const forbidden of [
+      SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY,
+      SEARCH_MORE_INSUFFICIENT_CREDITS_COPY,
+    ]) {
+      assert.equal(
+        screen.queryAllByText(forbidden).length,
+        0,
+        'no se pudo mirar el pozo: afirmar por qué sería inventarse el hecho',
+      );
+    }
+    assertNoProviderCalls('cuando el presupuesto no se pudo leer');
+  });
+
+  it('CASOS C y D — con saldo JUSTO o de sobra el CTA sí se ofrece, con su divulgación', async () => {
+    // El veredicto llega ya resuelto por el core canónico, así que «justo» y «de sobra»
+    // producen el MISMO valor: lo que se afirma aquí es que un pozo que cubre el techo no
+    // bloquea nada, ni siquiera en el límite exacto.
+    await renderSheetWith({ budgetDecision: 'authorized' });
+
+    await waitFor(() => {
+      if (searchMoreCta() === null) throw new Error('CTA no renderizado con saldo suficiente');
+    });
+    await waitFor(() => {
+      if (screen.queryAllByText(new RegExp(SEARCH_MORE_COST_HONESTY_COPY, 'i')).length === 0) {
+        throw new Error('sin divulgación de costo');
+      }
+    });
+    // Ninguna de las tres líneas de presupuesto aparece cuando el pozo respalda la compra.
+    for (const forbidden of [
+      SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY,
+      SEARCH_MORE_INSUFFICIENT_CREDITS_COPY,
+      SEARCH_MORE_BUDGET_UNAVAILABLE_COPY,
+    ]) {
+      assert.equal(screen.queryAllByText(forbidden).length, 0);
+    }
+    assertNoProviderCalls('por renderizar el CTA con saldo');
+  });
+
+  it('CASO H — un bloqueo de presupuesto NO apila ningún diálogo sobre el drawer', async () => {
+    // 1J retiró el modal y 1K no lo devuelve por la puerta de atrás: un bloqueo se dice en la
+    // misma línea informativa, sin pedirle al operador que cierre nada.
+    await renderSheetWith({ budgetDecision: 'budget_not_configured' });
+    assertNoStackedDialog('con el presupuesto bloqueado');
+  });
+
+  it('la privacidad GANA al presupuesto: un bloqueo de la persona no se cuenta como de tesorería', async () => {
+    await renderSheetWith({
+      privacyState: 'blocked_suppressed',
+      budgetDecision: 'budget_not_configured',
+    });
+
+    assert.equal(searchMoreCta(), null);
+    assert.equal(
+      screen.queryAllByText(SEARCH_MORE_BUDGET_NOT_CONFIGURED_COPY).length,
+      0,
+      'un problema de presupuesto NO puede tapar una restricción de privacidad registrada',
+    );
   });
 });
 

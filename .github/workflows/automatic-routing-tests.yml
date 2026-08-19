@@ -2091,6 +2091,28 @@ jobs:
       - name: Run A2A search-more-phones UI tests
         run: npm run test:agent2a:search-more-phones-ui
 
+      # AGENT2A-SEARCH-MORE-PHONES-1K — la LECTURA de preflight, ejecutada de verdad.
+      #
+      # Producción encontró un CTA pagado que se ofrecía y cuyo primer clic devolvía «No
+      # pudimos iniciar la búsqueda»: el preflight resolvía candidato, colección, procedencia,
+      # corridas y privacidad, y NO el presupuesto, mientras el runtime sí lo resolvía antes de
+      # reservar. Dos conjuntos de hechos decidiendo la misma compra.
+      #
+      # Esta suite corre `readSearchMorePreflight` con el planificador REAL y el core de
+      # crédito REAL, y simula sólo la frontera de I/O —incluido `checkBudget`, para que el
+      # `readPhoneRevealCreditPools` que se ejercita sea el MISMO que usa la reserva. Fija:
+      #   * sin regla de crédito de Lusha (el estado REAL de Producción) ⇒ el plan NO es
+      #     elegible, y lo dice como configuración y no como falta de saldo;
+      #   * 4 disponibles ⇒ insuficiente; 5 exactos y más ⇒ elegible;
+      #   * una resolución que LANZA ⇒ `balance_unavailable`, que bloquea sin afirmar por qué;
+      #   * la EXPOSICIÓN YA RESERVADA resta igual que en la reserva atómica — una
+      #     aproximación `límite - consumo` ofrecería saldo comprometido por otra autorización;
+      #   * sólo se pregunta por el pozo de LUSHA, y con el actor que reservará;
+      #   * y mirar todo eso hace 0 llamadas de red y 0 escrituras de cualquier tipo.
+      #
+      # Offline y determinista: sin red, sin Supabase, sin proveedores, 0 créditos.
+      - name: Run A2A search-more-phones budget preflight parity tests
+        run: npm run test:agent2a:search-more-phones-budget
       # AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 — el filtrado económico deja de
       # ocurrir DESPUÉS de pagar.
       #
