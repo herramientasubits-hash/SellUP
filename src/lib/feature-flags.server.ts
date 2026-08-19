@@ -494,6 +494,31 @@ export function isLushaPhoneRevealFallbackEnabled(): boolean {
   return isEnvFlagEnabled(process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG]);
 }
 
+/**
+ * ¿La variable `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` EXISTE en este runtime?
+ *
+ * PRESENCIA, nunca el valor. Espejo EXACTO de `isPhoneRevealWaterfallFlagConfigured`, y
+ * existe por la misma razón: en Vercel estos flags son `type: sensitive`, así que su valor
+ * es ilegible para siempre (ni la API con `?decrypt=true` lo devuelve, ni hay `env get`) y
+ * `vercel env ls` sólo prueba presencia. Sin este par de señales, «la variable está
+ * ausente» y «la variable está presente con un valor que no es exactamente "true"» son
+ * indistinguibles — y las dos dejan el fallback de Lusha APAGADO.
+ *
+ * Motivo concreto por el que se añade (AGENT2A-SEARCH-MORE-PHONES-1E): con este flag OFF el
+ * planificador de «Buscar más números» devuelve `feature_disabled`, y el copy de ese motivo
+ * es `null` a propósito (§ «un permiso de producto apagado se resuelve NO RENDERIZANDO»,
+ * la lección de #287). El resultado visible es EXACTAMENTE «no hay CTA y no hay
+ * explicación», que es indistinguible a ojo de un defecto del preflight. Distinguir las dos
+ * cosas exige leer el flag en el runtime que se está mirando.
+ *
+ * Nunca devuelve, registra ni deriva el valor crudo — sólo su longitud tras `trim()`,
+ * reducida a un booleano.
+ */
+export function isLushaPhoneRevealFallbackFlagConfigured(): boolean {
+  const raw = process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG];
+  return typeof raw === 'string' && raw.trim().length > 0;
+}
+
 // ============================================================
 // Apollo → Lusha phone reveal WATERFALL (Agente 2A · AGENT2A-PHONE-WATERFALL-1)
 // ============================================================
