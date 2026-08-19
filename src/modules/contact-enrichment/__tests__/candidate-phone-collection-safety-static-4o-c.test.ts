@@ -222,17 +222,23 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // (Agente 1, contabilidad de presupuesto). No nombra ninguna tabla de teléfono, y el
       // barrido de más abajo —que ya cubre 118 y superiores— lo comprueba sobre su SQL
       // ejecutable en vez de fiarse de este número.
-      '121_wizard_budget_overage_reconciliation.sql',
-      'el techo conocido es la 121 (contabilidad de presupuesto), que no toca la cadena de teléfono 109–117',
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero NO edita la 110 ni ninguna otra de la cadena
+      // 109–117: añade la modalidad `search_more` y una función NUEVA, que es justo por
+      // qué no re-declara la 110 ni la 111.
+      '122_phone_reveal_search_more.sql',
+      'el techo conocido es la 122 («Buscar más números»), que no edita la cadena de teléfono 109–117',
     );
     assert.equal(
-      files.some((file) => /^1(2[2-9]|[3-9]\d)/.test(file)),
+      // La ventana sube con el techo DECLARADO arriba: la 122 está autorizada y nombrada,
+      // así que lo prohibido pasa a ser la 123 y superiores.
+      files.some((file) => /^1(2[3-9]|[3-9]\d)/.test(file)),
       false,
-      // La 120 y la 121 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
+      // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 122 o superior',
+      'ninguna migración 123 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus
@@ -285,7 +291,20 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     // candidato de origen Lusha deje de persistir teléfono sin comprobación alguna dentro
     // de la transacción final—. Exentarla y callar sería más débil que lo que sigue.
     const RESTATED_120 = '120_provider_native_phone_suppression.sql';
-    const BLIND_SWEEP_EXEMPT = new Set([RESTATED_120]);
+
+    // AGENT2A-SEARCH-MORE-PHONES-1 — la 122 queda EXENTA del barrido ciego por la MISMA
+    // razón que la 117 y la 120, y su límite se afirma directamente más abajo. Nombra la
+    // colección en SQL ejecutable porque «Buscar más números» AÑADE teléfonos a un
+    // candidato cuyo reveal ya cerró, y esa escritura es el hito.
+    //
+    // Lo que NO es: una ampliación del alcance de la 110/111. La 122 no las re-declara —y
+    // eso es justamente el punto—: el parche terminal de la 111 sería FALSO en una corrida
+    // `search_more` (atribuiría a Lusha un número que produjo Apollo y sobrescribiría el
+    // costo del reveal de Apollo), y como si el incumbente se conserva se decide bajo el
+    // lock, el llamador no puede evitarlo eligiendo parámetros. Así que la 122 aporta una
+    // función NUEVA y deja las dos anteriores intactas.
+    const SEARCH_MORE_122 = '122_phone_reveal_search_more.sql';
+    const BLIND_SWEEP_EXEMPT = new Set([RESTATED_120, SEARCH_MORE_122]);
 
     for (const file of files.filter(
       (f) => /^1(1[89]|[2-9]\d)/.test(f) && !BLIND_SWEEP_EXEMPT.has(f),
@@ -357,6 +376,73 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
           'una sentencia suelta sobre la cadena de teléfono no está autorizada',
       );
       at = exec120.indexOf('contact_enrichment_candidate_phones', at + 1);
+    }
+
+    // ── El límite de la 122, afirmado de forma DIRECTA ───────────────
+    assert.ok(files.includes(SEARCH_MORE_122), 'el fichero de la 122 no puede faltar');
+    const exec122 = stripSqlComments(
+      readFileSync(join(repoRoot, 'supabase/migrations', SEARCH_MORE_122), 'utf8'),
+    );
+
+    // 1. De las cuatro tablas de la cadena, la 122 sólo puede nombrar las DOS de staging
+    //    (la colección y su procedencia). Las oficiales y la auditoría legada siguen
+    //    prohibidas con la misma dureza: «Buscar más números» es del CANDIDATO en revisión,
+    //    y un contacto ya aprobado no tiene corrida ni reserva a las que colgar la
+    //    operación.
+    for (const table of PHONE_CHAIN_TABLES.filter(
+      (t) =>
+        t !== 'contact_enrichment_candidate_phones' &&
+        t !== 'contact_enrichment_candidate_phone_sources',
+    )) {
+      assert.ok(
+        !exec122.includes(table),
+        `la 122 no puede tocar ${table}: «Buscar más números» no llega a la cadena oficial`,
+      );
+    }
+
+    // 2. La 122 NO es dueña de la FORMA de la colección — eso siguen siendo la 109 y la
+    //    112—, así que no puede crearla, alterarla, borrarla ni vaciarla. En particular
+    //    `DELETE` está prohibido por la razón de la 109: borrar una fila borra un tombstone.
+    for (const verb of ['CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'TRUNCATE', 'DELETE FROM']) {
+      assert.ok(
+        !new RegExp(`${verb}[^;]*contact_enrichment_candidate_phone`, 'i').test(exec122),
+        `la 122 no puede ejecutar ${verb} sobre la colección`,
+      );
+    }
+
+    // 3. Y lo más importante: CADA mención de la colección tiene que estar DENTRO del
+    //    cuerpo de la función NUEVA. Una sentencia suelta —un backfill, un UPDATE de
+    //    migración— caería fuera y fallaría aquí. Se toma el límite por la etiqueta de
+    //    dollar-quote, no por un `END $$` fijo.
+    const APPEND_FN = 'append_candidate_search_more_phones';
+    const fnStart = exec122.indexOf(`CREATE OR REPLACE FUNCTION public.${APPEND_FN}(`);
+    assert.notEqual(fnStart, -1, `la 122 tiene que crear ${APPEND_FN}`);
+    const fnTag = /\bAS (\$[A-Za-z_]*\$)/.exec(exec122.slice(fnStart));
+    assert.ok(fnTag, `${APPEND_FN}: no se localizó la etiqueta de dollar-quote`);
+    const fnBodyStart = fnStart + (fnTag.index ?? 0) + fnTag[0].length;
+    const fnClose = exec122.indexOf(fnTag[1], fnBodyStart);
+    assert.notEqual(fnClose, -1, `${APPEND_FN}: dollar-quote sin cerrar`);
+
+    for (let at = exec122.indexOf('contact_enrichment_candidate_phone'); at !== -1; ) {
+      assert.ok(
+        at >= fnStart && at < fnClose + fnTag[1].length,
+        `la 122 menciona la colección FUERA del cuerpo de ${APPEND_FN} (offset ${at}): ` +
+          'una sentencia suelta sobre la cadena de teléfono no está autorizada',
+      );
+      at = exec122.indexOf('contact_enrichment_candidate_phone', at + 1);
+    }
+
+    // 4. Y NO re-declara las funciones de la 110/111. Si algún día lo hiciera, dejaría de
+    //    ser cierto que el camino del reveal existente queda intacto — que es el argumento
+    //    por el que este hito añade una función en vez de tocar las suyas.
+    for (const fn of [
+      'persist_candidate_apollo_phone_reveal_result',
+      'persist_candidate_lusha_phone_reveal_result',
+    ]) {
+      assert.ok(
+        !new RegExp(`CREATE (OR REPLACE )?FUNCTION public\\.${fn}`).test(exec122),
+        `la 122 no puede re-declarar ${fn}: su writer es una función NUEVA`,
+      );
     }
 
     // La 117 queda EXENTA del barrido de arriba porque sí toca la cadena — y por eso su

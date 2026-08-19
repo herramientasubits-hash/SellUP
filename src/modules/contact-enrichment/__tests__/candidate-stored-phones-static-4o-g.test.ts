@@ -383,13 +383,44 @@ describe('4O-G — el copy no puede prometer una búsqueda', () => {
     }
   });
 
-  it('todavía NO existe un CTA «Buscar más números», ni deshabilitado', () => {
-    // Un botón gris con ese texto ya anuncia una capacidad que no existe.
+  // INVERSIÓN DELIBERADA (AGENT2A-SEARCH-MORE-PHONES-1). Esta guarda decía «todavía NO
+  // existe un CTA "Buscar más números", ni deshabilitado», con el argumento correcto para su
+  // momento: un botón gris con ese texto anunciaba una capacidad que no existía.
+  //
+  // Ahora existe. Lo que se invierte es la PREMISA, no la protección: la regla que de verdad
+  // protegía algo era que 4O-G —la operación GRATUITA— no se contaminara con la pagada, y esa
+  // regla sobrevive intacta. El disclosure sigue sin poder nombrar la búsqueda, y sigue sin
+  // poder hablar de costo (lo fija el caso de arriba).
+  //
+  // Borrar el caso en vez de invertirlo dejaría sin vigilancia justo la frontera que este
+  // hito hace más frágil: los dos CTA viven a centímetros en el mismo panel.
+  it('«Buscar más números» vive en su PROPIO componente, nunca dentro del disclosure gratuito', () => {
+    assert.equal(
+      sources[DISCLOSURE].includes('Buscar más números'),
+      false,
+      'el disclosure GRATUITO no puede nombrar la operación pagada: es la confusión que separa VER de BUSCAR',
+    );
+    assert.equal(
+      sources[COPY].includes('Buscar más números'),
+      false,
+      'el copy de 4O-G tampoco: cada operación tiene su propio archivo de copy',
+    );
+
+    // El drawer sí lo monta —es la superficie del CANDIDATO— pero por COMPOSICIÓN: el CTA, su
+    // modal y su máquina de estados viven en `candidate-search-more-phones-cta.tsx`.
     const sheet = executable(
       read('src/components/contact-enrichment/contact-candidate-detail-sheet.tsx'),
     );
-    assert.equal(sheet.includes('Buscar más números'), false);
-    assert.equal(sources[DISCLOSURE].includes('Buscar más números'), false);
+    assert.equal(
+      sheet.includes('CandidateSearchMorePhonesCta'),
+      true,
+      'el drawer monta el CTA pagado por composición',
+    );
+    assert.equal(
+      sheet.includes('searchMoreCandidatePhonesAction'),
+      false,
+      'el drawer NO invoca la acción que paga: sólo el componente, y sólo tras confirmar',
+    );
   });
 });
 
@@ -446,13 +477,17 @@ describe('4O-G — alcance', () => {
     // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 a la 121 (contabilidad de presupuesto: la
     // liquidación TRUTHFUL del sobrepaso, sin relación con teléfono). 4O-G sigue sin
     // aportar ni editar SQL.
-    assert.equal(numbered[numbered.length - 1], 121);
+    // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números» (la
+    // modalidad `search_more` y el writer append-only). Toca la MISMA colección que 4O-G
+    // LEE, pero sólo la escribe: los módulos de 4O-G siguen siendo de sólo lectura y
+    // siguen sin aportar SQL, que es lo que esta guarda afirma.
+    assert.equal(numbered[numbered.length - 1], 122);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
     // historia, cuenta y techo coinciden, y esa coincidencia es en sí misma la guarda:
     // vuelve a fallar si alguien borra un archivo aplicado o cuela uno sin renumerar.
-    assert.equal(numbered.length, 121);
+    assert.equal(numbered.length, 122);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {
@@ -489,6 +524,28 @@ describe('4O-G — alcance', () => {
       // No importa nada: nombra el módulo para fijar que el barrido de P0-R4
       // sigue cubriéndolo. Es una guarda sobre 4O-G, no un consumidor suyo.
       'src/__tests__/use-server-export-contract-p0-r4.test.ts',
+      // SEARCH-MORE-PHONES-1: el copy de «Buscar más números». NO importa ningún módulo
+      // de 4O-G — sólo lo NOMBRA en un comentario, para explicar que su regla del verbo
+      // es el ESPEJO de la de 4O-G: allí ninguna cadena puede sugerir que se busca algo
+      // (la acción es gratis y abre lo ya guardado), y aquí el verbo tiene que ser BUSCAR
+      // porque la acción PAGA. Las dos viven a centímetros en el mismo panel.
+      'src/components/contact-enrichment/search-more-phones-copy.ts',
+      // Y su suite, que LEE el archivo de 4O-G con `readFileSync` —no lo importa— para
+      // afirmar la frontera en las DOS direcciones: que este copy diga BUSCAR y que el de
+      // 4O-G siga sin poder usar ningún verbo de búsqueda. Es exactamente la guarda que
+      // esta lista protege, aplicada desde el otro lado.
+      'src/components/contact-enrichment/__tests__/search-more-phones-copy.test.ts',
+      // SEARCH-MORE-PHONES-1B: la LECTURA de preflight de la operación pagada. NO importa
+      // ningún módulo de 4O-G — sólo NOMBRA `candidate-stored-phones-read.ts` en un comentario,
+      // para declarar que usa el MISMO patrón de lectura privilegiada (service role detrás de
+      // una acción que ya autenticó y ya exigió rol) en vez de inventar otro. Su propio
+      // contrato es idéntico al de 4O-G en lo que esta guarda protege: sólo `SELECT`.
+      'src/modules/contact-enrichment/search-more-phones-read.ts',
+      // Y su suite de UI, que MOCKEA la acción de resumen de 4O-G con `mock.module`. Registrar
+      // un mock no es importar el módulo en un camino de producción: es lo que le permite
+      // afirmar la propiedad que más importa de la frontera —que abrir el disclosure GRATUITO
+      // sigue costando 0 mientras el CTA PAGADO existe a su lado— sin ejecutar la lectura real.
+      'src/components/contact-enrichment/__tests__/search-more-phones-ui.test.tsx',
     ];
     const offenders = sourceFiles(join(repoRoot, 'src'))
       .map((absolute) => absolute.slice(repoRoot.length + 1))

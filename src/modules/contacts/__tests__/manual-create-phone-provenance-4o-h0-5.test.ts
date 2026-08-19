@@ -530,7 +530,10 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono
       // —toca `wizard_budget_reservations` y `confirm_wizard_credits`— y H0.5 sigue sin
       // aportar esquema.
-      '121_wizard_budget_overage_reconciliation.sql',
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      '122_phone_reveal_search_more.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

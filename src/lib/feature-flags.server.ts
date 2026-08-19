@@ -494,6 +494,87 @@ export function isLushaPhoneRevealFallbackEnabled(): boolean {
   return isEnvFlagEnabled(process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG]);
 }
 
+/**
+ * ¿La variable `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` EXISTE en este runtime?
+ *
+ * PRESENCIA, nunca el valor. Espejo EXACTO de `isPhoneRevealWaterfallFlagConfigured`, y
+ * existe por la misma razón: en Vercel estos flags son `type: sensitive`, así que su valor
+ * es ilegible para siempre (ni la API con `?decrypt=true` lo devuelve, ni hay `env get`) y
+ * `vercel env ls` sólo prueba presencia. Sin este par de señales, «la variable está
+ * ausente» y «la variable está presente con un valor que no es exactamente "true"» son
+ * indistinguibles — y las dos dejan el fallback de Lusha APAGADO.
+ *
+ * Motivo concreto por el que se añade (AGENT2A-SEARCH-MORE-PHONES-1E): con este flag OFF el
+ * planificador de «Buscar más números» devuelve `feature_disabled`, y el copy de ese motivo
+ * es `null` a propósito (§ «un permiso de producto apagado se resuelve NO RENDERIZANDO»,
+ * la lección de #287). El resultado visible es EXACTAMENTE «no hay CTA y no hay
+ * explicación», que es indistinguible a ojo de un defecto del preflight. Distinguir las dos
+ * cosas exige leer el flag en el runtime que se está mirando.
+ *
+ * Nunca devuelve, registra ni deriva el valor crudo — sólo su longitud tras `trim()`,
+ * reducida a un booleano.
+ */
+export function isLushaPhoneRevealFallbackFlagConfigured(): boolean {
+  const raw = process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG];
+  return typeof raw === 'string' && raw.trim().length > 0;
+}
+
+// ============================================================
+// «Buscar más números» — flag DEDICADO de rollout (Agente 2A ·
+// AGENT2A-SEARCH-MORE-PHONES-1H)
+// ============================================================
+
+/** Flag name constant for the dedicated «Buscar más números» rollout switch. */
+export const SEARCH_MORE_PHONES_FLAG = 'ENABLE_SEARCH_MORE_PHONES';
+
+/**
+ * Returns true when ENABLE_SEARCH_MORE_PHONES is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Default: false, fail-closed. This is the ONLY permiso de producto que gobierna la
+ * operación «Buscar más números» — el CTA del candidato, su preflight y su ejecución
+ * pagada (`getSearchMorePhonesPreflightAction`, `searchMoreCandidatePhonesAction`,
+ * `executeSearchMorePhonesForCandidate`).
+ *
+ * 1E→1H, un cambio de producto deliberado: hasta 1G, «Buscar más números» reutilizaba
+ * `isLushaPhoneRevealFallbackEnabled()` — el kill switch del fallback MANUAL de
+ * Lusha— con el argumento de que es "el kill switch real de cualquier reveal de
+ * Lusha". Eso acopla dos rollouts que el producto quiere independientes: encender
+ * «Buscar más números» para QA encendía TAMBIÉN el fallback manual, el
+ * `legacy_lusha_only` y la pata Lusha del waterfall — tres caminos pagados
+ * preexistentes que nadie pidió activar. Este flag rompe ese acoplamiento:
+ *
+ *   * ENABLE_SEARCH_MORE_PHONES gobierna EXCLUSIVAMENTE «Buscar más números»;
+ *   * ENABLE_LUSHA_PHONE_REVEAL_FALLBACK sigue gobernando EXACTAMENTE lo que
+ *     gobernaba antes de este hito — el fallback manual, un candidato a la vez—, y
+ *     no se lee en ningún punto de «Buscar más números» a partir de 1H.
+ *
+ * Ninguno de los dos activa al otro, en ninguna dirección: ver el test de
+ * independencia en `feature-flags.server.ts` §matrix y la guarda estática de
+ * `search-more-phones-flag-independence-static.test.ts`.
+ *
+ * No se ha añadido a Vercel en ningún entorno por este hito: con la variable ausente
+ * (el estado real hoy) el planificador de «Buscar más números» sigue devolviendo
+ * `feature_disabled`, exactamente como antes de este cambio — sólo cambia CUÁL
+ * variable hay que encender para autorizarlo cuando la dueña lo decida.
+ */
+export function isSearchMorePhonesEnabled(): boolean {
+  return process.env[SEARCH_MORE_PHONES_FLAG]?.trim().toLowerCase() === 'true';
+}
+
+/**
+ * ¿Existe la variable `ENABLE_SEARCH_MORE_PHONES` en este runtime?
+ *
+ * PRESENCIA, nunca el valor. Mismo motivo y misma forma que
+ * `isLushaPhoneRevealFallbackFlagConfigured` / `isPhoneRevealWaterfallFlagConfigured`:
+ * en Vercel estos flags son `type: sensitive`, así que sólo la presencia es legible
+ * desde fuera del runtime, nunca el contenido.
+ */
+export function isSearchMorePhonesFlagConfigured(): boolean {
+  const raw = process.env[SEARCH_MORE_PHONES_FLAG];
+  return typeof raw === 'string' && raw.trim().length > 0;
+}
+
 // ============================================================
 // Apollo → Lusha phone reveal WATERFALL (Agente 2A · AGENT2A-PHONE-WATERFALL-1)
 // ============================================================

@@ -1029,30 +1029,47 @@ describe('4O-F · § 32 — la suite está cableada al check obligatorio', () =>
 });
 
 describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => {
-  it('el PRINCIPAL sigue siendo el escalar, y BUSCAR más números sigue sin existir', () => {
-    // 4O-F declaró esta deuda como abierta y prohibía toda UI de la colección.
-    // AGENT2A-PHONE-REVEAL-4O-G la cierra a medias, y sólo a medias, así que la
-    // guarda se ESTRECHA en vez de borrarse — borrarla dejaría sin vigilancia la
-    // mitad que sigue pendiente.
+  it('el PRINCIPAL sigue siendo el escalar, y el drawer NO lee la colección por su cuenta', () => {
+    // 4O-F declaró esta deuda como abierta y prohibía toda UI de la colección. Cada hito
+    // posterior la ha ESTRECHADO en vez de borrarla, y éste hace lo mismo:
     //
-    // Lo que 4O-G SÍ hizo: mostrar en LECTURA los números adicionales ya
-    // almacenados, en un disclosure aparte. Eso ya no puede prohibirse aquí.
+    //   * 4O-G cerró la mitad de LECTURA (mostrar los números adicionales ya almacenados en
+    //     un disclosure aparte), así que eso dejó de prohibirse aquí;
+    //   * AGENT2A-SEARCH-MORE-PHONES-1 cierra la mitad PAGADA. «Buscar más números» ya
+    //     existe, está autorizado, y tiene su propia confirmación explícita con proveedor y
+    //     techo. La prohibición de su NOMBRE se levanta.
     //
-    // Lo que sigue prohibido, y es lo que esta prueba defiende:
-    //   * el drawer NO lee la colección por su cuenta — la lectura vive detrás de
-    //     una acción autorizada, no en el componente;
-    //   * el TELÉFONO PRINCIPAL que se muestra arriba sigue siendo el escalar del
-    //     candidato, no una elección hecha sobre la colección;
-    //   * «Buscar más números» NO existe. Ese sí gastaría, y no está autorizado.
+    // Lo que sigue prohibido, y es lo que esta prueba defiende — las dos mitades que ningún
+    // hito ha cerrado:
+    //   * el drawer NO lee la colección por su cuenta. La lectura vive detrás de una acción
+    //     autorizada, nunca en el componente: es lo que impide que la UI se convierta en un
+    //     segundo camino a las tablas de la 109;
+    //   * el TELÉFONO PRINCIPAL que se muestra arriba sigue siendo el ESCALAR del candidato,
+    //     no una elección hecha sobre la colección. Ésta es la mitad que de verdad sigue
+    //     abierta, y la que una corrida `search_more` podría romper sin darse cuenta: la 122
+    //     sincroniza el escalar sólo cuando el principal cambia legítimamente, así que si el
+    //     drawer empezara a elegir por su cuenta las dos autoridades podrían discrepar.
     const detail = readRepo('src/components/contact-enrichment/contact-candidate-detail-sheet.tsx');
-    for (const forbidden of [
-      'contact_enrichment_candidate_phones',
-      'Buscar más números',
-    ]) {
-      assert.equal(detail.includes(forbidden), false, `apareció «${forbidden}»`);
-    }
+    assert.equal(
+      detail.includes('contact_enrichment_candidate_phones'),
+      false,
+      'el drawer no puede nombrar la tabla de la colección: su lectura vive detrás de una acción',
+    );
     // El escalar sigue siendo la autoridad del número principal.
     assert.match(detail, /const phoneNumber = candidate\?\.phone \?\? phoneMeta\?\.number \?\? null;/);
+
+    // Y la operación pagada entra por COMPOSICIÓN: el drawer monta el componente, pero no
+    // contiene su modal, ni su máquina de estados, ni la invocación que cobra.
+    assert.equal(
+      detail.includes('CandidateSearchMorePhonesCta'),
+      true,
+      '«Buscar más números» ya existe, montado como componente propio',
+    );
+    assert.equal(
+      detail.includes('searchMoreCandidatePhonesAction'),
+      false,
+      'el drawer NO invoca la acción que paga: eso sólo ocurre tras confirmar, dentro del componente',
+    );
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H1 — este guarda se INVIERTE, no se borra.
@@ -1092,7 +1109,11 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación TRUTHFUL
     // del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono, y 4O-F
     // sigue reutilizando la 111 sin crear SQL nuevo — que es lo que esta guarda afirma.
-    assert.equal(numbered[numbered.length - 1], 121, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números». NO
+    // re-declara la 111 —ese es justo el punto: su writer es OTRA función, porque el parche
+    // terminal de la 111 sería falso en una corrida `search_more`—, así que 4O-F sigue
+    // reutilizando la 111 intacta, que es lo que esta guarda afirma.
+    assert.equal(numbered[numbered.length - 1], 122, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

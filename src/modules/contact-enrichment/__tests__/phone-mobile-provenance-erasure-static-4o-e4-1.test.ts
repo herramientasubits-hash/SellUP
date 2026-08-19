@@ -373,8 +373,11 @@ describe('4O-E4.1 estático — alcance', () => {
     // `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
     assert.equal(
       numbered[numbered.length - 1],
-      121,
-      'la 121 (contabilidad de presupuesto) es la última',
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      122,
+      'la 122 («Buscar más números») es la última',
     );
   });
 

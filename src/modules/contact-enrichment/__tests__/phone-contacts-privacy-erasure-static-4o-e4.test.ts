@@ -376,12 +376,16 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // teléfono — reemplaza una constraint de `wizard_budget_reservations` y el cuerpo de
       // `confirm_wizard_credits`— y no toca la allowlist del escalar que E4 fijó.
       '121_wizard_budget_overage_reconciliation.sql',
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      '122_phone_reveal_search_more.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
   });
 
-  it('la migración 121 (contabilidad de presupuesto) es la última del repo', () => {
+  it('la migración 122 («Buscar más números») es la última del repo', () => {
     // 4O-H2 mueve el techo de la 114 a la 115. Se sigue fijando un número EXACTO: una
     // migración por encima del último hito conocido tiene que romper esta guarda.
     const numbered = readdirSync(MIGRATIONS_DIR)
@@ -394,7 +398,7 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 a la 121 (contabilidad de presupuesto, sin
     // relación con teléfono). El número sigue siendo EXACTO: una migración no declarada
     // por encima del último hito conocido rompe esta guarda.
-    assert.equal(numbered[numbered.length - 1], 121);
+    assert.equal(numbered[numbered.length - 1], 122);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {
