@@ -84,7 +84,8 @@ const EMPTY_OK: PreviewLushaCompaniesActionResult = {
     country: 'Colombia',
     countryCode: 'CO',
     sector: 'Tecnología',
-    sectorKey: 'technology',
+    industryKey: 'technology',
+    macroIndustryKey: 'technology',
     mainIndustriesIds: [7],
     subIndustryId: null,
     sizeBand: { min: 201, max: 5000 },
@@ -175,7 +176,7 @@ const LUSHA_DECISION: WizardLushaCriteriaDecision = {
   reason: 'test',
   input: {
     countryCode: 'CO',
-    sectorKey: 'technology',
+    macroIndustryKey: 'technology',
     subIndustryId: null,
     sizeBandKey: '201-5000',
     searchText: CRITERIA_TEXT,

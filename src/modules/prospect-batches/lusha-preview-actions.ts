@@ -31,7 +31,18 @@ import {
 
 const PreviewInputSchema = z.object({
   countryCode: z.string().trim().min(2).max(4),
-  sectorKey: z.string().trim().min(1).max(40),
+  /**
+   * AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 8 — el techo sube de 40 a 64.
+   *
+   * Esta acción es superficie de COMPATIBILIDAD (el panel que la llama no se monta
+   * en ningún sitio) y su `sectorKey` transporta un sector legacy de diez
+   * caracteres, así que el 40 no rompía nada HOY. Se corrige igualmente porque era
+   * una trampa latente: la clave canónica más larga del catálogo Macro-v2 mide 43,
+   * y cualquiera que enrutase una macro por aquí mañana obtendría un rechazo de
+   * «parámetros inválidos» imposible de leer como un límite de longitud. 64 es un
+   * techo documentado con holgura sobre las claves canónicas.
+   */
+  sectorKey: z.string().trim().min(1).max(64),
   subIndustryId: z.number().int().positive().nullable().optional(),
   sizeBandKey: z.string().trim().max(20).nullable().optional(),
   // searchText avanzado/opcional — se acota para evitar payloads abusivos.
@@ -96,7 +107,7 @@ async function runPreviewLushaCompanies(
       resultsReturned: result.billing.resultsReturned,
       creditsCharged: result.billing.creditsCharged,
       country: result.requestSummary.countryCode,
-      sector: result.requestSummary.sectorKey,
+      sector: result.requestSummary.industryKey,
       hasSearchText: result.requestSummary.hasSearchText,
       warnings: result.warnings,
     });

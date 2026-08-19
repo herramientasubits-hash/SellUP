@@ -53,21 +53,24 @@ export type WizardBudgetPreflight = {
    */
   lushaRequiredCredits?: number | null;
   /**
-   * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 9 — techo de Lusha por SECTOR
-   * admitido.
+   * AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 12 — techo de Lusha por MACRO
+   * INDUSTRIA routable.
    *
-   * El techo dejó de ser un número único: una macro industria compuesta ejecuta
-   * varias RAMAS y cada rama es una búsqueda paginada, así que su peor caso es
-   * 2, 4 o 6 según el plan. La fila que aplica la elige el cliente cuando ya sabe
-   * qué sector resolvió el wizard.
+   * El techo no es un número único: una macro industria compuesta ejecuta varias
+   * RAMAS y cada rama es una búsqueda paginada, así que su peor caso es 2, 4 o 6
+   * según el plan. La fila que aplica la elige el cliente cuando ya sabe qué macro
+   * resolvió el wizard.
    *
-   * Claves = `sectorKey` que la autoridad legacy admite; nunca las 12 macro del
-   * catálogo, porque publicar las 12 anunciaría rutas que no existen.
+   * Claves = las macro industrias con plan canónico, que es exactamente el
+   * conjunto de rutas que existen. Sustituye a `lushaRequiredCreditsBySector`,
+   * cuyas claves eran los tres sectores legacy: con la ruta transportando claves
+   * de macro, ninguna fila coincidía y las doce macro caían al respaldo de 2 —
+   * anunciando un techo de 2 para corridas de 4 y 6.
    *
    * `null`/ausente ⇒ se usa `lushaRequiredCredits` (el techo de una rama) y, si
    * también falta, no se bloquea: la reserva atómica sigue siendo la autoridad.
    */
-  lushaRequiredCreditsBySector?: Record<string, number> | null;
+  lushaRequiredCreditsByMacroIndustry?: Record<string, number> | null;
 };
 
 /**
@@ -113,22 +116,22 @@ export function resolveWizardPreExecutionBudgetBlock(
  */
 export function resolveLushaPreExecutionBudgetBlock(
   preflight: WizardBudgetPreflight | null | undefined,
-  sectorKey?: string | null,
+  macroIndustryKey?: string | null,
 ): WizardBudgetPreflightBlock | null {
   if (!preflight) return null;
   return comparePreflightBudget(
     preflight.availableCredits,
-    resolveLushaPreflightRequiredCredits(preflight, sectorKey),
+    resolveLushaPreflightRequiredCredits(preflight, macroIndustryKey),
   );
 }
 
 /**
- * § 9 — cuántos créditos requiere ESTA corrida de Lusha según el aviso previo.
+ * § 12 — cuántos créditos requiere ESTA corrida de Lusha según el aviso previo.
  *
- * Precedencia: la fila del sector (consciente del plan: 2/4/6) y, cuando no hay
- * tabla o el sector no está en ella, el techo de una rama que el preflight ya
- * publicaba. Nunca se inventa un número: sin ninguno de los dos devuelve `null` y
- * el comparador no bloquea.
+ * Precedencia: la fila de la macro industria (consciente del plan: 2/4/6) y,
+ * cuando no hay tabla o la macro no está en ella, el techo de una rama que el
+ * preflight ya publicaba. Nunca se inventa un número: sin ninguno de los dos
+ * devuelve `null` y el comparador no bloquea.
  *
  * El respaldo importa: un cliente servido por un despliegue anterior —o una
  * lectura de período que falló a medias— conserva el aviso de hoy en lugar de
@@ -136,12 +139,12 @@ export function resolveLushaPreExecutionBudgetBlock(
  */
 export function resolveLushaPreflightRequiredCredits(
   preflight: WizardBudgetPreflight | null | undefined,
-  sectorKey?: string | null,
+  macroIndustryKey?: string | null,
 ): number | null | undefined {
   if (!preflight) return null;
-  const bySector = preflight.lushaRequiredCreditsBySector;
-  if (bySector && typeof sectorKey === 'string') {
-    const required = bySector[sectorKey];
+  const byMacro = preflight.lushaRequiredCreditsByMacroIndustry;
+  if (byMacro && typeof macroIndustryKey === 'string') {
+    const required = byMacro[macroIndustryKey];
     if (typeof required === 'number') return required;
   }
   return preflight.lushaRequiredCredits;

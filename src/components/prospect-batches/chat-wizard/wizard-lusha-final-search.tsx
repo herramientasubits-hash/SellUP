@@ -147,11 +147,16 @@ export function WizardLushaFinalSearch({
   // el que se muestra son el MISMO, y ahora dependen del plan de la macro
   // industria que el wizard resolvió: una macro compuesta ejecuta varias ramas y
   // su peor caso son 4 o 6 créditos, no 2. El número lo resolvió el servidor con
-  // la misma función que la reserva usa; aquí sólo se elige la fila del sector.
-  const budgetBlock = resolveLushaPreExecutionBudgetBlock(budgetPreflight, input.sectorKey);
+  // la misma función que la reserva usa; aquí sólo se elige la fila de la macro.
+  //
+  // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 12 — la fila se busca por
+  // `macroIndustryKey`, el MISMO vocabulario con el que la ruta decidió y con el
+  // que el servidor indexó la tabla. Antes se buscaba por `sectorKey`, así que las
+  // nueve macro sin sector equivalente no tenían fila y el aviso caía al respaldo.
+  const budgetBlock = resolveLushaPreExecutionBudgetBlock(budgetPreflight, input.macroIndustryKey);
   const budgetMessage = budgetBlock !== null ? mapBudgetExceeded(budgetBlock).message : null;
   const requiredCredits =
-    resolveLushaPreflightRequiredCredits(budgetPreflight, input.sectorKey) ?? null;
+    resolveLushaPreflightRequiredCredits(budgetPreflight, input.macroIndustryKey) ?? null;
   const availableCredits = budgetPreflight?.availableCredits ?? null;
 
   // IMPORTANTE: única vía de ejecución. Invocada solo por el onClick del botón.
@@ -229,7 +234,7 @@ export function WizardLushaFinalSearch({
     <div className="space-y-6" data-testid="wizard-lusha-final-search">
       <LockedCriteriaRecap
         countryCode={input.countryCode}
-        sectorKey={input.sectorKey}
+        macroIndustryKey={input.macroIndustryKey}
         searchText={input.searchText ?? ''}
         {...(recap ? { recap } : {})}
       />

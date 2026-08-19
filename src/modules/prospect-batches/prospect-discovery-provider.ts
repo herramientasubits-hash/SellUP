@@ -3,9 +3,15 @@
  *
  * Pure decision layer that picks the internal discovery provider for the
  * "Generar con IA" wizard. Lusha is a HIDDEN provider: the user never chooses
- * it. When the criteria are compatible (companies-by-criteria + a mapped sector
- * + a supported country) and the preview flag is on, the wizard runs Lusha
- * under the hood; otherwise it keeps the existing default behavior.
+ * it. When the criteria are compatible (companies-by-criteria + a ROUTABLE
+ * Macro-v2 industry + a supported country) and the preview flag is on, the wizard
+ * runs Lusha under the hood; otherwise it keeps the existing default behavior.
+ *
+ * AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 2/5/6 — la autoridad de industria de
+ * esta capa es ahora `resolveLushaMacroCapability`, derivada del catálogo
+ * Macro-v2. Las 12 macro aprobadas son elegibles; `education` no lo es, porque no
+ * es una de ellas. El vocabulario legacy `LushaSectorKey` ya no participa en
+ * ninguna decisión ejecutable de esta ruta.
  *
  * Design rules:
  *   - Pure: no side effects, no I/O, no env reads, no network, no DB.
@@ -15,7 +21,12 @@
  *     search click (elsewhere) is still the only thing that can call Lusha.
  */
 
-import { resolveLushaSectorOption } from '@/server/prospect-batches/lusha-sector-mapping';
+// AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 2/6 — la elegibilidad ya no la
+// decide el vocabulario legacy de tres sectores (`resolveLushaSectorOption`), sino
+// la MEMBRESÍA en el catálogo Macro-v2: una macro industria es Lusha-capaz si su
+// plan canónico existe. El módulo es puro (sin env, sin proveedor, sin DB) y
+// sigue siendo client-safe, igual que el mapper al que sustituye.
+import { resolveLushaMacroCapability } from '@/server/prospect-batches/lusha-macro-capability';
 import { resolveLushaCountryName } from '@/server/prospect-batches/lusha-preview';
 
 /**
@@ -81,8 +92,16 @@ export interface ProspectDiscoveryCriteria {
   lushaPreviewEnabled: boolean;
   /** Search type / mode. Only companies-by-criteria is Lusha-eligible. */
   searchType?: string | null;
-  /** Lusha sector key (e.g. 'healthcare'). Must map to a Lusha industry. */
-  sectorKey?: string | null;
+  /**
+   * AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 2 — clave canónica de macro
+   * industria (ej. `health_pharma`). Debe tener plan Lusha en el catálogo.
+   *
+   * Sustituye a `sectorKey`, que transportaba el vocabulario legacy de tres
+   * sectores. No se conserva un campo de compatibilidad a propósito: dos campos
+   * de industria en el mismo criterio serían dos taxonomías capaces de
+   * discrepar, que es justo lo que este hito retira (§ 5).
+   */
+  macroIndustryKey?: string | null;
   /** ISO2 country code (e.g. 'CO'). Must be a Lusha-supported country. */
   countryCode?: string | null;
 }
@@ -95,8 +114,8 @@ export interface ProspectDiscoveryDecision {
 
 /**
  * Pure predicate: are the given criteria Lusha-eligible? Eligibility is the
- * search-shape test — companies-by-criteria + a mapped sector + a supported
- * country — and is deliberately INDEPENDENT of the preview flag. The flag only
+ * search-shape test — companies-by-criteria + a routable Macro-v2 industry + a
+ * supported country — and is deliberately INDEPENDENT of the preview flag. The flag only
  * decides whether an eligible search runs (`lusha`) or is blocked
  * (`blocked_lusha_disabled`); it can never change eligibility.
  */
@@ -105,7 +124,7 @@ export function isProspectLushaEligible(
 ): boolean {
   const searchType = criteria.searchType?.trim() ?? '';
   if (!COMPANIES_BY_CRITERIA_SEARCH_TYPES.has(searchType)) return false;
-  if (!resolveLushaSectorOption(criteria.sectorKey)) return false;
+  if (!resolveLushaMacroCapability(criteria.macroIndustryKey)) return false;
   if (!resolveLushaCountryName(criteria.countryCode)) return false;
   return true;
 }
@@ -131,7 +150,10 @@ export function resolveProspectDiscoveryProvider(
     return { provider: 'default_ai', reason: 'search_type_not_criteria' };
   }
 
-  if (!resolveLushaSectorOption(criteria.sectorKey)) {
+  // § 7 — fail-closed. Una macro desconocida, deprecada, malformada o fuera del
+  // catálogo (Educación entre ellas) NO obtiene ruta Lusha. El motivo conserva su
+  // nombre histórico porque es telemetría ya observada aguas arriba.
+  if (!resolveLushaMacroCapability(criteria.macroIndustryKey)) {
     return { provider: 'default_ai', reason: 'sector_not_mapped' };
   }
 

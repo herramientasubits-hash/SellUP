@@ -2,7 +2,8 @@
  * Q3F-5BB.3D / 10C3-FIX-1 — resolveProspectDiscoveryProvider unit contract.
  *
  * Pure decision layer: no I/O, no env, no network. Three-state routing:
- *   - Lusha-eligible (companies-by-criteria + mapped sector + supported country)
+ *   - Lusha-eligible (companies-by-criteria + ROUTABLE Macro-v2 industry +
+ *     supported country)
  *     AND flag on            → 'lusha'
  *   - Lusha-eligible AND flag off → 'blocked_lusha_disabled' (STRICT-ALL fail closed)
  *   - not Lusha-eligible        → 'default_ai' (existing Agent 1 behavior)
@@ -22,7 +23,7 @@ import {
 const COMPATIBLE = {
   lushaPreviewEnabled: true,
   searchType: 'exploratory',
-  sectorKey: 'healthcare',
+  macroIndustryKey: 'health_pharma',
   countryCode: 'CO',
 } as const;
 
@@ -62,11 +63,11 @@ describe('resolveProspectDiscoveryProvider', () => {
 
   it('isProspectLushaEligible is independent of the flag (flag is not an input)', () => {
     assert.equal(
-      isProspectLushaEligible({ searchType: 'exploratory', sectorKey: 'healthcare', countryCode: 'CO' }),
+      isProspectLushaEligible({ searchType: 'exploratory', macroIndustryKey: 'health_pharma', countryCode: 'CO' }),
       true,
     );
     assert.equal(
-      isProspectLushaEligible({ searchType: 'competitors', sectorKey: 'healthcare', countryCode: 'CO' }),
+      isProspectLushaEligible({ searchType: 'competitors', macroIndustryKey: 'health_pharma', countryCode: 'CO' }),
       false,
     );
   });
@@ -77,8 +78,19 @@ describe('resolveProspectDiscoveryProvider', () => {
     assert.equal(decision.reason, 'search_type_not_criteria');
   });
 
-  it('falls back to default_ai when the sector does not map to Lusha', () => {
-    const decision = resolveProspectDiscoveryProvider({ ...COMPATIBLE, sectorKey: 'unknown_sector' });
+  it('falls back to default_ai when the industry is not a routable macro', () => {
+    // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 7 — `healthcare` era el SECTOR
+    // legacy y ya no nombra ninguna ruta: la autoridad es la clave canónica de
+    // macro (`health_pharma`). Se prueban las dos formas de quedar fuera.
+    for (const macroIndustryKey of ['unknown_sector', 'healthcare', 'education']) {
+      const decision = resolveProspectDiscoveryProvider({ ...COMPATIBLE, macroIndustryKey });
+      assert.equal(decision.provider, 'default_ai');
+      assert.equal(decision.reason, 'sector_not_mapped');
+    }
+  });
+
+  it('legacy: el vocabulario de sectores ya no produce ninguna ruta', () => {
+    const decision = resolveProspectDiscoveryProvider({ ...COMPATIBLE, macroIndustryKey: 'unknown_sector' });
     assert.equal(decision.provider, 'default_ai');
     assert.equal(decision.reason, 'sector_not_mapped');
   });

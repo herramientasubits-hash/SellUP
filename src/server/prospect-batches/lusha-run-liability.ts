@@ -39,10 +39,13 @@ import {
 } from './lusha-pending-review';
 import type { LushaCompanyProspectingPricingConfig } from '@/server/integrations/lusha-company-prospecting-billing';
 import type { LushaMacroSearchPlan } from './lusha-macro-search-plan';
-// § 9 — sectores ADMITIDOS por la autoridad legacy y el plan que le corresponde a
-// cada uno. Los dos módulos son puros; el puente no puede ensanchar elegibilidad.
-import { getLushaSectorOptions } from './lusha-sector-mapping';
-import { resolveLushaSearchPlanForSector } from './lusha-branch-plan-resolution';
+// AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 12/19 — las macro industrias
+// ROUTABLE y su plan, desde la MISMA puerta canónica que decide la elegibilidad.
+// Módulo puro; no crea aristas de env, red ni DB.
+import {
+  LUSHA_ROUTABLE_MACRO_KEYS,
+  resolveLushaRoutedSearchPlan,
+} from './lusha-macro-capability';
 
 /**
  * Desglose del peor caso económico de una corrida Lusha.
@@ -228,26 +231,34 @@ export function resolveLushaMacroCatalogMaxProviderCredits(
   );
 }
 
-// ── Techo por SECTOR admitido (§ 9 de MULTIBRANCH-EXECUTOR-1) ────────────────
+// ── Techo por MACRO INDUSTRIA routable (§ 12 de ROUTING-CUTOVER-1) ───────────
 
 /**
- * Cuántos créditos requiere la corrida de cada sector Lusha ADMITIDO.
+ * Cuántos créditos requiere la corrida de cada macro industria ROUTABLE.
  *
- * Existe para el aviso previo del wizard: el techo dejó de ser un número único
- * —depende de las ramas del plan de la macro elegida— y la selección ocurre en el
- * cliente después de renderizar. El servidor publica la tabla resuelta con ESTA
- * función, la misma que la reserva usa, para que el aviso y la reserva no puedan
- * salir de dos cuentas distintas.
+ * Existe para el aviso previo del wizard: el techo no es un número único —depende
+ * de las ramas del plan de la macro elegida— y la selección ocurre en el cliente
+ * después de renderizar. El servidor publica la tabla resuelta con ESTA función,
+ * la misma que la reserva usa, para que el aviso y la reserva no puedan salir de
+ * dos cuentas distintas.
  *
- * 🔴 Las claves son los sectores que la autoridad legacy admite
- * (`getLushaSectorOptions`), NO las 12 macro del catálogo. Publicar las 12
- * anunciaría rutas que no existen, que es exactamente lo que § 21 prohíbe.
+ * ── Qué cambió respecto a `resolveLushaRequiredCreditsBySector` ───────────────
+ *
+ * Las claves eran los tres sectores legacy, porque las rutas eran tres. Ahora son
+ * las macro industrias con plan, que es lo mismo que decir «las rutas que
+ * existen»: § 12 exige que si una ruta se anuncia disponible, el servidor pueda
+ * resolver su reserva exacta ANTES de construir el proveedor, y publicar una
+ * tabla indexada por un vocabulario distinto al de la ruta rompía esa garantía por
+ * ausencia — la fila simplemente no existía y el aviso caía al respaldo de 2.
+ *
+ * 🔴 `education` no aparece, porque no es una macro routable. No hay exclusión
+ * explícita: sale de `LUSHA_ROUTABLE_MACRO_KEYS`, que se deriva del catálogo.
  */
-export function resolveLushaRequiredCreditsBySector(): Record<string, number> {
+export function resolveLushaRequiredCreditsByMacroIndustry(): Record<string, number> {
   return Object.fromEntries(
-    getLushaSectorOptions().map((option) => [
-      option.key,
-      estimateLushaRunCredits(resolveLushaSearchPlanForSector(option.key)),
+    LUSHA_ROUTABLE_MACRO_KEYS.map((macroKey) => [
+      macroKey,
+      estimateLushaRunCredits(resolveLushaRoutedSearchPlan(macroKey)),
     ]),
   );
 }

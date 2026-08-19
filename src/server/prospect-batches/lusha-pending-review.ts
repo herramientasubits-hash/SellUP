@@ -642,7 +642,7 @@ export function buildLushaProspectSearchCriteria(
   return {
     countryCode: input.countryCode ?? null,
     country: rs.country ?? null,
-    sector: rs.sector ?? input.sectorKey ?? null,
+    sector: rs.sector ?? input.macroIndustryKey ?? null,
     minEmployees: rs.sizeBand?.min ?? null,
     maxEmployees: rs.sizeBand?.max ?? null,
     sourceProvider: LUSHA_PENDING_REVIEW_PROVIDER,
@@ -917,7 +917,7 @@ export function buildLushaPendingReviewBatchRow(
   metrics: LushaPendingReviewBatchMetrics,
 ): LushaPendingReviewBatchRow {
   const rs = search.requestSummary;
-  const sectorLabel = rs.sector ?? input.sectorKey;
+  const sectorLabel = rs.sector ?? input.macroIndustryKey ?? '—';
   const countryLabel = rs.country ?? input.countryCode;
   const excludedExactDuplicates = metrics.excludedExactDuplicates ?? [];
   const excludedByMandatoryGate = metrics.excludedByMandatoryGate ?? [];
@@ -943,7 +943,14 @@ export function buildLushaPendingReviewBatchRow(
       duplicate_resolution_version: LUSHA_DUPLICATE_RESOLUTION_VERSION,
       request: {
         country_code: input.countryCode,
-        sector_key: rs.sectorKey,
+        // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 2 — la clave del metadato NO
+        // cambia (`sector_key` ya está escrita en lotes de Producción y
+        // renombrarla partiría en dos la lectura histórica); lo que cambia es lo
+        // que contiene: la identidad de industria que resolvió la petición, que
+        // en la ruta moderna es una `MacroIndustryKey`. `macro_industry_key` la
+        // publica sin ambigüedad para quien lea metadatos nuevos.
+        sector_key: rs.industryKey,
+        macro_industry_key: rs.macroIndustryKey,
         main_industries_ids: rs.mainIndustriesIds,
         sub_industry_id: rs.subIndustryId,
         size_band: rs.sizeBand,

@@ -49,7 +49,7 @@ import type { ActiveCandidateRecord } from '@/server/agents/prospecting-toolkit/
 
 const INPUT: LushaPreviewInput = {
   countryCode: 'CO',
-  sectorKey: 'healthcare',
+  macroIndustryKey: 'health_pharma',
   subIndustryId: null,
   sizeBandKey: '201-5000',
   searchText: null,
@@ -117,7 +117,8 @@ function successResult(
       country: 'Colombia',
       countryCode: opts.countryCode ?? 'CO',
       sector: 'Salud',
-      sectorKey: 'healthcare',
+      industryKey: 'health_pharma',
+      macroIndustryKey: 'health_pharma',
       mainIndustriesIds: [11],
       subIndustryId: null,
       sizeBand: { min: opts.sizeBandMin ?? 201, max: 5000 },
