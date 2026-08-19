@@ -47,6 +47,28 @@ const VOCABULARY_CONSTRAINTS = [
 ] as const;
 
 /**
+ * Migraciones POSTERIORES autorizadas a volver a declarar uno de esos constraints, por
+ * constraint. Todo lo que no aparezca aquí sigue prohibido.
+ *
+ * La 102 los crea VALIDADOS y durante mucho tiempo nadie los volvió a tocar, así que el
+ * ratchet original prohibía a TODAS las demás migraciones nombrarlos. Eso protegía lo
+ * correcto —un ensanche silencioso— pero también impedía un ensanche legítimo, y no son lo
+ * mismo: lo que hay que hacer revisable es la decisión, no volverla imposible.
+ *
+ * AGENT2A-SEARCH-MORE-PHONES-1 — la 122 ensancha `lusha_outcome` con
+ * `no_new_distinct_phone`, el desenlace de una corrida `search_more` en la que Lusha
+ * contestó y cobró pero todos sus números ya estaban guardados. Ese hecho no se puede
+ * expresar con el vocabulario de la 102 sin mentir en el ledger.
+ *
+ * `lusha_skipped_reason` NO está aquí: la 122 tampoco lo toca. Un «no queda proveedor» se
+ * rechaza en el planificador ANTES de crear la corrida, así que ninguna fila llevaría ese
+ * motivo.
+ */
+const CONSTRAINT_WIDENING_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+  phone_reveal_waterfall_runs_lusha_outcome_check: ['122_phone_reveal_search_more.sql'],
+};
+
+/**
  * Valores de la lista `IN (...)` del CHECK de `lusha_skipped_reason`, leídos del
  * SQL. Permite comparar el vocabulario SQL con el de TypeScript en los DOS
  * sentidos, en vez de solo comprobar que cada valor de TS aparezca en el archivo.
@@ -177,7 +199,7 @@ describe('102 — vocabularios cerrados, los SIETE validados en la misma migraci
     );
   });
 
-  it('NO existe una migración posterior que valide estos constraints', () => {
+  it('sólo las migraciones AUTORIZADAS vuelven a declarar uno de estos constraints', () => {
     const migrationsDir = join(repoRoot, 'supabase/migrations');
     const others = readdirSync(migrationsDir).filter(
       (file) =>
@@ -186,13 +208,48 @@ describe('102 — vocabularios cerrados, los SIETE validados en la misma migraci
     for (const file of others) {
       const sql = readFileSync(join(migrationsDir, file), 'utf8');
       for (const constraint of VOCABULARY_CONSTRAINTS) {
+        const authorized = CONSTRAINT_WIDENING_ALLOWLIST[constraint] ?? [];
+        if (authorized.includes(file)) continue;
         assert.equal(
           sql.includes(constraint),
           false,
-          `${file} no debe tocar ${constraint}: la 102 ya lo deja validado`,
+          `${file} no debe tocar ${constraint}: ensancharlo exige entrar en ` +
+            'CONSTRAINT_WIDENING_ALLOWLIST, que es lo que hace el ensanche revisable',
         );
       }
     }
+  });
+
+  it('cada entrada de la allowlist declara de verdad el constraint que dice ensanchar', () => {
+    const migrationsDir = join(repoRoot, 'supabase/migrations');
+    for (const [constraint, files] of Object.entries(CONSTRAINT_WIDENING_ALLOWLIST)) {
+      for (const file of files) {
+        const sql = readFileSync(join(migrationsDir, file), 'utf8');
+        assert.ok(
+          sql.includes(`ADD CONSTRAINT ${constraint}`),
+          `${file} está autorizada para ${constraint} pero no lo declara`,
+        );
+      }
+    }
+  });
+
+  it('los constraints que NADIE está autorizado a tocar siguen siendo seis', () => {
+    // Se afirma el complemento a propósito: si un hito futuro añadiera una entrada a la
+    // allowlist sin pensarlo, este test lo hace visible en la revisión en vez de dejar que
+    // el ensanche pase silencioso.
+    const untouchable = VOCABULARY_CONSTRAINTS.filter(
+      (c) => (CONSTRAINT_WIDENING_ALLOWLIST[c] ?? []).length === 0,
+    );
+    assert.deepEqual([...untouchable], [
+      'phone_reveal_waterfall_runs_status_check',
+      'phone_reveal_waterfall_runs_apollo_outcome_check',
+      'phone_reveal_waterfall_runs_final_provider_check',
+      'phone_reveal_waterfall_runs_apollo_cost_source_check',
+      'phone_reveal_waterfall_runs_lusha_cost_source_check',
+      // `lusha_skipped_reason` está aquí a propósito: la 122 tampoco lo ensancha, porque un
+      // «no queda proveedor» se rechaza en el planificador ANTES de crear la corrida.
+      'phone_reveal_waterfall_runs_lusha_skipped_reason_check',
+    ]);
   });
 
   it('el vocabulario de status del SQL es exactamente el de TypeScript', () => {

@@ -79,6 +79,12 @@ import { getPhoneRevealWaterfallAuditAction } from '@/modules/contact-enrichment
 // los números no viajan al navegador hasta que el operador abre el disclosure.
 import { getCandidateStoredPhoneSummaryAction } from '@/modules/contact-enrichment/candidate-stored-phones-actions';
 import { CandidateStoredPhonesDisclosure } from './candidate-stored-phones-disclosure';
+// «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1). La tercera operación de teléfono, y la
+// ÚNICA de las tres que este bloque puede cobrar. Vive en su propio componente —con su modal,
+// su máquina de estados y su refresco acotado— para no sumar nada de eso a este archivo.
+import { CandidateSearchMorePhonesCta } from './candidate-search-more-phones-cta';
+import { getSearchMorePhonesPreflightAction } from '@/modules/contact-enrichment/search-more-phones-actions';
+import type { SearchMorePreflightSummary } from '@/modules/contact-enrichment/search-more-phones-read';
 import { resolvePhoneSourceLabel, resolvePhoneTypeLabel } from './phone-display-labels';
 // Compatibilidad legacy (AGENT2A-PHONE-WATERFALL-2): con el waterfall encendido el
 // botón manual separado de Lusha desaparece, así que un candidato cuyo Apollo YA
@@ -512,6 +518,15 @@ export function ContactCandidateDetailSheet({
   const [storedPhoneAdditionalCount, setStoredPhoneAdditionalCount] =
     React.useState<number>(0);
 
+  // Preflight de «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1). Es el resumen
+  // PII-FREE que el SERVIDOR resolvió: trae dentro el plan del planificador puro, así que
+  // este componente no decide elegibilidad ni techo de crédito — los lee.
+  //
+  // `null` mientras no se haya leído, y también cuando la lectura falla: en los dos casos el
+  // CTA no se pinta. Fail-closed hacia «no ofrecer la compra».
+  const [searchMorePreflight, setSearchMorePreflight] =
+    React.useState<SearchMorePreflightSummary | null>(null);
+
   // Ruta legacy solo-Lusha (AGENT2A-PHONE-WATERFALL-2). SÍNCRONA como el fallback
   // manual de Lusha (sin webhook: Lusha responde en la misma llamada), pero se
   // dispara desde el MISMO botón único que el waterfall.
@@ -602,6 +617,61 @@ export function ContactCandidateDetailSheet({
   );
 
   /**
+   * Relee el preflight de «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1).
+   *
+   * CONTRATO DE CERO GASTO: la acción que se invoca aquí sólo hace `SELECT`. 0 llamadas a
+   * Apollo, 0 a Lusha, 0 corridas, 0 reservas, 0 usage logs, 0 créditos y 0 escrituras. Se
+   * llama al abrir el candidato y después de cada operación que pueda haber cambiado la
+   * colección, así que si costara algo, mirar la pantalla costaría dinero.
+   *
+   * Silencioso y fail-closed: ante cualquier fallo se queda en `null` y el CTA no aparece. Un
+   * fallo de LECTURA no es una razón para ofrecer una compra.
+   */
+  const reloadSearchMorePreflight = React.useCallback(
+    async (targetCandidateId: string): Promise<void> => {
+      try {
+        const result = await getSearchMorePhonesPreflightAction({
+          candidateId: targetCandidateId,
+        });
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setSearchMorePreflight(result.status === 'ok' ? result.summary : null);
+        }
+      } catch {
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setSearchMorePreflight(null);
+        }
+      }
+    },
+    [],
+  );
+
+  /**
+   * La colección PUDO cambiar: el CTA acaba de terminar una corrida.
+   *
+   * Hace las DOS relecturas, y las dos hacen falta:
+   *
+   *   * el preflight, que decide si «Buscar más números» sigue ofreciéndose (tras una corrida
+   *     terminal ya NO: Lusha queda agotada para este candidato);
+   *   * el conteo de 4O-G, que es lo que hace aparecer «Ver más números» AUTOMÁTICAMENTE
+   *     cuando la colección pasó de 1 a 2 números. Sin esto el operador tendría que refrescar
+   *     la página para ver el número que acaba de pagar.
+   *
+   * El resumen llega ya leído por el CTA, así que se aprovecha en vez de pedirlo otra vez; si
+   * llega `null` (su refresco no consiguió una lectura buena) se vuelve a pedir aquí.
+   */
+  const handleSearchMoreCollectionChanged = React.useCallback(
+    (summary: SearchMorePreflightSummary | null): void => {
+      if (summary) {
+        setSearchMorePreflight(summary);
+      } else {
+        void reloadSearchMorePreflight(candidateId ?? '');
+      }
+      void reloadStoredPhoneSummary(candidateId ?? '');
+    },
+    [candidateId, reloadSearchMorePreflight, reloadStoredPhoneSummary],
+  );
+
+  /**
    * 4O-H3-B-R1 — relee la oferta de merge de un candidato DUPLICADO.
    *
    * Igual que la auditoría del waterfall y el conteo de teléfonos: en paralelo, sin bloquear el
@@ -678,6 +748,9 @@ export function ContactCandidateDetailSheet({
     // 4O-G: el conteo pertenece al candidato anterior. Dejarlo puesto haría
     // aparecer «Ver 2 números más» sobre un candidato que quizá no tiene ninguno.
     setStoredPhoneAdditionalCount(0);
+    // SEARCH-MORE-1: el plan también pertenece al candidato anterior, y dejarlo puesto sería
+    // peor que un conteo obsoleto — ofrecería una COMPRA autorizada sobre otra persona.
+    setSearchMorePreflight(null);
   }, []);
 
   /**
@@ -737,6 +810,9 @@ export function ContactCandidateDetailSheet({
             // 4O-G: conteo de teléfonos adicionales ya almacenados. Igual que la
             // auditoría, en paralelo y sin bloquear; su ausencia sólo oculta el CTA.
             void reloadStoredPhoneSummary(candidateId);
+            // SEARCH-MORE-1: el preflight de la compra. En paralelo y sin bloquear por la
+            // misma razón, y con el mismo contrato de cero gasto que las otras dos lecturas.
+            void reloadSearchMorePreflight(candidateId);
             // 4O-H3-B-R1: si el candidato ya está marcado como duplicado, se le vuelve a
             // preguntar al servidor si la fusión sigue siendo ofrecible. Esto es lo que hace que
             // la decisión humana sobreviva a cerrar el drawer, refrescar o navegar a otra parte.
@@ -779,6 +855,7 @@ export function ContactCandidateDetailSheet({
     candidateId,
     reloadWaterfallAudit,
     reloadStoredPhoneSummary,
+    reloadSearchMorePreflight,
     reloadDurableMergeOffer,
     resetTransientCandidateState,
     resetInFlightGuards,
@@ -812,6 +889,10 @@ export function ContactCandidateDetailSheet({
       // que trajo un segundo número muestre el CTA sin recargar la página — y,
       // en el otro sentido, que una supresión posterior lo retire.
       await reloadStoredPhoneSummary(candidateId);
+      // SEARCH-MORE-1: y el preflight, por la misma razón en las dos direcciones. Un reveal
+      // que acaba de guardar la procedencia de Lusha AGOTA la búsqueda de adicionales —Lusha
+      // ya contestó— así que el CTA tiene que retirarse solo, sin esperar un refresco.
+      await reloadSearchMorePreflight(candidateId);
     })();
     reloadInFlightRef.current = request;
     try {
@@ -819,7 +900,12 @@ export function ContactCandidateDetailSheet({
     } finally {
       if (reloadInFlightRef.current === request) reloadInFlightRef.current = null;
     }
-  }, [candidateId, reloadWaterfallAudit, reloadStoredPhoneSummary]);
+  }, [
+    candidateId,
+    reloadWaterfallAudit,
+    reloadStoredPhoneSummary,
+    reloadSearchMorePreflight,
+  ]);
 
   async function handleApprove(identityOverride?: { acknowledged: boolean; reason: string }) {
     if (!candidate || busy) return;
@@ -2048,6 +2134,30 @@ export function ContactCandidateDetailSheet({
                     <CandidateStoredPhonesDisclosure
                       candidateId={candidate.id}
                       additionalCount={storedPhoneAdditionalCount}
+                    />
+                  )}
+                  {/* «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1). La operación
+                      PAGADA, y la única de este bloque que puede cobrar.
+
+                      Vive DEBAJO de «Ver más números» a propósito: la gratuita primero. Las
+                      dos están a centímetros y el riesgo real no es estético — es que el
+                      operador confunda cuál gasta. Por eso los verbos son distintos (VER
+                      frente a BUSCAR), el icono es distinto, y ésta exige una confirmación
+                      que nombra el proveedor y el techo antes del clic que cobra.
+
+                      El teléfono de arriba NO se toca mientras busca: este componente sólo
+                      añade una línea de estado. Sustituir el número por un esqueleto
+                      esconderría un dato que ya se pagó, y si la búsqueda falla lo habría
+                      escondido para nada.
+
+                      SÓLO en la superficie del CANDIDATO. El contacto oficial no la tiene:
+                      esa frontera es la que 4O-H2 fija, y este hito la respeta. */}
+                  {candidate && (
+                    <CandidateSearchMorePhonesCta
+                      candidateId={candidate.id}
+                      summary={searchMorePreflight}
+                      onCollectionMayHaveChanged={handleSearchMoreCollectionChanged}
+                      disabled={busy}
                     />
                   )}
                   {/* § 8.2: línea SEPARADA para el proveedor de revelación. Vive en

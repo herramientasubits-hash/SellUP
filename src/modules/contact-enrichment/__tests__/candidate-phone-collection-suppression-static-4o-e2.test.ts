@@ -157,6 +157,10 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // `confirm_wizard_credits`; no nombra ninguna tabla de teléfono. No crea, altera ni borra ninguna tabla de la
       // colección de staging que esta suite protege, y la 112 sigue siendo su única dueña.
       '121_wizard_budget_overage_reconciliation.sql',
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      '122_phone_reveal_search_more.sql',
     ]);
   });
 

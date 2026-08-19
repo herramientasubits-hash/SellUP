@@ -142,7 +142,7 @@ describe('114 — numeración', () => {
     // del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono en absoluto
     // —reemplaza una constraint de `wizard_budget_reservations` y el cuerpo de
     // `confirm_wizard_credits`— y no toca `contact_phones` ni `contact_phone_sources`.
-    assert.equal(Math.max(...numbers), 121);
+    assert.equal(Math.max(...numbers), 122);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {
