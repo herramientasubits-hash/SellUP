@@ -65,7 +65,7 @@ const ROOT = process.cwd();
 
 const INPUT: LushaPreviewInput = {
   countryCode: 'CO',
-  sectorKey: 'healthcare',
+  macroIndustryKey: 'health_pharma',
   subIndustryId: null,
   sizeBandKey: '201-5000',
   searchText: null,
@@ -103,7 +103,8 @@ function successResult(results: LushaPreviewCompany[]): LushaPreviewResult {
       country: 'Colombia',
       countryCode: 'CO',
       sector: 'Salud',
-      sectorKey: 'healthcare',
+      industryKey: 'health_pharma',
+      macroIndustryKey: 'health_pharma',
       mainIndustriesIds: [11],
       subIndustryId: null,
       sizeBand: { min: 201, max: 5000 },
@@ -123,7 +124,8 @@ function emptySecondPage(): LushaPreviewResult {
       country: 'Colombia',
       countryCode: 'CO',
       sector: 'Salud',
-      sectorKey: 'healthcare',
+      industryKey: 'health_pharma',
+      macroIndustryKey: 'health_pharma',
       mainIndustriesIds: [11],
       subIndustryId: null,
       sizeBand: { min: 201, max: 5000 },
@@ -174,7 +176,7 @@ function buildObservation(
   environment: 'production' | 'preview' = 'production',
 ): LushaProviderRoutingObservation {
   const routingPlan = resolveProviderRoutingPlan(
-    buildLushaRoutingCriteria({ countryCode: INPUT.countryCode, sectorKey: INPUT.sectorKey }),
+    buildLushaRoutingCriteria({ countryCode: INPUT.countryCode, macroIndustryKey: INPUT.macroIndustryKey }),
     buildLushaRoutingConfig({ environment, lushaEnabled: true }),
     buildLushaObservationalRegistry(),
   );
@@ -201,7 +203,7 @@ function readCode(relPath: string): string {
 
 describe('11D adapter — criteria + config are Lusha-only, no fallback', () => {
   it('buildLushaRoutingCriteria intends Lusha, companies_by_criteria, carries country/sector', () => {
-    const criteria = buildLushaRoutingCriteria({ countryCode: 'MX', sectorKey: 'technology' });
+    const criteria = buildLushaRoutingCriteria({ countryCode: 'MX', macroIndustryKey: 'technology' });
     assert.equal(criteria.intendedProvider, 'lusha');
     assert.equal(criteria.searchType, 'companies_by_criteria');
     assert.equal(criteria.searchType, LUSHA_ROUTING_SEARCH_TYPE);
@@ -223,7 +225,7 @@ describe('11D adapter — criteria + config are Lusha-only, no fallback', () => 
 
   it('resolved plan uses Lusha and never Apollo/Tavily', () => {
     const plan = resolveProviderRoutingPlan(
-      buildLushaRoutingCriteria({ countryCode: 'CO', sectorKey: 'healthcare' }),
+      buildLushaRoutingCriteria({ countryCode: 'CO', macroIndustryKey: 'health_pharma' }),
       buildLushaRoutingConfig({ environment: 'production', lushaEnabled: true }),
       buildLushaObservationalRegistry(),
     );
@@ -241,7 +243,7 @@ describe('11D adapter — criteria + config are Lusha-only, no fallback', () => 
     // still resolves to Lusha because the live guard is authoritative — the plan
     // must not produce a coverage "blocked" false negative. Documents the approach.
     const plan = resolveProviderRoutingPlan(
-      buildLushaRoutingCriteria({ countryCode: 'JP', sectorKey: 'logistics' }),
+      buildLushaRoutingCriteria({ countryCode: 'JP', macroIndustryKey: 'transport_logistics' }),
       buildLushaRoutingConfig({ environment: 'production', lushaEnabled: true }),
       buildLushaObservationalRegistry(),
     );
@@ -252,7 +254,7 @@ describe('11D adapter — criteria + config are Lusha-only, no fallback', () => 
 
   it('flag OFF in config → plan blocks Lusha (fail-closed), still never Apollo', () => {
     const plan = resolveProviderRoutingPlan(
-      buildLushaRoutingCriteria({ countryCode: 'CO', sectorKey: 'healthcare' }),
+      buildLushaRoutingCriteria({ countryCode: 'CO', macroIndustryKey: 'health_pharma' }),
       buildLushaRoutingConfig({ environment: 'production', lushaEnabled: false }),
       buildLushaObservationalRegistry(),
     );
@@ -394,7 +396,7 @@ describe('11D flag ON — additive routing metadata is stamped correctly', () =>
 
 describe('11D safety assert — never Apollo/Tavily, never non-Lusha', () => {
   const safePlan = resolveProviderRoutingPlan(
-    buildLushaRoutingCriteria({ countryCode: 'CO', sectorKey: 'healthcare' }),
+    buildLushaRoutingCriteria({ countryCode: 'CO', macroIndustryKey: 'health_pharma' }),
     buildLushaRoutingConfig({ environment: 'production', lushaEnabled: true }),
     buildLushaObservationalRegistry(),
   );

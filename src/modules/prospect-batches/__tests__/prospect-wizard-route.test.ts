@@ -22,9 +22,19 @@ import type { WizardLushaCriteriaState } from '@/modules/prospect-batches/wizard
 import { resolveProspectWizardRoute } from '@/modules/prospect-batches/prospect-wizard-route';
 
 const CATALOG: ActiveIndustryCatalog = {
-  version: 'v1',
+  version: '2.0.0',
   industries: [
-    { id: 'ind-health', name: 'Salud', slug: 'salud', description: null, sortOrder: 1 },
+    // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 1 — catálogo Macro-v2: la ruta se
+    // resuelve por el `slug` publicado, no por coincidencia difusa con el nombre
+    // visible. `ind-mining` conserva un slug legacy a propósito: es la fila que NO
+    // es una macro canónica y que por tanto no tiene ruta Lusha.
+    {
+      id: 'ind-health',
+      name: 'Salud & Farmacéuticos',
+      slug: 'health-pharma',
+      description: null,
+      sortOrder: 1,
+    },
     { id: 'ind-mining', name: 'Minería', slug: 'mineria', description: null, sortOrder: 2 },
   ],
   subindustries: [

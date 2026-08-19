@@ -30,7 +30,7 @@ import { estimateCreditsForProvider } from './wizard-budget-estimate';
 // proveedores elegibles (ver la nota de `WizardBudgetPreflight`).
 import {
   estimateLushaRunCredits,
-  resolveLushaRequiredCreditsBySector,
+  resolveLushaRequiredCreditsByMacroIndustry,
 } from '@/server/prospect-batches/lusha-run-liability';
 
 import { WIZARD_RUN_SELECTABLE_PROVIDERS } from './wizard-run-provider-capability';
@@ -99,12 +99,12 @@ export async function resolveWizardBudgetPreflightForSurface(): Promise<WizardBu
       lushaRequiredCredits = null;
     }
 
-    // ── AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 9 ──
+    // ── AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 12 ──
     //
-    // El techo de Lusha ya no es uno solo: depende de cuántas RAMAS ejecute el
-    // plan de la macro industria elegida (2 · 4 · 6). La selección ocurre en el
-    // cliente después de renderizar, así que el servidor publica el número de cada
-    // sector Lusha-elegible y el cliente elige la fila que corresponde.
+    // El techo de Lusha no es uno solo: depende de cuántas RAMAS ejecute el plan de
+    // la macro industria elegida (2 · 4 · 6). La selección ocurre en el cliente
+    // después de renderizar, así que el servidor publica el número de cada macro
+    // ROUTABLE y el cliente elige la fila que corresponde.
     //
     // Por qué un mapa resuelto en el servidor y no una cuenta en el cliente: la
     // función autoritativa (`estimateLushaRunCredits`) vive en el módulo de
@@ -112,20 +112,20 @@ export async function resolveWizardBudgetPreflightForSurface(): Promise<WizardBu
     // reproducir la cuenta abriría la puerta a que las dos versiones divergieran.
     // Es la MISMA función que la reserva usa, llamada con el MISMO plan.
     //
-    // Sectores, no macro industrias: la clave es el `sectorKey` que la autoridad
-    // legacy admite, así que este mapa no puede anunciar una ruta que no exista.
-    let lushaRequiredCreditsBySector: Record<string, number> | null = null;
+    // Macro industrias, no sectores: la clave es la misma que la ruta transporta,
+    // así que el aviso previo y la reserva se indexan por el mismo vocabulario.
+    let lushaRequiredCreditsByMacroIndustry: Record<string, number> | null = null;
     try {
-      lushaRequiredCreditsBySector = resolveLushaRequiredCreditsBySector();
+      lushaRequiredCreditsByMacroIndustry = resolveLushaRequiredCreditsByMacroIndustry();
     } catch {
-      lushaRequiredCreditsBySector = null;
+      lushaRequiredCreditsByMacroIndustry = null;
     }
 
     return {
       availableCredits: snapshot.availableCredits,
       requiredCreditsByProvider,
       lushaRequiredCredits,
-      lushaRequiredCreditsBySector,
+      lushaRequiredCreditsByMacroIndustry,
     };
   } catch {
     // Mismo criterio que el resto de la superficie: un diagnóstico que falla

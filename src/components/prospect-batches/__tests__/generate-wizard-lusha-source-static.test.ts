@@ -66,7 +66,10 @@ function importSpecifiersOf(source: string): string[] {
 
 /** Pure mapping/helper modules the resolver is allowed to depend on. */
 const ALLOWED_RESOLVER_IMPORTS: ReadonlySet<string> = new Set([
-  '@/server/prospect-batches/lusha-sector-mapping',
+  // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 2/6 — la autoridad de industria del
+  // resolvedor. Sustituye a `lusha-sector-mapping`, que ya no aparece aquí: si
+  // volviera, el vocabulario legacy habría regresado a la decisión ejecutable.
+  '@/server/prospect-batches/lusha-macro-capability',
   '@/server/prospect-batches/lusha-preview',
 ]);
 
@@ -74,7 +77,9 @@ const ALLOWED_RESOLVER_IMPORTS: ReadonlySet<string> = new Set([
 const ALLOWED_CRITERIA_IMPORTS: ReadonlySet<string> = new Set([
   '@/modules/industry-catalog/types',
   '@/modules/prospect-batches/prospect-discovery-provider',
-  '@/server/prospect-batches/lusha-sector-mapping',
+  // § 1 — el catálogo macro canónico: es lo que traduce el `slug` publicado a
+  // `MacroIndustryKey`, en lugar del mapeo difuso de alias que había antes.
+  '@/modules/macro-industry-catalog/macro-industries',
   '@/server/prospect-batches/lusha-preview',
 ]);
 

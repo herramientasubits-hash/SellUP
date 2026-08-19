@@ -33,6 +33,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { MACRO_INDUSTRY_KEYS } from '@/modules/macro-industry-catalog/macro-industries';
 import { createClient } from '@/lib/supabase/server';
 import { isLushaPreviewEnabled } from '@/lib/feature-flags.server';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
@@ -71,12 +72,10 @@ import {
   type LushaBudgetSettlementOutcome,
 } from '@/modules/prospect-batches/lusha-budget-gate';
 import { estimateLushaRunCredits } from '@/server/prospect-batches/lusha-run-liability';
-// AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 §§ 2/21 — el plan Macro-v2 de la
-// corrida. El puente es puro y NO ensancha la elegibilidad: su entrada es el
-// `sectorKey` que la autoridad legacy ya admitió, así que sólo puede añadir ramas
-// a una ruta viva, nunca abrir una nueva. Ausencia de plan ⇒ búsqueda única, como
-// hoy. Ver la cabecera de `lusha-branch-plan-resolution`.
-import { resolveLushaSearchPlanForSector } from '@/server/prospect-batches/lusha-branch-plan-resolution';
+// AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 2/12 — el plan sale de la MISMA
+// puerta que decidió la elegibilidad, así que no puede haber ruta anunciada sin
+// plan ni plan ejecutable sin reserva calculable.
+import { resolveLushaRoutedSearchPlan } from '@/server/prospect-batches/lusha-macro-capability';
 // Las MISMAS primitivas de reserva que usan Apollo y Tavily. Un segundo
 // mecanismo de reserva sería un segundo presupuesto, que es justo lo que este
 // trabajo prohíbe.
@@ -132,7 +131,22 @@ const GenerateInputSchema = z.object({
    */
   clientRequestId: z.string().trim().uuid(),
   countryCode: z.string().trim().min(2).max(4),
-  sectorKey: z.string().trim().min(1).max(40),
+  /**
+   * AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 8 — enum CANÓNICO, no una cadena
+   * con techo de longitud.
+   *
+   * 🔴 Lo que sustituye era `z.string().trim().min(1).max(40)`, y ese 40 era un
+   * defecto latente: la clave canónica más larga del catálogo,
+   * `industry_manufacturing_chemicals_automotive`, mide 44 caracteres. Con el
+   * campo transportando claves de macro, esa macro —y sólo esa— habría sido
+   * rechazada como entrada inválida DESPUÉS de que la UI ya la ofreciera: un
+   * 11/12 silencioso, con el fallo concentrado en la macro más ancha del catálogo.
+   *
+   * El enum lo cierra por construcción y de paso hace innecesario cualquier
+   * número: la validación ya no puede quedarse corta porque no cuenta caracteres,
+   * y añadir una macro al catálogo la admite aquí sin tocar este fichero.
+   */
+  macroIndustryKey: z.enum(MACRO_INDUSTRY_KEYS),
   subIndustryId: z.number().int().positive().nullable().optional(),
   sizeBandKey: z.string().trim().max(20).nullable().optional(),
   searchText: z.string().trim().max(120).nullable().optional(),
@@ -199,7 +213,7 @@ async function runGenerateLushaPendingReviewBatch(
   const routingPlan = resolveProviderRoutingPlan(
     buildLushaRoutingCriteria({
       countryCode: parsed.data.countryCode,
-      sectorKey: parsed.data.sectorKey,
+      macroIndustryKey: parsed.data.macroIndustryKey,
     }),
     buildLushaRoutingConfig({ environment, lushaEnabled: true }),
     buildLushaObservationalRegistry(),
@@ -222,7 +236,10 @@ async function runGenerateLushaPendingReviewBatch(
   // devuelve 2 sin plan y ramas × 2 con plan (2/4/6), y es la MISMA función de la
   // que sale el aviso previo de la UI. El ejecutor acota sus peticiones con el
   // mismo producto, así que no puede intentar gastar por encima de lo reservado.
-  const searchPlan = resolveLushaSearchPlanForSector(parsed.data.sectorKey);
+  // § 12 — plan y responsabilidad económica salen de la MISMA fuente canónica.
+  // Una macro admitida SIEMPRE tiene plan (la capacidad es la que lo garantiza),
+  // así que aquí no puede aparecer un `null` que degradase la reserva a 2.
+  const searchPlan = resolveLushaRoutedSearchPlan(parsed.data.macroIndustryKey);
   const requiredCredits = estimateLushaRunCredits(searchPlan);
   const { clientRequestId, ...searchInput } = parsed.data;
 
@@ -326,8 +343,13 @@ async function runLushaSearchWithReservation(args: {
   reservation: LushaBudgetReservation;
   routingMetadata: ReturnType<typeof buildProviderRoutingMetadata>;
   routingPlan: ReturnType<typeof resolveProviderRoutingPlan>;
-  /** Plan Macro-v2 de la corrida, o `null` para la búsqueda legacy única. */
-  searchPlan: ReturnType<typeof resolveLushaSearchPlanForSector>;
+  /**
+   * Plan Macro-v2 de la corrida. Una macro ADMITIDA siempre lo tiene —la
+   * capacidad es lo que lo garantiza— así que en la práctica nunca es `null`; el
+   * tipo lo admite porque el resolvedor es fail-closed y no se le quita la
+   * posibilidad de negarse.
+   */
+  searchPlan: ReturnType<typeof resolveLushaRoutedSearchPlan>;
 }): Promise<GenerateLushaPendingReviewBatchActionResult> {
   const { searchInput, internalUserId, reservation, routingMetadata, routingPlan, searchPlan } =
     args;
@@ -541,7 +563,6 @@ async function runLushaSearchWithReservation(args: {
       creditsCharged: result.creditsCharged,
       resultsReturned: result.resultsReturned,
       country: searchInput.countryCode,
-      sector: searchInput.sectorKey,
       reservedCredits: reservation.creditsReserved,
       creditsChargedTotal: result.creditsChargedTotal,
       // §§ 18/19 — por qué paró y cuánto pidió. Sin PII, sin payload, sin clave.

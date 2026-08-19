@@ -1850,6 +1850,28 @@ jobs:
       # Determinista y offline: módulos puros, dobles inyectados y lectura de fuente.
       # Sin red, sin Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0
       # escrituras. ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      # AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 21 — la elegibilidad Lusha son las
+      # 12 Macro Industrias, y sólo ellas.
+      #
+      # Qué vigila, y por qué cada mitad importa:
+      #
+      #   · COMPLETITUD — las 12 macro aprobadas resuelven capacidad, plan, ramas y
+      #     reserva desde el MISMO plan. El modo de fallo realista es 11/12: la clave
+      #     canónica más larga mide 43 caracteres y el contrato anterior la validaba
+      #     con `max(40)`, así que la macro más ancha del catálogo se habría caído en
+      #     silencio después de que la UI ya la ofreciera.
+      #   · CIERRE — Educación NO es la ruta decimotercera. Es el negativo peligroso
+      #     porque Lusha SÍ la publica (main 6): el error no sería «no se encuentra»,
+      #     sino «se encuentra y devuelve colegios».
+      #   · CABLEADO — la ruta que el wizard ejecuta DE VERDAD usa la autoridad nueva.
+      #     Un resolvedor correcto que nadie llama pasa toda prueba de unidad y no
+      #     cambia nada en producción.
+      #
+      # Entra en el MISMO job que el resto de las guardas de routing: un contexto
+      # requerido nuevo no protegería nada hasta que alguien lo marcara obligatorio.
+      - name: Run A1 Lusha Macro-v2 routing cutover tests
+        run: npm run test:lusha-macro-v2-routing-cutover
+
       - name: Run A1 budget overage reconciliation tests
         run: npm run test:agent1:budget-overage-reconciliation
 

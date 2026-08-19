@@ -64,8 +64,15 @@ describe('§7 — la acción reserva ANTES de poder gastar', () => {
     // depende de cuántas ramas ejecute (2/4/6). Lo que esta guarda protege no
     // cambia: la reserva sale de esa función y de ninguna otra cuenta.
     assert.match(action, /const requiredCredits = estimateLushaRunCredits\(searchPlan\);/);
-    // El plan lo resuelve el puente, que sólo admite sectores ya elegibles.
-    assert.match(action, /const searchPlan = resolveLushaSearchPlanForSector\(parsed\.data\.sectorKey\)/);
+    // ROUTING-CUTOVER-1 §§ 2/12 — el plan lo resuelve la autoridad del cutover, la
+    // MISMA puerta que decidió la elegibilidad. Antes lo resolvía el puente de
+    // compatibilidad a partir de un sector legacy; ahora no puede existir una ruta
+    // admitida cuyo plan —y por tanto cuya reserva— no sea resoluble.
+    assert.match(
+      action,
+      /const searchPlan = resolveLushaRoutedSearchPlan\(parsed\.data\.macroIndustryKey\)/,
+    );
+    assert.equal(action.includes('resolveLushaSearchPlanForSector'), false);
     // Ningún literal de crédito suelto alimentando la reserva.
     assert.equal(/requestedCredits:\s*\d+/.test(action), false);
     assert.equal(/requiredCredits\s*=\s*\d+/.test(action), false);
@@ -187,16 +194,17 @@ describe('§4 — no se copia el modelo de costo de Apollo', () => {
 });
 
 describe('§11/§12 — alcance: nada de mapeo de sectores ni descubrimiento por país', () => {
-  it('ni la acción ni los módulos nuevos tocan el mapeo de industrias', () => {
-    // MULTIBRANCH-EXECUTOR-1 §§ 2/21/22 re-apunta esta guarda.
+  it('ni la acción ni los módulos nuevos redefinen la autoridad de industrias', () => {
+    // Re-apuntada dos veces: MULTIBRANCH-EXECUTOR-1 §§ 2/21/22 y ahora
+    // ROUTING-CUTOVER-1 §§ 2/6.
     //
-    // Lo que prohibía era que la ruta del presupuesto se convirtiera en una
-    // segunda autoridad de industrias. Sigue prohibido — y ahora hay que ser más
-    // preciso, porque el techo SÍ depende del sector: el puente lo LEE
-    // (`getLushaSectorOptions`, `resolveLushaSectorOption`) para saber qué sectores
-    // existen y qué plan les toca. Leer la autoridad no es sustituirla.
+    // Lo que prohibía —y sigue prohibiendo— es que la ruta del presupuesto se
+    // convierta en una SEGUNDA autoridad de industrias. Lo que cambia es CUÁL es la
+    // autoridad: el techo se enumera desde `LUSHA_ROUTABLE_MACRO_KEYS`, derivado
+    // del catálogo de planes, en lugar de desde `getLushaSectorOptions`. Leer la
+    // autoridad no es sustituirla, igual que antes.
     //
-    // Lo que se sigue prohibiendo en duro: MODIFICAR el mapeo legacy, tocar la
+    // Lo que se sigue prohibiendo en duro: redefinir un catálogo propio, tocar la
     // lista del registry, y construir filtros de industria a mano.
     for (const source of [code(action), code(gate), code(liability)]) {
       assert.equal(source.includes('provider-registry'), false);
@@ -205,12 +213,16 @@ describe('§11/§12 — alcance: nada de mapeo de sectores ni descubrimiento por
       // Nadie redefine el tipo ni el catálogo de sectores.
       assert.equal(source.includes('LushaSectorKey ='), false);
       assert.equal(source.includes('SECTOR_CATALOG'), false);
+      // § 2 — ni un segundo censo de macro industrias escrito a mano.
+      assert.equal(source.includes('LUSHA_ROUTABLE_MACRO_KEYS = ['), false);
     }
-    // La acción y el gate NO importan el mapeo: sólo el módulo de responsabilidad
-    // lo consulta, y sólo para enumerar sectores admitidos.
+    // 🔴 Ninguno de los tres toca ya el mapeo legacy: el cutover lo desconectó por
+    // completo de la ruta del presupuesto.
     assert.equal(code(action).includes('lusha-sector-mapping'), false);
     assert.equal(code(gate).includes('lusha-sector-mapping'), false);
-    assert.match(code(liability), /getLushaSectorOptions/);
+    assert.equal(code(liability).includes('lusha-sector-mapping'), false);
+    // El módulo de responsabilidad enumera las rutas desde la autoridad del cutover.
+    assert.match(code(liability), /LUSHA_ROUTABLE_MACRO_KEYS/);
   });
 });
 
@@ -229,10 +241,17 @@ describe('§6 — la UI avisa pero no autoriza', () => {
   });
 
   it('la UI NO recalcula el techo por su cuenta: lo lee del preflight del servidor', () => {
-    // MULTIBRANCH-EXECUTOR-1 § 9 — el techo dejó de ser un campo único y pasa por
-    // el resolvedor compartido, que elige la fila del sector con respaldo al valor
-    // de siempre. La propiedad protegida es la misma: la UI LEE, no CALCULA.
-    assert.match(ui, /resolveLushaPreflightRequiredCredits\(budgetPreflight, input\.sectorKey\)/);
+    // MULTIBRANCH-EXECUTOR-1 § 9 + ROUTING-CUTOVER-1 § 12 — el techo pasa por el
+    // resolvedor compartido, que elige la fila de la MACRO INDUSTRIA (antes: del
+    // sector) con respaldo al valor de siempre. La propiedad protegida es la misma:
+    // la UI LEE, no CALCULA.
+    assert.match(
+      ui,
+      /resolveLushaPreflightRequiredCredits\(budgetPreflight, input\.macroIndustryKey\)/,
+    );
+    // 🔴 Y no queda ninguna lectura por sector: si volviera, las nueve macro sin
+    // sector equivalente se quedarían sin fila y el aviso mentiría con un 2.
+    assert.equal(/input\.sectorKey/.test(ui), false);
     assert.equal(/lushaRequiredCredits\s*=\s*\d/.test(ui), false);
     // Ni la función de responsabilidad ni el catálogo de planes entran al bundle.
     for (const forbidden of [

@@ -22,9 +22,12 @@ import {
   estimateLushaRunCredits,
   resolveLushaRunMaxProviderCredits,
   resolveLushaMacroPlanMaxProviderCredits,
-  resolveLushaRequiredCreditsBySector,
+  resolveLushaRequiredCreditsByMacroIndustry,
 } from '@/server/prospect-batches/lusha-run-liability';
-import { resolveLushaSearchPlanForSector } from '@/server/prospect-batches/lusha-branch-plan-resolution';
+// ROUTING-CUTOVER-1 § 12 — el plan sale de la autoridad del cutover. El puente de
+// compatibilidad ya no participa en ninguna resolución de runtime.
+import { resolveLushaRoutedSearchPlan } from '@/server/prospect-batches/lusha-macro-capability';
+import { MACRO_INDUSTRY_KEYS } from '@/modules/macro-industry-catalog/macro-industries';
 import { resolveLushaProviderRequestsAllowed } from '@/server/prospect-batches/lusha-multibranch-execution';
 import {
   decideLushaCreditsToConfirm,
@@ -84,7 +87,7 @@ describe('§ 24 — la reserva es consciente del plan', () => {
 
   it('el techo NO se codifica por clave de macro: sale del número de ramas', () => {
     // Un plan sintético de 2 ramas con la clave de una macro de 3 reserva 4, no 6.
-    const health = resolveLushaSearchPlanForSector('healthcare');
+    const health = resolveLushaRoutedSearchPlan('health_pharma');
     assert.equal(health?.branches.length, 3);
     assert.equal(estimateLushaRunCredits(health), 6);
     assert.equal(estimateLushaRunCredits({ branches: health!.branches.slice(0, 2) }), 4);
@@ -151,43 +154,55 @@ const preflight = (available: number): WizardBudgetPreflight => ({
   availableCredits: available,
   requiredCreditsByProvider: { tavily: 5, apollo_organizations: 25 } as never,
   lushaRequiredCredits: 2,
-  lushaRequiredCreditsBySector: resolveLushaRequiredCreditsBySector(),
+  lushaRequiredCreditsByMacroIndustry: resolveLushaRequiredCreditsByMacroIndustry(),
 });
 
 describe('§ 25 — el aviso previo pide lo mismo que la reserva', () => {
-  it('la tabla por sector sólo publica sectores ADMITIDOS', () => {
-    const bySector = resolveLushaRequiredCreditsBySector();
-    assert.deepEqual(Object.keys(bySector).sort(), ['education', 'healthcare', 'technology']);
+  it('la tabla publica exactamente las MACRO ROUTABLE (ROUTING-CUTOVER-1 § 12)', () => {
+    // Inversión deliberada del ratchet de #302, que exigía los tres sectores
+    // legacy. Tras el cutover la ruta transporta claves de macro, así que una
+    // tabla indexada por sectores no tendría ni una fila coincidente: las doce
+    // macro caerían al respaldo de 2 y el aviso prometería 2 para corridas de 6.
+    const byMacro = resolveLushaRequiredCreditsByMacroIndustry();
+    assert.deepEqual(Object.keys(byMacro).sort(), [...MACRO_INDUSTRY_KEYS].sort());
+    // 🔴 Y `education` no aparece: no es una macro de SellUp.
+    assert.equal(Object.hasOwn(byMacro, 'education'), false);
   });
 
   it('macro de 1 rama (technology) → 2 requeridos', () => {
     assert.equal(resolveLushaPreflightRequiredCredits(preflight(100), 'technology'), 2);
     assert.equal(
       resolveLushaPreflightRequiredCredits(preflight(100), 'technology'),
-      estimateLushaRunCredits(resolveLushaSearchPlanForSector('technology')),
+      estimateLushaRunCredits(resolveLushaRoutedSearchPlan('technology')),
     );
   });
 
-  it('macro de 3 ramas (healthcare) → 6 requeridos', () => {
-    assert.equal(resolveLushaPreflightRequiredCredits(preflight(100), 'healthcare'), 6);
+  it('macro de 3 ramas (health_pharma) → 6 requeridos', () => {
+    assert.equal(resolveLushaPreflightRequiredCredits(preflight(100), 'health_pharma'), 6);
     assert.equal(
-      resolveLushaPreflightRequiredCredits(preflight(100), 'healthcare'),
-      estimateLushaRunCredits(resolveLushaSearchPlanForSector('healthcare')),
+      resolveLushaPreflightRequiredCredits(preflight(100), 'health_pharma'),
+      estimateLushaRunCredits(resolveLushaRoutedSearchPlan('health_pharma')),
     );
   });
 
-  it('sector sin macro equivalente (education) → 2, como hoy', () => {
-    assert.equal(resolveLushaPreflightRequiredCredits(preflight(100), 'education'), 2);
+  it('macro de 2 ramas (consumer_goods) → 4: la cifra intermedia es real', () => {
+    assert.equal(resolveLushaPreflightRequiredCredits(preflight(100), 'consumer_goods'), 4);
+    assert.equal(
+      estimateLushaRunCredits(resolveLushaRoutedSearchPlan('consumer_goods')),
+      4,
+    );
   });
 
-  it('un plan de 2 ramas requeriría 4 (la cifra intermedia existe)', () => {
-    const health = resolveLushaSearchPlanForSector('healthcare');
-    assert.equal(estimateLushaRunCredits({ branches: health!.branches.slice(0, 2) }), 4);
+  it('`education` no tiene fila y cae al respaldo, sin inventar un techo', () => {
+    // No es una macro routable, así que no está en la tabla. El respaldo publicado
+    // (el techo de una rama) es lo que devuelve, y quien decide de verdad sigue
+    // siendo la reserva atómica.
+    assert.equal(resolveLushaPreflightRequiredCredits(preflight(100), 'education'), 2);
   });
 
   it('disponible < requerido → el aviso retira la oferta', () => {
     // 5 disponibles no alcanzan para los 6 de salud, y sí para los 2 de technology.
-    const block = resolveLushaPreExecutionBudgetBlock(preflight(5), 'healthcare');
+    const block = resolveLushaPreExecutionBudgetBlock(preflight(5), 'health_pharma');
     assert.equal(block?.reason, 'insufficient_for_run');
     assert.equal(block?.availableCredits, 5);
     assert.equal(block?.requiredCredits, 6);
@@ -206,9 +221,9 @@ describe('§ 25 — el aviso previo pide lo mismo que la reserva', () => {
   });
 
   it('🔴 sin instantánea NO se bloquea: la reserva sigue siendo la autoridad', () => {
-    assert.equal(resolveLushaPreExecutionBudgetBlock(null, 'healthcare'), null);
-    assert.equal(resolveLushaPreExecutionBudgetBlock(undefined, 'healthcare'), null);
-    assert.equal(resolveLushaPreflightRequiredCredits(null, 'healthcare'), null);
+    assert.equal(resolveLushaPreExecutionBudgetBlock(null, 'health_pharma'), null);
+    assert.equal(resolveLushaPreExecutionBudgetBlock(undefined, 'health_pharma'), null);
+    assert.equal(resolveLushaPreflightRequiredCredits(null, 'health_pharma'), null);
   });
 
   it('sin tabla por sector se conserva el aviso de hoy (respaldo)', () => {
@@ -219,8 +234,8 @@ describe('§ 25 — el aviso previo pide lo mismo que la reserva', () => {
       requiredCreditsByProvider: { tavily: 5, apollo_organizations: 25 } as never,
       lushaRequiredCredits: 2,
     };
-    assert.equal(resolveLushaPreflightRequiredCredits(legacy, 'healthcare'), 2);
-    assert.equal(resolveLushaPreExecutionBudgetBlock(legacy, 'healthcare'), null);
+    assert.equal(resolveLushaPreflightRequiredCredits(legacy, 'health_pharma'), 2);
+    assert.equal(resolveLushaPreExecutionBudgetBlock(legacy, 'health_pharma'), null);
   });
 
   it('sin techo resoluble NO se inventa una cifra y no se bloquea', () => {
@@ -228,10 +243,10 @@ describe('§ 25 — el aviso previo pide lo mismo que la reserva', () => {
       availableCredits: 0,
       requiredCreditsByProvider: { tavily: 5, apollo_organizations: 25 } as never,
       lushaRequiredCredits: null,
-      lushaRequiredCreditsBySector: null,
+      lushaRequiredCreditsByMacroIndustry: null,
     };
-    assert.equal(resolveLushaPreflightRequiredCredits(noCeiling, 'healthcare'), null);
-    assert.equal(resolveLushaPreExecutionBudgetBlock(noCeiling, 'healthcare'), null);
+    assert.equal(resolveLushaPreflightRequiredCredits(noCeiling, 'health_pharma'), null);
+    assert.equal(resolveLushaPreExecutionBudgetBlock(noCeiling, 'health_pharma'), null);
   });
 
   it('un sector que no está en la tabla usa el respaldo', () => {
