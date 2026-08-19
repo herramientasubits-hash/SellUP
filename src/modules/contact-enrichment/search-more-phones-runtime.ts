@@ -79,6 +79,7 @@ import { reservePhoneRevealCreditsAndCreateRun } from './phone-reveal-credit-res
 import { checkPhoneRevealPrivacyGate } from './phone-reveal-privacy-gate';
 import {
   reserveWaterfallCreditsAndCreateRunOrBlock,
+  type PhoneRevealWaterfallLushaOutcome,
   type PhoneRevealWaterfallRunDraft,
 } from './phone-reveal-waterfall-core';
 import {
@@ -126,6 +127,23 @@ export interface SearchMoreRuntimeResult {
   readonly maxCreditsAuthorized: number | null;
   /** Cuántos números ADICIONALES se añadieron. 0 en todo lo que no sea éxito. */
   readonly newDistinctPhoneCount: number;
+  /**
+   * El desenlace que se ESCRIBIÓ en `lusha_outcome`. `null` cuando la pata nunca se
+   * intentó.
+   *
+   * Viaja hasta el llamador porque es el ÚNICO dato que separa los dos casos que producen
+   * «0 números nuevos», y separarlos es todo el punto del vocabulario de la 122:
+   *
+   *   * `no_phone_found`        — Lusha contestó y NO tiene teléfono para esa persona;
+   *   * `no_new_distinct_phone` — Lusha contestó, se le COBRÓ, y todos sus números ya
+   *                               estaban guardados.
+   *
+   * Sin este campo la UI tendría que adivinar, y adivinar mal significa decirle al operador
+   * «no encontramos números en Lusha» cuando Lusha sí los tiene — son los que ya ve.
+   *
+   * Es PII-free: un valor de un vocabulario cerrado de cuatro cadenas.
+   */
+  readonly lushaOutcome: PhoneRevealWaterfallLushaOutcome | null;
   /** true SÓLO si se llegó a llamar a Lusha. Es lo que auditan los tests de gasto. */
   readonly lushaCalled: boolean;
 }
@@ -135,6 +153,7 @@ const NOT_STARTED = (reason: string): SearchMoreRuntimeResult => ({
   reason,
   maxCreditsAuthorized: null,
   newDistinctPhoneCount: 0,
+  lushaOutcome: null,
   lushaCalled: false,
 });
 
@@ -159,6 +178,9 @@ async function closeRunWith(
     reason,
     maxCreditsAuthorized: SEARCH_MORE_MAX_CREDITS,
     newDistinctPhoneCount: outcome.newDistinctPhoneCount,
+    // Se LEE del patch que acaba de escribirse, no se vuelve a derivar: así lo que el
+    // llamador recibe y lo que el ledger guarda no pueden discrepar.
+    lushaOutcome: outcome.patch.lushaOutcome ?? null,
     // Todo lo que llega a un `SearchMoreOutcome` ocurrió DESPUÉS del claim, así que Lusha se
     // llamó — con una excepción: el bloqueo de privacidad PREVIO, que no pasa por aquí.
     lushaCalled: true,
@@ -319,6 +341,9 @@ export async function executeSearchMorePhonesForCandidate(args: {
       reason: privacy,
       maxCreditsAuthorized: SEARCH_MORE_MAX_CREDITS,
       newDistinctPhoneCount: 0,
+      // La pata NUNCA se intentó, así que no hay desenlace de Lusha que reportar. `null` y
+      // no `error`: `error` afirmaría una llamada que no salió.
+      lushaOutcome: null,
       lushaCalled: false,
     };
   }
@@ -339,6 +364,7 @@ export async function executeSearchMorePhonesForCandidate(args: {
       reason: 'claim_unavailable',
       maxCreditsAuthorized: SEARCH_MORE_MAX_CREDITS,
       newDistinctPhoneCount: 0,
+      lushaOutcome: null,
       lushaCalled: false,
     };
   }
@@ -350,6 +376,7 @@ export async function executeSearchMorePhonesForCandidate(args: {
       reason: 'lusha_claim_lost',
       maxCreditsAuthorized: SEARCH_MORE_MAX_CREDITS,
       newDistinctPhoneCount: 0,
+      lushaOutcome: null,
       lushaCalled: false,
     };
   }

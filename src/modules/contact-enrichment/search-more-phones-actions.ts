@@ -57,6 +57,7 @@ import { readSearchMorePreflight } from './search-more-phones-read';
 import type { SearchMorePreflightSummary } from './search-more-phones-read';
 import { executeSearchMorePhonesForCandidate } from './search-more-phones-runtime';
 import type { SearchMoreRuntimeOutcome } from './search-more-phones-runtime';
+import type { PhoneRevealWaterfallLushaOutcome } from './phone-reveal-waterfall-core';
 
 /**
  * Lo que la UI recibe del preflight. `unavailable` NO es lo mismo que «no elegible»: el
@@ -77,6 +78,17 @@ export interface SearchMorePhonesActionResult {
   readonly reason: string | null;
   /** Números ADICIONALES añadidos. 0 en todo lo que no sea éxito. */
   readonly newDistinctPhoneCount: number;
+  /**
+   * El desenlace que quedó en `lusha_outcome`. `null` si la pata nunca se intentó.
+   *
+   * Es lo ÚNICO que separa los dos casos de «0 números nuevos», y por eso cruza al
+   * navegador: `no_phone_found` significa que Lusha no tiene teléfono para esa persona, y
+   * `no_new_distinct_phone` que lo tiene, se le cobró, y ya estaba guardado. Decir el
+   * primero cuando ocurrió el segundo sería afirmar algo falso sobre el contacto.
+   *
+   * PII-free: un valor de un vocabulario cerrado de cuatro cadenas.
+   */
+  readonly lushaOutcome: PhoneRevealWaterfallLushaOutcome | null;
   /** Tope que quedó autorizado (5), o `null` si no se creó corrida. */
   readonly maxCreditsAuthorized: number | null;
 }
@@ -193,6 +205,7 @@ export async function searchMoreCandidatePhonesAction(input: {
       outcome: 'not_started',
       reason: 'invalid_candidate',
       newDistinctPhoneCount: 0,
+      lushaOutcome: null,
       maxCreditsAuthorized: null,
     };
   }
@@ -205,6 +218,7 @@ export async function searchMoreCandidatePhonesAction(input: {
     outcome: result.outcome,
     reason: result.reason,
     newDistinctPhoneCount: result.newDistinctPhoneCount,
+    lushaOutcome: result.lushaOutcome,
     maxCreditsAuthorized: result.maxCreditsAuthorized,
   };
 }
