@@ -18,17 +18,26 @@
 //   3. PRIVACIDAD, otra vez (`checkPhoneRevealPrivacyGate`). Ya se resolvió en el paso 1;
 //      se vuelve a resolver DESPUÉS de crear la corrida porque entre el preflight y este
 //      instante pueden haber pasado minutos y una DSAR registrada en ese hueco tiene que
-//      ganar. Bloquea ⇒ 0 llamadas y la corrida se cierra `aborted`.
-//   4. CLAIM ATÓMICO de la pata (`claimLushaAttempt`): UN `UPDATE` condicional sobre
+//      ganar. Bloquea ⇒ 0 llamadas y la corrida se cierra TERMINAL, con el motivo EXACTO en
+//      `lusha_skipped_reason`: una comprobación no evaluable nunca se registra como una
+//      supresión confirmada.
+//   4. CREDENCIAL del proveedor, y ANTES del claim a propósito. Leerla no es una llamada
+//      y no cuesta un crédito; resolverla después del claim sellaba `lusha_attempted_at`
+//      con CERO llamadas, y la liquidación —que no puede saber desde la fila que la llamada
+//      no salió— confirmaba el TOPE. Resuelta antes, la ausencia cierra con la pata NO
+//      intentada y la reserva se LIBERA sola.
+//   5. CLAIM ATÓMICO de la pata (`claimLushaAttempt`): UN `UPDATE` condicional sobre
 //      `lusha_attempted_at IS NULL`. Es la tercera y última barrera de idempotencia, y la
 //      única que sobrevive a dos procesos distintos observando la misma corrida.
-//   5. UNA llamada a Lusha, por id NATIVO. Sin retry.
-//   6. USAGE-LOG. Se escribe SIEMPRE que Lusha se llamó, ANTES de intentar persistir, y
+//   6. UNA llamada a Lusha, por id NATIVO. Sin retry.
+//   7. USAGE-LOG. Se escribe SIEMPRE que Lusha se llamó, ANTES de intentar persistir, y
 //      fuera de la transacción de la 122 precisamente para sobrevivir a un fallo de ésta.
-//   7. APPEND (`append_candidate_search_more_phones`, migración 122). Re-comprueba la
+//      Devuelve su ID, que es lo que permite correlacionar la fila del ledger con las de
+//      procedencia de lo que se compró.
+//   8. APPEND (`append_candidate_search_more_phones`, migración 122). Re-comprueba la
 //      supresión por PERSONA bajo el lock: si bloquea ahí, el NÚMERO se retiene y el COSTO
 //      se conserva ENTERO.
-//   8. CIERRE de la corrida con el patch del clasificador puro. El `updateWaterfallRun`
+//   9. CIERRE de la corrida con el patch del clasificador puro. El `updateWaterfallRun`
 //      compartido dispara la LIQUIDACIÓN de la reserva por el mismo camino que el resto del
 //      subsistema.
 //
@@ -73,12 +82,13 @@ import {
 } from '@/lib/feature-flags.server';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { enrichLushaContactPhonesForFallback } from '@/server/integrations/lusha-phone-fallback-client';
-import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { logProviderUsageReturningId } from '@/modules/usage-tracking/logging';
 import { readPhoneRevealCreditPools } from './phone-reveal-credit-budget-deps';
 import { reservePhoneRevealCreditsAndCreateRun } from './phone-reveal-credit-reservation-deps';
 import { checkPhoneRevealPrivacyGate } from './phone-reveal-privacy-gate';
 import {
   reserveWaterfallCreditsAndCreateRunOrBlock,
+  resolvePhoneRevealWaterfallSuppressionBlock,
   type PhoneRevealWaterfallLushaOutcome,
   type PhoneRevealWaterfallRunDraft,
 } from './phone-reveal-waterfall-core';
@@ -318,24 +328,44 @@ export async function executeSearchMorePhonesForCandidate(args: {
 
   const runId = gate.runId;
 
+  // El id de la reserva de LUSHA, tomado del resultado de la transacción que la escribió.
+  // No hay consulta extra: la operación atómica ya devuelve sus filas, así que re-leerlas
+  // sería preguntar por algo que el caller acaba de tener en la mano.
+  //
+  // Se filtra por `providerKey` en vez de tomar `[0]`: esta modalidad reserva UNA pata y es
+  // de Lusha, y afirmarlo por posición sería cierto por accidente. `null` en el golpe
+  // idempotente, donde esta invocación no reservó nada.
+  const lushaReservationId =
+    gate.reservations.find((leg) => leg.providerKey === 'lusha')?.id ?? null;
+
   // ── 3. PRIVACIDAD, otra vez y bajo un reloj nuevo ────────────
   // Fail-closed: `check_unavailable` bloquea IGUAL que un tombstone confirmado, pero se
-  // registra distinto. La corrida se cierra `aborted` y la liquidación libera la reserva
-  // porque la pata nunca se intentó (`lusha_attempted_at IS NULL`): 0 llamadas, 0 créditos.
+  // registra distinto —`aborted` los dos bloqueos demostrados, `error` el no evaluable— y en
+  // los tres la liquidación libera la reserva porque la pata nunca se intentó
+  // (`lusha_attempted_at IS NULL`): 0 llamadas, 0 créditos.
   const privacy = await checkPhoneRevealPrivacyGate(candidateId);
   if (privacy !== 'clear') {
-    await updateWaterfallRun(runId, {
-      status: 'aborted',
-      lushaSkippedReason: 'suppressed',
-      finalProvider: 'none',
-      errorCode:
-        privacy === 'check_unavailable'
-          ? 'suppression_check_unavailable'
-          : privacy === 'do_not_contact'
-            ? 'do_not_contact'
-            : 'blocked_suppressed',
-      completedAt: new Date().toISOString(),
-    });
+    // El patch lo produce `resolvePhoneRevealWaterfallSuppressionBlock`, que es el MISMO
+    // traductor que usan los otros tres puntos donde esta puerta puede bloquear. Se reutiliza
+    // en vez de escribir el patch a mano porque el vocabulario NO es intercambiable:
+    //
+    //   * `blocked_suppressed` ⇒ `lusha_skipped_reason = 'suppressed'`;
+    //   * `check_unavailable`  ⇒ `'suppression_check_unavailable'`, NUNCA `'suppressed'`;
+    //   * `do_not_contact`     ⇒ `'dnc'`.
+    //
+    // Colapsar los tres en `'suppressed'` —que es lo que hacía este camino— convertía una
+    // comprobación que NO SE PUDO HACER en una supresión CONFIRMADA. El efecto sobre la
+    // llamada es idéntico en los tres (fail-closed, 0 llamadas), pero la AFIRMACIÓN que
+    // queda en la columna no lo es, y esa columna es la que la UI y la auditoría leen.
+    const block = resolvePhoneRevealWaterfallSuppressionBlock(
+      privacy,
+      new Date().toISOString(),
+    );
+    // No-nulo para los tres estados que llegan aquí (`null` sólo lo devuelve `clear`). El
+    // `if` es estructural: mantiene el tipo honesto sin un aserto no-nulo.
+    if (block) {
+      await updateWaterfallRun(runId, block);
+    }
     return {
       outcome: 'privacy_blocked',
       reason: privacy,
@@ -348,7 +378,68 @@ export async function executeSearchMorePhonesForCandidate(args: {
     };
   }
 
-  // ── 4. CLAIM ATÓMICO ────────────────────────────────────────
+  // ── 4. LA CREDENCIAL, ANTES DEL CLAIM ───────────────────────
+  //
+  // Leer la clave NO es una llamada al proveedor y no cuesta un crédito, así que resolverla
+  // aquí no adelanta ningún gasto. Lo que evita es una MENTIRA de contabilidad.
+  //
+  // Cuando esto vivía DESPUÉS del claim, una clave ausente dejaba la corrida con
+  // `lusha_attempted_at` ya sellado. La liquidación no puede saber, desde la fila, que la
+  // llamada nunca salió: ve una pata INTENTADA sin costo reportado y aplica su regla
+  // conservadora —confirmar el TOPE—, así que una operación con CERO llamadas al proveedor
+  // ocupaba los 5 créditos. Conservador es correcto cuando el proveedor pudo haber cobrado;
+  // aquí no pudo, porque nadie lo llamó: no es prudencia, es una cifra falsa.
+  //
+  // Con la clave resuelta antes, la ausencia se cierra con `lusha_attempted_at IS NULL` y la
+  // MISMA liquidación libera la reserva sola («pata no intentada ⇒ release»), que es el único
+  // caso demostrable de su contrato. No hay contabilidad nueva: sólo un hecho verdadero.
+  //
+  // `getLushaApiKey` puede LANZAR cuando la configuración de Supabase no está disponible; se
+  // trata como clave ausente, igual que el resto de los consumidores de esta credencial.
+  let apiKey: string | null = null;
+  try {
+    apiKey = await getLushaApiKey();
+  } catch (err) {
+    console.error(
+      '[search-more-phones] lusha api key unavailable, provider not called:',
+      err instanceof Error ? err.message : 'unknown error',
+    );
+    apiKey = null;
+  }
+
+  if (!apiKey) {
+    // Cierre TERMINAL sin pata intentada: 0 llamadas, 0 usage-logs, 0 créditos confirmados y
+    // la reserva liberada. `lushaSkippedReason = 'provider_error'` porque la pata se omitió
+    // por una condición del proveedor, y el `errorCode` dice CUÁL —una clave que falta es un
+    // problema de configuración, no un veredicto sobre la persona ni una caída de Lusha.
+    await updateWaterfallRun(runId, {
+      status: 'error',
+      lushaSkippedReason: 'provider_error',
+      // Costo `null` + `unknown`: no se ejecutó nada. Que la pata no corrió lo dice
+      // `lusha_attempted_at IS NULL`, y es eso —no la columna de costo— lo que la
+      // liquidación mira para liberar.
+      lushaCostCredits: null,
+      lushaCostSource: 'unknown',
+      finalProvider: 'none',
+      completedAt: new Date().toISOString(),
+      errorCode: 'lusha_api_key_missing',
+    });
+    return {
+      // `not_started` y NO `provider_error`: el proveedor nunca fue llamado, así que no
+      // falló. El operador ve «no pudimos iniciar la búsqueda, no se consumió ningún
+      // crédito», que es exactamente lo que pasó.
+      outcome: 'not_started',
+      reason: 'lusha_api_key_missing',
+      // La autorización SÍ existió (la corrida se creó con su tope) y se cerró sin gastarla.
+      maxCreditsAuthorized: SEARCH_MORE_MAX_CREDITS,
+      newDistinctPhoneCount: 0,
+      // `null` y no `'error'`: `'error'` afirmaría que Lusha contestó algo.
+      lushaOutcome: null,
+      lushaCalled: false,
+    };
+  }
+
+  // ── 5. CLAIM ATÓMICO ────────────────────────────────────────
   let claimed: boolean;
   try {
     claimed = await claimLushaAttempt(runId);
@@ -381,26 +472,7 @@ export async function executeSearchMorePhonesForCandidate(args: {
     };
   }
 
-  // ── 5. UNA llamada a Lusha, por id NATIVO ───────────────────
-  const apiKey = await getLushaApiKey();
-  if (!apiKey) {
-    // La clave falta: NO se llamó a nadie, así que no hay costo. Se cierra como error y la
-    // liquidación confirma con el TOPE, porque el claim ya selló `lusha_attempted_at` y el
-    // core de liquidación no puede saber, desde la fila, que la llamada no salió. Es la
-    // dirección CONSERVADORA: se sobreestima la ocupación, nunca se regala.
-    return closeRunWith(
-      runId,
-      resolveSearchMoreOutcome({
-        providerOutcome: 'error',
-        persistStatus: null,
-        newDistinctPhoneCount: 0,
-        costCredits: null,
-        nowIso: new Date().toISOString(),
-      }),
-      'lusha_api_key_missing',
-    ).then((result) => ({ ...result, lushaCalled: false }));
-  }
-
+  // ── 6. UNA llamada a Lusha, por id NATIVO ───────────────────
   // `enrichLushaContactPhonesForFallback` es la ÚNICA vía sancionada, y es de ENRIQUECIMIENTO
   // POR ID: `POST /v3/contacts/enrich` con el id nativo. NO existe aquí ninguna llamada a la
   // búsqueda general de personas de Lusha, y por eso este módulo no importa su cliente.
@@ -411,7 +483,7 @@ export async function executeSearchMorePhonesForCandidate(args: {
     allowPhoneReveal: true,
   });
 
-  // ── 6. USAGE-LOG ────────────────────────────────────────────
+  // ── 7. USAGE-LOG ────────────────────────────────────────────
   // Se escribe SIEMPRE que la llamada salió, y ANTES de persistir: vive fuera de la
   // transacción de la 122 precisamente para sobrevivir a un fallo de ésta. Es lo que impide
   // que un cobro real desaparezca del ledger porque la escritura posterior falló.
@@ -431,7 +503,7 @@ export async function executeSearchMorePhonesForCandidate(args: {
   // ya distingue las nueve situaciones. Aquí sólo se traduce.
   const providerFailed = !response.ok || response.candidateStatus === 'error';
   const creditsCharged = response.ok ? response.creditsCharged : null;
-  await logSearchMoreUsage({
+  const usageLogId = await logSearchMoreUsage({
     candidateId,
     runId,
     actor,
@@ -458,9 +530,16 @@ export async function executeSearchMorePhonesForCandidate(args: {
         providerOutcome: 'error',
         persistStatus: null,
         newDistinctPhoneCount: 0,
-        // El costo se conserva tal como lo reportó el proveedor. En 402 y 429 el mapeo deja
-        // `costSource: null` porque nada se cobró, pero no se fuerza un 0 aquí: la
-        // liquidación decide, y su regla —desconocido ⇒ el TOPE— es la conservadora.
+        // El costo se conserva tal como lo reportó el proveedor, y NO se infiere.
+        //
+        // Un `costSource` nulo o `unknown` significa «el costo NO se reportó», que NO es lo
+        // mismo que «no se cobró»: el clasificador sólo registra 0 cuando
+        // `billing.creditsCharged` dice explícitamente 0. Así que de un 402 o un 429 no se
+        // deduce que fueran gratuitos, y por eso tampoco se habilita ningún reintento
+        // «seguro» sobre ellos: eso exigiría evidencia del contrato del proveedor, no la
+        // ausencia de una cifra.
+        //
+        // La liquidación decide, y su regla —desconocido ⇒ el TOPE— es la conservadora.
         costCredits: creditsCharged,
         nowIso: new Date().toISOString(),
       }),
@@ -488,7 +567,7 @@ export async function executeSearchMorePhonesForCandidate(args: {
     );
   }
 
-  // ── 7. COLECCIÓN + APPEND ───────────────────────────────────
+  // ── 8. COLECCIÓN + APPEND ───────────────────────────────────
   // La captura la construye el MISMO `buildLushaPhoneCollectionCapture` que usa el reveal:
   // TODOS los teléfonos de la respuesta (no sólo el primero), el mismo número en varios
   // formatos colapsado en UNA fila canónica, el mismo ranking de tipos, y `source_event_key`
@@ -508,14 +587,17 @@ export async function executeSearchMorePhonesForCandidate(args: {
         : null,
     context: {
       waterfallRunId: runId,
-      // El id de la reserva no viaja hasta aquí: la liquidación la resuelve por
-      // `credit_reservation_group_id` de la corrida. `null` en vez de inventar una
-      // correlación, misma convención que la captura del otro proveedor.
-      reservationId: null,
-      // El usage-log ya se escribió, pero `logProviderUsage` no devuelve su id, así que no
-      // se puede correlacionar por fila. `null` es el dato honesto; la corrida es la
-      // correlación que sí existe.
-      providerUsageLogId: null,
+      // Los TRES ids de procedencia, y ninguno inventado. «Buscar más números» es una
+      // operación PAGADA, así que cada número que aparece por ella tiene que poder señalar
+      // la corrida que lo autorizó, la reserva que respaldó su costo y la fila del ledger
+      // que lo registró — sin reconstruir la cadena por grupo de reserva ni por ventana de
+      // tiempo.
+      //
+      // `null` sólo cuando el id genuinamente no existe: la reserva en el golpe idempotente
+      // (esta invocación no reservó nada) y el usage-log cuando su inserción FALLÓ. Un `null`
+      // aquí dice «no lo hay», nunca «no me molesté en traerlo».
+      reservationId: lushaReservationId,
+      providerUsageLogId: usageLogId,
       observedAt,
     },
   });
@@ -553,7 +635,7 @@ export async function executeSearchMorePhonesForCandidate(args: {
     persistStatus = 'unavailable';
   }
 
-  // ── 8. CIERRE ───────────────────────────────────────────────
+  // ── 9. CIERRE ───────────────────────────────────────────────
   // El clasificador PURO decide qué se AFIRMA. Aquí es donde `no_new_distinct_phone` nace:
   // `persisted` con `new_distinct_phone_count = 0` significa que Lusha contestó, se le
   // cobró, y todos sus números ya estaban.
@@ -582,6 +664,12 @@ export async function executeSearchMorePhonesForCandidate(args: {
  * BEST-EFFORT en su fallo: si el log no se puede escribir NO se aborta la operación, porque
  * abortar tampoco devolvería el crédito que Lusha ya cobró. Se registra el fallo sin PII y la
  * liquidación de la reserva sigue siendo la que ocupa el presupuesto.
+ *
+ * DEVUELVE el id de la fila insertada, o `null` si la inserción falló. Ese id es la
+ * correlación DIRECTA entre el ledger y las filas de procedencia de los números comprados;
+ * cuando el log falla, `null` es el dato honesto —el gasto sigue registrado en la corrida y en
+ * la reserva, que es lo que ocupa el presupuesto— y jamás se sustituye por otro identificador
+ * para que la columna «parezca» completa.
  */
 async function logSearchMoreUsage(args: {
   candidateId: string;
@@ -596,9 +684,9 @@ async function logSearchMoreUsage(args: {
   usageStatus: 'success' | 'error' | 'rate_limited' | 'quota_exceeded';
   creditsCharged: number | null;
   errorCode: string | null;
-}): Promise<void> {
+}): Promise<string | null> {
   try {
-    await logProviderUsage({
+    const logged = await logProviderUsageReturningId({
       provider_key: 'lusha',
       operation_key: SEARCH_MORE_LUSHA_OPERATION_KEY,
       credits_used: args.creditsCharged ?? undefined,
@@ -613,10 +701,12 @@ async function logSearchMoreUsage(args: {
         actor_role: args.actor.roleKey,
       },
     });
+    return logged.id;
   } catch (err) {
     console.error(
       '[search-more-phones] usage log failed, spend still reserved:',
       err instanceof Error ? err.message : 'unknown error',
     );
+    return null;
   }
 }

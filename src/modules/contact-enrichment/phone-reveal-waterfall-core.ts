@@ -107,6 +107,7 @@ import {
   buildPhoneRevealCreditReservationLegs,
   type PhoneRevealCreditReservationAndRunOutcome,
   type PhoneRevealCreditReservationAndRunRequest,
+  type PhoneRevealCreditReservedLeg,
 } from './phone-reveal-credit-reservation-core';
 
 // ── Vocabularios (espejo exacto de los CHECK de la migración 102) ──
@@ -644,6 +645,20 @@ export type PhoneRevealWaterfallCreditGate =
       reservationGroupId: string | null;
       /** true cuando la clave de idempotencia devolvió una corrida que YA existía. */
       idempotentHit: boolean;
+      /**
+       * Las patas que la transacción acaba de reservar, TAL COMO las devolvió.
+       *
+       * Se propagan porque la operación atómica ya las trae en su envoltorio `created`, y
+       * volver a leerlas de la base para conocer el id de una reserva que se acaba de
+       * escribir sería una consulta redundante contra una fila que el caller ya tuvo en la
+       * mano. Una operación PAGADA las necesita para correlacionar directamente lo que
+       * compró con la exposición que lo respaldó.
+       *
+       * VACÍA en el golpe idempotente (`already_created`): esa llamada no reservó nada, así
+       * que no hay ninguna pata NUEVA que atribuirle. Vacío es el dato honesto — inventar la
+       * reserva de la corrida ganadora afirmaría una correlación que esta invocación no creó.
+       */
+      reservations: readonly PhoneRevealCreditReservedLeg[];
     }
   | {
       started: false;
@@ -733,6 +748,8 @@ export async function reserveWaterfallCreditsAndCreateRunOrBlock(args: {
         runId: outcome.runId,
         reservationGroupId: outcome.reservationGroupId,
         idempotentHit: false,
+        // Ya vienen en el envoltorio de la transacción: se propagan en vez de re-leerlas.
+        reservations: outcome.reservations,
       };
     case 'already_created':
       // El reintento encontró la corrida que la primera llamada ya había creado. No se
@@ -742,6 +759,9 @@ export async function reserveWaterfallCreditsAndCreateRunOrBlock(args: {
         runId: outcome.runId,
         reservationGroupId: outcome.reservationGroupId,
         idempotentHit: true,
+        // Esta invocación no reservó ninguna pata. Devolver las de la corrida ganadora
+        // atribuiría a este golpe una exposición que no creó.
+        reservations: [],
       };
     case 'insufficient_credits':
       return { started: false, reason: 'insufficient_credits' };
