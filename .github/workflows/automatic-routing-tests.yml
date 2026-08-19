@@ -1754,6 +1754,37 @@ jobs:
       - name: Run A1 Lusha global budget gate tests
         run: npm run test:lusha-budget-gate
 
+      # AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0 — UNA sola autoridad de
+      # presupuesto por ruta, y ninguna cifra estática de forma de búsqueda.
+      #
+      # La QA visual de Producción del 2026-08-19, ANTES de gastar un crédito
+      # (CO · health_pharma · 6 disponibles), encontró la misma pantalla diciendo
+      # dos cosas incompatibles: arriba «no alcanza… Requeridos: 20 créditos» —el
+      # techo de Tavily, calculado por el preflight GENÉRICO sobre una corrida que
+      # iba a Lusha— y abajo el panel plan-aware de Lusha con 6/6 y «Buscar con
+      # IA» habilitado. Dos preflights sobre el mismo gasto, uno de ellos hablando
+      # de un proveedor que esa ruta no usa.
+      #
+      # Entra al check OBLIGATORIO porque el defecto es invisible en verde: las dos
+      # superficies son correctas por separado, y sólo la combinación —ruta Lusha
+      # honrada + instantánea de presupuesto presente— produce la contradicción. Un
+      # ratchet de render prueba que no coexisten, y uno de fuente impide los tres
+      # arreglos que la reintroducen (copiar la lógica de Lusha al padre, cablear el
+      # 6 de health_pharma, o apagar el preflight genérico para todos, que se
+      # llevaría por delante a Apollo/Tavily).
+      #
+      # También fija que el aviso de costo dejó de prometer «2 páginas / 10 por
+      # página / 20 empresas»: eran ciertas para el ejecutor de UNA rama y falsas
+      # desde el ejecutor Macro-v2, donde una macro de 3 ramas hace hasta 6
+      # peticiones. La única cifra cuantitativa de la pantalla es `requiredCredits`,
+      # que llega del preflight consciente del plan.
+      #
+      # Determinista y offline: jsdom + lectura de fuente. Sin red, sin Supabase,
+      # sin Apollo, sin Lusha, sin Tavily, 0 créditos, 0 reservas y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      - name: Run A1 Lusha pre-click budget authority + copy tests
+        run: npm run test:a1-lusha-preclick-ux-consistency
+
       # AGENT1-LUSHA-HIDDEN-PROVIDER-TEST-REPAIR-1 § 5 — Lusha es un proveedor
       # OCULTO: el usuario nunca lo elige. Esta suite es la que vigila esa propiedad
       # de extremo a extremo — que no reaparezcan pestañas ni selector de fuente, que

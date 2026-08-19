@@ -315,10 +315,29 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   //   · No nombra un proveedor que nadie eligió: sin selección explícita compara
   //     contra el predeterminado que resolvió el servidor, y si tampoco lo hay,
   //     no bloquea.
+  //
+  // AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0 — este preflight es el de
+  // Apollo/Tavily, y SÓLO de ellos.
+  //
+  // La ruta de Lusha tiene su propio aviso previo dentro de
+  // `WizardLushaFinalSearch` (el resolutor plan-aware de esa ruta), que es el
+  // único consciente de cuántas ramas ejecuta la macro industria. Mientras este
+  // bloque se evaluaba también en esa ruta, la misma pantalla publicaba DOS
+  // autoridades económicas incompatibles: la QA visual del 2026-08-19 (CO ·
+  // health_pharma · 6 disponibles) vio a la vez «Requeridos: 20 créditos» —el
+  // techo de Tavily, un proveedor que esa corrida no va a usar— y el panel
+  // correcto de Lusha con 6/6 y su CTA habilitado. Un aviso que nombra el coste
+  // de otro proveedor no es un aviso: es ruido que contradice al que sí manda.
+  //
+  // `!useLushaFinalSearch` no debilita ningún gate: la ruta Lusha conserva su
+  // propio bloqueo previo, y la autoridad económica real sigue siendo la reserva
+  // atómica del servidor (`try_reserve_wizard_credits`), que no depende de nada
+  // de esta pantalla. Apollo/Tavily conservan su preflight intacto.
   const budgetProvider = requestedProvider ?? defaultDiscoveryProvider;
-  const preExecutionBudgetBlock = budgetProvider
-    ? resolveWizardPreExecutionBudgetBlock(budgetPreflight, budgetProvider)
-    : null;
+  const preExecutionBudgetBlock =
+    !useLushaFinalSearch && budgetProvider
+      ? resolveWizardPreExecutionBudgetBlock(budgetPreflight, budgetProvider)
+      : null;
 
   const isBudgetBlocked = isBudgetReactivelyBlocked || preExecutionBudgetBlock !== null;
 
