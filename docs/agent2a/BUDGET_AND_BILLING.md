@@ -199,19 +199,49 @@ Desde la configuración de la plataforma (módulo `budgets`), creando o editando
 > **`is_active = false` produce `budget_not_configured`, no «sin límite».** Ésa es la
 > consecuencia directa de la decisión 4E.
 
-### Estado de configuración en Producción (2026-08-19)
+### 8.1 Política operativa final (autorizada por la dueña, 2026-08-20)
 
-| Proveedor | Reglas | Activas | En créditos | `on_exceed` |
+Agente 2A está **habilitado en Producción**. El presupuesto **ya no es un interruptor de QA**: la
+disponibilidad operativa de las acciones pagadas la gobiernan estas dos reglas más los gates
+*fail-closed* del runtime.
+
+| Proveedor | `scope_type` | `scope_id` | Período | Techo | `on_exceed` | Estado |
+|---|---|---|---|---|---|---|
+| `apollo` | `global` | — | mensual | 500 créditos | `alert` | **activa** |
+| `lusha` | `role` | `admin` | mensual | 500 créditos | `block` | **activa** |
+
+**Reglas históricas más estrechas — inactivas, conservadas como historial:**
+
+| Proveedor | `scope_type` | Techo | Estado |
+|---|---|---|---|
+| `apollo` | `group` | 500 | **inactiva** |
+| `apollo` | `role` (`admin`) | 100 | **inactiva** |
+| `apollo` | `user` (QA) | 45 | **inactiva** |
+| `lusha` | `user` (QA) | 21 | **inactiva** |
+
+> **La regla de Lusha por usuario de la QA está INACTIVA y no es política.** Fue una
+> configuración puntual para validar el flujo con dinero real. Ninguna regla de QA debe leerse
+> como techo permanente del producto, ni como la autoridad operativa vigente.
+
+**La prioridad de resolución NO cambia:** `user` → `group` (ancestro más cercano) → `role` →
+`global`. De ahí la consecuencia que hay que tener presente al administrar: **reactivar** una
+regla de scope más específico *gana* sobre la operativa vigente — un techo por usuario de 21
+créditos volvería a acotar a ese usuario muy por debajo del techo global. Ésa es exactamente la
+razón por la que las reglas de QA se dejan **inactivas** en lugar de borrarse.
+
+### 8.2 Snapshot fechado de consumo (2026-08-20, READ-ONLY)
+
+Cifras **de un instante**, no reglas de producto ni compromisos:
+
+| Proveedor | Techo de la regla vigente | Consumido en el período | Reservado activo | Disponible |
 |---|---|---|---|---|
-| `apollo` | 4 (`global`, `group`, `role`, `user`) | **0** | sí | `alert` × 3, `block` × 1 |
-| `lusha` | 1 (`user`, mensual) | **1** | sí | `block` |
+| `apollo` | 500 (`global`) | 298 | 0 | 202 |
+| `lusha` | 500 (`role` `admin`) | 16 | 0 | 484 |
 
-Se reporta **presencia y estado**, no los límites concretos.
+**Consecuencia operativa:** el reveal normal (`full_waterfall` y su variante `apollo_only`) y
+«Buscar más números» tienen los dos presupuesto **resoluble** bajo la política vigente. Ya **no**
+es cierto que un `full_waterfall` resuelva `budget_not_configured` por falta de regla activa.
 
-**Consecuencia operativa:** con ninguna regla de Apollo activa, un `full_waterfall` o un
-`apollo_only` resuelve hoy `budget_not_configured` y **no arranca**. No es un defecto: es el
-comportamiento fail-closed previsto. Ver [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md) § E.
-
-> **Nota deliberada.** Los valores concretos que se usaron durante la QA de aceptación **no** se
-> documentan aquí como regla operativa. Fueron una configuración puntual para validar el flujo,
-> no un techo que deba perpetuarse.
+`budget_not_configured` sigue siendo el veredicto correcto —y sigue **bloqueando**— si alguien
+desactiva una regla, si la regla del proveedor exigido desaparece, o si sólo tiene `limit_usd`. Su
+diagnóstico está en [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md) § E.

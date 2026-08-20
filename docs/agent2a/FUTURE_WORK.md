@@ -100,11 +100,19 @@ Apollo dos veces.
 La capacidad que justificó la migración 109 —que Apollo devuelve N números y se perdían N−1— **no
 tiene todavía una demostración con dinero real**.
 
+Con la política de presupuesto vigente (§ 8.1 de [BUDGET_AND_BILLING.md](BUDGET_AND_BILLING.md))
+esta QA **no está bloqueada por presupuesto**; sigue exigiendo autorización explícita de gasto.
+
 ### 2.4 Waterfall que caiga realmente a la pata de Lusha
 
 **Estado: sin evidencia de Producción.** La única corrida `full_waterfall` terminó en
 `completed_apollo` con `lusha_attempted_at = NULL`. La pata automática Apollo→Lusha nunca se ha
-ejercitado end-to-end con dinero real.
+ejercitado end-to-end con dinero real: falta ver un Apollo `no_phone_found` seguido de una
+aceptación real de Lusha.
+
+Con la política de presupuesto vigente (§ 8.1 de [BUDGET_AND_BILLING.md](BUDGET_AND_BILLING.md))
+las **dos** patas tienen pozo resoluble, así que esta QA **no está bloqueada por presupuesto**;
+sigue exigiendo autorización explícita de gasto.
 
 ### 2.5 DSAR ejercida en Producción
 
@@ -124,13 +132,19 @@ No se investigó la causa porque excede el alcance READ-ONLY de este hito. **Ant
 defecto**, hay que descartar que esos números se escribieran por un camino anterior al cableado de
 la correlación.
 
-### 2.7 Reglas de presupuesto de Apollo inactivas
+### 2.7 Presupuesto operativo de Apollo y Lusha — **RESUELTO** (2026-08-20)
 
-**Estado: configuración, no código.** Las 4 reglas de Apollo están `is_active = false`, así que
-`full_waterfall` y `apollo_only` resuelven hoy `budget_not_configured` y **no arrancan**.
+**Ya no es trabajo pendiente.** La dueña autorizó la política operativa final y Producción fue
+actualizada: Apollo tiene una regla `global` mensual **activa** y Lusha una regla de `role` =
+`admin` mensual **activa**. El reveal normal (`full_waterfall` / `apollo_only`) y «Buscar más
+números» tienen presupuesto **resoluble**.
 
-Es el comportamiento fail-closed previsto. **No se modifica en este hito** — cambiar presupuesto
-exige autorización explícita.
+El presupuesto **no** es un interruptor de QA: la disponibilidad operativa de las acciones pagadas
+la gobiernan esas reglas más los gates fail-closed del runtime. Política completa en
+[BUDGET_AND_BILLING.md](BUDGET_AND_BILLING.md) § 8.1.
+
+**Sigue vigente el ratchet:** cambiar una regla de presupuesto en Producción exige autorización
+explícita de la dueña.
 
 ### 2.8 Cabeceras de migración desactualizadas
 

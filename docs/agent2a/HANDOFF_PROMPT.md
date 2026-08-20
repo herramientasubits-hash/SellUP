@@ -117,8 +117,14 @@ ESQUEMA Y DESPLIEGUE
     había ocurrido antes.
 
 ═══════════════════════════════════════════════════════════════════
-5. ESTADO EN PRODUCCIÓN (verificado 2026-08-19, READ-ONLY)
+5. ESTADO EN PRODUCCIÓN (verificado READ-ONLY: 2026-08-19;
+   presupuesto re-verificado 2026-08-20)
 ═══════════════════════════════════════════════════════════════════
+
+EL AGENTE 2A ESTÁ CERRADO Y HABILITADO EN PRODUCCIÓN.
+No es un subsistema en QA: está operativo. El presupuesto YA NO se usa como
+interruptor de QA — la disponibilidad de las acciones pagadas la gobiernan las
+reglas de presupuesto configuradas más los gates fail-closed del runtime.
 
 Proyecto Supabase: lrdruowtadwbdulndlph (ACTIVE_HEALTHY).
 ATENCIÓN: es el ÚNICO proyecto de la organización. NO hay staging.
@@ -131,13 +137,32 @@ Todo deployment de Preview de Vercel apunta a la base de PRODUCCIÓN.
   Teléfonos de candidato        6 vivos, 0 suprimidos
   Teléfonos de contacto oficial 1
   provider_suppressions         0 filas (la DSAR nunca se ha ejercido en Prod)
-  budget_rules apollo           4 reglas, NINGUNA activa
-  budget_rules lusha            1 regla ACTIVA (user, mensual, créditos, block)
 
-CONSECUENCIA OPERATIVA IMPORTANTE: sin regla de Apollo activa, un full_waterfall
-resuelve hoy 'budget_not_configured' y NO arranca. «Buscar más números» y
-legacy_lusha_only SÍ pueden arrancar porque sólo exigen el pozo de Lusha.
-Si alguien reporta «el reveal no funciona pero buscar más sí», ESA es la razón.
+PRESUPUESTO OPERATIVO VIGENTE (política final autorizada por la dueña):
+
+  apollo   regla ACTIVA   scope global          mensual, en créditos, on_exceed=alert
+  lusha    regla ACTIVA   scope role = admin    mensual, en créditos, on_exceed=block
+
+  Inactivas y conservadas como historial: apollo group, apollo role admin,
+  apollo user (QA) y lusha user (QA). Una regla de QA NUNCA es la política.
+  La prioridad NO cambia: user → group → role → global, así que REACTIVAR una
+  regla más específica gana sobre la operativa vigente. Por eso están inactivas
+  en vez de borradas.
+
+CONSECUENCIA OPERATIVA IMPORTANTE: el reveal normal (full_waterfall y su
+variante apollo_only) y «Buscar más números» tienen los DOS presupuesto
+RESOLUBLE bajo la política vigente. Ya NO es cierto que un full_waterfall
+resuelva 'budget_not_configured' por falta de regla activa.
+Si hoy ves un bloqueo por presupuesto, será por saldo (insufficient_credits) o
+por lectura fallida (credit_balance_unavailable), NO por falta de regla.
+'budget_not_configured' sigue existiendo y sigue BLOQUEANDO si alguien desactiva
+una regla: su diagnóstico está en OPERATIONS_RUNBOOK.md § E.
+
+Los números de consumo del snapshot fechado (2026-08-20) están en
+BUDGET_AND_BILLING.md § 8.2. NO los trates como reglas de producto: son un
+instante, y los techos son configuración administrable.
+
+NO cambies ninguna regla de presupuesto sin autorización explícita de la dueña.
 
 ═══════════════════════════════════════════════════════════════════
 6. DISCREPANCIAS CONOCIDAS ENTRE DOCUMENTACIÓN Y REALIDAD
@@ -151,7 +176,8 @@ NO las "arregles" sin autorización. Están registradas a propósito.
   · lusha-phone-fallback-copy.ts dice que el fallback está «OFF in every
     environment today». El propio feature-flags.server.ts ya corrige eso.
   · El cuerpo del PR #309 dice que no hay regla de crédito activa para Lusha en
-    Producción. HOY SÍ LA HAY (se configuró después, y es lo que permitió la QA).
+    Producción. HOY SÍ LA HAY: la autoridad operativa es la regla de rol admin.
+    La regla puntual por usuario que se usó en la QA quedó INACTIVA.
 
 Regla: el CÓDIGO ACTUAL + el esquema actual + Producción read-only son la fuente
 de verdad. Los comentarios están congelados en el momento en que se escribieron.
@@ -216,7 +242,12 @@ DEUDA REAL
     Lusha de la misma persona. Es la limitación más importante del subsistema.
   · PR #288 (badge «Nuevo») abierto y congelado.
   · Sin QA de Producción de: un reveal Apollo con 2+ teléfonos, un waterfall que
-    caiga de verdad a la pata Lusha, y una DSAR ejercida.
+    caiga de verdad a la pata Lusha (Apollo no_phone_found → aceptación real de
+    Lusha), y una DSAR ejercida. NINGUNA está bloqueada por presupuesto bajo la
+    política vigente; falta EJECUTARLAS, y cada una exige autorización de gasto.
+  · Correlación de procedencia en las filas de origen Apollo: waterfall_run_id,
+    reservation_id y provider_usage_log_id están en NULL. Pregunta abierta sin
+    investigar, NO defecto confirmado (FUTURE_WORK.md § 2.6).
   · Preview no aislado de Producción (infraestructura, no código).
 
 ALCANCE DELIBERADO — NO es deuda

@@ -147,6 +147,12 @@ Producción:
 > La ausencia de evidencia de producción **no** es evidencia de defecto. Es una afirmación sobre
 > qué se ha visto funcionar con dinero real y qué sólo se ha visto funcionar en pruebas.
 
+**Ninguna de estas QAs pendientes está bloqueada por presupuesto.** Desde 2026-08-20 la política
+operativa vigente tiene regla **activa** para Apollo (`global`, mensual) y para Lusha (`role` =
+`admin`, mensual), así que el reveal normal y «Buscar más números» tienen los dos presupuesto
+**resoluble** — ver [BUDGET_AND_BILLING.md](BUDGET_AND_BILLING.md) § 8.1. Lo que sigue faltando es
+**ejecutar** las corridas, y cada una exige autorización explícita de gasto.
+
 ---
 
 ## 6. Corridas de teléfono no terminales

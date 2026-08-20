@@ -202,13 +202,27 @@ ORDER BY provider_key, scope_type;
 3. **El presupuesto es por proveedor.** Un waterfall completo exige **Apollo ≥ 8 Y Lusha ≥ 5 por
    separado**. Saldo de sobra en uno no compensa la falta en el otro.
 
-**Estado en Producción a 2026-08-19:** Apollo tiene 4 reglas y **ninguna activa**; Lusha tiene 1
-regla **activa** (scope `user`, mensual, en créditos, `on_exceed = block`).
+**Estado en Producción a 2026-08-20 — política operativa vigente:**
 
-> **Consecuencia inmediata:** hoy un `full_waterfall` o un `apollo_only` resuelve
-> `budget_not_configured` y **no arranca**. «Buscar más números» y `legacy_lusha_only`, que sólo
-> exigen el pozo de Lusha, **sí** pueden arrancar. Si alguien reporta «el reveal no funciona pero
-> buscar más sí», **ésta es la explicación** y no un defecto.
+| Proveedor | Regla vigente | Estado |
+|---|---|---|
+| `apollo` | `global`, mensual, en créditos, `on_exceed = alert` | **activa** |
+| `lusha` | `role` = `admin`, mensual, en créditos, `on_exceed = block` | **activa** |
+
+Las reglas más estrechas de Apollo (`group`, `role`, `user` de QA) y la regla de QA de Lusha por
+usuario están **inactivas**. Política completa en
+[BUDGET_AND_BILLING.md](BUDGET_AND_BILLING.md) § 8.1.
+
+> **Consecuencia inmediata:** el reveal normal y «Buscar más números» tienen los dos presupuesto
+> **resoluble**. Un bloqueo por presupuesto hoy será por **saldo** (`insufficient_credits`) o por
+> **lectura fallida** (`credit_balance_unavailable`) — **no** por falta de regla.
+
+> **Si algún día vuelves a ver `budget_not_configured`**, el diagnóstico sigue siendo éste y sigue
+> siendo válido: la consulta de arriba dirá que la regla del proveedor exigido está
+> `is_active = false`, que sólo tiene `limit_usd`, o que no existe. El síntoma clásico de ese
+> estado —«el reveal no funciona pero buscar más sí»— aparece cuando la regla que falta es **la de
+> Apollo**, porque «Buscar más números» y `legacy_lusha_only` sólo exigen el pozo de Lusha. No es
+> un defecto: es el fail-closed previsto.
 
 **Disponibilidad real** = `limit_credits − consumido − reservado activo`. El consumo se agrega de
 `provider_usage_logs` para ese `provider_key` dentro del período de la regla.
