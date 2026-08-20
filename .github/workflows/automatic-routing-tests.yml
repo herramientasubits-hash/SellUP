@@ -2144,3 +2144,31 @@ jobs:
       # 0 créditos.
       - name: Run A1 pre-paid novelty gate tests
         run: npm run test:a1-prepaid-novelty-gate
+
+      # AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1 — la verdad contable de
+      # Apollo People Search entra al check obligatorio.
+      #
+      # El soporte de Apollo confirmó que People Search no cobra: ni la llamada, ni
+      # los resultados devueltos, ni los resultados repetidos. SellUp escribía
+      # `credits_used = número de resultados` con su dólar derivado del precio genérico
+      # del crédito, así que contabilizaba como pagado un volumen que el proveedor
+      # regala (30 filas históricas en Producción con 98 créditos y ~$0.8575 que NO son
+      # cobros probados).
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que un conteo de VOLUMEN vuelva a colarse como costo — se comprueba sobre
+      #     el adaptador REAL y, en el runner, con entradas HOSTILES que reportan
+      #     `creditsUsed = nº de resultados` y con `providerUsage` AUSENTE (las dos
+      #     ramas por las que entraron los créditos fantasma);
+      #   * que el costo cero se coma las métricas operativas: 25 resultados gratis
+      #     siguen siendo 25 en `results_returned` y en la metadata;
+      #   * que una llamada real a costo cero se vuelva indistinguible de "no se llamó
+      #     al proveedor" — la fila de éxito con 0 resultados tiene que existir;
+      #   * que el 0 se escriba como NULL, que significa "costo DESCONOCIDO" y no
+      #     "gratis", y que el presupuesto lo lea como incompleto;
+      #   * que el cero se generalice y regale `people/match`, que sigue siendo pagado.
+      #
+      # Offline y determinista: sin red (un espía sobre `fetch` lo comprueba), sin
+      # Supabase, sin credenciales. 0 créditos.
+      - name: Run Agent 2A Apollo People Search billing truth tests
+        run: npm run test:agent2a:apollo-people-search-billing-truth

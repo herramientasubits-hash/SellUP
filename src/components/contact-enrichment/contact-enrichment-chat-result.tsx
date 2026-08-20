@@ -435,8 +435,12 @@ export function ApolloPreflightCard({ provider }: { provider?: ContactEnrichment
               <dd className="font-medium text-foreground">{g.maxSearchResultsPerRun}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-muted-foreground">Créditos estimados máximos de búsqueda</dt>
-              <dd className="font-medium text-foreground">{g.maxEstimatedSearchCreditsPerRun}</dd>
+              <dt className="text-muted-foreground">Créditos máximos de búsqueda</dt>
+              <dd className="font-medium text-foreground">
+                {g.maxEstimatedSearchCreditsPerRun === 0
+                  ? 'sin costo'
+                  : `${g.maxEstimatedSearchCreditsPerRun} créditos`}
+              </dd>
             </div>
             <div className="flex justify-between border-t border-border/30 pt-1.5 mt-1">
               <dt className="text-muted-foreground font-medium">Completion de perfiles</dt>
@@ -687,14 +691,14 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
           <dl className="space-y-1 text-xs">
             <div className="flex justify-between">
               <dt className="text-muted-foreground">Resultados evaluados</dt>
-              <dd className="font-medium text-foreground">
-                {result.searchGuardrail.estimated_search_credits}
-              </dd>
+              <dd className="font-medium text-foreground">{result.rawResultsCount}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-muted-foreground">Créditos estimados de búsqueda</dt>
+              <dt className="text-muted-foreground">Créditos de búsqueda</dt>
               <dd className="font-medium text-foreground">
-                {result.searchGuardrail.estimated_search_credits}
+                {result.searchGuardrail.estimated_search_credits === 0
+                  ? 'sin costo'
+                  : `${result.searchGuardrail.estimated_search_credits} créditos`}
               </dd>
             </div>
             {result.searchGuardrail.stopped_early_reason && (
