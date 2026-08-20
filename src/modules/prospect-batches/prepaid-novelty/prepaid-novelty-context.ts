@@ -152,6 +152,27 @@ export type PrePaidNoveltyContext = {
    * acotados. Pista ECONÓMICA, nunca la autoridad de dedupe (§ 11).
    */
   exclusionDomains: readonly string[];
+  /**
+   * ADDENDUM PROVIDER-SEEN § 3 — cuántas identidades de corridas ANTERIORES trae
+   * la memoria provider-seen de este proveedor.
+   *
+   * 🔴 NO reduce `residualGap` y no puede empezar a hacerlo. Una empresa que el
+   * proveedor ya nos mostró y que rechazamos NO es una empresa que tengamos: es
+   * una que ya pagamos por ver. Descontarla del objetivo sería la «false gap
+   * reduction» que § 11.3 prohíbe explícitamente, y el usuario acabaría con menos
+   * candidatos de los que pidió. Su único uso legítimo es alimentar el plan de
+   * exclusión y la telemetría.
+   */
+  providerSeenKnown: number;
+  /**
+   * ADDENDUM PROVIDER-SEEN §§ 3, 6 — las identidades CANDIDATAS a exclusión, sin
+   * decidir todavía cuáles viajan. Quién puede recibirlas lo decide la capacidad
+   * del proveedor en `planProviderExclusions`.
+   */
+  providerExclusionCandidates: {
+    readonly ids: readonly string[];
+    readonly domains: readonly string[];
+  };
   /** Empresas útiles aceptadas ANTES de gastar. `<= requestedTarget`, siempre. */
   acceptedBeforeProvider: number;
   /** Lo que el proveedor de pago debe buscar de verdad. */
@@ -168,6 +189,11 @@ export type BuildPrePaidNoveltyContextInput = {
   knownSellupCount?: number;
   knownHubspotCount?: number;
   exclusionDomains?: readonly string[];
+  providerSeenKnown?: number;
+  providerExclusionCandidates?: {
+    readonly ids?: readonly string[];
+    readonly domains?: readonly string[];
+  };
 };
 
 /**
@@ -207,6 +233,11 @@ export function buildPrePaidNoveltyContext(
     knownSellupCount: Math.max(0, Math.trunc(input.knownSellupCount ?? 0)),
     knownHubspotCount: Math.max(0, Math.trunc(input.knownHubspotCount ?? 0)),
     exclusionDomains: input.exclusionDomains ?? [],
+    providerSeenKnown: Math.max(0, Math.trunc(input.providerSeenKnown ?? 0)),
+    providerExclusionCandidates: {
+      ids: input.providerExclusionCandidates?.ids ?? [],
+      domains: input.providerExclusionCandidates?.domains ?? [],
+    },
     acceptedBeforeProvider,
     residualGap,
     providerRequired: residualGap > 0,
@@ -264,5 +295,7 @@ export function withFreeSourcePersistenceOutcome(
     knownSellupCount: context.knownSellupCount,
     knownHubspotCount: context.knownHubspotCount,
     exclusionDomains: context.exclusionDomains,
+    providerSeenKnown: context.providerSeenKnown,
+    providerExclusionCandidates: context.providerExclusionCandidates,
   });
 }

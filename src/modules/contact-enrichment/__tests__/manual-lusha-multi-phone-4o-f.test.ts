@@ -1113,7 +1113,7 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // re-declara la 111 —ese es justo el punto: su writer es OTRA función, porque el parche
     // terminal de la 111 sería falso en una corrida `search_more`—, así que 4O-F sigue
     // reutilizando la 111 intacta, que es lo que esta guarda afirma.
-    assert.equal(numbered[numbered.length - 1], 122, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    assert.equal(numbered[numbered.length - 1], 123, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

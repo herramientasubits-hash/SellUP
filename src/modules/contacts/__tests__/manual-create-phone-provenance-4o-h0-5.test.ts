@@ -533,7 +533,12 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
       // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
       // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
-      '122_phone_reveal_search_more.sql',
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

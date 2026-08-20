@@ -403,6 +403,10 @@ export async function executeProspectWizardGenerationAction(
         requestedTarget: input.requestedTarget,
         requestedByUserId: input.requestedByUserId,
         partialGapSupported: false,
+        // ADDENDUM PROVIDER-SEEN §§ 5, 6 — esta ruta paga con Apollo, cuya
+        // capacidad de exclusión es NINGUNA (su contrato no la prueba). Que el
+        // proveedor se declare aquí evita que la ruta herede la capacidad de otro.
+        provider: 'apollo',
       }),
 
     reserveBudget: async ({ userId, clientRequestId, requestedCredits }) => {

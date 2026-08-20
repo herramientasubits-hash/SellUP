@@ -260,19 +260,24 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
       // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
       // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
-      '122_phone_reveal_search_more.sql',
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
       'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa y la contabilidad de presupuesto, no este hito',
     );
     assert.equal(
-      // La ventana sube con el techo DECLARADO arriba: la 122 está autorizada y nombrada,
-      // así que lo que queda prohibido es la 123 y superiores.
-      files.some((f) => /^1(2[3-9]|[3-9]\d)/.test(f)),
+      // La ventana sube con el techo DECLARADO arriba: la 123 está autorizada y nombrada,
+      // así que lo que queda prohibido es la 124 y superiores.
+      files.some((f) => /^1(2[4-9]|[3-9]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 123 o superior',
+      'ninguna migración 124 o superior',
     );
   });
 

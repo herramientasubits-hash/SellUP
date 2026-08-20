@@ -42,6 +42,17 @@ import {
   type LushaMacroSearchPlan,
 } from './lusha-macro-search-plan';
 import type { LushaIdentityDuplicateReason } from './lusha-run-identity-registry';
+import {
+  buildProviderSeenTelemetry,
+  PROVIDER_SEEN_LOAD_UNAVAILABLE,
+  type ProviderSeenLoadSummary,
+  type ProviderSeenPaidSummary,
+} from '@/modules/prospect-batches/provider-seen/provider-seen-telemetry';
+import {
+  planProviderExclusions,
+  type ProviderExclusionPlan,
+} from '@/modules/prospect-batches/provider-seen/provider-exclusion-planner';
+import type { PrePaidFreeSourceOutcome } from '@/modules/prospect-batches/prepaid-novelty/prepaid-novelty-context';
 
 // ─── targetGap (§ 3) ──────────────────────────────────────────────────────────
 
@@ -302,6 +313,19 @@ export type LushaRunTelemetry = {
   creditsReportedActual: number | null;
   stopReason: LushaRunStopReason;
   branches: readonly LushaBranchTelemetry[];
+  /**
+   * ADDENDUM PROVIDER-SEEN § 10 — qué rindió la memoria de lo ya pagado.
+   *
+   * Opcional para que un llamador legacy (o un doble de prueba antiguo) siga
+   * compilando y produzca EXACTAMENTE la forma de metadata previa a este PR.
+   */
+  providerSeen?: ProviderSeenPaidSummary;
+  /** La carga de memoria previa, para poder decir por qué vino vacía. */
+  providerSeenLoad?: ProviderSeenLoadSummary;
+  /** El plan de exclusión con el que se pidió. */
+  providerExclusionPlan?: ProviderExclusionPlan;
+  /** Lo que la fuente gratuita rindió, para el bloque normalizado de § 10. */
+  freeSource?: PrePaidFreeSourceOutcome;
 };
 
 /** Vista serializable para `metadata`. snake_case, como el resto del lote. */
@@ -348,5 +372,25 @@ export function toLushaRunTelemetryMetadata(
       target_overflow_discarded: branch.targetOverflowDiscarded,
       outcome: branch.outcome,
     })),
+    // ADDENDUM PROVIDER-SEEN § 10 — bloque con los nombres acordados. Sólo se
+    // emite cuando el core lo pasa: sin él, la metadata es la de antes del PR.
+    ...(telemetry.providerSeen && telemetry.freeSource
+      ? {
+          provider_seen: buildProviderSeenTelemetry({
+            freeSource: telemetry.freeSource,
+            providerSeen: telemetry.providerSeenLoad ?? PROVIDER_SEEN_LOAD_UNAVAILABLE,
+            exclusionPlan:
+              telemetry.providerExclusionPlan ?? planProviderExclusions('lusha', {}),
+            paid: telemetry.providerSeen,
+            // 🔴 Hechos, no ahorros: páginas que NO se compraron por rama seca.
+            // `requestsAvoided` es 0 aquí porque esta corrida SÍ pidió; el caso
+            // de «no se pidió nada» lo publica la capa previa al pago.
+            avoided: {
+              requestsAvoided: 0,
+              pagesAvoided: telemetry.pagesSkippedZeroNovelty,
+            },
+          }),
+        }
+      : {}),
   };
 }

@@ -135,7 +135,7 @@ describe('115 — numeración', () => {
     // del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono en absoluto
     // —reemplaza una constraint de `wizard_budget_reservations` y el cuerpo de
     // `confirm_wizard_credits`— y no toca `contact_phones` ni `contact_phone_sources`.
-    assert.equal(Math.max(...numbers), 122);
+    assert.equal(Math.max(...numbers), 123);
   });
 
   it('declara NO estar aplicada en Producción', () => {

@@ -481,13 +481,16 @@ describe('4O-G — alcance', () => {
     // modalidad `search_more` y el writer append-only). Toca la MISMA colección que 4O-G
     // LEE, pero sólo la escribe: los módulos de 4O-G siguen siendo de sólo lectura y
     // siguen sin aportar SQL, que es lo que esta guarda afirma.
-    assert.equal(numbered[numbered.length - 1], 122);
+    // AGENT1-PROVIDER-SEEN-MEMORY-2 lo mueve a la 123: la memoria de qué empresa ya nos
+    // mostró un proveedor de PAGO. NO toca la colección que 4O-G lee: crea una tabla de
+    // identidad de EMPRESA y no nombra ninguna tabla de teléfono.
+    assert.equal(numbered[numbered.length - 1], 123);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
     // historia, cuenta y techo coinciden, y esa coincidencia es en sí misma la guarda:
     // vuelve a fallar si alguien borra un archivo aplicado o cuela uno sin renumerar.
-    assert.equal(numbered.length, 122);
+    assert.equal(numbered.length, 123);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

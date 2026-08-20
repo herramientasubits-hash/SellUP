@@ -54,6 +54,7 @@ import {
 // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/15/25 — la capa GRATUITA,
 // idéntica para Apollo y para Lusha, que corre ANTES de que exista una reserva.
 import { runPrePaidNoveltyDiscovery } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
+import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
 import { LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES } from '@/server/prospect-batches/lusha-pending-review-limits';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
@@ -301,6 +302,10 @@ async function runGenerateLushaPendingReviewBatch(
     requestedTarget,
     requestedByUserId: internalUserId,
     partialGapSupported: true,
+    // ADDENDUM PROVIDER-SEEN §§ 5, 6 — la exclusión por dominios es lo único que
+    // el contrato verificado de Lusha V3 soporta; los ids quedan congelados hasta
+    // la confirmación escrita del soporte humano.
+    provider: 'lusha',
   });
 
   // § 15 — hueco cerrado gratis ⇒ ni estimación, ni reserva, ni credencial, ni
@@ -471,6 +476,12 @@ async function runLushaSearchWithReservation(args: {
     prePaid,
   } = args;
   const supabase = await createClient();
+
+  // ADDENDUM PROVIDER-SEEN § 4 — la memoria de lo ya pagado, resuelta UNA vez por
+  // corrida. 🔴 No es `supabase`: éste es el cliente de SESIÓN del usuario y la
+  // tabla sólo concede lectura y escritura a `service_role`, así que la memoria
+  // tiene su propio resolutor y su propia credencial.
+  const providerSeenStore = resolveProviderSeenStore();
 
   // La reserva YA existe aquí, así que la identidad de la corrida queda cerrada:
   // `withResolvedIds` recalcula el `idempotencyKey` con ella, y el `batchId` que
@@ -756,10 +767,31 @@ async function runLushaSearchWithReservation(args: {
       //
       // 🔴 Esto NO toca la reserva: `requiredCredits` se calculó con el plan del
       // proveedor (§ 16). El hueco gobierna cuántas empresas se aceptan.
+      //
+      // ADDENDUM PROVIDER-SEEN §§ 4, 10 — la memoria de lo ya pagado viaja al
+      // ejecutor para dos cosas y sólo dos: CONTAR aciertos sobre la respuesta y
+      // RECORDAR lo que el proveedor devolvió. No decide, no filtra y no reduce el
+      // objetivo; el dedupe local sigue siendo la autoridad (§ 6).
+      //
+      // 🔴 AGENT1-PROVIDER-SEEN-MEMORY-3 — `resolveProviderSeenStore()` ya devuelve
+      // el store PERSISTENTE: la migración 123 está aplicada en Producción. Se
+      // resuelve UNA vez por corrida, arriba, y no una por página: un cliente por
+      // página sería trabajo repetido sobre la misma credencial.
+      //
+      // Un fallo de esta escritura NO reintenta al proveedor y NO altera la
+      // liquidación; se cuenta y viaja en la telemetría de la corrida.
       {
         plan: searchPlan,
         creditsReserved: reservation.creditsReserved,
         targetGap: prePaid.residualGap,
+        providerSeen: {
+          memory: prePaid.providerSeenMemory,
+          record: (writeInput) => providerSeenStore.record(writeInput),
+          correlationId: baseCorrelation.wizardRunId,
+        },
+        providerSeenLoad: prePaid.providerSeenLoad,
+        providerExclusionPlan: prePaid.providerExclusionPlan,
+        freeSource: prePaid.freeSource,
       },
     );
 
