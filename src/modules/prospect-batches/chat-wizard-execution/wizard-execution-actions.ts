@@ -11,6 +11,13 @@ import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
 import { WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
+import { WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES } from './wizard-apollo-executor';
+// AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 25 — el MISMO runner previo al
+// pago que ejecuta la ruta Lusha. Un solo cableado para las dos rutas.
+import {
+  runPrePaidNoveltyDiscovery,
+  type PrePaidNoveltyDiscoveryOutcome,
+} from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
 import type {
   WizardExecutionActionResult,
   ResolvedWizardExecution,
@@ -192,6 +199,30 @@ export type WizardExecutionDeps = {
    * descubre después que el INSERT no cabe — exactamente LIVE-QA-2.
    */
   checkPersistenceReadiness: () => Promise<PersistenceReadinessProbe>;
+  /**
+   * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/25 — la capa GRATUITA.
+   *
+   * Descubre en la fuente de país, aplica precisión Macro-v2 canónica, deduplica
+   * contra SellUp y HubSpot de sólo lectura, persiste lo aceptado por la ingesta
+   * canónica de fuentes y devuelve el hueco que queda. Corre ANTES de estimar
+   * créditos y ANTES de reservar.
+   *
+   * 🔴 Es LA MISMA capa que ejecuta la ruta Lusha. Que las dos rutas empiecen en
+   * el mismo sitio es lo que hará comparable el benchmark Apollo-vs-Lusha: si una
+   * descontara empresas gratuitas y la otra no, la diferencia medida sería la de
+   * las dos capas previas y se le atribuiría a los proveedores.
+   *
+   * Opcional: sin ella el hueco es el objetivo entero y el comportamiento es
+   * EXACTAMENTE el previo al hito. Los tests que sólo ejercitan Tavily/Apollo no
+   * cambian.
+   */
+  runPrePaidNoveltyDiscovery?: (input: {
+    countryCode: string;
+    macroIndustryKey: string | null;
+    requestedTarget: number;
+    requestedByUserId: string;
+    countryName: string;
+  }) => Promise<PrePaidNoveltyDiscoveryOutcome>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
   reserveBudget: (input: {
     userId: string;
@@ -356,6 +387,23 @@ export async function executeProspectWizardGenerationAction(
       probeProspectCandidatePersistenceReadiness(
         supabase as unknown as PersistenceReadinessDbClient,
       ),
+
+    // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/25 — la capa gratuita.
+    //
+    // `partialGapSupported: false`: el objetivo de candidatos persistibles de esta
+    // ruta vive dentro del orquestador de dos rondas y no viaja por
+    // `ResolvedWizardExecution`, así que el ejecutor de pago no sabe aceptar un
+    // objetivo reducido. Todo-o-nada, para no romper la invariante de § 14. Ver
+    // la cabecera del runner.
+    runPrePaidNoveltyDiscovery: (input) =>
+      runPrePaidNoveltyDiscovery(supabase, {
+        countryCode: input.countryCode,
+        countryName: input.countryName,
+        macroIndustryKey: input.macroIndustryKey,
+        requestedTarget: input.requestedTarget,
+        requestedByUserId: input.requestedByUserId,
+        partialGapSupported: false,
+      }),
 
     reserveBudget: async ({ userId, clientRequestId, requestedCredits }) => {
       const periodStart = getPilotBudgetPeriodStart(BOGOTA_TIMEZONE);
@@ -839,9 +887,65 @@ export async function executeProspectWizardGeneration(
     };
   }
 
+  // ── 5d. AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/15/25 ────────────
+  //
+  // TODO lo gratuito ocurre AQUÍ: antes de estimar créditos (paso 6) y antes de
+  // reservar (paso 7). El orden es el hito entero — la corrida Lusha del
+  // 2026-08-19 reservó, gastó 6 créditos y sólo después descubrió que las 40
+  // empresas únicas ya se conocían o estaban fuera de la macro.
+  //
+  // 🔴 Es la MISMA capa que corre la ruta Lusha (§ 25). Sin ella —dep ausente— el
+  // hueco es el objetivo entero y todo lo de abajo se comporta como antes.
+  const countryEntryForSource = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
+  const prePaidNovelty = deps.runPrePaidNoveltyDiscovery
+    ? await deps
+        .runPrePaidNoveltyDiscovery({
+          countryCode: req.countryCode,
+          macroIndustryKey:
+            getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ?? null,
+          // 🔴 El objetivo del USUARIO son los candidatos persistibles (10), no
+          // `systemControls.targetCount` (25), que es la AMPLITUD de búsqueda del
+          // pipeline. Confundirlos habría pedido a la fuente gratuita cerrar un
+          // hueco que el producto nunca prometió.
+          requestedTarget: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+          requestedByUserId: userId,
+          countryName: countryEntryForSource?.name ?? req.countryCode,
+        })
+        // Fail-open (§ 12): una capa gratuita rota nunca deja el wizard
+        // inservible. Se degrada a «no aportó» y la ruta de pago sigue.
+        .catch((): PrePaidNoveltyDiscoveryOutcome | null => null)
+    : null;
+
+  // § 15 — hueco cerrado gratis ⇒ NI estimación, NI reserva, NI cliente de
+  // proveedor, NI llamada. Se exige además un lote real: sin él no habría a dónde
+  // mandar al usuario, y anunciar éxito sin candidatos sería falso.
+  if (
+    prePaidNovelty &&
+    !prePaidNovelty.providerRequired &&
+    prePaidNovelty.batchId !== null &&
+    prePaidNovelty.persistedCount > 0
+  ) {
+    return {
+      ok: true,
+      status: 'success_target_reached',
+      batchId: prePaidNovelty.batchId,
+      batchStatus: 'ready_for_review',
+      candidateCount: prePaidNovelty.persistedCount,
+      redirectPath: `/prospect-batches/${prePaidNovelty.batchId}`,
+      targetPersistibleCandidates: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+      targetReached: true,
+      runProvider: runProviderOutcome,
+    };
+  }
+
   // 6. Calculate max credits server-side — provider-aware; client cannot control this value.
   // Apollo: resolvedMaxQueries × resolvedMaxResults × 1 credit/result (default 1×3=3).
   // Tavily: adaptive pipeline ceiling (4 rounds × 5 queries = 20).
+  //
+  // 🔴 § 16 — la responsabilidad económica NO es el hueco. Apollo y Tavily la
+  // derivan de su propio techo de peor caso, y ese techo no depende de cuántas
+  // empresas falten: con hueco 1 el pipeline puede necesitar las mismas consultas
+  // que con hueco 5. Un `requestedCredits = residualGap` sería sencillamente falso.
   const requestedCredits = estimateCreditsForProvider(discoveryProvider);
 
   // 7. Atomic budget reservation — pilot kill-switch, allowlist, period, concurrency all checked by RPC

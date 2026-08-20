@@ -2113,3 +2113,34 @@ jobs:
       # Offline y determinista: sin red, sin Supabase, sin proveedores, 0 créditos.
       - name: Run A2A search-more-phones budget preflight parity tests
         run: npm run test:agent2a:search-more-phones-budget
+      # AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 — el filtrado económico deja de
+      # ocurrir DESPUÉS de pagar.
+      #
+      # La corrida real del 2026-08-19 (lote `e90832f9`) pidió 6 peticiones, recibió 60
+      # filas crudas y 40 únicas, y aceptó CERO: 24 eran candidatos históricos activos,
+      # 10 duplicados exactos y 6 quedaban fuera de la macro. Todo eso ya se sabía en
+      # SellUp antes de preguntar, y aun así costó 6 créditos y $0.529.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que la fuente gratuita del país devuelva una muestra GENÉRICA y la deje
+      #     reducir el objetivo — una constructora cerrando un hueco de salud;
+      #   * que alguien escriba una SEGUNDA taxonomía macro para la fuente: el índice
+      #     CIIU se DERIVA del catálogo canónico y del mismo evaluador que juzga a
+      #     Apollo y a Lusha, y una prueba comprueba código a código que es así;
+      #   * que el sector grueso (6 cubetas) confirme pertenencia a una macro (12) —
+      #     que es literalmente el defecto de #306, cinco «Manufacturing genérico» en
+      #     una búsqueda de salud;
+      #   * que se reserve o se estime ANTES del trabajo gratuito, en cualquiera de las
+      #     dos rutas: el orden se comprueba estáticamente sobre las dos acciones;
+      #   * que una empresa DESCUBIERTA pero no persistida cierre hueco — un fallo de
+      #     escritura disfrazado de ahorro;
+      #   * que una rama compre su segunda página después de que la primera haya
+      #     rendido cero empresas nuevas y útiles (3 de las 6 peticiones de la QA);
+      #   * que esa parada se vuelva GLOBAL y mate la cobertura: es de RAMA, y una
+      #     prueba comprueba que su vocabulario ni siquiera puede expresar otra cosa;
+      #   * que se publique un ahorro en créditos o en dólares sin contrafactual.
+      #
+      # Offline y determinista: sin red, sin Supabase, sin Socrata, sin proveedor.
+      # 0 créditos.
+      - name: Run A1 pre-paid novelty gate tests
+        run: npm run test:a1-prepaid-novelty-gate

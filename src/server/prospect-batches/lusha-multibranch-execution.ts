@@ -269,6 +269,15 @@ export type LushaRunTelemetry = {
   branchCountAttempted: number;
   providerRequestsAllowed: number;
   providerRequestsUsed: number;
+  /**
+   * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 17/20 — páginas que NO se
+   * compraron porque su rama ya había demostrado no tener novedad.
+   *
+   * 🔴 Es un HECHO OBSERVADO, no un ahorro. Dice cuántas peticiones dejaron de
+   * emitirse, jamás cuántos créditos o dólares se habrían gastado: eso exigiría
+   * un contrafactual que nadie calculó (§ 20).
+   */
+  pagesSkippedZeroNovelty: number;
   maxRawResults: number;
   rawResultsTotal: number;
   crossBranchDuplicatesRemoved: number;
@@ -306,6 +315,7 @@ export function toLushaRunTelemetryMetadata(
     branch_count_attempted: telemetry.branchCountAttempted,
     provider_requests_allowed: telemetry.providerRequestsAllowed,
     provider_requests_used: telemetry.providerRequestsUsed,
+    pages_skipped_zero_novelty: telemetry.pagesSkippedZeroNovelty,
     max_raw_results: telemetry.maxRawResults,
     raw_results_total: telemetry.rawResultsTotal,
     cross_branch_duplicates_removed: telemetry.crossBranchDuplicatesRemoved,

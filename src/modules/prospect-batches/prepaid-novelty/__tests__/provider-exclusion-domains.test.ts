@@ -1,0 +1,66 @@
+/**
+ * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 11, 22(H), 22(I).
+ */
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  normalizeExclusionDomain,
+  planProviderExclusionDomains,
+  PREPAID_EXCLUSION_DOMAIN_CAP,
+} from '../provider-exclusion-domains';
+
+test('§ 22(H) — normaliza, deduplica y ordena de forma determinista', () => {
+  const plan = planProviderExclusionDomains([
+    'https://WWW.Acme.com/contacto?x=1',
+    'acme.com',
+    'http://acme.com:8443',
+    'zeta.co',
+    'beta.com.co',
+  ]);
+
+  assert.deepEqual([...plan.sent], ['acme.com', 'beta.com.co', 'zeta.co']);
+  assert.equal(plan.available, 3);
+  assert.equal(plan.omittedDueToCap, 0);
+});
+
+test('§ 22(I) — un valor que no puede ser dominio NO se fabrica: se descarta', () => {
+  assert.equal(normalizeExclusionDomain(null), null);
+  assert.equal(normalizeExclusionDomain(''), null);
+  assert.equal(normalizeExclusionDomain('   '), null);
+  assert.equal(normalizeExclusionDomain('Clínica Andes S.A.S.'), null);
+  assert.equal(normalizeExclusionDomain('localhost'), null);
+  assert.equal(normalizeExclusionDomain('900123456'), null);
+
+  const plan = planProviderExclusionDomains([null, undefined, 'Sin Web S.A.', 'real.com']);
+  assert.deepEqual([...plan.sent], ['real.com']);
+});
+
+test('§ 11 — el recorte por tope se CUENTA, nunca es silencioso', () => {
+  const domains = Array.from({ length: PREPAID_EXCLUSION_DOMAIN_CAP + 25 }, (_, i) =>
+    `empresa${String(i).padStart(4, '0')}.com`,
+  );
+  const plan = planProviderExclusionDomains(domains);
+
+  assert.equal(plan.available, PREPAID_EXCLUSION_DOMAIN_CAP + 25);
+  assert.equal(plan.sent.length, PREPAID_EXCLUSION_DOMAIN_CAP);
+  assert.equal(plan.omittedDueToCap, 25);
+  // available = sent + omitted, siempre. Sin esta identidad el conteo mentiría.
+  assert.equal(plan.sent.length + plan.omittedDueToCap, plan.available);
+});
+
+test('§ 11 — la selección bajo tope es DETERMINISTA: dos ordenaciones distintas producen la misma lista', () => {
+  const source = ['delta.com', 'alfa.com', 'charlie.com', 'bravo.com'];
+  const a = planProviderExclusionDomains(source, 2);
+  const b = planProviderExclusionDomains([...source].reverse(), 2);
+  assert.deepEqual([...a.sent], [...b.sent]);
+  assert.deepEqual([...a.sent], ['alfa.com', 'bravo.com']);
+});
+
+test('tope 0 ⇒ no viaja ninguno, y los conocidos se siguen contando', () => {
+  const plan = planProviderExclusionDomains(['a.com', 'b.com'], 0);
+  assert.deepEqual([...plan.sent], []);
+  assert.equal(plan.available, 2);
+  assert.equal(plan.omittedDueToCap, 2);
+});

@@ -477,10 +477,18 @@ describe('§ 23 — dedupe de identidad en toda la corrida', () => {
     // existe para producir candidatos —no puede—, sino para que la MISMA empresa
     // sin dominio no se enriquezca ni se compruebe dos veces cuando vuelve en otra
     // rama. Ese trabajo ocurre aguas abajo del dedupe y sí cuesta.
+    //
+    // 🔑 AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 17 — la secuencia de
+    // respuestas cambió, la propiedad probada NO. Antes la rama 0 compraba
+    // SIEMPRE sus dos páginas, así que el fixture tenía que interponer una página
+    // vacía entre k1 y k2. Ahora una página cuyo rendimiento útil-nuevo es cero
+    // —y k1 lo es: el gate obligatorio la excluye en duro por `missing_domain`—
+    // cierra su rama, así que la rama 0 gasta UNA petición y k2 llega en la
+    // primera de la rama 1. Ese relleno vacío ya no existe en la realidad y
+    // mantenerlo aquí probaría una secuencia que el ejecutor no emite.
     const { res } = await run(
       [
         successResult([company({ providerCompanyId: 'k1', name: 'Clínica Andés', domain: null })]),
-        successResult([]),
         successResult([company({ providerCompanyId: 'k2', name: 'clinica andes', domain: null })]),
       ],
       { plan: planWithBranches(2) },

@@ -108,6 +108,11 @@ import {
   type LushaRunStopReason,
   type LushaRunTelemetry,
 } from './lusha-multibranch-execution';
+// AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 17-19 — la SEGUNDA puerta de
+// paginación: la primera pregunta si queda hueco y quedan peticiones; ésta mira
+// lo que la página YA PAGADA rindió. Vive en `prepaid-novelty` porque es política
+// neutral de proveedor, no una regla de Lusha.
+import { decidePaidPageContinuation } from '@/modules/prospect-batches/prepaid-novelty/paid-page-novelty-continuation';
 import {
   createLushaRunIdentityRegistry,
   dedupeLushaCompaniesByIdentity,
@@ -547,6 +552,62 @@ const EMPTY_TOPUP_METRICS = {
   hardExcludedByGateCount: 0,
   enrichedWithOfficialSourceCount: 0,
 } as const;
+
+/**
+ * Resultado de una corrida que NO necesitó al proveedor.
+ *
+ * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 15, 22(A).
+ *
+ * 🔴 Es un ÉXITO, no un vacío. La corrida cerró el objetivo con empresas
+ * gratuitas: hay candidatos que revisar, y por eso `ok` es `true` y hay un
+ * `batchId`. Devolver `status: 'empty'` diría lo contrario de lo que pasó.
+ *
+ * 🔴 Todas las cifras de proveedor son CEROS REALES, no ausencias: no hubo
+ * estimación, no hubo reserva, no hubo cliente y no hubo petición, así que
+ * `pagesRequested`, `creditsCharged` y `creditsChargedTotal` valen exactamente lo
+ * que se gastó. `creditsChargedTotal` es 0 y no `null` a propósito: `null` es «el
+ * proveedor no reportó», y aquí no hubo proveedor a quien preguntar.
+ */
+export function buildLushaProviderNotRequiredResult(input: {
+  batchId: string | null;
+  createdCandidatesCount: number;
+  targetGap: number;
+  message: string;
+}): PersistLushaPendingReviewResult {
+  return {
+    ok: true,
+    status: 'success',
+    batchId: input.batchId,
+    createdCandidatesCount: input.createdCandidatesCount,
+    skippedCount: 0,
+    creditsCharged: 0,
+    resultsReturned: 0,
+    reviewUrl: LUSHA_PENDING_REVIEW_URL,
+    message: input.message,
+    pagesRequested: 0,
+    expectedMaxCredits: 0,
+    creditsChargedTotal: 0,
+    usefulCandidatesCount: input.createdCandidatesCount,
+    excludedExactDuplicatesCount: 0,
+    skippedActiveDuplicatesCount: 0,
+    possibleDuplicatesCount: 0,
+    insertedCandidatesCount: input.createdCandidatesCount,
+    topUpTriggered: false,
+    hardExcludedByGateCount: 0,
+    enrichedWithOfficialSourceCount: 0,
+    providerRequestsAllowed: 0,
+    providerRequestsUsed: 0,
+    branchCountPlanned: 0,
+    branchCountAttempted: 0,
+    targetGap: input.targetGap,
+    remainingGapFinal: 0,
+    crossBranchDuplicatesRemoved: 0,
+    rawResultsTotal: 0,
+    reviewableFoundTotal: input.createdCandidatesCount,
+    targetOverflowDiscarded: 0,
+    precisionRejectedTotal: 0,
+  };
+}
 
 /**
  * Build a fail-closed result (error/invalid input). Single source of truth reused
@@ -1643,6 +1704,9 @@ export async function persistLushaPendingReviewBatch(
   const branchTelemetry: LushaBranchTelemetry[] = [];
   let stopReason: LushaRunStopReason = 'branches_exhausted';
   let runStopped = false;
+  // § 17/§ 20 — páginas que NO se compraron porque su rama vino sin novedad.
+  // Hecho observado; nunca un ahorro estimado.
+  let pagesSkippedZeroNovelty = 0;
   let hardFailure: PersistLushaPendingReviewResult | null = null;
 
   const pushBranchTelemetry = (
@@ -1824,6 +1888,11 @@ export async function persistLushaPendingReviewBatch(
       //   · sobrante          — nueva Y precisa, pero el objetivo ya está cerrado.
       //                         Tampoco es duplicado, y la página ya se pagó.
       const branchProvenance = describeLushaBranchProvenance(branch, branchIndex);
+      // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 17 — cuánto rindió ESTA
+      // página. Se toma antes de repartir para poder decidir, al terminarla, si
+      // vale la pena pagar la siguiente de la misma rama.
+      const usefulBeforePage = useful.length;
+      const overflowBeforePage = targetOverflowDiscarded;
       for (const candidate of resolved) {
         if (candidate.resolution.dbDuplicateStatus === 'exact_duplicate') {
           // Exact duplicates are excluded from persistence — never reviewable.
@@ -1873,9 +1942,39 @@ export async function persistLushaPendingReviewBatch(
         useful.push(candidate);
       }
 
-      // § 16 — el proveedor no ofrece continuación si esta página vino vacía:
-      // pedir la siguiente pagaría una petición para releer el mismo vacío.
-      if (pageRaw === 0) break;
+      // ── § 16 + AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 17-19 ─────────
+      //
+      // La página ya está pagada. La pregunta es si la SIGUIENTE de esta rama
+      // puede rendir algo distinto, y la única evidencia disponible para
+      // responderla es lo que acaba de rendir ésta. En la corrida de producción
+      // del 2026-08-19 las tres ramas compraron su página 2 después de que su
+      // página 1 devolviera cero empresas útiles nuevas: tres peticiones pagadas
+      // para releer un pozo que la anterior ya había demostrado seco.
+      //
+      // `novelUsefulFromPage` cuenta lo que sobrevivió a TODOS los filtros de
+      // novedad —dedupe de corrida, guard de candidato activo, duplicado exacto y
+      // precisión de macro— incluido lo que después descartó el tope de
+      // aceptación de #306 por sobrepasar el objetivo. Esa inclusión no es un
+      // detalle: una página que encontró cinco empresas buenas y sólo pudo
+      // aceptar una porque el objetivo se cerró es el mejor resultado posible, y
+      // contarla como «sin novedad» la calumniaría.
+      //
+      // 🔴 Cierra la RAMA, jamás la corrida (§ 19). Que `main 11 Healthcare` venga
+      // seca no dice nada sobre `main 12 + sub 71 Pharmaceuticals Manufacturing`:
+      // consultan universos distintos. Por eso no se toca `stopReason` ni
+      // `runStopped` — igual que no lo hacía el `pageRaw === 0` que esta decisión
+      // sustituye y absorbe (0 filas ⇒ 0 novedad, con su propio motivo).
+      const novelUsefulFromPage =
+        useful.length - usefulBeforePage + (targetOverflowDiscarded - overflowBeforePage);
+      const continuation = decidePaidPageContinuation({
+        rawFromPage: pageRaw,
+        novelUsefulFromPage,
+      });
+      if (!continuation.continueBranch) {
+        const remainingPages = LUSHA_PENDING_REVIEW_MAX_PAGES - (page + 1);
+        if (remainingPages > 0) pagesSkippedZeroNovelty += remainingPages;
+        break;
+      }
     }
 
     const remainingGapAfter = resolveLushaRemainingGap(targetGap, useful.length);
@@ -1944,6 +2043,7 @@ export async function persistLushaPendingReviewBatch(
     branchCountAttempted: branchTelemetry.filter((b) => b.providerRequests > 0).length,
     providerRequestsAllowed,
     providerRequestsUsed,
+    pagesSkippedZeroNovelty,
     maxRawResults: LUSHA_RUN_MAX_RAW_RESULTS,
     rawResultsTotal,
     crossBranchDuplicatesRemoved,
