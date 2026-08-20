@@ -327,6 +327,49 @@ export function isLushaPhoneRevealEnabled(): false {
 }
 
 // ============================================================
+// Lusha local candidate reuse gate (Agente 2A · AGENT2A-LUSHA-LOCAL-REUSE-GATE-1)
+// ============================================================
+
+/** Flag name constant for the pre-provider local Lusha candidate reuse gate. */
+export const LUSHA_LOCAL_REUSE_GATE_FLAG = 'ENABLE_LUSHA_LOCAL_REUSE_GATE';
+
+/**
+ * Returns true when ENABLE_LUSHA_LOCAL_REUSE_GATE is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Default: false — fail-closed, and deliberately NOT enabled in any
+ * environment by this milestone. Adding the flag is a code-level addition
+ * only; activation is a separate, explicit owner decision.
+ *
+ * What it turns on: inside the AUTOMATIC contact-enrichment router, once the
+ * Apollo attempt has already produced zero reviewable candidates and the
+ * policy would recommend the Lusha fallback, the router first asks a
+ * read-only local question — "does SellUp already hold at least one
+ * actionable same-company Lusha candidate in pending_review?" — and, when the
+ * answer is yes, terminates the operation successfully WITHOUT resolving Lusha
+ * availability or its API key, WITHOUT evaluating the fallback budget, WITHOUT
+ * creating attempt_order=2 and WITHOUT any Lusha network call. The existing
+ * pending_review candidate stays the reviewable deliverable.
+ *
+ * What it does NOT change in either state:
+ *   * ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING — still the flag that
+ *     authorizes the automatic router to do anything at all. With it off this
+ *     flag is unreachable.
+ *   * ENABLE_LUSHA_CONTACT_ENRICHMENT — still the flag that authorizes a Lusha
+ *     contact-enrichment call. This gate only avoids reaching it.
+ *   * The provider-native novelty gate (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-
+ *     GATE-1), which keeps guarding the paid leg AFTER Lusha Prospecting on
+ *     every run where this gate does not hit.
+ *
+ * With this flag OFF the router behaves exactly as before: the reuse reader is
+ * never called, no extra query is issued, and every existing branch, outcome
+ * and telemetry shape is byte-for-byte unchanged.
+ */
+export function isLushaLocalReuseGateEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[LUSHA_LOCAL_REUSE_GATE_FLAG]);
+}
+
+// ============================================================
 // Apollo Phone Reveal Recovery L2 cron (Agente 2A · RECOVERY-CRON-1)
 // ============================================================
 

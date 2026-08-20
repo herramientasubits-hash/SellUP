@@ -8,7 +8,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runAutomaticContactEnrichmentForRequestCore } from '../automatic-routing-action-core';
+import {
+  runAutomaticContactEnrichmentForRequestCore,
+  type RunAutomaticContactEnrichmentForRequestResult,
+} from '../automatic-routing-action-core';
+import {
+  contactEnrichmentChatReducer,
+  createInitialContactEnrichmentChatState,
+} from '@/components/contact-enrichment/contact-enrichment-chat-reducer';
+import type { AutomaticRoutingUiResult } from '@/components/contact-enrichment/contact-enrichment-chat-types';
 import type { AutomaticRoutingOrchestratorDeps } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-routing-orchestrator';
 import type { ApolloEnrichmentRunResult } from '@/server/agents/contact-enrichment-toolkit/apollo-enrichment-runner';
 import type { LushaRunnerResult } from '@/server/agents/contact-enrichment-toolkit/lusha-enrichment-runner';
@@ -262,5 +270,103 @@ describe('runAutomaticContactEnrichmentForRequestCore', () => {
     assert.equal('phone' in result, false);
     assert.equal('contactId' in result, false);
     assert.equal(result.fallbackExecuted, true);
+  });
+});
+
+// ── AGENT2A-LUSHA-LOCAL-REUSE-GATE-1 ────────────────────────────
+
+describe('action core surfaces the local reuse contract', () => {
+  it('a reuse HIT surfaces status fallback_skipped_local_reuse and reusedExistingCandidates >= 1', async () => {
+    const config = baseConfig();
+    const { deps, calls } = harness(config, {
+      runApolloAttempt: async () => apolloResult({ candidatesCreated: 0, providerStatus: 'success' }),
+      evaluateLocalCandidateReuse: async () => ({
+        hit: true,
+        actionableReusableCandidateCount: 2,
+        observability: {
+          gate_applied: true,
+          gate_skipped_reason: null,
+          actionable_reusable_candidate_count: 2,
+          threshold: 1,
+          provider_calls: 0,
+          outcome: 'fallback_satisfied_by_existing_candidate',
+          company_scope_kind: 'account_id',
+          lookup_error: null,
+        },
+      }),
+    });
+
+    const result = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, deps);
+
+    assert.equal(result.success, true);
+    assert.equal(result.status, 'fallback_skipped_local_reuse');
+    assert.equal(result.reusedExistingCandidates, 2);
+    assert.equal(result.fallbackExecuted, false);
+    assert.equal(result.attempt1AttemptId, 'attempt-1');
+    assert.equal(result.attempt2AttemptId, null);
+    assert.equal(result.blockedReason, null);
+    assert.equal(calls.createFallback, 0);
+    assert.equal(calls.runLusha, 0);
+  });
+
+  it('every non-reuse branch reports reusedExistingCandidates = 0', async () => {
+    const flagOff = harness(baseConfig({ automaticRoutingEnabled: false, mode: 'observe_only' }));
+    const disabled = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, flagOff.deps);
+    assert.equal(disabled.status, 'automatic_routing_disabled');
+    assert.equal(disabled.reusedExistingCandidates, 0);
+
+    const executed = harness(baseConfig(), {
+      runApolloAttempt: async () => apolloResult({ candidatesCreated: 0, providerStatus: 'success' }),
+    });
+    const fallback = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, executed.deps);
+    assert.equal(fallback.status, 'fallback_executed');
+    assert.equal(fallback.reusedExistingCandidates, 0);
+
+    const invalid = await runAutomaticContactEnrichmentForRequestCore(42, TRIGGERED_BY, EVALUATED_AT);
+    assert.equal(invalid.status, 'invalid_request_id');
+    assert.equal(invalid.reusedExistingCandidates, 0);
+  });
+
+  it('the action-core result never exposes a combined effective candidate count', async () => {
+    const { deps } = harness(baseConfig(), {
+      runApolloAttempt: async () => apolloResult({ candidatesCreated: 0, providerStatus: 'success' }),
+    });
+    const result = await runAutomaticContactEnrichmentForRequestCore('req-1', TRIGGERED_BY, EVALUATED_AT, deps);
+    assert.equal('effectiveReviewableCandidateCount' in result, false);
+    assert.equal('candidatesCreated' in result, false);
+    assert.equal('candidates_created' in result, false);
+  });
+});
+
+describe('wizard stays compatible with the new outcome', () => {
+  it('the UI result type accepts the extended server result, and a reuse hit reads as DONE', () => {
+    // Structural compatibility: the wizard forwards the server result verbatim
+    // into AutomaticRoutingUiResult, whose `status` is intentionally widened to
+    // string, so a new outcome value needs no UI type change.
+    const serverResult: RunAutomaticContactEnrichmentForRequestResult = {
+      success: true,
+      status: 'fallback_skipped_local_reuse',
+      automaticRoutingEnabled: true,
+      fallbackExecuted: false,
+      attempt1AttemptId: 'attempt-1',
+      attempt2AttemptId: null,
+      blockedReason: null,
+      reusedExistingCandidates: 1,
+    };
+    const uiResult: AutomaticRoutingUiResult = serverResult;
+    assert.equal(uiResult.status, 'fallback_skipped_local_reuse');
+
+    // The reducer's own classification: routing enabled + an attempt-1 id means
+    // "a search ran, candidates are in pending_review" — which is exactly the
+    // truth on a local reuse hit, where the pre-existing pending_review
+    // candidate remains the reviewable deliverable.
+    const settled = contactEnrichmentChatReducer(
+      { ...createInitialContactEnrichmentChatState(), step: 'done', requestId: 'req-1' },
+      { type: 'AUTOMATIC_ROUTING_SETTLED', result: uiResult },
+    );
+    assert.equal(settled.step, 'done');
+    assert.equal(settled.automaticResult?.status, 'fallback_skipped_local_reuse');
+    const last = settled.messages[settled.messages.length - 1];
+    assert.equal(last.tone, undefined);
   });
 });

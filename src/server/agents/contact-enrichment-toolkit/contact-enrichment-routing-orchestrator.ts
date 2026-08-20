@@ -5,10 +5,15 @@
 // ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING (default false): when the flag
 // is off, runAutomaticContactEnrichmentFallbackForRequest is a pure no-op —
 // it does not create any attempt, does not call any provider, and does not
-// write any telemetry. No caller in this codebase invokes this module yet
-// (the manual request-level actions in contact-enrichment/actions.ts are
-// untouched) — this hito ships the orchestrator dark, ready for a future
-// hito to wire it behind the still-disabled flag.
+// write any telemetry.
+//
+// LIVE, NOT DARK (corrected by AGENT2A-LUSHA-LOCAL-REUSE-GATE-1): the original
+// 17B.4X.7C.5B header said no caller invoked this module. That stopped being
+// true with AGENT2-ROUTING-WIRE-1 — the contact-enrichment wizard CTA now calls
+// runAutomaticContactEnrichmentForRequestAction, which reaches this
+// orchestrator through automatic-routing-action-core.ts. The flag above is the
+// only thing standing between this code and a real Production run, so treat
+// every branch here as executable.
 //
 // Coordination, not merging: this module imports BOTH
 // executeContactEnrichmentApolloRun and executeContactEnrichmentLushaRun,
@@ -35,7 +40,14 @@ import {
 import { executeContactEnrichmentApolloRun, type ApolloEnrichmentRunResult } from './apollo-enrichment-runner';
 import { executeContactEnrichmentLushaRun, type LushaRunnerResult } from './lusha-enrichment-runner';
 import { createContactEnrichmentAttempt } from './contact-enrichment-attempt-creator';
-import { isLushaContactEnrichmentEnabled } from '@/lib/feature-flags.server';
+import {
+  evaluateLushaLocalCandidateReuseGate,
+  type LushaLocalReuseGateResultV1,
+} from './lusha-local-candidate-reuse-gate';
+import {
+  isLushaContactEnrichmentEnabled,
+  isLushaLocalReuseGateEnabled,
+} from '@/lib/feature-flags.server';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import {
   getContactEnrichmentRoutingConfigV1,
@@ -188,6 +200,19 @@ async function defaultRunLushaAttempt(attemptId: string, triggeredBy: string): P
   return executeContactEnrichmentLushaRun(attemptId, triggeredBy);
 }
 
+/**
+ * Pre-provider LOCAL reuse gate — guarded by its OWN flag
+ * (ENABLE_LUSHA_LOCAL_REUSE_GATE, default false). With that flag off the gate
+ * returns a MISS without issuing any query, so the router keeps its exact
+ * pre-gate behaviour.
+ */
+async function defaultEvaluateLocalCandidateReuse(requestId: string): Promise<LushaLocalReuseGateResultV1> {
+  return evaluateLushaLocalCandidateReuseGate(
+    { requestId },
+    { isGateEnabled: isLushaLocalReuseGateEnabled },
+  );
+}
+
 async function defaultReadRunSummary(attemptId: string): Promise<Record<string, unknown>> {
   const admin = createSupabaseAdminClient();
   const { data } = await admin
@@ -235,6 +260,13 @@ export type AutomaticRoutingOutcomeV1 =
   | 'attempt1_provider_not_called'
   | 'attempt1_invalid_signal'
   | 'no_fallback_needed'
+  /**
+   * The policy DID recommend the Lusha fallback, and SellUp already held at
+   * least one actionable same-company Lusha candidate in pending_review — so
+   * no Lusha availability lookup, no budget evaluation, no attempt_order=2 and
+   * no provider call happened. Terminal SUCCESS, not a block.
+   */
+  | 'fallback_skipped_local_reuse'
   | 'fallback_provider_unavailable'
   | 'fallback_blocked_by_budget'
   | 'attempt2_already_exists'
@@ -258,6 +290,17 @@ export interface AutomaticRoutingOrchestratorResult {
   wouldRecommendFallback: boolean;
   fallbackReason: FallbackReason;
   blockedReason: string | null;
+  /**
+   * Count of ALREADY-EXISTING actionable pending_review Lusha candidates that
+   * made the provider fallback unnecessary. >= 1 only on the
+   * 'fallback_skipped_local_reuse' branch; 0 on every other branch.
+   *
+   * Deliberately a SEPARATE counter: it is never merged into, added to, or
+   * used to reinterpret `candidatesCreated` / `candidates_created`, which keep
+   * meaning "rows this run created" and stay 0 on the reuse branch because the
+   * reuse branch creates nothing.
+   */
+  reusedExistingCandidates: number;
 }
 
 export interface AutomaticRoutingOrchestratorDeps {
@@ -283,6 +326,13 @@ export interface AutomaticRoutingOrchestratorDeps {
     triggeredBy: string,
   ) => Promise<AttemptCreationResult>;
   runLushaAttempt?: (attemptId: string, triggeredBy: string) => Promise<LushaRunnerResult>;
+  /**
+   * Read-only, zero-cost local reuse check. Runs AFTER the Apollo fallback
+   * signal recommends a fallback but BEFORE isFallbackProviderAvailable and
+   * BEFORE the budget guardrail — a free local result must not be rejected
+   * because a hypothetical provider call would be unavailable or unaffordable.
+   */
+  evaluateLocalCandidateReuse?: (requestId: string) => Promise<LushaLocalReuseGateResultV1>;
   /** Conservative default: null (unknown cost) — see evaluateBudgetGuardrailV1. */
   estimateFallbackCostUsd?: () => number | null;
   writeRoutingTelemetry?: (
@@ -306,14 +356,15 @@ function notEngagedResult(
     wouldRecommendFallback: false,
     fallbackReason: 'not_applicable',
     blockedReason,
+    reusedExistingCandidates: 0,
   };
 }
 
 /**
- * Single entry point for the V1 automatic Apollo→Lusha fallback. No caller
- * in this codebase invokes this yet (see module header) — every branch
- * below is exercised exclusively by this hito's own tests via injected
- * deps. When `automaticRoutingEnabled` is false (the production default),
+ * Single entry point for the V1 automatic Apollo→Lusha fallback. This IS the
+ * live path behind the wizard CTA (AGENT2-ROUTING-WIRE-1) — every branch below
+ * is reachable in Production once ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING
+ * is on. When `automaticRoutingEnabled` is false (the production default),
  * this function returns immediately without creating any attempt, calling
  * any provider, or writing any telemetry.
  */
@@ -328,6 +379,7 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
     isFallbackProviderAvailable = defaultIsFallbackProviderAvailable,
     createFallbackAttempt = defaultCreateFallbackAttempt,
     runLushaAttempt = defaultRunLushaAttempt,
+    evaluateLocalCandidateReuse = defaultEvaluateLocalCandidateReuse,
     estimateFallbackCostUsd = () => null,
     writeRoutingTelemetry = defaultWriteRoutingTelemetry,
     assertEnvironmentSafe = (automaticRoutingEnabled: boolean) =>
@@ -395,6 +447,7 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
       wouldRecommendFallback: false,
       fallbackReason: 'not_applicable',
       blockedReason: 'apollo_provider_not_called',
+      reusedExistingCandidates: 0,
     };
   }
 
@@ -431,6 +484,7 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
       wouldRecommendFallback: false,
       fallbackReason: 'not_applicable',
       blockedReason: 'invalid_attempt_signal',
+      reusedExistingCandidates: 0,
     };
   }
 
@@ -460,11 +514,67 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
       wouldRecommendFallback: false,
       fallbackReason: signal.fallbackReasonForTelemetry,
       blockedReason: null,
+      reusedExistingCandidates: 0,
     };
   }
 
-  // From here on, the policy recommends a fallback — apply the remaining
-  // no-fallback conditions (§7) before ever creating attempt_order=2.
+  // ── PRE-PROVIDER LOCAL REUSE GATE (AGENT2A-LUSHA-LOCAL-REUSE-GATE-1) ──
+  //
+  // The policy recommends a fallback. Before ANY Lusha provider-specific work,
+  // ask the one question that costs nothing: does SellUp already hold at least
+  // one actionable same-company Lusha candidate in pending_review?
+  //
+  // PLACEMENT IS THE POINT. This runs strictly BEFORE
+  // isFallbackProviderAvailable (and therefore before getLushaApiKey), BEFORE
+  // estimateFallbackCostUsd / evaluateBudgetGuardrailV1, BEFORE
+  // createFallbackAttempt and BEFORE runLushaAttempt. Local reuse is not a
+  // provider operation and costs 0, so it must not depend on Lusha API
+  // availability, a Lusha API key, the provider budget, or an estimated
+  // fallback cost: a FREE local result must never be rejected because a
+  // hypothetical provider call would be unavailable or unaffordable.
+  //
+  // Guarded by its own default-OFF flag inside the gate module. With that flag
+  // off the gate returns a MISS without issuing a single query, and control
+  // falls through to the byte-identical pre-gate sequence below.
+  const localReuse = await evaluateLocalCandidateReuse(input.requestId);
+  if (localReuse.hit) {
+    // Telemetry lands on ATTEMPT #1 with the ORIGINAL Apollo fallback reason
+    // preserved. No provider_usage_logs row is written anywhere for this
+    // branch: no provider call occurred, and a fake 0-credit Lusha usage row
+    // would distort provider call counts, effectiveness and credit metrics.
+    await writeRoutingTelemetry(
+      resolved1.attemptId,
+      buildRunColumns('primary', signal.fallbackReasonForTelemetry),
+      buildSummaryBlock({
+        role: 'primary',
+        policy,
+        actualProvider: config.primaryProvider,
+        wouldRecommendFallback: true,
+        fallbackReason: signal.fallbackReasonForTelemetry,
+        fallbackExecuted: false,
+        fallbackAttemptRunId: null,
+        triggeredByAttemptRunId: null,
+        evaluatedAt: input.evaluatedAt,
+        evidence: { local_lusha_reuse: localReuse.observability },
+      }),
+    );
+    return {
+      outcome: 'fallback_skipped_local_reuse',
+      automaticRoutingEnabled: true,
+      attempt1,
+      attempt2: null,
+      fallbackExecuted: false,
+      wouldRecommendFallback: true,
+      fallbackReason: signal.fallbackReasonForTelemetry,
+      blockedReason: null,
+      reusedExistingCandidates: localReuse.actionableReusableCandidateCount,
+    };
+  }
+
+  // Local reuse MISS (or the gate is disabled / failed open): the existing
+  // pipeline continues completely unchanged from here.
+  // Apply the remaining no-fallback conditions (§7) before ever creating
+  // attempt_order=2.
   const fallbackAvailable = await isFallbackProviderAvailable(config.fallbackProvider);
   if (!fallbackAvailable) {
     await writeRoutingTelemetry(
@@ -492,6 +602,7 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
       wouldRecommendFallback: true,
       fallbackReason: signal.fallbackReasonForTelemetry,
       blockedReason: 'fallback_provider_unavailable',
+      reusedExistingCandidates: 0,
     };
   }
 
@@ -528,6 +639,7 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
       wouldRecommendFallback: true,
       fallbackReason: 'budget_guardrail',
       blockedReason: budgetEvaluation.reason,
+      reusedExistingCandidates: 0,
     };
   }
 
@@ -544,6 +656,7 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
         wouldRecommendFallback: true,
         fallbackReason: signal.fallbackReasonForTelemetry,
         blockedReason: 'already_exists_without_attempt_id',
+        reusedExistingCandidates: 0,
       };
     }
     await writeRoutingTelemetry(
@@ -571,6 +684,7 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
       wouldRecommendFallback: true,
       fallbackReason: signal.fallbackReasonForTelemetry,
       blockedReason: null,
+      reusedExistingCandidates: 0,
     };
   }
 
@@ -600,6 +714,7 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
       wouldRecommendFallback: true,
       fallbackReason: signal.fallbackReasonForTelemetry,
       blockedReason: creation2.status,
+      reusedExistingCandidates: 0,
     };
   }
 
@@ -648,5 +763,6 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
     wouldRecommendFallback: true,
     fallbackReason: signal.fallbackReasonForTelemetry,
     blockedReason: null,
+    reusedExistingCandidates: 0,
   };
 }

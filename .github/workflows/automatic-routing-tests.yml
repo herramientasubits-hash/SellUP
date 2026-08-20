@@ -2297,3 +2297,53 @@ jobs:
       # Supabase de marcador. Sin credenciales, sin Supabase real, 0 créditos.
       - name: Run Agent 2A provider-native novelty gate tests
         run: npm run test:agent2a:provider-novelty-gate
+      # AGENT2A-LUSHA-LOCAL-REUSE-GATE-1 — el gate de REUSO LOCAL pre-proveedor
+      # entra al check obligatorio.
+      #
+      # El defecto que cierra: con el intento de Apollo en cero candidatos
+      # revisables, el router AUTOMÁTICO arrancaba trabajo específico de Lusha
+      # (disponibilidad → API key → presupuesto → attempt #2 → Prospecting)
+      # incluso cuando SellUp YA tenía un candidato Lusha accionable de la MISMA
+      # empresa esperando revisión en pending_review. El resultado revisable ya
+      # existía; el proveedor no tenía nada que añadir que un humano no hubiera
+      # visto todavía.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que la colocación se degrade: el gate tiene que correr DESPUÉS de que
+      #     la señal recomiende fallback y ANTES de isFallbackProviderAvailable,
+      #     de estimateFallbackCostUsd/presupuesto, de createFallbackAttempt y de
+      #     runLushaAttempt — se comprueba con el ORDEN de llamadas, no solo con
+      #     contadores;
+      #   * que un resultado LOCAL y GRATIS se rechace por una condición del
+      #     proveedor: se prueba con Lusha no disponible, sin API key, con un
+      #     presupuesto que SÍ bloquearía un fallback y con costo desconocido;
+      #   * que el contrato accionable se afloje: solo source='lusha' +
+      #     source_contact_id + pending_review + email + duplicate_status
+      #     'no_match'; LinkedIn es OPCIONAL;
+      #   * que un estado SUPPRESS-ONLY se cuele como reuso — approved,
+      #     discarded, duplicate, possible_duplicate, exact_duplicate y
+      #     pending_review sin email NO satisfacen el umbral y tampoco disparan
+      #     un re-enriquecimiento directo por contactId;
+      #   * que un candidato de Apollo lo satisfaga: nunca;
+      #   * que el scope de empresa se afloje: se reutilizan los helpers de #315
+      #     (account_id > HubSpot company id > dominio normalizado), sin NOMBRE ni
+      #     match difuso, y un desacuerdo en la clave más fuerte NO cae a una más
+      #     débil;
+      #   * que el gate se vuelva fail-CLOSED: sin clave determinista, request
+      #     ilegible o error de lectura tienen que dejar pasar el fallback actual
+      #     INTACTO;
+      #   * que el ahorro se cuele como llamada inventada: 0 filas de candidato,
+      #     0 filas de provider_usage_logs, y la telemetría NO afirma
+      #     avoided_paid_calls / credits_saved / USD_saved;
+      #   * que candidatesCreated se contamine: reusedExistingCandidates es un
+      #     contador SEPARADO y no existe ningún conteo "efectivo" combinado;
+      #   * que el flag por defecto deje de estar APAGADO, y que con el flag
+      #     apagado el lector llegue a ejecutarse.
+      #
+      # Offline y determinista: cada lector y cada dependencia del router se
+      # inyecta. Sin red, sin Supabase, sin credenciales, 0 créditos. Reejecuta
+      # además las suites de routing automático, de la decisión de fallback, del
+      # action core y del contrato de config para probar que nada existente
+      # cambió de comportamiento.
+      - name: Run Agent 2A Lusha local candidate reuse gate tests
+        run: npm run test:agent2a:lusha-local-reuse-gate
