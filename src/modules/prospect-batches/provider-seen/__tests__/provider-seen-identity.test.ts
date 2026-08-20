@@ -136,3 +136,44 @@ test('§ 11.23 — recordar NO exige que exista un prospect_candidate', () => {
     'providerEntityId',
   ]);
 });
+
+// ─── AGENT1-PROVIDER-SEEN-MEMORY-2 — una sola regla para el dominio ───────────
+
+test('la misma identidad repetida en UNA respuesta se cuenta, y su dominio COMPLETA', () => {
+  // 🔴 Descartar la repetición entera perdía el dominio hasta la corrida siguiente por
+  // el mero hecho de que el proveedor devolviera la empresa dos veces en la misma
+  // página. Es la MISMA regla que aplica la tabla: un nulo nunca borra, y entre no
+  // nulos gana el más reciente —dentro de un lote, el último en llegar, porque todas
+  // las observaciones comparten el instante de la corrida.
+  const batch = collectProviderSeenObservations('lusha', [
+    { providerEntityId: 'v1.aaa', domain: null },
+    { providerEntityId: 'v1.aaa', domain: 'tarde.example' },
+    { providerEntityId: 'v1.aaa', domain: null },
+  ]);
+
+  assert.equal(batch.observations.length, 1, 'una identidad, no tres');
+  assert.equal(batch.duplicateCount, 2, 'las repeticiones se siguen contando');
+  assert.equal(batch.observations[0]?.normalizedDomain, 'tarde.example');
+});
+
+test('entre dos dominios NO nulos en el mismo lote gana el último', () => {
+  const batch = collectProviderSeenObservations('lusha', [
+    { providerEntityId: 'v1.aaa', domain: 'primero.example' },
+    { providerEntityId: 'v1.aaa', domain: 'segundo.example' },
+  ]);
+  assert.equal(batch.observations[0]?.normalizedDomain, 'segundo.example');
+});
+
+test('el orden de llegada de las identidades NO cambia al completar un dominio', () => {
+  const batch = collectProviderSeenObservations('lusha', [
+    { providerEntityId: 'v1.aaa', domain: null },
+    { providerEntityId: 'v1.bbb', domain: 'b.example' },
+    { providerEntityId: 'v1.aaa', domain: 'a.example' },
+  ]);
+  assert.deepEqual(
+    batch.observations.map((o) => o.providerEntityId),
+    ['v1.aaa', 'v1.bbb'],
+    'completar es una actualización en el sitio, no un reordenamiento',
+  );
+  assert.equal(batch.observations[0]?.normalizedDomain, 'a.example');
+});

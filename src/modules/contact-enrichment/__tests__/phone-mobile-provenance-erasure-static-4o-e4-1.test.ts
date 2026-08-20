@@ -376,8 +376,11 @@ describe('4O-E4.1 estático — alcance', () => {
       // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
       // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
       // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
-      122,
-      'la 122 («Buscar más números») es la última',
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 lo mueve a la 123: la memoria de qué empresa ya nos
+      // mostró un proveedor de PAGO. NO es de teléfono: sólo guarda identidad de EMPRESA y
+      // no nombra `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
+      123,
+      'la 123 (memoria provider-seen) es la última',
     );
   });
 

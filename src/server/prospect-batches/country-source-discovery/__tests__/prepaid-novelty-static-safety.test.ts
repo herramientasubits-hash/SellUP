@@ -156,15 +156,45 @@ test('🔴 § 5 — no existe una segunda taxonomía: la evidencia sale del cat�
   }
 });
 
-test('§ 28 — este hito NO añade migraciones', () => {
+/**
+ * 🔴 RATCHET INVERTIDO, NO BORRADO (AGENT1-PROVIDER-SEEN-MEMORY-2).
+ *
+ * La versión anterior medía el MÁXIMO GLOBAL de `supabase/migrations` y exigía que no
+ * pasara de 122. Esa forma tenía dos problemas, y el repo ya los había diagnosticado en
+ * `identity-key-repair-migration-static.test.ts`: un máximo global no dice nada sobre
+ * ESTE hito —cualquier trabajo ajeno lo mueve— y, del otro lado, subir el número a 123
+ * habría dejado pasar CUALQUIER migración nueva sin mirar qué hace.
+ *
+ * Lo que la capa gratuita prometió, y sigue cumpliendo, es que NO NECESITA ESQUEMA: lee
+ * tablas que ya existían y no crea ninguna. Eso es lo que se mide ahora, más el hecho de
+ * que la única migración por encima de la línea base es la de la memoria provider-seen,
+ * que es un ADDENDUM distinto y que se declara NO aplicada.
+ */
+test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 122 es la memoria provider-seen', () => {
+  const MIGRATION_BASELINE = 122;
   const migrations = readdirSync(path.join(ROOT, 'supabase/migrations')).filter((f) =>
     f.endsWith('.sql'),
   );
-  const highest = migrations
-    .map((f) => Number.parseInt(f.slice(0, 3), 10))
-    .filter((n) => Number.isFinite(n))
-    .reduce((a, b) => Math.max(a, b), 0);
-  // 122 es la última migración que existía al abrir este trabajo. Si sube, alguien
-  // añadió una y este hito declaró que no habría ninguna.
-  assert.ok(highest <= 122, `la migración más alta es ${highest}; el hito no añade ninguna`);
+
+  const above = migrations
+    .filter((f) => Number.parseInt(f.slice(0, 3), 10) > MIGRATION_BASELINE)
+    .sort();
+  assert.deepEqual(
+    above,
+    ['123_provider_seen_entities.sql'],
+    'ninguna migración nueva salvo la memoria provider-seen',
+  );
+
+  // Y sigue declarada NO aplicada: escribir el esquema no es aplicarlo.
+  const sql = read(`supabase/migrations/${above[0]}`);
+  assert.ok(sql.includes('APPLIED IN PRODUCTION: NO'));
+
+  // 🔴 La promesa REAL de esta capa: ninguno de sus módulos crea, altera o borra una
+  // tabla, ni depende de una que este trabajo haya tenido que inventar.
+  for (const rel of [...listSources(PREPAID_DIR), ...listSources(PURE_DIR)]) {
+    const code = stripTsComments(read(rel));
+    for (const needle of ['CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'provider_seen_entities']) {
+      assert.ok(!code.includes(needle), `${rel} no debe necesitar esquema propio (${needle})`);
+    }
+  }
 });

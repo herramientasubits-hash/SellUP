@@ -2175,3 +2175,51 @@ jobs:
       # Offline y determinista: sin red, sin Supabase, sin proveedor. 0 créditos.
       - name: Run A1 provider-seen memory tests
         run: npm run test:a1-provider-seen-memory
+
+      # ── AGENT1-PROVIDER-SEEN-MEMORY-2 ───────────────────────────────────
+      #
+      # LA MITAD QUE NINGUNA SUITE DE TypeScript PUEDE CUBRIR.
+      #
+      # La afirmación central de este hito es de IDENTIDAD —qué cuenta como «la misma
+      # empresa» para la memoria de lo ya pagado— y esa afirmación NO vive en
+      # TypeScript: vive en dos índices únicos PARCIALES y en un `ON CONFLICT ... DO
+      # UPDATE` con mezcla ordenada. Leer el SQL no responde si PostgreSQL acepta el
+      # duplicado; hay que insertarlo.
+      #
+      # Aplica la migración 123 leyendo el archivo VERBATIM de `supabase/migrations` y
+      # después ejercita, con el nombre del caso en el título, los cinco que la dueña
+      # pidió resolver antes de congelar el esquema:
+      #   A. dominio suelto y luego id+dominio  ⇒ DOS filas (fusionarlas exigiría afirmar
+      #      que un dominio identifica una entidad, justo lo que C prohíbe);
+      #   B. mismo id con dominio nuevo         ⇒ UNA fila, `first_seen_*` intacto y el
+      #      dominio avanzado al que el proveedor emite AHORA;
+      #   C. ids distintos con dominio compartido ⇒ DOS filas — no hay unicidad global
+      #      por dominio, que colapsaría un grupo con su filial;
+      #   D. id solo y luego id+dominio         ⇒ UNA fila, el dominio se COMPLETA, y un
+      #      nulo posterior nunca lo borra;
+      #   E. la misma observación concurrente dos veces ⇒ UNA fila, sin excepción visible.
+      #
+      # Y lo que sólo una base real puede responder: que la migración APLIQUE (cinco
+      # `COMMENT ON` y una función plpgsql con dolar-quoting anidado son exactamente la
+      # superficie donde un lexer de comillas pasa y PostgreSQL falla con 42601); que
+      # reaplicarla no toque una fila; que `first_seen_*` y la identidad sean inmutables
+      # ante un UPDATE DIRECTO; que anon y authenticated no conserven NI UNO de los 8
+      # privilegios —Supabase los concede por DEFAULT PRIVILEGES y habilitar RLS no los
+      # quita, así que esto se responde con `has_table_privilege`, no con
+      # `information_schema`—; que `service_role` no tenga DELETE; y que el doble en
+      # memoria de las pruebas converja a la MISMA fila que la tabla, que es la única
+      # defensa contra que el esquema y su cliente acaben con dos ideas de identidad.
+      #
+      # 🔴 La migración NO se aplica en Producción y el runtime sigue devolviendo el
+      # no-op: este paso prueba la tabla, no la enciende.
+      #
+      # `embedded-postgres` ya está instalado por el paso de Agente 2A de más arriba, con
+      # la versión PINCHADA 17.6.0-beta.15. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte
+      # el skip en FALLO: sin ella, que el arnés no resolviera pondría este paso verde
+      # con una migración inaplicable. Sin `continue-on-error` y sin `|| true`.
+      #
+      # 0 proveedores, 0 créditos, 0 escrituras remotas. Datos sintéticos.
+      - name: Run A1 provider-seen schema tests against real PostgreSQL
+        run: npm run test:a1-provider-seen-memory:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'

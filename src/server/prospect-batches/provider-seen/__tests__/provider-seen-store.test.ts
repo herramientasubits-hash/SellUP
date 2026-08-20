@@ -13,6 +13,7 @@ import {
   PROVIDER_SEEN_LOAD_LIMIT,
   PROVIDER_SEEN_PERSISTENCE_STATUS,
   PROVIDER_SEEN_WRITE_SKIPPED_NO_AUTHORITY,
+  PROVIDER_SEEN_WRITE_SKIPPED_NO_OBSERVATIONS,
   resolveProviderSeenStore,
 } from '../provider-seen-store';
 
@@ -141,4 +142,77 @@ test('§ 4 — la carga es SIEMPRE acotada: una memoria sin cota encarecería lo
 
   assert.equal((await store.load({ provider: 'lusha', limit: 5 })).length, 5);
   assert.equal((await store.load({ provider: 'lusha', limit: 0 })).length, 0);
+});
+
+// ─── AGENT1-PROVIDER-SEEN-MEMORY-2 — la mezcla, dicha una sola vez ────────────
+
+test('§ 4 — un dominio NUEVO sobre el mismo id REEMPLAZA al que el proveedor dejó de emitir', async () => {
+  const store = createInMemoryProviderSeenStore();
+  await store.record({
+    observations: collectProviderSeenObservations('lusha', [
+      { providerEntityId: 'v1.aaa', domain: 'old.example' },
+    ]).observations,
+    correlationId: 'run-1',
+    observedAt: T1,
+  });
+  await store.record({
+    observations: collectProviderSeenObservations('lusha', [
+      { providerEntityId: 'v1.aaa', domain: 'new.example' },
+    ]).observations,
+    correlationId: 'run-2',
+    observedAt: T2,
+  });
+
+  const [record] = await store.load({ provider: 'lusha', limit: 10 });
+  // 🔴 Conservar el primero para siempre haría que la fila afirmara un emparejamiento
+  // que el proveedor ya no emite, mientras `lastSeenAt` la presenta como fresca. El
+  // coste se dice en voz alta: esta memoria no guarda HISTORIA de dominios.
+  assert.equal(record?.normalizedDomain, 'new.example');
+  assert.equal(record?.firstSeenAt, T1, 'y el origen sigue sin moverse');
+});
+
+test('§ 4 — una observación SIN dominio nunca borra el que ya había', async () => {
+  const store = createInMemoryProviderSeenStore();
+  await store.record({
+    observations: collectProviderSeenObservations('lusha', [
+      { providerEntityId: 'v1.aaa', domain: 'sigue.example' },
+    ]).observations,
+    correlationId: 'run-1',
+    observedAt: T1,
+  });
+  await store.record({
+    observations: collectProviderSeenObservations('lusha', [
+      { providerEntityId: 'v1.aaa', domain: null },
+    ]).observations,
+    correlationId: 'run-2',
+    observedAt: T2,
+  });
+
+  const [record] = await store.load({ provider: 'lusha', limit: 10 });
+  assert.equal(record?.normalizedDomain, 'sigue.example');
+  assert.equal(record?.lastSeenAt, T2, 'la ventana sí avanza');
+});
+
+test('§ 4 — una escritura MÁS VIEJA no hace retroceder la ventana ni la correlación', async () => {
+  // La convergencia tiene que depender del CONJUNTO de escrituras, no de cuál llegó
+  // última: con un last-write-wins simple, dos escritores concurrentes dejarían filas
+  // distintas según cómo los planificara el servidor.
+  const store = createInMemoryProviderSeenStore();
+  const observations = collectProviderSeenObservations('lusha', [
+    { providerEntityId: 'v1.aaa', domain: null },
+  ]).observations;
+
+  await store.record({ observations, correlationId: 'run-nuevo', observedAt: T2 });
+  await store.record({ observations, correlationId: 'run-viejo', observedAt: T1 });
+
+  const [record] = await store.load({ provider: 'lusha', limit: 10 });
+  assert.equal(record?.lastSeenAt, T2);
+  assert.equal(record?.lastSeenCorrelation, 'run-nuevo');
+});
+
+test('§ 4 — un lote vacío se reporta, no se finge escrito', async () => {
+  const store = createInMemoryProviderSeenStore();
+  const result = await store.record({ observations: [], correlationId: 'run-1', observedAt: T1 });
+  assert.equal(result.written, false);
+  assert.equal(result.skippedReason, PROVIDER_SEEN_WRITE_SKIPPED_NO_OBSERVATIONS);
 });

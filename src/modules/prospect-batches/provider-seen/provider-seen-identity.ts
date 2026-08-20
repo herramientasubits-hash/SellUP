@@ -165,7 +165,7 @@ export function collectProviderSeenObservations(
   candidates: readonly ProviderSeenCandidateInput[],
   entityType: ProviderSeenEntityType = 'company',
 ): ProviderSeenObservationBatch {
-  const seen = new Set<string>();
+  const indexByKey = new Map<string, number>();
   const observations: ProviderSeenObservation[] = [];
   let unidentifiableCount = 0;
   let duplicateCount = 0;
@@ -177,12 +177,32 @@ export function collectProviderSeenObservations(
       continue;
     }
     const key = providerSeenObservationKey(observation);
-    if (seen.has(key)) {
-      duplicateCount++;
+    const existingIndex = indexByKey.get(key);
+
+    if (existingIndex === undefined) {
+      indexByKey.set(key, observations.length);
+      observations.push(observation);
       continue;
     }
-    seen.add(key);
-    observations.push(observation);
+
+    // Repetida dentro de la MISMA respuesta. Se cuenta y NO se añade otra vez —
+    // pero si esta trae dominio, COMPLETA la que ya teníamos.
+    //
+    // 🔴 Es la misma regla que aplican la tabla y su función de escritura, no una
+    // segunda: un nulo nunca borra, y entre observaciones no nulas gana la más
+    // reciente. Dentro de un lote no hay instantes que comparar —todas comparten
+    // el `observedAt` de la corrida—, así que «la más reciente» es la última en
+    // llegar, que es exactamente el desempate que usa el SQL cuando dos escrituras
+    // comparten instante. Descartarla dejaría el dominio perdido hasta la corrida
+    // siguiente por el mero hecho de que el proveedor repitió la empresa en la
+    // misma página.
+    duplicateCount++;
+    if (observation.normalizedDomain !== null) {
+      observations[existingIndex] = {
+        ...observations[existingIndex]!,
+        normalizedDomain: observation.normalizedDomain,
+      };
+    }
   }
 
   return { observations, unidentifiableCount, duplicateCount };

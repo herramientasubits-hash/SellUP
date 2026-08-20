@@ -145,6 +145,39 @@ export function resolveProviderSeenStore(): ProviderSeenStore {
   return NO_OP_PROVIDER_SEEN_STORE;
 }
 
+/**
+ * `false` cuando el lote no traía ninguna observación. No es un fallo: es una
+ * respuesta válida sin nada identificable, y decirlo es más honesto que devolver
+ * una escritura de cero filas como si hubiera ocurrido.
+ */
+export const PROVIDER_SEEN_WRITE_SKIPPED_NO_OBSERVATIONS = 'no_observations';
+
+/** Orden temporal robusto: dos instantes ISO pueden venir con husos distintos. */
+function isBefore(candidate: string, reference: string): boolean {
+  const a = Date.parse(candidate);
+  const b = Date.parse(reference);
+  if (Number.isNaN(a) || Number.isNaN(b)) return false;
+  return a < b;
+}
+
+/**
+ * La regla del dominio, en un solo sitio:
+ *
+ *   · un nulo NUNCA borra —la ausencia de observación no es observación de ausencia;
+ *   · un dominio que llega donde no había nada COMPLETA, aunque sea más viejo:
+ *     completar no pierde nada;
+ *   · entre dos no nulos gana el que no sea más viejo.
+ */
+function mergeNormalizedDomain(
+  stored: string | null,
+  observed: string | null,
+  observedIsNotOlder: boolean,
+): string | null {
+  if (observed === null) return stored;
+  if (stored === null) return observed;
+  return observedIsNotOlder ? observed : stored;
+}
+
 // ─── Doble en memoria: SÓLO pruebas ───────────────────────────────────────────
 
 /**
@@ -187,6 +220,16 @@ export function createInMemoryProviderSeenStore(
     },
 
     async record(input) {
+      if (input.observations.length === 0) {
+        return {
+          written: false,
+          skippedReason: PROVIDER_SEEN_WRITE_SKIPPED_NO_OBSERVATIONS,
+          newIdsRecorded: 0,
+          newDomainsRecorded: 0,
+          refreshedCount: 0,
+        };
+      }
+
       const knownIds = new Set<string>();
       const knownDomains = new Set<string>();
       for (const record of records.values()) {
@@ -218,12 +261,21 @@ export function createInMemoryProviderSeenStore(
 
         if (existing) {
           refreshedCount++;
+          // La MISMA mezcla que hace `record_provider_seen_entities` en SQL. Está
+          // escrita dos veces porque hay dos implementaciones del puerto, no porque
+          // haya dos reglas: `first_seen_*` no se mueve, `last_seen_at` sólo avanza,
+          // la correlación sigue al instante que ganó y el dominio se completa o se
+          // reemplaza por una observación NO nula que no sea más vieja.
+          const notOlder = !isBefore(input.observedAt, existing.lastSeenAt);
           records.set(key, {
             ...existing,
-            // Un dominio que llega tarde COMPLETA la fila; nunca la borra.
-            normalizedDomain: existing.normalizedDomain ?? observation.normalizedDomain,
-            lastSeenAt: input.observedAt,
-            lastSeenCorrelation: input.correlationId,
+            normalizedDomain: mergeNormalizedDomain(
+              existing.normalizedDomain,
+              observation.normalizedDomain,
+              notOlder,
+            ),
+            lastSeenAt: notOlder ? input.observedAt : existing.lastSeenAt,
+            lastSeenCorrelation: notOlder ? input.correlationId : existing.lastSeenCorrelation,
           });
           continue;
         }
