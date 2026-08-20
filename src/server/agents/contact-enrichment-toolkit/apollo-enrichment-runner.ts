@@ -151,7 +151,7 @@ export interface ApolloEnrichmentRunResult {
     actual_credits_total: number;
     blocked_profiles_count: number;
   };
-  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  /** Guardrail de volumen de búsqueda — People Search no cobra créditos (Hito 17A.6D). */
   searchGuardrail?: SearchGuardrailMeta;
   /** Evaluación de presupuesto alert-only (Hito E). */
   budgetCheck?: ApolloBudgetCheckMeta;
@@ -365,7 +365,7 @@ interface ApolloEnrichmentSummaryBlock {
   estimated_cost_usd: number;
   /** Metadata por capa de búsqueda (fallback). Sin payload crudo. */
   search_attempts: ApolloSearchAttemptSummary[];
-  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  /** Guardrail de volumen de búsqueda — People Search no cobra créditos (Hito 17A.6D). */
   search_guardrail?: SearchGuardrailMeta;
   /** Resolución de organización Apollo (Hito 17A.8A). */
   apollo_organization_resolution?: ApolloOrgResolutionMeta;
@@ -811,8 +811,9 @@ export async function executeContactEnrichmentApolloRun(
 
   // 7b. Completado selectivo (Hito 17A.3C / 17A.6A / 17A.6D / 17A.8B):
   //     - Tope duro de candidatos (MAX_COMPLETION_CANDIDATES = 3).
-  //     - Guardrail de búsqueda (17A.6D): si el presupuesto de search fue excedido,
-  //       no seguimos a completion para no acumular más créditos.
+  //     - Guardrail de búsqueda (17A.6D): si el tope de VOLUMEN de search fue excedido
+  //       (`blocked_by_search_budget`, nombre legacy — la búsqueda no cobra créditos),
+  //       no seguimos a completion para no acumular más créditos de completion.
   //     - Guardrail de costo PRE-vuelo: estima créditos antes de llamar a Apollo.
   //     - Si el estimado supera MAX_COMPLETION_CREDITS_PER_RUN → salta toda la completion.
   //     - Modelo de créditos interno (n8n): email=1, phone=8.

@@ -708,7 +708,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
                   {result.searchGuardrail.stopped_early_reason === 'target_reviewable_reached'
                     ? 'objetivo alcanzado'
                     : result.searchGuardrail.stopped_early_reason === 'search_budget_reached'
-                      ? 'presupuesto agotado'
+                      ? 'límite de resultados alcanzado'
                       : 'intentos agotados'}
                 </dd>
               </div>
@@ -716,7 +716,7 @@ function ApolloResultSummary({ result, runId, accountId, companyName, companyDom
           </dl>
           {result.searchGuardrail.blocked_by_search_budget && (
             <p className="text-[11px] text-amber-600">
-              Búsqueda cortada por presupuesto — se superó el máximo de{' '}
+              Búsqueda detenida al alcanzar el límite de{' '}
               {result.searchGuardrail.max_results_per_run} resultados.
             </p>
           )}
