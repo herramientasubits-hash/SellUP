@@ -2250,3 +2250,35 @@ jobs:
       # Supabase, sin credenciales. 0 créditos.
       - name: Run Agent 2A Apollo People Search billing truth tests
         run: npm run test:agent2a:apollo-people-search-billing-truth
+      # AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1 — el novelty gate PRE-PAGO
+      # de identidades nativas del proveedor entra al check obligatorio.
+      #
+      # El defecto que cierra: un rerun AUTOMÁTICO de descubrimiento de contactos
+      # volvía a pagar por enriquecer a la MISMA persona, en la MISMA empresa, por
+      # el MISMO proveedor. Apollo People Search no cobra y no permite excluir
+      # personas ya vistas, así que el desperdicio estaba en `people/match`; en
+      # Lusha, en `/v3/contacts/enrich`.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que una identidad ya conocida vuelva a entrar a la pata PAGADA
+      #     (`people/match` / `/v3/contacts/enrich`) o a crear un candidato duplicado;
+      #   * que el estado del candidato histórico reabra el pago: pending_review,
+      #     approved, discarded y duplicate cuentan TODOS como ya visto, y un
+      #     candidato al que le falta el email tampoco se vuelve pagable solo;
+      #   * que la identidad se cruce entre proveedores — un contactId de Lusha no
+      #     puede suprimir un person_id de Apollo, ni al revés;
+      #   * que el scope de empresa se afloje: solo account_id, HubSpot company id o
+      #     dominio normalizado, nunca el NOMBRE ni un match difuso; y que la misma
+      #     persona en OTRA empresa siga siendo elegible (cambia de empleador);
+      #   * que el gate se vuelva fail-closed: sin clave determinista, sin identidad
+      #     o con error de lectura NO puede suprimir nada;
+      #   * que el ahorro se cuele como llamada inventada: un skip no escribe fila de
+      #     provider_usage_logs, ni créditos, ni USD; y People Search sigue en 0/0;
+      #   * que la barrera tardía de duplicados (dedupe + pending cross-run) se
+      #     retire por tener un gate temprano.
+      #
+      # Offline y determinista: `fetch` está sustituido por un router en memoria que
+      # falla el test si aparece cualquier host que no sea el fixture de Lusha o el
+      # Supabase de marcador. Sin credenciales, sin Supabase real, 0 créditos.
+      - name: Run Agent 2A provider-native novelty gate tests
+        run: npm run test:agent2a:provider-novelty-gate
