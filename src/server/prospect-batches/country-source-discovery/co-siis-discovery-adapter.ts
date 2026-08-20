@@ -57,6 +57,15 @@ export const CO_SIIS_DISCOVERY_SOURCE_KEY = 'co_siis_discovery' as const;
 /** `source_primary` canónico con el que se persisten sus candidatos. */
 export const CO_SIIS_DISCOVERY_SOURCE_PRIMARY = 'public_source' as const;
 
+/**
+ * `prospect_batches.source` canónico para los lotes de esta proyección.
+ * Vocabulario DISTINTO al de `source_primary`: `public_source` no está
+ * permitido por el CHECK de `prospect_batches` (migrations 040-052), que sí
+ * acepta `agent_1` — este descubrimiento lo dispara y lo persiste Agente 1.
+ * AGENT1-COUNTRY-SOURCE-PERSISTENCE-CONTRACT-1 § 2.
+ */
+export const CO_SIIS_DISCOVERY_BATCH_SOURCE = 'agent_1' as const;
+
 /** Techo duro de filas leídas por consulta. Acota la lectura, no el objetivo. */
 export const CO_SIIS_DISCOVERY_MAX_ROWS = 200;
 
