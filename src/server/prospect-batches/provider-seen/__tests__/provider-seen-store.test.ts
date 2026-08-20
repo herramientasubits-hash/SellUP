@@ -109,10 +109,20 @@ test('§ 4 — la memoria está separada POR proveedor', async () => {
   assert.equal((await store.load({ provider: 'apollo', limit: 10 })).length, 1);
 });
 
-test('§ 13 — Producción todavía NO persiste, y lo dice en vez de fingirlo', async () => {
-  const store = resolveProviderSeenStore();
-  assert.equal(store, NO_OP_PROVIDER_SEEN_STORE);
-  assert.equal(PROVIDER_SEEN_PERSISTENCE_STATUS, 'pending_schema_authority');
+/**
+ * 🔴 Ratchet invertido, no borrado (AGENT1-PROVIDER-SEEN-MEMORY-3): el resolutor ya
+ * NO devuelve este puerto —la migración 123 está aplicada y `resolveProviderSeenStore`
+ * construye el store persistente; eso se demuestra en `provider-seen-activation`—.
+ *
+ * Lo que este puerto sigue siendo, y por eso sigue probado, es el fail-soft
+ * explícito: el valor por defecto del gate cuando nadie le inyecta memoria. Su
+ * contrato es el que garantiza que «sin memoria» signifique «el gasto de siempre» y
+ * no un error.
+ */
+test('§ 13 — el puerto que no persiste lo DICE en vez de fingirlo', async () => {
+  assert.equal(PROVIDER_SEEN_PERSISTENCE_STATUS, 'schema_applied');
+
+  const store = NO_OP_PROVIDER_SEEN_STORE;
 
   // Lee vacío ⇒ 0 aciertos ⇒ 0 exclusiones nuevas ⇒ la corrida gasta lo de hoy.
   assert.deepEqual([...(await store.load({ provider: 'lusha', limit: 10 }))], []);
@@ -127,6 +137,10 @@ test('§ 13 — Producción todavía NO persiste, y lo dice en vez de fingirlo',
   assert.equal(written.written, false);
   assert.equal(written.skippedReason, PROVIDER_SEEN_WRITE_SKIPPED_NO_AUTHORITY);
   assert.equal(written.newIdsRecorded, 0);
+
+  // 🔴 Y el resolutor NO devuelve este puerto: si volviera a hacerlo, la memoria
+  // estaría apagada sin que nadie lo hubiera decidido.
+  assert.notEqual(resolveProviderSeenStore(), NO_OP_PROVIDER_SEEN_STORE);
 });
 
 test('§ 4 — la carga es SIEMPRE acotada: una memoria sin cota encarecería lo gratuito', async () => {

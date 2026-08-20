@@ -3,7 +3,19 @@
 -- (Agente 1 · AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 · ADDENDUM PROVIDER-SEEN,
 --  gate 2: AGENT1-PROVIDER-SEEN-MEMORY-2)
 --
--- APPLIED IN PRODUCTION: NO
+-- ✅ APPLIED IN PRODUCTION. Remote version 20260820153919 (2026-08-20), applied exactly
+--    once via the numbered Supabase MCP against project lrdruowtadwbdulndlph, on the
+--    owner's authorization and BEFORE any runtime was pointed at the table.
+--
+--    Verified read-only right after apply:
+--      · `provider_seen_entities` exists · `record_provider_seen_entities(jsonb, text,
+--        timestamptz)` exists · 0 rows.
+--      · anon SELECT = false · authenticated SELECT = false.
+--      · service_role SELECT = true · INSERT = true · UPDATE = true · DELETE = FALSE.
+--
+--    🔴 The order mattered and was respected: schema FIRST, runtime SECOND. Flipping
+--    `resolveProviderSeenStore()` before this line was true would have made every run
+--    write against a table that did not exist.
 --
 -- ═══════════════════════════════════════════════════════════════════
 -- WHY THIS EXISTS

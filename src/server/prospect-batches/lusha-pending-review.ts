@@ -1757,6 +1757,8 @@ export async function persistLushaPendingReviewBatch(
   let providerSeenNovelTotal = 0;
   let providerSeenNewIdsTotal = 0;
   let providerSeenNewDomainsTotal = 0;
+  let providerSeenWriteFailures = 0;
+  let providerSeenLastWriteSkippedReason: string | null = null;
   const providerSeenPageYields: ProviderSeenPageYield[] = [];
   const providerSeenBranchStopReasons: Record<number, string> = {};
   let hardFailure: PersistLushaPendingReviewResult | null = null;
@@ -1930,11 +1932,29 @@ export async function persistLushaPendingReviewBatch(
             });
             providerSeenNewIdsTotal += written.newIdsRecorded;
             providerSeenNewDomainsTotal += written.newDomainsRecorded;
+            // 🔴 `written === false` con un motivo NO es un no-evento: significa que
+            // esta página, ya pagada, no quedó recordada y la próxima corrida la
+            // volverá a pagar. Se cuenta para que el 0 de arriba se pueda leer.
+            //
+            // 🔴 «Sin observaciones» NO cuenta: es una respuesta válida sin nada
+            // identificable, no una escritura perdida. Contarla convertiría el
+            // indicador en ruido justo cuando más falta hace que se lea.
+            if (
+              !written.written &&
+              written.skippedReason !== null &&
+              written.skippedReason !== 'no_observations'
+            ) {
+              providerSeenWriteFailures++;
+              providerSeenLastWriteSkippedReason = written.skippedReason;
+            }
           } catch {
-            // 🔴 Fail-open y en silencio hacia el producto: la página YA está
-            // pagada y sus empresas ya están en la mano. Dejar que un fallo de
-            // memoria tirara la corrida convertiría una mejora económica en una
-            // forma nueva de perder lo que se acaba de comprar.
+            // 🔴 Fail-open hacia el producto, pero NO en silencio hacia el operador:
+            // la página YA está pagada y sus empresas ya están en la mano, así que un
+            // fallo de memoria no puede tirar la corrida —eso convertiría una mejora
+            // económica en una forma nueva de perder lo que se acaba de comprar—,
+            // pero sí queda contado.
+            providerSeenWriteFailures++;
+            providerSeenLastWriteSkippedReason = 'record_threw';
           }
         }
       }
@@ -2182,6 +2202,8 @@ export async function persistLushaPendingReviewBatch(
             newDomainsRecorded: providerSeenNewDomainsTotal,
             pageYields: providerSeenPageYields,
             branchStopReasons: providerSeenBranchStopReasons,
+            writeFailures: providerSeenWriteFailures,
+            lastWriteSkippedReason: providerSeenLastWriteSkippedReason,
           },
           providerSeenLoad: execution.providerSeenLoad,
           providerExclusionPlan: execution.providerExclusionPlan,

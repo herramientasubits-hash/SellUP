@@ -145,18 +145,21 @@ test('§ 11.21 — no hay topes numéricos inventados en la memoria ni en el pla
 });
 
 /**
- * 🔴 RATCHET INVERTIDO, NO BORRADO (AGENT1-PROVIDER-SEEN-MEMORY-2).
+ * 🔴 RATCHET INVERTIDO POR SEGUNDA VEZ, NO BORRADO (AGENT1-PROVIDER-SEEN-MEMORY-3).
  *
- * Hasta este hito la garantía era «no existe ninguna migración de provider-seen»,
- * porque § 13 mandaba PARAR y reportar antes de improvisar un esquema. Ese reporte
- * ya se entregó y la dueña autorizó ESCRIBIRLA. Lo que la prueba defiende cambia de
- * lado, pero la superficie protegida es la misma y sigue siendo la peligrosa: que
- * escribir el esquema no se convierta, por inercia, en aplicarlo o en encenderlo.
+ * Gate 1: «no existe ninguna migración de provider-seen».
+ * Gate 2: «existe UNA, declarada NO aplicada, y el runtime no persiste».
+ * Gate 3 (aquí): la dueña la APLICÓ en Producción —versión `20260820153919`— y el
+ * runtime ya persiste.
  *
- * Ahora se exige exactamente una migración, declarada NO aplicada, y un runtime que
- * sigue sin persistir.
+ * La superficie protegida no se mueve: sigue siendo que el archivo diga la VERDAD
+ * sobre Producción. Cambia de lado porque la verdad cambió. 🔴 Y el peligro se
+ * invierte con ella: este repo arrastra diez migraciones cuyo encabezado sigue
+ * diciendo «APPLIED IN PRODUCTION: NO» estando aplicadas
+ * (`docs/agent2a/README.md`), y cada una de ellas es una invitación a aplicar por
+ * segunda vez algo que ya corrió. Esta prueba impide que la 123 se sume a esa lista.
  */
-test('§ 13 — la migración está ESCRITA, declarada NO aplicada, y es UNA sola', () => {
+test('§ 13 — la migración está APLICADA en Producción, declarada como tal, y es UNA sola', () => {
   const migrations = readdirSync(path.join(ROOT, 'supabase/migrations')).filter((f) =>
     f.endsWith('.sql'),
   );
@@ -169,12 +172,22 @@ test('§ 13 — la migración está ESCRITA, declarada NO aplicada, y es UNA sol
   );
 
   // 🔴 El encabezado es la única declaración legible por un humano que va a decidir
-  // si la aplica. Si el archivo dijera que ya está en Producción, la decisión se
-  // habría tomado sola.
+  // si la aplica. Ahora que YA está aplicada, dejarlo diciendo «NO» invitaría a
+  // aplicarla otra vez.
   const sql = read(`supabase/migrations/${providerSeen[0]}`);
   assert.ok(
-    sql.includes('APPLIED IN PRODUCTION: NO'),
-    'la migración tiene que declararse NO aplicada',
+    !sql.includes('APPLIED IN PRODUCTION: NO'),
+    'la migración ya no puede declararse NO aplicada: lo está',
+  );
+  assert.ok(
+    sql.includes('✅ APPLIED IN PRODUCTION'),
+    'la migración tiene que declararse aplicada',
+  );
+  // La versión del ledger es lo que permite comprobarlo contra Producción sin creer
+  // al archivo. Sin ella, «aplicada» es una afirmación que nadie puede verificar.
+  assert.ok(
+    sql.includes('20260820153919'),
+    'la declaración tiene que llevar la versión EXACTA del ledger',
   );
 
   // Crear una tabla vacía es reversible; rellenarla desde otra tabla no lo es, y
@@ -189,23 +202,59 @@ test('§ 13 — la migración está ESCRITA, declarada NO aplicada, y es UNA sol
   );
 });
 
-test('§ 13 — Producción NO se enciende: el resolutor sigue devolviendo el no-op', () => {
+/**
+ * 🔴 RATCHET INVERTIDO, NO BORRADO (AGENT1-PROVIDER-SEEN-MEMORY-3).
+ *
+ * Antes: «el resolutor sigue devolviendo el no-op», porque encender la memoria antes
+ * de aplicar la migración habría hecho que cada corrida escribiera contra una tabla
+ * inexistente. La migración está aplicada, así que ese orden ya se cumplió y lo que
+ * hay que defender ahora es el otro extremo: que encender no se haya llevado por
+ * delante el fail-soft.
+ */
+test('§ 13 — Producción SÍ se enciende, y sin poder lanzar', () => {
   const code = stripTsComments(read(`${SERVER_DIR}/provider-seen-store.ts`));
   const resolver = code.slice(code.indexOf('export function resolveProviderSeenStore'));
 
   assert.ok(
-    resolver.includes('return NO_OP_PROVIDER_SEEN_STORE;'),
-    'el resolutor de Producción sigue devolviendo el no-op',
+    resolver.includes('createSupabaseProviderSeenStore'),
+    'el resolutor de Producción devuelve el store persistente',
   );
-  // 🔴 Encender la memoria ANTES de aplicar la migración haría que cada corrida
-  // escribiera contra una tabla que no existe. El orden es: aplicar, luego encender.
+  // 🔴 Un resolutor que puede lanzar convierte un problema de memoria en una corrida
+  // caída. La credencial se resuelve DENTRO de un try y su fallo degrada a un puerto
+  // que no persiste, jamás a una excepción.
+  assert.ok(resolver.includes('try {'), 'la resolución de credencial va dentro de un try');
   assert.ok(
-    !resolver.includes('createSupabaseProviderSeenStore'),
-    'el store persistente no puede cablearse desde el resolutor todavía',
+    resolver.includes('return CLIENT_UNAVAILABLE_PROVIDER_SEEN_STORE;'),
+    'sin credencial se degrada a un puerto que no persiste',
+  );
+  // 🔴 Y el motivo de esa degradación NO puede ser el de «no hay tabla»: la tabla
+  // existe. Confundirlos manda a quien depure a buscar una migración ya aplicada.
+  assert.ok(
+    !resolver.includes('NO_OP_PROVIDER_SEEN_STORE'),
+    'el fallback del resolutor no puede reportar «autoridad pendiente»',
+  );
+  assert.notEqual(
+    stripTsComments(read(`${SERVER_DIR}/provider-seen-store.ts`)).indexOf(
+      "PROVIDER_SEEN_WRITE_SKIPPED_CLIENT_UNAVAILABLE = 'persistence_client_unavailable'",
+    ),
+    -1,
+    'el motivo de «sin credencial» es distinto del de «sin autoridad»',
   );
 });
 
-test('§ 13 — ningún módulo de Producción importa todavía el store persistente', () => {
+/**
+ * 🔴 RATCHET INVERTIDO, NO BORRADO (AGENT1-PROVIDER-SEEN-MEMORY-3).
+ *
+ * Antes: la lista de importadores tenía que estar VACÍA. Ahora tiene que ser
+ * EXACTAMENTE la del cableado declarado. Sigue siendo la misma guarda —«nadie
+ * cablea esto por su cuenta»— con la lista movida de 0 a 1: el puerto es el único
+ * que conoce al adaptador, y todo lo demás pasa por `resolveProviderSeenStore()`.
+ *
+ * 🔴 Que la lista sea EXACTA y no un «al menos» es lo que impide que un tercer
+ * módulo se construya su propio store con otra credencial: dos formas de elegir
+ * credencial son dos formas de que una ruta lea de un sitio y otra escriba en otro.
+ */
+test('§ 13 — sólo el puerto importa el store persistente, y nadie más', () => {
   const importers: string[] = [];
 
   const walk = (dir: string): void => {
@@ -223,7 +272,27 @@ test('§ 13 — ningún módulo de Producción importa todavía el store persist
   };
   walk('src');
 
-  assert.deepEqual(importers, [], 'el adaptador persistente existe y está probado, pero no cableado');
+  assert.deepEqual(
+    importers,
+    ['src/server/prospect-batches/provider-seen/provider-seen-store.ts'],
+    'el adaptador persistente se cablea SÓLO desde el puerto',
+  );
+});
+
+test('§ 13 — el cableado de Producción pasa por el resolutor, no por el adaptador', () => {
+  // Los dos puntos de consumo reales: la carga (capa gratuita) y la escritura
+  // (ejecutor pagado). Los dos tienen que pedir el store al MISMO resolutor.
+  for (const rel of [
+    'src/server/prospect-batches/country-source-discovery/prepaid-novelty-gate.server.ts',
+    LUSHA_ACTION,
+  ]) {
+    const code = stripTsComments(read(rel));
+    assert.ok(code.includes('resolveProviderSeenStore'), `${rel} resuelve la memoria por el puerto`);
+    assert.ok(
+      !code.includes('createSupabaseProviderSeenStore'),
+      `${rel} no puede construirse su propio store`,
+    );
+  }
 });
 
 // ─── AGENT1-PROVIDER-SEEN-MEMORY-2 ───────────────────────────────────────────

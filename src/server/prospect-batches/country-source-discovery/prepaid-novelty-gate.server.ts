@@ -9,10 +9,15 @@
  *
  * ── 🔴 Ninguna dep puede gastar ──────────────────────────────────────────────
  *
- * Las tres son de lectura: el snapshot local de Colombia, el detector canónico de
- * duplicados (SellUp + HubSpot, por empresa) y un lector ACOTADO de dominios
- * conocidos. No se importa ninguna RPC de presupuesto y ningún cliente de
- * proveedor. La capa gratuita no puede gastar porque no tiene con qué.
+ * Las cuatro son de lectura: el snapshot local de Colombia, el detector canónico de
+ * duplicados (SellUp + HubSpot, por empresa), un lector ACOTADO de dominios
+ * conocidos y —desde AGENT1-PROVIDER-SEEN-MEMORY-3— la memoria provider-seen. No se
+ * importa ninguna RPC de presupuesto y ningún cliente de proveedor. La capa gratuita
+ * no puede gastar porque no tiene con qué.
+ *
+ * 🔴 La memoria entra por el MISMO resolutor que usa la ruta de escritura
+ * (`resolveProviderSeenStore`), no por un cliente propio: dos formas de elegir
+ * credencial son dos formas de que una lea de un sitio y la otra escriba en otro.
  *
  * ── 🔴 HubSpot: por candidato, jamás el CRM entero (§ 10 / § 30(E)) ──────────
  *
@@ -30,6 +35,7 @@ import {
   type PrePaidNoveltyGateInput,
   type PrePaidNoveltyGateResult,
 } from './run-prepaid-novelty-gate';
+import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
 import { buildCountrySourceAdapter } from './country-source-capability';
 import { buildCoSiisDiscoverySnapshotQuery } from './co-siis-snapshot-query';
 import { PREPAID_EXCLUSION_DOMAIN_CAP } from '@/modules/prospect-batches/prepaid-novelty/provider-exclusion-domains';
@@ -91,5 +97,10 @@ export async function runProductionPrePaidNoveltyGate(
     listKnownExclusionDomains: adminClient
       ? buildKnownExclusionDomainsReader(adminClient)
       : null,
+    // ADDENDUM PROVIDER-SEEN § 4 — la memoria de corridas anteriores. Sólo LEE, y
+    // sólo alimenta la pista de exclusión: no decide dedupe (§ 6) y no recorta el
+    // objetivo, que lo fija la capa gratuita. Una lectura rota degrada a memoria
+    // vacía, que es exactamente el gasto de siempre.
+    providerSeenStore: resolveProviderSeenStore(),
   });
 }

@@ -185,9 +185,13 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
     'ninguna migración nueva salvo la memoria provider-seen',
   );
 
-  // Y sigue declarada NO aplicada: escribir el esquema no es aplicarlo.
+  // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada
+  // en Producción (`20260820153919`). Lo que esta prueba defiende no cambia —que el
+  // archivo diga la verdad sobre Producción— pero la verdad sí.
   const sql = read(`supabase/migrations/${above[0]}`);
-  assert.ok(sql.includes('APPLIED IN PRODUCTION: NO'));
+  assert.ok(!sql.includes('APPLIED IN PRODUCTION: NO'));
+  assert.ok(sql.includes('✅ APPLIED IN PRODUCTION'));
+  assert.ok(sql.includes('20260820153919'));
 
   // 🔴 La promesa REAL de esta capa: ninguno de sus módulos crea, altera o borra una
   // tabla, ni depende de una que este trabajo haya tenido que inventar.

@@ -39,9 +39,23 @@ export type ProviderSeenLoadSummary = {
   domainsAvailable: number;
 };
 
+/**
+ * Ninguna memoria previa entró en esta corrida.
+ *
+ * 🔴 AGENT1-PROVIDER-SEEN-MEMORY-3 — el motivo era `persistence_authority_pending`
+ * mientras la tabla no existía. Con la 123 APLICADA ese texto habría pasado a ser
+ * falso en la primera corrida —tabla vacía, no autoridad pendiente— y habría
+ * mandado a quien lo leyera a buscar una migración que ya estaba puesta.
+ *
+ * El motivo de ahora es el único que es verdad en los tres casos que llegan aquí:
+ * no se consultó (no había proveedor al que excluir), se consultó y no había nada,
+ * o la lectura falló. 🔴 Los dos últimos NO se distinguen desde aquí, y eso es un
+ * coste declarado, no un descuido: el puerto degrada una lectura rota a memoria
+ * vacía a propósito, para que un problema de memoria nunca cambie lo que se gasta.
+ */
 export const PROVIDER_SEEN_LOAD_UNAVAILABLE: ProviderSeenLoadSummary = {
   loaded: false,
-  unavailableReason: 'persistence_authority_pending',
+  unavailableReason: 'no_provider_seen_memory_loaded',
   idsAvailable: 0,
   domainsAvailable: 0,
 };
@@ -69,6 +83,20 @@ export type ProviderSeenPaidSummary = {
   pageYields: readonly ProviderSeenPageYield[];
   /** Motivo de parada por rama. `branch_index → reason`. */
   branchStopReasons: Readonly<Record<number, string>>;
+  /**
+   * Escrituras de memoria que NO llegaron a la tabla, sobre páginas YA pagadas.
+   *
+   * 🔴 Existe porque con el puerto persistente encendido un fallo de escritura pasó
+   * de imposible a posible, y su síntoma natural —contadores de novedad en 0— es
+   * idéntico al de una corrida que sencillamente no vio nada nuevo. Sin este número,
+   * la memoria podría estar rota durante semanas pareciendo simplemente aburrida.
+   *
+   * No es un fallo de la corrida: la página ya está comprada y sus empresas ya están
+   * en la mano. Es un fallo de la MEMORIA, y se reporta como tal.
+   */
+  writeFailures: number;
+  /** El motivo de la última escritura no realizada. `null` si no hubo ninguna. */
+  lastWriteSkippedReason: string | null;
 };
 
 export const EMPTY_PROVIDER_SEEN_PAID_SUMMARY: ProviderSeenPaidSummary = {
@@ -80,6 +108,8 @@ export const EMPTY_PROVIDER_SEEN_PAID_SUMMARY: ProviderSeenPaidSummary = {
   newDomainsRecorded: 0,
   pageYields: [],
   branchStopReasons: {},
+  writeFailures: 0,
+  lastWriteSkippedReason: null,
 };
 
 /** Hechos observados sobre lo que NO se emitió. Nunca créditos ni dólares. */
@@ -152,6 +182,11 @@ export function buildProviderSeenTelemetry(
       novel_useful_after_local_dedupe: entry.novelUsefulAfterLocalDedupe,
     })),
     branch_stop_reason: { ...paid.branchStopReasons },
+
+    // ── Salud de la memoria. Un 0 aquí es la única forma de leer los contadores
+    //    de novedad de arriba como «no había nada nuevo» y no como «no se guardó».
+    provider_seen_write_failures: paid.writeFailures,
+    provider_seen_write_skipped_reason: paid.lastWriteSkippedReason,
 
     // ── Trabajo NO emitido. Hechos, no ahorros. Ver la cabecera. ───────────
     requests_avoided: input.avoided?.requestsAvoided ?? 0,

@@ -39,7 +39,11 @@ test('§ 6 — con memoria VACÍA la lista de exclusión es exactamente la de si
     [...sinMemoria.providerExclusionPlan.domains.sent],
   );
   assert.equal(sinMemoria.providerSeen.loaded, false);
-  assert.equal(sinMemoria.providerSeen.unavailableReason, 'persistence_authority_pending');
+  // 🔴 El motivo dejó de ser «autoridad pendiente» en AGENT1-PROVIDER-SEEN-MEMORY-3:
+  // con la 123 aplicada, ese texto habría mandado a quien lo leyera a buscar una
+  // migración ya puesta. El de ahora es verdad tanto si no se consultó como si no
+  // había nada como si la lectura falló.
+  assert.equal(sinMemoria.providerSeen.unavailableReason, 'no_provider_seen_memory_loaded');
   assert.equal(sinMemoria.context.providerSeenKnown, 0);
 });
 

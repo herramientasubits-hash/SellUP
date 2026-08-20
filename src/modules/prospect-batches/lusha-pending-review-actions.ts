@@ -477,6 +477,12 @@ async function runLushaSearchWithReservation(args: {
   } = args;
   const supabase = await createClient();
 
+  // ADDENDUM PROVIDER-SEEN § 4 — la memoria de lo ya pagado, resuelta UNA vez por
+  // corrida. 🔴 No es `supabase`: éste es el cliente de SESIÓN del usuario y la
+  // tabla sólo concede lectura y escritura a `service_role`, así que la memoria
+  // tiene su propio resolutor y su propia credencial.
+  const providerSeenStore = resolveProviderSeenStore();
+
   // La reserva YA existe aquí, así que la identidad de la corrida queda cerrada:
   // `withResolvedIds` recalcula el `idempotencyKey` con ella, y el `batchId` que
   // se resuelve más tarde NO lo altera. Esa es la razón de que un reintento sobre
@@ -767,17 +773,20 @@ async function runLushaSearchWithReservation(args: {
       // RECORDAR lo que el proveedor devolvió. No decide, no filtra y no reduce el
       // objetivo; el dedupe local sigue siendo la autoridad (§ 6).
       //
-      // 🔴 Hoy `resolveProviderSeenStore()` devuelve el puerto no-op porque la
-      // tabla todavía no existe (§ 13: STOP antes de migrar). Consecuencia
-      // deliberada: memoria vacía ⇒ 0 aciertos ⇒ 0 exclusiones nuevas ⇒ la corrida
-      // gasta EXACTAMENTE lo de antes de este PR.
+      // 🔴 AGENT1-PROVIDER-SEEN-MEMORY-3 — `resolveProviderSeenStore()` ya devuelve
+      // el store PERSISTENTE: la migración 123 está aplicada en Producción. Se
+      // resuelve UNA vez por corrida, arriba, y no una por página: un cliente por
+      // página sería trabajo repetido sobre la misma credencial.
+      //
+      // Un fallo de esta escritura NO reintenta al proveedor y NO altera la
+      // liquidación; se cuenta y viaja en la telemetría de la corrida.
       {
         plan: searchPlan,
         creditsReserved: reservation.creditsReserved,
         targetGap: prePaid.residualGap,
         providerSeen: {
           memory: prePaid.providerSeenMemory,
-          record: (writeInput) => resolveProviderSeenStore().record(writeInput),
+          record: (writeInput) => providerSeenStore.record(writeInput),
           correlationId: baseCorrelation.wizardRunId,
         },
         providerSeenLoad: prePaid.providerSeenLoad,

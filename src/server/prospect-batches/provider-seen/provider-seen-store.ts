@@ -1,8 +1,9 @@
 /**
- * provider-seen-store.ts — el puerto de la memoria provider-seen, y por qué hoy
- * su implementación de Producción no escribe nada.
+ * provider-seen-store.ts — el puerto de la memoria provider-seen y, desde este
+ * hito, la implementación PERSISTENTE que Producción recibe de verdad.
  *
- * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 · ADDENDUM PROVIDER-SEEN §§ 4, 13.
+ * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 · ADDENDUM PROVIDER-SEEN §§ 4, 13
+ * · AGENT1-PROVIDER-SEEN-MEMORY-3.
  *
  * ── 🔴 Arqueología de esquema, con lo medido en Producción ───────────────────
  *
@@ -31,30 +32,46 @@
  *     industria, no identidad de empresa: sirve de precedente de diseño, no de
  *     autoridad.
  *
- * Conclusión: hace falta una tabla nueva. § 13 del addendum dice STOP y reportar
- * antes de improvisar una migración, y § 0 prohíbe aplicarla. Así que este PR
- * construye el puerto y NO escribe migración: la propuesta mínima está en
- * `docs/agent1/provider-seen-memory-schema-proposal.md`.
+ * Conclusión: hacía falta una tabla nueva. Se propuso
+ * (`docs/agent1/provider-seen-memory-schema-proposal.md`), se escribió como
+ * migración 123 y la dueña la APLICÓ en Producción —versión `20260820153919`, tabla
+ * y RPC verificadas, 0 filas, `service_role` sin DELETE— ANTES de que este archivo
+ * apuntara a ella.
  *
- * ── 🔴 Qué significa eso para el runtime ─────────────────────────────────────
+ * ── 🔴 Qué significa eso para el runtime, ahora ──────────────────────────────
  *
- * Producción recibe `NO_OP_PROVIDER_SEEN_STORE`: lee vacío y no escribe. La
- * consecuencia es deliberada y comprobable: memoria vacía ⇒ 0 aciertos ⇒ 0
- * exclusiones por provider-seen ⇒ la corrida se comporta EXACTAMENTE como antes
- * de este PR. Ni un crédito de diferencia. El día que la migración se autorice,
- * lo único que cambia es qué implementación devuelve `resolveProviderSeenStore`.
+ * `resolveProviderSeenStore()` devuelve el store PERSISTENTE. Lo que cambia con
+ * respecto al gate anterior es exactamente una cosa: la memoria ya sobrevive a la
+ * corrida. Lo que NO cambia es quién decide: la memoria se lee para EXPLICAR y
+ * para construir la pista de exclusión, y se escribe para recordar; el dedupe
+ * local sigue siendo la única autoridad sobre qué se persiste (§ 6), y ningún
+ * acierto de memoria recorta el objetivo (`residualGap`), que lo fija la capa
+ * gratuita y sólo ella.
  *
- * 🔴 Y no, el no-op no se sustituye por el doble en memoria «mientras tanto»: una
- * memoria por proceso mentiría entre despliegues y entre instancias, y una memoria
- * que a veces recuerda es peor que una que nunca lo hace, porque nadie sabría cuál
- * de las dos cosas estaba pasando cuando una corrida costó de más.
+ * 🔴 El orden importaba y se respetó: primero la tabla, después el resolutor. Al
+ * revés, cada corrida habría escrito contra una tabla inexistente.
+ *
+ * ── 🔴 Un fallo de memoria no puede costar dinero ni repetir una petición ────
+ *
+ * Si la credencial de servidor no se puede construir —env ausente o inseguro: la
+ * factoría aprobada falla CERRADA— el resolutor degrada al puerto que no persiste
+ * y lo DICE con su propio motivo. No degrada al no-op de «autoridad pendiente»,
+ * porque la autoridad ya existe y confundir «no hay tabla» con «no hay credencial»
+ * es justo el diagnóstico que hace perder una tarde.
+ *
+ * 🔴 Y el doble en memoria sigue sin ser una alternativa de Producción: una memoria
+ * por proceso mentiría entre despliegues y entre instancias, y una memoria que a
+ * veces recuerda es peor que una que nunca lo hace, porque nadie sabría cuál de
+ * las dos cosas estaba pasando cuando una corrida costó de más.
  */
 
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type {
   ProviderSeenEntityType,
   ProviderSeenObservation,
   ProviderSeenProvider,
 } from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
+import { createSupabaseProviderSeenStore } from './provider-seen-supabase-store';
 
 // ─── Contrato ─────────────────────────────────────────────────────────────────
 
@@ -109,40 +126,89 @@ export type ProviderSeenStore = {
 
 export const PROVIDER_SEEN_WRITE_SKIPPED_NO_AUTHORITY = 'persistence_authority_pending';
 
+/**
+ * La tabla existe, pero esta ejecución no pudo construir una credencial de
+ * servidor segura. Se distingue del motivo de arriba a propósito: «no hay tabla» y
+ * «no hay credencial» se arreglan en sitios distintos.
+ */
+export const PROVIDER_SEEN_WRITE_SKIPPED_CLIENT_UNAVAILABLE = 'persistence_client_unavailable';
+
 /** Tope por defecto de la carga. Decisión propia, igual que el de exclusión. */
 export const PROVIDER_SEEN_LOAD_LIMIT = 500;
 
-// ─── Producción: no-op declarado ──────────────────────────────────────────────
+// ─── Puertos que no persisten ─────────────────────────────────────────────────
 
-export const NO_OP_PROVIDER_SEEN_STORE: ProviderSeenStore = {
-  async load() {
-    return [];
-  },
-  async record() {
-    return {
-      written: false,
-      skippedReason: PROVIDER_SEEN_WRITE_SKIPPED_NO_AUTHORITY,
-      newIdsRecorded: 0,
-      newDomainsRecorded: 0,
-      refreshedCount: 0,
-    };
-  },
-};
+/**
+ * Un puerto que lee vacío y no escribe, con el motivo que le corresponde.
+ *
+ * 🔴 El motivo NO es decorativo: es lo único que separa «todavía no hay dónde
+ * escribir» de «hay dónde, pero no con qué». Una sola forma para las dos cosas
+ * obligaría a adivinar cuál de los dos problemas está ocurriendo.
+ */
+function createNonPersistingProviderSeenStore(skippedReason: string): ProviderSeenStore {
+  return {
+    async load() {
+      return [];
+    },
+    async record() {
+      return {
+        written: false,
+        skippedReason,
+        newIdsRecorded: 0,
+        newDomainsRecorded: 0,
+        refreshedCount: 0,
+      };
+    },
+  };
+}
+
+/**
+ * El puerto que no persiste porque no hay autoridad de esquema.
+ *
+ * Sigue existiendo —y sigue siendo el valor por defecto del gate cuando nadie le
+ * inyecta un store, y el que usan las pruebas que quieren memoria vacía— aunque la
+ * migración ya esté aplicada: es el fail-soft explícito del diseño.
+ */
+export const NO_OP_PROVIDER_SEEN_STORE: ProviderSeenStore =
+  createNonPersistingProviderSeenStore(PROVIDER_SEEN_WRITE_SKIPPED_NO_AUTHORITY);
+
+/**
+ * El puerto que no persiste porque la credencial de servidor no se pudo construir.
+ * Fail-soft del resolutor: la corrida sigue y gasta lo de siempre.
+ */
+export const CLIENT_UNAVAILABLE_PROVIDER_SEEN_STORE: ProviderSeenStore =
+  createNonPersistingProviderSeenStore(PROVIDER_SEEN_WRITE_SKIPPED_CLIENT_UNAVAILABLE);
 
 /**
  * Estado de la persistencia, publicado para que la telemetría pueda decir la
  * verdad en vez de dejar un 0 sin explicación.
+ *
+ * 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la migración 123 está
+ * APLICADA en Producción (`20260820153919`), así que declarar «pendiente» habría
+ * pasado de ser una advertencia útil a ser un dato falso.
  */
-export const PROVIDER_SEEN_PERSISTENCE_STATUS = 'pending_schema_authority' as const;
+export const PROVIDER_SEEN_PERSISTENCE_STATUS = 'schema_applied' as const;
 
 /**
  * La implementación que usa Producción.
  *
- * Devuelve el no-op mientras no exista la tabla. Es una función y no una
- * constante para que el día del cambio haya UN solo sitio que tocar.
+ * 🔴 UN solo sitio decide. Devuelve el store persistente contra
+ * `provider_seen_entities`; si la factoría aprobada no puede producir un cliente
+ * —falla CERRADA cuando el env falta o es inseguro— degrada al puerto que no
+ * persiste y que lo dice, en vez de lanzar. Lanzar aquí tumbaría una corrida por un
+ * problema de memoria, que es exactamente lo que la memoria no puede permitirse:
+ * una optimización que puede tirar la operación deja de serlo.
+ *
+ * Se llama UNA vez por corrida desde el cableado de servidor; no memoriza el
+ * cliente en un singleton de módulo para no arrastrar credenciales entre
+ * invocaciones de un runtime que se reutiliza.
  */
 export function resolveProviderSeenStore(): ProviderSeenStore {
-  return NO_OP_PROVIDER_SEEN_STORE;
+  try {
+    return createSupabaseProviderSeenStore(createSupabaseAdminClient());
+  } catch {
+    return CLIENT_UNAVAILABLE_PROVIDER_SEEN_STORE;
+  }
 }
 
 /**
