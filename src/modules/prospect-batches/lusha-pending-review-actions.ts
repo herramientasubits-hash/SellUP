@@ -54,6 +54,7 @@ import {
 // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/15/25 — la capa GRATUITA,
 // idéntica para Apollo y para Lusha, que corre ANTES de que exista una reserva.
 import { runPrePaidNoveltyDiscovery } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
+import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
 import { LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES } from '@/server/prospect-batches/lusha-pending-review-limits';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
@@ -301,6 +302,10 @@ async function runGenerateLushaPendingReviewBatch(
     requestedTarget,
     requestedByUserId: internalUserId,
     partialGapSupported: true,
+    // ADDENDUM PROVIDER-SEEN §§ 5, 6 — la exclusión por dominios es lo único que
+    // el contrato verificado de Lusha V3 soporta; los ids quedan congelados hasta
+    // la confirmación escrita del soporte humano.
+    provider: 'lusha',
   });
 
   // § 15 — hueco cerrado gratis ⇒ ni estimación, ni reserva, ni credencial, ni
@@ -756,10 +761,28 @@ async function runLushaSearchWithReservation(args: {
       //
       // 🔴 Esto NO toca la reserva: `requiredCredits` se calculó con el plan del
       // proveedor (§ 16). El hueco gobierna cuántas empresas se aceptan.
+      //
+      // ADDENDUM PROVIDER-SEEN §§ 4, 10 — la memoria de lo ya pagado viaja al
+      // ejecutor para dos cosas y sólo dos: CONTAR aciertos sobre la respuesta y
+      // RECORDAR lo que el proveedor devolvió. No decide, no filtra y no reduce el
+      // objetivo; el dedupe local sigue siendo la autoridad (§ 6).
+      //
+      // 🔴 Hoy `resolveProviderSeenStore()` devuelve el puerto no-op porque la
+      // tabla todavía no existe (§ 13: STOP antes de migrar). Consecuencia
+      // deliberada: memoria vacía ⇒ 0 aciertos ⇒ 0 exclusiones nuevas ⇒ la corrida
+      // gasta EXACTAMENTE lo de antes de este PR.
       {
         plan: searchPlan,
         creditsReserved: reservation.creditsReserved,
         targetGap: prePaid.residualGap,
+        providerSeen: {
+          memory: prePaid.providerSeenMemory,
+          record: (writeInput) => resolveProviderSeenStore().record(writeInput),
+          correlationId: baseCorrelation.wizardRunId,
+        },
+        providerSeenLoad: prePaid.providerSeenLoad,
+        providerExclusionPlan: prePaid.providerExclusionPlan,
+        freeSource: prePaid.freeSource,
       },
     );
 

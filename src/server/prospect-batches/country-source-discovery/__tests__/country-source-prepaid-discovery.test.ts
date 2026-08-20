@@ -72,6 +72,7 @@ function gate(
 ) {
   return runPrePaidNoveltyGate(
     {
+      provider: 'lusha',
       countryCode: opts.countryCode ?? 'CO',
       macroIndustryKey: opts.macroIndustryKey ?? MACRO,
       requestedTarget: opts.requestedTarget ?? 5,
@@ -154,7 +155,7 @@ test('§ 22(F) SOURCE FAILURE — el adapter lanza ⇒ fail-open sin conteos inv
     throw new Error('boom');
   };
   const result = await runPrePaidNoveltyGate(
-    { countryCode: 'CO', macroIndustryKey: MACRO, requestedTarget: 5 },
+    { provider: 'lusha', countryCode: 'CO', macroIndustryKey: MACRO, requestedTarget: 5 },
     { countrySourceAdapter: explode, checkCompanyDuplicate: async (i) => noMatch(i) },
   );
 
@@ -167,7 +168,7 @@ test('§ 22(F) SOURCE FAILURE — el adapter lanza ⇒ fail-open sin conteos inv
 
 test('§ 22(G) COUNTRY WITHOUT SOURCE — la ruta de pago queda intacta y nada se marca intentado', async () => {
   const result = await runPrePaidNoveltyGate(
-    { countryCode: 'MX', macroIndustryKey: MACRO, requestedTarget: 5 },
+    { provider: 'lusha', countryCode: 'MX', macroIndustryKey: MACRO, requestedTarget: 5 },
     {
       countrySourceAdapter: buildCoSiisDiscoveryAdapter(async () => [row({ record_identity_key: '1' })]),
       checkCompanyDuplicate: async (i) => noMatch(i),
@@ -213,7 +214,7 @@ test('§ 22(I) NO WEBSITE — la empresa se evalúa por identidad legal y NO apo
 test('§ 4 — una macro SIN cobertura de códigos no consulta la fuente: devuelve cero, no una muestra genérica', async () => {
   let queried = 0;
   const result = await runPrePaidNoveltyGate(
-    { countryCode: 'CO', macroIndustryKey: 'retail', requestedTarget: 5 },
+    { provider: 'lusha', countryCode: 'CO', macroIndustryKey: 'retail', requestedTarget: 5 },
     {
       countrySourceAdapter: buildCoSiisDiscoveryAdapter(async () => {
         queried++;

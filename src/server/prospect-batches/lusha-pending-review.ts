@@ -113,6 +113,24 @@ import {
 // lo que la página YA PAGADA rindió. Vive en `prepaid-novelty` porque es política
 // neutral de proveedor, no una regla de Lusha.
 import { decidePaidPageContinuation } from '@/modules/prospect-batches/prepaid-novelty/paid-page-novelty-continuation';
+// ADDENDUM PROVIDER-SEEN §§ 4, 10 — la memoria de lo ya pagado nace AQUÍ, en el
+// único punto del ejecutor donde consta una respuesta VÁLIDA del proveedor.
+import { planProviderSeenRecording } from '@/modules/prospect-batches/provider-seen/provider-seen-recording';
+import {
+  countProviderSeenHits,
+  EMPTY_PROVIDER_SEEN_MEMORY,
+  type ProviderSeenMemory,
+} from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
+import type {
+  ProviderSeenLoadSummary,
+  ProviderSeenPageYield,
+} from '@/modules/prospect-batches/provider-seen/provider-seen-telemetry';
+import type { ProviderExclusionPlan } from '@/modules/prospect-batches/provider-seen/provider-exclusion-planner';
+import type { PrePaidFreeSourceOutcome } from '@/modules/prospect-batches/prepaid-novelty/prepaid-novelty-context';
+import type {
+  ProviderSeenWriteInput,
+  ProviderSeenWriteResult,
+} from '@/server/prospect-batches/provider-seen/provider-seen-store';
 import {
   createLushaRunIdentityRegistry,
   dedupeLushaCompaniesByIdentity,
@@ -1578,6 +1596,28 @@ export interface LushaMultiBranchExecution {
   targetGap?: number | null;
   /** Sólo telemetría: cuánto reservó el llamador, para que el lote lo registre. */
   creditsReserved?: number | null;
+  /**
+   * ADDENDUM PROVIDER-SEEN § 4 — memoria de lo que este proveedor ya nos mostró.
+   *
+   * Ausente ⇒ memoria vacía y escritura no-op: 0 aciertos, 0 identidades nuevas y
+   * comportamiento byte a byte el de antes de este PR. Ninguna de las dos piezas
+   * decide nada: la memoria sólo CUENTA y la escritura sólo RECUERDA. El dedupe
+   * local sigue siendo la autoridad (§ 6).
+   */
+  providerSeen?: {
+    memory?: ProviderSeenMemory;
+    record?: (input: ProviderSeenWriteInput) => Promise<ProviderSeenWriteResult>;
+    /** Reloj inyectable. Sin él, las pruebas no serían deterministas. */
+    now?: () => string;
+    /** Correlación de la corrida. Sin PII. */
+    correlationId?: string | null;
+  } | null;
+  /** ADDENDUM PROVIDER-SEEN § 10 — resultado de la carga de memoria previa. */
+  providerSeenLoad?: ProviderSeenLoadSummary;
+  /** ADDENDUM PROVIDER-SEEN § 10 — el plan de exclusión con el que se pidió. */
+  providerExclusionPlan?: ProviderExclusionPlan;
+  /** ADDENDUM PROVIDER-SEEN § 10 — lo que la fuente gratuita rindió. */
+  freeSource?: PrePaidFreeSourceOutcome;
 }
 
 /** Sum credits fail-safe: null stays null unless a page reported a number. */
@@ -1707,6 +1747,18 @@ export async function persistLushaPendingReviewBatch(
   // § 17/§ 20 — páginas que NO se compraron porque su rama vino sin novedad.
   // Hecho observado; nunca un ahorro estimado.
   let pagesSkippedZeroNovelty = 0;
+  // ── ADDENDUM PROVIDER-SEEN § 10 — conteos de la memoria ──
+  const providerSeenMemory: ProviderSeenMemory =
+    execution?.providerSeen?.memory ?? EMPTY_PROVIDER_SEEN_MEMORY;
+  const recordProviderSeen = execution?.providerSeen?.record ?? null;
+  const providerSeenNow = execution?.providerSeen?.now ?? (() => new Date().toISOString());
+  const providerSeenCorrelationId = execution?.providerSeen?.correlationId ?? null;
+  let providerSeenHitsTotal = 0;
+  let providerSeenNovelTotal = 0;
+  let providerSeenNewIdsTotal = 0;
+  let providerSeenNewDomainsTotal = 0;
+  const providerSeenPageYields: ProviderSeenPageYield[] = [];
+  const providerSeenBranchStopReasons: Record<number, string> = {};
   let hardFailure: PersistLushaPendingReviewResult | null = null;
 
   const pushBranchTelemetry = (
@@ -1843,6 +1895,50 @@ export async function persistLushaPendingReviewBatch(
       rawResultsTotal += pageRaw;
       branchRawResults += pageRaw;
 
+      // ── ADDENDUM PROVIDER-SEEN § 4 — el momento, y sólo éste ────────────────
+      //
+      // Estamos DESPUÉS de `search.ok` y ANTES del dedupe. Ese orden es el hito
+      // entero: si la memoria se escribiera después de filtrar, heredaría los
+      // criterios del filtro y volvería a olvidar justo lo que hay que recordar
+      // —lo rechazado, lo duplicado, lo sobrante— que es el defecto de hoy.
+      //
+      // 🔴 La validez se toma de `search.ok`, jamás de `results.length`. Una lista
+      // vacía puede ser una respuesta legítima sin empresas; un error NO es «cero
+      // empresas», es ninguna información. Confundirlos ya quemó a este repo en la
+      // ruta de teléfono (#303), donde Lusha devuelve `ok:true` con `phones:[]`
+      // para cualquier error HTTP.
+      const seenPlan = planProviderSeenRecording({
+        provider: 'lusha',
+        providerCallMade: true,
+        responseValid: true,
+        results: (search.results ?? []).map((company) => ({
+          providerEntityId: company.providerCompanyId,
+          domain: company.domain,
+        })),
+      });
+      let pageProviderSeenHits = 0;
+      if (seenPlan.record) {
+        pageProviderSeenHits = countProviderSeenHits(providerSeenMemory, seenPlan.observations);
+        providerSeenHitsTotal += pageProviderSeenHits;
+        providerSeenNovelTotal += seenPlan.observations.length - pageProviderSeenHits;
+        if (recordProviderSeen) {
+          try {
+            const written = await recordProviderSeen({
+              observations: seenPlan.observations,
+              correlationId: providerSeenCorrelationId,
+              observedAt: providerSeenNow(),
+            });
+            providerSeenNewIdsTotal += written.newIdsRecorded;
+            providerSeenNewDomainsTotal += written.newDomainsRecorded;
+          } catch {
+            // 🔴 Fail-open y en silencio hacia el producto: la página YA está
+            // pagada y sus empresas ya están en la mano. Dejar que un fallo de
+            // memoria tirara la corrida convertiría una mejora económica en una
+            // forma nueva de perder lo que se acaba de comprar.
+          }
+        }
+      }
+
       const dedupe = dedupeLushaCompaniesByIdentity(search.results ?? [], identityRegistry);
       identityRegistry = dedupe.registry;
       skippedUnusableCount += dedupe.unusableCount;
@@ -1970,7 +2066,18 @@ export async function persistLushaPendingReviewBatch(
         rawFromPage: pageRaw,
         novelUsefulFromPage,
       });
+      // ADDENDUM PROVIDER-SEEN § 10 — rendimiento de ESTA página, ya pagada.
+      providerSeenPageYields.push({
+        branchIndex,
+        page,
+        rawResults: pageRaw,
+        providerSeenHits: pageProviderSeenHits,
+        novelAfterProviderSeen: Math.max(0, pageRaw - pageProviderSeenHits),
+        novelUsefulAfterLocalDedupe: novelUsefulFromPage,
+      });
+
       if (!continuation.continueBranch) {
+        providerSeenBranchStopReasons[branchIndex] = continuation.stopReason;
         const remainingPages = LUSHA_PENDING_REVIEW_MAX_PAGES - (page + 1);
         if (remainingPages > 0) pagesSkippedZeroNovelty += remainingPages;
         break;
@@ -2060,6 +2167,27 @@ export async function persistLushaPendingReviewBatch(
     creditsReportedActual: creditsChargedTotal,
     stopReason,
     branches: branchTelemetry,
+    // ── ADDENDUM PROVIDER-SEEN § 10 ──
+    //
+    // Sólo se rellena cuando el llamador pasó la memoria: sin ella el bloque no
+    // se emite y la metadata del lote conserva su forma exacta previa al PR.
+    ...(execution?.providerSeen
+      ? {
+          providerSeen: {
+            rawResults: rawResultsTotal,
+            providerSeenHits: providerSeenHitsTotal,
+            novelAfterProviderSeen: providerSeenNovelTotal,
+            novelUsefulAfterLocalDedupe: reviewableFoundTotal,
+            newIdsRecorded: providerSeenNewIdsTotal,
+            newDomainsRecorded: providerSeenNewDomainsTotal,
+            pageYields: providerSeenPageYields,
+            branchStopReasons: providerSeenBranchStopReasons,
+          },
+          providerSeenLoad: execution.providerSeenLoad,
+          providerExclusionPlan: execution.providerExclusionPlan,
+          freeSource: execution.freeSource,
+        }
+      : {}),
   };
 
   const baseMetrics = {

@@ -2144,3 +2144,34 @@ jobs:
       # 0 créditos.
       - name: Run A1 pre-paid novelty gate tests
         run: npm run test:a1-prepaid-novelty-gate
+      # ADDENDUM PROVIDER-SEEN — la memoria de lo que un proveedor de pago YA nos
+      # mostró, independiente de `prospect_candidates`.
+      #
+      # El defecto que esta suite defiende: hoy la única huella que queda de una
+      # empresa devuelta por un proveedor vive DENTRO del candidato persistido
+      # (`source_trace.providerCompanyId`, medido 66/66 en Lusha y 0/10 en Apollo).
+      # Recordamos exactamente lo que no hacía falta recordar y olvidamos lo que sí
+      # —rechazada por macro, duplicado exacto, candidato histórico activo, sobrante
+      # de objetivo—, así que la corrida siguiente vuelve a pagarlo.
+      #
+      # Lo que se comprueba, dicho como defecto:
+      #   * que la memoria se escriba DESPUÉS de filtrar y herede los criterios del
+      #     filtro, volviendo a olvidar lo rechazado (guarda estática de orden);
+      #   * que la validez de la respuesta se derive del TAMAÑO de la lista y un
+      #     error HTTP quede registrado como «cero empresas» — el defecto de #303;
+      #   * que una corrida sin petición, o un fallo previo a respuesta válida,
+      #     fabriquen memoria;
+      #   * que una empresa sin dominio deje de ser identificable por su id;
+      #   * que este PR suponga algo del contrato de `filters.companies.exclude` que
+      #     el soporte humano de Lusha todavía no ha confirmado por escrito: ids,
+      #     semántica combinada ids+dominios, estabilidad de id, máximo de elementos,
+      #     orden, o relleno de página;
+      #   * que la lista de dominios cambie por el mero hecho de existir la memoria;
+      #   * que la memoria toque la autoridad económica (M121) o la observabilidad de
+      #     gasto (`provider_usage_logs`), o publique un ahorro sin contrafactual;
+      #   * que se degraden el dedupe entre ramas (#302), el objetivo exacto (#306) o
+      #     la parada por novedad cero (#310).
+      #
+      # Offline y determinista: sin red, sin Supabase, sin proveedor. 0 créditos.
+      - name: Run A1 provider-seen memory tests
+        run: npm run test:a1-provider-seen-memory
