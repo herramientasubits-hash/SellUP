@@ -226,19 +226,24 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // (Agente 2A). Es de teléfono, pero NO edita la 110 ni ninguna otra de la cadena
       // 109–117: añade la modalidad `search_more` y una función NUEVA, que es justo por
       // qué no re-declara la 110 ni la 111.
-      '122_phone_reveal_search_more.sql',
-      'el techo conocido es la 122 («Buscar más números»), que no edita la cadena de teléfono 109–117',
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
+      'el techo conocido es la 123 (memoria provider-seen), que no edita la cadena de teléfono 109–117',
     );
     assert.equal(
-      // La ventana sube con el techo DECLARADO arriba: la 122 está autorizada y nombrada,
-      // así que lo prohibido pasa a ser la 123 y superiores.
-      files.some((file) => /^1(2[3-9]|[3-9]\d)/.test(file)),
+      // La ventana sube con el techo DECLARADO arriba: la 123 está autorizada y nombrada,
+      // así que lo prohibido pasa a ser la 124 y superiores.
+      files.some((file) => /^1(2[4-9]|[3-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 123 o superior',
+      'ninguna migración 124 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

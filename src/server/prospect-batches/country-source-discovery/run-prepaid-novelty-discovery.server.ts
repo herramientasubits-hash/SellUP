@@ -30,12 +30,35 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { withFreeSourcePersistenceOutcome } from '@/modules/prospect-batches/prepaid-novelty/prepaid-novelty-context';
+import {
+  notAttemptedFreeSourceOutcome,
+  withFreeSourcePersistenceOutcome,
+  type PrePaidFreeSourceOutcome,
+} from '@/modules/prospect-batches/prepaid-novelty/prepaid-novelty-context';
+import {
+  planProviderExclusions,
+  type ProviderExclusionPlan,
+} from '@/modules/prospect-batches/provider-seen/provider-exclusion-planner';
+import {
+  PROVIDER_SEEN_LOAD_UNAVAILABLE,
+  type ProviderSeenLoadSummary,
+} from '@/modules/prospect-batches/provider-seen/provider-seen-telemetry';
 import { buildPrePaidNoveltyTelemetry } from '@/modules/prospect-batches/prepaid-novelty/prepaid-novelty-telemetry';
 import { runProductionPrePaidNoveltyGate } from './prepaid-novelty-gate.server';
+import {
+  EMPTY_PROVIDER_SEEN_MEMORY,
+  type ProviderSeenMemory,
+  type ProviderSeenProvider,
+} from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
 import { persistCountrySourceCandidates } from './persist-country-source-candidates';
 
 export type PrePaidNoveltyDiscoveryInput = {
+  /**
+   * ADDENDUM PROVIDER-SEEN §§ 5, 6 — qué proveedor de pago correría después.
+   * Decide la CAPACIDAD de exclusión y de qué memoria se lee. Sin valor por
+   * defecto a propósito.
+   */
+  provider: ProviderSeenProvider;
   countryCode: string;
   countryName: string;
   macroIndustryKey: string | null;
@@ -61,6 +84,17 @@ export type PrePaidNoveltyDiscoveryOutcome = {
    * soporta o cuando no hay proveedor que los reciba.
    */
   exclusionDomains: readonly string[];
+  /**
+   * ADDENDUM PROVIDER-SEEN § 4 — memoria de corridas anteriores, consultable.
+   * Vacía cuando no hay autoridad de persistencia todavía.
+   */
+  providerSeenMemory: ProviderSeenMemory;
+  /** ADDENDUM PROVIDER-SEEN § 10 — qué rindió la carga de memoria previa. */
+  providerSeenLoad: ProviderSeenLoadSummary;
+  /** ADDENDUM PROVIDER-SEEN § 6 — el plan explicable con el que se pedirá. */
+  providerExclusionPlan: ProviderExclusionPlan;
+  /** Lo que la fuente gratuita rindió, para el bloque normalizado de § 10. */
+  freeSource: PrePaidFreeSourceOutcome;
   telemetry: Record<string, unknown>;
 };
 
@@ -97,10 +131,15 @@ export async function runPrePaidNoveltyDiscovery(
     batchId: null,
     persistedCount: 0,
     exclusionDomains,
+    providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
+    providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
+    providerExclusionPlan: planProviderExclusions(input.provider, {}),
+    freeSource: notAttemptedFreeSourceOutcome(),
     telemetry,
   });
 
   const gate = await deps.runGate({
+    provider: input.provider,
     countryCode: input.countryCode,
     macroIndustryKey: input.macroIndustryKey,
     requestedTarget: input.requestedTarget,
@@ -121,6 +160,10 @@ export async function runPrePaidNoveltyDiscovery(
       batchId: null,
       persistedCount: 0,
       exclusionDomains: gate.context.exclusionDomains,
+      providerSeenMemory: gate.providerSeenMemory,
+      providerSeenLoad: gate.providerSeen,
+      providerExclusionPlan: gate.providerExclusionPlan,
+      freeSource: gate.context.freeSource,
       telemetry: gate.telemetry,
     };
   }
@@ -156,6 +199,10 @@ export async function runPrePaidNoveltyDiscovery(
     batchId: persistence.batchId,
     persistedCount: persistence.writtenCount,
     exclusionDomains: context.exclusionDomains,
+    providerSeenMemory: gate.providerSeenMemory,
+    providerSeenLoad: gate.providerSeen,
+    providerExclusionPlan: gate.providerExclusionPlan,
+    freeSource: context.freeSource,
     telemetry: buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null),
   };
 }

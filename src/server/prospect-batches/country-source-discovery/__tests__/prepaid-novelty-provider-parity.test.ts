@@ -7,6 +7,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { planProviderExclusions } from '@/modules/prospect-batches/provider-seen/provider-exclusion-planner';
+import { EMPTY_PROVIDER_SEEN_MEMORY } from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
+import { PROVIDER_SEEN_LOAD_UNAVAILABLE } from '@/modules/prospect-batches/provider-seen/provider-seen-telemetry';
 import {
   runPrePaidNoveltyDiscovery,
   type PrePaidNoveltyDiscoveryDeps,
@@ -69,6 +72,13 @@ function makeDeps(input: {
       sent: input.exclusionSent ?? [],
       omittedDueToCap: 0,
     },
+    // ADDENDUM PROVIDER-SEEN — el doble del gate declara las tres claves nuevas.
+    // Memoria vacía: este fichero prueba la PARIDAD entre rutas, no la memoria.
+    providerExclusionPlan: planProviderExclusions('lusha', {
+      sellupKnownDomains: input.exclusionSent ?? [],
+    }),
+    providerSeen: PROVIDER_SEEN_LOAD_UNAVAILABLE,
+    providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
     acceptedCompanies: accepted,
     telemetry: {},
   };
@@ -94,6 +104,7 @@ const BASE = {
   countryName: 'Colombia',
   macroIndustryKey: 'health_pharma',
   requestedByUserId: 'user-1',
+  provider: 'lusha' as const,
 };
 
 test('§ 25 — con hueco cerrado, LAS DOS rutas evitan al proveedor por igual', async () => {
