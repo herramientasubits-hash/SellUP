@@ -2144,6 +2144,21 @@ jobs:
       # 0 créditos.
       - name: Run A1 pre-paid novelty gate tests
         run: npm run test:a1-prepaid-novelty-gate
+      # AGENT1-COUNTRY-SOURCE-PERSISTENCE-CONTRACT-1 — tres cosas distintas:
+      #
+      #   1. vocabulario de lote vs. candidato (prospect_batches.source vs.
+      #      prospect_candidates.source_primary, CHECK constraints distintos);
+      #   2. procedencia de discovery VALIDADA en clave Y en valor
+      #      (discovery_layer, macro_industry_key, website_available), que antes
+      #      se perdía entre el adapter y el INSERT final;
+      #   3. la regresión de ORDEN: presupuesto de pago en 0 + objetivo cerrado
+      #      gratis ⇒ éxito con 0 reservas y 0 llamadas al proveedor, medida en
+      #      ejecución sobre la capa que POSEE ese orden (el wizard), no sobre el
+      #      runner gratuito, que no conoce el presupuesto.
+      #
+      # Offline y determinista: dobles locales, sin red, sin proveedor, 0 créditos.
+      - name: Run A1 country-source persistence contract tests
+        run: npm run test:agent1-country-source-persistence-contract
       # ADDENDUM PROVIDER-SEEN — la memoria de lo que un proveedor de pago YA nos
       # mostró, independiente de `prospect_candidates`.
       #
