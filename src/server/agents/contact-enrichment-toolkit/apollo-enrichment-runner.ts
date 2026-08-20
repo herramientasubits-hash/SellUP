@@ -56,6 +56,12 @@ import {
   type ApolloBudgetCheckMeta,
 } from '@/modules/budgets/apollo-budget-alert';
 import { claimContactEnrichmentAttemptForExecution } from './contact-enrichment-execution-claim';
+import {
+  applyProviderNativeNoveltyGate,
+  readKnownProviderNativeIdentities,
+  type KnownProviderIdentityLoaderV1,
+  type ProviderNoveltyGateObservabilityV1,
+} from './provider-native-novelty-gate';
 import { buildRoutingObservation } from './routing-observation-wiring';
 
 const APOLLO_PROVIDER_KEY = 'apollo';
@@ -87,6 +93,13 @@ export interface ContactEnrichmentRunRow {
    * omitirlo sin romper — writeCandidates simplemente no hace el check.
    */
   account_id?: string | null;
+  /**
+   * HubSpot company id of the run's company. Second deterministic company-scope
+   * key for the provider-native novelty gate
+   * (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1), used when account_id is absent.
+   * Optional: the atomic claim always selects it; hand-built test rows may omit it.
+   */
+  hubspot_company_id?: string | null;
   /**
    * Legacy/bulk runs have no attempt_order (NULL — migration 086); only
    * request-linked runs set 1/2. Routing observation (17B.4X.7C.4C) treats a
@@ -137,6 +150,20 @@ export interface ApolloEnrichmentRunResult {
   actionableContactsCount: number;
   /** Apollo trajo perfiles relevantes pero ninguno quedó accionable. */
   noActionableContactsFound: boolean;
+  /**
+   * Identidades Apollo (person_id) omitidas ANTES de `people/match` porque ya
+   * eran conocidas para la MISMA empresa vía el MISMO proveedor
+   * (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1). Cada una es una llamada
+   * pagada evitada: 0 créditos, 0 USD, 0 candidatos nuevos.
+   *
+   * Optional por el mismo motivo que `skippedExistingPending` en
+   * WriteCandidatesResult: hay stubs de test preexistentes que construyen un
+   * ApolloEnrichmentRunResult a mano y no deben romperse. Los consumidores
+   * tratan `undefined` como 0.
+   */
+  skippedKnownProviderIdentity?: number;
+  /** Observabilidad del novelty gate pre-pago (contadores, sin ids crudos). */
+  providerIdentityNovelty?: ProviderNoveltyGateObservabilityV1;
   providerStatus: 'success' | 'skipped' | 'error';
   estimatedCostUsd: number;
   totalCandidates: number;
@@ -212,6 +239,14 @@ export interface ApolloEnrichmentRunnerDeps {
    * que ejercite una rama terminal DEBE inyectar su propio stub.
    */
   updateAgentRun?: (id: string, input: UpdateAgentRunInput) => Promise<boolean>;
+  /**
+   * Lectura BATCH de identidades Apollo ya conocidas para la misma empresa
+   * (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1). Una sola consulta acotada por
+   * los person_id devueltos por People Search — nunca una por resultado. El
+   * default real consulta Supabase; si no hay credenciales configuradas
+   * devuelve un lookupError y el gate falla ABIERTO (no suprime nada).
+   */
+  loadKnownProviderIdentities?: KnownProviderIdentityLoaderV1;
 }
 
 // ── Implementaciones por defecto (DB real) ─────────────────────
@@ -220,7 +255,7 @@ async function defaultLoadRun(runId: string): Promise<ContactEnrichmentRunRow | 
   const admin = getAdminClient();
   const { data, error } = await admin
     .from('contact_enrichment_runs')
-    .select('id, agent_run_id, company_name, company_domain, company_country_code, status, summary, attempt_order')
+    .select('id, agent_run_id, account_id, company_name, company_domain, company_country_code, hubspot_company_id, status, summary, attempt_order')
     .eq('id', runId)
     .single();
   if (error || !data) return null;
@@ -373,6 +408,14 @@ interface ApolloEnrichmentSummaryBlock {
   relevance_filter?: RelevanceFilterSummary;
   /** Resultado del completado selectivo de datos (Hito 17A.3C). */
   contact_completion?: ContactCompletionSummary;
+  /**
+   * Novelty gate pre-pago (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1). Solo
+   * contadores: cuántas identidades Apollo se evaluaron, cuántas ya eran
+   * conocidas para esta empresa y cuántas llamadas pagadas se evitaron. NO se
+   * escribe ninguna fila de provider_usage_logs por estos skips: no hubo
+   * llamada de red al proveedor.
+   */
+  provider_identity_novelty?: ProviderNoveltyGateObservabilityV1;
   reason?: string;
 }
 
@@ -399,6 +442,7 @@ function emptyRunResult(
     completionCompleted: 0,
     actionableContactsCount: 0,
     noActionableContactsFound: false,
+    skippedKnownProviderIdentity: 0,
     estimatedCostUsd: 0,
     totalCandidates: 0,
     ...overrides,
@@ -580,6 +624,7 @@ export async function executeContactEnrichmentApolloRun(
     finishStep = finishAgentRunStep,
     evaluateBudget = evaluateApolloBudgetAlertOnly,
     updateAgentRun = updateAgentRunRecord,
+    loadKnownProviderIdentities = readKnownProviderNativeIdentities,
   } = deps;
 
   const startMs = Date.now();
@@ -794,9 +839,48 @@ export async function executeContactEnrichmentApolloRun(
   const rawResultsCount = apollo.providerUsage?.rawResultsCount ?? apollo.people.length;
   const { normalized } = normalizeApolloPeople(apollo.people);
 
+  // 6b. PRE-PAID PROVIDER-NATIVE NOVELTY GATE
+  //     (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1)
+  //
+  //     People Search ya ocurrió y es GRATIS (0 créditos, 0 USD): Apollo no
+  //     ofrece ningún parámetro para excluir personas ya vistas, así que la
+  //     búsqueda no se puede acotar del lado del proveedor. Lo que SÍ se puede
+  //     evitar es la pata PAGADA: `people/match`. Este es el punto exacto —
+  //     después de normalizar, antes de cualquier selección para completion —
+  //     en el que se descartan las identidades nativas (Apollo person_id) que
+  //     SellUp ya vio para la MISMA empresa vía el MISMO proveedor.
+  //
+  //     Una identidad conocida NO consume créditos de completion y NO genera
+  //     candidato: es una decisión de AHORRO, no un candidato nuevo ni una
+  //     reutilización de datos. El dedupe final (deduplicateContacts +
+  //     findMatchingPendingCandidate) sigue intacto aguas abajo para las
+  //     identidades genuinamente nuevas — esta capa es adicional, no sustituta.
+  //
+  //     Falla ABIERTO (sin scope determinista de empresa, sin identidades, o
+  //     con error de lectura no suprime nada), porque una persona puede haber
+  //     cambiado de empresa legítimamente.
+  const noveltyGate = await applyProviderNativeNoveltyGate({
+    provider: 'apollo',
+    items: normalized,
+    // Identidad nativa Apollo = person_id, persistido en
+    // contact_enrichment_candidates.source_contact_id. Nunca se deriva de
+    // email/LinkedIn/nombre, y jamás de una identidad Lusha.
+    getNativeId: (contact) => contact.sourceContactId,
+    company: {
+      accountId: run.account_id ?? null,
+      hubspotCompanyId: run.hubspot_company_id ?? null,
+      companyDomain: run.company_domain ?? null,
+    },
+    excludeRunId: runId,
+    loadKnownIdentities: loadKnownProviderIdentities,
+  });
+  const novelNormalized = noveltyGate.novel;
+  const providerIdentityNovelty = noveltyGate.observability;
+
   // 7. Clasificar relevancia/calidad. Solo los revisables avanzan a completado/
   //    dedup/inserción; los demás se contabilizan (relevance_filter) sin payload crudo.
-  const classified: ClassifiedContact[] = normalized.map((contact) => ({
+  //    Solo entran identidades NOVEDOSAS: las ya conocidas quedaron fuera en 6b.
+  const classified: ClassifiedContact[] = novelNormalized.map((contact) => ({
     contact,
     relevance: classifyNormalizedContact(contact),
   }));
@@ -1094,6 +1178,7 @@ export async function executeContactEnrichmentApolloRun(
       apollo_organization_resolution: apollo.organizationResolution,
       relevance_filter: relevanceFilter,
       contact_completion: completionSummary,
+      provider_identity_novelty: providerIdentityNovelty,
       reason: `Error al escribir candidatos: ${writeResult.error}`,
     };
     // Apollo ya ejecutó people_search (y opcionalmente person_match) con éxito
@@ -1177,6 +1262,8 @@ export async function executeContactEnrichmentApolloRun(
       completionAttempted: completionSummary.attempted_count,
       completionCompleted: completionSummary.completed_count,
       actionableContactsCount: actionableContacts.length,
+      skippedKnownProviderIdentity: providerIdentityNovelty.skipped_known_provider_identity_count,
+      providerIdentityNovelty,
       estimatedCostUsd,
       error: writeResult.error,
     });
@@ -1214,6 +1301,10 @@ export async function executeContactEnrichmentApolloRun(
       unit_cost_usd: unitCost,
       search_guardrail: apollo.searchGuardrail ?? null,
       budget_check: budgetMeta,
+      // Novelty gate pre-pago: contadores adjuntos a la fila de la llamada REAL
+      // (y gratuita) de People Search. No se crea ninguna fila extra por los
+      // skips — no hubo llamada de red que registrar.
+      provider_identity_novelty: providerIdentityNovelty,
     },
   });
 
@@ -1273,6 +1364,7 @@ export async function executeContactEnrichmentApolloRun(
     apollo_organization_resolution: apollo.organizationResolution,
     relevance_filter: relevanceFilter,
     contact_completion: completionSummary,
+    provider_identity_novelty: providerIdentityNovelty,
   };
 
   const summaryFlags: Record<string, unknown> = {
@@ -1343,6 +1435,11 @@ export async function executeContactEnrichmentApolloRun(
         exact_duplicates_count: dedup.exactDuplicateCount,
         possible_duplicates_count: dedup.possibleDuplicateCount,
         existing_pending_duplicates_skipped_count: writeResult.skippedExistingPending ?? 0,
+        skipped_known_provider_identity_count:
+          providerIdentityNovelty.skipped_known_provider_identity_count,
+        known_provider_identity_ids_count:
+          providerIdentityNovelty.known_provider_identity_ids_count,
+        novel_provider_identity_count: providerIdentityNovelty.novel_provider_identity_count,
       },
     });
   }
@@ -1364,6 +1461,8 @@ export async function executeContactEnrichmentApolloRun(
     completionCompleted: completionSummary.completed_count,
     actionableContactsCount: actionableContacts.length,
     noActionableContactsFound,
+    skippedKnownProviderIdentity: providerIdentityNovelty.skipped_known_provider_identity_count,
+    providerIdentityNovelty,
     providerStatus: 'success',
     estimatedCostUsd,
     totalCandidates: insertedCount,
