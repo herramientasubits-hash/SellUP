@@ -40,6 +40,7 @@ beforeEach(() => {
     LUSHA_API_KEY: process.env['LUSHA_API_KEY'],
     NEXT_PUBLIC_SUPABASE_URL: process.env['NEXT_PUBLIC_SUPABASE_URL'],
     SUPABASE_SERVICE_ROLE_KEY: process.env['SUPABASE_SERVICE_ROLE_KEY'],
+    LUSHA_MAX_CANDIDATES_PER_RUN: process.env['LUSHA_MAX_CANDIDATES_PER_RUN'],
   };
   process.env['ENABLE_LUSHA_CONTACT_ENRICHMENT'] = 'true';
   process.env['LUSHA_API_KEY'] = 'test-lusha-key-not-real';
@@ -80,6 +81,31 @@ function prospectingPerson(contactId: string, first: string) {
     socialLinks: { linkedin: `https://www.linkedin.com/in/${contactId}` },
     has: ['firstName', 'lastName', 'jobTitle', 'company', 'emails'],
     canReveal: [{ field: 'emails', credits: 0 }],
+  };
+}
+
+/**
+ * Contacto de Prospecting SIN campo de email revelable: `has` no incluye
+ * "emails", `canReveal` no ofrece el campo "emails" y no hay `hasWorkEmail`.
+ * Con esta forma, `canRevealEmail=false` y `hasWorkEmail=false` en el
+ * contacto normalizado (ver lusha-client.ts), así que el runner lo salta
+ * ANTES de llamar a /v3/contacts/enrich — sea el contactId novedoso o ya
+ * conocido por el novelty gate.
+ */
+function prospectingPersonNoEmail(contactId: string, first: string) {
+  return {
+    id: contactId,
+    firstName: first,
+    lastName: 'Apellido',
+    jobTitle: {
+      title: 'Director of Human Resources',
+      departments: ['Human Resources'],
+      seniority: 'director',
+    },
+    company: { id: 'co-1', name: 'Corp', domain: 'corp.com' },
+    socialLinks: { linkedin: `https://www.linkedin.com/in/${contactId}` },
+    has: ['firstName', 'lastName', 'jobTitle', 'company'],
+    canReveal: [] as Array<{ field: string; credits: number }>,
   };
 }
 
@@ -364,7 +390,8 @@ describe('Lusha novelty gate — Prospecting/Search y observabilidad', () => {
     assert.equal(novelty['known_provider_identity_ids_count'], 1);
     assert.equal(novelty['skipped_known_provider_identity_count'], 1);
     assert.equal(novelty['novel_provider_identity_count'], 1);
-    assert.equal(novelty['avoided_paid_provider_calls_count'], 1);
+    // PR #315 — no se reintroduce la métrica de ahorro no demostrada.
+    assert.equal('avoided_paid_provider_calls_count' in novelty, false);
   });
 
   it('TEST 25/28 — el skip no produce llamada de enrich ni una fila de uso falsa', async () => {
@@ -391,5 +418,84 @@ describe('Lusha novelty gate — Prospecting/Search y observabilidad', () => {
       contacts: [prospectingPerson('v1.n1', 'Ana')],
     });
     assert.deepEqual(router.foreignHosts(), []);
+  });
+});
+
+// ── PR #315 correction: skip count is not a paid-call-avoidance claim ──
+//
+// The gate runs BEFORE `novelForEnrich.slice(0, maxCandidates)` and BEFORE
+// the canRevealEmail/hasWorkEmail check. A known contactId can be skipped by
+// the gate even though it would never have reached /v3/contacts/enrich
+// anyway — because it fell outside maxCandidates, or because the provider
+// never offered a revealable email. These tests prove the observability no
+// longer equates "skipped known" with "avoided paid enrich call".
+
+describe('PR #315 — el skip NO afirma una llamada de enrich evitada (Lusha)', () => {
+  it('COUNTERFACTUAL 3 — 10 conocidos con maxCandidates=3: el skip NO puede reclamar 10 llamadas evitadas', async () => {
+    process.env['LUSHA_MAX_CANDIDATES_PER_RUN'] = '3';
+
+    const contacts = Array.from({ length: 10 }, (_, i) => prospectingPerson(`v1.k${i}`, `Persona${i}`));
+    const known = contacts.map((c) => knownRow(c.id, 'lusha', { accountId: ACCOUNT_A }));
+
+    const { router } = await runLusha({ contacts, known });
+
+    // Los 10 quedan contados como conocidos (veraz)...
+    const usageRow = router
+      .usageLogRows()
+      .find((row) => row['operation_key'] === 'lusha_contact_prospecting');
+    const metadata = usageRow?.['metadata'] as Record<string, unknown> | undefined;
+    const novelty = metadata?.['provider_identity_novelty'] as Record<string, unknown> | undefined;
+    assert.equal(novelty?.['skipped_known_provider_identity_count'], 10);
+    assert.equal(novelty && 'avoided_paid_provider_calls_count' in novelty, false);
+
+    // ...pero ni una sola llamada real de enrich ocurrió (trivialmente cierto:
+    // los 10 eran conocidos).
+    assert.deepEqual(router.enrichCalls(), []);
+
+    // La prueba del contrafactual: con el MISMO conjunto tratado como NOVEDOSO
+    // (sin gate), el tope maxCandidates=3 por sí solo limita el enrich pagado a
+    // 3 — nunca a 10. Afirmar "10 llamadas evitadas" habría sobreestimado el
+    // ahorro real por 7.
+    const { router: novelRouter } = await runLusha({ contacts, known: [] });
+    assert.equal(
+      enrichedIds(novelRouter).length,
+      3,
+      'maxCandidates por sí solo acota el enrich pagado a 3, independientemente del gate',
+    );
+  });
+
+  it('COUNTERFACTUAL 4 — contactId conocido sin email revelable: nunca habría llegado a enrich, con o sin gate', async () => {
+    const nonRevealableKnown = prospectingPersonNoEmail('v1.norev-known', 'Ana');
+    const nonRevealableNovel = prospectingPersonNoEmail('v1.norev-novel', 'Beto');
+
+    // Contrafactual primero: el MISMO perfil, NOVEDOSO (no conocido), tampoco
+    // llega a /v3/contacts/enrich — el runner lo salta por falta de email
+    // revelable antes de llamar al proveedor.
+    const { router: novelRouter } = await runLusha({ contacts: [nonRevealableNovel] });
+    assert.deepEqual(
+      enrichedIds(novelRouter),
+      [],
+      'sin campo de email revelable, ni un contacto NOVEDOSO llega al enrich',
+    );
+
+    const { router, result } = await runLusha({
+      contacts: [nonRevealableKnown],
+      known: [knownRow('v1.norev-known', 'lusha', { accountId: ACCOUNT_A })],
+    });
+
+    assert.deepEqual(router.enrichCalls(), []);
+    assert.equal(result.candidatesCreated, 0);
+
+    const usageRow = router
+      .usageLogRows()
+      .find((row) => row['operation_key'] === 'lusha_contact_prospecting');
+    const metadata = usageRow?.['metadata'] as Record<string, unknown> | undefined;
+    const novelty = metadata?.['provider_identity_novelty'] as Record<string, unknown> | undefined;
+    assert.equal(novelty?.['skipped_known_provider_identity_count'], 1);
+    assert.equal(
+      novelty && 'avoided_paid_provider_calls_count' in novelty,
+      false,
+      'un contacto que nunca habría sido revelable no puede contarse como llamada evitada',
+    );
   });
 });

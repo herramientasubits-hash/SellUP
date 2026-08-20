@@ -339,9 +339,17 @@ export interface ProviderNoveltyGateObservabilityV1 {
   provider_identities_without_native_id_count: number;
   known_provider_identity_ids_count: number;
   novel_provider_identity_count: number;
+  /**
+   * Truthful cost-avoidance counter for this gate: identities skipped because
+   * they were already known for the same company/provider. It does NOT claim
+   * a paid provider call was avoided — the gate runs BEFORE relevance
+   * classification (Apollo) and BEFORE the maxCandidates cap / revealability
+   * check (Lusha), so a skipped identity may never have reached the paid leg
+   * even without this gate. Only `skipped_known_provider_identity_count`
+   * is asserted; a provider-specific paid-call-avoidance metric belongs in a
+   * later milestone where the counterfactual paid-call eligibility is provable.
+   */
   skipped_known_provider_identity_count: number;
-  /** Provider calls this gate avoided outright — always equals the skip count. */
-  avoided_paid_provider_calls_count: number;
   lookup_error: string | null;
 }
 
@@ -377,7 +385,6 @@ function emptyObservability(
     known_provider_identity_ids_count: 0,
     novel_provider_identity_count: evaluated,
     skipped_known_provider_identity_count: 0,
-    avoided_paid_provider_calls_count: 0,
     lookup_error: lookupError,
   };
 }
@@ -472,7 +479,6 @@ export async function applyProviderNativeNoveltyGate<T>(
       known_provider_identity_ids_count: knownNativeIds.size,
       novel_provider_identity_count: partition.novel.length,
       skipped_known_provider_identity_count: partition.skippedKnown.length,
-      avoided_paid_provider_calls_count: partition.skippedKnown.length,
       lookup_error: null,
     },
   };

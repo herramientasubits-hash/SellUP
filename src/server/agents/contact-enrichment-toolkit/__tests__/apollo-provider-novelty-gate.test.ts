@@ -59,6 +59,50 @@ function person(personId: string): ApolloPerson {
   };
 }
 
+/**
+ * Perfil Apollo con datos completos pero cargo NO relacionado con HR/People/
+ * Learning ("software engineer" está en NEGATIVE_KEYWORDS) — clasifica
+ * `not_relevant` y `shouldInsertForReview=false`, así que nunca llega a
+ * `selectCandidatesForCompletion` ni a `completeContact` sin importar si el
+ * gate lo trata como novedoso o conocido.
+ */
+function nonRelevantPerson(personId: string): ApolloPerson {
+  return {
+    id: personId,
+    first_name: 'Persona',
+    last_name: personId.toUpperCase(),
+    title: 'Software Engineer',
+    email: `${personId}@corp.com`,
+    linkedin_url: null,
+    phone_numbers: [],
+    organization: { id: 'org-1', name: 'Corp', website_url: 'https://corp.com' },
+    seniority: 'manager',
+    departments: ['engineering'],
+    country: 'Colombia',
+  };
+}
+
+function apolloSuccessWith(people: ApolloPerson[]): ApolloPeopleAdapterResult {
+  return {
+    status: 'success',
+    people,
+    attempts: [
+      {
+        attempt: 'strict_hr_department',
+        filters: 'org(dominio=corp.com); department=HR',
+        rawResultsCount: people.length,
+      },
+    ],
+    searchGuardrail: DEFAULT_SEARCH_GUARDRAIL,
+    providerUsage: {
+      provider: 'apollo',
+      operation: 'people_search',
+      creditsUsed: people.length,
+      rawResultsCount: people.length,
+    },
+  };
+}
+
 function apolloSuccess(personIds: string[]): ApolloPeopleAdapterResult {
   return {
     status: 'success',
@@ -454,7 +498,8 @@ describe('Apollo novelty gate — costo y observabilidad del skip', () => {
     assert.equal(block.known_provider_identity_ids_count, 1);
     assert.equal(block.novel_provider_identity_count, 1);
     assert.equal(block.skipped_known_provider_identity_count, 1);
-    assert.equal(block.avoided_paid_provider_calls_count, 1);
+    // PR #315 — no se reintroduce la métrica de ahorro no demostrada.
+    assert.equal('avoided_paid_provider_calls_count' in block, false);
 
     const step = h.getFinishedSteps().at(-1) as Record<string, unknown>;
     const stepMeta = step.metadata as Record<string, unknown>;
@@ -539,5 +584,70 @@ describe('Apollo novelty gate — regresión del dedupe final', () => {
     assert.equal(result.status, 'ready_for_review');
     assert.equal(result.skippedKnownProviderIdentity, 0);
     assert.equal(noveltyBlock(h.getStore()).gate_skipped_reason, 'lookup_error');
+  });
+});
+
+// ── PR #315 correction: skip count is not a paid-call-avoidance claim ──
+//
+// The gate runs BEFORE relevance classification and BEFORE completion
+// eligibility selection. A known identity can be skipped by the gate even
+// though — had the gate not existed — it would have been rejected by
+// `classifyNormalizedContact` (relevance) or never selected by
+// `selectCandidatesForCompletion`, and therefore would NEVER have reached
+// the paid `people/match` call anyway. These tests prove the observability
+// no longer claims otherwise.
+
+describe('PR #315 — el skip NO afirma una llamada pagada evitada (Apollo)', () => {
+  it('COUNTERFACTUAL 1 — identidad conocida que habría fallado relevancia: 0 people/match, sin métrica de ahorro', async () => {
+    const h = makeHarness(
+      makeRun({ account_id: ACCOUNT_A }),
+      apolloSuccessWith([nonRelevantPerson('known-nonrelevant')]),
+      [knownRow('known-nonrelevant', 'apollo', { accountId: ACCOUNT_A })],
+    );
+
+    const result = await executeContactEnrichmentApolloRun('run-now', 'user-1', h.deps);
+
+    assert.deepEqual(h.getPaidMatchAttempts(), []);
+    assert.equal(result.skippedKnownProviderIdentity, 1);
+
+    // Prueba del contrafactual: el MISMO perfil, pero NOVEDOSO (no conocido),
+    // tampoco habría llegado a people/match — la relevancia lo rechaza antes.
+    // Es decir, este skip concreto no evitó ningún cargo: nunca iba a haberlo.
+    const novelHarness = makeHarness(
+      makeRun({ account_id: ACCOUNT_A }),
+      apolloSuccessWith([nonRelevantPerson('novel-nonrelevant')]),
+      [],
+    );
+    await executeContactEnrichmentApolloRun('run-now', 'user-1', novelHarness.deps);
+    assert.deepEqual(
+      novelHarness.getPaidMatchAttempts(),
+      [],
+      'un perfil no relevante nunca llega a people/match, sea conocido o novedoso',
+    );
+
+    const block = noveltyBlock(h.getStore());
+    assert.equal(block.skipped_known_provider_identity_count, 1);
+    assert.equal('avoided_paid_provider_calls_count' in block, false);
+  });
+
+  it('COUNTERFACTUAL 2 — identidad conocida que SÍ habría sido elegible a completion: sigue sin afirmar ahorro', async () => {
+    const h = makeHarness(
+      makeRun({ account_id: ACCOUNT_A }),
+      apolloSuccess(['known-eligible']),
+      [knownRow('known-eligible', 'apollo', { accountId: ACCOUNT_A })],
+    );
+
+    const result = await executeContactEnrichmentApolloRun('run-now', 'user-1', h.deps);
+
+    assert.deepEqual(h.getPaidMatchAttempts(), []);
+    assert.equal(result.skippedKnownProviderIdentity, 1, 'el conteo de skip sigue siendo veraz');
+
+    const block = noveltyBlock(h.getStore());
+    assert.equal(block.skipped_known_provider_identity_count, 1);
+    // Ningún contador de ahorro inventado, ni aquí ni en el step del run.
+    assert.equal('avoided_paid_provider_calls_count' in block, false);
+    const step = h.getFinishedSteps().at(-1) as Record<string, unknown>;
+    const stepMeta = step.metadata as Record<string, unknown>;
+    assert.equal('avoided_paid_provider_calls_count' in stepMeta, false);
   });
 });

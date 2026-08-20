@@ -334,7 +334,6 @@ describe('observabilidad del gate', () => {
     assert.equal(obs.known_provider_identity_ids_count, 2);
     assert.equal(obs.novel_provider_identity_count, 2);
     assert.equal(obs.skipped_known_provider_identity_count, 2);
-    assert.equal(obs.avoided_paid_provider_calls_count, 2);
     assert.equal(obs.lookup_error, null);
 
     // El bloque de observabilidad no tiene NINGÚN campo de crédito/costo:
@@ -389,5 +388,51 @@ describe('observabilidad del gate', () => {
       loadKnownIdentities: loader.load,
     });
     assert.equal(JSON.stringify(result.observability).includes('secret-apollo-id'), false);
+  });
+});
+
+// ── PR #315 correction: no unproved cost-avoidance claim ─────────
+//
+// The generic gate runs BEFORE Apollo relevance classification and BEFORE
+// the Lusha maxCandidates cap / revealability check, so "skipped a known
+// identity" does not prove "avoided a paid provider call". The previous
+// `avoided_paid_provider_calls_count` counter equated the two and could
+// overstate savings. These tests prove it cannot come back.
+
+describe('PR #315 — sin métrica de ahorro no demostrada', () => {
+  it('TEST-CORRECTION-5 — el módulo no declara avoided_paid_provider_calls_count', () => {
+    const code = stripComments(
+      readFileSync(path.join(__dirname, '..', 'provider-native-novelty-gate.ts'), 'utf8'),
+    );
+    assert.equal(code.includes('avoided_paid_provider_calls_count'), false);
+  });
+
+  it('TEST-CORRECTION-6 — no se introduce ninguna métrica de ahorro monetario/de llamadas no probada', () => {
+    const code = stripComments(
+      readFileSync(path.join(__dirname, '..', 'provider-native-novelty-gate.ts'), 'utf8'),
+    );
+    for (const forbidden of [
+      'avoided_credits',
+      'avoided_cost_usd',
+      'savings_usd',
+      'estimated_saved_calls',
+    ]) {
+      assert.equal(code.includes(forbidden), false, `no debe introducir ${forbidden}`);
+    }
+  });
+
+  it('el bloque de observabilidad en tiempo de ejecución no expone la clave retirada', async () => {
+    const loader = loaderFor([row('a-1', 'apollo', { accountId: ACCOUNT_A })]);
+    const result = await applyProviderNativeNoveltyGate({
+      provider: 'apollo',
+      items: [{ id: 'a-1' }],
+      getNativeId: (i) => i.id,
+      company: keys({ accountId: ACCOUNT_A }),
+      excludeRunId: 'run-now',
+      loadKnownIdentities: loader.load,
+    });
+    assert.equal('avoided_paid_provider_calls_count' in result.observability, false);
+    // El contador veraz sigue presente: un skip real se sigue contando.
+    assert.equal(result.observability.skipped_known_provider_identity_count, 1);
   });
 });
