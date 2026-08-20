@@ -327,14 +327,15 @@ export function isLushaPhoneRevealEnabled(): false {
 }
 
 // ============================================================
-// Lusha local candidate reuse gate (Agente 2A · AGENT2A-LUSHA-LOCAL-REUSE-GATE-1)
+// Local reviewable candidate reuse gate
+// (Agente 2A · AGENT2A-LOCAL-REVIEWABLE-CANDIDATE-REUSE-1.1)
 // ============================================================
 
-/** Flag name constant for the pre-provider local Lusha candidate reuse gate. */
-export const LUSHA_LOCAL_REUSE_GATE_FLAG = 'ENABLE_LUSHA_LOCAL_REUSE_GATE';
+/** Flag name constant for the pre-provider local reviewable candidate reuse gate. */
+export const CONTACT_ENRICHMENT_LOCAL_REUSE_GATE_FLAG = 'ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE';
 
 /**
- * Returns true when ENABLE_LUSHA_LOCAL_REUSE_GATE is exactly "true"
+ * Returns true when ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE is exactly "true"
  * (case-insensitive, leading/trailing whitespace ignored).
  *
  * Default: false — fail-closed, and deliberately NOT enabled in any
@@ -344,12 +345,22 @@ export const LUSHA_LOCAL_REUSE_GATE_FLAG = 'ENABLE_LUSHA_LOCAL_REUSE_GATE';
  * What it turns on: inside the AUTOMATIC contact-enrichment router, once the
  * Apollo attempt has already produced zero reviewable candidates and the
  * policy would recommend the Lusha fallback, the router first asks a
- * read-only local question — "does SellUp already hold at least one
- * actionable same-company Lusha candidate in pending_review?" — and, when the
- * answer is yes, terminates the operation successfully WITHOUT resolving Lusha
- * availability or its API key, WITHOUT evaluating the fallback budget, WITHOUT
- * creating attempt_order=2 and WITHOUT any Lusha network call. The existing
- * pending_review candidate stays the reviewable deliverable.
+ * read-only, PROVIDER-AGNOSTIC local question — "does SellUp already hold at
+ * least one actionable same-company candidate in pending_review, from Apollo
+ * OR from Lusha?" — and, when the answer is yes, terminates the operation
+ * successfully WITHOUT resolving Lusha availability or its API key, WITHOUT
+ * evaluating the fallback budget, WITHOUT creating attempt_order=2 and WITHOUT
+ * any Lusha network call. The existing pending_review candidate stays the
+ * reviewable deliverable, under its own original source.
+ *
+ * Admitting Apollo-sourced candidates is what closes the actual cost leak: the
+ * router's fallback signal comes from attempt1Result.candidatesCreated, and
+ * #315 removes already-known Apollo person_ids BEFORE the paid /people/match
+ * leg, so a repeat run can reach candidatesCreated=0 while an actionable
+ * Apollo candidate for the same company is already waiting for review. This is
+ * a COMPANY-LEVEL reviewability question only — it asserts no equivalence
+ * between an Apollo person_id and a Lusha contactId, creates no alias, and
+ * suppresses no specific provider-native id.
  *
  * What it does NOT change in either state:
  *   * ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING — still the flag that
@@ -365,8 +376,8 @@ export const LUSHA_LOCAL_REUSE_GATE_FLAG = 'ENABLE_LUSHA_LOCAL_REUSE_GATE';
  * never called, no extra query is issued, and every existing branch, outcome
  * and telemetry shape is byte-for-byte unchanged.
  */
-export function isLushaLocalReuseGateEnabled(): boolean {
-  return isEnvFlagEnabled(process.env[LUSHA_LOCAL_REUSE_GATE_FLAG]);
+export function isContactEnrichmentLocalReuseGateEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[CONTACT_ENRICHMENT_LOCAL_REUSE_GATE_FLAG]);
 }
 
 // ============================================================

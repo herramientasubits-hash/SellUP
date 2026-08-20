@@ -273,7 +273,7 @@ describe('runAutomaticContactEnrichmentForRequestCore', () => {
   });
 });
 
-// ── AGENT2A-LUSHA-LOCAL-REUSE-GATE-1 ────────────────────────────
+// ── AGENT2A-LOCAL-REVIEWABLE-CANDIDATE-REUSE-1.1 ────────────────
 
 describe('action core surfaces the local reuse contract', () => {
   it('a reuse HIT surfaces status fallback_skipped_local_reuse and reusedExistingCandidates >= 1', async () => {
@@ -292,6 +292,8 @@ describe('action core surfaces the local reuse contract', () => {
           outcome: 'fallback_satisfied_by_existing_candidate',
           company_scope_kind: 'account_id',
           lookup_error: null,
+          // Provider-agnostic: one Apollo + one Lusha existing candidate.
+          source_counts: { apollo: 1, lusha: 1 },
         },
       }),
     });

@@ -1,5 +1,5 @@
-// Tests — LOCAL reuse gate inside the LIVE automatic router
-// AGENT2A-LUSHA-LOCAL-REUSE-GATE-1
+// Tests — LOCAL reviewable candidate reuse gate inside the LIVE automatic router
+// AGENT2A-LOCAL-REVIEWABLE-CANDIDATE-REUSE-1.1
 //
 // The point of these tests is PLACEMENT. The reuse gate must execute after the
 // Apollo fallback signal recommends a fallback and BEFORE any Lusha
@@ -7,6 +7,12 @@
 // resolution), no fallback cost estimate, no budget evaluation, no
 // attempt_order=2, no Lusha run. A free local result must not be rejected
 // because a hypothetical provider call would be unavailable or unaffordable.
+//
+// The 1.1 correction adds the COUNTERFACTUAL COST-LEAK test at the end of this
+// file: a prior same-company APOLLO candidate, with the current Apollo attempt
+// at candidatesCreated=0 (the shape #315 produces once it has removed the
+// already-known Apollo person_ids before the paid leg). Under the original
+// Lusha-source-only predicate that run started Lusha provider work anyway.
 //
 // Fully offline: every dependency is injected. No Supabase, no network, no
 // Apollo/Lusha/HubSpot call, no credential, 0 credits.
@@ -25,7 +31,11 @@ import type { LushaRunnerResult } from '../lusha-enrichment-runner';
 import type { ContactEnrichmentRoutingConfigV1 } from '@/modules/contact-enrichment-routing/routing-config.server';
 import { CONTACT_ENRICHMENT_ROUTING_V1_AUTOMATIC_POLICY_VERSION } from '@/modules/contact-enrichment-routing/routing-config.server';
 import type { AttemptCreationResult } from '@/modules/contact-enrichment/request-attempt-types';
-import type { LushaLocalReuseGateResultV1 } from '../lusha-local-candidate-reuse-gate';
+import {
+  evaluateLocalReviewableCandidateReuseGate,
+  type LocalReuseGateResultV1,
+  type ReusableLocalCandidateRowV1,
+} from '../local-reviewable-candidate-reuse-gate';
 
 /**
  * Reads a sibling module and returns ONLY its executable body: block comments
@@ -53,7 +63,7 @@ function rawSource(relativePath: string): string {
 }
 
 const ORCHESTRATOR = '../contact-enrichment-routing-orchestrator.ts';
-const REUSE_GATE = '../lusha-local-candidate-reuse-gate.ts';
+const REUSE_GATE = '../local-reviewable-candidate-reuse-gate.ts';
 const NOVELTY_GATE = '../provider-native-novelty-gate.ts';
 
 const EVALUATED_AT = '2026-08-20T00:00:00.000Z';
@@ -119,7 +129,7 @@ function lushaResult(): LushaRunnerResult {
   };
 }
 
-function reuseHit(count = 1): LushaLocalReuseGateResultV1 {
+function reuseHit(count = 1): LocalReuseGateResultV1 {
   return {
     hit: true,
     actionableReusableCandidateCount: count,
@@ -132,14 +142,15 @@ function reuseHit(count = 1): LushaLocalReuseGateResultV1 {
       outcome: 'fallback_satisfied_by_existing_candidate',
       company_scope_kind: 'account_id',
       lookup_error: null,
+      source_counts: { apollo: 0, lusha: count },
     },
   };
 }
 
 function reuseMiss(
-  reason: LushaLocalReuseGateResultV1['observability']['gate_skipped_reason'] = 'no_actionable_reusable_candidate',
+  reason: LocalReuseGateResultV1['observability']['gate_skipped_reason'] = 'no_actionable_reusable_candidate',
   lookupError: string | null = null,
-): LushaLocalReuseGateResultV1 {
+): LocalReuseGateResultV1 {
   return {
     hit: false,
     actionableReusableCandidateCount: 0,
@@ -152,6 +163,7 @@ function reuseMiss(
       outcome: 'fallback_not_satisfied_locally',
       company_scope_kind: 'account_id',
       lookup_error: lookupError,
+      source_counts: { apollo: 0, lusha: 0 },
     },
   };
 }
@@ -265,20 +277,20 @@ describe('new reuse flag default OFF', () => {
   });
 
   it('with the flag off no reuse READER runs — the gate short-circuits before any query', async () => {
-    // Proven at the gate level (see lusha-local-candidate-reuse-gate.test.ts):
+    // Proven at the gate level (see local-reviewable-candidate-reuse-gate.test.ts):
     // isGateEnabled() === false returns before readRequestCompanyKeys /
     // readReusableCandidates are consulted. Here we assert the router's own
     // default dep is the flag-guarded gate, not a bare reader.
     const source = executableSource(ORCHESTRATOR);
-    assert.match(source, /isLushaLocalReuseGateEnabled/);
-    assert.match(source, /isGateEnabled: isLushaLocalReuseGateEnabled/);
-    assert.doesNotMatch(source, /readReusableLushaCandidatesForCompanyScope/);
+    assert.match(source, /isContactEnrichmentLocalReuseGateEnabled/);
+    assert.match(source, /isGateEnabled: isContactEnrichmentLocalReuseGateEnabled/);
+    assert.doesNotMatch(source, /readReusableLocalCandidatesForCompanyScope/);
   });
 
   it('router-level flag-off default still produces the untouched fallback outcome', async () => {
     const { deps } = flagOffDeps(baseConfig());
     // The default dep resolves the real, flag-guarded gate. With
-    // ENABLE_LUSHA_LOCAL_REUSE_GATE unset in this test process the gate is
+    // ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE unset in this test process the gate is
     // disabled, so the fallback executes exactly as before.
     const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
     assert.equal(result.outcome, 'fallback_executed');
@@ -416,14 +428,14 @@ describe('reuse HIT', () => {
       would_recommend_fallback: boolean;
       fallback_executed: boolean;
       fallback_attempt_run_id: string | null;
-      evidence: { local_lusha_reuse: Record<string, unknown> };
+      evidence: { local_candidate_reuse: Record<string, unknown> };
     };
     assert.equal(summary.actual_provider, 'apollo');
     assert.equal(summary.would_recommend_fallback, true);
     assert.equal(summary.fallback_executed, false);
     assert.equal(summary.fallback_attempt_run_id, null);
 
-    const evidence = summary.evidence.local_lusha_reuse;
+    const evidence = summary.evidence.local_candidate_reuse;
     assert.equal(evidence.gate_applied, true);
     assert.equal(evidence.actionable_reusable_candidate_count, 1);
     assert.equal(evidence.threshold, 1);
@@ -515,7 +527,7 @@ describe('local reuse cannot be defeated by provider conditions', () => {
 
 describe('reuse MISS leaves the existing pipeline untouched', () => {
   async function missRun(
-    reuse: LushaLocalReuseGateResultV1,
+    reuse: LocalReuseGateResultV1,
     overrides: Partial<AutomaticRoutingOrchestratorDeps> = {},
     config = baseConfig(),
   ) {
@@ -646,7 +658,7 @@ describe('#315 interaction and the no-automatic-re-enrich invariant', () => {
   });
 
   it('#315 provider-native novelty module is not modified by this gate (import-only relationship)', async () => {
-    assert.doesNotMatch(rawSource(NOVELTY_GATE), /lusha-local-candidate-reuse-gate/);
+    assert.doesNotMatch(rawSource(NOVELTY_GATE), /local-reviewable-candidate-reuse-gate/);
   });
 });
 
@@ -673,7 +685,7 @@ describe('stale "ships dark / no caller" prose is corrected', () => {
 describe('executableSource is a real guard, not a no-op', () => {
   it('strips line and block comments but keeps executable text', () => {
     const source = executableSource(REUSE_GATE);
-    assert.ok(source.includes('export function isActionableReusableLushaCandidate'));
+    assert.ok(source.includes('export function isActionableReusableLocalCandidate'));
     assert.ok(source.includes("from './provider-native-novelty-gate'"));
     // These tokens exist in this module ONLY inside prose.
     assert.doesNotMatch(source, /provider_usage_logs/);
@@ -685,5 +697,255 @@ describe('executableSource is a real guard, not a no-op', () => {
     // Sanity: the stripper is not returning an empty or gutted string.
     assert.ok(stripped.trim().length > 2_000);
     assert.match(stripped, /matchesDeterministicCompanyScope/);
+  });
+});
+
+// ── COUNTERFACTUAL COST-LEAK TEST (owner review, requirement 9) ──────────
+//
+// This is the exact leak found in owner review, reproduced end to end with the
+// REAL gate (real predicate, real selection, real placement) and only the two
+// Supabase readers injected.
+//
+// Scenario. A prior run for this same company already left an actionable
+// APOLLO candidate in pending_review. The CURRENT Apollo attempt reports
+// candidatesCreated = 0 — the shape #315 produces once it has removed the
+// already-known Apollo person_ids BEFORE the paid /people/match leg. The
+// router therefore sees zero_reviewable_candidates and recommends the Lusha
+// fallback.
+//
+// Under the original source='lusha' predicate the existing Apollo candidate was
+// invisible, the gate MISSED, and Lusha provider work began — unnecessary spend
+// remained possible. With the corrected provider-agnostic predicate the gate
+// HITS and nothing downstream of it is even consulted.
+
+const ACCOUNT_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+function priorApolloCandidate(
+  overrides: Partial<ReusableLocalCandidateRowV1> = {},
+): ReusableLocalCandidateRowV1 {
+  return {
+    source: 'apollo',
+    sourceContactId: 'apollo-person-known-1',
+    status: 'pending_review',
+    duplicateStatus: 'no_match',
+    email: 'known.person@acme.com',
+    // A DIFFERENT, earlier request for the same company.
+    requestId: 'req-earlier',
+    company: { accountId: ACCOUNT_ID, hubspotCompanyId: null, companyDomain: null },
+    ...overrides,
+  };
+}
+
+/**
+ * Wires the REAL gate into the router with the gate flag forced ON and both
+ * Supabase readers injected — no env mutation, no network, no Supabase.
+ */
+function realGateDeps(rows: ReusableLocalCandidateRowV1[]) {
+  const readerCalls = { request: 0, candidates: 0 };
+  const evaluateLocalCandidateReuse = async (requestId: string): Promise<LocalReuseGateResultV1> =>
+    evaluateLocalReviewableCandidateReuseGate(
+      { requestId },
+      {
+        isGateEnabled: () => true,
+        readRequestCompanyKeys: async () => {
+          readerCalls.request += 1;
+          return {
+            company: { accountId: ACCOUNT_ID, hubspotCompanyId: null, companyDomain: null },
+            lookupError: null,
+          };
+        },
+        readReusableCandidates: async () => {
+          readerCalls.candidates += 1;
+          return { rows, lookupError: null };
+        },
+      },
+    );
+  return { evaluateLocalCandidateReuse, readerCalls };
+}
+
+describe('COUNTERFACTUAL: a prior same-company APOLLO candidate closes the cost leak', () => {
+  it('Apollo candidatesCreated=0 + prior actionable APOLLO candidate => fallback_skipped_local_reuse and ZERO provider-side work', async () => {
+    const { evaluateLocalCandidateReuse, readerCalls } = realGateDeps([priorApolloCandidate()]);
+    const { deps, calls } = harness(baseConfig(), {
+      evaluateLocalCandidateReuse: async (requestId: string) => {
+        calls.evaluateLocalReuse += 1;
+        calls.order.push('evaluateLocalCandidateReuse');
+        return evaluateLocalCandidateReuse(requestId);
+      },
+    });
+
+    const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
+
+    // The current Apollo attempt genuinely produced nothing reviewable, and the
+    // policy genuinely recommended the fallback.
+    assert.equal(result.attempt1?.result.candidatesCreated, 0);
+    assert.equal(result.wouldRecommendFallback, true);
+    assert.equal(result.fallbackReason, 'zero_reviewable_candidates');
+
+    // The required outcome.
+    assert.equal(result.outcome, 'fallback_skipped_local_reuse');
+    assert.equal(result.reusedExistingCandidates, 1);
+    assert.equal(result.fallbackExecuted, false);
+    assert.equal(result.attempt2, null);
+    assert.equal(result.blockedReason, null);
+
+    // The four call counts the owner requires to be exactly zero.
+    assert.equal(calls.isFallbackAvailable, 0, 'isFallbackProviderAvailable calls must be 0');
+    assert.equal(calls.estimateFallbackCost, 0, 'estimateFallbackCostUsd calls must be 0');
+    assert.equal(calls.createFallback, 0, 'createFallbackAttempt calls must be 0');
+    assert.equal(calls.runLusha, 0, 'runLushaAttempt calls must be 0');
+
+    // Placement, proven by ORDER: nothing provider-side follows the gate.
+    assert.deepEqual(calls.order, ['resolveAttempt1', 'runApollo', 'evaluateLocalCandidateReuse']);
+
+    // The gate did real work rather than trivially short-circuiting.
+    assert.equal(readerCalls.request, 1);
+    assert.equal(readerCalls.candidates, 1);
+  });
+
+  it('the SAME scenario with the prior Apollo candidate REMOVED still spends — proving the test is not vacuous', async () => {
+    // Counterfactual control. Identical wiring, empty local pool: the router
+    // must fall through to the unchanged provider fallback. Without this, a
+    // gate that hit unconditionally would pass the test above.
+    const { evaluateLocalCandidateReuse } = realGateDeps([]);
+    const { deps, calls } = harness(baseConfig(), {
+      evaluateLocalCandidateReuse: async (requestId: string) => {
+        calls.evaluateLocalReuse += 1;
+        calls.order.push('evaluateLocalCandidateReuse');
+        return evaluateLocalCandidateReuse(requestId);
+      },
+    });
+
+    const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
+
+    assert.equal(result.outcome, 'fallback_executed');
+    assert.equal(result.reusedExistingCandidates, 0);
+    assert.equal(calls.isFallbackAvailable, 1);
+    assert.equal(calls.createFallback, 1);
+    assert.equal(calls.runLusha, 1);
+  });
+
+  it('a prior same-company LUSHA candidate hits the same way (no regression from 1.0)', async () => {
+    const { evaluateLocalCandidateReuse } = realGateDeps([
+      priorApolloCandidate({ source: 'lusha', sourceContactId: 'lusha-contact-known-1' }),
+    ]);
+    const { deps, calls } = harness(baseConfig(), {
+      evaluateLocalCandidateReuse: async (requestId: string) => {
+        calls.evaluateLocalReuse += 1;
+        return evaluateLocalCandidateReuse(requestId);
+      },
+    });
+
+    const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
+    assert.equal(result.outcome, 'fallback_skipped_local_reuse');
+    assert.equal(result.reusedExistingCandidates, 1);
+    assert.equal(calls.runLusha, 0);
+  });
+
+  it('a MIXED prior pool reports both sources truthfully in telemetry', async () => {
+    const { evaluateLocalCandidateReuse } = realGateDeps([
+      priorApolloCandidate(),
+      priorApolloCandidate({ source: 'lusha', sourceContactId: 'lusha-contact-known-1' }),
+    ]);
+    const { deps, calls } = harness(baseConfig(), {
+      evaluateLocalCandidateReuse: async (requestId: string) => {
+        calls.evaluateLocalReuse += 1;
+        return evaluateLocalCandidateReuse(requestId);
+      },
+    });
+
+    const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
+    assert.equal(result.outcome, 'fallback_skipped_local_reuse');
+    assert.equal(result.reusedExistingCandidates, 2);
+
+    const summary = calls.writeTelemetry.at(-1)?.summary as Record<string, unknown>;
+    const evidence = summary.evidence as Record<string, unknown>;
+    const block = evidence.local_candidate_reuse as Record<string, unknown>;
+    assert.deepEqual(block.source_counts, { apollo: 1, lusha: 1 });
+    assert.equal(block.provider_calls, 0);
+    assert.equal(block.outcome, 'fallback_satisfied_by_existing_candidate');
+    // The provider-neutral telemetry key replaced the Lusha-specific one.
+    assert.equal('local_lusha_reuse' in evidence, false);
+  });
+
+  it('a prior APOLLO candidate that is NOT actionable never skips the fallback', async () => {
+    for (const broken of [
+      { status: 'approved' },
+      { status: 'discarded' },
+      { duplicateStatus: 'exact_duplicate' },
+      { duplicateStatus: 'possible_duplicate' },
+      { duplicateStatus: 'unchecked' },
+      { email: null },
+      { sourceContactId: null },
+      { company: { accountId: 'bbbbbbbb-0000-0000-0000-000000000002', hubspotCompanyId: null, companyDomain: null } },
+    ] as Array<Partial<ReusableLocalCandidateRowV1>>) {
+      const { evaluateLocalCandidateReuse } = realGateDeps([priorApolloCandidate(broken)]);
+      const { deps, calls } = harness(baseConfig(), {
+        evaluateLocalCandidateReuse: async (requestId: string) => {
+          calls.evaluateLocalReuse += 1;
+          return evaluateLocalCandidateReuse(requestId);
+        },
+      });
+      const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
+      assert.equal(
+        result.outcome,
+        'fallback_executed',
+        `${JSON.stringify(broken)} must not satisfy local reuse`,
+      );
+      assert.equal(calls.runLusha, 1);
+    }
+  });
+});
+
+// ── Cross-provider identity safety, statically (requirements 10 and 11) ──
+
+describe('no Apollo<->Lusha identity comparison exists in the gate', () => {
+  it('the gate never compares source_contact_id values — it only tests presence', () => {
+    const source = executableSource(REUSE_GATE);
+    // Presence check is the ONLY use of the native id.
+    assert.match(source, /nonEmpty\(row\.sourceContactId\)/);
+    // No equality/containment/lookup on native id values.
+    assert.doesNotMatch(source, /sourceContactId\s*===/);
+    assert.doesNotMatch(source, /sourceContactId\s*!==/);
+    assert.doesNotMatch(source, /sourceContactId\s*==[^=]/);
+    assert.doesNotMatch(source, /source_contact_id\s*===/);
+    assert.doesNotMatch(source, /\.includes\(\s*row\.sourceContactId/);
+    assert.doesNotMatch(source, /Set<string>\(\s*\)[\s\S]{0,80}sourceContactId/);
+  });
+
+  it('the gate builds no cross-provider alias, map or translation of native ids', () => {
+    const source = executableSource(REUSE_GATE);
+    assert.doesNotMatch(source, /alias/i);
+    assert.doesNotMatch(source, /crossProvider|cross_provider/i);
+    assert.doesNotMatch(source, /personId\s*===|person_id\s*===/);
+    assert.doesNotMatch(source, /contactId\s*===|contact_id\s*===/);
+    // It never reuses #315's provider-native id matcher, which IS per-provider.
+    assert.doesNotMatch(source, /selectKnownNativeIdsForCompanyScope/);
+    assert.doesNotMatch(source, /partitionByProviderNativeNovelty/);
+  });
+
+  it('the gate suppresses no specific provider-native id — it returns counts only', () => {
+    const source = executableSource(REUSE_GATE);
+    assert.doesNotMatch(source, /suppress(?!_ONLY|_only)/i);
+    // The observability surface is entirely aggregate.
+    assert.match(source, /source_counts/);
+    assert.doesNotMatch(source, /candidate_ids|candidateIds|sourceContactIds/);
+  });
+
+  it('the negative guards above can actually fail (self-check)', () => {
+    // Same regexes against a synthetic module that DOES compare native ids.
+    const offending = "if (row.sourceContactId === other.sourceContactId) return true;";
+    assert.match(offending, /sourceContactId\s*===/);
+    // And the presence-only pattern is genuinely present in the real module.
+    assert.match(executableSource(REUSE_GATE), /if \(!nonEmpty\(row\.sourceContactId\)\) return false;/);
+  });
+
+  it('both providers are admitted by the SQL bound as a two-value IN, not a widened scan', () => {
+    const source = executableSource(REUSE_GATE);
+    assert.match(source, /\.in\('source', \[\.\.\.REUSABLE_LOCAL_CANDIDATE_SOURCES\]\)/);
+    assert.doesNotMatch(source, /\.like\(|\.ilike\(|\.or\(/);
+    // Row limits survive the widening.
+    assert.match(source, /REUSE_CANDIDATE_ROW_LIMIT/);
+    assert.match(source, /REUSE_RUN_SCOPE_ROW_LIMIT/);
   });
 });

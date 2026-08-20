@@ -28,10 +28,11 @@ export interface RunAutomaticContactEnrichmentForRequestResult {
   attempt2AttemptId: string | null;
   blockedReason: string | null;
   /**
-   * AGENT2A-LUSHA-LOCAL-REUSE-GATE-1 — count of already-existing actionable
-   * pending_review Lusha candidates that made the provider fallback
-   * unnecessary. >= 1 only when status is 'fallback_skipped_local_reuse'; 0 on
-   * every other branch, including 'invalid_request_id'.
+   * AGENT2A-LOCAL-REVIEWABLE-CANDIDATE-REUSE-1.1 — count of already-existing
+   * actionable pending_review candidates (source 'apollo' or 'lusha') that
+   * made the provider fallback unnecessary. >= 1 only when status is
+   * 'fallback_skipped_local_reuse'; 0 on every other branch, including
+   * 'invalid_request_id'.
    *
    * Kept strictly separate from any created-candidate count: this milestone
    * does NOT introduce a combined effective-reviewable-count concept, because
@@ -58,10 +59,10 @@ function invalidRequestIdResult(): RunAutomaticContactEnrichmentForRequestResult
  * Single core entry point for the automatic-routing request action. This is
  * LIVE: the contact-enrichment wizard CTA reaches it through
  * automatic-routing-actions.ts (AGENT2-ROUTING-WIRE-1). With the
- * automatic-routing flag off (the production default, verified by the
- * orchestrator's own first check), `deps` is never exercised beyond
- * `getConfig`: no attempt is created, no provider is called, no telemetry is
- * written.
+ * automatic-routing flag off — the CODE default when the env flag is absent,
+ * not an assertion about what Production currently sets — `deps` is never
+ * exercised beyond `getConfig`: no attempt is created, no provider is called,
+ * no telemetry is written. The orchestrator's own first check enforces this.
  */
 export async function runAutomaticContactEnrichmentForRequestCore(
   requestId: unknown,

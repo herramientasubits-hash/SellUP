@@ -2297,16 +2297,33 @@ jobs:
       # Supabase de marcador. Sin credenciales, sin Supabase real, 0 créditos.
       - name: Run Agent 2A provider-native novelty gate tests
         run: npm run test:agent2a:provider-novelty-gate
-      # AGENT2A-LUSHA-LOCAL-REUSE-GATE-1 — el gate de REUSO LOCAL pre-proveedor
-      # entra al check obligatorio.
+      # AGENT2A-LOCAL-REVIEWABLE-CANDIDATE-REUSE-1.1 — el gate de REUSO LOCAL
+      # pre-proveedor, AGNÓSTICO DE PROVEEDOR, entra al check obligatorio.
       #
       # El defecto que cierra: con el intento de Apollo en cero candidatos
       # revisables, el router AUTOMÁTICO arrancaba trabajo específico de Lusha
       # (disponibilidad → API key → presupuesto → attempt #2 → Prospecting)
-      # incluso cuando SellUp YA tenía un candidato Lusha accionable de la MISMA
+      # incluso cuando SellUp YA tenía un candidato accionable de la MISMA
       # empresa esperando revisión en pending_review. El resultado revisable ya
       # existía; el proveedor no tenía nada que añadir que un humano no hubiera
       # visto todavía.
+      #
+      # LA FUGA QUE CIERRA LA VERSIÓN 1.1 — y el motivo de que el predicado NO
+      # pueda ser sólo source='lusha'. La señal de fallback se deriva de
+      # attempt1Result.candidatesCreated, y #315 quita los person_id de Apollo YA
+      # CONOCIDOS ANTES del /people/match pagado. Por eso una corrida repetida
+      # llega legítimamente a candidatesCreated=0 ⇒ zero_reviewable_candidates
+      # ⇒ el router recomienda fallback a Lusha, MIENTRAS SellUp ya tiene un
+      # candidato APOLLO accionable en pending_review para esa misma empresa. Con
+      # el predicado Lusha-only ese candidato se ignoraba y el gasto de Lusha
+      # seguía siendo posible. El test contrafactual (9) es exactamente esa fuga.
+      #
+      # LO QUE ESTO NO ES: identidad cruzada entre proveedores. No se afirma que
+      # un person_id de Apollo sea un contactId de Lusha, no se crea alias, no se
+      # traduce ningún id nativo, y ninguna fila de un proveedor suprime un id
+      # concreto del otro. La pregunta es de EMPRESA: "¿ya hay al menos un
+      # candidato accionable de esta misma empresa esperando revisión humana?".
+      # Los valores de source_contact_id NUNCA se comparan entre sí.
       #
       # Lo que esta suite defiende, dicho como defecto:
       #   * que la colocación se degrade: el gate tiene que correr DESPUÉS de que
@@ -2317,14 +2334,22 @@ jobs:
       #   * que un resultado LOCAL y GRATIS se rechace por una condición del
       #     proveedor: se prueba con Lusha no disponible, sin API key, con un
       #     presupuesto que SÍ bloquearía un fallback y con costo desconocido;
-      #   * que el contrato accionable se afloje: solo source='lusha' +
+      #   * que el contrato accionable se afloje: source IN ('apollo','lusha') +
       #     source_contact_id + pending_review + email + duplicate_status
       #     'no_match'; LinkedIn es OPCIONAL;
       #   * que un estado SUPPRESS-ONLY se cuele como reuso — approved,
-      #     discarded, duplicate, possible_duplicate, exact_duplicate y
-      #     pending_review sin email NO satisfacen el umbral y tampoco disparan
-      #     un re-enriquecimiento directo por contactId;
-      #   * que un candidato de Apollo lo satisfaga: nunca;
+      #     discarded, duplicate, possible_duplicate, exact_duplicate, unchecked
+      #     y pending_review sin email NO satisfacen el umbral, en NINGUNO de los
+      #     dos sources, y tampoco disparan un re-enriquecimiento directo por
+      #     contactId;
+      #   * que un candidato de Apollo NO cuente: un pending_review accionable de
+      #     Apollo de la misma empresa TIENE que producir HIT (era la fuga);
+      #   * que source_contact_id deje de exigirse: una fila sin identidad nativa
+      #     del proveedor (manual/fabricada) NO es reusable;
+      #   * que source_counts mienta: los conteos por source son agregados y
+      #     veraces, y no llevan ids, email ni LinkedIn;
+      #   * que aparezca comparación de identidad entre proveedores: se prueba
+      #     que el gate nunca compara valores de source_contact_id;
       #   * que el scope de empresa se afloje: se reutilizan los helpers de #315
       #     (account_id > HubSpot company id > dominio normalizado), sin NOMBRE ni
       #     match difuso, y un desacuerdo en la clave más fuerte NO cae a una más
@@ -2345,5 +2370,5 @@ jobs:
       # además las suites de routing automático, de la decisión de fallback, del
       # action core y del contrato de config para probar que nada existente
       # cambió de comportamiento.
-      - name: Run Agent 2A Lusha local candidate reuse gate tests
-        run: npm run test:agent2a:lusha-local-reuse-gate
+      - name: Run Agent 2A local reviewable candidate reuse gate tests
+        run: npm run test:agent2a:local-reuse-gate
