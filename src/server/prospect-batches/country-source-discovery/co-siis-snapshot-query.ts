@@ -28,6 +28,25 @@
  * 3 caracteres porque la importación perdió el cero inicial ('111' por '0111').
  * Por eso cada código viaja en sus DOS formas: filtrar sólo por la canónica
  * dejaría fuera, en silencio, a todo el sector agropecuario y minero.
+ *
+ * ── 🔴 El CIIU es un NÚMERO en JSON, no una cadena ───────────────────────────
+ *
+ * MEDIDO en Producción (AGENT1-CO-SIIS-CIIU-NUMERIC-FIX-1): de las 10.000 filas
+ * `co_siis`, `jsonb_typeof(raw_data->'CIIU')` devuelve `number` en 10.000 y
+ * `string` en 0. La importación guardó el código como número JSON.
+ *
+ * Eso NO afecta al filtro — `raw_data->>CIIU` es el operador de PostgREST que
+ * extrae el valor YA como texto, y la consulta se verificó REAL contra Producción
+ * (HTTP 200, 50 filas) — pero SÍ afectaba a la proyección: leer la clave con un
+ * `typeof === 'string'` la descartaba en el 100% de las filas. Con `ciiu = null`
+ * no hay industria declarada, sin industria declarada nada se confirma, y la
+ * fuente gratuita quedaba INERTE: `macroConfirmed = 0` siempre, y el proveedor de
+ * pago pasaba a ser obligatorio aun cuando la evidencia ya estaba en la tabla.
+ *
+ * `normalizeSnapshotCiiu` es la única respuesta a eso: acepta el número que
+ * Producción entrega de verdad y sigue rechazando, fail-closed, todo lo que no
+ * sea un código plausible. NO ensancha la evidencia — recupera el MISMO CIIU que
+ * ya estaba ahí.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -49,6 +68,40 @@ function expandCiiuCodeForms(codes: readonly string[]): string[] {
     forms.add(trimmed.replace(/^0+/, '') || trimmed);
   }
   return [...forms];
+}
+
+/**
+ * Normaliza el CIIU tal y como Producción lo guarda de verdad.
+ *
+ * `raw_data.CIIU` es `number` en 10.000/10.000 filas de `co_siis`, así que la
+ * lectura tiene que aceptar el número. Contrato deliberadamente estrecho: sólo
+ * pasan los códigos plausibles, y cualquier otra forma es `null` (fail-closed).
+ *
+ * 🔴 NO canoniza el cero a la izquierda a propósito. `getCiiuSectorDescriptionExact`
+ * ya rellena con `padStart(4, '0')` los códigos de 1–4 dígitos, y es el único
+ * resolvedor autorizado para hacerlo. Duplicar aquí ese relleno pondría la misma
+ * regla en dos capas, que es cómo divergen luego. `111` sale como `'111'` y aquel
+ * lo resuelve como `'0111'`.
+ *
+ * No se exporta: su contrato se prueba por la FRONTERA (la proyección de la
+ * consulta), que es donde el defecto vivía de verdad.
+ */
+function normalizeSnapshotCiiu(raw: unknown): string | null {
+  if (typeof raw === 'number') {
+    // Fail-closed: un CIIU es un entero positivo. Un decimal, un negativo, `NaN`
+    // o un infinito no son códigos — son datos corruptos, y adivinarles una
+    // intención fabricaría evidencia que la fuente no dio.
+    if (!Number.isInteger(raw) || raw <= 0) return null;
+    return String(raw);
+  }
+
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    return trimmed === '' ? null : trimmed;
+  }
+
+  // `null`, `undefined`, booleanos, objetos y arrays: nada de esto es un código.
+  return null;
 }
 
 type SnapshotSelectRow = {
@@ -97,10 +150,7 @@ export function buildCoSiisDiscoverySnapshotQuery(client: SupabaseClient): CoSii
         sector: row.sector,
         city: row.city,
         department: row.department,
-        ciiu:
-          typeof row.raw_data?.[CO_SIIS_RAW_CIIU_KEY] === 'string'
-            ? (row.raw_data[CO_SIIS_RAW_CIIU_KEY] as string)
-            : null,
+        ciiu: normalizeSnapshotCiiu(row.raw_data?.[CO_SIIS_RAW_CIIU_KEY]),
       }));
     } catch {
       return [];
