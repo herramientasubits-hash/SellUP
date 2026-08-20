@@ -24,9 +24,27 @@ describe('APOLLO_CONTACT_ENRICHMENT_GUARDRAILS', () => {
     assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearchResultsPerRun, 15);
   });
 
-  it('maxEstimatedSearchCreditsPerRun = maxSearchResultsPerRun (Apollo cobra 1 crédito por resultado)', () => {
+  // AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1 — el aserto anterior era
+  // `maxEstimatedSearchCreditsPerRun === maxSearchResultsPerRun` ("Apollo cobra 1
+  // crédito por resultado"). El soporte de Apollo confirmó que People Search no cobra,
+  // así que ese aserto fijaba en un test la premisa falsa que producía los créditos
+  // fantasma: ligaba el COSTO al VOLUMEN.
+  it('maxEstimatedSearchCreditsPerRun = 0 (People Search no cobra créditos)', () => {
+    assert.equal(APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxEstimatedSearchCreditsPerRun, 0);
+  });
+
+  it('el costo cero de la búsqueda NO relaja el tope de volumen', () => {
     const g = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS;
-    assert.equal(g.maxEstimatedSearchCreditsPerRun, g.maxSearchResultsPerRun);
+    assert.equal(g.maxEstimatedSearchCreditsPerRun, 0);
+    assert.equal(g.maxSearchResultsPerRun, 15);
+    assert.equal(g.maxSearchAttempts, 3);
+  });
+
+  it('el costo cero NO se generaliza al enriquecimiento pagado', () => {
+    const g = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS;
+    assert.ok(g.maxCompletionCreditsPerRun > 0, 'completion (people/match) sigue siendo pagada');
+    assert.ok(g.emailRevealCredits > 0, 'el reveal de email sigue costando');
+    assert.ok(g.phoneRevealCredits > 0, 'el reveal de teléfono sigue costando');
   });
 
   it('targetReviewableContacts = 2 (stop-early cuando se acumulan suficientes candidatos revisables)', () => {

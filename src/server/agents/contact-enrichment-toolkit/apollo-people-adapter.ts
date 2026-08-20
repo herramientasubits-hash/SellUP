@@ -131,6 +131,41 @@ const MAX_SEARCH_RESULTS_PER_RUN = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.maxSearc
 /** Contactos revisables que bastan para detener la búsqueda anticipadamente. */
 const TARGET_REVIEWABLE_CONTACTS = APOLLO_CONTACT_ENRICHMENT_GUARDRAILS.targetReviewableContacts;
 
+/**
+ * Créditos que cuesta Apollo People Search: CERO — hecho del proveedor, no una
+ * estimación de SellUp (AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1).
+ *
+ * El soporte de Apollo confirmó explícitamente que `POST /api/v1/mixed_people/api_search`
+ * no cobra: ni la llamada, ni los resultados devueltos, ni los resultados repetidos.
+ * Hasta este hito el adaptador reportaba `creditsUsed = totalRaw` ("1 crédito por
+ * resultado"), así que SellUp contabilizaba como pagado un volumen que Apollo regala.
+ *
+ * ── POR QUÉ ES UNA CONSTANTE Y NO UN CÁLCULO ─────────────────────────────────
+ *
+ * No hay ninguna entrada de la que dependa: ni el número de resultados, ni el de
+ * intentos, ni los duplicados, ni una respuesta vacía cambian el cobro. Cualquier
+ * fórmula aquí volvería a abrir la puerta a que un conteo de volumen se cuele como
+ * costo, que es exactamente el defecto que este hito cierra.
+ *
+ * ── LO QUE ESTE CERO **NO** ALCANZA ──────────────────────────────────────────
+ *
+ * Solo People Search. `people/match`, `people/bulk_match`, el reveal de teléfono,
+ * el de email personal y los waterfall siguen siendo operaciones facturables con su
+ * propia contabilidad; el cero NO se generaliza a ellas.
+ */
+export const APOLLO_PEOPLE_SEARCH_CREDITS = 0;
+
+/**
+ * Costo en dólares de Apollo People Search: CERO.
+ *
+ * Es un cero CONOCIDO, no un costo desconocido: se persiste como 0 numérico y nunca
+ * como NULL, porque NULL significa "el proveedor no reportó cuánto cobró" y aquí sí
+ * sabemos —por confirmación del proveedor— que no cobró nada. Se declara aparte del
+ * conteo de créditos para no derivar el dólar de una multiplicación por un precio
+ * unitario: `0 * unitCost` es 0 solo mientras `unitCost` sea un número.
+ */
+export const APOLLO_PEOPLE_SEARCH_COST_USD = 0;
+
 // ── Tipos ──────────────────────────────────────────────────────
 
 export interface ApolloPeopleAdapterInput {
@@ -144,7 +179,17 @@ export interface ApolloPeopleAdapterInput {
 export interface ApolloProviderUsage {
   provider: 'apollo';
   operation: 'people_search';
+  /**
+   * Créditos cobrados por la búsqueda. SIEMPRE `APOLLO_PEOPLE_SEARCH_CREDITS` (0):
+   * People Search es gratis por confirmación del proveedor. No es una estimación ni
+   * depende del volumen — ver la constante.
+   */
   creditsUsed: number;
+  /**
+   * Perfiles crudos devueltos por Apollo (suma de los intentos ejecutados). Es la
+   * métrica OPERATIVA de volumen y sobrevive intacta al costo cero: distingue
+   * "el proveedor respondió con N resultados" de "no se llamó al proveedor".
+   */
   rawResultsCount: number;
 }
 
@@ -160,7 +205,15 @@ export interface SearchGuardrailMeta {
   max_search_attempts: number;
   max_results_per_attempt: number;
   max_results_per_run: number;
+  /**
+   * Créditos estimados de la búsqueda: siempre 0 (People Search no cobra). NO es un
+   * contador de resultados — el volumen vive en `ApolloProviderUsage.rawResultsCount`
+   * y en el `rawResultsCount` de cada intento. Antes de
+   * AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1 este campo llevaba `totalRaw`, y esa
+   * conflación entre volumen y costo es la que producía créditos fantasma.
+   */
   estimated_search_credits: number;
+  /** Corte por el tope de VOLUMEN (`max_results_per_run`), no por costo. */
   blocked_by_search_budget: boolean;
   stopped_early_reason: 'target_reviewable_reached' | 'search_budget_reached' | 'all_attempts_exhausted' | null;
 }
@@ -582,7 +635,7 @@ export async function searchApolloPeopleForCompany(
         attempts,
         searchGuardrail: {
           ...baseSearchGuardrail,
-          estimated_search_credits: totalRaw,
+          estimated_search_credits: APOLLO_PEOPLE_SEARCH_CREDITS,
           blocked_by_search_budget: false,
           stopped_early_reason: null,
         },
@@ -599,7 +652,7 @@ export async function searchApolloPeopleForCompany(
         attempts,
         searchGuardrail: {
           ...baseSearchGuardrail,
-          estimated_search_credits: totalRaw,
+          estimated_search_credits: APOLLO_PEOPLE_SEARCH_CREDITS,
           blocked_by_search_budget: false,
           stopped_early_reason: null,
         },
@@ -668,7 +721,7 @@ export async function searchApolloPeopleForCompany(
       max_search_attempts: MAX_SEARCH_ATTEMPTS,
       max_results_per_attempt: perPage,
       max_results_per_run: MAX_SEARCH_RESULTS_PER_RUN,
-      estimated_search_credits: totalRaw,
+      estimated_search_credits: APOLLO_PEOPLE_SEARCH_CREDITS,
       blocked_by_search_budget: blockedBySearchBudget,
       stopped_early_reason: stoppedEarlyReason,
     },
@@ -677,8 +730,10 @@ export async function searchApolloPeopleForCompany(
     providerUsage: {
       provider: 'apollo',
       operation: 'people_search',
-      // 1 crédito por resultado devuelto (suma de todos los intentos ejecutados).
-      creditsUsed: totalRaw,
+      // People Search no cuesta créditos (confirmado por el proveedor). El VOLUMEN
+      // sigue siendo un dato de primera clase en `rawResultsCount`: que el costo sea
+      // cero no borra cuántos perfiles devolvió Apollo.
+      creditsUsed: APOLLO_PEOPLE_SEARCH_CREDITS,
       rawResultsCount: totalRaw,
     },
   };

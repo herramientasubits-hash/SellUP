@@ -16,6 +16,8 @@ import {
   searchApolloPeopleForCompany,
   DEFAULT_MAX_CANDIDATES,
   APOLLO_NOT_CONNECTED_REASON,
+  APOLLO_PEOPLE_SEARCH_CREDITS,
+  APOLLO_PEOPLE_SEARCH_COST_USD,
   type ApolloPeopleAdapterResult,
   type SearchGuardrailMeta,
   type ApolloOrgResolutionMeta,
@@ -149,7 +151,7 @@ export interface ApolloEnrichmentRunResult {
     actual_credits_total: number;
     blocked_profiles_count: number;
   };
-  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  /** Guardrail de volumen de búsqueda — People Search no cobra créditos (Hito 17A.6D). */
   searchGuardrail?: SearchGuardrailMeta;
   /** Evaluación de presupuesto alert-only (Hito E). */
   budgetCheck?: ApolloBudgetCheckMeta;
@@ -363,7 +365,7 @@ interface ApolloEnrichmentSummaryBlock {
   estimated_cost_usd: number;
   /** Metadata por capa de búsqueda (fallback). Sin payload crudo. */
   search_attempts: ApolloSearchAttemptSummary[];
-  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  /** Guardrail de volumen de búsqueda — People Search no cobra créditos (Hito 17A.6D). */
   search_guardrail?: SearchGuardrailMeta;
   /** Resolución de organización Apollo (Hito 17A.8A). */
   apollo_organization_resolution?: ApolloOrgResolutionMeta;
@@ -809,8 +811,9 @@ export async function executeContactEnrichmentApolloRun(
 
   // 7b. Completado selectivo (Hito 17A.3C / 17A.6A / 17A.6D / 17A.8B):
   //     - Tope duro de candidatos (MAX_COMPLETION_CANDIDATES = 3).
-  //     - Guardrail de búsqueda (17A.6D): si el presupuesto de search fue excedido,
-  //       no seguimos a completion para no acumular más créditos.
+  //     - Guardrail de búsqueda (17A.6D): si el tope de VOLUMEN de search fue excedido
+  //       (`blocked_by_search_budget`, nombre legacy — la búsqueda no cobra créditos),
+  //       no seguimos a completion para no acumular más créditos de completion.
   //     - Guardrail de costo PRE-vuelo: estima créditos antes de llamar a Apollo.
   //     - Si el estimado supera MAX_COMPLETION_CREDITS_PER_RUN → salta toda la completion.
   //     - Modelo de créditos interno (n8n): email=1, phone=8.
@@ -1050,8 +1053,19 @@ export async function executeContactEnrichmentApolloRun(
   // 8. Deduplicar (solo accionables) contra snapshot + intra-run.
   const dedup = deduplicateContacts(actionableContacts, dedupSnapshot);
 
-  // 9. Costo estimado: créditos de people_search + people/match (ya consumidos).
-  const searchCredits = apollo.providerUsage?.creditsUsed ?? rawResultsCount;
+  // 9. Costo estimado del run = SOLO lo facturable. People Search no cobra
+  //    (AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1), así que el único componente
+  //    con precio es la completion pagada (`people/match`).
+  //
+  //    El cero se toma de la constante y NO de `providerUsage.creditsUsed`: el
+  //    fallback anterior (`?? rawResultsCount`) convertía el VOLUMEN de resultados en
+  //    créditos en cuanto el adaptador no reportaba uso, que es justo el camino por el
+  //    que entraron los créditos fantasma. Leer la constante hace imposible que un
+  //    conteo de resultados vuelva a colarse como costo por ninguna rama.
+  const searchCredits = APOLLO_PEOPLE_SEARCH_CREDITS;
+  const searchCostUsd = APOLLO_PEOPLE_SEARCH_COST_USD;
+  //    `totalCredits` sigue siendo la suma de TODAS las patas del run; con el aporte
+  //    de la búsqueda en cero, el costo del run queda determinado por la completion.
   const totalCredits = searchCredits + completionCredits;
   const estimatedCostUsd = Number((totalCredits * unitCost).toFixed(6));
 
@@ -1125,7 +1139,7 @@ export async function executeContactEnrichmentApolloRun(
       operation_key: APOLLO_OPERATION_KEY,
       credits_used: searchCredits,
       results_returned: rawResultsCount,
-      estimated_cost_usd: Number((searchCredits * unitCost).toFixed(6)),
+      estimated_cost_usd: searchCostUsd,
       status: 'error',
       error_message: `write_candidates_failed: ${writeResult.error}`,
       duration_ms: Date.now() - startMs,
@@ -1178,7 +1192,7 @@ export async function executeContactEnrichmentApolloRun(
     operation_key: APOLLO_OPERATION_KEY,
     credits_used: searchCredits,
     results_returned: rawResultsCount,
-    estimated_cost_usd: Number((searchCredits * unitCost).toFixed(6)),
+    estimated_cost_usd: searchCostUsd,
     status: 'success',
     duration_ms: Date.now() - startMs,
     triggered_by: triggeredBy ?? undefined,
@@ -1192,8 +1206,11 @@ export async function executeContactEnrichmentApolloRun(
       rejected_by_relevance_count: rejectedByRelevance,
       exact_duplicates_count: dedup.exactDuplicateCount,
       possible_duplicates_count: dedup.possibleDuplicateCount,
-      pricing_source: 'provider_pricing_config',
-      pricing_basis: 'per_result_as_credit',
+      // El costo de People Search no sale del pricing config: lo fija el proveedor
+      // en cero. `unit_cost_usd` se conserva porque describe el precio del crédito
+      // Apollo que SÍ aplica a la completion pagada del mismo run.
+      pricing_source: 'provider_confirmed_zero_cost',
+      pricing_basis: 'people_search_is_free',
       unit_cost_usd: unitCost,
       search_guardrail: apollo.searchGuardrail ?? null,
       budget_check: budgetMeta,
