@@ -41,6 +41,16 @@ import type { OwnerDecisionArtifact } from '../br-receita-cnpj-owner-decision-va
  */
 function buildSyntheticCompleteOwnerArtifact(): OwnerDecisionArtifact {
   return {
+    gate1: {
+      decisionValue: 'approved',
+      legalPrivacyOwnerRole: 'OWNER_ROLE_SYNTHETIC_GATE1_LEGAL_PRIVACY',
+      ownerReference: 'OWNER_REF_SYNTHETIC_GATE1',
+      decisionDate: '2026-08-04',
+      expirationOrReviewDate: '2026-11-04',
+      dryRunImportScopeSeparationReference: 'SCOPE_SEPARATION_REF_SYNTHETIC_GATE1',
+      evidencePacketReference: 'EVIDENCE_REF_SYNTHETIC_GATE1',
+      stopConditionsAccepted: true,
+    },
     gate2: {
       decisionValue: 'approved',
       ownerRole: 'OWNER_ROLE_SYNTHETIC_GATE2',
