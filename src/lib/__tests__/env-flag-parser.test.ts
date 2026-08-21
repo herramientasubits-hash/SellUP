@@ -12,6 +12,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  isEnvFlagConfigured,
   isEnvFlagEnabled,
   matchesEnvToken,
   normalizeEnvToken,
@@ -111,6 +112,76 @@ describe('E. Cross-module agreement', () => {
       const viaBoolean = isEnvFlagEnabled(raw);
       const viaDecision = parseEnvBooleanFlag(raw).enabled;
       assert.equal(viaBoolean, viaDecision, `disagreement on ${JSON.stringify(raw)}`);
+    }
+  });
+});
+
+/**
+ * `isEnvFlagConfigured` (AGENT2A-LOCAL-REUSE-PROD-OBSERVABILITY-1) responde una
+ * pregunta DISTINTA de `isEnvFlagEnabled`: presencia, no activación. Confundirlas es
+ * justo lo que hace indiagnosticable un flag en Vercel, donde el valor es ilegible
+ * (`type: sensitive`) y sólo la presencia se puede comprobar desde fuera.
+ */
+describe('F. isEnvFlagConfigured — PRESENCIA, no activación', () => {
+  it('ausente, null, vacío y sólo-espacios NO están configurados', () => {
+    for (const raw of [undefined, null, '', '   ', '\t', '\n ']) {
+      assert.equal(isEnvFlagConfigured(raw), false, JSON.stringify(raw));
+    }
+  });
+
+  it('cualquier valor con contenido SÍ está configurado, reconocible o no', () => {
+    for (const raw of ['true', 'false', ' FALSE ', '1', '0', 'yes', 'on', 'TRUE!', 'x']) {
+      assert.equal(isEnvFlagConfigured(raw), true, JSON.stringify(raw));
+    }
+  });
+
+  it('es ORTOGONAL a isEnvFlagEnabled: presente y apagado es un estado real', () => {
+    // El caso que las dos señales existen para separar. Si `configured` colapsara
+    // en `enabled`, «la variable está registrada pero apagada» volvería a ser
+    // indistinguible de «la variable no existe» — y esa confusión es la que hace
+    // atribuir al flag equivocado todo lo que no ocurre.
+    assert.equal(isEnvFlagConfigured('false'), true);
+    assert.equal(isEnvFlagEnabled('false'), false);
+
+    assert.equal(isEnvFlagConfigured('1'), true);
+    assert.equal(isEnvFlagEnabled('1'), false);
+
+    assert.equal(isEnvFlagConfigured(undefined), false);
+    assert.equal(isEnvFlagEnabled(undefined), false);
+  });
+
+  it('nunca deriva el valor: sólo depende de que quede algo tras trim()', () => {
+    // Dos valores crudos distintos e igualmente "no reconocibles" producen el MISMO
+    // booleano, así que del resultado no se puede reconstruir el contenido.
+    assert.equal(isEnvFlagConfigured('secreto-a'), isEnvFlagConfigured('secreto-b'));
+  });
+
+  it('coincide con las tres comprobaciones de presencia YA desplegadas (guarda de deriva)', () => {
+    // feature-flags.server.ts sigue implementando `…FlagConfigured` en línea como
+    // `typeof raw === 'string' && raw.trim().length > 0` en tres helpers vivos
+    // (waterfall, fallback de Lusha, «Buscar más números»). Este predicado es su
+    // definición canónica; si alguno de los dos lados cambiara, esto se pone rojo
+    // en vez de dejar que dos definiciones de «configurada» se separen en silencio.
+    const inlineLegacy = (raw: string | undefined | null): boolean =>
+      typeof raw === 'string' && raw.trim().length > 0;
+
+    for (const raw of [
+      undefined,
+      null,
+      '',
+      '   ',
+      'true',
+      'false',
+      ' TRUE ',
+      '1',
+      'yes',
+      'TRUE!',
+    ]) {
+      assert.equal(
+        isEnvFlagConfigured(raw),
+        inlineLegacy(raw),
+        `deriva en ${JSON.stringify(raw)}`,
+      );
     }
   });
 });
