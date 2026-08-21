@@ -2,6 +2,11 @@
  * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 3, 4, 5, 12, 16 — el hilo COMPLETO,
  * desde la capa gratuita hasta el ejecutor de Apollo, en la ruta real.
  *
+ * 🔴 REVIEW-1 §§ 4, 11 — este archivo prueba la CAPACIDAD: el hueco parcial se
+ * invoca a propósito (`partialGapSupported: true`) para que la maquinaria residual
+ * quede congelada. NO describe el cableado vivo de producción, que sigue en
+ * `false`; eso lo prueba `wizard-apollo-partial-gap-activation-deferred.test.ts`.
+ *
  * ── Qué invariantes se defienden ─────────────────────────────────────────────
  *
  *   1. § 3/§ 4 — el hueco que la capa gratuita deja abierto LLEGA al ejecutor
@@ -200,7 +205,12 @@ function deps(free: PrePaidNoveltyDiscoveryDeps): {
             macroIndustryKey: input.macroIndustryKey,
             requestedTarget: input.requestedTarget,
             requestedByUserId: input.requestedByUserId,
-            // El MISMO valor que produce el cableado de producción tras este corte.
+            // 🔴 REVIEW-1 §§ 4, 11 — invocación EXPLÍCITA de la capacidad, NO el
+            // valor de producción. El cableado vivo pasa
+            // `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED` (`false`) y su ratchet vive en
+            // `wizard-apollo-partial-gap-activation-deferred.test.ts`. Este archivo
+            // prueba que la maquinaria residual funciona cuando alguien la invoca;
+            // aquél prueba que producción todavía no la invoca.
             partialGapSupported: true,
           },
           free,

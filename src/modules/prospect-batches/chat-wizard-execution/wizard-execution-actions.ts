@@ -11,7 +11,10 @@ import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
 import { WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
-import { WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES } from './wizard-apollo-executor';
+import {
+  WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
+  WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+} from './wizard-apollo-executor';
 // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 25 — el MISMO runner previo al
 // pago que ejecuta la ruta Lusha. Un solo cableado para las dos rutas.
 import {
@@ -397,19 +400,23 @@ export async function executeProspectWizardGenerationAction(
 
     // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/25 — la capa gratuita.
     //
-    // 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 3, 4 — `partialGapSupported` pasa
-    // a `true`. Era `false` por una razón concreta y ya resuelta: «el objetivo de
-    // candidatos persistibles de esta ruta vive dentro del orquestador de dos
-    // rondas y no viaja por `ResolvedWizardExecution`, así que el ejecutor de pago
-    // no sabe aceptar un objetivo reducido». Ahora sí sabe: `resultDemand` viaja
-    // por su propio campo hasta el orquestador (dos rondas) y hasta
-    // `targetPersistibleCandidates` (legacy), y la invariante de § 14
-    // —`aceptadasGratis + aceptadasPagadas <= objetivo`— la sostiene esa cota.
+    // 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 2 — el valor VIVO sale de
+    // `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`, que es `false`. La capacidad de
+    // aceptar un objetivo reducido YA existe —`resultDemand` viaja por su propio
+    // campo hasta el orquestador de dos rondas y hasta `targetPersistibleCandidates`
+    // (legacy), y `boundByRemainingTarget` es su única cota— pero su ACTIVACIÓN en
+    // producción queda DIFERIDA a `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1`.
     //
-    // 🔴 Dejarlo en `false` habría vuelto INERTE todo el hilo de este corte: con
-    // todo-o-nada, `residualGap` sólo puede valer 0 (y entonces Apollo no corre) o
-    // el objetivo entero (y entonces no recorta nada). No habría un solo caso
-    // real en el que la cota se aplicara.
+    // 🔴 El motivo no es la invariante de § 14 —`aceptadasGratis + aceptadasPagadas
+    // <= objetivo` se cumple— sino el RESULTADO que recibe el usuario: con `true`,
+    // objetivo 10 y 7 empresas gratis, una sola búsqueda termina en DOS lotes (7 en
+    // el de la fuente gratuita, 3 en el reservado) y la redirección apunta al
+    // segundo. Esa semántica de producto no se ha diseñado todavía.
+    //
+    // Con `false` la ruta es TODO-O-NADA, byte por byte como antes de este corte:
+    // o la fuente gratuita cierra el objetivo entero —y Apollo no corre ni se
+    // reserva nada— o no aporta a ESTA corrida y Apollo corre con el objetivo
+    // completo. Ver la cabecera de la constante y la del runner.
     runPrePaidNoveltyDiscovery: (input) =>
       runPrePaidNoveltyDiscovery(supabase, {
         countryCode: input.countryCode,
@@ -417,7 +424,7 @@ export async function executeProspectWizardGenerationAction(
         macroIndustryKey: input.macroIndustryKey,
         requestedTarget: input.requestedTarget,
         requestedByUserId: input.requestedByUserId,
-        partialGapSupported: true,
+        partialGapSupported: WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
         // ADDENDUM PROVIDER-SEEN §§ 5, 6 — esta ruta paga con Apollo, cuya
         // capacidad de exclusión es NINGUNA (su contrato no la prueba). Que el
         // proveedor se declare aquí evita que la ruta herede la capacidad de otro.

@@ -2438,6 +2438,20 @@ jobs:
       # con hueco 3 y con hueco 10) y estática (el estimador sólo recibe el
       # proveedor; el peor caso de dos rondas no ve el objetivo).
       #
+      # 🔴 REVIEW-1 § 11 — y el ratchet de CABLEADO VIVO: la capacidad de hueco
+      # parcial está implementada y probada, pero el llamador de producción sigue
+      # pasando `partialGapSupported: false`
+      # (`WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`). Las dos afirmaciones se prueban
+      # por separado a propósito:
+      #
+      #   apollo_partial_gap_capability  = implemented
+      #   apollo_partial_gap_activation  = deferred_single_batch
+      #
+      # Activarla haría que UNA búsqueda terminara en DOS lotes (gratis + pago), y
+      # esa semántica de producto pertenece a
+      # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1. Voltear la constante o reescribir el
+      # literal en el sitio de la llamada pone esta suite en ROJO.
+      #
       # Ratchets de alcance que siguen vivos: `APOLLO_EXCLUSION_CAPABILITY` entera
       # en false, cero exclusiones enviadas a Apollo, sin flag nuevo, sin migración
       # nueva, y `historical_known` / `accepted_for_target` siguen pendientes.

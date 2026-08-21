@@ -16,6 +16,13 @@
  * hueco parcial se DESCARTABA entero. Esa bandera existe por la costura que este
  * módulo abre.
  *
+ * 🔴 REVIEW-1 § 2 — la costura está abierta y probada, pero la ruta Apollo VIVA
+ * sigue en `partialGapSupported: false` (`WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`).
+ * La capacidad es de este módulo; la activación es una decisión de producto que
+ * pertenece a `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1`, porque hoy el aporte
+ * gratuito y el de pago viven en LOTES distintos. Este módulo no la enciende: sólo
+ * responde honestamente al hueco que le pasen, incluido el hueco entero.
+ *
  * ── 🔴 DEMANDA DE RESULTADOS ≠ RESERVA FINANCIERA (§ 5) ──────────────────────
  *
  * Este módulo dice cuántos resultados PEDIR. No dice —y no puede empezar a
