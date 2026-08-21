@@ -1004,26 +1004,73 @@ describe('M. APOLLO REGRESSION — el motor compartido no cambia sus filas', () 
     }
   });
 
-  it('la fila de Apollo conserva su colapso histórico de estimated_cost_usd a 0', async () => {
+  /**
+   * 🔴 RATCHET INVERTIDO, NO BORRADO (AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1 · P1-1).
+   *
+   * Antes: «la fila de Apollo conserva su colapso histórico de
+   * estimated_cost_usd a 0». Ese ratchet decía, con razón, que alinear Apollo era
+   * una decisión de la dueña y no un efecto colateral de dar observabilidad a
+   * Lusha. La decisión llegó —P1-1 de este corte la autoriza explícitamente— así
+   * que el ratchet cambia de lado porque la verdad cambió.
+   *
+   * La superficie protegida NO se mueve: sigue siendo que la fila de Apollo diga
+   * la verdad sobre el costo. Lo que se invierte es cuál es esa verdad.
+   *
+   * 🔴 Y el peligro se invierte con ella. El defecto que se corrige era una fila
+   * que declaraba `estimated_cost_usd = 0` llevando `pricing_missing_warning:
+   * true` al lado: un panel de gasto sumaba cero dólares por operaciones que sí
+   * se cobraron. Lo que hay que impedir ahora es que alguien «restaure» el
+   * colapso creyendo que preserva el comportamiento histórico.
+   */
+  it('la fila de Apollo preserva el costo DESCONOCIDO, igual que la de Lusha', async () => {
     const { buildProviderUsageLogRow } = await import(
       '../../agents/prospecting-toolkit/apollo-organizations-usage-logging'
     );
-    // Es el comportamiento que Apollo lleva en Producción desde v1.16K-X. Este
-    // hito NO lo cambia: alinearlo es una decisión de la dueña, no un efecto
-    // colateral de dar observabilidad a Lusha.
-    const row = buildProviderUsageLogRow({
+
+    const unknown = buildProviderUsageLogRow({
       provider_key: 'apollo',
       operation_key: 'organizations_search',
       estimated_cost_usd: null,
     });
-    assert.equal(row['estimated_cost_usd'], 0);
-    assert.equal(row['real_cost_usd'], null);
+    assert.equal(unknown['estimated_cost_usd'], null, 'null explícito ⇒ SQL NULL');
+    assert.notEqual(unknown['estimated_cost_usd'], 0, 'jamás un 0 fabricado');
+    assert.equal(unknown['real_cost_usd'], null, 'se sigue conciliando post-factura');
+
+    // 🔴 El resto del contrato NO se movió, y por eso ninguna fila existente
+    // cambia de valor: un cero CONOCIDO sigue siendo 0, y omitirlo conserva la
+    // semántica histórica.
+    const knownZero = buildProviderUsageLogRow({
+      provider_key: 'apollo',
+      operation_key: 'organizations_search',
+      estimated_cost_usd: 0,
+    });
+    assert.equal(knownZero['estimated_cost_usd'], 0);
+
+    const omitted = buildProviderUsageLogRow({
+      provider_key: 'apollo',
+      operation_key: 'organizations_search',
+    });
+    assert.equal(omitted['estimated_cost_usd'], 0, 'undefined no cambia de significado');
   });
 
-  it('la ruta Lusha SÍ preserva el costo desconocido, y son dos rutas distintas', async () => {
+  it('las DOS rutas comparten ya un solo contrato de costo desconocido', async () => {
     const { client, inserts } = makeClient();
     await recordLushaRunProviderUsage(fixtureInput(), { client, loadPricing: loadNoPricing });
     assert.equal(inserts[0].row['estimated_cost_usd'], null);
+
+    // 🔴 Que coincidan es el punto: mientras divergían, comparar el gasto de los
+    // dos proveedores exigía saber cuál de las dos convenciones aplicaba cada fila.
+    const { buildProviderUsageLogRow } = await import(
+      '../../agents/prospecting-toolkit/apollo-organizations-usage-logging'
+    );
+    assert.equal(
+      buildProviderUsageLogRow({
+        provider_key: 'apollo',
+        operation_key: 'organizations_search',
+        estimated_cost_usd: null,
+      })['estimated_cost_usd'],
+      inserts[0].row['estimated_cost_usd'],
+    );
   });
 
   it('Apollo conserva su precedencia de billing_state entre correlación y gasto', async () => {
