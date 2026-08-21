@@ -1,5 +1,5 @@
 /**
- * BR Receita CNPJ — RECORDED GATE-2 owner decision (BR-SOURCE-GATE-ROUND-1).
+ * BR Receita CNPJ — RECORDED GATE-2 owner decision (BR-SOURCE-GATE-ROUND-1, FINAL CORRECTION).
  *
  * GATE-2 is the temporary storage envelope (10K § 6): it decides whether Option C — a temporary
  * local discardable index — is permitted at all, and it replaces every
@@ -14,8 +14,11 @@
  * two artifacts that disagreed about GATE-1 would be worse than one that carries both.
  *
  * ── What this record IS ──────────────────────────────────────────────────────
- * The recorded joint decision of the technical owner (storage / execution model) and the privacy
- * owner: Option C is permitted, inside the envelope enumerated below.
+ * The technical owner's decision that Option C is permitted, inside the numeric envelope enumerated
+ * below (now COMPLETE — see `BRAZIL_RECEITA_GATE2_NUMERIC_CEILINGS_COMPLETE`). It is NOT a completed
+ * joint decision: the privacy half of GATE-2's required joint approval — the bucket-ordinal privacy
+ * disposition — has no attributable owner source yet, so `BRAZIL_RECEITA_GATE2_STATUS` reads
+ * `needs_owner_confirmation`, and `gate2.decisionValue` below reads `blocked`, not `approved`.
  *
  * ── What this record is NOT ──────────────────────────────────────────────────
  * GATE-3 … GATE-8 and the cap/input policy remain ABSENT, exactly as in the GATE-1 record, so 13A
@@ -119,7 +122,55 @@ export const BRAZIL_RECEITA_GATE2_APPROVED_CAPS = {
   maxPhaseRuntimeMs: 10_800_000,
   maxTemporaryStorageBytes: 4_294_967_296,
   maxRowsRead: 360_000_000,
+  // 🔴 The three caps below were, until this round, GATE-2's own named gap — see the FINAL
+  // CORRECTION header and `BRAZIL_RECEITA_GATE2_OWNER_DECIDED_CAPS_CLASSIFICATION`. The technical
+  // owner has now supplied a number for each, closing `GATE2_NUMERIC_CEILINGS_COMPLETE`. They are
+  // OWNER DECISION values, not observed measurements — see the classification constant before
+  // reading them as anything stronger.
+  maxFilesOpened: 64,
+  maxBytesRead: 73_014_444_032,
+  maxJoinKeysInMemory: 131_072,
 } as const;
+
+/**
+ * The three ceilings the technical owner supplied to close GATE-2's own named gap (FINAL CORRECTION,
+ * BR-SOURCE-GATE-ROUND-1). Kept as their own record, apart from the seven original ceilings, so a
+ * reader can see exactly which numbers are new and why.
+ */
+export const BRAZIL_RECEITA_GATE2_OWNER_DECIDED_CAPS = {
+  maxFilesOpened: 64,
+  maxBytesRead: 73_014_444_032,
+  maxJoinKeysInMemory: 131_072,
+} as const;
+
+/**
+ * 🔴 What the three owner-decided caps ARE and are NOT, mirroring
+ * `BRAZIL_RECEITA_GATE2_MAX_ROWS_READ_CLASSIFICATION` below.
+ *
+ * These are OWNER DECISION values — a technical owner choosing a bound — not observed measurements.
+ * They happen to equal the figures already carried in
+ * `BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS`, whose own status string reads
+ * `proposed_benchmark_caps_not_production_caps`; the owner adopted that proposal's numbers as the
+ * approved ceiling rather than the proposal itself becoming an approval. Presenting either fact as
+ * the other — an owner decision as an observation, or a proposal as self-approving — is exactly the
+ * kind of unproved claim this classification exists to prevent.
+ */
+export const BRAZIL_RECEITA_GATE2_OWNER_DECIDED_CAPS_CLASSIFICATION = [
+  'OWNER_DECISION_VALUE',
+  'NOT_OBSERVED_MEASUREMENT',
+  'MATCHES_STANDING_BENCHMARK_PROPOSAL_BY_OWNER_CHOICE',
+] as const;
+
+/**
+ * 🔴 No GATE-2 ceiling remains without an owner number. `BRAZIL_RECEITA_GATE2_APPROVED_CAPS` now
+ * carries all ten — the original seven plus `BRAZIL_RECEITA_GATE2_OWNER_DECIDED_CAPS` — and this
+ * flag exists so a reader (and a test) can assert completeness without re-counting keys by hand.
+ *
+ * This says nothing about the WHOLE gate's approval status: see `BRAZIL_RECEITA_GATE2_STATUS`. A
+ * complete numeric envelope and a joint approval are two different pass criteria, and GATE-2 needs
+ * both.
+ */
+export const BRAZIL_RECEITA_GATE2_NUMERIC_CEILINGS_COMPLETE = true as const;
 
 /**
  * 🔴 What `maxRowsRead` IS and, more importantly, what it is NOT.
@@ -139,23 +190,28 @@ export const BRAZIL_RECEITA_GATE2_MAX_ROWS_READ_CLASSIFICATION = [
 ] as const;
 
 /**
- * The cap keys the owners did NOT decide, named so the gap is visible instead of inferred.
+ * The cap keys the owners had NOT decided, as of the original BR-SOURCE-GATE-ROUND-1 record.
  *
- * 🔴 GATE-2's pass criteria say "every ceiling has a number; no `TBD` survives". Three of the eleven
- * cap keys have no OWNER number — and the distinction that matters is that each of them does have a
- * PROPOSED one, in `BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS`, whose own status string reads
- * `proposed_benchmark_caps_not_production_caps`. A proposal is not an approval, and reading one as
- * the other is how a gate passes on evidence nobody supplied.
+ * 🔴 FINAL CORRECTION update: this is now EMPTY. `maxFilesOpened`, `maxBytesRead` and
+ * `maxJoinKeysInMemory` all carry owner numbers — see `BRAZIL_RECEITA_GATE2_OWNER_DECIDED_CAPS` and
+ * `BRAZIL_RECEITA_GATE2_NUMERIC_CEILINGS_COMPLETE`. The array is kept (rather than deleted) so a
+ * caller checking "which caps are still unsupplied by the owner" gets a real, empty answer instead
+ * of an import error.
  *
- * `maxJoinKeysInMemory` is the pointed one: it is a temp-index limit, squarely inside 10J § 10, which
- * is exactly what GATE-2 governs. This record therefore approves a BOUNDED envelope, per 10K § 3's
- * "`approved` is scoped and revocable" — a run that needs one of these three is outside this
- * approval and must come back for it.
- *
- * They remain operator-supplied and fail-closed in
- * `BRAZIL_RECEITA_FULL_JOIN_OPERATOR_SUPPLIED_CAP_KEYS`; nothing here gives them a default.
+ * 🔴 A recorded owner number is NOT a runtime default. These three keys stay in
+ * `BRAZIL_RECEITA_FULL_JOIN_OPERATOR_SUPPLIED_CAP_KEYS` and remain fail-closed at invocation time —
+ * an operator must still pass them explicitly on every run. That is a separate, execution-time
+ * safety property this record does not relax: a number written down here is available for an
+ * operator to supply, not a value the engine may read on its own.
  */
-export const BRAZIL_RECEITA_GATE2_CAPS_STILL_UNSUPPLIED = [
+export const BRAZIL_RECEITA_GATE2_CAPS_STILL_UNSUPPLIED: readonly string[] = [] as const;
+
+/**
+ * The three cap keys that remain operator-supplied and fail-closed at invocation time regardless of
+ * the owner numbers now on record above. Named explicitly, now that
+ * `BRAZIL_RECEITA_GATE2_CAPS_STILL_UNSUPPLIED` is empty, so this property stays assertable.
+ */
+export const BRAZIL_RECEITA_GATE2_OPERATOR_SUPPLIED_AT_INVOCATION = [
   'maxFilesOpened',
   'maxBytesRead',
   'maxJoinKeysInMemory',
@@ -192,6 +248,23 @@ export const BRAZIL_RECEITA_GATE2_TIGHTER_THAN_STANDING_PROPOSAL = [
   readonly standingProposalValue: number;
   readonly disposition: string;
 }[];
+
+/**
+ * 🔴 FINAL CORRECTION addition: a guard proving the `maxPhaseRuntimeMs` divergence recorded above
+ * cannot be silently inherited by a future executable cap set.
+ *
+ * The owner envelope is unchanged here — `maxRuntimeMs` stays 21,600,000 ms (6 h) and
+ * `maxPhaseRuntimeMs` stays 10,800,000 ms (3 h). The standing benchmark proposal still carries the
+ * older, looser 6 h phase figure, and this record still does not edit that proposal (see above). What
+ * this guard adds is a way for a FUTURE cap set to be checked before anyone claims it satisfies
+ * GATE-2: it authorizes nothing, runs nothing, and reads no proposal or engine module — it is a pure
+ * function over a number the caller supplies.
+ */
+export function brazilReceitaGate2PhaseRuntimeCapIsCompliant(
+  effectiveMaxPhaseRuntimeMs: number,
+): boolean {
+  return effectiveMaxPhaseRuntimeMs <= BRAZIL_RECEITA_GATE2_APPROVED_CAPS.maxPhaseRuntimeMs;
+}
 
 /**
  * `maxOutputRows` is deliberately not in `BRAZIL_RECEITA_GATE2_APPROVED_CAPS`. It is GATE-8's
@@ -280,22 +353,43 @@ export const BRAZIL_RECEITA_GATE2_PROHIBITED_TEMPORARY_KEY_MATERIAL: readonly st
 // ─── The bucket ordinal ───────────────────────────────────────────────────────
 
 /**
- * The partition bucket ordinal, and why it is not join-key material.
+ * The partition bucket ordinal: what it structurally IS, and the privacy question that is still
+ * open about it.
  *
  * A bucket ordinal is a small integer naming which partition a record was routed to. It is
  * structural: many records share one ordinal, and no ordinal can be turned back into the value that
- * produced it. It is therefore partition metadata rather than a derivative of the key.
+ * produced it. `classification` and `isJoinKeyMaterial` below are TECHNICAL observations of that
+ * shape — verifiable, and not a privacy judgment — so they are stated as this record's own read of
+ * the mechanism, not attributed to any owner.
  *
- * 🔴 This is a PRIVACY disposition, and 10K § 3 forbids a gate's subject being approved by the party
- * that implements it. It is attributed to the privacy owner, who is a GATE-2 joint approver. It is
- * NOT an agent determination, and this constant exists so nobody can later read it as one.
+ * 🔴 FINAL CORRECTION: the earlier version of this record went further and attributed the PRIVACY
+ * disposition itself — "the bucket ordinal is an acceptable thing to keep, privacy-wise" — to the
+ * privacy owner. That attribution was checked against the only recorded human privacy statement,
+ * `docs/source-catalog/br-receita-cnpj-legal-privacy-decision-record.md` § 14, and it does not hold:
+ * that section is the broad GATE-1 "development may continue" determination, and it says explicitly
+ * that "GATE-2 … GATE-8 plus the cap/input policy all remain `not_started`". It never reaches the
+ * bucket-ordinal question, and 10K § 3 forbids a gate's subject being approved by the party that
+ * implements it — an agent may not manufacture the missing half of that attribution either.
+ *
+ * So `attributedTo` no longer names a role. It names the fact: no attributable privacy-owner source
+ * has decided this question yet, and one is required before GATE-2 can be `approved` rather than
+ * `needs_owner_confirmation` (see `BRAZIL_RECEITA_GATE2_STATUS`).
  */
 export const BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION = {
   classification: 'structural_non_invertible_partition_metadata',
   isJoinKeyMaterial: false,
-  attributedTo: BRAZIL_RECEITA_GATE2_PRIVACY_APPROVER_ROLE,
+  attributedTo: 'PRIVACY_OWNER_CONFIRMATION_REQUIRED',
   attributedToAgent: false,
 } as const;
+
+/**
+ * The overall GATE-2 status this FINAL CORRECTION leaves in place. Not `approved`: the numeric
+ * envelope is now complete (`BRAZIL_RECEITA_GATE2_NUMERIC_CEILINGS_COMPLETE`), the storage option,
+ * workspace, TTL, cleanup contract and conditional encryption disposition are all decided — but the
+ * bucket-ordinal privacy question above has no attributable owner source, and a joint (technical +
+ * privacy) approval cannot be recorded on half a joint decision.
+ */
+export const BRAZIL_RECEITA_GATE2_STATUS = 'needs_owner_confirmation' as const;
 
 // ─── Restrictions ─────────────────────────────────────────────────────────────
 
@@ -315,9 +409,11 @@ export const BRAZIL_RECEITA_GATE2_RESTRICTIONS: readonly string[] = [
   'temporary material may not outlive the run',
   'structural keys are forbidden in file names, log lines, report fields and paths',
   'zero raw-value logs remains an absolute invariant and is not a tunable',
-  'the three unsupplied caps stay operator-supplied and fail-closed',
-  'a run needing an unsupplied cap is outside this approval',
+  'maxFilesOpened, maxBytesRead and maxJoinKeysInMemory carry owner numbers but remain operator-supplied and fail-closed at invocation time',
+  'a run relying on a cap the operator did not explicitly supply is outside this record',
   'the encryption disposition reopens if prohibited key-derived material is materialized',
+  'the bucket-ordinal privacy disposition is not attributed to any owner until one confirms it',
+  'GATE-2 stays needs_owner_confirmation, not approved, until the bucket-ordinal privacy question is confirmed',
   'downstream gates remain independently required and are not approved by this decision',
 ] as const;
 
@@ -334,6 +430,15 @@ export const BRAZIL_RECEITA_GATE2_RESTRICTIONS: readonly string[] = [
  * reason the GATE-1 record does: the human response supplied no expiry, and inventing one would be
  * manufacturing an owner decision.
  *
+ * 🔴 FINAL CORRECTION: `decisionValue` is `blocked`, not `approved`. 10K § 6 requires a JOINT
+ * decision by the technical owner AND the privacy owner. The technical half is complete — the
+ * numeric envelope, the storage option, workspace, TTL, cleanup and the conditional encryption
+ * disposition are all decided. The privacy half is not: no attributable privacy-owner source has
+ * decided the bucket-ordinal question (see `BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION`), and
+ * `blocked` — "an external dependency prevents review" — is the validator's own vocabulary for
+ * exactly that state. It is not `deferred` (nobody chose to postpone it) and not `rejected` (nobody
+ * rejected it); the confirmation simply has not happened yet.
+ *
  * Returns a new object on every call.
  */
 export function buildBrazilReceitaGate2RecordedOwnerDecisionArtifact(): OwnerDecisionArtifact {
@@ -342,16 +447,16 @@ export function buildBrazilReceitaGate2RecordedOwnerDecisionArtifact(): OwnerDec
   return {
     gate1: gate1Artifact.gate1,
     gate2: {
-      decisionValue: 'approved',
+      decisionValue: 'blocked',
       ownerRole:
-        'joint approval by the technical owner (storage and execution model) and the privacy owner',
-      ownerReference: 'OWNER_REF_GATE2_TECHNICAL_AND_PRIVACY_OWNER_JOINT_RELAY_2026_08_21',
+        'technical owner (storage and execution model) decided; privacy owner confirmation of the bucket-ordinal disposition is outstanding',
+      ownerReference: 'OWNER_REF_GATE2_TECHNICAL_OWNER_RELAY_2026_08_21',
       decisionDate: BRAZIL_RECEITA_GATE2_APPROVAL_DATE,
       expirationOrReviewDate:
-        'REVIEW_REQUIRED_IF_TEMPORARY_LAYOUT_MATERIALIZES_PROHIBITED_KEY_DERIVED_MATERIAL_OR_AT_NEXT_GOVERNANCE_ROUND',
+        'REVIEW_REQUIRED_ON_PRIVACY_OWNER_CONFIRMATION_OF_BUCKET_ORDINAL_DISPOSITION_OR_AT_NEXT_GOVERNANCE_ROUND',
       evidencePacketReference: 'DOC_BR_RECEITA_CNPJ_GATE2_CONTROLS_AND_EVIDENCE_TEMPLATE',
       legalPrivacySecurityReference:
-        'DOC_BR_RECEITA_CNPJ_LEGAL_PRIVACY_DECISION_RECORD_PLUS_PRIVACY_OWNER_BUCKET_ORDINAL_DISPOSITION',
+        'DOC_BR_RECEITA_CNPJ_LEGAL_PRIVACY_DECISION_RECORD_SECTION_14_DOES_NOT_DECIDE_GATE2_BUCKET_ORDINAL_QUESTION',
       operatorReviewerRequirement:
         'operator and reviewer remain distinct roles, and neither may be the implementer of this gate subject',
       incidentEscalationReference: 'DOC_BR_RECEITA_CNPJ_EXECUTION_RUNBOOK_INCIDENT_AND_ESCALATION',

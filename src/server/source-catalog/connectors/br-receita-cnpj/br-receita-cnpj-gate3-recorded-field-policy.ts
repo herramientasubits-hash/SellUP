@@ -6,29 +6,35 @@
  *
  * ── 🔴 This record does NOT approve GATE-3 ───────────────────────────────────
  *
- * The owners supplied the FIELD POLICY. They also attached a condition to its approval: GATE-3 does
- * not move to `approved` until the CNPJ snapshot blocker is fixed and merged. So this module records
- * a policy and an explicit `not_approved` status, and the two must not be collapsed:
+ * The owners supplied the FIELD POLICY. The CNPJ snapshot blocker that originally conditioned
+ * approval on (RB-2) is now fixed and merged in this same workstream. GATE-3 still does not move to
+ * `approved`, because two residual blockers remain open and unresolved — RB-1 (owned by GATE-4) and
+ * RB-3 (owned by the GATE-3 joint approvers). So this module records a policy and an explicit
+ * `needs_evidence` status, and the two must not be collapsed:
  *
  *   - the policy is DECIDED — the prohibited set, the include set, `trade_name`, `raw_data`;
- *   - the gate is NOT approved — because the code did not yet obey the policy when it was given.
+ *   - the gate is NOT approved — RB-1 and RB-3 still need an owner decision.
  *
  * Recording the policy while the gate stays shut is the only honest shape available. Recording it as
- * `approved` would mean the repository claimed a frozen allowlist while the sanitized snapshot
- * output still emitted CNPJ básico, and 10K § 4's "any sensitive leak resets the affected gate(s) to
- * `not_started`" would then apply to an approval that was wrong the moment it was written.
+ * `approved` while RB-1 and RB-3 are unresolved would mean the repository claimed a frozen allowlist
+ * with two of its residual blockers still unlabelled, and 10K § 7's "nothing unlabelled" pass
+ * criterion would then apply to an approval that was wrong the moment it was written.
  *
- * ── The blocker, precisely ───────────────────────────────────────────────────
+ * ── The blocker that WAS here, and is now closed ─────────────────────────────
  *
- * `br-receita-cnpj-types.ts` labels `BrReceitaCnpjSnapshotRawData` "Sanitized snapshot output
+ * `br-receita-cnpj-types.ts` labelled `BrReceitaCnpjSnapshotRawData` "Sanitized snapshot output
  * (allowlist only — data-contract § 5.2)". That claim was FALSE: the block carried `cnpj_root`
  * (CNPJ básico), `cnpj_order` and `cnpj_dv`, which together reconstruct the full 14-position CNPJ
  * exactly. And the builder's own defence, `assertSanitizedRawData`, only ever inspected KEY NAMES —
- * so a forbidden VALUE under a permitted key passed untouched.
+ * so a forbidden VALUE under a permitted key passed untouched. Both are fixed in this workstream.
  *
- * Both are addressed in the same workstream as this record. What that fix does NOT reach is
- * recorded below as `BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS`, because a partial fix silently
- * described as complete is how a gate gets approved on a false premise.
+ * A second, subtler instance of the same R4 prohibition was found and fixed alongside it: the
+ * rejected-row diagnostic (`safeIdentifier`) carried a truncated SHA-256 fingerprint of the CNPJ.
+ * That was RB-2, and it is now discharged too — see `BRAZIL_RECEITA_GATE3_DISCHARGED_BY_THIS_WORKSTREAM`.
+ *
+ * What this workstream's fix does NOT reach is recorded below as
+ * `BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS`, because a partial fix silently described as complete is
+ * how a gate gets approved on a false premise.
  *
  * ── This module NEVER (fail-closed by construction) ──────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
@@ -42,8 +48,15 @@
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 
-/** The GATE-3 status this record leaves in place. Not `approved`, and not by accident. */
-export const BRAZIL_RECEITA_GATE3_STATUS = 'not_approved_pending_cnpj_snapshot_blocker' as const;
+/**
+ * The GATE-3 status this record leaves in place. Not `approved`, and not by accident.
+ *
+ * 🔴 This was `not_approved_pending_cnpj_snapshot_blocker`. That blocker (RB-2, and the separate
+ * cnpj_root/cnpj_order/cnpj_dv output leak) is now fixed and merged in this same workstream, so the
+ * old value would misname the reason the gate stays shut: it is no longer the snapshot blocker, it
+ * is RB-1 and RB-3, both of which need an owner decision this workstream does not make.
+ */
+export const BRAZIL_RECEITA_GATE3_STATUS = 'needs_evidence' as const;
 
 /**
  * The joint approvers GATE-3 requires (10K § 7): product / data owner AND legal/privacy owner.
@@ -168,16 +181,20 @@ export const BRAZIL_RECEITA_GATE3_FIELDS_PRESENT_BUT_NOT_IN_INCLUDE_SET = [
  * What the CNPJ-hardening work in this same workstream does NOT reach, and why GATE-3 therefore
  * stays shut even after that work merges.
  *
- * 🔴 The first entry is the important one. `BrReceitaCnpjSnapshotRow` carries `tax_id` (the raw full
- * CNPJ), `normalized_tax_id` (the normalized full CNPJ) and `record_identity_key` (`tax:<14>`) as
- * TOP-LEVEL columns of the shared `source_company_snapshots` contract — not as part of the § 5.2
- * "sanitized snapshot output (allowlist only)" block that GATE-3 governs. Removing them is a change
- * to the record identity GRAIN, which is GATE-4's subject and 10K § 3's "changing the subject
- * re-opens the gate". It also diverges Brazil from every other TAX_GRAIN source, whose record
- * identity is derived from that same column.
+ * 🔴 RB-2 (the twelve-character CNPJ hash used as a rejection diagnostic) is NO LONGER here — it is
+ * discharged, below, by this same workstream. Only RB-1 and RB-3 remain, and neither is a deletion
+ * an agent may perform while fixing a different defect:
  *
- * That is a decision for the owners, in the round that owns GATE-4 — not a deletion an agent
- * performs while fixing a different defect.
+ * RB-1: `BrReceitaCnpjSnapshotRow` carries `tax_id` (the raw full CNPJ), `normalized_tax_id` (the
+ * normalized full CNPJ) and `record_identity_key` (`tax:<14>`) as TOP-LEVEL columns of the shared
+ * `source_company_snapshots` contract — not as part of the § 5.2 "sanitized snapshot output
+ * (allowlist only)" block that GATE-3 governs. Removing them is a change to the record identity
+ * GRAIN, which is GATE-4's subject and 10K § 3's "changing the subject re-opens the gate". It also
+ * diverges Brazil from every other TAX_GRAIN source, whose record identity is derived from that same
+ * column. That is a decision for the owners, in the round that owns GATE-4.
+ *
+ * RB-3: the four unlabelled fields still need the GATE-3 joint approvers to mark each `approved` or
+ * `excluded`; 10K § 7 requires nothing unlabelled.
  */
 export const BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS = [
   {
@@ -186,14 +203,6 @@ export const BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS = [
     detail:
       'the prohibited-output set forbids full CNPJ and normalized_tax_id snapshot survival; these three shared-contract columns still carry it. Removing them changes the record identity grain.',
     ownedBy: 'GATE_4_IDENTITY_GRAIN',
-    resolvedByThisWorkstream: false,
-  },
-  {
-    id: 'RB-2',
-    subject: 'twelve-character CNPJ hash used as a rejection diagnostic',
-    detail:
-      'rejected rows carry a truncated sha-256 fingerprint of the CNPJ as safeIdentifier, and the fixture-only controlled parser reports a list of them. GATE-1 R4 forbids a hash, truncation or fingerprint of the CNPJ anywhere, and the prohibited-output set forbids prohibited CNPJ derivatives. Replacing it needs an owner decision, because it exists to make a rejection diagnosable without printing a CNPJ.',
-    ownedBy: 'GATE_3_JOINT_APPROVERS',
     resolvedByThisWorkstream: false,
   },
   {
@@ -219,6 +228,7 @@ export const BRAZIL_RECEITA_GATE3_DISCHARGED_BY_THIS_WORKSTREAM: readonly string
   'cnpj_dv removed from the sanitized snapshot output',
   'full CNPJ reconstruction from the sanitized snapshot output made impossible',
   'the snapshot output sanitizer extended from key-only to key and value validation',
+  'RB-2: the twelve-character CNPJ hash used as a rejection diagnostic replaced with a non-CNPJ execution-local ordinal (safeIdentifier derived from sourceRowIndex)',
 ] as const;
 
 // ─── Restrictions ─────────────────────────────────────────────────────────────

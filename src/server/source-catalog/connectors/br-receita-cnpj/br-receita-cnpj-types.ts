@@ -184,7 +184,11 @@ export type BrReceitaCnpjRejectionReason =
 export interface BrReceitaCnpjRejectedRow {
   sourceRowIndex: number;
   reasonCode: BrReceitaCnpjRejectionReason;
-  /** Masked or hashed — NEVER the full CNPJ. */
+  /**
+   * An execution-local ordinal derived from `sourceRowIndex` (RB-2, BR-SOURCE-GATE-ROUND-1). NEVER
+   * a hash, truncation or fingerprint of the CNPJ, and never the CNPJ itself — GATE-1 R4 forbids
+   * all three anywhere, including in a rejection diagnostic.
+   */
   safeIdentifier: string;
   sourceFile: string | null;
 }

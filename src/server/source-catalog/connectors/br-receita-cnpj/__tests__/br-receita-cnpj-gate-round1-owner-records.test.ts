@@ -1,21 +1,27 @@
 /**
- * BR-SOURCE-GATE-ROUND-1 — the three recorded owner decisions, and the lines they must not cross.
+ * BR-SOURCE-GATE-ROUND-1 (FINAL CORRECTION) — the three recorded owner decisions, and the lines
+ * they must not cross.
  *
- * Round 1 records GATE-2 (`approved`), the GATE-3 field policy (`not_approved`, blocked on the CNPJ
- * snapshot blocker) and GATE-8 (`APPROVED_AS_CONTRACT`). This suite exists because each of those has
- * a way of quietly becoming something bigger than it is:
+ * Round 1 records GATE-2 (`needs_owner_confirmation` — technical ceilings complete, privacy
+ * confirmation outstanding), the GATE-3 field policy (`needs_evidence`, two residual blockers) and
+ * GATE-8 (`APPROVED_AS_CONTRACT`). This suite exists because each of those has a way of quietly
+ * becoming something bigger than it is:
  *
- *   · GATE-2 could look like it enabled temporary storage. It must not: its own *Relation to flags*
- *     clause says it "flips **no** operational flag", and the tracked policy constant and the
- *     standing cap proposal are asserted UNCHANGED here, against their real owners.
- *   · GATE-3 could look approved because a policy was recorded. It is not, and the residual blockers
- *     that keep it shut are asserted present rather than described in prose.
+ *   · GATE-2 could look fully approved because its numeric envelope is now complete. It is not: the
+ *     bucket-ordinal privacy disposition has no attributable owner source, so `gate2Approved` is
+ *     `false` and the record's own status reads `needs_owner_confirmation`. Its own *Relation to
+ *     flags* clause still says it "flips **no** operational flag", and the tracked policy constant
+ *     and the standing cap proposal are asserted UNCHANGED here, against their real owners.
+ *   · GATE-3 could look approved because a policy was recorded. It is not, and the two residual
+ *     blockers that keep it shut (RB-1, RB-3) are asserted present rather than described in prose —
+ *     RB-2 is asserted ABSENT, because this workstream discharged it.
  *   · GATE-8 could look like permission to write the runner. `APPROVED_AS_CONTRACT` is the value
  *     precisely so it cannot, and every preserved invariant is asserted against the module that
  *     really owns it — never against this record's own copy, which would be circular.
  *
  * And the whole-artifact verdict is asserted `invalid` / `NO_GO`, because five gates are still
- * `not_started`. That is the CORRECT outcome, not a failure of these records.
+ * `not_started` and GATE-2 is not approved either. That is the CORRECT outcome, not a failure of
+ * these records.
  *
  * Pure: no network, no filesystem beyond reading this repository's own sources for the static
  * guards, no database, no provider. 0 credits.
@@ -30,6 +36,7 @@ import { validateBrazilReceitaOwnerDecisionArtifact } from '../br-receita-cnpj-o
 import { buildBrazilReceitaGate1RecordedOwnerDecisionArtifact } from '../br-receita-cnpj-gate1-recorded-owner-decision';
 import {
   buildBrazilReceitaGate2RecordedOwnerDecisionArtifact,
+  brazilReceitaGate2PhaseRuntimeCapIsCompliant,
   BRAZIL_RECEITA_GATE2_APPROVED_CAPS,
   BRAZIL_RECEITA_GATE2_APPROVED_STORAGE_OPTION,
   BRAZIL_RECEITA_GATE2_APPROVAL_IS_JOINT,
@@ -37,8 +44,12 @@ import {
   BRAZIL_RECEITA_GATE2_CAPS_STILL_UNSUPPLIED,
   BRAZIL_RECEITA_GATE2_CLEANUP_CONTRACT,
   BRAZIL_RECEITA_GATE2_MAX_ROWS_READ_CLASSIFICATION,
+  BRAZIL_RECEITA_GATE2_NUMERIC_CEILINGS_COMPLETE,
+  BRAZIL_RECEITA_GATE2_OPERATOR_SUPPLIED_AT_INVOCATION,
   BRAZIL_RECEITA_GATE2_OPTION_C_ENCRYPTION,
-  BRAZIL_RECEITA_GATE2_PRIVACY_APPROVER_ROLE,
+  BRAZIL_RECEITA_GATE2_OWNER_DECIDED_CAPS,
+  BRAZIL_RECEITA_GATE2_OWNER_DECIDED_CAPS_CLASSIFICATION,
+  BRAZIL_RECEITA_GATE2_STATUS,
   BRAZIL_RECEITA_GATE2_STORAGE_OPTIONS,
   BRAZIL_RECEITA_GATE2_TEMPORARY_MATERIAL_TTL,
   BRAZIL_RECEITA_GATE2_TIGHTER_THAN_STANDING_PROPOSAL,
@@ -112,17 +123,22 @@ const RECORD_MODULES = [GATE2_MODULE, GATE3_MODULE, GATE8_MODULE];
 
 // ─── GATE-2 ───────────────────────────────────────────────────────────────────
 
-describe('GATE-ROUND-1 · GATE-2 is approved, and only GATE-2', () => {
-  it('13A reads gate1 and gate2 approved, and nothing else', () => {
+describe('GATE-ROUND-1 · GATE-2 is BLOCKED pending privacy-owner confirmation, and GATE-1 alone is approved', () => {
+  it('🔴 FINAL CORRECTION: 13A reads gate1 approved and gate2 NOT approved (blocked)', () => {
     const result = validateBrazilReceitaOwnerDecisionArtifact(
       buildBrazilReceitaGate2RecordedOwnerDecisionArtifact(),
     );
 
     assert.equal(result.gate1Approved, true);
-    assert.equal(result.gate2Approved, true);
+    assert.equal(result.gate2Approved, false);
     assert.equal(result.gate7Approved, false);
     assert.equal(result.capInputPolicyApproved, false);
     assert.equal(result.controlledExecutionAttemptAuthorized, false);
+
+    const blockedFinding = result.findings.find(
+      (finding) => finding.code === 'OWNER_DECISION_BLOCKED',
+    );
+    assert.ok(blockedFinding, 'gate2 must report OWNER_DECISION_BLOCKED, not a silent unapproval');
   });
 
   it('🔴 the whole-artifact verdict is still invalid / NO_GO — five gates are not_started', () => {
@@ -185,7 +201,7 @@ describe('GATE-ROUND-1 · GATE-2 storage envelope', () => {
     assert.equal(BRAZIL_RECEITA_GATE2_STORAGE_OPTIONS.optionB.approved, false);
   });
 
-  it('the seven decided ceilings are exactly the owner values', () => {
+  it('🔴 FINAL CORRECTION: the ten decided ceilings are exactly the owner values — none left TBD', () => {
     assert.deepEqual(BRAZIL_RECEITA_GATE2_APPROVED_CAPS, {
       maxHeapUsedBytes: 134_217_728,
       maxExternalMemoryBytes: 67_108_864,
@@ -194,7 +210,11 @@ describe('GATE-ROUND-1 · GATE-2 storage envelope', () => {
       maxPhaseRuntimeMs: 10_800_000,
       maxTemporaryStorageBytes: 4_294_967_296,
       maxRowsRead: 360_000_000,
+      maxFilesOpened: 64,
+      maxBytesRead: 73_014_444_032,
+      maxJoinKeysInMemory: 131_072,
     });
+    assert.equal(BRAZIL_RECEITA_GATE2_NUMERIC_CEILINGS_COMPLETE, true);
   });
 
   it('🔴 maxRowsRead is classified as a budget ceiling, NOT as an observation', () => {
@@ -205,18 +225,45 @@ describe('GATE-ROUND-1 · GATE-2 storage envelope', () => {
     ]);
   });
 
-  it('the three undecided caps are named, and are still operator-supplied and fail-closed', () => {
-    assert.deepEqual([...BRAZIL_RECEITA_GATE2_CAPS_STILL_UNSUPPLIED], [
+  it('🔴 the three newly-decided caps are OWNER DECISION values, not observed measurements', () => {
+    assert.deepEqual(BRAZIL_RECEITA_GATE2_OWNER_DECIDED_CAPS, {
+      maxFilesOpened: 64,
+      maxBytesRead: 73_014_444_032,
+      maxJoinKeysInMemory: 131_072,
+    });
+    assert.deepEqual([...BRAZIL_RECEITA_GATE2_OWNER_DECIDED_CAPS_CLASSIFICATION], [
+      'OWNER_DECISION_VALUE',
+      'NOT_OBSERVED_MEASUREMENT',
+      'MATCHES_STANDING_BENCHMARK_PROPOSAL_BY_OWNER_CHOICE',
+    ]);
+  });
+
+  it('no owner ceiling remains unsupplied, but the three newly-decided caps stay operator-supplied and fail-closed at invocation', () => {
+    assert.deepEqual([...BRAZIL_RECEITA_GATE2_CAPS_STILL_UNSUPPLIED], []);
+    assert.deepEqual([...BRAZIL_RECEITA_GATE2_OPERATOR_SUPPLIED_AT_INVOCATION], [
       'maxFilesOpened',
       'maxBytesRead',
       'maxJoinKeysInMemory',
     ]);
-    for (const key of BRAZIL_RECEITA_GATE2_CAPS_STILL_UNSUPPLIED) {
+    for (const key of BRAZIL_RECEITA_GATE2_OPERATOR_SUPPLIED_AT_INVOCATION) {
       assert.ok(
         BRAZIL_RECEITA_FULL_JOIN_OPERATOR_SUPPLIED_CAP_KEYS.includes(key),
         `${key} must stay operator-supplied`,
       );
     }
+  });
+
+  it('🔴 a future cap set cannot claim GATE-2 compliance with a looser phase-runtime ceiling', () => {
+    assert.equal(brazilReceitaGate2PhaseRuntimeCapIsCompliant(10_800_000), true);
+    assert.equal(brazilReceitaGate2PhaseRuntimeCapIsCompliant(1), true);
+    assert.equal(brazilReceitaGate2PhaseRuntimeCapIsCompliant(10_800_001), false);
+    // The standing benchmark proposal's looser 6h figure must not read as compliant either.
+    assert.equal(
+      brazilReceitaGate2PhaseRuntimeCapIsCompliant(
+        BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS.maxPhaseRuntimeMs,
+      ),
+      false,
+    );
   });
 
   it('🔴 the GATE-2 envelope is never LOOSER than the standing benchmark proposal', () => {
@@ -277,7 +324,7 @@ describe('GATE-ROUND-1 · GATE-2 storage envelope', () => {
     );
   });
 
-  it('🔴 the bucket ordinal disposition is attributed to the PRIVACY OWNER, never to the agent', () => {
+  it('🔴 FINAL CORRECTION: the bucket ordinal privacy disposition has NO attributable owner source, and is never attributed to the agent', () => {
     assert.equal(
       BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION.classification,
       'structural_non_invertible_partition_metadata',
@@ -285,9 +332,10 @@ describe('GATE-ROUND-1 · GATE-2 storage envelope', () => {
     assert.equal(BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION.isJoinKeyMaterial, false);
     assert.equal(
       BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION.attributedTo,
-      BRAZIL_RECEITA_GATE2_PRIVACY_APPROVER_ROLE,
+      'PRIVACY_OWNER_CONFIRMATION_REQUIRED',
     );
     assert.equal(BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION.attributedToAgent, false);
+    assert.equal(BRAZIL_RECEITA_GATE2_STATUS, 'needs_owner_confirmation');
   });
 });
 
@@ -322,8 +370,9 @@ describe('GATE-ROUND-1 · GATE-2 flips NO operational flag', () => {
 // ─── GATE-3 ───────────────────────────────────────────────────────────────────
 
 describe('GATE-ROUND-1 · GATE-3 records a policy and stays SHUT', () => {
-  it('🔴 the status is not approved, and names why', () => {
-    assert.equal(BRAZIL_RECEITA_GATE3_STATUS, 'not_approved_pending_cnpj_snapshot_blocker');
+  it('🔴 FINAL CORRECTION: the status is needs_evidence — the CNPJ snapshot blocker is fixed, but RB-1/RB-3 remain', () => {
+    assert.equal(BRAZIL_RECEITA_GATE3_STATUS, 'needs_evidence');
+    assert.notEqual(BRAZIL_RECEITA_GATE3_STATUS, 'approved');
   });
 
   it('🔴 13A never reports a gate3 approval — there is no gate3 section to report', () => {
@@ -390,13 +439,18 @@ describe('GATE-ROUND-1 · GATE-3 records a policy and stays SHUT', () => {
     assert.equal(BRAZIL_RECEITA_GATE3_RAW_DATA_DISPOSITION, 'CLOSED_TYPED_ALLOWLIST');
   });
 
-  it('🔴 every residual blocker is recorded UNRESOLVED, with a named owner', () => {
-    assert.ok(BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS.length >= 3);
+  it('🔴 FINAL CORRECTION: RB-1 and RB-3 remain UNRESOLVED with a named owner; RB-2 is GONE', () => {
+    assert.equal(BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS.length, 2);
     for (const blocker of BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS) {
       assert.equal(blocker.resolvedByThisWorkstream, false, blocker.id);
       assert.ok(blocker.ownedBy.length > 0, blocker.id);
       assert.ok(blocker.detail.length > 0, blocker.id);
     }
+    const ids: readonly string[] = BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS.map((b) => b.id);
+    assert.ok(ids.includes('RB-1'), 'RB-1 (identity grain) must stay open — it belongs to GATE-4');
+    assert.ok(ids.includes('RB-3'), 'RB-3 (unlabelled fields) must stay open');
+    assert.equal(ids.includes('RB-2'), false, 'RB-2 must be discharged, not merely marked resolved');
+
     const owners = BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS.map((b) => b.ownedBy);
     assert.ok(
       owners.includes('GATE_4_IDENTITY_GRAIN'),
@@ -404,14 +458,21 @@ describe('GATE-ROUND-1 · GATE-3 records a policy and stays SHUT', () => {
     );
   });
 
-  it('the discharged list matches what the hardening actually did', () => {
-    assert.equal(BRAZIL_RECEITA_GATE3_DISCHARGED_BY_THIS_WORKSTREAM.length, 5);
+  it('🔴 FINAL CORRECTION: the discharged list includes RB-2, and the claim is true of the real builder', () => {
+    assert.equal(BRAZIL_RECEITA_GATE3_DISCHARGED_BY_THIS_WORKSTREAM.length, 6);
+    assert.ok(
+      BRAZIL_RECEITA_GATE3_DISCHARGED_BY_THIS_WORKSTREAM.some((entry) => entry.startsWith('RB-2:')),
+      'RB-2 (the CNPJ hash rejection diagnostic) must be named as discharged',
+    );
     // And the claim is true of the real builder, not merely written down.
     const result = buildBrReceitaCnpjSnapshotRows(sampleParserInput());
     for (const snap of result.snapshots) {
       assert.equal('cnpj_root' in snap.raw_data, false);
       assert.equal('cnpj_order' in snap.raw_data, false);
       assert.equal('cnpj_dv' in snap.raw_data, false);
+    }
+    for (const r of result.rejected) {
+      assert.match(r.safeIdentifier, /^row-\d+$/);
     }
   });
 

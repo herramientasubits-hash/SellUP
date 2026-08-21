@@ -129,10 +129,12 @@ Rules governing status:
 
 - **All eight gates start at `not_started`.** That is their status as of this document; nothing
   here advances any of them. (GATE-1 was later moved to `approved` by a separate recorded owner
-  decision — § 5.1; GATE-2 to `approved` and GATE-8 to `approved` **as a contract** by
-  BR-SOURCE-GATE-ROUND-1 — § 6.1 and § 12.1; and GATE-3 to `needs_evidence` by the same round's
-  recorded field policy — § 7.1. None of those is this document advancing a gate; each is an owner
-  decision recorded in the § 14 shape, which § 4 requires and this document only defines.)
+  decision — § 5.1; GATE-8 to `approved` **as a contract** by BR-SOURCE-GATE-ROUND-1 — § 12.1;
+  GATE-2 to `needs_owner_confirmation` — technical ceilings decided, the bucket-ordinal privacy
+  disposition unconfirmed — by the same round's owner record, corrected in its FINAL CORRECTION
+  pass — § 6.1; and GATE-3 to `needs_evidence` by the same round's recorded field policy — § 7.1.
+  None of those is this document advancing a gate; each is an owner decision recorded in the § 14
+  shape, which § 4 requires and this document only defines.)
 - **No gate may be approved by inference.** Silence, absence of objection, a passing test, a green
   CI check, a merged PR, or a prior bounded result is never an approval.
 - **No gate may be self-approved by the agent or author who implements its subject.** The
@@ -357,30 +359,48 @@ decides whether Option C (a temporary on-disk index) is permitted at all.
 > it creates no runner, script, or test, and it authorizes no owner review, broader local execution,
 > temp storage, dry-run, import, Supabase write, migration, runtime, or Agent 1 integration.
 
-### 6.1 GATE-2 is APPROVED (BR-SOURCE-GATE-ROUND-1)
+### 6.1 GATE-2 numeric ceilings are COMPLETE; approval is BLOCKED pending privacy-owner confirmation (BR-SOURCE-GATE-ROUND-1, FINAL CORRECTION)
 
-> **Update (BR-SOURCE-GATE-ROUND-1) — § 6.1 GATE-2 is APPROVED.** The technical owner (storage and
-> execution model) and the privacy owner jointly approved Option C inside the envelope below. The
-> decision is recorded as data in
+> **Update (BR-SOURCE-GATE-ROUND-1, FINAL CORRECTION) — § 6.1 GATE-2 is `needs_owner_confirmation`,
+> not `approved`.** The technical owner (storage and execution model) decided Option C and its full
+> ten-ceiling numeric envelope. The decision is recorded as data in
 > [`br-receita-cnpj-gate2-recorded-owner-decision.ts`](../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate2-recorded-owner-decision.ts),
 > so BR-SOURCE-13A evaluates it instead of a reader eyeballing prose.
 >
-> Per this gate's own *Relation to flags* clause it **flips no operational flag**, and two things are
-> asserted unchanged by test: `BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED` is still
-> the tracked `false`, and `BRAZIL_RECEITA_FULL_JOIN_PROVISIONAL_RESOURCE_CAP_PROPOSAL` still holds
-> `maxTemporaryStorageBytes: 0`. A run still needs its own invocation-scoped operator grant.
+> An earlier version of this record also attributed the bucket-ordinal PRIVACY disposition to the
+> privacy owner. Checked against the only recorded human privacy statement —
+> `br-receita-cnpj-legal-privacy-decision-record.md` § 14, the broad GATE-1 "development may
+> continue" determination — that attribution does not hold: § 14 says explicitly that "GATE-2 …
+> GATE-8 plus the cap/input policy all remain `not_started`", and never reaches the bucket-ordinal
+> question. 10K § 6 requires a JOINT decision by the technical owner AND the privacy owner, and 10K
+> § 3 forbids an agent supplying the missing half. So GATE-2 is recorded `blocked` in the artifact
+> (`OwnerDecisionValue`'s own vocabulary for "an external dependency prevents review") and
+> `needs_owner_confirmation` as this gate's status, until an attributable privacy-owner source
+> actually decides the bucket-ordinal question.
+>
+> Per this gate's own *Relation to flags* clause it still **flips no operational flag**, and two
+> things are asserted unchanged by test: `BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED`
+> is still the tracked `false`, and `BRAZIL_RECEITA_FULL_JOIN_PROVISIONAL_RESOURCE_CAP_PROPOSAL`
+> still holds `maxTemporaryStorageBytes: 0`. A run still needs its own invocation-scoped operator
+> grant.
 
 ```
 Gate:                   GATE-2 — Temporary storage envelope
-Status:                 approved (scoped — see Restrictions)
-Approver:               technical owner (storage and execution model) AND privacy owner, jointly
-Approval date:          2026-08-21
+Status:                 needs_owner_confirmation (NOT approved — see Restrictions)
+Approver:               technical owner (storage and execution model) DECIDED; privacy owner
+                        confirmation of the bucket-ordinal disposition is OUTSTANDING
+Approval date:          n/a — technical decision recorded 2026-08-21; gate not approved
 Evidence links:         10K § 6; 10J § 5 (options), § 6 (temporary storage), § 10 (limits);
                         br-receita-cnpj-gate2-controls-and-evidence-template.md;
-                        br-receita-cnpj-legal-privacy-decision-record.md
+                        br-receita-cnpj-legal-privacy-decision-record.md (does NOT decide this
+                        question — see above)
 Decision summary:       Option C — a temporary local discardable index — is permitted, with Options A
-                        and B explicitly not approved. Seven ceilings are decided as numbers. The
-                        workspace is constrained by rule rather than by location: outside the
+                        and B explicitly not approved. All TEN ceilings are now decided as numbers
+                        (GATE2_NUMERIC_CEILINGS_COMPLETE = true): the original seven, plus
+                        maxFilesOpened = 64, maxBytesRead = 73,014,444,032 and
+                        maxJoinKeysInMemory = 131,072 — owner DECISION values, not observed
+                        measurements, chosen equal to the standing benchmark proposal's own figures.
+                        The workspace is constrained by rule rather than by location: outside the
                         repository, outside the home directory, outside the dataset root, no symlink,
                         directory mode 0700, file mode 0600. Temporary material lives for the run and
                         no longer. Cleanup requires VERIFIED deletion on both the success and the
@@ -389,36 +409,40 @@ Decision summary:       Option C — a temporary local discardable index — is 
                         required WHILE no raw or normalized join key, and no hash, truncation or
                         fingerprint of either, is materialized to temporary storage — the verified
                         destroy step is unconditional and required regardless. The partition bucket
-                        ordinal is accepted as structural, non-invertible partition metadata and not
-                        join-key material; that privacy disposition is attributed to the privacy
-                        owner, not to any agent.
-Artifacts approved:     the storage-envelope decision record (option, workspace constraints, the
-                        seven ceilings, TTL, permissions, cleanup contract, encryption condition)
-Artifacts rejected:     Option A (pure in-memory map); Option B (streaming two-pass scan)
-Open follow-ups:        (1) three cap keys have no owner number — maxFilesOpened, maxBytesRead,
-                        maxJoinKeysInMemory. Each has a PROPOSED figure in
-                        BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS, whose status reads
-                        `proposed_benchmark_caps_not_production_caps`; a proposal is not an approval,
-                        and maxJoinKeysInMemory is a temp-index limit inside this gate's own scope.
-                        (2) maxPhaseRuntimeMs is DECIDED at 3 h while that standing proposal carries
-                        6 h. The GATE-2 envelope governs; the proposal is not edited by this record,
-                        and the divergence is recorded so a future run cannot inherit the looser
-                        figure by accident. (3) An owner may replace the review CONDITION with a
-                        calendar date.
+                        ordinal IS structural, non-invertible partition metadata, not join-key
+                        material — that much is a technical, verifiable fact. Whether that is
+                        sufficient PRIVACY-wise is a separate question with NO attributable owner
+                        answer yet.
+Artifacts approved:     none — the technical half of the storage-envelope decision (option, workspace
+                        constraints, all ten ceilings, TTL, permissions, cleanup contract, encryption
+                        condition) is DECIDED and recorded, but GATE-2 requires a JOINT approval and
+                        the privacy half is outstanding
+Artifacts rejected:     Option A (pure in-memory map); Option B (streaming two-pass scan) — rejected
+                        regardless of the outstanding privacy confirmation
+Open follow-ups:        (1) the bucket-ordinal privacy disposition needs an attributable privacy-owner
+                        confirmation before GATE-2 can move to `approved`. (2) maxPhaseRuntimeMs is
+                        DECIDED at 3 h while the standing benchmark proposal carries 6 h. The GATE-2
+                        envelope governs; the proposal is not edited by this record; a guard function
+                        (`brazilReceitaGate2PhaseRuntimeCapIsCompliant`) now exists so a future
+                        executable cap set cannot silently inherit the looser figure. (3) An owner may
+                        replace the review CONDITION with a calendar date.
 Blocks:                 persisting approved source data; creating source_company_snapshots rows;
                         storing real data inside the repository; treating a temporary technical
                         artifact as a source snapshot; temporary material outliving the run;
                         structural keys in file names, log lines, report fields or paths; any
                         raw-value log
-Allows:                 designing — and, once every gate is approved, implementing — temporary
-                        material handling strictly inside this envelope
+Allows:                 nothing operational — the numeric envelope being complete is not a joint
+                        approval
 Does not allow:         any run, benchmark, benchmark retry, real-data read, snapshot output,
                         persistence, import, Supabase write, migration, runtime path, Agent 1
-                        enablement or provider call; and no operational flag is flipped
-Restrictions:           the approval is BOUNDED to the seven decided ceilings. A run needing one of
-                        the three undecided caps is outside it and must return for that cap. The
-                        encryption disposition REOPENS if the temporary record or file layout ever
-                        materializes prohibited key-derived material.
+                        enablement or provider call; being read as `approved`; and no operational
+                        flag is flipped
+Restrictions:           maxFilesOpened, maxBytesRead and maxJoinKeysInMemory carry owner numbers but
+                        remain operator-supplied and fail-closed at invocation time — a recorded
+                        number is not a runtime default. The encryption disposition REOPENS if the
+                        temporary record or file layout ever materializes prohibited key-derived
+                        material. The gate stays `needs_owner_confirmation` until the bucket-ordinal
+                        privacy question has an attributable owner answer.
 ```
 
 ---
@@ -503,20 +527,23 @@ the report may carry; sets `field_allowlist_version`.
 > no identity grain, freezes no report schema, and authorizes **no** dry-run, import, Supabase write,
 > migration, runtime, or Agent 1 integration.
 
-### 7.1 The GATE-3 FIELD POLICY is recorded — the gate is NOT approved (BR-SOURCE-GATE-ROUND-1)
+### 7.1 The GATE-3 FIELD POLICY is recorded — the gate is NOT approved (BR-SOURCE-GATE-ROUND-1, FINAL CORRECTION)
 
-> **Update (BR-SOURCE-GATE-ROUND-1) — § 7.1 the field policy exists; GATE-3 stays shut.** The owners
-> supplied the field policy AND attached a condition to its approval: GATE-3 does not move to
-> `approved` until the CNPJ snapshot blocker is fixed and merged. Those two facts must not be
-> collapsed, so the policy is recorded as data in
+> **Update (BR-SOURCE-GATE-ROUND-1, FINAL CORRECTION) — § 7.1 the field policy exists; GATE-3 stays
+> shut, now on two blockers instead of three.** The owners supplied the field policy. The CNPJ
+> snapshot blocker that originally conditioned approval is now FIXED and merged in this same
+> workstream — see below — but GATE-3 still does not move to `approved`, because RB-1 and RB-3
+> remain unresolved. Those facts must not be collapsed, so the policy is recorded as data in
 > [`br-receita-cnpj-gate3-recorded-field-policy.ts`](../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate3-recorded-field-policy.ts)
-> with an explicit `not_approved_pending_cnpj_snapshot_blocker` status.
+> with an explicit `needs_evidence` status (previously `not_approved_pending_cnpj_snapshot_blocker` —
+> renamed because that blocker no longer names the reason the gate is shut).
 >
-> **The blocker, precisely.** `BrReceitaCnpjSnapshotRawData` labels itself "Sanitized snapshot output
-> (allowlist only — data-contract § 5.2)". That claim was FALSE: the block carried `cnpj_root` (the
-> CNPJ básico), `cnpj_order` and `cnpj_dv`, which together reconstruct the full 14-position CNPJ
-> exactly. And its own defence, `assertSanitizedRawData`, inspected KEY NAMES only — so a forbidden
-> VALUE under a permitted key passed untouched, and renaming the key would have defeated the guard.
+> **The blocker that WAS here, and is now closed.** `BrReceitaCnpjSnapshotRawData` labelled itself
+> "Sanitized snapshot output (allowlist only — data-contract § 5.2)". That claim was FALSE: the block
+> carried `cnpj_root` (the CNPJ básico), `cnpj_order` and `cnpj_dv`, which together reconstruct the
+> full 14-position CNPJ exactly. And its own defence, `assertSanitizedRawData`, inspected KEY NAMES
+> only — so a forbidden VALUE under a permitted key passed untouched, and renaming the key would have
+> defeated the guard.
 >
 > **What the same workstream fixed.** The three fields are removed from the sanitized output, nothing
 > replaces them, and the sanitizer now validates keys **and** values — reusing the canonical
@@ -524,10 +551,11 @@ the report may carry; sets `field_allowlist_version`.
 > Reconstruction is proved impossible by trying: every ordered pair and triple of output leaves is
 > asserted not to rebuild the identifier. Benign business numerics are asserted to SURVIVE, because a
 > blunt "eight digits is a básico" rule would have destroyed an eight-digit `YYYYMMDD` opening date
-> and a large capital figure — the very values this output exists to carry.
+> and a large capital figure — the very values this output exists to carry. A SECOND instance of the
+> same R4 prohibition was found and fixed alongside it — see RB-2 below.
 >
-> **Why the gate is still shut after that fix.** Three residual blockers are recorded, unresolved,
-> each with a named owner:
+> **Why the gate is still shut after that fix.** Two residual blockers are recorded, unresolved, each
+> with a named owner:
 >
 > - **RB-1 — the identity grain.** `BrReceitaCnpjSnapshotRow` still carries `tax_id`,
 >   `normalized_tax_id` and `record_identity_key` (`tax:<14>`) as TOP-LEVEL columns of the shared
@@ -536,18 +564,22 @@ the report may carry; sets `field_allowlist_version`.
 >   record identity GRAIN, which is **GATE-4's** subject (§ 3: changing the subject re-opens the
 >   gate). It would also diverge Brazil from every other TAX_GRAIN source, whose record identity
 >   derives from that same column. That is an owner decision in the round that owns GATE-4 — not a
->   deletion an agent performs while fixing a different defect.
-> - **RB-2 — a CNPJ hash used as a rejection diagnostic.** Rejected rows carry a truncated SHA-256
->   fingerprint of the CNPJ as `safeIdentifier`, and the fixture-only controlled parser reports a
->   list of them. § 5 R4 forbids a hash, truncation or fingerprint of the CNPJ **anywhere**, and the
->   recorded policy forbids "prohibited CNPJ derivatives". Replacing it needs an owner decision,
->   because it exists to make a rejection diagnosable without printing a CNPJ.
+>   deletion an agent performs while fixing a different defect. **NOT fixed in this round, on
+>   purpose.**
 > - **RB-3 — four unlabelled fields.** `legal_nature_code` / `legal_nature_label`,
 >   `matrix_branch_flag`, `simples_opt_in` / `simei_opt_in` and `mei_flag` are carried by the
 >   sanitized output but are not named in the owners' include set. This gate's pass criteria require
 >   **nothing unlabelled**. They were NOT deleted: `mei_flag` is the § 5 R5 control marker, and
 >   removing a privacy control for being absent from an include list of privacy-relevant output would
 >   weaken the very thing the list protects.
+>
+> **RB-2 — CLOSED in this round.** A CNPJ hash used as a rejection diagnostic. Rejected rows carried
+> a truncated SHA-256 fingerprint of the CNPJ as `safeIdentifier`, and the fixture-only controlled
+> parser reported a list of them. § 5 R4 forbids a hash, truncation or fingerprint of the CNPJ
+> **anywhere**, including a diagnostic, so this was itself a violation of the gate it was meant to
+> respect. `safeIdentifier` is now an execution-local ordinal derived from `sourceRowIndex`
+> (`row-<n>`) — no CNPJ, no hash, no truncation, no fingerprint, and no new persistent company
+> identifier. `reasonCode` plus that ordinal remain enough to locate and classify a rejection.
 >
 > A `field_allowlist_version` identifier — `br_receita_cnpj_field_allowlist_v1`, the first ever
 > assigned — is bound to the recorded POLICY. 🔴 The 10J § 12 report marker still reads
@@ -573,10 +605,9 @@ Decision summary:       The owners recorded the field policy. PROHIBITED OUTPUT 
                         br_receita_cnpj_field_allowlist_v1, bound to the policy only.
 Artifacts approved:     none — this is a recorded policy, not an approval
 Artifacts rejected:     none
-Open follow-ups:        RB-1 identity-grain survival (owned by GATE-4); RB-2 the twelve-character
-                        CNPJ hash used as a rejection diagnostic (owned by the GATE-3 joint
-                        approvers); RB-3 the four unlabelled fields (owned by the GATE-3 joint
-                        approvers)
+Open follow-ups:        RB-1 identity-grain survival (owned by GATE-4); RB-3 the four unlabelled
+                        fields (owned by the GATE-3 joint approvers). RB-2 (the twelve-character CNPJ
+                        hash used as a rejection diagnostic) is CLOSED — see above.
 Blocks:                 persistence of any kind; widening the eligibility design § 5 allowlist; any
                         report naming the field_allowlist_version
 Allows:                 nothing — an unapproved gate unlocks no next step
@@ -1088,8 +1119,9 @@ Plus confirmation that:
 > 🔴 The recorded value is `APPROVED_AS_CONTRACT`, not a bare `approved`, and that is deliberate: a
 > reader scanning for approved gates must not be able to mistake a contract approval for an operating
 > one. It authorizes **no operation of any kind**, and it does not authorize writing the runner —
-> this gate's own *Allows* clause is conditional on every other gate being approved, and five are
-> not. The record states `authorizesOperations: false` as data, and
+> this gate's own *Allows* clause is conditional on every other gate being approved, and six are
+> not (GATE-2 is `needs_owner_confirmation`, not `approved` — § 6.1). The record states
+> `authorizesOperations: false` as data, and
 > [`br-receita-cnpj-gate8-recorded-contract-approval.ts`](../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate8-recorded-contract-approval.ts)
 > has **no imports at all** — a record that imports nothing can flip nothing.
 >
@@ -1241,32 +1273,40 @@ GO for execution              ≠  GO for import
 GO for import                 requires a later, separate import authorization
 ```
 
-**Today's position (as of 2026-08-21, after BR-SOURCE-GATE-ROUND-1):**
+**Today's position (as of 2026-08-21, after BR-SOURCE-GATE-ROUND-1, FINAL CORRECTION):**
 
 ```
-GATE-1  approved                    (§ 5.1)
-GATE-2  approved — scoped           (§ 6.1)
-GATE-3  needs_evidence — NOT approved, three residual blockers   (§ 7.1)
+GATE-1  approved                                          (§ 5.1)
+GATE-2  needs_owner_confirmation — ceilings complete,      (§ 6.1)
+        privacy confirmation outstanding, NOT approved
+GATE-3  needs_evidence — NOT approved, two residual        (§ 7.1)
+        blockers (RB-1, RB-3); RB-2 closed
 GATE-4  not_started
 GATE-5  not_started
 GATE-6  not_started
 GATE-7  not_started
-GATE-8  approved — AS A CONTRACT    (§ 12.1)
+GATE-8  approved — AS A CONTRACT                           (§ 12.1)
 ```
 
-Five gates are not approved, so the matrix still reads **NO-GO** — the expected and correct outcome.
-Three readings a future reader is most likely to get backwards:
+Six gates are not approved, so the matrix still reads **NO-GO** — the expected and correct outcome.
+Readings a future reader is most likely to get backwards:
 
-- **GATE-2 `approved` flipped no flag.** Its own *Relation to flags* clause says so, and the tracked
-  temporary-storage policy constant and the provisional cap proposal are asserted unchanged by test.
+- **GATE-2 is NOT approved.** Its numeric envelope is complete
+  (`GATE2_NUMERIC_CEILINGS_COMPLETE = true`), but GATE-2 requires a JOINT technical + privacy
+  decision, and the bucket-ordinal privacy disposition has no attributable privacy-owner source — the
+  only recorded human privacy statement (the GATE-1 determination) explicitly leaves GATE-2 …
+  GATE-8 `not_started`. `needs_owner_confirmation` still flips no flag: the tracked temporary-storage
+  policy constant and the provisional cap proposal are asserted unchanged by test.
 - **GATE-8 `APPROVED_AS_CONTRACT` is not permission to write the runner.** Its *Allows* clause is
-  conditional on every other gate being approved, and five are not.
+  conditional on every other gate being approved, and six are not.
 - **GATE-3 recorded a policy, not an approval.** The field policy exists and a
   `field_allowlist_version` is bound to it; the gate is `needs_evidence` and the 10J § 12 report
-  marker still reads `"not_approved"`.
+  marker still reads `"not_approved"`. RB-2 (the CNPJ hash rejection diagnostic) is closed; RB-1 and
+  RB-3 are not.
 
-Round 1 closed GATE-2, the GATE-3 field policy and GATE-8. **Round 2 = GATE-4 + GATE-6**, and GATE-4
-inherits residual blocker RB-1 from § 7.1.
+Round 1 closed the GATE-2 numeric envelope (not the gate), the GATE-3 field policy plus its RB-2
+blocker, and GATE-8. **Round 2 = GATE-4 + GATE-6**, and GATE-4 inherits residual blocker RB-1 from
+§ 7.1. The GATE-2 bucket-ordinal privacy confirmation is a standing open item independent of Round 2.
 
 ---
 

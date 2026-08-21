@@ -28,7 +28,6 @@
 import {
   normalizeBrazilCnpj,
   buildBrazilCnpjRecordIdentityKey,
-  buildBrazilCnpjHash12,
   stripBrazilCnpjPunctuationAndUpper,
 } from './br-cnpj';
 // 🔴 BR-SOURCE-GATE-ROUND-1 — the CANONICAL alphanumeric-aware, DV-validated CNPJ detector. Reused,
@@ -315,15 +314,21 @@ export function buildBrReceitaCnpjSnapshotRows(
   const seenIdentityKeys = new Set<string>();
   const sourceFile = input.sourceFileName ?? null;
 
+  // RB-2 (BR-SOURCE-GATE-ROUND-1, closed): `safeIdentifier` used to be a truncated SHA-256 of the
+  // CNPJ. GATE-1 R4 forbids a hash, truncation or fingerprint of the CNPJ anywhere, so a rejection
+  // diagnostic built from one was itself a violation of the gate it was trying to respect. It carries
+  // no CNPJ-derived material now: `sourceRowIndex` is already a unique, non-invertible,
+  // execution-local ordinal — the row's position in this run's input — and `reasonCode` already
+  // names the rejection category, so the pair fully identifies a rejection without a second,
+  // CNPJ-shaped identifier alongside it.
   const reject = (
     sourceRowIndex: number,
     reasonCode: BrReceitaCnpjRejectedRow['reasonCode'],
-    rawCnpj: string,
   ): void => {
     rejected.push({
       sourceRowIndex,
       reasonCode,
-      safeIdentifier: buildBrazilCnpjHash12(rawCnpj),
+      safeIdentifier: `row-${sourceRowIndex}`,
       sourceFile,
     });
   };
@@ -337,24 +342,24 @@ export function buildBrReceitaCnpjSnapshotRows(
 
     const normalization = normalizeBrazilCnpj(rawFullCnpj);
     if (normalization.status !== 'valid' || normalization.normalized === null) {
-      reject(i, 'invalid_cnpj', rawFullCnpj);
+      reject(i, 'invalid_cnpj');
       continue;
     }
     const normalizedTaxId = normalization.normalized;
 
     const recordIdentityKey = buildBrazilCnpjRecordIdentityKey(normalizedTaxId) as RecordIdentityKey;
     if (seenIdentityKeys.has(recordIdentityKey)) {
-      reject(i, 'duplicate_record_identity_key', rawFullCnpj);
+      reject(i, 'duplicate_record_identity_key');
       continue;
     }
 
     const basicoKey = normalizeText(rawBasico);
     if (basicoKey === null || !empresas.byBasico.has(basicoKey)) {
-      reject(i, 'missing_root_company', rawFullCnpj);
+      reject(i, 'missing_root_company');
       continue;
     }
     if (empresas.conflicted.has(basicoKey)) {
-      reject(i, 'incompatible_root_company', rawFullCnpj);
+      reject(i, 'incompatible_root_company');
       continue;
     }
 

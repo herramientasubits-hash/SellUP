@@ -181,8 +181,33 @@ describe('buildBrReceitaCnpjSnapshotRows — fail-closed rejections', () => {
     assert.equal(result.summary.rejectedMissingRootCompany, 1);
     assert.equal(result.rejected.length, 3);
     for (const r of result.rejected) {
-      // safe identifier is a 12-char hash, never a full CNPJ.
-      assert.match(r.safeIdentifier, /^[0-9a-f]{12}$/);
+      // safe identifier is an execution-local ordinal (RB-2, BR-SOURCE-GATE-ROUND-1) — never a
+      // CNPJ, and never a hash, truncation or fingerprint of one.
+      assert.match(r.safeIdentifier, /^row-\d+$/);
+      assert.equal(r.safeIdentifier, `row-${r.sourceRowIndex}`);
+    }
+  });
+
+  it('🔴 RB-2 (BR-SOURCE-GATE-ROUND-1): the rejection diagnostic carries no CNPJ-derived material', () => {
+    const result = buildBrReceitaCnpjSnapshotRows(sampleParserInput());
+    assert.ok(result.rejected.length > 0, 'fixture must actually produce rejections');
+    const json = JSON.stringify(result.rejected);
+
+    // No full or básico CNPJ digit run of the shapes GATE-1 R4 forbids.
+    assert.equal(/(?<!\d)\d{14}(?!\d)/.test(json), false, 'rejected rows must carry no 14-digit run');
+    assert.equal(/(?<!\d)\d{8}(?!\d)/.test(json), false, 'rejected rows must carry no 8-digit run');
+
+    // Not a hash, truncation or fingerprint shape: buildBrazilCnpjHash12 always returns exactly 12
+    // lowercase hex characters, and a `row-<n>` ordinal can never collide with that shape.
+    for (const r of result.rejected) {
+      assert.equal(/^[0-9a-f]{12}$/.test(r.safeIdentifier), false);
+    }
+
+    // The diagnostic stays useful: reason code plus ordinal is enough to locate and classify a
+    // rejection without a second, CNPJ-shaped identifier alongside it.
+    for (const r of result.rejected) {
+      assert.ok(r.reasonCode.length > 0);
+      assert.equal(r.safeIdentifier, `row-${r.sourceRowIndex}`);
     }
   });
 
