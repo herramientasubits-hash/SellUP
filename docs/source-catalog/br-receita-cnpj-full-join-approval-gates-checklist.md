@@ -125,6 +125,34 @@ blocked           an external dependency (legal, another gate, an unresolved lea
 superseded        replaced by a later, explicitly-recorded decision that names what it replaces
 ```
 
+> **Update (BR-SOURCE-GATE-ROUND-3) — three statuses the recorded rounds added, now declared.**
+> Rounds 1, 2 and 3 used three statuses the enumeration above does not contain, and used them
+> correctly — but a vocabulary that exists in practice and not in the model is how a reader concludes
+> a gate carries an invalid status, or worse, silently maps it back to `not_started`. They are added
+> here rather than left implicit:
+>
+> ```
+> needs_owner_confirmation  evidence complete; the ONLY gap is a named human's confirmation of an
+>                           already-decided disposition (GATE-2, § 6.1)
+> needs_owner_decision      evidence complete; the ONLY gap is a named human ANSWERING one exact
+>                           open question (GATE-4, § 8.1)
+> APPROVED_AS_CONTRACT      the named approvers approved the CONTRACT while its proofs remain
+>                           deferred to an implementation that § 4 forbids writing (GATE-8, § 12.1)
+> ```
+>
+> Two rules govern them, and both matter more than the names:
+>
+> - **`needs_owner_confirmation` and `needs_owner_decision` are NO-GO, exactly as `not_started` is**
+>   (§ 15). Neither is a partial approval, and neither may be cited as one. They differ from
+>   `needs_evidence` in what is missing — a person's answer, not more evidence — and from `blocked` in
+>   that nothing external prevents the review; it simply has not happened.
+> - **`APPROVED_AS_CONTRACT` counts toward the approved TALLY and permits nothing on its own.** Its
+>   *Allows* clause is conditional on every other gate being approved, and six are not (§ 12.1).
+>
+> The machine-readable form of the whole vocabulary is `BRAZIL_RECEITA_GATE_STATUSES`, and the
+> authoritative current state is `BRAZIL_RECEITA_GATE_CURRENT_STATE` — both in
+> `src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate-status-current-state.ts`.
+
 Rules governing status:
 
 - **All eight gates start at `not_started`.** That is their status as of this document; nothing
@@ -132,7 +160,7 @@ Rules governing status:
   decision — § 5.1; GATE-8 to `approved` **as a contract** by BR-SOURCE-GATE-ROUND-1 — § 12.1;
   GATE-2 to `needs_owner_confirmation` — technical ceilings decided, the bucket-ordinal privacy
   disposition unconfirmed — by the same round's owner record, corrected in its FINAL CORRECTION
-  pass — § 6.1; and GATE-3 to `needs_evidence` by the same round's recorded field policy — § 7.1.
+  pass — § 6.1; and GATE-3 to `needs_evidence` by the same round's recorded field policy — § 7.1, which **§ 7.2 then superseded with `ready_for_review`**.
   None of those is this document advancing a gate; each is an owner decision recorded in the § 14
   shape, which § 4 requires and this document only defines.)
 - **No gate may be approved by inference.** Silence, absence of objection, a passing test, a green
@@ -282,7 +310,7 @@ Rules governing status:
 **Governs (10J § 13):** 10J § 6 (temporary storage) and § 10 (memory / disk / temp-index limits);
 decides whether Option C (a temporary on-disk index) is permitted at all.
 
-**Status today:** `not_started`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 6.1.** The current status is `needs_owner_confirmation`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -452,7 +480,7 @@ Restrictions:           maxFilesOpened, maxBytesRead and maxJoinKeysInMemory car
 **Governs (10J § 13):** freezes 10J § 8.3 / § 8.4 — which signals survive the join and which counts
 the report may carry; sets `field_allowlist_version`.
 
-**Status today:** `not_started`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 7.2.** The current status is `ready_for_review`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -706,7 +734,7 @@ Restrictions:           free-text fails closed. A field labelled INTERNAL_PRIVAC
 **Governs (10J § 13):** decides 10J § 14 (A / B / C / D) and the future `record_identity_key`; sets
 `record_identity_grain_decision`.
 
-**Status today:** `not_started`. Neither 10I nor 10J decided it, and neither does this document.
+**Status today (as authored, 2026-07-29):** `not_started`. Neither 10I nor 10J decided it, and neither does this document. — 🔴 **SUPERSEDED BY § 8.1.** The current status is `needs_owner_decision`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -948,7 +976,7 @@ Restrictions:           no CNPJ derivative may be persisted under any name. A no
 **Governs (10J § 13):** confirms the 10J § 12 report schema and the 10J § 15 assertions —
 aggregate-only output with an all-false safety block.
 
-**Status today:** `not_started`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 9.1.** The current status is `ready_for_review`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -1041,6 +1069,147 @@ slack_write          = false
 > sanitizer, test, fixture, runner, or command — nor does it authorize any dry-run, import, Supabase
 > write, migration, index change, runtime, or Agent 1 integration.
 
+
+### 9.1 The output sanitization contract is EXECUTABLE; GATE-5 is `ready_for_review` (BR-SOURCE-GATE-ROUND-3)
+
+> **Update (BR-SOURCE-GATE-ROUND-3) — § 9.1 GATE-5 advances from `not_started` to
+> `ready_for_review`, and is NOT approved.**
+>
+> BR-SOURCE-10O assembled this gate's contract and was explicit about the two things it could not
+> deliver. Both are now closed, and the closing of each is a different kind of act:
+>
+> 1. **Two rules were unenforceable for want of a number.** `OS-A19` needed the small-cell threshold
+>    `k`; `VP-8` / `OS-A10` needed the string-length ceiling. Those are *owner* values, and 10O § 7
+>    said so: *"`k` is not derivable from this document."* The owner supplied them —
+>    **`k = 10`** and **64 characters** — which are the values 10O proposed as its floor and its
+>    starting point rather than different ones.
+> 2. **No test existed.** 10O § 5.4 wrote *"No test is written here"*, and § 17 recorded that none
+>    could be written from that document alone. GATE-5's pass criterion is that every rule be *"an
+>    assertion a future test can enforce, not prose guidance"* — which a catalogue of stable IDs
+>    cannot discharge, and which 10O correctly refused to claim it had. This round makes each rule a
+>    predicate and asserts it.
+>
+> **The owner technical direction, as frozen.** Recorded as data in
+> `br-receita-cnpj-gate5-output-contract.ts`, not as prose here:
+>
+> ```
+> SMALL_CELL_K                     = 10
+> MAX_OUTPUT_STRING_LENGTH         = 64
+> CROSS_TABULATIONS                = PROHIBITED
+> NAMED_MUNICIPALITY_COUNTS        = PROHIBITED
+> STACK_OUTPUT                     = PROHIBITED
+> RAW_ROW / RAW_CELL / IDENTITY_KEY OUTPUT = PROHIBITED
+> TOTAL_ROWS_SCANNED               = ALLOWED
+> CNAE_SECTION_COUNTS              = ALLOWED_WITH_SMALL_CELL_SUPPRESSION
+> UF_COUNTS                        = ALLOWED_WITH_SMALL_CELL_SUPPRESSION
+> CAPITAL_SOCIAL_REPORT_BREAKDOWN  = EXCLUDED
+> OPENED_AT_REPORT_BREAKDOWN       = EXCLUDED
+> MUNICIPALITY_REPORT_BREAKDOWN    = EXCLUDED
+> ```
+>
+> **🔴 What the direction CHANGED about 10O § 6, and why it matters.** 10O listed
+> `capital_social_bucket_counts`, `opened_at_bucket_counts` and `municipality_count_distribution` as
+> allowable *subject to GATE-5 fixing their bucket boundaries* (10M § 13). The owner **excluded all
+> three breakdowns instead.** That is a narrowing, and it discharges the 10M § 13 item **by exclusion
+> rather than by a boundary table** — with the breakdown gone there are no boundaries left to fix. The
+> three keys are therefore **absent from the frozen allowlist**, and `OS-A08` makes an absent key
+> forbidden. Their absence is the exclusion being enforced, not an omission, and a test asserts
+> exactly that.
+>
+> **🔴 Two collisions the owner values create — RECORDED, and not resolved by this round.**
+> `TOTAL_ROWS_SCANNED = ALLOWED` is refused today by two invariants that already exist:
+>
+> | id | collides with | owning module | the choice |
+> |----|---------------|---------------|-----------|
+> | `OD-C1` | `BRAZIL_RECEITA_FULL_JOIN_MAX_NUMERIC_LEAF` (9,999,999) | `br-receita-cnpj-full-join-output-sanitizer` (BR-SOURCE-11A) | bucket the field, or record a named-key carve-out from the numeric ceiling |
+> | `OD-C2` | `VP-1` and `VP-4`, on the RENDERED surface | this contract / 10O § 5.3 | bucket the field, or record a named-key carve-out from the digit-run rules |
+>
+> `OD-C1` and `OD-C2` are the same fact twice: an exact dataset-scale figure and a rule against long digit runs
+> cannot both hold on one surface. **BR-SOURCE-11A was not weakened to accommodate the direction** —
+> editing a live privacy invariant to make a convenience fit is how this line loses the invariant it
+> was built to keep. Both are owner decisions, both sit inside the GATE-5 review, and a test asserts
+> both are recorded and neither is claimed resolved.
+>
+> 🔴 **And a third collision, this one INSIDE 10O itself.** `OD-C3`: the residual bucket label 10O § 7
+> **requires** small-cell suppression to emit — `other_or_suppressed_small_cell` — contains `cell`,
+> which 10O § 5.2 group 7 substring-matches. **The one label the mechanism cannot work without is
+> forbidden by the same record's key rule.** This round admits it under the precedence 10O § 5.2 itself
+> states — *"the allowlist governs"* — and edits neither list. The approvers either rename the label to
+> a `cell`-free form or record it as a contract-named exemption.
+>
+> That precedence is load-bearing well beyond the residual label, and it is the finding a future author
+> is most likely to undo. Three keys the frozen § 6 allowlist **requires** — `persisted_rows`,
+> `rows_seen_by_family` and `total_rows_scanned` — trip group 7's deliberately-broad `row` substring.
+> Without *"the allowlist governs"*, **the frozen § 6 report is un-emittable by its own contract**: its
+> two halves refuse each other. The set is enumerated in
+> `BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST` and a test fails if a fourth appears
+> unrecorded. Note which key is in it: `total_rows_scanned`, already named by `OD-C1` and `OD-C2`.
+> **One owner-allowed field refused by three independent rules of the record that allows it** is a
+> signal about the field, and the approvers should read it as one rather than as three carve-outs to
+> grant.
+>
+> **🔴 A residual gap in the frozen rules, named rather than papered over.** `VP-1` … `VP-3` name runs
+> of exactly 8, 11 and 14 positions and `VP-4` names runs *longer* than 14. Runs of **9, 10, 12 and 13**
+> positions are therefore uncovered by the frozen rules as written. This round implements the rules
+> **as frozen** — 10O § 5.3's own warning is against indiscriminate widening — and records the residual.
+> What closes the gap today is 11A's `LONG_DIGIT_RUN`, which matches eight-or-more. That is evidence
+> that 11A is load-bearing rather than redundant, and the approvers should confirm that reading.
+>
+> **What became executable.** In `br-receita-cnpj-gate5-output-guard.ts`, every rule is a predicate:
+> the four-step § 5.2 normalization and the seven closed key groups with their declared match modes;
+> `VP-1` … `VP-10`; the § 6 allowlist as the governing net; small-cell suppression with the
+> single-count residual, complementary suppression, and an outright **failure** state for a family
+> that cannot be made compliant; the § 8.2 error envelope built by a single constructor that sanitizes
+> at construction; and the § 11 closed log field set. `OS-A01` … `OS-A46` are mapped one-to-one:
+> **41 IDs** (10O skips `OS-A29` and `OS-A36` … `OS-A39`), of which **38 are executable and asserted**,
+> **2 are deferred to an implementation that does not exist** (`OS-A24` needs a human-report emitter,
+> `OS-A26` needs an evidence assembler), and **1 is owned by GATE-6** (`OS-A46`, cleanup, made
+> executable in Round 2). **None is deleted and none is weakened**, and the superseded list is empty
+> **as a finding**: an output rule about a value is not obsoleted by that value ceasing to be persisted.
+>
+> **🔴 GATE-5 is still shut, for one exact reason.** `ready_for_review` is § 3's *"evidence complete
+> and submitted; awaiting the named approver"*, and § 15's matrix reads NO-GO for it exactly as for
+> `not_started`. GATE-5 needs the **security / privacy owner AND the test owner, jointly**, and § 3
+> forbids the implementer of a gate's subject from approving it. **This round implemented the subject.**
+> No agent may supply either half.
+>
+> **What this round did NOT do.** It wrote no runner, no report emitter, and no wiring from the guard
+> into any execution path — the guard is pure and reachable only from tests, and a test asserts that no
+> production module imports it. It froze no **report schema**: 10L § 9's constraint holds while GATE-3
+> and GATE-4 are open, and the three contract markers still read `"not_approved"` /
+> `"not_decided"`. It resolved neither GATE-3 nor GATE-4, flipped no flag, applied no migration,
+> touched no real Receita data, ran no benchmark, and authorized no dry-run, import, Supabase write,
+> index change, runtime, or Agent 1 integration.
+
+```
+Gate:                   GATE-5 — Output sanitization contract
+Status:                 ready_for_review  (NOT approved)
+Recorded by:            BR-SOURCE-GATE-ROUND-3, 2026-08-21
+Required approvers:     security/privacy owner AND test owner, jointly
+Approval supplied:      none — and no agent may supply either half
+Frozen values:          k = 10; string ceiling 64; no cross-tabs; no named municipalities;
+                        no stack output; three breakdowns EXCLUDED
+Assertions:             41 accounted for — 38 executable and asserted,
+                        2 deferred to absent implementation, 1 owned by GATE-6;
+                        0 deleted, 0 weakened, 0 superseded
+Open decisions inside
+the review:             OD-C1 and OD-C2 (total_rows_scanned vs the 11A numeric ceiling and
+                        vs VP-1/VP-4); OD-C3 (the § 7 residual label is refused by § 5.2
+                        group 7 — rename it, or record a contract-named exemption);
+                        confirmation that the allowlist-governs precedence is intended,
+                        without which the frozen § 6 report is un-emittable;
+                        confirmation that the three exclusions discharge
+                        10M § 13; confirmation that 11A's LONG_DIGIT_RUN is load-bearing for
+                        the 9/10/12/13-position residual; whether real local manifest paths
+                        are sensitive (10O § 12 flags, does not answer)
+Single remaining
+criterion:              the § 14 joint approval entry, recorded against this executable contract
+Flags flipped:          none
+Machine-readable form:  br-receita-cnpj-gate5-recorded-output-sanitization.ts
+                        br-receita-cnpj-gate5-output-contract.ts
+                        br-receita-cnpj-gate5-output-guard.ts
+```
+
 ---
 
 ## 10. GATE-6 — Failure cleanup contract
@@ -1048,7 +1217,7 @@ slack_write          = false
 **Governs (10J § 13):** confirms 10J § 9 — cleanup on completion **and** failure, with
 `cleanup failed` as a terminal state.
 
-**Status today:** `not_started`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 10.1.** The current status is `ready_for_review`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -1325,7 +1494,7 @@ dry-run safely and reproducibly.
 **Governs (10J § 13):** forces the 10J § 11 no-write flags and the 10J § 12
 `import_executed = false` / `persisted_rows = 0` / all-false safety invariants.
 
-**Status today:** `not_started`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 12.1.** The current status is `APPROVED_AS_CONTRACT`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -1635,6 +1804,8 @@ Recording rules:
 All gates approved            → may propose a future runner implementation PR — still no execution
 Any gate not_started         → NO-GO
 Any gate needs_evidence      → NO-GO
+Any gate needs_owner_confirmation → NO-GO
+Any gate needs_owner_decision → NO-GO
 Any gate ready_for_review    → NO-GO
 Any gate rejected            → NO-GO
 Any gate blocked             → NO-GO
@@ -1651,7 +1822,7 @@ GO for execution              ≠  GO for import
 GO for import                 requires a later, separate import authorization
 ```
 
-**Today's position (as of 2026-08-21, after BR-SOURCE-GATE-ROUND-2):**
+**Today's position (as of 2026-08-21, after BR-SOURCE-GATE-ROUND-3):**
 
 ```
 GATE-1  approved                                          (§ 5.1)
@@ -1668,7 +1839,15 @@ GATE-4  needs_owner_decision — NOT approved. Grain         (§ 8.1)
         decided (option D); persisted identity blocked on
         ONE legal/privacy question. Exact runtime lookup
         is a recorded PRODUCTIZATION BLOCKER.
-GATE-5  not_started
+GATE-5  ready_for_review — NOT approved. Output          (§ 9.1)
+        sanitization contract FROZEN with the owner's
+        values (k = 10, string ceiling 64, no cross-tabs,
+        no named municipalities) and every rule now a
+        PREDICATE. Waiting on the joint security/privacy
+        + test approval, which the implementer of the
+        subject may not give. THREE recorded collisions
+        (OD-C1, OD-C2, OD-C3) sit inside that review, and
+        none is resolved by the round that found them.
 GATE-6  ready_for_review — NOT approved. Executable        (§ 10.1)
         cleanup contract landed; waiting on the joint
         technical + operator approval, which the
@@ -1678,8 +1857,13 @@ GATE-8  approved — AS A CONTRACT                           (§ 12.1)
 ```
 
 Six gates are not approved, so the matrix still reads **NO-GO** — the expected and correct outcome.
-🔴 `ready_for_review` and `needs_owner_decision` are NO-GO exactly as `not_started` is; three gates
+🔴 `ready_for_review` and `needs_owner_decision` are NO-GO exactly as `not_started` is; four gates
 advancing their status is progress in *reviewability*, not in permission.
+
+**Approved: 2 of 8** — GATE-1 (`approved`) and GATE-8 (`APPROVED_AS_CONTRACT`). Not 0, and not 8.
+Both readings have been reported at some point in this series, and both are wrong: the derivation of
+record is `brazilReceitaApprovedGateCount()`, and the verdict of record is
+`brazilReceitaGateGlobalVerdict()`, which returns `NO-GO` unless **every** gate is approved.
 Readings a future reader is most likely to get backwards:
 
 - **GATE-2 is NOT approved.** Its numeric envelope is complete
@@ -1691,9 +1875,14 @@ Readings a future reader is most likely to get backwards:
 - **GATE-8 `APPROVED_AS_CONTRACT` is not permission to write the runner.** Its *Allows* clause is
   conditional on every other gate being approved, and six are not.
 - **GATE-3 recorded a policy, not an approval.** The field policy exists and a
-  `field_allowlist_version` is bound to it; the gate is `needs_evidence` and the 10J § 12 report
-  marker still reads `"not_approved"`. RB-2 (the CNPJ hash rejection diagnostic) is closed; RB-1 and
-  RB-3 are not.
+  `field_allowlist_version` is bound to it; the gate is **`ready_for_review`** and the 10J § 12 report
+  marker still reads `"not_approved"`. RB-1, RB-2 and RB-3 are all closed; the legal/privacy half of
+  the joint approval is what remains.
+  🔴 **Corrected by BR-SOURCE-GATE-ROUND-3.** This bullet read `needs_evidence` and *"RB-1 and RB-3
+  are not [closed]"* — both true when Round 1 wrote it, and both superseded by § 7.2 in Round 2 while
+  the matrix above was updated and this paragraph was not. One document giving two answers about the
+  same gate is the defect the Round-2 post-merge report then reproduced; the consistency guard in
+  `br-receita-cnpj-gate-round3-output-sanitization.test.ts` now fails on a recurrence.
 
 Round 1 closed the GATE-2 numeric envelope (not the gate), the GATE-3 field policy plus its RB-2
 blocker, and GATE-8. **Round 2 closed GATE-3's RB-1 and RB-3, recorded GATE-4, made GATE-6's cleanup
@@ -1713,8 +1902,27 @@ Readings a future reader is most likely to get backwards after Round 2:
 **Standing open items independent of any round:** the GATE-2 bucket-ordinal privacy confirmation, and
 the GATE-4 legal/privacy question — which, if answered `no`, stops Brazil productization at GATE-4.
 
-**Next front: ROUND 3 = GATE-5** (output sanitization), which § 13 places downstream of GATE-3 (which
-counts exist) and GATE-4 (which grain is reported) — both of which are now recorded.
+Readings a future reader is most likely to get backwards after Round 3:
+
+- **GATE-5's rules executing is not GATE-5 being approved.** § 3 forbids the implementer of a subject
+  from approving it, and this round implemented the subject.
+- **The frozen contract did not resolve its own collisions.** `total_rows_scanned` is ALLOWED by owner
+  direction and is refused by BR-SOURCE-11A's numeric-leaf ceiling and by `VP-1` / `VP-4` on the
+  rendered surface. Both are recorded as `OD-C1` / `OD-C2` and both are owner decisions. A third,
+  `OD-C3`, is internal to 10O: the residual bucket label § 7 requires suppression to emit is refused by
+  § 5.2 group 7. All three are owner decisions, and 11A was **not** weakened to accommodate any of them.
+- **The three excluded breakdowns are a decision, not an omission.** `capital_social`, `opened_at` and
+  the municipality distribution are EXCLUDED from the v1 report, which discharges the 10M § 13
+  bucket-boundary item by exclusion rather than by a boundary table.
+- **`VP-1` … `VP-4` do not cover every digit run.** Runs of 9, 10, 12 and 13 positions are uncovered
+  by the frozen rules as written; what closes them today is BR-SOURCE-11A's `LONG_DIGIT_RUN`. That is a
+  reason to keep 11A, not to widen this contract.
+- **The guard is wired into nothing.** It is pure and reachable only from tests; § 4 still forbids
+  full-join runner code, and a test asserts no production module imports it.
+
+**Next front: ROUND 4 = GATE-5's remaining approval plus GATE-7**, whose packet § 10 is updated by this
+round to reflect the now-real GATE-2 ceilings, GATE-5 output contract and GATE-6 cleanup contract.
+GATE-7's `P-05` still fails by construction while any gate is unapproved.
 
 ---
 

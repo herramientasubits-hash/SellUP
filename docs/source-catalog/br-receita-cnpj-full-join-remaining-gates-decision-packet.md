@@ -743,6 +743,53 @@ construction. That is the honest state of GATE-7 and the reason § 3 records tha
 satisfy the gate's pass criteria on its own. A checklist whose first item fails is not a defect of the
 checklist; it is the gate doing its job.
 
+> **Update (BR-SOURCE-GATE-ROUND-3) — three of the four unusable items now have something to check
+> against. `P-05` still does not, and it is the one that matters.**
+>
+> This packet was written when every gate was `not_started` and every ceiling was
+> `TBD_BY_GATE_2_STORAGE_ENVELOPE`. Three rounds of recorded owner decisions changed the inputs, and
+> the preflight is re-scored against them rather than left describing a state that no longer holds:
+>
+> | item | as written | today | why |
+> |------|-----------|-------|-----|
+> | `P-12` free disk above the GATE-2 ceiling | unset; unusable | **checkable** | Round 1 recorded `BRAZIL_RECEITA_GATE2_APPROVED_CAPS`; `maxBytesRead` and the workspace constraints are owner numbers now, not `TBD` |
+> | `P-13` available memory above the GATE-2 ceiling | unset; unusable | **checkable** | same record; the RSS / heap / external ceilings carry owner values |
+> | `P-19` sanitizer configured per the approved GATE-5 contract | unfrozen; unusable | **checkable against a FROZEN contract, not an APPROVED one** | Round 3 froze the output contract with `k = 10` and a 64-character ceiling, and made every rule a predicate (10K § 9.1) |
+> | `P-20` cleanup policy acknowledged | acknowledgeable only as prose | **executable** | Round 2 made GATE-6's cleanup contract code, with verified deletion on both paths (10K § 10.1) |
+> | `P-21` envelope declared, E2 only if GATE-2 approved it | undeclarable | **partially** | the envelope is chosen (Option C); GATE-2 itself is `needs_owner_confirmation`, so an E2 declaration still has no approval to rest on |
+> | `P-05` gate status verified: all eight approved | **FAILS by construction** | **STILL FAILS by construction** | 2 of 8 approved. Nothing in three rounds changed this, and nothing an agent can do will |
+>
+> 🔴 **Two distinctions this re-scoring must not blur.**
+>
+> - **`P-19` is checkable, not satisfied.** A frozen contract is a thing to check a configuration
+>   against. GATE-5 is `ready_for_review`, not `approved`, and the item's own wording says *"per the
+>   **approved** GATE-5 contract"*. It moves from *unusable* to *usable and failing*, which is
+>   progress in the checklist and not in the gate.
+> - **`P-12` / `P-13` are checkable against OWNER DECISION values, not measurements.**
+>   `BRAZIL_RECEITA_GATE2_OWNER_DECIDED_CAPS_CLASSIFICATION` says so in three words —
+>   `OWNER_DECISION_VALUE`, `NOT_OBSERVED_MEASUREMENT`, and matching the standing benchmark proposal
+>   by the owner's choice. An operator checking free disk against them is checking against a decision,
+>   which is what a ceiling is, and not against a proven envelope.
+>
+> **What remains before GATE-7 can move to `ready_for_review`.** Four things, and none is a document:
+>
+> ```
+> 1. the runbook SECTION itself must exist — this packet contains its CONTRACT, not the runbook
+> 2. GATE-2 must be approved      (today: needs_owner_confirmation — the bucket-ordinal
+>                                  privacy confirmation is outstanding)
+> 3. GATE-5 must be approved      (today: ready_for_review — the joint security/privacy +
+>                                  test approval is outstanding)
+> 4. GATE-6 must be approved      (today: ready_for_review — the joint technical + operator
+>                                  approval is outstanding)
+> ```
+>
+> And one thing that is NOT on that list, deliberately: *reproducible by a different operator* remains
+> **undemonstrated**. A contract can define the steps; only a rehearsal against real ceilings can prove
+> reproducibility, and no execution is authorized. GATE-7's own approvers — operator, technical and
+> privacy owners, jointly — decide whether a contract plus three approved upstream gates is enough to
+> review, or whether they require the rehearsal first. That is their call and this packet does not make
+> it for them.
+
 ### 6.3 Proposed stop conditions
 
 Any one of these **stops the run and blocks a retry** until an operator resolves it and records the
@@ -1105,6 +1152,40 @@ For owner review. **Evidence documentation assembled ≠ owner approval.** Every
 | **GATE-7** Operator runbook | **This packet § 6, § 7**; 10J § 16; 10K § 11; 10L § 11 | `partial_evidence_collected` — runbook *contract* assembled; **the runbook section itself still does not exist** | not approved; operator + technical + privacy owners jointly | `not_started` | GATE-2 (no ceilings for `P-12`/`P-13`), GATE-5 (no frozen scan contract for `P-19`), GATE-6 (cleanup verification), and `P-05` failing by construction while any gate is unapproved |
 | **GATE-8** No-write / no-runtime | **This packet § 8, § 9**; 10J § 11, § 12; 10K § 12; 10L § 12 | `partial_evidence_collected` — guard contract, rejection codes, rejection ordering, evidence contract, and the no-write test list assembled; **proofs unobtainable** | not approved; repo safety + technical owners jointly | `not_started` | The approvers' recorded contract-now / proofs-at-implementation split (§ 8.3); the proofs themselves land with an implementation that 10K § 4 forbids writing |
 
+> **Update (BR-SOURCE-GATE-ROUND-3) — the table above is the state as this packet was WRITTEN. It is
+> retained as the historical record and is NOT the current state.**
+>
+> Every "Current status" cell above reads `not_started` and the summary below reads `gates approved =
+> 0 of 8`. Both were true on 2026-07-29 and neither is true now. Three rounds of recorded owner
+> decisions have moved four gates, and the authoritative current view is
+> [10K § 15](./br-receita-cnpj-full-join-approval-gates-checklist.md) with its machine-readable form
+> `BRAZIL_RECEITA_GATE_CURRENT_STATE`. Re-stated here so this packet cannot be cited for a state it no
+> longer describes:
+>
+> | Gate | Current status | Approved? | The single thing outstanding |
+> |------|----------------|-----------|------------------------------|
+> | **GATE-1** Legal/Privacy | `approved` (§ 5.1) | **yes** | — recorded by the legal/privacy owner, 2026-08-21 |
+> | **GATE-2** Temporary storage | `needs_owner_confirmation` (§ 6.1) | no | the bucket-ordinal privacy disposition has no attributable privacy-owner source. Ceilings are COMPLETE; the gate is not |
+> | **GATE-3** Field allowlist | `ready_for_review` (§ 7.2) | no | the legal/privacy half of the joint approval. RB-1, RB-2, RB-3 all closed |
+> | **GATE-4** Identity grain | `needs_owner_decision` (§ 8.1) | no | ONE legal/privacy question. Grain decided (option D); exact runtime lookup is a recorded PRODUCTIZATION BLOCKER |
+> | **GATE-5** Output sanitization | `ready_for_review` (§ 9.1) | no | the joint security/privacy + test approval. Contract FROZEN (`k = 10`, ceiling 64); 38 of 41 assertions executable; `OD-C1` … `OD-C3` sit inside the review |
+> | **GATE-6** Failure cleanup | `ready_for_review` (§ 10.1) | no | the joint technical + operator approval. Cleanup contract is CODE, with verified deletion on both paths |
+> | **GATE-7** Operator runbook | `not_started` (§ 11) | no | the runbook SECTION does not exist; GATE-2, GATE-5 and GATE-6 all still block it; `P-05` fails by construction |
+> | **GATE-8** No-write / no-runtime | `APPROVED_AS_CONTRACT` (§ 12.1) | **as a contract** | its proofs are deferred to an implementation 10K § 4 forbids writing. Its *Allows* clause is conditional on every other gate being approved |
+>
+> ```
+> gates approved  =  2 of 8      (GATE-1, and GATE-8 as a contract)
+> global verdict  =  NO-GO
+> ```
+>
+> 🔴 **What has NOT changed, and is the whole point of the table.** Five gates hold assembled,
+> executable evidence and are still shut. The pattern behind every one of the five is the same and it
+> is not an accident: **the outstanding item is always a named human's decision, and 10K § 3 forbids
+> the party that implemented a gate's subject from supplying it.** Three rounds of work moved
+> reviewability and moved permission not at all. A future reader looking for the shortcut should note
+> that the two gates no document in this series can advance — GATE-1 and GATE-2 — are still the two
+> everything waits on, and GATE-1 only stopped being one because a human decided it.
+
 Rules that hold across the whole table:
 
 ```
@@ -1152,8 +1233,20 @@ cleanup implementation = absent
 CLI guard             = absent
 operator runbook (full join) = absent
 Supabase writes       = false
-gates approved        = 0 of 8
+gates approved        = 0 of 8          ← as WRITTEN, 2026-07-29
 ```
+
+> **Update (BR-SOURCE-GATE-ROUND-3).** `gates approved` is **2 of 8** — GATE-1 `approved` and GATE-8
+> `APPROVED_AS_CONTRACT`. Every other line in the block above still holds unchanged: import,
+> production import, runtime and Agent 1 are all `false`; the full-join runner is **absent and still
+> forbidden to write** (10K § 4); Supabase writes are `false`. Rounds 1–3 added recorded decisions,
+> an executable cleanup contract and an executable output-sanitization guard — the guard is pure and
+> wired into no execution path, and a test asserts that no production module imports it.
+>
+> The three `false` states below likewise stand: `FULL_JOIN_RUNNER_READY`, `FULL_JOIN_EXECUTION_READY`,
+> `IMPORT_READY`, `RUNTIME_READY` and `AGENT1_READY` are all still `false`, and
+> `ATTEMPT_3_ALLOWED` — the real-benchmark third attempt — remains `false` in
+> `br-receita-cnpj-real-benchmark-attempt-ledger.ts`.
 
 **States:**
 

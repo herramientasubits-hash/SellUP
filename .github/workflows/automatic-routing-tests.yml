@@ -2486,6 +2486,47 @@ jobs:
       - name: Run BR-SOURCE gate round 2 identity and cleanup tests
         run: npm run test:br-source:gate-round2-identity-cleanup
 
+      # BR-SOURCE-GATE-ROUND-3 — saneamiento de salida (GATE-5) y la LECTURA del estado.
+      #
+      # Lo que esta suite congela:
+      #
+      #   · GATE-5: contrato de salida CONGELADO con los valores del dueño (k = 10, techo de
+      #     cadena 64, sin cross-tabs, sin municipios nombrados, sin stack) y cada regla
+      #     convertida en PREDICADO. 10O decía literalmente «No test is written here»; las
+      #     dos reglas que eran inaplicables por falta de número (OS-A19 y VP-8) ya se
+      #     aplican. GATE-5 queda `ready_for_review`, NO aprobado.
+      #   · 🔴 El ALLOWLIST GOBIERNA. Sin esa precedencia el contrato se rechaza a sí mismo:
+      #     `persisted_rows`, `rows_seen_by_family` y `total_rows_scanned` —tres claves que
+      #     el § 6 EXIGE— disparan el grupo 7 del denylist por el substring `row`. Se
+      #     enumeran, y un test falla si aparece una cuarta sin registrarse.
+      #   · 🔴 Tres colisiones REGISTRADAS y NO resueltas. `total_rows_scanned` está
+      #     ALLOWED por el dueño y lo rechazan (OD-C1) el techo numérico de 11A y (OD-C2)
+      #     VP-1/VP-4 ya renderizado. (OD-C3) la etiqueta residual que el § 7 OBLIGA a
+      #     emitir —`other_or_suppressed_small_cell`— la prohíbe el § 5.2 grupo 7 por
+      #     `cell`. 🔴 BR-SOURCE-11A NO se debilitó para que encajaran.
+      #   · 🔴 VP-1..VP-4 NO cubren toda tirada de dígitos: 9, 10, 12 y 13 posiciones quedan
+      #     fuera de las reglas congeladas, y hoy sólo las cierra `LONG_DIGIT_RUN` de 11A.
+      #     Se registra el hueco en vez de ensanchar el contrato.
+      #   · supresión de celda pequeña como MECANISMO: residual de UN solo conteo (sin
+      #     tally ni etiquetas), supresión COMPLEMENTARIA, absorción hasta superar k, y
+      #     FALLO explícito cuando una familia no puede cumplirse.
+      #   · errores saneados en CONSTRUCCIÓN: sobre no-Error congelado, sin `stack` y sin
+      #     `message` donde interpolar; código desconocido → `unclassified_failure`.
+      #   · guarda negativa de consola: 0 `console.*` y 0 `process.std*.write` en el
+      #     conector BR. Una llamada futura rompe este paso.
+      #   · LECTURA DEL ESTADO: el informe post-merge de la ronda 2 dijo «8 not_started»
+      #     leyendo líneas `Status today` históricas. Ahora cada línea obsoleta lleva
+      #     `SUPERSEDED BY §X.Y`, el vocabulario de estado declara los tres valores que las
+      #     rondas añadieron, y un guard estático falla si la prosa por sección contradice
+      #     el resumen. Estado real: 2 de 8 aprobadas, veredicto NO-GO.
+      #   · la guarda se conecta a NADA: es pura, sólo alcanzable desde tests, y un test
+      #     afirma que ningún módulo de producción la importa.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales de Receita,
+      # sin benchmark. 0 créditos, 0 escrituras, 0 migraciones.
+      - name: Run BR-SOURCE gate round 3 output sanitization tests
+        run: npm run test:br-source:gate-round3-output-sanitization
+
       # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 20 — la demanda RESIDUAL y la
       # memoria PREVIA.
       #
