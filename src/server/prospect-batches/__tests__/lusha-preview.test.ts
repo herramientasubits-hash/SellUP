@@ -57,7 +57,7 @@ function makeCompany(overrides: Partial<LushaCompanyProspectingV3Company> = {}):
 const HEALTHCARE_CRITERIA: LushaPreviewCriteria = {
   expectedCountryName: 'Colombia',
   expectedCountryIso2: 'CO',
-  sectorKey: 'healthcare',
+  industryKey: 'health_pharma',
   sectorLabel: 'Salud',
   matchKeywords: resolveLushaSectorOption('healthcare')!.matchKeywords,
   sizeBand: { min: 201, max: 5000 },
@@ -245,7 +245,7 @@ describe('C. normalización y gate', () => {
 describe('D. executeLushaPreview boundaries', () => {
   const baseInput: LushaPreviewInput = {
     countryCode: 'CO',
-    sectorKey: 'healthcare',
+    macroIndustryKey: 'health_pharma',
     subIndustryId: null,
     sizeBandKey: '201-5000',
     searchText: null,
@@ -352,7 +352,37 @@ describe('D. executeLushaPreview boundaries', () => {
     assert.equal(res.status, 'provider_error');
   });
 
-  test('sector no soportado → missing_mapping (sin llamar a Lusha)', async () => {
+  test('industria no soportada → missing_mapping (sin llamar a Lusha)', async () => {
+    // ROUTING-CUTOVER-1 § 7 — fail-closed por las DOS vías de identidad.
+    for (const input of [
+      // macro inexistente
+      { ...baseInput, macroIndustryKey: 'nope' },
+      // Educación: existe en Lusha, NO es macro de SellUp
+      { ...baseInput, macroIndustryKey: 'education' },
+      // sin ninguna identidad de industria
+      { ...baseInput, macroIndustryKey: null },
+      // sólo el vocabulario legacy, y desconocido
+      { ...baseInput, macroIndustryKey: null, sectorKey: 'nope' },
+    ]) {
+      let searchCalls = 0;
+      const deps: LushaPreviewDeps = {
+        resolveApiKey: async () => 'fake-key',
+        searchCompanies: async () => {
+          searchCalls++;
+          return okProviderResult([]);
+        },
+      };
+      const res = await executeLushaPreview(deps, input);
+      assert.equal(res.status, 'missing_mapping', JSON.stringify(input));
+      // No se pide ni la credencial ni la búsqueda: se falla antes.
+      assert.equal(searchCalls, 0);
+    }
+  });
+
+  test('🔴 la macro MANDA: un sectorKey basura no abre una ruta legacy', async () => {
+    // § 5 — precedencia ESTRICTA. Si el sector legacy fuera un respaldo cuando la
+    // macro no resuelve, una macro inválida se convertiría en una búsqueda legacy
+    // silenciosa, que es justo la doble autoridad que este hito retira.
     let searchCalls = 0;
     const deps: LushaPreviewDeps = {
       resolveApiKey: async () => 'fake-key',
@@ -361,9 +391,25 @@ describe('D. executeLushaPreview boundaries', () => {
         return okProviderResult([]);
       },
     };
-    const res = await executeLushaPreview(deps, { ...baseInput, sectorKey: 'nope' });
-    assert.equal(res.status, 'missing_mapping');
-    assert.equal(searchCalls, 0);
+    // macro VÁLIDA + sector basura ⇒ manda la macro y la búsqueda ocurre.
+    const ok = await executeLushaPreview(deps, {
+      ...baseInput,
+      macroIndustryKey: 'health_pharma',
+      sectorKey: 'nope',
+    });
+    assert.notEqual(ok.status, 'missing_mapping');
+    assert.equal(ok.requestSummary.macroIndustryKey, 'health_pharma');
+    assert.equal(searchCalls, 1);
+
+    // macro INVÁLIDA + sector VÁLIDO ⇒ falla cerrada; no cae al sector.
+    const closed = await executeLushaPreview(deps, {
+      ...baseInput,
+      macroIndustryKey: 'nope',
+      sectorKey: 'healthcare',
+    });
+    assert.equal(closed.status, 'missing_mapping');
+    assert.equal(closed.requestSummary.macroIndustryKey, null);
+    assert.equal(searchCalls, 1, 'no debe haber una segunda llamada al proveedor');
   });
 
   test('success con creditsCharged expuesto en billing (máx 1)', async () => {

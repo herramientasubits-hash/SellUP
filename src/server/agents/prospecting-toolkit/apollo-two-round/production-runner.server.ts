@@ -123,6 +123,14 @@ import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
 import { loadActiveApolloOrganizationEnrichmentPricing } from '@/modules/usage-tracking/provider-pricing';
 import { writeProspectingCandidates } from '../candidate-writer';
 import type { CandidatePersistenceOutcome } from '../prospect-candidate-persistence-readiness';
+// AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — adoption of the existing,
+// provider-neutral official-source intake seam (see the module docstring for
+// the full seam and the safety rationale).
+import { deriveOfficialIdentityForApolloCandidate } from './apollo-shared-intake-bridge';
+// Provider-neutral wiring — the SAME resolver factory the Lusha flow uses
+// (`lusha-pending-review-actions.ts`), not an Apollo-specific copy.
+import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
+import type { ProspectSearchCriteria } from '@/server/agents/prospect-intake';
 import {
   loadDiscoveryNegativeMemory,
   emptyNegativeMemory,
@@ -2092,6 +2100,60 @@ export async function runApolloTwoRoundWizardDiscovery(
     });
   };
 
+  // AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — official-source search criteria for
+  // the shared intake seam. Built once per run, not per candidate; the resolver
+  // set (read-only Colombia co_siis) is also built once and reused across every
+  // candidate this run persists.
+  //
+  // `ProspectSearchCriteria.subindustry` is intentionally left unset here: it
+  // is a single string field and a wizard run can request several
+  // subindustries — reading only `subindustries[0]` is the exact anti-pattern
+  // `agent1-subindustry-fail-closed-target-integrity-1.test.ts` guards
+  // against elsewhere in this file. The Colombia resolver's `canResolve` /
+  // `resolve` never branch on `subindustry` (only country + candidate name),
+  // so omitting it costs nothing today; a future resolver that does need it
+  // should carry the FULL list, not the first element.
+  const officialSourceCriteria: ProspectSearchCriteria = {
+    country: input.country,
+    countryCode: input.countryCode,
+    sector: input.industry,
+  };
+  const officialSourceResolvers = buildColombiaOfficialSourceResolvers();
+
+  /**
+   * AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — runs the shared, provider-neutral
+   * official-source seam (adapter → normalize → official enrichment) on an
+   * already-built Apollo candidate, AFTER the cheap pre-spend dedupe and paid
+   * enrichment have already run. When a strong tax identity is found, also
+   * re-runs the EXISTING tax-aware duplicate checker and lets its result
+   * override the candidate's `duplicateCheck` — the writer already derives
+   * `duplicate_status` / `matched_account_id` / `matched_hubspot_company_id`
+   * purely from that field, so no writer change is needed for the recheck to
+   * take effect.
+   */
+  const withOfficialSourceIdentity = async (
+    built: ProspectingPipelineCandidate,
+    evidence: WebSearchResult | null,
+  ): Promise<ProspectingPipelineCandidate> => {
+    const outcome = await deriveOfficialIdentityForApolloCandidate({
+      candidate: built,
+      webSearchResult: evidence,
+      criteria: officialSourceCriteria,
+      resolvers: officialSourceResolvers,
+    });
+    return {
+      ...built,
+      officialSourceIdentity: {
+        officialSourceMetadata: outcome.officialSourceMetadata,
+        typedColumns: outcome.typedColumns,
+        strongIdentityAvailable: outcome.strongIdentityAvailable,
+      },
+      ...(outcome.strongDuplicateRecheck
+        ? { duplicateCheck: outcome.strongDuplicateRecheck }
+        : {}),
+    };
+  };
+
   const resolvePersistableCandidates = async (): Promise<ProspectingPipelineCandidate[]> => {
     const resolved: ProspectingPipelineCandidate[] = [];
     // AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § D — las ambiguas viajan al
@@ -2104,19 +2166,24 @@ export async function runApolloTwoRoundWizardDiscovery(
     // sólo va a revisión.
     for (const entry of [...runResult.persisted, ...runResult.reviewOnly]) {
       const capture = buildEnrichmentCapture(entry.candidateKey);
+      const evidenceForOfficialSource = readEvidenceResult(evidenceByKey, entry.candidateKey);
       const cached = assessmentByKey.get(entry.candidateKey);
       if (cached) {
         // El veredicto sectorial de la modalidad viaja con el candidato: es lo
         // que permite al writer distinguir `subindustry_match = confirmed` de
         // «nadie lo evaluó», sin volver a llamar al gate ni al proveedor.
-        resolved.push({
-          ...cached.candidate,
-          sectorEvidenceState: entry.sectorEvidenceState,
-          providerEnrichmentCapture: capture,
-        });
+        const withIdentity = await withOfficialSourceIdentity(
+          {
+            ...cached.candidate,
+            sectorEvidenceState: entry.sectorEvidenceState,
+            providerEnrichmentCapture: capture,
+          },
+          evidenceForOfficialSource,
+        );
+        resolved.push(withIdentity);
         continue;
       }
-      const evidence = readEvidenceResult(evidenceByKey, entry.candidateKey);
+      const evidence = evidenceForOfficialSource;
       if (evidence === null) continue;
       const rebuilt = await deps.buildCandidate(evidence, {
         country: input.country,
@@ -2132,7 +2199,11 @@ export async function runApolloTwoRoundWizardDiscovery(
         duplicate: readDuplicateVerdict(rebuilt.candidate),
         checkedDomain: entry.identity.normalizedDomain,
       });
-      resolved.push({ ...rebuilt.candidate, providerEnrichmentCapture: capture });
+      const withIdentity = await withOfficialSourceIdentity(
+        { ...rebuilt.candidate, providerEnrichmentCapture: capture },
+        evidence,
+      );
+      resolved.push(withIdentity);
     }
     return resolved;
   };

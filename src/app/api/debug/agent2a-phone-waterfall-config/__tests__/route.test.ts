@@ -16,7 +16,11 @@
 
 import { describe, it, mock, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { PHONE_REVEAL_WATERFALL_FLAG } from '@/lib/feature-flags.server';
+import {
+  LUSHA_PHONE_REVEAL_FALLBACK_FLAG,
+  PHONE_REVEAL_WATERFALL_FLAG,
+  SEARCH_MORE_PHONES_FLAG,
+} from '@/lib/feature-flags.server';
 
 type SupabaseStub = {
   auth: { getUser: () => Promise<{ data: { user: { id: string } | null } }> };
@@ -213,5 +217,202 @@ describe('§ 11 · sanitización y cache', () => {
     const body = await (await callAs(ADMIN)).json();
     assert.equal(body.phone_reveal_waterfall_flag_name, PHONE_REVEAL_WATERFALL_FLAG);
     assert.ok('runtime_sha' in body);
+  });
+});
+
+// ── El SEGUNDO flag de teléfono (AGENT2A-SEARCH-MORE-PHONES-1E) ───
+
+/**
+ * `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` se publica con el MISMO par presencia/resolución
+ * que el waterfall, y estos tests existen porque el caso que motivó añadirlo es
+ * silencioso: con este flag OFF el planificador de «Buscar más números» devuelve
+ * `feature_disabled`, cuyo copy es `null` a propósito, así que la UI no pinta CTA NI
+ * explicación. Eso es indistinguible a ojo de un preflight roto, y sin estas dos señales
+ * la única forma de decidir cuál de los dos ocurrió era adivinar.
+ *
+ * Se verifica lo mismo que para el waterfall: los TRES estados, que el valor crudo no
+ * sale, y que las dos señales son independientes entre sí.
+ */
+function withLushaFallbackFlag(value: string | undefined): () => void {
+  const previous = process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG];
+  if (value === undefined) delete process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG];
+  else process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG] = value;
+  return () => {
+    if (previous === undefined) delete process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG];
+    else process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG] = previous;
+  };
+}
+
+let restoreLushaFlag: (() => void) | null = null;
+
+afterEach(() => {
+  restoreLushaFlag?.();
+  restoreLushaFlag = null;
+});
+
+describe('1E · estados del flag de fallback de Lusha', () => {
+  it('publica el nombre del flag', async () => {
+    restoreLushaFlag = withLushaFallbackFlag('true');
+    const body = await (await callAs(ADMIN)).json();
+    assert.equal(
+      body.lusha_phone_reveal_fallback_flag_name,
+      LUSHA_PHONE_REVEAL_FALLBACK_FLAG,
+    );
+  });
+
+  it('ausente → configured=false, resolved=false', async () => {
+    restoreLushaFlag = withLushaFallbackFlag(undefined);
+    const response = await callAs(ADMIN);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.lusha_phone_reveal_fallback_flag_configured, false);
+    assert.equal(body.lusha_phone_reveal_fallback_enabled_resolved, false);
+  });
+
+  it('presente pero NO "true" → configured=true, resolved=false', async () => {
+    // EL caso que las dos señales existen para separar: la variable está registrada en
+    // Vercel —así que `vercel env ls` la lista— y sin embargo el fallback está APAGADO.
+    restoreLushaFlag = withLushaFallbackFlag('false');
+    const body = await (await callAs(ADMIN)).json();
+    assert.equal(body.lusha_phone_reveal_fallback_flag_configured, true);
+    assert.equal(body.lusha_phone_reveal_fallback_enabled_resolved, false);
+  });
+
+  it('presente y "true" → configured=true, resolved=true', async () => {
+    restoreLushaFlag = withLushaFallbackFlag('true');
+    const body = await (await callAs(ADMIN)).json();
+    assert.equal(body.lusha_phone_reveal_fallback_flag_configured, true);
+    assert.equal(body.lusha_phone_reveal_fallback_enabled_resolved, true);
+  });
+
+  it('NO devuelve el valor crudo, y los dos flags son independientes', async () => {
+    // Un valor inventado y reconocible: si el endpoint lo filtrara, aparecería literal.
+    restoreLushaFlag = withLushaFallbackFlag('  TrUe  ');
+    restoreFlag = withFlag('false');
+    const response = await callAs(ADMIN);
+    const raw = JSON.stringify(await response.json());
+    assert.ok(!raw.includes('TrUe'), 'no debe filtrar el valor crudo del flag');
+
+    const body = await (await callAs(ADMIN)).json();
+    assert.equal(body.lusha_phone_reveal_fallback_flag_value, undefined);
+    // `trim()` + case-insensitive ⇒ resuelve activo; el waterfall sigue apagado. Que un
+    // flag no arrastre al otro es lo que permite leer el diagnóstico sin ambigüedad.
+    assert.equal(body.lusha_phone_reveal_fallback_enabled_resolved, true);
+    assert.equal(body.phone_reveal_waterfall_enabled_resolved, false);
+  });
+});
+
+// ── El flag DEDICADO de «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1H) ─────
+
+/**
+ * `ENABLE_SEARCH_MORE_PHONES` reemplaza a `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` como el
+ * permiso de producto de «Buscar más números» (1H). El punto de esta suite no es sólo
+ * repetir los tres estados del flag —eso ya lo hacía 1E para el flag anterior— sino
+ * probar que los DOS flags son INDEPENDIENTES: activar uno no resuelve el otro como
+ * activo, en ninguna de las dos direcciones. Es la prueba en runtime de lo que
+ * `search-more-phones-flag-independence-static.test.ts` prueba en código.
+ */
+function withSearchMorePhonesFlag(value: string | undefined): () => void {
+  const previous = process.env[SEARCH_MORE_PHONES_FLAG];
+  if (value === undefined) delete process.env[SEARCH_MORE_PHONES_FLAG];
+  else process.env[SEARCH_MORE_PHONES_FLAG] = value;
+  return () => {
+    if (previous === undefined) delete process.env[SEARCH_MORE_PHONES_FLAG];
+    else process.env[SEARCH_MORE_PHONES_FLAG] = previous;
+  };
+}
+
+let restoreSearchMoreFlag: (() => void) | null = null;
+
+afterEach(() => {
+  restoreSearchMoreFlag?.();
+  restoreSearchMoreFlag = null;
+});
+
+describe('1H · estados del flag dedicado de «Buscar más números»', () => {
+  it('publica el nombre del flag', async () => {
+    restoreSearchMoreFlag = withSearchMorePhonesFlag('true');
+    const body = await (await callAs(ADMIN)).json();
+    assert.equal(body.search_more_phones_flag_name, SEARCH_MORE_PHONES_FLAG);
+    assert.equal(SEARCH_MORE_PHONES_FLAG, 'ENABLE_SEARCH_MORE_PHONES');
+  });
+
+  it('ausente → configured=false, resolved=false', async () => {
+    restoreSearchMoreFlag = withSearchMorePhonesFlag(undefined);
+    const response = await callAs(ADMIN);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.search_more_phones_flag_configured, false);
+    assert.equal(body.search_more_phones_enabled_resolved, false);
+  });
+
+  it('presente pero NO "true" → configured=true, resolved=false', async () => {
+    restoreSearchMoreFlag = withSearchMorePhonesFlag('false');
+    const body = await (await callAs(ADMIN)).json();
+    assert.equal(body.search_more_phones_flag_configured, true);
+    assert.equal(body.search_more_phones_enabled_resolved, false);
+  });
+
+  it('presente y "true" → configured=true, resolved=true', async () => {
+    restoreSearchMoreFlag = withSearchMorePhonesFlag('true');
+    const body = await (await callAs(ADMIN)).json();
+    assert.equal(body.search_more_phones_flag_configured, true);
+    assert.equal(body.search_more_phones_enabled_resolved, true);
+  });
+
+  it('NO devuelve el valor crudo', async () => {
+    restoreSearchMoreFlag = withSearchMorePhonesFlag('  TrUe  ');
+    const response = await callAs(ADMIN);
+    const raw = JSON.stringify(await response.json());
+    assert.ok(!raw.includes('TrUe'), 'no debe filtrar el valor crudo del flag');
+    const body = await (await callAs(ADMIN)).json();
+    assert.equal(body.search_more_phones_flag_value, undefined);
+    assert.equal(body.search_more_phones_enabled_resolved, true);
+  });
+
+  describe('independencia — CASO A/B/C/D', () => {
+    it('CASO A — search_more=false, lusha_fallback=false ⇒ ninguno resuelve activo', async () => {
+      restoreSearchMoreFlag = withSearchMorePhonesFlag('false');
+      restoreLushaFlag = withLushaFallbackFlag('false');
+      const body = await (await callAs(ADMIN)).json();
+      assert.equal(body.search_more_phones_enabled_resolved, false);
+      assert.equal(body.lusha_phone_reveal_fallback_enabled_resolved, false);
+    });
+
+    it('CASO B — search_more=false, lusha_fallback=true ⇒ «Buscar más números» sigue apagado', async () => {
+      restoreSearchMoreFlag = withSearchMorePhonesFlag('false');
+      restoreLushaFlag = withLushaFallbackFlag('true');
+      const body = await (await callAs(ADMIN)).json();
+      assert.equal(
+        body.search_more_phones_enabled_resolved,
+        false,
+        'el fallback de Lusha activo NO debe encender «Buscar más números»',
+      );
+      assert.equal(body.lusha_phone_reveal_fallback_enabled_resolved, true);
+    });
+
+    it('CASO C (la prueba crítica) — search_more=true, lusha_fallback=false ⇒ «Buscar más números» SÍ resuelve activo', async () => {
+      restoreSearchMoreFlag = withSearchMorePhonesFlag('true');
+      restoreLushaFlag = withLushaFallbackFlag('false');
+      const body = await (await callAs(ADMIN)).json();
+      assert.equal(
+        body.search_more_phones_enabled_resolved,
+        true,
+        '«Buscar más números» debe poder activarse SIN el fallback manual de Lusha',
+      );
+      assert.equal(
+        body.lusha_phone_reveal_fallback_enabled_resolved,
+        false,
+        'activar «Buscar más números» NO debe encender el fallback manual de Lusha',
+      );
+    });
+
+    it('CASO D — search_more=true, lusha_fallback=true ⇒ ambos resuelven activos, sin acoplarse entre sí', async () => {
+      restoreSearchMoreFlag = withSearchMorePhonesFlag('true');
+      restoreLushaFlag = withLushaFallbackFlag('true');
+      const body = await (await callAs(ADMIN)).json();
+      assert.equal(body.search_more_phones_enabled_resolved, true);
+      assert.equal(body.lusha_phone_reveal_fallback_enabled_resolved, true);
+    });
   });
 });

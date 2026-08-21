@@ -47,59 +47,37 @@
 import type { WebSearchResult } from './types';
 import {
   getMacroIndustryByKey,
-  normalizeMacroIndustryLabel,
   resolveMacroIndustryByDisplayName,
   type MacroIndustryDefinition,
 } from '@/modules/macro-industry-catalog/macro-industries';
+// AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 § 5 — la DECISIÓN (exclusión → confirmación
+// → padre solo → rechazo medido) vive ahora en el núcleo proveedor-neutral del
+// catálogo, y la ruta Lusha la reutiliza sin copiar una segunda taxonomía. Aquí
+// queda lo único que era de Apollo: de qué campos salen las dos listas de texto.
+import {
+  MACRO_INDUSTRY_EVIDENCE_VERSION,
+  assessDeclaredMacroIndustryEvidence,
+  unresolvedMacroIndustryEvidence,
+  type MacroIndustryEvidenceAssessment,
+  type MacroIndustryEvidenceReason,
+  type MacroIndustryEvidenceVerdict,
+} from '@/modules/macro-industry-catalog/macro-industry-evidence-core';
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
-export const APOLLO_MACRO_INDUSTRY_EVIDENCE_VERSION = 'v1.MIE-1';
-
-// ─── Contrato ─────────────────────────────────────────────────────────────────
-
 /**
- * Veredicto sobre la macro industria PEDIDA.
- *
- * `confirmed` La evidencia declarada por el proveedor prueba pertenencia.
- * `ambiguous` Hay indicios compatibles, o no hay evidencia. No prueba nada.
- * `rejected`  La industria declarada pertenece a otra macro industria.
+ * Se re-exporta el identificador del núcleo neutral en lugar de escribir otro:
+ * dos constantes con el mismo valor podrían separarse, y la metadata de un
+ * candidato dejaría de decir qué regla lo juzgó.
  */
-export type MacroIndustryEvidenceVerdict = 'confirmed' | 'ambiguous' | 'rejected';
+export const APOLLO_MACRO_INDUSTRY_EVIDENCE_VERSION = MACRO_INDUSTRY_EVIDENCE_VERSION;
 
-/** Por qué salió ese veredicto. Códigos estáticos: sin nombres de empresa. */
-export type MacroIndustryEvidenceReason =
-  /** Un término confirmatorio apareció en un campo declarado por el proveedor. */
-  | 'confirming_term_in_declared_evidence'
-  /** La industria declarada está en la lista de exclusión de esta macro industria. */
-  | 'excluding_industry_declared'
-  /** Sólo apareció la industria PADRE: contiene a la macro industria sin demostrarla. */
-  | 'parent_industry_only'
-  /** El proveedor declaró una industria y no encaja en esta macro industria. */
-  | 'declared_industry_outside_macro'
-  /** El proveedor entregó texto clasificatorio pero nada coincidió. */
-  | 'declared_evidence_without_match'
-  /** El proveedor no entregó ningún campo con carga clasificatoria. */
-  | 'no_provider_evidence'
-  /** La macro industria pedida no existe en el catálogo. Fail-closed. */
-  | 'macro_industry_unresolved';
+// ─── Contrato (re-exportado del núcleo neutral) ───────────────────────────────
 
-export type MacroIndustryEvidenceAssessment = {
-  version: typeof APOLLO_MACRO_INDUSTRY_EVIDENCE_VERSION;
-  verdict: MacroIndustryEvidenceVerdict;
-  reason: MacroIndustryEvidenceReason;
-  /** Clave canónica evaluada. `null` cuando no se pudo resolver. */
-  macroIndustryKey: string | null;
-  /** Términos confirmatorios que coincidieron. Vacío salvo en `confirmed`. */
-  matchedConfirmingTerms: string[];
-  /** Industrias del padre que coincidieron. Diagnóstico; nunca confirman solas. */
-  matchedParentIndustries: string[];
-  /** Industrias excluyentes que coincidieron. No vacío ⇒ `rejected`. */
-  matchedExcludingIndustries: string[];
-  /** Campos con carga clasificatoria que el proveedor SÍ entregó. */
-  providerEvidenceFields: string[];
-  /** ¿El proveedor declaró alguna industria (no sólo keywords/descripciones)? */
-  declaredIndustryPresent: boolean;
+export type {
+  MacroIndustryEvidenceVerdict,
+  MacroIndustryEvidenceReason,
+  MacroIndustryEvidenceAssessment,
 };
 
 // ─── Extracción de evidencia DECLARADA ────────────────────────────────────────
@@ -143,11 +121,11 @@ function collectDeclaredIndustries(result: WebSearchResult): string[] {
  * mientras `industry` trae la categoría amplia de Apollo en inglés.
  */
 function collectClassificationText(result: WebSearchResult): {
-  text: string;
+  text: string[];
   fields: string[];
 } {
   const meta = result.metadata as Record<string, unknown> | undefined;
-  if (!meta) return { text: '', fields: [] };
+  if (!meta) return { text: [], fields: [] };
 
   const parts: string[] = [];
   const fields: string[] = [];
@@ -183,22 +161,9 @@ function collectClassificationText(result: WebSearchResult): {
     takeString(profile['description'], 'apollo_profile.description');
   }
 
-  return { text: normalizeMacroIndustryLabel(parts.join(' ')), fields };
-}
-
-function matchTerms(haystack: string, terms: readonly string[]): string[] {
-  return terms.filter((term) => haystack.includes(normalizeMacroIndustryLabel(term)));
-}
-
-function matchIndustryTerms(
-  declaredIndustries: readonly string[],
-  terms: readonly string[],
-): string[] {
-  const normalized = declaredIndustries.map((industry) => normalizeMacroIndustryLabel(industry));
-  return terms.filter((term) => {
-    const needle = normalizeMacroIndustryLabel(term);
-    return normalized.some((industry) => industry.includes(needle));
-  });
+  // Las partes viajan CRUDAS: normalizar aquí y otra vez en el núcleo sería la
+  // misma operación hecha dos veces, y sólo una de las dos sería la autoritativa.
+  return { text: parts, fields };
 }
 
 // ─── Evaluación ───────────────────────────────────────────────────────────────
@@ -217,35 +182,12 @@ export type MacroIndustryEvidenceInput = {
   definitionOverride?: MacroIndustryDefinition | null;
 };
 
-function unresolved(): MacroIndustryEvidenceAssessment {
-  return {
-    version: APOLLO_MACRO_INDUSTRY_EVIDENCE_VERSION,
-    verdict: 'ambiguous',
-    reason: 'macro_industry_unresolved',
-    macroIndustryKey: null,
-    matchedConfirmingTerms: [],
-    matchedParentIndustries: [],
-    matchedExcludingIndustries: [],
-    providerEvidenceFields: [],
-    declaredIndustryPresent: false,
-  };
-}
-
 /**
- * Evalúa la evidencia macro de UN candidato.
+ * Evalúa la evidencia macro de UN candidato de Apollo.
  *
- * Orden de decisión, y por qué es ese:
- *
- *   1. **Exclusión primero**, por precedencia de substring. `retail` es substring
- *      de `retail banking`; comprobar primero lo confirmatorio dejaría entrar a
- *      la banca minorista en una búsqueda de Retail — el modo de fallo de
- *      v1.16K-AC con otro nombre. La exclusión se mide SÓLO contra industrias
- *      declaradas, no contra descripciones.
- *   2. **Confirmación** sobre todo el texto clasificatorio.
- *   3. **Industria padre sola** ⇒ ambiguo. Contiene a la macro industria pero no
- *      la demuestra: es exactamente el estado que no puede admitir.
- *   4. **Industria declarada que no encaja** ⇒ rechazo medido.
- *   5. **Texto sin coincidencia** o **sin evidencia** ⇒ ambiguo.
+ * Extrae las dos listas de texto de la forma propia de Apollo y delega la
+ * DECISIÓN en el núcleo neutral del catálogo. El orden de las reglas, los motivos
+ * y el resultado son los mismos que antes de la extracción.
  *
  * Puro.
  */
@@ -257,80 +199,15 @@ export function assessMacroIndustryEvidence(
     getMacroIndustryByKey(input.macroIndustryKey) ??
     resolveMacroIndustryByDisplayName(input.macroIndustryDisplayName);
 
-  if (!definition) return unresolved();
+  if (!definition) return unresolvedMacroIndustryEvidence();
 
-  const declaredIndustries = collectDeclaredIndustries(input.result);
   const { text, fields } = collectClassificationText(input.result);
 
-  const base = {
-    version: APOLLO_MACRO_INDUSTRY_EVIDENCE_VERSION,
-    macroIndustryKey: definition.key,
+  return assessDeclaredMacroIndustryEvidence(definition, {
+    declaredIndustries: collectDeclaredIndustries(input.result),
+    classificationText: text,
     providerEvidenceFields: fields,
-    declaredIndustryPresent: declaredIndustries.length > 0,
-  } as const;
-
-  const matchedExcludingIndustries = matchIndustryTerms(
-    declaredIndustries,
-    definition.evidence.excludingIndustries,
-  );
-  if (matchedExcludingIndustries.length > 0) {
-    return {
-      ...base,
-      verdict: 'rejected',
-      reason: 'excluding_industry_declared',
-      matchedConfirmingTerms: [],
-      matchedParentIndustries: [],
-      matchedExcludingIndustries,
-    };
-  }
-
-  const matchedConfirmingTerms = matchTerms(text, definition.evidence.confirming);
-  const matchedParentIndustries = matchIndustryTerms(
-    declaredIndustries,
-    definition.evidence.parentIndustries,
-  );
-
-  if (matchedConfirmingTerms.length > 0) {
-    return {
-      ...base,
-      verdict: 'confirmed',
-      reason: 'confirming_term_in_declared_evidence',
-      matchedConfirmingTerms,
-      matchedParentIndustries,
-      matchedExcludingIndustries: [],
-    };
-  }
-
-  if (matchedParentIndustries.length > 0) {
-    return {
-      ...base,
-      verdict: 'ambiguous',
-      reason: 'parent_industry_only',
-      matchedConfirmingTerms: [],
-      matchedParentIndustries,
-      matchedExcludingIndustries: [],
-    };
-  }
-
-  if (declaredIndustries.length > 0) {
-    return {
-      ...base,
-      verdict: 'rejected',
-      reason: 'declared_industry_outside_macro',
-      matchedConfirmingTerms: [],
-      matchedParentIndustries: [],
-      matchedExcludingIndustries: [],
-    };
-  }
-
-  return {
-    ...base,
-    verdict: 'ambiguous',
-    reason: fields.length > 0 ? 'declared_evidence_without_match' : 'no_provider_evidence',
-    matchedConfirmingTerms: [],
-    matchedParentIndustries: [],
-    matchedExcludingIndustries: [],
-  };
+  });
 }
 
 // ─── Proyección a metadata ────────────────────────────────────────────────────

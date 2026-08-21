@@ -27,6 +27,7 @@
 // leak no secret.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { readPhoneRevealSuppression } from '@/modules/contact-enrichment/provider-suppression-store';
 import { createClient } from '@supabase/supabase-js';
 import {
   isApolloPhoneCacheEnabled,
@@ -34,7 +35,6 @@ import {
 } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import {
-  readPhoneCacheSuppression,
   writePhoneCacheEntry,
 } from '@/modules/contact-enrichment/phone-cache-store';
 import { persistCandidatePhoneCollection } from '@/modules/contact-enrichment/candidate-phone-collection-persistence';
@@ -307,7 +307,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // lectura pide solo `suppressed_at`, así que con el flag apagado el webhook
       // comprueba la supresión SIN leer ningún número. Si LANZA, el core no
       // persiste teléfono (fail-closed).
-      lookupPhoneCacheSuppression: readPhoneCacheSuppression,
+      lookupPhoneCacheSuppression: readPhoneRevealSuppression,
       // Mensaje ya redactado por el core: nunca teléfono/person id/email/nombre.
       onSuppressionCheckUnavailable: (message) => {
         console.error(

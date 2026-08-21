@@ -365,6 +365,22 @@ export interface SuppressibleCandidate {
    * por sí mismo el borrado (FIX 1).
    */
   matchedContactId: string | null;
+  /**
+   * Columnas con las que ESTA fila declara sus identidades NATIVAS de proveedor
+   * (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4, Fase 1, §11). Se usan SÓLO para el
+   * fan-out de la supresión nativa: un candidato que lleva a la vez un
+   * `apollo_person_id` y un `source_contact_id` de Lusha declara DOS identidades de la
+   * MISMA persona, y la DSAR registra las dos.
+   *
+   * No hay aquí nada con lo que hacer matching difuso: no se lee nombre, email ni
+   * LinkedIn, y estas columnas nunca se comparan entre candidatos distintos.
+   *
+   * Opcionales para que un llamador que no las proyecte siga compilando; su ausencia
+   * simplemente no aporta identidades al fan-out.
+   */
+  source?: string | null;
+  sourceContactId?: string | null;
+  apolloPersonId?: string | null;
 }
 
 export interface SuppressibleContact {
@@ -768,6 +784,16 @@ export type PhoneCacheSuppressionFailureCode =
    * sabe mirar.
    */
   | 'official_phone_suppression_failed'
+  /**
+   * La supresión NATIVA del proveedor (`provider_suppressions`, migración 120) no se
+   * pudo registrar (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4, Fase 1). Código PROPIO
+   * y el MÁS grave de la lista, porque es el único que significa que la persona puede
+   * seguir siendo REVELABLE: el tombstone legado de la caché sólo bloquea dentro de
+   * una cuenta, así que si el registro nativo no se escribió, un reveal desde otra
+   * cuenta —o de un candidato sin cuenta— no encuentra nada que lo pare. Confundirlo
+   * con `cache_tombstone_failed` haría creer que el bloqueo quedó puesto.
+   */
+  | 'provider_suppression_failed'
   | 'audit_write_failed';
 
 /** Resultado de la supresión: solo conteos y códigos. Sin PII. */
@@ -801,6 +827,32 @@ export interface SuppressPhoneCacheEntryResult {
   officialPhoneRowsTombstoned: number;
   /** true solo cuando la auditoría durable quedó escrita (FIX H3). */
   auditPersisted: boolean;
+  /**
+   * Identidades NATIVAS del proveedor para las que se creó una supresión nueva en
+   * `provider_suppressions` (Fase 1). Cuenta filas creadas, NO identidades intentadas:
+   * una identidad ya suprimida cuenta en `providerSuppressionsAlreadyPresent`.
+   */
+  providerSuppressionsCreated: number;
+  /**
+   * Identidades que YA estaban suprimidas. Es un ÉXITO, no un fallo: la persona sigue
+   * bloqueada y su `suppressed_at` original no se falsifica moviéndolo hacia adelante.
+   */
+  providerSuppressionsAlreadyPresent: number;
+  /**
+   * Desglose PII-free por proveedor de las identidades alcanzadas. Existe para que la
+   * operación pueda declarar con honestidad QUÉ proveedores quedaron cubiertos: la Fase
+   * 1 NO tiene sujeto compartido entre proveedores, así que "se suprimió a la persona"
+   * sólo es cierto para los proveedores que aparecen aquí.
+   */
+  providerSuppressionsByProvider: { apollo: number; lusha: number };
+  /**
+   * true cuando TODAS las filas de auditoría nativa (`provider_suppression_audit`)
+   * quedaron escritas. Independiente de `auditPersisted`, que mide la auditoría LEGADA:
+   * esa tiene `account_id NOT NULL REFERENCES accounts ON DELETE CASCADE` y por tanto
+   * no sobrevive al borrado de la cuenta; ésta sí. Sumarlas ocultaría cuál de las dos
+   * evidencias falta.
+   */
+  providerSuppressionAuditPersisted: boolean;
 }
 
 // ── Auditoría durable de la supresión (SIN PII) ─────────────────

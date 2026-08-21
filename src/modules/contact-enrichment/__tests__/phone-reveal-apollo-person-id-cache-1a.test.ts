@@ -173,7 +173,17 @@ describe('CACHE-1a START — captura apollo_person_id', () => {
     });
     const res = await runRevealCandidatePhone(
       startInput(),
-      startDeps(sc, { ok: true, requestId: ASYNC_HANDLE, trace }, startCandidate()),
+      startDeps(
+        sc,
+        { ok: true, requestId: ASYNC_HANDLE, trace },
+        // Identidad evaluable para la supresión (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1):
+        // origen Apollo con source_contact_id válido (APOLLO_PERSON_ID_2), DISTINTO
+        // del id que trae la respuesta START (APOLLO_PERSON_ID). Prueba a la vez que
+        // la supresión pre-check no bloquea con identidad evaluable Y que el id
+        // PERSISTIDO viene de la traza de Apollo, no del fallback de
+        // source_contact_id (prioridad ya cubierta por TEST 2a).
+        startCandidate({ source: 'apollo', sourceContactId: APOLLO_PERSON_ID_2 }),
+      ),
     );
 
     assert.equal(res.status, 'requested');
@@ -197,21 +207,43 @@ describe('CACHE-1a START — captura apollo_person_id', () => {
     assert.equal(sc.persisted[0].patch.apollo_person_id, APOLLO_PERSON_ID_2);
   });
 
-  it('TEST 2b: START sin person.id, candidato Lusha → apollo_person_id null, no falla', async () => {
+  // TEST 2b — RE-ESPECIFICADO DOS VECES, y merece explicarse porque la historia es la del
+  // hito entero:
+  //
+  //   * originalmente el candidato de Lusha sin id de Apollo pasaba de largo: la supresión
+  //     se auditaba y el reveal CONTINUABA (fail-open). El título decía "no falla";
+  //   * #289 lo pasó a BLOQUEAR con `suppression_check_unavailable`, porque "no pude
+  //     confirmar que no está suprimido" no equivale a "no está suprimido";
+  //   * la Fase 1 hace lo que ninguna de las dos podía: EVALUARLO. El `source_contact_id`
+  //     de Lusha es su identidad nativa, así que la supresión se consulta con
+  //     `provider: 'lusha'` y —sin supresión registrada— el reveal continúa por la razón
+  //     correcta: porque se comprobó.
+  //
+  // Lo que sigue estando prohibido: usar el id de Lusha como id de APOLLO. Se comprueba
+  // abajo (`apollo_person_id` persistido = null).
+  it('FASE 1: candidato Lusha sin id de Apollo se EVALÚA con identidad de Lusha y continúa', async () => {
     const res = await runRevealCandidatePhone(
       startInput(),
       startDeps(
         sc,
         { ok: true, requestId: ASYNC_HANDLE, trace: baseTrace() },
-        startCandidate(), // source lusha, sourceContactId v1.*
+        startCandidate(), // source lusha, sourceContactId v1.*, sin apollo_person_id
       ),
     );
+    assert.equal(res.ok, true);
     assert.equal(res.status, 'requested');
+    assert.equal(sc.apolloCalls.length, 1);
+    // El id de Lusha NO se promociona a identidad de Apollo en ningún punto.
     assert.equal(sc.persisted[0].patch.apollo_person_id, null);
   });
 
-  it('TEST 6: id Lusha v1.* nunca se persiste como apollo_person_id', async () => {
-    // Candidato mal etiquetado como apollo pero con id v1.* → validador lo rechaza.
+  it('TEST 6 (RE-SPECIFY, AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1): id Lusha v1.* nunca resuelve identidad ⇒ BLOQUEADO, no "requested" con id null', async () => {
+    // Candidato mal etiquetado como apollo pero con id v1.*: el validador lo
+    // rechaza igual que antes (no es un id Apollo), así que la clave de
+    // supresión tampoco se puede resolver. Antes de este hito eso dejaba
+    // pasar el reveal con apollo_person_id null; ahora, sin clave posible,
+    // BLOQUEA — el mismo desenlace que TEST 2b, con una causa distinta (id de
+    // forma inválida en vez de origen no-Apollo).
     const res = await runRevealCandidatePhone(
       startInput(),
       startDeps(
@@ -220,8 +252,10 @@ describe('CACHE-1a START — captura apollo_person_id', () => {
         startCandidate({ source: 'apollo', sourceContactId: LUSHA_ID }),
       ),
     );
-    assert.equal(res.status, 'requested');
-    assert.equal(sc.persisted[0].patch.apollo_person_id, null);
+    assert.equal(res.ok, false);
+    assert.equal(res.status, 'suppression_check_unavailable');
+    assert.equal(sc.apolloCalls.length, 0);
+    assert.equal(sc.persisted.length, 0);
   });
 
   it('TEST 7: START error → patch lleva apollo_person_id null (el wrapper no sobrescribe)', async () => {
@@ -243,8 +277,18 @@ describe('CACHE-1a START — captura apollo_person_id', () => {
     const trace = baseTrace({ apollo_person_id: APOLLO_PERSON_ID });
     await runRevealCandidatePhone(
       startInput(),
-      startDeps(sc, { ok: true, requestId: ASYNC_HANDLE, trace }, startCandidate()),
+      startDeps(
+        sc,
+        { ok: true, requestId: ASYNC_HANDLE, trace },
+        // Identidad evaluable (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1): sin ella el
+        // START bloquea en el gate de supresión ANTES de llamar a persist/logUsage,
+        // y la aserción de "sin PII" pasaría vacía (patch/log nunca se crean) en
+        // vez de ejercer de verdad la ausencia de PII sobre un patch/log reales.
+        startCandidate({ source: 'apollo', sourceContactId: APOLLO_PERSON_ID_2 }),
+      ),
     );
+    assert.equal(sc.persisted.length, 1);
+    assert.equal(sc.logs.length, 1);
     const serialized = JSON.stringify({ persisted: sc.persisted, logs: sc.logs });
     assert.equal(serialized.includes('jane.doe@acme.com'), false);
     assert.equal(serialized.includes('linkedin.com/in/jane-doe'), false);
@@ -354,7 +398,13 @@ describe('CACHE-1a WEBHOOK — captura apollo_person_id', () => {
     assert.equal(cap.persisted[0].patch.apollo_person_id, null);
   });
 
-  it('TEST 6 (webhook): people[0].id Lusha v1.* → apollo_person_id null', async () => {
+  it('TEST 6 (webhook, RE-SPECIFY AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1): people[0].id Lusha v1.* y candidato sin identidad propia ⇒ BLOQUEADO, no "revealed" con id null', async () => {
+    // El id del payload es Lusha-shaped (rechazado por el validador Apollo) y el
+    // candidato tampoco trae apollo_person_id/source Apollo propios, así que la
+    // clave de supresión no se puede resolver por NINGUNA vía. Antes de este
+    // hito eso dejaba pasar el teléfono con apollo_person_id null; ahora
+    // bloquea igual que `suppression_check_unavailable` — NO se persiste el
+    // teléfono, el candidato sigue en vuelo (recuperable sin gastar créditos).
     const cap: WebhookCapture = { persisted: [], logs: [] };
     const payload: ApolloPhoneRevealWebhookPayload = {
       request_id: 'apollo-req-1',
@@ -369,8 +419,8 @@ describe('CACHE-1a WEBHOOK — captura apollo_person_id', () => {
       { tokenProvided: TOKEN, payload },
       webhookDeps(cap, webhookCandidate()),
     );
-    assert.equal(res.outcome, 'revealed');
-    assert.equal(cap.persisted[0].patch.apollo_person_id, null);
+    assert.equal(res.outcome, 'suppression_check_unavailable');
+    assert.equal(cap.persisted.length, 0);
   });
 
   it('extractWebhookPersonId prioriza people[0].id sobre person.id', () => {

@@ -118,7 +118,7 @@ describe('115 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('116 es el número más alto del repo', () => {
+  it('121 es el número más alto del repo', () => {
     const numbers = readdirSync(migrationsDir)
       .filter((file) => /^\d{3}[_-].*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)));
@@ -127,7 +127,15 @@ describe('115 — numeración', () => {
     // sólo una función, que es lo que la hace retrocompatible con el runtime vivo.
     // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
     // Macro Industrias (siembra en `draft` y cutover), sin relación con teléfono.
-    assert.equal(Math.max(...numbers), 119);
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) lo mueve a la 120: la supresión de
+    // teléfono por identidad NATIVA del proveedor y SIN cuenta. Sí es de teléfono, pero es
+    // ADITIVA sobre el esquema oficial que esta suite protege: no toca `contact_phones`,
+    // ni `contact_phone_sources`, ni la función de la 115.
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación TRUTHFUL
+    // del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono en absoluto
+    // —reemplaza una constraint de `wizard_budget_reservations` y el cuerpo de
+    // `confirm_wizard_credits`— y no toca `contact_phones` ni `contact_phone_sources`.
+    assert.equal(Math.max(...numbers), 123);
   });
 
   it('declara NO estar aplicada en Producción', () => {
@@ -948,11 +956,215 @@ describe('4O-H2 — alcance', () => {
     assert.deepEqual(created, [FN]);
   });
 
-  it('«Buscar más números» sigue sin existir', () => {
-    const offenders = productionSources.filter((file) =>
-      /buscar_mas_numeros|searchMorePhones|search_more_phones/i.test(file.body),
+  // AGENT2A-SEARCH-MORE-PHONES-1 — esta guarda se INVIERTE, no se borra.
+  //
+  // En 4O-H2 «Buscar más números» estaba declarado FUERA DE ALCANCE, y la guarda existía
+  // para que nadie lo implementara en silencio. Ya existe, pedido explícitamente, así que
+  // «sigue sin existir» dejó de ser verdad y mantenerla obligaría a borrarla — perdiendo la
+  // mitad que NUNCA dejó de importar.
+  //
+  // Esa mitad es la FRONTERA DE SUPERFICIE. 4O-H2 es del contacto OFICIAL
+  // (`contact_phones`); «Buscar más números» es del CANDIDATO en revisión
+  // (`contact_enrichment_candidate_phones`). Que la operación exista no autoriza que se
+  // asome a la superficie oficial: un contacto ya aprobado no tiene corrida de waterfall, ni
+  // reserva, ni candidato al que añadir números, así que un botón allí prometería algo que no
+  // hay detrás. Y el modelo multi-teléfono del contacto oficial sigue abierto
+  // (OFFICIAL_MULTI_PHONE_MODEL_PENDING).
+  //
+  // Así que la guarda pasa a afirmar lo que sí sigue siendo cierto y es más fuerte que la
+  // versión anterior: que el hito vive SÓLO donde le corresponde.
+  //
+  // AGENT2A-SEARCH-MORE-PHONES-1G — la guarda se PARTE en dos listas, no se relaja.
+  //
+  // La versión de 1E mantenía UNA lista cerrada y la comparaba contra el cuerpo CRUDO del
+  // archivo. Eso confundió dos cosas distintas: NOMBRAR el hito en código (ser su
+  // superficie) y MENCIONAR el nombre del hito en un comentario. El diagnóstico admin-only
+  // de 1E escribe «AGENT2A-SEARCH-MORE-PHONES-1E» en su prosa para explicar POR QUÉ publica
+  // el flag, y con eso dos archivos que no importan ni invocan nada del hito entraron en la
+  // lista de «implementadores» y rompieron el check obligatorio.
+  //
+  // La corrección no borra la lista ni la abre con una excepción de regex: la PARTE. El
+  // conjunto de archivos que nombran el hito sigue CERRADO —su unión tiene que coincidir
+  // exactamente—, pero ahora cada mitad carga su propia obligación:
+  //   * `MILESTONE_SURFACE`: los archivos del hito.
+  //   * `MILESTONE_PROSE_ONLY`: archivos que sólo lo mencionan en prosa, y que tienen que
+  //     DEMOSTRARLO — su código, ya sin comentarios, no puede nombrarlo ni importarlo ni
+  //     invocar ninguno de sus puntos de entrada.
+  // Un archivo nuevo sigue teniendo que entrar aquí a mano, y ahora además tiene que elegir
+  // mitad, que es exactamente la pregunta que esta guarda existe para forzar.
+  //
+  // AGENT2A-SEARCH-MORE-PHONES-1H — dos archivos MIGRAN de mitad; la partición se conserva.
+  //
+  // El endpoint de diagnóstico (`route.ts`) y el módulo de flags (`feature-flags.server.ts`)
+  // nacieron en `MILESTONE_PROSE_ONLY` en 1E porque sólo CITABAN el nombre del hito para
+  // justificar por qué publicaban `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK`. 1H les añade el flag
+  // DEDICADO de rollout de este hito —`ENABLE_SEARCH_MORE_PHONES` / `isSearchMorePhonesEnabled`
+  // en uno, sus dos booleanos de diagnóstico en el otro— y esos identificadores son CÓDIGO, no
+  // un comentario: ya no pueden demostrar la propiedad que exige `MILESTONE_PROSE_ONLY` (código
+  // sin comentarios que no nombre el hito), así que suben a `MILESTONE_SURFACE`. La partición en
+  // dos listas sigue siendo la estructura correcta — es la que hace posible mover un archivo de
+  // mitad sin reabrir el patrón ni la unión cerrada.
+  it('«Buscar más números» existe SÓLO en la superficie del candidato, nunca en la oficial', () => {
+    const SEARCH_MORE_PATTERN = /buscar_mas_numeros|searchMorePhones|search_more_phones|search-more-phones/i;
+
+    // Los puntos de entrada que COBRAN o que montan el CTA. Ninguno de ellos deletrea
+    // `searchMorePhones`, así que el patrón de arriba no los cubre y hay que nombrarlos.
+    const SEARCH_MORE_ENTRY_POINTS = [
+      'searchMoreCandidatePhonesAction',
+      'getSearchMorePhonesPreflightAction',
+      'executeSearchMorePhonesForCandidate',
+      'CandidateSearchMorePhonesCta',
+    ];
+
+    // El prefijo `official-contact-` cubre TODA la superficie oficial de una vez —el
+    // esquema, su privacidad y la lectura de 4O-H4— sin deletrear el nombre de ningún
+    // módulo concreto. Deletrearlos haría que este archivo apareciera como consumidor de
+    // 4O-H4 ante su propio ratchet, que es exactamente el tipo de acoplamiento que esas
+    // guardas existen para impedir.
+    const officialFiles = productionSources.filter((file) =>
+      /official-contact-|contact-phone-provenance/.test(file.path),
     );
-    assert.deepEqual(offenders.map((f) => f.path), []);
+
+    // La aserción de abajo se cumpliría SOLA si este filtro dejara de encontrar archivos
+    // (un renombre del prefijo, una reorganización de carpetas). Un conjunto vacío no es una
+    // garantía, es una guarda apagada, así que se comprueba que hay algo que vigilar.
+    assert.ok(
+      officialFiles.length > 0,
+      'el filtro de la superficie oficial no encuentra archivos: la guarda estaría vacía',
+    );
+
+    // Los módulos del contacto OFICIAL no lo conocen — ni en código ni en prosa.
+    const officialSurface = officialFiles.filter((file) => SEARCH_MORE_PATTERN.test(file.body));
+    assert.deepEqual(
+      officialSurface.map((f) => f.path),
+      [],
+      'la superficie del contacto oficial no debe ofrecer una búsqueda pagada de candidato',
+    );
+
+    // Prueba NEGATIVA explícita (1G): además de no NOMBRARLO, la superficie oficial no
+    // IMPORTA ninguno de sus módulos ni INVOCA ninguno de sus puntos de entrada. El patrón
+    // de arriba ya cubre los especificadores de import —todos contienen
+    // `search-more-phones`— pero no los identificadores exportados.
+    for (const file of officialFiles) {
+      const code = stripTsComments(file.body);
+      for (const entry of SEARCH_MORE_ENTRY_POINTS) {
+        assert.equal(
+          code.includes(entry),
+          false,
+          `${file.path} no puede invocar ${entry}: es una operación del CANDIDATO`,
+        );
+      }
+    }
+
+    // AGENT2A-SEARCH-MORE-PHONES-1H — dos archivos SUBEN de MILESTONE_PROSE_ONLY a
+    // MILESTONE_SURFACE, y no se relaja el patrón para dejarlos donde estaban.
+    //
+    // Los dos nacieron en MILESTONE_PROSE_ONLY (1E) porque sólo CITABAN el nombre del hito en
+    // un comentario para explicar por qué publicaban `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK`. 1H
+    // les añade el flag DEDICADO de este hito — `ENABLE_SEARCH_MORE_PHONES` en
+    // `feature-flags.server.ts`, y sus dos booleanos de diagnóstico en `route.ts`— y esos
+    // nombres (`isSearchMorePhonesEnabled`, `SEARCH_MORE_PHONES_FLAG`,
+    // `search_more_phones_flag_configured`, `search_more_phones_enabled_resolved`) son CÓDIGO,
+    // no prosa: contienen literalmente `searchMorePhones` / `search_more_phones`, así que ya
+    // no pueden demostrar la propiedad que exige `MILESTONE_PROSE_ONLY` (código sin comentarios
+    // que NO nombre el hito). Quedarse en esa lista habría exigido mentir sobre lo que el
+    // archivo hace ahora: declarar la SUPERFICIE del rollout switch del hito no es lo mismo que
+    // mencionarlo para justificar un diagnóstico ajeno.
+    //
+    // Ninguno de los dos gana por eso una dependencia hacia la superficie del CANDIDATO: no
+    // importan ni invocan ningún SEARCH_MORE_ENTRY_POINT, y `feature-flags.server.ts` sigue sin
+    // tener I/O — sólo declara el flag y su parser, igual que hace para cualquier otro flag del
+    // módulo.
+    const MILESTONE_SURFACE = [
+      // El flag DEDICADO de rollout (1H): `ENABLE_SEARCH_MORE_PHONES` +
+      // `isSearchMorePhonesEnabled` + `isSearchMorePhonesFlagConfigured`. Es la superficie
+      // MÁS estrecha posible de un hito — una constante y dos funciones puras sobre
+      // `process.env`— pero es la que autoriza («Buscar más números» existe SÓLO si esta
+      // función resuelve `true`), así que cuenta como superficie y no como prosa.
+      'src/lib/feature-flags.server.ts',
+      // El diagnóstico admin-only de 1E, que 1H amplía con el par presencia/resolución del
+      // flag dedicado (`search_more_phones_flag_configured` / `_enabled_resolved`). Sigue
+      // siendo de SOLO LECTURA —no llama a Lusha, no llama a Apollo, no escribe— y su
+      // propósito (permitir distinguir "flag apagado" de "preflight roto" sin adivinar) no
+      // cambia; lo que cambia es que ahora nombra el flag correcto en CÓDIGO, no sólo el
+      // viejo en prosa.
+      'src/app/api/debug/agent2a-phone-waterfall-config/route.ts',
+      // ── UI, y SÓLO la del candidato ────────────────────────────
+      // El CTA pagado, con su máquina de estados. Vive en su propio componente para que el
+      // drawer no crezca con ella y para que sus garantías —un clic produce UNA compra, el
+      // teléfono no desaparece— se puedan probar montándolo solo. Desde 1J ya no lleva modal:
+      // el clic ejecuta, y la divulgación de costo se lee antes de pulsar.
+      'src/components/contact-enrichment/candidate-search-more-phones-cta.tsx',
+      // El drawer del CANDIDATO en revisión, que lo monta por COMPOSICIÓN. Es la superficie
+      // correcta y la ÚNICA: un contacto ya aprobado no tiene corrida, ni reserva, ni
+      // candidato al que añadir números, así que el mismo botón allí prometería algo que no
+      // existe detrás. La primera aserción de este caso es la que lo vigila.
+      'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
+      'src/components/contact-enrichment/search-more-phones-copy.ts',
+      // ── Escritura ──────────────────────────────────────────────
+      // Envoltorio de `append_candidate_search_more_phones` (mig. 122). Es un writer NUEVO y
+      // no el terminal de la 111/120 porque ése reescribe SIEMPRE el estado del reveal: en
+      // una corrida `search_more` pondría `phone_reveal_provider = 'lusha'` sobre un número
+      // que produjo Apollo y borraría su costo.
+      'src/modules/contact-enrichment/candidate-search-more-phone-append-persistence.ts',
+      // Los dos vocabularios compartidos: el `run_mode` de la corrida y la modalidad
+      // presupuestaria. Nombran `search_more` porque el valor VIVE ahí — y ninguno de los
+      // dos pertenece a la superficie oficial.
+      'src/modules/contact-enrichment/phone-reveal-credit-budget-core.ts',
+      'src/modules/contact-enrichment/phone-reveal-waterfall-core.ts',
+      // ── Runtime ────────────────────────────────────────────────
+      // Las dos server actions: el preflight (0 gasto, es lo que lee la UI) y la compra.
+      'src/modules/contact-enrichment/search-more-phones-actions.ts',
+      'src/modules/contact-enrichment/search-more-phones-core.ts',
+      'src/modules/contact-enrichment/search-more-phones-planner.ts',
+      // LA lectura de preflight, que da los hechos al planificador. Sólo `SELECT`.
+      'src/modules/contact-enrichment/search-more-phones-read.ts',
+      // La secuencia que puede cobrar: reserva, privacidad, claim, UNA llamada, append,
+      // cierre. Es el único módulo de esta lista que llega a un proveedor.
+      'src/modules/contact-enrichment/search-more-phones-runtime.ts',
+    ];
+
+    // Archivos que mencionan el hito SÓLO en prosa. No son su superficie: serían diagnóstico
+    // admin-only de sólo lectura que cita el nombre del hito sin nombrarlo en código. La
+    // aserción de más abajo es la que los obligaría a seguir siéndolo.
+    //
+    // VACÍA desde 1H: los dos únicos miembros que tuvo (el endpoint de diagnóstico y el lector
+    // de flags) subieron a `MILESTONE_SURFACE` porque 1H les añadió el flag DEDICADO del hito
+    // en código, no sólo en un comentario — ver la nota junto a esos dos elementos arriba. No
+    // se borra la lista ni el mecanismo: un archivo nuevo que sólo mencione el hito en prosa
+    // (sin implementar nada suyo) sigue teniendo que declararse aquí para poder pasar la
+    // aserción de unión de más abajo.
+    const MILESTONE_PROSE_ONLY: string[] = [];
+
+    // La unión sigue CERRADA: un archivo nuevo que nombre el hito tiene que entrar en una de
+    // las dos mitades, y ese es el momento de preguntarse si la operación se está filtrando
+    // a otra superficie.
+    const named = productionSources
+      .filter((file) => SEARCH_MORE_PATTERN.test(file.body))
+      .map((f) => f.path)
+      .sort();
+    assert.deepEqual(named, [...MILESTONE_SURFACE, ...MILESTONE_PROSE_ONLY].sort());
+
+    // Y la segunda mitad tiene que DEMOSTRAR que es prosa: sin comentarios, su código no
+    // nombra el hito, no importa ninguno de sus módulos —todos los especificadores llevan
+    // `search-more-phones`— y no invoca ninguno de sus puntos de entrada.
+    for (const path of MILESTONE_PROSE_ONLY) {
+      const file = productionSources.find((f) => f.path === path);
+      assert.ok(file, `${path} ya no existe: revisa esta lista`);
+      const code = stripTsComments(file.body);
+      assert.doesNotMatch(
+        code,
+        SEARCH_MORE_PATTERN,
+        `${path} pasó de mencionar el hito a implementarlo: muévelo a MILESTONE_SURFACE y revisa la frontera`,
+      );
+      for (const entry of SEARCH_MORE_ENTRY_POINTS) {
+        assert.equal(
+          code.includes(entry),
+          false,
+          `${path} no puede invocar ${entry}: sólo lo menciona en prosa`,
+        );
+      }
+    }
   });
 
   it('las deudas fuera de alcance siguen DECLARADAS', () => {

@@ -117,7 +117,7 @@ describe('114 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('116 es el número más alto del repo', () => {
+  it('121 es el número más alto del repo', () => {
     // Si otra migración pasara a 115+ sin renumerar esta, dos archivos distintos
     // compartirían orden de aplicación — el defecto que la 109 evitó dejando un hueco.
     //
@@ -135,7 +135,14 @@ describe('114 — numeración', () => {
     // sólo una función, que es lo que la hace retrocompatible con el runtime vivo.
     // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
     // Macro Industrias (siembra en `draft` y cutover), sin relación con teléfono.
-    assert.equal(Math.max(...numbers), 119);
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120: la
+    // supresión de teléfono por identidad NATIVA del proveedor. NO toca `contact_phones`
+    // ni `contact_phone_sources`, que es el esquema que esta guarda protege.
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación TRUTHFUL
+    // del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono en absoluto
+    // —reemplaza una constraint de `wizard_budget_reservations` y el cuerpo de
+    // `confirm_wizard_credits`— y no toca `contact_phones` ni `contact_phone_sources`.
+    assert.equal(Math.max(...numbers), 123);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

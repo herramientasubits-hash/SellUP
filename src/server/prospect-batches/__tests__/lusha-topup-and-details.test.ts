@@ -53,7 +53,7 @@ import type {
 
 const INPUT: LushaPreviewInput = {
   countryCode: 'CO',
-  sectorKey: 'banking',
+  macroIndustryKey: 'insurance_financial_services',
   subIndustryId: null,
   sizeBandKey: '201-5000',
   searchText: null,
@@ -95,7 +95,8 @@ function successResult(results: LushaPreviewCompany[], creditsCharged: number | 
       country: 'Colombia',
       countryCode: 'CO',
       sector: 'Banca',
-      sectorKey: 'banking',
+      industryKey: 'insurance_financial_services',
+      macroIndustryKey: 'insurance_financial_services',
       mainIndustriesIds: [7],
       subIndustryId: null,
       sizeBand: { min: 201, max: 5000 },

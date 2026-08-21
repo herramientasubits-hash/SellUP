@@ -249,13 +249,35 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // transaccional, sin DDL). R1 sigue sin aportar ninguna.
       // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
       // Macro Industrias, sin relación con teléfono. R1 sigue sin aportar ninguna.
-      '119_publish_macro_industry_catalog_v2_cutover.sql',
-      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3 y el catálogo macro, no este hito',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+      // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
+      // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
+      // columna, no suelta constraint y no reescribe ninguna migración anterior.
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono
+      // y R1 sigue sin aportar ninguna.
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa y la contabilidad de presupuesto, no este hito',
     );
     assert.equal(
-      files.some((f) => /^1(2[0-9]|[3-9]\d)/.test(f)),
+      // La ventana sube con el techo DECLARADO arriba: la 123 está autorizada y nombrada,
+      // así que lo que queda prohibido es la 124 y superiores.
+      files.some((f) => /^1(2[4-9]|[3-9]\d)/.test(f)),
       false,
-      'ninguna migración 120 o superior',
+      // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
+      // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
+      // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
+      // hito conocido sin declararla.
+      'ninguna migración 124 o superior',
     );
   });
 

@@ -331,7 +331,8 @@ function firstRun(run: unknown): CandidateRunContext | null {
 /** Columnas proyectadas para revisión humana — sin payloads crudos del
  *  proveedor. Compartido por el listado y el detalle del side panel. */
 const CANDIDATE_SELECT =
-  `id, full_name, title, email, linkedin_url, source_contact_id, phone, source, status,
+  `id, full_name, title, email, linkedin_url, source_contact_id, apollo_person_id,
+   phone, source, status,
    duplicate_status, confidence, enrichment_metadata, enrichment_run_id, created_at,
    phone_reveal_status, phone_reveal_last_checked_at, phone_reveal_requested_at,
    phone_reveal_request_id, phone_reveal_provider,
@@ -348,6 +349,12 @@ function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
     email: (record.email as string | null) ?? null,
     linkedin_url: (record.linkedin_url as string | null) ?? null,
     source_contact_id: (record.source_contact_id as string | null) ?? null,
+    // Id opaco de correlación (24 hex), NO PII de contacto. Se proyecta para que la
+    // UI pueda evaluar la elegibilidad de identidad del reveal con la MISMA función
+    // pura que el servidor (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2). Nunca se
+    // muestra, y nunca se envía de vuelta al server action: allí solo viaja el id
+    // del candidato y la fila se relee desde la base.
+    apollo_person_id: (record.apollo_person_id as string | null) ?? null,
     phone: (record.phone as string | null) ?? null,
     source: (record.source as ContactSource) ?? 'apollo',
     status: (record.status as ContactCandidateStatus) ?? 'pending_review',

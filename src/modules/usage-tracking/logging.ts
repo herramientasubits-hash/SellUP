@@ -258,6 +258,53 @@ export function buildProviderUsageLogInsertPayload(
   };
 }
 
+/**
+ * Inserta el usage-log Y DEVUELVE SU ID.
+ *
+ * Existe aparte de `logProviderUsage` a propósito: esa función devuelve `boolean` y hay
+ * decenas de llamadores que dependen de ese contrato, así que NO se toca. Esta variante
+ * añade lo único que le falta a una operación PAGADA — poder correlacionar la fila del
+ * ledger con las filas de procedencia que describen lo que se compró.
+ *
+ * Reutiliza EXACTAMENTE las mismas piezas que la original —`buildProviderUsageLogInsertPayload`
+ * (que es donde vive el contrato de `credits_used` / `estimated_cost_usd`), la sanitización de
+ * metadata y el snapshot de rol/grupo del actor— así que las dos escriben filas idénticas: la
+ * única diferencia es el `.select('id')`.
+ *
+ * `{ ok: false, id: null }` cuando el insert falla, y `{ ok: true, id: null }` sólo si el
+ * driver no devolvió la fila. Nunca lanza: igual que la original, un ledger que no se pudo
+ * escribir no puede tumbar la operación cuyo gasto ya ocurrió.
+ */
+export async function logProviderUsageReturningId(
+  input: LogProviderUsageInput
+): Promise<{ ok: boolean; id: string | null }> {
+  try {
+    const admin = getAdminClient();
+
+    const userSnapshot = await resolveUserSnapshot(admin, input.triggered_by);
+    const payload = buildProviderUsageLogInsertPayload(input, userSnapshot);
+
+    const { data, error } = await admin
+      .from('provider_usage_logs')
+      .insert(payload)
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('[usage-tracking] logProviderUsageReturningId error:', error.message);
+      return { ok: false, id: null };
+    }
+
+    const id = data && typeof (data as { id?: unknown }).id === 'string'
+      ? ((data as { id: string }).id)
+      : null;
+    return { ok: true, id };
+  } catch (err) {
+    console.error('[usage-tracking] logProviderUsageReturningId unexpected error:', err);
+    return { ok: false, id: null };
+  }
+}
+
 export async function logProviderUsage(input: LogProviderUsageInput): Promise<boolean> {
   try {
     const admin = getAdminClient();

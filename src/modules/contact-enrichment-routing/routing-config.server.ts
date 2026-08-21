@@ -4,11 +4,19 @@
 // Server-only: reads process.env, must never be imported from client
 // components (mirrors src/lib/feature-flags.server.ts).
 //
-// This module defines the FUTURE automatic Apollo→Lusha fallback
-// configuration contract that 17B.4X.7C.5B's orchestrator will consume. It
-// does not execute a fallback, does not call Apollo/Lusha, does not create a
-// second provider attempt, and is not imported by any runner in this hito —
-// see routing-config.server.test.ts's "no execution wiring" assertions.
+// This module defines the automatic Apollo→Lusha fallback configuration
+// contract. It does not itself execute a fallback, call Apollo/Lusha, or
+// create a second provider attempt, and it is still imported by no PROVIDER
+// RUNNER — see routing-config.server.test.ts's "no execution wiring"
+// assertions, which scope that guarantee to the Apollo/Lusha runners, the
+// observation wiring and the attempt creator.
+//
+// CONSUMED, NOT FUTURE (corrected by AGENT2A-LUSHA-LOCAL-REUSE-GATE-1): the
+// original 17B.4X.7C.5A wording described a contract a future orchestrator
+// "will consume". contact-enrichment-routing-orchestrator.ts (17B.4X.7C.5B)
+// consumes it today, and the wizard CTA reaches that orchestrator
+// (AGENT2-ROUTING-WIRE-1), so `automaticRoutingEnabled` is the live kill
+// switch for a real Production code path — not a placeholder.
 // `automaticRoutingEnabled` defaults to false and every other flag here
 // defaults to the same safe values 17B.4X.7C.4C already ships with
 // (Apollo primary, Lusha fallback, observe-only, no HubSpot auto-write, no
@@ -66,7 +74,13 @@ export const CONTACT_ENRICHMENT_ROUTING_MAX_ESTIMATED_COST_USD_ENV =
 export const CONTACT_ENRICHMENT_ROUTING_V1_OBSERVE_ONLY_POLICY_VERSION =
   'contact_enrichment_routing_v1_observe_only';
 
-/** Reserved for 17B.4X.7C.5B. No code path in this hito produces this value. */
+/**
+ * Persisted to contact_enrichment_runs.routing_policy_version by the automatic
+ * orchestrator's telemetry writes (buildRunColumns in
+ * contact-enrichment-routing-orchestrator.ts) whenever automatic routing is
+ * enabled. The original "no code path produces this value" note predated that
+ * orchestrator and is no longer true.
+ */
 export const CONTACT_ENRICHMENT_ROUTING_V1_AUTOMATIC_POLICY_VERSION =
   'contact_enrichment_routing_v1_automatic';
 
@@ -182,14 +196,18 @@ export function getContactEnrichmentRoutingConfigV1(): ContactEnrichmentRoutingC
 
 /**
  * Maps a resolved config to a RoutingObservationPolicyDraftV1 and validates
- * it with the existing pure evaluator (policy-evaluator.ts). Reserved for
- * 17B.4X.7C.5B's future orchestrator — no caller in this codebase passes
- * this builder's output to evaluateRoutingObservationV1 or to any provider
+ * it with the existing pure evaluator (policy-evaluator.ts). Called by
+ * contact-enrichment-routing-orchestrator.ts, which uses the validated policy
+ * for the fallback signal and the automatic-mode telemetry block; its output
+ * is still never handed to evaluateRoutingObservationV1 nor to any provider
  * runner. The underlying draft type only supports `mode: 'observe_only'`
  * today (no 'automatic' mode exists in policy-evaluator.ts / types.ts yet),
  * so this builder cannot produce anything but an observe-only-shaped policy
- * regardless of config.mode — that is intentional: 5B must extend the
- * evaluator type before an automatic policy can exist at all.
+ * regardless of config.mode — that is intentional and still unchanged: the
+ * evaluator type would have to grow an 'automatic' mode before a truly
+ * automatic-shaped policy could exist at all. The orchestrator's
+ * automatic-mode identity lives in its telemetry columns
+ * (routing_mode/routing_policy_version), not in this draft's `mode`.
  */
 export function buildContactEnrichmentRoutingPolicyFromConfig(
   config: ContactEnrichmentRoutingConfigV1,

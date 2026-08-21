@@ -54,13 +54,18 @@ export const LUSHA_ROUTING_MIN_USEFUL_CANDIDATES = 5;
 
 export interface BuildLushaRoutingCriteriaInput {
   countryCode?: string | null;
-  sectorKey?: string | null;
+  /**
+   * AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 2 — clave canónica de macro
+   * industria. El plan 11D es OBSERVACIONAL: este valor sólo viaja a los
+   * metadatos y al assert de seguridad; nunca decide elegibilidad.
+   */
+  macroIndustryKey?: string | null;
 }
 
 /**
  * Build the routing CRITERIA for a Lusha search. Always intends Lusha and the
- * companies-by-criteria search shape. Country / sector are carried through from
- * the (already validated) live wizard input. Pure — never reads env.
+ * companies-by-criteria search shape. Country / macro industry are carried through
+ * from the (already validated) live wizard input. Pure — never reads env.
  */
 export function buildLushaRoutingCriteria(
   input: BuildLushaRoutingCriteriaInput,
@@ -69,7 +74,9 @@ export function buildLushaRoutingCriteria(
     intendedProvider: LUSHA_ROUTING_INTENDED_PROVIDER,
     searchType: LUSHA_ROUTING_SEARCH_TYPE,
     countryCode: input.countryCode ?? null,
-    sector: input.sectorKey ?? null,
+    // El campo del contrato 11B se llama `sector`; lo que transporta ahora es la
+    // macro industria, que es la identidad con la que la ruta decidió.
+    sector: input.macroIndustryKey ?? null,
     needsCompanySearch: true,
     needsPeopleSearch: false,
     needsEnrichment: false,

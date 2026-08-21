@@ -67,6 +67,12 @@ function harness(
     existingPhone: null,
     enrichmentMetadata: {},
     phoneProcessingBasis: 'legitimate_interest_b2b',
+    // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: la comprobación de supresión en
+    // vuelo necesita una clave resoluble o bloquea (`not_evaluable` ⇒
+    // fail-closed). Este archivo prueba la captura de teléfonos y el writer de
+    // colección, no la resolución de identidad de la supresión, así que el
+    // candidato trae un Apollo person id sintético por defecto.
+    apolloPersonId: PERSON_ID,
     ...options.candidate,
   };
   // El doble y este fixture son EL MISMO candidato (ver la nota gemela en la suite

@@ -44,6 +44,10 @@ import {
   resolveWizardProviderOverrideCapabilityForCurrentUser,
   resolveApolloRunModeLimitsForSurface,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability.server';
+// AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — lectura de sólo lectura del período
+// de presupuesto vigente. No reserva y no puede autorizar nada: sólo permite que
+// la pantalla avise antes de ofrecer un botón cuyo rechazo ya se conoce.
+import { resolveWizardBudgetPreflightForSurface } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight.server';
 
 /**
  * Query params understood by the Prospectos experience.
@@ -113,10 +117,21 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   // para UNA corrida. Con `ENABLE_WIZARD_RUN_PROVIDER_OVERRIDE` apagado el
   // resolutor corta antes de consultar sesión o rol, así que esta ruta no gana ni
   // una query en el estado actual de Producción.
-  const [wizardProviderOverrideCapability, apolloRunModeLimits] = await Promise.all([
-    resolveWizardProviderOverrideCapabilityForCurrentUser(),
-    resolveApolloRunModeLimitsForSurface(),
-  ]);
+  // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — la instantánea del presupuesto se
+  // resuelve AQUÍ, junto a los topes que la superficie ya anuncia, porque el
+  // aviso «no alcanza para esta corrida» tiene que existir antes del primer clic
+  // y no como resultado de una ejecución fallida. Sólo viajan enteros: saldo
+  // disponible y coste del peor caso por proveedor. `null` ⇒ la UI no bloquea
+  // nada y la reserva atómica sigue decidiendo, exactamente como hoy.
+  //
+  // El fallo de esta lectura no puede tumbar la página: `Promise.all` propaga un
+  // rechazo, así que el resolutor ya devuelve `null` en vez de lanzar.
+  const [wizardProviderOverrideCapability, apolloRunModeLimits, wizardBudgetPreflight] =
+    await Promise.all([
+      resolveWizardProviderOverrideCapabilityForCurrentUser(),
+      resolveApolloRunModeLimitsForSurface(),
+      resolveWizardBudgetPreflightForSurface(),
+    ]);
 
   // Load catalog only when any enhanced experience is on — zero Supabase queries
   // otherwise (resolveCatalogAvailability returns `disabled` without querying).
@@ -200,7 +215,7 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
       tabs={<ModuleTabsNav active="prospectos" />}
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} />
+          <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} />
           <ImportCandidatesDrawer>
             <Button variant="outline" size="sm" className="gap-2 text-xs">
               <Upload className="h-3.5 w-3.5" />

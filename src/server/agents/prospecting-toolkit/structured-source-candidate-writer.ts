@@ -36,6 +36,7 @@ import {
 } from './tax-id-novelty-checker';
 import { checkHubSpotCompanyCommercialStatus } from './hubspot-commercial-checker';
 import { normalizeCompanyName } from './normalization';
+import { sanitizeStructuredDiscoveryProvenance } from './structured-discovery-provenance';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -52,6 +53,14 @@ export type StructuredSourceCandidateWriterInput = {
   countryCode: string;
   sourceKey: string;
   sourceProvider: string;
+  /**
+   * Valor a persistir en `prospect_batches.source`. Vocabulario DISTINTO al de
+   * `prospect_candidates.source_primary` (CHECK constraints separados en la
+   * base — ver migrations 040-052). Si se omite, usa `sourceProvider`,
+   * preservando el comportamiento histórico de todos los callers existentes
+   * (Socrata Colombia, DENUE México, datos.gob.cl, etc.).
+   */
+  batchSource?: string;
   dataset: string;
   batchName?: string;
   industry?: string;
@@ -292,7 +301,7 @@ function buildMatchReason(
   }
 }
 
-function buildEmptyReport(executedAt: string, dryRun: boolean, sourceProvider: string): StructuredSourceCandidateWriterReport {
+function buildEmptyReport(executedAt: string, dryRun: boolean, batchSource: string): StructuredSourceCandidateWriterReport {
   return {
     executedAt,
     dryRun,
@@ -300,7 +309,7 @@ function buildEmptyReport(executedAt: string, dryRun: boolean, sourceProvider: s
       wouldCreate: false,
       created: false,
       id: null,
-      source: sourceProvider,
+      source: batchSource,
       status: 'empty',
       totalCandidatesInput: 0,
       totalCandidatesPrepared: 0,
@@ -411,6 +420,9 @@ function adaptCandidate(
     sourceTrace,
     hubspotTrace: emptyHubspotTrace,
     commercialTrace: emptyCommercialTrace,
+    // 🔴 § 6 — la metadata de un adapter es `Record<string, unknown>` sin
+    // contrato. Aquí se normaliza CLAVE Y VALOR; lo que no encaja se omite.
+    discoveryProvenance: sanitizeStructuredDiscoveryProvenance(disc.metadata),
   };
 }
 
@@ -441,11 +453,15 @@ export async function writeStructuredSourceCandidatesPreview(
   const dryRun = input.dryRun ?? true; // Safe default
   // Both casing variants accepted: callers may pass runHubSpotCheck (uppercase) or runHubspotCheck (lowercase)
   const runHubSpotCheck = input.runHubSpotCheck ?? input.runHubspotCheck ?? false;
+  // AGENT1-COUNTRY-SOURCE-PERSISTENCE-CONTRACT-1 § 3 — vocabulario de lote
+  // distinto al de candidato. Sin batchSource explícito, cae en sourceProvider:
+  // comportamiento histórico intacto para todo caller existente.
+  const resolvedBatchSource = input.batchSource ?? input.sourceProvider;
 
   const errors: StructuredSourceCandidateWriterReport['errors'] = [];
 
   if (!input.candidates || input.candidates.length === 0) {
-    return buildEmptyReport(executedAt, dryRun, input.sourceProvider);
+    return buildEmptyReport(executedAt, dryRun, resolvedBatchSource);
   }
 
   // Aplicar límite (hard max: 20)
@@ -724,7 +740,7 @@ export async function writeStructuredSourceCandidatesPreview(
         wouldCreate: toWrite.length > 0,
         created: false,
         id: null,
-        source: input.sourceProvider,
+        source: resolvedBatchSource,
         status: 'dry_run_not_created',
         totalCandidatesInput,
         totalCandidatesPrepared,
@@ -758,7 +774,7 @@ export async function writeStructuredSourceCandidatesPreview(
         wouldCreate: false,
         created: false,
         id: null,
-        source: input.sourceProvider,
+        source: resolvedBatchSource,
         status: 'nothing_to_write',
         totalCandidatesInput,
         totalCandidatesPrepared,
@@ -796,7 +812,7 @@ export async function writeStructuredSourceCandidatesPreview(
       target_count: input.targetCount ?? toWrite.length,
       search_depth: input.searchDepth ?? 'basic',
       status: 'ready_for_review',
-      source: input.sourceProvider,
+      source: resolvedBatchSource,
       created_by: input.createdBy || input.requestedByUserId || null,
       owner_id: input.ownerId ?? null,
       agent_run_id: input.agentRunId ?? null,
@@ -864,7 +880,7 @@ export async function writeStructuredSourceCandidatesPreview(
           wouldCreate: false,
           created: false,
           id: null,
-          source: input.sourceProvider,
+          source: resolvedBatchSource,
           status: 'batch_creation_failed',
           totalCandidatesInput,
           totalCandidatesPrepared,
@@ -970,6 +986,15 @@ export async function writeStructuredSourceCandidatesPreview(
         data_completeness_score: completenessScore,
         estimated_cost_usd: 0,
         metadata: {
+          // 🔴 § 6 — SEGUNDA pasada del validador, y no es redundante: los
+          // borradores que YA llegan como `StructuredSourceCandidateDraft`
+          // atraviesan `adaptCandidate` intactos, así que sin esto un caller
+          // podría fabricar `discoveryProvenance: { raw_payload: … }` y saltarse
+          // la frontera. La defensa se sostiene en el límite de la FILA.
+          //
+          // Va PRIMERO: las claves canónicas del writer que siguen abajo siempre
+          // ganan si algún día colisionaran.
+          ...sanitizeStructuredDiscoveryProvenance(draft.discoveryProvenance),
           writer_version: WRITER_VERSION,
           dataset: input.dataset,
           preview_mode: true,
@@ -995,7 +1020,7 @@ export async function writeStructuredSourceCandidatesPreview(
             country_code: input.countryCode,
             tax_identifier_type: candidateRow.tax_identifier_type,
             hasTaxIdentifier: Boolean(candidateRow.tax_identifier),
-            source: input.sourceProvider,
+            source: candidateRow.source_primary,
             review_status: candidateRow.review_status,
             hasMetadata: Boolean(candidateRow.metadata),
           },
@@ -1025,7 +1050,7 @@ export async function writeStructuredSourceCandidatesPreview(
       wouldCreate: false,
       created: batchId !== null,
       id: batchId,
-      source: input.sourceProvider,
+      source: resolvedBatchSource,
       status: 'ready_for_review',
       totalCandidatesInput,
       totalCandidatesPrepared,

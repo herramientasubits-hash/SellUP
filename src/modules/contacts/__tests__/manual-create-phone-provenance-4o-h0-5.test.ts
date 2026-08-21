@@ -521,7 +521,24 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       files[files.length - 1],
       // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119 (catálogo de
       // Macro Industrias, sin relación con teléfono). H0.5 sigue sin aportar esquema.
-      '119_publish_macro_industry_catalog_v2_cutover.sql',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+      // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
+      // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
+      // columna, no suelta constraint y no reescribe ninguna migración anterior.
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono
+      // —toca `wizard_budget_reservations` y `confirm_wizard_credits`— y H0.5 sigue sin
+      // aportar esquema.
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

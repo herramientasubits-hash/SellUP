@@ -20,6 +20,13 @@ const WRITER = resolve(SRC, 'server/prospect-batches/lusha-pending-review.ts');
 const ACTION = resolve(SRC, 'modules/prospect-batches/lusha-pending-review-actions.ts');
 const WIZARD = resolve(SRC, 'components/prospect-batches/chat-wizard/wizard-lusha-final-search.tsx');
 const PREVIEW = resolve(SRC, 'server/prospect-batches/lusha-preview.ts');
+// AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 6 — los topes se EXTRAJERON del
+// writer a su propio módulo (mismos nombres, mismos valores) porque el ejecutor
+// multi-rama los necesita sin cerrar un ciclo de inicialización con el writer.
+// Esta guarda los busca donde ahora VIVEN, y sigue comprobando que el bucle del
+// writer se acota con la constante y no con un valor de la respuesta.
+const LIMITS = resolve(SRC, 'server/prospect-batches/lusha-pending-review-limits.ts');
+const EXECUTION = resolve(SRC, 'server/prospect-batches/lusha-multibranch-execution.ts');
 
 const read = (p: string) => readFileSync(p, 'utf8');
 
@@ -33,14 +40,30 @@ function readCode(p: string): string {
 
 describe('Q3F-5BB.7B static safety', () => {
   it('37/38. page + credit ceilings are hard constants (not client-supplied)', () => {
-    const w = read(WRITER);
-    assert.match(w, /LUSHA_PENDING_REVIEW_MAX_PAGES\s*=\s*2/);
-    assert.match(w, /LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS\s*=\s*2/);
-    assert.match(w, /LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES\s*=\s*5/);
+    const limits = read(LIMITS);
+    assert.match(limits, /LUSHA_PENDING_REVIEW_MAX_PAGES\s*=\s*2/);
+    assert.match(limits, /LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS\s*=\s*2/);
+    assert.match(limits, /LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES\s*=\s*5/);
     // The loop is bounded by the constant, not by any request/response value.
-    assert.match(w, /page\s*<\s*LUSHA_PENDING_REVIEW_MAX_PAGES/);
+    assert.match(read(WRITER), /page\s*<\s*LUSHA_PENDING_REVIEW_MAX_PAGES/);
     // Preview clamps the page — deep pagination is impossible.
     assert.match(read(PREVIEW), /LUSHA_PREVIEW_MAX_PAGE\s*=\s*1/);
+  });
+
+  it('el techo de peticiones de la corrida se DERIVA, no se escribe a mano', () => {
+    // § 6 — ramas × páginas. Un número literal aquí sería un techo que puede
+    // dejar de coincidir con el que se reserva.
+    const execution = readCode(EXECUTION);
+    assert.match(
+      execution,
+      /safeBranchCount \* LUSHA_PENDING_REVIEW_MAX_PAGES/,
+      'el techo de peticiones debe salir de ramas × páginas',
+    );
+    assert.match(
+      execution,
+      /LUSHA_MACRO_SEARCH_PLAN_MAX_BRANCHES \*\s*LUSHA_PENDING_REVIEW_MAX_PAGES \*\s*LUSHA_PREVIEW_SIZE/,
+      'el techo de filas crudas debe salir de ramas × páginas × tamaño de página',
+    );
   });
 
   it('32. writer never creates accounts / companies / contacts', () => {
@@ -65,14 +88,53 @@ describe('Q3F-5BB.7B static safety', () => {
     }
   });
 
-  it('35/36. writer + action never ACCESS provider_usage_logs or agent_runs (doc comments allowed)', () => {
+  /**
+   * 35/36 — RATCHET INVERTIDO, no aflojado.
+   *
+   * AGENT1-LUSHA-PROVIDER-USAGE-OBSERVABILITY-1 ensancha la frontera de escritura
+   * por EXACTAMENTE una tabla existente: `provider_usage_logs`, y sólo desde la
+   * ACCIÓN. Lo que la guarda original protegía sigue protegido, y de hecho queda
+   * MÁS estrecho que antes:
+   *
+   *   · el WRITER puro conserva la prohibición COMPLETA — la fila de uso necesita
+   *     el desenlace de la liquidación, que el núcleo puro no conoce y no debe
+   *     conocer;
+   *   · `agent_runs` / `agent_run_steps` siguen PROHIBIDOS en los dos (§ 15). Esa
+   *     mitad de la guarda no se toca;
+   *   · la acción sigue sin poder tocar la tabla POR SU CUENTA: un `.from()`
+   *     suelto está prohibido igual, así que el acceso sólo puede pasar por el
+   *     seam canónico revisado;
+   *   · y se añade lo que antes no existía: la acción DEBE usar ese seam. Una
+   *     prohibición que se levanta sin exigir por dónde pasa el sustituto deja la
+   *     puerta abierta a un segundo mecanismo improvisado.
+   */
+  it('35/36. el WRITER puro sigue sin poder registrar uso, y nadie escribe agent_runs', () => {
+    const writer = readCode(WRITER);
+    assert.doesNotMatch(writer, /\.from\(\s*['"]provider_usage_logs['"]\s*\)/);
+    assert.doesNotMatch(writer, /logProviderUsage|insertProviderUsage|recordLushaRunProviderUsage/i);
+
+    // § 15 — la frontera de `agent_runs` NO se ensancha en ninguno de los dos.
     for (const p of [WRITER, ACTION]) {
       const s = readCode(p);
-      // Only actual table access is forbidden — a doc comment naming the table is fine.
-      assert.doesNotMatch(s, /\.from\(\s*['"]provider_usage_logs['"]\s*\)/);
       assert.doesNotMatch(s, /\.from\(\s*['"]agent_runs['"]\s*\)/);
-      assert.doesNotMatch(s, /logProviderUsage|insertProviderUsage|recordAgentRun|insertAgentRun/i);
+      assert.doesNotMatch(s, /\.from\(\s*['"]agent_run_steps['"]\s*\)/);
+      assert.doesNotMatch(s, /recordAgentRun|insertAgentRun|createAgentRun/i);
     }
+  });
+
+  it('35/36b. la acción registra uso SÓLO por el seam canónico, nunca por su cuenta', () => {
+    const action = readCode(ACTION);
+    // Acceso directo a la tabla: sigue prohibido.
+    assert.doesNotMatch(action, /\.from\(\s*['"]provider_usage_logs['"]\s*\)/);
+    assert.doesNotMatch(action, /logProviderUsage|insertProviderUsage/i);
+    // Y el seam autorizado es OBLIGATORIO: la observabilidad no puede volver a
+    // ser un mecanismo improvisado dentro de la acción.
+    assert.match(
+      action,
+      /from '@\/server\/prospect-batches\/lusha-provider-usage-recorder'/,
+      'la acción debe registrar uso por el recolector canónico',
+    );
+    assert.match(action, /recordLushaRunProviderUsage/);
   });
 
   it('writer only writes prospect_batches + prospect_candidates (via injected deps)', () => {
@@ -102,14 +164,25 @@ describe('Q3F-5BB.7B static safety', () => {
     assert.equal(files.some((f) => /5bb7b|topup|duplicate_details/i.test(f)), false);
   });
 
-  it('wizard pre-search notice is non-contractual: shape + billing basis, no fixed-credit promise (Q3F-5BB.10A)', () => {
+  // AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0 — ratchet INVERTIDO en sus dos
+  // primeras aserciones de forma.
+  //
+  // «N páginas de Lusha / N resultados por página» describía el ejecutor de UNA
+  // rama, y era cierto cuando se escribió. Con el ejecutor Macro-v2 el techo
+  // depende del plan de la macro industria (2, 4 o 6 peticiones), así que una
+  // cifra de forma escrita en la UI sólo puede divergir del runtime: ahora se
+  // exige su AUSENCIA. La base de facturación —lo único que no depende del
+  // plan— se sigue exigiendo igual.
+  it('wizard pre-search notice is non-contractual: billing basis, no fixed-credit promise, no stale shape (Q3F-5BB.10A)', () => {
     const w = read(WIZARD);
     // The old fixed-credit promise is gone.
     assert.doesNotMatch(w, /hasta 2 créditos/);
     assert.doesNotMatch(w, /máx 2 créditos/);
-    // The honest guardrail shape + billing basis are stated instead.
-    assert.match(w, /páginas de Lusha/i);
-    assert.match(w, /resultados por página/i);
+    // The stale single-branch shape figures are gone too.
+    assert.doesNotMatch(w, /páginas de Lusha/i);
+    assert.doesNotMatch(w, /resultados por página/i);
+    // The billing basis stays stated.
+    assert.match(w, /plan configurado para la macroindustria/i);
     assert.match(w, /sin signals/i);
     assert.match(w, /facturable según tu plan de Lusha/i);
     assert.match(w, /costo real/i);

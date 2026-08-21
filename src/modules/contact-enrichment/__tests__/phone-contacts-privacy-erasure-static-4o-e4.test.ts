@@ -365,12 +365,33 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
         // Ninguna es DDL de teléfono.
         '118_macro_industry_catalog_v2_draft.sql',
         '119_publish_macro_industry_catalog_v2_cutover.sql',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+      // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
+      // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
+      // columna, no suelta constraint y no reescribe ninguna migración anterior.
+      '120_provider_native_phone_suppression.sql',
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). Tampoco es DDL de
+      // teléfono — reemplaza una constraint de `wizard_budget_reservations` y el cuerpo de
+      // `confirm_wizard_credits`— y no toca la allowlist del escalar que E4 fijó.
+      '121_wizard_budget_overage_reconciliation.sql',
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      '122_phone_reveal_search_more.sql',
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
   });
 
-  it('la migración 119 (catálogo macro) es la última del repo', () => {
+  it('la migración 123 (memoria provider-seen) es la última del repo', () => {
     // 4O-H2 mueve el techo de la 114 a la 115. Se sigue fijando un número EXACTO: una
     // migración por encima del último hito conocido tiene que romper esta guarda.
     const numbered = readdirSync(MIGRATIONS_DIR)
@@ -379,8 +400,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       .sort((a, b) => a - b);
     // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
     // Macro Industrias, sin relación con teléfono. La 117 (4O-H3-B) queda por debajo.
-    // El número sigue siendo EXACTO.
-    assert.equal(numbered[numbered.length - 1], 119);
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) lo mueve a la 120, y
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 a la 121 (contabilidad de presupuesto, sin
+    // relación con teléfono). El número sigue siendo EXACTO: una migración no declarada
+    // por encima del último hito conocido rompe esta guarda.
+    assert.equal(numbered[numbered.length - 1], 123);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

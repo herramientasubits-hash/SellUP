@@ -20,6 +20,14 @@ export interface ClaimableRunRow {
   company_name: string;
   company_domain: string | null;
   company_country_code: string | null;
+  /**
+   * HubSpot company id of the run's company (migration 068). Optional so
+   * existing in-memory test harnesses that build this row by hand keep
+   * compiling; the real claim always selects it. Used by the provider-native
+   * novelty gate (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1) as the second
+   * deterministic company-scope key, after account_id.
+   */
+  hubspot_company_id?: string | null;
   status: ContactEnrichmentRunStatus;
   summary: Record<string, unknown>;
   /**
@@ -31,7 +39,7 @@ export interface ClaimableRunRow {
 }
 
 const CLAIM_SELECT =
-  'id, agent_run_id, account_id, company_name, company_domain, company_country_code, status, summary, attempt_order';
+  'id, agent_run_id, account_id, company_name, company_domain, company_country_code, hubspot_company_id, status, summary, attempt_order';
 
 export type ClaimExecutionResult =
   | { status: 'claimed'; row: ClaimableRunRow }

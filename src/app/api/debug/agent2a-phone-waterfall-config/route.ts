@@ -23,6 +23,31 @@
  * (`false`/`false`), presente con un valor que no es exactamente `"true"`
  * (`true`/`false`) y presente y activa (`true`/`true`).
  *
+ * DESDE AGENT2A-SEARCH-MORE-PHONES-1E publicó el MISMO par para el OTRO flag de
+ * teléfono, `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK`:
+ *   * `lusha_phone_reveal_fallback_flag_configured`
+ *   * `lusha_phone_reveal_fallback_enabled_resolved`
+ *
+ * Se añadió porque en ese momento ese flag era el permiso de producto que gobernaba
+ * «Buscar más números», y con él OFF el planificador devuelve `feature_disabled`, cuyo
+ * copy es `null` a propósito: la UI se resuelve NO RENDERIZANDO. El síntoma —«no hay
+ * CTA y no hay explicación»— es entonces IDÉNTICO al de un preflight que falló, y sin
+ * leer el flag en el runtime que se está mirando los dos casos no se pueden separar.
+ * Se conservan estos dos campos aunque 1H deje de leer este flag para «Buscar más
+ * números»: siguen siendo el diagnóstico REAL del fallback manual de Lusha, que sigue
+ * vivo, y retirarlos rompería ese diagnóstico sin motivo.
+ *
+ * DESDE AGENT2A-SEARCH-MORE-PHONES-1H publica el MISMO par para el flag DEDICADO que
+ * reemplaza al anterior como permiso de «Buscar más números»,
+ * `ENABLE_SEARCH_MORE_PHONES`:
+ *   * `search_more_phones_flag_configured`
+ *   * `search_more_phones_enabled_resolved`
+ *
+ * Los DOS pares —el de arriba y este— se publican JUNTOS a propósito, sin fusionarse
+ * en uno: es lo que permite comprobar en runtime que los dos flags son
+ * INDEPENDIENTES (ninguno activa al otro) y que «Buscar más números» ya no depende del
+ * primero. Sigue sin devolverse ningún valor crudo: sólo booleanos y los nombres.
+ *
  * Acceso: admin-only (sesión autenticada + RPC `is_admin`), igual que
  * /api/debug/agent1-apollo-config.
  *
@@ -36,9 +61,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
+  isLushaPhoneRevealFallbackEnabled,
+  isLushaPhoneRevealFallbackFlagConfigured,
   isPhoneRevealWaterfallEnabled,
   isPhoneRevealWaterfallFlagConfigured,
+  isSearchMorePhonesEnabled,
+  isSearchMorePhonesFlagConfigured,
+  LUSHA_PHONE_REVEAL_FALLBACK_FLAG,
   PHONE_REVEAL_WATERFALL_FLAG,
+  SEARCH_MORE_PHONES_FLAG,
 } from '@/lib/feature-flags.server';
 
 /**
@@ -75,7 +106,7 @@ export async function GET() {
 
   return NextResponse.json(
     {
-      config_version: 'agent2a_phone_waterfall_runtime_diagnostics_v1',
+      config_version: 'agent2a_phone_waterfall_runtime_diagnostics_v2',
       diagnosis_timestamp: new Date().toISOString(),
       // NOMBRE de la variable, nunca su valor. Publicarlo evita que el operador
       // tenga que adivinar cuál de los flags de teléfono se está comprobando
@@ -83,6 +114,31 @@ export async function GET() {
       phone_reveal_waterfall_flag_name: PHONE_REVEAL_WATERFALL_FLAG,
       phone_reveal_waterfall_flag_configured: isPhoneRevealWaterfallFlagConfigured(),
       phone_reveal_waterfall_enabled_resolved: isPhoneRevealWaterfallEnabled(),
+      // El OTRO flag de teléfono, publicado con el MISMO par presencia/resolución
+      // (AGENT2A-SEARCH-MORE-PHONES-1E). Es el kill switch real de cualquier reveal de
+      // Lusha, y por tanto el permiso de producto que gobierna «Buscar más números»: con
+      // este OFF el planificador devuelve `feature_disabled` y la UI se resuelve NO
+      // RENDERIZANDO —sin CTA y sin copy—, que a ojo es idéntico a un fallo del preflight.
+      // Publicarlo aquí es lo que separa «el permiso está apagado» de «algo se rompió».
+      //
+      // Se resuelve con la MISMA función que gobierna producción
+      // (`isLushaPhoneRevealFallbackEnabled`), nunca con un segundo parseo: una segunda
+      // implementación podría discrepar del runtime real y entonces el diagnóstico mentiría
+      // con toda confianza. Igual que arriba, se publica el NOMBRE y nunca el valor.
+      lusha_phone_reveal_fallback_flag_name: LUSHA_PHONE_REVEAL_FALLBACK_FLAG,
+      lusha_phone_reveal_fallback_flag_configured:
+        isLushaPhoneRevealFallbackFlagConfigured(),
+      lusha_phone_reveal_fallback_enabled_resolved: isLushaPhoneRevealFallbackEnabled(),
+      // El flag DEDICADO de «Buscar más números» desde AGENT2A-SEARCH-MORE-PHONES-1H. Ya NO
+      // es `lusha_phone_reveal_fallback_enabled_resolved` el que gobierna esta operación —esa
+      // reutilización se retiró justamente porque acoplaba dos rollouts que el producto quiere
+      // independientes—, así que este es el campo que hay que mirar para saber si el CTA del
+      // candidato puede aparecer. Resuelto con la MISMA función que gobierna producción, nunca
+      // con un segundo parseo, e igual que el resto de este endpoint: sólo el NOMBRE, nunca el
+      // valor.
+      search_more_phones_flag_name: SEARCH_MORE_PHONES_FLAG,
+      search_more_phones_flag_configured: isSearchMorePhonesFlagConfigured(),
+      search_more_phones_enabled_resolved: isSearchMorePhonesEnabled(),
       runtime_sha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
     },
     { headers: { 'Cache-Control': 'no-store' } },

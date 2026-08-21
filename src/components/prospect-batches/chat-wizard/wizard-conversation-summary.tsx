@@ -20,6 +20,12 @@ import { isLushaRouteHonored } from '@/modules/prospect-batches/prospect-discove
 // alcanzable en v1 cuando el usuario decide no acotar). El gate es la MISMA
 // capacidad que ya decide si el paso del wizard se renderiza.
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+// AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — bloqueo de presupuesto ANTES del
+// primer clic. El núcleo es puro y la instantánea la resolvió el servidor: esta
+// pantalla no lee la base, no estima nada y no puede autorizar una corrida.
+import { resolveWizardPreExecutionBudgetBlock } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
+import type { WizardBudgetPreflight } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
+import { mapBudgetExceeded } from './wizard-execution-error-map';
 // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad del discovery de Agente
 // 1, y el catálogo de países del propio wizard como fuente de verdad.
 import {
@@ -73,6 +79,18 @@ type WizardRunProviderSurfaceProps = {
   noNewCandidatesBreakdown?: NoNewCandidatesBreakdown | null;
   /** PERSISTENCE-READINESS-4 § 8 — cifras reales de la escritura. `null` = no llegaron. */
   persistenceOutcome?: WizardPersistenceOutcome | null;
+  /**
+   * AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — saldo del período y coste del peor
+   * caso por proveedor, resueltos en el servidor. Ausente/`null` ⇒ sin
+   * instantánea: no se bloquea por presupuesto y la reserva atómica decide.
+   */
+  budgetPreflight?: WizardBudgetPreflight | null;
+  /**
+   * Proveedor que el servidor resolvió como predeterminado. Sólo se usa para
+   * saber a qué coste comparar cuando el administrador no eligió uno para esta
+   * corrida; `null` ⇒ proveedor sin nombrar, y entonces no se bloquea.
+   */
+  defaultDiscoveryProvider?: WizardRunSelectableProvider | null;
 };
 
 type WizardConversationSummaryProps = WizardRunProviderSurfaceProps & {
@@ -109,6 +127,8 @@ export function WizardConversationSummary({
   twoRoundOutcome = null,
   noNewCandidatesBreakdown = null,
   persistenceOutcome = null,
+  budgetPreflight = null,
+  defaultDiscoveryProvider = null,
 }: WizardConversationSummaryProps) {
   if (state.currentStep === 'validating') {
     return <ValidatingPanel />;
@@ -131,6 +151,8 @@ export function WizardConversationSummary({
         apolloRunModeLimits={apolloRunModeLimits}
         requestedProvider={requestedProvider}
         onRequestedProviderChange={onRequestedProviderChange}
+        budgetPreflight={budgetPreflight}
+        defaultDiscoveryProvider={defaultDiscoveryProvider}
       />
     );
   }
@@ -216,9 +238,11 @@ type ValidatedPanelProps = {
    * es peor que no ofrecerlo: parece elegible y no elige nada.
    */
   onRequestedProviderChange?: (provider: WizardRunSelectableProvider) => void;
+  budgetPreflight: WizardBudgetPreflight | null;
+  defaultDiscoveryProvider: WizardRunSelectableProvider | null;
 };
 
-function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange }: ValidatedPanelProps) {
+function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange, budgetPreflight, defaultDiscoveryProvider }: ValidatedPanelProps) {
   const router = useRouter();
   // Q3F-5BB.3E — Final search step. When the collected criteria resolve to the
   // hidden Lusha provider, the final "Buscar con IA" search runs Lusha read-only
@@ -273,7 +297,58 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // rechazarse. Comparte gate con el selector de proveedor por el mismo motivo
   // que `isPersistenceBlocked`: si esta pantalla no puede ejecutar, tampoco
   // ofrece elegir con qué.
-  const isBudgetBlocked = executionError?.code === 'BUDGET_EXCEEDED';
+  const isBudgetReactivelyBlocked = executionError?.code === 'BUDGET_EXCEEDED';
+
+  // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — el bloqueo REACTIVO de arriba llega
+  // tarde: exige que la usuaria gaste un clic para descubrir que la corrida no
+  // cabía. Con la instantánea del período ya resuelta en el servidor, el mismo
+  // bloqueo se conoce ANTES del primer intento.
+  //
+  // Tres propiedades que este bloque no puede romper:
+  //   · No autoriza nada. Sólo puede retirar una oferta, nunca añadirla: la
+  //     reserva atómica (`try_reserve_wizard_credits`) sigue siendo la única
+  //     autoridad, y la carrera «la UI dice que cabe / otra corrida se lo gasta»
+  //     la sigue resolviendo ella con el bloqueo reactivo.
+  //   · Sin instantánea no bloquea. Una lectura fallida deja la pantalla como
+  //     estaba; convertir «no pude leer» en «no puedes ejecutar» bloquearía a
+  //     todo el mundo por un error de diagnóstico.
+  //   · No nombra un proveedor que nadie eligió: sin selección explícita compara
+  //     contra el predeterminado que resolvió el servidor, y si tampoco lo hay,
+  //     no bloquea.
+  //
+  // AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0 — este preflight es el de
+  // Apollo/Tavily, y SÓLO de ellos.
+  //
+  // La ruta de Lusha tiene su propio aviso previo dentro de
+  // `WizardLushaFinalSearch` (el resolutor plan-aware de esa ruta), que es el
+  // único consciente de cuántas ramas ejecuta la macro industria. Mientras este
+  // bloque se evaluaba también en esa ruta, la misma pantalla publicaba DOS
+  // autoridades económicas incompatibles: la QA visual del 2026-08-19 (CO ·
+  // health_pharma · 6 disponibles) vio a la vez «Requeridos: 20 créditos» —el
+  // techo de Tavily, un proveedor que esa corrida no va a usar— y el panel
+  // correcto de Lusha con 6/6 y su CTA habilitado. Un aviso que nombra el coste
+  // de otro proveedor no es un aviso: es ruido que contradice al que sí manda.
+  //
+  // `!useLushaFinalSearch` no debilita ningún gate: la ruta Lusha conserva su
+  // propio bloqueo previo, y la autoridad económica real sigue siendo la reserva
+  // atómica del servidor (`try_reserve_wizard_credits`), que no depende de nada
+  // de esta pantalla. Apollo/Tavily conservan su preflight intacto.
+  const budgetProvider = requestedProvider ?? defaultDiscoveryProvider;
+  const preExecutionBudgetBlock =
+    !useLushaFinalSearch && budgetProvider
+      ? resolveWizardPreExecutionBudgetBlock(budgetPreflight, budgetProvider)
+      : null;
+
+  const isBudgetBlocked = isBudgetReactivelyBlocked || preExecutionBudgetBlock !== null;
+
+  // El aviso previo usa el MISMO redactor que el reactivo, así que «no alcanza»
+  // vs. «se agotó» y las dos cifras son idénticas antes y después de intentar.
+  // Cuando ya hay un error de ejecución en pantalla no se duplica: ese banner ya
+  // dice lo mismo con los números que devolvió el servidor.
+  const preExecutionBudgetMessage =
+    preExecutionBudgetBlock !== null && executionError === null
+      ? mapBudgetExceeded(preExecutionBudgetBlock).message
+      : null;
 
   // § 6 — «la configuración es válida» describe los CRITERIOS (país, industria,
   // proveedor…), no si la corrida puede ejecutarse ahora mismo. Con un bloqueo
@@ -313,6 +388,20 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         </div>
       )}
 
+      {/* AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — mismo tratamiento visual que el
+          error de ejecución: el bloqueo es igual de real, sólo que se conoce
+          antes. `role="alert"` porque aparece sin que la usuaria haya actuado. */}
+      {preExecutionBudgetMessage !== null && (
+        <div
+          className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3"
+          role="alert"
+          data-testid="wizard-budget-preflight-notice"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+          <p className="text-xs text-destructive">{preExecutionBudgetMessage}</p>
+        </div>
+      )}
+
       {/* La forma de la búsqueda no admite proveedor externo. Dice la causa real y
           no ofrece ningún control que pueda gastar. */}
       {!discoveryAvailability.available && (
@@ -338,6 +427,10 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         <WizardLushaFinalSearch
           input={lushaCriteria.input}
           recap={finalRecap}
+          // AGENT1-LUSHA-BUDGET-GATE-1 § 6 — la MISMA instantánea que ya usa el
+          // bloqueo previo de Apollo/Tavily unos bloques más arriba. Un segundo
+          // canal para Lusha podría desviarse y avisar sobre otro período.
+          budgetPreflight={budgetPreflight}
           onViewProspects={() => {
             router.push(PROSPECTOS_TAB_ROUTE);
             router.refresh();

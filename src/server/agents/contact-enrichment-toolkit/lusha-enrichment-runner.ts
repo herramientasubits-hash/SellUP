@@ -52,6 +52,11 @@ import {
   type ClaimExecutionResult,
 } from './contact-enrichment-execution-claim';
 import { buildRoutingObservation } from './routing-observation-wiring';
+import {
+  applyProviderNativeNoveltyGate,
+  readKnownProviderNativeIdentities,
+  type KnownProviderIdentityLoaderV1,
+} from './provider-native-novelty-gate';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -1108,6 +1113,22 @@ export interface ExecuteContactEnrichmentLushaRunDeps {
    * Supabase — injectable for tests.
    */
   claimRunForExecution?: (runId: string) => Promise<ClaimExecutionResult>;
+  /**
+   * Lectura BATCH de identidades Lusha (contactId) ya conocidas para la misma
+   * empresa vía el MISMO proveedor
+   * (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1). Una sola consulta acotada por
+   * los contactId devueltos por Prospecting/Search — nunca una por resultado.
+   *
+   * ALCANCE DEL AHORRO — leer con cuidado:
+   *   * COSTO DE ENRICH: evitable. Un contactId ya conocido para esta empresa no
+   *     vuelve a pasar por /v3/contacts/enrich.
+   *   * COSTO DE PROSPECTING/SEARCH: **NO RESUELTO POR ESTE HITO**. Lusha no
+   *     expone ningún parámetro para excluir contactIds conocidos, así que la
+   *     llamada de descubrimiento ya ocurrió (y pudo cobrarse) antes de que
+   *     este gate local pueda actuar. La reutilización directa de un contactId
+   *     almacenado y el Prospecting dimensionado al déficit son hitos futuros.
+   */
+  loadKnownProviderIdentities?: KnownProviderIdentityLoaderV1;
 }
 
 export async function executeContactEnrichmentLushaRun(
@@ -1115,7 +1136,10 @@ export async function executeContactEnrichmentLushaRun(
   triggeredBy: string,
   deps: ExecuteContactEnrichmentLushaRunDeps = {},
 ): Promise<LushaRunnerResult> {
-  const { claimRunForExecution = claimContactEnrichmentAttemptForExecution } = deps;
+  const {
+    claimRunForExecution = claimContactEnrichmentAttemptForExecution,
+    loadKnownProviderIdentities = readKnownProviderNativeIdentities,
+  } = deps;
 
   // 1. Feature flag
   if (!isLushaContactEnrichmentEnabled()) {
@@ -1319,6 +1343,17 @@ export async function executeContactEnrichmentLushaRun(
   const agentRunId = typeof run.agent_run_id === 'string' ? run.agent_run_id : undefined;
   const companyName = typeof run.company_name === 'string' ? run.company_name : null;
   const companyDomain = typeof run.company_domain === 'string' ? run.company_domain : null;
+
+  // Claves DETERMINISTAS de empresa para el novelty gate pre-pago
+  // (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1). Prioridad: account_id >
+  // hubspot_company_id > dominio normalizado. El NOMBRE de la empresa nunca
+  // se usa como clave de scope, y no hay matching difuso.
+  const noveltyCompanyKeys = {
+    accountId: typeof run.account_id === 'string' ? run.account_id : null,
+    hubspotCompanyId:
+      typeof run.hubspot_company_id === 'string' ? run.hubspot_company_id : null,
+    companyDomain,
+  };
 
   // 7. Capability routing — 17B.4V guard promoted to 17B.4W prospecting
   //    /v3/contacts/search requires a person identifier — company-only is HTTP 400 (17B.4D).
@@ -1647,8 +1682,41 @@ export async function executeContactEnrichmentLushaRun(
       return true;
     });
 
-    // 4. Limit before enrich
-    const selectedForEnrich = preDeduped.slice(0, maxCandidates);
+    // 3b. PRE-PAID PROVIDER-NATIVE NOVELTY GATE
+    //     (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1)
+    //
+    //     Punto exacto: después de Prospecting/Search y sus filtros locales,
+    //     ANTES de cualquier /v3/contacts/enrich. Se descartan los contactId
+    //     que SellUp ya vio para la MISMA empresa vía el MISMO proveedor
+    //     (Lusha), en una sola lectura batch acotada por los contactId de esta
+    //     respuesta — nunca una consulta por contacto.
+    //
+    //     LO QUE ESTO AHORRA:  la llamada PAGADA /v3/contacts/enrich sobre una
+    //     identidad ya conocida (y el candidato duplicado que crearía).
+    //     LO QUE **NO** RESUELVE: el costo de Prospecting/Search. Lusha no
+    //     ofrece un parámetro para excluir contactIds conocidos, así que la
+    //     llamada de descubrimiento ya se hizo — y pudo cobrarse — antes de
+    //     llegar aquí. Este hito NO elimina el costo repetido de descubrimiento
+    //     en Lusha; la reutilización directa del contactId almacenado y el
+    //     Prospecting dimensionado al déficit son hitos posteriores.
+    //
+    //     Nunca cruza identidades entre proveedores: la lectura filtra por
+    //     source='lusha', así que un Apollo person_id no puede suprimir un
+    //     enrich de Lusha. Falla ABIERTO si no hay scope determinista de
+    //     empresa, no hay contactIds, o la lectura falla.
+    const lushaNoveltyGate = await applyProviderNativeNoveltyGate({
+      provider: 'lusha',
+      items: preDeduped,
+      getNativeId: (c) => c.contactId,
+      company: noveltyCompanyKeys,
+      excludeRunId: runId,
+      loadKnownIdentities: loadKnownProviderIdentities,
+    });
+    const novelForEnrich = lushaNoveltyGate.novel;
+    const lushaNovelty = lushaNoveltyGate.observability;
+
+    // 4. Limit before enrich (solo identidades NOVEDOSAS)
+    const selectedForEnrich = novelForEnrich.slice(0, maxCandidates);
 
     let prospectCandidatesCreated = 0;
     let prospectDuplicatesSkipped = 0;
@@ -1670,6 +1738,7 @@ export async function executeContactEnrichmentLushaRun(
             phone_reveal_enabled: false,
             discovery_mode: 'company_first_discovery',
             prospecting_credits: prospectResult.prospectingCreditsCharged ?? null,
+            provider_identity_novelty: lushaNovelty,
             hito: '17B.4W',
           },
         })
@@ -1857,6 +1926,10 @@ export async function executeContactEnrichmentLushaRun(
         selected_for_enrich: selectedForEnrich.length,
         candidates_created: prospectCandidatesCreated,
         duplicates_skipped: prospectDuplicatesSkipped,
+        // Novelty gate pre-pago: contadores adjuntos a la fila de uso de la
+        // llamada REAL de prospecting. No se crea ninguna fila extra por los
+        // skips — no hubo llamada de red al proveedor que registrar.
+        provider_identity_novelty: lushaNovelty,
         cost: prospectSuccessCostComponent.costTrace,
         hito: '17B.4W',
       },
@@ -1871,6 +1944,10 @@ export async function executeContactEnrichmentLushaRun(
           duplicates_skipped: prospectDuplicatesSkipped,
           credits_used: prospectTotalCredits,
           discovery_mode: 'company_first_discovery',
+          skipped_known_provider_identity_count:
+            lushaNovelty.skipped_known_provider_identity_count,
+          known_provider_identity_ids_count: lushaNovelty.known_provider_identity_ids_count,
+          novel_provider_identity_count: lushaNovelty.novel_provider_identity_count,
           hito: '17B.4W',
         },
       });
@@ -1908,6 +1985,7 @@ export async function executeContactEnrichmentLushaRun(
           raw_results: rawProspectCount,
           credits_used: prospectTotalCredits,
           discovery_mode: 'company_first_discovery',
+          provider_identity_novelty: lushaNovelty,
           ...prospectSuccessCostFields,
           ...(prospectSuccessRoutingObservation
             ? { routing_observation: prospectSuccessRoutingObservation.summaryBlock }
@@ -2222,7 +2300,23 @@ export async function executeContactEnrichmentLushaRun(
   }
 
   // 8. Enrich up to maxCandidates results
-  const candidates = searchResult.sanitizedResults.filter((c) => c.id).slice(0, maxCandidates);
+  //
+  //    NOTA DE ALCANCE: en el descubrimiento AUTOMÁTICO esta rama es
+  //    inalcanzable hoy — resolveLushaDiscoveryMode se invoca arriba solo con
+  //    companyName/companyDomain, así que resuelve a company_first_discovery o
+  //    invalid_search_context y ambas retornan antes. Se aplica el mismo
+  //    novelty gate pre-pago igualmente, para que la rama no quede como una vía
+  //    sin protección si un futuro hito vuelve a habilitarla.
+  const searchNoveltyGate = await applyProviderNativeNoveltyGate({
+    provider: 'lusha',
+    items: searchResult.sanitizedResults.filter((c) => c.id),
+    getNativeId: (c) => c.id ?? null,
+    company: noveltyCompanyKeys,
+    excludeRunId: runId,
+    loadKnownIdentities: loadKnownProviderIdentities,
+  });
+  const searchNovelty = searchNoveltyGate.observability;
+  const candidates = searchNoveltyGate.novel.slice(0, maxCandidates);
   let candidatesCreated = 0;
   let duplicatesSkipped = 0;
   let totalCreditsUsed: number | null = null;
@@ -2235,6 +2329,7 @@ export async function executeContactEnrichmentLushaRun(
           candidatesToEnrich: candidates.length,
           reveal: ['emails'],
           phone_reveal_enabled: false,
+          provider_identity_novelty: searchNovelty,
           hito: '17B.4K',
         },
       })
@@ -2393,6 +2488,7 @@ export async function executeContactEnrichmentLushaRun(
       raw_results: rawResultsCount,
       candidates_created: candidatesCreated,
       duplicates_skipped: duplicatesSkipped,
+      provider_identity_novelty: searchNovelty,
       cost: enrichBatchCostComponent.costTrace,
       hito: '17B.4K',
     },
@@ -2442,6 +2538,7 @@ export async function executeContactEnrichmentLushaRun(
         duplicates_skipped: duplicatesSkipped,
         raw_results: rawResultsCount,
         credits_used: totalCreditsUsed,
+        provider_identity_novelty: searchNovelty,
         ...runCostFields,
         ...(directSearchSuccessRoutingObservation
           ? { routing_observation: directSearchSuccessRoutingObservation.summaryBlock }

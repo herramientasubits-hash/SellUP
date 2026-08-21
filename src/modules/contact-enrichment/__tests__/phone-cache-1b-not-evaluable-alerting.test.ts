@@ -16,9 +16,11 @@
  *   3. RECOVERY con teléfono y sin clave ⇒ evento PII-free `phase = recovery`.
  *   4. El evento NO lleva teléfono, email, nombre, LinkedIn ni payload crudo, y
  *      tampoco el person id (ni hasheado).
- *   5. Nada de esto cambia el desenlace: no hay bloqueo por inferencia, no hay
- *      fuzzy matching, no hay backfill del id que falta, no se llama a Apollo ni
- *      a Lusha una vez más, y un sumidero que lanza no rompe el reveal.
+ *   5. AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: el desenlace SÍ cambió — no_evaluable
+ *      ahora BLOQUEA fail-closed (mismo estado que `check_unavailable`, sin
+ *      vocabulario nuevo). Lo que NO cambió es la política de identificación: no
+ *      hay bloqueo por inferencia, no hay fuzzy matching, no hay backfill del id
+ *      que falta, y un sumidero que lanza no rompe el reveal.
  *
  * Todo es offline y determinista: sin red, sin Supabase, sin proveedores, sin
  * flags reales. Los teléfonos son del rango sintético +1555… y los ids son
@@ -59,7 +61,8 @@ import {
   type RecoveryCandidateRecord,
   type RecoveryUsageLogEntry,
 } from '../phone-reveal-recovery-core';
-import type { PhoneCacheSuppressionLookupKey } from '../phone-cache-core';
+import { SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE } from '../phone-reveal-suppression-guard';
+import type { PhoneRevealSuppressionLookupKey } from '../provider-suppression-core';
 import type { MatchPersonParams } from '@/server/integrations/apollo-client';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -77,6 +80,26 @@ const ACCOUNT_ID = 'acct-fix4';
 const PERSON_ID = 'b1c2d3e4f5061728394a5b6c';
 /** Id de OTRO proveedor (Lusha): nunca puede servir de clave Apollo. */
 const LUSHA_ID = 'v1.9d2f7a1c';
+
+/**
+ * FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4) — override que produce un candidato
+ * SIN NINGUNA identidad nativa de proveedor, que es el único caso que sigue siendo
+ * `not_evaluable`.
+ *
+ * Hasta la Fase 1 bastaba con `NO_NATIVE_IDENTITY`: la resolución
+ * sólo miraba a Apollo, así que un candidato de Lusha no tenía clave por construcción.
+ * Ahora un candidato de Lusha SÍ tiene identidad —su `source_contact_id`—, de modo que ese
+ * override ya no describe «sin clave»: describe «con clave de Lusha».
+ *
+ * Este fixture usa un origen sin supresión propia (`hubspot`) y sin `source_contact_id`,
+ * que es lo que de verdad no se puede evaluar. La INTENCIÓN de los tests que lo usan no
+ * cambia: «cuando la privacidad no se puede evaluar, se BLOQUEA y se audita».
+ */
+const NO_NATIVE_IDENTITY = {
+  apolloPersonId: null,
+  source: 'hubspot' as const,
+  sourceContactId: null,
+};
 /** Teléfono sintético (rango reservado +1555). No es de nadie. */
 const PHONE = '+15550100042';
 /** Datos de contacto ficticios: se usan para comprobar que NO se publican. */
@@ -98,7 +121,7 @@ interface Capture {
   startLogs: PhoneRevealUsageLogEntry[];
   webhookLogs: WebhookUsageLogEntry[];
   recoveryLogs: RecoveryUsageLogEntry[];
-  suppressionLookups: PhoneCacheSuppressionLookupKey[];
+  suppressionLookups: PhoneRevealSuppressionLookupKey[];
 }
 
 let cap: Capture;
@@ -432,20 +455,21 @@ describe('FIX 4 — evento de auditoría (módulo puro)', () => {
 
 // ── 2. START ───────────────────────────────────────────────────
 
-describe('FIX 4 — START registra el caso no evaluable', () => {
-  it('sin Apollo person id resoluble: evento + usage-log, y el reveal continúa', async () => {
+describe('FIX 4 / P0 — START registra el caso no evaluable Y AHORA BLOQUEA', () => {
+  it('P0: sin Apollo person id resoluble ⇒ BLOQUEA fail-closed (antes: requested)', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       startDeps(
         startCandidate({
-          apolloPersonId: null,
-          source: 'lusha',
-          sourceContactId: LUSHA_ID,
+          ...NO_NATIVE_IDENTITY,
         }),
       ),
     );
 
-    assert.equal(result.status, 'requested', 'comportamiento actual conservado');
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 'suppression_check_unavailable');
+    assert.equal(result.errorCode, 'suppression_check_unavailable');
+    assert.equal(result.requestAccepted, false);
     assert.equal(cap.events.length, 1);
     assertEventShape(cap.events[0]);
     assert.deepEqual(cap.events[0], {
@@ -457,35 +481,42 @@ describe('FIX 4 — START registra el caso no evaluable', () => {
     });
     // Sin clave no se consulta el tombstone (no hay nada que emparejar)…
     assert.deepEqual(cap.suppressionLookups, []);
-    // …y el mismo estado queda en el usage-log, no solo en el canal de alerta.
-    assert.equal(
-      cap.startLogs[0].metadata.suppression_state,
-      'not_evaluable_missing_provider_person_id',
-    );
-    assert.equal(cap.startLogs[0].metadata.reveal_phase, 'start');
+    // …ni se llama a Apollo, ni se persiste nada, ni se escribe usage-log del
+    // START: el bloqueo comparte EXACTAMENTE el camino de `check_unavailable`
+    // (que tampoco escribe usage-log en el START).
+    assert.equal(cap.apolloStarts.length, 0, 'Apollo NUNCA se llama');
+    assert.equal(cap.startPatches.length, 0);
+    assert.equal(cap.startLogs.length, 0);
     assertEventsHaveNoPii();
   });
 
-  it('sin account_id: se reporta el motivo exacto', async () => {
+  // FASE 1 — RE-ESPECIFICADO. Este test afirmaba que la falta de cuenta era un fallo de
+  // privacidad: bloqueaba y emitía `not_evaluable_missing_account_id`. Eso era una
+  // consecuencia de haber heredado la clave de la CACHÉ, no una decisión de privacidad, y
+  // es exactamente lo que la Fase 1 corrige. Ahora la identidad de Apollo se consulta con
+  // normalidad, la cuenta viaja nula en la clave y NO produce ningún evento.
+  //
+  // La garantía sigue intacta: el reveal continúa sólo porque la supresión SE CONSULTÓ y
+  // volvió vacía, nunca porque no se pudiera consultar.
+  it('FASE 1: sin account_id la supresión SÍ se evalúa — ni bloqueo ni evento', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       startDeps(startCandidate({ accountId: null })),
     );
 
     assert.equal(result.status, 'requested');
-    assert.equal(cap.events.length, 1);
-    assert.equal(
-      cap.events[0].suppression_state,
-      'not_evaluable_missing_account_id',
-    );
-    assert.equal(cap.events[0].account_id, null);
-    assert.deepEqual(cap.suppressionLookups, []);
+    assert.deepEqual(cap.events, [], 'sin cuenta ya NO es "no evaluable"');
+    assert.equal(cap.suppressionLookups.length, 1, 'la consulta SÍ ocurre');
+    assert.equal(cap.suppressionLookups[0].provider, 'apollo');
+    assert.equal(cap.suppressionLookups[0].accountId, null);
+    assert.equal(cap.apolloStarts.length, 1, 'el reveal llega a Apollo');
     assert.equal(
       cap.startLogs[0].metadata.suppression_state,
-      'not_evaluable_missing_account_id',
+      'checked_not_suppressed',
     );
     assertEventsHaveNoPii();
   });
+
 
   it('con clave completa NO se emite evento: la comprobación sí se hizo', async () => {
     const result = await runRevealCandidatePhone(VALID_INPUT, startDeps());
@@ -499,10 +530,10 @@ describe('FIX 4 — START registra el caso no evaluable', () => {
     );
   });
 
-  it('el START fallido también deja el estado en su usage-log', async () => {
+  it('P0: el bloqueo corre ANTES de Apollo — un START que fallaría igual nunca se invoca', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
-      startDeps(startCandidate({ apolloPersonId: null, source: 'lusha' }), {
+      startDeps(startCandidate(NO_NATIVE_IDENTITY), {
         startRevealViaApollo: async (params) => {
           cap.apolloStarts.push(params);
           return { ok: false, errorCode: 'apollo_reveal_start_failed' } as never;
@@ -510,79 +541,70 @@ describe('FIX 4 — START registra el caso no evaluable', () => {
       }),
     );
 
-    assert.equal(result.status, 'error');
+    assert.equal(result.status, 'suppression_check_unavailable');
     assert.equal(cap.events.length, 1);
-    assert.equal(
-      cap.startLogs[0].metadata.suppression_state,
-      'not_evaluable_missing_provider_person_id',
-    );
+    // La prueba de que el gate corre ANTES de Apollo: el mock de arriba SIEMPRE
+    // fallaría si se llamase, y sin embargo nunca se invoca.
+    assert.equal(cap.apolloStarts.length, 0);
+    assert.equal(cap.startLogs.length, 0);
   });
 
-  it('no evaluable NO añade llamadas a Apollo ni inventa el person id', async () => {
-    await runRevealCandidatePhone(
+  it('P0: no evaluable BLOQUEA — 0 llamadas a Apollo, 0 escrituras, sin inventar el person id', async () => {
+    const result = await runRevealCandidatePhone(
       VALID_INPUT,
       startDeps(
         startCandidate({
-          apolloPersonId: null,
-          source: 'lusha',
-          sourceContactId: LUSHA_ID,
+          ...NO_NATIVE_IDENTITY,
         }),
       ),
     );
 
-    // Exactamente el START de siempre: ni una llamada extra por la auditoría.
-    assert.equal(cap.apolloStarts.length, 1);
-    // Sin backfill: el id ausente sigue ausente (el patch no lo fabrica).
-    assert.equal(cap.startPatches.length, 1);
-    assert.equal(cap.startPatches[0].apollo_person_id, null);
-    // Y el id ajeno (Lusha) nunca se reenvía a Apollo como `id`.
-    assert.equal(cap.apolloStarts[0].id, undefined);
+    assert.equal(result.status, 'suppression_check_unavailable');
+    // 0 llamadas a Apollo: ni siquiera la de la auditoría.
+    assert.equal(cap.apolloStarts.length, 0);
+    // 0 escrituras: ni patch de candidato ni backfill del id ausente.
+    assert.equal(cap.startPatches.length, 0);
   });
 
-  it('un sumidero que LANZA no rompe el START', async () => {
+  it('un sumidero que LANZA no rompe el START (sigue bloqueando)', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
-      startDeps(startCandidate({ apolloPersonId: null, source: 'lusha' }), {
+      startDeps(startCandidate(NO_NATIVE_IDENTITY), {
         onSuppressionNotEvaluable: () => {
           throw new Error('sumidero caído');
         },
       }),
     );
-    assert.equal(result.status, 'requested');
+    assert.equal(result.status, 'suppression_check_unavailable');
   });
 
-  it('sin sumidero cableado el START se comporta igual que antes', async () => {
+  it('sin sumidero cableado el START sigue bloqueando (la auditoría es opcional, el gate no)', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
-      startDeps(startCandidate({ apolloPersonId: null, source: 'lusha' }), {
+      startDeps(startCandidate(NO_NATIVE_IDENTITY), {
         onSuppressionNotEvaluable: undefined,
       }),
     );
-    assert.equal(result.status, 'requested');
+    assert.equal(result.status, 'suppression_check_unavailable');
     assert.deepEqual(cap.events, []);
-    assert.equal(
-      cap.startLogs[0].metadata.suppression_state,
-      'not_evaluable_missing_provider_person_id',
-    );
+    assert.equal(cap.apolloStarts.length, 0);
   });
 });
 
 // ── 3. WEBHOOK ─────────────────────────────────────────────────
 
-describe('FIX 4 — WEBHOOK registra el caso no evaluable', () => {
-  it('sin person id resoluble: evento PII-free y el teléfono se persiste igual', async () => {
+describe('FIX 4 / P0 — WEBHOOK registra el caso no evaluable Y AHORA BLOQUEA', () => {
+  it('P0: sin person id resoluble ⇒ BLOQUEA (antes: el teléfono se persistía igual)', async () => {
     const result = await runApolloPhoneRevealWebhook(
       { tokenProvided: TOKEN, payload: payloadWithoutApolloPersonId() },
       webhookDeps(
         webhookCandidate({
-          apolloPersonId: null,
-          source: 'lusha',
-          sourceContactId: LUSHA_ID,
+          ...NO_NATIVE_IDENTITY,
         }),
       ),
     );
 
-    assert.equal(result.outcome, 'revealed', 'sin bloqueo por inferencia');
+    assert.equal(result.outcome, 'suppression_check_unavailable');
     assert.equal(cap.events.length, 1);
     assertEventShape(cap.events[0]);
     assert.deepEqual(cap.events[0], {
@@ -593,6 +615,13 @@ describe('FIX 4 — WEBHOOK registra el caso no evaluable', () => {
       account_id: ACCOUNT_ID,
     });
     assert.deepEqual(cap.suppressionLookups, [], 'no hay clave que consultar');
+    // Fail-closed: 0 persistencia, 0 caché, el candidato sigue en vuelo.
+    assert.deepEqual(cap.persisted, []);
+    assert.equal(cap.webhookLogs[0].status, 'error');
+    assert.equal(
+      cap.webhookLogs[0].errorCode,
+      SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+    );
     assert.equal(
       cap.webhookLogs[0].metadata.suppression_state,
       'not_evaluable_missing_provider_person_id',
@@ -600,19 +629,17 @@ describe('FIX 4 — WEBHOOK registra el caso no evaluable', () => {
     assertEventsHaveNoPii();
   });
 
-  it('sin account_id: motivo exacto y cuenta nula en el evento', async () => {
+  // FASE 1 — RE-ESPECIFICADO por el mismo motivo que en el START.
+  it('FASE 1: sin account_id el webhook SÍ evalúa — ni bloqueo ni evento', async () => {
     await runApolloPhoneRevealWebhook(
       { tokenProvided: TOKEN, payload: webhookPayload() },
       webhookDeps(webhookCandidate({ accountId: null })),
     );
 
-    assert.equal(cap.events.length, 1);
-    assert.equal(cap.events[0].phase, 'webhook');
-    assert.equal(
-      cap.events[0].suppression_state,
-      'not_evaluable_missing_account_id',
-    );
-    assert.equal(cap.events[0].account_id, null);
+    assert.deepEqual(cap.events, []);
+    assert.equal(cap.suppressionLookups.length, 1);
+    assert.equal(cap.suppressionLookups[0].provider, 'apollo');
+    assert.equal(cap.suppressionLookups[0].accountId, null);
     assertEventsHaveNoPii();
   });
 
@@ -632,62 +659,65 @@ describe('FIX 4 — WEBHOOK registra el caso no evaluable', () => {
   it('sin teléfono no hay comprobación y por tanto no hay evento', async () => {
     const result = await runApolloPhoneRevealWebhook(
       { tokenProvided: TOKEN, payload: { request_id: REQUEST_ID, phone_numbers: [] } },
-      webhookDeps(webhookCandidate({ apolloPersonId: null, source: 'lusha' })),
+      webhookDeps(webhookCandidate(NO_NATIVE_IDENTITY)),
     );
     assert.equal(result.outcome, 'no_phone_found');
     assert.deepEqual(cap.events, []);
   });
 
-  it('no evaluable no escribe caché ni fabrica el person id ausente', async () => {
+  it('P0: no evaluable BLOQUEA — 0 persistencia, 0 caché, sin fabricar el person id ausente', async () => {
+    let cacheWrites = 0;
     await runApolloPhoneRevealWebhook(
       { tokenProvided: TOKEN, payload: payloadWithoutApolloPersonId() },
       webhookDeps(
         webhookCandidate({
-          apolloPersonId: null,
-          source: 'lusha',
-          sourceContactId: LUSHA_ID,
+          ...NO_NATIVE_IDENTITY,
         }),
-        // El flag de caché ON se modela con la dep presente: aun así, sin id
-        // Apollo válido no hay entrada cacheable.
-        { cacheRevealedPhone: async () => ({ written: true }) },
+        // El flag de caché ON se modela con la dep presente: aun así, el bloqueo
+        // ni siquiera llega a evaluar si hay entrada cacheable.
+        {
+          cacheRevealedPhone: async () => {
+            cacheWrites += 1;
+            return { written: true };
+          },
+        },
       ),
     );
 
-    assert.equal(cap.persisted.length, 1);
-    // Sin backfill: el id ajeno no se convierte en apollo_person_id.
-    assert.equal(cap.persisted[0].apollo_person_id, null);
+    assert.deepEqual(cap.persisted, []);
+    assert.equal(cacheWrites, 0);
   });
 
-  it('un sumidero que LANZA no rompe el webhook', async () => {
+  it('un sumidero que LANZA no rompe el webhook (sigue bloqueando)', async () => {
     const result = await runApolloPhoneRevealWebhook(
       { tokenProvided: TOKEN, payload: payloadWithoutApolloPersonId() },
-      webhookDeps(webhookCandidate({ apolloPersonId: null, source: 'lusha' }), {
+      webhookDeps(webhookCandidate(NO_NATIVE_IDENTITY), {
         onSuppressionNotEvaluable: () => {
           throw new Error('sumidero caído');
         },
       }),
     );
-    assert.equal(result.outcome, 'revealed');
+    assert.equal(result.outcome, 'suppression_check_unavailable');
+    assert.deepEqual(cap.persisted, []);
   });
 });
 
 // ── 4. RECOVERY ────────────────────────────────────────────────
 
-describe('FIX 4 — RECOVERY registra el caso no evaluable', () => {
-  it('sin person id resoluble: evento PII-free y un solo GET a Apollo', async () => {
+describe('FIX 4 / P0 — RECOVERY registra el caso no evaluable Y AHORA BLOQUEA', () => {
+  it('P0: sin person id resoluble ⇒ BLOQUEA (antes: revealed), un solo GET a Apollo', async () => {
     const result = await recoverApolloPhoneRevealForCandidate(
       { candidateId: CANDIDATE_ID },
       recoveryDeps(
         recoveryCandidate({
-          apolloPersonId: null,
-          source: 'lusha',
-          sourceContactId: LUSHA_ID,
+          ...NO_NATIVE_IDENTITY,
         }),
         payloadWithoutApolloPersonId(),
       ),
     );
 
-    assert.equal(result.outcome, 'revealed', 'sin bloqueo por inferencia');
+    assert.equal(result.outcome, 'suppression_check_unavailable');
+    assert.equal(result.phoneRevealed, false);
     assert.equal(cap.events.length, 1);
     assertEventShape(cap.events[0]);
     assert.deepEqual(cap.events[0], {
@@ -698,6 +728,9 @@ describe('FIX 4 — RECOVERY registra el caso no evaluable', () => {
       account_id: ACCOUNT_ID,
     });
     assert.deepEqual(cap.suppressionLookups, []);
+    // No terminal: solo se sella la última verificación, el candidato sigue en
+    // vuelo y es recuperable sin gastar créditos.
+    assert.deepEqual(cap.persisted, [{ phone_reveal_last_checked_at: NOW }]);
     assert.equal(
       cap.recoveryLogs[0].metadata.suppression_state,
       'not_evaluable_missing_provider_person_id',
@@ -707,19 +740,17 @@ describe('FIX 4 — RECOVERY registra el caso no evaluable', () => {
     assertEventsHaveNoPii();
   });
 
-  it('sin account_id: motivo exacto y cuenta nula en el evento', async () => {
+  // FASE 1 — RE-ESPECIFICADO por el mismo motivo que en el START y el webhook.
+  it('FASE 1: sin account_id la recuperación SÍ evalúa — ni bloqueo ni evento', async () => {
     await recoverApolloPhoneRevealForCandidate(
       { candidateId: CANDIDATE_ID },
       recoveryDeps(recoveryCandidate({ accountId: null })),
     );
 
-    assert.equal(cap.events.length, 1);
-    assert.equal(cap.events[0].phase, 'recovery');
-    assert.equal(
-      cap.events[0].suppression_state,
-      'not_evaluable_missing_account_id',
-    );
-    assert.equal(cap.events[0].account_id, null);
+    assert.deepEqual(cap.events, []);
+    assert.equal(cap.suppressionLookups.length, 1);
+    assert.equal(cap.suppressionLookups[0].provider, 'apollo');
+    assert.equal(cap.suppressionLookups[0].accountId, null);
     assertEventsHaveNoPii();
   });
 
@@ -736,11 +767,11 @@ describe('FIX 4 — RECOVERY registra el caso no evaluable', () => {
     );
   });
 
-  it('un sumidero que LANZA no rompe la recuperación', async () => {
+  it('un sumidero que LANZA no rompe la recuperación (sigue bloqueando)', async () => {
     const result = await recoverApolloPhoneRevealForCandidate(
       { candidateId: CANDIDATE_ID },
       recoveryDeps(
-        recoveryCandidate({ apolloPersonId: null, source: 'lusha' }),
+        recoveryCandidate(NO_NATIVE_IDENTITY),
         payloadWithoutApolloPersonId(),
         {
           onSuppressionNotEvaluable: () => {
@@ -749,13 +780,13 @@ describe('FIX 4 — RECOVERY registra el caso no evaluable', () => {
         },
       ),
     );
-    assert.equal(result.outcome, 'revealed');
+    assert.equal(result.outcome, 'suppression_check_unavailable');
   });
 
   it('un dryRun no consulta Apollo y por tanto no emite evento', async () => {
     const result = await recoverApolloPhoneRevealForCandidate(
       { candidateId: CANDIDATE_ID, dryRun: true },
-      recoveryDeps(recoveryCandidate({ apolloPersonId: null, source: 'lusha' })),
+      recoveryDeps(recoveryCandidate(NO_NATIVE_IDENTITY)),
     );
     assert.equal(result.outcome, 'dry_run_eligible');
     assert.equal(result.phoneRevealed, false);
@@ -770,16 +801,16 @@ describe('FIX 4 — nada de PII en los tres canales observables', () => {
   it('el dump completo de las tres fases no contiene datos de contacto', async () => {
     await runRevealCandidatePhone(
       VALID_INPUT,
-      startDeps(startCandidate({ apolloPersonId: null, source: 'lusha' })),
+      startDeps(startCandidate(NO_NATIVE_IDENTITY)),
     );
     await runApolloPhoneRevealWebhook(
       { tokenProvided: TOKEN, payload: payloadWithoutApolloPersonId() },
-      webhookDeps(webhookCandidate({ apolloPersonId: null, source: 'lusha' })),
+      webhookDeps(webhookCandidate(NO_NATIVE_IDENTITY)),
     );
     await recoverApolloPhoneRevealForCandidate(
       { candidateId: CANDIDATE_ID },
       recoveryDeps(
-        recoveryCandidate({ apolloPersonId: null, source: 'lusha' }),
+        recoveryCandidate(NO_NATIVE_IDENTITY),
         payloadWithoutApolloPersonId(),
       ),
     );
@@ -836,6 +867,21 @@ describe('FIX 4 — contrato estático', () => {
   const recoveryCore = read(
     'src/modules/contact-enrichment/phone-reveal-recovery-core.ts',
   );
+
+  // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4). El vocabulario histórico NO se
+  // reescribe: `missing_account_id` sigue en la allowlist del módulo de auditoría, porque
+  // los eventos ya emitidos lo llevan y borrarlo los volvería ilegibles. Lo que este
+  // ratchet fija es que NINGUNA rama viva pueda emitirlo: la falta de cuenta dejó de ser
+  // un motivo de "no evaluable" en las tres fases.
+  it('FASE 1: ninguna fase resuelve ya un motivo de cuenta ausente', () => {
+    for (const core of [revealCore, webhookCore, recoveryCore]) {
+      assert.equal(
+        /missing_account_id/.test(code(core)),
+        false,
+        'ninguna fase puede emitir ya not_evaluable_missing_account_id',
+      );
+    }
+  });
 
   it('el módulo de auditoría es puro: sin red, sin Supabase, sin env, sin console', () => {
     assert.equal(/\bfetch\s*\(/.test(auditCode), false);

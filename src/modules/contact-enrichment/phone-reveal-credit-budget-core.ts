@@ -70,7 +70,23 @@ export type PhoneRevealCreditBudgetMode =
   /** Solo Apollo: el candidato no tiene identificador Lusha reutilizable. Total 8. */
   | 'apollo_only'
   /** Solo Lusha: Apollo ya se intentó bajo OTRA autorización. Total 5. */
-  | 'legacy_lusha_only';
+  | 'legacy_lusha_only'
+  /**
+   * «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1). Total 5, el tope de UNA pata de
+   * Lusha.
+   *
+   * NO existe una modalidad hermana para Apollo, y eso es el contrato de v1: la respuesta
+   * de Apollo ya se persiste ENTERA desde 4O-C y Apollo no expone ninguna operación de
+   * «más teléfonos», así que una pata de Apollo aquí reservaría un pozo para un gasto que
+   * ninguna rama puede cobrar.
+   *
+   * Comparte cifra con `legacy_lusha_only` porque es la MISMA pata de Lusha con el MISMO
+   * tope, pero NO comparte modalidad: la condición de entrada es la opuesta
+   * (`legacy_lusha_only` exige que el candidato NO tenga teléfono, `search_more` exige que
+   * SÍ lo tenga), y colapsarlas volvería indistinguibles dos autorizaciones distintas en el
+   * ledger.
+   */
+  | 'search_more_lusha';
 
 /** Proveedores que una autorización de reveal puede llegar a cobrar. Conjunto CERRADO. */
 export const PHONE_REVEAL_CREDIT_PROVIDER_KEYS = ['apollo', 'lusha'] as const;
@@ -128,6 +144,16 @@ export function resolvePhoneRevealCreditRequirements(
         {
           providerKey: 'apollo',
           credits: PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
+        },
+      ];
+    // Una corrida `search_more` autoriza EXACTAMENTE UNA pata: Lusha. Sólo el pozo de
+    // Lusha se lee y sólo el pozo de Lusha se ocupa, así que el presupuesto de Apollo no
+    // puede bloquear esta operación ni quedar reservado por ella.
+    case 'search_more_lusha':
+      return [
+        {
+          providerKey: 'lusha',
+          credits: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
         },
       ];
     case 'legacy_lusha_only':

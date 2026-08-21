@@ -16,6 +16,8 @@ import {
   searchApolloPeopleForCompany,
   DEFAULT_MAX_CANDIDATES,
   APOLLO_NOT_CONNECTED_REASON,
+  APOLLO_PEOPLE_SEARCH_CREDITS,
+  APOLLO_PEOPLE_SEARCH_COST_USD,
   type ApolloPeopleAdapterResult,
   type SearchGuardrailMeta,
   type ApolloOrgResolutionMeta,
@@ -54,6 +56,12 @@ import {
   type ApolloBudgetCheckMeta,
 } from '@/modules/budgets/apollo-budget-alert';
 import { claimContactEnrichmentAttemptForExecution } from './contact-enrichment-execution-claim';
+import {
+  applyProviderNativeNoveltyGate,
+  readKnownProviderNativeIdentities,
+  type KnownProviderIdentityLoaderV1,
+  type ProviderNoveltyGateObservabilityV1,
+} from './provider-native-novelty-gate';
 import { buildRoutingObservation } from './routing-observation-wiring';
 
 const APOLLO_PROVIDER_KEY = 'apollo';
@@ -85,6 +93,13 @@ export interface ContactEnrichmentRunRow {
    * omitirlo sin romper — writeCandidates simplemente no hace el check.
    */
   account_id?: string | null;
+  /**
+   * HubSpot company id of the run's company. Second deterministic company-scope
+   * key for the provider-native novelty gate
+   * (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1), used when account_id is absent.
+   * Optional: the atomic claim always selects it; hand-built test rows may omit it.
+   */
+  hubspot_company_id?: string | null;
   /**
    * Legacy/bulk runs have no attempt_order (NULL — migration 086); only
    * request-linked runs set 1/2. Routing observation (17B.4X.7C.4C) treats a
@@ -135,6 +150,20 @@ export interface ApolloEnrichmentRunResult {
   actionableContactsCount: number;
   /** Apollo trajo perfiles relevantes pero ninguno quedó accionable. */
   noActionableContactsFound: boolean;
+  /**
+   * Identidades Apollo (person_id) omitidas ANTES de `people/match` porque ya
+   * eran conocidas para la MISMA empresa vía el MISMO proveedor
+   * (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1). Cada una es una llamada
+   * pagada evitada: 0 créditos, 0 USD, 0 candidatos nuevos.
+   *
+   * Optional por el mismo motivo que `skippedExistingPending` en
+   * WriteCandidatesResult: hay stubs de test preexistentes que construyen un
+   * ApolloEnrichmentRunResult a mano y no deben romperse. Los consumidores
+   * tratan `undefined` como 0.
+   */
+  skippedKnownProviderIdentity?: number;
+  /** Observabilidad del novelty gate pre-pago (contadores, sin ids crudos). */
+  providerIdentityNovelty?: ProviderNoveltyGateObservabilityV1;
   providerStatus: 'success' | 'skipped' | 'error';
   estimatedCostUsd: number;
   totalCandidates: number;
@@ -149,7 +178,7 @@ export interface ApolloEnrichmentRunResult {
     actual_credits_total: number;
     blocked_profiles_count: number;
   };
-  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  /** Guardrail de volumen de búsqueda — People Search no cobra créditos (Hito 17A.6D). */
   searchGuardrail?: SearchGuardrailMeta;
   /** Evaluación de presupuesto alert-only (Hito E). */
   budgetCheck?: ApolloBudgetCheckMeta;
@@ -210,6 +239,14 @@ export interface ApolloEnrichmentRunnerDeps {
    * que ejercite una rama terminal DEBE inyectar su propio stub.
    */
   updateAgentRun?: (id: string, input: UpdateAgentRunInput) => Promise<boolean>;
+  /**
+   * Lectura BATCH de identidades Apollo ya conocidas para la misma empresa
+   * (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1). Una sola consulta acotada por
+   * los person_id devueltos por People Search — nunca una por resultado. El
+   * default real consulta Supabase; si no hay credenciales configuradas
+   * devuelve un lookupError y el gate falla ABIERTO (no suprime nada).
+   */
+  loadKnownProviderIdentities?: KnownProviderIdentityLoaderV1;
 }
 
 // ── Implementaciones por defecto (DB real) ─────────────────────
@@ -218,7 +255,7 @@ async function defaultLoadRun(runId: string): Promise<ContactEnrichmentRunRow | 
   const admin = getAdminClient();
   const { data, error } = await admin
     .from('contact_enrichment_runs')
-    .select('id, agent_run_id, company_name, company_domain, company_country_code, status, summary, attempt_order')
+    .select('id, agent_run_id, account_id, company_name, company_domain, company_country_code, hubspot_company_id, status, summary, attempt_order')
     .eq('id', runId)
     .single();
   if (error || !data) return null;
@@ -363,7 +400,7 @@ interface ApolloEnrichmentSummaryBlock {
   estimated_cost_usd: number;
   /** Metadata por capa de búsqueda (fallback). Sin payload crudo. */
   search_attempts: ApolloSearchAttemptSummary[];
-  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  /** Guardrail de volumen de búsqueda — People Search no cobra créditos (Hito 17A.6D). */
   search_guardrail?: SearchGuardrailMeta;
   /** Resolución de organización Apollo (Hito 17A.8A). */
   apollo_organization_resolution?: ApolloOrgResolutionMeta;
@@ -371,6 +408,14 @@ interface ApolloEnrichmentSummaryBlock {
   relevance_filter?: RelevanceFilterSummary;
   /** Resultado del completado selectivo de datos (Hito 17A.3C). */
   contact_completion?: ContactCompletionSummary;
+  /**
+   * Novelty gate pre-pago (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1). Solo
+   * contadores: cuántas identidades Apollo se evaluaron, cuántas ya eran
+   * conocidas para esta empresa y cuántas llamadas pagadas se evitaron. NO se
+   * escribe ninguna fila de provider_usage_logs por estos skips: no hubo
+   * llamada de red al proveedor.
+   */
+  provider_identity_novelty?: ProviderNoveltyGateObservabilityV1;
   reason?: string;
 }
 
@@ -397,6 +442,7 @@ function emptyRunResult(
     completionCompleted: 0,
     actionableContactsCount: 0,
     noActionableContactsFound: false,
+    skippedKnownProviderIdentity: 0,
     estimatedCostUsd: 0,
     totalCandidates: 0,
     ...overrides,
@@ -578,6 +624,7 @@ export async function executeContactEnrichmentApolloRun(
     finishStep = finishAgentRunStep,
     evaluateBudget = evaluateApolloBudgetAlertOnly,
     updateAgentRun = updateAgentRunRecord,
+    loadKnownProviderIdentities = readKnownProviderNativeIdentities,
   } = deps;
 
   const startMs = Date.now();
@@ -792,9 +839,48 @@ export async function executeContactEnrichmentApolloRun(
   const rawResultsCount = apollo.providerUsage?.rawResultsCount ?? apollo.people.length;
   const { normalized } = normalizeApolloPeople(apollo.people);
 
+  // 6b. PRE-PAID PROVIDER-NATIVE NOVELTY GATE
+  //     (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1)
+  //
+  //     People Search ya ocurrió y es GRATIS (0 créditos, 0 USD): Apollo no
+  //     ofrece ningún parámetro para excluir personas ya vistas, así que la
+  //     búsqueda no se puede acotar del lado del proveedor. Lo que SÍ se puede
+  //     evitar es la pata PAGADA: `people/match`. Este es el punto exacto —
+  //     después de normalizar, antes de cualquier selección para completion —
+  //     en el que se descartan las identidades nativas (Apollo person_id) que
+  //     SellUp ya vio para la MISMA empresa vía el MISMO proveedor.
+  //
+  //     Una identidad conocida NO consume créditos de completion y NO genera
+  //     candidato: es una decisión de AHORRO, no un candidato nuevo ni una
+  //     reutilización de datos. El dedupe final (deduplicateContacts +
+  //     findMatchingPendingCandidate) sigue intacto aguas abajo para las
+  //     identidades genuinamente nuevas — esta capa es adicional, no sustituta.
+  //
+  //     Falla ABIERTO (sin scope determinista de empresa, sin identidades, o
+  //     con error de lectura no suprime nada), porque una persona puede haber
+  //     cambiado de empresa legítimamente.
+  const noveltyGate = await applyProviderNativeNoveltyGate({
+    provider: 'apollo',
+    items: normalized,
+    // Identidad nativa Apollo = person_id, persistido en
+    // contact_enrichment_candidates.source_contact_id. Nunca se deriva de
+    // email/LinkedIn/nombre, y jamás de una identidad Lusha.
+    getNativeId: (contact) => contact.sourceContactId,
+    company: {
+      accountId: run.account_id ?? null,
+      hubspotCompanyId: run.hubspot_company_id ?? null,
+      companyDomain: run.company_domain ?? null,
+    },
+    excludeRunId: runId,
+    loadKnownIdentities: loadKnownProviderIdentities,
+  });
+  const novelNormalized = noveltyGate.novel;
+  const providerIdentityNovelty = noveltyGate.observability;
+
   // 7. Clasificar relevancia/calidad. Solo los revisables avanzan a completado/
   //    dedup/inserción; los demás se contabilizan (relevance_filter) sin payload crudo.
-  const classified: ClassifiedContact[] = normalized.map((contact) => ({
+  //    Solo entran identidades NOVEDOSAS: las ya conocidas quedaron fuera en 6b.
+  const classified: ClassifiedContact[] = novelNormalized.map((contact) => ({
     contact,
     relevance: classifyNormalizedContact(contact),
   }));
@@ -809,8 +895,9 @@ export async function executeContactEnrichmentApolloRun(
 
   // 7b. Completado selectivo (Hito 17A.3C / 17A.6A / 17A.6D / 17A.8B):
   //     - Tope duro de candidatos (MAX_COMPLETION_CANDIDATES = 3).
-  //     - Guardrail de búsqueda (17A.6D): si el presupuesto de search fue excedido,
-  //       no seguimos a completion para no acumular más créditos.
+  //     - Guardrail de búsqueda (17A.6D): si el tope de VOLUMEN de search fue excedido
+  //       (`blocked_by_search_budget`, nombre legacy — la búsqueda no cobra créditos),
+  //       no seguimos a completion para no acumular más créditos de completion.
   //     - Guardrail de costo PRE-vuelo: estima créditos antes de llamar a Apollo.
   //     - Si el estimado supera MAX_COMPLETION_CREDITS_PER_RUN → salta toda la completion.
   //     - Modelo de créditos interno (n8n): email=1, phone=8.
@@ -1050,8 +1137,19 @@ export async function executeContactEnrichmentApolloRun(
   // 8. Deduplicar (solo accionables) contra snapshot + intra-run.
   const dedup = deduplicateContacts(actionableContacts, dedupSnapshot);
 
-  // 9. Costo estimado: créditos de people_search + people/match (ya consumidos).
-  const searchCredits = apollo.providerUsage?.creditsUsed ?? rawResultsCount;
+  // 9. Costo estimado del run = SOLO lo facturable. People Search no cobra
+  //    (AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1), así que el único componente
+  //    con precio es la completion pagada (`people/match`).
+  //
+  //    El cero se toma de la constante y NO de `providerUsage.creditsUsed`: el
+  //    fallback anterior (`?? rawResultsCount`) convertía el VOLUMEN de resultados en
+  //    créditos en cuanto el adaptador no reportaba uso, que es justo el camino por el
+  //    que entraron los créditos fantasma. Leer la constante hace imposible que un
+  //    conteo de resultados vuelva a colarse como costo por ninguna rama.
+  const searchCredits = APOLLO_PEOPLE_SEARCH_CREDITS;
+  const searchCostUsd = APOLLO_PEOPLE_SEARCH_COST_USD;
+  //    `totalCredits` sigue siendo la suma de TODAS las patas del run; con el aporte
+  //    de la búsqueda en cero, el costo del run queda determinado por la completion.
   const totalCredits = searchCredits + completionCredits;
   const estimatedCostUsd = Number((totalCredits * unitCost).toFixed(6));
 
@@ -1080,6 +1178,7 @@ export async function executeContactEnrichmentApolloRun(
       apollo_organization_resolution: apollo.organizationResolution,
       relevance_filter: relevanceFilter,
       contact_completion: completionSummary,
+      provider_identity_novelty: providerIdentityNovelty,
       reason: `Error al escribir candidatos: ${writeResult.error}`,
     };
     // Apollo ya ejecutó people_search (y opcionalmente person_match) con éxito
@@ -1125,7 +1224,7 @@ export async function executeContactEnrichmentApolloRun(
       operation_key: APOLLO_OPERATION_KEY,
       credits_used: searchCredits,
       results_returned: rawResultsCount,
-      estimated_cost_usd: Number((searchCredits * unitCost).toFixed(6)),
+      estimated_cost_usd: searchCostUsd,
       status: 'error',
       error_message: `write_candidates_failed: ${writeResult.error}`,
       duration_ms: Date.now() - startMs,
@@ -1163,6 +1262,8 @@ export async function executeContactEnrichmentApolloRun(
       completionAttempted: completionSummary.attempted_count,
       completionCompleted: completionSummary.completed_count,
       actionableContactsCount: actionableContacts.length,
+      skippedKnownProviderIdentity: providerIdentityNovelty.skipped_known_provider_identity_count,
+      providerIdentityNovelty,
       estimatedCostUsd,
       error: writeResult.error,
     });
@@ -1178,7 +1279,7 @@ export async function executeContactEnrichmentApolloRun(
     operation_key: APOLLO_OPERATION_KEY,
     credits_used: searchCredits,
     results_returned: rawResultsCount,
-    estimated_cost_usd: Number((searchCredits * unitCost).toFixed(6)),
+    estimated_cost_usd: searchCostUsd,
     status: 'success',
     duration_ms: Date.now() - startMs,
     triggered_by: triggeredBy ?? undefined,
@@ -1192,11 +1293,18 @@ export async function executeContactEnrichmentApolloRun(
       rejected_by_relevance_count: rejectedByRelevance,
       exact_duplicates_count: dedup.exactDuplicateCount,
       possible_duplicates_count: dedup.possibleDuplicateCount,
-      pricing_source: 'provider_pricing_config',
-      pricing_basis: 'per_result_as_credit',
+      // El costo de People Search no sale del pricing config: lo fija el proveedor
+      // en cero. `unit_cost_usd` se conserva porque describe el precio del crédito
+      // Apollo que SÍ aplica a la completion pagada del mismo run.
+      pricing_source: 'provider_confirmed_zero_cost',
+      pricing_basis: 'people_search_is_free',
       unit_cost_usd: unitCost,
       search_guardrail: apollo.searchGuardrail ?? null,
       budget_check: budgetMeta,
+      // Novelty gate pre-pago: contadores adjuntos a la fila de la llamada REAL
+      // (y gratuita) de People Search. No se crea ninguna fila extra por los
+      // skips — no hubo llamada de red que registrar.
+      provider_identity_novelty: providerIdentityNovelty,
     },
   });
 
@@ -1256,6 +1364,7 @@ export async function executeContactEnrichmentApolloRun(
     apollo_organization_resolution: apollo.organizationResolution,
     relevance_filter: relevanceFilter,
     contact_completion: completionSummary,
+    provider_identity_novelty: providerIdentityNovelty,
   };
 
   const summaryFlags: Record<string, unknown> = {
@@ -1326,6 +1435,11 @@ export async function executeContactEnrichmentApolloRun(
         exact_duplicates_count: dedup.exactDuplicateCount,
         possible_duplicates_count: dedup.possibleDuplicateCount,
         existing_pending_duplicates_skipped_count: writeResult.skippedExistingPending ?? 0,
+        skipped_known_provider_identity_count:
+          providerIdentityNovelty.skipped_known_provider_identity_count,
+        known_provider_identity_ids_count:
+          providerIdentityNovelty.known_provider_identity_ids_count,
+        novel_provider_identity_count: providerIdentityNovelty.novel_provider_identity_count,
       },
     });
   }
@@ -1347,6 +1461,8 @@ export async function executeContactEnrichmentApolloRun(
     completionCompleted: completionSummary.completed_count,
     actionableContactsCount: actionableContacts.length,
     noActionableContactsFound,
+    skippedKnownProviderIdentity: providerIdentityNovelty.skipped_known_provider_identity_count,
+    providerIdentityNovelty,
     providerStatus: 'success',
     estimatedCostUsd,
     totalCandidates: insertedCount,

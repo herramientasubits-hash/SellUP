@@ -144,6 +144,29 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // Ninguna de las dos toca la colección de staging que esta suite protege.
       '118_macro_industry_catalog_v2_draft.sql',
       '119_publish_macro_industry_catalog_v2_cutover.sql',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit`, la supresión de teléfono
+      // por identidad NATIVA del proveedor y SIN cuenta, más el backfill idempotente de
+      // los tombstones legados y el `CREATE OR REPLACE` del helper transaccional
+      // `phone_reveal_person_suppression_exists`. Es ADITIVA: no borra columna, no
+      // suelta constraint y no reescribe ninguna migración anterior.
+      '120_provider_native_phone_suppression.sql',
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). Reemplaza la
+      // constraint de `wizard_budget_reservations` y el cuerpo de
+      // `confirm_wizard_credits`; no nombra ninguna tabla de teléfono. No crea, altera ni borra ninguna tabla de la
+      // colección de staging que esta suite protege, y la 112 sigue siendo su única dueña.
+      '121_wizard_budget_overage_reconciliation.sql',
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      '122_phone_reveal_search_more.sql',
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
     ]);
   });
 
