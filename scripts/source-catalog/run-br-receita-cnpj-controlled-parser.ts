@@ -30,12 +30,10 @@
 
 import {
   buildBrReceitaCnpjSnapshotRows,
-  buildBrazilCnpjHash12,
   sampleParserInput,
   readBrReceitaCnpjSyntheticCsvFixture,
   BR_RECEITA_CNPJ_SYNTHETIC_CSV_FIXTURE,
   type BrReceitaCnpjParserInput,
-  type BrReceitaCnpjParserResult,
 } from '../../src/server/source-catalog/connectors/br-receita-cnpj';
 
 // ─── Hard limits ─────────────────────────────────────────────────────────────
@@ -157,10 +155,15 @@ export interface ControlledRunnerSafety {
   readonly live_prospect_generation: false;
 }
 
+/**
+ * A printed rejection. BR-SOURCE-GATE3-CNPJ-OUTPUT-HARDENING removed
+ * `safe_identifier`: it carried a truncated SHA-256 of the full CNPJ, and the
+ * GATE-1 owner approval record (R4) forbids a hash, truncation or fingerprint of a
+ * CNPJ "anywhere". A rejection names the reason and the source row, not the record.
+ */
 export interface ControlledRunnerRejection {
   readonly reason: string;
-  /** hash12 or masked — NEVER a full CNPJ. */
-  readonly safe_identifier: string;
+  readonly source_row_index: number;
 }
 
 /** The sanitized, printable report. Contains no full CNPJ and no personal data. */
@@ -176,8 +179,13 @@ export interface ControlledRunnerReport {
   readonly total_establishment_rows: number;
   readonly snapshots_created: number;
   readonly rejected_rows: number;
-  /** Non-reversible 12-hex hashes of accepted CNPJs. */
-  readonly valid_cnpj_hashes: string[];
+  /**
+   * Held-absence assertion, not data. The pre-hardening report printed
+   * `valid_cnpj_hashes` — one truncated SHA-256 per accepted CNPJ — which R4
+   * prohibits. The field is gone; this flag records that it is gone on purpose, so
+   * a reader of an old and a new report can tell the difference.
+   */
+  readonly cnpj_derivatives_printed: false;
   readonly rejection_reasons: ControlledRunnerRejection[];
   readonly distinct_record_identity_keys: number;
   readonly mei_flagged_rows: number;
@@ -380,13 +388,18 @@ function buildFixtureInput(options: ControlledRunnerOptions): BrReceitaCnpjParse
 }
 
 /**
- * Collects every full CNPJ string derivable from the fixture (input rows and
- * accepted snapshots) for the internal leak scan. These are never rendered.
+ * Collects every full CNPJ string derivable from the fixture INPUT, plus every
+ * CNPJ básico the input declares, for the internal leak scan. These are never
+ * rendered.
+ *
+ * It reads only the INPUT now. Before GATE-3 hardening it also read
+ * `snapshot.tax_id` / `snapshot.normalized_tax_id`; those columns no longer exist,
+ * which is the whole point — there is nothing left on the output side to collect.
+ * Scanning the input is the stronger check anyway: it proves the rendered report
+ * carries none of the identifiers that ENTERED the parser, whether or not the
+ * output shape ever claimed to hold them.
  */
-function collectSensitiveFullCnpjs(
-  input: BrReceitaCnpjParserInput,
-  result: BrReceitaCnpjParserResult,
-): string[] {
+function collectSensitiveFullCnpjs(input: BrReceitaCnpjParserInput): string[] {
   const values = new Set<string>();
   for (const row of input.estabelecimentosRows) {
     const basico = typeof row.cnpj_basico === 'string' ? row.cnpj_basico : '';
@@ -394,10 +407,7 @@ function collectSensitiveFullCnpjs(
     const dv = typeof row.cnpj_dv === 'string' ? row.cnpj_dv : '';
     const full = `${basico}${ordem}${dv}`;
     if (full.length > 0) values.add(full);
-  }
-  for (const snapshot of result.snapshots) {
-    if (snapshot.tax_id.length > 0) values.add(snapshot.tax_id);
-    if (snapshot.normalized_tax_id.length > 0) values.add(snapshot.normalized_tax_id);
+    if (basico.length > 0) values.add(basico);
   }
   return [...values];
 }
@@ -422,17 +432,17 @@ export function runControlledParser(options: ControlledRunnerOptions): Controlle
     total_establishment_rows: result.summary.totalEstablishmentRows,
     snapshots_created: result.summary.acceptedRows,
     rejected_rows: result.summary.rejectedRows,
-    valid_cnpj_hashes: result.snapshots.map((s) => buildBrazilCnpjHash12(s.normalized_tax_id)),
+    cnpj_derivatives_printed: false,
     rejection_reasons: result.rejected.map((r) => ({
       reason: r.reasonCode,
-      safe_identifier: r.safeIdentifier,
+      source_row_index: r.sourceRowIndex,
     })),
     distinct_record_identity_keys: result.summary.distinctRecordIdentityKeys,
     mei_flagged_rows: result.summary.meiFlaggedRows,
     safety: SAFETY_ALL_FALSE,
   };
 
-  return { report, sensitiveFullCnpjs: collectSensitiveFullCnpjs(input, result) };
+  return { report, sensitiveFullCnpjs: collectSensitiveFullCnpjs(input) };
 }
 
 // ─── Rendering ──────────────────────────────────────────────────────────────────
@@ -451,10 +461,10 @@ export function formatReportText(report: ControlledRunnerReport): string {
   lines.push(`rejected_rows: ${report.rejected_rows}`);
   lines.push(`distinct_record_identity_keys: ${report.distinct_record_identity_keys}`);
   lines.push(`mei_flagged_rows: ${report.mei_flagged_rows}`);
-  lines.push(`valid_cnpj_hashes: [${report.valid_cnpj_hashes.join(', ')}]`);
+  lines.push(`cnpj_derivatives_printed: ${report.cnpj_derivatives_printed}`);
   lines.push(
     `rejection_reasons: [${report.rejection_reasons
-      .map((r) => `${r.reason}:${r.safe_identifier}`)
+      .map((r) => `${r.reason}@row${r.source_row_index}`)
       .join(', ')}]`,
   );
   lines.push('safety:');

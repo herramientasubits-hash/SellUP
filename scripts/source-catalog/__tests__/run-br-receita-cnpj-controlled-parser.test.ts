@@ -166,12 +166,14 @@ describe('runControlledParser — synthetic fixture', () => {
     );
   });
 
-  it('exposes hash12 identifiers for accepted CNPJs (never full)', () => {
+  it('prints NO CNPJ derivative for accepted rows (GATE-3 hardening)', () => {
+    // Was: one truncated SHA-256 per accepted CNPJ under `valid_cnpj_hashes`. The
+    // GATE-1 approval record (R4) forbids a hash or truncation of a CNPJ anywhere,
+    // so "safe because hashed" was never an exemption.
     const { report } = synthReport();
-    assert.equal(report.valid_cnpj_hashes.length, report.snapshots_created);
-    for (const hash of report.valid_cnpj_hashes) {
-      assert.match(hash, /^[0-9a-f]{12}$/, 'expected a 12-hex hash');
-    }
+    const asRecord = report as unknown as Record<string, unknown>;
+    assert.ok(!('valid_cnpj_hashes' in asRecord), 'valid_cnpj_hashes must be gone');
+    assert.equal(report.cnpj_derivatives_printed, false);
   });
 
   it('carries an all-false safety block', () => {
@@ -253,9 +255,7 @@ describe('runControlledParser — synthetic-csv fixture', () => {
     assert.equal(parsed.layout_validation, 'passed');
     assert.doesNotMatch(json, FULL_CNPJ_PATTERN);
     assert.doesNotMatch(json, FOURTEEN_DIGITS_PATTERN);
-    for (const hash of parsed.valid_cnpj_hashes) {
-      assert.match(hash, /^[0-9a-f]{12}$/);
-    }
+    assert.equal(parsed.cnpj_derivatives_printed, false);
     for (const cnpj of sensitiveFullCnpjs) {
       assert.ok(!json.includes(cnpj), 'full CNPJ leaked into synthetic-csv json output');
     }
@@ -290,12 +290,13 @@ describe('text output sanitization', () => {
     }
   });
 
-  it('contains hash12 identifiers', () => {
+  it('renders the held-absence assertion instead of identifier hashes', () => {
     const { report } = synthReport();
     const text = formatReportText(report);
-    for (const hash of report.valid_cnpj_hashes) {
-      assert.ok(text.includes(hash), 'expected hash12 in text output');
-    }
+    assert.ok(text.includes('cnpj_derivatives_printed: false'));
+    assert.ok(!text.includes('valid_cnpj_hashes'), 'the hash line must be gone');
+    // No 12-hex-with-a-digit run anywhere — the shape the removed derivative had.
+    assert.doesNotMatch(text, /(?<![0-9a-f])(?=[0-9a-f]*\d)[0-9a-f]{12,}(?![0-9a-f])/i);
   });
 
   it('passes assertSanitizedRunnerOutput', () => {
@@ -320,12 +321,16 @@ describe('json output sanitization', () => {
     }
   });
 
-  it('contains hash12 identifiers and masked-free structure', () => {
+  it('carries no identifier derivative and no per-row identifier', () => {
     const { report } = synthReport(['--format', 'json']);
-    const parsed = JSON.parse(formatReportJson(report)) as ControlledRunnerReport;
-    assert.equal(parsed.valid_cnpj_hashes.length, report.snapshots_created);
-    for (const hash of parsed.valid_cnpj_hashes) {
-      assert.match(hash, /^[0-9a-f]{12}$/);
+    const json = formatReportJson(report);
+    const parsed = JSON.parse(json) as ControlledRunnerReport;
+    assert.equal(parsed.cnpj_derivatives_printed, false);
+    assert.doesNotMatch(json, /(?<![0-9a-f])(?=[0-9a-f]*\d)[0-9a-f]{12,}(?![0-9a-f])/i);
+    for (const rejection of parsed.rejection_reasons) {
+      const asRecord = rejection as unknown as Record<string, unknown>;
+      assert.ok(!('safe_identifier' in asRecord), 'safe_identifier must be gone');
+      assert.equal(typeof rejection.source_row_index, 'number');
     }
   });
 });

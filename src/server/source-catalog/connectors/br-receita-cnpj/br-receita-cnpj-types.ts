@@ -12,9 +12,17 @@
  * into the output. SOCIOS/QSA/CPF are NOT modeled here at all — they are a
  * separate, categorically excluded file (§ 5.3); their presence is a
  * fail-closed error, not a field.
+ *
+ * ⚠️ BR-SOURCE-GATE3-CNPJ-OUTPUT-HARDENING — the output shapes below DIVERGE from
+ * data-contract § 5.1/§ 5.2 on purpose. The contract lists eight fixed columns
+ * including `tax_id`, `normalized_tax_id` and `record_identity_key`, and a
+ * `raw_data` allowlist including `cnpj_basico`/`cnpj_ordem`/`cnpj_dv`. Every one of
+ * those is full-CNPJ or CNPJ-básico material, which the GATE-1 owner approval
+ * record (R4) makes categorically non-persistible. GATE-3 (field allowlist) and
+ * GATE-4 (identity grain) are both `not_started`, so no APPROVED contract requires
+ * their persistence and the fail-closed reading is to drop them. Restoring any of
+ * them is a GATE-3 / GATE-4 owner decision, recorded in a decision record.
  */
-
-import type { RecordIdentityKey } from '../../record-identity';
 
 export const BR_RECEITA_CNPJ_SOURCE_KEY = 'br_receita_cnpj_dados_abertos' as const;
 export const BR_RECEITA_CNPJ_COUNTRY_CODE = 'BR' as const;
@@ -113,10 +121,14 @@ export interface BrReceitaCnpjSnapshotRawData {
   source_downloaded_at?: string;
   import_batch_id?: string;
 
-  // Identity / hierarchy.
-  cnpj_root: string; // cnpj_basico (raiz 8)
-  cnpj_order: string; // cnpj_ordem (4)
-  cnpj_dv: string; // DV (2)
+  /**
+   * Hierarchy marker only. `cnpj_root` (the CNPJ básico), `cnpj_order` and
+   * `cnpj_dv` were REMOVED by BR-SOURCE-GATE3-CNPJ-OUTPUT-HARDENING: `cnpj_root`
+   * IS the CNPJ básico, and the three fields recombine into the full CNPJ. Both
+   * are categorically non-persistible under the GATE-1 owner approval record, R4.
+   * The parser still resolves the full CNPJ INTERNALLY for DV validation and
+   * duplicate rejection; it no longer carries any part of it out.
+   */
   matrix_branch_flag: string | null; // identificador_matriz_filial (1=matriz/2=filial)
 
   // Company (from EMPRESAS + reference labels).
@@ -148,19 +160,31 @@ export interface BrReceitaCnpjSnapshotRawData {
   mei_flag: boolean;
 }
 
+/**
+ * The materialized snapshot row.
+ *
+ * BR-SOURCE-GATE3-CNPJ-OUTPUT-HARDENING removed `tax_id` (the raw full CNPJ),
+ * `normalized_tax_id` (the normalized full CNPJ) and `record_identity_key`
+ * (`tax:<normalized_14>`, which embeds the full CNPJ verbatim). All three are full
+ * CNPJ material, and the GATE-1 owner approval record (R4) makes full CNPJ
+ * categorically non-printable and non-persistible — including as a hash,
+ * truncation or fingerprint.
+ *
+ * ⚠️ Consequence, stated rather than hidden: this row now carries NO identity
+ * column. That is deliberate and it is an OPEN GATE-3 / GATE-4 owner question, not
+ * a settled design: which identity a persisted Brazil snapshot may carry is a
+ * field-allowlist (GATE-3) and identity-grain (GATE-4) decision, and both gates are
+ * `not_started`. Until one of them is approved, the safe state is to carry none.
+ * The parser's own dedup is unaffected: it resolves `tax:<normalized_14>` in memory
+ * and rejects duplicates exactly as before.
+ */
 export interface BrReceitaCnpjSnapshotRow {
   source_key: typeof BR_RECEITA_CNPJ_SOURCE_KEY;
   country_code: typeof BR_RECEITA_CNPJ_COUNTRY_CODE;
   source_year: number;
-  /** Raw CNPJ string as it appears in the source (traceability). */
-  tax_id: string;
-  /** Normalized full 14-position CNPJ (§ 3.4). */
-  normalized_tax_id: string;
   /** razão social; NEVER an identity (§ 5.3 MEI/EI caveat). */
   legal_name: string | null;
   raw_data: BrReceitaCnpjSnapshotRawData;
-  /** Always `tax:<normalized_14>` on accepted rows. */
-  record_identity_key: RecordIdentityKey;
 }
 
 // ─── Rejections (fail-closed) ────────────────────────────────────────────────
@@ -171,11 +195,19 @@ export type BrReceitaCnpjRejectionReason =
   | 'missing_root_company'
   | 'incompatible_root_company';
 
+/**
+ * A rejection. It names the REASON and the SOURCE ROW, never the record.
+ *
+ * BR-SOURCE-GATE3-CNPJ-OUTPUT-HARDENING removed `safeIdentifier`, which carried a
+ * truncated SHA-256 of the full CNPJ. A truncated hash of a CNPJ is exactly what
+ * the GATE-1 owner approval record (R4) forbids — "no hash, truncation or
+ * fingerprint of either, anywhere" — so "safe because it is hashed" was never an
+ * exemption. `sourceRowIndex` already locates the offending row for an operator
+ * without naming the company.
+ */
 export interface BrReceitaCnpjRejectedRow {
   sourceRowIndex: number;
   reasonCode: BrReceitaCnpjRejectionReason;
-  /** Masked or hashed — NEVER the full CNPJ. */
-  safeIdentifier: string;
   sourceFile: string | null;
 }
 

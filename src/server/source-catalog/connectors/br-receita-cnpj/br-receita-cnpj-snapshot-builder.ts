@@ -23,13 +23,30 @@
  *   - incompatible duplicate EMPRESAS root → its establishments rejected.
  *   - SOCIOS / QSA / CPF anywhere in the input → hard error (never processed).
  *   - contact fields / fine address are never mapped into output (§ 5.3).
+ *
+ * ── BR-SOURCE-GATE3-CNPJ-OUTPUT-HARDENING ──────────────────────────────────────
+ * Identity resolution above is INTERNAL and unchanged: the builder still assembles
+ * the full CNPJ from its parts, DV-validates it, derives `tax:<normalized_14>`, and
+ * rejects duplicates on it. What changed is what SURVIVES: no part of the CNPJ —
+ * root, order, DV, full, normalized, identity key, or any hash/truncation of them —
+ * is carried into a materialized snapshot or rejection row. The GATE-1 owner
+ * approval record, R4, makes CNPJ básico and full CNPJ categorically non-printable
+ * and non-persistible, "no hash, truncation or fingerprint of either, anywhere".
+ *
+ * The old `assertSanitizedRawData` guard inspected KEYS ONLY, so it could not see a
+ * prohibited VALUE under a permitted key — which is exactly how `cnpj_root` (the
+ * CNPJ básico) passed it. Every built row now goes through
+ * `br-receita-cnpj-snapshot-output-sanitizer.ts`, which checks KEYS **and** VALUES
+ * against a closed typed allowlist and additionally proves no set of surviving
+ * fields recombines into a DV-valid CNPJ.
  */
 
+import { normalizeBrazilCnpj, buildBrazilCnpjRecordIdentityKey } from './br-cnpj';
 import {
-  normalizeBrazilCnpj,
-  buildBrazilCnpjRecordIdentityKey,
-  buildBrazilCnpjHash12,
-} from './br-cnpj';
+  sanitizeBrReceitaCnpjSnapshotRow,
+  sanitizeBrReceitaCnpjRejectionRow,
+  type BrReceitaCnpjSnapshotSanitizerResult,
+} from './br-receita-cnpj-snapshot-output-sanitizer';
 import {
   BR_RECEITA_CNPJ_SOURCE_KEY,
   BR_RECEITA_CNPJ_COUNTRY_CODE,
@@ -55,23 +72,6 @@ export class BrReceitaCnpjForbiddenSourceError extends Error {
 
 /** Keys that indicate personal-data sources — never accepted as input. */
 const FORBIDDEN_SOURCE_KEY_TOKENS = ['socio', 'qsa', 'cpf', 'representante', 'faixa_etaria'];
-/** Tokens that must never appear as a built raw_data output key (§ 5.3). */
-const FORBIDDEN_OUTPUT_KEY_TOKENS = [
-  'socio',
-  'qsa',
-  'cpf',
-  'representante',
-  'telefone',
-  'fax',
-  'correio',
-  'ddd',
-  'logradouro',
-  'numero',
-  'complemento',
-  'bairro',
-  'cep',
-];
-
 function keyHasToken(key: string, tokens: string[]): boolean {
   const lower = key.toLowerCase();
   return tokens.some((t) => lower.includes(t));
@@ -116,15 +116,21 @@ function assertNoForbiddenPersonalDataSource(input: BrReceitaCnpjParserInput): v
   }
 }
 
-/** Defensive: the built raw_data must never carry a forbidden output key (§ 5.3). */
-function assertSanitizedRawData(rawData: BrReceitaCnpjSnapshotRawData): void {
-  for (const key of Object.keys(rawData)) {
-    if (keyHasToken(key, FORBIDDEN_OUTPUT_KEY_TOKENS)) {
-      throw new BrReceitaCnpjForbiddenSourceError(
-        `BR Receita CNPJ parser: raw_data sanitization violation — forbidden key "${key}"`,
-      );
-    }
-  }
+/**
+ * Fail-closed output guard. Runs the KEY **and** VALUE sanitizer over a built row
+ * and throws if anything prohibited survived. The message names the finding KINDS
+ * and sanitized key PATHS only — never a value, so the guard itself cannot become
+ * the leak it exists to prevent.
+ */
+function assertSanitizedOutput(
+  result: BrReceitaCnpjSnapshotSanitizerResult,
+  surface: 'snapshot' | 'rejection',
+): void {
+  if (result.ok) return;
+  const detail = result.findings.map((f) => `${f.kind}@${f.path}`).join(', ');
+  throw new BrReceitaCnpjForbiddenSourceError(
+    `BR Receita CNPJ parser: ${surface} output sanitization violation — ${detail}`,
+  );
 }
 
 function normalizeText(value: unknown): string | null {
@@ -227,14 +233,10 @@ export function buildBrReceitaCnpjSnapshotRows(
   const reject = (
     sourceRowIndex: number,
     reasonCode: BrReceitaCnpjRejectedRow['reasonCode'],
-    rawCnpj: string,
   ): void => {
-    rejected.push({
-      sourceRowIndex,
-      reasonCode,
-      safeIdentifier: buildBrazilCnpjHash12(rawCnpj),
-      sourceFile,
-    });
+    const row: BrReceitaCnpjRejectedRow = { sourceRowIndex, reasonCode, sourceFile };
+    assertSanitizedOutput(sanitizeBrReceitaCnpjRejectionRow(row), 'rejection');
+    rejected.push(row);
   };
 
   for (let i = 0; i < input.estabelecimentosRows.length; i++) {
@@ -246,24 +248,24 @@ export function buildBrReceitaCnpjSnapshotRows(
 
     const normalization = normalizeBrazilCnpj(rawFullCnpj);
     if (normalization.status !== 'valid' || normalization.normalized === null) {
-      reject(i, 'invalid_cnpj', rawFullCnpj);
+      reject(i, 'invalid_cnpj');
       continue;
     }
     const normalizedTaxId = normalization.normalized;
 
     const recordIdentityKey = buildBrazilCnpjRecordIdentityKey(normalizedTaxId) as RecordIdentityKey;
     if (seenIdentityKeys.has(recordIdentityKey)) {
-      reject(i, 'duplicate_record_identity_key', rawFullCnpj);
+      reject(i, 'duplicate_record_identity_key');
       continue;
     }
 
     const basicoKey = normalizeText(rawBasico);
     if (basicoKey === null || !empresas.byBasico.has(basicoKey)) {
-      reject(i, 'missing_root_company', rawFullCnpj);
+      reject(i, 'missing_root_company');
       continue;
     }
     if (empresas.conflicted.has(basicoKey)) {
-      reject(i, 'incompatible_root_company', rawFullCnpj);
+      reject(i, 'incompatible_root_company');
       continue;
     }
 
@@ -285,9 +287,8 @@ export function buildBrReceitaCnpjSnapshotRows(
       source_period: normalizeText(input.sourcePeriod),
       source_row_index: i,
 
-      cnpj_root: normalizedTaxId.slice(0, 8),
-      cnpj_order: normalizedTaxId.slice(8, 12),
-      cnpj_dv: normalizedTaxId.slice(12, 14),
+      // GATE-3 hardening: no cnpj_root / cnpj_order / cnpj_dv. `normalizedTaxId`
+      // stays a local — it drives dedup below and is never written out.
       matrix_branch_flag: normalizeText(row.identificador_matriz_filial),
 
       legal_nature_code: naturezaCode,
@@ -317,18 +318,15 @@ export function buildBrReceitaCnpjSnapshotRows(
     if (input.sourceDownloadedAt !== undefined) rawData.source_downloaded_at = input.sourceDownloadedAt;
     if (input.importBatchId !== undefined) rawData.import_batch_id = input.importBatchId;
 
-    assertSanitizedRawData(rawData);
-
-    snapshots.push({
+    const snapshot: BrReceitaCnpjSnapshotRow = {
       source_key: BR_RECEITA_CNPJ_SOURCE_KEY,
       country_code: BR_RECEITA_CNPJ_COUNTRY_CODE,
       source_year: input.sourceYear,
-      tax_id: rawFullCnpj,
-      normalized_tax_id: normalizedTaxId,
       legal_name: normalizeText(empresa.razao_social),
       raw_data: rawData,
-      record_identity_key: recordIdentityKey,
-    });
+    };
+    assertSanitizedOutput(sanitizeBrReceitaCnpjSnapshotRow(snapshot), 'snapshot');
+    snapshots.push(snapshot);
   }
 
   const countReason = (reason: BrReceitaCnpjRejectedRow['reasonCode']): number =>
