@@ -2372,3 +2372,46 @@ jobs:
       # cambió de comportamiento.
       - name: Run Agent 2A local reviewable candidate reuse gate tests
         run: npm run test:agent2a:local-reuse-gate
+
+      # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1 — la economía de Apollo company
+      # discovery deja de ser inmedible, y su memoria deja de ser ciega.
+      #
+      # Cuatro defectos, un solo check obligatorio:
+      #
+      #   P0-2 — Apollo NO recordaba nada de lo que devolvía. La memoria
+      #          provider-seen sólo la escribía Lusha, así que cada corrida Apollo
+      #          volvía a pagar empresas que ya había visto. Ahora se registra en
+      #          la costura COMPARTIDA por sus dos modalidades
+      #          (`apollo-organizations-paginated-search`), inmediatamente después
+      #          de normalizar y ANTES del dedupe entre páginas y del tope
+      #          `maxCandidates`.
+      #   P0-4 — la contabilidad agregada salía de `paginated.organizations`, que
+      #          ya está deduplicada y truncada. Dos páginas de 10 con tope 10 se
+      #          registraban como 10 resultados pagados en vez de 20. Ahora sale
+      #          del ledger POR PÁGINA.
+      #   P1-1 — un `estimated_cost_usd` explícitamente null —«no había tarifa
+      #          viva»— se colapsaba a 0 en la fila de Apollo, mientras la misma
+      #          fila llevaba `pricing_missing_warning: true` al lado. Ahora se
+      #          preserva como SQL NULL, igual que la ruta Lusha.
+      #   P1-3 — no existía embudo comparable con el de Lusha. Ahora existe, y los
+      #          tres campos que esta ruta todavía no puede medir van en null con
+      #          su costura NOMBRADA, jamás en 0.
+      #
+      # Las mutaciones que esta suite pone en rojo:
+      #   * mover el registro de memoria después del tope de candidatos;
+      #   * moverlo después del dedupe entre páginas;
+      #   * devolver el agregado a `rawOrgs.length` / `collected.length`;
+      #   * volver a colapsar un null explícito de costo en 0;
+      #   * fabricar `accepted_for_target` desde lo devuelto por el proveedor;
+      #   * volver fail-CLOSED la escritura de memoria (una página YA pagada no se
+      #     puede perder por un fallo de memoria).
+      #
+      # Y los ratchets de ALCANCE: P0-3 sigue fuera —ni `residualGap`, ni plan de
+      # exclusión, ni memoria cargada antes de buscar—, `APOLLO_EXCLUSION_CAPABILITY`
+      # sigue TODA en false, no hay flag nuevo, no hay migración nueva, y la ruta
+      # Lusha conserva su orden y su aislamiento de identidad.
+      #
+      # Offline y determinista: transporte, reloj, jitter, logger y escritor de
+      # memoria se inyectan. Sin red, sin Supabase, sin proveedor. 0 créditos.
+      - name: Run A1 Apollo benchmark parity cut 1 tests
+        run: npm run test:a1-apollo-benchmark-parity-cut1

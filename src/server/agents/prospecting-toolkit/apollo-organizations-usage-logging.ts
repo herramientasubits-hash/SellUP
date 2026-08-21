@@ -220,9 +220,32 @@ export function buildProviderUsageLogRow(
   // la columna. Con las columnas de correlación apagadas, ésta es la única
   // representación disponible, y dejarla implícita es lo que produjo una fila
   // con `spend_observability.billing_state = 'recorded'` y la columna en NULL.
+  //
+  // ── P1-1 (AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1) ────────────────────────────
+  //
+  // 🔴 `preserveUnknownEstimatedCost` deja de estar apagado en la ruta Apollo.
+  //
+  // El defecto: `buildApolloEnrichmentUsageLogInput` escribe
+  // `estimated_cost_usd: input.unitCostUsd ?? null` —un null EXPLÍCITO que dice
+  // «no había tarifa viva, el costo es DESCONOCIDO»— y esta fila lo colapsaba a
+  // 0 con `?? 0`. Un panel de gasto sumaba entonces cero dólares por operaciones
+  // que sí se cobraron, y la misma fila llevaba
+  // `pricing_missing_warning: true` al lado, contradiciéndose.
+  //
+  // El contrato que se adopta es el canónico, y es exactamente el que la ruta
+  // Lusha ya usa (`lusha-provider-usage-recorder`):
+  //
+  //   omitido (undefined) ⇒ 0        — el defecto histórico, intacto;
+  //   null EXPLÍCITO      ⇒ SQL NULL — costo desconocido, jamás 0 fabricado;
+  //   número              ⇒ tal cual — 0 sigue siendo un costo CONOCIDO válido.
+  //
+  // Ninguna fila de `organizations_search` cambia: esa ruta siempre calcula un
+  // número. Cambian las de `organization_enrichment` sin tarifa activa, que son
+  // precisamente las que estaban mintiendo.
   return buildProviderUsageLogRowWithBillingState(
     input,
     resolveProviderUsageBillingState(input.metadata),
+    { preserveUnknownEstimatedCost: true },
   );
 }
 

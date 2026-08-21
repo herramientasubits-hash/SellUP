@@ -45,6 +45,13 @@ import {
   type ApolloRateLimitSnapshot,
   type HeaderReader,
 } from '@/server/integrations/apollo-rate-limit-headers';
+import {
+  createApolloProviderSeenLedger,
+  recordApolloProviderSeenPage,
+  EMPTY_APOLLO_PROVIDER_SEEN_SUMMARY,
+  type ApolloProviderSeenRecorder,
+  type ApolloProviderSeenSummary,
+} from './apollo-organizations-provider-seen';
 
 // ─── Contrato de dependencias ─────────────────────────────────────────────────
 
@@ -94,6 +101,20 @@ export type ApolloPaginatedSearchDeps = {
   sleep?: (ms: number) => Promise<void>;
   /** Cancelación externa, consultada antes de cada página. */
   isCancelled?: () => boolean;
+  /**
+   * P0-2 — memoria provider-seen. Se invoca con las identidades de una página YA
+   * PAGADA, inmediatamente después de normalizarla y ANTES de cualquier filtro
+   * local. Fail-soft por contrato: su fallo se cuenta y la búsqueda continúa.
+   *
+   * Ausente ⇒ no se escribe memoria; el resumen se sigue calculando, así que el
+   * embudo de benchmark no se degrada por no tener store.
+   */
+  recordProviderSeen?: ApolloProviderSeenRecorder;
+  /**
+   * Instante observado, en ISO. Ausente ⇒ se deriva de `now()`, que en Producción
+   * es `Date.now`. Inyectable para que las pruebas no dependan del reloj.
+   */
+  providerSeenNow?: () => string;
 };
 
 export type ApolloPaginatedSearchInput = {
@@ -154,6 +175,11 @@ export type ApolloPaginatedSearchResult = {
   /** Último snapshot de cuota observado. */
   lastRateLimit: ApolloRateLimitSnapshot | null;
   normalizationMeta: ApolloOrganizationsNormalizationMeta | null;
+  /**
+   * P0-2 — qué se recordó de lo que el proveedor devolvió, y qué no se pudo
+   * recordar. Nunca influye en `organizations`.
+   */
+  providerSeen: ApolloProviderSeenSummary;
   paginationMeta: {
     totalEntries: number | null;
     totalPages: number | null;
@@ -187,6 +213,10 @@ export async function runApolloOrganizationsPaginatedSearch(
   const collected: NormalizedApolloOrganization[] = [];
   const seenOrganizationIds = new Set<string>();
   const pageOutcomes: ApolloPageOutcome[] = [];
+  // P0-2 — el acumulador de memoria vive lo que vive esta búsqueda.
+  const providerSeenLedger = createApolloProviderSeenLedger();
+  const providerSeenNow =
+    deps.providerSeenNow ?? (() => new Date(deps.now()).toISOString());
 
   // § 3 — pedir desde la página N se expresa como "la página N-1 ya se vio": el
   // decisor de paginación calcula la siguiente a partir de la última, así que no
@@ -250,6 +280,8 @@ export async function runApolloOrganizationsPaginatedSearch(
       rejectedUnknownParams: anchorContract.rejectedUnknownParams,
       lastRateLimit: null,
       normalizationMeta: null,
+      // Ni una petición salió: no hay nada visto que recordar.
+      providerSeen: EMPTY_APOLLO_PROVIDER_SEEN_SUMMARY,
       paginationMeta: { totalEntries: null, totalPages: null, lastPage: null },
     };
   }
@@ -343,6 +375,26 @@ export async function runApolloOrganizationsPaginatedSearch(
           response.payload as Parameters<typeof normalizeApolloOrganizationsResponse>[0],
         );
         normalizationMeta = normalized.meta;
+
+        // ── P0-2 · PROVIDER-SEEN — el momento, y sólo éste ─────────────────────
+        //
+        // Estamos DESPUÉS de comprobar `response.ok && !response.malformedBody` y
+        // ANTES del dedupe entre páginas y del tope `maxCandidates`. Ese orden es
+        // el hito entero: si la memoria se escribiera después del recorte
+        // heredaría sus criterios y volvería a olvidar justo lo que hay que
+        // recordar —lo truncado, lo repetido, lo descartado—, que ya se pagó.
+        //
+        // 🔴 La validez sale de `response.ok`, jamás de `organizations.length`.
+        // Una lista vacía es una respuesta legítima sin empresas; un error no es
+        // «cero empresas», es ninguna información.
+        //
+        // 🔴 Fail-soft por contrato: `recordApolloProviderSeenPage` nunca lanza.
+        // Una página ya comprada no se puede perder por un fallo de memoria.
+        await recordApolloProviderSeenPage(providerSeenLedger, normalized.organizations, {
+          record: deps.recordProviderSeen,
+          correlationId: input.wizardRunId,
+          observedAt: providerSeenNow(),
+        });
 
         // Dedup defensivo entre páginas: Apollo puede repetir una organización
         // en páginas contiguas si el índice cambia durante el recorrido.
@@ -519,6 +571,7 @@ export async function runApolloOrganizationsPaginatedSearch(
     rejectedUnknownParams: anchorContract.rejectedUnknownParams,
     lastRateLimit,
     normalizationMeta,
+    providerSeen: providerSeenLedger.summary(),
     paginationMeta: { totalEntries, totalPages, lastPage: observedLastPage },
   };
 }
