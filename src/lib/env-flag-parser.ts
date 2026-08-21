@@ -90,3 +90,30 @@ export function matchesEnvToken(
   if (normalized === null) return false;
   return normalized === expected.trim().toLowerCase();
 }
+
+/**
+ * ¿Está la variable PRESENTE en este runtime? PRESENCIA, nunca el valor.
+ *
+ * `true` cuando la variable está definida y tiene al menos un carácter tras
+ * `trim()`. Nunca devuelve, registra ni deriva el contenido: sólo su longitud,
+ * reducida a un booleano.
+ *
+ * Existe porque «configurada» y «resuelta como activa» son preguntas DISTINTAS y
+ * confundirlas es lo que hace imposible diagnosticar el estado real de un flag en
+ * Producción: en Vercel los flags son `type: sensitive`, así que su valor es
+ * ilegible desde fuera del runtime (ni la API con `?decrypt=true` lo devuelve) y
+ * `vercel env ls` sólo prueba presencia. Una variable PRESENTE con un valor que no
+ * es exactamente `"true"` deja el flag APAGADO, y sin este par de señales ese caso
+ * es indistinguible de la variable AUSENTE.
+ *
+ * Deliberadamente NO reutiliza `parseEnvBooleanFlag`: `'1'` es `invalid` para el
+ * parser booleano y sin embargo está PRESENTE. Colapsar las dos preguntas en una
+ * volvería a mezclar exactamente lo que este helper separa.
+ *
+ * Vive aquí, junto al parser canónico, para que exista UNA definición de
+ * «configurada» para todo el repo — el mismo motivo por el que
+ * `isEnvFlagEnabled` vive aquí y no en cada llamador.
+ */
+export function isEnvFlagConfigured(raw: string | undefined | null): boolean {
+  return normalizeEnvToken(raw) !== null;
+}

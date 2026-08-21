@@ -48,6 +48,29 @@
  * INDEPENDIENTES (ninguno activa al otro) y que «Buscar más números» ya no depende del
  * primero. Sigue sin devolverse ningún valor crudo: sólo booleanos y los nombres.
  *
+ * DESDE AGENT2A-LOCAL-REUSE-PROD-OBSERVABILITY-1 publica el MISMO par
+ * presencia/resolución para los DOS flags del enrutado automático de contactos, que
+ * hasta ahora no aparecían en NINGÚN endpoint:
+ *   * `contactEnrichmentAutomaticRouting` — `ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING`
+ *   * `contactEnrichmentLocalReuseGate` — `ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE`
+ *
+ * Se añaden porque su valor en Producción era literalmente ILEGIBLE: los registros de
+ * Vercel son `type: sensitive` y el token local está caducado, así que ni el valor ni
+ * —a falta de este endpoint— su resolución en runtime se podían comprobar. El caso que
+ * eso deja indefendible es el de #318: con `…LOCAL_REUSE_GATE` OFF la protección
+ * PRE-Lusha-Prospecting NO EXISTE, y lo observable —una corrida que sí llama a Lusha—
+ * es idéntico a una corrida donde la puerta se evaluó y no acertó. «La protección está
+ * activa» sólo se podía suponer.
+ *
+ * Se publican JUNTOS y sin fusionarse porque el primero es el MASTER SWITCH: con
+ * `automaticRouting.resolved === false` el segundo es INALCANZABLE, resuelva lo que
+ * resuelva. Leídos en pareja, `resolved:false` en el master explica por sí solo que la
+ * puerta de reuso local no corra, sin acusar al flag equivocado.
+ *
+ * Estos dos bloques usan claves ANIDADAS (`{flagName, configured, resolved}`) en lugar
+ * del `<flag>_flag_configured` plano de los tres pares anteriores. Es la forma pedida
+ * explícitamente por el hito; los campos planos preexistentes NO se tocan.
+ *
  * Acceso: admin-only (sesión autenticada + RPC `is_admin`), igual que
  * /api/debug/agent1-apollo-config.
  *
@@ -61,6 +84,14 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
+  CONTACT_ENRICHMENT_AUTOMATIC_ROUTING_FLAG,
+  getContactEnrichmentRoutingConfigV1,
+  isContactEnrichmentAutomaticRoutingFlagConfigured,
+} from '@/modules/contact-enrichment-routing/routing-config.server';
+import {
+  CONTACT_ENRICHMENT_LOCAL_REUSE_GATE_FLAG,
+  isContactEnrichmentLocalReuseGateEnabled,
+  isContactEnrichmentLocalReuseGateFlagConfigured,
   isLushaPhoneRevealFallbackEnabled,
   isLushaPhoneRevealFallbackFlagConfigured,
   isPhoneRevealWaterfallEnabled,
@@ -106,7 +137,7 @@ export async function GET() {
 
   return NextResponse.json(
     {
-      config_version: 'agent2a_phone_waterfall_runtime_diagnostics_v2',
+      config_version: 'agent2a_phone_waterfall_runtime_diagnostics_v3',
       diagnosis_timestamp: new Date().toISOString(),
       // NOMBRE de la variable, nunca su valor. Publicarlo evita que el operador
       // tenga que adivinar cuál de los flags de teléfono se está comprobando
@@ -139,6 +170,37 @@ export async function GET() {
       search_more_phones_flag_name: SEARCH_MORE_PHONES_FLAG,
       search_more_phones_flag_configured: isSearchMorePhonesFlagConfigured(),
       search_more_phones_enabled_resolved: isSearchMorePhonesEnabled(),
+      // ── Enrutado automático de contactos (AGENT2A-LOCAL-REUSE-PROD-OBSERVABILITY-1) ──
+      //
+      // El MASTER SWITCH. Léelo PRIMERO: con `resolved: false` el enrutador automático
+      // no hace nada en absoluto, así que la puerta de reuso local de abajo es
+      // inalcanzable resuelva lo que resuelva, y atribuirle a ELLA lo que no ocurre es
+      // el error que este par existe para evitar.
+      //
+      // `resolved` se obtiene de `getContactEnrichmentRoutingConfigV1()`, el MISMO
+      // accesor que gobierna producción, nunca de un segundo parseo del env: una
+      // segunda implementación podría discrepar del runtime real y entonces el
+      // diagnóstico mentiría con toda confianza. Sólo el NOMBRE y dos booleanos —el
+      // valor crudo no sale de aquí.
+      contactEnrichmentAutomaticRouting: {
+        flagName: CONTACT_ENRICHMENT_AUTOMATIC_ROUTING_FLAG,
+        configured: isContactEnrichmentAutomaticRoutingFlagConfigured(),
+        resolved: getContactEnrichmentRoutingConfigV1().automaticRoutingEnabled,
+      },
+      // La puerta de reuso local pre-proveedor de #318: con ella activa, una corrida
+      // que ya tiene un candidato accionable de la MISMA empresa (de Apollo O de Lusha)
+      // en `pending_review` termina bien SIN arrancar Lusha Prospecting. Con ella
+      // apagada —el default de código— esa protección no existe, y desde fuera el
+      // resultado es indistinguible de que la puerta se evaluara sin acertar.
+      //
+      // `resolved` sale de `isContactEnrichmentLocalReuseGateEnabled()`, la MISMA
+      // función que gobierna producción. Igual que el resto del endpoint: nombre y
+      // booleanos, nunca el valor.
+      contactEnrichmentLocalReuseGate: {
+        flagName: CONTACT_ENRICHMENT_LOCAL_REUSE_GATE_FLAG,
+        configured: isContactEnrichmentLocalReuseGateFlagConfigured(),
+        resolved: isContactEnrichmentLocalReuseGateEnabled(),
+      },
       runtime_sha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
     },
     { headers: { 'Cache-Control': 'no-store' } },
