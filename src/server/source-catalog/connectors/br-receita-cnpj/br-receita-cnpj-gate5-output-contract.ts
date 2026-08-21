@@ -19,21 +19,36 @@
  * the 10M § 13 item is discharged by exclusion rather than by a boundary table. The three keys are
  * therefore ABSENT from the frozen allowlist below, and `OS-A08` makes an absent key forbidden.
  *
- * ── 🔴 Two collisions the owner values create, recorded and NOT resolved here ─
+ * ── 🔴 What BR-SOURCE-FAST-TRACK-6 SUPERSEDED, and what it refused to weaken ──
  *
- * `TOTAL_ROWS_SCANNED = ALLOWED` collides with two invariants that already exist and that this
- * round deliberately does not weaken. Both are recorded in
- * `BRAZIL_RECEITA_GATE5_OWNER_DIRECTION_COLLISIONS` and both are owner decisions:
+ * Round 3 recorded three collisions between the owner's values and invariants that already existed,
+ * and left all three to the approvers. A later technical/product direction superseded the owner
+ * direction that caused them rather than carving exceptions out of the invariants. Every
+ * supersession is recorded in `BRAZIL_RECEITA_GATE5_OWNER_DIRECTION_SUPERSESSIONS`; the original
+ * collisions stay in `BRAZIL_RECEITA_GATE5_OWNER_DIRECTION_COLLISIONS` with their resolution
+ * attached, because a collision deleted is a collision nobody can audit.
  *
- *   · `BRAZIL_RECEITA_FULL_JOIN_MAX_NUMERIC_LEAF` (BR-SOURCE-11A) rejects any numeric leaf beyond
- *     9,999,999. A national row total is larger than that by an order of magnitude.
- *   · `VP-1` / `VP-4` reject digit runs of 8 and of more than 14 positions. A national row total
- *     RENDERED into the JSON surface is an 8-digit run, and the rendered-output check sees it.
+ *   · `OD-C1` / `OD-C2` — `TOTAL_ROWS_SCANNED = ALLOWED` is SUPERSEDED by
+ *     `TOTAL_ROWS_SCANNED = INTERNAL_EXECUTION_COUNTER_ONLY`. The counter still exists inside an
+ *     execution; it is emitted on NO surface. `BRAZIL_RECEITA_FULL_JOIN_MAX_NUMERIC_LEAF` and the
+ *     `VP-1` / `VP-4` digit-run rules are untouched, and BR-SOURCE-11A is not weakened by one
+ *     character — `BRAZIL_RECEITA_GATE5_11A_WEAKENED_BY_THIS_ROUND` says so as data.
+ *   · `OD-C3` — the residual label `other_or_suppressed_small_cell` is SUPERSEDED by
+ *     `suppressed_other`. The mandated label no longer contains the `cell` substring group 7
+ *     forbids, so the one label small-cell suppression is REQUIRED to emit is no longer refused by
+ *     the same record's key rule. Group 7 is unchanged.
  *
- * Neither is a defect in this contract or in 11A. They are the same fact twice: an exact
- * dataset-scale figure and a rule against long digit runs cannot both hold on the same surface. The
- * approvers choose — a bucket, or an explicit carve-out for one named key. This module refuses to
- * choose, and the guard fails CLOSED in the meantime.
+ * ── 🔴 Two output keys RENAMED, and why a carve-out was the wrong fix ────────
+ *
+ * `persisted_rows` and `rows_seen_by_family` were admitted only by the allowlist-governs precedence,
+ * because group 7 substring-matches `row`. A safe semantic name existed in both cases, so they are
+ * RENAMED — `records_persisted` and `records_seen_by_family` — rather than left resting on a
+ * precedence carve-out. `BRAZIL_RECEITA_GATE5_OUTPUT_KEY_RENAMES` records each rename with the
+ * historical prose that still uses the old spelling, so the rename cannot silently orphan the
+ * 10J § 12 / 10K § 12 safety invariant that names `persisted_rows = 0`.
+ *
+ * The precedence itself is UNCHANGED and still authoritative. What changed is that nothing needs it:
+ * `BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST` is now EMPTY.
  *
  * ── This module NEVER (fail-closed by construction) ──────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
@@ -62,8 +77,37 @@ export const BRAZIL_RECEITA_GATE5_SMALL_CELL_K = 10 as const;
 /** The `VP-8` ceiling. The owner took 10O § 5.3's proposed starting point rather than another. */
 export const BRAZIL_RECEITA_GATE5_MAX_OUTPUT_STRING_LENGTH = 64 as const;
 
-/** The single residual label a suppressed family may merge into (10O § 7). Nothing else. */
-export const BRAZIL_RECEITA_GATE5_RESIDUAL_BUCKET_LABEL = 'other_or_suppressed_small_cell' as const;
+/**
+ * The single residual label a suppressed family may merge into (10O § 7). Nothing else.
+ *
+ * 🔴 SUPERSEDED VALUE. 10O § 7 mandated `other_or_suppressed_small_cell`, and `OD-C3` recorded that
+ * the mandated label contains `cell` — the substring § 5.2 group 7 forbids — so the one label
+ * suppression is REQUIRED to emit was refused by the same record's key rule. BR-SOURCE-FAST-TRACK-6
+ * supersedes the LABEL rather than the group: `suppressed_other` carries the same meaning, survives
+ * group 7 on its own, and needs no exemption. Group 7 is not weakened, and the label's obligations
+ * are unchanged — see `BRAZIL_RECEITA_GATE5_RESIDUAL_BUCKET_OBLIGATIONS`.
+ */
+export const BRAZIL_RECEITA_GATE5_RESIDUAL_BUCKET_LABEL = 'suppressed_other' as const;
+
+/** The label 10O § 7 mandated, kept so the supersession is auditable rather than invisible. */
+export const BRAZIL_RECEITA_GATE5_SUPERSEDED_RESIDUAL_BUCKET_LABEL =
+  'other_or_suppressed_small_cell' as const;
+
+/**
+ * What the residual bucket must remain, whatever it is called. Renaming a label is the kind of change
+ * that quietly relaxes what the label may carry, so the obligations are stated as data next to it.
+ *
+ * 🔴 `mergedBucketCountDisclosed: false` is the one most easily lost. The NUMBER of buckets merged
+ * into the residual is itself a disclosure about the family's tail, which is why the suppression
+ * outcome carries one count and no tally.
+ */
+export const BRAZIL_RECEITA_GATE5_RESIDUAL_BUCKET_OBLIGATIONS = {
+  aggregateOnly: true,
+  mergedBucketCountDisclosed: false,
+  originalLabelsDisclosed: false,
+  originalSmallCountsDisclosed: false,
+  reconstructableBySubtraction: false,
+} as const;
 
 /**
  * Complementary suppression: when exactly one bucket in a family is suppressed its count is
@@ -88,13 +132,16 @@ export const BRAZIL_RECEITA_GATE5_STACK_OUTPUT_PERMITTED = false as const;
 export type BrazilReceitaGate5AggregateDisposition =
   | 'allowed'
   | 'allowed_with_small_cell_suppression'
+  | 'internal_execution_counter_only'
   | 'excluded'
   | 'prohibited';
 
 export const BRAZIL_RECEITA_GATE5_AGGREGATE_DISPOSITIONS: Readonly<
   Record<string, BrazilReceitaGate5AggregateDisposition>
 > = {
-  total_rows_scanned: 'allowed',
+  // 🔴 SUPERSEDED from `allowed`. See BRAZIL_RECEITA_GATE5_TOTAL_ROWS_SCANNED_DISPOSITION: the
+  // counter exists inside an execution and is emitted on no surface at all.
+  total_rows_scanned: 'internal_execution_counter_only',
   cnae_section_counts: 'allowed_with_small_cell_suppression',
   uf_counts: 'allowed_with_small_cell_suppression',
   named_municipality_counts: 'prohibited',
@@ -109,47 +156,24 @@ export const BRAZIL_RECEITA_GATE5_AGGREGATE_DISPOSITIONS: Readonly<
 };
 
 /**
- * The two collisions the owner values create with invariants that already exist. Recorded as data,
- * unresolved on purpose, and named by their REAL owning symbols rather than by a shorthand.
+ * The owner-direction decision log — the three collisions, the two supersessions, the two renames,
+ * and the "11A was not weakened" claim — re-exported from the module that owns it.
+ *
+ * It lives in `br-receita-cnpj-gate5-owner-direction-log` because it answers a different question
+ * from this contract: this file says what an output may carry, that one says who changed which value
+ * and in which direction. Re-exported here so a consumer of the contract still finds it in one place.
  */
-export const BRAZIL_RECEITA_GATE5_OWNER_DIRECTION_COLLISIONS = [
-  {
-    id: 'OD-C1',
-    ownerDirection: 'TOTAL_ROWS_SCANNED = ALLOWED',
-    collidesWith: 'BRAZIL_RECEITA_FULL_JOIN_MAX_NUMERIC_LEAF',
-    owningModule: 'br-receita-cnpj-full-join-output-sanitizer (BR-SOURCE-11A)',
-    detail:
-      'the 11A sanitizer rejects any numeric leaf beyond 9,999,999 as oversized_numeric_value; a national row total exceeds it',
-    resolvedByThisRound: false,
-    weakenedByThisRound: false,
-    ownerChoice:
-      'report total_rows_scanned as a bucket, OR record an explicit named-key carve-out from the numeric ceiling',
-  },
-  {
-    id: 'OD-C2',
-    ownerDirection: 'TOTAL_ROWS_SCANNED = ALLOWED',
-    collidesWith: 'VP-1 and VP-4',
-    owningModule: 'this contract, § 5.3 of BR-SOURCE-10O',
-    detail:
-      'an exact national row total rendered onto the JSON surface is a digit run the digit-run rules reject; the rendered-output check sees the rendered form, not the integer',
-    resolvedByThisRound: false,
-    weakenedByThisRound: false,
-    ownerChoice:
-      'report total_rows_scanned as a bucket, OR record an explicit named-key carve-out from the digit-run rules on the rendered surface',
-  },
-  {
-    id: 'OD-C3',
-    ownerDirection: 'the § 7 residual bucket label is other_or_suppressed_small_cell',
-    collidesWith: 'the § 5.2 closed denylist, group 7',
-    owningModule: 'this contract — 10O § 7 names the label, 10O § 5.2 group 7 forbids the substring',
-    detail:
-      "group 7 substring-matches `cell`, and the mandated residual label contains it; the one label small-cell suppression is REQUIRED to emit is refused by the same record's key rule",
-    resolvedByThisRound: false,
-    weakenedByThisRound: false,
-    ownerChoice:
-      'rename the residual label to a cell-free form, OR record it as a contract-named exemption — this round admits it under the allowlist-governs precedence and changes neither list',
-  },
-] as const;
+export {
+  BRAZIL_RECEITA_GATE5_11A_WEAKENED_BY_THIS_ROUND,
+  BRAZIL_RECEITA_GATE5_INTERNAL_ONLY_COUNTERS,
+  BRAZIL_RECEITA_GATE5_INTERNAL_ONLY_COUNTER_PERMITTED_SURFACES,
+  BRAZIL_RECEITA_GATE5_OUTPUT_KEY_RENAMES,
+  BRAZIL_RECEITA_GATE5_OWNER_DIRECTION_COLLISIONS,
+  BRAZIL_RECEITA_GATE5_OWNER_DIRECTION_SUPERSESSIONS,
+  BRAZIL_RECEITA_GATE5_RENAMED_KEYS_HAD_A_PRODUCTION_EMITTER,
+  BRAZIL_RECEITA_GATE5_RENAME_SCOPE,
+  BRAZIL_RECEITA_GATE5_TOTAL_ROWS_SCANNED_DISPOSITION,
+} from './br-receita-cnpj-gate5-owner-direction-log';
 
 // ─── § 4 output surfaces ──────────────────────────────────────────────────────
 
@@ -207,10 +231,11 @@ export interface BrazilReceitaGate5ForbiddenKeyGroup {
  * "and equivalents" prose tail: there is no tail, and there is deliberately no way to add one — a
  * consumer reads this array or it reads nothing.
  *
- * 🔴 Groups 4 and 7 over-match on purpose. `cnpj_root_count` and `rows_seen_by_family` are caught.
- * The resolution 10O § 5.2 records is to RENAME the aggregate, never to weaken the matcher — and
- * structurally it does not matter, because § 6 is an allowlist and admission comes from being named
- * there. Where allowlist and denylist disagree about a key in neither, the key is forbidden.
+ * 🔴 Groups 4 and 7 over-match on purpose. `cnpj_root_count` and the pre-rename `rows_seen_by_family`
+ * are both caught. The resolution 10O § 5.2 records is to RENAME the aggregate, never to weaken the
+ * matcher — and BR-SOURCE-FAST-TRACK-6 took exactly that route for the two § 6 keys that needed it
+ * (`BRAZIL_RECEITA_GATE5_OUTPUT_KEY_RENAMES`). No group here is edited, narrowed, or given an
+ * exemption. Where allowlist and denylist disagree about a key in neither, the key is forbidden.
  */
 export const BRAZIL_RECEITA_GATE5_FORBIDDEN_KEY_GROUPS: readonly BrazilReceitaGate5ForbiddenKeyGroup[] =
   [
@@ -318,28 +343,53 @@ export const BRAZIL_RECEITA_GATE5_FORBIDDEN_KEY_LIST_HAS_EQUIVALENTS_TAIL = fals
  * 10O § 5.2: "The allowlist governs; the denylist is a second, independent net. Where the two
  * disagree about a key that is in neither, the key is forbidden."
  *
- * Groups 4 and 7 over-match on purpose, and three keys the frozen § 6 allowlist REQUIRES —
- * `persisted_rows`, `rows_seen_by_family` and `total_rows_scanned` — trip group 7's `row` substring.
- * Without this precedence the contract's two halves refuse each other and the frozen report is
- * un-emittable by its own rules.
+ * The precedence STAYS, and stays authoritative. What changed in BR-SOURCE-FAST-TRACK-6 is that
+ * nothing in the frozen contract needs it any more: the three keys that used to rest on it —
+ * `persisted_rows`, `rows_seen_by_family` and `total_rows_scanned` — were renamed twice over and
+ * superseded once, so `BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST` is EMPTY.
  *
- * 🔴 Note which key is in that set: `total_rows_scanned`, the same field `OD-C1` and `OD-C2` already
- * name. It is refused by three separate rules of the record that allows it. Three independent
- * refusals of one owner-allowed field is a signal about the field, and the approvers should read it
- * that way rather than as three separate carve-outs to grant.
+ * 🔴 An empty carve-out set is not a reason to delete the precedence. It is the rule that decides
+ * what happens the next time a § 6 key and a denylist group disagree, and the safe answer to that
+ * question must exist BEFORE the disagreement, not after it. The precedence is kept as the standing
+ * tie-break; the empty set is the evidence that no key is currently relying on it.
  */
 export const BRAZIL_RECEITA_GATE5_ALLOWLIST_GOVERNS = true as const;
 
 /**
  * The allowlisted keys that trip a denylist group, enumerated. Not an exception list the guard reads
- * — the precedence above handles them structurally — but the EVIDENCE that the precedence is
- * load-bearing rather than theoretical, and the set the approvers should look at.
+ * — the precedence above handles them structurally — but the EVIDENCE of how much the precedence is
+ * currently carrying.
+ *
+ * 🔴 EMPTY, and empty as a FINDING rather than by omission. Round 3 carried three entries here and
+ * recorded that the resolution was to rename rather than to weaken the matcher. This round performed
+ * the renames (`records_persisted`, `records_seen_by_family`) and superseded the third key into an
+ * internal-only counter. No denylist group was edited to achieve it.
+ *
+ * A future author adding a § 6 key that trips a group must add it HERE and record the owner decision
+ * that admits it. The round's suite fails if this list and the real allowlist disagree, so the set
+ * cannot silently grow a fourth member.
  */
-export const BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST: readonly string[] = [
-  'persisted_rows',
-  'rows_seen_by_family',
-  'total_rows_scanned',
-];
+export const BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST: readonly string[] = [];
+
+/**
+ * 🔴 Whether any § 6 key remains admitted ONLY by the precedence carve-out. It does not.
+ *
+ * Stated as its own boolean because "the list is empty" and "no key depends on the carve-out" are
+ * the same fact today and could drift apart the moment somebody adds an entry without updating the
+ * flag — so the suite derives one from the other rather than trusting either.
+ */
+export const BRAZIL_RECEITA_GATE5_ANY_KEY_DEPENDS_ON_ALLOWLIST_CARVE_OUT = false as const;
+
+/**
+ * 🔴 Whether an authoritative immutable key forced a carve-out to survive. None did.
+ *
+ * The task that superseded `OD-C1` … `OD-C3` asked for exactly this to be reported if it happened:
+ * a key that could not be renamed because it is fixed historical API. Neither renamed key had a
+ * production emitter (`BRAZIL_RECEITA_GATE5_RENAMED_KEYS_HAD_A_PRODUCTION_EMITTER` is `false`), and
+ * the two documents that name `persisted_rows` name it in PROSE about an invariant, not as a wire
+ * format. So the answer is `null`: no immutable key blocked the cleanup.
+ */
+export const BRAZIL_RECEITA_GATE5_IMMUTABLE_KEY_FORCING_A_CARVE_OUT: string | null = null;
 
 // ─── § 6 the closed aggregate allowlist ───────────────────────────────────────
 
@@ -350,6 +400,12 @@ export const BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST: readonly s
  * 🔴 Three keys 10O § 6 listed are deliberately ABSENT: `capital_social_bucket_counts`,
  * `opened_at_bucket_counts` and `municipality_count_distribution`. The owner excluded those
  * breakdowns, so their absence is the exclusion being enforced rather than an omission.
+ *
+ * 🔴 A FOURTH key is now absent for a different reason: `total_rows_scanned`. It is not excluded from
+ * the report because the breakdown was refused — it is not a report field at all any more. See
+ * `BRAZIL_RECEITA_GATE5_TOTAL_ROWS_SCANNED_DISPOSITION`. Keeping the two reasons apart matters: an
+ * EXCLUDED breakdown could be re-proposed with boundaries; an INTERNAL-ONLY counter has no surface
+ * to be re-proposed onto.
  */
 export const BRAZIL_RECEITA_GATE5_ALLOWED_REPORT_KEYS: readonly string[] = [
   // Run identity and mode
@@ -369,15 +425,20 @@ export const BRAZIL_RECEITA_GATE5_ALLOWED_REPORT_KEYS: readonly string[] = [
   'agent1_integration',
   'hubspot_write',
   'slack_write',
-  'persisted_rows',
+  // 🔴 RENAMED from `persisted_rows` (group 7 `row`). The 10J § 12 invariant it carries is unchanged;
+  // BRAZIL_RECEITA_GATE5_OUTPUT_KEY_RENAMES maps the old spelling forward.
+  'records_persisted',
   'safety',
   // Volume and provenance counters
   'files_seen',
   'file_family_counts',
   'file_families_accepted',
   'file_families_rejected',
-  'rows_seen_by_family',
-  'total_rows_scanned',
+  // 🔴 RENAMED from `rows_seen_by_family` (group 7 `row`).
+  'records_seen_by_family',
+  // 🔴 `total_rows_scanned` is deliberately ABSENT. It is an INTERNAL_EXECUTION_COUNTER_ONLY after
+  // the OD-C1 / OD-C2 supersession, and § 6 absence is what makes `OS-A08` refuse it on every
+  // surface. Its absence is the supersession being enforced, not an omission.
   'companies_seen',
   'establishments_seen',
   // Join outcome counters
@@ -430,18 +491,20 @@ export const BRAZIL_RECEITA_GATE5_SUPPRESSED_BUCKET_FAMILIES: readonly string[] 
   'guardrail_counts',
   'join_outcome_counts',
   'file_family_counts',
-  'rows_seen_by_family',
+  'records_seen_by_family',
 ];
 
 /**
  * Run-level fields suppression does NOT touch: they describe the run, not the records (10O § 7).
- * Listing them is what stops a future author suppressing `persisted_rows: 0` as a "small cell".
+ * Listing them is what stops a future author suppressing `records_persisted: 0` as a "small cell".
  */
 export const BRAZIL_RECEITA_GATE5_SUPPRESSION_EXEMPT_KEYS: readonly string[] = [
-  'persisted_rows',
+  'records_persisted',
   'safety',
   'duration_ms',
-  'total_rows_scanned',
+  // 🔴 `total_rows_scanned` is NOT listed. It is not exempt from suppression — it is absent from the
+  // output entirely, and listing it here would imply a surface it may reach. An internal-only
+  // counter belongs to neither the suppressed set nor the exempt set.
   'files_seen',
   'companies_seen',
   'establishments_seen',
@@ -552,3 +615,77 @@ export const BRAZIL_RECEITA_GATE5_EVIDENCE_FORBIDDEN_CONTENT = [
 
 /** Evidence is assembled only from artifacts that already passed the report and log contracts. */
 export const BRAZIL_RECEITA_GATE5_EVIDENCE_ASSEMBLED_FROM_PASSED_ARTIFACTS_ONLY = true as const;
+
+// ─── The frozen GATE-5 contract, after the cleanup ────────────────────────────
+
+/**
+ * The whole GATE-5 contract in one closed table, as the approvers must review it.
+ *
+ * 🔴 This is a VIEW assembled for review, and every row is DERIVED from the constant that owns it
+ * rather than restated — the round's suite asserts each derivation, so this table cannot claim a
+ * value the contract does not hold. A summary that can disagree with its source is worse than no
+ * summary, because it is the one a reviewer reads.
+ */
+export const BRAZIL_RECEITA_GATE5_FROZEN_CONTRACT = {
+  SMALL_CELL_K: BRAZIL_RECEITA_GATE5_SMALL_CELL_K,
+  MAX_OUTPUT_STRING_LENGTH: BRAZIL_RECEITA_GATE5_MAX_OUTPUT_STRING_LENGTH,
+  CROSS_TABULATIONS: 'PROHIBITED',
+  NAMED_MUNICIPALITIES: 'PROHIBITED',
+  TOTAL_ROWS_SCANNED: 'INTERNAL_ONLY',
+  CNAE_SECTION_COUNTS: 'ALLOWED_WITH_SMALL_CELL_SUPPRESSION',
+  UF_COUNTS: 'ALLOWED_WITH_SMALL_CELL_SUPPRESSION',
+  CAPITAL_SOCIAL_BREAKDOWN: 'EXCLUDED',
+  OPENED_AT_BREAKDOWN: 'EXCLUDED',
+  MUNICIPALITY_BREAKDOWN: 'EXCLUDED',
+  STACK_OUTPUT: 'PROHIBITED',
+  RAW_ROWS: 'PROHIBITED',
+  RAW_CELLS: 'PROHIBITED',
+  IDENTITY_KEYS: 'PROHIBITED',
+  RECORDS_PERSISTED_OUTPUT_KEY: 'records_persisted',
+  RECORDS_SEEN_BY_FAMILY_OUTPUT_KEY: 'records_seen_by_family',
+  SMALL_CELL_RESIDUAL_KEY: BRAZIL_RECEITA_GATE5_RESIDUAL_BUCKET_LABEL,
+} as const;
+
+/**
+ * The two halves stay two halves. Recorded as data because "simplify by merging them" is the single
+ * most plausible future refactor and the one that would remove the property that makes the contract
+ * work: an allowlist cannot be evaded by novelty, a denylist cannot be evaded by a name nobody
+ * thought of, and neither substitutes for the other.
+ */
+export const BRAZIL_RECEITA_GATE5_LIST_INDEPENDENCE = {
+  allowlistIsAuthoritative: true,
+  denylistIsAnIndependentSecondNet: true,
+  listsMergedIntoOne: false,
+  unnecessaryExceptionsBetweenThem: 0,
+} as const;
+
+// ─── The digit-run safety layers, kept separate on purpose ────────────────────
+
+/**
+ * Which authoritative layer fails a digit run of each length CLOSED.
+ *
+ * 🔴 The two contracts are NOT merged into one regex, and this table is not a merged regex either —
+ * it is a map from a run length to the layer that already refuses it. 10O § 5.3 froze `VP-1` … `VP-4`
+ * at exactly 8, 11, 14 and >14 positions and warned that widening them indiscriminately manufactures
+ * false positives. BR-SOURCE-11A's `LONG_DIGIT_RUN` independently matches 8-or-more. Together they
+ * leave no length uncovered; separately, each keeps its own frozen wording and its own authority.
+ *
+ * 🔴 `gate5VpRules` being empty for 9, 10, 12 and 13 is the RESIDUAL GAP, not a bug — and 11A being
+ * the only cover for those four lengths is exactly why 11A is load-bearing rather than redundant. The
+ * round's suite asserts every length below fails through at least one layer by EXECUTING both, never
+ * by reading this table.
+ */
+export const BRAZIL_RECEITA_GATE5_DIGIT_RUN_SAFETY_LAYERS = [
+  { runLength: 8, gate5VpRules: ['VP-1'] as readonly string[], sanitizer11ALongDigitRun: true },
+  { runLength: 9, gate5VpRules: [] as readonly string[], sanitizer11ALongDigitRun: true },
+  { runLength: 10, gate5VpRules: [] as readonly string[], sanitizer11ALongDigitRun: true },
+  { runLength: 11, gate5VpRules: ['VP-2'] as readonly string[], sanitizer11ALongDigitRun: true },
+  { runLength: 12, gate5VpRules: [] as readonly string[], sanitizer11ALongDigitRun: true },
+  { runLength: 13, gate5VpRules: [] as readonly string[], sanitizer11ALongDigitRun: true },
+  { runLength: 14, gate5VpRules: ['VP-3'] as readonly string[], sanitizer11ALongDigitRun: true },
+  { runLength: 15, gate5VpRules: ['VP-4'] as readonly string[], sanitizer11ALongDigitRun: true },
+] as const;
+
+/** The frozen VP rules are not widened here, and the two contracts are not merged. */
+export const BRAZIL_RECEITA_GATE5_VP_RULES_WIDENED_BY_THIS_ROUND = false as const;
+export const BRAZIL_RECEITA_GATE5_DIGIT_RUN_CONTRACTS_MERGED = false as const;

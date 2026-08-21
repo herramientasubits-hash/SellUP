@@ -2527,6 +2527,48 @@ jobs:
       - name: Run BR-SOURCE gate round 3 output sanitization tests
         run: npm run test:br-source:gate-round3-output-sanitization
 
+      # BR-SOURCE-FAST-TRACK-6 — limpieza final del contrato GATE-5, el RUNBOOK real de
+      # GATE-7, y el paquete de decisiones humanas.
+      #
+      # Lo que esta suite congela:
+      #
+      #   · 🔴 LAS TRES COLISIONES DE GATE-5 SE CIERRAN MOVIENDO LA DIRECCIÓN DEL DUEÑO,
+      #     nunca el invariante. `total_rows_scanned` pasa a ser CONTADOR INTERNO y no
+      #     sale por NINGUNA superficie (OD-C1/OD-C2); la etiqueta residual pasa a
+      #     `suppressed_other` (OD-C3). Se afirma la PAREJA: `resolvedByThisRound=true`
+      #     junto a `weakenedByThisRound=false` e `invariantMovedToAccommodateIt=null`.
+      #     BR-SOURCE-11A se comprueba EJECUTÁNDOLO, no leyendo un flag.
+      #   · dos claves de salida RENOMBRADAS —`records_persisted`,
+      #     `records_seen_by_family`— en vez de apoyarse en la precedencia. El grupo 7 del
+      #     denylist NO se editó: las grafías viejas siguen disparándolo.
+      #   · 🔴 `ALLOWLISTED_KEYS_TRIPPING_DENYLIST` queda VACÍO **por derivación** (se
+      #     intersecan las dos listas reales), y la PRECEDENCIA se CONSERVA: decide el
+      #     próximo desacuerdo, y esa respuesta tiene que existir antes del desacuerdo.
+      #   · 🔴 tiradas de dígitos de 8, 9, 10, 11, 12, 13, 14 y 15 fallan CERRADO por al
+      #     menos una capa autoritativa, probado EJECUTANDO las dos capas. Los dos
+      #     contratos NO se fusionan en un solo regex y VP-1..VP-4 NO se ensanchan.
+      #   · el RUNBOOK de GATE-7 EXISTE (runbook § 16) y el test LEE el documento: 11
+      #     pasos, P-01..P-22 en la prosa, identidad de operador humano, preflight de
+      #     recursos con los techos IMPORTADOS de GATE-2, workspace, dataset, privacidad,
+      #     monitorización, revisión de salida, limpieza y firma.
+      #   · 🔴 SIN BYPASS: el evaluador de precondiciones tiene ARIDAD 0 —no hay objeto de
+      #     opciones donde acabaría viviendo un `force`— y devuelve FAIL hoy.
+      #     `ATTEMPT_3_ALLOWED` se IMPORTA del ledger y sigue false.
+      #   · 🔴 GATE-7 queda `blocked`, NO `ready_for_review`: lo bloquean GATE-2, GATE-5 y
+      #     GATE-6, y la reproducibilidad por otro operador sigue UNDEMONSTRATED (exige un
+      #     ensayo que nadie autorizó). 4 bloqueadores exactos, ninguno resoluble por un
+      #     agente.
+      #   · el paquete humano son PREGUNTAS: 7 secciones no agrupadas, TODOS los campos de
+      #     respuesta en `null`, y un validador que RECHAZA un paquete con campos
+      #     rellenados. La dirección técnica del proyecto NO es una firma de privacidad.
+      #   · GATE-4 aprobado NO desbloquea escrituras de snapshot de Brasil: falta la
+      #     identidad física `source_period` YYYY-MM, y su migración no se escribe aquí.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales de Receita,
+      # sin benchmark, sin ensayo. 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run BR-SOURCE FAST-TRACK-6 GATE-5 cleanup and GATE-7 runbook tests
+        run: npm run test:br-source:fast-track6-gate5-and-gate7
+
       # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 20 — la demanda RESIDUAL y la
       # memoria PREVIA.
       #
