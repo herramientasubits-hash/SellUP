@@ -61,6 +61,7 @@ import {
   type BrReceitaCnpjManifestFileType,
 } from './br-receita-cnpj-manifest';
 import { validateBrReceitaCnpjLocalManifest } from './br-receita-cnpj-manifest-validator';
+import { containsBrazilCnpjLikeIdentifier } from './br-receita-cnpj-identifier-shape';
 
 // ─── Public constants ────────────────────────────────────────────────────────
 
@@ -657,6 +658,11 @@ export function classifyRow(
       return { reason: 'cpf_like_token_detected', positiveSignals: [] };
     }
     if (run >= CNPJ_LIKE_MIN_DIGIT_RUN) {
+      hasForbiddenToken = true;
+    }
+    // Alphanumeric CNPJ (§ 3.1/§ 3.4, effective July 2026): a digit-run guard alone cannot see a
+    // CNPJ that contains letters. DV-validated, so this does not turn every 14-char cell into a hit.
+    if (containsBrazilCnpjLikeIdentifier(cell)) {
       hasForbiddenToken = true;
     }
   }

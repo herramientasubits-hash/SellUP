@@ -45,6 +45,13 @@ const NOW = '2026-07-27T12:00:00.000Z';
 const ACTOR = { internalUserId: 'user-admin-1', roleKey: 'admin' };
 const WEBHOOK_URL =
   'https://app.example.com/api/integrations/apollo/phone-reveal/webhook?token=secret';
+/** Apollo person id sintético (24 hex), opaco e inventado. Necesario para que la
+ * comprobación de supresión del START sea evaluable (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1):
+ * `sourceContactId: 'apollo-person-1'` no tiene forma de Apollo id (24 hex) y sin
+ * clave el gate ahora bloquea antes de llegar a Apollo. Este archivo prueba el
+ * contrato ASYNC-15 del handle async, no la resolución de identidad de la
+ * supresión. */
+const PERSON_ID = '6a7b8c9d0e1f2a3b4c5d6e7f';
 
 function baseTrace(
   overrides: Partial<ApolloPhoneRevealTraceMetadata> = {},
@@ -74,6 +81,7 @@ function baseCandidate(
     accountId: 'acct-1',
     source: 'apollo',
     sourceContactId: 'apollo-person-1',
+    apolloPersonId: PERSON_ID,
     email: 'jane.doe@acme.com',
     linkedinUrl: 'https://linkedin.com/in/jane-doe',
     firstName: 'Jane',

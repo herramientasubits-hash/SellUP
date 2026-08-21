@@ -190,15 +190,42 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
     // su cierre terminal es un UPDATE condicional y nada más. El techo lo movió
     // AGENT2A-PHONE-REVEAL-4O-E2 con la 112 (propagación de la supresión a la
     // colección) y después AGENT2A-PHONE-REVEAL-4O-E3 con la 113 (re-comprobación de
-    // la supresión POR PERSONA dentro de la transacción de persistencia); las dos
-    // tienen su propia guarda estática.
+    // la supresión POR PERSONA dentro de la transacción de persistencia); después
+    // AGENT2A-PHONE-REVEAL-4O-H1 con la 114 (el esquema OFICIAL de múltiples teléfonos,
+    // creado INERTE) y AGENT2A-PHONE-REVEAL-4O-H2 con la 115 (la PRIVACIDAD de ese
+    // esquema: dos contadores de auditoría y `suppress_official_contact_phone_sources`);
+    // las cuatro tienen su propia guarda estática.
     const files = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d+.*\.sql$/.test(file))
       .sort();
     const last = files[files.length - 1];
     assert.equal(
       last,
-      '113_phone_reveal_person_suppression_recheck.sql',
+      // 4O-H3 movió el techo a la 116: la APROBACIÓN atómica del candidato sobre ese mismo
+      // esquema oficial. Sólo una función transaccional; ninguna DDL, ningún GRANT de tabla.
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119. Las 118 y
+      // 119 NO son de teléfono: publican el catálogo de Macro Industrias (siembra en
+      // `draft` y cutover). Lo que esta guarda afirma —que este hito no aportó SQL y
+      // que nadie coló una migración por encima del último hito conocido— no cambia.
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit`. Lo que esta guarda afirma
+      // —que 4O-E1 no aportó SQL y que nadie coló una migración por encima del último hito
+      // conocido— no cambia.
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). Reemplaza la
+      // constraint de `wizard_budget_reservations` y el cuerpo de
+      // `confirm_wizard_credits`; no nombra ninguna tabla de teléfono. Lo que esta guarda afirma sigue intacto: la
+      // AUTORÍA se comprueba abajo archivo por archivo, así que una migración nueva no
+      // puede atribuirse a 4O-E1 por el hecho de mover este número.
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números», la
+      // modalidad `search_more` y el writer que AÑADE teléfonos sin reescribir el estado
+      // terminal del reveal ajeno. Es de teléfono, pero no de este hito.
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

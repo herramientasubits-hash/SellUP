@@ -12,14 +12,24 @@ import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { isLushaContactEnrichmentEnabled, resolveLushaSearchTimeoutMs } from '@/lib/feature-flags.server';
 import { logContactAudit } from '@/modules/contacts/actions';
 import {
+  resolveExistingContactMergeOffer,
   runApproveCandidate,
   runDiscardCandidate,
+  runMergeCandidateIntoExistingContact,
   type CandidateRecord,
   type CandidateReviewPatch,
-  type ContactInsertPayload,
   type ExistingContactForDedup,
+  type ExistingContactMergeOffer,
+  type ExistingContactScalarForMerge,
   type IdentityApprovalOverrideInputV1,
+  type MergeIntoExistingContactErrorCode,
 } from './candidate-review-core';
+import { isNextControlFlowSignal } from './next-control-flow-signal';
+import { REVIEWABLE_CONTACT_CANDIDATE_STATUSES } from './reviewable-candidate-statuses';
+import { buildCandidateScalarFallback } from './official-contact-approval-core';
+import { approveContactCandidateWithPhones } from './official-contact-approval-persistence';
+import { buildIncumbentContactBootstrap } from './existing-contact-merge-core';
+import { mergeCandidateIntoExistingContact } from './existing-contact-merge-persistence';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
 import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
 import type {
@@ -321,7 +331,8 @@ function firstRun(run: unknown): CandidateRunContext | null {
 /** Columnas proyectadas para revisión humana — sin payloads crudos del
  *  proveedor. Compartido por el listado y el detalle del side panel. */
 const CANDIDATE_SELECT =
-  `id, full_name, title, email, linkedin_url, source_contact_id, phone, source, status,
+  `id, full_name, title, email, linkedin_url, source_contact_id, apollo_person_id,
+   phone, source, status,
    duplicate_status, confidence, enrichment_metadata, enrichment_run_id, created_at,
    phone_reveal_status, phone_reveal_last_checked_at, phone_reveal_requested_at,
    phone_reveal_request_id, phone_reveal_provider,
@@ -338,6 +349,12 @@ function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
     email: (record.email as string | null) ?? null,
     linkedin_url: (record.linkedin_url as string | null) ?? null,
     source_contact_id: (record.source_contact_id as string | null) ?? null,
+    // Id opaco de correlación (24 hex), NO PII de contacto. Se proyecta para que la
+    // UI pueda evaluar la elegibilidad de identidad del reveal con la MISMA función
+    // pura que el servidor (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2). Nunca se
+    // muestra, y nunca se envía de vuelta al server action: allí solo viaja el id
+    // del candidato y la fila se relee desde la base.
+    apollo_person_id: (record.apollo_person_id as string | null) ?? null,
     phone: (record.phone as string | null) ?? null,
     source: (record.source as ContactSource) ?? 'apollo',
     status: (record.status as ContactCandidateStatus) ?? 'pending_review',
@@ -393,32 +410,79 @@ export async function getPendingContactCandidates(
 }
 
 /**
- * Detalle de un único candidato en `pending_review` para el side panel de
- * revisión (ajuste posterior a 17A.4A). Misma proyección de solo lectura que el
- * listado — sin payloads crudos del proveedor — pero filtrada por id. Devuelve
- * `null` si el candidato no existe o ya salió de `pending_review`, para que el
- * panel muestre su estado "no disponible" sin reventar.
+ * Detalle de un único candidato REVISABLE para el side panel de revisión.
+ *
+ * Misma proyección de solo lectura que el listado — sin payloads crudos del proveedor — pero
+ * filtrada por id. Devuelve `null` si el candidato no existe o ya salió de los estados
+ * revisables, para que el panel muestre su estado "no disponible" sin reventar.
+ *
+ * Antes se llamaba `getReviewableContactCandidateById`. El nombre se corrigió al ampliar el
+ * contrato: una función llamada "Pending" que además acepta `duplicate` miente.
  */
-export async function getPendingContactCandidateById(
+export async function getReviewableContactCandidateById(
   candidateId: string,
 ): Promise<PendingContactCandidate | null> {
-  await requireActiveUserForEnrichment();
+  // AGENT2A-4O-H3-B-R1 — por qué el rastro cubre TODA la función y no sólo la query.
+  //
+  // El diagnóstico que dejó #279 estaba DESPUÉS de la lectura, así que sólo podía ver un fallo
+  // de PostgREST. En el fallo real observado en QA (2026-08-12 23:45–23:47 UTC) los logs de
+  // Supabase no registran ni la lectura por id ni la comprobación de `internal_users` del guard
+  // de sesión: entre 23:45:40 y 23:52 no hubo NINGUNA petición. Es decir, el fallo ocurrió
+  // ARRIBA de la query, donde el rastro de #279 no llega — y por eso no hubo nada que leer.
+  //
+  // Aquí se instrumenta cada frontera (sesión, cliente, lectura, mapeo) con su `stage`, de modo
+  // que la próxima vez el log diga en qué punto se rompió. Se registran SÓLO códigos y el id del
+  // candidato (un uuid). NUNCA la fila: la proyección lleva nombre, email y teléfono.
+  const trimmedId = typeof candidateId === 'string' ? candidateId.trim() : '';
 
-  if (typeof candidateId !== 'string' || !candidateId.trim()) return null;
+  let stage: 'session' | 'client' | 'read' | 'map' = 'session';
+  try {
+    await requireActiveUserForEnrichment();
 
-  const supabase = await createClient();
+    if (!trimmedId) return null;
 
-  const { data, error } = await supabase
-    .from('contact_enrichment_candidates')
-    .select(CANDIDATE_SELECT)
-    .eq('id', candidateId.trim())
-    .eq('status', 'pending_review')
-    .maybeSingle();
+    stage = 'client';
+    const supabase = await createClient();
 
-  if (error) throw new Error(`getPendingContactCandidateById: ${error.message}`);
-  if (!data) return null;
+    stage = 'read';
+    const { data, error } = await supabase
+      .from('contact_enrichment_candidates')
+      .select(CANDIDATE_SELECT)
+      .eq('id', trimmedId)
+      .in('status', REVIEWABLE_CONTACT_CANDIDATE_STATUSES)
+      .maybeSingle();
 
-  return mapPendingContactCandidate(data);
+    if (error) {
+      console.error('[getReviewableContactCandidateById] read_failed', {
+        candidateId: trimmedId,
+        stage,
+        code: error.code,
+        message: error.message,
+      });
+      throw new Error(`getReviewableContactCandidateById: ${error.message}`);
+    }
+    if (!data) return null;
+
+    stage = 'map';
+    return mapPendingContactCandidate(data);
+  } catch (caught) {
+    // `redirect()` de Next señaliza LANZANDO (`NEXT_REDIRECT`). Si lo tragáramos aquí, una
+    // sesión caducada se vería como "no se pudo cargar el candidato" en vez de llevar al login,
+    // que es exactamente la clase de confusión que este hito viene a cerrar. Se re-lanza intacto
+    // y sin registrarlo: no es un fallo.
+    if (isNextControlFlowSignal(caught)) throw caught;
+
+    // Cualquier otro fallo YA quedó registrado si venía de la lectura; el resto (sesión, cliente,
+    // mapeo) sólo se veía en el cliente, que tiene prohibido escribir en consola.
+    if (stage !== 'read') {
+      console.error('[getReviewableContactCandidateById] load_failed', {
+        candidateId: trimmedId || null,
+        stage,
+        errorName: caught instanceof Error ? caught.name : typeof caught,
+      });
+    }
+    throw caught;
+  }
 }
 
 /**
@@ -436,6 +500,117 @@ export async function getPendingContactCandidatesCount(): Promise<number> {
 
   if (error) throw new Error(`getPendingContactCandidatesCount: ${error.message}`);
   return count ?? 0;
+}
+
+/**
+ * 4O-H3-B-R1 — listado de candidatos DUPLICADOS.
+ *
+ * Es una cola distinta, no una ampliación de «Por revisar»: se cuenta y se muestra aparte para
+ * que el número de pendientes siga significando exactamente lo mismo que antes de este hito.
+ * Sin esta lectura un duplicado era inalcanzable — la detección lo movía a `duplicate` y ninguna
+ * consulta de la UI volvía a mirar ese estado.
+ */
+export async function getDuplicateContactCandidates(
+  limit = 500,
+): Promise<PendingContactCandidate[]> {
+  await requireActiveUserForEnrichment();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select(CANDIDATE_SELECT)
+    .eq('status', 'duplicate')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(`getDuplicateContactCandidates: ${error.message}`);
+
+  return (data ?? []).map(mapPendingContactCandidate);
+}
+
+/** 4O-H3-B-R1 — conteo de duplicados. Separado del de pendientes a propósito (§ 11). */
+export async function getDuplicateContactCandidatesCount(): Promise<number> {
+  await requireActiveUserForEnrichment();
+  const supabase = await createClient();
+
+  const { count, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'duplicate');
+
+  if (error) throw new Error(`getDuplicateContactCandidatesCount: ${error.message}`);
+  return count ?? 0;
+}
+
+/**
+ * 4O-H3-B-R1 — ¿puede el humano AGREGARLE la información de este duplicado al contacto
+ * existente? La pregunta se responde de nuevo cada vez que se abre el candidato.
+ *
+ * Esto es lo que hace DURADERA la decisión de H3-B. Antes la oferta viajaba únicamente en el
+ * resultado de la aprobación que acababa de detectar el duplicado, así que cerrar el drawer la
+ * perdía para siempre: al reabrir, el candidato ya era `duplicate` y nadie recalculaba nada.
+ *
+ * Reutiliza EXACTAMENTE el mismo resolutor puro que la detección (`resolveExistingContactMergeOffer`)
+ * sobre el mismo conjunto (contactos vivos de la cuenta) y contra el mismo ancla que escribió el
+ * servidor (`matched_contacts_id`). No hay una segunda regla de confianza: identidad exacta por
+ * email o LinkedIn, contada una sola vez; nombre o señales ambiguas ⇒ `offered: false` con motivo.
+ *
+ * Lectura pura: 0 escrituras, 0 proveedores, 0 créditos. Cliente de SESIÓN — todo pasa por RLS.
+ */
+export async function getDuplicateCandidateMergeOffer(
+  candidateId: string,
+): Promise<ExistingContactMergeOffer | null> {
+  await requireActiveUserForEnrichment();
+
+  const trimmedId = typeof candidateId === 'string' ? candidateId.trim() : '';
+  if (!trimmedId) return null;
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select(CANDIDATE_REVIEW_SELECT)
+    .eq('id', trimmedId)
+    .eq('status', 'duplicate')
+    .maybeSingle();
+
+  if (error) {
+    console.error('[getDuplicateCandidateMergeOffer] read_failed', {
+      candidateId: trimmedId,
+      code: error.code,
+      message: error.message,
+    });
+    throw new Error(`getDuplicateCandidateMergeOffer: ${error.message}`);
+  }
+  // No es un duplicado (o ya salió de ese estado): no hay oferta que ofrecer. `null` deja al
+  // drawer sin CTA, que es el estado seguro.
+  if (!data) return null;
+
+  const candidate = mapCandidateRecord(data);
+  const accountId = candidate.account_id;
+  // Sin cuenta resuelta no hay conjunto contra el que comparar identidades ⇒ no se ofrece.
+  if (!accountId) return { offered: false, reason: 'no_recorded_match' };
+
+  const { data: contacts, error: contactsError } = await supabase
+    .from('contacts')
+    .select('id, email, linkedin_url, full_name')
+    .eq('account_id', accountId)
+    .is('archived_at', null);
+
+  if (contactsError) {
+    console.error('[getDuplicateCandidateMergeOffer] contacts_read_failed', {
+      candidateId: trimmedId,
+      code: contactsError.code,
+      message: contactsError.message,
+    });
+    throw new Error(`getDuplicateCandidateMergeOffer: ${contactsError.message}`);
+  }
+
+  return resolveExistingContactMergeOffer({
+    candidate: { email: candidate.email, linkedin_url: candidate.linkedin_url },
+    existingContacts: (contacts ?? []) as ExistingContactForDedup[],
+    recordedMatchContactId: candidate.matched_contacts_id,
+  });
 }
 
 // ── Revisión humana: aprobar / rechazar (Hito 17A.4B) ─────────
@@ -458,6 +633,7 @@ function getServiceRoleClient() {
 const CANDIDATE_REVIEW_SELECT =
   `id, status, full_name, first_name, last_name, title, seniority, department,
    email, phone, linkedin_url, source, enrichment_metadata, enrichment_run_id,
+   matched_contacts_id,
    run:contact_enrichment_runs ( account_id, hubspot_company_id, company_name, company_domain, company_country_code )`;
 
 function mapCandidateRecord(row: unknown): CandidateRecord {
@@ -494,6 +670,9 @@ function mapCandidateRecord(row: unknown): CandidateRecord {
     company_name: run?.company_name ?? null,
     company_domain: run?.company_domain ?? null,
     country_code: run?.company_country_code ?? null,
+    // 4O-H3-B: el ancla de confianza del merge. Lo escribió el SERVIDOR al detectar el
+    // duplicado, y es lo único contra lo que se valida el contacto destino.
+    matched_contacts_id: (r.matched_contacts_id as string | null) ?? null,
   };
 }
 
@@ -504,6 +683,21 @@ export interface ApproveCandidateActionResult {
   error?: string;
   duplicate?: boolean;
   code?: 'IDENTITY_MISMATCH_REQUIRES_REVIEW' | 'IDENTITY_OVERRIDE_REASON_REQUIRED';
+  /**
+   * 4O-H3-B — sólo acompaña al veredicto `duplicate`. Dice si la UI puede ofrecer «Agregar
+   * información al contacto existente». No fusiona nada por sí mismo.
+   */
+  mergeOffer?: ExistingContactMergeOffer;
+}
+
+/** 4O-H3-B — resultado de la decisión humana de fusionar en el contacto existente. */
+export interface MergeCandidateIntoExistingContactActionResult {
+  ok: boolean;
+  contactId?: string;
+  message?: string;
+  error?: string;
+  alreadyMerged?: boolean;
+  code?: MergeIntoExistingContactErrorCode;
 }
 
 export interface DiscardCandidateActionResult {
@@ -546,14 +740,59 @@ export async function approveContactCandidate(
         if (error) throw new Error(error.message);
         return (data ?? []) as ExistingContactForDedup[];
       },
-      insertContact: async (payload: ContactInsertPayload) => {
-        const { data, error } = await supabase
-          .from('contacts')
-          .insert(payload)
-          .select('id')
-          .single();
-        if (error) return { error: error.message };
-        return { id: data.id as string };
+      // AGENT2A-PHONE-REVEAL-4O-H3 — la ÚNICA escritura de la aprobación. Sustituye al par
+      // `contacts` INSERT + patch del candidato, que eran dos llamadas PostgREST independientes
+      // con una ventana entre ellas. La RPC vuelve a bloquear el candidato y a comprobar la
+      // supresión por persona DENTRO de la transacción: esta capa leyó antes del lock y no
+      // puede prometer ninguna de las dos cosas.
+      approveTransactionally: async ({
+        candidateId: id,
+        accountId,
+        contactPayload,
+        reviewPatch,
+        candidate,
+      }) => {
+        const outcome = await approveContactCandidateWithPhones({
+          candidateId: id,
+          accountId,
+          contactPayload: contactPayload as unknown as Record<string, unknown>,
+          reviewPatch: reviewPatch as unknown as Record<string, unknown>,
+          // El escalar sólo se promueve cuando su procedencia heredada invierte fielmente hacia
+          // el par de la 114. Cuando no —`provider_payload`, `unknown`, ausente— esto es `null`
+          // y la colección oficial se queda vacía: exactamente el estado de hoy, sin inventar
+          // un proveedor que después sobreviviría a un borrado que debía alcanzarlo.
+          scalarFallback: buildCandidateScalarFallback({
+            phone: candidate.phone,
+            phoneMetadata: candidate.enrichment_metadata?.phone as
+              | { type?: unknown; source?: unknown; raw_type?: unknown }
+              | null
+              | undefined,
+            countryCode: candidate.country_code,
+          }),
+          actorId: internalUserId,
+          nowIso: new Date().toISOString(),
+        });
+
+        if (outcome.status === 'approved' || outcome.status === 'already_approved') {
+          if (!outcome.contactId) {
+            return { ok: false, error: 'No fue posible aprobar el candidato.' };
+          }
+          return {
+            ok: true,
+            contactId: outcome.contactId,
+            alreadyApproved: outcome.status === 'already_approved',
+          };
+        }
+        if (outcome.status === 'person_suppressed') {
+          // Mensaje deliberadamente genérico: no confirma ni niega que exista una solicitud de
+          // borrado sobre esa persona.
+          return {
+            ok: false,
+            error: 'No fue posible aprobar este candidato.',
+            personSuppressed: true,
+          };
+        }
+        return { ok: false, error: 'No fue posible crear el contacto oficial.' };
       },
       updateCandidate: async (id, patch: CandidateReviewPatch) => {
         const { error } = await admin
@@ -682,6 +921,181 @@ export async function approveContactCandidate(
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aprobando el candidato';
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * AGENT2A-PHONE-REVEAL-4O-H3-B — agrega la información de un candidato DUPLICADO al contacto
+ * existente con el que el servidor lo emparejó, tras una decisión humana explícita.
+ *
+ * Autorización: la MISMA que la aprobación (`requireActiveUserForEnrichment`). No amplía roles y
+ * no introduce un permiso nuevo — es una decisión de revisión de candidatos, igual que aprobar y
+ * rechazar, y quien puede crear un contacto oficial desde un candidato puede añadirle números a
+ * uno existente.
+ *
+ * NO llama a Apollo, ni a Lusha, ni a HubSpot. No reserva ni consume créditos. Todo lo que
+ * escribe ya estaba almacenado.
+ */
+export async function mergeContactCandidateIntoExistingContactAction(
+  candidateId: string,
+  contactId: string,
+): Promise<MergeCandidateIntoExistingContactActionResult> {
+  try {
+    const { internalUserId } = await requireActiveUserForEnrichment();
+    // Sólo el cliente del USUARIO: todas las lecturas de este camino pasan por RLS. No hay
+    // service role aquí — la única escritura la hace la RPC de la 117, que ya corre con el suyo
+    // y bajo el techo de privilegios de la 114.
+    const supabase = await createClient();
+
+    return await runMergeCandidateIntoExistingContact(candidateId, contactId, {
+      actorId: internalUserId,
+      nowIso: new Date().toISOString(),
+      loadCandidate: async (id) => {
+        const { data, error } = await supabase
+          .from('contact_enrichment_candidates')
+          .select(CANDIDATE_REVIEW_SELECT)
+          .eq('id', id)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        return data ? mapCandidateRecord(data) : null;
+      },
+      // La MISMA lectura que usa la deduplicación de la aprobación, para que la identidad se
+      // resuelva sobre exactamente el mismo conjunto: contactos vivos de la cuenta.
+      loadExistingContacts: async (accountId): Promise<ExistingContactForDedup[]> => {
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('id, email, linkedin_url, full_name')
+          .eq('account_id', accountId)
+          .is('archived_at', null);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as ExistingContactForDedup[];
+      },
+      loadExistingContactScalar: async (
+        targetContactId,
+        accountId,
+      ): Promise<ExistingContactScalarForMerge | null> => {
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('id, phone, phone_type, phone_source, phone_raw_type')
+          .eq('id', targetContactId)
+          .eq('account_id', accountId)
+          .is('archived_at', null)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!data) return null;
+        const r = data as Record<string, unknown>;
+        return {
+          id: r.id as string,
+          phone: (r.phone as string | null) ?? null,
+          phone_type: (r.phone_type as string | null) ?? null,
+          phone_source: (r.phone_source as string | null) ?? null,
+          phone_raw_type: (r.phone_raw_type as string | null) ?? null,
+        };
+      },
+      mergeTransactionally: async ({
+        candidateId: id,
+        contactId: targetContactId,
+        accountId,
+        reviewPatch,
+        candidate,
+        incumbentScalar,
+      }) => {
+        const outcome = await mergeCandidateIntoExistingContact({
+          candidateId: id,
+          contactId: targetContactId,
+          accountId,
+          reviewPatch: reviewPatch as unknown as Record<string, unknown>,
+          // Idéntico al de la aprobación, y por la misma razón: el candidato escalar-only es la
+          // mayoría en Producción, y su procedencia sólo se promueve cuando invierte fielmente.
+          scalarFallback: buildCandidateScalarFallback({
+            phone: candidate.phone,
+            phoneMetadata: candidate.enrichment_metadata?.phone as
+              | { type?: unknown; source?: unknown; raw_type?: unknown }
+              | null
+              | undefined,
+            countryCode: candidate.country_code,
+          }),
+          // El escalar HEREDADO del contacto destino. `null` cuando su procedencia no invierte
+          // (`provider_payload`, `unknown`, ausente): entonces no se bootstrappea nada y el
+          // número que ya tenía el contacto se queda exactamente como está.
+          incumbentBootstrap: buildIncumbentContactBootstrap({
+            phone: incumbentScalar.phone,
+            phoneType: incumbentScalar.phone_type,
+            phoneSource: incumbentScalar.phone_source,
+            phoneRawType: incumbentScalar.phone_raw_type,
+            countryCode: candidate.country_code,
+          }),
+          actorId: internalUserId,
+          nowIso: new Date().toISOString(),
+        });
+
+        if (outcome.status === 'merged' || outcome.status === 'already_merged') {
+          if (!outcome.contactId) {
+            return { ok: false, error: 'No fue posible agregar la información al contacto existente.' };
+          }
+          return {
+            ok: true,
+            contactId: outcome.contactId,
+            alreadyMerged: outcome.status === 'already_merged',
+            phonesInserted: outcome.phonesInserted,
+            sourcesInserted: outcome.sourcesInserted,
+          };
+        }
+        if (outcome.status === 'person_suppressed') {
+          // Mensaje deliberadamente genérico: no confirma ni niega que exista una solicitud de
+          // borrado sobre esa persona.
+          return { ok: false, error: 'No fue posible agregar la información al contacto existente.' };
+        }
+        if (outcome.status === 'contact_mismatch') {
+          return {
+            ok: false,
+            error: 'El contacto indicado no coincide con el que se registró como duplicado.',
+            code: 'CONTACT_MISMATCH' as const,
+          };
+        }
+        if (
+          outcome.status === 'candidate_not_mergeable' ||
+          outcome.status === 'contact_not_mergeable'
+        ) {
+          return {
+            ok: false,
+            error: 'Este candidato ya no puede agregarse al contacto existente.',
+            code: 'CANDIDATE_NOT_MERGEABLE' as const,
+          };
+        }
+        return { ok: false, error: 'No fue posible agregar la información al contacto existente.' };
+      },
+      logAudit: async ({
+        contactId: targetContactId,
+        accountId,
+        candidateId: sourceCandidateId,
+        actorUserId,
+        matchSignal,
+        phonesInserted,
+        sourcesInserted,
+      }) => {
+        // `contact_updated` es el miembro que la CHECK de la 039 ya admite para «se le añadió
+        // información a un contacto existente». No se extiende el vocabulario para esto.
+        // Los detalles son conteos, ids opacos y la señal: ni nombre, ni email, ni teléfono.
+        await logContactAudit({
+          contactId: targetContactId,
+          accountId,
+          actorUserId,
+          actionType: 'contact_updated',
+          details: {
+            source: 'contact_enrichment_candidate_merge',
+            candidate_id: sourceCandidateId,
+            match_signal: matchSignal,
+            official_phones_inserted: phonesInserted,
+            official_phone_sources_inserted: sourcesInserted,
+          },
+        });
+      },
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Error agregando la información al contacto existente';
     return { ok: false, error: message };
   }
 }

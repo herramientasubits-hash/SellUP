@@ -19,7 +19,7 @@
 //
 // ── POR QUÉ «ACCIÓN» Y NO OTRA COSA ────────────────────────────
 //
-// El drawer es un componente cliente que ya lee así (`getPendingContactCandidateById`,
+// El drawer es un componente cliente que ya lee así (`getReviewableContactCandidateById`,
 // `getPhoneRevealWaterfallAuditAction`). Introducir aquí una ruta API o un loader
 // nuevo sería un segundo patrón de lectura para la misma pantalla. Los nombres
 // dicen lo que hacen —`get…`— y ninguna de las dos funciones muta nada.
@@ -58,18 +58,11 @@ import {
   type StoredCandidatePhoneView,
 } from './candidate-stored-phones-core';
 import { readCandidateStoredPhones } from './candidate-stored-phones-read';
-
-/**
- * Roles que pueden ver los teléfonos almacenados de un candidato.
- *
- * Es la MISMA lista que gobierna la revisión del candidato y la auditoría del
- * waterfall (`['admin']`). Se declara aquí, y no se importa de
- * `phone-reveal-waterfall-core.ts`, para que el permiso de LEER no quede
- * encadenado a un módulo cuyo asunto es GASTAR: si mañana se ensancha quién puede
- * lanzar un waterfall, eso no debe ensanchar por accidente quién puede ver
- * números guardados. Un test estático fija que ambas listas coincidan hoy.
- */
-export const CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS: readonly string[] = ['admin'];
+// Los roles autorizados son una CONSTANTE, y una constante no puede exportarse
+// desde un módulo `'use server'`: Next envuelve toda exportación como Server
+// Action y exige que sea una función. Vive, con su justificación completa, en
+// `candidate-stored-phones-authorized-roles.ts`, que no lleva la directiva.
+import { CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS } from './candidate-stored-phones-authorized-roles';
 
 /**
  * Resultado de pedir la lista. Se distingue `unavailable` de una lista vacía

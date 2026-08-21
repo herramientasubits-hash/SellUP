@@ -6,7 +6,7 @@
  */
 
 export const APOLLO_CONTACT_ENRICHMENT_GUARDRAILS = {
-  // ── Guardrails de búsqueda (people_search) ──────────────────
+  // ── Guardrails de búsqueda (people_search — sin costo) ────────────
   /** Máximo de intentos de búsqueda por capas (fallback) por run. */
   maxSearchAttempts: 3,
 
@@ -17,10 +17,20 @@ export const APOLLO_CONTACT_ENRICHMENT_GUARDRAILS = {
   maxSearchResultsPerRun: 15,
 
   /**
-   * Créditos máximos estimados de búsqueda por run.
-   * Apollo cobra 1 crédito por resultado devuelto en people_search.
+   * Créditos máximos estimados de búsqueda por run: CERO.
+   *
+   * AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1 — el soporte de Apollo confirmó
+   * explícitamente que People Search (`POST /api/v1/mixed_people/api_search`) no
+   * cuesta créditos: ni la llamada, ni los resultados devueltos, ni los resultados
+   * repetidos. El valor anterior (15 = 1 crédito por resultado) era una suposición
+   * de SellUp, no un cobro del proveedor, y se publicaba al operador como si lo fuera.
+   *
+   * Esto NO relaja ningún tope: el límite real de la búsqueda es de VOLUMEN
+   * (`maxSearchResultsPerRun` / `maxSearchAttempts`) y queda intacto. El
+   * enriquecimiento pagado (`people/match`, reveals) conserva su propio
+   * presupuesto en `maxCompletionCreditsPerRun`.
    */
-  maxEstimatedSearchCreditsPerRun: 15,
+  maxEstimatedSearchCreditsPerRun: 0,
 
   /**
    * Contactos revisables que bastan para detenerse antes de agotar intentos.

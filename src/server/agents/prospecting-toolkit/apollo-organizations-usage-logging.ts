@@ -8,6 +8,14 @@
  * - Helper puro buildApolloOrgsUsageKey
  * - Logger real realLogApolloOrgsUsage con manejo de 23505 (idempotencia)
  *
+ * AGENT1-LUSHA-PROVIDER-USAGE-OBSERVABILITY-1 § 2 — el MOTOR de inserción (23505,
+ * degradación por columna de correlación ausente, aviso sin secretos) se EXTRAJO a
+ * `@/modules/usage-tracking/correlated-provider-usage-log` para que la ruta Lusha
+ * lo REUTILICE en vez de fabricar un segundo mecanismo con las mismas decisiones.
+ * Aquí no cambia nada observable: los mismos nombres, las mismas firmas y el mismo
+ * comportamiento. Lo que es específico de Apollo —la precedencia de `billing_state`
+ * entre `run_correlation` y `spend_observability`— se queda donde vive.
+ *
  * REGLAS DE SEGURIDAD:
  * - Nunca imprime API keys, queries completas ni resultados de empresa.
  * - real_cost_usd siempre NULL (conciliación post-factura).
@@ -16,9 +24,17 @@
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
-import { isProviderUsageCorrelationColumnsEnabled } from '@/lib/feature-flags.server';
 import {
-  isMissingProviderUsageCorrelationColumnError,
+  buildCorrelationColumnsWithBillingState,
+  buildProviderUsageLogRowWithBillingState,
+  insertCorrelatedProviderUsageRow,
+  CORRELATION_COLUMNS_FALLBACK_SIGNAL,
+  type CorrelatedProviderUsageLogDeps,
+  type CorrelatedProviderUsageLogResult,
+  type ProviderUsageInsertClient,
+  type ProviderUsageInsertError,
+} from '@/modules/usage-tracking/correlated-provider-usage-log';
+import {
   RUN_CORRELATION_METADATA_KEY,
   type RunCorrelationMetadata,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
@@ -86,31 +102,23 @@ export type ApolloOrgsUsageContext = {
   operationContext?: ApolloUsageOperationContextMetadata | null;
 };
 
-export type ApolloOrgsUsageLogResult =
-  | { kind: 'logged'; correlationColumnsFallback?: true }
-  | { kind: 'already_logged'; correlationColumnsFallback?: true }
-  | { kind: 'failed'; error: string }
-  | { kind: 'skipped_no_supabase' };
+/**
+ * Resultado del registro. Alias del contrato NEUTRAL extraído: la misma union
+ * de siempre, con UNA sola definición para las dos rutas.
+ */
+export type ApolloOrgsUsageLogResult = CorrelatedProviderUsageLogResult;
 
 /** Shape of the DB error this module reasons about. */
-export type ProviderUsageInsertError = { message: string; code?: string };
+export type { ProviderUsageInsertError };
 
 /**
  * Minimal insert surface. Narrow on purpose: the real admin client satisfies it,
  * and a test can satisfy it without a database or a module mock.
  */
-export type ProviderUsageInsertClient = {
-  from(table: string): {
-    insert(row: Record<string, unknown>): PromiseLike<{ error: ProviderUsageInsertError | null }>;
-  };
-};
+export type { ProviderUsageInsertClient };
 
-export type ApolloOrgsUsageLogDeps = {
-  /** Injected DB client. Defaults to the service-role admin client. */
-  client?: ProviderUsageInsertClient | null;
-  /** Injected sink for the fallback signal. Defaults to console.warn. */
-  warn?: (signal: string, detail: Record<string, unknown>) => void;
-};
+/** Dependencias inyectables. `client` ausente ⇒ el cliente admin de service-role. */
+export type ApolloOrgsUsageLogDeps = CorrelatedProviderUsageLogDeps;
 
 /**
  * Stable signal emitted when the correlation columns turned out not to exist.
@@ -118,8 +126,7 @@ export type ApolloOrgsUsageLogDeps = {
  * Grep-able on purpose: it is the one observable difference between "the columns
  * are live" and "the flag is on but migration 100 has not been applied here".
  */
-export const CORRELATION_COLUMNS_FALLBACK_SIGNAL =
-  'provider_usage_log.correlation_columns_missing.fallback_to_metadata' as const;
+export { CORRELATION_COLUMNS_FALLBACK_SIGNAL };
 
 // ─── Helper puro: usage_key ───────────────────────────────────────────────────
 
@@ -151,7 +158,7 @@ function tryGetAdminClient() {
   return createAdminClient(url, key);
 }
 
-// ─── Logger real ──────────────────────────────────────────────────────────────
+// ─── Fila y columnas: lo específico de Apollo ─────────────────────────────────
 
 /**
  * A1-APOLLO-BUDGET-RECONCILIATION-1: extrae la correlación que el provider dejó
@@ -162,19 +169,10 @@ function tryGetAdminClient() {
  * `batch_id` no se proyecta: ya es una columna propia del insert.
  */
 export function buildCorrelationColumns(metadata: unknown): Record<string, unknown> {
-  if (!isProviderUsageCorrelationColumnsEnabled()) return {};
-  if (!metadata || typeof metadata !== 'object') return {};
-  const block = (metadata as Record<string, unknown>)[RUN_CORRELATION_METADATA_KEY];
-  if (!block || typeof block !== 'object') return {};
-  const c = block as Partial<RunCorrelationMetadata>;
-  return {
-    reservation_id: c.reservation_id ?? null,
-    client_request_id: c.client_request_id ?? null,
-    wizard_run_id: c.wizard_run_id ?? null,
-    request_fingerprint: c.request_fingerprint ?? null,
-    idempotency_key: c.idempotency_key ?? null,
-    billing_state: resolveProviderUsageBillingState(metadata),
-  };
+  return buildCorrelationColumnsWithBillingState(
+    metadata,
+    resolveProviderUsageBillingState(metadata),
+  );
 }
 
 /**
@@ -222,40 +220,36 @@ export function buildProviderUsageLogRow(
   // la columna. Con las columnas de correlación apagadas, ésta es la única
   // representación disponible, y dejarla implícita es lo que produjo una fila
   // con `spend_observability.billing_state = 'recorded'` y la columna en NULL.
-  const resolvedBillingState = resolveProviderUsageBillingState(input.metadata);
-  const metadata =
-    resolvedBillingState === null
-      ? (input.metadata ?? {})
-      : { ...(input.metadata ?? {}), provider_usage_billing_state: resolvedBillingState };
-
-  return {
-    agent_run_id: input.agent_run_id ?? null,
-    agent_run_step_id: input.agent_run_step_id ?? null,
-    batch_id: input.batch_id ?? null,
-    usage_key: input.usage_key ?? null,
-    provider_key: input.provider_key,
-    operation_key: input.operation_key,
-    model: input.model ?? null,
-    input_tokens: input.input_tokens ?? 0,
-    output_tokens: input.output_tokens ?? 0,
-    credits_used: input.credits_used ?? null,
-    results_returned: input.results_returned ?? 0,
-    estimated_cost_usd: input.estimated_cost_usd ?? 0,
-    real_cost_usd: null,
-    status: input.status ?? 'success',
-    error_code: input.error_code ?? null,
-    error_message: input.error_message ? input.error_message.slice(0, 500) : null,
-    duration_ms: input.duration_ms ?? null,
-    triggered_by: input.triggered_by ?? null,
-    triggered_by_role_key: null,
-    triggered_by_group_id: null,
-    metadata,
-  };
+  //
+  // ── P1-1 (AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1) ────────────────────────────
+  //
+  // 🔴 `preserveUnknownEstimatedCost` deja de estar apagado en la ruta Apollo.
+  //
+  // El defecto: `buildApolloEnrichmentUsageLogInput` escribe
+  // `estimated_cost_usd: input.unitCostUsd ?? null` —un null EXPLÍCITO que dice
+  // «no había tarifa viva, el costo es DESCONOCIDO»— y esta fila lo colapsaba a
+  // 0 con `?? 0`. Un panel de gasto sumaba entonces cero dólares por operaciones
+  // que sí se cobraron, y la misma fila llevaba
+  // `pricing_missing_warning: true` al lado, contradiciéndose.
+  //
+  // El contrato que se adopta es el canónico, y es exactamente el que la ruta
+  // Lusha ya usa (`lusha-provider-usage-recorder`):
+  //
+  //   omitido (undefined) ⇒ 0        — el defecto histórico, intacto;
+  //   null EXPLÍCITO      ⇒ SQL NULL — costo desconocido, jamás 0 fabricado;
+  //   número              ⇒ tal cual — 0 sigue siendo un costo CONOCIDO válido.
+  //
+  // Ninguna fila de `organizations_search` cambia: esa ruta siempre calcula un
+  // número. Cambian las de `organization_enrichment` sin tarifa activa, que son
+  // precisamente las que estaban mintiendo.
+  return buildProviderUsageLogRowWithBillingState(
+    input,
+    resolveProviderUsageBillingState(input.metadata),
+    { preserveUnknownEstimatedCost: true },
+  );
 }
 
-function defaultWarn(signal: string, detail: Record<string, unknown>): void {
-  console.warn(signal, detail);
-}
+// ─── Logger real ──────────────────────────────────────────────────────────────
 
 /**
  * Inserts one provider_usage_logs row, surviving a not-yet-applied migration 100.
@@ -282,46 +276,16 @@ export async function realLogApolloOrgsUsage(
   input: LogProviderUsageInput,
   deps?: ApolloOrgsUsageLogDeps,
 ): Promise<ApolloOrgsUsageLogResult> {
-  try {
-    const client = deps?.client ?? (tryGetAdminClient() as ProviderUsageInsertClient | null);
-    if (!client) return { kind: 'skipped_no_supabase' };
-
-    const baseRow = buildProviderUsageLogRow(input);
-    const correlationColumns = buildCorrelationColumns(input.metadata);
-    const correlationColumnNames = Object.keys(correlationColumns);
-
-    const { error } = await client
-      .from('provider_usage_logs')
-      .insert({ ...correlationColumns, ...baseRow });
-
-    if (!error) return { kind: 'logged' };
-    if (error.code === '23505') return { kind: 'already_logged' };
-
-    const canStripCorrelationColumns =
-      correlationColumnNames.length > 0 &&
-      isMissingProviderUsageCorrelationColumnError(error);
-    if (!canStripCorrelationColumns) return { kind: 'failed', error: error.message };
-
-    // Sanitized on purpose: schema-level facts only — no query text, no
-    // organization payload, no credentials, no raw error body.
-    (deps?.warn ?? defaultWarn)(CORRELATION_COLUMNS_FALLBACK_SIGNAL, {
-      provider_key: input.provider_key,
-      operation_key: input.operation_key,
-      error_code: error.code ?? null,
-      stripped_columns: correlationColumnNames,
-      correlation_preserved_in: `metadata.${RUN_CORRELATION_METADATA_KEY}`,
-    });
-
-    const retry = await client.from('provider_usage_logs').insert(baseRow);
-    if (!retry.error) return { kind: 'logged', correlationColumnsFallback: true };
-    if (retry.error.code === '23505') {
-      return { kind: 'already_logged', correlationColumnsFallback: true };
-    }
-    return { kind: 'failed', error: retry.error.message };
-  } catch (err: unknown) {
-    return {
-      kind: 'failed',
-      error: err instanceof Error ? err.message : 'unknown logging error',
-    };
-  }
+  return insertCorrelatedProviderUsageRow(
+    {
+      baseRow: buildProviderUsageLogRow(input),
+      correlationColumns: buildCorrelationColumns(input.metadata),
+      providerKey: input.provider_key,
+      operationKey: input.operation_key,
+    },
+    {
+      client: deps?.client ?? (tryGetAdminClient() as ProviderUsageInsertClient | null),
+      ...(deps?.warn ? { warn: deps.warn } : {}),
+    },
+  );
 }

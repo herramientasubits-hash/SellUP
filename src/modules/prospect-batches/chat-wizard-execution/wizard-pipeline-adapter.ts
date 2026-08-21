@@ -1,5 +1,10 @@
 import type { GenerateAIBatchInput } from '@/modules/prospect-batches/actions';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
+import { resolveDiscoveryTaxonomyCapability } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+import {
+  getMacroIndustryBySlug,
+  resolveMacroIndustryByDisplayName,
+} from '@/modules/macro-industry-catalog/macro-industries';
 import type { ResolvedWizardExecution, WizardGenerationCommand } from './wizard-execution-types';
 
 // ── System controls ───────────────────────────────────────────────────────────
@@ -64,6 +69,20 @@ export function adaptResolvedWizardToGenerationInput(
       subindustries,
       additionalCriteria,
       clientRequestId,
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — auditabilidad de la taxonomía.
+      //
+      // Sin esto, dentro de seis meses la única forma de saber bajo qué
+      // taxonomía se creó un lote sería mirar si su array de subindustrias está
+      // vacío — y eso no distingue «no había paso de subindustria» de «la
+      // persona no quiso acotar». Se declara, no se deduce.
+      taxonomy: {
+        ...resolveDiscoveryTaxonomyCapability(catalog.version),
+        macroIndustryKey:
+          getMacroIndustryBySlug(industry.slug)?.key ??
+          resolveMacroIndustryByDisplayName(industry.name)?.key ??
+          null,
+        macroIndustryDisplayName: industry.name,
+      },
       employeeSizeCriteria: {
         minEmployeeCountExclusive: systemControls.minimumEmployees,
         enforcement: systemControls.employeeThresholdMode,

@@ -117,10 +117,12 @@ const EMPTY_RESULT: GenerateLushaPendingReviewBatchActionResult = {
   topUpTriggered: false,
 };
 
-// The seeded criteria the conversational wizard would resolve (país CO, Salud).
+// The seeded criteria the conversational wizard would resolve (país CO, Salud &
+// Farmacéuticos). ROUTING-CUTOVER-1 § 2: lo que viaja es la clave canónica de macro
+// industria, no el sector legacy `healthcare`.
 const SEEDED_INPUT: WizardLushaInput = {
   countryCode: 'CO',
-  sectorKey: 'healthcare',
+  macroIndustryKey: 'health_pharma',
   subIndustryId: null,
   sizeBandKey: '201-5000',
   searchText: null,
@@ -172,7 +174,7 @@ describe('WizardLushaFinalSearch — persist results as pending review (Q3F-5BB.
     });
     const call = mockPersist.mock.calls[0].arguments[0];
     assert.equal(call.countryCode, 'CO');
-    assert.equal(call.sectorKey, 'healthcare');
+    assert.equal(call.macroIndustryKey, 'health_pharma');
   });
 
   it('20/21/22/23. success shows a brief confirmation with provider + credits', async () => {

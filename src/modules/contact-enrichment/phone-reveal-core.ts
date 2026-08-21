@@ -45,7 +45,6 @@ import { normalizeApolloPersonId } from '@/server/integrations/apollo-person-id'
 import {
   buildPhoneCacheHitUsageLog,
   evaluatePhoneCacheLookup,
-  evaluatePhoneCacheSuppressionState,
   resolvePhoneCachePersonId,
   resolvePhoneCacheCountryCode,
   PHONE_CACHE_HIT_CREDITS,
@@ -54,14 +53,18 @@ import {
   type PhoneCacheEntry,
   type PhoneCacheHitUsageLogEntry,
   type PhoneCacheLookupKey,
-  type PhoneCacheSuppressionLookupKey,
-  type PhoneCacheSuppressionState,
 } from './phone-cache-core';
 import {
   reportPhoneSuppressionNotEvaluable,
   type PhoneSuppressionAuditState,
   type PhoneSuppressionNotEvaluableSink,
 } from './phone-reveal-suppression-audit';
+import {
+  resolvePhoneRevealProviderIdentity,
+  type ProviderSuppressionIdentity,
+} from './provider-suppression-core';
+import type { PhoneRevealSuppressionLookup } from './provider-suppression-store';
+import { evaluatePhoneRevealSuppression } from './phone-reveal-suppression-guard';
 import type {
   ContactCandidateEnrichmentMetadata,
   ContactCandidatePhoneMetadata,
@@ -394,18 +397,24 @@ export interface RevealCandidatePhoneDeps {
   // una supresión ya registrada.
 
   /**
-   * Busca el tombstone de (provider, person, MISMA cuenta). Se invoca SIEMPRE que
-   * el candidato tenga Apollo person id y cuenta, con el flag de caché encendido o
-   * apagado, y ANTES de cualquier llamada a Apollo.
+   * Resuelve la supresión de la identidad NATIVA del proveedor
+   * (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4, Fase 1). Se invoca SIEMPRE que el
+   * candidato tenga identidad nativa resoluble —Apollo con su orden histórico, o
+   * Lusha con su `source_contact_id`—, con el flag de caché encendido o apagado, y
+   * ANTES de cualquier llamada a Apollo.
+   *
+   * La CUENTA ya NO es requisito. Viaja en la clave, pero sólo para que la lectura
+   * compuesta pueda añadir el tombstone LEGADO de `phone_reveal_cache` como bloqueo
+   * adicional cuando existe; su ausencia omite esa mitad y no bloquea por sí sola.
+   * El nombre de la dep se conserva para no romper el cableado de los cuatro
+   * llamadores ni de sus suites.
    *
    * Debe LANZAR si la lectura no se puede completar: el core lo traduce a
    * `suppression_check_unavailable` y no llama al proveedor. Si la dep no está
    * cableada el reveal también se detiene — no hay reveal sin comprobación de
    * supresión.
    */
-  lookupPhoneCacheSuppression?: (
-    key: PhoneCacheSuppressionLookupKey,
-  ) => Promise<PhoneCacheSuppressionState | null>;
+  lookupPhoneCacheSuppression?: PhoneRevealSuppressionLookup;
   /**
    * Notifica que la supresión no se pudo verificar. Recibe SOLO un mensaje
    * mecánico: nunca teléfono, person id, email, nombre ni linkedin.
@@ -414,10 +423,14 @@ export interface RevealCandidatePhoneDeps {
   /**
    * Notifica que la supresión no se pudo EVALUAR (APOLLO-PHONE-CACHE-1b, FIX 4):
    * sin Apollo person id resoluble o sin cuenta no existe clave con la que
-   * emparejar un tombstone. El reveal continúa igual — no se empareja por
-   * teléfono/email/nombre/linkedin ni se rellena el id que falta — pero el caso
-   * queda registrado en vez de desaparecer en silencio. Recibe un evento de forma
-   * CERRADA y sin PII (ver `phone-reveal-suppression-audit.ts`).
+   * emparejar un tombstone. Sigue sin emparejarse por teléfono/email/nombre/linkedin
+   * y sin rellenarse el id que falta, y el caso queda registrado en vez de
+   * desaparecer en silencio. Recibe un evento de forma CERRADA y sin PII (ver
+   * `phone-reveal-suppression-audit.ts`).
+   *
+   * P0 (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1, PR #289): este sumidero solo AUDITA.
+   * El reveal NO continúa — `enforcePhoneRevealSuppression` devuelve
+   * `suppression_check_unavailable` y se detiene sin llamar al proveedor.
    */
   onSuppressionNotEvaluable?: PhoneSuppressionNotEvaluableSink;
 
@@ -522,9 +535,23 @@ export type RevealCandidatePhoneStatus =
   // Se emite con ENABLE_APOLLO_PHONE_CACHE encendido o apagado (FIX 2).
   | 'blocked_suppressed'
   // APOLLO-PHONE-CACHE-1b (FIX 2): la SUPRESIÓN no se pudo verificar (tabla
-  // ausente, timeout, dep no cableada). Fail-closed: NO se llama a Apollo, porque
-  // podría existir un tombstone sin haber sido visto. Independiente del flag de
-  // caché. 0 créditos, sin teléfono, reintentable.
+  // ausente, timeout, dep no cableada). AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1
+  // amplió este mismo estado al caso sin clave posible (sin `provider_person_id`
+  // resoluble o sin cuenta): antes continuaba sin bloquear, ahora comparte esta
+  // misma garantía fail-closed. Fail-closed: NO se llama a Apollo, porque podría
+  // existir un tombstone sin haber sido visto (o sin poder emparejarse).
+  // Independiente del flag de caché. 0 créditos, sin teléfono, bloqueado mientras
+  // la supresión no se pueda evaluar.
+  //
+  // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1-R2: "reintentable" describe con
+  // precisión SOLO el sub-caso de dep no cableada / lectura fallida (un reintento
+  // posterior puede encontrar la dep ya cableada o la lectura ya resuelta). NO se
+  // afirma lo mismo del sub-caso sin clave posible: un candidato sin
+  // `provider_person_id` resoluble o sin cuenta puede quedar permanentemente sin
+  // evaluar salvo que algún proceso independiente le resuelva esa identidad más
+  // tarde (p. ej. una enriquecimiento posterior que capture su
+  // `apollo_person_id`); el código de este módulo no reintenta ni resuelve esa
+  // identidad por sí solo.
   | 'suppression_check_unavailable'
   // APOLLO-PHONE-CACHE-1b (FIX H4): la caché no se pudo consultar. Fail-closed:
   // NO se llama a Apollo. Solo alcanzable con el flag de caché encendido (con el
@@ -961,22 +988,34 @@ export async function runRevealCandidatePhone(
  * null significa "no evaluable": no existe supresión que se pueda emparejar.
  */
 interface StartSuppressionKey {
-  personId: string | null;
+  /**
+   * Identidad NATIVA del proveedor (Fase 1). `null` = ninguna resoluble, único caso
+   * que sigue siendo `not_evaluable`.
+   */
+  identity: ProviderSuppressionIdentity | null;
+  /**
+   * Cuenta del run. OPCIONAL desde la Fase 1: sólo habilita la mitad LEGADO de la
+   * lectura compuesta. Que falte NO impide evaluar la supresión.
+   */
   accountId: string | null;
 }
 
 /**
- * Resuelve la clave (persona, cuenta) del candidato. Pura y sin efectos: el
- * person id pasa por el validador Apollo (24 hex), así que un id de otro
- * proveedor — p. ej. un Lusha `v1.*` — nunca se usa como clave.
+ * Resuelve la identidad nativa del candidato. Pura y sin efectos.
+ *
+ * El orden de Apollo es EXACTAMENTE el histórico y su validador de 24 hex no se
+ * relaja, así que un id de otro proveedor — p. ej. un Lusha `v1.*` — sigue sin poder
+ * usarse como id de Apollo. Lo nuevo es que un candidato de origen Lusha ya no se
+ * queda sin identidad: usa su propio `source_contact_id`, en su propio espacio de
+ * nombres, sin traducirlo a Apollo.
  */
 function resolveStartSuppressionKey(
   candidate: RevealCandidateRecord,
 ): StartSuppressionKey {
   return {
-    personId: resolvePhoneCachePersonId({
+    identity: resolvePhoneRevealProviderIdentity({
       apolloPersonId: candidate.apolloPersonId ?? null,
-      sourceProvider: candidate.source ?? null,
+      source: candidate.source ?? null,
       sourceContactId: candidate.sourceContactId,
     }),
     accountId: cleanText(candidate.accountId),
@@ -991,28 +1030,41 @@ function resolveStartSuppressionKey(
 function describeStartSuppressionAudit(
   key: StartSuppressionKey,
 ): PhoneSuppressionAuditState {
-  if (!key.personId) return 'not_evaluable_missing_provider_person_id';
-  if (!key.accountId) return 'not_evaluable_missing_account_id';
+  // Fase 1: `not_evaluable_missing_account_id` YA NO puede salir de aquí. La etiqueta
+  // sigue existiendo en el vocabulario de auditoría —los eventos históricos que la
+  // llevan no se reescriben— pero ninguna rama nueva la emite, porque la cuenta dejó
+  // de ser un requisito para evaluar.
+  if (!key.identity) return 'not_evaluable_missing_provider_person_id';
   return 'checked_not_suppressed';
 }
 
 /**
- * Comprueba el tombstone de supresión ANTES de llamar a Apollo, con
- * independencia de `ENABLE_APOLLO_PHONE_CACHE`. Devuelve:
- *   * `blocked_suppressed` — existe supresión para (apollo, persona, cuenta): no
- *     se llama a Apollo, no se gastan créditos y no se revela teléfono;
- *   * `suppression_check_unavailable` — la comprobación no se pudo hacer (dep no
- *     cableada o lectura fallida): tampoco se llama a Apollo, porque "no pude
- *     comprobarlo" no equivale a "no está suprimido". Reintentable, 0 créditos;
- *   * `null` — no hay supresión (o no existe clave posible) y el reveal continúa.
+ * Comprueba la supresión ANTES de llamar a Apollo, con independencia de
+ * `ENABLE_APOLLO_PHONE_CACHE`. Devuelve:
+ *   * `blocked_suppressed` — existe supresión para la identidad NATIVA del candidato
+ *     (nuevo modelo `provider_suppressions`, sin cuenta) o para su tombstone LEGADO
+ *     (apollo, persona, cuenta) cuando esa clave sigue siendo consultable: no se llama
+ *     a Apollo, no se gastan créditos y no se revela teléfono;
+ *   * `suppression_check_unavailable` — la comprobación no se pudo hacer: dep no
+ *     cableada, lectura fallida, o (#289) sin NINGUNA identidad nativa resoluble. Los
+ *     tres comparten resultado porque comparten garantía: "no pude confirmar que NO
+ *     está suprimido" nunca equivale a "no está suprimido". No se llama a Apollo,
+ *     0 créditos. "Reintentable" describe con precisión el sub-caso de dep/lectura; NO
+ *     es una promesa para el sub-caso sin identidad, que puede ser permanente;
+ *   * `null` — se confirmó que no hay supresión y el reveal continúa.
  *
- * Límite conocido y deliberado: el tombstone se identifica por Apollo person id +
- * cuenta, la misma clave con la que se escribe. Un candidato sin `apollo_person_id`
- * resoluble o sin cuenta no puede emparejarse con ninguna supresión registrada, así
- * que continúa por el camino Apollo normal. No se intenta emparejar por
- * teléfono/email/nombre: un match difuso aquí sería un bloqueo (o un no-bloqueo)
- * decidido por inferencia. El país NO entra en la clave: una supresión bloquea a
- * esa persona en esa cuenta aunque el país del candidato cambie o sea desconocido.
+ * FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4) — lo que cambió y lo que no:
+ *
+ *   * la CUENTA dejó de ser requisito. Antes, un candidato sin `account_id` no tenía
+ *     clave y por tanto se bloqueaba fail-closed para siempre; eso hacía inalcanzable
+ *     todo el flujo de pre-aprobación. Ahora la cuenta sólo añade la comprobación
+ *     legada cuando existe;
+ *   * un candidato de origen LUSHA ya no necesita identidad de Apollo. Su
+ *     `source_contact_id` nativo es su identidad, en su propio espacio de nombres;
+ *   * la validación de Apollo NO se relajó: mismo orden, mismo validador de 24 hex;
+ *   * sigue sin haber inferencia. No se empareja por teléfono, email, nombre, LinkedIn,
+ *     empresa ni dominio, y una supresión de Apollo NO se convierte en una de Lusha por
+ *     parecerse: el sujeto compartido entre proveedores es Fase 2 y no está aquí.
  */
 async function enforcePhoneRevealSuppression(args: {
   candidateId: string;
@@ -1020,21 +1072,6 @@ async function enforcePhoneRevealSuppression(args: {
   deps: RevealCandidatePhoneDeps;
 }): Promise<RevealCandidatePhoneResult | null> {
   const { candidateId, key, deps } = args;
-  const { personId, accountId } = key;
-
-  // Sin clave no puede existir tombstone alguno que consultar. FIX 4: el caso se
-  // AUDITA (evento PII-free) y el reveal continúa; nunca se empareja por
-  // teléfono/email/nombre/linkedin, y no se intenta rellenar el id que falta.
-  if (!personId || !accountId) {
-    reportPhoneSuppressionNotEvaluable({
-      phase: 'start',
-      reason: !personId ? 'missing_provider_person_id' : 'missing_account_id',
-      candidateId,
-      accountId,
-      sink: deps.onSuppressionNotEvaluable,
-    });
-    return null;
-  }
 
   const unavailable = (message: string): RevealCandidatePhoneResult => {
     deps.onSuppressionCheckUnavailable?.(message);
@@ -1047,38 +1084,55 @@ async function enforcePhoneRevealSuppression(args: {
     };
   };
 
-  // Dep ausente = wiring incompleto. Fail-closed: no hay reveal sin comprobación
-  // de supresión, ni siquiera con el flag de caché apagado.
-  if (!deps.lookupPhoneCacheSuppression) {
-    return unavailable('suppression lookup not wired');
-  }
+  const evaluation = await evaluatePhoneRevealSuppression({
+    identity: key.identity,
+    accountId: key.accountId,
+    lookup: deps.lookupPhoneCacheSuppression,
+    // El MISMO redactor que el fast path (FIX H4-c): el mensaje del driver puede citar
+    // los valores de la query (`providerPersonId`, o el teléfono/email de una fila vecina
+    // en un error de constraint), así que el error crudo nunca sale del core.
+    redactError: redactDriverMessage,
+  });
 
-  let state: PhoneCacheSuppressionState | null;
-  try {
-    state = await deps.lookupPhoneCacheSuppression({
-      provider: PHONE_CACHE_PROVIDER,
-      providerPersonId: personId,
-      accountId,
-    });
-  } catch (err) {
-    // FIX H4-c: el mensaje del driver puede citar los valores de la query
-    // (`providerPersonId`, o el teléfono/email de una fila vecina en un error de
-    // constraint). Se redacta con el MISMO redactor que el fast path; el error
-    // crudo nunca sale del core.
-    return unavailable(redactDriverMessage(err));
+  switch (evaluation.kind) {
+    case 'not_evaluable':
+      // Sin NINGUNA identidad nativa resoluble no hay supresión que emparejar. FIX 4:
+      // el caso se AUDITA (evento PII-free). #289: "no se puede evaluar" NO significa
+      // "el reveal continúa" — se bloquea con el estado ya existente para "no se pudo
+      // comprobar", sin vocabulario nuevo y sin migración. Nunca se empareja por
+      // teléfono/email/nombre/linkedin/empresa/dominio, y no se rellena la identidad
+      // que falta: eso seguiría siendo inferencia.
+      reportPhoneSuppressionNotEvaluable({
+        phase: 'start',
+        reason: evaluation.reason,
+        candidateId,
+        accountId: key.accountId,
+        sink: deps.onSuppressionNotEvaluable,
+      });
+      return {
+        ok: false,
+        status: 'suppression_check_unavailable',
+        requestAccepted: false,
+        errorCode: 'suppression_check_unavailable',
+        servedFromCache: false,
+      };
+    case 'check_unavailable':
+      // Dep ausente = wiring incompleto; lectura fallida = no se pudo confirmar. Los
+      // dos son fail-closed: no hay reveal sin comprobación de supresión, ni siquiera
+      // con el flag de caché apagado. El mensaje llega YA redactado desde la guarda.
+      return unavailable(evaluation.message);
+    case 'blocked_suppressed':
+      return {
+        ok: false,
+        status: 'blocked_suppressed',
+        requestAccepted: false,
+        errorCode: null,
+        servedFromCache: false,
+      };
+    case 'allowed':
+    default:
+      return null;
   }
-
-  if (evaluatePhoneCacheSuppressionState(state) === 'suppressed') {
-    return {
-      ok: false,
-      status: 'blocked_suppressed',
-      requestAccepted: false,
-      errorCode: null,
-      servedFromCache: false,
-    };
-  }
-
-  return null;
 }
 
 // ── Fast path de caché (APOLLO-PHONE-CACHE-1b) ─────────────────

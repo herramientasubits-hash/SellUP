@@ -510,9 +510,35 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
     const files = readdirSync(join(repoRoot, 'supabase', 'migrations'))
       .filter((f) => f.endsWith('.sql'))
       .sort();
+    // El techo lo movió 4O-H1 con la 114 (esquema oficial multi-teléfono, inerte) y
+    // después 4O-H2 con la 115 (su privacidad: contadores de auditoría y la función
+    // `suppress_official_contact_phone_sources`), y después 4O-H3 con la 116 (la APROBACIÓN
+    // atómica del candidato sobre ese esquema: una sola función transaccional, sin DDL). Lo
+    // que esta guarda fija es que H0.5 no aportó esquema, no cuál es el número más alto; el
+    // nombre exacto se mantiene para que una migración colada por encima del último hito
+    // conocido rompa la guarda.
     assert.equal(
       files[files.length - 1],
-      '113_phone_reveal_person_suppression_recheck.sql',
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119 (catálogo de
+      // Macro Industrias, sin relación con teléfono). H0.5 sigue sin aportar esquema.
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+      // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
+      // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
+      // columna, no suelta constraint y no reescribe ninguna migración anterior.
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono
+      // —toca `wizard_budget_reservations` y `confirm_wizard_credits`— y H0.5 sigue sin
+      // aportar esquema.
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

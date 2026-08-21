@@ -230,29 +230,69 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
     assert.match(check[0], /'manual'/);
   });
 
-  it('R1 no añade migraciones (la máxima sigue siendo la 113)', () => {
+  it('R1 no añade migraciones (el techo es el del último hito conocido)', () => {
+      // AGENT2A-PHONE-REVEAL-4O-H1 movió el techo a la 114 (el esquema OFICIAL de
+      // múltiples teléfonos, creado INERTE, con su propia guarda estática en
+      // official-contact-phone-schema-static-4o-h1.test.ts) y AGENT2A-PHONE-REVEAL-4O-H2
+      // a la 115 (la PRIVACIDAD de ese esquema: contadores de auditoría y
+      // `suppress_official_contact_phone_sources`, con su propia guarda). Lo que ESTA
+      // guarda protege no es el número más alto —sube cada vez que un bloque autorizado
+      // añade el suyo— sino que este hito no aportó ninguna migración y que nadie coló
+      // una por encima del último hito conocido.
     const files = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith('.sql'))
       .sort();
     const last = files[files.length - 1];
     assert.equal(
       last,
-      '113_phone_reveal_person_suppression_recheck.sql',
-      'R1 es sin migración: cualquier archivo nuevo aquí sale del alcance',
+      // 4O-H3 movió el techo a la 116 (la APROBACIÓN atómica: una sola función
+      // transaccional, sin DDL). R1 sigue sin aportar ninguna.
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+      // Macro Industrias, sin relación con teléfono. R1 sigue sin aportar ninguna.
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+      // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
+      // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
+      // columna, no suelta constraint y no reescribe ninguna migración anterior.
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). No es de teléfono
+      // y R1 sigue sin aportar ninguna.
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
+      'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa y la contabilidad de presupuesto, no este hito',
+    );
+    assert.equal(
+      // La ventana sube con el techo DECLARADO arriba: la 123 está autorizada y nombrada,
+      // así que lo que queda prohibido es la 124 y superiores.
+      files.some((f) => /^1(2[4-9]|[3-9]\d)/.test(f)),
+      false,
+      // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
+      // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
+      // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
+      // hito conocido sin declararla.
+      'ninguna migración 124 o superior',
     );
   });
 
-  it('R1 no crea `contact_phones` ni `mobile_phone_source`', () => {
+  it('sólo 4O-H1 crea `contact_phones`, y `mobile_phone_source` no existe en ninguna', () => {
+    // `mobile_phone_source` sigue sin existir en NINGUNA migración: la procedencia del
+    // escalar móvil es deuda declarada (MOBILE_PHONE_PROVENANCE_PENDING) y pertenece a H5.
+    // `contact_phones` sí existe ya, y sólo en la 114.
+    const creators: string[] = [];
     for (const file of readdirSync(MIGRATIONS_DIR)) {
       if (!file.endsWith('.sql')) continue;
       const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
       assert.equal(/mobile_phone_source/.test(sql), false, `${file} declara mobile_phone_source`);
-      assert.equal(
-        /CREATE TABLE[^;]*\bcontact_phones\b/i.test(sql),
-        false,
-        `${file} crea contact_phones`,
-      );
+      if (/CREATE TABLE[^;]*\bcontact_phones\b/i.test(sql)) creators.push(file);
     }
+    assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
   it('`createContact` declara la procedencia con el MISMO helper (4O-H0.5)', () => {

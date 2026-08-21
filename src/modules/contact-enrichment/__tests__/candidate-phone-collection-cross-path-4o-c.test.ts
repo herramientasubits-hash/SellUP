@@ -37,6 +37,13 @@ const TOKEN = 'webhook-secret-token';
 const REQUEST_ID = 'apollo-req-4oc';
 const RECOVERY_ID = '-4594297923800105423';
 const CANDIDATE_ID = 'cand-4oc';
+/**
+ * Apollo person id sintético (24 hex), opaco e inventado. Necesario para que la
+ * comprobación de supresión sea EVALUABLE (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1):
+ * sin él el gate ahora BLOQUEA (`not_evaluable` ⇒ fail-closed), y estas pruebas no
+ * son sobre supresión — son sobre la colección de teléfonos.
+ */
+const PERSON_ID = '0123456789abcdef01234567';
 
 const MOBILE = '+15550000001';
 const DIRECT = '+15550000002';
@@ -74,6 +81,8 @@ async function runWebhook(
     accountId: 'acct-1',
     enrichmentMetadata: {},
     phoneRevealStatus: options.alreadyTerminal ? 'revealed' : 'requested',
+    apolloPersonId: PERSON_ID,
+    source: 'apollo',
   };
   // El doble y el fixture son EL MISMO candidato: se sincronizan para que el core
   // y el almacén no discrepen sobre si el reveal sigue en vuelo.
@@ -113,6 +122,8 @@ async function runRecovery(
     existingPhone: null,
     enrichmentMetadata: {},
     phoneProcessingBasis: 'legitimate_interest_b2b',
+    apolloPersonId: PERSON_ID,
+    source: 'apollo',
   };
   store.registerCandidate(CANDIDATE_ID, {
     phoneRevealStatus: candidate.phoneRevealStatus,
@@ -354,6 +365,8 @@ describe('4O-C cross-path — coherencia escalar / principal', () => {
             accountId: 'acct-1',
             enrichmentMetadata: {},
             phoneRevealStatus: 'requested',
+            apolloPersonId: PERSON_ID,
+            source: 'apollo',
           }),
           persist: async (_id, patch) => {
             patches.push(patch);

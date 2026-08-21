@@ -769,7 +769,11 @@ describe('executeContactEnrichmentApolloRun', () => {
     const searchLog = h.getUsageLogs().find((l) => l.operation_key === 'people_search');
     assert.ok(searchLog, 'debe existir log people_search');
     assert.equal(searchLog.status, 'success');
-    assert.equal(searchLog.credits_used, 2);
+    // AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1 — antes se afirmaba
+    // `credits_used === 2` (1 por resultado). People Search no cobra: el costo es 0 y
+    // el VOLUMEN sigue siendo 2 en los campos operativos.
+    assert.equal(searchLog.credits_used, 0);
+    assert.equal(searchLog.estimated_cost_usd, 0);
     assert.equal(searchLog.results_returned, 2);
     assert.equal((searchLog.metadata as Record<string, unknown>)?.raw_results_count, 2);
   });

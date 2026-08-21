@@ -129,24 +129,34 @@ describe('§ 1 — la pantalla no ofrece relanzar de inmediato', () => {
     // Se afirman las DOS conjunciones concretas en vez de contar apariciones del
     // token: un contador se rompe en cuanto un comentario menciona el nombre, y
     // eso lo vuelve una prueba sobre la prosa en vez de sobre el gate.
+    //
+    // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — `!isBudgetBlocked` se sumó DESPUÉS de
+    // `!isPersistenceBlocked` en la misma conjunción: sigue siendo el mismo gate
+    // compartido, con un motivo de bloqueo más.
     assert.match(
       src.summary,
-      /executionEnabled && !isPersistenceBlocked && \(\s*<Button/,
+      /executionEnabled &&\s*!isPersistenceBlocked &&\s*\n\s*!isBudgetBlocked && \(\s*<Button/,
       'el botón «Generar prospectos» debe estar gateado por !isPersistenceBlocked',
     );
     assert.match(
       src.summary,
-      /!isPersistenceBlocked &&\s*\n\s*onRequestedProviderChange !== undefined/,
+      /!isPersistenceBlocked &&\s*\n\s*!isBudgetBlocked &&\s*\n\s*onRequestedProviderChange !== undefined/,
       'el selector de proveedor debe estar gateado por !isPersistenceBlocked',
     );
   });
 
-  it('el gate NO rompe la conjunción que fija el guardrail STRICT-ALL de Lusha', () => {
+  it('el gate NO rompe la conjunción que fija el gate de generación', () => {
     // `prospect-wizard-route-static.test.ts` fija literalmente esta conjunción.
     // Insertar el nuevo gate en medio la partía; va después a propósito.
+    //
+    // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — la conjunción ya no incluye
+    // `!isLushaBlocked`: la disponibilidad del discovery de Agente 1 no puede
+    // derivarse de la ruta del proveedor OCULTO Lusha. `!useLushaFinalSearch` sigue
+    // ahí, y es lo que conserva el guardrail: una corrida que va a Lusha no ofrece
+    // «Generar prospectos».
     assert.match(
       src.summary,
-      /!useLushaFinalSearch && !isLushaBlocked && executionEnabled/,
+      /!useLushaFinalSearch &&\s*discoveryAvailability\.available &&\s*executionEnabled/,
     );
   });
 });

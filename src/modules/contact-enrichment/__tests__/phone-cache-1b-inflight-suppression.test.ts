@@ -55,9 +55,9 @@ import {
 } from '../phone-reveal-suppression-guard';
 import {
   PHONE_CACHE_PROVIDER,
-  type PhoneCacheSuppressionLookupKey,
   type PhoneCacheWriteInput,
 } from '../phone-cache-core';
+import type { PhoneRevealSuppressionLookupKey } from '../provider-suppression-core';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..', '..');
@@ -83,7 +83,7 @@ interface Capture {
   webhookLogs: WebhookUsageLogEntry[];
   recoveryLogs: RecoveryUsageLogEntry[];
   cacheWrites: PhoneCacheWriteInput[];
-  lookupKeys: PhoneCacheSuppressionLookupKey[];
+  lookupKeys: PhoneRevealSuppressionLookupKey[];
   unavailableMessages: string[];
 }
 
@@ -176,7 +176,7 @@ function webhookDeps(
 
 /** Dep de tombstone presente: la persona está suprimida en esta cuenta. */
 function suppressedLookup() {
-  return async (key: PhoneCacheSuppressionLookupKey) => {
+  return async (key: PhoneRevealSuppressionLookupKey) => {
     cap.lookupKeys.push(key);
     return { suppressedAt: SUPPRESSED_AT };
   };
@@ -297,7 +297,7 @@ describe('FIX 3 — guarda pura de supresión en vuelo', () => {
   });
 
   it('la clave del tombstone es (apollo, persona, cuenta) — SIN país', async () => {
-    const keys: PhoneCacheSuppressionLookupKey[] = [];
+    const keys: PhoneRevealSuppressionLookupKey[] = [];
     await evaluateInFlightPhoneSuppression({
       personId: PERSON_ID,
       accountId: ACCOUNT_ID,
@@ -506,46 +506,113 @@ describe('FIX 3 — WEBHOOK: el tombstone bloquea la persistencia tardía', () =
     assert.equal(cap.webhookLogs[0].metadata.suppression_state, 'checked_not_suppressed');
   });
 
-  it('sin person id resoluble NO bloquea por inferencia y lo deja auditado', async () => {
-    const result = await runApolloPhoneRevealWebhook
-      (
-        {
-          tokenProvided: TOKEN,
-          payload: {
-            request_id: REQUEST_ID,
-            // Sin person.id válido, y con un id Lusha que NO puede servir de clave.
-            person: { id: LUSHA_ID, phone_numbers: [{ sanitized_number: PHONE }] },
-          },
+  // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4) — RE-ESPECIFICADO.
+  //
+  // Hasta #289 este caso REVELABA el teléfono; #289 lo pasó a bloquear fail-closed como
+  // «no evaluable». Las dos cosas eran insatisfactorias por el mismo motivo: el candidato
+  // de Lusha NO TENÍA identidad que consultar, así que su privacidad nunca se evaluaba de
+  // verdad — sólo se elegía qué hacer con la ignorancia.
+  //
+  // Ahora sí se evalúa. Su `source_contact_id` de Lusha ES su identidad nativa, la
+  // supresión registrada para ese id se encuentra, y el desenlace pasa de «no pude
+  // comprobarlo» a `blocked_suppressed`: el bloqueo CORRECTO, por la razón correcta, con
+  // el teléfono igual de ausente. La garantía que #289 protegía (nunca revelar sin
+  // comprobar) se mantiene y además se refuerza.
+  it('FASE 1: candidato LUSHA sin id de Apollo AHORA se evalúa y su supresión BLOQUEA', async () => {
+    const result = await runApolloPhoneRevealWebhook(
+      {
+        tokenProvided: TOKEN,
+        payload: {
+          request_id: REQUEST_ID,
+          // Sin person.id de Apollo válido: la identidad tiene que salir del candidato.
+          person: { id: LUSHA_ID, phone_numbers: [{ sanitized_number: PHONE }] },
         },
-        webhookDeps(
-          webhookCandidate({
-            apolloPersonId: null,
-            source: 'lusha',
-            sourceContactId: LUSHA_ID,
-          }),
-          { lookupPhoneCacheSuppression: suppressedLookup() },
-        ),
-      );
+      },
+      webhookDeps(
+        webhookCandidate({
+          apolloPersonId: null,
+          source: 'lusha',
+          sourceContactId: LUSHA_ID,
+        }),
+        { lookupPhoneCacheSuppression: suppressedLookup() },
+      ),
+    );
 
-    assert.equal(result.outcome, 'revealed', 'comportamiento actual conservado');
-    assert.deepEqual(cap.lookupKeys, [], 'no se consulta: no hay clave');
+    assert.equal(result.outcome, 'blocked_suppressed');
+    assert.equal(result.httpStatus, 200);
+    // Y AHORA SÍ se consulta, con la identidad NATIVA de Lusha — no traducida a Apollo.
+    assert.equal(cap.lookupKeys.length, 1);
+    assert.equal(cap.lookupKeys[0].provider, 'lusha');
+    assert.equal(cap.lookupKeys[0].providerPersonId, LUSHA_ID);
+    assertNoPhoneAnywhere();
+    assert.equal(cap.cacheWrites.length, 0, 'un suprimido nunca se cachea');
+    assert.equal(
+      cap.webhookLogs[0].metadata.suppression_state,
+      'blocked_suppressed',
+    );
+  });
+
+  // El fail-closed de #289 sigue existiendo, pero ahora sólo para el caso que de verdad
+  // no tiene identidad: ni id de Apollo, ni `source_contact_id` de un proveedor con
+  // supresión propia. Ese candidato sigue BLOQUEADO y sigue etiquetado con el motivo
+  // exacto — no se le inventa una identidad ni se le empareja por parecido.
+  it('#289 PRESERVADO: sin NINGUNA identidad nativa ⇒ BLOQUEA (motivo exacto)', async () => {
+    const result = await runApolloPhoneRevealWebhook(
+      {
+        tokenProvided: TOKEN,
+        payload: {
+          request_id: REQUEST_ID,
+          person: { id: null, phone_numbers: [{ sanitized_number: PHONE }] },
+        },
+      },
+      webhookDeps(
+        webhookCandidate({
+          apolloPersonId: null,
+          source: 'hubspot',
+          sourceContactId: null,
+        }),
+        { lookupPhoneCacheSuppression: suppressedLookup() },
+      ),
+    );
+
+    assert.equal(result.outcome, 'suppression_check_unavailable');
+    assert.equal(result.httpStatus, 200);
+    assert.deepEqual(cap.lookupKeys, [], 'no se consulta: no hay identidad');
+    assert.deepEqual(cap.persisted, [], 'no persiste NADA: sigue en vuelo');
+    assert.deepEqual(cap.cacheWrites, []);
+    assertNoPhoneAnywhere();
+    assert.equal(cap.webhookLogs.length, 1);
+    assert.equal(cap.webhookLogs[0].status, 'error');
+    assert.equal(
+      cap.webhookLogs[0].errorCode,
+      SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+    );
     assert.equal(
       cap.webhookLogs[0].metadata.suppression_state,
       'not_evaluable_missing_provider_person_id',
     );
   });
 
-  it('sin account_id tampoco se evalúa (y se reporta el motivo exacto)', async () => {
-    await runApolloPhoneRevealWebhook(
+  // FASE 1 — el corazón del hito: la ausencia de cuenta ya NO es un fallo de privacidad.
+  // Antes este candidato se bloqueaba con `not_evaluable_missing_account_id` aunque su
+  // identidad de Apollo fuese perfectamente consultable; ahora se consulta, y como está
+  // suprimido, se bloquea por la razón REAL.
+  it('FASE 1: SIN CUENTA se evalúa igual — la supresión encontrada BLOQUEA', async () => {
+    const result = await runApolloPhoneRevealWebhook(
       { tokenProvided: TOKEN, payload: webhookPayload() },
       webhookDeps(webhookCandidate({ accountId: null }), {
         lookupPhoneCacheSuppression: suppressedLookup(),
       }),
     );
-    assert.deepEqual(cap.lookupKeys, []);
+    assert.equal(result.outcome, 'blocked_suppressed');
+    assert.equal(cap.lookupKeys.length, 1, 'la consulta SÍ ocurre sin cuenta');
+    assert.equal(cap.lookupKeys[0].provider, 'apollo');
+    assert.equal(cap.lookupKeys[0].accountId, null, 'la cuenta viaja nula, no bloquea');
+    assert.deepEqual(cap.cacheWrites, []);
+    assertNoPhoneAnywhere();
     assert.equal(
       cap.webhookLogs[0].metadata.suppression_state,
-      'not_evaluable_missing_account_id',
+      'blocked_suppressed',
     );
   });
 
@@ -597,6 +664,47 @@ describe('FIX 3 — WEBHOOK: el tombstone bloquea la persistencia tardía', () =
     assert.equal(result.outcome, 'already_terminal');
     assert.deepEqual(cap.persisted, []);
     assert.deepEqual(cap.lookupKeys, []);
+  });
+
+  // ── P0 TOCTOU: START ve "clear", la supresión llega DESPUÉS, WEBHOOK bloquea ──
+  it('TOCTOU: clave completa "clear" en el START ⇒ una supresión registrada ANTES de que llegue el webhook bloquea la persistencia', async () => {
+    // Simula la ventana real: el START (representado aquí por la primera lectura
+    // del tombstone) no encuentra nada — exactamente lo que `evaluateInFlightPhoneSuppression`
+    // ya devolvería como `allowed` — y SOLO DESPUÉS, antes de que el webhook llegue,
+    // se registra el tombstone. El webhook no puede confiar en un chequeo pasado:
+    // vuelve a consultar la MISMA clave y encuentra la fila ya suprimida.
+    let suppressedAt: string | null = null;
+    const raceLookup = async (key: PhoneRevealSuppressionLookupKey) => {
+      cap.lookupKeys.push(key);
+      return suppressedAt ? { suppressedAt } : null;
+    };
+
+    // 1. "START": el mismo lookup, en ese instante, no ve supresión (allowed).
+    const atStart = await evaluateInFlightPhoneSuppression({
+      personId: PERSON_ID,
+      accountId: ACCOUNT_ID,
+      lookup: raceLookup,
+    });
+    assert.deepEqual(atStart, { kind: 'allowed' });
+
+    // 2. Entre el START y el webhook, una DSAR registra el tombstone.
+    suppressedAt = SUPPRESSED_AT;
+
+    // 3. El WEBHOOK llega con el teléfono y RE-CONSULTA por su cuenta: no hereda
+    //    el resultado del START, así que ve la fila ya suprimida.
+    const result = await runApolloPhoneRevealWebhook(
+      { tokenProvided: TOKEN, payload: webhookPayload() },
+      webhookDeps(webhookCandidate(), { lookupPhoneCacheSuppression: raceLookup }),
+    );
+
+    assert.equal(result.outcome, 'blocked_suppressed');
+    assert.deepEqual(cap.persisted.length, 1);
+    assert.equal('phone' in cap.persisted[0], false, 'el teléfono NUNCA se escribe');
+    assert.deepEqual(cap.cacheWrites, []);
+    assertNoPhoneAnywhere();
+    // La segunda consulta (la del webhook) es la que ve el tombstone — prueba de
+    // que no hubo un cache de la decisión del START.
+    assert.equal(cap.lookupKeys.length, 2);
   });
 });
 
@@ -684,7 +792,9 @@ describe('FIX 3 — RECOVERY: el tombstone bloquea la persistencia tardía', () 
     assert.equal(cap.recoveryLogs[0].metadata.suppression_state, 'checked_not_suppressed');
   });
 
-  it('sin person id resoluble NO bloquea por inferencia y lo deja auditado', async () => {
+  // FASE 1 — espejo exacto del caso del webhook: el candidato de Lusha pasa de «no
+  // evaluable» a EVALUADO con su identidad nativa, y su supresión bloquea de verdad.
+  it('FASE 1: candidato LUSHA sin id de Apollo se evalúa y su supresión BLOQUEA', async () => {
     const result = await recoverApolloPhoneRevealForCandidate(
       { candidateId: CANDIDATE_ID },
       recoveryDeps(
@@ -697,8 +807,45 @@ describe('FIX 3 — RECOVERY: el tombstone bloquea la persistencia tardía', () 
         { lookupPhoneCacheSuppression: suppressedLookup() },
       ),
     );
-    assert.equal(result.outcome, 'revealed');
+    assert.equal(result.outcome, 'blocked_suppressed');
+    assert.equal(result.phoneRevealed, false);
+    assert.equal(cap.lookupKeys.length, 1);
+    assert.equal(cap.lookupKeys[0].provider, 'lusha');
+    assert.equal(cap.lookupKeys[0].providerPersonId, LUSHA_ID);
+    assert.deepEqual(cap.cacheWrites, []);
+    assertNoPhoneAnywhere();
+    assert.equal(
+      cap.recoveryLogs[0].metadata.suppression_state,
+      'blocked_suppressed',
+    );
+  });
+
+  // #289 PRESERVADO en el recovery: sin NINGUNA identidad nativa sigue siendo fail-closed
+  // NO terminal (sólo se sella la última verificación, el candidato sigue en vuelo).
+  it('#289 PRESERVADO: sin NINGUNA identidad nativa ⇒ BLOQUEA no terminal', async () => {
+    const result = await recoverApolloPhoneRevealForCandidate(
+      { candidateId: CANDIDATE_ID },
+      recoveryDeps(
+        recoveryCandidate({
+          apolloPersonId: null,
+          source: 'hubspot',
+          sourceContactId: null,
+        }),
+        { request_id: REQUEST_ID, phone_numbers: [{ sanitized_number: PHONE }] },
+        { lookupPhoneCacheSuppression: suppressedLookup() },
+      ),
+    );
+    assert.equal(result.outcome, 'suppression_check_unavailable');
+    assert.equal(result.phoneRevealed, false);
     assert.deepEqual(cap.lookupKeys, []);
+    assert.deepEqual(cap.persisted, [{ phone_reveal_last_checked_at: NOW }]);
+    assert.deepEqual(cap.cacheWrites, []);
+    assertNoPhoneAnywhere();
+    assert.equal(cap.recoveryLogs[0].status, 'error');
+    assert.equal(
+      cap.recoveryLogs[0].errorCode,
+      SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
+    );
     assert.equal(
       cap.recoveryLogs[0].metadata.suppression_state,
       'not_evaluable_missing_provider_person_id',
@@ -862,7 +1009,7 @@ describe('FIX 3 — contrato estático', () => {
   it('el webhook comprueba la supresión ANTES de persistir el teléfono', () => {
     const revealedBlock = webhookCore.split('if (best) {')[1] ?? '';
     assert.notEqual(revealedBlock, '', 'falta el camino con teléfono');
-    const checkAt = revealedBlock.indexOf('evaluateInFlightPhoneSuppression');
+    const checkAt = revealedBlock.indexOf('evaluatePhoneRevealSuppression');
     const persistAt = revealedBlock.indexOf('const revealed: ClassifiedPhone');
     assert.notEqual(checkAt, -1, 'el webhook debe comprobar la supresión');
     assert.ok(
@@ -873,7 +1020,7 @@ describe('FIX 3 — contrato estático', () => {
 
   it('el recovery comprueba la supresión ANTES de persistir el teléfono', () => {
     const revealedBlock = recoveryCore.split('if (best) {')[1] ?? '';
-    const checkAt = revealedBlock.indexOf('evaluateInFlightPhoneSuppression');
+    const checkAt = revealedBlock.indexOf('evaluatePhoneRevealSuppression');
     const persistAt = revealedBlock.indexOf('const revealed: ClassifiedPhone');
     assert.notEqual(checkAt, -1, 'el recovery debe comprobar la supresión');
     assert.ok(checkAt < persistAt);
@@ -888,7 +1035,13 @@ describe('FIX 3 — contrato estático', () => {
 
   it('los wrappers cablean la lectura del tombstone SIN condicionarla al flag', () => {
     for (const wrapper of [webhookRoute, recoveryActions]) {
-      assert.match(wrapper, /lookupPhoneCacheSuppression:\s*readPhoneCacheSuppression/);
+      // FASE 1: el lector cableado es el COMPUESTO (`provider_suppressions` primero, el
+      // tombstone legado después cuando su clave es evaluable). La propiedad protegida no
+      // cambia: la lectura se cablea SIEMPRE y nunca detrás del flag de caché.
+      assert.match(
+        wrapper,
+        /lookupPhoneCacheSuppression:\s*readPhoneRevealSuppression/,
+      );
       // El wiring no puede quedar dentro de un ternario/condicional de flag.
       assert.equal(
         /lookupPhoneCacheSuppression:\s*isApolloPhoneCacheEnabled/.test(wrapper),

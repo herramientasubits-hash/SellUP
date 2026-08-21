@@ -420,6 +420,36 @@ const CIIU_SECTOR_DESCRIPTIONS: Record<string, string> = {
 };
 
 /**
+ * Descripción CIIU por coincidencia EXACTA de código de 4 dígitos.
+ *
+ * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 5 — el descubrimiento gratuito
+ * necesita esta variante, y no `getCiiuSectorDescription`, porque aquella
+ * degrada a los primeros 3 y luego a los primeros 2 dígitos y devuelve la
+ * PRIMERA entrada que empiece igual. Para rellenar una ficha eso es una
+ * aproximación aceptable; para DECIDIR si una empresa pertenece a una macro
+ * industria no lo es: el código inexistente 2150 acabaría descrito como
+ * «Fabricación de productos farmacéuticos» por compartir los dos primeros
+ * dígitos, y confirmaría una farmacéutica que nadie declaró.
+ *
+ * Fail-closed: un código que la tabla no contiene devuelve `null`, y sin
+ * industria declarada el evaluador canónico no puede confirmar nada.
+ */
+export function getCiiuSectorDescriptionExact(code: string | null): string | null {
+  if (!code) return null;
+  const trimmed = code.trim();
+  if (trimmed === '') return null;
+  // El CIIU es de 4 dígitos; las fuentes que pierden el cero a la izquierda
+  // ('111') se comparan contra su forma canónica ('0111').
+  const padded = /^\d{1,4}$/.test(trimmed) ? trimmed.padStart(4, '0') : trimmed;
+  return CIIU_SECTOR_DESCRIPTIONS[padded] ?? null;
+}
+
+/** Todos los códigos CIIU con descripción exacta conocida. Sólo lectura. */
+export function listKnownCiiuCodes(): readonly string[] {
+  return Object.keys(CIIU_SECTOR_DESCRIPTIONS);
+}
+
+/**
  * Retorna la descripción del sector CIIU dado un código de 4 dígitos.
  * Primero busca match exacto; luego la sección por los primeros 2 dígitos.
  * Fuente: DANE CIIU Rev.4 (dato público). No inventa datos.

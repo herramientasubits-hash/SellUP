@@ -57,6 +57,9 @@ import {
   type WizardRunSelectableProvider,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
 import type { ApolloRunModeLimits } from './wizard-run-provider-copy';
+// AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — instantánea de presupuesto resuelta
+// en el servidor; aquí sólo se transporta hasta el panel que decide qué ofrecer.
+import type { WizardBudgetPreflight } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
 
 // ── Error code → user-facing message mapping ──────────────────────────────────
 // Extracted to a separate module so tests can import without a DOM environment.
@@ -65,6 +68,7 @@ import {
   mapExecutionError,
   mapPersistenceNotReady,
   mapProviderSkip,
+  mapBudgetExceeded,
 } from './wizard-execution-error-map';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -115,6 +119,16 @@ type ProspectChatWizardProps = {
    * cifra, en vez de repetir los defaults del código a mano.
    */
   apolloRunModeLimits?: ApolloRunModeLimits | null;
+  /**
+   * AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — saldo del período vigente y coste
+   * del peor caso de cada proveedor seleccionable, resueltos server-side por las
+   * MISMAS funciones que calculan la reserva.
+   *
+   * No es una autorización ni una reserva: la RPC atómica sigue siendo la única
+   * autoridad. Sólo permite que la pantalla avise antes de ofrecer un botón cuyo
+   * rechazo ya se conoce. Ausente/`null` ⇒ sin instantánea, no se bloquea nada.
+   */
+  budgetPreflight?: WizardBudgetPreflight | null;
 };
 
 export function ProspectChatWizard({
@@ -125,6 +139,7 @@ export function ProspectChatWizard({
   discoveryProvider = null,
   providerOverrideCapability = NO_PROVIDER_OVERRIDE_CAPABILITY,
   apolloRunModeLimits = null,
+  budgetPreflight = null,
 }: ProspectChatWizardProps) {
   const [state, dispatch] = React.useReducer(
     prospectWizardReducer,
@@ -667,7 +682,9 @@ export function ProspectChatWizard({
             ? mapProviderSkip(result.providerSkipped?.skipReason)
             : result.code === 'PERSISTENCE_NOT_READY'
               ? mapPersistenceNotReady(result.persistenceNotReady, result.retryable)
-              : mapExecutionError(result.code);
+              : result.code === 'BUDGET_EXCEEDED'
+                ? mapBudgetExceeded(result.budgetExceeded)
+                : mapExecutionError(result.code);
         // El nombre del proveedor omitido se conserva visible; el motivo técnico
         // NO se muestra: el usuario ve el mensaje funcional ya mapeado.
         if (result.code === 'PROVIDER_UNAVAILABLE' && result.providerSkipped) {
@@ -782,6 +799,12 @@ export function ProspectChatWizard({
                 lushaCriteria={lushaCriteria}
                 providerOverrideCapability={providerOverrideCapability}
                 apolloRunModeLimits={apolloRunModeLimits}
+                budgetPreflight={budgetPreflight}
+                // El coste contra el que se compara es el del proveedor que de
+                // verdad correría: la selección de esta corrida si el
+                // administrador la hizo, y si no, el predeterminado que resolvió
+                // el servidor. Nunca se adivina uno en el cliente.
+                defaultDiscoveryProvider={discoveryProvider}
                 requestedProvider={requestedProvider}
                 onRequestedProviderChange={setRequestedProvider}
                 showApolloTwoRoundStages={willRunApolloTwoRound}

@@ -4,9 +4,10 @@
  * Source-text proofs (no DOM, no network) that the three fix layers hold:
  *   P0-1  the Prospectos panel parses ENABLE_LUSHA_PREVIEW via the canonical
  *         helper, never a bespoke `=== 'true'` comparison.
- *   P0-2  the summary UI has a dedicated blocked branch for `blocked_lusha_disabled`
- *         and the Apollo-capable "Generar prospectos" button is gated so it can
- *         never render for a blocked Lusha-eligible search.
+ *   P0-2  the summary UI derives the generation gate from the discovery-availability
+ *         contract (never from the hidden Lusha route), and asks about Lusha only
+ *         through `isLushaRouteHonored` — see
+ *         AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1.
  *   P1-3  the read-only dry-route action imports nothing that can spend (no
  *         execution action, no Lusha/Apollo/Tavily client, no DB-write helper),
  *         and the pure route module performs no I/O.
@@ -62,21 +63,46 @@ describe('P0-2 — routing is three-state and fails closed in the UI', () => {
     assert.match(src.criteria, /provider:\s*decision\.provider/);
   });
 
-  it('the summary has a blocked branch and gates the generate button on it', () => {
-    assert.match(src.summary, /blocked_lusha_disabled/);
-    assert.match(src.summary, /isLushaBlocked/);
-    assert.match(src.summary, /LushaDisabledBlockedPanel/);
-    // The Apollo-capable generation button is gated by !isLushaBlocked.
-    assert.match(src.summary, /!useLushaFinalSearch && !isLushaBlocked && executionEnabled/);
+  /**
+   * AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — la mitad de P0-2 que se conserva y
+   * la que cambia.
+   *
+   * Se conserva: con el flag apagado la ruta NUNCA es `lusha`, y una corrida que va
+   * a Lusha no ofrece «Generar prospectos» (`!useLushaFinalSearch`).
+   *
+   * Cambia: el gate de generación ya NO se deriva de la ruta del proveedor oculto.
+   * Derivarlo de ahí dejaba «Empresas por criterios» sin ninguna forma de ejecutar
+   * —ni selector ni botón— para toda industria que mapeara a un sector Lusha, en
+   * los 20 países soportados, con Apollo desplegado y con presupuesto.
+   */
+  it('el gate de generación se deriva de la disponibilidad del discovery, no de la ruta de Lusha', () => {
+    assert.match(
+      src.summary,
+      /!useLushaFinalSearch &&\s*discoveryAvailability\.available &&\s*executionEnabled &&\s*!isPersistenceBlocked/,
+    );
+    // La ruta del proveedor oculto ya no puede retirar el control de generación.
+    assert.doesNotMatch(src.summary, /isLushaBlocked/);
+    assert.doesNotMatch(src.summary, /LushaDisabledBlockedPanel/);
   });
 
-  it('the blocked panel renders no generation control (no onExecute wiring)', () => {
-    // Extract the blocked panel body and prove it never calls onExecute.
-    const start = src.summary.indexOf('function LushaDisabledBlockedPanel');
-    assert.ok(start >= 0, 'LushaDisabledBlockedPanel must exist');
-    const body = src.summary.slice(start, start + 1600);
+  it('la disponibilidad del discovery se resuelve con el módulo puro y la fuente de verdad de países', () => {
+    assert.match(src.summary, /resolveWizardDiscoveryAvailability\(/);
+    assert.match(src.summary, /supportedCountryCodes:\s*VALID_COUNTRY_CODES/);
+  });
+
+  it('la ruta de Lusha se pregunta por su predicado, no comparando el literal', () => {
+    assert.match(src.summary, /isLushaRouteHonored\(lushaCriteria\.provider\)/);
+    assert.match(src.provider, /export function isLushaRouteHonored/);
+  });
+
+  it('el aviso de no disponible no atribuye la causa a un proveedor deshabilitado', () => {
+    const start = src.summary.indexOf('const DISCOVERY_UNAVAILABLE_COPY');
+    assert.ok(start >= 0, 'DISCOVERY_UNAVAILABLE_COPY debe existir');
+    const body = src.summary.slice(start, src.summary.indexOf('function DiscoveryUnavailableNotice'));
+    assert.doesNotMatch(body, /proveedor/i);
+    assert.doesNotMatch(body, /habilitad/i);
+    // Y sigue negando el gasto en cada variante.
     assert.doesNotMatch(body, /onExecute/);
-    assert.doesNotMatch(body, /Generar prospectos/);
   });
 });
 

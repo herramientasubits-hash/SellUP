@@ -72,9 +72,28 @@ function makeApproveDeps(overrides: Partial<ApproveDeps> = {}): {
     nowIso: '2026-06-29T12:00:00.000Z',
     loadCandidate: async () => makeCandidate(),
     loadExistingContacts: async () => [],
-    insertContact: async (payload) => {
-      calls.inserted.push(payload);
-      return { id: 'contact-new' };
+    // 4O-H3: la creación del contacto y el patch de aprobación son UNA transacción. El adaptador
+    // registra las dos escrituras que la transacción realiza, incluido el `matched_contacts_id`
+    // que ahora escribe la RPC (el llamador no puede conocer el id antes del INSERT), de modo
+    // que lo que estas pruebas afirman sigue siendo el estado final real.
+    approveTransactionally: async ({ candidateId, contactPayload, reviewPatch }) => {
+      calls.inserted.push(contactPayload);
+      calls.updated.push({
+        id: candidateId,
+        patch: {
+          ...reviewPatch,
+          matched_contacts_id: 'contact-new',
+          enrichment_metadata: {
+            ...reviewPatch.enrichment_metadata,
+            review: {
+              ...((reviewPatch.enrichment_metadata as { review?: Record<string, unknown> })
+                .review ?? {}),
+              created_contact_id: 'contact-new',
+            },
+          },
+        },
+      });
+      return { ok: true, contactId: 'contact-new', alreadyApproved: false };
     },
     updateCandidate: async (id, patch) => {
       calls.updated.push({ id, patch });
@@ -290,7 +309,10 @@ describe('runApproveCandidate', () => {
 
   it('reporta error suave si falla la inserción del contacto', async () => {
     const { deps, calls } = makeApproveDeps({
-      insertContact: async () => ({ error: 'insert boom' }),
+      approveTransactionally: async () => ({
+        ok: false,
+        error: 'No fue posible crear el contacto oficial.',
+      }),
     });
     const result = await runApproveCandidate('cand-1', deps);
     assert.equal(result.ok, false);
@@ -737,9 +759,24 @@ describe('runApproveCandidate — HubSpot-only (17A.9H)', () => {
           country_code: null,
         }),
       loadExistingContacts: async () => [],
-      insertContact: async (payload) => {
-        calls.inserted.push(payload);
-        return { id: 'contact-hs-new' };
+      approveTransactionally: async ({ candidateId, contactPayload, reviewPatch }) => {
+        calls.inserted.push(contactPayload);
+        calls.updated.push({
+          id: candidateId,
+          patch: {
+            ...reviewPatch,
+            matched_contacts_id: 'contact-hs-new',
+            enrichment_metadata: {
+              ...reviewPatch.enrichment_metadata,
+              review: {
+                ...((reviewPatch.enrichment_metadata as { review?: Record<string, unknown> })
+                  .review ?? {}),
+                created_contact_id: 'contact-hs-new',
+              },
+            },
+          },
+        });
+        return { ok: true, contactId: 'contact-hs-new', alreadyApproved: false };
       },
       updateCandidate: async (id, patch) => {
         calls.updated.push({ id, patch });

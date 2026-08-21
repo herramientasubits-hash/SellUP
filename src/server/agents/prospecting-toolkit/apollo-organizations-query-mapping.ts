@@ -57,6 +57,7 @@ import {
   apolloSubindustryCoverageFloor,
   computeApolloSubindustryQueryCoverage,
   interleaveApolloSubindustryTerms,
+  normalizeApolloTermKey,
   resolveApolloSubindustryTermLists,
   toApolloSubindustryTermProvenanceMetadata,
   withApolloSubindustryTerms,
@@ -64,6 +65,11 @@ import {
   type ApolloSubindustryTermList,
   type ApolloSubindustryTermResolution,
 } from './apollo-subindustry-query-terms';
+import {
+  resolveApolloMacroIndustryRequest,
+  type ApolloMacroIndustryRequestContext,
+} from './apollo-macro-industry-request';
+import { toMacroIndustryQueryMetadata } from './apollo-macro-industry-query-terms';
 
 /**
  * La clave de deduplicación vive en `apollo-subindustry-query-terms` para que el
@@ -699,6 +705,12 @@ export type ApolloQueryMappingMeta = {
   effective_keywords_by_subindustry: Record<string, string[]>;
   /** Términos sin subindustria atribuible: sector o intención libre. */
   unattributed_effective_keywords: string[];
+  /**
+   * MACRO-INDUSTRY-CATALOG-DISCOVERY-1 — bloque de la consulta macro cuando la
+   * corrida va por la taxonomía de 12 macro industrias. `null` en toda corrida
+   * legacy, que es donde nada de esto aplica.
+   */
+  macro_industry_query: Record<string, unknown> | null;
 };
 
 export type ApolloSearchParamsWithMeta = {
@@ -714,6 +726,15 @@ export type ApolloSearchParamsWithMeta = {
   subindustryTermLists: ApolloSubindustryTermList[];
   /** § 6 — cobertura medida sobre los keywords que este mapper produjo. */
   subindustryCoverage: ApolloSubindustryQueryCoverage;
+  /**
+   * MACRO-INDUSTRY-CATALOG-DISCOVERY-1 — contexto de taxonomía de esta solicitud.
+   *
+   * Va fuera de `meta` por la misma razón que `subindustryTermLists`: el
+   * proveedor lo necesita para declarar las precondiciones de bootstrap
+   * OBSERVADAS, y esas no son metadata que se persiste, son un hecho de la
+   * consulta que se emitió.
+   */
+  macroIndustryRequest: ApolloMacroIndustryRequestContext;
 };
 
 // ─── Employee range mapping (L2.11) ──────────────────────────────────────────
@@ -812,10 +833,27 @@ export function buildApolloOrganizationsSearchParams(
     additionalCriteriaTokens,
   });
 
+  // ── MACRO-INDUSTRY-CATALOG-DISCOVERY-1 §§ 15 y 18 ───────────────────────────
+  //
+  // Con la taxonomía macro, la consulta la redacta el plan de la macro industria
+  // y NADA más. Ni packs (curados por dominio de subindustria), ni priorización
+  // por subindustria (no hay ninguna pedida), ni catálogo de términos de
+  // subindustria (vacío bajo v2). Cualquiera de los tres, activo aquí, volvería a
+  // meter términos amplios sin ración — que es exactamente el defecto del retest
+  // de Salud que el § 15 cierra.
+  const macroIndustryRequest = resolveApolloMacroIndustryRequest({
+    industry: input.industry,
+    selectionCatalogVersion: input.selectionCatalogVersion,
+    additionalCriteriaTokens,
+  });
+  const macroPlan =
+    macroIndustryRequest.mode === 'macro_industry' ? macroIndustryRequest.plan : null;
+
   const packSelection = selectPacksUpToMaxQueries(packBuildResult, maxQueries);
-  const selectedPack: ApolloSearchPack | null = subindustryMappingWins
-    ? null
-    : (packBuildResult.packs[packIndex] ?? null);
+  const selectedPack: ApolloSearchPack | null =
+    macroPlan !== null || subindustryMappingWins
+      ? null
+      : (packBuildResult.packs[packIndex] ?? null);
 
   // ── Decidir keywords: pack (L2.10) o fallback keyword builder (L2.7) ────────
   let finalKeywords: string[];
@@ -827,7 +865,19 @@ export function buildApolloOrganizationsSearchParams(
   let usedAdditionalCriteriaTokens: string[];
   let apolloSearchPackMeta: ApolloSearchPackMeta | null = null;
 
-  if (selectedPack) {
+  if (macroPlan) {
+    // Camino macro: los keywords son EXACTAMENTE los del plan, en su orden
+    // (específicos primero, amplios racionados, criterio adicional al final).
+    finalKeywords = [...macroPlan.effectiveKeywords];
+    effectiveStrategy = 'subindustry_specific';
+    subindustryKeywordsUsed = [];
+    sectorKeywordsUsed = [];
+    ignoredAdditionalCriteriaTokens = [];
+    mergedDuplicateAdditionalCriteriaTokens = [];
+    usedAdditionalCriteriaTokens = additionalCriteriaTokens.filter((token) =>
+      finalKeywords.includes(normalizeApolloTermKey(token)),
+    );
+  } else if (selectedPack) {
     // Camino L2.10: usar keywords del pack seleccionado
     finalKeywords = selectedPack.qKeywords;
     // Mapear buildStrategy → effectiveStrategy para preservar semántica L2.7
@@ -990,7 +1040,14 @@ export function buildApolloOrganizationsSearchParams(
     query_coverage_complete: subindustryCoverage.complete,
     effective_keywords_by_subindustry: subindustryCoverage.effectiveKeywordsBySubindustry,
     unattributed_effective_keywords: subindustryCoverage.unattributedEffectiveKeywords,
+    macro_industry_query: macroPlan ? toMacroIndustryQueryMetadata(macroPlan) : null,
   };
 
-  return { params, meta, subindustryTermLists: governingTermLists, subindustryCoverage };
+  return {
+    params,
+    meta,
+    subindustryTermLists: governingTermLists,
+    subindustryCoverage,
+    macroIndustryRequest,
+  };
 }

@@ -19,7 +19,8 @@
  * name, user id or raw payload — only a static reason code and a retryable flag.
  */
 
-import { CatalogLoadError, loadActiveCatalog } from './loader';
+import { CatalogLoadError } from './loader';
+import { loadActiveDiscoveryCatalog } from './discovery-catalog-loader';
 import type { ActiveIndustryCatalog } from './types';
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -136,7 +137,12 @@ export async function resolveCatalogAvailability(
 ): Promise<CatalogAvailability> {
   if (!requested) return { status: 'disabled' };
 
-  const loadCatalog = deps.loadCatalog ?? loadActiveCatalog;
+  // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 — el cargador por defecto es el que sabe
+  // leer las DOS taxonomías. `loadActiveCatalog` sigue existiendo y sigue siendo
+  // la lectura de industria + subindustria, pero como lectura por defecto dejaría
+  // el wizard sin industrias bajo el catálogo v2: su vista hace INNER JOIN con
+  // `subindustries` y un catálogo macro no tiene ninguna.
+  const loadCatalog = deps.loadCatalog ?? loadActiveDiscoveryCatalog;
   const logEvent = deps.logEvent ?? defaultLogEvent;
 
   try {

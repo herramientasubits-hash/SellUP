@@ -48,6 +48,33 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
 
+/**
+ * SQL EJECUTABLE: el archivo sin las líneas de comentario `--` ni los bloques de
+ * comentario delimitados. Misma convención (y mismo nombre) que `executable()` en
+ * src/modules/contacts/__tests__/official-contact-phone-schema-static-4o-h1.test.ts.
+ */
+function executableSql(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('--'))
+    .join('\n');
+}
+
+/**
+ * SQL ESTRUCTURAL: lo ejecutable menos los `COMMENT ON … IS '…';`, que son prosa dentro
+ * de una sentencia. Misma convención que `structuralSql` en la suite hermana de 4O-H1,
+ * que la definió para exactamente esta aserción de AUSENCIA.
+ *
+ * AGENT2A-PHONE-REVEAL-4O-H2: la 115 nombra `mobile_phone` en un comentario `--` y en el
+ * `COMMENT ON FUNCTION`, y en los dos sitios lo que dice es que NO la toca. Una guarda que
+ * leyera el texto crudo castigaría precisamente la frase que declara el límite, y la forma
+ * de aprobarla sería borrarla.
+ */
+function structuralSql(source: string): string {
+  return executableSql(source).replace(/COMMENT ON [\s\S]*?';\n/g, '');
+}
+
 const CORE = ['src', 'modules', 'contact-enrichment', 'phone-cache-suppression-core.ts'];
 const ACTIONS = [
   'src',
@@ -160,10 +187,25 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
   });
 
   it('ninguna migración escribe mobile_phone (sólo la 039 declara la columna)', () => {
+    // AGENT2A-PHONE-REVEAL-4O-H2 — la guarda pasa a leer SQL ESTRUCTURAL, la misma vista
+    // que la suite hermana de 4O-H1 definió para las aserciones de AUSENCIA.
+    //
+    // La 115 nombra `mobile_phone` en un comentario `--` y en su `COMMENT ON FUNCTION`, y
+    // en los dos sitios lo que dice es que el borrado oficial NO la toca porque la columna
+    // no tiene procedencia (MOBILE_PHONE_PROVENANCE_PENDING). Castigar la prosa empujaría
+    // a borrar exactamente la frase que declara el límite. Los DIENTES no se caen: una
+    // escritura en SQL estructural sobrevive al filtro y sigue rompiendo la guarda, y la
+    // lista de migraciones que la mencionan SÓLO en prosa se fija abajo, nombre a nombre,
+    // para que nadie añada una mención nueva sin que se note.
+    const proseOnly: string[] = [];
     for (const file of readdirSync(MIGRATIONS_DIR)) {
       if (!file.endsWith('.sql')) continue;
       const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
       if (!/mobile_phone/i.test(sql)) continue;
+      if (!/mobile_phone/i.test(structuralSql(sql))) {
+        proseOnly.push(file);
+        continue;
+      }
       assert.equal(
         file,
         '039_create_contacts_foundation.sql',
@@ -175,6 +217,22 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
         'la 039 sólo DECLARA la columna; ninguna migración la puebla',
       );
     }
+    assert.deepEqual(
+      proseOnly.sort(),
+      [
+        '115_official_contact_phone_privacy.sql',
+        // 4O-H3 la nombra por la MISMA razón y con el mismo efecto: un comentario y el
+        // `COMMENT ON FUNCTION` que dejan escrito que la aprobación NO la escribe.
+        '116_approve_candidate_with_official_phones.sql',
+        // 4O-H3-B la nombra por la MISMA razón: sus comentarios declaran que el merge humano NO
+        // escribe `mobile_phone` — un comentario dentro de la función y el `COMMENT ON
+        // FUNCTION` afirman explícitamente «NEVER touches mobile_phone (4O-E4.1)». Nombrarla
+        // para prometer que no se toca es lo contrario de tocarla, y es justo lo que esta
+        // lista distingue.
+        '117_merge_candidate_into_existing_contact.sql',
+      ],
+      'las únicas migraciones que pueden NOMBRAR mobile_phone sin tocarla son la 115 (4O-H2), la 116 (4O-H3) y la 117 (4O-H3-B), que documentan que no la tocan',
+    );
   });
 });
 
@@ -298,7 +356,32 @@ describe('4O-E4.1 estático — alcance', () => {
       .filter((f) => /^\d{3}_/.test(f) && f.endsWith('.sql'))
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 113, 'la 113 (E3) sigue siendo la última');
+    // El techo lo movió 4O-H1 con la 114 (esquema oficial multi-teléfono, INERTE) y
+    // después 4O-H2 con la 115 (su privacidad: contadores de auditoría y
+    // `suppress_official_contact_phone_sources`). Lo que esta guarda fija es que E4.1 se
+    // resolvió en TypeScript, no cuál es el número más alto — y se sigue fijando un número
+    // EXACTO para que una migración colada por encima rompa la guarda.
+    // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+    // Macro Industrias, sin relación con teléfono ni con `mobile_phone`.
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120: la
+    // supresión de teléfono por identidad NATIVA del proveedor. SÍ es de teléfono, pero
+    // NO introduce procedencia de `mobile_phone` —que es lo que esta guarda vigila— ni
+    // toca esa columna en ninguna parte.
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación TRUTHFUL
+    // del sobrepaso de presupuesto (Agente 1, contabilidad). NO es de teléfono en absoluto
+    // —toca `wizard_budget_reservations` y `confirm_wizard_credits`— y no nombra
+    // `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
+    assert.equal(
+      numbered[numbered.length - 1],
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 lo mueve a la 123: la memoria de qué empresa ya nos
+      // mostró un proveedor de PAGO. NO es de teléfono: sólo guarda identidad de EMPRESA y
+      // no nombra `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
+      123,
+      'la 123 (memoria provider-seen) es la última',
+    );
   });
 
   it('no se introduce `mobile_phone_source` ni ningún modelo de procedencia', () => {
@@ -326,17 +409,21 @@ describe('4O-E4.1 estático — alcance', () => {
     }
   });
 
-  it('no se crea ninguna tabla contact_phones', () => {
+  it('sólo 4O-H1 crea la tabla contact_phones', () => {
+    // Invertido por 4O-H1: la tabla ya existe. Lo que se sigue protegiendo es que la cree
+    // EXACTAMENTE una migración, y que ninguna toque el escalar móvil (arriba).
+    const creators: string[] = [];
     for (const file of readdirSync(MIGRATIONS_DIR)) {
       if (!file.endsWith('.sql')) continue;
-      assert.equal(
+      if (
         /CREATE TABLE[^;]*\bpublic\.contact_phones\b/i.test(
           readFileSync(join(MIGRATIONS_DIR, file), 'utf8'),
-        ),
-        false,
-        `${file} no debe crear contact_phones`,
-      );
+        )
+      ) {
+        creators.push(file);
+      }
     }
+    assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
   it('E4.1 no toca la UI ni HubSpot en código', () => {

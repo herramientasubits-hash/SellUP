@@ -13,6 +13,26 @@ import type {
 } from '@/modules/prospect-batches/chat-wizard';
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
 import type { WizardLushaCriteriaDecision } from '@/modules/prospect-batches/wizard-lusha-criteria';
+import { isLushaRouteHonored } from '@/modules/prospect-batches/prospect-discovery-provider';
+// AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — bajo el catálogo v2 (macro industria) la
+// selección de subindustria no existe: el resumen no puede seguir preguntando
+// por ella con la señal equivocada (`subindustryIds.length === 0`, que también es
+// alcanzable en v1 cuando el usuario decide no acotar). El gate es la MISMA
+// capacidad que ya decide si el paso del wizard se renderiza.
+import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+// AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — bloqueo de presupuesto ANTES del
+// primer clic. El núcleo es puro y la instantánea la resolvió el servidor: esta
+// pantalla no lee la base, no estima nada y no puede autorizar una corrida.
+import { resolveWizardPreExecutionBudgetBlock } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
+import type { WizardBudgetPreflight } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
+import { mapBudgetExceeded } from './wizard-execution-error-map';
+// AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad del discovery de Agente
+// 1, y el catálogo de países del propio wizard como fuente de verdad.
+import {
+  resolveWizardDiscoveryAvailability,
+  type WizardDiscoveryUnavailableReason,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-discovery-availability';
+import { VALID_COUNTRY_CODES } from '@/modules/prospect-batches/chat-wizard';
 import {
   buildWizardFinalRecap,
   buildWizardSubindustrySelectionRecap,
@@ -59,6 +79,18 @@ type WizardRunProviderSurfaceProps = {
   noNewCandidatesBreakdown?: NoNewCandidatesBreakdown | null;
   /** PERSISTENCE-READINESS-4 § 8 — cifras reales de la escritura. `null` = no llegaron. */
   persistenceOutcome?: WizardPersistenceOutcome | null;
+  /**
+   * AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — saldo del período y coste del peor
+   * caso por proveedor, resueltos en el servidor. Ausente/`null` ⇒ sin
+   * instantánea: no se bloquea por presupuesto y la reserva atómica decide.
+   */
+  budgetPreflight?: WizardBudgetPreflight | null;
+  /**
+   * Proveedor que el servidor resolvió como predeterminado. Sólo se usa para
+   * saber a qué coste comparar cuando el administrador no eligió uno para esta
+   * corrida; `null` ⇒ proveedor sin nombrar, y entonces no se bloquea.
+   */
+  defaultDiscoveryProvider?: WizardRunSelectableProvider | null;
 };
 
 type WizardConversationSummaryProps = WizardRunProviderSurfaceProps & {
@@ -95,6 +127,8 @@ export function WizardConversationSummary({
   twoRoundOutcome = null,
   noNewCandidatesBreakdown = null,
   persistenceOutcome = null,
+  budgetPreflight = null,
+  defaultDiscoveryProvider = null,
 }: WizardConversationSummaryProps) {
   if (state.currentStep === 'validating') {
     return <ValidatingPanel />;
@@ -117,6 +151,8 @@ export function WizardConversationSummary({
         apolloRunModeLimits={apolloRunModeLimits}
         requestedProvider={requestedProvider}
         onRequestedProviderChange={onRequestedProviderChange}
+        budgetPreflight={budgetPreflight}
+        defaultDiscoveryProvider={defaultDiscoveryProvider}
       />
     );
   }
@@ -202,22 +238,41 @@ type ValidatedPanelProps = {
    * es peor que no ofrecerlo: parece elegible y no elige nada.
    */
   onRequestedProviderChange?: (provider: WizardRunSelectableProvider) => void;
+  budgetPreflight: WizardBudgetPreflight | null;
+  defaultDiscoveryProvider: WizardRunSelectableProvider | null;
 };
 
-function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange }: ValidatedPanelProps) {
+function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute, executionError, onEditSearch, onClose, lushaPreviewEnabled, lushaCriteria, providerOverrideCapability, apolloRunModeLimits, requestedProvider, onRequestedProviderChange, budgetPreflight, defaultDiscoveryProvider }: ValidatedPanelProps) {
   const router = useRouter();
   // Q3F-5BB.3E — Final search step. When the collected criteria resolve to the
   // hidden Lusha provider, the final "Buscar con IA" search runs Lusha read-only
   // (explicit click only, no persistence). Otherwise the existing IA generation
   // (or the "not enabled yet" message) is preserved unchanged.
+  // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — la ruta de Lusha se pregunta por su
+  // predicado, no comparando literales: con el flag apagado `isLushaRouteHonored`
+  // es false y Lusha no corre, que es la propiedad de seguridad de 10C3.
   const useLushaFinalSearch =
-    lushaPreviewEnabled && lushaCriteria.provider === 'lusha' && lushaCriteria.input !== null;
+    lushaPreviewEnabled &&
+    isLushaRouteHonored(lushaCriteria.provider) &&
+    lushaCriteria.input !== null;
 
-  // Q3F-5BB.10C3-FIX-1 (P0-2, STRICT-ALL) — the criteria are Lusha-eligible but
-  // the preview flag is off. This MUST fail closed: no Lusha search, and — the
-  // whole point of the fix — no fall-through to the Agent 1 / Apollo "Generar
-  // prospectos" button. We render a blocked notice and nothing that can spend.
-  const isLushaBlocked = lushaCriteria.provider === 'blocked_lusha_disabled';
+  // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad del discovery de
+  // Agente 1 (Tavily / Apollo), decidida por la FORMA de la búsqueda y por nada
+  // más. No consulta la ruta de Lusha, ni la industria, ni las subindustrias, ni el
+  // criterio adicional, ni el proveedor predeterminado.
+  //
+  // Antes esta pantalla derivaba la disponibilidad de la ruta del proveedor OCULTO
+  // Lusha: con criterios Lusha-elegibles y el flag apagado retiraba el selector y
+  // «Generar prospectos», así que Colombia + Salud + tres subindustrias no tenía
+  // ninguna forma de ejecutarse aunque Apollo estuviera desplegado y con
+  // presupuesto. Un proveedor oculto que el usuario nunca eligió no puede decidir
+  // si la búsqueda que sí eligió es ofrecible.
+  const discoveryAvailability = resolveWizardDiscoveryAvailability({
+    searchMode: state.searchMode,
+    countryCode: state.countryCode,
+    industryId: state.industryId,
+    supportedCountryCodes: VALID_COUNTRY_CODES,
+  });
 
   // Q3F-5BB.3F — human labels (país/sector/subindustria/tamaño/criterio) resolved
   // from the wizard's own catalog for the final "Revisa tu búsqueda" recap.
@@ -227,10 +282,6 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
     [state, catalog],
   );
 
-  if (isLushaBlocked) {
-    return <LushaDisabledBlockedPanel onEditSearch={onEditSearch} dispatch={dispatch} />;
-  }
-
   // A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 1 — el preflight de persistencia
   // bloqueó la corrida. El texto dice que hay que esperar a que se corrija el
   // almacenamiento; dejar «Generar prospectos» a un clic contradiría el mensaje y
@@ -239,11 +290,78 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   // puede ejecutar, tampoco ofrece elegir con qué.
   const isPersistenceBlocked = executionError?.code === 'PERSISTENCE_NOT_READY';
 
+  // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 § 4 — un intento anterior ya volvió con
+  // `BUDGET_EXCEEDED`: reintentar sin cambiar nada fallaría exactamente igual, y
+  // la reserva atómica del servidor sigue siendo quien decide de verdad (fail-
+  // closed) — esto sólo evita ofrecer un botón que la UI ya sabe que va a
+  // rechazarse. Comparte gate con el selector de proveedor por el mismo motivo
+  // que `isPersistenceBlocked`: si esta pantalla no puede ejecutar, tampoco
+  // ofrece elegir con qué.
+  const isBudgetReactivelyBlocked = executionError?.code === 'BUDGET_EXCEEDED';
+
+  // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — el bloqueo REACTIVO de arriba llega
+  // tarde: exige que la usuaria gaste un clic para descubrir que la corrida no
+  // cabía. Con la instantánea del período ya resuelta en el servidor, el mismo
+  // bloqueo se conoce ANTES del primer intento.
+  //
+  // Tres propiedades que este bloque no puede romper:
+  //   · No autoriza nada. Sólo puede retirar una oferta, nunca añadirla: la
+  //     reserva atómica (`try_reserve_wizard_credits`) sigue siendo la única
+  //     autoridad, y la carrera «la UI dice que cabe / otra corrida se lo gasta»
+  //     la sigue resolviendo ella con el bloqueo reactivo.
+  //   · Sin instantánea no bloquea. Una lectura fallida deja la pantalla como
+  //     estaba; convertir «no pude leer» en «no puedes ejecutar» bloquearía a
+  //     todo el mundo por un error de diagnóstico.
+  //   · No nombra un proveedor que nadie eligió: sin selección explícita compara
+  //     contra el predeterminado que resolvió el servidor, y si tampoco lo hay,
+  //     no bloquea.
+  //
+  // AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0 — este preflight es el de
+  // Apollo/Tavily, y SÓLO de ellos.
+  //
+  // La ruta de Lusha tiene su propio aviso previo dentro de
+  // `WizardLushaFinalSearch` (el resolutor plan-aware de esa ruta), que es el
+  // único consciente de cuántas ramas ejecuta la macro industria. Mientras este
+  // bloque se evaluaba también en esa ruta, la misma pantalla publicaba DOS
+  // autoridades económicas incompatibles: la QA visual del 2026-08-19 (CO ·
+  // health_pharma · 6 disponibles) vio a la vez «Requeridos: 20 créditos» —el
+  // techo de Tavily, un proveedor que esa corrida no va a usar— y el panel
+  // correcto de Lusha con 6/6 y su CTA habilitado. Un aviso que nombra el coste
+  // de otro proveedor no es un aviso: es ruido que contradice al que sí manda.
+  //
+  // `!useLushaFinalSearch` no debilita ningún gate: la ruta Lusha conserva su
+  // propio bloqueo previo, y la autoridad económica real sigue siendo la reserva
+  // atómica del servidor (`try_reserve_wizard_credits`), que no depende de nada
+  // de esta pantalla. Apollo/Tavily conservan su preflight intacto.
+  const budgetProvider = requestedProvider ?? defaultDiscoveryProvider;
+  const preExecutionBudgetBlock =
+    !useLushaFinalSearch && budgetProvider
+      ? resolveWizardPreExecutionBudgetBlock(budgetPreflight, budgetProvider)
+      : null;
+
+  const isBudgetBlocked = isBudgetReactivelyBlocked || preExecutionBudgetBlock !== null;
+
+  // El aviso previo usa el MISMO redactor que el reactivo, así que «no alcanza»
+  // vs. «se agotó» y las dos cifras son idénticas antes y después de intentar.
+  // Cuando ya hay un error de ejecución en pantalla no se duplica: ese banner ya
+  // dice lo mismo con los números que devolvió el servidor.
+  const preExecutionBudgetMessage =
+    preExecutionBudgetBlock !== null && executionError === null
+      ? mapBudgetExceeded(preExecutionBudgetBlock).message
+      : null;
+
+  // § 6 — «la configuración es válida» describe los CRITERIOS (país, industria,
+  // proveedor…), no si la corrida puede ejecutarse ahora mismo. Con un bloqueo
+  // conocido (presupuesto o persistencia) el cuerpo del banner verde deja de
+  // prometer una ejecución que no va a ocurrir; el motivo concreto vive en el
+  // banner rojo de abajo, nunca duplicado aquí.
   const validBody = useLushaFinalSearch
     ? 'Revisa los criterios y ejecuta la búsqueda. Nada se guarda todavía.'
-    : executionEnabled
-      ? 'La búsqueda puede tardar unos segundos. No cierres esta ventana mientras se generan los candidatos.'
-      : 'La generación real todavía no está habilitada.';
+    : isPersistenceBlocked || isBudgetBlocked
+      ? 'Los criterios de la búsqueda son correctos, pero todavía no puede ejecutarse. Revisa el aviso debajo.'
+      : executionEnabled
+        ? 'La búsqueda puede tardar unos segundos. No cierres esta ventana mientras se generan los candidatos.'
+        : 'La generación real todavía no está habilitada.';
 
   return (
     <div className="space-y-4 animate-su-fade-in" role="status">
@@ -270,13 +388,33 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         </div>
       )}
 
+      {/* AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — mismo tratamiento visual que el
+          error de ejecución: el bloqueo es igual de real, sólo que se conoce
+          antes. `role="alert"` porque aparece sin que la usuaria haya actuado. */}
+      {preExecutionBudgetMessage !== null && (
+        <div
+          className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3"
+          role="alert"
+          data-testid="wizard-budget-preflight-notice"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden />
+          <p className="text-xs text-destructive">{preExecutionBudgetMessage}</p>
+        </div>
+      )}
+
+      {/* La forma de la búsqueda no admite proveedor externo. Dice la causa real y
+          no ofrece ningún control que pueda gastar. */}
+      {!discoveryAvailability.available && (
+        <DiscoveryUnavailableNotice reason={discoveryAvailability.reason} />
+      )}
+
       {/* MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A.4 — la selección completa,
           en la ÚLTIMA pantalla antes de gastar créditos.
           Hasta ahora la recapitulación de subindustrias sólo existía dentro del
           panel de Lusha: la ruta que de verdad gasta (Apollo / «Generar
           prospectos») no mostraba ninguna, así que perder una subindustria entre
           dos clics era indetectable hasta leer el lote ya creado. */}
-      {!useLushaFinalSearch && (
+      {!useLushaFinalSearch && isSubindustrySelectionEnabled(state.catalogVersion) && (
         <SubindustrySelectionRecap state={state} catalog={catalog} />
       )}
 
@@ -289,6 +427,10 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         <WizardLushaFinalSearch
           input={lushaCriteria.input}
           recap={finalRecap}
+          // AGENT1-LUSHA-BUDGET-GATE-1 § 6 — la MISMA instantánea que ya usa el
+          // bloqueo previo de Apollo/Tavily unos bloques más arriba. Un segundo
+          // canal para Lusha podría desviarse y avisar sobre otro período.
+          budgetPreflight={budgetPreflight}
           onViewProspects={() => {
             router.push(PROSPECTOS_TAB_ROUTE);
             router.refresh();
@@ -298,20 +440,18 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
         />
       )}
 
-      {/* Real IA generation — only when explicitly enabled, Lusha is not backing
-          this search, and the search is not a blocked Lusha-eligible one. The
-          `!isLushaBlocked` guard is redundant with the early return above but is
-          kept explicit so this Apollo-capable button can never render for a
-          Lusha-eligible + flag-off search (Q3F-5BB.10C3-FIX-1, STRICT-ALL). */}
+      {/* Real IA generation — only when explicitly enabled, the search shape admits
+          an external discovery provider, and Lusha is not backing this search. */}
       {/* A1-APOLLO-QA-CONTROL-SURFACE-1 § 2 — «Proveedor de esta corrida».
           Comparte exactamente el mismo gate que el botón de generación: si esta
           pantalla no puede ejecutar, tampoco ofrece elegir con qué. El propio
           selector se autocensura cuando la capacidad no lo permite, así que para
           un no-admin no se renderiza nada. */}
       {!useLushaFinalSearch &&
-        !isLushaBlocked &&
+        discoveryAvailability.available &&
         executionEnabled &&
         !isPersistenceBlocked &&
+        !isBudgetBlocked &&
         onRequestedProviderChange !== undefined && (
           <WizardRunProviderSelector
             capability={providerOverrideCapability}
@@ -323,22 +463,27 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
           />
         )}
 
-      {/* `!isPersistenceBlocked` va DESPUÉS de `executionEnabled` a propósito: la
-          conjunción `!useLushaFinalSearch && !isLushaBlocked && executionEnabled`
-          es la que fija literalmente el guardrail STRICT-ALL de Lusha
-          (prospect-wizard-route-static.test.ts). El orden es indiferente para la
-          lógica y esa invariante no se toca. */}
-      {!useLushaFinalSearch && !isLushaBlocked && executionEnabled && !isPersistenceBlocked && (
-        <Button
-          type="button"
-          size="sm"
-          className="w-full gap-1.5"
-          onClick={onExecute}
-        >
-          <Sparkles className="h-3.5 w-3.5" aria-hidden />
-          Generar prospectos
-        </Button>
-      )}
+      {/* La conjunción `!useLushaFinalSearch && discoveryAvailability.available &&
+          executionEnabled && !isPersistenceBlocked` es la que fija el gate de
+          generación, y está pinada literalmente por
+          prospect-wizard-route-static.test.ts. `!useLushaFinalSearch` conserva el
+          guardrail de Lusha: una corrida que va a Lusha no ofrece «Generar
+          prospectos». */}
+      {!useLushaFinalSearch &&
+        discoveryAvailability.available &&
+        executionEnabled &&
+        !isPersistenceBlocked &&
+        !isBudgetBlocked && (
+          <Button
+            type="button"
+            size="sm"
+            className="w-full gap-1.5"
+            onClick={onExecute}
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            Generar prospectos
+          </Button>
+        )}
 
       {/* Action hierarchy: primary = "Buscar con IA" (inside the panel above);
           secondary = "Editar búsqueda"; tertiary = "Comenzar de nuevo" (link).
@@ -367,60 +512,56 @@ function ValidatedPanel({ state, catalog, dispatch, executionEnabled, onExecute,
   );
 }
 
-// ── Lusha-disabled blocked panel (Q3F-5BB.10C3-FIX-1, STRICT-ALL) ──────────────
-// Shown when the collected criteria are Lusha-eligible but the preview flag is
-// off. Fail closed: it offers only "Editar búsqueda" / "Comenzar de nuevo" — no
-// generation control of any kind, so nothing here can reach a provider, spend
-// Apollo credits, call Tavily, or create a batch.
+// ── Aviso de discovery no aplicable ───────────────────────────────────────────
+// AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — sustituye al aviso de «Lusha
+// deshabilitado», que afirmaba «esta búsqueda utiliza un proveedor que todavía no
+// está habilitado» para una búsqueda cuyo proveedor real —Tavily o Apollo— sí
+// estaba habilitado. Cada motivo trae su propio texto y ninguno menciona un
+// proveedor: la causa que se muestra es la que el código declara.
 
-type LushaDisabledBlockedPanelProps = {
-  onEditSearch: () => void;
-  dispatch: React.Dispatch<ProspectWizardAction>;
+/** Texto por motivo. `Record` exhaustivo: un motivo nuevo no compila sin copy. */
+const DISCOVERY_UNAVAILABLE_COPY: Readonly<
+  Record<WizardDiscoveryUnavailableReason, { title: string; detail: string }>
+> = {
+  search_mode_not_provider_applicable: {
+    title: 'Este tipo de búsqueda todavía no genera empresas automáticamente.',
+    detail:
+      'No se ejecutará ninguna generación ni se consumirán créditos. Elige «Empresas por criterios» para generar candidatos.',
+  },
+  country_not_selected: {
+    title: 'Falta el país de la búsqueda.',
+    detail: 'No se ejecutará ninguna generación ni se consumirán créditos. Vuelve a elegir el país.',
+  },
+  country_not_supported: {
+    title: 'El país seleccionado no está disponible para generar empresas.',
+    detail: 'No se ejecutará ninguna generación ni se consumirán créditos. Elige otro país.',
+  },
+  industry_not_selected: {
+    title: 'Falta la industria de la búsqueda.',
+    detail:
+      'No se ejecutará ninguna generación ni se consumirán créditos. Vuelve a elegir la industria.',
+  },
 };
 
-function LushaDisabledBlockedPanel({ onEditSearch, dispatch }: LushaDisabledBlockedPanelProps) {
+type DiscoveryUnavailableNoticeProps = {
+  reason: WizardDiscoveryUnavailableReason;
+};
+
+function DiscoveryUnavailableNotice({ reason }: DiscoveryUnavailableNoticeProps) {
+  const copy = DISCOVERY_UNAVAILABLE_COPY[reason];
   return (
     <div
-      className="space-y-4 animate-su-fade-in"
+      className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10"
       role="alert"
-      data-testid="wizard-lusha-blocked-notice"
+      data-testid="wizard-discovery-unavailable-notice"
     >
-      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10">
-        <AlertTriangle
-          className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
-          aria-hidden
-        />
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-            La generación con estos criterios no está disponible por ahora.
-          </p>
-          <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
-            Esta búsqueda utiliza un proveedor que todavía no está habilitado. No
-            se ejecutará ninguna generación ni se consumirán créditos. Ajusta los
-            criterios o vuelve a intentarlo más tarde.
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-2 pt-1">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="w-full gap-1.5"
-          onClick={onEditSearch}
-        >
-          <Pencil className="h-3.5 w-3.5" aria-hidden />
-          Editar búsqueda
-        </Button>
-        <button
-          type="button"
-          className="mx-auto flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          onClick={() => dispatch({ type: 'REQUEST_RESTART' })}
-        >
-          <RotateCcw className="h-3 w-3" aria-hidden />
-          Comenzar de nuevo
-        </button>
+      <AlertTriangle
+        className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+        aria-hidden
+      />
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">{copy.title}</p>
+        <p className="text-xs text-amber-600/80 dark:text-amber-400/70">{copy.detail}</p>
       </div>
     </div>
   );
@@ -555,6 +696,12 @@ type SummaryPanelProps = {
 function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
   const countryEntry = LATAM_COUNTRIES.find((c) => c.code === state.countryCode);
   const industryEntry = catalog.industries.find((i) => i.id === state.industryId);
+  // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — catálogo v2 (macro industria): la
+  // selección de subindustria NO EXISTE, así que la fila y la recapitulación de
+  // abajo deben desaparecer por completo, no mostrar «Toda la industria» /
+  // «Sin subindustrias seleccionadas» como si el usuario hubiera decidido no
+  // acotar. v1 legacy conserva el comportamiento exacto de siempre.
+  const subindustrySelectionEnabled = isSubindustrySelectionEnabled(state.catalogVersion);
   // § A.4 — el mismo recapitulador puro que la pantalla previa al gasto: orden de
   // selección conservado y ningún id descartado en silencio.
   const subsRecap = buildWizardSubindustrySelectionRecap(state, catalog);
@@ -588,16 +735,18 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
           onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'country' })}
         />
         <SummaryRow
-          label="Industria"
+          label={subindustrySelectionEnabled ? 'Industria' : 'Macro Industria'}
           value={industryLabel}
           onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'industry' })}
         />
-        <SummaryRow
-          label={WIZARD_SUBINDUSTRY_RECAP_LABEL}
-          value={subsLabel}
-          onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'subindustries' })}
-          wrap
-        />
+        {subindustrySelectionEnabled && (
+          <SummaryRow
+            label={WIZARD_SUBINDUSTRY_RECAP_LABEL}
+            value={subsLabel}
+            onEdit={() => dispatch({ type: 'EDIT_STEP', step: 'subindustries' })}
+            wrap
+          />
+        )}
         <SummaryRow
           label="Criterio adicional"
           value={criteriaLabel}
@@ -612,8 +761,11 @@ function SummaryPanel({ state, catalog, dispatch }: SummaryPanelProps) {
         />
       </div>
 
-      {/* § A.4 — la multiselección completa, explícita y contada. */}
-      <SubindustrySelectionRecap state={state} catalog={catalog} />
+      {/* § A.4 — la multiselección completa, explícita y contada. Ausente por
+          completo en macro mode: no hay selección de subindustria que recapitular. */}
+      {subindustrySelectionEnabled && (
+        <SubindustrySelectionRecap state={state} catalog={catalog} />
+      )}
 
       <div className="rounded-lg bg-muted/40 px-4 py-3">
         <p className="text-xs text-muted-foreground leading-relaxed">

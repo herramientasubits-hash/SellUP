@@ -83,6 +83,78 @@ import {
   type ProviderRoutingMetadata,
   type ProviderRoutingPlan,
 } from '@/modules/prospect-batches/provider-routing';
+// AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 — los tres módulos puros que este
+// orquestador OBEDECE. Ninguno tiene env, I/O, cliente de proveedor ni DB:
+//   · limits    — los topes por rama (extraídos de aquí; se re-exportan abajo).
+//   · execution — targetGap, techo de peticiones, techo de filas y telemetría.
+//   · identity  — el registro de identidad compartido por TODA la corrida.
+import {
+  LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES,
+  LUSHA_PENDING_REVIEW_MAX_PAGES,
+  LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
+} from './lusha-pending-review-limits';
+import {
+  LUSHA_RUN_MAX_RAW_RESULTS,
+  canAcceptLushaUsefulCandidate,
+  decideLushaProviderRequest,
+  resolveLushaExecutionBranches,
+  resolveLushaProviderRequestsAllowed,
+  resolveLushaRemainingGap,
+  resolveLushaTargetGap,
+  toLushaRunTelemetryMetadata,
+  type LushaBranchOutcome,
+  type LushaBranchTelemetry,
+  type LushaExecutionBranch,
+  type LushaRunStopReason,
+  type LushaRunTelemetry,
+} from './lusha-multibranch-execution';
+// AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 17-19 — la SEGUNDA puerta de
+// paginación: la primera pregunta si queda hueco y quedan peticiones; ésta mira
+// lo que la página YA PAGADA rindió. Vive en `prepaid-novelty` porque es política
+// neutral de proveedor, no una regla de Lusha.
+import { decidePaidPageContinuation } from '@/modules/prospect-batches/prepaid-novelty/paid-page-novelty-continuation';
+// ADDENDUM PROVIDER-SEEN §§ 4, 10 — la memoria de lo ya pagado nace AQUÍ, en el
+// único punto del ejecutor donde consta una respuesta VÁLIDA del proveedor.
+import { planProviderSeenRecording } from '@/modules/prospect-batches/provider-seen/provider-seen-recording';
+import {
+  countProviderSeenHits,
+  EMPTY_PROVIDER_SEEN_MEMORY,
+  type ProviderSeenMemory,
+} from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
+import type {
+  ProviderSeenLoadSummary,
+  ProviderSeenPageYield,
+} from '@/modules/prospect-batches/provider-seen/provider-seen-telemetry';
+import type { ProviderExclusionPlan } from '@/modules/prospect-batches/provider-seen/provider-exclusion-planner';
+import type { PrePaidFreeSourceOutcome } from '@/modules/prospect-batches/prepaid-novelty/prepaid-novelty-context';
+import type {
+  ProviderSeenWriteInput,
+  ProviderSeenWriteResult,
+} from '@/server/prospect-batches/provider-seen/provider-seen-store';
+import {
+  createLushaRunIdentityRegistry,
+  dedupeLushaCompaniesByIdentity,
+  normalizeLushaCompanyName,
+  type LushaIdentityDuplicateReason,
+  type LushaRunIdentityRegistry,
+} from './lusha-run-identity-registry';
+import type { LushaMacroSearchPlan } from './lusha-macro-search-plan';
+// AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 §§ 3, 5, 7 — la autoridad de PRECISIÓN de
+// macro industria, branch-aware y apoyada en el catálogo canónico. Módulo puro.
+import {
+  assessLushaMacroPrecision,
+  describeLushaBranchProvenance,
+  isLushaMacroPrecisionAdmitted,
+  toLushaMacroPrecisionMetadata,
+  type LushaBranchProvenance,
+  type LushaMacroPrecisionAssessment,
+} from './lusha-macro-precision';
+// § 12 — el MISMO evaluador de tamaño ICP que el escritor canónico de Agente 1.
+// Puro y determinista; no se inventa un segundo gate de tamaño.
+import {
+  evaluateIcpSizeGate,
+  type IcpSizeGateResult,
+} from '@/server/agents/prospecting-toolkit/icp-size-gate';
 
 // ─── Contract constants (see data-contract in migrations 040/045/093) ─────────
 
@@ -110,18 +182,16 @@ export const LUSHA_PENDING_REVIEW_URL = PROSPECTOS_TAB_ROUTE;
 export const LUSHA_DUPLICATE_RESOLUTION_VERSION = 'lusha_duplicate_parity_v1' as const;
 
 // ─── Useful-candidate top-up guardrails (Q3F-5BB.7B, server-authoritative) ────
-
-/**
- * Minimum number of USEFUL (reviewable) candidates we aim to leave for review.
- * A candidate is useful when its resolved duplicate_status is `no_match` or
- * `possible_duplicate`. `exact_duplicate` and active-guard strong skips are NOT
- * useful. Only when page 0 yields fewer than this do we request page 1.
- */
-export const LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES = 5;
-/** Hard cap on Lusha pages per "Buscar con IA" click. page 0 + optional page 1. */
-export const LUSHA_PENDING_REVIEW_MAX_PAGES = 2;
-/** Hard cap on expected credits per "Buscar con IA" click (1 credit/page × 2). */
-export const LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS = 2;
+//
+// AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 6 — los valores se EXTRAJERON a
+// `lusha-pending-review-limits` (mismos nombres, mismos valores) y aquí se
+// re-exportan, para que el ejecutor multi-rama pueda derivar sus techos de ellos
+// sin crear un ciclo de inicialización con este módulo. Ningún llamador cambia.
+export {
+  LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES,
+  LUSHA_PENDING_REVIEW_MAX_PAGES,
+  LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
+};
 
 // ─── Duplicate parity contracts (Q3F-5BB.7) ───────────────────────────────────
 
@@ -214,6 +284,18 @@ export interface ResolvedLushaCandidate {
   enriched?: EnrichedProspectCandidateIdentity;
   /** Soft signals from the shared mandatory gate (reviewable_with_warnings). */
   gateWarnings?: string[];
+  /**
+   * AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 § 7 — qué RAMA trajo a esta empresa.
+   * Ids de industria y nada más: sin payload del proveedor y sin PII. Opcional
+   * porque la ruta legacy de un sector no ejecuta ramas.
+   */
+  branchProvenance?: LushaBranchProvenance;
+  /**
+   * § 5 — el veredicto de precisión de macro que la ADMITIÓ. Sólo lo llevan las
+   * empresas aceptadas: un candidato persistido sin este bloque es un candidato
+   * de la ruta legacy, nunca uno que la precisión dejó pasar sin mirar.
+   */
+  macroPrecision?: LushaMacroPrecisionAssessment;
 }
 
 // ─── Excluded exact-duplicate audit detail (Q3F-5BB.7D) ────────────────────────
@@ -276,6 +358,24 @@ export interface LushaPendingReviewCandidateRow {
   country_code: string | null;
   industry: string | null;
   company_size: string | null;
+  /**
+   * AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 § 12 — el conteo EXACTO de empleados en su
+   * columna tipada, no sólo como texto en `company_size` y en la metadata.
+   *
+   * El defecto que cierra: DINISSAN llegó con 682 empleados exactos del proveedor,
+   * la ficha los mostraba en «Datos Comerciales y Web»… y el bloque «Tamaño ICP»
+   * decía «Sin evaluación de tamaño», porque nadie había escrito ni la columna ni
+   * el gate. Columnas existentes (nada de migración): `employee_count` con su
+   * CHECK de no-negativo, y `employee_count_source` como texto libre.
+   *
+   * 🔴 `employee_count_status` se deja intencionadamente sin escribir. Su CHECK
+   * sólo admite un vocabulario de umbral 100 (`confirmed_100_plus`, …) mientras el
+   * ICP de SellUp son 200: rellenarlo obligaría a afirmar un umbral que no es el
+   * del producto. Es exactamente lo que hace hoy el escritor de Apollo, que lo
+   * deja nulo en las 13 filas de Producción.
+   */
+  employee_count: number | null;
+  employee_count_source: string | null;
   // Q3F-5BB.10C2 — typed identity columns, populated ONLY on a STRONG official-source
   // match (else null). Columns already exist on prospect_candidates (migrations
   // 040/045); no migration is added here. `identity_key` is deliberately NOT touched.
@@ -371,9 +471,19 @@ export interface PersistLushaPendingReviewResult {
   message: string;
   error?: string;
   // ── Top-up + duplicate-classification metrics (Q3F-5BB.7B) ──
-  /** Lusha pages actually requested (1 or 2). */
+  /**
+   * Peticiones de búsqueda realmente hechas al proveedor.
+   *
+   * 🔑 Con el ejecutor multi-rama es el total de la CORRIDA (ramas × páginas), no
+   * un número de página. Sigue siendo la señal que la liquidación usa
+   * (`shouldReleaseLushaReservation`): 0 significa que la corrida fue
+   * estructuralmente incapaz de gastar, y eso vale igual con una rama que con tres.
+   */
   pagesRequested: number;
-  /** Hard ceiling on credits for this click (always 2). */
+  /**
+   * Techo de créditos de esta corrida: ramas × techo por rama (2 · 4 · 6).
+   * Con una sola rama —la ruta legacy— sigue siendo 2.
+   */
   expectedMaxCredits: number;
   /** Sum of credits charged across every page requested (null if none reported). */
   creditsChargedTotal: number | null;
@@ -396,6 +506,54 @@ export interface PersistLushaPendingReviewResult {
   hardExcludedByGateCount?: number;
   /** Persisted candidates that got a STRONG official-source identity (typed columns filled). */
   enrichedWithOfficialSourceCount?: number;
+  // ── Global Agent1 budget gate (AGENT1-LUSHA-BUDGET-GATE-1) ──
+  /**
+   * Detalle ESTRUCTURADO de un bloqueo de presupuesto, con la misma forma que el
+   * `budgetExceeded` de la ruta Apollo, para que el cliente lo redacte con
+   * `mapBudgetExceeded` y los dos avisos no puedan divergir. Ausente cuando el
+   * bloqueo no fue de presupuesto o cuando el período no se pudo leer (nunca se
+   * inventan cifras).
+   */
+  budgetExceeded?: {
+    reason: 'exhausted' | 'insufficient_for_run';
+    availableCredits: number;
+    requiredCredits: number;
+  };
+  // ── Ejecución multi-rama (AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1) ──
+  //
+  // Opcionales para que los literales de resultado que construyen la UI y los
+  // dobles de prueba más antiguos sigan compilando; el core siempre los rellena.
+  /** Techo de peticiones de la corrida: ramas × páginas por rama. */
+  providerRequestsAllowed?: number;
+  /** Peticiones realmente hechas. Nunca puede exceder el techo. */
+  providerRequestsUsed?: number;
+  /** Ramas que el plan declaraba (1 en la ruta legacy). */
+  branchCountPlanned?: number;
+  /** Ramas que llegaron a pedir al proveedor. */
+  branchCountAttempted?: number;
+  /** Objetivo global de candidatos útiles de esta corrida. */
+  targetGap?: number;
+  /** Hueco que quedó abierto al terminar. 0 = objetivo alcanzado. */
+  remainingGapFinal?: number;
+  /** Empresas descartadas por identidad ya vista (páginas Y ramas). */
+  crossBranchDuplicatesRemoved?: number;
+  /** Filas crudas del proveedor acumuladas en toda la corrida. */
+  rawResultsTotal?: number;
+  /** Por qué la corrida dejó de pedir. */
+  stopReason?: LushaRunStopReason;
+  // ── Exactitud de objetivo + precisión de macro (P0-FIX-1 §§ 2, 3) ──
+  /**
+   * Empresas nuevas y PRECISAS que la corrida encontró: aceptadas + sobrantes.
+   * Puede superar `targetGap` — es lo que permite ver que una página ya pagada
+   * rindió más de lo que el objetivo podía absorber.
+   */
+  reviewableFoundTotal?: number;
+  /** De las anteriores, cuántas se descartaron por objetivo ya cerrado. */
+  targetOverflowDiscarded?: number;
+  /** Empresas nuevas que el catálogo NO confirmó para la macro pedida. */
+  precisionRejectedTotal?: number;
+  /** Telemetría completa de corrida + ramas (§§ 18/19). Sin PII. */
+  multiBranch?: LushaRunTelemetry;
 }
 
 /** Baseline metrics used by non-success (error/empty) results. */
@@ -412,6 +570,62 @@ const EMPTY_TOPUP_METRICS = {
   hardExcludedByGateCount: 0,
   enrichedWithOfficialSourceCount: 0,
 } as const;
+
+/**
+ * Resultado de una corrida que NO necesitó al proveedor.
+ *
+ * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 15, 22(A).
+ *
+ * 🔴 Es un ÉXITO, no un vacío. La corrida cerró el objetivo con empresas
+ * gratuitas: hay candidatos que revisar, y por eso `ok` es `true` y hay un
+ * `batchId`. Devolver `status: 'empty'` diría lo contrario de lo que pasó.
+ *
+ * 🔴 Todas las cifras de proveedor son CEROS REALES, no ausencias: no hubo
+ * estimación, no hubo reserva, no hubo cliente y no hubo petición, así que
+ * `pagesRequested`, `creditsCharged` y `creditsChargedTotal` valen exactamente lo
+ * que se gastó. `creditsChargedTotal` es 0 y no `null` a propósito: `null` es «el
+ * proveedor no reportó», y aquí no hubo proveedor a quien preguntar.
+ */
+export function buildLushaProviderNotRequiredResult(input: {
+  batchId: string | null;
+  createdCandidatesCount: number;
+  targetGap: number;
+  message: string;
+}): PersistLushaPendingReviewResult {
+  return {
+    ok: true,
+    status: 'success',
+    batchId: input.batchId,
+    createdCandidatesCount: input.createdCandidatesCount,
+    skippedCount: 0,
+    creditsCharged: 0,
+    resultsReturned: 0,
+    reviewUrl: LUSHA_PENDING_REVIEW_URL,
+    message: input.message,
+    pagesRequested: 0,
+    expectedMaxCredits: 0,
+    creditsChargedTotal: 0,
+    usefulCandidatesCount: input.createdCandidatesCount,
+    excludedExactDuplicatesCount: 0,
+    skippedActiveDuplicatesCount: 0,
+    possibleDuplicatesCount: 0,
+    insertedCandidatesCount: input.createdCandidatesCount,
+    topUpTriggered: false,
+    hardExcludedByGateCount: 0,
+    enrichedWithOfficialSourceCount: 0,
+    providerRequestsAllowed: 0,
+    providerRequestsUsed: 0,
+    branchCountPlanned: 0,
+    branchCountAttempted: 0,
+    targetGap: input.targetGap,
+    remainingGapFinal: 0,
+    crossBranchDuplicatesRemoved: 0,
+    rawResultsTotal: 0,
+    reviewableFoundTotal: input.createdCandidatesCount,
+    targetOverflowDiscarded: 0,
+    precisionRejectedTotal: 0,
+  };
+}
 
 /**
  * Build a fail-closed result (error/invalid input). Single source of truth reused
@@ -447,18 +661,17 @@ export function buildLushaPendingReviewFailure(
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
-/** Normalize a company name for dedupe fallback + normalized_name column. */
-export function normalizeLushaCompanyName(name: string | null | undefined): string | null {
-  if (!name) return null;
-  const normalized = name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return normalized.length > 0 ? normalized : null;
-}
+/**
+ * Normalize a company name for dedupe fallback + normalized_name column.
+ *
+ * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 10 — la implementación canónica
+ * vive ahora en `lusha-run-identity-registry` (el registro de identidad de la
+ * corrida la necesita, y dos copias de la misma intención derivarían: la clave de
+ * dedupe dejaría de coincidir con la columna persistida sin que nada fallara).
+ * Se re-exporta con el mismo nombre, así que ningún llamador ni ninguna suite
+ * cambia de import.
+ */
+export { normalizeLushaCompanyName };
 
 function employeesLabel(company: LushaPreviewCompany): string | null {
   if (typeof company.employeesExact === 'number') return String(company.employeesExact);
@@ -466,6 +679,29 @@ function employeesLabel(company: LushaPreviewCompany): string | null {
     return `${company.employeesMin ?? '?'}-${company.employeesMax ?? '?'}`;
   }
   return null;
+}
+
+/**
+ * § 12 — el tamaño de una empresa Lusha, evaluado por el gate ICP CANÓNICO.
+ *
+ * No se inventa un segundo gate: se llama a `evaluateIcpSizeGate`, el mismo
+ * evaluador puro que usa el escritor de Agente 1, con el conteo exacto cuando
+ * Lusha lo trae y con el rango cuando sólo hay rango. Sin dato ⇒ el gate devuelve
+ * `needs_validation` por su propia regla («desconocido ≠ menor que el umbral»),
+ * que es la respuesta correcta y no una que este módulo elija.
+ *
+ * 🔴 Lo que este bloque NO hace: cambiar la admisión. `resolveIcpSizeGateWriterAction`
+ * —el lado del contrato que bloquea candidatos y fuerza revisión— NO se cablea
+ * aquí. Escribir el veredicto es honestidad de ficha; convertirlo en un filtro de
+ * persistencia sería un segundo gate de admisión sin QA, y queda como seguimiento
+ * explícito.
+ */
+export function buildLushaIcpSizeGate(company: LushaPreviewCompany): IcpSizeGateResult {
+  return evaluateIcpSizeGate({
+    employeeCount: typeof company.employeesExact === 'number' ? company.employeesExact : null,
+    sizeRange: employeesLabel(company),
+    source: LUSHA_PENDING_REVIEW_PROVIDER,
+  });
 }
 
 const UUID_RE =
@@ -477,39 +713,20 @@ export function isValidAccountUuid(value: string | null | undefined): boolean {
 }
 
 /**
- * Dedupe by normalized domain (fallback normalized name). Companies with neither
- * a domain nor a usable name are unusable (candidate.name is NOT NULL) and are
- * counted as skipped. Mirrors the preview's domain-dedupe intent.
+ * Dedupe de la corrida — AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 10.
  *
- * Pass a shared `seen` set to dedupe ACROSS pages (Q3F-5BB.7B top-up): page 1 is
- * deduped against page 0 so a company returned on both pages is never persisted
- * twice. When omitted, a fresh set is used (single-page behavior, unchanged).
+ * El `dedupeLushaCompanies` que vivía aquí deduplicaba con UNA clave por empresa
+ * (`dominio ?? nombre`) sobre un `Set` compartido entre páginas. Con ramas eso
+ * dejaba escapar duplicados de forma sistemática —la misma empresa vuelta por dos
+ * ramas con el dominio presente en una respuesta y ausente en la otra genera dos
+ * claves distintas— y se sustituye por `dedupeLushaCompaniesByIdentity`, que
+ * reconoce cuatro identidades (id de proveedor, dominio, LinkedIn, y el nombre
+ * como respaldo) contra un registro de CORRIDA.
+ *
+ * No se conservan las dos: dos rutas de dedupe con la misma intención acabarían
+ * discrepando, y la que decidiera sería la que el orquestador llamara ese día.
  */
-export function dedupeLushaCompanies(
-  companies: LushaPreviewCompany[],
-  seen: Set<string> = new Set<string>(),
-): { unique: LushaPreviewCompany[]; skippedCount: number } {
-  const unique: LushaPreviewCompany[] = [];
-  let skippedCount = 0;
-
-  for (const company of companies) {
-    const nameKey = normalizeLushaCompanyName(company.name);
-    // name is required by the schema — no name means the row is unusable.
-    if (!nameKey) {
-      skippedCount++;
-      continue;
-    }
-    const dedupeKey = normalizeDomain(company.domain) ?? nameKey;
-    if (seen.has(dedupeKey)) {
-      skippedCount++;
-      continue;
-    }
-    seen.add(dedupeKey);
-    unique.push(company);
-  }
-
-  return { unique, skippedCount };
-}
+export { dedupeLushaCompaniesByIdentity };
 
 /**
  * Build the canonical duplicate-check input for a Lusha company.
@@ -585,7 +802,7 @@ export function buildLushaProspectSearchCriteria(
   return {
     countryCode: input.countryCode ?? null,
     country: rs.country ?? null,
-    sector: rs.sector ?? input.sectorKey ?? null,
+    sector: rs.sector ?? input.macroIndustryKey ?? null,
     minEmployees: rs.sizeBand?.min ?? null,
     maxEmployees: rs.sizeBand?.max ?? null,
     sourceProvider: LUSHA_PENDING_REVIEW_PROVIDER,
@@ -843,6 +1060,12 @@ export interface LushaPendingReviewBatchMetrics {
   excludedByMandatoryGate?: LushaGateAuditEntry[];
   /** Aggregate official-source enrichment outcome. */
   enrichmentSummary?: LushaOfficialSourceEnrichmentSummary;
+  /**
+   * §§ 18/19 — telemetría de corrida + ramas. Opcional para que los llamadores
+   * antiguos sigan compilando; omitida ⇒ ausente de los metadatos del lote, que
+   * quedan byte a byte como antes de este trabajo.
+   */
+  multiBranchTelemetry?: LushaRunTelemetry;
 }
 
 /** Build the batch insert row (deterministic — no clocks, no randomness). */
@@ -854,7 +1077,7 @@ export function buildLushaPendingReviewBatchRow(
   metrics: LushaPendingReviewBatchMetrics,
 ): LushaPendingReviewBatchRow {
   const rs = search.requestSummary;
-  const sectorLabel = rs.sector ?? input.sectorKey;
+  const sectorLabel = rs.sector ?? input.macroIndustryKey ?? '—';
   const countryLabel = rs.country ?? input.countryCode;
   const excludedExactDuplicates = metrics.excludedExactDuplicates ?? [];
   const excludedByMandatoryGate = metrics.excludedByMandatoryGate ?? [];
@@ -880,7 +1103,14 @@ export function buildLushaPendingReviewBatchRow(
       duplicate_resolution_version: LUSHA_DUPLICATE_RESOLUTION_VERSION,
       request: {
         country_code: input.countryCode,
-        sector_key: rs.sectorKey,
+        // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 2 — la clave del metadato NO
+        // cambia (`sector_key` ya está escrita en lotes de Producción y
+        // renombrarla partiría en dos la lectura histórica); lo que cambia es lo
+        // que contiene: la identidad de industria que resolvió la petición, que
+        // en la ruta moderna es una `MacroIndustryKey`. `macro_industry_key` la
+        // publica sin ambigüedad para quien lea metadatos nuevos.
+        sector_key: rs.industryKey,
+        macro_industry_key: rs.macroIndustryKey,
         main_industries_ids: rs.mainIndustriesIds,
         sub_industry_id: rs.subIndustryId,
         size_band: rs.sizeBand,
@@ -892,9 +1122,20 @@ export function buildLushaPendingReviewBatchRow(
         endpoint_category: 'company_prospecting',
         credits_charged: metrics.creditsChargedTotal,
         results_returned: metrics.resultsReturnedTotal,
-        expected_max_credits: LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
+        // Techo de la CORRIDA cuando se conoce el plan (ramas × techo por rama);
+        // el techo por rama cuando no hay plan, que es el valor de siempre.
+        expected_max_credits:
+          metrics.multiBranchTelemetry !== undefined
+            ? metrics.multiBranchTelemetry.branchCountPlanned *
+              LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS
+            : LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
         pages_requested: metrics.pagesRequested,
       },
+      // §§ 18/19 — ejecución multi-rama. Sólo se emite cuando el core la pasa, de
+      // modo que un lote de la ruta legacy conserva su forma exacta.
+      ...(metrics.multiBranchTelemetry
+        ? { multi_branch: toLushaRunTelemetryMetadata(metrics.multiBranchTelemetry) }
+        : {}),
       // Aggregate duplicate-classification + top-up summary (Q3F-5BB.7B).
       duplicate_summary: {
         total_useful_persisted: metrics.usefulCandidatesCount,
@@ -1035,7 +1276,7 @@ export function buildLushaPendingReviewCandidateRows(
   batchId: string,
   resolved: ResolvedLushaCandidate[],
 ): LushaPendingReviewCandidateRow[] {
-  return resolved.map(({ company, resolution, enriched, gateWarnings }) => {
+  return resolved.map(({ company, resolution, enriched, gateWarnings, branchProvenance, macroPrecision }) => {
     // Typed identity columns — filled ONLY on a STRONG official-source match.
     const typedColumns = enriched
       ? buildOfficialSourceTypedColumns(enriched)
@@ -1051,6 +1292,10 @@ export function buildLushaPendingReviewCandidateRows(
     country_code: company.countryIso2,
     industry: company.industry,
     company_size: employeesLabel(company),
+    // § 12 — la columna tipada, no sólo la etiqueta de texto.
+    employee_count: typeof company.employeesExact === 'number' ? company.employeesExact : null,
+    employee_count_source:
+      typeof company.employeesExact === 'number' ? LUSHA_PENDING_REVIEW_PROVIDER : null,
     // Strong official-source identity (or nulls) — Q3F-5BB.10C2.
     tax_identifier: typedColumns.tax_identifier,
     tax_identifier_type: typedColumns.tax_identifier_type,
@@ -1109,6 +1354,22 @@ export function buildLushaPendingReviewCandidateRows(
         min: company.employeesMin,
         max: company.employeesMax,
       },
+      // § 12 — el bloque que la ficha de revisión LEE para «Tamaño ICP»
+      // (`getIcpSizeGateUiState`). Sin él el candidato salía como «Sin evaluación
+      // de tamaño» aunque el proveedor hubiera entregado el conteo exacto.
+      icp_size_gate: buildLushaIcpSizeGate(company),
+      // §§ 5/7 — por qué este candidato cuenta como de la macro pedida, y qué
+      // rama lo trajo. Ids y códigos: sin payload del proveedor y sin PII.
+      ...(macroPrecision ? { macro_precision: toLushaMacroPrecisionMetadata(macroPrecision) } : {}),
+      ...(branchProvenance
+        ? {
+            branch_provenance: {
+              branch_index: branchProvenance.branchIndex,
+              main_industry_id: branchProvenance.mainIndustryId,
+              sub_industry_id: branchProvenance.subIndustryId,
+            },
+          }
+        : {}),
       // Canonical duplicate metadata so the EXISTING review UI (list tooltip +
       // detail dialog, and the sheet's Validación tab) shows the matched entity
       // instead of a generic label (Q3F-5BB.7B).
@@ -1308,133 +1569,589 @@ export async function resolveLushaCandidatesDuplicateState(
 
 // ─── Core orchestrator ────────────────────────────────────────────────────────
 
+/**
+ * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 §§ 2–6, 10–19 — opciones de
+ * ejecución de una corrida.
+ *
+ * Todo es opcional y su ausencia es EXACTAMENTE el comportamiento de hoy: sin
+ * plan se ejecuta una sola búsqueda derivada del sector, y sin `targetGap` el
+ * objetivo es el de siempre (5 candidatos útiles). Los llamadores y las suites
+ * que no pasan nada no cambian de comportamiento.
+ */
+export interface LushaMultiBranchExecution {
+  /**
+   * Plan Macro-v2 a ejecutar, o `null`/ausente para la búsqueda legacy única.
+   *
+   * 🔴 Recibirlo por parámetro —en vez de resolverlo aquí— es lo que impide que
+   * este módulo se convierta en la autoridad de elegibilidad. Quien decide si hay
+   * plan es `resolveLushaSearchPlanForSector`, que sólo devuelve uno para un
+   * sector que la autoridad legacy YA admite.
+   */
+  plan?: Pick<LushaMacroSearchPlan, 'macroKey' | 'branches'> | null;
+  /**
+   * § 3 — cuántas empresas útiles busca la corrida ENTERA. Ausente = el objetivo
+   * de hoy. El ejecutor no asume su objetivo por dentro: ver
+   * `resolveLushaTargetGap`.
+   */
+  targetGap?: number | null;
+  /** Sólo telemetría: cuánto reservó el llamador, para que el lote lo registre. */
+  creditsReserved?: number | null;
+  /**
+   * ADDENDUM PROVIDER-SEEN § 4 — memoria de lo que este proveedor ya nos mostró.
+   *
+   * Ausente ⇒ memoria vacía y escritura no-op: 0 aciertos, 0 identidades nuevas y
+   * comportamiento byte a byte el de antes de este PR. Ninguna de las dos piezas
+   * decide nada: la memoria sólo CUENTA y la escritura sólo RECUERDA. El dedupe
+   * local sigue siendo la autoridad (§ 6).
+   */
+  providerSeen?: {
+    memory?: ProviderSeenMemory;
+    record?: (input: ProviderSeenWriteInput) => Promise<ProviderSeenWriteResult>;
+    /** Reloj inyectable. Sin él, las pruebas no serían deterministas. */
+    now?: () => string;
+    /** Correlación de la corrida. Sin PII. */
+    correlationId?: string | null;
+  } | null;
+  /** ADDENDUM PROVIDER-SEEN § 10 — resultado de la carga de memoria previa. */
+  providerSeenLoad?: ProviderSeenLoadSummary;
+  /** ADDENDUM PROVIDER-SEEN § 10 — el plan de exclusión con el que se pidió. */
+  providerExclusionPlan?: ProviderExclusionPlan;
+  /** ADDENDUM PROVIDER-SEEN § 10 — lo que la fuente gratuita rindió. */
+  freeSource?: PrePaidFreeSourceOutcome;
+}
+
 /** Sum credits fail-safe: null stays null unless a page reported a number. */
 function addCredits(total: number | null, page: number | null): number | null {
   if (typeof page !== 'number') return total;
   return (total ?? 0) + page;
 }
 
+/** Rama descrita para la telemetría. `null` = rama legacy (industria del sector). */
+function describeBranchIds(branch: LushaExecutionBranch): {
+  mainIndustryId: number | null;
+  subIndustryId: number | null;
+} {
+  if (branch === null) return { mainIndustryId: null, subIndustryId: null };
+  return {
+    mainIndustryId: branch.mainIndustryId,
+    subIndustryId: branch.subIndustryId ?? null,
+  };
+}
+
 /**
- * Runs Lusha (page 0, and a controlled page 1 top-up only when page 0 leaves
- * fewer than `MIN_USEFUL` useful candidates), runs duplicate parity BEFORE any
- * write, and persists a single pending-review batch plus its USEFUL candidate
- * rows via the injected deps.
+ * Ejecuta el plan Lusha de la corrida —una o varias RAMAS, en orden de catálogo—,
+ * corre la paridad de duplicados ANTES de cualquier escritura, y persiste UN lote
+ * pending-review con sus candidatos ÚTILES a través de las deps inyectadas.
  *
- * Useful = no_match + possible_duplicate. Exact duplicates are NEVER persisted as
- * reviewable candidates — they are excluded and counted (Q3F-5BB.7B). Active-guard
- * strong matches are skipped, exactly like the canonical writer.
+ * ── UN objetivo, UNA reserva, UN registro de identidad (§§ 4, 8, 10) ──────────
  *
- * Credit guardrails (server-authoritative):
- *   - At most `LUSHA_PENDING_REVIEW_MAX_PAGES` (2) pages: page 0 + optional page 1.
- *   - Page 1 is requested ONLY when useful < MIN after page 0.
- *   - Expected max credits = `LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS` (2).
- *   - No blind retries; no client-supplied page.
+ * `targetGap` es global: si la rama 0 deja 3 útiles, la rama 1 busca 2, no 5. En
+ * cuanto el objetivo se cierra la corrida PARA, y las ramas restantes no se piden
+ * —ni por representación taxonómica ni por diversidad—. La identidad se recuerda
+ * en un único registro de corrida, así que una empresa que vuelve en dos ramas no
+ * cuenta dos veces, no se enriquece dos veces y no se persiste dos veces.
  *
- * Write ordering guarantees:
- *   - Page 0 failure                   → no batch, no candidates (error).
- *   - Page 1 failure                   → page-0 useful candidates still persist
- *                                        (fail-safe: a top-up failure never discards
- *                                        already-found useful candidates).
- *   - Nothing useful (empty / all
- *     exact / all active-skipped)      → no batch, no candidates (status 'empty').
- *   - Success                          → exactly one batch, then N candidate rows.
+ * ── Dónde exactamente incrementa el conteo ÚTIL (§ 12) ────────────────────────
+ *
+ * Nunca con la fila cruda del proveedor. Una empresa cuenta al cerrar el hueco
+ * sólo después de:
+ *
+ *   1. dedupe por identidad contra TODA la corrida,
+ *   2. el gate obligatorio compartido (`evaluateProspectIntakeGate`),
+ *   3. enriquecimiento de fuente oficial + identidad fiscal,
+ *   4. el guard de candidatos activos,
+ *   5. la comprobación de duplicados SellUp + HubSpot,
+ *
+ * y sólo si su `duplicate_status` resuelto es `no_match` o `possible_duplicate`.
+ * Por eso «el proveedor devolvió 5 filas» NUNCA cierra el objetivo: pararse ahí
+ * dejaría la corrida sin candidatos revisables creyendo que cumplió.
+ *
+ * ── Techos (§§ 6, 16, 17) ─────────────────────────────────────────────────────
+ *
+ *   - Peticiones: ramas × `LUSHA_PENDING_REVIEW_MAX_PAGES`, contadas de forma
+ *     explícita en ámbito de CORRIDA (1 rama → 2 · 2 → 4 · 3 → 6). Ninguna
+ *     petición se intenta por encima de ese número.
+ *   - Página siguiente de una rama: sólo si la anterior salió bien, devolvió al
+ *     menos una fila, queda hueco y queda techo. NO se piden 2 páginas por rama
+ *     automáticamente.
+ *   - Filas crudas: tope de corrida (`LUSHA_RUN_MAX_RAW_RESULTS`).
+ *   - Sin reintentos ciegos; la página nunca la elige el cliente.
+ *
+ * ── Semántica de fallo (§§ 14, 15) ────────────────────────────────────────────
+ *
+ *   - Primera petición fallida, sin nada útil → error duro, CERO escrituras.
+ *     (idéntico al comportamiento de hoy para la ruta de una sola rama).
+ *   - Fallo posterior                        → la corrida PARA y lo ya encontrado
+ *                                              se conserva y se persiste. Ni
+ *                                              tormenta de reintentos ni gasto
+ *                                              extra para compensar el error.
+ *   - Rama con 0 resultados                  → NO es un fallo: el hueco sigue
+ *                                              abierto y se pasa a la siguiente.
+ *   - Nada útil                              → status 'empty', sin escrituras.
+ *   - Éxito                                  → exactamente un lote, luego N filas.
  */
 export async function persistLushaPendingReviewBatch(
   deps: PersistLushaPendingReviewDeps,
   input: LushaPreviewInput,
   actor: PersistLushaPendingReviewActor,
   routing?: LushaProviderRoutingObservation,
+  execution?: LushaMultiBranchExecution,
 ): Promise<PersistLushaPendingReviewResult> {
-  const seen = new Set<string>(); // cross-page dedupe keys
+  // ── Política de la corrida, resuelta ANTES de la primera petición ──
+  const plan = execution?.plan ?? null;
+  const branches = resolveLushaExecutionBranches(plan);
+  const targetGap = resolveLushaTargetGap(execution?.targetGap);
+  // § 5 — la macro contra la que se juzga la precisión. `null` = ruta legacy de un
+  // sector, donde no hay macro industria y el comportamiento es el de hoy.
+  const macroKeyForPrecision = plan?.macroKey ?? null;
+  const providerRequestsAllowed = resolveLushaProviderRequestsAllowed(branches.length);
+  const expectedMaxCredits = branches.length * LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS;
+
+  // § 10/§ 11 — UN registro de identidad para todas las páginas de todas las ramas.
+  let identityRegistry: LushaRunIdentityRegistry = createLushaRunIdentityRegistry();
   const useful: ResolvedLushaCandidate[] = [];
   // Q3F-5BB.11D — observational counters for the provider attempt metadata.
-  // `rawCount` = raw provider results across pages (pre cross-page dedupe);
+  // `rawResultsTotal` = raw provider rows across every branch/page (pre dedupe);
   // `normalizedCount` = unique companies that entered the gate/dedupe pipeline.
-  let rawCount = 0;
+  let rawResultsTotal = 0;
   let normalizedCount = 0;
   // Auditable detail of every excluded exact duplicate (Q3F-5BB.7D). Its length
   // is the authoritative excluded count surfaced everywhere below.
   const excludedExactDuplicates: LushaExcludedExactDuplicate[] = [];
-  // Q3F-5BB.10C2 — shared intake pipeline accumulators (across pages).
+  // Q3F-5BB.10C2 — shared intake pipeline accumulators (across branches/pages).
   const excludedByMandatoryGate: LushaGateAuditEntry[] = [];
   const gateSummary = emptyGateSummary();
   const enrichmentSummary = emptyEnrichmentSummary();
   let skippedActiveDuplicatesCount = 0;
   let skippedUnusableCount = 0;
+  let crossBranchDuplicatesRemoved = 0;
+  // §§ 2/3 — los tres desenlaces NUEVOS de una empresa revisable, contados aparte
+  // de todo lo de dedupe: precisión, sobrante de objetivo y aceptación.
+  let precisionRejectedTotal = 0;
+  let targetOverflowDiscarded = 0;
+  let reviewableFoundTotal = 0;
+  const precisionReasonCounts: Record<string, number> = {};
+  const duplicateReasonCounts: Record<LushaIdentityDuplicateReason, number> = {
+    provider_company_id: 0,
+    normalized_domain: 0,
+    normalized_linkedin_url: 0,
+    normalized_name_fallback: 0,
+  };
   let creditsChargedTotal: number | null = null;
   let resultsReturnedTotal: number | null = null;
-  let pagesRequested = 0;
+  let providerRequestsUsed = 0;
   let firstSearch: LushaPreviewResult | null = null;
+  const branchTelemetry: LushaBranchTelemetry[] = [];
+  let stopReason: LushaRunStopReason = 'branches_exhausted';
+  let runStopped = false;
+  // § 17/§ 20 — páginas que NO se compraron porque su rama vino sin novedad.
+  // Hecho observado; nunca un ahorro estimado.
+  let pagesSkippedZeroNovelty = 0;
+  // ── ADDENDUM PROVIDER-SEEN § 10 — conteos de la memoria ──
+  const providerSeenMemory: ProviderSeenMemory =
+    execution?.providerSeen?.memory ?? EMPTY_PROVIDER_SEEN_MEMORY;
+  const recordProviderSeen = execution?.providerSeen?.record ?? null;
+  const providerSeenNow = execution?.providerSeen?.now ?? (() => new Date().toISOString());
+  const providerSeenCorrelationId = execution?.providerSeen?.correlationId ?? null;
+  let providerSeenHitsTotal = 0;
+  let providerSeenNovelTotal = 0;
+  let providerSeenNewIdsTotal = 0;
+  let providerSeenNewDomainsTotal = 0;
+  let providerSeenWriteFailures = 0;
+  let providerSeenLastWriteSkippedReason: string | null = null;
+  const providerSeenPageYields: ProviderSeenPageYield[] = [];
+  const providerSeenBranchStopReasons: Record<number, string> = {};
+  let hardFailure: PersistLushaPendingReviewResult | null = null;
 
-  for (let page = 0; page < LUSHA_PENDING_REVIEW_MAX_PAGES; page++) {
-    // Top-up gate: only fetch a later page when useful candidates are still short.
-    if (page > 0 && useful.length >= LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES) break;
+  const pushBranchTelemetry = (
+    branchIndex: number,
+    branch: LushaExecutionBranch,
+    outcome: LushaBranchOutcome,
+    metrics: {
+      pagesAttempted: number;
+      providerRequests: number;
+      rawResults: number;
+      duplicatesRemoved: number;
+      uniqueResults: number;
+      usefulResults: number;
+      remainingGapBefore: number;
+      remainingGapAfter: number;
+      providerCreditsReported: number | null;
+      precisionRejected: number;
+      targetOverflowDiscarded: number;
+    },
+  ): void => {
+    branchTelemetry.push({
+      branchIndex,
+      ...describeBranchIds(branch),
+      ...metrics,
+      outcome,
+    });
+  };
 
-    const search = await deps.runSearch({ ...input, page });
-    pagesRequested++;
-    if (page === 0) firstSearch = search;
+  for (let branchIndex = 0; branchIndex < branches.length; branchIndex++) {
+    const branch = branches[branchIndex] as LushaExecutionBranch;
+    const remainingGapBefore = resolveLushaRemainingGap(targetGap, useful.length);
 
-    creditsChargedTotal = addCredits(creditsChargedTotal, search.billing?.creditsCharged ?? null);
-    if (typeof search.billing?.resultsReturned === 'number') {
-      resultsReturnedTotal = (resultsReturnedTotal ?? 0) + search.billing.resultsReturned;
+    // § 4 — objetivo cerrado ⇒ las ramas restantes NO se piden. Quedan en la
+    // telemetría como `not_attempted` para que se vea que existían y se omitieron.
+    if (runStopped || remainingGapBefore <= 0) {
+      if (!runStopped) stopReason = 'target_reached';
+      runStopped = true;
+      pushBranchTelemetry(branchIndex, branch, 'not_attempted', {
+        pagesAttempted: 0,
+        providerRequests: 0,
+        rawResults: 0,
+        duplicatesRemoved: 0,
+        uniqueResults: 0,
+        usefulResults: 0,
+        remainingGapBefore,
+        remainingGapAfter: remainingGapBefore,
+        providerCreditsReported: null,
+        precisionRejected: 0,
+        targetOverflowDiscarded: 0,
+      });
+      continue;
     }
 
-    if (!search.ok) {
-      if (page === 0) {
-        // Page 0 failed → hard error, no writes at all.
-        return buildLushaPendingReviewFailure(
-          'No fue posible completar la búsqueda con el proveedor.',
-          sanitizeError(search.error),
-          { creditsCharged: search.billing?.creditsCharged ?? null, resultsReturned: search.billing?.resultsReturned ?? null, creditsChargedTotal, pagesRequested },
-        );
+    const usefulBeforeBranch = useful.length;
+    let branchPagesAttempted = 0;
+    let branchProviderRequests = 0;
+    let branchRawResults = 0;
+    let branchDuplicatesRemoved = 0;
+    let branchUniqueResults = 0;
+    let branchCredits: number | null = null;
+    let branchOutcome: LushaBranchOutcome = 'completed';
+    let branchPrecisionRejected = 0;
+    let branchTargetOverflow = 0;
+
+    for (let page = 0; page < LUSHA_PENDING_REVIEW_MAX_PAGES; page++) {
+      // § 6/§ 16/§ 17 — la decisión de pedir es explícita y de ámbito de corrida.
+      // No se delega a la cota de los bucles: ver la cabecera del módulo de
+      // política.
+      const decision = decideLushaProviderRequest({
+        remainingGap: resolveLushaRemainingGap(targetGap, useful.length),
+        providerRequestsUsed,
+        providerRequestsAllowed,
+        rawResultsTotal,
+      });
+      if (!decision.allowed) {
+        stopReason = decision.stopReason;
+        runStopped = true;
+        if (decision.stopReason === 'target_reached' && page > 0) {
+          branchOutcome = 'target_reached';
+        }
+        break;
       }
-      // Page 1 failed → keep whatever page 0 already found. Fail-safe, documented.
-      break;
-    }
 
-    // Observational: count raw provider results for this successful page before
-    // any cross-page dedupe (11D — never affects existing behavior).
-    rawCount += (search.results ?? []).length;
+      const search = await deps.runSearch({
+        ...input,
+        page,
+        // Rama legacy ⇒ no se manda `industryBranch` y el preview deriva la
+        // industria del sector, exactamente como hoy.
+        ...(branch !== null
+          ? {
+              industryBranch: {
+                mainIndustryId: branch.mainIndustryId,
+                subIndustryId: branch.subIndustryId ?? null,
+              },
+            }
+          : {}),
+      });
+      providerRequestsUsed++;
+      branchProviderRequests++;
+      branchPagesAttempted++;
+      if (firstSearch === null) firstSearch = search;
 
-    const { unique, skippedCount } = dedupeLushaCompanies(search.results ?? [], seen);
-    skippedUnusableCount += skippedCount;
-    normalizedCount += unique.length;
+      const pageCredits = search.billing?.creditsCharged ?? null;
+      creditsChargedTotal = addCredits(creditsChargedTotal, pageCredits);
+      branchCredits = addCredits(branchCredits, pageCredits);
+      if (typeof search.billing?.resultsReturned === 'number') {
+        resultsReturnedTotal = (resultsReturnedTotal ?? 0) + search.billing.resultsReturned;
+      }
 
-    // Provider-neutral criteria for the shared gate + enrichment. Built from the
-    // (server-authoritative) request summary; stable across pages.
-    const criteria = buildLushaProspectSearchCriteria(input, search);
+      if (!search.ok) {
+        branchOutcome = 'provider_failure';
+        stopReason = 'provider_failure';
+        runStopped = true;
+        if (providerRequestsUsed === 1 && useful.length === 0) {
+          // Primera petición de la corrida sin nada útil → error duro, sin
+          // escrituras. Es el comportamiento de hoy para «page 0 falló».
+          hardFailure = buildLushaPendingReviewFailure(
+            'No fue posible completar la búsqueda con el proveedor.',
+            sanitizeError(search.error),
+            {
+              creditsCharged: pageCredits,
+              resultsReturned: search.billing?.resultsReturned ?? null,
+              creditsChargedTotal,
+              pagesRequested: providerRequestsUsed,
+            },
+          );
+        }
+        // Fallo posterior → se conserva lo ya encontrado (fail-safe documentado).
+        break;
+      }
 
-    const { resolved, guardSkippedCount, hardExcluded, gate, enrichment } =
-      await resolveLushaCandidatesDuplicateState(deps, input, unique, criteria);
-    skippedActiveDuplicatesCount += guardSkippedCount;
+      // Observational: raw provider rows for this successful page, BEFORE dedupe.
+      const pageRaw = (search.results ?? []).length;
+      rawResultsTotal += pageRaw;
+      branchRawResults += pageRaw;
 
-    // Merge the page's gate + enrichment summaries into the batch accumulators.
-    excludedByMandatoryGate.push(...hardExcluded);
-    gateSummary.hardExcludedCount += gate.hardExcludedCount;
-    gateSummary.warningCount += gate.warningCount;
-    gateSummary.cleanCount += gate.cleanCount;
-    for (const [reason, count] of Object.entries(gate.reasonCounts)) {
-      gateSummary.reasonCounts[reason] = (gateSummary.reasonCounts[reason] ?? 0) + count;
-    }
-    enrichmentSummary.matchedCount += enrichment.matchedCount;
-    enrichmentSummary.lowConfidenceCount += enrichment.lowConfidenceCount;
-    enrichmentSummary.notFoundCount += enrichment.notFoundCount;
-    enrichmentSummary.unsupportedCount += enrichment.unsupportedCount;
-    enrichmentSummary.errorCount += enrichment.errorCount;
+      // ── ADDENDUM PROVIDER-SEEN § 4 — el momento, y sólo éste ────────────────
+      //
+      // Estamos DESPUÉS de `search.ok` y ANTES del dedupe. Ese orden es el hito
+      // entero: si la memoria se escribiera después de filtrar, heredaría los
+      // criterios del filtro y volvería a olvidar justo lo que hay que recordar
+      // —lo rechazado, lo duplicado, lo sobrante— que es el defecto de hoy.
+      //
+      // 🔴 La validez se toma de `search.ok`, jamás de `results.length`. Una lista
+      // vacía puede ser una respuesta legítima sin empresas; un error NO es «cero
+      // empresas», es ninguna información. Confundirlos ya quemó a este repo en la
+      // ruta de teléfono (#303), donde Lusha devuelve `ok:true` con `phones:[]`
+      // para cualquier error HTTP.
+      const seenPlan = planProviderSeenRecording({
+        provider: 'lusha',
+        providerCallMade: true,
+        responseValid: true,
+        results: (search.results ?? []).map((company) => ({
+          providerEntityId: company.providerCompanyId,
+          domain: company.domain,
+        })),
+      });
+      let pageProviderSeenHits = 0;
+      if (seenPlan.record) {
+        pageProviderSeenHits = countProviderSeenHits(providerSeenMemory, seenPlan.observations);
+        providerSeenHitsTotal += pageProviderSeenHits;
+        providerSeenNovelTotal += seenPlan.observations.length - pageProviderSeenHits;
+        if (recordProviderSeen) {
+          try {
+            const written = await recordProviderSeen({
+              observations: seenPlan.observations,
+              correlationId: providerSeenCorrelationId,
+              observedAt: providerSeenNow(),
+            });
+            providerSeenNewIdsTotal += written.newIdsRecorded;
+            providerSeenNewDomainsTotal += written.newDomainsRecorded;
+            // 🔴 `written === false` con un motivo NO es un no-evento: significa que
+            // esta página, ya pagada, no quedó recordada y la próxima corrida la
+            // volverá a pagar. Se cuenta para que el 0 de arriba se pueda leer.
+            //
+            // 🔴 «Sin observaciones» NO cuenta: es una respuesta válida sin nada
+            // identificable, no una escritura perdida. Contarla convertiría el
+            // indicador en ruido justo cuando más falta hace que se lea.
+            if (
+              !written.written &&
+              written.skippedReason !== null &&
+              written.skippedReason !== 'no_observations'
+            ) {
+              providerSeenWriteFailures++;
+              providerSeenLastWriteSkippedReason = written.skippedReason;
+            }
+          } catch {
+            // 🔴 Fail-open hacia el producto, pero NO en silencio hacia el operador:
+            // la página YA está pagada y sus empresas ya están en la mano, así que un
+            // fallo de memoria no puede tirar la corrida —eso convertiría una mejora
+            // económica en una forma nueva de perder lo que se acaba de comprar—,
+            // pero sí queda contado.
+            providerSeenWriteFailures++;
+            providerSeenLastWriteSkippedReason = 'record_threw';
+          }
+        }
+      }
 
-    for (const candidate of resolved) {
-      if (candidate.resolution.dbDuplicateStatus === 'exact_duplicate') {
-        // Exact duplicates are excluded from persistence — never reviewable.
-        // We keep a safe, auditable detail record (Q3F-5BB.7D).
-        excludedExactDuplicates.push(buildLushaExcludedExactDuplicate(candidate));
-      } else {
+      const dedupe = dedupeLushaCompaniesByIdentity(search.results ?? [], identityRegistry);
+      identityRegistry = dedupe.registry;
+      skippedUnusableCount += dedupe.unusableCount;
+      crossBranchDuplicatesRemoved += dedupe.duplicateCount;
+      branchDuplicatesRemoved += dedupe.duplicateCount;
+      for (const reason of Object.keys(duplicateReasonCounts) as LushaIdentityDuplicateReason[]) {
+        duplicateReasonCounts[reason] += dedupe.duplicateReasonCounts[reason];
+      }
+      normalizedCount += dedupe.unique.length;
+      branchUniqueResults += dedupe.unique.length;
+
+      // Provider-neutral criteria for the shared gate + enrichment. Built from the
+      // (server-authoritative) request summary; stable across pages.
+      const criteria = buildLushaProspectSearchCriteria(input, search);
+
+      const { resolved, guardSkippedCount, hardExcluded, gate, enrichment } =
+        await resolveLushaCandidatesDuplicateState(deps, input, dedupe.unique, criteria);
+      skippedActiveDuplicatesCount += guardSkippedCount;
+
+      // Merge the page's gate + enrichment summaries into the batch accumulators.
+      excludedByMandatoryGate.push(...hardExcluded);
+      gateSummary.hardExcludedCount += gate.hardExcludedCount;
+      gateSummary.warningCount += gate.warningCount;
+      gateSummary.cleanCount += gate.cleanCount;
+      for (const [reason, count] of Object.entries(gate.reasonCounts)) {
+        gateSummary.reasonCounts[reason] = (gateSummary.reasonCounts[reason] ?? 0) + count;
+      }
+      enrichmentSummary.matchedCount += enrichment.matchedCount;
+      enrichmentSummary.lowConfidenceCount += enrichment.lowConfidenceCount;
+      enrichmentSummary.notFoundCount += enrichment.notFoundCount;
+      enrichmentSummary.unsupportedCount += enrichment.unsupportedCount;
+      enrichmentSummary.errorCount += enrichment.errorCount;
+
+      // ── Aceptación: duplicado exacto → precisión → tope de objetivo ──
+      //
+      // AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 §§ 2, 3, 5, 7. El orden importa y los
+      // tres desenlaces son DISTINTOS entre sí; mezclarlos fue lo que hizo
+      // ilegible la corrida de producción:
+      //
+      //   · duplicado exacto  — ya existe en SellUp/HubSpot. Conteo de dedupe.
+      //   · precisión         — existe y es nueva, pero el catálogo NO confirma
+      //                         que pertenezca a la macro pedida. NO es duplicado.
+      //   · sobrante          — nueva Y precisa, pero el objetivo ya está cerrado.
+      //                         Tampoco es duplicado, y la página ya se pagó.
+      const branchProvenance = describeLushaBranchProvenance(branch, branchIndex);
+      // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 17 — cuánto rindió ESTA
+      // página. Se toma antes de repartir para poder decidir, al terminarla, si
+      // vale la pena pagar la siguiente de la misma rama.
+      const usefulBeforePage = useful.length;
+      const overflowBeforePage = targetOverflowDiscarded;
+      for (const candidate of resolved) {
+        if (candidate.resolution.dbDuplicateStatus === 'exact_duplicate') {
+          // Exact duplicates are excluded from persistence — never reviewable.
+          // We keep a safe, auditable detail record (Q3F-5BB.7D).
+          excludedExactDuplicates.push(buildLushaExcludedExactDuplicate(candidate));
+          continue;
+        }
+
+        // § 5 — la precisión sólo gobierna la ruta MODERNA. Sin `plan.macroKey`
+        // no hay macro industria contra la que juzgar, y la corrida legacy de un
+        // sector se comporta exactamente como hoy. Ausencia = comportamiento
+        // actual, no una degradación silenciosa.
+        if (macroKeyForPrecision !== null) {
+          const precision = assessLushaMacroPrecision({
+            macroIndustryKey: macroKeyForPrecision,
+            branch,
+            branchIndex,
+            declaredIndustry: candidate.company.industry,
+          });
+          precisionReasonCounts[precision.reason] =
+            (precisionReasonCounts[precision.reason] ?? 0) + 1;
+          if (!isLushaMacroPrecisionAdmitted(precision)) {
+            // NO cierra hueco, NO se persiste, y NO cuenta como duplicado.
+            precisionRejectedTotal++;
+            branchPrecisionRejected++;
+            continue;
+          }
+          reviewableFoundTotal++;
+          // § 2 — el tope de ACEPTACIÓN. El de peticiones ya paró de pedir; éste
+          // impide rebasar el objetivo dentro de una página ya pagada.
+          if (!canAcceptLushaUsefulCandidate(targetGap, useful.length)) {
+            targetOverflowDiscarded++;
+            branchTargetOverflow++;
+            continue;
+          }
+          // § 12 — AQUÍ, y sólo aquí, una empresa cierra hueco.
+          useful.push({ ...candidate, branchProvenance, macroPrecision: precision });
+          continue;
+        }
+
+        reviewableFoundTotal++;
+        if (!canAcceptLushaUsefulCandidate(targetGap, useful.length)) {
+          targetOverflowDiscarded++;
+          branchTargetOverflow++;
+          continue;
+        }
         useful.push(candidate);
       }
+
+      // ── § 16 + AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 17-19 ─────────
+      //
+      // La página ya está pagada. La pregunta es si la SIGUIENTE de esta rama
+      // puede rendir algo distinto, y la única evidencia disponible para
+      // responderla es lo que acaba de rendir ésta. En la corrida de producción
+      // del 2026-08-19 las tres ramas compraron su página 2 después de que su
+      // página 1 devolviera cero empresas útiles nuevas: tres peticiones pagadas
+      // para releer un pozo que la anterior ya había demostrado seco.
+      //
+      // `novelUsefulFromPage` cuenta lo que sobrevivió a TODOS los filtros de
+      // novedad —dedupe de corrida, guard de candidato activo, duplicado exacto y
+      // precisión de macro— incluido lo que después descartó el tope de
+      // aceptación de #306 por sobrepasar el objetivo. Esa inclusión no es un
+      // detalle: una página que encontró cinco empresas buenas y sólo pudo
+      // aceptar una porque el objetivo se cerró es el mejor resultado posible, y
+      // contarla como «sin novedad» la calumniaría.
+      //
+      // 🔴 Cierra la RAMA, jamás la corrida (§ 19). Que `main 11 Healthcare` venga
+      // seca no dice nada sobre `main 12 + sub 71 Pharmaceuticals Manufacturing`:
+      // consultan universos distintos. Por eso no se toca `stopReason` ni
+      // `runStopped` — igual que no lo hacía el `pageRaw === 0` que esta decisión
+      // sustituye y absorbe (0 filas ⇒ 0 novedad, con su propio motivo).
+      const novelUsefulFromPage =
+        useful.length - usefulBeforePage + (targetOverflowDiscarded - overflowBeforePage);
+      const continuation = decidePaidPageContinuation({
+        rawFromPage: pageRaw,
+        novelUsefulFromPage,
+      });
+      // ADDENDUM PROVIDER-SEEN § 10 — rendimiento de ESTA página, ya pagada.
+      providerSeenPageYields.push({
+        branchIndex,
+        page,
+        rawResults: pageRaw,
+        providerSeenHits: pageProviderSeenHits,
+        novelAfterProviderSeen: Math.max(0, pageRaw - pageProviderSeenHits),
+        novelUsefulAfterLocalDedupe: novelUsefulFromPage,
+      });
+
+      if (!continuation.continueBranch) {
+        providerSeenBranchStopReasons[branchIndex] = continuation.stopReason;
+        const remainingPages = LUSHA_PENDING_REVIEW_MAX_PAGES - (page + 1);
+        if (remainingPages > 0) pagesSkippedZeroNovelty += remainingPages;
+        break;
+      }
     }
+
+    const remainingGapAfter = resolveLushaRemainingGap(targetGap, useful.length);
+    pushBranchTelemetry(branchIndex, branch, branchOutcome, {
+      pagesAttempted: branchPagesAttempted,
+      providerRequests: branchProviderRequests,
+      rawResults: branchRawResults,
+      duplicatesRemoved: branchDuplicatesRemoved,
+      uniqueResults: branchUniqueResults,
+      usefulResults: useful.length - usefulBeforeBranch,
+      remainingGapBefore,
+      remainingGapAfter,
+      providerCreditsReported: branchCredits,
+      precisionRejected: branchPrecisionRejected,
+      targetOverflowDiscarded: branchTargetOverflow,
+    });
   }
 
+  // Error duro: la primera petición falló y no hay nada que conservar.
+  if (hardFailure !== null) return hardFailure;
+
+  const remainingGapFinal = resolveLushaRemainingGap(targetGap, useful.length);
+  if (remainingGapFinal <= 0 && !runStopped) stopReason = 'target_reached';
+  // El techo y el agotamiento de ramas COINCIDEN cuando cada rama gastó todas sus
+  // páginas: los bucles terminan solos y nadie llega a rechazar una petición. Con
+  // el hueco todavía abierto, lo que paró la corrida fue el techo —no la falta de
+  // ramas— y reportarlo como `branches_exhausted` escondería que hubo recorte.
+  if (
+    stopReason === 'branches_exhausted' &&
+    remainingGapFinal > 0 &&
+    providerRequestsUsed >= providerRequestsAllowed
+  ) {
+    stopReason = 'request_cap_reached';
+  }
+  // «Sin resultados» sólo cuando el proveedor no devolvió NI UNA fila: es distinto
+  // de «devolvió y todo era duplicado», que ya se explica con los conteos.
+  if (rawResultsTotal === 0 && stopReason === 'branches_exhausted') {
+    stopReason = 'no_results';
+  }
+
+  const pagesRequested = providerRequestsUsed;
+
   const excludedExactDuplicatesCount = excludedExactDuplicates.length;
-  const totalSkipped = skippedUnusableCount + skippedActiveDuplicatesCount;
+  // `skippedCount` conserva su significado de siempre: todo lo que el proveedor
+  // devolvió y no llegó a candidato por identidad — filas impersistibles,
+  // duplicados de identidad (antes «duplicados de dominio/nombre») y descartes
+  // fuertes del guard de activos. Dejar fuera los duplicados de identidad habría
+  // hecho que la UI dijera «0 omitidas» tras descartar la mitad de la página.
+  const totalSkipped =
+    skippedUnusableCount + crossBranchDuplicatesRemoved + skippedActiveDuplicatesCount;
   const topUpTriggered = pagesRequested > 1;
   const possibleDuplicatesCount = useful.filter(
     (c) => c.resolution.dbDuplicateStatus === 'possible_duplicate',
@@ -1444,9 +2161,62 @@ export async function persistLushaPendingReviewBatch(
     (c) => c.enriched?.strongIdentityAvailable === true,
   ).length;
 
+  // §§ 18/19 — telemetría de corrida y de rama. Sin PII y sin payload del
+  // proveedor: ids de industria, conteos, créditos y motivos.
+  const runTelemetry: LushaRunTelemetry = {
+    macroKey: plan?.macroKey ?? null,
+    targetGap,
+    branchCountPlanned: branches.length,
+    branchCountAttempted: branchTelemetry.filter((b) => b.providerRequests > 0).length,
+    providerRequestsAllowed,
+    providerRequestsUsed,
+    pagesSkippedZeroNovelty,
+    maxRawResults: LUSHA_RUN_MAX_RAW_RESULTS,
+    rawResultsTotal,
+    crossBranchDuplicatesRemoved,
+    duplicateReasonCounts,
+    uniqueResultsTotal: normalizedCount,
+    usefulResultsTotal: useful.length,
+    reviewableFoundTotal,
+    acceptedForTargetTotal: useful.length,
+    targetOverflowDiscarded,
+    precisionRejectedTotal,
+    precisionReasonCounts,
+    remainingGapFinal,
+    creditsReserved: execution?.creditsReserved ?? null,
+    creditsReportedActual: creditsChargedTotal,
+    stopReason,
+    branches: branchTelemetry,
+    // ── ADDENDUM PROVIDER-SEEN § 10 ──
+    //
+    // Sólo se rellena cuando el llamador pasó la memoria: sin ella el bloque no
+    // se emite y la metadata del lote conserva su forma exacta previa al PR.
+    ...(execution?.providerSeen
+      ? {
+          providerSeen: {
+            rawResults: rawResultsTotal,
+            providerSeenHits: providerSeenHitsTotal,
+            novelAfterProviderSeen: providerSeenNovelTotal,
+            novelUsefulAfterLocalDedupe: reviewableFoundTotal,
+            newIdsRecorded: providerSeenNewIdsTotal,
+            newDomainsRecorded: providerSeenNewDomainsTotal,
+            pageYields: providerSeenPageYields,
+            branchStopReasons: providerSeenBranchStopReasons,
+            writeFailures: providerSeenWriteFailures,
+            lastWriteSkippedReason: providerSeenLastWriteSkippedReason,
+          },
+          providerSeenLoad: execution.providerSeenLoad,
+          providerExclusionPlan: execution.providerExclusionPlan,
+          freeSource: execution.freeSource,
+        }
+      : {}),
+  };
+
   const baseMetrics = {
     pagesRequested,
-    expectedMaxCredits: LUSHA_PENDING_REVIEW_EXPECTED_MAX_CREDITS,
+    // Techo de la CORRIDA (ramas × techo por rama): 1 rama → 2 · 2 → 4 · 3 → 6.
+    // Es el mismo producto del que sale la reserva, no una segunda cuenta.
+    expectedMaxCredits,
     creditsChargedTotal,
     excludedExactDuplicatesCount,
     skippedActiveDuplicatesCount,
@@ -1454,6 +2224,19 @@ export async function persistLushaPendingReviewBatch(
     topUpTriggered,
     hardExcludedByGateCount,
     enrichedWithOfficialSourceCount,
+    providerRequestsAllowed,
+    providerRequestsUsed,
+    branchCountPlanned: branches.length,
+    branchCountAttempted: runTelemetry.branchCountAttempted,
+    targetGap,
+    remainingGapFinal,
+    crossBranchDuplicatesRemoved,
+    rawResultsTotal,
+    stopReason,
+    reviewableFoundTotal,
+    targetOverflowDiscarded,
+    precisionRejectedTotal,
+    multiBranch: runTelemetry,
   };
 
   if (useful.length === 0) {
@@ -1495,6 +2278,7 @@ export async function persistLushaPendingReviewBatch(
       gateSummary,
       excludedByMandatoryGate,
       enrichmentSummary,
+      multiBranchTelemetry: runTelemetry,
     },
   );
   // Q3F-5BB.11D — additively stamp the OBSERVATIONAL routing metadata on the
@@ -1521,7 +2305,7 @@ export async function persistLushaPendingReviewBatch(
               },
               {
                 role: 'primary',
-                rawCount,
+                rawCount: rawResultsTotal,
                 normalizedCount,
                 gateExcludedCount: hardExcludedByGateCount,
                 exactDuplicateCount: excludedExactDuplicatesCount,

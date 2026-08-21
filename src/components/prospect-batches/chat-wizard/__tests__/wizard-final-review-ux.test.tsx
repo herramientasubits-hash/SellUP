@@ -84,7 +84,8 @@ const EMPTY_OK: PreviewLushaCompaniesActionResult = {
     country: 'Colombia',
     countryCode: 'CO',
     sector: 'Tecnología',
-    sectorKey: 'technology',
+    industryKey: 'technology',
+    macroIndustryKey: 'technology',
     mainIndustriesIds: [7],
     subIndustryId: null,
     sizeBand: { min: 201, max: 5000 },
@@ -175,7 +176,7 @@ const LUSHA_DECISION: WizardLushaCriteriaDecision = {
   reason: 'test',
   input: {
     countryCode: 'CO',
-    sectorKey: 'technology',
+    macroIndustryKey: 'technology',
     subIndustryId: null,
     sizeBandKey: '201-5000',
     searchText: CRITERIA_TEXT,
@@ -266,17 +267,30 @@ describe('WizardConversationSummary — final review UX (Q3F-5BB.3F)', () => {
     assert.equal(screen.queryByTestId('lusha-preview-readonly-notice'), null);
   });
 
-  it('cost notice is non-contractual: no fixed credit promise, shape + billing basis (Q3F-5BB.10A)', () => {
+  // AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0 — ratchet INVERTIDO.
+  //
+  // Hasta el ejecutor multirrama, «2 páginas / 10 por página / hasta 20 empresas»
+  // describía honestamente la forma de CUALQUIER corrida de Lusha, y esta prueba
+  // exigía esas tres cifras. Con el ejecutor Macro-v2 una macro de 3 ramas hace
+  // hasta 6 peticiones y puede devolver hasta 60 filas: la misma frase pasó de
+  // garantía a promesa falsa. Ahora se exige lo contrario — ninguna cifra
+  // estática de forma — conservando lo que sigue siendo cierto (sin signals,
+  // facturación por plan, costo real al finalizar).
+  it('cost notice is non-contractual and carries NO stale static shape figures', () => {
     renderFinalReview();
     const notice = screen.getByTestId('lusha-preview-cost-notice').textContent ?? '';
     // A — the banned fixed-credit promises are gone.
     assert.doesNotMatch(notice, /hasta 2 créditos/i);
     assert.doesNotMatch(notice, /máx 2 créditos/i);
     assert.doesNotMatch(notice, /máximo 2 créditos/i);
-    // B — the honest guardrail shape + billing basis are present.
-    assert.match(notice, /2 páginas/i, 'max pages');
-    assert.match(notice, /10 resultados por página/i, 'page size');
-    assert.match(notice, /hasta 20 empresas/i, 'max returned companies');
+    // B — the stale shape figures are gone (they contradict the multibranch executor).
+    assert.doesNotMatch(notice, /hasta 2\b/i, 'no global 2-page ceiling');
+    assert.doesNotMatch(notice, /2 páginas/i, 'no global page ceiling');
+    assert.doesNotMatch(notice, /10 resultados por página/i, 'no global page size');
+    assert.doesNotMatch(notice, /hasta 20 empresas/i, 'no global company ceiling');
+    assert.doesNotMatch(notice, /\b(20|60)\b/, 'no static row ceiling');
+    // C — what stays true regardless of the plan.
+    assert.match(notice, /plan configurado para la macroindustria/i, 'plan-aware wording');
     assert.match(notice, /sin signals/i, 'no signals');
     assert.match(notice, /facturable según tu plan de Lusha/i, 'billing basis');
     assert.match(notice, /costo real/i, 'real cost reported later');
@@ -322,12 +336,18 @@ describe('WizardConversationSummary — final review UX (Q3F-5BB.3F)', () => {
     // PERSIST_OK reports creditsChargedTotal=1, resultsReturned=4, pagesRequested=1.
     assert.equal(screen.getByTestId('wizard-lusha-persist-credits').textContent, '1');
     assert.equal(screen.getByTestId('wizard-lusha-persist-results-returned').textContent, '4');
-    assert.equal(screen.getByTestId('wizard-lusha-persist-pages').textContent, '1 / 2');
+    // § P0 — sin denominador estático: «/ 2» era el techo de una sola rama.
+    assert.equal(screen.getByTestId('wizard-lusha-persist-pages').textContent, '1');
     // No fixed-credit promise in the confirmation.
     const confirmationText =
       screen.getByTestId('wizard-lusha-persist-confirmation').textContent ?? '';
     assert.doesNotMatch(confirmationText, /máx 2 créditos/i);
     assert.doesNotMatch(confirmationText, /\/ máx 2/i);
-    assert.match(confirmationText, /hasta 20 empresas/i, 'billing basis note');
+    assert.doesNotMatch(confirmationText, /hasta 20 empresas/i, 'no stale company ceiling');
+    assert.match(
+      screen.getByTestId('wizard-lusha-persist-billing-note').textContent ?? '',
+      /según tu plan de Lusha/i,
+      'billing basis note',
+    );
   });
 });

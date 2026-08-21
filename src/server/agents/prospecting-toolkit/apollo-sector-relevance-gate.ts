@@ -33,6 +33,12 @@
  */
 
 import type { WebSearchResult } from './types';
+import {
+  APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED,
+  decideApolloSectorEvidenceBootstrapForCandidate,
+  type ApolloSectorEvidenceBootstrapAuthorization,
+  type ApolloSectorEvidenceBootstrapCandidateDecision,
+} from './apollo-sector-evidence-bootstrap';
 import { normalizeRequestedSubindustries } from './apollo-subindustry-precision';
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
@@ -824,12 +830,21 @@ export function applyApolloSectorRelevanceGateAnyOf(
  *   enrichment (su orden ambiguity-first enriquece estos candidatos PRIMERO,
  *   Q3F-5AV.2). Es elegible bajo el cap — deliberadamente NO es un passthrough
  *   genérico: es un motivo estructurado que dice por qué se paga.
+ *
+ * `sector_evidence_missing_bootstrap_eligible`
+ *   SECTOR-EVIDENCE-BOOTSTRAP-1 — no hay política para este sector Y el proveedor
+ *   tampoco describió nada, pero la corrida está autorizada a ADQUIRIR evidencia
+ *   (criterios del catálogo activo, cobertura de consulta completa, versión
+ *   coherente, búsqueda real emitida). Es el único estado nuevo, y significa
+ *   exactamente «se puede preguntar», nunca «está confirmado»: no confirma sector
+ *   ni subindustria, no cuenta para el objetivo y no mueve ningún cap.
  */
 export type ApolloPaidSectorRelevanceDecision =
   | 'relevant'
   | 'sector_not_mapped'
   | 'sector_relevance_contradicted'
-  | 'sector_evidence_missing_needs_enrichment';
+  | 'sector_evidence_missing_needs_enrichment'
+  | 'sector_evidence_missing_bootstrap_eligible';
 
 export type ApolloPaidSectorRelevanceResult = {
   decision: ApolloPaidSectorRelevanceDecision;
@@ -839,6 +854,34 @@ export type ApolloPaidSectorRelevanceResult = {
   subindustrySignalUsed: boolean;
   /** Campos con carga sectorial que el proveedor sí entregó. */
   sectorEvidenceFields: string[];
+  /**
+   * SECTOR-EVIDENCE-BOOTSTRAP-1 — veredicto de adquisición cuando NO hay política
+   * de sector. Ausente cuando la pregunta no llegó a plantearse porque sí la había.
+   */
+  bootstrap?: ApolloSectorEvidenceBootstrapCandidateDecision | null;
+  /**
+   * POST-ENRICHMENT-ADMISSION-1 — ¿existía una política legacy (`SECTOR_SIGNAL_TERMS`)
+   * con la que juzgar a este candidato?
+   *
+   * Hasta este hito la ausencia de política sólo era observable por implicación
+   * —`sector_not_mapped` se devuelve ÚNICAMENTE desde la rama sin política—, y la
+   * precedencia de admisión del § 9 no puede depender de una implicación: si mañana
+   * otro camino produjera ese mismo veredicto, la vía nueva se activaría donde la
+   * legacy sí tenía algo que decir. Aquí es un hecho declarado.
+   *
+   * No cambia ninguna decisión: es puramente informativo para el consumidor.
+   */
+  sectorPolicyPresent: boolean;
+};
+
+/** Opciones de evaluación. Ausentes ⇒ comportamiento idéntico al previo al hito. */
+export type ApolloPaidSectorRelevanceOptions = {
+  /**
+   * Autorización de la CORRIDA para adquirir evidencia clasificatoria ausente.
+   * Ausente ⇒ no autorizada: un sector sin política sigue siendo
+   * `sector_not_mapped`, exactamente como antes.
+   */
+  sectorEvidenceBootstrap?: ApolloSectorEvidenceBootstrapAuthorization | null;
 };
 
 // ─── A1-APOLLO-TWO-ROUND-QUALITY-1 § 5 — clasificación de la industria ────────
@@ -1034,6 +1077,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
   result: WebSearchResult,
   sector: string | null | undefined,
   subindustry?: string | null,
+  options?: ApolloPaidSectorRelevanceOptions,
 ): ApolloPaidSectorRelevanceResult {
   const subindustryEntry = subindustry ? getSectorSignalEntry(subindustry) : null;
   const entry = subindustryEntry ?? getSectorSignalEntry(sector);
@@ -1041,11 +1085,29 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
   const sectorEvidenceFields = collectSectorEvidenceFields(result);
 
   if (!entry) {
+    // SECTOR-EVIDENCE-BOOTSTRAP-1 — sin política, la pregunta ya no es una sola.
+    //
+    //   el proveedor declaró algo  → `sector_not_mapped`. Hay evidencia y no hay
+    //                                política con que juzgarla; comprar más
+    //                                descripción no crea la política que falta.
+    //   el proveedor no declaró
+    //   nada, y la corrida está
+    //   autorizada                 → puede ADQUIRIRLA. No confirma nada.
+    //   cualquier otro caso        → `sector_not_mapped`, como antes del hito.
+    const bootstrap = decideApolloSectorEvidenceBootstrapForCandidate({
+      authorization:
+        options?.sectorEvidenceBootstrap ?? APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED,
+      providerSectorEvidenceFields: sectorEvidenceFields,
+    });
     return {
-      decision: 'sector_not_mapped',
+      decision: bootstrap.bootstrapEligible
+        ? 'sector_evidence_missing_bootstrap_eligible'
+        : 'sector_not_mapped',
       matchedTerms: [],
       subindustrySignalUsed,
       sectorEvidenceFields,
+      bootstrap,
+      sectorPolicyPresent: false,
     };
   }
 
@@ -1053,7 +1115,13 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
   const matchedTerms = findMatchedTerms(text, entry.signals);
 
   if (matchedTerms.length > 0) {
-    return { decision: 'relevant', matchedTerms, subindustrySignalUsed, sectorEvidenceFields };
+    return {
+      decision: 'relevant',
+      matchedTerms,
+      subindustrySignalUsed,
+      sectorEvidenceFields,
+      sectorPolicyPresent: true,
+    };
   }
 
   // A1-APOLLO-TWO-ROUND-QUALITY-1 § 5 — sin señales específicas, la INDUSTRIA
@@ -1077,6 +1145,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
       matchedTerms: [],
       subindustrySignalUsed,
       sectorEvidenceFields,
+      sectorPolicyPresent: true,
     };
   }
   if (industryClass === 'broad_compatible') {
@@ -1085,6 +1154,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
       matchedTerms: [],
       subindustrySignalUsed,
       sectorEvidenceFields,
+      sectorPolicyPresent: true,
     };
   }
 
@@ -1096,6 +1166,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
     matchedTerms: [],
     subindustrySignalUsed,
     sectorEvidenceFields,
+    sectorPolicyPresent: true,
   };
 }
 
@@ -1127,9 +1198,15 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
  * gasto, así que el orden entre ellas sólo elige el motivo que se reporta.
  */
 const PAID_SECTOR_RELEVANCE_PRECEDENCE: Record<ApolloPaidSectorRelevanceDecision, number> = {
-  relevant: 4,
-  sector_evidence_missing_needs_enrichment: 3,
-  sector_relevance_contradicted: 2,
+  relevant: 5,
+  sector_evidence_missing_needs_enrichment: 4,
+  sector_relevance_contradicted: 3,
+  // SECTOR-EVIDENCE-BOOTSTRAP-1 — por DEBAJO de la contradicción a propósito. Las
+  // dos son inalcanzables a la vez (contradecir exige evidencia declarada, y la
+  // adquisición exige que no la haya), pero si alguna vez se cruzaran, no gastar
+  // es la respuesta correcta. Por encima de `sector_not_mapped`: poder preguntar
+  // gana a no poder, y ninguna de las dos confirma nada.
+  sector_evidence_missing_bootstrap_eligible: 2,
   sector_not_mapped: 1,
 };
 
@@ -1177,12 +1254,13 @@ export function evaluateApolloSectorRelevanceForPaidOperationAnyOf(
   result: WebSearchResult,
   sector: string | null | undefined,
   requestedSubindustries: readonly (string | null | undefined)[] | null | undefined,
+  options?: ApolloPaidSectorRelevanceOptions,
 ): ApolloPaidSectorRelevanceAnyOfResult {
   const requested = normalizeRequestedSubindustries(requestedSubindustries);
 
   if (requested.length === 0) {
     return {
-      ...evaluateApolloSectorRelevanceForPaidOperation(result, sector, null),
+      ...evaluateApolloSectorRelevanceForPaidOperation(result, sector, null, options),
       requestedSubindustries: [],
       matchedRequestedSubindustry: null,
       perRequestedSubindustryDecisions: [],
@@ -1191,7 +1269,7 @@ export function evaluateApolloSectorRelevanceForPaidOperationAnyOf(
 
   const evaluated = requested.map((label) => ({
     label,
-    assessment: evaluateApolloSectorRelevanceForPaidOperation(result, sector, label),
+    assessment: evaluateApolloSectorRelevanceForPaidOperation(result, sector, label, options),
   }));
 
   // Estable: sólo una precedencia ESTRICTAMENTE mayor desplaza al ganador, así que
@@ -1208,6 +1286,13 @@ export function evaluateApolloSectorRelevanceForPaidOperationAnyOf(
 
   return {
     ...winner.assessment,
+    // POST-ENRICHMENT-ADMISSION-1 — la presencia de política legacy es del ANY-OF
+    // entero, no del ganador. `entry` se resuelve por etiqueta
+    // (`subindustryEntry ?? sectorEntry`), así que con un sector sin política y dos
+    // subindustrias de las que sólo una tiene señales propias, el ganador puede ser
+    // la que NO las tiene. Reportar entonces «sin política» abriría la vía nueva
+    // sobre una petición donde la legacy sí tenía algo que decir. OR = conservador.
+    sectorPolicyPresent: evaluated.some(({ assessment }) => assessment.sectorPolicyPresent),
     requestedSubindustries: requested,
     matchedRequestedSubindustry: winner.label,
     perRequestedSubindustryDecisions: evaluated.map(({ label, assessment }) => ({

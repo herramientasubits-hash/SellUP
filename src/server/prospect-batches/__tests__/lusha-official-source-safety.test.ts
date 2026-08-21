@@ -1,11 +1,17 @@
 /**
- * Q3F-5BB.10C2 — static safety for the Lusha official-source resolver wiring.
+ * Q3F-5BB.10C2 / AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — static safety for the
+ * provider-neutral official-source resolver wiring shared by Lusha AND Apollo.
  *
  * Locks the "safe client" boundary required by 10C1/10C2:
  *   - The CO resolver (pure intake layer) NEVER builds a client / reads env / does DB.
  *   - The snapshot-query boundary is READ-ONLY (no insert/update/delete/upsert).
  *   - The wiring uses the APPROVED `createSupabaseAdminClient` factory — never an
  *     inline `createClient(process.env…)` — and only for a read.
+ *
+ * The wiring file moved from `lusha-official-source-resolvers.ts` to the
+ * provider-neutral `official-source-resolvers.ts` (both Lusha and Apollo now
+ * import the SAME factory) — this test targets the new location so the same
+ * invariants keep holding for both callers.
  */
 
 import { describe, it } from 'node:test';
@@ -18,7 +24,7 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
 
 const RESOLVER = read('src/server/agents/prospect-intake/resolvers/colombia-official-source-resolver.ts');
 const QUERY = read('src/server/prospect-batches/colombia-snapshot-query.ts');
-const WIRING = read('src/server/prospect-batches/lusha-official-source-resolvers.ts');
+const WIRING = read('src/server/prospect-batches/official-source-resolvers.ts');
 
 /** Strip comments so forbidden-pattern checks target real CODE only. */
 function code(src: string): string {

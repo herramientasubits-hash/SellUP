@@ -15,7 +15,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   persistLushaPendingReviewBatch,
-  dedupeLushaCompanies,
+  dedupeLushaCompaniesByIdentity,
   buildLushaPendingReviewCandidateRows,
   buildLushaPendingReviewBatchRow,
   normalizeLushaCompanyName,
@@ -29,6 +29,7 @@ import {
   type LushaPendingReviewBatchRow,
   type LushaPendingReviewCandidateRow,
 } from '@/server/prospect-batches/lusha-pending-review';
+import { createLushaRunIdentityRegistry } from '@/server/prospect-batches/lusha-run-identity-registry';
 import type {
   LushaPreviewCompany,
   LushaPreviewResult,
@@ -56,7 +57,7 @@ function noDuplicateResult(input: DuplicateCheckInput): DuplicateCheckResult {
 
 const INPUT: LushaPreviewInput = {
   countryCode: 'CO',
-  sectorKey: 'healthcare',
+  macroIndustryKey: 'health_pharma',
   subIndustryId: null,
   sizeBandKey: '201-5000',
   searchText: null,
@@ -64,9 +65,28 @@ const INPUT: LushaPreviewInput = {
 
 const ACTOR = { internalUserId: 'user-1' };
 
+/**
+ * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 10 — la identidad por defecto se
+ * DERIVA del dominio (o del nombre) de cada empresa.
+ *
+ * Antes la fábrica daba `providerCompanyId: 'pc-1'` y la misma URL de LinkedIn a TODAS. Mientras el
+ * dedupe miraba sólo el dominio eso era inofensivo; con el registro de identidad
+ * de la corrida deja de serlo, porque dos filas que declaran ser empresas
+ * distintas —dominios distintos— afirmaban a la vez ser la MISMA empresa del
+ * proveedor. La contradicción estaba en la fábrica, no en el dedupe: dos filas con
+ * el mismo id de empresa del proveedor SON la misma empresa.
+ *
+ * Derivarla mantiene el determinismo y no depende del orden de ejecución. Una
+ * prueba que quiera un duplicado lo dice explícitamente (mismo dominio, mismo
+ * nombre, o un `providerCompanyId` repetido a mano).
+ */
+function identitySlug(domain: string | null, name: string | null): string {
+  const base = domain ?? name ?? 'sin-identidad';
+  return base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'sin-identidad';
+}
+
 function company(overrides: Partial<LushaPreviewCompany> = {}): LushaPreviewCompany {
-  return {
-    providerCompanyId: 'pc-1',
+  const merged = {
     name: 'Clínica Andes',
     domain: 'clinicaandes.com',
     country: 'Colombia',
@@ -75,11 +95,19 @@ function company(overrides: Partial<LushaPreviewCompany> = {}): LushaPreviewComp
     employeesExact: 320,
     employeesMin: null,
     employeesMax: null,
-    linkedinUrl: 'https://linkedin.com/company/andes',
     score: 92,
     passesGate: true,
     issues: [],
     ...overrides,
+  };
+  const slug = identitySlug(merged.domain ?? null, merged.name ?? null);
+  return {
+    ...merged,
+    providerCompanyId: overrides.providerCompanyId ?? `pc-${slug}`,
+    linkedinUrl:
+      overrides.linkedinUrl !== undefined
+        ? overrides.linkedinUrl
+        : `https://linkedin.com/company/${slug}`,
   };
 }
 
@@ -94,7 +122,8 @@ function successResult(results: LushaPreviewCompany[]): LushaPreviewResult {
       country: 'Colombia',
       countryCode: 'CO',
       sector: 'Salud',
-      sectorKey: 'healthcare',
+      industryKey: 'health_pharma',
+      macroIndustryKey: 'health_pharma',
       mainIndustriesIds: [11],
       subIndustryId: null,
       sizeBand: { min: 201, max: 5000 },
@@ -114,7 +143,8 @@ function errorResult(): LushaPreviewResult {
       country: 'Colombia',
       countryCode: 'CO',
       sector: 'Salud',
-      sectorKey: 'healthcare',
+      industryKey: 'health_pharma',
+      macroIndustryKey: 'health_pharma',
       mainIndustriesIds: [11],
       subIndustryId: null,
       sizeBand: null,
@@ -137,7 +167,8 @@ function emptySecondPage(): LushaPreviewResult {
       country: 'Colombia',
       countryCode: 'CO',
       sector: 'Salud',
-      sectorKey: 'healthcare',
+      industryKey: 'health_pharma',
+      macroIndustryKey: 'health_pharma',
       mainIndustriesIds: [11],
       subIndustryId: null,
       sizeBand: { min: 201, max: 5000 },
@@ -185,18 +216,26 @@ function makeDeps(search: LushaPreviewResult, secondPage: LushaPreviewResult = e
 
 // ── dedupe helper ─────────────────────────────────────────────────────────────
 
-describe('dedupeLushaCompanies', () => {
+describe('dedupeLushaCompaniesByIdentity', () => {
   it('13. dedupes by domain, then by normalized name, and skips unusable rows', () => {
+    // Identidades distintas explícitas: lo que se prueba aquí es el dominio y el
+    // nombre, así que el id de proveedor y LinkedIn no deben decidir por ellos.
     const list = [
-      company({ domain: 'acme.com', name: 'Acme' }),
-      company({ domain: 'https://www.acme.com/', name: 'Acme Dup' }), // dup domain
-      company({ domain: null, name: 'Solo Nombre' }),
-      company({ domain: null, name: 'solo nombre' }), // dup name
-      company({ domain: null, name: null }), // unusable (no name)
+      company({ providerCompanyId: 'a', linkedinUrl: null, domain: 'acme.com', name: 'Acme' }),
+      // dup por dominio (protocolo + www normalizados)
+      company({ providerCompanyId: 'b', linkedinUrl: null, domain: 'https://www.acme.com/', name: 'Acme Dup' }),
+      company({ providerCompanyId: 'c', linkedinUrl: null, domain: null, name: 'Solo Nombre' }),
+      // dup por nombre normalizado, que sólo decide porque no hay dominio
+      company({ providerCompanyId: 'd', linkedinUrl: null, domain: null, name: 'solo nombre' }),
+      // impersistible: sin nombre (columna NOT NULL). NO es un duplicado.
+      company({ providerCompanyId: 'e', linkedinUrl: null, domain: null, name: null }),
     ];
-    const { unique, skippedCount } = dedupeLushaCompanies(list);
-    assert.equal(unique.length, 2);
-    assert.equal(skippedCount, 3);
+    const result = dedupeLushaCompaniesByIdentity(list, createLushaRunIdentityRegistry());
+    assert.equal(result.unique.length, 2);
+    assert.equal(result.duplicateCount, 2);
+    assert.equal(result.unusableCount, 1);
+    assert.equal(result.duplicateReasonCounts.normalized_domain, 1);
+    assert.equal(result.duplicateReasonCounts.normalized_name_fallback, 1);
   });
 
   it('normalizeLushaCompanyName strips accents/case/punctuation', () => {

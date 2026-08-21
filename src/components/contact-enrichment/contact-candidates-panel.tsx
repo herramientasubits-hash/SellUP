@@ -1,11 +1,14 @@
-import { Inbox, Sparkles, Mail, Link2 } from 'lucide-react';
+import { Inbox, Sparkles, Mail, Link2, CopyCheck } from 'lucide-react';
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { MetricCard } from '@/components/shared/metric-card';
 import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
 import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { ContactsModuleTabsNav } from '@/components/navigation/contacts-module-tabs-nav';
 import { ContactCandidatesDataTableClient } from '@/components/contact-enrichment/contact-candidates-data-table-client';
-import { getPendingContactCandidates } from '@/modules/contact-enrichment/actions';
+import {
+  getDuplicateContactCandidates,
+  getPendingContactCandidates,
+} from '@/modules/contact-enrichment/actions';
 import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { getCurrentUser } from '@/modules/access/actions';
@@ -22,6 +25,15 @@ import { PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS } from '@/modules/contact-e
 // y Manager comercial. Resuelto server-side; el server action revalida el rol.
 const PHONE_REVEAL_AUTHORIZED_ROLE_KEYS = ['admin', 'commercial_manager'] as const;
 
+// 4O-H3-B-R1 / AGENT2A-P0-R2 — el tipo de cola vive en su propio módulo sin runtime para que
+// también lo pueda importar la tabla (client component) sin arrastrar este server component.
+export type { ContactCandidatesQueue } from './contact-candidates-panel-queue';
+import type { ContactCandidatesQueue } from './contact-candidates-panel-queue';
+
+interface ContactCandidatesPanelProps {
+  queue?: ContactCandidatesQueue;
+}
+
 /**
  * Tab "Candidatos por revisar" del módulo Contactos (Hito 17A.4A).
  *
@@ -31,10 +43,16 @@ const PHONE_REVEAL_AUTHORIZED_ROLE_KEYS = ['admin', 'commercial_manager'] as con
  * el header, los CTAs y el switcher de pills del módulo para no perder el wizard
  * conversacional ni "Crear contacto".
  */
-export async function ContactCandidatesPanel() {
+export async function ContactCandidatesPanel({
+  queue = 'pending',
+}: ContactCandidatesPanelProps = {}) {
+  const isDuplicateQueue = queue === 'duplicates';
+
   const [candidates, accountsList, accounts, scopeFilterOptions, currentUser] =
     await Promise.all([
-      getPendingContactCandidates(),
+      // 4O-H3-B-R1: dos colas, dos lecturas. Los duplicados NO se mezclan en el listado de
+      // pendientes: un duplicado ya tiene veredicto y lo que espera es otra decisión.
+      isDuplicateQueue ? getDuplicateContactCandidates() : getPendingContactCandidates(),
       getAccountsList(),
       getActiveAccountsForPicker(),
       getCommercialScopeFilterOptions(),
@@ -83,7 +101,7 @@ export async function ContactCandidatesPanel() {
     <DataTablePage
       title="Contactos"
       description="Centraliza decisores, sponsors y personas clave vinculadas a cuentas y prospectos."
-      tabs={<ContactsModuleTabsNav active="candidates" />}
+      tabs={<ContactsModuleTabsNav active={isDuplicateQueue ? 'duplicates' : 'candidates'} />}
       actions={
         <div className="flex items-center gap-2">
           <ContactsEnrichmentCTA />
@@ -92,16 +110,32 @@ export async function ContactCandidatesPanel() {
       }
       metrics={
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard
-            title="Por revisar"
-            description="Candidatos pendientes"
-            value={total}
-            icon={
-              <div className="rounded-lg p-1.5 bg-amber-500/10">
-                <Inbox className="h-4 w-4 text-amber-500" />
-              </div>
-            }
-          />
+          {/* 4O-H3-B-R1 (§ 11): el conteo NO cambia de significado. «Por revisar» sigue contando
+              sólo `pending_review`; los duplicados se cuentan en su propia tarjeta, en su propia
+              cola. Nunca se suman al mismo número. */}
+          {isDuplicateQueue ? (
+            <MetricCard
+              title="Duplicados"
+              description="Coinciden con un contacto existente"
+              value={total}
+              icon={
+                <div className="rounded-lg p-1.5 bg-muted/60">
+                  <CopyCheck className="h-4 w-4 text-muted-foreground" />
+                </div>
+              }
+            />
+          ) : (
+            <MetricCard
+              title="Por revisar"
+              description="Candidatos pendientes"
+              value={total}
+              icon={
+                <div className="rounded-lg p-1.5 bg-amber-500/10">
+                  <Inbox className="h-4 w-4 text-amber-500" />
+                </div>
+              }
+            />
+          )}
           <MetricCard
             title="Alta relevancia"
             description="Mejor encaje detectado"
@@ -137,6 +171,10 @@ export async function ContactCandidatesPanel() {
     >
       <ContactCandidatesDataTableClient
         candidates={candidates}
+        // AGENT2A-P0-R2: la tabla necesita saber en qué cola está. Sin esto su título y su
+        // estado vacío se anunciaban siempre como «Candidatos por revisar», contradiciendo
+        // a la pill «Duplicados» que estaba justo encima.
+        queue={queue}
         accountOwners={accountOwners}
         scopeFilterOptions={scopeFilterOptions}
         phoneRevealEnabled={phoneRevealEnabled}

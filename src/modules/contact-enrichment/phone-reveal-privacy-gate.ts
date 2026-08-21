@@ -32,10 +32,15 @@
 // créditos). Lo que importa del orden no es cuál gana, sino que sea SIEMPRE el
 // mismo: dos actores que evalúan al mismo candidato obtienen la misma razón.
 //
-// `not_evaluable` (sin Apollo person id resoluble o sin cuenta) se traduce a `clear`,
-// exactamente como en el START, el webhook y el recovery (FIX 4): sin clave no hay
-// tombstone que emparejar, y NO se bloquea por inferencia ni se hace matching difuso
-// por teléfono, email, nombre o LinkedIn.
+// `not_evaluable` (sin Apollo person id resoluble o sin cuenta) se traduce a
+// `check_unavailable` (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1): sin clave no hay
+// tombstone que emparejar, y eso NUNCA se resuelve por inferencia ni por matching
+// difuso (teléfono, email, nombre, LinkedIn) — pero tampoco se traduce ya a `clear`.
+// "No pude confirmar que NO está suprimido" nunca equivale a "no está suprimido", y
+// esta puerta es la que corre justo antes de llamar a LUSHA: un candidato sin clave
+// Apollo resoluble es, en la práctica, el caso típico de un candidato de origen
+// Lusha, exactamente el que un tombstone real no podía alcanzar por falta de clave.
+// Antes de este hito ese candidato pasaba como `clear` y Lusha se llamaba igual.
 //
 // ═══════════════════════════════════════════════════════════════════
 // LÍMITES
@@ -53,10 +58,11 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type { ContactSource } from './types';
 import type { PhoneRevealWaterfallSuppressionState } from './phone-reveal-waterfall-core';
 import {
-  evaluateInFlightPhoneSuppression,
-  resolveInFlightSuppressionPersonId,
-} from './phone-reveal-suppression-guard';
-import { readPhoneCacheSuppression } from './phone-cache-store';
+  evaluatePhoneRevealSuppression,
+  resolveInFlightProviderIdentity,
+} from './provider-suppression-core';
+import { readPhoneRevealSuppression } from './provider-suppression-store';
+import { redactDriverMessage } from './phone-reveal-core';
 
 /**
  * Vocabulario del veredicto. Alias del que ya define el core del waterfall: el
@@ -182,14 +188,23 @@ export async function checkPhoneRevealPrivacyGate(
     return 'check_unavailable';
   }
 
-  const suppression = await evaluateInFlightPhoneSuppression({
-    personId: resolveInFlightSuppressionPersonId({
+  // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4). Esta puerta es la que corre
+  // INMEDIATAMENTE antes de llamar a LUSHA, así que es donde el cambio importa más: un
+  // candidato de origen Lusha ya NO necesita una identidad de Apollo para que su
+  // privacidad se pueda evaluar. Usa su `source_contact_id` nativo, en su propio espacio
+  // de nombres, y una supresión registrada para ese id bloquea la llamada con 0 créditos.
+  //
+  // La cuenta sigue viajando pero ya no es requisito: sólo habilita la mitad LEGADO
+  // (tombstone de `phone_reveal_cache`) como bloqueo adicional cuando existe.
+  const suppression = await evaluatePhoneRevealSuppression({
+    identity: resolveInFlightProviderIdentity({
       candidateApolloPersonId: row.apolloPersonId,
       candidateSource: row.source,
       candidateSourceContactId: row.sourceContactId,
     }),
     accountId: row.accountId,
-    lookup: readPhoneCacheSuppression,
+    lookup: readPhoneRevealSuppression,
+    redactError: redactDriverMessage,
   });
 
   switch (suppression.kind) {
@@ -197,7 +212,13 @@ export async function checkPhoneRevealPrivacyGate(
       return 'blocked_suppressed';
     case 'check_unavailable':
       return 'check_unavailable';
+    // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: sin identidad resoluble no se puede
+    // confirmar ausencia de supresión, así que bloquea igual que `check_unavailable`
+    // en vez de dejar pasar como `clear`. FASE 1 estrecha ese caso: ya NO lo produce
+    // la falta de cuenta, ni el hecho de que el candidato sea de origen Lusha — sólo
+    // la ausencia de TODA identidad nativa.
     case 'not_evaluable':
+      return 'check_unavailable';
     case 'allowed':
     default:
       return 'clear';

@@ -8,11 +8,16 @@
  *
  * ── Two modes, and only one of them can run today ───────────────────────────────
  *   --real-full-scan-resource-benchmark
- *       The real thing. REFUSES while `BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED` is
- *       `false`, which it is, and the refusal happens before the manifest is opened. Every flag it
- *       accepts is still parsed and validated first, so an operator preparing for a future
- *       authorization can find out that their declarations are complete without being told only
- *       "not authorized".
+ *       The real thing. Since BR-SOURCE-ATTEMPT2-OPS it no longer refuses because a tracked constant
+ *       says so: it refuses because THIS invocation carries no owner grant. Three separate flags —
+ *       `--second-real-attempt-owner-authorized`, `--temporary-storage-policy-approved` and
+ *       `--cap-input-policy-approved` — each grant one approval for one process, all three are required,
+ *       and none of them defaults to granted. Every other flag is still parsed and validated first, so
+ *       an operator preparing an authorized run finds out that their declarations are complete without
+ *       being told only "not authorized".
+ *
+ *       The tracked constant `BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED` is untouched and
+ *       still `false`. It is now an ALTERNATIVE to the operator grant, not a precondition for it.
  *
  *   --synthetic-smoke
  *       The whole path — declarations, caps, handle ledger, free-disk thresholds, private channel
@@ -39,6 +44,17 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { evaluateBrazilReceitaAttempt2NationalInputPreflight } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-attempt2-national-input-preflight';
+import {
+  BRAZIL_RECEITA_ATTEMPT_2_OPERATOR_AUTHORIZATION_DEFAULT,
+  findBrazilReceitaAttempt2MissingOperatorApprovals,
+  resolveBrazilReceitaAttempt2OperatorAuthorization,
+  type BrazilReceitaAttempt2OperatorAuthorization,
+} from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-attempt2-operator-authorization';
+import {
+  buildBrazilReceitaObservedInputInventory,
+  type BrazilReceitaObservedInputInventoryResult,
+} from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-attempt2-observed-input-inventory';
 import { createBrazilReceitaFullJoinBridgeFileSystem } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-manifest-bridge-fs';
 import {
   createBrazilReceitaFullJoinFreeDiskProbe,
@@ -48,7 +64,6 @@ import {
 import { BRAZIL_RECEITA_FULL_JOIN_NO_WRITE_CONTRACT } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-no-write-guard';
 import { createBrazilReceitaFullJoinPrivateChannelFileSystem } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-private-channel-fs';
 import { createBrazilReceitaFullJoinBenchmarkAttemptLedger } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-full-join-resource-benchmark';
-import { evaluateBrazilReceitaNationalInputCompleteness } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-national-input-completeness';
 import { evaluateBrazilReceitaRealBenchmarkAttemptRequest } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-real-benchmark-attempt-ledger';
 import { validateBrReceitaCnpjLocalManifest } from '../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-manifest-validator';
 import {
@@ -89,6 +104,16 @@ export const BRAZIL_RECEITA_REAL_FULL_SCAN_CLI_REFUSALS = [
   'real_attempt_number_not_an_integer',
   'real_attempt_owner_declaration_missing',
   'real_benchmark_attempt_limit_reached',
+  // BR-SOURCE-ATTEMPT2-OPS § 3, § 4. The three process-scoped approvals, and the flags that grant them.
+  //
+  // Two codes rather than one because the two situations call for different operator actions. An
+  // invocation carrying NONE of the three never attempted to authorize anything and is told so; one
+  // carrying two of three tried and left a gap, and is told which.
+  'operator_approval_declarations_missing',
+  'generic_override_flag_not_supported',
+  // The observed side of the national-input gate (§ 7). A manifest that cannot be read as a control
+  // document yields no inventory at all, which is a different fact from an inventory that is short.
+  'national_input_inventory_unreadable',
 ] as const;
 
 export type BrazilReceitaRealFullScanCliRefusal =
@@ -112,8 +137,20 @@ export interface BrazilReceitaRealFullScanCliOptions {
    * A SEPARATE thing from the attempt number: `--real-attempt-number 2` says which attempt this is, and
    * this says an owner approved running it. The CLI refuses when the number is beyond the first and this
    * is absent, so `--real-attempt-number 2` alone can never start a run.
+   *
+   * The same fact as `operatorAuthorization.ownerAuthorization`, read from the same flag and kept as a
+   * named field because 14B.0J's wall is phrased in terms of it. It is a view of the grant, never a
+   * second source of truth.
    */
   readonly secondRealAttemptOwnerDeclared: boolean;
+  /**
+   * The three PROCESS-SCOPED approvals this invocation carries (BR-SOURCE-ATTEMPT2-OPS § 2–§ 4).
+   *
+   * Each is `false` unless its own explicit flag is present. Nothing derives one from another, nothing
+   * derives any of them from the tracked authorization constant, and the grant is not written anywhere:
+   * it lives in this parse result, is handed to the entry point, and dies with the process.
+   */
+  readonly operatorAuthorization: BrazilReceitaAttempt2OperatorAuthorization;
 }
 
 export type BrazilReceitaRealFullScanCliParse =
@@ -142,6 +179,12 @@ function flagValue(argv: readonly string[], flag: string): string | null {
 export function parseBrazilReceitaRealFullScanCliArgs(
   argv: readonly string[],
 ): BrazilReceitaRealFullScanCliParse {
+  // BR-SOURCE-ATTEMPT2-OPS § 3. A generic override flag is refused before the mode is even read: it
+  // names no policy, so there is no invocation shape in which honouring it would be correct, and
+  // ignoring it would let an operator believe they had granted something.
+  const operatorGrant = resolveBrazilReceitaAttempt2OperatorAuthorization(argv);
+  if (!operatorGrant.ok) return { ok: false, refusal: 'generic_override_flag_not_supported' };
+
   const wantsReal = argv.includes('--real-full-scan-resource-benchmark');
   const wantsSynthetic = argv.includes('--synthetic-smoke');
   const wantsReadiness = argv.includes('--readiness');
@@ -170,7 +213,11 @@ export function parseBrazilReceitaRealFullScanCliArgs(
         // `--readiness` reports; it never runs. A zero here is not an attempt number and cannot be
         // mistaken for one: the ledger refuses anything below 1 as `real_attempt_number_invalid`.
         requestedRealAttemptNumber: 0,
+        // `--readiness` reports the MECHANISM, so it reports the default grant rather than the one on the
+        // command line: a readiness call that echoed an operator's flags back would make the report a
+        // function of how it was invoked.
         secondRealAttemptOwnerDeclared: false,
+        operatorAuthorization: BRAZIL_RECEITA_ATTEMPT_2_OPERATOR_AUTHORIZATION_DEFAULT,
       },
     };
   }
@@ -210,7 +257,8 @@ export function parseBrazilReceitaRealFullScanCliArgs(
     options: {
       mode,
       requestedRealAttemptNumber,
-      secondRealAttemptOwnerDeclared: argv.includes('--second-real-attempt-owner-authorized'),
+      secondRealAttemptOwnerDeclared: operatorGrant.authorization.ownerAuthorization,
+      operatorAuthorization: operatorGrant.authorization,
       manifestPath,
       workspaceParentDirectory,
       privateMetricDestinationDirectory,
@@ -224,41 +272,43 @@ export function parseBrazilReceitaRealFullScanCliArgs(
 // ─── Declaration assembly ─────────────────────────────────────────────────────
 
 /**
- * Builds the nineteen declarations from the parsed options and the § 11 proposed profile.
+ * Builds the nineteen declarations from the parsed options, the § 11 proposed profile and — since
+ * BR-SOURCE-ATTEMPT2-OPS — this invocation's operator grant and observed input inventory.
  *
- * The three POLICY approvals are the interesting part. They are set from the proposed profile's
- * standing, which is to say they are `false`: the CLI cannot approve GATE-2 or the CAP-input policy,
- * and an operator running this command is not thereby approving them either. When those approvals
- * arrive they arrive as a source edit to the constants, and this function will read them from there.
+ * ── The three POLICY approvals (§ 2) ────────────────────────────────────────────
+ * They used to be three copies of one tracked constant, which meant an operator could not express any
+ * of them and a source edit expressed all three at once. They are now read from the grant, one flag
+ * each: `temporaryStoragePolicyApproved` is not inferred from `capInputPolicyApproved`, neither is
+ * inferred from `benchmarkAuthorization`, and none of them is read from
+ * `BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZATION_FLAG`. An invocation with no flags produces
+ * three `false`s, exactly as before.
+ *
+ * ── The § 7 national-input gate, now with both sides (§ 6–§ 8) ──────────────────
+ * EXPECTED comes from 14B.0K's publisher-derived 2026-07 inventory, resolved for the DECLARED period —
+ * a period with no transcribed listing still gets no expectation. OBSERVED comes from the manifest this
+ * invocation selected, scanned for family, part ordinal, presence, regular-file-ness and symlink-ness
+ * and nothing else. `observedInventory` is optional and defaults to "not inspected", which the gate
+ * answers with `indeterminate`: a caller that has not looked is refused, never waved through.
  *
  * Exported for the same reason the parser is: it is the part a synthetic test needs to exercise.
  */
 export function buildBrazilReceitaRealFullScanDeclarations(
   options: BrazilReceitaRealFullScanCliOptions,
+  observedInventory: BrazilReceitaObservedInputInventoryResult | null = null,
 ): BrazilReceitaRealFullScanDeclarations {
   const proposal = BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS;
+  const grant = options.operatorAuthorization ?? BRAZIL_RECEITA_ATTEMPT_2_OPERATOR_AUTHORIZATION_DEFAULT;
   return {
-    // Not approvals this CLI can grant. They mirror the authorization constant, which is `false`.
-    temporaryStoragePolicyApproved: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZATION_FLAG,
-    capInputPolicyApproved: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZATION_FLAG,
-    benchmarkAuthorization: BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZATION_FLAG,
+    // Three separate approvals from three separate flags. Never one value copied three times.
+    temporaryStoragePolicyApproved: grant.temporaryStoragePolicyApproved,
+    capInputPolicyApproved: grant.capInputPolicyApproved,
+    benchmarkAuthorization: grant.ownerAuthorization,
     attemptCount: proposal.attemptCount,
     requestedRealAttemptNumber: options.requestedRealAttemptNumber,
-    // The § 7 gate, evaluated here from the metadata this CLI actually has — which is NONE. Both sides
-    // are declared absent and the verdict comes back `indeterminate`.
-    //
-    // BR-SOURCE-14B.0K landed the missing EXPECTED side (the publisher's 2026-07 part inventory), and it
-    // is deliberately not wired in here: without an OBSERVED side an expectation changes nothing but the
-    // finding codes, and producing a `complete` verdict would mean inventorying the operator's staged
-    // files, which this CLI does not do. The resolution that compares both sides is
-    // `run-br-receita-cnpj-14b0k-national-inventory-resolution`, and its verdict is what an owner reads.
-    nationalInputCompleteness: evaluateBrazilReceitaNationalInputCompleteness({
+    nationalInputCompleteness: evaluateBrazilReceitaAttempt2NationalInputPreflight({
       period: options.datasetPeriod,
-      // `null`, not an empty record: this CLI has not inspected anything, and `null` is how the gate is
-      // told that. An empty record would be read as "inspected, and every field is wrong".
-      observed: null,
-      expected: null,
-    }),
+      observedInventory,
+    }).completeness,
     datasetPeriod: options.datasetPeriod,
     manifestPath: options.manifestPath,
     privateMetricChannelAcknowledgement: options.acknowledgement,
@@ -298,10 +348,14 @@ export function buildBrazilReceitaRealFullScanDeclarations(
 export function buildBrazilReceitaRealFullScanRequest(
   options: BrazilReceitaRealFullScanCliOptions,
   nowMs: number,
+  observedInventory: BrazilReceitaObservedInputInventoryResult | null = null,
 ): BrazilReceitaRealFullScanBenchmarkRequest {
   const repositoryRoot = path.resolve(__dirname, '..', '..');
   return {
-    declarations: buildBrazilReceitaRealFullScanDeclarations(options),
+    declarations: buildBrazilReceitaRealFullScanDeclarations(options, observedInventory),
+    // The grant travels WITH the request rather than being read from a module, so it is scoped to this
+    // call and there is nowhere for it to persist (BR-SOURCE-ATTEMPT2-OPS § 13).
+    operatorAuthorization: options.operatorAuthorization,
     workingDirectory: {
       currentWorkingDirectory: process.cwd(),
       homeDirectory: os.homedir(),
@@ -361,7 +415,9 @@ async function main(): Promise<void> {
       'usage: --readiness | --synthetic-smoke | --real-full-scan-resource-benchmark ' +
         '--manifest <abs> --workspace-parent <abs> --private-metric-directory <abs> ' +
         '--dataset-period <YYYY-MM> --private-metric-acknowledgement <phrase> ' +
-        '--real-attempt-number <n> [--second-real-attempt-owner-authorized]\n',
+        '--real-attempt-number <n> ' +
+        '[--second-real-attempt-owner-authorized --temporary-storage-policy-approved ' +
+        '--cap-input-policy-approved]\n',
     );
     process.exitCode = 1;
     return;
@@ -419,30 +475,99 @@ async function main(): Promise<void> {
     return;
   }
 
-  // The mode wall. `--real-full-scan-resource-benchmark` is refused HERE, before any port is built
-  // and before the manifest path is touched, so the refusal is visible in the CLI itself rather than
-  // only deep inside the entry point's preflight. The entry point refuses too — see its
-  // `authorization` stage — and both refusals are load-bearing: this one is the operator-facing
-  // message, that one is the guarantee.
-  if (
-    parsed.options.mode === 'real-full-scan-resource-benchmark' &&
-    !BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZATION_FLAG
-  ) {
-    process.stderr.write('real_benchmark_not_authorized\n');
-    process.stderr.write(
-      'BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZED is false. ' +
-        'The execution path is complete and the run is not authorized; those are different facts. ' +
-        'Authorizing it takes a source edit, a PR and an owner decision.\n',
+  // The AUTHORIZATION wall, at the operator surface (BR-SOURCE-ATTEMPT2-OPS § 2–§ 4).
+  //
+  // It no longer asks whether a tracked constant is `true`; it asks whether THIS invocation carries all
+  // three approvals. Refused HERE, before any port is built, so the message names the missing flags —
+  // the entry point's `authorization` stage refuses too, and that one is the guarantee.
+  //
+  // Two codes, because the two situations need different words. An invocation with none of the three
+  // never tried to authorize anything; one with a gap did, and needs to be told where the gap is.
+  if (parsed.options.mode === 'real-full-scan-resource-benchmark') {
+    const missingApprovals = findBrazilReceitaAttempt2MissingOperatorApprovals(
+      parsed.options.operatorAuthorization,
     );
+    if (
+      missingApprovals.length > 0 &&
+      !BRAZIL_RECEITA_REAL_FULL_SCAN_BENCHMARK_AUTHORIZATION_FLAG
+    ) {
+      const code =
+        missingApprovals.length === 3
+          ? 'real_benchmark_not_authorized'
+          : 'operator_approval_declarations_missing';
+      process.stderr.write(`${code}\n`);
+      process.stderr.write(
+        `Missing operator approvals: ${missingApprovals.join(', ')}. ` +
+          'All three are required, none is inferred from another, and each lasts for this ' +
+          'invocation only. Re-run with the corresponding flags after an owner decision.\n',
+      );
+      process.exitCode = 1;
+      return;
+    }
+  }
+
+  // ── The OBSERVED side of the national-input gate (§ 7, § 8, § 12) ─────────────
+  //
+  // Built from the manifest THIS invocation selected, through the same size-capped `lstat`-only adapter
+  // the descriptor bridge uses. Metadata only: family, part ordinal, presence, regular-file-ness,
+  // symlink-ness. No CSV row is read, no source reader is constructed, and no join is performed.
+  //
+  // It runs for the synthetic mode too. The smoke test exists to prove the wiring, and a smoke run that
+  // skipped the inventory would be proving a different code path from the one a real run takes.
+  const observedInventory = buildBrazilReceitaObservedInputInventory({
+    manifestPath: parsed.options.manifestPath,
+    fileSystem: createBrazilReceitaFullJoinBridgeFileSystem(),
+  });
+  if (!observedInventory.ok) {
+    // Nothing was inspected, so there is no observed inventory to compare. Refused here rather than
+    // handed to the gate as an empty record: "the manifest could not be read" and "the manifest is
+    // short" are different facts and must not share a verdict.
+    process.stderr.write('national_input_inventory_unreadable\n');
+    process.stderr.write(`${observedInventory.refusals.join(', ')}\n`);
     process.exitCode = 1;
     return;
   }
 
+  // The preflight, reported before the run so an operator sees WHY the gate answered as it did — the
+  // expected part identities, the observed descriptor counts per required family (§ 11's 10 + 10), and
+  // the verdict. Codes, counts and opaque part keys only; no path and no file name.
+  const nationalInput = evaluateBrazilReceitaAttempt2NationalInputPreflight({
+    period: parsed.options.datasetPeriod,
+    observedInventory,
+  });
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        nationalInputPreflight: {
+          period: nationalInput.period,
+          expectedInventorySource: nationalInput.expectedInventorySource,
+          expectedInventoryStatus: nationalInput.expectedInventoryStatus,
+          expectedInventoryDeclared: nationalInput.expectedInventoryDeclared,
+          observedInventoryDeclared: nationalInput.observedInventoryDeclared,
+          expectedPartKeysByFamily: nationalInput.expectedPartKeysByFamily,
+          observedDescriptorCountsByFamily: nationalInput.observedDescriptorCountsByFamily,
+          declaredInputScope: observedInventory.declaredInputScope,
+          partFindings: observedInventory.partFindings,
+          verdict: nationalInput.completeness.verdict,
+          inputScope: nationalInput.completeness.inputScope,
+          findings: nationalInput.completeness.findings,
+          satisfiesAttempt2: nationalInput.satisfiesAttempt2,
+          requiredAttempt2InputScope: nationalInput.requiredAttempt2InputScope,
+          rowsRead: nationalInput.rowsRead,
+          sourceReaderCalls: nationalInput.sourceReaderCalls,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
   // Synthetic smoke: the same entry point, the same declarations, the same ports — against whatever
   // synthetic manifest the operator pointed at. It refuses at `authorization` exactly as the real
-  // mode does, which is the point: the smoke test proves the wiring, not the permission.
+  // mode does when no grant is present, which is the point: the smoke test proves the wiring, not the
+  // permission.
   const outcome = await runBrazilReceitaRealFullScanResourceBenchmark(
-    buildBrazilReceitaRealFullScanRequest(parsed.options, Date.now()),
+    buildBrazilReceitaRealFullScanRequest(parsed.options, Date.now(), observedInventory),
   );
 
   if (!outcome.ok) {
@@ -469,6 +594,8 @@ async function main(): Promise<void> {
           realDataBoundaryCrossed: outcome.realDataBoundaryCrossed,
           attemptsConsumedAfterRefusal: outcome.attemptsConsumedAfterRefusal,
           attemptRejectionCode: outcome.attemptRejectionCode,
+          // BR-SOURCE-ATTEMPT2-OPS § 4: which of the three approvals this invocation did not carry.
+          missingOperatorApprovals: outcome.missingOperatorApprovals,
         },
         null,
         2,
@@ -479,6 +606,21 @@ async function main(): Promise<void> {
   }
 
   process.stdout.write(`${JSON.stringify(outcome.publicReport, null, 2)}\n`);
+  // BR-SOURCE-ATTEMPT2-FINAL § 7: reaching the engine is no longer the same event as crossing the
+  // boundary, so the accounting has to be printed rather than inferred from "the run got this far". A
+  // completion with `realDataBoundaryCrossed: false` is an engine abort that read nothing and spent
+  // nothing, and an operator deciding whether an attempt remains needs to be told which one this was.
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        realDataBoundaryCrossed: outcome.realDataBoundaryCrossed,
+        realAttemptNumber: outcome.realAttemptNumber,
+        attemptsConsumedAfterRun: outcome.attemptsConsumedAfterRun,
+      },
+      null,
+      2,
+    )}\n`,
+  );
   if (!outcome.cleanupVerified || !outcome.privateArtifactWritten) process.exitCode = 1;
 }
 

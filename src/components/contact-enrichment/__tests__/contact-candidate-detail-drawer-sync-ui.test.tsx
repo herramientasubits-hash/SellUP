@@ -132,7 +132,7 @@ const mockGetWaterfallAudit = mock.fn<(input: unknown) => Promise<unknown>>();
 
 mock.module('@/modules/contact-enrichment/actions', {
   namedExports: {
-    getPendingContactCandidateById: (...args: unknown[]) => mockGetById(...(args as [])),
+    getReviewableContactCandidateById: (...args: unknown[]) => mockGetById(...(args as [])),
     approveContactCandidate: async () => ({ ok: true }),
     discardContactCandidate: async () => ({ ok: true }),
   },
@@ -208,6 +208,13 @@ function makeCandidate(
     email: 'ficticio@ejemplo.test',
     linkedin_url: null,
     source_contact_id: 'sc-1',
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2 — identidad de supresión EVALUABLE.
+    // Desde PR #289 un candidato sin `provider_person_id` Apollo resoluble no puede
+    // revelar (el backend bloquea fail-closed) y la UI deshabilita el botón. Esta
+    // suite prueba OTRO contrato, así que se le da una identidad sintética evaluable
+    // en vez de re-especificar cada caso. La resolución de identidad tiene sus
+    // propias suites: phone-reveal-identity-eligibility(.test.ts / -ui.test.tsx).
+    apollo_person_id: '0123456789abcdef01234567',
     phone: null,
     source: 'apollo',
     status: 'pending_review',

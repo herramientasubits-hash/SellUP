@@ -327,6 +327,60 @@ export function isLushaPhoneRevealEnabled(): false {
 }
 
 // ============================================================
+// Local reviewable candidate reuse gate
+// (Agente 2A · AGENT2A-LOCAL-REVIEWABLE-CANDIDATE-REUSE-1.1)
+// ============================================================
+
+/** Flag name constant for the pre-provider local reviewable candidate reuse gate. */
+export const CONTACT_ENRICHMENT_LOCAL_REUSE_GATE_FLAG = 'ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE';
+
+/**
+ * Returns true when ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Default: false — fail-closed, and deliberately NOT enabled in any
+ * environment by this milestone. Adding the flag is a code-level addition
+ * only; activation is a separate, explicit owner decision.
+ *
+ * What it turns on: inside the AUTOMATIC contact-enrichment router, once the
+ * Apollo attempt has already produced zero reviewable candidates and the
+ * policy would recommend the Lusha fallback, the router first asks a
+ * read-only, PROVIDER-AGNOSTIC local question — "does SellUp already hold at
+ * least one actionable same-company candidate in pending_review, from Apollo
+ * OR from Lusha?" — and, when the answer is yes, terminates the operation
+ * successfully WITHOUT resolving Lusha availability or its API key, WITHOUT
+ * evaluating the fallback budget, WITHOUT creating attempt_order=2 and WITHOUT
+ * any Lusha network call. The existing pending_review candidate stays the
+ * reviewable deliverable, under its own original source.
+ *
+ * Admitting Apollo-sourced candidates is what closes the actual cost leak: the
+ * router's fallback signal comes from attempt1Result.candidatesCreated, and
+ * #315 removes already-known Apollo person_ids BEFORE the paid /people/match
+ * leg, so a repeat run can reach candidatesCreated=0 while an actionable
+ * Apollo candidate for the same company is already waiting for review. This is
+ * a COMPANY-LEVEL reviewability question only — it asserts no equivalence
+ * between an Apollo person_id and a Lusha contactId, creates no alias, and
+ * suppresses no specific provider-native id.
+ *
+ * What it does NOT change in either state:
+ *   * ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING — still the flag that
+ *     authorizes the automatic router to do anything at all. With it off this
+ *     flag is unreachable.
+ *   * ENABLE_LUSHA_CONTACT_ENRICHMENT — still the flag that authorizes a Lusha
+ *     contact-enrichment call. This gate only avoids reaching it.
+ *   * The provider-native novelty gate (AGENT2A-PROVIDER-NOVELTY-AND-REUSE-
+ *     GATE-1), which keeps guarding the paid leg AFTER Lusha Prospecting on
+ *     every run where this gate does not hit.
+ *
+ * With this flag OFF the router behaves exactly as before: the reuse reader is
+ * never called, no extra query is issued, and every existing branch, outcome
+ * and telemetry shape is byte-for-byte unchanged.
+ */
+export function isContactEnrichmentLocalReuseGateEnabled(): boolean {
+  return isEnvFlagEnabled(process.env[CONTACT_ENRICHMENT_LOCAL_REUSE_GATE_FLAG]);
+}
+
+// ============================================================
 // Apollo Phone Reveal Recovery L2 cron (Agente 2A · RECOVERY-CRON-1)
 // ============================================================
 
@@ -492,6 +546,87 @@ export const LUSHA_PHONE_REVEAL_FALLBACK_FLAG =
  */
 export function isLushaPhoneRevealFallbackEnabled(): boolean {
   return isEnvFlagEnabled(process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG]);
+}
+
+/**
+ * ¿La variable `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` EXISTE en este runtime?
+ *
+ * PRESENCIA, nunca el valor. Espejo EXACTO de `isPhoneRevealWaterfallFlagConfigured`, y
+ * existe por la misma razón: en Vercel estos flags son `type: sensitive`, así que su valor
+ * es ilegible para siempre (ni la API con `?decrypt=true` lo devuelve, ni hay `env get`) y
+ * `vercel env ls` sólo prueba presencia. Sin este par de señales, «la variable está
+ * ausente» y «la variable está presente con un valor que no es exactamente "true"» son
+ * indistinguibles — y las dos dejan el fallback de Lusha APAGADO.
+ *
+ * Motivo concreto por el que se añade (AGENT2A-SEARCH-MORE-PHONES-1E): con este flag OFF el
+ * planificador de «Buscar más números» devuelve `feature_disabled`, y el copy de ese motivo
+ * es `null` a propósito (§ «un permiso de producto apagado se resuelve NO RENDERIZANDO»,
+ * la lección de #287). El resultado visible es EXACTAMENTE «no hay CTA y no hay
+ * explicación», que es indistinguible a ojo de un defecto del preflight. Distinguir las dos
+ * cosas exige leer el flag en el runtime que se está mirando.
+ *
+ * Nunca devuelve, registra ni deriva el valor crudo — sólo su longitud tras `trim()`,
+ * reducida a un booleano.
+ */
+export function isLushaPhoneRevealFallbackFlagConfigured(): boolean {
+  const raw = process.env[LUSHA_PHONE_REVEAL_FALLBACK_FLAG];
+  return typeof raw === 'string' && raw.trim().length > 0;
+}
+
+// ============================================================
+// «Buscar más números» — flag DEDICADO de rollout (Agente 2A ·
+// AGENT2A-SEARCH-MORE-PHONES-1H)
+// ============================================================
+
+/** Flag name constant for the dedicated «Buscar más números» rollout switch. */
+export const SEARCH_MORE_PHONES_FLAG = 'ENABLE_SEARCH_MORE_PHONES';
+
+/**
+ * Returns true when ENABLE_SEARCH_MORE_PHONES is exactly "true"
+ * (case-insensitive, leading/trailing whitespace ignored).
+ *
+ * Default: false, fail-closed. This is the ONLY permiso de producto que gobierna la
+ * operación «Buscar más números» — el CTA del candidato, su preflight y su ejecución
+ * pagada (`getSearchMorePhonesPreflightAction`, `searchMoreCandidatePhonesAction`,
+ * `executeSearchMorePhonesForCandidate`).
+ *
+ * 1E→1H, un cambio de producto deliberado: hasta 1G, «Buscar más números» reutilizaba
+ * `isLushaPhoneRevealFallbackEnabled()` — el kill switch del fallback MANUAL de
+ * Lusha— con el argumento de que es "el kill switch real de cualquier reveal de
+ * Lusha". Eso acopla dos rollouts que el producto quiere independientes: encender
+ * «Buscar más números» para QA encendía TAMBIÉN el fallback manual, el
+ * `legacy_lusha_only` y la pata Lusha del waterfall — tres caminos pagados
+ * preexistentes que nadie pidió activar. Este flag rompe ese acoplamiento:
+ *
+ *   * ENABLE_SEARCH_MORE_PHONES gobierna EXCLUSIVAMENTE «Buscar más números»;
+ *   * ENABLE_LUSHA_PHONE_REVEAL_FALLBACK sigue gobernando EXACTAMENTE lo que
+ *     gobernaba antes de este hito — el fallback manual, un candidato a la vez—, y
+ *     no se lee en ningún punto de «Buscar más números» a partir de 1H.
+ *
+ * Ninguno de los dos activa al otro, en ninguna dirección: ver el test de
+ * independencia en `feature-flags.server.ts` §matrix y la guarda estática de
+ * `search-more-phones-flag-independence-static.test.ts`.
+ *
+ * No se ha añadido a Vercel en ningún entorno por este hito: con la variable ausente
+ * (el estado real hoy) el planificador de «Buscar más números» sigue devolviendo
+ * `feature_disabled`, exactamente como antes de este cambio — sólo cambia CUÁL
+ * variable hay que encender para autorizarlo cuando la dueña lo decida.
+ */
+export function isSearchMorePhonesEnabled(): boolean {
+  return process.env[SEARCH_MORE_PHONES_FLAG]?.trim().toLowerCase() === 'true';
+}
+
+/**
+ * ¿Existe la variable `ENABLE_SEARCH_MORE_PHONES` en este runtime?
+ *
+ * PRESENCIA, nunca el valor. Mismo motivo y misma forma que
+ * `isLushaPhoneRevealFallbackFlagConfigured` / `isPhoneRevealWaterfallFlagConfigured`:
+ * en Vercel estos flags son `type: sensitive`, así que sólo la presencia es legible
+ * desde fuera del runtime, nunca el contenido.
+ */
+export function isSearchMorePhonesFlagConfigured(): boolean {
+  const raw = process.env[SEARCH_MORE_PHONES_FLAG];
+  return typeof raw === 'string' && raw.trim().length > 0;
 }
 
 // ============================================================

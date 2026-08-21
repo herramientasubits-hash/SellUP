@@ -53,18 +53,19 @@ import {
 import {
   PHONE_REVEAL_OPERATION_KEY,
   PHONE_REVEAL_PROVIDER,
+  redactDriverMessage,
 } from './phone-reveal-core';
 import {
   applyTerminalPhoneSuppression,
   buildTerminalPhoneSuppressionPatch,
   describeInFlightSuppression,
-  evaluateInFlightPhoneSuppression,
-  resolveInFlightSuppressionPersonId,
+  evaluatePhoneRevealSuppression,
+  resolveInFlightProviderIdentity,
   IN_FLIGHT_TERMINAL_SUPPRESSION_EXPECTED_STATUSES,
   SUPPRESSION_BLOCKED_ERROR_CODE,
   SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,
   type InFlightSuppressionAuditState,
-  type InFlightSuppressionLookup,
+  type PhoneRevealSuppressionLookup,
   type PersistTerminalPhoneSuppression,
 } from './phone-reveal-suppression-guard';
 import {
@@ -377,7 +378,12 @@ export interface ApolloPhoneRevealWebhookDeps {
    * cableada el resultado es el mismo — no hay persistencia tardía sin
    * comprobación de supresión.
    */
-  lookupPhoneCacheSuppression?: InFlightSuppressionLookup;
+  /**
+   * FASE 1: la clave es la identidad NATIVA del proveedor y la cuenta es OPCIONAL
+   * (sólo habilita la mitad LEGADO de la lectura compuesta). El nombre de la dep se
+   * conserva para no romper el cableado de los cuatro llamadores ni de sus suites.
+   */
+  lookupPhoneCacheSuppression?: PhoneRevealSuppressionLookup;
   /**
    * Notifica que la supresión no se pudo verificar. Recibe SOLO un mensaje
    * mecánico YA redactado: nunca teléfono, person id, email, nombre ni linkedin.
@@ -386,8 +392,10 @@ export interface ApolloPhoneRevealWebhookDeps {
   /**
    * Notifica que la supresión no se pudo EVALUAR (FIX 4): sin Apollo person id
    * resoluble o sin cuenta no existe clave con la que emparejar un tombstone. El
-   * teléfono se persiste igual — no se bloquea por inferencia — pero el caso queda
-   * registrado con un evento de forma CERRADA y sin PII.
+   * caso queda registrado con un evento de forma CERRADA y sin PII, y (desde
+   * AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1) el teléfono NO se persiste — se
+   * bloquea igual que `check_unavailable`, nunca por inferencia (no hay fuzzy
+   * matching por teléfono/email/nombre/linkedin, ni backfill del id ausente).
    */
   onSuppressionNotEvaluable?: PhoneSuppressionNotEvaluableSink;
 
@@ -771,8 +779,14 @@ export async function runApolloPhoneRevealWebhook(
     // tombstone antes de escribir nada, con el flag de caché encendido o apagado.
     // Solo se ejecuta en este camino: si Apollo no entregó teléfono no hay número
     // que suprimir, y el camino `no_phone_found` queda idéntico (0 lecturas).
-    const suppression = await evaluateInFlightPhoneSuppression({
-      personId: resolveInFlightSuppressionPersonId({
+    // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4): la identidad es NATIVA del
+    // proveedor y la cuenta ya NO es requisito. Un candidato sin `account_id` —o de
+    // origen Lusha sin id de Apollo— ya se puede EVALUAR; la cuenta sólo añade el
+    // tombstone LEGADO como bloqueo adicional cuando existe. El orden de Apollo y su
+    // validador de 24 hex no cambian, así que ningún candidato que hoy se evalúa contra
+    // un tombstone de Apollo empieza a evaluarse contra otra cosa.
+    const suppression = await evaluatePhoneRevealSuppression({
+      identity: resolveInFlightProviderIdentity({
         payloadPersonId: apolloPersonId,
         candidateApolloPersonId: candidate.apolloPersonId ?? null,
         candidateSource: candidate.source ?? null,
@@ -780,13 +794,13 @@ export async function runApolloPhoneRevealWebhook(
       }),
       accountId: candidate.accountId,
       lookup: deps.lookupPhoneCacheSuppression,
+      redactError: redactDriverMessage,
     });
     const suppressionState = describeInFlightSuppression(suppression);
 
-    // FIX 4 — no EVALUABLE (sin person id resoluble o sin cuenta): la política no
-    // cambia — no hay fuzzy matching por teléfono/email/nombre/LinkedIn y el
-    // teléfono se persiste igual — pero el caso se registra en vez de quedar
-    // invisible. Es un efecto de auditoría: no bloquea ni desbloquea nada.
+    // FIX 4 — no EVALUABLE: se AUDITA con un evento PII-free antes de decidir el
+    // bloqueo de abajo. Desde la Fase 1 este caso significa SÓLO "ninguna identidad
+    // nativa resoluble"; la falta de cuenta ya no lo produce.
     if (suppression.kind === 'not_evaluable') {
       reportPhoneSuppressionNotEvaluable({
         phase: 'webhook',
@@ -797,11 +811,21 @@ export async function runApolloPhoneRevealWebhook(
       });
     }
 
-    // No verificable ⇒ fail-closed. NO se persiste el teléfono y NO se toca el
-    // status: el candidato sigue en vuelo, así que el recovery puede repolear el
-    // MISMO payload sin gastar créditos. Se deja rastro en el usage-log.
-    if (suppression.kind === 'check_unavailable') {
-      deps.onSuppressionCheckUnavailable?.(suppression.message);
+    // No verificable ⇒ fail-closed. AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1 amplió
+    // esta misma rama al caso `not_evaluable`: antes "sin clave posible" dejaba
+    // pasar el teléfono (no bloqueaba ni desbloqueaba), lo que en la práctica
+    // permitía persistir un reveal para cualquier candidato — típicamente de
+    // origen Lusha — cuyo tombstone Apollo, de existir, no podía alcanzarse por
+    // falta de clave. "No pude confirmar que NO está suprimido" nunca equivale a
+    // "no está suprimido", así que ambos casos comparten el mismo desenlace: NO
+    // se persiste el teléfono y NO se toca el status: el candidato sigue en
+    // vuelo, así que el recovery puede repolear el MISMO payload sin gastar
+    // créditos. Se deja rastro en el usage-log (con la etiqueta específica de
+    // `suppressionState`, no genérica).
+    if (suppression.kind === 'check_unavailable' || suppression.kind === 'not_evaluable') {
+      if (suppression.kind === 'check_unavailable') {
+        deps.onSuppressionCheckUnavailable?.(suppression.message);
+      }
       await deps.logUsage({
         operationKey: PHONE_REVEAL_OPERATION_KEY,
         provider: 'apollo',
@@ -824,10 +848,10 @@ export async function runApolloPhoneRevealWebhook(
           ...waterfallMeta,
         },
       });
-      // Waterfall: la supresión no se pudo verificar, así que la 2ª pata NO se
-      // gasta. La corrida se cierra fail-closed (nunca se lee como "sin
-      // tombstone"); el candidato sigue en vuelo para el recovery, y si el
-      // operador quiere volver a intentarlo tendrá que autorizarlo de nuevo.
+      // Waterfall: la supresión no se pudo verificar (o no se pudo evaluar), así
+      // que la 2ª pata NO se gasta. La corrida se cierra fail-closed (nunca se lee
+      // como "sin tombstone"); el candidato sigue en vuelo para el recovery, y si
+      // el operador quiere volver a intentarlo tendrá que autorizarlo de nuevo.
       await continueWaterfallBestEffort(deps, {
         candidateId: candidate.id,
         apolloOutcome: SUPPRESSION_CHECK_UNAVAILABLE_ERROR_CODE,

@@ -10,10 +10,10 @@
  * Sources for the encoded values (documented, not imported at runtime to keep
  * this module pure):
  *   - Lusha: 1 credit / page, 10 results / credit, MAX_PAGES = 2,
- *     EXPECTED_MAX_CREDITS = 2, USD price NOT authorized (unknown). Coverage is
- *     a narrow allowlist (3 mapped sectors, ~20 countries) — see
- *     lusha-sector-mapping / lusha-preview. Encoded as explicit allowlists so a
- *     non-covered search never silently "matches" Lusha.
+ *     EXPECTED_MAX_CREDITS = 2, USD price NOT authorized (unknown). Country
+ *     coverage stays an explicit allowlist (~20 countries) so a non-covered search
+ *     never silently "matches" Lusha; INDUSTRY coverage is deliberately open —
+ *     the Macro-v2 authority upstream decides it (ROUTING-CUTOVER-1 § 6).
  *   - Apollo (organizations): 1 credit / result, MAX = 10, ~$0.00875 / credit,
  *     no country allowlist, industry by keywords. `fallbackEligible = false`
  *     enforces the 10C3 invariant at the registry level.
@@ -28,15 +28,39 @@ import {
 } from './types';
 
 /**
- * Lusha-supported sector keys (narrow allowlist). Mirrors the mapped sectors in
- * `lusha-sector-mapping`; kept as a literal here so this module stays pure. If
- * the live mapping grows, this list is widened in a follow-up — never silently.
+ * ── Cobertura de INDUSTRIA de Lusha: retirada de este registry (§ 6) ──────────
+ *
+ * AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 6.
+ *
+ * 🔴 Aquí vivía `LUSHA_SUPPORTED_SECTORS = ['healthcare','education','technology']`,
+ * un literal que espejaba el mapper legacy. Tenía dos defectos:
+ *
+ *   · nombraba `education` como industria Lusha-soportada, y Educación NO es una
+ *     de las 12 macro de SellUp — la dueña la dejó fuera el 2026-08-13;
+ *   · era un CENSO PARALELO de rutas, es decir una segunda fuente de verdad que
+ *     sólo podía envejecer mal.
+ *
+ * ── Por qué `COVERAGE_ALL` y no una lista derivada de las 12 ──────────────────
+ *
+ * La tentación era importar el censo canónico y derivar los doce valores. Se
+ * descartó por una razón de arquitectura que este paquete defiende con su propio
+ * ratchet: `provider-routing/` es DATA-ONLY y sólo depende de sí mismo y de los
+ * tipos puros de intake. Importar la autoridad Macro-v2 —que vive en
+ * `@/server/prospect-batches`— habría invertido esa dependencia para reproducir
+ * una lista que, además, este registry no usa para decidir nada.
+ *
+ * Y no la usa literalmente: la elegibilidad de industria la decide
+ * `resolveLushaMacroCapability` AGUAS ARRIBA, y el plan 11D es observacional —
+ * `buildLushaObservationalRegistry` ya sustituía esta cobertura por `COVERAGE_ALL`
+ * antes de resolver, precisamente para que un allowlist estrecho no produjera un
+ * falso bloqueo. Declararla abierta aquí dice la verdad sobre quién manda: este
+ * registry no es autoridad de industria para Lusha.
+ *
+ * Lo que NO se abre: `supportedCountries` sigue siendo un allowlist explícito
+ * —esa cobertura sí es del proveedor y no la decide nadie aguas arriba— y
+ * `requiredCriteria` sigue exigiendo `sector`, así que una búsqueda incompleta
+ * sigue bloqueando.
  */
-const LUSHA_SUPPORTED_SECTORS = [
-  'healthcare',
-  'education',
-  'technology',
-] as const;
 
 /**
  * Lusha-supported ISO2 countries (representative allowlist). The authoritative
@@ -58,7 +82,7 @@ const LUSHA_DESCRIPTOR: ProviderCapabilityDescriptor = {
   supportsPeopleSearch: true,
   supportsEnrichment: true,
   supportedCountries: LUSHA_SUPPORTED_COUNTRIES,
-  supportedIndustries: LUSHA_SUPPORTED_SECTORS,
+  supportedIndustries: COVERAGE_ALL,
   requiredCriteria: ['searchType', 'sector', 'countryCode'],
   costModel: {
     creditsPerUnit: 1,

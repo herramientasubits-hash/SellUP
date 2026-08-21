@@ -153,14 +153,16 @@ describe('getContactEnrichmentEmptyStateCopy', () => {
       assert.equal(copy.case, 'guardrail_blocked');
     });
 
-    it('headline mentions credit control', () => {
+    it('headline mentions the results limit, never budget/credits (AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1.1)', () => {
       const copy = getContactEnrichmentEmptyStateCopy(guardrailResult);
-      assert.match(copy.headline, /control de créditos/i);
+      assert.match(copy.headline, /límite de resultados/i);
+      assert.doesNotMatch(copy.headline, /créditos|presupuesto|costo|gasto/i);
     });
 
-    it('detail mentions that more profiles may exist', () => {
+    it('detail mentions that more profiles may exist and never frames it as spending Apollo budget', () => {
       const copy = getContactEnrichmentEmptyStateCopy(guardrailResult);
       assert.match(copy.detail, /más perfiles/i);
+      assert.doesNotMatch(copy.detail, /presupuesto Apollo|créditos|costo|gasto/i);
     });
 
     it('takes priority over all_filtered case (rawResultsCount > 0)', () => {

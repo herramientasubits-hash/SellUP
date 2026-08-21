@@ -66,18 +66,71 @@ import {
   evaluateApolloEnrichmentEligibility,
   type ApolloEnrichmentIneligibilityReason,
 } from '../apollo-enrichment-eligibility-gate';
-import { evaluateApolloSectorRelevanceForPaidOperationAnyOf } from '../apollo-sector-relevance-gate';
+import {
+  evaluateApolloSectorRelevanceForPaidOperationAnyOf,
+  type ApolloPaidSectorRelevanceDecision,
+} from '../apollo-sector-relevance-gate';
+// POST-ENRICHMENT-ADMISSION-1 — una subindustria PEDIDA y confirmada tras el
+// enrichment satisface la admisión sectorial cuando no hay política legacy para el
+// sector padre. Genérica: no mira el nombre del sector.
+import {
+  resolveApolloSectorPostEnrichmentAdmission,
+  type ApolloSectorPostEnrichmentAdmissionResult,
+} from '../apollo-sector-post-enrichment-admission';
+// MACRO-INDUSTRY-CATALOG-DISCOVERY-1 — taxonomía de la corrida y evidencia macro.
+import {
+  resolveDiscoveryTaxonomyCapability,
+  toDiscoveryTaxonomyMetadata,
+} from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+import {
+  assessMacroIndustryEvidence,
+  toMacroIndustryEvidenceMetadata,
+} from '../apollo-macro-industry-evidence';
+// SECTOR-EVIDENCE-BOOTSTRAP-1 — autorización para ADQUIRIR la clasificación que
+// `mixed_companies/search` no devuelve. No confirma nada: sólo permite preguntar.
+import {
+  APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED,
+  combineApolloSectorEvidenceBootstrapAuthorizations,
+  evaluateApolloSectorEvidenceBootstrapAuthorization,
+  readApolloSectorEvidenceBootstrapPreconditionsFromMetadata,
+  // BOOTSTRAP-PURCHASE-GATE-THREADING-1 — la MISMA autorización que dejó competir
+  // al candidato, enhebrada hasta el gate que guarda la compra.
+  resolveApolloSectorEvidenceBootstrapPurchaseAuthorization,
+  toApolloSectorEvidenceBootstrapAuthorizationMetadata,
+  type ApolloSectorEvidenceBootstrapAuthorization,
+  type ApolloSectorEvidenceBootstrapCandidateReason,
+  type ApolloSectorEvidenceBootstrapPurchaseSkipReason,
+  type ApolloSectorEvidenceBootstrapPurchaseTrace,
+} from '../apollo-sector-evidence-bootstrap';
+// § 17 — la traza durable de un candidato que pagó su enrichment y murió antes
+// del writer. Sin ella la corrida que existe para CALIBRAR pierde lo que compró.
+import {
+  APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_METADATA_KEY,
+  buildApolloSectorEvidenceBootstrapAudit,
+  toApolloSectorEvidenceBootstrapAuditMetadata,
+} from '../apollo-sector-evidence-bootstrap-audit';
 import {
   evaluateApolloFreeSectorContradictionAnyOf,
   resolveAllApolloSubindustrySearchMappings,
   type ApolloFreeSectorEvidence,
 } from '../apollo-subindustry-search-mapping';
 import { toApolloSubindustryQueryCoverageMetadata } from '../apollo-subindustry-query-terms';
-import { runApolloOrganizationEnrichmentCascade } from '../apollo-organization-enrichment-cascade';
+import {
+  runApolloOrganizationEnrichmentCascade,
+  type EnrichmentSkipReason,
+} from '../apollo-organization-enrichment-cascade';
 import { enrichApolloOrganization } from '@/server/integrations/apollo-client';
 import { loadActiveApolloOrganizationEnrichmentPricing } from '@/modules/usage-tracking/provider-pricing';
 import { writeProspectingCandidates } from '../candidate-writer';
 import type { CandidatePersistenceOutcome } from '../prospect-candidate-persistence-readiness';
+// AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — adoption of the existing,
+// provider-neutral official-source intake seam (see the module docstring for
+// the full seam and the safety rationale).
+import { deriveOfficialIdentityForApolloCandidate } from './apollo-shared-intake-bridge';
+// Provider-neutral wiring — the SAME resolver factory the Lusha flow uses
+// (`lusha-pending-review-actions.ts`), not an Apollo-specific copy.
+import { buildColombiaOfficialSourceResolvers } from '@/server/prospect-batches/official-source-resolvers';
+import type { ProspectSearchCriteria } from '@/server/agents/prospect-intake';
 import {
   loadDiscoveryNegativeMemory,
   emptyNegativeMemory,
@@ -174,7 +227,10 @@ import { APOLLO_TWO_ROUND_BILLING_CONTRACT } from '../apollo-usage-operation-con
 // subindustria, captura persistible del enrichment y gate final de ownership.
 import {
   assessApolloSubindustryPrecisionForRequest,
+  // PHASE 2B § 9 — el pliegue sectorial consume el veredicto OPERATIVO.
+  projectOperationalSubindustryVerdict,
   type ApolloSubindustryPrecisionAssessment,
+  type SubindustryPrecisionEvaluationOptions,
 } from '../apollo-subindustry-precision';
 import { captureApolloEnrichmentForPersistence } from '../apollo-enrichment-persistence-capture';
 // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM §§ 3 y 9 — versión del catálogo que redactó
@@ -401,11 +457,7 @@ export function toCheapRejectionReason(
 
 /** Traduce el veredicto sectorial pagado al estado del § 5. */
 export function toSectorEvidenceState(
-  decision:
-    | 'relevant'
-    | 'sector_not_mapped'
-    | 'sector_relevance_contradicted'
-    | 'sector_evidence_missing_needs_enrichment',
+  decision: ApolloPaidSectorRelevanceDecision,
 ): CandidateSectorEvidenceState {
   switch (decision) {
     case 'relevant':
@@ -416,6 +468,12 @@ export function toSectorEvidenceState(
       return 'sector_evidence_contradictory';
     case 'sector_evidence_missing_needs_enrichment':
       return 'sector_evidence_missing_needs_enrichment';
+    // SECTOR-EVIDENCE-BOOTSTRAP-1 — estado propio, no un alias del anterior: el
+    // motivo por el que se paga es distinto («no hay política y el proveedor no
+    // dijo nada» frente a «hay política y el proveedor no dijo nada»), y la
+    // auditoría posterior necesita poder distinguirlos.
+    case 'sector_evidence_missing_bootstrap_eligible':
+      return 'sector_evidence_missing_bootstrap_eligible';
   }
 }
 
@@ -464,13 +522,25 @@ export function toSectorEvidenceState(
  * hace `interleaveApolloSubindustryTerms`.
  */
 
+/**
+ * PHASE 2B § 9 — el pliegue lee el veredicto OPERATIVO, no el diagnóstico.
+ *
+ * Con las dos reglas de precisión vigentes (`mode: 'full'`) los dos veredictos son
+ * el MISMO, término por término, así que este cambio no altera ninguna decisión de
+ * hoy. Lo que instala es la frontera: una regla `confirm_only` futura podrá aportar
+ * su confirmación sin que sus ramas `ambiguous`/`rejected` —las que no se han
+ * calibrado— degraden el estado sectorial, convoquen enrichments o impidan
+ * persistir.
+ */
 export function foldSubindustryPrecisionIntoSectorState(
   base: CandidateSectorEvidenceState,
   precision: ApolloSubindustryPrecisionAssessment,
+  options?: SubindustryPrecisionEvaluationOptions,
 ): CandidateSectorEvidenceState {
-  if (!precision.subindustryMapped) return base;
-  if (precision.subindustryMatch === 'rejected') return 'sector_evidence_contradictory';
-  if (precision.subindustryMatch === 'ambiguous' && base === 'sector_evidence_confirmed') {
+  const operational = projectOperationalSubindustryVerdict(precision, options);
+  if (!operational.subindustryMapped) return base;
+  if (operational.subindustryMatch === 'rejected') return 'sector_evidence_contradictory';
+  if (operational.subindustryMatch === 'ambiguous' && base === 'sector_evidence_confirmed') {
     // Ambigua NO cuenta para el objetivo, pero sigue siendo el único estado que
     // puede competir por un enrichment: resolver esa duda es para lo que existe.
     return 'sector_evidence_missing_needs_enrichment';
@@ -798,6 +868,84 @@ export async function runApolloTwoRoundWizardDiscovery(
    * `sector_evidence_missing_needs_enrichment`, que es el estado que NO cuenta.
    */
   const sectorEvidenceStateByKey = new Map<string, CandidateSectorEvidenceState>();
+
+  /**
+   * SECTOR-EVIDENCE-BOOTSTRAP-1 — autorización de la corrida para ADQUIRIR la
+   * evidencia clasificatoria que `mixed_companies/search` no devuelve.
+   *
+   * Se acumula por ronda a partir de las precondiciones que el provider OBSERVÓ en
+   * la búsqueda que emitió, y se combinan en conjunción: basta que una ronda saliera
+   * con la pregunta equivocada para que la corrida deje de autorizar gasto
+   * adicional. Sin ninguna ronda, no autorizada — el estado inicial y el
+   * fail-closed.
+   *
+   * Consecuencia declarada: un reintento que se recupera de un checkpoint SIN
+   * emitir búsqueda nueva no tiene precondiciones que observar y no autoriza
+   * adquisición. Puede costar candidatos; nunca créditos.
+   */
+  /**
+   * MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 13 — la taxonomía de ESTA corrida.
+   *
+   * Se resuelve una vez, de la versión de catálogo con la que se resolvió la
+   * selección, y gobierna la vía de admisión de todos los candidatos. Nunca se
+   * deriva de `input.subindustries.length`: ese array ya podía llegar vacío en el
+   * catálogo legacy y usarlo como interruptor habría cambiado de camino a toda
+   * búsqueda v1 que no acotara por subindustria.
+   */
+  const discoveryTaxonomy = resolveDiscoveryTaxonomyCapability(input.selectionCatalogVersion);
+
+  const searchBootstrapAuthorizations: ApolloSectorEvidenceBootstrapAuthorization[] = [];
+  const registerSearchBootstrapPreconditions = (output: WebSearchOutput): void => {
+    const preconditions = readApolloSectorEvidenceBootstrapPreconditionsFromMetadata(
+      output.metadata,
+    );
+    searchBootstrapAuthorizations.push(
+      preconditions === null
+        ? APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED
+        : evaluateApolloSectorEvidenceBootstrapAuthorization(preconditions),
+    );
+  };
+  const sectorEvidenceBootstrapAuthorization = (): ApolloSectorEvidenceBootstrapAuthorization =>
+    combineApolloSectorEvidenceBootstrapAuthorizations(searchBootstrapAuthorizations);
+  /**
+   * § 17 — candidatos que quedaron elegibles para ADQUIRIR evidencia, con su
+   * motivo, tal como se evaluaron ANTES de gastar.
+   *
+   * Aparte de `sectorEvidenceStateByKey` porque ese mapa guarda el veredicto MÁS
+   * RECIENTE, y tras el enrichment el estado de bootstrap ya no existe: sin este
+   * registro, una auditoría posterior no podría responder «este candidato se
+   * enriqueció porque la búsqueda no traía clasificación».
+   */
+  const bootstrapEligibleReasonByKey = new Map<
+    string,
+    ApolloSectorEvidenceBootstrapCandidateReason
+  >();
+  /**
+   * POST-ENRICHMENT-ADMISSION-1 § 20 — cómo cruzó cada candidato el gate sectorial.
+   *
+   * Aparte de `sectorEvidenceStateByKey` por la misma razón que
+   * `bootstrapEligibleReasonByKey`: ese mapa guarda el estado RESULTANTE, y desde
+   * `sector_evidence_confirmed` no se puede saber si lo confirmó la política legacy
+   * o una hija pedida. La auditoría necesita responder «este candidato cruzó porque
+   * EPS, que se pidió, quedó confirmada tras el enrichment».
+   */
+  const sectorAdmissionByKey = new Map<string, ApolloSectorPostEnrichmentAdmissionResult>();
+
+  /**
+   * BOOTSTRAP-PURCHASE-GATE-THREADING-1 § 14 — qué pasó en el GATE DE COMPRA de
+   * cada candidato seleccionado.
+   *
+   * Existe porque los seis estados del recorrido —elegible, seleccionado,
+   * autorizado a comprar, intentado, ejecutado, y por qué no— colapsaban en dos:
+   * `selection_rank` y `enrichment_status`. La forense de `74a49b01` tuvo que
+   * hacer un replay pinneado al SHA de producción para descubrir que el gate
+   * decía `sector_not_mapped`, porque ese motivo no se persistía en ningún sitio.
+   *
+   * No abre una verdad paralela: aterriza dentro del bloque de bootstrap que ya
+   * describe este gasto.
+   */
+  const authorizedBootstrapPurchaseKeys = new Set<string>();
+  const bootstrapPurchaseTraceByKey = new Map<string, MutablePurchaseTrace>();
 
   /**
    * § 2 — el prefetch de admisión, UNA sola vez por corrida y de forma perezosa.
@@ -1255,6 +1403,10 @@ export async function runApolloTwoRoundWizardDiscovery(
         searchOptions,
       );
       searchOutputs.push(output);
+      // SECTOR-EVIDENCE-BOOTSTRAP-1 — la autorización se acumula desde las búsquedas
+      // REALMENTE emitidas. Una ronda saltada, en dry-run o bloqueada por el gate de
+      // gasto no aporta autorización alguna.
+      registerSearchBootstrapPreconditions(output);
 
       const credits = readRecordedSearchCredits(output);
       // § 2 CAS-CLOSE — el gasto se atribuye a ESTA operación. Los créditos que el
@@ -1295,10 +1447,15 @@ export async function runApolloTwoRoundWizardDiscovery(
       // 3-9. Gates baratos reales: país, dominio, TLD, correo, ownership,
       // plataforma externa, cooldown e historial. Cero llamadas, cero créditos.
       // ADDENDUM § 2 — el gate de gasto evalúa las CINCO selecciones con ANY-OF.
+      // SECTOR-EVIDENCE-BOOTSTRAP-1 — un sector sin política deja de ser un rechazo
+      // incondicional CUANDO la corrida está autorizada y el proveedor no declaró
+      // clasificación alguna. Sigue sin confirmar nada: sólo permite preguntar.
+      const bootstrapAuthorization = sectorEvidenceBootstrapAuthorization();
       const eligibility = evaluateApolloEnrichmentEligibility(result, {
         targetCountryCode: input.countryCode,
         sector: input.industry,
         subindustries: input.subindustries,
+        sectorEvidenceBootstrap: bootstrapAuthorization,
         domainsInCooldown: negativeMemory.excludedDomains,
       });
 
@@ -1306,6 +1463,7 @@ export async function runApolloTwoRoundWizardDiscovery(
         result,
         input.industry,
         input.subindustries,
+        { sectorEvidenceBootstrap: bootstrapAuthorization },
       );
       // QUERY-QUALITY-2 § 7 — contradicción visible en campos GRATUITOS. El QA
       // gastó su único enrichment en Citigroup buscando supermercados: la
@@ -1335,6 +1493,13 @@ export async function runApolloTwoRoundWizardDiscovery(
       // ADAPTIVE-EARLY-STOP § 5 — el veredicto queda disponible para la
       // proyección de completitud del LOTE, no sólo para este candidato.
       sectorEvidenceStateByKey.set(key, sectorEvidenceState);
+      // § 17 — por qué este candidato puede competir sin política de sector.
+      if (
+        sectorEvidenceState === 'sector_evidence_missing_bootstrap_eligible' &&
+        sector.bootstrap?.bootstrapEligible === true
+      ) {
+        bootstrapEligibleReasonByKey.set(key, sector.bootstrap.reason);
+      }
 
       // 10-11. Duplicado en SellUp y en HubSpot — una sola consulta por
       // organización, la misma que el pipeline de producción ya hace, y cacheada
@@ -1403,16 +1568,62 @@ export async function runApolloTwoRoundWizardDiscovery(
     },
 
     enrichCandidate: async ({ candidateKey, identity, operationContext }) => {
-      const notExecuted: EnrichmentResult = {
-        executed: false,
-        sectorEvidenceState: 'sector_evidence_missing_needs_enrichment',
-        internalRecordedCredits: 0,
+      // BOOTSTRAP-PURCHASE-GATE-THREADING-1 — la autorización que dejó competir a
+      // este candidato viaja hasta el gate que guarda la COMPRA.
+      //
+      // Se acuña AQUÍ y no en el ámbito de la corrida a propósito: el orquestador
+      // sólo invoca este hook para los candidatos que su selección eligió, así que
+      // acuñarla en este punto la ata a la selección; y el resolutor la ata además
+      // al candidato (exige el motivo que el gate barato REGISTRÓ para él) y al cap
+      // (nunca más autorizaciones que enrichments permite la corrida). Un booleano
+      // de corrida habría autorizado a los 20 de `74a49b01`; esto autoriza a los
+      // <= 5 que compitieron.
+      const purchaseDecision = resolveApolloSectorEvidenceBootstrapPurchaseAuthorization({
+        runAuthorization: sectorEvidenceBootstrapAuthorization(),
+        cheapGateBootstrapReason: bootstrapEligibleReasonByKey.get(candidateKey) ?? null,
+        authorizedPurchasesSoFar: authorizedBootstrapPurchaseKeys.size,
+        maxAuthorizedPurchases: config.maxEnrichmentsPerRun,
+      });
+      if (purchaseDecision.authorized) authorizedBootstrapPurchaseKeys.add(candidateKey);
+      const purchaseTrace: MutablePurchaseTrace = {
+        decision: purchaseDecision,
+        cascadeInvoked: false,
+        skipReason: null,
+        cascadeIneligibilityReason: null,
       };
+      bootstrapPurchaseTraceByKey.set(candidateKey, purchaseTrace);
+
+      /**
+       * § 6 — una operación pagada que NUNCA se intentó no puede degradar el
+       * estado del candidato.
+       *
+       * Hasta este hito `notExecuted` afirmaba `sector_evidence_missing_needs_
+       * enrichment` sin importar por qué no se ejecutó, y el orquestador lo
+       * asignaba incondicionalmente: en `74a49b01` los 5 mejores candidatos
+       * quedaron DEGRADADOS de `bootstrap_eligible` a `needs_enrichment` por una
+       * compra que nunca ocurrió. El estado de un candidato al que no se le compró
+       * nada es el que ya tenía — nada pudo haberlo movido.
+       */
+      const notExecuted = (
+        skipReason: ApolloSectorEvidenceBootstrapPurchaseSkipReason,
+      ): EnrichmentResult => {
+        purchaseTrace.skipReason = skipReason;
+        return {
+          executed: false,
+          sectorEvidenceState:
+            sectorEvidenceStateByKey.get(candidateKey) ??
+            'sector_evidence_missing_needs_enrichment',
+          internalRecordedCredits: 0,
+        };
+      };
+
       // Sin pricing activo el enrichment no se ejecuta. Sin presupuesto tampoco.
-      if (!enrichmentAllowed || budgetExceeded()) return notExecuted;
+      if (!enrichmentAllowed) return notExecuted('enrichment_pricing_unavailable');
+      if (budgetExceeded()) return notExecuted('budget_exhausted');
 
       const result = readEvidenceResult(evidenceByKey, candidateKey);
-      if (!result || identity.normalizedDomain === null) return notExecuted;
+      if (!result) return notExecuted('candidate_evidence_unavailable');
+      if (identity.normalizedDomain === null) return notExecuted('candidate_domain_missing');
 
       // § 1 — el transporte se instrumenta para poder CLASIFICAR el desenlace del
       // cobro en vez de deducirlo de un mensaje de error.
@@ -1435,6 +1646,7 @@ export async function runApolloTwoRoundWizardDiscovery(
       // Un solo enrichment: la lista que se le pasa al cascade tiene UN
       // elemento y el cap es 1. El presupuesto global lo gobierna el
       // orquestador, no este cap por llamada.
+      purchaseTrace.cascadeInvoked = true;
       const cascade = await deps.enrichCascade(
         [result],
         1,
@@ -1447,6 +1659,10 @@ export async function runApolloTwoRoundWizardDiscovery(
             // volviera a viajar una sola, el cascade rechazaría antes de pagar a
             // candidatos que el gate anterior ya había admitido.
             subindustries: input.subindustries,
+            // BOOTSTRAP-PURCHASE-GATE-THREADING-1 — el campo que faltaba. Sin él
+            // el gate de compra volvía a juzgar sin autorización y un sector sin
+            // política salía `sector_not_mapped`: 5 seleccionados, 0 ejecutados.
+            sectorEvidenceBootstrap: purchaseDecision.authorization,
           },
         },
       );
@@ -1457,7 +1673,8 @@ export async function runApolloTwoRoundWizardDiscovery(
       // un `missing_domain` o un `eligibility_blocked` no gastaron nada, así que
       // no generan fila económica.
       if (entry === undefined || !(entry.enriched === true || entry.skip_reason === 'enrichment_failed')) {
-        return notExecuted;
+        purchaseTrace.cascadeIneligibilityReason = entry?.ineligibility_reason ?? null;
+        return notExecuted(toBootstrapPurchaseSkipReason(entry?.skip_reason ?? null));
       }
 
       const outcome: ApolloEnrichmentBillingOutcome =
@@ -1572,10 +1789,19 @@ export async function runApolloTwoRoundWizardDiscovery(
       // ADDENDUM § 2 — misma semántica ANY-OF que antes del gasto. Reevaluar el
       // perfil comprado contra una sola subindustria podría degradar a un
       // candidato que el enrichment acababa de confirmar para otra de las pedidas.
+      //
+      // SECTOR-EVIDENCE-BOOTSTRAP-1 — DELIBERADAMENTE sin autorización de
+      // adquisición. El bootstrap autoriza a PREGUNTAR, y la pregunta ya se hizo:
+      // pasado el enrichment el candidato se juzga con el contrato normal. Si el
+      // perfil comprado trajo clasificación, el veredicto sale de ella; si no trajo
+      // nada y el sector sigue sin política, vuelve a ser `sector_not_mapped` — que
+      // es la verdad («pagamos y seguimos sin poder juzgar este sector») y garantiza
+      // que el estado de bootstrap sea INTERMEDIO y jamás un estado final.
       const sector = evaluateApolloSectorRelevanceForPaidOperationAnyOf(
         enrichedResult,
         input.industry,
         input.subindustries,
+        { sectorEvidenceBootstrap: APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED },
       );
       // § 5 — la reevaluación posterior al enrichment vuelve a pasar por la
       // precisión de subindustria. Un perfil enriquecido puede confirmar la
@@ -1588,10 +1814,45 @@ export async function runApolloTwoRoundWizardDiscovery(
       );
       subindustryPrecisionByKey.set(candidateKey, enrichedPrecision);
       enrichmentUsageKeyByCandidate.set(candidateKey, usageKey);
-      const sectorEvidenceState = foldSubindustryPrecisionIntoSectorState(
+      const foldedSectorEvidenceState = foldSubindustryPrecisionIntoSectorState(
         toSectorEvidenceState(sector.decision),
         enrichedPrecision,
       );
+      // POST-ENRICHMENT-ADMISSION-1 — el hueco que quedaba abierto tras #274: el
+      // crédito compra la clasificación, la precisión CONFIRMA la subindustria que
+      // el usuario pidió, y el sector vuelve a `sector_not_mapped` porque no hay
+      // política legacy para el padre. Eso es un rechazo terminal por una política
+      // AUSENTE, no por evidencia en contra.
+      //
+      // Sólo actúa en ese hueco: con política legacy presente el veredicto de
+      // siempre manda, y un estado ya medido —confirmado, contradicho, pendiente—
+      // sale intacto. El pliegue de arriba conserva su invariante de sólo degradar.
+      //
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 §§ 10 y 12 — en la taxonomía macro la
+      // evidencia se evalúa AQUÍ, sobre el perfil ya comprado, y nunca sobre el
+      // resultado de búsqueda: es lo que impide que la cobertura de consulta se
+      // convierta en evidencia de admisión.
+      const macroIndustryEvidence =
+        discoveryTaxonomy.mode === 'macro_industry'
+          ? assessMacroIndustryEvidence({
+              result: enrichedResult,
+              macroIndustryDisplayName: input.industry,
+            })
+          : null;
+      const sectorAdmission = resolveApolloSectorPostEnrichmentAdmission({
+        postEnrichmentSectorState: foldedSectorEvidenceState,
+        legacySectorPolicyPresent: sector.sectorPolicyPresent,
+        // Un `no_match` o un `enrichment_failed` llegan hasta aquí y NO compraron
+        // perfil: su precisión se evaluó sobre la evidencia de búsqueda.
+        candidateEnriched: entry.enriched === true,
+        requestedSubindustries: input.subindustries,
+        precision: enrichedPrecision,
+        catalogAuthorization: sectorEvidenceBootstrapAuthorization(),
+        taxonomyMode: discoveryTaxonomy.mode,
+        macroIndustryEvidence,
+      });
+      sectorAdmissionByKey.set(candidateKey, sectorAdmission);
+      const sectorEvidenceState = sectorAdmission.sectorEvidenceState;
       // ADAPTIVE-EARLY-STOP § 5 — el veredicto que el crédito acaba de comprar
       // entra en la proyección de completitud del LOTE, que es lo que reordena el
       // cupo COMPLETE-FIRST.
@@ -1839,6 +2100,60 @@ export async function runApolloTwoRoundWizardDiscovery(
     });
   };
 
+  // AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — official-source search criteria for
+  // the shared intake seam. Built once per run, not per candidate; the resolver
+  // set (read-only Colombia co_siis) is also built once and reused across every
+  // candidate this run persists.
+  //
+  // `ProspectSearchCriteria.subindustry` is intentionally left unset here: it
+  // is a single string field and a wizard run can request several
+  // subindustries — reading only `subindustries[0]` is the exact anti-pattern
+  // `agent1-subindustry-fail-closed-target-integrity-1.test.ts` guards
+  // against elsewhere in this file. The Colombia resolver's `canResolve` /
+  // `resolve` never branch on `subindustry` (only country + candidate name),
+  // so omitting it costs nothing today; a future resolver that does need it
+  // should carry the FULL list, not the first element.
+  const officialSourceCriteria: ProspectSearchCriteria = {
+    country: input.country,
+    countryCode: input.countryCode,
+    sector: input.industry,
+  };
+  const officialSourceResolvers = buildColombiaOfficialSourceResolvers();
+
+  /**
+   * AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — runs the shared, provider-neutral
+   * official-source seam (adapter → normalize → official enrichment) on an
+   * already-built Apollo candidate, AFTER the cheap pre-spend dedupe and paid
+   * enrichment have already run. When a strong tax identity is found, also
+   * re-runs the EXISTING tax-aware duplicate checker and lets its result
+   * override the candidate's `duplicateCheck` — the writer already derives
+   * `duplicate_status` / `matched_account_id` / `matched_hubspot_company_id`
+   * purely from that field, so no writer change is needed for the recheck to
+   * take effect.
+   */
+  const withOfficialSourceIdentity = async (
+    built: ProspectingPipelineCandidate,
+    evidence: WebSearchResult | null,
+  ): Promise<ProspectingPipelineCandidate> => {
+    const outcome = await deriveOfficialIdentityForApolloCandidate({
+      candidate: built,
+      webSearchResult: evidence,
+      criteria: officialSourceCriteria,
+      resolvers: officialSourceResolvers,
+    });
+    return {
+      ...built,
+      officialSourceIdentity: {
+        officialSourceMetadata: outcome.officialSourceMetadata,
+        typedColumns: outcome.typedColumns,
+        strongIdentityAvailable: outcome.strongIdentityAvailable,
+      },
+      ...(outcome.strongDuplicateRecheck
+        ? { duplicateCheck: outcome.strongDuplicateRecheck }
+        : {}),
+    };
+  };
+
   const resolvePersistableCandidates = async (): Promise<ProspectingPipelineCandidate[]> => {
     const resolved: ProspectingPipelineCandidate[] = [];
     // AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § D — las ambiguas viajan al
@@ -1851,19 +2166,24 @@ export async function runApolloTwoRoundWizardDiscovery(
     // sólo va a revisión.
     for (const entry of [...runResult.persisted, ...runResult.reviewOnly]) {
       const capture = buildEnrichmentCapture(entry.candidateKey);
+      const evidenceForOfficialSource = readEvidenceResult(evidenceByKey, entry.candidateKey);
       const cached = assessmentByKey.get(entry.candidateKey);
       if (cached) {
         // El veredicto sectorial de la modalidad viaja con el candidato: es lo
         // que permite al writer distinguir `subindustry_match = confirmed` de
         // «nadie lo evaluó», sin volver a llamar al gate ni al proveedor.
-        resolved.push({
-          ...cached.candidate,
-          sectorEvidenceState: entry.sectorEvidenceState,
-          providerEnrichmentCapture: capture,
-        });
+        const withIdentity = await withOfficialSourceIdentity(
+          {
+            ...cached.candidate,
+            sectorEvidenceState: entry.sectorEvidenceState,
+            providerEnrichmentCapture: capture,
+          },
+          evidenceForOfficialSource,
+        );
+        resolved.push(withIdentity);
         continue;
       }
-      const evidence = readEvidenceResult(evidenceByKey, entry.candidateKey);
+      const evidence = evidenceForOfficialSource;
       if (evidence === null) continue;
       const rebuilt = await deps.buildCandidate(evidence, {
         country: input.country,
@@ -1879,7 +2199,11 @@ export async function runApolloTwoRoundWizardDiscovery(
         duplicate: readDuplicateVerdict(rebuilt.candidate),
         checkedDomain: entry.identity.normalizedDomain,
       });
-      resolved.push({ ...rebuilt.candidate, providerEnrichmentCapture: capture });
+      const withIdentity = await withOfficialSourceIdentity(
+        { ...rebuilt.candidate, providerEnrichmentCapture: capture },
+        evidence,
+      );
+      resolved.push(withIdentity);
     }
     return resolved;
   };
@@ -1896,7 +2220,96 @@ export async function runApolloTwoRoundWizardDiscovery(
     ? []
     : await resolvePersistableCandidates();
 
-  const observability = buildObservabilityMetadata({
+  /**
+   * SECTOR-EVIDENCE-BOOTSTRAP-1 § 17 — la traza que permite auditar este gasto sin
+   * una segunda fuente de verdad: la autorización de la corrida, quién quedó
+   * elegible para adquirir evidencia y por qué, quién recibió el enrichment, en qué
+   * puesto del ranking, y en qué estado sectorial terminó.
+   *
+   * Sólo códigos estáticos y claves de candidato — las mismas que ya viajan en
+   * `enrichment_snapshots`. Sin nombres de empresa, sin secretos.
+   */
+  const bootstrapSelectionRankByKey = new Map<string, number>();
+  runResult.enrichmentSelections.forEach((selection, index) => {
+    if (!bootstrapSelectionRankByKey.has(selection.candidateKey)) {
+      bootstrapSelectionRankByKey.set(selection.candidateKey, index + 1);
+    }
+  });
+  // La disposición terminal se recalcula aquí en vez de recibirse: la proyección
+  // es PURA sobre `runResult` y `buildObservabilityMetadata` la vuelve a hacer con
+  // la misma entrada, así que las dos no pueden discrepar. Pasarla por parámetro
+  // sólo añadiría un acoplamiento entre dos proyecciones independientes.
+  const bootstrapAudit = buildApolloSectorEvidenceBootstrapAudit({
+    bootstrapEligibleReasonByKey,
+    selectionRankByKey: bootstrapSelectionRankByKey,
+    enrichmentStatusByKey,
+    evidenceByKey,
+    precisionByKey: subindustryPrecisionByKey,
+    sectorEvidenceStateByKey,
+    sectorAdmissionByKey,
+    purchaseTraceByKey: bootstrapPurchaseTraceByKey,
+    finalDispositions: evaluateApolloCandidateFinalDispositions(runResult),
+  });
+  const bootstrapObservability = {
+    [APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_METADATA_KEY]: {
+      ...toApolloSectorEvidenceBootstrapAuthorizationMetadata(
+        sectorEvidenceBootstrapAuthorization(),
+      ),
+      bootstrap_eligible_count: bootstrapAudit.length,
+      bootstrap_selected_for_enrichment_count: bootstrapAudit.filter(
+        (candidate) => candidate.selectedForEnrichment,
+      ).length,
+      // BOOTSTRAP-PURCHASE-GATE-THREADING-1 § 14 — los dos escalones que faltaban
+      // entre «seleccionado» y «ejecutado». `74a49b01` cerró con 5 y 0 en esos
+      // extremos y nada explicaba el hueco: era este gate.
+      bootstrap_purchase_authorized_count: bootstrapAudit.filter(
+        (candidate) => candidate.purchase?.decision.authorized === true,
+      ).length,
+      bootstrap_purchase_attempted_count: bootstrapAudit.filter(
+        (candidate) => candidate.purchase?.cascadeInvoked === true,
+      ).length,
+      // Distinto de «seleccionado»: un cupo puede gastarse y volver `no_match` o
+      // quedar indeterminado. Para calibrar Wave 1 sólo cuenta lo que se ejecutó.
+      bootstrap_enrichment_executed_count: bootstrapAudit.filter(
+        (candidate) => candidate.enrichmentExecuted,
+      ).length,
+      // POST-ENRICHMENT-ADMISSION-1 § 20 — cuántos cruzaron el gate sectorial por
+      // una subindustria PEDIDA y confirmada, en vez de por política legacy. Es la
+      // cifra que dice si la vía nueva sirvió de algo en esta corrida.
+      sector_admitted_by_requested_subindustry_precision_count: bootstrapAudit.filter(
+        (candidate) =>
+          candidate.sectorAdmission?.admittedByRequestedSubindustryPrecision === true,
+      ).length,
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 12 — la cifra equivalente para la
+      // taxonomía macro: cuántos cruzaron el gate porque la evidencia comprada
+      // CONFIRMÓ la macro industria pedida. Cero en toda corrida legacy.
+      sector_admitted_by_confirmed_macro_industry_evidence_count: bootstrapAudit.filter(
+        (candidate) =>
+          candidate.sectorAdmission?.admissionSource === 'confirmed_macro_industry_evidence',
+      ).length,
+      // Reparto de veredictos macro, para calibrar sin volver a gastar (§ 17 de
+      // #274 aplicado a la taxonomía nueva).
+      macro_industry_evidence_verdicts: bootstrapAudit.reduce<Record<string, number>>(
+        (acc, candidate) => {
+          const verdict = candidate.sectorAdmission?.macroIndustryEvidence?.verdict;
+          if (verdict) acc[verdict] = (acc[verdict] ?? 0) + 1;
+          return acc;
+        },
+        {},
+      ),
+      candidates: toApolloSectorEvidenceBootstrapAuditMetadata(bootstrapAudit),
+    },
+    // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — bajo qué taxonomía corrió el lote.
+    apollo_discovery_taxonomy: toDiscoveryTaxonomyMetadata(discoveryTaxonomy),
+    // Muestra del veredicto macro por candidato admitido, sin nombres de empresa.
+    apollo_macro_industry_evidence_samples: bootstrapAudit
+      .map((candidate) => candidate.sectorAdmission?.macroIndustryEvidence ?? null)
+      .filter((assessment): assessment is NonNullable<typeof assessment> => assessment !== null)
+      .slice(0, 5)
+      .map(toMacroIndustryEvidenceMetadata),
+  };
+
+  const runObservability = buildObservabilityMetadata({
     runResult,
     budget,
     reservedCredits: input.reservedCredits,
@@ -1913,6 +2326,8 @@ export async function runApolloTwoRoundWizardDiscovery(
     catalogTerms: input.subindustryCatalogTerms ?? null,
     selectionCatalogVersion: input.selectionCatalogVersion ?? null,
   });
+
+  const observability = { ...bootstrapObservability, ...runObservability };
 
   let candidatesCreated = persistedCandidateIds.length;
   // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — resultado real de la escritura, que
@@ -2482,6 +2897,41 @@ export function toResumeStateFromCheckpoint(
       organizations,
     })),
   };
+}
+
+/**
+ * BOOTSTRAP-PURCHASE-GATE-THREADING-1 § 14 — la traza mientras se escribe.
+ *
+ * El registro público es de sólo lectura; el runner la construye por pasos (se
+ * autoriza, se invoca el cascade, se conoce el desenlace) y por eso su versión
+ * interna es mutable. Fuera de este módulo nadie la muta.
+ */
+type MutablePurchaseTrace = {
+  -readonly [K in keyof ApolloSectorEvidenceBootstrapPurchaseTrace]: ApolloSectorEvidenceBootstrapPurchaseTrace[K];
+};
+
+/**
+ * Traduce el motivo de salto del cascade al vocabulario del gate de compra.
+ *
+ * Explícito y exhaustivo a propósito: un motivo NUEVO del cascade tiene que
+ * aparecer aquí, no colarse como «sin entrada». Una traza que miente sobre por
+ * qué no se compró es peor que no tenerla.
+ */
+function toBootstrapPurchaseSkipReason(
+  skipReason: EnrichmentSkipReason | null,
+): ApolloSectorEvidenceBootstrapPurchaseSkipReason {
+  switch (skipReason) {
+    case 'eligibility_blocked':
+      return 'cascade_eligibility_blocked';
+    case 'cap_reached':
+      return 'cascade_cap_reached';
+    case 'missing_domain':
+      return 'cascade_missing_domain';
+    case 'cascade_disabled':
+      return 'cascade_disabled';
+    default:
+      return 'cascade_returned_no_entry';
+  }
 }
 
 function recordEnrichmentSnapshot(input: {

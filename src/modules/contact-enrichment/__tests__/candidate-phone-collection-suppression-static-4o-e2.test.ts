@@ -107,15 +107,67 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
     );
   });
 
-  it('el techo lo movió 4O-E3 con la 113, y nadie más', () => {
+  it('el techo lo movieron 4O-E3 (113), 4O-H1 (114), 4O-H2 (115), 4O-H3 (116) y 4O-H3-B (117), y nadie más', () => {
     // Esta guarda NO fija el número más alto del directorio para siempre —sube cada
     // vez que un bloque AUTORIZADO añade la suya—, sino que por encima de la 112 solo
     // esté la que el hito siguiente declaró: AGENT2A-PHONE-REVEAL-4O-E3, que vuelve a
     // declarar las funciones 110/111 con la re-comprobación de supresión POR PERSONA
     // dentro de la transacción. Tiene su propia guarda estática, que además comprueba
     // que la 112 no se editó retroactivamente.
+    //
+    // AGENT2A-PHONE-REVEAL-4O-H1 añadió la 114: el esquema OFICIAL de múltiples teléfonos
+    // (`contact_phones` + `contact_phone_sources`), creado INERTE y con su propia guarda
+    // estática. No edita la 112 ni ninguna otra de la cadena, que es lo que se vigila.
+    //
+    // AGENT2A-PHONE-REVEAL-4O-H2 añadió la 115: la PRIVACIDAD de ese esquema oficial —dos
+    // contadores en `phone_reveal_suppression_audit` y la función transaccional
+    // `suppress_official_contact_phone_sources`—, también con su propia guarda estática.
+    // Tampoco edita la 112: la lista sigue siendo EXACTA, no un rango abierto.
     const above = files.filter((f) => Number.parseInt(f.slice(0, 3), 10) > 112);
-    assert.deepEqual(above, ['113_phone_reveal_person_suppression_recheck.sql']);
+    assert.deepEqual(above, [
+      '113_phone_reveal_person_suppression_recheck.sql',
+      '114_official_contact_phones.sql',
+      '115_official_contact_phone_privacy.sql',
+      // 4O-H3: la aprobación ATÓMICA del candidato sobre el esquema oficial. Sólo una
+      // función transaccional; no toca la colección de staging que esta suite protege.
+      '116_approve_candidate_with_official_phones.sql',
+      // 4O-H3-B: `merge_contact_candidate_into_existing_contact`, aplicada en Producción
+      // desde el 2026-08-12 pero reconciliada al repo después de que esta guarda se
+      // escribiera (de ahí que faltara aquí). LEE la colección de staging (112) para
+      // promoverla hacia el contacto existente, pero no la escribe ni la altera — la 112
+      // sigue siendo su única dueña, que es exactamente lo que esta guarda vigila. Es DML
+      // sobre `contacts`/`contact_phones`, no crea, altera ni borra ninguna tabla, y no
+      // toca `phone_reveal_suppression_audit` — no es dueña de la forma de ninguna tabla
+      // de la colección que esta suite protege.
+      '117_merge_candidate_into_existing_contact.sql',
+      // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1: catálogo de Macro Industrias.
+      // Ninguna de las dos toca la colección de staging que esta suite protege.
+      '118_macro_industry_catalog_v2_draft.sql',
+      '119_publish_macro_industry_catalog_v2_cutover.sql',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit`, la supresión de teléfono
+      // por identidad NATIVA del proveedor y SIN cuenta, más el backfill idempotente de
+      // los tombstones legados y el `CREATE OR REPLACE` del helper transaccional
+      // `phone_reveal_person_suppression_exists`. Es ADITIVA: no borra columna, no
+      // suelta constraint y no reescribe ninguna migración anterior.
+      '120_provider_native_phone_suppression.sql',
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). Reemplaza la
+      // constraint de `wizard_budget_reservations` y el cuerpo de
+      // `confirm_wizard_credits`; no nombra ninguna tabla de teléfono. No crea, altera ni borra ninguna tabla de la
+      // colección de staging que esta suite protege, y la 112 sigue siendo su única dueña.
+      '121_wizard_budget_overage_reconciliation.sql',
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      '122_phone_reveal_search_more.sql',
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
+    ]);
   });
 
   it('la 112 declara que YA está aplicada, con la versión remota exacta', () => {
@@ -748,17 +800,21 @@ describe('4O-E2 · deuda declarada y alcance no tocado', () => {
     assert.equal(/suppress_candidate_phone_collection/.test(manual), false);
   });
 
-  it('no se crea ninguna tabla `contact_phones` en ninguna migración', () => {
+  it('sólo la 114 (4O-H1) crea la tabla `contact_phones`', () => {
+    // Invertido por 4O-H1, que es quien la crea. Lo que se sigue protegiendo es que tenga
+    // una única dueña: la forma del esquema oficial no puede repartirse entre migraciones.
+    const creators: string[] = [];
     for (const file of readdirSync(MIGRATIONS_DIR)) {
       if (!file.endsWith('.sql')) continue;
-      assert.equal(
+      if (
         /CREATE TABLE[^;]*\bpublic\.contact_phones\b/i.test(
           readFileSync(join(MIGRATIONS_DIR, file), 'utf8'),
-        ),
-        false,
-        `${file} no debe crear contact_phones`,
-      );
+        )
+      ) {
+        creators.push(file);
+      }
     }
+    assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
   it('el hito no activa ni menciona como activable el flag del waterfall', () => {

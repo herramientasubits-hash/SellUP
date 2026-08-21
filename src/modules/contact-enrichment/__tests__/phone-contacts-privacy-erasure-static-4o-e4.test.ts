@@ -338,36 +338,88 @@ describe('4O-E4 estático — la suite está cableada en el check obligatorio', 
 // ═══════════════════════════════════════════════════════════════
 
 describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
-  it('NO se creó ninguna migración nueva (el fix es de código)', () => {
+  it('E4 no aportó ninguna migración (su fix es de código)', () => {
+    // El techo lo movió AGENT2A-PHONE-REVEAL-4O-H1 con la 114 —el esquema OFICIAL de
+    // múltiples teléfonos, creado INERTE y con su propia guarda estática— y después
+    // AGENT2A-PHONE-REVEAL-4O-H2 con la 115 —la PRIVACIDAD de ese esquema: dos contadores
+    // de auditoría y `suppress_official_contact_phone_sources`, también con su propia
+    // guarda estática—. Lo que esta guarda protege es que E4 se resolvió en TypeScript, no
+    // cuál es el número más alto; por eso la lista sigue siendo EXACTA y enumerada.
     const migrations = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith('.sql'))
-      .filter((f) => /^11[4-9]|^1[2-9]\d/.test(f));
+      .filter((f) => /^11[4-9]|^1[2-9]\d/.test(f))
+      .sort();
     assert.deepEqual(
       migrations,
-      [],
+      [
+        '114_official_contact_phones.sql',
+        '115_official_contact_phone_privacy.sql',
+        // 4O-H3: la aprobación ATÓMICA. Tampoco es DDL de 4O-E4: sólo una función.
+        '116_approve_candidate_with_official_phones.sql',
+        // 4O-H3-B: el merge del candidato duplicado sobre un contacto existente. Tampoco es
+        // DDL de 4O-E4 — otra función transaccional— y tampoco toca la allowlist del escalar
+        // que E4 fijó. Su propio COMMENT ON FUNCTION documenta que NUNCA toca mobile_phone
+        // (4O-E4.1 sigue abierto).
+        '117_merge_candidate_into_existing_contact.sql',
+        // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1: catálogo de Macro Industrias.
+        // Ninguna es DDL de teléfono.
+        '118_macro_industry_catalog_v2_draft.sql',
+        '119_publish_macro_industry_catalog_v2_cutover.sql',
+      // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) mueve el techo a la 120:
+      // `provider_suppressions` + `provider_suppression_audit` — supresión de teléfono por
+      // identidad NATIVA del proveedor y SIN cuenta, backfill idempotente del tombstone
+      // legado y `CREATE OR REPLACE` del helper transaccional. Es ADITIVA: no borra
+      // columna, no suelta constraint y no reescribe ninguna migración anterior.
+      '120_provider_native_phone_suppression.sql',
+      // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 mueve el techo a la 121: la liquidación
+      // TRUTHFUL del sobrepaso de presupuesto (Agente 1, contabilidad). Tampoco es DDL de
+      // teléfono — reemplaza una constraint de `wizard_budget_reservations` y el cuerpo de
+      // `confirm_wizard_credits`— y no toca la allowlist del escalar que E4 fijó.
+      '121_wizard_budget_overage_reconciliation.sql',
+      // AGENT2A-SEARCH-MORE-PHONES-1 mueve el techo a la 122: «Buscar más números»
+      // (Agente 2A). Es de teléfono, pero no de este hito: añade la modalidad `search_more`
+      // y una función que AÑADE teléfonos al CANDIDATO, y no toca lo que esta guarda vigila.
+      '122_phone_reveal_search_more.sql',
+      // AGENT1-PROVIDER-SEEN-MEMORY-2 mueve el techo a la 123: la memoria de qué empresa ya
+      // nos mostró un proveedor de PAGO (Agente 1, economía de descubrimiento). NO es de
+      // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
+      // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
+      // columna ni función de teléfono. Se declara NO aplicada en Producción.
+      '123_provider_seen_entities.sql',
+      ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
   });
 
-  it('la migración 113 (E3) es la última del repo', () => {
+  it('la migración 123 (memoria provider-seen) es la última del repo', () => {
+    // 4O-H2 mueve el techo de la 114 a la 115. Se sigue fijando un número EXACTO: una
+    // migración por encima del último hito conocido tiene que romper esta guarda.
     const numbered = readdirSync(MIGRATIONS_DIR)
       .filter((f) => /^\d{3}_/.test(f) && f.endsWith('.sql'))
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .sort((a, b) => a - b);
-    assert.equal(numbered[numbered.length - 1], 113);
+    // AGENT1-MACRO-INDUSTRY-CATALOG-DISCOVERY-1 mueve el techo a la 119: catálogo de
+    // Macro Industrias, sin relación con teléfono. La 117 (4O-H3-B) queda por debajo.
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) lo mueve a la 120, y
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 a la 121 (contabilidad de presupuesto, sin
+    // relación con teléfono). El número sigue siendo EXACTO: una migración no declarada
+    // por encima del último hito conocido rompe esta guarda.
+    assert.equal(numbered[numbered.length - 1], 123);
   });
 
-  it('no se crea ninguna tabla contact_phones', () => {
+  it('sólo 4O-H1 crea la tabla contact_phones', () => {
+    const creators: string[] = [];
     for (const file of readdirSync(MIGRATIONS_DIR)) {
       if (!file.endsWith('.sql')) continue;
-      assert.equal(
+      if (
         /CREATE TABLE[^;]*\bpublic\.contact_phones\b/i.test(
           readFileSync(join(MIGRATIONS_DIR, file), 'utf8'),
-        ),
-        false,
-        `${file} no debe crear contact_phones`,
-      );
+        )
+      ) {
+        creators.push(file);
+      }
     }
+    assert.deepEqual(creators, ['114_official_contact_phones.sql']);
   });
 
   it('E4 no toca la colección de candidatos ni sus RPC', () => {
@@ -463,10 +515,35 @@ describe('4O-E4 estático — las deudas siguen declaradas', () => {
 
   it('el core no introduce un modelo multi-phone para el contacto oficial', () => {
     const core = read(...CORE);
-    // El patch sigue siendo de UNA tupla escalar. Si apareciera un array de
-    // teléfonos aquí, `OFFICIAL_MULTI_PHONE_MODEL_PENDING` habría dejado de ser
-    // cierto sin que nadie lo decidiera.
-    assert.equal(/contact_phones\b/.test(core), false);
+    // AGENT2A-PHONE-REVEAL-4O-H2 — esta guarda se ESTRECHA, no se borra.
+    //
+    // En 4O-E4 afirmaba que el core no había colado el modelo oficial multi-teléfono, y
+    // era cierto: no existía. Ahora existe, y llegó por decisión declarada en DOS hitos
+    // separados y fijados cada uno por su propia guarda: la FORMA en 4O-H1 (migración 114,
+    // `contact_phones` + `contact_phone_sources`, INERTE) y su PRIVACIDAD en 4O-H2
+    // (migración 115). Lo que 4O-E4 tiene que seguir impidiendo es que su propio core
+    // crezca un modelo multi-teléfono POR SU CUENTA, y eso se sigue midiendo:
+    //
+    //   1. el conjunto de tablas oficiales que el core nombra es EXACTO —las dos de la
+    //      114 y ninguna más—, así que una tercera tabla de teléfonos rompe la guarda;
+    //   2. en CÓDIGO (sin comentarios) el core no nombra ninguna: la colección oficial se
+    //      toca únicamente por la transacción de la 115 detrás de la RPC, nunca desde
+    //      aquí, así que el core sigue siendo puro y sin acceso directo;
+    //   3. el patch del contacto oficial sigue siendo UNA tupla escalar.
+    const OFFICIAL_TABLES_ALLOWLIST = ['contact_phone_sources', 'contact_phones'];
+    const named = [
+      ...new Set([...core.matchAll(/\bcontact_phone[a-z_]*\b/g)].map((m) => m[0])),
+    ].sort();
+    assert.deepEqual(
+      named,
+      OFFICIAL_TABLES_ALLOWLIST,
+      'el core sólo puede nombrar las DOS tablas oficiales de la 114, y sólo para documentar 4O-H2',
+    );
+    assert.equal(
+      /\bcontact_phone[a-z_]*\b/.test(stripComments(core)),
+      false,
+      'el core no accede a la colección oficial en código: eso vive en la transacción de la 115',
+    );
     const iface = core.match(
       /interface ContactPhoneSuppressionPatch \{([\s\S]*?)\n\}/,
     );

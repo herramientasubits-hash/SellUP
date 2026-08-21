@@ -25,6 +25,7 @@ import type {
 import type { WizardDiscoveryProviderKey } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 import type { WizardProviderOverrideCapability } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
 import type { ApolloRunModeLimits } from '@/components/prospect-batches/chat-wizard/wizard-run-provider-copy';
+import type { WizardBudgetPreflight } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import { Button } from '@/components/ui/button';
@@ -263,9 +264,16 @@ type GenerateAIBatchDrawerProps = {
   providerOverrideCapability?: WizardProviderOverrideCapability;
   /** § 5 — topes efectivos de la modalidad de dos rondas. Sólo se transportan. */
   apolloRunModeLimits?: ApolloRunModeLimits | null;
+  /**
+   * AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — saldo del período y coste del peor
+   * caso por proveedor, ya resueltos en el servidor. Sólo se transportan; este
+   * componente no compara nada. `null`/ausente ⇒ sin instantánea, y la pantalla
+   * no bloquea por presupuesto.
+   */
+  budgetPreflight?: WizardBudgetPreflight | null;
 };
 
-export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null }: GenerateAIBatchDrawerProps = {}) {
+export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableKind = null, catalog = null, executionEnabled = false, lushaPreviewEnabled = false, discoveryProvider = null, providerOverrideCapability, apolloRunModeLimits = null, budgetPreflight = null }: GenerateAIBatchDrawerProps = {}) {
   const router = useRouter();
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [drawer, setDrawer] = React.useState(EMPTY_DRAWER);
@@ -525,6 +533,7 @@ export function GenerateAIBatchDrawer({ experience = 'unavailable', unavailableK
           discoveryProvider={discoveryProvider}
           providerOverrideCapability={providerOverrideCapability}
           apolloRunModeLimits={apolloRunModeLimits}
+          budgetPreflight={budgetPreflight}
         />
       </DrawerShell>
     );
