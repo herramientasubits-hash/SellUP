@@ -20,6 +20,7 @@ import {
   ScopeFilterDrawerSection,
   type ScopeFilterState,
 } from '@/components/shared/scope-filters-client';
+import { isCandidateCreatedToday } from '@/modules/contact-enrichment/candidate-date-utils';
 
 // ── Label & style maps ─────────────────────────────────────────
 
@@ -359,11 +360,22 @@ export function ContactCandidatesDataTableClient({
         id: 'created_at',
         accessorKey: 'created_at',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Creado" />,
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {row.original.created_at ? formatDate(row.original.created_at) : '—'}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const c = row.original;
+          const isNew = c.created_at ? isCandidateCreatedToday(c.created_at) : false;
+          return (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {c.created_at ? formatDate(c.created_at) : '—'}
+              </span>
+              {isNew && (
+                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
+                  Nuevo
+                </Badge>
+              )}
+            </div>
+          );
+        },
         size: 130,
         minSize: 110,
         meta: { label: 'Creado', popoverTitle: 'Fecha de creación' },
