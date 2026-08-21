@@ -11,6 +11,15 @@
  * Lusha lo sabe: `resolveLushaTargetGap` existe desde el ejecutor multirrama y
  * `canAcceptLushaUsefulCandidate` la hace cumplir dentro de cada página pagada.
  *
+ * 🔴 AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 §§ 2, 4 — y aun sabiéndolo, la
+ * ruta Lusha pasa `false` desde este hito. Saber aceptar un objetivo reducido no
+ * era la única condición: el aporte parcial gratuito se persiste en su PROPIO
+ * lote, y esta superficie NO tiene el ancla durable de idempotencia/lote que
+ * permitiría al ejecutor de pago adoptarlo. Con `true`, UNA búsqueda terminaba en
+ * DOS lotes —y eso estuvo VIVO en producción hasta esta contención—. El valor
+ * vivo de la ruta Lusha se decide en UN sitio,
+ * `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`.
+ *
  * 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 2 — la ruta Apollo YA SABE
  * aceptar un objetivo reducido. El motivo textual de antes —«su objetivo de
  * candidatos persistibles vive dentro del orquestador de dos rondas y no viaja por
@@ -41,6 +50,14 @@
  *
  * 🔴 Lo que el descarte NO tira es la MEDICIÓN: la memoria provider-seen leída con
  * éxito sobrevive al descarte y llega a la ruta de pago. Ver `noContribution`.
+ *
+ * 🔴 AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 REVIEW-1 §§ 3, 4 — y tampoco tira
+ * el PLAN DE EXCLUSIÓN ya resuelto. La lista de dominios sobrevivía al descarte
+ * desde el corte anterior, pero su vista explicable volvía al plan vacío, así que
+ * la telemetría publicaba `provider_exclusion_domains_sent: 0` sobre un envío REAL
+ * de 3 en la ruta Lusha. Eran dos vistas del MISMO envío contándolo distinto: la
+ * que viaja (`exclusionDomains`) y la que se mide (`providerExclusionPlan`). Ahora
+ * las dos salen del plan que la puerta ya resolvió, así que no pueden divergir.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -81,8 +98,15 @@ export type PrePaidNoveltyDiscoveryInput = {
   /**
    * ¿Puede el ejecutor de pago de esta ruta aceptar un objetivo REDUCIDO?
    *
-   * `true`  (Lusha)         — un hueco parcial se aprovecha.
-   * `false` (Apollo/Tavily) — todo o nada. Ver la cabecera.
+   * `true`  — un hueco parcial se aprovecha.
+   * `false` — todo o nada. Ver la cabecera.
+   *
+   * 🔴 AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 § 4 — HOY las DOS rutas vivas
+   * pasan `false`: Apollo por `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED` y Lusha por
+   * `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`. La CAPACIDAD de este parámetro
+   * sigue entera y probada —hay suites que lo invocan con `true` a propósito—;
+   * lo que está apagado es la ACTIVACIÓN en producción, en las dos rutas y por
+   * la misma razón de producto. Este runner sólo obedece.
    */
   partialGapSupported: boolean;
 };
@@ -160,16 +184,42 @@ export async function runPrePaidNoveltyDiscovery(
    *
    * Por eso el desenlace de la lectura viaja aparte y sobrevive al descarte. Los
    * valores por defecto son los de antes, para el llamador que no tenga nada.
+   *
+   * 🔴 AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 REVIEW-1 § 4 — el PLAN DE
+   * EXCLUSIÓN ya resuelto viaja por el mismo sitio, y por el mismo motivo.
+   *
+   * Antes se reconstruía aquí como plan VACÍO. Con Apollo eso era verdad —su
+   * capacidad de exclusión está apagada y nada viaja—, pero con Lusha era FALSO:
+   * `exclusionDomains` sí sobrevivía al descarte y sí llegaba al cuerpo de la
+   * petición como `excludeDomains`, así que la única vista MEDIBLE del envío
+   * reportaba 0 sobre 3 dominios realmente enviados.
+   *
+   * 🔴 El plan NO se reconstruye a partir de los dominios: se ARRASTRA el que la
+   * puerta ya resolvió. Reconstruirlo daría una segunda lista calculada aparte —
+   * exactamente lo que `run-prepaid-novelty-gate` dejó de hacer al DERIVAR
+   * `exclusionPlan` de `providerExclusionPlan.domains`— y dos listas que pueden
+   * divergir cuando sólo una viaja al proveedor son el defecto, no el arreglo.
+   *
+   * El plan vacío sigue siendo el DEFECTO, y sólo para el llamador que no tiene
+   * ninguna puerta resuelta de la que arrastrarlo: ahí «vacío» sí es la verdad.
    */
   const noContribution = (
     telemetry: Record<string, unknown>,
     exclusionDomains: readonly string[] = [],
-    measurement: {
+    resolvedByGate: {
       providerSeenMemory: ProviderSeenMemory;
       providerSeenLoad: ProviderSeenLoadSummary;
+      /**
+       * 🔴 Obligatorio dentro del paquete a propósito: quien tiene puerta tiene
+       * plan, y que el compilador lo exija impide que un llamador futuro arrastre
+       * la memoria y se deje el plan atrás — que es precisamente el defecto que
+       * este corte arregla.
+       */
+      providerExclusionPlan: ProviderExclusionPlan;
     } = {
       providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
       providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
+      providerExclusionPlan: planProviderExclusions(input.provider, {}),
     },
   ): PrePaidNoveltyDiscoveryOutcome => ({
     requestedTarget: input.requestedTarget,
@@ -179,12 +229,14 @@ export async function runPrePaidNoveltyDiscovery(
     batchId: null,
     persistedCount: 0,
     exclusionDomains,
-    providerSeenMemory: measurement.providerSeenMemory,
-    providerSeenLoad: measurement.providerSeenLoad,
-    // 🔴 El PLAN sigue vacío a propósito: § 10 mantiene las exclusiones de Apollo
-    // apagadas, y un plan derivado de una corrida que no aportó nada describiría
-    // un envío que no va a ocurrir. La memoria de arriba es sólo para MEDIR.
-    providerExclusionPlan: planProviderExclusions(input.provider, {}),
+    providerSeenMemory: resolvedByGate.providerSeenMemory,
+    providerSeenLoad: resolvedByGate.providerSeenLoad,
+    // 🔴 La MISMA autoridad que `exclusionDomains`, no una copia reconstruida: la
+    // vista que se mide y la que viaja tienen que contar el mismo envío. Con
+    // Apollo el plan arrastrado sigue saliendo con `sent: []` —su capacidad está
+    // apagada por § 10 y ahí «vacío» es la verdad—; con Lusha sale con los
+    // dominios que de verdad se piden.
+    providerExclusionPlan: resolvedByGate.providerExclusionPlan,
     freeSource: notAttemptedFreeSourceOutcome(),
     telemetry,
   });
@@ -203,6 +255,10 @@ export async function runPrePaidNoveltyDiscovery(
     return noContribution(gate.telemetry, gate.exclusionPlan.sent, {
       providerSeenMemory: gate.providerSeenMemory,
       providerSeenLoad: gate.providerSeen,
+      // 🔴 El plan que la puerta YA resolvió, del que `gate.exclusionPlan.sent`
+      // de la línea de arriba es la vista heredada de su dimensión de dominios.
+      // Las dos salen de aquí, así que no hay dos listas que puedan divergir.
+      providerExclusionPlan: gate.providerExclusionPlan,
     });
   }
 
@@ -244,7 +300,11 @@ export async function runPrePaidNoveltyDiscovery(
     return noContribution(
       buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null),
       gate.exclusionPlan.sent,
-      { providerSeenMemory: gate.providerSeenMemory, providerSeenLoad: gate.providerSeen },
+      {
+        providerSeenMemory: gate.providerSeenMemory,
+        providerSeenLoad: gate.providerSeen,
+        providerExclusionPlan: gate.providerExclusionPlan,
+      },
     );
   }
 

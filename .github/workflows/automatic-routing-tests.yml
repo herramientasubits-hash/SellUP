@@ -2572,3 +2572,61 @@ jobs:
       # 0 créditos.
       - name: Run A1 Apollo benchmark parity cut 2 tests
         run: npm run test:a1-apollo-benchmark-parity-cut2
+
+      # AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 §§ 2, 4, 5, 6, 7 — el RATCHET
+      # DE CABLEADO VIVO de la superficie Lusha.
+      #
+      # El defecto que contiene estaba VIVO en Producción, no era hipotético: la
+      # superficie Lusha llamaba a la capa gratuita compartida con
+      # `partialGapSupported: true` mientras su ejecutor de pago NUNCA adopta el
+      # lote de esa capa. Objetivo 5 y 3 empresas gratis ⇒ lote A gratuito
+      # (`source = agent_1`, `source_primary = public_source`) + lote B pagado, y
+      # el resultado devuelto apunta al segundo. La invariante de sistema se
+      # cumple (3 + 2 <= 5); el resultado ÚNICO del producto, no. Y a diferencia
+      # de la ruta del wizard con Apollo, esta superficie tampoco tiene el ancla
+      # durable de idempotencia/lote que el diseño de lote único necesita.
+      #
+      # Lo que esta suite congela:
+      #
+      #   · el valor VIVO es `false`, y su dueño único es
+      #     `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED` (§§ 4, 5);
+      #   · aporte gratuito PARCIAL ⇒ 0 escrituras de la capa gratuita, 0 lotes
+      #     gratuitos, y la ruta de pago corre con el objetivo COMPLETO (§ 7);
+      #   · lo gratuito que cierra el objetivo ENTERO sigue persistiendo y
+      #     dejando `providerRequired: false` — la propiedad probada en
+      #     Producción NO se toca (§ 6);
+      #   · el early-return gratuito queda por ENCIMA de estimación, reserva,
+      #     credencial y petición, que es lo que hace verdad el «0 reservas, 0
+      #     llamadas» (§ 6);
+      #   · el descarte se lleva la CONTRIBUCIÓN y jamás la MEDICIÓN: memoria
+      #     provider-seen y dominios de exclusión de Lusha sobreviven (§§ 3, 8);
+      #   · REVIEW-1 §§ 3, 4, 9 — y la MEDICIÓN concuerda con el ENVÍO: el plan
+      #     de exclusión que la puerta resolvió se ARRASTRA por el descarte en vez
+      #     de reconstruirse vacío, así que `provider_exclusion_domains_sent` deja
+      #     de publicar 0 sobre un envío real de 3 en la ruta Lusha. El ratchet que
+      #     antes fijaba ese efecto abierto está INVERTIDO: ahora exige el acuerdo.
+      #     Apollo no gana ni una exclusión enviada (`sent` sigue en 0 por
+      #     capacidad apagada); lo único que cambia en su ruta es que sus contadores
+      #     de «lo que se sabía» dejan de estar en 0, y eso también está pinchado.
+      #
+      # 🔴 Y el contraste que impide leer contención como amputación: la MISMA
+      # capa gratuita y el MISMO runner, invocados a propósito con `true`,
+      # siguen produciendo hueco residual 2 y lote gratuito escrito.
+      #
+      #   LUSHA_PARTIAL_GAP_CAPABILITY      = PRESENT
+      #   LUSHA_PARTIAL_GAP_LIVE_ACTIVATION = OFF
+      #
+      # Voltear la constante (12 pruebas ROJAS), reescribir el literal en el sitio
+      # de la llamada (2 pruebas ROJAS) o reconstruir el plan de exclusión vacío en
+      # la ruta de descarte (4 pruebas ROJAS) pone esta suite en ROJO.
+      #
+      # Ratchets de alcance que siguen vivos: `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`
+      # en `false` y sin tocar, Tavily sin cambios, `exclude.ids` congelado, y
+      # `LUSHA_CONTRACT_STILL_UNCONFIRMED` sigue en true. Sin flag nuevo, sin
+      # migración, sin cambio de facturación ni de reservas.
+      #
+      # Offline y determinista: sólo se doblan los dos bordes de I/O del runner
+      # (`runGate`, `persist`). Sin red, sin Supabase, sin Lusha, sin Apollo.
+      # 0 créditos.
+      - name: Run A1 Lusha mixed two-batch partial-gap containment tests
+        run: npm run test:a1-lusha-partial-gap-containment

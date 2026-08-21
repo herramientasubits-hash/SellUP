@@ -55,7 +55,12 @@ import {
 // idéntica para Apollo y para Lusha, que corre ANTES de que exista una reserva.
 import { runPrePaidNoveltyDiscovery } from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
 import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
-import { LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES } from '@/server/prospect-batches/lusha-pending-review-limits';
+import {
+  LUSHA_PENDING_REVIEW_MIN_USEFUL_CANDIDATES,
+  // AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 § 4 — el ÚNICO dueño del valor
+  // vivo de activación de hueco parcial en esta superficie.
+  LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
+} from '@/server/prospect-batches/lusha-pending-review-limits';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
   persistLushaPendingReviewBatch,
@@ -291,17 +296,30 @@ async function runGenerateLushaPendingReviewBatch(
   // fuentes (§ 13) dentro de este mismo runner —el MISMO que usa la ruta
   // Apollo—, así que la capa previa al pago no puede divergir entre proveedores.
   //
-  // `partialGapSupported: true` porque Lusha SÍ sabe aceptar un objetivo
-  // reducido: `resolveLushaTargetGap` lo recibe y `canAcceptLushaUsefulCandidate`
-  // lo hace cumplir dentro de cada página pagada. La ruta Apollo pasa `false` —
-  // ver la cabecera del runner.
+  // ── AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 §§ 2, 4 — CONTENCIÓN ────────
+  //
+  // Lusha SÍ sabe aceptar un objetivo reducido —`resolveLushaTargetGap` lo recibe
+  // y `canAcceptLushaUsefulCandidate` lo hace cumplir dentro de cada página
+  // pagada—, y esa capacidad sigue entera y probada. Lo que esta superficie NO
+  // tiene es el ancla durable de idempotencia/lote que permitiría al ejecutor de
+  // pago ADOPTAR el lote de la capa gratuita, así que con `true` una sola
+  // búsqueda del usuario termina en DOS lotes: el gratuito con su aporte parcial
+  // y el pagado con el resto, y el resultado devuelto apunta al segundo.
+  //
+  // Ese comportamiento está VIVO hoy. Hasta que
+  // `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1` diseñe el lote único, esta ruta toma
+  // la MISMA postura de contención que ya tiene la ruta Apollo
+  // (`WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`): todo-o-nada.
+  //
+  // 🔴 El valor vivo se decide en UN sitio y aquí sólo se consume. Escribir el
+  // literal de vuelta pone en rojo el ratchet de cableado.
   const prePaid = await runPrePaidNoveltyDiscovery(await createClient(), {
     countryCode: parsed.data.countryCode,
     countryName,
     macroIndustryKey: parsed.data.macroIndustryKey,
     requestedTarget,
     requestedByUserId: internalUserId,
-    partialGapSupported: true,
+    partialGapSupported: LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
     // ADDENDUM PROVIDER-SEEN §§ 5, 6 — la exclusión por dominios es lo único que
     // el contrato verificado de Lusha V3 soporta; los ids quedan congelados hasta
     // la confirmación escrita del soporte humano.
