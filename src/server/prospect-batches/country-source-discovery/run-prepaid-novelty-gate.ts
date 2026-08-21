@@ -49,6 +49,8 @@ import {
 } from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
 import {
   buildProviderSeenTelemetry,
+  PROVIDER_SEEN_LOAD_EMPTY,
+  PROVIDER_SEEN_LOAD_FAILED,
   PROVIDER_SEEN_LOAD_UNAVAILABLE,
   type ProviderSeenLoadSummary,
 } from '@/modules/prospect-batches/provider-seen/provider-seen-telemetry';
@@ -165,6 +167,13 @@ async function loadProviderSeen(
   domains: readonly string[];
   records: readonly { providerEntityId: string | null; normalizedDomain: string | null }[];
 }> {
+  // 🔴 CUT-2 § 12 — un puerto que se declara no-persistente NO se consulta para
+  // decidir nada: su `load()` devolvería `[]` y ese vacío no es una medición. Se
+  // preserva tal cual el desenlace de siempre (`not_attempted`).
+  if (store.nonPersistingReason !== undefined) {
+    return { summary: PROVIDER_SEEN_LOAD_UNAVAILABLE, ids: [], domains: [], records: [] };
+  }
+
   try {
     const records = await store.load({
       provider,
@@ -172,10 +181,11 @@ async function loadProviderSeen(
       limit: PROVIDER_SEEN_LOAD_LIMIT,
     });
     if (records.length === 0) {
-      // Cero filas con el puerto no-op y cero filas con una tabla vacía son
-      // indistinguibles desde aquí, y deben serlo: las dos significan «no hay
-      // nada que recordar». El motivo de que no haya nada lo publica el puerto.
-      return { summary: PROVIDER_SEEN_LOAD_UNAVAILABLE, ids: [], domains: [], records: [] };
+      // 🔴 CUT-2 § 12 — la tabla estaba VACÍA y la lectura funcionó. `loaded` sigue
+      // siendo `false` —no entró memoria, así que el plan de exclusión se comporta
+      // exactamente igual que antes— pero `readOutcome: 'succeeded'` deja constancia
+      // de que el hecho se midió. Un embudo publica 0 con esto y null sin ello.
+      return { summary: PROVIDER_SEEN_LOAD_EMPTY, ids: [], domains: [], records: [] };
     }
     const ids: string[] = [];
     const domains: string[] = [];
@@ -189,6 +199,7 @@ async function loadProviderSeen(
         unavailableReason: null,
         idsAvailable: ids.length,
         domainsAvailable: domains.length,
+        readOutcome: 'succeeded',
       },
       ids,
       domains,
@@ -198,7 +209,10 @@ async function loadProviderSeen(
       })),
     };
   } catch {
-    return { summary: PROVIDER_SEEN_LOAD_UNAVAILABLE, ids: [], domains: [], records: [] };
+    // 🔴 CUT-2 § 12 — se preguntó y no hubo respuesta. NO es «cero»: es «no se
+    // sabe». Fail-open igual que antes —la corrida sigue y gasta lo de siempre—
+    // pero el desenlace queda nombrado en vez de disfrazado de memoria vacía.
+    return { summary: PROVIDER_SEEN_LOAD_FAILED, ids: [], domains: [], records: [] };
   }
 }
 

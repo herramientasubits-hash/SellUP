@@ -11,11 +11,22 @@
  * Lusha lo sabe: `resolveLushaTargetGap` existe desde el ejecutor multirrama y
  * `canAcceptLushaUsefulCandidate` la hace cumplir dentro de cada página pagada.
  *
- * La ruta Apollo/Tavily NO lo sabe todavía. Su objetivo de candidatos
- * persistibles vive dentro del orquestador de dos rondas y no viaja por
- * `ResolvedWizardExecution` (lo que sí viaja, `systemControls.targetCount`, es la
- * AMPLITUD de búsqueda —25—, no el objetivo de aceptación). Reducirlo requiere
- * abrir ese orquestador, que es trabajo aparte.
+ * 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 2 — la ruta Apollo YA SABE
+ * aceptar un objetivo reducido. El motivo textual de antes —«su objetivo de
+ * candidatos persistibles vive dentro del orquestador de dos rondas y no viaja por
+ * `ResolvedWizardExecution`»— dejó de ser cierto: `resultDemand` viaja por su
+ * propio campo hasta el orquestador y hasta `targetPersistibleCandidates`, y
+ * `boundByRemainingTarget` es su única cota.
+ *
+ * Lo que sigue en `false` es la ACTIVACIÓN, y por una razón distinta y de PRODUCTO:
+ * un aporte parcial gratuito se persiste en su PROPIO lote (esta capa corre antes
+ * de la reserva), así que con `true` una sola búsqueda del usuario terminaría en
+ * DOS lotes —7 gratis + 3 de Apollo con objetivo 10— y la redirección apuntaría al
+ * segundo. La invariante de § 14 se cumple; la experiencia de resultado único no.
+ * El hito que lo diseña es `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1`.
+ *
+ * El valor vivo de la ruta Apollo se decide en UN sitio,
+ * `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`. Aquí sólo se obedece.
  *
  * Consecuencia, y por qué esta bandera existe en vez de un apaño: con
  * `partialGapSupported: false` la capa gratuita es TODO-O-NADA. O cierra el
@@ -27,6 +38,9 @@
  * 🔴 Un hueco parcial en Apollo se DESCARTA, no se guarda a medias. Descartarlo
  * no cuesta nada —la lectura fue local y gratuita— mientras que guardarlo
  * rompería un contrato de producto.
+ *
+ * 🔴 Lo que el descarte NO tira es la MEDICIÓN: la memoria provider-seen leída con
+ * éxito sobrevive al descarte y llega a la ruta de pago. Ver `noContribution`.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -74,6 +88,16 @@ export type PrePaidNoveltyDiscoveryInput = {
 };
 
 export type PrePaidNoveltyDiscoveryOutcome = {
+  /**
+   * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 3 — el objetivo del USUARIO, tal cual
+   * entró.
+   *
+   * Viaja en el resultado porque `residualGap` por sí solo no es interpretable:
+   * un hueco de 3 significa cosas distintas si el objetivo era 3 o si era 10, y el
+   * consumidor que aplica la cota necesita las dos cifras para no reconstruir la
+   * primera por su cuenta y equivocarse.
+   */
+  requestedTarget: number;
   residualGap: number;
   acceptedBeforeProvider: number;
   providerRequired: boolean;
@@ -121,18 +145,45 @@ export async function runPrePaidNoveltyDiscovery(
   /** Inyectable SÓLO para pruebas. Producción usa siempre las reales. */
   deps: PrePaidNoveltyDiscoveryDeps = PRODUCTION_DEPS,
 ): Promise<PrePaidNoveltyDiscoveryOutcome> {
+  /**
+   * 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 8 — lo que se DESCARTA aquí
+   * es la CONTRIBUCIÓN de la capa gratuita, no su MEDICIÓN.
+   *
+   * `residualGap`, `acceptedBeforeProvider`, el lote y las filas vuelven a cero
+   * porque nada de esto llega al usuario en esta corrida. La memoria provider-seen
+   * es otra cosa: es una lectura que YA ocurrió, describe corridas ANTERIORES y no
+   * depende de que ésta aporte. Sustituirla por `PROVIDER_SEEN_LOAD_UNAVAILABLE`
+   * publicaría «no se pudo medir» sobre una medición que sí se hizo, y con la ruta
+   * Apollo en todo-o-nada eso dejaría `provider_seen_hit` en null en TODAS las
+   * corridas en las que Apollo llega a ejecutar — es decir, el embudo del corte 1
+   * quedaría permanentemente ciego justo en el único caso que importa.
+   *
+   * Por eso el desenlace de la lectura viaja aparte y sobrevive al descarte. Los
+   * valores por defecto son los de antes, para el llamador que no tenga nada.
+   */
   const noContribution = (
     telemetry: Record<string, unknown>,
     exclusionDomains: readonly string[] = [],
+    measurement: {
+      providerSeenMemory: ProviderSeenMemory;
+      providerSeenLoad: ProviderSeenLoadSummary;
+    } = {
+      providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
+      providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
+    },
   ): PrePaidNoveltyDiscoveryOutcome => ({
+    requestedTarget: input.requestedTarget,
     residualGap: input.requestedTarget,
     acceptedBeforeProvider: 0,
     providerRequired: true,
     batchId: null,
     persistedCount: 0,
     exclusionDomains,
-    providerSeenMemory: EMPTY_PROVIDER_SEEN_MEMORY,
-    providerSeenLoad: PROVIDER_SEEN_LOAD_UNAVAILABLE,
+    providerSeenMemory: measurement.providerSeenMemory,
+    providerSeenLoad: measurement.providerSeenLoad,
+    // 🔴 El PLAN sigue vacío a propósito: § 10 mantiene las exclusiones de Apollo
+    // apagadas, y un plan derivado de una corrida que no aportó nada describiría
+    // un envío que no va a ocurrir. La memoria de arriba es sólo para MEDIR.
     providerExclusionPlan: planProviderExclusions(input.provider, {}),
     freeSource: notAttemptedFreeSourceOutcome(),
     telemetry,
@@ -149,11 +200,15 @@ export async function runPrePaidNoveltyDiscovery(
   // entero ⇒ esta corrida no usa nada de la fuente. No se persiste, no se
   // descuenta, y no se gastó nada en averiguarlo.
   if (!input.partialGapSupported && gate.context.providerRequired) {
-    return noContribution(gate.telemetry, gate.exclusionPlan.sent);
+    return noContribution(gate.telemetry, gate.exclusionPlan.sent, {
+      providerSeenMemory: gate.providerSeenMemory,
+      providerSeenLoad: gate.providerSeen,
+    });
   }
 
   if (gate.acceptedCompanies.length === 0) {
     return {
+      requestedTarget: gate.context.requestedTarget,
       residualGap: gate.context.residualGap,
       acceptedBeforeProvider: gate.context.acceptedBeforeProvider,
       providerRequired: gate.context.providerRequired,
@@ -189,10 +244,12 @@ export async function runPrePaidNoveltyDiscovery(
     return noContribution(
       buildPrePaidNoveltyTelemetry(context, gate.exclusionPlan, null),
       gate.exclusionPlan.sent,
+      { providerSeenMemory: gate.providerSeenMemory, providerSeenLoad: gate.providerSeen },
     );
   }
 
   return {
+    requestedTarget: context.requestedTarget,
     residualGap: context.residualGap,
     acceptedBeforeProvider: context.acceptedBeforeProvider,
     providerRequired: context.providerRequired,

@@ -38,6 +38,33 @@
  * corre. Un fallo de memoria no puede tirar la búsqueda —eso convertiría una
  * optimización económica en una forma nueva de perder lo que se acaba de
  * comprar—, pero sí queda contado y con su último motivo preservado.
+ *
+ * ── AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 8, 9, 11, 12 — la memoria PREVIA ──
+ *
+ * El corte 1 registraba lo devuelto y no podía cruzarlo contra nada: el embudo
+ * publicaba `provider_seen_hit: null` con su costura nombrada. Este corte carga la
+ * memoria ANTES de buscar y la pasa aquí como SNAPSHOT inmutable.
+ *
+ * El orden que eso obliga, y que este módulo sostiene por construcción:
+ *
+ *   memoria PREVIA (snapshot, cargado antes de la llamada)
+ *     -> página devuelta y normalizada
+ *       -> aciertos contra el SNAPSHOT           (`observePage`)
+ *         -> escritura de la página en la memoria (`recordApolloProviderSeenPage`)
+ *
+ * 🔴 El snapshot NO se muta nunca. Es lo único que impide que la página 1, ya
+ * escrita, se cuente como «conocimiento previo» al procesar la página 2 — que
+ * convertiría cualquier búsqueda multipágina en un acierto artificial y haría
+ * parecer que Apollo repite empresas que en realidad acabamos de descubrir.
+ *
+ * 🔴 Los aciertos se cuentan sobre identidades ÚNICAS de la búsqueda, no por
+ * página: la misma empresa devuelta en dos páginas es UNA empresa que ya
+ * conocíamos, y contarla dos veces haría que `provider_seen_hit` pudiera superar a
+ * `unique` — un embudo cuyo segundo escalón es mayor que el primero no describe
+ * nada.
+ *
+ * 🔴 Sin memoria previa disponible el contador es `null`, JAMÁS 0. Ver § 11: un 0
+ * dice «se midió y no había aciertos»; aquí el hecho es «no se pudo medir».
  */
 
 import {
@@ -45,8 +72,10 @@ import {
   type ProviderSeenRecordingBlockReason,
 } from '@/modules/prospect-batches/provider-seen/provider-seen-recording';
 import {
+  isProviderSeenKnown,
   providerSeenObservationKey,
   type ProviderSeenCandidateInput,
+  type ProviderSeenMemory,
   type ProviderSeenObservation,
 } from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
 import type {
@@ -110,7 +139,27 @@ export type ApolloProviderSeenSummary = {
   lastWriteSkippedReason: string | null;
   /** Motivos por los que una página válida no generó memoria. Nunca inventados. */
   blockedReasons: readonly ProviderSeenRecordingBlockReason[];
+  /**
+   * CUT-2 §§ 9, 11 — identidades ÚNICAS de esta búsqueda que la memoria PREVIA
+   * ya conocía.
+   *
+   * 🔴 `null` cuando no hubo snapshot que consultar. Nunca 0 por defecto.
+   */
+  priorSeenHits: number | null;
+  /** CUT-2 § 12 — ¿hubo snapshot previo con el que cruzar? */
+  priorMemoryAvailable: boolean;
+  /** CUT-2 §§ 11, 12 — por qué no lo hubo. `null` cuando sí lo hubo. */
+  priorMemoryUnavailableReason: string | null;
 };
+
+/**
+ * CUT-2 § 11 — el motivo por defecto: nadie inyectó snapshot en esta invocación.
+ *
+ * Es el estado de la ruta legacy de Apollo (`web-search-tool.ts`), que no atraviesa
+ * la capa previa al pago y por tanto no tiene memoria que pasar. Se NOMBRA en vez
+ * de dejar un null sin explicación.
+ */
+export const APOLLO_PRIOR_MEMORY_NOT_PROVIDED = 'prior_provider_seen_memory_not_provided' as const;
 
 export const EMPTY_APOLLO_PROVIDER_SEEN_SUMMARY: ApolloProviderSeenSummary = {
   attempted: false,
@@ -125,6 +174,9 @@ export const EMPTY_APOLLO_PROVIDER_SEEN_SUMMARY: ApolloProviderSeenSummary = {
   writeFailures: 0,
   lastWriteSkippedReason: null,
   blockedReasons: [],
+  priorSeenHits: null,
+  priorMemoryAvailable: false,
+  priorMemoryUnavailableReason: APOLLO_PRIOR_MEMORY_NOT_PROVIDED,
 };
 
 /**
@@ -143,9 +195,34 @@ export type ApolloProviderSeenLedger = {
   summary(): ApolloProviderSeenSummary;
 };
 
-export function createApolloProviderSeenLedger(): ApolloProviderSeenLedger {
+/**
+ * CUT-2 §§ 8, 12 — el snapshot previo y, cuando no lo hay, por qué.
+ *
+ * 🔴 Los dos campos son excluyentes a propósito: un llamador que pase memoria
+ * pasa memoria, y uno que no pueda pasarla tiene que decir la razón. No hay una
+ * tercera forma en la que «no hay aciertos» se pueda colar sin explicación.
+ */
+export type ApolloPriorProviderSeen =
+  | { available: true; memory: ProviderSeenMemory }
+  | { available: false; unavailableReason: string };
+
+export function createApolloProviderSeenLedger(
+  prior: ApolloPriorProviderSeen = {
+    available: false,
+    unavailableReason: APOLLO_PRIOR_MEMORY_NOT_PROVIDED,
+  },
+): ApolloProviderSeenLedger {
   const seenKeys = new Set<string>();
   const blockedReasons: ProviderSeenRecordingBlockReason[] = [];
+
+  // 🔴 Se captura UNA vez y no se vuelve a tocar. El snapshot es de antes de la
+  // llamada: nada de lo que esta búsqueda escriba puede entrar en él.
+  const priorMemory = prior.available ? prior.memory : null;
+  // 🔴 El contador es un entero normal y la AUSENCIA se decide al publicar, desde
+  // `prior.available`. Un `number | null` incrementado con `?? 0` habría dejado en
+  // el código el patrón exacto que el hito prohíbe —degradar un null a cero— y una
+  // guarda estática no puede distinguir un `?? 0` inocente de uno que miente.
+  let priorSeenHits = 0;
 
   let attempted = false;
   let pagesPresented = 0;
@@ -189,6 +266,18 @@ export function createApolloProviderSeenLedger(): ApolloProviderSeenLedger {
           continue;
         }
         seenKeys.add(key);
+        // 🔴 CUT-2 § 9 — el acierto se decide con la función CANÓNICA
+        // (`isProviderSeenKnown`), la misma que usa la ruta Lusha, y contra el
+        // snapshot PREVIO. No hay un segundo emparejador de dominios o de ids
+        // aquí: dos definiciones de «la misma empresa» harían incomparables los
+        // dos embudos, que es justo lo que este hito existe para evitar.
+        //
+        // Va dentro del bloque de identidades NUEVAS de la búsqueda: una empresa
+        // repetida entre páginas ya se contó, y volver a contarla dejaría
+        // `priorSeenHits > uniqueIdentities`.
+        if (priorMemory !== null && isProviderSeenKnown(priorMemory, observation)) {
+          priorSeenHits++;
+        }
       }
 
       return { observations: plan.observations };
@@ -230,6 +319,11 @@ export function createApolloProviderSeenLedger(): ApolloProviderSeenLedger {
         writeFailures,
         lastWriteSkippedReason,
         blockedReasons: [...blockedReasons],
+        // 🔴 Sin snapshot NO hay medición, así que no hay número: `null`. El cero
+        // sólo existe cuando alguien pudo mirar y no encontró nada.
+        priorSeenHits: prior.available ? priorSeenHits : null,
+        priorMemoryAvailable: prior.available,
+        priorMemoryUnavailableReason: prior.available ? null : prior.unavailableReason,
       };
     },
   };
@@ -290,5 +384,10 @@ export function toApolloProviderSeenMetadata(
     write_failures: summary.writeFailures,
     write_skipped_reason: summary.lastWriteSkippedReason,
     blocked_reasons: [...summary.blockedReasons],
+    // CUT-2 §§ 11, 12 — el cruce contra la memoria PREVIA, y su ausencia dicha con
+    // su nombre. `null` no es 0 y este bloque no los mezcla.
+    prior_seen_hits: summary.priorSeenHits,
+    prior_memory_available: summary.priorMemoryAvailable,
+    prior_memory_unavailable_reason: summary.priorMemoryUnavailableReason,
   };
 }

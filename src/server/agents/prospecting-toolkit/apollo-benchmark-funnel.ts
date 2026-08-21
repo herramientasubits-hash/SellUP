@@ -62,12 +62,20 @@ export type ApolloBenchmarkFunnelFieldSource = 'observed' | 'derived' | 'missing
 // ─── Costuras que faltan, nombradas ───────────────────────────────────────────
 
 /**
- * La ruta Apollo no carga la memoria provider-seen ANTES de buscar, así que no
- * hay con qué cruzar lo devuelto. Cargarla es enrutamiento —P0-3— y este corte
- * es explícitamente sólo medición.
+ * 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 11 — RATCHET INVERTIDO, no borrado.
+ *
+ * Este texto describía el corte 1: la ruta Apollo no cargaba la memoria antes de
+ * buscar, así que no había con qué cruzar lo devuelto. El corte 2 la carga, así que
+ * la costura ya NO es «no se carga».
+ *
+ * Se conserva la constante porque la ausencia sigue siendo posible —y cuando lo es
+ * hay que nombrarla— pero su motivo pasa a ser el real: hubo un intento y no hubo
+ * snapshot con el que cruzar. El motivo CONCRETO (ruta legacy sin capa previa,
+ * lectura fallida, puerto no persistente) viaja aparte, en
+ * `apollo_provider_seen.prior_memory_unavailable_reason`.
  */
 export const APOLLO_FUNNEL_SEAM_PROVIDER_SEEN_HIT =
-  'apollo_route_does_not_load_provider_seen_memory_before_search' as const;
+  'prior_provider_seen_memory_unavailable_for_this_run' as const;
 
 /**
  * El cruce contra candidatos históricos activos ocurre AGUAS ABAJO de este
@@ -105,7 +113,14 @@ export type ApolloBenchmarkFunnelInput = {
   duplicate: number;
   /** Rechazadas por el gate sectorial de esta búsqueda. `null` si no corrió. */
   precisionRejected: number | null;
-  /** `null` mientras la memoria no se cargue en esta ruta. */
+  /**
+   * CUT-2 §§ 9, 11 — identidades devueltas en ESTA ejecución que ya estaban en la
+   * memoria provider-seen de Apollo ANTES de ejecutarla.
+   *
+   * 🔴 `0` es un valor legítimo y significa «se midió y no hubo aciertos». `null`
+   * significa «no se pudo medir» y sólo aparece cuando no hubo snapshot previo.
+   * Un fallo de carga NUNCA se convierte en 0 (§ 12).
+   */
   providerSeenHit: number | null;
   /** `null` mientras el cruce histórico no vuelva a esta fila. */
   historicalKnown: number | null;
