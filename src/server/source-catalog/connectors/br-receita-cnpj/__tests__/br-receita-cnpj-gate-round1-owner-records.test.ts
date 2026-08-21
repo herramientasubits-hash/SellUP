@@ -370,8 +370,11 @@ describe('GATE-ROUND-1 · GATE-2 flips NO operational flag', () => {
 // ─── GATE-3 ───────────────────────────────────────────────────────────────────
 
 describe('GATE-ROUND-1 · GATE-3 records a policy and stays SHUT', () => {
-  it('🔴 FINAL CORRECTION: the status is needs_evidence — the CNPJ snapshot blocker is fixed, but RB-1/RB-3 remain', () => {
-    assert.equal(BRAZIL_RECEITA_GATE3_STATUS, 'needs_evidence');
+  // 🔴 UPDATED BY BR-SOURCE-GATE-ROUND-2 — `needs_evidence` → `ready_for_review`. What this test is
+  // FOR is unchanged and is the important half: the gate is not `approved`. `ready_for_review` is
+  // NO-GO in the § 15 matrix exactly as `not_started` is.
+  it('the status is ready_for_review — evidence complete, and still NOT approved', () => {
+    assert.equal(BRAZIL_RECEITA_GATE3_STATUS, 'ready_for_review');
     assert.notEqual(BRAZIL_RECEITA_GATE3_STATUS, 'approved');
   });
 
@@ -439,27 +442,33 @@ describe('GATE-ROUND-1 · GATE-3 records a policy and stays SHUT', () => {
     assert.equal(BRAZIL_RECEITA_GATE3_RAW_DATA_DISPOSITION, 'CLOSED_TYPED_ALLOWLIST');
   });
 
-  it('🔴 FINAL CORRECTION: RB-1 and RB-3 remain UNRESOLVED with a named owner; RB-2 is GONE', () => {
+  // 🔴 UPDATED BY BR-SOURCE-GATE-ROUND-2. Round 1 asserted RB-1 and RB-3 stay OPEN, which was
+  // correct then. Round 2 closed both, so the assertion is inverted rather than deleted: the two
+  // entries are still ENUMERATED (they are the audit trail of what was open) and each must now carry
+  // its named owner AND `resolvedByThisWorkstream: true`. RB-2 must still be absent, because it was
+  // discharged rather than resolved-in-place.
+  it('RB-1 and RB-3 are now RESOLVED, still enumerated, still owner-attributed; RB-2 is GONE', () => {
     assert.equal(BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS.length, 2);
     for (const blocker of BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS) {
-      assert.equal(blocker.resolvedByThisWorkstream, false, blocker.id);
+      assert.equal(blocker.resolvedByThisWorkstream, true, blocker.id);
       assert.ok(blocker.ownedBy.length > 0, blocker.id);
       assert.ok(blocker.detail.length > 0, blocker.id);
     }
     const ids: readonly string[] = BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS.map((b) => b.id);
-    assert.ok(ids.includes('RB-1'), 'RB-1 (identity grain) must stay open — it belongs to GATE-4');
-    assert.ok(ids.includes('RB-3'), 'RB-3 (unlabelled fields) must stay open');
+    assert.ok(ids.includes('RB-1'), 'RB-1 must stay enumerated — it is the audit trail');
+    assert.ok(ids.includes('RB-3'), 'RB-3 must stay enumerated');
     assert.equal(ids.includes('RB-2'), false, 'RB-2 must be discharged, not merely marked resolved');
 
     const owners = BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS.map((b) => b.ownedBy);
     assert.ok(
       owners.includes('GATE_4_IDENTITY_GRAIN'),
-      'the identity-grain residual must be attributed to GATE-4, not silently resolved here',
+      'the identity-grain residual stays attributed to GATE-4, which is where it was decided',
     );
   });
 
-  it('🔴 FINAL CORRECTION: the discharged list includes RB-2, and the claim is true of the real builder', () => {
-    assert.equal(BRAZIL_RECEITA_GATE3_DISCHARGED_BY_THIS_WORKSTREAM.length, 6);
+  it('the discharged list includes RB-2, and the claim is true of the real builder', () => {
+    // Round 1 discharged 6 items; Round 2 added 5 more (RB-3 and the RB-1 enforcement).
+    assert.equal(BRAZIL_RECEITA_GATE3_DISCHARGED_BY_THIS_WORKSTREAM.length, 11);
     assert.ok(
       BRAZIL_RECEITA_GATE3_DISCHARGED_BY_THIS_WORKSTREAM.some((entry) => entry.startsWith('RB-2:')),
       'RB-2 (the CNPJ hash rejection diagnostic) must be named as discharged',
@@ -476,15 +485,24 @@ describe('GATE-ROUND-1 · GATE-3 records a policy and stays SHUT', () => {
     }
   });
 
-  it('the four unlabelled fields are carried as OPEN, not deleted', () => {
+  it('the four fields are still ENUMERATED for the audit trail after RB-3 closed', () => {
+    // The list is kept, not emptied: it is what RB-3 was ABOUT, and deleting it would erase the
+    // record of what was unlabelled. Their LABELS now live in the RB-3 classification module, and
+    // the Round-2 suite asserts those.
     const fields = BRAZIL_RECEITA_GATE3_FIELDS_PRESENT_BUT_NOT_IN_INCLUDE_SET.map((f) => f.field);
     assert.ok(fields.some((f) => f.includes('mei_flag')));
     assert.ok(fields.some((f) => f.includes('matrix_branch_flag')));
 
-    // And `mei_flag` is still really there: it is the GATE-1 R5 control marker, and deleting a
-    // privacy control for being absent from an include list would weaken what the list protects.
+    // 🔴 And the Round-1 assertion is INVERTED by Round 2: `mei_flag` is no longer in the persisted
+    // payload. It survives on the internal control signals, and its only real consumer — the count —
+    // still works, which is the evidence that no control was weakened.
     const result = buildBrReceitaCnpjSnapshotRows(sampleParserInput());
-    assert.ok(result.snapshots.every((snap) => 'mei_flag' in snap.raw_data));
+    assert.ok(result.snapshots.every((snap) => !('mei_flag' in snap.raw_data)));
+    assert.equal(result.internalControlSignals.length, result.snapshots.length);
+    assert.equal(
+      result.summary.meiFlaggedRows,
+      result.internalControlSignals.filter((entry) => entry.mei_flag).length,
+    );
   });
 });
 

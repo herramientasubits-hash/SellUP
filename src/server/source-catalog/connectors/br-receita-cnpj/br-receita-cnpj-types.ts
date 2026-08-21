@@ -127,11 +127,20 @@ export interface BrReceitaCnpjSnapshotRawData {
   // `matrix_branch_flag` STAYS. It comes from its own source column (identificador_matriz_filial)
   // and is not derived from the CNPJ — a matriz/filial marker is one bit about a record, not a
   // fragment of its identifier.
+  //
+  // 🔴 BR-SOURCE-GATE-ROUND-2 (RB-3) — it is now LABELLED `INCLUDED_OUTPUT` rather than merely
+  // tolerated, and under the GATE-4 identity grain it is also the headquarters-versus-branch marker
+  // a consumer needs to read. See `br-receita-cnpj-gate3-residual-field-classification.ts`.
   matrix_branch_flag: string | null; // identificador_matriz_filial (1=matriz/2=filial)
 
   // Company (from EMPRESAS + reference labels).
-  legal_nature_code: string | null;
-  legal_nature_label: string | null;
+  //
+  // 🔴 BR-SOURCE-GATE-ROUND-2 (RB-3) — `legal_nature_code` and `legal_nature_label` were REMOVED
+  // from this block. The code is person-risk-BEARING (MEI and empresário individual are legal
+  // natures) and is the input the R5 risk classifier reads, so it is now
+  // `INTERNAL_PRIVACY_CONTROL_ONLY` and travels on `BrReceitaCnpjInternalControlSignals`. The label
+  // is a legible rendering of the same semantics that no control consumes, so it is
+  // `EXCLUDED_OUTPUT`. Neither is deleted from the pipeline; both leave the PERSISTED payload.
   company_size_code: string | null;
   capital_social_value: string | null;
 
@@ -151,25 +160,71 @@ export interface BrReceitaCnpjSnapshotRawData {
 
   start_date: string | null;
 
-  // Regime flags.
+  // 🔴 BR-SOURCE-GATE-ROUND-2 (RB-3) — the regime flags (`simples_opt_in`, `simei_opt_in`) and the
+  // MEI marker (`mei_flag`) were REMOVED from this block. All three are
+  // `INTERNAL_PRIVACY_CONTROL_ONLY`: they are the machinery behind the R5 person-risk exclusion, not
+  // business attributes, and no owner reason to publish a tax-regime flag was ever recorded.
+  //
+  // They are NOT deleted. They travel on `BrReceitaCnpjInternalControlSignals`, which is reachable
+  // from the parser RESULT and deliberately NOT from the row — so a future writer building from a
+  // row cannot persist them even by accident.
+}
+
+/**
+ * The internal control signals for one accepted row (BR-SOURCE-GATE-ROUND-2, RB-3).
+ *
+ * 🔴 Deliberately NOT a member of `BrReceitaCnpjSnapshotRow` and NOT a member of
+ * `BrReceitaCnpjSnapshotRawData`. That is the whole design: a writer is handed rows, so a signal
+ * that is not ON a row cannot be persisted by a writer that forgets it should not be. Non-persistence
+ * is structural here rather than a rule somebody has to remember.
+ *
+ * Correlation back to a row is by `source_row_index`, which the payload already carries as
+ * provenance. In-memory, single-run, and never written anywhere.
+ *
+ * The R5 exclusion itself is NOT enforced from here — see
+ * `BRAZIL_RECEITA_RB3_R5_ENFORCEMENT_POINT`. These are the signals; the control is the classifier.
+ */
+export interface BrReceitaCnpjInternalControlSignals {
+  /** Correlates to `raw_data.source_row_index` of the accepted row. */
+  source_row_index: number;
+  /** natureza jurídica code — person-risk-bearing; the R5 risk classifier's input. */
+  legal_nature_code: string | null;
+  /** Rendering of the code above. `EXCLUDED_OUTPUT`; retained here only for operator diagnosis. */
+  legal_nature_label: string | null;
   simples_opt_in: boolean | null;
   simei_opt_in: boolean | null;
   /** Controlled MEI marker (natural-person-equivalent); no personal data. */
   mei_flag: boolean;
 }
 
+/**
+ * One accepted snapshot row.
+ *
+ * 🔴 BR-SOURCE-GATE-ROUND-2 / GATE-4 — `tax_id`, `normalized_tax_id` and `record_identity_key` are
+ * TRANSIENT_ONLY, not persistable. They are the residual blocker RB-1 that Round 1 handed to GATE-4,
+ * and GATE-4's recorded decision leaves them unpersistable under GATE-1 R4 as it stands: R4 forbids
+ * the full CNPJ, the básico, and any hash, truncation or fingerprint of either, ANYWHERE — and
+ * `record_identity_key` is literally `tax:<normalized_14>`.
+ *
+ * They are kept on the in-memory row because the parser needs them to detect duplicates and because
+ * deleting a field is a grain decision the owners have not made. What changed is that persisting
+ * them is now REFUSED at the boundary rather than merely discouraged: see
+ * `assertBrazilReceitaSnapshotRowIsPersistable` in
+ * `br-receita-cnpj-gate4-recorded-identity-grain.ts`. No writer exists; if one is ever built, it
+ * fails closed.
+ */
 export interface BrReceitaCnpjSnapshotRow {
   source_key: typeof BR_RECEITA_CNPJ_SOURCE_KEY;
   country_code: typeof BR_RECEITA_CNPJ_COUNTRY_CODE;
   source_year: number;
-  /** Raw CNPJ string as it appears in the source (traceability). */
+  /** Raw CNPJ string as it appears in the source. TRANSIENT_ONLY — never persistable (GATE-4). */
   tax_id: string;
-  /** Normalized full 14-position CNPJ (§ 3.4). */
+  /** Normalized full 14-position CNPJ (§ 3.4). TRANSIENT_ONLY — never persistable (GATE-4). */
   normalized_tax_id: string;
   /** razão social; NEVER an identity (§ 5.3 MEI/EI caveat). */
   legal_name: string | null;
   raw_data: BrReceitaCnpjSnapshotRawData;
-  /** Always `tax:<normalized_14>` on accepted rows. */
+  /** `tax:<normalized_14>` on accepted rows. TRANSIENT_ONLY — never persistable (GATE-4). */
   record_identity_key: RecordIdentityKey;
 }
 
@@ -215,4 +270,12 @@ export interface BrReceitaCnpjParserResult {
   snapshots: BrReceitaCnpjSnapshotRow[];
   rejected: BrReceitaCnpjRejectedRow[];
   summary: BrReceitaCnpjParserSummary;
+  /**
+   * Internal control signals, one entry per accepted row, in `snapshots` order
+   * (BR-SOURCE-GATE-ROUND-2, RB-3).
+   *
+   * Parallel to `snapshots` rather than nested inside a row, so the persistable shape and the
+   * control shape cannot be handed to a writer as one object.
+   */
+  internalControlSignals: BrReceitaCnpjInternalControlSignals[];
 }
