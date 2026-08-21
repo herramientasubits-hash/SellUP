@@ -75,12 +75,18 @@ function NameCell({ candidate }: { candidate: PendingContactCandidate }) {
   // el canal secundario (email > teléfono) va en una sola línea legible.
   // El detalle completo vive en el side panel del candidato.
   const secondary = candidate.email ?? candidate.phone ?? null;
+  const isNew = candidate.created_at ? isCandidateCreatedToday(candidate.created_at) : false;
   return (
     <div className="min-w-0 max-w-[260px] space-y-0.5">
       <div className="flex items-center gap-1.5">
         <p className="truncate text-sm font-semibold text-foreground">
           {candidate.full_name || 'Sin nombre'}
         </p>
+        {isNew && (
+          <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
+            Nuevo
+          </Badge>
+        )}
         {candidate.linkedin_url && (
           <a
             href={
@@ -360,22 +366,11 @@ export function ContactCandidatesDataTableClient({
         id: 'created_at',
         accessorKey: 'created_at',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Creado" />,
-        cell: ({ row }) => {
-          const c = row.original;
-          const isNew = c.created_at ? isCandidateCreatedToday(c.created_at) : false;
-          return (
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                {c.created_at ? formatDate(c.created_at) : '—'}
-              </span>
-              {isNew && (
-                <Badge className="border-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-semibold px-1.5 py-0.5 shrink-0">
-                  Nuevo
-                </Badge>
-              )}
-            </div>
-          );
-        },
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {row.original.created_at ? formatDate(row.original.created_at) : '—'}
+          </span>
+        ),
         size: 130,
         minSize: 110,
         meta: { label: 'Creado', popoverTitle: 'Fecha de creación' },
