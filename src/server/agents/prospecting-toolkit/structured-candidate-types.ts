@@ -5,8 +5,12 @@
  * (Socrata Colombia, registros oficiales, etc.).
  *
  * No modifica ni reexporta tipos del pipeline web_ai.
- * No contiene lógica. No importa nada externo.
+ * No contiene lógica. Su única importación es de TIPOS, hacia la frontera de
+ * procedencia de discovery (`structured-discovery-provenance`), que es donde
+ * viven a la vez el tipo estrecho y el validador que lo hace cumplir.
  */
+
+import type { StructuredDiscoveryProvenance } from './structured-discovery-provenance';
 
 // ── Enums de clasificación ────────────────────────────────────
 
@@ -210,4 +214,18 @@ export type StructuredSourceCandidateDraft = {
   sourceTrace: StructuredSourceTrace;
   hubspotTrace: HubspotTrace;
   commercialTrace: CommercialTrace;
+
+  /**
+   * Procedencia de discovery (AGENT1-COUNTRY-SOURCE-PERSISTENCE-CONTRACT-1 § 6).
+   *
+   * 🔴 Tipo ESTRECHO, no `Record<string, unknown>`: sin clave índice, el
+   * compilador rechaza `{ raw_payload: … }` en cualquier caller tipado. Y como
+   * un caller puede no estar tipado —o mentir con un `as`—, el writer vuelve a
+   * VALIDAR este valor en tiempo de ejecución justo antes del INSERT
+   * (`sanitizeStructuredDiscoveryProvenance`). El tipo documenta la intención;
+   * el validador es lo que la hace cumplir.
+   *
+   * Ausente para callers que no la usan (Socrata, DENUE, etc.).
+   */
+  discoveryProvenance?: StructuredDiscoveryProvenance;
 };

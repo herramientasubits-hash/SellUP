@@ -30,12 +30,24 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { writeStructuredSourceCandidatesPreview } from '@/server/agents/prospecting-toolkit/structured-source-candidate-writer';
+import { COUNTRY_SOURCE_PREPAID_DISCOVERY_LAYER } from '@/server/agents/prospecting-toolkit/structured-discovery-provenance';
 import type { SourceDiscoveryCandidate } from '@/server/source-catalog/source-discovery-types';
 import type { CountrySourceCompany } from './country-source-types';
 import {
+  CO_SIIS_DISCOVERY_BATCH_SOURCE,
   CO_SIIS_DISCOVERY_SOURCE_KEY,
   CO_SIIS_DISCOVERY_SOURCE_PRIMARY,
 } from './co-siis-discovery-adapter';
+
+/**
+ * Valor canónico de `metadata.discovery_layer` para esta capa gratuita.
+ *
+ * 🔴 IMPORTADO, no re-declarado: la frontera de persistencia es la que decide qué
+ * capas son legítimas (`STRUCTURED_DISCOVERY_LAYERS`) y la que rechaza el resto.
+ * Un literal propio aquí podría derivar del conjunto que valida, y entonces esta
+ * capa escribiría una procedencia que el validador descarta en silencio.
+ */
+const COUNTRY_SOURCE_DISCOVERY_LAYER = COUNTRY_SOURCE_PREPAID_DISCOVERY_LAYER;
 
 export type PersistCountrySourceCandidatesInput = {
   companies: readonly CountrySourceCompany[];
@@ -79,7 +91,7 @@ function toSourceDiscoveryCandidate(
       industryCode: company.industryCode,
     },
     metadata: {
-      discovery_layer: 'country_source_prepaid',
+      discovery_layer: COUNTRY_SOURCE_DISCOVERY_LAYER,
       macro_industry_key: macroIndustryKey,
       declared_industry: company.declaredIndustry,
       coarse_sector: company.coarseSector,
@@ -118,6 +130,10 @@ export async function persistCountrySourceCandidates(
       countryCode: input.countryCode,
       sourceKey: CO_SIIS_DISCOVERY_SOURCE_KEY,
       sourceProvider: CO_SIIS_DISCOVERY_SOURCE_PRIMARY,
+      // 🔴 Defecto 1 — vocabulario de lote distinto al de candidato. El CHECK de
+      // prospect_batches NO permite 'public_source' (sí el de source_primary);
+      // el lote lo persiste Agente 1, así que su source es 'agent_1'.
+      batchSource: CO_SIIS_DISCOVERY_BATCH_SOURCE,
       dataset: CO_SIIS_DISCOVERY_SOURCE_KEY,
       initiatedBy: 'agent_1',
       batchId: input.batchId ?? null,
@@ -125,7 +141,13 @@ export async function persistCountrySourceCandidates(
       // por candidato y de sólo lectura. Repetirla aquí sería una segunda ronda
       // de llamadas para responder lo mismo.
       runHubspotCheck: false,
-      metadata: input.metadata,
+      metadata: {
+        ...(input.metadata ?? {}),
+        // Explícitos DESPUÉS del spread: la telemetría del caller no puede
+        // sobrescribir de qué capa de discovery viene este lote.
+        discovery_layer: COUNTRY_SOURCE_DISCOVERY_LAYER,
+        macro_industry_key: input.macroIndustryKey,
+      },
       candidates: input.companies.map((company) =>
         toSourceDiscoveryCandidate(company, input.macroIndustryKey),
       ),
