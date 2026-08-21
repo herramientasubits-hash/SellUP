@@ -29,6 +29,28 @@
 import type { PrePaidFreeSourceOutcome } from '@/modules/prospect-batches/prepaid-novelty/prepaid-novelty-context';
 import type { ProviderExclusionPlan } from './provider-exclusion-planner';
 
+/**
+ * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 12 — cómo terminó la LECTURA, aparte de
+ * cuánto trajo.
+ *
+ * 🔴 `loaded` no sirve para esto y no se puede reinterpretar: significa «entró
+ * memoria en esta corrida», y por eso es `false` tanto con la tabla vacía como con
+ * la lectura rota. Esa fusión es correcta para el plan de exclusión —sin filas no
+ * hay nada que excluir, venga de donde venga— y es exactamente lo que un embudo de
+ * benchmark NO puede tolerar: «se midió y salió cero» y «no se pudo medir» son la
+ * diferencia entre un 0 y un null.
+ *
+ * Por eso el campo es NUEVO y aditivo en vez de un cambio de semántica de `loaded`:
+ * los consumidores de exclusión siguen leyendo lo mismo que leían.
+ */
+export type ProviderSeenReadOutcome =
+  /** No se intentó: no había proveedor al que excluir, o no había con qué leer. */
+  | 'not_attempted'
+  /** La lectura funcionó. Puede haber devuelto CERO filas, y eso es un hecho medido. */
+  | 'succeeded'
+  /** La lectura se intentó y no se pudo completar. No se sabe qué había. */
+  | 'unavailable';
+
 /** Lo que la carga de memoria previa rindió, ANTES de pedir nada. */
 export type ProviderSeenLoadSummary = {
   /** ¿Se pudo consultar la memoria? `false` con el puerto no-op. */
@@ -37,6 +59,11 @@ export type ProviderSeenLoadSummary = {
   unavailableReason: string | null;
   idsAvailable: number;
   domainsAvailable: number;
+  /**
+   * CUT-2 § 12 — cómo terminó la lectura, con independencia de cuántas filas trajo.
+   * Ver `ProviderSeenReadOutcome`.
+   */
+  readOutcome: ProviderSeenReadOutcome;
 };
 
 /**
@@ -49,15 +76,50 @@ export type ProviderSeenLoadSummary = {
  *
  * El motivo de ahora es el único que es verdad en los tres casos que llegan aquí:
  * no se consultó (no había proveedor al que excluir), se consultó y no había nada,
- * o la lectura falló. 🔴 Los dos últimos NO se distinguen desde aquí, y eso es un
- * coste declarado, no un descuido: el puerto degrada una lectura rota a memoria
- * vacía a propósito, para que un problema de memoria nunca cambie lo que se gasta.
+ * o la lectura falló.
+ *
+ * 🔴 CUT-2 § 12 — los dos últimos ya SÍ se distinguen, pero por `readOutcome`, no
+ * por `loaded`: la fusión de este constante sigue siendo la correcta para el plan de
+ * exclusión (sin filas no hay nada que excluir, venga de donde venga) y la distinción
+ * vive en el campo nuevo, que es quien decide si un embudo publica un 0 o un null.
+ * Este valor por defecto declara `not_attempted`, que es lo que es: nadie leyó.
  */
 export const PROVIDER_SEEN_LOAD_UNAVAILABLE: ProviderSeenLoadSummary = {
   loaded: false,
   unavailableReason: 'no_provider_seen_memory_loaded',
   idsAvailable: 0,
   domainsAvailable: 0,
+  readOutcome: 'not_attempted',
+};
+
+/**
+ * CUT-2 § 12 — la lectura se intentó de verdad y NO se pudo completar.
+ *
+ * 🔴 Distinto de `PROVIDER_SEEN_LOAD_UNAVAILABLE`: aquel dice «no entró memoria»,
+ * éste dice «se preguntó y no hubo respuesta». Convertir el segundo en «cero
+ * aciertos» sería inventar una medición que nunca ocurrió.
+ */
+export const PROVIDER_SEEN_LOAD_FAILED: ProviderSeenLoadSummary = {
+  loaded: false,
+  unavailableReason: 'provider_seen_memory_read_failed',
+  idsAvailable: 0,
+  domainsAvailable: 0,
+  readOutcome: 'unavailable',
+};
+
+/**
+ * CUT-2 § 12 — la lectura funcionó y la memoria estaba VACÍA.
+ *
+ * `loaded: false` porque ninguna memoria entró en la corrida —el plan de exclusión
+ * no tiene nada que hacer con ella— y `readOutcome: 'succeeded'` porque el hecho se
+ * midió. Las dos cosas son ciertas a la vez y por eso hacen falta dos campos.
+ */
+export const PROVIDER_SEEN_LOAD_EMPTY: ProviderSeenLoadSummary = {
+  loaded: false,
+  unavailableReason: 'provider_seen_memory_empty',
+  idsAvailable: 0,
+  domainsAvailable: 0,
+  readOutcome: 'succeeded',
 };
 
 /** El rendimiento de UNA página ya pagada. */

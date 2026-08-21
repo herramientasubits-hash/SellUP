@@ -11,7 +11,10 @@ import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
 import { WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
-import { WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES } from './wizard-apollo-executor';
+import {
+  WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
+  WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+} from './wizard-apollo-executor';
 // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 25 — el MISMO runner previo al
 // pago que ejecuta la ruta Lusha. Un solo cableado para las dos rutas.
 import {
@@ -128,6 +131,13 @@ import {
   readWizardConsumedCreditsFromDb,
 } from './wizard-budget-reconciliation';
 import { estimateCreditsForProvider } from './wizard-budget-estimate';
+// AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 3, 4, 5 — la demanda residual, separada
+// por construcción de la reserva financiera.
+import {
+  fullTargetResultDemand,
+  resolveProviderResultDemand,
+} from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
+import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
 // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — huso y cliente service_role del
 // presupuesto, compartidos con la lectura previa al primer clic.
 import {
@@ -390,11 +400,23 @@ export async function executeProspectWizardGenerationAction(
 
     // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/25 — la capa gratuita.
     //
-    // `partialGapSupported: false`: el objetivo de candidatos persistibles de esta
-    // ruta vive dentro del orquestador de dos rondas y no viaja por
-    // `ResolvedWizardExecution`, así que el ejecutor de pago no sabe aceptar un
-    // objetivo reducido. Todo-o-nada, para no romper la invariante de § 14. Ver
-    // la cabecera del runner.
+    // 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 2 — el valor VIVO sale de
+    // `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`, que es `false`. La capacidad de
+    // aceptar un objetivo reducido YA existe —`resultDemand` viaja por su propio
+    // campo hasta el orquestador de dos rondas y hasta `targetPersistibleCandidates`
+    // (legacy), y `boundByRemainingTarget` es su única cota— pero su ACTIVACIÓN en
+    // producción queda DIFERIDA a `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1`.
+    //
+    // 🔴 El motivo no es la invariante de § 14 —`aceptadasGratis + aceptadasPagadas
+    // <= objetivo` se cumple— sino el RESULTADO que recibe el usuario: con `true`,
+    // objetivo 10 y 7 empresas gratis, una sola búsqueda termina en DOS lotes (7 en
+    // el de la fuente gratuita, 3 en el reservado) y la redirección apunta al
+    // segundo. Esa semántica de producto no se ha diseñado todavía.
+    //
+    // Con `false` la ruta es TODO-O-NADA, byte por byte como antes de este corte:
+    // o la fuente gratuita cierra el objetivo entero —y Apollo no corre ni se
+    // reserva nada— o no aporta a ESTA corrida y Apollo corre con el objetivo
+    // completo. Ver la cabecera de la constante y la del runner.
     runPrePaidNoveltyDiscovery: (input) =>
       runPrePaidNoveltyDiscovery(supabase, {
         countryCode: input.countryCode,
@@ -402,7 +424,7 @@ export async function executeProspectWizardGenerationAction(
         macroIndustryKey: input.macroIndustryKey,
         requestedTarget: input.requestedTarget,
         requestedByUserId: input.requestedByUserId,
-        partialGapSupported: false,
+        partialGapSupported: WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
         // ADDENDUM PROVIDER-SEEN §§ 5, 6 — esta ruta paga con Apollo, cuya
         // capacidad de exclusión es NINGUNA (su contrato no la prueba). Que el
         // proveedor se declare aquí evita que la ruta herede la capacidad de otro.
@@ -942,6 +964,45 @@ export async function executeProspectWizardGeneration(
     };
   }
 
+  // ── 5e. CUT-2 §§ 3, 4, 5, 12 — la demanda de resultados de la ruta de pago ──
+  //
+  // Se resuelve AQUÍ, entre la capa gratuita y la estimación de créditos, porque
+  // éste es el único punto donde existen a la vez el resultado del gate y el
+  // ejecutor que lo va a consumir.
+  //
+  // 🔴 Sólo lo PERSISTIDO cierra hueco. Un `providerRequired: false` sin lote y sin
+  // filas escritas describiría un objetivo cerrado que el usuario no tiene en
+  // ninguna parte, así que se degrada a «la capa gratuita no aportó»: el hueco
+  // vuelve a ser entero y la ruta de pago hace lo de siempre. Es la misma regla que
+  // `withFreeSourcePersistenceOutcome` aplica un nivel más abajo, aplicada aquí a
+  // la ÚNICA combinación que ese nivel no puede observar. De paso garantiza § 4:
+  // Apollo nunca recibe una demanda de cero.
+  const prePaidContributed =
+    prePaidNovelty !== null &&
+    prePaidNovelty.batchId !== null &&
+    prePaidNovelty.persistedCount > 0;
+  const apolloResultDemand = prePaidContributed
+    ? resolveProviderResultDemand(prePaidNovelty, WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES)
+    : fullTargetResultDemand(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES);
+
+  // CUT-2 §§ 8, 11, 12 — el snapshot de memoria PREVIA, con su ausencia nombrada.
+  //
+  // 🔴 `readOutcome` y no `loaded`: la memoria vacía leída con éxito debe producir
+  // `provider_seen_hit: 0` —un hecho medido— mientras que una lectura fallida debe
+  // producir `null`. `loaded` fusiona los dos casos a propósito para el plan de
+  // exclusión y no sirve para decidir esto.
+  const apolloPriorProviderSeen: ApolloPriorProviderSeen =
+    prePaidNovelty !== null && prePaidNovelty.providerSeenLoad.readOutcome === 'succeeded'
+      ? { available: true, memory: prePaidNovelty.providerSeenMemory }
+      : {
+          available: false,
+          unavailableReason:
+            prePaidNovelty === null
+              ? 'prepaid_novelty_layer_absent'
+              : (prePaidNovelty.providerSeenLoad.unavailableReason ??
+                'provider_seen_read_outcome_not_succeeded'),
+        };
+
   // 6. Calculate max credits server-side — provider-aware; client cannot control this value.
   // Apollo: resolvedMaxQueries × resolvedMaxResults × 1 credit/result (default 1×3=3).
   // Tavily: adaptive pipeline ceiling (4 rounds × 5 queries = 20).
@@ -1169,6 +1230,14 @@ export async function executeProspectWizardGeneration(
         correlation: runCorrelation,
         // § 2 — lo que la reserva sostiene, para la aserción defensiva de gasto.
         reservedCredits: creditsReserved,
+        // 🔴 CUT-2 § 5 — la demanda va JUNTO a la reserva y no DENTRO de ella. Son
+        // dos números con dos autoridades: `creditsReserved` sale de
+        // `estimateCreditsForProvider(provider)`, que no ve el hueco; `resultDemand`
+        // sale del gate gratuito, que no ve créditos. Mientras P0-1 siga sin
+        // confirmación escrita de Apollo, derivar uno del otro afirmaría un modelo
+        // de facturación que nadie ha verificado.
+        resultDemand: apolloResultDemand,
+        priorProviderSeen: apolloPriorProviderSeen,
       });
     } else {
       pipelineResult = await deps.runTavilyPipeline({ resolved, reservedBatchId });

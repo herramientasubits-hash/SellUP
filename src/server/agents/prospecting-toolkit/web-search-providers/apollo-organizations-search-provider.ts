@@ -93,6 +93,7 @@ import { createApolloPaginationBudget } from '../apollo-organizations-pagination
 import {
   APOLLO_PROVIDER_SEEN_METADATA_KEY,
   toApolloProviderSeenMetadata,
+  type ApolloPriorProviderSeen,
   type ApolloProviderSeenRecorder,
 } from '../apollo-organizations-provider-seen';
 import {
@@ -606,6 +607,18 @@ export type ApolloSectorGateMode = 'filter' | 'annotate';
 
 export type ApolloOrgsSearchOptions = {
   sectorGateMode?: ApolloSectorGateMode;
+  /**
+   * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 8, 10, 11 — memoria provider-seen de
+   * corridas ANTERIORES, ya cargada por la capa previa al pago.
+   *
+   * 🔴 Es sólo MEDICIÓN. No se envía a Apollo, no filtra la respuesta y no recorta
+   * el objetivo: `APOLLO_EXCLUSION_CAPABILITY` sigue entera en `false` (§ 10) y
+   * ningún acierto de memoria puede reducir `remainingTarget` (§ 8 del gate). Lo
+   * único que produce es el escalón `provider_seen_hit` del embudo.
+   *
+   * Ausente ⇒ ese escalón se publica `null` con su motivo. Nunca 0.
+   */
+  priorProviderSeen?: ApolloPriorProviderSeen;
   /** Ausente ⇒ `legacy`. */
   resultLimitMode?: ApolloResultLimitMode;
   /** Límite por ronda ya resuelto por la config de dos rondas. Sólo en `two_round`. */
@@ -953,6 +966,10 @@ export async function runApolloOrganizationsSearch(
       // normalizar y antes de cualquier filtro local. Aquí sólo se inyecta quién
       // escribe; el ORDEN lo sostiene la búsqueda paginada.
       recordProviderSeen: deps?.recordProviderSeen ?? createDefaultApolloProviderSeenRecorder(),
+      // CUT-2 § 8 — y el snapshot PREVIO con el que se cruzará lo devuelto. Viaja
+      // tal cual: este provider no lo lee, no lo muta y no lo consulta. Sólo lo
+      // entrega al ledger, que es quien cuenta con la función canónica.
+      priorProviderSeen: options?.priorProviderSeen,
     },
   );
 
@@ -1108,7 +1125,11 @@ export async function runApolloOrganizationsSearch(
           // El gate sectorial NUNCA corrió en esta rama: no hubo resultados que
           // evaluar. `null` dice eso; un 0 diría que evaluó y no rechazó nada.
           precisionRejected: null,
-          providerSeenHit: null,
+          // CUT-2 § 11 — un fallo terminal SIN páginas exitosas no devolvió ni una
+          // fila, así que con snapshot cargado el cruce es legítimamente 0: se
+          // midió sobre un conjunto vacío. Sin snapshot sigue siendo `null`. La
+          // distinción la sostiene el ledger, no un literal escrito aquí.
+          providerSeenHit: paginated.providerSeen.priorSeenHits,
           historicalKnown: null,
           acceptedForTarget: null,
         }),
@@ -1350,7 +1371,11 @@ export async function runApolloOrganizationsSearch(
       paginated.providerSeen.withinPageDuplicates +
       paginated.providerSeen.crossPageDuplicateIdentities,
     precisionRejected: normalizedResultsCount - postGateCount,
-    providerSeenHit: null,
+    // 🔴 CUT-2 §§ 9, 11 — RATCHET INVERTIDO del corte 1. Ya no es `null` fijo: es
+    // lo que el ledger MIDIÓ contra el snapshot previo, y sigue siendo `null`
+    // exactamente cuando no hubo snapshot. El fallo de carga no se convierte en 0
+    // porque el ledger nunca inicializa el contador sin memoria.
+    providerSeenHit: paginated.providerSeen.priorSeenHits,
     historicalKnown: null,
     acceptedForTarget: null,
   });

@@ -31,6 +31,8 @@
  */
 
 import type { ApolloTwoRoundDiscoveryConfig } from './config';
+// CUT-2 §§ 4, 6 — la cota de demanda residual, en su único sitio.
+import { boundByRemainingTarget } from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
 import {
   createSeenOrganizationRegistry,
   evaluateSeenOrganization,
@@ -560,7 +562,22 @@ export type ReviewOnlyCompany = AccumulatedCompany & {
 
 export type ApolloTwoRoundRunResult = {
   resultStatus: ApolloTwoRoundResultStatus;
+  /**
+   * El objetivo que GOBERNÓ la corrida.
+   *
+   * 🔴 CUT-2 § 6 — con demanda residual aplicada es el objetivo RECORTADO, no el
+   * configurado. Reportar aquí el de la config diría que la corrida buscaba cinco
+   * empresas cuando en realidad se paró en tres, y quien leyera el resultado
+   * diagnosticaría un fallo de recall donde hubo un objetivo cumplido.
+   */
   targetEligibleCompanies: number;
+  /** CUT-2 § 6 — el techo de la config, sin recortar. Diagnóstico. */
+  configuredTargetEligibleCompanies: number;
+  /**
+   * CUT-2 §§ 4, 6 — el hueco que la capa gratuita dejó abierto, si lo hubo.
+   * `null` ⇒ no hubo capa previa y el objetivo configurado gobernó entero.
+   */
+  remainingTargetApplied: number | null;
   eligibleCompaniesFound: number;
   /**
    * STABLE-TARGET-WRITER-PARITY § 3 — candidatos que cumplen TODAS las
@@ -697,6 +714,22 @@ export type ApolloTwoRoundRunInput = {
    * recupera lo que la ronda ya produjo y sólo ejecuta lo que falta.
    */
   resume?: ApolloTwoRoundResumeState | null;
+  /**
+   * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 4, 6, 7 — lo que esta corrida debe
+   * buscar DE VERDAD, después de descontar lo que la capa gratuita ya cerró.
+   *
+   * `null`/ausente ⇒ no hubo capa previa y gobierna `config.targetEligibleCompanies`
+   * entero, que es el comportamiento anterior a este corte, byte por byte.
+   *
+   * 🔴 Recorta la DEMANDA de resultados, jamás la reserva financiera (§ 5). La
+   * reserva la fija `estimateApolloTwoRoundBudget(config)`, que se deriva de
+   * `maxResultsPerRound × maxRounds` y del cap de enrichment y NO recibe este
+   * número — el ratchet estático del corte lo defiende.
+   *
+   * 🔴 Nunca AMPLÍA: `boundByRemainingTarget` toma el mínimo, así que un hueco
+   * mayor que el objetivo configurado no puede autorizar buscar más.
+   */
+  remainingTarget?: number | null;
 };
 
 /**
@@ -978,6 +1011,29 @@ export async function runApolloTwoRoundDiscovery(
 ): Promise<ApolloTwoRoundRunResult> {
   const { config, queryContext, correlation } = input;
   const resume = input.resume ?? null;
+
+  /**
+   * CUT-2 §§ 4, 6, 7 — el objetivo EFECTIVO de esta corrida, resuelto UNA vez.
+   *
+   * Todas las paradas, el hueco proyectado, la selección de enrichment y el
+   * ranking final leen esta variable y no `config.targetEligibleCompanies`. Que
+   * haya un solo sitio es el punto: con once lecturas del config y una cota
+   * aplicada en algunas, la corrida podría pararse con un número y redactar la
+   * ronda 2 con otro.
+   *
+   * 🔴 `config` se deja INTACTO a propósito. Es el objeto que la reserva y el
+   * peor caso económico consumen aguas arriba, y mutarlo aquí acoplaría la demanda
+   * de resultados con el techo financiero — exactamente lo que § 5 prohíbe
+   * mientras P0-1 siga sin confirmación de Apollo.
+   */
+  const remainingTargetApplied =
+    typeof input.remainingTarget === 'number' && Number.isFinite(input.remainingTarget)
+      ? input.remainingTarget
+      : null;
+  const targetEligibleCompanies =
+    remainingTargetApplied === null
+      ? config.targetEligibleCompanies
+      : boundByRemainingTarget(config.targetEligibleCompanies, remainingTargetApplied);
   // § 5 — el ledger se rehidrata del estado recuperado y, sólo como segunda
   // fuente, de las claves sueltas que un llamador antiguo pudiera pasar.
   const ledger = ApolloTwoRoundOperationLedger.fromCompletedKeys([
@@ -1305,7 +1361,7 @@ export async function runApolloTwoRoundDiscovery(
 
   /** § 11 — hueco PROYECTADO contra el objetivo, antes del writer. Nunca negativo. */
   const projectedTargetGap = async (): Promise<number> =>
-    Math.max(0, config.targetEligibleCompanies - (await stableFinalizableCandidateCount()));
+    Math.max(0, targetEligibleCompanies - (await stableFinalizableCandidateCount()));
 
   /** Estado recuperable en ESTE instante. Se recalcula en cada checkpoint. */
   const currentResumeState = (): ApolloTwoRoundResumeState => ({
@@ -1456,7 +1512,18 @@ export async function runApolloTwoRoundDiscovery(
   };
 
   // ── Bucle de rondas ─────────────────────────────────────────────────────────
-  for (let roundNumber = 1; roundNumber <= config.maxRounds; roundNumber++) {
+  //
+  // 🔴 CUT-2 § 4 — con el hueco YA cerrado por la capa gratuita, Apollo NO ejecuta.
+  // Ni la ronda 1. La comprobación de objetivo de dentro del bucle no basta: sólo
+  // mira a partir de la ronda 2, porque hasta este corte era imposible entrar con
+  // el objetivo satisfecho de antemano. Ahora es posible y es el caso barato.
+  const roundsAuthorized = targetEligibleCompanies > 0;
+
+  for (
+    let roundNumber = 1;
+    roundsAuthorized && roundNumber <= config.maxRounds;
+    roundNumber++
+  ) {
     // § 7: una ronda cuyo estado ya se recuperó no se vuelve a ejecutar NI se
     // vuelve a registrar. Sus métricas y sus candidatos ya están en el estado.
     if (roundMetrics.some((m) => m.roundNumber === roundNumber)) continue;
@@ -1485,7 +1552,7 @@ export async function runApolloTwoRoundDiscovery(
     // § 7: parada inmediata. La ronda 2 no se ejecuta por estar presupuestada.
     // § A — con la cuenta ESTABLE: una parada real, no una que un gate final
     // pueda deshacer después de que la ronda 2 ya se descartó.
-    if (roundNumber > 1 && (await stableFinalizableCandidateCount()) >= config.targetEligibleCompanies) {
+    if (roundNumber > 1 && (await stableFinalizableCandidateCount()) >= targetEligibleCompanies) {
       secondRoundSkippedReason = 'target_reached';
       break;
     }
@@ -1494,11 +1561,45 @@ export async function runApolloTwoRoundDiscovery(
       break;
     }
 
-    // § 8: la ronda 2 pide el límite configurado aunque falten menos de cinco.
-    // Es el procesamiento local el que detiene la acumulación al llegar al
-    // objetivo; recortar la petición no ahorra créditos (Apollo cobra por
-    // resultado devuelto) y sí reduce las probabilidades de completar.
-    const requestedResultLimit = config.maxResultsPerRound;
+    /**
+     * CUT-2 §§ 6, 7 — cuántos resultados pide ESTA ronda.
+     *
+     * 🔴 RATCHET INVERTIDO. Hasta este corte el valor era `config.maxResultsPerRound`
+     * fijo, con el argumento de que «recortar la petición no ahorra créditos porque
+     * Apollo cobra por resultado devuelto». Ese argumento es precisamente una
+     * afirmación sobre el contrato de facturación de Apollo, y P0-1 sigue SIN
+     * confirmación escrita del proveedor: no se puede sostener una decisión de
+     * volumen sobre un modelo de cobro que nadie ha verificado, en ninguna de las
+     * dos direcciones.
+     *
+     * Lo que sí es verificable sin conocer la factura es la demanda: pedir 5 cuando
+     * falta 1 es pedir cuatro empresas que el producto va a tirar. § 6 lo formula
+     * como invariante — la maquinaria local nunca apunta, a propósito, a más de lo
+     * que falta.
+     *
+     * El hueco es el de AHORA, no el del principio (§ 7): `projectedTargetGap()`
+     * ya descuenta lo que la ronda 1 aportó, así que la ronda 2 no puede
+     * reiniciarse al objetivo entero. Con hueco 3 y 2 aportados en la ronda 1, la
+     * ronda 2 pide 1.
+     *
+     * 🔴 El suelo es 1 y no 0: llegar aquí significa que las paradas de arriba ya
+     * decidieron que esta ronda debe ejecutarse (hueco > 0), y un `per_page: 0`
+     * sería una petición pagada que no puede devolver nada.
+     */
+    const requestedResultLimit =
+      remainingTargetApplied === null
+        ? // 🔴 Sin capa previa NADA cambia, byte por byte. La cota es de la demanda
+          // residual: donde no hay demanda que descontar, no hay cota que aplicar, y
+          // esta rama tiene que seguir siendo indistinguible de la de antes del
+          // corte. Es la misma disciplina que el resto de la cadena.
+          config.maxResultsPerRound
+        : Math.max(
+            1,
+            boundByRemainingTarget(
+              config.maxResultsPerRound,
+              roundNumber === 1 ? targetEligibleCompanies : await projectedTargetGap(),
+            ),
+          );
 
     let hypothesis: ApolloTwoRoundQueryHypothesis;
     let effectiveBuild: RoundEffectiveRequestBuild;
@@ -1701,7 +1802,7 @@ export async function runApolloTwoRoundDiscovery(
       }
       await assessRoundOrganizations(roundNumber, metrics, recovered);
       // § A — cuenta ESTABLE: ver el comentario de `stableFinalizableCandidateCount()`.
-      if ((await stableFinalizableCandidateCount()) >= config.targetEligibleCompanies) {
+      if ((await stableFinalizableCandidateCount()) >= targetEligibleCompanies) {
         if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
         break;
       }
@@ -1752,7 +1853,7 @@ export async function runApolloTwoRoundDiscovery(
 
     // § 7: alcanzado el objetivo con gates baratos, la corrida no busca más.
     // § A — cuenta ESTABLE.
-    if ((await stableFinalizableCandidateCount()) >= config.targetEligibleCompanies) {
+    if ((await stableFinalizableCandidateCount()) >= targetEligibleCompanies) {
       if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
       break;
     }
@@ -1920,7 +2021,7 @@ export async function runApolloTwoRoundDiscovery(
     // § A — cuenta ESTABLE: decide si vale la pena seguir gastando en
     // enrichments con el mismo conteo que decide todas las demás paradas.
     eligibleCompaniesSoFar: await stableFinalizableCandidateCount(),
-    targetEligibleCompanies: config.targetEligibleCompanies,
+    targetEligibleCompanies: targetEligibleCompanies,
   });
   enrichmentSkips.push(...globalSelection.skipped);
   for (const entry of [...globalSelection.selected, ...globalSelection.skipped]) {
@@ -1943,7 +2044,7 @@ export async function runApolloTwoRoundDiscovery(
 
     // Parada dentro del propio bucle: si una llamada previa ya completó el
     // objetivo, las restantes no se ejecutan (§ 6). § A — cuenta ESTABLE.
-    if ((await stableFinalizableCandidateCount()) >= config.targetEligibleCompanies) {
+    if ((await stableFinalizableCandidateCount()) >= targetEligibleCompanies) {
       enrichmentSkips.push({
         candidateKey: chosen.candidateKey,
         roundNumber: chosen.roundNumber,
@@ -2180,7 +2281,7 @@ export async function runApolloTwoRoundDiscovery(
     noPriorSuggestion: c.assessment.noPriorSuggestion,
   }));
 
-  const ranked = rankFinalEligibleCompanies(finalSignals, config.targetEligibleCompanies);
+  const ranked = rankFinalEligibleCompanies(finalSignals, targetEligibleCompanies);
   const byKey = new Map(eligibleCompanies.map((c) => [c.candidateKey, c]));
 
   // `explicit` permite acumular a un candidato que NO está en `byKey`: ese mapa
@@ -2247,8 +2348,8 @@ export async function runApolloTwoRoundDiscovery(
    */
   const finalizability = await scanFinalizability();
   const stableFinalizableCandidates = finalizability.stable;
-  const projectedGap = Math.max(0, config.targetEligibleCompanies - stableFinalizableCandidates);
-  const targetReached = stableFinalizableCandidates >= config.targetEligibleCompanies;
+  const projectedGap = Math.max(0, targetEligibleCompanies - stableFinalizableCandidates);
+  const targetReached = stableFinalizableCandidates >= targetEligibleCompanies;
 
   const enrichmentOutcomes: EnrichmentOutcome[] = tracked.map((c) => ({
     candidateKey: c.candidateKey,
@@ -2268,7 +2369,9 @@ export async function runApolloTwoRoundDiscovery(
       : targetReached
         ? 'target_reached'
         : 'partial_target_not_reached',
-    targetEligibleCompanies: config.targetEligibleCompanies,
+    targetEligibleCompanies,
+    configuredTargetEligibleCompanies: config.targetEligibleCompanies,
+    remainingTargetApplied,
     eligibleCompaniesFound,
     stableFinalizableCandidateCount: stableFinalizableCandidates,
     projectedFinalizableCandidateCount: finalizability.projected,
@@ -2303,7 +2406,7 @@ export async function runApolloTwoRoundDiscovery(
       sectorStillUnconfirmedAfterEnrichment: sectorStillUnconfirmedAfterEnrichmentCount,
       sectorRejectedAfterEnrichment: sectorRejectedAfterEnrichmentCount,
       enrichmentFailedCount,
-      targetEligibleCompanies: config.targetEligibleCompanies,
+      targetEligibleCompanies: targetEligibleCompanies,
       // §§ 3 y 11 — la cuenta estable viaja EXPLÍCITA. Hasta este hito
       // `buildRunMetrics` la aliaseaba a `totalEligibleCompanies`, así que la
       // métrica que decía «estable» era la provisional con otro nombre.
