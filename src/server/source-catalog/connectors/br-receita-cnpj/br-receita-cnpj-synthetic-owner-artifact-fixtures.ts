@@ -102,11 +102,21 @@ function buildForbiddenLocalPathMarker(): string {
 // ─── Owner artifact builders ──────────────────────────────────────────────────
 
 /**
- * A 13A-complete owner artifact: all four sections approved, every required field present, no
+ * A 13A-complete owner artifact: all five sections approved, every required field present, no
  * placeholder, no forbidden content, and a cap field that states a policy without a number.
  */
 function buildCompleteOwnerArtifact(): OwnerDecisionArtifact {
   return {
+    gate1: {
+      decisionValue: 'approved',
+      legalPrivacyOwnerRole: 'OWNER_ROLE_SYNTHETIC_GATE1_LEGAL_PRIVACY',
+      ownerReference: 'OWNER_REF_SYNTHETIC_GATE1',
+      decisionDate: SYNTHETIC_DECISION_DATE,
+      expirationOrReviewDate: SYNTHETIC_REVIEW_DATE,
+      dryRunImportScopeSeparationReference: 'SCOPE_SEPARATION_REF_SYNTHETIC_GATE1',
+      evidencePacketReference: 'EVIDENCE_REF_SYNTHETIC_GATE1',
+      stopConditionsAccepted: true,
+    },
     gate2: {
       decisionValue: 'approved',
       ownerRole: 'OWNER_ROLE_SYNTHETIC_GATE2',

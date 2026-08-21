@@ -35,6 +35,16 @@ import {
  */
 function buildSyntheticCompleteArtifact(): OwnerDecisionArtifact {
   return {
+    gate1: {
+      decisionValue: 'approved',
+      legalPrivacyOwnerRole: 'OWNER_ROLE_SYNTHETIC_GATE1_LEGAL_PRIVACY',
+      ownerReference: 'OWNER_REF_SYNTHETIC_GATE1',
+      decisionDate: '2026-08-04',
+      expirationOrReviewDate: '2026-11-04',
+      dryRunImportScopeSeparationReference: 'SCOPE_SEPARATION_REF_SYNTHETIC_GATE1',
+      evidencePacketReference: 'EVIDENCE_REF_SYNTHETIC_GATE1',
+      stopConditionsAccepted: true,
+    },
     gate2: {
       decisionValue: 'approved',
       ownerRole: 'OWNER_ROLE_SYNTHETIC_GATE2',
@@ -98,6 +108,7 @@ function buildSyntheticCompleteArtifact(): OwnerDecisionArtifact {
 type SectionKey = keyof typeof BRAZIL_RECEITA_OWNER_DECISION_REQUIRED_STRING_FIELDS;
 
 const SECTION_KEYS: readonly SectionKey[] = [
+  'gate1',
   'gate2',
   'gate7',
   'capInputPolicy',
@@ -145,6 +156,7 @@ describe('BR-SOURCE-13A owner decision validator — absent artifact', () => {
     const result = validateBrazilReceitaOwnerDecisionArtifact(null);
     assertRefused(result);
     assert.ok(codesOf(result).includes(CODES.artifactMissing));
+    assert.equal(result.gate1Approved, false);
     assert.equal(result.gate2Approved, false);
     assert.equal(result.gate7Approved, false);
     assert.equal(result.capInputPolicyApproved, false);
@@ -330,12 +342,14 @@ describe('BR-SOURCE-13A owner decision validator — ordering rules', () => {
   it('refuses GATE-7 approved while GATE-2 is absent', () => {
     const base = buildSyntheticCompleteArtifact();
     const withoutGate2: OwnerDecisionArtifact = {
+      gate1: base.gate1,
       gate7: base.gate7,
       capInputPolicy: base.capInputPolicy,
       controlledExecutionAttempt: base.controlledExecutionAttempt,
     };
     const result = validateBrazilReceitaOwnerDecisionArtifact(withoutGate2);
     assertRefused(result);
+    assert.equal(result.gate1Approved, true, 'GATE-1 is approved in this fixture, isolating the GATE-7/GATE-2 concern');
     assert.equal(result.gate2Approved, false);
     assert.equal(result.gate7Approved, true, 'GATE-7 is internally complete in this fixture');
     assert.ok(blockingOf(result).includes(CODES.gate7CannotPrecedeGate2));
@@ -361,6 +375,193 @@ describe('BR-SOURCE-13A owner decision validator — ordering rules', () => {
       );
       assert.equal(result.canProceedToControlledExecutionPreflight, false);
     }
+  });
+});
+
+// ─── GATE-1 root ordering ─────────────────────────────────────────────────────
+//
+// GATE-1 (Legal/Privacy) is the root of the gate dependency graph (BR-SOURCE-10K § 13): nothing
+// downstream is reviewable while it is not_started, rejected, or blocked. These twelve tests cover
+// the executable root-ordering fix item by item.
+
+describe('BR-SOURCE-13A owner decision validator — GATE-1 root ordering', () => {
+  it('1. missing GATE-1 + GATE-2 approved => NO_GO', () => {
+    const base = buildSyntheticCompleteArtifact();
+    const withoutGate1 = { ...base };
+    delete (withoutGate1 as { gate1?: unknown }).gate1;
+
+    const result = validateBrazilReceitaOwnerDecisionArtifact(withoutGate1);
+    assertRefused(result);
+    assert.equal(result.gate1Approved, false);
+    assert.equal(result.gate2Approved, true, 'GATE-2 is internally complete in this fixture');
+    assert.ok(blockingOf(result).includes(CODES.gate2CannotPrecedeGate1));
+    assert.ok(blockingOf(result).includes(CODES.decisionMissing));
+  });
+
+  it('2. GATE-1 deferred + GATE-2 approved => NO_GO', () => {
+    const result = validateBrazilReceitaOwnerDecisionArtifact(
+      withSection('gate1', { decisionValue: 'deferred' }),
+    );
+    assertRefused(result);
+    assert.equal(result.gate1Approved, false);
+    assert.ok(blockingOf(result).includes(CODES.decisionDeferred));
+    assert.ok(blockingOf(result).includes(CODES.gate2CannotPrecedeGate1));
+  });
+
+  it('3. GATE-1 rejected + GATE-2 approved => NO_GO', () => {
+    const result = validateBrazilReceitaOwnerDecisionArtifact(
+      withSection('gate1', { decisionValue: 'rejected' }),
+    );
+    assertRefused(result);
+    assert.equal(result.gate1Approved, false);
+    assert.ok(blockingOf(result).includes(CODES.decisionRejected));
+    assert.ok(blockingOf(result).includes(CODES.gate2CannotPrecedeGate1));
+  });
+
+  it('4. GATE-1 blocked + GATE-2 approved => NO_GO', () => {
+    const result = validateBrazilReceitaOwnerDecisionArtifact(
+      withSection('gate1', { decisionValue: 'blocked' }),
+    );
+    assertRefused(result);
+    assert.equal(result.gate1Approved, false);
+    assert.ok(blockingOf(result).includes(CODES.decisionBlocked));
+    assert.ok(blockingOf(result).includes(CODES.gate2CannotPrecedeGate1));
+  });
+
+  it('5. GATE-1 incomplete/placeholder + GATE-2 approved => NO_GO', () => {
+    const placeholder = BRAZIL_RECEITA_OWNER_DECISION_PLACEHOLDER_TOKEN;
+    const result = validateBrazilReceitaOwnerDecisionArtifact(
+      withSection('gate1', { evidencePacketReference: placeholder }),
+    );
+    assertRefused(result);
+    assert.equal(
+      result.gate1Approved,
+      false,
+      'a placeholder field keeps GATE-1 unapproved even though its decisionValue reads approved',
+    );
+    assert.ok(
+      result.findings.some(
+        (f) => f.code === CODES.fieldPlaceholder && f.field === 'gate1.evidencePacketReference',
+      ),
+    );
+    assert.ok(blockingOf(result).includes(CODES.gate2CannotPrecedeGate1));
+  });
+
+  it('6. GATE-1 approved + GATE-2 non-approved => no ordering violation, but no GATE-2 GO', () => {
+    // Isolate the claim: GATE-1 alone, everything else entirely absent. No section other than
+    // GATE-1 ever claims `approved`, so neither ordering rule should fire — this artifact is
+    // incomplete (missing sections), not internally contradictory.
+    const gate1Only: OwnerDecisionArtifact = { gate1: buildSyntheticCompleteArtifact().gate1 };
+    const result = validateBrazilReceitaOwnerDecisionArtifact(gate1Only);
+    assert.equal(result.gate1Approved, true);
+    assert.equal(result.gate2Approved, false);
+    assert.equal(result.canProceedToControlledExecutionPreflight, false);
+    assert.ok(
+      !blockingOf(result).includes(CODES.gate2CannotPrecedeGate1),
+      'GATE-2 never claimed approved, so the ordering rule must not fire',
+    );
+    assert.ok(!blockingOf(result).includes(CODES.gate7CannotPrecedeGate2));
+  });
+
+  it('7. GATE-1 approved + completed GATE-2 approved => ordering allows GATE-2 requirements to be evaluated normally', () => {
+    const result = validateBrazilReceitaOwnerDecisionArtifact(buildSyntheticCompleteArtifact());
+    assert.equal(result.gate1Approved, true);
+    assert.equal(result.gate2Approved, true);
+    assert.ok(!blockingOf(result).includes(CODES.gate2CannotPrecedeGate1));
+  });
+
+  it('8. GATE-7 still cannot precede GATE-2, unaffected by GATE-1 being approved', () => {
+    const base = buildSyntheticCompleteArtifact();
+    const withoutGate2: OwnerDecisionArtifact = {
+      gate1: base.gate1,
+      gate7: base.gate7,
+      capInputPolicy: base.capInputPolicy,
+      controlledExecutionAttempt: base.controlledExecutionAttempt,
+    };
+    const result = validateBrazilReceitaOwnerDecisionArtifact(withoutGate2);
+    assertRefused(result);
+    assert.equal(result.gate1Approved, true);
+    assert.ok(blockingOf(result).includes(CODES.gate7CannotPrecedeGate2));
+  });
+
+  it('9. no execution grant implies GATE-1 approval', () => {
+    // Only the controlled-execution-attempt section is present and internally complete; GATE-1,
+    // GATE-2, GATE-7 and cap/input policy are all absent. Authorizing a controlled execution
+    // attempt must never be readable as approving GATE-1 (or any other gate).
+    const controlledOnly: OwnerDecisionArtifact = {
+      controlledExecutionAttempt: buildSyntheticCompleteArtifact().controlledExecutionAttempt,
+    };
+    const result = validateBrazilReceitaOwnerDecisionArtifact(controlledOnly);
+    assert.equal(result.gate1Approved, false);
+    assert.equal(result.gate2Approved, false);
+    assert.equal(result.gate7Approved, false);
+    assert.equal(result.capInputPolicyApproved, false);
+    assert.equal(result.canProceedToControlledExecutionPreflight, false);
+  });
+
+  it('10. a historical artifact shaped without a GATE-1 section cannot produce a GATE-2 GO', () => {
+    // Simulates an artifact built against the pre-GATE-1 shape of this validator (BR-SOURCE-13A,
+    // before this fix): gate2/gate7/capInputPolicy/controlledExecutionAttempt only. Parsing it
+    // must remain possible (no throw), but GATE-1 reads unapproved by absence, and that must
+    // still block a GATE-2 GO.
+    const base = buildSyntheticCompleteArtifact();
+    const legacyShapedArtifact = {
+      gate2: base.gate2,
+      gate7: base.gate7,
+      capInputPolicy: base.capInputPolicy,
+      controlledExecutionAttempt: base.controlledExecutionAttempt,
+    } as OwnerDecisionArtifact;
+
+    const result = validateBrazilReceitaOwnerDecisionArtifact(legacyShapedArtifact);
+    assertRefused(result);
+    assert.equal(result.gate1Approved, false);
+    assert.equal(result.gate2Approved, true, 'GATE-2 itself is internally complete');
+    assert.ok(
+      blockingOf(result).includes(CODES.gate2CannotPrecedeGate1),
+      'a legacy artifact missing GATE-1 must not silently read as GATE-2 GO',
+    );
+    assert.equal(result.canProceedToControlledExecutionPreflight, false);
+  });
+
+  it('11. this validator still has no notion of implementer identity, and does not fabricate one', () => {
+    // BR-SOURCE-10K § 5 requires GATE-1's approver to not be the implementer or design author —
+    // but that is a PROCEDURAL rule enforced outside this pure, identity-free validator (as is
+    // already true for every other role field here). This test documents the boundary rather than
+    // asserting a check this module cannot make: an identical opaque role string is accepted here
+    // exactly as any other non-placeholder, safe string would be — no self-approval comparison is
+    // performed, because none can be, without I/O this validator is forbidden from doing.
+    const sameRoleEverywhere = withSection('gate1', {
+      legalPrivacyOwnerRole: 'OWNER_ROLE_SYNTHETIC_SHARED_ACROSS_SECTIONS',
+    });
+    const withMatchingGate2Role = {
+      ...sameRoleEverywhere,
+      gate2: {
+        ...(sameRoleEverywhere.gate2 as Record<string, unknown>),
+        ownerRole: 'OWNER_ROLE_SYNTHETIC_SHARED_ACROSS_SECTIONS',
+      },
+    } as OwnerDecisionArtifact;
+
+    const result = validateBrazilReceitaOwnerDecisionArtifact(withMatchingGate2Role);
+    assert.equal(
+      result.gate1Approved,
+      true,
+      'an identical opaque role string across sections must not be treated as a fabricated self-approval signal',
+    );
+    assert.equal(result.gate2Approved, true);
+  });
+
+  it('12. forbidden sensitive content rules apply to GATE-1 fields exactly as they do elsewhere', () => {
+    const forbidden = '/' + 'Users' + '/' + 'synthetic';
+    const result = validateBrazilReceitaOwnerDecisionArtifact(
+      withSection('gate1', { evidencePacketReference: forbidden }),
+    );
+    assertRefused(result);
+    assert.equal(result.gate1Approved, false);
+    assert.ok(
+      result.findings.some(
+        (f) => f.code === CODES.fieldForbiddenContent && f.field === 'gate1.evidencePacketReference',
+      ),
+    );
   });
 });
 
@@ -505,6 +706,7 @@ describe('BR-SOURCE-13A owner decision validator — synthetic complete artifact
     assert.equal(result.status, 'valid');
     assert.equal(result.goNoGo, 'GO');
     assert.equal(result.canProceedToControlledExecutionPreflight, true);
+    assert.equal(result.gate1Approved, true);
     assert.equal(result.gate2Approved, true);
     assert.equal(result.gate7Approved, true);
     assert.equal(result.capInputPolicyApproved, true);

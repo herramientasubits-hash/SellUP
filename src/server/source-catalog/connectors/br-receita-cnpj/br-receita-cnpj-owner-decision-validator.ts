@@ -1,5 +1,5 @@
 /**
- * BR Receita CNPJ — owner decision artifact validator (BR-SOURCE-13A).
+ * BR Receita CNPJ — owner decision artifact validator (BR-SOURCE-13A / GATE1-ROOT-ORDERING).
  *
  * BR-SOURCE-11W … 12B produced a documentary chain that defines WHAT owners must decide for
  * GATE-2, GATE-7, cap/input policy and a controlled execution attempt — and each milestone found
@@ -7,6 +7,13 @@
  * is the first executable link in that chain: given a *future* owner decision artifact, it says
  * whether that artifact is structurally complete, internally consistent and free of unsafe
  * content, so a reviewer never has to eyeball fifty-one fields by hand.
+ *
+ * GATE-1 (Legal/Privacy — BR-SOURCE-10K § 5) was documented as the root of the gate dependency
+ * graph ("nothing downstream is reviewable while GATE-1 is not_started") but had no executable
+ * representation here: GATE-2 could validate `approved` while GATE-1 stayed unapproved. The
+ * `gate1` section and the `GATE2_CANNOT_PRECEDE_GATE1` ordering rule close that gap, mirroring the
+ * existing `GATE7_CANNOT_PRECEDE_GATE2` rule exactly. This adds no new approval authority and
+ * approves no gate; it only makes the existing documentary ordering fail-closed in code.
  *
  * ── Central rule ─────────────────────────────────────────────────────────────
  * A `valid` / `GO` verdict means only that the ARTIFACT could be handed to the next preflight.
@@ -28,14 +35,19 @@
 
 // ─── Vocabulary ───────────────────────────────────────────────────────────────
 
-/** The three decision positions the owner packets recognize. Anything else is unrecognized. */
-export type OwnerDecisionValue = 'approved' | 'rejected' | 'deferred';
+/**
+ * The four decision positions the owner packets recognize. Anything else is unrecognized.
+ * `blocked` mirrors the documentary gate-status model's `blocked` state (BR-SOURCE-10K § 3) — an
+ * external dependency prevents review — and, like `rejected` and `deferred`, is never an approval.
+ */
+export type OwnerDecisionValue = 'approved' | 'rejected' | 'deferred' | 'blocked';
 
 /** Recognized decision values, in packet order. */
 export const BRAZIL_RECEITA_OWNER_DECISION_VALUES: readonly OwnerDecisionValue[] = [
   'approved',
   'rejected',
   'deferred',
+  'blocked',
 ] as const;
 
 /**
@@ -50,6 +62,7 @@ export const BRAZIL_RECEITA_OWNER_DECISION_FINDING_CODES = {
   decisionMissing: 'OWNER_DECISION_MISSING',
   decisionRejected: 'OWNER_DECISION_REJECTED',
   decisionDeferred: 'OWNER_DECISION_DEFERRED',
+  decisionBlocked: 'OWNER_DECISION_BLOCKED',
   decisionValueUnrecognized: 'OWNER_DECISION_VALUE_UNRECOGNIZED',
   requiredFieldMissing: 'OWNER_REQUIRED_FIELD_MISSING',
   fieldPlaceholder: 'OWNER_FIELD_PLACEHOLDER',
@@ -57,6 +70,7 @@ export const BRAZIL_RECEITA_OWNER_DECISION_FINDING_CODES = {
   fieldInvalidType: 'OWNER_FIELD_INVALID_TYPE',
   stopConditionsNotAccepted: 'OWNER_STOP_CONDITIONS_NOT_ACCEPTED',
   capMaximaRealValue: 'CAP_MAXIMA_REAL_VALUE_NOT_ALLOWED_IN_VALIDATOR_FIXTURE',
+  gate2CannotPrecedeGate1: 'GATE2_CANNOT_PRECEDE_GATE1',
   gate7CannotPrecedeGate2: 'GATE7_CANNOT_PRECEDE_GATE2',
   controlledExecutionWithoutGates: 'CONTROLLED_EXECUTION_AUTH_WITHOUT_REQUIRED_GATES',
   validationIsNotAuthorization: 'OWNER_VALIDATION_IS_NOT_EXECUTION_AUTHORIZATION',
@@ -102,6 +116,23 @@ export const BRAZIL_RECEITA_OWNER_DECISION_FORBIDDEN_CONTENT_PATTERNS: readonly 
 // ─── Artifact shape ───────────────────────────────────────────────────────────
 
 export type OwnerDecisionArtifact = {
+  /**
+   * GATE-1 — Legal/Privacy approval for the full local join dry-run (BR-SOURCE-10K § 5). The root
+   * of the gate dependency graph: every other gate is unreviewable while this is unapproved.
+   * `legalPrivacyOwnerRole` (not the generic `ownerRole` other sections use) is deliberately named
+   * to carry the checklist's approver-role restriction structurally: the field that must be
+   * completed is the *legal/privacy* owner role, never an implementer or design-author role.
+   */
+  gate1?: {
+    decisionValue?: OwnerDecisionValue;
+    legalPrivacyOwnerRole?: string;
+    ownerReference?: string;
+    decisionDate?: string;
+    expirationOrReviewDate?: string;
+    dryRunImportScopeSeparationReference?: string;
+    evidencePacketReference?: string;
+    stopConditionsAccepted?: boolean;
+  };
   gate2?: {
     decisionValue?: OwnerDecisionValue;
     ownerRole?: string;
@@ -172,6 +203,7 @@ export type OwnerDecisionValidationResult = {
   status: 'valid' | 'invalid';
   goNoGo: 'GO' | 'NO_GO';
   canProceedToControlledExecutionPreflight: boolean;
+  gate1Approved: boolean;
   gate2Approved: boolean;
   gate7Approved: boolean;
   capInputPolicyApproved: boolean;
@@ -186,6 +218,14 @@ export type OwnerDecisionValidationResult = {
  * `approved` only when every one of its fields below is present, non-placeholder and safe.
  */
 export const BRAZIL_RECEITA_OWNER_DECISION_REQUIRED_STRING_FIELDS = {
+  gate1: [
+    'legalPrivacyOwnerRole',
+    'ownerReference',
+    'decisionDate',
+    'expirationOrReviewDate',
+    'dryRunImportScopeSeparationReference',
+    'evidencePacketReference',
+  ],
   gate2: [
     'ownerRole',
     'ownerReference',
@@ -242,6 +282,7 @@ type SectionKey = keyof typeof BRAZIL_RECEITA_OWNER_DECISION_REQUIRED_STRING_FIE
 
 /** The decision field is named `authorizationDecision` on the controlled-execution section only. */
 const DECISION_FIELD_BY_SECTION: Record<SectionKey, string> = {
+  gate1: 'decisionValue',
   gate2: 'decisionValue',
   gate7: 'decisionValue',
   capInputPolicy: 'decisionValue',
@@ -249,6 +290,7 @@ const DECISION_FIELD_BY_SECTION: Record<SectionKey, string> = {
 };
 
 const SECTION_LABEL: Record<SectionKey, string> = {
+  gate1: 'GATE-1',
   gate2: 'GATE-2',
   gate7: 'GATE-7',
   capInputPolicy: 'cap/input policy',
@@ -429,12 +471,23 @@ function checkDecisionValue(
     ];
   }
 
+  if (trimmed === 'blocked') {
+    return [
+      {
+        code: CODES.decisionBlocked,
+        severity: 'blocking',
+        message: `${label} is blocked; an external dependency prevents review, and a blocked gate is not an approval.`,
+        field,
+      },
+    ];
+  }
+
   if (trimmed !== 'approved') {
     return [
       {
         code: CODES.decisionValueUnrecognized,
         severity: 'blocking',
-        message: `Owner decision for ${label} is not one of approved / rejected / deferred.`,
+        message: `Owner decision for ${label} is not one of approved / rejected / deferred / blocked.`,
         field,
       },
     ];
@@ -542,6 +595,7 @@ export function validateBrazilReceitaOwnerDecisionArtifact(
       status: 'invalid',
       goNoGo: 'NO_GO',
       canProceedToControlledExecutionPreflight: false,
+      gate1Approved: false,
       gate2Approved: false,
       gate7Approved: false,
       capInputPolicyApproved: false,
@@ -557,6 +611,7 @@ export function validateBrazilReceitaOwnerDecisionArtifact(
     };
   }
 
+  const gate1 = evaluateSection('gate1', artifact.gate1);
   const gate2 = evaluateSection('gate2', artifact.gate2);
   const gate7 = evaluateSection('gate7', artifact.gate7);
   const capInputPolicy = evaluateSection('capInputPolicy', artifact.capInputPolicy);
@@ -565,7 +620,24 @@ export function validateBrazilReceitaOwnerDecisionArtifact(
     artifact.controlledExecutionAttempt,
   );
 
-  // Ordering rules. A later approval can never stand on an earlier one that is not in place.
+  // Ordering rules. A later approval can never stand on an earlier one that is not in place. This
+  // is evaluated the same way regardless of HOW gate1 ended up unapproved — absent, rejected,
+  // deferred, blocked, or approved-but-incomplete all read as `!gate1.approved` here, and a
+  // legacy artifact from before this section existed (no `gate1` key at all) is indistinguishable
+  // from an explicit non-approval: it still cannot produce a GATE-2 GO.
+  const gate2PrecedenceFindings: readonly OwnerDecisionValidationFinding[] =
+    gate2.decisionIsApproved && !gate1.approved
+      ? [
+          {
+            code: CODES.gate2CannotPrecedeGate1,
+            severity: 'blocking',
+            message:
+              'GATE-2 is approved while GATE-1 is not. GATE-1 blocks all execution and cannot be preceded.',
+            field: 'gate2',
+          },
+        ]
+      : [];
+
   const gate7PrecedenceFindings: readonly OwnerDecisionValidationFinding[] =
     gate7.decisionIsApproved && !gate2.approved
       ? [
@@ -594,10 +666,12 @@ export function validateBrazilReceitaOwnerDecisionArtifact(
       : [];
 
   const findings: OwnerDecisionValidationFinding[] = [
+    ...gate1.findings,
     ...gate2.findings,
     ...gate7.findings,
     ...capInputPolicy.findings,
     ...controlled.findings,
+    ...gate2PrecedenceFindings,
     ...gate7PrecedenceFindings,
     ...controlledPrecedenceFindings,
     disclaimer,
@@ -605,12 +679,17 @@ export function validateBrazilReceitaOwnerDecisionArtifact(
 
   const hasBlocking = findings.some((finding) => finding.severity === 'blocking');
   const allApproved =
-    gate2.approved && gate7.approved && capInputPolicy.approved && controlled.approved;
+    gate1.approved &&
+    gate2.approved &&
+    gate7.approved &&
+    capInputPolicy.approved &&
+    controlled.approved;
 
   return {
     status: hasBlocking ? 'invalid' : 'valid',
     goNoGo: hasBlocking ? 'NO_GO' : 'GO',
     canProceedToControlledExecutionPreflight: allApproved && !hasBlocking,
+    gate1Approved: gate1.approved,
     gate2Approved: gate2.approved,
     gate7Approved: gate7.approved,
     capInputPolicyApproved: capInputPolicy.approved,
