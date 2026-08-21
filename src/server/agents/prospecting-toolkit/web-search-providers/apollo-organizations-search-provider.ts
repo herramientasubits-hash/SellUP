@@ -88,6 +88,23 @@ import {
   type ApolloPageLogEntry,
 } from '../apollo-organizations-paginated-search';
 import { createApolloPaginationBudget } from '../apollo-organizations-pagination-budget';
+// AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1 — P0-2/P0-4/P1-3: memoria provider-seen,
+// volumen pagado ANTES del recorte local, y el embudo comparable con Lusha.
+import {
+  APOLLO_PROVIDER_SEEN_METADATA_KEY,
+  toApolloProviderSeenMetadata,
+  type ApolloProviderSeenRecorder,
+} from '../apollo-organizations-provider-seen';
+import {
+  APOLLO_PAID_VOLUME_METADATA_KEY,
+  resolveApolloPaidResultsVolume,
+  toApolloPaidVolumeMetadata,
+} from '../apollo-organizations-paid-volume';
+import {
+  APOLLO_BENCHMARK_FUNNEL_METADATA_KEY,
+  buildApolloBenchmarkFunnelMetadata,
+} from '../apollo-benchmark-funnel';
+import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
 // A1-APOLLO-BUDGET-RECONCILIATION-1 — contrato único de observabilidad de gasto
 // y fuente única de pricing.
 import {
@@ -542,7 +559,29 @@ export type ApolloOrgsSearchDeps = {
    * Best-effort observability; never affects results, ranking, or scoring.
    */
   captureIndustryLabels?: typeof captureProviderIndustryRawLabelObservations;
+  /**
+   * P0-2 — escritor de memoria provider-seen. Ausente ⇒ el store resuelto por el
+   * puerto canónico. Inyectable para probar sin base de datos.
+   */
+  recordProviderSeen?: ApolloProviderSeenRecorder;
 };
+
+/**
+ * P0-2 — el escritor por defecto, resuelto PEREZOSAMENTE.
+ *
+ * `resolveProviderSeenStore()` construye una credencial de servidor, así que
+ * hacerlo en la primera escritura y no al entrar en la búsqueda evita pagar ese
+ * coste en los caminos que ni siquiera llaman al proveedor (dry-run, bloqueo de
+ * gasto, parámetro prohibido). El puerto ya falla CERRADO y degrada a un store
+ * que no persiste, así que esto tampoco puede lanzar.
+ */
+function createDefaultApolloProviderSeenRecorder(): ApolloProviderSeenRecorder {
+  let store: ReturnType<typeof resolveProviderSeenStore> | null = null;
+  return async (writeInput) => {
+    store ??= resolveProviderSeenStore();
+    return store.record(writeInput);
+  };
+}
 
 // ─── A1-APOLLO-TWO-ROUND-QUALITY-1: modo del gate sectorial ──────────────────
 
@@ -910,8 +949,33 @@ export async function runApolloOrganizationsSearch(
       random: deps?.random ?? Math.random,
       sleep: deps?.sleep,
       logPage: (entry) => { apolloPageLogs.push(entry); },
+      // P0-2 — la memoria se escribe DENTRO del bucle de páginas, justo después de
+      // normalizar y antes de cualquier filtro local. Aquí sólo se inyecta quién
+      // escribe; el ORDEN lo sostiene la búsqueda paginada.
+      recordProviderSeen: deps?.recordProviderSeen ?? createDefaultApolloProviderSeenRecorder(),
     },
   );
+
+  // ── P0-4 — la contabilidad agregada sale del ledger POR PÁGINA ──────────────
+  //
+  // 🔴 No de `paginated.organizations`: esa lista ya pasó por el dedupe entre
+  // páginas y por el tope `maxCandidates`, que son recortes LOCALES. Derivar de
+  // ella hacía que dos páginas de 10 con un tope de 10 se registraran como 10
+  // resultados pagados en vez de 20.
+  //
+  // 🔴 Sigue siendo una ESTIMACIÓN bajo el modelo de volumen: P0-1 no está
+  // confirmado por Apollo y este cambio no decide nada sobre el contrato
+  // comercial. La metadata lo declara (`provider_reported: false`).
+  const paidVolume = resolveApolloPaidResultsVolume(paginated.pageOutcomes);
+  const providerSeenMetadata = toApolloProviderSeenMetadata(paginated.providerSeen);
+  // La conversión resultados→créditos sigue saliendo de `apollo-operation-pricing`,
+  // la misma tabla con la que el wizard reservó. Lo único que cambia es la CIFRA
+  // que entra: el volumen pagado, no el recogido.
+  const paidCreditsUsed = Math.min(
+    creditsForApolloOperation('organizations_search', paidVolume.resultsVolume),
+    MAX_APOLLO_ORGANIZATIONS_CREDITS,
+  );
+  const paidEstimatedCostUsd = paidCreditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;
 
   // HARDENING-3 § 2 — el veredicto se calcula con la función canónica, no con una
   // comparación suelta que pueda elegir la huella equivocada.
@@ -1030,6 +1094,24 @@ export async function runApolloOrganizationsSearch(
         ...toApolloErrorLogMetadata(classification),
         apollo_pagination: apolloPaginationMetadata,
         apollo_page_logs: apolloPageLogs,
+        // P0-4/P0-2/P1-3 — el mismo contrato de medición que la ruta exitosa. Un
+        // fallo terminal sin páginas exitosas deja las tres cifras en 0 porque eso
+        // es lo OBSERVADO, no porque se hayan fijado a mano.
+        [APOLLO_PAID_VOLUME_METADATA_KEY]: toApolloPaidVolumeMetadata(paidVolume, 0),
+        [APOLLO_PROVIDER_SEEN_METADATA_KEY]: providerSeenMetadata,
+        [APOLLO_BENCHMARK_FUNNEL_METADATA_KEY]: buildApolloBenchmarkFunnelMetadata({
+          paidRaw: paidVolume.resultsVolume,
+          unique: paginated.providerSeen.uniqueIdentities,
+          duplicate:
+            paginated.providerSeen.withinPageDuplicates +
+            paginated.providerSeen.crossPageDuplicateIdentities,
+          // El gate sectorial NUNCA corrió en esta rama: no hubo resultados que
+          // evaluar. `null` dice eso; un 0 diría que evaluó y no rechazó nada.
+          precisionRejected: null,
+          providerSeenHit: null,
+          historicalKnown: null,
+          acceptedForTarget: null,
+        }),
         [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(0, 0),
         ...(usageContext?.runCorrelation
           ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
@@ -1186,11 +1268,13 @@ export async function runApolloOrganizationsSearch(
   //     la reconciliación registrara menos gasto del real.
   //  2) La conversión resultados→créditos sale de apollo-operation-pricing, la
   //     misma tabla con la que el wizard reservó.
-  const creditsUsed = Math.min(
-    creditsForApolloOperation('organizations_search', rawOrgs.length),
-    MAX_APOLLO_ORGANIZATIONS_CREDITS,
-  );
-  const estimatedCostUsd = creditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;
+  //  3) AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1 · P0-4 — la base deja de ser
+  //     `rawOrgs.length` (que es `paginated.organizations`, ya deduplicada entre
+  //     páginas y truncada por `maxCandidates`) y pasa a ser el volumen que el
+  //     ledger POR PÁGINA observó antes de cualquier recorte local. Ver
+  //     `paidVolume`, calculado justo después de la búsqueda paginada.
+  const creditsUsed = paidCreditsUsed;
+  const estimatedCostUsd = paidEstimatedCostUsd;
 
   // ── L2.9: diagnóstico detallado construido ANTES del log para incluirlo ───────
   // Construir aquí (no después del log) para que provider_usage_logs.metadata
@@ -1214,7 +1298,13 @@ export async function runApolloOrganizationsSearch(
   }
 
   const apolloResultDiagnostics = {
+    // 🔴 `raw_results_count` conserva su significado histórico: lo que quedó en la
+    // mano DESPUÉS del dedupe entre páginas y del tope. P0-4 no lo reescribe —
+    // añade la cifra que faltaba, la pagada, para que las dos se puedan comparar.
     raw_results_count: rawOrgs.length,
+    paid_results_volume: paidVolume.resultsVolume,
+    paid_results_volume_source: paidVolume.source,
+    collected_after_local_filters: rawOrgs.length,
     normalized_results_count: normalizedResultsCount,
     normalization_dropped_count: normalizationDroppedCount,
     post_sector_gate_results_count: postGateCount,
@@ -1239,6 +1329,32 @@ export async function runApolloOrganizationsSearch(
     apollo_raw_result_samples_sanitized: rawResultSamples,
   };
 
+  // ── P1-3 — el embudo comparable con el de Lusha ─────────────────────────────
+  //
+  // 🔴 Tres de los siete campos van en `null` con su costura NOMBRADA, no en 0:
+  //
+  //   provider_seen_hit  — esta ruta no carga la memoria antes de buscar. Cargarla
+  //                        es enrutamiento (P0-3) y está FUERA de este corte.
+  //   historical_known   — el cruce contra candidatos históricos activos ocurre
+  //                        aguas abajo de este provider y no vuelve a esta fila.
+  //   accepted_for_target— lo decide el writer agregando TODAS las consultas de la
+  //                        corrida. Publicar aquí `filteredMapped.length` bajo ese
+  //                        nombre sería una SEGUNDA definición del campo, y dos
+  //                        definiciones hacen incomparables los dos embudos.
+  //
+  // Los cuatro restantes salen de contadores que el pipeline ya producía.
+  const apolloBenchmarkFunnel = buildApolloBenchmarkFunnelMetadata({
+    paidRaw: paidVolume.resultsVolume,
+    unique: paginated.providerSeen.uniqueIdentities,
+    duplicate:
+      paginated.providerSeen.withinPageDuplicates +
+      paginated.providerSeen.crossPageDuplicateIdentities,
+    precisionRejected: normalizedResultsCount - postGateCount,
+    providerSeenHit: null,
+    historicalKnown: null,
+    acceptedForTarget: null,
+  });
+
   // ── Usage logging: organizations_search ──────────────────────────────────────
   trackLogResult(await logFn({
     usage_key: usageKey,
@@ -1247,7 +1363,8 @@ export async function runApolloOrganizationsSearch(
     batch_id: usageContext?.batchId ?? undefined,
     agent_run_id: usageContext?.agentRunId ?? undefined,
     credits_used: creditsUsed,
-    results_returned: rawOrgs.length,
+    // P0-4 — el volumen PAGADO, no el recogido tras los recortes locales.
+    results_returned: paidVolume.resultsVolume,
     estimated_cost_usd: estimatedCostUsd,
     status: 'success',
     error_code: undefined,
@@ -1255,8 +1372,12 @@ export async function runApolloOrganizationsSearch(
     duration_ms: Date.now() - startMs,
     triggered_by: usageContext?.triggeredByUserId ?? undefined,
     metadata: {
-      ...buildUsageMetadata(input, cap, wasCapped, rawOrgs.length, false, 'real', apolloParamsSanitized),
+      ...buildUsageMetadata(input, cap, wasCapped, paidVolume.resultsVolume, false, 'real', apolloParamsSanitized),
       apollo_result_diagnostics: apolloResultDiagnostics,
+      // P0-4/P0-2/P1-3 — volumen pagado, memoria de proveedor y embudo comparable.
+      [APOLLO_PAID_VOLUME_METADATA_KEY]: toApolloPaidVolumeMetadata(paidVolume, rawOrgs.length),
+      [APOLLO_PROVIDER_SEEN_METADATA_KEY]: providerSeenMetadata,
+      [APOLLO_BENCHMARK_FUNNEL_METADATA_KEY]: apolloBenchmarkFunnel,
       // L2.15: cascade meta — visible en DB para auditoría
       apollo_enrichment_cascade: enrichmentCascadeMeta,
       // A1-APOLLO-BUDGET-RECONCILIATION-1: mismo contrato de observabilidad que
@@ -1264,7 +1385,7 @@ export async function runApolloOrganizationsSearch(
       // ruta exitosa, que es la que realmente gasta.
       apollo_pagination: apolloPaginationMetadata,
       apollo_page_logs: apolloPageLogs,
-      [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(rawOrgs.length, creditsUsed),
+      [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(paidVolume.resultsVolume, creditsUsed),
       ...(usageContext?.runCorrelation
         ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
         : {}),
@@ -1440,7 +1561,10 @@ export async function runApolloOrganizationsSearch(
       apollo_pagination: apolloPaginationMetadata,
       apollo_page_logs: apolloPageLogs,
       // A1-APOLLO-BUDGET-RECONCILIATION-1: mismo bloque plano que el usage log.
-      [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(rawOrgs.length, creditsUsed),
+      [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(paidVolume.resultsVolume, creditsUsed),
+      [APOLLO_PAID_VOLUME_METADATA_KEY]: toApolloPaidVolumeMetadata(paidVolume, rawOrgs.length),
+      [APOLLO_PROVIDER_SEEN_METADATA_KEY]: providerSeenMetadata,
+      [APOLLO_BENCHMARK_FUNNEL_METADATA_KEY]: apolloBenchmarkFunnel,
       // Un fallo parcial tras haber obtenido resultados queda visible en vez de
       // desaparecer detrás de un resultado "exitoso".
       ...(paginated.terminalError
