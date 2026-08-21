@@ -30,6 +30,12 @@ import {
   loadApolloSubindustryCatalogTermsForRequest,
   type ApolloSubindustryCatalogTermsLoadResult,
 } from '@/server/agents/prospecting-toolkit/apollo-subindustry-catalog-terms-loader.server';
+// AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 3, 4, 6 — la demanda residual y su cota.
+import {
+  boundByRemainingTarget,
+  type ProviderResultDemand,
+} from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
+import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
 
 export const WIZARD_APOLLO_TARGET_INTERNAL = 25;
 export const WIZARD_APOLLO_MAX_ROUNDS = 4;
@@ -89,6 +95,26 @@ export type WizardApolloInput = {
    * la resuelve por su cuenta con un cliente de petición.
    */
   loadCatalogSearchTerms?: () => Promise<ApolloSubindustryCatalogTermsLoadResult>;
+  /**
+   * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 3, 4, 6 — lo que la capa previa al
+   * pago dejó abierto.
+   *
+   * Ésta es LA costura que faltaba. `run-prepaid-novelty-discovery.server.ts`
+   * declaraba la ruta Apollo `partialGapSupported: false` —todo-o-nada, un hueco
+   * parcial se descartaba entero— con este motivo textual: «su objetivo de
+   * candidatos persistibles vive dentro del orquestador de dos rondas y no viaja
+   * por `ResolvedWizardExecution`». Ahora viaja, por su propio campo y no dentro
+   * del contexto resuelto, que describe la SELECCIÓN del usuario y no el estado de
+   * una capa previa.
+   *
+   * Ausente ⇒ el objetivo entero, exactamente como antes de este corte.
+   */
+  resultDemand?: ProviderResultDemand | null;
+  /**
+   * CUT-2 §§ 8, 10, 11 — memoria provider-seen previa, ya cargada por la capa
+   * gratuita. Sólo medición: no se envía a Apollo y no recorta el objetivo.
+   */
+  priorProviderSeen?: ApolloPriorProviderSeen | null;
 };
 
 export type WizardApolloRunner = (input: WizardApolloInput) => Promise<IncrementalSearchOutput>;
@@ -174,6 +200,10 @@ export async function runWizardApolloSearch(
         ...toApolloTwoRoundConfigDiagnostics(twoRoundResolution),
       },
       reservedCredits: input.reservedCredits ?? 0,
+      // CUT-2 §§ 3, 5 — la demanda y la reserva viajan por campos DISTINTOS y
+      // adyacentes, para que se vea que no se derivan la una de la otra.
+      resultDemand: input.resultDemand ?? null,
+      priorProviderSeen: input.priorProviderSeen ?? null,
     });
   }
 
@@ -190,7 +220,20 @@ export async function runWizardApolloSearch(
     webSearchProvider: 'apollo_organizations',
     targetInternal: WIZARD_APOLLO_TARGET_INTERNAL,
     maxRounds: WIZARD_APOLLO_MAX_ROUNDS,
-    targetPersistibleCandidates: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+    // CUT-2 §§ 4, 6 — la ruta legacy también respeta el hueco. Es el objetivo de
+    // ACEPTACIÓN (candidatos persistibles), que es exactamente el que la capa
+    // gratuita ya cerró en parte. `targetInternal` NO se toca: es la AMPLITUD de
+    // búsqueda del pipeline, no una promesa al usuario, y recortarla mezclaría dos
+    // conceptos que el gate previo separa a propósito.
+    //
+    // 🔴 Sin demanda residual el valor es la constante de siempre, byte por byte.
+    targetPersistibleCandidates:
+      input.resultDemand === null || input.resultDemand === undefined
+        ? WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES
+        : boundByRemainingTarget(
+            WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+            input.resultDemand.remainingTarget,
+          ),
     existingBatchId: input.reservedBatchId,
     triggeredByUserId: input.resolved.userId,
     ownerId: input.resolved.userId,

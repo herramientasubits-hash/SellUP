@@ -48,6 +48,7 @@ import {
 import {
   createApolloProviderSeenLedger,
   recordApolloProviderSeenPage,
+  type ApolloPriorProviderSeen,
   EMPTY_APOLLO_PROVIDER_SEEN_SUMMARY,
   type ApolloProviderSeenRecorder,
   type ApolloProviderSeenSummary,
@@ -115,6 +116,17 @@ export type ApolloPaginatedSearchDeps = {
    * es `Date.now`. Inyectable para que las pruebas no dependan del reloj.
    */
   providerSeenNow?: () => string;
+  /**
+   * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 8, 12 — memoria provider-seen de
+   * corridas ANTERIORES, ya cargada por la capa previa al pago.
+   *
+   * 🔴 Snapshot, no lector: llega resuelto y este módulo no lo muta ni lo
+   * recarga. Es la única forma de garantizar que lo que esta búsqueda ESCRIBA no
+   * pueda contarse después como conocimiento previo suyo.
+   *
+   * Ausente ⇒ el embudo publica `provider_seen_hit: null` con su motivo, nunca 0.
+   */
+  priorProviderSeen?: ApolloPriorProviderSeen;
 };
 
 export type ApolloPaginatedSearchInput = {
@@ -214,7 +226,8 @@ export async function runApolloOrganizationsPaginatedSearch(
   const seenOrganizationIds = new Set<string>();
   const pageOutcomes: ApolloPageOutcome[] = [];
   // P0-2 — el acumulador de memoria vive lo que vive esta búsqueda.
-  const providerSeenLedger = createApolloProviderSeenLedger();
+  // CUT-2 § 8 — y arranca con el snapshot PREVIO ya congelado.
+  const providerSeenLedger = createApolloProviderSeenLedger(deps.priorProviderSeen);
   const providerSeenNow =
     deps.providerSeenNow ?? (() => new Date(deps.now()).toISOString());
 

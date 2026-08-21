@@ -122,6 +122,21 @@ export type ProviderSeenWriteResult = {
 export type ProviderSeenStore = {
   load(query: ProviderSeenLoadQuery): Promise<readonly ProviderSeenRecord[]>;
   record(input: ProviderSeenWriteInput): Promise<ProviderSeenWriteResult>;
+  /**
+   * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 12 — por qué este puerto NO persiste.
+   * `undefined` en un store real.
+   *
+   * 🔴 Existe porque `load()` devolviendo `[]` es AMBIGUO: puede ser una tabla
+   * vacía leída con éxito o un puerto que no lee nada. Mientras esa ambigüedad
+   * sólo alimentaba el plan de exclusión daba igual —sin filas no hay nada que
+   * excluir en los dos casos— pero un embudo que publique `provider_seen_hit`
+   * tiene que distinguir «medido y cero» de «no medido», y no puede hacerlo
+   * mirando una lista vacía.
+   *
+   * Es una PROPIEDAD y no un método a propósito: describe al puerto, no a una
+   * lectura, y así ningún llamador puede confundirla con el desenlace de la suya.
+   */
+  readonly nonPersistingReason?: string;
 };
 
 export const PROVIDER_SEEN_WRITE_SKIPPED_NO_AUTHORITY = 'persistence_authority_pending';
@@ -147,6 +162,8 @@ export const PROVIDER_SEEN_LOAD_LIMIT = 500;
  */
 function createNonPersistingProviderSeenStore(skippedReason: string): ProviderSeenStore {
   return {
+    // CUT-2 § 12 — el puerto se declara. Su `load()` vacío no es una medición.
+    nonPersistingReason: skippedReason,
     async load() {
       return [];
     },

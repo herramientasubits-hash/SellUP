@@ -74,6 +74,16 @@ export type PrePaidNoveltyDiscoveryInput = {
 };
 
 export type PrePaidNoveltyDiscoveryOutcome = {
+  /**
+   * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 3 — el objetivo del USUARIO, tal cual
+   * entró.
+   *
+   * Viaja en el resultado porque `residualGap` por sí solo no es interpretable:
+   * un hueco de 3 significa cosas distintas si el objetivo era 3 o si era 10, y el
+   * consumidor que aplica la cota necesita las dos cifras para no reconstruir la
+   * primera por su cuenta y equivocarse.
+   */
+  requestedTarget: number;
   residualGap: number;
   acceptedBeforeProvider: number;
   providerRequired: boolean;
@@ -125,6 +135,7 @@ export async function runPrePaidNoveltyDiscovery(
     telemetry: Record<string, unknown>,
     exclusionDomains: readonly string[] = [],
   ): PrePaidNoveltyDiscoveryOutcome => ({
+    requestedTarget: input.requestedTarget,
     residualGap: input.requestedTarget,
     acceptedBeforeProvider: 0,
     providerRequired: true,
@@ -154,6 +165,7 @@ export async function runPrePaidNoveltyDiscovery(
 
   if (gate.acceptedCompanies.length === 0) {
     return {
+      requestedTarget: gate.context.requestedTarget,
       residualGap: gate.context.residualGap,
       acceptedBeforeProvider: gate.context.acceptedBeforeProvider,
       providerRequired: gate.context.providerRequired,
@@ -193,6 +205,7 @@ export async function runPrePaidNoveltyDiscovery(
   }
 
   return {
+    requestedTarget: context.requestedTarget,
     residualGap: context.residualGap,
     acceptedBeforeProvider: context.acceptedBeforeProvider,
     providerRequired: context.providerRequired,

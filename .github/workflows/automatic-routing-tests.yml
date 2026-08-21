@@ -2415,3 +2415,35 @@ jobs:
       # memoria se inyectan. Sin red, sin Supabase, sin proveedor. 0 créditos.
       - name: Run A1 Apollo benchmark parity cut 1 tests
         run: npm run test:a1-apollo-benchmark-parity-cut1
+
+      # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 20 — la demanda RESIDUAL y la
+      # memoria PREVIA.
+      #
+      # El corte 1 dejó Apollo medible; éste lo hace consciente del hueco. Lo que
+      # esta suite congela:
+      #
+      #   · el hueco que la capa gratuita deja abierto LLEGA a los controles reales
+      #     de petición y de paginación — no es metadata (§§ 4, 6);
+      #   · las dos rondas comparten UN hueco y la ronda 2 nunca lo reinicia (§ 7);
+      #   · la memoria provider-seen se carga ANTES de buscar y los aciertos se
+      #     cuentan contra ese SNAPSHOT, así que lo que esta corrida escribe no
+      #     puede contarse como conocimiento previo suyo (§§ 8, 9);
+      #   · un fallo de carga de memoria deja `provider_seen_hit` en null y NUNCA
+      #     en 0, y no impide la búsqueda ya autorizada (§§ 11, 12).
+      #
+      # 🔴 Y el ratchet que más importa: la RESERVA financiera no se mueve (§§ 5,
+      # 16). P0-1 —el contrato de facturación escrito de Apollo para Organization
+      # Search— sigue SIN confirmar, así que pedir menos resultados no puede
+      # reducir el techo reservado. La prueba es de comportamiento (misma reserva
+      # con hueco 3 y con hueco 10) y estática (el estimador sólo recibe el
+      # proveedor; el peor caso de dos rondas no ve el objetivo).
+      #
+      # Ratchets de alcance que siguen vivos: `APOLLO_EXCLUSION_CAPABILITY` entera
+      # en false, cero exclusiones enviadas a Apollo, sin flag nuevo, sin migración
+      # nueva, y `historical_known` / `accepted_for_target` siguen pendientes.
+      #
+      # Offline y determinista: transporte, reloj, jitter, logger, escritor de
+      # memoria y capa gratuita se inyectan. Sin red, sin Supabase, sin proveedor.
+      # 0 créditos.
+      - name: Run A1 Apollo benchmark parity cut 2 tests
+        run: npm run test:a1-apollo-benchmark-parity-cut2

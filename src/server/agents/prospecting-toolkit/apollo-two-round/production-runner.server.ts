@@ -187,6 +187,14 @@ import {
   type ApolloTwoRoundDiscoveryConfig,
 } from './config';
 import { resolveApolloTwoRoundConfigFromEnv } from './env.server';
+// CUT-2 §§ 3, 4 — la demanda residual y su bloque de metadata.
+import {
+  PROVIDER_RESULT_DEMAND_METADATA_KEY,
+  toProviderResultDemandMetadata,
+  type ProviderResultDemand,
+} from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
+// CUT-2 § 8 — el snapshot de memoria previa, tal y como lo consume el ledger.
+import type { ApolloPriorProviderSeen } from '../apollo-organizations-provider-seen';
 // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § D — invariantes de consistencia
 // entre las fuentes del estado final. Observacional: nunca lanza.
 import {
@@ -307,6 +315,26 @@ export type ApolloTwoRoundWizardRunInput = {
    * gasto REGISTRADO contra este número, no contra la estimación.
    */
   reservedCredits: number;
+  /**
+   * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 3, 4, 5 — la demanda de resultados
+   * que la capa previa al pago dejó abierta.
+   *
+   * 🔴 Recorta cuántas empresas se BUSCAN. No toca `reservedCredits`, que llega
+   * por su propio campo desde una estimación que sólo conoce el proveedor y la
+   * config (§ 5). Los dos números viajan separados a propósito: acoplarlos
+   * afirmaría el modelo de facturación de Apollo, que P0-1 no ha confirmado.
+   *
+   * Ausente ⇒ la corrida usa el objetivo de la config entero, igual que antes.
+   */
+  resultDemand?: ProviderResultDemand | null;
+  /**
+   * CUT-2 §§ 8, 10, 11 — memoria provider-seen de corridas ANTERIORES, cargada
+   * por la capa previa al pago y congelada.
+   *
+   * 🔴 SÓLO medición: no viaja a Apollo (§ 10), no filtra la respuesta y no
+   * recorta el objetivo. Alimenta el escalón `provider_seen_hit` del embudo.
+   */
+  priorProviderSeen?: ApolloPriorProviderSeen | null;
 };
 
 /**
@@ -1329,6 +1357,13 @@ export async function runApolloTwoRoundWizardDiscovery(
       // QUERY-QUALITY-2 § 3 — la ronda 2 puede pedir la página 2 de la misma
       // búsqueda cuando no hay variante de términos.
       startPage: hypothesis.queryParameters.page,
+      // CUT-2 §§ 8, 10 — el snapshot PREVIO viaja con la búsqueda, para MEDIR.
+      // Ausente ⇒ el embudo publica `provider_seen_hit: null` con su motivo.
+      //
+      // 🔴 No es una exclusión: nada de esto entra en el body que sale hacia
+      // Apollo. El request efectivo se construye abajo y no lee este campo, y su
+      // huella —que es la que se compara— tampoco cambia por su presencia.
+      ...(input.priorProviderSeen ? { priorProviderSeen: input.priorProviderSeen } : {}),
     };
 
     const effective = buildApolloOrganizationsEffectiveRequest({
@@ -2051,6 +2086,9 @@ export async function runApolloTwoRoundWizardDiscovery(
       },
       correlation: input.correlation,
       resume: restored ? toResumeStateFromCheckpoint(restored) : null,
+      // CUT-2 §§ 4, 6, 7 — UN solo hueco para las dos rondas. El orquestador lo
+      // descuenta según avanza; la ronda 2 nunca lo reinicia.
+      remainingTarget: input.resultDemand?.remainingTarget ?? null,
     },
     orchestratorDeps,
   );
@@ -2376,6 +2414,16 @@ export async function runApolloTwoRoundWizardDiscovery(
       extraBatchMetadata: {
         ...(input.extraBatchMetadata ?? {}),
         apollo_discovery_modality: 'two_round_adaptive',
+        // CUT-2 §§ 4, 6 — qué objetivo gobernó de verdad esta corrida y de dónde
+        // salió. Sin esto, un lote con tres candidatos donde el usuario pidió diez
+        // se lee como un fallo de recall en vez de como un hueco ya cerrado gratis.
+        ...(input.resultDemand
+          ? {
+              [PROVIDER_RESULT_DEMAND_METADATA_KEY]: toProviderResultDemandMetadata(
+                input.resultDemand,
+              ),
+            }
+          : {}),
         ...observability,
       },
     });
