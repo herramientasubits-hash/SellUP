@@ -294,7 +294,15 @@ describe('GATE-ROUND-1 § 4 · alphanumeric CNPJ material is caught in canonical
       (snap) => snap.normalized_tax_id === EDUCACAO_MATRIZ_FULL,
     );
     assert.ok(alphanumeric, 'the alphanumeric establishment is accepted');
-    assert.equal(alphanumeric.raw_data.mei_flag, true, 'and its GATE-1 R5 control marker survives');
+    // 🔴 BR-SOURCE-GATE-ROUND-2 (RB-3) — the R5 marker moved off the persisted payload onto the
+    // internal control signals. It still survives, which is what this assertion is for; it is just
+    // no longer somewhere a writer could persist it.
+    const signals = result.internalControlSignals.find(
+      (entry) => entry.source_row_index === alphanumeric.raw_data.source_row_index,
+    );
+    assert.ok(signals, 'its control signals exist');
+    assert.equal(signals.mei_flag, true, 'and its GATE-1 R5 control marker survives');
+    assert.equal('mei_flag' in alphanumeric.raw_data, false, 'but not in the persisted payload');
   });
 });
 

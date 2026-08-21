@@ -618,6 +618,87 @@ Restrictions:           free-text fields fail closed — not on the allowlist me
                         approved.
 ```
 
+### 7.2 RB-3 is CLOSED and GATE-3 is `ready_for_review` — still NOT approved (BR-SOURCE-GATE-ROUND-2)
+
+> **Update (BR-SOURCE-GATE-ROUND-2) — § 7.2 both residual blockers are closed; the gate waits on a
+> person, not on work.**
+>
+> **RB-3 — closed by LABELLING, not by deleting.** The five payload keys that sat between the include
+> set and the denylist now carry exactly one disposition each
+> ([`br-receita-cnpj-gate3-residual-field-classification.ts`](../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate3-residual-field-classification.ts)):
+>
+> | field | disposition | why |
+> |---|---|---|
+> | `legal_nature_code` | `INTERNAL_PRIVACY_CONTROL_ONLY` | the R5 risk classifier's input, and itself person-risk-bearing — MEI and empresário individual *are* legal natures |
+> | `legal_nature_label` | `EXCLUDED_OUTPUT` | a legible rendering of that same code that no control consumes; unallowlisted means excluded (§ 7 pass criteria) |
+> | `matrix_branch_flag` | `INCLUDED_OUTPUT` | its own source column, never CNPJ-derived, no person-risk semantics, and the HQ-versus-branch marker the § 8.1 grain needs a consumer to read |
+> | `simples_opt_in` | `INTERNAL_PRIVACY_CONTROL_ONLY` | input to the MEI determination; no owner reason to publish a tax-regime flag was ever recorded |
+> | `simei_opt_in` | `INTERNAL_PRIVACY_CONTROL_ONLY` | same, and the nearer of the two to a natural-person signal |
+> | `mei_flag` | `INTERNAL_PRIVACY_CONTROL_ONLY` | the R5 marker; stays computed and counted, leaves the persisted payload |
+>
+> 🔴 **The Round-1 premise this corrects.** Round 1 declined to touch these fields because "`mei_flag`
+> is how a downstream filter knows which rows those are". The caution was right; the premise was
+> **false**, and it was checked rather than assumed. `raw_data.mei_flag` had exactly ONE non-test
+> consumer in the repository — a count. The R5 exclusion is enforced by
+> `br-receita-cnpj-privacy-safe-classifier`, which reads *natureza jurídica* off the EMPRESAS **source
+> row** and never reads the snapshot payload at all. So the control could not be weakened by removing
+> the payload key, and the count still works off the internal control array, which is the proof.
+>
+> Non-persistence is now **structural**: the control signals travel on
+> `BrReceitaCnpjParserResult.internalControlSignals`, a **parallel array**, deliberately not reachable
+> from a row. A writer is handed rows; a signal that is not on a row cannot be persisted by a writer
+> that forgets it should not be.
+>
+> **"Nothing unlabelled" is now MECHANICAL.** The owners' include set is prose — "CNAE approved
+> fields", "provenance" — and that prose-to-key gap is why the criterion could only ever be *argued*.
+> Every emitted payload key is now bound to either its include-set entry or its RB-3 classification,
+> and `findBrazilReceitaUnlabelledPayloadKeys` checks it. Two failure modes are distinguished: a key
+> nobody labelled, and a key that WAS labelled non-output and is being emitted anyway.
+>
+> **RB-1 — closed for THIS gate, in the round that owns it.** § 8.1 records the disposition, and the
+> part that matters to GATE-3 is that persisting `tax_id`, `normalized_tax_id` or a `tax:`-namespaced
+> `record_identity_key` is now **refused in code**
+> (`assertBrazilReceitaSnapshotRowIsPersistable`). This gate's closed prohibited-output set is
+> therefore *enforced* rather than asserted. What stays open is which key may EVENTUALLY persist — a
+> GATE-4 question, not a GATE-3 criterion. See § 13.1 on why that is not a cycle.
+>
+> **Why the gate is still shut.** GATE-3 requires the product / data owner **and** the legal/privacy
+> owner, jointly. The product/data half is on record. The legal/privacy half is not, and § 3 forbids
+> approval by inference while § 4 requires the § 14 shape. The only recorded human privacy statement
+> is the GATE-1 determination, which says in its own text that GATE-2 … GATE-8 remain `not_started` —
+> it never reaches the field allowlist. Manufacturing the missing half would repeat exactly the error
+> Round 1 had to correct in the GATE-2 record.
+
+```
+Gate:                   GATE-3 — Field allowlist approval
+Status:                 ready_for_review  (advanced from needs_evidence; NOT approved)
+Approver:               product / data owner AND legal/privacy owner, jointly —
+                        product/data half recorded; legal/privacy half NOT recorded
+Approval date:          n/a — no approval exists
+Evidence links:         10K § 7, § 7.1, § 7.2;
+                        br-receita-cnpj-gate3-recorded-field-policy.ts;
+                        br-receita-cnpj-gate3-residual-field-classification.ts
+Decision summary:       RB-3 closed: six payload keys labelled, one INCLUDED_OUTPUT
+                        (matrix_branch_flag), one EXCLUDED_OUTPUT (legal_nature_label), four
+                        INTERNAL_PRIVACY_CONTROL_ONLY. The five non-output keys left the
+                        persisted payload and travel on a parallel control array unreachable
+                        from a row. The prose include set is bound to real payload keys, so
+                        "nothing unlabelled" is checked by a function. RB-1 enforced for this
+                        gate: persisting prohibited identity material is refused in code.
+Artifacts approved:     none — no approval exists
+Artifacts rejected:     none
+Open follow-ups:        the legal/privacy owner half of the joint § 14 entry. Optionally,
+                        whether legal_nature should later be promoted to a business attribute —
+                        a widening decision, not an RB-3 residue.
+Blocks:                 persistence of any kind; any report naming the field_allowlist_version
+Allows:                 nothing — ready_for_review unlocks no next step and is NO-GO in § 15
+Does not allow:         being read as an approval, or as a legal/privacy determination
+Restrictions:           free-text fails closed. A field labelled INTERNAL_PRIVACY_CONTROL_ONLY
+                        may not be promoted to output without a recorded owner decision.
+```
+
+---
+
 ---
 
 ## 8. GATE-4 — Identity grain decision
@@ -709,6 +790,156 @@ The recorded decision must state:
 > it assigns no `record_identity_grain_decision`, and it creates no migration, changes no index, writes
 > no snapshot, and changes no physical schema — nor does it authorize any dry-run, import, Supabase
 > write, runtime, or Agent 1 integration.
+
+### 8.1 The GRAIN is decided; the PERSISTED IDENTITY is not (BR-SOURCE-GATE-ROUND-2)
+
+> **Update (BR-SOURCE-GATE-ROUND-2) — § 8.1 GATE-4 advances from `not_started` to
+> `needs_owner_decision`, with one exact question.** Recorded as data in
+> [`br-receita-cnpj-gate4-recorded-identity-grain.ts`](../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate4-recorded-identity-grain.ts).
+>
+> **A. What one Brazil snapshot record is.** One Receita **estabelecimento** (operational unit),
+> carrying its **empresa** (root) attributes as context on the same row — 10J § 14 **option D**. All
+> four options are evaluated with the three rejections justified on the record. D is chosen and is
+> explicitly *not* "we already default to A", the failure mode § 8 names: D adds the three things A
+> leaves silent — company context is mandatory on the row, the root is never an identity, and
+> root-level grouping is a read-time projection rather than a stored key.
+>
+> **E. Deduplication / update / monthly replacement.** By operational unit **within one publication
+> period**; never by root, never by legal name. The **period** is the idempotency unit, not the row.
+>
+> **🔴 B / C / D. The identity fields, and why the gate cannot close.** Two already-recorded
+> constraints collide, and one of them is a *human* legal/privacy decision this round may not
+> reinterpret:
+>
+> 1. **GATE-1 R4** (approved by the legal/privacy owner, 2026-08-21): "CNPJ basico and full CNPJ are
+>    both categorically non-printable and non-persistible, with no hash, truncation or fingerprint of
+>    either **anywhere**."
+> 2. **§ 8 pass criterion**: `record_identity_key` must be **DETERMINISTIC** and derivable without
+>    persisting a prohibited identifier.
+>
+> The only stable natural identifier Receita publishes for an establishment **is** its CNPJ. So any
+> deterministic establishment key is a function of the CNPJ, and every function of it — raw,
+> normalized, hashed, truncated, fingerprinted, encoded — is barred by (1). A key built from coarse
+> attributes instead is not unique **and** increases indirect identifiability (10N § 5.4), so it fails
+> both exactness and privacy. A non-CNPJ-derived surrogate (random UUID / opaque id) is the one
+> admissible candidate and is **still not sufficient**, for the reason below.
+>
+> | field | disposition | owner |
+> |---|---|---|
+> | `tax_id` | `TRANSIENT_ONLY` | GATE-1 R4 (legal/privacy) |
+> | `normalized_tax_id` | `TRANSIENT_ONLY` | GATE-1 R4 (legal/privacy) |
+> | `record_identity_key` | `TRANSIENT_ONLY` | GATE-1 R4 (legal/privacy) |
+>
+> `TRANSIENT_ONLY` and **not** `REMOVED`, deliberately: removing them destroys the parser's own
+> duplicate detection and pre-empts the owner question. Instead, persisting them is **refused** —
+> `assertBrazilReceitaSnapshotRowIsPersistable`, unconditional, no flag, no override. The check a
+> future author would most likely defeat is covered explicitly: nulling `tax_id` and
+> `normalized_tax_id` while leaving `record_identity_key` as `tax:<14>` is still refused, because a
+> namespace prefix is not a transformation.
+>
+> **🔴 The runtime lookup finding — a PRODUCTIZATION BLOCKER.** Every lookup primitive that exists
+> takes one of two entry points, and Brazil can supply neither:
+>
+> ```
+> readSnapshotByRecordIdentityKey     needs a caller-KNOWN key — a non-derived surrogate is
+>                                     uncomputable outside the writing run
+> readTaxGrainSnapshotByTaxId         needs normalized_tax_id — TRANSIENT_ONLY
+> readLatestTaxGrainSnapshotByTaxId   same
+> probeNativeSnapshotsByTaxId         same
+> probeLatestNativeSnapshotsByTaxId   same
+> ```
+>
+> Note why the `NATIVE_RECORD_GRAIN` family is not a template: `ec_scvs` keeps a provider-native
+> `expediente` as its record identity **and persists `normalized_tax_id` as its lookup entry point**.
+> Brazil cannot copy that — Receita publishes no second native identifier, and Brazil's blocked field
+> *is* the lookup entry point. Fuzzy or name-based lookup is not an option: the shared identity module
+> forbids the `name` namespace globally, in code.
+>
+> So the outcome is **(C) no compliant exact-lookup mechanism exists**. This is recorded as a
+> productization blocker rather than worked around.
+>
+> **🔴 The single unresolved question** (legal/privacy — no agent may answer it):
+>
+> > Does the legal/privacy owner authorize exactly ONE persisted, never-printed, never-logged,
+> > never-reported representation of the establishment CNPJ inside `source_company_snapshots`, to serve
+> > as the row exact-lookup key, as a narrow enumerated exception to GATE-1 R4 — or not?
+>
+> *If yes*: GATE-4 can be approved with a deterministic key, the existing lookup primitives work
+> unchanged, and the exception is recorded with its own enumerated bounds. *If no*: Brazil cannot
+> support exact runtime lookup at all, and any Brazil snapshot would be write-only data no consumer
+> can address.
+>
+> **F. Monthly identity — the schema does not support it.** Receita publishes MONTHLY; the physical
+> table is YEAR-grained. `source_company_snapshots` has `source_year int NOT NULL` and **no
+> `source_period` column** — the month lives only inside `raw_data.source_period`, a JSONB blob no
+> unique constraint can see. Two hazards, and the second is the one Brazil is actually in:
+>
+> ```
+> YH-1  normalized_tax_id populated  → 2026-08 UPSERTS ONTO 2026-07 for the same establishment;
+>                                       monthly history destroyed by a constraint that believes it
+>                                       is preventing duplicates
+> YH-2  normalized_tax_id NULL       → NULLS DISTINCT makes UNIQUE (source_key, country_code,
+>       (the TRANSIENT_ONLY outcome)    source_year, normalized_tax_id) VACUOUS; every month inserts
+>                                       a full duplicate set, unbounded, no idempotency, no dedup
+> ```
+>
+> **The exact future migration is recorded as TEXT and NOT authored** — § 8's *Does NOT allow* clause
+> forbids creating a migration or changing the physical schema, so writing the `.sql` would be doing
+> the forbidden thing while claiming to respect it. It is also premature: the unique index has to name
+> whatever key the owner question settles on.
+>
+> ```sql
+> ALTER TABLE public.source_company_snapshots ADD COLUMN source_period text NULL;
+> ALTER TABLE public.source_company_snapshots
+>   ADD CONSTRAINT source_company_snapshots_source_period_format_chk
+>   CHECK (source_period IS NULL OR source_period ~ '^[0-9]{4}-(0[1-9]|1[0-2])$') NOT VALID;
+> CREATE UNIQUE INDEX CONCURRENTLY source_company_snapshots_period_identity_uidx
+>   ON public.source_company_snapshots (source_key, country_code, source_period, record_identity_key)
+>   WHERE source_period IS NOT NULL AND record_identity_key IS NOT NULL;
+> ```
+>
+> **Atomic replacement semantics — identity only, no implementation.** Current snapshot = the complete
+> row set of the greatest `source_period`. Previous = the immediately preceding one. A period is
+> superseded **as a whole**, never row by row; cross-month overwrite is forbidden; a partial month is
+> never visible; rollback identity is the preceding period's row set, addressed by `source_period`. The
+> atomic publish MECHANISM stays a GATE-8 deferred proof and the snapshot/runtime round's code.
+>
+> **What this round did NOT do.** No surrogate generator is implemented — a key nobody approved may not
+> be built, and a test asserts the GATE-4 module reaches for no entropy, no hash and no key builder. No
+> migration created or applied. No index or physical schema change. This source stays **absent** from
+> `SOURCE_FAMILY_BY_SOURCE_KEY`, so `getSourceFamily` keeps throwing for it — a fail-closed throw is
+> the correct answer to "which family is Brazil" while its persisted identity is unresolved.
+
+```
+Gate:                   GATE-4 — Identity grain decision
+Status:                 needs_owner_decision  (advanced from not_started; NOT approved)
+Approver:               data architecture owner AND product owner, jointly — none recorded
+Approval date:          n/a — no approval exists
+Evidence links:         10K § 8, § 8.1; 10N (all four options, consequences);
+                        br-receita-cnpj-gate4-recorded-identity-grain.ts;
+                        migrations 065 and 087 (the year-grained physical situation)
+Decision summary:       Grain = option D, establishment as the operational unit with company as
+                        context; root never an identity, root grouping a read-time projection.
+                        Dedup by unit within one publication period; the period is the
+                        idempotency unit. tax_id / normalized_tax_id / record_identity_key are
+                        TRANSIENT_ONLY and persisting them is refused in code. Exact runtime
+                        lookup is a recorded PRODUCTIZATION BLOCKER. Monthly grain needs a
+                        schema change that is recorded as text and not authorized.
+Artifacts approved:     none
+Artifacts rejected:     options A, B and C, each with its rejection justified
+Open follow-ups:        the single legal/privacy question above; and, only if it resolves yes,
+                        the source_period migration and the unique index it needs
+Blocks:                 any persisted identity; any migration; any index change; any Agent 1
+                        Brazil lookup path
+Allows:                 nothing — needs_owner_decision unlocks no next step and is NO-GO in § 15
+Does not allow:         being read as an approval, as a licence to build a surrogate, or as a
+                        resolution of the runtime lookup blocker
+Restrictions:           no CNPJ derivative may be persisted under any name. A non-derived
+                        surrogate is preferred for row identity and is insufficient for lookup.
+                        Fail closed if exact lookup cannot be safely achieved.
+```
+
+---
 
 ---
 
@@ -904,6 +1135,99 @@ Plus, explicitly:
 > may exist; two of its assertions (`FC-A02`, `FC-A23`) are unenforceable until the envelope is chosen;
 > and it creates no cleanup code, no verification command, no test, and no runner — nor does it authorize
 > any dry-run, import, Supabase write, migration, index change, runtime, or Agent 1 integration.
+
+### 10.1 The cleanup contract is EXECUTABLE; GATE-6 is `ready_for_review` (BR-SOURCE-GATE-ROUND-2)
+
+> **Update (BR-SOURCE-GATE-ROUND-2) — § 10.1 GATE-6 advances from `not_started` to
+> `ready_for_review`.** Recorded in
+> [`br-receita-cnpj-gate6-recorded-cleanup-contract.ts`](../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate6-recorded-cleanup-contract.ts).
+>
+> **What unblocked it.** The 10PQR proposal was blocked on something real: it stated its contract
+> "conditionally on GATE-2, because what must be destroyed is bounded by what may exist", and two of
+> its assertions were unenforceable until the envelope was chosen. Round 1 chose the envelope (§ 6.1).
+> What remained is that this gate's pass criteria are claims about **behaviour** — "cleanup failure is
+> terminal", "it never reports success with residue" — which no document can discharge.
+>
+> **The split that existed before, and why neither half was enough.**
+>
+> - the partition workspace could delete and verify, but only its own workspace;
+> - `br-receita-cnpj-full-join-cleanup` is a pure PLANNER that by construction cannot delete a path,
+>   so a required cleanup ALWAYS reported `not_executed` / `cleanup_engine_not_authorized`, and
+>   `unsafe_artifacts_detected` was the hard-wired literal `false` — honest for a runner that produced
+>   nothing, and unable to ever report a verified deletion or detect residue.
+>
+> **What this round added.** A coordinator that owns units, drives each unit's own confined verified
+> deletion, and reduces the outcomes:
+>
+> - **SUCCESS-WITH-RESIDUE IS UNREPRESENTABLE.** `completed` requires, as one conjunction, zero
+>   failure codes **and** every unit `verifiedAbsent` **and** zero residual entries. There is no code
+>   path from residue to success, and the report bridge returns `null` rather than rendering a
+>   residue-bearing run as a clean block.
+> - **`failed` and `not_executed` are TERMINAL and LATCHED.** A retry cannot upgrade them, and a test
+>   proves a unit that *would* succeed on a second call never gets one. Re-attempting is an operator
+>   action — a new coordinator, not a second call.
+> - **Idempotent**, callable after **partial initialization** (register before create, so a unit that
+>   was never created verifies absent) and after **engine failure**.
+> - **Every unit is attempted even after one fails.** GATE-6 forbids skipping a later step because an
+>   earlier one failed; abandoning the rest would leave residue nobody tried to remove.
+> - **No path parameter exists anywhere in the API.** "Never recursively delete an arbitrary parent
+>   directory" is structural, not a rule: the coordinator holds closures supplied by the owning
+>   modules, which already validated their own boundaries, symlink safety and own-prefix confinement.
+> - **`unverified` is preserved as a distinct fact**, not flattened into `failed`, and never into
+>   success. Likewise `deleted` vs `verifiedAbsent` on the private artifact: an unlink that returned
+>   and a file that is provably gone are different claims, and only the second licenses the report.
+>
+> **A defect fixed on the way.** The workspace's `dispose()` was **not** idempotent: a second call on a
+> verifiably-removed workspace fell through to `listNames`, which throws on a missing directory, and
+> reported `unverified` — "nobody can say whether residue exists" about a workspace that had just been
+> verified absent. A repeat call downgrading a verified success is the opposite of idempotent. It now
+> reports `not_needed`, verified absent, and a dangling symlink at the path still counts as PRESENT.
+>
+> **§ 16 — private artifacts are audited SEPARATELY from partition data.** The private operator metric
+> artifact has a contractual TTL (default 1 h, ceiling 24 h, disabled by default) and may legitimately
+> outlive the **process**. It may never outlive a declared-**completed cleanup**, and that is enforced:
+> a run cleanup deletes it unconditionally, TTL or no TTL. A separate TTL-purge unit exists for a
+> sweep, and using purge semantics inside a run cleanup is precisely how a stale artifact would
+> survive. `snapshot_output` is a declared unit class that is **REFUSED** at registration: a cleanup
+> engine that could delete snapshot output is a cleanup engine that could delete a snapshot.
+>
+> **Why the gate is still shut, exactly.** GATE-6 needs the technical owner **and** the operator owner,
+> jointly, and § 3 forbids the implementer of a gate's subject from approving it. **This round
+> implemented the subject.** One substantive decision sits inside that review and is named rather than
+> assumed: 10PQR § 4.2 recommended DELETE and would admit quarantine only under an approved GATE-2
+> envelope — this implementation does DELETE and offers no quarantine path. That is the proposal's
+> recommendation built, not a new decision, but it is the proposal's and not the owners' until they say
+> so.
+
+```
+Gate:                   GATE-6 — Failure cleanup contract
+Status:                 ready_for_review  (advanced from not_started; NOT approved)
+Approver:               technical owner AND operator owner, jointly (privacy owner joins for a
+                        leak-class outcome) — none recorded
+Approval date:          n/a — no approval exists
+Evidence links:         10K § 10, § 10.1; 10PQR § 4–§ 5; § 6.1 (the envelope that unblocked it);
+                        br-receita-cnpj-gate6-recorded-cleanup-contract.ts;
+                        br-receita-cnpj-full-join-cleanup-coordinator.ts;
+                        br-receita-cnpj-full-join-cleanup-units.ts
+Decision summary:       The cleanup contract is executable. Success requires verified deletion of
+                        every owned unit with zero residue; success-with-residue is
+                        unrepresentable; failed and not_executed are terminal and latched;
+                        cleanup is idempotent and callable after partial initialization or engine
+                        failure; only owned paths are deleted and no path is accepted from a
+                        caller; private artifacts are a separate unit class that may outlive the
+                        process but never a completed cleanup; snapshot output is refused as a
+                        cleanup subject. All ten terminating paths route through one contract.
+Artifacts approved:     none
+Artifacts rejected:     quarantine — not implemented and not authorized
+Open follow-ups:        the joint § 14 entry; the owners' confirmation of delete-over-quarantine
+Blocks:                 writing the runner; any run; any Supabase write on any cleanup path
+Allows:                 nothing — ready_for_review unlocks no next step and is NO-GO in § 15
+Does not allow:         being read as an approval, or as permission to run anything
+Restrictions:           a failed or not_executed cleanup may not be upgraded by a retry. The
+                        implementer of this subject may not approve this gate.
+```
+
+---
 
 ---
 
@@ -1212,12 +1536,66 @@ or the hito explicitly remains design-only.
 An approved upstream gate never *implies* a downstream one. The graph orders review; it does not
 propagate approval.
 
+> **Update (BR-SOURCE-GATE-ROUND-2).** The GATE-3 ↔ GATE-4 edge reads like a cycle once RB-1 is
+> assigned to GATE-4. It is not, and § 13.1 below resolves the ownership boundary explicitly rather
+> than leaving each reader to re-derive it.
+
 > **Update (BR-SOURCE-GATE1-RECORD).** GATE-1 is `approved` (§ 5.1), so the root of this graph is in
 > place and the gates that depend on GATE-1 alone — GATE-2, GATE-3, GATE-8 — are now reviewable.
 > Reviewable is not approved: all seven remain `not_started`, and the rule immediately above is the
 > reason. The executable form of this ordering is the BR-SOURCE-13A `GATE2_CANNOT_PRECEDE_GATE1`
 > rule, which no longer fires against an approved GATE-1 and which still refuses a GATE-2 approval
 > carried on an incomplete or unsafe section.
+
+### 13.1 The GATE-3 ↔ GATE-4 ownership boundary is ACYCLIC (BR-SOURCE-GATE-ROUND-2)
+
+> **Update (BR-SOURCE-GATE-ROUND-2) — § 13.1 the apparent cycle, and why it is not one.**
+>
+> A reader arriving at Round 2 sees what looks like a deadlock:
+>
+> - § 7.1 records **RB-1** — the top-level identity columns — as `ownedBy: GATE_4_IDENTITY_GRAIN`, so
+>   GATE-3 cannot close it;
+> - § 13 says **GATE-4** "depends on GATE-3 for which fields a key may be derived from".
+>
+> If both were dependencies on *approval*, that would be a literal cycle and neither gate could ever
+> move. It is not, for two independent reasons, and both are already in this document:
+>
+> **1. § 13's edges order REVIEW, not approval.** The section says so in its own text: *"An approved
+> upstream gate never implies a downstream one. The graph orders review; it does not propagate
+> approval."* Only GATE-1 is stated as a hard reviewability precondition (§ 4: "nothing downstream is
+> reviewable while GATE-1 is `not_started`, `rejected`, or `blocked`"), and GATE-1 is `approved`. What
+> GATE-4 needs from GATE-3 is the **information** "which fields exist and which may a key be derived
+> from" — and that information is the **recorded field policy**, which exists and is versioned
+> (`br_receita_cnpj_field_allowlist_v1`). GATE-4 consumed the policy, not an approval.
+>
+> **2. RB-1 was never inside GATE-3's SUBJECT.** GATE-3 governs the § 5.2 *sanitized snapshot output
+> (allowlist only)* block. `tax_id`, `normalized_tax_id` and `record_identity_key` are **top-level
+> columns of the shared `source_company_snapshots` contract**, not members of that block. Their grain
+> is GATE-4's subject, and § 3 makes that decisive: "changing the subject re-opens the gate". Round 1
+> reassigning RB-1 to GATE-4 was therefore a correction of a mis-filing, not a hand-off of a GATE-3
+> criterion.
+>
+> **The boundary, stated once so it stops being re-derived:**
+>
+> ```
+> GATE-3 owns   the § 5.2 sanitized payload allowlist and denylist
+>               → which SIGNALS survive the join
+>
+> GATE-4 owns   the top-level identity columns and the record identity grain
+>               → what one ROW IS, and how it is addressed
+> ```
+>
+> **The resulting order is acyclic and was executed in it:** GATE-3's *policy* → GATE-4's *grain and
+> identity dispositions* → GATE-3's *RB-3 closure and enforcement of its own denylist*. GATE-3's
+> `ready_for_review` does not depend on GATE-4 being approved; it depends on GATE-4 having **recorded**
+> a disposition and on the prohibited material being **refused in code**, both of which happened in
+> this round.
+>
+> 🔴 **What is genuinely blocked is not the graph.** GATE-3 waits on the legal/privacy owner's half of
+> its joint approval (§ 7.2). GATE-4 waits on one legal/privacy question (§ 8.1). Those are waits on a
+> **person**, which is what the gate model is for — not a contradiction in the contract.
+
+---
 
 ---
 
@@ -1273,22 +1651,35 @@ GO for execution              ≠  GO for import
 GO for import                 requires a later, separate import authorization
 ```
 
-**Today's position (as of 2026-08-21, after BR-SOURCE-GATE-ROUND-1, FINAL CORRECTION):**
+**Today's position (as of 2026-08-21, after BR-SOURCE-GATE-ROUND-2):**
 
 ```
 GATE-1  approved                                          (§ 5.1)
 GATE-2  needs_owner_confirmation — ceilings complete,      (§ 6.1)
-        privacy confirmation outstanding, NOT approved
-GATE-3  needs_evidence — NOT approved, two residual        (§ 7.1)
-        blockers (RB-1, RB-3); RB-2 closed
-GATE-4  not_started
+        bucket-ordinal privacy confirmation outstanding,
+        NOT approved. The ordinal is now OFF the disk
+        (§ 10.1 / GATE-ROUND-2), which removes the
+        disk-surface instance of the question and does
+        NOT supply the owner's confirmation.
+GATE-3  ready_for_review — NOT approved. RB-1 and RB-3     (§ 7.1, § 7.2)
+        both closed; waiting on the legal/privacy half
+        of the joint approval.
+GATE-4  needs_owner_decision — NOT approved. Grain         (§ 8.1)
+        decided (option D); persisted identity blocked on
+        ONE legal/privacy question. Exact runtime lookup
+        is a recorded PRODUCTIZATION BLOCKER.
 GATE-5  not_started
-GATE-6  not_started
+GATE-6  ready_for_review — NOT approved. Executable        (§ 10.1)
+        cleanup contract landed; waiting on the joint
+        technical + operator approval, which the
+        implementer of the subject may not give.
 GATE-7  not_started
 GATE-8  approved — AS A CONTRACT                           (§ 12.1)
 ```
 
 Six gates are not approved, so the matrix still reads **NO-GO** — the expected and correct outcome.
+🔴 `ready_for_review` and `needs_owner_decision` are NO-GO exactly as `not_started` is; three gates
+advancing their status is progress in *reviewability*, not in permission.
 Readings a future reader is most likely to get backwards:
 
 - **GATE-2 is NOT approved.** Its numeric envelope is complete
@@ -1305,8 +1696,25 @@ Readings a future reader is most likely to get backwards:
   RB-3 are not.
 
 Round 1 closed the GATE-2 numeric envelope (not the gate), the GATE-3 field policy plus its RB-2
-blocker, and GATE-8. **Round 2 = GATE-4 + GATE-6**, and GATE-4 inherits residual blocker RB-1 from
-§ 7.1. The GATE-2 bucket-ordinal privacy confirmation is a standing open item independent of Round 2.
+blocker, and GATE-8. **Round 2 closed GATE-3's RB-1 and RB-3, recorded GATE-4, made GATE-6's cleanup
+contract executable, and took the key-derived bucket ordinal off the disk.**
+
+Readings a future reader is most likely to get backwards after Round 2:
+
+- **GATE-4's grain being decided is not GATE-4 being approved.** One question is open, it is
+  legal/privacy, and no agent may answer it (§ 8.1).
+- **Exact runtime lookup is NOT solved.** It is a recorded productization blocker: every existing
+  lookup primitive needs `normalized_tax_id` or a caller-known key, and Brazil can supply neither.
+- **GATE-6's code working is not GATE-6 being approved.** § 3 forbids the implementer of a subject
+  from approving it, and this round implemented the subject.
+- **Opaque temp file names are not a privacy approval.** They remove the ordinal from disk; the
+  privacy owner's GATE-2 confirmation is still outstanding.
+
+**Standing open items independent of any round:** the GATE-2 bucket-ordinal privacy confirmation, and
+the GATE-4 legal/privacy question — which, if answered `no`, stops Brazil productization at GATE-4.
+
+**Next front: ROUND 3 = GATE-5** (output sanitization), which § 13 places downstream of GATE-3 (which
+counts exist) and GATE-4 (which grain is reported) — both of which are now recorded.
 
 ---
 

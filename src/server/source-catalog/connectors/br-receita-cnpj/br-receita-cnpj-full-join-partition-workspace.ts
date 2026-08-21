@@ -64,6 +64,7 @@
  *   - touches Supabase, the runtime, Agent 1, Agent 2A, a provider, HubSpot or the UI.
  */
 
+import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 
 import {
@@ -295,23 +296,144 @@ export function decodeBrazilReceitaFullJoinRowReference(
 }
 
 // ─── Partition file naming ────────────────────────────────────────────────────
+//
+// 🔴 BR-SOURCE-GATE-ROUND-2 — PARTITION FILE NAMES ARE NOW OPAQUE.
+//
+// They used to be `empresas-part-00001.refs`: the family, plus the partition ordinal, written onto
+// disk. The ordinal is `hash(join key) mod partitionCount`, so the file NAME carried a value derived
+// from the join key — and GATE-2's own restriction list says "structural keys are forbidden in file
+// names, log lines, report fields and paths". That is the whole substance of the bucket-ordinal
+// question GATE-2 left open, and it was on disk.
+//
+// What changed, and what deliberately did NOT:
+//
+//   · the physical name is now `brfj-<32 lowercase hex>.refs`, allocated per (family, ordinal) at
+//     FIRST TOUCH from an injected label source. No family word, no ordinal, no key material.
+//   · the ordinal-to-file association lives in PROCESS MEMORY for the lifetime of the workspace and
+//     nowhere else. No mapping file, no manifest, no sidecar, no log line — a persisted map would
+//     just be the ordinal back on disk with extra steps.
+//   · routing is UNTOUCHED. `hash → ordinal` is the caller's business and this module never saw it.
+//     `appendReference`, `readPartitionSlice` and `referenceCount` keep their (family, ordinal)
+//     signatures, so engine semantics are identical.
+//   · caps, the descriptor pool, the global handle ledger, free-disk checks and cleanup are
+//     untouched: they were always keyed by file NAME, and a name is still a name.
+//   · labels are per-invocation and NOT stable across runs. That costs nothing: temporary material
+//     has a `run_lifetime` TTL, so nothing outside the run may ever refer to one of these files.
+//
+// 🔴 What this does NOT do: it does not manufacture the privacy owner's GATE-2 confirmation. It
+// removes the disk-surface instance of the question. Whether that discharges the requirement is
+// itself a privacy judgment, and no agent may make it.
 
-const PARTITION_ORDINAL_DIGITS = 5;
+/** Opaque label length in hex characters. 128 bits: collisions are a guarded error, not a hope. */
+export const BRAZIL_RECEITA_FULL_JOIN_PARTITION_LABEL_HEX_LENGTH = 32 as const;
 
-/** `empresas-part-00001.refs`. Technical, sequential, and derived — never caller-supplied. */
-export const BRAZIL_RECEITA_FULL_JOIN_PARTITION_FILE_PATTERN =
-  /^(?:empresas|estabelecimentos)-part-\d{5}\.refs$/;
+/**
+ * `brfj-<32 hex>.refs`. The cleanup engine matches on this to decide what it owns, so it stays
+ * narrow: anything not matching is a foreign entry and is left in place.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_PARTITION_FILE_PATTERN = /^brfj-[0-9a-f]{32}\.refs$/;
 
-export function brazilReceitaFullJoinPartitionFileName(
+/**
+ * The highest partition ordinal a workspace accepts.
+ *
+ * Preserved EXACTLY from the five-digit naming scheme this replaces, where an ordinal above this
+ * produced a six-digit segment and the name function returned null. The bound was real and load
+ * bearing; opaque names would have silently removed it, so it is now explicit instead.
+ */
+export const BRAZIL_RECEITA_FULL_JOIN_MAX_PARTITION_ORDINAL = 99_998 as const;
+
+/** How many times label allocation retries a collision before refusing. */
+export const BRAZIL_RECEITA_FULL_JOIN_PARTITION_LABEL_MAX_ATTEMPTS = 8 as const;
+
+/**
+ * The in-memory identity of a partition: family and ordinal, joined.
+ *
+ * This is a MAP KEY, never a file name and never anything that reaches a disk, a log or a report.
+ * Returns null on exactly the inputs the old name function rejected, so `partition_name_invalid`
+ * still fires for the same arguments it always did.
+ */
+export function brazilReceitaFullJoinPartitionLogicalKey(
   family: BrazilReceitaFullJoinPartitionedFamily,
   partitionOrdinal: number,
 ): string | null {
   if (FAMILY_CODES[family] === undefined) return null;
   if (!Number.isInteger(partitionOrdinal) || partitionOrdinal < 0) return null;
-  const padded = String(partitionOrdinal + 1).padStart(PARTITION_ORDINAL_DIGITS, '0');
-  if (padded.length !== PARTITION_ORDINAL_DIGITS) return null;
-  const name = `${family}-part-${padded}.refs`;
+  if (partitionOrdinal > BRAZIL_RECEITA_FULL_JOIN_MAX_PARTITION_ORDINAL) return null;
+  return `${family}:${partitionOrdinal}`;
+}
+
+/** Wraps a validated opaque label into its file name, or null if the label is not well-formed. */
+export function brazilReceitaFullJoinOpaquePartitionFileName(label: string): string | null {
+  const name = `brfj-${label}.refs`;
   return BRAZIL_RECEITA_FULL_JOIN_PARTITION_FILE_PATTERN.test(name) ? name : null;
+}
+
+/**
+ * Produces one candidate opaque label. Injected so tests are deterministic and so this module keeps
+ * no source of entropy of its own.
+ */
+export type BrazilReceitaFullJoinPartitionLabelSource = () => string;
+
+/**
+ * The execution-local (family, ordinal) → opaque file name allocator.
+ *
+ * Two properties worth stating because both are easy to lose:
+ *
+ *   · IDEMPOTENT per logical key. The second touch of a partition returns the same file, which is
+ *     what makes the write-then-read-back pass work at all.
+ *   · COLLISION-CHECKED. A deterministic label source in a test — or a catastrophically unlucky real
+ *     one — can repeat. A silent reuse would merge two partitions into one file and corrupt the
+ *     join, so a repeat is retried and then refused.
+ */
+export interface BrazilReceitaFullJoinPartitionLabelAllocator {
+  resolve(logicalKey: string): string | null;
+  /** Count of allocated labels. A count, never a name — this is what a stats surface may see. */
+  allocatedCount(): number;
+}
+
+export function createBrazilReceitaFullJoinPartitionLabelAllocator(
+  labelSource: BrazilReceitaFullJoinPartitionLabelSource,
+): BrazilReceitaFullJoinPartitionLabelAllocator {
+  const byLogicalKey = new Map<string, string>();
+  const usedNames = new Set<string>();
+
+  return {
+    resolve(logicalKey) {
+      const existing = byLogicalKey.get(logicalKey);
+      if (existing !== undefined) return existing;
+
+      for (let attempt = 0; attempt < BRAZIL_RECEITA_FULL_JOIN_PARTITION_LABEL_MAX_ATTEMPTS; attempt += 1) {
+        let candidate: string;
+        try {
+          candidate = labelSource();
+        } catch {
+          return null;
+        }
+        if (typeof candidate !== 'string') return null;
+        const name = brazilReceitaFullJoinOpaquePartitionFileName(candidate);
+        if (name === null) continue;
+        if (usedNames.has(name)) continue;
+        usedNames.add(name);
+        byLogicalKey.set(logicalKey, name);
+        return name;
+      }
+      return null;
+    },
+    allocatedCount() {
+      return byLogicalKey.size;
+    },
+  };
+}
+
+/**
+ * The production label source: 16 cryptographically random bytes as lowercase hex.
+ *
+ * `node:crypto` is imported rather than injected because randomness is not a filesystem effect —
+ * this module's standing prohibition is on `node:fs`, so that policy stays intact. Tests inject a
+ * deterministic source through `partitionLabelSource` instead of monkey-patching this.
+ */
+export function createBrazilReceitaFullJoinRandomPartitionLabelSource(): BrazilReceitaFullJoinPartitionLabelSource {
+  return () => randomBytes(BRAZIL_RECEITA_FULL_JOIN_PARTITION_LABEL_HEX_LENGTH / 2).toString('hex');
 }
 
 // ─── Filesystem port ──────────────────────────────────────────────────────────
@@ -452,6 +574,7 @@ export type BrazilReceitaFullJoinWorkspaceFailure =
   | 'partition_file_permission_verification_failed'
   | 'partition_record_truncated'
   | 'partition_handle_cap_exceeded'
+  | 'partition_label_allocation_failed'
   | 'free_disk_reserve_breached'
   | 'free_disk_measurement_unavailable';
 
@@ -565,6 +688,16 @@ export interface BrazilReceitaFullJoinWorkspaceRequest {
    * be obtained by minting it from a complete operator grant whose own temporary-storage flag was set.
    */
   readonly invocationTemporaryStorageApproval?: BrazilReceitaFullJoinInvocationTemporaryStorageApproval | null;
+  /**
+   * The opaque partition-label source (BR-SOURCE-GATE-ROUND-2).
+   *
+   * Optional, unlike every cap on this request, and for the opposite reason: a missing cap is an
+   * invented authorization, whereas a missing label source has exactly one safe answer —
+   * cryptographic randomness. Omitting it yields
+   * `createBrazilReceitaFullJoinRandomPartitionLabelSource()`. Tests inject a deterministic source so
+   * they can assert allocation and collision behaviour without reaching for entropy.
+   */
+  readonly partitionLabelSource?: BrazilReceitaFullJoinPartitionLabelSource;
 }
 
 // ─── The temporary-storage policy (BR-SOURCE-ATTEMPT2-FINAL § 3) ──────────────
@@ -727,6 +860,35 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
 
   let written = 0;
   let recordsWritten = 0;
+
+  // 🔴 BR-SOURCE-GATE-ROUND-2 — the (family, ordinal) → opaque file name map, held HERE and nowhere
+  // else. It lives exactly as long as this workspace closure: when the run ends the association is
+  // gone, which is the point. Persisting it would put the bucket ordinal back on disk.
+  const labelAllocator = createBrazilReceitaFullJoinPartitionLabelAllocator(
+    request.partitionLabelSource ?? createBrazilReceitaFullJoinRandomPartitionLabelSource(),
+  );
+
+  /**
+   * Validates (family, ordinal) and resolves it to this run's opaque file name.
+   *
+   * The two failure modes stay DISTINCT: bad arguments are `partition_name_invalid` exactly as
+   * before, and an allocator that cannot mint a fresh label is
+   * `partition_label_allocation_failed`. Collapsing them would hide a collision behind what looks
+   * like a caller error.
+   */
+  function resolvePartitionFileName(
+    family: BrazilReceitaFullJoinPartitionedFamily,
+    partitionOrdinal: number,
+  ):
+    | { readonly ok: true; readonly name: string }
+    | { readonly ok: false; readonly failure: BrazilReceitaFullJoinWorkspaceFailure } {
+    const logicalKey = brazilReceitaFullJoinPartitionLogicalKey(family, partitionOrdinal);
+    if (logicalKey === null) return { ok: false, failure: 'partition_name_invalid' };
+    const name = labelAllocator.resolve(logicalKey);
+    if (name === null) return { ok: false, failure: 'partition_label_allocation_failed' };
+    return { ok: true, name };
+  }
+
   const counts = new Map<string, number>();
   const hardenedFiles = new Set<string>();
   const freeDiskCheckDue = createBrazilReceitaFullJoinFreeDiskCheckSchedule();
@@ -960,8 +1122,9 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
       // append building on top of an unflushed failure would be worse than stopping here.
       if (flushFailureLatched) return { ok: false, failure: 'partition_write_failed' };
 
-      const name = brazilReceitaFullJoinPartitionFileName(reference.family, partitionOrdinal);
-      if (name === null) return { ok: false, failure: 'partition_name_invalid' };
+      const resolved = resolvePartitionFileName(reference.family, partitionOrdinal);
+      if (!resolved.ok) return resolved;
+      const name = resolved.name;
 
       // VALIDATED here, WRITTEN further down straight into the partition's pending buffer. The two
       // halves are deliberately split so an unencodable reference is still refused before the
@@ -1065,8 +1228,9 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
     },
 
     readPartitionSlice(family, partitionOrdinal, startRecordIndex, maxRecords) {
-      const name = brazilReceitaFullJoinPartitionFileName(family, partitionOrdinal);
-      if (name === null) return { ok: false, failure: 'partition_name_invalid' };
+      const resolved = resolvePartitionFileName(family, partitionOrdinal);
+      if (!resolved.ok) return resolved;
+      const name = resolved.name;
       if (!Number.isInteger(startRecordIndex) || startRecordIndex < 0) {
         return { ok: false, failure: 'partition_read_failed' };
       }
@@ -1160,9 +1324,9 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
     },
 
     referenceCount(family, partitionOrdinal) {
-      const name = brazilReceitaFullJoinPartitionFileName(family, partitionOrdinal);
-      if (name === null) return 0;
-      return counts.get(name) ?? 0;
+      const resolved = resolvePartitionFileName(family, partitionOrdinal);
+      if (!resolved.ok) return 0;
+      return counts.get(resolved.name) ?? 0;
     },
 
     bytesWritten() {
@@ -1203,6 +1367,26 @@ export function createBrazilReceitaFullJoinPartitionWorkspace(
       // this process still holds open leaves the space allocated until the descriptor goes, so a
       // cleanup that deleted first would report `completed` while the volume was still full.
       handlePool.closeAll();
+
+      // 🔴 BR-SOURCE-GATE-ROUND-2 (GATE-6) — IDEMPOTENCE, checked FIRST.
+      //
+      // A second `dispose()` on an already-clean workspace used to fall through to `listNames`,
+      // which throws on a directory that is gone, and report `unverified` — i.e. "nobody can say
+      // whether residue exists" about a workspace that had verifiably been removed. GATE-6 requires
+      // cleanup to be idempotent, and a repeat call that downgrades a verified success is the exact
+      // opposite. An absent workspace is `not_needed`, verified absent, and that is terminal-clean.
+      //
+      // `exists` is lstat-based, so a dangling symlink planted at the path counts as PRESENT and
+      // falls through to the enumeration below rather than being mistaken for cleanliness.
+      try {
+        if (!fileSystem.exists(directory)) {
+          return { outcome: 'not_needed', filesReleased: 0, verifiedAbsent: true, foreignEntriesLeftInPlace: 0 };
+        }
+      } catch {
+        // The existence of the workspace cannot be established, so no claim about residue is
+        // available. `unverified`, never a success.
+        return { outcome: 'unverified', filesReleased: 0, verifiedAbsent: false, foreignEntriesLeftInPlace: 0 };
+      }
 
       let names: readonly string[];
       try {

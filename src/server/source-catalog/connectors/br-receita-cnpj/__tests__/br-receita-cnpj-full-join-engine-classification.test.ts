@@ -255,22 +255,80 @@ describe('BR-SOURCE-14B.0D — the reader advances, and nothing materializes a f
 
 // ─── 3. Static safety guards (tests 44–46) ────────────────────────────────────
 
+/**
+ * What an engine-scope module may import.
+ *
+ * 🔴 BR-SOURCE-GATE-ROUND-2 — `node:crypto` was added for the opaque partition labels that replaced
+ * key-derived file names, on a narrow and stated ground: `randomBytes` is a LOCAL entropy source with
+ * no reach — no network, no filesystem, no environment, no process state — so it cannot widen what
+ * these modules can touch, which is the only property this guard bounds.
+ *
+ * Extracted as a named predicate precisely BECAUSE the allowlist was widened: a guard that is only
+ * ever exercised against sources that pass it is a guard nobody has tested. The negative case below
+ * exercises it against what it must still refuse.
+ */
+function isPermittedConnectorImport(specifier: string): boolean {
+  return (
+    specifier === 'node:path' ||
+    specifier === 'node:fs' ||
+    specifier === 'node:crypto' ||
+    specifier.startsWith('./br-receita-cnpj-')
+  );
+}
+
 describe('BR-SOURCE-14B.0D — static guards', () => {
   // Tests 44, 45, 46 — checked on IMPORT SPECIFIERS, because what matters is what a module can reach.
   it('imports nothing outside this connector', () => {
     for (const moduleRef of NEW_MODULES) {
       const specifiers = [...codeOf(moduleRef).matchAll(/from\s+'([^']+)'/g)].map((match) => match[1]);
       for (const specifier of specifiers) {
-        const permitted =
-          specifier === 'node:path' ||
-          specifier === 'node:fs' ||
-          specifier!.startsWith('./br-receita-cnpj-');
+        // 🔴 BR-SOURCE-GATE-ROUND-2 — `node:crypto` joins the allowlist, for the opaque partition
+        // labels that replaced key-derived file names. It is admitted on a narrow, stated ground:
+        // `randomBytes` is a LOCAL entropy source with no reach — no network, no filesystem, no
+        // environment, no process state — so it cannot widen what these modules can touch, which is
+        // the property this guard exists to bound. The negative case below proves the guard still
+        // refuses everything else.
+        const permitted = isPermittedConnectorImport(specifier!);
         assert.ok(
           permitted,
           `${moduleRef} must not import "${specifier}" — only node:path, node:fs and sibling ` +
             'br-receita-cnpj modules are in scope for this milestone',
         );
       }
+    }
+  });
+
+  // 🔴 The widened allowlist, tested in the NEGATIVE. Without this, adding `node:crypto` above would
+  // be a guard relaxation nobody checked.
+  it('the import allowlist still refuses everything outside the connector', () => {
+    for (const permittedSpecifier of [
+      'node:path',
+      'node:fs',
+      'node:crypto',
+      './br-receita-cnpj-full-join-cleanup',
+    ]) {
+      assert.ok(isPermittedConnectorImport(permittedSpecifier), permittedSpecifier);
+    }
+    for (const refusedSpecifier of [
+      'node:child_process',
+      'node:http',
+      'node:https',
+      'node:net',
+      'node:os',
+      'node:worker_threads',
+      '@supabase/supabase-js',
+      '../../../supabase/admin',
+      './br-cnpj',
+      '../record-identity',
+      'next/server',
+      'crypto',
+      'node:cryptography',
+    ]) {
+      assert.equal(
+        isPermittedConnectorImport(refusedSpecifier),
+        false,
+        `${refusedSpecifier} must stay refused`,
+      );
     }
   });
 
