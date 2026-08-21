@@ -225,7 +225,7 @@ describe('P1-3 · un campo no medible se publica null, nunca 0', () => {
 
 // ─── Alcance: lo que este corte tenía PROHIBIDO tocar ─────────────────────────
 
-describe('alcance — P0-3 y el enrutamiento siguen fuera', () => {
+describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió)', () => {
   it('la capacidad de exclusión de Apollo sigue TODA en false', () => {
     const code = stripTsComments(read(EXCLUSION_PLANNER));
     const block = code.slice(
@@ -239,23 +239,68 @@ describe('alcance — P0-3 y el enrutamiento siguen fuera', () => {
     assert.ok(block.includes('idCap: 0'));
   });
 
-  it('la ruta Apollo NO consulta `residualGap` ni la novedad gratuita', () => {
+  /**
+   * 🔴 RATCHET INVERTIDO por AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2, no borrado.
+   *
+   * Esta guarda decía «P0-3 está FUERA de este corte» y enumeraba SIETE nombres
+   * prohibidos en el provider. El corte 2 abre P0-3 —demanda residual y carga de
+   * memoria previa— así que el enunciado dejó de ser verdad y mantenerlo verde
+   * habría sido peor que borrarlo: un ratchet que afirma un alcance caducado.
+   *
+   * Lo que se conserva es la parte que SIGUE siendo cierta, y por las mismas
+   * razones de siempre:
+   *
+   *   · el provider no resuelve por su cuenta la capa gratuita
+   *     (`runPrepaidNoveltyGate`): la recibe ya resuelta desde el wizard, que es
+   *     quien puede ordenarla ANTES de reservar;
+   *   · el provider no PLANIFICA exclusiones (`buildProviderExclusionPlan`): la
+   *     capacidad de Apollo sigue entera en false y nada viaja al proveedor;
+   *   · el provider no cuenta aciertos por su cuenta
+   *     (`isProviderSeenKnown` / `countProviderSeenHits` / `buildProviderSeenMemory`):
+   *     eso ocurre en `apollo-organizations-provider-seen.ts`, con la función
+   *     canónica, para que no exista un segundo emparejador de identidad.
+   *
+   * Y lo que cambia de signo: el provider AHORA transporta el snapshot previo.
+   */
+  it('el provider TRANSPORTA la memoria previa, pero no la resuelve ni la empareja', () => {
     const code = stripTsComments(read(PROVIDER));
+
+    // Lo nuevo del corte 2, afirmado en positivo.
+    assert.ok(
+      code.includes('priorProviderSeen'),
+      'el corte 2 hace que el snapshot previo llegue a la búsqueda',
+    );
+    assert.ok(
+      code.includes('providerSeenHit: paginated.providerSeen.priorSeenHits'),
+      'el embudo publica lo MEDIDO, no un null fijo',
+    );
+    assert.ok(
+      !code.includes('providerSeenHit: null'),
+      'ya no puede quedar un `providerSeenHit: null` literal en la ruta Apollo',
+    );
+
+    // Lo que sigue prohibido, y por qué.
     for (const forbidden of [
-      'residualGap',
-      'residual_gap',
       'runPrepaidNoveltyGate',
       'buildProviderExclusionPlan',
       'isProviderSeenKnown',
       'countProviderSeenHits',
       'buildProviderSeenMemory',
     ]) {
-      assert.ok(!code.includes(forbidden), `P0-3 está FUERA de este corte (${forbidden})`);
+      assert.ok(
+        !code.includes(forbidden),
+        `el provider transporta, no resuelve ni empareja (${forbidden})`,
+      );
     }
   });
 
   it('la búsqueda paginada no gana ninguna exclusión ni cambia de volumen', () => {
     const code = stripTsComments(read(PAGINATED));
+    // 🔴 `residualGap` sale de esta lista en el corte 2 por una razón CONCRETA y no
+    // por comodidad: el nombre del lado del proveedor es `remainingTarget`, que ya
+    // existía en el repo (`buildRound2Hypothesis`), y la cota se aplica en el
+    // orquestador, no aquí. La búsqueda paginada sigue sin conocer el hueco: recibe
+    // un `per_page` ya resuelto. Las exclusiones siguen prohibidas, sin matices.
     for (const forbidden of ['exclude', 'excludeIds', 'excludeDomains', 'residualGap']) {
       assert.ok(!code.includes(forbidden), `este corte no toca el gasto (${forbidden})`);
     }

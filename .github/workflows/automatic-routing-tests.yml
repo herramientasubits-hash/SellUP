@@ -2416,22 +2416,27 @@ jobs:
       - name: Run A1 Apollo benchmark parity cut 1 tests
         run: npm run test:a1-apollo-benchmark-parity-cut1
 
-      # BR-SOURCE-GATE-ROUND-1 — los tres registros de decisión y el bloqueador
-      # CNPJ del snapshot.
+      # BR-SOURCE-GATE-ROUND-1 (FINAL CORRECTION) — los tres registros de decisión
+      # y el bloqueador CNPJ del snapshot.
       #
       # Lo que esta suite congela:
       #
-      #   · GATE-2 queda `approved` y NO enciende nada: la constante rastreada de
-      #     política de almacenamiento temporal sigue en `false` y la propuesta
-      #     provisional de topes sigue con `maxTemporaryStorageBytes: 0` — ambas
-      #     verificadas contra su módulo DUEÑO, no contra la copia del registro;
-      #   · GATE-3 registra una POLÍTICA y sigue CERRADO, con sus tres bloqueadores
-      #     residuales presentes y sin resolver (RB-1 pertenece a GATE-4);
+      #   · GATE-2 tiene su sobre numérico COMPLETO (los diez techos, incluidos los
+      #     tres que antes no tenían número de dueño) pero sigue `needs_owner_confirmation`,
+      #     no `approved`: la disposición de privacidad del ordinal de cubeta NO
+      #     tiene fuente de dueño atribuible, y NO enciende nada — la constante
+      #     rastreada de política de almacenamiento temporal sigue en `false` y la
+      #     propuesta provisional de topes sigue con `maxTemporaryStorageBytes: 0`,
+      #     ambas verificadas contra su módulo DUEÑO, no contra la copia del registro;
+      #   · GATE-3 registra una POLÍTICA y sigue CERRADO, con DOS bloqueadores
+      #     residuales presentes y sin resolver (RB-1 pertenece a GATE-4; RB-3 son
+      #     los cuatro campos sin etiquetar) — RB-2 (el hash de CNPJ como
+      #     diagnóstico de rechazo) queda CERRADO por este mismo workstream;
       #   · GATE-8 es `APPROVED_AS_CONTRACT` y declara `authorizesOperations: false`;
       #     el módulo no tiene NI UN import, que es lo que hace imposible que
       #     encienda algo;
       #   · el veredicto de artefacto completo sigue `invalid` / `NO_GO` — correcto
-      #     con cinco puertas sin aprobar, no un defecto de los registros.
+      #     con seis puertas sin aprobar, no un defecto de los registros.
       #
       # 🔴 Y el bloqueador: `cnpj_root` / `cnpj_order` / `cnpj_dv` fuera de la salida
       # sanitizada, reconstrucción del CNPJ completo probada IMPOSIBLE (todo par y
@@ -2439,9 +2444,57 @@ jobs:
       # sólo-CLAVES a claves Y valores reusando el detector canónico alfanumérico con
       # DV. Los numéricos benignos —fecha `YYYYMMDD` de ocho dígitos, capital social
       # exacto— se prueban SUPERVIVIENTES: una regla tosca de «ocho dígitos» los
-      # habría destruido.
+      # habría destruido. El diagnóstico de fila rechazada (`safeIdentifier`) ya NO
+      # es un hash de CNPJ: es un ordinal local a la ejecución derivado de
+      # `sourceRowIndex`.
       #
       # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales de
       # Receita. 0 créditos, 0 escrituras.
       - name: Run BR-SOURCE gate round 1 and CNPJ hardening tests
         run: npm run test:br-source:gate-round1-cnpj-hardening
+
+      # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 20 — la demanda RESIDUAL y la
+      # memoria PREVIA.
+      #
+      # El corte 1 dejó Apollo medible; éste lo hace consciente del hueco. Lo que
+      # esta suite congela:
+      #
+      #   · el hueco que la capa gratuita deja abierto LLEGA a los controles reales
+      #     de petición y de paginación — no es metadata (§§ 4, 6);
+      #   · las dos rondas comparten UN hueco y la ronda 2 nunca lo reinicia (§ 7);
+      #   · la memoria provider-seen se carga ANTES de buscar y los aciertos se
+      #     cuentan contra ese SNAPSHOT, así que lo que esta corrida escribe no
+      #     puede contarse como conocimiento previo suyo (§§ 8, 9);
+      #   · un fallo de carga de memoria deja `provider_seen_hit` en null y NUNCA
+      #     en 0, y no impide la búsqueda ya autorizada (§§ 11, 12).
+      #
+      # 🔴 Y el ratchet que más importa: la RESERVA financiera no se mueve (§§ 5,
+      # 16). P0-1 —el contrato de facturación escrito de Apollo para Organization
+      # Search— sigue SIN confirmar, así que pedir menos resultados no puede
+      # reducir el techo reservado. La prueba es de comportamiento (misma reserva
+      # con hueco 3 y con hueco 10) y estática (el estimador sólo recibe el
+      # proveedor; el peor caso de dos rondas no ve el objetivo).
+      #
+      # 🔴 REVIEW-1 § 11 — y el ratchet de CABLEADO VIVO: la capacidad de hueco
+      # parcial está implementada y probada, pero el llamador de producción sigue
+      # pasando `partialGapSupported: false`
+      # (`WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`). Las dos afirmaciones se prueban
+      # por separado a propósito:
+      #
+      #   apollo_partial_gap_capability  = implemented
+      #   apollo_partial_gap_activation  = deferred_single_batch
+      #
+      # Activarla haría que UNA búsqueda terminara en DOS lotes (gratis + pago), y
+      # esa semántica de producto pertenece a
+      # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1. Voltear la constante o reescribir el
+      # literal en el sitio de la llamada pone esta suite en ROJO.
+      #
+      # Ratchets de alcance que siguen vivos: `APOLLO_EXCLUSION_CAPABILITY` entera
+      # en false, cero exclusiones enviadas a Apollo, sin flag nuevo, sin migración
+      # nueva, y `historical_known` / `accepted_for_target` siguen pendientes.
+      #
+      # Offline y determinista: transporte, reloj, jitter, logger, escritor de
+      # memoria y capa gratuita se inyectan. Sin red, sin Supabase, sin proveedor.
+      # 0 créditos.
+      - name: Run A1 Apollo benchmark parity cut 2 tests
+        run: npm run test:a1-apollo-benchmark-parity-cut2

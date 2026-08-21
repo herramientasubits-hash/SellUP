@@ -30,10 +30,53 @@ import {
   loadApolloSubindustryCatalogTermsForRequest,
   type ApolloSubindustryCatalogTermsLoadResult,
 } from '@/server/agents/prospecting-toolkit/apollo-subindustry-catalog-terms-loader.server';
+// AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 3, 4, 6 — la demanda residual y su cota.
+import {
+  boundByRemainingTarget,
+  type ProviderResultDemand,
+} from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
+import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
 
 export const WIZARD_APOLLO_TARGET_INTERNAL = 25;
 export const WIZARD_APOLLO_MAX_ROUNDS = 4;
 export const WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES = 10;
+
+/**
+ * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 2 — ¿la ruta Apollo de
+ * PRODUCCIÓN aprovecha un hueco PARCIAL de la capa gratuita?
+ *
+ * `false`. La CAPACIDAD existe y está probada —`resultDemand` viaja hasta
+ * `per_page`, las dos rondas comparten un hueco, `boundByRemainingTarget` es la
+ * única cota— pero la ACTIVACIÓN en producción queda DIFERIDA. La distinción es
+ * el punto de esta constante:
+ *
+ *   apollo_partial_gap_capability = implemented
+ *   apollo_partial_gap_activation = deferred_single_batch
+ *
+ * ── 🔴 Por qué diferida ─────────────────────────────────────────────────────
+ *
+ * Con `true` existe una ruta real de producción en la que UNA búsqueda del usuario
+ * termina en DOS lotes: objetivo 10, la fuente gratuita persiste 7 en su lote
+ * (`persistCountrySourceCandidates` crea lote propio y corre ANTES de la reserva)
+ * y Apollo persiste 3 en el lote reservado, con la redirección apuntando al
+ * segundo. La invariante de sistema se respeta —7 + 3 <= 10— pero el RESULTADO que
+ * el usuario recibe queda partido, y esa semántica de producto no se ha diseñado.
+ *
+ * 🔴 Y es alcanzable de verdad, no teórica: la persistencia de la capa gratuita
+ * quedó arreglada por #316 (lote `source = agent_1`, candidato
+ * `source_primary = public_source`) y la QA-B real en Producción ya la vio
+ * escribir. Lo que bloquea no es un CHECK de base de datos, es el diseño del
+ * resultado único.
+ *
+ * El hito que lo activará —y que decidirá orden y propiedad del lote— es
+ * `AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1`. Hasta entonces la ruta Apollo de
+ * producción sigue siendo TODO-O-NADA, exactamente como antes de este corte.
+ *
+ * 🔴 Esta constante es el ÚNICO sitio donde el valor vivo se decide. Existe para
+ * que el ratchet de cableado pueda leer el mismo valor que produce producción en
+ * vez de una copia escrita a mano que podría quedarse atrás.
+ */
+export const WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED = false;
 
 /**
  * A1-APOLLO-TWO-ROUND-QUALITY-1 — qué ruta ejecuta esta corrida.
@@ -89,6 +132,31 @@ export type WizardApolloInput = {
    * la resuelve por su cuenta con un cliente de petición.
    */
   loadCatalogSearchTerms?: () => Promise<ApolloSubindustryCatalogTermsLoadResult>;
+  /**
+   * AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 §§ 3, 4, 6 — lo que la capa previa al
+   * pago dejó abierto.
+   *
+   * Ésta es LA costura que faltaba. `run-prepaid-novelty-discovery.server.ts`
+   * declaraba la ruta Apollo `partialGapSupported: false` —todo-o-nada, un hueco
+   * parcial se descartaba entero— con este motivo textual: «su objetivo de
+   * candidatos persistibles vive dentro del orquestador de dos rondas y no viaja
+   * por `ResolvedWizardExecution`». Ahora viaja, por su propio campo y no dentro
+   * del contexto resuelto, que describe la SELECCIÓN del usuario y no el estado de
+   * una capa previa.
+   *
+   * Ausente ⇒ el objetivo entero, exactamente como antes de este corte.
+   *
+   * 🔴 REVIEW-1 § 2 — en PRODUCCIÓN hoy llega siempre con el objetivo entero:
+   * `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED` es `false`, así que la capa gratuita o
+   * cierra el objetivo (y Apollo no corre) o se descarta. La cota de aquí es
+   * CAPACIDAD probada, no comportamiento vivo de hueco parcial.
+   */
+  resultDemand?: ProviderResultDemand | null;
+  /**
+   * CUT-2 §§ 8, 10, 11 — memoria provider-seen previa, ya cargada por la capa
+   * gratuita. Sólo medición: no se envía a Apollo y no recorta el objetivo.
+   */
+  priorProviderSeen?: ApolloPriorProviderSeen | null;
 };
 
 export type WizardApolloRunner = (input: WizardApolloInput) => Promise<IncrementalSearchOutput>;
@@ -174,6 +242,10 @@ export async function runWizardApolloSearch(
         ...toApolloTwoRoundConfigDiagnostics(twoRoundResolution),
       },
       reservedCredits: input.reservedCredits ?? 0,
+      // CUT-2 §§ 3, 5 — la demanda y la reserva viajan por campos DISTINTOS y
+      // adyacentes, para que se vea que no se derivan la una de la otra.
+      resultDemand: input.resultDemand ?? null,
+      priorProviderSeen: input.priorProviderSeen ?? null,
     });
   }
 
@@ -190,7 +262,20 @@ export async function runWizardApolloSearch(
     webSearchProvider: 'apollo_organizations',
     targetInternal: WIZARD_APOLLO_TARGET_INTERNAL,
     maxRounds: WIZARD_APOLLO_MAX_ROUNDS,
-    targetPersistibleCandidates: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+    // CUT-2 §§ 4, 6 — la ruta legacy también respeta el hueco. Es el objetivo de
+    // ACEPTACIÓN (candidatos persistibles), que es exactamente el que la capa
+    // gratuita ya cerró en parte. `targetInternal` NO se toca: es la AMPLITUD de
+    // búsqueda del pipeline, no una promesa al usuario, y recortarla mezclaría dos
+    // conceptos que el gate previo separa a propósito.
+    //
+    // 🔴 Sin demanda residual el valor es la constante de siempre, byte por byte.
+    targetPersistibleCandidates:
+      input.resultDemand === null || input.resultDemand === undefined
+        ? WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES
+        : boundByRemainingTarget(
+            WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+            input.resultDemand.remainingTarget,
+          ),
     existingBatchId: input.reservedBatchId,
     triggeredByUserId: input.resolved.userId,
     ownerId: input.resolved.userId,
