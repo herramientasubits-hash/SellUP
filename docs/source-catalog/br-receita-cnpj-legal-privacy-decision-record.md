@@ -198,3 +198,50 @@ This milestone is documentation only. It does **not**:
 - include secrets.
 
 No merge is performed by this milestone.
+
+---
+
+## 14. GATE-1 legal/privacy determination (2026-08-21)
+
+> **Update (BR-SOURCE-GATE1-RECORD).** This section records the legal/privacy determination that
+> 10K § 5 names as a GATE-1 *Expected artifact*. The matching § 14 approval entry lives in
+> [`br-receita-cnpj-gate1-owner-approval-record.md`](./br-receita-cnpj-gate1-owner-approval-record.md),
+> per 10K § 14's rule that an approval is recorded in that shape and never inside a design or
+> review record.
+
+**Determination.** The human legal/privacy owner reviewed the Brazil / Receita scope and decided
+that **development may continue**, on the basis that legal/privacy coverage is considered satisfied.
+
+```text
+GATE1_STATUS                    = approved
+Approver                        = legal/privacy owner   (role only — 10K § 14)
+Approval date                   = 2026-08-21
+Granularity of the decision     = whole scope, not per-confirmation
+LICENCE_METADATA_HISTORY        = CONFLICTING_OFFICIAL_METADATA
+LEGAL_PRIVACY_OWNER_DISPOSITION = accepted_for_continuation_of_development
+LICENCE_RESOLVED_BY_AGENT       = false
+```
+
+**Relationship to BR-LEGAL-2 above.** § 3 of this record already carried a legal/privacy green light
+for *development* at the BR-SOURCE-2 level, with `LICENSE_DECISION = allowed`. That determination is
+unchanged and is not restated, strengthened or re-derived here. GATE-1 is the narrower, later
+decision defined by 10K § 5 — legal/privacy approval for the **full local join dry-run** — and this
+section records that it is now `approved`. The § 11 operational flags above are unchanged: GATE-1
+flips no operational flag (10K § 5, *Relation to flags*).
+
+**Licence.** The historical conflict recorded in BR-LEGAL-0 § 3 and BR-LEGAL-1 § 7 — CC BY-ND 3.0
+on one official surface, a possible CC BY-NC-ND 3.0 Brasil variant on another — is **preserved
+unchanged and not reopened**. What the owner supplied is a disposition over that evidence, not a
+resolution of it. No agent determined which licence governs.
+
+**Restrictions.** Enumerated in full in the § 14 approval record, § 2. In summary form only for
+navigation — the enumerated list is authoritative: no socios, no QSA, no CPF, no explicitly
+person-linked Receita family, no automatic production enablement, no Supabase/import authorization
+implied, no Agent 1 Brazil enablement implied, no provider write implied, downstream gates
+independently required, privacy/sanitization controls mandatory, downstream persistence/output must
+satisfy its own gates.
+
+**What stays non-approved.** Everything in § 9 above stays non-approved, and GATE-2 … GATE-8 plus
+the cap/input policy all remain `not_started`. This determination retroactively approves no prior
+execution, modifies no historical audit record, and resets no benchmark attempt budget
+(`ATTEMPT_3_ALLOWED` stays `false`, with no reset path).
