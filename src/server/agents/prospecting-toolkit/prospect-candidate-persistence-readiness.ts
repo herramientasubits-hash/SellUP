@@ -23,6 +23,8 @@
  * `wizard-persistence-readiness-deps.ts`.
  */
 
+import { resolveBatchTerminalStatusDecision } from '@/server/prospect-batches/batch-durable-candidates';
+
 // ─── Códigos ──────────────────────────────────────────────────────────────────
 
 /**
@@ -342,17 +344,61 @@ export function toCandidatePersistenceOutcomeMetadata(
  * (draft|generating|ready_for_review|in_review|completed|cancelled|failed): no
  * se crea ningún enum nuevo en la base.
  *
- *   `failed`           — había empresas elegibles y ninguna se guardó. El lote
- *                        NO puede quedarse en `ready_for_review`: es lo que hizo
- *                        LIVE-QA-2 y por eso el vacío se leyó como normal.
- *   `ready_for_review` — se guardó al menos una: hay algo real que revisar,
- *                        aunque parte se haya perdido.
- *   `completed`        — no hubo nada que guardar y nada falló.
+ *   `failed`           — había empresas elegibles y ninguna se guardó, y el lote
+ *                        tampoco contenía nada de antes. NO puede quedarse en
+ *                        `ready_for_review`: es lo que hizo LIVE-QA-2 y por eso
+ *                        el vacío se leyó como normal.
+ *   `ready_for_review` — el lote contiene al menos una fila durable —la haya
+ *                        escrito este contribuyente o ya estuviera dentro—: hay
+ *                        algo real que revisar, aunque parte se haya perdido.
+ *   `completed`        — no hubo nada que guardar, nada falló y el lote estaba
+ *                        vacío.
+ *
+ * AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 § 5 — CAMBIO DE CONTRATO.
+ *
+ * Antes esta función sólo recibía las filas que había escrito EL CONTRIBUYENTE
+ * QUE LLAMA, y por eso no podía distinguir «el lote está vacío» de «el lote ya
+ * traía 7 filas y yo no añadí ninguna». Un lote mixto gratuito+pago con 7 filas
+ * gratuitas dentro terminaba en `completed` o en `failed` porque el escritor de
+ * pago insertó 0 (P0 G2).
+ *
+ * `persistedCandidates` NO se reinterpreta: sigue significando exactamente lo
+ * mismo que antes —lo que ESTE contribuyente insertó— y el estado del lote pasa
+ * a depender además de `preExistingDurableCandidates`, que es lo que el lote ya
+ * contenía ANTES de esas inserciones. Se declaran por separado justamente para
+ * que no puedan contarse dos veces (§ 8).
+ *
+ * El campo es OBLIGATORIO a propósito: un llamador que sólo sepa su propio
+ * resultado tiene que declararlo (`NO_PRE_EXISTING_DURABLE_CANDIDATES` cuando el
+ * lote es suyo y nuevo), no omitirlo.
+ *
+ * Para el caso «no se pudo determinar qué contenía el lote» no se usa esta
+ * función: ese caso no tiene estado terminal honesto y lo resuelve
+ * `resolveBatchTerminalStatusDecision` en `batch-durable-candidates.ts`, que
+ * puede responder «no escribas estado».
  */
 export function resolveBatchStatusForPersistenceOutcome(input: {
+  /** Filas durables que el lote YA contenía antes de que este contribuyente insertara. */
+  preExistingDurableCandidates: number;
+  /** Filas que ESTE contribuyente insertó con éxito. */
   persistedCandidates: number;
   persistenceFailureCount: number;
 }): 'failed' | 'ready_for_review' | 'completed' {
-  if (input.persistedCandidates > 0) return 'ready_for_review';
-  return input.persistenceFailureCount > 0 ? 'failed' : 'completed';
+  const decision = resolveBatchTerminalStatusDecision({
+    preExisting: {
+      known: true,
+      // Un valor ausente o no numérico no acredita filas: nunca fabrica
+      // supervivencia, sólo degrada al comportamiento previo al hito.
+      count:
+        typeof input.preExistingDurableCandidates === 'number' &&
+        Number.isFinite(input.preExistingDurableCandidates)
+          ? input.preExistingDurableCandidates
+          : 0,
+    },
+    persistedCandidates: input.persistedCandidates,
+    persistenceFailureCount: input.persistenceFailureCount,
+  });
+  // Con `known: true` la decisión es siempre `write`: el `preserve` sólo existe
+  // para el conocimiento ausente, que esta firma no admite.
+  return decision.action === 'write' ? decision.status : 'completed';
 }

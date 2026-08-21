@@ -227,6 +227,10 @@ describe('§ 9 — estado del lote coherente con el resultado de la persistencia
   it('elegibles con cero guardados y fallo de escritura ⇒ failed', () => {
     assert.equal(
       resolveBatchStatusForPersistenceOutcome({
+        // CUT-1 — estos tres casos históricos describen un lote SIN contenido
+        // previo. Se declara explícitamente: es el hecho que hacía que la
+        // respuesta antigua fuera correcta, y ahora está dicho.
+        preExistingDurableCandidates: 0,
         persistedCandidates: 0,
         persistenceFailureCount: 1,
       }),
@@ -237,6 +241,10 @@ describe('§ 9 — estado del lote coherente con el resultado de la persistencia
   it('cero guardados sin ningún fallo ⇒ completed (descartes intencionales)', () => {
     assert.equal(
       resolveBatchStatusForPersistenceOutcome({
+        // CUT-1 — estos tres casos históricos describen un lote SIN contenido
+        // previo. Se declara explícitamente: es el hecho que hacía que la
+        // respuesta antigua fuera correcta, y ahora está dicho.
+        preExistingDurableCandidates: 0,
         persistedCandidates: 0,
         persistenceFailureCount: 0,
       }),
@@ -247,6 +255,10 @@ describe('§ 9 — estado del lote coherente con el resultado de la persistencia
   it('al menos uno guardado ⇒ ready_for_review, incluso con pérdidas parciales', () => {
     assert.equal(
       resolveBatchStatusForPersistenceOutcome({
+        // CUT-1 — estos tres casos históricos describen un lote SIN contenido
+        // previo. Se declara explícitamente: es el hecho que hacía que la
+        // respuesta antigua fuera correcta, y ahora está dicho.
+        preExistingDurableCandidates: 0,
         persistedCandidates: 1,
         persistenceFailureCount: 2,
       }),
@@ -267,6 +279,7 @@ describe('§ 9 — estado del lote coherente con el resultado de la persistencia
     for (const persisted of [0, 1]) {
       for (const failures of [0, 1]) {
         const status = resolveBatchStatusForPersistenceOutcome({
+          preExistingDurableCandidates: 0,
           persistedCandidates: persisted,
           persistenceFailureCount: failures,
         });
