@@ -129,8 +129,10 @@ Rules governing status:
 
 - **All eight gates start at `not_started`.** That is their status as of this document; nothing
   here advances any of them. (GATE-1 was later moved to `approved` by a separate recorded owner
-  decision — § 5.1. That decision is not this document advancing a gate; it is an owner decision
-  recorded in the § 14 shape, which § 4 requires and this document only defines.)
+  decision — § 5.1; GATE-2 to `approved` and GATE-8 to `approved` **as a contract** by
+  BR-SOURCE-GATE-ROUND-1 — § 6.1 and § 12.1; and GATE-3 to `needs_evidence` by the same round's
+  recorded field policy — § 7.1. None of those is this document advancing a gate; each is an owner
+  decision recorded in the § 14 shape, which § 4 requires and this document only defines.)
 - **No gate may be approved by inference.** Silence, absence of objection, a passing test, a green
   CI check, a merged PR, or a prior bounded result is never an approval.
 - **No gate may be self-approved by the agent or author who implements its subject.** The
@@ -355,6 +357,70 @@ decides whether Option C (a temporary on-disk index) is permitted at all.
 > it creates no runner, script, or test, and it authorizes no owner review, broader local execution,
 > temp storage, dry-run, import, Supabase write, migration, runtime, or Agent 1 integration.
 
+### 6.1 GATE-2 is APPROVED (BR-SOURCE-GATE-ROUND-1)
+
+> **Update (BR-SOURCE-GATE-ROUND-1) — § 6.1 GATE-2 is APPROVED.** The technical owner (storage and
+> execution model) and the privacy owner jointly approved Option C inside the envelope below. The
+> decision is recorded as data in
+> [`br-receita-cnpj-gate2-recorded-owner-decision.ts`](../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate2-recorded-owner-decision.ts),
+> so BR-SOURCE-13A evaluates it instead of a reader eyeballing prose.
+>
+> Per this gate's own *Relation to flags* clause it **flips no operational flag**, and two things are
+> asserted unchanged by test: `BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED` is still
+> the tracked `false`, and `BRAZIL_RECEITA_FULL_JOIN_PROVISIONAL_RESOURCE_CAP_PROPOSAL` still holds
+> `maxTemporaryStorageBytes: 0`. A run still needs its own invocation-scoped operator grant.
+
+```
+Gate:                   GATE-2 — Temporary storage envelope
+Status:                 approved (scoped — see Restrictions)
+Approver:               technical owner (storage and execution model) AND privacy owner, jointly
+Approval date:          2026-08-21
+Evidence links:         10K § 6; 10J § 5 (options), § 6 (temporary storage), § 10 (limits);
+                        br-receita-cnpj-gate2-controls-and-evidence-template.md;
+                        br-receita-cnpj-legal-privacy-decision-record.md
+Decision summary:       Option C — a temporary local discardable index — is permitted, with Options A
+                        and B explicitly not approved. Seven ceilings are decided as numbers. The
+                        workspace is constrained by rule rather than by location: outside the
+                        repository, outside the home directory, outside the dataset root, no symlink,
+                        directory mode 0700, file mode 0600. Temporary material lives for the run and
+                        no longer. Cleanup requires VERIFIED deletion on both the success and the
+                        failure path; a failed cleanup is terminal and a cleanup that never ran is
+                        terminal; success-with-residue is not an outcome. Encryption at rest is not
+                        required WHILE no raw or normalized join key, and no hash, truncation or
+                        fingerprint of either, is materialized to temporary storage — the verified
+                        destroy step is unconditional and required regardless. The partition bucket
+                        ordinal is accepted as structural, non-invertible partition metadata and not
+                        join-key material; that privacy disposition is attributed to the privacy
+                        owner, not to any agent.
+Artifacts approved:     the storage-envelope decision record (option, workspace constraints, the
+                        seven ceilings, TTL, permissions, cleanup contract, encryption condition)
+Artifacts rejected:     Option A (pure in-memory map); Option B (streaming two-pass scan)
+Open follow-ups:        (1) three cap keys have no owner number — maxFilesOpened, maxBytesRead,
+                        maxJoinKeysInMemory. Each has a PROPOSED figure in
+                        BRAZIL_RECEITA_PROPOSED_FULL_SCAN_BENCHMARK_CAPS, whose status reads
+                        `proposed_benchmark_caps_not_production_caps`; a proposal is not an approval,
+                        and maxJoinKeysInMemory is a temp-index limit inside this gate's own scope.
+                        (2) maxPhaseRuntimeMs is DECIDED at 3 h while that standing proposal carries
+                        6 h. The GATE-2 envelope governs; the proposal is not edited by this record,
+                        and the divergence is recorded so a future run cannot inherit the looser
+                        figure by accident. (3) An owner may replace the review CONDITION with a
+                        calendar date.
+Blocks:                 persisting approved source data; creating source_company_snapshots rows;
+                        storing real data inside the repository; treating a temporary technical
+                        artifact as a source snapshot; temporary material outliving the run;
+                        structural keys in file names, log lines, report fields or paths; any
+                        raw-value log
+Allows:                 designing — and, once every gate is approved, implementing — temporary
+                        material handling strictly inside this envelope
+Does not allow:         any run, benchmark, benchmark retry, real-data read, snapshot output,
+                        persistence, import, Supabase write, migration, runtime path, Agent 1
+                        enablement or provider call; and no operational flag is flipped
+Restrictions:           the approval is BOUNDED to the seven decided ceilings. A run needing one of
+                        the three undecided caps is outside it and must return for that cap. The
+                        encryption disposition REOPENS if the temporary record or file layout ever
+                        materializes prohibited key-derived material.
+```
+
 ---
 
 ## 7. GATE-3 — Field allowlist approval
@@ -436,6 +502,90 @@ the report may carry; sets `field_allowlist_version`.
 > may approve — recorded with the § 14 template, never inside that record. It writes no code, decides
 > no identity grain, freezes no report schema, and authorizes **no** dry-run, import, Supabase write,
 > migration, runtime, or Agent 1 integration.
+
+### 7.1 The GATE-3 FIELD POLICY is recorded — the gate is NOT approved (BR-SOURCE-GATE-ROUND-1)
+
+> **Update (BR-SOURCE-GATE-ROUND-1) — § 7.1 the field policy exists; GATE-3 stays shut.** The owners
+> supplied the field policy AND attached a condition to its approval: GATE-3 does not move to
+> `approved` until the CNPJ snapshot blocker is fixed and merged. Those two facts must not be
+> collapsed, so the policy is recorded as data in
+> [`br-receita-cnpj-gate3-recorded-field-policy.ts`](../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate3-recorded-field-policy.ts)
+> with an explicit `not_approved_pending_cnpj_snapshot_blocker` status.
+>
+> **The blocker, precisely.** `BrReceitaCnpjSnapshotRawData` labels itself "Sanitized snapshot output
+> (allowlist only — data-contract § 5.2)". That claim was FALSE: the block carried `cnpj_root` (the
+> CNPJ básico), `cnpj_order` and `cnpj_dv`, which together reconstruct the full 14-position CNPJ
+> exactly. And its own defence, `assertSanitizedRawData`, inspected KEY NAMES only — so a forbidden
+> VALUE under a permitted key passed untouched, and renaming the key would have defeated the guard.
+>
+> **What the same workstream fixed.** The three fields are removed from the sanitized output, nothing
+> replaces them, and the sanitizer now validates keys **and** values — reusing the canonical
+> alphanumeric, DV-validated detector rather than inventing a second definition of "CNPJ-shaped".
+> Reconstruction is proved impossible by trying: every ordered pair and triple of output leaves is
+> asserted not to rebuild the identifier. Benign business numerics are asserted to SURVIVE, because a
+> blunt "eight digits is a básico" rule would have destroyed an eight-digit `YYYYMMDD` opening date
+> and a large capital figure — the very values this output exists to carry.
+>
+> **Why the gate is still shut after that fix.** Three residual blockers are recorded, unresolved,
+> each with a named owner:
+>
+> - **RB-1 — the identity grain.** `BrReceitaCnpjSnapshotRow` still carries `tax_id`,
+>   `normalized_tax_id` and `record_identity_key` (`tax:<14>`) as TOP-LEVEL columns of the shared
+>   `source_company_snapshots` contract — not as part of the § 5.2 allowlist block this gate governs.
+>   The prohibited-output set forbids that survival, and removing those columns is a change to the
+>   record identity GRAIN, which is **GATE-4's** subject (§ 3: changing the subject re-opens the
+>   gate). It would also diverge Brazil from every other TAX_GRAIN source, whose record identity
+>   derives from that same column. That is an owner decision in the round that owns GATE-4 — not a
+>   deletion an agent performs while fixing a different defect.
+> - **RB-2 — a CNPJ hash used as a rejection diagnostic.** Rejected rows carry a truncated SHA-256
+>   fingerprint of the CNPJ as `safeIdentifier`, and the fixture-only controlled parser reports a
+>   list of them. § 5 R4 forbids a hash, truncation or fingerprint of the CNPJ **anywhere**, and the
+>   recorded policy forbids "prohibited CNPJ derivatives". Replacing it needs an owner decision,
+>   because it exists to make a rejection diagnosable without printing a CNPJ.
+> - **RB-3 — four unlabelled fields.** `legal_nature_code` / `legal_nature_label`,
+>   `matrix_branch_flag`, `simples_opt_in` / `simei_opt_in` and `mei_flag` are carried by the
+>   sanitized output but are not named in the owners' include set. This gate's pass criteria require
+>   **nothing unlabelled**. They were NOT deleted: `mei_flag` is the § 5 R5 control marker, and
+>   removing a privacy control for being absent from an include list of privacy-relevant output would
+>   weaken the very thing the list protects.
+>
+> A `field_allowlist_version` identifier — `br_receita_cnpj_field_allowlist_v1`, the first ever
+> assigned — is bound to the recorded POLICY. 🔴 The 10J § 12 report marker still reads
+> `"not_approved"`: assigning a version to a policy is not releasing the marker, and a report naming
+> the version today would assert an approved allowlist that does not exist.
+
+```
+Gate:                   GATE-3 — Field allowlist approval
+Status:                 needs_evidence  (advanced from not_started; NOT approved)
+Approver:               product / data owner AND legal/privacy owner, jointly — no approval recorded
+Approval date:          n/a — the field policy was recorded 2026-08-21; the gate was not approved
+Evidence links:         10K § 7; 10I § 6.1 / § 6.3; 10J § 8.3 / § 8.4;
+                        br-receita-cnpj-full-join-field-allowlist-decision-record.md;
+                        br-receita-cnpj-gate3-recorded-field-policy.ts
+Decision summary:       The owners recorded the field policy. PROHIBITED OUTPUT (closed, twelve
+                        items): CNPJ básico, full CNPJ, cnpj_root, cnpj_order, cnpj_dv,
+                        reconstructable CNPJ parts, normalized_tax_id snapshot survival, Socios, QSA,
+                        CPF, person-linked data, prohibited CNPJ derivatives. INCLUDE (closed, ten
+                        items): sanitized legal_name, CNAE approved fields, registration status,
+                        company size, UF, municipality, opened_at, source period, provenance,
+                        capital_social_value. trade_name = EXCLUDED_NOT_IMPLEMENTED. raw_data =
+                        CLOSED_TYPED_ALLOWLIST. field_allowlist_version =
+                        br_receita_cnpj_field_allowlist_v1, bound to the policy only.
+Artifacts approved:     none — this is a recorded policy, not an approval
+Artifacts rejected:     none
+Open follow-ups:        RB-1 identity-grain survival (owned by GATE-4); RB-2 the twelve-character
+                        CNPJ hash used as a rejection diagnostic (owned by the GATE-3 joint
+                        approvers); RB-3 the four unlabelled fields (owned by the GATE-3 joint
+                        approvers)
+Blocks:                 persistence of any kind; widening the eligibility design § 5 allowlist; any
+                        report naming the field_allowlist_version
+Allows:                 nothing — an unapproved gate unlocks no next step
+Does not allow:         being read as an approval, an import authorization, a writer authorization,
+                        or a resolution of GATE-4 or GATE-5
+Restrictions:           free-text fields fail closed — not on the allowlist means excluded. Every
+                        residual blocker must be closed by its named owner before this gate can be
+                        approved.
+```
 
 ---
 
@@ -928,6 +1078,62 @@ Plus confirmation that:
 > no runner, and no test is created; and it authorizes no import, runtime activation, Agent 1 activation,
 > Supabase write, migration, or index change.
 
+### 12.1 GATE-8 is APPROVED_AS_CONTRACT (BR-SOURCE-GATE-ROUND-1)
+
+> **Update (BR-SOURCE-GATE-ROUND-1) — § 12.1 GATE-8 is approved AS A CONTRACT.** The repo safety
+> owner and the technical owner jointly approved along exactly the line the 10PQR packet proposed in
+> § 8.3: the **contract is approvable now**, and the **proofs land with the implementation**, because
+> they are proofs about code that § 4 forbids writing until every gate is approved.
+>
+> 🔴 The recorded value is `APPROVED_AS_CONTRACT`, not a bare `approved`, and that is deliberate: a
+> reader scanning for approved gates must not be able to mistake a contract approval for an operating
+> one. It authorizes **no operation of any kind**, and it does not authorize writing the runner —
+> this gate's own *Allows* clause is conditional on every other gate being approved, and five are
+> not. The record states `authorizesOperations: false` as data, and
+> [`br-receita-cnpj-gate8-recorded-contract-approval.ts`](../../src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate8-recorded-contract-approval.ts)
+> has **no imports at all** — a record that imports nothing can flip nothing.
+>
+> Every preserved invariant is asserted by test against the module that really owns it, never against
+> the record's own copy, which would be circular: `maxOutputRows` is `0` in the benchmark profile, the
+> resolver subset and the provisional envelope; the null benchmark sink still tallies
+> `rowsEmitted: 0` and `recordsRetained: 0`; and the offline parser still summarizes `db_writes: 0`,
+> `snapshot_writes: 0`, `dataset_downloads: 0`.
+
+```
+Gate:                   GATE-8 — No-write / no-runtime guarantee
+Status:                 approved — as a CONTRACT only (decision value APPROVED_AS_CONTRACT)
+Approver:               repo safety owner AND technical owner, jointly
+Approval date:          2026-08-21
+Evidence links:         10K § 12; 10J § 11 (no-write flags), § 12 (safety invariants);
+                        br-receita-cnpj-full-join-remaining-gates-decision-packet.md § 8 / § 9
+Decision summary:       The mandatory and forbidden flag sets, the blocked-surface list NB-01…NB-20,
+                        the structural enforcement requirements and the rejection-ordering contract
+                        are approved as the SHAPE a future runner must have. Nothing may run. The
+                        safety invariants are preserved unchanged: maxOutputRows = 0,
+                        NullBenchmarkSink active, snapshot persistence false, runtime false, Agent 1
+                        Brazil false, production false.
+Artifacts approved:     the CLI guard contract (mandatory flags, forbidden flags, rejection codes,
+                        rejection timing) as a contract
+Artifacts rejected:     none
+Open follow-ups:        nine proofs are DEFERRED to the implementation and remain owed —
+                        allowlist-only emit; no prohibited key material; bounded output; staging;
+                        atomic publish; rollback; integrity validation; fail-closed runtime; no
+                        import or runtime crossing without subsequent authorization. Atomic publish
+                        and the engine-to-snapshot bridge remain post-gate engineering and are not
+                        designed by this record. The enumerated no-write test list NW-A01…NW-A28
+                        lands with the runner.
+Blocks:                 any write path however guarded; any migration; any Agent 1 integration; any
+                        provider call; any production side effect; a forbidden flag accepted and
+                        ignored rather than rejected
+Allows:                 nothing operational. Writing the runner remains forbidden while any other
+                        gate is unapproved.
+Does not allow:         being read as permission to run, to write the runner, to import, to activate
+                        runtime, to activate Agent 1, or to perform any Supabase write
+Restrictions:           approved as a contract only. A runner that lands without discharging one of
+                        the nine deferred proofs has NOT satisfied this gate, however green its tests
+                        are. No benchmark run and no attempt-budget reset.
+```
+
 ---
 
 ## 13. Gate dependency graph
@@ -1035,11 +1241,32 @@ GO for execution              ≠  GO for import
 GO for import                 requires a later, separate import authorization
 ```
 
-**Today's position (as of 2026-08-21):** GATE-1 is `approved` (§ 5.1); GATE-2 … GATE-8 are all
-`not_started`. Seven gates at `not_started` means the matrix still reads **NO-GO**, which is the
-expected and correct outcome. An approved GATE-1 makes the gates that depend on it alone — GATE-2,
-GATE-3, GATE-8 — *reviewable*; § 13 is explicit that the graph orders review and does not propagate
-approval.
+**Today's position (as of 2026-08-21, after BR-SOURCE-GATE-ROUND-1):**
+
+```
+GATE-1  approved                    (§ 5.1)
+GATE-2  approved — scoped           (§ 6.1)
+GATE-3  needs_evidence — NOT approved, three residual blockers   (§ 7.1)
+GATE-4  not_started
+GATE-5  not_started
+GATE-6  not_started
+GATE-7  not_started
+GATE-8  approved — AS A CONTRACT    (§ 12.1)
+```
+
+Five gates are not approved, so the matrix still reads **NO-GO** — the expected and correct outcome.
+Three readings a future reader is most likely to get backwards:
+
+- **GATE-2 `approved` flipped no flag.** Its own *Relation to flags* clause says so, and the tracked
+  temporary-storage policy constant and the provisional cap proposal are asserted unchanged by test.
+- **GATE-8 `APPROVED_AS_CONTRACT` is not permission to write the runner.** Its *Allows* clause is
+  conditional on every other gate being approved, and five are not.
+- **GATE-3 recorded a policy, not an approval.** The field policy exists and a
+  `field_allowlist_version` is bound to it; the gate is `needs_evidence` and the 10J § 12 report
+  marker still reads `"not_approved"`.
+
+Round 1 closed GATE-2, the GATE-3 field policy and GATE-8. **Round 2 = GATE-4 + GATE-6**, and GATE-4
+inherits residual blocker RB-1 from § 7.1.
 
 ---
 

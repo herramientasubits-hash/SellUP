@@ -95,9 +95,21 @@ export function computeBrazilCnpjCheckDigits(identityChars: string): string {
   return `${dv1}${dv2}`;
 }
 
-/** Strips punctuation and uppercases; does not validate. */
+/**
+ * Strips punctuation and uppercases; does not validate.
+ *
+ * 🔴 BR-SOURCE-GATE-ROUND-1 — EXPORTED as `stripBrazilCnpjPunctuationAndUpper`. The snapshot
+ * output sanitizer needs the same comparison form this module already uses, and a second
+ * normalizer written next door would be a second definition of "the same CNPJ" — the exact
+ * divergence `br-receita-cnpj-identifier-shape.ts` exists to prevent on the detection side.
+ */
 function stripAndUpper(raw: string): string {
   return raw.trim().toUpperCase().replace(BR_CNPJ_PUNCTUATION, '');
+}
+
+/** The canonical comparison form for CNPJ-shaped text. Never validates; never throws. */
+export function stripBrazilCnpjPunctuationAndUpper(raw: unknown): string {
+  return typeof raw === 'string' ? stripAndUpper(raw) : '';
 }
 
 /**

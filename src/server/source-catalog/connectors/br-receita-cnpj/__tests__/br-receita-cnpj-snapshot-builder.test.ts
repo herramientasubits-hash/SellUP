@@ -28,9 +28,9 @@ const ALLOWED_RAW_DATA_KEYS = new Set([
   'source_file_name',
   'source_downloaded_at',
   'import_batch_id',
-  'cnpj_root',
-  'cnpj_order',
-  'cnpj_dv',
+  // 🔴 BR-SOURCE-GATE-ROUND-1 — `cnpj_root`, `cnpj_order` and `cnpj_dv` are NO LONGER allowed
+  // keys. They are absent from the type, absent from the builder, and their absence from this set
+  // is what makes the `no unexpected key` assertion below catch a re-introduction.
   'matrix_branch_flag',
   'legal_nature_code',
   'legal_nature_label',
@@ -77,11 +77,15 @@ describe('buildBrReceitaCnpjSnapshotRows — acceptance & mapping', () => {
     assert.equal(snap.normalized_tax_id, legacyFull);
     assert.equal(snap.record_identity_key, `tax:${legacyFull}`);
     assert.equal(snap.tax_id, legacyFull); // raw = concatenated parts here
-    assert.equal(snap.raw_data.cnpj_root, RAIZ_TECNOLOGIA);
-    assert.equal(snap.raw_data.cnpj_order, '0001');
+    // 🔴 GATE-ROUND-1 — the identifier no longer survives INTO the sanitized output block. The
+    // top-level identity columns above are the shared `source_company_snapshots` contract and are
+    // GATE-4's subject; `raw_data` is the § 5.2 allowlist and carries none of it.
+    assert.equal('cnpj_root' in snap.raw_data, false);
+    assert.equal('cnpj_order' in snap.raw_data, false);
+    assert.equal('cnpj_dv' in snap.raw_data, false);
   });
 
-  it('joins EMPRESAS + ESTABELECIMENTOS by cnpj_root (legal_name, natureza, porte)', () => {
+  it('joins EMPRESAS + ESTABELECIMENTOS by the source raiz (legal_name, natureza, porte)', () => {
     const result = buildBrReceitaCnpjSnapshotRows(sampleParserInput());
     const snap = bySnapshotIdentity(result.snapshots, sampleFullCnpj(RAIZ_TECNOLOGIA, '0001'));
     assert.equal(snap.legal_name, 'Synthetic Tecnologia Ltda');
@@ -126,7 +130,8 @@ describe('buildBrReceitaCnpjSnapshotRows — acceptance & mapping', () => {
     const result = buildBrReceitaCnpjSnapshotRows(sampleParserInput());
     const edu = bySnapshotIdentity(result.snapshots, sampleFullCnpj(RAIZ_EDUCACAO, '0001'));
     assert.ok(/[A-Z]/.test(edu.normalized_tax_id));
-    assert.equal(edu.raw_data.cnpj_root, RAIZ_EDUCACAO);
+    // The alphanumeric raiz still drives the join; it just does not survive into the output.
+    assert.equal(edu.raw_data.legal_nature_code !== null, true);
   });
 });
 

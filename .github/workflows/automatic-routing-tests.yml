@@ -2415,3 +2415,33 @@ jobs:
       # memoria se inyectan. Sin red, sin Supabase, sin proveedor. 0 créditos.
       - name: Run A1 Apollo benchmark parity cut 1 tests
         run: npm run test:a1-apollo-benchmark-parity-cut1
+
+      # BR-SOURCE-GATE-ROUND-1 — los tres registros de decisión y el bloqueador
+      # CNPJ del snapshot.
+      #
+      # Lo que esta suite congela:
+      #
+      #   · GATE-2 queda `approved` y NO enciende nada: la constante rastreada de
+      #     política de almacenamiento temporal sigue en `false` y la propuesta
+      #     provisional de topes sigue con `maxTemporaryStorageBytes: 0` — ambas
+      #     verificadas contra su módulo DUEÑO, no contra la copia del registro;
+      #   · GATE-3 registra una POLÍTICA y sigue CERRADO, con sus tres bloqueadores
+      #     residuales presentes y sin resolver (RB-1 pertenece a GATE-4);
+      #   · GATE-8 es `APPROVED_AS_CONTRACT` y declara `authorizesOperations: false`;
+      #     el módulo no tiene NI UN import, que es lo que hace imposible que
+      #     encienda algo;
+      #   · el veredicto de artefacto completo sigue `invalid` / `NO_GO` — correcto
+      #     con cinco puertas sin aprobar, no un defecto de los registros.
+      #
+      # 🔴 Y el bloqueador: `cnpj_root` / `cnpj_order` / `cnpj_dv` fuera de la salida
+      # sanitizada, reconstrucción del CNPJ completo probada IMPOSIBLE (todo par y
+      # toda terna ordenada de valores de salida), y el sanitizador extendido de
+      # sólo-CLAVES a claves Y valores reusando el detector canónico alfanumérico con
+      # DV. Los numéricos benignos —fecha `YYYYMMDD` de ocho dígitos, capital social
+      # exacto— se prueban SUPERVIVIENTES: una regla tosca de «ocho dígitos» los
+      # habría destruido.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales de
+      # Receita. 0 créditos, 0 escrituras.
+      - name: Run BR-SOURCE gate round 1 and CNPJ hardening tests
+        run: npm run test:br-source:gate-round1-cnpj-hardening

@@ -29,7 +29,12 @@ import {
   normalizeBrazilCnpj,
   buildBrazilCnpjRecordIdentityKey,
   buildBrazilCnpjHash12,
+  stripBrazilCnpjPunctuationAndUpper,
 } from './br-cnpj';
+// 🔴 BR-SOURCE-GATE-ROUND-1 — the CANONICAL alphanumeric-aware, DV-validated CNPJ detector. Reused,
+// never re-implemented: a second definition of "CNPJ-shaped" here would drift from the one the
+// classifier, the dry-run guard, the report sanitizer and the metric channel already share.
+import { containsBrazilCnpjLikeIdentifier } from './br-receita-cnpj-identifier-shape';
 import {
   BR_RECEITA_CNPJ_SOURCE_KEY,
   BR_RECEITA_CNPJ_COUNTRY_CODE,
@@ -116,14 +121,100 @@ function assertNoForbiddenPersonalDataSource(input: BrReceitaCnpjParserInput): v
   }
 }
 
-/** Defensive: the built raw_data must never carry a forbidden output key (§ 5.3). */
-function assertSanitizedRawData(rawData: BrReceitaCnpjSnapshotRawData): void {
+/**
+ * The identifier material of the row being built, in canonical comparison form.
+ *
+ * Held per row and never across rows: the question this sanitizer answers is "did THIS row's own
+ * CNPJ leak into THIS row's output?", and a cross-row set would turn one row's identifier into a
+ * reason to reject a different row's benign value.
+ */
+type RowIdentifierMaterial = {
+  /** The full 14-position CNPJ, normalized. */
+  readonly full: string;
+  /** The CNPJ básico (raiz, 8 positions), normalized. */
+  readonly basico: string;
+};
+
+/**
+ * 🔴 BR-SOURCE-GATE-ROUND-1 — the sanitizer now inspects KEYS **and** VALUES.
+ *
+ * Key-only was the defect. `FORBIDDEN_OUTPUT_KEY_TOKENS` never contained `cnpj_root`, so the block
+ * that called itself "allowlist only" emitted the CNPJ básico under a permitted key and its own
+ * guard reported no violation. Renaming the key would have been enough to defeat it.
+ *
+ * Three checks, in the order a reader should think about them:
+ *
+ *   1. the forbidden KEY tokens, unchanged;
+ *   2. any value carrying a DV-valid CNPJ-shaped substring — via the canonical detector, so
+ *      alphanumeric CNPJs (official from July 2026) are caught too;
+ *   3. any value carrying THIS row's own full CNPJ or its básico, compared in canonical form.
+ *
+ * ── 🔴 Why check 3 is derivation-based and not shape-based ───────────────────
+ *
+ * A blunt "eight continuous digits is a básico" rule — which the public REPORT sanitizer can afford,
+ * because a report carries aggregates — would be wrong here and would fire constantly. Receita's
+ * `data_inicio_atividade` is `YYYYMMDD`: exactly eight digits. `capital_social` can normalize to
+ * eight or more. Those are the benign business values this output exists to carry, and rejecting
+ * them would make the guard useless in the only place it runs.
+ *
+ * So the básico is matched against the ONE value that is actually forbidden for this row: the básico
+ * of the record being built. A date is not that value, unless it coincidentally equals it — in which
+ * case fail-closed is the correct outcome and the row is rejected rather than published.
+ *
+ * ── What is deliberately NOT checked ────────────────────────────────────────
+ *
+ * The 4-position `cnpj_ordem` and the 2-position DV are NOT matched by containment. Four digits
+ * occur inside legitimate values constantly — a municipality code, a CNAE code, a year, part of a
+ * capital figure — and matching them would reject nearly every real row. They are removed
+ * STRUCTURALLY instead: no field carries them, and neither is reconstructable from what remains.
+ */
+function assertSanitizedRawData(
+  rawData: BrReceitaCnpjSnapshotRawData,
+  identifier: RowIdentifierMaterial,
+): void {
   for (const key of Object.keys(rawData)) {
     if (keyHasToken(key, FORBIDDEN_OUTPUT_KEY_TOKENS)) {
       throw new BrReceitaCnpjForbiddenSourceError(
         `BR Receita CNPJ parser: raw_data sanitization violation — forbidden key "${key}"`,
       );
     }
+  }
+
+  for (const [key, value] of Object.entries(rawData as unknown as Record<string, unknown>)) {
+    for (const leaf of Array.isArray(value) ? value : [value]) {
+      if (typeof leaf !== 'string' || leaf.length === 0) continue;
+      assertValueCarriesNoCnpjMaterial(key, leaf, identifier);
+    }
+  }
+}
+
+/**
+ * Rejects one leaf value that carries CNPJ material. The message names the KEY and the KIND of
+ * violation, never the value: a guard that printed what it caught would be the leak it prevents.
+ */
+function assertValueCarriesNoCnpjMaterial(
+  key: string,
+  value: string,
+  identifier: RowIdentifierMaterial,
+): void {
+  if (containsBrazilCnpjLikeIdentifier(value)) {
+    throw new BrReceitaCnpjForbiddenSourceError(
+      `BR Receita CNPJ parser: raw_data sanitization violation — key "${key}" carries a CNPJ-shaped, DV-valid value`,
+    );
+  }
+
+  const canonical = stripBrazilCnpjPunctuationAndUpper(value);
+  if (canonical.length === 0) return;
+
+  if (identifier.full.length > 0 && canonical.includes(identifier.full)) {
+    throw new BrReceitaCnpjForbiddenSourceError(
+      `BR Receita CNPJ parser: raw_data sanitization violation — key "${key}" carries the row's full CNPJ`,
+    );
+  }
+  if (identifier.basico.length > 0 && canonical.includes(identifier.basico)) {
+    throw new BrReceitaCnpjForbiddenSourceError(
+      `BR Receita CNPJ parser: raw_data sanitization violation — key "${key}" carries the row's CNPJ básico`,
+    );
   }
 }
 
@@ -285,9 +376,7 @@ export function buildBrReceitaCnpjSnapshotRows(
       source_period: normalizeText(input.sourcePeriod),
       source_row_index: i,
 
-      cnpj_root: normalizedTaxId.slice(0, 8),
-      cnpj_order: normalizedTaxId.slice(8, 12),
-      cnpj_dv: normalizedTaxId.slice(12, 14),
+      // 🔴 GATE-ROUND-1 — no `cnpj_root`, no `cnpj_order`, no `cnpj_dv`. See the type.
       matrix_branch_flag: normalizeText(row.identificador_matriz_filial),
 
       legal_nature_code: naturezaCode,
@@ -317,7 +406,13 @@ export function buildBrReceitaCnpjSnapshotRows(
     if (input.sourceDownloadedAt !== undefined) rawData.source_downloaded_at = input.sourceDownloadedAt;
     if (input.importBatchId !== undefined) rawData.import_batch_id = input.importBatchId;
 
-    assertSanitizedRawData(rawData);
+    // The row's own identifier material, in canonical form, for the value checks. The básico is
+    // taken from the NORMALIZED full CNPJ rather than from `rawBasico`: a source row whose raiz
+    // carried punctuation would otherwise be compared in a form the output never uses.
+    assertSanitizedRawData(rawData, {
+      full: stripBrazilCnpjPunctuationAndUpper(normalizedTaxId),
+      basico: stripBrazilCnpjPunctuationAndUpper(normalizedTaxId).slice(0, 8),
+    });
 
     snapshots.push({
       source_key: BR_RECEITA_CNPJ_SOURCE_KEY,
