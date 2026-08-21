@@ -82,9 +82,25 @@ function makeApproveDeps(overrides: Partial<ApproveDeps> = {}): { deps: ApproveD
     nowIso: '2026-07-08T12:00:00.000Z',
     loadCandidate: async () => makeCandidate(),
     loadExistingContacts: async () => [],
-    insertContact: async (payload) => {
-      calls.inserted.push(payload);
-      return { id: 'contact-new' };
+    // 4O-H3: creación de contacto y patch de aprobación son UNA transacción.
+    approveTransactionally: async ({ candidateId, contactPayload, reviewPatch }) => {
+      calls.inserted.push(contactPayload);
+      calls.updated.push({
+        id: candidateId,
+        patch: {
+          ...reviewPatch,
+          matched_contacts_id: 'contact-new',
+          enrichment_metadata: {
+            ...reviewPatch.enrichment_metadata,
+            review: {
+              ...((reviewPatch.enrichment_metadata as { review?: Record<string, unknown> })
+                .review ?? {}),
+              created_contact_id: 'contact-new',
+            },
+          },
+        },
+      });
+      return { ok: true, contactId: 'contact-new', alreadyApproved: false };
     },
     updateCandidate: async (id, patch) => {
       calls.updated.push({ id, patch });

@@ -99,6 +99,9 @@ const INPUT = {
 const REVEALED_RESULT: LushaPhoneFallbackClientResult = {
   ok: true,
   httpStatus: 200,
+  // 4O-D: el cliente publica AHORA la lista completa además del escalar. El
+  // escalar sigue siendo el que el ranking elige; con un solo teléfono, ese.
+  phones: [{ number: '+570000000000', rawType: null, phoneType: 'unknown' }],
   phoneNumber: '+570000000000',
   phoneType: 'unknown',
   phoneRawType: null,
@@ -114,6 +117,7 @@ const REVEALED_RESULT: LushaPhoneFallbackClientResult = {
 const NO_PHONE_RESULT: LushaPhoneFallbackClientResult = {
   ok: true,
   httpStatus: 200,
+  phones: [],
   phoneNumber: null,
   phoneType: 'unknown',
   phoneRawType: null,
@@ -129,6 +133,7 @@ const NO_PHONE_RESULT: LushaPhoneFallbackClientResult = {
 const HTTP_ERROR_RESULT: LushaPhoneFallbackClientResult = {
   ok: true,
   httpStatus: 402,
+  phones: [],
   phoneNumber: null,
   phoneType: 'unknown',
   phoneRawType: null,
@@ -147,6 +152,7 @@ const HTTP_ERROR_RESULT: LushaPhoneFallbackClientResult = {
 const MALFORMED_RESULT: LushaPhoneFallbackClientResult = {
   ok: true,
   httpStatus: 200,
+  phones: [],
   phoneNumber: null,
   phoneType: 'unknown',
   phoneRawType: null,

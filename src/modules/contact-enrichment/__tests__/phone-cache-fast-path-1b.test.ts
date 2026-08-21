@@ -33,8 +33,8 @@ import type {
   PhoneCacheEntry,
   PhoneCacheHitUsageLogEntry,
   PhoneCacheLookupKey,
-  PhoneCacheSuppressionLookupKey,
 } from '../phone-cache-core';
+import type { PhoneRevealSuppressionLookupKey } from '../provider-suppression-core';
 import type { MatchPersonParams } from '@/server/integrations/apollo-client';
 
 // ── Fixtures ───────────────────────────────────────────────────
@@ -104,7 +104,7 @@ interface Captured {
   apolloCalls: MatchPersonParams[];
   cacheLookups: PhoneCacheLookupKey[];
   /** Comprobaciones de supresión (FIX 2): corren con el flag ON y con el flag OFF. */
-  suppressionLookups: PhoneCacheSuppressionLookupKey[];
+  suppressionLookups: PhoneRevealSuppressionLookupKey[];
   cacheHitPatches: RevealCacheHitPersistencePatch[];
   cacheHitLogs: PhoneCacheHitUsageLogEntry[];
   touches: Array<{ entryId: string; usedAt: string }>;
@@ -370,16 +370,36 @@ describe('CACHE-1b fast path — cache MISS', () => {
     assert.equal(captured.cacheHitPatches.length, 0);
   });
 
-  it('SIN CUENTA: ni siquiera se consulta la caché', async () => {
+  // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4) — RE-ESPECIFICADO.
+  //
+  // Sin cuenta la PRIVACIDAD ya se evalúa, así que el reveal deja de bloquearse. Lo que NO
+  // cambia —y es lo que este archivo protege— es la CACHÉ: sigue siendo `same_account`, así
+  // que sin cuenta no hay ámbito de reutilización y no se lee ni una entrada. Ésa es
+  // exactamente la separación que la Fase 1 introduce:
+  //
+  //   sin cuenta ⇒ 0 lecturas de caché  (contrato de gasto, intacto)
+  //              ⇒ privacidad evaluada  (contrato de privacidad, reparado)
+  it('FASE 1: SIN CUENTA la privacidad se evalúa, pero la caché NO se lee', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       deps({}, candidate({ accountId: null })),
     );
-    assert.equal(result.status, 'requested');
-    assert.equal(captured.cacheLookups.length, 0);
+    assert.equal(result.status, 'requested', 'la privacidad ya no bloquea');
+    assert.equal(
+      captured.cacheLookups.length,
+      0,
+      'la caché sigue acotada por cuenta: sin cuenta, 0 lecturas',
+    );
+    assert.equal(captured.suppressionLookups.length, 1, 'la supresión SÍ se consulta');
+    assert.equal(captured.apolloCalls.length, 1, 'y el reveal llega a Apollo');
   });
 
-  it('ID LUSHA `v1.*`: no se lee caché en absoluto', async () => {
+  // FASE 1 — RE-ESPECIFICADO. Un id de Lusha en la columna `apollo_person_id` sigue siendo
+  // RECHAZADO como id de Apollo (el validador de 24 hex no se relajó), pero el candidato ya
+  // no queda sin identidad: su `source_contact_id` de Lusha es su identidad nativa. Así que
+  // la privacidad se evalúa con `provider: 'lusha'` y la CACHÉ sigue sin tocarse, porque la
+  // caché es de Apollo y sólo de Apollo.
+  it('FASE 1: ID LUSHA `v1.*` se evalúa como identidad de LUSHA, y la caché no se lee', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       deps(
@@ -392,7 +412,14 @@ describe('CACHE-1b fast path — cache MISS', () => {
       ),
     );
     assert.equal(result.status, 'requested');
-    assert.equal(captured.cacheLookups.length, 0);
+    assert.equal(
+      captured.cacheLookups.length,
+      0,
+      'la caché es de Apollo: un id de Lusha nunca la lee ni la escribe',
+    );
+    assert.equal(captured.suppressionLookups.length, 1);
+    assert.equal(captured.suppressionLookups[0].provider, 'lusha');
+    assert.equal(captured.suppressionLookups[0].providerPersonId, LUSHA_ID);
   });
 
   it('la clave de búsqueda siempre lleva provider/persona/cuenta/país', async () => {
@@ -850,7 +877,11 @@ describe('CACHE-1b supresión — FIX 2 independiente del flag de caché', () =>
     assert.equal(captured.suppressionLookups.length, 0);
   });
 
-  it('sin Apollo person id no hay tombstone posible: reveal normal', async () => {
+  // FASE 1 — con el flag de caché APAGADO (el default de Producción) la supresión se
+  // comprueba igual, y ahora se comprueba también para un candidato de Lusha. El flag
+  // gobierna la REUTILIZACIÓN; nunca gobernó el cumplimiento de una supresión, y sigue sin
+  // hacerlo.
+  it('FASE 1: flag OFF — un id de Lusha se evalúa como identidad de LUSHA', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       deps(
@@ -863,17 +894,40 @@ describe('CACHE-1b supresión — FIX 2 independiente del flag de caché', () =>
       ),
     );
     assert.equal(result.status, 'requested');
-    assert.equal(captured.suppressionLookups.length, 0);
-    assert.equal(captured.apolloCalls.length, 1);
+    assert.equal(captured.suppressionLookups.length, 1);
+    assert.equal(captured.suppressionLookups[0].provider, 'lusha');
   });
 
-  it('sin cuenta no hay alcance de supresión: reveal normal', async () => {
+  // #289 PRESERVADO con el flag OFF: sin NINGUNA identidad nativa sigue bloqueando antes de
+  // Apollo. Es el único caso que sobrevive como fail-closed.
+  it('#289 PRESERVADO: flag OFF y sin identidad nativa ⇒ BLOQUEA antes de Apollo', async () => {
+    const result = await runRevealCandidatePhone(
+      VALID_INPUT,
+      deps(
+        { cacheEnabled: false },
+        candidate({
+          apolloPersonId: null,
+          source: 'hubspot',
+          sourceContactId: null,
+        }),
+      ),
+    );
+    assert.equal(result.status, 'suppression_check_unavailable');
+    assert.equal(captured.suppressionLookups.length, 0);
+    assert.equal(captured.apolloCalls.length, 0);
+  });
+
+  // FASE 1 — RE-ESPECIFICADO: sin cuenta ya no falta "alcance de supresión", porque la
+  // supresión dejó de tener alcance de cuenta.
+  it('FASE 1: flag OFF y sin cuenta — la supresión se evalúa igual', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
       deps({ cacheEnabled: false }, candidate({ accountId: null })),
     );
     assert.equal(result.status, 'requested');
-    assert.equal(captured.suppressionLookups.length, 0);
+    assert.equal(captured.suppressionLookups.length, 1);
+    assert.equal(captured.suppressionLookups[0].accountId, null);
+    assert.equal(captured.apolloCalls.length, 1);
   });
 });
 

@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
 import {
   isProspectChatWizardExecutionEnabled,
@@ -11,6 +11,13 @@ import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
 import { WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
+import { WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES } from './wizard-apollo-executor';
+// AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 25 — el MISMO runner previo al
+// pago que ejecuta la ruta Lusha. Un solo cableado para las dos rutas.
+import {
+  runPrePaidNoveltyDiscovery,
+  type PrePaidNoveltyDiscoveryOutcome,
+} from '@/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server';
 import type {
   WizardExecutionActionResult,
   ResolvedWizardExecution,
@@ -43,6 +50,7 @@ import {
 import { runWizardTavilySearch } from './wizard-tavily-executor';
 import type { WizardTavilyRunner, WizardTavilyInput } from './wizard-tavily-executor';
 import { runWizardApolloSearch } from './wizard-apollo-executor';
+import { loadApolloSubindustryCatalogTerms } from '@/server/agents/prospecting-toolkit/apollo-subindustry-catalog-terms-loader.server';
 import type { WizardApolloRunner } from './wizard-apollo-executor';
 import { resolveWizardDiscoveryProvider } from './wizard-provider-resolver';
 import type { WizardDiscoveryProviderKey } from './wizard-provider-resolver';
@@ -87,6 +95,15 @@ import {
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from '@/server/agents/prospecting-toolkit/apollo-two-round';
 import { buildNoNewCandidatesBreakdown } from './wizard-no-new-candidates-copy';
+// A1-APOLLO-PERSISTENCE-READINESS-4 § 6/§ 7 — readiness de persistencia antes de
+// gastar y proyección del resultado real de la escritura.
+import {
+  decidePersistenceReadiness,
+  type PersistenceReadinessProbe,
+} from '@/server/agents/prospecting-toolkit/prospect-candidate-persistence-readiness';
+import { probeProspectCandidatePersistenceReadiness } from './wizard-persistence-readiness-deps';
+import type { PersistenceReadinessDbClient } from './wizard-persistence-readiness-deps';
+import type { WizardPersistenceOutcome } from './wizard-result-copy';
 import { TWO_ROUND_INDETERMINATE_ANOMALY } from '@/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server';
 import { markWizardBatchFailed } from './wizard-batch-failure';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
@@ -97,14 +114,35 @@ import {
   confirmWizardPilotCredits,
   releaseWizardPilotCredits,
   fetchWizardReservationRecord,
+  readWizardBudgetPeriodSnapshot,
 } from './wizard-budget-reservations';
-import type { BudgetReservationsRpcClient, ReservationLookupClient } from './wizard-budget-reservations';
+import type {
+  BudgetReservationsRpcClient,
+  ReservationLookupClient,
+  BudgetPeriodLookupClient,
+  WizardBudgetPeriodSnapshot,
+} from './wizard-budget-reservations';
 import {
   estimateWizardTavilyMaxCredits,
   getPilotBudgetPeriodStart,
   readWizardConsumedCreditsFromDb,
 } from './wizard-budget-reconciliation';
 import { estimateCreditsForProvider } from './wizard-budget-estimate';
+// AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — huso y cliente service_role del
+// presupuesto, compartidos con la lectura previa al primer clic.
+import {
+  WIZARD_BUDGET_TIMEZONE,
+  createWizardBudgetServiceClient,
+} from './wizard-budget-preflight.server';
+// MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — la taxonomía de la solicitud, declarada.
+import {
+  resolveDiscoveryTaxonomyCapability,
+  toDiscoveryTaxonomyMetadata,
+} from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+import {
+  getMacroIndustryBySlug,
+  resolveMacroIndustryByDisplayName,
+} from '@/modules/macro-industry-catalog/macro-industries';
 // A1-APOLLO-BUDGET-RECONCILIATION-1 — correlación del run y reconciliación por proveedor.
 import {
   buildWizardRunCorrelation,
@@ -128,7 +166,18 @@ import type { ConsumedCreditsDbClient } from './wizard-budget-reconciliation';
 export type ReserveBudgetDepResult =
   | { status: 'reserved'; reservationId: string; creditsReserved: number }
   | { status: 'already_reserved'; reservationId: string; creditsReserved: number }
-  | { status: 'blocked'; code: PilotGuardrailCode; message: string };
+  | {
+      status: 'blocked';
+      code: PilotGuardrailCode;
+      message: string;
+      /**
+       * AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — presente sólo cuando `code` es
+       * `BUDGET_EXCEEDED` y la lectura de diagnóstico (best-effort, de sólo
+       * lectura) pudo leer el período. `null`/ausente ⇒ el llamador cae al copy
+       * genérico en vez de adivinar un número.
+       */
+      budgetSnapshot?: WizardBudgetPeriodSnapshot | null;
+    };
 
 export type WizardExecutionDeps = {
   getActiveUserId: () => Promise<string>;
@@ -140,6 +189,40 @@ export type WizardExecutionDeps = {
    * falta y Apollo es el proveedor seleccionado, se falla cerrado.
    */
   checkApolloAvailability?: () => Promise<WizardApolloAvailability>;
+  /**
+   * A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — ¿puede la base guardar lo que esta
+   * corrida va a encontrar?
+   *
+   * OBLIGATORIA a propósito, a diferencia de `checkApolloAvailability`: aplica a
+   * TODOS los proveedores y su ausencia no puede degradarse a «entonces no se
+   * comprueba». Un dep opcional aquí es una corrida que gasta 12 créditos y
+   * descubre después que el INSERT no cabe — exactamente LIVE-QA-2.
+   */
+  checkPersistenceReadiness: () => Promise<PersistenceReadinessProbe>;
+  /**
+   * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/25 — la capa GRATUITA.
+   *
+   * Descubre en la fuente de país, aplica precisión Macro-v2 canónica, deduplica
+   * contra SellUp y HubSpot de sólo lectura, persiste lo aceptado por la ingesta
+   * canónica de fuentes y devuelve el hueco que queda. Corre ANTES de estimar
+   * créditos y ANTES de reservar.
+   *
+   * 🔴 Es LA MISMA capa que ejecuta la ruta Lusha. Que las dos rutas empiecen en
+   * el mismo sitio es lo que hará comparable el benchmark Apollo-vs-Lusha: si una
+   * descontara empresas gratuitas y la otra no, la diferencia medida sería la de
+   * las dos capas previas y se le atribuiría a los proveedores.
+   *
+   * Opcional: sin ella el hueco es el objetivo entero y el comportamiento es
+   * EXACTAMENTE el previo al hito. Los tests que sólo ejercitan Tavily/Apollo no
+   * cambian.
+   */
+  runPrePaidNoveltyDiscovery?: (input: {
+    countryCode: string;
+    macroIndustryKey: string | null;
+    requestedTarget: number;
+    requestedByUserId: string;
+    countryName: string;
+  }) => Promise<PrePaidNoveltyDiscoveryOutcome>;
   // Budget guardrail operations — period calculation and settings load are encapsulated here.
   reserveBudget: (input: {
     userId: string;
@@ -150,6 +233,8 @@ export type WizardExecutionDeps = {
     reservationId: string;
     actualCreditsConsumed: number;
     batchId?: string | null;
+    /** Sólo descriptivo: permite nombrar la magnitud de un sobrepaso (§ 8). */
+    creditsReserved?: number | null;
   }) => Promise<ConfirmWizardCreditsOutput>;
   releaseBudget: (input: {
     reservationId: string;
@@ -220,7 +305,13 @@ export type WizardExecutionDeps = {
 // Thin entrypoint for Next.js. Builds real deps from server context, delegates
 // to executeProspectWizardGeneration for the actual logic.
 
-const BOGOTA_TIMEZONE = 'America/Bogota';
+// AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — el huso y el cliente service_role
+// del presupuesto viven ahora en `wizard-budget-preflight.server.ts`, para que la
+// lectura que AVISA antes del primer clic y la reserva que BLOQUEA de verdad
+// miren la misma fila del mismo período con las mismas credenciales. Dos husos o
+// dos clientes es como se consigue una UI que avisa sobre un período que la
+// reserva no mira.
+const BOGOTA_TIMEZONE = WIZARD_BUDGET_TIMEZONE;
 
 /**
  * A1-APOLLO-WIZARD-1 — rol admitido para discovery de empresas con Apollo.
@@ -238,12 +329,10 @@ const resolveIsApolloDiscoveryRolePermitted = isWizardApolloDiscoveryRolePermitt
 // Budget RPC functions (try_reserve_wizard_credits, confirm_wizard_credits, release_wizard_credits)
 // and the wizard_budget_reservations table are REVOKE'd from the `authenticated` role — they require
 // service_role. The user-session client (publishable key) cannot call them.
-function createWizardBudgetClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase service_role credentials required for wizard budget operations');
-  return createAdminClient(url, key);
-}
+// AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — la fábrica se comparte con la lectura
+// de diagnóstico de la superficie: un segundo constructor podría desviarse de
+// éste y dejar el aviso leyendo con credenciales que no ven la tabla.
+const createWizardBudgetClient = createWizardBudgetServiceClient;
 
 export async function executeProspectWizardGenerationAction(
   request: unknown,
@@ -289,13 +378,58 @@ export async function executeProspectWizardGenerationAction(
         logSkip: logWizardApolloSkipped,
       }),
 
+    // A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — lectura REAL de la columna, con la
+    // misma capa (PostgREST) y la misma caché de esquema que hará la escritura.
+    // No mira el repo, ni la lista de migraciones, ni un flag: el fallo de
+    // LIVE-QA-2 fue `PGRST204`, y la columna podía existir en el SQL del repo y
+    // no existir para PostgREST.
+    checkPersistenceReadiness: () =>
+      probeProspectCandidatePersistenceReadiness(
+        supabase as unknown as PersistenceReadinessDbClient,
+      ),
+
+    // AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/25 — la capa gratuita.
+    //
+    // `partialGapSupported: false`: el objetivo de candidatos persistibles de esta
+    // ruta vive dentro del orquestador de dos rondas y no viaja por
+    // `ResolvedWizardExecution`, así que el ejecutor de pago no sabe aceptar un
+    // objetivo reducido. Todo-o-nada, para no romper la invariante de § 14. Ver
+    // la cabecera del runner.
+    runPrePaidNoveltyDiscovery: (input) =>
+      runPrePaidNoveltyDiscovery(supabase, {
+        countryCode: input.countryCode,
+        countryName: input.countryName,
+        macroIndustryKey: input.macroIndustryKey,
+        requestedTarget: input.requestedTarget,
+        requestedByUserId: input.requestedByUserId,
+        partialGapSupported: false,
+        // ADDENDUM PROVIDER-SEEN §§ 5, 6 — esta ruta paga con Apollo, cuya
+        // capacidad de exclusión es NINGUNA (su contrato no la prueba). Que el
+        // proveedor se declare aquí evita que la ruta herede la capacidad de otro.
+        provider: 'apollo',
+      }),
+
     reserveBudget: async ({ userId, clientRequestId, requestedCredits }) => {
       const periodStart = getPilotBudgetPeriodStart(BOGOTA_TIMEZONE);
       const rpcResult = await reserveWizardPilotCredits(
         { userId, clientRequestId, requestedCredits, periodStart },
         budgetClient as unknown as BudgetReservationsRpcClient,
       );
-      if (rpcResult.status === 'blocked') return rpcResult;
+      if (rpcResult.status === 'blocked') {
+        // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — la RPC ya decidió el bloqueo; esto
+        // sólo LEE el mismo período para poder explicarlo (agotado vs. no alcanza
+        // para esta corrida). Best-effort y de sólo lectura: un fallo de esta
+        // lectura no cambia el bloqueo ni lo convierte en otra cosa, sólo deja
+        // `budgetSnapshot` en `null` y el llamador cae al copy genérico.
+        const budgetSnapshot =
+          rpcResult.code === 'BUDGET_EXCEEDED'
+            ? await readWizardBudgetPeriodSnapshot(
+                periodStart,
+                budgetClient as unknown as BudgetPeriodLookupClient,
+              )
+            : null;
+        return { ...rpcResult, budgetSnapshot };
+      }
 
       // Both 'reserved' and 'already_reserved' need the reservation ID for later reconciliation.
       const record = await fetchWizardReservationRecord(
@@ -350,7 +484,16 @@ export async function executeProspectWizardGenerationAction(
       reserveWizardExecutionSlot(input, supabase as unknown as IdempotencyDbClient),
 
     runTavilyPipeline: (tavilyInput: WizardTavilyInput) => runWizardTavilySearch(tavilyInput),
-    runApolloPipeline: (apolloInput) => runWizardApolloSearch(apolloInput),
+    // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — los términos de búsqueda
+    // del catálogo se leen con el MISMO cliente que resolvió la selección
+    // (`resolveCatalog`, arriba). Una segunda identidad podría ver otra versión
+    // publicada, y entonces «coherencia de versión» sería una comparación entre dos
+    // lecturas que nadie ató a la misma sesión.
+    runApolloPipeline: (apolloInput) =>
+      runWizardApolloSearch({
+        ...apolloInput,
+        loadCatalogSearchTerms: () => loadApolloSubindustryCatalogTerms(supabase),
+      }),
     resolveProvider: resolveWizardDiscoveryProvider,
 
     // A1-APOLLO-TWO-ROUND-QUALITY-1 § 1 — todas las lecturas de entorno y de rol
@@ -430,6 +573,9 @@ export async function executeProspectWizardGenerationAction(
 //   3.  Schema validation — strict; rejects any unknown or economic fields
 //   4.  Catalog resolution — validates all IDs canonically
 //   5.  Tavily availability — no batch, no budget if provider unavailable
+//   5c. Persistence readiness — A1-APOLLO-PERSISTENCE-READINESS-4 § 6: la base
+//       tiene que poder GUARDAR antes de que se autorice gastar. Cero reserva,
+//       cero llamadas al proveedor, cero créditos cuando no puede.
 //   6.  Estimate max credits server-side (currently 10; never from client)
 //   7.  Atomic budget reservation — pilot kill-switch, allowlist, period, concurrency
 //   8.  Durable batch reservation — idempotency anchor
@@ -709,9 +855,101 @@ export async function executeProspectWizardGeneration(
     }
   }
 
+  // 5c. A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — readiness de PERSISTENCIA.
+  //
+  // Va aquí y no en otro sitio: después de la autorización y de resolver el
+  // proveedor (para que el rechazo pueda decir con qué proveedor se rechazó), y
+  // ANTES de estimar créditos, ANTES de reservar presupuesto y ANTES de cualquier
+  // llamada al proveedor. El orden es el punto entero del control: LIVE-QA-2
+  // reservó 12 créditos, los gastó, Apollo devolvió una empresa elegible y el
+  // INSERT murió porque `prospect_candidates.identity_key` no existía en
+  // Producción. Comprobarlo aquí cuesta un `select ... limit 1`.
+  //
+  // Fail-closed: sólo una lectura que funcionó autoriza continuar. Ausencia y
+  // fallo de sonda bloquean igual, porque para el gasto tienen la misma
+  // consecuencia.
+  const persistenceReadiness = decidePersistenceReadiness(
+    await deps.checkPersistenceReadiness().catch((): PersistenceReadinessProbe => ({
+      status: 'probe_failed',
+    })),
+  );
+  if (!persistenceReadiness.ready) {
+    return {
+      ok: false,
+      code: 'PERSISTENCE_NOT_READY',
+      // El mensaje crudo de Postgres/PostgREST NO se expone (§ 6).
+      message: persistenceReadiness.adminMessage,
+      // Un esquema sin la columna no se arregla reintentando: hay que aplicar la
+      // migración. Una sonda que falló sí puede recuperarse sola.
+      retryable: persistenceReadiness.reason === 'probe_failed',
+      runProvider: runProviderOutcome,
+      persistenceNotReady: {
+        errorCode: persistenceReadiness.errorCode,
+        reason: persistenceReadiness.reason,
+        stage: persistenceReadiness.stage,
+      },
+    };
+  }
+
+  // ── 5d. AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 §§ 12/15/25 ────────────
+  //
+  // TODO lo gratuito ocurre AQUÍ: antes de estimar créditos (paso 6) y antes de
+  // reservar (paso 7). El orden es el hito entero — la corrida Lusha del
+  // 2026-08-19 reservó, gastó 6 créditos y sólo después descubrió que las 40
+  // empresas únicas ya se conocían o estaban fuera de la macro.
+  //
+  // 🔴 Es la MISMA capa que corre la ruta Lusha (§ 25). Sin ella —dep ausente— el
+  // hueco es el objetivo entero y todo lo de abajo se comporta como antes.
+  const countryEntryForSource = LATAM_COUNTRIES.find((c) => c.code === req.countryCode);
+  const prePaidNovelty = deps.runPrePaidNoveltyDiscovery
+    ? await deps
+        .runPrePaidNoveltyDiscovery({
+          countryCode: req.countryCode,
+          macroIndustryKey:
+            getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ?? null,
+          // 🔴 El objetivo del USUARIO son los candidatos persistibles (10), no
+          // `systemControls.targetCount` (25), que es la AMPLITUD de búsqueda del
+          // pipeline. Confundirlos habría pedido a la fuente gratuita cerrar un
+          // hueco que el producto nunca prometió.
+          requestedTarget: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+          requestedByUserId: userId,
+          countryName: countryEntryForSource?.name ?? req.countryCode,
+        })
+        // Fail-open (§ 12): una capa gratuita rota nunca deja el wizard
+        // inservible. Se degrada a «no aportó» y la ruta de pago sigue.
+        .catch((): PrePaidNoveltyDiscoveryOutcome | null => null)
+    : null;
+
+  // § 15 — hueco cerrado gratis ⇒ NI estimación, NI reserva, NI cliente de
+  // proveedor, NI llamada. Se exige además un lote real: sin él no habría a dónde
+  // mandar al usuario, y anunciar éxito sin candidatos sería falso.
+  if (
+    prePaidNovelty &&
+    !prePaidNovelty.providerRequired &&
+    prePaidNovelty.batchId !== null &&
+    prePaidNovelty.persistedCount > 0
+  ) {
+    return {
+      ok: true,
+      status: 'success_target_reached',
+      batchId: prePaidNovelty.batchId,
+      batchStatus: 'ready_for_review',
+      candidateCount: prePaidNovelty.persistedCount,
+      redirectPath: `/prospect-batches/${prePaidNovelty.batchId}`,
+      targetPersistibleCandidates: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+      targetReached: true,
+      runProvider: runProviderOutcome,
+    };
+  }
+
   // 6. Calculate max credits server-side — provider-aware; client cannot control this value.
   // Apollo: resolvedMaxQueries × resolvedMaxResults × 1 credit/result (default 1×3=3).
   // Tavily: adaptive pipeline ceiling (4 rounds × 5 queries = 20).
+  //
+  // 🔴 § 16 — la responsabilidad económica NO es el hueco. Apollo y Tavily la
+  // derivan de su propio techo de peor caso, y ese techo no depende de cuántas
+  // empresas falten: con hueco 1 el pipeline puede necesitar las mismas consultas
+  // que con hueco 5. Un `requestedCredits = residualGap` sería sencillamente falso.
   const requestedCredits = estimateCreditsForProvider(discoveryProvider);
 
   // 7. Atomic budget reservation — pilot kill-switch, allowlist, period, concurrency all checked by RPC
@@ -730,6 +968,22 @@ export async function executeProspectWizardGeneration(
       discoveryProvider === 'apollo_organizations' && isApolloTwoRoundDiscoveryEnabled()
         ? BUDGET_EXCEEDED_TWO_ROUND_APOLLO
         : null;
+    // AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 — «se agotó» sólo es cierto cuando no
+    // queda NADA. Con presupuesto disponible > 0 pero por debajo de lo que esta
+    // corrida necesita, decir «se agotó» es falso y confunde con un estado
+    // recuperable distinto (esperar al siguiente período) del real (esta corrida
+    // en concreto no cabe). `requiredCredits` es el MISMO número ya reservado
+    // arriba (`requestedCredits`), nunca una estimación distinta.
+    const budgetExceeded =
+      budgetResult.code === 'BUDGET_EXCEEDED' && budgetResult.budgetSnapshot
+        ? {
+            reason: (budgetResult.budgetSnapshot.availableCredits <= 0
+              ? 'exhausted'
+              : 'insufficient_for_run') as 'exhausted' | 'insufficient_for_run',
+            availableCredits: budgetResult.budgetSnapshot.availableCredits,
+            requiredCredits: requestedCredits,
+          }
+        : null;
     return {
       ok: false,
       code: budgetResult.code,
@@ -737,6 +991,7 @@ export async function executeProspectWizardGeneration(
       retryable: false,
       runProvider: runProviderOutcome,
       ...(twoRoundBlockDetail !== null ? { blockDetail: twoRoundBlockDetail } : {}),
+      ...(budgetExceeded !== null ? { budgetExceeded } : {}),
     };
   }
 
@@ -838,6 +1093,20 @@ export async function executeProspectWizardGeneration(
         // explícita no dejaba rastro de que se pidió otra cosa. También es la fila
         // que un reintento relee para conservar su proveedor (§ 9).
         runProviderSelection: toRunProviderSelectionMetadata(runProviderSelection),
+        // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 8 — taxonomía declarada, no
+        // deducida: `subindustry_ids: []` no distingue «no había paso» de
+        // «la persona no quiso acotar».
+        discoveryTaxonomy: {
+          ...toDiscoveryTaxonomyMetadata(
+            resolveDiscoveryTaxonomyCapability(catalogResolution.catalog.version),
+          ),
+          macro_industry_key:
+            getMacroIndustryBySlug(catalogResolution.industry.slug)?.key ??
+            resolveMacroIndustryByDisplayName(catalogResolution.industry.name)?.key ??
+            null,
+          macro_industry_display_name: catalogResolution.industry.name,
+          requested_subindustries: catalogResolution.subindustries.map((s) => s.name),
+        },
       },
     });
   } catch {
@@ -940,11 +1209,26 @@ export async function executeProspectWizardGeneration(
 
   let reconciliationFailed = false;
   try {
-    await deps.confirmBudget({
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 13 — el resultado de la liquidación se
+    // MIRA. Antes se descartaba, y el wrapper no lanza: devuelve
+    // `{ status: 'error' }`. Así que una liquidación RECHAZADA por la RPC —el caso
+    // exacto que la migración 121 cierra, `actual > reserved` →
+    // `invalid_actual_credits`— era indistinguible de una exitosa, y la reserva se
+    // quedaba en `reserved` bloqueando la corrida siguiente sin que nada lo dijera.
+    //
+    // `confirmed_with_overage` es un ÉXITO y NO enciende el aviso: el gasto real
+    // entero quedó en el período y la reserva quedó cerrada. Tratarlo como fallo
+    // sería el mismo error de lectura, sólo en el otro sentido.
+    const settlement = await deps.confirmBudget({
       reservationId,
       actualCreditsConsumed: actualToConfirm,
       batchId: reservedBatchId,
+      // Sólo para describir la magnitud de un sobrepaso; no decide nada.
+      creditsReserved,
     });
+    if (settlement.status === 'error') {
+      reconciliationFailed = true;
+    }
   } catch {
     // Generation succeeded — do NOT convert to failure. Log warning internally.
     reconciliationFailed = true;
@@ -955,14 +1239,60 @@ export async function executeProspectWizardGeneration(
   const noveltyExhausted = pipelineResult.metadata?.novelty_exhausted === true;
   const targetPersistibleCandidates = pipelineResult.targetPersistibleCandidates ?? 10;
   const targetReached = pipelineResult.targetReached === true;
-  const executionStatus = hasNewCandidates
-    ? (targetReached ? 'success_target_reached' : 'success_partial')
-    : 'no_new_candidates';
+
+  // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — cifras reales de la escritura, tal
+  // como las devolvió el writer. `null` cuando el pipeline no las produjo.
+  const persistenceOutcome: WizardPersistenceOutcome | null = pipelineResult.persistenceOutcome
+    ? {
+        eligibleBeforePersistence:
+          pipelineResult.persistenceOutcome.eligibleBeforePersistence,
+        persistedCandidates: pipelineResult.persistenceOutcome.persistedCandidates,
+        persistenceFailureCount: pipelineResult.persistenceOutcome.persistenceFailureCount,
+        persistenceFailed: pipelineResult.persistenceOutcome.persistenceFailed,
+        persistenceErrorCode: pipelineResult.persistenceOutcome.persistenceErrorCode,
+        // AGENT1-APOLLO-CANDIDATE-INSERT-FORENSICS-1 § 7 — éxito PARCIAL con
+        // nombre propio y con las cifras que lo sostienen. Sin ellas la UI sólo
+        // podía elegir entre «todo bien» y «todo mal», y la corrida `9a9acf99`
+        // (3 guardados de 4 intentos) no es ninguna de las dos.
+        //
+        // `null` cuando el camino no las midió: un cero afirmaría que no hubo
+        // ninguno, que es una afirmación distinta y más fuerte.
+        persistenceStatus: pipelineResult.persistenceOutcome.persistenceStatus,
+        persistenceAttemptedCount: pipelineResult.persistenceOutcome.persistenceAttemptedCount,
+        persistenceSucceededCount: pipelineResult.persistenceOutcome.persistenceSucceededCount,
+        persistenceFailedCount: pipelineResult.persistenceOutcome.persistenceFailedCount,
+        persistenceGap: pipelineResult.persistenceOutcome.persistenceGap,
+        lateDuplicateCount: pipelineResult.persistenceOutcome.lateDuplicateCount ?? null,
+        completeValidCandidates:
+          pipelineResult.persistenceOutcome.completeValidCandidates ?? null,
+        reviewOnlyCandidates: pipelineResult.persistenceOutcome.reviewOnlyCandidates ?? null,
+      }
+    : null;
+
+  // § 7 — había empresas elegibles y NINGUNA se guardó. No es un vacío: es un
+  // error técnico posterior al gasto, y el estado tiene que decirlo.
+  const persistenceBlocked =
+    persistenceOutcome !== null &&
+    persistenceOutcome.persistenceFailed &&
+    persistenceOutcome.eligibleBeforePersistence > 0 &&
+    persistenceOutcome.persistedCandidates === 0;
+
+  const executionStatus = persistenceBlocked
+    ? 'completed_with_errors'
+    : hasNewCandidates
+      ? (targetReached ? 'success_target_reached' : 'success_partial')
+      : 'no_new_candidates';
   return {
     ok: true,
     status: executionStatus,
     batchId: reservedBatchId,
-    batchStatus: hasNewCandidates ? 'ready_for_review' : 'nothing_to_write',
+    // El lote quedó `failed` por el writer (§ 9): el estado que se reporta es el
+    // que la base tiene, no una etiqueta optimista.
+    batchStatus: persistenceBlocked
+      ? 'failed'
+      : hasNewCandidates
+        ? 'ready_for_review'
+        : 'nothing_to_write',
     candidateCount: pipelineResult.candidatesCreated,
     redirectPath: `/prospect-batches/${reservedBatchId}`,
     targetPersistibleCandidates,
@@ -989,6 +1319,10 @@ export async function executeProspectWizardGeneration(
     runProvider: runProviderOutcome,
     // § 11 — cifras reales de dos rondas, sólo si la modalidad corrió.
     ...buildTwoRoundOutcome(pipelineResult),
+    // A1-APOLLO-PERSISTENCE-READINESS-4 § 7/§ 8 — se envía siempre que exista,
+    // también cuando todo fue bien: la UI resuelve la causa de mayor prioridad a
+    // partir de estas cifras en vez de inferirla de un conteo.
+    ...(persistenceOutcome !== null ? { persistenceOutcome } : {}),
   };
 }
 

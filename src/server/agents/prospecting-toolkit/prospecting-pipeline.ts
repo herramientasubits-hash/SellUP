@@ -43,6 +43,8 @@ import {
 import { isSentenceOrPhraseName } from './noise-filter';
 import { buildSearchPlan, getExecutableQueriesFromSearchPlan } from './search-planner';
 import { evaluateCountryEvidence } from './country-evidence-gate';
+import { captureApolloCompanyFields } from './apollo-company-fields-mapping';
+import type { CandidateSectorEvidenceState } from './apollo-two-round/enrichment-ranking';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -317,6 +319,10 @@ export async function runProspectingPipeline(
           // L2.7: propagar subindustrias y tokens al provider (Apollo los usa; Tavily los ignora)
           subindustries: input.subindustries,
           additionalCriteriaTokens: input.additionalCriteriaTokens,
+          // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — términos ya resueltos de la
+          // versión publicada. Se transportan; este módulo no los interpreta.
+          subindustryCatalogTerms: input.subindustryCatalogTerms ?? null,
+          selectionCatalogVersion: input.selectionCatalogVersion ?? null,
         });
         const sgMeta = hasQueryOverrides || usesPlannerQueries
           ? { enabled: false, sources_used: [] as string[] }
@@ -520,6 +526,15 @@ export async function runProspectingPipeline(
       const matchingRawInput = rawInputs.find((ri) => ri.idx === evaluated.idx);
       const originQueryText = matchingRawInput?.query ?? searchQuery;
 
+      // CANDIDATE-OPERABILITY-VALIDATION-1 § D — el segundo call site del scorer
+      // recibe la misma verdad que el primero. Se lee del resultado crudo con la
+      // MISMA captura canónica; en esta ruta (evaluador LLM sobre búsqueda web) lo
+      // habitual es que no haya URL, y entonces la advertencia de ausencia es
+      // cierta y se conserva.
+      const providerCompanyFields = rawResult
+        ? captureApolloCompanyFields(rawResult, new Date().toISOString())
+        : null;
+
       const scoring = scoreCandidate({
         name,
         country: input.country,
@@ -530,6 +545,7 @@ export async function runProspectingPipeline(
         websiteVerification,
         duplicateCheck,
         catalogContext,
+        linkedinCompanyUrl: providerCompanyFields?.linkedin.companyLinkedInUrl ?? null,
         sourcePrimary: rawResult?.source ?? provider,
         sourcePriority:
           catalogContext.recommendedSources.length > 0
@@ -701,6 +717,13 @@ export type ProspectingCandidateBuildContext = {
   provider: WebSearchProviderKey;
   /** Query a la que se atribuye el candidato cuando el resultado no la trae. */
   fallbackQueryText: string;
+  /**
+   * A1-APOLLO-LINKEDIN-EMPLOYEES-1 — instante de observación de los campos del
+   * proveedor. Inyectable para que la procedencia sea determinista en tests.
+   */
+  observedAt?: string;
+  /** Estado de evidencia sectorial cuando la modalidad lo conoce (Apollo dos rondas). */
+  sectorEvidenceState?: CandidateSectorEvidenceState | null;
 };
 
 export type ProspectingCandidateBuildResult = {
@@ -775,6 +798,21 @@ export async function buildProspectingPipelineCandidate(
     countryCode: context.countryCode,
   });
 
+  // A1-APOLLO-LINKEDIN-EMPLOYEES-1 — el LinkedIn empresarial y el número de
+  // empleados que el proveedor devolvió viajan CON el candidato. Antes se
+  // quedaban en `result.metadata` y el writer, que nunca los veía, los reportaba
+  // como ausencia del proveedor.
+  //
+  // CANDIDATE-OPERABILITY-VALIDATION-1 § D — y la captura ocurre AHORA, ANTES del
+  // scoring. Estaba justo debajo, y por eso `scoreCandidate` nunca recibía
+  // `linkedinCompanyUrl`: en la ruta Apollo la rama `else` de la señal de LinkedIn
+  // era la única alcanzable, y toda empresa con LinkedIn confirmado se persistía
+  // con la advertencia «LinkedIn no disponible». El dato existía y llegaba tarde.
+  const providerCompanyFields = captureApolloCompanyFields(
+    result,
+    context.observedAt ?? new Date().toISOString(),
+  );
+
   // Paso 4c: Scoring (determinístico, sin APIs externas)
   const scoring = scoreCandidate({
     name,
@@ -786,6 +824,9 @@ export async function buildProspectingPipelineCandidate(
     websiteVerification,
     duplicateCheck,
     catalogContext: context.catalogContext,
+    // § D — la URL canónica que el proveedor ya entregó, sin re-normalizar: es
+    // exactamente la misma que se persiste en la columna `linkedin_url`.
+    linkedinCompanyUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
     sourcePrimary: result.source ?? context.provider,
     sourcePriority:
       context.catalogContext.recommendedSources.length > 0
@@ -820,6 +861,17 @@ export async function buildProspectingPipelineCandidate(
       duplicateCheck,
       scoring,
       searchTrace,
+      providerCompanyFields,
+      companyLinkedInUrl: providerCompanyFields.linkedin.companyLinkedInUrl,
+      // El resolver del ICP size gate ya leía `employeeCount`; lo que faltaba era
+      // que alguien lo poblara. Sólo se expone un valor confirmado: un `invalid`
+      // o un `not_returned` no puede convertirse en dato de tamaño.
+      ...(providerCompanyFields.employeeCount.status === 'confirmed'
+        ? { employeeCount: providerCompanyFields.employeeCount.employeeCount }
+        : {}),
+      ...(context.sectorEvidenceState !== undefined
+        ? { sectorEvidenceState: context.sectorEvidenceState }
+        : {}),
     },
   };
 }

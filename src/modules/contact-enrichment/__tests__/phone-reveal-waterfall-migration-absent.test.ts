@@ -204,6 +204,18 @@ let waterfallInsertId: string | null = 'run-waterfall-102';
 
 const RUN_ID = 'run-waterfall-102';
 const CANDIDATE_ID = 'cand-waterfall-102-absent';
+/**
+ * Apollo person id sintético (24 hex), opaco e inventado, y cuenta sintética.
+ * AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1: la comprobación de supresión en vuelo
+ * necesita AMBOS —clave Y cuenta— resolubles o bloquea (`not_evaluable` ⇒
+ * fail-closed). Este archivo prueba el gate de infraestructura de la tabla 102
+ * (migración ausente/presente), no la resolución de identidad de la supresión,
+ * así que los dos candidatos sintéticos traen ambos valores. Los proveedores
+ * simulados devuelven "sin fila" para cualquier tabla de supresión/DNC, así que
+ * esto no cambia el resultado "no suprimido" que ya tenían.
+ */
+const CANDIDATE_ACCOUNT_ID = 'acct-waterfall-102-absent';
+const CANDIDATE_APOLLO_PERSON_ID = 'a1b2c3d4e5f6a1b2c3d4e5f6';
 
 /**
  * Candidato EXISTENTE y elegible para la 2ª pata (source lusha + id propio). Que
@@ -218,16 +230,17 @@ const CANDIDATE_ROW = {
   email: null,
   linkedin_url: null,
   phone_reveal_status: 'no_phone_found',
-  apollo_person_id: null,
-  run: { account_id: null },
+  apollo_person_id: CANDIDATE_APOLLO_PERSON_ID,
+  run: { account_id: CANDIDATE_ACCOUNT_ID },
 };
 
 /**
  * Proyección que lee el server action del reveal con el cliente de sesión. Tiene
  * email y nombre para que la identidad sea suficiente y el START pueda llegar a
  * Apollo: así "0 llamadas a Apollo" prueba el gate del waterfall y no un gate de
- * identidad que habría cortado igual. `account_id` null ⇒ do-not-contact no es
- * evaluable y no bloquea (misma política que ya rige el reveal Apollo).
+ * identidad que habría cortado igual. La cuenta y el Apollo person id sintéticos
+ * hacen evaluable la supresión (ver nota arriba); el driver simulado sigue
+ * devolviendo "sin fila" para `contacts`, así que do-not-contact tampoco bloquea.
  */
 const REVEAL_CANDIDATE_ROW = {
   id: CANDIDATE_ID,
@@ -241,10 +254,10 @@ const REVEAL_CANDIDATE_ROW = {
   enrichment_metadata: {},
   phone_reveal_status: null,
   phone_reveal_attempt_count: 0,
-  apollo_person_id: null,
+  apollo_person_id: CANDIDATE_APOLLO_PERSON_ID,
   country: null,
   run: {
-    account_id: null,
+    account_id: CANDIDATE_ACCOUNT_ID,
     company_name: 'Empresa De Prueba',
     company_country_code: null,
   },
@@ -415,6 +428,18 @@ mock.module('@/modules/budgets/budget-resolution', {
       },
       consumedCredits: 0,
       consumedUsd: 0,
+      // AGENT2A-PHONE-REVEAL-4N: el pozo declara explícitamente que NO hay exposición
+      // reservada. El preflight lo exige como dato y trata su ausencia como
+      // `balance_unavailable`, porque un pozo cuya exposición nadie leyó no autoriza gasto.
+      reservedCredits: 0,
+      consumptionBreakdown: {
+        usageLogCredits: 0,
+        confirmedReservationCredits: 0,
+        excludedUsageLogCredits: 0,
+        excludedUsageLogCount: 0,
+        hasAssumedCapCredits: false,
+        malformedConfirmedReservationCount: 0,
+      },
       projectedCredits: 0,
       projectedUsd: 0,
       remainingCredits: 1_000,

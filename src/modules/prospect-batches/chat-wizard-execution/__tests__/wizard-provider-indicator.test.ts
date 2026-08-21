@@ -96,20 +96,49 @@ describe('resolveWizardProviderIndicator — proveedor no disponible', () => {
     );
   });
 
-  it('una ruta Lusha bloqueada no nombra proveedor: nunca hubo selección', () => {
+  it('SÓLO una omisión del backend produce «no disponible»', () => {
+    // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — la ruta de Lusha no la produce.
+    for (const lushaRoute of ['default_ai', 'blocked_lusha_disabled', 'lusha', null] as const) {
+      const result = resolveWizardProviderIndicator(
+        input({ serverDiscoveryProvider: 'tavily', lushaRoute }),
+      );
+      assert.notEqual(result.status, 'unavailable', `ruta ${lushaRoute} marcó no disponible`);
+    }
+  });
+});
+
+describe('resolveWizardProviderIndicator — la ruta Lusha bloqueada no oculta al proveedor real', () => {
+  // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — con `ENABLE_LUSHA_PREVIEW` apagado y
+  // criterios Lusha-elegibles (p. ej. Colombia + Salud) el indicador decía «no
+  // disponible» mientras la búsqueda la iba a correr Tavily o Apollo. Nombraba la
+  // indisponibilidad de un proveedor OCULTO que el usuario nunca eligió.
+  it('nombra al proveedor que el servidor resolvió para el discovery', () => {
     assert.deepEqual(
       resolveWizardProviderIndicator(
         input({ serverDiscoveryProvider: 'tavily', lushaRoute: 'blocked_lusha_disabled' }),
       ),
-      { status: 'unavailable', provider: null },
+      { status: 'resolved', provider: 'tavily' },
     );
   });
 
-  it('una ruta bloqueada NO se degrada al proveedor del servidor', () => {
+  it('nombra Apollo cuando Apollo es el proveedor de la corrida', () => {
+    assert.deepEqual(
+      resolveWizardProviderIndicator(
+        input({
+          serverDiscoveryProvider: 'tavily',
+          lushaRoute: 'blocked_lusha_disabled',
+          runResolvedProvider: 'apollo_organizations',
+        }),
+      ),
+      { status: 'resolved', provider: 'apollo_organizations' },
+    );
+  });
+
+  it('nunca nombra Lusha con la ruta bloqueada: Lusha no corre', () => {
     const result = resolveWizardProviderIndicator(
       input({ serverDiscoveryProvider: 'tavily', lushaRoute: 'blocked_lusha_disabled' }),
     );
-    assert.notEqual(result.provider, 'tavily');
+    assert.notEqual(result.provider, 'lusha');
   });
 });
 

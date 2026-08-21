@@ -106,7 +106,7 @@ const mockRecoverNow = mock.fn<
 
 mock.module('@/modules/contact-enrichment/actions', {
   namedExports: {
-    getPendingContactCandidateById: (...args: unknown[]) => mockGetById(...(args as [])),
+    getReviewableContactCandidateById: (...args: unknown[]) => mockGetById(...(args as [])),
     approveContactCandidate: async () => ({ ok: true }),
     discardContactCandidate: async () => ({ ok: true }),
   },

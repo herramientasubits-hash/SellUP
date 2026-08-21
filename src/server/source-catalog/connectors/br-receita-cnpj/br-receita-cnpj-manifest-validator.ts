@@ -38,14 +38,18 @@ import {
 import {
   BR_RECEITA_CNPJ_ALLOWED_EXTENSIONS,
   BR_RECEITA_CNPJ_ALLOWED_FILE_TYPES,
+  BR_RECEITA_CNPJ_DEFAULT_INPUT_SCOPE,
   BR_RECEITA_CNPJ_DEFAULT_LAYOUT_MODE,
+  BR_RECEITA_CNPJ_INPUT_SCOPES,
   BR_RECEITA_CNPJ_LAYOUT_MODES,
   BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE,
   BR_RECEITA_CNPJ_MANIFEST_MODE,
   BR_RECEITA_CNPJ_MANIFEST_SOURCE_KEY,
+  BR_RECEITA_CNPJ_NATIONAL_PART_COUNT,
   BR_RECEITA_CNPJ_REQUIRED_FILE_TYPES,
   type BrReceitaCnpjManifestEncoding,
   type BrReceitaCnpjManifestFileReport,
+  type BrReceitaCnpjManifestInputScope,
   type BrReceitaCnpjManifestLayoutMode,
   type BrReceitaCnpjManifestReasonCode,
   type BrReceitaCnpjManifestSafety,
@@ -56,9 +60,11 @@ import {
 
 /**
  * Absolute ceiling on the accepted `maxFiles` option — a runaway-list DoS
- * backstop. Only 6 file types are recognized, so a well-formed manifest never
- * approaches this; the per-entry duplicate/forbidden checks catch anything real
- * long before the count would.
+ * backstop. Only 6 file types are recognized, and (since BR-SOURCE-14B.0M) each
+ * required file type may be declared once per national part (up to 10), so a
+ * well-formed `full_national` manifest can legitimately approach this (10
+ * Empresas + 10 Estabelecimentos = 20); the per-entry duplicate/forbidden checks
+ * still catch anything real long before the count alone would.
  */
 export const BR_RECEITA_CNPJ_MANIFEST_MAX_FILES_LIMIT = 24 as const;
 /** Default ceiling on file count (equals the hard limit — see the note above). */
@@ -212,6 +218,41 @@ interface ResolvedManifestFile {
   readonly encoding: BrReceitaCnpjManifestEncoding;
   readonly delimiter: string;
   readonly layoutMode: BrReceitaCnpjManifestLayoutMode;
+  /** Resolved part ordinal (0..9). Defaults to 0 when the entry omitted it. */
+  readonly partOrdinal: number;
+}
+
+/**
+ * Resolves + validates an EXPLICIT `partOrdinal`. `undefined` defaults to `0` (the single-part
+ * meaning every manifest before BR-SOURCE-14B.0M had). Any other non-integer or out-of-range
+ * value is a fail-closed rejection — never silently clamped or coerced.
+ */
+function resolvePartOrdinal(value: unknown): number {
+  if (value === undefined) return 0;
+  if (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value < BR_RECEITA_CNPJ_NATIONAL_PART_COUNT
+  ) {
+    return value;
+  }
+  throw new ManifestStructuralError('part_ordinal_invalid');
+}
+
+/**
+ * Resolves + validates an EXPLICIT `inputScope`. `undefined` falls back to the staged-subset
+ * default; any other non-scope value is a fail-closed rejection.
+ */
+function resolveInputScope(value: unknown): BrReceitaCnpjManifestInputScope {
+  if (value === undefined) return BR_RECEITA_CNPJ_DEFAULT_INPUT_SCOPE;
+  if (
+    typeof value === 'string' &&
+    (BR_RECEITA_CNPJ_INPUT_SCOPES as readonly string[]).includes(value)
+  ) {
+    return value as BrReceitaCnpjManifestInputScope;
+  }
+  throw new ManifestStructuralError('input_scope_invalid');
 }
 
 /**
@@ -236,6 +277,7 @@ function resolveLayoutMode(
 interface ParsedManifest {
   readonly sourceYear: number;
   readonly sourcePeriod: string;
+  readonly inputScope: BrReceitaCnpjManifestInputScope;
   readonly files: readonly ResolvedManifestFile[];
 }
 
@@ -284,9 +326,15 @@ function parseManifestDocument(raw: string, maxFiles: number): ParsedManifest {
 
   // Manifest-level layout mode (optional) becomes the per-file default.
   const manifestLayoutMode = resolveLayoutMode(doc.layoutMode, BR_RECEITA_CNPJ_DEFAULT_LAYOUT_MODE);
+  const inputScope = resolveInputScope(doc.inputScope);
 
   const allowedTypes = new Set<string>(BR_RECEITA_CNPJ_ALLOWED_FILE_TYPES);
-  const seenTypes = new Set<string>();
+  // Identity is (fileType, partOrdinal), not fileType alone — a national manifest declares the
+  // SAME fileType up to 10 times, once per distinct part. A true repeat (same fileType AND the
+  // same partOrdinal, including two entries that both omit it) is still `duplicate_file_type`.
+  const seenPartIdentities = new Set<string>();
+  const seenFileTypes = new Set<string>();
+  const partOrdinalsByFileType = new Map<string, Set<number>>();
   const files: ResolvedManifestFile[] = [];
 
   for (const entry of doc.files) {
@@ -302,10 +350,16 @@ function parseManifestDocument(raw: string, maxFiles: number): ParsedManifest {
     if (typeof entry.fileType !== 'string' || !allowedTypes.has(entry.fileType)) {
       throw new ManifestStructuralError('forbidden_file_type');
     }
-    if (seenTypes.has(entry.fileType)) {
+    const partOrdinal = resolvePartOrdinal(entry.partOrdinal);
+    const partIdentity = `${entry.fileType}:${partOrdinal}`;
+    if (seenPartIdentities.has(partIdentity)) {
       throw new ManifestStructuralError('duplicate_file_type');
     }
-    seenTypes.add(entry.fileType);
+    seenPartIdentities.add(partIdentity);
+    seenFileTypes.add(entry.fileType);
+    const ordinalsForType = partOrdinalsByFileType.get(entry.fileType) ?? new Set<number>();
+    ordinalsForType.add(partOrdinal);
+    partOrdinalsByFileType.set(entry.fileType, ordinalsForType);
 
     files.push({
       fileType: entry.fileType as BrReceitaCnpjLayoutFileType,
@@ -318,16 +372,30 @@ function parseManifestDocument(raw: string, maxFiles: number): ParsedManifest {
       encoding: entry.encoding === 'latin1' ? 'latin1' : 'utf8',
       delimiter: entry.delimiter === ';' ? ';' : ',',
       layoutMode: resolveLayoutMode(entry.layoutMode, manifestLayoutMode),
+      partOrdinal,
     });
   }
 
   for (const required of BR_RECEITA_CNPJ_REQUIRED_FILE_TYPES) {
-    if (!seenTypes.has(required)) {
+    if (!seenFileTypes.has(required)) {
       throw new ManifestStructuralError('required_file_missing');
     }
   }
 
-  return { sourceYear: doc.sourceYear, sourcePeriod: doc.sourcePeriod, files };
+  // `full_national` is an explicit assertion, checked against exact part identities (§ 5, § 8):
+  // every required family must carry all 10 ordinals (0..9). A shortfall is refused outright —
+  // never silently downgraded to `staged_subset`, because that would let an incomplete national
+  // manifest pass as if it had asserted nothing.
+  if (inputScope === 'full_national') {
+    for (const required of BR_RECEITA_CNPJ_REQUIRED_FILE_TYPES) {
+      const ordinals = partOrdinalsByFileType.get(required) ?? new Set<number>();
+      if (ordinals.size !== BR_RECEITA_CNPJ_NATIONAL_PART_COUNT) {
+        throw new ManifestStructuralError('missing_national_part');
+      }
+    }
+  }
+
+  return { sourceYear: doc.sourceYear, sourcePeriod: doc.sourcePeriod, inputScope, files };
 }
 
 // ─── Per-file validation ─────────────────────────────────────────────────────
@@ -356,6 +424,7 @@ async function validateManifestFile(
     fileType: file.fileType,
     safeFileLabel: file.safeFileLabel,
     extension: file.extension,
+    partOrdinal: file.partOrdinal,
     layoutValidation: 'skipped',
     layoutMode: file.layoutMode,
     status: 'accepted',
@@ -460,6 +529,7 @@ function structuralRejection(
   reasonCode: BrReceitaCnpjManifestReasonCode,
   sourceYear: number,
   sourcePeriod: string,
+  inputScope: BrReceitaCnpjManifestInputScope = BR_RECEITA_CNPJ_DEFAULT_INPUT_SCOPE,
 ): BrReceitaCnpjManifestValidationResult {
   return {
     ok: false,
@@ -467,6 +537,7 @@ function structuralRejection(
     countryCode: BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE,
     sourceYear,
     sourcePeriod,
+    inputScope,
     filesSeen: 0,
     filesAccepted: 0,
     filesRejected: 0,
@@ -495,6 +566,7 @@ export async function validateBrReceitaCnpjLocalManifest(
 
   let sourceYear = 0;
   let sourcePeriod = '';
+  let inputScope: BrReceitaCnpjManifestInputScope = BR_RECEITA_CNPJ_DEFAULT_INPUT_SCOPE;
 
   try {
     assertManifestPathAllowed(options.manifestPath);
@@ -512,6 +584,7 @@ export async function validateBrReceitaCnpjLocalManifest(
     const manifest = parseManifestDocument(raw, maxFiles);
     sourceYear = manifest.sourceYear;
     sourcePeriod = manifest.sourcePeriod;
+    inputScope = manifest.inputScope;
 
     const fileReports: BrReceitaCnpjManifestFileReport[] = [];
     for (const file of manifest.files) {
@@ -529,6 +602,7 @@ export async function validateBrReceitaCnpjLocalManifest(
       countryCode: BR_RECEITA_CNPJ_MANIFEST_COUNTRY_CODE,
       sourceYear,
       sourcePeriod,
+      inputScope,
       filesSeen: fileReports.length,
       filesAccepted,
       filesRejected,
@@ -537,8 +611,8 @@ export async function validateBrReceitaCnpjLocalManifest(
     };
   } catch (err) {
     if (err instanceof ManifestStructuralError) {
-      return structuralRejection(err.reasonCode, sourceYear, sourcePeriod);
+      return structuralRejection(err.reasonCode, sourceYear, sourcePeriod, inputScope);
     }
-    return structuralRejection('unexpected_error', sourceYear, sourcePeriod);
+    return structuralRejection('unexpected_error', sourceYear, sourcePeriod, inputScope);
   }
 }

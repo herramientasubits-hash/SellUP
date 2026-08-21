@@ -194,7 +194,7 @@ describe('§ 3 · la ronda 2 sólo corre si envía algo distinto', () => {
     const { result, calls } = await runWithProvider({
       // Sin catálogo sectorial no hay sinónimos ni región alternativa con que
       // diferenciar la segunda ronda.
-      queryContext: { sector: 'Sector Inexistente', subindustry: null, targetLocations: [] },
+      queryContext: { sector: 'Sector Inexistente', subindustries: [], targetLocations: [] },
       organizationsByRound: { 1: qaOrganizations() },
       assess: () => rejectedAssessment('sector_not_mapped'),
     });
@@ -207,7 +207,7 @@ describe('§ 3 · la ronda 2 sólo corre si envía algo distinto', () => {
 
   test('7. la página 2 es la variante válida cuando no hay otra', async () => {
     const { result, calls } = await runWithProvider({
-      queryContext: { sector: 'Sector Inexistente', subindustry: null, targetLocations: [] },
+      queryContext: { sector: 'Sector Inexistente', subindustries: [], targetLocations: [] },
       providerTotalPages: 3,
       organizationsByRound: {
         1: qaOrganizations(),
@@ -225,7 +225,7 @@ describe('§ 3 · la ronda 2 sólo corre si envía algo distinto', () => {
 
   test('sin total_pages declarado no se pide una página que puede no existir', () => {
     const round2 = buildRound2Hypothesis(
-      testQueryContext({ sector: 'Sector Inexistente', subindustry: null, targetLocations: [] }),
+      testQueryContext({ sector: 'Sector Inexistente', subindustries: [], targetLocations: [] }),
       { remainingTarget: 5, excludedSeenOrganizationCount: 0, observedRejectionReasons: [] },
       5,
     );
@@ -237,7 +237,7 @@ describe('§ 3 · la ronda 2 sólo corre si envía algo distinto', () => {
 
   test('total_pages = 1 tampoco autoriza la página 2', () => {
     const round2 = buildRound2Hypothesis(
-      testQueryContext({ sector: 'Sector Inexistente', subindustry: null, targetLocations: [] }),
+      testQueryContext({ sector: 'Sector Inexistente', subindustries: [], targetLocations: [] }),
       {
         remainingTarget: 5,
         excludedSeenOrganizationCount: 0,

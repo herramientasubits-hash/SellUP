@@ -2,8 +2,13 @@
  * Prospecting Toolkit — Tipos base.
  *
  * Contiene los contratos de deduplicación y del catálogo de fuentes.
- * No contienen lógica, no importan nada externo.
+ * No contienen lógica. La única dependencia es el módulo hermano PURO de
+ * readiness de persistencia, del que se reutiliza el contrato de resultado en
+ * vez de redeclararlo aquí (dos copias del mismo tipo se desincronizan).
  */
+
+import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
+import type { ApolloSubindustryCatalogTermsResolution } from './apollo-subindustry-catalog-terms-resolution';
 
 export type DuplicateStatus =
   | "new_candidate"
@@ -247,6 +252,27 @@ export type WebSearchInput = {
    */
   subindustries?: string[];
   /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — términos de
+   * `subindustry_search_terms` de la versión PUBLICADA, ya resueltos.
+   *
+   * Viajan como dato porque la ruta de construcción de la consulta es pura: la única
+   * lectura ocurre una vez por corrida en la frontera del wizard
+   * (`loadApolloSubindustryCatalogTerms`), con el mismo cliente que resolvió la
+   * selección. Llevan consigo la versión y el digest de origen, y el gate del § 3
+   * exige que esa versión sea la MISMA con la que se resolvió la selección antes de
+   * permitir cualquier gasto.
+   *
+   * Tavily no los usa.
+   */
+  subindustryCatalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
+  /**
+   * § 3 — versión del catálogo con la que se resolvió la SELECCIÓN del usuario
+   * (`active_industry_catalog.catalog_version`, la misma que `resolveWizardCatalog`
+   * verifica). Es el lado izquierdo del invariante
+   * `selection_catalog_version == search_term_catalog_version`.
+   */
+  selectionCatalogVersion?: string | null;
+  /**
    * Tokens comerciales extraídos del criterio adicional libre del usuario (L2.7).
    * Producidos por parseAdditionalCriteriaTokens en wizard-context-normalizer.ts.
    * Usados por Apollo para enriquecer q_organization_keyword_tags con señales del usuario.
@@ -443,6 +469,13 @@ export type ProspectingPipelineInput = {
   usageContext?: import('./tavily-usage-logging').TavilyUsageContext | null;
   /** Subindustrias canónicas del catálogo (L2.7). Solo para Apollo; Tavily las ignora aquí. */
   subindustries?: string[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — términos de la versión publicada, ya
+   * resueltos, y la versión con la que se resolvió la selección. Se transportan sin
+   * interpretarlos hasta `WebSearchInput`; sólo Apollo los consume.
+   */
+  subindustryCatalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
+  selectionCatalogVersion?: string | null;
   /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
   additionalCriteriaTokens?: string[];
 };
@@ -477,6 +510,63 @@ export type ProspectingPipelineCandidate = {
   llmEvaluation?: import('./llm-evaluator-types').LLMEvaluationMetadata | null;
   /** Query trazabilidad: identifica qué query generó este candidato (Hito 16Z.2). */
   searchTrace?: SearchTrace | null;
+  /**
+   * A1-APOLLO-LINKEDIN-EMPLOYEES-1 — LinkedIn empresarial y número de empleados
+   * tal como los devolvió Apollo, con su estado y procedencia.
+   *
+   * Antes existía `employee_count` pero NADIE lo poblaba y no había campo alguno
+   * para el LinkedIn: los dos valores morían en el constructor del candidato y el
+   * writer los reportaba como «el proveedor no los devolvió». Este campo es el
+   * puente que faltaba entre el payload del proveedor y la persistencia.
+   */
+  providerCompanyFields?: import('./apollo-company-fields-mapping').ApolloCompanyFieldsCapture | null;
+  /** LinkedIn empresarial canónico, plano, para los consumidores que sólo leen la URL. */
+  companyLinkedInUrl?: string | null;
+  /**
+   * Estado de la evidencia sectorial cuando la modalidad la calcula (Apollo dos
+   * rondas). `undefined` cuando el camino no la evalúa: la regla de completitud
+   * es fail-closed, así que la ausencia nunca cuenta como confirmada.
+   */
+  sectorEvidenceState?:
+    | import('./apollo-two-round/enrichment-ranking').CandidateSectorEvidenceState
+    | null;
+  /**
+   * A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 4 — ciudad, clasificación de
+   * subindustria y procedencia tal como el enrichment las devolvió.
+   *
+   * Existe porque el perfil enriquecido moría en `metadata.apollo_profile` del
+   * resultado de búsqueda: la corrida `be181d2d` pagó cinco enrichments y
+   * persistió dos candidatos con `city`, `subindustry`, `sector_code` y
+   * `classification_*` en null. Este campo es el puente entre lo que se compró y
+   * lo que se guarda.
+   *
+   * NO transporta el número de empleados ni el LinkedIn empresarial: esos dos los
+   * cubre A1-APOLLO-LINKEDIN-EMPLOYEES-1 por su propia vía, y duplicar la
+   * escritura de una columna desde dos rutas es cómo se consiguen dos verdades.
+   *
+   * `undefined` cuando el camino no ejecuta enrichment de organización: la
+   * ausencia nunca se rellena con suposiciones.
+   */
+  providerEnrichmentCapture?:
+    | import('./apollo-enrichment-persistence-capture').ApolloEnrichmentPersistenceCapture
+    | null;
+  /**
+   * AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — official-source identity (tax
+   * ID / legal name) produced by the shared, provider-neutral intake seam
+   * (`@/server/agents/prospect-intake`) via
+   * `deriveOfficialIdentityForApolloCandidate`. `undefined` when the seam
+   * did not run for this candidate; `strongIdentityAvailable: false` when it
+   * ran but found no strong match — never invented.
+   */
+  officialSourceIdentity?: {
+    officialSourceMetadata: ReturnType<
+      typeof import('@/server/agents/prospect-intake').buildOfficialSourceEnrichmentMetadata
+    >;
+    typedColumns: ReturnType<
+      typeof import('@/server/agents/prospect-intake').buildOfficialSourceTypedColumns
+    >;
+    strongIdentityAvailable: boolean;
+  } | null;
 };
 
 export type ProspectingPipelineSummary = {
@@ -556,6 +646,15 @@ export type CandidateWriterOutput = {
   skipped: CandidateWriterSkipped[];
   status: CandidateWriterStatus;
   errors: string[];
+  /**
+   * A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — resultado REAL de la escritura.
+   *
+   * Antes, un INSERT fallido sólo dejaba rastro en `skipped` con el mensaje
+   * crudo del motor, que no encajaba en ningún bucket de descarte y por tanto
+   * desaparecía: la corrida terminaba indistinguible de un vacío legítimo.
+   * Estas cifras hacen la diferencia explícita y viajan hasta la UI.
+   */
+  persistence: CandidatePersistenceOutcome;
 };
 
 // Combined output for runAndWriteProspectingPipeline
@@ -639,6 +738,12 @@ export type MultiQuerySearchInput = {
   usageContext?: import('./tavily-usage-logging').TavilyUsageContext | null;
   /** Subindustrias canónicas del catálogo (L2.7). Solo para Apollo; Tavily las ignora. */
   subindustries?: string[];
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 — términos de la versión publicada, ya
+   * resueltos, y la versión de la selección. Último tramo antes de `WebSearchInput`.
+   */
+  subindustryCatalogTerms?: ApolloSubindustryCatalogTermsResolution | null;
+  selectionCatalogVersion?: string | null;
   /** Tokens del criterio adicional del usuario (L2.7). Solo para Apollo; Tavily los ignora. */
   additionalCriteriaTokens?: string[];
 };

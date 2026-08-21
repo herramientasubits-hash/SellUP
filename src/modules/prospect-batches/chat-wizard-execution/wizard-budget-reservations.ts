@@ -12,6 +12,12 @@
  * callers SHOULD pass actualCreditsConsumed = reservation.creditsReserved to avoid
  * underestimating budget. This is a caller convention enforced upstream; this file
  * does not implement the reconciliation logic.
+ *
+ * AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 (migración 121): `actualCreditsConsumed`
+ * puede ser MAYOR que lo reservado y eso ya no es un error. La RPC lo liquida y
+ * devuelve `confirmed_with_overage`; este wrapper lo traduce a un resultado
+ * EXITOSO con las cifras del sobrepaso. Nada aquí recorta el gasto real a la
+ * reserva: `min(actual, reserved)` parecería un arreglo y sería un subconteo.
  */
 
 import type {
@@ -131,6 +137,26 @@ export async function confirmWizardPilotCredits(
 
   switch (result) {
     case 'confirmed':         return { status: 'confirmed' };
+    // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 8 — ÉXITO, no error. La reserva quedó
+    // cerrada y el período registró el gasto real completo; lo único distinto es
+    // que el proveedor cobró por encima de lo reservado. Caer en el `default`
+    // aquí convertiría la liquidación correcta en un fallo de reconciliación y
+    // reintroduciría, desde el llamador, el defecto que la migración 121 cierra.
+    case 'confirmed_with_overage': {
+      const creditsReserved =
+        typeof input.creditsReserved === 'number' ? input.creditsReserved : null;
+      return {
+        status: 'confirmed_with_overage',
+        creditsReserved,
+        creditsActual: input.actualCreditsConsumed,
+        // `null` cuando el llamador no pasó la reserva: la magnitud se declara
+        // desconocida en lugar de calcularse contra un número que no existe.
+        overageCredits:
+          creditsReserved === null
+            ? null
+            : input.actualCreditsConsumed - creditsReserved,
+      };
+    }
     case 'already_confirmed': return { status: 'already_confirmed' };
     default:
       return {
@@ -215,4 +241,61 @@ export async function fetchWizardReservationRecord(
 
   if (error || !data) return null;
   return { id: data.id, credits_reserved: data.credits_reserved };
+}
+
+// ── Budget period snapshot (AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1) ─────────────
+//
+// Read-only. `try_reserve_wizard_credits` returns only an opaque status code
+// ('insufficient_budget'), never the numbers it compared — so the UI cannot
+// tell "0 credits left" from "5 left, this run needs 25" from that result
+// alone. This reads the SAME row and applies the SAME formula the RPC already
+// uses (migration 064: available = budget_credits - credits_consumed -
+// credits_reserved) to explain a block the RPC already decided. It never
+// writes, never changes what the RPC allows, and is not a new estimate.
+
+export type WizardBudgetPeriodSnapshot = {
+  budgetCredits: number;
+  creditsConsumed: number;
+  creditsReserved: number;
+  availableCredits: number;
+};
+
+type BudgetPeriodLookupRow = {
+  budget_credits: number;
+  credits_consumed: number;
+  credits_reserved: number;
+};
+type BudgetPeriodLookupResult = {
+  data: BudgetPeriodLookupRow | null;
+  error: { message: string } | null;
+};
+type BudgetPeriodEqBuilder = { maybeSingle(): Promise<BudgetPeriodLookupResult> };
+type BudgetPeriodSelectBuilder = { eq(col: string, val: string): BudgetPeriodEqBuilder };
+
+export type BudgetPeriodLookupClient = {
+  from(table: string): { select(cols: string): BudgetPeriodSelectBuilder };
+};
+
+/**
+ * Reads the current period's budget row, if any. Returns `null` on a missing
+ * row or a DB error — the caller falls back to the generic guardrail copy in
+ * that case rather than blocking or guessing a number.
+ */
+export async function readWizardBudgetPeriodSnapshot(
+  periodStart: string,
+  db: BudgetPeriodLookupClient,
+): Promise<WizardBudgetPeriodSnapshot | null> {
+  const { data, error } = await db
+    .from('wizard_monthly_budget_periods')
+    .select('budget_credits, credits_consumed, credits_reserved')
+    .eq('period_start', periodStart)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return {
+    budgetCredits: data.budget_credits,
+    creditsConsumed: data.credits_consumed,
+    creditsReserved: data.credits_reserved,
+    availableCredits: data.budget_credits - data.credits_consumed - data.credits_reserved,
+  };
 }

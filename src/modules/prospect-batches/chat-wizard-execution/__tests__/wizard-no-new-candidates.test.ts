@@ -102,6 +102,9 @@ function makeDeps(pipelineOutput: IncrementalSearchOutput): WizardExecutionDeps 
     getActiveUserId: async () => FAKE_USER_ID,
     resolveCatalog: async (_input: CatalogResolutionInput) => FAKE_CATALOG_RESOLUTION,
     checkTavilyAvailability: async () => true,
+    // A1-APOLLO-PERSISTENCE-READINESS-4 § 6 — el esquema está listo: este doble
+    // no ejercita el preflight de persistencia.
+    checkPersistenceReadiness: async () => ({ status: 'available' as const }),
     reserveBudget: async () =>
       ({ status: 'reserved', reservationId: FAKE_RESERVATION_ID, creditsReserved: 10 } satisfies ReserveBudgetDepResult),
     confirmBudget: async () => ({ status: 'confirmed' }),
@@ -241,5 +244,96 @@ describe('NNC4 — WizardExecutionActionResult type contract includes no_new_can
     };
     assert.equal(result.ok, true);
     if (result.ok) assert.equal(result.status, 'no_new_candidates');
+  });
+});
+
+// ── NNC5: propagación del desglose real hasta el resultado de la acción ───────
+
+/**
+ * AGENT1-APOLLO-SCALE-SECOND-ROUND-FIX-1B § 4 — el desglose que la UI pinta tiene
+ * que llegar completo desde la observabilidad del pipeline.
+ *
+ * Metadata de la corrida live `eae6d47f`: dos rondas, 10 resultados crudos, 5
+ * empresas ÚNICAS, 4 duplicadas en HubSpot y 5 repeticiones de la ronda 2 sobre lo
+ * que la ronda 1 ya había traído. Si algo de esto se pierde en el camino, la UI
+ * vuelve a quedarse con un texto genérico y sin cifras.
+ */
+function makeLiveRunPipelineOutput(): IncrementalSearchOutput {
+  const base = makePipelineOutput(BATCH_A, 0);
+  // La observabilidad de la modalidad de dos rondas la escribe el adaptador bajo su
+  // propia clave, y `IncrementalSearchMetadata` no la declara. Se compone igual que
+  // en producción y se afirma el tipo del CONTENEDOR, nunca el de las cifras.
+  const metadata = {
+    ...base.metadata,
+    apollo_two_round_discovery: {
+      rounds: [
+        {
+          round_number: 1,
+          duplicate_in_hubspot: 4,
+          duplicate_in_sellup: 0,
+          cooldown_or_prior_suggestion: 0,
+          seen_duplicates: 0,
+          country_rejected: 0,
+          sector_rejected: 1,
+          ownership_rejected: 0,
+          page: 1,
+        },
+        {
+          round_number: 2,
+          duplicate_in_hubspot: 0,
+          duplicate_in_sellup: 0,
+          cooldown_or_prior_suggestion: 0,
+          seen_duplicates: 5,
+          country_rejected: 0,
+          sector_rejected: 0,
+          ownership_rejected: 0,
+          page: 2,
+        },
+      ],
+      run_metrics: { total_raw_results: 10, total_unique_organizations: 5 },
+      second_round_skipped_reason: null,
+      round_2_page: 2,
+    },
+  };
+
+  return { ...base, metadata: metadata as IncrementalSearchOutput['metadata'] };
+}
+
+describe('NNC5 — el desglose de «cero empresas nuevas» viaja completo', () => {
+  it('NNC5-a: empresas únicas, no resultados crudos', async () => {
+    const deps = makeDeps(makeLiveRunPipelineOutput());
+    const result = await withFlag(true, () => executeProspectWizardGeneration(VALID_REQUEST, deps));
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.noNewCandidatesBreakdown?.uniqueResultsCount, 5);
+  });
+
+  it('NNC5-b: HubSpot, SellUp, cooldown y repeticiones llegan SEPARADOS', async () => {
+    const deps = makeDeps(makeLiveRunPipelineOutput());
+    const result = await withFlag(true, () => executeProspectWizardGeneration(VALID_REQUEST, deps));
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    const breakdown = result.noNewCandidatesBreakdown;
+    assert.equal(breakdown?.hubspotDuplicateCount, 4);
+    assert.equal(breakdown?.sellupDuplicateCount, 0);
+    assert.equal(breakdown?.cooldownCount, 0);
+    assert.equal(breakdown?.repeatedAcrossRoundsCount, 5);
+    assert.equal(breakdown?.qualityRejectedCount, 1);
+  });
+
+  it('NNC5-c: las repeticiones no se suman a las empresas únicas', async () => {
+    const deps = makeDeps(makeLiveRunPipelineOutput());
+    const result = await withFlag(true, () => executeProspectWizardGeneration(VALID_REQUEST, deps));
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    const breakdown = result.noNewCandidatesBreakdown;
+    assert.equal(breakdown?.uniqueResultsCount, 5);
+    assert.notEqual(
+      breakdown?.uniqueResultsCount,
+      (breakdown?.uniqueResultsCount ?? 0) + (breakdown?.repeatedAcrossRoundsCount ?? 0),
+    );
   });
 });

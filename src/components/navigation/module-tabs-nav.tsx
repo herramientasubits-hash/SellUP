@@ -18,8 +18,8 @@ import { ACCOUNTS_ROUTE, PROSPECTOS_TAB_ROUTE } from "@/config/navigation";
  * custom visual styles introduced.
  */
 const MODULE_TABS: Tab[] = [
-  { id: "empresas", label: "Empresas" },
-  { id: "prospectos", label: "Prospectos" },
+  { id: "empresas", label: "Prospectos aprobados" },
+  { id: "prospectos", label: "Candidatos por revisar" },
 ];
 
 const TAB_ROUTES: Record<string, string> = {

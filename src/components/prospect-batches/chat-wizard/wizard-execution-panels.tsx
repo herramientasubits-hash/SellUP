@@ -23,9 +23,23 @@ import {
   WizardApolloTwoRoundOutcome,
 } from './wizard-two-round-progress-panel';
 import {
-  resolveNoNewCandidatesCopy,
+  buildNoNewCandidatesCompactBreakdown,
+  toNoNewCandidatesBreakdownRows,
   type NoNewCandidatesBreakdown,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-no-new-candidates-copy';
+// A1-APOLLO-PERSISTENCE-READINESS-4 § 8 — la prioridad de causas vive en un solo
+// núcleo puro: fallo de almacenamiento por encima de historial y calidad.
+import {
+  buildWizardPersistenceBreakdown,
+  resolveWizardResultCopy,
+  type WizardPersistenceBreakdownRow,
+  type WizardPersistenceOutcome,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-result-copy';
+import {
+  buildWizardTargetSummary,
+  type WizardTargetSummaryInput,
+} from '@/modules/prospect-batches/chat-wizard-execution/wizard-target-summary-copy';
+import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 
 // ── Wizard generation overlay ─────────────────────────────────────────────────
 
@@ -101,12 +115,54 @@ export function SubmittingPanel({
   );
 }
 
+// ── Desglose administrativo de la escritura ───────────────────────────────────
+
+/**
+ * AGENT1-APOLLO-CANDIDATE-INSERT-FORENSICS-1 § 7 — las cinco cifras de la
+ * escritura, para cerrar una corrida parcial sin abrir la base de datos.
+ *
+ * Vive junto al aviso de persistencia y no dentro de él: el aviso dice QUÉ pasó,
+ * estas filas dicen CUÁNTAS empresas hubo detrás de cada cosa. «Guardados» y
+ * «candidatos completos» son columnas distintas a propósito — en la corrida
+ * `9a9acf99` valían 3 y 0.
+ */
+function WizardPersistenceBreakdown({ rows }: { rows: WizardPersistenceBreakdownRow[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <dl
+      className="space-y-2 rounded-xl border border-border bg-card px-5 py-4"
+      data-testid="wizard-persistence-breakdown"
+    >
+      {rows.map((row) => (
+        <div
+          key={row.key}
+          className="space-y-0.5"
+          data-testid={`wizard-persistence-breakdown-row-${row.key}`}
+        >
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-xs text-muted-foreground">{row.label}</dt>
+            <dd
+              className="text-xs font-semibold tabular-nums text-foreground"
+              data-testid={`wizard-persistence-breakdown-value-${row.key}`}
+            >
+              {row.value}
+            </dd>
+          </div>
+          {row.hint !== null && (
+            <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+          )}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 // ── Success panel ─────────────────────────────────────────────────────────────
 // Closes the drawer and refreshes the global candidates list.
 // Does NOT navigate to a batch-detail route — that view no longer exists.
 
 export type SuccessPanelProps = {
-  status: 'created' | 'already_started' | 'no_new_candidates' | 'success_partial' | 'success_target_reached' | null;
+  status: WizardExecutionStatus | null;
   noveltyExhausted?: boolean;
   candidateCount?: number;
   targetPersistibleCandidates?: number;
@@ -121,28 +177,75 @@ export type SuccessPanelProps = {
    * servidor no la envió: entonces el copy no afirma ninguna causa concreta.
    */
   noNewCandidatesBreakdown?: NoNewCandidatesBreakdown | null;
+  /**
+   * A1-APOLLO-PERSISTENCE-READINESS-4 § 8 — cifras reales de la persistencia.
+   * `null` cuando el servidor no las envió.
+   */
+  persistenceOutcome?: WizardPersistenceOutcome | null;
+  /**
+   * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § H — cifras canónicas de la
+   * corrida. `null`/ausente cuando el servidor no las envió: entonces el resumen
+   * no se pinta en vez de rellenarse con ceros.
+   */
+  targetSummary?: WizardTargetSummaryInput | null;
 };
 
-export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown }: SuccessPanelProps) {
+export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetPersistibleCandidates, onClose, onEditSearch, twoRoundOutcome, targetEligibleCompanies, noNewCandidatesBreakdown, persistenceOutcome, targetSummary }: SuccessPanelProps) {
   const router = useRouter();
 
-  // QUERY-QUALITY-2 § 8 — el texto sale de lo que REALMENTE pasó. Sin
-  // distribución, la causa es «no hubo resultados que clasificar», nunca una
-  // disyunción entre dos causas que no se comprobaron.
-  const noNewCandidatesCopy = resolveNoNewCandidatesCopy(
-    noNewCandidatesBreakdown ?? {
-      recentlySuggestedCount: 0,
-      qualityRejectedCount: 0,
-      noveltyExhausted: noveltyExhausted === true,
-      secondRoundSkippedReason: null,
-    },
-  );
+  // QUERY-QUALITY-2 § 8 + PERSISTENCE-READINESS-4 § 8 — el texto sale de lo que
+  // REALMENTE pasó, y la causa de mayor prioridad gana: un fallo de
+  // almacenamiento se anuncia como tal y NUNCA como historial, aunque la
+  // distribución de descartes tenga resultados «ya sugeridos» (es exactamente el
+  // caso de LIVE-QA-2: 8 descartes de historial y una empresa perdida al
+  // guardarla).
+  const resultCopy = resolveWizardResultCopy({
+    persistence: persistenceOutcome ?? null,
+    noNewCandidates:
+      noNewCandidatesBreakdown ?? {
+        hubspotDuplicateCount: 0,
+        sellupDuplicateCount: 0,
+        cooldownCount: 0,
+        repeatedAcrossRoundsCount: 0,
+        qualityRejectedCount: 0,
+        countryRejectedCount: 0,
+        sectorRejectedCount: 0,
+        ownershipRejectedCount: 0,
+        noveltyExhausted: noveltyExhausted === true,
+        secondRoundSkippedReason: null,
+      },
+  });
+  const isPersistenceFailure = resultCopy.source === 'persistence_failure';
+  // FORENSICS-1 § 7 — éxito PARCIAL: ni el bloque verde de «todo listo» ni el
+  // rojo de «no pudimos guardar nada». La corrida `9a9acf99` guardó 3 de 4 y
+  // ambas presentaciones habrían mentido.
+  const isPartialPersistence = resultCopy.cause === 'persistence_partial';
+  const persistenceBreakdownRows = buildWizardPersistenceBreakdown(persistenceOutcome ?? null);
 
   React.useEffect(() => {
+    if (status === 'completed_with_errors') {
+      // No se cierra solo: el usuario tiene que leer que NO repita la búsqueda.
+      //
+      // A1-APOLLO-PERSISTENCE-READINESS-4-FIX — y NO se emite `toast.error`. El
+      // panel inline de más abajo ya muestra el mismo titular y el mismo cuerpo,
+      // así que el toast sólo duplicaba el mensaje; la invariante 20.R del wizard
+      // exige precisamente que los errores vivan en la UI inline y no en toasts,
+      // para no apilarlos en los fallos reintentables.
+      router.refresh();
+      return;
+    }
+    if (isPartialPersistence) {
+      // FORENSICS-1 § 7 — NO se cierra solo y NO se emite un toast de éxito.
+      // Cerrar el drawer con un «Prospectos generados correctamente» era lo que
+      // dejaba al usuario sin enterarse de que una empresa se había perdido, y
+      // le pedía implícitamente que repitiera —y volviera a pagar— la búsqueda.
+      router.refresh();
+      return;
+    }
     if (status === 'no_new_candidates') {
       // Do NOT auto-close — show the panel so the user can act.
       toast.info('No se encontraron empresas nuevas.', {
-        description: noNewCandidatesCopy.body,
+        description: resultCopy.body,
       });
       router.refresh();
       return;
@@ -168,8 +271,49 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // § 8 — fallo de almacenamiento: el gasto ya ocurrió, así que la única acción
+  // ofrecida es cerrar. NO se ofrece «Editar búsqueda»: reeditar y relanzar es
+  // justo lo que el copy pide no hacer, y ponerlo a un clic contradice el texto.
+  if (status === 'completed_with_errors') {
+    return (
+      <div className="space-y-4 animate-su-fade-in" role="alert">
+        <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-5 py-4">
+          <AlertCircle
+            className="mt-0.5 h-5 w-5 shrink-0 text-destructive"
+            aria-hidden
+          />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-destructive">
+              {resultCopy.heading}
+            </p>
+            <p className="text-xs text-destructive/80">{resultCopy.body}</p>
+          </div>
+        </div>
+        <WizardPersistenceBreakdown rows={persistenceBreakdownRows} />
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (status === 'no_new_candidates') {
-    const noNewBody = noNewCandidatesCopy.body;
+    const noNewBody = resultCopy.body;
+
+    // SCALE-SECOND-ROUND-FIX-1B § 3 — el desglose REAL debajo del texto de causa.
+    // Sustituye al mensaje genérico como única explicación: el copy dice QUÉ pasó y
+    // estas cifras dicen CUÁNTAS empresas hubo detrás. Las repeticiones entre rondas
+    // se muestran como tales y nunca se suman a las empresas únicas.
+    const breakdownRows =
+      noNewCandidatesBreakdown === null || noNewCandidatesBreakdown === undefined
+        ? []
+        : toNoNewCandidatesBreakdownRows(
+            buildNoNewCandidatesCompactBreakdown(noNewCandidatesBreakdown, {
+              candidatesCreatedCount: candidateCount ?? 0,
+            }),
+          );
 
     return (
       <div className="space-y-4 animate-su-fade-in" role="status">
@@ -178,13 +322,37 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
             className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
             aria-hidden
           />
-          <div className="space-y-1">
+          <div className="space-y-2">
             <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-              No encontramos empresas nuevas con estos criterios.
+              {resultCopy.heading ?? 'No encontramos empresas nuevas con estos criterios.'}
             </p>
             <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
               {noNewBody}
             </p>
+
+            {breakdownRows.length > 0 && (
+              <dl
+                className="mt-1 space-y-1 border-t border-amber-200 pt-2 dark:border-amber-800/40"
+                data-testid="wizard-no-new-candidates-breakdown"
+              >
+                {breakdownRows.map((row) => (
+                  <div key={row.key} className="space-y-0.5" data-testid={`wizard-no-new-candidates-row-${row.key}`}>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                      <dd
+                        className="text-xs font-semibold tabular-nums text-foreground"
+                        data-testid={`wizard-no-new-candidates-count-${row.key}`}
+                      >
+                        {row.count}
+                      </dd>
+                    </div>
+                    {row.hint !== null && (
+                      <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+                    )}
+                  </div>
+                ))}
+              </dl>
+            )}
           </div>
         </div>
         <div className="flex gap-2">
@@ -218,20 +386,82 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
 
   return (
     <div className="space-y-3 animate-su-fade-in">
-      <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
-        <CheckCircle2
-          className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
-          aria-hidden
-        />
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-            {heading}
-          </p>
-          <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
-            {body}
-          </p>
+      {/* FORENSICS-1 § 7 — con persistencia parcial NO se pinta el bloque verde.
+          Un titular de éxito con una marca de verificación es exactamente lo que
+          hizo que la corrida `9a9acf99` se leyera como completa mientras perdía
+          al único candidato que contaba hacia el objetivo. El aviso ámbar de más
+          abajo pasa a ser el titular de la corrida. */}
+      {!isPartialPersistence && (
+        <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-800/40 dark:bg-emerald-900/10">
+          <CheckCircle2
+            className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+            aria-hidden
+          />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+              {heading}
+            </p>
+            <p className="text-xs text-emerald-600/80 dark:text-emerald-400/70">
+              {body}
+            </p>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* PERSISTENCE-READINESS-4 § 8 — persistencia PARCIAL. Hay candidatos que
+          revisar, y además se perdió parte de lo encontrado. Decirlo aquí evita
+          que el usuario concluya que el listado está completo y repita la
+          búsqueda para «recuperar» el resto. */}
+      {isPersistenceFailure && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-800/40 dark:bg-amber-900/10" role="alert">
+          <AlertCircle
+            className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden
+          />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+              {resultCopy.heading}
+            </p>
+            <p className="text-xs text-amber-600/80 dark:text-amber-400/70">
+              {resultCopy.body}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* § 7 — el desglose administrativo acompaña SIEMPRE al aviso de
+          persistencia: sin él «se perdió uno» no dice si era completo, si era un
+          duplicado tardío o si fue una avería de escritura. */}
+      {isPersistenceFailure && (
+        <WizardPersistenceBreakdown rows={persistenceBreakdownRows} />
+      )}
+
+      {/* INTEGRATION-1 § H — las cuatro cifras separadas. Guardadas, completas y
+          válidas, pendientes de revisión, y si el objetivo se alcanzó. Un solo
+          número no puede responder «cuántas guardamos» y «cuántas sirven». */}
+      {targetSummary && (
+        <dl
+          className="space-y-2 rounded-xl border border-border bg-card px-5 py-4"
+          data-testid="wizard-target-summary"
+        >
+          {buildWizardTargetSummary(targetSummary).rows.map((row) => (
+            <div key={row.key} className="space-y-0.5" data-testid={`wizard-target-summary-row-${row.key}`}>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                <dd
+                  className="text-xs font-semibold tabular-nums text-foreground"
+                  data-testid={`wizard-target-summary-value-${row.key}`}
+                >
+                  {row.value}
+                </dd>
+              </div>
+              {row.hint !== null && (
+                <p className="text-[10px] leading-snug text-muted-foreground">{row.hint}</p>
+              )}
+            </div>
+          ))}
+        </dl>
+      )}
 
       {/* § 11 — cierre honesto de la modalidad de dos rondas: rondas REALMENTE
           ejecutadas y si el objetivo se alcanzó. Cuando no se alcanzó, se dice
@@ -242,6 +472,18 @@ export function SuccessPanel({ status, noveltyExhausted, candidateCount, targetP
           eligibleCompaniesFound={twoRoundOutcome.eligibleCompaniesFound}
           targetEligibleCompanies={targetEligibleCompanies}
         />
+      )}
+
+      {/* FORENSICS-1 § 7 — con persistencia parcial el panel ya no se cierra
+          solo, así que necesita su propia salida. Sólo «Cerrar»: el copy pide
+          explícitamente no relanzar la búsqueda, y poner «Editar búsqueda» a un
+          clic contradiría el texto igual que en el fallo total. */}
+      {isPartialPersistence && (
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
       )}
     </div>
   );

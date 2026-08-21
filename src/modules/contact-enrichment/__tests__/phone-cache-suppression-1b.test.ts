@@ -397,14 +397,21 @@ describe('CACHE-1b supresión — hard delete en los tres lugares', () => {
     );
   });
 
-  it('los contactos enlazados pierden phone y mobile_phone y su procedencia', () => {
+  // 4O-E4.1: `mobile_phone` salió del patch. La columna no tiene procedencia que
+  // ninguna de estas fuentes pueda reclamar, así que la erasure alcanza la tupla de
+  // `phone` y nada más.
+  it('los contactos enlazados pierden phone y su procedencia, NO el celular', () => {
     const result = plan();
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.deepEqual(clearedContactIds(result), ['contact-1', 'contact-2']);
     for (const { patch } of result.plan.contactPatches) {
       assert.equal(patch.phone, null);
-      assert.equal(patch.mobile_phone, null);
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(patch, 'mobile_phone'),
+        false,
+        'sin procedencia no hay borrado destructivo',
+      );
       assert.equal(patch.phone_source, null);
       assert.equal(patch.phone_type, null);
       assert.equal(patch.phone_raw_type, null);
@@ -604,10 +611,14 @@ describe('CACHE-1b supresión — FIX 1 procedencia creado/promovido obligatoria
 // ── FIX M1: no borrar teléfonos manuales / curados ─────────────
 
 describe('CACHE-1b supresión — FIX M1 procedencia del teléfono del contacto', () => {
-  it('solo apollo_reveal y apollo_cache son borrables', () => {
+  // 4O-E4 amplió la allowlist a `lusha_reveal` con la cadena de procedencia
+  // demostrada de punta a punta. El detalle de esa admisión —y el límite de
+  // `mobile_phone`— vive en `phone-contacts-privacy-erasure-4o-e4.test.ts`.
+  it('solo apollo_reveal, apollo_cache y lusha_reveal son borrables', () => {
     assert.deepEqual([...SUPPRESSIBLE_CONTACT_PHONE_SOURCES], [
       'apollo_reveal',
       'apollo_cache',
+      'lusha_reveal',
     ]);
   });
 
@@ -623,7 +634,6 @@ describe('CACHE-1b supresión — FIX M1 procedencia del teléfono del contacto'
     'manual',
     'provider_payload',
     'apollo_search',
-    'lusha_reveal',
     'unknown',
     'future_unapproved_source',
     null,
@@ -634,7 +644,7 @@ describe('CACHE-1b supresión — FIX M1 procedencia del teléfono del contacto'
     });
   }
 
-  for (const source of ['apollo_reveal', 'apollo_cache']) {
+  for (const source of ['apollo_reveal', 'apollo_cache', 'lusha_reveal']) {
     it(`procedencia ${source} ⇒ sí se borra`, () => {
       const result = plan({}, { contacts: [makeContact({ phoneSource: source })] });
       assert.deepEqual(clearedContactIds(result), ['contact-1']);
@@ -696,6 +706,21 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
       tombstoneCreated: true,
       // Conteos REALES (lo que la DB reportó), no las longitudes del plan.
       candidatesCleared: 2,
+      // 4O-E2: filas de la colección canónica realmente tombstoneadas, y los
+      // agregados PII-free de la reelección del principal.
+      candidatePhoneRowsSuppressed: 3,
+      candidatePhoneSurvivorCount: 0,
+      candidatePhonePrimaryChanged: true,
+      // 4O-H2: la superficie OFICIAL. Ceros aquí porque esta suite fija el contrato de
+      // 4O-E4/1b, cuyos contactos no tienen colección oficial: la propiedad «la 115 no
+      // toca nada cuando no hay colección» se mide contra PostgreSQL real en la suite
+      // de H2, y la de auditoría con conteos no nulos también.
+      officialPhoneSourcesSuppressed: 0,
+      officialPhoneRowsTombstoned: 0,
+      officialPhoneContactsTargeted: 0,
+      officialPhoneSurvivorCount: 0,
+      officialPhonePrimaryChanged: false,
+      officialPhoneScalarGuarded: 0,
       contactsCleared: 1,
     });
     assert.equal(row.provider, 'apollo');
@@ -706,6 +731,11 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
     assert.equal(row.cache_rows_suppressed, 1);
     assert.equal(row.tombstone_created, true);
     assert.equal(row.candidates_cleared, 2);
+    // 4O-E2: el conteo de la colección es una COLUMNA tipada, no una clave dentro
+    // de `metadata`, igual que los otros tres.
+    assert.equal(row.candidate_phone_rows_suppressed, 3);
+    assert.equal(row.metadata.candidate_phone_survivor_count, 0);
+    assert.equal(row.metadata.candidate_phone_primary_changed, true);
     // El plan tenía 2 contactos pero la DB solo actualizó 1: manda la realidad.
     assert.equal(row.contacts_cleared, 1);
     assert.equal(row.metadata.hard_delete, true);
@@ -722,6 +752,19 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
       cacheRowsSuppressed: 1,
       tombstoneCreated: false,
       candidatesCleared: 2,
+      candidatePhoneRowsSuppressed: 2,
+      candidatePhoneSurvivorCount: 0,
+      candidatePhonePrimaryChanged: true,
+      // 4O-H2: la superficie OFICIAL. Ceros aquí porque esta suite fija el contrato de
+      // 4O-E4/1b, cuyos contactos no tienen colección oficial: la propiedad «la 115 no
+      // toca nada cuando no hay colección» se mide contra PostgreSQL real en la suite
+      // de H2, y la de auditoría con conteos no nulos también.
+      officialPhoneSourcesSuppressed: 0,
+      officialPhoneRowsTombstoned: 0,
+      officialPhoneContactsTargeted: 0,
+      officialPhoneSurvivorCount: 0,
+      officialPhonePrimaryChanged: false,
+      officialPhoneScalarGuarded: 0,
       contactsCleared: 2,
     });
     const serialized = JSON.stringify(row);
@@ -743,6 +786,19 @@ describe('CACHE-1b supresión — FIX H3 auditoría durable sin PII', () => {
       cacheRowsSuppressed: 1,
       tombstoneCreated: false,
       candidatesCleared: 2,
+      candidatePhoneRowsSuppressed: 2,
+      candidatePhoneSurvivorCount: 0,
+      candidatePhonePrimaryChanged: true,
+      // 4O-H2: la superficie OFICIAL. Ceros aquí porque esta suite fija el contrato de
+      // 4O-E4/1b, cuyos contactos no tienen colección oficial: la propiedad «la 115 no
+      // toca nada cuando no hay colección» se mide contra PostgreSQL real en la suite
+      // de H2, y la de auditoría con conteos no nulos también.
+      officialPhoneSourcesSuppressed: 0,
+      officialPhoneRowsTombstoned: 0,
+      officialPhoneContactsTargeted: 0,
+      officialPhoneSurvivorCount: 0,
+      officialPhonePrimaryChanged: false,
+      officialPhoneScalarGuarded: 0,
       contactsCleared: 2,
     });
     // En v1 la única fuerza que puede aparecer es `provenance_proven`: nada más

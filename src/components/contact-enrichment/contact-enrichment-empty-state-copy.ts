@@ -27,13 +27,14 @@ export function getContactEnrichmentEmptyStateCopy(
     actualCreditsTotal?: number;
   },
 ): ApolloEmptyStateCopy {
-  // Case C — search stopped by budget guardrail
+  // Case C — search stopped by the result-volume guardrail (legacy field name;
+  // Apollo People Search no cobra créditos — ver AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1).
   if (result.searchGuardrail?.blocked_by_search_budget) {
     return {
       case: 'guardrail_blocked',
-      headline: 'Búsqueda detenida por control de créditos',
+      headline: 'Búsqueda detenida por límite de resultados',
       detail:
-        'La búsqueda se detuvo antes de seguir consumiendo presupuesto Apollo. Es posible que haya más perfiles que no se evaluaron.',
+        'La búsqueda se detuvo al alcanzar el máximo de resultados por ejecución. Es posible que haya más perfiles que no se evaluaron.',
       notAnError:
         'No fue un error. No se crearon contactos ni candidatos, y no se ejecutó completion.',
       tips: [

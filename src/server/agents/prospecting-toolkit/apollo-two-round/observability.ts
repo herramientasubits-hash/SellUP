@@ -39,6 +39,78 @@ export type ApolloEffectiveRequestBuildStatus =
   | 'build_error'
   | 'legacy_checkpoint_missing';
 
+// ─── Decisión de página de la ronda 2 ─────────────────────────────────────────
+
+/**
+ * SCALE-SECOND-ROUND-FIX-1B § 1 — por qué la ronda 2 tuvo que pedir otra página.
+ *
+ *   `identical_effective_request`     el body efectivo colapsó al de la ronda 1
+ *                                    (defecto que cerró HARDENING-3).
+ *   `overlapping_effective_keywords`  los términos efectivos NO son idénticos pero
+ *                                    se solapan, así que la página 1 devuelve la
+ *                                    misma ventana de empresas. Es el defecto de la
+ *                                    corrida live `eae6d47f`: 5 créditos, 0 nuevas.
+ */
+export type ApolloRound2PageEscalationReason =
+  | 'identical_effective_request'
+  | 'overlapping_effective_keywords';
+
+/**
+ * § 1B — la decisión de página de la ronda 2, con su causa y su resultado.
+ *
+ * `null` en el resultado de la corrida significa que NADIE la tomó en este intento
+ * (no hubo ronda 2, o se recuperó de un checkpoint): nunca «se decidió la página 1».
+ */
+export type ApolloRound2PageDecision = {
+  /** Página que la ronda 2 pidió REALMENTE al proveedor. */
+  requestedPage: number;
+  /**
+   * De dónde salió esa página:
+   *
+   *   `first_page`                    la ronda 2 pidió la 1 porque su ventana ya era
+   *                                   otra (términos efectivos disjuntos).
+   *   `hypothesis_variant`            la propia hipótesis eligió la página 2 al no
+   *                                   tener variante de términos ni de región.
+   *   `effective_request_escalation`  la hipótesis pedía la 1 y ESTA decisión la
+   *                                   movió a la 2 al comparar los bodies efectivos.
+   */
+  pageSource: 'first_page' | 'hypothesis_variant' | 'effective_request_escalation';
+  /** True sólo cuando esta decisión movió la petición de la página 1 a la 2. */
+  escalatedToPage2: boolean;
+  /** Causa del salto, o `null` cuando la ronda 2 ya pedía algo genuinamente nuevo. */
+  escalationReason: ApolloRound2PageEscalationReason | null;
+  /** Términos efectivos compartidos con la ronda 1. Vacío ⇒ ventanas disjuntas. */
+  sharedEffectiveKeywords: string[];
+  /** `total_pages` que el proveedor declaró en la ronda 1. */
+  providerTotalPages: number | null;
+  /**
+   * Por qué el salto hacía falta y NO se pudo dar. Pedir una página que el
+   * proveedor no declara es pagar por una respuesta vacía, así que la corrida
+   * sigue en la página 1 y lo deja dicho en vez de esconderlo.
+   */
+  escalationBlockedReason:
+    | 'provider_total_pages_unknown'
+    | 'provider_declared_single_page'
+    | null;
+};
+
+/** § 1B — proyección sanitizada de la decisión. `null` ⇒ nadie la tomó. */
+export function toRound2PageDecisionMetadata(
+  decision: ApolloRound2PageDecision | null,
+): Record<string, unknown> | null {
+  if (decision === null) return null;
+  return {
+    requested_page: decision.requestedPage,
+    page_source: decision.pageSource,
+    escalated_to_page_2: decision.escalatedToPage2,
+    escalation_reason: decision.escalationReason,
+    shared_effective_keywords: decision.sharedEffectiveKeywords,
+    shared_effective_keyword_count: decision.sharedEffectiveKeywords.length,
+    provider_total_pages: decision.providerTotalPages,
+    escalation_blocked_reason: decision.escalationBlockedReason,
+  };
+}
+
 // ─── Ronda ────────────────────────────────────────────────────────────────────
 
 export type ApolloTwoRoundRoundMetrics = {
@@ -68,8 +140,22 @@ export type ApolloTwoRoundRoundMetrics = {
   newUniqueResults: number;
   /** Ya vistas en rondas anteriores o repetidas dentro de la misma respuesta. */
   seenDuplicates: number;
-  /** Duplicados contra SellUp / HubSpot / sugerencias previas. */
+  /**
+   * Duplicados contra SellUp / HubSpot / sugerencias previas, SUMADOS.
+   *
+   * SCALE-AND-SECOND-ROUND-FIX-1 § 5 — se conserva como agregado por
+   * compatibilidad con consumidores existentes; el desglose real vive en los tres
+   * campos siguientes. El copy de "cero candidatos" NUNCA debe leer este campo
+   * sumado para elegir causa: mezclar HubSpot, SellUp y cooldown en un solo
+   * número es exactamente la conflación que ese hito corrige.
+   */
   knownCompanyDuplicates: number;
+  /** § 5 — duplicado confirmado en SellUp. */
+  duplicateInSellUp: number;
+  /** § 5 — duplicado confirmado en HubSpot. */
+  duplicateInHubSpot: number;
+  /** § 5 — cooldown real o sugerencia previa. NUNCA un duplicado de catálogo. */
+  cooldownOrPriorSuggestion: number;
   countryRejected: number;
   sectorRejected: number;
   ownershipRejected: number;
@@ -122,6 +208,28 @@ export type ApolloTwoRoundRoundMetrics = {
   effectiveKeywordsSent: string[];
   /** § 12 — `total_pages` que el proveedor declaró en esta ronda. */
   providerTotalPages: number | null;
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — cobertura de ESTA ronda.
+   *
+   * Por ronda y no sólo por corrida: el § 3 exige que las dos rondas representen a
+   * todas las subindustrias pedidas, y una cifra agregada no distingue «las dos
+   * rondas cubrieron A y B» de «la ronda 1 cubrió A y la ronda 2 cubrió B».
+   *
+   * `null` cuando la ronda no pudo construir su request efectivo: ausencia de dato
+   * no es cobertura completa.
+   */
+  subindustryCoverage: ApolloRoundSubindustryCoverage | null;
+};
+
+/** § 6 — cobertura de una ronda, ya sanitizada (sólo términos de catálogo). */
+export type ApolloRoundSubindustryCoverage = {
+  requestedSubindustries: string[];
+  coveredSubindustries: string[];
+  uncoveredSubindustries: string[];
+  coverageCount: number;
+  coverageRatio: number;
+  effectiveKeywordsBySubindustry: Record<string, string[]>;
+  complete: boolean;
 };
 
 export function buildEmptyRoundMetrics(
@@ -137,6 +245,7 @@ export function buildEmptyRoundMetrics(
     perPage?: number | null;
     specificTermsSent?: readonly string[];
     effectiveKeywordsSent?: readonly string[];
+    subindustryCoverage?: ApolloRoundSubindustryCoverage | null;
   } = {},
 ): ApolloTwoRoundRoundMetrics {
   return {
@@ -149,6 +258,9 @@ export function buildEmptyRoundMetrics(
     newUniqueResults: 0,
     seenDuplicates: 0,
     knownCompanyDuplicates: 0,
+    duplicateInSellUp: 0,
+    duplicateInHubSpot: 0,
+    cooldownOrPriorSuggestion: 0,
     countryRejected: 0,
     sectorRejected: 0,
     ownershipRejected: 0,
@@ -171,6 +283,7 @@ export function buildEmptyRoundMetrics(
     specificTermsSent: [...(provider.specificTermsSent ?? [])],
     effectiveKeywordsSent: [...(provider.effectiveKeywordsSent ?? [])],
     providerTotalPages: null,
+    subindustryCoverage: provider.subindustryCoverage ?? null,
   };
 }
 
@@ -227,6 +340,47 @@ export type ApolloTwoRoundRunMetrics = {
   enrichmentsExecuted: number;
   enrichmentWaste: number;
   /**
+   * SCALE-AND-SECOND-ROUND-FIX-1 § 4 — desenlace de cada enrichment PAGADO, en
+   * tres cubetas mutuamente excluyentes, para no leer "cero candidatos" como una
+   * sola causa homogénea:
+   *
+   *   `sectorConfirmedByEnrichment`            — el enrichment confirmó el sector.
+   *   `sectorStillUnconfirmedAfterEnrichment`  — se cobró y el sector sigue sin
+   *                                               confirmarse (contradictorio, no
+   *                                               mapeado, o sigue faltando
+   *                                               evidencia).
+   *   `enrichmentFailedCount`                  — la llamada no devolvió evidencia
+   *                                               utilizable (sin match del
+   *                                               proveedor o cobro sin confirmar).
+   *
+   * Una industria amplia NUNCA se cuenta como `sectorConfirmedByEnrichment`: el
+   * gate sectorial sigue siendo el único que decide "confirmado".
+   */
+  sectorConfirmedByEnrichment: number;
+  sectorStillUnconfirmedAfterEnrichment: number;
+  /**
+   * QUALITY-PERSISTENCE-HARDENING-1 § 5 — el enrichment trajo evidencia que
+   * CONTRADICE el sector o la subindustria buscada.
+   *
+   * Antes caía en `sectorStillUnconfirmedAfterEnrichment`, que dice «sigue sin
+   * confirmarse» y sugiere que otro dato podría confirmarlo. Un rechazo es un
+   * desenlace distinto: ya no hay nada que confirmar.
+   */
+  sectorRejectedAfterEnrichment: number;
+  enrichmentFailedCount: number;
+  /**
+   * § 5 — enrichments cuyo desenlace se pudo CLASIFICAR en una de las cuatro
+   * cubetas. Es el denominador honesto de la invariante:
+   *
+   *   confirmados + ambiguos + rechazados + fallidos === enrichmentsClassified
+   *
+   * Coincide con `enrichmentsExecuted` cuando toda llamada determinada se cobró.
+   * Difiere cuando alguna respondió `no_match`: esa llamada se clasifica (cubeta
+   * `enrichmentFailedCount`) pero NO se cobró, y contarla como ejecutada
+   * inventaría gasto.
+   */
+  enrichmentsClassified: number;
+  /**
    * HARDENING-3 § 7 — ¿las huellas EFECTIVAS de las dos rondas resultaron
    * distintas?
    *
@@ -236,6 +390,46 @@ export type ApolloTwoRoundRunMetrics = {
    * "son iguales" sobre un dato que nadie tiene.
    */
   effectiveFingerprintsAreDistinct: boolean | null;
+  /**
+   * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § D — la cuenta que decidió cada
+   * parada de esta corrida, YA resuelta por los gates finales. Coincide con
+   * `totalEligibleCompanies`: es el mismo número, nombrado para que quede claro
+   * que es la métrica CONSERVADORA del § A, no un sustituto más laxo.
+   */
+  stableFinalizableCandidateCount: number;
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 8 — la PROYECCIÓN, con nombre propio.
+   *
+   * Cuenta a los candidatos que serían finalizables si alguien resolviera las
+   * admisiones que sólo el writer resuelve. No es la cifra estable y no puede
+   * detener gasto; existe para que la distancia entre las dos sea legible en vez
+   * de tener que deducirse.
+   */
+  projectedFinalizableCandidateCount: number;
+  /** § 8 — `projected - stable`. Cuántos están bloqueados SÓLO por writer-only. */
+  writerOnlyPendingCount: number;
+  /** § 8 — qué admisiones writer-only quedaron sin resolver, por nombre. */
+  writerOnlyPendingReasons: string[];
+  /**
+   * ADAPTIVE-EARLY-STOP § 11 — comprobaciones de admisión PRE-writer agregadas
+   * sobre los candidatos elegibles, en tres cubetas que no se solapan.
+   *
+   * Sirven para responder, sin abrir el código, la pregunta que este addendum
+   * hace explícita: cuántas de las trece se están resolviendo de verdad. Con
+   * `pending` en cero y `pass` positivo, la parada temprana está VIVA; con
+   * `pending` alto, la corrida vuelve a recorrer el máximo de gasto y aquí se ve
+   * por qué.
+   */
+  preWriterAdmissionPassCount: number;
+  preWriterAdmissionFailedCount: number;
+  preWriterAdmissionPendingCount: number;
+  /**
+   * § D — `max(0, target - stableFinalizableCandidateCount)`. Cero significa
+   * que el objetivo se alcanzó de verdad; con `enrichmentsExecuted` en cero y
+   * este campo en positivo, la corrida se quedó corta y NO fue por falta de
+   * intentos de enrichment.
+   */
+  targetGap: number;
 };
 
 /** Redondea a 4 decimales para que la métrica sea comparable entre corridas. */
@@ -254,6 +448,40 @@ export function buildRunMetrics(input: {
   enrichmentOutcomes: readonly EnrichmentOutcome[];
   /** HARDENING-3 § 7 — resultado de la comparación efectiva. Ausente ⇒ null. */
   effectiveFingerprintsAreDistinct?: boolean | null;
+  /** § 4 — las cubetas del desenlace de enrichment. Ausentes ⇒ 0. */
+  sectorConfirmedByEnrichment?: number;
+  sectorStillUnconfirmedAfterEnrichment?: number;
+  /** HARDENING-1 § 5 — rechazo confirmado por el enrichment. Ausente ⇒ 0. */
+  sectorRejectedAfterEnrichment?: number;
+  enrichmentFailedCount?: number;
+  /** § D — objetivo de la corrida. Ausente ⇒ el hueco se reporta 0, nunca negativo. */
+  targetEligibleCompanies?: number;
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 3 — cuenta ESTABLE, calculada por el
+   * orquestador con el contrato canónico.
+   *
+   * Hasta este hito no existía como entrada: se aliaseaba a
+   * `totalEligibleCompanies`, así que la métrica que se llamaba «estable» era la
+   * provisional con otro nombre, y `target_gap` heredaba el mismo error.
+   *
+   * Ausente ⇒ se cae al total de elegibles, para no romper a los llamadores que
+   * todavía no la calculan. Producción siempre la pasa.
+   */
+  stableFinalizableCandidateCount?: number;
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 8 — la proyección y su motivo.
+   *
+   * Ausentes ⇒ la proyección cae a la cuenta estable y el pendiente a 0. Ese
+   * respaldo es el conservador: afirma «no hay proyección aparte», no «hay más de
+   * los que se pueden probar».
+   */
+  projectedFinalizableCandidateCount?: number;
+  writerOnlyPendingCount?: number;
+  writerOnlyPendingReasons?: readonly string[];
+  /** § 11 — agregados de admisión PRE-writer. Ausentes ⇒ 0, nunca inventados. */
+  preWriterAdmissionPassCount?: number;
+  preWriterAdmissionFailedCount?: number;
+  preWriterAdmissionPendingCount?: number;
 }): ApolloTwoRoundRunMetrics {
   const totalRawResults = input.rounds.reduce((sum, r) => sum + r.rawResultsReturned, 0);
   const totalNormalizedResults = input.rounds.reduce((sum, r) => sum + r.normalizedResults, 0);
@@ -289,7 +517,41 @@ export function buildRunMetrics(input: {
     enrichmentWasteRate: ratio(enrichmentWaste, enrichmentsExecuted),
     enrichmentsExecuted,
     enrichmentWaste,
+    sectorConfirmedByEnrichment: input.sectorConfirmedByEnrichment ?? 0,
+    sectorStillUnconfirmedAfterEnrichment: input.sectorStillUnconfirmedAfterEnrichment ?? 0,
+    sectorRejectedAfterEnrichment: input.sectorRejectedAfterEnrichment ?? 0,
+    enrichmentFailedCount: input.enrichmentFailedCount ?? 0,
+    enrichmentsClassified:
+      (input.sectorConfirmedByEnrichment ?? 0) +
+      (input.sectorStillUnconfirmedAfterEnrichment ?? 0) +
+      (input.sectorRejectedAfterEnrichment ?? 0) +
+      (input.enrichmentFailedCount ?? 0),
     effectiveFingerprintsAreDistinct: input.effectiveFingerprintsAreDistinct ?? null,
+    // STABLE-TARGET-WRITER-PARITY § 3 — la cuenta estable es la que llega, no un
+    // alias de `totalEligibleCompanies`. Son cifras distintas siempre que algún
+    // elegible no cumpla el contrato completo (employee_count, LinkedIn,
+    // subindustria, duplicidad, calidad), que es el caso normal.
+    stableFinalizableCandidateCount:
+      input.stableFinalizableCandidateCount ?? input.totalEligibleCompanies,
+    // § 8 — la proyección nunca puede quedar por DEBAJO de la estable: son la
+    // misma lista y la estable es su subconjunto. Un llamador que pase una cifra
+    // menor está informando mal, y el máximo evita publicar un imposible.
+    projectedFinalizableCandidateCount: Math.max(
+      input.stableFinalizableCandidateCount ?? input.totalEligibleCompanies,
+      input.projectedFinalizableCandidateCount ??
+        input.stableFinalizableCandidateCount ??
+        input.totalEligibleCompanies,
+    ),
+    writerOnlyPendingCount: input.writerOnlyPendingCount ?? 0,
+    writerOnlyPendingReasons: [...(input.writerOnlyPendingReasons ?? [])],
+    preWriterAdmissionPassCount: input.preWriterAdmissionPassCount ?? 0,
+    preWriterAdmissionFailedCount: input.preWriterAdmissionFailedCount ?? 0,
+    preWriterAdmissionPendingCount: input.preWriterAdmissionPendingCount ?? 0,
+    targetGap: Math.max(
+      0,
+      (input.targetEligibleCompanies ?? 0) -
+        (input.stableFinalizableCandidateCount ?? input.totalEligibleCompanies),
+    ),
   };
 }
 
@@ -317,6 +579,11 @@ export function toRoundMetricsMetadata(
     normalized_results: metrics.normalizedResults,
     seen_duplicates: metrics.seenDuplicates,
     known_company_duplicates: metrics.knownCompanyDuplicates,
+    // § 5 — el desglose real. El copy de "cero candidatos" lee estos tres, nunca
+    // el agregado de arriba.
+    duplicate_in_sellup: metrics.duplicateInSellUp,
+    duplicate_in_hubspot: metrics.duplicateInHubSpot,
+    cooldown_or_prior_suggestion: metrics.cooldownOrPriorSuggestion,
     country_rejected: metrics.countryRejected,
     sector_rejected: metrics.sectorRejected,
     ownership_rejected: metrics.ownershipRejected,
@@ -341,6 +608,17 @@ export function toRoundMetricsMetadata(
     specific_terms_sent: metrics.specificTermsSent,
     effective_keywords_sent: metrics.effectiveKeywordsSent,
     provider_total_pages: metrics.providerTotalPages,
+    // MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 6 — cobertura POR RONDA. Los
+    // campos van planos, con el prefijo `round_`, para que una consulta pueda
+    // preguntar «¿esta ronda representó a las dos subindustrias?» sin desanidar.
+    round_requested_subindustries: metrics.subindustryCoverage?.requestedSubindustries ?? null,
+    round_covered_subindustries: metrics.subindustryCoverage?.coveredSubindustries ?? null,
+    round_uncovered_subindustries: metrics.subindustryCoverage?.uncoveredSubindustries ?? null,
+    round_coverage_count: metrics.subindustryCoverage?.coverageCount ?? null,
+    round_coverage_ratio: metrics.subindustryCoverage?.coverageRatio ?? null,
+    round_coverage_complete: metrics.subindustryCoverage?.complete ?? null,
+    effective_keywords_by_subindustry:
+      metrics.subindustryCoverage?.effectiveKeywordsBySubindustry ?? null,
   };
 }
 
@@ -365,7 +643,37 @@ export function toRunMetricsMetadata(
     enrichment_waste_rate: metrics.enrichmentWasteRate,
     enrichments_executed: metrics.enrichmentsExecuted,
     enrichment_waste: metrics.enrichmentWaste,
+    // § 4 — las cubetas del desenlace de enrichment, separadas.
+    sector_confirmed_by_enrichment: metrics.sectorConfirmedByEnrichment,
+    sector_still_unconfirmed_after_enrichment: metrics.sectorStillUnconfirmedAfterEnrichment,
+    enrichment_failed_count: metrics.enrichmentFailedCount,
+    // HARDENING-1 § 5 — los cuatro desenlaces con los nombres del contrato, y su
+    // denominador. Los tres de arriba se conservan para no romper lecturas ya
+    // escritas contra ellos.
+    sector_confirmed_after_enrichment: metrics.sectorConfirmedByEnrichment,
+    sector_still_ambiguous_after_enrichment: metrics.sectorStillUnconfirmedAfterEnrichment,
+    sector_rejected_after_enrichment: metrics.sectorRejectedAfterEnrichment,
+    enrichment_failed: metrics.enrichmentFailedCount,
+    enrichment_outcomes_classified: metrics.enrichmentsClassified,
     // HARDENING-3 § 7 — null cuando la comparación no se pudo hacer. Nunca false.
     effective_fingerprints_are_distinct: metrics.effectiveFingerprintsAreDistinct,
+    // AGENT1-APOLLO-FINALIZATION-HARDENING-1 § D — la cuenta conservadora y el
+    // hueco contra el objetivo, con nombre propio en vez de derivarse a ojo de
+    // `total_eligible_companies` y `target_eligible_companies`.
+    stable_finalizable_candidate_count: metrics.stableFinalizableCandidateCount,
+    target_gap: metrics.targetGap,
+    // WRITER-ONLY-ADMISSION-PENDING § 8 — las cuatro cifras PRE-writer se emiten
+    // SEPARADAS y con los nombres del addendum. `stable_finalizable_count` es el
+    // mismo número que `stable_finalizable_candidate_count`, publicado también con
+    // el nombre corto del contrato para que la pareja projected/stable se lea de un
+    // golpe; la quinta cifra —`final_persisted_target_count`— no se emite aquí a
+    // propósito: sólo existe DESPUÉS del writer y la escribe la reconciliación.
+    projected_finalizable_count: metrics.projectedFinalizableCandidateCount,
+    stable_finalizable_count: metrics.stableFinalizableCandidateCount,
+    writer_only_pending_count: metrics.writerOnlyPendingCount,
+    writer_only_pending_reasons: [...metrics.writerOnlyPendingReasons],
+    pre_writer_admission_pass_count: metrics.preWriterAdmissionPassCount,
+    pre_writer_admission_failed_count: metrics.preWriterAdmissionFailedCount,
+    pre_writer_admission_pending_count: metrics.preWriterAdmissionPendingCount,
   };
 }

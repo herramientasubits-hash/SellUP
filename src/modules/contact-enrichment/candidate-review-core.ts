@@ -107,6 +107,115 @@ export function duplicateStatusFromMatch(match: DuplicateMatch): ContactDuplicat
   return match.matchedBy === 'name' ? 'possible_duplicate' : 'exact_duplicate';
 }
 
+// ── Identidad CONFIABLE de un contacto existente (4O-H3-B) ──────
+//
+// `findDuplicateContact()` responde «¿debo AVISAR de que esto ya existe?». Lo que sigue responde
+// una pregunta distinta y mucho más exigente: «¿puedo ESCRIBIR en esa fila?». Avisar de más es
+// una molestia; escribir en la fila equivocada mezcla los datos de dos personas, y por eso las
+// dos preguntas no comparten respuesta.
+//
+// Diferencias deliberadas con `findDuplicateContact()`:
+//
+//   * el NOMBRE no participa. Ni exacto, ni normalizado, ni parecido;
+//   * `.find()` (el PRIMER match del array) se sustituye por un CONTEO. Dos contactos con el
+//     mismo email en una cuenta no identifican a nadie, y quedarse con el primero es elegir al
+//     azar cuál de los dos recibe los teléfonos;
+//   * dos señales exactas que apuntan a contactos distintos son un rechazo, no un desempate.
+//
+// No hay una tercera señal. En particular no existe una por identificador de persona del
+// proveedor: `contacts` no tiene ninguna columna que lo guarde — ni `apollo_person_id` ni
+// equivalente —, así que no hay nada que comparar, y fingir que lo hay sería inventar la
+// evidencia. El día que esa columna exista, se añade aquí y en ningún otro sitio.
+
+/** Las únicas dos señales que pueden acreditar por sí solas la identidad de un contacto. */
+export type TrustedMatchSignal = 'email' | 'linkedin';
+
+export type ExistingContactMatchVerdict =
+  /** Identidad exacta, única e inequívoca. La ÚNICA que habilita ofrecer el merge. */
+  | { kind: 'trusted'; contactId: string; signal: TrustedMatchSignal }
+  /** Varios contactos posibles, o dos señales exactas en desacuerdo. Fail-closed. */
+  | { kind: 'ambiguous'; reason: 'multiple_contacts' | 'conflicting_signals' }
+  /** Sin identidad exacta. `name_only` es el duplicado por nombre: se rechaza y se dice. */
+  | { kind: 'untrusted'; reason: 'name_only' | 'no_exact_signal' };
+
+export type ExistingContactMergeBlockReason =
+  | 'multiple_contacts'
+  | 'conflicting_signals'
+  | 'name_only'
+  | 'no_exact_signal'
+  | 'no_recorded_match'
+  | 'recorded_match_mismatch';
+
+/**
+ * Resuelve el contacto existente en el que se PODRÍA fusionar el candidato.
+ *
+ * Fail-closed por construcción: todo lo que no sea «exactamente un contacto, acreditado por una
+ * igualdad exacta, y sin que otra señal exacta señale a otro» devuelve rechazo con motivo. NO
+ * desempata, NO puntúa, NO prefiere el más reciente y NO se queda con el primero de la lista.
+ */
+export function resolveTrustedExistingContactMatch(args: {
+  candidate: Pick<CandidateDedupInput, 'email' | 'linkedin_url'>;
+  existingContacts: readonly ExistingContactForDedup[];
+}): ExistingContactMatchVerdict {
+  const eKey = emailKey(args.candidate.email);
+  const lKey = linkedinKey(args.candidate.linkedin_url);
+
+  const emailMatches = eKey
+    ? uniqueContactIds(args.existingContacts.filter((c) => emailKey(c.email) === eKey))
+    : [];
+  const linkedinMatches = lKey
+    ? uniqueContactIds(args.existingContacts.filter((c) => linkedinKey(c.linkedin_url) === lKey))
+    : [];
+
+  if (emailMatches.length > 1 || linkedinMatches.length > 1) {
+    return { kind: 'ambiguous', reason: 'multiple_contacts' };
+  }
+
+  const byEmail = emailMatches[0] ?? null;
+  const byLinkedin = linkedinMatches[0] ?? null;
+
+  if (byEmail && byLinkedin && byEmail !== byLinkedin) {
+    return { kind: 'ambiguous', reason: 'conflicting_signals' };
+  }
+
+  if (byEmail) return { kind: 'trusted', contactId: byEmail, signal: 'email' };
+  if (byLinkedin) return { kind: 'trusted', contactId: byLinkedin, signal: 'linkedin' };
+
+  if (!eKey && !lKey) return { kind: 'untrusted', reason: 'name_only' };
+  return { kind: 'untrusted', reason: 'no_exact_signal' };
+}
+
+function uniqueContactIds(rows: readonly ExistingContactForDedup[]): string[] {
+  return [...new Set(rows.map((r) => r.id))];
+}
+
+/**
+ * ¿Se le puede OFRECER al humano «Agregar información al contacto existente»?
+ *
+ * Exige las dos cosas a la vez: una identidad confiable Y que el contacto que el servidor
+ * registró como duplicado (`matched_contacts_id`) sea ESE mismo. Si el registro apunta a otro, la
+ * oferta se retira: el destino que la transacción aceptará es el registrado, y ofrecer algo
+ * distinto de lo que va a ocurrir es peor que no ofrecer nada.
+ */
+export function resolveExistingContactMergeOffer(args: {
+  candidate: Pick<CandidateDedupInput, 'email' | 'linkedin_url'>;
+  existingContacts: readonly ExistingContactForDedup[];
+  recordedMatchContactId: string | null | undefined;
+}): ExistingContactMergeOffer {
+  const verdict = resolveTrustedExistingContactMatch({
+    candidate: args.candidate,
+    existingContacts: args.existingContacts,
+  });
+
+  if (verdict.kind !== 'trusted') return { offered: false, reason: verdict.reason };
+
+  const recorded = cleanString(args.recordedMatchContactId);
+  if (!recorded) return { offered: false, reason: 'no_recorded_match' };
+  if (recorded !== verdict.contactId) return { offered: false, reason: 'recorded_match_mismatch' };
+
+  return { offered: true, contactId: verdict.contactId, signal: verdict.signal };
+}
+
 // ── Mapeo candidato → contacto oficial ──────────────────────────
 
 const CANDIDATE_SOURCE_TO_CONTACT: Record<CandidateSource, OfficialContactSource> = {
@@ -222,6 +331,12 @@ export interface CandidateRecord {
   company_domain: string | null;
   /** Código ISO-2 del país resuelto en el run (MX, CO, CL…). Puede ser null. */
   country_code: string | null;
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-H3-B — el contacto que el SERVIDOR registró al detectar el
+   * duplicado. Opcional porque las proyecciones anteriores a este hito no lo leían; es el ancla
+   * de confianza del merge y NUNCA se acepta un destino distinto de éste.
+   */
+  matched_contacts_id?: string | null;
   /**
    * Auditoría del futuro Apollo phone reveal (PHONE-3D.2). Campos aditivos y
    * opcionales/nullable: los candidatos actuales no los tienen y este hito NO
@@ -455,6 +570,16 @@ export interface ReviewMetadata {
   matched_contact_id?: string;
   matched_by?: DuplicateMatch['matchedBy'];
   identity_override?: IdentityApprovalOverrideEvidenceV1;
+  /**
+   * 4O-H3-B — lo ÚNICO que distingue de forma durable un duplicado FUSIONADO de uno DESCARTADO.
+   * `matched_contacts_id` no puede hacerlo: el veredicto duplicado lo escribe en ambos casos.
+   * Lo INYECTA la transacción de la 117, nunca el llamador, y es también su clave de
+   * idempotencia. Se declara aquí para que el tipo describa la forma real del bloque `review`.
+   */
+  merged_into_contact_id?: string;
+  merged_at?: string;
+  /** Señal exacta que acreditó la identidad del contacto destino. Nunca `name`. */
+  merged_match_signal?: TrustedMatchSignal;
 }
 
 /** Inserta/actualiza la clave `review` sin perder relevance/completion previos. */
@@ -557,7 +682,23 @@ export type ApproveResult =
       duplicate?: boolean;
       contactId?: string;
       code?: 'IDENTITY_MISMATCH_REQUIRES_REVIEW' | 'IDENTITY_OVERRIDE_REASON_REQUIRED';
+      /**
+       * AGENT2A-PHONE-REVEAL-4O-H3-B — presente SOLO en el veredicto `duplicate`. Dice si la
+       * identidad del contacto existente es lo bastante fuerte como para OFRECERLE al humano
+       * «Agregar información al contacto existente». Nunca fusiona por sí solo: es la oferta,
+       * y la decisión la toma una segunda acción explícita.
+       */
+      mergeOffer?: ExistingContactMergeOffer;
     };
+
+/**
+ * AGENT2A-PHONE-REVEAL-4O-H3-B — la oferta de merge que acompaña a un veredicto `duplicate`.
+ * `offered: false` viaja con su motivo para que la UI pueda decir la verdad («no podemos
+ * confirmar que sea la misma persona») en lugar de callar.
+ */
+export type ExistingContactMergeOffer =
+  | { offered: true; contactId: string; signal: TrustedMatchSignal }
+  | { offered: false; reason: ExistingContactMergeBlockReason };
 
 export type DiscardResult = { ok: true; message: string } | { ok: false; error: string };
 
@@ -591,14 +732,37 @@ export interface AuditEntry {
   identityOverrideApplied?: boolean;
 }
 
+/**
+ * Resultado de la transacción de aprobación (4O-H3). `alreadyApproved` NO es un fallo: es el
+ * candidato que otra ejecución —o el segundo clic de la misma— ya aprobó, devolviendo el
+ * contacto que existe en vez de crear un segundo.
+ */
+export type ApproveTransactionResult =
+  | { ok: true; contactId: string; alreadyApproved: boolean }
+  | { ok: false; error: string; personSuppressed?: boolean };
+
+export interface ApproveTransactionInput {
+  candidateId: string;
+  accountId: string;
+  contactPayload: ContactInsertPayload;
+  reviewPatch: CandidateReviewPatch;
+  candidate: CandidateRecord;
+}
+
 export interface ApproveDeps {
   actorId: string;
   nowIso: string;
   loadCandidate: (id: string) => Promise<CandidateRecord | null>;
   loadExistingContacts: (accountId: string) => Promise<ExistingContactForDedup[]>;
-  insertContact: (
-    payload: ContactInsertPayload,
-  ) => Promise<{ id: string } | { error: string }>;
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-H3 — la ÚNICA autoridad transaccional de la aprobación. Crea el
+   * contacto, promueve la colección oficial de teléfonos con su procedencia, proyecta el
+   * escalar y marca el candidato aprobado, todo en UNA transacción de PostgreSQL. Sustituye al
+   * par `insertContact` + `updateCandidate(approved)` que antes eran dos escrituras sueltas con
+   * una ventana entre ellas en la que el contacto existía y el candidato seguía pendiente.
+   */
+  approveTransactionally: (input: ApproveTransactionInput) => Promise<ApproveTransactionResult>;
+  /** Sigue usándose SOLO para el veredicto `duplicate`, que no crea contacto. */
   updateCandidate: (id: string, patch: CandidateReviewPatch) => Promise<{ error?: string }>;
   logAudit?: (entry: AuditEntry) => Promise<void>;
   /**
@@ -734,54 +898,89 @@ export async function runApproveCandidate(
       reviewed_at: deps.nowIso,
       enrichment_metadata: mergeReview(candidate.enrichment_metadata, review),
     });
-    return { ok: false, error: MSG.duplicate, duplicate: true, contactId: duplicate.contactId };
+    // 4O-H3-B — el veredicto no cambia y el candidato queda terminalizado exactamente igual que
+    // antes de este hito. Lo que se añade es la OFERTA: si la identidad del contacto existente
+    // es exacta e inequívoca, el humano puede además elegir agregarle la información en vez de
+    // limitarse a descartar. La oferta no fusiona nada — eso lo hace una segunda acción
+    // explícita — y su ancla es el MISMO id que se acaba de escribir en `matched_contacts_id`.
+    const mergeOffer = resolveExistingContactMergeOffer({
+      candidate,
+      existingContacts: existing,
+      recordedMatchContactId: duplicate.contactId,
+    });
+    return {
+      ok: false,
+      error: MSG.duplicate,
+      duplicate: true,
+      contactId: duplicate.contactId,
+      mergeOffer,
+    };
   }
 
-  // Crear contacto oficial.
+  // ── Aprobación ATÓMICA (4O-H3) ────────────────────────────────
+  // Antes eran dos escrituras: `contacts` INSERT y luego el patch del candidato. Entre las dos
+  // había una ventana real —documentada en el propio `return` que devolvía `approveFailed` CON
+  // un `contactId`— en la que el contacto existía y el candidato seguía `pending_review`, de
+  // modo que el siguiente clic creaba un segundo contacto para la misma persona. Y el INSERT
+  // sólo llevaba `candidate.phone`: los demás números revelados se perdían.
+  //
+  // Ahora las dos escrituras y la propagación de TODA la colección de teléfonos ocurren dentro
+  // de una única transacción de PostgreSQL, que además vuelve a bloquear el candidato y a
+  // comprobar la supresión por persona bajo ese lock — cosas que esta capa, que leyó antes,
+  // no puede prometer.
+  //
+  // `matched_contacts_id` lo escribe la transacción con el id del contacto que acaba de crear:
+  // el llamador no puede conocerlo antes del INSERT, y ese campo es también el vínculo durable
+  // que hace idempotente una segunda aprobación.
   const payload = buildContactInsertPayload({
     candidate,
     accountId,
     internalUserId: deps.actorId,
   });
-  const insertResult = await deps.insertContact(payload);
-  if ('error' in insertResult) {
-    return { ok: false, error: MSG.createFailed };
-  }
 
-  const contactId = insertResult.id;
-
-  // Marcar candidato approved con referencia al contacto creado. El override
-  // de identidad solo se persiste cuando el estado evaluado fue `mismatch`;
-  // nunca se escribe para consistent/insufficient_evidence/no_evidence aunque
-  // el llamador haya enviado un payload de override innecesario.
+  // El override de identidad solo se persiste cuando el estado evaluado fue `mismatch`; nunca
+  // se escribe para consistent/insufficient_evidence/no_evidence aunque el llamador haya
+  // enviado un payload de override innecesario.
   const review: ReviewMetadata = {
     status: 'approved',
     reviewed_at: deps.nowIso,
     reviewed_by: deps.actorId,
-    created_contact_id: contactId,
     ...(identityOverrideEvidence ? { identity_override: identityOverrideEvidence } : {}),
   };
-  const updateResult = await deps.updateCandidate(candidate.id, {
+  const reviewPatch: CandidateReviewPatch = {
     status: 'approved',
     duplicate_status: 'no_match',
-    matched_contacts_id: contactId,
     review_notes: null,
     reviewed_by: deps.actorId,
     reviewed_at: deps.nowIso,
     enrichment_metadata: mergeReview(candidate.enrichment_metadata, review),
+  };
+
+  const approved = await deps.approveTransactionally({
+    candidateId: candidate.id,
+    accountId,
+    contactPayload: payload,
+    reviewPatch,
+    candidate,
   });
-  if (updateResult.error) {
-    // El contacto ya existe; la falla al marcar el candidato no debe ocultar el
-    // éxito de creación. Se reporta como error suave para revisar el candidato.
-    return { ok: false, error: MSG.approveFailed, contactId };
+  if (!approved.ok) {
+    return { ok: false, error: approved.error };
   }
 
-  await deps.logAudit?.({
-    contactId,
-    accountId,
-    actorUserId: deps.actorId,
-    identityOverrideApplied: identityOverrideEvidence !== undefined,
-  });
+  const contactId = approved.contactId;
+
+  // La auditoría queda FUERA de la transacción a propósito, y sólo puede correr después de que
+  // ésta haya confirmado. Al revés —dentro— una fila que dice `contact_created` sobreviviría a
+  // un rollback del contacto que dice haber creado. Un candidato ya aprobado no se vuelve a
+  // auditar: no se creó ningún contacto en esta ejecución.
+  if (!approved.alreadyApproved) {
+    await deps.logAudit?.({
+      contactId,
+      accountId,
+      actorUserId: deps.actorId,
+      identityOverrideApplied: identityOverrideEvidence !== undefined,
+    });
+  }
 
   let message: string = MSG.approved;
   if (resolvedAccountOutcome === 'created') message = MSG.approvedNewAccount;
@@ -829,4 +1028,206 @@ export async function runDiscardCandidate(
   }
 
   return { ok: true, message: MSG.discarded };
+}
+
+// ── Orquestación: fusionar en un contacto EXISTENTE (4O-H3-B) ───
+//
+// La TERCERA decisión humana sobre un candidato, junto a aprobar y rechazar, y la única que
+// escribe sobre una fila que este candidato no creó. Empieza donde el veredicto duplicado
+// termina: el candidato ya está en `duplicate`, el servidor ya escribió en `matched_contacts_id`
+// el contacto que emparejó, y el humano ha elegido explícitamente agregarle la información en
+// lugar de descartar.
+//
+// NO resuelve identidad por su cuenta más allá de reconfirmar la señal exacta, NO fusiona
+// automáticamente, NO llama a ningún proveedor y NO gasta un crédito: cada número que promueve
+// ya fue observado y ya fue pagado.
+
+export type MergeIntoExistingContactResult =
+  | { ok: true; contactId: string; message: string; alreadyMerged: boolean }
+  | { ok: false; error: string; code?: MergeIntoExistingContactErrorCode };
+
+export type MergeIntoExistingContactErrorCode =
+  | 'INVALID_INPUT'
+  | 'CANDIDATE_NOT_FOUND'
+  | 'CANDIDATE_NOT_MERGEABLE'
+  | 'MERGE_NOT_TRUSTED'
+  | 'CONTACT_MISMATCH'
+  | 'MERGE_FAILED';
+
+/** Lo que la transacción de la 117 devuelve, traducido al contrato de esta capa. */
+export type MergeTransactionResult =
+  | { ok: true; contactId: string; alreadyMerged: boolean; phonesInserted: number; sourcesInserted: number }
+  | { ok: false; error: string; code?: MergeIntoExistingContactErrorCode };
+
+export interface MergeTransactionInput {
+  candidateId: string;
+  contactId: string;
+  accountId: string;
+  reviewPatch: CandidateReviewPatch;
+  candidate: CandidateRecord;
+  /** El escalar heredado del CONTACTO destino, leído fuera del lock y revalidado dentro. */
+  incumbentScalar: ExistingContactScalarForMerge;
+}
+
+/** Proyección mínima del contacto destino: sólo lo que decide el bootstrap del escalar. */
+export interface ExistingContactScalarForMerge {
+  id: string;
+  phone: string | null;
+  phone_type: string | null;
+  phone_source: string | null;
+  phone_raw_type: string | null;
+}
+
+export interface MergeAuditEntry {
+  contactId: string;
+  accountId: string;
+  candidateId: string;
+  actorUserId: string | null;
+  matchSignal: TrustedMatchSignal;
+  phonesInserted: number;
+  sourcesInserted: number;
+}
+
+export interface MergeIntoExistingContactDeps {
+  actorId: string;
+  nowIso: string;
+  loadCandidate: (id: string) => Promise<CandidateRecord | null>;
+  loadExistingContacts: (accountId: string) => Promise<ExistingContactForDedup[]>;
+  /** Lee el escalar heredado del contacto destino. `null` si el contacto ya no existe. */
+  loadExistingContactScalar: (
+    contactId: string,
+    accountId: string,
+  ) => Promise<ExistingContactScalarForMerge | null>;
+  /** La ÚNICA autoridad transaccional del merge (migración 117). */
+  mergeTransactionally: (input: MergeTransactionInput) => Promise<MergeTransactionResult>;
+  logAudit?: (entry: MergeAuditEntry) => Promise<void>;
+}
+
+const MERGE_MSG = {
+  invalid: 'Solicitud inválida.',
+  notFound: 'El candidato no existe.',
+  notDuplicate: 'Este candidato no está marcado como duplicado de un contacto existente.',
+  notTrusted:
+    'No podemos confirmar que este candidato y el contacto existente sean la misma persona, así que no es posible agregarle la información.',
+  contactMismatch: 'El contacto indicado no coincide con el que se registró como duplicado.',
+  contactMissing: 'El contacto existente ya no está disponible.',
+  failed: 'No fue posible agregar la información al contacto existente.',
+  merged: 'Información agregada al contacto existente.',
+  alreadyMerged: 'La información de este candidato ya estaba agregada al contacto existente.',
+} as const;
+
+/**
+ * Agrega al contacto EXISTENTE la información del candidato duplicado, tras una decisión humana
+ * explícita.
+ *
+ * Revalida TODO en el servidor y en este orden, porque cada paso depende del anterior:
+ *   1. el candidato existe y sigue en `duplicate` — no se fusiona lo que nadie marcó;
+ *   2. tiene una cuenta resuelta — sin ella no hay alcance en el que buscar contactos;
+ *   3. la identidad vuelve a resolverse contra los contactos VIVOS de la cuenta, y el destino
+ *      registrado debe ser ese mismo;
+ *   4. el `contactId` que llega en la petición debe coincidir con el resuelto. Es un token de
+ *      CONFIRMACIÓN, nunca una instrucción: un uuid arbitrario no llega ni a la transacción, y
+ *      si llegara la 117 lo rechazaría igual contra `matched_contacts_id`.
+ */
+export async function runMergeCandidateIntoExistingContact(
+  candidateId: string,
+  requestedContactId: string,
+  deps: MergeIntoExistingContactDeps,
+): Promise<MergeIntoExistingContactResult> {
+  if (typeof candidateId !== 'string' || !candidateId.trim()) {
+    return { ok: false, error: MERGE_MSG.invalid, code: 'INVALID_INPUT' };
+  }
+  if (typeof requestedContactId !== 'string' || !requestedContactId.trim()) {
+    return { ok: false, error: MERGE_MSG.invalid, code: 'INVALID_INPUT' };
+  }
+
+  const candidate = await deps.loadCandidate(candidateId.trim());
+  if (!candidate) return { ok: false, error: MERGE_MSG.notFound, code: 'CANDIDATE_NOT_FOUND' };
+
+  // `pending_review` es territorio de la aprobación (116) y los demás estados terminales son
+  // conclusiones que alguien ya tomó. Sólo se fusiona lo que el veredicto duplicado marcó.
+  if (candidate.status !== 'duplicate') {
+    return { ok: false, error: MERGE_MSG.notDuplicate, code: 'CANDIDATE_NOT_MERGEABLE' };
+  }
+
+  const accountId = candidate.account_id;
+  if (!accountId) {
+    return { ok: false, error: MERGE_MSG.notDuplicate, code: 'CANDIDATE_NOT_MERGEABLE' };
+  }
+
+  const existing = await deps.loadExistingContacts(accountId);
+  const offer = resolveExistingContactMergeOffer({
+    candidate,
+    existingContacts: existing,
+    recordedMatchContactId: candidate.matched_contacts_id ?? null,
+  });
+  if (!offer.offered) {
+    return { ok: false, error: MERGE_MSG.notTrusted, code: 'MERGE_NOT_TRUSTED' };
+  }
+
+  // EL guardia contra IDOR en esta capa. El de la 117 —`matched_contacts_id` bajo el lock— es el
+  // definitivo; éste evita además que una petición forjada llegue siquiera a abrir transacción.
+  if (requestedContactId.trim() !== offer.contactId) {
+    return { ok: false, error: MERGE_MSG.contactMismatch, code: 'CONTACT_MISMATCH' };
+  }
+
+  const incumbentScalar = await deps.loadExistingContactScalar(offer.contactId, accountId);
+  if (!incumbentScalar) {
+    return { ok: false, error: MERGE_MSG.contactMissing, code: 'CONTACT_MISMATCH' };
+  }
+
+  // El patch REPITE el veredicto duplicado; no lo cambia. `status` sigue siendo `duplicate`
+  // porque el candidato SIGUE siendo un duplicado — fusionarlo no lo convierte en otra cosa —, y
+  // la 117 rechaza cualquier patch que diga otra cosa. Lo que distingue fusionado de descartado
+  // lo inyecta la transacción, que es la única que sabe que llegó a confirmar.
+  const review: ReviewMetadata = {
+    status: 'duplicate',
+    reason: 'Duplicado fusionado con un contacto existente',
+    reviewed_at: deps.nowIso,
+    reviewed_by: deps.actorId,
+    matched_contact_id: offer.contactId,
+    merged_match_signal: offer.signal,
+  };
+  const reviewPatch: CandidateReviewPatch = {
+    status: 'duplicate',
+    duplicate_status: 'exact_duplicate',
+    review_notes: 'Duplicado fusionado con un contacto existente',
+    reviewed_by: deps.actorId,
+    reviewed_at: deps.nowIso,
+    enrichment_metadata: mergeReview(candidate.enrichment_metadata, review),
+  };
+
+  const merged = await deps.mergeTransactionally({
+    candidateId: candidate.id,
+    contactId: offer.contactId,
+    accountId,
+    reviewPatch,
+    candidate,
+    incumbentScalar,
+  });
+  if (!merged.ok) {
+    return { ok: false, error: merged.error, code: merged.code ?? 'MERGE_FAILED' };
+  }
+
+  // La auditoría queda FUERA de la transacción a propósito y sólo corre después de que ésta haya
+  // confirmado: al revés, una fila que dice `contact_updated` sobreviviría al rollback de la
+  // escritura que dice haber hecho. Un merge ya hecho no se vuelve a auditar.
+  if (!merged.alreadyMerged) {
+    await deps.logAudit?.({
+      contactId: merged.contactId,
+      accountId,
+      candidateId: candidate.id,
+      actorUserId: deps.actorId,
+      matchSignal: offer.signal,
+      phonesInserted: merged.phonesInserted,
+      sourcesInserted: merged.sourcesInserted,
+    });
+  }
+
+  return {
+    ok: true,
+    contactId: merged.contactId,
+    alreadyMerged: merged.alreadyMerged,
+    message: merged.alreadyMerged ? MERGE_MSG.alreadyMerged : MERGE_MSG.merged,
+  };
 }

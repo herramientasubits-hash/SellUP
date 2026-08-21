@@ -27,7 +27,10 @@ import {
   isPhoneRevealWaterfallEnabled,
 } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
-import { readPhoneCacheSuppression, writePhoneCacheEntry } from './phone-cache-store';
+import { writePhoneCacheEntry } from './phone-cache-store';
+import { readPhoneRevealSuppression } from './provider-suppression-store';
+import { persistCandidatePhoneCollection } from './candidate-phone-collection-persistence';
+import { persistTerminalPhoneSuppression } from './candidate-phone-suppression-persistence';
 import {
   continuePhoneRevealWaterfallForCandidate,
   resolveActiveWaterfallRunId,
@@ -223,6 +226,10 @@ export function buildRecoveryCoreDeps(
       if (patch.phone_reveal_cost_credits !== undefined) {
         update.phone_reveal_cost_credits = patch.phone_reveal_cost_credits;
       }
+      // Procedencia de la cifra anterior (AGENT2A-PHONE-REVEAL-4N § 6).
+      if (patch.phone_reveal_cost_source !== undefined) {
+        update.phone_reveal_cost_source = patch.phone_reveal_cost_source;
+      }
       if (patch.phone_reveal_error_code !== undefined) {
         update.phone_reveal_error_code = patch.phone_reveal_error_code;
       }
@@ -261,12 +268,29 @@ export function buildRecoveryCoreDeps(
     cacheRevealedPhone: async (cacheInput) =>
       writePhoneCacheEntry(cacheInput, isApolloPhoneCacheEnabled()),
 
+    // Colección COMPLETA de teléfonos (AGENT2A-PHONE-REVEAL-4O-C). EXACTAMENTE la
+    // misma dep que el webhook: un candidato cerrado por recuperación tiene que
+    // acabar con la misma colección que si el callback hubiera llegado, y dos
+    // writers distintos se desincronizarían al primer arreglo. Sin flag y sin
+    // depender del de caché — este es el camino de CAPTURA, no el de reutilización.
+    // NO es best-effort: si lanza, nada terminal se persiste y el candidato sigue
+    // recuperable con 0 créditos.
+    persistCandidatePhoneCollection,
+
+    // Cierre terminal por supresión (AGENT2A-PHONE-REVEAL-4O-E1). Sin flag: cuando la
+    // transacción responde `suppressed` el resultado NUNCA va a poder persistirse, así
+    // que dejar el candidato en vuelo solo conseguía que el cron lo volviera a
+    // seleccionar en cada pasada —desplazando candidatos que sí se pueden recuperar—
+    // sobre una respuesta que además ya estaba pagada. Escritura condicional: si la
+    // fila cambió de estado se actualizan 0 filas y no se terminaliza nada.
+    persistTerminalSuppression: persistTerminalPhoneSuppression,
+
     // Supresión en vuelo (FIX 3). Sin condicionar al flag de caché: una DSAR
     // registrada entre el START y este poll tiene que bloquear la persistencia
     // tardía del teléfono con la caché encendida o apagada. La lectura pide solo
     // `suppressed_at`, así que con el flag apagado no se lee ningún número. Si
     // LANZA, el core no persiste teléfono y el candidato sigue recuperable.
-    lookupPhoneCacheSuppression: readPhoneCacheSuppression,
+    lookupPhoneCacheSuppression: readPhoneRevealSuppression,
     onSuppressionCheckUnavailable: (message) => {
       console.error(
         '[phone-reveal-recovery] suppression check unavailable:',

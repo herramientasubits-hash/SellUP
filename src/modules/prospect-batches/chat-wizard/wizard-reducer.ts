@@ -1,5 +1,7 @@
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
-import { SEARCH_MODE_DEFINITIONS, VALID_COUNTRY_CODES, GO_BACK_MAP } from './wizard-config';
+import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+import { SEARCH_MODE_DEFINITIONS, VALID_COUNTRY_CODES } from './wizard-config';
+import { getPreviousWizardStep } from './wizard-selectors';
 import type {
   ProspectWizardState,
   ProspectWizardAction,
@@ -67,6 +69,24 @@ function withoutWarningsForStep(
   step: ProspectWizardStep,
 ): WizardWarning[] {
   return warnings.filter((w) => w.step !== step);
+}
+
+/**
+ * MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A.2 — política ÚNICA y explícita de
+ * normalización de la multiselección.
+ *
+ * Reglas, en este orden:
+ *   1. se conserva el ORDEN de selección del usuario;
+ *   2. un id repetido se colapsa en su PRIMERA aparición (nunca la última: la
+ *      segunda pulsación sobre la misma subindustria no reordena la lista);
+ *   3. no se recorta por tope aquí — el tope es fail-closed en el reductor.
+ *
+ * `[...new Set(ids)]` ya cumple 1 y 2; existe como función nombrada para que las
+ * dos ramas que la usan no puedan divergir y para que la política sea testeable
+ * por sí sola.
+ */
+function normalizeSubindustrySelection(subindustryIds: readonly string[]): string[] {
+  return [...new Set(subindustryIds)];
 }
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
@@ -174,8 +194,13 @@ export function prospectWizardReducer(
       return {
         ...state,
         industryId: action.industryId,
+        // § 7 — la selección de subindustria se limpia SIEMPRE al elegir
+        // industria, en las dos taxonomías. Bajo el catálogo macro, además,
+        // el paso siguiente ya no existe.
         subindustryIds: [],
-        currentStep: 'subindustries',
+        currentStep: isSubindustrySelectionEnabled(state.catalogVersion)
+          ? 'subindustries'
+          : 'additional_criteria',
         warnings: withoutWarningCode(
           state.warnings,
           'SUBINDUSTRIES_REMOVED_AFTER_COUNTRY_CHANGE',
@@ -184,12 +209,51 @@ export function prospectWizardReducer(
       };
     }
 
+    // ── SET_SUBINDUSTRY_SELECTION ───────────────────────────────────────────
+    // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A.2 — commit sin avanzar.
+    //
+    // El paso ya no guarda un borrador propio: cada clic del multiselector
+    // aterriza aquí. Así la selección sobrevive a cualquier remontaje del árbol
+    // del paso activo (el hilo de mensajes lo desmonta mientras "escribe") y la
+    // pantalla de confirmación siempre lee lo mismo que viajará en la solicitud.
+    case 'SET_SUBINDUSTRY_SELECTION': {
+      if (state.currentStep !== 'subindustries') return state;
+
+      const normalized = normalizeSubindustrySelection(action.subindustryIds);
+      const max = EXPLORATORY_SEARCH_LIMITS.subindustries.max;
+
+      // Fail-closed: por encima del tope NO se trunca en silencio. Truncar
+      // elegiría por el usuario cuáles descartar, que es exactamente la clase de
+      // pérdida invisible que este hito cierra.
+      if (normalized.length > max) {
+        const issue: WizardBlockingIssue = {
+          code: 'TOO_MANY_SUBINDUSTRIES',
+          step: 'subindustries',
+          message: `Puedes seleccionar hasta ${max} subindustrias.`,
+          recoverable: true,
+        };
+        return {
+          ...state,
+          blockingIssues: [
+            ...withoutBlockingCode(state.blockingIssues, 'TOO_MANY_SUBINDUSTRIES'),
+            issue,
+          ],
+        };
+      }
+
+      return {
+        ...state,
+        subindustryIds: normalized,
+        blockingIssues: withoutBlockingCode(state.blockingIssues, 'TOO_MANY_SUBINDUSTRIES'),
+      };
+    }
+
     // ── SET_SUBINDUSTRIES ───────────────────────────────────────────────────
     case 'SET_SUBINDUSTRIES': {
       if (state.currentStep !== 'subindustries') return state;
 
-      // Normalize: deduplicate via Set
-      const deduped = [...new Set(action.subindustryIds)];
+      // Normalize: deduplicate preserving the first occurrence (§ A.3 caso E).
+      const deduped = normalizeSubindustrySelection(action.subindustryIds);
       const max = EXPLORATORY_SEARCH_LIMITS.subindustries.max;
 
       if (deduped.length > max) {
@@ -351,17 +415,26 @@ export function prospectWizardReducer(
 
     // ── GO_BACK ─────────────────────────────────────────────────────────────
     case 'GO_BACK': {
-      const prev = GO_BACK_MAP[state.currentStep as keyof typeof GO_BACK_MAP];
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 7 — sin paso de subindustria, volver
+      // atrás desde el criterio adicional lleva a la industria. Dejar el mapa
+      // estático llevaría a un paso que no se renderiza: un hueco visual, que es
+      // exactamente lo que el § 7 prohíbe.
+      const prev = getPreviousWizardStep(state.currentStep, state.catalogVersion);
       if (!prev) return state;
 
       return {
         ...state,
-        currentStep: prev as ProspectWizardStep,
+        currentStep: prev,
       };
     }
 
     // ── EDIT_STEP ───────────────────────────────────────────────────────────
     case 'EDIT_STEP': {
+      // § 7 — un paso que no existe en esta taxonomía tampoco se puede editar.
+      // El botón no se renderiza; esto cierra la vía por acción directa.
+      if (action.step === 'subindustries' && !isSubindustrySelectionEnabled(state.catalogVersion)) {
+        return state;
+      }
       return {
         ...state,
         currentStep: action.step,

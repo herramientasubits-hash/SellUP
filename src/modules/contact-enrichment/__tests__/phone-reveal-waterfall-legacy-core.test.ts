@@ -962,10 +962,15 @@ describe('WATERFALL-2 — costos de la ruta legacy', () => {
 // ── 5. run_mode: modalidad explícita ────────────────────────────────────────
 
 describe('WATERFALL-2 — run_mode explícito, no inferido', () => {
-  it('el vocabulario es exactamente las dos modalidades', () => {
+  it('el vocabulario es exactamente las tres modalidades', () => {
+    // `search_more` (AGENT2A-SEARCH-MORE-PHONES-1) NO es un reetiquetado de
+    // `legacy_lusha_only`: la condición de entrada es la opuesta —esa exige que el
+    // candidato NO tenga teléfono y `search_more` exige que SÍ lo tenga—, así que reusar el
+    // valor haría que una auditoría de «¿se agotó Apollo?» respondiera al revés.
     assert.deepEqual([...PHONE_REVEAL_WATERFALL_RUN_MODES], [
       'full_waterfall',
       'legacy_lusha_only',
+      'search_more',
     ]);
   });
 

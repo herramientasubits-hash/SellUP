@@ -27,6 +27,7 @@
 // leak no secret.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { readPhoneRevealSuppression } from '@/modules/contact-enrichment/provider-suppression-store';
 import { createClient } from '@supabase/supabase-js';
 import {
   isApolloPhoneCacheEnabled,
@@ -34,9 +35,10 @@ import {
 } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import {
-  readPhoneCacheSuppression,
   writePhoneCacheEntry,
 } from '@/modules/contact-enrichment/phone-cache-store';
+import { persistCandidatePhoneCollection } from '@/modules/contact-enrichment/candidate-phone-collection-persistence';
+import { persistTerminalPhoneSuppression } from '@/modules/contact-enrichment/candidate-phone-suppression-persistence';
 import {
   continuePhoneRevealWaterfallForCandidate,
   resolveActiveWaterfallRunId,
@@ -236,8 +238,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           phone_reveal_webhook_received_at: patch.phone_reveal_webhook_received_at,
           phone_reveal_provider: patch.phone_reveal_provider,
           phone_reveal_cost_credits: patch.phone_reveal_cost_credits,
+          // Procedencia de la cifra anterior (AGENT2A-PHONE-REVEAL-4N § 6). Se escribe
+          // siempre: dejarla en null junto a un costo desconocido era indistinguible de
+          // "nadie lo ha mirado".
+          phone_reveal_cost_source: patch.phone_reveal_cost_source,
           phone_reveal_error_code: patch.phone_reveal_error_code,
         };
+        // Solo el camino `revealed` la emite, y por eso solo ahí se escribe: un
+        // no_phone_found no puede sobrescribir la fecha de un reveal anterior con null.
+        if (patch.phone_revealed_at !== undefined) {
+          update.phone_revealed_at = patch.phone_revealed_at;
+        }
         if (patch.phone !== undefined) update.phone = patch.phone;
         if (patch.enrichment_metadata !== undefined) {
           update.enrichment_metadata = patch.enrichment_metadata;
@@ -272,13 +283,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // escribir nada. Nunca lanza: la caché no puede romper el webhook.
       cacheRevealedPhone: async (cacheInput) =>
         writePhoneCacheEntry(cacheInput, isApolloPhoneCacheEnabled()),
+      // Colección COMPLETA de teléfonos (AGENT2A-PHONE-REVEAL-4O-C). Se cablea
+      // SIN flag y SIN condicionarla al de caché: no es una optimización que se
+      // pueda apagar, es la única forma de que los números que Apollo ya entregó
+      // —y que la operadora ya pagó— dejen de perderse al escribir. El flag de
+      // caché gobierna la REUTILIZACIÓN de un teléfono; esto es la CAPTURA.
+      //
+      // A diferencia de la caché NO es best-effort: si lanza, el core no cierra
+      // el reveal y el candidato queda recuperable con 0 créditos.
+      persistCandidatePhoneCollection,
+      // Cierre terminal por supresión (AGENT2A-PHONE-REVEAL-4O-E1). Se cablea SIN
+      // flag, igual que la captura: cuando la transacción responde `suppressed` el
+      // resultado NUNCA va a poder persistirse, así que dejar el candidato en vuelo no
+      // lo hacía «recuperable» sino permanentemente pendiente — con la corrida activa
+      // y su reserva sin liquidar pese a que Apollo ya había cobrado.
+      //
+      // La escritura es CONDICIONAL sobre el estado en vuelo, así que un `revealed`
+      // que llegue por otra vía en el intervalo sobrevive intacto.
+      persistTerminalSuppression: persistTerminalPhoneSuppression,
       // Supresión en vuelo (FIX 3). Se cablea SIN condicionar al flag de caché: una
       // DSAR registrada mientras el reveal estaba en curso tiene que bloquear la
       // persistencia tardía del teléfono con la caché encendida o apagada. La
       // lectura pide solo `suppressed_at`, así que con el flag apagado el webhook
       // comprueba la supresión SIN leer ningún número. Si LANZA, el core no
       // persiste teléfono (fail-closed).
-      lookupPhoneCacheSuppression: readPhoneCacheSuppression,
+      lookupPhoneCacheSuppression: readPhoneRevealSuppression,
       // Mensaje ya redactado por el core: nunca teléfono/person id/email/nombre.
       onSuppressionCheckUnavailable: (message) => {
         console.error(

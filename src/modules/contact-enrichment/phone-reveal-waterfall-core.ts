@@ -107,6 +107,7 @@ import {
   buildPhoneRevealCreditReservationLegs,
   type PhoneRevealCreditReservationAndRunOutcome,
   type PhoneRevealCreditReservationAndRunRequest,
+  type PhoneRevealCreditReservedLeg,
 } from './phone-reveal-credit-reservation-core';
 
 // ── Vocabularios (espejo exacto de los CHECK de la migración 102) ──
@@ -135,10 +136,26 @@ export type PhoneRevealWaterfallApolloOutcome =
   | 'cache_unavailable';
 
 /** Desenlace de la pata Lusha. */
+/**
+ * Desenlace de la pata de Lusha. Espejo del CHECK
+ * `phone_reveal_waterfall_runs_lusha_outcome_check` (creado por la 102, ensanchado por la
+ * 122).
+ *
+ * `no_new_distinct_phone` (AGENT2A-SEARCH-MORE-PHONES-1) es el desenlace que sólo una
+ * corrida `search_more` puede producir: Lusha CONTESTÓ y se cobró, pero todos los números
+ * que devolvió ya estaban guardados.
+ *
+ * No se colapsa en ninguno de los otros dos, y en las dos direcciones importa:
+ *   * `no_phone_found` afirmaría que el proveedor NO tiene teléfono para esa persona, lo
+ *     cual es falso —tiene el mismo— y además haría que el copy dijera «este contacto no
+ *     tiene teléfono» cuando la verdad es «no hay números ADICIONALES»;
+ *   * `revealed` afirmaría que SellUp ganó un número que no ganó.
+ */
 export type PhoneRevealWaterfallLushaOutcome =
   | 'revealed'
   | 'no_phone_found'
-  | 'error';
+  | 'error'
+  | 'no_new_distinct_phone';
 
 /** Proveedor que REALMENTE reveló (nunca uno que solo intentó). */
 export type PhoneRevealWaterfallFinalProvider = 'apollo' | 'lusha' | 'none';
@@ -155,6 +172,16 @@ export type PhoneRevealWaterfallFinalProvider = 'apollo' | 'lusha' | 'none';
  *     `no_phone_found` ANTES de que existiera la tabla. Apollo NO se vuelve a
  *     ejecutar (0 llamadas, 0 créditos, 0 usage logs nuevos) y el operador autoriza
  *     ÚNICAMENTE la pata Lusha. Tope 5.
+ *   * `search_more`         — «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1). El
+ *     candidato YA TIENE teléfono guardado y el operador autoriza consultar al
+ *     proveedor que FALTA para conseguir números ADICIONALES. Tope 5 por pata.
+ *
+ * `search_more` NO es un reetiquetado de `legacy_lusha_only`, y confundirlos sería el
+ * error caro: la condición de entrada es la OPUESTA. `legacy_lusha_only` exige que el
+ * candidato NO tenga teléfono (su elegibilidad rechaza con `existing_phone_present`);
+ * `search_more` exige que SÍ lo tenga. Reusar el valor haría que toda consulta de
+ * auditoría del tipo «¿se agotó Apollo para este candidato?» respondiera al revés, y
+ * volvería indistinguibles dos topes distintos en el ledger.
  *
  * Es una columna y no una inferencia a propósito: `apollo_attempted_at IS NULL` es
  * un efecto colateral, no una afirmación, y no distingue "Apollo no se ejecutó
@@ -163,6 +190,7 @@ export type PhoneRevealWaterfallFinalProvider = 'apollo' | 'lusha' | 'none';
 export const PHONE_REVEAL_WATERFALL_RUN_MODES = [
   'full_waterfall',
   'legacy_lusha_only',
+  'search_more',
 ] as const;
 
 export type PhoneRevealWaterfallRunMode =
@@ -522,8 +550,15 @@ export type PhoneRevealWaterfallCreditReserverAndRunCreator = (args: {
   run: PhoneRevealWaterfallRunDraft;
 }) => Promise<PhoneRevealCreditReservationAndRunOutcome>;
 
-/** Deps de reserva compartidas por los DOS arranques (completo y legacy). */
-interface PhoneRevealWaterfallCreditReservationDeps {
+/**
+ * Deps de reserva compartidas por los TRES arranques: completo, legacy y —desde
+ * AGENT2A-SEARCH-MORE-PHONES-1— «Buscar más números».
+ *
+ * EXPORTADA para que la tercera modalidad reutilice el MISMO motor económico en vez de
+ * llevar una segunda implementación de «reservar y crear la corrida». Exportar el tipo no
+ * cambia nada de lo que hace: es el contrato que los tres cableados ya cumplían.
+ */
+export interface PhoneRevealWaterfallCreditReservationDeps {
   /** Presupuesto por proveedor, resuelto ANTES de reservar. Fail-closed. */
   readCreditPools: PhoneRevealWaterfallCreditPoolReader;
   /**
@@ -603,13 +638,27 @@ export type StartPhoneRevealWaterfallResult =
 // ── Reserva + corrida atómicas, compartidas por los dos arranques ──
 
 /** Desenlace del gate: o existe la corrida con su exposición, o hay un motivo. */
-type PhoneRevealWaterfallCreditGate =
+export type PhoneRevealWaterfallCreditGate =
   | {
       started: true;
       runId: string;
       reservationGroupId: string | null;
       /** true cuando la clave de idempotencia devolvió una corrida que YA existía. */
       idempotentHit: boolean;
+      /**
+       * Las patas que la transacción acaba de reservar, TAL COMO las devolvió.
+       *
+       * Se propagan porque la operación atómica ya las trae en su envoltorio `created`, y
+       * volver a leerlas de la base para conocer el id de una reserva que se acaba de
+       * escribir sería una consulta redundante contra una fila que el caller ya tuvo en la
+       * mano. Una operación PAGADA las necesita para correlacionar directamente lo que
+       * compró con la exposición que lo respaldó.
+       *
+       * VACÍA en el golpe idempotente (`already_created`): esa llamada no reservó nada, así
+       * que no hay ninguna pata NUEVA que atribuirle. Vacío es el dato honesto — inventar la
+       * reserva de la corrida ganadora afirmaría una correlación que esta invocación no creó.
+       */
+      reservations: readonly PhoneRevealCreditReservedLeg[];
     }
   | {
       started: false;
@@ -645,8 +694,14 @@ type PhoneRevealWaterfallCreditGate =
  *
  * `already_reserved` se traduce a `active_run_exists`: ese candidato ya tiene exposición
  * viva, así que hay una autorización en curso y no se abre una segunda.
+ *
+ * EXPORTADA en AGENT2A-SEARCH-MORE-PHONES-1. «Buscar más números» es la tercera modalidad
+ * pagada y necesita EXACTAMENTE esta secuencia —evaluación pura, reserva + corrida en una
+ * transacción, clave de idempotencia generada antes de la operación—. Reimplementarla
+ * habría sido una segunda ruta que puede dejar reservas huérfanas, que es el defecto que 4F
+ * cerró. La función no cambia: sólo deja de ser privada.
  */
-async function reserveWaterfallCreditsAndCreateRunOrBlock(args: {
+export async function reserveWaterfallCreditsAndCreateRunOrBlock(args: {
   mode: PhoneRevealCreditBudgetMode;
   candidateId: string;
   authorizedBy: string;
@@ -693,6 +748,8 @@ async function reserveWaterfallCreditsAndCreateRunOrBlock(args: {
         runId: outcome.runId,
         reservationGroupId: outcome.reservationGroupId,
         idempotentHit: false,
+        // Ya vienen en el envoltorio de la transacción: se propagan en vez de re-leerlas.
+        reservations: outcome.reservations,
       };
     case 'already_created':
       // El reintento encontró la corrida que la primera llamada ya había creado. No se
@@ -702,6 +759,9 @@ async function reserveWaterfallCreditsAndCreateRunOrBlock(args: {
         runId: outcome.runId,
         reservationGroupId: outcome.reservationGroupId,
         idempotentHit: true,
+        // Esta invocación no reservó ninguna pata. Devolver las de la corrida ganadora
+        // atribuiría a este golpe una exposición que no creó.
+        reservations: [],
       };
     case 'insufficient_credits':
       return { started: false, reason: 'insufficient_credits' };
@@ -897,7 +957,21 @@ export type PhoneRevealWaterfallLegacyIneligibleReason =
    * volver a llamar a Lusha gastaría créditos repitiendo un resultado ya pagado.
    */
   | 'previous_run_revealed_phone'
-  | 'create_conflict';
+  | 'create_conflict'
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2 — bloqueos de la puerta de privacidad evaluada ANTES
+   * de reservar (`checkPrivacyGateBeforeReserving`, opcional y sólo cableada por el
+   * disparo manual). Vocabulario REUTILIZADO: son los mismos códigos que ya escriben
+   * el webhook, el recovery y la pata Lusha del waterfall.
+   *
+   * En los tres casos: 0 corridas, 0 reservas, 0 llamadas a Lusha, 0 usage-logs, 0
+   * créditos. `suppression_check_unavailable` es fail-closed —bloquea igual que un
+   * tombstone confirmado— pero se registra distinto: el efecto es el mismo, la
+   * afirmación no.
+   */
+  | 'blocked_suppressed'
+  | 'do_not_contact'
+  | 'suppression_check_unavailable';
 
 export interface PhoneRevealWaterfallLegacyEligibility {
   eligible: boolean;
@@ -1081,6 +1155,32 @@ export interface StartLegacyPhoneRevealWaterfallDeps
   findLatestRun: (
     candidateId: string,
   ) => Promise<PhoneRevealWaterfallRunRecord | null>;
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2 — puerta de privacidad ANTES DE RESERVAR. OPCIONAL.
+   *
+   * OMITIDA (defecto) = comportamiento byte-idéntico al anterior: la server action
+   * legacy no la cablea, y la re-comprobación de supresión/DNC sigue ocurriendo donde
+   * ya ocurría, en `continuePhoneRevealWaterfall`, justo antes de llamar a Lusha.
+   *
+   * PRESENTE = el disparo manual, que la cablea para cumplir el orden exigido
+   * `auth → elegibilidad → DNC → supresión → RESERVA → proveedor`. Sin ella, un
+   * candidato ya bloqueado GRATIS consumiría el camino caro: crear una corrida,
+   * reservar 5 créditos, cerrar sin llamar a nadie y liberar. El efecto económico neto
+   * era ya 0 —la liquidación libera la pata no intentada— pero se escribían una corrida
+   * y una reserva innecesarias, y durante ese intervalo la exposición quedaba ocupada
+   * contra el pozo de Lusha. Gatear aquí lo reduce a 0 escrituras.
+   *
+   * Fail-closed: cualquier estado distinto de `clear` bloquea, y un fallo de LECTURA
+   * bloquea igual (se traduce a `check_unavailable` por el llamador). No se degrada a
+   * "adelante".
+   *
+   * NO sustituye a la puerta de `continuePhoneRevealWaterfall`: esa sigue corriendo
+   * después, sobre el estado ya reservado, y es la que protege la ventana entre la
+   * reserva y la llamada.
+   */
+  checkPrivacyGateBeforeReserving?: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallSuppressionState>;
 }
 
 export type StartLegacyPhoneRevealWaterfallResult =
@@ -1148,6 +1248,30 @@ export async function startLegacyPhoneRevealWaterfall(
   );
   if (!historyVerdict.reauthorizable) {
     return { started: false, reason: historyVerdict.reason };
+  }
+
+  // PRIVACIDAD ANTES DE RESERVAR (AGENT2A-PHONE-REVEAL-4O-F-R2). Opcional: sólo el
+  // disparo manual la cablea. Va DESPUÉS de los gates puros y de las dos lecturas de
+  // corrida —que son baratas y ya ocurrían— y ANTES del preflight de presupuesto, que
+  // es el primer paso que escribe. Un candidato bloqueado se para aquí con 0 corridas,
+  // 0 reservas y 0 créditos, en vez de reservar exposición para liberarla acto seguido.
+  //
+  // Fail-closed en las TRES ramas. La puerta posterior de `continuePhoneRevealWaterfall`
+  // NO se sustituye: sigue corriendo sobre la corrida ya creada, y es la que cubre la
+  // ventana entre la reserva y la llamada al proveedor.
+  if (deps.checkPrivacyGateBeforeReserving) {
+    const privacy = await deps.checkPrivacyGateBeforeReserving(candidateId);
+    if (privacy !== 'clear') {
+      return {
+        started: false,
+        reason:
+          privacy === 'blocked_suppressed'
+            ? 'blocked_suppressed'
+            : privacy === 'do_not_contact'
+              ? 'do_not_contact'
+              : 'suppression_check_unavailable',
+      };
+    }
   }
 
   // PREFLIGHT + RESERVA (AGENT2A-PHONE-WATERFALL-4D/4E). Solo se exige y solo se reserva
@@ -1368,7 +1492,15 @@ export type PhoneRevealWaterfallContinuationDecision =
          * reescribir su pata Apollo ni cerrar la corrida. El claim de Lusha queda
          * intacto para el disparador legítimo.
          */
-        | 'legacy_run_ignores_apollo_event';
+        | 'legacy_run_ignores_apollo_event'
+        /**
+         * Una corrida `search_more` recibió un evento de Apollo
+         * (AGENT2A-SEARCH-MORE-PHONES-1). Apollo NO corre bajo esa autorización, así que
+         * ningún desenlace suyo puede cerrarla ni tomarle el claim de su pata. No se
+         * escribe nada. A diferencia de la ruta legacy, aquí se ignora TODO desenlace de
+         * Apollo —incluido `no_phone_found`— porque ninguno la creó.
+         */
+        | 'search_more_run_ignores_apollo_event';
     };
 
 function closeRun(
@@ -1413,6 +1545,21 @@ export function decidePhoneRevealWaterfallContinuation(
     input.apolloOutcome !== 'no_phone_found'
   ) {
     return { action: 'noop', reason: 'legacy_run_ignores_apollo_event' };
+  }
+
+  // Una corrida `search_more` NO la continúa NINGÚN evento de Apollo, ni siquiera un
+  // `no_phone_found` (AGENT2A-SEARCH-MORE-PHONES-1). Su pata la dispara el runner de
+  // «Buscar más números», que ya tomó el claim antes de llamar al proveedor.
+  //
+  // Esta guarda no es defensiva por gusto: el candidato de una corrida `search_more`
+  // está en `revealed`, así que un webhook o un recovery TARDÍO de la autorización
+  // ANTERIOR puede llegar mientras esta corrida está viva y, sin la guarda, la
+  // encontraría como «la corrida activa» del candidato. Entonces cerraría una
+  // autorización que no es suya —y con una modalidad que jamás ejecutó Apollo— o le
+  // robaría el claim de Lusha. Se ignora sin escribir NADA, que es exactamente el mismo
+  // remedio que la 2A ya aplicó a la ruta legacy por la misma razón.
+  if (run.runMode === 'search_more') {
+    return { action: 'noop', reason: 'search_more_run_ignores_apollo_event' };
   }
 
   // Defensa en profundidad: el rol ya se validó al crear la corrida, pero la
@@ -1628,6 +1775,23 @@ export interface PhoneRevealWaterfallLushaLegResult {
 }
 
 /**
+ * Código de error de la pata Lusha que significa «respondió, COBRÓ, y todos sus
+ * números son tombstones» (AGENT2A-PHONE-REVEAL-4O-E1 § 10).
+ *
+ * Espejo de `LUSHA_PHONE_COLLECTION_SUPPRESSED_ERROR_CODE` en
+ * lusha-phone-fallback-core.ts. Se declara aquí en vez de importarse para que este
+ * core siga sin depender del core de Lusha (misma convención que
+ * `PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS`); un test estático verifica que las dos
+ * constantes no se separen.
+ *
+ * Es el ÚNICO error de esta pata que viene acompañado de un costo REAL, y por eso
+ * necesita reconocerse: la regla general «un error no reporta costo» es correcta
+ * para una red caída o un 402, y falsa aquí.
+ */
+export const PHONE_REVEAL_WATERFALL_LUSHA_SUPPRESSED_ERROR_CODE =
+  'phone_suppressed' as const;
+
+/**
  * Cierra la corrida con el resultado de la pata Lusha.
  *
  * `revealed` ⇒ `completed_lusha` + `final_provider = 'lusha'`. `no_phone_found`
@@ -1637,6 +1801,15 @@ export interface PhoneRevealWaterfallLushaLegResult {
  *
  * El costo se registra SIEMPRE en las columnas de Lusha, jamás sumado a las de
  * Apollo, y un costo no reportado queda `null` + `unknown`, nunca 0.
+ *
+ * EXCEPCIÓN ANCLADA A EVIDENCIA (4O-E1 § 10): cuando el error es
+ * `phone_suppressed` Y el proveedor reportó créditos, la corrida conserva ese
+ * costo real. Antes de este hito cualquier status distinto de
+ * `revealed`/`no_phone_found` borraba la cifra a `null` + `unknown`, de modo que
+ * una llamada pagada cuyo resultado quedó bloqueado por privacidad se registraba
+ * como si Lusha no hubiera cobrado nada — y esa es la única lectura de la que
+ * dispone la liquidación de la reserva. No se generaliza a «todos los errores
+ * tienen costo»: hace falta el código específico Y una cifra presente.
  */
 export function mapLushaLegResultToWaterfallPatch(
   result: PhoneRevealWaterfallLushaLegResult,
@@ -1669,6 +1842,30 @@ export function mapLushaLegResultToWaterfallPatch(
       finalProvider: 'none',
       completedAt: nowIso,
       errorCode: null,
+    };
+  }
+
+  // Supresión confirmada DESPUÉS de una llamada pagada. El desenlace de la pata
+  // sigue siendo `error` (Lusha no reveló nada persistible), pero la corrida se
+  // cierra `aborted` como cualquier otro bloqueo de privacidad, y el costo real se
+  // conserva. `lushaSkippedReason` se deja SIN tocar: Lusha sí se ejecutó, así que
+  // escribir `suppressed` ahí afirmaría que se omitió por supresión, que es
+  // literalmente lo contrario de lo que pasó.
+  if (
+    cleanText(result.errorCode) === PHONE_REVEAL_WATERFALL_LUSHA_SUPPRESSED_ERROR_CODE &&
+    lushaCostCredits !== null
+  ) {
+    return {
+      status: 'aborted',
+      lushaOutcome: 'error',
+      lushaCostCredits,
+      lushaCostSource,
+      finalProvider: 'none',
+      completedAt: nowIso,
+      // Vocabulario de privacidad de la corrida, el mismo que usan los demás
+      // cierres por tombstone. El detalle del proveedor (`phone_suppressed`) queda
+      // en el usage-log de la pata, que no se reescribe.
+      errorCode: 'blocked_suppressed',
     };
   }
 
@@ -1736,6 +1933,32 @@ export interface ContinuePhoneRevealWaterfallDeps {
     authorizedBy: string;
     maxCreditsAuthorized: number;
   }) => Promise<PhoneRevealWaterfallLushaLegResult>;
+  /**
+   * Deja en el CANDIDATO el rastro terminal de una supresión confirmada por la
+   * re-comprobación previa a Lusha (AGENT2A-PHONE-REVEAL-4O-E1 § 7).
+   *
+   * Hasta este hito ese gate hacía todo lo demás bien —0 llamadas, 0 créditos,
+   * corrida `aborted` con `lusha_skipped_reason = 'suppressed'`— pero el candidato
+   * no recibía NADA: se quedaba en el `no_phone_found` que Apollo escribió, que es
+   * exactamente el estado que lo vuelve a hacer elegible para un reveal pagado. La
+   * decisión de privacidad quedaba solo en la corrida, y el gate manual no la lee.
+   *
+   * Se declara ESTRUCTURALMENTE (y no importando el contrato compartido) para que
+   * este core siga sin dependencias de la capa de supresión ni riesgo de arrastrar
+   * módulos server-only a un bundle que lo importe por su vista de auditoría.
+   *
+   * OPCIONAL y BEST-EFFORT: solo se invoca con un tombstone CONFIRMADO (nunca con
+   * `check_unavailable`, que no afirma nada), su resultado no altera el cierre de la
+   * corrida, y sin la dep el comportamiento es idéntico al anterior al hito. La
+   * escritura tiene que ser CONDICIONAL sobre `expectedStatuses`: la fila puede
+   * haber cambiado mientras se leía la supresión, y pisar un `revealed` ajeno sería
+   * peor que no dejar rastro.
+   */
+  terminalizeSuppressedCandidate?: (args: {
+    candidateId: string;
+    /** Estados en los que la fila DEBE seguir para que la escritura gane. */
+    expectedStatuses: readonly string[];
+  }) => Promise<unknown>;
 }
 
 export type ContinuePhoneRevealWaterfallOutcome =
@@ -1842,6 +2065,33 @@ export async function continuePhoneRevealWaterfall(
     deps.nowIso,
   );
   if (suppressionBlock) {
+    // 4O-E1 § 7 — rastro terminal en el CANDIDATO, y SOLO con tombstone confirmado.
+    // `check_unavailable` y `do_not_contact` NO pasan por aquí: el primero no afirma
+    // ninguna supresión (no se pudo comprobar) y el segundo es otra decisión, con su
+    // propio registro. Se hace ANTES de cerrar la corrida para que, si el proceso
+    // muriera en medio, el estado que sobreviva sea el que MÁS protege: candidato
+    // bloqueado con la corrida todavía viva (que el cierre posterior resuelve) en vez
+    // de una corrida cerrada sobre un candidato que sigue pareciendo comprable.
+    if (suppressionState === 'blocked_suppressed' && deps.terminalizeSuppressedCandidate) {
+      const observedStatus = cleanText(candidate?.phoneRevealStatus);
+      if (observedStatus) {
+        try {
+          await deps.terminalizeSuppressedCandidate({
+            candidateId,
+            // El estado que este core observó al decidir. En este punto es siempre
+            // el desenlace terminal que Apollo acababa de persistir
+            // (`no_phone_found`): la decisión solo llega a `check_suppression` con
+            // `apolloOutcome === 'no_phone_found'`, y una corrida legacy exige ese
+            // mismo desenlace ya persistido para poder crearse. No se asume: se
+            // exige la fila tal como se leyó.
+            expectedStatuses: [observedStatus],
+          });
+        } catch {
+          // Silencio acotado: el cierre de la corrida y la liquidación de la reserva
+          // no pueden depender de este rastro. El escritor ya registra su fallo.
+        }
+      }
+    }
     await deps.updateRun(run.id, {
       ...apolloCostPatch,
       apolloOutcome: input.apolloOutcome,

@@ -115,14 +115,14 @@ const RUN_CORRELATION_METADATA = {
 function ambiguousOrganization(index: number): WebSearchResult {
   return {
     title: `Empresa Ambigua ${index}`,
-    url: `https://ambigua${index}.com.co`,
+    url: `https://empresaambigua${index}.com.co`,
     snippet: null,
     source: 'apollo_organizations',
     rank: index,
     provider: 'apollo_organizations',
     metadata: {
       apollo_organization_id: `org-ambigua-${index}`,
-      domain: `ambigua${index}.com.co`,
+      domain: `empresaambigua${index}.com.co`,
       country_code: 'CO',
       country: 'Colombia',
       city: 'Bogotá',
@@ -133,18 +133,26 @@ function ambiguousOrganization(index: number): WebSearchResult {
   };
 }
 
-/** Una organización que las señales gratuitas ya confirman como del sector. */
+/**
+ * Una organización que las señales gratuitas ya confirman como del sector.
+ *
+ * A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 5 — el dominio deriva del NOMBRE.
+ * Con `super1.com.co` para «Supermercado Confirmado 1» el gate de ownership
+ * —el mismo que el writer aplica— rechaza el candidato, así que la corrida nunca
+ * habría podido persistirlo: la expectativa sólo se sostenía porque el writer
+ * estaba simulado. Ahora el fixture representa una empresa realmente persistible.
+ */
 function confirmedSupermarket(index: number): WebSearchResult {
   return {
     title: `Supermercado Confirmado ${index}`,
-    url: `https://super${index}.com.co`,
+    url: `https://supermercadoconfirmado${index}.com.co`,
     snippet: 'cadena de supermercados y autoservicio con tiendas de abarrotes',
     source: 'apollo_organizations',
     rank: index,
     provider: 'apollo_organizations',
     metadata: {
       apollo_organization_id: `org-super-${index}`,
-      domain: `super${index}.com.co`,
+      domain: `supermercadoconfirmado${index}.com.co`,
       industry: 'retail',
       country_code: 'CO',
       country: 'Colombia',
@@ -1627,7 +1635,7 @@ describe('§ 3 · sin escritor de checkpoint el orquestador sigue siendo puro', 
           country: 'Colombia',
           countryCode: 'CO',
           sector: 'Supermercados e Hipermercados',
-          subindustry: null,
+          subindustries: [],
         },
         correlation: CORRELATION,
       },

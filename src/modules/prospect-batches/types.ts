@@ -175,6 +175,13 @@ export interface ProspectCandidate {
   // ── Campos de candidatos estructurados (fuentes oficiales) ───
   review_status: ReviewStatus | null;
   review_flags: ReviewFlag[] | null;
+  // ── A1-APOLLO-LINKEDIN-EMPLOYEES-1 ──────────────────────────
+  // LinkedIn empresarial y número de empleados del proveedor de descubrimiento.
+  // `linkedin_url` puede no existir en la base si la migración 108 aún no se
+  // aplicó: el writer degrada a metadata y la UI lee ambos sitios.
+  linkedin_url?: string | null;
+  employee_count?: number | null;
+  employee_count_source?: string | null;
   source_trace: Record<string, unknown> | null;
   commercial_trace: Record<string, unknown> | null;
   commercial_fit_status: string | null;

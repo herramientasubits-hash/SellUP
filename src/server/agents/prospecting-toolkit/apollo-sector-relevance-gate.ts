@@ -33,6 +33,13 @@
  */
 
 import type { WebSearchResult } from './types';
+import {
+  APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED,
+  decideApolloSectorEvidenceBootstrapForCandidate,
+  type ApolloSectorEvidenceBootstrapAuthorization,
+  type ApolloSectorEvidenceBootstrapCandidateDecision,
+} from './apollo-sector-evidence-bootstrap';
+import { normalizeRequestedSubindustries } from './apollo-subindustry-precision';
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
@@ -268,6 +275,19 @@ export type ApolloSectorRelevanceGateMeta = {
   rejected_samples: ApolloSectorGateSample[];
   passed_samples: ApolloSectorGateSample[];
   reason?: string;
+  /**
+   * ADDENDUM § 2 — las subindustrias pedidas, saneadas, cuando el gate corrió con
+   * semántica ANY-OF. Ausente cuando la búsqueda pidió una o ninguna.
+   */
+  requested_subindustries?: string[];
+  /** Cuántas subindustrias entraron en el ANY-OF. */
+  any_of_subindustry_count?: number;
+  /**
+   * De qué subindustria proceden las muestras cuando el conjunto admitido es la
+   * unión de varias y ninguna lo explica sola. Los conteos siguen siendo los del
+   * ANY-OF; sólo las muestras pertenecen a una evaluación concreta.
+   */
+  any_of_samples_from_subindustry?: string;
 };
 
 export type ApolloSectorGateResult = {
@@ -500,6 +520,41 @@ const MAX_SAMPLES = 5;
  *                     más estrictas en lugar de las del sector padre. Ejemplo: 'formación corporativa'
  *                     rechaza universidades y solo pasa LMS vendors / corporate training providers.
  */
+/**
+ * Veredicto de UN candidato contra UN conjunto de señales.
+ *
+ * Extraído literal del bucle de `applyApolloSectorRelevanceGate` para que el gate
+ * de una subindustria y el ANY-OF apliquen la MISMA regla. Dos copias de la
+ * exclusión comprador/vendedor podrían diverger, y entonces el mismo candidato
+ * pasaría o no según por qué puerta entrara.
+ *
+ * Puro.
+ */
+function evaluateCandidateAgainstSignals(
+  result: WebSearchResult,
+  signals: string[],
+  buyerExclusionActive: boolean,
+): { matchedTerms: string[]; buyerRejected: boolean; buyerRejectionReason?: string } {
+  const text = extractCandidateText(result);
+  const matchedTerms = findMatchedTerms(text, signals);
+  const diag = extractCandidateDiagnostics(result);
+
+  // L2.14: buyer exclusion — rechaza empresas cuya industria es claramente compradora
+  // cuando el único match son señales genéricas de training interno (sin señales de producto).
+  if (buyerExclusionActive && matchedTerms.length > 0 && diag.apolloIndustry) {
+    const industryLower = diag.apolloIndustry.toLowerCase();
+    const isBuyerIndustry = BUYER_INDUSTRY_EXCLUSION.some(b => industryLower.includes(b));
+    if (isBuyerIndustry) {
+      const hasVendorProductSignal = VENDOR_PRODUCT_SIGNALS.some(s => text.includes(s.toLowerCase()));
+      if (!hasVendorProductSignal) {
+        return { matchedTerms, buyerRejected: true, buyerRejectionReason: 'buyer_or_non_vendor_signal' };
+      }
+    }
+  }
+
+  return { matchedTerms, buyerRejected: false };
+}
+
 export function applyApolloSectorRelevanceGate(
   results: WebSearchResult[],
   sector: string | null | undefined,
@@ -580,24 +635,12 @@ export function applyApolloSectorRelevanceGate(
 
   for (const result of results) {
     const text = extractCandidateText(result);
-    const matchedTerms = findMatchedTerms(text, signals);
     const diag = extractCandidateDiagnostics(result);
-
-    // L2.14: buyer exclusion — rechaza empresas cuya industria es claramente compradora
-    // cuando el único match son señales genéricas de training interno (sin señales de producto).
-    let buyerRejected = false;
-    let buyerRejectionReason: string | undefined;
-    if (buyerExclusionActive && matchedTerms.length > 0 && diag.apolloIndustry) {
-      const industryLower = diag.apolloIndustry.toLowerCase();
-      const isBuyerIndustry = BUYER_INDUSTRY_EXCLUSION.some(b => industryLower.includes(b));
-      if (isBuyerIndustry) {
-        const hasVendorProductSignal = VENDOR_PRODUCT_SIGNALS.some(s => text.includes(s.toLowerCase()));
-        if (!hasVendorProductSignal) {
-          buyerRejected = true;
-          buyerRejectionReason = 'buyer_or_non_vendor_signal';
-        }
-      }
-    }
+    const { matchedTerms, buyerRejected, buyerRejectionReason } = evaluateCandidateAgainstSignals(
+      result,
+      signals,
+      buyerExclusionActive,
+    );
 
     if (matchedTerms.length > 0 && !buyerRejected) {
       passed.push(result);
@@ -663,6 +706,96 @@ export function applyApolloSectorRelevanceGate(
   };
 }
 
+/**
+ * Gate de relevancia sectorial con semántica ANY-OF sobre TODAS las subindustrias
+ * pedidas.
+ *
+ * ADDENDUM § 2 y § 6 — este gate ADMITE o DESCARTA candidatos, así que entra en
+ * `MUST_BE_MULTI_VALUE`. Juzgaba con la primera subindustria: como el conjunto de
+ * señales de la subindustria SUSTITUYE al del sector, un candidato que demostraba
+ * la segunda selección se medía contra las señales de la primera, no coincidía y
+ * se descartaba con `insufficient_sector_evidence`.
+ *
+ * Un candidato pasa si supera el gate para AL MENOS UNA de las subindustrias
+ * pedidas. La exclusión comprador/vendedor sigue evaluándose por conjunto, así que
+ * sólo excluye donde fue escrita.
+ *
+ * Invariante al orden: el conjunto admitido es una UNIÓN, y se reconstruye
+ * respetando el orden original de `results`.
+ *
+ * Sin subindustrias pedidas delega en la firma de una sola con `null`: las
+ * búsquedas SIN subindustria conservan su comportamiento exacto.
+ */
+export function applyApolloSectorRelevanceGateAnyOf(
+  results: WebSearchResult[],
+  sector: string | null | undefined,
+  provider: string | null | undefined,
+  requestedSubindustries: readonly (string | null | undefined)[] | null | undefined,
+): ApolloSectorGateResult {
+  const requested = normalizeRequestedSubindustries(requestedSubindustries);
+  if (requested.length <= 1) {
+    return applyApolloSectorRelevanceGate(results, sector, provider, requested[0] ?? null);
+  }
+
+  // Cada subindustria produce su propio veredicto sobre TODOS los candidatos. El
+  // gate de una sola ya resuelve el passthrough (proveedor no-Apollo, sector sin
+  // mapping) y la resolución señales-de-subindustria-o-del-sector, así que la
+  // unión no reimplementa ninguna de esas reglas.
+  const evaluations = requested.map((label) =>
+    applyApolloSectorRelevanceGate(results, sector, provider, label),
+  );
+
+  // Passthrough: si alguna evaluación no filtró, el gate no estaba activo para
+  // ella y descartar por las demás sería MÁS estricto que con una sola
+  // subindustria. Se conserva esa evaluación tal cual.
+  const passthrough = evaluations.find((evaluation) => evaluation.metadata.enabled === false);
+  if (passthrough) return passthrough;
+
+  const passedAnywhere = new Set<WebSearchResult>();
+  for (const evaluation of evaluations) {
+    for (const result of evaluation.passed) passedAnywhere.add(result);
+  }
+
+  // Cuando una sola subindustria explica exactamente el conjunto admitido, su
+  // resultado YA es el del ANY-OF, con sus muestras y sus motivos reales.
+  const winner = evaluations.find(
+    (evaluation) =>
+      evaluation.passed.length === passedAnywhere.size &&
+      evaluation.passed.every((result) => passedAnywhere.has(result)),
+  );
+  if (winner) {
+    return {
+      passed: winner.passed,
+      metadata: {
+        ...winner.metadata,
+        subindustry: requested.join(' | '),
+        requested_subindustries: requested,
+        any_of_subindustry_count: requested.length,
+      },
+    };
+  }
+
+  // Reparto mixto: ninguna subindustria explica el conjunto por sí sola.
+  const passed = results.filter((result) => passedAnywhere.has(result));
+  const base = evaluations[0]!;
+
+  return {
+    passed,
+    metadata: {
+      ...base.metadata,
+      subindustry: requested.join(' | '),
+      requested_subindustries: requested,
+      any_of_subindustry_count: requested.length,
+      passed_count: passed.length,
+      rejected_count: results.length - passed.length,
+      // Las muestras describen una evaluación concreta y no se pueden fusionar sin
+      // mentir sobre contra qué señales se midió cada candidato. Se conservan las
+      // de la primera subindustria pedida; los conteos son los del ANY-OF.
+      any_of_samples_from_subindustry: requested[0]!,
+    },
+  };
+}
+
 // ─── Evaluación fail-closed para operaciones PAGADAS ──────────────────────────
 //
 // A1-APOLLO-BUDGET-RECONCILIATION-1.
@@ -697,12 +830,21 @@ export function applyApolloSectorRelevanceGate(
  *   enrichment (su orden ambiguity-first enriquece estos candidatos PRIMERO,
  *   Q3F-5AV.2). Es elegible bajo el cap — deliberadamente NO es un passthrough
  *   genérico: es un motivo estructurado que dice por qué se paga.
+ *
+ * `sector_evidence_missing_bootstrap_eligible`
+ *   SECTOR-EVIDENCE-BOOTSTRAP-1 — no hay política para este sector Y el proveedor
+ *   tampoco describió nada, pero la corrida está autorizada a ADQUIRIR evidencia
+ *   (criterios del catálogo activo, cobertura de consulta completa, versión
+ *   coherente, búsqueda real emitida). Es el único estado nuevo, y significa
+ *   exactamente «se puede preguntar», nunca «está confirmado»: no confirma sector
+ *   ni subindustria, no cuenta para el objetivo y no mueve ningún cap.
  */
 export type ApolloPaidSectorRelevanceDecision =
   | 'relevant'
   | 'sector_not_mapped'
   | 'sector_relevance_contradicted'
-  | 'sector_evidence_missing_needs_enrichment';
+  | 'sector_evidence_missing_needs_enrichment'
+  | 'sector_evidence_missing_bootstrap_eligible';
 
 export type ApolloPaidSectorRelevanceResult = {
   decision: ApolloPaidSectorRelevanceDecision;
@@ -712,6 +854,34 @@ export type ApolloPaidSectorRelevanceResult = {
   subindustrySignalUsed: boolean;
   /** Campos con carga sectorial que el proveedor sí entregó. */
   sectorEvidenceFields: string[];
+  /**
+   * SECTOR-EVIDENCE-BOOTSTRAP-1 — veredicto de adquisición cuando NO hay política
+   * de sector. Ausente cuando la pregunta no llegó a plantearse porque sí la había.
+   */
+  bootstrap?: ApolloSectorEvidenceBootstrapCandidateDecision | null;
+  /**
+   * POST-ENRICHMENT-ADMISSION-1 — ¿existía una política legacy (`SECTOR_SIGNAL_TERMS`)
+   * con la que juzgar a este candidato?
+   *
+   * Hasta este hito la ausencia de política sólo era observable por implicación
+   * —`sector_not_mapped` se devuelve ÚNICAMENTE desde la rama sin política—, y la
+   * precedencia de admisión del § 9 no puede depender de una implicación: si mañana
+   * otro camino produjera ese mismo veredicto, la vía nueva se activaría donde la
+   * legacy sí tenía algo que decir. Aquí es un hecho declarado.
+   *
+   * No cambia ninguna decisión: es puramente informativo para el consumidor.
+   */
+  sectorPolicyPresent: boolean;
+};
+
+/** Opciones de evaluación. Ausentes ⇒ comportamiento idéntico al previo al hito. */
+export type ApolloPaidSectorRelevanceOptions = {
+  /**
+   * Autorización de la CORRIDA para adquirir evidencia clasificatoria ausente.
+   * Ausente ⇒ no autorizada: un sector sin política sigue siendo
+   * `sector_not_mapped`, exactamente como antes.
+   */
+  sectorEvidenceBootstrap?: ApolloSectorEvidenceBootstrapAuthorization | null;
 };
 
 // ─── A1-APOLLO-TWO-ROUND-QUALITY-1 § 5 — clasificación de la industria ────────
@@ -907,6 +1077,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
   result: WebSearchResult,
   sector: string | null | undefined,
   subindustry?: string | null,
+  options?: ApolloPaidSectorRelevanceOptions,
 ): ApolloPaidSectorRelevanceResult {
   const subindustryEntry = subindustry ? getSectorSignalEntry(subindustry) : null;
   const entry = subindustryEntry ?? getSectorSignalEntry(sector);
@@ -914,11 +1085,29 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
   const sectorEvidenceFields = collectSectorEvidenceFields(result);
 
   if (!entry) {
+    // SECTOR-EVIDENCE-BOOTSTRAP-1 — sin política, la pregunta ya no es una sola.
+    //
+    //   el proveedor declaró algo  → `sector_not_mapped`. Hay evidencia y no hay
+    //                                política con que juzgarla; comprar más
+    //                                descripción no crea la política que falta.
+    //   el proveedor no declaró
+    //   nada, y la corrida está
+    //   autorizada                 → puede ADQUIRIRLA. No confirma nada.
+    //   cualquier otro caso        → `sector_not_mapped`, como antes del hito.
+    const bootstrap = decideApolloSectorEvidenceBootstrapForCandidate({
+      authorization:
+        options?.sectorEvidenceBootstrap ?? APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_UNAUTHORIZED,
+      providerSectorEvidenceFields: sectorEvidenceFields,
+    });
     return {
-      decision: 'sector_not_mapped',
+      decision: bootstrap.bootstrapEligible
+        ? 'sector_evidence_missing_bootstrap_eligible'
+        : 'sector_not_mapped',
       matchedTerms: [],
       subindustrySignalUsed,
       sectorEvidenceFields,
+      bootstrap,
+      sectorPolicyPresent: false,
     };
   }
 
@@ -926,7 +1115,13 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
   const matchedTerms = findMatchedTerms(text, entry.signals);
 
   if (matchedTerms.length > 0) {
-    return { decision: 'relevant', matchedTerms, subindustrySignalUsed, sectorEvidenceFields };
+    return {
+      decision: 'relevant',
+      matchedTerms,
+      subindustrySignalUsed,
+      sectorEvidenceFields,
+      sectorPolicyPresent: true,
+    };
   }
 
   // A1-APOLLO-TWO-ROUND-QUALITY-1 § 5 — sin señales específicas, la INDUSTRIA
@@ -950,6 +1145,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
       matchedTerms: [],
       subindustrySignalUsed,
       sectorEvidenceFields,
+      sectorPolicyPresent: true,
     };
   }
   if (industryClass === 'broad_compatible') {
@@ -958,6 +1154,7 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
       matchedTerms: [],
       subindustrySignalUsed,
       sectorEvidenceFields,
+      sectorPolicyPresent: true,
     };
   }
 
@@ -969,5 +1166,139 @@ export function evaluateApolloSectorRelevanceForPaidOperation(
     matchedTerms: [],
     subindustrySignalUsed,
     sectorEvidenceFields,
+    sectorPolicyPresent: true,
+  };
+}
+
+// ─── ADDENDUM § 2 · ANY-OF en el gate de GASTO ────────────────────────────────
+//
+// El defecto que cierra: la búsqueda Apollo consulta las hasta cinco
+// subindustrias con ANY-OF y la precisión ya las evalúa con ANY-OF, pero el gate
+// que decide QUIÉN PUEDE GASTAR seguía juzgando contra una sola —la primera—.
+//
+// Como este gate sustituye las señales del SECTOR por las de la SUBINDUSTRIA en
+// cuanto la subindustria tiene catálogo (`subindustryEntry ?? sectorEntry`), una
+// empresa que demostraba la segunda selección del usuario se medía contra las
+// señales de la primera, no coincidía, y su industria declarada la mandaba a
+// `sector_relevance_contradicted` — rechazo antes de pagar. Con `[A, B]` quedaba
+// fuera y con `[B, A]` entraba: el mismo candidato, la misma evidencia y el mismo
+// presupuesto, decididos por el orden en que el usuario marcó dos casillas.
+//
+// Esto NO amplía el gasto. El cap sigue siendo `maxEnrichmentsPerRun` para toda
+// la corrida, no por subindustria: cambia CUÁL candidato puede competir por esos
+// cupos, no CUÁNTOS cupos hay.
+
+/**
+ * Precedencia del ANY-OF sectorial: poder competir gana a no poder, y un rechazo
+ * MEDIDO gana a la ausencia de política.
+ *
+ * `sector_relevance_contradicted` por encima de `sector_not_mapped` replica el
+ * desempate de la precisión: si una subindustria se evaluó de verdad y contradijo,
+ * reportar «no hay mapping» escondería que sí hubo medición. Ambas bloquean el
+ * gasto, así que el orden entre ellas sólo elige el motivo que se reporta.
+ */
+const PAID_SECTOR_RELEVANCE_PRECEDENCE: Record<ApolloPaidSectorRelevanceDecision, number> = {
+  relevant: 5,
+  sector_evidence_missing_needs_enrichment: 4,
+  sector_relevance_contradicted: 3,
+  // SECTOR-EVIDENCE-BOOTSTRAP-1 — por DEBAJO de la contradicción a propósito. Las
+  // dos son inalcanzables a la vez (contradecir exige evidencia declarada, y la
+  // adquisición exige que no la haya), pero si alguna vez se cruzaran, no gastar
+  // es la respuesta correcta. Por encima de `sector_not_mapped`: poder preguntar
+  // gana a no poder, y ninguna de las dos confirma nada.
+  sector_evidence_missing_bootstrap_eligible: 2,
+  sector_not_mapped: 1,
+};
+
+/** Veredicto sectorial de UNA de las subindustrias pedidas, para auditoría. */
+export type ApolloPaidSectorRelevancePerSubindustry = {
+  requestedSubindustry: string;
+  decision: ApolloPaidSectorRelevanceDecision;
+  subindustrySignalUsed: boolean;
+};
+
+export type ApolloPaidSectorRelevanceAnyOfResult = ApolloPaidSectorRelevanceResult & {
+  /** Las subindustrias pedidas, saneadas. Vacío cuando la búsqueda no pidió ninguna. */
+  requestedSubindustries: string[];
+  /** Cuál de ellas ganó el ANY-OF. `null` si no se pidió ninguna. */
+  matchedRequestedSubindustry: string | null;
+  /** El veredicto de CADA una, sin recortar. */
+  perRequestedSubindustryDecisions: ApolloPaidSectorRelevancePerSubindustry[];
+};
+
+/**
+ * Relevancia sectorial para una operación pagada, con semántica ANY-OF sobre
+ * TODAS las subindustrias que la búsqueda pidió.
+ *
+ * Contrato (ADDENDUM § 2):
+ *
+ *   alguna `relevant`                    ⇒ `relevant`; puede competir por gasto.
+ *   ninguna relevante, alguna sin
+ *   evidencia                            ⇒ `sector_evidence_missing_needs_enrichment`;
+ *                                          puede competir bajo el cap — resolver esa
+ *                                          duda es para lo que existe el enrichment.
+ *   TODAS contradichas                   ⇒ `sector_relevance_contradicted`; no se gasta.
+ *   una contradicha y otra plausible     ⇒ gana la plausible.
+ *
+ * Sin subindustrias pedidas delega en la firma de una sola con `null`, así que las
+ * búsquedas SIN subindustria conservan su comportamiento EXACTO.
+ *
+ * La DECISIÓN es invariante al orden: la agregación es por precedencia y sólo una
+ * puntuación estrictamente mayor desplaza al ganador. Lo único que el orden puede
+ * mover es cuál etiqueta empatada se reporta en `matchedRequestedSubindustry` y en
+ * `matchedTerms`, ambos diagnósticos: ningún consumidor decide con ellos.
+ *
+ * Puro.
+ */
+export function evaluateApolloSectorRelevanceForPaidOperationAnyOf(
+  result: WebSearchResult,
+  sector: string | null | undefined,
+  requestedSubindustries: readonly (string | null | undefined)[] | null | undefined,
+  options?: ApolloPaidSectorRelevanceOptions,
+): ApolloPaidSectorRelevanceAnyOfResult {
+  const requested = normalizeRequestedSubindustries(requestedSubindustries);
+
+  if (requested.length === 0) {
+    return {
+      ...evaluateApolloSectorRelevanceForPaidOperation(result, sector, null, options),
+      requestedSubindustries: [],
+      matchedRequestedSubindustry: null,
+      perRequestedSubindustryDecisions: [],
+    };
+  }
+
+  const evaluated = requested.map((label) => ({
+    label,
+    assessment: evaluateApolloSectorRelevanceForPaidOperation(result, sector, label, options),
+  }));
+
+  // Estable: sólo una precedencia ESTRICTAMENTE mayor desplaza al ganador, así que
+  // ante empate manda el orden en que el usuario pidió las subindustrias.
+  let winner = evaluated[0]!;
+  for (const candidate of evaluated.slice(1)) {
+    if (
+      PAID_SECTOR_RELEVANCE_PRECEDENCE[candidate.assessment.decision] >
+      PAID_SECTOR_RELEVANCE_PRECEDENCE[winner.assessment.decision]
+    ) {
+      winner = candidate;
+    }
+  }
+
+  return {
+    ...winner.assessment,
+    // POST-ENRICHMENT-ADMISSION-1 — la presencia de política legacy es del ANY-OF
+    // entero, no del ganador. `entry` se resuelve por etiqueta
+    // (`subindustryEntry ?? sectorEntry`), así que con un sector sin política y dos
+    // subindustrias de las que sólo una tiene señales propias, el ganador puede ser
+    // la que NO las tiene. Reportar entonces «sin política» abriría la vía nueva
+    // sobre una petición donde la legacy sí tenía algo que decir. OR = conservador.
+    sectorPolicyPresent: evaluated.some(({ assessment }) => assessment.sectorPolicyPresent),
+    requestedSubindustries: requested,
+    matchedRequestedSubindustry: winner.label,
+    perRequestedSubindustryDecisions: evaluated.map(({ label, assessment }) => ({
+      requestedSubindustry: label,
+      decision: assessment.decision,
+      subindustrySignalUsed: assessment.subindustrySignalUsed,
+    })),
   };
 }

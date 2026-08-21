@@ -97,7 +97,7 @@ export interface ApolloEnrichmentUiResult {
   estimatedCostUsd: number;
   /** Guardrail de costo y completion (Hito 17A.6B). */
   costGuardrail?: ApolloEnrichmentUiCostGuardrail;
-  /** Guardrail de presupuesto de búsqueda (Hito 17A.6D). */
+  /** Guardrail de volumen de búsqueda — People Search no cobra créditos (Hito 17A.6D). */
   searchGuardrail?: {
     max_search_attempts: number;
     max_results_per_attempt: number;

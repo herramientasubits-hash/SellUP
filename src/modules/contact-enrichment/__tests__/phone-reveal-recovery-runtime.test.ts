@@ -44,6 +44,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..', '..');
 
 const RECOVERY_ID = '-4594297923800105423';
+/** Apollo person id sintético (24 hex), opaco e inventado. Necesario para que la
+ * comprobación de supresión en vuelo sea evaluable (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1):
+ * sin él el gate ahora bloquea (`not_evaluable` ⇒ fail-closed). Este archivo
+ * prueba el runtime admin-gated y el paso a través del recovery core, no la
+ * resolución de identidad de la supresión. */
+const PERSON_ID = '1a2b3c4d5e6f7a8b9c0d1e2f';
 
 const ADMIN: RecoveryRuntimeActor = { internalUserId: 'user-admin', roleKey: 'admin' };
 const SELLER: RecoveryRuntimeActor = { internalUserId: 'user-seller', roleKey: 'seller' };
@@ -69,6 +75,7 @@ function eligibleCandidate(
     accountId: 'acct-1',
     phoneRevealProvider: 'apollo',
     source: 'lusha',
+    apolloPersonId: PERSON_ID,
     phoneRevealStatus: 'requested',
     existingPhone: null,
     enrichmentMetadata: {},
@@ -98,6 +105,7 @@ function coreDepsWithFetchSpy(args: {
       state.writes += 1;
     },
     logUsage: async () => {},
+    lookupPhoneCacheSuppression: async () => null,
   };
   return { deps, fetchCalls: state.fetchCalls, writes: state.writes };
 }

@@ -45,6 +45,12 @@ import {
 } from '@/components/ui/select';
 import { Field, Row, getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
+// AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 5 — `LushaPreviewPanel` (abajo) es
+// superficie de COMPATIBILIDAD: ningún sitio del producto la monta desde
+// Q3F-5BB.3C, y su selector de tres sectores legacy se conserva sólo para no
+// romperla ni sus pruebas. `LockedCriteriaRecap`, que SÍ vive en el wizard, ya
+// resuelve su etiqueta desde la capacidad Macro-v2.
+import { resolveLushaMacroCapability } from '@/server/prospect-batches/lusha-macro-capability';
 import {
   getLushaSectorOptions,
   resolveLushaSectorOption,
@@ -225,7 +231,7 @@ export function LushaPreviewPanel({
       {lockCriteria && (
         <LockedCriteriaRecap
           countryCode={countryCode}
-          sectorKey={sectorKey}
+          macroIndustryKey={sectorKey}
           searchText={searchText}
           recap={lockedRecap}
         />
@@ -382,12 +388,17 @@ export function LushaPreviewPanel({
 
 export function LockedCriteriaRecap({
   countryCode,
-  sectorKey,
+  macroIndustryKey,
   searchText,
   recap,
 }: {
   countryCode: string;
-  sectorKey: string;
+  /**
+   * AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 2 — clave canónica de macro
+   * industria. Sólo se usa para el recap MÍNIMO (sin `recap` enriquecido), y sólo
+   * para resolver una etiqueta legible. Nada aquí decide nada.
+   */
+  macroIndustryKey: string;
   searchText: string;
   /**
    * Q3F-5BB.3F — cuando se define, muestra el recap enriquecido con labels
@@ -439,7 +450,8 @@ export function LockedCriteriaRecap({
   }
 
   // Minimal recap fallback (no enriched wizard labels available).
-  const sectorLabel = resolveLushaSectorOption(sectorKey)?.label ?? sectorKey;
+  const sectorLabel =
+    resolveLushaMacroCapability(macroIndustryKey)?.label ?? macroIndustryKey;
   return (
     <SurfaceCard>
       <SurfaceCardHeader

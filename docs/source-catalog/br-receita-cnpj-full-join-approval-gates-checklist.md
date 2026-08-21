@@ -128,7 +128,9 @@ superseded        replaced by a later, explicitly-recorded decision that names w
 Rules governing status:
 
 - **All eight gates start at `not_started`.** That is their status as of this document; nothing
-  here advances any of them.
+  here advances any of them. (GATE-1 was later moved to `approved` by a separate recorded owner
+  decision — § 5.1. That decision is not this document advancing a gate; it is an owner decision
+  recorded in the § 14 shape, which § 4 requires and this document only defines.)
 - **No gate may be approved by inference.** Silence, absence of objection, a passing test, a green
   CI check, a merged PR, or a prior bounded result is never an approval.
 - **No gate may be self-approved by the agent or author who implements its subject.** The
@@ -182,7 +184,7 @@ Rules governing status:
 
 **Governs (10J § 13):** whether the full local dry-run may run at all. Without it, nothing runs.
 
-**Status today:** `not_started`.
+**Status today:** `approved` — recorded 2026-08-21. See § 5.1.
 
 ### Required owner / approver
 
@@ -243,6 +245,31 @@ Rules governing status:
 - Writing to Supabase.
 - Connecting runtime or Agent 1.
 - Persisting any join key or row.
+
+> **Update (BR-SOURCE-GATE1-RECORD) — § 5.1 GATE-1 is APPROVED.** The human legal/privacy owner
+> reviewed the Brazil / Receita scope and decided that development may continue, on the basis that
+> legal/privacy coverage is considered satisfied. The § 14 approval entry — the only place an
+> approval exists, per § 4 — is
+> [`br-receita-cnpj-gate1-owner-approval-record.md`](./br-receita-cnpj-gate1-owner-approval-record.md)
+> § 2, and the matching legal/privacy determination is § 14 of
+> [`br-receita-cnpj-legal-privacy-decision-record.md`](./br-receita-cnpj-legal-privacy-decision-record.md).
+> The decision was given over the scope AS A WHOLE and is recorded at that granularity: the seven
+> *Required evidence* confirmations above were not restated individually, and each is recorded as
+> accepted as part of the whole-scope decision rather than as a separate owner finding.
+>
+> Against the *Fail / block criteria* above, one item deserves naming rather than burying: the
+> licence metadata conflict (CC BY-ND 3.0 vs a possible CC BY-NC-ND 3.0 Brasil variant, BR-LEGAL-0
+> § 3 / BR-LEGAL-1 § 7) is **preserved unchanged and was not reopened**. What the owner supplied is
+> a disposition over that evidence — accepted for continuation of development — not a resolution of
+> which licence governs, and no agent resolved it.
+>
+> Per § 13, this **orders review and propagates no approval**: GATE-2, GATE-3 and GATE-8 become
+> REVIEWABLE, and GATE-2 … GATE-8 all remain `not_started`. Per *Relation to flags* above it flips
+> **no** operational flag; `OPS_BR_READY_FOR_IMPORT` stays `false`. The § 15 matrix still reads
+> **NO-GO**. It authorizes no full join, no execution, no benchmark, no benchmark retry, no
+> real-data access, no manifest / CSV / ZIP / row read, no snapshot output or persistence, no
+> import, no Supabase write, no migration, no runtime, no Agent 1, no provider call, and no
+> production enablement; and it approves no prior execution retroactively.
 
 ---
 
@@ -947,6 +974,13 @@ or the hito explicitly remains design-only.
 An approved upstream gate never *implies* a downstream one. The graph orders review; it does not
 propagate approval.
 
+> **Update (BR-SOURCE-GATE1-RECORD).** GATE-1 is `approved` (§ 5.1), so the root of this graph is in
+> place and the gates that depend on GATE-1 alone — GATE-2, GATE-3, GATE-8 — are now reviewable.
+> Reviewable is not approved: all seven remain `not_started`, and the rule immediately above is the
+> reason. The executable form of this ordering is the BR-SOURCE-13A `GATE2_CANNOT_PRECEDE_GATE1`
+> rule, which no longer fires against an approved GATE-1 and which still refuses a GATE-2 approval
+> carried on an incomplete or unsafe section.
+
 ---
 
 ## 14. Approval evidence template
@@ -1001,8 +1035,11 @@ GO for execution              ≠  GO for import
 GO for import                 requires a later, separate import authorization
 ```
 
-**Today's position:** all eight gates are `not_started`, so the matrix reads **NO-GO**. That is the
-expected and correct outcome of this document.
+**Today's position (as of 2026-08-21):** GATE-1 is `approved` (§ 5.1); GATE-2 … GATE-8 are all
+`not_started`. Seven gates at `not_started` means the matrix still reads **NO-GO**, which is the
+expected and correct outcome. An approved GATE-1 makes the gates that depend on it alone — GATE-2,
+GATE-3, GATE-8 — *reviewable*; § 13 is explicit that the graph orders review and does not propagate
+approval.
 
 ---
 

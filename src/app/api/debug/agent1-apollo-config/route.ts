@@ -14,6 +14,7 @@ import {
   isApolloCompanySearchEnabled,
   isApolloOrganizationEnrichmentCascadeEnabled,
   isApolloTwoRoundDiscoveryEnabled,
+  isLushaPreviewEnabled,
   isWizardRunProviderOverrideEnabled,
   resolveApolloMaxEnrichmentsPerRun,
 } from '@/lib/feature-flags.server';
@@ -28,6 +29,7 @@ import {
   APOLLO_ORGANIZATION_ROLES,
 } from '@/modules/prospect-batches/chat-wizard-execution/wizard-provider-resolver';
 import { isRunProviderOverrideSurfaceAvailable } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-provider-capability';
+import { PROVIDER_APPLICABLE_SEARCH_MODES } from '@/modules/prospect-batches/chat-wizard-execution/wizard-discovery-availability';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 
 export async function GET() {
@@ -95,6 +97,20 @@ export async function GET() {
     apollo_organization_search_role: APOLLO_ORGANIZATION_ROLES.search,
     apollo_organization_enrichment_role: APOLLO_ORGANIZATION_ROLES.enrichment,
     apollo_discovery_default_recommended: false,
+    // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 § 14 — los dos campos que faltaban
+    // para poder EXPLICAR la disponibilidad sin abrir el wizard.
+    //
+    // El flag del proveedor OCULTO Lusha se publica porque su estado fue durante
+    // meses la causa invisible de que «Empresas por criterios» apareciera sin
+    // proveedor: con él apagado y unos criterios Lusha-elegibles, la pantalla final
+    // retiraba el control de generación. Ya no lo hace, y verlo aquí junto a los
+    // modos aplicables es lo que permite comprobarlo desde fuera.
+    lusha_preview_enabled_resolved: isLushaPreviewEnabled(),
+    // Modos de búsqueda a los que aplica un proveedor externo de discovery. La
+    // disponibilidad se decide SÓLO con esto y con el país/industria elegidos:
+    // nunca con la industria concreta, las subindustrias, el criterio adicional ni
+    // la ruta de Lusha.
+    agent1_provider_applicable_search_modes: [...PROVIDER_APPLICABLE_SEARCH_MODES],
     vercel_commit: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
   });
 }

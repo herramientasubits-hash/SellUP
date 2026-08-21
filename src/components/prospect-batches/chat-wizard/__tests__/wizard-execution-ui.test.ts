@@ -14,8 +14,13 @@ import type {
 } from '@/modules/prospect-batches/chat-wizard';
 import {
   mapExecutionError,
+  mapPersistenceNotReady,
   EXECUTION_ERROR_MESSAGES,
+  PERSISTENCE_NOT_READY_BASE_MESSAGE,
 } from '../wizard-execution-error-map';
+// § 3 — catálogo compartido de códigos server-side. Recorrerlo es lo que hace que
+// un código nuevo sin copy en la UI rompa esta prueba.
+import { WIZARD_EXECUTION_FAILURE_CODES } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -611,24 +616,158 @@ describe('17.12 — External services not called in UI layer', () => {
     assert.equal(typeof result.retryable, 'boolean');
   });
 
-  test('error mapping covers all known guardrail codes', () => {
-    const guardrailCodes = [
-      'PILOT_PAUSED',
-      'NOT_IN_PILOT',
-      'BUDGET_PERIOD_NOT_CONFIGURED',
-      'BUDGET_PERIOD_CLOSED',
-      'EXECUTION_CREDIT_LIMIT_EXCEEDED',
-      'BUDGET_EXCEEDED',
-      'CONCURRENT_EXECUTION_ACTIVE',
-      'BUDGET_RESERVATION_FAILED',
-    ];
-    for (const code of guardrailCodes) {
-      const mapped = mapExecutionError(code);
+  // A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 3 — la lista ya no se copia aquí.
+  //
+  // La versión anterior enumeraba a mano los ocho códigos de guardrail de
+  // presupuesto, así que sólo podía detectar la ausencia de copy de esos ocho.
+  // `PERSISTENCE_NOT_READY` existía en el servidor, no estaba en esta lista, no
+  // estaba en el mapa, y la prueba pasaba: el usuario veía el mensaje genérico.
+  // Recorriendo el catálogo compartido, cualquier código server-side sin copy
+  // propio rompe la prueba.
+  test('error mapping covers every server-side failure code', () => {
+    assert.ok(
+      WIZARD_EXECUTION_FAILURE_CODES.length > 0,
+      'el catálogo compartido de códigos no puede estar vacío',
+    );
+
+    for (const code of WIZARD_EXECUTION_FAILURE_CODES) {
+      const explicit = EXECUTION_ERROR_MESSAGES[code];
       assert.ok(
-        EXECUTION_ERROR_MESSAGES[code] !== undefined,
-        `Guardrail code "${code}" has no explicit mapping — will fall back to generic message`,
+        explicit !== undefined,
+        `Failure code "${code}" has no explicit mapping — will fall back to generic message`,
       );
-      assert.ok(mapped.message.length > 0);
+
+      const mapped = mapExecutionError(code);
+      assert.ok(mapped.message.length > 0, `"${code}" mapea a un mensaje vacío`);
+      assert.equal(
+        mapped.message,
+        explicit.message,
+        `"${code}" no resuelve a su propia entrada`,
+      );
     }
+  });
+
+  // § 3 — el fallback sigue existiendo para códigos desconocidos, pero ningún
+  // código conocido debe llegar a él. Se afirma por separado para que la prueba
+  // de arriba no pueda pasar por accidente si el fallback cambiara para
+  // coincidir con una entrada real.
+  test('no known failure code resolves to the generic fallback text', () => {
+    const genericFallback = mapExecutionError('__CODE_THAT_DOES_NOT_EXIST__');
+    assert.equal(genericFallback.message, 'No fue posible completar la generación de prospectos.');
+
+    for (const code of WIZARD_EXECUTION_FAILURE_CODES) {
+      // GENERATION_FAILED comparte el texto a propósito: es el fallo genérico de
+      // verdad, y su copy ES ese mensaje.
+      if (code === 'GENERATION_FAILED') continue;
+      assert.notEqual(
+        mapExecutionError(code).message,
+        genericFallback.message,
+        `"${code}" está mostrando el texto de fallback en vez de copy propio`,
+      );
+    }
+  });
+});
+
+// ── PERSISTENCE_NOT_READY (A1-APOLLO-PERSISTENCE-READINESS-4-FIX § 1, § 2) ─────
+//
+// El defecto que se cierra: el backend devolvía `PERSISTENCE_NOT_READY` con
+// `persistenceNotReady.reason` y su propio `retryable`, y la UI lo tiraba todo
+// —caía al fallback genérico «No fue posible completar la generación de
+// prospectos.», que no dice ni que el problema es de almacenamiento ni que no se
+// gastó nada.
+
+describe('§ 1 — PERSISTENCE_NOT_READY tiene copy propio, no el genérico', () => {
+  test('la entrada del mapa no es el mensaje de fallback', () => {
+    const mapped = mapExecutionError('PERSISTENCE_NOT_READY');
+    assert.notEqual(mapped.message, 'No fue posible completar la generación de prospectos.');
+    assert.equal(mapped.message, PERSISTENCE_NOT_READY_BASE_MESSAGE);
+  });
+
+  test('el mensaje base dice las tres cosas: almacenamiento, cero gasto y qué esperar', () => {
+    const { message } = mapExecutionError('PERSISTENCE_NOT_READY');
+    assert.match(message, /base de datos no está preparada para guardar los candidatos/);
+    assert.match(message, /no se ejecutó y no se consumieron créditos/);
+    assert.match(message, /después de que se corrija la configuración de almacenamiento/);
+  });
+
+  test('el mensaje nunca expone el error crudo del motor', () => {
+    for (const presentation of [
+      mapExecutionError('PERSISTENCE_NOT_READY'),
+      mapPersistenceNotReady({ reason: 'identity_key_missing' }, false),
+      mapPersistenceNotReady({ reason: 'probe_failed' }, true),
+    ]) {
+      assert.doesNotMatch(presentation.message, /identity_key/);
+      assert.doesNotMatch(presentation.message, /schema cache/i);
+      assert.doesNotMatch(presentation.message, /PGRST/);
+      assert.doesNotMatch(presentation.message, /42703/);
+      assert.doesNotMatch(presentation.message, /prospect_candidates/);
+    }
+  });
+});
+
+describe('§ 2 — los dos motivos internos producen copy distinto', () => {
+  test('columna ausente: afirma que la base no está preparada', () => {
+    const mapped = mapPersistenceNotReady({ reason: 'identity_key_missing' }, false);
+    assert.equal(
+      mapped.message,
+      'La base de datos no está preparada para guardar los candidatos. ' +
+        'La búsqueda no se ejecutó y no se consumieron créditos.',
+    );
+  });
+
+  test('fallo de comprobación: afirma que no se pudo verificar, no que esté mal', () => {
+    const mapped = mapPersistenceNotReady({ reason: 'probe_failed' }, true);
+    assert.equal(
+      mapped.message,
+      'No fue posible verificar si la base de datos está preparada. ' +
+        'La búsqueda no se ejecutó y no se consumieron créditos.',
+    );
+    // La distinción es el punto entero: una conexión caída no autoriza a
+    // concluir que el esquema está mal.
+    assert.doesNotMatch(mapped.message, /no está preparada para guardar/);
+  });
+
+  test('los dos motivos no comparten texto', () => {
+    assert.notEqual(
+      mapPersistenceNotReady({ reason: 'identity_key_missing' }, false).message,
+      mapPersistenceNotReady({ reason: 'probe_failed' }, true).message,
+    );
+  });
+
+  test('ambos motivos afirman explícitamente que no hubo consumo', () => {
+    for (const reason of ['identity_key_missing', 'probe_failed'] as const) {
+      assert.match(
+        mapPersistenceNotReady({ reason }, false).message,
+        /no se ejecutó y no se consumieron créditos/,
+      );
+    }
+  });
+});
+
+describe('§ 2 — el retryable del servidor se conserva', () => {
+  test('columna ausente: no reintentable (hay que aplicar la migración)', () => {
+    assert.equal(mapPersistenceNotReady({ reason: 'identity_key_missing' }, false).retryable, false);
+  });
+
+  test('sonda fallida: reintentable (puede recuperarse sola)', () => {
+    assert.equal(mapPersistenceNotReady({ reason: 'probe_failed' }, true).retryable, true);
+  });
+
+  test('el servidor manda: un retryable explícito gana sobre la tabla', () => {
+    // Si el servidor endureciera la regla para `probe_failed`, la UI debe
+    // seguirlo en vez de imponer su propio literal.
+    assert.equal(mapPersistenceNotReady({ reason: 'probe_failed' }, false).retryable, false);
+    assert.equal(mapPersistenceNotReady({ reason: 'identity_key_missing' }, true).retryable, true);
+  });
+
+  test('sin retryable del servidor cae al respaldo por motivo, no a `true`', () => {
+    assert.equal(mapPersistenceNotReady({ reason: 'identity_key_missing' }, undefined).retryable, false);
+    assert.equal(mapPersistenceNotReady({ reason: 'probe_failed' }, undefined).retryable, true);
+  });
+
+  test('sin motivo estructurado el mensaje base no promete reintento inmediato', () => {
+    const mapped = mapPersistenceNotReady(undefined, undefined);
+    assert.equal(mapped.message, PERSISTENCE_NOT_READY_BASE_MESSAGE);
+    assert.equal(mapped.retryable, false);
   });
 });

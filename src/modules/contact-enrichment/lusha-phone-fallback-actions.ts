@@ -1,47 +1,55 @@
 'use server';
 
 // Agente 2A — Lusha Phone Reveal Fallback: Server Action wrapper
-// (LUSHA-PHONE-FALLBACK-1)
+// (LUSHA-PHONE-FALLBACK-1 · convergido en AGENT2A-PHONE-REVEAL-4O-F-R2)
 //
-// Thin 'use server' wrapper that wires real dependencies into the pure core
-// (lusha-phone-fallback-core.ts): the flag, the authenticated actor + role,
-// the candidate load, the single Lusha /v3/contacts/enrich call, the
-// service-role persistence write and the PII-free usage log. All validation
-// and decision logic live in the core so this file stays declarative.
+// QUÉ ES ESTE ARCHIVO DESDE R2
 //
-// Gated behind ENABLE_LUSHA_PHONE_REVEAL_FALLBACK, OFF in every environment as
-// of this milestone: with the flag off the core short-circuits to
-// `feature_disabled` before resolving the actor, loading the candidate or
-// calling Lusha. Manual, admin-only, single candidate (no bulk — the input
-// type is a scalar candidateId). Lusha only — never Apollo, never HubSpot;
-// this action neither creates an official contact nor approves the candidate.
+// Un ADAPTADOR. Resuelve el actor autenticado, revalida los gates que no dependen de
+// la base de datos y delega la operación completa en el MOTOR ECONÓMICO
+// `legacy_lusha_only` (legacy-lusha-only-reveal-engine.ts). No cablea deps de
+// proveedor, no llama a Lusha y no escribe en el candidato: todo eso ocurre dentro de
+// una corrida real con su reserva atómica de créditos.
+//
+// POR QUÉ CAMBIÓ
+//
+// Hasta 4O-F este archivo cableaba su PROPIO camino pagado a Lusha, en paralelo al de
+// la pata del waterfall. Las dos hacían la misma operación económica, pero sólo una
+// tenía contabilidad: la auditoría 4O-F-M0 fijó que este disparo NO tenía gate
+// presupuestal (`MANUAL_LUSHA_BUDGET_GATE = UNSAFE`), ni reserva atómica, ni
+// single-flight — tres clics concurrentes sobre el mismo candidato pagaban tres veces,
+// y la única mitigación era un `useRef` de la UI. R2 elimina esa segunda
+// implementación en vez de darle una reserva propia.
+//
+// QUÉ NO CAMBIÓ (contrato de salida)
+//
+//   * mismo nombre, mismo input, mismo tipo de resultado, misma naturaleza SÍNCRONA;
+//   * sigue siendo manual, admin-only y de UN candidato (el input es escalar);
+//   * sigue exigiendo confirmación de costo;
+//   * sigue siendo Lusha only — nunca Apollo, nunca HubSpot; no crea contacto oficial
+//     ni aprueba el candidato;
+//   * sigue gated tras `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK`, y con el flag apagado sale
+//     antes de resolver el actor y antes de tocar la infraestructura de corridas;
+//   * NO requiere `ENABLE_PHONE_REVEAL_WATERFALL`, que sigue apagado en Producción: ese
+//     flag gobierna la UX del waterfall Apollo→Lusha, no la existencia de la
+//     contabilidad. La UI no cambia y no aparece ningún polling, modal ni drawer nuevo.
+//
+// El resultado sigue siendo PII-free: nunca devuelve el teléfono, la identidad, el id
+// de contacto de Lusha ni el id de la corrida. En éxito la UI recarga el candidato.
 
 import { redirect } from 'next/navigation';
-import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
-import { isLushaPhoneRevealFallbackEnabled, resolveLushaSearchTimeoutMs } from '@/lib/feature-flags.server';
-import { getLushaApiKey } from '@/server/services/lusha-connection';
-import { enrichLushaContactPhonesForFallback } from '@/server/integrations/lusha-phone-fallback-client';
-import { logProviderUsage } from '@/modules/usage-tracking/logging';
+import { isLushaPhoneRevealFallbackEnabled } from '@/lib/feature-flags.server';
 import {
-  runLushaPhoneFallbackReveal,
+  LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS,
   type LushaPhoneFallbackActionInput,
   type LushaPhoneFallbackActionResult,
-  type LushaPhoneFallbackCandidateRecord,
-  type LushaPhoneFallbackPersistencePatch,
-  type LushaPhoneFallbackUsageLogEntry,
+  type LushaPhoneFallbackActionStatus,
 } from './lusha-phone-fallback-core';
-import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
+import { executeLegacyLushaOnlyPhoneReveal } from './legacy-lusha-only-reveal-engine';
+import type { StartLegacyPhoneRevealWaterfallRuntimeResult } from './phone-reveal-waterfall-deps';
 
 // ── Auth + rol del actor ──────────────────────────────────────
-
-/** Cliente service_role para mutar staging (mismo patrón que phone-reveal-actions). */
-function getServiceRoleClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase service credentials not configured');
-  return createServiceRoleClient(url, key);
-}
 
 /**
  * Resuelve el usuario interno activo y su role key. Redirige a /login si no
@@ -79,128 +87,188 @@ async function resolveActorForLushaFallback(): Promise<{
   return { internalUserId: internalUser.id, roleKey };
 }
 
-// ── Carga del candidato ────────────────────────────────────────
+// ── Adaptación del desenlace del motor al contrato de la acción ──
 
-const LUSHA_FALLBACK_CANDIDATE_SELECT =
-  'id, status, source, source_contact_id, phone, enrichment_metadata, phone_reveal_status, phone_reveal_attempt_count';
+/**
+ * Motivos del arranque que NO se creó, traducidos al vocabulario que esta acción ya
+ * publicaba. Declarado como TABLA y no como cadena de `if`s para que la
+ * correspondencia sea legible y comprobable de un vistazo.
+ *
+ * Dos traducciones merecen justificación:
+ *
+ *   * `role_not_allowed` → `unauthorized_role`: el mismo hecho, con el nombre que esta
+ *     acción ya usaba. El gate es del servidor, no de la UI.
+ *   * `apollo_evidence_missing` y `apollo_outcome_not_closed` → `apollo_not_exhausted`:
+ *     los tres significan «el intento previo de Apollo no está demostrado como
+ *     terminado sin teléfono», que es el único código que esta acción tenía para ese
+ *     hecho. Colapsarlos NO oculta un problema de saldo ni de infraestructura, que sí
+ *     tienen su propio código.
+ *
+ * `active_run_exists` y `create_conflict` → `already_attempted`: son las DOS caras del
+ * single-flight. La primera la ve quien llega cuando ya hay exposición viva; la segunda,
+ * quien pierde la carrera dentro de la propia transacción. Ninguna llamó al proveedor.
+ */
+const NOT_STARTED_STATUS_BY_REASON: Readonly<
+  Record<string, LushaPhoneFallbackActionStatus>
+> = {
+  feature_disabled: 'feature_disabled',
+  role_not_allowed: 'unauthorized_role',
+  invalid_candidate: 'invalid_candidate',
+  candidate_not_found: 'candidate_not_found',
 
-function mapLushaFallbackCandidate(row: unknown): LushaPhoneFallbackCandidateRecord {
-  const r = row as Record<string, unknown>;
-  return {
-    id: r.id as string,
-    status: (r.status as string | null) ?? null,
-    source: (r.source as ContactSource | null) ?? null,
-    sourceContactId: (r.source_contact_id as string | null) ?? null,
-    existingPhone: (r.phone as string | null) ?? null,
-    phoneRevealStatus: (r.phone_reveal_status as string | null) ?? null,
-    phoneRevealAttemptCount:
-      typeof r.phone_reveal_attempt_count === 'number' ? r.phone_reveal_attempt_count : 0,
-    enrichmentMetadata: (r.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
-  };
+  // Elegibilidad sobre la evidencia persistida.
+  apollo_not_exhausted: 'apollo_not_exhausted',
+  apollo_evidence_missing: 'apollo_not_exhausted',
+  apollo_outcome_not_closed: 'apollo_not_exhausted',
+  existing_phone_present: 'existing_phone_present',
+  candidate_not_editable: 'candidate_not_editable',
+  missing_lusha_contact_id: 'missing_lusha_contact_id',
+  incompatible_historical_run: 'apollo_not_exhausted',
+  previous_run_revealed_phone: 'existing_phone_present',
+
+  // Privacidad, evaluada ANTES de reservar: 0 corridas, 0 reservas, 0 créditos.
+  blocked_suppressed: 'blocked_suppressed',
+  do_not_contact: 'do_not_contact',
+  suppression_check_unavailable: 'suppression_check_unavailable',
+
+  // Presupuesto e infraestructura: 0 llamadas al proveedor.
+  insufficient_credits: 'insufficient_credits',
+  budget_not_configured: 'budget_not_configured',
+  credit_balance_unavailable: 'credit_balance_unavailable',
+  run_creation_unavailable: 'infrastructure_unavailable',
+  legacy_run_creation_failed: 'infrastructure_unavailable',
+
+  // Single-flight.
+  active_run_exists: 'already_attempted',
+  create_conflict: 'already_attempted',
+};
+
+/**
+ * Motivos con los que la corrida se cerró SIN llegar a Lusha. Son los que escribe
+ * `resolvePhoneRevealWaterfallSuppressionBlock`, y se traducen al mismo vocabulario de
+ * privacidad que esta acción ya publicaba.
+ */
+const CLOSED_WITHOUT_LUSHA_STATUS_BY_REASON: Readonly<
+  Record<string, LushaPhoneFallbackActionStatus>
+> = {
+  suppressed: 'blocked_suppressed',
+  blocked_suppressed: 'blocked_suppressed',
+  dnc: 'do_not_contact',
+  do_not_contact: 'do_not_contact',
+  suppression_check_unavailable: 'suppression_check_unavailable',
+};
+
+/**
+ * Traduce el desenlace del motor al resultado que el llamador de esta acción ya
+ * esperaba. Fail-closed por diseño: un desenlace o motivo DESCONOCIDO cae en `error`
+ * —nunca en `revealed`— así que un valor nuevo del motor no puede presentarse como
+ * éxito ante la UI.
+ */
+function toLushaFallbackActionResult(
+  runtime: StartLegacyPhoneRevealWaterfallRuntimeResult,
+): LushaPhoneFallbackActionResult {
+  const reason = runtime.reason ?? '';
+
+  switch (runtime.outcome) {
+    case 'lusha_revealed':
+      return { ok: true, status: 'revealed', errorCode: null };
+
+    case 'lusha_no_phone_found':
+      return { ok: true, status: 'no_phone_found', errorCode: null };
+
+    case 'lusha_claim_lost':
+      // Otro disparador ya había tomado la pata de ESTA corrida. No se pagó dos veces.
+      return { ok: false, status: 'already_attempted', errorCode: null };
+
+    case 'closed_without_lusha': {
+      const status = CLOSED_WITHOUT_LUSHA_STATUS_BY_REASON[reason];
+      return status
+        ? { ok: false, status, errorCode: status }
+        : { ok: false, status: 'error', errorCode: reason || null };
+    }
+
+    case 'not_started': {
+      const status = NOT_STARTED_STATUS_BY_REASON[reason];
+      return status
+        ? {
+            ok: false,
+            status,
+            // Los códigos de privacidad viajan también como errorCode, igual que antes.
+            errorCode:
+              status === 'blocked_suppressed' ||
+              status === 'do_not_contact' ||
+              status === 'suppression_check_unavailable'
+                ? status
+                : null,
+          }
+        : { ok: false, status: 'error', errorCode: reason || null };
+    }
+
+    case 'lusha_error':
+      return { ok: false, status: 'error', errorCode: reason || null };
+
+    // `noop` cubre los casos en los que la corrida se creó pero la continuación no
+    // encontró nada que gastar. No es éxito.
+    case 'noop':
+    default:
+      return { ok: false, status: 'error', errorCode: reason || null };
+  }
 }
 
 // ── Server Action ──────────────────────────────────────────────
 
 /**
- * Reveals ONE candidate's phone via the Lusha fallback (manual, admin-only,
- * single-candidate, only after Apollo's own reveal returned `no_phone_found`).
- * Synchronous: unlike Apollo's async reveal, /v3/contacts/enrich answers in
- * the same request — no webhook, no in-flight state. Never returns a raw
- * phone number, credentials or Lusha contact id: the phone is persisted
- * server-side and the UI refetches the candidate to display it.
+ * Revela el teléfono de UN candidato con Lusha (manual, admin-only, un solo
+ * candidato, sólo después de que el reveal de Apollo devolviera `no_phone_found`).
+ *
+ * SÍNCRONA: `/v3/contacts/enrich` responde en la misma petición — sin webhook, sin
+ * estado en vuelo y sin polling. Desde R2 la operación queda además representada de
+ * forma duradera como una corrida `legacy_lusha_only` con su reserva de créditos, lo
+ * que le da tres garantías que antes no tenía: presupuesto agotado ⇒ 0 llamadas;
+ * invocaciones concurrentes sobre el mismo candidato ⇒ UNA sola operación pagada; y el
+ * usage-log comparte identidad de corrida con la reserva confirmada, así que una
+ * llamada de 5 créditos consume 5 y no 10.
+ *
+ * Nunca devuelve el teléfono, credenciales ni el id de contacto de Lusha: el número se
+ * persiste server-side y la UI recarga el candidato para mostrarlo.
  */
 export async function revealCandidatePhoneViaLushaFallbackAction(
   input: LushaPhoneFallbackActionInput,
 ): Promise<LushaPhoneFallbackActionResult> {
-  const flagEnabled = isLushaPhoneRevealFallbackEnabled();
-  if (!flagEnabled) {
-    return runLushaPhoneFallbackReveal(input, {
-      flagEnabled: false,
-      actor: { internalUserId: '', roleKey: null },
-      nowIso: new Date().toISOString(),
-      loadCandidate: async () => null,
-      callLusha: async () => ({ ok: false, errorMessage: 'disabled' }),
-      persist: async () => {},
-      logUsage: async () => {},
-    });
+  // 1. Flag OFF ⇒ nada más corre: ni actor, ni candidato, ni infraestructura.
+  if (!isLushaPhoneRevealFallbackEnabled()) {
+    return { ok: false, status: 'feature_disabled', errorCode: null };
   }
 
+  // 2. Un candidato, escalar. No hay forma de pedir un lote.
+  const candidateId =
+    typeof input?.candidateId === 'string' ? input.candidateId.trim() : '';
+  if (!candidateId) {
+    return { ok: false, status: 'invalid_candidate', errorCode: null };
+  }
+
+  // 3. Confirmación de costo, revalidada en el SERVIDOR. Este gate vivía dentro del
+  //    core del fallback; converger no lo elimina, lo adelanta — y sigue siendo el
+  //    servidor quien lo aplica, así que una invocación directa sin confirmar se
+  //    rechaza igual que antes, sin llegar a la infraestructura de corridas.
+  const acceptedMax =
+    typeof input?.expectedMaxCredits === 'number' &&
+    Number.isFinite(input.expectedMaxCredits)
+      ? input.expectedMaxCredits
+      : LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS;
+  if (
+    input?.confirmCost !== true ||
+    acceptedMax < LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS
+  ) {
+    return { ok: false, status: 'missing_cost_confirmation', errorCode: null };
+  }
+
+  // 4. Actor autenticado. El rol se revalida en el motor (admin-only), no aquí.
   const actor = await resolveActorForLushaFallback();
-  const supabase = await createClient();
-  const admin = getServiceRoleClient();
 
-  return runLushaPhoneFallbackReveal(input, {
-    flagEnabled: true,
-    actor,
-    nowIso: new Date().toISOString(),
+  // 5. Motor económico único. Todo lo caro —presupuesto, reserva atómica, corrida,
+  //    privacidad, proveedor, persistencia multi-teléfono y liquidación— vive ahí.
+  const runtime = await executeLegacyLushaOnlyPhoneReveal({ candidateId, actor });
 
-    loadCandidate: async (candidateId): Promise<LushaPhoneFallbackCandidateRecord | null> => {
-      const { data, error } = await supabase
-        .from('contact_enrichment_candidates')
-        .select(LUSHA_FALLBACK_CANDIDATE_SELECT)
-        .eq('id', candidateId)
-        .maybeSingle();
-      if (error) throw new Error(error.message);
-      return data ? mapLushaFallbackCandidate(data) : null;
-    },
-
-    callLusha: async ({ contactId }) => {
-      const apiKey = await getLushaApiKey();
-      if (!apiKey) {
-        return { ok: false, errorMessage: 'Lusha API key not configured' };
-      }
-      return enrichLushaContactPhonesForFallback({
-        apiKey,
-        timeoutMs: resolveLushaSearchTimeoutMs(),
-        contactId,
-        allowPhoneReveal: true,
-      });
-    },
-
-    persist: async (
-      candidateId: string,
-      patch: LushaPhoneFallbackPersistencePatch,
-    ): Promise<void> => {
-      const update: Record<string, unknown> = {
-        phone_reveal_status: patch.phone_reveal_status,
-        phone_reveal_provider: patch.phone_reveal_provider,
-        // Higiene del id de correlación (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 10).
-        // Se escribe SIEMPRE, incluso cuando vale `null`: omitirlo es lo que dejaba
-        // el id del intento Apollo anterior en una fila cuyo proveedor final es
-        // Lusha. El valor lo resuelve el core con `resolveFinalPhoneRevealRequestId`.
-        phone_reveal_request_id: patch.phone_reveal_request_id,
-        phone_revealed_at: patch.phone_revealed_at,
-        phone_reveal_completed_at: patch.phone_reveal_completed_at,
-        phone_revealed_by: patch.phone_revealed_by,
-        phone_reveal_cost_credits: patch.phone_reveal_cost_credits,
-        phone_reveal_cost_source: patch.phone_reveal_cost_source,
-        phone_reveal_error_code: patch.phone_reveal_error_code,
-        phone_reveal_attempt_count: patch.phone_reveal_attempt_count,
-      };
-      // Solo se escribe cuando el core resolvió un teléfono (camino `revealed`).
-      // No aplicable en `no_phone_found` / `error`: no se toca el teléfono previo.
-      if (patch.phone !== undefined) update.phone = patch.phone;
-      if (patch.enrichment_metadata !== undefined) {
-        update.enrichment_metadata = patch.enrichment_metadata;
-      }
-      const { error } = await admin
-        .from('contact_enrichment_candidates')
-        .update(update)
-        .eq('id', candidateId);
-      if (error) throw new Error(error.message);
-    },
-
-    logUsage: async (entry: LushaPhoneFallbackUsageLogEntry): Promise<void> => {
-      await logProviderUsage({
-        provider_key: entry.provider,
-        operation_key: entry.operationKey,
-        credits_used: entry.creditsUsed ?? undefined,
-        status: entry.status,
-        error_code: entry.errorCode ?? undefined,
-        triggered_by: entry.triggeredBy,
-        results_returned: entry.status === 'success' ? 1 : 0,
-        metadata: { ...entry.metadata },
-      });
-    },
-  });
+  return toLushaFallbackActionResult(runtime);
 }

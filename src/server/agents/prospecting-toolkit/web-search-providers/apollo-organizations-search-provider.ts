@@ -70,6 +70,7 @@ import {
   APOLLO_ORGANIZATIONS_ABSOLUTE_MAX_RESULTS,
   buildApolloOrganizationsEffectiveRequest,
   resolveApolloResultLimit,
+  toApolloCatalogTermsRunMetadata,
   toApolloContractFilters,
   toApolloEffectiveRequestMetadata,
   verifyApolloEffectiveRequestMatchesSent,
@@ -87,6 +88,23 @@ import {
   type ApolloPageLogEntry,
 } from '../apollo-organizations-paginated-search';
 import { createApolloPaginationBudget } from '../apollo-organizations-pagination-budget';
+// AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1 — P0-2/P0-4/P1-3: memoria provider-seen,
+// volumen pagado ANTES del recorte local, y el embudo comparable con Lusha.
+import {
+  APOLLO_PROVIDER_SEEN_METADATA_KEY,
+  toApolloProviderSeenMetadata,
+  type ApolloProviderSeenRecorder,
+} from '../apollo-organizations-provider-seen';
+import {
+  APOLLO_PAID_VOLUME_METADATA_KEY,
+  resolveApolloPaidResultsVolume,
+  toApolloPaidVolumeMetadata,
+} from '../apollo-organizations-paid-volume';
+import {
+  APOLLO_BENCHMARK_FUNNEL_METADATA_KEY,
+  buildApolloBenchmarkFunnelMetadata,
+} from '../apollo-benchmark-funnel';
+import { resolveProviderSeenStore } from '@/server/prospect-batches/provider-seen/provider-seen-store';
 // A1-APOLLO-BUDGET-RECONCILIATION-1 — contrato único de observabilidad de gasto
 // y fuente única de pricing.
 import {
@@ -102,7 +120,13 @@ import {
   type ApolloErrorClassification,
 } from '../apollo-organizations-error-taxonomy';
 import { toRateLimitLogMetadata } from '@/server/integrations/apollo-rate-limit-headers';
-import { applyApolloSectorRelevanceGate } from '../apollo-sector-relevance-gate';
+import { applyApolloSectorRelevanceGateAnyOf } from '../apollo-sector-relevance-gate';
+// SECTOR-EVIDENCE-BOOTSTRAP-1 — precondiciones OBSERVADAS de la búsqueda emitida.
+import {
+  APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_PRECONDITIONS_KEY,
+  toApolloSectorEvidenceBootstrapPreconditionsMetadata,
+} from '../apollo-sector-evidence-bootstrap';
+import { toDiscoveryTaxonomyMetadata } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { ingestApolloOrganizationIndustryRawLabels } from '@/modules/industry-mapping/apollo-industry-raw-label-ingestion';
 import { normalizeClassificationValue } from '@/modules/prospect-batches/import-classification/catalog-normalization';
 import { captureProviderIndustryRawLabelObservations } from '../provider-industry-raw-label-capture';
@@ -535,7 +559,29 @@ export type ApolloOrgsSearchDeps = {
    * Best-effort observability; never affects results, ranking, or scoring.
    */
   captureIndustryLabels?: typeof captureProviderIndustryRawLabelObservations;
+  /**
+   * P0-2 — escritor de memoria provider-seen. Ausente ⇒ el store resuelto por el
+   * puerto canónico. Inyectable para probar sin base de datos.
+   */
+  recordProviderSeen?: ApolloProviderSeenRecorder;
 };
+
+/**
+ * P0-2 — el escritor por defecto, resuelto PEREZOSAMENTE.
+ *
+ * `resolveProviderSeenStore()` construye una credencial de servidor, así que
+ * hacerlo en la primera escritura y no al entrar en la búsqueda evita pagar ese
+ * coste en los caminos que ni siquiera llaman al proveedor (dry-run, bloqueo de
+ * gasto, parámetro prohibido). El puerto ya falla CERRADO y degrada a un store
+ * que no persiste, así que esto tampoco puede lanzar.
+ */
+function createDefaultApolloProviderSeenRecorder(): ApolloProviderSeenRecorder {
+  let store: ReturnType<typeof resolveProviderSeenStore> | null = null;
+  return async (writeInput) => {
+    store ??= resolveProviderSeenStore();
+    return store.record(writeInput);
+  };
+}
 
 // ─── A1-APOLLO-TWO-ROUND-QUALITY-1: modo del gate sectorial ──────────────────
 
@@ -737,6 +783,64 @@ export async function runApolloOrganizationsSearch(
   const resultLimit = effective.limit;
   const { cap, wasCapped, maxResultsCapSource } = resultLimit;
 
+  // ── MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7: fail-closed ANTES del gasto ──
+  //
+  // Este es el límite del dinero: TODA búsqueda pagada de organizaciones pasa por
+  // aquí, la legacy y la de dos rondas. Si la solicitud trajo subindustrias y el
+  // body efectivo no representa a todas, la llamada no se emite.
+  //
+  // La corrida live `ce957e2f` es el caso: pidió dos subindustrias, el body sólo
+  // llevaba términos de una, y se pagaron 21 créditos por una pregunta que no era
+  // la del usuario. Cero créditos es la respuesta correcta a una consulta que no se
+  // puede construir — no una búsqueda a medias.
+  //
+  // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 3 — y ANTES de eso, la coherencia de
+  // versión. Es el gate más fundamental de los dos: la cobertura pregunta «¿hay un
+  // término para cada subindustria?», y este pregunta «¿esos términos describen el
+  // catálogo que el usuario seleccionó?». Una cobertura perfecta calculada sobre la
+  // versión equivocada sigue siendo la pregunta equivocada, así que se evalúa primero
+  // y se declara con su propia razón: `wizard=v2 + términos=v1 + llamada al proveedor`
+  // no puede ocurrir.
+  const spendBlock =
+    !effective.catalogVersionCoherence.allowed
+      ? {
+          blockReason: effective.catalogVersionCoherence.blockReason,
+          adminCopy: effective.catalogVersionCoherence.adminCopy,
+        }
+      : !effective.subindustryCoverageSpendGate.allowed
+        ? {
+            blockReason: effective.subindustryCoverageSpendGate.blockReason,
+            adminCopy: effective.subindustryCoverageSpendGate.adminCopy,
+          }
+        : null;
+
+  if (spendBlock !== null) {
+    const usageMeta: ApolloOrganizationsUsageMetadata = {
+      operation_key: 'organizations_search',
+      provider_key: 'apollo',
+      credits_used: 0,
+      estimated_cost_usd: 0,
+      status: 'skipped',
+    };
+
+    return {
+      provider: 'apollo_organizations',
+      query: input.query,
+      results: [],
+      resultsCount: 0,
+      skipped: true,
+      skipReason: spendBlock.blockReason,
+      estimatedCostUsd: 0,
+      metadata: {
+        dry_run: false,
+        note: spendBlock.adminCopy,
+        usage: usageMeta,
+        ...toApolloEffectiveRequestMetadata(effective),
+        ...toApolloCatalogTermsRunMetadata(input),
+      },
+    };
+  }
+
   const startMs = Date.now();
   // A1-APOLLO-TWO-ROUND-QUALITY-1-FINAL-FIX § 2 — la ronda entra en la clave.
   // Sin ella, dos rondas cuya consulta produce el mismo slug compartirían
@@ -799,6 +903,10 @@ export async function runApolloOrganizationsSearch(
     // para que un diagnóstico pueda decir qué gobernó la llamada en vez de
     // deducirlo del texto de la consulta.
     ...toApolloEffectiveRequestMetadata(effective),
+    // CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 9 — y de qué versión publicada del
+    // catálogo salieron los términos que la redactaron. Una corrida que salió bien
+    // también tiene que poder decirlo, no sólo una bloqueada.
+    ...toApolloCatalogTermsRunMetadata(input),
   };
 
   // ── A1-APOLLO-WIZARD-1: búsqueda paginada acotada ───────────────────────────
@@ -841,8 +949,33 @@ export async function runApolloOrganizationsSearch(
       random: deps?.random ?? Math.random,
       sleep: deps?.sleep,
       logPage: (entry) => { apolloPageLogs.push(entry); },
+      // P0-2 — la memoria se escribe DENTRO del bucle de páginas, justo después de
+      // normalizar y antes de cualquier filtro local. Aquí sólo se inyecta quién
+      // escribe; el ORDEN lo sostiene la búsqueda paginada.
+      recordProviderSeen: deps?.recordProviderSeen ?? createDefaultApolloProviderSeenRecorder(),
     },
   );
+
+  // ── P0-4 — la contabilidad agregada sale del ledger POR PÁGINA ──────────────
+  //
+  // 🔴 No de `paginated.organizations`: esa lista ya pasó por el dedupe entre
+  // páginas y por el tope `maxCandidates`, que son recortes LOCALES. Derivar de
+  // ella hacía que dos páginas de 10 con un tope de 10 se registraran como 10
+  // resultados pagados en vez de 20.
+  //
+  // 🔴 Sigue siendo una ESTIMACIÓN bajo el modelo de volumen: P0-1 no está
+  // confirmado por Apollo y este cambio no decide nada sobre el contrato
+  // comercial. La metadata lo declara (`provider_reported: false`).
+  const paidVolume = resolveApolloPaidResultsVolume(paginated.pageOutcomes);
+  const providerSeenMetadata = toApolloProviderSeenMetadata(paginated.providerSeen);
+  // La conversión resultados→créditos sigue saliendo de `apollo-operation-pricing`,
+  // la misma tabla con la que el wizard reservó. Lo único que cambia es la CIFRA
+  // que entra: el volumen pagado, no el recogido.
+  const paidCreditsUsed = Math.min(
+    creditsForApolloOperation('organizations_search', paidVolume.resultsVolume),
+    MAX_APOLLO_ORGANIZATIONS_CREDITS,
+  );
+  const paidEstimatedCostUsd = paidCreditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;
 
   // HARDENING-3 § 2 — el veredicto se calcula con la función canónica, no con una
   // comparación suelta que pueda elegir la huella equivocada.
@@ -961,6 +1094,24 @@ export async function runApolloOrganizationsSearch(
         ...toApolloErrorLogMetadata(classification),
         apollo_pagination: apolloPaginationMetadata,
         apollo_page_logs: apolloPageLogs,
+        // P0-4/P0-2/P1-3 — el mismo contrato de medición que la ruta exitosa. Un
+        // fallo terminal sin páginas exitosas deja las tres cifras en 0 porque eso
+        // es lo OBSERVADO, no porque se hayan fijado a mano.
+        [APOLLO_PAID_VOLUME_METADATA_KEY]: toApolloPaidVolumeMetadata(paidVolume, 0),
+        [APOLLO_PROVIDER_SEEN_METADATA_KEY]: providerSeenMetadata,
+        [APOLLO_BENCHMARK_FUNNEL_METADATA_KEY]: buildApolloBenchmarkFunnelMetadata({
+          paidRaw: paidVolume.resultsVolume,
+          unique: paginated.providerSeen.uniqueIdentities,
+          duplicate:
+            paginated.providerSeen.withinPageDuplicates +
+            paginated.providerSeen.crossPageDuplicateIdentities,
+          // El gate sectorial NUNCA corrió en esta rama: no hubo resultados que
+          // evaluar. `null` dice eso; un 0 diría que evaluó y no rechazó nada.
+          precisionRejected: null,
+          providerSeenHit: null,
+          historicalKnown: null,
+          acceptedForTarget: null,
+        }),
         [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(0, 0),
         ...(usageContext?.runCorrelation
           ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
@@ -1077,7 +1228,10 @@ export async function runApolloOrganizationsSearch(
         eligibility: {
           targetCountryCode: input.countryCode ?? null,
           sector: input.industry ?? null,
-          subindustry: input.subindustries?.[0] ?? null,
+          // ADDENDUM § 2 — gate de GASTO: ANY-OF sobre las subindustrias pedidas.
+          // Con `subindustries[0]` un candidato plausible para la segunda pagaba
+          // el rechazo de la primera.
+          subindustries: input.subindustries ?? null,
         },
       },
     );
@@ -1093,8 +1247,11 @@ export async function runApolloOrganizationsSearch(
   // L2.13: pasar subindustria primaria para activar señales estrictas de subindustria
   // (ej. 'formacion corporativa' rechaza universidades, solo pasa LMS/corporate training).
   // L2.15: gate recibe enrichedMapped (con apollo_profile más completo si cascade activo).
-  const primarySubindustry = input.subindustries?.[0] ?? null;
-  const gateResult = applyApolloSectorRelevanceGate(enrichedMapped, input.industry, 'apollo_organizations', primarySubindustry);
+  // ADDENDUM § 2 y § 6 — este gate ADMITE o DESCARTA, así que evalúa las
+  // subindustrias pedidas con ANY-OF. Con la primaria, un candidato que demostraba
+  // la segunda selección del usuario se descartaba midiéndolo contra las señales
+  // de la primera.
+  const gateResult = applyApolloSectorRelevanceGateAnyOf(enrichedMapped, input.industry, 'apollo_organizations', input.subindustries ?? null);
   // A1-APOLLO-TWO-ROUND-QUALITY-1: en 'annotate' el gate se calcula igual (su
   // metadata sigue siendo la misma) pero no filtra. Ningún crédito cambia: la
   // facturación se calcula sobre `rawOrgs`, antes del gate, en ambos modos.
@@ -1111,11 +1268,13 @@ export async function runApolloOrganizationsSearch(
   //     la reconciliación registrara menos gasto del real.
   //  2) La conversión resultados→créditos sale de apollo-operation-pricing, la
   //     misma tabla con la que el wizard reservó.
-  const creditsUsed = Math.min(
-    creditsForApolloOperation('organizations_search', rawOrgs.length),
-    MAX_APOLLO_ORGANIZATIONS_CREDITS,
-  );
-  const estimatedCostUsd = creditsUsed * APOLLO_ORGANIZATIONS_UNIT_COST_USD;
+  //  3) AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1 · P0-4 — la base deja de ser
+  //     `rawOrgs.length` (que es `paginated.organizations`, ya deduplicada entre
+  //     páginas y truncada por `maxCandidates`) y pasa a ser el volumen que el
+  //     ledger POR PÁGINA observó antes de cualquier recorte local. Ver
+  //     `paidVolume`, calculado justo después de la búsqueda paginada.
+  const creditsUsed = paidCreditsUsed;
+  const estimatedCostUsd = paidEstimatedCostUsd;
 
   // ── L2.9: diagnóstico detallado construido ANTES del log para incluirlo ───────
   // Construir aquí (no después del log) para que provider_usage_logs.metadata
@@ -1139,7 +1298,13 @@ export async function runApolloOrganizationsSearch(
   }
 
   const apolloResultDiagnostics = {
+    // 🔴 `raw_results_count` conserva su significado histórico: lo que quedó en la
+    // mano DESPUÉS del dedupe entre páginas y del tope. P0-4 no lo reescribe —
+    // añade la cifra que faltaba, la pagada, para que las dos se puedan comparar.
     raw_results_count: rawOrgs.length,
+    paid_results_volume: paidVolume.resultsVolume,
+    paid_results_volume_source: paidVolume.source,
+    collected_after_local_filters: rawOrgs.length,
     normalized_results_count: normalizedResultsCount,
     normalization_dropped_count: normalizationDroppedCount,
     post_sector_gate_results_count: postGateCount,
@@ -1164,6 +1329,32 @@ export async function runApolloOrganizationsSearch(
     apollo_raw_result_samples_sanitized: rawResultSamples,
   };
 
+  // ── P1-3 — el embudo comparable con el de Lusha ─────────────────────────────
+  //
+  // 🔴 Tres de los siete campos van en `null` con su costura NOMBRADA, no en 0:
+  //
+  //   provider_seen_hit  — esta ruta no carga la memoria antes de buscar. Cargarla
+  //                        es enrutamiento (P0-3) y está FUERA de este corte.
+  //   historical_known   — el cruce contra candidatos históricos activos ocurre
+  //                        aguas abajo de este provider y no vuelve a esta fila.
+  //   accepted_for_target— lo decide el writer agregando TODAS las consultas de la
+  //                        corrida. Publicar aquí `filteredMapped.length` bajo ese
+  //                        nombre sería una SEGUNDA definición del campo, y dos
+  //                        definiciones hacen incomparables los dos embudos.
+  //
+  // Los cuatro restantes salen de contadores que el pipeline ya producía.
+  const apolloBenchmarkFunnel = buildApolloBenchmarkFunnelMetadata({
+    paidRaw: paidVolume.resultsVolume,
+    unique: paginated.providerSeen.uniqueIdentities,
+    duplicate:
+      paginated.providerSeen.withinPageDuplicates +
+      paginated.providerSeen.crossPageDuplicateIdentities,
+    precisionRejected: normalizedResultsCount - postGateCount,
+    providerSeenHit: null,
+    historicalKnown: null,
+    acceptedForTarget: null,
+  });
+
   // ── Usage logging: organizations_search ──────────────────────────────────────
   trackLogResult(await logFn({
     usage_key: usageKey,
@@ -1172,7 +1363,8 @@ export async function runApolloOrganizationsSearch(
     batch_id: usageContext?.batchId ?? undefined,
     agent_run_id: usageContext?.agentRunId ?? undefined,
     credits_used: creditsUsed,
-    results_returned: rawOrgs.length,
+    // P0-4 — el volumen PAGADO, no el recogido tras los recortes locales.
+    results_returned: paidVolume.resultsVolume,
     estimated_cost_usd: estimatedCostUsd,
     status: 'success',
     error_code: undefined,
@@ -1180,8 +1372,12 @@ export async function runApolloOrganizationsSearch(
     duration_ms: Date.now() - startMs,
     triggered_by: usageContext?.triggeredByUserId ?? undefined,
     metadata: {
-      ...buildUsageMetadata(input, cap, wasCapped, rawOrgs.length, false, 'real', apolloParamsSanitized),
+      ...buildUsageMetadata(input, cap, wasCapped, paidVolume.resultsVolume, false, 'real', apolloParamsSanitized),
       apollo_result_diagnostics: apolloResultDiagnostics,
+      // P0-4/P0-2/P1-3 — volumen pagado, memoria de proveedor y embudo comparable.
+      [APOLLO_PAID_VOLUME_METADATA_KEY]: toApolloPaidVolumeMetadata(paidVolume, rawOrgs.length),
+      [APOLLO_PROVIDER_SEEN_METADATA_KEY]: providerSeenMetadata,
+      [APOLLO_BENCHMARK_FUNNEL_METADATA_KEY]: apolloBenchmarkFunnel,
       // L2.15: cascade meta — visible en DB para auditoría
       apollo_enrichment_cascade: enrichmentCascadeMeta,
       // A1-APOLLO-BUDGET-RECONCILIATION-1: mismo contrato de observabilidad que
@@ -1189,7 +1385,7 @@ export async function runApolloOrganizationsSearch(
       // ruta exitosa, que es la que realmente gasta.
       apollo_pagination: apolloPaginationMetadata,
       apollo_page_logs: apolloPageLogs,
-      [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(rawOrgs.length, creditsUsed),
+      [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(paidVolume.resultsVolume, creditsUsed),
       ...(usageContext?.runCorrelation
         ? { [RUN_CORRELATION_METADATA_KEY]: usageContext.runCorrelation }
         : {}),
@@ -1320,11 +1516,55 @@ export async function runApolloOrganizationsSearch(
       apollo_raw_result_samples_sanitized: rawResultSamples,
       // L2.15: metadata del enrichment cascade (enabled=false cuando flag OFF)
       apollo_enrichment_cascade: enrichmentCascadeMeta,
+      // SECTOR-EVIDENCE-BOOTSTRAP-1 — precondiciones OBSERVADAS de la búsqueda que
+      // acaba de emitirse. Es lo único que puede autorizar a adquirir la
+      // clasificación que `mixed_companies/search` no devuelve, y viaja como hecho
+      // de la consulta pagada, no como intención de quien la construyó.
+      //
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 11 — en la taxonomía macro las dos
+      // precondiciones de catálogo se calculan sobre el catálogo que gobierna esa
+      // taxonomía. `catalogTermsResolved: input.subindustryCatalogTerms != null`
+      // sería INCONDICIONALMENTE falso bajo el catálogo v2 —no hay subindustrias,
+      // y por tanto tampoco `subindustry_search_terms`—, así que toda corrida
+      // macro quedaría sin autorización de bootstrap, sin enrichment y sin
+      // candidatos: el deadlock que #274 cerró, reabierto por la puerta de al
+      // lado. Sigue siendo una comprobación, no una excepción: la macro industria
+      // pedida tiene que existir en el catálogo y su consulta efectiva tiene que
+      // representarla.
+      [APOLLO_SECTOR_EVIDENCE_BOOTSTRAP_PRECONDITIONS_KEY]:
+        toApolloSectorEvidenceBootstrapPreconditionsMetadata(
+          effective.macroIndustryRequest.mode === 'macro_industry'
+            ? {
+                providerSearchExecuted: true,
+                queryCoverageComplete:
+                  effective.macroIndustryBootstrapPreconditions.queryCoverageComplete,
+                // La coherencia de versión en modo macro es que la selección
+                // declare la versión del catálogo macro, que es exactamente lo
+                // que `resolveDiscoveryTaxonomyCapability` acaba de comprobar
+                // para llegar hasta aquí.
+                catalogVersionCoherent: true,
+                catalogTermsResolved:
+                  effective.macroIndustryBootstrapPreconditions.catalogTermsResolved,
+              }
+            : {
+                providerSearchExecuted: true,
+                queryCoverageComplete: effective.subindustryCoverageSpendGate.coverage.complete,
+                catalogVersionCoherent: effective.catalogVersionCoherence.allowed,
+                catalogTermsResolved: input.subindustryCatalogTerms != null,
+              },
+        ),
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 — qué taxonomía gobernó esta búsqueda.
+      apollo_discovery_taxonomy: toDiscoveryTaxonomyMetadata(
+        effective.macroIndustryRequest.capability,
+      ),
       // A1-APOLLO-WIZARD-1: paginación, presupuesto, cuota y trazabilidad por página.
       apollo_pagination: apolloPaginationMetadata,
       apollo_page_logs: apolloPageLogs,
       // A1-APOLLO-BUDGET-RECONCILIATION-1: mismo bloque plano que el usage log.
-      [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(rawOrgs.length, creditsUsed),
+      [APOLLO_SPEND_OBSERVABILITY_KEY]: buildSpendObservability(paidVolume.resultsVolume, creditsUsed),
+      [APOLLO_PAID_VOLUME_METADATA_KEY]: toApolloPaidVolumeMetadata(paidVolume, rawOrgs.length),
+      [APOLLO_PROVIDER_SEEN_METADATA_KEY]: providerSeenMetadata,
+      [APOLLO_BENCHMARK_FUNNEL_METADATA_KEY]: apolloBenchmarkFunnel,
       // Un fallo parcial tras haber obtenido resultados queda visible en vez de
       // desaparecer detrás de un resultado "exitoso".
       ...(paginated.terminalError

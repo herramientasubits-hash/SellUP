@@ -43,6 +43,7 @@ import {
 import {
   buildRound1Hypothesis,
   buildRound2Hypothesis,
+  findSharedEffectiveKeywords,
   withRequestedPage,
   type ApolloRound2Hypothesis,
   type ApolloTwoRoundQueryContext,
@@ -61,6 +62,9 @@ import {
   buildEmptyRoundMetrics,
   buildRunMetrics,
   type ApolloEffectiveRequestBuildStatus,
+  type ApolloRound2PageDecision,
+  type ApolloRound2PageEscalationReason,
+  type ApolloRoundSubindustryCoverage,
   type ApolloTwoRoundRoundMetrics,
   type ApolloTwoRoundRunMetrics,
   type EnrichmentOutcome,
@@ -72,6 +76,14 @@ import {
   type ApolloTwoRoundOperationContext,
   type ApolloTwoRoundRunCorrelation,
 } from './idempotency';
+import {
+  evaluateCandidateTargetEligibility,
+  type CandidateTargetCondition,
+  type CandidateTargetEligibility,
+  type GateVerdict,
+  type SubindustryMatchVerdict,
+} from '../candidate-completeness-contract';
+import type { CompanyFieldMappingStatus } from '../apollo-company-fields-mapping';
 
 // ─── Entrada del proveedor ────────────────────────────────────────────────────
 
@@ -160,6 +172,77 @@ export type EnrichmentResult = {
   indeterminate?: boolean;
   /** El proveedor respondió sin organización coincidente. Ni cargo ni evidencia. */
   noMatch?: boolean;
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 5 — estado de los campos OBLIGATORIOS después
+   * del enrichment, leído de la MISMA captura que verá el writer
+   * (`providerCompanyFields`).
+   *
+   * Es lo que cierra el ciclo del § 5: un enrichment se compra porque falta
+   * `employee_count` o `linkedin_url`, y hasta este hito el orquestador nunca se
+   * enteraba de si lo había resuelto —las señales gratuitas venían de la
+   * búsqueda y no se volvían a tocar—. Sin esto, un candidato al que el
+   * enrichment SÍ le resolvió el campo seguiría sin poder contar hacia el
+   * objetivo, y la corrida gastaría los enrichments restantes para nada.
+   *
+   * Ausente ⇒ el enrichment no informó nada y las señales previas se conservan.
+   * Nunca se asume que un campo se resolvió por el hecho de haber pagado.
+   */
+  providerCompanyFields?: {
+    employeeCountStatus: CompanyFieldMappingStatus;
+    linkedinStatus: CompanyFieldMappingStatus;
+  } | null;
+};
+
+// ─── STABLE-TARGET-WRITER-PARITY § 1/§ 2 — condiciones del contrato canónico ───
+
+/**
+ * Veredicto de CADA condición del contrato de completitud
+ * (`candidate-completeness-contract.ts`) para UN candidato, tal como lo evaluará
+ * el writer, y la lista de las que todavía no se pueden saber.
+ *
+ * Existe para que el orquestador no tenga una segunda semántica de objetivo. Su
+ * `stableFinalizableCandidateCount()` no reimplementa nada: rellena esta
+ * estructura y se la pasa a `evaluateCandidateTargetEligibility`, la misma
+ * función que decide `complete_valid` y `counts_toward_target` en el writer.
+ *
+ * `persistenceSuccess` NO viaja aquí a propósito: es la única condición que un
+ * consumidor pre-writer no puede evaluar ni tiene por qué, y por eso la decisión
+ * pre-writer se lee de `countsTowardTargetIfPersisted` (§ 10).
+ */
+export type ApolloTwoRoundCandidateTargetConditions = {
+  subindustryMatch: SubindustryMatchVerdict;
+  employeeCountStatus: CompanyFieldMappingStatus;
+  linkedinStatus: CompanyFieldMappingStatus;
+  /** Valor tal como se persistiría en `prospect_candidates.duplicate_status`. */
+  duplicateStatus: string | null;
+  ownershipGate: GateVerdict;
+  qualityGate: GateVerdict;
+  /**
+   * § 2 — condiciones que ni el orquestador ni su adaptador pueden resolver
+   * antes de que el writer corra. Fail-closed: una pendiente impide contar.
+   */
+  pendingConditions?: readonly CandidateTargetCondition[];
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 2 — comprobaciones de ADMISIÓN del writer
+   * que este adaptador declara SIN resolver.
+   *
+   * No son condiciones del contrato (ver `CandidateTargetEligibilityInput`), pero
+   * tienen el mismo efecto: mientras haya una, el candidato no puede sostener una
+   * parada por objetivo. Ausente ⇒ el adaptador afirma haberlas resuelto todas;
+   * es el caso de las suites puras, que no tienen writer al que ganarle.
+   */
+  unresolvedWriterOnlyAdmissionChecks?: readonly string[];
+  /**
+   * ADAPTIVE-EARLY-STOP § 6 — comprobaciones de admisión que el adaptador SÍ
+   * resolvió y que salieron NEGATIVAS. Bloquean igual que una pendiente, pero no
+   * son una pendiente: hay respuesta, y es que no pasa.
+   */
+  failedWriterOnlyAdmissionChecks?: readonly string[];
+  /**
+   * § 11 — comprobaciones resueltas y APROBADAS. Sólo observabilidad: no
+   * participan de ninguna decisión, y por eso el contrato canónico ni las mira.
+   */
+  resolvedWriterOnlyAdmissionChecks?: readonly string[];
 };
 
 // ─── Dependencias ─────────────────────────────────────────────────────────────
@@ -180,6 +263,18 @@ export type RoundProviderRequestPreview = {
   perPage: number;
   /** Términos que sobrevivieron a la prioridad, la dedupe y el truncamiento. */
   effectiveKeywordTags: readonly string[];
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 §§ 6 y 7 — cobertura del body
+   * efectivo de esta ronda sobre las subindustrias pedidas.
+   *
+   * Viaja en el PREVIEW, es decir antes de pagar, porque es lo que decide si la
+   * ronda se emite: una consulta que no representa a todo lo seleccionado no se
+   * cobra (§ 7). Opcional para no romper las suites puras que inyectan un preview
+   * simulado; ausente ⇒ el gate no bloquea y la cobertura se reporta `null`.
+   */
+  subindustryCoverage?: ApolloRoundSubindustryCoverage | null;
+  /** § 7 — código estático del bloqueo. Non-null ⇒ la ronda NO se ejecuta. */
+  subindustryCoverageBlockReason?: string | null;
 };
 
 /**
@@ -258,6 +353,57 @@ export type ApolloTwoRoundDeps = {
   saveCheckpoint?: (
     checkpoint: ApolloTwoRoundCheckpointSnapshot,
   ) => Promise<boolean> | boolean;
+
+  /**
+   * A1-APOLLO-QUALITY-PERSISTENCE-HARDENING-1 § 5 — gates FINALES, después de la
+   * reevaluación sectorial y antes de declarar elegible a nadie.
+   *
+   * Existe porque el orden estaba roto por abajo. El gate de ownership del writer
+   * corre DESPUÉS de que el orquestador haya contado sus elegibles, así que en la
+   * corrida `be181d2d` una empresa entró en `run_metrics.persisted_candidates` y
+   * el writer la descartó a continuación: la métrica decía 3 y las filas eran 2.
+   * Un rechazo que el orquestador puede conocer tiene que conocerlo ANTES de
+   * contar, no después de publicar.
+   *
+   * Gratis por contrato: sin llamadas al proveedor y sin créditos. Sólo re-aplica
+   * criterios puros sobre el candidato ya construido.
+   *
+   * Ausente ⇒ no se aplica ningún gate final; es lo que hacen las suites puras
+   * que sólo ejercitan la lógica de rondas. Producción la inyecta siempre.
+   */
+  applyFinalGates?: (input: {
+    candidateKey: string;
+    roundNumber: number;
+    identity: NormalizedOrganizationIdentity;
+  }) => Promise<{ rejection: CheapRejectionReason | null }> | { rejection: CheapRejectionReason | null };
+
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 1 — veredicto del contrato canónico para UN
+   * candidato, con los MISMOS datos que leerá el writer.
+   *
+   * Es libre de créditos y de llamadas por contrato: sólo lee lo que la corrida
+   * ya construyó (`providerCompanyFields`, la precisión de subindustria, el
+   * veredicto de duplicidad y los gates puros del writer).
+   *
+   * Se invoca de nuevo después de cada enrichment, porque el enrichment es
+   * exactamente lo que puede cambiar el veredicto: por eso NO se cachea como
+   * `applyFinalGates`, cuyo rechazo sí es definitivo.
+   *
+   * Ausente ⇒ el orquestador deriva las condiciones de sus propias señales
+   * gratuitas (país/ownership/duplicidad de los gates baratos, `employee_count`
+   * y LinkedIn de la respuesta del proveedor, subindustria del veredicto
+   * sectorial). Es lo que hacen las suites puras; producción la inyecta siempre,
+   * porque sólo el adaptador conoce la precisión de subindustria sin catálogo y
+   * los gates del writer.
+   */
+  readCandidateTargetConditions?: (input: {
+    candidateKey: string;
+    roundNumber: number;
+    identity: NormalizedOrganizationIdentity;
+    sectorEvidenceState: CandidateSectorEvidenceState;
+  }) =>
+    | Promise<ApolloTwoRoundCandidateTargetConditions>
+    | ApolloTwoRoundCandidateTargetConditions;
 };
 
 /**
@@ -343,6 +489,12 @@ export type SecondRoundSkippedReason =
   | 'max_rounds_is_one'
   | 'raw_result_cap_reached'
   /**
+   * MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § C — la corrida ya escribió sus
+   * candidatos. Un reintento posterior no abre una ronda nueva: recupera lo
+   * pagado, no compra más.
+   */
+  | 'candidates_already_persisted'
+  /**
    * QUERY-QUALITY-2 § 3 — los parámetros normalizados que la ronda 2 enviaría
    * son los MISMOS que envió la ronda 1. Vocabulario del hito.
    */
@@ -367,6 +519,15 @@ export type SecondRoundSkippedReason =
    */
   | 'legacy_checkpoint_missing_effective_fingerprint'
   /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — el body efectivo de la ronda no
+   * representaba a todas las subindustrias pedidas.
+   *
+   * Fail-closed: la ronda no se emite y no consume créditos. No es un
+   * «no había variante»: es que la consulta que se iba a pagar omitía un criterio
+   * que el usuario eligió.
+   */
+  | 'subindustry_query_coverage_incomplete'
+  /**
    * Código heredado del hito anterior. Se conserva SÓLO para poder rehidratar un
    * checkpoint escrito antes de este cambio; ninguna corrida nueva lo emite.
    */
@@ -382,16 +543,80 @@ export type AccumulatedCompany = {
   becameEligibleAfterEnrichment: boolean;
 };
 
+/**
+ * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § D — por qué una empresa se
+ * persiste SÓLO para revisión.
+ *
+ * Hoy hay una sola causa, y tiene nombre propio en vez de un booleano: cuando
+ * aparezca la segunda, el consumidor no tendrá que adivinar cuál de las dos leyó.
+ */
+export type ReviewOnlyCompanyReason =
+  /** Se pagó su enrichment y la subindustria siguió sin poder demostrarse. */
+  'subindustry_ambiguous_after_enrichment';
+
+export type ReviewOnlyCompany = AccumulatedCompany & {
+  reviewReason: ReviewOnlyCompanyReason;
+};
+
 export type ApolloTwoRoundRunResult = {
   resultStatus: ApolloTwoRoundResultStatus;
   targetEligibleCompanies: number;
   eligibleCompaniesFound: number;
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 3 — candidatos que cumplen TODAS las
+   * condiciones del contrato canónico salvo la persistencia, que todavía no ha
+   * ocurrido.
+   *
+   * Es la única cifra que detiene gasto y la única comparable con el objetivo
+   * antes del writer. NO es `eligibleCompaniesFound`: un elegible con
+   * `employee_count` ausente, LinkedIn ausente, subindustria ambigua o cualquier
+   * condición pendiente se persiste como `needs_review` y no cuenta.
+   */
+  stableFinalizableCandidateCount: number;
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING § 3 — candidatos a los que sólo les faltan las
+   * admisiones que el writer resuelve (`active_duplicate_guard`, `novelty_index`,
+   * cooldown de identidad, dedupe intra-lote, cupo del lote).
+   *
+   * OBSERVABILIDAD ÚNICAMENTE. Es siempre `>= stableFinalizableCandidateCount` y
+   * NUNCA puede emitir `target_already_reached`: si pudiera, el defecto que este
+   * addendum cierra volvería con otro nombre.
+   */
+  projectedFinalizableCandidateCount: number;
+  /** § 8 — `projected - stable`: cuántos están bloqueados SÓLO por writer-only. */
+  writerOnlyPendingCount: number;
+  /** § 8 — nombres de las admisiones writer-only observadas sin resolver. */
+  writerOnlyPendingReasons: string[];
+  /**
+   * ADAPTIVE-EARLY-STOP § 11 — comprobaciones de admisión PRE-writer agregadas
+   * sobre los candidatos elegibles, en tres cubetas mutuamente excluyentes.
+   *
+   * OBSERVABILIDAD ÚNICAMENTE. Ninguna de las tres decide nada: la decisión la
+   * toma `stableFinalizableCandidateCount`, que ya incorpora su efecto.
+   */
+  preWriterAdmissionPassCount: number;
+  preWriterAdmissionFailedCount: number;
+  preWriterAdmissionPendingCount: number;
+  /** § 11 — `max(0, target - stableFinalizableCandidateCount)`, PRE-writer. */
+  projectedTargetGap: number;
   persistedCandidates: number;
   roundsExecuted: number;
+  /**
+   * § 11 — proyección PRE-writer: `stableFinalizableCandidateCount >= target`.
+   * La cifra autoritativa la emite la reconciliación posterior al writer
+   * (`reconcileApolloTwoRoundPersistedTruth`), que sí sabe cuántas filas hay.
+   */
   targetReached: boolean;
   /** Código estático cuando el objetivo no se alcanzó. Null cuando sí. */
   partialResultReason: 'partial_target_not_reached' | null;
   secondRoundSkippedReason: SecondRoundSkippedReason | null;
+  /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — código estático cuando la
+   * corrida se detuvo porque ninguna consulta cubría todas las subindustrias
+   * pedidas. `null` en una corrida normal. Con valor, los créditos gastados en
+   * búsquedas son CERO.
+   */
+  queryCoverageBlockReason: string | null;
   /**
    * HARDENING-3 § 7 — resultado de la comparación de huellas EFECTIVAS.
    *
@@ -401,9 +626,28 @@ export type ApolloTwoRoundRunResult = {
    * un valor desconocido.
    */
   effectiveFingerprintsAreDistinct: boolean | null;
+  /**
+   * SCALE-SECOND-ROUND-FIX-1B § 1 — decisión de página de la ronda 2 tomada en
+   * ESTE intento, con su causa.
+   *
+   * `null` cuando nadie la tomó: la ronda 2 no llegó a construirse, o se recuperó
+   * de un checkpoint anterior. Ausencia no es «se decidió la página 1».
+   */
+  round2PageDecision: ApolloRound2PageDecision | null;
 
   /** Empresas que se persisten, en orden de calidad. */
   persisted: AccumulatedCompany[];
+  /**
+   * § D — empresas que TAMBIÉN se persisten, pero como `needs_review`, y que NO
+   * cuentan hacia el objetivo.
+   *
+   * Son las que pagaron un enrichment y siguieron ambiguas: hay evidencia
+   * suficiente para que valga la pena mirarlas, e insuficiente para afirmar que
+   * pertenecen a la subindustria pedida. Nunca incluye a una empresa con rechazo
+   * definitivo — ownership, país, duplicidad, sector contradictorio o calidad —,
+   * porque un rechazo con causa no es una duda.
+   */
+  reviewOnly: ReviewOnlyCompany[];
   /** Elegibles que el tope dejó fuera. Sus métricas NO se pierden (§ 9). */
   notPersisted: Array<AccumulatedCompany & { reason: 'eligible_not_persisted_due_to_target_cap' }>;
 
@@ -516,6 +760,22 @@ export type ResumedCandidate = {
   becameEligibleAfterEnrichment: boolean;
   enrichmentExecuted: boolean;
   finallyRejectedOrDuplicated: boolean;
+  /**
+   * § D — opcionales porque un checkpoint escrito antes de este hito no los
+   * tiene. Al rehidratar se derivan de la evaluación barata, que es la única
+   * información que ese checkpoint sí guardó.
+   */
+  definitivelyRejected?: boolean;
+  definitiveRejectionReason?: CheapRejectionReason | 'sector_evidence_contradictory' | null;
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 5 — opcional por la misma razón que los dos de
+   * arriba: un checkpoint escrito antes de este hito no lo tiene, y su ausencia
+   * significa «nadie informó», no «el enrichment no resolvió nada».
+   */
+  resolvedCompanyFields?: {
+    employeeCountStatus: CompanyFieldMappingStatus;
+    linkedinStatus: CompanyFieldMappingStatus;
+  } | null;
 };
 
 /**
@@ -556,6 +816,41 @@ type TrackedCandidate = {
   becameEligibleAfterEnrichment: boolean;
   enrichmentExecuted: boolean;
   finallyRejectedOrDuplicated: boolean;
+  /**
+   * AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § D — hay un rechazo DEFINITIVO
+   * con causa nombrada (gate barato, duplicado post-enrichment, gate final o
+   * sector contradictorio).
+   *
+   * Se separa de `finallyRejectedOrDuplicated` a propósito: ese campo alimenta
+   * `enrichmentWaste` y marca también al candidato que sigue AMBIGUO tras pagar
+   * su enrichment. Ambiguo y rechazado no son lo mismo — el primero se persiste
+   * como `needs_review` y el segundo no se persiste — y confundirlos era
+   * exactamente lo que impedía al usuario revisar empresas potencialmente útiles.
+   */
+  definitivelyRejected: boolean;
+  /** Causa del rechazo definitivo, cuando la hay. Nunca se inventa. */
+  definitiveRejectionReason: CheapRejectionReason | 'sector_evidence_contradictory' | null;
+  /**
+   * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § A — `deps.applyFinalGates` ya
+   * corrió sobre este candidato. Evita invocarlo dos veces (una vez temprano,
+   * vía `stableFinalizableCandidateCount()`, y otra en el barrido final) y es lo que le
+   * permite a `stableFinalizableCandidateCount()` saber a quién todavía le falta
+   * resolver.
+   */
+  finalGateEvaluated: boolean;
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 5 — estado de los campos OBLIGATORIOS después
+   * del último enrichment ejecutado sobre este candidato.
+   *
+   * `null` mientras ningún enrichment lo haya informado: entonces mandan las
+   * señales gratuitas de la búsqueda (`hasCompanySizeSignal`, `hasLinkedInUrl`).
+   * Nunca se rellena por el hecho de haber pagado: se rellena con lo que el
+   * proveedor devolvió.
+   */
+  resolvedCompanyFields: {
+    employeeCountStatus: CompanyFieldMappingStatus;
+    linkedinStatus: CompanyFieldMappingStatus;
+  } | null;
 };
 
 /**
@@ -638,9 +933,16 @@ function tallyRejection(
       metrics.seenDuplicates++;
       break;
     case 'duplicate_in_sellup':
+      metrics.knownCompanyDuplicates++;
+      metrics.duplicateInSellUp++;
+      break;
     case 'duplicate_in_hubspot':
+      metrics.knownCompanyDuplicates++;
+      metrics.duplicateInHubSpot++;
+      break;
     case 'cooldown_or_prior_suggestion':
       metrics.knownCompanyDuplicates++;
+      metrics.cooldownOrPriorSuggestion++;
       break;
     case 'country_incompatible':
       metrics.countryRejected++;
@@ -692,7 +994,26 @@ export async function runApolloTwoRoundDiscovery(
   for (const identity of resume?.seenIdentities ?? []) {
     seenRegistry = registerSeenOrganization(seenRegistry, identity);
   }
-  const tracked: TrackedCandidate[] = (resume?.candidates ?? []).map((c) => ({ ...c }));
+  const tracked: TrackedCandidate[] = (resume?.candidates ?? []).map((c) => {
+    // § D — un checkpoint anterior a este hito no trae el rechazo definitivo. Se
+    // deriva de lo que ese checkpoint SÍ guardó: el gate barato y el veredicto
+    // sectorial. Nunca se rellena con `false` a ciegas.
+    const derivedReason: CheapRejectionReason | 'sector_evidence_contradictory' | null =
+      c.assessment.rejection ??
+      (c.sectorEvidenceState === 'sector_evidence_contradictory'
+        ? 'sector_evidence_contradictory'
+        : null);
+    return {
+      ...c,
+      definitivelyRejected: c.definitivelyRejected ?? derivedReason !== null,
+      definitiveRejectionReason: c.definitiveRejectionReason ?? derivedReason,
+      // § A — un checkpoint anterior a este hito no trae el campo. Se asume NO
+      // evaluado: en el peor caso, `applyFinalGates` se vuelve a invocar sobre un
+      // candidato ya resuelto, y el contrato lo garantiza gratis y puro.
+      finalGateEvaluated: false,
+      resolvedCompanyFields: c.resolvedCompanyFields ?? null,
+    };
+  });
   // § 5 — las rondas rehidratadas declaran si su huella efectiva es verificable o si
   // vienen de un checkpoint anterior a este hito. Sin backfill de la huella.
   const roundMetrics: ApolloTwoRoundRoundMetrics[] = (resume?.rounds ?? []).map(
@@ -730,12 +1051,261 @@ export async function runApolloTwoRoundDiscovery(
   let secondRoundSkippedReason: SecondRoundSkippedReason | null =
     resume?.secondRoundSkippedReason ?? null;
   /**
+   * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — por qué la corrida no pudo pagar
+   * ninguna búsqueda.
+   *
+   * Se distingue del `secondRoundSkippedReason` a propósito: un bloqueo de cobertura
+   * en la ronda 1 no es «la ronda 2 se omitió», es «no se construyó ninguna consulta
+   * cobrable». `null` en una corrida normal.
+   */
+  let queryCoverageBlockReason: string | null = null;
+  /**
    * § 7 — sólo se fija cuando la comparación de huellas efectivas se hizo de verdad.
    * Mientras siga en null, nadie comparó nada.
    */
   let effectiveFingerprintsAreDistinct: boolean | null = null;
+  /**
+   * SCALE-SECOND-ROUND-FIX-1B § 1 — decisión de página de la ronda 2. Se queda en
+   * `null` mientras nadie la tome; no se rehidrata de `resume` porque describe una
+   * decisión de ESTE intento, y un reintento que no vuelve a construir la ronda 2
+   * no ha decidido nada.
+   */
+  let round2PageDecision: ApolloRound2PageDecision | null = null;
+  /**
+   * SCALE-AND-SECOND-ROUND-FIX-1 § 4 — desenlace de cada enrichment pagado en
+   * ESTA invocación, en tres cubetas mutuamente excluyentes. No se rehidratan de
+   * `resume`: igual que `enrichmentSelections`/`enrichmentSkips`, describen sólo
+   * lo que este intento ejecutó, no el acumulado histórico.
+   */
+  let sectorConfirmedByEnrichmentCount = 0;
+  let sectorStillUnconfirmedAfterEnrichmentCount = 0;
+  /** HARDENING-1 § 5 — el enrichment CONTRADIJO el sector. Cubeta propia. */
+  let sectorRejectedAfterEnrichmentCount = 0;
+  let enrichmentFailedCount = 0;
 
-  const eligibleCount = (): number => tracked.filter((c) => c.eligible).length;
+  /**
+   * AGENT1-APOLLO-FINALIZATION-HARDENING-1 § A — aplica `deps.applyFinalGates`
+   * a UN candidato, a lo sumo una vez.
+   *
+   * Extraída de lo que antes era un único barrido al final de la corrida
+   * (HARDENING-1 § 5) para poder invocarla TEMPRANO, desde `stableFinalizableCandidateCount()`,
+   * justo antes de cada decisión de parada. El barrido final (más abajo) sigue
+   * existiendo para la cohorte de revisión, que no participa de `eligibleCount()`
+   * y por tanto no necesita resolverse antes de ninguna parada.
+   */
+  const ensureFinalGateEvaluated = async (candidate: TrackedCandidate): Promise<void> => {
+    if (!deps.applyFinalGates) return;
+    if (candidate.finalGateEvaluated) return;
+    candidate.finalGateEvaluated = true;
+    const verdict = await deps.applyFinalGates({
+      candidateKey: candidate.candidateKey,
+      roundNumber: candidate.roundNumber,
+      identity: candidate.identity,
+    });
+    if (verdict.rejection === null) return;
+    observedRejectionReasons.add(verdict.rejection);
+    candidate.definitivelyRejected = true;
+    candidate.definitiveRejectionReason = verdict.rejection;
+    candidate.finallyRejectedOrDuplicated = true;
+    if (!candidate.eligible) return;
+    const metricsForRound = roundMetrics.find((m) => m.roundNumber === candidate.roundNumber) ?? null;
+    if (metricsForRound) tallyRejection(metricsForRound, verdict.rejection);
+    candidate.eligible = false;
+    candidate.becameEligibleAfterEnrichment = false;
+  };
+
+  /**
+   * STABLE-TARGET-WRITER-PARITY § 2 — condiciones del contrato canónico que el
+   * ORQUESTADOR puede evaluar por sí solo, sin adaptador.
+   *
+   * No es una segunda semántica: es el relleno de la estructura que consume
+   * `evaluateCandidateTargetEligibility`, la misma función del writer. Cada
+   * condición se toma de la señal que la responde, y ninguna se da por buena:
+   *
+   *   subindustry_match     ← veredicto sectorial ya plegado con la precisión de
+   *                           subindustria (`foldSubindustryPrecisionIntoSectorState`)
+   *   employee_count_status ← `resolvedCompanyFields` si un enrichment lo informó;
+   *                           si no, la señal gratuita de la búsqueda
+   *   linkedin_status       ← ídem
+   *   duplicate_status      ← duplicado conocido de los gates baratos
+   *   ownership_gate        ← rechazo de ownership (barato o final)
+   *   quality_gate          ← cualquier otro rechazo definitivo
+   *
+   * Producción NO usa esta derivación: inyecta `readCandidateTargetConditions`,
+   * que lee exactamente lo que leerá el writer. Ésta es la que hace que las
+   * suites puras —que no tienen writer— sigan pudiendo ejercitar la parada.
+   */
+  const deriveTargetConditions = (
+    candidate: TrackedCandidate,
+  ): ApolloTwoRoundCandidateTargetConditions => {
+    const signals = candidate.assessment.signals;
+    const resolved = candidate.resolvedCompanyFields;
+    const rejection = candidate.definitiveRejectionReason ?? candidate.assessment.rejection;
+    const ownershipRejected =
+      rejection === 'ownership_mismatch' ||
+      rejection === 'invalid_domain' ||
+      rejection === 'external_platform_domain';
+    return {
+      subindustryMatch:
+        candidate.sectorEvidenceState === 'sector_evidence_confirmed'
+          ? 'confirmed'
+          : 'not_confirmed',
+      employeeCountStatus:
+        resolved?.employeeCountStatus ??
+        (signals.hasCompanySizeSignal ? 'confirmed' : 'not_returned'),
+      linkedinStatus:
+        resolved?.linkedinStatus ?? (signals.hasLinkedInUrl ? 'confirmed' : 'not_returned'),
+      duplicateStatus: signals.knownDuplicate ? 'possible_duplicate' : 'no_match',
+      ownershipGate: ownershipRejected ? 'fail' : 'pass',
+      // Cualquier rechazo definitivo que no sea de ownership (país, duplicidad
+      // final, sector contradictorio, calidad) cae aquí: el writer tampoco
+      // habría persistido a ese candidato.
+      qualityGate: rejection !== null && !ownershipRejected ? 'fail' : 'pass',
+    };
+  };
+
+  /**
+   * § 1 — elegibilidad hacia el objetivo de UN candidato, por la función
+   * CANÓNICA, en su estado actual.
+   *
+   * `persistenceSuccess: true` no afirma que la fila exista: afirma la hipótesis
+   * bajo la que se lee el resultado, y por eso lo que se consume aguas arriba es
+   * `countsTowardTargetIfPersisted` (§ 10). Un fallo de base posterior lo
+   * desmiente para esa fila sin invalidar esta decisión.
+   */
+  const evaluateCandidateFinalizability = async (
+    candidate: TrackedCandidate,
+  ): Promise<{
+    eligibility: CandidateTargetEligibility;
+    /** § 11 — admisiones aprobadas, para el contador agregado. */
+    resolvedAdmissionChecks: readonly string[];
+  }> => {
+    const conditions = deps.readCandidateTargetConditions
+      ? await deps.readCandidateTargetConditions({
+          candidateKey: candidate.candidateKey,
+          roundNumber: candidate.roundNumber,
+          identity: candidate.identity,
+          sectorEvidenceState: candidate.sectorEvidenceState,
+        })
+      : deriveTargetConditions(candidate);
+    return {
+      eligibility: evaluateCandidateTargetEligibility({
+        persistenceSuccess: true,
+        subindustryMatch: conditions.subindustryMatch,
+        employeeCountStatus: conditions.employeeCountStatus,
+        linkedinStatus: conditions.linkedinStatus,
+        duplicateStatus: conditions.duplicateStatus,
+        ownershipGate: conditions.ownershipGate,
+        qualityGate: conditions.qualityGate,
+        pendingConditions: conditions.pendingConditions,
+        unresolvedWriterOnlyAdmissionChecks: conditions.unresolvedWriterOnlyAdmissionChecks,
+        failedWriterOnlyAdmissionChecks: conditions.failedWriterOnlyAdmissionChecks,
+      }),
+      resolvedAdmissionChecks: conditions.resolvedWriterOnlyAdmissionChecks ?? [],
+    };
+  };
+
+  /**
+   * § 3 — la ÚNICA cuenta que puede detener gasto.
+   *
+   * El defecto que cierra, y que sobrevivió al § A de este mismo hito: § A ya
+   * había hecho que la cuenta se resolviera con los gates finales (ownership,
+   * país, duplicidad) antes de cada parada, pero seguía contando «elegibles» en
+   * el sentido del ORQUESTADOR —gates baratos limpios y sector confirmado— y ése
+   * no es el sentido del WRITER. Un candidato con el sector confirmado gratis y
+   * `employee_count` ausente era «elegible» aquí y `needs_review` allí: la
+   * corrida `bdc51c49` confirmó a Surtifamiliar y La Canasta por nombre
+   * comercial, las contó, y el writer las dejó fuera de `target_count`. Dos
+   * semánticas de objetivo, y la de aquí —la que decide el gasto— era la laxa.
+   *
+   * Ahora la cuenta es exactamente `count(eligibleForTarget === true)` según el
+   * contrato canónico. Fail-closed en las dos direcciones que importan:
+   *
+   *   · una condición FALLIDA no cuenta (review-only nunca detiene enrichments);
+   *   · una condición PENDIENTE tampoco (§ 2): no saber no es cumplir.
+   *
+   * Sigue resolviendo los gates finales antes de contar (§ A), porque un
+   * candidato que va a caer por ownership no puede sostener una parada.
+   */
+  /**
+   * WRITER-ONLY-ADMISSION-PENDING §§ 3 y 8 — un solo barrido, tres cifras que NO
+   * son la misma y que por eso no comparten nombre.
+   *
+   *   `stable`    — cero condiciones fallidas, cero pendientes y cero admisiones
+   *                 writer-only sin resolver. La ÚNICA que puede detener gasto.
+   *   `projected` — igual, pero ignorando las admisiones writer-only. Es una
+   *                 PROYECCIÓN optimista: sólo observabilidad (§ 3).
+   *   `writerOnlyPending` — candidatos que serían finalizables si alguien
+   *                 resolviera sus admisiones writer-only. Es exactamente
+   *                 `projected - stable`, calculado y no deducido.
+   */
+  type FinalizabilityScan = {
+    stable: number;
+    projected: number;
+    writerOnlyPending: number;
+    writerOnlyPendingReasons: string[];
+    /** § 11 — admisiones PRE-writer agregadas sobre los candidatos elegibles. */
+    admissionPassCount: number;
+    admissionFailedCount: number;
+    admissionPendingCount: number;
+  };
+
+  const scanFinalizability = async (): Promise<FinalizabilityScan> => {
+    for (const candidate of tracked) {
+      if (candidate.eligible) await ensureFinalGateEvaluated(candidate);
+    }
+    let stable = 0;
+    let projected = 0;
+    let writerOnlyPending = 0;
+    let admissionPassCount = 0;
+    let admissionFailedCount = 0;
+    let admissionPendingCount = 0;
+    const reasons: string[] = [];
+    for (const candidate of tracked) {
+      if (!candidate.eligible) continue;
+      const scan = await evaluateCandidateFinalizability(candidate);
+      const eligibility = scan.eligibility;
+      admissionPassCount += scan.resolvedAdmissionChecks.length;
+      admissionFailedCount += eligibility.writerOnlyFailedChecks.length;
+      admissionPendingCount += eligibility.writerOnlyPendingChecks.length;
+      if (eligibility.countsTowardTargetIfPersisted) {
+        stable++;
+        projected++;
+        continue;
+      }
+      // Proyectado ⇔ lo ÚNICO que le falta son admisiones writer-only. Un
+      // candidato con una condición del contrato fallida o pendiente no es
+      // proyectable: le falta algo que sí se sabe.
+      const blockedOnlyByWriterOnly =
+        eligibility.writerOnlyPendingChecks.length > 0 &&
+        eligibility.strictlyFailedConditions.length === 0 &&
+        eligibility.pendingConditions.every((entry) =>
+          eligibility.writerOnlyPendingChecks.includes(entry),
+        );
+      if (!blockedOnlyByWriterOnly) continue;
+      projected++;
+      writerOnlyPending++;
+      for (const reason of eligibility.writerOnlyPendingChecks) {
+        if (!reasons.includes(reason)) reasons.push(reason);
+      }
+    }
+    return {
+      stable,
+      projected,
+      writerOnlyPending,
+      writerOnlyPendingReasons: reasons,
+      admissionPassCount,
+      admissionFailedCount,
+      admissionPendingCount,
+    };
+  };
+
+  const stableFinalizableCandidateCount = async (): Promise<number> =>
+    (await scanFinalizability()).stable;
+
+  /** § 11 — hueco PROYECTADO contra el objetivo, antes del writer. Nunca negativo. */
+  const projectedTargetGap = async (): Promise<number> =>
+    Math.max(0, config.targetEligibleCompanies - (await stableFinalizableCandidateCount()));
 
   /** Estado recuperable en ESTE instante. Se recalcula en cada checkpoint. */
   const currentResumeState = (): ApolloTwoRoundResumeState => ({
@@ -896,8 +1466,26 @@ export async function runApolloTwoRoundDiscovery(
     // organizaciones hay: ninguno de los dos se ejecuta a ciegas.
     if (hasIndeterminateOperation()) break;
 
+    // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § C — una corrida que YA escribió
+    // sus candidatos no abre una ronda NUEVA en un reintento. Un reintento existe
+    // para recuperar lo ya pagado, nunca para comprar más.
+    //
+    // Hasta ahora esta garantía se sostenía por accidente: el checkpoint
+    // conservaba un `eligible` ANTERIOR a los gates finales (§ C.8), así que un
+    // reintento creía el objetivo alcanzado y se detenía solo. Con el estado final
+    // ya autoritativo esa creencia desaparece —correctamente— y la garantía de
+    // gasto tiene que ser explícita en vez de depender de un dato equivocado.
+    if (resume?.candidatesPersisted === true) {
+      if (roundNumber > 1 && secondRoundSkippedReason === null) {
+        secondRoundSkippedReason = 'candidates_already_persisted';
+      }
+      break;
+    }
+
     // § 7: parada inmediata. La ronda 2 no se ejecuta por estar presupuestada.
-    if (roundNumber > 1 && eligibleCount() >= config.targetEligibleCompanies) {
+    // § A — con la cuenta ESTABLE: una parada real, no una que un gate final
+    // pueda deshacer después de que la ronda 2 ya se descartó.
+    if (roundNumber > 1 && (await stableFinalizableCandidateCount()) >= config.targetEligibleCompanies) {
       secondRoundSkippedReason = 'target_reached';
       break;
     }
@@ -947,7 +1535,10 @@ export async function runApolloTwoRoundDiscovery(
       let round2: ApolloRound2Hypothesis = buildRound2Hypothesis(
         queryContext,
         {
-          remainingTarget: Math.max(0, config.targetEligibleCompanies - eligibleCount()),
+          // § 11 — el hueco PROYECTADO, sobre la cuenta estable. La ronda 2 se
+          // redacta para lo que de verdad falta, no para lo que una cifra
+          // provisional decía que faltaba.
+          remainingTarget: await projectedTargetGap(),
           excludedSeenOrganizationCount: countSeenOrganizations(seenRegistry),
           observedRejectionReasons: [...observedRejectionReasons],
           // § 3 — la página 2 sólo es una variante válida si el proveedor
@@ -972,18 +1563,65 @@ export async function runApolloTwoRoundDiscovery(
           ? null
           : build.preview.effectiveRequestFingerprint !== round1EffectiveFingerprint;
 
-      // § 4 — cuando el body efectivo colapsó al de la ronda 1, la ÚNICA variante
-      // que queda es otra página, y sólo si el proveedor declaró que existe. Pedir
-      // una página no declarada es pagar por una respuesta vacía.
-      if (
-        compareEffective(round2Build) === false &&
-        round2.queryParameters.page === 1 &&
-        providerTotalPages !== null &&
-        providerTotalPages >= 2
-      ) {
+      /**
+       * § 4 + SCALE-SECOND-ROUND-FIX-1B § 1 — cuándo la ronda 2 tiene que pedir
+       * OTRA página.
+       *
+       * HARDENING-3 sólo saltaba de página cuando el body efectivo era idéntico al
+       * de la ronda 1. La corrida live `eae6d47f` demostró que eso no basta: la
+       * ronda 2 salió con tres de sus cinco términos efectivos compartidos con la
+       * ronda 1 —huella distinta, ventana igual— y Apollo devolvió las MISMAS cinco
+       * empresas en la página 1. Cinco créditos, cero organizaciones nuevas.
+       *
+       * Así que el disparador es el solapamiento, no la identidad: con un solo
+       * término efectivo en común la página 1 vuelve a caer sobre el mismo ranking.
+       * Sin términos compartidos la ventana es genuinamente otra y la página 1 sigue
+       * siendo correcta. Pedir una página que el proveedor no declaró sigue estando
+       * prohibido: sería pagar por una respuesta vacía.
+       */
+      const round1EffectiveKeywords = round1Metrics?.effectiveKeywordsSent ?? [];
+      const sharedEffectiveKeywords =
+        round2Build.preview === null
+          ? []
+          : findSharedEffectiveKeywords(
+              round1EffectiveKeywords,
+              round2Build.preview.effectiveKeywordTags,
+            );
+      const escalationReason: ApolloRound2PageEscalationReason | null =
+        compareEffective(round2Build) === false
+          ? 'identical_effective_request'
+          : sharedEffectiveKeywords.length > 0
+            ? 'overlapping_effective_keywords'
+            : null;
+      const nextPageDeclared = providerTotalPages !== null && providerTotalPages >= 2;
+
+      let escalatedToPage2 = false;
+      if (escalationReason !== null && round2.queryParameters.page === 1 && nextPageDeclared) {
         round2 = withRequestedPage(round2, 2, round1HypothesisFingerprint);
+        // La página no toca los términos, así que `sharedEffectiveKeywords` sigue
+        // describiendo el solapamiento que motivó el salto.
         round2Build = buildRoundEffectiveRequest(2, round2, requestedResultLimit);
+        escalatedToPage2 = true;
       }
+
+      round2PageDecision = {
+        requestedPage: round2.queryParameters.page,
+        pageSource: escalatedToPage2
+          ? 'effective_request_escalation'
+          : round2.queryParameters.page > 1
+            ? 'hypothesis_variant'
+            : 'first_page',
+        escalatedToPage2,
+        escalationReason,
+        sharedEffectiveKeywords,
+        providerTotalPages,
+        escalationBlockedReason:
+          escalationReason === null || escalatedToPage2 || round2.queryParameters.page > 1
+            ? null
+            : providerTotalPages === null
+              ? 'provider_total_pages_unknown'
+              : 'provider_declared_single_page',
+      };
 
       const distinct = compareEffective(round2Build);
       if (distinct === null) {
@@ -1016,6 +1654,7 @@ export async function runApolloTwoRoundDiscovery(
       hypothesis.queryHypothesis,
       hypothesis.queryAdaptationReason,
       {
+        subindustryCoverage: requestPreview?.subindustryCoverage ?? null,
         requestFingerprint: hypothesis.providerRequestFingerprint,
         // § 10 — la huella EFECTIVA queda registrada por ronda. Es la que la ronda
         // siguiente compara y la que el próximo QA puede auditar.
@@ -1030,6 +1669,25 @@ export async function runApolloTwoRoundDiscovery(
       },
     );
 
+    /**
+     * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 7 — fail-closed ANTES de gastar.
+     *
+     * El preview ya trae el veredicto porque lo calcula el mismo constructor que
+     * gobierna la llamada real. Si el body efectivo no representa a todas las
+     * subindustrias pedidas, la ronda se registra —para que el bloqueo sea legible
+     * en vez de invisible— y la corrida se detiene sin emitir la búsqueda.
+     *
+     * Se comprueba en TODAS las rondas, no sólo en la primera: la ronda 2 cambia
+     * los términos, y una variante que perdiera una subindustria sería otra
+     * búsqueda pagada que omite un criterio elegido.
+     */
+    if (requestPreview?.subindustryCoverageBlockReason) {
+      queryCoverageBlockReason = requestPreview.subindustryCoverageBlockReason;
+      secondRoundSkippedReason = 'subindustry_query_coverage_incomplete';
+      roundMetrics.push(metrics);
+      break;
+    }
+
     // § 12: una ronda ya completada por un intento anterior no se vuelve a
     // buscar. § 5: si de esa búsqueda quedaron organizaciones sin evaluar, se
     // evalúan ahora —la evaluación es gratis— en vez de registrar la ronda con
@@ -1042,7 +1700,8 @@ export async function runApolloTwoRoundDiscovery(
         continue;
       }
       await assessRoundOrganizations(roundNumber, metrics, recovered);
-      if (eligibleCount() >= config.targetEligibleCompanies) {
+      // § A — cuenta ESTABLE: ver el comentario de `stableFinalizableCandidateCount()`.
+      if ((await stableFinalizableCandidateCount()) >= config.targetEligibleCompanies) {
         if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
         break;
       }
@@ -1092,7 +1751,8 @@ export async function runApolloTwoRoundDiscovery(
     await assessRoundOrganizations(roundNumber, metrics, outcome.organizations);
 
     // § 7: alcanzado el objetivo con gates baratos, la corrida no busca más.
-    if (eligibleCount() >= config.targetEligibleCompanies) {
+    // § A — cuenta ESTABLE.
+    if ((await stableFinalizableCandidateCount()) >= config.targetEligibleCompanies) {
       if (roundNumber < config.maxRounds) secondRoundSkippedReason = 'target_reached';
       break;
     }
@@ -1177,6 +1837,21 @@ export async function runApolloTwoRoundDiscovery(
         becameEligibleAfterEnrichment: false,
         enrichmentExecuted: false,
         finallyRejectedOrDuplicated: assessment.rejection !== null,
+        // § D — un gate barato y un sector contradictorio son rechazos con causa.
+        // «Falta evidencia» todavía no lo es: eso es justo lo que el enrichment
+        // existe para resolver.
+        definitivelyRejected:
+          assessment.rejection !== null ||
+          assessment.sectorEvidenceState === 'sector_evidence_contradictory',
+        definitiveRejectionReason:
+          assessment.rejection ??
+          (assessment.sectorEvidenceState === 'sector_evidence_contradictory'
+            ? 'sector_evidence_contradictory'
+            : null),
+        finalGateEvaluated: false,
+        // STABLE-TARGET-WRITER-PARITY § 5 — todavía nadie compró nada para este
+        // candidato: mandan las señales gratuitas de la búsqueda.
+        resolvedCompanyFields: null,
       };
       roundCandidates.push(candidate);
       tracked.push(candidate);
@@ -1217,7 +1892,20 @@ export async function runApolloTwoRoundDiscovery(
   const roundMetricsByNumber = new Map(roundMetrics.map((m) => [m.roundNumber, m]));
 
   const globalFreeSignals: FreeCandidateSignals[] = tracked
-    .filter((c) => c.assessment.rejection === null && !c.enrichmentExecuted)
+    .filter(
+      (c) =>
+        c.assessment.rejection === null &&
+        !c.enrichmentExecuted &&
+        // § A — un candidato puede llegar aquí con el gate barato limpio y, a la
+        // vez, ya RECHAZADO por `applyFinalGates` — posible desde que § A lo
+        // invoca temprano, vía `stableFinalizableCandidateCount()`, en vez de sólo al final.
+        // Antes de este hito era imposible llegar aquí con `definitivelyRejected
+        // === true`: los gates finales corrían DESPUÉS de esta selección. Gastar
+        // un enrichment en una empresa ya descartada por ownership o duplicidad
+        // final no resuelve nada — el rechazo no depende de la evidencia que el
+        // enrichment podría traer.
+        !c.definitivelyRejected,
+    )
     .map((c) => ({
       ...c.assessment.signals,
       candidateKey: c.candidateKey,
@@ -1229,7 +1917,9 @@ export async function runApolloTwoRoundDiscovery(
   const globalSelection = selectCandidatesForEnrichment({
     candidates: globalFreeSignals,
     remainingEnrichmentBudget,
-    eligibleCompaniesSoFar: eligibleCount(),
+    // § A — cuenta ESTABLE: decide si vale la pena seguir gastando en
+    // enrichments con el mismo conteo que decide todas las demás paradas.
+    eligibleCompaniesSoFar: await stableFinalizableCandidateCount(),
     targetEligibleCompanies: config.targetEligibleCompanies,
   });
   enrichmentSkips.push(...globalSelection.skipped);
@@ -1252,8 +1942,8 @@ export async function runApolloTwoRoundDiscovery(
     }
 
     // Parada dentro del propio bucle: si una llamada previa ya completó el
-    // objetivo, las restantes no se ejecutan (§ 6).
-    if (eligibleCount() >= config.targetEligibleCompanies) {
+    // objetivo, las restantes no se ejecutan (§ 6). § A — cuenta ESTABLE.
+    if ((await stableFinalizableCandidateCount()) >= config.targetEligibleCompanies) {
       enrichmentSkips.push({
         candidateKey: chosen.candidateKey,
         roundNumber: chosen.roundNumber,
@@ -1303,6 +1993,13 @@ export async function runApolloTwoRoundDiscovery(
     if (result.executed) {
       candidate.enrichmentExecuted = true;
       totalEnrichmentCredits += result.internalRecordedCredits;
+      // STABLE-TARGET-WRITER-PARITY § 5 — lo que el enrichment RESOLVIÓ de los
+      // campos obligatorios. Sin esto, un candidato al que este crédito acaba de
+      // llenarle `employee_count` seguiría sin poder contar, y los enrichments
+      // restantes se gastarían buscando un objetivo que ya estaba alcanzado.
+      if (result.providerCompanyFields) {
+        candidate.resolvedCompanyFields = { ...result.providerCompanyFields };
+      }
       if (metricsForRound) {
         metricsForRound.enrichmentsExecuted++;
         metricsForRound.internalRecordedCredits += result.internalRecordedCredits;
@@ -1317,7 +2014,26 @@ export async function runApolloTwoRoundDiscovery(
       // El veredicto sectorial de una llamada cuyo resultado no se confirmó no se
       // aplica: sería decidir la elegibilidad con evidencia que no sabemos si
       // llegó. El candidato conserva su estado previo al enrichment.
+      enrichmentFailedCount++;
       continue;
+    }
+
+    // § 4 — clasificación en cubetas, ANTES de aplicar el veredicto: un `noMatch`
+    // no aporta evidencia utilizable y no debe contarse como "sector aún sin
+    // confirmar", que implicaría que sí se evaluó con datos frescos.
+    //
+    // HARDENING-1 § 5 — el rechazo tiene cubeta propia. Antes «el enrichment
+    // demostró que NO es del sector» y «el enrichment no bastó para confirmarlo»
+    // caían en la misma cifra, y son desenlaces opuestos: en el primero ya no hay
+    // nada que confirmar, en el segundo sí.
+    if (result.noMatch === true) {
+      enrichmentFailedCount++;
+    } else if (result.sectorEvidenceState === 'sector_evidence_confirmed') {
+      sectorConfirmedByEnrichmentCount++;
+    } else if (result.sectorEvidenceState === 'sector_evidence_contradictory') {
+      sectorRejectedAfterEnrichmentCount++;
+    } else {
+      sectorStillUnconfirmedAfterEnrichmentCount++;
     }
 
     candidate.sectorEvidenceState = result.sectorEvidenceState;
@@ -1326,8 +2042,49 @@ export async function runApolloTwoRoundDiscovery(
       if (metricsForRound) tallyRejection(metricsForRound, postRejection);
       observedRejectionReasons.add(postRejection);
       candidate.finallyRejectedOrDuplicated = true;
+      candidate.definitivelyRejected = true;
+      candidate.definitiveRejectionReason = postRejection;
       candidate.eligible = false;
       continue;
+    }
+    // § D — el enrichment pudo REVELAR una contradicción sectorial. Eso sí es un
+    // rechazo con causa, y descalifica incluso para revisión.
+    //
+    // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § B.5 — y además SE CUENTA.
+    //
+    // Esta rama marcaba el rechazo y no lo tallyaba, así que el desglose por
+    // ronda perdía al candidato: la corrida `7d92773b` cerró la ronda 2 con
+    // 7 duplicados + 2 ownership = 9 sobre 10 empresas únicas, y la décima
+    // (`instaleap`, contradictoria tras el enrichment) no aparecía en ninguna
+    // fila. `run_metrics.sector_rejected_after_enrichment` decía 1 y
+    // `rounds[].sector_rejected` decía 0.
+    //
+    // No hay doble conteo: la rama de `postRejection` de arriba ya tallya y
+    // corta con `continue`, así que este camino es mutuamente excluyente con
+    // ella. Los gates finales de más abajo tampoco lo re-tallyan: sólo actúan
+    // sobre candidatos aún elegibles, y éste ya no lo es.
+    if (result.sectorEvidenceState === 'sector_evidence_contradictory') {
+      candidate.definitivelyRejected = true;
+      candidate.definitiveRejectionReason = 'sector_evidence_contradictory';
+      if (metricsForRound) tallyRejection(metricsForRound, 'sector_evidence_contradictory');
+      observedRejectionReasons.add('sector_evidence_contradictory');
+    }
+    // SECTOR-EVIDENCE-BOOTSTRAP-1 — el desenlace del bootstrap, con nombre.
+    //
+    // Un candidato que compitió por ADQUIRIR su clasificación termina aquí cuando,
+    // pagada la adquisición, el sector sigue sin política que aplique: eso es un
+    // rechazo sectorial con causa, no una duda pendiente, y no puede persistirse
+    // como `needs_review`. Sin esta rama caería en `insufficient_evidence_not_
+    // enriched_final`, cuyo nombre afirma que nunca llegó a competir — y sí compitió,
+    // y se pagó por él.
+    //
+    // Inalcanzable para las corridas con política de sector: ahí `sector_not_mapped`
+    // es un rechazo BARATO, así que el candidato jamás llega a la fase de enrichment.
+    if (result.sectorEvidenceState === 'sector_not_mapped') {
+      candidate.definitivelyRejected = true;
+      candidate.definitiveRejectionReason = 'sector_not_mapped';
+      if (metricsForRound) tallyRejection(metricsForRound, 'sector_not_mapped');
+      observedRejectionReasons.add('sector_not_mapped');
     }
     const nowEligible = isEligible(candidate.assessment.rejection, result.sectorEvidenceState);
     if (nowEligible && !candidate.eligible) {
@@ -1337,7 +2094,70 @@ export async function runApolloTwoRoundDiscovery(
     if (!nowEligible) {
       // El enrichment se pagó y la empresa sigue sin confirmarse: eso es
       // exactamente `enrichmentWaste`, y así queda contado.
+      //
+      // § D — `finallyRejectedOrDuplicated` NO implica rechazo definitivo. Si
+      // aquí no se marcó `definitivelyRejected`, esta empresa quedó AMBIGUA tras
+      // pagar por resolverla, y se persistirá como `needs_review`.
       candidate.finallyRejectedOrDuplicated = true;
+      // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § D — un rechazo DEFINITIVO no
+      // puede convivir con `eligible: true`. La rama de `postRejection` ya lo
+      // hacía; ésta no, y un candidato elegible antes del enrichment cuya
+      // evidencia lo contradice después habría quedado contado como elegible en
+      // `eligibleAfterEnrichment`.
+      if (candidate.definitivelyRejected) candidate.eligible = false;
+    }
+  }
+
+  // ── HARDENING-1 § 5 — gates FINALES ────────────────────────────────────────
+  //
+  // Orden del contrato: reevaluación sectorial → ownership → calidad / encaje de
+  // negocio → elegibilidad final → writer. Hasta aquí el ownership sólo se
+  // evaluaba con los datos de la BÚSQUEDA; el veredicto definitivo lo emitía el
+  // writer, ya fuera del alcance de estas métricas. Por eso la corrida
+  // `be181d2d` publicó tres persistidos y escribió dos.
+  //
+  // Se aplica sólo sobre quien sigue siendo elegible: a un candidato ya
+  // descartado no hay nada que volver a rechazarle, y re-tallyarlo lo contaría
+  // dos veces en el desglose de la ronda.
+  //
+  // § D — los gates finales se aplican TAMBIÉN a las empresas que sólo irían a
+  // revisión. El contrato es explícito: un rechazo de ownership, país,
+  // duplicidad o calidad no se persiste ni siquiera como `needs_review`. Sin
+  // esto, una empresa rechazada por ownership entraría en la base disfrazada de
+  // duda pendiente.
+  const isReviewOnlyCohort = (candidate: TrackedCandidate): boolean =>
+    !candidate.eligible &&
+    !candidate.definitivelyRejected &&
+    candidate.enrichmentExecuted &&
+    candidate.sectorEvidenceState === 'sector_evidence_missing_needs_enrichment';
+
+  // § A — a estas alturas, todo candidato que en algún momento fue elegible ya
+  // pasó por `ensureFinalGateEvaluated` (vía `stableFinalizableCandidateCount()`, invocada
+  // antes de cada parada). Este barrido ya no repite esa llamada — el flag
+  // `finalGateEvaluated` lo evita — y sólo le queda resolver la cohorte de
+  // revisión, que nunca participa de `eligibleCount()` y por tanto nunca pasó
+  // por una parada.
+  if (deps.applyFinalGates) {
+    for (const candidate of tracked) {
+      if (candidate.eligible) {
+        await ensureFinalGateEvaluated(candidate);
+        continue;
+      }
+      if (!isReviewOnlyCohort(candidate) || candidate.finalGateEvaluated) continue;
+      candidate.finalGateEvaluated = true;
+      const verdict = await deps.applyFinalGates({
+        candidateKey: candidate.candidateKey,
+        roundNumber: candidate.roundNumber,
+        identity: candidate.identity,
+      });
+      if (verdict.rejection === null) continue;
+      observedRejectionReasons.add(verdict.rejection);
+      candidate.definitivelyRejected = true;
+      candidate.definitiveRejectionReason = verdict.rejection;
+      candidate.finallyRejectedOrDuplicated = true;
+      // La cohorte de revisión ya es `!eligible`: no hay nada más que voltear,
+      // y el desglose por ronda sólo cuenta rechazos de candidatos que SÍ eran
+      // elegibles (ver `ensureFinalGateEvaluated`).
     }
   }
 
@@ -1363,8 +2183,13 @@ export async function runApolloTwoRoundDiscovery(
   const ranked = rankFinalEligibleCompanies(finalSignals, config.targetEligibleCompanies);
   const byKey = new Map(eligibleCompanies.map((c) => [c.candidateKey, c]));
 
-  const toAccumulated = (candidateKey: string): AccumulatedCompany | null => {
-    const candidate = byKey.get(candidateKey);
+  // `explicit` permite acumular a un candidato que NO está en `byKey`: ese mapa
+  // sólo contiene elegibles, y la cohorte de revisión (§ D) por definición no lo es.
+  const toAccumulated = (
+    candidateKey: string,
+    explicit?: TrackedCandidate,
+  ): AccumulatedCompany | null => {
+    const candidate = explicit ?? byKey.get(candidateKey);
     if (!candidate) return null;
     return {
       candidateKey: candidate.candidateKey,
@@ -1392,8 +2217,38 @@ export async function runApolloTwoRoundDiscovery(
       } => entry !== null,
     );
 
+  // § D — cohorte de revisión, calculada DESPUÉS de los gates finales para que
+  // ninguna empresa con rechazo definitivo se cuele en ella. El orden importa: en
+  // el orden inverso, la rechazada por ownership del `be181d2d` habría entrado.
+  const reviewOnly: ReviewOnlyCompany[] = tracked
+    .filter(isReviewOnlyCohort)
+    .map((candidate) => {
+      const accumulated = toAccumulated(candidate.candidateKey, candidate);
+      return accumulated === null
+        ? null
+        : {
+            ...accumulated,
+            reviewReason: 'subindustry_ambiguous_after_enrichment' as const,
+          };
+    })
+    .filter((entry): entry is ReviewOnlyCompany => entry !== null);
+
   const eligibleCompaniesFound = eligibleCompanies.length;
-  const targetReached = eligibleCompaniesFound >= config.targetEligibleCompanies;
+  /**
+   * STABLE-TARGET-WRITER-PARITY §§ 3 y 11 — el objetivo se declara alcanzado con
+   * la cuenta ESTABLE, no con la de elegibles.
+   *
+   * `eligibleCompaniesFound` sigue existiendo y sigue significando lo mismo
+   * —candidatos con los gates baratos limpios, el sector confirmado y los gates
+   * finales resueltos—, pero ya no decide nada económico: un elegible al que le
+   * falta `employee_count` o LinkedIn se persiste, se revisa, y NO alcanza el
+   * objetivo. Confundir las dos cifras es exactamente lo que hacía que una
+   * corrida con 3 candidatos completos se declarara cerrada en 5.
+   */
+  const finalizability = await scanFinalizability();
+  const stableFinalizableCandidates = finalizability.stable;
+  const projectedGap = Math.max(0, config.targetEligibleCompanies - stableFinalizableCandidates);
+  const targetReached = stableFinalizableCandidates >= config.targetEligibleCompanies;
 
   const enrichmentOutcomes: EnrichmentOutcome[] = tracked.map((c) => ({
     candidateKey: c.candidateKey,
@@ -1415,13 +2270,24 @@ export async function runApolloTwoRoundDiscovery(
         : 'partial_target_not_reached',
     targetEligibleCompanies: config.targetEligibleCompanies,
     eligibleCompaniesFound,
+    stableFinalizableCandidateCount: stableFinalizableCandidates,
+    projectedFinalizableCandidateCount: finalizability.projected,
+    writerOnlyPendingCount: finalizability.writerOnlyPending,
+    writerOnlyPendingReasons: finalizability.writerOnlyPendingReasons,
+    preWriterAdmissionPassCount: finalizability.admissionPassCount,
+    preWriterAdmissionFailedCount: finalizability.admissionFailedCount,
+    preWriterAdmissionPendingCount: finalizability.admissionPendingCount,
+    projectedTargetGap: projectedGap,
     persistedCandidates: persisted.length,
     roundsExecuted: roundMetrics.length,
     targetReached,
     partialResultReason: targetReached ? null : 'partial_target_not_reached',
     secondRoundSkippedReason,
+    queryCoverageBlockReason,
     effectiveFingerprintsAreDistinct,
+    round2PageDecision,
     persisted,
+    reviewOnly,
     notPersisted,
     rounds: roundMetrics,
     runMetrics: buildRunMetrics({
@@ -1433,6 +2299,24 @@ export async function runApolloTwoRoundDiscovery(
       totalEnrichmentCredits,
       enrichmentOutcomes,
       effectiveFingerprintsAreDistinct,
+      sectorConfirmedByEnrichment: sectorConfirmedByEnrichmentCount,
+      sectorStillUnconfirmedAfterEnrichment: sectorStillUnconfirmedAfterEnrichmentCount,
+      sectorRejectedAfterEnrichment: sectorRejectedAfterEnrichmentCount,
+      enrichmentFailedCount,
+      targetEligibleCompanies: config.targetEligibleCompanies,
+      // §§ 3 y 11 — la cuenta estable viaja EXPLÍCITA. Hasta este hito
+      // `buildRunMetrics` la aliaseaba a `totalEligibleCompanies`, así que la
+      // métrica que decía «estable» era la provisional con otro nombre.
+      stableFinalizableCandidateCount: stableFinalizableCandidates,
+      // WRITER-ONLY-ADMISSION-PENDING § 8 — la proyección y el motivo de que no
+      // sea estable, cada uno con su nombre. Ninguno puede detener gasto.
+      projectedFinalizableCandidateCount: finalizability.projected,
+      writerOnlyPendingCount: finalizability.writerOnlyPending,
+      writerOnlyPendingReasons: finalizability.writerOnlyPendingReasons,
+      // ADAPTIVE-EARLY-STOP § 11 — cuántas admisiones se resolvieron de verdad.
+      preWriterAdmissionPassCount: finalizability.admissionPassCount,
+      preWriterAdmissionFailedCount: finalizability.admissionFailedCount,
+      preWriterAdmissionPendingCount: finalizability.admissionPendingCount,
     }),
     enrichmentSelections,
     enrichmentSkips,
@@ -1454,6 +2338,8 @@ export async function runApolloTwoRoundDiscovery(
       becameEligibleAfterEnrichment: c.becameEligibleAfterEnrichment,
       enrichmentExecuted: c.enrichmentExecuted,
       finallyRejectedOrDuplicated: c.finallyRejectedOrDuplicated,
+      definitivelyRejected: c.definitivelyRejected,
+      definitiveRejectionReason: c.definitiveRejectionReason,
     })),
     observedRejectionReasons: [...observedRejectionReasons],
   };

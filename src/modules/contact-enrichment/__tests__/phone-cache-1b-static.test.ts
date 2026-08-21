@@ -591,10 +591,21 @@ describe('CACHE-1b — FIX M4 descubrimiento de contactos sin filtro JSON', () =
     assert.match(suppression, /\.eq\('account_id',\s*tombstone\.accountId\)/);
   });
 
+  // La propiedad de FIX M1 no cambia: el UPDATE repite el filtro de procedencia para
+  // que una carrera no acabe borrando un número manual. Lo que cambió en 4O-E4 es su
+  // FORMA — de `.in(allowlist)` a `.eq(procedencia observada)`, que es estrictamente
+  // más restrictivo.
+  //
+  // 4O-E4.1 devolvió el patch a UNO SOLO para todas las procedencias (`mobile_phone`
+  // salió de él), pero el `.eq` NO se revierte: lo que protege es que un cambio entre
+  // procedencias admitidas —o a `manual`— entre la lectura y la escritura haga que la
+  // erasure afecte 0 filas en vez de borrar una tupla que el operador no observó.
   it('el UPDATE de contacts repite el filtro de procedencia (FIX M1)', () => {
-    assert.match(
-      suppression,
-      /\.in\('phone_source',\s*\['apollo_reveal',\s*'apollo_cache'\]\)/,
+    assert.match(suppression, /\.eq\('phone_source',\s*observedPhoneSource\)/);
+    assert.equal(
+      /\.in\('phone_source'/.test(suppression),
+      false,
+      'un .in sobre phone_source permitiría cruzar patches entre procedencias',
     );
   });
 
@@ -729,12 +740,23 @@ describe('CACHE-1b — FIX H2 estados nuevos mapeados en la UI', () => {
     assert.match(body, /intenta de nuevo/i);
   });
 
-  it('suppression_check_unavailable es explícito, seguro y reintentable (FIX 2)', () => {
+  it('suppression_check_unavailable es explícito y seguro, sin prometer una ventana de reintento (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1-R2)', () => {
+    // Antes de AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1 este estado sólo cubría dep no
+    // cableada / lectura fallida — genuinamente reintentable ("intenta de nuevo en
+    // unos minutos" era una promesa razonable. Desde ese hito el MISMO estado
+    // también cubre el caso sin `provider_person_id` resoluble o sin cuenta
+    // (típicamente un candidato de origen Lusha sin identidad Apollo capturada),
+    // que puede quedar PERMANENTEMENTE sin evaluar. El mensaje ya NO promete una
+    // ventana de reintento porque no puede distinguir ambos sub-casos.
     const body = caseBody('suppression_check_unavailable');
     assert.notEqual(body, '', 'falta el case suppression_check_unavailable');
     assert.match(body, /setPhoneRevealError/);
     assert.match(body, /supresión/i);
-    assert.match(body, /intenta de nuevo/i);
+    assert.equal(
+      /intenta de nuevo/i.test(body),
+      false,
+      'no debe prometer una ventana de reintento: el sub-caso sin clave puede ser permanente',
+    );
     // No es un éxito: no recarga el candidato ni muestra un toast de éxito.
     assert.equal(/reloadCandidate\(\)/.test(body), false);
     assert.equal(/toast\.success/.test(body), false);
@@ -833,9 +855,20 @@ describe('CACHE-1b — FIX 2 el tombstone se comprueba con el flag apagado', () 
   );
   const revealCore = readRepo('src/modules/contact-enrichment/phone-reveal-core.ts');
   const store = readRepo('src/modules/contact-enrichment/phone-cache-store.ts');
+  const providerCore = readRepo(
+    'src/modules/contact-enrichment/provider-suppression-core.ts',
+  );
 
   it('el wrapper cablea la comprobación SIEMPRE, no detrás del flag', () => {
-    assert.match(revealActions, /lookupPhoneCacheSuppression:\s*readPhoneCacheSuppression/);
+    // FASE 1 (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4): la dep se cablea con el lector
+    // COMPUESTO, que consulta primero `provider_suppressions` (nativo, sin cuenta) y
+    // luego el tombstone legado de `phone_reveal_cache` cuando su clave es evaluable.
+    // La propiedad que este test protege NO cambia —la comprobación se cablea SIEMPRE y
+    // no depende del flag—; lo que cambia es qué lee.
+    assert.match(
+      revealActions,
+      /lookupPhoneCacheSuppression:\s*readPhoneRevealSuppression/,
+    );
     // El flag solo alimenta `cacheEnabled` (reutilización), nunca la supresión.
     const flagUses = [...revealActions.matchAll(/isApolloPhoneCacheEnabled\(\)/g)];
     assert.equal(flagUses.length, 1);
@@ -884,30 +917,60 @@ describe('CACHE-1b — FIX 2 el tombstone se comprueba con el flag apagado', () 
     assert.match(block[1], /accountId/);
   });
 
+  // FASE 1: el try/catch y la comprobación de la dep se MOVIERON a la evaluación hoja
+  // (`evaluatePhoneRevealSuppression`, en provider-suppression-core.ts), porque el START
+  // y los otros tres gates comparten ahora esa función en lugar de repetirla. La
+  // propiedad protegida es la misma y se comprueba en los DOS lados: que la hoja falla
+  // cerrado, y que el START traduce ese resultado a `suppression_check_unavailable` en
+  // vez de continuar.
   it('un fallo de la comprobación no puede degradar a "no suprimido"', () => {
-    const body = functionBody(
+    const evaluatorBody = functionBody(
+      providerCore,
+      /export async function evaluatePhoneRevealSuppression\(/,
+    );
+    // El catch devuelve `check_unavailable`; nunca `allowed` (que continuaría).
+    assert.match(evaluatorBody, /catch[\s\S]*?kind: 'check_unavailable'/);
+    // La dep ausente también corta: no hay reveal sin comprobar la supresión.
+    assert.match(
+      evaluatorBody,
+      /if \(!args\.lookup\)[\s\S]*?kind: 'check_unavailable'/,
+    );
+
+    const startBody = functionBody(
       revealCore,
       /async function enforcePhoneRevealSuppression\(/,
     );
-    // El catch devuelve el estado seguro; nunca `return null` (que continuaría).
-    assert.match(body, /catch[\s\S]*?return unavailable\(/);
-    assert.match(body, /suppression_check_unavailable/);
-    // Y la dep ausente también corta: no hay reveal sin comprobar la supresión.
-    assert.match(body, /if \(!deps\.lookupPhoneCacheSuppression\)[\s\S]*?return unavailable\(/);
+    // Y el START convierte los dos casos en el estado seguro, no en `null`.
+    assert.match(
+      startBody,
+      /case 'check_unavailable':[\s\S]*?return unavailable\(evaluation\.message\)/,
+    );
+    assert.match(startBody, /suppression_check_unavailable/);
   });
 
   // FIX H4-c: el catch reenviaba `err.message` en claro al notificador. Postgres
   // cita los valores de la query en sus errores, así que ese mensaje podía llevar
   // el providerPersonId (o PII de una fila vecina) hasta el log.
   it('el fallo de la comprobación se redacta con el redactor compartido (H4-c)', () => {
-    const body = functionBody(
+    // El redactor entra por INYECCIÓN para que la evaluación siga siendo hoja (si viviera
+    // en la guarda, que importa de phone-reveal-core, el START no podría llamarla sin
+    // crear un ciclo). El START tiene que pasarlo.
+    const startBody = functionBody(
       revealCore,
       /async function enforcePhoneRevealSuppression\(/,
     );
-    assert.match(body, /return unavailable\(redactDriverMessage\(err\)\)/);
-    // Ningún error crudo sobrevive en el bloque de supresión.
-    assert.equal(/err\.message/.test(body), false);
-    assert.equal(/error\.message/.test(body), false);
+    assert.match(startBody, /redactError:\s*redactDriverMessage/);
+    // Ningún error crudo sobrevive en el bloque de supresión del START.
+    assert.equal(/err\.message/.test(startBody), false);
+    assert.equal(/error\.message/.test(startBody), false);
+
+    // Y la hoja usa el redactor recibido, nunca el mensaje crudo.
+    const evaluatorBody = functionBody(
+      providerCore,
+      /export async function evaluatePhoneRevealSuppression\(/,
+    );
+    assert.match(evaluatorBody, /message: redact\(err\)/);
+    assert.equal(/err\.message/.test(evaluatorBody), false);
   });
 
   it('la acción de supresión sigue sin estar gateada por el flag de caché', () => {

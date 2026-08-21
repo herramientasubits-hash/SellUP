@@ -46,10 +46,87 @@ jobs:
         run: npm run test:agent2a:automatic-routing
 
       # Q3F-5BB.10C3-FIX-1 — Lusha fail-closed routing (STRICT-ALL). Guards the
-      # invariant that a Lusha-eligible search with the preview flag off BLOCKS
-      # and never degrades to the Agent 1 / Apollo generation path.
+      # invariant that a Lusha run never touches Apollo/Tavily and that with
+      # ENABLE_LUSHA_PREVIEW off no route ever resolves to Lusha.
       - name: Run Lusha fail-closed routing tests
         run: npm run test:lusha-fail-closed-routing
+
+      # AGENT1-SHARED-INTAKE-CI-GUARD-1 — el pipeline de admisión COMPARTIDO y
+      # NEUTRAL AL PROVEEDOR entra al check obligatorio.
+      #
+      # Estas suites no son nuevas: existen desde 10B1/10B2/10C1/10C2 y describen la
+      # arquitectura que Lusha SÍ adoptó — contratos por proveedor
+      # (ProviderDiscoveredCompany), normalización única
+      # (NormalizedProspectCandidate), gate obligatorio, enrichment de fuente oficial
+      # neutral al proveedor, estado de duplicado y orden de persistencia. Lo que no
+      # existía era su protección: tenían script en package.json pero NINGUNA corría
+      # en CI, así que el único check obligatorio del repo — «Automatic routing safety
+      # tests» — se ponía verde con el contrato compartido roto. Apollo pudo así
+      # construir su propia ruta de admisión sin que un solo check se pusiera rojo, y
+      # el diagnóstico correcto no es «no se construyó» sino
+      # EXISTING_SHARED_FLOW_NOT_ADOPTED_BY_APOLLO.
+      #
+      # Los pasos van SEPARADOS a propósito: cuando uno falle, GitHub Actions nombra
+      # el contrato exacto que se rompió, no «los tests». Van aquí arriba, junto al
+      # resto de contratos de proveedor, para que una rotura de la base falle antes de
+      # los ~50 pasos que dependen de ella.
+      #
+      # Este PR NO cambia runtime: ni Apollo, ni Lusha, ni routing, ni presupuesto,
+      # ni flags. Es cableado de CI sobre suites y scripts que ya existían.
+      #
+      # Deterministas y offline las cinco: sólo `node:test`, fixtures y lectura
+      # ESTÁTICA de código fuente. Sin Supabase, sin Socrata/co_siis, sin API de
+      # proveedor, sin créditos y sin escrituras. La única variable de entorno que se
+      # toca es ENABLE_LUSHA_PREVIEW DENTRO del proceso de test —para ejercitar el
+      # parser del flag— y se restaura en `finally`; Producción no se toca.
+
+      # 10B1 — contrato de admisión por proveedor. Guarda que los TRES adaptadores
+      # (Lusha, Apollo, Tavily) satisfagan el MISMO contrato normalizado. Incluye el
+      # adaptador Apollo ya existente (`mapApolloCompanyToProviderDiscoveredCompany`),
+      # que es la pieza sobre la que el siguiente PR hará que Apollo adopte el seam
+      # compartido — sin este paso, ese contrato podría desviarse en silencio.
+      - name: Run shared provider intake contract tests
+        run: npm run test:prospect-intake-contracts
+
+      # 10B2 — gate obligatorio compartido. Guarda que un candidato excluido en
+      # duro NUNCA continúe hacia el flujo caro (enrichment) ni hacia la deduplicación.
+      - name: Run shared mandatory intake gate tests
+        run: npm run test:prospect-intake-gate
+
+      # 10C1 — enrichment de fuente oficial NEUTRAL al proveedor. Guarda que funcione
+      # igual contra fixtures de Lusha, Apollo y Tavily, y que el resolvedor se
+      # mantenga inyectado, read-only y fail-soft (sin consultar co_siis en vivo).
+      - name: Run shared official-source enrichment tests
+        run: npm run test:prospect-intake-source-enrichment
+
+      # 10C2 — el pipeline compartido de punta a punta, tal como Lusha lo adoptó:
+      # resultado del proveedor → map → normalize → gate obligatorio → enrichment
+      # oficial → estado de duplicado → orden de persistencia. Incluye la prueba
+      # estática de que el resolvedor de fuente oficial no abre clientes por su cuenta.
+      - name: Run shared intake pipeline adoption tests
+        run: npm run test:lusha-shared-pipeline
+
+      # Guarda que el flag SERVIDOR detenga a Lusha ANTES de crear el cliente, de
+      # buscar y de escribir. Es prueba ESTÁTICA de orden sobre el código: no crea
+      # clientes, no llama a Lusha y no cambia el flag en Producción.
+      - name: Run Lusha preview flag guard tests
+        run: npm run test:lusha-preview-flag-guard
+
+      # AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 — disponibilidad universal del
+      # proveedor de discovery de Agente 1. Entra al check obligatorio porque el
+      # defecto que cierra era invisible a toda la cobertura anterior: la pantalla
+      # final derivaba la disponibilidad del proveedor de la ruta del proveedor
+      # OCULTO Lusha, así que «Empresas por criterios» con una industria que mapea a
+      # un sector Lusha (salud, educación, tecnología) quedaba sin selector y sin
+      # «Generar prospectos» en los 20 países soportados, con Apollo desplegado,
+      # configurado y con presupuesto — y los tests de entonces PINABAN ese bloqueo
+      # como si fuera correcto. La suite barre los 20 países, los modos aplicables,
+      # 0/1/N subindustrias, el desacople default≠disponible, la paridad UI/servidor,
+      # la conservación de los candados de gasto y los topes 5/2/10/20/5 ⇒ 25, y la
+      # regresión exacta de Salud/Colombia. Determinista: sin flags, sin proveedores,
+      # sin créditos y sin DB real.
+      - name: Run A1 Apollo universal provider availability tests
+        run: npm run test:a1-apollo-universal-provider-availability
 
       # Q3F-5BB.11B — Pure provider routing plan. Guards the 10C3 invariant at
       # the routing-plan layer: an intended-Lusha plan never routes to Apollo,
@@ -148,6 +225,608 @@ jobs:
       - name: Run A1 Apollo two-round quality tests
         run: npm run test:a1-apollo-two-round-quality
 
+      # A1-APOLLO-PERSISTENCE-REVIEW-FIX-1 — el preflight de persistencia entra al
+      # check obligatorio. Sin este paso, la cobertura del guardrail que impide el
+      # fallo de LIVE-QA-2 (12 créditos gastados y 0 candidatos guardados porque
+      # `prospect_candidates.identity_key` no existía) no corría en ningún PR: el
+      # typecheck protege el catálogo de códigos, pero no verifica el ORDEN real del
+      # preflight, el cero gasto, la clasificación de los errores de PostgREST, la
+      # tabla vacía, la sanitización, el comportamiento post-gasto, la migración
+      # estática ni el fixture de QA. Determinista: sin flags, sin proveedores, sin
+      # créditos y sin DB real.
+      - name: Run A1 Apollo persistence readiness tests
+        run: npm run test:a1-apollo-persistence-readiness
+
+      # AGENT1-APOLLO-CANDIDATE-INSERT-FORENSICS-1 — el dominio REAL de
+      # `classification_source` entra al check obligatorio. La corrida live
+      # `9a9acf99` perdió su único candidato con subindustria confirmada porque el
+      # proyector escribía en esa columna el vocabulario de evidencia
+      # (`provider_industry`, …) y la CHECK de la migración 093 sólo admite el de
+      # quién clasificó (`writer`, `derived_*`, …): dos conjuntos sin un solo valor
+      # en común, así que fallaban EXACTAMENTE los candidatos que cuentan hacia el
+      # objetivo. La suite compara el código contra el SQL de la migración, así que
+      # un vocabulario nuevo no puede volver a colarse. Determinista: sin flags, sin
+      # proveedores, sin créditos y sin DB real.
+      - name: Run A1 Apollo candidate insert forensics tests
+        run: npm run test:a1-apollo-candidate-insert-forensics
+
+      # AGENT1-APOLLO-SCALE-SECOND-ROUND-FIX-1B — la PÁGINA que la ronda 2 pide y el
+      # desglose que la UI pinta entran al check obligatorio. Sin este paso ninguna
+      # de las dos cosas corría en CI: la corrida live `eae6d47f` pagó cinco créditos
+      # por una ronda 2 en la página 1 cuyos términos efectivos se solapaban con la
+      # ronda 1 —mismas cinco empresas de vuelta— y la usuaria lo vio como «ya
+      # sugeridos recientemente» sin una sola cifra. La suite entra por el runner de
+      # producción real con el proveedor doblado y renderiza el panel real.
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 Apollo second-round page and breakdown tests
+        run: npm run test:a1-apollo-scale-second-round
+
+      # AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 — el contrato de completitud y
+      # el vocabulario de objetivo entran al check obligatorio. Sin este paso NADA
+      # de #234 ni de #235 corría en CI: ninguna de sus suites estaba enganchada a
+      # un script, así que el typecheck era toda su protección. Lo que aquí se fija
+      # es lo que la corrida `be181d2d` no supo responder: cuántas empresas se
+      # guardaron para revisión y cuántas, completas y válidas, cuentan de verdad
+      # hacia el objetivo. Determinista: sin flags, sin proveedores, sin créditos y
+      # sin DB real.
+      - name: Run A1 Apollo LinkedIn and quality integration tests
+        run: npm run test:a1-apollo-linkedin-quality-integration
+
+      # AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 — la integridad del
+      # objetivo entra al check obligatorio. La corrida live `8c86eb06` contó 3 de 4
+      # empresas hacia el objetivo SIN una sola subindustria confirmada, porque el
+      # writer decidía con `sectorEvidenceState` —el veredicto de INDUSTRIA— en vez
+      # de con el de subindustria, que ya era correcto y ya estaba persistido. Lo
+      # que este paso guarda, y que no falla al compilar:
+      #
+      #   * que las anclas casen por PALABRA o frase completa y nunca por
+      #     substring: con `moda` y `fashion` de anclas, «cómodas»,
+      #     «acomodación», «Accommodation», «incómoda» y «acomodada» quedaban
+      #     confirmadas y contaban;
+      #   * que `\b` de JavaScript NO se use como matcher (es ASCII: una tilde le
+      #     crea una frontera de palabra falsa), y que los plurales de las listas
+      #     que RECHAZAN sigan rechazando tras el cambio de matcher;
+      #   * que la precisión evalúe las CINCO subindustrias que el wizard permite
+      #     con semántica ANY-OF —la misma de la búsqueda Apollo— y no sólo
+      #     `subindustries[0]`;
+      #   * que pedir subindustria y no obtener veredicto sea fail-closed, sin
+      #     caer NUNCA al veredicto de la industria padre;
+      #   * que las búsquedas SIN subindustria conserven su comportamiento;
+      #   * que la ficha no pueda mostrar «Subindustria ambigua» sobre una
+      #     RECHAZADA, ni «Cuenta hacia el objetivo: Sí» sobre una no confirmada;
+      #   * que `classification_source` siga llevando el vocabulario de QUIÉN
+      #     clasificó (PR #238) y no el de la evidencia, que es lo que producía el
+      #     error 23514 contra la CHECK de la migración 093.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 subindustry fail-closed target integrity tests
+        run: npm run test:a1-subindustry-fail-closed-target-integrity
+
+      # AGENT1-MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 — la SOLICITUD y la
+      # contabilidad del desenlace entran al check obligatorio. #241 dejó el
+      # backend multi-subindustria correcto (ANY-OF en consulta, precisión y
+      # gates de gasto), pero la corrida live `7d92773b` pidió dos subindustrias
+      # y el lote se creó con una: la pérdida estaba ANTES del servidor, en el
+      # paso del wizard, y ninguna pantalla la mostraba antes de gastar.
+      #
+      # Lo que este paso guarda, y que no falla al compilar:
+      #
+      #   * que la multiselección viaje íntegra y EN ORDEN por la ruta real —
+      #     reductor → solicitud → schema estricto → resolutor de catálogo →
+      #     production-runner— con 1, 2 y 5 subindustrias, con [A,B] frente a
+      #     [B,A], y tras «editar» y volver a la confirmación;
+      #   * que los ids duplicados tengan política explícita (se colapsan en la
+      #     primera aparición en la UI; en la solicitud INVALIDAN la petición) y
+      #     que un id inválido o de más falle cerrado, sin eliminación silenciosa;
+      #   * que la selección ya NO viva en un borrador local del paso: el árbol
+      #     del paso activo se desmonta cada vez que el hilo de mensajes
+      #     "escribe", y con el borrador eso descartaba lo elegido sin aviso. La
+      #     suite remonta el paso a propósito;
+      #   * que la pantalla previa al gasto liste TODAS las subindustrias con su
+      #     contador (antes la recapitulación sólo existía dentro del panel de
+      #     Lusha, así que la ruta que de verdad gasta no mostraba ninguna);
+      #   * que un rechazo sectorial descubierto DESPUÉS del enrichment se
+      #     contabilice exactamente una vez en su ronda (la ronda 2 de `7d92773b`
+      #     cerró 9 sobre 10 empresas únicas) y que el desglose reconcilie contra
+      #     el total, declarando lo que no cuadra en vez de esconderlo;
+      #   * que un rechazo FINAL nunca pueda ser bloqueado por un `eligible`
+      #     anterior al fusionar checkpoints («Supermercado Vaquita» quedó
+      #     archivada como elegible mientras run_metrics decía 0).
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 multi-subindustry request and reconciliation tests
+        run: npm run test:a1-multi-subindustry-request-observability
+
+      # AGENT1-MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 — la COBERTURA de la consulta
+      # entra al check obligatorio. #245 demostró que la multiselección llega íntegra
+      # al runner y #241 que los gates de gasto la evalúan con ANY-OF, pero la corrida
+      # live `ce957e2f` pidió dos subindustrias y las consultas efectivas de las DOS
+      # rondas sólo representaron a una: 21 créditos, 20 organizaciones, 0 candidatos.
+      # La causa eran dos resolvedores FIRST-ONLY en fila
+      # (`primarySubindustryForQueryDrafting` → `resolveFirstApolloSubindustrySearchMapping`),
+      # y el segundo invalidaba la justificación escrita del primero.
+      #
+      # Lo que este paso guarda, y que no falla al compilar:
+      #
+      #   * que las subindustrias pedidas se repartan round-robin dentro del ÚNICO
+      #     array de keyword tags, de modo que con 1, 2 o 5 selecciones todas queden
+      #     representadas bajo el tope de cinco posiciones;
+      #   * que permutar la solicitud no cambie a quién representa la consulta;
+      #   * que las DOS rondas conserven la cobertura, incluida la variante de
+      #     página 2;
+      #   * que una subindustria sin términos NO se omita en silencio: la búsqueda se
+      #     bloquea antes de gastar, con cero créditos, cero llamadas al transporte y
+      #     cero filas económicas, y con la causa auditable en metadata;
+      #   * que el número de llamadas pagadas, el cap de 5 enrichments y el techo de
+      #     25 créditos sean invariantes al número de subindustrias;
+      #   * que el allowlist del contrato del proveedor no se amplíe (nada de un
+      #     parámetro por subindustria, ni de una llamada por subindustria);
+      #   * que los contratos de #245 (solicitud íntegra y en orden), #241 (ANY-OF en
+      #     precisión y en los gates de gasto) y #238 (vocabulario de
+      #     `classification_source`) sigan en pie.
+      #
+      # Determinista: sin flags de Producción, sin proveedores, sin créditos y sin DB real.
+      - name: Run A1 multi-subindustry query drafting ANY-OF tests
+        run: npm run test:a1-multi-subindustry-query-drafting-anyof
+
+      # CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM — la COHERENCIA DE VERSIÓN del catálogo
+      # entra al check obligatorio.
+      #
+      # El catálogo de industrias no es code-owned: vive en PostgreSQL y una versión
+      # nueva se publica con una transacción (`publish_industry_catalog_version`), sin
+      # despliegue. El wizard lo lee en vivo y verifica la versión que el navegador
+      # envió; el addendum anterior, en cambio, redactaba las consultas con un snapshot
+      # TypeScript de `subindustry_search_terms`. Dos fuentes de verdad para el mismo
+      # catálogo, y la segunda podía describir otra versión sin que nada fallara.
+      #
+      # Lo que este paso guarda, y que no falla al compilar:
+      #
+      #   * que ningún módulo de producción vuelva a importar un snapshot de esa tabla,
+      #     ni el fixture de la lectura congelada, ni un cliente de Supabase dentro de
+      #     la ruta pura de construcción de la consulta;
+      #   * que la selección y los términos vengan de la MISMA versión publicada
+      #     (`selection_catalog_version == search_term_catalog_version`), y que la
+      #     ausencia se trate como incoherencia y no como permiso;
+      #   * que una incoherencia bloquee ANTES del gasto: cero llamadas al transporte,
+      #     cero créditos, cero filas económicas, y la causa con las DOS versiones en
+      #     metadata;
+      #   * que un cambio de catálogo v1 → v2 no pueda producir nunca
+      #     `wizard=v2 + términos=v1 + llamada al proveedor`;
+      #   * que el loader rehúse una lectura que atraviese un publish en vez de mezclar
+      #     dos versiones;
+      #   * que la cobertura de discovery siga siendo 73/73 sobre la versión publicada y
+      #     la precisión siga en 2/73, sin fallback a la industria padre;
+      #   * que los topes de 2 llamadas / 5 enrichments / 25 créditos no se muevan, y que
+      #     el vocabulario de `classification_source` de #238 siga intacto.
+      #
+      # Determinista: sin flags de Producción, sin proveedores, sin créditos y sin DB
+      # real — la lectura del catálogo se inyecta desde el fixture verificado de `1.0.0`.
+      - name: Run A1 catalog source-of-truth and version-coherence tests
+        run: npm run test:a1-catalog-source-of-truth
+
+      # AGENT1-MACRO-CATALOG-PRE119-LEGACY-READERS-1 — la COMPATIBILIDAD DE LOS
+      # LECTORES DE CATÁLOGO con el cutover a la taxonomía macro entra al check
+      # obligatorio, ANTES de que la migración 119 se aplique.
+      #
+      # El defecto que guarda no falla al compilar y no se ve en Producción hoy:
+      # sólo aparece en el instante en que v2 se publica. `active_industry_catalog`
+      # hace INNER JOIN con `subindustries`, así que bajo el catálogo macro devuelve
+      # CERO filas — su respuesta CORRECTA. Dos consumidores vivos leían ese cero
+      # como «no hay catálogo»:
+      #
+      #   * `validateExploratorySearch` devolvía `_catalog`, y las DOS superficies
+      #     del wizard (`prospect-chat-wizard`, `exploratory-search-form-v2`) se
+      #     quedaban sin poder validar una búsqueda perfectamente válida;
+      #   * `loadImportCatalog` devolvía `empty_catalog`, y las CUATRO rutas de
+      #     importación respondían 503.
+      #
+      # Lo que este paso guarda:
+      #
+      #   * que la disponibilidad del catálogo la decida la CAPACIDAD de la versión
+      #     publicada y NUNCA el número de filas de la vista de subindustrias;
+      #   * que bajo v2 la vista legacy no se consulte en absoluto, y que bajo v1 el
+      #     comportamiento sea el de siempre — 8 industrias, 73 subindustrias, alias
+      #     y los mismos códigos de error, incluido el rechazo de una lectura que
+      #     atraviese un publish;
+      #   * que una hija obsoleta bajo v2 se RECHACE en vez de ignorarse, para que un
+      #     lote nuevo no arrastre criterios que la persona nunca vio;
+      #   * que la clasificación de importación macro-only no invente ninguna hija ni
+      #     marque filas inválidas, y que las importaciones históricas ancladas a
+      #     `1.0.0` conserven industria Y subindustria;
+      #   * que Educación siga siendo válida bajo v1, ausente bajo v2 y NUNCA mapeada
+      #     a «Compañía de Servicios» (decisión de la owner, 2026-08-13);
+      #   * que una versión de catálogo desconocida siga siendo fail-closed a la
+      #     taxonomía legacy, sin entrar en modo macro por accidente;
+      #   * que el contrato de descubrimiento no se mueva: Salud sigue emitiendo 15
+      #     términos específicos y 2 amplios, y siguen siendo 12 macro industrias.
+      #
+      # Determinista y offline: sin DB real, sin flags de Producción, sin proveedor,
+      # sin créditos y sin escrituras. La migración 119 NO se aplica aquí — se SIMULA
+      # su efecto sobre las dos vistas.
+      - name: Run A1 pre-119 catalog reader compatibility tests
+        run: npm run test:a1-pre119-catalog-reader-compatibility
+
+      # AGENT1-APOLLO-FINALIZATION-HARDENING-1 + STABLE-TARGET-WRITER-PARITY —
+      # la SEMÁNTICA DE OBJETIVO entra al check obligatorio.
+      #
+      # Hasta este paso, ninguna de estas suites corría en CI: se ejecutaban a
+      # mano. El defecto que guardan es exactamente el tipo de cosa que no falla
+      # al compilar y que una ejecución manual olvidada deja pasar — había DOS
+      # semánticas de objetivo, y la que decidía el gasto era la laxa.
+      #
+      # Lo que este paso guarda:
+      #
+      #   * que exista UNA sola función canónica de elegibilidad hacia el
+      #     objetivo (`evaluateCandidateTargetEligibility`), compartida por el
+      #     orquestador y por el writer, y que la única diferencia legítima entre
+      #     sus dos lecturas sea `persistence_success`;
+      #   * que una condición PENDIENTE —la que todavía no se puede saber— NUNCA
+      #     cuente hacia el objetivo, igual que una fallida;
+      #   * que `employee_count` ausente, LinkedIn ausente, calidad en revisión,
+      #     subindustria ambigua o sin mapear (#241) y duplicado no resuelto (§ 9)
+      #     dejen al candidato FUERA de la cuenta que detiene el gasto, y que por
+      #     tanto siga compitiendo por su enrichment en vez de recibir
+      #     `target_already_reached`;
+      #   * que `stable_finalizable_candidate_count` deje de ser un alias de
+      #     `total_eligible_companies`, y que el invariante
+      #     `target_reached == (target_gap == 0)` se sostenga;
+      #   * que la métrica PRE-writer y la POSTERIOR al writer no compartan
+      #     nombre, y que la reconciliación siga siendo la autoritativa;
+      #   * que todo descarte del writer deje una candidata TRAZABLE en
+      #     `writer_omitted_samples`, incluido el gate de tamaño ICP, que era el
+      #     único de Pass 4 sin muestra;
+      #   * que los topes absolutos no se muevan: <=2 búsquedas, <=5 enrichments,
+      #     <=25 créditos por corrida.
+      #
+      # WRITER-ONLY-ADMISSION-PENDING añade a este mismo paso la otra mitad de la
+      # asimetría: hay comprobaciones de ADMISIÓN que sólo el writer resuelve
+      # —duplicate guard sobre candidatos ACTIVOS, índice de novedad, cooldown de
+      # identidad, dedupe intra-lote y cupo del lote—, y su AUSENCIA se estaba
+      # leyendo como un pase. Lo que se guarda aquí:
+      #
+      #   * que la lista auditada de admisiones writer-only siga siendo la
+      #     completa (eran dos declaradas de cinco reales) y que la familia pura
+      #     todavía sin cablear se nombre aparte en vez de darse por pasada;
+      #   * que una admisión sin resolver NO cuente hacia el objetivo, igual que
+      #     una condición fallida o pendiente;
+      #   * que la PROYECCIÓN (`projected_finalizable_count`) no pueda emitir
+      #     `target_already_reached` por mucho que cubra el objetivo, y que sólo
+      #     la cuenta ESTABLE detenga gasto;
+      #   * que el caso mixto cuente lo resuelto y nada más (3 pass + 2 pending
+      #     ⇒ estable 3, hueco 2);
+      #   * que la reconciliación POSTERIOR al writer siga siendo la autoritativa
+      #     y sostenga `target_reached == (target_count >= target)` y
+      #     `target_gap == max(0, target - target_count)`, con `null` —nunca un
+      #     número inventado— cuando la completitud no se midió.
+      #
+      # ADAPTIVE-EARLY-STOP cierra el efecto colateral del addendum anterior. Al
+      # declarar las TRECE admisiones permanentemente pendientes, ningún candidato
+      # podía ser `stable`: la parada temprana por objetivo quedó MUERTA en
+      # producción y toda corrida pasó a recorrer el máximo de gasto autorizado
+      # aunque la ronda 1 ya hubiera traído las cinco empresas. Lo que este mismo
+      # paso guarda ahora, y que no falla al compilar:
+      #
+      #   * que los OCHO gates deterministas del writer (etiqueta de calidad,
+      #     identidad canónica, dominio de directorio, compatibilidad de país,
+      #     página de contenido, intermediario, plataforma externa y calidad de
+      #     URL) se resuelvan ANTES del writer invocando LAS MISMAS funciones —no
+      #     una copia—, y que lo que el evaluador declara `failed` sea exactamente
+      #     lo que el writer real descarta;
+      #   * que las TRES respaldadas por base se resuelvan con UN solo prefetch por
+      #     corrida: cero consultas por ronda y cero por candidato;
+      #   * que ese prefetch sea fail-closed en las tres formas en que puede no
+      #     saber —sin cliente, degradado, o dominio fuera de su cobertura—: en las
+      #     tres la comprobación vuelve a PENDIENTE, nunca a pase. Un `Map` vacío
+      #     contesta «no hay nada» igual que un dominio nunca consultado, y esa
+      #     confusión leída como pase es el defecto de este hilo con otro disfraz;
+      #   * que la dedupe intra-lote y el cupo se resuelvan con la política del
+      #     writer, y que dos candidatas con la MISMA identidad canónica no puedan
+      #     contar las dos hacia el objetivo;
+      #   * que el cupo sea COMPLETE-FIRST: con el cupo apretado, una candidata de
+      #     revisión con MEJOR encaje ya no puede expulsar a una completa y válida.
+      #     Se mide donde de verdad ocurre, en Pass 3 del writer real;
+      #   * que una admisión resuelta NEGATIVA descarte igual que una condición
+      #     fallida, y que no se disfrace de pendiente: hay respuesta, y es que no
+      #     pasa;
+      #   * que la parada temprana vuelva a existir — cinco finalizables en la
+      #     ronda 1 ⇒ sin ronda 2, sin enrichments, gasto estrictamente por debajo
+      #     del peor caso permitido —;
+      #   * que NO regrese la semántica optimista: tres finalizables y dos sin
+      #     `employee_count` ⇒ estable 3, hueco 2, las dos incompletas siguen
+      #     compitiendo por su enrichment, y sólo cuando el crédito resuelve el
+      #     campo la cuenta sube a 5 y la corrida puede parar;
+      #   * que los topes absolutos sigan intactos: <=2 búsquedas, <=5 enrichments,
+      #     <=25 créditos.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos, sin DB real. El
+      # proveedor, el writer y las consultas de duplicados entran por inyección.
+      - name: Run A1 Apollo finalization hardening and stable-target parity tests
+        run: npm run test:a1-apollo-finalization-hardening
+
+      # AGENT1-APOLLO-CANDIDATE-OPERABILITY-VALIDATION-1 — la OPERABILIDAD del
+      # candidato y la veracidad de su ficha entran al check obligatorio.
+      #
+      # Los defectos medidos en la corrida live `b3afe066…` (candidato
+      # `f526cd07…`, runtime `89563be5`) no rompían ningún tipo, no fallaban al
+      # compilar y ninguna suite los veía:
+      #
+      #   * las OCHO filas de Apollo en Producción tenían `record_origin = NULL`,
+      #     así que la cola de revisión limpia —que exige `'production'`— no podía
+      #     aprobarlas ni descartarlas. El writer canónico nunca escribió la
+      #     columna: los `web_ai` con `'production'` venían de un backfill único y
+      #     los 22 escritos después de aquel backfill están igual de NULL;
+      #   * `scoring.warnings` afirmaba «LinkedIn no disponible» sobre una fila con
+      #     `linkedin_url` en columna y `mapping_status = 'confirmed'`, porque
+      #     `captureApolloCompanyFields()` corría DESPUÉS de `scoreCandidate()` —un
+      #     defecto de ORDEN, invisible al compilador;
+      #   * `rich_profile.notes.missing_fields` declaraba ausentes `linkedin_url`,
+      #     `subindustry`, `city` y `size` en una fila que tenía los cuatro.
+      #
+      # Lo que este paso guarda:
+      #
+      #   * que una corrida REAL escriba `record_origin = 'production'` y que la
+      #     fila así escrita PASE el gate de la cola limpia;
+      #   * que una corrida en seco y cualquier marcador de smoke/QA NUNCA se
+      #     asciendan a `production` — el gate de seguridad no se relaja;
+      #   * que los CUATRO gates (approve, approve+convert, discard, duplicate)
+      #     sigan rechazando NULL y todo origen no-production;
+      #   * que la captura del proveedor preceda al scoring y que los DOS call
+      #     sites reciban `linkedinCompanyUrl`;
+      #   * que DISPONIBILIDAD y VERIFICACIÓN sean campos distintos: una URL con
+      #     verificación ambigua nunca se reporta como ausente, y `mapping_status
+      #     = confirmed` nunca se disfraza de «verificado»;
+      #   * que `missing_fields` describa ausencias REALES post-enrichment;
+      #   * que `final_state_consistency` describa exclusivamente el estado
+      #     POST-writer, con el diagnóstico pre-writer conservado con su propio
+      #     nombre.
+      #
+      # Determinista: sin Apollo real, sin Tavily real, sin DB real, sin flags,
+      # sin créditos y sin escrituras en Producción.
+      - name: Run A1 Apollo candidate operability validation tests
+        run: npm run test:a1-apollo-candidate-operability-validation
+
+      # AGENT1-RECORD-ORIGIN-CLASSIFIER-HARDENING-1 — la PRECEDENCIA del
+      # clasificador canónico de `record_origin` entra al check obligatorio.
+      #
+      # #256 enseñó al writer canónico a declarar la procedencia, y con eso la
+      # cola de revisión limpia volvió a poder operar un candidato REAL. Lo que
+      # ese hito NO podía saber es lo que descubrió el backfill histórico
+      # posterior: aplicado a ciegas sobre filas antiguas,
+      # `deriveRecordOriginClassification` produce falsos `production`. Tres
+      # causas, medidas sobre datos reales, y ninguna rompe una compilación:
+      #
+      #   * EC-SCVS NO EJECUTADO. Un registro con `provider_calls_allowed=false`,
+      #     `live_pilot_not_executed=true` y `execution_authorized=false`
+      #     aterrizaba en la regla de `production_status` con confianza 80, porque
+      #     su `status='needs_review'` es legítimo y NINGUNA regla miraba esos
+      #     tres campos. El status ganaba a la evidencia que lo contradecía;
+      #   * QA CLEANUP NO RECONOCIDO. `metadata.qa_cleanup` no era marcador de
+      #     nada: la familia QA sólo leía `qa_only`/`do_not_use_for_sales`/
+      #     `do_not_convert` y la de limpieza sólo la frase «limpieza histórica»,
+      #     así que 15 filas de limpieza de QA visual caían en `unknown`;
+      #   * NOTA COMERCIAL COMO PRUEBA. La regla `outside_icp` devolvía
+      #     `production` por el SOLO hecho de que `review_notes` dijera «fuera del
+      #     segmento». Una frase comercial legítima con basura de QA pegada
+      #     bastaba para afirmar procedencia de producción sobre una fila que no
+      #     tenía ninguna.
+      #
+      # Lo que este paso guarda:
+      #
+      #   * la PRECEDENCIA como contrato: toda la evidencia explícita de
+      #     no-producción (smoke > qa > synthetic > cleanup > import >
+      #     no-ejecutado) se resuelve ANTES de cualquier inferencia de producción,
+      #     y NINGÚN camino de marcador explícito puede devolver `production`,
+      #     probado contra los cuatro status legítimos;
+      #   * que los tres marcadores fuertes basten CADA UNO por separado, también
+      #     anidados un nivel y también en el lote;
+      #   * que las dos pistas DÉBILES —`do_not_sync_hubspot`, `runner_required`—
+      #     se declaren y NO decidan: una corrida real puede pedir deliberadamente
+      #     no sincronizar, y tratarlas como prueba invalidaría filas legítimas;
+      #   * que `review_notes` nunca sea la ÚNICA señal que eleve un origen
+      #     ambiguo a `production`, conservando el MOTIVO comercial —que es lo
+      #     único que la nota aporta— y afirmando el ORIGEN sólo con procedencia
+      #     positiva independiente;
+      #   * que la producción REAL siga siendo producción: Apollo, web_ai/Tavily y
+      #     Lusha con el contrato de #256, los cinco status de producción y el
+      #     duplicado con su motivo;
+      #   * que el contrato del writer de #256 quede intacto: `dry_run` devuelve
+      #     ausencia, y la proyección sigue SIN escribir `classification_source`
+      #     ni `classification_confidence` (PR #238 / #241 § 7, el mismo par de
+      #     columnas cuyo vocabulario equivocado produjo el 23514);
+      #   * que los cuatro gates de la cola limpia sigan rechazando NULL y todo
+      #     origen no-production, sin haberlos tocado;
+      #   * que el clasificador siga siendo PURO: sin I/O, sin mutar entradas, sin
+      #     lanzar sobre datos parciales, y con la confianza dentro del rango que
+      #     la CHECK de la migración 093 admite.
+      #
+      # 0 migraciones, 0 backfills, 0 escrituras en Producción. Determinista y
+      # offline: sin Apollo, sin Tavily, sin Lusha, sin HubSpot, sin Supabase, sin
+      # flags y sin créditos.
+      - name: Run A1 record-origin classifier hardening tests
+        run: npm run test:a1-record-origin-classifier-hardening
+
+      # AGENT1-SUBINDUSTRY-PRECISION-COVERAGE-1 · PHASE 2A — resolución EXACTA de
+      # la identidad de subindustria, antes de ampliar la cobertura de precisión.
+      #
+      # El defecto que guarda: `resolveSubindustryKey` emparejaba con contención
+      # bidireccional por substring (`normalized.includes(key) ||
+      # key.includes(normalized)`). Las claves de precisión son frases largas, así
+      # que cualquier substring suyo resolvía a una subindustria REAL: se midió
+      # sobre `origin/main` y `"super"`, `"moda"`, `"calzado"`, `"departamento"` y
+      # hasta las cadenas de UNA letra `"a"`, `"e"`, `"s"`, `"o"`, `"y"` devolvían
+      # `subindustryMapped: true`, con el ganador decidido por el orden de
+      # `Object.keys`. Y `subindustryMapped` no es diagnóstico: decide si un
+      # candidato puede contar hacia el objetivo (#251) y si deja de persistirse.
+      #
+      # Lo que este paso protege:
+      #
+      #   * que la identidad se resuelva SÓLO por id exacto, canónico normalizado
+      #     exacto o alias explícito normalizado exacto, y nada más: sin prefijo,
+      #     sin sufijo, sin frase contenida, sin contención bidireccional, sin
+      #     token parcial y sin fuzzy matching;
+      #   * que un alias declarado por dos subindustrias sea ambiguo y NO resuelva;
+      #   * fail-closed: sin resolución no hay sector padre, ni clave más cercana,
+      #     ni primera entrada del registro, ni mapping por defecto — y un
+      #     candidato que confirmaría bajo la política de supermercados no confirma
+      #     con una etiqueta que el catálogo no reconoce;
+      #   * la auditoría read-only de colisiones sobre las 73 canónicas y los 127
+      #     alias publicados, en sus tres clases (canónica-canónica,
+      #     alias-canónica, alias-alias);
+      #   * ANY-OF intacto: cada subindustria pedida se resuelve por separado, un
+      #     ítem irreconocible no contamina a los demás y [A,B] == [B,A];
+      #   * que la cobertura de precisión siga siendo EXACTAMENTE 2 de 73 —
+      #     «Supermercados e Hipermercados» y «Tiendas por Departamento, Moda y
+      #     Calzado»— y que ninguno de los 127 alias publicados resuelva precisión
+      #     todavía.
+      #
+      # 0 mappings nuevos, 0 migraciones, 0 escrituras en Producción. Determinista
+      # y offline: sin Apollo, sin Tavily, sin Lusha, sin HubSpot, sin Supabase,
+      # sin flags y sin créditos.
+      - name: Run A1 subindustry key resolution hardening tests
+        run: npm run test:a1-subindustry-key-resolution-hardening
+
+      # AGENT1-SUBINDUSTRY-PRECISION-COVERAGE-1 · PHASE 2B — los datos de precisión
+      # de las dos subindustrias mapeadas dejan de ser seis `Record<string,
+      # string[]>` dispersos y pasan a ser un `SubindustryPrecisionRuleSet` tipado
+      # por subindustria, con registry validado.
+      #
+      # Por qué entra al check obligatorio: la precisión de subindustria decide si
+      # un candidato CUENTA hacia el objetivo (#251) y si se persiste, así que un
+      # port «equivalente» que moviera un solo término movería gasto y admisión sin
+      # que nada lo dijera. Y a partir de aquí añadir una subindustria es editar un
+      # registro, que es exactamente la clase de cambio que necesita un ratchet.
+      #
+      # Lo que este paso protege:
+      #
+      #   * el contrato tipado: cada regla declara los mismos campos, su clave está
+      #     normalizada y coincide con su canónico, y ninguna regla mapeada se queda
+      #     sin anclas;
+      #   * cobertura EXACTAMENTE 2 de 73 — «Supermercados e Hipermercados» y
+      #     «Tiendas por Departamento, Moda y Calzado», nombradas una a una— y las
+      #     71 restantes sin mapeo. Un PR que añada una tercera clave falla aquí;
+      #   * § 8 alias de CATÁLOGO ≠ alias de PRECISIÓN: `precisionAliases` vacío en
+      #     las dos reglas, y ninguno de los 127 alias publicados —`banco`, `bank`,
+      #     `fintech` incluidos— resuelve identidad de precisión;
+      #   * § 14 colisiones: clave, canónico normalizado, `subindustryId`,
+      #     alias-alias y alias-canónico ajenos ABORTAN la construcción del registro
+      #     en el import, en vez de degradar a «gana la primera»;
+      #   * § 7 el resolver de #265 sigue intacto: identidad sólo por igualdad
+      #     exacta, sin substring, sin fuzzy, sin sector padre y sin que el orden del
+      #     registro pueda elegir ganador;
+      #   * § 11 paridad: con las dos reglas en `mode: 'full'`, el veredicto
+      #     OPERATIVO es el DIAGNÓSTICO sobre toda la matriz de término × campo ×
+      #     subindustria, en ANY-OF y en la forma de la metadata persistida;
+      #   * §§ 9–10 `confirm_only` implementado y SIN USAR en producción: sobre una
+      #     regla TEST-ONLY inyectada, `confirmed` confirma y puede contar, mientras
+      #     `ambiguous` y `rejected` quedan como diagnóstico y NO mueven el estado
+      #     sectorial, NO crean prioridad de enrichment y NO impiden persistir;
+      #   * § 13 ANY-OF con modos mezclados: [A,B] == [B,A] en veredicto y en
+      #     conteo, y el empate se desempata por el orden PEDIDO, declarado;
+      #   * § 17 «Formación Corporativa y Corporate Training» no está registrada y
+      #     no auto-confirma.
+      #
+      # 0 subindustrias nuevas, 0 migraciones, 0 escrituras en Producción, 0
+      # créditos. Determinista y offline: sin Apollo, sin Tavily, sin Lusha, sin
+      # HubSpot, sin Supabase y sin flags.
+      - name: Run A1 subindustry precision rule-set registry tests
+        run: npm run test:a1-subindustry-precision-ruleset-registry
+
+      # AGENT1-SUBINDUSTRY-PRECISION-COVERAGE-1 · PHASE 2C — la Ola 1 entra al check
+      # obligatorio. Nueve subindustrias nuevas en `confirm_only`, cobertura de
+      # precisión 2/73 → 11/73. Lo que esta suite impide que se rompa en silencio:
+      #
+      #   * § 19 toda rama NEGATIVA de una `confirm_only` es económicamente INERTE:
+      #     el pliegue sectorial es la identidad sobre los cuatro estados base, la
+      #     condición de subindustria del contrato de objetivo NO queda satisfecha, y
+      #     el candidato no deja de persistirse. El único cambio económico que una
+      #     regla nueva puede producir es un CONFIRMED positivo;
+      #   * §§ 4, 13, 15 y 17 la industria PADRE de Apollo nunca confirma la hija —el
+      #     defecto real que la fase encontró y corrigió: `hospital` a secas es token
+      #     de `hospital & health care`, la industria de TODA la salud;
+      #   * § 5 ningún alias publicado del catálogo resuelve identidad de precisión
+      #     (`banco`, `bank`, `EPS`, `CPG`, `consumo masivo`, `protección de datos`);
+      #   * § 20 ANY-OF mixto `full` + `confirm_only`: [A,B] == [B,A] en veredicto,
+      #     pliegue y condición de objetivo, sobre todos los pares de las 11 reglas;
+      #   * § 22 las dos reglas históricas conservan TODAS sus decisiones;
+      #   * §§ 21 y 25 «Formación Corporativa» sigue sin mapeo y ninguna regla de la
+      #     Ola 1 se promociona a `full`.
+      #
+      # 0 migraciones, 0 escrituras en Producción, 0 créditos. Determinista y
+      # offline: sin Apollo, sin Tavily, sin Lusha, sin HubSpot, sin Supabase y sin
+      # flags.
+      - name: Run A1 subindustry precision Wave 1 tests
+        run: npm run test:a1-subindustry-precision-wave1
+
+      # AGENT1-SECTOR-POST-ENRICHMENT-ADMISSION-1 — la admisión sectorial por
+      # precisión de hija entra al check obligatorio.
+      #
+      # El bloqueo que cierra, descubierto justo después de #274: el bootstrap
+      # autoriza a COMPRAR la clasificación que `mixed_companies/search` no devuelve,
+      # el perfil comprado CONFIRMA la subindustria que el usuario pidió, y el
+      # veredicto sectorial vuelve igualmente a `sector_not_mapped` —porque no hay
+      # política legacy para el sector padre— y mata al candidato antes del writer.
+      #
+      # Lo que estas suites fijan, y por qué tienen que correr en cada PR:
+      #
+      #   * §§ 3-7 una hija PEDIDA y confirmada OPERATIVAMENTE admite; la industria
+      #     PADRE sola nunca admite, y la implicación no se invierte;
+      #   * § 14 una subindustria que el usuario NO pidió no puede admitir a nadie;
+      #   * §§ 5-6 las ramas negativas de `confirm_only` siguen ABSTENIÉNDOSE: no
+      #     admiten y tampoco añaden rechazo;
+      #   * §§ 8, 10, 11 fail-closed ante catálogo incoherente, búsqueda sin
+      #     subindustrias y subindustria sin regla de precisión;
+      #   * §§ 9, 16 precedencia: la política legacy manda donde existe, y Retail y
+      #     Educación conservan sus decisiones EXACTAS — deriva cero;
+      #   * §§ 17, 21 la cadena entera por el runner real: admitir NO es persistir, y
+      #     un gate posterior (ownership) sigue rechazando con SU motivo;
+      #   * § 22 replay offline de la cohorte real de RUN 1 `f4c8a60f` con enrichment
+      #     simulado, sin una sola llamada al proveedor.
+      #
+      # 0 migraciones, 0 escrituras en Producción, 0 créditos, 0 llamadas a Apollo,
+      # Tavily, Lusha, HubSpot o Supabase.
+      - name: Run A1 sector post-enrichment admission tests
+        run: npm run test:a1-sector-post-enrichment-admission
+
+      # AGENT1-APOLLO-BOOTSTRAP-PURCHASE-GATE-THREADING-1 — el gate que guarda la
+      # COMPRA recibe la autorización que dejó competir al candidato.
+      #
+      # El defecto que fija, medido en producción (lote `74a49b01`, SHA `6808835f`,
+      # que ya incluía #274 y #276): 20 candidatos bootstrap-eligible, 5
+      # seleccionados y CERO enrichments ejecutados, porque el runner llamaba al
+      # cascade sin `sectorEvidenceBootstrap` y el gate volvía a juzgar sin
+      # autorización — `sector_not_mapped` ⇒ `eligibility_blocked`. 20 créditos de
+      # búsqueda, 0 candidatos, y la evidencia que el hito compra siguió sin
+      # comprarse.
+      #
+      # Por qué NINGUNA suite anterior lo vio, y por qué esta sí: todas las demás
+      # mockean `enrichCascade` entero, y un cascade mockeado siempre devuelve
+      # `enriched: true`, así que el gate que rechazaba nunca llegaba a ejecutarse
+      # en una prueba. Esta suite atraviesa el cascade de PRODUCCIÓN y sólo simula
+      # el transporte HTTP.
+      #
+      # Lo que fija, y por qué tiene que correr en cada PR:
+      #
+      #   * § 13 replay de la cohorte real: BEFORE 5 seleccionados / 0 ejecutados
+      #     con `eligibility_blocked` + `sector_not_mapped`; AFTER 5 de 5 compran,
+      #     con la MISMA selección — cero deriva de ranking;
+      #   * § 4 la autorización es de CANDIDATO y está acotada por el cap: una
+      #     corrida autorizada NO autoriza a los 20, y un elegible no seleccionado
+      #     no llega ni al gate de compra;
+      #   * § 3 fail-closed por las cuatro precondiciones de #274, a través del
+      #     runner: una sola ronda con la pregunta equivocada ⇒ 0 compras;
+      #   * § 6 una compra que NUNCA se intentó no degrada al candidato — la
+      #     regresión que dejó a los 5 mejores de `74a49b01` en `needs_enrichment`;
+      #   * § 9 la cadena entera hasta la admisión de #276, y el límite declarado
+      #     de que la hija que el retest pidió no tiene regla de precisión;
+      #   * §§ 8, 12 caps intactos (<= 2 búsquedas, <= 5 enrichments, <= 25
+      #     créditos) y reconciliación terminal sin `unclassified_final`;
+      #   * § 11 Retail y Educación conservan sus decisiones EXACTAS.
+      #
+      # 0 migraciones, 0 escrituras en Producción, 0 créditos, 0 llamadas a Apollo,
+      # Tavily, Lusha, HubSpot o Supabase.
+      - name: Run A1 bootstrap purchase gate threading tests
+        run: npm run test:a1-apollo-bootstrap-purchase-gate-threading
+
       # AGENT2A-PHONE-WATERFALL-4F — el waterfall de teléfono entra al check
       # obligatorio. Hasta 4F ninguna de estas suites corría en CI: la regresión
       # que 4F corrige (una prueba que seguía exigiendo el modal que 4D eliminó)
@@ -170,3 +849,1569 @@ jobs:
 
       - name: Run phone drawer sync tests
         run: npm run test:agent2a:phone-drawer-sync
+
+      # AGENT2A-PHONE-REVEAL-ASYNC-UI-REFRESH-1 — el ciclo de vida asíncrono del reveal
+      # entra al check obligatorio. La QA de Producción del 18-08 mostró el hueco entero:
+      # backend perfecto (revealed en ~20 s, 1 teléfono persistido) y una UI que no se
+      # movía, porque el estado de espera Y el sondeo se derivaban los dos del mismo
+      # `phone_reveal_status` LEÍDO — así que un refetch que fallara o llegara sin el
+      # estado nuevo dejaba el CTA idle sin que nadie volviera a mirar. La suite fija el
+      # contrato que lo cierra: espera visible en el mismo tick del envío, sin segundo
+      # envío posible, revalidación automática aunque el primer refetch reviente, parada
+      # en todo terminal, y 0 llamadas a proveedor / 0 créditos desde el sondeo.
+      - name: Run phone async UI refresh tests
+        run: npm run test:agent2a:phone-async-ui-refresh
+
+      # AGENT2A-PHONE-REVEAL-4N — la contabilidad del presupuesto entra al check
+      # obligatorio. Es donde vive el defecto que este hito cierra y ninguna suite lo
+      # cubría: la reserva confirmada de Apollo (8 créditos, `assumed_cap`) no entraba en
+      # ningún cálculo de presupuesto porque Apollo no reporta lo que cobra, y sumarla sin
+      # excluir el usage log de Lusha habría contado el mismo gasto dos veces (10 → 15 sobre
+      # un pozo de 10). La suite reproduce las dos corridas live con sus cifras exactas,
+      # verifica que las reservas se lean en UN solo snapshot (para que `reserved →
+      # confirmed` no devuelva disponibilidad ni por un instante), que el pozo se empareje
+      # tal como quedó ALMACENADO, y que el camino Apollo escriba por fin sus campos
+      # terminales. Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run phone budget accounting tests
+        run: npm run test:agent2a:phone-budget-accounting
+
+      # AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1-R2 — CRITICAL CI GAP. Estas cinco
+      # suites (phone-reveal-action-3d3, phone-reveal-async15,
+      # phone-reveal-start-contract-1, phone-reveal-apollo-person-id-cache-1a,
+      # phone-reveal-privacy-gate-not-evaluable-p0) ejercen el mismo endurecimiento
+      # fail-closed del P0 de supresión sin clave (START/WEBHOOK/RECOVERY/
+      # puerta-Lusha ahora bloquean `not_evaluable` en vez de dejarlo pasar). Las
+      # TRES últimas NO estaban cableadas a NINGÚN script de npm — invisibles a CI
+      # por completo, no solo a este workflow (la última ni siquiera existía antes
+      # del propio hito P0) — así que un PR podía romper la resolución de
+      # identidad de la supresión (o revertir el fail-closed) sin que ningún check
+      # lo viera. Determinista: sin flags, sin proveedores, sin créditos y sin DB
+      # real.
+      - name: Run phone reveal action + P0 suppression identity tests
+        run: npm run test:agent2a:phone-reveal-action
+
+      # AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2 — el fail-closed del P0 anterior es
+      # correcto, pero la UI seguía ofreciendo «Revelar teléfono» HABILITADO a
+      # candidatos cuya supresión no se puede evaluar: el operador hacía clic y
+      # recibía un error rojo de privacidad por algo imposible antes del clic. Estas
+      # suites fijan que el botón y el backend usen LA MISMA resolución de identidad
+      # (paridad comprobada contra `resolvePhoneCachePersonId` sobre la matriz
+      # completa de formas de id × origen × cuenta) y que el bloqueo sea visible sin
+      # gastar un clic. Se acompañan de las suites del backend que definen esa misma
+      # regla, para que un cambio en una sola de las dos capas rompa el check.
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run P0 pre-approval phone identity eligibility tests
+        run: npm run test:agent2a:p0-preapproval-phone-identity
+
+      # AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4 (Fase 1) — la privacidad del teléfono deja
+      # de estar clavada a la CACHÉ de Apollo: pasa a `provider_suppressions`, con clave
+      # (provider, provider_person_id) y SIN cuenta. Estas suites fijan lo que sólo se
+      # rompe en silencio: que la identidad se resuelva con la MISMA precedencia en la
+      # puerta y en el escritor, que un titular de LUSHA sea expresable, que un fallo de
+      # lectura NO se lea como «no suprimido», y que la firma del helper no gane un
+      # parámetro de cuenta —el momento en que «sin cuenta» volvería a significar «sin
+      # privacidad»—. Determinista: sin flags, sin proveedores, sin créditos, sin DB real.
+      - name: Run provider-native phone suppression tests
+        run: npm run test:agent2a:provider-native-suppression
+
+      # AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4-R1 — la última capa. La Fase 1 dejaba el
+      # re-chequeo DENTRO de la transacción final resolviendo la clave con reglas de
+      # Apollo, así que un candidato de origen Lusha sin `apollo_person_id` no era
+      # comprobado en absoluto ahí: para Lusha la última palabra la tenía una lectura
+      # previa a la llamada al proveedor y fuera del lock.
+      #
+      # Estos ratchets son ESTÁTICOS: afirman cosas sobre el TEXTO de la 120 —la firma del
+      # helper, que no gane un parámetro de cuenta, que la identidad se resuelva con la
+      # misma precedencia en los dos caminos— que son invariantes de DISEÑO, y que
+      # PostgreSQL no puede comprobar porque una migración con la firma equivocada aplica
+      # igual de bien.
+      #
+      # ⚠️ CORRECCIÓN DE R2: este paso incluye una heurística de comillas que ANTES se
+      # describía aquí como detector de «un literal SQL sin cerrar». No lo es. Mide
+      # PARIDAD, no sintaxis: con el defecto real de este hito reinyectado —un apóstrofo
+      # sin escapar dentro de un `COMMENT ON TABLE`, que hacía fallar la 120 entera con
+      # SQLSTATE 42601— esta suite pasa 20/20. La aplicabilidad de la migración la prueban
+      # los dos pasos de PostgreSQL real que vienen justo después, y ésa es la razón por
+      # la que ahora son obligatorios.
+      - name: Run provider-native transactional re-check ratchets
+        run: npm run test:agent2a:provider-native-transactional-recheck
+
+      # ── AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4-R2 ─────────────────────────────────
+      # UNA MIGRACIÓN QUE PostgreSQL NO PUEDE APLICAR TIENE QUE ROMPER ESTE CHECK.
+      #
+      # Hasta R2 no lo rompía. El repo tenía suites de PostgreSQL real desde 4O-C, pero
+      # TODAS quedaban fuera del check obligatorio porque `embedded-postgres` no es
+      # dependencia del repo, y la única barrera aquí dentro era la heurística de comillas
+      # del paso anterior. Prueba independiente de que eso no bastaba: en el head previo
+      # `6002a153` la 120 fallaba con SQLSTATE 42601 por un apóstrofo sin escapar en un
+      # `COMMENT ON TABLE`, y la suite estática pasaba. Reinyectado ese defecto exacto:
+      # estática 20/20 verde, PostgreSQL real 27 fallos con `syntax error at or near "s"`.
+      #
+      # `embedded-postgres` sigue instalándose APARTE, con `--no-save` y la versión
+      # PINCHADA, en vez de entrar en `package.json`: como dependencia normal descargaría
+      # un binario de PostgreSQL en cada `npm ci` de cualquier workflow, no sólo aquí.
+      # ⚠️ El rango `@17` NO resuelve (toda la serie 17 se publica como prerelease);
+      # 17.6.0-beta.15 es además la serie de Producción.
+      - name: Install embedded PostgreSQL harness
+        run: npm install --no-save embedded-postgres@17.6.0-beta.15
+
+      # `SELLUP_REQUIRE_POSTGRES_HARNESS` es la mitad que faltaba. Estas suites se SALTAN
+      # solas cuando el módulo no resuelve —lo correcto en local, donde nadie debería
+      # necesitar un binario de PostgreSQL para correr tests de TypeScript—, y ese mismo
+      # skip convertiría este paso en decorativo: bastaría con que el `npm install` de
+      # arriba fallara para que el check se pusiera verde con una migración inaplicable.
+      # Con la variable puesta, no resolver el arnés LANZA. Sin `continue-on-error`, sin
+      # `|| true` y sin condición de salto: si PostgreSQL no aplica la 120, esto es rojo.
+      - name: Run provider-native suppression tests against real PostgreSQL
+        run: npm run test:agent2a:provider-native-suppression:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # La carrera de Lusha, que es la garantía que R1 cerró: la supresión que commitea
+      # MIENTRAS la RPC espera el lock tiene que bloquear la persistencia. Eso no se puede
+      # afirmar leyendo SQL — hacen falta dos conexiones compitiendo de verdad. Ambas
+      # suites aplican la cadena REAL (099, 107, 109, 110, 111, 112, 113, 114, 115, 120)
+      # leyendo los archivos verbatim de `supabase/migrations`.
+      - name: Run provider-native in-flight race tests against real PostgreSQL
+        run: npm run test:agent2a:provider-native-race:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # El módulo de presupuestos, cuyo resolver es ahora la fuente económica canónica.
+      - name: Run budget module tests
+        run: npm run test:budgets
+
+      # AGENT2A-PHONE-REVEAL-4O-B — el modelo canónico de MÚLTIPLES teléfonos entra al
+      # check obligatorio desde el primer día, antes de que nada lo consuma. La razón es
+      # que sus garantías son justamente las que se rompen en silencio: que la clave de
+      # deduplicación NUNCA contenga el número (de lo que depende que un tombstone no
+      # conserve lo que dice haber borrado), que la clave de procedencia no lleve PII y no
+      # dependa del reloj (o un webhook reprocesado duplicaría la fila), que un número
+      # inválido o suprimido no pueda ser principal, y que los vocabularios del SQL y de
+      # TypeScript no se separen — una divergencia que no falla al compilar sino al
+      # insertar. Determinista: sin flags, sin proveedores, sin créditos y sin DB real
+      # (la migración solo se lee de disco; no se aplica en ningún sitio).
+      - name: Run candidate multiple-phone model tests
+        run: npm run test:agent2a:candidate-phone-collection
+
+      # AGENT2A-PHONE-REVEAL-4O-C — captura de TODOS los teléfonos Apollo.
+      #
+      # 4O-B creó el modelo y no lo cableó; este bloque es el que hace que los números
+      # adicionales que Apollo YA entregaba —y que la operadora YA pagó— dejen de
+      # perderse al escribir. Lo que la suite protege, y que no falla al compilar:
+      #
+      #   * que el escalar `contact_enrichment_candidates.phone` siga siendo EXACTAMENTE
+      #     el mismo teléfono que antes del hito (una regresión aquí cambia el dato
+      #     visible de un candidato sin que nadie lo pida);
+      #   * que un registro repetido por Apollo en la raíz y bajo `person` no se
+      #     contabilice dos veces, ni genere una segunda procedencia;
+      #   * que el escalar y el principal de la colección NUNCA se contradigan;
+      #   * que un fallo del writer no se cierre como éxito ni deje un teléfono visible
+      #     sin su colección;
+      #   * que un tombstone no resucite por ninguno de los dos caminos;
+      #   * que ningún teléfono, display ni `dedupe_key` llegue a un usage-log;
+      #   * que la captura NO sea alcanzable desde el search, la caché, Lusha ni la UI.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real (la
+      # persistencia se ejerce contra un doble en memoria con las mismas reglas).
+      - name: Run Apollo phone collection capture tests
+        run: npm run test:agent2a:apollo-phone-collection-capture
+
+      - name: Run Lusha phone collection capture tests
+        run: npm run test:agent2a:lusha-phone-collection
+
+      # AGENT2A-PHONE-REVEAL-4O-E1 — política TERMINAL de supresión.
+      #
+      # La auditoría 4O-E0 encontró que ninguna suite de supresión entraba en este
+      # check, y el defecto que 4O-E1 corrige es exactamente del tipo que sobrevive a
+      # esa ausencia: las transacciones 110/111 responden `suppressed` (todos los
+      # números del evento son tombstones) y ese resultado se agrupaba con los FALLOS
+      # de escritura, así que el candidato se quedaba en vuelo, el cron lo
+      # reseleccionaba en cada pasada sobre una respuesta que nunca iba a poder
+      # persistirse, la corrida seguía activa y su reserva seguía `reserved` pese a que
+      # el proveedor ya había cobrado. Nada de eso rompe una compilación.
+      #
+      # Lo que la suite protege:
+      #   * que una supresión confirmada terminalice (`error` + `blocked_suppressed`) y
+      #     NUNCA como `no_phone_found`, que es el estado que vuelve a hacer elegible un
+      #     reveal PAGADO del mismo número suprimido;
+      #   * que esa escritura sea CONDICIONAL, comprobando los filtros reales que se
+      #     envían al driver: sin ellos una carrera convertiría un `revealed` legítimo
+      #     en un `error`;
+      #   * que el cron deje de seleccionar lo terminalizado, probado de forma NO vacía
+      #     con la query real (5 suprimidos + 1 candidato en vuelo que sí debe salir);
+      #   * que el costo REAL ya incurrido se preserve: el de Apollo en el candidato, y
+      #     el de Lusha en su propia columna de la corrida — donde antes se borraba a
+      #     `null` + `unknown` y la liquidación de la reserva leía ese cero;
+      #   * que `stale_event`, `candidate_not_eligible` y una comprobación no disponible
+      #     NO terminalicen: no afirman ninguna supresión;
+      #   * que las RPC 110/111, las migraciones, la UI, los contactos y HubSpot queden
+      #     intactos, y que este paso siga existiendo en el workflow.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real.
+      - name: Run phone suppression terminal policy tests
+        run: npm run test:agent2a:phone-suppression-terminal
+
+      # AGENT2A-PHONE-REVEAL-4O-E2 — propagación de la supresión / DSAR a la COLECCIÓN.
+      #
+      # La migración 109 añadió un QUINTO sitio donde vive el teléfono
+      # (`contact_enrichment_candidate_phones`) y la DSAR nunca supo de él: borraba la
+      # caché, el escalar del candidato y los contactos, y dejaba viva la fila
+      # `is_primary` de la colección. Desde ahí las RPC 110/111 hacen exactamente lo
+      # que se construyeron para hacer —leer la colección bajo el lock, elegir el
+      # número vivo y escribirlo en el escalar—, así que el número borrado VUELVE. No
+      # por un fallo del borrado ni del reveal, sino por la costura entre los dos.
+      # Nada de eso rompe una compilación, y la tabla está vacía hoy, así que tampoco
+      # lo delata ningún dato.
+      #
+      # Lo que la suite protege:
+      #   * que el motivo se TRADUZCA entre los dos vocabularios de supresión, que no
+      #     comparten ni un valor: un pass-through fallaría la CHECK de la 109 en el
+      #     100% de las filas y solo en runtime — la misma forma del 23514 que en el
+      #     hilo de Agente 1 perdió «Almacenes La 14»;
+      #   * que el tombstone borre el número Y conserve la `dedupe_key`, que es el
+      #     UNIQUE que impide reinsertarlo: un DELETE desbloquearía el número;
+      #   * que la tabla de PROCEDENCIAS no se toque (no lleva teléfono y es la
+      #     evidencia de que hubo observación), garantizado además por privilegio;
+      #   * que un tombstone NUNCA quede como principal, que el escalar nunca sea un
+      #     número tombstoneado, y que no quede en null habiendo superviviente;
+      #   * que la reelección use el ranking CANÓNICO y no el orden de llegada del
+      #     proveedor;
+      #   * que el escritor viejo del candidato por PostgREST haya DESAPARECIDO: si
+      #     siguiera ahí volvería a poner `phone = null` encima del superviviente que
+      #     la transacción acaba de elegir;
+      #   * que un fallo de la propagación NO se reporte como supresión exitosa;
+      #   * que las RPC 110/111, las migraciones 109/110/111, la política terminal de
+      #     E1, la allowlist de contacts, la pata manual de Lusha y la UI queden
+      #     intactas, y que este paso siga existiendo en el workflow.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real (la
+      # migración solo se lee de disco; la atomicidad se demuestra aparte, contra un
+      # PostgreSQL 17 efímero, en `test:agent2a:phone-suppression-propagation-postgres`,
+      # que queda FUERA del check por depender de un binario que se descarga).
+      - name: Run phone suppression propagation tests
+        run: npm run test:agent2a:phone-suppression-propagation
+
+      # AGENT2A-PHONE-REVEAL-4O-E3 — carreras de privacidad y puertas del Lusha manual.
+      #
+      # E1 cerró qué pasa cuando la transacción declara `suppressed`; E2 hizo que la
+      # DSAR llegara a la colección canónica. Quedaban tres huecos, y los tres son del
+      # tipo que no rompe ninguna compilación ni deja ningún dato que los delate:
+      #
+      #   * LA CARRERA EN VUELO. La comprobación POR PERSONA vivía solo en TypeScript,
+      #     leída ANTES de la llamada al proveedor y FUERA del lock. Entre esa lectura
+      #     y el COMMIT de la persistencia caben la respuesta del proveedor y una DSAR
+      #     entera. La re-comprobación por NÚMERO que ya hacían las RPC 110/111 no lo
+      #     cubre: la DSAR tombstonea los números que la colección YA tenía, y un
+      #     número que el proveedor devuelve por primera vez no tiene tombstone que
+      #     emparejar — entra vivo, y la persona borrada vuelve a tener teléfono
+      #     visible minutos después de su propia supresión.
+      #   * EL CIERRE POR TOMBSTONE ERA INCONDICIONAL. El webhook y la recuperación
+      #     escribían `error` + `blocked_suppressed` con un `UPDATE … WHERE id = ?`
+      #     sobre una decisión leída mucho antes, así que podían pisar un `revealed`
+      #     que otro actor había alcanzado legítimamente.
+      #   * EL DISPARO MANUAL DE LUSHA NO TENÍA PUERTA. La re-comprobación de supresión
+      #     y `do_not_contact` existía solo en el waterfall: la acción manual de
+      #     administración llamaba a Lusha —y pagaba— sin consultar ninguna de las dos.
+      #
+      # Lo que la suite protege:
+      #   * que la migración 113 sea EXACTAMENTE la 110 y la 111 con tres ediciones
+      #     acotadas. Se DERIVA del SQL vigente y se compara byte a byte: una
+      #     restatement de ~1.800 líneas escrita a mano es el riesgo real del hito;
+      #   * que las migraciones 110, 111 y 112 no se editen retroactivamente;
+      #   * que el SQL nuevo sea SECURITY INVOKER, con `search_path` fijado, sin SQL
+      #     dinámico, sin DELETE y ejecutable solo por service_role;
+      #   * que el bloqueo PREVIO a la llamada valga 0 llamadas y 0 créditos, y que la
+      #     supresión POSTERIOR retenga el número conservando el cargo REAL — declarar
+      #     gratis una llamada pagada sería el bug que E1 ya corrigió una vez;
+      #   * que las dos rutas de Lusha compartan UNA sola puerta, con la misma
+      #     precedencia, en vez de dos copias que puedan divergir;
+      #   * que el disparo manual la tenga realmente INYECTADA: un gate que existe pero
+      #     no se cablea no protege nada;
+      #   * que el manual siga guardando UN solo teléfono (el multi-phone sigue
+      #     diferido) y que E1 y E2 queden intactos.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos y sin DB real. La
+      # carrera de verdad —dos transacciones compitiendo por el mismo lock— se
+      # demuestra aparte contra un PostgreSQL 17 efímero, en
+      # `test:agent2a:phone-privacy-race-postgres`, que queda FUERA del check por
+      # depender de un binario que se descarga.
+      - name: Run phone privacy race and gate tests
+        run: npm run test:agent2a:phone-privacy-race-gates
+
+      # AGENT2A-PHONE-REVEAL-4O-E4 — erasure provenance-safe de teléfonos OFICIALES.
+      #
+      # El defecto que cierra: la supresión limpiaba la caché, el escalar del candidato
+      # y la colección canónica, pero al llegar a `contacts` exigía que `phone_source`
+      # estuviera en una allowlist SÓLO de Apollo. Un teléfono revelado por Lusha
+      # sobrevivía intacto en la fila visible —la que pinta la UI y la que se
+      # sincroniza a HubSpot— y la DSAR se declaraba `ok` con el dato personal a la
+      # vista.
+      #
+      # Esta suite prueba las dos propiedades y su tensión:
+      #   * procedencia Lusha DEMOSTRADA de punta a punta (reveal → metadata del
+      #     candidato → aprobación → `contacts.phone_source`) ⇒ el teléfono se borra,
+      #     junto con las 7 columnas de su tupla: dejar `phone_revealed_at` o
+      #     `phone_processing_basis` vivos sería metadata delatora sobre el titular;
+      #   * procedencia AUSENTE o ajena (`manual`, `unknown`, `NULL`, `apollo_search`,
+      #     `provider_payload`) ⇒ el teléfono SOBREVIVE, incluso cuando su valor
+      #     coincide exactamente con uno de la colección del candidato: coincidencia
+      #     de valor no demuestra quién lo escribió;
+      #   * `mobile_phone` NO se borra en el camino Lusha. La columna no tiene
+      #     procedencia —no existe `mobile_phone_source` y sus únicos escritores son
+      #     los formularios manuales de contacto—, así que la erasure es
+      #     declaradamente PARCIAL cuando ese campo está poblado, y la suite lo afirma
+      #     en voz alta en vez de disimularlo ampliando el borrado;
+      #   * el UPDATE sigue siendo CONDICIONAL por la procedencia EXACTA observada
+      #     (`.eq`, ya no `.in`): con dos patches distintos según procedencia, un `.in`
+      #     permitiría aplicar el de Apollo —que incluye `mobile_phone`— a una fila que
+      #     pasó a ser Lusha entre la lectura y la escritura.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos, sin DSAR real y sin DB.
+      # La carrera de verdad —dos transacciones compitiendo por la misma fila— se
+      # demuestra aparte contra un PostgreSQL 17 efímero, en
+      # `test:agent2a:contacts-phone-privacy-erasure-postgres`, que queda FUERA del
+      # check por depender de un binario que se descarga.
+      - name: Run official contact phone privacy erasure tests
+        run: npm run test:agent2a:contacts-phone-privacy-erasure
+
+      # AGENT2A-PHONE-REVEAL-4O-E4.1 — `contacts.mobile_phone` no se borra sin
+      # procedencia.
+      #
+      # El defecto que cierra: la supresión de Apollo nulaba también
+      # `contacts.mobile_phone`, y la única evidencia que lo sostenía era
+      # `contacts.phone_source` — un valor que describe la columna `phone` y ninguna
+      # otra. La auditoría de escritores de este hito demostró que NINGÚN proveedor
+      # escribe `mobile_phone`: sus únicos escritores son los dos formularios manuales
+      # de contacto, `ContactInsertPayload` no tiene la columna, Producción no tiene
+      # trigger / columna generada / función que la escriba, y el historial completo de
+      # git no contiene un solo escritor de proveedor. El caso que rompía no necesita
+      # ninguna carrera: un contacto aprobado desde Apollo conserva
+      # `phone_source = apollo_reveal` para siempre, `updateContact` nunca toca esa
+      # columna, y basta con que alguien teclee un celular a mano para que la DSAR lo
+      # borrase.
+      #
+      # Esta suite prueba:
+      #   * las tres procedencias admitidas (apollo_reveal, apollo_cache, lusha_reveal)
+      #     siguen borrando `phone` y sus 7 columnas — la erasure NO se degrada;
+      #   * ninguna de ellas toca `mobile_phone`, ni siquiera cuando el valor coincide:
+      #     NO PROVENANCE → NO DESTRUCTIVE ERASURE;
+      #   * `manual`, `unknown` y `NULL` siguen sin producir patch alguno;
+      #   * el UPDATE sigue siendo CONDICIONAL por la procedencia observada, así que un
+      #     reemplazo legítimo posterior a la lectura sobrevive a la escritura stale;
+      #   * la AUDITORÍA DE ESCRITORES queda congelada: si aparece un escritor nuevo de
+      #     `mobile_phone` en `src/`, la suite falla — la premisa de E4.1 dejaría de ser
+      #     cierta y hay que revisitarla antes de que un borrado quede corto.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos, sin DSAR real y sin DB.
+      # La variante contra PostgreSQL real vive en
+      # `test:agent2a:contacts-phone-privacy-erasure-postgres`, fuera del check por
+      # depender de un binario que se descarga.
+      - name: Run mobile phone provenance erasure tests
+        run: npm run test:agent2a:mobile-phone-provenance-erasure
+
+      # AGENT2A-PHONE-REVEAL-4O-E4.1-R1 — editar el teléfono a mano invalida la
+      # procedencia del proveedor.
+      #
+      # El defecto que cierra: E4 dejó la supresión de teléfonos oficiales apoyada por
+      # completo en `contacts.phone_source`, pero `updateContact` escribía
+      # `contacts.phone` SIN tocar esa columna. Un contacto aprobado desde Apollo o
+      # Lusha conserva `phone_source = apollo_reveal / lusha_reveal` para siempre, así
+      # que bastaba con que un humano tecleara otro número en el formulario para que la
+      # procedencia siguiera pareciendo demostrada y una DSAR posterior borrase un
+      # teléfono que el proveedor nunca escribió. No hace falta ninguna carrera.
+      #
+      # Esta suite prueba:
+      #   * los cuatro casos del helper compartido: campo ausente y valor reenviado NO
+      #     tocan la procedencia (si no, editar el cargo convertiría en `manual` todos
+      #     los teléfonos de proveedor del sistema y ninguna DSAR volvería a borrarlos);
+      #     un valor nuevo pasa la tupla entera a `manual`; vaciar el campo la deja toda
+      #     en NULL, sin metadata huérfana;
+      #   * la matriz de procedencias de origen (apollo_reveal / apollo_cache /
+      #     lusha_reveal / manual / NULL / …) y las 7 columnas de la tupla;
+      #   * la regresión de privacidad de punta a punta: la fila ES borrable antes de la
+      #     edición y NO lo es después — con el `phone_source` producido por el helper
+      #     real, nunca tecleado por la prueba;
+      #   * mutantes: «sólo escribo phone» y «campo presente ⇒ manual» son detectados;
+      #   * premisas CONGELADAS: `updateContact` no vuelve a asignar `payload.phone`,
+      #     número y procedencia viajan en UN solo `update()`, el formulario sigue sin
+      #     selector de tipo (lo que autoriza `phone_type = NULL`), `mobile_phone` sigue
+      #     fuera del alcance (4O-E4.1) y las suites de privacidad dejan de fabricar
+      #     `phone_source = 'manual'` en SQL a mano.
+      #
+      # Determinista: sin flags, sin proveedores, sin créditos, sin DSAR real y sin DB.
+      # La variante contra PostgreSQL real vive en
+      # `test:agent2a:contacts-phone-privacy-erasure-postgres`, fuera del check por
+      # depender de un binario que se descarga.
+      - name: Run manual contact phone provenance tests
+        run: npm run test:agent2a:contact-phone-provenance
+
+      - name: Run manual Lusha multi-phone tests
+        run: npm run test:agent2a:manual-lusha-multi-phone
+
+      # AGENT2A-PHONE-REVEAL-4O-F-R2 — el disparo MANUAL de Lusha converge sobre la
+      # infraestructura `legacy_lusha_only`.
+      #
+      # QUÉ DEFECTO CIERRA. La auditoría 4O-F-M0 fijó
+      # `MANUAL_LUSHA_BUDGET_GATE = UNSAFE`: la acción manual llamaba a Lusha
+      # DIRECTAMENTE — sin gate presupuestal, sin reserva atómica y sin single-flight.
+      # Tres invocaciones concurrentes sobre el mismo candidato pagaban TRES veces, y la
+      # única mitigación era un `useRef` de la UI, que no cubre una invocación directa de
+      # la server action. R2 no le da una reserva propia a ese camino: lo ELIMINA, y la
+      # operación pasa a estar representada de forma duradera como una corrida de un solo
+      # proveedor, que es lo que siempre fue.
+      #
+      # QUÉ SE PROTEGE AQUÍ:
+      #   * presupuesto: 0 disponible y 4-frente-a-5 ⇒ 0 llamadas; exactamente 5 ⇒ 1
+      #     corrida, 1 pata reservada, 1 llamada; regla ausente y lectura caída ⇒
+      #     fail-closed, cada uno con su motivo propio y NUNCA como «no elegible»;
+      #   * single-flight: 3 invocaciones concurrentes ⇒ 1 sola operación pagada, probado
+      #     con presupuesto 5 Y con 100 — si sólo pasara con 5, lo que bloquearía sería el
+      #     saldo y el defecto seguiría vivo en cuanto hubiera pozo;
+      #   * candidatos distintos NO se bloquean entre sí: el cerrojo es por candidato;
+      #   * ledger: el usage-log lleva el id de la corrida REAL, así que
+      #     `computeEffectiveConsumption` deduplica contra la reserva confirmada y una
+      #     llamada de 5 créditos consume 5, nunca 10;
+      #   * privacidad: DNC y supresión ANTES de reservar ⇒ 0 corridas y 0 reservas; DNC
+      #     EN VUELO ⇒ el costo real se conserva y el número NO se persiste (la
+      #     transacción 111/113 revisa tombstones y supresión por persona bajo el lock,
+      #     pero NO lee `do_not_contact`, así que la puerta posterior sigue siendo
+      #     necesaria y está scoped a la invocación manual);
+      #   * multi-teléfono por la MISMA transacción que el waterfall, con facturación por
+      #     RESPUESTA y jamás multiplicada por `phones.length`;
+      #   * FLAGS: con `ENABLE_PHONE_REVEAL_WATERFALL = false` —su estado en Producción—
+      #     el disparo manual SIGUE funcionando. Ese flag gobierna la UX del waterfall
+      #     Apollo→Lusha, no la existencia de la contabilidad. El kill switch del reveal
+      #     manual sigue siendo `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK`.
+      #
+      # Mutantes detectados: el motor manual vuelve a quedar gated tras el flag del
+      # waterfall; el usage-log pierde el id de la corrida (⇒ doble conteo); desaparece la
+      # puerta de privacidad posterior a la respuesta; el multi-teléfono vuelve a
+      # first-phone-only.
+      #
+      # Determinista y offline: sin red (fetch stub), sin Supabase real, sin Lusha, 0
+      # créditos. La atomicidad de `reserve_and_create_phone_reveal_run` vive en la
+      # migración 104, que R2 no modifica y que AGENT2A-PHONE-WATERFALL-4G ya validó
+      # contra PostgreSQL real.
+      #
+      # Lo que ESE arnés no puede demostrar es la INTEGRACIÓN nueva: que el llamador
+      # manual, al converger, obtenga de esa transacción una corrida `legacy_lusha_only`
+      # con una sola pata; que tres invocaciones sobre CONEXIONES distintas produzcan una
+      # sola llamada pagada; y que las filas reales del ledger, pasadas por la lógica real
+      # de consumo efectivo, den 5 y no 10. Eso vive en
+      # `test:agent2a:manual-lusha-legacy-convergence-postgres` (§ 48), que queda FUERA
+      # del check por la misma razón que las demás suites de PostgreSQL: depende de un
+      # binario que se descarga (`npm install --no-save embedded-postgres@17.6.0-beta.15`).
+      - name: Run manual Lusha legacy-run convergence tests
+        run: npm run test:agent2a:manual-lusha-legacy-convergence
+
+      # AGENT2A-PHONE-REVEAL-4O-G — «Ver más números»: los teléfonos YA almacenados
+      # se pueden LEER, y leerlos cuesta cero.
+      #
+      # QUÉ HUECO CIERRA. Desde 4O-C/4O-D la colección canónica de la migración 109
+      # sí guarda todos los números que Apollo y Lusha devuelven, pero el drawer
+      # seguía enseñando exactamente uno: el escalar del candidato. Los números
+      # adicionales —ya observados, ya pagados, ya persistidos— no tenían ninguna
+      # superficie donde leerse, así que la operación pagaba por ellos y no podía
+      # usarlos.
+      #
+      # QUÉ SE PROTEGE AQUÍ:
+      #   * COSTE CERO, que es el contrato central: abrir el disclosure no llama a
+      #     Apollo, no llama a Lusha, no crea corridas, no reserva créditos, no
+      #     escribe usage logs y no toca el estado del reveal. Las guardas estáticas
+      #     verifican que esas llamadas NO ESTÉN ESCRITAS en el camino nuevo — un
+      #     test de comportamiento sólo probaría que hoy no se hicieron;
+      #   * SÓLO LECTURA: el módulo de acceso no contiene `.insert`/`.update`/
+      #     `.delete`/`.upsert` ni una sola `.rpc()`. En particular NO invoca las
+      #     funciones de 110/111/112/113, que son transaccionales y escriben;
+      #   * READ ERROR ≠ CALL PROVIDER: si la lectura falla, la UI lo dice y no
+      #     ofrece ningún camino alterno que gaste. Cubierto con un `unavailable`
+      #     del servidor y con una excepción cruda de la acción;
+      #   * PRIVACIDAD: una fila con `suppressed_at` no se muestra ni enmascarada;
+      #     la consulta pide columnas explícitas (nunca `*`) y no trae
+      #     `suppression_reason`/`suppressed_by`; la proyección al navegador tiene
+      #     EXACTAMENTE cinco campos y ninguna `dedupe_key`, id de corrida, de
+      #     reserva, de usage log ni de persona del proveedor; ningún número se
+      #     imprime en consola;
+      #   * FLAGS: `ENABLE_PHONE_REVEAL_WATERFALL` (false en Producción) y
+      #     `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` NO gobiernan esta lectura. Un
+      #     número ya pagado y ya guardado no puede volverse invisible porque el
+      #     proveedor que lo trajo esté hoy apagado: disponibilidad operativa del
+      #     proveedor ≠ visibilidad del dato almacenado;
+      #   * AUTORIZACIÓN de servidor: las DOS acciones exigen rol `admin` antes de
+      #     leer, y la lectura con service role no lleva 'use server', así que no
+      #     puede convertirse en un endpoint. Que el botón no se pinte no es la
+      #     protección;
+      #   * CORRECCIÓN de la proyección: mismo número visto por Apollo y por Lusha ⇒
+      #     UNA fila con DOS fuentes (nunca duplicado); el principal no se repite
+      #     como «adicional» ni cuando la fila no está marcada pero contiene el
+      #     mismo número que el escalar; orden canónico por tipo, no el orden físico
+      #     de la base;
+      #   * COPY: el verbo es VER. «Buscar», «Encontrar», «Revelar» y «Enriquecer»
+      #     están prohibidos porque prometerían una consulta que cuesta, y no se
+      #     muestra costo por número (las respuestas se cobran POR RESPUESTA, así
+      #     que un precio unitario sería una cifra que nadie facturó);
+      #   * ALCANCE: 0 migraciones, 0 cambios en proveedor/presupuesto/reservas/
+      #     waterfall, 0 en aprobación y 0 en contactos, verificado contra
+      #     `origin/main...HEAD`.
+      #
+      # Mutantes detectados: el filtro de tombstone desaparece; la proyección
+      # empieza a llevar `dedupe_key`; el CTA se ata al flag del waterfall; el
+      # estado de error cae a un reveal; `select('*')`; el principal vuelve a
+      # listarse como adicional.
+      #
+      # Determinista y offline: sin red, sin Supabase real, sin proveedores, 0
+      # créditos. La suite de UI va aparte porque necesita
+      # `--experimental-test-module-mocks`.
+      - name: Run stored candidate phones tests
+        run: npm run test:agent2a:stored-candidate-phones
+
+      - name: Run stored candidate phones UI tests
+        run: npm run test:agent2a:stored-candidate-phones-ui
+
+      # AGENT2A-PHONE-REVEAL-4O-H1 — el esquema OFICIAL de múltiples teléfonos
+      # (`contact_phones` + `contact_phone_sources`, migración 114), creado INERTE.
+      #
+      # Qué fija esta suite, que es lo único que un diff futuro no puede recordar:
+      #   * INERCIA: 0 lectores y 0 escritores en runtime, 0 backfill, 0 UI, 0 RPC,
+      #     0 funciones, ningún trigger de negocio y ninguna fila insertada. La
+      #     aprobación de candidatos, `createContact` y `updateContact` no nombran
+      #     las tablas: la propagación es H3 y la convergencia manual es H5;
+      #   * VOCABULARIOS pinneados en AMBAS direcciones contra
+      #     `phone-collection-core.ts`, para que un valor no pueda añadirse en un
+      #     solo lado y producir un 23514 en ejecución — el defecto de #238;
+      #   * UNA sola taxonomía de privacidad: el motivo de supresión es el de la
+      #     109 carácter por carácter, y el de caché/auditoría de la 099 se rechaza
+      #     (los dos conjuntos comparten CERO valores);
+      #   * IDENTIDAD oficial: la FK es a `contacts`, nunca a un candidato, y NO hay
+      #     `account_id` — `contacts.account_id` ya define la propiedad y una segunda
+      #     copia sólo podría contradecirla;
+      #   * DINERO: ninguna columna de coste/crédito/precio. Los punteros a
+      #     `phone_reveal_waterfall_runs` / `..._credit_reservations` /
+      #     `provider_usage_logs` son punteros de auditoría, no importes;
+      #   * PRIVILEGIOS: `authenticated` sólo SELECT (un navegador no puede declarar
+      #     procedencia); DELETE y TRUNCATE a NADIE (borrar un tombstone
+      #     desbloquearía el número suprimido); la procedencia es inmutable porque
+      #     el UPDATE de `contact_phone_sources` es POR COLUMNA y sólo alcanza la
+      #     tríada de supresión;
+      #   * RLS derivada del CONTACTO padre vía EXISTS, no una segunda copia de
+      #     `has_active_access` que divergiría el día que `contacts` gane alcance
+      #     por cuenta.
+      #
+      # Mutantes detectados: un archivo de producción empieza a nombrar las tablas;
+      # aparece una columna de coste; aparece `account_id`; se concede DELETE; el
+      # encabezado afirma estar aplicada en Producción; `phone_type` gana un miembro
+      # coloquial; se añade un trigger de negocio.
+      #
+      # Determinista y offline: sólo lee archivos del disco. Sin red, sin Supabase,
+      # sin proveedores, 0 créditos, y NO toca Producción.
+      #
+      # ⚠️ La suite de PostgreSQL REAL queda FUERA de este check a propósito, igual
+      # que sus hermanas (§ 48 de 4O-F-R2, 4O-E2/E3/E4): exige un binario que se
+      # descarga (`npm install --no-save embedded-postgres@17.6.0-beta.15`) y que
+      # `npm ci` del check obligatorio no necesita. Ahí se miden las garantías que
+      # sólo PostgreSQL puede demostrar — CHECKs, índices parciales, políticas RLS y
+      # privilegios reales, incluida la reinserción imposible de un número
+      # tombstoneado. Se corre con:
+      #   npm run test:agent2a:official-contact-phone-schema:postgres
+      - name: Run official contact phone schema tests
+        run: npm run test:agent2a:official-contact-phone-schema
+
+      # AGENT2A-PHONE-REVEAL-4O-H2 — privacidad del modelo OFICIAL de múltiples teléfonos.
+      #
+      # Qué fija esta suite, que es lo único que un diff futuro no puede recordar:
+      #   * SUPRIMIBILIDAD DERIVADA: el par `(provider, acquisition_mode)` se traduce con el
+      #     mapeo exhaustivo de la 112 y se pregunta a la allowlist de 4O-E4, así que NO hay
+      #     una segunda autoridad sobre qué procedencia puede borrarse. La paridad se mide
+      #     sobre los 25 pares representables y en AMBAS direcciones (SQL ⇔ TypeScript);
+      #   * `manual`, `unknown` y `(apollo, search)` SOBREVIVEN a una supresión de Apollo Y a
+      #     una de Lusha: una DSAR dirigida a un proveedor no tiene autoridad sobre evidencia
+      #     humana, y atribuir procedencia sin atribuir sería una conjetura ejecutada;
+      #   * ALCANCE DE PERSONA en el camino cableado: la clave de Apollo identifica a QUÉ
+      #     PERSONA, no qué proveedor se borra. Cablearlo a `single_provider` habría dejado
+      #     viva la procedencia de Lusha y el número canónico con ella;
+      #   * el alcance OFICIAL es MÁS ANCHO que el del escalar — la allowlist de
+      #     `contacts.phone_source` protege el escalar y NO autoriza la colección oficial, así
+      #     que un contacto con un número manual no puede blindar filas de Apollo ya pagadas;
+      #   * ORDEN: candidato → escalar heredado → oficial, que es lo que hace el hito
+      #     estrictamente ADITIVO sobre E1–E4.1;
+      #   * INERCIA: sin colección oficial la RPC devuelve `no_official_collection` y NO
+      #     escribe nada, que es todo contacto de Producción hoy — sin esa guarda, reproyectar
+      #     desde un conjunto vacío convertiría la privacidad en pérdida de datos;
+      #   * un fallo oficial NO se reporta como éxito, y tiene código PROPIO.
+      #
+      # Mutantes detectados: se retira `manual`; se retira `unknown`; desaparece el
+      # `NOT EXISTS` del último origen; se quita la guarda de colección vacía; se quita la
+      # guarda de procedencia del escalar; se pierde la estabilidad del titular; la proyección
+      # deja de filtrar fuentes vivas; desaparece el tier manual de la reelección; se pierden
+      # los locks; se ensancha un GRANT de la 114; aparece un DELETE; se toca `mobile_phone`.
+      #
+      # Determinista y offline: sólo lee archivos del disco y ejecuta la server action contra
+      # un driver simulado. Sin red, sin Supabase, sin proveedores, 0 créditos, y NO toca
+      # Producción ni ejecuta ninguna DSAR real.
+      #
+      # ⚠️ La suite de PostgreSQL REAL queda FUERA de este check a propósito, igual que sus
+      # hermanas (4O-E2/E3/E4, 4O-F-R2, 4O-H1): exige un binario que se descarga
+      # (`npm install --no-save embedded-postgres@17.6.0-beta.15`) y que `npm ci` del check
+      # obligatorio no necesita. Ahí se miden las garantías que sólo PostgreSQL puede
+      # demostrar — la transacción, los locks, la supervivencia cruzada real, el tombstone del
+      # último origen, la reelección determinista, la sincronización del escalar, la
+      # concurrencia con dos conexiones y los privilegios de EXECUTE. Se corre con:
+      #   npm run test:agent2a:official-contact-phone-privacy:postgres
+      - name: Run official contact phone privacy tests
+        run: npm run test:agent2a:official-contact-phone-privacy
+
+      # AGENT1-APOLLO-SECTOR-EVIDENCE-BOOTSTRAP-1 — el bloqueo estructural que la
+      # corrida live `f4c8a60f` (Salud, CO, 2026-08-12) hizo visible: 20 créditos,
+      # 0 enrichments, 0 candidatos, y la causa NO era la calidad de las reglas.
+      #
+      #   `mixed_companies/search` devolvió las 20 organizaciones sin `industry`,
+      #   sin `keywords`, sin descripciones y sin `employee_count` — la única
+      #   fuente de esos campos es `organization_enrichment` —, y a la vez
+      #   `SECTOR_SIGNAL_TERMS` no tenía política para el sector pedido, así que el
+      #   veredicto era `sector_not_mapped` INCONDICIONAL y terminal ANTES del
+      #   enrichment. La evidencia necesaria para juzgar el sector no se podía
+      #   adquirir nunca: el pipeline no podía producir un candidato ni en teoría.
+      #
+      # Lo que este paso guarda, en las DOS direcciones:
+      #
+      #   * que los 20 resultados REALES del checkpoint de esa corrida vuelvan a
+      #     bloquearse sin autorización (17 rechazos sectoriales, los mismos), y
+      #     que con la corrida autorizada lleguen a competir por los <=5 slots;
+      #   * que la autorización exija las CUATRO precondiciones observadas de la
+      #     búsqueda emitida — búsqueda real, cobertura de consulta completa,
+      #     versión de catálogo coherente, términos resueltos —, y que una
+      #     precondición AUSENTE en la metadata no se lea como cumplida;
+      #   * que la adquisición NO confirme nada: ni sector, ni subindustria, ni
+      #     elegibilidad para el objetivo, y que pedir «Salud» no confirme ninguna
+      #     subindustria de Salud;
+      #   * que un candidato con clasificación DECLARADA no entre por esta puerta
+      #     — a Citigroup se le rechaza porque Apollo dice «retail banking», y eso
+      #     no cambia;
+      #   * que las ramas negativas `confirm_only` sigan ABSTENIÉNDOSE y no sean lo
+      #     que autoriza el gasto;
+      #   * paridad de Retail: las rutas con política de sector deciden IGUAL con y
+      #     sin autorización;
+      #   * los topes: <=5 enrichments, selección determinística e invariante al
+      #     orden de entrada.
+      #
+      # § 17 — y, atravesando el runner de producción REAL, que lo que ese crédito
+      # COMPRA sobreviva al rechazo anterior al writer. La corrida existe para
+      # calibrar Wave 1, y el candidato que la calibra muere pre-writer por
+      # construcción: la reevaluación posterior corre sin autorización, vuelve a
+      # `sector_not_mapped` y no llega a `prospect_candidates`. Se prueba que con
+      # CERO filas de candidato el lote conserve, por candidato enriquecido, la
+      # clasificación comprada, las evaluaciones de precisión por subindustria
+      # pedida con su evidencia `término@campo(fuente)`, el estado sectorial
+      # posterior y una única disposición terminal con motivo.
+      #
+      # Determinista y offline: el fixture son los 20 snapshots reales exportados
+      # READ-ONLY del lote. Sin proveedores, sin red, sin DB, 0 créditos.
+      - name: Run A1 Apollo sector evidence bootstrap tests
+        run: npm run test:a1-apollo-sector-evidence-bootstrap
+
+      # ── AGENT2A-PHONE-REVEAL-4O-H3 — aprobación ATÓMICA ────────────
+      #
+      # Qué protege este paso: que aprobar un candidato siga siendo UNA transacción y siga
+      # llevándose la colección ENTERA de teléfonos. Falla si vuelve a aparecer una segunda
+      # autoridad de escritura junto a la RPC (el `contacts` INSERT suelto que este hito
+      # eliminó); si el candidato deja de terminalizarse dentro de la misma transacción; si la
+      # promoción deja de filtrar los tombstones de staging; si la clave de evento oficial pasa
+      # a llevar el id del candidato; si la 116 amplía un GRANT de la 114, aparece un DELETE o
+      # un `suppressed_at = NULL`; si se toca `mobile_phone`; o si la migración deja de ser
+      # retrocompatible con el runtime de la H2 —que es lo que hace seguro el despliegue
+      # SCHEMA-FIRST—.
+      #
+      # Determinista y offline: sólo lee archivos del disco y ejecuta la persistencia contra un
+      # driver simulado. Sin red, sin Supabase, sin proveedores, 0 créditos, y NO toca
+      # Producción ni aprueba ningún candidato real.
+      #
+      # ⚠️ La suite de PostgreSQL REAL queda FUERA de este check a propósito, igual que sus
+      # hermanas (4O-E2/E3/E4, 4O-F-R2, 4O-H1, 4O-H2): exige un binario que se descarga
+      # (`npm install --no-save embedded-postgres@17.6.0-beta.15`) y que `npm ci` del check
+      # obligatorio no necesita. Ahí se miden las garantías que sólo PostgreSQL puede demostrar
+      # — la transacción y su rollback completo, el lock del candidato, la carrera de dos
+      # conexiones con interleaving forzado, la supresión por persona re-comprobada bajo el
+      # lock, la propagación multi-número y cross-provider, y los privilegios de EXECUTE. Se
+      # corre con:
+      #   npm run test:agent2a:official-contact-phone-approval:postgres
+      - name: Run official contact approval tests
+        run: npm run test:agent2a:official-contact-phone-approval
+
+      # AGENT2A-PHONE-REVEAL-4O-H4 — «Ver más números» del contacto OFICIAL.
+      #
+      # Hito de SÓLO LECTURA: la cadena entera (acción → lectura → núcleo puro) hace
+      # tres SELECT sobre `contact_phones` / `contact_phone_sources` y nada más. Cero
+      # proveedor, cero créditos, cero reservas, cero usage logs, cero escrituras,
+      # cero migraciones.
+      #
+      # Las guardas estáticas son las que sostienen ese contrato cuando ya nadie
+      # recuerde por qué: prueban que la llamada que gastaría NO ESTÁ ESCRITA, y
+      # fallan en el momento en que alguien la añada.
+      #
+      # ⚠️ La suite de PostgreSQL REAL (R2.1) queda FUERA de este check a propósito, igual
+      # que sus hermanas (4O-E2/E3/E4, 4O-F-R2, 4O-H1, 4O-H2, 4O-H3, 4O-H3-B): exige un
+      # binario que se descarga (`npm install --no-save embedded-postgres@17.6.0-beta.15`)
+      # y que el `npm ci` del check obligatorio no necesita. Ahí se mide lo que ni el núcleo
+      # puro ni las guardas estáticas pueden medir, porque no es código sino base de datos:
+      # qué filas seleccionan de verdad los tres SELECT, que las policies de la 114 —y no un
+      # `if` de TypeScript— son las que esconden la colección de un usuario sin acceso
+      # activo, y que una erasure REAL de la 115 deja el número visible mientras otro
+      # proveedor lo sostiene y lo retira cuando cae el último. Se corre con:
+      #   npm run test:agent2a:official-contact-stored-phones:postgres
+      - name: Run official contact stored phones tests
+        run: npm run test:agent2a:official-contact-stored-phones
+
+      - name: Run official contact stored phones UI tests
+        run: npm run test:agent2a:official-contact-stored-phones-ui
+
+      # AGENT2A-PROD-INCIDENT — regresiones del incidente P0 de Producción en la
+      # lectura del detalle de candidato y en la búsqueda de empresa.
+      #
+      # Qué protege este paso:
+      #
+      #   · Incidente B (spinner infinito). Falla si la petición de búsqueda de empresas a
+      #     HubSpot vuelve a salir SIN techo de espera —era el único `fetch` del flujo sin
+      #     `AbortSignal`, y sin él un HubSpot que no responde deja el server action esperando
+      #     hasta que la plataforma corta la invocación—, y falla si el wizard vuelve a hacer
+      #     `await` de un server action sin `catch`: cuando la llamada RECHAZA en vez de
+      #     devolver, el paso de carga se quedaba puesto para siempre.
+      #   · Que «HubSpot no se pudo consultar» no vuelva a confundirse con «HubSpot contestó
+      #     que no hay coincidencias»: el adaptador devolvía `[]` para ambos, así que el aviso
+      #     que la UI ya tenía escrito era inalcanzable y una caída se presentaba como que la
+      #     empresa no está en HubSpot.
+      #   · Incidente A (detalle de candidato). Falla si «este candidato ya salió de revisión»
+      #     y «la lectura falló» vuelven a colapsar en un único estado con el mismo copy, y si
+      #     el fallo de lectura vuelve a perderse en un `catch {}` vacío —que es lo que hizo
+      #     que la causa raíz no se pudiera diagnosticar desde Producción—.
+      #
+      # Determinista y offline: jsdom + dobles de los server actions y de `fetch`. Sin red, sin
+      # Supabase, sin HubSpot, sin Apollo, sin Lusha, 0 créditos, 0 escrituras y 0 PII.
+      - name: Run prod incident contact read/search regression tests
+        run: npm run test:agent2a:prod-incident-contact-read-search
+
+      # AGENT2A-P0-R2 — incidente cross-flow de QA (2026-08-13).
+      #
+      # Cubre las DOS regresiones de producto que la QA de la dueña dejó a la vista y que
+      # ninguna suite anterior podía ver, porque las dos viven en la COMPOSICIÓN de la
+      # pantalla, no en las piezas que ya estaban probadas:
+      #
+      #   · Drawer del contacto OFICIAL: falla si «contacto no encontrado» o «la lectura
+      #     falló» vuelven a pintarse como el spinner de carga. El render era
+      #     `loading || !contact ? spinner`, así que al terminar la carga sin contacto la
+      #     condición reponía el spinner y ya no había nada que lo quitara: cualquier fallo
+      #     —y también un contacto ausente— terminaba girando para siempre, sin mensaje ni
+      #     reintento. Es el mismo contrato que 4O-H3-B-R1 ya le dio al drawer de CANDIDATO.
+      #   · Tabla de candidatos: falla si la cola «Duplicados» vuelve a anunciarse como
+      #     «Candidatos por revisar». La consulta siempre estuvo bien (los edge_logs de
+      #     Producción del momento de la QA muestran `status=eq.duplicate` en 200); lo que
+      #     no distinguía la cola era el título, la descripción y el estado vacío de la
+      #     tabla, hardcodeados en un componente que no recibía la cola.
+      #
+      # Determinista y offline: jsdom + dobles de los server actions. Sin red, sin Supabase,
+      # sin HubSpot, sin Apollo, sin Lusha, 0 créditos, 0 escrituras y 0 PII.
+      - name: Run P0-R2 cross-flow runtime incident regression tests
+        run: npm run test:agent2a:p0-r2-crossflow
+
+      # P0-R4 — el contrato de exportación de los módulos `'use server'`.
+      #
+      # Next envuelve TODA exportación de un módulo con esa directiva como Server Action y
+      # valida en tiempo de EJECUCIÓN que cada una sea una función. Un `export const` de un
+      # array compila, tipa, lintea, CONSTRUYE y despliega sin una advertencia, y después
+      # tumba con 500 todas las acciones de la página que lo arrastra: es exactamente lo que
+      # `CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS` le hizo a /contacts en Producción el
+      # 2026-08-13 (deployment dpl_4p7vnWvZHC6D1rn6RCrFuW3L4yHk, digest 3688566645@E352).
+      #
+      # Por eso este paso existe aparte de `npm run build`: el build NO ve esta clase. La
+      # suite recorre TODOS los módulos `'use server'` del repositorio con el AST de
+      # TypeScript —no sólo el símbolo culpable, porque la clase ya reincidió— y además
+      # ejecuta el validador real de Next sobre los tres módulos de acciones que cayeron.
+      #
+      # Determinista y offline: sólo lee ficheros y evalúa módulos. Sin red, sin Supabase,
+      # sin proveedores, 0 créditos, 0 escrituras y 0 PII.
+      - name: Run P0-R4 invalid use-server export ratchet
+        run: npm run test:agent2a:p0-r4-use-server
+
+      # AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — el bloqueo de presupuesto ANTES del
+      # primer clic.
+      #
+      # AGENT1-MACRO-V2-SUMMARY-BUDGET-UX-1 (#286) sí distingue «se agotó» de «no alcanza
+      # para esta corrida», pero derivaba TODO el bloqueo de
+      # `executionError?.code === 'BUDGET_EXCEEDED'`: es decir, sólo después de una
+      # ejecución fallida. La QA visual de Producción del 2026-08-13, con el presupuesto
+      # real 244/239/0 ⇒ 5 disponibles y una corrida de Apollo que necesita 25, encontró la
+      # pantalla intacta — sin aviso, con el selector de proveedor y con «Generar
+      # prospectos» a un clic. El aviso llegaba como premio por fallar.
+      #
+      # El estado que ninguna suite cubría es exactamente ése: wizard configurado +
+      # presupuesto insuficiente CONOCIDO + NINGÚN error de ejecución previo.
+      #
+      # También fija las propiedades que impiden que el remedio sea peor: sin instantánea
+      # NO se bloquea (una lectura fallida no puede dejar a todo el mundo sin ejecutar),
+      # la comparación es estricta (25/25 cabe y se ofrece), y la reserva atómica
+      # `try_reserve_wizard_credits` sigue siendo la única autoridad — la UI sólo puede
+      # retirar una oferta, nunca añadirla.
+      #
+      # Determinista y offline: jsdom + módulos puros. Sin red, sin Supabase, sin Apollo,
+      # sin Tavily, sin Lusha, 0 créditos, 0 reservas, 0 escrituras y 0 PII.
+      - name: Run A1 macro v2 pre-execution budget gate tests
+        run: npm run test:a1-macro-v2-budget-gate-preflight
+
+      # AGENT1-APOLLO-TAX-DEDUPE-RECHECK-1 — la identidad fiscal oficial tiene que
+      # LLEGAR al chequeo canónico de duplicados, no sólo existir en el objeto.
+      #
+      # La única corrida de QA en vivo autorizada (batch 28636188…, SHA 59e1b4a2)
+      # produjo un match fuerte real de Colombia —Quimiolab, NIT 830024737, 0.85— pero
+      # los edge logs sólo mostraron TRES de las cuatro consultas a `accounts` que el
+      # checker canónico emite cuando recibe un identificador fiscal: faltaba el tier
+      # `tax_identifier`. Los edge logs son transporte MUESTREADO, no contrato, así que
+      # una línea ausente no distingue «nunca se emitió» de «no se registró» — y los
+      # conteos por tier tampoco lo resuelven, porque una línea de tax perdida falta a
+      # la vez del total y del conteo del tier.
+      #
+      # Este paso sustituye esa ambigüedad por una aserción determinista en el límite
+      # más estrecho que aún prueba lo real: la petición HTTP literal que emite el
+      # cliente de Supabase. Cubre que el tier fiscal se intente y PRECEDA a los tiers
+      # débiles de nombre, que un mismo NIT en OTRO dominio se detecte como
+      # `existing_in_sellup` propagando la cuenta encontrada, que un match de baja
+      # confianza NUNCA llegue al tier fiscal ni a las columnas tipadas, y que la clave
+      # de identidad canónica use el nivel `tax`.
+      #
+      # Entra al check OBLIGATORIO porque el defecto que vigila es invisible en verde:
+      # si la propagación del NIT se rompe, el pipeline sigue pasando y el único
+      # síntoma es un duplicado fiscal que se persiste como empresa nueva.
+      #
+      # Determinista y offline: `globalThis.fetch` se sustituye por un grabador. Sin
+      # red, sin Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      - name: Run A1 Apollo tax dedupe recheck tests
+        run: npm run test:agent1:apollo-tax-dedupe-recheck
+
+      # AGENT1-APOLLO-SHARED-ADOPTION-CI-GUARD-1 — la suite de adopción del seam
+      # compartido de #292 ya existía y pasaba 20/20 en local, pero NINGÚN paso del
+      # check obligatorio la ejecutaba: el log del último run en main no contiene ni
+      # una sola aparición de `apollo-shared-intake-adoption`. El paso vecino «shared
+      # intake pipeline adoption tests» corre `test:lusha-shared-pipeline`, otra suite;
+      # el parecido del nombre es justo lo que hacía pasar la cobertura por hecha.
+      #
+      # Entra al check OBLIGATORIO porque lo que vigila es invisible en verde: si
+      # Apollo deja de adoptar el adapter/normalizer/enrichment compartidos y vuelve a
+      # una copia propia, el pipeline sigue pasando y la regresión sólo se ve en vivo.
+      #
+      # Determinista y offline: mocks de módulo por alias, sin red, sin Supabase, sin
+      # Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      - name: Run A1 Apollo shared intake adoption tests
+        run: npm run test:a1-apollo-shared-intake-adoption
+
+      # AGENT1-LUSHA-CI-GUARD-1 — la superficie de regresión de Lusha Agente 1 ya
+      # estaba CONSTRUIDA (253 tests entre las cinco suites) pero NINGUNA entraba al
+      # check obligatorio: el runtime que se pretende activar no tenía red de
+      # seguridad en CI. Se cablea ANTES de cualquier activación, no después.
+      #
+      # Los cinco pasos son directos y fail-closed (sin `continue-on-error`, sin
+      # `|| true`): lo que vigilan —pending-review, paridad de duplicados, preview,
+      # mapeo de sector y LinkedIn/duplicados excluidos— es invisible en verde, y una
+      # regresión ahí sólo se vería con gasto real de proveedor.
+      #
+      # `test:lusha-pending-review` incluye por diseño los ficheros de
+      # duplicate-parity y topup (el solape es del script npm existente, no se
+      # introduce aquí); el paso propio de duplicate-parity se mantiene porque es el
+      # que nombra el invariante y el que falla solo si esa paridad se rompe.
+      #
+      # Deterministas y offline: mocks de módulo por alias, sin red, sin Supabase, sin
+      # Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: estas suites no activan el proveedor.
+      - name: Run Lusha pending-review persistence tests
+        run: npm run test:lusha-pending-review
+
+      - name: Run Lusha duplicate parity tests
+        run: npm run test:lusha-duplicate-parity
+
+      - name: Run Lusha preview tests
+        run: npm run test:lusha-preview
+
+      - name: Run Lusha sector mapping tests
+        run: npm run test:lusha-sector-mapping
+
+      - name: Run Lusha LinkedIn and excluded duplicates tests
+        run: npm run test:lusha-linkedin-and-excluded-duplicates
+
+      # AGENT1-LUSHA-BUDGET-GATE-1 § 14 — la ruta Lusha de Agente 1 no tenía NINGUNA
+      # puerta económica: con `ENABLE_LUSHA_PREVIEW` encendido resolvía la credencial,
+      # construía el cliente y llamaba al proveedor sin que nada hubiera reservado
+      # créditos, mientras Apollo/Tavily no pueden dar un paso sin
+      # `try_reserve_wizard_credits`. Este paso vigila que la reserva siga estando
+      # ARRIBA de la llamada al proveedor.
+      #
+      # Entra al check OBLIGATORIO porque el defecto que cubre es invisible en verde:
+      # un `guardLushaRunBudget` correcto y NO cableado deja el gasto exactamente
+      # donde estaba, y eso sólo se notaría con créditos reales. Por eso la suite
+      # incluye un ratchet ESTÁTICO de orden dentro de la propia server action, no
+      # sólo pruebas del seam puro.
+      #
+      # Determinista y offline: seam puro con contadores + ratchet estático + render
+      # jsdom. Sin red, sin Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y
+      # 0 escrituras. ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa nada.
+      - name: Run A1 Lusha global budget gate tests
+        run: npm run test:lusha-budget-gate
+
+      # AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0 — UNA sola autoridad de
+      # presupuesto por ruta, y ninguna cifra estática de forma de búsqueda.
+      #
+      # La QA visual de Producción del 2026-08-19, ANTES de gastar un crédito
+      # (CO · health_pharma · 6 disponibles), encontró la misma pantalla diciendo
+      # dos cosas incompatibles: arriba «no alcanza… Requeridos: 20 créditos» —el
+      # techo de Tavily, calculado por el preflight GENÉRICO sobre una corrida que
+      # iba a Lusha— y abajo el panel plan-aware de Lusha con 6/6 y «Buscar con
+      # IA» habilitado. Dos preflights sobre el mismo gasto, uno de ellos hablando
+      # de un proveedor que esa ruta no usa.
+      #
+      # Entra al check OBLIGATORIO porque el defecto es invisible en verde: las dos
+      # superficies son correctas por separado, y sólo la combinación —ruta Lusha
+      # honrada + instantánea de presupuesto presente— produce la contradicción. Un
+      # ratchet de render prueba que no coexisten, y uno de fuente impide los tres
+      # arreglos que la reintroducen (copiar la lógica de Lusha al padre, cablear el
+      # 6 de health_pharma, o apagar el preflight genérico para todos, que se
+      # llevaría por delante a Apollo/Tavily).
+      #
+      # También fija que el aviso de costo dejó de prometer «2 páginas / 10 por
+      # página / 20 empresas»: eran ciertas para el ejecutor de UNA rama y falsas
+      # desde el ejecutor Macro-v2, donde una macro de 3 ramas hace hasta 6
+      # peticiones. La única cifra cuantitativa de la pantalla es `requiredCredits`,
+      # que llega del preflight consciente del plan.
+      #
+      # Determinista y offline: jsdom + lectura de fuente. Sin red, sin Supabase,
+      # sin Apollo, sin Lusha, sin Tavily, 0 créditos, 0 reservas y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      - name: Run A1 Lusha pre-click budget authority + copy tests
+        run: npm run test:a1-lusha-preclick-ux-consistency
+
+      # AGENT1-LUSHA-HIDDEN-PROVIDER-TEST-REPAIR-1 § 5 — Lusha es un proveedor
+      # OCULTO: el usuario nunca lo elige. Esta suite es la que vigila esa propiedad
+      # de extremo a extremo — que no reaparezcan pestañas ni selector de fuente, que
+      # el paso final monte `WizardLushaFinalSearch` SÓLO cuando la ruta está honrada
+      # (`ENABLE_LUSHA_PREVIEW` encendido Y `isLushaRouteHonored`), que ese paso no
+      # auto-ejecute ni exponga CTA de persistencia/HubSpot/enriquecimiento, y que el
+      # resolver y el puente de criterios sigan siendo módulos PUROS que no importan
+      # runtime de proveedor, red ni DB.
+      #
+      # Entra al check OBLIGATORIO porque estaba ausente de él y llevaba dos
+      # aserciones caducadas fallando en `main` sin bloquear nada: una suite que puede
+      # fallar en rojo sin consecuencia deja de ser una garantía. Cableada aquí, una
+      # regresión del proveedor oculto —o un import de proveedor colado en el
+      # resolver— rompe el merge en vez de pasar inadvertida.
+      #
+      # Determinista y offline: lectura de fuente + render jsdom. Sin red, sin
+      # Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      - name: Run Lusha hidden-provider safety tests
+        run: npm run test:lusha-hidden-provider
+
+      # AGENT1-LUSHA-MACRO-V2-PLAN-CATALOG-1 § 9 — el catálogo de planes de búsqueda
+      # de Lusha para las 12 Macro Industrias es una lista de IDs numéricos, que es
+      # exactamente la clase de dato que una revisión humana aprueba mal: `12` y `13`
+      # se leen igual, y un sub colgado del padre equivocado produce un filtro que el
+      # proveedor ACEPTA y que devuelve otro sector. El fallo no sale en rojo, sale
+      # como «Lusha trajo empresas raras» DESPUÉS de gastar créditos.
+      #
+      # Entra al check OBLIGATORIO por dos invariantes que sólo se pueden vigilar
+      # automáticamente:
+      #   1. cada ID se compara contra `LUSHA_INDUSTRY_METADATA`, la captura literal
+      #      del endpoint gratuito del proveedor — no contra una constante escrita al
+      #      lado, que se movería junto con el error;
+      #   2. un ratchet estático prueba que NINGÚN módulo de runtime importa el
+      #      catálogo. Ése es el corazón del PR: el ejecutor de hoy pagina UNA
+      #      búsqueda, así que si el catálogo mandara ya, una macro de 3 ramas se
+      #      anunciaría soportada y se ejecutaría como su PRIMERA rama solamente.
+      #      Un cableado accidental no se nota en verde; aquí rompe el merge.
+      #
+      # Determinista y offline: módulos puros + lectura de fuente. Sin red, sin
+      # Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      - name: Run A1 Lusha Macro-v2 search-plan catalog tests
+        run: npm run test:lusha-macro-v2-plan-catalog
+
+      # AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 27 — el ejecutor multi-rama:
+      # UN objetivo global, UNA reserva consciente del plan, dedupe de identidad en
+      # toda la corrida y techos de peticiones y de filas crudas.
+      #
+      # Por qué entra al check obligatorio y no basta con la revisión: los tres
+      # defectos que estas suites cierran NO producen ningún rojo ni ningún síntoma
+      # visible en el resultado.
+      #
+      #   · Perder la parada por objetivo gasta hasta 6 créditos para conseguir lo
+      #     que cabía en 1. El lote sale idéntico; sólo la factura cambia.
+      #   · Reiniciar el hueco por rama, o dejar el conjunto de vistas en ámbito de
+      #     rama, cuenta la misma empresa varias veces: la corrida se declara
+      #     cumplida con menos candidatos revisables de los que dice.
+      #   · Dejar la reserva en 2 mientras el ejecutor puede gastar 6 produce un
+      #     sobrepaso real. La migración 121 lo registra fielmente —lo cual es
+      #     correcto— pero el dinero ya se fue, y la reserva es lo único que podía
+      #     haberlo evitado.
+      #
+      # También fija el ratchet de § 21: completitud del catálogo (12 planes) NO es
+      # elegibilidad de proveedor (3 sectores legacy). El cableado 12/12 es otro PR.
+      #
+      # Determinista y offline: módulos puros con `runSearch` inyectado. Sin red, sin
+      # Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0 escrituras.
+      # ENABLE_LUSHA_PREVIEW sigue OFF: estas suites no activan el proveedor.
+      - name: Run A1 Lusha Macro-v2 multi-branch executor tests
+        run: npm run test:lusha-multibranch-executor
+
+      # AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 § 19 — la liquidación del presupuesto
+      # cuando el proveedor cobra MÁS de lo reservado.
+      #
+      # Por qué entra al check obligatorio y no basta con la revisión: el defecto que
+      # cierra la migración 121 no producía ningún rojo. `confirm_wizard_credits`
+      # devolvía `invalid_actual_credits`, no cambiaba nada, y las TRES rutas que
+      # liquidan —Lusha, Apollo y Tavily— descartaban ese valor (la de Lusha con
+      # `.catch(() => undefined)` sobre un `Promise<void>`; la compartida ignorando el
+      # `ConfirmWizardCreditsOutput` devuelto, que nunca lanza). El síntoma llegaba
+      # después y en otro sitio: la reserva se quedaba en `status = 'reserved'` para
+      # siempre y el índice único parcial `(user_id) WHERE status = 'reserved'`
+      # bloqueaba la corrida SIGUIENTE con `concurrent_execution_active`.
+      #
+      # Las dos invariantes que sólo se pueden vigilar automáticamente:
+      #   1. que el gasto real se guarde ENTERO. Un `LEAST(actual, reserved)` cabe en
+      #      una línea, arregla el síntoma y subcuenta exactamente la parte que
+      #      importa. El ratchet compara el delta del período contra 7 y contra 6;
+      #   2. que `confirmed_with_overage` se lea como ÉXITO en el wrapper y en las
+      #      tres rutas. Tratarlo como fallo reintroduciría el defecto desde el
+      #      llamador, con la reserva ya cerrada.
+      #
+      # Determinista y offline: módulos puros, dobles inyectados y lectura de fuente.
+      # Sin red, sin Supabase, sin Apollo, sin Lusha, sin Tavily, 0 créditos y 0
+      # escrituras. ENABLE_LUSHA_PREVIEW sigue OFF: esta suite no activa el proveedor.
+      # AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 21 — la elegibilidad Lusha son las
+      # 12 Macro Industrias, y sólo ellas.
+      #
+      # Qué vigila, y por qué cada mitad importa:
+      #
+      #   · COMPLETITUD — las 12 macro aprobadas resuelven capacidad, plan, ramas y
+      #     reserva desde el MISMO plan. El modo de fallo realista es 11/12: la clave
+      #     canónica más larga mide 43 caracteres y el contrato anterior la validaba
+      #     con `max(40)`, así que la macro más ancha del catálogo se habría caído en
+      #     silencio después de que la UI ya la ofreciera.
+      #   · CIERRE — Educación NO es la ruta decimotercera. Es el negativo peligroso
+      #     porque Lusha SÍ la publica (main 6): el error no sería «no se encuentra»,
+      #     sino «se encuentra y devuelve colegios».
+      #   · CABLEADO — la ruta que el wizard ejecuta DE VERDAD usa la autoridad nueva.
+      #     Un resolvedor correcto que nadie llama pasa toda prueba de unidad y no
+      #     cambia nada en producción.
+      #
+      # Entra en el MISMO job que el resto de las guardas de routing: un contexto
+      # requerido nuevo no protegería nada hasta que alguien lo marcara obligatorio.
+      - name: Run A1 Lusha Macro-v2 routing cutover tests
+        run: npm run test:lusha-macro-v2-routing-cutover
+
+      # AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 §§ 2, 4, 5, 7, 9, 10, 11 — los dos
+      # defectos que sólo aparecieron cuando Lusha corrió DE VERDAD en Producción, y
+      # que ninguna suite anterior podía ver porque las dos son invisibles mientras
+      # el resultado «parece» correcto:
+      #
+      #   · EXACTITUD — con objetivo 5 se persistieron NUEVE. El tope de PETICIONES
+      #     funcionaba y por eso nadie lo notó: lo que faltaba era el tope de
+      #     ACEPTACIÓN dentro de una página ya pagada. El caso A reproduce la forma
+      #     literal del lote (4 + 5 revisables) y exige 5 exactos; la mutación
+      #     comprueba que sin el tope la aritmética vuelve a dar 9.
+      #   · PRECISIÓN — cinco Manufacturing genéricos entraron en una revisión de
+      #     salud con 100/100, porque el contraste comparaba en los dos sentidos y
+      #     `Pharmaceuticals Manufacturing` CONTIENE a `Manufacturing`. El ratchet
+      #     lee el cuerpo de `industryMatches` y prohíbe el `||` invertido; el caso D
+      #     es el negativo peligroso —la macro cuyo main ES Manufacturing tiene que
+      #     seguir admitiéndolo, o el arreglo vaciaría una macro entera—.
+      #
+      # Arrastra las suites que el arreglo TOCA (ejecutor multi-rama, preview,
+      # pending-review, paridad de duplicados) y las dos del catálogo macro, porque
+      # la decisión de evidencia se extrajo a un núcleo neutral compartido con Apollo:
+      # una regresión ahí cambiaría los veredictos de las DOS rutas.
+      #
+      # Entra en el MISMO job que el resto de las guardas: un contexto requerido
+      # nuevo no protegería nada hasta que alguien lo marcara obligatorio.
+      - name: Run A1 Lusha target exactness + Macro-v2 precision tests
+        run: npm run test:a1-lusha-target-precision
+
+      # AGENT1-LUSHA-PROVIDER-USAGE-OBSERVABILITY-1 — la corrida Lusha deja UNA fila
+      # canónica en `provider_usage_logs`, que es lo único que la primera corrida REAL
+      # (19-08) NO dejó: facturó de forma veraz en la reserva, en el lote y en la
+      # telemetría multi-rama, y fue invisible en el ledger que Apollo y Tavily sí
+      # alimentan. Lo que esta suite hace obligatorio, y que ninguna anterior veía:
+      #
+      #   · UNA fila AGREGADA por corrida. Una por rama o una por página
+      #     multiplicaría el mismo gasto por el número de páginas — la mutación M1
+      #     comprueba que emitir una por rama vuelve a poner la suite en rojo.
+      #   · el importe es el LIQUIDADO, no el reservado (M2), y un sobrepaso se
+      #     publica SIN recorte: M121 sigue siendo la única autoridad de gasto.
+      #   · `results_returned` son las filas CRUDAS que la petición pagó, no los
+      #     candidatos persistidos (M3) — 30, nunca 5.
+      #   · la idempotencia se apoya en `usage_key`, el ÚNICO índice único que
+      #     Producción tiene para esto (`idempotency_key` está indexada pero NO es
+      #     única), así que una reentrada no puede abrir una 2ª fila económica (M4).
+      #   · un fallo de observabilidad NO puede replay-ear al proveedor ni volver a
+      #     liquidar (M5): si se propagara, el `catch` de la acción liquidaría dos
+      #     veces y devolvería un error por una corrida ya cobrada, invitando a un
+      #     reintento que gastaría otra vez.
+      #   · el registrador no puede reservar/confirmar/liberar créditos (M6) ni
+      #     escribir `agent_runs` (M7): la frontera de este hito es UNA tabla.
+      #
+      # Arrastra las suites que el cambio TOCA —el ratchet estático de la acción
+      # (invertido, no aflojado), pending-review, la correlación de corrida que se
+      # reutiliza, el gate de presupuesto— y la de columnas de correlación de Apollo,
+      # porque el motor de inserción se EXTRAJO a un módulo neutral compartido: una
+      # regresión ahí cambiaría las filas de las DOS rutas.
+      #
+      # Entra en el MISMO job que el resto de las guardas: un contexto requerido
+      # nuevo no protegería nada hasta que alguien lo marcara obligatorio.
+      - name: Run A1 Lusha provider usage observability tests
+        run: npm run test:a1-lusha-provider-usage-observability
+
+      - name: Run A1 budget overage reconciliation tests
+        run: npm run test:agent1:budget-overage-reconciliation
+
+      # La mitad que NINGUNA suite de TypeScript puede cubrir: que la 121 APLIQUE y que
+      # PostgreSQL se comporte como el hito afirma. Tres cosas concretas que sólo se
+      # demuestran con una base real —el 23514 de un sobrepaso en una reserva viva
+      # frente a su ausencia en una confirmada; que un solo UPDATE que mueve `status` y
+      # `credits_consumed` juntos se valide contra la fila FINAL; y que la corrida
+      # siguiente reciba `insufficient_budget` por la ARITMÉTICA del paso 10 de
+      # `try_reserve_wizard_credits`, no por ninguna constraint—. Aplica la cadena REAL
+      # (064 y 121) leyendo los archivos verbatim de `supabase/migrations`, e incluye
+      # una base paralela con SÓLO la 064 que prueba que el defecto existía.
+      #
+      # `embedded-postgres` ya está instalado por el paso de Agente 2A de más arriba, con
+      # la versión PINCHADA 17.6.0-beta.15 (la serie de Producción; el rango `@17` no
+      # resuelve). `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el skip en FALLO: sin
+      # ella, que el arnés no resolviera pondría este paso verde con una migración
+      # inaplicable. Sin `continue-on-error` y sin `|| true`.
+      - name: Run A1 budget overage tests against real PostgreSQL
+        run: npm run test:agent1:budget-overage-reconciliation:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # ── AGENT2A-SEARCH-MORE-PHONES-1 ────────────────────────────────────
+      #
+      # «Buscar más números»: la tercera operación de teléfono. No es «Revelar teléfono»
+      # (que parte de un candidato SIN teléfono) ni «Ver más números» (que sólo abre lo ya
+      # guardado, gratis). Ésta PAGA, así que sus reglas entran al check obligatorio.
+      #
+      # Las dos suites puras fijan lo que decide si esa compra puede ocurrir y lo que se
+      # afirma al cerrarla:
+      #   * el PLANIFICADOR — un proveedor que YA contestó no se vuelve a llamar (su
+      #     respuesta completa está guardada desde 4O-C/4O-D, así que repetirlo cobraría
+      #     por el mismo payload); sólo identidades NATIVAS que la fila ya lleva, sin
+      #     búsqueda general de Lusha, sin nombre+empresa y sin cruce entre proveedores; y
+      #     fail-closed en las tres ramas de privacidad;
+      #   * el DESENLACE — `no_new_distinct_phone` nunca se colapsa en `no_phone_found`, un
+      #     fallo del proveedor nunca se degrada a «no encontramos», y el costo se registra
+      #     ENTERO incluso cuando la corrida no aportó nada nuevo.
+      #
+      # Deterministas y offline: módulos puros, sin red, sin Supabase, sin Apollo, sin
+      # Lusha, 0 créditos y 0 escrituras.
+      - name: Run A2A search-more-phones planner and outcome tests
+        run: npm run test:agent2a:search-more-phones
+
+      # La frontera de COPY entre la acción gratuita y la pagada, que viven a centímetros
+      # en el mismo panel. Lee los DOS archivos: éste tiene que decir BUSCAR y nombrar el
+      # costo antes del clic, y el de 4O-G tiene que seguir sin poder usar ningún verbo de
+      # búsqueda. El riesgo que cubre no es un copy feo, es que el operador confunda cuál
+      # de las dos gasta.
+      - name: Run A2A search-more-phones copy boundary tests
+        run: npm run test:agent2a:search-more-phones-copy
+
+      # La mitad que NINGUNA suite de TypeScript puede cubrir: que la 122 APLIQUE y que
+      # PostgreSQL se comporte como el hito afirma. Aplica la cadena REAL leyendo los
+      # archivos verbatim de `supabase/migrations` —099, 107, 102, 103, 109, 110, 111, 112,
+      # 113, 114, 115, 120 y 122— y descarta el stub de una sola columna de
+      # `phone_reveal_waterfall_runs` que trae el bootstrap, porque la 122 ensancha CHECKs
+      # de columnas REALES que sólo existen si la 102/103 se aplican de verdad.
+      #
+      # Lo que se ejercita después de aplicar es el comportamiento: que un número adicional
+      # de rango inferior se AÑADA sin desplazar al principal; que uno de rango superior sí
+      # pase a principal y AUN ASÍ no reescriba `phone_reveal_provider` ni el costo del
+      # reveal de Apollo; que un duplicado gane procedencia SIN duplicar la fila; la
+      # idempotencia; que la supresión por PERSONA bloquee desde las DOS identidades
+      # nativas del candidato; que un tombstone por número no revive; y que la función siga
+      # sin poder borrar una fila de teléfono.
+      #
+      # `embedded-postgres` ya está instalado por el paso de Agente 2A de más arriba, con la
+      # versión PINCHADA 17.6.0-beta.15. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el skip
+      # en FALLO: sin ella, que el arnés no resolviera pondría este paso verde con una
+      # migración inaplicable. Sin `continue-on-error` y sin `|| true`.
+      - name: Run A2A search-more-phones tests against real PostgreSQL
+        run: npm run test:agent2a:search-more-phones:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # La mitad que GASTA. Esta suite es la única que puede observar el gasto: el planificador
+      # decide si la compra es autorizable y el arnés de PostgreSQL decide qué queda escrito,
+      # pero cuántas veces se llamó al proveedor —y qué pasa cuando un gate falla a mitad de la
+      # secuencia— sólo se ve desde aquí.
+      #
+      # Lo que fija, en orden de lo que costaría perderlo:
+      #   * reserva rechazada / privacidad bloqueada / plan no elegible ⇒ 0 llamadas;
+      #   * DOS submits concurrentes ⇒ 1 corrida, 1 claim y 1 SOLA llamada pagada, probado con
+      #     el pozo ABUNDANTE (con el pozo justo lo que bloquearía sería el saldo, no la
+      #     idempotencia, y el defecto seguiría vivo en cuanto hubiera créditos);
+      #   * supresión bajo el LOCK ⇒ se retiene el NÚMERO y el costo se registra ENTERO;
+      #   * `no_new_distinct_phone` nunca se colapsa en `no_phone_found`, y un fallo del
+      #     proveedor nunca se degrada a «no encontramos»;
+      #   * un costo NO reportado se liquida con el TOPE, jamás con 0;
+      #   * ningún patch de la corrida lleva una columna del reveal INICIAL, y el writer
+      #     terminal de la 111/120 no se invoca por esta ruta.
+      #
+      # El planificador que decide la elegibilidad es el REAL, no un mock: el arnés le da
+      # hechos y usa su veredicto, así que aflojar el planificador rompe también esta suite.
+      #
+      # Offline: sin red, sin Supabase, sin Lusha, 0 créditos.
+      - name: Run A2A search-more-phones runtime tests
+        run: npm run test:agent2a:search-more-phones-runtime
+
+      # AGENT2A-SEARCH-MORE-PHONES-1H — el permiso de producto es un flag DEDICADO
+      # (`ENABLE_SEARCH_MORE_PHONES`), y ya NO `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` (el kill
+      # switch del fallback MANUAL de Lusha, que hasta 1G esta operación reutilizaba). Dos
+      # suites, offline y deterministas:
+      #   * el parser del flag nuevo + la matriz de independencia CASO A/B/C/D contra
+      #     variables de entorno reales — el CASO C (search_more=true, lusha_fallback=false
+      #     ⇒ activo) es la prueba crítica del hito;
+      #   * la guarda ESTÁTICA que lee el código (sin comentarios) de las dos server actions
+      #     y del runtime, y prueba en ambas direcciones que ninguno de los dos flags se
+      #     coló en el consumidor del otro.
+      - name: Run A2A search-more-phones dedicated flag tests
+        run: npm run test:agent2a:search-more-phones-flag
+
+      # La UI, renderizada de verdad (jsdom) y sobre el drawer COMPLETO — no un componente
+      # aislado. Lo que hay que demostrar es que el CTA aparece, y SÓLO aparece, junto al CTA
+      # GRATUITO con el que un operador podría confundirlo.
+      #
+      # La propiedad más caliente del hito: EL PRIMER CLIC NO GASTA. El CTA abre una
+      # confirmación; sólo confirmar invoca la acción que paga, y se afirma con el contador de
+      # esa acción. Además: la confirmación NOMBRA a Lusha y muestra el techo de 5 créditos; un
+      # doble clic sincrónico produce UNA invocación; el teléfono existente sigue visible
+      # mientras busca; «Ver más números» aparece SIN F5 cuando la colección crece; y el
+      # refresco posterior no gasta.
+      - name: Run A2A search-more-phones UI tests
+        run: npm run test:agent2a:search-more-phones-ui
+
+      # AGENT2A-SEARCH-MORE-PHONES-1K — la LECTURA de preflight, ejecutada de verdad.
+      #
+      # Producción encontró un CTA pagado que se ofrecía y cuyo primer clic devolvía «No
+      # pudimos iniciar la búsqueda»: el preflight resolvía candidato, colección, procedencia,
+      # corridas y privacidad, y NO el presupuesto, mientras el runtime sí lo resolvía antes de
+      # reservar. Dos conjuntos de hechos decidiendo la misma compra.
+      #
+      # Esta suite corre `readSearchMorePreflight` con el planificador REAL y el core de
+      # crédito REAL, y simula sólo la frontera de I/O —incluido `checkBudget`, para que el
+      # `readPhoneRevealCreditPools` que se ejercita sea el MISMO que usa la reserva. Fija:
+      #   * sin regla de crédito de Lusha (el estado REAL de Producción) ⇒ el plan NO es
+      #     elegible, y lo dice como configuración y no como falta de saldo;
+      #   * 4 disponibles ⇒ insuficiente; 5 exactos y más ⇒ elegible;
+      #   * una resolución que LANZA ⇒ `balance_unavailable`, que bloquea sin afirmar por qué;
+      #   * la EXPOSICIÓN YA RESERVADA resta igual que en la reserva atómica — una
+      #     aproximación `límite - consumo` ofrecería saldo comprometido por otra autorización;
+      #   * sólo se pregunta por el pozo de LUSHA, y con el actor que reservará;
+      #   * y mirar todo eso hace 0 llamadas de red y 0 escrituras de cualquier tipo.
+      #
+      # Offline y determinista: sin red, sin Supabase, sin proveedores, 0 créditos.
+      - name: Run A2A search-more-phones budget preflight parity tests
+        run: npm run test:agent2a:search-more-phones-budget
+      # AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 — el filtrado económico deja de
+      # ocurrir DESPUÉS de pagar.
+      #
+      # La corrida real del 2026-08-19 (lote `e90832f9`) pidió 6 peticiones, recibió 60
+      # filas crudas y 40 únicas, y aceptó CERO: 24 eran candidatos históricos activos,
+      # 10 duplicados exactos y 6 quedaban fuera de la macro. Todo eso ya se sabía en
+      # SellUp antes de preguntar, y aun así costó 6 créditos y $0.529.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que la fuente gratuita del país devuelva una muestra GENÉRICA y la deje
+      #     reducir el objetivo — una constructora cerrando un hueco de salud;
+      #   * que alguien escriba una SEGUNDA taxonomía macro para la fuente: el índice
+      #     CIIU se DERIVA del catálogo canónico y del mismo evaluador que juzga a
+      #     Apollo y a Lusha, y una prueba comprueba código a código que es así;
+      #   * que el sector grueso (6 cubetas) confirme pertenencia a una macro (12) —
+      #     que es literalmente el defecto de #306, cinco «Manufacturing genérico» en
+      #     una búsqueda de salud;
+      #   * que se reserve o se estime ANTES del trabajo gratuito, en cualquiera de las
+      #     dos rutas: el orden se comprueba estáticamente sobre las dos acciones;
+      #   * que una empresa DESCUBIERTA pero no persistida cierre hueco — un fallo de
+      #     escritura disfrazado de ahorro;
+      #   * que una rama compre su segunda página después de que la primera haya
+      #     rendido cero empresas nuevas y útiles (3 de las 6 peticiones de la QA);
+      #   * que esa parada se vuelva GLOBAL y mate la cobertura: es de RAMA, y una
+      #     prueba comprueba que su vocabulario ni siquiera puede expresar otra cosa;
+      #   * que se publique un ahorro en créditos o en dólares sin contrafactual.
+      #
+      # Offline y determinista: sin red, sin Supabase, sin Socrata, sin proveedor.
+      # 0 créditos.
+      - name: Run A1 pre-paid novelty gate tests
+        run: npm run test:a1-prepaid-novelty-gate
+      # AGENT1-COUNTRY-SOURCE-PERSISTENCE-CONTRACT-1 — tres cosas distintas:
+      #
+      #   1. vocabulario de lote vs. candidato (prospect_batches.source vs.
+      #      prospect_candidates.source_primary, CHECK constraints distintos);
+      #   2. procedencia de discovery VALIDADA en clave Y en valor
+      #      (discovery_layer, macro_industry_key, website_available), que antes
+      #      se perdía entre el adapter y el INSERT final;
+      #   3. la regresión de ORDEN: presupuesto de pago en 0 + objetivo cerrado
+      #      gratis ⇒ éxito con 0 reservas y 0 llamadas al proveedor, medida en
+      #      ejecución sobre la capa que POSEE ese orden (el wizard), no sobre el
+      #      runner gratuito, que no conoce el presupuesto.
+      #
+      # Offline y determinista: dobles locales, sin red, sin proveedor, 0 créditos.
+      - name: Run A1 country-source persistence contract tests
+        run: npm run test:agent1-country-source-persistence-contract
+      # ADDENDUM PROVIDER-SEEN — la memoria de lo que un proveedor de pago YA nos
+      # mostró, independiente de `prospect_candidates`.
+      #
+      # El defecto que esta suite defiende: hoy la única huella que queda de una
+      # empresa devuelta por un proveedor vive DENTRO del candidato persistido
+      # (`source_trace.providerCompanyId`, medido 66/66 en Lusha y 0/10 en Apollo).
+      # Recordamos exactamente lo que no hacía falta recordar y olvidamos lo que sí
+      # —rechazada por macro, duplicado exacto, candidato histórico activo, sobrante
+      # de objetivo—, así que la corrida siguiente vuelve a pagarlo.
+      #
+      # Lo que se comprueba, dicho como defecto:
+      #   * que la memoria se escriba DESPUÉS de filtrar y herede los criterios del
+      #     filtro, volviendo a olvidar lo rechazado (guarda estática de orden);
+      #   * que la validez de la respuesta se derive del TAMAÑO de la lista y un
+      #     error HTTP quede registrado como «cero empresas» — el defecto de #303;
+      #   * que una corrida sin petición, o un fallo previo a respuesta válida,
+      #     fabriquen memoria;
+      #   * que una empresa sin dominio deje de ser identificable por su id;
+      #   * que este PR suponga algo del contrato de `filters.companies.exclude` que
+      #     el soporte humano de Lusha todavía no ha confirmado por escrito: ids,
+      #     semántica combinada ids+dominios, estabilidad de id, máximo de elementos,
+      #     orden, o relleno de página;
+      #   * que la lista de dominios cambie por el mero hecho de existir la memoria;
+      #   * que la memoria toque la autoridad económica (M121) o la observabilidad de
+      #     gasto (`provider_usage_logs`), o publique un ahorro sin contrafactual;
+      #   * que se degraden el dedupe entre ramas (#302), el objetivo exacto (#306) o
+      #     la parada por novedad cero (#310).
+      #
+      # Offline y determinista: sin red, sin Supabase, sin proveedor. 0 créditos.
+      - name: Run A1 provider-seen memory tests
+        run: npm run test:a1-provider-seen-memory
+
+      # ── AGENT1-PROVIDER-SEEN-MEMORY-2 ───────────────────────────────────
+      #
+      # LA MITAD QUE NINGUNA SUITE DE TypeScript PUEDE CUBRIR.
+      #
+      # La afirmación central de este hito es de IDENTIDAD —qué cuenta como «la misma
+      # empresa» para la memoria de lo ya pagado— y esa afirmación NO vive en
+      # TypeScript: vive en dos índices únicos PARCIALES y en un `ON CONFLICT ... DO
+      # UPDATE` con mezcla ordenada. Leer el SQL no responde si PostgreSQL acepta el
+      # duplicado; hay que insertarlo.
+      #
+      # Aplica la migración 123 leyendo el archivo VERBATIM de `supabase/migrations` y
+      # después ejercita, con el nombre del caso en el título, los cinco que la dueña
+      # pidió resolver antes de congelar el esquema:
+      #   A. dominio suelto y luego id+dominio  ⇒ DOS filas (fusionarlas exigiría afirmar
+      #      que un dominio identifica una entidad, justo lo que C prohíbe);
+      #   B. mismo id con dominio nuevo         ⇒ UNA fila, `first_seen_*` intacto y el
+      #      dominio avanzado al que el proveedor emite AHORA;
+      #   C. ids distintos con dominio compartido ⇒ DOS filas — no hay unicidad global
+      #      por dominio, que colapsaría un grupo con su filial;
+      #   D. id solo y luego id+dominio         ⇒ UNA fila, el dominio se COMPLETA, y un
+      #      nulo posterior nunca lo borra;
+      #   E. la misma observación concurrente dos veces ⇒ UNA fila, sin excepción visible.
+      #
+      # Y lo que sólo una base real puede responder: que la migración APLIQUE (cinco
+      # `COMMENT ON` y una función plpgsql con dolar-quoting anidado son exactamente la
+      # superficie donde un lexer de comillas pasa y PostgreSQL falla con 42601); que
+      # reaplicarla no toque una fila; que `first_seen_*` y la identidad sean inmutables
+      # ante un UPDATE DIRECTO; que anon y authenticated no conserven NI UNO de los 8
+      # privilegios —Supabase los concede por DEFAULT PRIVILEGES y habilitar RLS no los
+      # quita, así que esto se responde con `has_table_privilege`, no con
+      # `information_schema`—; que `service_role` no tenga DELETE; y que el doble en
+      # memoria de las pruebas converja a la MISMA fila que la tabla, que es la única
+      # defensa contra que el esquema y su cliente acaben con dos ideas de identidad.
+      #
+      # 🔴 La migración NO se aplica en Producción y el runtime sigue devolviendo el
+      # no-op: este paso prueba la tabla, no la enciende.
+      #
+      # `embedded-postgres` ya está instalado por el paso de Agente 2A de más arriba, con
+      # la versión PINCHADA 17.6.0-beta.15. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte
+      # el skip en FALLO: sin ella, que el arnés no resolviera pondría este paso verde
+      # con una migración inaplicable. Sin `continue-on-error` y sin `|| true`.
+      #
+      # 0 proveedores, 0 créditos, 0 escrituras remotas. Datos sintéticos.
+      - name: Run A1 provider-seen schema tests against real PostgreSQL
+        run: npm run test:a1-provider-seen-memory:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+      # AGENT2A-APOLLO-PEOPLE-SEARCH-BILLING-TRUTH-1 — la verdad contable de
+      # Apollo People Search entra al check obligatorio.
+      #
+      # El soporte de Apollo confirmó que People Search no cobra: ni la llamada, ni
+      # los resultados devueltos, ni los resultados repetidos. SellUp escribía
+      # `credits_used = número de resultados` con su dólar derivado del precio genérico
+      # del crédito, así que contabilizaba como pagado un volumen que el proveedor
+      # regala (30 filas históricas en Producción con 98 créditos y ~$0.8575 que NO son
+      # cobros probados).
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que un conteo de VOLUMEN vuelva a colarse como costo — se comprueba sobre
+      #     el adaptador REAL y, en el runner, con entradas HOSTILES que reportan
+      #     `creditsUsed = nº de resultados` y con `providerUsage` AUSENTE (las dos
+      #     ramas por las que entraron los créditos fantasma);
+      #   * que el costo cero se coma las métricas operativas: 25 resultados gratis
+      #     siguen siendo 25 en `results_returned` y en la metadata;
+      #   * que una llamada real a costo cero se vuelva indistinguible de "no se llamó
+      #     al proveedor" — la fila de éxito con 0 resultados tiene que existir;
+      #   * que el 0 se escriba como NULL, que significa "costo DESCONOCIDO" y no
+      #     "gratis", y que el presupuesto lo lea como incompleto;
+      #   * que el cero se generalice y regale `people/match`, que sigue siendo pagado.
+      #
+      # Offline y determinista: sin red (un espía sobre `fetch` lo comprueba), sin
+      # Supabase, sin credenciales. 0 créditos.
+      - name: Run Agent 2A Apollo People Search billing truth tests
+        run: npm run test:agent2a:apollo-people-search-billing-truth
+      # AGENT2A-PROVIDER-NOVELTY-AND-REUSE-GATE-1 — el novelty gate PRE-PAGO
+      # de identidades nativas del proveedor entra al check obligatorio.
+      #
+      # El defecto que cierra: un rerun AUTOMÁTICO de descubrimiento de contactos
+      # volvía a pagar por enriquecer a la MISMA persona, en la MISMA empresa, por
+      # el MISMO proveedor. Apollo People Search no cobra y no permite excluir
+      # personas ya vistas, así que el desperdicio estaba en `people/match`; en
+      # Lusha, en `/v3/contacts/enrich`.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que una identidad ya conocida vuelva a entrar a la pata PAGADA
+      #     (`people/match` / `/v3/contacts/enrich`) o a crear un candidato duplicado;
+      #   * que el estado del candidato histórico reabra el pago: pending_review,
+      #     approved, discarded y duplicate cuentan TODOS como ya visto, y un
+      #     candidato al que le falta el email tampoco se vuelve pagable solo;
+      #   * que la identidad se cruce entre proveedores — un contactId de Lusha no
+      #     puede suprimir un person_id de Apollo, ni al revés;
+      #   * que el scope de empresa se afloje: solo account_id, HubSpot company id o
+      #     dominio normalizado, nunca el NOMBRE ni un match difuso; y que la misma
+      #     persona en OTRA empresa siga siendo elegible (cambia de empleador);
+      #   * que el gate se vuelva fail-closed: sin clave determinista, sin identidad
+      #     o con error de lectura NO puede suprimir nada;
+      #   * que el ahorro se cuele como llamada inventada: un skip no escribe fila de
+      #     provider_usage_logs, ni créditos, ni USD; y People Search sigue en 0/0;
+      #   * que la barrera tardía de duplicados (dedupe + pending cross-run) se
+      #     retire por tener un gate temprano.
+      #
+      # Offline y determinista: `fetch` está sustituido por un router en memoria que
+      # falla el test si aparece cualquier host que no sea el fixture de Lusha o el
+      # Supabase de marcador. Sin credenciales, sin Supabase real, 0 créditos.
+      - name: Run Agent 2A provider-native novelty gate tests
+        run: npm run test:agent2a:provider-novelty-gate
+      # AGENT2A-LOCAL-REVIEWABLE-CANDIDATE-REUSE-1.1 — el gate de REUSO LOCAL
+      # pre-proveedor, AGNÓSTICO DE PROVEEDOR, entra al check obligatorio.
+      #
+      # El defecto que cierra: con el intento de Apollo en cero candidatos
+      # revisables, el router AUTOMÁTICO arrancaba trabajo específico de Lusha
+      # (disponibilidad → API key → presupuesto → attempt #2 → Prospecting)
+      # incluso cuando SellUp YA tenía un candidato accionable de la MISMA
+      # empresa esperando revisión en pending_review. El resultado revisable ya
+      # existía; el proveedor no tenía nada que añadir que un humano no hubiera
+      # visto todavía.
+      #
+      # LA FUGA QUE CIERRA LA VERSIÓN 1.1 — y el motivo de que el predicado NO
+      # pueda ser sólo source='lusha'. La señal de fallback se deriva de
+      # attempt1Result.candidatesCreated, y #315 quita los person_id de Apollo YA
+      # CONOCIDOS ANTES del /people/match pagado. Por eso una corrida repetida
+      # llega legítimamente a candidatesCreated=0 ⇒ zero_reviewable_candidates
+      # ⇒ el router recomienda fallback a Lusha, MIENTRAS SellUp ya tiene un
+      # candidato APOLLO accionable en pending_review para esa misma empresa. Con
+      # el predicado Lusha-only ese candidato se ignoraba y el gasto de Lusha
+      # seguía siendo posible. El test contrafactual (9) es exactamente esa fuga.
+      #
+      # LO QUE ESTO NO ES: identidad cruzada entre proveedores. No se afirma que
+      # un person_id de Apollo sea un contactId de Lusha, no se crea alias, no se
+      # traduce ningún id nativo, y ninguna fila de un proveedor suprime un id
+      # concreto del otro. La pregunta es de EMPRESA: "¿ya hay al menos un
+      # candidato accionable de esta misma empresa esperando revisión humana?".
+      # Los valores de source_contact_id NUNCA se comparan entre sí.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que la colocación se degrade: el gate tiene que correr DESPUÉS de que
+      #     la señal recomiende fallback y ANTES de isFallbackProviderAvailable,
+      #     de estimateFallbackCostUsd/presupuesto, de createFallbackAttempt y de
+      #     runLushaAttempt — se comprueba con el ORDEN de llamadas, no solo con
+      #     contadores;
+      #   * que un resultado LOCAL y GRATIS se rechace por una condición del
+      #     proveedor: se prueba con Lusha no disponible, sin API key, con un
+      #     presupuesto que SÍ bloquearía un fallback y con costo desconocido;
+      #   * que el contrato accionable se afloje: source IN ('apollo','lusha') +
+      #     source_contact_id + pending_review + email + duplicate_status
+      #     'no_match'; LinkedIn es OPCIONAL;
+      #   * que un estado SUPPRESS-ONLY se cuele como reuso — approved,
+      #     discarded, duplicate, possible_duplicate, exact_duplicate, unchecked
+      #     y pending_review sin email NO satisfacen el umbral, en NINGUNO de los
+      #     dos sources, y tampoco disparan un re-enriquecimiento directo por
+      #     contactId;
+      #   * que un candidato de Apollo NO cuente: un pending_review accionable de
+      #     Apollo de la misma empresa TIENE que producir HIT (era la fuga);
+      #   * que source_contact_id deje de exigirse: una fila sin identidad nativa
+      #     del proveedor (manual/fabricada) NO es reusable;
+      #   * que source_counts mienta: los conteos por source son agregados y
+      #     veraces, y no llevan ids, email ni LinkedIn;
+      #   * que aparezca comparación de identidad entre proveedores: se prueba
+      #     que el gate nunca compara valores de source_contact_id;
+      #   * que el scope de empresa se afloje: se reutilizan los helpers de #315
+      #     (account_id > HubSpot company id > dominio normalizado), sin NOMBRE ni
+      #     match difuso, y un desacuerdo en la clave más fuerte NO cae a una más
+      #     débil;
+      #   * que el gate se vuelva fail-CLOSED: sin clave determinista, request
+      #     ilegible o error de lectura tienen que dejar pasar el fallback actual
+      #     INTACTO;
+      #   * que el ahorro se cuele como llamada inventada: 0 filas de candidato,
+      #     0 filas de provider_usage_logs, y la telemetría NO afirma
+      #     avoided_paid_calls / credits_saved / USD_saved;
+      #   * que candidatesCreated se contamine: reusedExistingCandidates es un
+      #     contador SEPARADO y no existe ningún conteo "efectivo" combinado;
+      #   * que el flag por defecto deje de estar APAGADO, y que con el flag
+      #     apagado el lector llegue a ejecutarse.
+      #
+      # Offline y determinista: cada lector y cada dependencia del router se
+      # inyecta. Sin red, sin Supabase, sin credenciales, 0 créditos. Reejecuta
+      # además las suites de routing automático, de la decisión de fallback, del
+      # action core y del contrato de config para probar que nada existente
+      # cambió de comportamiento.
+      - name: Run Agent 2A local reviewable candidate reuse gate tests
+        run: npm run test:agent2a:local-reuse-gate
+
+      # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-1 — la economía de Apollo company
+      # discovery deja de ser inmedible, y su memoria deja de ser ciega.
+      #
+      # Cuatro defectos, un solo check obligatorio:
+      #
+      #   P0-2 — Apollo NO recordaba nada de lo que devolvía. La memoria
+      #          provider-seen sólo la escribía Lusha, así que cada corrida Apollo
+      #          volvía a pagar empresas que ya había visto. Ahora se registra en
+      #          la costura COMPARTIDA por sus dos modalidades
+      #          (`apollo-organizations-paginated-search`), inmediatamente después
+      #          de normalizar y ANTES del dedupe entre páginas y del tope
+      #          `maxCandidates`.
+      #   P0-4 — la contabilidad agregada salía de `paginated.organizations`, que
+      #          ya está deduplicada y truncada. Dos páginas de 10 con tope 10 se
+      #          registraban como 10 resultados pagados en vez de 20. Ahora sale
+      #          del ledger POR PÁGINA.
+      #   P1-1 — un `estimated_cost_usd` explícitamente null —«no había tarifa
+      #          viva»— se colapsaba a 0 en la fila de Apollo, mientras la misma
+      #          fila llevaba `pricing_missing_warning: true` al lado. Ahora se
+      #          preserva como SQL NULL, igual que la ruta Lusha.
+      #   P1-3 — no existía embudo comparable con el de Lusha. Ahora existe, y los
+      #          tres campos que esta ruta todavía no puede medir van en null con
+      #          su costura NOMBRADA, jamás en 0.
+      #
+      # Las mutaciones que esta suite pone en rojo:
+      #   * mover el registro de memoria después del tope de candidatos;
+      #   * moverlo después del dedupe entre páginas;
+      #   * devolver el agregado a `rawOrgs.length` / `collected.length`;
+      #   * volver a colapsar un null explícito de costo en 0;
+      #   * fabricar `accepted_for_target` desde lo devuelto por el proveedor;
+      #   * volver fail-CLOSED la escritura de memoria (una página YA pagada no se
+      #     puede perder por un fallo de memoria).
+      #
+      # Y los ratchets de ALCANCE: P0-3 sigue fuera —ni `residualGap`, ni plan de
+      # exclusión, ni memoria cargada antes de buscar—, `APOLLO_EXCLUSION_CAPABILITY`
+      # sigue TODA en false, no hay flag nuevo, no hay migración nueva, y la ruta
+      # Lusha conserva su orden y su aislamiento de identidad.
+      #
+      # Offline y determinista: transporte, reloj, jitter, logger y escritor de
+      # memoria se inyectan. Sin red, sin Supabase, sin proveedor. 0 créditos.
+      - name: Run A1 Apollo benchmark parity cut 1 tests
+        run: npm run test:a1-apollo-benchmark-parity-cut1

@@ -3,8 +3,10 @@
 // ============================================================
 
 import type { BudgetOnExceed, BudgetPeriodType, BudgetRule } from '@/modules/usage-tracking/types';
+import type { EffectiveConsumptionBreakdown } from './effective-consumption-core';
 
 export type { BudgetOnExceed, BudgetPeriodType };
+export type { EffectiveConsumptionBreakdown };
 
 // 'none' = no rule applies; extends the DB enum with the resolution outcome
 export type BudgetScopeApplied = 'user' | 'group' | 'role' | 'global' | 'none';
@@ -40,9 +42,24 @@ export interface BudgetCheckResult {
   scopeApplied: BudgetScopeApplied;
   /** The rule that was matched, or null when scopeApplied is 'none'. */
   matchedRule: MatchedRule | null;
-  /** Actual consumption recorded in provider_usage_logs this period. */
+  /**
+   * EFFECTIVE consumption of the period: usage logs that are not already represented by
+   * a confirmed phone-reveal reservation, PLUS the credits those reservations confirmed
+   * (AGENT2A-PHONE-REVEAL-4N). It is no longer a plain sum over provider_usage_logs,
+   * because Apollo does not report what a phone reveal cost and the reservation is then
+   * the only economic figure that exists. `consumptionBreakdown` shows the two parts.
+   */
   consumedCredits: number;
   consumedUsd: number;
+  /**
+   * Exposure of authorizations that are still in flight in this pool
+   * (SUM of credits_reserved over `reserved` rows). NOT consumption — nobody has been
+   * charged yet — but it occupies availability, so a caller sizing a new operation must
+   * subtract it too: `available = limit - consumedCredits - reservedCredits`.
+   */
+  reservedCredits: number;
+  /** Audit trail of how consumedCredits was formed. Never feeds allow/block. */
+  consumptionBreakdown: EffectiveConsumptionBreakdown;
   /** Projected totals including the operation being checked (consumedX + projectedX). */
   projectedCredits: number;
   projectedUsd: number;
@@ -92,10 +109,20 @@ export interface AdminProviderBudgetRow {
   /** Null when no rule defines a credit limit. */
   globalLimitCredits: number | null;
   globalLimitUsd: number | null;
+  /**
+   * EFFECTIVE consumption: usage logs not already represented by a confirmed
+   * phone-reveal reservation, plus what those reservations confirmed
+   * (AGENT2A-PHONE-REVEAL-4N). See `consumptionBreakdown` for the split.
+   */
   consumedCredits: number;
   consumedUsd: number;
   /** True when at least one aggregated row in the period has estimated_cost_usd = NULL (unknown cost). Governs consumedUsd/remainingUsd truthful display. */
   hasUnknownCost: boolean;
+  /** In-flight exposure of authorizations still `reserved`. Already subtracted from remainingCredits. */
+  reservedCredits: number;
+  /** How consumedCredits was formed. Display/audit only — never feeds a limit check. */
+  consumptionBreakdown: EffectiveConsumptionBreakdown;
+  /** `limit - consumedCredits - reservedCredits`. null when the rule sets no credit limit. */
   remainingCredits: number | null;
   remainingUsd: number | null;
   /** Period used for the consumption aggregation. */

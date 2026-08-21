@@ -19,7 +19,14 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
 
   // Tab "Candidatos por revisar" — staging de Apollo (Hito 17A.4A).
   if (tab === 'candidates') {
-    return <ContactCandidatesPanel />;
+    return <ContactCandidatesPanel queue="pending" />;
+  }
+
+  // Tab "Duplicados" (4O-H3-B-R1) — candidatos que la detección movió a `duplicate` y que
+  // siguen esperando una decisión humana. Antes de este hito no había forma de volver a
+  // abrirlos: la cola de pendientes filtra `pending_review` y los dejaba fuera para siempre.
+  if (tab === 'duplicates') {
+    return <ContactCandidatesPanel queue="duplicates" />;
   }
 
   // Tab por defecto: "Contactos aprobados" (comportamiento histórico de /contacts).

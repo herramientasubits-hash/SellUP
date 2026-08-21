@@ -26,6 +26,10 @@ const FILES = {
   finalSearch: join(ROOT, 'src/components/prospect-batches/chat-wizard/wizard-lusha-final-search.tsx'),
   finalSummary: join(ROOT, 'src/modules/prospect-batches/wizard-final-summary.ts'),
   pendingReview: join(ROOT, 'src/server/prospect-batches/lusha-pending-review.ts'),
+  // MULTIBRANCH-EXECUTOR-1 § 6 — los topes por rama se extrajeron a su propio
+  // módulo (mismos nombres, mismos valores) para que el ejecutor multi-rama derive
+  // de ellos sin cerrar un ciclo. Esta guarda los busca donde ahora viven.
+  pendingReviewLimits: join(ROOT, 'src/server/prospect-batches/lusha-pending-review-limits.ts'),
   preview: join(ROOT, 'src/server/prospect-batches/lusha-preview.ts'),
 };
 
@@ -38,6 +42,7 @@ const src = {
   finalSearch: readFileSync(FILES.finalSearch, 'utf-8'),
   finalSummary: readFileSync(FILES.finalSummary, 'utf-8'),
   pendingReview: readFileSync(FILES.pendingReview, 'utf-8'),
+  pendingReviewLimits: readFileSync(FILES.pendingReviewLimits, 'utf-8'),
   preview: readFileSync(FILES.preview, 'utf-8'),
 };
 
@@ -104,13 +109,25 @@ describe('Q3F-5BB.10A — Lusha billing copy is non-contractual (copy/UI only)',
     assert.doesNotMatch(src.finalSearch, /máx \$\{result\.expectedMaxCredits\}/);
   });
 
-  it('final-search states the honest guardrail shape + billing basis', () => {
+  // AGENT1-LUSHA-PRECLICK-UX-CONSISTENCY-FIX-1 § P0 — ratchet INVERTIDO.
+  //
+  // Los espejos de sólo-presentación (`LUSHA_MAX_PAGES` / `…_RESULTS_PER_PAGE` /
+  // `…_MAX_RESULTS`) reflejaban un ejecutor de UNA rama. Con el ejecutor Macro-v2
+  // el techo depende del plan de la macro industria, así que un espejo estático ya
+  // no puede seguir al runtime: aquí se exige que no exista ninguno. La cifra
+  // cuantitativa autoritativa de la pantalla es `requiredCredits`, resuelto por el
+  // preflight consciente del plan.
+  it('final-search states the billing basis without static shape constants', () => {
     assert.match(src.finalSearch, /sin signals/i);
     assert.match(src.finalSearch, /facturable según tu plan de Lusha/i);
     assert.match(src.finalSearch, /costo real/i);
-    // Numbers come from display-only constants (no magic numbers in prose).
-    assert.match(src.finalSearch, /LUSHA_EXPECTED_RESULTS_PER_PAGE/);
-    assert.match(src.finalSearch, /LUSHA_EXPECTED_MAX_RESULTS/);
+    assert.match(src.finalSearch, /plan configurado para la macroindustria/i);
+    // Ningún espejo estático de la forma de la búsqueda sobrevive en la UI.
+    assert.doesNotMatch(src.finalSearch, /LUSHA_MAX_PAGES/);
+    assert.doesNotMatch(src.finalSearch, /LUSHA_EXPECTED_RESULTS_PER_PAGE/);
+    assert.doesNotMatch(src.finalSearch, /LUSHA_EXPECTED_MAX_RESULTS/);
+    // El techo plan-aware se lee del preflight, nunca se recalcula en la UI.
+    assert.match(src.finalSearch, /resolveLushaPreflightRequiredCredits/);
   });
 
   it('final-summary estimated cost is a non-contractual descriptor', () => {
@@ -124,7 +141,7 @@ describe('Q3F-5BB.10A — Lusha billing copy is non-contractual (copy/UI only)',
 
   // Behavior guardrails untouched — copy fix must not move any server dial.
   it('server MAX_PAGES stays 2 and page size stays 10', () => {
-    assert.match(src.pendingReview, /LUSHA_PENDING_REVIEW_MAX_PAGES\s*=\s*2\b/);
+    assert.match(src.pendingReviewLimits, /LUSHA_PENDING_REVIEW_MAX_PAGES\s*=\s*2\b/);
     assert.match(src.preview, /LUSHA_PREVIEW_SIZE\s*=\s*10\b/);
   });
 

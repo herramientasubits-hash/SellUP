@@ -46,6 +46,12 @@ const TOKEN = 'webhook-secret-token';
 const REQUEST_ID = 'apollo-req-123';
 const MOBILE = '+573001112233';
 const DIRECT = '+571234567';
+/** Apollo person id sintético (24 hex), opaco e inventado. Necesario para que la
+ * comprobación de supresión en vuelo sea evaluable (AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1):
+ * sin él el gate ahora bloquea (`not_evaluable` ⇒ fail-closed). Este archivo
+ * prueba la captura del teléfono revelado y la correlación del webhook, no la
+ * resolución de identidad de la supresión. */
+const PERSON_ID = '3c4d5e6f7a8b9c0d1e2f3a4b';
 
 function baseCandidate(
   overrides: Partial<WebhookCandidateRecord> = {},
@@ -55,6 +61,7 @@ function baseCandidate(
     accountId: 'acct-1',
     enrichmentMetadata: {},
     phoneRevealStatus: 'requested',
+    apolloPersonId: PERSON_ID,
     ...overrides,
   };
 }
@@ -82,6 +89,7 @@ function makeDeps(
     logUsage: async (entry) => {
       cap.logs.push(entry);
     },
+    lookupPhoneCacheSuppression: async () => null,
   };
 }
 
@@ -347,6 +355,7 @@ describe('ASYNC-21 webhook — correlación por ref (fallback robusto)', () => {
       logUsage: async (entry) => {
         cap.logs.push(entry);
       },
+      lookupPhoneCacheSuppression: async () => null,
     };
   }
 

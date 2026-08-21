@@ -115,6 +115,17 @@ const store: Store = {
 };
 
 const CANDIDATE_ID = 'cand-legacy-reauth';
+/**
+ * Apollo person id sintético (24 hex), opaco e inventado. CACHE-1a (mig. 098) ya
+ * habría poblado esta columna cuando el intento Apollo previo emparejó una
+ * persona (aunque no encontrara teléfono), así que el candidato legacy trae este
+ * valor por defecto: sin él la puerta de privacidad ahora bloquea por falta de
+ * clave (`not_evaluable` ⇒ fail-closed, AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1) y
+ * esta suite deja de poder ejercitar la REAUTORIZACIÓN, que es lo que prueba.
+ * `source: 'lusha'` y `source_contact_id` siguen intactos: el caso cross-provider
+ * a propósito de este archivo.
+ */
+const CANDIDATE_APOLLO_PERSON_ID = 'ab01cd23ef45ab01cd23ef46';
 
 /** Candidato ELEGIBLE: terna de evidencia completa, sin teléfono, id Lusha propio. */
 let candidateRow: Row = {};
@@ -133,7 +144,7 @@ function resetCandidateRow(): void {
     phone_reveal_provider: 'apollo',
     phone_reveal_completed_at: '2026-07-01T10:00:00.000Z',
     phone_reveal_attempt_count: 1,
-    apollo_person_id: null,
+    apollo_person_id: CANDIDATE_APOLLO_PERSON_ID,
     run: { account_id: 'acct-legacy' },
   };
 }
@@ -486,6 +497,18 @@ mock.module('@/modules/budgets/budget-resolution', {
       },
       consumedCredits: 0,
       consumedUsd: 0,
+      // AGENT2A-PHONE-REVEAL-4N: el pozo declara explícitamente que NO hay exposición
+      // reservada. El preflight lo exige como dato y trata su ausencia como
+      // `balance_unavailable`, porque un pozo cuya exposición nadie leyó no autoriza gasto.
+      reservedCredits: 0,
+      consumptionBreakdown: {
+        usageLogCredits: 0,
+        confirmedReservationCredits: 0,
+        excludedUsageLogCredits: 0,
+        excludedUsageLogCount: 0,
+        hasAssumedCapCredits: false,
+        malformedConfirmedReservationCount: 0,
+      },
       projectedCredits: 0,
       projectedUsd: 0,
       remainingCredits: 1_000,
@@ -529,6 +552,7 @@ mock.module('@/server/integrations/lusha-phone-fallback-client', {
         return {
           ok: true as const,
           httpStatus: 429,
+          phones: [],
           phoneNumber: null,
           phoneType: 'unknown' as const,
           phoneRawType: null,
@@ -545,6 +569,10 @@ mock.module('@/server/integrations/lusha-phone-fallback-client', {
         return {
           ok: true as const,
           httpStatus: 200,
+          // 4O-D: el cliente publica la lista COMPLETA además del escalar.
+          phones: [
+            { number: '+57 300 000 0000', rawType: null, phoneType: 'unknown' as const },
+          ],
           phoneNumber: '+57 300 000 0000',
           phoneType: 'unknown' as const,
           phoneRawType: null,
@@ -560,6 +588,7 @@ mock.module('@/server/integrations/lusha-phone-fallback-client', {
       return {
         ok: true as const,
         httpStatus: 200,
+        phones: [],
         phoneNumber: null,
         phoneType: 'unknown' as const,
         phoneRawType: null,
@@ -570,6 +599,43 @@ mock.module('@/server/integrations/lusha-phone-fallback-client', {
         availabilitySource: null,
         errorCode: null,
         phonesReturned: 0,
+      };
+    },
+  },
+});
+
+/**
+ * AGENT2A-PHONE-REVEAL-4O-D — la pata Lusha persiste ahora su colección con una RPC
+ * transaccional. Este archivo no es el que prueba esa transacción (lo hace el arnés
+ * de PostgreSQL real): aquí se sustituye por un doble que devuelve el sobre de éxito,
+ * para que lo que se siga midiendo sea la REAUTORIZACIÓN y no la infraestructura.
+ */
+mock.module('@/modules/contact-enrichment/candidate-lusha-phone-collection-persistence', {
+  namedExports: {
+    PERSIST_CANDIDATE_LUSHA_PHONE_REVEAL_RESULT_FN:
+      'persist_candidate_lusha_phone_reveal_result',
+    persistCandidateLushaPhoneCollection: async (request: {
+      terminal: { legacyPhone: string; attemptCount: number };
+    }) => {
+      // La transacción real escribe TAMBIÉN el candidato: escalar y estado terminal
+      // viajan dentro de ella desde 4O-D. El doble lo reproduce sobre el almacén
+      // falso, porque si no este archivo dejaría de ver un efecto que en Producción
+      // sí ocurre — y la reautorización, que es lo que aquí se mide, depende de él.
+      candidateRow.phone = request.terminal.legacyPhone;
+      candidateRow.phone_reveal_status = 'revealed';
+      candidateRow.phone_reveal_provider = 'lusha';
+      candidateRow.phone_reveal_request_id = null;
+      candidateRow.phone_reveal_attempt_count = request.terminal.attemptCount;
+      return {
+      status: 'persisted' as const,
+      inserted_phone_count: 1,
+      updated_phone_count: 0,
+      inserted_source_count: 1,
+      suppressed_skipped_count: 0,
+      primary_dedupe_key: 'e164:doble',
+      primary_persisted: true,
+      candidate_scalar_updated: true,
+      candidate_terminalized: true,
       };
     },
   },

@@ -110,7 +110,7 @@ const mockRouterRefresh = mock.fn<() => void>();
 
 mock.module('@/modules/contact-enrichment/actions', {
   namedExports: {
-    getPendingContactCandidateById: (...args: unknown[]) => mockGetById(...(args as [])),
+    getReviewableContactCandidateById: (...args: unknown[]) => mockGetById(...(args as [])),
     approveContactCandidate: (...args: unknown[]) => mockApprove(...(args as [])),
     discardContactCandidate: (...args: unknown[]) => mockDiscard(...(args as [])),
   },
@@ -313,7 +313,17 @@ describe('PHONE-3D.6B — casos que ocultan el botón (fail-closed)', () => {
 
 describe('PHONE-3D.6B — payload mínimo del action (sin PII) para candidato Lusha', () => {
   it('un clic → llama al action con candidateId + confirmCost + créditos + base fija, sin PII', async () => {
-    await renderSheet(makeLushaCandidate());
+    // AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2 — este es el ÚNICO test de la suite que
+    // llega a hacer clic, así que es el único que necesita una identidad de supresión
+    // EVALUABLE: desde PR #289 el backend bloquea fail-closed sin ella y la UI
+    // deshabilita el botón. Los demás casos de 3D.6B solo comprueban PRESENCIA del
+    // botón (identidad para el MATCH de Apollo, otra pregunta) y siguen intactos.
+    await renderSheet(
+      makeLushaCandidate({
+        apollo_person_id: '0123456789abcdef01234567',
+        account_id: 'acc-3d6b',
+      }),
+    );
     // One-click (APOLLO-PHONE-ASYNC-5): sin modal ni selección de base.
     fireEvent.click(screen.getByRole('button', { name: 'Revelar teléfono' }));
 

@@ -14,12 +14,18 @@
 //   2. contact_enrichment_candidates → phone = NULL and the phone block removed
 //                                from enrichment_metadata, for every candidate
 //                                carrying that apollo_person_id in that account.
-//   3. contacts                → phone / mobile_phone / phone_type /
-//                                phone_source / phone_raw_type nulled, ONLY for
+//   3. contacts                → the whole phone tuple nulled (phone, phone_type,
+//                                phone_source, phone_raw_type, phone_revealed_at,
+//                                phone_processing_basis, phone_confidence), ONLY for
 //                                official contacts that were CREATED/PROMOTED
 //                                from one of those candidates (provenance proven
 //                                by the contact's own metadata) and whose phone
-//                                actually came from an Apollo reveal/cache hit.
+//                                provenance is a PROVEN reveal path — an Apollo
+//                                reveal, an Apollo cache hit or (since 4O-E4) a
+//                                Lusha reveal. `mobile_phone` is NEVER touched, on
+//                                any path (4O-E4.1): the column has no provenance
+//                                model and no provider has ever written it, so this
+//                                provenance-scoped operation cannot claim it.
 //
 // ── Why erasing a contact needs CREATED/PROMOTED provenance (FIX 1) ────────
 // `contact_enrichment_candidates.matched_contacts_id` is NOT a proof of
@@ -35,7 +41,7 @@
 //
 //     contacts.metadata.source_candidate_id === candidate.id
 //   AND contacts.account_id === the suppressed account
-//   AND contacts.phone_source ∈ (apollo_reveal, apollo_cache)
+//   AND contacts.phone_source ∈ (apollo_reveal, apollo_cache, lusha_reveal)
 //
 // A duplicate match — even an "exact" one by email or linkedin — is NOT accepted
 // as sufficient in v1. It identifies the same *person* with reasonable confidence,
@@ -117,15 +123,38 @@ export function isPhoneCacheSuppressionReasonCode(
 // ── Procedencias borrables en contacts (FIX M1) ────────────────
 
 /**
- * Solo se borra el teléfono de un contacto oficial cuando su procedencia es un
- * reveal Apollo o un hit de la caché Apollo. Un número `manual`, `apollo_search`,
- * `provider_payload`, `lusha_reveal`, `unknown` o de cualquier fuente futura no
- * aprobada NO lo escribió este camino y por tanto no se toca: borrarlo sería
- * destruir dato curado ajeno a la supresión.
+ * Solo se borra el teléfono de un contacto oficial cuando su procedencia es
+ * DEMOSTRABLE y pertenece a un camino de reveal que este subsistema escribió. Un
+ * número `manual`, `apollo_search`, `provider_payload`, `unknown`, `NULL` o de
+ * cualquier fuente futura no aprobada NO lo escribió este camino y por tanto no se
+ * toca: borrarlo sería destruir dato curado ajeno a la supresión.
+ *
+ * ── 4O-E4: `lusha_reveal` entra en la allowlist ────────────────
+ *
+ * Hasta este hito la lista era sólo Apollo, y la consecuencia era que un teléfono
+ * revelado por Lusha sobrevivía a la DSAR: el escalar del candidato y la colección
+ * canónica se limpiaban (4O-E2), pero el contacto OFICIAL —la copia visible en la
+ * UI y la que se sincroniza a HubSpot— se quedaba con el número intacto porque su
+ * `phone_source` no estaba en la lista. La supresión se declaraba `ok` con el dato
+ * personal todavía a la vista.
+ *
+ * La admisión NO es una heurística: la cadena de procedencia es explícita y
+ * completa de punta a punta. `lusha-phone-fallback-core.ts` escribe
+ * `enrichment_metadata.phone.source = 'lusha_reveal'` al persistir el reveal,
+ * `candidate-review-core.ts` lo admite en `ALLOWED_PHONE_SOURCES` (así que
+ * `normalizePhoneSource` NO lo degrada a null) y la aprobación lo copia literalmente
+ * a `contacts.phone_source`. El CHECK `contacts_phone_source_check` de Producción
+ * también lo acepta. El valor en la columna es por tanto una AFIRMACIÓN del escritor,
+ * no una inferencia del borrador.
+ *
+ * Lo que sigue FUERA: coincidencia de valor. Que el número del contacto sea igual
+ * al de la colección del candidato NO demuestra quién lo escribió, así que no
+ * autoriza nada por sí solo (ver `resolveContactErasureProvenance`).
  */
 export const SUPPRESSIBLE_CONTACT_PHONE_SOURCES: readonly string[] = [
   'apollo_reveal',
   'apollo_cache',
+  'lusha_reveal',
 ];
 
 export function isSuppressibleContactPhoneSource(
@@ -136,6 +165,53 @@ export function isSuppressibleContactPhoneSource(
     SUPPRESSIBLE_CONTACT_PHONE_SOURCES.includes(value.trim())
   );
 }
+
+// ── 4O-E4.1: `mobile_phone` NO se borra por procedencia ajena ──
+//
+// Hasta 4O-E4 existía aquí una SEGUNDA allowlist —
+// `MOBILE_PHONE_SUPPRESSIBLE_PHONE_SOURCES = [apollo_reveal, apollo_cache]`— que
+// añadía `mobile_phone: null` al patch cuando la procedencia observada era Apollo.
+// Ese comportamiento era heredado, no demostrado: la única evidencia que lo sostenía
+// era el valor de `contacts.phone_source`, que describe la columna `phone` y ninguna
+// otra.
+//
+// La auditoría de escritores de 4O-E4.1 no encontró NINGUNA ruta —actual ni
+// histórica— por la que un proveedor escriba `contacts.mobile_phone`:
+//
+//   * los únicos escritores son `createContact` y `updateContact`
+//     (`src/modules/contacts/actions.ts`), alimentados por los dos formularios
+//     manuales (`create-contact-drawer` / `edit-contact-drawer`): un HUMANO
+//     escribiendo «Celular»;
+//   * `ContactInsertPayload` —lo que la aprobación de un candidato inserta— NO
+//     tiene la columna, así que ni Apollo ni Lusha la pueblan al promover;
+//   * en Producción no hay trigger que la escriba (sólo `contacts_set_updated_at`),
+//     no es columna generada y NINGUNA función de la base la menciona en su cuerpo;
+//   * el historial completo de git para `mobile_phone` (16 commits) no contiene un
+//     solo escritor de proveedor: las únicas escrituras no manuales que existieron
+//     jamás son las de esta misma supresión, es decir el borrado que aquí se retira.
+//
+// Por tanto el sistema NO PUEDE DEMOSTRAR que `mobile_phone` pertenezca al dataset
+// cuyo borrado se está ejecutando, y el principio vinculante se aplica sin excepción
+// de proveedor:
+//
+//     NO PROVENANCE → NO DESTRUCTIVE ERASURE
+//
+// El caso obligatorio que esto protege es real y trivial de alcanzar: un contacto
+// creado desde un candidato Apollo conserva `phone_source = apollo_reveal` para
+// siempre, y `updateContact` nunca toca esa columna — así que basta con que alguien
+// escriba un celular a mano en el formulario para que la DSAR de Apollo borrase un
+// número que Apollo nunca escribió.
+//
+// Esto NO afirma que `mobile_phone` no sea dato personal. Afirma que esta operación
+// es provenance-scoped y que su alcance no llega a una columna sin procedencia. El
+// borrado integral por persona pertenece al `CANDIDATE_LEVEL / PERSON_LEVEL
+// SUPPRESSION MODEL`, todavía pendiente — igual que `MOBILE_PHONE_PROVENANCE_PENDING`,
+// que sigue abierto: aquí se evita un borrado inseguro, no se crea procedencia.
+//
+// Consecuencia declarada, no disimulada: la erasure es PARCIAL cuando el contacto
+// tiene `mobile_phone`, y la UI lo prioriza (`mobile_phone ?? phone`), así que un
+// número escrito a mano seguirá siendo visible después de la supresión. Eso es lo
+// esperado: es dato de un tercero que esta operación no puede reclamar.
 
 // ── Entrada ────────────────────────────────────────────────────
 
@@ -188,7 +264,17 @@ export interface PhoneCacheTombstoneInsertRow {
   suppressed_by: string | null;
 }
 
-/** Borrado del teléfono en un candidato (hard delete del valor). */
+/**
+ * Borrado del teléfono en un candidato (hard delete del valor).
+ *
+ * ⚠️ 4O-E2. Desde este hito el patch NO se envía por PostgREST: la escritura del
+ * escalar, de la metadata y de los tombstones de la colección canónica ocurre en UNA
+ * transacción (`suppress_candidate_phone_collection`, migración 112), porque un
+ * segundo escritor por PostgREST volvería a poner `phone = null` DESPUÉS de que la
+ * transacción hubiera elegido un superviviente. El patch sigue siendo el CONTRATO
+ * declarado y probado de lo que esa transacción escribe —los mismos tres campos, con
+ * los mismos valores— y una prueba comprueba que el SQL y esta forma no se separan.
+ */
 export interface CandidatePhoneSuppressionPatch {
   phone: null;
   enrichment_metadata: ContactCandidateEnrichmentMetadata;
@@ -199,13 +285,64 @@ export interface CandidatePhoneSuppressionPatch {
   phone_reveal_error_code: null;
 }
 
-/** Borrado del teléfono en un contacto oficial (hard delete del valor). */
+/**
+ * Borrado del teléfono en un contacto oficial (hard delete del valor).
+ *
+ * ── 4O-E4: la TUPLA completa, sin metadata huérfana ────────────
+ *
+ * Antes de este hito el patch nulaba 5 columnas y dejaba vivas otras 3 que
+ * `contacts` sí tiene y que la aprobación sí escribe: `phone_revealed_at`,
+ * `phone_processing_basis` y `phone_confidence`. El resultado era un estado
+ * incoherente y delator — `phone = NULL` junto a `phone_revealed_at = <fecha>` y
+ * `phone_processing_basis = <base legal>` sigue afirmando que a esta persona se le
+ * reveló un teléfono y bajo qué base, que es justo el tipo de rastro que una
+ * erasure debe retirar de la fila del titular. La auditoría durable
+ * (`phone_reveal_suppression_audit`) es el sitio donde consta que hubo tratamiento,
+ * y ahí sí se conserva: sin PII, por hash y por conteos.
+ *
+ * Las 7 columnas se verificaron contra el esquema REAL de Producción
+ * (`information_schema.columns`), no se asumieron.
+ *
+ * ── 4O-E4.1: `mobile_phone` sale del patch, para todas las procedencias ──
+ *
+ * La clave era OPCIONAL y viajaba sólo en el camino Apollo. Ya no viaja en ninguno:
+ * la columna no tiene procedencia que ninguna de estas fuentes pueda reclamar (ver
+ * el bloque 4O-E4.1 más arriba). El patch es ahora el MISMO objeto para toda
+ * procedencia admitida, y por construcción no puede tocar `mobile_phone`.
+ */
 export interface ContactPhoneSuppressionPatch {
   phone: null;
-  mobile_phone: null;
   phone_type: null;
   phone_source: null;
   phone_raw_type: null;
+  phone_revealed_at: null;
+  phone_processing_basis: null;
+  phone_confidence: null;
+}
+
+/**
+ * Construye el patch de borrado del contacto oficial.
+ *
+ * Única fábrica del patch, y desde 4O-E4.1 INDEPENDIENTE de la procedencia: la
+ * decisión «¿se borra esta fila?» la toma la allowlist + el vínculo probado, y lo
+ * que se borra es siempre la misma tupla. No recibe la procedencia observada a
+ * propósito — un parámetro que sólo sirviera para decidir columnas volvería a
+ * invitar a extender la procedencia de `phone` a otras columnas.
+ *
+ * La procedencia observada sigue siendo obligatoria en el PLAN, pero para el
+ * predicado del UPDATE (`.eq('phone_source', …)`), que es otra cosa: allí evita que
+ * una escritura stale caiga sobre una fila que ya cambió de manos.
+ */
+export function buildContactPhoneSuppressionPatch(): ContactPhoneSuppressionPatch {
+  return {
+    phone: null,
+    phone_type: null,
+    phone_source: null,
+    phone_raw_type: null,
+    phone_revealed_at: null,
+    phone_processing_basis: null,
+    phone_confidence: null,
+  };
 }
 
 // ── Proyecciones mínimas de entrada ────────────────────────────
@@ -228,6 +365,22 @@ export interface SuppressibleCandidate {
    * por sí mismo el borrado (FIX 1).
    */
   matchedContactId: string | null;
+  /**
+   * Columnas con las que ESTA fila declara sus identidades NATIVAS de proveedor
+   * (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4, Fase 1, §11). Se usan SÓLO para el
+   * fan-out de la supresión nativa: un candidato que lleva a la vez un
+   * `apollo_person_id` y un `source_contact_id` de Lusha declara DOS identidades de la
+   * MISMA persona, y la DSAR registra las dos.
+   *
+   * No hay aquí nada con lo que hacer matching difuso: no se lee nombre, email ni
+   * LinkedIn, y estas columnas nunca se comparan entre candidatos distintos.
+   *
+   * Opcionales para que un llamador que no las proyecte siga compilando; su ausencia
+   * simplemente no aporta identidades al fan-out.
+   */
+  source?: string | null;
+  sourceContactId?: string | null;
+  apolloPersonId?: string | null;
 }
 
 export interface SuppressibleContact {
@@ -239,7 +392,25 @@ export interface SuppressibleContact {
    * desde el candidato (`buildContactTraceMetadata`).
    */
   sourceCandidateId: string | null;
-  /** `contacts.phone_source`. Solo apollo_reveal / apollo_cache son borrables. */
+  /**
+   * 4O-H3-B — `contacts.metadata.merged_candidate_ids`: los candidatos cuya colección oficial
+   * de teléfonos fue FUSIONADA en este contacto por la transacción de la 117.
+   *
+   * Es procedencia probada con la MISMA fuerza que `source_candidate_id`, y no una
+   * flexibilización de FIX 1. FIX 1 rechaza la INFERENCIA — un duplicado identifica a la
+   * persona, no demuestra quién escribió el número —; una fusión no infiere nada: es la
+   * escritura misma, registrada por la transacción que la hizo. Sin esto, un merge dejaría
+   * números de proveedor en una fila que un borrado posterior podría encontrar (vía
+   * `matched_contacts_id`) pero no borrar, que es justo el agujero que H3-B no puede abrir.
+   *
+   * Un duplicado DESCARTADO no escribe aquí y sigue siendo tan inborrable como hoy.
+   */
+  mergedCandidateIds?: readonly string[] | null;
+  /**
+   * `contacts.phone_source`. Solo apollo_reveal / apollo_cache / lusha_reveal son
+   * borrables (4O-E4). `manual`, `unknown`, `apollo_search`, `provider_payload` y
+   * `null` sobreviven siempre.
+   */
   phoneSource: string | null;
 }
 
@@ -247,8 +418,10 @@ export interface SuppressibleContact {
 
 export type CandidateContactLinkStrength =
   /**
-   * El contacto fue CREADO/PROMOVIDO desde el candidato suprimido y él mismo lo
-   * acredita (`metadata.source_candidate_id`). Único nivel que autoriza borrar.
+   * El contacto fue CREADO/PROMOVIDO desde el candidato suprimido —y él mismo lo acredita en
+   * `metadata.source_candidate_id`— o su colección oficial fue FUSIONADA desde ese candidato,
+   * acreditado en `metadata.merged_candidate_ids` por la transacción de la 117 (4O-H3-B).
+   * Único nivel que autoriza borrar.
    */
   | 'provenance_proven'
   /**
@@ -262,15 +435,22 @@ export type CandidateContactLinkStrength =
 
 /**
  * Clasifica el vínculo candidato → contacto con la regla estricta de v1: el
- * contacto solo es borrable si ÉL MISMO acredita haber nacido de un candidato del
- * conjunto suprimido, vía `contacts.metadata.source_candidate_id`.
+ * contacto solo es borrable si ÉL MISMO acredita que un candidato del conjunto
+ * suprimido escribió en él. Hay exactamente dos formas de acreditarlo, y las dos
+ * las escribe una transacción que efectivamente escribió:
+ *
+ *   * `metadata.source_candidate_id`  — el contacto NACIÓ de ese candidato
+ *     (`buildContactTraceMetadata`, aprobación / migración 116);
+ *   * `metadata.merged_candidate_ids` — la colección oficial de ese candidato fue
+ *     FUSIONADA en este contacto (migración 117, 4O-H3-B).
  *
  * Deliberadamente NO recibe la evidencia de revisión del candidato
- * (`duplicate_status` / `matched_by` / `created_contact_id`): ninguna de ellas
- * demuestra procedencia del teléfono, y aceptarlas fue el riesgo residual que
- * este endurecimiento cierra. Un match por NOMBRE ("José Pérez" vs "Jose Perez")
- * y un duplicado exacto por email quedan igualados en `weak`, porque en ambos
- * casos el contacto es una fila preexistente que este candidato nunca escribió.
+ * (`duplicate_status` / `matched_by` / `created_contact_id` / `matched_contacts_id`):
+ * ninguna de ellas demuestra procedencia del teléfono, y aceptarlas fue el riesgo
+ * residual que este endurecimiento cierra. Un match por NOMBRE ("José Pérez" vs
+ * "Jose Perez") y un duplicado exacto por email quedan igualados en `weak` mientras
+ * NADIE haya fusionado: en ambos casos el contacto es una fila preexistente que ese
+ * candidato nunca escribió. Un duplicado descartado nunca aparece en el array.
  */
 export function resolveContactErasureProvenance(args: {
   contact: SuppressibleContact;
@@ -278,10 +458,16 @@ export function resolveContactErasureProvenance(args: {
   suppressedCandidateIds: ReadonlySet<string>;
 }): CandidateContactLinkStrength {
   const sourceCandidateId = cleanText(args.contact.sourceCandidateId);
-  if (!sourceCandidateId) return 'weak';
-  return args.suppressedCandidateIds.has(sourceCandidateId)
-    ? 'provenance_proven'
-    : 'weak';
+  if (sourceCandidateId && args.suppressedCandidateIds.has(sourceCandidateId)) {
+    return 'provenance_proven';
+  }
+
+  for (const raw of args.contact.mergedCandidateIds ?? []) {
+    const mergedId = cleanText(raw);
+    if (mergedId && args.suppressedCandidateIds.has(mergedId)) return 'provenance_proven';
+  }
+
+  return 'weak';
 }
 
 // ── Plan de supresión (resultado puro) ─────────────────────────
@@ -307,7 +493,40 @@ export interface PhoneCacheSuppressionPlan extends PhoneCacheTombstoneDecision {
   contactPatches: Array<{
     contactId: string;
     linkStrength: Exclude<CandidateContactLinkStrength, 'weak'>;
+    /**
+     * `contacts.phone_source` tal como se LEYÓ. Siempre un valor de
+     * `SUPPRESSIBLE_CONTACT_PHONE_SOURCES` — nunca `manual`, `unknown` ni null. El
+     * runtime lo usa como predicado exacto del UPDATE (4O-E4).
+     */
+    observedPhoneSource: string;
     patch: ContactPhoneSuppressionPatch;
+  }>;
+  /**
+   * 4O-H2 — contactos cuya COLECCIÓN OFICIAL (`contact_phones` /
+   * `contact_phone_sources`, migración 114) entra en el alcance del borrado.
+   *
+   * ⚠️ Este conjunto es DELIBERADAMENTE MÁS ANCHO que `contactPatches`, y la
+   * diferencia es una propiedad de privacidad, no un descuido.
+   *
+   * `contactPatches` exige además que `contacts.phone_source` esté en
+   * `SUPPRESSIBLE_CONTACT_PHONE_SOURCES`, porque esa allowlist gobierna el
+   * ESCALAR heredado: 4O-E4 «FIX M1» dice que un teléfono manual o curado no se
+   * destruye. Pero esa allowlist no dice NADA sobre la colección oficial. Un
+   * contacto con `phone_source = 'manual'` puede perfectamente tener filas
+   * oficiales de Apollo pagadas, y excluirlo del borrado oficial dejaría vivos
+   * números de proveedor sobre el titular de la DSAR sólo porque alguien había
+   * teclado además un número a mano. Eso sería un hueco de privacidad.
+   *
+   * Así que aquí el filtro es SÓLO el que acredita la identidad y el alcance:
+   * cuenta de la supresión + procedencia CREADO/PROMOVIDO probada
+   * (`metadata.source_candidate_id`). La protección del escalar se aplica DENTRO
+   * de la transacción de la 115, que deja la tupla intacta cuando la procedencia
+   * no es suprimible — el mismo criterio, en el único sitio donde no puede
+   * carrerear con la lectura.
+   */
+  officialContactTargets: Array<{
+    contactId: string;
+    linkStrength: Exclude<CandidateContactLinkStrength, 'weak'>;
   }>;
 }
 
@@ -462,14 +681,14 @@ export function buildPhoneCacheSuppressionPlan(
   }));
 
   const contactPatches: PhoneCacheSuppressionPlan['contactPatches'] = [];
+  const officialContactTargets: PhoneCacheSuppressionPlan['officialContactTargets'] =
+    [];
   const seenContacts = new Set<string>();
+  const seenOfficialTargets = new Set<string>();
   for (const contact of context.contacts) {
-    if (seenContacts.has(contact.id)) continue;
     // Alcance de cuenta simétrico: se comprueba SIEMPRE, venga el contacto del
     // FK o de la metadata (FIX M2/M3).
     if (cleanText(contact.accountId) !== accountId) continue;
-    // FIX M1: nunca se borra un teléfono manual o curado.
-    if (!isSuppressibleContactPhoneSource(contact.phoneSource)) continue;
 
     // FIX 1: procedencia CREADO/PROMOVIDO obligatoria. El FK del candidato sirvió
     // para encontrar esta fila; solo su propia metadata autoriza borrarla.
@@ -479,21 +698,50 @@ export function buildPhoneCacheSuppressionPlan(
     });
     if (strength === 'weak') continue;
 
+    // 4O-H2: la colección OFICIAL entra en alcance con identidad + cuenta +
+    // procedencia probada, y SIN consultar la allowlist del escalar. Se decide
+    // ANTES del filtro de `phone_source` a propósito: ese filtro protege el
+    // escalar heredado, no autoriza el borrado oficial (ver
+    // `officialContactTargets`).
+    if (!seenOfficialTargets.has(contact.id)) {
+      seenOfficialTargets.add(contact.id);
+      officialContactTargets.push({
+        contactId: contact.id,
+        linkStrength: strength,
+      });
+    }
+
+    if (seenContacts.has(contact.id)) continue;
+    // FIX M1: nunca se borra un teléfono manual o curado.
+    if (!isSuppressibleContactPhoneSource(contact.phoneSource)) continue;
+
     seenContacts.add(contact.id);
+    // 4O-E4: la procedencia OBSERVADA viaja con el plan. Es lo que autoriza este
+    // borrado concreto y —en el runtime— el predicado EXACTO del UPDATE.
+    //
+    // 4O-E4.1: ya NO decide columnas (el patch es uno solo para toda procedencia),
+    // pero el `.eq(observado)` se conserva y es igual de necesario: sin él, una fila
+    // que entre la LECTURA y la ESCRITURA pasa a `manual` —porque alguien tecleó un
+    // número nuevo— recibiría igualmente el borrado. Con `.eq` esa carrera afecta 0
+    // filas y el reemplazo legítimo sobrevive.
+    const observedPhoneSource = cleanText(contact.phoneSource) as string;
     contactPatches.push({
       contactId: contact.id,
       linkStrength: strength,
-      patch: {
-        phone: null,
-        mobile_phone: null,
-        phone_type: null,
-        phone_source: null,
-        phone_raw_type: null,
-      } satisfies ContactPhoneSuppressionPatch,
+      observedPhoneSource,
+      patch: buildContactPhoneSuppressionPatch(),
     });
   }
 
-  return { ok: true, plan: { ...tombstone, candidatePatches, contactPatches } };
+  return {
+    ok: true,
+    plan: {
+      ...tombstone,
+      candidatePatches,
+      contactPatches,
+      officialContactTargets,
+    },
+  };
 }
 
 // ── Contrato de la acción de supresión (SIN PII) ───────────────
@@ -514,7 +762,38 @@ export interface SuppressPhoneCacheEntryInput {
 export type PhoneCacheSuppressionFailureCode =
   | 'cache_tombstone_failed'
   | 'candidate_clear_failed'
+  /**
+   * La propagación a `contact_enrichment_candidate_phones` no se completó
+   * (AGENT2A-PHONE-REVEAL-4O-E2). Código PROPIO y no reutilizado: desde este hito
+   * el escalar del candidato y la colección se escriben en la MISMA transacción, así
+   * que un fallo aquí significa que ninguna de las dos cosas ocurrió — y sobre todo
+   * que puede quedar un número vivo en la colección que las RPC 110/111 volverían a
+   * elegir. Confundirlo con un fallo genérico del candidato ocultaría exactamente el
+   * riesgo que este hito existe para cerrar.
+   */
+  | 'candidate_phone_collection_failed'
   | 'contact_clear_failed'
+  /**
+   * La propagación a la colección OFICIAL (`contact_phones` /
+   * `contact_phone_sources`, migración 114) no se completó
+   * (AGENT2A-PHONE-REVEAL-4O-H2). Código PROPIO, por la misma razón que 4O-E2 se
+   * negó a reutilizar el genérico: un fallo aquí significa que puede quedar VIVO un
+   * número oficial de un titular que pidió su borrado, y que el escalar heredado y
+   * la colección oficial pueden estar afirmando cosas distintas. Confundirlo con
+   * `contact_clear_failed` ocultaría la única superficie que el borrado heredado no
+   * sabe mirar.
+   */
+  | 'official_phone_suppression_failed'
+  /**
+   * La supresión NATIVA del proveedor (`provider_suppressions`, migración 120) no se
+   * pudo registrar (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4, Fase 1). Código PROPIO
+   * y el MÁS grave de la lista, porque es el único que significa que la persona puede
+   * seguir siendo REVELABLE: el tombstone legado de la caché sólo bloquea dentro de
+   * una cuenta, así que si el registro nativo no se escribió, un reveal desde otra
+   * cuenta —o de un candidato sin cuenta— no encuentra nada que lo pare. Confundirlo
+   * con `cache_tombstone_failed` haría creer que el bloqueo quedó puesto.
+   */
+  | 'provider_suppression_failed'
   | 'audit_write_failed';
 
 /** Resultado de la supresión: solo conteos y códigos. Sin PII. */
@@ -527,9 +806,53 @@ export interface SuppressPhoneCacheEntryResult {
   /** true cuando NO existía fila y se insertó un tombstone nuevo (FIX B2). */
   tombstoneCreated: boolean;
   candidatesCleared: number;
+  /**
+   * Filas de `contact_enrichment_candidate_phones` que la propagación convirtió en
+   * tombstone (4O-E2). Conteo REAL devuelto por la transacción, nunca la longitud
+   * del plan.
+   */
+  candidatePhoneRowsSuppressed: number;
   contactsCleared: number;
+  /**
+   * Filas de `contact_phone_sources` que el borrado oficial RETIRÓ (4O-H2). Conteo
+   * REAL devuelto por la transacción de la 115.
+   */
+  officialPhoneSourcesSuppressed: number;
+  /**
+   * Filas de `contact_phones` que se quedaron sin procedencia viva y pasaron a
+   * tombstone (4O-H2). Puede ser 0 con `officialPhoneSourcesSuppressed > 0`: eso es
+   * exactamente la SUPERVIVENCIA CRUZADA — se retiró Apollo y Lusha mantiene vivo el
+   * número.
+   */
+  officialPhoneRowsTombstoned: number;
   /** true solo cuando la auditoría durable quedó escrita (FIX H3). */
   auditPersisted: boolean;
+  /**
+   * Identidades NATIVAS del proveedor para las que se creó una supresión nueva en
+   * `provider_suppressions` (Fase 1). Cuenta filas creadas, NO identidades intentadas:
+   * una identidad ya suprimida cuenta en `providerSuppressionsAlreadyPresent`.
+   */
+  providerSuppressionsCreated: number;
+  /**
+   * Identidades que YA estaban suprimidas. Es un ÉXITO, no un fallo: la persona sigue
+   * bloqueada y su `suppressed_at` original no se falsifica moviéndolo hacia adelante.
+   */
+  providerSuppressionsAlreadyPresent: number;
+  /**
+   * Desglose PII-free por proveedor de las identidades alcanzadas. Existe para que la
+   * operación pueda declarar con honestidad QUÉ proveedores quedaron cubiertos: la Fase
+   * 1 NO tiene sujeto compartido entre proveedores, así que "se suprimió a la persona"
+   * sólo es cierto para los proveedores que aparecen aquí.
+   */
+  providerSuppressionsByProvider: { apollo: number; lusha: number };
+  /**
+   * true cuando TODAS las filas de auditoría nativa (`provider_suppression_audit`)
+   * quedaron escritas. Independiente de `auditPersisted`, que mide la auditoría LEGADA:
+   * esa tiene `account_id NOT NULL REFERENCES accounts ON DELETE CASCADE` y por tanto
+   * no sobrevive al borrado de la cuenta; ésta sí. Sumarlas ocultaría cuál de las dos
+   * evidencias falta.
+   */
+  providerSuppressionAuditPersisted: boolean;
 }
 
 // ── Auditoría durable de la supresión (SIN PII) ─────────────────
@@ -551,6 +874,26 @@ export interface PhoneCacheSuppressionAuditRow {
   candidates_cleared: number;
   contacts_cleared: number;
   cache_rows_suppressed: number;
+  /**
+   * Filas de la colección canónica convertidas en tombstone (4O-E2). Columna TIPADA
+   * de la migración 112 y no una clave dentro de `metadata`: los otros tres conteos
+   * son columnas con su propia CHECK `>= 0`, y esconder el cuarto en un jsonb libre
+   * lo convertiría en el único que nadie puede restringir ni consultar igual.
+   */
+  candidate_phone_rows_suppressed: number;
+  /**
+   * Procedencias oficiales RETIRADAS (4O-H2). Columna tipada de la migración 115 con
+   * su propia CHECK `>= 0`, por la misma razón que 4O-E2 se negó a esconder la suya
+   * en `metadata`: el conteo que mide una superficie de privacidad tiene que poder
+   * restringirse y consultarse como los otros cuatro.
+   */
+  official_phone_sources_suppressed: number;
+  /**
+   * Filas canónicas oficiales que pasaron a tombstone (4O-H2). Independiente de la
+   * anterior: retirar procedencias que dejan otra viva no tombstonea ningún número,
+   * y esa desigualdad ES la huella auditable de la supervivencia cruzada.
+   */
+  official_phone_rows_tombstoned: number;
   tombstone_created: boolean;
   metadata: {
     action: typeof PHONE_CACHE_SUPPRESSION_AUDIT_ACTION;
@@ -558,6 +901,27 @@ export interface PhoneCacheSuppressionAuditRow {
     tombstone: true;
     reuse_scope: typeof PHONE_CACHE_REUSE_SCOPE;
     contact_link_strengths: string[];
+    /**
+     * Agregados de la reelección del principal (4O-E2). PII-free por construcción:
+     * un conteo y una bandera. NO se registra ninguna `dedupe_key`, ni el número, ni
+     * qué candidato concreto cambió de principal.
+     */
+    candidate_phone_survivor_count: number;
+    candidate_phone_primary_changed: boolean;
+    /**
+     * Agregados de la reelección del principal OFICIAL (4O-H2). PII-free por
+     * construcción: dos conteos y dos banderas. NO se registra ninguna `dedupe_key`
+     * —ni siquiera hasheada—, ni el número, ni qué contacto concreto cambió de
+     * principal.
+     *
+     * `official_phone_scalar_guarded` es la que hace auditable la protección de
+     * 4O-E4 «FIX M1» sobre el modelo nuevo: cuenta cuántos contactos conservaron su
+     * escalar intacto porque su procedencia no era suprimible.
+     */
+    official_phone_contacts_targeted: number;
+    official_phone_survivor_count: number;
+    official_phone_primary_changed: boolean;
+    official_phone_scalar_guarded: number;
   };
 }
 
@@ -570,8 +934,26 @@ export function buildPhoneCacheSuppressionAuditRow(args: {
   tombstoneCreated: boolean;
   /** Candidatos realmente actualizados. */
   candidatesCleared: number;
+  /** Filas de la colección canónica realmente tombstoneadas (4O-E2). */
+  candidatePhoneRowsSuppressed: number;
+  /** Números vivos y elegibles que quedaron tras la propagación (4O-E2). */
+  candidatePhoneSurvivorCount: number;
+  /** true si alguna propagación cambió el principal del candidato (4O-E2). */
+  candidatePhonePrimaryChanged: boolean;
   /** Contactos realmente actualizados. */
   contactsCleared: number;
+  /** Procedencias oficiales realmente retiradas (4O-H2). */
+  officialPhoneSourcesSuppressed: number;
+  /** Filas canónicas oficiales realmente tombstoneadas (4O-H2). */
+  officialPhoneRowsTombstoned: number;
+  /** Contactos cuya colección oficial entró en alcance (4O-H2). */
+  officialPhoneContactsTargeted: number;
+  /** Números oficiales vivos y elegibles que quedaron (4O-H2). */
+  officialPhoneSurvivorCount: number;
+  /** true si algún contacto cambió de principal oficial (4O-H2). */
+  officialPhonePrimaryChanged: boolean;
+  /** Contactos cuyo escalar quedó intacto por procedencia no suprimible (4O-H2). */
+  officialPhoneScalarGuarded: number;
 }): PhoneCacheSuppressionAuditRow {
   return {
     provider: PHONE_CACHE_PROVIDER,
@@ -583,6 +965,9 @@ export function buildPhoneCacheSuppressionAuditRow(args: {
     candidates_cleared: args.candidatesCleared,
     contacts_cleared: args.contactsCleared,
     cache_rows_suppressed: args.cacheRowsSuppressed,
+    candidate_phone_rows_suppressed: args.candidatePhoneRowsSuppressed,
+    official_phone_sources_suppressed: args.officialPhoneSourcesSuppressed,
+    official_phone_rows_tombstoned: args.officialPhoneRowsTombstoned,
     tombstone_created: args.tombstoneCreated,
     metadata: {
       action: PHONE_CACHE_SUPPRESSION_AUDIT_ACTION,
@@ -594,6 +979,12 @@ export function buildPhoneCacheSuppressionAuditRow(args: {
       contact_link_strengths: [
         ...new Set(args.plan.contactPatches.map((c) => c.linkStrength)),
       ].sort(),
+      candidate_phone_survivor_count: args.candidatePhoneSurvivorCount,
+      candidate_phone_primary_changed: args.candidatePhonePrimaryChanged,
+      official_phone_contacts_targeted: args.officialPhoneContactsTargeted,
+      official_phone_survivor_count: args.officialPhoneSurvivorCount,
+      official_phone_primary_changed: args.officialPhonePrimaryChanged,
+      official_phone_scalar_guarded: args.officialPhoneScalarGuarded,
     },
   };
 }

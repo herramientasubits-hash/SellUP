@@ -55,7 +55,7 @@ export function testQueryContext(
     country: 'Colombia',
     countryCode: 'CO',
     sector: 'Retail y Consumo',
-    subindustry: 'Supermercados e Hipermercados',
+    subindustries: ['Supermercados e Hipermercados'],
     targetLocations: ['Bogotá'],
     employeeRanges: ['201,500'],
     ...overrides,

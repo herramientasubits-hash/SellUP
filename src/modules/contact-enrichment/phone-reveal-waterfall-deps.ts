@@ -32,17 +32,20 @@ import {
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { enrichLushaContactPhonesForFallback } from '@/server/integrations/lusha-phone-fallback-client';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
+// Puerta de privacidad COMPARTIDA con el disparo manual de Lusha (4O-E3): una sola
+// implementación de la re-comprobación de supresión + do-not-contact.
 import {
-  evaluateInFlightPhoneSuppression,
-  resolveInFlightSuppressionPersonId,
-} from './phone-reveal-suppression-guard';
-import { readPhoneCacheSuppression } from './phone-cache-store';
+  checkPhoneRevealPrivacyGate,
+  loadPhoneRevealPrivacyGateCandidateRow,
+  PRIVACY_GATE_CANDIDATE_SELECT,
+} from './phone-reveal-privacy-gate';
 import {
   runLushaPhoneFallbackReveal,
   type LushaPhoneFallbackCandidateRecord,
   type LushaPhoneFallbackPersistencePatch,
   type LushaPhoneFallbackUsageLogEntry,
 } from './lusha-phone-fallback-core';
+import { persistCandidateLushaPhoneCollection } from './candidate-lusha-phone-collection-persistence';
 import {
   continuePhoneRevealWaterfall,
   parsePhoneRevealWaterfallLushaSkippedReason,
@@ -79,9 +82,15 @@ import {
 } from './phone-reveal-credit-reservation-deps';
 import {
   decidePhoneRevealCreditSettlement,
+  resolvePhoneRevealSettledLegCost,
   type PhoneRevealCreditReservationAndRunRequest,
+  type PhoneRevealCreditSettlementAction,
 } from './phone-reveal-credit-reservation-core';
 import type { PhoneRevealCreditProviderKey } from './phone-reveal-credit-budget-core';
+// Cierre terminal por supresión (AGENT2A-PHONE-REVEAL-4O-E1). La escritura
+// condicional vive en su propio módulo; aquí solo se cablea.
+import { buildTerminalPhoneSuppressionPatch } from './phone-reveal-suppression-guard';
+import { persistTerminalPhoneSuppression } from './candidate-phone-suppression-persistence';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
 
 /** Tabla de corridas (migración 102). service_role-only. */
@@ -408,9 +417,59 @@ export async function reconcilePhoneRevealCreditReservationForRun(
             }),
       ),
     );
+
+    // Paridad económica del candidato Apollo (AGENT2A-PHONE-REVEAL-4N § 6). Se hace
+    // DESPUÉS de liquidar, porque hasta aquí la cifra no existe: Apollo no reporta lo que
+    // cobra, así que el webhook solo pudo dejar `unknown` / null y el número real es el
+    // que la reserva acaba de confirmar. Best-effort igual que el resto de este cierre.
+    await writeApolloSettledCostBestEffort(run, actions);
   } catch (err) {
     console.error(
       '[phone-reveal-credit-reservation] settlement failed, exposure stays reserved:',
+      err instanceof Error ? err.message : 'unknown error',
+    );
+  }
+}
+
+/**
+ * Escribe en el candidato el costo ECONÓMICO de la pata Apollo recién liquidada.
+ *
+ * SOLO cuando Apollo es el proveedor que el candidato describe (`final_provider = apollo`).
+ * En un waterfall completo donde Apollo no encontró nada y Lusha sí, las columnas de costo
+ * del candidato describen el reveal de LUSHA —las escribió su propio camino con su costo
+ * reportado— y sobrescribirlas con los 8 de Apollo convertiría el registro del candidato en
+ * una cifra que no corresponde a su teléfono. El costo de esa pata Apollo sigue contabilizado
+ * donde importa para el presupuesto: en su reserva confirmada.
+ *
+ * Solo toca escrituras FUTURAS: se ejecuta en el instante en que una corrida se vuelve
+ * terminal, y una corrida ya terminal no vuelve a pasar por aquí (sus patas ya no están
+ * `reserved`, así que la reconciliación sale antes de llegar a este punto).
+ */
+async function writeApolloSettledCostBestEffort(
+  run: PhoneRevealWaterfallRunRecord,
+  actions: readonly PhoneRevealCreditSettlementAction[],
+): Promise<void> {
+  if (run.finalProvider !== 'apollo') return;
+
+  const settled = resolvePhoneRevealSettledLegCost({ providerKey: 'apollo', settlement: actions });
+  if (!settled) return;
+
+  try {
+    const admin = createSupabaseAdminClient();
+    const { error } = await admin
+      .from('contact_enrichment_candidates')
+      .update({
+        phone_reveal_cost_credits: settled.credits,
+        phone_reveal_cost_source: settled.costSource,
+      })
+      .eq('id', run.candidateId);
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    // Un fallo aquí NO invalida la liquidación: los créditos ya están confirmados y el
+    // presupuesto ya los cuenta. El candidato se queda con el costo `unknown` que escribió
+    // el webhook, que es una cifra honesta, no una falsa.
+    console.error(
+      '[phone-reveal-credit-reservation] apollo settled cost not persisted on candidate:',
       err instanceof Error ? err.message : 'unknown error',
     );
   }
@@ -454,67 +513,22 @@ export async function claimLushaAttempt(runId: string): Promise<boolean> {
 }
 
 // ── Candidato (proyección del waterfall) ───────────────────────
+//
+// 4O-E3: la proyección, su lector y la re-comprobación de privacidad se mudaron a
+// `phone-reveal-privacy-gate.ts` para que el disparo MANUAL de Lusha ejecute
+// exactamente la misma puerta y no una copia con las mismas reglas escritas dos
+// veces. Aquí solo queda la proyección PII-free que consume el core.
+//
+// `WATERFALL_CANDIDATE_SELECT` se conserva como alias porque nombra el contrato de
+// lectura del waterfall en las suites existentes.
 
-/**
- * Proyección para decidir el waterfall. `phone` se lee para saber SI hay teléfono
- * — nunca se devuelve el número al core, solo el booleano `hasPhone`.
- * `apollo_person_id` + `run.account_id` son la clave de la re-comprobación de
- * supresión; `source` / `source_contact_id` deciden la elegibilidad Lusha.
- */
-export const WATERFALL_CANDIDATE_SELECT = `id, source, source_contact_id, phone,
-   email, linkedin_url, phone_reveal_status, apollo_person_id,
-   run:contact_enrichment_runs ( account_id )`;
-
-interface WaterfallCandidateRow {
-  id: string;
-  source: ContactSource | null;
-  sourceContactId: string | null;
-  hasPhone: boolean;
-  phoneRevealStatus: string | null;
-  email: string | null;
-  linkedinUrl: string | null;
-  apolloPersonId: string | null;
-  accountId: string | null;
-}
-
-function mapWaterfallCandidateRow(row: Record<string, unknown>): WaterfallCandidateRow {
-  const runRaw = row.run;
-  const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
-    | { account_id: string | null }
-    | null
-    | undefined;
-  const phone = row.phone as string | null;
-  return {
-    id: row.id as string,
-    source: (row.source as ContactSource | null) ?? null,
-    sourceContactId: (row.source_contact_id as string | null) ?? null,
-    hasPhone: typeof phone === 'string' && phone.trim().length > 0,
-    phoneRevealStatus: (row.phone_reveal_status as string | null) ?? null,
-    email: (row.email as string | null) ?? null,
-    linkedinUrl: (row.linkedin_url as string | null) ?? null,
-    apolloPersonId: (row.apollo_person_id as string | null) ?? null,
-    accountId: run?.account_id ?? null,
-  };
-}
-
-async function loadWaterfallCandidateRow(
-  candidateId: string,
-): Promise<WaterfallCandidateRow | null> {
-  const admin = createSupabaseAdminClient();
-  const { data, error } = await admin
-    .from('contact_enrichment_candidates')
-    .select(WATERFALL_CANDIDATE_SELECT)
-    .eq('id', candidateId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data ? mapWaterfallCandidateRow(data as Record<string, unknown>) : null;
-}
+export const WATERFALL_CANDIDATE_SELECT = PRIVACY_GATE_CANDIDATE_SELECT;
 
 /** Proyección PII-free que consume el core (sin email/linkedin/teléfono). */
 export async function loadCandidateForWaterfall(
   candidateId: string,
 ): Promise<PhoneRevealWaterfallCandidateRecord | null> {
-  const row = await loadWaterfallCandidateRow(candidateId);
+  const row = await loadPhoneRevealPrivacyGateCandidateRow(candidateId);
   if (!row) return null;
   return {
     id: row.id,
@@ -571,89 +585,21 @@ export async function loadLegacyEvidenceForWaterfall(
 // ── Re-comprobación de supresión + do-not-contact ──────────────
 
 /**
- * ¿Hay `do_not_contact` para este candidato? Espejo EXACTO de `isDoNotContact` en
- * phone-reveal-actions.ts: solo es detectable con cuenta + identidad
- * (email/linkedin); sin ellas NO se bloquea por inferencia. Ese es el mismo
- * criterio que ya gobierna el reveal Apollo, así que la pata Lusha no aplica una
- * regla distinta a la que el operador ya aceptó.
- */
-async function isCandidateDoNotContact(row: WaterfallCandidateRow): Promise<boolean> {
-  if (!row.accountId) return false;
-  const email = row.email?.trim().toLowerCase() || null;
-  const linkedin = row.linkedinUrl?.trim().toLowerCase() || null;
-  if (!email && !linkedin) return false;
-
-  const admin = createSupabaseAdminClient();
-  const { data, error } = await admin
-    .from('contacts')
-    .select('id, email, linkedin_url, contact_status')
-    .eq('account_id', row.accountId)
-    .eq('contact_status', 'do_not_contact');
-  if (error) throw new Error(error.message);
-
-  return (data ?? []).some((c) => {
-    const cEmail = typeof c.email === 'string' ? c.email.toLowerCase() : null;
-    const cLinkedin =
-      typeof c.linkedin_url === 'string' ? c.linkedin_url.toLowerCase() : null;
-    return (
-      (email !== null && cEmail === email) ||
-      (linkedin !== null && cLinkedin === linkedin)
-    );
-  });
-}
-
-/**
  * Re-comprueba supresión (tombstone) y do-not-contact INMEDIATAMENTE antes de la
  * pata Lusha. El reveal Apollo pudo empezar horas antes: una DSAR o un
  * `do_not_contact` pueden haberse registrado en el intervalo, y la pata Lusha es
  * una llamada NUEVA a un proveedor NUEVO — hereda la autorización de costo, no el
  * veredicto de privacidad.
  *
- * Fail-closed: cualquier fallo de lectura devuelve `check_unavailable`, que el
- * core traduce en NO llamar a Lusha.
- *
- * `not_evaluable` (sin Apollo person id resoluble o sin cuenta) se trata como
- * `clear`, exactamente la política que ya aplican el START, el webhook y el
- * recovery (FIX 4): sin clave no hay tombstone que emparejar, y no se bloquea por
- * inferencia ni se hace matching difuso por teléfono/email/nombre/LinkedIn.
+ * 4O-E3: la implementación vive en `phone-reveal-privacy-gate.ts` y es LA MISMA que
+ * ejecuta ahora el disparo manual de Lusha. Esta función se conserva como el nombre
+ * con el que el core del waterfall inyecta la dep; delega y no decide nada por su
+ * cuenta, así que los dos caminos no pueden divergir en reglas ni en precedencia.
  */
 export async function checkSuppressionAndDoNotContact(
   candidateId: string,
 ): Promise<PhoneRevealWaterfallSuppressionState> {
-  let row: WaterfallCandidateRow | null;
-  try {
-    row = await loadWaterfallCandidateRow(candidateId);
-  } catch {
-    return 'check_unavailable';
-  }
-  if (!row) return 'check_unavailable';
-
-  try {
-    if (await isCandidateDoNotContact(row)) return 'do_not_contact';
-  } catch {
-    return 'check_unavailable';
-  }
-
-  const suppression = await evaluateInFlightPhoneSuppression({
-    personId: resolveInFlightSuppressionPersonId({
-      candidateApolloPersonId: row.apolloPersonId,
-      candidateSource: row.source,
-      candidateSourceContactId: row.sourceContactId,
-    }),
-    accountId: row.accountId,
-    lookup: readPhoneCacheSuppression,
-  });
-
-  switch (suppression.kind) {
-    case 'blocked_suppressed':
-      return 'blocked_suppressed';
-    case 'check_unavailable':
-      return 'check_unavailable';
-    case 'not_evaluable':
-    case 'allowed':
-    default:
-      return 'clear';
-  }
+  return checkPhoneRevealPrivacyGate(candidateId);
 }
 
 // ── Pata Lusha (fallback existente, en modo waterfall) ─────────
@@ -703,8 +649,33 @@ export async function callLushaFallbackLeg(args: {
   runId: string;
   authorizedBy: string;
   maxCreditsAuthorized: number;
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2 — invocación MANUAL de administración.
+   *
+   * `false` (defecto) = las dos rutas automáticas que ya existían: el waterfall
+   * completo y la continuación legacy disparada por el webhook / cron / revisión L3.
+   * Su comportamiento queda BYTE-IDÉNTICO: sin `checkPrivacyGate` inyectado y con
+   * `waterfallMode: true`.
+   *
+   * `true` = el disparo manual admin-only, que converge sobre esta misma pata para
+   * heredar la reserva atómica y la corrida real, pero conserva las DOS propiedades
+   * que su contrato ya tenía y que la ruta automática no necesita:
+   *
+   *   1. `checkPrivacyGate` inyectado ⇒ la puerta de privacidad se evalúa también
+   *      DESPUÉS de la respuesta de Lusha. La transacción de las migraciones 111/113
+   *      revisa tombstones por número y supresión por persona bajo el lock, pero NO
+   *      lee `do_not_contact`: sin esta inyección, converger perdería en silencio la
+   *      protección de `do_not_contact` EN VUELO que 4O-E3 añadió a este camino.
+   *      No se cablea en la ruta automática (§24): allí el core ya ejecutó esa misma
+   *      puerta antes de autorizar la corrida.
+   *   2. `waterfallMode: false` ⇒ un `no_phone_found` o un error SÍ se persisten en el
+   *      candidato, que es la semántica observable que el disparo manual ya tenía. En
+   *      la ruta automática ese resultado vive sólo en la corrida.
+   */
+  manualInvocation?: boolean;
 }): Promise<PhoneRevealWaterfallLushaLegResult> {
   const admin = createSupabaseAdminClient();
+  const manual = args.manualInvocation === true;
 
   const result = await runLushaPhoneFallbackReveal(
     {
@@ -719,8 +690,36 @@ export async function callLushaFallbackLeg(args: {
       flagEnabled: isLushaPhoneRevealFallbackEnabled(),
       actor: { internalUserId: args.authorizedBy, roleKey: 'admin' },
       nowIso: new Date().toISOString(),
-      waterfallMode: true,
+      waterfallMode: !manual,
       phoneRevealWaterfallId: args.runId,
+      // Sólo en la invocación manual (ver `manualInvocation`). En la ruta automática
+      // esta clave queda AUSENTE, y el bloque entero del core sigue sin ejecutarse.
+      ...(manual ? { checkPrivacyGate: checkPhoneRevealPrivacyGate } : {}),
+
+      // AGENT2A-PHONE-REVEAL-4O-D. Cableada AQUÍ y solo aquí: esta función es el
+      // único punto por el que pasan TODAS las rutas que llegan a Lusha — el
+      // waterfall completo, la continuación legacy y, desde
+      // AGENT2A-PHONE-REVEAL-4O-F-R2, también el disparo manual de administración,
+      // que converge sobre esta misma pata en vez de mantener su propio cableado.
+      // Hay UNA sola implementación multi-teléfono de Lusha, no dos copias.
+      //
+      // Con la dep presente, el camino `revealed` persiste TODOS los teléfonos de
+      // la respuesta, sus procedencias, el principal, el escalar y el estado
+      // terminal en UNA transacción (migración 111). Si esa escritura falla, el
+      // core falla cerrado: el candidato no se cierra y no se vuelve a llamar a
+      // Lusha.
+      persistPhoneCollection: persistCandidateLushaPhoneCollection,
+      // AGENT2A-PHONE-REVEAL-4O-E1. Cableada en el MISMO punto y por la misma razón:
+      // esta función es el único camino por el que la transacción de Lusha puede
+      // responder `suppressed`, y ese resultado tiene que dejar el candidato terminal
+      // (`error` + `blocked_suppressed`) en vez de devolverlo a `no_phone_found`, que
+      // es el estado que lo hace elegible para otro reveal pagado del MISMO número
+      // suprimido. Escritura condicional: no puede pisar un resultado concurrente.
+      persistTerminalSuppression: persistTerminalPhoneSuppression,
+      // La reserva de esta pata se liquida por su propia función (migración 104) y
+      // su id no viaja hasta aquí. null en vez de inventar una correlación, misma
+      // convención que la captura del otro proveedor.
+      phoneCollectionReservationId: null,
 
       loadCandidate: async (candidateId) => {
         const { data, error } = await admin
@@ -886,13 +885,62 @@ function toWaterfallRunRpcPayload(
  * desde la server action legacy, que es el único punto con un humano autenticado.
  * NO incluye ninguna dependencia de Apollo: no hay nada que llamar.
  */
-export function buildStartLegacyWaterfallDeps(actor: {
-  internalUserId: string;
-  roleKey: string | null;
-}): StartLegacyPhoneRevealWaterfallDeps {
+export function buildStartLegacyWaterfallDeps(
+  actor: {
+    internalUserId: string;
+    roleKey: string | null;
+  },
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2 — separa el flag de PRODUCTO/UX de la
+   * INFRAESTRUCTURA DURABLE de contabilidad.
+   *
+   * Omitido (defecto) = `ENABLE_PHONE_REVEAL_WATERFALL`, byte-idéntico a antes: la
+   * server action legacy sigue exigiendo el flag del waterfall.
+   *
+   * Presente = el llamador ya resolvió su PROPIO permiso de producto y lo pasa. Lo
+   * usa el motor `legacy_lusha_only` del disparo manual, que está autorizado por
+   * `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK`.
+   *
+   * `ENABLE_PHONE_REVEAL_WATERFALL=false` sigue significando exactamente lo que
+   * significaba —la UX del waterfall Apollo→Lusha está inactiva— y NO significa que
+   * la base de datos no pueda contener una corrida `legacy_lusha_only`: esa corrida
+   * es la representación duradera de una operación real de un solo proveedor.
+   */
+  options?: {
+    flagEnabled?: boolean;
+    /**
+     * Cablea la puerta de privacidad PREVIA A LA RESERVA. Se pasa como bandera y no
+     * como función para que el único punto que decide QUÉ puerta se usa siga siendo
+     * este módulo: hay una sola implementación (`checkPhoneRevealPrivacyGate`).
+     *
+     * Ausente ⇒ la clave NO aparece en el objeto de deps (no viaja como `undefined`),
+     * así que la superficie de deps de la ruta legacy automática queda EXACTAMENTE
+     * como estaba.
+     */
+    gatePrivacyBeforeReserving?: boolean;
+  },
+): StartLegacyPhoneRevealWaterfallDeps {
   return {
-    flagEnabled: isPhoneRevealWaterfallEnabled(),
+    flagEnabled: options?.flagEnabled ?? isPhoneRevealWaterfallEnabled(),
     actor,
+    ...(options?.gatePrivacyBeforeReserving
+      ? {
+          // FAIL-CLOSED en el borde de I/O, no en el core: `checkPhoneRevealPrivacyGate`
+          // LANZA cuando no puede leer (tabla ausente, timeout), y una excepción que
+          // subiera hasta el llamador se traduciría en `legacy_run_creation_failed` — un
+          // motivo de infraestructura que NO afirma nada sobre privacidad. Aquí se
+          // convierte en `check_unavailable`, que bloquea igual que un tombstone
+          // confirmado y lo REGISTRA como lo que es: una lectura que falló.
+          // Mismo tratamiento que ya aplica `continuePhoneRevealWaterfall`.
+          checkPrivacyGateBeforeReserving: async (candidateId: string) => {
+            try {
+              return await checkSuppressionAndDoNotContact(candidateId);
+            } catch {
+              return 'check_unavailable' as const;
+            }
+          },
+        }
+      : {}),
     nowIso: new Date().toISOString(),
     loadLegacyEvidence: loadLegacyEvidenceForWaterfall,
     findActiveRun: findActiveWaterfallRunForCandidate,
@@ -908,9 +956,23 @@ export function buildStartLegacyWaterfallDeps(actor: {
  * recovery (cron L2 / revisión manual L3). NO hay actor de sesión: el actor es
  * `authorized_by` de la propia corrida.
  */
-export function buildContinueWaterfallDeps(): ContinuePhoneRevealWaterfallDeps {
+export function buildContinueWaterfallDeps(options?: {
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2. Misma separación que en
+   * `buildStartLegacyWaterfallDeps`: omitido = `ENABLE_PHONE_REVEAL_WATERFALL`
+   * (webhook, cron L2, revisión L3 y server action legacy, sin cambios).
+   */
+  flagEnabled?: boolean;
+  /**
+   * Pata Lusha alternativa. Omitida = la automática. El motor manual pasa la variante
+   * `manualInvocation: true`, que conserva la puerta de privacidad posterior a la
+   * respuesta y la persistencia de los desenlaces que no revelan. Scoped a la
+   * invocación manual: la ruta automática nunca la recibe.
+   */
+  callLushaLeg?: ContinuePhoneRevealWaterfallDeps['callLushaLeg'];
+}): ContinuePhoneRevealWaterfallDeps {
   return {
-    flagEnabled: isPhoneRevealWaterfallEnabled(),
+    flagEnabled: options?.flagEnabled ?? isPhoneRevealWaterfallEnabled(),
     // El fallback Lusha sigue siendo el kill switch real de cualquier reveal
     // Lusha: el flag del waterfall solo automatiza CUÁNDO corre, no lo autoriza.
     lushaFallbackFlagEnabled: isLushaPhoneRevealFallbackEnabled(),
@@ -920,7 +982,28 @@ export function buildContinueWaterfallDeps(): ContinuePhoneRevealWaterfallDeps {
     updateRun: updateWaterfallRun,
     checkSuppressionAndDoNotContact,
     claimLushaAttempt,
-    callLushaLeg: callLushaFallbackLeg,
+    callLushaLeg: options?.callLushaLeg ?? callLushaFallbackLeg,
+    // AGENT2A-PHONE-REVEAL-4O-E1 § 7. Se cablea SIN flag propio: el gate previo a
+    // Lusha ya existe y ya bloquea la llamada; lo único que añade esta dep es que la
+    // decisión de privacidad quede también en el candidato, que es donde la leen el
+    // gate de elegibilidad del fallback pagado, el cron y la revisión manual.
+    //
+    // La escritura es condicional por contrato (ver
+    // `persistTerminalPhoneSuppression`): exige que la fila siga en el estado que el
+    // core observó, así que no puede pisar un resultado concurrente.
+    terminalizeSuppressedCandidate: async ({ candidateId, expectedStatuses }) =>
+      persistTerminalPhoneSuppression(
+        candidateId,
+        buildTerminalPhoneSuppressionPatch({
+          expectedStatuses,
+          nowIso: new Date().toISOString(),
+          // El gate es PRE-CALL: Lusha no se llamó, así que no hay costo nuevo que
+          // declarar y las columnas de costo del candidato NO se tocan — siguen
+          // describiendo la pata Apollo que ya se cerró y se pagó. Lo que quedó
+          // reservado y no se gastó lo libera la liquidación de la corrida
+          // (`leg_never_attempted`), no este rastro.
+        }),
+      ),
   };
 }
 
@@ -943,6 +1026,12 @@ export async function continuePhoneRevealWaterfallForCandidate(args: {
    * que realmente lo pagó. `null` presente sí escribe null + unknown.
    */
   apolloCostCredits?: number | null;
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2. Omitido = cableado automático de siempre (webhook,
+   * cron L2, revisión L3). El motor manual pasa su flag de producto y su pata Lusha
+   * con la puerta de privacidad posterior a la respuesta.
+   */
+  depsOverride?: Parameters<typeof buildContinueWaterfallDeps>[0];
 }): Promise<ContinuePhoneRevealWaterfallResult> {
   try {
     return await continuePhoneRevealWaterfall(
@@ -957,7 +1046,7 @@ export async function continuePhoneRevealWaterfallForCandidate(args: {
           ? { apolloCostCredits: args.apolloCostCredits }
           : {}),
       },
-      buildContinueWaterfallDeps(),
+      buildContinueWaterfallDeps(args.depsOverride),
     );
   } catch (err) {
     // Solo el mensaje mecánico del driver, sin PII: este módulo nunca imprime
@@ -1009,6 +1098,25 @@ export interface StartLegacyPhoneRevealWaterfallRuntimeResult {
 export async function startLegacyPhoneRevealWaterfallForCandidate(
   candidateId: string,
   actor: { internalUserId: string; roleKey: string | null },
+  /**
+   * AGENT2A-PHONE-REVEAL-4O-F-R2 — punto de reutilización del MOTOR ECONÓMICO.
+   *
+   * Omitido = la server action legacy, byte-idéntica: flag del waterfall en el
+   * arranque y en la continuación, y pata Lusha automática.
+   *
+   * Presente = el disparo manual admin-only, que reutiliza EXACTAMENTE esta
+   * secuencia —preflight de presupuesto, `reserve_and_create_phone_reveal_run`
+   * (reserva + corrida `legacy_lusha_only` en UNA transacción), claim atómico,
+   * puerta de privacidad previa, UNA llamada a Lusha, usage-log correlacionado con
+   * la corrida REAL, persistencia multi-teléfono y liquidación de la reserva— en vez
+   * de mantener una segunda implementación pagada de la misma operación.
+   */
+  options?: {
+    /** Permiso de PRODUCTO ya resuelto por el llamador. */
+    flagEnabled?: boolean;
+    /** Pata Lusha alternativa (scoped a la invocación manual). */
+    callLushaLeg?: ContinuePhoneRevealWaterfallDeps['callLushaLeg'];
+  },
 ): Promise<StartLegacyPhoneRevealWaterfallRuntimeResult> {
   // Fail-closed: si el store no está disponible (p. ej. las migraciones 102/103 aún
   // no aplicadas en ese entorno) NO se crea corrida y, por tanto, no se llama a
@@ -1017,7 +1125,17 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
   try {
     started = await startLegacyPhoneRevealWaterfall(
       { candidateId },
-      buildStartLegacyWaterfallDeps(actor),
+      buildStartLegacyWaterfallDeps(
+        actor,
+        options
+          ? {
+              flagEnabled: options.flagEnabled,
+              // El disparo manual exige el orden DNC → RESERVA. La ruta legacy
+              // automática NO cablea esta puerta y conserva su superficie de deps.
+              gatePrivacyBeforeReserving: true,
+            }
+          : undefined,
+      ),
     );
   } catch (err) {
     console.error(
@@ -1048,6 +1166,11 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
     candidateId,
     // Desenlace histórico ya demostrado, no fabricado.
     apolloOutcome: 'no_phone_found',
+    // El MISMO permiso y la MISMA pata que autorizaron el arranque: si la
+    // continuación resolviera el flag por su cuenta, el motor manual crearía la
+    // corrida (y reservaría los créditos) y acto seguido saldría en `feature_disabled`
+    // dejando la exposición ocupada sin llamar a nadie.
+    ...(options ? { depsOverride: options } : {}),
   });
 
   return {

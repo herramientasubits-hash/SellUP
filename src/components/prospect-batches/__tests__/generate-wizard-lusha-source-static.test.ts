@@ -47,6 +47,42 @@ const sources = {
   criteria: readFileSync(FILES.criteria, 'utf-8'),
 };
 
+/**
+ * AGENT1-LUSHA-HIDDEN-PROVIDER-TEST-REPAIR-1 — the invariant these modules must
+ * satisfy is that they never IMPORT a provider / network / DB runtime. Scanning
+ * the whole file for the words `apollo|tavily|supabase|hubspot` cannot express
+ * that: prose naming the neighboring providers is documentation, not coupling.
+ * #271 added exactly such a comment to the resolver (explaining that Agent 1
+ * discovery — Tavily / Apollo — stays reachable when the hidden Lusha route is
+ * not honored), and the whole-file grep turned it into a false failure. The
+ * guards below read the module specifiers instead, which is what "does not
+ * import" actually means.
+ */
+const FORBIDDEN_IMPORT_SPECIFIER = /apollo|tavily|supabase|hubspot/i;
+
+function importSpecifiersOf(source: string): string[] {
+  return [...source.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+}
+
+/** Pure mapping/helper modules the resolver is allowed to depend on. */
+const ALLOWED_RESOLVER_IMPORTS: ReadonlySet<string> = new Set([
+  // AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 2/6 — la autoridad de industria del
+  // resolvedor. Sustituye a `lusha-sector-mapping`, que ya no aparece aquí: si
+  // volviera, el vocabulario legacy habría regresado a la decisión ejecutable.
+  '@/server/prospect-batches/lusha-macro-capability',
+  '@/server/prospect-batches/lusha-preview',
+]);
+
+/** Pure mapping/helper/type modules the criteria bridge is allowed to depend on. */
+const ALLOWED_CRITERIA_IMPORTS: ReadonlySet<string> = new Set([
+  '@/modules/industry-catalog/types',
+  '@/modules/prospect-batches/prospect-discovery-provider',
+  // § 1 — el catálogo macro canónico: es lo que traduce el `slug` publicado a
+  // `MacroIndustryKey`, en lugar del mapeo difuso de alias que había antes.
+  '@/modules/macro-industry-catalog/macro-industries',
+  '@/server/prospect-batches/lusha-preview',
+]);
+
 describe('Conversational wizard restored (product decision Q3F-5BB.3E)', () => {
   it('the flat criteria form component is no longer imported by the drawer', () => {
     assert.doesNotMatch(sources.drawer, /ProspectCriteriaSection/);
@@ -111,9 +147,30 @@ describe('"Generar con IA" remains the single entry point and receives the flag'
 });
 
 describe('Final search step persists Lusha results as pending review (Q3F-5BB.4)', () => {
-  it('the summary gates the final Lusha search on provider === "lusha"', () => {
+  it('the summary gates the final Lusha search on the honored-route predicate', () => {
     assert.match(sources.summary, /WizardLushaFinalSearch/);
-    assert.match(sources.summary, /lushaCriteria\.provider === 'lusha'/);
+    // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 (#271) intentionally retired the
+    // literal `lushaCriteria.provider === 'lusha'` in favour of the predicate the
+    // resolver exports. The predicate is behaviorally identical
+    // (`provider === 'lusha'`) and is the ONLY sanctioned way to ask whether the
+    // hidden provider participates — comparing the literal is precisely what got
+    // misread as "search blocked". So the guard asserts the CURRENT contract
+    // rather than resurrecting the retired literal.
+    assert.match(
+      sources.summary,
+      /import \{[^}]*\bisLushaRouteHonored\b[^}]*\} from '@\/modules\/prospect-batches\/prospect-discovery-provider'/,
+    );
+    // The gate keeps BOTH terms: the preview flag AND the honored Lusha route.
+    assert.match(
+      sources.summary,
+      /const useLushaFinalSearch =[\s\S]{0,400}?\blushaPreviewEnabled\b[\s\S]{0,400}?\bisLushaRouteHonored\(lushaCriteria\.provider\)/,
+    );
+    // ...and WizardLushaFinalSearch is mounted in exactly one place: behind it.
+    assert.equal([...sources.summary.matchAll(/<WizardLushaFinalSearch/g)].length, 1);
+    assert.match(
+      sources.summary,
+      /\{useLushaFinalSearch && lushaCriteria\.input && \(\s*<WizardLushaFinalSearch/,
+    );
   });
 
   it('the conversational wizard resolves the hidden provider decision', () => {
@@ -158,7 +215,15 @@ describe('Final search step persists Lusha results as pending review (Q3F-5BB.4)
 
 describe('Provider resolver + criteria bridge are pure, side-effect-free modules', () => {
   it('resolver does not import Apollo / Tavily / Supabase / HubSpot', () => {
-    assert.doesNotMatch(sources.resolver, /apollo|tavily|supabase|hubspot/i);
+    const specifiers = importSpecifiersOf(sources.resolver);
+    assert.ok(specifiers.length > 0, 'expected the resolver to declare imports to scan');
+    for (const specifier of specifiers) {
+      assert.doesNotMatch(specifier, FORBIDDEN_IMPORT_SPECIFIER);
+      assert.ok(
+        ALLOWED_RESOLVER_IMPORTS.has(specifier),
+        `resolver imports a module outside the pure mapping/helper allowlist: ${specifier}`,
+      );
+    }
   });
 
   it('resolver does not read env vars or perform I/O directly', () => {
@@ -167,7 +232,15 @@ describe('Provider resolver + criteria bridge are pure, side-effect-free modules
   });
 
   it('criteria bridge does not import Apollo / Tavily / Supabase / HubSpot', () => {
-    assert.doesNotMatch(sources.criteria, /apollo|tavily|supabase|hubspot/i);
+    const specifiers = importSpecifiersOf(sources.criteria);
+    assert.ok(specifiers.length > 0, 'expected the criteria bridge to declare imports to scan');
+    for (const specifier of specifiers) {
+      assert.doesNotMatch(specifier, FORBIDDEN_IMPORT_SPECIFIER);
+      assert.ok(
+        ALLOWED_CRITERIA_IMPORTS.has(specifier),
+        `criteria bridge imports a module outside the pure mapping/helper allowlist: ${specifier}`,
+      );
+    }
   });
 
   it('criteria bridge does not read env vars or perform I/O directly', () => {

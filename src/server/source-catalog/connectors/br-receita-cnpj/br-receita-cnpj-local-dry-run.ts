@@ -38,6 +38,7 @@ import {
   type BrReceitaCnpjManifestFileType,
 } from './br-receita-cnpj-manifest';
 import { validateBrReceitaCnpjLocalManifest } from './br-receita-cnpj-manifest-validator';
+import { containsBrazilCnpjLikeIdentifier } from './br-receita-cnpj-identifier-shape';
 
 // ─── Public constants ────────────────────────────────────────────────────────
 
@@ -389,7 +390,11 @@ function validateSampleStructure(
     if (line.trim() === '') continue; // ignore empty rows, never counted
     read += 1;
     const cells = line.split(delimiter);
-    if (cells.some((cell) => FORBIDDEN_DIGIT_RUN.test(cell))) {
+    // Digit-only run (legacy CNPJ/CPF), OR an alphanumeric CNPJ-shaped, DV-valid token
+    // (§ 3.1/§ 3.4, effective July 2026) — a digit-run guard alone cannot see the latter.
+    if (
+      cells.some((cell) => FORBIDDEN_DIGIT_RUN.test(cell) || containsBrazilCnpjLikeIdentifier(cell))
+    ) {
       rejected += 1;
       reasonCode = 'sample_row_forbidden_value_detected';
       continue;

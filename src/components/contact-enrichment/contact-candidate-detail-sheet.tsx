@@ -49,10 +49,13 @@ import {
 } from '@/components/ui/select';
 import { SurfaceCard, SurfaceCardHeader } from '@/components/shared/surface-card';
 import {
-  getPendingContactCandidateById,
+  getReviewableContactCandidateById,
+  getDuplicateCandidateMergeOffer,
   approveContactCandidate,
+  mergeContactCandidateIntoExistingContactAction,
   discardContactCandidate,
 } from '@/modules/contact-enrichment/actions';
+import type { ExistingContactMergeOffer } from '@/modules/contact-enrichment/candidate-review-core';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
 import { recoverCandidatePhoneRevealNowAction } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-actions';
 // Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1): SOLO tras `no_phone_found` de
@@ -70,6 +73,19 @@ import {
 // waterfall: solo dispara el mismo server action del reveal Apollo y LEE la auditoría
 // de la corrida.
 import { getPhoneRevealWaterfallAuditAction } from '@/modules/contact-enrichment/phone-reveal-waterfall-actions';
+// «Ver más números» (AGENT2A-PHONE-REVEAL-4O-G). SOLO lectura de teléfonos YA
+// almacenados por 4O-C/4O-D: 0 llamadas a proveedor, 0 corridas, 0 reservas,
+// 0 créditos y 0 escrituras. El resumen es un entero y decide si el CTA existe;
+// los números no viajan al navegador hasta que el operador abre el disclosure.
+import { getCandidateStoredPhoneSummaryAction } from '@/modules/contact-enrichment/candidate-stored-phones-actions';
+import { CandidateStoredPhonesDisclosure } from './candidate-stored-phones-disclosure';
+// «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1). La tercera operación de teléfono, y la
+// ÚNICA de las tres que este bloque puede cobrar. Vive en su propio componente —con su modal,
+// su máquina de estados y su refresco acotado— para no sumar nada de eso a este archivo.
+import { CandidateSearchMorePhonesCta } from './candidate-search-more-phones-cta';
+import { getSearchMorePhonesPreflightAction } from '@/modules/contact-enrichment/search-more-phones-actions';
+import type { SearchMorePreflightSummary } from '@/modules/contact-enrichment/search-more-phones-read';
+import { resolvePhoneSourceLabel, resolvePhoneTypeLabel } from './phone-display-labels';
 // Compatibilidad legacy (AGENT2A-PHONE-WATERFALL-2): con el waterfall encendido el
 // botón manual separado de Lusha desaparece, así que un candidato cuyo Apollo YA
 // terminó `no_phone_found` antes de que existiera la corrida se quedaría sin ninguna
@@ -83,6 +99,13 @@ import {
   classifyPhoneRevealWaterfallLegacyHistory,
   type PhoneRevealWaterfallAuditView,
 } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
+import {
+  CANDIDATE_DETAIL_LOAD_ERROR_BODY_COPY,
+  CANDIDATE_DETAIL_LOAD_ERROR_TITLE_COPY,
+  CANDIDATE_DETAIL_NOT_FOUND_BODY_COPY,
+  CANDIDATE_DETAIL_NOT_FOUND_TITLE_COPY,
+  type CandidateDetailLoadOutcome,
+} from './contact-candidate-detail-load-copy';
 import {
   formatWaterfallLegCredits,
   getPhoneRevealWaterfallAuthorizationCopy,
@@ -109,6 +132,14 @@ import {
 // seguro en el bundle cliente): cliente y servidor comparten LA MISMA definición
 // de "ya pasaron 2 min desde la solicitud" y no pueden desincronizarse.
 import { isManualRecoveryRequestWindowOpen } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-core';
+// Elegibilidad de IDENTIDAD del reveal (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2).
+// Núcleo PURO compartido con el servidor: reutiliza `resolvePhoneCachePersonId`, la
+// misma resolución que aplican START, webhook, recovery y la puerta previa a Lusha,
+// así que el botón no puede ofrecer lo que el backend va a bloquear fail-closed.
+import {
+  evaluatePhoneRevealIdentityEligibility,
+  PHONE_REVEAL_IDENTITY_BLOCKED_COPY,
+} from '@/modules/contact-enrichment/phone-reveal-identity-eligibility';
 import type {
   PendingContactCandidate,
   ContactRelevanceStatus,
@@ -116,8 +147,6 @@ import type {
   ContactSource,
   ContactCandidateCompanyConsistency,
   LushaPersonIdentityEvidenceV1,
-  PhoneType,
-  PhoneSource,
   PhoneProcessingBasis,
 } from '@/modules/contact-enrichment/types';
 import {
@@ -132,6 +161,14 @@ import {
   PHONE_REVEAL_LIVE_REFRESH_COPY,
 } from './phone-reveal-live-refresh-core';
 import { usePhoneRevealLiveRefresh } from './use-phone-reveal-live-refresh';
+// Pestillo de solicitud del reveal asíncrono (ASYNC-UI-REFRESH-1). Núcleo PURO: la
+// política de "sigo esperando" no depende de React ni de ningún timer.
+import {
+  isPhoneRevealSubmissionAccepted,
+  isPhoneRevealSubmissionLatchActive,
+  PHONE_REVEAL_SUBMITTED_COPY,
+  PHONE_REVEAL_SUBMITTED_HELPER_COPY,
+} from './phone-reveal-submission-latch-core';
 import {
   shouldClearLocalPhoneRevealState,
   PHONE_REVEAL_LIVE_REFRESH_EXHAUSTED_COPY,
@@ -233,55 +270,11 @@ const DUPLICATE_LABELS: Record<ContactDuplicateStatus, string> = {
 // PHONE-3A conservó en `enrichment_metadata.phone`. Copy PRUDENTE: `personal_mobile`
 // se rotula como "posible personal" a propósito, sin prometer certeza sobre la
 // titularidad del número. Este hito NO revela teléfonos ni activa reveal alguno.
-
-const PHONE_TYPE_UNKNOWN_LABEL = 'Tipo desconocido';
-const PHONE_SOURCE_UNKNOWN_LABEL = 'Fuente desconocida';
-
-const PHONE_TYPE_LABELS: Record<PhoneType, string> = {
-  personal_mobile: 'Móvil / posible personal',
-  mobile: 'Móvil',
-  direct_dial: 'Directo corporativo',
-  work: 'Trabajo',
-  hq: 'Central / HQ',
-  other: 'Otro',
-  unknown: PHONE_TYPE_UNKNOWN_LABEL,
-};
-
-const PHONE_SOURCE_LABELS: Record<PhoneSource, string> = {
-  apollo_search: 'Apollo búsqueda',
-  apollo_reveal: 'Apollo reveal',
-  // APOLLO-PHONE-CACHE-1b: el operador tiene que poder distinguir de un vistazo
-  // un número reutilizado de uno recién revelado (no se cobraron créditos).
-  apollo_cache: 'Apollo reveal reutilizado',
-  lusha_reveal: 'Lusha reveal',
-  provider_payload: 'Proveedor',
-  manual: 'Manual',
-  unknown: PHONE_SOURCE_UNKNOWN_LABEL,
-};
-
-/**
- * Etiqueta del tipo de teléfono. Cualquier valor ausente, vacío, `unknown` o no
- * reconocido cae a "Tipo desconocido" (estado explícito cuando hay teléfono
- * pero no hay tipo claro).
- */
-function resolvePhoneTypeLabel(type: string | null | undefined): string {
-  if (typeof type === 'string' && Object.prototype.hasOwnProperty.call(PHONE_TYPE_LABELS, type)) {
-    return PHONE_TYPE_LABELS[type as PhoneType];
-  }
-  return PHONE_TYPE_UNKNOWN_LABEL;
-}
-
-/**
- * Etiqueta de la fuente del teléfono. Devuelve `null` cuando no hay fuente
- * (para omitir el badge). Valores no reconocidos → "Fuente desconocida".
- */
-function resolvePhoneSourceLabel(source: string | null | undefined): string | null {
-  if (typeof source !== 'string' || source.trim().length === 0) return null;
-  if (Object.prototype.hasOwnProperty.call(PHONE_SOURCE_LABELS, source)) {
-    return PHONE_SOURCE_LABELS[source as PhoneSource];
-  }
-  return PHONE_SOURCE_UNKNOWN_LABEL;
-}
+//
+// AGENT2A-PHONE-REVEAL-4O-G: los mapas y sus resolvers viven ahora en
+// `phone-display-labels.ts`, sin cambiar un solo valor. El disclosure «Ver más
+// números» muestra teléfonos en otra superficie y tiene que rotularlos EXACTAMENTE
+// igual; dos copias del mismo mapa habrían divergido en el primer renombrado.
 
 // ── Reveal de teléfono (PHONE-3D.4) ──────────────────────────────────────────
 // UI explícita, individual y auditada para revelar el teléfono de UN candidato
@@ -408,7 +401,13 @@ export function ContactCandidateDetailSheet({
   const router = useRouter();
   const [candidate, setCandidate] = React.useState<PendingContactCandidate | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const [notFound, setNotFound] = React.useState(false);
+  /**
+   * AGENT2A-PROD-INCIDENT: antes era un `notFound` booleano que mezclaba «ya no
+   * está en revisión» con «la lectura falló». Ahora el estado dice CUÁL de los
+   * dos fue, que es lo que separa un aviso informativo de un fallo accionable.
+   */
+  const [loadOutcome, setLoadOutcome] =
+    React.useState<CandidateDetailLoadOutcome | null>(null);
 
   // Estado de revisión humana (Hito 17A.4B)
   const [approving, setApproving] = React.useState(false);
@@ -425,11 +424,46 @@ export function ContactCandidateDetailSheet({
   const [overrideReason, setOverrideReason] = React.useState('');
   const [overrideValidationError, setOverrideValidationError] = React.useState<string | null>(null);
 
+  // Duplicado con contacto existente (AGENT2A-PHONE-REVEAL-4O-H3-B). El veredicto no cambia —
+  // el candidato pasa a `duplicate` igual que antes de este hito —, pero cuando la identidad del
+  // contacto existente es exacta e inequívoca el humano puede además AGREGARLE la información en
+  // vez de limitarse a descartar. Este estado sólo controla el diálogo: la decisión de si la
+  // acción es siquiera ofrecible la toma el servidor, y volverá a tomarla al ejecutarla.
+  const [duplicateDecision, setDuplicateDecision] = React.useState<{
+    contactId: string;
+    signal: 'email' | 'linkedin';
+  } | null>(null);
+  const [mergingIntoExisting, setMergingIntoExisting] = React.useState(false);
+  const mergeInFlightRef = React.useRef(false);
+
+  /**
+   * 4O-H3-B-R1 — la oferta DURADERA, releída del servidor cada vez que se abre un candidato ya
+   * marcado como `duplicate`.
+   *
+   * `duplicateDecision` (arriba) sólo vive el instante posterior a la detección; si el operador
+   * cerraba el drawer, la decisión desaparecía. Esta es la que sobrevive a un refresh y a navegar
+   * a otra parte: el servidor vuelve a resolver la identidad con las mismas reglas exactas y la
+   * UI sólo pinta lo que él autoriza.
+   */
+  const [durableMergeOffer, setDurableMergeOffer] =
+    React.useState<ExistingContactMergeOffer | null>(null);
+
   // Reveal de teléfono (APOLLO-PHONE-ASYNC-5) — flujo ONE-CLICK sin modal. Al
   // hacer clic se solicita de inmediato la revelación asíncrona con base fija
   // (interés legítimo B2B). Todo el estado es local; la autoridad real (flag,
   // rol, costo, base, do_not_contact, re-reveal) vive en el server action.
   const [revealingPhone, setRevealingPhone] = React.useState(false);
+  /**
+   * Pestillo de solicitud (ASYNC-UI-REFRESH-1): se enciende en cuanto el servidor
+   * ACEPTA un envío y sólo se apaga cuando el servidor dice algo — en vuelo o
+   * terminal — o cuando el candidato deja de ser el de la pantalla.
+   *
+   * No es una segunda fuente de verdad sobre el reveal: es el único hecho que el
+   * servidor no puede contarnos todavía («este cliente ya pidió»). Sin él, entre el
+   * `finally` del handler y la llegada del refetch el drawer volvía a pintarse
+   * IDLE, y si ese refetch fallaba nadie volvía a mirar nunca.
+   */
+  const [phoneRevealSubmitted, setPhoneRevealSubmitted] = React.useState(false);
   const [phoneRevealError, setPhoneRevealError] = React.useState<string | null>(null);
   const [phoneRevealNotice, setPhoneRevealNotice] = React.useState<string | null>(null);
   // Guard síncrono contra doble clic: `revealingPhone` (estado) solo deshabilita
@@ -478,6 +512,20 @@ export function ContactCandidateDetailSheet({
   // auditoría de la corrida.
   const [waterfallAudit, setWaterfallAudit] =
     React.useState<PhoneRevealWaterfallAuditView | null>(null);
+
+  // Teléfonos adicionales YA almacenados (AGENT2A-PHONE-REVEAL-4O-G). Sólo el
+  // CONTEO: los números se piden aparte, y sólo si el operador abre el disclosure.
+  const [storedPhoneAdditionalCount, setStoredPhoneAdditionalCount] =
+    React.useState<number>(0);
+
+  // Preflight de «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1). Es el resumen
+  // PII-FREE que el SERVIDOR resolvió: trae dentro el plan del planificador puro, así que
+  // este componente no decide elegibilidad ni techo de crédito — los lee.
+  //
+  // `null` mientras no se haya leído, y también cuando la lectura falla: en los dos casos el
+  // CTA no se pinta. Fail-closed hacia «no ofrecer la compra».
+  const [searchMorePreflight, setSearchMorePreflight] =
+    React.useState<SearchMorePreflightSummary | null>(null);
 
   // Ruta legacy solo-Lusha (AGENT2A-PHONE-WATERFALL-2). SÍNCRONA como el fallback
   // manual de Lusha (sin webhook: Lusha responde en la misma llamada), pero se
@@ -537,6 +585,116 @@ export function ContactCandidateDetailSheet({
   );
 
   /**
+   * Cuántos teléfonos ADICIONALES tiene guardados el candidato
+   * (AGENT2A-PHONE-REVEAL-4O-G). Es lo único que hace falta para decidir si el CTA
+   * «Ver más números» existe, y es un entero: mientras el operador no lo pida, no
+   * viaja al navegador ningún número extra.
+   *
+   * NO depende de `waterfallActive` ni de ningún flag de proveedor. Estos números
+   * ya están guardados y ya se pagaron; que Apollo o Lusha estén hoy apagados
+   * gobierna si SellUp puede GASTAR, no si el operador puede VER lo que ya tiene.
+   *
+   * Se relee junto al candidato, así que una supresión (DSAR) posterior retira el
+   * CTA en el siguiente refetch sin necesidad de tiempo real. Silencioso y
+   * fail-closed: ante cualquier fallo se queda en 0 y el CTA no aparece.
+   */
+  const reloadStoredPhoneSummary = React.useCallback(
+    async (targetCandidateId: string): Promise<void> => {
+      try {
+        const summary = await getCandidateStoredPhoneSummaryAction({
+          candidateId: targetCandidateId,
+        });
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setStoredPhoneAdditionalCount(summary.additionalCount);
+        }
+      } catch {
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setStoredPhoneAdditionalCount(0);
+        }
+      }
+    },
+    [],
+  );
+
+  /**
+   * Relee el preflight de «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1).
+   *
+   * CONTRATO DE CERO GASTO: la acción que se invoca aquí sólo hace `SELECT`. 0 llamadas a
+   * Apollo, 0 a Lusha, 0 corridas, 0 reservas, 0 usage logs, 0 créditos y 0 escrituras. Se
+   * llama al abrir el candidato y después de cada operación que pueda haber cambiado la
+   * colección, así que si costara algo, mirar la pantalla costaría dinero.
+   *
+   * Silencioso y fail-closed: ante cualquier fallo se queda en `null` y el CTA no aparece. Un
+   * fallo de LECTURA no es una razón para ofrecer una compra.
+   */
+  const reloadSearchMorePreflight = React.useCallback(
+    async (targetCandidateId: string): Promise<void> => {
+      try {
+        const result = await getSearchMorePhonesPreflightAction({
+          candidateId: targetCandidateId,
+        });
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setSearchMorePreflight(result.status === 'ok' ? result.summary : null);
+        }
+      } catch {
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setSearchMorePreflight(null);
+        }
+      }
+    },
+    [],
+  );
+
+  /**
+   * La colección PUDO cambiar: el CTA acaba de terminar una corrida.
+   *
+   * Hace las DOS relecturas, y las dos hacen falta:
+   *
+   *   * el preflight, que decide si «Buscar más números» sigue ofreciéndose (tras una corrida
+   *     terminal ya NO: Lusha queda agotada para este candidato);
+   *   * el conteo de 4O-G, que es lo que hace aparecer «Ver más números» AUTOMÁTICAMENTE
+   *     cuando la colección pasó de 1 a 2 números. Sin esto el operador tendría que refrescar
+   *     la página para ver el número que acaba de pagar.
+   *
+   * El resumen llega ya leído por el CTA, así que se aprovecha en vez de pedirlo otra vez; si
+   * llega `null` (su refresco no consiguió una lectura buena) se vuelve a pedir aquí.
+   */
+  const handleSearchMoreCollectionChanged = React.useCallback(
+    (summary: SearchMorePreflightSummary | null): void => {
+      if (summary) {
+        setSearchMorePreflight(summary);
+      } else {
+        void reloadSearchMorePreflight(candidateId ?? '');
+      }
+      void reloadStoredPhoneSummary(candidateId ?? '');
+    },
+    [candidateId, reloadSearchMorePreflight, reloadStoredPhoneSummary],
+  );
+
+  /**
+   * 4O-H3-B-R1 — relee la oferta de merge de un candidato DUPLICADO.
+   *
+   * Igual que la auditoría del waterfall y el conteo de teléfonos: en paralelo, sin bloquear el
+   * render del candidato, y su ausencia sólo oculta el CTA. Si falla, se deja `null` — el estado
+   * seguro es NO ofrecer la fusión, nunca ofrecerla de más.
+   */
+  const reloadDurableMergeOffer = React.useCallback(
+    async (targetCandidateId: string): Promise<void> => {
+      try {
+        const offer = await getDuplicateCandidateMergeOffer(targetCandidateId);
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setDurableMergeOffer(offer);
+        }
+      } catch {
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setDurableMergeOffer(null);
+        }
+      }
+    },
+    [],
+  );
+
+  /**
    * Descarta TODO el estado local temporal del candidato en pantalla
    * (AGENT2A-PHONE-REVEAL-UI-STATE-1 § 4.2 / § 4.3).
    *
@@ -565,7 +723,15 @@ export function ContactCandidateDetailSheet({
     setOverrideAcknowledged(false);
     setOverrideReason('');
     setOverrideValidationError(null);
+    // 4O-H3-B: la decisión de duplicado pertenece al candidato que la produjo. Arrastrarla al
+    // siguiente sería ofrecerle al operador fusionar a OTRA persona en el mismo contacto.
+    setDuplicateDecision(null);
+    setMergingIntoExisting(false);
+    // 4O-H3-B-R1: por la misma razón, la oferta duradera tampoco se hereda. Se vuelve a pedir al
+    // servidor para el candidato que se está abriendo.
+    setDurableMergeOffer(null);
     setRevealingPhone(false);
+    setPhoneRevealSubmitted(false);
     setPhoneRevealError(null);
     setPhoneRevealNotice(null);
     setRecoveringPhone(false);
@@ -579,6 +745,12 @@ export function ContactCandidateDetailSheet({
     setRevealingLegacyPhone(false);
     setLegacyWaterfallError(null);
     setLegacyWaterfallNotice(null);
+    // 4O-G: el conteo pertenece al candidato anterior. Dejarlo puesto haría
+    // aparecer «Ver 2 números más» sobre un candidato que quizá no tiene ninguno.
+    setStoredPhoneAdditionalCount(0);
+    // SEARCH-MORE-1: el plan también pertenece al candidato anterior, y dejarlo puesto sería
+    // peor que un conteo obsoleto — ofrecería una COMPRA autorizada sobre otra persona.
+    setSearchMorePreflight(null);
   }, []);
 
   /**
@@ -619,25 +791,48 @@ export function ContactCandidateDetailSheet({
       let cancelled = false;
       (async () => {
         setLoading(true);
-        setNotFound(false);
+        setLoadOutcome(null);
         try {
           // § 4.1: SIEMPRE se relee el candidato desde SellUp al abrir. No se
           // confía en el snapshot de la tabla padre, que puede ser anterior al
           // webhook. Lectura de solo lectura: 0 llamadas a proveedor, 0 créditos.
-          const result = await getPendingContactCandidateById(candidateId);
+          const result = await getReviewableContactCandidateById(candidateId);
           if (cancelled) return;
           if (!result) {
-            setNotFound(true);
+            // La lectura SÍ funcionó: el candidato ya no está en un estado revisable.
+            setLoadOutcome('not_found');
             setCandidate(null);
           } else {
             setCandidate(result);
             // Auditoría de la corrida del waterfall (no bloquea el render del
             // candidato: se pide en paralelo y su ausencia solo oculta el bloque).
             void reloadWaterfallAudit(candidateId);
+            // 4O-G: conteo de teléfonos adicionales ya almacenados. Igual que la
+            // auditoría, en paralelo y sin bloquear; su ausencia sólo oculta el CTA.
+            void reloadStoredPhoneSummary(candidateId);
+            // SEARCH-MORE-1: el preflight de la compra. En paralelo y sin bloquear por la
+            // misma razón, y con el mismo contrato de cero gasto que las otras dos lecturas.
+            void reloadSearchMorePreflight(candidateId);
+            // 4O-H3-B-R1: si el candidato ya está marcado como duplicado, se le vuelve a
+            // preguntar al servidor si la fusión sigue siendo ofrecible. Esto es lo que hace que
+            // la decisión humana sobreviva a cerrar el drawer, refrescar o navegar a otra parte.
+            if (result.status === 'duplicate') {
+              void reloadDurableMergeOffer(candidateId);
+            }
           }
         } catch {
           if (!cancelled) {
-            setNotFound(true);
+            // La lectura FALLÓ: es un fallo real, no un candidato ausente. La
+            // distinción es justo lo que faltaba — antes los dos casos caían en
+            // el mismo estado y en el mismo copy.
+            //
+            // AGENT2A-PROD-INCIDENT: el rastro para diagnosticar NO se emite
+            // aquí. Este componente maneja teléfonos revelados y tiene una
+            // prohibición deliberada de escribir en consola (PHONE-3D.4 /
+            // 3D.6B), así que el fallo se registra en el servidor, dentro de
+            // `getReviewableContactCandidateById`, que es además donde queda
+            // recogido en los logs de Producción.
+            setLoadOutcome('load_error');
             setCandidate(null);
           }
         } finally {
@@ -650,7 +845,7 @@ export function ContactCandidateDetailSheet({
     } else if (!open) {
       queueMicrotask(() => {
         setCandidate(null);
-        setNotFound(false);
+        setLoadOutcome(null);
         resetTransientCandidateState();
         resetInFlightGuards();
       });
@@ -659,6 +854,9 @@ export function ContactCandidateDetailSheet({
     open,
     candidateId,
     reloadWaterfallAudit,
+    reloadStoredPhoneSummary,
+    reloadSearchMorePreflight,
+    reloadDurableMergeOffer,
     resetTransientCandidateState,
     resetInFlightGuards,
   ]);
@@ -679,7 +877,7 @@ export function ContactCandidateDetailSheet({
     if (inFlight) return inFlight;
     const request = (async () => {
       try {
-        const fresh = await getPendingContactCandidateById(candidateId);
+        const fresh = await getReviewableContactCandidateById(candidateId);
         if (fresh && currentCandidateIdRef.current === candidateId) setCandidate(fresh);
       } catch {
         // Silencioso: mantenemos la vista actual si el refetch falla.
@@ -687,6 +885,14 @@ export function ContactCandidateDetailSheet({
       // La corrida se relee junto al candidato: es lo que hace visible el paso
       // "Apollo no encontró teléfono, consultando Lusha" sin timers propios.
       await reloadWaterfallAudit(candidateId);
+      // 4O-G: el conteo se relee con el candidato. Es lo que hace que un reveal
+      // que trajo un segundo número muestre el CTA sin recargar la página — y,
+      // en el otro sentido, que una supresión posterior lo retire.
+      await reloadStoredPhoneSummary(candidateId);
+      // SEARCH-MORE-1: y el preflight, por la misma razón en las dos direcciones. Un reveal
+      // que acaba de guardar la procedencia de Lusha AGOTA la búsqueda de adicionales —Lusha
+      // ya contestó— así que el CTA tiene que retirarse solo, sin esperar un refresco.
+      await reloadSearchMorePreflight(candidateId);
     })();
     reloadInFlightRef.current = request;
     try {
@@ -694,7 +900,12 @@ export function ContactCandidateDetailSheet({
     } finally {
       if (reloadInFlightRef.current === request) reloadInFlightRef.current = null;
     }
-  }, [candidateId, reloadWaterfallAudit]);
+  }, [
+    candidateId,
+    reloadWaterfallAudit,
+    reloadStoredPhoneSummary,
+    reloadSearchMorePreflight,
+  ]);
 
   async function handleApprove(identityOverride?: { acknowledged: boolean; reason: string }) {
     if (!candidate || busy) return;
@@ -708,7 +919,18 @@ export function ContactCandidateDetailSheet({
         router.refresh();
         onClose();
       } else if (result.duplicate) {
-        // El candidato pasó a `duplicate` y sale de revisión: refrescamos y cerramos.
+        // El candidato pasó a `duplicate` y sale de revisión — eso no ha cambiado. Lo que cambia
+        // (4O-H3-B) es que, si el servidor confirma que el contacto existente es la MISMA persona
+        // por una señal exacta, no cerramos sin preguntar: se le muestra la decisión. Sin oferta,
+        // el comportamiento es exactamente el de antes.
+        if (result.mergeOffer?.offered && result.contactId) {
+          setDuplicateDecision({
+            contactId: result.contactId,
+            signal: result.mergeOffer.signal,
+          });
+          router.refresh();
+          return;
+        }
         toast.warning(result.error ?? 'Este candidato parece estar duplicado.');
         router.refresh();
         onClose();
@@ -731,6 +953,60 @@ export function ContactCandidateDetailSheet({
       toast.error('No fue posible aprobar el candidato.');
     } finally {
       setApproving(false);
+    }
+  }
+
+  /**
+   * 4O-H3-B — «Descartar como duplicado». No escribe NADA: el veredicto duplicado ya
+   * terminalizó al candidato cuando se detectó. Cerrar es exactamente el comportamiento que
+   * existía antes de este hito, y por eso este camino no llama a ninguna acción.
+   */
+  function handleDiscardDuplicate() {
+    if (mergingIntoExisting) return;
+    setDuplicateDecision(null);
+    toast.warning('Candidato marcado como duplicado.');
+    router.refresh();
+    onClose();
+  }
+
+  /**
+   * 4O-H3-B — «Agregar información al contacto existente». La decisión humana explícita.
+   *
+   * El id del contacto viaja como CONFIRMACIÓN, no como instrucción: el servidor lo revalida
+   * contra el `matched_contacts_id` que él mismo escribió y la transacción lo vuelve a
+   * comprobar bajo el lock. Un doble clic queda cortado aquí por el ref y, si aun así llegaran
+   * dos peticiones, la transacción devuelve `already_merged` sin escribir por segunda vez.
+   */
+  async function handleMergeIntoExistingContact(targetContactId?: string) {
+    // 4O-H3-B-R1: el destino puede venir de la decisión recién detectada (el diálogo) o de la
+    // oferta DURADERA releída al reabrir un duplicado. Son dos caminos hacia la misma acción, y
+    // el servidor revalida el id en los dos casos por igual.
+    const contactId = targetContactId ?? duplicateDecision?.contactId;
+    if (!candidate || !contactId) return;
+    if (mergeInFlightRef.current) return;
+    mergeInFlightRef.current = true;
+    setMergingIntoExisting(true);
+    try {
+      const result = await mergeContactCandidateIntoExistingContactAction(
+        candidate.id,
+        contactId,
+      );
+      if (result.ok) {
+        toast.success(result.message ?? 'Información agregada al contacto existente.');
+        setDuplicateDecision(null);
+        setDurableMergeOffer(null);
+        router.refresh();
+        onClose();
+      } else {
+        toast.error(
+          result.error ?? 'No fue posible agregar la información al contacto existente.',
+        );
+      }
+    } catch {
+      toast.error('No fue posible agregar la información al contacto existente.');
+    } finally {
+      mergeInFlightRef.current = false;
+      setMergingIntoExisting(false);
     }
   }
 
@@ -777,6 +1053,13 @@ export function ContactCandidateDetailSheet({
   function applyPhoneRevealResult(
     result: Awaited<ReturnType<typeof revealCandidatePhoneAction>>,
   ) {
+    // ASYNC-UI-REFRESH-1 — el pestillo se enciende ANTES de cualquier refetch, para
+    // los resultados que dejan una solicitud realmente en vuelo. Ese orden es el
+    // arreglo: el estado de espera pasa a existir en el mismo tick del resultado, sin
+    // depender de que la lectura posterior llegue, llegue a tiempo o llegue completa.
+    if (isPhoneRevealSubmissionAccepted(result.status)) {
+      setPhoneRevealSubmitted(true);
+    }
     switch (result.status) {
       case 'requested':
         toast.success('Revelación solicitada. Apollo puede tardar algunos minutos.');
@@ -811,10 +1094,17 @@ export function ContactCandidateDetailSheet({
       // APOLLO-PHONE-CACHE-1b (FIX 2): no se pudo verificar si hay una supresión
       // registrada, así que NO se llamó a Apollo. Ocurre con el flag de caché
       // encendido o apagado: el flag gobierna la reutilización, no el
-      // cumplimiento de la supresión. Sin cargo y reintentable.
+      // cumplimiento de la supresión. Sin cargo.
+      //
+      // AGENT2A-P0-PHONE-SUPPRESSION-NOKEY-1-R2: este mismo estado también cubre,
+      // desde ese hito, el caso sin `provider_person_id` resoluble o sin cuenta —
+      // típicamente un candidato de origen Lusha sin identidad Apollo capturada.
+      // Ese sub-caso puede quedar PERMANENTEMENTE sin evaluar (no se resuelve con
+      // el tiempo ni reintentando); "intenta de nuevo en unos minutos" sería una
+      // promesa falsa para él. El mensaje ya no sugiere un plazo.
       case 'suppression_check_unavailable':
         setPhoneRevealError(
-          'No fue posible verificar si existe una supresión registrada para este teléfono. No se hizo ningún cargo; intenta de nuevo en unos minutos.',
+          'No fue posible verificar si existe una supresión registrada para este teléfono. No se hizo ningún cargo.',
         );
         return;
       // APOLLO-PHONE-CACHE-1b (FIX H4 + H4-b): no se pudo consultar la caché, o
@@ -1322,10 +1612,22 @@ export function ContactCandidateDetailSheet({
   // inicia reveals. Se apaga solo al llegar un estado terminal, al aparecer un
   // teléfono, al cerrar el drawer, al cambiar de candidato y al agotar su
   // presupuesto de tiempo (no hay bucle infinito ni setInterval).
+  // ASYNC-UI-REFRESH-1 — ventana entre "el servidor aceptó" y "la lectura lo
+  // refleja". Mientras dura, el CTA NO puede volver a parecer idle y el refresco
+  // automático tiene que estar encendido. Se DERIVA (no es un estado nuevo que
+  // limpiar): en cuanto el servidor confirma en vuelo o cierra el caso, se apaga
+  // solo, y con un teléfono en pantalla ya no hay nada que esperar.
+  const phoneRevealAwaitingConfirmation = isPhoneRevealSubmissionLatchActive({
+    submitted: phoneRevealSubmitted,
+    phoneRevealStatus: candidate?.phone_reveal_status ?? null,
+    hasPhone,
+  });
+
   const liveRefreshEligible = isPhoneRevealLiveRefreshEligible({
     phoneRevealStatus: candidate?.phone_reveal_status ?? null,
     hasPhone,
     busy,
+    submissionLatchActive: phoneRevealAwaitingConfirmation,
   });
   const { active: liveRefreshActive, budgetExhausted: liveRefreshExhausted } =
     usePhoneRevealLiveRefresh({
@@ -1371,6 +1673,36 @@ export function ContactCandidateDetailSheet({
     phoneRevealAuthorized === true &&
     candidate?.phone_reveal_recovery_id_present === true &&
     phoneRecoveryRequestWindowOpen;
+  // ── Elegibilidad de IDENTIDAD (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2,
+  //    repuntada en la Fase 1 de AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-4) ────
+  // Distinta de `hasSufficientPhoneRevealIdentity`, que responde «¿con qué datos
+  // buscaría Apollo a esta persona?». Esta responde «¿existe la IDENTIDAD con la que la
+  // privacidad podría consultarse?». Desde PR #289 la respuesta «no» BLOQUEA el reveal en
+  // las cuatro fases del backend, así que ofrecer el botón habilitado era prometer algo
+  // que se sabía imposible antes del clic: el operador gastaba un clic para recibir un
+  // error rojo de privacidad.
+  //
+  // FASE 1 — la pregunta cambió, y con ella la respuesta para la mayoría de candidatos.
+  // Antes la clave era `(apollo, provider_person_id, account_id)`, así que un candidato
+  // sin cuenta —o de origen Lusha— quedaba deshabilitado para siempre. Ahora la clave es
+  // la identidad NATIVA del proveedor y la cuenta no participa: un candidato Apollo con
+  // su id de Apollo y un candidato Lusha con su `source_contact_id` quedan HABILITADOS
+  // aunque no exista ninguna cuenta de SellUp todavía.
+  //
+  // `accountId` se sigue pasando y la función lo IGNORA a propósito (ver el módulo): se
+  // conserva para que este llamador documente que la cuenta se consideró y se descartó,
+  // en lugar de que su desaparición parezca un olvido.
+  //
+  // Es CONVENIENCIA de UI, nunca autorización: el servidor revalida la supresión por su
+  // cuenta y sigue siendo el único que decide si se llama al proveedor.
+  const phoneRevealIdentityEligibility = evaluatePhoneRevealIdentityEligibility({
+    apolloPersonId: candidate?.apollo_person_id ?? null,
+    source: candidate?.source ?? null,
+    sourceContactId: candidate?.source_contact_id ?? null,
+    accountId: candidate?.account_id ?? null,
+  });
+  const phoneRevealIdentityEligible = phoneRevealIdentityEligibility === 'eligible';
+
   const canOfferPhoneReveal =
     !!candidate &&
     phoneRevealEnabled === true &&
@@ -1506,15 +1838,28 @@ export function ContactCandidateDetailSheet({
         candidate ? (
           <div className="flex items-center justify-between gap-4 mr-6">
             <span className="truncate">{candidate.full_name || 'Sin nombre'}</span>
-            <Badge
-              variant="outline"
-              className="shrink-0 border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold"
-            >
-              Por revisar
-            </Badge>
+            {/* 4O-H3-B-R1: el badge dice el estado REAL. Un duplicado ya no se presenta como si
+                siguiera siendo una aprobación normal pendiente. */}
+            {candidate.status === 'duplicate' ? (
+              <Badge
+                variant="outline"
+                className="shrink-0 border-transparent bg-muted text-muted-foreground text-xs font-semibold"
+              >
+                Duplicado
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="shrink-0 border-transparent bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold"
+              >
+                Por revisar
+              </Badge>
+            )}
           </div>
-        ) : notFound ? (
-          'Candidato no disponible'
+        ) : loadOutcome === 'not_found' ? (
+          CANDIDATE_DETAIL_NOT_FOUND_TITLE_COPY
+        ) : loadOutcome === 'load_error' ? (
+          CANDIDATE_DETAIL_LOAD_ERROR_TITLE_COPY
         ) : (
           'Cargando candidato…'
         )
@@ -1527,7 +1872,11 @@ export function ContactCandidateDetailSheet({
           : undefined
       }
       actions={
-        candidate ? (
+        // 4O-H3-B-R1: un candidato ya marcado como duplicado NO ofrece «Aprobar» / «Rechazar».
+        // Su veredicto ya está tomado; lo único que queda es la decisión de duplicado, que vive
+        // en el cuerpo del drawer. Presentarlo con la barra de aprobación normal era justamente
+        // mezclarlo con una aprobación pendiente.
+        candidate && candidate.status !== 'duplicate' ? (
           !showRejectForm ? (
             <>
               <p className="flex-1 text-[11px] text-muted-foreground/70">
@@ -1623,17 +1972,86 @@ export function ContactCandidateDetailSheet({
         ) : undefined
       }
     >
-      {notFound ? (
+      {loadOutcome ? (
         <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60">
-            <Info className="h-5 w-5 text-muted-foreground/40" />
+          {/* El icono acompaña al copy: informativo cuando el candidato salió de
+              revisión, de advertencia cuando la lectura falló. */}
+          <div
+            className={
+              loadOutcome === 'load_error'
+                ? 'flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10'
+                : 'flex h-12 w-12 items-center justify-center rounded-xl bg-muted/60'
+            }
+          >
+            {loadOutcome === 'load_error' ? (
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+            ) : (
+              <Info className="h-5 w-5 text-muted-foreground/40" />
+            )}
           </div>
           <p className="max-w-sm text-sm text-muted-foreground">
-            No fue posible cargar el detalle del candidato.
+            {loadOutcome === 'load_error'
+              ? CANDIDATE_DETAIL_LOAD_ERROR_BODY_COPY
+              : CANDIDATE_DETAIL_NOT_FOUND_BODY_COPY}
           </p>
         </div>
       ) : !candidate ? null : (
         <div className="space-y-4">
+          {/* 4O-H3-B-R1 — aviso DURADERO de duplicado.
+              Vive en el cuerpo del drawer, no en un diálogo, y por eso sigue ahí después de
+              cerrar, refrescar o navegar. Con una identidad exacta confirmada por el servidor
+              ofrece la fusión; sin ella lo dice con claridad y NO ofrece ningún CTA. No expone
+              internals: ni ids, ni nombres de columnas, ni evidencia cruda. */}
+          {candidate.status === 'duplicate' ? (
+            <SurfaceCard>
+              <div className="flex items-start gap-2.5">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+                <div className="space-y-2.5">
+                  <p className="text-sm font-medium text-foreground">
+                    Este candidato coincide con un contacto existente.
+                  </p>
+                  {durableMergeOffer?.offered ? (
+                    <>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        {durableMergeOffer.signal === 'email'
+                          ? 'Tiene el mismo correo electrónico que un contacto que ya está en SellUp.'
+                          : 'Tiene el mismo perfil de LinkedIn que un contacto que ya está en SellUp.'}{' '}
+                        Puedes agregarle la información de este candidato. No se reemplaza nada de
+                        lo que ya tiene: su teléfono principal y los datos cargados a mano se
+                        conservan tal como están.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={mergingIntoExisting}
+                        onClick={() =>
+                          void handleMergeIntoExistingContact(
+                            durableMergeOffer.offered ? durableMergeOffer.contactId : undefined,
+                          )
+                        }
+                      >
+                        {mergingIntoExisting ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Agregando…
+                          </>
+                        ) : (
+                          'Agregar información al contacto existente'
+                        )}
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      No podemos confirmar que sea la misma persona con suficiente certeza, así que
+                      no ofrecemos asociarlo automáticamente. Queda registrado como duplicado para
+                      que puedas revisarlo cuando quieras.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </SurfaceCard>
+          ) : null}
+
           {/* 1. Información principal */}
           <SurfaceCard>
             <SurfaceCardHeader title="Información principal" />
@@ -1701,6 +2119,59 @@ export function ContactCandidateDetailSheet({
                     </span>
                   ) : (
                     <Fallback />
+                  )}
+                  {/* «Ver más números» (AGENT2A-PHONE-REVEAL-4O-G). Aparece SOLO si
+                      hay al menos un número adicional YA almacenado, y lista
+                      únicamente los ADICIONALES: el principal ya se lee justo
+                      arriba y repetirlo sería ruido.
+
+                      Es una LECTURA. No busca, no revela y no gasta: 0 llamadas a
+                      Apollo, 0 a Lusha, 0 corridas, 0 reservas, 0 créditos. Por eso
+                      no está detrás de ningún flag de proveedor — un número ya
+                      pagado y ya guardado no puede desaparecer porque el proveedor
+                      que lo trajo esté hoy apagado. */}
+                  {candidate && storedPhoneAdditionalCount > 0 && (
+                    <CandidateStoredPhonesDisclosure
+                      candidateId={candidate.id}
+                      additionalCount={storedPhoneAdditionalCount}
+                    />
+                  )}
+                  {/* «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1, acción DIRECTA
+                      desde 1J). La operación PAGADA, y la única de este bloque que puede
+                      cobrar.
+
+                      Vive DEBAJO de «Ver más números» a propósito: la gratuita primero. Las
+                      dos están a centímetros y el riesgo real no es estético — es que el
+                      operador confunda cuál gasta. Por eso los verbos son distintos (VER
+                      frente a BUSCAR) y el icono es distinto.
+
+                      1J RETIRA su modal de confirmación: un clic ejecuta. El drawer del
+                      candidato ya es una superficie inmersiva y apilarle un diálogo encima
+                      rompía el flujo para volver a pedir una autorización que el operador
+                      acababa de dar. Lo que el modal decía —qué fuente se consulta y hasta
+                      cuánto puede costar— pasa a leerse ANTES del clic, en la línea de texto
+                      secundario que el propio componente pinta debajo del botón; si esa línea
+                      no se puede escribir, el botón NO se renderiza.
+
+                      Nada del servidor se relaja con eso: el flag, la autorización, la
+                      elegibilidad, el preflight y la RE-comprobación de privacidad, la
+                      reserva, el techo de 5 créditos, el claim atómico y la liquidación
+                      siguen todos del otro lado.
+
+                      El teléfono de arriba NO se toca mientras busca: el componente sólo
+                      cambia su propio botón a spinner. Sustituir el número por un esqueleto
+                      esconderría un dato que ya se pagó, y si la búsqueda falla lo habría
+                      escondido para nada.
+
+                      SÓLO en la superficie del CANDIDATO. El contacto oficial no la tiene:
+                      esa frontera es la que 4O-H2 fija, y este hito la respeta. */}
+                  {candidate && (
+                    <CandidateSearchMorePhonesCta
+                      candidateId={candidate.id}
+                      summary={searchMorePreflight}
+                      onCollectionMayHaveChanged={handleSearchMoreCollectionChanged}
+                      disabled={busy}
+                    />
                   )}
                   {/* § 8.2: línea SEPARADA para el proveedor de revelación. Vive en
                       la sección de Teléfono porque es un hecho del teléfono, no del
@@ -1913,7 +2384,25 @@ export function ContactCandidateDetailSheet({
                         variant="outline"
                         size="sm"
                         className="h-7 gap-1.5 text-xs"
-                        disabled={busy || revealingPhone || revealingLegacyPhone}
+                        // Sin clave de supresión el botón se DESHABILITA en vez de
+                        // aceptar un clic que el backend ya sabe que va a bloquear
+                        // (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2). Cubre las dos
+                        // modalidades porque las dos pasan por la misma comprobación:
+                        // el START de Apollo y la puerta previa a Lusha usan la misma
+                        // resolución de identidad.
+                        // ASYNC-UI-REFRESH-1: con una solicitud ya aceptada el
+                        // botón queda inerte hasta que el servidor confirme. Es el
+                        // guard que faltaba: el ref de doble clic sólo cubre el
+                        // mismo tick, y `revealingPhone` se apaga en su `finally`,
+                        // así que sin esto quedaba una ventana real en la que un
+                        // segundo clic salía y podía gastar créditos de nuevo.
+                        disabled={
+                          busy ||
+                          revealingPhone ||
+                          revealingLegacyPhone ||
+                          phoneRevealAwaitingConfirmation ||
+                          !phoneRevealIdentityEligible
+                        }
                         // Un clic = una corrida. Con el waterfall activo se dispara la
                         // modalidad que corresponde (legacy solo-Lusha o waterfall
                         // completo); sin él conserva el one-click validado del reveal
@@ -1940,6 +2429,14 @@ export function ContactCandidateDetailSheet({
                                 ? 'Revelando…'
                                 : 'Solicitando…'}
                           </>
+                        ) : phoneRevealAwaitingConfirmation ? (
+                          // La solicitud ya fue aceptada y el servidor todavía no lo
+                          // refleja. El copy describe lo que está pasando de verdad
+                          // (se está buscando el teléfono) sin prometer un plazo.
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            {PHONE_REVEAL_SUBMITTED_COPY}
+                          </>
                         ) : (
                           <>
                             <PhoneCall className="h-3.5 w-3.5" />
@@ -1947,15 +2444,70 @@ export function ContactCandidateDetailSheet({
                           </>
                         )}
                       </Button>
+                      {/* Con el botón deshabilitado por falta de clave de supresión NO
+                          se muestra el copy de autorización: prometer "puede consumir
+                          hasta N créditos" describiría un gasto que no puede ocurrir.
+                          En su lugar se explica, en una línea, por qué no se puede
+                          revelar. No se nombra proveedor ni se invita a reintentar: la
+                          carencia puede ser permanente
+                          (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2). */}
                       <p className="text-[11px] text-muted-foreground">
-                        {waterfallActive
-                          ? waterfallAuthorizationCopy.helperText
-                          : `Consulta individual con Apollo. Puede consumir hasta ${PHONE_REVEAL_MAX_CREDITS} créditos y tardar algunos minutos.`}
+                        {!phoneRevealIdentityEligible
+                          ? PHONE_REVEAL_IDENTITY_BLOCKED_COPY
+                          : // Con la solicitud ya aceptada, el copy de autorización
+                            // describiría un gasto que el usuario YA autorizó y que
+                            // este botón no va a repetir. Se dice en su lugar qué
+                            // está ocurriendo — y que la pantalla se actualiza sola.
+                            phoneRevealAwaitingConfirmation
+                            ? PHONE_REVEAL_SUBMITTED_HELPER_COPY
+                            : waterfallActive
+                              ? waterfallAuthorizationCopy.helperText
+                              : `Consulta individual con Apollo. Puede consumir hasta ${PHONE_REVEAL_MAX_CREDITS} créditos y tardar algunos minutos.`}
                       </p>
+                      {/* ASYNC-UI-REFRESH-1 — salida manual mientras la espera aún
+                          no está confirmada. Es la MISMA lectura de la base que el
+                          bloque en vuelo (0 proveedores, 0 créditos, 0 escrituras) y
+                          existe por lo mismo: el refresco automático está acotado, y
+                          cuando se agota el usuario tiene que poder mirar sin
+                          recargar el navegador — que es exactamente lo que acabó
+                          haciendo en la QA. */}
+                      {phoneRevealAwaitingConfirmation && (
+                        <div className="space-y-1.5 pt-0.5">
+                          {liveRefreshExhausted && (
+                            <p className="text-[11px] text-muted-foreground/70">
+                              {PHONE_REVEAL_LIVE_REFRESH_EXHAUSTED_COPY}
+                            </p>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            disabled={busy || refreshingFromDatabase}
+                            onClick={handleRefreshFromDatabase}
+                          >
+                            {refreshingFromDatabase ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Actualizando…
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                Actualizar desde SellUp
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      )}
                       {/* Desglose por proveedor + advertencias: lo que antes vivía en
                           el modal ahora precede al clic (4D). Solo con el waterfall
-                          activo — el flujo con flag OFF conserva su copy histórico. */}
-                      {waterfallActive && (
+                          activo — el flujo con flag OFF conserva su copy histórico. Con
+                          la solicitud ya aceptada se retira: describe una autorización
+                          que ya se dio y que este botón no va a volver a pedir. */}
+                      {waterfallActive &&
+                        phoneRevealIdentityEligible &&
+                        !phoneRevealAwaitingConfirmation && (
                         <>
                           {waterfallAuthorizationCopy.creditBreakdown && (
                             <>
@@ -2501,6 +3053,67 @@ export function ContactCandidateDetailSheet({
               </>
             ) : (
               'Aprobar de todas formas'
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* AGENT2A-PHONE-REVEAL-4O-H3-B — decisión humana sobre un duplicado con identidad exacta.
+        Sólo se abre cuando el SERVIDOR confirmó que el contacto existente es la misma persona
+        por email o LinkedIn exactos; con identidad ambigua, por nombre o sin señal exacta, este
+        diálogo no aparece y el flujo es el de siempre. No muestra internals: ni ids, ni el
+        nombre de la columna, ni la evidencia cruda. */}
+    <Dialog
+      open={duplicateDecision !== null}
+      onOpenChange={(v) => {
+        if (mergingIntoExisting) return;
+        if (!v) handleDiscardDuplicate();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Candidato duplicado</DialogTitle>
+          <DialogDescription>
+            Este candidato coincide con un contacto que ya existe en SellUp
+            {duplicateDecision?.signal === 'email'
+              ? ', con el mismo correo electrónico.'
+              : ', con el mismo perfil de LinkedIn.'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="rounded-xl border border-dashed border-border/60 bg-muted/30 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/60" />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Puedes agregarle la información de este candidato al contacto existente. No se
+              reemplaza nada de lo que ya tiene: su teléfono principal y los datos cargados a
+              mano se conservan tal como están.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={mergingIntoExisting}
+            onClick={handleDiscardDuplicate}
+          >
+            Descartar como duplicado
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={mergingIntoExisting}
+            onClick={() => void handleMergeIntoExistingContact()}
+          >
+            {mergingIntoExisting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Agregando…
+              </>
+            ) : (
+              'Agregar información al contacto existente'
             )}
           </Button>
         </DialogFooter>

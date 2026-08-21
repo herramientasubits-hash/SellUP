@@ -93,8 +93,73 @@ export const SELLUP_ACTIVE_SUBINDUSTRY_NAMES: readonly string[] = [
   'Warehousing y Fulfillment B2B',
 ];
 
-/** La única subindustria del catálogo con mapping explícito de búsqueda Apollo. */
+/** La primera subindustria del catálogo con mapping explícito de búsqueda Apollo. */
 export const SELLUP_SUBINDUSTRY_WITH_APOLLO_MAPPING = 'Supermercados e Hipermercados' as const;
+
+/**
+ * Subindustrias del catálogo activo con mapping explícito de búsqueda Apollo, en el
+ * orden en que el catálogo las declara.
+ *
+ * MULTI-SUBINDUSTRY-QUERY-DRAFTING-ANYOF-1 § 9 — «Tiendas por Departamento, Moda y
+ * Calzado» entró porque es la subindustria que la corrida live `ce957e2f` eligió y
+ * que no tenía términos: sin entrada, el reparto ANY-OF no podía representarla y el
+ * gate del § 7 habría bloqueado una selección legítima del wizard.
+ *
+ * Las 71 restantes siguen SIN mapping, y eso es un hecho operativo, no un detalle
+ * de test: una corrida que las elija no puede construir una consulta que las cubra
+ * y se bloquea antes de gastar. Conectar `subindustry_search_terms` (228 términos
+ * sobre las 73) es el seguimiento registrado en `apollo-subindustry-search-mapping`.
+ */
+export const SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING = [
+  'Supermercados e Hipermercados',
+  'Tiendas por Departamento, Moda y Calzado',
+] as const;
+
+/**
+ * PHASE 2C — subindustrias con política de PRECISIÓN en modo `full`.
+ *
+ * Son las DOS históricas, y coinciden con las de búsqueda por accidente de la
+ * historia, no por definición: `search_covered` y `precision_mapped` son
+ * propiedades INDEPENDIENTES (73/73 frente a 11/73). Se declara aparte de
+ * `SELLUP_SUBINDUSTRIES_WITH_APOLLO_MAPPING` justamente para que ampliar una no
+ * arrastre a la otra en silencio.
+ */
+export const SELLUP_SUBINDUSTRIES_WITH_PRECISION_FULL = [
+  'Supermercados e Hipermercados',
+  'Tiendas por Departamento, Moda y Calzado',
+] as const;
+
+/**
+ * PHASE 2C · Ola 1 — las NUEVE subindustrias con política de precisión en modo
+ * `confirm_only`, con el nombre canónico EXACTO del catálogo activo.
+ *
+ * Los nombres se leyeron de `active_industry_catalog` en Producción (sólo lectura) y
+ * NO son las abreviaturas del encargo: cinco de las nueve difieren. La identidad de
+ * precisión se resuelve por igualdad exacta desde PHASE 2A, así que una regla
+ * declarada como «Farmacias Cadena» o «Redes Hospitalarias» no resolvería nunca y
+ * sería código muerto.
+ *
+ * «Formación Corporativa y Corporate Training» NO está: § 21. Es la subindustria con
+ * más demanda observada sin mapear (13 búsquedas) y la decisión de dejarla fuera es
+ * de la dueña del producto.
+ */
+export const SELLUP_SUBINDUSTRIES_WITH_PRECISION_CONFIRM_ONLY = [
+  'Banca Tradicional',
+  'Ciberseguridad',
+  'Escuelas de Negocios y Formación Ejecutiva',
+  'Fabricantes de Alimentos y Bebidas (FMCG)',
+  'Farmacias Cadena y Retail de Salud',
+  'Laboratorios Clínicos y Diagnóstico',
+  'Medicina Prepagada y EPS',
+  'Redes Hospitalarias y Clínicas',
+  'Universidades e Institutos Privados',
+] as const;
+
+/** Las 11 subindustrias con política de precisión: 2 en `full` + 9 en `confirm_only`. */
+export const SELLUP_SUBINDUSTRIES_WITH_PRECISION_MAPPING = [
+  ...SELLUP_SUBINDUSTRIES_WITH_PRECISION_FULL,
+  ...SELLUP_SUBINDUSTRIES_WITH_PRECISION_CONFIRM_ONLY,
+] as const;
 
 /**
  * Nombres genéricos que NO son subindustrias del catálogo y que la contención

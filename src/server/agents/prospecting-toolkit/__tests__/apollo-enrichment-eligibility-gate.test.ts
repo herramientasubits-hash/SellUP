@@ -50,7 +50,7 @@ function candidate(over: {
 const SUPERMARKET_SEARCH = {
   targetCountryCode: 'CO',
   sector: 'Retail y Consumo',
-  subindustry: 'Supermercados e Hipermercados',
+  subindustries: ['Supermercados e Hipermercados'],
 };
 
 describe('A. The three real QA cases are blocked before payment', () => {

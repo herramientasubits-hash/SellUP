@@ -29,6 +29,19 @@ import {
   resolveLushaSectorOption,
   type LushaSectorKey,
 } from '@/server/prospect-batches/lusha-sector-mapping';
+// AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 2 — verdad del PROVEEDOR sobre
+// qué sub-industria cuelga de qué industria principal, capturada del endpoint
+// gratuito de metadata. Es lo que valida una rama, porque una rama no vive dentro
+// de un sector legacy (`12/71` es farmacéuticas bajo Manufacturing, y ningún
+// sector legacy la contiene). Módulo puro: sin env, sin red, sin DB.
+import { isLushaSubIndustryOfMain } from '@/server/prospect-batches/lusha-industry-metadata';
+// AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 §§ 2/7 — la autoridad de industria de la
+// ruta MODERNA. `resolveLushaSectorOption` (arriba) queda sólo para el panel de
+// preview legacy, que ningún sitio del producto monta. Módulo puro.
+import {
+  resolveLushaMacroCapability,
+  type LushaMacroCapability,
+} from '@/server/prospect-batches/lusha-macro-capability';
 
 // ─── Guardrails de crédito (server-authoritative) ────────────────────────────
 
@@ -174,6 +187,12 @@ export interface BuildLushaPreviewRequestInput {
   searchText?: string | null;
   /** Página solicitada. Por defecto 0; clamp a [0, LUSHA_PREVIEW_MAX_PAGE]. */
   page?: number | null;
+  /**
+   * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 11 — dominios que ya se
+   * conocen y que por tanto no hace falta pagar. Ya normalizados, deduplicados y
+   * acotados por `planProviderExclusionDomains`; aquí sólo se emiten.
+   */
+  excludeDomains?: readonly string[] | null;
 }
 
 /**
@@ -223,8 +242,32 @@ export function buildLushaPreviewRequest(
     include.searchText = trimmedSearch;
   }
 
+  /**
+   * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 11 — exclusión de dominios.
+   *
+   * Es la ÚNICA exclusión que el contrato verificado de Lusha V3 soporta
+   * (`filters.companies.exclude.domains`). No se emite exclusión por nombre, por
+   * LinkedIn, por identificador fiscal ni por id de empresa: ninguna está
+   * probada y enviarla haría fallar la petición entera con HTTP 400.
+   *
+   * 🔴 Es una PISTA ECONÓMICA. El dedupe local posterior al proveedor sigue
+   * corriendo entero: el proveedor puede ignorar la exclusión, puede devolver la
+   * misma empresa bajo otro dominio, y la lista viaja acotada.
+   *
+   * Ausente o vacía ⇒ el objeto `exclude` NO se emite. Un `exclude: { domains: [] }`
+   * es ruido en la petición y `hasCompanyFilters` no lo cuenta como filtro.
+   */
+  const excludeDomains = (input.excludeDomains ?? []).filter(
+    (domain): domain is string => typeof domain === 'string' && domain.trim() !== '',
+  );
+
+  const companies: NonNullable<LushaCompanyProspectingV3Request['filters']>['companies'] =
+    excludeDomains.length > 0
+      ? { include, exclude: { domains: excludeDomains } }
+      : { include };
+
   return {
-    filters: { companies: { include } },
+    filters: { companies },
     pagination: { page: clampLushaPreviewPage(input.page), size: LUSHA_PREVIEW_SIZE },
     options: { includePartialProfiles: false },
     // signals intencionalmente ausente — nunca se emite en preview.
@@ -236,7 +279,8 @@ export function buildLushaPreviewRequest(
 export interface LushaPreviewCriteria {
   expectedCountryName: string;
   expectedCountryIso2: string;
-  sectorKey: LushaSectorKey;
+  /** Identidad de la industria resuelta: macro key o sector legacy. */
+  industryKey: string;
   sectorLabel: string;
   matchKeywords: string[];
   sizeBand: { min?: number; max?: number } | null;
@@ -280,6 +324,24 @@ function countryMatches(company: LushaCompanyProspectingV3Company, criteria: Lus
   return normalizedCompany === normalizedExpected || normalizedCompany.includes(normalizedExpected);
 }
 
+/**
+ * ¿La industria DECLARADA por el proveedor encaja con alguna palabra de contraste?
+ *
+ * 🔴 AGENT1-LUSHA-FIRST-LIVE-QA-P0-FIX-1 § 4 — la comparación es ASIMÉTRICA y va
+ * en un solo sentido: la declarada debe CONTENER la palabra.
+ *
+ * El sentido inverso —`palabra.includes(declarada)`— estuvo vivo hasta la primera
+ * corrida real de Macro-v2 y es una falsa confirmación por construcción: con la
+ * palabra `Pharmaceuticals Manufacturing` en el contraste de `health_pharma`,
+ * una empresa que declara `Manufacturing` a secas pasaba, porque la palabra
+ * específica contiene a su propio padre. Cinco fabricantes genéricos —cervecera,
+ * electrodomésticos, concesionario, astillero, cosmética— entraron así en una
+ * revisión de salud con 100/100 y sin un solo `industry_mismatch`.
+ *
+ * Un padre más amplio NO puede convertirse en coincidencia porque una frase de
+ * confirmación más específica lo contenga. Una prueba de mutación vigila que el
+ * `||` no vuelva.
+ */
 function industryMatches(industry: string | null | undefined, keywords: string[]): boolean {
   if (!industry) return false;
   const normalized = normalizeText(industry);
@@ -287,7 +349,7 @@ function industryMatches(industry: string | null | undefined, keywords: string[]
   return keywords.some((keyword) => {
     const normalizedKeyword = normalizeText(keyword);
     if (!normalizedKeyword) return false;
-    return normalized.includes(normalizedKeyword) || normalizedKeyword.includes(normalized);
+    return normalized.includes(normalizedKeyword);
   });
 }
 
@@ -404,11 +466,101 @@ export function normalizeLushaPreviewCompanies(
   });
 }
 
+// ─── Industria efectiva de la petición (§§ 2/5/7) ─────────────────────────────
+
+/**
+ * La industria que gobierna UNA petición de preview, venga de la autoridad
+ * moderna o de la compatibilidad legacy.
+ *
+ * Existe para que el resto de `executeLushaPreview` no tenga que saber cuál de
+ * las dos resolvió: por debajo de esta línea hay UN objeto con etiqueta, main por
+ * defecto y palabras de contraste, y nadie vuelve a ramificar por vocabulario.
+ */
+type LushaPreviewIndustry = {
+  /** Identidad resuelta: `MacroIndustryKey` o `LushaSectorKey`. */
+  industryKey: string;
+  /** Sólo en la ruta moderna. */
+  macroIndustryKey: string | null;
+  /** Sólo en la compatibilidad legacy. Es lo único que valida una sub suelta. */
+  legacySectorKey: LushaSectorKey | null;
+  label: string;
+  /**
+   * Main que se pide cuando la petición no trae rama.
+   *
+   * En la ruta moderna es el main de la PRIMERA rama del plan, y en la práctica
+   * no se usa: el ejecutor multi-rama siempre pasa una rama explícita. Se define
+   * igualmente porque un `0` o un `undefined` aquí sería una petición inválida
+   * enviada al proveedor, y prefiero que el peor caso sea «pide la rama principal
+   * de su propio plan».
+   */
+  defaultMainIndustryId: number;
+  matchKeywords: string[];
+};
+
+function fromMacroCapability(capability: LushaMacroCapability): LushaPreviewIndustry {
+  return {
+    industryKey: capability.macroKey,
+    macroIndustryKey: capability.macroKey,
+    legacySectorKey: null,
+    label: capability.label,
+    defaultMainIndustryId: capability.plan.branches[0].mainIndustryId,
+    matchKeywords: capability.matchKeywords,
+  };
+}
+
+/**
+ * Resuelve la industria de la petición. `null` = fail-closed.
+ *
+ * 🔴 Precedencia ESTRICTA, y el orden importa: si viene `macroIndustryKey` se
+ * decide con él Y SE ACABA. Nunca se cae al sector legacy cuando la macro no
+ * resuelve — ese respaldo sería justo la doble autoridad que § 5 retira, y
+ * convertiría una macro inválida en una búsqueda legacy silenciosa.
+ */
+function resolveLushaPreviewIndustry(input: LushaPreviewInput): LushaPreviewIndustry | null {
+  const macroKey = typeof input.macroIndustryKey === 'string' ? input.macroIndustryKey.trim() : '';
+  if (macroKey.length > 0) {
+    const capability = resolveLushaMacroCapability(macroKey);
+    return capability ? fromMacroCapability(capability) : null;
+  }
+
+  // Compatibilidad legacy. Único llamador vivo: el panel que nada monta.
+  const sector = resolveLushaSectorOption(input.sectorKey);
+  if (!sector) return null;
+  return {
+    industryKey: sector.key,
+    macroIndustryKey: null,
+    legacySectorKey: sector.key,
+    label: sector.label,
+    defaultMainIndustryId: sector.mainIndustryId,
+    matchKeywords: sector.matchKeywords,
+  };
+}
+
 // ─── Ejecución (core inyectable, testeable) ───────────────────────────────────
 
 export interface LushaPreviewInput {
   countryCode: string;
-  sectorKey: string;
+  /**
+   * AGENT1-LUSHA-MACRO-V2-ROUTING-CUTOVER-1 § 2 — identidad de industria de la
+   * ruta MODERNA: una `MacroIndustryKey` con plan en el catálogo Macro-v2.
+   *
+   * Cuando viene, MANDA: el sector legacy ni se consulta. Una macro que el
+   * catálogo no reconoce devuelve `missing_mapping` (§ 7) — no degrada al sector.
+   */
+  macroIndustryKey?: string | null;
+  /**
+   * 🔴 COMPATIBILIDAD ÚNICAMENTE — vocabulario legacy de tres sectores.
+   *
+   * Su único llamador vivo es `previewLushaCompaniesAction`, la acción del panel
+   * `LushaPreviewPanel`, que NINGÚN sitio del producto monta (ver la nota al pie
+   * de `lusha-preview-drawer.tsx`: el drawer independiente se retiró). Se conserva
+   * para no romper esa superficie ni sus pruebas; la ruta del wizard NUNCA lo
+   * envía, y una suite estática vigila esa propiedad.
+   *
+   * Si vienen los dos, gana `macroIndustryKey`. Si no viene ninguno, la petición
+   * falla cerrada.
+   */
+  sectorKey?: string | null;
   subIndustryId?: number | null;
   sizeBandKey?: string | null;
   searchText?: string | null;
@@ -419,6 +571,53 @@ export interface LushaPreviewInput {
    * profunda. No forma parte de la superficie del cliente (no viaja desde el navegador).
    */
   page?: number | null;
+  /**
+   * AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 § 11 — dominios que SellUp ya
+   * conoce y que no hace falta pagar otra vez.
+   *
+   * Ausente/vacío = comportamiento de hoy sin diferencia. La lista la construye
+   * la capa previa al pago (`planProviderExclusionDomains`): ya viene normalizada,
+   * deduplicada, ordenada y acotada, así que aquí no se vuelve a tocar.
+   *
+   * 🔴 Pista económica, NUNCA autoridad de dedupe: el dedupe local posterior sigue
+   * siendo obligatorio y sigue siendo el que decide qué se persiste.
+   */
+  excludeDomains?: readonly string[] | null;
+  /**
+   * AGENT1-LUSHA-MACRO-V2-MULTIBRANCH-EXECUTOR-1 § 2 — la RAMA que esta petición
+   * ejecuta.
+   *
+   * Ausente = comportamiento de hoy, sin un solo byte de diferencia: la industria
+   * la deriva el `sectorKey`. Presente = la rama es autoritativa para
+   * `mainIndustriesIds` y `subIndustriesIds` de ESTA petición.
+   *
+   * ── 🔴 Lo que esto NO es ────────────────────────────────────────────────────
+   *
+   * No es una vía de elegibilidad. La resolución del sector sigue ocurriendo
+   * ANTES y sigue siendo fail-closed: un `sectorKey` que la autoridad legacy no
+   * reconoce devuelve `missing_mapping` y no llega a mirar la rama. Quien elige
+   * la rama es un plan que sólo se resuelve para un sector YA admitido
+   * (`resolveLushaSearchPlanForSector`), así que una rama no puede abrir una ruta
+   * que estuviera cerrada — sólo puede cambiar qué se le pide al proveedor dentro
+   * de una ruta que ya estaba viva.
+   *
+   * ── Por qué la rama no se valida contra el sector ───────────────────────────
+   *
+   * `isSubIndustryValidForSector` comprueba pertenencia al catálogo LEGACY, y las
+   * ramas aprobadas la incumplen a propósito: la rama 2 de `health_pharma` es
+   * `main 12 + sub 71` (farmacéuticas, bajo Manufacturing) y el sector legacy
+   * `healthcare` es `main 11`. Validar la rama contra el sector descartaría la sub
+   * y enviaría `main 12` desnudo — es decir, TODO Manufacturing dentro de una
+   * búsqueda de salud. Por eso la rama se valida contra la metadata del proveedor
+   * (`isLushaSubIndustryOfMain`), que es la única fuente que sabe de qué padre
+   * cuelga cada sub.
+   *
+   * No forma parte de la superficie del cliente: no viaja desde el navegador.
+   */
+  industryBranch?: {
+    mainIndustryId: number;
+    subIndustryId?: number | null;
+  } | null;
 }
 
 export type LushaPreviewStatus =
@@ -443,8 +642,17 @@ export interface LushaPreviewResult {
   requestSummary: {
     country: string | null;
     countryCode: string;
+    /** Nombre visible de la industria resuelta (macro o sector legacy). */
     sector: string | null;
-    sectorKey: string;
+    /**
+     * Identidad de industria que resolvió la petición: la `MacroIndustryKey` en
+     * la ruta moderna, o el `LushaSectorKey` en la compatibilidad legacy.
+     * Se renombró desde `sectorKey` para que nadie lea una clave de macro
+     * creyendo que es un sector.
+     */
+    industryKey: string;
+    /** Sólo en la ruta moderna. `null` en la compatibilidad legacy. */
+    macroIndustryKey: string | null;
     mainIndustriesIds: number[];
     subIndustryId: number | null;
     sizeBand: { min?: number; max?: number } | null;
@@ -482,19 +690,26 @@ export async function executeLushaPreview(
 ): Promise<LushaPreviewResult> {
   const warnings: string[] = [];
 
-  const sector = resolveLushaSectorOption(input.sectorKey);
+  const industry = resolveLushaPreviewIndustry(input);
+  const requestedIndustryKey =
+    (typeof input.macroIndustryKey === 'string' && input.macroIndustryKey.trim()) ||
+    (typeof input.sectorKey === 'string' && input.sectorKey.trim()) ||
+    '';
   const baseSummary = {
     country: null as string | null,
     countryCode: input.countryCode,
-    sector: sector?.label ?? null,
-    sectorKey: input.sectorKey,
-    mainIndustriesIds: sector ? [sector.mainIndustryId] : [],
+    sector: industry?.label ?? null,
+    industryKey: requestedIndustryKey,
+    macroIndustryKey: industry?.macroIndustryKey ?? null,
+    mainIndustriesIds: industry ? [industry.defaultMainIndustryId] : [],
     subIndustryId: null as number | null,
     sizeBand: null as { min?: number; max?: number } | null,
     hasSearchText: false,
   };
 
-  if (!sector) {
+  // § 7 — fail-closed. Una industria que ninguna de las dos autoridades reconoce
+  // no llega ni a mirar la rama, ni a resolver la credencial, ni a pedir nada.
+  if (!industry) {
     return {
       ok: false,
       status: 'missing_mapping',
@@ -505,6 +720,7 @@ export async function executeLushaPreview(
       error: 'El sector seleccionado no está soportado por el preview de Lusha.',
     };
   }
+  const sector = industry;
 
   const countryName = resolveLushaCountryName(input.countryCode);
   if (!countryName) {
@@ -514,15 +730,45 @@ export async function executeLushaPreview(
       results: [],
       billing: emptyBilling(),
       warnings: ['unknown_country'],
-      requestSummary: { ...baseSummary, sector: sector.label, mainIndustriesIds: [sector.mainIndustryId] },
+      requestSummary: {
+        ...baseSummary,
+        sector: sector.label,
+        mainIndustriesIds: [sector.defaultMainIndustryId],
+      },
       error: 'País no reconocido para el preview de Lusha.',
     };
   }
 
-  // Sub-industria: validar pertenencia. Si no pertenece, se descarta con warning.
+  // ── Industria efectiva: la RAMA manda si viene; si no, el sector, como hoy ──
+  //
+  // Dos caminos deliberadamente distintos porque validan contra fuentes
+  // distintas: la sub de un sector se valida contra el catálogo legacy, y la sub
+  // de una rama contra la metadata del proveedor. Ver la nota de `industryBranch`.
+  const branch = input.industryBranch ?? null;
+  let effectiveMainIndustryId = sector.defaultMainIndustryId;
   let effectiveSubId: number | null = null;
-  if (typeof input.subIndustryId === 'number') {
-    if (isSubIndustryValidForSector(sector.key, input.subIndustryId)) {
+
+  if (branch !== null) {
+    effectiveMainIndustryId = branch.mainIndustryId;
+    if (typeof branch.subIndustryId === 'number') {
+      if (isLushaSubIndustryOfMain(branch.mainIndustryId, branch.subIndustryId)) {
+        effectiveSubId = branch.subIndustryId;
+      } else {
+        // Fail-closed en la sub, no en la rama: se pide la industria principal sin
+        // estrechar y queda constancia. Aceptar una sub de otro padre haría un AND
+        // imposible y devolvería cero resultados pagando la petición.
+        warnings.push('branch_subindustry_not_under_main');
+      }
+    }
+    warnings.push('macro_branch_request');
+  } else if (typeof input.subIndustryId === 'number') {
+    // Sub-industria suelta: sólo existe en la superficie legacy, cuyo catálogo es
+    // el único que sabe qué sub pertenece a qué sector. En la ruta moderna las sub
+    // viajan DENTRO de las ramas del plan, así que una sub suelta se descarta.
+    if (
+      sector.legacySectorKey !== null &&
+      isSubIndustryValidForSector(sector.legacySectorKey, input.subIndustryId)
+    ) {
       effectiveSubId = input.subIndustryId;
     } else {
       warnings.push('subindustry_not_in_sector');
@@ -538,8 +784,11 @@ export async function executeLushaPreview(
     country: countryName,
     countryCode: input.countryCode,
     sector: sector.label,
-    sectorKey: sector.key,
-    mainIndustriesIds: [sector.mainIndustryId],
+    industryKey: sector.industryKey,
+    macroIndustryKey: sector.macroIndustryKey,
+    // Lo que REALMENTE se pide, no lo que el sector implicaría: el resumen viaja a
+    // los metadatos del lote y es la única forma de auditar qué rama se ejecutó.
+    mainIndustriesIds: [effectiveMainIndustryId],
     subIndustryId: effectiveSubId,
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,
     hasSearchText,
@@ -560,11 +809,16 @@ export async function executeLushaPreview(
 
   const request = buildLushaPreviewRequest({
     countryName,
-    mainIndustriesIds: [sector.mainIndustryId],
+    // Exactamente UN main y a lo sumo UNA sub por petición: `subIndustriesIds` se
+    // combina en AND, así que varios mains en una rama sería una promesa de OR que
+    // el proveedor no cumple. La unión de ramas la hace el ejecutor.
+    mainIndustriesIds: [effectiveMainIndustryId],
     subIndustryId: effectiveSubId,
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,
     searchText: hasSearchText ? trimmedSearch : null,
     page: input.page,
+    // § 11 — la pista económica. Ausente ⇒ la petición es byte a byte la de hoy.
+    excludeDomains: input.excludeDomains ?? null,
   });
 
   const providerResult = await deps.searchCompanies(apiKey, request);
@@ -579,7 +833,7 @@ export async function executeLushaPreview(
   const criteria: LushaPreviewCriteria = {
     expectedCountryName: countryName,
     expectedCountryIso2: input.countryCode.trim().toUpperCase(),
-    sectorKey: sector.key,
+    industryKey: sector.industryKey,
     sectorLabel: sector.label,
     matchKeywords: sector.matchKeywords,
     sizeBand: sizeBand ? { min: sizeBand.min, max: sizeBand.max } : null,

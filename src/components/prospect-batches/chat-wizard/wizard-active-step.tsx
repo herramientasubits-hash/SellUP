@@ -13,6 +13,7 @@ import { SearchableSelect } from '@/components/forms/searchable-select';
 import { MultiSelect } from '@/components/forms/multi-select';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
+import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
 import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import { SEARCH_MODE_DEFINITIONS } from '@/modules/prospect-batches/chat-wizard';
 import type {
@@ -80,6 +81,11 @@ export function WizardActiveStep({
       );
 
     case 'subindustries':
+      // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 § 7 — con la selección desactivada el
+      // paso no se renderiza NI VACÍO NI DESHABILITADO: devuelve `null`, que es
+      // lo que produce la ausencia sin hueco. El reducer ya no puede traer aquí
+      // el paso activo; esto cubre el caso de un estado restaurado.
+      if (!isSubindustrySelectionEnabled(state.catalogVersion)) return null;
       return (
         <SubindustriesStep
           state={state}
@@ -313,9 +319,18 @@ function IndustryStep({
   industryOptions,
   titleRef,
 }: IndustryStepProps) {
+  // MACRO-INDUSTRY-CATALOG-DISCOVERY-1 §§ 5, 7 y 18 — bajo la taxonomía macro el
+  // control es el mismo (selección única y obligatoria) y sólo cambia cómo se
+  // NOMBRA lo que se está eligiendo. `SearchableSelect` ya es single-select: el
+  // contrato de «exactamente una» no se añade aquí, se hereda.
+  const macro = !isSubindustrySelectionEnabled(state.catalogVersion);
   return (
     <StepWrapper
-      title="¿En qué industria deberían operar las empresas?"
+      title={
+        macro
+          ? '¿En qué macro industria deberían operar las empresas?'
+          : '¿En qué industria deberían operar las empresas?'
+      }
       titleRef={titleRef}
     >
       <SearchableSelect
@@ -324,9 +339,11 @@ function IndustryStep({
         onValueChange={(id) =>
           dispatch({ type: 'SELECT_INDUSTRY', industryId: id })
         }
-        placeholder="Seleccionar industria"
-        searchPlaceholder="Buscar industria..."
-        emptyMessage="No se encontraron industrias."
+        placeholder={macro ? 'Seleccionar macro industria' : 'Seleccionar industria'}
+        searchPlaceholder={macro ? 'Buscar macro industria...' : 'Buscar industria...'}
+        emptyMessage={
+          macro ? 'No se encontraron macro industrias.' : 'No se encontraron industrias.'
+        }
         compact
       />
       <StepBlockingIssues state={state} step="industry" />
@@ -351,8 +368,18 @@ function SubindustriesStep({
 }: SubindustriesStepProps) {
   const max = EXPLORATORY_SEARCH_LIMITS.subindustries.max;
 
-  // Draft selection — doesn't auto-advance on each individual click
-  const [draft, setDraft] = React.useState<string[]>(state.subindustryIds);
+  // MULTI-SUBINDUSTRY-REQUEST-OBSERVABILITY-1 § A — la selección NO vive aquí.
+  //
+  // Antes este paso guardaba un `useState` local que sólo se volcaba al estado al
+  // pulsar «Continuar». El árbol del paso activo se desmonta cada vez que el hilo
+  // de mensajes vuelve a "escribir", y al remontar ese borrador se reinicializaba
+  // desde `state.subindustryIds`: lo elegido y aún no confirmado desaparecía sin
+  // aviso, y el lote se creaba con menos subindustrias de las pedidas. Ahora cada
+  // cambio se compromete en el reductor y este componente es sólo una vista.
+  const selected = state.subindustryIds;
+  const selectedLabels = selected.map(
+    (id) => subindustryOptions.find((option) => option.value === id)?.label ?? id,
+  );
 
   return (
     <StepWrapper title="¿Quieres enfocar más la búsqueda?" titleRef={titleRef}>
@@ -365,13 +392,15 @@ function SubindustriesStep({
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>Subindustrias</span>
           <span aria-live="polite" aria-atomic="true">
-            {draft.length}/{max} seleccionadas
+            {selected.length}/{max} seleccionadas
           </span>
         </div>
         <MultiSelect
           options={subindustryOptions}
-          value={draft}
-          onValueChange={setDraft}
+          value={selected}
+          onValueChange={(subindustryIds) =>
+            dispatch({ type: 'SET_SUBINDUSTRY_SELECTION', subindustryIds })
+          }
           placeholder={
             subindustryOptions.length === 0
               ? 'No hay subindustrias disponibles'
@@ -385,14 +414,29 @@ function SubindustriesStep({
         />
       </div>
 
+      {/* § A.4 — la lista explícita, no sólo el resumen del control: una pérdida
+          entre dos clics tiene que ser visible ANTES de gastar créditos. */}
+      {selectedLabels.length > 0 && (
+        <ul className="space-y-1 text-xs text-muted-foreground">
+          {selectedLabels.map((label, index) => (
+            <li key={selected[index]} className="flex gap-1.5">
+              <span aria-hidden>•</span>
+              <span className="text-foreground">{label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
       <StepBlockingIssues state={state} step="subindustries" />
 
       <div className="flex gap-2">
         <Button
           type="button"
           className="flex-1"
-          disabled={draft.length === 0}
-          onClick={() => dispatch({ type: 'SET_SUBINDUSTRIES', subindustryIds: draft })}
+          disabled={selected.length === 0}
+          onClick={() =>
+            dispatch({ type: 'SET_SUBINDUSTRIES', subindustryIds: selected })
+          }
         >
           Continuar
         </Button>

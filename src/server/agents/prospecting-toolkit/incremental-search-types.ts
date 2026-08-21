@@ -10,6 +10,7 @@
  */
 
 import type { ProspectingPipelineCandidate } from './types';
+import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
 import type { TavilyUsageBaseContext } from './tavily-usage-logging';
 import type { RunCorrelationMetadata } from '@/modules/prospect-batches/chat-wizard-execution/wizard-run-correlation';
 
@@ -29,6 +30,18 @@ export type IncrementalSearchInput = {
    * Hito 16AB.43.14.
    */
   subindustries?: string[];
+
+  /**
+   * CATALOG SOURCE-OF-TRUTH FINAL ADDENDUM § 2 (CASO B) — términos de
+   * `subindustry_search_terms` de la versión PUBLICADA, ya resueltos, y la versión con
+   * la que se resolvió la selección del usuario.
+   *
+   * Los provee el wizard (`runWizardApolloSearch`) leyendo el catálogo una sola vez.
+   * Sólo Apollo los consume; Tavily y mock los ignoran. Ausentes con subindustrias
+   * pedidas, el gate del § 3 bloquea la búsqueda de Apollo antes de gastar.
+   */
+  subindustryCatalogTerms?: import('./apollo-subindustry-catalog-terms-resolution').ApolloSubindustryCatalogTermsResolution | null;
+  selectionCatalogVersion?: string | null;
 
   /** Web search provider. Limitado a tavily y mock en flujo incremental.
    * Default: 'mock' */
@@ -365,4 +378,13 @@ export type IncrementalSearchOutput = {
   targetPersistibleCandidates?: number;
   /** Runtime stats from the search strategy filter (Hito v1.8.1). Always present. */
   searchStrategyRuntime?: SearchStrategyRuntimeMetadata;
+  /**
+   * A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — resultado REAL de la persistencia.
+   *
+   * Ausente cuando el camino no escribió (dry run, o un runner previo al hito).
+   * Presente, distingue «no había nada que guardar» de «había algo y no se pudo
+   * guardar», que es la diferencia que la UI necesita para no pedirle al usuario
+   * que repita —y vuelva a pagar— una búsqueda ya ejecutada.
+   */
+  persistenceOutcome?: CandidatePersistenceOutcome;
 };

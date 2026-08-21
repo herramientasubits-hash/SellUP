@@ -7,19 +7,28 @@
  * Lusha search, or database write.
  *
  * Purpose: a pre-QA safety gate. Before the wizard is ever opened in production,
- * an operator (or a test) can assert that a Lusha-eligible search with the
- * preview flag OFF resolves to `blocked_lusha_disabled` and `wouldUseApollo:
- * false` — i.e. the exact leak that caused the 10C3 incident is provably closed.
+ * an operator (or a test) can assert WHICH action a given set of criteria would
+ * reach, without opening the wizard.
  *
  * Design rules:
  *   - Pure: no side effects, no I/O, no env reads, no network, no DB.
  *   - Client-safe: reuses only the pure `resolveWizardLushaCriteria` bridge.
  *   - NEVER runs Lusha or any generation action. It only classifies.
  *
- * Invariant (enforced by tests): whenever `intendedProvider === 'lusha'`,
- * `wouldUseApollo` is `false`. A Lusha intent can only be honored (`lusha`) or
- * blocked (`blocked_lusha_disabled`) — it can never be re-routed to the
- * Apollo-capable Agent 1 generation action.
+ * ── Invariant (enforced by tests) ────────────────────────────────────────────
+ * Whenever `effectiveProvider === 'lusha'`, `wouldUseApollo` is `false`: a run
+ * that actually goes to Lusha never touches Apollo or Tavily. That is the safety
+ * property the 10C3 incident violated and it is unchanged.
+ *
+ * AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 restates the OTHER half. Previously a
+ * Lusha-eligible intent with the flag OFF resolved to `wouldCallAction: null` —
+ * i.e. nothing was runnable at all — which is what left «Empresas por criterios»
+ * with no executable path for every industry that maps to a Lusha sector, in all
+ * 20 supported countries. Lusha is a HIDDEN provider the user never selects, so
+ * there is no user Lusha intent to protect: with the flag OFF the search takes the
+ * ordinary Agent 1 discovery route, exactly as it does for any industry that maps
+ * to no Lusha sector. `intendedProvider` still reports the eligibility so the
+ * distinction stays observable in telemetry.
  */
 
 import type { ActiveIndustryCatalog } from '@/modules/industry-catalog/types';
@@ -58,7 +67,12 @@ export interface ProspectWizardRouteInput {
 export interface ProspectWizardRoute {
   intendedProvider: ProspectWizardIntendedProvider;
   effectiveProvider: ProspectWizardEffectiveProvider;
-  /** Machine-readable reason when `effectiveProvider === 'blocked_lusha_disabled'`. */
+  /**
+   * Machine-readable reason why the HIDDEN Lusha route was not honored, when
+   * `effectiveProvider === 'blocked_lusha_disabled'`. Telemetry only: it explains
+   * why Lusha is out, never why the search would be unavailable — the search still
+   * has the Agent 1 discovery route.
+   */
   blockedReason: string | null;
   wouldCallAction: ProspectWizardRouteAction;
   /** True only when the default-AI generation action (Apollo-capable) would run. */
@@ -94,16 +108,20 @@ export function resolveProspectWizardRoute(
   let blockedReason: string | null = null;
 
   if (effectiveProvider === 'lusha') {
-    // Lusha pending-review persistence only — never Apollo.
+    // Lusha pending-review persistence only — never Apollo, never Tavily.
     wouldCallAction = 'generateLushaPendingReviewBatchAction';
-  } else if (effectiveProvider === 'blocked_lusha_disabled') {
-    // STRICT-ALL fail closed: no action, no Apollo, no batch.
-    blockedReason = effective.reason;
-  } else if (executionEnabled) {
-    // default_ai — reachable ONLY for non-Lusha-eligible criteria. This is the
-    // Apollo-capable Agent 1 generation action.
-    wouldCallAction = 'executeProspectWizardGenerationAction';
-    wouldUseApollo = true;
+  } else {
+    // `blocked_lusha_disabled` conserva su motivo para telemetría, y a partir de
+    // AGENT1-PROVIDER-AVAILABILITY-UNIVERSAL-1 comparte camino con `default_ai`:
+    // el discovery de Agente 1, que es el que corresponde a «empresas por
+    // criterios» cuando el proveedor oculto no participa.
+    if (effectiveProvider === 'blocked_lusha_disabled') {
+      blockedReason = effective.reason;
+    }
+    if (executionEnabled) {
+      wouldCallAction = 'executeProspectWizardGenerationAction';
+      wouldUseApollo = true;
+    }
   }
 
   return {
