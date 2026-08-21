@@ -93,7 +93,15 @@ function makeFakeAdmin(config: Config, stats: Stats): SupabaseClient {
 
       if (table === 'prospect_candidates') {
         return {
-          select() {
+          // AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 — el escritor sondea
+          // ahora, con un conteo ACOTADO (`head: true`), cuántas filas durables
+          // traía ya el lote adoptado. En estos fixtures el lote está VACÍO
+          // —es la situación exacta de LIVE-QA-2—, así que la sonda responde 0
+          // CONOCIDO, que es lo que mantiene vigente el `failed` de § 9.
+          select(_cols?: string, opts?: { count?: string; head?: boolean }) {
+            if (opts?.head === true) {
+              return new Chain({ count: 0, error: null, data: null });
+            }
             return new Chain({ data: [], error: null });
           },
           insert(data: Record<string, unknown>) {
