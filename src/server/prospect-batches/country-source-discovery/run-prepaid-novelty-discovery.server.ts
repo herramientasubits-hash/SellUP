@@ -11,6 +11,15 @@
  * Lusha lo sabe: `resolveLushaTargetGap` existe desde el ejecutor multirrama y
  * `canAcceptLushaUsefulCandidate` la hace cumplir dentro de cada página pagada.
  *
+ * 🔴 AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 §§ 2, 4 — y aun sabiéndolo, la
+ * ruta Lusha pasa `false` desde este hito. Saber aceptar un objetivo reducido no
+ * era la única condición: el aporte parcial gratuito se persiste en su PROPIO
+ * lote, y esta superficie NO tiene el ancla durable de idempotencia/lote que
+ * permitiría al ejecutor de pago adoptarlo. Con `true`, UNA búsqueda terminaba en
+ * DOS lotes —y eso estuvo VIVO en producción hasta esta contención—. El valor
+ * vivo de la ruta Lusha se decide en UN sitio,
+ * `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`.
+ *
  * 🔴 AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 REVIEW-1 § 2 — la ruta Apollo YA SABE
  * aceptar un objetivo reducido. El motivo textual de antes —«su objetivo de
  * candidatos persistibles vive dentro del orquestador de dos rondas y no viaja por
@@ -81,8 +90,15 @@ export type PrePaidNoveltyDiscoveryInput = {
   /**
    * ¿Puede el ejecutor de pago de esta ruta aceptar un objetivo REDUCIDO?
    *
-   * `true`  (Lusha)         — un hueco parcial se aprovecha.
-   * `false` (Apollo/Tavily) — todo o nada. Ver la cabecera.
+   * `true`  — un hueco parcial se aprovecha.
+   * `false` — todo o nada. Ver la cabecera.
+   *
+   * 🔴 AGENT1-LUSHA-MIXED-TWO-BATCH-CONTAINMENT-1 § 4 — HOY las DOS rutas vivas
+   * pasan `false`: Apollo por `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED` y Lusha por
+   * `LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED`. La CAPACIDAD de este parámetro
+   * sigue entera y probada —hay suites que lo invocan con `true` a propósito—;
+   * lo que está apagado es la ACTIVACIÓN en producción, en las dos rutas y por
+   * la misma razón de producto. Este runner sólo obedece.
    */
   partialGapSupported: boolean;
 };
