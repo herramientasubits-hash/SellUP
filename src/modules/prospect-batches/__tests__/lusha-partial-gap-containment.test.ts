@@ -61,8 +61,10 @@ import {
   buildProviderSeenMemory,
   collectProviderSeenObservations,
   EMPTY_PROVIDER_SEEN_MEMORY,
+  type ProviderSeenProvider,
 } from '@/modules/prospect-batches/provider-seen/provider-seen-identity';
 import {
+  buildProviderSeenTelemetry,
   PROVIDER_SEEN_LOAD_EMPTY,
   PROVIDER_SEEN_LOAD_FAILED,
   type ProviderSeenLoadSummary,
@@ -113,7 +115,15 @@ function freeLayer(input: {
   persistedCount: number;
   providerSeen?: ProviderSeenLoadSummary;
   providerSeenIds?: readonly string[];
+  /**
+   * 🔴 REVIEW-1 § 6 — el proveedor decide la CAPACIDAD de exclusión, así que la
+   * puerta doblada tiene que planificar para el mismo que el runner recibe. Sin
+   * esto no se puede probar que Apollo sigue saliendo con `sent: []` por
+   * capacidad apagada mientras Lusha sale con sus dominios reales.
+   */
+  provider?: ProviderSeenProvider;
 }): FreeLayer {
+  const provider: ProviderSeenProvider = input.provider ?? 'lusha';
   const accepted = Array.from({ length: input.acceptedNovel }, (_unused, i) => company(i));
   const context = buildPrePaidNoveltyContext({
     requestedTarget: TARGET,
@@ -138,7 +148,7 @@ function freeLayer(input: {
     input.providerSeenIds && input.providerSeenIds.length > 0
       ? buildProviderSeenMemory(
           collectProviderSeenObservations(
-            'lusha',
+            provider,
             input.providerSeenIds.map((id) => ({ providerEntityId: id, domain: null })),
           ).observations,
         )
@@ -147,7 +157,7 @@ function freeLayer(input: {
   // 🔴 Los dominios de exclusión de Lusha son capacidad VERIFICADA y viajan de
   // verdad. El plan se construye con los dominios que la fuente gratuita aceptó,
   // que es la procedencia real de esta ruta.
-  const exclusionPlan = planProviderExclusions('lusha', {
+  const exclusionPlan = planProviderExclusions(provider, {
     freeSourceAcceptedDomains: accepted.map((c) => c.domain),
   });
 
@@ -192,11 +202,12 @@ function freeLayer(input: {
 function runLive(
   free: PrePaidNoveltyDiscoveryDeps,
   partialGapSupported: boolean = LUSHA_PENDING_REVIEW_PARTIAL_GAP_SUPPORTED,
+  provider: ProviderSeenProvider = 'lusha',
 ) {
   return runPrePaidNoveltyDiscovery(
     CLIENT,
     {
-      provider: 'lusha',
+      provider,
       countryCode: 'CO',
       countryName: 'Colombia',
       macroIndustryKey: 'health_pharma',
@@ -398,31 +409,173 @@ describe('§ 8 · el descarte se lleva la CONTRIBUCIÓN, nunca la medición', ()
   });
 
   /**
-   * 🔴 EFECTO ABIERTO, pinchado a propósito y NO arreglado en este PR.
+   * 🔴 REVIEW-1 §§ 3, 4, 9 — el RATCHET INVERTIDO.
    *
-   * `exclusionDomains` (lo que VIAJA a Lusha) sobrevive al descarte, pero
-   * `providerExclusionPlan` (la vista EXPLICABLE de telemetría) vuelve al plan
-   * vacío que `noContribution` construye. Ese `noContribution` se escribió para
-   * Apollo, donde las exclusiones están apagadas por capacidad y un plan vacío es
-   * la verdad. En Lusha NO lo es: los dominios sí viajan, así que la telemetría
-   * publicará `provider_exclusion_domains_sent: 0` sobre un envío real de 3.
+   * Este caso existía en el corte anterior fijando el defecto: `exclusionDomains`
+   * (lo que VIAJA a Lusha) sobrevivía al descarte, pero `providerExclusionPlan`
+   * (la vista MEDIBLE) volvía al plan vacío que `noContribution` reconstruía. Ese
+   * `noContribution` se escribió para Apollo, donde la capacidad de exclusión está
+   * apagada y un plan vacío es la verdad; en Lusha NO lo era, así que la
+   * telemetría publicaba `provider_exclusion_domains_sent: 0` sobre un envío REAL
+   * de 3 dominios.
    *
-   * Es una asimetría de OBSERVABILIDAD, no de gasto ni de privacidad, y § 8 de
-   * este hito prohíbe tocar la semántica de provider-seen / exclusión. Se fija
-   * aquí para que sea VISIBLE y decidible, no silenciosa.
+   * La cobertura no se borra: se INVIERTE. Lo que ahora se exige es el acuerdo —
+   * la lista que se envía y la que se mide tienen que contar el MISMO envío.
    */
-  it('🔴 EFECTO ABIERTO · el plan explicable queda vacío aunque los dominios viajen', async () => {
+  it('🔴 RATCHET INVERTIDO · lo que viaja y lo que se mide cuentan el MISMO envío', async () => {
     const free = freeLayer({ acceptedNovel: 3, persistedCount: 3 });
 
     const outcome = await runLive(free.deps);
 
+    assert.equal(free.persistCalls, 0, 'el aporte se descartó');
     assert.equal(outcome.exclusionDomains.length, 3, 'viajan 3 dominios de verdad');
     assert.equal(
       outcome.providerExclusionPlan.domains.sent.length,
-      0,
-      '🔴 pero el plan de telemetría reporta 0 — divergencia CONOCIDA, no arreglada aquí',
+      3,
+      '🔴 y el plan medible dice 3, no 0',
     );
     assert.equal(outcome.providerExclusionPlan.provider, 'lusha');
+
+    // 🔴 El acuerdo se afirma sobre las LISTAS, no sólo sobre sus longitudes: dos
+    // cuentas iguales sobre dominios distintos seguirían siendo una divergencia.
+    assert.deepEqual(
+      [...outcome.providerExclusionPlan.domains.sent].sort(),
+      [...outcome.exclusionDomains].sort(),
+      '🔴 misma lista, no sólo misma cantidad',
+    );
+  });
+
+  /**
+   * 🔴 REVIEW-1 § 7 — el acuerdo, visto desde la telemetría PUBLICADA.
+   *
+   * No basta con que el objeto del plan tenga 3: lo que un operador lee es
+   * `provider_exclusion_domains_sent`, y ése sale de `buildProviderSeenTelemetry`,
+   * el mismo constructor canónico que `toLushaRunTelemetryMetadata` invoca con
+   * `telemetry.providerExclusionPlan`. Se afirma sobre ESE campo para que la
+   * prueba no dependa de una forma intermedia que nadie publica.
+   */
+  it('🔴 § 7 · `provider_exclusion_domains_sent` publica 3, y coincide con lo enviado', async () => {
+    const free = freeLayer({ acceptedNovel: 3, persistedCount: 3 });
+
+    const outcome = await runLive(free.deps);
+
+    const published = buildProviderSeenTelemetry({
+      freeSource: outcome.freeSource,
+      providerSeen: outcome.providerSeenLoad,
+      exclusionPlan: outcome.providerExclusionPlan,
+    });
+
+    assert.equal(
+      published.provider_exclusion_domains_sent,
+      3,
+      '🔴 la telemetría ya no reporta 0 sobre un envío de 3',
+    );
+    assert.equal(
+      published.provider_exclusion_domains_sent,
+      outcome.exclusionDomains.length,
+      '🔴 las dos vistas del MISMO envío tienen que estar de acuerdo',
+    );
+    // La capacidad de dominios de Lusha está encendida: «0 enviados» nunca puede
+    // leerse como «no soportado» en esta ruta.
+    assert.equal(published.provider_exclusion_domains_unsupported_reason, null);
+  });
+
+  /**
+   * 🔴 REVIEW-1 § 6 — Apollo no cambia de comportamiento.
+   *
+   * El plan arrastrado es el REAL, no uno reconstruido, y aun así sale con
+   * `sent: []`: `APOLLO_EXCLUSION_CAPABILITY` tiene los dominios apagados, así que
+   * el vacío de Apollo es una VERDAD de capacidad y no un efecto del descarte. Es
+   * exactamente la asimetría que hacía que el plan vacío pareciera correcto.
+   */
+  it('🔴 § 6 · Apollo con capacidad APAGADA sigue en vacío, y es la verdad', async () => {
+    const free = freeLayer({ acceptedNovel: 3, persistedCount: 3, provider: 'apollo' });
+
+    const outcome = await runLive(free.deps, WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED, 'apollo');
+
+    assert.equal(free.persistCalls, 0, 'el aporte se descartó igual que en Lusha');
+    assert.deepEqual([...outcome.exclusionDomains], [], 'Apollo no envía exclusiones');
+    assert.deepEqual(
+      [...outcome.providerExclusionPlan.domains.sent],
+      [],
+      '🔴 y su plan medible también está vacío',
+    );
+    assert.equal(outcome.providerExclusionPlan.provider, 'apollo');
+    // 🔴 Y el vacío queda EXPLICADO: «0 enviados» por capacidad, no por falta de
+    // material. Es la diferencia que el corte 1 pidió no perder.
+    assert.equal(
+      outcome.providerExclusionPlan.domains.unsupportedReason,
+      'apollo_exclusion_contract_unverified',
+    );
+    assert.equal(outcome.residualGap, TARGET, 'y la ruta de pago corre entera');
+  });
+
+  /**
+   * 🔴 REVIEW-1 § 6 — el ÚNICO delta que Apollo sí ve, fijado a propósito.
+   *
+   * Lo que viaja no cambia: `sent` sigue en 0 y no se introduce ni una exclusión
+   * en el cuerpo de la petición de Apollo. Lo que cambia es que el plan arrastrado
+   * es el REAL, así que sus contadores de «lo que se sabía» dejan de estar en 0:
+   * `available` y `omittedDueToCapability` pasan a 3 donde el plan reconstruido
+   * decía 0.
+   *
+   * Es la dirección correcta y es literalmente para lo que esos campos existen —
+   * «que “0 enviados” nunca se lea como “no había nada que enviar”»—, pero es un
+   * cambio de telemetría en la ruta Apollo y por eso se PINCHA aquí en vez de
+   * dejarlo pasar como efecto colateral silencioso.
+   */
+  it('🔴 § 6 · Apollo: `sent` intacto en 0, y sus contadores de capacidad dejan de mentir', async () => {
+    const free = freeLayer({ acceptedNovel: 3, persistedCount: 3, provider: 'apollo' });
+
+    const outcome = await runLive(free.deps, WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED, 'apollo');
+    const domains = outcome.providerExclusionPlan.domains;
+
+    // 🔴 Lo que viaja: idéntico. Es el invariante de § 5 del acta.
+    assert.equal(domains.sent.length, 0, '🔴 Apollo no gana ni una exclusión enviada');
+    assert.equal(outcome.exclusionDomains.length, 0);
+
+    // Lo que se MIDE: ahora es verdad.
+    assert.equal(domains.available, 3, 'se conocían 3 dominios');
+    assert.equal(domains.omittedDueToCapability, 3, '🔴 y los 3 se omitieron por CAPACIDAD');
+    assert.equal(domains.omittedDueToCap, 0, 'ninguno cayó por el tope propio');
+
+    // Y el acuerdo de § 3 también se sostiene en Apollo, por el otro lado: 0 = 0.
+    const published = buildProviderSeenTelemetry({
+      freeSource: outcome.freeSource,
+      providerSeen: outcome.providerSeenLoad,
+      exclusionPlan: outcome.providerExclusionPlan,
+    });
+    assert.equal(published.provider_exclusion_domains_sent, 0);
+    assert.equal(published.provider_exclusion_domains_available, 3);
+  });
+
+  /**
+   * 🔴 REVIEW-1 § 7 (FAILURE CASE) — sin plan resuelto, el vacío sigue permitido.
+   *
+   * El arreglo arrastra el plan de la puerta; no INVENTA uno. Si la puerta no pudo
+   * producir nada —fuente sin cablear, lectura caída— el descarte publica el plan
+   * por defecto, y ahí «vacío» es la verdad literal: no hubo envío que medir.
+   */
+  it('🔴 sin puerta que aporte plan, el vacío por defecto sigue siendo válido', async () => {
+    const free = freeLayer({
+      acceptedNovel: 0,
+      persistedCount: 0,
+      providerSeen: PROVIDER_SEEN_LOAD_FAILED,
+    });
+
+    const outcome = await runLive(free.deps);
+
+    assert.deepEqual([...outcome.exclusionDomains], [], 'no había dominios que enviar');
+    assert.deepEqual(
+      [...outcome.providerExclusionPlan.domains.sent],
+      [],
+      '🔴 y el plan lo dice sin inventar nada',
+    );
+    // El acuerdo se sostiene también en el caso degenerado.
+    assert.equal(
+      outcome.providerExclusionPlan.domains.sent.length,
+      outcome.exclusionDomains.length,
+    );
   });
 });
 
@@ -431,6 +584,8 @@ describe('§ 8 · el descarte se lleva la CONTRIBUCIÓN, nunca la medición', ()
 const ROOT = path.resolve(__dirname, '../../../..');
 const LUSHA_ACTION = 'src/modules/prospect-batches/lusha-pending-review-actions.ts';
 const LUSHA_LIMITS = 'src/server/prospect-batches/lusha-pending-review-limits.ts';
+const SHARED_RUNNER =
+  'src/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server.ts';
 
 function read(rel: string): string {
   return readFileSync(path.join(ROOT, rel), 'utf8');
@@ -533,5 +688,69 @@ describe('§ 6 · la salida gratuita ocurre ARRIBA de todo lo que cuesta dinero'
     for (const paid of ['getLushaApiKey()', 'searchLushaCompaniesV3({']) {
       assert.ok(code.indexOf(paid) > reserve, `🔴 ${paid} nunca por encima de la reserva`);
     }
+  });
+});
+
+// ── § 3/§ 4/§ 8 · el ACUERDO, visto desde el cableado ────────────────────────
+
+/**
+ * 🔴 REVIEW-1 §§ 3, 4, 8 — las dos vistas del mismo envío salen del MISMO objeto.
+ *
+ * Las pruebas de comportamiento de § 8 ya fijan que el plan arrastrado coincide
+ * con los dominios enviados. Lo que estas guardas defienden es la otra mitad: que
+ * el ejecutor de pago siga leyendo LAS DOS del mismo `prePaid`, y que el runner
+ * compartido siga ARRASTRANDO el plan de la puerta en vez de reconstruirlo.
+ *
+ * Es la mutación que § 8 del acta pide probar en negativo: volver a poner
+ * `planProviderExclusions(input.provider, {})` en la ruta de descarte devolvería
+ * el defecto —telemetría en 0 sobre un envío real— sin tocar ni un byte de lo que
+ * viaja al proveedor, así que ninguna prueba de gasto lo vería.
+ */
+describe('§ 3 · lo que viaja y lo que se mide comparten autoridad', () => {
+  it('🔴 el ejecutor de pago lee las DOS vistas del mismo `prePaid`', () => {
+    const code = stripTsComments(read(LUSHA_ACTION));
+
+    assert.ok(
+      code.includes('excludeDomains: prePaid.exclusionDomains,'),
+      'la lista que viaja al cuerpo de la petición sigue siendo la del runner',
+    );
+    assert.ok(
+      code.includes('providerExclusionPlan: prePaid.providerExclusionPlan,'),
+      '🔴 y la vista medible viaja al mismo sitio, desde el mismo resultado',
+    );
+  });
+
+  it('🔴 el runner compartido ARRASTRA el plan de la puerta, no lo reconstruye', () => {
+    const code = stripTsComments(read(SHARED_RUNNER));
+
+    // Las dos rutas de descarte pasan el plan resuelto por la puerta.
+    const carried = code.split('providerExclusionPlan: gate.providerExclusionPlan,').length - 1;
+    assert.equal(
+      carried,
+      4,
+      '🔴 dos rutas de descarte + dos salidas normales arrastran el plan de la puerta',
+    );
+
+    // 🔴 Y el plan vacío sobrevive SÓLO como valor por defecto del paquete, que es
+    // el caso «no hay puerta de la que arrastrar». Una segunda aparición sería una
+    // reconstrucción, que es exactamente el defecto de REVIEW-1 § 3.
+    const rebuilt = code.split('planProviderExclusions(input.provider, {})').length - 1;
+    assert.equal(rebuilt, 1, '🔴 el plan vacío sólo puede ser el DEFECTO, nunca el descarte');
+  });
+
+  /** 🔴 EN NEGATIVO — la guarda detecta la reconstrucción del plan vacío. */
+  it('mutación: reconstruir el plan vacío en el descarte pone la guarda en rojo', () => {
+    const mutated = stripTsComments(read(SHARED_RUNNER)).replace(
+      'providerExclusionPlan: gate.providerExclusionPlan,\n    });',
+      'providerExclusionPlan: planProviderExclusions(input.provider, {}),\n    });',
+    );
+
+    const carried = mutated.split('providerExclusionPlan: gate.providerExclusionPlan,').length - 1;
+    const rebuilt = mutated.split('planProviderExclusions(input.provider, {})').length - 1;
+
+    assert.ok(
+      carried < 4 || rebuilt > 1,
+      '🔴 la copia mutada pierde un arrastre o gana una reconstrucción',
+    );
   });
 });

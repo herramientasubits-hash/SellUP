@@ -2525,7 +2525,15 @@ jobs:
       #     credencial y petición, que es lo que hace verdad el «0 reservas, 0
       #     llamadas» (§ 6);
       #   · el descarte se lleva la CONTRIBUCIÓN y jamás la MEDICIÓN: memoria
-      #     provider-seen y dominios de exclusión de Lusha sobreviven (§§ 3, 8).
+      #     provider-seen y dominios de exclusión de Lusha sobreviven (§§ 3, 8);
+      #   · REVIEW-1 §§ 3, 4, 9 — y la MEDICIÓN concuerda con el ENVÍO: el plan
+      #     de exclusión que la puerta resolvió se ARRASTRA por el descarte en vez
+      #     de reconstruirse vacío, así que `provider_exclusion_domains_sent` deja
+      #     de publicar 0 sobre un envío real de 3 en la ruta Lusha. El ratchet que
+      #     antes fijaba ese efecto abierto está INVERTIDO: ahora exige el acuerdo.
+      #     Apollo no gana ni una exclusión enviada (`sent` sigue en 0 por
+      #     capacidad apagada); lo único que cambia en su ruta es que sus contadores
+      #     de «lo que se sabía» dejan de estar en 0, y eso también está pinchado.
       #
       # 🔴 Y el contraste que impide leer contención como amputación: la MISMA
       # capa gratuita y el MISMO runner, invocados a propósito con `true`,
@@ -2534,8 +2542,9 @@ jobs:
       #   LUSHA_PARTIAL_GAP_CAPABILITY      = PRESENT
       #   LUSHA_PARTIAL_GAP_LIVE_ACTIVATION = OFF
       #
-      # Voltear la constante (11 pruebas ROJAS) o reescribir el literal en el
-      # sitio de la llamada (2 pruebas ROJAS) pone esta suite en ROJO.
+      # Voltear la constante (12 pruebas ROJAS), reescribir el literal en el sitio
+      # de la llamada (2 pruebas ROJAS) o reconstruir el plan de exclusión vacío en
+      # la ruta de descarte (4 pruebas ROJAS) pone esta suite en ROJO.
       #
       # Ratchets de alcance que siguen vivos: `WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED`
       # en `false` y sin tocar, Tavily sin cambios, `exclude.ids` congelado, y
