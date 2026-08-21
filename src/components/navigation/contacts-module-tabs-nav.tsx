@@ -42,13 +42,9 @@ export function ContactsModuleTabsNav({
   // Pills limpias, sin badge de conteo (ajuste posterior a 17A.4A): el número
   // de candidatos generaba ruido visual y forzaba una query extra en el tab
   // por defecto. Las labels quedan simples; el routing por tab no cambia.
-  // 4O-H3-B-R1: «Duplicados» es una pill hermana, no un filtro escondido dentro de «Por
-  // revisar». Separarlas es lo que evita presentar un duplicado como si aún fuera una
-  // aprobación pendiente, y lo que hace que un duplicado se pueda volver a encontrar.
   const tabs: Tab[] = [
     { id: "approved", label: "Contactos aprobados" },
     { id: "candidates", label: "Candidatos por revisar" },
-    { id: "duplicates", label: "Duplicados" },
   ];
 
   return (
