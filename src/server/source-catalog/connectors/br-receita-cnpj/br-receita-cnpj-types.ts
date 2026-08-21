@@ -113,10 +113,20 @@ export interface BrReceitaCnpjSnapshotRawData {
   source_downloaded_at?: string;
   import_batch_id?: string;
 
-  // Identity / hierarchy.
-  cnpj_root: string; // cnpj_basico (raiz 8)
-  cnpj_order: string; // cnpj_ordem (4)
-  cnpj_dv: string; // DV (2)
+  // Hierarchy.
+  //
+  // 🔴 BR-SOURCE-GATE-ROUND-1 — `cnpj_root`, `cnpj_order` and `cnpj_dv` were REMOVED. This block is
+  // labelled "sanitized snapshot output (allowlist only)" above, and that claim was false while it
+  // carried them: `cnpj_root` IS the CNPJ básico, and the three together reconstruct the full
+  // 14-position CNPJ exactly. The recorded GATE-3 field policy prohibits all three by name, plus
+  // "reconstructable CNPJ parts".
+  //
+  // Nothing replaces them. No root surrogate, no bucket, no hash: the owners' include set names no
+  // root grouping key, and inventing one would be an agent widening an allowlist.
+  //
+  // `matrix_branch_flag` STAYS. It comes from its own source column (identificador_matriz_filial)
+  // and is not derived from the CNPJ — a matriz/filial marker is one bit about a record, not a
+  // fragment of its identifier.
   matrix_branch_flag: string | null; // identificador_matriz_filial (1=matriz/2=filial)
 
   // Company (from EMPRESAS + reference labels).
@@ -174,7 +184,11 @@ export type BrReceitaCnpjRejectionReason =
 export interface BrReceitaCnpjRejectedRow {
   sourceRowIndex: number;
   reasonCode: BrReceitaCnpjRejectionReason;
-  /** Masked or hashed — NEVER the full CNPJ. */
+  /**
+   * An execution-local ordinal derived from `sourceRowIndex` (RB-2, BR-SOURCE-GATE-ROUND-1). NEVER
+   * a hash, truncation or fingerprint of the CNPJ, and never the CNPJ itself — GATE-1 R4 forbids
+   * all three anywhere, including in a rejection diagnostic.
+   */
   safeIdentifier: string;
   sourceFile: string | null;
 }
