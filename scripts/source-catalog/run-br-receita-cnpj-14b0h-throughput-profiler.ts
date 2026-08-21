@@ -41,7 +41,9 @@ import {
 import {
   BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES,
   BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE,
-  brazilReceitaFullJoinPartitionFileName,
+  brazilReceitaFullJoinPartitionLogicalKey,
+  createBrazilReceitaFullJoinPartitionLabelAllocator,
+  createBrazilReceitaFullJoinRandomPartitionLabelSource,
   createBrazilReceitaFullJoinPartitionWorkspace,
   encodeBrazilReceitaFullJoinRowReference,
   type BrazilReceitaFullJoinRowReference,
@@ -199,9 +201,19 @@ function runBaselineUnbufferedWriter(
     },
   });
 
+  // BR-SOURCE-GATE-ROUND-2 — partition file names are opaque now, so this harness allocates its own
+  // (family, ordinal) → name map exactly the way the workspace does. It measures descriptor and write
+  // behaviour, which a name does not affect; what it must NOT do is reintroduce an ordinal-derived
+  // name just because it is a benchmark.
+  const labelAllocator = createBrazilReceitaFullJoinPartitionLabelAllocator(
+    createBrazilReceitaFullJoinRandomPartitionLabelSource(),
+  );
+
   const startedAt = process.hrtime.bigint();
   for (const { reference, ordinal } of references) {
-    const name = brazilReceitaFullJoinPartitionFileName(reference.family, ordinal);
+    const logicalKey = brazilReceitaFullJoinPartitionLogicalKey(reference.family, ordinal);
+    if (logicalKey === null) continue;
+    const name = labelAllocator.resolve(logicalKey);
     if (name === null) continue;
     const encoded = encodeBrazilReceitaFullJoinRowReference(reference);
     if (!encoded.ok) continue;

@@ -37,7 +37,9 @@ import {
   BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED,
   BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_DIRECTORY_MODE,
   BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE,
-  brazilReceitaFullJoinPartitionFileName,
+  brazilReceitaFullJoinOpaquePartitionFileName,
+  brazilReceitaFullJoinPartitionLogicalKey,
+  createBrazilReceitaFullJoinPartitionLabelAllocator,
   createBrazilReceitaFullJoinPartitionWorkspace,
   decodeBrazilReceitaFullJoinRowReference,
   encodeBrazilReceitaFullJoinRowReference,
@@ -165,16 +167,52 @@ describe('BR-SOURCE-14B.0D — reference record', () => {
     assert.equal(decoded.failure, 'record_truncated');
   });
 
-  it('names partition files with technical, sequential names only', () => {
-    assert.equal(brazilReceitaFullJoinPartitionFileName('empresas', 0), 'empresas-part-00001.refs');
-    assert.equal(
-      brazilReceitaFullJoinPartitionFileName('estabelecimentos', 41),
-      'estabelecimentos-part-00042.refs',
-    );
-    assert.equal(brazilReceitaFullJoinPartitionFileName('empresas', -1), null);
-    assert.equal(brazilReceitaFullJoinPartitionFileName('simples' as 'empresas', 0), null);
-    assert.ok(BRAZIL_RECEITA_FULL_JOIN_PARTITION_FILE_PATTERN.test('empresas-part-00001.refs'));
+  // 🔴 BR-SOURCE-GATE-ROUND-2 — this test used to assert `empresas-part-00001.refs`, i.e. that the
+  // key-derived bucket ordinal was written onto disk. It now asserts the opposite property.
+  it('names partition files opaquely, carrying no family and no key-derived ordinal', () => {
+    const label = 'a'.repeat(32);
+    assert.equal(brazilReceitaFullJoinOpaquePartitionFileName(label), `brfj-${label}.refs`);
+    // Too short, wrong alphabet, and uppercase hex are all refused: the cleanup engine decides what
+    // it owns from this pattern, so a loose pattern would widen what cleanup may delete.
+    assert.equal(brazilReceitaFullJoinOpaquePartitionFileName('abc'), null);
+    assert.equal(brazilReceitaFullJoinOpaquePartitionFileName('Z'.repeat(32)), null);
+    assert.equal(brazilReceitaFullJoinOpaquePartitionFileName('A'.repeat(32)), null);
+
+    assert.ok(BRAZIL_RECEITA_FULL_JOIN_PARTITION_FILE_PATTERN.test(`brfj-${label}.refs`));
+    // The OLD naming scheme must no longer be recognized as ours.
+    assert.ok(!BRAZIL_RECEITA_FULL_JOIN_PARTITION_FILE_PATTERN.test('empresas-part-00001.refs'));
     assert.ok(!BRAZIL_RECEITA_FULL_JOIN_PARTITION_FILE_PATTERN.test('empresas-SYN_K0001.refs'));
+  });
+
+  it('validates (family, ordinal) on the logical key, preserving the old rejections', () => {
+    assert.equal(brazilReceitaFullJoinPartitionLogicalKey('empresas', 0), 'empresas:0');
+    assert.equal(brazilReceitaFullJoinPartitionLogicalKey('empresas', -1), null);
+    assert.equal(brazilReceitaFullJoinPartitionLogicalKey('empresas', 1.5), null);
+    assert.equal(brazilReceitaFullJoinPartitionLogicalKey('simples' as 'empresas', 0), null);
+    // The five-digit scheme bounded ordinals at 99_998; opaque names would silently remove that
+    // bound, so it is explicit now and still enforced.
+    assert.equal(brazilReceitaFullJoinPartitionLogicalKey('empresas', 99_998), 'empresas:99998');
+    assert.equal(brazilReceitaFullJoinPartitionLogicalKey('empresas', 99_999), null);
+  });
+
+  it('allocates one stable opaque label per partition, and refuses a colliding source', () => {
+    let counter = 0;
+    const allocator = createBrazilReceitaFullJoinPartitionLabelAllocator(() =>
+      String(counter++).padStart(32, '0'),
+    );
+
+    const first = allocator.resolve('empresas:0');
+    const second = allocator.resolve('estabelecimentos:0');
+    assert.ok(first !== null && second !== null);
+    assert.notEqual(first, second, 'the same ordinal in two families must not share a file');
+    // Idempotent: the read-back pass depends on the second touch returning the same file.
+    assert.equal(allocator.resolve('empresas:0'), first);
+    assert.equal(allocator.allocatedCount(), 2);
+
+    // A source that always repeats itself cannot silently merge two partitions into one file.
+    const colliding = createBrazilReceitaFullJoinPartitionLabelAllocator(() => 'b'.repeat(32));
+    assert.notEqual(colliding.resolve('empresas:0'), null);
+    assert.equal(colliding.resolve('empresas:1'), null);
   });
 });
 
@@ -288,7 +326,10 @@ describe('BR-SOURCE-14B.0D — temporary storage cap', () => {
     assert.equal(creation.workspace.readPartitionSlice('empresas', 0, 0, 16).ok, true);
 
     const directory = workspaceDirectoryIn(parent);
-    const bytes = fs.readFileSync(path.join(directory, 'empresas-part-00001.refs'));
+    // The name is opaque now, so the file is located by the pattern rather than spelled out.
+    const [onlyName] = fs.readdirSync(directory);
+    assert.ok(BRAZIL_RECEITA_FULL_JOIN_PARTITION_FILE_PATTERN.test(onlyName));
+    const bytes = fs.readFileSync(path.join(directory, onlyName));
     assert.equal(
       bytes.length,
       BRAZIL_RECEITA_FULL_JOIN_REFERENCE_RECORD_BYTES * 2,
@@ -452,8 +493,10 @@ describe('BR-SOURCE-14B.0D — owner-only permissions', () => {
     if (!creation.ok) return;
     assert.equal(creation.workspace.appendReference(reference(), 0).ok, true);
     const directory = workspaceDirectoryIn(parent);
+    const [onlyName] = fs.readdirSync(directory);
+    assert.ok(BRAZIL_RECEITA_FULL_JOIN_PARTITION_FILE_PATTERN.test(onlyName));
     assert.equal(
-      fs.lstatSync(path.join(directory, 'empresas-part-00001.refs')).mode & 0o777,
+      fs.lstatSync(path.join(directory, onlyName)).mode & 0o777,
       BRAZIL_RECEITA_FULL_JOIN_WORKSPACE_FILE_MODE,
     );
     creation.workspace.dispose();
@@ -537,15 +580,29 @@ describe('BR-SOURCE-14B.0D — verified cleanup', () => {
     assert.equal(result.verifiedAbsent, true);
   });
 
-  it('is idempotent: a second dispose does not claim a second deletion', () => {
+  // 🔴 UPDATED BY BR-SOURCE-GATE-ROUND-2 (GATE-6). The original intent — a second dispose must not
+  // claim a second deletion — is unchanged and still asserted. What changed is the outcome it settles
+  // on: it used to be `unverified`, i.e. "nobody can say whether residue exists", about a workspace
+  // that had just been VERIFIED absent. A repeat call downgrading a verified success is the opposite
+  // of idempotent, and GATE-6 requires idempotence, so an absent workspace is now `not_needed` and
+  // verified absent.
+  it('is idempotent: a second dispose claims no second deletion and keeps the verified result', () => {
     const creation = openWorkspace();
     assert.equal(creation.ok, true);
     if (!creation.ok) return;
     creation.workspace.appendReference(reference(), 0);
-    assert.equal(creation.workspace.dispose().outcome, 'completed');
+    const first = creation.workspace.dispose();
+    assert.equal(first.outcome, 'completed');
+    assert.equal(first.verifiedAbsent, true);
+
     const second = creation.workspace.dispose();
-    assert.equal(second.outcome, 'unverified');
-    assert.equal(second.filesReleased, 0);
+    assert.equal(second.outcome, 'not_needed');
+    assert.equal(second.filesReleased, 0, 'no second deletion may be claimed');
+    assert.equal(second.verifiedAbsent, true, 'and the verified absence must not be downgraded');
+    assert.equal(second.foreignEntriesLeftInPlace, 0);
+
+    // A third call is the same. Idempotence is not a two-call special case.
+    assert.equal(creation.workspace.dispose().outcome, 'not_needed');
   });
 
   // Test 56 (workspace half): a failed deletion is `failed`, never `completed`.

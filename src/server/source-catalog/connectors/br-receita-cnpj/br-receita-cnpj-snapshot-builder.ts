@@ -12,9 +12,16 @@
  *   - NO HubSpot / Slack.
  * It is a PURE in-memory transform (mirrors the EC SCVS offline builder).
  *
- * Identity (data-contract § 3): family = TAX_GRAIN. The physical grain is one
- * row per establishment = one full 14-position CNPJ; record identity is
- * `tax:<normalized_14>`, normalized_tax_id = normalized full CNPJ.
+ * Identity (data-contract § 3): the physical grain is one row per establishment = one full
+ * 14-position CNPJ; the in-memory record identity is `tax:<normalized_14>`, normalized_tax_id =
+ * normalized full CNPJ.
+ *
+ * 🔴 BR-SOURCE-GATE-ROUND-2 / GATE-4 — this source is NOT registered as TAX_GRAIN, and the three
+ * identity fields above are TRANSIENT_ONLY, not persistable. `br_receita_cnpj_dados_abertos` is
+ * absent from `SOURCE_FAMILY_BY_SOURCE_KEY` on purpose, so `getSourceFamily` throws for it: Brazil's
+ * identity grain is recorded but its PERSISTED identity is unresolved, and a fail-closed throw is the
+ * correct answer to "which family is Brazil" until it is. See
+ * `br-receita-cnpj-gate4-recorded-identity-grain.ts`.
  *
  * Fail-closed rules (§ 3.4 / § 6):
  *   - CNPJ that fails DV validation → rejected (never relax the validator).
@@ -42,6 +49,7 @@ import {
   type BrReceitaCnpjParserResult,
   type BrReceitaCnpjSnapshotRow,
   type BrReceitaCnpjSnapshotRawData,
+  type BrReceitaCnpjInternalControlSignals,
   type BrReceitaCnpjRejectedRow,
   type BrReceitaEmpresaRow,
   type BrReceitaLookupRow,
@@ -310,6 +318,7 @@ export function buildBrReceitaCnpjSnapshotRows(
   const naturezaLabels = buildLookup(input.naturezasRows);
 
   const snapshots: BrReceitaCnpjSnapshotRow[] = [];
+  const internalControlSignals: BrReceitaCnpjInternalControlSignals[] = [];
   const rejected: BrReceitaCnpjRejectedRow[] = [];
   const seenIdentityKeys = new Set<string>();
   const sourceFile = input.sourceFileName ?? null;
@@ -382,10 +391,10 @@ export function buildBrReceitaCnpjSnapshotRows(
       source_row_index: i,
 
       // 🔴 GATE-ROUND-1 — no `cnpj_root`, no `cnpj_order`, no `cnpj_dv`. See the type.
+      // 🔴 GATE-ROUND-2 (RB-3) — no `legal_nature_*`, no `simples_opt_in`, no `simei_opt_in`, no
+      // `mei_flag`. They moved to `internalControlSignals`, which no row points at.
       matrix_branch_flag: normalizeText(row.identificador_matriz_filial),
 
-      legal_nature_code: naturezaCode,
-      legal_nature_label: naturezaCode !== null ? (naturezaLabels.get(naturezaCode) ?? null) : null,
       company_size_code: normalizeText(empresa.porte_empresa),
       capital_social_value: normalizeText(empresa.capital_social),
 
@@ -401,10 +410,6 @@ export function buildBrReceitaCnpjSnapshotRows(
       uf: normalizeText(row.uf),
 
       start_date: normalizeText(row.data_inicio_atividade),
-
-      simples_opt_in: simplesOptIn,
-      simei_opt_in: meiOptIn,
-      mei_flag: meiOptIn === true,
     };
 
     if (input.sourceFileName !== undefined) rawData.source_file_name = input.sourceFileName;
@@ -429,6 +434,18 @@ export function buildBrReceitaCnpjSnapshotRows(
       raw_data: rawData,
       record_identity_key: recordIdentityKey,
     });
+
+    // 🔴 GATE-ROUND-2 (RB-3) — the control signals, pushed in `snapshots` order onto a PARALLEL
+    // array. Not onto the row: a writer is handed rows, and a signal that is not on a row cannot be
+    // persisted by a writer that forgets it should not be.
+    internalControlSignals.push({
+      source_row_index: i,
+      legal_nature_code: naturezaCode,
+      legal_nature_label: naturezaCode !== null ? (naturezaLabels.get(naturezaCode) ?? null) : null,
+      simples_opt_in: simplesOptIn,
+      simei_opt_in: meiOptIn,
+      mei_flag: meiOptIn === true,
+    });
   }
 
   const countReason = (reason: BrReceitaCnpjRejectedRow['reasonCode']): number =>
@@ -437,6 +454,7 @@ export function buildBrReceitaCnpjSnapshotRows(
   return {
     snapshots,
     rejected,
+    internalControlSignals,
     summary: {
       totalEstablishmentRows: input.estabelecimentosRows.length,
       acceptedRows: snapshots.length,
@@ -446,7 +464,10 @@ export function buildBrReceitaCnpjSnapshotRows(
       rejectedMissingRootCompany: countReason('missing_root_company'),
       rejectedIncompatibleRootCompany: countReason('incompatible_root_company'),
       distinctRecordIdentityKeys: seenIdentityKeys.size,
-      meiFlaggedRows: snapshots.filter((s) => s.raw_data.mei_flag).length,
+      // 🔴 GATE-ROUND-2 (RB-3) — counted off the CONTROL array now that the payload no longer
+      // carries the marker. This count was `mei_flag`'s only non-test consumer, and it survives
+      // unchanged, which is the proof that removing the payload key weakened no control.
+      meiFlaggedRows: internalControlSignals.filter((signal) => signal.mei_flag).length,
       db_writes: 0,
       snapshot_writes: 0,
       dataset_downloads: 0,

@@ -31,9 +31,12 @@ const ALLOWED_RAW_DATA_KEYS = new Set([
   // 🔴 BR-SOURCE-GATE-ROUND-1 — `cnpj_root`, `cnpj_order` and `cnpj_dv` are NO LONGER allowed
   // keys. They are absent from the type, absent from the builder, and their absence from this set
   // is what makes the `no unexpected key` assertion below catch a re-introduction.
+  // 🔴 BR-SOURCE-GATE-ROUND-2 (RB-3) — `legal_nature_code`, `legal_nature_label`, `simples_opt_in`,
+  // `simei_opt_in` and `mei_flag` are NO LONGER allowed payload keys. They are labelled
+  // INTERNAL_PRIVACY_CONTROL_ONLY / EXCLUDED_OUTPUT and travel on `internalControlSignals`, and
+  // their absence from this set is what makes the `no unexpected key` assertion catch a
+  // re-introduction.
   'matrix_branch_flag',
-  'legal_nature_code',
-  'legal_nature_label',
   'company_size_code',
   'capital_social_value',
   'registration_status_code',
@@ -45,9 +48,6 @@ const ALLOWED_RAW_DATA_KEYS = new Set([
   'municipality_name',
   'uf',
   'start_date',
-  'simples_opt_in',
-  'simei_opt_in',
-  'mei_flag',
 ]);
 
 function bySnapshotIdentity(
@@ -57,6 +57,24 @@ function bySnapshotIdentity(
   const found = rows.find((r) => r.normalized_tax_id === normalized);
   assert.ok(found, `expected a snapshot for ${normalized}`);
   return found;
+}
+
+/**
+ * BR-SOURCE-GATE-ROUND-2 — the control signals for one accepted row.
+ *
+ * Correlated by `source_row_index`, which is the ONLY link between a row and its signals: the
+ * signals are deliberately not reachable from the row itself.
+ */
+function controlSignalsFor(
+  result: ReturnType<typeof buildBrReceitaCnpjSnapshotRows>,
+  normalized: string,
+) {
+  const row = bySnapshotIdentity(result.snapshots, normalized);
+  const signals = result.internalControlSignals.find(
+    (entry) => entry.source_row_index === row.raw_data.source_row_index,
+  );
+  assert.ok(signals, `expected control signals for ${normalized}`);
+  return signals;
 }
 
 describe('buildBrReceitaCnpjSnapshotRows — acceptance & mapping', () => {
@@ -89,8 +107,11 @@ describe('buildBrReceitaCnpjSnapshotRows — acceptance & mapping', () => {
     const result = buildBrReceitaCnpjSnapshotRows(sampleParserInput());
     const snap = bySnapshotIdentity(result.snapshots, sampleFullCnpj(RAIZ_TECNOLOGIA, '0001'));
     assert.equal(snap.legal_name, 'Synthetic Tecnologia Ltda');
-    assert.equal(snap.raw_data.legal_nature_code, '2062');
-    assert.equal(snap.raw_data.legal_nature_label, 'Sociedade Empresária Limitada');
+    // Natureza jurídica still drives the join; after RB-3 it lands on the control signals rather
+    // than in the persisted payload.
+    const signals = controlSignalsFor(result, sampleFullCnpj(RAIZ_TECNOLOGIA, '0001'));
+    assert.equal(signals.legal_nature_code, '2062');
+    assert.equal(signals.legal_nature_label, 'Sociedade Empresária Limitada');
     assert.equal(snap.raw_data.company_size_code, '03');
     assert.equal(snap.raw_data.capital_social_value, '100000.00');
   });
@@ -114,16 +135,19 @@ describe('buildBrReceitaCnpjSnapshotRows — acceptance & mapping', () => {
     assert.deepEqual(snap.raw_data.cnae_secondary_codes, ['6202300', '6209100']);
   });
 
-  it('adds SIMPLES/SIMEI flags and sets mei_flag from opcao_mei', () => {
+  it('derives SIMPLES/SIMEI flags and mei_flag onto the internal control signals', () => {
     const result = buildBrReceitaCnpjSnapshotRows(sampleParserInput());
-    const tec = bySnapshotIdentity(result.snapshots, sampleFullCnpj(RAIZ_TECNOLOGIA, '0001'));
-    assert.equal(tec.raw_data.simples_opt_in, true);
-    assert.equal(tec.raw_data.simei_opt_in, false);
-    assert.equal(tec.raw_data.mei_flag, false);
+    const tec = controlSignalsFor(result, sampleFullCnpj(RAIZ_TECNOLOGIA, '0001'));
+    assert.equal(tec.simples_opt_in, true);
+    assert.equal(tec.simei_opt_in, false);
+    assert.equal(tec.mei_flag, false);
 
-    const edu = bySnapshotIdentity(result.snapshots, sampleFullCnpj(RAIZ_EDUCACAO, '0001'));
-    assert.equal(edu.raw_data.simei_opt_in, true);
-    assert.equal(edu.raw_data.mei_flag, true);
+    const edu = controlSignalsFor(result, sampleFullCnpj(RAIZ_EDUCACAO, '0001'));
+    assert.equal(edu.simei_opt_in, true);
+    assert.equal(edu.mei_flag, true);
+
+    // The count that was `mei_flag`'s only non-test consumer still works, off the control array.
+    assert.equal(result.summary.meiFlaggedRows, 1);
   });
 
   it('accepts the alphanumeric establishment (post-July-2026 format)', () => {
@@ -131,7 +155,8 @@ describe('buildBrReceitaCnpjSnapshotRows — acceptance & mapping', () => {
     const edu = bySnapshotIdentity(result.snapshots, sampleFullCnpj(RAIZ_EDUCACAO, '0001'));
     assert.ok(/[A-Z]/.test(edu.normalized_tax_id));
     // The alphanumeric raiz still drives the join; it just does not survive into the output.
-    assert.equal(edu.raw_data.legal_nature_code !== null, true);
+    const signals = controlSignalsFor(result, sampleFullCnpj(RAIZ_EDUCACAO, '0001'));
+    assert.equal(signals.legal_nature_code !== null, true);
   });
 });
 

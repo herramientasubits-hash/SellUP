@@ -49,14 +49,56 @@
 // ─── Status ───────────────────────────────────────────────────────────────────
 
 /**
- * The GATE-3 status this record leaves in place. Not `approved`, and not by accident.
+ * The GATE-3 status. Advanced by BR-SOURCE-GATE-ROUND-2 from `needs_evidence` to
+ * `ready_for_review` — and still NOT `approved`.
  *
- * 🔴 This was `not_approved_pending_cnpj_snapshot_blocker`. That blocker (RB-2, and the separate
- * cnpj_root/cnpj_order/cnpj_dv output leak) is now fixed and merged in this same workstream, so the
- * old value would misname the reason the gate stays shut: it is no longer the snapshot blocker, it
- * is RB-1 and RB-3, both of which need an owner decision this workstream does not make.
+ * 🔴 History of this value, because each step renamed the reason rather than merely relaxing it:
+ *
+ *   `not_approved_pending_cnpj_snapshot_blocker` → the cnpj_root/cnpj_order/cnpj_dv output leak and
+ *       RB-2 (the CNPJ-hash rejection diagnostic). Both fixed in Round 1.
+ *   `needs_evidence`                             → RB-1 and RB-3 open. Neither was evidence the gate
+ *       lacked; both were decisions nobody had made.
+ *   `ready_for_review`                           → Round 2. RB-3 is CLOSED (every field labelled, and
+ *       now MECHANICALLY checkable), and RB-1 is discharged as far as this gate's subject reaches:
+ *       GATE-4 recorded the disposition and, more to the point, persisting the prohibited identity
+ *       material is now REFUSED in code. So every item in 10K § 7's required-evidence and pass-criteria
+ *       lists exists in recorded form.
+ *
+ * 🔴 `ready_for_review` is NOT an approval and NOT a GO. 10K § 3 defines it as "evidence complete and
+ * submitted; awaiting the named approver", and § 15's matrix reads NO-GO for it exactly as it does for
+ * `not_started`. What is missing is named exactly once, in
+ * `BRAZIL_RECEITA_GATE3_SINGLE_REMAINING_CRITERION`.
  */
-export const BRAZIL_RECEITA_GATE3_STATUS = 'needs_evidence' as const;
+export const BRAZIL_RECEITA_GATE3_STATUS = 'ready_for_review' as const;
+
+/** Whether this record approves the gate. It does not. */
+export const BRAZIL_RECEITA_GATE3_APPROVED = false as const;
+
+/**
+ * The one criterion still unmet, stated exactly rather than as "needs more evidence".
+ *
+ * GATE-3 requires the product / data owner AND the legal/privacy owner, JOINTLY. The product/data
+ * half is on record — the RB-3 field classifications, made under that authority and carrying it
+ * explicitly. The legal/privacy half is not, and an agent may not supply it:
+ *
+ *   · 10K § 3 — "No gate may be approved by inference. Silence, absence of objection, a passing test,
+ *     a green CI check, a merged PR, or a prior bounded result is never an approval."
+ *   · the only recorded human privacy statement is the GATE-1 determination, and it says in its own
+ *     text that GATE-2 … GATE-8 remain `not_started`. It does not reach the field allowlist.
+ *
+ * So the gate waits on a person, not on work. That is the honest shape, and manufacturing the missing
+ * half would be the same error Round 1 had to correct in the GATE-2 record.
+ */
+export const BRAZIL_RECEITA_GATE3_SINGLE_REMAINING_CRITERION = {
+  criterion:
+    'the legal/privacy owner half of the § 14 joint approval entry for the recorded field allowlist and denylist',
+  productDataHalfRecorded: true,
+  legalPrivacyHalfRecorded: false,
+  coveredByTheGate1Determination: false,
+  whyNotCoveredByGate1:
+    'the GATE-1 determination is the broad development-may-continue decision and states in its own text that GATE-2 through GATE-8 remain not_started; it never reaches the field allowlist',
+  agentMayApprove: false,
+} as const;
 
 /**
  * The joint approvers GATE-3 requires (10K § 7): product / data owner AND legal/privacy owner.
@@ -144,17 +186,19 @@ export const BRAZIL_RECEITA_GATE3_TRADE_NAME_DISPOSITION = 'EXCLUDED_NOT_IMPLEME
 export const BRAZIL_RECEITA_GATE3_RAW_DATA_DISPOSITION = 'CLOSED_TYPED_ALLOWLIST' as const;
 
 /**
- * Fields the sanitized snapshot output carries today that the owners' include set does not name.
+ * The fields that WERE unlabelled — RB-3's subject. Kept for the audit trail; no longer open.
  *
- * 🔴 They are NOT deleted by this record, and the reason matters: `mei_flag`, `simples_opt_in` and
- * `simei_opt_in` are the machinery behind GATE-1's R5 restriction — MEI / empresário individual /
- * natural-person-risk records are excluded by default, and `mei_flag` is how a downstream filter
- * knows which rows those are. Removing a privacy CONTROL because it was absent from an include list
- * of privacy-relevant OUTPUT would be an agent quietly weakening the thing the list exists to
- * protect.
+ * 🔴 BR-SOURCE-GATE-ROUND-2 closed this, and corrected one premise while doing so. Round 1 declined
+ * to touch these fields because "`mei_flag` is how a downstream filter knows which rows those are".
+ * The caution was right and the premise was false: `raw_data.mei_flag` had exactly one non-test
+ * consumer in the repository, a COUNT. The R5 exclusion is enforced by
+ * `br-receita-cnpj-privacy-safe-classifier`, which reads natureza jurídica off the EMPRESAS source
+ * row and never reads the snapshot payload at all. So the control could not be weakened by removing
+ * the payload key — and the count survives, off the internal control array, which is the proof.
  *
- * So each is recorded as an open item for the joint approvers to label `approved` or `excluded`,
- * which 10K § 7's "nothing unlabelled" criterion requires before GATE-3 can pass.
+ * Each field now carries exactly one label. See
+ * `br-receita-cnpj-gate3-residual-field-classification.ts`, which also binds this prose include set
+ * to real payload keys so "nothing unlabelled" is a function rather than an argument.
  */
 export const BRAZIL_RECEITA_GATE3_FIELDS_PRESENT_BUT_NOT_IN_INCLUDE_SET = [
   {
@@ -201,17 +245,17 @@ export const BRAZIL_RECEITA_GATE3_RESIDUAL_BLOCKERS = [
     id: 'RB-1',
     subject: 'top-level tax_id / normalized_tax_id / record_identity_key survival',
     detail:
-      'the prohibited-output set forbids full CNPJ and normalized_tax_id snapshot survival; these three shared-contract columns still carry it. Removing them changes the record identity grain.',
+      'CLOSED for this gate in BR-SOURCE-GATE-ROUND-2. These three are top-level columns of the shared source_company_snapshots contract, NOT members of the § 5.2 sanitized block GATE-3 governs — so their grain was never this gate subject, which is why Round 1 handed them to GATE-4. GATE-4 has now recorded them TRANSIENT_ONLY and, decisively for GATE-3, persisting them is REFUSED in code by assertBrazilReceitaSnapshotRowIsPersistable. This gate prohibited-output set is therefore enforced rather than merely asserted. What stays open is which key may EVENTUALLY persist, which is GATE-4 own unresolved owner question and not a GATE-3 criterion.',
     ownedBy: 'GATE_4_IDENTITY_GRAIN',
-    resolvedByThisWorkstream: false,
+    resolvedByThisWorkstream: true,
   },
   {
     id: 'RB-3',
     subject: 'the four unlabelled fields',
     detail:
-      'BRAZIL_RECEITA_GATE3_FIELDS_PRESENT_BUT_NOT_IN_INCLUDE_SET must each end as approved or excluded; 10K § 7 requires nothing unlabelled.',
+      'CLOSED in BR-SOURCE-GATE-ROUND-2. Every field carries exactly one of INCLUDED_OUTPUT / INTERNAL_PRIVACY_CONTROL_ONLY / EXCLUDED_OUTPUT / NOT_IMPLEMENTED, and the prose include set is now bound to real payload keys, so "nothing unlabelled" is checked by a function instead of argued in a review. See br-receita-cnpj-gate3-residual-field-classification.ts.',
     ownedBy: 'GATE_3_JOINT_APPROVERS',
-    resolvedByThisWorkstream: false,
+    resolvedByThisWorkstream: true,
   },
 ] as const satisfies readonly {
   readonly id: string;
@@ -229,6 +273,12 @@ export const BRAZIL_RECEITA_GATE3_DISCHARGED_BY_THIS_WORKSTREAM: readonly string
   'full CNPJ reconstruction from the sanitized snapshot output made impossible',
   'the snapshot output sanitizer extended from key-only to key and value validation',
   'RB-2: the twelve-character CNPJ hash used as a rejection diagnostic replaced with a non-CNPJ execution-local ordinal (safeIdentifier derived from sourceRowIndex)',
+  // BR-SOURCE-GATE-ROUND-2.
+  'RB-3: every previously unlabelled field carries exactly one of the four dispositions',
+  'the prose include set bound to real payload keys, so "nothing unlabelled" is mechanically checkable',
+  'legal_nature_code, legal_nature_label, simples_opt_in, simei_opt_in and mei_flag removed from the persisted business payload',
+  'the R5 enforcement point identified and recorded, correcting the premise that the payload flag enforced it',
+  'RB-1 enforced for this gate: persisting tax_id, normalized_tax_id or a tax-namespaced record_identity_key is refused in code',
 ] as const;
 
 // ─── Restrictions ─────────────────────────────────────────────────────────────
@@ -241,6 +291,11 @@ export const BRAZIL_RECEITA_GATE3_RESTRICTIONS: readonly string[] = [
   'no persistence, import, Supabase write, migration, runtime path or Agent 1 integration',
   'the eligibility design allowlist is not widened',
   'free-text fields fail closed: not on the allowlist means excluded',
-  'GATE-4 and GATE-5 remain separate, unapproved and unaffected',
+  'GATE-4 and GATE-5 remain separate and unapproved',
   'every residual blocker must be closed by its named owner before GATE-3 can be approved',
+  // BR-SOURCE-GATE-ROUND-2.
+  'ready_for_review is NO-GO in the § 15 matrix, exactly as not_started is',
+  'the legal/privacy half of the joint approval is outstanding and no agent may supply it',
+  'RB-3 classifications are product/data decisions and carry no legal/privacy determination',
+  'a field labelled INTERNAL_PRIVACY_CONTROL_ONLY may not be promoted to output without a recorded owner decision',
 ] as const;

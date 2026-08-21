@@ -2453,6 +2453,39 @@ jobs:
       - name: Run BR-SOURCE gate round 1 and CNPJ hardening tests
         run: npm run test:br-source:gate-round1-cnpj-hardening
 
+      # BR-SOURCE-GATE-ROUND-2 — identidad (GATE-4) y limpieza (GATE-6).
+      #
+      # Lo que esta suite congela:
+      #
+      #   · RB-3 CERRADO por ETIQUETADO, no por borrado: los cinco campos salen del payload
+      #     persistido, pero siguen calculándose en `internalControlSignals`, y el conteo
+      #     `meiFlaggedRows` —único consumidor real que `mei_flag` tuvo jamás— sigue
+      #     correcto. 🔴 La premisa de la ronda 1 («`mei_flag` es lo que un filtro lee»)
+      #     era FALSA: el control R5 vive en `privacy-safe-classifier`, que lee la natureza
+      #     jurídica de la fila FUENTE y nunca lee el payload. Se verifica en el módulo dueño.
+      #   · «nada sin etiqueta» pasa a ser MECÁNICO: el include set en prosa queda ligado a
+      #     claves reales del payload, y se prueban los DOS modos de fallo (clave nueva sin
+      #     etiquetar, y clave etiquetada como no-salida que se emite igual).
+      #   · GATE-4: grano decidido (opción D), identidad PERSISTIDA no. Una sola pregunta
+      #     abierta, legal/privacy, sin responder. La colisión R4 vs «determinista» queda
+      #     registrada. NO se implementa ningún generador de surrogate.
+      #   · `tax_id` / `normalized_tax_id` / `record_identity_key` son TRANSIENT_ONLY y
+      #     persistirlos se RECHAZA en código — incluido el caso que un autor futuro fallaría:
+      #     anular los dos primeros y dejar el key como `tax:<14>`.
+      #   · el bloqueador de PRODUCTIZACIÓN de búsqueda exacta se verifica contra los cinco
+      #     primitivos REALES de lectura y contra las migraciones 065/087 reales, no contra
+      #     su propia prosa. Sin `source_period`, unicidad por AÑO.
+      #   · GATE-2: los nombres de fichero temporal ya no llevan el ordinal derivado de la
+      #     clave. 🔴 Y se afirma que eso NO fabrica la confirmación del privacy owner.
+      #   · GATE-6: éxito-con-residuo es INRREPRESENTABLE; `failed` y `not_executed` son
+      #     terminales y un reintento no los mejora; limpieza idempotente, tras init parcial
+      #     y tras fallo del motor; el coordinador no acepta rutas por construcción.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales de Receita,
+      # sin benchmark. 0 créditos, 0 escrituras, 0 migraciones.
+      - name: Run BR-SOURCE gate round 2 identity and cleanup tests
+        run: npm run test:br-source:gate-round2-identity-cleanup
+
       # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 20 — la demanda RESIDUAL y la
       # memoria PREVIA.
       #
