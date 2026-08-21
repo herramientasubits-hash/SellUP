@@ -24,7 +24,6 @@ import {
   durableCandidatesFromCount,
   isDurableProspectCandidateStatus,
   resolveBatchDurableTotals,
-  resolveBatchFailureStatusDecision,
   resolveBatchTerminalStatusDecision,
   type DurableCandidateKnowledge,
 } from '../batch-durable-candidates';
@@ -568,7 +567,7 @@ describe('CUT-1 § 14/§ 18 — este PR no enciende ni redefine nada fuera de su
     const sql = read('supabase/migrations/040_prospect_batches_foundation.sql');
     assert.ok(sql.includes('CREATE TABLE IF NOT EXISTS prospect_candidates'));
     // El criterio se apoya en el esquema EXISTENTE; ninguna columna nueva.
-    const module = read('src/server/prospect-batches/batch-durable-candidates.ts');
-    assert.ok(!module.includes('ALTER TABLE'));
+    const survivalModule = read('src/server/prospect-batches/batch-durable-candidates.ts');
+    assert.ok(!survivalModule.includes('ALTER TABLE'));
   });
 });

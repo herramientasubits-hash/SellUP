@@ -103,7 +103,7 @@ function makeFakeAdmin(config: Config, stats: Stats): SupabaseClient {
             stats.batchUpdateCalls.push({ ...data });
             return new ChainResult({ error: null });
           },
-          insert(_data: Record<string, unknown>) {
+          insert() {
             return {
               select() {
                 return { single: () => Promise.resolve({ data: { id: NEW_BATCH_ID }, error: null }) };
@@ -115,7 +115,7 @@ function makeFakeAdmin(config: Config, stats: Stats): SupabaseClient {
 
       if (table === 'prospect_candidates') {
         return {
-          select(_cols: string, opts?: { count?: string; head?: boolean }) {
+          select(_cols?: string, opts?: { count?: string; head?: boolean }) {
             // La sonda de supervivencia: conteo acotado, sin filas.
             if (opts?.head === true) {
               stats.durableProbeCalls += 1;
