@@ -2,7 +2,7 @@
 // client components. The values are resolved at request time by server
 // components and server actions, then sent to the client as plain booleans.
 
-import { isEnvFlagEnabled } from '@/lib/env-flag-parser';
+import { isEnvFlagConfigured, isEnvFlagEnabled } from '@/lib/env-flag-parser';
 
 /**
  * Returns true when ENABLE_PROSPECT_CHAT_WIZARD_EXECUTION is "true"
@@ -380,6 +380,30 @@ export function isContactEnrichmentLocalReuseGateEnabled(): boolean {
   return isEnvFlagEnabled(process.env[CONTACT_ENRICHMENT_LOCAL_REUSE_GATE_FLAG]);
 }
 
+/**
+ * ¿Existe la variable `ENABLE_CONTACT_ENRICHMENT_LOCAL_REUSE_GATE` en este runtime?
+ *
+ * PRESENCIA, nunca el valor — mismo par presencia/resolución que
+ * `isPhoneRevealWaterfallFlagConfigured` y hermanos, resuelto con el predicado
+ * canónico `isEnvFlagConfigured` para que no exista una segunda definición de
+ * «configurada».
+ *
+ * Motivo concreto por el que se añade
+ * (AGENT2A-LOCAL-REUSE-PROD-OBSERVABILITY-1): el valor de este flag en Producción
+ * era ILEGIBLE para cualquier agente —los flags de Vercel son `type: sensitive` y
+ * el token local de Vercel está caducado— y NINGÚN endpoint lo publicaba. La
+ * consecuencia no es cosmética: con el flag OFF la protección PRE-Lusha-Prospecting
+ * de #318 simplemente NO existe, y el síntoma observable —una corrida que sí llama
+ * a Lusha— es idéntico al de una corrida donde la puerta se evaluó y no acertó.
+ * Sin esta señal las dos cosas no se pueden separar, así que «la protección está
+ * activa» sólo se podía suponer.
+ *
+ * Leer esto no activa nada: es presencia de una variable, no una decisión.
+ */
+export function isContactEnrichmentLocalReuseGateFlagConfigured(): boolean {
+  return isEnvFlagConfigured(process.env[CONTACT_ENRICHMENT_LOCAL_REUSE_GATE_FLAG]);
+}
+
 // ============================================================
 // Apollo Phone Reveal Recovery L2 cron (Agente 2A · RECOVERY-CRON-1)
 // ============================================================
@@ -448,15 +472,41 @@ export const APOLLO_PHONE_REVEAL_FLAG = 'ENABLE_APOLLO_PHONE_REVEAL';
  * Returns true when ENABLE_APOLLO_PHONE_REVEAL is exactly "true"
  * (case-insensitive, leading/trailing whitespace ignored).
  *
- * Default: false. This flag scaffolds the FUTURE explicit Apollo phone reveal.
- * As of PHONE-3D.1 it gates nothing at runtime: no route, server action, runner
- * or UI reads it, so enabling it has no effect and spends no credits. Automatic
- * completion, the Apollo runner and the routing fallback continue to omit
- * `reveal_phone_number` entirely (see contact-completion-adapter.buildMatchParams).
- * Real reveal remains blocked pending the legal/product decision (Habeas Data /
- * Ley 1581 / LOPDP). Unrelated to Lusha, whose phone reveal is hard-off
- * (see isLushaPhoneRevealEnabled). Must not be enabled in any environment by
- * this milestone.
+ * Default: false, fail-closed.
+ *
+ * CORRECCIÓN DOCUMENTAL (AGENT2A-LOCAL-REUSE-PROD-OBSERVABILITY-1) — el texto
+ * anterior decía que este flag «scaffolds the FUTURE explicit Apollo phone reveal»
+ * y que «as of PHONE-3D.1 it gates nothing at runtime: no route, server action,
+ * runner or UI reads it, so enabling it has no effect and spends no credits».
+ * Eso dejó de ser cierto y describía un flag INERTE que hoy gobierna una
+ * operación PAGADA — el peor sentido en el que un comentario puede envejecer,
+ * porque invita a encenderlo como si no tuviera consecuencias. Lo que gobierna
+ * hoy, verificado en el código de este mismo commit:
+ *   * `revealCandidatePhoneAction` (src/modules/contact-enrichment/
+ *     phone-reveal-actions.ts) — con el flag OFF corta ANTES de resolver actor o
+ *     tocar la DB; con el flag ON INICIA el reveal asíncrono real vía Apollo;
+ *   * `contact-candidates-panel.tsx` (server component) — con el flag OFF el
+ *     botón «Revelar teléfono» NO se renderiza.
+ * Encenderlo, por tanto, SÍ tiene efecto y SÍ puede consumir créditos.
+ *
+ * Sigue siendo cierto —y sigue siendo el reparto de responsabilidades— que la
+ * completación automática, el runner de Apollo y el fallback de enrutado omiten
+ * `reveal_phone_number` por completo (ver
+ * contact-completion-adapter.buildMatchParams): el ÚNICO punto autorizado para
+ * `reveal_phone_number: true` + `webhook_url` es apollo-phone-reveal.ts, la ruta
+ * explícita que este flag gobierna. No hay reveal implícito en ningún otro camino.
+ *
+ * Estado en Producción: NO asumirlo desde este comentario. El valor de los
+ * registros de Vercel es ilegible (`type: sensitive`), así que el estado real se
+ * comprueba en runtime — GET /api/debug/agent2a-phone-waterfall-config
+ * (admin-only), que publica presencia y resolución por separado para los flags de
+ * teléfono. El «must not be enabled in any environment by this milestone» del
+ * texto anterior era la instrucción de SU hito, no una descripción vigente del
+ * entorno, y por eso se retira de aquí.
+ *
+ * Sin relación con Lusha, cuyo phone reveal es hard-off y no depende de ningún env
+ * (ver isLushaPhoneRevealEnabled). El comportamiento del flag NO cambia en este
+ * hito: sólo se corrige lo que este comentario afirmaba.
  */
 export function isApolloPhoneRevealEnabled(): boolean {
   return (

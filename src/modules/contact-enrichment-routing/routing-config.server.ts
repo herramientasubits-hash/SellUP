@@ -32,6 +32,7 @@
 //     "always returns a fixed value, never reads an env var" pattern as
 //     isLushaPhoneRevealEnabled() in src/lib/feature-flags.server.ts.
 
+import { isEnvFlagConfigured } from '@/lib/env-flag-parser';
 import {
   ROUTING_MAX_PROVIDER_ATTEMPTS_V1,
   type RoutingFallbackReasonV1,
@@ -192,6 +193,30 @@ export function buildContactEnrichmentRoutingConfigV1(env: EnvLike): ContactEnri
 /** process.env-backed accessor. Reads at call time — no module-level caching. */
 export function getContactEnrichmentRoutingConfigV1(): ContactEnrichmentRoutingConfigV1 {
   return buildContactEnrichmentRoutingConfigV1(process.env);
+}
+
+/**
+ * ¿Existe la variable `ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING` en este runtime?
+ *
+ * PRESENCIA, nunca el valor. Vive AQUÍ, junto a la constante del flag y al
+ * accesor que lo resuelve, porque este módulo es el dueño de ese flag: publicar
+ * la presencia desde otro sitio obligaría a repetir el nombre de la variable y
+ * los dos podrían separarse.
+ *
+ * Es la MITAD que faltaba del diagnóstico, y no es intercambiable con la otra:
+ * `getContactEnrichmentRoutingConfigV1().automaticRoutingEnabled` responde «¿lo
+ * resuelve el runtime como activo?», y una variable PRESENTE con cualquier valor
+ * que no sea exactamente `"true"` lo deja APAGADO — un caso que, sin esta señal,
+ * es indistinguible de la variable AUSENTE. Importa especialmente en este flag
+ * porque es el master switch: con él apagado el resto del enrutado automático,
+ * incluida la puerta de reuso local, es INALCANZABLE, así que confundir «ausente»
+ * con «presente y apagada» hace atribuir al flag equivocado todo lo que no ocurre.
+ *
+ * No lee ni deriva el valor: sólo su longitud tras `trim()`, reducida a un
+ * booleano. Llamarla no cambia el modo de enrutado ni activa nada.
+ */
+export function isContactEnrichmentAutomaticRoutingFlagConfigured(): boolean {
+  return isEnvFlagConfigured(process.env[CONTACT_ENRICHMENT_AUTOMATIC_ROUTING_FLAG]);
 }
 
 /**
