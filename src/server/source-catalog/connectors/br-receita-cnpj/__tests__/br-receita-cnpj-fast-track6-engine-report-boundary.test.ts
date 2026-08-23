@@ -16,7 +16,8 @@
  *     has seen fail is a guard nobody knows works.
  *   · the ASYMMETRY is proved by execution, not asserted in prose: 11A returns `ok` on the three
  *     legacy keys and the GATE-5 guard returns six findings on the same three. That is the entire
- *     reason the emitter survives today, and it is the thing most likely to be misremembered.
+ *     reason the emitter was able to survive BEFORE its removal, and it is the thing most likely to
+ *     be misremembered.
  *   · the historical shape is asserted UNCHANGED — by reading the owning module and finding all three
  *     key declarations still there. "We preserved the legacy contract" should not need a diff.
  *   · `rows_emitted -> records_persisted` is asserted REFUSED, so a future author meets the refusal
@@ -261,8 +262,8 @@ describe('BOUNDARY · the three legacy keys are internal safety facts, refused b
   });
 
   it('🔴 THE ASYMMETRY, proved by execution: 11A passes the three keys and GATE-5 refuses them', () => {
-    // This is why the emitter survives today, and it is the single fact most likely to be
-    // misremembered as "the sanitizer would have caught it".
+    // This is why the emitter was able to survive BEFORE its fail-closed removal, and it is the
+    // single fact most likely to be misremembered as "the sanitizer would have caught it".
     const sanitizer11A = sanitizeBrazilReceitaFullJoinReport(LEGACY_KEYS_FIXTURE);
     assert.equal(sanitizer11A.ok, true, '11A is a denylist over dataset-looking CONTENT — 0 and false look like nothing');
     assert.deepEqual([...sanitizer11A.findings], []);
@@ -736,5 +737,155 @@ describe('BOUNDARY · no gate approval is earned by this correction', () => {
     assert.match(runLines, /npm run test:br-source:fast-track6-engine-report-boundary/);
     // The emitter-removal step, which also runs the CLI suites that must not break.
     assert.match(runLines, /npm run test:br-source:fast-track6-emitter-removal/);
+  });
+});
+
+// ─── 9 · The audit text may not contradict the audit state ────────────────────
+
+/**
+ * 🔴 These guards exist because the FINAL FAIL-CLOSED EMITTER REMOVAL changed the STATE but left four
+ * sentences describing the OLD state in the PRESENT tense. A human packet that records the blocker
+ * DISCHARGED in § 6.1 and then, under GATE-5, tells the approver their signature "does not discharge
+ * the engineering blocker above" is not a wording nit: it is a document that answers the reader's own
+ * question two different ways, and the reader has no way to know which half is stale.
+ *
+ * Each assertion pins ONE exact contradiction that actually occurred. This is deliberately NOT a prose
+ * linter — a broad "no present tense near a removed thing" rule would fire on every legitimate
+ * description of the live guard and would be disabled within a round. HISTORICAL wording is not merely
+ * tolerated here, it is REQUIRED: the positive assertions below fail if the past-tense framing that
+ * carries the finding forward is ever quietly deleted along with the contradiction.
+ */
+describe('BOUNDARY · the audit TEXT matches the audit STATE (no stale present tense)', () => {
+  /** The comment block immediately above a workflow step, as normalized single-space text. */
+  function workflowCommentBlockAbove(runCommand: string): string {
+    const lines = repoFile('.github/workflows/automatic-routing-tests.yml').split('\n');
+    const runIndex = lines.findIndex((line) =>
+      new RegExp(`^\\s*run:\\s.*${runCommand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`).test(line),
+    );
+    assert.ok(runIndex > 0, `the step running ${runCommand} must exist`);
+    const collected: string[] = [];
+    // Walk backwards over the step's own `- name:` line, then over its contiguous comment block.
+    for (let i = runIndex - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (/^\s*-\s*name:\s/.test(line)) continue;
+      if (/^\s*#/.test(line)) {
+        collected.unshift(line.replace(/^\s*#\s?/, ''));
+        continue;
+      }
+      break;
+    }
+    assert.ok(collected.length > 0, `${runCommand} must carry a comment block`);
+    return collected.join(' ').replace(/\s+/g, ' ');
+  }
+
+  // A · the packet may not tell the approver the blocker is still open.
+  it('A · the owner packet does NOT carry the current-state "does not discharge the engineering blocker" phrase', () => {
+    const packet = markdownProse(
+      repoFile('docs/source-catalog/br-receita-cnpj-final-owner-signoff-packet.md'),
+    );
+    // Markdown bold markers sit inside the phrase (`does **not** discharge`), so they are stripped
+    // before matching — otherwise re-emphasising the sentence would smuggle the contradiction back in.
+    const unemphasised = packet.replace(/\*\*/g, '');
+    assert.ok(
+      !/does not discharge the engineering blocker/i.test(unemphasised),
+      'the blocker is DISCHARGED in § 6.1; the GATE-5 bound may not claim otherwise',
+    );
+    // And § 6.1 really does record it discharged — so this guard cannot be satisfied by deleting § 6.1.
+    assert.match(packet, /The engineering blocker that stood here — now DISCHARGED/);
+    assert.match(unemphasised, /discharged: YES — the serialization was removed fail-closed/);
+    // The replacement bound must still fence the projection, which remains unimplemented.
+    assert.match(
+      unemphasised,
+      /it does not authorize or implement the future GATE-5 projection, and must not be read as approving the legacy object as an emission schema/,
+    );
+  });
+
+  // B · the packet may not describe the removed bypass in the present tense.
+  it('B · the owner packet describes the removed bypass in the PAST tense', () => {
+    const packet = markdownProse(
+      repoFile('docs/source-catalog/br-receita-cnpj-final-owner-signoff-packet.md'),
+    );
+    assert.ok(
+      !/Why it survives:/i.test(packet),
+      'the bypass was removed; "Why it survives:" describes a live path',
+    );
+    assert.ok(!/Why it survives today/i.test(packet));
+    // Historical wording is REQUIRED, not merely allowed: the finding must still be carried forward.
+    assert.match(packet, /Why the bypass was able to survive before removal/i);
+  });
+
+  // C · 10K § 9.3 may not describe the removed bypass in the present tense.
+  it('C · 10K § 9.3 describes the removed bypass in the PAST tense', () => {
+    const raw = repoFile('docs/source-catalog/br-receita-cnpj-full-join-approval-gates-checklist.md');
+    // Bold markers AND inline-code backticks are stripped: § 9.3 writes the finding kinds as
+    // `KEY-ALLOWLIST` / `KEY-DENYLIST`, so a backtick-naive regex reports the reasoning missing when
+    // it is present — and would then "pass" only by being weakened.
+    const checklist = markdownProse(raw).replace(/[*`]/g, '');
+    assert.ok(
+      !/Why it survives today/i.test(checklist),
+      '§ 9.3 records the bypass REMOVED; "survives today" contradicts it',
+    );
+    assert.match(checklist, /Why it survived before removal/i);
+    // The technical reasoning § 9.3 exists to carry must survive the tense fix, all of it.
+    assert.match(raw, /^### 9\.3 /m);
+    assert.match(checklist, /BR-SOURCE-11A is a denylist over dataset-looking content/i);
+    assert.match(checklist, /Only the § 6 allowlist refuses a key by ABSENCE/);
+    assert.match(checklist, /returns six findings — three KEY-ALLOWLIST, three KEY-DENYLIST group 7/);
+    assert.match(checklist, /REMOVED fail-closed/i);
+    assert.match(checklist, /cli_stdout/);
+  });
+
+  // D · the boundary step's CI comment may not claim a CURRENT open emitter.
+  it('D · the boundary CI comment states the HISTORICAL finding, not a current open defect', () => {
+    const comment = workflowCommentBlockAbove('test:br-source:fast-track6-engine-report-boundary');
+
+    for (const stale of [
+      /ESTA SUITE DOCUMENTA UN DEFECTO ABIERTO/i,
+      /EXISTE UN EMISOR DIRECTO/i,
+      /ingeniería limpia = false/i,
+      /FIVE_GATES_WAIT_ONLY_ON_HUMANS\s*=\s*false/i,
+    ]) {
+      assert.ok(!stale.test(comment), `stale current-state claim in the boundary comment: ${stale}`);
+    }
+
+    // The five facts the comment must state, so the next reader cannot read the suite backwards.
+    assert.match(comment, /HISTORICAL_DIRECT_EMITTER_EXISTED\s*=\s*true/);
+    assert.match(comment, /HISTORICAL_FINDING_PRESERVED\s*=\s*true/);
+    assert.match(comment, /CURRENT_DIRECT_EMITTER_EXISTS\s*=\s*false/);
+    assert.match(comment, /CURRENT_ENGINEERING_BLOCKER\s*=\s*false/);
+    assert.match(comment, /FIVE_GATES_WAIT_ONLY_ON_HUMANS\s*=\s*true/);
+    // Historical evidence is preserved, and the projection is still owed.
+    assert.match(comment, /resolution: removed_by_fail_closed_boundary/);
+    assert.match(comment, /GATE5_ENGINE_REPORT_PROJECTION_REQUIRED=true/);
+    assert.match(comment, /La proyección NO se implementa/);
+    // No gate moved.
+    assert.match(comment, /0 gates movidas/);
+    assert.match(comment, /NO-GO/);
+  });
+
+  it('D · the removal step\'s CI comment still proves the live set is empty', () => {
+    const comment = workflowCommentBlockAbove('test:br-source:fast-track6-emitter-removal');
+    assert.match(comment, /YA NO EXISTE/);
+    assert.match(comment, /El conjunto VIVO está vacío/i);
+    assert.match(comment, /removed_by_fail_closed_boundary/);
+    assert.match(comment, /addsRunnerCapability: false/);
+    assert.match(comment, /removesAnExternalEmissionPath: true/);
+  });
+
+  // E · all three FAST-TRACK-6 commands still execute.
+  it('E · the workflow still runs all three FAST-TRACK-6 commands on run: lines', () => {
+    // 🔴 Asserted on `run:` lines only. Grepping step NAMES is the known false positive here: a
+    // renamed step reads as present while the command that proves anything is gone.
+    const runLines = repoFile('.github/workflows/automatic-routing-tests.yml')
+      .split('\n')
+      .filter((line) => /^\s*run:\s/.test(line))
+      .join('\n');
+    for (const command of [
+      'npm run test:br-source:fast-track6-gate5-and-gate7',
+      'npm run test:br-source:fast-track6-engine-report-boundary',
+      'npm run test:br-source:fast-track6-emitter-removal',
+    ]) {
+      assert.ok(runLines.includes(command), `${command} must still run in CI`);
+    }
   });
 });

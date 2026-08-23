@@ -2572,7 +2572,21 @@ jobs:
       # BR-SOURCE-FAST-TRACK-6 CORRECCIÓN FINAL DE FRONTERA — GATE-5 vs. el informe
       # HISTÓRICO del motor (11A/14B).
       #
-      # 🔴 ESTA SUITE DOCUMENTA UN DEFECTO ABIERTO. No afirma cero.
+      # 🔴 ESTA SUITE PRESERVA UN HALLAZGO HISTÓRICO, YA RESUELTO. No documenta un
+      # defecto abierto: el emisor directo fue ELIMINADO fail-closed en este mismo
+      # milestone, y el paso siguiente (`…-emitter-removal`) prueba que el conjunto VIVO
+      # está VACÍO. Estado actual, para que nadie lea esta suite al revés:
+      #
+      #     HISTORICAL_DIRECT_EMITTER_EXISTED = true
+      #     HISTORICAL_FINDING_PRESERVED      = true
+      #     CURRENT_DIRECT_EMITTER_EXISTS     = false
+      #     CURRENT_ENGINEERING_BLOCKER       = false
+      #     FIVE_GATES_WAIT_ONLY_ON_HUMANS    = true   (DERIVADO del array vivo)
+      #
+      # 🔴 La evidencia histórica NO se borra: se conserva enumerada, con su cadena exacta
+      # y su `resolution: removed_by_fail_closed_boundary`, porque un lector que sólo vea
+      # el estado limpio reconstruiría la misma forma. Preservar el hallazgo y afirmar el
+      # cero VIVO no están en tensión: son dos conjuntos distintos.
       #
       # Lo que congela:
       #
@@ -2594,19 +2608,25 @@ jobs:
       #     {ok:true,findings:[]} sobre las 3 claves (es un DENYLIST de contenido que parece
       #     dato; `0` y `false` no parecen nada) y el guard de GATE-5 devuelve 6 hallazgos
       #     (3 KEY-ALLOWLIST + 3 KEY-DENYLIST grupo 7). Sólo el allowlist § 6 rechaza una
-      #     clave por AUSENCIA — y no está en esa ruta.
-      #   · 🔴 EXISTE UN EMISOR DIRECTO: la ruta de benchmark serializa el informe histórico
-      #     entero a cli_stdout. Está ENUMERADO con su cadena exacta y sus 3 murallas de
-      #     alcance. La suite es un RATCHET: el conjunto descubierto debe IGUALAR al
-      #     registrado. No se afirma cero (sería falso) ni se excluye el archivo (sería
-      #     esconderlo tras un allowlist).
+      #     clave por AUSENCIA — y no estaba en la ruta que se eliminó. Ésa es la razón por
+      #     la que el emisor pudo sobrevivir a 11A ANTES de la eliminación.
+      #   · 🔴 EXISTIÓ UN EMISOR DIRECTO, y HOY NO: la ruta de benchmark serializaba el
+      #     informe histórico entero a cli_stdout. Queda ENUMERADO como HISTÓRICO, con su
+      #     cadena exacta, sus 3 murallas de alcance y su
+      #     `resolution: removed_by_fail_closed_boundary`. La suite es un RATCHET sobre el
+      #     conjunto VIVO —que debe IGUALAR al registrado, y está VACÍO—: un emisor nuevo la
+      #     rompe, y borrar en silencio el registro histórico también. El archivo NO se
+      #     excluye (sería esconderlo tras un allowlist): se prueba que la expresión está
+      #     AUSENTE de él.
       #   · GATE5_ENGINE_REPORT_PROJECTION_REQUIRED=true con el pipeline y el ATAJO
       #     PROHIBIDO como datos separados. La proyección NO se implementa: es código de
       #     emisor, y § 4 lo prohíbe mientras haya una gate sin aprobar.
       #   · el veredicto de frontera se DERIVA de dos mitades (contrato registrado = true,
-      #     ingeniería limpia = false) ⇒ «documentado» nunca se puede reportar como
-      #     «arreglado». FIVE_GATES_WAIT_ONLY_ON_HUMANS = false, y el packet humano lo
-      #     DIVULGA en la sección de GATE-5.
+      #     ingeniería limpia = true tras la eliminación) ⇒ el veredicto NUNCA se teclea, y
+      #     por eso «documentado» no se pudo reportar como «arreglado» mientras el emisor
+      #     vivía. Hoy `FIVE_GATES_WAIT_ONLY_ON_HUMANS = true`, DERIVADO de
+      #     `CURRENT_DIRECT_..._EMITTERS.length === 0`, y el packet humano DIVULGA en la
+      #     sección de GATE-5 tanto la eliminación como la proyección que sigue PENDIENTE.
       #   · 0 gates movidas: 1..8 exactamente iguales, veredicto NO-GO.
       #
       # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales, sin

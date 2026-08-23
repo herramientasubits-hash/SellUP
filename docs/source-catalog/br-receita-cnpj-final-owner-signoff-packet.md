@@ -324,11 +324,12 @@ full-join-engine                 builds the legacy engine report
   → cli_stdout                                            ← a GATE-5 surface
 ```
 
-Why it survives: **11A is a denylist over dataset-looking content.** `rows_emitted: 0` and
-`raw_rows_printed: false` look like nothing at all, so 11A returns `ok` and has no opinion about whether
-anybody reviewed the keys. Only the § 6 allowlist refuses a key by **absence**, and it is not on that
-path. Running the GATE-5 guard over the same three keys returns **six** findings — three
-`KEY-ALLOWLIST`, three `KEY-DENYLIST` group 7 — and the suite proves both halves by execution.
+Why the bypass was able to survive before removal: **11A is a denylist over dataset-looking
+content.** `rows_emitted: 0` and `raw_rows_printed: false` look like nothing at all, so 11A returned
+`ok` and had no opinion about whether anybody reviewed the keys. Only the § 6 allowlist refuses a key
+by **absence**, and it was not on that path. Running the GATE-5 guard over the same three keys returns
+**six** findings — three `KEY-ALLOWLIST`, three `KEY-DENYLIST` group 7 — and the suite proves both
+halves by execution.
 
 It was **gated**, not live: the attempt-limit wall (attempt #3 refused unconditionally), the
 second-attempt owner wall, and three process-scoped operator approvals each from its own CLI flag — and
@@ -377,8 +378,8 @@ a full-join run at all**, and that is the intended fail-closed state while GATE-
 
 - it authorizes writing sanitization **tests** in a future, separately approved milestone, and nothing
   else;
-- 🔴 it does **not** discharge the engineering blocker above, and must not be read as approving the
-  legacy object as an emission schema;
+- 🔴 it does **not** authorize or implement the future GATE-5 projection, and must not be read as
+  approving the legacy object as an emission schema;
 - it does not authorize executing the full join, nor emitting any report from real data;
 - it does not freeze the report SCHEMA while GATE-3 and GATE-4 are open;
 - 🔴 the implementer of this subject may supply **neither** half of the approval (10K § 3), and

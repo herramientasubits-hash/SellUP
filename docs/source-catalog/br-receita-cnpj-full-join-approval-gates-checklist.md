@@ -1339,12 +1339,12 @@ full-join-engine              builds the legacy engine report
   → cli_stdout                                             ← a GATE-5 surface
 ```
 
-**Why it survives today, and this is the finding worth remembering:** BR-SOURCE-11A is a **denylist over
-dataset-looking content**. `rows_emitted: 0` and `raw_rows_printed: false` look like nothing at all, so
-11A returns `ok` and has no opinion about whether anybody reviewed the keys. **Only the § 6 allowlist
-refuses a key by ABSENCE**, and the § 6 allowlist is not on that path. The round's suite proves both
-halves by EXECUTION: 11A returns `{ok: true, findings: []}` on the three keys, and the GATE-5 guard
-returns **six** findings — three `KEY-ALLOWLIST`, three `KEY-DENYLIST` group 7.
+**Why it survived before removal, and this is the finding worth remembering:** BR-SOURCE-11A is a
+**denylist over dataset-looking content**. `rows_emitted: 0` and `raw_rows_printed: false` look like
+nothing at all, so 11A returned `ok` and had no opinion about whether anybody reviewed the keys. **Only
+the § 6 allowlist refuses a key by ABSENCE**, and the § 6 allowlist was not on that path. The round's
+suite proves both halves by EXECUTION: 11A returns `{ok: true, findings: []}` on the three keys, and the
+GATE-5 guard returns **six** findings — three `KEY-ALLOWLIST`, three `KEY-DENYLIST` group 7.
 
 It was **gated**, not live: the attempt-limit wall (attempt #3 refused unconditionally), the
 second-attempt owner wall, and three process-scoped operator approvals each from its own CLI flag — and
