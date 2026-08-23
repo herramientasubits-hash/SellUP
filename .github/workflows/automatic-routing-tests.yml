@@ -2584,6 +2584,145 @@ jobs:
       - name: Run BR-SOURCE gate round 3 output sanitization tests
         run: npm run test:br-source:gate-round3-output-sanitization
 
+      # BR-SOURCE-FAST-TRACK-6 — limpieza final del contrato GATE-5, el RUNBOOK real de
+      # GATE-7, y el paquete de decisiones humanas.
+      #
+      # Lo que esta suite congela:
+      #
+      #   · 🔴 LAS TRES COLISIONES DE GATE-5 SE CIERRAN MOVIENDO LA DIRECCIÓN DEL DUEÑO,
+      #     nunca el invariante. `total_rows_scanned` pasa a ser CONTADOR INTERNO y no
+      #     sale por NINGUNA superficie (OD-C1/OD-C2); la etiqueta residual pasa a
+      #     `suppressed_other` (OD-C3). Se afirma la PAREJA: `resolvedByThisRound=true`
+      #     junto a `weakenedByThisRound=false` e `invariantMovedToAccommodateIt=null`.
+      #     BR-SOURCE-11A se comprueba EJECUTÁNDOLO, no leyendo un flag.
+      #   · dos claves de salida RENOMBRADAS —`records_persisted`,
+      #     `records_seen_by_family`— en vez de apoyarse en la precedencia. El grupo 7 del
+      #     denylist NO se editó: las grafías viejas siguen disparándolo.
+      #   · 🔴 `ALLOWLISTED_KEYS_TRIPPING_DENYLIST` queda VACÍO **por derivación** (se
+      #     intersecan las dos listas reales), y la PRECEDENCIA se CONSERVA: decide el
+      #     próximo desacuerdo, y esa respuesta tiene que existir antes del desacuerdo.
+      #   · 🔴 tiradas de dígitos de 8, 9, 10, 11, 12, 13, 14 y 15 fallan CERRADO por al
+      #     menos una capa autoritativa, probado EJECUTANDO las dos capas. Los dos
+      #     contratos NO se fusionan en un solo regex y VP-1..VP-4 NO se ensanchan.
+      #   · el RUNBOOK de GATE-7 EXISTE (runbook § 16) y el test LEE el documento: 11
+      #     pasos, P-01..P-22 en la prosa, identidad de operador humano, preflight de
+      #     recursos con los techos IMPORTADOS de GATE-2, workspace, dataset, privacidad,
+      #     monitorización, revisión de salida, limpieza y firma.
+      #   · 🔴 SIN BYPASS: el evaluador de precondiciones tiene ARIDAD 0 —no hay objeto de
+      #     opciones donde acabaría viviendo un `force`— y devuelve FAIL hoy.
+      #     `ATTEMPT_3_ALLOWED` se IMPORTA del ledger y sigue false.
+      #   · 🔴 GATE-7 queda `blocked`, NO `ready_for_review`: lo bloquean GATE-2, GATE-5 y
+      #     GATE-6, y la reproducibilidad por otro operador sigue UNDEMONSTRATED (exige un
+      #     ensayo que nadie autorizó). 4 bloqueadores exactos, ninguno resoluble por un
+      #     agente.
+      #   · el paquete humano son PREGUNTAS: 7 secciones no agrupadas, TODOS los campos de
+      #     respuesta en `null`, y un validador que RECHAZA un paquete con campos
+      #     rellenados. La dirección técnica del proyecto NO es una firma de privacidad.
+      #   · GATE-4 aprobado NO desbloquea escrituras de snapshot de Brasil: falta la
+      #     identidad física `source_period` YYYY-MM, y su migración no se escribe aquí.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales de Receita,
+      # sin benchmark, sin ensayo. 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run BR-SOURCE FAST-TRACK-6 GATE-5 cleanup and GATE-7 runbook tests
+        run: npm run test:br-source:fast-track6-gate5-and-gate7
+
+      # BR-SOURCE-FAST-TRACK-6 CORRECCIÓN FINAL DE FRONTERA — GATE-5 vs. el informe
+      # HISTÓRICO del motor (11A/14B).
+      #
+      # 🔴 ESTA SUITE PRESERVA UN HALLAZGO HISTÓRICO, YA RESUELTO. No documenta un
+      # defecto abierto: el emisor directo fue ELIMINADO fail-closed en este mismo
+      # milestone, y el paso siguiente (`…-emitter-removal`) prueba que el conjunto VIVO
+      # está VACÍO. Estado actual, para que nadie lea esta suite al revés:
+      #
+      #     HISTORICAL_DIRECT_EMITTER_EXISTED = true
+      #     HISTORICAL_FINDING_PRESERVED      = true
+      #     CURRENT_DIRECT_EMITTER_EXISTS     = false
+      #     CURRENT_ENGINEERING_BLOCKER       = false
+      #     FIVE_GATES_WAIT_ONLY_ON_HUMANS    = true   (DERIVADO del array vivo)
+      #
+      # 🔴 La evidencia histórica NO se borra: se conserva enumerada, con su cadena exacta
+      # y su `resolution: removed_by_fail_closed_boundary`, porque un lector que sólo vea
+      # el estado limpio reconstruiría la misma forma. Preservar el hallazgo y afirmar el
+      # cero VIVO no están en tensión: son dos conjuntos distintos.
+      #
+      # Lo que congela:
+      #
+      #   · `BrazilReceitaFullJoinEnginePublicReport` queda clasificado
+      #     LEGACY_ENGINE_SANITIZED_REPORT_SHAPE: NO es una emisión aprobada de GATE-5.
+      #     🔴 `PublicReport` es un NOMBRE ENGAÑOSO —significa «la mitad no privada de la
+      #     salida del motor», nunca «aprobado para emitir»— y es anterior a GATE-5.
+      #   · las 3 claves históricas (`rows_emitted`, `raw_rows_printed`,
+      #     `zero_output_rows_enforced`) quedan como LEGACY_ENGINE_INTERNAL_SAFETY_FACT:
+      #     pueden seguir en el objeto histórico, NUNCA sobrevivir a una superficie GATE-5.
+      #   · 🔴 NADA se renombró, y la EVIDENCIA de consumidores dice por qué: el motor lo
+      #     construye, el benchmark lo incrusta, el harness lo sanea y 3 suites afirman sus
+      #     campos POR NOMBRE. `raw_rows_printed` es un HECHO DE SEGURIDAD afirmado false en
+      #     el runner, la suite del sanitizador 11A, 3 scripts y 7 decision records.
+      #   · 🔴 `rows_emitted` NO se mapea a `records_persisted`: emitido ≠ persistido. Hoy
+      #     ambos leen 0 con maxOutputRows=0 y sink nulo, y una coincidencia de VALOR en un
+      #     punto de operación no es una equivalencia de SIGNIFICADO.
+      #   · 🔴 LA ASIMETRÍA, probada EJECUTANDO las dos capas: 11A devuelve
+      #     {ok:true,findings:[]} sobre las 3 claves (es un DENYLIST de contenido que parece
+      #     dato; `0` y `false` no parecen nada) y el guard de GATE-5 devuelve 6 hallazgos
+      #     (3 KEY-ALLOWLIST + 3 KEY-DENYLIST grupo 7). Sólo el allowlist § 6 rechaza una
+      #     clave por AUSENCIA — y no estaba en la ruta que se eliminó. Ésa es la razón por
+      #     la que el emisor pudo sobrevivir a 11A ANTES de la eliminación.
+      #   · 🔴 EXISTIÓ UN EMISOR DIRECTO, y HOY NO: la ruta de benchmark serializaba el
+      #     informe histórico entero a cli_stdout. Queda ENUMERADO como HISTÓRICO, con su
+      #     cadena exacta, sus 3 murallas de alcance y su
+      #     `resolution: removed_by_fail_closed_boundary`. La suite es un RATCHET sobre el
+      #     conjunto VIVO —que debe IGUALAR al registrado, y está VACÍO—: un emisor nuevo la
+      #     rompe, y borrar en silencio el registro histórico también. El archivo NO se
+      #     excluye (sería esconderlo tras un allowlist): se prueba que la expresión está
+      #     AUSENTE de él.
+      #   · GATE5_ENGINE_REPORT_PROJECTION_REQUIRED=true con el pipeline y el ATAJO
+      #     PROHIBIDO como datos separados. La proyección NO se implementa: es código de
+      #     emisor, y § 4 lo prohíbe mientras haya una gate sin aprobar.
+      #   · el veredicto de frontera se DERIVA de dos mitades (contrato registrado = true,
+      #     ingeniería limpia = true tras la eliminación) ⇒ el veredicto NUNCA se teclea, y
+      #     por eso «documentado» no se pudo reportar como «arreglado» mientras el emisor
+      #     vivía. Hoy `FIVE_GATES_WAIT_ONLY_ON_HUMANS = true`, DERIVADO de
+      #     `CURRENT_DIRECT_..._EMITTERS.length === 0`, y el packet humano DIVULGA en la
+      #     sección de GATE-5 tanto la eliminación como la proyección que sigue PENDIENTE.
+      #   · 0 gates movidas: 1..8 exactamente iguales, veredicto NO-GO.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales, sin
+      # benchmark, sin ensayo. 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run BR-SOURCE FAST-TRACK-6 engine-report boundary tests
+        run: npm run test:br-source:fast-track6-engine-report-boundary
+
+      # BR-SOURCE-FAST-TRACK-6 ELIMINACIÓN FAIL-CLOSED DEL EMISOR — el paso que prueba
+      # que el bypass YA NO EXISTE, junto a las suites del CLI que no deben romperse.
+      #
+      #   · 🔴 la línea `process.stdout.write(JSON.stringify(outcome.publicReport))` del CLI
+      #     de benchmark está BORRADA. Era el único camino por el que el informe HISTÓRICO
+      #     del motor (con `engine_report` incrustado entero) llegaba a `cli_stdout`.
+      #   · el estado retenido viaja como CÓDIGO DE SALIDA dedicado —el único canal que no
+      #     puede llevar un valor—: 0 stdout, 0 stderr, 0 stack, 0 informe sustituto,
+      #     0 fallback a fichero/log, 0 superficie de diagnóstico nueva.
+      #   · 🔴 es una ELIMINACIÓN, no una capacidad: `addsRunnerCapability: false`,
+      #     `removesAnExternalEmissionPath: true`. No se implementó la proyección GATE-5,
+      #     no se inventó esquema, no se debilitó GATE-5 ni 11A, no se añadió excepción.
+      #   · la contabilidad de intentos se PRESERVA (3 escalares, sin `engine_report`):
+      #     tirarla haría indistinguible una corrida retenida de una que nunca ocurrió.
+      #   · el hallazgo HISTÓRICO no se borra: queda con
+      #     `resolution: removed_by_fail_closed_boundary` y la expresión exacta eliminada.
+      #     El conjunto VIVO está vacío y el veredicto se DERIVA de ese array, no se teclea.
+      #   · 🔴 EL RATCHET SE PRUEBA A SÍ MISMO: se re-inserta la expresión exacta eliminada
+      #     en una copia EN MEMORIA del CLI y el detector DEBE dispararse. Además se prueban
+      #     emisores sintéticos de stdout, stderr, fichero y log, e interpolación en template
+      #     literal; y se prueba que menciones en comentarios, prosa y datos de procedencia
+      #     NO son falsos positivos.
+      #   · `FIVE_GATES_WAIT_ONLY_ON_HUMANS` se DERIVA de
+      #     `CURRENT_DIRECT_..._EMITTERS.length === 0` — el borrador anterior lo afirmaba a
+      #     mano y era FALSO.
+      #   · 0 gates movidas, veredicto NO-GO. `ATTEMPT_3_ALLOWED` sigue false.
+      #
+      # 🔴 El benchmark NO se ejecuta: sólo tests unitarios/estáticos/sintéticos aislados.
+      # Sin red, sin Supabase, sin proveedor, sin datos reales. 0 escrituras, 0 migraciones.
+      - name: Run BR-SOURCE FAST-TRACK-6 fail-closed emitter removal tests
+        run: npm run test:br-source:fast-track6-emitter-removal
+
       # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 20 — la demanda RESIDUAL y la
       # memoria PREVIA.
       #

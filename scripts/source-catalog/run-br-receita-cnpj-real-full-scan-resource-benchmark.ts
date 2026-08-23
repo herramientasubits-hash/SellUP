@@ -78,6 +78,19 @@ import {
 
 // ─── Modes ────────────────────────────────────────────────────────────────────
 
+/**
+ * The exit code a completed run uses when its report is WITHHELD (BR-SOURCE-FAST-TRACK-6).
+ *
+ * 🔴 A dedicated code rather than a reused `1`, and a named constant rather than a literal, because
+ * "the run finished and you got no report" is a distinct operator situation from "the run refused".
+ * An exit code is also the one channel that cannot carry a value, which is exactly why the withheld
+ * status travels on it and not in a diagnostic string.
+ *
+ * This is not an error the operator can clear. The legacy engine report has no GATE-5 projection yet,
+ * so there is nothing admissible to print — see `br-receita-cnpj-gate5-engine-report-boundary`.
+ */
+export const LEGACY_REPORT_WITHHELD_EXIT_CODE = 3 as const;
+
 export const BRAZIL_RECEITA_REAL_FULL_SCAN_CLI_MODES = [
   'real-full-scan-resource-benchmark',
   'synthetic-smoke',
@@ -605,11 +618,40 @@ async function main(): Promise<void> {
     return;
   }
 
-  process.stdout.write(`${JSON.stringify(outcome.publicReport, null, 2)}\n`);
+  // ── 🔴 BR-SOURCE-FAST-TRACK-6 FINAL FAIL-CLOSED EMITTER REMOVAL ─────────────
+  //
+  // This is where the completion report USED to be serialized:
+  //
+  //     process.stdout.write(`${JSON.stringify(outcome.publicReport, null, 2)}\n`);
+  //
+  // That line is REMOVED, and it is removed for a specific reason rather than for tidiness.
+  // `outcome.publicReport` embeds the LEGACY engine report whole, as its `engine_report` field, and
+  // the legacy report carries keys the frozen GATE-5 contract refuses — `rows_emitted`,
+  // `raw_rows_printed` and `zero_output_rows_enforced` all trip § 5.2 group 7 and none is named in
+  // the § 6 allowlist. Serializing it here put it on `cli_stdout`, which is a GATE-5 surface.
+  //
+  // 🔴 Why BR-SOURCE-11A did not catch it: 11A is a DENYLIST over values that LOOK like dataset
+  // content. `0` and `false` look like nothing, so 11A returns `ok` and has no opinion about whether
+  // anybody reviewed the keys. Only the § 6 allowlist refuses a key by ABSENCE, and the allowlist was
+  // not on this path. Neither contract is weakened here; the emission is simply gone.
+  //
+  // 🔴 What this is NOT. No GATE-5 projection is implemented, no replacement schema is invented, no
+  // substitute report is printed, and nothing is written to stderr, to a file or to a log. This
+  // change REMOVES an output capability while GATE-5 is unapproved; it adds none. A future external
+  // report requires the separately-authorized GATE-5 projection and its closed allowlist.
+  //
+  // The withheld status travels as an EXIT CODE, which is the one channel that cannot carry a value.
+  process.exitCode = LEGACY_REPORT_WITHHELD_EXIT_CODE;
+
   // BR-SOURCE-ATTEMPT2-FINAL § 7: reaching the engine is no longer the same event as crossing the
   // boundary, so the accounting has to be printed rather than inferred from "the run got this far". A
   // completion with `realDataBoundaryCrossed: false` is an engine abort that read nothing and spent
   // nothing, and an operator deciding whether an attempt remains needs to be told which one this was.
+  //
+  // 🔴 KEPT deliberately, and it is a different object from the withheld one: three controlled
+  // scalars, no legacy engine report, no nested `engine_report`. Attempt accounting is exactly what
+  // the correction's "do not change attempt accounting" clause protects, and dropping it would make a
+  // withheld run indistinguishable from a run that never happened.
   process.stdout.write(
     `${JSON.stringify(
       {
@@ -621,6 +663,10 @@ async function main(): Promise<void> {
       2,
     )}\n`,
   );
+  // A cleanup or private-artifact failure OVERWRITES the withheld code, deliberately and in that
+  // order of precedence: "your workspace may still be on disk" is more urgent than "you got no
+  // report", and the withheld state is now unconditional on this path so it carries no news. The exit
+  // code is non-zero either way, so no failure is ever reported as success.
   if (!outcome.cleanupVerified || !outcome.privateArtifactWritten) process.exitCode = 1;
 }
 

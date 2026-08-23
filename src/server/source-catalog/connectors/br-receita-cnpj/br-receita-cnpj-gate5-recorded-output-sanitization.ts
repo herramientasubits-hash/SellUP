@@ -89,14 +89,60 @@ export const BRAZIL_RECEITA_GATE5_SINGLE_REMAINING_CRITERION = {
  * so a reviewer is not asked to bless a contract whose open questions are buried in it.
  */
 export const BRAZIL_RECEITA_GATE5_DECISIONS_INSIDE_THE_REVIEW: readonly string[] = [
-  'OD-C1: total_rows_scanned is ALLOWED by owner direction, and collides with BRAZIL_RECEITA_FULL_JOIN_MAX_NUMERIC_LEAF. Bucket it, or record a named-key carve-out.',
-  'OD-C2: the same field collides with VP-1 and VP-4 once RENDERED. Bucket it, or record a named-key carve-out on the rendered surface.',
+  'OD-C1 / OD-C2 are CLOSED by supersession, not by carve-out: total_rows_scanned is now an INTERNAL_EXECUTION_COUNTER_ONLY emitted on no surface. Confirm that the internal counter needs no output representation at all — a bucket was the alternative and was not taken.',
+  'OD-C3 is CLOSED by renaming the residual label to `suppressed_other`. Confirm the label change carries the same meaning and that group 7 was left intact.',
+  'the two § 6 output keys renamed away from a `row`-bearing spelling — `records_persisted` and `records_seen_by_family`. Confirm the rename is acceptable given that 10J § 12 and 10K § 12 still name `persisted_rows = 0` in prose, which this round did NOT edit.',
+  'BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST is now EMPTY. Confirm that the allowlist-governs precedence should nevertheless be KEPT as the standing tie-break rather than deleted for being unused.',
   'the three EXCLUDED breakdowns (capital_social, opened_at, municipality) discharge the 10M § 13 bucket-boundary item by exclusion rather than by a boundary table — confirm that reading',
   'the stack-emission narrowing (OS-A34) is stricter than 10J § 15 and is adopted here as the owner directed',
-  'the VP-1..VP-4 residual digit-run gap at 9, 10, 12 and 13 positions is closed today only by BR-SOURCE-11A LONG_DIGIT_RUN, not by the frozen rules — confirm 11A is load-bearing rather than redundant',
+  'the VP-1..VP-4 residual digit-run gap at 9, 10, 12 and 13 positions is closed today only by BR-SOURCE-11A LONG_DIGIT_RUN, not by the frozen rules — confirm 11A is load-bearing rather than redundant, and that the two contracts stay SEPARATE rather than being merged into one widened rule',
   'the residual screenshot / copy-paste surface (10O § 4 surface L) remains machine-undetectable and is mitigated only by GATE-7 operator behaviour rules',
   'whether real local file paths in a manifest are sensitive — 10O § 12 flags the question and does not answer it',
 ];
+
+/**
+ * 🔴 What BR-SOURCE-FAST-TRACK-6 changed about the SUBJECT of this review, and what it did not
+ * change about the STATUS.
+ *
+ * The subject changed materially: three recorded collisions were closed, two output keys were
+ * renamed, and one owner-allowed aggregate became an internal-only counter. That is a REVISION of the
+ * contract the approvers must review, which is why this record names it rather than letting the
+ * approvers review a superseded version.
+ *
+ * The status did not change and could not. `ready_for_review` is still NO-GO, the single remaining
+ * criterion is still the joint security/privacy + test owner approval, and the implementer of a
+ * subject still may not approve it (10K § 3). A round that improves a contract does not earn its
+ * approval; if anything, a revised subject makes the previous review round moot.
+ */
+export const BRAZIL_RECEITA_GATE5_CONTRACT_REVISIONS = [
+  {
+    round: 'BR-SOURCE-FAST-TRACK-6',
+    change: 'total_rows_scanned: ALLOWED -> INTERNAL_EXECUTION_COUNTER_ONLY',
+    closes: ['OD-C1', 'OD-C2'] as readonly string[],
+    weakenedAnInvariant: false,
+  },
+  {
+    round: 'BR-SOURCE-FAST-TRACK-6',
+    change: 'residual bucket label: other_or_suppressed_small_cell -> suppressed_other',
+    closes: ['OD-C3'] as readonly string[],
+    weakenedAnInvariant: false,
+  },
+  {
+    round: 'BR-SOURCE-FAST-TRACK-6',
+    change: 'output keys: persisted_rows -> records_persisted, rows_seen_by_family -> records_seen_by_family',
+    closes: [] as readonly string[],
+    weakenedAnInvariant: false,
+  },
+] as const;
+
+/**
+ * 🔴 Whether the revisions above make this gate approvable by the party that made them. They do not.
+ *
+ * Stated as its own constant because "we fixed everything the last review flagged" is the most
+ * natural-sounding route to a self-approval, and 10K § 3 forbids it regardless of how complete the
+ * fixes are.
+ */
+export const BRAZIL_RECEITA_GATE5_REVISIONS_EARN_AN_APPROVAL = false as const;
 
 /**
  * Restrictions this record carries with it. An approval, if it ever comes, is bounded by these.

@@ -716,3 +716,333 @@ Completing this runbook does **not** authorize:
 | **BR-SOURCE-10M / 10N / 10O** | Docs-only **decision records** proposing GATE-3 (field allowlist), GATE-4 (identity grain), and GATE-5 (output sanitization) for owner review. | Docs-only; no runner, no command; **approve no gate** (all eight `not_started` → NO-GO); authorize no dry-run, import, Supabase write, runtime, or Agent 1. |
 | **BR-SOURCE-10PQR** | Remaining full join **gates decision packet** (§ 11.9, docs-only): proposes the GATE-6 failure cleanup contract, the GATE-7 operator runbook **contract** (not the runbook), and the GATE-8 no-write / no-runtime contract, plus a readiness table for all eight gates. | Docs-only; no runner, no command, no cleanup code, no guard, no test, **no runbook section**; **approves no gate** (all eight `not_started` → NO-GO); authorizes no dry-run, import, Supabase write, migration, index change, runtime, or Agent 1. |
 | _(later)_ | Privacy-safe import implementation, then Supabase pilot, then Agent 1 gated integration. | Eligibility design (10D) + classifier (10E) + calibration (10F) + join dry-run (10G) + coverage strategy (10H) + full-join readiness design (10I) + full-join dry-run technical design (10J) + approval gates checklist (10K) + gate evidence packet (10L) + **every gate approved** + explicit approval first. |
+
+---
+
+## 16. GATE-7 operator runbook — the manual full-join dry-run procedure
+
+> **This is the GATE-7 runbook section.** BR-SOURCE-10PQR § 6 landed the *contract* for it — who may
+> operate, the twenty-two-item preflight `P-01` … `P-22`, the sixteen stop conditions `T-01` … `T-16`,
+> the permitted-evidence list, and the assertions `OR-A01` … `OR-A20` — and was explicit that the
+> section itself did not exist. It exists here, as an **extension of this runbook** rather than a
+> competing document (10K § 11). Its machine-readable half is
+> `src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate7-operator-runbook.ts`.
+>
+> 🔴 **A runbook is a PROCEDURE, never a PERMISSION.** Executing this procedure requires the separate,
+> explicit authorization of a future milestone. Nothing in this section, in GATE-7, or in any gate of
+> this series grants it. `BRAZIL_RECEITA_GATE7_SECTION_IS_A_PERMISSION` is `false`.
+>
+> 🔴 **GATE-7 is `blocked`, and this procedure cannot be run today.** `P-05` fails: GATE-2, GATE-5 and
+> GATE-6 are unapproved. That is the checklist working, and there is deliberately no bypass.
+
+### 16.0 How to read this section
+
+Every step below has **one action** and **one definite pass condition**, per 10K § 11's pass criteria.
+Three rules govern all of them and are not repeated per step:
+
+1. **A failed step is a STOP, never a warning.** There is no "note it and continue".
+2. **A warning is never a pass.** `BRAZIL_RECEITA_GATE7_WARNING_IS_EVER_A_PASS` is `false`.
+3. **A ceiling is a DECISION, not a measurement.** The GATE-2 numbers are owner-chosen bounds
+   (`OWNER_DECISION_VALUE`, `NOT_OBSERVED_MEASUREMENT`), not a proven envelope. Checking against them
+   is checking against a decision.
+
+### 16.1 Step 0 — who may operate
+
+**Action.** Confirm the actor about to perform this procedure is a **named, authorized human
+operator**.
+
+**Pass condition.** `brazilReceitaGate7ActorMayExecute(actorClass)` returns `true`, which it does for
+exactly one class: `named_authorized_human_operator`.
+
+Refused classes, each explicitly:
+
+```
+agent                              automation
+ci_runner                          cron_or_scheduled_job
+background_task                    agent_acting_on_behalf_of_a_human
+```
+
+🔴 The last entry is not redundant. A human delegating this procedure to an agent is **an agent
+executing it**, and 10PQR § 6.1 closes that door rather than trusting good intentions. The operator may
+also not be the sole approver of GATE-7 (10K § 3's implementer rule).
+
+Before continuing, the operator confirms aloud, in the run record: no cloud sync on the workspace; no
+write-capable Supabase credential in the environment; no service role key; no import, runtime or
+Agent 1 variables loaded; the mode is dry-run / no-write.
+
+### 16.2 Step 1 — preconditions, read from the machine-readable state
+
+**Action.** Read the authoritative gate state and evaluate the preconditions:
+
+```
+evaluateBrazilReceitaGate7Preconditions()
+```
+
+**Pass condition.** `result === 'PASS'`, i.e. every one of the eight gates is in an approved status.
+
+**Today's result is `FAIL`**, and the outcome names which gates: `unapprovedGates` lists all of them
+and `unapprovedBlockingGates` narrows it to GATE-2, GATE-5 and GATE-6 — the three GATE-7's own contract
+names as blocking it.
+
+🔴 There is **no bypass**. The function takes no arguments: no options object, no `force`, no
+`assumeApproved`, no environment read. `bypassAvailable` is returned as `false` so a caller can assert
+it, and `BRAZIL_RECEITA_GATE7_PRECONDITION_BYPASS_EXISTS` says the same thing at module level. A
+procedure whose first step fails is not a broken procedure; it is the gate doing its job.
+
+### 16.3 Step 2 — the twenty-two-item preflight
+
+Perform `P-01` … `P-22` **in order**, recording pass or fail per item. The numbering is 10PQR § 6.2's
+and is preserved exactly; `P-05` is first in substance and fifth in numbering, and renumbering it would
+break the traceability the IDs exist for.
+
+| item | action | pass condition |
+|------|--------|----------------|
+| `P-01` | confirm the working copy is clean, or the work is isolated in a dedicated worktree | no uncommitted modification outside a dedicated worktree |
+| `P-02` | confirm the branch is the intended one, with no unintended local change | branch matches the authorization record; diff against it is empty |
+| `P-03` | confirm `origin/main` is the commit the authorization names | the local SHA equals the authorized SHA, character for character |
+| `P-04` | confirm every official design/decision document is present at its expected version | 10I, 10J, 10K, 10L, 10O and this runbook each resolve at their recorded version |
+| `P-05` | **read the gate state** (§ 16.2) | `evaluateBrazilReceitaGate7Preconditions()` returns `PASS` — **FAILS today** |
+| `P-06` | confirm the dataset root is outside the repository, in the controlled folder | the resolved root satisfies every § 16.5 workspace constraint |
+| `P-07` | run the forbidden-family inventory check (§ 7) | the check **prints nothing** |
+| `P-08` | validate the manifest (§ 10) | a **local file** manifest validates; a URL manifest is refused outright |
+| `P-09` | inspect the output directory | empty, or holding only artifacts the cleanup contract permits |
+| `P-10` | check for a stale ledger, lock file, or unresolved residue | none present |
+| `P-11` | read the planned report file names | no real value of any kind appears in any planned name |
+| `P-12` | measure free disk on the workspace volume | at or above the minimum-before-start figure, with the reserve figure still holding |
+| `P-13` | compare available memory against the RSS, heap and external ceilings | the host holds all three simultaneously, with headroom |
+| `P-14` | confirm no network dependency and no provider call in the planned run | none declared and no provider client reachable |
+| `P-15` | inspect the environment for Supabase credentials | no anon key, no service role key, no connection string, of any kind |
+| `P-16` | inspect the environment for runtime variables | none loaded |
+| `P-17` | inspect the environment for Agent 1 variables | none loaded |
+| `P-18` | confirm no hosting or feature-flag change is staged or intended | none staged, and none intended during the run |
+| `P-19` | compare the configured sanitizer against the GATE-5 contract | matches the **frozen** contract **and** the contract is **approved** — the second half **FAILS today** |
+| `P-20` | acknowledge the cleanup contract; state the escalation pair from memory | terminal statuses and escalation roles stated correctly |
+| `P-21` | declare the storage envelope | the declared envelope is the GATE-2 approved option **and** GATE-2 is approved — **FAILS today** |
+| `P-22` | confirm the dry-run confirmation flag will be passed | the flag is named correctly and the refusal behaviour is stated **before** starting |
+
+🔴 **`P-19` and `P-21` are *checkable* and *failing*, which is not the same as *unusable*.** Before
+Round 3 they had nothing to check against at all. Now they have a frozen contract and a chosen
+envelope, and they fail on the second half of their own wording: *approved*. That is progress in the
+checklist and none whatsoever in the gate.
+
+### 16.4 Step 3 — resource preflight
+
+**Action.** Verify each ceiling below **before** execution. Every figure is read from the record that
+owns it; this section restates none of them, because a runbook that copies a cap is a runbook that can
+disagree with the approval it claims to follow.
+
+| signal | authority | kind |
+|--------|-----------|------|
+| RSS | `BRAZIL_RECEITA_GATE2_APPROVED_CAPS.maxRssBytes` | owner decision |
+| heap used | `…maxHeapUsedBytes` | owner decision |
+| external memory | `…maxExternalMemoryBytes` | owner decision |
+| runtime | `…maxRuntimeMs` | owner decision |
+| phase runtime | `…maxPhaseRuntimeMs` | owner decision |
+| temporary storage | `…maxTemporaryStorageBytes` | owner decision |
+| rows read | `…maxRowsRead` | owner decision |
+| files opened | `…maxFilesOpened` | owner decision, **operator-supplied at invocation** |
+| bytes read | `…maxBytesRead` | owner decision, **operator-supplied at invocation** |
+| join keys in memory | `…maxJoinKeysInMemory` | owner decision, **operator-supplied at invocation** |
+| minimum free disk before start | `BRAZIL_RECEITA_FULL_JOIN_PROPOSED_MINIMUM_FREE_DISK_BEFORE_START` | standing proposal |
+| minimum free disk reserve | `BRAZIL_RECEITA_FULL_JOIN_PROPOSED_MINIMUM_FREE_DISK_RESERVE` | standing proposal |
+
+**Pass condition.** Every measured value is within its ceiling, and the three operator-supplied caps
+are passed **explicitly on this invocation**. A written-down owner number is a value available for an
+operator to supply — never a default the engine may read on its own.
+
+🔴 `maxRowsRead` is an `OWNER_BUDGET_CEILING`, `NOT_OBSERVED`, and
+`NOT_NATIONAL_ROW_COUNT_EVIDENCE`. Nobody counted Brazil's rows. Reading a nine-digit budget ceiling as
+a dataset measurement is the mistake this series has already had to retract once.
+
+### 16.5 Step 4 — workspace preflight
+
+**Action.** Resolve the workspace directory and confirm every constraint. The constraints are imported
+from `BRAZIL_RECEITA_GATE2_WORKSPACE_CONSTRAINTS`; the resolved directory is never recorded anywhere.
+
+```
+outside the repository, and outside every worktree of it
+outside $HOME
+outside the dataset root
+no component of the path is a symlink
+directory mode 0700
+every file the run creates is mode 0600
+no cloud sync, backup agent, or file-sharing client watches the directory
+```
+
+**Pass condition.** All seven confirmed.
+
+🔴 **The resolved local path never appears in a sanitized report**, on any surface.
+`BRAZIL_RECEITA_GATE7_LOCAL_PATH_MAY_APPEAR_IN_REPORTS` is `false`, and 10K § 14 forbids a real path in
+an approval record.
+
+### 16.6 Step 5 — dataset and manifest preflight
+
+**Action.** Verify each item. **Any unexpected family is a HARD STOP.**
+
+```
+the publication period matches the one the authorization names
+every declared family is an approved family
+the Empresas multipart set is COMPLETE for the period
+the Estabelecimentos multipart set is COMPLETE for the period
+the required lookup families are present
+no Socios family is present
+no QSA family is present
+no CPF or person-linked family is present
+the manifest is a LOCAL FILE manifest; a URL manifest is refused
+no archive extension appears among the declared data files
+```
+
+**Pass condition.** Every line above holds, and the § 7 forbidden-family check prints nothing.
+
+🔴 A person-linked family in the folder is a **GATE-1** problem, not a data problem: the legal approval
+on record covers company and establishment registry material, so its presence means the run would
+process something nobody approved. `BRAZIL_RECEITA_GATE7_UNEXPECTED_FAMILY_DISPOSITION` is `HARD_STOP`.
+
+**No real file is read at this step in this milestone.** The step exists; performing it requires the
+authorization this section does not grant.
+
+### 16.7 Step 6 — privacy preflight
+
+**Action.** Evaluate the five approved contracts a future execution depends on:
+
+```
+evaluateBrazilReceitaGate7PrivacyPreflight()
+```
+
+| contract | owning gate | required status |
+|----------|-------------|-----------------|
+| temporary metadata envelope | GATE-2 | `approved` |
+| field survival allowlist | GATE-3 | `approved` |
+| exact identity grain | GATE-4 | `approved` |
+| output sanitization | GATE-5 | `approved` |
+| executable cleanup | GATE-6 | `approved` |
+
+**Pass condition.** `result === 'PASS'`. Any contract whose owning gate is not `approved` is a **HARD
+STOP**.
+
+🔴 **There is no operator discretion here**, and `operatorDiscretionAvailable` is returned as `false`
+so that is checkable rather than merely stated. An operator who can decide a `ready_for_review`
+contract is "good enough" has replaced the gate model with a judgement call.
+
+**Today's result is `FAIL`:** four of the five owning gates are unapproved.
+
+### 16.8 Step 7 — live monitoring during the run
+
+**Action.** Watch all ten signals continuously, each against the ceiling § 16.4 names:
+
+```
+RSS                     files and handles open
+heap used               bytes read
+external memory         rows read
+disk / temp storage     join keys in memory
+runtime                 phase runtime
+```
+
+**Pass condition.** Every signal stays within its ceiling for the whole run.
+
+**On any breach, in this order and with no variation:**
+
+```
+1. stop the run
+2. run cleanup and VERIFY it
+3. record the outcome as a terminal failure
+```
+
+🔴 **No automatic retry.** `BRAZIL_RECEITA_GATE7_AUTOMATIC_RETRY_PERMITTED` is `false`, and `OR-A20`
+makes a retry a new deliberate act preceded by the **full** preflight — never a re-run of the command.
+
+🔴 **`ATTEMPT_3_ALLOWED` remains `false`.** The runbook module *imports*
+`BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED` rather than restating it, so there is no second copy
+to flip, and this section records no decision that changes it. Only a later explicit owner decision can.
+
+### 16.9 Step 8 — output review
+
+**Action.** Review **only** sanitized aggregate output, and only after the GATE-5 guard has passed it.
+
+Permitted:
+
+```
+the sanitized aggregate JSON report, after the sanitizer boundary
+the sanitized cleanup summary
+the all-false safety booleans
+the controlled exit code and the controlled error_code enum
+the preflight completion state, item by item, pass or fail
+```
+
+Forbidden, on every channel including chat, tickets and review comments:
+
+```
+copying or pasting a raw row
+screenshotting raw data — or the run terminal at all
+manually editing a report to make it pass
+enabling a hidden debug or verbose output mode
+reading or sharing a path value
+reading or sharing a stack
+reading or sharing an identifier of any length
+keeping a sample "just one example"
+```
+
+🔴 **"No manual editing of a report to make it pass" is here because it has to be.** A report edited
+into compliance is the one failure mode no sanitizer can catch, and afterwards it is indistinguishable
+from a report that passed honestly. Screenshots and terminal pastes are the same class of risk: 10O § 4
+surface L records them as undetectable by any assertion, which makes these rules the **mitigation of
+record**, not etiquette.
+
+### 16.10 Step 9 — cleanup
+
+**Action.** Run cleanup on **every** terminal path, then verify it. The paths are GATE-6's, imported
+rather than restated:
+
+```
+success                 resource cap reached
+failure                 sanitizer assertion failure
+operator cancellation   report failure
+memory limit            disk limit
+manifest / layout / forbidden-family error
+process crash  → reportNotExecuted, so an abandoned run still leaves a record
+```
+
+**Pass condition.** All three verifications hold:
+
+```
+every owned temporary artifact is ABSENT — verified, not assumed deleted
+every handle the run opened is closed
+zero residual entries across every registered unit
+```
+
+🔴 **A cleanup failure is TERMINAL.** `BRAZIL_RECEITA_GATE6_SUCCESS_WITH_RESIDUE_PERMITTED` is `false`:
+there is no success-with-residue, and a `failed` or `not_executed` cleanup may not be upgraded by a
+retry. `unit_deletion_unverified` means nobody may claim the material is gone — which is a different and
+worse state than knowing it is still there.
+
+Cleanup deletes only paths its owning module created. **No path is ever accepted from a caller.**
+
+### 16.11 Step 10 — signoff
+
+**Action.** Record the run signoff. It may carry **only** these kinds of value:
+
+```
+controlled_enum        safe_timestamp
+boolean                approved_status_code
+gate5_permitted_aggregate_count
+```
+
+**Pass condition.** `brazilReceitaGate7SignoffValueKindIsAdmissible(kind)` returns `true` for every
+field in the signoff. The function is fail-closed: a kind it does not recognize is refused, so a novel
+field name cannot pass by simply not being on the forbidden list.
+
+Never, in a signoff or anywhere near it: a path, an identifier, a source value, a stack, a row sample,
+a file name, an artifact name, a directory name, an environment variable, or any dataset value.
+
+### 16.12 What this section does NOT establish
+
+- **Reproducibility.** `BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR` is
+  `UNDEMONSTRATED`. 10K § 11 requires the runbook to be reproducible by a different operator without
+  tacit knowledge, and no document can demonstrate that — it needs a rehearsal, by an operator who did
+  not author this section, against real ceilings. No rehearsal was performed and none is authorized.
+- **GATE-7 approval.** The gate is `blocked` (10K § 11.1) on GATE-2, GATE-5 and GATE-6. Its three
+  approvers — operator, technical and privacy owners, jointly — decide whether this section plus three
+  approved upstream gates is enough to review, or whether they require the rehearsal first.
+- **Any authorization at all.** No dry-run, no benchmark, no attempt-budget change, no real Receita
+  read, no import, no Supabase write, no migration, no snapshot write, no runtime path, no Agent 1
+  Brazil connection, no provider call, no production.

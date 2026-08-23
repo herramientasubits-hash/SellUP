@@ -58,6 +58,7 @@ import {
   BRAZIL_RECEITA_GATE5_OWNER_DIRECTION_COLLISIONS,
   BRAZIL_RECEITA_GATE5_PER_RECORD_LOG_LINES_PERMITTED,
   BRAZIL_RECEITA_GATE5_RESIDUAL_BUCKET_LABEL,
+  BRAZIL_RECEITA_GATE5_SUPERSEDED_RESIDUAL_BUCKET_LABEL,
   BRAZIL_RECEITA_GATE5_SANITIZE_AT_CONSTRUCTION,
   BRAZIL_RECEITA_GATE5_SANITIZER_REPORTS_ITS_INPUT,
   BRAZIL_RECEITA_GATE5_SMALL_CELL_K,
@@ -183,7 +184,9 @@ describe('GATE-ROUND-3 · the current gate state is authoritative and mechanical
     assert.equal(byGate.get(4), 'needs_owner_decision');
     assert.equal(byGate.get(5), 'ready_for_review');
     assert.equal(byGate.get(6), 'ready_for_review');
-    assert.equal(byGate.get(7), 'not_started');
+    // 🔴 `blocked` since BR-SOURCE-FAST-TRACK-6, when the runbook section landed. Both this and
+    // `not_started` are NO-GO; the move is a statement about reviewability, not about permission.
+    assert.equal(byGate.get(7), 'blocked');
     assert.equal(byGate.get(8), 'APPROVED_AS_CONTRACT');
     assert.equal(BRAZIL_RECEITA_GATE_CURRENT_STATE.length, 8);
   });
@@ -275,7 +278,10 @@ describe('GATE-ROUND-3 · the current gate state is authoritative and mechanical
   });
 
   it('the stale-section list is derived, so a future status change cannot leave it behind', () => {
-    assert.deepEqual([...BRAZIL_RECEITA_GATES_WITH_SUPERSEDED_SECTION_STATUS], [2, 3, 4, 5, 6, 8]);
+    // 🔴 GATE-7 JOINED this list in BR-SOURCE-FAST-TRACK-6: the runbook section landing moved it from
+    // `not_started` to `blocked`, so 10K § 11's own status line is now stale and § 11.1 annotates it.
+    // The list is DERIVED, which is exactly why this assertion had to be updated rather than the list.
+    assert.deepEqual([...BRAZIL_RECEITA_GATES_WITH_SUPERSEDED_SECTION_STATUS], [2, 3, 4, 5, 6, 7, 8]);
   });
 });
 
@@ -318,6 +324,10 @@ describe('GATE-ROUND-3 · GATE-5 advanced its reviewability, not its permission'
     assert.match(text, /OD-C1/);
     assert.match(text, /OD-C2/);
     assert.match(text, /OS-A34/);
+    // 🔴 FAST-TRACK-6: the collisions are named as CLOSED-by-supersession, and the review's subject is
+    // now the corrected contract. The entries must still NAME them — an approver who is not told what
+    // changed is being asked to bless a document they have not seen.
+    assert.match(text, /CLOSED by supersession/);
   });
 });
 
@@ -336,7 +346,11 @@ describe('GATE-ROUND-3 · the owner values are frozen and the two unenforceable 
   });
 
   it('records the exact disposition of every aggregate the direction names', () => {
-    assert.equal(BRAZIL_RECEITA_GATE5_AGGREGATE_DISPOSITIONS.total_rows_scanned, 'allowed');
+    // 🔴 SUPERSEDED by FAST-TRACK-6 from `allowed`. See § 9.2 of 10K: the counter reaches no surface.
+    assert.equal(
+      BRAZIL_RECEITA_GATE5_AGGREGATE_DISPOSITIONS.total_rows_scanned,
+      'internal_execution_counter_only',
+    );
     assert.equal(
       BRAZIL_RECEITA_GATE5_AGGREGATE_DISPOSITIONS.cnae_section_counts,
       'allowed_with_small_cell_suppression',
@@ -383,7 +397,10 @@ describe('GATE-ROUND-3 · the owner values are frozen and the two unenforceable 
     // The two the owner allowed are present, so the exclusions are a decision and not a purge.
     assert.ok(BRAZIL_RECEITA_GATE5_ALLOWED_REPORT_KEYS.includes('cnae_section_counts'));
     assert.ok(BRAZIL_RECEITA_GATE5_ALLOWED_REPORT_KEYS.includes('uf_counts'));
-    assert.ok(BRAZIL_RECEITA_GATE5_ALLOWED_REPORT_KEYS.includes('total_rows_scanned'));
+    // 🔴 SUPERSEDED: `total_rows_scanned` is INTERNAL-ONLY after FAST-TRACK-6 and its ABSENCE from the
+    // allowlist is what enforces that. It is a different kind of absence from the three EXCLUDED
+    // breakdowns above, which is why it is asserted separately rather than added to that loop.
+    assert.equal(BRAZIL_RECEITA_GATE5_ALLOWED_REPORT_KEYS.includes('total_rows_scanned'), false);
   });
 
   it('applies to all twelve surfaces with no exemption, no debug mode, no override', () => {
@@ -418,25 +435,34 @@ describe('GATE-ROUND-3 · the owner-direction collisions are RECORDED and left t
     assert.equal(byId.get('OD-C3')?.collidesWith, 'the § 5.2 closed denylist, group 7');
   });
 
-  it('OD-C3 is real: the residual label 10O § 7 MANDATES is refused by 10O § 5.2 group 7', () => {
-    // `other_or_suppressed_small_cell` contains `cell`. The one label small-cell suppression is
-    // required to emit is caught by the same record's key rule.
+  it('OD-C3 WAS real, and the label 10O § 7 mandated is still refused by group 7', () => {
+    // The collision was never imaginary: `other_or_suppressed_small_cell` contains `cell`, and it
+    // still trips group 7 today. What FAST-TRACK-6 changed is which label the contract MANDATES.
     assert.equal(
-      matchBrazilReceitaGate5ForbiddenKeyGroup(BRAZIL_RECEITA_GATE5_RESIDUAL_BUCKET_LABEL),
+      matchBrazilReceitaGate5ForbiddenKeyGroup(BRAZIL_RECEITA_GATE5_SUPERSEDED_RESIDUAL_BUCKET_LABEL),
       7,
     );
-    // This round admits it under the allowlist-governs precedence and edits neither list.
+    // 🔴 And the label now in force survives group 7 UNAIDED — no exemption, no carve-out.
+    assert.equal(BRAZIL_RECEITA_GATE5_RESIDUAL_BUCKET_LABEL, 'suppressed_other');
+    assert.equal(
+      matchBrazilReceitaGate5ForbiddenKeyGroup(BRAZIL_RECEITA_GATE5_RESIDUAL_BUCKET_LABEL),
+      null,
+    );
     const byId = new Map(BRAZIL_RECEITA_GATE5_OWNER_DIRECTION_COLLISIONS.map((c) => [c.id, c]));
-    assert.equal(byId.get('OD-C3')?.resolvedByThisRound, false);
+    assert.equal(byId.get('OD-C3')?.resolvedByThisRound, true);
     assert.equal(byId.get('OD-C3')?.weakenedByThisRound, false);
     assert.match(byId.get('OD-C3')?.ownerChoice ?? '', /rename the residual label/);
   });
 
-  it('neither collision is claimed resolved, and neither invariant was weakened', () => {
+  it('every collision is resolved on the OWNER-DIRECTION side, and no invariant was weakened', () => {
+    // 🔴 The pairing is the assertion. `resolvedByThisRound` without `weakenedByThisRound === false`
+    // would be indistinguishable from having relaxed the invariant to make the value fit.
     for (const collision of BRAZIL_RECEITA_GATE5_OWNER_DIRECTION_COLLISIONS) {
-      assert.equal(collision.resolvedByThisRound, false);
+      assert.equal(collision.resolvedByThisRound, true);
       assert.equal(collision.weakenedByThisRound, false);
+      assert.equal(collision.invariantMovedToAccommodateIt, null);
       assert.ok(collision.ownerChoice.length > 0, 'a recorded collision must name the owner choice');
+      assert.ok(collision.resolution.length > 0, 'a resolved collision must name its resolution');
     }
   });
 
@@ -452,7 +478,10 @@ describe('GATE-ROUND-3 · the owner-direction collisions are RECORDED and left t
     assert.ok(nationalScaleTotal > BRAZIL_RECEITA_FULL_JOIN_MAX_NUMERIC_LEAF);
   });
 
-  it('OD-C2 is real: the same total, once rendered, is refused by the digit-run rules', () => {
+  it('OD-C2 was real, and the rendered-surface rule that made it real is UNCHANGED', () => {
+    // The rule is asserted on the same shape that used to carry the counter. It still refuses it —
+    // which is the point: the collision was closed by removing the FIELD from every surface, not by
+    // teaching the rendered-output check to tolerate a national-scale figure.
     const rendered = JSON.stringify({ total_rows_scanned: Number(digitRun(8)) });
     const outcome = guardBrazilReceitaGate5RenderedOutput(rendered);
     assert.equal(outcome.ok, false);
@@ -610,6 +639,7 @@ describe('GATE-ROUND-3 · the § 5.2 forbidden-key rule is closed and consumable
     assert.equal(matchBrazilReceitaGate5ForbiddenKeyGroup('cnpj_root_count'), 4);
     assert.equal(matchBrazilReceitaGate5ForbiddenKeyGroup('razao_social'), 5);
     assert.equal(matchBrazilReceitaGate5ForbiddenKeyGroup('record_identity_key'), 6);
+    // The pre-rename spelling. It still trips group 7 — the matcher was never touched.
     assert.equal(matchBrazilReceitaGate5ForbiddenKeyGroup('rows_seen_by_family'), 7);
   });
 
@@ -625,13 +655,16 @@ describe('GATE-ROUND-3 · the § 5.2 forbidden-key rule is closed and consumable
     assert.equal(matchBrazilReceitaGate5ForbiddenKeyGroup('establishment_numero_bucket'), null);
   });
 
-  it('groups 4 and 7 over-match exactly as 10O § 5.2 records, and are not weakened for it', () => {
-    // Both of these are legitimate-looking aggregate names that the denylist still refuses. The
-    // recorded resolution is to rename the aggregate, never to soften the matcher.
+  it('groups 4 and 7 over-match exactly as 10O § 5.2 records, and FAST-TRACK-6 took the rename route', () => {
+    // Both are legitimate-looking aggregate names the denylist still refuses. 10O § 5.2's recorded
+    // resolution is to rename the aggregate, never to soften the matcher.
     assert.equal(matchBrazilReceitaGate5ForbiddenKeyGroup('cnpj_root_count'), 4);
     assert.equal(matchBrazilReceitaGate5ForbiddenKeyGroup('rows_seen_by_family'), 7);
-    // And the structural answer: § 6 names it, so the allowlist admits it.
-    assert.equal(isBrazilReceitaGate5AllowedKey('rows_seen_by_family'), true);
+    // 🔴 And that is exactly what happened: the pre-rename spelling is no longer allowlisted, the
+    // renamed key is, and the renamed key does not trip any group at all. The matcher is untouched.
+    assert.equal(isBrazilReceitaGate5AllowedKey('rows_seen_by_family'), false);
+    assert.equal(isBrazilReceitaGate5AllowedKey('records_seen_by_family'), true);
+    assert.equal(matchBrazilReceitaGate5ForbiddenKeyGroup('records_seen_by_family'), null);
   });
 
   it('reports the group that fired, so a finding is traceable to the closed rule', () => {
@@ -670,7 +703,7 @@ describe('GATE-ROUND-3 · the allowlist GOVERNS — OS-A08', () => {
         mode: 'readiness_dry_run',
         ok: true,
         country_code: 'BR',
-        persisted_rows: 0,
+        records_persisted: 0,
         supabase_write: false,
         import_executed: false,
         runtime_integration: false,
@@ -709,11 +742,13 @@ describe('GATE-ROUND-3 · the allowlist GOVERNS — OS-A08', () => {
     }
   });
 
-  it('the allowlist GOVERNS a denylist hit — the case without which the frozen report is un-emittable', () => {
+  it('the precedence is KEPT even though nothing currently depends on it', () => {
+    // 🔴 FAST-TRACK-6 emptied the carve-out set by renaming two keys and superseding a third. The
+    // precedence STAYS: it decides what happens the next time a § 6 key and a denylist group
+    // disagree, and that answer has to exist before the disagreement rather than after it.
     assert.equal(BRAZIL_RECEITA_GATE5_ALLOWLIST_GOVERNS, true);
-    // Three keys the frozen § 6 allowlist REQUIRES trip group 7's deliberately-broad substrings.
-    // 10O § 5.2's answer is structural: they are permitted because § 6 NAMES them.
-    assert.ok(BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST.length >= 3);
+    assert.deepEqual([...BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST], []);
+    // Any entry that DOES appear here must still behave as the precedence describes.
     for (const key of BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST) {
       assert.equal(isBrazilReceitaGate5ForbiddenKey(key), true, `${key} must trip the denylist`);
       assert.equal(isBrazilReceitaGate5AllowedKey(key), true, `${key} must be allowlisted`);
@@ -737,9 +772,11 @@ describe('GATE-ROUND-3 · the allowlist GOVERNS — OS-A08', () => {
   });
 
   it('the precedence does NOT admit a denylisted key that is merely similar to an allowlisted one', () => {
-    // `rows_seen_by_family` is admitted; `raw_rows_seen_by_family` is not. Naming, not resemblance.
-    assert.equal(isBrazilReceitaGate5AllowedKey('raw_rows_seen_by_family'), false);
-    const outcome = guardBrazilReceitaGate5Report({ raw_rows_seen_by_family: 4 });
+    // `records_seen_by_family` is admitted; `raw_records_seen_by_family` is not. Naming, not
+    // resemblance — and the `raw` prefix is still a group-7 hit on top of the allowlist refusal.
+    assert.equal(isBrazilReceitaGate5AllowedKey('records_seen_by_family'), true);
+    assert.equal(isBrazilReceitaGate5AllowedKey('raw_records_seen_by_family'), false);
+    const outcome = guardBrazilReceitaGate5Report({ raw_records_seen_by_family: 4 });
     assert.equal(outcome.ok, false);
     assert.ok(outcome.findings.some((f) => f.rule === 'KEY-ALLOWLIST'));
     assert.ok(outcome.findings.some((f) => f.rule === 'KEY-DENYLIST'));
@@ -820,7 +857,7 @@ describe('GATE-ROUND-3 · small-cell suppression is a mechanism, not a threshold
     for (const family of ['cnae_section_counts', 'uf_counts', 'guardrail_counts']) {
       assert.ok(BRAZIL_RECEITA_GATE5_SUPPRESSED_BUCKET_FAMILIES.includes(family));
     }
-    for (const exempt of ['persisted_rows', 'safety', 'duration_ms']) {
+    for (const exempt of ['records_persisted', 'safety', 'duration_ms']) {
       assert.ok(
         BRAZIL_RECEITA_GATE5_SUPPRESSION_EXEMPT_KEYS.includes(exempt),
         `${exempt} describes the run, not the records, and must be suppression-exempt`,
@@ -976,6 +1013,17 @@ describe('GATE-ROUND-3 · logs and console obey the same universal set, with no 
 
   it('the BR connector emits nothing to console or to a process stream, today', () => {
     // The negative guard: a future console call in this flow is a source change this test fails on.
+    //
+    // 🔴 Matched as a CALL, and with quoted string literals removed first. A module whose JOB is to
+    // record where an emission happens necessarily NAMES `process.stdout.write` in prose data —
+    // `br-receita-cnpj-gate5-engine-report-boundary` does exactly that — and a bare-substring guard
+    // flags the record for describing the defect it exists to describe. Template literals are kept,
+    // because that is where a real `write(`${...}`)` interpolation lives.
+    const executableOnly = (source: string): string =>
+      codeWithoutComments(source)
+        .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+        .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
+
     const dir = new URL('../', import.meta.url);
     const files = fs
       .readdirSync(dir)
@@ -983,11 +1031,11 @@ describe('GATE-ROUND-3 · logs and console obey the same universal set, with no 
     assert.ok(files.length > 50, 'expected the connector directory to be enumerated');
     const offenders: string[] = [];
     for (const name of files) {
-      const code = codeWithoutComments(fs.readFileSync(new URL(name, dir), 'utf8'));
-      if (/\bconsole\s*\.\s*(log|info|warn|error|debug|trace|dir|table)\b/.test(code)) {
+      const code = executableOnly(fs.readFileSync(new URL(name, dir), 'utf8'));
+      if (/\bconsole\s*\.\s*(log|info|warn|error|debug|trace|dir|table)\s*\(/.test(code)) {
         offenders.push(`${name} (console)`);
       }
-      if (/\bprocess\s*\.\s*std(out|err)\s*\.\s*write\b/.test(code)) {
+      if (/\bprocess\s*\.\s*std(out|err)\s*\.\s*write\s*\(/.test(code)) {
         offenders.push(`${name} (process stream)`);
       }
     }
@@ -1174,7 +1222,7 @@ describe('GATE-ROUND-3 · OS-A40 … OS-A45 hold against the modules that own th
       'agent1_integration',
       'hubspot_write',
       'slack_write',
-      'persisted_rows',
+      'records_persisted',
       'safety',
     ]) {
       assert.ok(
@@ -1241,7 +1289,18 @@ describe('GATE-ROUND-3 · the guard is reachable from tests only, and wires into
       if (name.startsWith('br-receita-cnpj-gate5-')) continue;
       if (name === 'br-receita-cnpj-gate-status-current-state.ts') continue;
       const code = codeWithoutComments(fs.readFileSync(new URL(name, dir), 'utf8'));
-      if (/br-receita-cnpj-gate5-output-(guard|contract)/.test(code)) importers.push(name);
+      // 🔴 Match an IMPORT SPECIFIER, not the module name anywhere in the file. A bare substring
+      // search flags a module that merely NAMES the contract as its provenance — which is exactly
+      // what `br-receita-cnpj-gate7-operator-runbook` does in its preflight `authority` fields, and
+      // naming an authority is the opposite of wiring to it. Every real import form is covered:
+      // static `from`, `require(`, and dynamic `import(`.
+      if (
+        /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)['"][^'"]*br-receita-cnpj-gate5-output-(?:guard|contract)['"]/.test(
+          code,
+        )
+      ) {
+        importers.push(name);
+      }
     }
     assert.deepEqual(
       importers,
@@ -1294,15 +1353,25 @@ describe('GATE-ROUND-3 · the guard is reachable from tests only, and wires into
 
   it('the current-state view imports each gate status rather than restating it', () => {
     const view = connectorCode('../br-receita-cnpj-gate-status-current-state.ts');
-    for (const gate of [2, 3, 4, 5, 6, 8]) {
+    // 🔴 GATE-7 joined this list in BR-SOURCE-FAST-TRACK-6: the runbook section gave it a recorded
+    // module, so the view imports its status like every other gate's instead of stating it inline.
+    for (const gate of [2, 3, 4, 5, 6, 7, 8]) {
       assert.match(
         view,
         new RegExp(`BRAZIL_RECEITA_GATE${gate}_STATUS`),
         `the view must import GATE-${gate}'s own status constant, not a second copy`,
       );
+      assert.match(
+        view,
+        new RegExp(`import \\{ BRAZIL_RECEITA_GATE${gate}_STATUS \\} from`),
+        `GATE-${gate}'s status must be IMPORTED, so the view cannot drift from its owner`,
+      );
     }
-    // The two it states itself are the two that own no constant, and it says which.
+    // GATE-1 is now the ONLY status the view states itself, and it says why.
     assert.match(view, /BRAZIL_RECEITA_GATE1_STATUS: BrazilReceitaGateStatus = 'approved'/);
-    assert.match(view, /BRAZIL_RECEITA_GATE7_STATUS: BrazilReceitaGateStatus = 'not_started'/);
+    assert.ok(
+      !/BRAZIL_RECEITA_GATE7_STATUS: BrazilReceitaGateStatus =/.test(view),
+      'GATE-7 must no longer be stated inline; its recorded module owns the value',
+    );
   });
 });
