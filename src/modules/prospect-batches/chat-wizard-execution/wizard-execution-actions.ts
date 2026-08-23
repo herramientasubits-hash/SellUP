@@ -109,6 +109,10 @@ import type { PersistenceReadinessDbClient } from './wizard-persistence-readines
 import type { WizardPersistenceOutcome } from './wizard-result-copy';
 import { TWO_ROUND_INDETERMINATE_ANOMALY } from '@/server/agents/prospecting-toolkit/apollo-two-round/production-runner.server';
 import { markWizardBatchFailed } from './wizard-batch-failure';
+import {
+  DURABLE_PROSPECT_CANDIDATE_STATUSES,
+  durableCandidatesFromCount,
+} from '@/server/prospect-batches/batch-durable-candidates';
 import type { CatalogResolutionInput, CatalogResolutionOutput } from './wizard-catalog-resolver';
 import type { IncrementalSearchOutput } from '@/server/agents/prospecting-toolkit/incremental-search-types';
 import type { PilotGuardrailCode, ConfirmWizardCreditsOutput, ReleaseWizardCreditsOutput } from './wizard-pilot-types';
@@ -572,14 +576,38 @@ export async function executeProspectWizardGenerationAction(
       );
     },
 
-    markBatchFailed: (batchId, reason) =>
-      markWizardBatchFailed(batchId, reason, async (id) => {
-        const result = await supabase
-          .from('prospect_batches')
-          .update({ status: 'failed' })
-          .eq('id', id);
-        return { error: result.error };
-      }),
+    // AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 — el cierre por fallo mira
+    // primero lo que el lote CONTIENE. La sonda es un conteo ACOTADO
+    // (`head: true`): no trae ni una fila, así que no viaja ningún dato personal.
+    // El cliente de sesión ya lee `prospect_candidates` (política RLS
+    // `active_users_can_read_prospect_candidates`), así que no hace falta
+    // service_role ni migración alguna.
+    markBatchFailed: async (batchId, reason) => {
+      await markWizardBatchFailed(
+        batchId,
+        reason,
+        async (id, status) => {
+          const result = await supabase
+            .from('prospect_batches')
+            .update({ status })
+            .eq('id', id);
+          return { error: result.error };
+        },
+        async (id) => {
+          try {
+            const { count, error } = await supabase
+              .from('prospect_candidates')
+              .select('id', { count: 'exact', head: true })
+              .eq('batch_id', id)
+              .in('status', [...DURABLE_PROSPECT_CANDIDATE_STATUSES]);
+            if (error) return { known: false, reason: 'read_failed' };
+            return durableCandidatesFromCount(count);
+          } catch {
+            return { known: false, reason: 'read_failed' };
+          }
+        },
+      );
+    },
   };
 
   return executeProspectWizardGeneration(request, deps);

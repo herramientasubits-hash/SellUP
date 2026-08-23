@@ -166,8 +166,15 @@ import { APOLLO_TWO_ROUND_OBSERVABILITY_KEY } from './apollo-two-round/observabi
 // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — clasificación sanitizada del fallo de
 // escritura y estado de lote coherente con el resultado real de la persistencia.
 import {
+  DURABLE_PROSPECT_CANDIDATE_STATUSES,
+  NO_PRE_EXISTING_DURABLE_CANDIDATES,
+  durableCandidatesFromCount,
+  resolveBatchDurableTotals,
+  resolveBatchTerminalStatusDecision,
+  type DurableCandidateKnowledge,
+} from '@/server/prospect-batches/batch-durable-candidates';
+import {
   classifyCandidatePersistenceError,
-  resolveBatchStatusForPersistenceOutcome,
   resolvePersistenceStatus,
   toCandidatePersistenceOutcomeMetadata,
   CANDIDATE_PERSISTENCE_OUTCOME_METADATA_KEY,
@@ -243,6 +250,40 @@ function buildPersistenceOutcome(input: {
       ? { reviewOnlyCandidates: input.reviewOnlyCandidates }
       : {}),
   };
+}
+
+/**
+ * AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 § 7 — verdad del LOTE, no sólo
+ * del contribuyente.
+ *
+ * Lee cuántas filas durables contiene ya el lote que se va a ADOPTAR, ANTES de
+ * que este escritor inserte nada. Ese momento es el que hace que el total sea
+ * una suma y no un doble conteo (§ 8).
+ *
+ * Es un conteo ACOTADO: `head: true` no trae ni una fila, así que no viaja
+ * ningún dato personal ni payload de candidato. Cero llamadas a proveedor, cero
+ * créditos, cero escrituras.
+ *
+ * Fail-closed en su lectura: un error o un `count` ausente devuelven «no se
+ * pudo determinar», que NO es lo mismo que cero (§ 10) y que aguas abajo impide
+ * escribir un estado terminal inventado.
+ */
+async function probePreExistingDurableCandidates(
+  admin: SupabaseClient,
+  batchId: string,
+): Promise<DurableCandidateKnowledge> {
+  try {
+    const { count, error } = await admin
+      .from("prospect_candidates")
+      .select("id", { count: "exact", head: true })
+      .eq("batch_id", batchId)
+      .in("status", [...DURABLE_PROSPECT_CANDIDATE_STATUSES]);
+
+    if (error) return { known: false, reason: "read_failed" };
+    return durableCandidatesFromCount(count);
+  } catch {
+    return { known: false, reason: "read_failed" };
+  }
 }
 
 /** Resultado de persistencia de un camino que no escribió candidatos. */
@@ -868,6 +909,27 @@ export async function writeProspectingCandidates(
    */
   let existingCompletedAt: string | null = null;
 
+  /**
+   * CUT-1 § 7 — filas durables que el lote ya contenía ANTES de este escritor.
+   *
+   * Un lote NUEVO (path B) no puede contener nada: es cero CONOCIDO y no cuesta
+   * ni una lectura. Un lote ADOPTADO (path A) sí puede traer contenido —por
+   * ejemplo las filas gratuitas de una corrida mixta— y hay que preguntárselo a
+   * la base antes de insertar.
+   */
+  let preExistingDurableCandidates: DurableCandidateKnowledge =
+    NO_PRE_EXISTING_DURABLE_CANDIDATES;
+
+  /**
+   * CUT-1 CORRECTION § 3/§ 4 — estado que el lote ADOPTADO tenía al llegar aquí.
+   *
+   * Se guarda para dos cosas y sólo dos: poder auditar la transición REAL cuando
+   * por fin se escriba un estado terminal, y poder decir de qué estado se venía.
+   * Un lote NUEVO no tiene ninguno (`null`): su creación ya la cuenta
+   * `batch_created`, y una transición desde «no existía» no es una transición.
+   */
+  let adoptedBatchPreviousStatus: string | null = null;
+
   if (existingBatchId) {
     // ── Path A: reuse an existing batch ────────────────────────────────────
     // Validate then UPDATE; throw CandidateWriterBatchValidationError before
@@ -929,8 +991,29 @@ export async function writeProspectingCandidates(
     const existingMeta = (existingBatch.metadata ?? {}) as Record<string, unknown>;
     preMergedMetadata = { ...existingMeta, ...batchMetadata };
 
-    // UPDATE the existing batch to ready_for_review with merged metadata.
+    // UPDATE the existing batch with the adoption fields and merged metadata.
     // created_by, owner_id, client_request_id and created_at are NOT touched.
+    //
+    // CUT-1 CORRECTION § 2 — 🔴 `status` NO viaja en esta escritura, y es el
+    // punto entero de esta corrección.
+    //
+    // Antes esta UPDATE ponía `ready_for_review` AQUÍ, antes de sondear qué
+    // contenía el lote y antes de intentar un solo INSERT. Con eso, la decisión
+    // `preserve` de § 10 —«no se pudo determinar el contenido, no se inventa
+    // ningún estado terminal»— no conservaba el estado del lote: conservaba un
+    // `ready_for_review` que esta misma línea acababa de FABRICAR. Un lote en
+    // `generating` con la sonda ilegible y 0 inserciones terminaba anunciado
+    // como revisable sin que nadie hubiera podido comprobar que hubiera algo
+    // dentro. El contrato decía «unknown durable count ⇒ no terminal status is
+    // invented» y la implementación lo incumplía una escritura antes.
+    //
+    // Los campos de la operación de adopción (nombre, país, industria, objetivo,
+    // profundidad, metadata) SÍ se escriben: son datos de la petición, no una
+    // afirmación sobre el resultado. El estado terminal lo decide una sola
+    // autoridad, la finalización (§ 3), cuando ya se conocen las tres verdades:
+    // lo que el lote traía, lo que este contribuyente insertó y qué falló.
+    // Omitir la columna deja intacto el `draft` / `generating` que la fila ya
+    // tenía.
     const { error: updateError } = await admin
       .from("prospect_batches")
       .update({
@@ -940,7 +1023,6 @@ export async function writeProspectingCandidates(
         industry,
         target_count: pipelineOutput.summary.requested,
         search_depth: pipelineOutput.input.searchDepth ?? "standard",
-        status: "ready_for_review",
         metadata: preMergedMetadata,
       })
       .eq("id", existingBatchId);
@@ -976,20 +1058,26 @@ export async function writeProspectingCandidates(
 
     batchId = existingBatchId;
 
-    // Audit: record the status transition (draft → ready_for_review)
-    await admin.from("prospect_candidate_audit").insert({
-      batch_id: batchId,
-      candidate_id: null,
-      actor_user_id: triggeredByUserId ?? null,
-      action_type: "batch_status_changed",
-      details: {
-        name: finalBatchName,
-        source: batchSource,
-        generated_by: "agent_1_candidate_writer",
-        previous_status: existingBatch.status,
-        new_status: "ready_for_review",
-      },
-    });
+    // CUT-1 § 7/§ 8 — la lectura ocurre AQUÍ: el lote ya está validado y adoptado
+    // y todavía no se ha intentado ni un INSERT de candidato. Todo lo que cuente
+    // esta sonda es, por construcción, anterior a este escritor.
+    preExistingDurableCandidates = await probePreExistingDurableCandidates(
+      admin,
+      batchId,
+    );
+
+    // CUT-1 CORRECTION § 4 — aquí NO se audita ninguna transición.
+    //
+    // Esto emitía `batch_status_changed` con `new_status: 'ready_for_review'`
+    // antes de que existiera la decisión, así que dejaba en el historial una
+    // transición que podía no haber ocurrido nunca: con la sonda ilegible y 0
+    // inserciones, el lote se quedaba (correctamente) donde estaba y la
+    // auditoría seguía afirmando que había pasado a revisable.
+    //
+    // Lo único que se hace es RECORDAR de dónde se venía. La transición se
+    // audita una sola vez, en el punto en que el estado terminal se escribe de
+    // verdad, y con el estado que realmente se escribió.
+    adoptedBatchPreviousStatus = existingBatch.status as string;
 
   } else {
     // ── Path B: create a new batch (historical behavior — unchanged) ────────
@@ -2944,12 +3032,33 @@ export async function writeProspectingCandidates(
     completeValidCandidates: canonicalCompletenessCounters.complete_valid_candidates,
     reviewOnlyCandidates: canonicalCompletenessCounters.review_only_candidates,
   });
-  const batchStatusForOutcome = resolveBatchStatusForPersistenceOutcome({
+  // AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 § 7 — el estado terminal se
+  // decide con la verdad del LOTE, no sólo con `candidatesCreated`.
+  //
+  // Pasar únicamente lo que escribió este escritor es exactamente el defecto P0
+  // G2: un lote que ya contenía 7 filas gratuitas terminaba en `completed` o en
+  // `failed` porque la pata de pago insertó 0.
+  //
+  // § 8 — sin doble conteo: `preExistingDurableCandidates` se leyó ANTES del
+  // bucle de inserción, así que las filas de este escritor no están dentro y el
+  // total es la suma limpia de las dos cifras.
+  const batchDurableTotals = resolveBatchDurableTotals({
+    preExisting: preExistingDurableCandidates,
+    insertedNow: candidatesCreated,
+  });
+  const batchStatusDecision = resolveBatchTerminalStatusDecision({
+    preExisting: preExistingDurableCandidates,
     persistedCandidates: candidatesCreated,
     persistenceFailureCount: persistenceFailures.length,
   });
+  // `preserve` (§ 10) significa que no se pudo determinar qué contenía el lote y
+  // este escritor no aportó nada: no hay estado terminal honesto, así que no se
+  // escribe ninguno y el lote conserva el que ya tenía. La metadata sí se
+  // escribe, con el motivo, para que la corrida no quede muda.
+  const batchStatusForOutcome =
+    batchStatusDecision.action === 'write' ? batchStatusDecision.status : null;
 
-  // ── Status correction (guaranteed) ───────────────────────────────────────
+  // ── Terminal status write (guaranteed) ───────────────────────────────────
   // A batch with 0 persisted candidates must NEVER remain ready_for_review.
   // This runs in its own try-catch so it cannot be swallowed by the metadata
   // computation below. The full metadata update repeats the status write later.
@@ -2959,14 +3068,79 @@ export async function writeProspectingCandidates(
   // el `else` y se quedaba en `ready_for_review` con cero candidatos: es lo que
   // permitió que LIVE-QA-2 (lote 62fdf47b) se leyera como un vacío normal. Ahora
   // ese caso queda `failed`, que ya existe en el CHECK de `prospect_batches`.
-  if (batchStatusForOutcome !== "ready_for_review") {
+  //
+  // CUT-1 CORRECTION § 3 — 🔴 esto ya NO es una «corrección»: es la ÚNICA
+  // autoridad de estado del lote, y por eso cubre los TRES estados terminales,
+  // `ready_for_review` incluido.
+  //
+  // Antes se excluía `ready_for_review` a propósito, porque la adopción (path A)
+  // y la creación (path B) ya lo habían escrito antes del bucle. Quitada esa
+  // escritura prematura de la adopción, excluirlo aquí dejaría un agujero
+  // simétrico al que se cierra: un lote adoptado en `generating` que SÍ ganó
+  // filas se quedaría en `generating` para siempre. Escribirlo aquí es lo que
+  // convierte `{ action: 'write', status: 'ready_for_review' }` en un hecho.
+  //
+  // Para path B es una reescritura idempotente del mismo valor con el que se
+  // insertó la fila, así que su comportamiento histórico no cambia.
+  //
+  // `preserve` (§ 10) sigue sin escribir NADA: ni aquí ni abajo.
+  if (batchStatusForOutcome !== null) {
+    let statusWritten = false;
     try {
-      await admin
+      const { error: statusWriteError } = await admin
         .from("prospect_batches")
         .update({ status: batchStatusForOutcome })
         .eq("id", batchId);
+      statusWritten = !statusWriteError;
+      if (statusWriteError) {
+        console.error(
+          "[candidate-writer] terminal status write failed for batch",
+          batchId,
+          classifyCandidatePersistenceError(statusWriteError),
+        );
+      }
     } catch (err) {
       console.error("[candidate-writer] status correction failed for batch", batchId, err);
+    }
+
+    // CUT-1 CORRECTION § 4 — la transición se audita AQUÍ y una sola vez, sólo
+    // si el estado terminal se escribió de verdad y sólo si hubo transición.
+    //
+    // Condiciones, todas necesarias:
+    //   * `statusWritten` — no se audita un cambio que la base rechazó;
+    //   * `adoptedBatchPreviousStatus !== null` — un lote NUEVO no transiciona
+    //     desde nada: su creación ya la cuenta `batch_created`;
+    //   * el estado anterior y el nuevo son DISTINTOS — reafirmar el mismo valor
+    //     no es una transición y no se fabrica una.
+    //
+    // Con `preserve` no se entra en este bloque, así que el caso «sonda ilegible
+    // + 0 inserciones» no deja ninguna auditoría que afirme `ready_for_review`.
+    if (
+      statusWritten &&
+      adoptedBatchPreviousStatus !== null &&
+      adoptedBatchPreviousStatus !== batchStatusForOutcome
+    ) {
+      try {
+        await admin.from("prospect_candidate_audit").insert({
+          batch_id: batchId,
+          candidate_id: null,
+          actor_user_id: triggeredByUserId ?? null,
+          action_type: "batch_status_changed",
+          details: {
+            name: finalBatchName,
+            source: batchSource,
+            generated_by: "agent_1_candidate_writer",
+            previous_status: adoptedBatchPreviousStatus,
+            new_status: batchStatusForOutcome,
+          },
+        });
+      } catch (err) {
+        console.error(
+          "[candidate-writer] batch_status_changed audit failed for batch",
+          batchId,
+          err,
+        );
+      }
     }
   }
 
@@ -3025,6 +3199,15 @@ export async function writeProspectingCandidates(
       // hueco que hay que poder explicar es justo el de los gates intermedios.
       eligible_before_persistence: pipelineOutput.candidates.length,
       insert_attempt_count: insertAttempts,
+      // CUT-1 § 8 — aritmética de supervivencia, declarada y auditable. Las dos
+      // cifras se publican por separado justamente para que un total inflado se
+      // vea: `total` tiene que ser `pre_existing + actual_persisted_count`, ni
+      // uno más. `pre_existing_durable_candidates_known` distingue «cero» de «no
+      // se pudo leer», que es la conversión que § 10 prohíbe.
+      pre_existing_durable_candidates: batchDurableTotals.preExistingDurableCandidates,
+      pre_existing_durable_candidates_known: batchDurableTotals.preExistingKnown,
+      total_durable_candidates: batchDurableTotals.totalDurableCandidates,
+      batch_status_decision: batchStatusDecision.action,
       updated_at: new Date().toISOString(),
     };
 
@@ -3472,17 +3655,27 @@ export async function writeProspectingCandidates(
     //
     // Idempotente: una marca previa se respeta siempre y la decisión no depende
     // de este proceso, sino de lo que la fila ya tenía.
-    const completionSeal = decideBatchCompletionSeal({
-      status: batchStatusForOutcome,
-      currentCompletedAt: existingCompletedAt,
-      now,
-    });
+    //
+    // CUT-1 § 10 — con `preserve` no hay estado terminal: la corrida no puede
+    // afirmar que terminó de ninguna manera concreta, así que tampoco se sella
+    // una fecha de cierre. Se escribe metadata y nada más.
+    const completionSeal =
+      batchStatusForOutcome !== null
+        ? decideBatchCompletionSeal({
+            status: batchStatusForOutcome,
+            currentCompletedAt: existingCompletedAt,
+            now,
+          })
+        : { shouldWrite: false as const, completedAt: null };
     const completedAtPatch =
       completionSeal.shouldWrite && completionSeal.completedAt !== null
         ? { completed_at: completionSeal.completedAt }
         : {};
 
-    if (batchStatusForOutcome !== "ready_for_review") {
+    if (batchStatusForOutcome !== null) {
+      // `ready_for_review` — CUT-1 CORRECTION § 3: hay contenido durable, sea
+      //               heredado del lote o insertado por este contribuyente. Ya
+      //               no se da por hecho que otra escritura anterior lo puso.
       // `completed` — todos los candidatos se descartaron a propósito
       // (historial / calidad): no hay contenido nuevo que revisar.
       // `failed`    — § 9: había elegibles y la escritura falló. El lote NO puede
@@ -3496,6 +3689,8 @@ export async function writeProspectingCandidates(
         })
         .eq("id", batchId);
     } else {
+      // `preserve` (§ 10) — se escribe metadata (con el motivo) y NADA de estado:
+      // el lote conserva el `draft` / `generating` que ya tenía.
       await admin
         .from("prospect_batches")
         .update({ metadata: metadataToPersist, ...completedAtPatch })
@@ -3503,7 +3698,9 @@ export async function writeProspectingCandidates(
     }
   } catch (err) {
     // Non-critical: metadata update failure does not affect the writer result.
-    // Status was already corrected above (completed) if candidatesCreated === 0.
+    // CUT-1 CORRECTION § 3 — el estado terminal ya lo escribió arriba la
+    // escritura garantizada, para los TRES estados. Que esta escritura de
+    // metadata falle no puede dejar el lote sin estado terminal.
     console.error("[candidate-writer] post-loop metadata update failed for batch", batchId, err);
   }
 
