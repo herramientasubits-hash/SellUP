@@ -173,6 +173,11 @@ import {
   resolveBatchTerminalStatusDecision,
   type DurableCandidateKnowledge,
 } from '@/server/prospect-batches/batch-durable-candidates';
+// AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-2 — dueño de cada campo del lote.
+import {
+  resolveAdoptedBatchPatch,
+  type ExistingAdoptedBatchRow,
+} from '@/server/prospect-batches/adopted-batch-truth';
 import {
   classifyCandidatePersistenceError,
   resolvePersistenceStatus,
@@ -852,7 +857,19 @@ export async function writeProspectingCandidates(
    */
   const isApolloCompanyDiscoveryPath = pipelineMeta?.provider === "apollo_organizations";
 
-  const batchMetadata: Record<string, unknown> = {
+  /**
+   * CUT-2 § 8 — el bloque OBSERVACIONAL que este escritor produce por sí mismo.
+   *
+   * Se separa de `extraBatchMetadata` a propósito. `extraBatchMetadata` es
+   * PASO A TRAVÉS: lo rellena el llamador y hoy transporta claves que NO son
+   * del escritor (`run_provider_selection` y `apollo_discovery_taxonomy` las
+   * escribe también la reserva del wizard, y la de la reserva es más rica).
+   * Tratar todo el objeto como «propio» era exactamente lo que permitía que un
+   * contribuyente pisara verdad ajena al adoptar.
+   *
+   * Sobre un lote adoptado, sólo las claves de ESTE literal pueden actualizarse.
+   */
+  const writerOwnedBatchMetadata: Record<string, unknown> = {
     generated_by: "agent_1_candidate_writer",
     pipeline_version: pipelineMeta?.pipelineVersion ?? "unknown",
     pipeline_summary: {
@@ -892,8 +909,20 @@ export async function writeProspectingCandidates(
           warning: "Datos de prueba. No convertir a empresas reales.",
         }
       : {}),
+  };
+
+  /**
+   * Forma final IDÉNTICA a la anterior a CUT-2: el paso a través se esparce al
+   * final, así que un lote NUEVO recibe byte a byte la misma metadata que antes.
+   * Lo único que cambia es que ahora se sabe qué mitad es del escritor.
+   */
+  const batchMetadata: Record<string, unknown> = {
+    ...writerOwnedBatchMetadata,
     ...(extraBatchMetadata ?? {}),
   };
+
+  /** Claves cuyo dueño es este escritor — dato, no lista duplicada. */
+  const writerOwnedBatchMetadataKeys = Object.keys(writerOwnedBatchMetadata);
 
   // ── Resolve or create batch ───────────────────────────────────────────────
   // preMergedMetadata: metadata used for the batch row and later for the
@@ -941,7 +970,11 @@ export async function writeProspectingCandidates(
         // § 7 — `completed_at` se LEE para poder respetar una marca previa: una
         // corrida deja de avanzar una sola vez, y dos cierres no pueden dar
         // instantes distintos.
-        "id, status, source, created_by, owner_id, metadata, client_request_id, completed_at",
+        // CUT-2 § 3/§ 4 — las seis columnas de identidad global se LEEN antes de
+        // adoptar. Sin leerlas no se puede saber cuáles ya tenían verdad, y sin
+        // saberlo la única política posible es «gana el último que escribe»,
+        // que es justo el defecto.
+        "id, status, source, created_by, owner_id, metadata, client_request_id, completed_at, name, country, country_code, industry, target_count, search_depth",
       )
       .eq("id", existingBatchId)
       .single();
@@ -980,18 +1013,41 @@ export async function writeProspectingCandidates(
       );
     }
 
-    // Merge metadata: wizard fields (preserved) + pipeline fields (added/overwritten).
-    // Wizard keys (request_source, catalog_version_id, industry_id, etc.) do not
-    // overlap with pipeline keys (generated_by, pipeline_version, etc.) so a
-    // shallow spread is sufficient and safe.
     existingCompletedAt =
       typeof (existingBatch as { completed_at?: unknown }).completed_at === 'string'
         ? ((existingBatch as { completed_at?: string }).completed_at ?? null)
         : null;
-    const existingMeta = (existingBatch.metadata ?? {}) as Record<string, unknown>;
-    preMergedMetadata = { ...existingMeta, ...batchMetadata };
+    // CUT-2 § 8/§ 10 — la fusión de metadata deja de ser un `spread` en el que
+    // gana el contribuyente actual, y el PATCH de ADOPCIÓN se construye por un
+    // camino PROPIO en vez de recortar el payload de creación. Los dos tienen
+    // dueños distintos: sobre un lote nuevo el escritor es el dueño de la
+    // identidad de la petición; sobre uno adoptado, no.
+    //
+    // El comentario que había aquí afirmaba que las claves del wizard y las del
+    // pipeline «no se solapan, así que un spread superficial es suficiente y
+    // seguro». Era falso en dos claves REALES, y no por un futuro hipotético:
+    // `run_provider_selection` y `apollo_discovery_taxonomy` las escribe también
+    // la reserva del wizard y vuelven a llegar aquí por `extraBatchMetadata`. En
+    // `apollo_discovery_taxonomy` la de la reserva es un SUPERCONJUNTO —lleva
+    // además `macro_industry_key`, `macro_industry_display_name` y
+    // `requested_subindustries`— así que el spread la degradaba a la versión
+    // pobre en cada adopción.
+    const adoptedBatchTruth = resolveAdoptedBatchPatch({
+      existingBatch: existingBatch as ExistingAdoptedBatchRow,
+      incoming: {
+        name: finalBatchName,
+        country,
+        country_code: countryCode,
+        industry,
+        target_count: pipelineOutput.summary.requested,
+        search_depth: pipelineOutput.input.searchDepth ?? "standard",
+        metadata: batchMetadata,
+        contributorOwnedMetadataKeys: writerOwnedBatchMetadataKeys,
+      },
+    });
+    preMergedMetadata = adoptedBatchTruth.metadata;
 
-    // UPDATE the existing batch with the adoption fields and merged metadata.
+    // UPDATE the existing batch with the resolved adoption patch.
     // created_by, owner_id, client_request_id and created_at are NOT touched.
     //
     // CUT-1 CORRECTION § 2 — 🔴 `status` NO viaja en esta escritura, y es el
@@ -1007,24 +1063,19 @@ export async function writeProspectingCandidates(
     // dentro. El contrato decía «unknown durable count ⇒ no terminal status is
     // invented» y la implementación lo incumplía una escritura antes.
     //
-    // Los campos de la operación de adopción (nombre, país, industria, objetivo,
-    // profundidad, metadata) SÍ se escriben: son datos de la petición, no una
-    // afirmación sobre el resultado. El estado terminal lo decide una sola
-    // autoridad, la finalización (§ 3), cuando ya se conocen las tres verdades:
-    // lo que el lote traía, lo que este contribuyente insertó y qué falló.
-    // Omitir la columna deja intacto el `draft` / `generating` que la fila ya
-    // tenía.
+    // El estado terminal lo decide una sola autoridad, la finalización (§ 3),
+    // cuando ya se conocen las tres verdades: lo que el lote traía, lo que este
+    // contribuyente insertó y qué falló. Omitir la columna deja intacto el
+    // `draft` / `generating` que la fila ya tenía.
+    //
+    // CUT-2 § 4/§ 5 — y de los campos de la petición (nombre, país, industria,
+    // objetivo, profundidad) sólo viajan los que la fila NO tenía todavía. El
+    // objetivo es el caso que más duele: con hueco mixto —10 pedidos, 7 gratis,
+    // 3 de pago— este contribuyente llega con `requested = 3`, y escribirlo
+    // encima convertiría un lote completo en un lote que dice haber pedido tres.
     const { error: updateError } = await admin
       .from("prospect_batches")
-      .update({
-        name: finalBatchName,
-        country,
-        country_code: countryCode,
-        industry,
-        target_count: pipelineOutput.summary.requested,
-        search_depth: pipelineOutput.input.searchDepth ?? "standard",
-        metadata: preMergedMetadata,
-      })
+      .update(adoptedBatchTruth.patch)
       .eq("id", existingBatchId);
 
     if (updateError) {

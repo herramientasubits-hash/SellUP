@@ -2665,3 +2665,33 @@ jobs:
       # 0 créditos, 0 migraciones.
       - name: Run Agent 1 mixed free+paid batch survival tests
         run: npm run test:a1-mixed-batch-survival
+
+      # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-2 — BATCH TRUTHFULNESS.
+      #
+      # CUT-1 defendió que un contribuyente posterior no pueda BORRAR el
+      # contenido durable de un lote. Este paso defiende lo adyacente: que no
+      # pueda REDEFINIR la petición que lo creó.
+      #
+      # Impide que vuelvan:
+      #   * «gana el último que escribe» sobre las seis columnas de identidad
+      #     global — con hueco mixto (10 pedidos, 7 gratis, 3 de pago) el
+      #     contribuyente de pago escribía `target_count = 3` encima del 10 del
+      #     usuario, y su país / industria / nombre encima de los del wizard;
+      #   * el `{ ...existingMeta, ...batchMetadata }` en el que el contribuyente
+      #     actual ganaba TODA colisión de metadata, incluidas las dos reales de
+      #     hoy: `run_provider_selection` y `apollo_discovery_taxonomy`, que
+      #     escribe también la reserva del wizard y cuya versión es SUPERCONJUNTO;
+      #   * que una clave sin dueño probado se pise en silencio, o que el bloque
+      #     de origen gratuito lo borre el de pago;
+      #   * que proteger la adopción vacíe de campos a los lotes NUEVOS: la ruta
+      #     de creación sigue poblando nombre, país, industria, objetivo,
+      #     profundidad, estado, source y metadata como siempre;
+      #   * que un reintento mute progresivamente la verdad del lote;
+      #   * que este hito encienda el hueco parcial: Apollo y Lusha siguen en
+      #     `false`, y el módulo nuevo es puro (sin I/O, sin proveedores, sin
+      #     créditos, sin presupuesto).
+      #
+      # Offline y determinista: sin Supabase, sin red, sin credenciales,
+      # 0 créditos, 0 migraciones.
+      - name: Run Agent 1 mixed free+paid batch truthfulness tests
+        run: npm run test:a1-mixed-batch-truthfulness
