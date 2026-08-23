@@ -502,8 +502,63 @@ describe('CUT-1 § 7 — el escritor obtiene la verdad del lote antes de decidir
   });
 
   it('con `preserve` el escritor no escribe estado ni sella fecha de cierre', () => {
-    assert.ok(writerSrc.includes('batchStatusForOutcome !== null && batchStatusForOutcome !== "ready_for_review"'));
+    // CUT-1 CORRECTION § 8 — este trinquete afirmaba antes la CONDICIÓN LITERAL
+    // `batchStatusForOutcome !== null && batchStatusForOutcome !== "ready_for_review"`,
+    // es decir, pinnaba exactamente la exclusión que hacía que `ready_for_review`
+    // NO se escribiera nunca en la finalización y se heredara de la escritura
+    // prematura de la adopción. Un trinquete que fija el defecto lo protege.
+    //
+    // Lo que se fija ahora es el contrato: las DOS escrituras de estado del
+    // escritor están guardadas por `batchStatusForOutcome !== null` a secas, sin
+    // excluir ningún estado terminal, y el sellado de fecha cuelga de la misma
+    // condición.
+    const statusGuards = writerSrc.split('if (batchStatusForOutcome !== null) {').length - 1;
+    assert.equal(statusGuards, 2, 'las dos escrituras de estado se guardan por la MISMA condición');
+    assert.ok(
+      !writerSrc.includes('batchStatusForOutcome !== "ready_for_review"'),
+      'ningún estado terminal puede quedar excluido de la escritura de estado',
+    );
     assert.ok(writerSrc.includes('batchStatusForOutcome !== null\n        ? decideBatchCompletionSeal({'));
+  });
+
+  it('§ 8 — la verdad del lote se conoce ANTES de que se escriba el estado terminal', () => {
+    // Trinquete de ORDEN EN LA FUENTE, complementario al de orden de escritura
+    // real que vive en la suite del escritor. Ninguno de los dos depende de un
+    // comentario.
+    const adoptionUpdate = writerSrc.indexOf('.update({\n        name: finalBatchName,');
+    const probeCall = writerSrc.indexOf(
+      'preExistingDurableCandidates = await probePreExistingDurableCandidates',
+    );
+    const decision = writerSrc.indexOf(
+      'const batchStatusDecision = resolveBatchTerminalStatusDecision({',
+    );
+    const firstStatusWrite = writerSrc.indexOf('if (batchStatusForOutcome !== null) {');
+
+    assert.ok(adoptionUpdate > 0, 'la UPDATE de adopción tiene que existir');
+    assert.ok(probeCall > adoptionUpdate, 'la sonda corre con el lote ya adoptado');
+    assert.ok(decision > probeCall, 'la decisión se toma después de sondear');
+    assert.ok(
+      firstStatusWrite > decision,
+      'ninguna escritura de estado puede preceder a la decisión',
+    );
+
+    // Y la adopción, que es lo único que corre ANTES de la sonda, no puede
+    // llevar la columna de estado en su payload.
+    //
+    // El corte es el OBJETO de la UPDATE, no todo lo que hay hasta la sonda:
+    // entre medias está el `return` de error del escritor, que lleva un
+    // `status: "failed"` propio del RESULTADO y no de la fila del lote. Cortar
+    // ancho daría un falso positivo sobre un campo que no es una columna.
+    const adoptionPayloadEnd = writerSrc.indexOf('.eq("id", existingBatchId);', adoptionUpdate);
+    assert.ok(
+      adoptionPayloadEnd > adoptionUpdate && adoptionPayloadEnd < probeCall,
+      'el payload de adopción tiene que cerrarse antes de la sonda',
+    );
+    const adoptionPayload = writerSrc.slice(adoptionUpdate, adoptionPayloadEnd);
+    assert.ok(
+      !/\bstatus:/.test(adoptionPayload),
+      `la UPDATE de adopción no puede escribir \`status\`; payload: ${adoptionPayload}`,
+    );
   });
 
   it('la telemetría publica las dos cifras por separado y si el previo se pudo leer', () => {

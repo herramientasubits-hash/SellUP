@@ -57,7 +57,22 @@ class ChainResult {
 type Stats = {
   batchUpdateCalls: Record<string, unknown>[];
   candidateInsertCalls: Record<string, unknown>[];
+  auditInserts: Record<string, unknown>[];
   durableProbeCalls: number;
+  /**
+   * CUT-1 CORRECTION § 6 — ESTADO OBSERVADO de la fila, no la lista de intentos.
+   *
+   * La suite anterior sólo miraba qué valores se habían intentado escribir, y por
+   * eso no podía distinguir «se conservó `generating`» de «se fabricó
+   * `ready_for_review` en la adopción y luego no se volvió a tocar». Este campo
+   * arranca con el estado que la fila YA tenía y se mueve sólo cuando una UPDATE
+   * lleva de verdad la columna: es lo que quedaría en la base.
+   */
+  storedStatus: string | null;
+  /** Igual que arriba, para la marca de cierre. */
+  storedCompletedAt: string | null;
+  /** Orden real de los efectos, para poder afirmar precedencias (§ 8). */
+  events: string[];
 };
 
 type Config = {
@@ -66,10 +81,13 @@ type Config = {
   /** Si el INSERT de candidato falla (⇒ 0 escritas por este contribuyente). */
   candidateInsertError?: { message: string } | null;
   existingBatchStatus?: string;
+  existingCompletedAt?: string | null;
 };
 
 function makeFakeAdmin(config: Config, stats: Stats): SupabaseClient {
   let candidateSeq = 0;
+  stats.storedStatus = config.existingBatchStatus ?? 'generating';
+  stats.storedCompletedAt = config.existingCompletedAt ?? null;
 
   return {
     from(table: string) {
@@ -90,7 +108,7 @@ function makeFakeAdmin(config: Config, stats: Stats): SupabaseClient {
                         owner_id: USER_A,
                         metadata: { request_source: 'chat_wizard' },
                         client_request_id: 'req-cut1-0001',
-                        completed_at: null,
+                        completed_at: config.existingCompletedAt ?? null,
                       },
                       error: null,
                     });
@@ -101,9 +119,22 @@ function makeFakeAdmin(config: Config, stats: Stats): SupabaseClient {
           },
           update(data: Record<string, unknown>) {
             stats.batchUpdateCalls.push({ ...data });
+            // Se aplica como lo haría la base: sólo las columnas presentes.
+            if (typeof data['status'] === 'string') {
+              stats.storedStatus = data['status'] as string;
+              stats.events.push(`batch_status_write:${data['status'] as string}`);
+            } else {
+              stats.events.push('batch_update_without_status');
+            }
+            if (typeof data['completed_at'] === 'string') {
+              stats.storedCompletedAt = data['completed_at'] as string;
+            }
             return new ChainResult({ error: null });
           },
-          insert() {
+          insert(data: Record<string, unknown>) {
+            stats.storedStatus =
+              typeof data?.['status'] === 'string' ? (data['status'] as string) : null;
+            stats.events.push('batch_insert');
             return {
               select() {
                 return { single: () => Promise.resolve({ data: { id: NEW_BATCH_ID }, error: null }) };
@@ -119,6 +150,7 @@ function makeFakeAdmin(config: Config, stats: Stats): SupabaseClient {
             // La sonda de supervivencia: conteo acotado, sin filas.
             if (opts?.head === true) {
               stats.durableProbeCalls += 1;
+              stats.events.push('durable_probe');
               return new ChainResult({
                 count: config.durableProbe.count,
                 error: config.durableProbe.error,
@@ -151,7 +183,13 @@ function makeFakeAdmin(config: Config, stats: Stats): SupabaseClient {
       }
 
       if (table === 'prospect_candidate_audit') {
-        return { insert: () => Promise.resolve({ data: null, error: null }) };
+        return {
+          insert(data: Record<string, unknown>) {
+            stats.auditInserts.push({ ...data });
+            stats.events.push(`audit:${String(data?.['action_type'])}`);
+            return Promise.resolve({ data: null, error: null });
+          },
+        };
       }
 
       throw new Error(`Unexpected table in fake admin: ${table}`);
@@ -244,7 +282,26 @@ function makeInput(overrides: Partial<CandidateWriterInput> = {}): CandidateWrit
 }
 
 function makeStats(): Stats {
-  return { batchUpdateCalls: [], candidateInsertCalls: [], durableProbeCalls: 0 };
+  return {
+    batchUpdateCalls: [],
+    candidateInsertCalls: [],
+    auditInserts: [],
+    durableProbeCalls: 0,
+    storedStatus: null,
+    storedCompletedAt: null,
+    events: [],
+  };
+}
+
+/** Auditorías de transición de estado del LOTE (no las de candidato). */
+function statusAudits(stats: Stats): Record<string, unknown>[] {
+  return stats.auditInserts.filter((a) => a['action_type'] === 'batch_status_changed');
+}
+
+function statusAuditTargets(stats: Stats): string[] {
+  return statusAudits(stats).map(
+    (a) => String((a['details'] as Record<string, unknown> | undefined)?.['new_status']),
+  );
 }
 
 function statusWrites(stats: Stats): string[] {
@@ -385,5 +442,250 @@ describe('CUT-1 — el escritor de pago no degrada un lote que ya trae filas', (
       7 + result.candidatesCreated,
       'el total no puede contar dos veces las filas de este escritor',
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CUT-1 CORRECTION § 6 — «PRESERVE» TIENE QUE PRESERVAR DE VERDAD
+//
+// Estas pruebas NO miran el resolutor puro ni la lista de intentos de escritura:
+// miran el ESTADO QUE QUEDARÍA EN LA FILA y el ORDEN REAL de los efectos.
+//
+// El defecto que cierran: la adopción escribía `ready_for_review` ANTES de
+// sondear el contenido del lote, así que la decisión `preserve` no conservaba el
+// estado previo — conservaba el `ready_for_review` que la propia adopción
+// acababa de fabricar. La suite anterior pasaba en verde porque sólo comprobaba
+// que no se escribiera `failed` ni `completed`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CUT1_UNREADABLE_PROBE = { count: null, error: { message: 'read boom' } } as const;
+const CUT1_INSERT_BOOM = { message: 'insert boom' } as const;
+
+/** Índice de la primera escritura de estado del lote; -1 si no hubo ninguna. */
+function firstStatusWriteIndex(stats: Stats): number {
+  return stats.events.findIndex((e) => e.startsWith('batch_status_write:'));
+}
+
+describe('CUT-1 CORRECTION § 6 — el estado OBSERVADO del lote adoptado', () => {
+  it('A — generating + sonda ILEGIBLE + 0 nuevas ⇒ la fila SIGUE en generating', async () => {
+    const stats = makeStats();
+    const admin = makeFakeAdmin(
+      {
+        existingBatchStatus: 'generating',
+        durableProbe: { ...CUT1_UNREADABLE_PROBE },
+        candidateInsertError: { ...CUT1_INSERT_BOOM },
+      },
+      stats,
+    );
+
+    const result = await writeProspectingCandidates(
+      makeInput({ existingBatchId: EXISTING_BATCH_ID }),
+      admin,
+    );
+
+    assert.equal(result.candidatesCreated, 0, 'este contribuyente no escribió nada');
+    assert.equal(stats.durableProbeCalls, 1, 'la sonda tiene que haber corrido');
+
+    // 🔴 EL NÚCLEO: el estado que quedaría en la fila.
+    assert.equal(
+      stats.storedStatus,
+      'generating',
+      `«unknown durable count ⇒ no terminal status is invented»; la fila quedó en ${stats.storedStatus}`,
+    );
+    assert.equal(firstStatusWriteIndex(stats), -1, 'no puede escribirse NINGÚN estado');
+    assert.equal(stats.storedCompletedAt, null, 'sin estado terminal no se sella fecha de cierre');
+    assert.ok(
+      !stats.batchUpdateCalls.some((c) => 'completed_at' in c),
+      'ninguna escritura puede llevar completed_at',
+    );
+
+    // Y no queda una auditoría afirmando una transición que no ocurrió.
+    assert.deepEqual(
+      statusAuditTargets(stats),
+      [],
+      `no puede auditarse ninguna transición; se auditó ${statusAuditTargets(stats).join(',')}`,
+    );
+
+    // El fallo del proveedor/escritura se sigue reportando por su canal.
+    assert.ok(result.errors.length > 0, 'el fallo real no se traga');
+  });
+
+  it('B — draft + sonda ILEGIBLE + 0 nuevas ⇒ la fila SIGUE en draft', async () => {
+    const stats = makeStats();
+    const admin = makeFakeAdmin(
+      {
+        existingBatchStatus: 'draft',
+        durableProbe: { ...CUT1_UNREADABLE_PROBE },
+        candidateInsertError: { ...CUT1_INSERT_BOOM },
+      },
+      stats,
+    );
+
+    await writeProspectingCandidates(
+      makeInput({ existingBatchId: EXISTING_BATCH_ID }),
+      admin,
+    );
+
+    assert.equal(stats.storedStatus, 'draft', `la fila quedó en ${stats.storedStatus}`);
+    assert.equal(firstStatusWriteIndex(stats), -1);
+    assert.deepEqual(statusAuditTargets(stats), []);
+  });
+
+  it('C — generating + sonda ILEGIBLE + >0 nuevas ⇒ ready_for_review, auditado UNA vez y de verdad', async () => {
+    const stats = makeStats();
+    const admin = makeFakeAdmin(
+      { existingBatchStatus: 'generating', durableProbe: { ...CUT1_UNREADABLE_PROBE } },
+      stats,
+    );
+
+    const result = await writeProspectingCandidates(
+      makeInput({ existingBatchId: EXISTING_BATCH_ID, pipelineOutput: makePipelineOutput(3) }),
+      admin,
+    );
+
+    // Lo que ESTE contribuyente insertó es verdad propia y no depende de la sonda.
+    assert.ok(result.candidatesCreated > 0, 'tiene que haber insertado algo');
+    assert.equal(stats.storedStatus, 'ready_for_review');
+
+    const audits = statusAudits(stats);
+    assert.equal(audits.length, 1, `la transición se audita UNA vez; hubo ${audits.length}`);
+    const details = audits[0]['details'] as Record<string, unknown>;
+    assert.equal(details['previous_status'], 'generating', 'el estado anterior es el REAL');
+    assert.equal(details['new_status'], 'ready_for_review');
+
+    // § 8 — la auditoría nunca precede a la escritura que la justifica.
+    const auditIdx = stats.events.indexOf('audit:batch_status_changed');
+    assert.ok(auditIdx > firstStatusWriteIndex(stats), 'primero se escribe, después se audita');
+  });
+
+  it('D — generating + previas CONOCIDAS >0 + 0 nuevas ⇒ ready_for_review', async () => {
+    const stats = makeStats();
+    const admin = makeFakeAdmin(
+      {
+        existingBatchStatus: 'generating',
+        durableProbe: { count: 7, error: null },
+        candidateInsertError: { ...CUT1_INSERT_BOOM },
+      },
+      stats,
+    );
+
+    const result = await writeProspectingCandidates(
+      makeInput({ existingBatchId: EXISTING_BATCH_ID }),
+      admin,
+    );
+
+    assert.equal(result.candidatesCreated, 0);
+    assert.equal(stats.storedStatus, 'ready_for_review', 'las 7 filas previas sobreviven');
+    assert.deepEqual(statusAuditTargets(stats), ['ready_for_review']);
+  });
+
+  it('E — generating + previas CONOCIDAS 0 + 0 nuevas + 0 fallos ⇒ completed', async () => {
+    const stats = makeStats();
+    const admin = makeFakeAdmin(
+      { existingBatchStatus: 'generating', durableProbe: { count: 0, error: null } },
+      stats,
+    );
+
+    await writeProspectingCandidates(
+      makeInput({ existingBatchId: EXISTING_BATCH_ID, pipelineOutput: makePipelineOutput(0) }),
+      admin,
+    );
+
+    assert.equal(stats.storedStatus, 'completed');
+    assert.deepEqual(statusAuditTargets(stats), ['completed']);
+  });
+
+  it('F — generating + previas CONOCIDAS 0 + 0 nuevas + fallos >0 ⇒ failed', async () => {
+    const stats = makeStats();
+    const admin = makeFakeAdmin(
+      {
+        existingBatchStatus: 'generating',
+        durableProbe: { count: 0, error: null },
+        candidateInsertError: { ...CUT1_INSERT_BOOM },
+      },
+      stats,
+    );
+
+    const result = await writeProspectingCandidates(
+      makeInput({ existingBatchId: EXISTING_BATCH_ID }),
+      admin,
+    );
+
+    assert.equal(result.candidatesCreated, 0);
+    assert.equal(stats.storedStatus, 'failed', 'un lote vacío con escritura fallida SÍ es failed');
+    assert.deepEqual(statusAuditTargets(stats), ['failed']);
+  });
+
+  it('G — un lote que YA sobrevivió en ready_for_review no se puede degradar', async () => {
+    const stats = makeStats();
+    const admin = makeFakeAdmin(
+      {
+        existingBatchStatus: 'ready_for_review',
+        durableProbe: { count: 7, error: null },
+        candidateInsertError: { ...CUT1_INSERT_BOOM },
+      },
+      stats,
+    );
+
+    // El reintento se rechaza en la validación de adopción, ANTES de cualquier
+    // escritura: `ready_for_review` no está entre los estados que aceptan
+    // resultados de pipeline.
+    await assert.rejects(
+      () => writeProspectingCandidates(makeInput({ existingBatchId: EXISTING_BATCH_ID }), admin),
+      (err: unknown) => {
+        assert.equal((err as { code?: string }).code, 'BATCH_INCOMPATIBLE_STATUS');
+        return true;
+      },
+    );
+
+    assert.equal(stats.storedStatus, 'ready_for_review', 'la fila no se toca');
+    assert.equal(stats.batchUpdateCalls.length, 0, 'cero escrituras al lote');
+    assert.equal(stats.candidateInsertCalls.length, 0, 'cero inserciones');
+    assert.deepEqual(statusAuditTargets(stats), []);
+  });
+});
+
+describe('CUT-1 CORRECTION § 8 — orden real: la verdad precede al estado', () => {
+  it('en un lote ADOPTADO la sonda corre ANTES de cualquier escritura de estado', async () => {
+    const stats = makeStats();
+    const admin = makeFakeAdmin(
+      { existingBatchStatus: 'generating', durableProbe: { count: 7, error: null } },
+      stats,
+    );
+
+    await writeProspectingCandidates(
+      makeInput({ existingBatchId: EXISTING_BATCH_ID, pipelineOutput: makePipelineOutput(2) }),
+      admin,
+    );
+
+    const probeIdx = stats.events.indexOf('durable_probe');
+    const statusIdx = firstStatusWriteIndex(stats);
+    assert.ok(probeIdx >= 0, 'la sonda tiene que correr');
+    assert.ok(statusIdx >= 0, 'tiene que escribirse un estado terminal');
+    assert.ok(
+      probeIdx < statusIdx,
+      `la sonda (${probeIdx}) tiene que preceder al estado (${statusIdx}); orden: ${stats.events.join(' → ')}`,
+    );
+  });
+
+  it('la UPDATE de adopción no lleva la columna de estado', async () => {
+    const stats = makeStats();
+    const admin = makeFakeAdmin(
+      { existingBatchStatus: 'generating', durableProbe: { count: 0, error: null } },
+      stats,
+    );
+
+    await writeProspectingCandidates(
+      makeInput({ existingBatchId: EXISTING_BATCH_ID, pipelineOutput: makePipelineOutput(1) }),
+      admin,
+    );
+
+    assert.ok(stats.batchUpdateCalls.length > 0);
+    const adoption = stats.batchUpdateCalls[0];
+    assert.ok(
+      !('status' in adoption),
+      `la adopción no puede decidir el estado; escribió ${JSON.stringify(adoption['status'])}`,
+    );
+    assert.equal(stats.events[0], 'batch_update_without_status', 'y es el PRIMER efecto');
   });
 });
