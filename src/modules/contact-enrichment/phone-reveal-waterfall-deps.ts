@@ -46,6 +46,14 @@ import {
   type LushaPhoneFallbackUsageLogEntry,
 } from './lusha-phone-fallback-core';
 import { persistCandidateLushaPhoneCollection } from './candidate-lusha-phone-collection-persistence';
+// Resolución de identidad cross-provider (AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-
+// RESOLUTION-1). El cableado REAL vive en su propio módulo de deps; aquí sólo se
+// enchufa, y sólo cuando el flag del waterfall está encendido.
+import {
+  loadLushaIdentityResolutionContext,
+  recordLushaIdentitySearchOutcome,
+  resolveLushaIdentityForCandidate,
+} from './lusha-identity-resolution-deps';
 import {
   continuePhoneRevealWaterfall,
   parsePhoneRevealWaterfallLushaSkippedReason,
@@ -106,6 +114,16 @@ export const WATERFALL_RUN_SELECT = `id, candidate_id, status, run_mode, authori
    final_provider, completed_at, error_code,
    credit_reservation_group_id`;
 
+/**
+ * `WATERFALL_RUN_SELECT` + el claim de la búsqueda de identidad (migración 124).
+ *
+ * Existe como constante SEPARADA y no como una columna más del select canónico porque
+ * la 124 puede no estar aplicada: con el waterfall apagado se sigue leyendo el select de
+ * siempre, y la columna nueva no se menciona en ninguna consulta.
+ */
+export const WATERFALL_RUN_SELECT_WITH_IDENTITY_SEARCH =
+  `${WATERFALL_RUN_SELECT}, lusha_identity_search_attempted_at`;
+
 function toNumberOrNull(value: unknown): number | null {
   // `numeric` puede llegar como string desde PostgREST; se normaliza sin
   // convertir la AUSENCIA de dato en 0 (un costo no reportado no es gratis).
@@ -149,6 +167,15 @@ export function mapWaterfallRun(
       row.lusha_skipped_reason,
     ),
     lushaAttemptedAt: (row.lusha_attempted_at as string | null) ?? null,
+    // Sólo se declara cuando la COLUMNA vino en la proyección. La distinción importa:
+    // `null` afirma «no se buscó», y afirmarlo desde un select que ni pidió la columna
+    // liberaría la reserva de una búsqueda que sí se pagó.
+    ...('lusha_identity_search_attempted_at' in row
+      ? {
+          lushaIdentitySearchAttemptedAt:
+            (row.lusha_identity_search_attempted_at as string | null) ?? null,
+        }
+      : {}),
     lushaOutcome:
       (row.lusha_outcome as PhoneRevealWaterfallRunRecord['lushaOutcome']) ?? null,
     lushaCostCredits: toNumberOrNull(row.lusha_cost_credits),
@@ -331,13 +358,29 @@ export async function createWaterfallRun(
  */
 export async function findWaterfallRunById(
   runId: string,
+  /**
+   * `includeIdentitySearch` añade `lusha_identity_search_attempted_at` (migración 124).
+   * AUSENTE POR DEFECTO: sin ella la consulta es la de siempre y no menciona una
+   * columna que puede no existir.
+   */
+  options?: { includeIdentitySearch?: boolean },
 ): Promise<PhoneRevealWaterfallRunRecord | null> {
   const admin = createSupabaseAdminClient();
-  const { data, error } = await admin
-    .from(PHONE_REVEAL_WATERFALL_RUNS_TABLE)
-    .select(WATERFALL_RUN_SELECT)
-    .eq('id', runId)
-    .maybeSingle();
+  // Dos ramas con su literal propio (ver la nota equivalente en
+  // phone-reveal-credit-reservation-deps.ts): el parser de tipos del `select` de
+  // supabase-js no acepta una unión de literales.
+  const row$ = options?.includeIdentitySearch
+    ? admin
+        .from(PHONE_REVEAL_WATERFALL_RUNS_TABLE)
+        .select(WATERFALL_RUN_SELECT_WITH_IDENTITY_SEARCH)
+        .eq('id', runId)
+        .maybeSingle()
+    : admin
+        .from(PHONE_REVEAL_WATERFALL_RUNS_TABLE)
+        .select(WATERFALL_RUN_SELECT)
+        .eq('id', runId)
+        .maybeSingle();
+  const { data, error } = await row$;
   if (error) throw new Error(error.message);
   return data ? mapWaterfallRun(data as Record<string, unknown>) : null;
 }
@@ -380,13 +423,22 @@ export async function updateWaterfallRun(
 export async function reconcilePhoneRevealCreditReservationForRun(
   runId: string,
 ): Promise<void> {
+  // Grano por OPERACIÓN sólo con el waterfall encendido: es el mismo gate que enchufa la
+  // resolución de identidad, así que las dos caras —quién puede reservar una búsqueda y
+  // quién sabe liquidarla— se encienden juntas. Apagado, ni la columna `operation_key` ni
+  // `lusha_identity_search_attempted_at` se mencionan en ninguna consulta, y la
+  // liquidación es la de siempre.
+  const identityAware = isPhoneRevealWaterfallEnabled();
   try {
-    const run = await findWaterfallRunById(runId);
+    const run = await findWaterfallRunById(runId, {
+      includeIdentitySearch: identityAware,
+    });
     // Sin grupo no hay exposición que liquidar (corrida anterior a la migración 104).
     if (!run?.creditReservationGroupId) return;
 
     const reservedLegs = await findActivePhoneRevealCreditReservations(
       run.creditReservationGroupId,
+      { includeOperationKey: identityAware },
     );
     if (reservedLegs.length === 0) return;
 
@@ -399,6 +451,17 @@ export async function reconcilePhoneRevealCreditReservationForRun(
         lushaAttempted: run.lushaAttemptedAt !== null,
         lushaCostCredits: run.lushaCostCredits,
         lushaCostSource: run.lushaCostSource,
+        // La pata de BÚSQUEDA se liquida por su PROPIO claim, nunca por el del reveal.
+        // Su costo NO se declara a propósito: la 124 no crea columna para él, así que
+        // queda desconocido y el core lo confirma al TOPE (`assumed_cap`) — que es lo
+        // conservador y lo correcto, porque Lusha cobra 1 por petición a `api_search`
+        // aunque no devuelva resultados. Un 0 aquí regalaría un crédito ya gastado.
+        ...(identityAware
+          ? {
+              lushaIdentitySearchAttempted:
+                (run.lushaIdentitySearchAttemptedAt ?? null) !== null,
+            }
+          : {}),
       },
       reservedLegs,
     });
@@ -524,18 +587,48 @@ export async function claimLushaAttempt(runId: string): Promise<boolean> {
 
 export const WATERFALL_CANDIDATE_SELECT = PRIVACY_GATE_CANDIDATE_SELECT;
 
-/** Proyección PII-free que consume el core (sin email/linkedin/teléfono). */
+/**
+ * Proyección PII-free que consume el core (sin email/linkedin/teléfono).
+ *
+ * `options.includeIdentityFacts` añade lo que la resolución de identidad cross-provider
+ * necesita (AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1): las identidades
+ * provider-native ya persistidas y los hechos con los que se PODRÍA construir una
+ * búsqueda. Con eso el core puede decidir, ANTES del clic, si el tope es 14 o 13, y en
+ * la continuación si la pata Lusha es alcanzable pagando una búsqueda.
+ *
+ * AUSENTE POR DEFECTO, y eso es lo que mantiene el código inerte con
+ * `ENABLE_PHONE_REVEAL_WATERFALL` apagado: sin esta opción no se lee
+ * `contact_provider_identities` (tabla de la migración 124, que puede no existir aún) y
+ * la proyección es BYTE-IDÉNTICA a la anterior al hito — un candidato sin id Lusha
+ * propio sigue saliendo como `missing_lusha_contact_id`.
+ *
+ * Los hechos son BEST-EFFORT y las identidades NO: si las identidades no se pueden
+ * leer, la lectura entera falla hacia arriba en vez de devolver «ninguna», porque
+ * «ninguna» significaría «hay que pagar una búsqueda» y podría estar comprando algo
+ * que ya teníamos.
+ */
 export async function loadCandidateForWaterfall(
   candidateId: string,
+  options?: { includeIdentityFacts?: boolean },
 ): Promise<PhoneRevealWaterfallCandidateRecord | null> {
   const row = await loadPhoneRevealPrivacyGateCandidateRow(candidateId);
   if (!row) return null;
-  return {
+
+  const base: PhoneRevealWaterfallCandidateRecord = {
     id: row.id,
     source: row.source,
     sourceContactId: row.sourceContactId,
     hasPhone: row.hasPhone,
     phoneRevealStatus: row.phoneRevealStatus,
+  };
+  if (!options?.includeIdentityFacts) return base;
+
+  const context = await loadLushaIdentityResolutionContext(candidateId);
+  if (!context) return base;
+  return {
+    ...base,
+    providerIdentities: context.identities,
+    identitySearchFacts: context.facts,
   };
 }
 
@@ -815,7 +908,14 @@ export function buildStartWaterfallDeps(actor: {
     flagEnabled: isPhoneRevealWaterfallEnabled(),
     actor,
     nowIso: new Date().toISOString(),
-    loadCandidate: loadCandidateForWaterfall,
+    // MISMO gate y MISMOS hechos que la continuación: el tope que el operador acepta y
+    // las patas que se reservan tienen que salir de la misma lectura que después decide
+    // si hay que pagar la búsqueda. Resolverlo con datos distintos en los dos momentos
+    // es exactamente cómo se autoriza 13 y se gasta 14.
+    loadCandidate: (candidateId: string) =>
+      loadCandidateForWaterfall(candidateId, {
+        includeIdentityFacts: isPhoneRevealWaterfallEnabled(),
+      }),
     findActiveRun: findActiveWaterfallRunForCandidate,
     ...buildCreditReservationDeps(actor.internalUserId),
   };
@@ -971,6 +1071,25 @@ export function buildContinueWaterfallDeps(options?: {
    */
   callLushaLeg?: ContinuePhoneRevealWaterfallDeps['callLushaLeg'];
 }): ContinuePhoneRevealWaterfallDeps {
+  // ── EL GATE DE LA RESOLUCIÓN DE IDENTIDAD ────────────────────────────────────
+  //
+  // Se resuelve contra la VARIABLE DE ENTORNO, deliberadamente, y NO contra
+  // `options.flagEnabled`. No es lo mismo:
+  //
+  //   * `options.flagEnabled` lo pasa el motor manual `legacy_lusha_only`, que está
+  //     autorizado por `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` y cuya autorización reserva
+  //     UNA pata de 5 — sin crédito de búsqueda. Darle la resolución de identidad le
+  //     dejaría pagar una búsqueda que nadie reservó ni le enseñó al operador;
+  //   * `ENABLE_PHONE_REVEAL_WATERFALL` es el flag cuyo preflight sí puede llegar a
+  //     reservar `lusha/contact_search`.
+  //
+  // Consecuencia práctica, y es la que hace que este PR pueda desplegarse ANTES de
+  // aplicar la migración 124: con la variable apagada no se enchufa nada, así que no se
+  // lee `contact_provider_identities`, no se lee `operation_key`, no se invoca
+  // `claim_lusha_identity_search` y no sale ninguna petición. El código queda presente
+  // e INERTE.
+  const identityResolutionWired = isPhoneRevealWaterfallEnabled();
+
   return {
     flagEnabled: options?.flagEnabled ?? isPhoneRevealWaterfallEnabled(),
     // El fallback Lusha sigue siendo el kill switch real de cualquier reveal
@@ -978,11 +1097,28 @@ export function buildContinueWaterfallDeps(options?: {
     lushaFallbackFlagEnabled: isLushaPhoneRevealFallbackEnabled(),
     nowIso: new Date().toISOString(),
     findActiveRun: findActiveWaterfallRunForCandidate,
-    loadCandidate: loadCandidateForWaterfall,
+    // Los hechos de identidad se leen SOLO con el flag del waterfall encendido. Sin
+    // ellos la elegibilidad de la pata Lusha es la de antes del hito, que es
+    // exactamente el comportamiento inerte que se quiere en Producción hoy.
+    loadCandidate: (candidateId: string) =>
+      loadCandidateForWaterfall(candidateId, {
+        includeIdentityFacts: identityResolutionWired,
+      }),
     updateRun: updateWaterfallRun,
     checkSuppressionAndDoNotContact,
     claimLushaAttempt,
     callLushaLeg: options?.callLushaLeg ?? callLushaFallbackLeg,
+    // ── Resolución de identidad nativa de Lusha ──────────────────────────────
+    //
+    // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1. Las DOS deps se enchufan
+    // juntas o no se enchufan: sellar un desenlace sin poder resolverlo, o resolverlo
+    // sin sellarlo, son los dos estados que dejarían la auditoría mintiendo.
+    ...(identityResolutionWired
+      ? {
+          resolveLushaIdentity: resolveLushaIdentityForCandidate,
+          recordIdentitySearchOutcome: recordLushaIdentitySearchOutcome,
+        }
+      : {}),
     // AGENT2A-PHONE-REVEAL-4O-E1 § 7. Se cablea SIN flag propio: el gate previo a
     // Lusha ya existe y ya bloquea la llamada; lo único que añade esta dep es que la
     // decisión de privacidad quede también en el candidato, que es donde la leen el

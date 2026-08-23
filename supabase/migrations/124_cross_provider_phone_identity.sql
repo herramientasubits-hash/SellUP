@@ -306,7 +306,12 @@ BEGIN
           'no_identifier',
           -- The identity was already persisted from an earlier authorization. 0 calls,
           -- 0 credits. Recorded so an auditor can see WHY this run has no search cost.
-          'reused_persisted'
+          'reused_persisted',
+          -- Exactly one identity came back and WAS billed, but persisting it failed.
+          -- Kept distinct from both 'resolved' and 'error' because it is the only value
+          -- that asserts both facts at once: the credit was spent, and the saving was
+          -- not banked. An auditor reading 'resolved' would expect a stored id to exist.
+          'resolved_not_persisted'
         )
       )
       NOT VALID;
@@ -371,7 +376,12 @@ BEGIN
         -- Never resolved by picking the first result.
         'lusha_identity_ambiguous',
         -- Search errored or timed out. Fail-closed, and possibly billed anyway.
-        'lusha_identity_error'
+        'lusha_identity_error',
+        -- One unambiguous identity was resolved AND billed, but it could not be stored
+        -- durably. Not an error of the provider's: an error of ours. The reveal is
+        -- withheld precisely so the next authorization is not forced to re-buy the
+        -- same fact, and the search credit is still settled because it was spent.
+        'lusha_identity_not_persisted'
       )
     ) NOT VALID;
 

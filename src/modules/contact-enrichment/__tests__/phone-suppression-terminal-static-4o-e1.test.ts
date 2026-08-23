@@ -317,21 +317,25 @@ describe('4O-E1 § 3.1 · vocabulario', () => {
     // Los once de 4O-E1 siguen ahí, intactos y con el mismo significado: lo que esta
     // guarda protege es que este hito no los REDEFINIÓ ni los borró.
     //
-    // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 añade CUATRO
-    // (`lusha_identity_unresolvable` / `_not_found` / `_ambiguous` / `_error`) y por eso
-    // el conteo pasa de 11 a 15. No son variantes de `missing_lusha_contact_id`: ese
-    // motivo afirma que el candidato NUNCA puede llegar a Lusha, y los cuatro nuevos
-    // dicen lo contrario —podía, se intentó, y esto pasó—. El ensanche del CHECK que los
-    // acompaña está declarado en CONSTRAINT_WIDENING_ALLOWLIST.
+    // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 añade CINCO y por eso el
+    // conteo pasa de 11 a 16. No son variantes de `missing_lusha_contact_id`: ese motivo
+    // afirma que el candidato NUNCA puede llegar a Lusha, y los cinco nuevos dicen lo
+    // contrario —podía, se intentó, y esto pasó—. El ensanche del CHECK que los acompaña
+    // está declarado en CONSTRAINT_WIDENING_ALLOWLIST.
+    //
+    // El quinto (`lusha_identity_not_persisted`, PR331-R2) es el único que describe un
+    // fallo NUESTRO y no del proveedor: la identidad se resolvió y se cobró, pero no
+    // quedó almacenada, así que el reveal se retiene.
     for (const reason of [
       'lusha_identity_unresolvable',
       'lusha_identity_not_found',
       'lusha_identity_ambiguous',
       'lusha_identity_error',
+      'lusha_identity_not_persisted',
     ]) {
       assert.ok(block.includes(`'${reason}'`), `falta ${reason}`);
     }
-    assert.equal((block.match(/'/g) ?? []).length / 2, 15);
+    assert.equal((block.match(/'/g) ?? []).length / 2, 16);
   });
 });
 

@@ -265,6 +265,13 @@ export const PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS = [
   'lusha_identity_ambiguous',
   /** La búsqueda falló o expiró. No sabemos qué sabe Lusha, y pudo cobrarnos igual. */
   'lusha_identity_error',
+  /**
+   * Se resolvió UNA identidad —y se pagó 1 crédito por ella— pero no quedó almacenada
+   * de forma duradera. Es distinto de `lusha_identity_error`: el proveedor no falló,
+   * falló nuestra escritura. Y es distinto de un reveal omitido cualquiera porque el
+   * crédito de la búsqueda SÍ se gastó y hay que liquidarlo.
+   */
+  'lusha_identity_not_persisted',
 ] as const;
 
 export type PhoneRevealWaterfallLushaSkippedReason =
@@ -398,6 +405,16 @@ export interface PhoneRevealWaterfallRunRecord {
   lushaEligible: boolean | null;
   lushaSkippedReason: PhoneRevealWaterfallLushaSkippedReason | null;
   lushaAttemptedAt: string | null;
+  /**
+   * `lusha_identity_search_attempted_at` (migración 124): el claim PROPIO de la búsqueda
+   * de identidad, deliberadamente distinto de `lushaAttemptedAt`, que reclama el reveal.
+   *
+   * OPCIONAL: una corrida anterior a la 124 no tiene la columna, y su ausencia se lee
+   * como «no se buscó» — que es la verdad para toda corrida histórica, ninguna de las
+   * cuales pudo pagar una búsqueda de identidad. Es lo que decide si la pata
+   * `lusha/contact_search` se CONFIRMA o se LIBERA en la liquidación.
+   */
+  lushaIdentitySearchAttemptedAt?: string | null;
   lushaOutcome: PhoneRevealWaterfallLushaOutcome | null;
   lushaCostCredits: number | null;
   lushaCostSource: PhoneRevealWaterfallCostSource | null;
@@ -493,6 +510,19 @@ export function evaluatePhoneRevealWaterfallLushaLeg(
      */
     identitySearchFacts?: LushaIdentitySearchCandidateFacts;
   },
+  /**
+   * ¿Esta autorización cubre una búsqueda de identidad PAGADA?
+   *
+   * AUSENTE ⇒ `true`, que es lo correcto en el ARRANQUE: allí el tope todavía se está
+   * decidiendo, así que preguntar por él sería circular.
+   *
+   * En la CONTINUACIÓN se pasa el hecho real de la corrida, y ahí `false` importa: una
+   * corrida `legacy_lusha_only` (o cualquiera creada antes de que el flag se encendiera)
+   * reservó UNA pata de teléfono y ningún crédito de búsqueda. Si la búsqueda se
+   * ejecutara igual, gastaría un crédito que nadie reservó y que el operador nunca vio
+   * en su confirmación — el defecto exacto que la reserva por pata existe para impedir.
+   */
+  options?: { identitySearchAuthorized?: boolean },
 ): PhoneRevealWaterfallLushaLegEligibility {
   // 1. ¿Lusha ya sabe quién es? Vale tanto un candidato nacido en Lusha como una
   //    identidad resuelta y persistida por una autorización anterior. Este helper
@@ -512,7 +542,12 @@ export function evaluatePhoneRevealWaterfallLushaLeg(
   const query = candidate.identitySearchFacts
     ? buildLushaIdentitySearchQuery(candidate.identitySearchFacts)
     : null;
-  if (query) {
+  // La vía de pago sólo existe si ESTA autorización la cubre. Cuando no la cubre, el
+  // veredicto vuelve a ser el de antes del hito —y es el veredicto VERDADERO para esa
+  // corrida: bajo esta autorización, este candidato no tiene identificador de Lusha
+  // reutilizable. Que una autorización distinta pudiera comprarlo no es algo que esta
+  // corrida pueda gastar.
+  if (query && options?.identitySearchAuthorized !== false) {
     return { eligible: true, skippedReason: null, requiresIdentitySearch: true };
   }
 
@@ -523,6 +558,20 @@ export function evaluatePhoneRevealWaterfallLushaLeg(
     skippedReason: 'missing_lusha_contact_id',
     requiresIdentitySearch: false,
   };
+}
+
+/**
+ * ¿El tope que el operador aceptó incluye la búsqueda de identidad PAGADA?
+ *
+ * Se responde con `max_credits_authorized`, que es el único hecho durable que dice a la
+ * vez qué se le enseñó al operador y qué patas se reservaron. Un `>=` y no un `===`
+ * porque el tope es un UMBRAL: si algún día crece, una corrida con más margen sigue
+ * cubriendo la búsqueda.
+ */
+export function doesRunAuthorizeIdentitySearch(
+  run: Pick<PhoneRevealWaterfallRunRecord, 'maxCreditsAuthorized'>,
+): boolean {
+  return run.maxCreditsAuthorized >= PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_IDENTITY_SEARCH;
 }
 
 /**
@@ -1820,7 +1869,17 @@ export function decidePhoneRevealWaterfallContinuation(
   }
 
   // Sin id Lusha propio no hay 2ª pata: se agota aquí, con 0 llamadas a Lusha.
-  const lushaLeg = evaluatePhoneRevealWaterfallLushaLeg(input.candidate);
+  //
+  // La búsqueda PAGADA de identidad sólo se admite si el tope que el operador aceptó la
+  // incluye (14 = Apollo 8 + búsqueda 1 + teléfono 5). Se comprueba contra
+  // `max_credits_authorized` porque es el ÚNICO hecho durable que demuestra qué se
+  // autorizó y qué se reservó: una corrida `legacy_lusha_only` (tope 5) y cualquier
+  // corrida creada antes de encender el flag (tope 13) no reservaron crédito de
+  // búsqueda, y para ellas la vía de pago no existe. Reutilizar una identidad YA
+  // persistida sigue permitido en todas: cuesta 0.
+  const lushaLeg = evaluatePhoneRevealWaterfallLushaLeg(input.candidate, {
+    identitySearchAuthorized: doesRunAuthorizeIdentitySearch(run),
+  });
   if (!lushaLeg.eligible) {
     return closeRun({
       status: 'exhausted',

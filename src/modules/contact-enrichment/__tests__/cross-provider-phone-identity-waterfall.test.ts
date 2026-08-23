@@ -109,6 +109,8 @@ function wfHarness(opts: {
   candidate?: PhoneRevealWaterfallCandidateRecord;
   /** Sin resolutor: comportamiento anterior al hito. */
   withoutIdentityDep?: boolean;
+  /** Corrida alternativa (tope autorizado, modalidad…). */
+  run?: PhoneRevealWaterfallRunRecord;
 } = {}): WfHarness {
   const updates: Array<{ runId: string; patch: PhoneRevealWaterfallRunPatch }> = [];
   const order: string[] = [];
@@ -126,7 +128,7 @@ function wfHarness(opts: {
       flagEnabled: true,
       lushaFallbackFlagEnabled: true,
       nowIso: NOW_ISO,
-      findActiveRun: async () => activeRun(),
+      findActiveRun: async () => opts.run ?? activeRun(),
       loadCandidate: async () => opts.candidate ?? apolloCandidate(),
       updateRun: async (runId, patch) => {
         order.push('update-run');
@@ -375,6 +377,11 @@ describe('identidad no resuelta ⇒ terminal SIN reveal', () => {
     ['lusha_identity_ambiguous', 'ambiguous'],
     ['lusha_identity_error', 'error'],
     ['lusha_identity_unresolvable', 'no_identifier'],
+    // PR331-R2, BLOCKER 1: identidad resuelta Y COBRADA que no se pudo almacenar. El
+    // reveal se retiene aquí igual que en los otros cuatro, y por la misma razón que
+    // este bloque entero existe: sin identidad utilizable no se le pide un teléfono a
+    // Lusha. La diferencia es que su reserva de búsqueda SÍ se liquida.
+    ['lusha_identity_not_persisted', 'resolved_not_persisted'],
   ] as const) {
     test(`${skippedReason}: 0 reveal, corrida abortada con su motivo propio`, async () => {
       const h = wfHarness({
@@ -400,6 +407,29 @@ describe('identidad no resuelta ⇒ terminal SIN reveal', () => {
       assert.equal(h.updates[0].patch.finalProvider, 'none');
     });
   }
+
+  test('persistencia fallida: el reveal NUNCA se reclama, así que su reserva queda intacta', async () => {
+    const h = wfHarness({
+      identity: {
+        status: 'blocked',
+        skippedReason: 'lusha_identity_not_persisted',
+        runOutcome: 'resolved_not_persisted',
+        searched: true,
+        searchCreditsCharged: 1,
+      },
+    });
+    const result = await continuePhoneRevealWaterfall(
+      { candidateId: 'candidate-1', apolloOutcome: 'no_phone_found', apolloCostCredits: null },
+      h.deps,
+    );
+    assert.equal(result.lushaCalled, false, 'reveal calls = 0');
+    assert.equal(h.revealClaims, 0, 'sin claim, la reserva del reveal se libera entera');
+    assert.equal(h.lushaCalls, 0);
+    // Y el sello conserva la evidencia económica de la búsqueda que sí se pagó.
+    assert.deepEqual(h.recordedOutcomes, [
+      { outcome: 'resolved_not_persisted', creditsCharged: 1 },
+    ]);
+  });
 
   test('el claim de la BÚSQUEDA perdido no escribe nada ni toca el reveal', async () => {
     const h = wfHarness({ identity: { status: 'claim_lost', reason: 'already_claimed' } });
@@ -445,5 +475,84 @@ describe('O — sin resolutor de identidad, nada cambia', () => {
     assert.equal(h.identityCalls, 0);
     assert.equal(h.lushaCalls, 0);
     assert.equal(h.order.includes('identity-search'), false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// La búsqueda PAGADA exige una autorización que la haya reservado
+// ═══════════════════════════════════════════════════════════════
+//
+// PR331-R2. El flag enciende el cableado, pero el flag no es una autorización: sigue
+// habiendo corridas VIVAS cuyo tope nunca incluyó el crédito de búsqueda — una corrida
+// `legacy_lusha_only` del motor manual (tope 5) o cualquier corrida `full_waterfall`
+// creada antes de encender el flag (tope 13). Si la búsqueda corriera en ellas gastaría
+// un crédito que nadie reservó y que el operador nunca vio en su confirmación.
+
+describe('la búsqueda pagada exige un tope que la incluya', () => {
+  for (const [label, maxCredits] of [
+    ['corrida legacy del motor manual (5)', 5],
+    ['corrida anterior a encender el flag (13)', 13],
+    ['sólo Apollo (8)', 8],
+  ] as const) {
+    test(`${label}: 0 búsquedas, y el cierre es el de antes del hito`, async () => {
+      const h = wfHarness({ run: activeRun({ maxCreditsAuthorized: maxCredits }) });
+      const result = await continuePhoneRevealWaterfall(
+        { candidateId: 'candidate-1', apolloOutcome: 'no_phone_found', apolloCostCredits: null },
+        h.deps,
+      );
+
+      assert.equal(h.identityCalls, 0, 'el resolutor no se consulta: gastaría sin reserva');
+      assert.equal(h.lushaCalls, 0);
+      assert.equal(h.revealClaims, 0);
+      // Y el registro dice la VERDAD para esa corrida: bajo esta autorización el
+      // candidato no tiene identificador de Lusha reutilizable.
+      assert.equal(h.updates[0]?.patch.lushaSkippedReason, 'missing_lusha_contact_id');
+      assert.equal(result.outcome, 'closed_without_lusha');
+    });
+  }
+
+  test('con tope 14 sí se consulta: es lo que el operador autorizó', async () => {
+    const h = wfHarness({ run: activeRun({ maxCreditsAuthorized: 14 }) });
+    await continuePhoneRevealWaterfall(
+      { candidateId: 'candidate-1', apolloOutcome: 'no_phone_found', apolloCostCredits: null },
+      h.deps,
+    );
+    assert.equal(h.identityCalls, 1);
+    assert.equal(h.lushaCalls, 1);
+  });
+
+  test('un candidato con identidad Lusha YA persistida pasa con tope 13: cuesta 0', async () => {
+    // Reutilizar no es comprar. Bloquear el reuso en una corrida de tope 13 impediría un
+    // reveal que esa autorización SÍ cubre entera (los 5 del teléfono).
+    const h = wfHarness({
+      run: activeRun({ maxCreditsAuthorized: 13 }),
+      candidate: apolloCandidate({
+        providerIdentities: [
+          {
+            candidateId: 'candidate-1',
+            providerKey: 'lusha',
+            providerContactId: LUSHA_ID,
+            resolutionSource: 'provider_search_linkedin_url',
+          },
+        ],
+      }),
+      identity: {
+        status: 'ready',
+        contactId: LUSHA_ID,
+        searched: false,
+        runOutcome: 'reused_persisted',
+        searchCreditsCharged: null,
+      },
+    });
+    await continuePhoneRevealWaterfall(
+      { candidateId: 'candidate-1', apolloOutcome: 'no_phone_found', apolloCostCredits: null },
+      h.deps,
+    );
+    assert.equal(h.identityCalls, 1, 'se consulta, y contesta gratis');
+    assert.equal(h.lushaCalls, 1, 'el reveal sí corre');
+    assert.equal(h.lushaContactIdSeen, LUSHA_ID);
+    assert.deepEqual(h.recordedOutcomes, [
+      { outcome: 'reused_persisted', creditsCharged: null },
+    ]);
   });
 });

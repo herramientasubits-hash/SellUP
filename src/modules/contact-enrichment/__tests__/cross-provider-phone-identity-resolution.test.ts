@@ -20,6 +20,7 @@ import {
   type LushaIdentitySearchCandidateFacts,
 } from '../lusha-identity-search-core';
 import {
+  LUSHA_IDENTITY_SEARCH_RUN_OUTCOMES,
   resolveLushaIdentityForWaterfall,
   type LushaIdentitySearchClaimResult,
   type LushaIdentitySearchProviderResponse,
@@ -87,7 +88,12 @@ function harness(opts: {
   claimOnce?: boolean;
   response?: LushaIdentitySearchProviderResponse;
   searchThrows?: boolean;
+  /** La escritura LANZA. */
   persistThrows?: boolean;
+  /** La escritura no lanza pero declara que NO quedó guardada (el caso del driver). */
+  persistFails?: boolean;
+  /** Otro proceso ganó la carrera write-once y su id es este. */
+  persistWinnerId?: string;
 } = {}): Harness {
   let claimedOnce = false;
   const h: Harness = {
@@ -114,10 +120,16 @@ function harness(opts: {
       },
       persistIdentity: async (args) => {
         if (opts.persistThrows) throw new Error('write failed');
+        if (opts.persistFails) return { status: 'failed' as const };
         h.persisted.push({
           providerContactId: args.providerContactId,
           matchKey: args.matchKey,
         });
+        // Write-once: el id EFECTIVO es el del ganador, que puede no ser el nuestro.
+        return {
+          status: 'persisted' as const,
+          providerContactId: opts.persistWinnerId ?? args.providerContactId,
+        };
       },
     },
   };
@@ -179,7 +191,7 @@ describe('A — candidato Apollo sin id Lusha, LinkedIn exacto', () => {
       ...h.deps,
       persistIdentity: async (args) => {
         order.push('persist');
-        await h.deps.persistIdentity(args);
+        return h.deps.persistIdentity(args);
       },
     };
     const result = await resolveLushaIdentityForWaterfall(resolveInput(), deps);
@@ -433,12 +445,84 @@ describe('L / V — caída después de persistir la identidad', () => {
     assert.equal(h.persisted.length, 0);
   });
 
-  test('si la persistencia falla, el reveal de ESTA corrida sigue: el crédito ya se pagó', async () => {
-    const h = harness({ persistThrows: true });
+  // ── PERSISTENCIA OBLIGATORIA (PR331-R2, BLOCKER 1) ────────────────────────────
+  //
+  // Este bloque sustituye al test anterior, que afirmaba lo contrario («si la
+  // persistencia falla, el reveal de ESTA corrida sigue»). La regla es ahora que una
+  // identidad recién resuelta DEBE quedar almacenada de forma duradera ANTES de que se
+  // permita el reveal: revelar sin persistir deja al candidato con teléfono y sin
+  // identidad, que es el estado que obliga a la corrida siguiente a volver a comprar el
+  // mismo dato. El crédito no se «aprovecha»: se convierte en el primero de una serie.
+  for (const variant of [
+    { label: 'la escritura LANZA', opts: { persistThrows: true } },
+    { label: 'la escritura declara que no guardó', opts: { persistFails: true } },
+  ] as const) {
+    describe(`persistencia fallida — ${variant.label}`, () => {
+      test('fail-closed: 1 búsqueda, 0 reveal, resultado != ready', async () => {
+        const h = harness(variant.opts);
+        const result = await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
+
+        assert.notEqual(result.status, 'ready', 'el reveal NO puede continuar');
+        assert.equal(result.status, 'blocked');
+        assert.equal(h.searchCalls, 1, 'search calls = 1');
+        // No hay dep de reveal en este core: que el reveal no corra se demuestra con
+        // `status !== 'ready'`, que es la ÚNICA señal con la que el waterfall lo lanza.
+        // La contraparte cableada se prueba en cross-provider-phone-identity-waterfall.
+        if (result.status !== 'blocked') return;
+        assert.equal(result.skippedReason, 'lusha_identity_not_persisted');
+      });
+
+      test('la evidencia económica del Search se CONSERVA: nunca se liquida a 0', async () => {
+        const h = harness(variant.opts);
+        const result = await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
+        if (result.status !== 'blocked') {
+          assert.fail('se esperaba blocked');
+          return;
+        }
+        // `searched: true` es lo que hace que la reserva de la búsqueda se CONFIRME en
+        // vez de liberarse. Sin él, el crédito gastado se regalaría.
+        assert.equal(result.searched, true, 'la petición salió y se pagó');
+        assert.equal(
+          result.runOutcome,
+          'resolved_not_persisted',
+          'el desenlace dice a la vez que se cobró y que la identidad se perdió',
+        );
+      });
+
+      test('la identidad NO se pierde en silencio: el desenlace la declara', async () => {
+        const h = harness(variant.opts);
+        const result = await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
+        if (result.status !== 'blocked') {
+          assert.fail('se esperaba blocked');
+          return;
+        }
+        // Ni `resolved` (afirmaría que hay un id guardado) ni `error` (afirmaría que
+        // falló el proveedor). Un valor propio, que es lo que un auditor necesita.
+        assert.notEqual(result.runOutcome, 'resolved');
+        assert.notEqual(result.runOutcome, 'error');
+        assert.ok(
+          LUSHA_IDENTITY_SEARCH_RUN_OUTCOMES.includes(result.runOutcome),
+          'el desenlace pertenece al vocabulario cerrado que la 124 refleja',
+        );
+      });
+
+      test('NO se reintenta la búsqueda automáticamente', async () => {
+        const h = harness(variant.opts);
+        await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
+        assert.equal(h.searchCalls, 1, 'exactamente una, jamás un segundo cobro');
+        assert.equal(h.claimCalls, 1, 'un solo claim, que además queda tomado');
+      });
+    });
+  }
+
+  test('carrera write-once: se revela el id del GANADOR, no el nuestro', async () => {
+    const h = harness({ persistWinnerId: 'lusha-winner-777' });
     const result = await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
     assert.equal(result.status, 'ready');
     if (result.status !== 'ready') return;
-    assert.equal(result.contactId, LUSHA_ID);
+    // Revelar contra nuestro id sería revelar contra uno que nadie almacenó.
+    assert.equal(result.contactId, 'lusha-winner-777');
+    assert.notEqual(result.contactId, LUSHA_ID);
   });
 });
 

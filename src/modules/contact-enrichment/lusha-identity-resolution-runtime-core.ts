@@ -13,7 +13,13 @@
  *   2. ¿Hay con qué preguntárselo? → si no, 0 llamadas, 0 créditos, terminal.
  *   3. CLAIM atómico de la búsqueda → si se pierde, 0 llamadas y 0 escrituras.
  *   4. UNA petición, sin retry, sin cascada.
- *   5. Identidad única → se PERSISTE ANTES de que el reveal arranque.
+ *   5. Identidad única → se PERSISTE, y si no se persiste NO HAY REVEAL.
+ *
+ * El paso 5 es una PRECONDICIÓN, no un efecto secundario: una identidad recién
+ * resuelta tiene que quedar almacenada de forma duradera ANTES de que se le pida un
+ * teléfono a Lusha. Revelar sobre una identidad que no se guardó deja al candidato con
+ * teléfono y sin identidad — el estado exacto que obliga a la siguiente autorización a
+ * comprar otra vez el mismo dato.
  *
  * El paso 2 va ANTES del paso 3 a propósito. Reclamar y luego descubrir que no había
  * con qué buscar dejaría la corrida marcada como «búsqueda intentada» sin que nadie
@@ -35,6 +41,30 @@
  *     NO se vuelve a buscar (sería el segundo cobro) y NO se escribe nada: se
  *     devuelve `claim_lost`, que es exactamente lo que este core hace ante cualquier
  *     otro titular del claim.
+ *
+ * ── EL ESTADO «BÚSQUEDA COBRADA, IDENTIDAD PERDIDA» ──────────────────────────
+ *
+ * Es un estado REAL y declarado, no un hueco: la petición salió, el proveedor señaló a
+ * una persona y cobró, y la escritura de la identidad falló. Lo que ocurre entonces:
+ *
+ *   * NO hay reveal — ni en esta corrida ni disparado desde aquí;
+ *   * NO hay segunda búsqueda automática. El claim tomado la impide, y nada en este
+ *     módulo la reintenta;
+ *   * la corrida queda `aborted` con `lusha_skipped_reason='lusha_identity_not_persisted'`
+ *     y `lusha_identity_search_outcome='resolved_not_persisted'`;
+ *   * la reserva de la BÚSQUEDA se liquida (reportado, o al tope si no se reportó) y la
+ *     del REVEAL se libera intacta, porque su pata nunca se reclamó.
+ *
+ * Recuperarse de él es una decisión humana: una corrida nueva volverá a buscar y a
+ * pagar, y eso tiene que ser una autorización, no un reintento silencioso.
+ *
+ * ── LO QUE NO SE AFIRMA ──────────────────────────────────────────────────────
+ *
+ * Nada aquí garantiza semántica exactly-once frente al proveedor. Lusha no ofrece
+ * clave de idempotencia en `/v3/contacts/search`, así que lo que este módulo garantiza
+ * es lo que SÍ está en sus manos: como máximo UNA petición por corrida (claim atómico)
+ * y ningún reintento automático. Si una petición se cobró y su respuesta nunca llegó,
+ * el cobro existe y el sistema lo trata como desconocido-y-cobrado, nunca como gratis.
  *
  * PURO salvo por las dependencias inyectadas: sin Supabase, sin fetch, sin
  * process.env, sin Date.now(). Misma convención que el resto de los cores.
@@ -64,10 +94,31 @@ export const LUSHA_IDENTITY_SEARCH_RUN_OUTCOMES = [
   'error',
   'no_identifier',
   'reused_persisted',
+  /**
+   * El proveedor SÍ señaló a una identidad única —y cobró por decirlo— pero esa
+   * identidad no se pudo almacenar de forma duradera.
+   *
+   * Es un desenlace propio y no un `resolved` ni un `error` porque afirma dos cosas a
+   * la vez que ningún otro valor puede afirmar juntas: que la búsqueda se pagó (así
+   * que su reserva se liquida) y que el ahorro futuro NO existe (así que la próxima
+   * autorización volverá a buscar). Colapsarlo en `resolved` diría que hay un id
+   * guardado que no hay; colapsarlo en `error` diría que el proveedor falló, y no
+   * falló.
+   */
+  'resolved_not_persisted',
 ] as const;
 
 export type LushaIdentitySearchRunOutcome =
   (typeof LUSHA_IDENTITY_SEARCH_RUN_OUTCOMES)[number];
+
+/** Desenlaces con los que el reveal PUEDE continuar. */
+export type LushaIdentitySearchReadyRunOutcome = 'resolved' | 'reused_persisted';
+
+/** Desenlaces terminales: ninguno permite un reveal. */
+export type LushaIdentitySearchBlockedRunOutcome = Exclude<
+  LushaIdentitySearchRunOutcome,
+  LushaIdentitySearchReadyRunOutcome
+>;
 
 /** Respuesta cruda del proveedor, ya saneada por el cliente. */
 export interface LushaIdentitySearchProviderResponse {
@@ -100,22 +151,48 @@ export interface ResolveLushaIdentityDeps {
    * una fila.
    */
   claimIdentitySearch: (runId: string) => Promise<LushaIdentitySearchClaimResult>;
-  /** UNA petición a `/v3/contacts/search`. Sin retry: el retry es un segundo cobro. */
+  /**
+   * UNA petición a `/v3/contacts/search`. Sin retry: el retry es un segundo cobro.
+   *
+   * `matchKey` viaja para que el adaptador pueda declarar en el ledger CON QUÉ TIPO de
+   * identificador se buscó sin volver a decidirlo. Es el tipo ('email'), nunca el dato.
+   */
   searchIdentity: (args: {
     runId: string;
+    matchKey: LushaIdentitySearchMatchKey;
     contact: Record<string, string>;
   }) => Promise<LushaIdentitySearchProviderResponse>;
   /**
-   * Persiste la identidad resuelta. Write-once: si otro proceso ganó, devuelve el id
-   * del ganador en vez de sobrescribir. Se invoca ANTES de que el reveal arranque.
+   * Persiste la identidad resuelta y DECLARA si quedó guardada. Write-once: si otro
+   * proceso ganó, devuelve el id del GANADOR en vez de sobrescribir.
+   *
+   * El resultado no es decorativo: la persistencia es una PRECONDICIÓN del reveal
+   * (ver `resolveLushaIdentityForWaterfall`, paso 5), así que un `failed` cierra la
+   * corrida sin llamar a Lusha. Por eso devuelve un veredicto explícito en vez de
+   * `void` — un `void` obliga a inferir el éxito de la ausencia de excepción, y una
+   * escritura que el driver reporta como fallida sin lanzar quedaría leída como buena.
+   *
+   * Devolver el id EFECTIVO (el del ganador, no el nuestro) es lo que impide revelar
+   * contra un id distinto del que quedó almacenado.
    */
   persistIdentity: (args: {
     candidateId: string;
     runId: string;
     providerContactId: string;
     matchKey: LushaIdentitySearchMatchKey;
-  }) => Promise<void>;
+  }) => Promise<LushaIdentityPersistResult>;
 }
+
+/**
+ * Veredicto de durabilidad de la identidad.
+ *
+ *   * `persisted` — hay una fila. `providerContactId` es la que quedó (la nuestra si
+ *     insertamos, la del ganador si otro proceso llegó antes).
+ *   * `failed` — NO hay fila que podamos afirmar. Fail-closed: sin reveal.
+ */
+export type LushaIdentityPersistResult =
+  | { status: 'persisted'; providerContactId: string }
+  | { status: 'failed' };
 
 /**
  * Desenlace de la resolución, desde el punto de vista del waterfall.
@@ -131,7 +208,7 @@ export type ResolveLushaIdentityResult =
       contactId: string;
       /** true solo si ESTA invocación pagó una búsqueda. */
       searched: boolean;
-      runOutcome: Extract<LushaIdentitySearchRunOutcome, 'resolved' | 'reused_persisted'>;
+      runOutcome: LushaIdentitySearchReadyRunOutcome;
       /** Créditos reportados por la búsqueda. null cuando no hubo búsqueda o no se reportó. */
       searchCreditsCharged: number | null;
     }
@@ -141,8 +218,14 @@ export type ResolveLushaIdentityResult =
         | 'lusha_identity_unresolvable'
         | 'lusha_identity_not_found'
         | 'lusha_identity_ambiguous'
-        | 'lusha_identity_error';
-      runOutcome: Exclude<LushaIdentitySearchRunOutcome, 'resolved' | 'reused_persisted'>;
+        | 'lusha_identity_error'
+        /**
+         * Se resolvió UNA identidad y se pagó por ella, pero no quedó almacenada. El
+         * reveal NO corre: revelar sin identidad persistida convierte cada corrida
+         * futura en una compra nueva del mismo dato.
+         */
+        | 'lusha_identity_not_persisted';
+      runOutcome: LushaIdentitySearchBlockedRunOutcome;
       /** true si esta invocación llegó a emitir la petición (y por tanto pudo costar 1). */
       searched: boolean;
       searchCreditsCharged: number | null;
@@ -210,6 +293,7 @@ export async function resolveLushaIdentityForWaterfall(
   try {
     response = await deps.searchIdentity({
       runId: input.runId,
+      matchKey: query.matchKey,
       contact: query.contact as Record<string, string>,
     });
   } catch {
@@ -259,30 +343,67 @@ export async function resolveLushaIdentityForWaterfall(
     };
   }
 
-  // ── 5. Identidad única. Se PERSISTE antes de que el reveal exista. ──
+  // ── 5. Identidad única. Se PERSISTE, y la persistencia es una PRECONDICIÓN. ──
   //
   // El orden importa y es el que MÁS protege: si el proceso muriera justo aquí, el
   // estado que sobrevive es «identidad pagada y guardada, reveal pendiente», que la
   // recuperación resuelve gratis. El orden inverso —revelar y luego guardar— dejaría
   // un id pagado y perdido, y la siguiente corrida volvería a pagarlo.
   //
-  // Un fallo al persistir NO cancela el reveal: la búsqueda ya se cobró y el id que
-  // tenemos en la mano es válido para esta corrida. Lo que se pierde es el ahorro
-  // futuro, no la operación que el operador autorizó.
+  // ── POR QUÉ UN FALLO AL PERSISTIR CANCELA EL REVEAL ──────────────────────────
+  //
+  // La tentación es la contraria: la búsqueda ya se cobró y el id está en la mano, así
+  // que revelar «aprovecha» el crédito. Pero ese razonamiento sólo mira ESTA corrida.
+  // Un reveal sobre una identidad que no quedó almacenada produce un candidato con
+  // teléfono y SIN identidad Lusha — es decir, exactamente el estado que obliga a la
+  // siguiente autorización a pagar otra búsqueda por el mismo dato. El crédito no se
+  // «aprovecha»: se convierte en el primero de una serie.
+  //
+  // Fail-closed, entonces, con tres propiedades explícitas:
+  //
+  //   * la EVIDENCIA ECONÓMICA de la búsqueda se conserva (`searched: true` +
+  //     `resolved_not_persisted`), así que su reserva se liquida y el ledger la
+  //     registra: nadie regala el crédito que ya se gastó;
+  //   * NO se repite la búsqueda automáticamente. El claim sigue tomado, y ese es
+  //     precisamente su trabajo: la corrida siguiente lee `already_claimed` y sale;
+  //   * el error NO se oculta — viaja como desenlace propio hasta la corrida y hasta
+  //     el ledger, en vez de morir en un `catch` vacío.
+  //
+  // Un throw se trata igual que un `failed` declarado: en ninguno de los dos casos
+  // podemos afirmar que exista una fila.
+  let persistence: LushaIdentityPersistResult;
   try {
-    await deps.persistIdentity({
+    persistence = await deps.persistIdentity({
       candidateId: input.candidateId,
       runId: input.runId,
       providerContactId: evaluation.contactId,
       matchKey: evaluation.matchKey,
     });
   } catch {
-    // Silencio acotado y deliberado: el escritor registra su propio fallo.
+    // Silencio acotado a la EXCEPCIÓN, no al hecho: el escritor registra su propio
+    // fallo sin PII, y el hecho sale de aquí como `resolved_not_persisted`.
+    persistence = { status: 'failed' };
+  }
+
+  if (persistence.status !== 'persisted') {
+    return {
+      status: 'blocked',
+      skippedReason: 'lusha_identity_not_persisted',
+      runOutcome: 'resolved_not_persisted',
+      // La petición SALIÓ y el proveedor contestó: la reserva de la búsqueda se
+      // liquida por lo que costó (o al tope si no lo reportó), nunca a 0.
+      searched: true,
+      searchCreditsCharged: response.creditsCharged,
+    };
   }
 
   return {
     status: 'ready',
-    contactId: evaluation.contactId,
+    // El id que se revela es el ALMACENADO, no el que acabamos de recibir. Coinciden
+    // salvo cuando otro proceso ganó la carrera, y en ese caso el suyo es el que la
+    // base de datos afirma — revelar contra el nuestro sería revelar contra un id que
+    // nadie guardó.
+    contactId: persistence.providerContactId,
     searched: true,
     runOutcome: 'resolved',
     searchCreditsCharged: response.creditsCharged,

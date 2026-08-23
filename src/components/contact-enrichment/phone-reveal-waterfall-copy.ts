@@ -420,15 +420,20 @@ export function getPhoneRevealWaterfallAuthorizationCopy(args: {
 /** Motivos por los que la pata Lusha se omitió, en lenguaje del operador. */
 const LUSHA_SKIPPED_REASON_LABELS: Readonly<Record<string, string>> = {
   missing_lusha_contact_id: 'Omitida: el candidato no tiene identificador Lusha reutilizable.',
-  // Los cuatro desenlaces de la resolución de identidad cross-provider. Se redactan
-  // por separado porque tres de ellos SÍ consumieron un crédito de búsqueda y uno no,
-  // y el operador no puede distinguirlos si todos dicen lo mismo.
+  // Los cinco desenlaces de la resolución de identidad cross-provider. Se redactan por
+  // separado porque cuatro de ellos SÍ consumieron un crédito de búsqueda y uno no, y
+  // el operador no puede distinguirlos si todos dicen lo mismo.
   lusha_identity_unresolvable:
     'Omitida: no había datos suficientes para buscar el contacto en Lusha. No se consumieron créditos.',
   lusha_identity_not_found: 'Omitida: Lusha no encontró a este contacto.',
   lusha_identity_ambiguous:
     'Omitida: la búsqueda en Lusha no identificó a una única persona.',
   lusha_identity_error: 'Omitida: la búsqueda del contacto en Lusha falló.',
+  // Dice las DOS cosas, y en este orden: que se encontró (para que el operador no crea
+  // que el dato no existe) y que no se pudo guardar (para que entienda por qué no hay
+  // teléfono y por qué volver a intentarlo cuesta otro crédito de búsqueda).
+  lusha_identity_not_persisted:
+    'Omitida: se encontró el contacto en Lusha pero no se pudo guardar su identificador, así que no se pidió el teléfono.',
   apollo_revealed: 'Omitida: Apollo ya entregó el teléfono.',
   suppressed: 'Omitida: existe una restricción de privacidad registrada.',
   // NO dice "suprimido": la comprobación no se pudo hacer, así que no se sabe si

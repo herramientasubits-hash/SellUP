@@ -2143,6 +2143,33 @@ jobs:
       # Offline y determinista: sin red, sin Supabase, sin proveedores, 0 créditos.
       - name: Run A2A cross-provider phone identity resolution tests
         run: npm run test:agent2a:cross-provider-phone-identity
+      # PR331-R2 — la misma cadena, vista desde el RUNTIME REAL. La suite anterior
+      # prueba el core PURO, y un core impecable con una dep opcional que nadie cablea
+      # no llama a nadie, no persiste nada y aprueba todos sus tests. Esta suite mira el
+      # ADAPTADOR (`lusha-identity-resolution-deps.ts`) y su punto de cableado.
+      #
+      # Lo que defiende, dicho como defecto:
+      #   * que exista un SEGUNDO cliente de Lusha. Se cuenta `searchLushaContactsV3()`,
+      #     que es el canónico, y cualquier `fetch` que se escape es un fallo explícito;
+      #   * que una identidad recién comprada se revele SIN haber quedado almacenada —
+      #     lo que convierte ese crédito en el primero de una serie, porque la corrida
+      #     siguiente vuelve a comprar el mismo dato. La persistencia es PRECONDICIÓN;
+      #   * que una carrera write-once revele contra NUESTRO id en vez del ganador;
+      #   * que un fallo de infraestructura (RPC ausente porque la 124 no está aplicada,
+      #     identidades ilegibles, credencial ausente) se lea como permiso para gastar;
+      #   * que `insufficient_credits` o un timeout se escriban como «Lusha no conoce a
+      #     esta persona», que es un hecho que nadie comprobó;
+      #   * que la búsqueda y el reveal se confundan en el ledger, o que sus dos patas de
+      #     reserva se liquiden con los hechos de la otra por no leer `operation_key`;
+      #   * y que el flag apagado NO baste: se afirma que sin
+      #     `ENABLE_PHONE_REVEAL_WATERFALL` no se cablea la dep, no se lee
+      #     `contact_provider_identities`, no se invoca `claim_lusha_identity_search` y
+      #     no sale ninguna petición — el código queda desplegado e INERTE, que es lo que
+      #     permite aplicar la migración 124 después.
+      #
+      # Offline y determinista: sin red, sin Supabase, sin proveedores, 0 créditos.
+      - name: Run A2A cross-provider phone identity runtime tests
+        run: npm run test:agent2a:cross-provider-phone-identity-runtime
       # AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 — el filtrado económico deja de
       # ocurrir DESPUÉS de pagar.
       #
