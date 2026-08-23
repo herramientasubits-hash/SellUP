@@ -1212,6 +1212,206 @@ Machine-readable form:  br-receita-cnpj-gate5-recorded-output-sanitization.ts
 
 ---
 
+### 9.2 The GATE-5 contract's three collisions are CLOSED by SUPERSESSION; the gate is still `ready_for_review` (BR-SOURCE-FAST-TRACK-6)
+
+**Status:** unchanged — `ready_for_review`, **not** approved. What changed is the SUBJECT of the pending
+review, not its outcome.
+
+**The three collisions § 9.1 left open are closed, and every one was closed on the owner-direction
+side.** That sentence is the whole subsection, and the direction of the fix is what makes it
+reportable: each collision was a fight between an owner value and a live privacy invariant, and in all
+three the *owner value* moved.
+
+| id | Round-3 owner direction | superseded by | invariant that did NOT move |
+|----|------------------------|---------------|------------------------------|
+| `OD-C1` | `TOTAL_ROWS_SCANNED = ALLOWED` | `TOTAL_ROWS_SCANNED = INTERNAL_EXECUTION_COUNTER_ONLY` | `BRAZIL_RECEITA_FULL_JOIN_MAX_NUMERIC_LEAF` (BR-SOURCE-11A) |
+| `OD-C2` | the same direction, on the rendered surface | the same supersession | `VP-1`, `VP-4`, and the rendered-output check |
+| `OD-C3` | residual label `other_or_suppressed_small_cell` | residual label `suppressed_other` | § 5.2 **group 7**, unedited |
+
+**`total_rows_scanned` is now INTERNAL, which is not the same as "quieter".** The counter may exist
+inside an execution; it is emitted on **no** surface — not the sanitized report, not the JSON report,
+not the human report, not logs, not console, not errors, not exceptions, not gate evidence, not the
+operator summary. `BRAZIL_RECEITA_GATE5_INTERNAL_ONLY_COUNTER_PERMITTED_SURFACES` is empty, and it is
+empty as an assertion. The reasons, recorded rather than implied: the exact figure can exceed the
+11A numeric ceiling; its *rendered* form collides with the digit-run rules; no Agent 1 or product
+function needs it; and there was no reason to weaken 11A to keep it.
+
+🔴 **A key absent because it was EXCLUDED and a key absent because it is INTERNAL-ONLY are different
+things.** An excluded breakdown (`capital_social`, `opened_at`, municipality) could be re-proposed with
+bucket boundaries. An internal-only counter has no surface to be re-proposed onto. The § 6 allowlist
+carries both kinds of absence and the contract names which is which.
+
+**Two output keys were RENAMED rather than left on a carve-out.**
+
+```
+persisted_rows        →  records_persisted
+rows_seen_by_family   →  records_seen_by_family
+```
+
+Both tripped group 7's deliberately broad `row` substring and were admitted only by the
+*allowlist-governs* precedence. 10O § 5.2's own recorded resolution for exactly this case is to
+**rename the aggregate, never to weaken the matcher**, and a safe semantic name existed in both cases,
+so the rename is what happened. No denylist group was edited, narrowed, or given an exemption.
+
+🔴 **The rename does not orphan a historical invariant.** § 12's *Governs* clause and 10J § 12 both
+name `persisted_rows = 0` in prose. Those documents are **not** edited — an approval record that
+rewrites itself is not a record — so `BRAZIL_RECEITA_GATE5_OUTPUT_KEY_RENAMES` carries the mapping
+forward instead, with the historical references listed per key. Neither key had a production emitter,
+so no runtime surface changed shape.
+
+**`BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST` is now EMPTY**, and empty as a *finding*.
+Round 3 carried three entries. Two were renamed and one was superseded, so nothing in the frozen
+contract currently depends on the precedence carve-out.
+
+🔴 **The precedence itself is KEPT, not deleted.** `ALLOWLIST_GOVERNS` stays `true` because it decides
+what happens the *next* time a § 6 key and a denylist group disagree — and the safe answer to that
+question must exist before the disagreement, not after it. The empty list is the evidence that no key is
+currently relying on it, which is a different claim from the rule being unnecessary. No authoritative
+immutable key forced a carve-out to survive: `BRAZIL_RECEITA_GATE5_IMMUTABLE_KEY_FORCING_A_CARVE_OUT` is
+`null`.
+
+**One Round-3 comment was factually wrong and is corrected.** § 9.1's guard docstring listed
+`join_outcome_counts` among the keys admitted by the precedence. It contains neither `row` nor `cell`
+and was never admitted by it. Left uncorrected, that error makes a carve-out look load-bearing where it
+is not.
+
+**The VP rules are unchanged and the two digit-run contracts stay separate.** `VP-1` … `VP-4` keep their
+frozen wording at exactly 8, 11, 14 and over-14 positions; BR-SOURCE-11A's `LONG_DIGIT_RUN` keeps
+matching 8-or-more independently. `BRAZIL_RECEITA_GATE5_DIGIT_RUN_CONTRACTS_MERGED` is `false` and
+`..._VP_RULES_WIDENED_BY_THIS_ROUND` is `false`. What this round added is a test that runs of **8, 9,
+10, 11, 12, 13, 14 and over 14** each fail closed through at least one authoritative layer, proved by
+*executing* both layers rather than by trusting a table. Two independent nets with two authorities catch
+what one widened regex would not.
+
+**What is still missing, and it is the only thing.** The § 14 joint entry from the **security/privacy
+owner** and the **test owner**, recorded against the CORRECTED contract. § 3 forbids the implementer of
+a subject from approving it, this round revised the subject, and
+`BRAZIL_RECEITA_GATE5_REVISIONS_EARN_AN_APPROVAL` is `false` — a round that closes everything the
+previous review flagged does not thereby earn the approval. If anything, a revised subject makes any
+earlier partial review moot.
+
+---
+
+### 9.3 The GATE-5 / legacy engine-report BOUNDARY, and the bypass that was REMOVED (BR-SOURCE-FAST-TRACK-6)
+
+**Status:** unchanged — `ready_for_review`. This subsection records a CONTRACT BOUNDARY and the
+fail-closed REMOVAL of one bypass. It approves nothing and earns no gate approval.
+
+**The gap the FAST-TRACK-6 report surfaced.** `BrazilReceitaFullJoinEnginePublicReport`
+(BR-SOURCE-11A / 14B) predates GATE-5 and carries three keys GATE-5 refuses:
+
+| legacy key | § 5.2 group | in the § 6 allowlist | GATE-5 disposition |
+|------------|-------------|----------------------|--------------------|
+| `rows_emitted` | **7** (`row`) | no | `LEGACY_ENGINE_INTERNAL_SAFETY_FACT` |
+| `raw_rows_printed` | **7** (`raw`, `row`) | no | `LEGACY_ENGINE_INTERNAL_SAFETY_FACT` |
+| `zero_output_rows_enforced` | **7** (`row`) | no | `LEGACY_ENGINE_INTERNAL_SAFETY_FACT` |
+
+The object is classified **`LEGACY_ENGINE_SANITIZED_REPORT_SHAPE`**. It is **not**, by itself, an
+approved GATE-5 external emission, and it may be used only as internal / pre-projection input.
+
+🔴 **The word `PublicReport` is a MISNOMER and it is the dangerous one.** It means "the non-private half
+of the engine's output" — the counterpart to the private operator measurement artifact — and it predates
+GATE-5 entirely. It has never meant "approved for public emission".
+`BRAZIL_RECEITA_GATE5_LEGACY_REPORT_NAME_IMPLIES_APPROVAL` is `false`.
+
+**Nothing was renamed, and the consumer evidence is why.** Every consumer was inspected *before* any
+change: the engine builds it, the benchmark embeds it, the throughput harness sanitizes it, and three
+suites assert its fields **by name**. `raw_rows_printed` is decisive — it is a privacy **safety fact**
+asserted `false` across the dry-run runner's own safety block, the 11A output-sanitizer suite, three
+operator scripts and seven decision records. Renaming it would rewrite a claim other code checks, not
+tidy a legacy name. `..._SHAPE_CHANGED` is `false` and `..._RENAME_PROVEN_CONTRACT_SAFE` is `false`.
+
+🔴 **`rows_emitted` is NOT mapped to `records_persisted`.** Emitted and persisted are different
+semantics: one counts rows handed to a sink, the other counts records durably written. Both read zero
+today under `maxOutputRows = 0` and a null sink, and *a coincidence of value at one operating point is
+not an equivalence of meaning* — it is how a wrong mapping survives review. No existing contract proves
+it, so `translatesToApprovedGate5Key` is `null` for all three keys, and no new output key was invented
+to preserve a legacy name.
+
+**🔴 THE BYPASS THAT EXISTED — and has been REMOVED fail-closed.**
+
+```
+full-join-engine              builds the legacy engine report
+  → real-full-scan-benchmark  passes it through the 11A sanitizer         → PASSES
+  → releasedEngineReport      the WHOLE object, released when 11A says ok
+  → BrazilReceitaRealFullScanPublicReport.engine_report    embedded whole
+  → run-…-real-full-scan-resource-benchmark.ts             process.stdout.write(JSON.stringify(…))
+  → cli_stdout                                             ← a GATE-5 surface
+```
+
+**Why it survived before removal, and this is the finding worth remembering:** BR-SOURCE-11A is a
+**denylist over dataset-looking content**. `rows_emitted: 0` and `raw_rows_printed: false` look like
+nothing at all, so 11A returned `ok` and had no opinion about whether anybody reviewed the keys. **Only
+the § 6 allowlist refuses a key by ABSENCE**, and the § 6 allowlist was not on that path. The round's
+suite proves both halves by EXECUTION: 11A returns `{ok: true, findings: []}` on the three keys, and the
+GATE-5 guard returns **six** findings — three `KEY-ALLOWLIST`, three `KEY-DENYLIST` group 7.
+
+It was **gated**, not live: the attempt-limit wall (attempt #3 refused unconditionally), the
+second-attempt owner wall, and three process-scoped operator approvals each from its own CLI flag — and
+never a Next.js runtime path. That bounded the exposure; it did not make the path acceptable.
+
+**What was done.** The serialization is **deleted**. Where the CLI used to print the report it now sets a
+dedicated withheld-output exit code and prints nothing:
+
+```
+no legacy report on stdout      no file or log fallback
+no legacy report on stderr      no identifier, path or sample
+no substitute report schema     no new diagnostic surface invented
+no stack, no uncaught error     status travels as a process exit code
+```
+
+🔴 **A REMOVAL, not a capability.** No projection implemented, no replacement schema, no added output
+field, and neither GATE-5 nor 11A weakened — no output exception granted.
+`addsRunnerCapability: false`, `removesAnExternalEmissionPath: true`. The distinction is load-bearing:
+§ 4 forbids writing runner code while any gate is unapproved, so "we improved the report path" would
+itself be a violation. Something that could be printed no longer can; nothing new can.
+
+**Attempt accounting is preserved** — three controlled scalars, no nested `engine_report` — because
+dropping it would make a withheld run indistinguishable from a run that never happened.
+
+🔴 **The finding is not erased, and the ratchet proves itself.** The historical emitter stays on record
+with `resolution: removed_by_fail_closed_boundary` and the exact removed expression; the **live** set is
+empty, and the emitter verdict is DERIVED from that array rather than typed. The suite sweeps the
+connector and the operator scripts and asserts the discovered set equals the live set — then proves the
+detector actually fires by splicing the exact removed expression back into an in-memory copy of the CLI.
+Synthetic stdout, stderr, file and log emitters are each proved caught; template-literal interpolation is
+proved caught; and mentions in comments, prose and provenance data are proved **not** to be false
+positives.
+
+**Required future pipeline.** `GATE5_ENGINE_REPORT_PROJECTION_REQUIRED = true`:
+
+```
+engine observations → legacy engine report / internal safety facts → GATE-5 projection
+  → GATE-5 allowlist → GATE-5 denylist + value guards → external output
+```
+
+Never `engine report → external output`. The projection is **not** implemented and its implementation is
+**not** authorized now.
+
+🔴 **Two things are true at once, and they are not in tension.**
+`brazilReceitaGate5EngineReportBoundaryResolved()` is now `true` — the current bypass is gone — *and*
+`GATE5_ENGINE_REPORT_PROJECTION_REQUIRED` stays `true` with `PROJECTION_IMPLEMENTED = false`. Closing the
+hole did not grant the projection. The practical consequence is the intended fail-closed state: **there
+is currently no approved external report of a full-join run at all** while GATE-5 is unapproved.
+
+**Consequence for the human packet.** The earlier *"and on nothing else"* wording was untrue when written
+and is now true again — but it is **computed**, not asserted:
+`brazilReceitaSignoffHumanAnswersAreTheOnlyRemainingWork()` derives from
+`CURRENT_DIRECT_ENGINE_REPORT_EXTERNAL_EMITTERS.length === 0` and the live blocker list. A hand-set
+boolean is precisely how the earlier draft came to say something false. The GATE-5 human section still
+carries the full disclosure — the legacy object exists unchanged, it is not an approved emission schema,
+the bypass was removed fail-closed, no projection exists, and any future emission needs one — so the
+approvers approve the real architecture rather than a clean end state.
+
+**What this subsection does not do.** It moves no gate, weakens no invariant, touches neither the legacy
+report nor 11A nor either GATE-5 list, implements no projection, adds no runner capability, and
+authorizes no run, benchmark, rehearsal, migration, Supabase write or provider call. The full-join
+engine, its observations, the benchmark result construction, the private metric channel, the resource
+caps, the attempt accounting, cleanup and the 11A sanitizer are all unchanged — the correction sits
+entirely at the CLI external-emission boundary.
+
+---
+
 ## 10. GATE-6 — Failure cleanup contract
 
 **Governs (10J § 13):** confirms 10J § 9 — cleanup on completion **and** failure, with
@@ -1405,7 +1605,7 @@ Restrictions:           a failed or not_executed cleanup may not be upgraded by 
 **Governs (10J § 13):** confirms 10J § 16 — the manual steps an operator follows to run a future
 dry-run safely and reproducibly.
 
-**Status today:** `not_started`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 11.1.** The current status is `blocked`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -1486,6 +1686,73 @@ dry-run safely and reproducibly.
 > and GATE-6 all still block it; no runbook section is written, no manual execution is prepared or
 > authorized, and an approved contract would still be a *procedure*, never a *permission*. It authorizes
 > no dry-run, import, Supabase write, migration, index change, runtime, or Agent 1 integration.
+
+---
+
+### 11.1 The runbook SECTION now EXISTS; GATE-7 is `blocked` (BR-SOURCE-FAST-TRACK-6)
+
+**Status:** `blocked`. **Not** `ready_for_review`, and not `not_started` either.
+
+**What changed.** The one artifact this section's *Expected artifacts* asks for and that 10PQR § 6 was
+explicit it could not deliver now exists: **the operator runbook section**, as
+[§ 16 of the manual-download / local-prep runbook](./br-receita-cnpj-manual-download-local-prep-runbook.md)
+— an *extension* of the existing runbook, never a competing document — with its machine-readable half
+in `br-receita-cnpj-gate7-operator-runbook`. Every one of the twelve *Required evidence* items above
+now has a concrete manual step with one action and one definite pass condition, and the preflight
+`P-01` … `P-22` is implemented rather than described.
+
+Three of those steps are **executable** rather than prose:
+
+| step | what executes | verdict today |
+|------|---------------|---------------|
+| `P-05` gate status | `evaluateBrazilReceitaGate7Preconditions()` reads `BRAZIL_RECEITA_GATE_CURRENT_STATE` | **FAIL** — six gates unapproved |
+| privacy preflight | `evaluateBrazilReceitaGate7PrivacyPreflight()` over the five contract-owning gates | **FAIL** — four unapproved |
+| operator identity | `brazilReceitaGate7ActorMayExecute()` | refuses every non-human class, including *on behalf of* a human |
+
+The evaluator takes **no arguments**. There is no `force`, no options object, no environment read and
+no override, so there is no surface on which a future caller could weaken it —
+`BRAZIL_RECEITA_GATE7_PRECONDITION_BYPASS_EXISTS` is `false` and a test asserts it.
+
+**Why `blocked`, and not the two statuses that look adjacent to it.** § 3 defines `blocked` as *"an
+external dependency (legal, **another gate**, an unresolved leak) prevents review"*, and the update
+above says the dependency in those words: *GATE-2, GATE-5, and GATE-6 all still block it.*
+
+- `not_started` is now **false**. Evidence exists — the section, the executable preflight, the resource
+  and privacy evaluators, and `OR-A01` … `OR-A20` mapped onto them. Reporting `not_started` would
+  understate the state as badly as `ready_for_review` overstates it.
+- `needs_evidence` would be wrong about **what** is missing. Nothing about this gate's own evidence is
+  incomplete; three *other* gates' approvals are.
+- `ready_for_review` is forbidden by the dependency contract. § 4 orders approval by the dependency
+  graph, and § 3 forbids approval by inference — which is what *"the document is done, so review it"*
+  would amount to.
+
+🔴 **`blocked` is NO-GO, exactly as `not_started` is** (§ 15). This subsection advances the gate's
+reviewability and nothing else. Per § 4, a `blocked` gate forbids writing any full-join code, and none
+was written.
+
+**The exact remaining blockers.** Four, and no agent can discharge any of them:
+
+```
+1. GATE-2 approved   → today needs_owner_confirmation (bucket-ordinal privacy confirmation)
+2. GATE-5 approved   → today ready_for_review (joint security/privacy + test owner)
+3. GATE-6 approved   → today ready_for_review (joint technical + operator owner)
+4. REPRODUCIBILITY_BY_DIFFERENT_OPERATOR = UNDEMONSTRATED
+```
+
+🔴 **The fourth is different in kind from the first three, and the distinction is the one most easily
+lost.** Approving GATE-2, GATE-5 and GATE-6 unblocks the *review*; it does not demonstrate
+reproducibility. Only a rehearsal, by an operator who did not author the section, against real
+ceilings, can show the steps carry no tacit knowledge — and no rehearsal is authorized, none was
+performed, and none is authorized by this section existing. GATE-7's own three approvers decide whether
+the section plus three approved upstream gates is enough to review, or whether they require the
+rehearsal first. That is their call and this document does not make it for them.
+
+**What this subsection does not do.** It approves no gate; it authorizes no run, dry-run, rehearsal or
+benchmark; it changes no resource cap, no flag and no attempt budget —
+`BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED` is *imported* and stays `false`; it reads no real
+Receita data and learns no manifest, path or file name; it authors and applies no migration; and it
+performs no Supabase write of any kind. An approved runbook would still be a *procedure*, never a
+*permission*.
 
 ---
 
@@ -1839,20 +2106,32 @@ GATE-4  needs_owner_decision — NOT approved. Grain         (§ 8.1)
         decided (option D); persisted identity blocked on
         ONE legal/privacy question. Exact runtime lookup
         is a recorded PRODUCTIZATION BLOCKER.
-GATE-5  ready_for_review — NOT approved. Output          (§ 9.1)
+GATE-5  ready_for_review — NOT approved. Output          (§ 9.1, § 9.2)
         sanitization contract FROZEN with the owner's
         values (k = 10, string ceiling 64, no cross-tabs,
         no named municipalities) and every rule now a
         PREDICATE. Waiting on the joint security/privacy
         + test approval, which the implementer of the
-        subject may not give. THREE recorded collisions
-        (OD-C1, OD-C2, OD-C3) sit inside that review, and
-        none is resolved by the round that found them.
+        subject may not give. OD-C1, OD-C2 and OD-C3 are
+        now CLOSED by SUPERSEDING the owner direction
+        (total_rows_scanned is INTERNAL ONLY; the residual
+        label is `suppressed_other`) — never by weakening
+        BR-SOURCE-11A or the denylist. The revised contract
+        is the SUBJECT of the pending review (§ 9.2).
 GATE-6  ready_for_review — NOT approved. Executable        (§ 10.1)
         cleanup contract landed; waiting on the joint
         technical + operator approval, which the
         implementer of the subject may not give.
-GATE-7  not_started
+GATE-7  blocked — NOT approved. The operator runbook       (§ 11.1)
+        SECTION now EXISTS (runbook § 16) and its
+        preflight, resource, workspace, dataset, privacy,
+        monitoring, output-review, cleanup and signoff
+        steps are implemented; P-05 and the privacy
+        preflight are EXECUTABLE and both return FAIL.
+        Blocked by GATE-2, GATE-5 and GATE-6, per § 3's
+        "another gate prevents review". Reproducibility by
+        a different operator is UNDEMONSTRATED and needs a
+        rehearsal nobody has authorized.
 GATE-8  approved — AS A CONTRACT                           (§ 12.1)
 ```
 
@@ -1911,18 +2190,40 @@ Readings a future reader is most likely to get backwards after Round 3:
   rendered surface. Both are recorded as `OD-C1` / `OD-C2` and both are owner decisions. A third,
   `OD-C3`, is internal to 10O: the residual bucket label § 7 requires suppression to emit is refused by
   § 5.2 group 7. All three are owner decisions, and 11A was **not** weakened to accommodate any of them.
+  🔴 **SUPERSEDED BY § 9.2 (BR-SOURCE-FAST-TRACK-6).** All three are now CLOSED — and closed by
+  superseding the *owner direction*, never by relaxing the invariant it collided with. 11A is still
+  un-weakened, and group 7 is still unedited. The bullet is retained as the record of what Round 3 left
+  open.
 - **The three excluded breakdowns are a decision, not an omission.** `capital_social`, `opened_at` and
   the municipality distribution are EXCLUDED from the v1 report, which discharges the 10M § 13
   bucket-boundary item by exclusion rather than by a boundary table.
 - **`VP-1` … `VP-4` do not cover every digit run.** Runs of 9, 10, 12 and 13 positions are uncovered
   by the frozen rules as written; what closes them today is BR-SOURCE-11A's `LONG_DIGIT_RUN`. That is a
-  reason to keep 11A, not to widen this contract.
+  reason to keep 11A, not to widen this contract. **Still true after FAST-TRACK-6**, which confirmed it
+  by *executing* both layers over runs of 8 through 15 rather than by merging them into one regex.
 - **The guard is wired into nothing.** It is pure and reachable only from tests; § 4 still forbids
   full-join runner code, and a test asserts no production module imports it.
 
 **Next front: ROUND 4 = GATE-5's remaining approval plus GATE-7**, whose packet § 10 is updated by this
 round to reflect the now-real GATE-2 ceilings, GATE-5 output contract and GATE-6 cleanup contract.
 GATE-7's `P-05` still fails by construction while any gate is unapproved.
+
+Readings a future reader is most likely to get backwards after BR-SOURCE-FAST-TRACK-6:
+
+- **The GATE-7 runbook existing is not GATE-7 being reviewable.** The section is the FIRST of four
+  remaining items; the other three are GATE-2, GATE-5 and GATE-6 approvals, and § 4 orders approval by
+  the dependency graph (§ 11.1).
+- **`blocked` is not a step toward approval.** It is NO-GO exactly as `not_started` is, and § 4 makes a
+  `blocked` gate forbid writing any full-join code.
+- **The GATE-5 collisions closing is not GATE-5 being approved.** The contract was REVISED, which makes
+  the revised contract the subject of a review that has not happened (§ 9.2). A round that fixes
+  everything the previous review flagged does not thereby earn the approval.
+- **An empty carve-out list is not a reason to delete the precedence.** `ALLOWLIST_GOVERNS` stays: it
+  decides what happens the next time a § 6 key and a denylist group disagree, and that answer has to
+  exist before the disagreement.
+- **The final owner packet is not an approval.** It PREPARES five separate, non-bundled human decisions
+  (GATE-2, GATE-3, GATE-4, GATE-5, GATE-6) with their response fields deliberately blank. No agent may
+  fill one, and project technical direction is not a privacy signature (§ 14).
 
 ---
 

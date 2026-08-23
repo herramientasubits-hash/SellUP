@@ -783,6 +783,24 @@ checklist; it is the gate doing its job.
 >                                  approval is outstanding)
 > ```
 >
+> 🔴 **Update (BR-SOURCE-FAST-TRACK-6) — item 1 is DONE; items 2, 3 and 4 are unchanged.**
+>
+> The runbook SECTION now exists:
+> [§ 16 of the manual-download / local-prep runbook](./br-receita-cnpj-manual-download-local-prep-runbook.md),
+> an extension of that document rather than a competing one, with its machine-readable half in
+> `br-receita-cnpj-gate7-operator-runbook`. `P-05` and the privacy preflight are now EXECUTABLE and
+> both return **FAIL**; the preflight evaluator takes no arguments, so there is no surface for a
+> bypass.
+>
+> **GATE-7 therefore moved from `not_started` to `blocked`** — 10K § 3's *"another gate prevents
+> review"*, recorded in 10K § 11.1. Both statuses are NO-GO. Items 2, 3 and 4 above are exactly the
+> dependency that makes it `blocked`, and reproducibility by a different operator remains
+> **UNDEMONSTRATED**: it needs a rehearsal, and none is authorized.
+>
+> `P-19` and `P-21` are re-scored once more by that round: both are *checkable and FAILING* rather
+> than *unusable*, and both fail on the same half of their own wording — **approved**. That is
+> progress in the checklist and none in the gate.
+>
 > And one thing that is NOT on that list, deliberately: *reproducible by a different operator* remains
 > **undemonstrated**. A contract can define the steps; only a rehearsal against real ceilings can prove
 > reproducibility, and no execution is authorized. GATE-7's own approvers — operator, technical and
