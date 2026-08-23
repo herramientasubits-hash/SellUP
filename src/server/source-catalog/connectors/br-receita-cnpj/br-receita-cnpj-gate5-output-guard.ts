@@ -31,6 +31,12 @@
  * `BRAZIL_RECEITA_GATE5_VP_RESIDUAL_DIGIT_RUN_GAP`. What actually closes it today is 11A's
  * `LONG_DIGIT_RUN`, which matches 8-or-more. That is a reason to keep 11A, not to edit this contract.
  *
+ * 🔴 BR-SOURCE-FAST-TRACK-6 confirms that reading and does NOT merge the two contracts into one
+ * regex. `BRAZIL_RECEITA_GATE5_DIGIT_RUN_SAFETY_LAYERS` maps each run length from 8 to over 14 onto
+ * the layer that refuses it, and the round's suite proves each one fails closed by EXECUTING both
+ * layers rather than by trusting the map. Two independent nets with two authorities catch what one
+ * widened regex would not.
+ *
  * ── This module NEVER (fail-closed by construction) ──────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
  *   - emits, logs, prints or returns a value it rejected. Findings carry a rule id and a key path.
@@ -48,6 +54,7 @@ import {
   BRAZIL_RECEITA_GATE5_ERROR_ENVELOPE_FIELDS,
   BRAZIL_RECEITA_GATE5_FORBIDDEN_KEY_GROUPS,
   BRAZIL_RECEITA_GATE5_GENERIC_ERROR_CODE,
+  BRAZIL_RECEITA_GATE5_INTERNAL_ONLY_COUNTERS,
   BRAZIL_RECEITA_GATE5_LOG_EVENT_FIELDS,
   BRAZIL_RECEITA_GATE5_MAX_OUTPUT_STRING_LENGTH,
   BRAZIL_RECEITA_GATE5_RESIDUAL_BUCKET_LABEL,
@@ -78,6 +85,7 @@ export type BrazilReceitaGate5RuleId =
   | 'CROSS-TAB'
   | 'ERROR-ENVELOPE'
   | 'LOG-FIELD-SET'
+  | 'INTERNAL-ONLY'
   | 'CNPJ-DV';
 
 export interface BrazilReceitaGate5Finding {
@@ -168,6 +176,24 @@ export function isBrazilReceitaGate5ForbiddenKey(key: string): boolean {
  */
 export function isBrazilReceitaGate5AllowedKey(key: string): boolean {
   return BRAZIL_RECEITA_GATE5_ALLOWED_REPORT_KEYS.includes(
+    normalizeBrazilReceitaGate5Key(key),
+  );
+}
+
+/**
+ * True when the key names a counter that exists only INSIDE an execution and reaches no surface.
+ *
+ * 🔴 Why this needs its own predicate when `OS-A08` already refuses the key. `OS-A08` refuses it for
+ * the generic reason — absent from § 6 — and a `KEY-ALLOWLIST` finding reads as "somebody added an
+ * unreviewed field". An internal-only counter is a different mistake: somebody took a value the
+ * contract deliberately keeps off every surface and put it on one. The distinct `INTERNAL-ONLY`
+ * finding names that, so a future reader of a failing guard does not resolve it by adding the key
+ * back to the allowlist.
+ *
+ * Both findings are raised, never one instead of the other: this is a second net, not a reclassifier.
+ */
+export function isBrazilReceitaGate5InternalOnlyCounter(key: string): boolean {
+  return BRAZIL_RECEITA_GATE5_INTERNAL_ONLY_COUNTERS.includes(
     normalizeBrazilReceitaGate5Key(key),
   );
 }
@@ -283,14 +309,19 @@ export interface BrazilReceitaGate5GuardOptions {
  *   in § 5.2 only         → forbidden, and the finding names the group
  *   in neither            → forbidden
  *
- * 🔴 The first case is not a loophole, it is the design. `persisted_rows`, `rows_seen_by_family` and
- * `join_outcome_counts` all trip group 7's deliberately-broad `row` / `cell` substrings, and 10O
- * § 5.2 answers exactly that: they are permitted "because [they are] *named in § 6*, not because
- * [they] survive the denylist." Reporting a denylist hit on an allowlisted key would make the frozen
- * § 6 report un-emittable by its own contract — the two halves would refuse each other.
+ * 🔴 The first case is the design, and after BR-SOURCE-FAST-TRACK-6 NOTHING currently uses it.
+ * Round 3 recorded three § 6 keys resting on it — `persisted_rows`, `rows_seen_by_family` and
+ * `total_rows_scanned` — and this round removed all three reasons: two renames and one supersession
+ * to an internal-only counter. `BRAZIL_RECEITA_GATE5_ALLOWLISTED_KEYS_TRIPPING_DENYLIST` is empty.
  *
- * The safety of the first case rests on § 6 being CLOSED and owner-frozen: fifty reviewed names, and
- * no way to add a fifty-first except a recorded owner decision.
+ * 🔴 A correction Round 3's own comment got wrong, and worth stating because it is the kind of error
+ * that makes a carve-out look load-bearing when it is not: `join_outcome_counts` does NOT trip group
+ * 7. It contains neither `row` nor `cell`. It was never admitted by the precedence.
+ *
+ * The precedence is KEPT rather than deleted. It decides what happens the next time a § 6 key and a
+ * denylist group disagree, and that answer must exist before the disagreement. Its safety still rests
+ * on § 6 being CLOSED and owner-frozen: reviewed names only, and no way to add one except a recorded
+ * owner decision.
  */
 function pushKeyFindings(
   key: string,
@@ -299,6 +330,7 @@ function pushKeyFindings(
 ): void {
   if (isBrazilReceitaGate5AllowedKey(key)) return;
   findings.push({ rule: 'KEY-ALLOWLIST', path });
+  if (isBrazilReceitaGate5InternalOnlyCounter(key)) findings.push({ rule: 'INTERNAL-ONLY', path });
   const group = matchBrazilReceitaGate5ForbiddenKeyGroup(key);
   if (group !== null) findings.push({ rule: 'KEY-DENYLIST', path, group });
 }

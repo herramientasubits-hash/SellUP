@@ -18,10 +18,15 @@
  * ── What is authoritative, and what is not ──────────────────────────────────
  *
  * The per-gate `recorded*` modules are the authority for their own gate's status. This module is a
- * VIEW: it imports each of them rather than restating a value, so it cannot drift from them. The
- * only fields it states on its own are the ones no per-gate module owns — GATE-1's status (whose
- * module records an approval date and restrictions but no status constant) and GATE-7's, which has
- * no recorded module because nothing has advanced it.
+ * VIEW: it imports each of them rather than restating a value, so it cannot drift from them. The only
+ * field it states on its own is GATE-1's status, whose module records an approval date and
+ * restrictions but no status constant.
+ *
+ * 🔴 GATE-7 stopped being an exception in BR-SOURCE-FAST-TRACK-6. Round 3 stated its status inline
+ * because nothing had advanced it and it owned no recorded module; the runbook section landing gave it
+ * one, so the value now comes from `br-receita-cnpj-gate7-recorded-operator-runbook` like every other
+ * gate's. Its status moved from `not_started` to `blocked` — both NO-GO, and the move is a statement
+ * about REVIEWABILITY, not about permission.
  *
  * ── This module NEVER ────────────────────────────────────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
@@ -34,6 +39,7 @@ import { BRAZIL_RECEITA_GATE3_STATUS } from './br-receita-cnpj-gate3-recorded-fi
 import { BRAZIL_RECEITA_GATE4_STATUS } from './br-receita-cnpj-gate4-recorded-identity-grain';
 import { BRAZIL_RECEITA_GATE5_STATUS } from './br-receita-cnpj-gate5-recorded-output-sanitization';
 import { BRAZIL_RECEITA_GATE6_STATUS } from './br-receita-cnpj-gate6-recorded-cleanup-contract';
+import { BRAZIL_RECEITA_GATE7_STATUS } from './br-receita-cnpj-gate7-recorded-operator-runbook';
 import { BRAZIL_RECEITA_GATE8_STATUS } from './br-receita-cnpj-gate8-recorded-contract-approval';
 
 // ─── The status vocabulary ────────────────────────────────────────────────────
@@ -87,16 +93,13 @@ export const BRAZIL_RECEITA_GATE_APPROVED_STATUSES: readonly BrazilReceitaGateSt
   'APPROVED_AS_CONTRACT',
 ];
 
-// ─── GATE-1 and GATE-7, which own no status constant of their own ─────────────
+// ─── GATE-1, the one gate that owns no status constant of its own ─────────────
 
 /**
  * GATE-1's status. Its recorded module carries the approver role, the approval date and the
  * restrictions, but no status constant, so the value is stated here and 10K § 5 is its source.
  */
 export const BRAZIL_RECEITA_GATE1_STATUS: BrazilReceitaGateStatus = 'approved';
-
-/** GATE-7 has no recorded module because nothing has advanced it. 10K § 11 is its source. */
-export const BRAZIL_RECEITA_GATE7_STATUS: BrazilReceitaGateStatus = 'not_started';
 
 // ─── The current state ────────────────────────────────────────────────────────
 
@@ -147,7 +150,12 @@ export const BRAZIL_RECEITA_GATE_CURRENT_STATE: readonly BrazilReceitaGateCurren
     recordedIn: '§ 10.1',
     owningModule: 'br-receita-cnpj-gate6-recorded-cleanup-contract',
   },
-  { gate: 7, status: BRAZIL_RECEITA_GATE7_STATUS, recordedIn: '§ 11', owningModule: null },
+  {
+    gate: 7,
+    status: BRAZIL_RECEITA_GATE7_STATUS as BrazilReceitaGateStatus,
+    recordedIn: '§ 11.1',
+    owningModule: 'br-receita-cnpj-gate7-recorded-operator-runbook',
+  },
   {
     gate: 8,
     status: BRAZIL_RECEITA_GATE8_STATUS as BrazilReceitaGateStatus,
