@@ -484,13 +484,17 @@ describe('4O-G — alcance', () => {
     // AGENT1-PROVIDER-SEEN-MEMORY-2 lo mueve a la 123: la memoria de qué empresa ya nos
     // mostró un proveedor de PAGO. NO toca la colección que 4O-G lee: crea una tabla de
     // identidad de EMPRESA y no nombra ninguna tabla de teléfono.
-    assert.equal(numbered[numbered.length - 1], 123);
+    // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 lo mueve a la 124: la identidad
+    // provider-native del reveal. Crea `contact_provider_identities` y añade columnas a la
+    // reserva y a la corrida; NO toca la colección de teléfonos que 4O-G lee, y 4O-G sigue
+    // sin aportar ni editar SQL, que es lo que esta guarda afirma.
+    assert.equal(numbered[numbered.length - 1], 124);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
     // historia, cuenta y techo coinciden, y esa coincidencia es en sí misma la guarda:
     // vuelve a fallar si alguien borra un archivo aplicado o cuela uno sin renumerar.
-    assert.equal(numbered.length, 123);
+    assert.equal(numbered.length, 124);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

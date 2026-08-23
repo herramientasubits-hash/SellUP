@@ -1,6 +1,22 @@
 /**
  * phone-reveal-credit-budget-core.ts — Preflight PURO de saldo del reveal de teléfono
- * (Agente 2A · AGENT2A-PHONE-WATERFALL-4D, endurecido en 4E).
+ * (Agente 2A · AGENT2A-PHONE-WATERFALL-4D, endurecido en 4E y re-granulado en
+ * AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1).
+ *
+ * ── EL GRANO ES (PROVEEDOR × OPERACIÓN), NO EL PROVEEDOR ─────────────────────
+ *
+ * Desde que Lusha puede cobrar DOS cosas dentro de una misma autorización —averiguar
+ * con qué id conoce a la persona (1 crédito) y darnos su teléfono (5)— una pata deja de
+ * estar identificada por su proveedor. Cada requisito declara también su `operationKey`,
+ * y esa pareja es la identidad de la fila en la reserva (migración 124).
+ *
+ * 🔴 PERO EL POZO SIGUE SIENDO UNO. Las dos operaciones de Lusha salen del MISMO saldo,
+ * así que la comparación presupuestaria las AGREGA antes de preguntar
+ * (`resolvePhoneRevealCreditPoolDemands`). Preguntar "¿tienes 1?" y luego "¿tienes 5?"
+ * a un pozo con 5 obtiene dos síes y reserva 6.
+ *
+ * Topes vigentes: 14 (Apollo 8 + búsqueda 1 + teléfono 5) · 13 (sin búsqueda) ·
+ * 8 (solo Apollo) · 5 (solo Lusha).
  *
  * Por qué existe: al eliminar el modal de consentimiento, el ÚNICO clic del operador
  * crea la corrida y arranca Apollo de inmediato. Ya no hay un paso intermedio en el
@@ -21,9 +37,9 @@
  *
  * Consecuencias que este módulo tiene que respetar:
  *
- *   1. NO hay un saldo único que pueda cubrir 13. Los 8 de Apollo solo salen de la
+ *   1. NO hay un saldo único que pueda cubrir el total. Los 8 de Apollo solo salen de la
  *      regla de Apollo y los 5 de Lusha solo de la de Lusha. Un waterfall completo
- *      exige **Apollo ≥ 8 Y Lusha ≥ 5 por separado**, jamás "algún saldo ≥ 13".
+ *      exige **Apollo ≥ 8 Y Lusha ≥ (1 + 5) por separado**, jamás "algún saldo ≥ 14".
  *   2. La versión anterior combinaba los saldos con un MÍNIMO genérico y comparaba
  *      ese mínimo contra 13. Eso es incorrecto en las dos direcciones: bloqueaba
  *      autorizaciones viables (Apollo 10 y Lusha 6 ⇒ min 6 < 13, cuando cada pata
@@ -35,7 +51,7 @@
  *      (migración 104) no tendría contra qué descontar.
  *
  * La semántica de pozo COMPARTIDO también está modelada, explícitamente y con su
- * propio tope (13 / 8 / 5), para que la diferencia sea una decisión legible en el tipo
+ * propio tope (14 / 13 / 8 / 5), para que la diferencia sea una decisión legible en el tipo
  * y no una suposición: si algún día el presupuesto pasa a ser compartido, se cambia
  * `model` y el compilador exige tratar el caso. Hoy el valor real es
  * `PHONE_REVEAL_CREDIT_BUDGET_MODEL = 'per_provider'`.
@@ -62,7 +78,7 @@
 /**
  * Modalidad de gasto de UNA autorización. Es el vocabulario del preflight y no el
  * de la tabla: `apollo_only` no es un `run_mode` — es un `full_waterfall` cuyo
- * candidato no tiene pata Lusha alcanzable, así que su tope es 8 y no 13.
+ * candidato no tiene pata Lusha alcanzable, así que su tope es 8 y no 13 ni 14.
  */
 export type PhoneRevealCreditBudgetMode =
   /**
@@ -274,7 +290,7 @@ export function resolvePhoneRevealCreditRequirements(
 }
 
 /**
- * Total que la modalidad puede llegar a cobrar (13 / 8 / 5). Es la SUMA de las patas y
+ * Total que la modalidad puede llegar a cobrar (14 / 13 / 8 / 5). Es la SUMA de las patas y
  * existe para el copy, la auditoría y `max_credits_authorized` — NO es lo que se
  * compara contra ningún saldo en el modelo per-provider.
  */
@@ -336,7 +352,7 @@ export function resolvePhoneRevealCreditBudgetProviders(
 /**
  * Modelos posibles. `per_provider` es el REAL hoy (ver la cabecera): una regla y un
  * consumo por proveedor. `shared` está modelado para que la alternativa sea explícita
- * y su tope (13 / 8 / 5) esté declarado, no supuesto.
+ * y su tope (14 / 13 / 8 / 5) esté declarado, no supuesto.
  */
 export type PhoneRevealCreditBudgetModel = 'per_provider' | 'shared';
 
@@ -401,7 +417,7 @@ export type PhoneRevealCreditBudgetInput =
   | {
       model: 'shared';
       /**
-       * Pozo ÚNICO contra el que se compara el TOTAL de la modalidad (13 / 8 / 5).
+       * Pozo ÚNICO contra el que se compara el TOTAL de la modalidad (14 / 13 / 8 / 5).
        * Semántica declarada, no inferida: aquí sí tiene sentido un solo número, porque
        * las dos patas saldrían del mismo sitio.
        */
@@ -457,7 +473,7 @@ export interface PhoneRevealCreditBudgetLegVerdict {
 
 export interface PhoneRevealCreditBudgetVerdict {
   decision: PhoneRevealCreditBudgetDecision;
-  /** Total de la modalidad (13 / 8 / 5). Es la suma de las patas. */
+  /** Total de la modalidad (14 / 13 / 8 / 5). Es la suma de las patas. */
   requiredCredits: number;
   /** Veredicto por pata. En el modelo compartido hay UNA entrada sintética. */
   legs: readonly PhoneRevealCreditBudgetLegVerdict[];
@@ -590,7 +606,7 @@ function aggregateDecision(
  * llama a nadie: es la última comprobación barata antes de la reserva atómica.
  *
  * En el modelo REAL (`per_provider`) exige **cada pata contra su propio pozo**: Apollo
- * ≥ 8 y/o Lusha ≥ 5. En el modelo `shared` exige el TOTAL (13 / 8 / 5) contra el pozo
+ * ≥ 8 y/o Lusha ≥ 6. En el modelo `shared` exige el TOTAL (14 / 13 / 8 / 5) contra el pozo
  * único. No hay ninguna regla genérica intermedia — un "mínimo" sin semántica no
  * responde a ninguna de las dos preguntas.
  */

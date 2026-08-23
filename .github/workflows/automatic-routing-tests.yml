@@ -2113,6 +2113,36 @@ jobs:
       # Offline y determinista: sin red, sin Supabase, sin proveedores, 0 créditos.
       - name: Run A2A search-more-phones budget preflight parity tests
         run: npm run test:agent2a:search-more-phones-budget
+      # AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 — un candidato nacido en
+      # Apollo puede llegar a la pata de Lusha, pero sólo pagando antes por saber con
+      # qué id lo conoce Lusha (`POST /v3/contacts/search`, 1 crédito por petición vía
+      # `api_search`, con mínimo de 1 aunque no devuelva resultados).
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que el id de Apollo se reenvíe a Lusha — el HTTP 422 del RCA del reveal
+      #     asíncrono. `provider_key` forma parte de la clave de identidad, así que el
+      #     alias no es que esté prohibido: es que no se puede representar;
+      #   * que la búsqueda se cobre sin que el operador la vea. El tope PRE-CLIC pasa
+      #     de 8 a 14 y el desglose nombra la búsqueda aparte de los 5 del teléfono;
+      #   * que se cobre cuando ya sabíamos la respuesta: con la identidad persistida el
+      #     tope vuelve a 13 y se hacen 0 búsquedas, hoy y en cualquier corrida futura;
+      #   * que una cascada de cuatro identificadores se convierta en cuatro cobros. Se
+      #     emite UNA petición con el mejor identificador disponible, y punto;
+      #   * que 0 resultados, 2 resultados o una empresa que no encaja acaben eligiendo
+      #     el primero. Los tres son terminales y ninguno revela un teléfono;
+      #   * que un candidato suprimido o con DNC llegue a pagar la búsqueda: va DETRÁS de
+      #     la puerta de privacidad y DELANTE del claim del reveal;
+      #   * que dos clics simultáneos paguen dos búsquedas, o que una caída entre la
+      #     búsqueda y el reveal pierda el id ya pagado y obligue a comprarlo otra vez;
+      #   * y que un costo no reportado se lea como 0 en vez de liquidarse al tope.
+      #
+      # Incluye el ESPEJO de la migración 124 leída como texto (aditiva, idempotente, sin
+      # backfill, sin perder vocabulario) y el arreglo de la agregación por POZO: dos
+      # patas de Lusha en una autorización se comparan SUMADAS contra un único saldo.
+      #
+      # Offline y determinista: sin red, sin Supabase, sin proveedores, 0 créditos.
+      - name: Run A2A cross-provider phone identity resolution tests
+        run: npm run test:agent2a:cross-provider-phone-identity
       # AGENT1-COUNTRY-SOURCE-PREPAID-NOVELTY-GATE-1 — el filtrado económico deja de
       # ocurrir DESPUÉS de pagar.
       #
