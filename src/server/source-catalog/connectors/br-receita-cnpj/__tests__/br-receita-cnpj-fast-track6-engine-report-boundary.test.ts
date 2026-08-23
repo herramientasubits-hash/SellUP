@@ -2,15 +2,18 @@
  * BR-SOURCE-FAST-TRACK-6 FINAL BOUNDARY CORRECTION — the GATE-5 / legacy engine-report boundary.
  *
  * The legacy `BrazilReceitaFullJoinEnginePublicReport` predates GATE-5 and carries three keys GATE-5
- * refuses. This suite pins the boundary, and it is built around one uncomfortable fact: **a direct
- * emitter exists today.**
+ * refuses. This suite pins the boundary — and after the FINAL FAIL-CLOSED EMITTER REMOVAL it also
+ * proves the bypass that existed is **gone**, by scanning the source rather than by reading a flag.
  *
  * That shapes every assertion here:
  *
- *   · the emitter sweep asserts the discovered set EQUALS the recorded set — a RATCHET. It does not
- *     assert zero, because zero is false, and a false assertion of zero is worse than none. It does
- *     not exclude the offending file either, because excluding it is hiding the defect behind an
- *     allowlist. A new emitter fails this suite; so does silently deleting the record.
+ *   · the emitter sweep asserts the discovered set EQUALS the LIVE recorded set, which is now empty.
+ *     It does not exclude the previously-offending file — it proves the expression is absent from it.
+ *     The historical finding is kept separately, with its resolution, so the audit trail survives the
+ *     fix. A new emitter fails this suite; so does silently deleting the historical record.
+ *   · the ratchet is proved to WORK, not just to pass: the suite re-inserts the exact removed
+ *     expression into a scratch copy of the CLI and asserts the detector fires on it. A guard nobody
+ *     has seen fail is a guard nobody knows works.
  *   · the ASYMMETRY is proved by execution, not asserted in prose: 11A returns `ok` on the three
  *     legacy keys and the GATE-5 guard returns six findings on the same three. That is the entire
  *     reason the emitter survives today, and it is the thing most likely to be misremembered.
@@ -31,18 +34,24 @@ import { describe, it } from 'node:test';
 import * as fs from 'node:fs';
 
 import {
-  BRAZIL_RECEITA_GATE5_DIRECT_ENGINE_REPORT_EXTERNAL_EMITTER,
+  BRAZIL_RECEITA_GATE5_EMITTER_REMOVAL_CHARACTER,
+  BRAZIL_RECEITA_GATE5_ENGINEERING_BLOCKER_HISTORY,
   BRAZIL_RECEITA_GATE5_ENGINE_REPORT_BOUNDARY_CONTRACT_RECORDED,
-  BRAZIL_RECEITA_GATE5_ENGINE_REPORT_BOUNDARY_ENGINEERING_CLEAR,
   BRAZIL_RECEITA_GATE5_ENGINE_REPORT_PROJECTION_REQUIRED,
-  BRAZIL_RECEITA_GATE5_FIVE_GATES_WAIT_ONLY_ON_HUMANS,
   BRAZIL_RECEITA_GATE5_FORBIDDEN_PROJECTION_SHORTCUT,
+  BRAZIL_RECEITA_GATE5_HISTORICAL_BYPASS_RECORDED,
+  BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CURRENT_DIRECT_EMITTERS,
+  BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_HISTORICAL_DIRECT_EMITTERS,
+  BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKERS,
+  BRAZIL_RECEITA_GATE5_WITHHELD_OUTPUT_BEHAVIOUR,
+  brazilReceitaGate5DirectEngineReportExternalEmitterExists,
+  brazilReceitaGate5EngineReportCurrentBypassAbsent,
+  brazilReceitaGate5FiveGatesWaitOnlyOnHumans,
   BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_KEY_RECORDS,
   BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CLASSIFICATION,
   BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CONSUMERS,
   BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_FORBIDDEN_DIRECT_SURFACES,
   BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_IS_AN_APPROVED_EMISSION,
-  BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_KNOWN_DIRECT_EMITTERS,
   BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_PERMITTED_USE,
   BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_SHAPE_CHANGED,
   BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_SUBJECT,
@@ -52,7 +61,6 @@ import {
   BRAZIL_RECEITA_GATE5_PROJECTION_IMPLEMENTATION_AUTHORIZED_NOW,
   BRAZIL_RECEITA_GATE5_PROJECTION_IMPLEMENTED,
   BRAZIL_RECEITA_GATE5_REFUSED_LEGACY_KEY_MAPPINGS,
-  BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKER,
   BRAZIL_RECEITA_GATE5_REQUIRED_PROJECTION_PIPELINE,
   brazilReceitaGate5EngineReportBoundaryResolved,
 } from '../br-receita-cnpj-gate5-engine-report-boundary';
@@ -335,123 +343,237 @@ describe('BOUNDARY · a future emitter MUST project, and the shortcut is named',
   });
 });
 
-// ─── 5 · 🔴 The negative-emission sweep, as a RATCHET ─────────────────────────
+// ─── 5 · 🔴 The emitter accounting, and the ratchet that proves itself ────────
 
-describe('BOUNDARY · the direct-emitter sweep reports the truth, and ratchets', () => {
-  it('records the emitter that EXISTS rather than asserting a false zero', () => {
-    assert.equal(BRAZIL_RECEITA_GATE5_DIRECT_ENGINE_REPORT_EXTERNAL_EMITTER, true);
-    assert.equal(BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_KNOWN_DIRECT_EMITTERS.length, 1);
-    const emitter = BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_KNOWN_DIRECT_EMITTERS[0];
-    assert.equal(emitter.surface, 'cli_stdout');
-    assert.equal(emitter.passesSanitizer11A, true);
-    assert.equal(emitter.passesGate5Allowlist, false);
-    assert.equal(emitter.resolvedByThisRound, false);
-    assert.equal(emitter.isALiveRuntimePath, false);
-    assert.ok(emitter.chain.length >= 4, 'the chain must be traceable end to end');
-    assert.ok(emitter.reachabilityGates.length >= 3, 'the walls in front of it must be named');
-  });
+/**
+ * The exact expression the FINAL FAIL-CLOSED EMITTER REMOVAL deleted, assembled from fragments so
+ * that this literal is NOT itself a detectable emission site in this file.
+ */
+const REMOVED_EMISSION_EXPRESSION = [
+  'process.stdout',
+  '.write(`${JSON',
+  '.stringify(outcome.publicReport, null, 2)}\\n`);',
+].join('');
 
-  it('the recorded emitter REALLY serializes the outer report to stdout', () => {
-    // 🔴 Read the two files in the chain. A recorded defect nobody verified is a rumour.
-    const script = codeWithoutComments(
-      repoFile('scripts/source-catalog/run-br-receita-cnpj-real-full-scan-resource-benchmark.ts'),
-    );
-    assert.match(
-      script,
-      /process\.stdout\.write\(`\$\{JSON\.stringify\(outcome\.publicReport/,
-      'the recorded emitter no longer matches the source — update the record, do not delete it',
-    );
-    const benchmark = codeWithoutComments(
-      repoFile(
-        'src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-real-full-scan-benchmark.ts',
-      ),
-    );
-    // And the outer report really embeds the legacy object WHOLE.
-    assert.match(benchmark, /engine_report: sanitization\.releasedEngineReport,/);
-    assert.match(benchmark, /releasedEngineReport: verdict\.ok \? engineReport : null,/);
-  });
+/** The emission-site detector, shared by the sweep and by the self-test that proves it fires. */
+const EMISSION_SITE =
+  /(?:JSON\.stringify|process\.std(?:out|err)\.write|console\.(?:log|info|warn|error|debug)|writeFileSync|appendFileSync|createWriteStream)[\s\S]{0,160}?\b(?:publicReport|engine_report|releasedEngineReport)\b/;
 
-  it('🔴 RATCHET: no module serializes the legacy report beyond the ONE recorded emitter', () => {
-    // The sweep looks for a serialization of anything named `publicReport` / `engine_report` next to
-    // an emission mechanism, across the connector AND the operator scripts. The discovered set must
-    // EQUAL the recorded set: a new emitter fails, and so does quietly dropping the record.
-    const emissionSite =
-      /(?:JSON\.stringify|process\.std(?:out|err)\.write|console\.(?:log|info|warn|error|debug)|writeFileSync|appendFileSync|createWriteStream)[\s\S]{0,160}?\b(?:publicReport|engine_report|releasedEngineReport)\b/;
-
-    const discovered: string[] = [];
-    for (const [dir, prefix] of [
-      [connectorDir(), 'src/server/source-catalog/connectors/br-receita-cnpj/'],
-      [scriptsDir(), 'scripts/source-catalog/'],
-    ] as const) {
-      for (const name of fs.readdirSync(dir)) {
-        if (!name.endsWith('.ts')) continue;
-        const code = executableCodeOnly(fs.readFileSync(new URL(name, dir), 'utf8'));
-        if (emissionSite.test(code)) discovered.push(`${prefix}${name}`);
-      }
+/** Every `.ts` file in the connector and in the operator scripts, as executable code only. */
+function sweepSources(): ReadonlyArray<readonly [string, string]> {
+  const out: Array<readonly [string, string]> = [];
+  for (const [dir, prefix] of [
+    [connectorDir(), 'src/server/source-catalog/connectors/br-receita-cnpj/'],
+    [scriptsDir(), 'scripts/source-catalog/'],
+  ] as const) {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.ts')) continue;
+      out.push([`${prefix}${name}`, executableCodeOnly(fs.readFileSync(new URL(name, dir), 'utf8'))]);
     }
+  }
+  return out;
+}
 
-    const recorded = BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_KNOWN_DIRECT_EMITTERS.map(
-      (entry) => entry.emittingModule,
+const CLI_RELATIVE_PATH =
+  'scripts/source-catalog/run-br-receita-cnpj-real-full-scan-resource-benchmark.ts';
+
+describe('BOUNDARY · the historical emitter is recorded, and the live set is empty', () => {
+  it('A · keeps the HISTORICAL finding, with its resolution, rather than erasing it', () => {
+    assert.equal(BRAZIL_RECEITA_GATE5_HISTORICAL_BYPASS_RECORDED, true);
+    assert.equal(BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_HISTORICAL_DIRECT_EMITTERS.length, 1);
+    const historical = BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_HISTORICAL_DIRECT_EMITTERS[0];
+    assert.equal(historical.emittingModule, CLI_RELATIVE_PATH);
+    assert.equal(historical.surface, 'cli_stdout');
+    assert.equal(historical.resolution, 'removed_by_fail_closed_boundary');
+    assert.ok(historical.removedExpression, 'the removed expression must be recorded for grepping');
+    // The asymmetry that let it survive stays on the record.
+    assert.equal(historical.passesSanitizer11A, true);
+    assert.equal(historical.passesGate5Allowlist, false);
+    assert.ok(historical.chain.length >= 4);
+    assert.ok(historical.reachabilityGates.length >= 3);
+  });
+
+  it('B · the LIVE set is empty, and the verdict is DERIVED from it rather than typed', () => {
+    assert.deepEqual([...BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CURRENT_DIRECT_EMITTERS], []);
+    assert.equal(brazilReceitaGate5DirectEngineReportExternalEmitterExists(), false);
+    // 🔴 Derivation, not duplication: the verdict must AGREE with the array by construction.
+    assert.equal(
+      brazilReceitaGate5DirectEngineReportExternalEmitterExists(),
+      BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CURRENT_DIRECT_EMITTERS.length > 0,
     );
+    assert.equal(brazilReceitaGate5EngineReportCurrentBypassAbsent(), true);
+  });
+
+  it('C · the previously-known benchmark emitter is SPECIFICALLY absent from the CLI', () => {
+    const cli = executableCodeOnly(repoFile(CLI_RELATIVE_PATH));
+    assert.ok(
+      !/process\.stdout\.write\([\s\S]{0,80}?JSON\.stringify\(\s*outcome\.publicReport/.test(cli),
+      'the benchmark CLI must no longer serialize outcome.publicReport',
+    );
+    // And nothing else in that file reaches the legacy object either.
+    assert.ok(!EMISSION_SITE.test(cli), 'no emission site may remain in the benchmark CLI');
+  });
+
+  it('C · the withheld status travels as an EXIT CODE, with no substitute report', () => {
+    const cli = repoFile(CLI_RELATIVE_PATH);
+    assert.match(cli, /export const LEGACY_REPORT_WITHHELD_EXIT_CODE = \d+ as const;/);
+    assert.match(cli, /process\.exitCode = LEGACY_REPORT_WITHHELD_EXIT_CODE;/);
+    assert.equal(BRAZIL_RECEITA_GATE5_WITHHELD_OUTPUT_BEHAVIOUR.statusTravelsAs, 'process_exit_code');
+    for (const forbidden of [
+      'legacyReportOnStdout',
+      'legacyReportOnStderr',
+      'stackEmitted',
+      'uncaughtErrorThrown',
+      'jsonContainingTheLegacyObject',
+      'fileOrLogFallback',
+      'identifierPathOrSample',
+      'newHumanReadableDiagnosticSurfaceInvented',
+    ] as const) {
+      assert.equal(BRAZIL_RECEITA_GATE5_WITHHELD_OUTPUT_BEHAVIOUR[forbidden], false, forbidden);
+    }
+  });
+
+  it('B · no module anywhere in scope reaches the legacy report on any surface', () => {
+    const discovered = sweepSources()
+      .filter(([, code]) => EMISSION_SITE.test(code))
+      .map(([name]) => name);
     assert.deepEqual(
       discovered.sort(),
-      [...recorded].sort(),
-      'a legacy-report emission site is not in the recorded set — report it, never exclude the file',
+      BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CURRENT_DIRECT_EMITTERS.map((e) => e.emittingModule),
+      'a legacy-report emission site is not in the live recorded set — record it, never exclude the file',
+    );
+    assert.deepEqual(discovered, [], 'the live set is empty, so the sweep must find nothing');
+  });
+
+  it('G · no file, log or artifact write reaches the legacy report either', () => {
+    const fileOrLogger =
+      /(?:writeFileSync|appendFileSync|createWriteStream|console\.(?:log|info|warn|error|debug))[\s\S]{0,160}?\b(?:releasedEngineReport|engine_report|publicReport)\b/;
+    const offenders = sweepSources()
+      .filter(([, code]) => fileOrLogger.test(code))
+      .map(([name]) => name);
+    assert.deepEqual(offenders, [], 'the legacy report must not reach a file, a log or an artifact');
+  });
+
+  // ── The detector is proved to FIRE, on each surface the correction names ─────
+
+  it('D · re-inserting the EXACT removed expression is detected', () => {
+    // 🔴 The self-test that makes the ratchet trustworthy. The removed line is spliced back into an
+    // in-memory copy of the real CLI source — nothing is written to disk — and the detector must fire.
+    const revived = `${executableCodeOnly(repoFile(CLI_RELATIVE_PATH))}\n${REMOVED_EMISSION_EXPRESSION}\n`;
+    assert.ok(EMISSION_SITE.test(revived), 'the exact removed expression must be caught on return');
+    assert.ok(
+      /process\.stdout\.write\([\s\S]{0,80}?JSON\.stringify\(\s*outcome\.publicReport/.test(revived),
+      'the specific-absence check must also catch the exact expression',
     );
   });
 
-  it('nothing writes the legacy report to a FILE, and nothing logs it', () => {
-    // A narrower, independent sweep: the file/logger surfaces specifically, which are the ones a
-    // reader assumes are covered because stdout is the one everybody talks about.
-    const fileOrLogger =
-      /(?:writeFileSync|appendFileSync|createWriteStream|console\.(?:log|info|warn|error|debug))[\s\S]{0,160}?\b(?:releasedEngineReport|engine_report)\b/;
-    const offenders: string[] = [];
-    for (const [dir, prefix] of [
-      [connectorDir(), 'connector/'],
-      [scriptsDir(), 'scripts/'],
-    ] as const) {
-      for (const name of fs.readdirSync(dir)) {
-        if (!name.endsWith('.ts')) continue;
-        const code = executableCodeOnly(fs.readFileSync(new URL(name, dir), 'utf8'));
-        if (fileOrLogger.test(code)) offenders.push(`${prefix}${name}`);
-      }
+  it('E · a synthetic NEW stdout emitter is detected', () => {
+    const synthetic = 'process.stdout.write(JSON.stringify(engine_report));';
+    assert.ok(EMISSION_SITE.test(synthetic));
+  });
+
+  it('F · a synthetic stderr emitter is detected', () => {
+    const synthetic = 'process.stderr.write(JSON.stringify(releasedEngineReport));';
+    assert.ok(EMISSION_SITE.test(synthetic));
+  });
+
+  it('G · a synthetic file and a synthetic log emitter are detected', () => {
+    assert.ok(EMISSION_SITE.test("writeFileSync(target, JSON.stringify(engine_report));"));
+    assert.ok(EMISSION_SITE.test('console.log(JSON.stringify(publicReport));'));
+    assert.ok(EMISSION_SITE.test('createWriteStream(p).write(JSON.stringify(engine_report));'));
+  });
+
+  it('I · a TEMPLATE-LITERAL interpolation of a real emitter is still caught', () => {
+    // 🔴 This is why `executableCodeOnly` strips only quoted strings and KEEPS backticks: the real
+    // emitter interpolated inside a template literal, and stripping those would have hidden it.
+    const templated = 'process.stdout.write(`${JSON.stringify(outcome.publicReport)}`);';
+    assert.ok(EMISSION_SITE.test(executableCodeOnly(templated)));
+    assert.ok(
+      /process\.stdout\.write\([\s\S]{0,80}?JSON\.stringify\(\s*outcome\.publicReport/.test(
+        executableCodeOnly(templated),
+      ),
+    );
+  });
+
+  it('H · a MENTION in prose, a comment or provenance data is NOT a false positive', () => {
+    // The boundary record names `process.stdout.write of JSON.stringify(outcome.publicReport)` as the
+    // recorded `mechanism`, and the CLI keeps the removed line in a comment for the next reader. Both
+    // must stay invisible to the detector, or the guard teaches people to delete the audit trail.
+    const asComment = '// process.stdout.write(`${JSON.stringify(outcome.publicReport, null, 2)}`);';
+    assert.ok(!EMISSION_SITE.test(executableCodeOnly(asComment)), 'a comment is not an emitter');
+    const asQuotedData = "const m = 'process.stdout.write of JSON.stringify(outcome.publicReport)';";
+    assert.ok(!EMISSION_SITE.test(executableCodeOnly(asQuotedData)), 'prose data is not an emitter');
+    // And the two real files that contain such mentions are clean under the sweep.
+    for (const path of [
+      CLI_RELATIVE_PATH,
+      'src/server/source-catalog/connectors/br-receita-cnpj/br-receita-cnpj-gate5-engine-report-boundary.ts',
+    ]) {
+      assert.ok(
+        !EMISSION_SITE.test(executableCodeOnly(repoFile(path))),
+        `${path} names the mechanism in prose and must not be flagged`,
+      );
     }
-    assert.deepEqual(offenders, [], 'the legacy report must not reach a file or a logger');
   });
 });
 
 // ─── 6 · The boundary verdict, split into its two honest halves ───────────────
 
-describe('BOUNDARY · "documented" and "fixed" are kept apart', () => {
-  it('the contract half is recorded and the engineering half is NOT clear', () => {
+describe('BOUNDARY · the verdict is derived, and a removal is not a capability', () => {
+  it('both halves now hold, and the verdict is DERIVED from them', () => {
     assert.equal(BRAZIL_RECEITA_GATE5_ENGINE_REPORT_BOUNDARY_CONTRACT_RECORDED, true);
-    assert.equal(BRAZIL_RECEITA_GATE5_ENGINE_REPORT_BOUNDARY_ENGINEERING_CLEAR, false);
-  });
-
-  it('the overall verdict is DERIVED from both halves, so it cannot be rounded up', () => {
-    assert.equal(brazilReceitaGate5EngineReportBoundaryResolved(), false);
-  });
-
-  it('records the remaining engineering blocker, owned by engineering and not by an approver', () => {
-    assert.equal(BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKER.owner, 'engineering');
+    assert.equal(brazilReceitaGate5EngineReportCurrentBypassAbsent(), true);
+    assert.equal(brazilReceitaGate5EngineReportBoundaryResolved(), true);
+    // 🔴 And the derivation is checked, not assumed: the verdict must equal the conjunction.
     assert.equal(
-      BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKER.dischargedByAHumanApproval,
-      false,
-      'no signature discharges an engineering defect',
+      brazilReceitaGate5EngineReportBoundaryResolved(),
+      BRAZIL_RECEITA_GATE5_ENGINE_REPORT_BOUNDARY_CONTRACT_RECORDED &&
+        brazilReceitaGate5EngineReportCurrentBypassAbsent(),
     );
-    assert.equal(BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKER.dischargedByThisRound, false);
-    assert.match(BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKER.blocker, /cli_stdout/);
-    assert.match(BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKER.fixShape, /allowlist|embedding/);
   });
 
-  it('🔴 does NOT claim five gates wait only on humans, because they do not', () => {
-    assert.equal(BRAZIL_RECEITA_GATE5_FIVE_GATES_WAIT_ONLY_ON_HUMANS, false);
-    // Derived consistency: the claim may only be true when the emitter is gone AND the boundary is
-    // resolved, so the three constants can never disagree.
+  it('🔴 "the bypass is gone" and "a projection is still required" are BOTH true', () => {
+    // Not a contradiction, and the pairing is the point: the current hole is closed, and a future
+    // external report still has to be projected through the closed allowlist to exist at all.
+    assert.equal(brazilReceitaGate5EngineReportBoundaryResolved(), true);
+    assert.equal(BRAZIL_RECEITA_GATE5_ENGINE_REPORT_PROJECTION_REQUIRED, true);
+    assert.equal(BRAZIL_RECEITA_GATE5_PROJECTION_IMPLEMENTED, false);
+    assert.equal(BRAZIL_RECEITA_GATE5_PROJECTION_IMPLEMENTATION_AUTHORIZED_NOW, false);
+  });
+
+  it('this change REMOVED an emission path and added no runner capability', () => {
+    assert.deepEqual(BRAZIL_RECEITA_GATE5_EMITTER_REMOVAL_CHARACTER, {
+      addsRunnerCapability: false,
+      removesAnExternalEmissionPath: true,
+      inventedAReplacementSchema: false,
+      addedReplacementOutputFields: false,
+      weakenedGate5: false,
+      weakened11A: false,
+      addedAnOutputException: false,
+    });
+  });
+
+  it('the engineering blocker is recorded as DISCHARGED, and never by a signature', () => {
+    assert.equal(BRAZIL_RECEITA_GATE5_ENGINEERING_BLOCKER_HISTORY.length, 1);
+    const entry = BRAZIL_RECEITA_GATE5_ENGINEERING_BLOCKER_HISTORY[0];
+    assert.equal(entry.owner, 'engineering');
+    assert.equal(entry.discharged, true);
     assert.equal(
-      BRAZIL_RECEITA_GATE5_FIVE_GATES_WAIT_ONLY_ON_HUMANS,
-      !BRAZIL_RECEITA_GATE5_DIRECT_ENGINE_REPORT_EXTERNAL_EMITTER &&
-        brazilReceitaGate5EngineReportBoundaryResolved(),
+      entry.dischargedByAHumanApproval,
+      false,
+      'an emission path is code; no signature deletes a line',
+    );
+    assert.match(entry.blocker, /cli_stdout/);
+    assert.match(entry.dischargedBy, /no projection was implemented/);
+    assert.deepEqual([...BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKERS], []);
+  });
+
+  it('🔴 five gates now wait only on humans — DERIVED from the live emitter set, not typed', () => {
+    assert.equal(brazilReceitaGate5FiveGatesWaitOnlyOnHumans(), true);
+    // The exact derivation the correction demanded: from the array length, never a hand-set boolean.
+    assert.equal(
+      brazilReceitaGate5FiveGatesWaitOnlyOnHumans(),
+      BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CURRENT_DIRECT_EMITTERS.length === 0 &&
+        BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKERS.length === 0,
     );
   });
 });
@@ -465,7 +587,8 @@ describe('BOUNDARY · the GATE-5 human section discloses the boundary', () => {
     );
     assert.ok(gate5);
     const text = [...gate5.restrictions, gate5.question].join(' | ');
-    assert.match(text, /engine public-report object is not itself a GATE-5-approved emission schema/);
+    assert.match(text, /still exists UNCHANGED/);
+    assert.match(text, /is not itself a GATE-5-approved emission schema/);
   });
 
   it('the subject terms name the projection requirement, so the architecture is what is approved', () => {
@@ -473,7 +596,16 @@ describe('BOUNDARY · the GATE-5 human section discloses the boundary', () => {
     assert.match(text, /project only the closed GATE-5 allowlist/);
   });
 
-  it('the packet DOCUMENT discloses the blocker and drops the "nothing else" wording', () => {
+  it('the disclosure states the bypass was REMOVED fail-closed, not merely described', () => {
+    const gate5 = BRAZIL_RECEITA_SIGNOFF_DECISION_SECTIONS.find(
+      (section) => section.id === 'DECISION-GATE-5',
+    );
+    const text = [...(gate5?.restrictions ?? [])].join(' | ');
+    assert.match(text, /removed fail-closed/);
+    assert.match(text, /no GATE-5 projection exists/);
+  });
+
+  it('the packet DOCUMENT discloses the removal and the still-required projection', () => {
     // 🔴 Markdown hard-wraps at ~100 columns, so a multi-word phrase can be split across a newline
     // and a `\s`-naive regex would report the disclosure missing when it is present. Whitespace is
     // collapsed before matching prose; the structural assertions below still read the raw text.
@@ -483,15 +615,23 @@ describe('BOUNDARY · the GATE-5 human section discloses the boundary', () => {
     // sentence and a naive regex reports the disclosure missing when it is present.
     const packet = markdownProse(raw);
     assert.match(packet, /not itself a GATE-5-approved emission schema/);
-    assert.match(packet, /remaining engineering blocker/i);
+    assert.match(packet, /removed fail-closed/i);
+    // The five facts § 10 requires the disclosure to carry.
+    assert.match(packet, /historical shape is UNCHANGED|still exists UNCHANGED|shape is \*\*unchanged\*\*/i);
+    assert.match(packet, /no approved external report of a full-join run at all/);
+    assert.match(packet, /PROJECTION_REQUIRED/);
+    assert.match(packet, /addsRunnerCapability: false/);
     // 🔴 The exact sentence that is only valid once the boundary is clear must be gone. Asserted on
     // the collapsed text so a re-wrap cannot let it back in unnoticed.
     assert.ok(
       !/waiting on a named human's answer and on nothing else/.test(packet),
       'the "nothing else" wording is only valid once the emitter is gone',
     );
-    // And the withdrawal is stated, so a reader of the diff-free document learns it was withdrawn.
-    assert.match(packet, /the wording is withdrawn/);
+    // 🔴 And the HISTORY of the wrong claim is still visible, so a reader of the diff-free document
+    // learns the earlier draft said something false and why. The claim holds again — but the document
+    // says it holds because the code changed, not because the sentence was quietly re-approved.
+    assert.match(packet, /untrue at the time/);
+    assert.match(packet, /it is now \*\*computed\*\*, not asserted/);
     assert.match(raw, /^### 4\.1 /m);
   });
 
@@ -549,18 +689,42 @@ describe('BOUNDARY · no gate approval is earned by this correction', () => {
     assert.ok(raw.split('\n').length <= 800, 'the 800-line ceiling holds');
   });
 
-  it('no production module imports the boundary record', () => {
+  it('only the human packet imports the boundary record — no execution path does', () => {
+    // 🔴 This list was empty until the FINAL FAIL-CLOSED EMITTER REMOVAL, and it gained exactly one
+    // entry for a reason § 10 demanded: the packet must DERIVE "human answers are the only remaining
+    // work" from the live emitter set rather than declare it. A governance record reading another
+    // governance record is not wiring; what must stay absent is the engine, the runner and the
+    // scripts, and the next assertion checks those by name.
     const dir = connectorDir();
+    const importsBoundary = (code: string): boolean =>
+      /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)['"][^'"]*br-receita-cnpj-gate5-engine-report-boundary['"]/.test(
+        code,
+      );
+
     const importers = fs
       .readdirSync(dir)
       .filter((name) => name.endsWith('.ts'))
       .filter((name) => name !== 'br-receita-cnpj-gate5-engine-report-boundary.ts')
-      .filter((name) =>
-        /(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)['"][^'"]*br-receita-cnpj-gate5-engine-report-boundary['"]/.test(
-          codeWithoutComments(fs.readFileSync(new URL(name, dir), 'utf8')),
-        ),
+      .filter((name) => importsBoundary(codeWithoutComments(fs.readFileSync(new URL(name, dir), 'utf8'))));
+    assert.deepEqual(importers, ['br-receita-cnpj-final-owner-signoff-packet.ts']);
+
+    // No execution path may reach it — not the engine, not the runner, not the benchmark, not a script.
+    for (const name of [
+      'br-receita-cnpj-full-join-engine.ts',
+      'br-receita-cnpj-full-join-engine-report.ts',
+      'br-receita-cnpj-full-join-dry-run-runner.ts',
+      'br-receita-cnpj-real-full-scan-benchmark.ts',
+      'br-receita-cnpj-full-join-output-sanitizer.ts',
+    ]) {
+      assert.ok(
+        !importsBoundary(codeWithoutComments(fs.readFileSync(new URL(name, dir), 'utf8'))),
+        `${name} must not import the boundary record`,
       );
-    assert.deepEqual(importers, [], 'the boundary record must not be wired into an execution path');
+    }
+    for (const [name] of sweepSources().filter(([n]) => n.startsWith('scripts/'))) {
+      const code = codeWithoutComments(repoFile(name));
+      assert.ok(!importsBoundary(code), `${name} must not import the boundary record`);
+    }
   });
 
   it('this suite is a REQUIRED CI step, asserted on the run: line and not the step name', () => {
@@ -570,5 +734,7 @@ describe('BOUNDARY · no gate approval is earned by this correction', () => {
       .filter((line) => /^\s*run:\s/.test(line))
       .join('\n');
     assert.match(runLines, /npm run test:br-source:fast-track6-engine-report-boundary/);
+    // The emitter-removal step, which also runs the CLI suites that must not break.
+    assert.match(runLines, /npm run test:br-source:fast-track6-emitter-removal/);
   });
 });

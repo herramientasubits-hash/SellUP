@@ -1292,10 +1292,10 @@ earlier partial review moot.
 
 ---
 
-### 9.3 The GATE-5 / legacy engine-report BOUNDARY, and one open engineering blocker (BR-SOURCE-FAST-TRACK-6, FINAL BOUNDARY CORRECTION)
+### 9.3 The GATE-5 / legacy engine-report BOUNDARY, and the bypass that was REMOVED (BR-SOURCE-FAST-TRACK-6)
 
-**Status:** unchanged — `ready_for_review`. This subsection records a CONTRACT BOUNDARY and one OPEN
-DEFECT. It approves nothing and resolves nothing.
+**Status:** unchanged — `ready_for_review`. This subsection records a CONTRACT BOUNDARY and the
+fail-closed REMOVAL of one bypass. It approves nothing and earns no gate approval.
 
 **The gap the FAST-TRACK-6 report surfaced.** `BrazilReceitaFullJoinEnginePublicReport`
 (BR-SOURCE-11A / 14B) predates GATE-5 and carries three keys GATE-5 refuses:
@@ -1328,7 +1328,7 @@ not an equivalence of meaning* — it is how a wrong mapping survives review. No
 it, so `translatesToApprovedGate5Key` is `null` for all three keys, and no new output key was invented
 to preserve a legacy name.
 
-**🔴 THE OPEN ENGINEERING BLOCKER — a direct emitter EXISTS.**
+**🔴 THE BYPASS THAT EXISTED — and has been REMOVED fail-closed.**
 
 ```
 full-join-engine              builds the legacy engine report
@@ -1346,19 +1346,37 @@ refuses a key by ABSENCE**, and the § 6 allowlist is not on that path. The roun
 halves by EXECUTION: 11A returns `{ok: true, findings: []}` on the three keys, and the GATE-5 guard
 returns **six** findings — three `KEY-ALLOWLIST`, three `KEY-DENYLIST` group 7.
 
-It is **gated**, not live: the attempt-limit wall (attempt #3 refused unconditionally), the
-second-attempt owner wall, and three process-scoped operator approvals each from its own CLI flag. It is
-not a Next.js runtime path.
+It was **gated**, not live: the attempt-limit wall (attempt #3 refused unconditionally), the
+second-attempt owner wall, and three process-scoped operator approvals each from its own CLI flag — and
+never a Next.js runtime path. That bounded the exposure; it did not make the path acceptable.
 
-It is **not fixed here**, deliberately. The fix is a projection; a projection is a report emitter; a
-report emitter is runner code § 4 forbids while any gate is unapproved. Changing the benchmark's own
-public-report shape instead would alter a *second* pre-existing contract to work around the first.
+**What was done.** The serialization is **deleted**. Where the CLI used to print the report it now sets a
+dedicated withheld-output exit code and prints nothing:
 
-🔴 **The defect is not hidden behind an allowlist.** The round's suite sweeps the connector and the
-operator scripts for emission sites and asserts the discovered set **EQUALS** the recorded set — a
-ratchet. It does **not** assert zero (zero is false, and a false assertion of zero is worse than none)
-and it does **not** exclude the offending file. A new emitter fails the suite; so does silently deleting
-the record.
+```
+no legacy report on stdout      no file or log fallback
+no legacy report on stderr      no identifier, path or sample
+no substitute report schema     no new diagnostic surface invented
+no stack, no uncaught error     status travels as a process exit code
+```
+
+🔴 **A REMOVAL, not a capability.** No projection implemented, no replacement schema, no added output
+field, and neither GATE-5 nor 11A weakened — no output exception granted.
+`addsRunnerCapability: false`, `removesAnExternalEmissionPath: true`. The distinction is load-bearing:
+§ 4 forbids writing runner code while any gate is unapproved, so "we improved the report path" would
+itself be a violation. Something that could be printed no longer can; nothing new can.
+
+**Attempt accounting is preserved** — three controlled scalars, no nested `engine_report` — because
+dropping it would make a withheld run indistinguishable from a run that never happened.
+
+🔴 **The finding is not erased, and the ratchet proves itself.** The historical emitter stays on record
+with `resolution: removed_by_fail_closed_boundary` and the exact removed expression; the **live** set is
+empty, and the emitter verdict is DERIVED from that array rather than typed. The suite sweeps the
+connector and the operator scripts and asserts the discovered set equals the live set — then proves the
+detector actually fires by splicing the exact removed expression back into an in-memory copy of the CLI.
+Synthetic stdout, stderr, file and log emitters are each proved caught; template-literal interpolation is
+proved caught; and mentions in comments, prose and provenance data are proved **not** to be false
+positives.
 
 **Required future pipeline.** `GATE5_ENGINE_REPORT_PROJECTION_REQUIRED = true`:
 
@@ -1370,16 +1388,27 @@ engine observations → legacy engine report / internal safety facts → GATE-5 
 Never `engine report → external output`. The projection is **not** implemented and its implementation is
 **not** authorized now.
 
-**Consequence for the human packet.** `BRAZIL_RECEITA_GATE5_FIVE_GATES_WAIT_ONLY_ON_HUMANS` is `false`.
-The packet's earlier *"and on nothing else"* wording is withdrawn, and the GATE-5 human section now
-carries the disclosure verbatim, so the approvers approve the actual architecture rather than an
-incomplete picture. `brazilReceitaGate5EngineReportBoundaryResolved()` is DERIVED from two halves — the
-contract half is recorded (`true`), the engineering half is not clear (`false`) — so "documented" can
-never be reported as "fixed".
+🔴 **Two things are true at once, and they are not in tension.**
+`brazilReceitaGate5EngineReportBoundaryResolved()` is now `true` — the current bypass is gone — *and*
+`GATE5_ENGINE_REPORT_PROJECTION_REQUIRED` stays `true` with `PROJECTION_IMPLEMENTED = false`. Closing the
+hole did not grant the projection. The practical consequence is the intended fail-closed state: **there
+is currently no approved external report of a full-join run at all** while GATE-5 is unapproved.
+
+**Consequence for the human packet.** The earlier *"and on nothing else"* wording was untrue when written
+and is now true again — but it is **computed**, not asserted:
+`brazilReceitaSignoffHumanAnswersAreTheOnlyRemainingWork()` derives from
+`CURRENT_DIRECT_ENGINE_REPORT_EXTERNAL_EMITTERS.length === 0` and the live blocker list. A hand-set
+boolean is precisely how the earlier draft came to say something false. The GATE-5 human section still
+carries the full disclosure — the legacy object exists unchanged, it is not an approved emission schema,
+the bypass was removed fail-closed, no projection exists, and any future emission needs one — so the
+approvers approve the real architecture rather than a clean end state.
 
 **What this subsection does not do.** It moves no gate, weakens no invariant, touches neither the legacy
-report nor 11A nor either GATE-5 list, implements no projection, and authorizes no run, benchmark,
-rehearsal, migration, Supabase write or provider call.
+report nor 11A nor either GATE-5 list, implements no projection, adds no runner capability, and
+authorizes no run, benchmark, rehearsal, migration, Supabase write or provider call. The full-join
+engine, its observations, the benchmark result construction, the private metric channel, the resource
+caps, the attempt accounting, cleanup and the 11A sanitizer are all unchanged — the correction sits
+entirely at the CLI external-emission boundary.
 
 ---
 

@@ -25,17 +25,23 @@
  * Renaming any of the three would alter a pre-existing contract and break existing tests, so
  * `BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_SHAPE_CHANGED` is `false`.
  *
- * ── 🔴 The open defect this module REFUSES to hide ──────────────────────────
+ * ── 🔴 The defect this module recorded, and which is now REMOVED ─────────────
  *
- * A direct emitter EXISTS today. It is enumerated in
- * `BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_KNOWN_DIRECT_EMITTERS` with its exact chain, and the
- * round's suite asserts the set has not GROWN rather than asserting it is empty — because an
- * assertion of zero that is false is worse than no assertion, and excluding the file to make a test
- * green would be hiding the defect behind an allowlist.
+ * A direct emitter existed: the benchmark CLI serialized the whole outcome — legacy `engine_report`
+ * and all — to `cli_stdout`. BR-SOURCE-FAST-TRACK-6's FINAL FAIL-CLOSED EMITTER REMOVAL deleted that
+ * serialization. The finding is NOT erased: it lives in
+ * `BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_HISTORICAL_DIRECT_EMITTERS` with its resolution, while
+ * `BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CURRENT_DIRECT_EMITTERS` is the live set and is empty.
  *
- * The emitter passes BR-SOURCE-11A and fails GATE-5, and that asymmetry is the whole finding: 11A is
- * a DENYLIST over dataset-looking content, so it has no opinion about a key nobody reviewed. Only the
- * § 6 allowlist refuses a novel key, and it is not on that path.
+ * 🔴 The live verdict is DERIVED from the live set, never written by hand. A boolean somebody edits
+ * is a boolean that can disagree with the code; a boolean computed from an enumeration cannot. The
+ * suite proves the emitter is gone by SCANNING THE SOURCE, and proves the guard still works by
+ * re-inserting the exact removed expression and watching the suite fail.
+ *
+ * The emitter passed BR-SOURCE-11A and failed GATE-5, and that asymmetry is why it survived so long:
+ * 11A is a DENYLIST over dataset-looking content, so it has no opinion about a key nobody reviewed.
+ * Only the § 6 allowlist refuses a novel key, and it was not on that path. Neither contract was
+ * weakened to fix this — the emission is simply gone.
  *
  * ── This module NEVER (fail-closed by construction) ──────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
@@ -284,7 +290,7 @@ export const BRAZIL_RECEITA_GATE5_FORBIDDEN_PROJECTION_SHORTCUT: readonly string
 export const BRAZIL_RECEITA_GATE5_PROJECTION_IMPLEMENTED = false as const;
 export const BRAZIL_RECEITA_GATE5_PROJECTION_IMPLEMENTATION_AUTHORIZED_NOW = false as const;
 
-// ─── 🔴 The open defect: a direct emitter EXISTS ───────────────────────────────
+// ─── 🔴 The emitter accounting: HISTORICAL vs CURRENT ─────────────────────────
 
 export interface BrazilReceitaGate5LegacyEmitterRecord {
   /** The file that performs the serialization. */
@@ -299,32 +305,30 @@ export interface BrazilReceitaGate5LegacyEmitterRecord {
   readonly passesSanitizer11A: true;
   /** Whether it passes the GATE-5 closed allowlist on this path. It does not. */
   readonly passesGate5Allowlist: false;
-  /** What stands between this emitter and an operator today. */
+  /** What stood between this emitter and an operator. */
   readonly reachabilityGates: readonly string[];
   readonly isALiveRuntimePath: false;
-  readonly resolvedByThisRound: false;
+  /** How it was closed. `null` while an emitter is still live. */
+  readonly resolution: string | null;
+  /** The exact expression that was removed, so a reader can grep for its return. */
+  readonly removedExpression: string | null;
 }
 
 /**
- * 🔴 THE FINDING. One emitter, enumerated with its exact chain, and NOT resolved by this round.
+ * 🔴 THE HISTORICAL FINDING, preserved with its resolution. Never deleted.
  *
- * The correction that produced this module asked for a negative test proving no production path
- * serializes the legacy report onto a GATE-5 surface, and said: if one exists, HARD STOP, report it,
- * do not hide it with an allowlist. One exists. It is reported here, it is surfaced in the human
- * packet, and the round's suite asserts this set has not GROWN — never that it is empty.
+ * The audit trail matters more than the tidy state: a reader six months from now needs to know that
+ * this bypass EXISTED, how it worked, and why 11A did not catch it — otherwise the same shape gets
+ * rebuilt by somebody who only ever saw the clean end state.
  *
- * Why it survives 11A: 11A is a DENYLIST over values that look like dataset content. `rows_emitted: 0`
- * and `raw_rows_printed: false` look like nothing at all, so 11A returns `ok` and has no opinion about
- * whether anybody reviewed the keys. Only the § 6 allowlist refuses a key by ABSENCE, and the § 6
- * allowlist is not on this path. Running the GATE-5 guard over the same three keys returns six
- * findings — three `KEY-ALLOWLIST`, three `KEY-DENYLIST` group 7 — and the round's suite proves both
- * halves of that asymmetry by execution.
- *
- * Why it is not fixed here: the fix is a projection, the projection is a report emitter, and a report
- * emitter is runner code that 10K § 4 forbids while any gate is unapproved. Changing the benchmark's
- * own public-report shape instead would alter a second pre-existing contract to work around the first.
+ * Why it survived 11A: 11A is a DENYLIST over values that look like dataset content. `rows_emitted: 0`
+ * and `raw_rows_printed: false` look like nothing at all, so 11A returned `ok` and had no opinion
+ * about whether anybody reviewed the keys. Only the § 6 allowlist refuses a key by ABSENCE, and the
+ * § 6 allowlist was not on this path. Running the GATE-5 guard over the same three keys returns six
+ * findings — three `KEY-ALLOWLIST`, three `KEY-DENYLIST` group 7 — and the suite proves both halves of
+ * that asymmetry by execution.
  */
-export const BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_KNOWN_DIRECT_EMITTERS: readonly BrazilReceitaGate5LegacyEmitterRecord[] =
+export const BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_HISTORICAL_DIRECT_EMITTERS: readonly BrazilReceitaGate5LegacyEmitterRecord[] =
   [
     {
       emittingModule: 'scripts/source-catalog/run-br-receita-cnpj-real-full-scan-resource-benchmark.ts',
@@ -335,7 +339,7 @@ export const BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_KNOWN_DIRECT_EMITTERS: re
         'br-receita-cnpj-real-full-scan-benchmark passes it through applyBrazilReceitaRealFullScanReportSanitizer (11A)',
         'the sanitizer releases the WHOLE object as releasedEngineReport when its verdict is ok',
         'br-receita-cnpj-real-full-scan-benchmark embeds it whole as BrazilReceitaRealFullScanPublicReport.engine_report',
-        'the benchmark script serializes that outer report to stdout',
+        'the benchmark script serialized that outer report to stdout',
       ],
       passesSanitizer11A: true,
       passesGate5Allowlist: false,
@@ -345,15 +349,70 @@ export const BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_KNOWN_DIRECT_EMITTERS: re
         'three process-scoped operator approvals, each from its own CLI flag',
       ],
       isALiveRuntimePath: false,
-      resolvedByThisRound: false,
+      resolution: 'removed_by_fail_closed_boundary',
+      removedExpression: 'process.stdout.write of JSON.stringify(outcome.publicReport)',
     },
   ];
 
 /**
- * 🔴 Whether a direct emitter exists. `true`, and the constant is named for the question rather than
- * the hope, so no report can round it down.
+ * 🔴 THE LIVE SET. Empty — and empty because the code is empty of emitters, not because a boolean was
+ * edited.
+ *
+ * Every entry that leaves this array must arrive in the historical array with a `resolution`, so the
+ * two together are always the whole story. The suite scans the connector and the operator scripts and
+ * asserts the DISCOVERED set equals this one, which makes an unrecorded emitter a test failure in
+ * either direction.
  */
-export const BRAZIL_RECEITA_GATE5_DIRECT_ENGINE_REPORT_EXTERNAL_EMITTER = true as const;
+export const BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CURRENT_DIRECT_EMITTERS: readonly BrazilReceitaGate5LegacyEmitterRecord[] =
+  [];
+
+/**
+ * 🔴 Whether a direct emitter exists TODAY. **DERIVED**, never written by hand.
+ *
+ * The correction that removed the emitter was explicit: *"Do NOT merely edit the boolean."* A boolean
+ * somebody types can disagree with the code the moment either changes; a boolean computed from the
+ * live enumeration cannot. So this is a function over the array, and the array is what the source scan
+ * verifies.
+ */
+export function brazilReceitaGate5DirectEngineReportExternalEmitterExists(): boolean {
+  return BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CURRENT_DIRECT_EMITTERS.length > 0;
+}
+
+/** The historical bypass is recorded, and it is recorded as CLOSED. */
+export const BRAZIL_RECEITA_GATE5_HISTORICAL_BYPASS_RECORDED = true as const;
+
+/**
+ * 🔴 What this change was, and what it was NOT.
+ *
+ * A removal, not a capability. The distinction is load-bearing because 10K § 4 forbids writing runner
+ * code while any gate is unapproved, and "we improved the report path" would be exactly that. Nothing
+ * new can be printed here; something that could be printed no longer can.
+ */
+export const BRAZIL_RECEITA_GATE5_EMITTER_REMOVAL_CHARACTER = {
+  addsRunnerCapability: false,
+  removesAnExternalEmissionPath: true,
+  inventedAReplacementSchema: false,
+  addedReplacementOutputFields: false,
+  weakenedGate5: false,
+  weakened11A: false,
+  addedAnOutputException: false,
+} as const;
+
+/**
+ * What the CLI does now at the point it used to print. No surface carries the report; the withheld
+ * status travels as an exit code, which is the one channel that cannot carry a value.
+ */
+export const BRAZIL_RECEITA_GATE5_WITHHELD_OUTPUT_BEHAVIOUR = {
+  legacyReportOnStdout: false,
+  legacyReportOnStderr: false,
+  stackEmitted: false,
+  uncaughtErrorThrown: false,
+  jsonContainingTheLegacyObject: false,
+  fileOrLogFallback: false,
+  identifierPathOrSample: false,
+  statusTravelsAs: 'process_exit_code',
+  newHumanReadableDiagnosticSurfaceInvented: false,
+} as const;
 
 /**
  * 🔴 Whether the BOUNDARY is resolved — and this is deliberately TWO questions, not one.
@@ -365,35 +424,61 @@ export const BRAZIL_RECEITA_GATE5_DIRECT_ENGINE_REPORT_EXTERNAL_EMITTER = true a
  * from both rather than stated.
  */
 export const BRAZIL_RECEITA_GATE5_ENGINE_REPORT_BOUNDARY_CONTRACT_RECORDED = true as const;
-export const BRAZIL_RECEITA_GATE5_ENGINE_REPORT_BOUNDARY_ENGINEERING_CLEAR = false as const;
 
-/** The overall verdict, DERIVED so it cannot disagree with its two halves. */
+/**
+ * The engineering half: whether the CURRENT bypass is absent. DERIVED from the live emitter set, so it
+ * moves when the code moves and not when somebody edits a constant.
+ */
+export function brazilReceitaGate5EngineReportCurrentBypassAbsent(): boolean {
+  return !brazilReceitaGate5DirectEngineReportExternalEmitterExists();
+}
+
+/**
+ * The overall verdict, DERIVED so it cannot disagree with its two halves.
+ *
+ * 🔴 `true` now — and that is NOT in tension with `PROJECTION_REQUIRED` also being `true`. Two
+ * different claims: the current bypass is gone, AND a future external report still has to be projected
+ * through the closed allowlist. Resolving the first does not grant the second.
+ */
 export function brazilReceitaGate5EngineReportBoundaryResolved(): boolean {
   return (
     BRAZIL_RECEITA_GATE5_ENGINE_REPORT_BOUNDARY_CONTRACT_RECORDED &&
-    BRAZIL_RECEITA_GATE5_ENGINE_REPORT_BOUNDARY_ENGINEERING_CLEAR
+    brazilReceitaGate5EngineReportCurrentBypassAbsent()
   );
 }
 
 /**
- * The remaining ENGINEERING blocker, in the words the human packet must use. Not a gate blocker and
- * not a signature — a piece of work, owned by engineering, that no human approval discharges.
+ * The engineering blocker this boundary carried, and how it was discharged.
+ *
+ * Kept rather than deleted for the same reason the historical emitter is kept: the next reader needs
+ * to know it existed. `dischargedByAHumanApproval` stays `false` because it never could be — an
+ * emission path is code, and no signature deletes a line.
  */
-export const BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKER = {
-  blocker:
-    'the benchmark path serializes the legacy engine public report to cli_stdout without passing the GATE-5 closed allowlist',
-  owner: 'engineering',
-  dischargedByAHumanApproval: false,
-  dischargedByThisRound: false,
-  fixShape:
-    'project the legacy report through the GATE-5 allowlist before it is embedded, OR stop embedding it whole — both are report-emitter work that 10K § 4 defers until the gates are approved',
-} as const;
+export const BRAZIL_RECEITA_GATE5_ENGINEERING_BLOCKER_HISTORY = [
+  {
+    blocker:
+      'the benchmark path serialized the legacy engine public report to cli_stdout without passing the GATE-5 closed allowlist',
+    owner: 'engineering',
+    dischargedByAHumanApproval: false,
+    discharged: true,
+    dischargedBy:
+      'BR-SOURCE-FAST-TRACK-6 FINAL FAIL-CLOSED EMITTER REMOVAL — the serialization was deleted; no projection was implemented and no substitute report was introduced',
+  },
+] as const;
+
+/** The live engineering blockers for this boundary. Empty, and DERIVED-checked by the suite. */
+export const BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKERS: readonly string[] = [];
 
 /**
- * 🔴 Consequently: it is NOT true today that five gates wait only on a named human's answer.
+ * 🔴 Whether five gates now wait only on a named human's answer. **DERIVED** from the live emitter set.
  *
- * Five gates DO wait on human answers, and separately one engineering blocker stands outside that
- * set. The human packet says both, because an approver who is told "nothing else is outstanding" is
- * being asked to approve an incomplete picture of the architecture.
+ * The correction was explicit that this may only become `true` if it is computed from
+ * `CURRENT_DIRECT_ENGINE_REPORT_EXTERNAL_EMITTERS.length === 0` rather than set by hand — because the
+ * previous draft of the packet asserted the equivalent claim in prose and was wrong.
  */
-export const BRAZIL_RECEITA_GATE5_FIVE_GATES_WAIT_ONLY_ON_HUMANS = false as const;
+export function brazilReceitaGate5FiveGatesWaitOnlyOnHumans(): boolean {
+  return (
+    BRAZIL_RECEITA_GATE5_LEGACY_ENGINE_REPORT_CURRENT_DIRECT_EMITTERS.length === 0 &&
+    BRAZIL_RECEITA_GATE5_REMAINING_ENGINEERING_BLOCKERS.length === 0
+  );
+}

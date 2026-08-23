@@ -2614,6 +2614,38 @@ jobs:
       - name: Run BR-SOURCE FAST-TRACK-6 engine-report boundary tests
         run: npm run test:br-source:fast-track6-engine-report-boundary
 
+      # BR-SOURCE-FAST-TRACK-6 ELIMINACIÓN FAIL-CLOSED DEL EMISOR — el paso que prueba
+      # que el bypass YA NO EXISTE, junto a las suites del CLI que no deben romperse.
+      #
+      #   · 🔴 la línea `process.stdout.write(JSON.stringify(outcome.publicReport))` del CLI
+      #     de benchmark está BORRADA. Era el único camino por el que el informe HISTÓRICO
+      #     del motor (con `engine_report` incrustado entero) llegaba a `cli_stdout`.
+      #   · el estado retenido viaja como CÓDIGO DE SALIDA dedicado —el único canal que no
+      #     puede llevar un valor—: 0 stdout, 0 stderr, 0 stack, 0 informe sustituto,
+      #     0 fallback a fichero/log, 0 superficie de diagnóstico nueva.
+      #   · 🔴 es una ELIMINACIÓN, no una capacidad: `addsRunnerCapability: false`,
+      #     `removesAnExternalEmissionPath: true`. No se implementó la proyección GATE-5,
+      #     no se inventó esquema, no se debilitó GATE-5 ni 11A, no se añadió excepción.
+      #   · la contabilidad de intentos se PRESERVA (3 escalares, sin `engine_report`):
+      #     tirarla haría indistinguible una corrida retenida de una que nunca ocurrió.
+      #   · el hallazgo HISTÓRICO no se borra: queda con
+      #     `resolution: removed_by_fail_closed_boundary` y la expresión exacta eliminada.
+      #     El conjunto VIVO está vacío y el veredicto se DERIVA de ese array, no se teclea.
+      #   · 🔴 EL RATCHET SE PRUEBA A SÍ MISMO: se re-inserta la expresión exacta eliminada
+      #     en una copia EN MEMORIA del CLI y el detector DEBE dispararse. Además se prueban
+      #     emisores sintéticos de stdout, stderr, fichero y log, e interpolación en template
+      #     literal; y se prueba que menciones en comentarios, prosa y datos de procedencia
+      #     NO son falsos positivos.
+      #   · `FIVE_GATES_WAIT_ONLY_ON_HUMANS` se DERIVA de
+      #     `CURRENT_DIRECT_..._EMITTERS.length === 0` — el borrador anterior lo afirmaba a
+      #     mano y era FALSO.
+      #   · 0 gates movidas, veredicto NO-GO. `ATTEMPT_3_ALLOWED` sigue false.
+      #
+      # 🔴 El benchmark NO se ejecuta: sólo tests unitarios/estáticos/sintéticos aislados.
+      # Sin red, sin Supabase, sin proveedor, sin datos reales. 0 escrituras, 0 migraciones.
+      - name: Run BR-SOURCE FAST-TRACK-6 fail-closed emitter removal tests
+        run: npm run test:br-source:fast-track6-emitter-removal
+
       # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 20 — la demanda RESIDUAL y la
       # memoria PREVIA.
       #
