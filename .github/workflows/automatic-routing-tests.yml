@@ -2673,14 +2673,26 @@ jobs:
       # pueda REDEFINIR la petición que lo creó.
       #
       # Impide que vuelvan:
-      #   * «gana el último que escribe» sobre las seis columnas de identidad
+      #   * que el OBJETIVO GLOBAL lo establezca un residual: la reserva durable
+      #     escribe ahora `target_count = 10` —el objetivo PERSISTIBLE, no la
+      #     amplitud de búsqueda 25— antes de que exista contribuyente alguno, y
+      #     con ella el país, el ISO, la industria y la profundidad;
+      #   * «gana el último que escribe» sobre las cinco columnas de identidad
       #     global — con hueco mixto (10 pedidos, 7 gratis, 3 de pago) el
       #     contribuyente de pago escribía `target_count = 3` encima del 10 del
-      #     usuario, y su país / industria / nombre encima de los del wizard;
+      #     usuario, y su país / industria encima de los del wizard;
+      #   * la regresión inversa: `name` es etiqueta de PRESENTACIÓN, así que el
+      #     rótulo técnico de la reserva —`Wizard: {industryId} / {countryCode}`—
+      #     NO puede quedar visible después de que el escritor adopte el lote;
       #   * el `{ ...existingMeta, ...batchMetadata }` en el que el contribuyente
       #     actual ganaba TODA colisión de metadata, incluidas las dos reales de
       #     hoy: `run_provider_selection` y `apollo_discovery_taxonomy`, que
       #     escribe también la reserva del wizard y cuya versión es SUPERCONJUNTO;
+      #   * la SUPLANTACIÓN: los dos canales de metadata —bloque propio del
+      #     escritor y paso a través del llamador— llegan SEPARADOS hasta la
+      #     resolución de dueño. Recombinarlos antes dejaba que un valor de paso
+      #     a través heredase autoridad de escritor con sólo coincidir en el
+      #     nombre de una de sus claves;
       #   * que una clave sin dueño probado se pise en silencio, o que el bloque
       #     de origen gratuito lo borre el de pago;
       #   * que proteger la adopción vacíe de campos a los lotes NUEVOS: la ruta

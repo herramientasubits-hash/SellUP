@@ -912,17 +912,25 @@ export async function writeProspectingCandidates(
   };
 
   /**
+   * REVIEW-1 §§ 7/8 — el canal de PASO A TRAVÉS, nombrado y separado.
+   *
+   * Sobre un lote ADOPTADO los dos canales viajan por separado hasta la
+   * resolución de dueño: fusionarlos antes permitía que un valor de paso a
+   * través heredase la autoridad del escritor con sólo coincidir en el nombre
+   * de una clave suya.
+   */
+  const passthroughBatchMetadata: Record<string, unknown> = { ...(extraBatchMetadata ?? {}) };
+
+  /**
    * Forma final IDÉNTICA a la anterior a CUT-2: el paso a través se esparce al
    * final, así que un lote NUEVO recibe byte a byte la misma metadata que antes.
    * Lo único que cambia es que ahora se sabe qué mitad es del escritor.
    */
   const batchMetadata: Record<string, unknown> = {
     ...writerOwnedBatchMetadata,
-    ...(extraBatchMetadata ?? {}),
+    ...passthroughBatchMetadata,
   };
 
-  /** Claves cuyo dueño es este escritor — dato, no lista duplicada. */
-  const writerOwnedBatchMetadataKeys = Object.keys(writerOwnedBatchMetadata);
 
   // ── Resolve or create batch ───────────────────────────────────────────────
   // preMergedMetadata: metadata used for the batch row and later for the
@@ -1035,14 +1043,15 @@ export async function writeProspectingCandidates(
     const adoptedBatchTruth = resolveAdoptedBatchPatch({
       existingBatch: existingBatch as ExistingAdoptedBatchRow,
       incoming: {
+        // § 6 — presentación: el nombre humano canónico se recalcula siempre.
         name: finalBatchName,
         country,
         country_code: countryCode,
         industry,
         target_count: pipelineOutput.summary.requested,
         search_depth: pipelineOutput.input.searchDepth ?? "standard",
-        metadata: batchMetadata,
-        contributorOwnedMetadataKeys: writerOwnedBatchMetadataKeys,
+        writerOwnedMetadata: writerOwnedBatchMetadata,
+        passthroughMetadata: passthroughBatchMetadata,
       },
     });
     preMergedMetadata = adoptedBatchTruth.metadata;
@@ -1068,11 +1077,18 @@ export async function writeProspectingCandidates(
     // contribuyente insertó y qué falló. Omitir la columna deja intacto el
     // `draft` / `generating` que la fila ya tenía.
     //
-    // CUT-2 § 4/§ 5 — y de los campos de la petición (nombre, país, industria,
-    // objetivo, profundidad) sólo viajan los que la fila NO tenía todavía. El
-    // objetivo es el caso que más duele: con hueco mixto —10 pedidos, 7 gratis,
-    // 3 de pago— este contribuyente llega con `requested = 3`, y escribirlo
-    // encima convertiría un lote completo en un lote que dice haber pedido tres.
+    // CUT-2 § 4/§ 5 — y de los campos de la PETICIÓN (país, industria, objetivo,
+    // profundidad) sólo viajan los que la fila NO tenía todavía. El objetivo es
+    // el caso que más duele: con hueco mixto —10 pedidos, 7 gratis, 3 de pago—
+    // este contribuyente llega con `requested = 3`, y escribirlo encima
+    // convertiría un lote completo en un lote que dice haber pedido tres. Para
+    // el wizard la fila ya lo trae desde la reserva (REVIEW-1 § 3), así que aquí
+    // sólo se PRESERVA.
+    //
+    // REVIEW-1 § 6 — `name` es la excepción DECLARADA: es una etiqueta humana de
+    // presentación, no verdad global, y se recalcula en cada adopción como
+    // siempre. Congelarlo habría dejado visible el rótulo técnico de la reserva,
+    // `Wizard: {industryId} / {countryCode}`, en la lista de lotes.
     const { error: updateError } = await admin
       .from("prospect_batches")
       .update(adoptedBatchTruth.patch)

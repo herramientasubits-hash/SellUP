@@ -2,12 +2,13 @@
  * AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-2 — BATCH TRUTHFULNESS.
  *
  * Qué se defiende aquí, en una frase: un contribuyente que ADOPTA un lote que ya
- * existía puede añadirle candidatos y su propia telemetría, pero no puede
- * reescribir de qué iba la petición.
+ * existía puede añadirle candidatos, su propia telemetría y el nombre humano
+ * canónico, pero no puede reescribir de qué iba la petición.
  *
  * Esta suite cubre el módulo PURO y los trinquetes estáticos. El comportamiento
  * del escritor REAL —incluida la ruta de creación, que no debe cambiar— vive en
- * `candidate-writer-adopted-batch-truth.test.ts`.
+ * `candidate-writer-adopted-batch-truth.test.ts`; la autoridad del objetivo
+ * global en origen vive en `mixed-global-target-authority.test.ts`.
  *
  * Offline y determinista: sin Supabase, sin red, sin credenciales, 0 créditos,
  * 0 migraciones.
@@ -19,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  PRESENTATION_BATCH_COLUMNS,
   REQUEST_GLOBAL_BATCH_COLUMNS,
   STRUCTURED_SOURCE_BATCH_METADATA_KEYS,
   mergeAdoptedBatchMetadata,
@@ -29,15 +31,12 @@ import {
 const repoRoot = path.resolve(import.meta.dirname, '../../../..');
 const read = (rel: string) => readFileSync(path.join(repoRoot, rel), 'utf8');
 
-/** Bloque observacional propio de un contribuyente cualquiera. */
-const WRITER_OWNED = ['generated_by', 'pipeline_summary', 'warnings', 'warning'] as const;
-
 /** Lote del wizard tal y como lo deja `reserveWizardExecutionSlot` + § 14 CASO A. */
 function existingWizardBatch(
   overrides: Partial<ExistingAdoptedBatchRow> = {},
 ): ExistingAdoptedBatchRow {
   return {
-    name: 'Wizard X',
+    name: 'Wizard: pharma-001 / CO',
     country: 'Colombia',
     country_code: 'CO',
     industry: 'pharmaceuticals',
@@ -58,18 +57,18 @@ function existingWizardBatch(
 /** Contribuyente de PAGO que llega con su residual y su clasificación local. */
 function paidContribution(overrides: Record<string, unknown> = {}) {
   return {
-    name: 'Apollo Search',
+    name: 'Agente 1 · Pipeline · Colombia · healthcare · 17 jun 2026',
     country: 'Colombia',
     country_code: 'CO',
     industry: 'healthcare',
     target_count: 3,
     search_depth: 'deep',
-    metadata: {
+    writerOwnedMetadata: {
       generated_by: 'agent_1_candidate_writer',
       pipeline_summary: { requested: 3 },
       warnings: [],
     } as Record<string, unknown>,
-    contributorOwnedMetadataKeys: WRITER_OWNED as readonly string[],
+    passthroughMetadata: {} as Record<string, unknown>,
     ...overrides,
   };
 }
@@ -111,7 +110,11 @@ describe('CUT-2 § 5 — el objetivo del lote no es el residual del contribuyent
     assert.equal('target_count' in result.patch, false);
   });
 
-  it('objetivo NULL ⇒ el primero lo ESTABLECE: la reserva del wizard lo deja sin fijar', () => {
+  it('§ 11 — objetivo NULL ⇒ RESPALDO para filas heredadas: el primero lo establece', () => {
+    // 🔴 Para el wizard esta rama YA NO se ejerce: la reserva escribe el 10 en
+    // origen (REVIEW-1 § 3). Se conserva porque una fila anterior al hito, o
+    // creada por un camino ad-hoc, quedaría en NULL para siempre bajo una regla
+    // de «lo existente gana siempre».
     const result = resolveAdoptedBatchPatch({
       existingBatch: existingWizardBatch({ target_count: null }),
       incoming: paidContribution(),
@@ -121,10 +124,10 @@ describe('CUT-2 § 5 — el objetivo del lote no es el residual del contribuyent
   });
 });
 
-// ─── § 6 / § 7 — país, industria, nombre, profundidad ────────────────────────
+// ─── § 6 / § 7 — país, industria, profundidad ────────────────────────────────
 
 describe('CUT-2 § 6/§ 7 — la identidad de la petición gana sobre la del proveedor', () => {
-  it('CASO A — ninguna columna global viaja en el PATCH cuando el lote ya las tiene', () => {
+  it('CASO A — ninguna columna GLOBAL viaja en el PATCH cuando el lote ya las tiene', () => {
     const result = resolveAdoptedBatchPatch({
       existingBatch: existingWizardBatch(),
       incoming: paidContribution(),
@@ -137,7 +140,8 @@ describe('CUT-2 § 6/§ 7 — la identidad de la petición gana sobre la del pro
       [...result.preservedColumns].sort(),
       [...REQUEST_GLOBAL_BATCH_COLUMNS].sort(),
     );
-    assert.deepEqual(Object.keys(result.patch), ['metadata']);
+    // `name` es de PRESENTACIÓN (§ 6) y sí viaja siempre.
+    assert.deepEqual(Object.keys(result.patch).sort(), ['metadata', 'name']);
   });
 
   it('CASO B — valores entrantes IDÉNTICOS tampoco se reescriben', () => {
@@ -145,7 +149,6 @@ describe('CUT-2 § 6/§ 7 — la identidad de la petición gana sobre la del pro
     const result = resolveAdoptedBatchPatch({
       existingBatch: existing,
       incoming: paidContribution({
-        name: existing.name as string,
         country: existing.country as string,
         country_code: existing.country_code as string,
         industry: existing.industry as string,
@@ -153,7 +156,7 @@ describe('CUT-2 § 6/§ 7 — la identidad de la petición gana sobre la del pro
         search_depth: existing.search_depth as string,
       }),
     });
-    assert.deepEqual(Object.keys(result.patch), ['metadata']);
+    assert.deepEqual(Object.keys(result.patch).sort(), ['metadata', 'name']);
   });
 
   it('la industria del proveedor (healthcare) no desplaza a la del usuario (pharmaceuticals)', () => {
@@ -187,7 +190,6 @@ describe('CUT-2 § 6/§ 7 — la identidad de la petición gana sobre la del pro
     assert.equal(result.patch['country_code'], 'CO');
     assert.equal(result.patch['industry'], 'healthcare');
     assert.equal(result.patch['target_count'], 3);
-    assert.equal('name' in result.patch, false);
     assert.equal('search_depth' in result.patch, false);
   });
 
@@ -201,14 +203,166 @@ describe('CUT-2 § 6/§ 7 — la identidad de la petición gana sobre la del pro
   });
 });
 
-// ─── § 12 — matriz de preservación de metadata ───────────────────────────────
+// ─── § 6 REVIEW-1 — `name` es PRESENTACIÓN, no verdad global ─────────────────
+
+describe('CUT-2 REVIEW-1 § 6 — el nombre es una etiqueta humana, no identidad de la petición', () => {
+  it('`name` NO pertenece a las columnas request-global', () => {
+    assert.equal((REQUEST_GLOBAL_BATCH_COLUMNS as readonly string[]).includes('name'), false);
+    assert.deepEqual([...PRESENTATION_BATCH_COLUMNS], ['name']);
+  });
+
+  it('el rótulo técnico de la reserva NO sobrevive a la adopción', () => {
+    const result = resolveAdoptedBatchPatch({
+      existingBatch: existingWizardBatch({ name: 'Wizard: pharma-001 / CO' }),
+      incoming: paidContribution(),
+    });
+
+    assert.equal(
+      result.patch['name'],
+      'Agente 1 · Pipeline · Colombia · healthcare · 17 jun 2026',
+    );
+    assert.ok(!String(result.patch['name']).startsWith('Wizard: '));
+    assert.deepEqual(result.presentationColumns, ['name']);
+  });
+
+  it('el nombre se escribe también cuando la fila lo tenía en NULL', () => {
+    const result = resolveAdoptedBatchPatch({
+      existingBatch: existingWizardBatch({ name: null }),
+      incoming: paidContribution(),
+    });
+    assert.equal(typeof result.patch['name'], 'string');
+  });
+
+  it('el módulo no fabrica el nombre: sólo transporta el que le dan', () => {
+    // 🔴 Sobre el CÓDIGO, no sobre los comentarios: el docstring cita
+    // `apollo_discovery_taxonomy` como ejemplo de clave disputada, y un grep
+    // ingenuo de «apollo» daría un falso positivo.
+    const code = read('src/server/prospect-batches/adopted-batch-truth.ts')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    for (const forbidden of ['Agente 1', 'toLocaleDateString', 'Pipeline ·', 'Wizard:']) {
+      assert.ok(!code.includes(forbidden), `${forbidden} no pertenece a este módulo`);
+    }
+    // Y el nombre sale del input, nunca de una plantilla local.
+    assert.ok(code.includes("patch['name'] = incoming.name;"));
+  });
+});
+
+// ─── § 12 / REVIEW-1 § 9 — matriz de preservación de metadata ────────────────
 
 describe('CUT-2 § 12 — matriz de metadata', () => {
-  it('A · bloque gratuito existente + bloque del contribuyente ⇒ SOBREVIVEN LOS DOS', () => {
+  it('A · escritor-propia existente + escritor-propia nueva, sin paso a través ⇒ gana la NUEVA del escritor', () => {
+    const { metadata, updatedOwnKeys } = mergeAdoptedBatchMetadata({
+      existingMetadata: { pipeline_summary: { requested: 10 } },
+      writerOwnedMetadata: { pipeline_summary: { requested: 3 } },
+      passthroughMetadata: {},
+    });
+
+    assert.deepEqual(metadata['pipeline_summary'], { requested: 3 });
+    assert.deepEqual(updatedOwnKeys, ['pipeline_summary']);
+  });
+
+  it('B · el PASO A TRAVÉS no puede SUPLANTAR al escritor colisionando con su clave', () => {
+    // Éste es EXACTAMENTE el agujero que REVIEW-1 encontró: antes los dos
+    // canales se recombinaban antes de resolver dueño, así que el valor de paso
+    // a través quedaba dentro del objeto mientras la clave seguía etiquetada
+    // como «propia del escritor».
+    const { metadata, passthroughBlockedByWriterKeys } = mergeAdoptedBatchMetadata({
+      existingMetadata: { pipeline_summary: { requested: 10 } },
+      writerOwnedMetadata: { pipeline_summary: { requested: 3, truthful: true } },
+      passthroughMetadata: { pipeline_summary: { requested: 999, forged: true } },
+    });
+
+    assert.deepEqual(metadata['pipeline_summary'], { requested: 3, truthful: true });
+    assert.deepEqual(passthroughBlockedByWriterKeys, ['pipeline_summary']);
+  });
+
+  it('B-bis · suplantación sobre una clave del escritor que NO existía antes', () => {
+    const { metadata, passthroughBlockedByWriterKeys } = mergeAdoptedBatchMetadata({
+      existingMetadata: {},
+      writerOwnedMetadata: { generated_by: 'agent_1_candidate_writer' },
+      passthroughMetadata: { generated_by: 'llamador_falsificado' },
+    });
+
+    assert.equal(metadata['generated_by'], 'agent_1_candidate_writer');
+    assert.deepEqual(passthroughBlockedByWriterKeys, ['generated_by']);
+  });
+
+  it('C · `run_provider_selection`: la verdad RICA de la reserva sobrevive al paso a través pobre', () => {
+    const reserva = {
+      requested_discovery_provider: 'apollo_organizations',
+      resolved_discovery_provider: 'apollo_organizations',
+      selection_reason: 'admin_override',
+    };
+    const { metadata, preservedKeys } = mergeAdoptedBatchMetadata({
+      existingMetadata: { run_provider_selection: reserva },
+      writerOwnedMetadata: { generated_by: 'agent_1_candidate_writer' },
+      passthroughMetadata: { run_provider_selection: { requested_discovery_provider: null } },
+    });
+
+    assert.deepEqual(metadata['run_provider_selection'], reserva);
+    assert.deepEqual(preservedKeys, ['run_provider_selection']);
+  });
+
+  it('D · `apollo_discovery_taxonomy`: la de la reserva es SUPERCONJUNTO y deja de degradarse', () => {
+    const reserva = {
+      mode: 'macro_industry',
+      macro_industry_key: 'health_pharma',
+      macro_industry_display_name: 'Salud y Farma',
+      requested_subindustries: ['Farmacéutica'],
+    };
+    const { metadata } = mergeAdoptedBatchMetadata({
+      existingMetadata: { apollo_discovery_taxonomy: reserva },
+      writerOwnedMetadata: {},
+      passthroughMetadata: { apollo_discovery_taxonomy: { mode: 'macro_industry' } },
+    });
+
+    assert.deepEqual(metadata['apollo_discovery_taxonomy'], reserva);
+  });
+
+  it('E · clave DESCONOCIDA de paso a través ausente en lo existente ⇒ ADITIVA', () => {
+    const { metadata, addedKeys } = mergeAdoptedBatchMetadata({
+      existingMetadata: { request_source: 'chat_wizard' },
+      writerOwnedMetadata: {},
+      passthroughMetadata: { apollo_discovery_modality: 'two_round_adaptive' },
+    });
+
+    assert.equal(metadata['apollo_discovery_modality'], 'two_round_adaptive');
+    assert.deepEqual(addedKeys, ['apollo_discovery_modality']);
+  });
+
+  it('F · clave DESCONOCIDA de paso a través que COLISIONA ⇒ gana lo existente', () => {
+    const { metadata, preservedKeys } = mergeAdoptedBatchMetadata({
+      existingMetadata: { alguna_clave_futura: { v: 1 } },
+      writerOwnedMetadata: {},
+      passthroughMetadata: { alguna_clave_futura: { v: 2 } },
+    });
+
+    assert.deepEqual(metadata['alguna_clave_futura'], { v: 1 });
+    assert.deepEqual(preservedKeys, ['alguna_clave_futura']);
+  });
+
+  it('G · `warning` sigue DISPUTADA: existe gratis y la reclama el escritor ⇒ gana lo existente', () => {
+    assert.ok((STRUCTURED_SOURCE_BATCH_METADATA_KEYS as readonly string[]).includes('warning'));
+
+    const { metadata, preservedKeys } = mergeAdoptedBatchMetadata({
+      existingMetadata: { warning: 'Modo preview — ningún candidato aprobado.' },
+      writerOwnedMetadata: { warning: 'Datos de prueba. No convertir a empresas reales.' },
+      passthroughMetadata: {},
+    });
+
+    assert.equal(metadata['warning'], 'Modo preview — ningún candidato aprobado.');
+    assert.deepEqual(preservedKeys, ['warning']);
+  });
+
+  it('el bloque gratuito y el del escritor CONVIVEN cuando no colisionan', () => {
     const { metadata } = mergeAdoptedBatchMetadata({
       existingMetadata: { discovery_layer: 'country_source', macro_industry_key: 'health_pharma' },
-      incomingMetadata: { generated_by: 'agent_1_candidate_writer', pipeline_summary: { requested: 3 } },
-      contributorOwnedKeys: WRITER_OWNED,
+      writerOwnedMetadata: {
+        generated_by: 'agent_1_candidate_writer',
+        pipeline_summary: { requested: 3 },
+      },
+      passthroughMetadata: {},
     });
 
     assert.equal(metadata['discovery_layer'], 'country_source');
@@ -217,62 +371,25 @@ describe('CUT-2 § 12 — matriz de metadata', () => {
     assert.deepEqual(metadata['pipeline_summary'], { requested: 3 });
   });
 
-  it('B · el entrante trae la MISMA clave gratuita con otro valor ⇒ gana lo existente', () => {
+  it('el escritor tampoco pisa una clave gratuita que no es suya', () => {
     const { metadata, preservedKeys } = mergeAdoptedBatchMetadata({
       existingMetadata: { discovery_layer: 'country_source' },
-      incomingMetadata: { discovery_layer: 'apollo_paid' },
-      contributorOwnedKeys: WRITER_OWNED,
+      writerOwnedMetadata: {},
+      passthroughMetadata: { discovery_layer: 'apollo_paid' },
     });
 
     assert.equal(metadata['discovery_layer'], 'country_source');
     assert.deepEqual(preservedKeys, ['discovery_layer']);
   });
 
-  it('B-bis · clave DISPUTADA (del contribuyente Y del origen gratuito) ⇒ gana lo existente', () => {
-    // `warning` la reclaman los dos bloques. Sin dueño único no se pisa: dejar
-    // ganar al de pago borraría verdad gratuita en silencio.
-    assert.ok((STRUCTURED_SOURCE_BATCH_METADATA_KEYS as readonly string[]).includes('warning'));
-
-    const { metadata, preservedKeys } = mergeAdoptedBatchMetadata({
-      existingMetadata: { warning: 'Modo preview — ningún candidato aprobado.' },
-      incomingMetadata: { warning: 'Datos de prueba. No convertir a empresas reales.' },
-      contributorOwnedKeys: WRITER_OWNED,
-    });
-
-    assert.equal(metadata['warning'], 'Modo preview — ningún candidato aprobado.');
-    assert.deepEqual(preservedKeys, ['warning']);
-  });
-
-  it('C · el contribuyente actualiza SU PROPIO bloque observacional', () => {
-    const { metadata, updatedOwnKeys } = mergeAdoptedBatchMetadata({
-      existingMetadata: { generated_by: 'agent_1_candidate_writer', pipeline_summary: { requested: 10 } },
-      incomingMetadata: { pipeline_summary: { requested: 3 } },
-      contributorOwnedKeys: WRITER_OWNED,
-    });
-
-    assert.deepEqual(metadata['pipeline_summary'], { requested: 3 });
-    assert.deepEqual(updatedOwnKeys, ['pipeline_summary']);
-  });
-
-  it('D · clave DESCONOCIDA que colisiona ⇒ NO se pisa en silencio', () => {
-    const { metadata, preservedKeys } = mergeAdoptedBatchMetadata({
-      existingMetadata: { alguna_clave_futura: { v: 1 } },
-      incomingMetadata: { alguna_clave_futura: { v: 2 } },
-      contributorOwnedKeys: WRITER_OWNED,
-    });
-
-    assert.deepEqual(metadata['alguna_clave_futura'], { v: 1 });
-    assert.deepEqual(preservedKeys, ['alguna_clave_futura']);
-  });
-
-  it('E · metadata entrante vacía o ausente ⇒ lo existente queda equivalente clave a clave', () => {
+  it('metadata entrante vacía o ausente ⇒ lo existente queda equivalente clave a clave', () => {
     const existing = { request_source: 'chat_wizard', subindustry_ids: ['sub-a'], nested: { a: [1, 2] } };
 
-    for (const incoming of [null, undefined, {}] as const) {
+    for (const empty of [null, undefined, {}] as const) {
       const { metadata, preservedKeys, addedKeys, updatedOwnKeys } = mergeAdoptedBatchMetadata({
         existingMetadata: existing,
-        incomingMetadata: incoming,
-        contributorOwnedKeys: WRITER_OWNED,
+        writerOwnedMetadata: empty,
+        passthroughMetadata: empty,
       });
       assert.deepEqual(metadata, existing);
       assert.equal(JSON.stringify(metadata), JSON.stringify(existing));
@@ -284,43 +401,36 @@ describe('CUT-2 § 12 — matriz de metadata', () => {
     for (const broken of [null, undefined, 'texto', 42, ['a']]) {
       const { metadata } = mergeAdoptedBatchMetadata({
         existingMetadata: broken,
-        incomingMetadata: { generated_by: 'x' },
-        contributorOwnedKeys: WRITER_OWNED,
+        writerOwnedMetadata: { generated_by: 'x' },
+        passthroughMetadata: {},
       });
       assert.deepEqual(metadata, { generated_by: 'x' });
     }
   });
 });
 
-// ─── § 8 — las dos colisiones REALES de hoy ──────────────────────────────────
+// ─── REVIEW-1 § 8 — los canales no se pueden recombinar antes de resolver ────
 
-describe('CUT-2 § 8 — el «no se solapan» del comentario anterior era falso', () => {
-  it('`run_provider_selection` la escriben la reserva Y el escritor ⇒ gana la reserva', () => {
-    const reserva = { requested: 'apollo', resolved: 'apollo', reason: 'admin_override' };
-    const { metadata } = mergeAdoptedBatchMetadata({
-      existingMetadata: { run_provider_selection: reserva },
-      incomingMetadata: { run_provider_selection: { requested: null } },
-      contributorOwnedKeys: WRITER_OWNED,
-    });
-    assert.deepEqual(metadata['run_provider_selection'], reserva);
+describe('CUT-2 REVIEW-1 § 8/§ 10 — la procedencia del VALOR no se pierde', () => {
+  it('el módulo no acepta ya una lista paralela de claves «propias»', () => {
+    const src = read('src/server/prospect-batches/adopted-batch-truth.ts');
+    assert.equal(src.includes('contributorOwnedKeys'), false);
+    assert.equal(src.includes('contributorOwnedMetadataKeys'), false);
+    assert.equal(src.includes('incomingMetadata'), false);
+    assert.ok(src.includes('writerOwnedMetadata'));
+    assert.ok(src.includes('passthroughMetadata'));
   });
 
-  it('`apollo_discovery_taxonomy`: la de la reserva es SUPERCONJUNTO y deja de degradarse', () => {
-    // La reserva escribe `toDiscoveryTaxonomyMetadata(...)` MÁS tres campos; el
-    // runner reescribía sólo la base. El spread anterior perdía los tres.
-    const reserva = {
-      mode: 'macro_industry',
-      macro_industry_key: 'health_pharma',
-      macro_industry_display_name: 'Salud y Farma',
-      requested_subindustries: ['Farmacéutica'],
-    };
-    const { metadata } = mergeAdoptedBatchMetadata({
-      existingMetadata: { apollo_discovery_taxonomy: reserva },
-      incomingMetadata: { apollo_discovery_taxonomy: { mode: 'macro_industry' } },
-      contributorOwnedKeys: WRITER_OWNED,
-    });
-
-    assert.deepEqual(metadata['apollo_discovery_taxonomy'], reserva);
+  it('el escritor tampoco los recombina antes de resolver dueño', () => {
+    const writer = read('src/server/agents/prospecting-toolkit/candidate-writer.ts');
+    // La adopción recibe los DOS canales por separado.
+    assert.ok(writer.includes('writerOwnedMetadata: writerOwnedBatchMetadata'));
+    assert.ok(writer.includes('passthroughMetadata: passthroughBatchMetadata'));
+    // Y el objeto fusionado sólo se usa en la ruta de CREACIÓN.
+    const adoption = writer.indexOf('const adoptedBatchTruth = resolveAdoptedBatchPatch({');
+    const adoptionEnd = writer.indexOf('});', adoption);
+    assert.ok(adoption > 0 && adoptionEnd > adoption);
+    assert.equal(writer.slice(adoption, adoptionEnd).includes('batchMetadata,'), false);
   });
 });
 
@@ -335,17 +445,21 @@ describe('CUT-2 § 16 — un reintento no muta progresivamente la verdad del lot
       incoming: paidContribution({ target_count: 3 }),
     });
     // La segunda adopción ve la fila tal y como la dejó la primera.
-    const afterFirst: ExistingAdoptedBatchRow = { ...existing, metadata: first.metadata };
+    const afterFirst: ExistingAdoptedBatchRow = {
+      ...existing,
+      name: first.patch['name'] as string,
+      metadata: first.metadata,
+    };
     const second = resolveAdoptedBatchPatch({
       existingBatch: afterFirst,
-      incoming: paidContribution({ target_count: 1, industry: 'other', name: 'Otro' }),
+      incoming: paidContribution({ target_count: 1, industry: 'other' }),
     });
 
-    assert.deepEqual(Object.keys(first.patch), ['metadata']);
-    assert.deepEqual(Object.keys(second.patch), ['metadata']);
+    assert.deepEqual(Object.keys(first.patch).sort(), ['metadata', 'name']);
+    assert.deepEqual(Object.keys(second.patch).sort(), ['metadata', 'name']);
     assert.equal(afterFirst.target_count, 10);
     assert.equal(afterFirst.industry, 'pharmaceuticals');
-    assert.equal(afterFirst.name, 'Wizard X');
+    assert.equal(second.patch['name'], first.patch['name']);
   });
 
   it('la metadata del wizard sobrevive a N adopciones (idempotente y convergente)', () => {
@@ -354,7 +468,10 @@ describe('CUT-2 § 16 — un reintento no muta progresivamente la verdad del lot
       const { metadata } = resolveAdoptedBatchPatch({
         existingBatch: row,
         incoming: paidContribution({
-          metadata: { generated_by: 'agent_1_candidate_writer', pipeline_summary: { requested: i } },
+          writerOwnedMetadata: {
+            generated_by: 'agent_1_candidate_writer',
+            pipeline_summary: { requested: i },
+          },
         }),
       });
       row = { ...row, metadata };

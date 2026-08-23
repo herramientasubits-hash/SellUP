@@ -312,7 +312,8 @@ function makeDraftBatch(overrides: Partial<FakeBatchRow> = {}): FakeBatchRow {
     },
     client_request_id: 'req-uuid-0001-0000-0000-000000000001',
     // § 14 CASO A — la petición del usuario, ya establecida en la fila.
-    name: 'Wizard X',
+    // El nombre es el rótulo PROVISIONAL que deja `reserveWizardExecutionSlot`.
+    name: 'Wizard: edtech-001 / CO',
     country: 'Colombia',
     country_code: 'CO',
     industry: 'pharmaceuticals',
@@ -323,8 +324,11 @@ function makeDraftBatch(overrides: Partial<FakeBatchRow> = {}): FakeBatchRow {
 }
 
 
+/**
+ * REVIEW-1 § 6 — `name` NO está aquí: es columna de PRESENTACIÓN y el escritor la
+ * canonicaliza en cada adopción, como siempre.
+ */
 const REQUEST_GLOBAL_COLUMNS = [
-  'name',
   'country',
   'country_code',
   'industry',
@@ -383,7 +387,9 @@ describe('CUT-2 § 14 CASO A — adoptar no reescribe la identidad global del lo
     for (const column of REQUEST_GLOBAL_COLUMNS) {
       assert.equal(column in patch, false, `${column} no puede viajar en la adopción`);
     }
-    assert.deepEqual(Object.keys(patch), ['metadata']);
+    // REVIEW-1 § 6 — el nombre humano SÍ viaja, y no lleva proveedor dentro.
+    assert.deepEqual(Object.keys(patch).sort(), ['metadata', 'name']);
+    assert.equal(patch['name'], 'Apollo Search');
   });
 
   it('el objetivo 10 del usuario sobrevive a un residual de pago de 3 (§ 5)', async () => {
@@ -421,7 +427,7 @@ describe('CUT-2 § 14 CASO A — adoptar no reescribe la identidad global del lo
 
     await writeProspectingCandidates(makeInput({ existingBatchId: EXISTING_BATCH_ID }), admin);
 
-    assert.deepEqual(Object.keys(adoptionUpdate(stats)), ['metadata']);
+    assert.deepEqual(Object.keys(adoptionUpdate(stats)).sort(), ['metadata', 'name']);
   });
 
   it('columnas que el lote NO tenía se establecen (la reserva del wizard las deja NULL)', async () => {
@@ -447,7 +453,7 @@ describe('CUT-2 § 14 CASO A — adoptar no reescribe la identidad global del lo
     assert.equal(patch['country_code'], 'CO');
     assert.equal(patch['industry'], 'EdTech');
     assert.equal(patch['target_count'], 1);
-    assert.equal('name' in patch, false, 'el nombre de la reserva ya era verdad');
+    assert.equal(typeof patch['name'], 'string', 'el nombre es de presentación y siempre viaja');
     assert.equal('search_depth' in patch, false, 'NOT NULL DEFAULT ⇒ nunca sin establecer');
   });
 });
@@ -682,6 +688,110 @@ describe('CUT-2 § 16 — un reintento es idempotente respecto de la verdad del 
 
     assert.equal(batch.target_count, 10);
     assert.equal(batch.industry, 'pharmaceuticals');
-    assert.equal(batch.name, 'Wizard X');
+  });
+});
+
+// ─── REVIEW-1 § 6 — el nombre humano histórico sobrevive a la adopción ───────
+
+describe('CUT-2 REVIEW-1 § 6 — el rótulo técnico de la reserva no llega al usuario', () => {
+  it('reserva `Wizard: {industryId} / {countryCode}` ⇒ tras adoptar, nombre humano canónico', async () => {
+    const stats = freshStats();
+    const admin = makeFakeAdmin(
+      {
+        existingBatch: makeDraftBatch({ name: 'Wizard: edtech-001 / CO' }),
+        preExistingDurableCount: 7,
+      },
+      stats,
+    );
+
+    // Ni la ruta Apollo ni la Tavily del wizard pasan `batchName`, así que el
+    // escritor deriva el nombre canónico de contexto GLOBAL: país e industria.
+    await writeProspectingCandidates(
+      makeInput({ existingBatchId: EXISTING_BATCH_ID }),
+      admin,
+    );
+
+    const name = adoptionUpdate(stats)['name'];
+    assert.equal(typeof name, 'string');
+    assert.equal(
+      String(name).startsWith('Wizard: '),
+      false,
+      'el rótulo técnico de idempotencia no puede quedar visible',
+    );
+    assert.ok(String(name).startsWith('Agente 1 · Pipeline · '));
+    assert.ok(String(name).includes('Colombia'));
+    assert.ok(String(name).includes('EdTech'));
+  });
+
+  it('el nombre canónico NO lleva el proveedor dentro', async () => {
+    const stats = freshStats();
+    const admin = makeFakeAdmin(
+      { existingBatch: makeDraftBatch({ name: 'Wizard: edtech-001 / CO' }), preExistingDurableCount: 0 },
+      stats,
+    );
+
+    await writeProspectingCandidates(makeInput({ existingBatchId: EXISTING_BATCH_ID }), admin);
+
+    const name = String(adoptionUpdate(stats)['name']).toLowerCase();
+    for (const provider of ['apollo', 'lusha', 'tavily']) {
+      assert.equal(name.includes(provider), false, `${provider} no pertenece al nombre`);
+    }
+  });
+});
+
+// ─── REVIEW-1 §§ 7/8/10 — el paso a través no adquiere autoridad de escritor ──
+
+describe('CUT-2 REVIEW-1 § 7/§ 8 — canales de metadata separados en el escritor REAL', () => {
+  it('`extraBatchMetadata` NO puede suplantar una clave del bloque del escritor', async () => {
+    const stats = freshStats();
+    const admin = makeFakeAdmin(
+      {
+        existingBatch: makeDraftBatch({
+          metadata: { request_source: 'chat_wizard', pipeline_summary: { requested: 10 } },
+        }),
+        preExistingDurableCount: 7,
+      },
+      stats,
+    );
+
+    await writeProspectingCandidates(
+      makeInput({
+        existingBatchId: EXISTING_BATCH_ID,
+        pipelineOutput: makePipelineOutput(3),
+        extraBatchMetadata: {
+          // Paso a través que COLISIONA con una clave del escritor. Antes de
+          // REVIEW-1 los dos canales se recombinaban y este valor heredaba la
+          // autoridad del escritor sólo por coincidir en el nombre.
+          pipeline_summary: { requested: 999, forged: true },
+          generated_by: 'llamador_falsificado',
+        },
+      }),
+      admin,
+    );
+
+    const meta = finalUpdate(stats)['metadata'] as Record<string, unknown>;
+    const summary = meta['pipeline_summary'] as Record<string, unknown>;
+    assert.equal(summary['requested'], 3, 'el valor VERDADERO del escritor tiene que ganar');
+    assert.equal('forged' in summary, false);
+    assert.equal(meta['generated_by'], 'agent_1_candidate_writer');
+  });
+
+  it('`extraBatchMetadata` con clave nueva sigue siendo ADITIVO al adoptar', async () => {
+    const stats = freshStats();
+    const admin = makeFakeAdmin(
+      { existingBatch: makeDraftBatch(), preExistingDurableCount: 0 },
+      stats,
+    );
+
+    await writeProspectingCandidates(
+      makeInput({
+        existingBatchId: EXISTING_BATCH_ID,
+        extraBatchMetadata: { apollo_discovery_modality: 'two_round_adaptive' },
+      }),
+      admin,
+    );
+
+    const meta = finalUpdate(stats)['metadata'] as Record<string, unknown>;
+    assert.equal(meta['apollo_discovery_modality'], 'two_round_adaptive');
   });
 });

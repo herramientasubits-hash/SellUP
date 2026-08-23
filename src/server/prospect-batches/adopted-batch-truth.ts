@@ -9,8 +9,8 @@
  * que no pueda REDEFINIR la petición que creó el lote.
  *
  * El defecto que cierra: la UPDATE de adopción del escritor escribe hoy
- * `name`, `country`, `country_code`, `industry`, `target_count`, `search_depth`
- * y `metadata` con los valores de LA INVOCACIÓN ACTUAL. Sobre un lote nuevo eso
+ * `country`, `country_code`, `industry`, `target_count`, `search_depth` y
+ * `metadata` con los valores de LA INVOCACIÓN ACTUAL. Sobre un lote nuevo eso
  * es correcto —el escritor es su dueño—. Sobre un lote ADOPTADO es «gana el
  * último que escribe», y en el mundo mixto que viene eso miente:
  *
@@ -20,29 +20,41 @@
  *
  * El contribuyente de pago llega con `target_count = 3` —su residual— y hoy lo
  * escribiría encima del 10 del usuario. El lote pasaría a anunciar que se
- * pidieron 3 empresas. Lo mismo con el país, la industria y el nombre: un
- * proveedor con su propia clasificación local reescribiría la del usuario.
+ * pidieron 3 empresas. Lo mismo con el país y la industria: un proveedor con su
+ * propia clasificación local reescribiría la del usuario.
  *
  * La invariante que se defiende:
  *
  *   LA IDENTIDAD GLOBAL DE LA PETICIÓN ES DEL LOTE, NO DEL CONTRIBUYENTE.
  *
- * Un contribuyente puede añadir candidatos, añadir SU telemetría y decidir el
- * estado terminal según CUT-1. No puede reescribir de qué iba la petición.
+ * Un contribuyente puede añadir candidatos, añadir SU telemetría, poner el
+ * nombre humano canónico y decidir el estado terminal según CUT-1. No puede
+ * reescribir de qué iba la petición.
  *
- * ── Por qué «no nulo existente gana» y no «existente gana» a secas ───────────
+ * ── Dos reglas distintas, y por qué no son la misma ──────────────────────────
  *
- * `reserveWizardExecutionSlot` (wizard-idempotency.ts) crea la fila del lote con
- * SÓLO `name`, `status`, `source`, `created_by`, `client_request_id` y
- * `metadata`. `country`, `country_code`, `industry` y `target_count` nacen NULL:
- * quien los establece hoy es precisamente esta UPDATE de adopción. Una regla de
- * «lo existente gana siempre» los dejaría NULL para siempre y el lote perdería
- * su identidad entera — una mentira mayor que la que este corte arregla.
+ * REVIEW-1 § 11 obliga a distinguirlas explícitamente:
  *
- * La regla correcta es por tanto EL PRIMERO ESTABLECE:
+ *  1. AUTORIDAD EN ORIGEN (la normal para lotes nuevos del wizard).
+ *     `reserveWizardExecutionSlot` establece la verdad global de la petición
+ *     —`target_count`, `country`, `country_code`, `industry`, `search_depth`—
+ *     en el INSERT del slot, ANTES de que exista contribuyente alguno. Cuando
+ *     el contribuyente de pago llega, la fila ya sabe que se pidieron 10, y
+ *     este módulo simplemente no deja que la toque.
  *
- *   · columna con valor  ⇒ es la verdad de la petición, se PRESERVA;
- *   · columna en NULL    ⇒ no hay verdad que proteger, el contribuyente la FIJA.
+ *  2. «EL PRIMERO ESTABLECE» (respaldo para filas heredadas / ad-hoc).
+ *     Una fila que nació SIN esa verdad —lotes anteriores a este hito, o
+ *     creados por caminos que no son la reserva del wizard— tiene la columna en
+ *     NULL. Una regla de «lo existente gana siempre» la dejaría NULL para
+ *     siempre y el lote perdería su identidad entera: una mentira mayor que la
+ *     que este corte arregla. Así que si no hay verdad que proteger, el
+ *     contribuyente la fija.
+ *
+ * 🔴 El respaldo (2) NO es el modelo de propiedad de los lotes mixtos nuevos, y
+ * `target_count` es el caso donde la diferencia importa: un residual de 3 NO
+ * puede ser quien establezca el objetivo global. Por eso la reserva lo escribe
+ * en origen y esta ruta nunca llega a ejercerse para el wizard. Si un día
+ * volviera a ejercerse ahí, sería la señal de que la reserva dejó de poblarlo.
  *
  * Puro: sin I/O, sin Supabase, sin env, sin React, sin reloj.
  *
@@ -57,6 +69,9 @@
  * quien escribe. Enumeradas de forma explícita y cerrada: una columna nueva
  * tiene que decidirse aquí a mano, nunca heredar una regla por parecido.
  *
+ * 🔴 `name` NO está en la lista, y es una DECISIÓN, no un olvido: ver
+ * `PRESENTATION_BATCH_COLUMNS`.
+ *
  * 🔴 `source` NO está en la lista, y es deliberado: su protección ya la ejerce
  * la validación de adopción del escritor —que RECHAZA cualquier lote cuyo
  * `source` no sea `agent_1`— y el PATCH de adopción nunca lo ha llevado. Meterlo
@@ -66,7 +81,6 @@
  * `country` (nombre) y `country_code` (ISO). No se inventa la columna.
  */
 export const REQUEST_GLOBAL_BATCH_COLUMNS = [
-  'name',
   'country',
   'country_code',
   'industry',
@@ -77,14 +91,26 @@ export const REQUEST_GLOBAL_BATCH_COLUMNS = [
 export type RequestGlobalBatchColumn = (typeof REQUEST_GLOBAL_BATCH_COLUMNS)[number];
 
 /**
- * Claves de `metadata` que produce el escritor de candidatos POR SÍ MISMO (su
- * bloque observacional). Son las únicas que puede actualizar sobre un lote
- * adoptado: un reintento del mismo contribuyente reescribe su propia telemetría
- * —que es el comportamiento canónico— y nada más.
+ * Columnas de PRESENTACIÓN: las escribe siempre el contribuyente que adopta.
  *
- * Se pasan como dato, no se enumeran aquí: el dueño del conjunto es el propio
- * escritor, y duplicar su lista en este módulo sólo crearía deriva silenciosa.
+ * REVIEW-1 § 6 (decisión de la dueña) — `name` es una ETIQUETA HUMANA, no
+ * verdad semántica global de la petición. El nombre que deja la reserva del
+ * wizard, `Wizard: {industryId} / {countryCode}`, es un rótulo PROVISIONAL de
+ * idempotencia: identificadores técnicos que nadie quiere ver en la lista de
+ * lotes. Clasificarlo como global lo habría congelado y habría dejado ese
+ * rótulo visible para siempre — una regresión de producto.
+ *
+ * Así que la canonicalización del nombre sigue donde estaba: el escritor lo
+ * escribe en cada adopción, exactamente como antes de CUT-2, y sigue saliendo
+ * de contexto GLOBAL (país e industria de la petición), nunca del proveedor.
+ *
+ * 🔴 «Se escribe siempre» no es lo mismo que «gana el último que escribe» sobre
+ * verdad de petición: aquí no hay verdad ajena que borrar, sólo un rótulo que se
+ * recalcula. La diferencia es la razón de que esta lista exista aparte.
  */
+export const PRESENTATION_BATCH_COLUMNS = ['name'] as const;
+
+export type PresentationBatchColumn = (typeof PRESENTATION_BATCH_COLUMNS)[number];
 
 /**
  * Claves de `metadata` que pertenecen a la capa GRATUITA / de fuente
@@ -127,16 +153,33 @@ export const STRUCTURED_SOURCE_BATCH_METADATA_KEYS = [
 
 // ─── Fusión de metadata con dueño ─────────────────────────────────────────────
 
+/**
+ * REVIEW-1 §§ 7/8 — los TRES canales llegan SEPARADOS, y es el punto entero.
+ *
+ * La versión anterior recibía `metadata` ya fusionada más una lista de claves
+ * «del contribuyente». Eso abría un agujero exacto: un valor de PASO A TRAVÉS
+ * que colisionara con una clave del escritor heredaba su autoridad, porque la
+ * lista decía «esta clave es propia» mientras el objeto ya llevaba dentro el
+ * valor ajeno. La procedencia del VALOR se perdía antes de resolver el dueño.
+ *
+ * Aquí no se puede perder: cada valor llega por su canal y se resuelve en su
+ * paso.
+ */
 export interface AdoptedBatchMetadataMergeInput {
   /** Metadata que la fila del lote YA tenía. Cualquier forma no-objeto ⇒ `{}`. */
   existingMetadata: unknown;
-  /** Metadata que trae el contribuyente actual. */
-  incomingMetadata: Record<string, unknown> | null | undefined;
   /**
-   * Claves que el contribuyente produce por sí mismo. Sólo estas pueden pisar
-   * un valor previo — y ni siquiera estas si además son de origen gratuito.
+   * Bloque que el contribuyente produce POR SÍ MISMO. Su propiedad es
+   * intrínseca —son sus claves, no una lista paralela que pueda mentir—.
    */
-  contributorOwnedKeys: readonly string[];
+  writerOwnedMetadata: Record<string, unknown> | null | undefined;
+  /**
+   * Metadata de PASO A TRAVÉS: la rellena el llamador y transporta claves de
+   * otros dueños (`run_provider_selection` y `apollo_discovery_taxonomy` las
+   * escribe también la reserva del wizard). Nunca adquiere autoridad de
+   * escritor, ni siquiera colisionando con una clave del escritor.
+   */
+  passthroughMetadata: Record<string, unknown> | null | undefined;
 }
 
 export interface AdoptedBatchMetadataMergeResult {
@@ -147,26 +190,43 @@ export interface AdoptedBatchMetadataMergeResult {
   addedKeys: string[];
   /** Claves propias del contribuyente que actualizó legítimamente. */
   updatedOwnKeys: string[];
+  /**
+   * Claves de paso a través que se descartaron porque el valor que ocupaba esa
+   * clave lo había producido el ESCRITOR. Es la suplantación, con nombre.
+   */
+  passthroughBlockedByWriterKeys: string[];
 }
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const hasOwn = (target: Record<string, unknown>, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(target, key);
+
 /**
- * Fusiona la metadata de un lote ADOPTADO respetando al dueño de cada clave.
+ * Fusiona la metadata de un lote ADOPTADO respetando al dueño de cada VALOR.
  *
  * Reemplaza el `{ ...existingMeta, ...batchMetadata }` anterior, que era «gana
  * el contribuyente actual» sobre TODA colisión, incluida la metadata del wizard
  * y la de origen gratuito.
  *
- * Tres reglas, en este orden:
+ * Tres pasos, en este orden (REVIEW-1 § 8):
  *
- *   1. clave ausente en lo existente        ⇒ se AÑADE (aditivo, siempre);
- *   2. clave propia del contribuyente y NO
- *      disputada con el origen gratuito     ⇒ se ACTUALIZA (§ 12-C);
- *   3. cualquier otra colisión              ⇒ GANA LO EXISTENTE (§ 12-B/§ 12-D).
+ *   PASO 1 — se parte de lo EXISTENTE.
  *
- * La regla 3 cubre a la vez la metadata del wizard (`request_source`,
+ *   PASO 2 — se aplica el bloque PROPIO del escritor:
+ *              · clave ausente            ⇒ se AÑADE;
+ *              · clave propia no disputada ⇒ se ACTUALIZA (su propio valor
+ *                anterior sí puede avanzar: un reintento reescribe su telemetría);
+ *              · clave DISPUTADA con el origen gratuito ⇒ gana lo existente.
+ *
+ *   PASO 3 — se aplica el PASO A TRAVÉS:
+ *              · clave ausente   ⇒ se AÑADE (aditivo);
+ *              · clave ocupada   ⇒ gana lo que ya estaba, venga de la fila o del
+ *                paso 2. Un valor de paso a través NO se convierte en valor del
+ *                escritor por coincidir en el nombre de la clave.
+ *
+ * La regla del paso 3 cubre a la vez la metadata del wizard (`request_source`,
  * `catalog_version_id`, `industry_id`, `subindustry_ids`, `country_code`,
  * `additional_criteria`, `run_provider_selection`, `apollo_discovery_taxonomy`),
  * los bloques de origen gratuito y cualquier clave DESCONOCIDA que dejara un
@@ -179,19 +239,23 @@ export function mergeAdoptedBatchMetadata(
   input: AdoptedBatchMetadataMergeInput,
 ): AdoptedBatchMetadataMergeResult {
   const existing = isPlainRecord(input.existingMetadata) ? input.existingMetadata : {};
-  const incoming = isPlainRecord(input.incomingMetadata) ? input.incomingMetadata : {};
+  const writerOwned = isPlainRecord(input.writerOwnedMetadata) ? input.writerOwnedMetadata : {};
+  const passthrough = isPlainRecord(input.passthroughMetadata) ? input.passthroughMetadata : {};
 
-  const contributorOwned = new Set(input.contributorOwnedKeys);
   const structuredSourceOwned = new Set<string>(STRUCTURED_SOURCE_BATCH_METADATA_KEYS);
+  const writerOwnedKeys = new Set(Object.keys(writerOwned));
 
+  // PASO 1 — lo existente es la base.
   const metadata: Record<string, unknown> = { ...existing };
   const preservedKeys: string[] = [];
   const addedKeys: string[] = [];
   const updatedOwnKeys: string[] = [];
+  const passthroughBlockedByWriterKeys: string[] = [];
 
-  for (const key of Object.keys(incoming)) {
-    if (!Object.prototype.hasOwnProperty.call(existing, key)) {
-      metadata[key] = incoming[key];
+  // PASO 2 — el bloque PROPIO del escritor.
+  for (const key of Object.keys(writerOwned)) {
+    if (!hasOwn(existing, key)) {
+      metadata[key] = writerOwned[key];
       addedKeys.push(key);
       continue;
     }
@@ -199,18 +263,38 @@ export function mergeAdoptedBatchMetadata(
     // Clave disputada: la reclaman el bloque del contribuyente Y el de origen
     // gratuito. No hay dueño único ⇒ no se pisa (§ 12-B: nunca «gana el pago»
     // en silencio).
-    const contested = contributorOwned.has(key) && structuredSourceOwned.has(key);
-
-    if (contributorOwned.has(key) && !contested) {
-      metadata[key] = incoming[key];
-      updatedOwnKeys.push(key);
+    if (structuredSourceOwned.has(key)) {
+      preservedKeys.push(key);
       continue;
     }
 
-    preservedKeys.push(key);
+    metadata[key] = writerOwned[key];
+    updatedOwnKeys.push(key);
   }
 
-  return { metadata, preservedKeys, addedKeys, updatedOwnKeys };
+  // PASO 3 — el PASO A TRAVÉS, que sólo puede ser aditivo.
+  for (const key of Object.keys(passthrough)) {
+    if (hasOwn(metadata, key)) {
+      if (writerOwnedKeys.has(key)) {
+        // El valor que ocupa la clave lo produjo el escritor (o lo preservó la
+        // fila frente al escritor). El paso a través no lo suplanta.
+        passthroughBlockedByWriterKeys.push(key);
+      } else {
+        preservedKeys.push(key);
+      }
+      continue;
+    }
+    metadata[key] = passthrough[key];
+    addedKeys.push(key);
+  }
+
+  return {
+    metadata,
+    preservedKeys,
+    addedKeys,
+    updatedOwnKeys,
+    passthroughBlockedByWriterKeys,
+  };
 }
 
 // ─── PATCH de adopción ────────────────────────────────────────────────────────
@@ -228,14 +312,20 @@ export interface ExistingAdoptedBatchRow {
 
 /** Lo que el contribuyente actual traería si el lote fuese suyo. */
 export interface AdoptingContributorContribution {
+  /**
+   * Nombre humano canónico ya resuelto por el escritor. Se escribe SIEMPRE
+   * (columna de presentación, § 6).
+   */
   name: string;
   country: string | null;
   country_code: string | null;
   industry: string | null;
   target_count: number | null;
   search_depth: string;
-  metadata: Record<string, unknown>;
-  contributorOwnedMetadataKeys: readonly string[];
+  /** Bloque observacional propio del escritor. */
+  writerOwnedMetadata: Record<string, unknown>;
+  /** Metadata de paso a través del llamador. */
+  passthroughMetadata: Record<string, unknown>;
 }
 
 export interface AdoptedBatchPatchResult {
@@ -247,6 +337,8 @@ export interface AdoptedBatchPatchResult {
   preservedColumns: RequestGlobalBatchColumn[];
   /** Columnas globales que estaban en NULL y que este contribuyente establece. */
   establishedColumns: RequestGlobalBatchColumn[];
+  /** Columnas de presentación que este contribuyente canonicaliza. */
+  presentationColumns: PresentationBatchColumn[];
   metadataMerge: AdoptedBatchMetadataMergeResult;
 }
 
@@ -277,7 +369,6 @@ export function resolveAdoptedBatchPatch(input: {
   const { existingBatch, incoming } = input;
 
   const incomingColumnValues: Record<RequestGlobalBatchColumn, unknown> = {
-    name: incoming.name,
     country: incoming.country,
     country_code: incoming.country_code,
     industry: incoming.industry,
@@ -306,10 +397,16 @@ export function resolveAdoptedBatchPatch(input: {
     establishedColumns.push(column);
   }
 
+  // § 6 — presentación: el nombre humano canónico se recalcula en cada
+  // adopción, igual que antes de CUT-2. Sin esto, un lote del wizard se
+  // quedaría con el rótulo técnico `Wizard: {industryId} / {countryCode}`.
+  patch['name'] = incoming.name;
+  const presentationColumns: PresentationBatchColumn[] = ['name'];
+
   const metadataMerge = mergeAdoptedBatchMetadata({
     existingMetadata: existingBatch.metadata,
-    incomingMetadata: incoming.metadata,
-    contributorOwnedKeys: incoming.contributorOwnedMetadataKeys,
+    writerOwnedMetadata: incoming.writerOwnedMetadata,
+    passthroughMetadata: incoming.passthroughMetadata,
   });
 
   patch['metadata'] = metadataMerge.metadata;
@@ -319,6 +416,7 @@ export function resolveAdoptedBatchPatch(input: {
     metadata: metadataMerge.metadata,
     preservedColumns,
     establishedColumns,
+    presentationColumns,
     metadataMerge,
   };
 }

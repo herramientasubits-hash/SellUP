@@ -9,7 +9,7 @@ import {
 } from '@/lib/feature-flags.server';
 import { resolveWizardCatalog } from './wizard-catalog-resolver';
 import { wizardExecutionRequestSchema } from './wizard-execution-schema';
-import { WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
+import { WIZARD_PIPELINE_DEFAULTS, WIZARD_SYSTEM_CONTROLS } from './wizard-pipeline-adapter';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
   WIZARD_APOLLO_PARTIAL_GAP_SUPPORTED,
@@ -1176,6 +1176,24 @@ export async function executeProspectWizardGeneration(
         subindustryIds: catalogResolution.subindustries.map((s) => s.id),
         countryCode: req.countryCode,
         additionalCriteria: req.additionalCriteriaRaw,
+        // CUT-2 REVIEW-1 § 3 — LA AUTORIDAD DEL OBJETIVO GLOBAL VIVE AQUÍ.
+        //
+        // 🔴 `WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES` (10) y NO
+        // `WIZARD_SYSTEM_CONTROLS.targetCount` (25): el 25 es la AMPLITUD de
+        // búsqueda del pipeline, no lo que el producto promete persistir. Las dos
+        // rutas del wizard prometen 10 —Apollo por esta constante y Tavily por
+        // `WIZARD_TARGET_PERSISTIBLE_CANDIDATES`—, así que el slot puede
+        // declararlo antes de saber qué proveedor correrá.
+        //
+        // Se establece ANTES de que exista ningún contribuyente. Sin esto, un
+        // residual de pago de 3 sería quien fijara el objetivo del lote entero.
+        targetCount: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
+        // § 4 — el resto de la verdad request-global, también en origen. Son los
+        // mismos valores canónicos que el adaptador entrega al pipeline: no se
+        // inventa ninguno.
+        country: countryName,
+        industry: catalogResolution.industry.name,
+        searchDepth: WIZARD_PIPELINE_DEFAULTS.searchDepth,
         // § 8/§ 26 — requested/resolved/reason quedan en el INSERT inicial, para
         // TODOS los proveedores. La costura `extraBatchMetadata` sólo existe en la
         // ruta de Apollo, así que sin esto una corrida Tavily con petición
