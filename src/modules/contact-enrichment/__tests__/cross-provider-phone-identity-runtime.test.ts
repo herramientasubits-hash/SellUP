@@ -145,9 +145,17 @@ const world = {
   persistError: null as { message: string } | null,
   searchResponse: searchResult([{ id: LUSHA_ID }]) as SearchClientResponse,
   searchThrows: false,
+  /** La resolución de la credencial LANZA (Vault caído). */
+  apiKeyThrows: false,
 
   // ── contadores observables ──
   searchClientCalls: 0,
+  /**
+   * Veces que el adaptador resolvió la credencial (PR331-R3). Se cuenta porque el
+   * contrato exige que un candidato ya identificado, o sin identificador buscable, ni
+   * siquiera la mire — y «no se miró» sólo es demostrable con un contador.
+   */
+  apiKeyLookups: 0,
   claimRpcCalls: 0,
   persistRpcCalls: 0,
   identityTableReads: 0,
@@ -188,8 +196,10 @@ beforeEach(() => {
   world.persistError = null;
   world.searchResponse = searchResult([{ id: LUSHA_ID }]);
   world.searchThrows = false;
+  world.apiKeyThrows = false;
 
   world.searchClientCalls = 0;
+  world.apiKeyLookups = 0;
   world.claimRpcCalls = 0;
   world.persistRpcCalls = 0;
   world.identityTableReads = 0;
@@ -346,7 +356,11 @@ mock.module('@/lib/feature-flags.server', {
 
 mock.module('@/server/services/lusha-connection', {
   namedExports: {
-    getLushaApiKey: async () => world.apiKey,
+    getLushaApiKey: async () => {
+      world.apiKeyLookups += 1;
+      if (world.apiKeyThrows) throw new Error('vault unreachable with sensitive detail');
+      return world.apiKey;
+    },
   },
 });
 
@@ -604,11 +618,22 @@ describe('adaptador real — desenlaces terminales', () => {
     assert.equal(world.searchClientCalls, 0, 'search client calls = 0');
   });
 
-  it('sin credencial de Lusha ⇒ 0 llamadas al cliente y fail-closed', async () => {
+  it('sin credencial de Lusha ⇒ 0 claims, 0 llamadas y searched=false (PR331-R3)', async () => {
     world.apiKey = null;
     const result = await resolve();
     assert.equal(world.searchClientCalls, 0);
+    assert.equal(world.claimRpcCalls, 0, 'el claim NO se toma: no va a salir petición');
+    assert.ok(
+      !world.rpcsCalled.includes('claim_lusha_identity_search'),
+      'la RPC del claim ni se invoca',
+    );
     assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    // Este booleano ES la decisión económica: la reconciliación lo lee (vía el sello
+    // que el claim habría escrito) para elegir entre liberar y confirmar al tope.
+    assert.equal(result.searched, false);
+    assert.equal(result.searchCreditsCharged, null);
+    assert.equal(world.usageLogs.length, 0, 'no hay gasto que declarar en el ledger');
   });
 
   it('identidades ilegibles ⇒ NO se busca a ciegas', async () => {
@@ -921,5 +946,170 @@ describe('liquidación — la lectura de reservas conoce la operación', () => {
         ?.columns.includes('lusha_identity_search_attempted_at'),
       'sin pedirlo, la columna de la 124 no aparece en la consulta',
     );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 15 — PR331-R3: la credencial se resuelve ANTES del claim
+// ═══════════════════════════════════════════════════════════════
+//
+// El defecto que este bloque cierra era invisible desde el core puro: el adaptador
+// resolvía `getLushaApiKey()` DENTRO de `searchIdentity`, es decir DESPUÉS del claim. Sin
+// credencial no salía ninguna petición —eso siempre estuvo bien— pero la corrida quedaba
+// sellada con `lusha_identity_search_attempted_at`, y ese sello es el ÚNICO hecho que la
+// reconciliación consulta. Resultado: 1 crédito `assumed_cap` confirmado por una petición
+// que nunca existió.
+//
+// El contador que lo demuestra no es `searchClientCalls` (que ya era 0) sino
+// `claimRpcCalls`.
+
+describe('adaptador real — prerrequisitos locales antes del claim (PR331-R3)', () => {
+  it('sin credencial: 0 RPC de claim, 0 llamadas al cliente, 0 filas de usage', async () => {
+    world.apiKey = null;
+    const result = await resolve();
+
+    assert.equal(world.apiKeyLookups, 1, 'sí se intenta resolver: es el preflight');
+    assert.equal(world.claimRpcCalls, 0);
+    assert.equal(world.searchClientCalls, 0);
+    assert.equal(world.persistRpcCalls, 0);
+    assert.deepEqual(httpRequests, [], '0 peticiones reales');
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.searched, false);
+    assert.equal(world.usageLogs.length, 0);
+  });
+
+  it('credencial ilegible (Vault caído): mismo trato, y el mensaje no lleva el secreto', async () => {
+    world.apiKeyThrows = true;
+    const result = await resolve();
+
+    assert.equal(world.claimRpcCalls, 0, 'un fallo NUESTRO no autoriza gasto');
+    assert.equal(world.searchClientCalls, 0);
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.searched, false);
+  });
+
+  it('sin credencial ⇒ la liquidación REAL libera la pata de búsqueda', async () => {
+    world.apiKey = null;
+    const result = await resolve();
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.searched, false);
+
+    // La reconciliación deriva su hecho de `lusha_identity_search_attempted_at`, que el
+    // claim habría escrito. Como no se reclamó, sigue NULL — y NULL es release.
+    const { decidePhoneRevealCreditSettlement } = await import(
+      '../phone-reveal-credit-reservation-core'
+    );
+    const settlement = decidePhoneRevealCreditSettlement({
+      facts: {
+        isTerminal: true,
+        apolloAttempted: true,
+        apolloCostCredits: null,
+        apolloCostSource: null,
+        lushaAttempted: false,
+        lushaCostCredits: null,
+        lushaCostSource: null,
+        // Lo que la fila diría tras esta corrida: el claim nunca la selló.
+        lushaIdentitySearchAttempted: false,
+      },
+      reservedLegs: [
+        { id: 'r-search', providerKey: 'lusha', operationKey: 'contact_search', creditsReserved: 1 },
+        { id: 'r-reveal', providerKey: 'lusha', operationKey: 'phone_reveal', creditsReserved: 5 },
+      ],
+    });
+
+    const search = settlement.find((a) => a.operationKey === 'contact_search');
+    assert.equal(search?.action, 'release', 'NUNCA confirm assumed_cap');
+    if (search?.action !== 'release') return;
+    assert.equal(search.reason, 'leg_never_attempted');
+  });
+
+  it('candidato con identidad ya persistida: 0 lecturas de credencial', async () => {
+    world.identityRows = [persistedLushaRow];
+    const result = await resolve();
+
+    assert.equal(result.status, 'ready');
+    assert.equal(world.apiKeyLookups, 0, 'ni se mira: no hay petición que emitir');
+    assert.equal(world.claimRpcCalls, 0);
+    assert.equal(world.searchClientCalls, 0);
+  });
+
+  it('candidato sin identificador buscable: 0 lecturas de credencial', async () => {
+    world.candidateRow = candidateRow({
+      linkedin_url: null,
+      email: null,
+      last_name: null,
+      run: { company_name: null, company_domain: null },
+    });
+    const result = await resolve();
+
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.runOutcome, 'no_identifier');
+    assert.equal(world.apiKeyLookups, 0);
+    assert.equal(world.claimRpcCalls, 0);
+    assert.equal(world.searchClientCalls, 0);
+  });
+
+  it('timeout TRAS invocar al cliente: claim=1, searched=true, sin regresión', async () => {
+    world.searchResponse = {
+      ok: false,
+      status: 'provider_timeout',
+      resultsReturned: 0,
+      creditsCharged: null,
+    };
+    const result = await resolve();
+
+    assert.equal(world.apiKeyLookups, 1);
+    assert.equal(world.claimRpcCalls, 1, 'aquí el claim SÍ corresponde: la petición salió');
+    assert.equal(world.searchClientCalls, 1);
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.searched, true, 'costo desconocido ≠ costo cero');
+    assert.equal(result.searchCreditsCharged, null);
+    // Y el gasto SÍ se declara en el ledger, que es lo que no ocurre sin credencial.
+    assert.equal(world.usageLogs.length, 1);
+  });
+
+  it('provider_error TRAS invocar al cliente: searched=true y ledger emitido', async () => {
+    world.searchResponse = {
+      ok: false,
+      status: 'provider_auth_error',
+      resultsReturned: 0,
+      creditsCharged: null,
+    };
+    const result = await resolve();
+
+    assert.equal(world.claimRpcCalls, 1);
+    assert.equal(world.searchClientCalls, 1);
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.searched, true);
+    assert.equal(world.usageLogs.length, 1);
+  });
+
+  it('flag OFF: no se resuelve la credencial, no hay RPC nueva y no sale petición', async () => {
+    world.waterfallEnabled = false;
+    const { buildContinueWaterfallDeps } = await import('../phone-reveal-waterfall-deps');
+    const deps = buildContinueWaterfallDeps();
+    await deps.loadCandidate(CANDIDATE_ID);
+
+    assert.equal('resolveLushaIdentity' in deps, false);
+    assert.equal(world.apiKeyLookups, 0, 'la credencial ni se toca con el flag apagado');
+    assert.deepEqual(world.rpcsCalled, []);
+    assert.equal(world.searchClientCalls, 0);
+    assert.deepEqual(httpRequests, []);
+  });
+
+  it('camino feliz: preflight → claim → UNA petición, y el orden es observable', async () => {
+    const result = await resolve();
+
+    assert.equal(result.status, 'ready');
+    assert.equal(world.apiKeyLookups, 1, 'la credencial se resuelve UNA vez, no dos');
+    assert.equal(world.claimRpcCalls, 1);
+    assert.equal(world.searchClientCalls, 1);
+    assert.equal(world.persistRpcCalls, 1);
   });
 });

@@ -51,6 +51,7 @@ import {
   resolutionSourceForMatchKey,
   type LushaIdentityPersistResult,
   type LushaIdentitySearchClaimResult,
+  type LushaIdentitySearchPreflightResult,
   type LushaIdentitySearchProviderResponse,
   type LushaIdentitySearchRunOutcome,
   type ResolveLushaIdentityResult,
@@ -479,6 +480,15 @@ export async function resolveLushaIdentityForCandidate(args: {
   }
 
   let telemetry: IdentitySearchTelemetry | null = null;
+  /**
+   * Credencial de Lusha, retenida entre el preflight y la ÚNICA petición.
+   *
+   * Es deliberadamente una variable LOCAL de esta invocación y no un módulo-caché: una
+   * credencial cacheada entre corridas sobreviviría a su propia rotación, y este valor
+   * no tiene por qué durar más que la petición que lo necesita. No se registra, no se
+   * devuelve y no cruza a ningún core.
+   */
+  let resolvedApiKey: string | null = null;
 
   const result = await resolveLushaIdentityForWaterfall(
     {
@@ -490,16 +500,49 @@ export async function resolveLushaIdentityForCandidate(args: {
       facts: context.facts,
     },
     {
+      // ── PREFLIGHT: la credencial se resuelve ANTES del claim (PR331-R3) ─────
+      //
+      // La credencial NO sale de este closure: no viaja al core, no entra en la
+      // telemetría, no se registra. Lo que cruza la frontera es un veredicto.
+      //
+      // El closure vive UNA invocación de `resolveLushaIdentityForCandidate`, así que
+      // el valor retenido no sobrevive a la corrida ni se comparte entre corridas.
+      preflightSearch: async (): Promise<LushaIdentitySearchPreflightResult> => {
+        try {
+          const apiKey = await getLushaApiKey();
+          if (!apiKey) {
+            // Sin credencial no hay `fetch` y por tanto no hay cobro. Al devolverlo
+            // como preflight —y no como error del proveedor— el core sale SIN tomar el
+            // claim, y la reserva de la búsqueda se libera en vez de confirmarse al
+            // tope por una petición que nunca salió.
+            console.error('[lusha-identity] no Lusha credential available');
+            return { status: 'unavailable', reason: 'no_credential' };
+          }
+          resolvedApiKey = apiKey;
+          return { status: 'ready' };
+        } catch (err) {
+          // El mensaje del driver se recorta y NUNCA incluye la credencial: lo que se
+          // registra es el fallo mecánico de resolverla.
+          console.error(
+            '[lusha-identity] Lusha credential resolution failed:',
+            redactDriverMessage(err),
+          );
+          return { status: 'unavailable', reason: 'preflight_failed' };
+        }
+      },
+
       claimIdentitySearch: claimLushaIdentitySearch,
 
       searchIdentity: async ({ matchKey, contact }) => {
         const startedAt = Date.now();
-        const apiKey = await getLushaApiKey();
+        const apiKey = resolvedApiKey;
         if (!apiKey) {
-          // Sin credencial NO hay petición y por tanto NO hay cobro. Se declara como
-          // error del proveedor porque es lo que el core trata fail-closed, y la
-          // telemetría queda sin fila: no hay nada que contabilizar.
-          console.error('[lusha-identity] no Lusha credential available');
+          // INALCANZABLE por contrato: el core no llega aquí sin un preflight `ready`,
+          // y `ready` sólo se devuelve con la credencial ya retenida. Se conserva como
+          // red de seguridad y se declara CONSERVADORAMENTE como error del proveedor:
+          // si el contrato se rompiera, el claim ya estaría tomado, y en ese estado
+          // asumir «no costó nada» sería la suposición cara.
+          console.error('[lusha-identity] preflight contract violated: no credential');
           return { outcome: { status: 'provider_error' }, creditsCharged: null };
         }
 

@@ -20,9 +20,11 @@ import {
   type LushaIdentitySearchCandidateFacts,
 } from '../lusha-identity-search-core';
 import {
+  LUSHA_IDENTITY_SEARCH_PREFLIGHT_BLOCK_REASONS,
   LUSHA_IDENTITY_SEARCH_RUN_OUTCOMES,
   resolveLushaIdentityForWaterfall,
   type LushaIdentitySearchClaimResult,
+  type LushaIdentitySearchPreflightResult,
   type LushaIdentitySearchProviderResponse,
   type ResolveLushaIdentityDeps,
 } from '../lusha-identity-resolution-runtime-core';
@@ -79,6 +81,8 @@ interface Harness {
   deps: ResolveLushaIdentityDeps;
   searchCalls: number;
   claimCalls: number;
+  /** Veces que se resolvió el prerrequisito local (la credencial) — PR331-R3. */
+  preflightCalls: number;
   persisted: Array<{ providerContactId: string; matchKey: string }>;
 }
 
@@ -94,13 +98,23 @@ function harness(opts: {
   persistFails?: boolean;
   /** Otro proceso ganó la carrera write-once y su id es este. */
   persistWinnerId?: string;
+  /** Veredicto del preflight local (PR331-R3). Por defecto, `ready`. */
+  preflight?: LushaIdentitySearchPreflightResult;
+  /** El preflight LANZA (Vault ilegible, por ejemplo). */
+  preflightThrows?: boolean;
 } = {}): Harness {
   let claimedOnce = false;
   const h: Harness = {
     searchCalls: 0,
     claimCalls: 0,
+    preflightCalls: 0,
     persisted: [],
     deps: {
+      preflightSearch: async () => {
+        h.preflightCalls += 1;
+        if (opts.preflightThrows) throw new Error('vault unreachable');
+        return opts.preflight ?? { status: 'ready' as const };
+      },
       claimIdentitySearch: async () => {
         h.claimCalls += 1;
         if (opts.claim) return opts.claim;
@@ -1124,5 +1138,194 @@ describe('X — reservas y corridas legacy se siguen interpretando igual', () =>
       resolvePhoneRevealCreditBudgetMode({ legacyLushaOnly: true, lushaEligible: true }),
       'legacy_lusha_only',
     );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Y — PR331-R3: el CLAIM significa «una petición pagada va a salir»
+// ═══════════════════════════════════════════════════════════════
+//
+// La frontera que fija este bloque es económica, no de código: la liquidación decide
+// entre liberar y confirmar-al-tope mirando UN solo hecho, `lusha_identity_search_
+// attempted_at`, que es exactamente lo que el claim escribe. Así que un claim tomado sin
+// petición emitida cobra 1 crédito que nadie gastó.
+//
+//   A. PETICIÓN NO EMITIDA          → 0 claims, 0 llamadas, searched=false, RELEASE
+//   B. EMITIDA O POSIBLEMENTE EMITIDA → claim=1, searched=true, CONFIRM (tope si mudo)
+
+describe('Y — prerrequisitos locales resueltos ANTES del claim', () => {
+  test('sin credencial: 0 claims, 0 llamadas, searched=false', async () => {
+    const h = harness({ preflight: { status: 'unavailable', reason: 'no_credential' } });
+    const result = await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
+
+    assert.equal(h.preflightCalls, 1);
+    assert.equal(h.claimCalls, 0, 'el claim NO se toma: nada se va a emitir');
+    assert.equal(h.searchCalls, 0);
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.searched, false, 'no se emitió petición ⇒ no se pudo cobrar');
+    assert.equal(result.searchCreditsCharged, null);
+    assert.equal(result.runOutcome, 'error');
+    assert.equal(result.skippedReason, 'lusha_identity_error');
+    assert.deepEqual(h.persisted, []);
+  });
+
+  test('un preflight que LANZA tampoco reclama: el fallo es nuestro y anterior al byte', async () => {
+    const h = harness({ preflightThrows: true });
+    const result = await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
+
+    assert.equal(h.claimCalls, 0);
+    assert.equal(h.searchCalls, 0);
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.searched, false);
+  });
+
+  test('sin credencial + pata reservada ⇒ RELEASE, jamás confirm assumed_cap', async () => {
+    const h = harness({ preflight: { status: 'unavailable', reason: 'no_credential' } });
+    const result = await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+
+    // La corrida se cierra terminal y la liquidación lee el sello del claim, que sigue
+    // sin tomarse: `searched:false` y `attempted:false` son el MISMO hecho.
+    const settlement = decidePhoneRevealCreditSettlement({
+      facts: settlementFacts({ lushaIdentitySearchAttempted: result.searched }),
+      reservedLegs: RESERVED_LEGS,
+    });
+    const search = settlement.find(
+      (a) => a.providerKey === 'lusha' && a.operationKey === 'contact_search',
+    );
+    assert.equal(search?.action, 'release');
+    if (search?.action !== 'release') return;
+    assert.equal(search.reason, 'leg_never_attempted');
+
+    // Y el desglose no le atribuye ni un crédito a la búsqueda.
+    const breakdown = buildPhoneRevealCreditRunCostBreakdown({ settlement });
+    assert.equal(breakdown.lushaIdentitySearchCredits, null);
+  });
+
+  test('identidad ya persistida: 0 preflight, 0 claims, 0 llamadas', async () => {
+    const h = harness();
+    const result = await resolveLushaIdentityForWaterfall(
+      resolveInput({ identities: [persistedLushaIdentity] }),
+      h.deps,
+    );
+    assert.equal(result.status, 'ready');
+    assert.equal(h.preflightCalls, 0, 'ni siquiera se mira la credencial');
+    assert.equal(h.claimCalls, 0);
+    assert.equal(h.searchCalls, 0);
+  });
+
+  test('sin identificador buscable: 0 preflight, 0 claims, 0 llamadas', async () => {
+    const h = harness();
+    const result = await resolveLushaIdentityForWaterfall(
+      resolveInput({
+        facts: {
+          firstName: 'Ana',
+          lastName: null,
+          linkedinUrl: null,
+          email: null,
+          companyName: null,
+          companyDomain: null,
+        },
+      }),
+      h.deps,
+    );
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.runOutcome, 'no_identifier');
+    assert.equal(result.searched, false);
+    assert.equal(h.preflightCalls, 0, 'no hay petición posible: no se resuelve nada');
+    assert.equal(h.claimCalls, 0);
+    assert.equal(h.searchCalls, 0);
+  });
+
+  test('el orden es preflight → claim → petición, y nunca otro', async () => {
+    const order: string[] = [];
+    const h = harness();
+    const deps: ResolveLushaIdentityDeps = {
+      preflightSearch: async () => {
+        order.push('preflight');
+        return h.deps.preflightSearch();
+      },
+      claimIdentitySearch: async (runId) => {
+        order.push('claim');
+        return h.deps.claimIdentitySearch(runId);
+      },
+      searchIdentity: async (args) => {
+        order.push('search');
+        return h.deps.searchIdentity(args);
+      },
+      persistIdentity: h.deps.persistIdentity,
+    };
+    const result = await resolveLushaIdentityForWaterfall(resolveInput(), deps);
+    assert.equal(result.status, 'ready');
+    assert.deepEqual(order, ['preflight', 'claim', 'search']);
+  });
+
+  test('un timeout TRAS invocar al cliente sigue siendo cobrado: claim=1, confirm al tope', async () => {
+    const h = harness({
+      response: { outcome: { status: 'provider_timeout' }, creditsCharged: null },
+    });
+    const result = await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
+
+    assert.equal(h.claimCalls, 1);
+    assert.equal(h.searchCalls, 1);
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.searched, true, 'la petición SALIÓ: el costo es desconocido, no cero');
+
+    const settlement = decidePhoneRevealCreditSettlement({
+      facts: settlementFacts({ lushaIdentitySearchAttempted: result.searched }),
+      reservedLegs: RESERVED_LEGS,
+    });
+    const search = settlement.find(
+      (a) => a.providerKey === 'lusha' && a.operationKey === 'contact_search',
+    );
+    assert.equal(search?.action, 'confirm');
+    if (search?.action !== 'confirm') return;
+    assert.equal(search.credits, 1);
+    assert.equal(search.costTruth, 'assumed_cap');
+  });
+
+  test('un throw del cliente ya invocado se asume cobrado, no gratis', async () => {
+    const h = harness({ searchThrows: true });
+    const result = await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
+    assert.equal(h.claimCalls, 1);
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.searched, true);
+    assert.equal(result.runOutcome, 'error');
+  });
+
+  test('un provider_error TRAS invocar al cliente conserva la liquidación conservadora', async () => {
+    const h = harness({
+      response: { outcome: { status: 'provider_error' }, creditsCharged: null },
+    });
+    const result = await resolveLushaIdentityForWaterfall(resolveInput(), h.deps);
+    assert.equal(result.status, 'blocked');
+    if (result.status !== 'blocked') return;
+    assert.equal(result.searched, true);
+
+    const settlement = decidePhoneRevealCreditSettlement({
+      facts: settlementFacts({ lushaIdentitySearchAttempted: result.searched }),
+      reservedLegs: RESERVED_LEGS,
+    });
+    const search = settlement.find((a) => a.operationKey === 'contact_search');
+    assert.equal(search?.action, 'confirm');
+    if (search?.action !== 'confirm') return;
+    assert.equal(search.costTruth, 'assumed_cap');
+  });
+
+  test('el preflight NO transporta la credencial: su veredicto es un enum cerrado', () => {
+    // Contrato estructural: cualquier campo extra sería una vía para que un secreto
+    // cruzara al core y de ahí a la telemetría.
+    const ready: LushaIdentitySearchPreflightResult = { status: 'ready' };
+    assert.deepEqual(Object.keys(ready), ['status']);
+    for (const reason of LUSHA_IDENTITY_SEARCH_PREFLIGHT_BLOCK_REASONS) {
+      const blocked: LushaIdentitySearchPreflightResult = { status: 'unavailable', reason };
+      assert.deepEqual(Object.keys(blocked).sort(), ['reason', 'status']);
+    }
   });
 });

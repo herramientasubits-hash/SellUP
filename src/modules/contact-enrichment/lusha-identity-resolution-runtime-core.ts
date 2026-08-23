@@ -11,9 +11,32 @@
  *
  *   1. ¿Lusha YA sabe quién es?   → 0 llamadas, 0 créditos. Fin.
  *   2. ¿Hay con qué preguntárselo? → si no, 0 llamadas, 0 créditos, terminal.
+ *   2b. PREFLIGHT LOCAL: ¿se puede EMITIR la petición? → si no, 0 claims, 0 llamadas.
  *   3. CLAIM atómico de la búsqueda → si se pierde, 0 llamadas y 0 escrituras.
  *   4. UNA petición, sin retry, sin cascada.
  *   5. Identidad única → se PERSISTE, y si no se persiste NO HAY REVEAL.
+ *
+ * ── QUÉ SIGNIFICA EL CLAIM (PR331-R3) ────────────────────────────────────────
+ *
+ * El claim NO significa «entramos en el código de la búsqueda». Significa **una
+ * petición pagada está autorizada y está a punto de salir**. La diferencia es dinero:
+ * `lusha_identity_search_attempted_at` es el ÚNICO hecho que la liquidación consulta
+ * para decidir entre liberar la reserva de la búsqueda y confirmarla; y como el costo
+ * de esta pata nunca se reporta en una columna propia, confirmarla significa
+ * confirmarla al TOPE con `assumed_cap`. Un claim tomado sin petición emitida cobra 1
+ * crédito que nadie gastó.
+ *
+ * Por eso TODO prerrequisito LOCAL de la emisión —la credencial la primera— se resuelve
+ * en el paso 2b, ANTES del claim. Los dos desenlaces son deliberadamente distintos:
+ *
+ *   * PETICIÓN NO EMITIDA (sin credencial, preflight caído): 0 claims, 0 llamadas,
+ *     `searched: false`. La reserva de la búsqueda se LIBERA: no hubo cobro.
+ *   * PETICIÓN EMITIDA O POSIBLEMENTE EMITIDA (timeout, 5xx, respuesta ilegible, throw
+ *     tras invocar al cliente): `searched: true`. Costo desconocido NO es costo cero,
+ *     así que se liquida por lo reportado o al tope.
+ *
+ * El preflight NO ve la credencial: devuelve un veredicto. El secreto se queda en el
+ * adaptador, no viaja por el core ni por la telemetría.
  *
  * El paso 5 es una PRECONDICIÓN, no un efecto secundario: una identidad recién
  * resuelta tiene que quedar almacenada de forma duradera ANTES de que se le pida un
@@ -144,11 +167,55 @@ export type LushaIdentitySearchClaimResult =
   | 'run_terminal'
   | 'authorization_expired';
 
+/**
+ * Por qué NO se puede emitir la petición. Ninguno de los dos afirma nada sobre lo que
+ * Lusha sabe: son fallos NUESTROS, anteriores a cualquier byte enviado.
+ */
+export const LUSHA_IDENTITY_SEARCH_PREFLIGHT_BLOCK_REASONS = [
+  /** No hay credencial de Lusha resoluble. Sin ella `fetch` ni se intenta. */
+  'no_credential',
+  /** El propio preflight falló (Vault ilegible, excepción). Fail-closed, sin claim. */
+  'preflight_failed',
+] as const;
+
+export type LushaIdentitySearchPreflightBlockReason =
+  (typeof LUSHA_IDENTITY_SEARCH_PREFLIGHT_BLOCK_REASONS)[number];
+
+/**
+ * Veredicto del preflight LOCAL. `ready` es una promesa acotada y honesta: «todo lo que
+ * depende de nosotros para emitir está resuelto». No promete que el proveedor conteste,
+ * ni que la red exista — eso ya es territorio del paso 4, donde la incertidumbre se
+ * paga.
+ *
+ * NUNCA transporta la credencial. El adaptador la retiene; aquí sólo viaja un veredicto.
+ */
+export type LushaIdentitySearchPreflightResult =
+  | { status: 'ready' }
+  | { status: 'unavailable'; reason: LushaIdentitySearchPreflightBlockReason };
+
 export interface ResolveLushaIdentityDeps {
+  /**
+   * Resuelve TODO prerrequisito LOCAL de la emisión —hoy, la credencial de Lusha— y
+   * declara si una petición pagada puede salir.
+   *
+   * Corre DESPUÉS de descartar la identidad ya persistida y de comprobar que hay con
+   * qué buscar, y ANTES del claim. Ese orden es el contrato: un candidato con identidad
+   * persistida y uno sin identificador no llegan hasta aquí, así que ninguno de los dos
+   * provoca siquiera una lectura de credencial.
+   *
+   * NO emite nada, no habla con el proveedor y no devuelve el secreto: devuelve un
+   * veredicto. Un `unavailable` significa que NO se tomará el claim y por tanto que la
+   * reserva de la búsqueda se liberará — que es la verdad, porque no salió petición.
+   */
+  preflightSearch: () => Promise<LushaIdentitySearchPreflightResult>;
   /**
    * CLAIM ATÓMICO de la búsqueda. UPDATE condicional sobre
    * `lusha_identity_search_attempted_at IS NULL`. Devuelve `claimed` SOLO si actualizó
    * una fila.
+   *
+   * Tomarlo AFIRMA que una petición pagada está a punto de emitirse: la liquidación lee
+   * exactamente este sello para confirmar la reserva de la búsqueda (al tope, porque su
+   * costo no tiene columna propia). No se toma «por entrar al camino».
    */
   claimIdentitySearch: (runId: string) => Promise<LushaIdentitySearchClaimResult>;
   /**
@@ -278,7 +345,38 @@ export async function resolveLushaIdentityForWaterfall(
     };
   }
 
-  // ── 3. Claim atómico y propio. ──
+  // ── 2b. PREFLIGHT LOCAL. Todo lo que hace falta para EMITIR, resuelto ANTES del
+  //        claim (PR331-R3).
+  //
+  // Sin credencial no hay `fetch`, no hay cobro y no hay nada que liquidar. Si el claim
+  // se tomara igualmente, la corrida quedaría sellada como «búsqueda intentada» y la
+  // reconciliación —que sólo mira ese sello— confirmaría 1 crédito `assumed_cap` por una
+  // petición que jamás salió. De ahí que este gate vaya antes y no después.
+  //
+  // Un throw se trata como `unavailable`, no como error del proveedor: el preflight es
+  // código NUESTRO y anterior a cualquier byte enviado, así que su fallo no puede haber
+  // costado nada. Es la simetría exacta del paso 4, donde un throw SÍ se asume cobrado
+  // porque allí el cliente ya fue invocado.
+  let preflight: LushaIdentitySearchPreflightResult;
+  try {
+    preflight = await deps.preflightSearch();
+  } catch {
+    preflight = { status: 'unavailable', reason: 'preflight_failed' };
+  }
+  if (preflight.status !== 'ready') {
+    return {
+      status: 'blocked',
+      skippedReason: 'lusha_identity_error',
+      runOutcome: 'error',
+      // NO se emitió petición: la reserva de la búsqueda se libera. Es el mismo
+      // desenlace que una lectura de contexto fallida, y por la misma razón: el
+      // bloqueo ocurrió antes de que existiera un cobro posible.
+      searched: false,
+      searchCreditsCharged: null,
+    };
+  }
+
+  // ── 3. Claim atómico y propio. Desde aquí, una petición pagada está autorizada. ──
   const claim = await deps.claimIdentitySearch(input.runId);
   if (claim !== 'claimed') {
     // Incluye el caso de recuperación tras caída: el claim está tomado y la identidad
