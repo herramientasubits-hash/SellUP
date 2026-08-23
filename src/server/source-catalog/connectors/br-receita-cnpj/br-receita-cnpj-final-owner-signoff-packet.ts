@@ -1,10 +1,21 @@
 /**
  * BR Receita CNPJ — the FINAL HUMAN SIGNOFF PACKET (BR-SOURCE-FAST-TRACK-6).
  *
- * Five gates are waiting on a named human's answer and nothing else. This module is the machine-
- * readable form of the packet those five humans receive: one decision section per gate, each with the
- * exact question, the required role or roles, the required response fields, and the restrictions the
- * answer carries.
+ * Five gates are waiting on a named human's answer. This module is the machine-readable form of the
+ * packet those five humans receive: one decision section per gate, each with the exact question, the
+ * required role or roles, the required response fields, and the restrictions the answer carries.
+ *
+ * ── 🔴 What is NOT waiting on a human, and must be said in the same breath ───
+ *
+ * An earlier draft of this packet said the five gates wait on a human answer "and on nothing else".
+ * That was not true, and the FINAL BOUNDARY CORRECTION found why: the legacy
+ * `BrazilReceitaFullJoinEnginePublicReport` is serialized to `cli_stdout` by the benchmark path
+ * without passing the GATE-5 closed allowlist. That is an ENGINEERING blocker, it sits outside the
+ * five human decisions, and **no signature discharges it** —
+ * `BRAZIL_RECEITA_GATE5_FIVE_GATES_WAIT_ONLY_ON_HUMANS` is `false`.
+ *
+ * It is disclosed inside the GATE-5 section rather than only in a report, because an approver told
+ * "nothing else is outstanding" is being asked to approve an incomplete picture of the architecture.
  *
  * ── 🔴 This packet is NOT an approval, and its shape is what enforces that ───
  *
@@ -257,6 +268,9 @@ export const BRAZIL_RECEITA_SIGNOFF_GATE5_SUBJECT_TERMS: readonly string[] = [
   'no named municipality counts',
   'no raw rows, no raw cells, no identity keys, no stack, no path on any surface',
   'the allowlist governs and the denylist remains an independent second net',
+  // 🔴 The FINAL BOUNDARY CORRECTION term. The approvers are approving an ARCHITECTURE, not only a
+  // key list, and this is the part of it a reader of the key list alone would never see.
+  'the legacy BR-SOURCE-11A / 14B engine public-report object is NOT a GATE-5 emission schema: a future emitter must project only the closed GATE-5 allowlist',
 ];
 
 const GATE5_SECTION: BrazilReceitaSignoffDecisionSection = {
@@ -272,6 +286,9 @@ const GATE5_SECTION: BrazilReceitaSignoffDecisionSection = {
     'it does not authorize emitting any report from real data',
     'it does not freeze the report SCHEMA while GATE-3 and GATE-4 are open',
     'the implementer of this subject may not supply either half of the approval',
+    // 🔴 The disclosure the FINAL BOUNDARY CORRECTION requires, in the words it specified.
+    'DISCLOSURE: the historical BR-SOURCE-11A/14B engine public-report object is not itself a GATE-5-approved emission schema. Its legacy safety fields must not be directly emitted; a future emitter must project only the closed GATE-5 allowlist.',
+    'DISCLOSURE: a direct emitter of that legacy object to cli_stdout EXISTS today on the benchmark path (gated behind the attempt-limit wall, the second-attempt owner wall and three operator approvals). It is an ENGINEERING blocker that this approval does not discharge and must not be read as discharging.',
   ],
   responseFields: [
     verdictField('GATE5_OUTPUT_SANITIZATION'),
@@ -333,6 +350,25 @@ export const BRAZIL_RECEITA_SIGNOFF_COVERED_GATES: readonly number[] = [2, 3, 4,
 /** GATE-7 is deliberately absent: it is not waiting on a signature, it is waiting on these five. */
 export const BRAZIL_RECEITA_SIGNOFF_GATE7_ABSENT_REASON =
   'GATE-7 is blocked by GATE-2, GATE-5 and GATE-6 rather than by a missing signature of its own; it becomes reviewable only after they are approved' as const;
+
+/**
+ * 🔴 What is outstanding BESIDES the five human answers.
+ *
+ * Kept as its own list so the packet can never again imply that a human signature is the last thing
+ * standing. An engineering blocker is not a gate blocker and not a signature — it is work, and it is
+ * owned by engineering.
+ */
+export const BRAZIL_RECEITA_SIGNOFF_NON_HUMAN_OUTSTANDING_ITEMS: readonly string[] = [
+  'ENGINEERING: the legacy engine public report is serialized to cli_stdout on the benchmark path without passing the GATE-5 closed allowlist — see br-receita-cnpj-gate5-engine-report-boundary',
+];
+
+/**
+ * 🔴 Whether the five gates are the ONLY thing outstanding. They are not — see the list above.
+ *
+ * A boolean rather than prose, because the sentence it replaces ("and on nothing else") read as
+ * reassurance and was wrong.
+ */
+export const BRAZIL_RECEITA_SIGNOFF_HUMAN_ANSWERS_ARE_THE_ONLY_REMAINING_WORK = false as const;
 
 // ─── The refusal ──────────────────────────────────────────────────────────────
 

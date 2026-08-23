@@ -1013,6 +1013,17 @@ describe('GATE-ROUND-3 · logs and console obey the same universal set, with no 
 
   it('the BR connector emits nothing to console or to a process stream, today', () => {
     // The negative guard: a future console call in this flow is a source change this test fails on.
+    //
+    // 🔴 Matched as a CALL, and with quoted string literals removed first. A module whose JOB is to
+    // record where an emission happens necessarily NAMES `process.stdout.write` in prose data —
+    // `br-receita-cnpj-gate5-engine-report-boundary` does exactly that — and a bare-substring guard
+    // flags the record for describing the defect it exists to describe. Template literals are kept,
+    // because that is where a real `write(`${...}`)` interpolation lives.
+    const executableOnly = (source: string): string =>
+      codeWithoutComments(source)
+        .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+        .replace(/"(?:[^"\\\n]|\\.)*"/g, '""');
+
     const dir = new URL('../', import.meta.url);
     const files = fs
       .readdirSync(dir)
@@ -1020,11 +1031,11 @@ describe('GATE-ROUND-3 · logs and console obey the same universal set, with no 
     assert.ok(files.length > 50, 'expected the connector directory to be enumerated');
     const offenders: string[] = [];
     for (const name of files) {
-      const code = codeWithoutComments(fs.readFileSync(new URL(name, dir), 'utf8'));
-      if (/\bconsole\s*\.\s*(log|info|warn|error|debug|trace|dir|table)\b/.test(code)) {
+      const code = executableOnly(fs.readFileSync(new URL(name, dir), 'utf8'));
+      if (/\bconsole\s*\.\s*(log|info|warn|error|debug|trace|dir|table)\s*\(/.test(code)) {
         offenders.push(`${name} (console)`);
       }
-      if (/\bprocess\s*\.\s*std(out|err)\s*\.\s*write\b/.test(code)) {
+      if (/\bprocess\s*\.\s*std(out|err)\s*\.\s*write\s*\(/.test(code)) {
         offenders.push(`${name} (process stream)`);
       }
     }

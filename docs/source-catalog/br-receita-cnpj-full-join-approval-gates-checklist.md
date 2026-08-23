@@ -1292,6 +1292,97 @@ earlier partial review moot.
 
 ---
 
+### 9.3 The GATE-5 / legacy engine-report BOUNDARY, and one open engineering blocker (BR-SOURCE-FAST-TRACK-6, FINAL BOUNDARY CORRECTION)
+
+**Status:** unchanged — `ready_for_review`. This subsection records a CONTRACT BOUNDARY and one OPEN
+DEFECT. It approves nothing and resolves nothing.
+
+**The gap the FAST-TRACK-6 report surfaced.** `BrazilReceitaFullJoinEnginePublicReport`
+(BR-SOURCE-11A / 14B) predates GATE-5 and carries three keys GATE-5 refuses:
+
+| legacy key | § 5.2 group | in the § 6 allowlist | GATE-5 disposition |
+|------------|-------------|----------------------|--------------------|
+| `rows_emitted` | **7** (`row`) | no | `LEGACY_ENGINE_INTERNAL_SAFETY_FACT` |
+| `raw_rows_printed` | **7** (`raw`, `row`) | no | `LEGACY_ENGINE_INTERNAL_SAFETY_FACT` |
+| `zero_output_rows_enforced` | **7** (`row`) | no | `LEGACY_ENGINE_INTERNAL_SAFETY_FACT` |
+
+The object is classified **`LEGACY_ENGINE_SANITIZED_REPORT_SHAPE`**. It is **not**, by itself, an
+approved GATE-5 external emission, and it may be used only as internal / pre-projection input.
+
+🔴 **The word `PublicReport` is a MISNOMER and it is the dangerous one.** It means "the non-private half
+of the engine's output" — the counterpart to the private operator measurement artifact — and it predates
+GATE-5 entirely. It has never meant "approved for public emission".
+`BRAZIL_RECEITA_GATE5_LEGACY_REPORT_NAME_IMPLIES_APPROVAL` is `false`.
+
+**Nothing was renamed, and the consumer evidence is why.** Every consumer was inspected *before* any
+change: the engine builds it, the benchmark embeds it, the throughput harness sanitizes it, and three
+suites assert its fields **by name**. `raw_rows_printed` is decisive — it is a privacy **safety fact**
+asserted `false` across the dry-run runner's own safety block, the 11A output-sanitizer suite, three
+operator scripts and seven decision records. Renaming it would rewrite a claim other code checks, not
+tidy a legacy name. `..._SHAPE_CHANGED` is `false` and `..._RENAME_PROVEN_CONTRACT_SAFE` is `false`.
+
+🔴 **`rows_emitted` is NOT mapped to `records_persisted`.** Emitted and persisted are different
+semantics: one counts rows handed to a sink, the other counts records durably written. Both read zero
+today under `maxOutputRows = 0` and a null sink, and *a coincidence of value at one operating point is
+not an equivalence of meaning* — it is how a wrong mapping survives review. No existing contract proves
+it, so `translatesToApprovedGate5Key` is `null` for all three keys, and no new output key was invented
+to preserve a legacy name.
+
+**🔴 THE OPEN ENGINEERING BLOCKER — a direct emitter EXISTS.**
+
+```
+full-join-engine              builds the legacy engine report
+  → real-full-scan-benchmark  passes it through the 11A sanitizer         → PASSES
+  → releasedEngineReport      the WHOLE object, released when 11A says ok
+  → BrazilReceitaRealFullScanPublicReport.engine_report    embedded whole
+  → run-…-real-full-scan-resource-benchmark.ts             process.stdout.write(JSON.stringify(…))
+  → cli_stdout                                             ← a GATE-5 surface
+```
+
+**Why it survives today, and this is the finding worth remembering:** BR-SOURCE-11A is a **denylist over
+dataset-looking content**. `rows_emitted: 0` and `raw_rows_printed: false` look like nothing at all, so
+11A returns `ok` and has no opinion about whether anybody reviewed the keys. **Only the § 6 allowlist
+refuses a key by ABSENCE**, and the § 6 allowlist is not on that path. The round's suite proves both
+halves by EXECUTION: 11A returns `{ok: true, findings: []}` on the three keys, and the GATE-5 guard
+returns **six** findings — three `KEY-ALLOWLIST`, three `KEY-DENYLIST` group 7.
+
+It is **gated**, not live: the attempt-limit wall (attempt #3 refused unconditionally), the
+second-attempt owner wall, and three process-scoped operator approvals each from its own CLI flag. It is
+not a Next.js runtime path.
+
+It is **not fixed here**, deliberately. The fix is a projection; a projection is a report emitter; a
+report emitter is runner code § 4 forbids while any gate is unapproved. Changing the benchmark's own
+public-report shape instead would alter a *second* pre-existing contract to work around the first.
+
+🔴 **The defect is not hidden behind an allowlist.** The round's suite sweeps the connector and the
+operator scripts for emission sites and asserts the discovered set **EQUALS** the recorded set — a
+ratchet. It does **not** assert zero (zero is false, and a false assertion of zero is worse than none)
+and it does **not** exclude the offending file. A new emitter fails the suite; so does silently deleting
+the record.
+
+**Required future pipeline.** `GATE5_ENGINE_REPORT_PROJECTION_REQUIRED = true`:
+
+```
+engine observations → legacy engine report / internal safety facts → GATE-5 projection
+  → GATE-5 allowlist → GATE-5 denylist + value guards → external output
+```
+
+Never `engine report → external output`. The projection is **not** implemented and its implementation is
+**not** authorized now.
+
+**Consequence for the human packet.** `BRAZIL_RECEITA_GATE5_FIVE_GATES_WAIT_ONLY_ON_HUMANS` is `false`.
+The packet's earlier *"and on nothing else"* wording is withdrawn, and the GATE-5 human section now
+carries the disclosure verbatim, so the approvers approve the actual architecture rather than an
+incomplete picture. `brazilReceitaGate5EngineReportBoundaryResolved()` is DERIVED from two halves — the
+contract half is recorded (`true`), the engineering half is not clear (`false`) — so "documented" can
+never be reported as "fixed".
+
+**What this subsection does not do.** It moves no gate, weakens no invariant, touches neither the legacy
+report nor 11A nor either GATE-5 list, implements no projection, and authorizes no run, benchmark,
+rehearsal, migration, Supabase write or provider call.
+
+---
+
 ## 10. GATE-6 — Failure cleanup contract
 
 **Governs (10J § 13):** confirms 10J § 9 — cleanup on completion **and** failure, with

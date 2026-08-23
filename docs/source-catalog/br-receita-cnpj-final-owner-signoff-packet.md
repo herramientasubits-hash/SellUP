@@ -9,9 +9,16 @@
 
 ## 0. What this packet is, and what it is not
 
-Five gates are waiting on a named human's answer and on nothing else. This packet is the set of
-questions those humans need, each with its exact wording, its required role or roles, its required
-response fields, and the restrictions the answer carries.
+Five gates are waiting on a named human's answer. This packet is the set of questions those humans
+need, each with its exact wording, its required role or roles, its required response fields, and the
+restrictions the answer carries.
+
+🔴 **A human answer is not the last thing outstanding, and an earlier draft of this packet wrongly
+implied it was.** It said the five gates wait on a human answer *"and on nothing else"*. The FINAL
+BOUNDARY CORRECTION found why that was false — see **§ 4.1** — and the wording is withdrawn.
+`BRAZIL_RECEITA_SIGNOFF_HUMAN_ANSWERS_ARE_THE_ONLY_REMAINING_WORK` is `false`, and the outstanding
+non-human item is enumerated in `BRAZIL_RECEITA_SIGNOFF_NON_HUMAN_OUTSTANDING_ITEMS`. It is an
+**engineering** blocker: no signature discharges it.
 
 🔴 **This packet is not an approval, and nothing in it may be read as one.** Every response field below
 is deliberately **blank**. `BRAZIL_RECEITA_SIGNOFF_PACKET_IS_AN_APPROVAL` is `false`, and
@@ -236,6 +243,8 @@ terms are enumerated below rather than referenced by round, so nobody blesses a 
 > named municipality counts    =  PROHIBITED
 > raw rows / raw cells / identity keys / stack / path  =  PROHIBITED on every surface
 > the allowlist governs; the denylist remains an independent second net
+> the legacy 11A/14B engine public-report object is NOT a GATE-5 emission schema;
+>   a future emitter must project only the closed GATE-5 allowlist
 > ```
 
 ### What changed since Round 3, stated for the review
@@ -274,10 +283,76 @@ immutable key forced a carve-out to survive.
 8. whether real local file paths in a manifest are sensitive — 10O § 12 raises the question and does not
    answer it.
 
+### 4.1 🔴 REQUIRED DISCLOSURE — the legacy engine report is not a GATE-5 emission schema
+
+The approvers are being asked to approve an **architecture**, not only a key list, so the part a reader
+of the key list alone would never see is stated here.
+
+> The historical BR-SOURCE-11A/14B engine public-report object is not itself a GATE-5-approved emission
+> schema. Its legacy safety fields must not be directly emitted; a future emitter must project only the
+> closed GATE-5 allowlist.
+
+**What the object is.** `BrazilReceitaFullJoinEnginePublicReport` predates GATE-5 and carries three keys
+GATE-5 refuses — `rows_emitted`, `raw_rows_printed`, `zero_output_rows_enforced`. All three trip § 5.2
+**group 7** (`raw` / `row`) and none is named in the § 6 allowlist. It is classified
+`LEGACY_ENGINE_SANITIZED_REPORT_SHAPE`, and 🔴 the word *Public* in its name means "the non-private half
+of the engine's output" — **never** "approved for emission".
+
+**Why the three keys were NOT renamed.** Every consumer was inspected first. The engine builds it, the
+benchmark embeds it, the throughput harness sanitizes it, and three suites assert its fields **by name**
+— and `raw_rows_printed` is a privacy **safety fact** asserted `false` across the dry-run runner's own
+safety block, the 11A sanitizer suite, three operator scripts and seven decision records. Renaming it
+would rewrite a claim other code checks, so the historical shape is **unchanged**. The three keys are
+classified `LEGACY_ENGINE_INTERNAL_SAFETY_FACT`: they may remain in the legacy object and may **never**
+survive to a GATE-5 surface.
+
+🔴 **`rows_emitted` is deliberately NOT mapped to `records_persisted`.** Emitted and persisted are
+different semantics — one counts rows handed to a sink, the other counts records durably written. Both
+read zero today under `maxOutputRows = 0` and a null sink, and *a coincidence of value at one operating
+point is not an equivalence of meaning*. No existing contract proves it, so no mapping is asserted and
+no new output key was invented to preserve a legacy name.
+
+**🔴 The open ENGINEERING blocker.** A direct emitter **exists today**:
+
+```
+full-join-engine                 builds the legacy engine report
+  → real-full-scan-benchmark     passes it through the 11A sanitizer            → PASSES
+  → releasedEngineReport         the WHOLE object is released when 11A says ok
+  → BrazilReceitaRealFullScanPublicReport.engine_report   embedded whole
+  → run-…-real-full-scan-resource-benchmark.ts            process.stdout.write(JSON.stringify(…))
+  → cli_stdout                                            ← a GATE-5 surface
+```
+
+Why it survives: **11A is a denylist over dataset-looking content.** `rows_emitted: 0` and
+`raw_rows_printed: false` look like nothing at all, so 11A returns `ok` and has no opinion about whether
+anybody reviewed the keys. Only the § 6 allowlist refuses a key by **absence**, and it is not on that
+path. Running the GATE-5 guard over the same three keys returns **six** findings — three
+`KEY-ALLOWLIST`, three `KEY-DENYLIST` group 7 — and the suite proves both halves by execution.
+
+It is **gated**, not live: the attempt-limit wall (attempt #3 refused unconditionally), the
+second-attempt owner wall, and three process-scoped operator approvals each from its own CLI flag. It is
+not a Next.js runtime path.
+
+It is **not fixed here**, deliberately: the fix is a projection, a projection is a report emitter, and a
+report emitter is runner code that 10K § 4 forbids while any gate is unapproved. Changing the
+benchmark's own public-report shape instead would alter a *second* pre-existing contract to work around
+the first.
+
+**Required future pipeline** (`GATE5_ENGINE_REPORT_PROJECTION_REQUIRED = true`):
+
+```
+engine observations → legacy engine report / internal safety facts → GATE-5 projection
+  → GATE-5 allowlist → GATE-5 denylist + value guards → external output
+```
+
+Never `engine report → external output`.
+
 ### What an approval is bounded by
 
 - it authorizes writing sanitization **tests** in a future, separately approved milestone, and nothing
   else;
+- 🔴 it does **not** discharge the engineering blocker above, and must not be read as approving the
+  legacy object as an emission schema;
 - it does not authorize executing the full join, nor emitting any report from real data;
 - it does not freeze the report SCHEMA while GATE-3 and GATE-4 are open;
 - 🔴 the implementer of this subject may supply **neither** half of the approval (10K § 3), and
@@ -343,6 +418,24 @@ writing full-join runner code while any gate is unapproved
 
 `BRAZIL_RECEITA_SIGNOFF_STILL_FORBIDDEN_AFTER_EVERY_APPROVAL` carries this list as data, and the
 round's suite asserts it against the packet.
+
+### 6.1 🔴 The remaining engineering blocker, which no signature discharges
+
+```
+ENGINEERING: the legacy engine public report is serialized to cli_stdout on the
+             benchmark path without passing the GATE-5 closed allowlist.
+owner:                        engineering
+discharged by a human approval: NO
+discharged by this round:       NO
+fix shape:  project the legacy report through the GATE-5 allowlist before it is
+            embedded, OR stop embedding it whole — both are report-emitter work
+            that 10K § 4 defers until the gates are approved
+```
+
+Owned by `br-receita-cnpj-gate5-engine-report-boundary`, where the emitter is enumerated with its exact
+chain. The round's suite **ratchets** on that set: a new emitter fails the suite, and so does silently
+deleting the record. It does not assert zero, because zero would be false — and it does not exclude the
+offending file, because excluding it would be hiding the defect behind an allowlist.
 
 ---
 

@@ -2569,6 +2569,51 @@ jobs:
       - name: Run BR-SOURCE FAST-TRACK-6 GATE-5 cleanup and GATE-7 runbook tests
         run: npm run test:br-source:fast-track6-gate5-and-gate7
 
+      # BR-SOURCE-FAST-TRACK-6 CORRECCIÓN FINAL DE FRONTERA — GATE-5 vs. el informe
+      # HISTÓRICO del motor (11A/14B).
+      #
+      # 🔴 ESTA SUITE DOCUMENTA UN DEFECTO ABIERTO. No afirma cero.
+      #
+      # Lo que congela:
+      #
+      #   · `BrazilReceitaFullJoinEnginePublicReport` queda clasificado
+      #     LEGACY_ENGINE_SANITIZED_REPORT_SHAPE: NO es una emisión aprobada de GATE-5.
+      #     🔴 `PublicReport` es un NOMBRE ENGAÑOSO —significa «la mitad no privada de la
+      #     salida del motor», nunca «aprobado para emitir»— y es anterior a GATE-5.
+      #   · las 3 claves históricas (`rows_emitted`, `raw_rows_printed`,
+      #     `zero_output_rows_enforced`) quedan como LEGACY_ENGINE_INTERNAL_SAFETY_FACT:
+      #     pueden seguir en el objeto histórico, NUNCA sobrevivir a una superficie GATE-5.
+      #   · 🔴 NADA se renombró, y la EVIDENCIA de consumidores dice por qué: el motor lo
+      #     construye, el benchmark lo incrusta, el harness lo sanea y 3 suites afirman sus
+      #     campos POR NOMBRE. `raw_rows_printed` es un HECHO DE SEGURIDAD afirmado false en
+      #     el runner, la suite del sanitizador 11A, 3 scripts y 7 decision records.
+      #   · 🔴 `rows_emitted` NO se mapea a `records_persisted`: emitido ≠ persistido. Hoy
+      #     ambos leen 0 con maxOutputRows=0 y sink nulo, y una coincidencia de VALOR en un
+      #     punto de operación no es una equivalencia de SIGNIFICADO.
+      #   · 🔴 LA ASIMETRÍA, probada EJECUTANDO las dos capas: 11A devuelve
+      #     {ok:true,findings:[]} sobre las 3 claves (es un DENYLIST de contenido que parece
+      #     dato; `0` y `false` no parecen nada) y el guard de GATE-5 devuelve 6 hallazgos
+      #     (3 KEY-ALLOWLIST + 3 KEY-DENYLIST grupo 7). Sólo el allowlist § 6 rechaza una
+      #     clave por AUSENCIA — y no está en esa ruta.
+      #   · 🔴 EXISTE UN EMISOR DIRECTO: la ruta de benchmark serializa el informe histórico
+      #     entero a cli_stdout. Está ENUMERADO con su cadena exacta y sus 3 murallas de
+      #     alcance. La suite es un RATCHET: el conjunto descubierto debe IGUALAR al
+      #     registrado. No se afirma cero (sería falso) ni se excluye el archivo (sería
+      #     esconderlo tras un allowlist).
+      #   · GATE5_ENGINE_REPORT_PROJECTION_REQUIRED=true con el pipeline y el ATAJO
+      #     PROHIBIDO como datos separados. La proyección NO se implementa: es código de
+      #     emisor, y § 4 lo prohíbe mientras haya una gate sin aprobar.
+      #   · el veredicto de frontera se DERIVA de dos mitades (contrato registrado = true,
+      #     ingeniería limpia = false) ⇒ «documentado» nunca se puede reportar como
+      #     «arreglado». FIVE_GATES_WAIT_ONLY_ON_HUMANS = false, y el packet humano lo
+      #     DIVULGA en la sección de GATE-5.
+      #   · 0 gates movidas: 1..8 exactamente iguales, veredicto NO-GO.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales, sin
+      # benchmark, sin ensayo. 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run BR-SOURCE FAST-TRACK-6 engine-report boundary tests
+        run: npm run test:br-source:fast-track6-engine-report-boundary
+
       # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 20 — la demanda RESIDUAL y la
       # memoria PREVIA.
       #
