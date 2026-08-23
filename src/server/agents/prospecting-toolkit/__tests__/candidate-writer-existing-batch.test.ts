@@ -313,7 +313,20 @@ describe('T01: without existingBatchId → INSERT new batch (historical behavior
 
     assert.equal(result.batchId, NEW_BATCH_ID);
     assert.equal(stats.batchInsertCalls.length, 1);
-    assert.equal(stats.batchUpdateCalls.length, 1); // post-loop metadata update only
+    // CUT-1 CORRECTION § 3 — dos UPDATE: la escritura garantizada del estado
+    // terminal y la post-bucle con metadata. Antes eran una sola porque
+    // `ready_for_review` se EXCLUÍA de la escritura garantizada, dando por hecho
+    // que el INSERT de este mismo camino ya lo había puesto. Ese «doy por hecho
+    // que otra escritura anterior lo dejó bien» es justo el razonamiento que
+    // permitió el defecto en el camino de adopción, así que ya no se usa en
+    // ninguno de los dos: el estado terminal se escribe siempre desde una sola
+    // autoridad. En este camino es la reescritura idempotente del MISMO valor
+    // con el que se insertó la fila, así que el estado final no cambia.
+    assert.equal(stats.batchUpdateCalls.length, 2);
+    const [guaranteedStatusWrite, postLoopWrite] = stats.batchUpdateCalls;
+    assert.equal(guaranteedStatusWrite['status'], 'ready_for_review');
+    assert.equal(postLoopWrite['status'], 'ready_for_review');
+    assert.ok(postLoopWrite['metadata'] != null, 'la post-bucle lleva la metadata');
     assert.ok(!result.errors.length, `Unexpected errors: ${result.errors.join(', ')}`);
   });
 
@@ -353,10 +366,28 @@ describe('T02: with valid existingBatchId → UPDATE, no INSERT to prospect_batc
       admin,
     );
 
-    // At least one update call should be the status change (others may be post-loop)
+    // At least one update call should be the adoption write (others are post-loop)
     assert.ok(stats.batchUpdateCalls.length >= 1, 'Expected at least one UPDATE call');
+
+    // CUT-1 CORRECTION § 2 — la PRIMERA UPDATE es la adopción y NO decide estado.
+    // Antes esta prueba exigía lo contrario («First UPDATE must set status =
+    // ready_for_review»), y era exactamente lo que hacía verde el defecto: el
+    // lote pasaba a revisable antes de que nadie pudiera comprobar que hubiera
+    // algo dentro.
+    const adoptionUpdate = stats.batchUpdateCalls[0];
+    assert.ok(
+      !('status' in adoptionUpdate),
+      `la adopción no puede escribir estado; escribió ${JSON.stringify(adoptionUpdate['status'])}`,
+    );
+    assert.ok(adoptionUpdate['metadata'] != null, 'la adopción sí escribe la metadata fusionada');
+
+    // El estado terminal existe, pero lo escribe la finalización, después.
     const statusUpdate = stats.batchUpdateCalls.find(u => u['status'] === 'ready_for_review');
-    assert.ok(statusUpdate, 'First UPDATE must set status = ready_for_review');
+    assert.ok(statusUpdate, 'la finalización tiene que escribir el estado terminal');
+    assert.ok(
+      stats.batchUpdateCalls.indexOf(statusUpdate) > 0,
+      'el estado terminal nunca puede ser la primera escritura de un lote adoptado',
+    );
   });
 });
 
@@ -448,10 +479,14 @@ describe('T06: metadata preservation — wizard fields are not overwritten', () 
       admin,
     );
 
-    // First UPDATE (status change) contains the merged metadata
-    const statusUpdate = stats.batchUpdateCalls.find(u => u['status'] === 'ready_for_review');
-    assert.ok(statusUpdate, 'Status update call not found');
-    const meta = statusUpdate['metadata'] as Record<string, unknown>;
+    // CUT-1 CORRECTION § 2 — la metadata fusionada viaja en la UPDATE de
+    // ADOPCIÓN, que ya no lleva estado. Antes esta prueba localizaba esa
+    // escritura por `status === 'ready_for_review'`, lo que la ataba a la
+    // escritura prematura; ahora se localiza por lo que de verdad la define.
+    const adoptionUpdate = stats.batchUpdateCalls[0];
+    assert.ok(adoptionUpdate, 'Adoption update call not found');
+    assert.ok(!('status' in adoptionUpdate), 'la adopción no decide el estado');
+    const meta = adoptionUpdate['metadata'] as Record<string, unknown>;
 
     // Wizard fields preserved
     assert.equal(meta['request_source'], 'chat_wizard');

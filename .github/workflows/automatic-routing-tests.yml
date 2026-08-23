@@ -2630,3 +2630,38 @@ jobs:
       # 0 créditos.
       - name: Run A1 Lusha mixed two-batch partial-gap containment tests
         run: npm run test:a1-lusha-partial-gap-containment
+      # AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-1 — la SUPERVIVENCIA del lote
+      # entra al check obligatorio.
+      #
+      # El defecto que cierra (P0 G2): el estado terminal del lote se calculaba
+      # sólo con el resultado del ÚLTIMO contribuyente. Un lote que ya contenía,
+      # por ejemplo, 7 candidatos gratuitos durables pasaba a `failed` o a
+      # `completed` porque el escritor de pago insertó 0 o porque el pipeline
+      # murió después. El fallo del proveedor era cierto; el estado del LOTE, no,
+      # y esas 7 filas dejaban de anunciarse como algo que revisar.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que un lote con filas durables vuelva a degradarse a `failed` o a
+      #     `completed` porque un contribuyente posterior escribió 0 —se comprueba
+      #     en los DOS caminos: el resolutor de estado del escritor y
+      #     `markWizardBatchFailed`, y también sobre el escritor REAL con un
+      #     cliente admin falso;
+      #   * que se pierdan los seis casos previos: lote vacío + fallo sigue
+      #     `failed`, y cero limpio sigue `completed`;
+      #   * que «no se pudo determinar cuántas filas hay» se convierta en «hay
+      #     cero» — una sonda ilegible NO escribe estado terminal, ni inventa
+      #     `ready_for_review` ni afirma `failed`;
+      #   * que el total se cuente dos veces: las filas previas se leen ANTES del
+      #     bucle de inserción y la telemetría publica las dos cifras separadas;
+      #   * que un reintento con cero inserciones nuevas degrade un lote que ya
+      #     sobrevivió (idempotencia y monotonicidad);
+      #   * que el criterio de fila durable se ate al filtro de UI
+      #     `isUsefulReviewCandidate`, que oculta candidatos CO reales;
+      #   * que este hito encienda el hueco parcial: Apollo y Lusha siguen en
+      #     `false`, y el módulo nuevo no nombra proveedores, créditos ni
+      #     presupuesto.
+      #
+      # Offline y determinista: sin Supabase, sin red, sin credenciales,
+      # 0 créditos, 0 migraciones.
+      - name: Run Agent 1 mixed free+paid batch survival tests
+        run: npm run test:a1-mixed-batch-survival
