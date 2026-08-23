@@ -524,6 +524,8 @@ describe('4F · F — la exposición se mantiene hasta que el costo queda regist
         action: 'confirm',
         reservationId: 'res-apollo',
         providerKey: 'apollo',
+        // Una pata legacy (sin operationKey) se liquida como lo que siempre fue.
+        operationKey: 'phone_reveal',
         credits: 3,
         costTruth: 'reported',
       },
@@ -542,6 +544,7 @@ describe('4F · F — la exposición se mantiene hasta que el costo queda regist
         action: 'confirm',
         reservationId: 'res-apollo',
         providerKey: 'apollo',
+        operationKey: 'phone_reveal',
         credits: 8,
         costTruth: 'assumed_cap',
       },
@@ -564,6 +567,7 @@ describe('4F · F — la exposición se mantiene hasta que el costo queda regist
       action: 'release',
       reservationId: 'res-lusha',
       providerKey: 'lusha',
+      operationKey: 'phone_reveal',
       reason: 'leg_never_attempted',
     });
   });

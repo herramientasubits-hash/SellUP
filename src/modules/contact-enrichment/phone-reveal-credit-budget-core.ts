@@ -65,8 +65,24 @@
  * candidato no tiene pata Lusha alcanzable, así que su tope es 8 y no 13.
  */
 export type PhoneRevealCreditBudgetMode =
-  /** Apollo (hasta 8) y, si no encuentra teléfono, Lusha (hasta 5). Total 13. */
+  /**
+   * Apollo (hasta 8) y, si no encuentra teléfono, el reveal de Lusha (hasta 5).
+   * Total 13. Es la modalidad de un candidato cuya identidad Lusha YA se conoce —
+   * porque nació en Lusha, o porque una autorización anterior ya la resolvió y la
+   * persistió— así que NO hay que pagar para averiguarla.
+   */
   | 'full_waterfall'
+  /**
+   * Apollo (hasta 8) + búsqueda de identidad en Lusha (hasta 1) + reveal de Lusha
+   * (hasta 5). Total 14.
+   * (AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1)
+   *
+   * Es el candidato nacido en Apollo: alcanzable por Lusha, pero solo DESPUÉS de
+   * pagar por saber con qué id lo conoce Lusha. Ese crédito NO se esconde dentro de
+   * los 5 del reveal — son dos operaciones distintas, contra la misma bolsa, y
+   * fundirlas volvería incontable justamente el gasto que este hito introduce.
+   */
+  | 'full_waterfall_with_identity_search'
   /** Solo Apollo: el candidato no tiene identificador Lusha reutilizable. Total 8. */
   | 'apollo_only'
   /** Solo Lusha: Apollo ya se intentó bajo OTRA autorización. Total 5. */
@@ -94,6 +110,32 @@ export const PHONE_REVEAL_CREDIT_PROVIDER_KEYS = ['apollo', 'lusha'] as const;
 export type PhoneRevealCreditProviderKey =
   (typeof PHONE_REVEAL_CREDIT_PROVIDER_KEYS)[number];
 
+/**
+ * QUÉ operación paga una pata. Espejo del CHECK
+ * `phone_reveal_credit_reservations_operation_key_check` (migración 124).
+ *
+ * El proveedor ya no basta como grano: Lusha cobra DOS cosas distintas en la misma
+ * autorización —averiguar quién es la persona, y darnos su teléfono— y con una sola
+ * fila por proveedor la segunda sería indistinguible de la primera en el ledger.
+ */
+export const PHONE_REVEAL_CREDIT_OPERATION_KEYS = [
+  'phone_reveal',
+  'contact_search',
+] as const;
+
+export type PhoneRevealCreditOperationKey =
+  (typeof PHONE_REVEAL_CREDIT_OPERATION_KEYS)[number];
+
+/**
+ * Tope de la búsqueda de identidad de Lusha: **1 crédito**.
+ *
+ * No es una estimación nuestra. Lusha factura Contact Search a través de `api_search`
+ * y cobra 1 crédito por petición a la API, con un mínimo de 1 incluso cuando la
+ * respuesta no devuelve resultados. Por eso el tope es exactamente 1 y por eso una
+ * búsqueda sin resultados se liquida igual: el mínimo se cobró.
+ */
+export const PHONE_REVEAL_CREDIT_BUDGET_IDENTITY_SEARCH_REQUIRED_CREDITS = 1;
+
 /** Espejo de PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS (8). */
 export const PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS = 8;
 
@@ -106,13 +148,27 @@ export const PHONE_REVEAL_CREDIT_BUDGET_FULL_WATERFALL_REQUIRED_CREDITS =
   PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS;
 
 /**
+ * Espejo de PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_IDENTITY_SEARCH (14 = 8 + 1 + 5).
+ */
+export const PHONE_REVEAL_CREDIT_BUDGET_FULL_WATERFALL_WITH_SEARCH_REQUIRED_CREDITS =
+  PHONE_REVEAL_CREDIT_BUDGET_FULL_WATERFALL_REQUIRED_CREDITS +
+  PHONE_REVEAL_CREDIT_BUDGET_IDENTITY_SEARCH_REQUIRED_CREDITS;
+
+/**
  * UNA pata exigida por la modalidad: qué proveedor y cuántos créditos suyos hacen
  * falta. Es la unidad del modelo per-provider y la unidad de la reserva atómica: cada
  * pata se reserva contra SU propio pozo.
  */
 export interface PhoneRevealCreditRequirement {
   providerKey: PhoneRevealCreditProviderKey;
-  /** Tope de ESA pata (Apollo 8 / Lusha 5). Nunca el total de la autorización. */
+  /**
+   * Qué operación de ese proveedor paga esta pata. Junto con `providerKey` forma la
+   * identidad de la pata en la reserva (migración 124): una autorización puede tener
+   * `lusha/contact_search` y `lusha/phone_reveal` a la vez, y sin este campo serían
+   * la misma fila.
+   */
+  operationKey: PhoneRevealCreditOperationKey;
+  /** Tope de ESA pata (Apollo 8 / Lusha search 1 / Lusha reveal 5). Nunca el total. */
   credits: number;
 }
 
@@ -132,10 +188,34 @@ export function resolvePhoneRevealCreditRequirements(
       return [
         {
           providerKey: 'apollo',
+          operationKey: 'phone_reveal',
           credits: PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
         },
         {
           providerKey: 'lusha',
+          operationKey: 'phone_reveal',
+          credits: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+        },
+      ];
+    // TRES patas, y el orden es el de ejecución: Apollo primero, y solo si no
+    // encuentra teléfono se averigua la identidad Lusha y después se revela. La
+    // búsqueda va ANTES del reveal porque sin ella el reveal no tiene a quién pedirle
+    // nada.
+    case 'full_waterfall_with_identity_search':
+      return [
+        {
+          providerKey: 'apollo',
+          operationKey: 'phone_reveal',
+          credits: PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
+        },
+        {
+          providerKey: 'lusha',
+          operationKey: 'contact_search',
+          credits: PHONE_REVEAL_CREDIT_BUDGET_IDENTITY_SEARCH_REQUIRED_CREDITS,
+        },
+        {
+          providerKey: 'lusha',
+          operationKey: 'phone_reveal',
           credits: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
         },
       ];
@@ -143,6 +223,7 @@ export function resolvePhoneRevealCreditRequirements(
       return [
         {
           providerKey: 'apollo',
+          operationKey: 'phone_reveal',
           credits: PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
         },
       ];
@@ -153,6 +234,7 @@ export function resolvePhoneRevealCreditRequirements(
       return [
         {
           providerKey: 'lusha',
+          operationKey: 'phone_reveal',
           credits: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
         },
       ];
@@ -160,6 +242,7 @@ export function resolvePhoneRevealCreditRequirements(
       return [
         {
           providerKey: 'lusha',
+          operationKey: 'phone_reveal',
           credits: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
         },
       ];
@@ -172,10 +255,17 @@ export function resolvePhoneRevealCreditRequirements(
       return [
         {
           providerKey: 'apollo',
+          operationKey: 'phone_reveal',
           credits: PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
         },
         {
           providerKey: 'lusha',
+          operationKey: 'contact_search',
+          credits: PHONE_REVEAL_CREDIT_BUDGET_IDENTITY_SEARCH_REQUIRED_CREDITS,
+        },
+        {
+          providerKey: 'lusha',
+          operationKey: 'phone_reveal',
           credits: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
         },
       ];
@@ -197,15 +287,32 @@ export function resolvePhoneRevealCreditBudgetRequiredCredits(
   );
 }
 
-/** Modalidad a partir de las dos señales que ya resuelve el servidor. */
+/**
+ * Modalidad a partir de las señales que ya resuelve el servidor.
+ *
+ * `lushaIdentityResolved` es lo que separa 13 de 14, y por eso se responde ANTES del
+ * clic: si la identidad Lusha ya está persistida, esta autorización NO puede gastar
+ * una búsqueda, así que reservar ese crédito le quitaría disponibilidad a otra
+ * operación por un gasto que no puede ocurrir. Ausente ⇒ `false`, que es el valor
+ * MÁS conservador (reserva de más, nunca de menos) y además el que preserva el
+ * comportamiento de todo caller anterior a este hito.
+ */
 export function resolvePhoneRevealCreditBudgetMode(args: {
   /** true cuando la autorización cubre ÚNICAMENTE la pata Lusha (ruta legacy). */
   legacyLushaOnly: boolean;
-  /** true cuando el candidato tiene identificador Lusha reutilizable. */
+  /** true cuando el candidato puede llegar a la pata Lusha. */
   lushaEligible: boolean;
+  /**
+   * true cuando ya se conoce el id nativo de Lusha (candidato nacido en Lusha, o
+   * identidad resuelta y persistida por una autorización anterior).
+   */
+  lushaIdentityResolved?: boolean;
 }): PhoneRevealCreditBudgetMode {
   if (args.legacyLushaOnly) return 'legacy_lusha_only';
-  return args.lushaEligible ? 'full_waterfall' : 'apollo_only';
+  if (!args.lushaEligible) return 'apollo_only';
+  return args.lushaIdentityResolved === true
+    ? 'full_waterfall'
+    : 'full_waterfall_with_identity_search';
 }
 
 /**
@@ -216,7 +323,12 @@ export function resolvePhoneRevealCreditBudgetMode(args: {
 export function resolvePhoneRevealCreditBudgetProviders(
   mode: PhoneRevealCreditBudgetMode,
 ): readonly PhoneRevealCreditProviderKey[] {
-  return resolvePhoneRevealCreditRequirements(mode).map((leg) => leg.providerKey);
+  // DEDUPLICADO: desde que una modalidad puede exigir DOS patas del mismo proveedor
+  // (búsqueda + reveal de Lusha), mapear patas a proveedores devolvería `lusha` dos
+  // veces y el caller leería su pozo dos veces. El pozo es uno.
+  return [
+    ...new Set(resolvePhoneRevealCreditRequirements(mode).map((leg) => leg.providerKey)),
+  ];
 }
 
 // ── Modelo presupuestario ──────────────────────────────────────
@@ -320,8 +432,21 @@ export type PhoneRevealCreditBudgetDecision =
 
 export interface PhoneRevealCreditBudgetLegVerdict {
   providerKey: PhoneRevealCreditProviderKey;
-  /** Tope de esa pata. Siempre presente: es el número que se comparó. */
+  /**
+   * Tope EXIGIDO A ESE POZO. Siempre presente: es el número que se comparó.
+   *
+   * Cuando una modalidad exige varias operaciones del mismo proveedor, es la SUMA de
+   * ellas (Lusha = búsqueda 1 + reveal 5 = 6). Comparar cada operación por separado
+   * contra el mismo saldo es exactamente cómo se autoriza un gasto de 6 sobre un
+   * pozo de 5.
+   */
   requiredCredits: number;
+  /**
+   * Operaciones que componen ese total, en orden de ejecución. Existe para que el
+   * desglose no se pierda al agregar: el pozo se pregunta por 6, pero la auditoría
+   * tiene que poder decir de dónde salen.
+   */
+  operationKeys: readonly PhoneRevealCreditOperationKey[];
   /**
    * Disponible en SU pozo (`limit - consumed - reserved`). `null` cuando no había regla
    * o no se pudo leer — nunca 0 en esos casos: 0 significa "no queda saldo".
@@ -362,14 +487,57 @@ function resolveAvailableCredits(state: {
   return limitCredits - consumedCredits - reserved;
 }
 
-/** Veredicto de UNA pata contra SU pozo. */
+/**
+ * Demanda TOTAL de una modalidad sobre UN pozo: el proveedor, la suma de sus
+ * operaciones y cuáles son. Es la unidad real de la comparación presupuestaria.
+ */
+export interface PhoneRevealCreditPoolDemand {
+  providerKey: PhoneRevealCreditProviderKey;
+  credits: number;
+  operationKeys: readonly PhoneRevealCreditOperationKey[];
+}
+
+/**
+ * Agrupa las patas por PROVEEDOR y suma sus créditos, preservando el orden de
+ * ejecución tanto entre proveedores como dentro de cada uno.
+ *
+ * 🔴 Esta agregación es lo que impide un sobregiro silencioso. El saldo de Lusha es
+ * UNO: la búsqueda y el reveal salen del mismo sitio. Preguntarle "¿tienes 1?" y
+ * luego "¿tienes 5?" son dos preguntas que un pozo con 5 responde que sí, tras lo
+ * cual se le reservan 6. La única pregunta correcta es "¿tienes 6?".
+ */
+export function resolvePhoneRevealCreditPoolDemands(
+  mode: PhoneRevealCreditBudgetMode,
+): readonly PhoneRevealCreditPoolDemand[] {
+  const byProvider = new Map<PhoneRevealCreditProviderKey, PhoneRevealCreditPoolDemand>();
+  for (const requirement of resolvePhoneRevealCreditRequirements(mode)) {
+    const existing = byProvider.get(requirement.providerKey);
+    if (existing) {
+      byProvider.set(requirement.providerKey, {
+        providerKey: requirement.providerKey,
+        credits: existing.credits + requirement.credits,
+        operationKeys: [...existing.operationKeys, requirement.operationKey],
+      });
+      continue;
+    }
+    byProvider.set(requirement.providerKey, {
+      providerKey: requirement.providerKey,
+      credits: requirement.credits,
+      operationKeys: [requirement.operationKey],
+    });
+  }
+  return [...byProvider.values()];
+}
+
+/** Veredicto de UN pozo contra la demanda AGREGADA de la modalidad sobre él. */
 function evaluateLeg(
-  requirement: PhoneRevealCreditRequirement,
+  requirement: PhoneRevealCreditPoolDemand,
   state: PhoneRevealCreditPoolState | undefined,
 ): PhoneRevealCreditBudgetLegVerdict {
   const base = {
     providerKey: requirement.providerKey,
     requiredCredits: requirement.credits,
+    operationKeys: requirement.operationKeys,
   };
 
   // Un proveedor exigido para el que no llegó pozo NO es "sin límite": es un dato que
@@ -432,6 +600,9 @@ export function evaluatePhoneRevealCreditBudget(args: {
 }): PhoneRevealCreditBudgetVerdict {
   const requirements = resolvePhoneRevealCreditRequirements(args.mode);
   const requiredCredits = requirements.reduce((total, leg) => total + leg.credits, 0);
+  // Una demanda por POZO, no una por pata: dos operaciones del mismo proveedor
+  // compiten por el mismo saldo y se comparan sumadas.
+  const demands = resolvePhoneRevealCreditPoolDemands(args.mode);
 
   if (args.budget.model === 'shared') {
     // Pozo único: la pata sintética es la autorización COMPLETA, así que su tope es el
@@ -441,6 +612,7 @@ export function evaluatePhoneRevealCreditBudget(args: {
       {
         providerKey: requirements[0]?.providerKey ?? 'apollo',
         credits: requiredCredits,
+        operationKeys: requirements.map((requirement) => requirement.operationKey),
       },
       args.budget.pool,
     );
@@ -450,8 +622,8 @@ export function evaluatePhoneRevealCreditBudget(args: {
   const byProvider = new Map<string, PhoneRevealCreditPoolState>(
     args.budget.pools.map((pool) => [pool.providerKey, pool.state]),
   );
-  const legs = requirements.map((requirement) =>
-    evaluateLeg(requirement, byProvider.get(requirement.providerKey)),
+  const legs = demands.map((demand) =>
+    evaluateLeg(demand, byProvider.get(demand.providerKey)),
   );
 
   return { decision: aggregateDecision(legs), requiredCredits, legs };

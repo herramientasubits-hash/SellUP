@@ -332,11 +332,22 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
       migrations.filter((f) => f.toLowerCase().includes('provider_seen')),
       ['123_provider_seen_entities.sql'],
     );
+    // La 124 la tomó AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 (identidad
+    // provider-native del reveal de TELÉFONO, Agente 2A). Este corte sigue sin aportar
+    // ninguna, y eso se comprueba por AUTORÍA además de por número: un número libre no
+    // demuestra nada si mañana otro hito lo ocupa.
     assert.equal(
-      migrations.filter((f) => f.startsWith('124')).length,
+      migrations.filter((f) => f.startsWith('125')).length,
       0,
       'este corte no añade migración',
     );
+    for (const file of migrations.filter((f) => f.startsWith('124'))) {
+      assert.equal(
+        read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
+        false,
+        `${file} no puede ser autoría de este corte`,
+      );
+    }
   });
 });
 

@@ -97,7 +97,18 @@ describe('modelo de datos — sin migración nueva', () => {
     const numbers = files
       .map((f) => Number.parseInt(f.slice(0, 3), 10))
       .filter((n) => Number.isFinite(n));
-    assert.equal(Math.max(...numbers), 123, 'este hito no crea migraciones');
+    // El techo sube cuando un hito AUTORIZADO añade la suya, y lo que esta guarda
+    // protege es que no lo mueva ESTE. La 124 la aporta
+    // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 (identidad provider-native,
+    // grano de reserva por operación, claim propio de la búsqueda) y trae su propia
+    // guarda estática; el gate de novedad de este hito sigue sin SQL propio, que es lo
+    // que se comprueba justo debajo leyendo su fuente.
+    assert.equal(Math.max(...numbers), 124, 'el techo conocido es la 124');
+    assert.equal(
+      GATE_SOURCE.includes('supabase/migrations'),
+      false,
+      'el gate de novedad no depende de ninguna migración propia',
+    );
   });
 
   it('la identidad nativa se lee de source_contact_id, no de apollo_person_id', () => {

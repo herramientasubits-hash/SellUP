@@ -181,14 +181,22 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
     .sort();
   assert.deepEqual(
     above,
-    ['123_provider_seen_entities.sql'],
-    'ninguna migración nueva salvo la memoria provider-seen',
+    [
+      '123_provider_seen_entities.sql',
+      // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1: identidad provider-native del
+      // reveal de TELÉFONO (Agente 2A). No tiene nada que ver con la capa gratuita de
+      // descubrimiento que esta guarda protege — no nombra `prospect_candidates`,
+      // `provider_seen_entities` ni ninguna tabla de wizard— y trae su propia guarda
+      // estática. Se declara NO aplicada en Producción.
+      '124_cross_provider_phone_identity.sql',
+    ],
+    'ninguna migración nueva salvo la memoria provider-seen y la identidad cross-provider',
   );
 
   // 🔴 Ratchet invertido en AGENT1-PROVIDER-SEEN-MEMORY-3: la 123 YA está aplicada
   // en Producción (`20260820153919`). Lo que esta prueba defiende no cambia —que el
   // archivo diga la verdad sobre Producción— pero la verdad sí.
-  const sql = read(`supabase/migrations/${above[0]}`);
+  const sql = read('supabase/migrations/123_provider_seen_entities.sql');
   assert.ok(!sql.includes('APPLIED IN PRODUCTION: NO'));
   assert.ok(sql.includes('✅ APPLIED IN PRODUCTION'));
   assert.ok(sql.includes('20260820153919'));

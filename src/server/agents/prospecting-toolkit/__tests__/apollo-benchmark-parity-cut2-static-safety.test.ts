@@ -463,7 +463,17 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
       migrations.filter((f) => f.toLowerCase().includes('provider_seen')),
       ['123_provider_seen_entities.sql'],
     );
-    assert.equal(migrations.filter((f) => f.startsWith('124')).length, 0);
+    // La 124 la tomó AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 (Agente 2A,
+    // teléfono). Este corte sigue sin aportar ninguna: se comprueba por número libre y
+    // por AUTORÍA, porque un número ocupado por otro hito no es una infracción de este.
+    assert.equal(migrations.filter((f) => f.startsWith('125')).length, 0);
+    for (const file of migrations.filter((f) => f.startsWith('124'))) {
+      assert.equal(
+        read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
+        false,
+        `${file} no puede ser autoría de este corte`,
+      );
+    }
   });
 
   it('el módulo de demanda es PURO: sin env, sin reloj, sin red, sin DB', () => {

@@ -154,6 +154,9 @@ describe('reserva — patas construidas desde la modalidad y el presupuesto', ()
     });
     assert.deepEqual(legs[0], {
       providerKey: 'apollo',
+      // La pata declara TAMBIÉN su operación desde la migración 124: es lo que
+      // permite que una autorización tenga dos patas del mismo proveedor.
+      operationKey: 'phone_reveal',
       credits: 8,
       limitCredits: 20,
       consumedCredits: 3,
@@ -437,6 +440,8 @@ describe('liquidación — costo reportado, costo desconocido y pata no ejecutad
         action: 'confirm',
         reservationId: 'res-apollo',
         providerKey: 'apollo',
+        // Una pata legacy (sin operationKey) se liquida como lo que siempre fue.
+        operationKey: 'phone_reveal',
         credits: 3,
         costTruth: 'reported',
       },
@@ -508,6 +513,7 @@ describe('liquidación — costo reportado, costo desconocido y pata no ejecutad
         action: 'confirm',
         reservationId: 'res-apollo',
         providerKey: 'apollo',
+        operationKey: 'phone_reveal',
         credits: 8,
         costTruth: 'reported',
       },
@@ -515,6 +521,7 @@ describe('liquidación — costo reportado, costo desconocido y pata no ejecutad
         action: 'release',
         reservationId: 'res-lusha',
         providerKey: 'lusha',
+        operationKey: 'phone_reveal',
         reason: 'leg_never_attempted',
       },
     ]);

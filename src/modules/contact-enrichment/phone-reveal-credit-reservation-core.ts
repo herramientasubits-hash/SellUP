@@ -54,6 +54,7 @@ import {
   resolvePhoneRevealCreditRequirements,
   type PhoneRevealCreditBudgetInput,
   type PhoneRevealCreditBudgetMode,
+  type PhoneRevealCreditOperationKey,
   type PhoneRevealCreditPoolState,
   type PhoneRevealCreditProviderKey,
 } from './phone-reveal-credit-budget-core';
@@ -115,7 +116,18 @@ export type PhoneRevealCreditReservationReleaseReason =
  */
 export interface PhoneRevealCreditReservationLeg {
   providerKey: PhoneRevealCreditProviderKey;
-  /** Tope de la pata (Apollo 8 / Lusha 5). */
+  /**
+   * Operación que esta pata paga. Junto con `providerKey` es la IDENTIDAD de la fila
+   * en la migración 124 (`uq_..._group_op`), así que sin él las dos patas de Lusha de
+   * una misma autorización colisionarían en la misma fila.
+   *
+   * OPCIONAL, y su ausencia se lee como `phone_reveal`. Es el MISMO default que el
+   * `COALESCE(leg->>'operation_key', 'phone_reveal')` del SQL y que el DEFAULT de la
+   * columna, a propósito: un payload anterior a 124 tiene que producir exactamente la
+   * misma fila que producía antes, aquí y en la base, sin que nadie lo reescriba.
+   */
+  operationKey?: PhoneRevealCreditOperationKey;
+  /** Tope de la pata (Apollo 8 / Lusha search 1 / Lusha reveal 5). */
   credits: number;
   /**
    * `budget_rules.limit_credits`. `null` ⇒ NO hay presupuesto configurado: la reserva
@@ -143,7 +155,24 @@ export interface PhoneRevealCreditReservationRequest {
 export interface PhoneRevealCreditReservedLeg {
   id: string;
   providerKey: PhoneRevealCreditProviderKey;
+  /**
+   * Operación reservada. OPCIONAL a propósito: una fila anterior a la migración 124
+   * no lo trae, y el lector la interpreta como `phone_reveal`, que es exactamente lo
+   * que siempre fue. Así ninguna reserva histórica cambia de significado.
+   */
+  operationKey?: PhoneRevealCreditOperationKey;
   creditsReserved: number;
+}
+
+/**
+ * Operación de una pata reservada, con el DEFAULT histórico aplicado. Es la única
+ * forma en que este módulo lee `operationKey`: nunca directamente, para que una fila
+ * legacy (sin el campo) y una fila nueva de reveal se comporten idénticamente.
+ */
+export function resolveReservedLegOperationKey(leg: {
+  operationKey?: PhoneRevealCreditOperationKey;
+}): PhoneRevealCreditOperationKey {
+  return leg.operationKey ?? 'phone_reveal';
 }
 
 /** Detalle por pata de un rechazo. PII-free: proveedor y cifras, nada más. */
@@ -203,16 +232,26 @@ export function buildPhoneRevealCreditReservationLegs(args: {
     const total = requirements.reduce((sum, leg) => sum + leg.credits, 0);
     const state = args.budget.pool;
     return [
-      toReservationLeg(requirements[0]?.providerKey ?? 'apollo', total, state),
+      toReservationLeg(
+        requirements[0]?.providerKey ?? 'apollo',
+        requirements[0]?.operationKey ?? 'phone_reveal',
+        total,
+        state,
+      ),
     ];
   }
 
   const byProvider = new Map(
     args.budget.pools.map((pool) => [pool.providerKey, pool.state]),
   );
+  // UNA fila por (proveedor × operación) — NO por proveedor. La reserva conserva el
+  // desglose que el presupuesto agrega, porque es el ledger: liquidar 6 créditos de
+  // Lusha sin poder decir cuántos fueron búsqueda y cuántos teléfono es exactamente
+  // la auditabilidad que este hito existe para no perder.
   return requirements.map((requirement) =>
     toReservationLeg(
       requirement.providerKey,
+      requirement.operationKey,
       requirement.credits,
       byProvider.get(requirement.providerKey),
     ),
@@ -221,6 +260,7 @@ export function buildPhoneRevealCreditReservationLegs(args: {
 
 function toReservationLeg(
   providerKey: PhoneRevealCreditProviderKey,
+  operationKey: PhoneRevealCreditOperationKey,
   credits: number,
   state: PhoneRevealCreditPoolState | undefined,
 ): PhoneRevealCreditReservationLeg {
@@ -231,6 +271,7 @@ function toReservationLeg(
     // porque una pata sin límite no llega al INSERT.
     return {
       providerKey,
+      operationKey,
       credits,
       limitCredits: null,
       consumedCredits: 0,
@@ -242,6 +283,7 @@ function toReservationLeg(
   }
   return {
     providerKey,
+    operationKey,
     credits,
     limitCredits: state.limitCredits,
     consumedCredits: state.consumedCredits,
@@ -320,17 +362,38 @@ export function simulatePhoneRevealCreditReservation(
     return { status: 'already_reserved' };
   }
 
-  const insufficient: PhoneRevealCreditReservationLegRejection[] = [];
+  // 🔴 AGREGADO POR POZO, igual que el GROUP BY del SQL. Dos patas de la misma
+  // autorización que comparten (proveedor × scope × período) comparten SALDO, así que
+  // se comparan sumadas. Preguntar por 1 y luego por 5 contra un pozo de 5 obtiene dos
+  // síes y reserva 6.
+  const demandByPool = new Map<
+    string,
+    { providerKey: PhoneRevealCreditProviderKey; required: number; available: number }
+  >();
   for (const leg of request.legs) {
+    const key = poolKey(leg);
+    const existing = demandByPool.get(key);
+    if (existing) {
+      existing.required += leg.credits;
+      continue;
+    }
     const reserved = active
-      .filter((r) => poolKey(r) === poolKey(leg))
+      .filter((r) => poolKey(r) === key)
       .reduce((sum, r) => sum + r.creditsReserved, 0);
-    const available = (leg.limitCredits ?? 0) - leg.consumedCredits - reserved;
-    if (available < leg.credits) {
+    demandByPool.set(key, {
+      providerKey: leg.providerKey,
+      required: leg.credits,
+      available: (leg.limitCredits ?? 0) - leg.consumedCredits - reserved,
+    });
+  }
+
+  const insufficient: PhoneRevealCreditReservationLegRejection[] = [];
+  for (const demand of demandByPool.values()) {
+    if (demand.available < demand.required) {
       insufficient.push({
-        providerKey: leg.providerKey,
-        requiredCredits: leg.credits,
-        availableCredits: available,
+        providerKey: demand.providerKey,
+        requiredCredits: demand.required,
+        availableCredits: demand.available,
       });
     }
   }
@@ -343,8 +406,9 @@ export function simulatePhoneRevealCreditReservation(
     reservationGroupId: request.reservationGroupId,
     reservations: request.legs.map((leg, index) => ({
       // Id sintético y estable: esta función no habla con Postgres.
-      id: `${request.reservationGroupId}:${index}:${leg.providerKey}`,
+      id: `${request.reservationGroupId}:${index}:${leg.providerKey}:${resolveReservedLegOperationKey(leg)}`,
       providerKey: leg.providerKey,
+      operationKey: resolveReservedLegOperationKey(leg),
       creditsReserved: leg.credits,
     })),
   };
@@ -520,6 +584,26 @@ export interface PhoneRevealCreditSettlementFacts {
   lushaAttempted: boolean;
   lushaCostCredits: number | null;
   lushaCostSource: string | null;
+  /**
+   * `lusha_identity_search_attempted_at !== null`: garantizado por SU PROPIO claim
+   * (`claim_lusha_identity_search`, migración 124), que es deliberadamente distinto
+   * del claim del reveal. Reusar el del reveal haría indistinguible "se buscó y se
+   * cayó antes de revelar" de "ya se reveló".
+   *
+   * OPCIONAL: una corrida anterior a 124 no tiene la columna, y su ausencia se lee
+   * como `false` — que es la verdad para toda corrida histórica, ninguna de las
+   * cuales pudo pagar una búsqueda.
+   */
+  lushaIdentitySearchAttempted?: boolean;
+  /**
+   * Créditos que Lusha reportó por la BÚSQUEDA. `null` = no reportado, y como
+   * siempre en este módulo, no reportado NO es cero: se liquida al tope (1) con
+   * `assumed_cap`. Lusha cobra 1 crédito por petición a `api_search` incluso cuando
+   * no devuelve resultados, así que asumir 0 sería regalar un crédito ya gastado.
+   */
+  lushaIdentitySearchCostCredits?: number | null;
+  /** Solo `reported` convierte la cifra anterior en verdad. */
+  lushaIdentitySearchCostSource?: string | null;
 }
 
 /** Qué hacer con UNA pata reservada. */
@@ -528,6 +612,7 @@ export type PhoneRevealCreditSettlementAction =
       action: 'confirm';
       reservationId: string;
       providerKey: string;
+      operationKey: PhoneRevealCreditOperationKey;
       credits: number;
       costTruth: PhoneRevealCreditReservationCostTruth;
     }
@@ -535,13 +620,30 @@ export type PhoneRevealCreditSettlementAction =
       action: 'release';
       reservationId: string;
       providerKey: string;
+      operationKey: PhoneRevealCreditOperationKey;
       reason: PhoneRevealCreditReservationReleaseReason;
     };
 
+/**
+ * Hechos de UNA pata, identificada por (proveedor × OPERACIÓN).
+ *
+ * El proveedor dejó de bastar en cuanto Lusha pasó a tener dos operaciones pagadas en
+ * la misma autorización: con la clave antigua, la búsqueda habría heredado los hechos
+ * del reveal — y por tanto se habría liquidado con el costo del reveal, o se habría
+ * liberado porque el reveal no llegó a correr. Las dos cosas son dinero mal contado.
+ */
 function legFacts(
   providerKey: string,
+  operationKey: PhoneRevealCreditOperationKey,
   facts: PhoneRevealCreditSettlementFacts,
 ): { attempted: boolean; credits: number | null; source: string | null } {
+  if (providerKey === 'lusha' && operationKey === 'contact_search') {
+    return {
+      attempted: facts.lushaIdentitySearchAttempted === true,
+      credits: facts.lushaIdentitySearchCostCredits ?? null,
+      source: facts.lushaIdentitySearchCostSource ?? null,
+    };
+  }
   return providerKey === 'lusha'
     ? {
         attempted: facts.lushaAttempted,
@@ -578,13 +680,19 @@ export function decidePhoneRevealCreditSettlement(args: {
   if (!args.facts.isTerminal) return [];
 
   return args.reservedLegs.map((leg) => {
-    const { attempted, credits, source } = legFacts(leg.providerKey, args.facts);
+    const operationKey = resolveReservedLegOperationKey(leg);
+    const { attempted, credits, source } = legFacts(
+      leg.providerKey,
+      operationKey,
+      args.facts,
+    );
 
     if (!attempted) {
       return {
         action: 'release',
         reservationId: leg.id,
         providerKey: leg.providerKey,
+        operationKey,
         reason: 'leg_never_attempted',
       };
     }
@@ -595,6 +703,7 @@ export function decidePhoneRevealCreditSettlement(args: {
       action: 'confirm',
       reservationId: leg.id,
       providerKey: leg.providerKey,
+      operationKey,
       credits: reported ? (credits as number) : leg.creditsReserved,
       costTruth: reported ? 'reported' : 'assumed_cap',
     };
@@ -618,14 +727,91 @@ export function decidePhoneRevealCreditSettlement(args: {
  */
 export function resolvePhoneRevealSettledLegCost(args: {
   providerKey: string;
+  /**
+   * Operación de la pata. Ausente ⇒ `phone_reveal`, que preserva EXACTAMENTE el
+   * comportamiento de todo caller anterior a la migración 124: antes solo existía esa
+   * operación, así que "la pata de Lusha" y "el reveal de Lusha" eran lo mismo.
+   */
+  operationKey?: PhoneRevealCreditOperationKey;
   settlement: readonly PhoneRevealCreditSettlementAction[];
 }): { credits: number; costSource: PhoneRevealCreditReservationCostTruth } | null {
+  const operationKey = args.operationKey ?? 'phone_reveal';
   for (const action of args.settlement) {
     if (action.action !== 'confirm') continue;
     if (action.providerKey !== args.providerKey) continue;
+    if (action.operationKey !== operationKey) continue;
     return { credits: action.credits, costSource: action.costTruth };
   }
   return null;
+}
+
+// ── Reconstrucción económica de la corrida (§ D del encargo) ────
+
+/**
+ * Lo que costó una autorización, desglosado y sumado, derivado ÚNICAMENTE de la
+ * liquidación ya decidida.
+ *
+ * Se DERIVA en vez de guardarse. `phone_reveal_waterfall_runs` no tiene —ni gana en
+ * este hito— una columna para el costo de la búsqueda: ese número ya vive en dos
+ * sitios autoritativos (la fila de su reserva y su fila de `provider_usage_logs`), y
+ * una tercera copia solo podría acabar discrepando de las otras dos.
+ *
+ * Un componente `null` significa "esa pata no se confirmó" (se liberó, o la corrida no
+ * era terminal). NO significa cero: un cero afirmaría que el proveedor no cobró, que
+ * es justo lo que este módulo nunca da por supuesto. Por eso los totales suman solo lo
+ * confirmado y `hasUnsettledLeg` declara si el desglose está completo.
+ */
+export interface PhoneRevealCreditRunCostBreakdown {
+  apolloPhoneRevealCredits: number | null;
+  lushaIdentitySearchCredits: number | null;
+  lushaPhoneRevealCredits: number | null;
+  /** búsqueda + reveal de Lusha. null si NINGUNA de las dos se confirmó. */
+  lushaTotalCredits: number | null;
+  /** Apollo + total de Lusha. null si no se confirmó ninguna pata. */
+  totalCredits: number | null;
+  /** true si alguna pata reservada quedó sin confirmar (liberada o aún viva). */
+  hasUnsettledLeg: boolean;
+}
+
+/** Suma que devuelve `null` cuando no hay NADA que sumar, en vez de un 0 inventado. */
+function sumSettled(values: readonly (number | null)[]): number | null {
+  const known = values.filter((value): value is number => value !== null);
+  return known.length === 0 ? null : known.reduce((total, value) => total + value, 0);
+}
+
+/**
+ * Reconstruye el desglose económico de una corrida a partir de su liquidación.
+ * Es la única función que debe usarse para responder "¿cuánto costó esto?": deriva de
+ * la MISMA decisión que movió los créditos, así que auditoría y cobro no pueden
+ * divergir.
+ */
+export function buildPhoneRevealCreditRunCostBreakdown(args: {
+  settlement: readonly PhoneRevealCreditSettlementAction[];
+}): PhoneRevealCreditRunCostBreakdown {
+  const read = (providerKey: string, operationKey: PhoneRevealCreditOperationKey) =>
+    resolvePhoneRevealSettledLegCost({
+      providerKey,
+      operationKey,
+      settlement: args.settlement,
+    })?.credits ?? null;
+
+  const apolloPhoneRevealCredits = read('apollo', 'phone_reveal');
+  const lushaIdentitySearchCredits = read('lusha', 'contact_search');
+  const lushaPhoneRevealCredits = read('lusha', 'phone_reveal');
+
+  const lushaTotalCredits = sumSettled([
+    lushaIdentitySearchCredits,
+    lushaPhoneRevealCredits,
+  ]);
+
+  return {
+    apolloPhoneRevealCredits,
+    lushaIdentitySearchCredits,
+    lushaPhoneRevealCredits,
+    lushaTotalCredits,
+    totalCredits: sumSettled([apolloPhoneRevealCredits, lushaTotalCredits]),
+    hasUnsettledLeg: args.settlement.some((action) => action.action === 'release'),
+  };
 }
 
 // ── Huérfanas ──────────────────────────────────────────────────

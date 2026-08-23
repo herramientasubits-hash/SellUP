@@ -91,10 +91,37 @@ describe('preflight de saldo — modalidad y proveedores', () => {
     );
   });
 
-  test('con id Lusha la modalidad es el waterfall completo (tope 13)', () => {
+  test('con la identidad Lusha YA resuelta la modalidad es el waterfall completo (tope 13)', () => {
+    assert.equal(
+      resolvePhoneRevealCreditBudgetMode({
+        legacyLushaOnly: false,
+        lushaEligible: true,
+        lushaIdentityResolved: true,
+      }),
+      'full_waterfall',
+    );
+  });
+
+  test('sin identidad resuelta hay que pagar la búsqueda primero (tope 14)', () => {
+    // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1. Es el candidato nacido en
+    // Apollo: alcanzable por Lusha solo tras averiguar con qué id lo conoce.
+    assert.equal(
+      resolvePhoneRevealCreditBudgetMode({
+        legacyLushaOnly: false,
+        lushaEligible: true,
+        lushaIdentityResolved: false,
+      }),
+      'full_waterfall_with_identity_search',
+    );
+  });
+
+  test('omitir la señal de identidad reserva de MÁS, nunca de menos', () => {
+    // Fail-closed económico: sin saber si la identidad está resuelta, la modalidad
+    // asume que hay que pagarla. Reservar 13 y luego necesitar 14 dejaría la segunda
+    // pata autorizada sin saldo, y el servidor la ejecuta sin volver a preguntar.
     assert.equal(
       resolvePhoneRevealCreditBudgetMode({ legacyLushaOnly: false, lushaEligible: true }),
-      'full_waterfall',
+      'full_waterfall_with_identity_search',
     );
   });
 
@@ -118,22 +145,36 @@ describe('preflight de saldo — modalidad y proveedores', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('preflight — patas exigidas por modalidad (per-provider)', () => {
-  test('el waterfall completo exige DOS patas: Apollo 8 y Lusha 5', () => {
+  // Desde AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 cada pata declara TAMBIÉN
+  // su operación: el proveedor dejó de bastar como identidad en cuanto Lusha pasó a
+  // poder cobrar dos cosas distintas dentro de la misma autorización.
+  test('el waterfall completo exige DOS patas: Apollo 8 y Lusha 5, ambas de reveal', () => {
     assert.deepEqual(resolvePhoneRevealCreditRequirements('full_waterfall'), [
-      { providerKey: 'apollo', credits: 8 },
-      { providerKey: 'lusha', credits: 5 },
+      { providerKey: 'apollo', operationKey: 'phone_reveal', credits: 8 },
+      { providerKey: 'lusha', operationKey: 'phone_reveal', credits: 5 },
     ]);
+  });
+
+  test('con búsqueda de identidad exige TRES patas: 8 + 1 + 5', () => {
+    assert.deepEqual(
+      resolvePhoneRevealCreditRequirements('full_waterfall_with_identity_search'),
+      [
+        { providerKey: 'apollo', operationKey: 'phone_reveal', credits: 8 },
+        { providerKey: 'lusha', operationKey: 'contact_search', credits: 1 },
+        { providerKey: 'lusha', operationKey: 'phone_reveal', credits: 5 },
+      ],
+    );
   });
 
   test('Apollo-only exige UNA pata de 8 y no nombra a Lusha', () => {
     assert.deepEqual(resolvePhoneRevealCreditRequirements('apollo_only'), [
-      { providerKey: 'apollo', credits: 8 },
+      { providerKey: 'apollo', operationKey: 'phone_reveal', credits: 8 },
     ]);
   });
 
   test('legacy exige UNA pata de 5 contra LUSHA, jamás contra Apollo', () => {
     assert.deepEqual(resolvePhoneRevealCreditRequirements('legacy_lusha_only'), [
-      { providerKey: 'lusha', credits: 5 },
+      { providerKey: 'lusha', operationKey: 'phone_reveal', credits: 5 },
     ]);
   });
 

@@ -225,7 +225,13 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
       // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
       // columna ni función de teléfono. Se declara NO aplicada en Producción.
-      '123_provider_seen_entities.sql',
+      // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 mueve el techo a la 124: la
+      // identidad provider-native (`contact_provider_identities`), el grano de reserva por
+      // OPERACIÓN y el claim propio de la búsqueda de identidad. SÍ es de teléfono y SÍ
+      // toca la corrida, pero NO es de 4O-E1 — la autoría se comprueba abajo, archivo por
+      // archivo, así que mover este número no le atribuye nada a este hito. Se declara NO
+      // aplicada en Producción.
+      '124_cross_provider_phone_identity.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.
@@ -308,8 +314,24 @@ describe('4O-E1 § 3.1 · vocabulario', () => {
     ]) {
       assert.ok(block.includes(`'${reason}'`), `falta ${reason}`);
     }
-    // Exactamente los once de siempre: ni uno más.
-    assert.equal((block.match(/'/g) ?? []).length / 2, 11);
+    // Los once de 4O-E1 siguen ahí, intactos y con el mismo significado: lo que esta
+    // guarda protege es que este hito no los REDEFINIÓ ni los borró.
+    //
+    // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 añade CUATRO
+    // (`lusha_identity_unresolvable` / `_not_found` / `_ambiguous` / `_error`) y por eso
+    // el conteo pasa de 11 a 15. No son variantes de `missing_lusha_contact_id`: ese
+    // motivo afirma que el candidato NUNCA puede llegar a Lusha, y los cuatro nuevos
+    // dicen lo contrario —podía, se intentó, y esto pasó—. El ensanche del CHECK que los
+    // acompaña está declarado en CONSTRAINT_WIDENING_ALLOWLIST.
+    for (const reason of [
+      'lusha_identity_unresolvable',
+      'lusha_identity_not_found',
+      'lusha_identity_ambiguous',
+      'lusha_identity_error',
+    ]) {
+      assert.ok(block.includes(`'${reason}'`), `falta ${reason}`);
+    }
+    assert.equal((block.match(/'/g) ?? []).length / 2, 15);
   });
 });
 
