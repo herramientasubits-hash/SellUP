@@ -16,6 +16,7 @@ import {
   RAIZ_TECNOLOGIA,
   RAIZ_EDUCACAO,
   SAMPLE_SOURCE_YEAR,
+  SAMPLE_SOURCE_PERIOD,
 } from '../br-receita-cnpj-fixtures';
 import type { BrReceitaCnpjSnapshotRow } from '../br-receita-cnpj-types';
 
@@ -241,6 +242,7 @@ describe('buildBrReceitaCnpjSnapshotRows — fail-closed rejections', () => {
     const conflicting = { ...empresas[0]!, razao_social: 'Synthetic Tecnologia OUTRA Ltda' };
     const result = buildBrReceitaCnpjSnapshotRows({
       sourceYear: SAMPLE_SOURCE_YEAR,
+      sourcePeriod: SAMPLE_SOURCE_PERIOD,
       empresasRows: [...empresas, conflicting],
       estabelecimentosRows: [
         {

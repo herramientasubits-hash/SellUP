@@ -139,7 +139,9 @@ describe('115 — numeración', () => {
     // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 (identidad provider-native,
     // grano de reserva por operación, claim propio de la búsqueda) con su propia guarda
     // estática; no edita ninguna migración anterior. NO aplicada en Producción.
-    assert.equal(Math.max(...numbers), 124);
+    // BR-SOURCE-FUNCTIONAL-CUT-A aporta la 125 (identidad MENSUAL del snapshot de Receita;
+    // AUTORADA y NO APLICADA). No es de teléfono y no toca este esquema.
+    assert.equal(Math.max(...numbers), 125);
   });
 
   it('declara NO estar aplicada en Producción', () => {

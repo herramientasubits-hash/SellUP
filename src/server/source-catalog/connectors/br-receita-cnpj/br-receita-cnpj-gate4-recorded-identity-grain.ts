@@ -70,6 +70,12 @@
  */
 
 import type { BrReceitaCnpjSnapshotRow } from './br-receita-cnpj-types';
+// 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — the guard below now has to VALIDATE the one representation it
+// permits, not merely detect its presence. Both validators are the canonical repository
+// primitives, imported rather than restated: a second notion of "a valid CNPJ" or "a valid period"
+// living in the guard would be the drift this whole line of work exists to prevent.
+import { normalizeBrazilCnpj, BR_CNPJ_LENGTH } from './br-cnpj';
+import { isValidSourcePeriod } from '../../source-period';
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 
@@ -237,10 +243,10 @@ export const BRAZIL_RECEITA_GATE4_IDENTITY_FIELD_DISPOSITIONS = [
   },
   {
     field: 'normalized_tax_id',
-    persistence: 'TRANSIENT_ONLY',
-    owner: 'GATE_1_R4_LEGAL_PRIVACY',
+    persistence: 'PERSISTED',
+    owner: 'GATE_4A_EXCEPTION_EXERCISED_BY_FUNCTIONAL_CUT_A',
     reason:
-      'the normalized full CNPJ. Same R4 prohibition, and GATE-3 names "normalized_tax_id snapshot survival" explicitly. Kept in memory; refused at any persistence boundary.',
+      'the normalized full CNPJ, and — since BR-SOURCE-FUNCTIONAL-CUT-A — the ONE persisted internal exact-lookup representation 4A authorized. It is never printed, never logged, never reported and never present in a public projection. It is PERSISTED rather than TRANSIENT_ONLY because 4A granted exactly one such representation and this is the column the existing read primitives already take, which is the branch 4A\'s own `ifYes` anticipated. tax_id and record_identity_key stay refused, so "exactly one" is enforced rather than asserted.',
   },
   {
     field: 'record_identity_key',
@@ -262,6 +268,11 @@ export const BRAZIL_RECEITA_GATE4_PERSISTABLE_TODAY: readonly string[] = [
   'source_year',
   'legal_name (sanitized)',
   'raw_data (GATE-3 closed typed allowlist)',
+  // BR-SOURCE-FUNCTIONAL-CUT-A — the monthly identity. `source_period` is the identity dimension
+  // and `normalized_tax_id` is the single exact-lookup representation 4A authorized; together they
+  // are what closed the "no identity column among them" problem this list used to name.
+  'source_period (YYYY-MM, the identity dimension)',
+  'normalized_tax_id (the ONE internal exact-lookup representation, 4A)',
 ] as const;
 
 /** D. Transient-only, enumerated. */
@@ -537,7 +548,11 @@ export const BRAZIL_RECEITA_GATE4_PERIOD_MODEL = {
   publicationCadence: 'monthly',
   sourcePeriodGrain: 'YYYY-MM',
   firstTargetPeriod: '2026-07',
-  identityDimensionsRequired: ['source_key', 'country_code', 'source_period', 'record_identity_key'],
+  // 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — the last dimension is `normalized_tax_id`, NOT
+  // `record_identity_key`. Round 2 could only name the key it hoped would exist; 4A's exception
+  // made the fiscal column itself the persisted representation, and `record_identity_key` stays
+  // refused precisely so there is exactly one.
+  identityDimensionsRequired: ['source_key', 'country_code', 'source_period', 'normalized_tax_id'],
   schemaSupportsMonthlyToday: false,
   sourcePeriodColumnExists: false,
   sourcePeriodLivesOnlyIn: 'raw_data.source_period (JSONB, invisible to any unique constraint)',
@@ -582,6 +597,13 @@ export const BRAZIL_RECEITA_GATE4_REQUIRED_FUTURE_MIGRATION = {
     'CREATE UNIQUE INDEX CONCURRENTLY source_company_snapshots_period_identity_uidx ON public.source_company_snapshots (source_key, country_code, source_period, record_identity_key) WHERE source_period IS NOT NULL AND record_identity_key IS NOT NULL;',
   ],
   note: 'the unique index must name the key the unresolved owner question settles on; it cannot be authored before that answer exists',
+  // 🔴 Kept VERBATIM as the Round-2 record. `authoredInThisRound` refers to Round 2 and stays
+  // false: Round 2 genuinely did not author it. BR-SOURCE-FUNCTIONAL-CUT-A did, as migration 125,
+  // and the statements it actually authored differ from the draft above in two ways that matter —
+  // the unique index is keyed on `normalized_tax_id`, and it is paired with a CHECK that makes both
+  // identity columns NOT NULL for Brazil, without which a partial index over nullable columns is
+  // just YH-2 wearing a new name.
+  supersededBy: 'BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION',
 } as const;
 
 // ─── Atomic replacement semantics (§ 12) ─────────────────────────────────────
@@ -603,17 +625,113 @@ export const BRAZIL_RECEITA_GATE4_REPLACEMENT_SEMANTICS = {
   atomicPublishOwner: 'GATE_8_DEFERRED_PROOF_AND_SNAPSHOT_RUNTIME_ROUND',
 } as const;
 
+// ─── BR-SOURCE-FUNCTIONAL-CUT-A — 4A's exception, exercised ──────────────────
+
+/**
+ * 🔴 The record of what FUNCTIONAL CUT A actually did with the exception 4A granted.
+ *
+ * Recorded separately from 4A/4B/4C, which are preserved verbatim, because it is a different kind
+ * of statement. 4A granted a permission in principle and deliberately chose no storage encoding;
+ * `BRAZIL_RECEITA_GATE4_APPROVAL_DOES_NOT` correctly says that approval did not author a migration
+ * and did not change any field's disposition. Both remain true about that approval. This record is
+ * the round that USED the permission, and it is the only place the narrowing lives.
+ *
+ * ── What was exercised ──────────────────────────────────────────────────────
+ *
+ * Exactly ONE persisted representation, in `source_company_snapshots.normalized_tax_id`: the
+ * normalized establishment CNPJ, 14 CHARACTERS, validated by the canonical `normalizeBrazilCnpj`
+ * DV validator. `tax_id` and `record_identity_key` stay TRANSIENT_ONLY and stay refused by the
+ * guard below, and migration 125 makes both NULL-for-Brazil a CHECK constraint — so "exactly one"
+ * is a schema fact, not a promise.
+ *
+ * 🔴 14 CHARACTERS, not 14 decimal digits. Alphanumeric CNPJs are official from July 2026
+ * (positions 1-12 in [A-Z0-9], the 2-position DV numeric) and the first target period is 2026-07.
+ * A decimal-only identity would reject valid establishments in the very first month it ran, so the
+ * character set follows the canonical validator rather than a digits-only reading.
+ *
+ * ── What is still NOT authorized ────────────────────────────────────────────
+ *
+ * The exception covers STORAGE and internal LOOKUP. It does not make the identifier printable,
+ * loggable, reportable or publicly projectable, and it authorizes no import, no Supabase write, no
+ * runtime registration and no agent integration. The GATE-5 report projection stays unimplemented
+ * and the engine report stays non-emittable.
+ */
+export const BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION = {
+  milestone: 'BR-SOURCE-FUNCTIONAL-CUT-A',
+  exercisesGate4aException: true,
+  exceptionOwnerReference: 'OWNER_REF_GATE4A_LEGAL_PRIVACY_OWNER_RELAY_2026_08_24',
+  /** The single persisted representation, as an exact table.column. */
+  persistedIdentityColumn: 'source_company_snapshots.normalized_tax_id',
+  identityRepresentation: 'normalized 14-character establishment CNPJ',
+  identityRepresentationCount: 1,
+  /** Character set of the identity — alphanumeric-aware, never digits-only. */
+  identityCharacterSet: 'positions 1-12 [A-Z0-9], positions 13-14 (DV) [0-9]',
+  identityLength: BR_CNPJ_LENGTH,
+  /** Columns that stay refused, so the count above cannot quietly become two. */
+  refusedIdentityColumns: ['tax_id', 'record_identity_key'] as readonly string[],
+  periodColumn: 'source_company_snapshots.source_period',
+  periodGrain: 'YYYY-MM',
+  periodAwareUniqueIndex: 'source_company_snapshots_br_period_identity_uidx',
+  nonBrazilUniqueIndex: 'source_company_snapshots_year_identity_uidx',
+  nullUniquenessHazardClosed: true,
+  migrationFile: '125_br_receita_monthly_snapshot_identity.sql',
+  migrationAuthored: true,
+  /** 🔴 Authored is not applied. CUT A applies nothing, anywhere. */
+  migrationApplied: false,
+  /**
+   * 🔴 The read-path gap CUT B must close, recorded here so CUT B does not rediscover it late.
+   *
+   * The five existing lookup primitives in `snapshot-read/` all filter on `source_year`, not
+   * `source_period`. For Brazil two months share a year, so a year-scoped read of one fiscal
+   * identity legitimately sees TWO rows and would report a cardinality violation. CUT A therefore
+   * does NOT register this source in `SOURCE_FAMILY_BY_SOURCE_KEY` — the registry keeps throwing,
+   * which is the correct fail-closed answer until a period-aware primitive exists.
+   */
+  periodAwareReadPrimitiveRequired: true,
+  registeredInSourceFamilyRegistry: false,
+  /** Bounds. Storage and internal lookup only. */
+  authorizesPrinting: false,
+  authorizesLogging: false,
+  authorizesReporting: false,
+  authorizesPublicProjection: false,
+  authorizesImport: false,
+  authorizesSupabaseWrite: false,
+  authorizesRuntimeRegistration: false,
+  authorizesAgentIntegration: false,
+  recordedDate: '2026-08-24',
+} as const;
+
 // ─── The executable guard ─────────────────────────────────────────────────────
 
-/** The three fields whose persistence is refused. Derived, so it cannot drift from the table above. */
+/**
+ * The fields whose persistence is refused. Derived, so it cannot drift from the table above.
+ *
+ * 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — this is now TWO fields, not three. `normalized_tax_id` became
+ * PERSISTED when 4A's exception was exercised. It is derived rather than listed precisely so that
+ * flipping a disposition and forgetting the guard is impossible.
+ */
 export const BRAZIL_RECEITA_GATE4_NON_PERSISTABLE_FIELDS: readonly string[] =
   BRAZIL_RECEITA_GATE4_IDENTITY_FIELD_DISPOSITIONS.filter(
     (entry) => entry.persistence === 'TRANSIENT_ONLY',
   ).map((entry) => entry.field);
 
+/** The single field 4A's exception permits, derived from the same table for the same reason. */
+export const BRAZIL_RECEITA_GATE4_PERSISTED_IDENTITY_FIELDS: readonly string[] =
+  BRAZIL_RECEITA_GATE4_IDENTITY_FIELD_DISPOSITIONS.filter(
+    (entry) => entry.persistence === 'PERSISTED',
+  ).map((entry) => entry.field);
+
 export type BrazilReceitaGate4PersistabilityViolation = {
   readonly field: string;
-  readonly violation: 'transient_only_field_present' | 'prohibited_identity_namespace';
+  readonly violation:
+    | 'transient_only_field_present'
+    | 'prohibited_identity_namespace'
+    // BR-SOURCE-FUNCTIONAL-CUT-A — the guard no longer only refuses. It also REQUIRES the identity
+    // it permits, because a Brazil row with no exact identity is exactly the write the null
+    // uniqueness hazard used to swallow.
+    | 'persisted_identity_missing'
+    | 'persisted_identity_invalid'
+    | 'source_period_missing_or_malformed';
 };
 
 /**
@@ -629,7 +747,7 @@ export class BrazilReceitaGate4NonPersistableRowError extends Error {
     super(
       `BR Receita CNPJ: row is not persistable — ${violations
         .map((v) => `${v.field} (${v.violation})`)
-        .join(', ')}. GATE-1 R4 forbids persisting the full CNPJ, the básico, or any hash, truncation or fingerprint of either; GATE-4 has not recorded an approved persisted identity.`,
+        .join(', ')}. GATE-1 R4 forbids a second representation of the CNPJ, or any hash, truncation or fingerprint of it, anywhere; 4A permits exactly ONE, in normalized_tax_id, and a monthly row must also carry a valid source_period.`,
     );
     this.name = 'BrazilReceitaGate4NonPersistableRowError';
     this.violations = violations;
@@ -639,30 +757,41 @@ export class BrazilReceitaGate4NonPersistableRowError extends Error {
 /**
  * Reports every reason a row may not be persisted. PURE — no I/O, no mutation.
  *
- * 🔴 The namespace check is the one that matters. A future author could plausibly null `tax_id` and
- * `normalized_tax_id`, leave `record_identity_key` as `tax:<14>`, and believe the row was clean —
- * the prohibited identifier would then persist under a namespace that looks like a transformation
- * and is not. So the key is checked for the `tax:` namespace independently of the other two fields.
+ * 🔴 The namespace check is still the one that matters most. A future author could plausibly null
+ * `tax_id`, leave `record_identity_key` as `tax:<14>`, and believe the row was clean — the
+ * prohibited SECOND representation would then persist under a namespace that looks like a
+ * transformation and is not. So the key is checked for the `tax:` namespace independently.
+ *
+ * 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — the guard gained a second job. It used to only REFUSE identity
+ * material. Now that 4A's exception is exercised it must also REQUIRE the one representation it
+ * permits, and require the period, because the failure mode has inverted: a Brazil row with a NULL
+ * identity or a missing period is precisely the write that the vacuous `NULLS DISTINCT` uniqueness
+ * used to accept without limit. Refusing too much and requiring nothing would have replaced one
+ * silent duplication with another.
+ *
+ * Both required values are validated with the canonical primitives — `validateBrazilCnpj` (DV
+ * check, alphanumeric-aware) and `isValidSourcePeriod` — never with a local regex.
  */
 export function findBrazilReceitaSnapshotRowPersistabilityViolations(
-  row: Pick<BrReceitaCnpjSnapshotRow, 'tax_id' | 'normalized_tax_id' | 'record_identity_key'>,
+  row: Pick<
+    BrReceitaCnpjSnapshotRow,
+    'tax_id' | 'normalized_tax_id' | 'record_identity_key' | 'source_period'
+  >,
 ): readonly BrazilReceitaGate4PersistabilityViolation[] {
   const violations: BrazilReceitaGate4PersistabilityViolation[] = [];
 
   const present = (value: unknown): boolean =>
     typeof value === 'string' && value.trim().length > 0;
 
+  // ── refused: the second representations ───────────────────────────────────
   if (present(row.tax_id)) {
     violations.push({ field: 'tax_id', violation: 'transient_only_field_present' });
-  }
-  if (present(row.normalized_tax_id)) {
-    violations.push({ field: 'normalized_tax_id', violation: 'transient_only_field_present' });
   }
 
   const key = typeof row.record_identity_key === 'string' ? row.record_identity_key.trim() : '';
   if (key.length > 0) {
     // The `tax:` namespace is the prohibited identifier wearing a prefix, and it is checked on its
-    // own so nulling the other two fields cannot make this one look clean.
+    // own so nulling the other field cannot make this one look clean.
     if (key.toLowerCase().startsWith('tax:')) {
       violations.push({
         field: 'record_identity_key',
@@ -676,7 +805,74 @@ export function findBrazilReceitaSnapshotRowPersistabilityViolations(
     }
   }
 
+  // ── required: the ONE permitted representation, and the period ────────────
+  violations.push(...findBrazilReceitaPersistedIdentityViolations(row));
+
   return violations;
+}
+
+/**
+ * The REQUIREMENT half of the guard, on its own: is there a valid identity and a valid period?
+ *
+ * 🔴 Separated from the refusal half because the two are needed at DIFFERENT boundaries, and
+ * conflating them was a real bug worth naming. The parser's in-memory row legitimately carries all
+ * three CNPJ representations, so:
+ *
+ *   · a writer handed a RAW row must be refused — that is
+ *     `findBrazilReceitaSnapshotRowPersistabilityViolations`, refusal AND requirement;
+ *   · the sanctioned projection (`toBrReceitaPersistedSnapshot`) DROPS the two refused fields, so
+ *     refusing its input for carrying them would refuse every real row and make the projection
+ *     unreachable. It needs the requirement half only.
+ *
+ * Composed, never duplicated: the function above delegates here, so there is one definition of
+ * "the identity is present and valid".
+ */
+export function findBrazilReceitaPersistedIdentityViolations(
+  identity: Pick<BrReceitaCnpjSnapshotRow, 'normalized_tax_id' | 'source_period'>,
+): readonly BrazilReceitaGate4PersistabilityViolation[] {
+  const violations: BrazilReceitaGate4PersistabilityViolation[] = [];
+
+  const hasIdentity =
+    typeof identity.normalized_tax_id === 'string' && identity.normalized_tax_id.trim().length > 0;
+
+  if (!hasIdentity) {
+    violations.push({ field: 'normalized_tax_id', violation: 'persisted_identity_missing' });
+  } else if (normalizeBrazilCnpj(identity.normalized_tax_id).normalized !== identity.normalized_tax_id) {
+    // 🔴 DV-valid is NOT sufficient — the value must ALREADY BE the normalized form.
+    //
+    // `validateBrazilCnpj` normalizes before it validates, so it accepts `11222333/0001-81`. This
+    // column is the persisted identity and migration 125 constrains it to
+    // `^[A-Z0-9]{12}[0-9]{2}$`, so accepting a punctuated or lower-case spelling here would mean
+    // the guard passing a value the database then refuses — and, worse, two spellings of one
+    // establishment being two different identities to the unique index.
+    //
+    // Comparing against the normalizer's OWN output makes "already normalized" exactly as strict as
+    // the DDL, without a second regex to keep in sync. An unparseable value normalizes to `null`,
+    // which is also unequal, so the same branch covers it.
+    //
+    // The violation names the FIELD and the KIND only: a guard that echoed the value it caught
+    // would be the leak it exists to prevent.
+    violations.push({ field: 'normalized_tax_id', violation: 'persisted_identity_invalid' });
+  }
+
+  if (!isValidSourcePeriod(identity.source_period)) {
+    violations.push({
+      field: 'source_period',
+      violation: 'source_period_missing_or_malformed',
+    });
+  }
+
+  return violations;
+}
+
+/** Fail-closed form of the requirement half. Used by the sanctioned projection. */
+export function assertBrazilReceitaPersistedIdentityIsValid(
+  identity: Pick<BrReceitaCnpjSnapshotRow, 'normalized_tax_id' | 'source_period'>,
+): void {
+  const violations = findBrazilReceitaPersistedIdentityViolations(identity);
+  if (violations.length > 0) {
+    throw new BrazilReceitaGate4NonPersistableRowError(violations);
+  }
 }
 
 /**
@@ -688,7 +884,10 @@ export function findBrazilReceitaSnapshotRowPersistabilityViolations(
  * the ceremony this boundary deserves.
  */
 export function assertBrazilReceitaSnapshotRowIsPersistable(
-  row: Pick<BrReceitaCnpjSnapshotRow, 'tax_id' | 'normalized_tax_id' | 'record_identity_key'>,
+  row: Pick<
+    BrReceitaCnpjSnapshotRow,
+    'tax_id' | 'normalized_tax_id' | 'record_identity_key' | 'source_period'
+  >,
 ): void {
   const violations = findBrazilReceitaSnapshotRowPersistabilityViolations(row);
   if (violations.length > 0) {
@@ -700,14 +899,18 @@ export function assertBrazilReceitaSnapshotRowIsPersistable(
 
 /** The bounds this record carries, enumerated per 10K § 14. */
 export const BRAZIL_RECEITA_GATE4_RESTRICTIONS: readonly string[] = [
-  'no migration is created, edited or applied, and no index and no physical schema is changed',
-  'the required future DDL is recorded as text and is not authorized',
+  // 🔴 BR-SOURCE-FUNCTIONAL-CUT-A updated the four restrictions below that it legitimately
+  // superseded by exercising 4A. Every other bound in this list is untouched, and the ones it
+  // changed are changed by NARROWING, never by deletion: a migration now exists but is not
+  // applied, and one identity column is now persistable while the other two stay refused.
+  'migration 125 is AUTHORED and is NOT APPLIED — no Supabase apply, no SQL editor, no remote SQL, no ledger write',
+  'the DDL is now a migration artifact rather than recorded text, and applying it is a separate authorization',
   'no surrogate generator is implemented; a key nobody has implemented is a key that does not exist yet',
   'this source stays absent from SOURCE_FAMILY_BY_SOURCE_KEY, so the registry keeps throwing for it',
-  'tax_id, normalized_tax_id and record_identity_key stay TRANSIENT_ONLY and persisting them is refused',
-  'exact runtime lookup is a recorded PRODUCTIZATION BLOCKER, not a solved problem',
+  'tax_id and record_identity_key stay TRANSIENT_ONLY and persisting them is refused; normalized_tax_id is the ONE persisted representation 4A authorized, and it is never printed, logged, reported or publicly projected',
+  'exact runtime lookup is unblocked at the STORAGE boundary only — the existing read primitives are year-scoped, so a period-aware primitive is still required and belongs to CUT B',
   'fuzzy or name-based lookup is not an acceptable substitute for exact identity',
-  'atomic publish is defined as identity semantics only and is not implemented',
+  'the atomic publish CONTRACT and the write PLAN are implemented and PURE; no executor exists, nothing is written, and the runtime reader that consumes a published period belongs to CUT B',
   'no persistence, import, Supabase write, runtime path, Agent 1 or Agent 2A integration',
   // BR-SOURCE-FAST-TRACK-7.
   'the report marker record_identity_grain_decision may now legitimately read option_d, but no emitter or projection reads it — none is implemented',

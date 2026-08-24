@@ -336,12 +336,15 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // provider-native del reveal de TELÉFONO, Agente 2A). Este corte sigue sin aportar
     // ninguna, y eso se comprueba por AUTORÍA además de por número: un número libre no
     // demuestra nada si mañana otro hito lo ocupa.
+    // La 125 la toma BR-SOURCE-FUNCTIONAL-CUT-A (identidad MENSUAL del snapshot de
+    // Receita, AUTORADA y NO APLICADA). El siguiente número libre es la 126, y la AUTORÍA
+    // se barre ahora sobre 124 y 125.
     assert.equal(
-      migrations.filter((f) => f.startsWith('125')).length,
+      migrations.filter((f) => f.startsWith('126')).length,
       0,
       'este corte no añade migración',
     );
-    for (const file of migrations.filter((f) => f.startsWith('124'))) {
+    for (const file of migrations.filter((f) => f.startsWith('124') || f.startsWith('125'))) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
         false,

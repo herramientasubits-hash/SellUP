@@ -269,19 +269,23 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // (`contact_provider_identities`), grano de reserva por OPERACIÓN y claim propio de
       // la búsqueda de identidad. Trae su propia guarda estática y NO edita ninguna
       // migración anterior — que es lo que esta lista exacta vigila. NO aplicada en Prod.
-      '124_cross_provider_phone_identity.sql',
+      // BR-SOURCE-FUNCTIONAL-CUT-A: la identidad MENSUAL del snapshot de Receita
+      // (`source_period` + unicidad period-aware en `source_company_snapshots`, estado de
+      // publicación en `source_snapshot_runs`). NO es de teléfono y NO edita ninguna migración
+      // anterior — que es lo que esta lista exacta vigila. AUTORADA y NO APLICADA.
+      '125_br_receita_monthly_snapshot_identity.sql',
       'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa y la contabilidad de presupuesto, no este hito',
     );
     assert.equal(
-      // La ventana sube con el techo DECLARADO arriba: la 124 está autorizada y nombrada,
-      // así que lo que queda prohibido es la 125 y superiores.
-      files.some((f) => /^1(2[5-9]|[3-9]\d)/.test(f)),
+      // La ventana sube con el techo DECLARADO arriba: la 125 está autorizada y nombrada,
+      // así que lo que queda prohibido es la 126 y superiores.
+      files.some((f) => /^1(2[6-9]|[3-9]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 125 o superior',
+      'ninguna migración 126 o superior',
     );
   });
 

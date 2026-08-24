@@ -85,10 +85,25 @@ export interface BrReceitaLookupRow {
 // ─── Parser input ────────────────────────────────────────────────────────────
 
 export interface BrReceitaCnpjParserInput {
-  /** Snapshot year of the monthly dataset — explicit input, never hardcoded (§ 7). */
+  /**
+   * Calendar year of the dataset — explicit input, never hardcoded (§ 7).
+   *
+   * 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — `sourcePeriod` is now the AUTHORITY and this is the
+   * subordinate. The generic table's `source_year int NOT NULL` predates the monthly grain and
+   * still has to be populated, so the year survives — but the builder REJECTS an input whose year
+   * disagrees with its period, and migration 125 pins the same equality as a CHECK. The two can be
+   * supplied independently; they can never disagree silently.
+   */
   sourceYear: number;
-  /** Optional monthly period tag (e.g. "2026-07") propagated to raw_data. */
-  sourcePeriod?: string;
+  /**
+   * 🔴 REQUIRED monthly period, canonical `YYYY-MM` (BR-SOURCE-FUNCTIONAL-CUT-A).
+   *
+   * It was optional while it only decorated `raw_data`. It is now the physical identity dimension
+   * of the row: `source_key` + `country_code` + `source_period` + the exact CNPJ is what makes one
+   * logical monthly snapshot. A period-less Brazil row can no longer be built, which is the whole
+   * point — a nullable period is what made the old uniqueness vacuous.
+   */
+  sourcePeriod: string;
   empresasRows: BrReceitaEmpresaRow[];
   estabelecimentosRows: BrReceitaEstabelecimentoRow[];
   simplesRows?: BrReceitaSimplesRow[];
@@ -107,7 +122,16 @@ export interface BrReceitaCnpjSnapshotRawData {
   source_type: 'official_registry';
   human_review_required: true;
   parser_version: typeof BR_RECEITA_CNPJ_PARSER_VERSION;
-  source_period: string | null;
+  /**
+   * The period, as APPROVED GATE-3 provenance (`include_set` entry "source period") and GATE-5
+   * output allowlist member. No longer nullable: the period is required.
+   *
+   * 🔴 This is provenance, NOT the identity. `BrReceitaCnpjSnapshotRow.source_period` is the
+   * physical identity column and the authority. Both are written from the same validated value,
+   * and migration 125 carries a CHECK that `raw_data->>'source_period' = source_period` for Brazil
+   * rows, so the copy can never drift from the column that identifies the snapshot.
+   */
+  source_period: string;
   source_row_index: number;
   source_file_name?: string;
   source_downloaded_at?: string;
@@ -198,28 +222,49 @@ export interface BrReceitaCnpjInternalControlSignals {
 }
 
 /**
- * One accepted snapshot row.
+ * One accepted snapshot row — the IN-MEMORY parser shape.
  *
- * 🔴 BR-SOURCE-GATE-ROUND-2 / GATE-4 — `tax_id`, `normalized_tax_id` and `record_identity_key` are
- * TRANSIENT_ONLY, not persistable. They are the residual blocker RB-1 that Round 1 handed to GATE-4,
- * and GATE-4's recorded decision leaves them unpersistable under GATE-1 R4 as it stands: R4 forbids
- * the full CNPJ, the básico, and any hash, truncation or fingerprint of either, ANYWHERE — and
- * `record_identity_key` is literally `tax:<normalized_14>`.
+ * 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — exactly ONE of the three identity fields is now persistable.
  *
- * They are kept on the in-memory row because the parser needs them to detect duplicates and because
- * deleting a field is a grain decision the owners have not made. What changed is that persisting
- * them is now REFUSED at the boundary rather than merely discouraged: see
- * `assertBrazilReceitaSnapshotRowIsPersistable` in
- * `br-receita-cnpj-gate4-recorded-identity-grain.ts`. No writer exists; if one is ever built, it
- * fails closed.
+ *   · `normalized_tax_id`   PERSISTED. The one internal exact-lookup representation authorized by
+ *                           GATE-4 sub-decision 4A, as a narrow enumerated exception to GATE-1 R4.
+ *   · `tax_id`              TRANSIENT_ONLY. A second representation of the same identity.
+ *   · `record_identity_key` TRANSIENT_ONLY. Literally `tax:<normalized_14>` — a namespace prefix is
+ *                           not a transformation, and it is also a second representation.
+ *
+ * The two refused fields stay ON the in-memory row because the parser needs them to detect
+ * duplicates, and because deleting a field is a grain decision the owners have not made. They are
+ * refused at the persistence boundary by `assertBrazilReceitaSnapshotRowIsPersistable`, and
+ * migration 125 makes both NULL-for-Brazil a CHECK constraint — so "exactly one representation" is
+ * enforced twice, in the guard and in the schema.
+ *
+ * 🔴 This shape is NOT what gets written. `toBrReceitaPersistedSnapshot`
+ * (`br-receita-cnpj-monthly-snapshot-identity.ts`) projects it into
+ * `BrReceitaPersistedSnapshot`, which structurally cannot carry the refused fields — a writer
+ * handed the persisted shape has nowhere to put them.
  */
 export interface BrReceitaCnpjSnapshotRow {
   source_key: typeof BR_RECEITA_CNPJ_SOURCE_KEY;
   country_code: typeof BR_RECEITA_CNPJ_COUNTRY_CODE;
   source_year: number;
-  /** Raw CNPJ string as it appears in the source. TRANSIENT_ONLY — never persistable (GATE-4). */
+  /**
+   * 🔴 The physical monthly period, `YYYY-MM` (BR-SOURCE-FUNCTIONAL-CUT-A). PERSISTED, and the
+   * identity dimension that makes two months of the same establishment two snapshots instead of
+   * one overwrite.
+   */
+  source_period: string;
+  /**
+   * Raw CNPJ string as it appears in the source. TRANSIENT_ONLY — never persistable.
+   * It is a SECOND representation of the identity, which is why it stays refused.
+   */
   tax_id: string;
-  /** Normalized full 14-position CNPJ (§ 3.4). TRANSIENT_ONLY — never persistable (GATE-4). */
+  /**
+   * Normalized full 14-character CNPJ (§ 3.4) — alphanumeric-aware, DV-validated.
+   *
+   * 🔴 PERSISTED since BR-SOURCE-FUNCTIONAL-CUT-A: this is the ONE internal exact-lookup
+   * representation GATE-4 sub-decision 4A authorized. Internal only — never printed, never logged,
+   * never reported, and absent from every public projection.
+   */
   normalized_tax_id: string;
   /** razão social; NEVER an identity (§ 5.3 MEI/EI caveat). */
   legal_name: string | null;

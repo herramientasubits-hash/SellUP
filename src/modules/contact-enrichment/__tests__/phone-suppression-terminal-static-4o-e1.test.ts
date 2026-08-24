@@ -231,7 +231,12 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // toca la corrida, pero NO es de 4O-E1 — la autoría se comprueba abajo, archivo por
       // archivo, así que mover este número no le atribuye nada a este hito. Se declara NO
       // aplicada en Producción.
-      '124_cross_provider_phone_identity.sql',
+      // BR-SOURCE-FUNCTIONAL-CUT-A mueve el techo a la 125: la identidad MENSUAL del
+      // snapshot de Receita (`source_period` + unicidad period-aware en
+      // `source_company_snapshots`, estado de publicación en `source_snapshot_runs`). NO es de
+      // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono; la
+      // autoría se comprueba abajo archivo por archivo. AUTORADA y NO APLICADA.
+      '125_br_receita_monthly_snapshot_identity.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.
