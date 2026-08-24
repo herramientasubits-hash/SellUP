@@ -30,6 +30,7 @@ import type { LushaIdentitySearchCandidateFacts } from '../lusha-identity-search
 import {
   configuredPool,
   creditHarness,
+  ACCEPTED_CEILING_NOT_UNDER_TEST,
 } from './phone-reveal-credit-reservation-fixtures';
 
 const NOW_ISO = '2026-08-03T12:00:00.000Z';
@@ -285,7 +286,7 @@ describe('I — presupuesto insuficiente: 0 search, 0 reveal, 0 corrida', () => 
         })),
     });
     const result = await startPhoneRevealWaterfall(
-      { candidateId: 'candidate-1' },
+      { candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       {
         flagEnabled: true,
         nowIso: NOW_ISO,
@@ -314,7 +315,7 @@ describe('I — presupuesto insuficiente: 0 search, 0 reveal, 0 corrida', () => 
         })),
     });
     const result = await startPhoneRevealWaterfall(
-      { candidateId: 'candidate-1' },
+      { candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       {
         flagEnabled: true,
         nowIso: NOW_ISO,
@@ -340,7 +341,7 @@ describe('I — presupuesto insuficiente: 0 search, 0 reveal, 0 corrida', () => 
         })),
     });
     const result = await startPhoneRevealWaterfall(
-      { candidateId: 'candidate-1' },
+      { candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       {
         flagEnabled: true,
         nowIso: NOW_ISO,

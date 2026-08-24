@@ -77,7 +77,7 @@ Recorre las condiciones **en este orden**, que es el orden en que el servidor la
 | # | Condición | Cómo comprobarla |
 |---|---|---|
 | 1 | Permiso de producto | `phone_reveal_waterfall_enabled_resolved` en el endpoint de debug |
-| 2 | Rol | Sólo `admin`. `commercial_manager` conserva el flujo Apollo-only y **nunca** obtiene fila de corrida |
+| 2 | Rol | La MISMA autoridad que el botón «Revelar teléfono»: `admin` **y** `commercial_manager` (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). El waterfall NO tiene permiso de rol propio; el interruptor es el flag. Un rol que no puede revelar (`seller`, `lead`, …) **nunca** obtiene fila de corrida |
 | 3 | Candidato editable | `status` ∉ {`approved`, `rejected`, `discarded`, `archived`} |
 | 4 | **Identidad de supresión evaluable** | Ver § D. Es la causa más frecuente |
 | 5 | Presupuesto | Ver § E |

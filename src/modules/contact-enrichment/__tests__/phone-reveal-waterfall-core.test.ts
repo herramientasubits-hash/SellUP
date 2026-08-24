@@ -27,7 +27,6 @@ import {
   startPhoneRevealWaterfall,
   PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS,
   PHONE_REVEAL_WATERFALL_AUTHORIZATION_TTL_HOURS,
-  PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS,
   PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS,
   PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS,
   PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA,
@@ -40,11 +39,13 @@ import {
   type PhoneRevealWaterfallRunRecord,
   type PhoneRevealWaterfallSuppressionState,
 } from '../phone-reveal-waterfall-core';
+import { PHONE_REVEAL_AUTHORIZED_ROLE_KEYS } from '../phone-reveal-authorized-roles';
 import {
   configuredPool,
   creditHarness,
   poolsWith,
   type CreditHarness,
+  ACCEPTED_CEILING_NOT_UNDER_TEST,
 } from './phone-reveal-credit-reservation-fixtures';
 import { APOLLO_PHONE_REVEAL_CREDITS } from '../phone-reveal-core';
 import { LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS } from '../lusha-phone-fallback-core';
@@ -139,10 +140,19 @@ describe('waterfall — constantes de costo y rol', () => {
     );
   });
 
-  test('el waterfall completo es admin-only', () => {
-    assert.deepEqual([...PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS], ['admin']);
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el waterfall dejó de ser admin-only.
+  // Su autoridad ES la del reveal, sin lista propia, y el único interruptor es el flag.
+  test('el waterfall reutiliza la autoridad canónica del reveal, sin lista propia', () => {
+    assert.deepEqual(
+      [...PHONE_REVEAL_AUTHORIZED_ROLE_KEYS],
+      ['admin', 'commercial_manager'],
+    );
     assert.equal(isPhoneRevealWaterfallRoleAuthorized('admin'), true);
-    assert.equal(isPhoneRevealWaterfallRoleAuthorized('commercial_manager'), false);
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized('commercial_manager'), true);
+    // No se abre a nadie más: quien no podía revelar teléfono sigue sin poder.
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized('seller'), false);
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized('lead'), false);
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized(''), false);
     assert.equal(isPhoneRevealWaterfallRoleAuthorized(null), false);
   });
 
@@ -247,23 +257,50 @@ function startHarness(opts: {
 describe('waterfall — arranque de la corrida', () => {
   test('flag OFF: no lee candidato y no crea corrida', async () => {
     const h = startHarness({ flagEnabled: false });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'feature_disabled' });
     assert.equal(h.loadedCandidate, false);
     assert.equal(h.created.length, 0);
   });
 
-  test('commercial_manager: NO crea corrida (queda Apollo-only)', async () => {
-    const h = startHarness({ roleKey: 'commercial_manager' });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
-    assert.deepEqual(result, { started: false, reason: 'role_not_allowed' });
-    assert.equal(h.loadedCandidate, false);
-    assert.equal(h.created.length, 0);
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el rol que puede revelar teléfono ya
+  // no se queda en Apollo-only. Un `commercial_manager` abre corrida igual que un admin
+  // y con el MISMO tope; lo que se rechaza es el rol que nunca pudo revelar.
+  test('un rol sin permiso de revelar: NO crea corrida', async () => {
+    // (`null` no se prueba aquí: el harness lo sustituye por 'admin'. La ausencia de
+    // rol la cubre la aserción pura de `isPhoneRevealWaterfallRoleAuthorized(null)`.)
+    for (const roleKey of ['seller', 'seller_bd', 'lead']) {
+      const h = startHarness({ roleKey });
+      const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
+      assert.deepEqual(result, { started: false, reason: 'role_not_allowed' }, `${roleKey}`);
+      assert.equal(h.loadedCandidate, false, `${roleKey}`);
+      assert.equal(h.created.length, 0, `${roleKey}`);
+    }
+  });
+
+  test('commercial_manager: MISMA corrida y MISMO tope que admin', async () => {
+    const manager = startHarness({ roleKey: 'commercial_manager' });
+    const managerResult = await startPhoneRevealWaterfall(
+      { candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
+      manager.deps,
+    );
+    const adminHarness = startHarness();
+    const adminResult = await startPhoneRevealWaterfall(
+      { candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
+      adminHarness.deps,
+    );
+
+    assert.equal(managerResult.started, true);
+    assert.deepEqual(managerResult, adminResult);
+    assert.equal(manager.created.length, 1);
+    // Y el rol que autorizó se registra tal cual: la corrida no dice 'admin'.
+    assert.equal(manager.created[0].authorizedByRole, 'commercial_manager');
+    assert.equal(manager.created[0].maxCreditsAuthorized, 13);
   });
 
   test('admin con id Lusha: corrida con tope 13 y pata Lusha viva', async () => {
     const h = startHarness();
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.equal(result.started, true);
     assert.equal(result.started && result.maxCreditsAuthorized, 13);
     assert.equal(result.started && result.lushaEligible, true);
@@ -277,7 +314,7 @@ describe('waterfall — arranque de la corrida', () => {
 
   test('admin sin id Lusha: corrida con tope 8 y motivo de omisión ya registrado', async () => {
     const h = startHarness({ candidate: apolloCandidate() });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.equal(result.started, true);
     assert.equal(result.started && result.maxCreditsAuthorized, 8);
     assert.equal(result.started && result.lushaEligible, false);
@@ -297,7 +334,7 @@ describe('waterfall — arranque de la corrida', () => {
 
   test('pozo de Apollo con 5: NO se crea la corrida (bloqueo antes de escribir)', async () => {
     const h = startHarness({ credit: creditHarness({ poolsFor: poolsWith(5) }) });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'insufficient_credits' });
     assert.equal(h.created.length, 0, 'ninguna corrida creada');
     assert.equal(h.credit.reserveRequests.length, 0, 'ni se intentó reservar');
@@ -308,7 +345,7 @@ describe('waterfall — arranque de la corrida', () => {
       candidate: apolloCandidate(),
       credit: creditHarness({ poolsFor: poolsWith(5) }),
     });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'insufficient_credits' });
     assert.equal(h.created.length, 0);
   });
@@ -325,7 +362,7 @@ describe('waterfall — arranque de la corrida', () => {
       }),
     });
     assert.equal(
-      (await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, full.deps)).started,
+      (await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, full.deps)).started,
       true,
     );
     const apolloOnly = startHarness({
@@ -333,7 +370,7 @@ describe('waterfall — arranque de la corrida', () => {
       credit: creditHarness({ poolsFor: poolsWith(8) }),
     });
     assert.equal(
-      (await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, apolloOnly.deps))
+      (await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, apolloOnly.deps))
         .started,
       true,
     );
@@ -352,7 +389,7 @@ describe('waterfall — arranque de la corrida', () => {
           })),
       }),
     });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'insufficient_credits' });
     assert.equal(h.created.length, 0);
   });
@@ -366,7 +403,7 @@ describe('waterfall — arranque de la corrida', () => {
           keys.map((providerKey) => ({ providerKey, state: { kind: 'not_configured' } })),
       }),
     });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'budget_not_configured' });
     assert.equal(h.created.length, 0);
     assert.equal(h.credit.reserveRequests.length, 0);
@@ -379,7 +416,7 @@ describe('waterfall — arranque de la corrida', () => {
           keys.map((providerKey) => ({ providerKey, state: { kind: 'unavailable' } })),
       }),
     });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     // Motivo DISTINTO de `insufficient_credits` y de `budget_not_configured`: no se sabe
     // si alcanza NI si existe presupuesto.
     assert.deepEqual(result, { started: false, reason: 'credit_balance_unavailable' });
@@ -388,43 +425,43 @@ describe('waterfall — arranque de la corrida', () => {
 
   test('el presupuesto se pide de los proveedores que la modalidad puede llamar', async () => {
     const full = startHarness();
-    await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, full.deps);
+    await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, full.deps);
     assert.deepEqual(full.balanceQueries, [['apollo', 'lusha']]);
 
     const apolloOnly = startHarness({ candidate: apolloCandidate() });
-    await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, apolloOnly.deps);
+    await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, apolloOnly.deps);
     assert.deepEqual(apolloOnly.balanceQueries, [['apollo']]);
   });
 
   test('los gates baratos corren ANTES del saldo: flag/rol no lo consultan', async () => {
-    for (const opts of [{ flagEnabled: false }, { roleKey: 'commercial_manager' }]) {
+    for (const opts of [{ flagEnabled: false }, { roleKey: 'seller' }]) {
       const h = startHarness(opts);
-      await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+      await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
       assert.equal(h.balanceQueries.length, 0, JSON.stringify(opts));
     }
   });
 
   test('ya hay una autorización viva: no se abre una segunda', async () => {
     const h = startHarness({ activeRun: activeRun() });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'active_run_exists' });
     assert.equal(h.created.length, 0);
   });
 
   test('el índice único parcial gana la carrera: create_conflict, sin corrida', async () => {
     const h = startHarness({ createReturns: null });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'create_conflict' });
   });
 
   test('candidato inexistente o id vacío: no crea corrida', async () => {
     const missing = startHarness({ candidate: null });
     assert.deepEqual(
-      await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, missing.deps),
+      await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, missing.deps),
       { started: false, reason: 'candidate_not_found' },
     );
     const blank = startHarness();
-    assert.deepEqual(await startPhoneRevealWaterfall({ candidateId: '  ' }, blank.deps), {
+    assert.deepEqual(await startPhoneRevealWaterfall({ candidateId: '  ', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, blank.deps), {
       started: false,
       reason: 'invalid_candidate',
     });
@@ -529,13 +566,32 @@ describe('waterfall — decisión de continuación', () => {
     assert.equal(decision.action === 'noop' && decision.reason, 'lusha_already_attempted');
   });
 
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: «no autorizado» es ahora «no puede
+  // revelar teléfono». `commercial_manager` SÍ puede, así que su corrida continúa; un
+  // `seller` no, y la suya se cierra sin llamar a Lusha.
   test('rol almacenado no autorizado: cierra sin llamar a Lusha', () => {
-    const decision = decide({ run: activeRun({ authorizedByRole: 'commercial_manager' }) });
-    assert.equal(decision.action, 'close');
-    assert.equal(
-      decision.action === 'close' && decision.patch.lushaSkippedReason,
-      'role_not_allowed',
-    );
+    for (const role of ['seller', 'lead', 'unknown_role'] as const) {
+      const decision = decide({ run: activeRun({ authorizedByRole: role }) });
+      assert.equal(decision.action, 'close', role);
+      assert.equal(
+        decision.action === 'close' && decision.patch.lushaSkippedReason,
+        'role_not_allowed',
+        role,
+      );
+    }
+  });
+
+  test('rol almacenado con permiso de revelar: la continuación NO se aborta', () => {
+    for (const role of ['admin', 'commercial_manager'] as const) {
+      const decision = decide({ run: activeRun({ authorizedByRole: role }) });
+      // Sigue el camino normal (comprobar supresión antes de Lusha), no el cierre por rol.
+      assert.notEqual(decision.action, 'noop', role);
+      assert.equal(
+        decision.action === 'close' && decision.patch.lushaSkippedReason === 'role_not_allowed',
+        false,
+        role,
+      );
+    }
   });
 
   test('Apollo reveló (fresco o de caché): final apollo, Lusha nunca', () => {

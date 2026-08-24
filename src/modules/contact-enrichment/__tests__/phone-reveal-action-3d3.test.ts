@@ -818,6 +818,11 @@ describe('ASYNC-1 — guards estáticos', () => {
     src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   const core = stripComments(rawCore);
   const action = stripComments(rawAction);
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: la pareja de roles dejó de estar
+  // escrita dentro del core y vive en su propio módulo, que es ahora la ÚNICA
+  // declaración de la autoridad (el core la re-exporta).
+  const ROLES_REL = 'src/modules/contact-enrichment/phone-reveal-authorized-roles.ts';
+  const roles = stripComments(readRepo(ROLES_REL));
 
   it('no bulk: la entrada es candidateId único, sin candidateIds array', () => {
     assert.equal(/candidateIds/.test(core), false);
@@ -861,9 +866,15 @@ describe('ASYNC-1 — guards estáticos', () => {
     assert.equal(/person_phone_reveal/.test(core), true);
   });
 
-  it('roles autorizados: admin + commercial_manager', () => {
-    assert.equal(/'admin'/.test(core), true);
-    assert.equal(/'commercial_manager'/.test(core), true);
+  it('roles autorizados: admin + commercial_manager, declarados UNA sola vez', () => {
+    assert.equal(/'admin'/.test(roles), true);
+    assert.equal(/'commercial_manager'/.test(roles), true);
+    // El core NO vuelve a escribir la lista: la consume del módulo de autoridad.
+    assert.match(
+      core,
+      /PHONE_REVEAL_AUTHORIZED_ROLE_KEYS \} from '\.\/phone-reveal-authorized-roles'/,
+    );
+    assert.equal(/'commercial_manager'/.test(core), false);
   });
 
   it('no crea UI de reveal (sin .tsx nuevo en el árbol de módulos)', () => {

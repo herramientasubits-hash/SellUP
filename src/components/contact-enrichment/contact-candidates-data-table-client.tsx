@@ -172,7 +172,11 @@ interface ContactCandidatesDataTableClientProps {
    * (AGENT2A-PHONE-WATERFALL-1). Se propaga tal cual al detalle del candidato.
    */
   phoneRevealWaterfallEnabled?: boolean;
-  /** true si el rol del actor autenticado (admin) puede usar el waterfall completo. */
+  /**
+   * true si el actor autenticado puede revelar teléfono — MISMA autoridad que
+   * `phoneRevealAuthorized` (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). El
+   * waterfall no tiene permiso de rol propio; su interruptor es el flag.
+   */
   phoneRevealWaterfallAuthorized?: boolean;
 }
 

@@ -27,7 +27,7 @@
  *
  * Y lo que NO cambia: con el flag APAGADO la ruta legacy no existe — no se construye
  * el cliente service-role ni se consulta la tabla — y un rol no autorizado
- * (`commercial_manager`) es rechazado en el servidor sin leer nada.
+ * (uno sin permiso de revelar teléfono) es rechazado en el servidor sin leer nada.
  *
  * Offline por construcción: sin red, sin Supabase real, sin Apollo, sin Lusha,
  * 0 créditos. Requiere --experimental-test-module-mocks (mock.module).
@@ -455,9 +455,12 @@ before(async () => {
 const WATERFALL_FLAG = 'ENABLE_PHONE_REVEAL_WATERFALL';
 const LUSHA_FALLBACK_FLAG = 'ENABLE_LUSHA_PHONE_REVEAL_FALLBACK';
 const ADMIN = { internalUserId: 'user-admin', roleKey: 'admin' };
-const COMMERCIAL_MANAGER = {
-  internalUserId: 'user-cm',
-  roleKey: 'commercial_manager',
+// AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el actor NO autorizado ya no es un
+// `commercial_manager` (ese SÍ puede revelar teléfono, y por tanto sí puede autorizar
+// la ruta legacy), sino un rol que nunca pudo revelar.
+const UNAUTHORIZED_ACTOR = {
+  internalUserId: 'user-seller',
+  roleKey: 'seller',
 };
 
 function setFlags(waterfall: boolean, lushaFallback: boolean): void {
@@ -523,11 +526,11 @@ describe('legacy — flag OFF: no se consulta la infraestructura', () => {
 // 2. Rol no autorizado — rechazado en el servidor, sin leer nada
 // ═══════════════════════════════════════════════════════════════
 
-describe('legacy — commercial_manager: rechazado antes de la infraestructura', () => {
-  it('rol no admin ⇒ role_not_allowed sin construir el cliente admin', async () => {
+describe('legacy — rol sin permiso de revelar: rechazado antes de la infraestructura', () => {
+  it('rol no autorizado ⇒ role_not_allowed sin construir el cliente admin', async () => {
     const result = await deps.startLegacyPhoneRevealWaterfallForCandidate(
       CANDIDATE_ID,
-      COMMERCIAL_MANAGER,
+      UNAUTHORIZED_ACTOR,
     );
 
     assert.equal(result.outcome, 'not_started');

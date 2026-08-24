@@ -965,16 +965,37 @@ describe('WATERFALL-2C · A — reautorización tras no_phone_found', () => {
     }
   });
 
-  it('la reautorización revalida el rol: un rol no admin no crea corrida ni llama a Lusha', async () => {
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1 (§ 9): la ruta legacy sigue la MISMA
+  // autoridad que el reveal normal, así que «no autorizado» es «no puede revelar
+  // teléfono» — ya no «no es admin».
+  it('la reautorización revalida el rol: sin permiso de revelar no crea corrida ni llama a Lusha', async () => {
+    for (const roleKey of ['seller', 'seller_bd', 'lead']) {
+      seedRun();
+      const result = await deps.startLegacyPhoneRevealWaterfallForCandidate(CANDIDATE_ID, {
+        internalUserId: 'user-x',
+        roleKey,
+      });
+      assert.equal(result.outcome, 'not_started', roleKey);
+      assert.equal(result.reason, 'role_not_allowed', roleKey);
+      assert.equal(spies.lushaCalls, 0, roleKey);
+      assertZeroApollo();
+    }
+  });
+
+  it('un commercial_manager SÍ puede reautorizar la ruta legacy, con el tope de 5', async () => {
     seedRun();
     const result = await deps.startLegacyPhoneRevealWaterfallForCandidate(CANDIDATE_ID, {
       internalUserId: 'user-cm',
       roleKey: 'commercial_manager',
     });
-    assert.equal(result.outcome, 'not_started');
-    assert.equal(result.reason, 'role_not_allowed');
-    assert.equal(runsForCandidate().length, 1);
-    assert.equal(spies.lushaCalls, 0);
+    // Su corrida existe y es LEGACY: nunca reintenta Apollo ni suma sus 8 créditos.
+    assert.notEqual(result.outcome, 'not_started');
+    const created = runsForCandidate();
+    const latest = created[created.length - 1];
+    assert.equal(latest.run_mode, 'legacy_lusha_only');
+    assert.equal(latest.max_credits_authorized, 5);
+    assert.equal(latest.authorized_by_role, 'commercial_manager');
+    assert.equal(latest.apollo_attempted_at ?? null, null);
     assertZeroApollo();
   });
 
