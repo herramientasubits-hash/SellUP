@@ -235,19 +235,24 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // (`contact_provider_identities`), grano de reserva por OPERACIÓN y claim propio de
       // la búsqueda de identidad. Trae su propia guarda estática y NO edita ninguna
       // migración anterior — que es lo que esta lista exacta vigila. NO aplicada en Prod.
-      '124_cross_provider_phone_identity.sql',
-      'el techo conocido es la 124 (identidad cross-provider), que no edita la cadena de teléfono 109–117',
+      // BR-SOURCE-FUNCTIONAL-CUT-A mueve el techo a la 125: la identidad MENSUAL del
+      // snapshot de Receita (`source_period` + unicidad period-aware en
+      // `source_company_snapshots`, estado de publicación en `source_snapshot_runs`). NO es de
+      // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono; la
+      // autoría se comprueba abajo archivo por archivo. AUTORADA y NO APLICADA.
+      '125_br_receita_monthly_snapshot_identity.sql',
+      'el techo conocido es la 125 (identidad mensual del snapshot BR), que no edita la cadena de teléfono 109–117',
     );
     assert.equal(
-      // La ventana sube con el techo DECLARADO arriba: la 124 está autorizada y nombrada,
-      // así que lo prohibido pasa a ser la 125 y superiores.
-      files.some((file) => /^1(2[5-9]|[3-9]\d)/.test(file)),
+      // La ventana sube con el techo DECLARADO arriba: la 125 está autorizada y nombrada,
+      // así que lo prohibido pasa a ser la 126 y superiores.
+      files.some((file) => /^1(2[6-9]|[3-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 125 o superior',
+      'ninguna migración 126 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

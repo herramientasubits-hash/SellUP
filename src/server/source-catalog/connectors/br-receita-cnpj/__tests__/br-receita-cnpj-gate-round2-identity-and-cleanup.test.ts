@@ -360,16 +360,48 @@ describe('GATE-ROUND-2 · GATE-4 records the grain and refuses to record the ide
 });
 
 describe('GATE-ROUND-2 · GATE-4 makes persisting prohibited identity material impossible', () => {
-  const cleanRow = { tax_id: '', normalized_tax_id: '', record_identity_key: '' } as never;
+  // 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — a "clean" row is no longer an EMPTY row. Since 4A's exception
+  // was exercised the guard also REQUIRES the one representation it permits and a valid period, so
+  // a fully-cleared row is now refused for the opposite reason: it has no identity at all.
+  const CLEAN_CNPJ = '11222333000181';
+  const cleanRow = {
+    tax_id: '',
+    normalized_tax_id: CLEAN_CNPJ,
+    record_identity_key: '',
+    source_period: '2026-07',
+  } as never;
 
-  it('every identity field is TRANSIENT_ONLY and owned by GATE-1 R4, not by GATE-4', () => {
+  it('🔴 exactly ONE identity field is persistable; the other two stay refused under GATE-1 R4', () => {
+    // BR-SOURCE-FUNCTIONAL-CUT-A. Round 2 recorded all three as TRANSIENT_ONLY because the single
+    // unresolved owner question was still open. FAST-TRACK-7 answered it (4A), and CUT A exercised
+    // the exception in `normalized_tax_id`. The other two are SECOND representations of the same
+    // identifier, which is exactly why they did not move.
     assert.equal(BRAZIL_RECEITA_GATE4_IDENTITY_FIELD_DISPOSITIONS.length, 3);
-    for (const entry of BRAZIL_RECEITA_GATE4_IDENTITY_FIELD_DISPOSITIONS) {
-      assert.equal(entry.persistence, 'TRANSIENT_ONLY', entry.field);
-      assert.equal(entry.owner, 'GATE_1_R4_LEGAL_PRIVACY', entry.field);
+
+    const byField = new Map(
+      BRAZIL_RECEITA_GATE4_IDENTITY_FIELD_DISPOSITIONS.map((entry) => [entry.field, entry]),
+    );
+
+    for (const field of ['tax_id', 'record_identity_key'] as const) {
+      const entry = byField.get(field);
+      assert.ok(entry, field);
+      assert.equal(entry.persistence, 'TRANSIENT_ONLY', field);
+      assert.equal(entry.owner, 'GATE_1_R4_LEGAL_PRIVACY', field);
     }
+
+    const permitted = byField.get('normalized_tax_id');
+    assert.ok(permitted);
+    assert.equal(permitted.persistence, 'PERSISTED');
+    // 🔴 The owner MOVED with the disposition. GATE-1 R4 no longer owns this field's persistence —
+    // the enumerated 4A exception does — and recording it any other way would attribute a
+    // legal/privacy decision to the wrong gate.
+    assert.equal(permitted.owner, 'GATE_4A_EXCEPTION_EXERCISED_BY_FUNCTIONAL_CUT_A');
   });
 
+  // 🔴 STILL TRUE after CUT A, and load-bearing. The parser's in-memory row carries all THREE
+  // representations because it needs them for duplicate detection, so the RAW row remains
+  // unpersistable. Only `toBrReceitaPersistedSnapshot`'s projection — which structurally cannot
+  // carry the other two — is persistable. Weakening this test would have been the actual regression.
   it('🔴 the real builder produces rows that are REFUSED at a persistence boundary', () => {
     const result = buildBrReceitaCnpjSnapshotRows(sampleParserInput());
     for (const snapshot of result.snapshots) {
@@ -382,10 +414,13 @@ describe('GATE-ROUND-2 · GATE-4 makes persisting prohibited identity material i
 
   it('🔴 nulling the two tax fields does NOT make a tax-namespaced key clean', () => {
     // The mistake a future author is most likely to make: clear the obvious fields, keep the key.
+    // The identity and period are VALID here on purpose: the only thing wrong with this row is the
+    // namespaced duplicate, so a single violation proves the key is caught on its own merits.
     const violations = findBrazilReceitaSnapshotRowPersistabilityViolations({
       tax_id: '',
-      normalized_tax_id: '',
+      normalized_tax_id: CLEAN_CNPJ,
       record_identity_key: 'tax:11222333000181' as never,
+      source_period: '2026-07',
     });
     assert.equal(violations.length, 1);
     assert.deepEqual(violations[0], {
@@ -396,8 +431,9 @@ describe('GATE-ROUND-2 · GATE-4 makes persisting prohibited identity material i
     assert.equal(
       findBrazilReceitaSnapshotRowPersistabilityViolations({
         tax_id: '',
-        normalized_tax_id: '',
+        normalized_tax_id: CLEAN_CNPJ,
         record_identity_key: 'TAX:11222333000181' as never,
+        source_period: '2026-07',
       })[0].violation,
       'prohibited_identity_namespace',
     );
@@ -406,16 +442,31 @@ describe('GATE-ROUND-2 · GATE-4 makes persisting prohibited identity material i
   it('a non-tax key is still refused today — but as TRANSIENT_ONLY, a different fact', () => {
     const violations = findBrazilReceitaSnapshotRowPersistabilityViolations({
       tax_id: '',
-      normalized_tax_id: '',
+      normalized_tax_id: CLEAN_CNPJ,
       record_identity_key: 'br_receita_establishment:opaque' as never,
+      source_period: '2026-07',
     });
     assert.equal(violations.length, 1);
     assert.equal(violations[0].violation, 'transient_only_field_present');
   });
 
-  it('a fully cleared row passes, so the guard is not vacuously true', () => {
+  it('a row with the ONE identity and a valid period passes, so the guard is not vacuously true', () => {
     assert.deepEqual(findBrazilReceitaSnapshotRowPersistabilityViolations(cleanRow), []);
     assert.doesNotThrow(() => assertBrazilReceitaSnapshotRowIsPersistable(cleanRow));
+
+    // 🔴 And the inverse, which is the half CUT A added: an EMPTY row no longer passes. Before this
+    // cut it did, and a Brazil row with a NULL identity is exactly what the vacuous
+    // `NULLS DISTINCT` uniqueness accepted without limit.
+    assert.throws(
+      () =>
+        assertBrazilReceitaSnapshotRowIsPersistable({
+          tax_id: '',
+          normalized_tax_id: '',
+          record_identity_key: '',
+          source_period: '',
+        } as never),
+      BrazilReceitaGate4NonPersistableRowError,
+    );
   });
 
   it('🔴 the guard has no flag, no override and no allow parameter', () => {
@@ -517,10 +568,12 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       /ADD COLUMN source_period text NULL/,
     );
 
-    // And no migration FILE was created by this round. The ceiling moves whenever an
-    // AUTHORIZED milestone adds its own; what this guard defends is that THIS round did
-    // not. 124 belongs to AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 (Agent 2A
-    // phone identity) and is checked by authorship below, not merely by its number.
+    // The ceiling moves whenever an AUTHORIZED milestone adds its own migration; what this guard
+    // defends is WHO authored what, never the number alone.
+    //
+    // 🔴 BR-SOURCE-FUNCTIONAL-CUT-A authored 125, which is the migration the record above described
+    // as text. Round 2 still authored none, and `authoredInThisRound` above stays false — the two
+    // statements are about different rounds. 124 belongs to Agent 2A and must still not be BR.
     const files = fs.readdirSync(
       new URL('../../../../../../supabase/migrations/', import.meta.url),
     );
@@ -528,7 +581,8 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       .map((name) => Number.parseInt(name.slice(0, 3), 10))
       .filter((value) => Number.isFinite(value))
       .reduce((max, value) => Math.max(max, value), 0);
-    assert.equal(highest, 124, 'this round must not add a migration file');
+    assert.equal(highest, 125, 'CUT A adds exactly one migration, numbered 125');
+
     for (const name of files.filter((f) => f.startsWith('124'))) {
       const sql = fs.readFileSync(
         new URL(`../../../../../../supabase/migrations/${name}`, import.meta.url),
@@ -537,9 +591,17 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       assert.equal(
         /BR-SOURCE|RECEITA|CNPJ/i.test(sql),
         false,
-        `${name} must not be authored by this round`,
+        `${name} must not be authored by a BR round`,
       );
     }
+
+    // And 125 IS the BR one, authored by CUT A and explicitly not applied.
+    const m125 = fs.readFileSync(
+      new URL('../../../../../../supabase/migrations/125_br_receita_monthly_snapshot_identity.sql', import.meta.url),
+      'utf8',
+    );
+    assert.match(m125, /BR-SOURCE-FUNCTIONAL-CUT-A/);
+    assert.match(m125, /IT IS NOT APPLIED BY CUT A/);
   });
 
   it('replacement is period-scoped, and cross-month overwrite is forbidden', () => {

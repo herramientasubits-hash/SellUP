@@ -933,13 +933,13 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
   // Lo que ESTA guarda protege no es el número más alto del directorio —sube cada vez que un
   // bloque autorizado añade el suyo— sino que este hito de catálogo no aportó migración y que
   // la 119 siga siendo el cutover y sólo eso, que es lo que se afirma justo abajo.
-  it('la última migración del repositorio es la 123, y el catálogo no aportó ninguna', () => {
+  it('la última migración del repositorio es la 125, y el catálogo no aportó ninguna', () => {
     const files = execSync('ls supabase/migrations', { cwd: ROOT, encoding: 'utf8' })
       .split('\n')
       .filter((f) => f.endsWith('.sql'))
       .sort();
     const last = files[files.length - 1];
-    assert.match(last, /^124_/);
+    assert.match(last, /^125_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -964,12 +964,18 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     //         propio a la corrida; no nombra ninguna tabla ni vista del catálogo, y el
     //         barrido de abajo lo comprueba sobre su SQL en vez de creerle a este
     //         comentario.
+    //   125 — la identidad MENSUAL del snapshot de Receita (BR-SOURCE-FUNCTIONAL-CUT-A).
+    //         Añade `source_period` y la unicidad period-aware a `source_company_snapshots`
+    //         y el estado de publicación a `source_snapshot_runs`; ninguna de las dos es
+    //         tabla ni vista del catálogo de industrias, y el barrido de abajo lo comprueba
+    //         sobre su SQL en vez de creerle a este comentario. Está AUTORADA y NO APLICADA.
     assert.deepEqual(aboveCatalog, [
       '120_provider_native_phone_suppression.sql',
       '121_wizard_budget_overage_reconciliation.sql',
       '122_phone_reveal_search_more.sql',
       '123_provider_seen_entities.sql',
       '124_cross_provider_phone_identity.sql',
+      '125_br_receita_monthly_snapshot_identity.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

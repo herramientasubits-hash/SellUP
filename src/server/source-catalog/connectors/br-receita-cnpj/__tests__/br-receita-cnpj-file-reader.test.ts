@@ -50,6 +50,8 @@ const VALID_ESTAB = [
 function contents(overrides: Partial<BrReceitaCnpjCsvFixtureContents> = {}): BrReceitaCnpjCsvFixtureContents {
   return {
     sourceYear: 2026,
+    // BR-SOURCE-FUNCTIONAL-CUT-A — the period is required, and its year must agree with sourceYear.
+    sourcePeriod: '2026-07',
     empresasCsv: VALID_EMPRESAS,
     estabelecimentosCsv: VALID_ESTAB,
     ...overrides,

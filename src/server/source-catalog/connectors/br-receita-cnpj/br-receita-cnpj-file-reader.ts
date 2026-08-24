@@ -636,7 +636,12 @@ function resolveMaxRows(maxRows: number | undefined): number {
 
 export interface BrReceitaCnpjCsvFixtureContents {
   sourceYear: number;
-  sourcePeriod?: string;
+  /**
+   * 🔴 REQUIRED since BR-SOURCE-FUNCTIONAL-CUT-A. The parser input it produces requires a period,
+   * so making it optional here would only move the failure one frame later. The real manifest has
+   * always carried a mandatory `sourcePeriod`, so no real caller loses anything.
+   */
+  sourcePeriod: string;
   empresasCsv: string;
   estabelecimentosCsv: string;
   simplesCsv?: string;
@@ -679,10 +684,10 @@ export function parseBrReceitaCnpjCsvFixtureContents(
 
   const result: BrReceitaCnpjParserInput = {
     sourceYear: input.sourceYear,
+    sourcePeriod: input.sourcePeriod,
     empresasRows,
     estabelecimentosRows,
   };
-  if (input.sourcePeriod !== undefined) result.sourcePeriod = input.sourcePeriod;
   if (input.sourceFileName !== undefined) result.sourceFileName = input.sourceFileName;
 
   if (input.simplesCsv !== undefined) {

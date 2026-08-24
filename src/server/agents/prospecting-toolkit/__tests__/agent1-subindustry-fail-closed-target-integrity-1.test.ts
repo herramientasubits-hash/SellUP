@@ -983,6 +983,18 @@ function makeCandidateFixture(options: {
   // país fuerte, igual que las cuatro empresas reales de la corrida `8c86eb06…`.
   const slug = options.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
   const domain = `${slug}.com.co`;
+  // AGENT1-CUT3B23 — el LinkedIn empresarial se DERIVA del slug, como el dominio.
+  //
+  // Antes la fabrica daba `linkedin.com/company/<constante>` a TODAS las empresas.
+  // Mientras nadie comparaba LinkedIn eso era relleno inofensivo; con el registro
+  // de identidad de lote deja de serlo, porque cuatro filas que declaran dominios
+  // DISTINTOS afirmaban a la vez ser la MISMA pagina de empresa de LinkedIn. La
+  // contradiccion estaba en la fabrica, no en la admision: dos filas con la misma
+  // pagina de empresa SON la misma empresa. Es la misma correccion que ya hizo la
+  // fabrica de `lusha-pending-review.test.ts` con `providerCompanyId`.
+  //
+  // Una prueba que quiera un duplicado por LinkedIn lo dira explicitamente.
+  const companyLinkedInUrl = `https://www.linkedin.com/company/${slug}`;
   const candidate = {
     name: options.name,
     website: `https://www.${domain}`,
@@ -1007,19 +1019,19 @@ function makeCandidateFixture(options: {
     },
     sectorEvidenceState: options.sectorEvidenceState,
     providerEnrichmentCapture: capture,
-    companyLinkedInUrl: 'https://www.linkedin.com/company/test',
+    companyLinkedInUrl,
     // El ICP size gate lee este campo TOP-LEVEL (`extractCandidateCompanySize`),
     // no `providerCompanyFields.employeeCount`: sin él, tamaño desconocido
     // bloquea al candidato antes de llegar al contrato de completitud.
     employeeCount: 1500,
     providerCompanyFields: {
       linkedin: {
-        companyLinkedInUrl: 'https://www.linkedin.com/company/test',
+        companyLinkedInUrl,
         status: 'confirmed' as const,
         sourceProvider: 'apollo' as const,
         sourceOperation: 'organization_enrichment' as const,
         observedAt: '2026-08-06T14:26:42.000Z',
-        rawValue: 'https://www.linkedin.com/company/test',
+        rawValue: companyLinkedInUrl,
         reason: null,
       },
       employeeCount: {

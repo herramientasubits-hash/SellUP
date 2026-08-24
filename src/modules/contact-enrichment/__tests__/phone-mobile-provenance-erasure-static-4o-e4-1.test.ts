@@ -382,8 +382,11 @@ describe('4O-E4.1 estático — alcance', () => {
       // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 lo mueve a la 124: la identidad
       // provider-native del reveal de teléfono. Es de teléfono, pero no nombra
       // `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
-      124,
-      'la 124 (identidad cross-provider) es la última',
+      // BR-SOURCE-FUNCTIONAL-CUT-A lo mueve a la 125: la identidad MENSUAL del snapshot de
+      // Receita. NO es de teléfono y no nombra `mobile_phone` en ninguna parte, que es lo que
+      // esta guarda vigila. AUTORADA y NO APLICADA.
+      125,
+      'la 125 (identidad mensual del snapshot BR) es la última',
     );
   });
 

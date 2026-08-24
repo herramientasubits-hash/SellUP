@@ -3136,3 +3136,98 @@ jobs:
       # 0 créditos, 0 migraciones, 0 proveedores.
       - name: Run Agent 1 CUT-3B1 fiscal identity truth tests
         run: npm run test:a1-cut3b1-fiscal-identity
+
+      # AGENT1-CUT3B23-IDENTITY-COVERAGE-AND-BATCH-REGISTRY — CUT-3B2 + CUT-3B3.
+      #
+      # Fija el contrato que faltaba entre las TRES rutas de escritura de Agente 1.
+      # Antes de este corte cada una decidía la identidad de una empresa con un
+      # criterio propio: la gratuita por identidad FISCAL, la de pago por
+      # DOMINIO/identidad de proveedor, y el nombre con tres normalizadores
+      # distintos — de modo que la misma empresa legal podía persistirse dos veces
+      # en un mismo lote sin que nada fallara.
+      #
+      # Lo que la suite defiende:
+      #   * los TRES escritores producen la MISMA evidencia (constructor único);
+      #   * el conflicto FISCAL manda sobre dominio, proveedor, LinkedIn y nombre —
+      #     dos personas jurídicas distintas que comparten marca o dominio NO se
+      #     fusionan;
+      #   * un id de Apollo y un id de Lusha con el MISMO valor no pueden
+      #     compararse iguales: el namespace del proveedor va dentro de la clave;
+      #   * el NOMBRE nunca suprime (sólo anota posible duplicado);
+      #   * `discarded` no bloquea: un descarte previo no puede tapar al legítimo;
+      #   * el registro es de LOTE — no es novedad global ni histórica;
+      #   * descubrimiento crudo ≠ aceptado ÚNICO: un duplicado no consume el
+      #     objetivo y NO se cuenta como error.
+      #
+      # Y fija lo que este corte NO hace, que es la otra mitad del contrato:
+      #   * sin migración PROPIA de este corte (CUT-3B23 no añade ninguna). La 125 existe
+      #     en el repo — la AUTORA BR-SOURCE FUNCTIONAL CUT-A, más abajo — y está AUTORADA
+      #     y NO APLICADA; nada de CUT-3B23 la necesita ni la toca;
+      #   * sin ON CONFLICT, sin upsert, sin índice único, sin backfill;
+      #   * la siembra sólo LEE;
+      #   * `identity_key` no se redefine ni se sobrecarga;
+      #   * los huecos parciales de Apollo y Lusha siguen en `false`;
+      #   * ningún flag de activación de proveedor se nombra ni se cambia;
+      #   * la ATOMICIDAD sigue sin resolver y así queda declarado.
+      #
+      # La guarda estática compara el CUERPO EJECUTABLE (sin comentarios ni
+      # literales) y se prueba a sí misma en NEGATIVO, para que no pueda pasar por
+      # vacía. Incluye las suites de CUT-3B1 como ancla de regresión.
+      #
+      # Offline y determinista: sin Supabase, sin red, sin credenciales,
+      # 0 créditos, 0 migraciones, 0 proveedores.
+      - name: Run Agent 1 CUT-3B23 batch identity registry tests
+        run: npm run test:a1-cut3b23-identity-registry
+
+      # BR-SOURCE-FUNCTIONAL-CUT-A — la PRIMERA construcción funcional tras 8/8 gates y GO.
+      #
+      # El GO es ESTRECHO: habilita PROPONER código, no ejecutarlo. Esta suite congela el
+      # modelo de datos que Brasil necesitaba y, sobre todo, el límite que no cruza:
+      #
+      #   · `source_period` es FÍSICO, OBLIGATORIO y canónico `YYYY-MM`. Un lote sin periodo
+      #     ya no es construible: el builder lo rechaza y la guarda lo rechaza. Una única
+      #     definición del periodo — el regex del código y el del CHECK son el MISMO.
+      #   · la identidad es UNA sola representación: el CNPJ del establecimiento normalizado,
+      #     14 CARACTERES (no 14 dígitos: el CNPJ alfanumérico es oficial desde julio de 2026
+      #     y el primer periodo objetivo ES 2026-07). Ejerce la excepción ENUMERADA de 4A;
+      #     `tax_id` y `record_identity_key` siguen REFUSED — una excepción para una
+      #     representación no es una excepción para tres.
+      #   · el peligro YH-2 queda CERRADO, no reubicado: un índice único PARCIAL sobre
+      #     columnas NULLABLE no restringe nada, así que el CHECK hace ambas NOT NULL para
+      #     Brasil ANTES de que el índice signifique algo.
+      #   · las demás fuentes NO se debilitan: la constraint de la 065 se reemplaza por un
+      #     índice parcial con las MISMAS cuatro columnas y la MISMA semántica.
+      #   · las filas pertenecen a una CORRIDA, no a un periodo: `snapshot_run_id` entra DENTRO
+      #     de la clave física, así que la corrida A (publicada) y la B (`preparing`) del MISMO
+      #     periodo coexisten. B no puede tocar las filas de A, el lector ve el 100% de A mientras
+      #     B carga, y el relevo es UNA transacción que DEGRADA A antes de PROMOVER B — en ese
+      #     orden, porque el índice de «una publicada por periodo» es inmediato. Si B falla, A
+      #     queda intacta porque su degradación vivía en la transacción que no ocurrió.
+      #     `snapshot_run_id` es identificador de PUBLICACIÓN: nunca se deriva del CNPJ y NO es una
+      #     segunda representación — la única persistida sigue siendo `normalized_tax_id`.
+      #   · la limpieza se acota a una CORRIDA. El reset por PERIODO desapareció: borraba el mes
+      #     publicado para reconstruirlo. Ninguna operación destructiva es expresable sin nombrar
+      #     una corrida, y ninguna puede apuntar a una `published`.
+      #   · leer Brasil por `source_period` A SECAS queda CLASIFICADO INVÁLIDO: ese predicado
+      #     devuelve la unión de la corrida publicada con las de staging, y cada fila de esa unión
+      #     es individualmente correcta, así que nada falla. El contrato son DOS pasos — resolver
+      #     la única corrida `published` y luego filtrar por su id.
+      #   · publicar es ATÓMICO por contrato: `publish_period` es SIEMPRE la última operación
+      #     del plan, una corrida `preparing` no es legible, y un build fallido no puede
+      #     publicarse ni desplazar a la corrida anterior.
+      #   · el planificador es un FLUJO: memoria propia O(BATCH_SIZE), no O(FILAS_NACIONALES).
+      #     Crear el plan consume CERO filas; no hay Map de periodo, ni array de aceptados, ni
+      #     array de operaciones con todas las filas. El colapso de duplicados es EXACTO dentro
+      #     del lote y se delega a la BD entre lotes — no hay métrica global, porque una métrica
+      #     global exigiría justo la memoria que este corte elimina.
+      #
+      # 🔴 LO QUE NO HACE: la migración 125 está AUTORADA y NO APLICADA. Ninguna prueba ni
+      # script la aplica. Brasil sigue AUSENTE de SOURCE_FAMILY_BY_SOURCE_KEY (el registro
+      # sigue lanzando), porque los 5 primitivos de lectura son year-scoped y Brasil mete 12
+      # periodos en un año — el primitivo period-aware es de CUT B. Sin puente al motor, sin
+      # Agent 1, sin runtime, sin flag.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales de Receita.
+      # 0 créditos, 0 escrituras, 0 migraciones aplicadas, 0 flags.
+      - name: Run BR-SOURCE FUNCTIONAL CUT-A monthly snapshot foundation tests
+        run: npm run test:br-source:functional-cut-a-monthly-snapshot

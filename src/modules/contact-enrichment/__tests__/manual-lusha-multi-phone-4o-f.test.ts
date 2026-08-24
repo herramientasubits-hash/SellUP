@@ -1117,7 +1117,9 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // identidad provider-native del reveal. Tampoco re-declara la 111 —crea una tabla
     // nueva, añade `operation_key` a la reserva y un claim propio a la corrida—, así que
     // 4O-F sigue reutilizando la 111 intacta, que es lo que esta guarda afirma.
-    assert.equal(numbered[numbered.length - 1], 124, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // BR-SOURCE-FUNCTIONAL-CUT-A mueve el techo a la 125 (identidad MENSUAL del snapshot de
+    // Receita; AUTORADA y NO APLICADA). No es de 4O-F y no crea SQL de teléfono.
+    assert.equal(numbered[numbered.length - 1], 125, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.
