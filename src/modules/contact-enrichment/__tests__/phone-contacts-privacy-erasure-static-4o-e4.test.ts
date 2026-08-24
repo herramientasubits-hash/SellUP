@@ -400,6 +400,13 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // publicación en `source_snapshot_runs`). NO es de teléfono y NO edita ninguna migración
       // anterior — que es lo que esta lista exacta vigila. AUTORADA y NO APLICADA.
       '125_br_receita_monthly_snapshot_identity.sql',
+      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+      // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+      // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+      // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+      // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+      // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+      '126_agent1_batch_identity_atomicity.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -423,7 +430,13 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // borra teléfonos ni toca la erasure que esta suite protege. NO aplicada en Prod.
     // BR-SOURCE-FUNCTIONAL-CUT-A lo mueve a la 125: la identidad MENSUAL del snapshot de
     // Receita. NO es de teléfono. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 125);
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+    // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+    assert.equal(numbered[numbered.length - 1], 126);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

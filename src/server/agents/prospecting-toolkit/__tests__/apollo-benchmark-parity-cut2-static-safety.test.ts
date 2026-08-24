@@ -469,8 +469,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // La 125 la toma BR-SOURCE-FUNCTIONAL-CUT-A (identidad MENSUAL del snapshot de
     // Receita, AUTORADA y NO APLICADA). El siguiente número libre es la 126, y la AUTORÍA
     // se barre ahora sobre 124 y 125: es la comprobación que de verdad protege este corte.
-    assert.equal(migrations.filter((f) => f.startsWith('126')).length, 0);
-    for (const file of migrations.filter((f) => f.startsWith('124') || f.startsWith('125'))) {
+    assert.equal(migrations.filter((f) => f.startsWith('127')).length, 0);
+    for (const file of migrations.filter((f) => f.startsWith('124') || f.startsWith('125') || f.startsWith('126'))) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
         false,

@@ -88,6 +88,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 /** Subindustria compuesta CON catálogo de anclas (tres familias). */
 const REQUESTED_SUBINDUSTRY = 'Tiendas por Departamento, Moda y Calzado';
+import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 /** Otra subindustria CON catálogo, para los casos ANY-OF de varias mapeadas. */
 const MAPPED_SUPERMARKETS = 'Supermercados e Hipermercados';
 /** Subindustrias SIN catálogo de anclas — el estado «sin mapeo» del § 3. */
@@ -898,6 +899,9 @@ type FakeAdminStats = { candidateInsertCalls: Record<string, unknown>[] };
 function makeFakeAdmin(stats: FakeAdminStats): SupabaseClient {
   let candidateSeq = 0;
   return {
+    // CUT-3B4-CORRECCIÓN — la 126 SIN aplicar se declara como lo hace la BASE.
+    // Omitir `rpc` modelaría un cliente no soportado, y eso degrada CERRADO.
+    rpc: preM126Rpc,
     from(table: string) {
       if (table === 'prospect_batches') {
         return {

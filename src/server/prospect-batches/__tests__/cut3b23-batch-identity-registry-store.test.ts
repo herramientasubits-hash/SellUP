@@ -24,6 +24,7 @@ import {
   evaluateCandidateIdentity,
 } from '@/server/agents/prospecting-toolkit/batch-identity-registry';
 import { buildCompanyIdentityEvidence } from '@/server/agents/prospecting-toolkit/company-identity-evidence';
+import { preM126Rpc } from './support/lusha-pre-m126-fenced-insert';
 
 // ─── Cliente falso ────────────────────────────────────────────────────────────
 
@@ -59,6 +60,10 @@ function fakeClient(
     },
   };
   const client = {
+    // CUT-3B4-CORRECCIÓN — el doble declara la 126 SIN aplicar como lo hace la
+    // base: respondiendo que la función no existe. Omitir `rpc` modelaría un
+    // cliente no soportado, que degrada CERRADO y no ejercita esta ruta.
+    rpc: preM126Rpc,
     from(table: string) {
       capture.table = table;
       return builder;

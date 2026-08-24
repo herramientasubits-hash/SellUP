@@ -47,11 +47,25 @@
  * La deduplicación DEFINITIVA (crear o reutilizar una `account`) sigue viviendo
  * en la aprobación, contra identidad legal, intacta.
  *
- * ── Lo que este corte NO resuelve ─────────────────────────────────────────────
+ * ── La concurrencia: cerrada en CÓDIGO por CUT-3B4, INERTE en Producción ──────
  *
- * CUT3_CONCURRENCY_ATOMICITY_SOLVED = NO. Dos procesos que lean el mismo lote a
- * la vez, no vean duplicado y ambos inserten siguen produciendo dos filas. Eso
- * exige atomicidad en base de datos (CUT-3B4) y NO se resuelve aquí.
+ * Hasta CUT-3B3 esto quedaba abierto: dos procesos que leyeran el mismo lote a la
+ * vez, no vieran duplicado y ambos insertaran producían dos filas. Ese hueco lo
+ * cierra CUT-3B4 con vallado optimista en base de datos —una época por lote, la
+ * comprobación y el INSERT en una sola transacción— y el reintento re-pregunta
+ * SIEMPRE a este mismo módulo: no hay un segundo evaluador de duplicados.
+ *
+ *   CUT3_CONCURRENCY_ATOMICITY_SOLVED_IN_CODE = YES
+ *   CUT3_CONCURRENCY_ATOMICITY_ACTIVE_IN_PROD = NO
+ *
+ * 🔴 La segunda línea no es una formalidad. La migración 126 se entrega SIN
+ * aplicar; mientras no se aplique, la RPC no existe, el escritor conserva su ruta
+ * anterior y la carrera sigue exactamente igual de abierta que antes. La
+ * atomicidad está PRESENTE en el código e INERTE en Producción.
+ *
+ * Este módulo sigue sin saber nada de todo eso: es puro y no conoce la valla. La
+ * valla vive en `@/server/prospect-batches/batch-identity-fence` y su bucle en
+ * `…/batch-identity-fenced-persistence`.
  *
  * Puro: sin I/O, sin Supabase, sin env, sin reloj. La siembra la inyecta el
  * llamador (`@/server/prospect-batches/batch-identity-registry-store`).
@@ -554,6 +568,29 @@ export function tallyBatchIdentityPersisted(
 ): BatchIdentityCounters {
   const safe = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0;
   return { ...counters, persistedUnique: counters.persistedUnique + safe };
+}
+
+/**
+ * AGENT1-CUT3B4 — un candidato ADMITIDO que resultó duplicado al re-evaluarlo.
+ *
+ * Ocurre exactamente en un caso: la decisión de admisión llegó CADUCA al vallado
+ * (`stale`), se recargó la foto del lote y, contra el estado nuevo, el candidato
+ * SÍ era duplicado. La admisión previa ya había sumado en `identityAdmittedUnique`;
+ * dejarla ahí afirmaría un permiso de escritura que se retiró.
+ *
+ * 🔴 NO toca `errors` y NO toca `persistedUnique`. Perder una carrera y descubrir
+ * un duplicado es el mecanismo FUNCIONANDO, no una avería: contarlo como error
+ * habría convertido el éxito del vallado en ruido rojo, y contarlo como
+ * persistido habría inventado una fila.
+ */
+export function tallyBatchIdentityDuplicateAfterAdmission(
+  counters: BatchIdentityCounters,
+): BatchIdentityCounters {
+  return {
+    ...counters,
+    identityAdmittedUnique: Math.max(0, counters.identityAdmittedUnique - 1),
+    duplicateSkipped: counters.duplicateSkipped + 1,
+  };
 }
 
 /** Un error de escritura real. Separado del conteo de duplicados a propósito. */

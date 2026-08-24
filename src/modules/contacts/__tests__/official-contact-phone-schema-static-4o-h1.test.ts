@@ -148,7 +148,13 @@ describe('114 — numeración', () => {
     // estática; no edita ninguna migración anterior. NO aplicada en Producción.
     // BR-SOURCE-FUNCTIONAL-CUT-A aporta la 125 (identidad MENSUAL del snapshot de Receita;
     // AUTORADA y NO APLICADA). No es de teléfono y no toca este esquema.
-    assert.equal(Math.max(...numbers), 125);
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+    // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+    assert.equal(Math.max(...numbers), 126);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

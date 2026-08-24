@@ -38,6 +38,7 @@ import type {
   ActiveCandidateRecord,
 } from '@/server/agents/prospecting-toolkit/active-candidate-identity-guard';
 
+import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
 const INPUT: LushaPreviewInput = {
@@ -147,6 +148,9 @@ function makeFlow(opts: {
       calls.batches.push(row);
       return { id: 'batch-1' };
     },
+    // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
+    // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
+    insertCandidatesFenced: preM126FencedInsert,
     insertCandidates: async (rows) => {
       calls.candidateRows.push(...rows);
       return { insertedCount: rows.length };

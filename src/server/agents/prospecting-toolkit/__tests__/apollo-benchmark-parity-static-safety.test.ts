@@ -340,11 +340,11 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // Receita, AUTORADA y NO APLICADA). El siguiente número libre es la 126, y la AUTORÍA
     // se barre ahora sobre 124 y 125.
     assert.equal(
-      migrations.filter((f) => f.startsWith('126')).length,
+      migrations.filter((f) => f.startsWith('127')).length,
       0,
       'este corte no añade migración',
     );
-    for (const file of migrations.filter((f) => f.startsWith('124') || f.startsWith('125'))) {
+    for (const file of migrations.filter((f) => f.startsWith('124') || f.startsWith('125') || f.startsWith('126'))) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
         false,

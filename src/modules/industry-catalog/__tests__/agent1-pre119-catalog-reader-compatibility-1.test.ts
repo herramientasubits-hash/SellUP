@@ -939,7 +939,13 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       .filter((f) => f.endsWith('.sql'))
       .sort();
     const last = files[files.length - 1];
-    assert.match(last, /^125_/);
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+    // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+    assert.match(last, /^126_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -976,6 +982,13 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       '123_provider_seen_entities.sql',
       '124_cross_provider_phone_identity.sql',
       '125_br_receita_monthly_snapshot_identity.sql',
+      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+      // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+      // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+      // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+      // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+      // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+      '126_agent1_batch_identity_atomicity.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);
