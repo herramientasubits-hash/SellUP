@@ -35,10 +35,29 @@
  * are approved and the global verdict below still reads NO-GO, because GATE-7 is the one gate this
  * round does not approve.
  *
+ * 🔴 BR-SOURCE-FAST-TRACK-8 recorded GATE-7's joint operator + technical + privacy owner approval.
+ * `brazilReceitaApprovedGateCount()` is now 8 and `brazilReceitaGateGlobalVerdict()` returns `GO` for
+ * the first time — the derivation below is unchanged; only the data it reads moved.
+ *
+ * **What `GO` means here, stated because it is the single most misreadable value this module
+ * produces.** 10K § 15 defines it as: *may propose a future runner implementation PR — still no
+ * execution*. Its own three-step separation is unchanged — GO for a runner proposal is not GO for
+ * execution, GO for execution is not GO for import, and import needs a later separate authorization.
+ * `GO` is not a Brazil enablement, not an execution permission, and not an attempt-budget change:
+ * `BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED` is owned elsewhere and stays `false`. The reading
+ * is recorded as data in `BRAZIL_RECEITA_GATE_GO_MEANS` so a consumer need not re-derive it from
+ * prose.
+ *
+ * 🔴 And a reproducibility note that belongs here rather than only in GATE-7's own module: the eighth
+ * approval discharged its last blocker by an owner WAIVER, not by evidence.
+ * `BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR` still reads `UNDEMONSTRATED`. Eight of
+ * eight approved does not mean every pass criterion was demonstrated.
+ *
  * ── This module NEVER ────────────────────────────────────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
  *   - advances, approves or downgrades a gate. It reports; the recorded modules decide.
  *   - derives GO from anything other than "every gate approved".
+ *   - reads GO as an execution, import, runtime, provider or production permission.
  */
 
 import { BRAZIL_RECEITA_GATE2_STATUS } from './br-receita-cnpj-gate2-recorded-owner-decision';
@@ -81,9 +100,10 @@ export type BrazilReceitaGateStatus = (typeof BRAZIL_RECEITA_GATE_STATUSES)[numb
  * The three statuses the recorded rounds added to 10K § 3's original seven.
  *
  * 🔴 `APPROVED_AS_CONTRACT` is the one most easily misread as plain `approved`. It is GATE-8's, and
- * it is deliberately narrower: its *Allows* clause is conditional on every other gate being
- * approved, and six are not. It counts toward the approved TALLY and does not, on its own, permit
- * anything.
+ * it is deliberately narrower: its *Allows* clause is conditional on every other gate being approved.
+ * That condition was unmet for the whole series and is met as of BR-SOURCE-FAST-TRACK-8 — which
+ * changes nothing about this status, because it counts toward the approved TALLY and does not, on its
+ * own, permit anything. See `BRAZIL_RECEITA_GATE8_APPROVAL_IS_PERMISSION_TO_WRITE_RUNNER`.
  */
 export const BRAZIL_RECEITA_GATE_STATUSES_ADDED_AFTER_10K: readonly BrazilReceitaGateStatus[] = [
   'needs_owner_confirmation',
@@ -122,9 +142,9 @@ export interface BrazilReceitaGateCurrentState {
 /**
  * The authoritative current view. A consumer reads THIS, never a `Status today` line.
  *
- * 🔴 As of BR-SOURCE-FAST-TRACK-7, one of the eight is not approved — GATE-7 — so the 10K § 15 matrix
- * still reads NO-GO. Seven gates being approved is not the same as eight; the matrix requires every
- * one.
+ * 🔴 As of BR-SOURCE-FAST-TRACK-8 all eight are approved, so the 10K § 15 matrix reads GO — the
+ * narrow GO the matrix defines, and nothing wider. See `BRAZIL_RECEITA_GATE_GO_MEANS` below before
+ * acting on it.
  */
 export const BRAZIL_RECEITA_GATE_CURRENT_STATE: readonly BrazilReceitaGateCurrentState[] = [
   { gate: 1, status: BRAZIL_RECEITA_GATE1_STATUS, recordedIn: '§ 5.1', owningModule: null },
@@ -161,7 +181,7 @@ export const BRAZIL_RECEITA_GATE_CURRENT_STATE: readonly BrazilReceitaGateCurren
   {
     gate: 7,
     status: BRAZIL_RECEITA_GATE7_STATUS as BrazilReceitaGateStatus,
-    recordedIn: '§ 11.2',
+    recordedIn: '§ 11.3',
     owningModule: 'br-receita-cnpj-gate7-recorded-operator-runbook',
   },
   {
@@ -202,7 +222,51 @@ export function brazilReceitaApprovedGateCount(): number {
 }
 
 /**
- * `GATE-8 approved AS A CONTRACT` is the reading most likely to be taken as permission. It is not:
- * its Allows clause is conditional on every other gate being approved, and six are not.
+ * `GATE-8 approved AS A CONTRACT` is the reading most likely to be taken as permission. It is not.
+ *
+ * 🔴 Through FAST-TRACK-7 this constant was `false` because GATE-8's *Allows* clause is conditional on
+ * every other gate being approved and one was not. As of BR-SOURCE-FAST-TRACK-8 that condition IS
+ * satisfied — and the constant stays `false`, because it never asked about the condition. It asks
+ * whether GATE-8's own approval is the permission, and it is not: the § 15 matrix is, the permission
+ * it grants is to PROPOSE a runner implementation PR, and it grants that on the strength of all eight
+ * gates rather than of GATE-8. Reading a satisfied precondition as a grant is exactly the collapse
+ * this constant exists to refuse.
  */
 export const BRAZIL_RECEITA_GATE8_APPROVAL_IS_PERMISSION_TO_WRITE_RUNNER = false as const;
+
+/**
+ * 🔴 What a `GO` verdict means, per 10K § 15, recorded as data (BR-SOURCE-FAST-TRACK-8).
+ *
+ * The verdict flipped to `GO` for the first time in this series, and a bare `'GO'` string is the most
+ * over-readable value this module returns. Every field below is a NO: the single `yes` is the narrow
+ * one § 15 actually states.
+ */
+export const BRAZIL_RECEITA_GATE_GO_MEANS = {
+  perSection: '10K § 15',
+  allows: 'a future runner implementation PR may be PROPOSED',
+  authorizesExecution: false,
+  authorizesImport: false,
+  authorizesRealDataRead: false,
+  authorizesSupabaseWrite: false,
+  authorizesSnapshotWrite: false,
+  authorizesAgent1Brazil: false,
+  authorizesProviderCall: false,
+  authorizesProduction: false,
+  changesAnyCapOrFlag: false,
+  changesTheAttemptBudget: false,
+  /** § 15's own separation, verbatim in structure: three steps, each needing its own authorization. */
+  threeStepSeparation: [
+    'GO for runner implementation ≠ GO for execution',
+    'GO for execution ≠ GO for import',
+    'GO for import requires a later, separate import authorization',
+  ],
+} as const;
+
+/**
+ * 🔴 Eight of eight approved does NOT mean every pass criterion was demonstrated.
+ *
+ * GATE-7's last blocker — reproducibility by a different operator — was discharged by an owner WAIVER
+ * (BR-SOURCE-FAST-TRACK-8), and its recorded module still reads `UNDEMONSTRATED`. A consumer counting
+ * approvals must not infer evidence from the count.
+ */
+export const BRAZIL_RECEITA_EVERY_GATE_PASS_CRITERION_WAS_DEMONSTRATED = false as const;

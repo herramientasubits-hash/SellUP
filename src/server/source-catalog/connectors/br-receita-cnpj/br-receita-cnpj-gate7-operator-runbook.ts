@@ -23,16 +23,25 @@
  *
  * ── 🔴 Today's verdict, and why it is the correct one ────────────────────────
  *
- * `evaluateBrazilReceitaGate7Preconditions()` still returns `FAIL` today — but as of
- * BR-SOURCE-FAST-TRACK-7, for a different and single reason: GATE-2, GATE-5 and GATE-6 are now
- * `approved`, so `unapprovedBlockingGates` is empty, but the evaluator checks the current state of
- * ALL EIGHT gates including GATE-7's own, and GATE-7 itself is not `approved`
- * (`BRAZIL_RECEITA_GATE7_STATUS` is `needs_evidence`). `evaluateBrazilReceitaGate7PrivacyPreflight()`
- * now returns `PASS`, because all five contracts it checks — owned by GATE-2 … GATE-6 — are approved.
- * Neither function was edited to produce these outcomes: both are unconditional derivations from
- * `BRAZIL_RECEITA_GATE_CURRENT_STATE`, and there is deliberately no parameter, option, environment
- * read or override that could produce any other verdict. A bypass is the one feature this module must
- * not have.
+ * As of BR-SOURCE-FAST-TRACK-8, `evaluateBrazilReceitaGate7Preconditions()` returns `PASS` for the
+ * first time. GATE-7's own joint owner approval was the last gate `P-05` was waiting on, so
+ * `unapprovedGates` is now EMPTY — `unapprovedBlockingGates` emptied a round earlier, when GATE-2,
+ * GATE-5 and GATE-6 were approved. `evaluateBrazilReceitaGate7PrivacyPreflight()` continues to return
+ * `PASS`.
+ *
+ * 🔴 **Neither function was edited, in this round or the last.** Both are unconditional derivations
+ * from `BRAZIL_RECEITA_GATE_CURRENT_STATE`; there is still no parameter, option, environment read or
+ * override that could produce any other verdict, and `BRAZIL_RECEITA_GATE7_PRECONDITION_BYPASS_EXISTS`
+ * is still `false`. A bypass is the one feature this module must not have, and the round that could
+ * most easily have added one — the round whose approval `P-05` was blocking — did not.
+ *
+ * 🔴 **A passing `P-05` is not a permission.** It clears the first of twenty-two preflight items; the
+ * other twenty-one are `operator_environment_dependent` and are performed by a named human operator
+ * against a machine this module cannot see. Executing the procedure at all still needs the separate,
+ * explicit authorization of a future milestone, and
+ * `BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED` remains imported and `false`. The gate approval
+ * also left reproducibility by a different operator `UNDEMONSTRATED` — WAIVED by owner decision, not
+ * shown — so a passing preflight is not evidence that the steps carry no tacit knowledge.
  *
  * ── This module NEVER (fail-closed by construction) ──────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
@@ -68,7 +77,10 @@ import {
 import {
   BRAZIL_RECEITA_GATE7_REHEARSAL_AUTHORIZED as RECORDED_REHEARSAL_AUTHORIZED,
   BRAZIL_RECEITA_GATE7_REHEARSAL_PERFORMED as RECORDED_REHEARSAL_PERFORMED,
+  BRAZIL_RECEITA_GATE7_REHEARSAL_REQUIRED as RECORDED_REHEARSAL_REQUIRED,
   BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR as RECORDED_REPRODUCIBILITY,
+  BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_DEMONSTRATED as RECORDED_REPRODUCIBILITY_DEMONSTRATED,
+  BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_DISPOSITION as RECORDED_REPRODUCIBILITY_DISPOSITION,
   BRAZIL_RECEITA_GATE7_RUNBOOK_SECTION as RECORDED_RUNBOOK_SECTION,
   BRAZIL_RECEITA_GATE7_RUNBOOK_SECTION_EXISTS as RECORDED_RUNBOOK_SECTION_EXISTS,
 } from './br-receita-cnpj-gate7-recorded-operator-runbook';
@@ -584,16 +596,25 @@ export function brazilReceitaGate7SignoffValueKindIsAdmissible(kind: string): bo
 // ─── Reproducibility ──────────────────────────────────────────────────────────
 
 /**
- * 🔴 The claim this round must NOT make: reproducibility by a different operator is UNDEMONSTRATED.
+ * 🔴 The claim this module must NOT make, and still does not: reproducibility by a different operator
+ * is `UNDEMONSTRATED`.
  *
- * Re-exported from the recorded module for the same cycle-avoidance reason as the section facts
- * above. 10K § 11's pass criteria require the runbook to be *reproducible by a different operator
- * without tacit knowledge*, and only an authorized rehearsal by an operator who did not write the
- * section can show that. None is authorized and none was performed.
+ * Re-exported from the recorded module for the same cycle-avoidance reason as the section facts above.
+ * 10K § 11's pass criteria require the runbook to be *reproducible by a different operator without
+ * tacit knowledge*, and only a rehearsal by an operator who did not write the section can show that.
+ * None is authorized and none was performed.
+ *
+ * 🔴 BR-SOURCE-FAST-TRACK-8 approved GATE-7 without changing this value. The criterion was WAIVED by
+ * the three owners' explicit decision that a pre-approval rehearsal is not required — the branch their
+ * own unblocking criterion has named since FAST-TRACK-6 — and a waiver is not a demonstration. The
+ * disposition is re-exported beside the value, never in place of it, so the two cannot be conflated.
  */
 export const BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR = RECORDED_REPRODUCIBILITY;
+export const BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_DISPOSITION = RECORDED_REPRODUCIBILITY_DISPOSITION;
+export const BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_DEMONSTRATED = RECORDED_REPRODUCIBILITY_DEMONSTRATED;
 export const BRAZIL_RECEITA_GATE7_REHEARSAL_PERFORMED = RECORDED_REHEARSAL_PERFORMED;
 export const BRAZIL_RECEITA_GATE7_REHEARSAL_AUTHORIZED = RECORDED_REHEARSAL_AUTHORIZED;
+export const BRAZIL_RECEITA_GATE7_REHEARSAL_REQUIRED = RECORDED_REHEARSAL_REQUIRED;
 
 // ─── The assertion catalogue ──────────────────────────────────────────────────
 
@@ -621,7 +642,7 @@ export interface BrazilReceitaGate7AssertionRecord {
 export const BRAZIL_RECEITA_GATE7_ASSERTION_RECORDS: readonly BrazilReceitaGate7AssertionRecord[] = [
   { id: 'OR-A01', state: 'executable_and_asserted', dischargedBy: 'brazilReceitaGate7ActorMayExecute' },
   { id: 'OR-A02', state: 'executable_and_asserted', dischargedBy: 'BRAZIL_RECEITA_GATE7_PREFLIGHT_ITEMS action / passCondition, asserted non-empty for all 22' },
-  { id: 'OR-A03', state: 'executable_and_asserted', dischargedBy: 'P-05 standing is checkable_and_fails_today and the evaluator gates the whole procedure' },
+  { id: 'OR-A03', state: 'executable_and_asserted', dischargedBy: 'P-05 standing is checkable_and_expected_to_pass and the argument-free evaluator still gates the whole procedure' },
   { id: 'OR-A04', state: 'executable_and_asserted', dischargedBy: 'BRAZIL_RECEITA_GATE7_FAILED_PREFLIGHT_ITEM_IS_A_STOP' },
   { id: 'OR-A05', state: 'executable_and_asserted', dischargedBy: 'BRAZIL_RECEITA_GATE7_WORKSPACE_PREFLIGHT outsideRepository plus P-06 and P-09' },
   { id: 'OR-A06', state: 'executable_and_asserted', dischargedBy: 'P-08 pass condition, and the manifest validator that owns it' },

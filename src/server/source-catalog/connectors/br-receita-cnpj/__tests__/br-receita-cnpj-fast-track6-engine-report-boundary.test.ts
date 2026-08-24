@@ -648,11 +648,12 @@ describe('BOUNDARY · the GATE-5 human section discloses the boundary', () => {
 // ─── 8 · No gate moved ────────────────────────────────────────────────────────
 
 describe('BOUNDARY · no gate approval is earned by this correction', () => {
-  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — a LATER, separate round recorded human owner approvals for
-  // GATE-2, GATE-3, GATE-4, GATE-5 and GATE-6. That is a different fact from the one this suite tests:
-  // the FAST-TRACK-6 engine-report-boundary CORRECTION itself earned none of them. The statuses below
-  // reflect the current, post-FAST-TRACK-7 state; the boundary fix is still not what earned any of it.
-  it('the eight statuses reflect BR-SOURCE-FAST-TRACK-7; the boundary fix itself earned none of them', () => {
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7, THEN BY BR-SOURCE-FAST-TRACK-8 — two LATER, separate rounds
+  // recorded human owner approvals: FAST-TRACK-7 for GATE-2, GATE-3, GATE-4, GATE-5 and GATE-6, and
+  // FAST-TRACK-8 for GATE-7. That is a different fact from the one this suite tests: the FAST-TRACK-6
+  // engine-report-boundary CORRECTION itself earned none of them. The statuses below reflect the
+  // current, post-FAST-TRACK-8 state; the boundary fix is still not what earned any of it.
+  it('the eight statuses reflect BR-SOURCE-FAST-TRACK-8; the boundary fix itself earned none of them', () => {
     const byGate = new Map(BRAZIL_RECEITA_GATE_CURRENT_STATE.map((e) => [e.gate, e.status]));
     assert.equal(byGate.get(1), 'approved');
     assert.equal(byGate.get(2), 'approved');
@@ -660,16 +661,16 @@ describe('BOUNDARY · no gate approval is earned by this correction', () => {
     assert.equal(byGate.get(4), 'approved');
     assert.equal(byGate.get(5), 'approved');
     assert.equal(byGate.get(6), 'approved');
-    assert.equal(byGate.get(7), 'needs_evidence');
+    assert.equal(byGate.get(7), 'approved');
     assert.equal(byGate.get(8), 'APPROVED_AS_CONTRACT');
-    assert.equal(brazilReceitaGateGlobalVerdict(), 'NO-GO');
+    assert.equal(brazilReceitaGateGlobalVerdict(), 'GO');
   });
 
-  it('GATE-5 is approved (BR-SOURCE-FAST-TRACK-7) and GATE-7 is needs_evidence, not approved', () => {
+  it('GATE-5 and GATE-7 are both approved, by two SEPARATE later rounds and not by this correction', () => {
     assert.equal(BRAZIL_RECEITA_GATE5_STATUS, 'approved');
-    assert.equal(BRAZIL_RECEITA_GATE7_STATUS, 'needs_evidence');
+    assert.equal(BRAZIL_RECEITA_GATE7_STATUS, 'approved');
     assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE5_STATUS), true);
-    assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE7_STATUS), false);
+    assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE7_STATUS), true);
   });
 
   it('the boundary module is pure, unwired, and carries no identifier', () => {

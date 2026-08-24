@@ -467,10 +467,18 @@ export function brazilReceitaSignoffPacketIsUnanswered(): boolean {
 /**
  * The operational crossings that stay forbidden even if all seven sections come back APPROVED.
  *
- * 🔴 This list is the reason the packet can be prepared at all. Five gates approving does not make a
- * run legal: GATE-7 would still be `blocked` on its own approval, § 4 would still forbid runner code
+ * 🔴 This list is the reason the packet could be prepared at all. Five gates approving does not make a
+ * run legal: GATE-7 would still be unapproved on its own account, § 4 would still forbid runner code
  * until every gate is approved, and execution would still need the separate explicit authorization of
  * a future milestone.
+ *
+ * 🔴 **Update (BR-SOURCE-FAST-TRACK-8): every entry below is still forbidden, and the reason changed.**
+ * GATE-7 has since been approved too, so all eight gates are approved and 10K § 15 reads `GO`. The two
+ * clauses that carried this list have therefore parted ways: § 4 no longer forbids runner code, and a
+ * runner implementation PR may be PROPOSED. Execution still needs the separate explicit authorization
+ * of a future milestone, which is the clause every entry below actually rests on — so not one of them
+ * moves. The last entry is now vacuously true rather than load-bearing, and is kept unedited as the
+ * record of the condition that used to bind.
  */
 export const BRAZIL_RECEITA_SIGNOFF_STILL_FORBIDDEN_AFTER_EVERY_APPROVAL: readonly string[] = [
   'reading real Receita data',

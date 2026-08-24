@@ -148,6 +148,10 @@ superseded        replaced by a later, explicitly-recorded decision that names w
 >   that nothing external prevents the review; it simply has not happened.
 > - **`APPROVED_AS_CONTRACT` counts toward the approved TALLY and permits nothing on its own.** Its
 >   *Allows* clause is conditional on every other gate being approved, and six are not (§ 12.1).
+>   🔴 **UPDATED BY § 11.3 (BR-SOURCE-FAST-TRACK-8).** That condition is now satisfied — all eight
+>   gates are approved. The bullet's headline is unchanged and unweakened: `APPROVED_AS_CONTRACT` still
+>   permits nothing **on its own**. What permits the narrow next step is the § 15 matrix over all eight
+>   gates, never this status.
 >
 > The machine-readable form of the whole vocabulary is `BRAZIL_RECEITA_GATE_STATUSES`, and the
 > authoritative current state is `BRAZIL_RECEITA_GATE_CURRENT_STATE` — both in
@@ -209,6 +213,25 @@ Rules governing status:
   reviewable while GATE-1 is `not_started`, `rejected`, or `blocked`.
 - **Every approval is recorded with the § 14 template.** An approval that is not recorded in that
   shape does not exist.
+
+> **Update (BR-SOURCE-FAST-TRACK-8) — the first rule's condition is now SATISFIED, and no rule above
+> is weakened.** All eight gates are `approved` (§ 5.1, § 6.2, § 7.3, § 8.2, § 9.4, § 10.2, § 11.3,
+> § 12.1), each as its own recorded decision in the § 14 shape — eight decisions, never a batch. Full
+> join runner code may therefore be *written*, or more precisely **proposed** as a PR that satisfies
+> GATE-8's contract, which is exactly what the first rule and § 15's first matrix line say together.
+>
+> 🔴 Three rules above are the ones a reader is most likely to treat as spent now that the matrix is
+> closed, and none of them is. **`approved` never means import-ready** — it means the single next step
+> in that gate's *Allows* clause becomes permissible, and no gate's *Allows* clause names execution.
+> **`approved` is scoped and revocable** — changing an approved subject re-opens its gate, so a runner
+> proposal that departs from GATE-8's contract or from GATE-5's frozen output rules re-opens the gate
+> it departs from. **Any sensitive leak resets the affected gate(s) to `not_started`** — the matrix
+> being closed makes that rule more live, not less.
+>
+> One approval in the eight rests on an owner **waiver** rather than on demonstrated evidence: GATE-7's
+> reproducibility criterion (§ 11.3). It is a valid approval under this section's own rules — the
+> named approvers recorded it in the § 14 shape, and no rule here requires a rehearsal — and it is not
+> a demonstration. `BRAZIL_RECEITA_EVERY_GATE_PASS_CRITERION_WAS_DEMONSTRATED` is `false`.
 
 ---
 
@@ -1874,7 +1897,7 @@ Restrictions:           a failed or not_executed cleanup may not be upgraded by 
 **Governs (10J § 13):** confirms 10J § 16 — the manual steps an operator follows to run a future
 dry-run safely and reproducibly.
 
-**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 11.2.** The current status is `needs_evidence`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 11.3.** The current status is `approved`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -2106,6 +2129,134 @@ Does not allow:         being read as ready_for_review or as an approval; being 
 Restrictions:           reproducibility by a different operator remains UNDEMONSTRATED and may not be
                         claimed. Only a named authorized human operator may ever execute the procedure.
                         ATTEMPT_3_ALLOWED stays false, with no reset path.
+```
+
+---
+
+### 11.3 The JOINT OWNER APPROVAL is RECORDED; GATE-7 is `approved`, and the reproducibility criterion is WAIVED — not demonstrated (BR-SOURCE-FAST-TRACK-8)
+
+> **Update (BR-SOURCE-FAST-TRACK-8) — § 11.3 GATE-7 is `approved`.** The **operator owner**, the
+> **technical owner** and the **privacy owner** have jointly approved, by owner relay recorded
+> 2026-08-24. The subject is named rather than implied: the § 16 runbook section, its twenty-two
+> preflight items `P-01` … `P-22`, and its sixteen non-overridable stop conditions `T-01` … `T-16`.
+>
+> 🔴 **The one sentence that must survive every future summary of this subsection:** reproducibility by
+> a different operator was **NOT demonstrated**. It was **WAIVED**.
+>
+> ```
+> REPRODUCIBILITY_BY_DIFFERENT_OPERATOR = UNDEMONSTRATED    ← unchanged by this approval
+> REPRODUCIBILITY_DISPOSITION           = WAIVED_BY_OWNER_DECISION
+> REPRODUCIBILITY_DEMONSTRATED          = false
+> REHEARSAL_PERFORMED                   = false
+> REHEARSAL_AUTHORIZED                  = false
+> REHEARSAL_REQUIRED                    = false   ← the owners decision, and the only value that moved
+> ```
+>
+> The two are kept as separate fields precisely so a later reader cannot collapse them. A waiver is a
+> decision about whether evidence is required; it is not evidence.
+>
+> **The waiver was a branch the contract already contained.** `BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION`
+> has read, since BR-SOURCE-FAST-TRACK-6, that approval still requires "the joint operator + technical +
+> privacy owner approval, after the rehearsal **(or their explicit decision that no rehearsal is
+> required)**". That constant is preserved **verbatim** in § 11.3's implementation — the round that
+> invoked the branch did not rewrite the sentence that offered it — with `discharged` and `dischargedVia`
+> added alongside. A reader can therefore verify that the branch pre-dated the decision rather than
+> being written to fit it.
+>
+> **Why a pre-approval rehearsal was impossible without a bypass, and why no bypass was created.**
+> `P-05` — first in substance, fifth in numbering — requires **every** gate to be recorded `approved`,
+> GATE-7's own included. A rehearsal intended to demonstrate reproducibility *before* GATE-7's approval
+> therefore halts at `P-05` by construction, and halts there **correctly**: `P-05` takes no argument,
+> reads no environment, offers no override, and `BRAZIL_RECEITA_GATE7_PRECONDITION_BYPASS_EXISTS` is
+> `false`. The circularity is deliberate, and it is a safety property rather than a defect.
+>
+> The owners were given exactly that reading and decided:
+>
+> - **not** to modify `P-05`;
+> - **not** to create a bypass, an override, or a "rehearsal mode";
+> - **not** to authorize a rehearsal on real data;
+> - **not** to change `ATTEMPT_3_ALLOWED`;
+> - **and** that the pre-approval rehearsal is not a precondition of their approval.
+>
+> The last item is the only one that was theirs to change, and it is the only one that changed. The
+> record carries all five as data, in `BRAZIL_RECEITA_GATE7_PRE_APPROVAL_REHEARSAL_CIRCULARITY`
+> (`p05WasModified: false`, `bypassWasCreated: false`, `realDataWasUsed: false`,
+> `attemptBudgetWasChanged: false`).
+>
+> **Why the status goes straight to `approved` and never occupies `ready_for_review`.** § 11.2's
+> unblocking criterion describes a rehearsal moving the gate to `ready_for_review` with approval
+> following. That is one of its two paths; this is the other. The waiver and the approval arrived in
+> **one** decision, so there was never an interval in which evidence stood complete and a named
+> approver was still awaited — the only state § 3 defines `ready_for_review` to mean. Recording a
+> `ready_for_review` the gate never occupied would be a fabricated step in the audit trail.
+>
+> **What the two executable evaluators do now, updated by nothing but the data they read.**
+> `evaluateBrazilReceitaGate7Preconditions()` returns **`PASS`** for the first time: GATE-7's own
+> approval was the last gate `P-05` was waiting on, so `unapprovedGates` is now EMPTY
+> (`unapprovedBlockingGates` emptied a round earlier). `evaluateBrazilReceitaGate7PrivacyPreflight()`
+> continues to return `PASS`. 🔴 **Neither function was edited** — in this round or the last — and the
+> round that could most easily have weakened `P-05`, the round whose own approval it was blocking, did
+> not. `P-05`'s `standing` moves from `checkable_and_fails_today` to `checkable_and_expected_to_pass`;
+> not to `operator_environment_dependent` like `P-19` / `P-21`, because the gate state lives in this
+> repository and the answer is fully determined here.
+>
+> 🔴 **A passing `P-05` is not a permission.** It clears the first of twenty-two items. The other
+> twenty-one are `operator_environment_dependent` and are performed by a named authorized **human**
+> operator against a machine no module can see. An approved runbook remains a *procedure*, never a
+> *permission* (§ 11 *Does NOT allow*).
+>
+> **What this approval does NOT authorize**, enumerated by the owners and recorded as data in
+> `BRAZIL_RECEITA_GATE7_APPROVAL_DOES_NOT_AUTHORIZE`: a benchmark; Attempt #3 or any attempt-budget
+> change (`ATTEMPT_3_ALLOWED` stays `false`, with no reset path); reading real Receita data; any
+> Supabase write; any Brazil snapshot write; connecting Agent 1 to Brazil; any provider call; enabling
+> production; changing any cap or operational flag; and executing the procedure, which still needs the
+> separate explicit authorization of a future milestone.
+>
+> **The global consequence, stated so it is not over-read.** With eight of eight gates approved,
+> `brazilReceitaGateGlobalVerdict()` returns **`GO`** for the first time in this series. § 15 defines
+> that GO exactly: *may propose a future runner implementation PR — still no execution*. Its
+> three-step separation is untouched — GO for a runner proposal is not GO for execution, GO for
+> execution is not GO for import, and import needs a later separate authorization. The reading is
+> recorded as data in `BRAZIL_RECEITA_GATE_GO_MEANS`, every field of which is `false` except that one
+> narrow grant, and `BRAZIL_RECEITA_EVERY_GATE_PASS_CRITERION_WAS_DEMONSTRATED` is `false` so a
+> consumer counting eight approvals cannot infer eight demonstrations.
+>
+> **Brazil remains OFF, and 14A remains `NO_GO`.** Nothing in this subsection touches either.
+
+```
+Gate:                   GATE-7 — Operator runbook approval
+Status:                 approved  (from needs_evidence; ready_for_review never occupied — see above)
+Approver:               operator owner, technical owner AND privacy owner, jointly — all three recorded
+Approval date:          2026-08-24
+Owner references:       OWNER_REF_GATE7_OPERATOR_OWNER_RELAY_2026_08_24;
+                        OWNER_REF_GATE7_TECHNICAL_OWNER_RELAY_2026_08_24;
+                        OWNER_REF_GATE7_PRIVACY_OWNER_RELAY_2026_08_24
+Evidence links:         10K § 11, § 11.1, § 11.2, § 11.3;
+                        br-receita-cnpj-gate7-recorded-operator-runbook.ts;
+                        br-receita-cnpj-gate7-operator-runbook.ts;
+                        br-receita-cnpj-gate7-preflight-items.ts;
+                        runbook § 16
+Decision summary:       The three required owners jointly approve the § 16 operator runbook, its 22
+                        preflight items P-01…P-22 and its 16 non-overridable stop conditions T-01…T-16.
+                        They further decide EXPLICITLY that a pre-approval rehearsal is NOT REQUIRED,
+                        exercising the branch their own unblocking criterion has named since
+                        FAST-TRACK-6. Reproducibility by a different operator is therefore WAIVED, and
+                        remains UNDEMONSTRATED — it was not shown and is not claimed. P-05 was not
+                        modified, no bypass was created, no real data was used, and the attempt budget
+                        was not touched.
+Artifacts approved:     the § 16 runbook section; P-01…P-22; T-01…T-16
+Artifacts rejected:     none
+Open follow-ups:        none for this gate. Reproducibility by a different operator stays recorded as
+                        UNDEMONSTRATED; a future rehearsal would be evidence, not a re-approval.
+Blocks:                 nothing further in the gate matrix — this was the eighth and last gate
+Allows:                 proposing a future runner implementation PR (§ 15), and nothing else
+Does not allow:         executing the procedure; a benchmark; Attempt #3; real data; Supabase; a
+                        snapshot; Agent 1 Brazil; any provider; production; any cap or flag change
+Restrictions:           an approved runbook is a PROCEDURE, never a PERMISSION. Only a named
+                        authorized human operator may ever execute it — never an agent, and never on
+                        behalf of a human. ATTEMPT_3_ALLOWED stays false, with no reset path. The
+                        waiver may not be cited by any later round as evidence that the runbook was
+                        shown reproducible.
 ```
 
 ---
@@ -2443,7 +2594,7 @@ GO for execution              ≠  GO for import
 GO for import                 requires a later, separate import authorization
 ```
 
-**Today's position (as of 2026-08-24, after BR-SOURCE-FAST-TRACK-7):**
+**Today's position (as of 2026-08-24, after BR-SOURCE-FAST-TRACK-8):**
 
 ```
 GATE-1  approved                                          (§ 5.1)
@@ -2484,30 +2635,51 @@ GATE-6  approved. The joint technical + operator owner      (§ 10.1, § 10.2)
         approval recorded 2026-08-24 (§ 10.2) confirms
         DELETE-over-quarantine as the disposition; the
         executable cleanup contract (§ 10.1) is unchanged.
-GATE-7  needs_evidence — NOT approved. The three            (§ 11.1, § 11.2)
-        dependency-gate blockers (GATE-2, GATE-5, GATE-6)
-        are DISCHARGED by their own approvals above; the
-        fourth — REPRODUCIBILITY_BY_DIFFERENT_OPERATOR —
-        remains UNDEMONSTRATED. That is evidence still to
-        be gathered (a rehearsal), not a person's answer to
-        a posed question, which is why the gate reads
-        needs_evidence rather than ready_for_review,
-        needs_owner_decision, or blocked (§ 11.2).
+GATE-7  approved. The joint operator + technical +          (§ 11.1, § 11.2, § 11.3)
+        privacy owner approval recorded 2026-08-24
+        (§ 11.3). The three dependency-gate blockers
+        (GATE-2, GATE-5, GATE-6) were DISCHARGED by their
+        own approvals above; the fourth —
+        REPRODUCIBILITY_BY_DIFFERENT_OPERATOR — is
+        DISCHARGED BY OWNER WAIVER and still reads
+        UNDEMONSTRATED. The owners decided explicitly that
+        a pre-approval rehearsal is NOT REQUIRED, using the
+        branch their own unblocking criterion has named
+        since FAST-TRACK-6, because P-05 requires all eight
+        gates approved and so halts any pre-approval
+        rehearsal by construction. P-05 was NOT modified and
+        NO bypass was created. ready_for_review was never
+        occupied: the waiver and the approval were one
+        decision.
 GATE-8  approved — AS A CONTRACT                           (§ 12.1)
 ```
 
-One gate — GATE-7 — is not approved, so the matrix still reads **NO-GO**, the expected and correct
-outcome. 🔴 `needs_evidence` is NO-GO exactly as `not_started` and `blocked` are; seven gates being
-approved is progress toward the matrix, but the matrix requires all eight.
+All eight gates are approved, so the matrix reads **GO** — for the first time in this series, and in
+the narrow sense the first line of the matrix defines: *may propose a future runner implementation PR
+— still no execution*. The three-step separation above is untouched.
 
-**Approved: 7 of 8** — every gate except GATE-7. Not 2, and not 8. The derivation of record is
+**Approved: 8 of 8.** Not 7, and not 2. The derivation of record is
 `brazilReceitaApprovedGateCount()`, and the verdict of record is `brazilReceitaGateGlobalVerdict()`,
-which returns `NO-GO` unless **every** gate is approved.
+which returns `GO` only when **every** gate is approved.
 
-**Readings a future reader is most likely to get backwards after BR-SOURCE-FAST-TRACK-7:**
+🔴 **Eight of eight approved does NOT mean every pass criterion was demonstrated.** GATE-7's last
+blocker was closed by an owner **waiver**, not by evidence:
+`BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR` still reads `UNDEMONSTRATED`, and
+`BRAZIL_RECEITA_EVERY_GATE_PASS_CRITERION_WAS_DEMONSTRATED` is `false`.
 
-- **Seven gates approved is not eight.** `brazilReceitaGateGlobalVerdict()` still returns `NO-GO`, and
-  the matrix requires every gate, not "most of them".
+**Readings a future reader is most likely to get backwards after BR-SOURCE-FAST-TRACK-8:**
+
+- **`GO` is not an execution authorization.** It is permission to PROPOSE a runner implementation PR.
+  Execution, import, real data, Supabase, snapshots, Agent 1 Brazil, providers and production all
+  remain unauthorized, and each needs its own separate authorization. `BRAZIL_RECEITA_GATE_GO_MEANS`
+  records every one of those as `false`.
+- **GATE-7's approval is not a demonstration of reproducibility.** The criterion was waived, and the
+  waiver may not be cited later as evidence the runbook was shown reproducible.
+- **A passing `P-05` is not a permission.** It clears one of twenty-two preflight items. The other
+  twenty-one are performed by a named authorized human operator against a machine no module can see,
+  and an approved runbook is a *procedure*, never a *permission*.
+- **Brazil is still OFF and 14A is still `NO_GO`.** The gate matrix and the Brazil enablement are
+  different questions; nothing in FAST-TRACK-8 touches the second.
 - **GATE-4's approval is not a solved productization path.** The grain and the narrow persistence
   exception are approved; the concrete key construction, the `source_period` migration, and the
   runtime lookup mechanism are not implemented, and the productization blocker stays recorded as one.
@@ -2520,13 +2692,26 @@ which returns `NO-GO` unless **every** gate is approved.
 - **GATE-7's `needs_evidence` is not a step closer to `ready_for_review` on its own.** Only an
   authorized rehearsal, by an operator who did not author the runbook section, can supply the missing
   evidence — and none is authorized by this round or by any prior one.
+  🔴 **SUPERSEDED BY § 11.3 (BR-SOURCE-FAST-TRACK-8).** GATE-7 is now `approved`. The rehearsal this
+  bullet names was never performed and is still not authorized: the three owners WAIVED it as a
+  precondition of their approval, so the gate moved to `approved` without ever passing through
+  `ready_for_review`. The bullet's substance holds — no rehearsal supplied the evidence, and
+  reproducibility remains `UNDEMONSTRATED`.
 - **`ATTEMPT_3_ALLOWED` is untouched.** It stays the literal `false`, imported and not reproduced as a
   writable copy anywhere in this round's new records.
 
-**Next front: an authorized GATE-7 rehearsal**, by an operator who did not author the runbook section,
-against real ceilings — the one piece of evidence `needs_evidence` names as missing. After that, GATE-7's
-own three approvers (operator, technical, privacy owner) decide whether the rehearsal plus the seven
-approved gates is enough to move to `ready_for_review`, and then to `approved`.
+**Next front (BR-SOURCE-FAST-TRACK-8): the gate matrix is closed at 8 of 8, and the next question is
+not a gate.** § 15's GO permits ONE thing — PROPOSING a future runner implementation PR that satisfies
+GATE-8's contract. Execution remains unauthorized and needs the separate explicit authorization of a
+future milestone; the GATE-4 productization blocker (concrete key construction, the `source_period`
+migration, the runtime lookup mechanism) is still open and is not a gate question either; Brazil stays
+OFF and 14A stays `NO_GO`. A GATE-7 rehearsal remains available as EVIDENCE at any later point — it
+would demonstrate the criterion the owners waived, and it is not a re-approval of anything.
+
+🔴 **Superseded forward-looking text.** The paragraph this replaced named an authorized GATE-7
+rehearsal as the next front and described a `needs_evidence` → `ready_for_review` → `approved` path.
+That path was not the one taken: the owners used the other branch their own unblocking criterion
+offered. The rehearsal was never authorized and was never performed.
 
 Readings a future reader is most likely to get backwards:
 
@@ -2544,6 +2729,11 @@ Readings a future reader is most likely to get backwards:
   🔴 **UPDATED BY BR-SOURCE-FAST-TRACK-7.** Six is now one: only GATE-7 remains unapproved. The
   underlying point is unchanged — the *Allows* clause is conditional on EVERY other gate, and one
   unapproved gate is enough to keep it inert.
+  🔴 **UPDATED BY § 11.3 (BR-SOURCE-FAST-TRACK-8).** One is now zero: the condition is SATISFIED. The
+  bullet's headline still holds, and holds for a different reason — GATE-8's own approval was never the
+  permission. The § 15 matrix is, what it permits is PROPOSING a runner implementation PR, and it
+  permits that on the strength of all eight gates rather than of GATE-8.
+  `BRAZIL_RECEITA_GATE8_APPROVAL_IS_PERMISSION_TO_WRITE_RUNNER` stays `false`.
 - **GATE-3 recorded a policy, not an approval.** The field policy exists and a
   `field_allowlist_version` is bound to it; the gate is **`ready_for_review`** and the 10J § 12 report
   marker still reads `"not_approved"`. RB-1, RB-2 and RB-3 are all closed; the legal/privacy half of
@@ -2611,6 +2801,9 @@ Readings a future reader is most likely to get backwards after Round 3:
   by *executing* both layers over runs of 8 through 15 rather than by merging them into one regex.
 - **The guard is wired into nothing.** It is pure and reachable only from tests; § 4 still forbids
   full-join runner code, and a test asserts no production module imports it.
+  🔴 **UPDATED BY § 11.3 (BR-SOURCE-FAST-TRACK-8).** § 4 no longer forbids full-join runner code — all
+  eight gates are approved. The rest of the bullet is unchanged and still asserted: the guard is pure,
+  reachable only from tests, and no production module imports it. FAST-TRACK-8 wired nothing.
 
 **Next front: ROUND 4 = GATE-5's remaining approval plus GATE-7**, whose packet § 10 is updated by this
 round to reflect the now-real GATE-2 ceilings, GATE-5 output contract and GATE-6 cleanup contract.
@@ -2625,10 +2818,17 @@ Readings a future reader is most likely to get backwards after BR-SOURCE-FAST-TR
   🔴 **SUPERSEDED BY § 11.2 (BR-SOURCE-FAST-TRACK-7).** All three of the other items are now
   discharged (GATE-2, GATE-5, GATE-6 approved); GATE-7 moved from `blocked` to `needs_evidence` — one
   item remains, the reproducibility rehearsal, not another gate's approval.
+  🔴 **SUPERSEDED BY § 11.3 (BR-SOURCE-FAST-TRACK-8).** GATE-7 is `approved`. The last item — the
+  reproducibility rehearsal — was never performed: the three owners WAIVED it as a precondition of
+  their approval. The bullet's point survives verbatim in a stricter form: the runbook EXISTING never
+  made the gate reviewable, and the gate becoming approved does not make the runbook demonstrated.
 - **`blocked` is not a step toward approval.** It is NO-GO exactly as `not_started` is, and § 4 makes a
   `blocked` gate forbid writing any full-join code.
   🔴 **GATE-7 is no longer `blocked`** as of § 11.2 — it is `needs_evidence`, which is equally NO-GO
   and equally not a step toward approval on its own.
+  🔴 **AND no longer `needs_evidence`** as of § 11.3 — it is `approved`, which is the one status that
+  IS a step: it was the eighth, so § 4's prohibition on writing full-join code no longer binds and
+  § 15's narrow GO applies. Still no execution.
 - **The GATE-5 collisions closing is not GATE-5 being approved.** The contract was REVISED, which makes
   the revised contract the subject of a review that has not happened (§ 9.2). A round that fixes
   everything the previous review flagged does not thereby earn the approval.

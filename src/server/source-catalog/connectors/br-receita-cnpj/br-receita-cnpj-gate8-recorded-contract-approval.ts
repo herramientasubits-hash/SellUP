@@ -14,7 +14,15 @@
  *
  * This is the whole point of the value, and the one thing a future reader must not soften. What is
  * approved is the SHAPE a future runner must have. Nothing may run. GATE-8's own *Allows* clause is
- * conditional on every other gate being approved, and five are not.
+ * conditional on every other gate being approved, and through BR-SOURCE-FAST-TRACK-7 they were not.
+ *
+ * 🔴 **Update (BR-SOURCE-FAST-TRACK-8): that condition is now SATISFIED, and this section does not
+ * soften by one word.** GATE-7's joint owner approval made it eight of eight, so 10K § 15 reads `GO` —
+ * the narrow GO it defines: *a future runner implementation PR may be PROPOSED, still no execution*.
+ * GATE-8's contract is what such a PR must satisfy, which is precisely what "the SHAPE a future
+ * runner must have" always meant. Nothing may still run:
+ * `BRAZIL_RECEITA_GATE8_AUTHORIZES_OPERATIONS` stays `false`, and execution needs the separate
+ * explicit authorization of a future milestone.
  *
  * The invariants below therefore stay exactly as they are. This record does not flip one of them,
  * and it does not import a module that could.
@@ -116,7 +124,12 @@ export const BRAZIL_RECEITA_GATE8_POST_GATE_ENGINEERING: readonly string[] = [
 /** The bounds this approval carries, enumerated per 10K § 14. */
 export const BRAZIL_RECEITA_GATE8_RESTRICTIONS: readonly string[] = [
   'approved as a contract only; no operation of any kind is authorized',
-  'the runner may not be written: GATE-8 Allows is conditional on every other gate being approved',
+  // BR-SOURCE-FAST-TRACK-8: this entry read "the runner may not be written: GATE-8 Allows is
+  // conditional on every other gate being approved". That condition is now satisfied — GATE-7's joint
+  // owner approval made it eight of eight — so the entry is restated rather than left as a claim that
+  // is no longer true. What replaces it is the narrow grant 10K § 15 actually makes, and the grant is
+  // the MATRIX'S, never GATE-8's alone.
+  'a future runner implementation PR may be PROPOSED (10K § 15, all eight gates approved) and must satisfy this contract; proposing is not executing, and GATE-8 alone grants nothing',
   'no benchmark run and no benchmark attempt-budget reset',
   'no real Receita data read',
   'no snapshot persistence and no import',
