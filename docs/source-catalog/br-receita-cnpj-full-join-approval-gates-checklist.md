@@ -310,7 +310,7 @@ Rules governing status:
 **Governs (10J § 13):** 10J § 6 (temporary storage) and § 10 (memory / disk / temp-index limits);
 decides whether Option C (a temporary on-disk index) is permitted at all.
 
-**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 6.1.** The current status is `needs_owner_confirmation`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 6.2.** The current status is `approved`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -473,6 +473,58 @@ Restrictions:           maxFilesOpened, maxBytesRead and maxJoinKeysInMemory car
                         privacy question has an attributable owner answer.
 ```
 
+### 6.2 The privacy owner CONFIRMS the bucket-ordinal disposition; GATE-2 is `approved` (BR-SOURCE-FAST-TRACK-7)
+
+> **Update (BR-SOURCE-FAST-TRACK-7) — § 6.2 GATE-2 is `approved`.** The privacy owner has confirmed,
+> by owner relay recorded 2026-08-24, that the bucket-ordinal disposition already stated as a
+> technical, verifiable fact in § 6.1 — the partition bucket ordinal is structural, non-invertible
+> partition metadata, not join-key material and not a join-key derivative — is sufficient from a
+> PRIVACY standpoint. That is the ONLY question this confirmation answers. It does not re-decide any
+> numeric ceiling, the workspace rule, or the storage option: Option C stays chosen, Options A and B
+> stay rejected, and every ceiling in § 6.1's table is unchanged.
+>
+> The tracked flags stay exactly as they were: `BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED`
+> is still `false`, and `BRAZIL_RECEITA_FULL_JOIN_PROVISIONAL_RESOURCE_CAP_PROPOSAL.maxTemporaryStorageBytes`
+> is still `0` — neither is read or rewritten by this confirmation. The `maxPhaseRuntimeMs` 3h-vs-6h
+> discrepancy against the standing benchmark proposal stays unresolved and unedited.
+>
+> With both halves of the required joint (technical + privacy) approval now attributable, GATE-2 moves
+> from `needs_owner_confirmation` to `approved`.
+
+```
+Gate:                   GATE-2 — Temporary storage envelope
+Status:                 approved
+Approver:               technical owner (storage and execution model) AND privacy owner, jointly
+Approval date:          2026-08-24 (privacy confirmation; technical half decided 2026-08-21)
+Evidence links:         10K § 6, § 6.1, § 6.2;
+                        br-receita-cnpj-gate2-recorded-owner-decision.ts
+Decision summary:       The technical owner's Option C decision and its ten-ceiling numeric envelope
+                        (§ 6.1) stand unchanged. The privacy owner has now confirmed that the
+                        partition bucket ordinal — structural, non-invertible partition metadata, not
+                        join-key material — is sufficient from a privacy standpoint. Both halves of
+                        the required joint approval are recorded.
+Restrictions:           the confirmation answers the privacy question only; it does not re-decide the
+                        numeric ceilings, the storage option, or the maxPhaseRuntimeMs divergence from
+                        the standing benchmark proposal. maxFilesOpened, maxBytesRead and
+                        maxJoinKeysInMemory remain operator-supplied and fail-closed at invocation
+                        time. The encryption disposition still reopens if prohibited key-derived
+                        material is ever materialized.
+Artifacts approved:     the joint GATE-2 decision — Option C, the ten-ceiling numeric envelope, the
+                        workspace constraints, TTL, cleanup contract, conditional encryption
+                        disposition, and the bucket-ordinal privacy disposition
+Artifacts rejected:     Option A (pure in-memory map); Option B (streaming two-pass scan)
+Open follow-ups:        the maxPhaseRuntimeMs divergence from the standing benchmark proposal remains
+                        unresolved and is not edited by this approval
+Blocks:                 persisting approved source data; creating source_company_snapshots rows;
+                        storing real data inside the repository; treating a temporary technical
+                        artifact as a source snapshot; any raw-value log
+Allows:                 designing — and, once every gate is approved, implementing — temporary
+                        material handling strictly inside the approved envelope
+Does not allow:         any run, benchmark, real-data read, snapshot output, persistence, import,
+                        Supabase write, migration, runtime path, Agent 1 enablement or provider call;
+                        no operational flag is flipped by this approval
+```
+
 ---
 
 ## 7. GATE-3 — Field allowlist approval
@@ -480,7 +532,7 @@ Restrictions:           maxFilesOpened, maxBytesRead and maxJoinKeysInMemory car
 **Governs (10J § 13):** freezes 10J § 8.3 / § 8.4 — which signals survive the join and which counts
 the report may carry; sets `field_allowlist_version`.
 
-**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 7.2.** The current status is `ready_for_review`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 7.3.** The current status is `approved`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -725,6 +777,49 @@ Restrictions:           free-text fails closed. A field labelled INTERNAL_PRIVAC
                         may not be promoted to output without a recorded owner decision.
 ```
 
+### 7.3 The legal/privacy half is RECORDED; GATE-3 is `approved` (BR-SOURCE-FAST-TRACK-7)
+
+> **Update (BR-SOURCE-FAST-TRACK-7) — § 7.3 GATE-3 is `approved`.** The legal/privacy owner has
+> approved the field policy exactly as recorded in § 7.1/§ 7.2 — `br_receita_cnpj_field_allowlist_v1`,
+> as corrected by the RB-3 residual-field classification — by owner relay recorded 2026-08-24. This
+> completes the joint (product/data owner + legal/privacy owner) approval GATE-3 has needed since it
+> was first recorded. The allowlist and the denylist are not widened, and RB-1's boundary with GATE-4
+> (§ 13.1) is not touched by this approval.
+>
+> The `field_allowlist_version` report marker may now legitimately read
+> `br_receita_cnpj_field_allowlist_v1` rather than `"not_approved"` — that condition was always "until
+> GATE-3 itself is approved", and it now is. No emitter or report exists that reads this marker; no
+> projection is implemented.
+
+```
+Gate:                   GATE-3 — Field allowlist approval
+Status:                 approved
+Approver:               product / data owner AND legal/privacy owner, jointly
+Approval date:          2026-08-24 (legal/privacy half; product/data half recorded 2026-08-21)
+Evidence links:         10K § 7, § 7.1, § 7.2, § 7.3;
+                        br-receita-cnpj-gate3-recorded-field-policy.ts;
+                        br-receita-cnpj-gate3-residual-field-classification.ts
+Decision summary:       The recorded field policy — the closed prohibited-output set, the closed
+                        include set, trade_name EXCLUDED_NOT_IMPLEMENTED, raw_data as a closed typed
+                        allowlist, and the RB-3 six-key disposition table — is approved exactly as
+                        recorded. field_allowlist_version = br_receita_cnpj_field_allowlist_v1 is now
+                        the value a report marker may carry.
+Artifacts approved:     the field allowlist and denylist, and the RB-3 residual-field classification,
+                        exactly as recorded
+Artifacts rejected:     none
+Open follow-ups:        none beyond what § 7.2 already recorded as optional (whether legal_nature
+                        should later be promoted to a business attribute — a separate widening
+                        decision, not part of this approval)
+Blocks:                 persistence of any kind; widening the eligibility design § 5 allowlist
+Allows:                 designing the post-join classification against the frozen, now-approved field
+                        set
+Does not allow:         being read as a resolution of GATE-4 or GATE-5; persistence, import, Supabase
+                        write, migration, runtime path or Agent 1 integration
+Restrictions:           free-text fails closed. A field labelled INTERNAL_PRIVACY_CONTROL_ONLY may not
+                        be promoted to output without a recorded owner decision. RB-1's GATE-4
+                        boundary (§ 13.1) is unchanged.
+```
+
 ---
 
 ---
@@ -734,7 +829,7 @@ Restrictions:           free-text fails closed. A field labelled INTERNAL_PRIVAC
 **Governs (10J § 13):** decides 10J § 14 (A / B / C / D) and the future `record_identity_key`; sets
 `record_identity_grain_decision`.
 
-**Status today (as authored, 2026-07-29):** `not_started`. Neither 10I nor 10J decided it, and neither does this document. — 🔴 **SUPERSEDED BY § 8.1.** The current status is `needs_owner_decision`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
+**Status today (as authored, 2026-07-29):** `not_started`. Neither 10I nor 10J decided it, and neither does this document. — 🔴 **SUPERSEDED BY § 8.2.** The current status is `approved`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -967,6 +1062,89 @@ Restrictions:           no CNPJ derivative may be persisted under any name. A no
                         Fail closed if exact lookup cannot be safely achieved.
 ```
 
+### 8.2 The single question is ANSWERED; GATE-4 is `approved` via THREE independent decisions (BR-SOURCE-FAST-TRACK-7)
+
+> **Update (BR-SOURCE-FAST-TRACK-7) — § 8.2 GATE-4 is `approved`, via 4A + 4B + 4C.** § 4 forbids
+> collapsing gates or decisions into a batch, and that spirit applies to a gate's own sub-decisions
+> too — so the single legal/privacy question from § 8.1 and the grain's owner approval are recorded as
+> THREE separate, independently-recorded decisions, never as one "approve everything" entry.
+>
+> - **4A — legal/privacy owner** answers the § 8.1 question **YES**: a narrow, ENUMERATED exception to
+>   GATE-1 R4 is authorized for exactly one persisted, never-printed, never-logged, never-reported
+>   representation of the establishment CNPJ inside `source_company_snapshots`, solely to serve as the
+>   row's internal exact-lookup key. This does NOT itself choose a storage encoding.
+> - **4B — data architecture owner** approves **option D** — establishment as the operational unit,
+>   company/root as context, `source_period` idempotency per period — as the identity grain. This is
+>   the SAME grain § 8.1 already evaluated and recorded as decided; 4B makes it owner-APPROVED.
+> - **4C — product owner** approves option D as the product grain, explicitly on the record that exact
+>   lookup is required and a fuzzy/name-based lookup is NOT an acceptable substitute — consistent with
+>   § 8.1's finding that the shared identity module forbids the `name` namespace globally, in code.
+>
+> Each is an owner RELAY, recorded 2026-08-24, the same evidentiary form used for every prior approval
+> in this series — not a personal signature.
+>
+> **What 4A + 4B + 4C together do NOT do.** No surrogate generator is implemented. No migration is
+> authored or applied — the `source_period` DDL recorded as text in § 8.1 stays exactly as recorded,
+> not authored. `tax_id`, `normalized_tax_id` and `record_identity_key` stay exactly `TRANSIENT_ONLY`,
+> and persisting them is still refused in code. The runtime lookup productization blocker (§ 8.1) stays
+> recorded as a blocker — it is NOT resolved by this approval. This source stays absent from
+> `SOURCE_FAMILY_BY_SOURCE_KEY`.
+>
+> **Separately: project TECHNICAL DIRECTION for the eventual encoding — NOT a legal/privacy approval,
+> NOT a human privacy signature.** If and when a persisted exact-lookup representation is implemented
+> under 4A's exception, the project's technical direction is that it be a single normalized
+> 14-character establishment CNPJ — never a hash, fingerprint, truncation, partial CNPJ, other encoded
+> derivative, or multiple representations. Reasoning: exact lookup needs an exact key, and a hash only
+> adds derivative-privacy ambiguity with no product benefit — it remains a CNPJ derivative under
+> GATE-1 R4's own terms. This direction authorizes NO persistence, does not author or apply the
+> `source_period` migration, and does not change the `TRANSIENT_ONLY` disposition of the three fields
+> above. It narrows what a future resolution would look like; it does not implement one.
+>
+> The `record_identity_grain_decision` report marker may now legitimately read `option_d` — that marker
+> is about the GRAIN, which 4B/4C approve — but no emitter or projection reads it; none is implemented.
+
+```
+Gate:                   GATE-4 — Identity grain decision
+Status:                 approved
+Approver:               data architecture owner AND product owner, jointly (grain); legal/privacy
+                        owner (the narrow persistence exception, 4A)
+Approval date:          2026-08-24 (4A, 4B, 4C, each independently recorded)
+Evidence links:         10K § 8, § 8.1, § 8.2;
+                        br-receita-cnpj-gate4-recorded-identity-grain.ts
+Decision summary:       4A: legal/privacy owner authorizes a narrow, enumerated exception to GATE-1
+                        R4 for exactly one persisted exact-lookup representation of the establishment
+                        CNPJ. 4B: data architecture owner approves option D as the identity grain.
+                        4C: product owner approves option D, on the record that exact lookup is
+                        required and fuzzy/name-based lookup is not acceptable. Separately, project
+                        technical direction (not a legal/privacy approval) prefers a single
+                        normalized 14-character CNPJ as the eventual encoding, ruling out hashes,
+                        fingerprints, truncations, partials and multiple representations.
+Artifacts approved:     the identity grain (option D); the narrow GATE-1 R4 exception (4A); the
+                        technical direction for the eventual encoding (recorded separately, not a
+                        privacy approval)
+Artifacts rejected:     options A, B and C for the grain; every CNPJ-derivative encoding (hash,
+                        fingerprint, truncation, partial, other encoding, multiple representations)
+                        for the eventual persisted key
+Open follow-ups:        the concrete key-construction implementation, the source_period migration
+                        and its unique index, and the runtime lookup mechanism — none authorized or
+                        implemented by this approval
+Blocks:                 any migration; any index change; any surrogate implementation; any Agent 1
+                        Brazil lookup path; any persistence beyond what 4A narrowly authorizes once
+                        implemented
+Allows:                 designing the future runner's identity contract against the approved grain
+                        and the narrow persistence exception
+Does not allow:         implementing a surrogate generator; authoring or applying the source_period
+                        migration; changing tax_id / normalized_tax_id / record_identity_key from
+                        TRANSIENT_ONLY; resolving the runtime lookup productization blocker; any
+                        persistence, import, Supabase write, runtime path, Agent 1 or Agent 2A
+                        integration
+Restrictions:           no CNPJ derivative may be persisted under any name other than the single
+                        exact-lookup representation 4A narrowly authorizes, once implemented. The
+                        technical direction for the encoding is project direction only, not a
+                        legal/privacy approval, and authorizes no persistence on its own. Fail closed
+                        if exact lookup cannot be safely achieved.
+```
+
 ---
 
 ---
@@ -976,7 +1154,7 @@ Restrictions:           no CNPJ derivative may be persisted under any name. A no
 **Governs (10J § 13):** confirms the 10J § 12 report schema and the 10J § 15 assertions —
 aggregate-only output with an all-false safety block.
 
-**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 9.1.** The current status is `ready_for_review`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 9.4.** The current status is `approved`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -1412,12 +1590,71 @@ entirely at the CLI external-emission boundary.
 
 ---
 
+### 9.4 The joint approval is RECORDED, against the CORRECTED contract; GATE-5 is `approved` (BR-SOURCE-FAST-TRACK-7)
+
+> **Update (BR-SOURCE-FAST-TRACK-7) — § 9.4 GATE-5 is `approved`.** The security/privacy owner AND the
+> test owner have jointly approved, by owner relay recorded 2026-08-24. § 9.2 warned that "a round that
+> closes everything the last review flagged does not thereby earn the approval" — so this approval is
+> explicitly a review OF the CURRENT, post-§9.3 contract, never an approval inherited from the original
+> § 9.1 draft:
+>
+> - `TOTAL_ROWS_SCANNED = INTERNAL_EXECUTION_COUNTER_ONLY` (§ 9.2), not the § 9.1 `ALLOWED` value;
+> - the residual bucket label is `suppressed_other` (§ 9.2), not the § 9.1
+>   `other_or_suppressed_small_cell`;
+> - the renamed keys `records_persisted` / `records_seen_by_family` (§ 9.2), not the § 9.1
+>   `persisted_rows` / `rows_seen_by_family`;
+> - the three exclusions of `capital_social` / `opened_at` / municipality breakdowns (§ 9.1);
+> - the `LEGACY_ENGINE_SANITIZED_REPORT_SHAPE` boundary with the CLI-emission bypass REMOVED (§ 9.3).
+>
+> **This approval does not itself freeze a report SCHEMA beyond what GATE-3's and GATE-4's own
+> approvals (§ 7.3, § 8.2, this same round) already permit for the field markers each of THOSE gates
+> owns.** `GATE5_ENGINE_REPORT_PROJECTION_REQUIRED` stays `true`, and no projection or emitter is
+> implemented — there is still no approved external report of a full-join run, because no such report
+> exists to be approved.
+
+```
+Gate:                   GATE-5 — Output sanitization contract
+Status:                 approved
+Approver:               security/privacy owner AND test owner, jointly
+Approval date:          2026-08-24
+Evidence links:         10K § 9, § 9.1, § 9.2, § 9.3, § 9.4;
+                        br-receita-cnpj-gate5-recorded-output-sanitization.ts;
+                        br-receita-cnpj-gate5-output-contract.ts;
+                        br-receita-cnpj-gate5-output-guard.ts
+Decision summary:       The joint approval is recorded against the CURRENT, post-§9.3 contract:
+                        k = 10, string ceiling 64, no cross-tabs, no named municipalities, no stack
+                        output, three breakdowns EXCLUDED, total_rows_scanned INTERNAL ONLY, the
+                        residual label suppressed_other, and the two renamed output keys. The
+                        legacy-engine-report CLI-emission bypass stays removed. This is a review of
+                        the corrected subject, not an inherited approval of the original § 9.1 draft.
+Artifacts approved:     the executable output sanitization contract exactly as corrected through
+                        § 9.3, including the closed key groups, VP-1…VP-10, the § 6 allowlist, small-
+                        cell suppression, the error envelope, and the closed log field set
+Artifacts rejected:     the original § 9.1 values superseded by § 9.2 (TOTAL_ROWS_SCANNED = ALLOWED;
+                        the residual label other_or_suppressed_small_cell; the persisted_rows /
+                        rows_seen_by_family key spellings)
+Open follow-ups:        none beyond what § 9.1/§ 9.2 already recorded as confirmations inside the
+                        review (the allowlist-governs precedence stays kept; 11A's LONG_DIGIT_RUN
+                        stays load-bearing for the 9/10/12/13-digit residual)
+Blocks:                 executing the full join; emitting any report from real data
+Allows:                 writing sanitization tests in a future, separately approved milestone (10K
+                        § 9 Allows) and nothing else
+Does not allow:         being read as an approval of the § 9.1 draft; freezing a report schema beyond
+                        what GATE-3's and GATE-4's own approvals permit for their own markers;
+                        implementing GATE5_ENGINE_REPORT_PROJECTION_REQUIRED, which stays true and
+                        unimplemented
+Restrictions:           the approval covers the corrected, post-§9.3 contract only. BR-SOURCE-11A is
+                        not weakened by this approval. No operational flag is flipped.
+```
+
+---
+
 ## 10. GATE-6 — Failure cleanup contract
 
 **Governs (10J § 13):** confirms 10J § 9 — cleanup on completion **and** failure, with
 `cleanup failed` as a terminal state.
 
-**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 10.1.** The current status is `ready_for_review`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 10.2.** The current status is `approved`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -1596,6 +1833,38 @@ Restrictions:           a failed or not_executed cleanup may not be upgraded by 
                         implementer of this subject may not approve this gate.
 ```
 
+### 10.2 The joint approval is RECORDED; GATE-6 is `approved` (BR-SOURCE-FAST-TRACK-7)
+
+> **Update (BR-SOURCE-FAST-TRACK-7) — § 10.2 GATE-6 is `approved`.** The technical owner AND the
+> operator owner have jointly approved, by owner relay recorded 2026-08-24. The one substantive
+> decision inside that review — 10PQR § 4.2 recommended DELETE and would admit quarantine only under
+> an approved GATE-2 envelope — is explicitly CONFIRMED as DELETE: the executable contract's
+> delete-over-quarantine disposition is the approved one. Quarantine remains not implemented and not
+> authorized.
+
+```
+Gate:                   GATE-6 — Failure cleanup contract
+Status:                 approved
+Approver:               technical owner AND operator owner, jointly
+Approval date:          2026-08-24
+Evidence links:         10K § 10, § 10.1, § 10.2; 10PQR § 4–§ 5;
+                        br-receita-cnpj-gate6-recorded-cleanup-contract.ts;
+                        br-receita-cnpj-full-join-cleanup-coordinator.ts;
+                        br-receita-cnpj-full-join-cleanup-units.ts
+Decision summary:       The executable cleanup contract recorded in § 10.1 is approved exactly as
+                        recorded, with DELETE confirmed as the disposition over quarantine.
+Artifacts approved:     the executable cleanup contract — verified deletion, latched terminal states,
+                        idempotence, owned-path-only deletion, the private-artifact lifecycle, and the
+                        refusal of snapshot output as a cleanup subject
+Artifacts rejected:     quarantine — not implemented and not authorized
+Open follow-ups:        none beyond what § 10.1 already recorded
+Blocks:                 writing the runner; any run; any Supabase write on any cleanup path
+Allows:                 designing the future runner's error handling against the approved contract
+Does not allow:         being read as permission to run anything
+Restrictions:           a failed or not_executed cleanup may not be upgraded by a retry. No
+                        operational flag is flipped by this approval.
+```
+
 ---
 
 ---
@@ -1605,7 +1874,7 @@ Restrictions:           a failed or not_executed cleanup may not be upgraded by 
 **Governs (10J § 13):** confirms 10J § 16 — the manual steps an operator follows to run a future
 dry-run safely and reproducibly.
 
-**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 11.1.** The current status is `blocked`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
+**Status today (as authored, 2026-07-29):** `not_started`. — 🔴 **SUPERSEDED BY § 11.2.** The current status is `needs_evidence`. The line above is retained as the historical record of what this section said when it was written; it is **not** the current state. The single authoritative current view is § 15, whose machine-readable form is `BRAZIL_RECEITA_GATE_CURRENT_STATE`.
 
 ### Required owner / approver
 
@@ -1753,6 +2022,91 @@ benchmark; it changes no resource cap, no flag and no attempt budget —
 Receita data and learns no manifest, path or file name; it authors and applies no migration; and it
 performs no Supabase write of any kind. An approved runbook would still be a *procedure*, never a
 *permission*.
+
+---
+
+### 11.2 Three of four blockers are GONE; GATE-7 moves to `needs_evidence` — NOT `ready_for_review`, NOT `approved` (BR-SOURCE-FAST-TRACK-7)
+
+> **Update (BR-SOURCE-FAST-TRACK-7) — § 11.2 GATE-7 is `needs_evidence`.** GATE-2, GATE-5 and GATE-6
+> are now `approved` (§ 6.2, § 9.4, § 10.2, this same round). That discharges three of the four §11.1
+> blockers — the dependency `blocked` named. The fourth —
+> `REPRODUCIBILITY_BY_DIFFERENT_OPERATOR = UNDEMONSTRATED` — is untouched: no rehearsal happened in
+> this round, and none is authorized.
+>
+> **Why `needs_evidence`, and not the three adjacent-looking statuses, reasoned through § 3's own
+> vocabulary against what actually remains today:**
+>
+> - **`blocked`** — § 3: "an external dependency (legal, another gate, an unresolved leak) prevents
+>   review". The three gates that WERE that dependency are now approved, so this specific dependency no
+>   longer exists. `blocked` is no longer correct.
+> - **`ready_for_review`** — § 3: "evidence complete and submitted; awaiting the named approver". §11's
+>   own pass criterion — the runbook must be "reproducible by a different operator without tacit
+>   knowledge" — is exactly the evidence item that is missing. Asserting completeness while that item is
+>   undemonstrated would repeat the exact error this series had to retract once already (§ 9.1 → § 9.2):
+>   a round that has not gathered a piece of required evidence may not report the evidence as complete.
+> - **`needs_owner_decision` / `needs_owner_confirmation`** — both describe a state whose ONLY gap is a
+>   named human's ANSWER to an already-posed question (GATE-2's bucket-ordinal confirmation, GATE-4's
+>   single question). GATE-7's three approvers have not been asked a question they could answer today;
+>   what is missing is not an answer, it is a REHEARSAL — more evidence to gather. Neither status fits.
+> - **`needs_evidence`** — § 3: "evidence gathering started but is incomplete or inconclusive". The
+>   runbook section, the executable preflight (`P-01`…`P-22`), and the resource/privacy evaluators are
+>   all evidence already gathered and executable; the reproducibility rehearsal is the one piece that
+>   remains ungathered. This is the status the vocabulary actually supports.
+>
+> **What the two executable evaluators do, updated by nothing but the data they read.**
+> `evaluateBrazilReceitaGate7Preconditions()` reads `BRAZIL_RECEITA_GATE_CURRENT_STATE` for all eight
+> gates and still returns `FAIL` — but today `unapprovedGates` names only GATE-7 itself (its own status
+> is not yet `approved`); `unapprovedBlockingGates`, filtered against `BRAZIL_RECEITA_GATE7_BLOCKING_GATES
+> = [2, 5, 6]`, is now EMPTY. `evaluateBrazilReceitaGate7PrivacyPreflight()` checks the five contracts
+> owned by GATE-2…GATE-6 and now returns `PASS`, because all five are approved. Neither function was
+> edited to produce these outcomes: both are unconditional derivations over the current state, and there
+> remains no parameter, option, environment read or override that could weaken either one.
+>
+> **The remaining blocker.** ONE, and no agent can discharge it:
+>
+> ```
+> REPRODUCIBILITY_BY_DIFFERENT_OPERATOR = UNDEMONSTRATED
+> ```
+>
+> Only a rehearsal, by an operator who did not author the runbook section, against real ceilings, can
+> demonstrate it. None is authorized, none was performed, and none is authorized by this subsection.
+> GATE-7's own three approvers still decide whether a rehearsal is required before review, or whether
+> the section plus seven approved upstream/sibling gates is enough. That is their call, and this
+> document does not make it for them.
+>
+> **What this subsection does not do.** It approves no gate — `needs_evidence` is NO-GO in the § 15
+> matrix, exactly as `blocked` and `not_started` are. It authorizes no rehearsal, run, dry-run or
+> benchmark; `BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED` stays imported and `false`, with no reset
+> path. It reads no real Receita data, authors and applies no migration, and performs no Supabase write
+> of any kind.
+
+```
+Gate:                   GATE-7 — Operator runbook approval
+Status:                 needs_evidence  (advanced from blocked; NOT ready_for_review, NOT approved)
+Approver:               operator owner, technical owner AND privacy owner, jointly — none recorded
+Approval date:          n/a — no approval exists
+Evidence links:         10K § 11, § 11.1, § 11.2;
+                        br-receita-cnpj-gate7-recorded-operator-runbook.ts;
+                        br-receita-cnpj-gate7-operator-runbook.ts;
+                        br-receita-cnpj-gate7-preflight-items.ts
+Decision summary:       Three of the four §11.1 blockers are discharged: GATE-2, GATE-5 and GATE-6 are
+                        now approved (this same round). The fourth — reproducibility by a different
+                        operator — remains UNDEMONSTRATED, and that is why the gate moves to
+                        needs_evidence rather than to ready_for_review or approved. The executable
+                        preflight evaluator now fails for a single, different reason: GATE-7's own
+                        status. The privacy preflight over the five owned contracts now returns PASS.
+Artifacts approved:     none
+Artifacts rejected:     none
+Open follow-ups:        an authorized rehearsal by an operator who did not author the runbook section,
+                        against real ceilings, demonstrating reproducibility without tacit knowledge
+Blocks:                 writing any full-join runner code; any run, dry-run, rehearsal or benchmark
+Allows:                 nothing — needs_evidence unlocks no next step and is NO-GO in § 15
+Does not allow:         being read as ready_for_review or as an approval; being read as permission to
+                        rehearse or run anything
+Restrictions:           reproducibility by a different operator remains UNDEMONSTRATED and may not be
+                        claimed. Only a named authorized human operator may ever execute the procedure.
+                        ATTEMPT_3_ALLOWED stays false, with no reset path.
+```
 
 ---
 
@@ -2089,60 +2443,91 @@ GO for execution              ≠  GO for import
 GO for import                 requires a later, separate import authorization
 ```
 
-**Today's position (as of 2026-08-21, after BR-SOURCE-GATE-ROUND-3):**
+**Today's position (as of 2026-08-24, after BR-SOURCE-FAST-TRACK-7):**
 
 ```
 GATE-1  approved                                          (§ 5.1)
-GATE-2  needs_owner_confirmation — ceilings complete,      (§ 6.1)
-        bucket-ordinal privacy confirmation outstanding,
-        NOT approved. The ordinal is now OFF the disk
-        (§ 10.1 / GATE-ROUND-2), which removes the
-        disk-surface instance of the question and does
-        NOT supply the owner's confirmation.
-GATE-3  ready_for_review — NOT approved. RB-1 and RB-3     (§ 7.1, § 7.2)
-        both closed; waiting on the legal/privacy half
-        of the joint approval.
-GATE-4  needs_owner_decision — NOT approved. Grain         (§ 8.1)
-        decided (option D); persisted identity blocked on
-        ONE legal/privacy question. Exact runtime lookup
-        is a recorded PRODUCTIZATION BLOCKER.
-GATE-5  ready_for_review — NOT approved. Output          (§ 9.1, § 9.2)
-        sanitization contract FROZEN with the owner's
-        values (k = 10, string ceiling 64, no cross-tabs,
-        no named municipalities) and every rule now a
-        PREDICATE. Waiting on the joint security/privacy
-        + test approval, which the implementer of the
-        subject may not give. OD-C1, OD-C2 and OD-C3 are
-        now CLOSED by SUPERSEDING the owner direction
-        (total_rows_scanned is INTERNAL ONLY; the residual
-        label is `suppressed_other`) — never by weakening
-        BR-SOURCE-11A or the denylist. The revised contract
-        is the SUBJECT of the pending review (§ 9.2).
-GATE-6  ready_for_review — NOT approved. Executable        (§ 10.1)
-        cleanup contract landed; waiting on the joint
-        technical + operator approval, which the
-        implementer of the subject may not give.
-GATE-7  blocked — NOT approved. The operator runbook       (§ 11.1)
-        SECTION now EXISTS (runbook § 16) and its
-        preflight, resource, workspace, dataset, privacy,
-        monitoring, output-review, cleanup and signoff
-        steps are implemented; P-05 and the privacy
-        preflight are EXECUTABLE and both return FAIL.
-        Blocked by GATE-2, GATE-5 and GATE-6, per § 3's
-        "another gate prevents review". Reproducibility by
-        a different operator is UNDEMONSTRATED and needs a
-        rehearsal nobody has authorized.
+GATE-2  approved. The technical owner's Option C decision  (§ 6.1, § 6.2)
+        and its ten-ceiling envelope (§ 6.1) are joined by
+        the privacy owner's confirmation of the
+        bucket-ordinal disposition (§ 6.2), by owner relay
+        recorded 2026-08-24. No ceiling, storage option or
+        operational flag changed.
+GATE-3  approved. RB-1 and RB-3 closed (§ 7.1, § 7.2); the  (§ 7.1, § 7.2, § 7.3)
+        legal/privacy half of the joint approval recorded
+        2026-08-24 (§ 7.3). The allowlist and denylist are
+        exactly as recorded; RB-1's GATE-4 boundary
+        (§ 13.1) is untouched.
+GATE-4  approved, via THREE independent decisions (§ 8.2): (§ 8.1, § 8.2)
+        4A (legal/privacy owner) answers the § 8.1
+        question YES — a narrow, enumerated exception to
+        GATE-1 R4 for one persisted exact-lookup CNPJ
+        representation; 4B (data architecture owner) and
+        4C (product owner) approve option D as the grain.
+        A SEPARATE technical direction (not a legal/privacy
+        approval) prefers a normalized 14-char CNPJ over
+        any hash/fingerprint/truncation for the eventual
+        encoding. No surrogate, no migration, no runtime
+        lookup implementation — the productization blocker
+        stays recorded as one.
+GATE-5  approved, against the CORRECTED post-§9.3          (§ 9.1, § 9.2, § 9.3, § 9.4)
+        contract — not the original § 9.1 draft. The
+        joint security/privacy + test owner approval
+        recorded 2026-08-24 (§ 9.4) names the subject
+        explicitly: total_rows_scanned INTERNAL ONLY, the
+        residual label suppressed_other, the two renamed
+        output keys, the three excluded breakdowns, and
+        the removed CLI-emission bypass (§ 9.3).
+        GATE5_ENGINE_REPORT_PROJECTION_REQUIRED stays true;
+        no projection is implemented.
+GATE-6  approved. The joint technical + operator owner      (§ 10.1, § 10.2)
+        approval recorded 2026-08-24 (§ 10.2) confirms
+        DELETE-over-quarantine as the disposition; the
+        executable cleanup contract (§ 10.1) is unchanged.
+GATE-7  needs_evidence — NOT approved. The three            (§ 11.1, § 11.2)
+        dependency-gate blockers (GATE-2, GATE-5, GATE-6)
+        are DISCHARGED by their own approvals above; the
+        fourth — REPRODUCIBILITY_BY_DIFFERENT_OPERATOR —
+        remains UNDEMONSTRATED. That is evidence still to
+        be gathered (a rehearsal), not a person's answer to
+        a posed question, which is why the gate reads
+        needs_evidence rather than ready_for_review,
+        needs_owner_decision, or blocked (§ 11.2).
 GATE-8  approved — AS A CONTRACT                           (§ 12.1)
 ```
 
-Six gates are not approved, so the matrix still reads **NO-GO** — the expected and correct outcome.
-🔴 `ready_for_review` and `needs_owner_decision` are NO-GO exactly as `not_started` is; four gates
-advancing their status is progress in *reviewability*, not in permission.
+One gate — GATE-7 — is not approved, so the matrix still reads **NO-GO**, the expected and correct
+outcome. 🔴 `needs_evidence` is NO-GO exactly as `not_started` and `blocked` are; seven gates being
+approved is progress toward the matrix, but the matrix requires all eight.
 
-**Approved: 2 of 8** — GATE-1 (`approved`) and GATE-8 (`APPROVED_AS_CONTRACT`). Not 0, and not 8.
-Both readings have been reported at some point in this series, and both are wrong: the derivation of
-record is `brazilReceitaApprovedGateCount()`, and the verdict of record is
-`brazilReceitaGateGlobalVerdict()`, which returns `NO-GO` unless **every** gate is approved.
+**Approved: 7 of 8** — every gate except GATE-7. Not 2, and not 8. The derivation of record is
+`brazilReceitaApprovedGateCount()`, and the verdict of record is `brazilReceitaGateGlobalVerdict()`,
+which returns `NO-GO` unless **every** gate is approved.
+
+**Readings a future reader is most likely to get backwards after BR-SOURCE-FAST-TRACK-7:**
+
+- **Seven gates approved is not eight.** `brazilReceitaGateGlobalVerdict()` still returns `NO-GO`, and
+  the matrix requires every gate, not "most of them".
+- **GATE-4's approval is not a solved productization path.** The grain and the narrow persistence
+  exception are approved; the concrete key construction, the `source_period` migration, and the
+  runtime lookup mechanism are not implemented, and the productization blocker stays recorded as one.
+- **The GATE-4 technical direction for the eventual CNPJ encoding is not a legal/privacy approval.**
+  It is project technical direction only, recorded separately from 4A/4B/4C, and it authorizes no
+  persistence on its own.
+- **GATE-5's approval does not freeze a report schema beyond GATE-3's and GATE-4's own markers.**
+  `GATE5_ENGINE_REPORT_PROJECTION_REQUIRED` stays `true`; no emitter or projection exists or is
+  implemented by any of the five approvals this round records.
+- **GATE-7's `needs_evidence` is not a step closer to `ready_for_review` on its own.** Only an
+  authorized rehearsal, by an operator who did not author the runbook section, can supply the missing
+  evidence — and none is authorized by this round or by any prior one.
+- **`ATTEMPT_3_ALLOWED` is untouched.** It stays the literal `false`, imported and not reproduced as a
+  writable copy anywhere in this round's new records.
+
+**Next front: an authorized GATE-7 rehearsal**, by an operator who did not author the runbook section,
+against real ceilings — the one piece of evidence `needs_evidence` names as missing. After that, GATE-7's
+own three approvers (operator, technical, privacy owner) decide whether the rehearsal plus the seven
+approved gates is enough to move to `ready_for_review`, and then to `approved`.
+
 Readings a future reader is most likely to get backwards:
 
 - **GATE-2 is NOT approved.** Its numeric envelope is complete
@@ -2151,8 +2536,14 @@ Readings a future reader is most likely to get backwards:
   only recorded human privacy statement (the GATE-1 determination) explicitly leaves GATE-2 …
   GATE-8 `not_started`. `needs_owner_confirmation` still flips no flag: the tracked temporary-storage
   policy constant and the provisional cap proposal are asserted unchanged by test.
+  🔴 **SUPERSEDED BY § 6.2 (BR-SOURCE-FAST-TRACK-7).** The privacy owner has since confirmed the
+  bucket-ordinal disposition, and GATE-2 is now `approved`. The tracked policy constant and the
+  provisional cap proposal remain unchanged, exactly as this bullet described.
 - **GATE-8 `APPROVED_AS_CONTRACT` is not permission to write the runner.** Its *Allows* clause is
   conditional on every other gate being approved, and six are not.
+  🔴 **UPDATED BY BR-SOURCE-FAST-TRACK-7.** Six is now one: only GATE-7 remains unapproved. The
+  underlying point is unchanged — the *Allows* clause is conditional on EVERY other gate, and one
+  unapproved gate is enough to keep it inert.
 - **GATE-3 recorded a policy, not an approval.** The field policy exists and a
   `field_allowlist_version` is bound to it; the gate is **`ready_for_review`** and the 10J § 12 report
   marker still reads `"not_approved"`. RB-1, RB-2 and RB-3 are all closed; the legal/privacy half of
@@ -2162,6 +2553,9 @@ Readings a future reader is most likely to get backwards:
   the matrix above was updated and this paragraph was not. One document giving two answers about the
   same gate is the defect the Round-2 post-merge report then reproduced; the consistency guard in
   `br-receita-cnpj-gate-round3-output-sanitization.test.ts` now fails on a recurrence.
+  🔴 **SUPERSEDED BY § 7.3 (BR-SOURCE-FAST-TRACK-7).** The legal/privacy half is now recorded, the
+  field_allowlist_version marker may now legitimately read `br_receita_cnpj_field_allowlist_v1`, and
+  GATE-3 is `approved`.
 
 Round 1 closed the GATE-2 numeric envelope (not the gate), the GATE-3 field policy plus its RB-2
 blocker, and GATE-8. **Round 2 closed GATE-3's RB-1 and RB-3, recorded GATE-4, made GATE-6's cleanup
@@ -2171,20 +2565,34 @@ Readings a future reader is most likely to get backwards after Round 2:
 
 - **GATE-4's grain being decided is not GATE-4 being approved.** One question is open, it is
   legal/privacy, and no agent may answer it (§ 8.1).
+  🔴 **SUPERSEDED BY § 8.2 (BR-SOURCE-FAST-TRACK-7).** The question is now answered YES (4A), and the
+  grain is owner-approved (4B, 4C). GATE-4 is `approved` — the concrete key construction and the
+  runtime lookup mechanism remain unimplemented, which is a different claim from the gate being open.
 - **Exact runtime lookup is NOT solved.** It is a recorded productization blocker: every existing
   lookup primitive needs `normalized_tax_id` or a caller-known key, and Brazil can supply neither.
+  **Still true after BR-SOURCE-FAST-TRACK-7** — GATE-4's approval does not resolve this blocker; it
+  stays recorded as one (§ 8.2).
 - **GATE-6's code working is not GATE-6 being approved.** § 3 forbids the implementer of a subject
   from approving it, and this round implemented the subject.
+  🔴 **SUPERSEDED BY § 10.2 (BR-SOURCE-FAST-TRACK-7).** The technical owner and the operator owner have
+  since jointly approved the contract this bullet describes; GATE-6 is `approved`.
 - **Opaque temp file names are not a privacy approval.** They remove the ordinal from disk; the
   privacy owner's GATE-2 confirmation is still outstanding.
+  🔴 **SUPERSEDED BY § 6.2 (BR-SOURCE-FAST-TRACK-7).** The privacy owner's confirmation is no longer
+  outstanding; see § 6.2.
 
-**Standing open items independent of any round:** the GATE-2 bucket-ordinal privacy confirmation, and
-the GATE-4 legal/privacy question — which, if answered `no`, stops Brazil productization at GATE-4.
+**Standing open items independent of any round, as of Round 2:** the GATE-2 bucket-ordinal privacy
+confirmation, and the GATE-4 legal/privacy question — which, if answered `no`, stops Brazil
+productization at GATE-4. 🔴 **Both resolved by BR-SOURCE-FAST-TRACK-7** — the privacy owner confirmed
+the bucket ordinal (§ 6.2) and answered the GATE-4 question YES (§ 8.2). Neither is a "standing open
+item" any longer.
 
 Readings a future reader is most likely to get backwards after Round 3:
 
 - **GATE-5's rules executing is not GATE-5 being approved.** § 3 forbids the implementer of a subject
   from approving it, and this round implemented the subject.
+  🔴 **SUPERSEDED BY § 9.4 (BR-SOURCE-FAST-TRACK-7).** The joint security/privacy + test owner
+  approval has since been recorded against the CORRECTED post-§9.3 contract; GATE-5 is `approved`.
 - **The frozen contract did not resolve its own collisions.** `total_rows_scanned` is ALLOWED by owner
   direction and is refused by BR-SOURCE-11A's numeric-leaf ceiling and by `VP-1` / `VP-4` on the
   rendered surface. Both are recorded as `OD-C1` / `OD-C2` and both are owner decisions. A third,
@@ -2207,23 +2615,34 @@ Readings a future reader is most likely to get backwards after Round 3:
 **Next front: ROUND 4 = GATE-5's remaining approval plus GATE-7**, whose packet § 10 is updated by this
 round to reflect the now-real GATE-2 ceilings, GATE-5 output contract and GATE-6 cleanup contract.
 GATE-7's `P-05` still fails by construction while any gate is unapproved.
+🔴 **SUPERSEDED BY BR-SOURCE-FAST-TRACK-7** — see the § 15 top for the current next front.
 
 Readings a future reader is most likely to get backwards after BR-SOURCE-FAST-TRACK-6:
 
 - **The GATE-7 runbook existing is not GATE-7 being reviewable.** The section is the FIRST of four
   remaining items; the other three are GATE-2, GATE-5 and GATE-6 approvals, and § 4 orders approval by
   the dependency graph (§ 11.1).
+  🔴 **SUPERSEDED BY § 11.2 (BR-SOURCE-FAST-TRACK-7).** All three of the other items are now
+  discharged (GATE-2, GATE-5, GATE-6 approved); GATE-7 moved from `blocked` to `needs_evidence` — one
+  item remains, the reproducibility rehearsal, not another gate's approval.
 - **`blocked` is not a step toward approval.** It is NO-GO exactly as `not_started` is, and § 4 makes a
   `blocked` gate forbid writing any full-join code.
+  🔴 **GATE-7 is no longer `blocked`** as of § 11.2 — it is `needs_evidence`, which is equally NO-GO
+  and equally not a step toward approval on its own.
 - **The GATE-5 collisions closing is not GATE-5 being approved.** The contract was REVISED, which makes
   the revised contract the subject of a review that has not happened (§ 9.2). A round that fixes
   everything the previous review flagged does not thereby earn the approval.
+  🔴 **SUPERSEDED BY § 9.4 (BR-SOURCE-FAST-TRACK-7).** That review has since happened, against the
+  revised contract by name; GATE-5 is `approved`.
 - **An empty carve-out list is not a reason to delete the precedence.** `ALLOWLIST_GOVERNS` stays: it
   decides what happens the next time a § 6 key and a denylist group disagree, and that answer has to
   exist before the disagreement.
 - **The final owner packet is not an approval.** It PREPARES five separate, non-bundled human decisions
   (GATE-2, GATE-3, GATE-4, GATE-5, GATE-6) with their response fields deliberately blank. No agent may
   fill one, and project technical direction is not a privacy signature (§ 14).
+  🔴 **SUPERSEDED BY BR-SOURCE-FAST-TRACK-7.** All five of those decisions are now recorded, each
+  independently (§ 6.2, § 7.3, § 8.2, § 9.4, § 10.2), by owner relay rather than by an agent filling
+  the packet's blank fields.
 
 ---
 

@@ -123,14 +123,14 @@ const RECORD_MODULES = [GATE2_MODULE, GATE3_MODULE, GATE8_MODULE];
 
 // ─── GATE-2 ───────────────────────────────────────────────────────────────────
 
-describe('GATE-ROUND-1 · GATE-2 is BLOCKED pending privacy-owner confirmation, and GATE-1 alone is approved', () => {
-  it('🔴 FINAL CORRECTION: 13A reads gate1 approved and gate2 NOT approved (blocked)', () => {
+describe('GATE-ROUND-1 · GATE-2, and GATE-1 both approved as of BR-SOURCE-FAST-TRACK-7', () => {
+  it('🔴 BR-SOURCE-FAST-TRACK-7: 13A reads gate1 approved and gate2 also approved', () => {
     const result = validateBrazilReceitaOwnerDecisionArtifact(
       buildBrazilReceitaGate2RecordedOwnerDecisionArtifact(),
     );
 
     assert.equal(result.gate1Approved, true);
-    assert.equal(result.gate2Approved, false);
+    assert.equal(result.gate2Approved, true);
     assert.equal(result.gate7Approved, false);
     assert.equal(result.capInputPolicyApproved, false);
     assert.equal(result.controlledExecutionAttemptAuthorized, false);
@@ -138,10 +138,10 @@ describe('GATE-ROUND-1 · GATE-2 is BLOCKED pending privacy-owner confirmation, 
     const blockedFinding = result.findings.find(
       (finding) => finding.code === 'OWNER_DECISION_BLOCKED',
     );
-    assert.ok(blockedFinding, 'gate2 must report OWNER_DECISION_BLOCKED, not a silent unapproval');
+    assert.equal(blockedFinding, undefined, 'gate2 is approved now, so no blocked finding may exist');
   });
 
-  it('🔴 the whole-artifact verdict is still invalid / NO_GO — five gates are not_started', () => {
+  it('🔴 the whole-artifact verdict is still invalid / NO_GO — GATE-7, cap/input policy and the controlled execution attempt are absent', () => {
     const result = validateBrazilReceitaOwnerDecisionArtifact(
       buildBrazilReceitaGate2RecordedOwnerDecisionArtifact(),
     );
@@ -324,18 +324,16 @@ describe('GATE-ROUND-1 · GATE-2 storage envelope', () => {
     );
   });
 
-  it('🔴 FINAL CORRECTION: the bucket ordinal privacy disposition has NO attributable owner source, and is never attributed to the agent', () => {
+  it('🔴 FINAL CORRECTION: the bucket ordinal privacy disposition object states the TECHNICAL classification unchanged; the CONFIRMATION is a separate, later record (BR-SOURCE-FAST-TRACK-7)', () => {
     assert.equal(
       BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION.classification,
       'structural_non_invertible_partition_metadata',
     );
     assert.equal(BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION.isJoinKeyMaterial, false);
-    assert.equal(
-      BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION.attributedTo,
-      'PRIVACY_OWNER_CONFIRMATION_REQUIRED',
-    );
     assert.equal(BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION.attributedToAgent, false);
-    assert.equal(BRAZIL_RECEITA_GATE2_STATUS, 'needs_owner_confirmation');
+    // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — the privacy owner confirmed the disposition above by
+    // owner relay 2026-08-24, so GATE-2 is now `approved`, not `needs_owner_confirmation`.
+    assert.equal(BRAZIL_RECEITA_GATE2_STATUS, 'approved');
   });
 });
 
@@ -370,12 +368,11 @@ describe('GATE-ROUND-1 · GATE-2 flips NO operational flag', () => {
 // ─── GATE-3 ───────────────────────────────────────────────────────────────────
 
 describe('GATE-ROUND-1 · GATE-3 records a policy and stays SHUT', () => {
-  // 🔴 UPDATED BY BR-SOURCE-GATE-ROUND-2 — `needs_evidence` → `ready_for_review`. What this test is
-  // FOR is unchanged and is the important half: the gate is not `approved`. `ready_for_review` is
-  // NO-GO in the § 15 matrix exactly as `not_started` is.
-  it('the status is ready_for_review — evidence complete, and still NOT approved', () => {
-    assert.equal(BRAZIL_RECEITA_GATE3_STATUS, 'ready_for_review');
-    assert.notEqual(BRAZIL_RECEITA_GATE3_STATUS, 'approved');
+  // 🔴 UPDATED BY BR-SOURCE-GATE-ROUND-2 — `needs_evidence` → `ready_for_review`, then by
+  // BR-SOURCE-FAST-TRACK-7 — the legal/privacy owner's half of the joint approval was recorded, so
+  // GATE-3 moved to `approved`.
+  it('the status is approved — both halves of the joint approval are recorded', () => {
+    assert.equal(BRAZIL_RECEITA_GATE3_STATUS, 'approved');
   });
 
   it('🔴 13A never reports a gate3 approval — there is no gate3 section to report', () => {
@@ -391,12 +388,12 @@ describe('GATE-ROUND-1 · GATE-3 records a policy and stays SHUT', () => {
     assert.equal(BRAZIL_RECEITA_GATE3_FIELD_ALLOWLIST_VERSION, 'br_receita_cnpj_field_allowlist_v1');
   });
 
-  it('🔴 the REPORT marker still reads not_approved — assigning a version is not releasing it', () => {
-    assert.equal(BRAZIL_RECEITA_GATE3_REPORT_MARKER_VALUE, 'not_approved');
-    assert.notEqual(
-      BRAZIL_RECEITA_GATE3_REPORT_MARKER_VALUE,
-      BRAZIL_RECEITA_GATE3_FIELD_ALLOWLIST_VERSION,
-    );
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — the marker was designed to read not_approved only UNTIL
+  // GATE-3 itself was approved. It now is (§ 7.3), so the marker legitimately equals the assigned
+  // version — by construction, never as a second literal that could drift from it.
+  it('the REPORT marker now equals the assigned version, because GATE-3 is approved (BR-SOURCE-FAST-TRACK-7)', () => {
+    assert.equal(BRAZIL_RECEITA_GATE3_REPORT_MARKER_VALUE, BRAZIL_RECEITA_GATE3_FIELD_ALLOWLIST_VERSION);
+    assert.equal(BRAZIL_RECEITA_GATE3_REPORT_MARKER_VALUE, 'br_receita_cnpj_field_allowlist_v1');
   });
 
   it('the prohibited-output set is closed and carries every owner-named item', () => {

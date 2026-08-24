@@ -182,8 +182,11 @@ export const BRAZIL_RECEITA_GATE7_PREFLIGHT_ITEMS: readonly BrazilReceitaGate7Pr
     id: 'P-19',
     action: 'compare the configured output sanitizer against the GATE-5 contract',
     passCondition:
-      'the configuration matches the FROZEN contract AND the contract is APPROVED — the second half fails today',
-    standing: 'checkable_and_fails_today',
+      // BR-SOURCE-FAST-TRACK-7: GATE-5 is now approved, so the deterministic second-half failure this
+      // item carried through FAST-TRACK-6 is gone. Whether the ITEM passes now depends on whether the
+      // operator's actual configuration matches the frozen contract, which this module cannot see.
+      'the configuration matches the FROZEN, now-APPROVED contract',
+    standing: 'operator_environment_dependent',
     authority: 'br-receita-cnpj-gate5-output-contract + gate5-recorded-output-sanitization',
   },
   {
@@ -197,8 +200,11 @@ export const BRAZIL_RECEITA_GATE7_PREFLIGHT_ITEMS: readonly BrazilReceitaGate7Pr
     id: 'P-21',
     action: 'declare the storage envelope',
     passCondition:
-      'the declared envelope is the GATE-2 approved option AND GATE-2 is approved — the second half fails today',
-    standing: 'checkable_and_fails_today',
+      // BR-SOURCE-FAST-TRACK-7: GATE-2 is now approved, so the deterministic second-half failure this
+      // item carried through FAST-TRACK-6 is gone. Whether the ITEM passes now depends on whether the
+      // operator's declared envelope actually matches option C, which this module cannot see.
+      'the declared envelope is the GATE-2 approved option, now that GATE-2 is approved',
+    standing: 'operator_environment_dependent',
     authority: 'br-receita-cnpj-gate2-recorded-owner-decision',
   },
   {

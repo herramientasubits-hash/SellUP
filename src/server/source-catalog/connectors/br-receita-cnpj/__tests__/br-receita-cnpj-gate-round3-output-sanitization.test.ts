@@ -176,17 +176,21 @@ const THE_ROUND_3_MODULES = [
 // ─── 1 · The status read that Round 2's report got wrong ──────────────────────
 
 describe('GATE-ROUND-3 · the current gate state is authoritative and mechanically unambiguous', () => {
-  it('reports the eight statuses entering this round, not eight not_starteds', () => {
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — GATE-2, GATE-3, GATE-4, GATE-5 and GATE-6 are now
+  // `approved` by recorded owner relay, and GATE-7 moved from `blocked` to `needs_evidence` once its
+  // three dependency-gate blockers were discharged. See the dedicated FAST-TRACK-7 suite for the
+  // full reasoning; this test only needs the current, authoritative values.
+  it('reports the eight statuses as of BR-SOURCE-FAST-TRACK-7, not eight not_starteds', () => {
     const byGate = new Map(BRAZIL_RECEITA_GATE_CURRENT_STATE.map((e) => [e.gate, e.status]));
     assert.equal(byGate.get(1), 'approved');
-    assert.equal(byGate.get(2), 'needs_owner_confirmation');
-    assert.equal(byGate.get(3), 'ready_for_review');
-    assert.equal(byGate.get(4), 'needs_owner_decision');
-    assert.equal(byGate.get(5), 'ready_for_review');
-    assert.equal(byGate.get(6), 'ready_for_review');
-    // 🔴 `blocked` since BR-SOURCE-FAST-TRACK-6, when the runbook section landed. Both this and
-    // `not_started` are NO-GO; the move is a statement about reviewability, not about permission.
-    assert.equal(byGate.get(7), 'blocked');
+    assert.equal(byGate.get(2), 'approved');
+    assert.equal(byGate.get(3), 'approved');
+    assert.equal(byGate.get(4), 'approved');
+    assert.equal(byGate.get(5), 'approved');
+    assert.equal(byGate.get(6), 'approved');
+    // `needs_evidence` and `not_started` are both NO-GO; the move is a statement about
+    // reviewability, not about permission.
+    assert.equal(byGate.get(7), 'needs_evidence');
     assert.equal(byGate.get(8), 'APPROVED_AS_CONTRACT');
     assert.equal(BRAZIL_RECEITA_GATE_CURRENT_STATE.length, 8);
   });
@@ -211,9 +215,9 @@ describe('GATE-ROUND-3 · the current gate state is authoritative and mechanical
     ]);
   });
 
-  it('the global verdict is NO-GO, and two gates are approved — not zero and not eight', () => {
+  it('🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7: the global verdict is NO-GO, and seven gates are approved — not zero and not eight', () => {
     assert.equal(brazilReceitaGateGlobalVerdict(), 'NO-GO');
-    assert.equal(brazilReceitaApprovedGateCount(), 2);
+    assert.equal(brazilReceitaApprovedGateCount(), 7);
   });
 
   it('ready_for_review and both needs_owner_* statuses are NOT approved statuses', () => {
@@ -287,10 +291,10 @@ describe('GATE-ROUND-3 · the current gate state is authoritative and mechanical
 
 // ─── 2 · GATE-5 is ready_for_review, and NOT approved ─────────────────────────
 
-describe('GATE-ROUND-3 · GATE-5 advanced its reviewability, not its permission', () => {
-  it('is ready_for_review and explicitly not approved', () => {
-    assert.equal(BRAZIL_RECEITA_GATE5_STATUS, 'ready_for_review');
-    assert.equal(BRAZIL_RECEITA_GATE5_APPROVED, false);
+describe('GATE-ROUND-3 · GATE-5 advanced its reviewability, then was approved (BR-SOURCE-FAST-TRACK-7)', () => {
+  it('is approved, against the CORRECTED post-§9.3 contract, not the original § 9.1 draft', () => {
+    assert.equal(BRAZIL_RECEITA_GATE5_STATUS, 'approved');
+    assert.equal(BRAZIL_RECEITA_GATE5_APPROVED, true);
   });
 
   it('requires both named approvers jointly, and no agent may supply either half', () => {
@@ -306,12 +310,18 @@ describe('GATE-ROUND-3 · GATE-5 advanced its reviewability, not its permission'
     assert.match(BRAZIL_RECEITA_GATE5_SINGLE_REMAINING_CRITERION.implementerRule, /10K § 3/);
   });
 
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — the report-schema restriction's WORDING changed because
+  // GATE-3 and GATE-4 are now approved too, so "forbidden while GATE-3/GATE-4 are open" is no longer
+  // literally true. The underlying restriction is unchanged in substance: this approval still does
+  // not itself freeze a schema beyond what those two gates' own approvals permit for their own
+  // markers, and GATE5_ENGINE_REPORT_PROJECTION_REQUIRED stays unimplemented.
   it('carries restrictions that refuse every permission an approval might be read as', () => {
     const text = BRAZIL_RECEITA_GATE5_RESTRICTIONS.join(' | ');
     for (const refusal of [
       /does not authorize executing the full join/,
       /does not authorize emitting any report from real data/,
-      /does not freeze the 10J § 12 report SCHEMA/,
+      /does not itself freeze a report SCHEMA/,
+      /GATE5_ENGINE_REPORT_PROJECTION_REQUIRED/,
       /flips no operational flag/,
     ]) {
       assert.match(text, refusal);

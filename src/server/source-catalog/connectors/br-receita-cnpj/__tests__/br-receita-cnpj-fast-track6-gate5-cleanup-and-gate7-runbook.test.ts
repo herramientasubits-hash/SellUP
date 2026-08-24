@@ -588,12 +588,16 @@ describe('FAST-TRACK-6 · every digit-run length fails closed through at least o
 
 // ─── 8 · GATE-5 is STILL ready_for_review ─────────────────────────────────────
 
-describe('FAST-TRACK-6 · fixing everything the review flagged does not earn the approval', () => {
-  it('GATE-5 is still ready_for_review, and still not approved', () => {
-    assert.equal(BRAZIL_RECEITA_GATE5_STATUS, 'ready_for_review');
+describe('FAST-TRACK-6 · fixing everything the review flagged does not earn the approval on its own', () => {
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — the joint security/privacy + test owner approval was later
+  // recorded (§ 9.4), against the CORRECTED contract this round produced. The revisions themselves
+  // still did not earn it: BRAZIL_RECEITA_GATE5_REVISIONS_EARN_AN_APPROVAL stays false, because what
+  // discharged the gate was the owners' own recorded decision, not the implementer's fixes.
+  it('GATE-5 is approved (BR-SOURCE-FAST-TRACK-7), but not because the revisions earned it', () => {
+    assert.equal(BRAZIL_RECEITA_GATE5_STATUS, 'approved');
     assert.equal(
       BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE5_STATUS),
-      false,
+      true,
     );
     assert.equal(BRAZIL_RECEITA_GATE5_REVISIONS_EARN_AN_APPROVAL, false);
   });
@@ -686,13 +690,16 @@ describe('FAST-TRACK-6 · the GATE-7 preflight is executable and fails closed', 
     assert.equal(p05.authority, 'br-receita-cnpj-gate-status-current-state');
   });
 
-  it('the evaluator returns FAIL and names the three gates that block this gate', () => {
+  it('🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7: the evaluator still returns FAIL, but the three named blocking gates are now discharged — GATE-7 itself is the only unapproved gate left', () => {
     const outcome = evaluateBrazilReceitaGate7Preconditions();
     assert.equal(outcome.result, 'FAIL');
     assert.ok(outcome.unapprovedGates.length > 0);
-    const blocking = outcome.unapprovedBlockingGates.map((entry) => entry.gate).sort();
-    assert.deepEqual(blocking, [...BRAZIL_RECEITA_GATE7_BLOCKING_GATES].sort());
+    assert.deepEqual(outcome.unapprovedGates.map((entry) => entry.gate), [7]);
+    // The contract's named blocking-gate list is unchanged — it is the fixed dependency contract,
+    // not a live "currently blocking" computation — but GATE-2, GATE-5 and GATE-6 are now approved,
+    // so the CURRENT unapproved subset of that list is empty.
     assert.deepEqual([...BRAZIL_RECEITA_GATE7_BLOCKING_GATES], [2, 5, 6]);
+    assert.deepEqual([...outcome.unapprovedBlockingGates], []);
   });
 
   it('the evaluator takes NO arguments, so there is no surface to weaken it on', () => {
@@ -829,7 +836,7 @@ describe('FAST-TRACK-6 · the preflights read their ceilings from the records th
     assert.match(text, /LOCAL FILE manifest/);
   });
 
-  it('the privacy preflight covers five contracts, requires approved, and FAILS today', () => {
+  it('🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7: the privacy preflight covers five contracts, requires approved, and now PASSES — all five owning gates are approved', () => {
     assert.equal(BRAZIL_RECEITA_GATE7_PRIVACY_PREFLIGHT_CONTRACTS.length, 5);
     const gates = BRAZIL_RECEITA_GATE7_PRIVACY_PREFLIGHT_CONTRACTS.map((c) => c.owningGate).sort();
     assert.deepEqual(gates, [2, 3, 4, 5, 6]);
@@ -837,10 +844,10 @@ describe('FAST-TRACK-6 · the preflights read their ceilings from the records th
       assert.equal(contract.requiredStatus, 'approved');
     }
     const outcome = evaluateBrazilReceitaGate7PrivacyPreflight();
-    assert.equal(outcome.result, 'FAIL');
+    assert.equal(outcome.result, 'PASS');
     assert.equal(outcome.operatorDiscretionAvailable, false);
-    // Four of the five owning gates are unapproved today; GATE-3 … GATE-6 plus GATE-2.
-    assert.ok(outcome.unapprovedContracts.length >= 4);
+    // All five owning gates (GATE-2 … GATE-6) are now approved.
+    assert.deepEqual([...outcome.unapprovedContracts], []);
   });
 
   it('the privacy preflight takes no arguments either', () => {
@@ -922,9 +929,13 @@ describe('FAST-TRACK-6 · the run-time discipline is enumerated and fail-closed'
 
 // ─── 14 · GATE-7's status ─────────────────────────────────────────────────────
 
-describe('FAST-TRACK-6 · GATE-7 is blocked, and ready_for_review is explicitly NOT claimed', () => {
-  it('is blocked, not approved, and blocked is NO-GO', () => {
-    assert.equal(BRAZIL_RECEITA_GATE7_STATUS, 'blocked');
+describe('FAST-TRACK-6 · GATE-7 status (superseded by BR-SOURCE-FAST-TRACK-7 — see the dedicated FAST-TRACK-7 suite)', () => {
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — GATE-2, GATE-5 and GATE-6 are now approved, discharging the
+  // dependency that made `blocked` correct. GATE-7 moved to `needs_evidence`: the reproducibility
+  // rehearsal is missing EVIDENCE, not a person's answer to a posed question. See
+  // br-receita-cnpj-fast-track7-gate2-3-4-5-6-approvals.test.ts for the full reasoning.
+  it('is needs_evidence, not approved, and needs_evidence is NO-GO', () => {
+    assert.equal(BRAZIL_RECEITA_GATE7_STATUS, 'needs_evidence');
     assert.equal(BRAZIL_RECEITA_GATE7_APPROVED, false);
     assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE7_STATUS), false);
     assert.equal(brazilReceitaGateGlobalVerdict(), 'NO-GO');
@@ -942,22 +953,18 @@ describe('FAST-TRACK-6 · GATE-7 is blocked, and ready_for_review is explicitly 
     assert.equal(BRAZIL_RECEITA_GATE7_AGENT_MAY_APPROVE, false);
   });
 
-  it('lists exactly four remaining blockers: three gates plus reproducibility', () => {
-    assert.equal(BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS.length, 4);
+  it('lists exactly ONE remaining blocker — reproducibility — now that the three dependency gates are approved', () => {
+    assert.equal(BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS.length, 1);
     const dependency = BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS.filter(
       (blocker) => blocker.kind === 'unapproved_dependency_gate',
     );
-    assert.equal(dependency.length, 3);
+    assert.equal(dependency.length, 0);
     const undemonstrated = BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS.filter(
       (blocker) => blocker.kind === 'undemonstrated_pass_criterion',
     );
     assert.equal(undemonstrated.length, 1);
     for (const blocker of BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS) {
       assert.equal(blocker.dischargeableByAnAgent, false);
-    }
-    const text = BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS.map((b) => b.blocker).join(' | ');
-    for (const gate of ['GATE-2', 'GATE-5', 'GATE-6']) {
-      assert.ok(text.includes(gate), `${gate} must be named as a blocker`);
     }
   });
 
@@ -1060,8 +1067,15 @@ describe('FAST-TRACK-6 · the owner packet is a set of QUESTIONS, and refuses to
         assert.equal(field.value, null, `${section.id}.${field.field} is PREFILLED`);
       }
     }
-    assert.deepEqual(findBrazilReceitaSignoffPacketDefects(), []);
-    assert.equal(brazilReceitaSignoffPacketIsUnanswered(), true);
+    // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — as SHIPPED (no response field filled), the packet is
+    // still unanswered by construction. But GATE-2, GATE-3, GATE-4, GATE-5 and GATE-6 have since been
+    // approved by separate owner-relay records in their own gate modules, not by this packet — so the
+    // validator now correctly reports every section `gate_already_approved`, which is the defect class
+    // that exists precisely to catch a packet asking about an already-decided gate.
+    const defects = findBrazilReceitaSignoffPacketDefects();
+    assert.equal(defects.length, BRAZIL_RECEITA_SIGNOFF_DECISION_SECTIONS.length);
+    assert.ok(defects.every((finding) => finding.defect === 'gate_already_approved'));
+    assert.equal(brazilReceitaSignoffPacketIsUnanswered(), false);
   });
 
   it('the validator REFUSES a packet whose response field has been filled', () => {
@@ -1077,9 +1091,14 @@ describe('FAST-TRACK-6 · the owner packet is a set of QUESTIONS, and refuses to
         : section,
     );
     const findings = findBrazilReceitaSignoffPacketDefects(tampered);
-    assert.ok(findings.length > 0, 'a prefilled field must be a defect');
-    assert.ok(findings.every((finding) => finding.defect === 'prefilled_response_field'));
-    assert.ok(findings.some((finding) => finding.section === 'DECISION-GATE-2'));
+    // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — every underlying gate is now approved via its own record,
+    // so `gate_already_approved` findings exist for every section regardless of tampering. What this
+    // test still proves is narrower and just as load-bearing: the DECISION-GATE-2 section specifically
+    // carries a `prefilled_response_field` finding once its field is filled, on top of whatever other
+    // finding it already carries.
+    const gate2Findings = findings.filter((finding) => finding.section === 'DECISION-GATE-2');
+    assert.ok(gate2Findings.length > 0, 'a prefilled field must be a defect');
+    assert.ok(gate2Findings.some((finding) => finding.defect === 'prefilled_response_field'));
   });
 
   it('the validator refuses a duplicated section id, which is a bundled decision', () => {
@@ -1287,7 +1306,8 @@ describe('FAST-TRACK-6 · the new modules are pure, unwired, and carry no identi
     );
     assert.match(checklist, /^### 9\.2 /m);
     assert.match(checklist, /^### 11\.1 /m);
-    // And § 11's own stale status line is annotated rather than rewritten.
-    assert.match(checklist, /SUPERSEDED BY § 11\.1/);
+    // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — § 11's top pointer now supersedes to § 11.2, the
+    // subsection that most recently set GATE-7's status. § 11.1 itself is untouched and still exists.
+    assert.match(checklist, /SUPERSEDED BY § 11\.2/);
   });
 });

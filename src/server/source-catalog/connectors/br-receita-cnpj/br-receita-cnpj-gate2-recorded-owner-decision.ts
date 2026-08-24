@@ -1,5 +1,6 @@
 /**
- * BR Receita CNPJ — RECORDED GATE-2 owner decision (BR-SOURCE-GATE-ROUND-1, FINAL CORRECTION).
+ * BR Receita CNPJ — RECORDED GATE-2 owner decision (BR-SOURCE-GATE-ROUND-1, FINAL CORRECTION;
+ * privacy-owner confirmation recorded BR-SOURCE-FAST-TRACK-7).
  *
  * GATE-2 is the temporary storage envelope (10K § 6): it decides whether Option C — a temporary
  * local discardable index — is permitted at all, and it replaces every
@@ -13,17 +14,38 @@
  * `GATE2_CANNOT_PRECEDE_GATE1` means a GATE-2 record is only readable ALONGSIDE the GATE-1 one, and
  * two artifacts that disagreed about GATE-1 would be worse than one that carries both.
  *
+ * ── 🔴 Update (BR-SOURCE-FAST-TRACK-7) — the joint approval is now COMPLETE ──
+ *
+ * The technical half was decided 2026-08-21 (see below, unchanged). The privacy owner has now
+ * confirmed, by owner relay recorded 2026-08-24, that the bucket-ordinal disposition already stated
+ * as a technical, verifiable fact — the partition bucket ordinal is structural, non-invertible
+ * partition metadata, not join-key material and not a join-key derivative — is sufficient from a
+ * PRIVACY standpoint. That is the ONLY question this confirmation answers:
+ *
+ *   - it does NOT re-decide the numeric ceilings, which stay exactly as the technical owner set them;
+ *   - it does NOT re-decide the storage option — Option C stays chosen, A and B stay rejected;
+ *   - it does NOT touch `maxPhaseRuntimeMs` or its recorded divergence from the standing benchmark
+ *     proposal, which remains unresolved and unedited;
+ *   - it does NOT flip `BRAZIL_RECEITA_FULL_JOIN_TEMPORARY_STORAGE_POLICY_APPROVED` (still `false`) or
+ *     rewrite `BRAZIL_RECEITA_FULL_JOIN_PROVISIONAL_RESOURCE_CAP_PROPOSAL.maxTemporaryStorageBytes`
+ *     (still `0`) — neither is read or imported here, exactly as before this update.
+ *
+ * With both halves of the joint decision now attributable, `BRAZIL_RECEITA_GATE2_STATUS` moves from
+ * `needs_owner_confirmation` to `approved`, and `gate2.decisionValue` below moves from `blocked` to
+ * `approved`.
+ *
  * ── What this record IS ──────────────────────────────────────────────────────
  * The technical owner's decision that Option C is permitted, inside the numeric envelope enumerated
- * below (now COMPLETE — see `BRAZIL_RECEITA_GATE2_NUMERIC_CEILINGS_COMPLETE`). It is NOT a completed
- * joint decision: the privacy half of GATE-2's required joint approval — the bucket-ordinal privacy
- * disposition — has no attributable owner source yet, so `BRAZIL_RECEITA_GATE2_STATUS` reads
- * `needs_owner_confirmation`, and `gate2.decisionValue` below reads `blocked`, not `approved`.
+ * below (now COMPLETE — see `BRAZIL_RECEITA_GATE2_NUMERIC_CEILINGS_COMPLETE`), JOINED by the privacy
+ * owner's confirmation of the bucket-ordinal disposition (BR-SOURCE-FAST-TRACK-7). Both halves of the
+ * required joint approval are now attributable and recorded.
  *
  * ── What this record is NOT ──────────────────────────────────────────────────
- * GATE-3 … GATE-8 and the cap/input policy remain ABSENT, exactly as in the GATE-1 record, so 13A
- * still reads them unapproved and the whole-artifact verdict stays `invalid` / `NO_GO`. That is the
- * CORRECT verdict while five gates are `not_started`, not a defect in this record.
+ * GATE-7 and the cap/input policy remain ABSENT, exactly as in the GATE-1 record, so 13A still reads
+ * them unapproved and the whole-artifact verdict stays `invalid` / `NO_GO`. That is the CORRECT
+ * verdict while GATE-7 is not approved, not a defect in this record. 13A has no `gate3` … `gate6`
+ * section at all, so GATE-3 … GATE-6 becoming approved elsewhere does not change what this artifact
+ * can assert; only GATE-1, GATE-2, GATE-7 and the cap/input policy sections exist in that validator.
  *
  * 🔴 It flips NO operational flag, and the checklist says so in GATE-2's own *Relation to flags*
  * clause: GATE-2 "flips **no** operational flag". Concretely, and deliberately:
@@ -371,9 +393,8 @@ export const BRAZIL_RECEITA_GATE2_PROHIBITED_TEMPORARY_KEY_MATERIAL: readonly st
  * bucket-ordinal question, and 10K § 3 forbids a gate's subject being approved by the party that
  * implements it — an agent may not manufacture the missing half of that attribution either.
  *
- * So `attributedTo` no longer names a role. It names the fact: no attributable privacy-owner source
- * has decided this question yet, and one is required before GATE-2 can be `approved` rather than
- * `needs_owner_confirmation` (see `BRAZIL_RECEITA_GATE2_STATUS`).
+ * So `attributedTo` no longer names a role — until BR-SOURCE-FAST-TRACK-7 below, where an
+ * attributable privacy-owner confirmation finally exists.
  */
 export const BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION = {
   classification: 'structural_non_invertible_partition_metadata',
@@ -383,13 +404,42 @@ export const BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION = {
 } as const;
 
 /**
- * The overall GATE-2 status this FINAL CORRECTION leaves in place. Not `approved`: the numeric
- * envelope is now complete (`BRAZIL_RECEITA_GATE2_NUMERIC_CEILINGS_COMPLETE`), the storage option,
- * workspace, TTL, cleanup contract and conditional encryption disposition are all decided — but the
- * bucket-ordinal privacy question above has no attributable owner source, and a joint (technical +
- * privacy) approval cannot be recorded on half a joint decision.
+ * 🔴 BR-SOURCE-FAST-TRACK-7 — the privacy-owner confirmation this record was waiting on.
+ *
+ * Recorded separately from `BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION` above rather than by
+ * editing it: that object states the TECHNICAL classification (unchanged, still correct), and this
+ * object states the PRIVACY confirmation over it, so a reader can see which party said which thing
+ * without one field's meaning drifting into the other's.
+ *
+ * The confirmation answers exactly one question — is the technical classification above sufficient
+ * from a privacy standpoint — and answers it `true`. It is an owner RELAY, the same evidentiary form
+ * already used for every prior approval in this series (`OWNER_REF_GATE{n}_{ROLE}_RELAY_{date}`), not
+ * a personal signature: no name, no email, no message id, no URL, and no more-precise timestamp than
+ * the date below.
  */
-export const BRAZIL_RECEITA_GATE2_STATUS = 'needs_owner_confirmation' as const;
+export const BRAZIL_RECEITA_GATE2_PRIVACY_OWNER_BUCKET_ORDINAL_CONFIRMATION = {
+  confirmedBy: 'PRIVACY_OWNER',
+  confirmedByAgent: false,
+  confirms: 'the partition bucket ordinal is structural, non-invertible partition metadata — not join-key material and not a join-key derivative — and that is sufficient from a privacy standpoint',
+  ownerReference: 'OWNER_REF_GATE2_PRIVACY_OWNER_BUCKET_ORDINAL_CONFIRMATION_RELAY_2026_08_24',
+  confirmationDate: '2026-08-24',
+  reDecidesNumericCeilings: false,
+  reDecidesStorageOption: false,
+  reDecidesMaxPhaseRuntimeMsDivergence: false,
+} as const;
+
+/** The date the privacy owner's confirmation was relayed and recorded. */
+export const BRAZIL_RECEITA_GATE2_PRIVACY_OWNER_CONFIRMATION_DATE = '2026-08-24' as const;
+
+/**
+ * The overall GATE-2 status. `approved` as of BR-SOURCE-FAST-TRACK-7: the numeric envelope was
+ * already complete (`BRAZIL_RECEITA_GATE2_NUMERIC_CEILINGS_COMPLETE`), the storage option, workspace,
+ * TTL, cleanup contract and conditional encryption disposition were already decided, and the
+ * bucket-ordinal privacy question now has an attributable owner source
+ * (`BRAZIL_RECEITA_GATE2_PRIVACY_OWNER_BUCKET_ORDINAL_CONFIRMATION`). Both halves of the required
+ * joint (technical + privacy) approval are recorded.
+ */
+export const BRAZIL_RECEITA_GATE2_STATUS = 'approved' as const;
 
 // ─── Restrictions ─────────────────────────────────────────────────────────────
 
@@ -412,8 +462,7 @@ export const BRAZIL_RECEITA_GATE2_RESTRICTIONS: readonly string[] = [
   'maxFilesOpened, maxBytesRead and maxJoinKeysInMemory carry owner numbers but remain operator-supplied and fail-closed at invocation time',
   'a run relying on a cap the operator did not explicitly supply is outside this record',
   'the encryption disposition reopens if prohibited key-derived material is materialized',
-  'the bucket-ordinal privacy disposition is not attributed to any owner until one confirms it',
-  'GATE-2 stays needs_owner_confirmation, not approved, until the bucket-ordinal privacy question is confirmed',
+  'the bucket-ordinal privacy confirmation answers the privacy question only; it does not re-decide the numeric ceilings, the storage option, or the maxPhaseRuntimeMs divergence',
   'downstream gates remain independently required and are not approved by this decision',
 ] as const;
 
@@ -430,14 +479,13 @@ export const BRAZIL_RECEITA_GATE2_RESTRICTIONS: readonly string[] = [
  * reason the GATE-1 record does: the human response supplied no expiry, and inventing one would be
  * manufacturing an owner decision.
  *
- * 🔴 FINAL CORRECTION: `decisionValue` is `blocked`, not `approved`. 10K § 6 requires a JOINT
- * decision by the technical owner AND the privacy owner. The technical half is complete — the
- * numeric envelope, the storage option, workspace, TTL, cleanup and the conditional encryption
- * disposition are all decided. The privacy half is not: no attributable privacy-owner source has
- * decided the bucket-ordinal question (see `BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION`), and
- * `blocked` — "an external dependency prevents review" — is the validator's own vocabulary for
- * exactly that state. It is not `deferred` (nobody chose to postpone it) and not `rejected` (nobody
- * rejected it); the confirmation simply has not happened yet.
+ * 🔴 BR-SOURCE-FAST-TRACK-7: `decisionValue` is `approved`, not `blocked`. 10K § 6 requires a JOINT
+ * decision by the technical owner AND the privacy owner. The technical half was complete since
+ * 2026-08-21 — the numeric envelope, the storage option, workspace, TTL, cleanup and the conditional
+ * encryption disposition are all decided. The privacy half is now also recorded: the privacy owner
+ * confirmed, by owner relay 2026-08-24, that the bucket-ordinal disposition is sufficient from a
+ * privacy standpoint (see `BRAZIL_RECEITA_GATE2_PRIVACY_OWNER_BUCKET_ORDINAL_CONFIRMATION`). Both
+ * halves of the joint decision are now attributable.
  *
  * Returns a new object on every call.
  */
@@ -447,22 +495,21 @@ export function buildBrazilReceitaGate2RecordedOwnerDecisionArtifact(): OwnerDec
   return {
     gate1: gate1Artifact.gate1,
     gate2: {
-      decisionValue: 'blocked',
+      decisionValue: 'approved',
       ownerRole:
-        'technical owner (storage and execution model) decided; privacy owner confirmation of the bucket-ordinal disposition is outstanding',
+        'technical owner (storage and execution model) AND privacy owner, jointly — technical half decided 2026-08-21, privacy half (bucket-ordinal confirmation) decided 2026-08-24',
       ownerReference: 'OWNER_REF_GATE2_TECHNICAL_OWNER_RELAY_2026_08_21',
-      decisionDate: BRAZIL_RECEITA_GATE2_APPROVAL_DATE,
-      expirationOrReviewDate:
-        'REVIEW_REQUIRED_ON_PRIVACY_OWNER_CONFIRMATION_OF_BUCKET_ORDINAL_DISPOSITION_OR_AT_NEXT_GOVERNANCE_ROUND',
+      decisionDate: BRAZIL_RECEITA_GATE2_PRIVACY_OWNER_CONFIRMATION_DATE,
+      expirationOrReviewDate: 'REVIEW_REQUIRED_AT_NEXT_GOVERNANCE_ROUND',
       evidencePacketReference: 'DOC_BR_RECEITA_CNPJ_GATE2_CONTROLS_AND_EVIDENCE_TEMPLATE',
       legalPrivacySecurityReference:
-        'DOC_BR_RECEITA_CNPJ_LEGAL_PRIVACY_DECISION_RECORD_SECTION_14_DOES_NOT_DECIDE_GATE2_BUCKET_ORDINAL_QUESTION',
+        'OWNER_REF_GATE2_PRIVACY_OWNER_BUCKET_ORDINAL_CONFIRMATION_RELAY_2026_08_24',
       operatorReviewerRequirement:
         'operator and reviewer remain distinct roles, and neither may be the implementer of this gate subject',
       incidentEscalationReference: 'DOC_BR_RECEITA_CNPJ_EXECUTION_RUNBOOK_INCIDENT_AND_ESCALATION',
       stopConditionsAccepted: true,
     },
     // GATE-7, cap/input policy and the controlled execution attempt stay ABSENT, exactly as in the
-    // GATE-1 record: they are `not_started`, and 13A reads an absent section as unapproved.
+    // GATE-1 record: GATE-7 is not approved, and 13A reads an absent section as unapproved.
   };
 }
