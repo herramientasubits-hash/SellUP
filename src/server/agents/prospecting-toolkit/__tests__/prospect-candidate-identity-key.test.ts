@@ -19,6 +19,7 @@ import type {
   ProspectingPipelineCandidate,
 } from '../types';
 
+import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 // ─── T5/T6 — helper puro ──────────────────────────────────────────────────────
 
 describe('buildProspectCandidateIdentityKey — composición determinística (T5)', () => {
@@ -153,6 +154,9 @@ function makePipelineOutput(
 function makeCapturingAdmin(captured: Record<string, unknown>[]): SupabaseClient {
   let insertedCandidateCount = 0;
   const client = {
+    // CUT-3B4-CORRECCIÓN — la 126 SIN aplicar se declara como lo hace la BASE.
+    // Omitir `rpc` modelaría un cliente no soportado, y eso degrada CERRADO.
+    rpc: preM126Rpc,
     from: (table: string) => {
       const obj: Record<string, unknown> = {};
 
@@ -161,12 +165,20 @@ function makeCapturingAdmin(captured: Record<string, unknown>[]): SupabaseClient
           return { eq: () => ({ gte: () => Promise.resolve({ data: [], error: null }) }) };
         }
         if (table === 'prospect_candidates') {
-          return {
+          // CUT-3B4-CORRECCIÓN — la siembra del registro de identidad LEE esta
+          // tabla con `.eq('batch_id', …).in('status', …)`. Sin la etapa `eq` el
+          // doble se caía y el `catch` acababa contando como «la 126 no está
+          // aplicada»: una avería habilitando una escritura sin valla. El lote
+          // está vacío, así que la respuesta correcta es cero filas.
+          const node: Record<string, unknown> = {
+            eq: () => node,
             in: (_col: string) => {
               if (_col === 'domain') return Promise.resolve({ data: [], error: null });
+              if (_col === 'status') return Promise.resolve({ data: [], error: null });
               return { not: () => Promise.resolve({ data: [], error: null }) };
             },
           };
+          return node;
         }
         return { data: [], error: null };
       };

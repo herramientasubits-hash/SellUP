@@ -384,12 +384,15 @@ describe('4O-E4.1 estático — alcance', () => {
       // `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
       // BR-SOURCE-FUNCTIONAL-CUT-A lo mueve a la 126: la identidad MENSUAL del snapshot de
       // Receita. NO es de teléfono y no nombra `mobile_phone` en ninguna parte, que es lo que
-      // esta guarda vigila. AUTORADA y NO APLICADA. RENUMERADA de 125 a 126 por BR-SOURCE
-      // CUT A.1, que insertó por debajo una migración 125 genérica (reconciliación de
-      // `record_identity_key` sobre `source_company_snapshots`, fuentes NO brasileñas) — tampoco
+      // esta guarda vigila. AUTORADA y NO APLICADA. RENUMERADA dos veces por BR-SOURCE CUT A.1:
+      // 125 → 126 → 127. El primer salto insertó por debajo una migración 125 genérica
+      // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
+      // brasileñas); el segundo lo forzó AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, que reclamó el
+      // 126 de forma independiente: el vallado optimista de la admisión por identidad de LOTE
+      // (Agente 1), que toca `prospect_batches` y `prospect_candidates`. Ninguna de las tres
       // nombra `mobile_phone`.
-      126,
-      'la 126 (identidad mensual del snapshot BR, renumerada por CUT A.1) es la última',
+      127,
+      'la 127 (identidad mensual del snapshot BR, renumerada dos veces por CUT A.1) es la última',
     );
   });
 

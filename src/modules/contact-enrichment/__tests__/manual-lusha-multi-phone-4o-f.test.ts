@@ -1117,12 +1117,20 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // identidad provider-native del reveal. Tampoco re-declara la 111 —crea una tabla
     // nueva, añade `operation_key` a la reserva y un claim propio a la corrida—, así que
     // 4O-F sigue reutilizando la 111 intacta, que es lo que esta guarda afirma.
-    // BR-SOURCE-FUNCTIONAL-CUT-A mueve el techo a la 126 (identidad MENSUAL del snapshot de
-    // Receita; AUTORADA y NO APLICADA). No es de 4O-F y no crea SQL de teléfono. RENUMERADA
-    // de 125 a 126 por BR-SOURCE CUT A.1, que insertó por debajo una migración 125 genérica
+    // BR-SOURCE-FUNCTIONAL-CUT-A movió el techo a la 125, y luego a la 126 (identidad MENSUAL
+    // del snapshot de Receita; AUTORADA y NO APLICADA). No es de 4O-F y no crea SQL de teléfono.
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY reclamó el 126 de forma independiente mientras la
+    // reconciliación de BR-SOURCE CUT A.1 seguía en revisión: el vallado optimista de la
+    // admisión por identidad de LOTE (Agente 1). Añade `prospect_batches.identity_epoch` y dos
+    // funciones sobre `prospect_batches` y `prospect_candidates`; NO es de teléfono en absoluto
+    // y no nombra ninguna tabla, columna ni función de teléfono, que es lo que esta guarda
+    // vigila. Trae su propia guarda estática y NO edita ninguna migración anterior. NO aplicada
+    // en Producción.
+    // BR-SOURCE CUT A.1 RENUMERÓ su propia migración una segunda vez, de 126 a 127, para no
+    // colisionar con la de AGENT1-CUT3B4, y dejó sitio a una migración 125 genérica
     // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
-    // brasileñas) — tampoco es de 4O-F ni de teléfono.
-    assert.equal(numbered[numbered.length - 1], 126, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // brasileñas) — ninguna de las tres es de 4O-F ni de teléfono.
+    assert.equal(numbered[numbered.length - 1], 127, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

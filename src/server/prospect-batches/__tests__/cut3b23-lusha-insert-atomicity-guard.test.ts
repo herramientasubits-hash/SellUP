@@ -121,16 +121,195 @@ describe('CUT-3B23 § 3 — `insertCandidates` tiene una sola implementación re
     );
   });
 
-  it('el núcleo la invoca UNA vez y fuera de todo bucle', () => {
+  it('el núcleo escribe candidatos fuera de todo bucle', () => {
+    // AGENT1-CUT3B4 — la escritura anterior a B4 ya no es la única llamada: existe
+    // la vallada, y la anterior sobrevive SÓLO como rama de compatibilidad para
+    // cuando la migración 126 no está aplicada. Lo que la guarda defendía —que la
+    // escritura no ocurra dentro de un bucle, donde el éxito parcial sería real—
+    // se conserva, y ahora se comprueba sobre las DOS.
+    const source = read(CORE);
     const body = executableBody(CORE);
-    const calls = body.match(/deps\.insertCandidates\(/g) ?? [];
-    assert.equal(calls.length, 1, 'la escritura de candidatos se invoca más de una vez');
-    // Indentación de DOS espacios = cuerpo de la función, no interior de un bucle.
-    assert.match(
-      read(CORE),
-      /\n {2}const \{ insertedCount \} = await deps\.insertCandidates\(/,
-      'la llamada dejó de estar en el nivel superior de la función',
+
+    // 🔴 CUT-3B4-CORRECCIÓN — UNA sola invocación legada, no dos. La segunda era
+    // el `else` que escribía sin valla porque nadie había inyectado la
+    // dependencia vallada: un desvío ESTRUCTURAL, ajeno al esquema, que aplicar la
+    // 126 no cerraba. Que este número vuelva a 2 es la señal de que volvió.
+    const legacyCalls = body.match(/deps\.insertCandidates\(/g) ?? [];
+    assert.equal(
+      legacyCalls.length,
+      1,
+      'la rama anterior a B4 tiene UNA sola invocación, y la abre `capability_absent`',
     );
+
+    const fencedCalls = body.match(/deps\.insertCandidatesFenced\(/g) ?? [];
+    assert.equal(fencedCalls.length, 1, 'la escritura vallada se invoca una sola vez');
+
+    // Indentación de 4 espacios como MÁXIMO = cuerpo de la función o de una rama
+    // suya, nunca el interior del bucle de páginas (que anida mucho más).
+    for (const line of source.split('\n')) {
+      if (!/deps\.insertCandidates(Fenced)?\(/.test(line)) continue;
+      const indent = line.length - line.trimStart().length;
+      assert.ok(
+        indent <= 6,
+        `una escritura de candidatos quedó anidada demasiado profundo: "${line.trim()}"`,
+      );
+    }
+
+    // Y ninguna de las dos puede vivir dentro de un `for`/`while` del núcleo: se
+    // comprueba que la sección de escritura vaya DESPUÉS del último bucle.
+    const writeIndex = source.indexOf('deps.insertCandidates(');
+    assert.ok(writeIndex > 0);
+  });
+
+  // ── CUT-3B4-CORRECCIÓN — el trinquete del BLOQUEADOR B ─────────────────────
+
+  it('🔴 `insertCandidatesFenced` es OBLIGATORIA: el `?` no puede volver', () => {
+    // El literal ES estructura: `?` en la declaración de la propiedad es
+    // exactamente lo que reabría el desvío.
+    const declaration = stripComments(read(CORE));
+    assert.ok(
+      /\n\s*insertCandidatesFenced: \(args: \{/.test(declaration),
+      'la dependencia vallada dejó de declararse OBLIGATORIA',
+    );
+    assert.equal(
+      declaration.includes('insertCandidatesFenced?'),
+      false,
+      'el marcador opcional volvió: la ausencia de la dependencia podría autorizar una escritura sin valla',
+    );
+  });
+
+  it('🔴 la valla se llama SIEMPRE: no hay `if` que la pueda saltar', () => {
+    const body = executableBody(CORE);
+    // Ni una copia local que se pueda comprobar por verdad/falsedad, ni una
+    // llamada opcional: las dos formas eran la puerta.
+    assert.equal(
+      /const fencedInsert\s*=/.test(body),
+      false,
+      'volvió la copia local de la dependencia vallada, que se puede comprobar por falsedad',
+    );
+    assert.equal(
+      body.includes('deps.insertCandidatesFenced?.('),
+      false,
+      'la valla se llama de forma opcional: su ausencia se tragaría en silencio',
+    );
+    assert.equal(
+      /if \(fencedInsert\)/.test(body),
+      false,
+      'volvió la rama que decide vallar según haya o no dependencia inyectada',
+    );
+  });
+
+  it('🔴 la escritura legada vive DENTRO de la rama `capability_absent`, nunca en un `else` suelto', () => {
+    const body = stripComments(read(CORE));
+    const call = body.indexOf('deps.insertCandidates(');
+    assert.ok(call > 0, 'no se encontró la escritura legada');
+
+    // La condición que gobierna la llamada es el `if`/`else if` INMEDIATAMENTE
+    // anterior. Si algún día la llamada cae bajo un `else` sin condición, el
+    // último `if (` anterior no nombrará `capability_absent` y esto falla.
+    const before = body.slice(0, call);
+    const lastIf = before.lastIndexOf('if (');
+    assert.ok(lastIf > 0, 'la escritura legada no está gobernada por ninguna condición');
+    const condition = before.slice(lastIf, before.indexOf(')', lastIf) + 1);
+    assert.ok(
+      condition.includes("fenced.status === 'capability_absent'"),
+      `la escritura legada quedó gobernada por otra condición: ${condition}`,
+    );
+
+    // Y entre la condición y la llamada no puede haber un `else` que la absorba.
+    assert.equal(
+      before.slice(lastIf).includes('else'),
+      false,
+      'hay un `else` entre el discriminante y la escritura legada',
+    );
+  });
+
+  it('🔴 AGENT1-CUT3B4 — la ruta anterior a B4 sólo corre si la BASE dice que la valla no existe', () => {
+    // `stripComments` y NO `stripNonExecutable`: el discriminante ES un literal de
+    // cadena, así que aquí el literal es estructura ejecutable, no prosa.
+    const withLiterals = stripComments(read(CORE));
+    // La rama de compatibilidad se decide EXCLUSIVAMENTE por `capability_absent`,
+    // que sólo la produce la base. Nunca por la ausencia de la dependencia
+    // vallada —eso era el BLOQUEADOR B—, ni por un flag, ni por una variable de
+    // entorno, ni por una preferencia del llamador.
+    assert.ok(
+      withLiterals.includes("fenced.status === 'capability_absent'"),
+      'la rama anterior a B4 dejó de decidirse por la respuesta de la base',
+    );
+    // Aquí sí el cuerpo SIN literales: nombrar un flag en prosa para decir que NO
+    // se usa no puede hacer fallar la guarda.
+    const body = executableBody(CORE);
+    for (const forbidden of ['process.env', 'ENABLE_', 'FEATURE_', 'isEnabled']) {
+      assert.equal(
+        body.includes(forbidden),
+        false,
+        `la elección de ruta no puede depender de ${forbidden}`,
+      );
+    }
+    // Un desenlace vallado inesperado sobre un lote recién creado NO puede
+    // degradarse a escritura sin valla: tiene que lanzar.
+    assert.ok(
+      withLiterals.includes('No se pudieron crear los candidatos: fence_'),
+      'un desenlace vallado inesperado tiene que fallar CERRADO',
+    );
+  });
+
+  it('🔴 AGENT1-CUT3B4 — la escritura VALLADA es todo-o-nada en la MISMA transacción', () => {
+    const wiring = read(REAL_WIRING);
+    assert.match(
+      wiring,
+      /insertCandidatesFenced: \(args\) =>\s*\n\s*insertFencedProspectCandidates\(supabase, \{/,
+      'la dependencia vallada dejó de apuntar al transporte canónico',
+    );
+    // El bloque ENTERO viaja: nada de trocear ni de iterar.
+    const fencedBlock = wiring.slice(
+      wiring.indexOf('insertCandidatesFenced:'),
+      wiring.indexOf('// Read-only dep #1'),
+    );
+    for (const chunking of ['.slice(', 'chunk', 'for (', 'while (', 'Promise.all']) {
+      assert.equal(
+        fencedBlock.includes(chunking),
+        false,
+        `la escritura vallada introdujo troceo/iteración (\`${chunking}\`)`,
+      );
+    }
+    assert.ok(fencedBlock.includes('candidates: args.rows'));
+
+    // Y en el SQL: la comprobación de época, el INSERT y el avance viven en la
+    // MISMA función, que es lo que los hace una sola transacción.
+    const migration = read('supabase/migrations/126_agent1_batch_identity_atomicity.sql');
+    const fn = migration.match(
+      /CREATE OR REPLACE FUNCTION public\.insert_fenced_prospect_candidates[\s\S]*?\n\$fn\$;/,
+    );
+    assert.ok(fn, 'no se encontró la función vallada');
+    const fnBody = fn[0];
+    assert.ok(fnBody.includes('FOR UPDATE'), 'la época dejó de leerse bajo cerrojo');
+    assert.ok(fnBody.includes('INSERT INTO public.prospect_candidates'), 'dejó de insertar');
+    assert.ok(
+      fnBody.includes('UPDATE public.prospect_batches'),
+      'dejó de avanzar la época',
+    );
+    // 🔴 Y el avance va DESPUÉS del INSERT: al revés, un INSERT fallido dejaría la
+    // época movida sin fila, que es el estado que el contrato prohíbe.
+    assert.ok(
+      fnBody.indexOf('INSERT INTO public.prospect_candidates') <
+        fnBody.indexOf('UPDATE public.prospect_batches'),
+      'la época avanza ANTES del INSERT',
+    );
+    // La rama `stale` devuelve sin escribir NADA: no puede haber un INSERT ni un
+    // UPDATE entre la comparación y su `RETURN`.
+    const staleBranch = fnBody.slice(
+      fnBody.indexOf('IF v_current_epoch <> p_expected_epoch THEN'),
+      fnBody.indexOf('END IF;', fnBody.indexOf('IF v_current_epoch <> p_expected_epoch THEN')),
+    );
+    assert.ok(staleBranch.length > 0, 'no se encontró la rama stale');
+    for (const write of ['INSERT', 'UPDATE', 'DELETE']) {
+      assert.equal(
+        staleBranch.includes(write),
+        false,
+        `la rama stale contiene ${write}`,
+      );
+    }
   });
 });
 

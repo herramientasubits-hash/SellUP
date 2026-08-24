@@ -9,9 +9,15 @@
  * migration from 125 to 126 (its SQL body did not change), and inserts a NEW generic migration
  * 125 that reconciles non-Brazil uniqueness onto `record_identity_key`.
  *
+ * 🔴 The Brazil migration was renumbered a SECOND time, 126→127, after an unrelated, independently
+ * merged migration — `126_agent1_batch_identity_atomicity.sql` (AGENT1-CUT3B4) — claimed 126 while
+ * this reconciliation was still in review. That migration is NOT part of this milestone, is NOT
+ * modified by it, and is structurally independent of Brazil: see the independence assertions
+ * below and in the companion PostgreSQL suite.
+ *
  * This file asserts everything that does NOT require a live database: file identity, migration
  * chain shape, and that migration 087 stays historical. The behavioral half — that 125 actually
- * detects both starting schemas, fails closed on bad data, and that 126 still accepts Brazil's
+ * detects both starting schemas, fails closed on bad data, and that 127 still accepts Brazil's
  * NULL under the new generic model — lives in the companion PostgreSQL suite
  * (`prod-schema-reconciliation-real-chain-postgres.test.ts`), because those are properties of
  * PostgreSQL evaluating the DDL, not properties a text diff can show.
@@ -42,7 +48,8 @@ const MIGRATIONS_DIR = join(REPO_ROOT, 'supabase', 'migrations');
 
 const MIGRATION_087 = '087_add_record_identity_key_to_source_company_snapshots.sql';
 const MIGRATION_125 = '125_reconcile_source_snapshot_record_identity.sql';
-const MIGRATION_126 = '126_br_receita_monthly_snapshot_identity.sql';
+const MIGRATION_126_AGENT1 = '126_agent1_batch_identity_atomicity.sql';
+const MIGRATION_127 = '127_br_receita_monthly_snapshot_identity.sql';
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -65,26 +72,30 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     assert.deepEqual(duplicates, [], `números de migración duplicados: ${duplicates.join(', ')}`);
   });
 
-  it('28. the migration numbering ceiling is 126, and both 125 and 126 exist', () => {
-    const numbered = readdirSync(MIGRATIONS_DIR)
+  it('28. the migration numbering ceiling is 127, and 125/126/127 each exist exactly once', () => {
+    const files = readdirSync(MIGRATIONS_DIR);
+    const numbered = files
       .filter((f) => /^\d{3}_.*\.sql$/.test(f))
       .map((f) => Number.parseInt(f.slice(0, 3), 10));
     const highest = numbered.reduce((max, value) => Math.max(max, value), 0);
-    assert.equal(highest, 126);
-    assert.ok(readdirSync(MIGRATIONS_DIR).includes(MIGRATION_125));
-    assert.ok(readdirSync(MIGRATIONS_DIR).includes(MIGRATION_126));
-    // Neither the old, un-renamed `125_br_receita_monthly_snapshot_identity.sql` nor a `127_*`
-    // migration exist. The rename is total, not additive.
-    assert.equal(readdirSync(MIGRATIONS_DIR).includes('125_br_receita_monthly_snapshot_identity.sql'), false);
-    assert.equal(
-      readdirSync(MIGRATIONS_DIR).some((f) => f.startsWith('127')),
-      false,
-    );
+    assert.equal(highest, 127);
+    assert.ok(files.includes(MIGRATION_125));
+    assert.ok(files.includes(MIGRATION_126_AGENT1));
+    assert.ok(files.includes(MIGRATION_127));
+    assert.equal(files.filter((f) => f.startsWith('125')).length, 1);
+    assert.equal(files.filter((f) => f.startsWith('126')).length, 1);
+    assert.equal(files.filter((f) => f.startsWith('127')).length, 1);
+    // Neither the old, un-renamed `125_br_receita_monthly_snapshot_identity.sql` nor the
+    // once-renamed `126_br_receita_monthly_snapshot_identity.sql` exist. Each rename was total,
+    // not additive.
+    assert.equal(files.includes('125_br_receita_monthly_snapshot_identity.sql'), false);
+    assert.equal(files.includes('126_br_receita_monthly_snapshot_identity.sql'), false);
+    assert.equal(files.some((f) => f.startsWith('128')), false);
   });
 
   it('24. migration 087 remains byte-for-byte historical', () => {
     const sql = readMigration(MIGRATION_087);
-    // The exact shape 125/126 assume: nullable, unenforced, NOT VALID.
+    // The exact shape 125/127 assume: nullable, unenforced, NOT VALID.
     assert.match(sql, /ADD COLUMN record_identity_key text NULL/);
     assert.match(sql, /NOT VALID/);
     assert.equal(/ADD CONSTRAINT[^;]*UNIQUE/i.test(sql), false, '087 never made record_identity_key unique');
@@ -111,19 +122,43 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     assert.equal(/UPDATE\s|DELETE\s+FROM|TRUNCATE|DROP\s+TABLE/i.test(sql), false);
   });
 
-  it('26. migration 126 owns the Brazil monthly identity, and does not recreate the generic model', () => {
-    const sql = stripComments(readMigration(MIGRATION_126));
+  it('26. migration 127 owns the Brazil monthly identity, and does not recreate the generic model', () => {
+    const sql = stripComments(readMigration(MIGRATION_127));
     assert.match(sql, /source_company_snapshots_br_receita_identity_chk/);
     assert.match(sql, /source_company_snapshots_br_period_identity_uidx/);
     assert.equal(sql.includes('source_company_snapshots_cn1_record_identity_key'), false);
     assert.equal(sql.includes('source_company_snapshots_year_identity_uidx'), false);
-    assert.equal(/DROP\s+CONSTRAINT/i.test(sql), false, '126 assumes 125 already reconciled the generic model');
+    assert.equal(/DROP\s+CONSTRAINT/i.test(sql), false, '127 assumes 125 already reconciled the generic model');
   });
 
-  it('MIGRATION_125_APPLIED = NO, MIGRATION_126_APPLIED = NO — neither file claims to have run', () => {
-    for (const file of [MIGRATION_125, MIGRATION_126]) {
+  it('MIGRATION_125_APPLIED = NO, MIGRATION_127_APPLIED = NO — this milestone\'s own files say so', () => {
+    for (const file of [MIGRATION_125, MIGRATION_127]) {
       const sql = readMigration(file);
       assert.match(sql, /NOT APPLIED/);
+    }
+  });
+
+  it('MIGRATION_126_APPLIED = NO — AGENT1-CUT3B4 declares it in its own idiom', () => {
+    // 126 is not this milestone's file and does not use the "NOT APPLIED" banner convention
+    // 125/127 use; it declares the same fact in its own prose instead.
+    const sql = readMigration(MIGRATION_126_AGENT1);
+    assert.match(sql, /Mientras esta migraci[oó]n NO est[eé] aplicada/);
+  });
+
+  it('125 and 127 are structurally independent of 126 (AGENT1-CUT3B4)', () => {
+    // Neither migration this milestone authored references AGENT1-CUT3B4's tables, and 126
+    // references neither `source_company_snapshots` nor `source_snapshot_runs`. A future owner
+    // decision about whether AGENT1-CUT3B4 is activated must not be able to affect Brazil, and
+    // vice versa.
+    const m125 = stripComments(readMigration(MIGRATION_125));
+    const m127 = stripComments(readMigration(MIGRATION_127));
+    for (const foreignTable of ['prospect_batches', 'prospect_candidates', 'identity_epoch']) {
+      assert.equal(m125.includes(foreignTable), false, `125 must not reference ${foreignTable}`);
+      assert.equal(m127.includes(foreignTable), false, `127 must not reference ${foreignTable}`);
+    }
+    const m126 = stripComments(readMigration(MIGRATION_126_AGENT1));
+    for (const brazilTable of ['source_company_snapshots', 'source_snapshot_runs']) {
+      assert.equal(m126.includes(brazilTable), false, `126 must not reference ${brazilTable}`);
     }
   });
 });

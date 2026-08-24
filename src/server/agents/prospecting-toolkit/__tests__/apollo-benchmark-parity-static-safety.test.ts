@@ -337,17 +337,22 @@ describe('alcance — lo que este corte NO tocó (y lo que el corte 2 SÍ abrió
     // ninguna, y eso se comprueba por AUTORÍA además de por número: un número libre no
     // demuestra nada si mañana otro hito lo ocupa.
     // La 125 la toma BR-SOURCE CUT A.1 (reconciliación GENÉRICA de `record_identity_key`
-    // sobre `source_company_snapshots`, fuentes NO brasileñas; AUTORADA y NO APLICADA), y la
-    // 126 la toma BR-SOURCE-FUNCTIONAL-CUT-A (identidad MENSUAL del snapshot de Receita,
-    // RENUMERADA de 125 a 126 para dejar sitio a la anterior; AUTORADA y NO APLICADA). El
-    // siguiente número libre es la 127, y la AUTORÍA se barre ahora sobre 124, 125 y 126.
+    // sobre `source_company_snapshots`, fuentes NO brasileñas; AUTORADA y NO APLICADA). La
+    // 126 la toma AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY (vallado optimista de la admisión
+    // por identidad de LOTE; añade `prospect_batches.identity_epoch` y dos funciones sobre
+    // `prospect_batches`/`prospect_candidates`; AUTORADA y NO APLICADA), que reclamó ese
+    // número de forma independiente mientras la reconciliación de BR-SOURCE CUT A.1 seguía
+    // en revisión. La 127 la toma BR-SOURCE-FUNCTIONAL-CUT-A (identidad MENSUAL del snapshot
+    // de Receita, RENUMERADA DOS VECES — 125→126→127 — para no colisionar con ninguna de las
+    // dos anteriores; AUTORADA y NO APLICADA). El siguiente número libre es la 128, y la
+    // AUTORÍA se barre ahora sobre 124, 125, 126 y 127.
     assert.equal(
-      migrations.filter((f) => f.startsWith('127')).length,
+      migrations.filter((f) => f.startsWith('128')).length,
       0,
       'este corte no añade migración',
     );
     for (const file of migrations.filter(
-      (f) => f.startsWith('124') || f.startsWith('125') || f.startsWith('126'),
+      (f) => f.startsWith('124') || f.startsWith('125') || f.startsWith('126') || f.startsWith('127'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

@@ -15,13 +15,13 @@
  * This suite proves, against two independently-built starting schemas:
  *
  *   FIXTURE A — built by REPLAYING the repository's own real migration chain (065 → 087 → 125 →
- *               126). Nothing here is invented: every file is read verbatim from
+ *               127). Nothing here is invented: every file is read verbatim from
  *               `supabase/migrations`.
  *   FIXTURE B — a SYNTHETIC reproduction of Production's actual shape (canonical
  *               `record_identity_key` UNIQUE and table-wide NOT NULL CHECK already present, the
  *               old `normalized_tax_id` UNIQUE already absent), built directly by this file
  *               because that cutover's own migration history does not exist in this repository —
- *               that is precisely the drift 125 exists to reconcile. Then 125 and 126 are applied
+ *               that is precisely the drift 125 exists to reconcile. Then 125 and 127 are applied
  *               on top, exactly as they would run in Production.
  *
  * Both fixtures end in the SAME invariant, and neither ever deletes, updates or backfills a row.
@@ -45,11 +45,14 @@ import { dirname, join } from 'node:path';
 
 import {
   applyRealChain,
+  bootstrapFullOrderPlatform,
   bootstrapPlatform,
   buildProdShapeFixture,
   countSnapshotRows,
+  FULL_REPO_ORDER_CHAIN,
   MIGRATION_125,
-  MIGRATION_126,
+  MIGRATION_126_AGENT1,
+  MIGRATION_127,
   readMigration as readChainMigration,
   REPO_DERIVED_REAL_CHAIN,
   resolveEmbeddedPostgres,
@@ -74,7 +77,7 @@ let dataDir = '';
 const readMigration = (file: string) => readChainMigration(repoRoot, file);
 
 /**
- * The column set every fixture's `source_company_snapshots` row carries BEFORE 125/126 run.
+ * The column set every fixture's `source_company_snapshots` row carries BEFORE 125/127 run.
  * Comparing on this fixed list — rather than `SELECT *` — means a legitimate additive column
  * (`source_period`, `snapshot_run_id`) is never mistaken for a mutated existing row.
  */
@@ -175,7 +178,7 @@ describe('BR-SOURCE CUT A.1 — real chain against PostgreSQL', () => {
 
   // ── FIXTURE A: the repository's own real migration chain ──────────────────
 
-  describe('FIXTURE A — repo-derived chain (065 → 087 → 125 → 126)', () => {
+  describe('FIXTURE A — repo-derived chain (065 → 087 → 125 → 127)', () => {
     beforeEach(resetPublicSchema);
 
     it('3. the canonical unique constraint is created against the repo-derived chain', async () => {
@@ -221,11 +224,11 @@ describe('BR-SOURCE CUT A.1 — real chain against PostgreSQL', () => {
            (source_key, country_code, source_year, normalized_tax_id, record_identity_key)
          VALUES ('co_siis', 'CO', 2026, '900111222', 'co_siis:900111222:a')`,
       );
-      // 125/126 ADD COLUMN source_period/snapshot_run_id — comparing on the PRE-EXISTING columns
+      // 125/127 ADD COLUMN source_period/snapshot_run_id — comparing on the PRE-EXISTING columns
       // only, so a legitimate additive schema change is not mistaken for a mutated row.
       const before = await rowsOf(PRE_EXISTING_COLUMNS_SELECT);
       await client.query(readMigration(MIGRATION_125));
-      await client.query(readMigration(MIGRATION_126));
+      await client.query(readMigration(MIGRATION_127));
       const after = await rowsOf(PRE_EXISTING_COLUMNS_SELECT);
       assert.deepEqual(after, before, 'no column of any existing row may change');
     });
@@ -409,16 +412,16 @@ describe('BR-SOURCE CUT A.1 — real chain against PostgreSQL', () => {
       assert.equal(await countSnapshotRows(client), rowCountBefore);
     });
 
-    it('126 applies cleanly on top of the Production-shaped baseline once 125 has run', async () => {
+    it('127 applies cleanly on top of the Production-shaped baseline once 125 has run', async () => {
       await client.query(readMigration(MIGRATION_125));
-      const code = await errorCodeOf(readMigration(MIGRATION_126));
+      const code = await errorCodeOf(readMigration(MIGRATION_127));
       assert.equal(code, null);
     });
 
     it('7 & 8. no backfill, no row deleted or updated, against the Production shape', async () => {
       const before = await rowsOf(PRE_EXISTING_COLUMNS_SELECT);
       await client.query(readMigration(MIGRATION_125));
-      await client.query(readMigration(MIGRATION_126));
+      await client.query(readMigration(MIGRATION_127));
       const after = await rowsOf(PRE_EXISTING_COLUMNS_SELECT);
       assert.deepEqual(after, before);
     });
@@ -430,7 +433,7 @@ describe('BR-SOURCE CUT A.1 — real chain against PostgreSQL', () => {
       );
       assert.equal(dupCount.n, 2, 'fixture must carry the synthetic duplicate the owner decision protects');
       await client.query(readMigration(MIGRATION_125));
-      await client.query(readMigration(MIGRATION_126));
+      await client.query(readMigration(MIGRATION_127));
       const [after] = await rowsOf(
         `SELECT count(*)::int AS n FROM public.source_company_snapshots
           WHERE source_key = 'co_siis' AND country_code = 'CO' AND source_year = 2026 AND normalized_tax_id = '900123456'`,
@@ -440,11 +443,81 @@ describe('BR-SOURCE CUT A.1 — real chain against PostgreSQL', () => {
 
     it('the NULL normalized_tax_id row survives untouched', async () => {
       await client.query(readMigration(MIGRATION_125));
-      await client.query(readMigration(MIGRATION_126));
+      await client.query(readMigration(MIGRATION_127));
       const [row] = await rowsOf(
         `SELECT normalized_tax_id FROM public.source_company_snapshots WHERE source_key = 'ec_scvs'`,
       );
       assert.equal(row.normalized_tax_id, null);
+    });
+  });
+
+  // ── PATH A vs PATH B: Brazil (127) is structurally independent of AGENT1-CUT3B4 (126) ──────
+  //
+  // 126 claimed its number independently of this reconciliation, while this reconciliation was
+  // still in review. PATH A proves the full repository order — including 126 — applies end to
+  // end without conflict. PATH B proves the SAME final state (125 + 127) is reachable with 126
+  // intentionally ABSENT, which is the property that actually matters: a future owner decision
+  // about whether AGENT1-CUT3B4 is activated in Production must not be able to change whether
+  // Brazil's migration applies correctly.
+
+  describe('PATH A — full repository order, 126 present (040 … 125 → 126 → 127)', () => {
+    beforeEach(async () => {
+      await client.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+      await bootstrapFullOrderPlatform(client);
+    });
+
+    it('the full order chain applies end to end, and both 126 and 127 leave the expected marks', async () => {
+      assert.ok(
+        FULL_REPO_ORDER_CHAIN.includes(MIGRATION_126_AGENT1),
+        'the full order chain must include the real AGENT1-CUT3B4 migration file, not a stand-in',
+      );
+      await applyRealChain(client, repoRoot, FULL_REPO_ORDER_CHAIN);
+      assert.equal(await constraintExists(CANONICAL_UNIQUE), true);
+      // 126's own mark: the batch-identity fencing columns/functions exist.
+      const [batchColumn] = await rowsOf(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'prospect_batches' AND column_name = 'identity_epoch'`,
+      );
+      assert.ok(batchColumn, 'AGENT1-CUT3B4 must have added identity_epoch');
+      const [fencedFn] = await rowsOf(
+        `SELECT 1 FROM pg_proc WHERE proname = 'insert_fenced_prospect_candidates'`,
+      );
+      assert.ok(fencedFn, 'AGENT1-CUT3B4 must have created its fencing function');
+      // 127's own mark: a well-formed Brazil row still persists correctly on top of 126.
+      const runId = await insertBrRun(client, '2026-07', 'published');
+      const code = await errorCodeOf(
+        `INSERT INTO public.source_company_snapshots
+           (source_key, country_code, source_year, normalized_tax_id, source_period, snapshot_run_id, raw_data)
+         VALUES ('br_receita_cnpj_dados_abertos', 'BR', 2026, '11222333000181', '2026-07', $1,
+                 jsonb_build_object('source_period', '2026-07'))`,
+        [runId],
+      );
+      assert.equal(code, null);
+    });
+  });
+
+  describe('PATH B — Brazil independence, 126 intentionally ABSENT (065 → 087 → 125 → 127)', () => {
+    beforeEach(async () => {
+      await client.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+      await bootstrapPlatform(client);
+    });
+
+    it('125 and 127 apply cleanly with no 126 in the chain at all', async () => {
+      await applyRealChain(client, repoRoot, REPO_DERIVED_REAL_CHAIN);
+      assert.equal(await constraintExists(CANONICAL_UNIQUE), true);
+      const [agent1Fn] = await rowsOf(
+        `SELECT 1 FROM pg_proc WHERE proname = 'insert_fenced_prospect_candidates'`,
+      );
+      assert.equal(agent1Fn, undefined, '126 was never applied in this path, on purpose');
+      const runId = await insertBrRun(client, '2026-07', 'published');
+      const code = await errorCodeOf(
+        `INSERT INTO public.source_company_snapshots
+           (source_key, country_code, source_year, normalized_tax_id, source_period, snapshot_run_id, raw_data)
+         VALUES ('br_receita_cnpj_dados_abertos', 'BR', 2026, '11222333000181', '2026-07', $1,
+                 jsonb_build_object('source_period', '2026-07'))`,
+        [runId],
+      );
+      assert.equal(code, null, 'Brazil must persist correctly whether or not AGENT1-CUT3B4 (126) ever applies');
     });
   });
 });

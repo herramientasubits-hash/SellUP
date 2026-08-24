@@ -1,4 +1,4 @@
--- Migration 126: BR Receita monthly snapshot identity foundation
+-- Migration 127: BR Receita monthly snapshot identity foundation
 -- Milestone: BR-SOURCE-FUNCTIONAL-CUT-A — monthly Receita snapshot identity foundation.
 --
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -6,16 +6,20 @@
 -- No Supabase MCP apply, no SQL editor, no remote SQL, no migration ledger write.
 -- ═══════════════════════════════════════════════════════════════════════════════
 --
--- 🔴 RENUMBERED from 125 to 126 by BR-SOURCE CUT A.1 (production schema reconciliation before
--- CUT B). This file's SQL body is otherwise the ORIGINAL CUT-A content — no Brazil-facing
--- constraint, index, column or CHECK below changed meaning. What moved out is the generic,
--- non-Brazil part of the ORIGINAL migration 125: dropping migration 065's old
+-- 🔴 RENUMBERED TWICE by BR-SOURCE CUT A.1 (production schema reconciliation before CUT B):
+-- 125 → 126 → 127. This file's SQL body is otherwise the ORIGINAL CUT-A content — no
+-- Brazil-facing constraint, index, column or CHECK below changed meaning. The first move (125→126)
+-- freed the 125 slot for the generic, non-Brazil reconciliation this file now depends on
+-- (`125_reconcile_source_snapshot_record_identity.sql`): dropping migration 065's old
 -- `(source_key, country_code, source_year, normalized_tax_id)` UNIQUE and replacing non-Brazil
--- uniqueness now belongs to migration 125 (`125_reconcile_source_snapshot_record_identity.sql`),
--- because Production had ALREADY moved non-Brazil uniqueness onto `record_identity_key` outside
--- this repository's migration ledger, and the original migration 125 assumed a schema Production
--- did not have. This migration now assumes migration 125 has already run: by the time this file's
--- statements execute, non-Brazil uniqueness already lives on
+-- uniqueness belong to that migration, because Production had ALREADY moved non-Brazil uniqueness
+-- onto `record_identity_key` outside this repository's migration ledger, and the original
+-- migration 125 assumed a schema Production did not have. The second move (126→127) was forced by
+-- an UNRELATED, independently-merged migration — `126_agent1_batch_identity_atomicity.sql`
+-- (AGENT1-CUT-3B4) — which claimed 126 first while this file's renumbering PR was still open. This
+-- file has NO functional relationship to that migration; see the independence assertion in the
+-- CUT-A.1 reconciliation test suite. This migration now assumes migration 125 has already run: by
+-- the time this file's statements execute, non-Brazil uniqueness already lives on
 -- `source_company_snapshots_cn1_record_identity_key`, and this file adds nothing to that model. It
 -- only ever touches Brazil.
 --

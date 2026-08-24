@@ -184,10 +184,18 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // (`source_period` + unicidad period-aware en `source_company_snapshots`, estado de
       // publicación en `source_snapshot_runs`). NO es de teléfono en absoluto: no toca la
       // colección de staging que esta suite protege ni ninguna de las funciones 110/111/112.
-      // Tiene su propia guarda estática y está AUTORADA y NO APLICADA. RENUMERADA de 125 a 126 por
-      // CUT A.1 para dejar sitio a la reconciliación genérica arriba; su cuerpo SQL no cambió en
-      // nada que afecte a esta cadena.
-      '126_br_receita_monthly_snapshot_identity.sql',
+      // Tiene su propia guarda estática y está AUTORADA y NO APLICADA.
+      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+      // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+      // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+      // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+      // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+      // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+      '126_agent1_batch_identity_atomicity.sql',
+      // RENUMERADA de 125 a 127 (con una escala en 126) por CUT A.1: el primer salto dejó sitio
+      // a la reconciliación genérica arriba; el segundo lo forzó AGENT1-CUT3B4 al reclamar el
+      // 126 de forma independiente. Su cuerpo SQL no cambió en nada que afecte a esta cadena.
+      '127_br_receita_monthly_snapshot_identity.sql',
     ]);
   });
 

@@ -58,6 +58,7 @@ import {
   passingAssessment,
 } from './fixtures';
 
+import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 // ─── Fixtures de candidato ────────────────────────────────────────────────────
 
 const GATE_CONTEXT = {
@@ -254,6 +255,9 @@ class Chain {
 function makeFakeAdmin(): SupabaseClient {
   let seq = 0;
   return {
+    // CUT-3B4-CORRECCIÓN — la 126 SIN aplicar se declara como lo hace la BASE.
+    // Omitir `rpc` modelaría un cliente no soportado, y eso degrada CERRADO.
+    rpc: preM126Rpc,
     from(table: string) {
       if (table === 'prospect_batches') {
         return {

@@ -4,7 +4,7 @@
 // POR QUÉ ESTE MÓDULO EXISTE
 // ═══════════════════════════════════════════════════════════════════
 //
-// Lo que las migraciones 125 y 126 afirman no se puede comprobar leyendo SQL:
+// Lo que las migraciones 125 y 127 afirman no se puede comprobar leyendo SQL:
 //
 //   * que 125 detecte, sin tocar una fila, si el modelo genérico de `record_identity_key` YA
 //     existe (forma de Producción) o si todavía hay que construirlo (forma derivada del repo) —
@@ -13,16 +13,22 @@
 //   * que la verificación fail-closed RECHACE de verdad una fila no-BR con `record_identity_key
 //     IS NULL` o un duplicado bajo la tupla canónica — eso es un `RAISE EXCEPTION` que hay que
 //     provocar, no una cadena que un grep pueda confirmar;
-//   * que 126, aplicada DESPUÉS de 125, siga aceptando NULL para Brasil sin que la unicidad
+//   * que 127, aplicada DESPUÉS de 125, siga aceptando NULL para Brasil sin que la unicidad
 //     genérica de 125 la contradiga — eso es una interacción entre dos migraciones que sólo
-//     PostgreSQL puede arbitrar.
+//     PostgreSQL puede arbitrar;
+//   * que 127 sea estructuralmente INDEPENDIENTE de la 126 (AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY,
+//     que reclamó ese número mientras esta reconciliación seguía en revisión): la cadena PATH B
+//     aplica 125 y 127 con la 126 intencionalmente AUSENTE, y tiene que aplicar igual de bien.
 //
-// ── POR QUÉ HAY BOOTSTRAP Y NO SE APLICA 001→126 ───────────────────
+// ── POR QUÉ HAY BOOTSTRAP Y NO SE APLICA 001→127 ───────────────────
 //
 // La 002 declara una FK contra `auth.users`, que pertenece a la plataforma Supabase y que
 // ninguna migración del repo crea. Lo que se levanta a mano es EXACTAMENTE el borde ajeno a esta
 // cadena: los tres roles de Supabase y la extensión `pgcrypto` que `gen_random_uuid()` necesita.
-// La 065 no referencia ninguna otra tabla ajena.
+// La 065 no referencia ninguna otra tabla ajena. El PATH A (que incluye la 126) reutiliza en su
+// lugar el borde ajeno YA levantado por el arnés real de AGENT1-CUT3B4
+// (`cut3b4-real-migration-chain.ts`), que declara `prospect_batches`/`prospect_candidates` con
+// sus tipos reales — no se reconstruye un segundo borde ajeno para la misma tabla.
 //
 // NO es código de producción: vive bajo `__tests__/support`, nadie lo importa desde `src` fuera
 // de las pruebas, no lee un flag, no llama a ningún proveedor, no toca Producción ni ninguna base
@@ -31,6 +37,10 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import {
+  bootstrapPlatform as bootstrapCut3b4Platform,
+  CUT3B4_MIGRATION,
+} from '../../../prospect-batches/__tests__/support/cut3b4-real-migration-chain';
 
 /** Variable que convierte el skip del arnés en FALLO. La pone el check obligatorio. */
 export const REQUIRE_HARNESS_ENV = 'SELLUP_REQUIRE_POSTGRES_HARNESS';
@@ -39,23 +49,52 @@ export const REQUIRE_HARNESS_ENV = 'SELLUP_REQUIRE_POSTGRES_HARNESS';
 export const EMBEDDED_POSTGRES_VERSION = '17.6.0-beta.15';
 
 /**
- * FIXTURE A — la cadena REAL derivada de la historia del repositorio ("Schema B" del owner
- * decision): 065 crea la tabla con la UNIQUE vieja sobre `normalized_tax_id`; 087 añade
- * `record_identity_key` nullable con su CHECK NOT VALID; 125 reconcilia el modelo genérico; 126
- * añade la identidad mensual de Brasil. Ninguna migración intermedia (088–124) declara ni altera
- * `source_company_snapshots` — el barrido está hecho, no supuesto.
+ * PATH B — la cadena REAL derivada de la historia del repositorio ("Schema B" del owner
+ * decision), con AGENT1-CUT3B4 (126) intencionalmente AUSENTE: 065 crea la tabla con la UNIQUE
+ * vieja sobre `normalized_tax_id`; 087 añade `record_identity_key` nullable con su CHECK NOT
+ * VALID; 125 reconcilia el modelo genérico; 127 añade la identidad mensual de Brasil. Ninguna
+ * migración intermedia (088–124, 126) declara ni altera `source_company_snapshots` — el barrido
+ * está hecho, no supuesto. Que esta cadena aplique igual de bien SIN la 126 es la prueba de que
+ * Brasil no depende de ella.
  */
 export const REPO_DERIVED_REAL_CHAIN = [
   '065_create_source_snapshot_tables.sql',
   '087_add_record_identity_key_to_source_company_snapshots.sql',
   '125_reconcile_source_snapshot_record_identity.sql',
-  '126_br_receita_monthly_snapshot_identity.sql',
+  '127_br_receita_monthly_snapshot_identity.sql',
+] as const;
+
+/**
+ * PATH A — el orden COMPLETO del repositorio, incluida la 126 (AGENT1-CUT3B4). Reutiliza la
+ * cadena real de `prospect_batches`/`prospect_candidates` que ese corte ya construyó y verificó
+ * (040→108), intercalada en orden numérico con la cadena de snapshots de fuente. Que este orden
+ * aplique de principio a fin es la prueba de que la 127 no rompe nada que la 126 ya construyó, y
+ * viceversa.
+ */
+export const FULL_REPO_ORDER_CHAIN = [
+  '040_prospect_batches_foundation.sql',
+  '045_extend_prospect_candidates_for_structured_sources.sql',
+  '048_allow_denue_mexico_source.sql',
+  '051_allow_datos_gob_cl_source.sql',
+  '052_allow_external_import_source.sql',
+  '061_add_import_catalog_classification.sql',
+  '065_create_source_snapshot_tables.sql',
+  '087_add_record_identity_key_to_source_company_snapshots.sql',
+  '092_add_identity_key_to_prospect_candidates.sql',
+  '093_add_record_origin_classification_to_prospect_candidates.sql',
+  '105_repair_prospect_candidates_identity_key.sql',
+  '108_add_prospect_candidates_linkedin_url.sql',
+  '125_reconcile_source_snapshot_record_identity.sql',
+  CUT3B4_MIGRATION,
+  '127_br_receita_monthly_snapshot_identity.sql',
 ] as const;
 
 export const MIGRATION_065 = '065_create_source_snapshot_tables.sql';
 export const MIGRATION_087 = '087_add_record_identity_key_to_source_company_snapshots.sql';
 export const MIGRATION_125 = '125_reconcile_source_snapshot_record_identity.sql';
-export const MIGRATION_126 = '126_br_receita_monthly_snapshot_identity.sql';
+/** AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY. Independent of Brazil; see FULL_REPO_ORDER_CHAIN. */
+export const MIGRATION_126_AGENT1 = CUT3B4_MIGRATION;
+export const MIGRATION_127 = '127_br_receita_monthly_snapshot_identity.sql';
 
 export const migrationsDirOf = (repoRoot: string): string =>
   join(repoRoot, 'supabase/migrations');
@@ -154,6 +193,17 @@ export async function bootstrapPlatform(client: PgLikeClient): Promise<void> {
 }
 
 /**
+ * Levanta el borde ajeno para PATH A (`FULL_REPO_ORDER_CHAIN`), que incluye la 040 y por tanto
+ * necesita el borde que AGENT1-CUT3B4 ya construyó y verificó para `prospect_batches` /
+ * `prospect_candidates` — `auth.uid()`, `internal_users`, `accounts`, `agent_runs`, el catálogo de
+ * industrias mínimo y `has_active_access()`. Reutiliza esa función en vez de reconstruir un
+ * segundo borde ajeno para la misma tabla.
+ */
+export async function bootstrapFullOrderPlatform(client: PgLikeClient): Promise<void> {
+  await bootstrapCut3b4Platform(client);
+}
+
+/**
  * Aplica una cadena de migraciones, archivo por archivo y VERBATIM. Si una no aplica, el error
  * lleva el nombre del archivo y el SQLSTATE.
  */
@@ -192,8 +242,8 @@ export async function applyRealChain(
  */
 export async function buildProdShapeFixture(client: PgLikeClient): Promise<void> {
   await client.query(`
-    -- Migration 126 alters this table too (source_period, publish_state), so Fixture B needs it
-    -- to exist in its pre-126 shape — exactly migration 065's original definition.
+    -- Migration 127 alters this table too (source_period, publish_state), so Fixture B needs it
+    -- to exist in its pre-127 shape — exactly migration 065's original definition.
     CREATE TABLE public.source_snapshot_runs (
       id               uuid        DEFAULT gen_random_uuid() PRIMARY KEY,
       source_key       text        NOT NULL,

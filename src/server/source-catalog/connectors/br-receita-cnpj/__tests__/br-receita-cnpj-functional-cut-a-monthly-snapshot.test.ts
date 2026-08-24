@@ -107,10 +107,11 @@ import { BR_RECEITA_CNPJ_SOURCE_KEY } from '../br-receita-cnpj-types';
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 const MIGRATIONS_DIR = new URL('../../../../../../supabase/migrations/', import.meta.url);
-// Renamed from 125 to 126 by BR-SOURCE CUT A.1 (production schema reconciliation before CUT B):
-// a sibling generic reconciliation migration was inserted as 125, so this cut's own migration moved
-// to 126 to preserve numeric order. This file's SQL body did not change in any load-bearing way.
-const CUT_A_MIGRATION = '126_br_receita_monthly_snapshot_identity.sql';
+// Renamed TWICE by BR-SOURCE CUT A.1 (production schema reconciliation before CUT B): 125→126→127.
+// The first move made room for a sibling generic reconciliation migration (125). The second was
+// forced by AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, which independently claimed 126 while this
+// reconciliation was still in review. This file's SQL body did not change in any load-bearing way.
+const CUT_A_MIGRATION = '127_br_receita_monthly_snapshot_identity.sql';
 
 function migrationSql(name = CUT_A_MIGRATION): string {
   return fs.readFileSync(new URL(name, MIGRATIONS_DIR), 'utf8');
@@ -625,11 +626,11 @@ describe('CUT-A · uniqueness and idempotency', () => {
     // (`source_company_snapshots_year_identity_uidx`) does not exist any more, anywhere. Production
     // had already moved non-Brazil uniqueness onto `record_identity_key` outside this repository's
     // migration ledger, so migration 125 reconciles the repository onto THAT model instead, and
-    // this file — 126, Brazil-only — must not re-create a generic index that would collide with it.
+    // this file — 127, Brazil-only — must not re-create a generic index that would collide with it.
     const sql = sqlWithoutComments(migrationSql());
     assert.equal(sql.includes('source_company_snapshots_year_identity_uidx'), false);
     assert.equal(sql.includes('record_identity_key IS NOT NULL'), false);
-    assert.equal(/DROP\s+CONSTRAINT/i.test(sql), false, '126 assumes 125 already retired 065\'s constraint');
+    assert.equal(/DROP\s+CONSTRAINT/i.test(sql), false, '127 assumes 125 already retired 065\'s constraint');
 
     // 065 itself is untouched by this cut.
     const m065 = sqlWithoutComments(migrationSql('065_create_source_snapshot_tables.sql'));
@@ -1474,7 +1475,7 @@ describe('CUT-A · the migration artifact', () => {
     // 🔴 Moved by BR-SOURCE CUT A.1: retiring migration 065's old table-wide UNIQUE — located by
     // column set, RAISE EXCEPTION on an unexpected absence — is now migration 125's job, because
     // Production had already retired it outside this repository's migration ledger before this
-    // file could assume it still existed. This file (126) no longer drops anything; it assumes 125
+    // file could assume it still existed. This file (127) no longer drops anything; it assumes 125
     // already ran and only ever adds Brazil's own run-scoped index.
     const sql = sqlWithoutComments(migrationSql());
     assert.equal(/DROP\s+CONSTRAINT/i.test(sql), false);
@@ -1550,14 +1551,18 @@ describe('CUT-A · the migration artifact', () => {
     assert.equal(BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION.migrationAuthored, true);
   });
 
-  it('the migration this cut authored is the only one starting with 126', () => {
-    // 🔴 Updated by BR-SOURCE CUT A.1: this cut's own migration was renumbered from 125 to 126 to
-    // make room for a sibling generic reconciliation migration (125), authored by CUT A.1, not by
-    // this cut. The highest migration number is therefore no longer asserted here — a separate
-    // milestone's migration correctly sits below this cut's own — but this cut's OWN contribution
-    // is still exactly one file, and it is exactly this one.
+  it('the migration this cut authored is the only one starting with 127', () => {
+    // 🔴 Updated by BR-SOURCE CUT A.1: this cut's own migration was renumbered TWICE, 125→126→127.
+    // The first move made room for a sibling generic reconciliation migration (125), authored by
+    // CUT A.1, not by this cut. The second was forced by AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY,
+    // which independently claimed 126 (batch-identity fencing, Agent 1) while this reconciliation
+    // was still in review. The highest migration number is therefore no longer asserted here as a
+    // proxy for authorship — two other, unrelated migrations correctly sit below this cut's own —
+    // but this cut's OWN contribution is still exactly one file, and it is exactly this one.
     const files = fs.readdirSync(MIGRATIONS_DIR);
+    assert.equal(files.filter((f) => f.startsWith('127')).length, 1);
     assert.equal(files.filter((f) => f.startsWith('126')).length, 1);
+    assert.equal(files.filter((f) => f.startsWith('125')).length, 1);
     assert.ok(files.includes(CUT_A_MIGRATION));
   });
 });

@@ -300,6 +300,35 @@ describe('CUT-3B23 § 7 — `identity_key` no se sobrecarga', () => {
 
 // ─── § 19 — sin migración ─────────────────────────────────────────────────────
 
+/**
+ * AGENT1-CUT3B4 — mantenimiento sancionado del techo, segunda vez.
+ *
+ * 🔴 La intención original de este bloque era de AUTORÍA: «CUT-3B23 no aporta
+ * migración». Esa afirmación SIGUE SIENDO CIERTA y sigue comprobándose. Lo que
+ * cambia es que la 126 ya no está libre: la aporta CUT-3B4, el vallado de
+ * identidad de LOTE, que sí exige esquema. Así que la guarda no se borra —
+ * se le añade la comprobación de que la 126 es de CUT-3B4 y de nadie más, y el
+ * número libre pasa a 127.
+ *
+ * La 125 sigue siendo de BR-SOURCE y sus aserciones quedan INTACTAS.
+ */
+const CUT3B4_MIGRATION = '126_agent1_batch_identity_atomicity.sql';
+
+/**
+ * Cuerpo EJECUTABLE de una migración, en minúsculas.
+ *
+ * Retira los comentarios `--` y los literales entre comillas simples —donde viven
+ * los `COMMENT ON`— y CONSERVA intacto el dolar-quoting, que es donde está el
+ * código. Sin esto, una guarda que busca «linkedin» encontraría la frase que
+ * explica que LinkedIn NO se interpreta en SQL, y fallaría por decir la verdad.
+ */
+function executableSql(migrationFile: string): string {
+  return read(`supabase/migrations/${migrationFile}`)
+    .replace(/^\s*--.*$/gm, ' ')
+    .replace(/'(?:''|[^'])*'/g, "''")
+    .toLowerCase();
+}
+
 describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
   // 🔴 TECHO DE MIGRACIÓN — mantenimiento sancionado, no debilitamiento.
   //
@@ -310,35 +339,89 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
   // pasó a 125 y el número libre a 126.
   //
   // BR-SOURCE CUT A.1 (reconciliación de esquema de producción antes de CUT B) movió el techo
-  // otra vez: RENUMERÓ esa migración de 125 a 126 —su cuerpo SQL no cambió en nada que afecte a
-  // este corte— y añadió una migración 125 genérica y nueva (reconciliación de
-  // `record_identity_key` sobre `source_company_snapshots` para fuentes NO brasileñas). El techo
-  // pasa a 126 y el número libre a 127.
+  // dos veces más: RENUMERÓ esa migración BR de 125 a 126 y luego a 127 —su cuerpo SQL no
+  // cambió en nada que afecte a este corte— y añadió una migración 125 genérica y nueva
+  // (reconciliación de `record_identity_key` sobre `source_company_snapshots` para fuentes NO
+  // brasileñas). El segundo salto (126→127) lo forzó AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, que
+  // reclamó el 126 de forma independiente mientras esta reconciliación seguía en revisión: el
+  // vallado optimista de la admisión por identidad de LOTE, que sí exige esquema propio.
   //
   // Y en vez de sólo desplazar el número, se sigue probando la AFIRMACIÓN de verdad: que NI la
-  // 125 NI la 126 son de CUT-3B23. Sus cuerpos no mencionan ninguna tabla ni símbolo de este
+  // 125 NI la 127 son de CUT-3B23. Sus cuerpos no mencionan ninguna tabla ni símbolo de este
   // corte, lo que es estrictamente más fuerte que comparar un número.
-  it('no existe una migración 127: este corte no añade la siguiente', () => {
+  it('no existe una migración 128: este corte no añade la siguiente', () => {
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
     assert.equal(
-      migrations.some((file) => file.startsWith('127')),
+      migrations.some((file) => file.startsWith('128')),
       false,
-      'este corte no introduce la migración 127',
+      'este corte no introduce la migración 128',
     );
   });
 
-  it('la 126 es la última, y ni ella ni la 125 son de este corte', () => {
+  it('la 126 existe, es de CUT-3B4 y NO de este corte', () => {
+    // AGENT1-CUT3B4 tomó la 126 (vallado de identidad de LOTE) de forma independiente,
+    // mientras BR-SOURCE CUT A.1 seguía en revisión. La afirmación de CUT-3B23 —«yo no
+    // aporto migración»— se conserva y se comprueba por AUTORÍA, que es más fuerte que un
+    // número libre: aquí se exige que la 126 sea EXACTAMENTE la de B4 y que no nombre
+    // ningún símbolo de B23.
+    const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
+    assert.deepEqual(
+      migrations.filter((file) => file.startsWith('126')),
+      [CUT3B4_MIGRATION],
+      'la 126 tiene que ser la del vallado de identidad de lote, y sólo ella',
+    );
+  });
+
+  it('🔴 la migración del vallado NO contiene política de identidad', () => {
+    // El corazón del contrato de B4: la base responde «¿esta decisión es del estado
+    // actual?» y NADA más. Si aquí apareciera normalización fiscal, canonización de
+    // dominio o un nivel TIER, existirían DOS autoridades de identidad y divergirían
+    // en la primera corrección.
+    const sql = executableSql(CUT3B4_MIGRATION);
+    for (const forbidden of [
+      'regexp_replace',
+      'normalize',
+      'lower(c.domain',
+      'lower(b.domain',
+      'linkedin',
+      'tier',
+      'canonical',
+      'levenshtein',
+      'similarity',
+    ]) {
+      assert.equal(
+        sql.includes(forbidden),
+        false,
+        `la migración del vallado no puede contener \`${forbidden}\``,
+      );
+    }
+  });
+
+  it('🔴 el vallado NO crea índices únicos de dominio, LinkedIn, proveedor ni identity_key', () => {
+    // Un `UNIQUE(domain)` sería exactamente la afirmación que TIER 0 niega: dos NITs
+    // distintos comparten dominio de grupo legítimamente.
+    const sql = executableSql(CUT3B4_MIGRATION);
+    assert.equal(sql.includes('unique index'), false, 'no puede crear un índice único');
+    assert.equal(sql.includes('add constraint'), false, 'no puede añadir constraints');
+    assert.equal(sql.includes('create trigger'), false, 'no puede añadir triggers');
+  });
+
+  it('la 127 es la última, y ni ella ni la 125 ni la 126 son de este corte', () => {
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d{3}_/.test(file))
       .sort();
     const last = migrations[migrations.length - 1];
-    assert.ok(last.startsWith('126'), `última migración inesperada: ${last}`);
-    assert.equal(last, '126_br_receita_monthly_snapshot_identity.sql');
+    assert.ok(last.startsWith('127'), `última migración inesperada: ${last}`);
+    assert.equal(last, '127_br_receita_monthly_snapshot_identity.sql');
     assert.ok(migrations.includes('125_reconcile_source_snapshot_record_identity.sql'));
+    assert.ok(migrations.includes(CUT3B4_MIGRATION));
 
-    // Ni la 125 (reconciliación genérica) ni la 126 (BR, renumerada) tocan una tabla de
-    // CUT-3B23. Si un día este corte añadiera la suya disfrazada de cualquiera de las dos, esta
-    // aserción caería.
+    // Ni la 125 (reconciliación genérica) ni la 127 (BR, renumerada dos veces) tocan una
+    // tabla de CUT-3B23. Si un día este corte añadiera la suya disfrazada de cualquiera de
+    // las dos, esta aserción caería. La 126 (CUT-3B4) queda FUERA de este barrido genérico
+    // a propósito: toca `prospect_candidates` legítimamente por SU PROPIO motivo —el
+    // vallado, no CUT-3B23— y las dos pruebas de contenido justo arriba ya policían su
+    // autoría con precisión.
     const FOREIGN_TABLES = [
       'prospect_candidates',
       'batch_identity_registry',
@@ -366,7 +449,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
       // Enumerar las tablas tocadas es más fuerte que buscar ausencias, porque no depende de
       // acertar la lista de las ajenas.
       //
-      // 🔴 `record_identity_key` SÍ aparece en ambas — la 125 la EXIGE para no-Brasil y la 126 la
+      // 🔴 `record_identity_key` SÍ aparece en ambas — la 125 la EXIGE para no-Brasil y la 127 la
       // REFUSA para Brasil. Nombrar una columna para exigirla o refusarla no es tocar este corte,
       // y una guarda por subcadena confundiría exactamente eso.
       const touched = new Set(
@@ -399,8 +482,37 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
   it('la siembra sólo LEE: nada de insert, update ni delete', () => {
     const body = executableBody(CUT_MODULES[2]);
     assert.ok(body.includes('.select('));
-    for (const write of ['.insert(', '.update(', '.delete(', '.rpc(']) {
+    for (const write of ['.insert(', '.update(', '.delete(']) {
       assert.equal(body.includes(write), false, `la siembra no puede ${write}`);
+    }
+  });
+
+  it('🔴 la ÚNICA RPC que la siembra invoca es la foto de SÓLO LECTURA', () => {
+    // AGENT1-CUT3B4 — desde el vallado, la siembra SÍ llama a `.rpc(`, y la
+    // prohibición literal anterior ya no puede sostenerse tal cual. Lo que la
+    // sustituye es más fuerte: se comprueba QUÉ función invoca y que esa función no
+    // escriba. Prohibir la palabra habría sido más fácil y menos verdadero.
+    const body = bodyWithoutComments(CUT_MODULES[2]);
+    assert.ok(body.includes('.rpc('), 'la siembra tiene que leer la foto por RPC');
+    assert.ok(
+      body.includes('BATCH_IDENTITY_SNAPSHOT_RPC'),
+      'la siembra sólo puede invocar la RPC de la foto',
+    );
+    assert.equal(
+      body.includes('FENCED_INSERT_RPC'),
+      false,
+      'la siembra NO puede invocar la RPC de escritura',
+    );
+
+    const sql = read(`supabase/migrations/${CUT3B4_MIGRATION}`);
+    const snapshotFn = sql.match(
+      /CREATE OR REPLACE FUNCTION public\.read_batch_identity_snapshot[\s\S]*?\$fn\$;/,
+    );
+    assert.ok(snapshotFn, 'no se encontró la función de la foto');
+    const snapshotBody = snapshotFn[0].toLowerCase();
+    assert.ok(snapshotBody.includes('stable'), 'la foto tiene que declararse STABLE');
+    for (const write of ['insert into', 'update ', 'delete from']) {
+      assert.equal(snapshotBody.includes(write), false, `la foto no puede ${write}`);
     }
   });
 });
@@ -451,13 +563,43 @@ describe('CUT-3B23 §§ 16/17 — sin activación de proveedor ni hueco parcial'
 
 // ─── § 18 — la limitación de concurrencia se DECLARA ──────────────────────────
 
-describe('CUT-3B23 § 18 — la atomicidad NO se declara resuelta', () => {
-  it('el registro documenta explícitamente que la concurrencia sigue abierta', () => {
+// 🔴 La intención de este bloque nunca fue «di que NO»: era que el estado de la
+// atomicidad quedara ESCRITO donde vive la decisión de identidad, en vez de
+// suponerse. AGENT1-CUT3B4 cambia el estado, no la obligación — y lo parte en dos,
+// porque las dos mitades son distintas y sólo una es verdad hoy en Producción.
+describe('CUT-3B23/B4 § 18 — el estado de la atomicidad queda declarado', () => {
+  it('el registro declara la atomicidad resuelta EN CÓDIGO', () => {
     const source = read(CUT_MODULES[1]);
     assert.ok(
-      source.includes('CUT3_CONCURRENCY_ATOMICITY_SOLVED = NO'),
-      'la limitación de atomicidad tiene que quedar escrita en el módulo',
+      source.includes('CUT3_CONCURRENCY_ATOMICITY_SOLVED_IN_CODE = YES'),
+      'el estado en código tiene que quedar escrito en el módulo',
     );
+  });
+
+  it('🔴 el registro declara que en PRODUCCIÓN sigue INERTE hasta aplicar la 126', () => {
+    const source = read(CUT_MODULES[1]);
+    assert.ok(
+      source.includes('CUT3_CONCURRENCY_ATOMICITY_ACTIVE_IN_PROD = NO'),
+      'sin esta línea el módulo afirmaría una garantía que la migración sin aplicar no da',
+    );
+    // Y no puede quedarse la afirmación vieja conviviendo con la nueva: dos estados
+    // contradictorios en el mismo archivo no declaran nada.
+    assert.equal(
+      source.includes('CUT3_CONCURRENCY_ATOMICITY_SOLVED = NO'),
+      false,
+      'la declaración anterior a B4 tiene que retirarse, no acumularse',
+    );
+  });
+
+  it('el registro sigue sin conocer la valla: la política es PURA', () => {
+    const body = executableBody(CUT_MODULES[1]);
+    for (const forbidden of ['batch-identity-fence', 'rpc(', 'supabase', 'identity_epoch']) {
+      assert.equal(
+        body.includes(forbidden),
+        false,
+        `el registro de identidad no puede conocer ${forbidden}`,
+      );
+    }
   });
 });
 

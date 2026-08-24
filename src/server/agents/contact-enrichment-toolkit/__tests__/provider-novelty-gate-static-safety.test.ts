@@ -103,11 +103,20 @@ describe('modelo de datos — sin migración nueva', () => {
     // grano de reserva por operación, claim propio de la búsqueda) y trae su propia
     // guarda estática; el gate de novedad de este hito sigue sin SQL propio, que es lo
     // que se comprueba justo debajo leyendo su fuente.
-    // BR-SOURCE-FUNCTIONAL-CUT-A toma la 126 (identidad MENSUAL del snapshot de Receita: `source_period` + unicidad period-aware; AUTORADA y NO APLICADA). RENUMERADA de 125 a
-    // 126 por BR-SOURCE CUT A.1, que insertó por debajo una migración 125 genérica
+    // BR-SOURCE-FUNCTIONAL-CUT-A tomó la 125, y luego la 126 (identidad MENSUAL del snapshot de
+    // Receita: `source_period` + unicidad period-aware; AUTORADA y NO APLICADA).
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY reclamó el 126 de forma independiente mientras la
+    // reconciliación de BR-SOURCE CUT A.1 seguía en revisión: el vallado optimista de la
+    // admisión por identidad de LOTE (Agente 1). Añade `prospect_batches.identity_epoch` y dos
+    // funciones sobre `prospect_batches` y `prospect_candidates`; NO es de teléfono en absoluto
+    // y no nombra ninguna tabla, columna ni función de teléfono, que es lo que esta guarda
+    // vigila. Trae su propia guarda estática y NO edita ninguna migración anterior. NO aplicada
+    // en Producción.
+    // BR-SOURCE CUT A.1 RENUMERÓ su propia migración una segunda vez, de 126 a 127, para no
+    // colisionar con la de AGENT1-CUT3B4, y dejó sitio a una migración 125 genérica
     // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
-    // brasileñas); tampoco toca el gate de novedad.
-    assert.equal(Math.max(...numbers), 126, 'el techo conocido es la 126');
+    // brasileñas); ninguna de las tres toca el gate de novedad.
+    assert.equal(Math.max(...numbers), 127, 'el techo conocido es la 127');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

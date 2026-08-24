@@ -548,12 +548,16 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono.
       //
       // BR-SOURCE CUT A.1 (reconciliación de esquema de producción antes de CUT B) RENUMERÓ esa
-      // migración de 125 a 126 —su cuerpo SQL no cambió en nada que afecte a esta cadena— para
-      // dejar sitio a una migración 125 genérica y nueva: unicidad de `record_identity_key` sobre
-      // `source_company_snapshots` para fuentes NO brasileñas. Ninguna de las dos toca
-      // `phone_source`, `contact_phones` ni la creación manual; la autoría se comprueba abajo
-      // archivo por archivo. Ambas AUTORADAS y NO APLICADAS.
-      '126_br_receita_monthly_snapshot_identity.sql',
+      // migración DOS VECES: 125→126→127 —su cuerpo SQL no cambió en nada que afecte a esta
+      // cadena. El primer salto dejó sitio a una migración 125 genérica y nueva: unicidad de
+      // `record_identity_key` sobre `source_company_snapshots` para fuentes NO brasileñas. El
+      // segundo lo forzó AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, que reclamó el 126 de forma
+      // independiente: el vallado optimista de la admisión por identidad de LOTE (Agente 1), que
+      // añade `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+      // `prospect_candidates`. Ninguna de las tres toca `phone_source`, `contact_phones` ni la
+      // creación manual; la autoría se comprueba abajo archivo por archivo. Las tres AUTORADAS y
+      // NO APLICADAS.
+      '127_br_receita_monthly_snapshot_identity.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

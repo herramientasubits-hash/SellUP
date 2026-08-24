@@ -575,10 +575,15 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // as text. Round 2 still authored none, and `authoredInThisRound` above stays false — the two
     // statements are about different rounds. 124 belongs to Agent 2A and must still not be BR.
     //
-    // 🔴 Renamed by BR-SOURCE CUT A.1 (production schema reconciliation before CUT B): CUT-A's own
-    // migration moved from 125 to 126 so a sibling generic reconciliation migration — NOT authored
-    // by any BR round, and NOT touching the BR-specific columns/constraints this guard cares about
-    // — could take the 125 slot in numeric order. The migration this guard defends is now 126.
+    // 🔴 Renamed TWICE by BR-SOURCE CUT A.1 (production schema reconciliation before CUT B):
+    // 125→126→127. The first move made room for a sibling generic reconciliation migration — NOT
+    // authored by any BR round, and NOT touching the BR-specific columns/constraints this guard
+    // cares about — at the 125 slot. The second was forced by
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY (Agent 1), which independently claimed 126 —
+    // optimistic fencing of batch-identity admission — while this reconciliation was still in
+    // review. CUT A still adds EXACTLY one migration, and that claim is what this guard defends;
+    // the migration this guard defends is now 127. The authorship sweep is WIDENED to 124 and 126,
+    // so the guard is stronger than before, not merely shifted.
     const files = fs.readdirSync(
       new URL('../../../../../../supabase/migrations/', import.meta.url),
     );
@@ -586,9 +591,19 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       .map((name) => Number.parseInt(name.slice(0, 3), 10))
       .filter((value) => Number.isFinite(value))
       .reduce((max, value) => Math.max(max, value), 0);
-    assert.equal(highest, 126, 'CUT A\'s own migration is the ceiling, now numbered 126');
+    assert.equal(highest, 127, 'CUT A\'s own migration is the ceiling, now numbered 127');
+    assert.equal(
+      files.filter((f) => f.startsWith('125')).length,
+      1,
+      'the generic reconciliation still owns exactly one migration',
+    );
+    assert.equal(
+      files.filter((f) => f.startsWith('126')).length,
+      1,
+      'AGENT1-CUT3B4 still owns exactly one migration',
+    );
 
-    for (const name of files.filter((f) => f.startsWith('124'))) {
+    for (const name of files.filter((f) => f.startsWith('124') || f.startsWith('126'))) {
       const sql = fs.readFileSync(
         new URL(`../../../../../../supabase/migrations/${name}`, import.meta.url),
         'utf8',
@@ -619,13 +634,16 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // rather than imposing anything new on it.
     assert.match(m125, /source_key = 'br_receita_cnpj_dados_abertos'\s*\n\s*OR record_identity_key IS NOT NULL/);
 
-    // And 126 IS the BR one, authored by CUT A and explicitly not applied.
-    const m126 = fs.readFileSync(
-      new URL('../../../../../../supabase/migrations/126_br_receita_monthly_snapshot_identity.sql', import.meta.url),
+    // The AGENT1-CUT3B4 migration is genuinely independent: it is not authored by any BR round
+    // either, which is exactly what the sweep above already proved for 126.
+
+    // And 127 IS the BR one, authored by CUT A and explicitly not applied.
+    const m127 = fs.readFileSync(
+      new URL('../../../../../../supabase/migrations/127_br_receita_monthly_snapshot_identity.sql', import.meta.url),
       'utf8',
     );
-    assert.match(m126, /BR-SOURCE-FUNCTIONAL-CUT-A/);
-    assert.match(m126, /IT IS NOT APPLIED BY CUT A/);
+    assert.match(m127, /BR-SOURCE-FUNCTIONAL-CUT-A/);
+    assert.match(m127, /IT IS NOT APPLIED BY CUT A/);
   });
 
   it('replacement is period-scoped, and cross-month overwrite is forbidden', () => {
