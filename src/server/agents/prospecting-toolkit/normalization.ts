@@ -120,9 +120,21 @@ export function extractDomainFromWebsite(website: string | null | undefined): st
 // ============================================================
 
 /**
- * Normaliza un identificador fiscal para comparación:
+ * Normaliza un identificador fiscal a su forma de derivación histórica:
  * - Minúsculas
  * - Sin guiones, puntos, espacios, guiones bajos
+ *
+ * ⚠️ AGENT1-CUT3B1-FISCAL-IDENTITY-TRUTH — NO es autoritativo para decidir
+ * IGUALDAD fiscal. La autoridad canónica de Agente 1 es
+ * `canonicalizeFiscalIdentifier` en `./fiscal-identity`, que además recorta la
+ * etiqueta del identificador y aplica la semántica canónica por país, y exige
+ * ámbito de país para cualquier igualdad automática.
+ *
+ * Esta función sigue existiendo porque es la derivación con la que ya se
+ * escribió la columna persistida `prospect_candidates.identity_key`. Unificar esa
+ * derivación pertenece al corte del registro (CUT-3B2), que es quien puede
+ * decidir versionado/backfill; cambiarla aquí reescribiría en silencio la
+ * semántica de una columna ya escrita.
  *
  * @example
  * normalizeTaxIdentifier("900.123.456-1") → "9001234561"
