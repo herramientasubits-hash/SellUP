@@ -542,12 +542,18 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // identidad provider-native del reveal de teléfono. Es de teléfono, pero no de este
       // hito ni de lo que esta guarda vigila: no nombra `phone_source`, `contact_phones`
       // ni la creación manual. Se declara NO aplicada en Producción.
-      // BR-SOURCE-FUNCTIONAL-CUT-A mueve el techo a la 125: la identidad MENSUAL del
-      // snapshot de Receita (`source_period` + unicidad period-aware en
+      // BR-SOURCE-FUNCTIONAL-CUT-A movió el techo a la 125 originalmente: la identidad MENSUAL
+      // del snapshot de Receita (`source_period` + unicidad period-aware en
       // `source_company_snapshots`, estado de publicación en `source_snapshot_runs`). NO es de
-      // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono; la
-      // autoría se comprueba abajo archivo por archivo. AUTORADA y NO APLICADA.
-      '125_br_receita_monthly_snapshot_identity.sql',
+      // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono.
+      //
+      // BR-SOURCE CUT A.1 (reconciliación de esquema de producción antes de CUT B) RENUMERÓ esa
+      // migración de 125 a 126 —su cuerpo SQL no cambió en nada que afecte a esta cadena— para
+      // dejar sitio a una migración 125 genérica y nueva: unicidad de `record_identity_key` sobre
+      // `source_company_snapshots` para fuentes NO brasileñas. Ninguna de las dos toca
+      // `phone_source`, `contact_phones` ni la creación manual; la autoría se comprueba abajo
+      // archivo por archivo. Ambas AUTORADAS y NO APLICADAS.
+      '126_br_receita_monthly_snapshot_identity.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

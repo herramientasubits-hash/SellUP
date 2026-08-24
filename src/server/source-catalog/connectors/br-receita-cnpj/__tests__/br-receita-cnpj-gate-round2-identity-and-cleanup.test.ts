@@ -574,6 +574,11 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
     // 🔴 BR-SOURCE-FUNCTIONAL-CUT-A authored 125, which is the migration the record above described
     // as text. Round 2 still authored none, and `authoredInThisRound` above stays false — the two
     // statements are about different rounds. 124 belongs to Agent 2A and must still not be BR.
+    //
+    // 🔴 Renamed by BR-SOURCE CUT A.1 (production schema reconciliation before CUT B): CUT-A's own
+    // migration moved from 125 to 126 so a sibling generic reconciliation migration — NOT authored
+    // by any BR round, and NOT touching the BR-specific columns/constraints this guard cares about
+    // — could take the 125 slot in numeric order. The migration this guard defends is now 126.
     const files = fs.readdirSync(
       new URL('../../../../../../supabase/migrations/', import.meta.url),
     );
@@ -581,7 +586,7 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       .map((name) => Number.parseInt(name.slice(0, 3), 10))
       .filter((value) => Number.isFinite(value))
       .reduce((max, value) => Math.max(max, value), 0);
-    assert.equal(highest, 125, 'CUT A adds exactly one migration, numbered 125');
+    assert.equal(highest, 126, 'CUT A\'s own migration is the ceiling, now numbered 126');
 
     for (const name of files.filter((f) => f.startsWith('124'))) {
       const sql = fs.readFileSync(
@@ -595,13 +600,32 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       );
     }
 
-    // And 125 IS the BR one, authored by CUT A and explicitly not applied.
+    // The sibling reconciliation migration (125) belongs to BR-SOURCE CUT A.1 — a real BR-SOURCE
+    // milestone, so its own name and the BR source_key exemption literal legitimately appear in
+    // the file — but it is NOT a "BR round" in the sense this guard defends: it is generic (every
+    // source, not Brazil-specific), grants Brazil an EXEMPTION rather than a requirement, and does
+    // not touch any of the Brazil-only columns/constraints this guard protects (source_period,
+    // snapshot_run_id, the BR identity CHECK, the BR-only unique index).
     const m125 = fs.readFileSync(
-      new URL('../../../../../../supabase/migrations/125_br_receita_monthly_snapshot_identity.sql', import.meta.url),
+      new URL(
+        '../../../../../../supabase/migrations/125_reconcile_source_snapshot_record_identity.sql',
+        import.meta.url,
+      ),
       'utf8',
     );
-    assert.match(m125, /BR-SOURCE-FUNCTIONAL-CUT-A/);
-    assert.match(m125, /IT IS NOT APPLIED BY CUT A/);
+    assert.equal(m125.includes('snapshot_run_id'), false);
+    assert.equal(m125.includes('source_period'), false);
+    // The ONLY Brazil-specific SQL clause in 125 is the exemption below, and it exempts Brazil
+    // rather than imposing anything new on it.
+    assert.match(m125, /source_key = 'br_receita_cnpj_dados_abertos'\s*\n\s*OR record_identity_key IS NOT NULL/);
+
+    // And 126 IS the BR one, authored by CUT A and explicitly not applied.
+    const m126 = fs.readFileSync(
+      new URL('../../../../../../supabase/migrations/126_br_receita_monthly_snapshot_identity.sql', import.meta.url),
+      'utf8',
+    );
+    assert.match(m126, /BR-SOURCE-FUNCTIONAL-CUT-A/);
+    assert.match(m126, /IT IS NOT APPLIED BY CUT A/);
   });
 
   it('replacement is period-scoped, and cross-month overwrite is forbidden', () => {

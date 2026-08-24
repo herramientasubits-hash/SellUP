@@ -174,12 +174,20 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // añade columnas a la reserva y a la corrida, y re-declara la función de reserva.
       // Tiene su propia guarda estática y se declara NO aplicada en Producción.
       '124_cross_provider_phone_identity.sql',
+      // BR-SOURCE CUT A.1 (reconciliación de esquema de producción antes de CUT B): unicidad
+      // GENÉRICA de `record_identity_key` sobre `source_company_snapshots` para fuentes NO
+      // brasileñas. NO es de teléfono en absoluto: no toca la colección de staging que esta suite
+      // protege ni ninguna de las funciones 110/111/112. Tiene su propia guarda estática y está
+      // AUTORADA y NO APLICADA.
+      '125_reconcile_source_snapshot_record_identity.sql',
       // BR-SOURCE-FUNCTIONAL-CUT-A: la identidad MENSUAL del snapshot de Receita
       // (`source_period` + unicidad period-aware en `source_company_snapshots`, estado de
       // publicación en `source_snapshot_runs`). NO es de teléfono en absoluto: no toca la
       // colección de staging que esta suite protege ni ninguna de las funciones 110/111/112.
-      // Tiene su propia guarda estática y está AUTORADA y NO APLICADA.
-      '125_br_receita_monthly_snapshot_identity.sql',
+      // Tiene su propia guarda estática y está AUTORADA y NO APLICADA. RENUMERADA de 125 a 126 por
+      // CUT A.1 para dejar sitio a la reconciliación genérica arriba; su cuerpo SQL no cambió en
+      // nada que afecte a esta cadena.
+      '126_br_receita_monthly_snapshot_identity.sql',
     ]);
   });
 

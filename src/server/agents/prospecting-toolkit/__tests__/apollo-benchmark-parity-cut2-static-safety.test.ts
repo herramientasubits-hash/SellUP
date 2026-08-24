@@ -466,11 +466,16 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // La 124 la tomó AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 (Agente 2A,
     // teléfono). Este corte sigue sin aportar ninguna: se comprueba por número libre y
     // por AUTORÍA, porque un número ocupado por otro hito no es una infracción de este.
-    // La 125 la toma BR-SOURCE-FUNCTIONAL-CUT-A (identidad MENSUAL del snapshot de
-    // Receita, AUTORADA y NO APLICADA). El siguiente número libre es la 126, y la AUTORÍA
-    // se barre ahora sobre 124 y 125: es la comprobación que de verdad protege este corte.
-    assert.equal(migrations.filter((f) => f.startsWith('126')).length, 0);
-    for (const file of migrations.filter((f) => f.startsWith('124') || f.startsWith('125'))) {
+    // La 125 la toma BR-SOURCE CUT A.1 (reconciliación GENÉRICA de `record_identity_key`
+    // sobre `source_company_snapshots`, fuentes NO brasileñas; AUTORADA y NO APLICADA), y la
+    // 126 la toma BR-SOURCE-FUNCTIONAL-CUT-A (identidad MENSUAL del snapshot de Receita,
+    // RENUMERADA de 125 a 126 para dejar sitio a la anterior; AUTORADA y NO APLICADA). El
+    // siguiente número libre es la 127, y la AUTORÍA se barre ahora sobre 124, 125 y 126: es
+    // la comprobación que de verdad protege este corte.
+    assert.equal(migrations.filter((f) => f.startsWith('127')).length, 0);
+    for (const file of migrations.filter(
+      (f) => f.startsWith('124') || f.startsWith('125') || f.startsWith('126'),
+    )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
         false,

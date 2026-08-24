@@ -117,7 +117,7 @@ describe('114 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('121 es el número más alto del repo', () => {
+  it('126 es el número más alto del repo', () => {
     // Si otra migración pasara a 115+ sin renumerar esta, dos archivos distintos
     // compartirían orden de aplicación — el defecto que la 109 evitó dejando un hueco.
     //
@@ -146,9 +146,12 @@ describe('114 — numeración', () => {
     // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 (identidad provider-native,
     // grano de reserva por operación, claim propio de la búsqueda) con su propia guarda
     // estática; no edita ninguna migración anterior. NO aplicada en Producción.
-    // BR-SOURCE-FUNCTIONAL-CUT-A aporta la 125 (identidad MENSUAL del snapshot de Receita;
-    // AUTORADA y NO APLICADA). No es de teléfono y no toca este esquema.
-    assert.equal(Math.max(...numbers), 125);
+    // BR-SOURCE-FUNCTIONAL-CUT-A aporta la 126 (identidad MENSUAL del snapshot de Receita;
+    // AUTORADA y NO APLICADA). No es de teléfono y no toca este esquema. RENUMERADA de 125 a
+    // 126 por BR-SOURCE CUT A.1, que insertó por debajo una migración 125 genérica
+    // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
+    // brasileñas) — tampoco toca `contact_phones` ni `contact_phone_sources`.
+    assert.equal(Math.max(...numbers), 126);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {

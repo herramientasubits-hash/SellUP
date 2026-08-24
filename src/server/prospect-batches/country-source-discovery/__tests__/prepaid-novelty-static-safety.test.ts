@@ -189,12 +189,18 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // `provider_seen_entities` ni ninguna tabla de wizard— y trae su propia guarda
       // estática. Se declara NO aplicada en Producción.
       '124_cross_provider_phone_identity.sql',
+      // BR-SOURCE CUT A.1: unicidad GENÉRICA de `record_identity_key` sobre
+      // `source_company_snapshots` para fuentes NO brasileñas. Nada que ver con la capa gratuita
+      // que esta guarda protege — no nombra `prospect_candidates` ni ninguna tabla de wizard — y
+      // trae su propia guarda estática. Está AUTORADA y NO APLICADA.
+      '125_reconcile_source_snapshot_record_identity.sql',
       // BR-SOURCE-FUNCTIONAL-CUT-A: identidad MENSUAL del snapshot de Receita (`source_period`
       // + unicidad period-aware sobre `source_company_snapshots`, estado de publicación en
       // `source_snapshot_runs`). Nada que ver con la capa gratuita que esta guarda protege — no
       // nombra `prospect_candidates` ni ninguna tabla de wizard — y trae su propia guarda
-      // estática. Está AUTORADA y NO APLICADA.
-      '125_br_receita_monthly_snapshot_identity.sql',
+      // estática. Está AUTORADA y NO APLICADA. RENUMERADA de 125 a 126 por BR-SOURCE CUT A.1 para
+      // dejar sitio a la reconciliación genérica arriba.
+      '126_br_receita_monthly_snapshot_identity.sql',
     ],
     'ninguna migración nueva salvo la memoria provider-seen y la identidad cross-provider',
   );

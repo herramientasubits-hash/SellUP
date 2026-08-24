@@ -382,11 +382,14 @@ describe('4O-E4.1 estático — alcance', () => {
       // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 lo mueve a la 124: la identidad
       // provider-native del reveal de teléfono. Es de teléfono, pero no nombra
       // `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
-      // BR-SOURCE-FUNCTIONAL-CUT-A lo mueve a la 125: la identidad MENSUAL del snapshot de
+      // BR-SOURCE-FUNCTIONAL-CUT-A lo mueve a la 126: la identidad MENSUAL del snapshot de
       // Receita. NO es de teléfono y no nombra `mobile_phone` en ninguna parte, que es lo que
-      // esta guarda vigila. AUTORADA y NO APLICADA.
-      125,
-      'la 125 (identidad mensual del snapshot BR) es la última',
+      // esta guarda vigila. AUTORADA y NO APLICADA. RENUMERADA de 125 a 126 por BR-SOURCE
+      // CUT A.1, que insertó por debajo una migración 125 genérica (reconciliación de
+      // `record_identity_key` sobre `source_company_snapshots`, fuentes NO brasileñas) — tampoco
+      // nombra `mobile_phone`.
+      126,
+      'la 126 (identidad mensual del snapshot BR, renumerada por CUT A.1) es la última',
     );
   });
 

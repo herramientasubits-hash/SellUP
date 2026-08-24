@@ -379,12 +379,14 @@ describe('FAST-TRACK-7 · GATE-4 — 4A / 4B / 4C are three separate, independen
     // 🔴 BR-SOURCE-FUNCTIONAL-CUT-A narrowed four of these restrictions rather than removing them,
     // so this guard follows the narrowing instead of the old wording:
     //
-    //   · "no migration is created" became "migration 125 is AUTHORED and is NOT APPLIED". The
-    //     operational crossing this defends is APPLYING it, and that is still forbidden.
+    //   · "no migration is created" became "migration 126 is AUTHORED and is NOT APPLIED" (renamed
+    //     from 125 by BR-SOURCE CUT A.1, which inserted a sibling generic reconciliation migration
+    //     as 125). The operational crossing this defends is APPLYING it, and that is still
+    //     forbidden.
     //   · "exact runtime lookup is a recorded PRODUCTIZATION BLOCKER" became "unblocked at the
     //     STORAGE boundary only" — the read half is still missing, and saying so precisely is
     //     stricter than repeating a blanket blocker that is no longer accurate.
-    assert.match(text, /migration 125 is AUTHORED and is NOT APPLIED/);
+    assert.match(text, /migration 126 is AUTHORED and is NOT APPLIED/);
     assert.match(text, /period-aware primitive is still required/);
     assert.match(text, /no surrogate generator is implemented/);
     assert.match(text, /TRANSIENT_ONLY/);

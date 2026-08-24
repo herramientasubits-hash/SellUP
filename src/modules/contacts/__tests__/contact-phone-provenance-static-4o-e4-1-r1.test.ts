@@ -269,23 +269,31 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // (`contact_provider_identities`), grano de reserva por OPERACIÓN y claim propio de
       // la búsqueda de identidad. Trae su propia guarda estática y NO edita ninguna
       // migración anterior — que es lo que esta lista exacta vigila. NO aplicada en Prod.
-      // BR-SOURCE-FUNCTIONAL-CUT-A: la identidad MENSUAL del snapshot de Receita
-      // (`source_period` + unicidad period-aware en `source_company_snapshots`, estado de
-      // publicación en `source_snapshot_runs`). NO es de teléfono y NO edita ninguna migración
-      // anterior — que es lo que esta lista exacta vigila. AUTORADA y NO APLICADA.
-      '125_br_receita_monthly_snapshot_identity.sql',
+      // BR-SOURCE-FUNCTIONAL-CUT-A movió el techo a la 125 originalmente: la identidad MENSUAL
+      // del snapshot de Receita (`source_period` + unicidad period-aware en
+      // `source_company_snapshots`, estado de publicación en `source_snapshot_runs`). NO es de
+      // teléfono y NO edita ninguna migración anterior.
+      //
+      // BR-SOURCE CUT A.1 RENUMERÓ esa migración de 125 a 126 —su cuerpo SQL no cambió en nada
+      // que afecte a esta cadena— y añadió una migración 125 genérica y nueva (unicidad de
+      // `record_identity_key` sobre `source_company_snapshots` para fuentes NO brasileñas).
+      // Ninguna de las dos es de teléfono ni edita una migración anterior — que es lo que esta
+      // aserción vigila. Ambas AUTORADAS y NO APLICADAS.
+      '126_br_receita_monthly_snapshot_identity.sql',
       'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa y la contabilidad de presupuesto, no este hito',
     );
+    assert.ok(files.includes('125_reconcile_source_snapshot_record_identity.sql'));
     assert.equal(
-      // La ventana sube con el techo DECLARADO arriba: la 125 está autorizada y nombrada,
-      // así que lo que queda prohibido es la 126 y superiores.
-      files.some((f) => /^1(2[6-9]|[3-9]\d)/.test(f)),
+      // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica) y la 126
+      // (BR, renumerada) están autorizadas y nombradas, así que lo que queda prohibido es la 127 y
+      // superiores.
+      files.some((f) => /^1(2[7-9]|[3-9]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 126 o superior',
+      'ninguna migración 127 o superior',
     );
   });
 
