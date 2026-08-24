@@ -12,7 +12,7 @@
  *   * sin id Lusha: solo Apollo, tope 8, sin mencionar Lusha ni 13;
  *   * saldo insuficiente: copy exacto, sin recargar el candidato (no se escribió nada);
  *   * dos clics concurrentes ⇒ UNA sola corrida;
- *   * commercial_manager no alcanza Lusha;
+ *   * un actor SIN permiso de revelar no alcanza Lusha;
  *   * flag OFF conserva el flujo histórico;
  *   * los costos de las dos patas nunca se suman en una sola cifra.
  *
@@ -710,7 +710,10 @@ describe('4D — saldo insuficiente', () => {
 // 8. Rol y flag: lo que 4D NO cambia
 // ═══════════════════════════════════════════════════════════════
 
-describe('4D — commercial_manager no alcanza Lusha', () => {
+// AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el rol que NO alcanza Lusha ya no es
+// `commercial_manager` —ese puede revelar, y por tanto usa el waterfall—, sino
+// cualquier actor para el que el server component resuelva `false`.
+describe('4D — un actor sin permiso de revelar no alcanza Lusha', () => {
   it('rol no autorizado: Apollo-only, tope 8, sin auditoría y sin copy de Lusha', async () => {
     await renderSheet(lushaCandidate(), { waterfallAuthorized: false });
     const text = bodyText();

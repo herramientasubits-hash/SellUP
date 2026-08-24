@@ -56,6 +56,7 @@ import {
 } from './lusha-identity-resolution-deps';
 import {
   continuePhoneRevealWaterfall,
+  isPhoneRevealWaterfallRoleAuthorized,
   parsePhoneRevealWaterfallLushaSkippedReason,
   parsePhoneRevealWaterfallRunMode,
   PHONE_REVEAL_WATERFALL_ACTIVE_STATUSES,
@@ -100,6 +101,23 @@ import type { PhoneRevealCreditProviderKey } from './phone-reveal-credit-budget-
 import { buildTerminalPhoneSuppressionPatch } from './phone-reveal-suppression-guard';
 import { persistTerminalPhoneSuppression } from './candidate-phone-suppression-persistence';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
+
+/**
+ * Rol SINTÉTICO con el que la pata automática entra al core del fallback de Lusha
+ * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1).
+ *
+ * NO es —y nunca fue— el rol del operador que autorizó: en el webhook, el cron y la
+ * revisión manual no hay sesión, así que no hay rol de sesión que pasar. El gate
+ * admin-only del core del fallback está escrito para su botón MANUAL; esta pata
+ * satisface su forma con un token de servicio, y su autoridad real se comprueba antes,
+ * contra `authorized_by_role` de la corrida.
+ *
+ * Se nombra en vez de escribirse `'admin'` en línea para que quede claro que es un
+ * token de servicio y no una afirmación sobre quién autorizó — antes de este hito el
+ * literal `'admin'` en el sitio del actor se leía como «esta pata es admin-only»,
+ * que ya no es cierto.
+ */
+const WATERFALL_LUSHA_LEG_SERVICE_ROLE_KEY = 'admin';
 
 /** Tabla de corridas (migración 102). service_role-only. */
 export const PHONE_REVEAL_WATERFALL_RUNS_TABLE = 'phone_reveal_waterfall_runs';
@@ -727,9 +745,14 @@ function mapLushaFallbackCandidate(
  *   * el actor es el operador ALMACENADO en la autorización (`authorized_by`), no
  *     una sesión: aquí no hay humano presente y no se pueden usar server actions
  *     (redirigen a /login desde un webhook o un cron);
- *   * el rol se fija a 'admin' porque el core del waterfall ya revalidó que la
- *     autorización pertenece a un admin antes de llegar hasta aquí — el gate no se
- *     salta, se hereda de una comprobación que ya se hizo dos veces;
+ *   * el rol con el que se entra al core del fallback es un TOKEN SINTÉTICO de
+ *     servicio (`WATERFALL_LUSHA_LEG_SERVICE_ROLE_KEY`), no el rol del operador: el
+ *     core del fallback tiene su propio gate admin-only pensado para el botón MANUAL,
+ *     y aquí no hay sesión que gatear. La autoridad REAL de esta pata es
+ *     `authorized_by_role` de la corrida, que se revalida abajo contra la autoridad
+ *     canónica del reveal (`isPhoneRevealWaterfallRoleAuthorized`) ANTES de construir
+ *     el token — el gate no se salta, se evalúa aquí de forma explícita
+ *     (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1);
  *   * `waterfallMode: true` ⇒ un `no_phone_found` o un error de Lusha NO
  *     sobrescriben el candidato: ese resultado vive en la corrida;
  *   * `phoneRevealWaterfallId` viaja al usage-log para correlacionar las patas SIN
@@ -741,6 +764,12 @@ export async function callLushaFallbackLeg(args: {
   candidateId: string;
   runId: string;
   authorizedBy: string;
+  /**
+   * `authorized_by_role` de la corrida. Autoridad REAL de la pata: se revalida contra
+   * `isPhoneRevealWaterfallRoleAuthorized` antes de llamar a Lusha
+   * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). `null` ⇒ no autorizado.
+   */
+  authorizedByRole: string | null;
   maxCreditsAuthorized: number;
   /**
    * AGENT2A-PHONE-REVEAL-4O-F-R2 — invocación MANUAL de administración.
@@ -767,6 +796,15 @@ export async function callLushaFallbackLeg(args: {
    */
   manualInvocation?: boolean;
 }): Promise<PhoneRevealWaterfallLushaLegResult> {
+  // Revalidación EXPLÍCITA del rol que autorizó, contra la autoridad canónica del
+  // reveal. Es la última puerta antes de que el token sintético entre al core del
+  // fallback, y existe para que ese token no pueda convertir una autorización
+  // inválida en una llamada pagada: sin ella, cualquier corrida que llegara hasta aquí
+  // gastaría créditos de Lusha como si la hubiera autorizado un admin.
+  if (!isPhoneRevealWaterfallRoleAuthorized(args.authorizedByRole)) {
+    return { status: 'error', creditsCharged: null, errorCode: 'role_not_allowed' };
+  }
+
   const admin = createSupabaseAdminClient();
   const manual = args.manualInvocation === true;
 
@@ -781,7 +819,10 @@ export async function callLushaFallbackLeg(args: {
     },
     {
       flagEnabled: isLushaPhoneRevealFallbackEnabled(),
-      actor: { internalUserId: args.authorizedBy, roleKey: 'admin' },
+      actor: {
+        internalUserId: args.authorizedBy,
+        roleKey: WATERFALL_LUSHA_LEG_SERVICE_ROLE_KEY,
+      },
       nowIso: new Date().toISOString(),
       waterfallMode: !manual,
       phoneRevealWaterfallId: args.runId,

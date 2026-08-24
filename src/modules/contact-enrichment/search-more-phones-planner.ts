@@ -79,12 +79,27 @@
 // que se vio puede haberse ido. El plan es una PROMESA HONESTA de la UI; la reserva atómica
 // sigue siendo la única autoridad.
 
-import { PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS } from './phone-reveal-waterfall-core';
 import {
   PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
   type PhoneRevealCreditBudgetDecision,
   type PhoneRevealCreditBudgetMode,
 } from './phone-reveal-credit-budget-core';
+
+/**
+ * Roles autorizados a disparar «Buscar más números»: SOLO admin.
+ *
+ * Es una lista PROPIA y explícita desde
+ * AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1. Antes se importaba
+ * `PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS`, que también valía `['admin']`, así
+ * que el permiso de esta operación quedaba ACOPLADO al del waterfall sin que nadie lo
+ * hubiera decidido: al abrir el waterfall a todo actor con permiso de revelar
+ * teléfono, este botón se habría ensanchado de rebote.
+ *
+ * «Buscar más números» NO es el botón «Revelar teléfono»: es una compra ADICIONAL de
+ * teléfonos para un candidato que YA tiene uno, con su propio techo y su propio pozo.
+ * Su alcance no cambia en este hito; ensancharlo es una decisión de Product aparte.
+ */
+export const SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS: readonly string[] = ['admin'];
 
 // ═══════════════════════════════════════════════════════════════════
 // 1. Vocabulario
@@ -425,7 +440,7 @@ export function planSearchMorePhones(input: SearchMorePlannerInput): SearchMoreP
   }
 
   const role = cleanText(input.actorRoleKey);
-  if (!role || !PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS.includes(role)) {
+  if (!role || !SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS.includes(role)) {
     return NOT_ELIGIBLE('has_phone_no_provider_available', 'role_not_allowed');
   }
 

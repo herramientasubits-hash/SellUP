@@ -22,8 +22,13 @@
  * and removes any import-cycle risk with the two cores that call back into it.
  *
  * Contract enforced here (never by a migration):
- *   * admin-only. `commercial_manager` keeps the Apollo-only flow and never gets
- *     a run row, so the Lusha leg is structurally unreachable for that role.
+ *   * the role authority is the reveal's own — `PHONE_REVEAL_AUTHORIZED_ROLE_KEYS`
+ *     in phone-reveal-authorized-roles.ts (admin + commercial_manager), reused via
+ *     `isPhoneRevealWaterfallRoleAuthorized`. There is NO separate waterfall role
+ *     gate (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1): whoever may press
+ *     "Revelar teléfono" gets Apollo → Lusha, and the only switch is the flag.
+ *     A role that cannot reveal never gets a run row, so the Lusha leg stays
+ *     structurally unreachable for it.
  *   * ONE candidate per run — no bulk, no array input anywhere.
  *   * the Lusha leg runs AT MOST ONCE per run. The webhook, the recovery cron
  *     and the manual L3 review can all observe the same Apollo `no_phone_found`;
@@ -54,8 +59,8 @@
  *     request ids inventados. `apollo_attempted_at` queda null y la modalidad es lo
  *     que explica por qué;
  *   * el resto del contrato es IDÉNTICO: claim atómico, TTL de 24 h,
- *     re-comprobación de supresión/DNC fail-closed, admin-only, una sola llamada a
- *     Lusha, sin retry automático, sin HubSpot, sin bulk.
+ *     re-comprobación de supresión/DNC fail-closed, la MISMA autoridad de rol que el
+ *     reveal, una sola llamada a Lusha, sin retry automático, sin HubSpot, sin bulk.
  *
  * La ruta legacy NO es un atajo para saltarse Apollo: exige evidencia PERSISTIDA del
  * desenlace histórico y se cierra en cuanto el candidato pertenece al flujo completo.
@@ -121,6 +126,7 @@ import {
   type PhoneRevealCreditReservationAndRunRequest,
   type PhoneRevealCreditReservedLeg,
 } from './phone-reveal-credit-reservation-core';
+import { isPhoneRevealRoleAuthorized } from './phone-reveal-authorized-roles';
 
 // ── Vocabularios (espejo exacto de los CHECK de la migración 102) ──
 
@@ -313,13 +319,15 @@ export const PHONE_REVEAL_WATERFALL_CLAIMABLE_STATUSES: readonly PhoneRevealWate
 
 // ── Constantes de autorización y costo ─────────────────────────
 
-/**
- * Roles autorizados a disparar el waterfall completo: SOLO admin, igual que el
- * fallback manual de Lusha (LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS) y más
- * estrecho que el reveal Apollo (que además admite `commercial_manager`). Un
- * `commercial_manager` conserva el flujo Apollo-only y NO genera corrida.
- */
-export const PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS: readonly string[] = ['admin'];
+// El waterfall NO declara lista de roles propia
+// (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). Aquí vivía
+// `PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS = ['admin']`, y esa segunda lista
+// partía el producto en dos flujos según el rol: un `commercial_manager` con
+// permiso de revelar teléfono se quedaba en Apollo-only y un `admin` obtenía
+// Apollo → Lusha. La autoridad es UNA — `PHONE_REVEAL_AUTHORIZED_ROLE_KEYS` en
+// phone-reveal-authorized-roles.ts — y quien decide si el waterfall corre es el
+// flag `ENABLE_PHONE_REVEAL_WATERFALL`, nunca el rol. Ver
+// `isPhoneRevealWaterfallRoleAuthorized` más abajo.
 
 /**
  * Tope de la pata Apollo. Espejo de APOLLO_PHONE_REVEAL_CREDITS (8) en
@@ -561,6 +569,80 @@ export function evaluatePhoneRevealWaterfallLushaLeg(
 }
 
 /**
+ * Vista previa de la AUTORIZACIÓN, ANTES del clic
+ * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1).
+ *
+ * PII-free por construcción: dos booleanos y un entero. Ni teléfono, ni email, ni
+ * LinkedIn, ni nombre, ni ningún id de proveedor.
+ */
+export interface PhoneRevealWaterfallAuthorizationPreview {
+  /** ¿La 2ª pata (Lusha) es alcanzable bajo esta autorización? */
+  lushaEligible: boolean;
+  /** ¿Alcanzarla exige pagar antes una búsqueda de identidad? */
+  requiresIdentitySearch: boolean;
+  /** Tope que el operador debe aceptar: 8, 13 o 14. */
+  maxCredits: number;
+}
+
+/**
+ * Resuelve la modalidad y el tope de UNA autorización a partir de los hechos del
+ * candidato. ES la función que usa el ARRANQUE, y por eso mismo es la que debe usar la
+ * UI para su copy: mientras las dos llamen aquí, el botón no puede prometer 8 donde el
+ * servidor va a reservar 14, ni ofrecer 14 donde la búsqueda no se puede ejecutar.
+ *
+ * No decide permisos y no lee nada: los hechos llegan ya cargados.
+ */
+export function buildPhoneRevealWaterfallAuthorizationPreview(
+  candidate: Parameters<typeof evaluatePhoneRevealWaterfallLushaLeg>[0],
+): PhoneRevealWaterfallAuthorizationPreview {
+  const leg = evaluatePhoneRevealWaterfallLushaLeg(candidate);
+  const requiresIdentitySearch = leg.requiresIdentitySearch === true;
+  return {
+    lushaEligible: leg.eligible,
+    requiresIdentitySearch,
+    maxCredits: resolvePhoneRevealWaterfallMaxCredits(
+      leg.eligible,
+      requiresIdentitySearch,
+    ),
+  };
+}
+
+/**
+ * Normaliza el tope que el CLIENTE dice haber aceptado
+ * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2).
+ *
+ * Ausente, no numérico o no finito ⇒ el suelo conservador de 8, jamás la modalidad
+ * requerida. Un cliente que no manda el tope no puede acabar autorizando el más caro por
+ * omisión; en el peor caso se le vuelve a preguntar.
+ */
+export function normalizePhoneRevealWaterfallAcceptedMaxCredits(
+  acceptedMaxCredits: number | null | undefined,
+): number {
+  return typeof acceptedMaxCredits === 'number' && Number.isFinite(acceptedMaxCredits)
+    ? acceptedMaxCredits
+    : PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS;
+}
+
+/**
+ * ¿La autorización HUMANA cubre lo que esta modalidad exige?
+ * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2)
+ *
+ * El tope que se le enseñó a una persona es un LÍMITE SUPERIOR DURO. `>=` y no `===`
+ * porque aceptar de más es seguro —el operador consintió un gasto mayor del que hace
+ * falta, y lo que se reserva sigue siendo lo requerido, no lo aceptado—; aceptar de
+ * MENOS nunca lo es, porque significaría cobrarle un máximo que nunca vio.
+ *
+ * Es una función PURA y separada a propósito: es el único lugar donde se decide si una
+ * autorización obsoleta puede seguir, y el arranque la llama ANTES de cualquier reserva.
+ */
+export function isPhoneRevealWaterfallAuthorizationCeilingHonored(args: {
+  requiredMaxCredits: number;
+  acceptedMaxCredits: number;
+}): boolean {
+  return args.acceptedMaxCredits >= args.requiredMaxCredits;
+}
+
+/**
  * ¿El tope que el operador aceptó incluye la búsqueda de identidad PAGADA?
  *
  * Se responde con `max_credits_authorized`, que es el único hecho durable que dice a la
@@ -619,10 +701,22 @@ export function isPhoneRevealWaterfallAuthorizationExpired(
   return now - authorizedAt > ttlHours * 3_600_000;
 }
 
-/** ¿El rol almacenado en la corrida sigue autorizado para el waterfall? */
+/**
+ * ¿El rol sigue autorizado para el waterfall?
+ *
+ * `WATERFALL_ALLOWED(actor) = PHONE_REVEAL_ALLOWED(actor)` del contrato de Product
+ * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1): DELEGA en la autoridad canónica del
+ * reveal en vez de comparar contra una lista propia. No amplía nada por su cuenta —
+ * quien no podía revelar teléfono sigue sin poder — y no estrecha nada tampoco: el
+ * waterfall es el comportamiento NORMAL del botón para quien ya tenía el permiso.
+ *
+ * Se conserva como función NOMBRADA (y no se sustituye por la canónica en los cuatro
+ * puntos de uso) porque los cuatro son gates del WATERFALL: el arranque completo, el
+ * arranque legacy, la continuación sin humano presente y la lectura de la auditoría.
+ * Tener el nombre permite leer en el código qué se está autorizando.
+ */
 export function isPhoneRevealWaterfallRoleAuthorized(roleKey: string | null): boolean {
-  const role = cleanText(roleKey);
-  return !!role && PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS.includes(role);
+  return isPhoneRevealRoleAuthorized(cleanText(roleKey));
 }
 
 // ── Arranque: crear la corrida al autorizar el botón ───────────
@@ -682,6 +776,22 @@ export interface PhoneRevealWaterfallRunDraft {
 
 export interface StartPhoneRevealWaterfallInput {
   candidateId: string;
+  /**
+   * Tope de créditos que el operador ACEPTÓ en la UI, tal cual llegó del cliente
+   * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2).
+   *
+   * POR QUÉ EXISTE: el copy del botón se calcula ANTES del clic y puede quedar OBSOLETO
+   * —la vista previa falló y la UI cayó a su suelo conservador de 8, o la modalidad
+   * cambió entre el render y el clic—. Sin este dato, el arranque resolvía la modalidad
+   * REAL y reservaba 14 sobre una autorización humana de 8. El tope que se le enseñó a
+   * una persona es un LÍMITE SUPERIOR DURO, no una sugerencia: si lo que hace falta lo
+   * supera, no se reserva nada y se le vuelve a preguntar.
+   *
+   * Ausente o no finito ⇒ se asume el suelo conservador
+   * (`PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS`), NUNCA la modalidad requerida: un
+   * cliente que no manda el tope no puede acabar autorizando el más caro.
+   */
+  acceptedMaxCredits?: number;
 }
 
 /**
@@ -802,7 +912,25 @@ export type StartPhoneRevealWaterfallResult =
          * infraestructura en vez de uno de saldo.
          */
         | 'run_creation_unavailable'
-        | 'create_conflict';
+        | 'create_conflict'
+        /**
+         * El tope que el operador ACEPTÓ es MENOR que el que esta modalidad exige
+         * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2). Se detecta DESPUÉS de conocer
+         * la modalidad real y ANTES del preflight de presupuesto y de
+         * `reserve_and_create_phone_reveal_run`, así que por construcción: 0 reservas, 0
+         * corridas, 0 llamadas a Apollo, 0 llamadas a Lusha, 0 usage-logs y 0 créditos.
+         *
+         * NO se sube el tope en silencio y NO se reintenta: una autorización humana
+         * obsoleta se vuelve a pedir, no se reinterpreta.
+         */
+        | 'authorization_ceiling_mismatch';
+      /**
+       * Solo en `authorization_ceiling_mismatch`: qué exigía la modalidad real y qué
+       * había aceptado el operador. Dos enteros, PII-free, para que el wrapper pueda
+       * registrarlo sin volver a resolver la modalidad.
+       */
+      requiredMaxCredits?: number;
+      acceptedMaxCredits?: number;
     };
 
 // ── Reserva + corrida atómicas, compartidas por los dos arranques ──
@@ -993,11 +1121,42 @@ export async function startPhoneRevealWaterfall(
   // El tope se resuelve con las DOS señales, no con una: si la identidad Lusha ya está
   // persistida el operador autoriza 13, y reservarle 14 le quitaría un crédito de
   // disponibilidad por una búsqueda que esta corrida no puede llegar a ejecutar.
-  const requiresIdentitySearch = lushaLeg.requiresIdentitySearch === true;
-  const maxCreditsAuthorized = resolvePhoneRevealWaterfallMaxCredits(
-    lushaLeg.eligible,
-    requiresIdentitySearch,
+  //
+  // Se pasa por `buildPhoneRevealWaterfallAuthorizationPreview` —la MISMA función que
+  // alimenta el copy del botón— para que el número que se enseña antes del clic y el
+  // que se reserva después sean el mismo por CONSTRUCCIÓN, no por coincidencia
+  // (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1).
+  const preview = buildPhoneRevealWaterfallAuthorizationPreview(candidate);
+  const requiresIdentitySearch = preview.requiresIdentitySearch;
+  const maxCreditsAuthorized = preview.maxCredits;
+
+  // TECHO DE LA AUTORIZACIÓN HUMANA (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2).
+  //
+  // Va AQUÍ y no más abajo por una razón económica, no estética: es el último punto en el
+  // que ya se conoce la modalidad REAL y todavía no se ha tocado el presupuesto ni la
+  // transacción de reserva. Comparar después de reservar —y liberar— seguiría siendo un
+  // gasto autorizado por encima de lo que una persona aprobó, y dejaría una ventana en la
+  // que la corrida existe.
+  //
+  // El caso que lo motiva: la vista previa falló, la UI cayó a su suelo conservador de 8,
+  // el operador autorizó 8 y al hacer clic el servidor resuelve 14. Antes se reservaban
+  // 14. Ahora no se reserva nada: se corta y se le vuelve a preguntar con el número real.
+  const acceptedMaxCredits = normalizePhoneRevealWaterfallAcceptedMaxCredits(
+    input.acceptedMaxCredits,
   );
+  if (
+    !isPhoneRevealWaterfallAuthorizationCeilingHonored({
+      requiredMaxCredits: maxCreditsAuthorized,
+      acceptedMaxCredits,
+    })
+  ) {
+    return {
+      started: false,
+      reason: 'authorization_ceiling_mismatch',
+      requiredMaxCredits: maxCreditsAuthorized,
+      acceptedMaxCredits,
+    };
+  }
 
   // PREFLIGHT + RESERVA (AGENT2A-PHONE-WATERFALL-4D/4E). Van justo ANTES del INSERT y
   // DESPUÉS de conocer la modalidad, porque lo exigido depende de ella (Apollo 8 + Lusha
@@ -2120,6 +2279,15 @@ export interface ContinuePhoneRevealWaterfallDeps {
     runId: string;
     /** Actor almacenado en la autorización: no hay humano en este momento. */
     authorizedBy: string;
+    /**
+     * ROL almacenado en la autorización (`authorized_by_role`)
+     * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). Viaja para que el ejecutor pueda
+     * REVALIDARLO contra la autoridad canónica del reveal antes de llamar al
+     * proveedor, en vez de dar por hecho que quien autorizó era admin. Puede ser
+     * `null` en corridas históricas cuyo rol no se registró: el ejecutor lo trata
+     * fail-closed.
+     */
+    authorizedByRole: string | null;
     maxCreditsAuthorized: number;
     /**
      * Id NATIVO de Lusha con el que pedir el teléfono, ya resuelto por el paso de
@@ -2416,6 +2584,7 @@ export async function continuePhoneRevealWaterfall(
       candidateId,
       runId: run.id,
       authorizedBy: run.authorizedBy,
+      authorizedByRole: run.authorizedByRole,
       maxCreditsAuthorized: run.maxCreditsAuthorized,
       ...(resolvedLushaContactId ? { lushaContactId: resolvedLushaContactId } : {}),
     });

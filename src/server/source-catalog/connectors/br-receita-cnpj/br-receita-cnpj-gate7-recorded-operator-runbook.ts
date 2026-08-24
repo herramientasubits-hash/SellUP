@@ -1,6 +1,7 @@
 /**
  * BR Receita CNPJ — RECORDED GATE-7 operator runbook record (BR-SOURCE-FAST-TRACK-6; dependency
- * blockers reassessed BR-SOURCE-FAST-TRACK-7 — GATE-7 is NOT approved).
+ * blockers reassessed BR-SOURCE-FAST-TRACK-7; JOINT OWNER APPROVAL recorded BR-SOURCE-FAST-TRACK-8 —
+ * GATE-7 is `approved`).
  *
  * GATE-7 is the operator runbook gate (10K § 11). It has been `not_started` since 10K, and until this
  * round it had no recorded module at all — `br-receita-cnpj-gate-status-current-state` stated its
@@ -87,9 +88,63 @@
  * GATE-7's reviewability and nothing else. `BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED` stays
  * imported and `false`; no rehearsal, run, or attempt-budget change is authorized by this update.
  *
+ * ── 🔴 Update (BR-SOURCE-FAST-TRACK-8) — GATE-7 is APPROVED, and the reproducibility criterion is
+ *      WAIVED BY OWNER DECISION rather than DEMONSTRATED ─────────────────────
+ *
+ * The operator owner, the technical owner and the privacy owner have JOINTLY approved, by owner relay
+ * recorded 2026-08-24. The subject is named rather than implied: the § 16 runbook section, its
+ * twenty-two preflight items `P-01` … `P-22`, and its sixteen non-overridable stop conditions
+ * `T-01` … `T-16`.
+ *
+ * 🔴 **The one thing this record must not be misread as.** Reproducibility by a different operator is
+ * still `UNDEMONSTRATED`. It was not demonstrated, and it was not quietly re-labelled: the three
+ * approvers exercised their own contract's explicit alternative and decided that the pre-approval
+ * rehearsal is NOT REQUIRED. `BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION.andStillRequires` has carried
+ * that branch since FAST-TRACK-6 — "…after the rehearsal (**or their explicit decision that no
+ * rehearsal is required**)" — so the waiver is a path the contract already contained, not one invented
+ * for this round. The distinction is recorded as data, in
+ * `BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_DISPOSITION` = `WAIVED_BY_OWNER_DECISION` beside
+ * `BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_DEMONSTRATED` = `false`, so no later reader can collapse a
+ * waiver into a demonstration.
+ *
+ * ── 🔴 Why a pre-approval rehearsal could not have been run, and why that is not a loophole ──
+ *
+ * `P-05` — first in substance, fifth in numbering — requires EVERY gate to be recorded as approved,
+ * GATE-7's own included. A rehearsal performed before GATE-7's approval therefore stops at `P-05` by
+ * construction, and it stops there CORRECTLY: `P-05` takes no argument, reads no environment, offers
+ * no override, and `BRAZIL_RECEITA_GATE7_PRECONDITION_BYPASS_EXISTS` is `false`. Demonstrating
+ * reproducibility beforehand would have required bypassing the one item whose lack of a bypass is
+ * this gate's strongest property.
+ *
+ * The owners were given exactly that reading and decided against changing `P-05`, against a bypass,
+ * against a rehearsal on real data, and against touching the attempt budget. What they changed is the
+ * only thing that was theirs to change: whether the rehearsal is a precondition of THEIR approval.
+ * Nothing in `P-05` was edited by this round.
+ *
+ * ── 🔴 Why the status goes straight to `approved` and never occupies `ready_for_review` ──
+ *
+ * `BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION` describes a rehearsal moving the gate to
+ * `ready_for_review` with joint approval following it. That is one of the two paths it names; this is
+ * the other. The waiver and the approval arrived in ONE decision, so there was no interval in which
+ * evidence stood complete and an approver was still awaited — the only state `ready_for_review`
+ * describes (10K § 3). Recording a `ready_for_review` the gate never occupied would be a fabricated
+ * step in the audit trail.
+ *
+ * ── 🔴 What the approval does NOT do ─────────────────────────────────────────
+ *
+ * It approves GATE-7 and the operator runbook, and nothing else. It authorizes no benchmark, no
+ * Attempt #3, no real data, no Supabase, no snapshot, no Agent 1 Brazil, no provider, no production,
+ * and it modifies no cap and no flag. `BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED` stays `false`
+ * with no reset path. The enumeration is data, in `BRAZIL_RECEITA_GATE7_APPROVAL_DOES_NOT_AUTHORIZE`.
+ *
+ * With eight of eight gates approved, `brazilReceitaGateGlobalVerdict()` now returns `GO` — which
+ * 10K § 15 defines as "may propose a future runner implementation PR — still no execution". GO for a
+ * runner proposal is not GO for execution, and GO for execution is not GO for import; that three-step
+ * separation is untouched by this approval.
+ *
  * ── This module NEVER (fail-closed by construction) ──────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
- *   - approves a gate, or emits an `OwnerDecisionArtifact` section. 13A has no `gate7` section.
+ *   - emits an `OwnerDecisionArtifact` section. 13A has no `gate7` section.
  *   - authorizes a run, a rehearsal, a benchmark, real-data access, a report emission, snapshot
  *     persistence, an import, a Supabase write, a migration, a runtime path, Agent 1, Agent 2A or a
  *     provider call.
@@ -111,19 +166,23 @@
 // ─── Status ───────────────────────────────────────────────────────────────────
 
 /**
- * 🔴 `needs_evidence`, per 10K § 3's own definition, as of BR-SOURCE-FAST-TRACK-7. NO-GO, and not a
- * partial approval of any kind. See the module header for the full elimination reasoning against
- * `blocked`, `ready_for_review`, `needs_owner_decision` and `needs_owner_confirmation`.
+ * 🔴 `approved`, as of BR-SOURCE-FAST-TRACK-8, by the joint decision of all three required owners.
+ * See the module header for why the gate never occupies `ready_for_review`, and for the exact standing
+ * of the reproducibility criterion — WAIVED by owner decision, never demonstrated.
  */
-export const BRAZIL_RECEITA_GATE7_STATUS = 'needs_evidence' as const;
+export const BRAZIL_RECEITA_GATE7_STATUS = 'approved' as const;
 
-/** Whether this record approves anything. It does not, and says so as data. */
-export const BRAZIL_RECEITA_GATE7_APPROVED = false as const;
+/** Whether this record approves anything. It does, as of BR-SOURCE-FAST-TRACK-8. */
+export const BRAZIL_RECEITA_GATE7_APPROVED = true as const;
 
-/** The status this record explicitly REFUSES to claim, and the reason, both assertable. */
+/**
+ * The status FAST-TRACK-6 and FAST-TRACK-7 refused to claim, kept as the audit trail of what those
+ * rounds would not assert. Still not the status today: the gate is `approved`, having skipped
+ * `ready_for_review` entirely because the waiver and the approval were one decision.
+ */
 export const BRAZIL_RECEITA_GATE7_STATUS_NOT_CLAIMED = 'ready_for_review' as const;
 export const BRAZIL_RECEITA_GATE7_STATUS_NOT_CLAIMED_REASON =
-  'ready_for_review asserts evidence is COMPLETE; reproducibility by a different operator remains UNDEMONSTRATED, which is exactly the evidence item 10K § 11s own pass criterion names as missing' as const;
+  'ready_for_review asserts evidence is COMPLETE and a named approver is still awaited; reproducibility by a different operator was never demonstrated, and once the joint approval arrived no approver was awaited, so the gate never occupied this status' as const;
 
 /** The status this record ALSO refuses to claim now that the three dependency gates are approved. */
 export const BRAZIL_RECEITA_GATE7_STATUS_NOT_CLAIMED_BLOCKED = 'blocked' as const;
@@ -140,8 +199,66 @@ export const BRAZIL_RECEITA_GATE7_APPROVER_COUNT = 3 as const;
 /** No agent may supply any of the three. Recorded as data, not as a comment. */
 export const BRAZIL_RECEITA_GATE7_AGENT_MAY_APPROVE = false as const;
 
-/** The date the runbook section landed. Not an approval date — there is none. */
+/** The date the runbook section landed. Not the approval date — see below for that. */
 export const BRAZIL_RECEITA_GATE7_RECORDED_DATE = '2026-08-21' as const;
+
+/** The date the joint operator + technical + privacy owner approval was relayed and recorded. */
+export const BRAZIL_RECEITA_GATE7_APPROVAL_DATE = '2026-08-24' as const;
+
+/**
+ * The joint approval, recorded (BR-SOURCE-FAST-TRACK-8).
+ *
+ * Each of the three halves is an owner RELAY — the evidentiary form every prior approval in this
+ * series used — never a personal signature: no name, no email, no message id, no URL, and no
+ * timestamp more precise than the date.
+ *
+ * 🔴 `rehearsalRequired: false` is the substantive decision inside this approval, and it is the field
+ * a reader is most likely to skim past. It does not say a rehearsal happened, and it does not say
+ * reproducibility was shown. It says the three approvers decided the rehearsal is not a precondition
+ * of their approval — the branch their own unblocking criterion has always offered.
+ */
+export const BRAZIL_RECEITA_GATE7_JOINT_APPROVAL = {
+  approvalDate: '2026-08-24',
+  operatorOwnerReference: 'OWNER_REF_GATE7_OPERATOR_OWNER_RELAY_2026_08_24',
+  technicalOwnerReference: 'OWNER_REF_GATE7_TECHNICAL_OWNER_RELAY_2026_08_24',
+  privacyOwnerReference: 'OWNER_REF_GATE7_PRIVACY_OWNER_RELAY_2026_08_24',
+  rehearsalRequired: false,
+  rehearsalRequiredDecisionBasis:
+    'BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION.andStillRequires has named this branch since FAST-TRACK-6: joint approval after the rehearsal, OR the approvers explicit decision that no rehearsal is required',
+  agentMayApprove: false,
+} as const;
+
+/**
+ * What the three owners approved, named exactly. An approval whose subject is left implicit is an
+ * approval a later round can quietly widen.
+ */
+export const BRAZIL_RECEITA_GATE7_APPROVAL_SUBJECT = {
+  runbookSection: 'docs/source-catalog/br-receita-cnpj-manual-download-local-prep-runbook.md § 16',
+  preflightItemRange: 'P-01 … P-22',
+  preflightItemCount: 22,
+  stopConditionRange: 'T-01 … T-16',
+  stopConditionCount: 16,
+  stopConditionsAreOverridable: false,
+} as const;
+
+/**
+ * The crossings this approval does NOT authorize, enumerated by the owners themselves.
+ *
+ * 🔴 This list is the reason the approval could be recorded at all. GATE-7 is the runbook gate: a
+ * procedure, never a permission (10K § 11 *Does NOT allow*). Every entry below stays forbidden.
+ */
+export const BRAZIL_RECEITA_GATE7_APPROVAL_DOES_NOT_AUTHORIZE: readonly string[] = [
+  'a benchmark',
+  'Attempt #3, or any change to the attempt budget',
+  'reading real Receita data',
+  'any Supabase write',
+  'any Brazil snapshot write',
+  'connecting Agent 1 to Brazil',
+  'any provider call',
+  'enabling production',
+  'changing any cap or any operational flag',
+  'executing the runbook procedure — that needs the separate, explicit authorization of a future milestone',
+];
 
 // ─── The runbook section — the facts this record and the runbook module share ──
 
@@ -162,20 +279,53 @@ export const BRAZIL_RECEITA_GATE7_RUNBOOK_SECTION = {
 } as const;
 
 /**
- * 🔴 The claim this round must NOT make.
+ * 🔴 The claim this record must NOT make, and still does not make after the approval.
  *
  * 10K § 11's pass criteria require the runbook to be *reproducible by a different operator without
  * tacit knowledge*. A complete section is a necessary condition for that and not a demonstration of
- * it: only an authorized rehearsal, by an operator who did not write the section, against real
- * ceilings, can show the steps carry no tacit knowledge. No rehearsal is authorized, none was
- * performed, and claiming reproducibility from the existence of a document would be exactly the kind
- * of unproved claim this series has already had to retract once.
+ * it: only a rehearsal, by an operator who did not write the section, against real ceilings, can show
+ * the steps carry no tacit knowledge. No rehearsal was performed and none is authorized.
+ *
+ * 🔴 BR-SOURCE-FAST-TRACK-8 approved the gate WITHOUT changing this value, and that is deliberate.
+ * The three owners waived the rehearsal as a precondition of their approval; they did not, and could
+ * not, demonstrate the criterion by deciding about it. `UNDEMONSTRATED` therefore stays exactly as it
+ * was, and the waiver is recorded next to it rather than on top of it.
  */
 export const BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR = 'UNDEMONSTRATED' as const;
 
-/** No rehearsal was performed, and none is authorized by the existence of the section. */
+/**
+ * How the criterion was DISPOSED of, as distinct from what its evidentiary state is. Two fields,
+ * because one field would let a reader collapse them: the disposition is a decision, the value above
+ * is a fact, and they disagree on purpose.
+ */
+export const BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_DISPOSITION = 'WAIVED_BY_OWNER_DECISION' as const;
+export const BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_DEMONSTRATED = false as const;
+export const BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_WAIVER_REASON =
+  'P-05 requires every gate approved, GATE-7 included, so a pre-approval rehearsal stops at P-05 by construction; the three owners declined to change P-05, declined a bypass, and instead exercised their own unblocking criterions explicit no-rehearsal-required branch' as const;
+
+/** No rehearsal was performed, and none is authorized — the approval changes neither. */
 export const BRAZIL_RECEITA_GATE7_REHEARSAL_PERFORMED = false as const;
 export const BRAZIL_RECEITA_GATE7_REHEARSAL_AUTHORIZED = false as const;
+
+/** Whether the owners require one before their approval stands. They decided not (FAST-TRACK-8). */
+export const BRAZIL_RECEITA_GATE7_REHEARSAL_REQUIRED = false as const;
+
+/**
+ * 🔴 The circularity the owners were asked to rule on, recorded so the decision cannot later be
+ * mistaken for an oversight — or for a bypass.
+ *
+ * `p05WasModified` and `bypassWasCreated` are the two fields that matter: both `false`, and a static
+ * test asserts them against `BRAZIL_RECEITA_GATE7_PRECONDITION_BYPASS_EXISTS`.
+ */
+export const BRAZIL_RECEITA_GATE7_PRE_APPROVAL_REHEARSAL_CIRCULARITY = {
+  circularity:
+    'P-05 requires all eight gates approved before the procedure may proceed; GATE-7 is one of the eight, so a rehearsal intended to demonstrate reproducibility BEFORE GATE-7 is approved halts at P-05',
+  p05WasModified: false,
+  bypassWasCreated: false,
+  realDataWasUsed: false,
+  attemptBudgetWasChanged: false,
+  resolvedBy: 'the GATE-7 owners explicit decision that a pre-approval rehearsal is not required',
+} as const;
 
 // ─── What advanced ────────────────────────────────────────────────────────────
 
@@ -195,7 +345,7 @@ export const BRAZIL_RECEITA_GATE7_ADVANCED_THIS_ROUND = {
  * check has been performed. No check has been performed against real data, and none is authorized.
  */
 export const BRAZIL_RECEITA_GATE7_REQUIRED_EVIDENCE_DISPOSITION = [
-  { evidence: 'preflight checklist confirming every gate is approved and recorded', present: true, note: 'P-05, executable; returns FAIL today' },
+  { evidence: 'preflight checklist confirming every gate is approved and recorded', present: true, note: 'P-05, executable; returns PASS today — a cleared item, never a permission' },
   { evidence: 'disk / memory check against the GATE-2 ceilings', present: true, note: 'P-12, P-13; ceilings imported, not restated' },
   { evidence: 'local path check — controlled folder outside the repo', present: true, note: 'P-06 plus the workspace confirmations' },
   { evidence: 'manifest check — local file manifest only, never a URL', present: true, note: 'P-08' },
@@ -219,22 +369,32 @@ export interface BrazilReceitaGate7Blocker {
 }
 
 /**
- * The exact remaining blocker. ONE, as of BR-SOURCE-FAST-TRACK-7, and no agent can discharge it.
+ * The remaining blockers. NONE, as of BR-SOURCE-FAST-TRACK-8.
  *
- * 🔴 The three `unapproved_dependency_gate` blockers this array carried through FAST-TRACK-6 are GONE:
- * GATE-2, GATE-5 and GATE-6 are all now `approved`. What remains is the ONE blocker that was always
- * different in kind: approving those three gates unblocks the REVIEW; it does not demonstrate
- * reproducibility. GATE-7's own approvers still decide whether the section plus three approved
- * upstream gates is enough to review, or whether they require a rehearsal first. That is their call,
- * and this record does not make it for them.
+ * 🔴 Empty is not the same as "every criterion was met by evidence". The three
+ * `unapproved_dependency_gate` blockers were discharged by those gates' own approvals in
+ * FAST-TRACK-7; the fourth — the `undemonstrated_pass_criterion` — was discharged by the owners'
+ * WAIVER, recorded above, and not by a demonstration.
+ * `BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR` still reads `UNDEMONSTRATED`, and a
+ * reader who wants to know how this array emptied must look at
+ * `BRAZIL_RECEITA_GATE7_BLOCKERS_DISCHARGED` to find out which mechanism closed each one.
  */
-export const BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS: readonly BrazilReceitaGate7Blocker[] = [
+export const BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS: readonly BrazilReceitaGate7Blocker[] = [];
+
+/** How each blocker this gate ever carried was closed, and by which round. The audit trail. */
+export const BRAZIL_RECEITA_GATE7_BLOCKERS_DISCHARGED: readonly {
+  readonly blocker: string;
+  readonly dischargedBy: 'another_gate_approval' | 'owner_waiver';
+  readonly round: string;
+}[] = [
+  { blocker: 'GATE-2 approved (was needs_owner_confirmation)', dischargedBy: 'another_gate_approval', round: 'BR-SOURCE-FAST-TRACK-7' },
+  { blocker: 'GATE-5 approved (was ready_for_review)', dischargedBy: 'another_gate_approval', round: 'BR-SOURCE-FAST-TRACK-7' },
+  { blocker: 'GATE-6 approved (was ready_for_review)', dischargedBy: 'another_gate_approval', round: 'BR-SOURCE-FAST-TRACK-7' },
   {
     blocker:
-      'reproducibility by a different operator is UNDEMONSTRATED; only an authorized rehearsal can show it, and none is authorized',
-    kind: 'undemonstrated_pass_criterion',
-    dischargeableByAnAgent: false,
-    dischargeableByADocument: false,
+      'reproducibility by a different operator is UNDEMONSTRATED; only a rehearsal can show it, and none is authorized',
+    dischargedBy: 'owner_waiver',
+    round: 'BR-SOURCE-FAST-TRACK-8',
   },
 ];
 
@@ -254,11 +414,13 @@ export const BRAZIL_RECEITA_GATE7_REPRODUCIBILITY =
   BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR;
 
 /**
- * The criterion that would move GATE-7 from `needs_evidence` to `ready_for_review`, stated exactly
- * rather than as "more evidence". Updated by BR-SOURCE-FAST-TRACK-7: the dependency-gate criterion
- * this constant named through FAST-TRACK-6 is discharged (see
- * `BRAZIL_RECEITA_GATE7_DEPENDENCY_BLOCKERS_DISCHARGED_BY_FAST_TRACK_7`); what remains is evidence,
- * not another gate's approval.
+ * The criterion that stood between `needs_evidence` and approval, kept VERBATIM and now DISCHARGED.
+ *
+ * 🔴 It is preserved unedited on purpose. Its `andStillRequires` clause is the authority under which
+ * BR-SOURCE-FAST-TRACK-8's approval was recorded — the parenthetical "or their explicit decision that
+ * no rehearsal is required" — and rewriting the sentence after invoking it would destroy the evidence
+ * that the branch pre-existed the decision rather than being written to fit it. The `discharged` and
+ * `dischargedVia` fields below are additive.
  */
 export const BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION = {
   criterion:
@@ -267,15 +429,16 @@ export const BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION = {
   andStillRequires:
     'the joint operator + technical + privacy owner approval, after the rehearsal (or their explicit decision that no rehearsal is required)',
   agentMayDischarge: false,
+  discharged: true,
+  dischargedVia: 'the_no_rehearsal_required_branch',
+  dischargedRound: 'BR-SOURCE-FAST-TRACK-8',
 } as const;
 
 // ─── Restrictions ─────────────────────────────────────────────────────────────
 
 /** The bounds this record carries, enumerated per 10K § 14. */
 export const BRAZIL_RECEITA_GATE7_RESTRICTIONS: readonly string[] = [
-  'this record approves no gate; needs_evidence is NO-GO in the § 15 matrix, exactly as blocked and not_started are',
   'the runbook section is a PROCEDURE, never a PERMISSION (10K § 11 Does NOT allow)',
-  'the implementer of this subject may not approve this gate',
   'no rehearsal is performed and none is authorized',
   'no run, dry-run, benchmark or attempt-budget change is authorized, and ATTEMPT_3_ALLOWED stays false',
   'no real Receita data is read; no manifest, path or file name is learned or recorded',
@@ -285,4 +448,9 @@ export const BRAZIL_RECEITA_GATE7_RESTRICTIONS: readonly string[] = [
   'only a named authorized human operator may ever execute the procedure — never an agent, and never on behalf of a human',
   // BR-SOURCE-FAST-TRACK-7.
   'GATE-2, GATE-5 and GATE-6 becoming approved unblocks the REVIEW; it does not demonstrate reproducibility, and this record does not claim it does',
+  // BR-SOURCE-FAST-TRACK-8.
+  'this approval covers the § 16 section, P-01…P-22 and T-01…T-16 exactly as recorded; it widens no step, relaxes no stop condition, and makes none of the sixteen overridable',
+  'the reproducibility criterion is WAIVED by owner decision, not demonstrated; a later round may not cite this approval as evidence that the runbook was shown reproducible',
+  'P-05 is unchanged and still has no bypass; it returns PASS only because every gate is now recorded approved, and a PASSING P-05 authorizes no execution on its own',
+  'GLOBAL becoming GO means only what 10K § 15 says it means — a future runner implementation PR may be PROPOSED, still with no execution, no import, and no Brazil enablement',
 ];

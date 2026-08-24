@@ -277,11 +277,16 @@ describe('4O-G — autorización de servidor, no de UI', () => {
       sources[ACTIONS],
       /import \{ CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS \} from '\.\/candidate-stored-phones-authorized-roles'/,
     );
-    // Espejo declarado del waterfall: si una de las dos cambia, esto avisa.
-    assert.match(
+    // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el waterfall YA NO es el espejo de
+    // esta lista — dejó de tener lista propia y reutiliza la autoridad canónica del
+    // reveal (`admin` + `commercial_manager`). Lo que se verifica ahora es justamente
+    // que no haya vuelto a nacer una segunda lista ahí.
+    assert.doesNotMatch(
       executable(read('src/modules/contact-enrichment/phone-reveal-waterfall-core.ts')),
-      /PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS: readonly string\[\] = \['admin'\]/,
+      /PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS/,
     );
+    // Y la lectura de teléfonos almacenados sigue siendo admin-only por su cuenta:
+    // que el waterfall se haya ensanchado no la arrastra.
   });
 
   it('la lectura privilegiada NO es invocable desde el navegador', () => {

@@ -2762,6 +2762,44 @@ jobs:
       - name: Run BR-SOURCE FAST-TRACK-7 GATE-2/3/4/5/6 owner approval tests
         run: npm run test:br-source:fast-track7-gate2-3-4-5-6-approvals
 
+      # BR-SOURCE-FAST-TRACK-8 — el relevo humano del dueño del proyecto (2026-08-24):
+      # GATE-7 queda APROBADO por decisión CONJUNTA de sus tres dueños requeridos (operador,
+      # técnico y privacidad). Es el octavo y último gate: 8 de 8 aprobados.
+      #
+      #   · sujeto NOMBRADO, nunca implícito: la sección § 16 del runbook, sus 22 preflights
+      #     P-01…P-22 y sus 16 condiciones de parada NO anulables T-01…T-16.
+      #   · 🔴 LO ÚNICO QUE NO PUEDE MALLEERSE: la reproducibilidad por otro operador sigue
+      #     `UNDEMONSTRATED`. NO se demostró — se RENUNCIÓ a exigirla
+      #     (`REPRODUCIBILITY_DISPOSITION = WAIVED_BY_OWNER_DECISION`,
+      #     `REPRODUCIBILITY_DEMONSTRATED = false`). Son DOS constantes separadas justamente
+      #     para que una sola edición no pueda confundir una renuncia con una demostración.
+      #   · la renuncia usó una rama que el contrato YA contenía desde FAST-TRACK-6:
+      #     `UNBLOCKING_CRITERION.andStillRequires` dice "…después del ensayo (o su decisión
+      #     explícita de que no se requiere ensayo)". La frase se conserva VERBATIM — la ronda
+      #     que la invocó no la reescribió, y una prueba lo asserta.
+      #   · la circularidad es DELIBERADA y es una propiedad de seguridad: P-05 exige los 8
+      #     gates aprobados, GATE-7 incluido, así que un ensayo previo se detiene en P-05 por
+      #     construcción. Los dueños decidieron NO tocar P-05, NO crear bypass, NO usar datos
+      #     reales y NO cambiar ATTEMPT_3_ALLOWED. Sólo cambiaron lo único suyo: si el ensayo
+      #     es precondición de SU aprobación.
+      #   · `ready_for_review` NUNCA se ocupó: la renuncia y la aprobación fueron UNA decisión.
+      #     Registrar un estado que el gate no ocupó sería un paso inventado en la traza.
+      #   · P-05 ahora devuelve PASS por PRIMERA VEZ, y ni él ni el evaluador de privacidad se
+      #     editaron: ambos derivan del estado vivo, sin parámetro, opción, env ni override. Un
+      #     P-05 en PASS NO es un permiso: despeja 1 de 22 items; los otros 20 los ejecuta un
+      #     operador HUMANO nombrado sobre una máquina que ningún módulo ve.
+      #   · `brazilReceitaGateGlobalVerdict()` = GO por primera vez, en el sentido ESTRECHO del
+      #     § 15: "puede PROPONERSE un PR de runner futuro — todavía sin ejecución". Todos los
+      #     demás campos de `BRAZIL_RECEITA_GATE_GO_MEANS` son false.
+      #   · NO autoriza: benchmark, Attempt #3, datos reales, Supabase, snapshots, Agent 1
+      #     Brasil, proveedores, producción, ni cambio de cap o flag. Brasil sigue OFF y 14A
+      #     sigue NO_GO.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales de Receita,
+      # sin benchmark, SIN ENSAYO. 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run BR-SOURCE FAST-TRACK-8 GATE-7 owner approval tests
+        run: npm run test:br-source:fast-track8-gate7-approval
+
       # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 20 — la demanda RESIDUAL y la
       # memoria PREVIA.
       #
@@ -2942,6 +2980,76 @@ jobs:
       # 0 créditos, 0 migraciones.
       - name: Run Agent 1 mixed free+paid batch truthfulness tests
         run: npm run test:a1-mixed-batch-truthfulness
+      # AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1 — el waterfall Apollo → Lusha
+      # es el comportamiento NORMAL del botón «Revelar teléfono», no un privilegio
+      # de rol.
+      #
+      # El defecto de Product que corrige: la autorización de ROL partía el
+      # producto en dos flujos. El waterfall tenía una lista de roles PROPIA y más
+      # estrecha (`['admin']`), así que un `commercial_manager` —que SÍ puede
+      # revelar teléfono— se quedaba en Apollo-only y nunca alcanzaba la 2ª pata.
+      # El rol debe decidir SI el actor puede revelar; QUÉ flujo corre lo decide
+      # el flag `ENABLE_PHONE_REVEAL_WATERFALL`, que sigue siendo el master switch.
+      #
+      # Lo que este paso impide que vuelva, dicho como defecto:
+      #   * que nazca una SEGUNDA lista de roles para el waterfall. La autoridad es
+      #     una sola (`phone-reveal-authorized-roles.ts`) y se afirma rol por rol
+      #     que `WATERFALL_ALLOWED(actor) === PHONE_REVEAL_ALLOWED(actor)`;
+      #   * que ensanchar el waterfall abra el reveal a un rol que NUNCA pudo
+      #     revelar: `seller`, `seller_bd`, `lead` y el actor sin rol siguen
+      #     bloqueados, sin leer el candidato y sin consultar el presupuesto;
+      #   * que ensanchar el waterfall arrastre de rebote a «Buscar más números»,
+      #     que es una compra ADICIONAL y conserva su propia lista admin-only en
+      #     vez de heredar la del waterfall;
+      #   * que el copy MIENTA sobre el tope. El drawer clasificaba con una regla
+      #     propia —«el candidato nació en Lusha y trae su id»— que no conoce las
+      #     identidades ya persistidas (migración 124) ni si hay datos con los que
+      #     buscar, así que un candidato Apollo con email y LinkedIn leía «hasta 8
+      #     créditos» mientras el arranque reservaba 14. Ahora la modalidad la
+      #     resuelve el MISMO core puro que reserva, y se afirma caso por caso que
+      #     el número mostrado y el enviado coinciden (8 / 13 / 14);
+      #   * que se INVENTE un 14 donde la búsqueda no se puede ejecutar: sin
+      #     identificador exacto el tope es 8, con identidad persistida es 13, y si
+      #     el servidor no contesta (flag apagado, rol no autorizado, 124 sin
+      #     aplicar) el copy cae al conservador y jamás promete la búsqueda;
+      #   * que un token de servicio convierta una autorización inválida en una
+      #     llamada pagada: la pata Lusha recibe el `authorized_by_role` de la
+      #     corrida y lo revalida contra la autoridad canónica antes de llamar;
+      #   * que la ruta legacy solo-Lusha quede admin-only o recobre Apollo: todo
+      #     rol autorizado la reautoriza, con tope 5, `apollo_attempted_at = null`
+      #     y sólo el pozo de Lusha consultado;
+      #   * y que el contrato de crédito de la 124 se mueva: 1 (búsqueda) / 5
+      #     (teléfono) / 8 (Apollo) / 13 / 14, con cada total igual a la suma de
+      #     sus patas y el umbral de la búsqueda en 14.
+      #
+      # Offline y determinista: deps inyectadas y server actions mockeados. Sin
+      # red, sin Supabase, sin Apollo, sin Lusha, 0 créditos, 0 migraciones.
+      #
+      # R2 añade el contrato del TECHO DE LA AUTORIZACIÓN HUMANA. El defecto que
+      # impide que vuelva, dicho como secuencia: la vista previa falla ⇒ el botón
+      # ofrece «hasta 8 créditos» ⇒ la persona autoriza 8 ⇒ el clic envía 8 ⇒ el
+      # servidor resuelve la modalidad REAL (14) y reservaba 14, porque la única
+      # validación que existía comparaba contra la pata de Apollo (8), no contra la
+      # modalidad. Se reservaba un máximo que nadie aprobó.
+      #
+      # Lo que este paso fija ahora:
+      #   * el techo aceptado es un LÍMITE SUPERIOR DURO y se compara ANTES del
+      #     preflight de presupuesto y de `reserve_and_create_phone_reveal_run`:
+      #     aceptado < requerido ⇒ 0 consultas de pozo, 0 reservas, 0 corridas, 0
+      #     Apollo, 0 Lusha, 0 usage-logs, 0 créditos. La prueba de ORDEN es que no
+      #     se consulta ni un pozo: mover la comparación detrás de la reserva la
+      #     rompe aunque el desenlace visible siga siendo un bloqueo;
+      #   * reservar-y-liberar NO es equivalente y no se acepta como arreglo;
+      #   * aceptar de MÁS se permite, pero lo que se RESERVA sigue siendo lo
+      #     requerido (aceptar 14 sobre una modalidad de 13 registra 13);
+      #   * omitir el techo equivale al suelo de 8, jamás a la modalidad requerida;
+      #   * el rechazo NO degrada a Apollo-only —gastar 8 tampoco estaba autorizado
+      #     bajo esa lectura— y NO se reintenta solo: la UI recarga su vista previa,
+      #     muestra «la autorización cambió» y el siguiente clic es de la persona;
+      #   * y la ruta legacy solo-Lusha conserva su tope 5: este cambio no puede
+      #     convertir una autorización legacy en una de 13/14.
+      - name: Run A2A waterfall default reveal behavior tests
+        run: npm run test:agent2a:waterfall-default-reveal-behavior
 
       # ── AGENT1-CUT3B1-FISCAL-IDENTITY-TRUTH ────────────────────────────────
       #

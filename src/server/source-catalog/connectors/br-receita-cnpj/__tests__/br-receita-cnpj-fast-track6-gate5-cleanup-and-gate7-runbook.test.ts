@@ -133,6 +133,7 @@ import {
   BRAZIL_RECEITA_GATE7_APPROVAL_IS_JOINT,
   BRAZIL_RECEITA_GATE7_APPROVED,
   BRAZIL_RECEITA_GATE7_APPROVER_COUNT,
+  BRAZIL_RECEITA_GATE7_BLOCKERS_DISCHARGED,
   BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS,
   BRAZIL_RECEITA_GATE7_REPRODUCIBILITY,
   BRAZIL_RECEITA_GATE7_REQUIRED_EVIDENCE_DISPOSITION,
@@ -683,23 +684,27 @@ describe('FAST-TRACK-6 · the GATE-7 preflight is executable and fails closed', 
     }
   });
 
-  it('P-05 is the gate-status item and is recorded as failing today', () => {
+  it('🔴 UPDATED BY BR-SOURCE-FAST-TRACK-8: P-05 is still the gate-status item, and now expected to pass', () => {
     const p05 = BRAZIL_RECEITA_GATE7_PREFLIGHT_ITEMS.find((item) => item.id === 'P-05');
     assert.ok(p05);
-    assert.equal(p05.standing, 'checkable_and_fails_today');
+    // GATE-7's own approval was the last gate this item waited on. Not
+    // `operator_environment_dependent` like P-19 / P-21: the gate state lives in this repo, so the
+    // answer is fully determined here rather than on the operator's machine.
+    assert.equal(p05.standing, 'checkable_and_expected_to_pass');
     assert.equal(p05.authority, 'br-receita-cnpj-gate-status-current-state');
   });
 
-  it('🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7: the evaluator still returns FAIL, but the three named blocking gates are now discharged — GATE-7 itself is the only unapproved gate left', () => {
+  it('🔴 UPDATED BY BR-SOURCE-FAST-TRACK-8: the evaluator now returns PASS, because every gate — GATE-7 included — is approved', () => {
     const outcome = evaluateBrazilReceitaGate7Preconditions();
-    assert.equal(outcome.result, 'FAIL');
-    assert.ok(outcome.unapprovedGates.length > 0);
-    assert.deepEqual(outcome.unapprovedGates.map((entry) => entry.gate), [7]);
+    assert.equal(outcome.result, 'PASS');
+    assert.deepEqual([...outcome.unapprovedGates], []);
     // The contract's named blocking-gate list is unchanged — it is the fixed dependency contract,
-    // not a live "currently blocking" computation — but GATE-2, GATE-5 and GATE-6 are now approved,
-    // so the CURRENT unapproved subset of that list is empty.
+    // not a live "currently blocking" computation — and its unapproved subset stays empty.
     assert.deepEqual([...BRAZIL_RECEITA_GATE7_BLOCKING_GATES], [2, 5, 6]);
     assert.deepEqual([...outcome.unapprovedBlockingGates], []);
+    // 🔴 PASS is not permission. The bypass never existed and still does not.
+    assert.equal(outcome.bypassAvailable, false);
+    assert.equal(BRAZIL_RECEITA_GATE7_PRECONDITION_BYPASS_EXISTS, false);
   });
 
   it('the evaluator takes NO arguments, so there is no surface to weaken it on', () => {
@@ -715,7 +720,9 @@ describe('FAST-TRACK-6 · the GATE-7 preflight is executable and fails closed', 
       (entry) => !BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(entry.status),
     ).map((entry) => entry.gate);
     assert.deepEqual(outcome.unapprovedGates.map((entry) => entry.gate), expected);
-    assert.equal(brazilReceitaGateGlobalVerdict(), 'NO-GO');
+    // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-8: eight of eight approved, so the verdict is GO — the narrow
+    // § 15 GO (a runner PR may be PROPOSED), never an execution authorization.
+    assert.equal(brazilReceitaGateGlobalVerdict(), 'GO');
   });
 
   it('a failed item is a stop, and a warning is never a pass', () => {
@@ -929,20 +936,24 @@ describe('FAST-TRACK-6 · the run-time discipline is enumerated and fail-closed'
 
 // ─── 14 · GATE-7's status ─────────────────────────────────────────────────────
 
-describe('FAST-TRACK-6 · GATE-7 status (superseded by BR-SOURCE-FAST-TRACK-7 — see the dedicated FAST-TRACK-7 suite)', () => {
-  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — GATE-2, GATE-5 and GATE-6 are now approved, discharging the
-  // dependency that made `blocked` correct. GATE-7 moved to `needs_evidence`: the reproducibility
-  // rehearsal is missing EVIDENCE, not a person's answer to a posed question. See
-  // br-receita-cnpj-fast-track7-gate2-3-4-5-6-approvals.test.ts for the full reasoning.
-  it('is needs_evidence, not approved, and needs_evidence is NO-GO', () => {
-    assert.equal(BRAZIL_RECEITA_GATE7_STATUS, 'needs_evidence');
-    assert.equal(BRAZIL_RECEITA_GATE7_APPROVED, false);
-    assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE7_STATUS), false);
-    assert.equal(brazilReceitaGateGlobalVerdict(), 'NO-GO');
+describe('FAST-TRACK-6 · GATE-7 status (superseded by BR-SOURCE-FAST-TRACK-8 — see the dedicated FAST-TRACK-8 suite)', () => {
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7, THEN BY BR-SOURCE-FAST-TRACK-8. FAST-TRACK-7 approved
+  // GATE-2/5/6, discharging the dependency that made `blocked` correct, and moved GATE-7 to
+  // `needs_evidence`. FAST-TRACK-8 recorded GATE-7's own joint owner approval, with the reproducibility
+  // rehearsal WAIVED rather than performed. See
+  // br-receita-cnpj-fast-track8-gate7-approval.test.ts for the full reasoning.
+  it('is approved, and approved is GO-eligible', () => {
+    assert.equal(BRAZIL_RECEITA_GATE7_STATUS, 'approved');
+    assert.equal(BRAZIL_RECEITA_GATE7_APPROVED, true);
+    assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE7_STATUS), true);
+    assert.equal(brazilReceitaGateGlobalVerdict(), 'GO');
   });
 
-  it('names the status it refuses to claim, and why', () => {
+  it('names the status it never occupied, and the criterion whose OTHER branch was taken', () => {
+    // The gate went needs_evidence → approved directly: the waiver and the approval were one decision,
+    // so there was never an interval in which evidence stood complete and an approver was awaited.
     assert.equal(BRAZIL_RECEITA_GATE7_STATUS_NOT_CLAIMED, 'ready_for_review');
+    assert.notEqual(BRAZIL_RECEITA_GATE7_STATUS, BRAZIL_RECEITA_GATE7_STATUS_NOT_CLAIMED);
     assert.equal(BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION.thenStatusBecomes, 'ready_for_review');
     assert.equal(BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION.agentMayDischarge, false);
   });
@@ -953,22 +964,20 @@ describe('FAST-TRACK-6 · GATE-7 status (superseded by BR-SOURCE-FAST-TRACK-7 �
     assert.equal(BRAZIL_RECEITA_GATE7_AGENT_MAY_APPROVE, false);
   });
 
-  it('lists exactly ONE remaining blocker — reproducibility — now that the three dependency gates are approved', () => {
-    assert.equal(BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS.length, 1);
-    const dependency = BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS.filter(
-      (blocker) => blocker.kind === 'unapproved_dependency_gate',
+  it('lists NO remaining blocker, and the audit trail still names how the last one closed', () => {
+    assert.deepEqual([...BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS], []);
+    // 🔴 Empty is not "all criteria demonstrated". The last blocker closed by an owner WAIVER, and the
+    // discharge record says so rather than letting the empty array imply evidence.
+    const waived = BRAZIL_RECEITA_GATE7_BLOCKERS_DISCHARGED.filter(
+      (entry) => entry.dischargedBy === 'owner_waiver',
     );
-    assert.equal(dependency.length, 0);
-    const undemonstrated = BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS.filter(
-      (blocker) => blocker.kind === 'undemonstrated_pass_criterion',
-    );
-    assert.equal(undemonstrated.length, 1);
-    for (const blocker of BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS) {
-      assert.equal(blocker.dischargeableByAnAgent, false);
-    }
+    assert.equal(waived.length, 1);
+    assert.equal(waived[0]?.round, 'BR-SOURCE-FAST-TRACK-8');
   });
 
-  it('reproducibility is UNDEMONSTRATED, and the two records agree because one imports the other', () => {
+  it('reproducibility is STILL UNDEMONSTRATED after the approval, and the two records agree because one imports the other', () => {
+    // 🔴 The approval did not move this value, and BR-SOURCE-FAST-TRACK-8 is the round with the most
+    // incentive to have moved it. A waiver sits beside the value, never on top of it.
     assert.equal(BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR, 'UNDEMONSTRATED');
     assert.equal(BRAZIL_RECEITA_GATE7_REPRODUCIBILITY, 'UNDEMONSTRATED');
     assert.equal(BRAZIL_RECEITA_GATE7_REHEARSAL_PERFORMED, false);
@@ -983,18 +992,24 @@ describe('FAST-TRACK-6 · GATE-7 status (superseded by BR-SOURCE-FAST-TRACK-7 �
     }
   });
 
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-8. Two entries left this list when the gate was approved — "this
+  // record approves no gate" and "the implementer of this subject may not approve this gate" — because
+  // both became false statements: the record now carries an approval, supplied by three named owners
+  // and not by the implementer. Every operational refusal below is unchanged, and four were added.
   it('the restrictions forbid every operational crossing, including a rehearsal', () => {
     const text = BRAZIL_RECEITA_GATE7_RESTRICTIONS.join(' | ');
     for (const refusal of [
-      /approves no gate/,
       /PROCEDURE, never a PERMISSION/,
-      /may not approve this gate/,
       /No rehearsal|no rehearsal/,
       /ATTEMPT_3_ALLOWED stays false/,
       /no real Receita data/,
       /no migration/,
       /UNDEMONSTRATED/,
       /never an agent/,
+      // FAST-TRACK-8's own additions.
+      /WAIVED by owner decision, not demonstrated/,
+      /P-05 is unchanged and still has no bypass/,
+      /GLOBAL becoming GO means only what 10K § 15 says/,
     ]) {
       assert.match(text, refusal);
     }
