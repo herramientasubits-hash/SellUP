@@ -57,10 +57,18 @@ import {
   mapApolloStartStatusToWaterfallPatch,
   startPhoneRevealWaterfall,
 } from './phone-reveal-waterfall-core';
+import { isPhoneRevealWaterfallRoleAuthorized } from './phone-reveal-waterfall-core';
 import {
   buildStartWaterfallDeps,
   updateWaterfallRun,
 } from './phone-reveal-waterfall-deps';
+import {
+  buildPhoneRevealWaterfallStartEvent,
+  classifyPhoneRevealWaterfallStartFailure,
+  WATERFALL_FLAG_INVARIANT_ERROR_CODE,
+  WATERFALL_RUN_UNAVAILABLE_ERROR_CODE,
+  type PhoneRevealWaterfallStartGate,
+} from './phone-reveal-waterfall-start-gate';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
 
 // Env con la URL pública del webhook async de Apollo (sin NEXT_PUBLIC). No se
@@ -182,48 +190,6 @@ function safeApolloErrorCode(raw: unknown): string {
 // ── Waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1) ───────
 
 /**
- * Resultado del gate del waterfall que corre ANTES del START de Apollo.
- *
- * `no_waterfall` es "no hay corrida que abrir" — una decisión, no un fallo — y el
- * reveal Apollo legacy continúa. `infrastructure_unavailable` es "el waterfall SÍ
- * se pidió y NO se pudo registrar", y detiene la operación completa.
- */
-type PhoneRevealWaterfallStartGate =
-  | { kind: 'no_waterfall' }
-  | { kind: 'started'; runId: string }
-  | { kind: 'infrastructure_unavailable'; errorCode: string }
-  /**
-   * AGENT2A-PHONE-WATERFALL-4D: algún pozo no cubre su pata. El core lo detectó ANTES
-   * del INSERT y ANTES de reservar, así que no hay corrida ni exposición que liberar.
-   */
-  | { kind: 'insufficient_credits' }
-  /**
-   * AGENT2A-PHONE-WATERFALL-4E: algún proveedor exigido no tiene regla de crédito, así
-   * que no hay disponibilidad que reservar. Mismas garantías de cero efectos.
-   */
-  | { kind: 'budget_not_configured' }
-  /** El presupuesto no se pudo verificar. Fail-closed, mismas garantías de cero efectos. */
-  | { kind: 'credit_balance_unavailable' }
-  /**
-   * AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2: el tope que el operador ACEPTÓ es
-   * menor que el que la modalidad real exige. El core lo detectó DESPUÉS de resolver la
-   * modalidad y ANTES del preflight de presupuesto y de la transacción de reserva, así
-   * que no hay corrida, ni exposición, ni proveedor que deshacer.
-   */
-  | {
-      kind: 'authorization_ceiling_mismatch';
-      requiredMaxCredits: number | null;
-      acceptedMaxCredits: number | null;
-    };
-
-/**
- * Código PII-free que viaja al resultado y al log cuando la corrida no se pudo
- * registrar. Deliberadamente genérico: el detalle mecánico del driver va al log
- * del servidor, no al cliente.
- */
-const WATERFALL_RUN_UNAVAILABLE_ERROR_CODE = 'waterfall_run_unavailable';
-
-/**
  * Abre la corrida del waterfall ANTES del START de Apollo
  * (AGENT2A-PHONE-WATERFALL-2A).
  *
@@ -233,30 +199,23 @@ const WATERFALL_RUN_UNAVAILABLE_ERROR_CODE = 'waterfall_run_unavailable';
  * ningún proveedor. Antes esto era best-effort y el reveal Apollo continuaba por la
  * ruta legacy; ese comportamiento no estaba aprobado y es lo que este gate corrige.
  *
- * Se distingue con precisión entre dos cosas que antes se colapsaban en `null`:
+ * AGENT2A-WATERFALL-NO-SILENT-DOWNGRADE-1 — el flag EXTERIOR es la autoridad:
  *
- *   * WATERFALL NO SOLICITADO / NO APLICABLE ⇒ `no_waterfall`, y el reveal Apollo
- *     legacy sigue exactamente como antes de este hito:
- *       - flag apagado (ni se resuelve el resto);
- *       - rol no autorizado — un actor SIN permiso de revelar teléfono nunca
- *         alcanza la 2ª pata; el gate de rol corre en el core ANTES de tocar
- *         infraestructura, así que tampoco consulta la tabla 102. Un
- *         `commercial_manager` SÍ está autorizado desde
- *         AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el rol dejó de decidir QUÉ
- *         flujo corre;
- *       - candidato inválido o inexistente — el propio core de Apollo los rechaza
- *         sin llamar al proveedor, y el operador debe ver ESE motivo, no un fallo
- *         de auditoría;
- *       - ya existe una autorización viva (`active_run_exists`) o el índice único
- *         parcial rechazó el INSERT (`create_conflict`, Postgres 23505): en los dos
- *         casos la corrida SÍ está registrada, es de otra autorización, y el reveal
- *         Apollo responderá `already_pending`.
+ *   * `ENABLE_PHONE_REVEAL_WATERFALL` APAGADO ⇒ `no_waterfall`, y el reveal Apollo
+ *     legacy sigue exactamente como antes de este hito. Ese chequeo es la ÚNICA
+ *     fuente legítima de `no_waterfall`.
  *
- *   * WATERFALL SOLICITADO Y NO INICIADO ⇒ `infrastructure_unavailable`. Cubre
- *     CUALQUIER fallo que impida crear la corrida (tabla 102 ausente con `42P01` o
- *     `PGRST205`, timeout `57014`, credenciales, un INSERT que no devuelve id…). La
- *     garantía NO depende de reconocer un código de Postgres concreto: se derrota
- *     por excepción, así que un error nuevo o desconocido también cierra el paso.
+ *   * Flag ENCENDIDO ⇒ una vez que se entra a `startPhoneRevealWaterfall`, NINGÚN
+ *     resultado puede convertir la operación en un Apollo suelto. Todo motivo de
+ *     NO-arranque se clasifica explícitamente y BLOQUEA antes de cualquier
+ *     proveedor: 0 Apollo, 0 Lusha, 0 reservas, 0 usage-logs, 0 créditos.
+ *
+ * Antes de este hito seis motivos del core (`feature_disabled`, `role_not_allowed`,
+ * `invalid_candidate`, `candidate_not_found`, `active_run_exists`,
+ * `create_conflict`) se colapsaban en `no_waterfall`, así que la UI podía autorizar
+ * un waterfall auditado de hasta 14 créditos y el servidor acababa ejecutando un
+ * Apollo-only sin corrida, sin reserva y sin `phone_reveal_waterfall_id` en el
+ * usage-log. La clasificación vive en `phone-reveal-waterfall-start-gate.ts`.
  *
  * El carácter best-effort se conserva donde sí corresponde — reconciliación,
  * webhook y recovery — porque allí un fallo de auditoría no puede convertir un
@@ -273,7 +232,10 @@ async function startWaterfallRunOrBlock(
    */
   acceptedMaxCredits: number | undefined,
 ): Promise<PhoneRevealWaterfallStartGate> {
-  if (!isPhoneRevealWaterfallEnabled()) return { kind: 'no_waterfall' };
+  const outerFlagEnabled = isPhoneRevealWaterfallEnabled();
+  if (!outerFlagEnabled) return { kind: 'no_waterfall' };
+
+  const roleAuthorized = isPhoneRevealWaterfallRoleAuthorized(actor.roleKey);
 
   let started: Awaited<ReturnType<typeof startPhoneRevealWaterfall>>;
   try {
@@ -282,6 +244,12 @@ async function startWaterfallRunOrBlock(
       buildStartWaterfallDeps(actor),
     );
   } catch (err) {
+    logWaterfallStartOutcome({
+      outerFlagEnabled,
+      roleAuthorized,
+      started: null,
+      acceptedMaxCredits,
+    });
     // Observabilidad sin PII: solo el mensaje mecánico del driver, ya redactado.
     console.error(
       '[phone-reveal-waterfall] run creation failed, aborting before any provider:',
@@ -293,61 +261,52 @@ async function startWaterfallRunOrBlock(
     };
   }
 
+  logWaterfallStartOutcome({
+    outerFlagEnabled,
+    roleAuthorized,
+    started,
+    acceptedMaxCredits,
+  });
+
   if (started.started) return { kind: 'started', runId: started.runId };
 
-  switch (started.reason) {
-    case 'feature_disabled':
-    case 'role_not_allowed':
-    case 'invalid_candidate':
-    case 'candidate_not_found':
-    case 'active_run_exists':
-    case 'create_conflict':
-      return { kind: 'no_waterfall' };
-    // AGENT2A-PHONE-WATERFALL-4D. NO son `no_waterfall`: dejar continuar el reveal
-    // Apollo legacy sería gastar exactamente los créditos que el preflight acaba de
-    // declarar indisponibles.
-    case 'insufficient_credits':
-      return { kind: 'insufficient_credits' };
-    case 'budget_not_configured':
-      return { kind: 'budget_not_configured' };
-    case 'credit_balance_unavailable':
-      return { kind: 'credit_balance_unavailable' };
-    // AGENT2A-PHONE-WATERFALL-4F. El saldo se verificó bien; lo que no se pudo fue
-    // ESCRIBIR la reserva y la corrida (la migración 104 no está aplicada, timeout,
-    // credenciales…). Es exactamente el mismo caso que la tabla 102 ausente —el
-    // waterfall se autorizó y su corrida no existe— así que se trata igual: se corta
-    // antes de cualquier proveedor y el operador lee un fallo de infraestructura, no
-    // uno de saldo que no tuvo.
-    case 'run_creation_unavailable':
-      return {
-        kind: 'infrastructure_unavailable',
-        errorCode: WATERFALL_RUN_UNAVAILABLE_ERROR_CODE,
-      };
-    // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2. NO es `no_waterfall`: dejar caer el
-    // reveal Apollo legacy convertiría exactamente el bug que se está cerrando —el
-    // operador autorizó 8, la modalidad real vale 14— en un gasto de 8 que tampoco pidió
-    // bajo esa lectura. La autorización obsoleta se vuelve a pedir; no se reinterpreta.
-    case 'authorization_ceiling_mismatch':
-      return {
-        kind: 'authorization_ceiling_mismatch',
-        requiredMaxCredits: started.requiredMaxCredits ?? null,
-        acceptedMaxCredits: started.acceptedMaxCredits ?? null,
-      };
-    default: {
-      // Un motivo NUEVO rompe la compilación aquí a propósito: decidir si una
-      // razón inédita puede seguir gastando proveedores es una decisión de
-      // producto, no un default silencioso. En runtime, fail-closed.
-      const exhaustive: never = started.reason;
-      console.error(
-        '[phone-reveal-waterfall] unhandled start reason, aborting before any provider:',
-        String(exhaustive),
-      );
-      return {
-        kind: 'infrastructure_unavailable',
-        errorCode: WATERFALL_RUN_UNAVAILABLE_ERROR_CODE,
-      };
-    }
+  const gate = classifyPhoneRevealWaterfallStartFailure(started);
+
+  // El flag exterior estaba encendido y el core, leyendo el MISMO flag, dijo
+  // `feature_disabled`. No es un estado de producto: es una invariante rota, y se
+  // deja dicho explícitamente para que no se lea como «aquí no había waterfall».
+  if (
+    gate.kind === 'infrastructure_unavailable' &&
+    gate.errorCode === WATERFALL_FLAG_INVARIANT_ERROR_CODE
+  ) {
+    console.error(
+      '[phone-reveal-waterfall] invariant violation: outer flag enabled but core reported feature_disabled, aborting before any provider',
+    );
   }
+
+  return gate;
+}
+
+/**
+ * Emite el evento estructurado y SIN PII de cada arranque. Nunca falla hacia
+ * arriba: la observabilidad no puede cambiar la decisión de gasto que acaba de
+ * tomarse.
+ */
+function logWaterfallStartOutcome(args: {
+  outerFlagEnabled: boolean;
+  roleAuthorized: boolean;
+  started: Awaited<ReturnType<typeof startPhoneRevealWaterfall>> | null;
+  /**
+   * Techo aceptado TAL CUAL llegó del cliente. Se pasa crudo a propósito: la
+   * normalización es del contrato del techo duro y vive en el core, no aquí, para que
+   * el evento y la comparación que autorizó el gasto no puedan divergir.
+   */
+  acceptedMaxCredits: number | undefined;
+}): void {
+  console.info(
+    '[phone-reveal-waterfall] start outcome:',
+    JSON.stringify(buildPhoneRevealWaterfallStartEvent(args)),
+  );
 }
 
 /**
@@ -413,7 +372,8 @@ export async function revealCandidatePhoneAction(
   // Waterfall Apollo → Lusha: la corrida se abre ANTES del START para que el
   // webhook (que puede llegar en segundos) encuentre siempre la autorización, y
   // para que el usage-log del START ya lleve `phone_reveal_waterfall_id`. Con el
-  // flag apagado o un rol no admin no hay corrida y todo queda como antes.
+  // flag apagado no hay corrida y todo queda como antes; con el flag encendido la
+  // corrida es PRECONDICIÓN del gasto (AGENT2A-WATERFALL-NO-SILENT-DOWNGRADE-1).
   const waterfallGate = await startWaterfallRunOrBlock(
     input.candidateId,
     actor,
@@ -431,6 +391,27 @@ export async function revealCandidatePhoneAction(
       status: 'waterfall_infrastructure_unavailable',
       requestAccepted: false,
       errorCode: waterfallGate.errorCode,
+    };
+  }
+
+  // AGENT2A-WATERFALL-NO-SILENT-DOWNGRADE-1: el waterfall estaba ENCENDIDO y su
+  // arranque no procede por una condición del actor, del candidato o de una
+  // autorización ya viva. Antes esto caía al reveal Apollo legacy —un gasto que
+  // nadie autorizó bajo esa lectura—; ahora corta AQUÍ, antes de
+  // `runRevealCandidatePhone`, que es el único punto que llama a Apollo y el único
+  // que escribe un usage-log: 0 llamadas a Apollo, 0 llamadas a Lusha, 0 reservas,
+  // 0 corridas nuevas, 0 usage-logs y 0 créditos.
+  //
+  // `already_pending` cubre `active_run_exists` y `create_conflict`: la corrida que
+  // ya existe ES la autorización, así que no se abre una segunda llamada que
+  // gastaría fuera de su reserva. El estado devuelto es el mismo que el operador
+  // habría leído por la vía anterior, así que la UI no necesita copy nuevo.
+  if (waterfallGate.kind === 'blocked') {
+    return {
+      ok: false,
+      status: waterfallGate.status,
+      requestAccepted: false,
+      errorCode: null,
     };
   }
 
