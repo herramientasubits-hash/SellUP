@@ -89,6 +89,56 @@
 -- ============================================================================
 
 
+-- ── 0. CUT-3B5 — POR QUÉ EL `search_path` INCLUYE `public` ───────────────────
+--
+-- 🔴 Esta migración se corrigió ANTES de su PRIMERA aplicación. El preflight de
+-- Producción la bloqueó, y el motivo no era teórico.
+--
+-- Las dos funciones son `SECURITY INVOKER`, así que corren bajo las políticas RLS
+-- del llamador. Las políticas que Producción tiene sobre `prospect_batches` y
+-- `prospect_candidates` —creadas por la 040— invocan:
+--
+--     has_active_access(auth.uid())
+--
+-- y `public.has_active_access` es, en Producción HOY, `SECURITY INVOKER`, con
+-- `proconfig = NULL` (no fija ningún `search_path` propio) y con el cuerpo:
+--
+--     SELECT EXISTS(SELECT 1 FROM internal_users WHERE …)
+--
+-- donde `internal_users` va SIN CUALIFICAR.
+--
+-- Un `SET search_path = pg_catalog, pg_temp` en ESTAS funciones se propaga a esa
+-- ejecución anidada. El resultado, verificado contra Producción, es exacto:
+--
+--     ERROR:  42P01: relation "internal_users" does not exist
+--     CONTEXT:  SQL function "has_active_access" during inlining
+--
+-- La ruta de Lusha (revisión pendiente) escribe con el cliente de SESIÓN, es decir
+-- como `authenticated`. Con el `search_path` restringido, la migración habría
+-- fallado CERRADA —sin corromper nada— pero habría detenido la persistencia de
+-- candidatos de esa ruta. Fallar cerrado no es lo mismo que ser correcto.
+--
+-- Por eso `public` entra en el camino. Y por eso `pg_catalog` va PRIMERO:
+--
+--   · `pg_catalog` conserva la precedencia sobre los objetos internos de
+--     PostgreSQL, así que un objeto plantado en `public` no puede secuestrar una
+--     función o un tipo del catálogo;
+--   · `public` está SÓLO para que la ejecución anidada de RLS pueda resolver la
+--     referencia sin cualificar que `has_active_access` tiene hoy;
+--   · el riesgo de secuestro por siembra en `public` está cerrado por privilegio,
+--     no por confianza: Producción ya demuestra que NI `authenticated` NI `anon`
+--     tienen CREATE sobre `public`. La suite de PostgreSQL real de este corte lo
+--     RATCHEA, y también que `pg_catalog` precede a `public`.
+--
+-- 🔴 Lo que este corte NO hace, a propósito: NO reescribe `has_active_access` y NO
+-- cualifica los esquemas de las ~25 políticas de tabla que dependen de ella. Ese
+-- endurecimiento es real y merece su propio corte con su propio preflight; hacerlo
+-- de paso, en la migración que ya estaba revisada, habría cambiado el radio de
+-- explosión sin cambiar el radio de la revisión.
+--
+-- Las dos funciones siguen siendo `SECURITY INVOKER`. Aquí no se concede nada.
+
+
 -- ── 1. La época de identidad del lote ────────────────────────────────────────
 --
 -- `bigint` y no `integer`: es un contador monótono que sólo sube, y un lote de
@@ -136,7 +186,7 @@ RETURNS jsonb
 LANGUAGE sql
 STABLE
 SECURITY INVOKER
-SET search_path = pg_catalog, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $fn$
   SELECT jsonb_build_object(
     'batch_id',       b.id,
@@ -222,7 +272,7 @@ CREATE OR REPLACE FUNCTION public.insert_fenced_prospect_candidates(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = pg_catalog, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $fn$
 DECLARE
   -- Defaults de las columnas NOT NULL que dependen de su DEFAULT. Ratcheado contra
@@ -347,3 +397,25 @@ REVOKE ALL ON FUNCTION public.insert_fenced_prospect_candidates(uuid, bigint, js
 REVOKE ALL ON FUNCTION public.insert_fenced_prospect_candidates(uuid, bigint, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION public.insert_fenced_prospect_candidates(uuid, bigint, jsonb)
   TO postgres, authenticated, service_role;
+
+
+-- ── 5. CUT-3B5 — RECARGA EXPLÍCITA DE LA CACHÉ DE ESQUEMA DE PostgREST ───────
+--
+-- 🔴 Sin esto, aplicar la migración puede no bastar para ACTIVARLA.
+--
+-- El cliente de TypeScript trata `PGRST202` (función no encontrada por PostgREST)
+-- como «capacidad ausente», que es lo que conserva la compatibilidad con el estado
+-- anterior a B4. Esa interpretación es correcta MIENTRAS la migración no esté
+-- aplicada. Si la migración SÍ se aplicó y PostgREST todavía sirve una caché de
+-- esquema vieja, el mismo `PGRST202` significaría algo distinto —la valla existe
+-- pero no se ve— y el escritor seguiría por la ruta NO vallada sin decir nada.
+--
+-- La base tiene un disparador `pgrst_ddl_watch`, pero este repositorio ya vivió un
+-- incidente de caché rancia y la 105 dejó el precedente de notificar EXPLÍCITAMENTE.
+-- Se repite aquí por la misma razón.
+--
+-- 🔴 Esta notificación NO sustituye la verificación posterior a la aplicación: que
+-- las dos funciones RESPONDAN por PostgREST se comprueba después, contra el
+-- despliegue, y no se da por hecho desde aquí.
+
+NOTIFY pgrst, 'reload schema';

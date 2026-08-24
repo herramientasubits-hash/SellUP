@@ -3381,3 +3381,34 @@ jobs:
         run: npm run test:a1-cut3b4-atomicity:postgres
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # AGENT1-CUT-3B5 — la 126 bajo RLS y un llamador `authenticated` REAL.
+      #
+      # La 126 se fusionó y NUNCA se aplicó: el preflight de Producción la bloqueó.
+      # Las dos funciones son SECURITY INVOKER y por tanto corren bajo las políticas
+      # RLS del llamador; esas políticas invocan `has_active_access(auth.uid())`, que
+      # en Producción no fija `search_path` y nombra `internal_users` SIN CUALIFICAR.
+      # Con el `search_path` restringido con el que la 126 se publicó, PostgreSQL
+      # respondía 42P01 y la ruta de Lusha —que escribe como `authenticated`— habría
+      # dejado de persistir candidatos.
+      #
+      # El paso de B4 de arriba NO podía verlo: corre entero como superusuario, que no
+      # pasa por RLS. Este paso adopta el rol `authenticated` de verdad, sin BYPASSRLS.
+      #
+      # Incluye la prueba en NEGATIVO: reinstala la 126 con el `search_path`
+      # defectuoso y exige 42P01, y luego la restaura y exige verde. Sin esa mitad,
+      # «esta prueba habría atrapado el defecto» sería una intención, no una medición.
+      #
+      # La migración NO se aplica en Producción. 0 proveedores, 0 créditos, 0
+      # escrituras remotas. Datos sintéticos.
+      - name: Run A1 CUT-3B5 M126 RLS/search_path regression against real PostgreSQL
+        run: npm run test:a1-cut3b5-m126-rls:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # Trinquetes estáticos de la corrección: que sigue siendo SECURITY INVOKER, que
+      # `pg_catalog` precede a `public`, que el NOTIFY de PostgREST está y va al final,
+      # y que la corrección no coló índices, disparadores, política TIER ni una M127.
+      - name: Run A1 CUT-3B5 M126 correction static guards
+        run: npm run test:a1-cut3b5-m126-correction
