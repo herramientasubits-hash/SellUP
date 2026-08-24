@@ -65,52 +65,13 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { startLegacyPhoneRevealWaterfallForCandidate } from './phone-reveal-waterfall-deps';
+import {
+  classifyLegacyPhoneRevealStartFailure,
+  LEGACY_START_EXCEPTION_REASON,
+  type LegacyPhoneRevealWaterfallActionStatus,
+} from './phone-reveal-waterfall-legacy-start-gate';
 
-/**
- * Desenlace que ve la UI. Códigos mecánicos: la traducción a copy vive en
- * phone-reveal-waterfall-copy.ts.
- */
-export type LegacyPhoneRevealWaterfallActionStatus =
-  /** Lusha entregó el teléfono. La UI recarga el candidato. */
-  | 'revealed'
-  /** Lusha corrió y no encontró teléfono. El candidato NO se modifica. */
-  | 'no_phone_found'
-  /** Lusha corrió y falló técnicamente. No significa "no existe teléfono". */
-  | 'error'
-  /** Se cerró SIN llamar a Lusha (supresión, DNC, verificación no disponible…). */
-  | 'closed_without_lusha'
-  /** Otro disparador ya había tomado la pata en esta corrida. */
-  | 'already_attempted'
-  /**
-   * AGENT2A-PHONE-WATERFALL-4D: el pozo de Lusha no cubre los 5 créditos de su pata.
-   * Se detectó ANTES de crear la corrida: 0 corridas, 0 llamadas a Lusha, 0 usage
-   * logs, 0 créditos.
-   */
-  | 'insufficient_credits'
-  /**
-   * AGENT2A-PHONE-WATERFALL-4E: Lusha no tiene regla de crédito configurada, así que no
-   * hay disponibilidad que reservar. Mismas garantías de cero efectos.
-   */
-  | 'budget_not_configured'
-  /** El presupuesto no se pudo verificar. Fail-closed, mismas garantías de cero efectos. */
-  | 'credit_balance_unavailable'
-  /**
-   * AGENT2A-PHONE-WATERFALL-4F: el saldo SÍ se verificó, pero la escritura atómica de
-   * reserva + corrida no se pudo ejecutar (migración 104 no aplicada, timeout…).
-   * Mismas garantías de cero efectos, y NUNCA `not_eligible`: el candidato aplica
-   * perfectamente y lo que falló es la infraestructura.
-   */
-  | 'infrastructure_unavailable'
-  /**
-   * AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1: el tope que el operador aceptó
-   * es MENOR que el que la modalidad real exige (típicamente aceptó 5 y hacen falta 6
-   * porque además hay que comprar la identidad Lusha). No se sube en silencio: se corta
-   * y se le vuelve a preguntar con el número real. 0 corridas, 0 reservas, 0 llamadas a
-   * Lusha, 0 llamadas a Apollo, 0 créditos.
-   */
-  | 'authorization_changed'
-  /** El candidato no entra en la ruta legacy (o el flag/rol no lo permiten). */
-  | 'not_eligible';
+export type { LegacyPhoneRevealWaterfallActionStatus };
 
 export interface LegacyPhoneRevealWaterfallActionResult {
   status: LegacyPhoneRevealWaterfallActionStatus;
@@ -166,30 +127,40 @@ async function resolveActorForLegacyWaterfall(): Promise<{
 /**
  * Mapea el desenlace del runtime al status que consume la UI.
  *
- * Recibe el resultado COMPLETO y no solo el `outcome` porque los dos rechazos de
- * saldo (AGENT2A-PHONE-WATERFALL-4D) llegan como `not_started` + motivo: la corrida
- * no se creó, así que el runtime no tiene un desenlace propio que los distinga, y
- * colapsarlos en `not_eligible` le diría al operador que el candidato no aplica
- * cuando el candidato aplica perfectamente y lo que falta es saldo.
+ * Recibe el resultado COMPLETO y no solo el `outcome` porque el NO-arranque llega como
+ * `not_started` + motivo: la corrida no se creó, así que el runtime no tiene un
+ * desenlace propio que los distinga.
+ *
+ * AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1 — antes, TODOS esos motivos salvo
+ * cuatro se colapsaban en `not_eligible`, y la UI los resolvía con una sola frase:
+ * «este candidato ya no puede autorizarse por esta vía». Esa frase es una afirmación
+ * sobre el CANDIDATO, así que era literalmente falsa para un bloqueo de privacidad,
+ * para una corrida ya viva, para el flag apagado, para un rol sin permiso y —el peor
+ * caso— para una LECTURA QUE FALLÓ, donde el candidato es perfectamente elegible y lo
+ * roto es la infraestructura. Con eso, un rechazo en Producción era indiagnosticable:
+ * el desenlace observable era el mismo para causas incompatibles entre sí.
+ *
+ * La traducción es ahora EXHAUSTIVA y vive en un módulo puro y testeable
+ * (`phone-reveal-waterfall-legacy-start-gate.ts`). El `reason` mecánico sigue viajando
+ * intacto en el resultado, y ninguna rama nueva expone PII.
  */
 function toActionStatus(
   result: Awaited<ReturnType<typeof startLegacyPhoneRevealWaterfallForCandidate>>,
 ): LegacyPhoneRevealWaterfallActionStatus {
   if (result.outcome === 'not_started') {
-    // El techo humano se distingue de `not_eligible` a propósito: el candidato aplica
-    // perfectamente y lo que cambió es el precio, así que decirle al operador que «no
-    // aplica» le escondería que basta con volver a confirmar.
-    if (result.reason === 'authorization_ceiling_mismatch') {
-      return 'authorization_changed';
-    }
-    if (result.reason === 'insufficient_credits') return 'insufficient_credits';
-    if (result.reason === 'budget_not_configured') return 'budget_not_configured';
-    if (result.reason === 'credit_balance_unavailable') {
-      return 'credit_balance_unavailable';
-    }
-    if (result.reason === 'run_creation_unavailable') {
+    // El arranque LANZÓ: el core nunca llegó a responder, así que no hay ningún motivo
+    // del candidato que clasificar. Infraestructura, jamás `not_eligible`.
+    // Un `not_started` SIN motivo tampoco es un hecho del candidato: es un desenlace
+    // que no sabemos nombrar, y el fail-closed honesto es infraestructura.
+    if (
+      result.reason === LEGACY_START_EXCEPTION_REASON ||
+      result.reason === null
+    ) {
       return 'infrastructure_unavailable';
     }
+    return classifyLegacyPhoneRevealStartFailure(
+      result.reason as Parameters<typeof classifyLegacyPhoneRevealStartFailure>[0],
+    );
   }
   switch (result.outcome) {
     case 'lusha_revealed':
@@ -202,8 +173,6 @@ function toActionStatus(
       return 'already_attempted';
     case 'closed_without_lusha':
       return 'closed_without_lusha';
-    case 'not_started':
-      return 'not_eligible';
     // `noop` cubre los casos en los que la corrida se creó pero la continuación no
     // encontró nada que gastar (flag del fallback apagado en el intervalo, corrida ya
     // terminal…). Se reporta como cierre sin Lusha, no como éxito.
