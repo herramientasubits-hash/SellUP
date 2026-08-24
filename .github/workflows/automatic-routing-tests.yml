@@ -3110,3 +3110,43 @@ jobs:
       # 0 créditos, 0 migraciones, 0 proveedores.
       - name: Run Agent 1 CUT-3B1 fiscal identity truth tests
         run: npm run test:a1-cut3b1-fiscal-identity
+
+      # AGENT1-CUT3B23-IDENTITY-COVERAGE-AND-BATCH-REGISTRY — CUT-3B2 + CUT-3B3.
+      #
+      # Fija el contrato que faltaba entre las TRES rutas de escritura de Agente 1.
+      # Antes de este corte cada una decidía la identidad de una empresa con un
+      # criterio propio: la gratuita por identidad FISCAL, la de pago por
+      # DOMINIO/identidad de proveedor, y el nombre con tres normalizadores
+      # distintos — de modo que la misma empresa legal podía persistirse dos veces
+      # en un mismo lote sin que nada fallara.
+      #
+      # Lo que la suite defiende:
+      #   * los TRES escritores producen la MISMA evidencia (constructor único);
+      #   * el conflicto FISCAL manda sobre dominio, proveedor, LinkedIn y nombre —
+      #     dos personas jurídicas distintas que comparten marca o dominio NO se
+      #     fusionan;
+      #   * un id de Apollo y un id de Lusha con el MISMO valor no pueden
+      #     compararse iguales: el namespace del proveedor va dentro de la clave;
+      #   * el NOMBRE nunca suprime (sólo anota posible duplicado);
+      #   * `discarded` no bloquea: un descarte previo no puede tapar al legítimo;
+      #   * el registro es de LOTE — no es novedad global ni histórica;
+      #   * descubrimiento crudo ≠ aceptado ÚNICO: un duplicado no consume el
+      #     objetivo y NO se cuenta como error.
+      #
+      # Y fija lo que este corte NO hace, que es la otra mitad del contrato:
+      #   * sin migración (no existe la 125; la 124 sigue siendo la última);
+      #   * sin ON CONFLICT, sin upsert, sin índice único, sin backfill;
+      #   * la siembra sólo LEE;
+      #   * `identity_key` no se redefine ni se sobrecarga;
+      #   * los huecos parciales de Apollo y Lusha siguen en `false`;
+      #   * ningún flag de activación de proveedor se nombra ni se cambia;
+      #   * la ATOMICIDAD sigue sin resolver y así queda declarado.
+      #
+      # La guarda estática compara el CUERPO EJECUTABLE (sin comentarios ni
+      # literales) y se prueba a sí misma en NEGATIVO, para que no pueda pasar por
+      # vacía. Incluye las suites de CUT-3B1 como ancla de regresión.
+      #
+      # Offline y determinista: sin Supabase, sin red, sin credenciales,
+      # 0 créditos, 0 migraciones, 0 proveedores.
+      - name: Run Agent 1 CUT-3B23 batch identity registry tests
+        run: npm run test:a1-cut3b23-identity-registry

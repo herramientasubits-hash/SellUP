@@ -159,18 +159,57 @@ export const LUSHA_RUN_MAX_RAW_RESULTS =
 
 // ─── Decisión de pedir o no (§§ 5, 6, 15, 16, 17) ─────────────────────────────
 
-/** Por qué la corrida dejó de pedir. Distingue las cinco causas de § 19. */
+/**
+ * Por qué la corrida dejó de pedir. Distingue las cinco causas de § 19 más los
+ * dos desenlaces que ocurren DESPUÉS de que la corrida terminó.
+ *
+ * ── AGENT1-CUT3B23 § 1 — los dos motivos post-corrida ─────────────────────────
+ *
+ * `target_reached` afirma que el objetivo se cumplió. Es una afirmación sobre el
+ * RESULTADO FINAL, no sobre el instante en que se dejó de pedir, y la corrida no
+ * es el último paso: después vienen la admisión por identidad de lote y la
+ * escritura. Si cualquiera de las dos reduce lo aceptado, el objetivo dejó de
+ * cumplirse y seguir diciendo `target_reached` con hueco abierto es exactamente
+ * el informe imposible que CUT-2 prohíbe.
+ *
+ *   · `post_admission_identity_gap`    — la admisión de identidad de LOTE retiró
+ *     duplicados duros y REABRIÓ el hueco. No es techo de peticiones, no es
+ *     agotamiento de ramas y no es fallo del proveedor: el proveedor entregó, y
+ *     la deduplicación posterior descubrió que entregó menos empresas DISTINTAS.
+ *   · `post_admission_persistence_gap` — lo admitido no llegó entero a la base:
+ *     el motor confirmó MENOS filas de las escritas. El hueco es real y su causa
+ *     es la persistencia, no el descubrimiento.
+ *
+ * 🔴 Ninguno de los dos reabre páginas ni autoriza gasto: son etiquetas de
+ * VERACIDAD sobre una corrida que ya terminó.
+ */
 export type LushaRunStopReason =
   | 'target_reached'
   | 'branches_exhausted'
   | 'request_cap_reached'
   | 'raw_scan_cap_reached'
   | 'provider_failure'
-  | 'no_results';
+  | 'no_results'
+  | 'post_admission_identity_gap'
+  | 'post_admission_persistence_gap';
 
+/**
+ * Los dos motivos post-corrida quedan EXCLUIDOS aquí por tipo: esta decisión se
+ * toma mientras la corrida pide páginas, y en ese momento ni la admisión ni la
+ * escritura han ocurrido todavía.
+ */
 export type LushaRequestDecision =
   | { allowed: true }
-  | { allowed: false; stopReason: Exclude<LushaRunStopReason, 'branches_exhausted' | 'no_results'> };
+  | {
+      allowed: false;
+      stopReason: Exclude<
+        LushaRunStopReason,
+        | 'branches_exhausted'
+        | 'no_results'
+        | 'post_admission_identity_gap'
+        | 'post_admission_persistence_gap'
+      >;
+    };
 
 /**
  * ¿Puede la corrida hacer UNA petición más?

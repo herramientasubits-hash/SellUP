@@ -37,6 +37,21 @@ import {
 import { checkHubSpotCompanyCommercialStatus } from './hubspot-commercial-checker';
 import { normalizeCompanyName } from './normalization';
 import { sanitizeStructuredDiscoveryProvenance } from './structured-discovery-provenance';
+// AGENT1-CUT3B23 § 5/§ 6 — la MISMA evidencia de identidad que producen las otras
+// dos rutas de escritura de Agente 1. Esta capa gratuita aportaba identidad
+// FISCAL y nadie más la leía; el registro de lote es quien las compara.
+import { buildCompanyIdentityEvidence } from './company-identity-evidence';
+import {
+  acceptIdentity,
+  createBatchIdentityCounters,
+  evaluateCandidateIdentity,
+  isBatchIdentityHardDuplicate,
+  tallyBatchIdentityDecision,
+  tallyBatchIdentityError,
+  tallyBatchIdentityPersisted,
+  type BatchIdentityRegistry,
+} from './batch-identity-registry';
+import { loadBatchIdentityRegistry } from '@/server/prospect-batches/batch-identity-registry-store';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -105,6 +120,26 @@ export type StructuredSourceCandidateWriterReport = {
     hubspotLookupFailed: number;
     hubspotRecyclable: number;
   };
+  /**
+   * AGENT1-CUT3B23 § 15 — el descubrimiento NO es lo aceptado único. Un duplicado
+   * de identidad de lote se cuenta aquí y NO en `errors`: no es una avería de
+   * escritura.
+   */
+  batchIdentity: {
+    rawDiscovered: number;
+    /** Pasó la admisión de identidad. Permiso para intentar escribir, NO una fila. */
+    identityAdmittedUnique: number;
+    /** Filas que EXISTEN. Lo único que cuenta contra el objetivo del lote. */
+    persistedUnique: number;
+    duplicateSkipped: number;
+    possibleDuplicateAllowed: number;
+    distinctStrongConflict: number;
+    errors: number;
+    /** Filas del lote sembradas desde base de datos antes de admitir. */
+    seededCount: number;
+    /** `true` si la siembra degradó: MENOS cobertura, nunca supresión extra. */
+    seedDegraded: boolean;
+  };
   items: Array<{
     name: string | null;
     taxId: string | null;
@@ -127,6 +162,13 @@ export type StructuredSourceCandidateWriterReport = {
 
 type PreparedCandidate = {
   draft: StructuredSourceCandidateDraft;
+  /**
+   * AGENT1-CUT3B23 — la MISMA entrada del reporte que este candidato produjo.
+   * Se guarda la referencia en vez de buscarla luego por nombre + NIT: dos
+   * candidatos pueden compartir los dos valores, y entonces la anotación de
+   * admisión caería sobre la fila equivocada.
+   */
+  reportItem?: StructuredSourceCandidateWriterReport['items'][number];
   noveltyStatus: string;
   shouldWrite: boolean;
   skippedReason: string | null;
@@ -301,6 +343,35 @@ function buildMatchReason(
   }
 }
 
+/**
+ * AGENT1-CUT3B23 § 15 — bloque de conteo de identidad neutro.
+ *
+ * Se usa en las salidas que NO llegan a admitir nada (input vacío, dryRun, nada
+ * que escribir, fallo de creación de lote): ceros honestos, nunca ausencia.
+ */
+function emptyBatchIdentityReport(): StructuredSourceCandidateWriterReport['batchIdentity'] {
+  return {
+    ...toBatchIdentityCountersMetadataShape(createBatchIdentityCounters()),
+    seededCount: 0,
+    seedDegraded: false,
+  };
+}
+
+/** Contadores en la forma camelCase del reporte del writer. */
+function toBatchIdentityCountersMetadataShape(
+  counters: ReturnType<typeof createBatchIdentityCounters>,
+): Omit<StructuredSourceCandidateWriterReport['batchIdentity'], 'seededCount' | 'seedDegraded'> {
+  return {
+    rawDiscovered: counters.rawDiscovered,
+    identityAdmittedUnique: counters.identityAdmittedUnique,
+    persistedUnique: counters.persistedUnique,
+    duplicateSkipped: counters.duplicateSkipped,
+    possibleDuplicateAllowed: counters.possibleDuplicateAllowed,
+    distinctStrongConflict: counters.distinctStrongConflict,
+    errors: counters.errors,
+  };
+}
+
 function buildEmptyReport(executedAt: string, dryRun: boolean, batchSource: string): StructuredSourceCandidateWriterReport {
   return {
     executedAt,
@@ -328,6 +399,7 @@ function buildEmptyReport(executedAt: string, dryRun: boolean, batchSource: stri
       hubspotLookupFailed: 0,
       hubspotRecyclable: 0,
     },
+    batchIdentity: emptyBatchIdentityReport(),
     items: [],
     errors: [],
   };
@@ -679,20 +751,22 @@ export async function writeStructuredSourceCandidatesPreview(
         reviewFlags,
       };
 
-      items.push({
+      const reportItem = {
         name: draft.name,
         taxId: draft.taxId,
         noveltyStatus: noveltyDecision.status,
         shouldWrite: true,
-        skippedReason: null,
+        skippedReason: null as string | null,
         reviewStatus,
         commercialFitStatus,
         hubspotMatchStatus,
         reviewFlags,
-      });
+      };
+      items.push(reportItem);
 
       prepared.push({
         draft,
+        reportItem,
         noveltyStatus: noveltyDecision.status,
         shouldWrite: true,
         skippedReason: null,
@@ -759,6 +833,7 @@ export async function writeStructuredSourceCandidatesPreview(
         hubspotLookupFailed,
         hubspotRecyclable,
       },
+      batchIdentity: emptyBatchIdentityReport(),
       items,
       errors,
     };
@@ -793,6 +868,7 @@ export async function writeStructuredSourceCandidatesPreview(
         hubspotLookupFailed,
         hubspotRecyclable,
       },
+      batchIdentity: emptyBatchIdentityReport(),
       items,
       errors,
     };
@@ -899,6 +975,7 @@ export async function writeStructuredSourceCandidatesPreview(
           hubspotLookupFailed,
           hubspotRecyclable,
         },
+        batchIdentity: emptyBatchIdentityReport(),
         items,
         errors,
       };
@@ -907,6 +984,17 @@ export async function writeStructuredSourceCandidatesPreview(
     batchId = batchData?.id ?? null;
   }
 
+  // ── AGENT1-CUT3B23 § 8/§ 9 — registro de identidad de ESTE lote ────────────
+  //
+  // Se siembra con las filas que el lote YA contiene y que lo ocupan. Cuando el
+  // lote acaba de crearse en esta misma llamada la siembra es vacía por
+  // construcción, y eso es correcto: no había nada persistido. Cuando el lote se
+  // ADOPTA (`input.batchId`), la siembra es lo que hace que la capa gratuita vea
+  // lo que la de pago ya escribió, y al revés.
+  const batchIdentitySeed = await loadBatchIdentityRegistry(supabase, batchId);
+  let batchIdentityRegistry: BatchIdentityRegistry = batchIdentitySeed.registry;
+  let batchIdentityCounters = createBatchIdentityCounters();
+
   // ── Insertar candidatos ───────────────────────────────────
   let written = 0;
 
@@ -914,6 +1002,38 @@ export async function writeStructuredSourceCandidatesPreview(
     try {
       const { draft } = p;
       const domain = extractDomain(draft.website);
+
+      // § 5 — evidencia por el constructor COMPARTIDO. Esta ruta aporta identidad
+      // fiscal (`tax_id` y `tax_identifier` con el MISMO valor) y, cuando la
+      // fuente da web, dominio. No trae LinkedIn ni id de empresa de proveedor:
+      // ausencia declarada, nunca fabricada.
+      const identityEvidence = buildCompanyIdentityEvidence({
+        countryCode: input.countryCode,
+        taxId: draft.taxId,
+        taxIdentifier: draft.taxId,
+        domain,
+        website: draft.website ?? null,
+        name: draft.name,
+      });
+      const identityDecision = evaluateCandidateIdentity(
+        batchIdentityRegistry,
+        identityEvidence,
+      );
+      batchIdentityCounters = tallyBatchIdentityDecision(
+        batchIdentityCounters,
+        identityDecision,
+      );
+
+      // § 12 — un duplicado duro NO se persiste, NO es un error y NO sobrescribe
+      // al ganador. El primer candidato durable aceptado sigue siendo el
+      // candidato del lote.
+      if (isBatchIdentityHardDuplicate(identityDecision)) {
+        if (p.reportItem) {
+          p.reportItem.shouldWrite = false;
+          p.reportItem.skippedReason = `batch_identity_duplicate:${identityDecision.matchedSignal}`;
+        }
+        continue;
+      }
 
       // Resolver tax_identifier_type según el país
       let resolvedTaxIdentifierType = draft.taxIdentifierType;
@@ -1025,6 +1145,7 @@ export async function writeStructuredSourceCandidatesPreview(
             hasMetadata: Boolean(candidateRow.metadata),
           },
         });
+        batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
         errors.push({
           name: draft.name,
           taxId: draft.taxId,
@@ -1032,9 +1153,19 @@ export async function writeStructuredSourceCandidatesPreview(
         });
       } else {
         written++;
+        // § 12 — se registra DESPUÉS de que la fila exista. Registrar antes haría
+        // que un insert fallido bloqueara al siguiente candidato legítimo.
+        batchIdentityRegistry = acceptIdentity(
+          batchIdentityRegistry,
+          identityEvidence,
+          null,
+        );
+        // § 3 — y sólo aquí sube el conteo de filas REALES.
+        batchIdentityCounters = tallyBatchIdentityPersisted(batchIdentityCounters);
       }
     } catch (insertErr: unknown) {
       const msg = insertErr instanceof Error ? insertErr.message : 'Error insertando candidato';
+      batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
       errors.push({
         name: p.draft.name,
         taxId: p.draft.taxId,
@@ -1068,6 +1199,11 @@ export async function writeStructuredSourceCandidatesPreview(
       sizeUnknown,
       hubspotLookupFailed,
       hubspotRecyclable,
+    },
+    batchIdentity: {
+      ...toBatchIdentityCountersMetadataShape(batchIdentityCounters),
+      seededCount: batchIdentitySeed.seededCount,
+      seedDegraded: batchIdentitySeed.degraded,
     },
     items,
     errors,
