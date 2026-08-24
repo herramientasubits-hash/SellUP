@@ -79,6 +79,7 @@ import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-el
 import { evaluateDuplicateEligibility } from '@/modules/prospect-review/duplicate-eligibility';
 import { PENDING_REVIEW_RECORD_ORIGIN } from '@/modules/prospect-review/queries';
 
+import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 const MAPPED_SUBINDUSTRY = 'Supermercados e Hipermercados';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/synthetic-market-chain';
 
@@ -825,6 +826,9 @@ class ChainResult {
 function makeFakeAdmin(stats: FakeAdminStats): SupabaseClient {
   let candidateSeq = 0;
   return {
+    // CUT-3B4-CORRECCIÓN — la 126 SIN aplicar se declara como lo hace la BASE.
+    // Omitir `rpc` modelaría un cliente no soportado, y eso degrada CERRADO.
+    rpc: preM126Rpc,
     from(table: string) {
       if (table === 'prospect_batches') {
         return {

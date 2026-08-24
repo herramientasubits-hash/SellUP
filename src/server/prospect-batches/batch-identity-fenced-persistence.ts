@@ -42,6 +42,27 @@
  * un flag, no es una preferencia y nadie puede activarla a mano: la base responde
  * que la función no existe. En cuanto la 126 se aplique, esta rama es inalcanzable
  * y no queda ningún desvío directo.
+ *
+ * ── 🔴 «Sin época» NO es «sin migración» (CUT-3B4-CORRECCIÓN) ────────────────
+ *
+ * Este módulo llegó a decidir la ruta legada con `snapshot.epoch === null` a
+ * secas, y ése es un fallo ABIERTO: una lectura caída, un lote que no se ve o un
+ * cliente no soportado también dejan la época en `null`, así que una AVERÍA real
+ * se convertía en una escritura sin valla. La autorización exige las TRES
+ * condiciones juntas —`epoch === null`, `fenceCapabilityAbsent === true`,
+ * `degraded === false`—, que es lo que `isProvenFenceCapabilityAbsent` comprueba.
+ * Todo lo demás devuelve `snapshot_unavailable`: fallo CERRADO, cero escrituras,
+ * un error real para el escritor.
+ *
+ * ── 🔴 La capacidad es MONÓTONA dentro de una tentativa ──────────────────────
+ *
+ * La prueba de ausencia se toma UNA vez, sobre la foto INICIAL. Si esa foto trajo
+ * una época no nula, la valla se OBSERVÓ activa y a partir de ahí no hay vuelta
+ * atrás: que la RPC de escritura responda después «la función no existe», o que
+ * una recarga degrade a `null`, es una INCONSISTENCIA del despliegue y falla
+ * CERRADO. Antes, cualquiera de esas dos cosas caía a la ruta legada — es decir,
+ * la valla podía «desaparecer» a mitad de la admisión y abrir la escritura
+ * directa que este corte existe para cerrar.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -92,7 +113,28 @@ export type FencedPersistenceTelemetry = {
   identityDuplicateAfterStaleRetry: boolean;
   /** La 126 no está aplicada y se conservó la ruta anterior a B4. */
   identityFenceCapabilityAbsent: boolean;
+  /**
+   * No se pudo establecer una foto vallable y NO había prueba de esquema. Fallo
+   * CERRADO: cero escrituras y cero caída a la ruta legada.
+   */
+  identitySnapshotUnavailable: boolean;
+  /**
+   * La valla se OBSERVÓ activa y luego dejó de estar disponible. Fallo CERRADO:
+   * una capacidad observada no puede degradarse a la ruta anterior a B4.
+   */
+  identityFenceCapabilityLost: boolean;
 };
+
+/**
+ * Por qué NO se pudo vallar, cuando la causa no es una ausencia PROBADA de la
+ * migración 126. Las dos son averías; ninguna autoriza la ruta anterior a B4.
+ */
+export type FencedPersistenceUnavailableReason =
+  /** La foto llegó sin época y sin prueba de esquema: lectura caída, lote no
+   * visible, o cliente no soportado. */
+  | 'snapshot_degraded'
+  /** La valla se OBSERVÓ activa y después dejó de estar disponible. */
+  | 'fence_capability_lost';
 
 export type FencedPersistenceResult =
   | {
@@ -124,6 +166,17 @@ export type FencedPersistenceResult =
       telemetry: FencedPersistenceTelemetry;
     }
   | {
+      /**
+       * 🔴 No se puede vallar y NO hay prueba de que la 126 falte. CERO
+       * escrituras y CERO caída a la ruta legada: el escritor lo cuenta como
+       * error real de persistencia/concurrencia.
+       */
+      status: 'snapshot_unavailable';
+      reason: FencedPersistenceUnavailableReason;
+      snapshot: BatchIdentitySeedOutcome;
+      telemetry: FencedPersistenceTelemetry;
+    }
+  | {
       /** Fallo REAL de escritura. La transacción revirtió: ni fila ni época. */
       status: 'insert_failed';
       code: string;
@@ -141,6 +194,48 @@ function emptyTelemetry(initial: number | null): FencedPersistenceTelemetry {
     identityEpochRetryExhausted: false,
     identityDuplicateAfterStaleRetry: false,
     identityFenceCapabilityAbsent: false,
+    identitySnapshotUnavailable: false,
+    identityFenceCapabilityLost: false,
+  };
+}
+
+/**
+ * 🔴 La ÚNICA condición que autoriza la ruta de escritura ANTERIOR a B4.
+ *
+ * Las tres cosas a la vez, y ninguna deducida:
+ *
+ *   · `epoch === null`                — no hay contra qué vallar,
+ *   · `fenceCapabilityAbsent === true`— la BASE dijo que la función no existe
+ *                                       (42883 / PGRST202), y
+ *   · `degraded === false`            — la lectura NO falló, así que ese `null`
+ *                                       es esquema y no avería.
+ *
+ * `epoch === null` a secas era el defecto: una lectura caída, un lote invisible o
+ * un cliente no soportado también lo producen, y cada uno de ellos se convertía
+ * en una escritura sin valla. Se exporta para que la guarda estática pueda
+ * comprobar que nadie vuelve a decidirlo con una condición más débil.
+ */
+export function isProvenFenceCapabilityAbsent(snapshot: BatchIdentitySeedOutcome): boolean {
+  return (
+    snapshot.epoch === null &&
+    snapshot.fenceCapabilityAbsent === true &&
+    snapshot.degraded === false
+  );
+}
+
+/**
+ * Telemetría inicial de un lote, derivada de su primera foto.
+ *
+ * Existe para que los tres escritores no repitan —ni diverjan en— la semántica de
+ * `identityFenceCapabilityAbsent`: sólo es `true` si la ausencia está PROBADA.
+ */
+export function initialFencedPersistenceTelemetry(
+  snapshot: BatchIdentitySeedOutcome,
+): FencedPersistenceTelemetry {
+  return {
+    ...emptyTelemetry(snapshot.epoch),
+    identityEpochFinal: snapshot.epoch,
+    identityFenceCapabilityAbsent: isProvenFenceCapabilityAbsent(snapshot),
   };
 }
 
@@ -155,6 +250,8 @@ export function toFencedPersistenceMetadata(
     identity_epoch_retry_exhausted: telemetry.identityEpochRetryExhausted,
     identity_duplicate_after_stale_retry: telemetry.identityDuplicateAfterStaleRetry,
     identity_fence_capability_absent: telemetry.identityFenceCapabilityAbsent,
+    identity_snapshot_unavailable: telemetry.identitySnapshotUnavailable,
+    identity_fence_capability_lost: telemetry.identityFenceCapabilityLost,
   };
 }
 
@@ -174,6 +271,10 @@ export function mergeFencedPersistenceTelemetry(
       accumulated.identityDuplicateAfterStaleRetry || next.identityDuplicateAfterStaleRetry,
     identityFenceCapabilityAbsent:
       accumulated.identityFenceCapabilityAbsent || next.identityFenceCapabilityAbsent,
+    identitySnapshotUnavailable:
+      accumulated.identitySnapshotUnavailable || next.identitySnapshotUnavailable,
+    identityFenceCapabilityLost:
+      accumulated.identityFenceCapabilityLost || next.identityFenceCapabilityLost,
   };
 }
 
@@ -224,6 +325,12 @@ export async function runFencedPersistence(
   const reload = args.reloadSnapshot ?? loadBatchIdentityRegistry;
   const insert = args.fencedInsert ?? insertFencedProspectCandidates;
 
+  // 🔴 CUT-3B4-CORRECCIÓN — la prueba de ausencia se toma UNA vez y no se
+  // recupera. Si la foto INICIAL trajo época, la valla se OBSERVÓ activa y ya no
+  // hay ninguna vuelta a la ruta legada dentro de esta tentativa: ni una recarga
+  // degradada ni una RPC que desaparezca pueden reabrirla.
+  const legacyFallbackAllowed = isProvenFenceCapabilityAbsent(args.snapshot);
+
   let snapshot = args.snapshot;
   let telemetry = emptyTelemetry(snapshot.epoch);
   let attempt = 0;
@@ -245,17 +352,34 @@ export async function runFencedPersistence(
       };
     }
 
-    // Sin época NO se puede vallar. Dos causas, y las dos llevan a la ruta
-    // anterior a B4: la 126 no está aplicada, o la lectura degradó.
+    // Sin época NO se puede vallar. Y «no se puede vallar» NO es «la 126 no está
+    // aplicada»: sólo la conjunción PROBADA autoriza la ruta anterior a B4.
     if (snapshot.epoch === null) {
+      if (legacyFallbackAllowed) {
+        return {
+          status: 'capability_absent',
+          plan,
+          snapshot,
+          telemetry: {
+            ...telemetry,
+            identityEpochFinal: null,
+            identityFenceCapabilityAbsent: true,
+          },
+        };
+      }
+
+      // 🔴 Fallo CERRADO. Lectura caída, lote invisible, cliente no soportado o
+      // una recarga que degradó tras haber visto la valla activa: en los cuatro
+      // casos hay una AVERÍA, y una avería no puede convertirse en permiso para
+      // escribir sin valla.
       return {
-        status: 'capability_absent',
-        plan,
+        status: 'snapshot_unavailable',
+        reason: 'snapshot_degraded',
         snapshot,
         telemetry: {
           ...telemetry,
           identityEpochFinal: null,
-          identityFenceCapabilityAbsent: true,
+          identitySnapshotUnavailable: true,
         },
       };
     }
@@ -280,14 +404,22 @@ export async function runFencedPersistence(
     }
 
     if (outcome.status === 'capability_absent') {
+      // 🔴 Fallo CERRADO, y sin condición que lo module. Aquí sólo se llega
+      // HABIENDO llamado a la valla, y sólo se la llama con una época no nula ⇒ la
+      // capacidad se OBSERVÓ activa en esta misma tentativa. Que la RPC de
+      // escritura diga ahora «la función no existe» es una inconsistencia del
+      // despliegue (caché de esquema, función retirada a mitad de vuelo), nunca
+      // una prueba de que la 126 no esté aplicada — y antes de esta corrección
+      // caía a la ruta legada, es decir, la valla podía desvanecerse a mitad de la
+      // admisión y abrir el insert directo.
       return {
-        status: 'capability_absent',
-        plan,
+        status: 'snapshot_unavailable',
+        reason: 'fence_capability_lost',
         snapshot,
         telemetry: {
           ...telemetry,
           identityEpochFinal: snapshot.epoch,
-          identityFenceCapabilityAbsent: true,
+          identityFenceCapabilityLost: true,
         },
       };
     }

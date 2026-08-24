@@ -58,6 +58,7 @@ import {
 // AGENT1-CUT3B4 §§ 10/21 — el MISMO vallado y el MISMO bucle que usan las otras
 // dos rutas. Esta capa no implementa política de concurrencia propia.
 import {
+  initialFencedPersistenceTelemetry,
   mergeFencedPersistenceTelemetry,
   runFencedPersistence,
   toFencedPersistenceMetadata,
@@ -1053,14 +1054,10 @@ export async function writeStructuredSourceCandidatesPreview(
   const batchIdentitySeed = await loadBatchIdentityRegistry(supabase, batchId);
   let batchIdentitySnapshot: BatchIdentitySeedOutcome = batchIdentitySeed;
   let batchIdentityCounters = createBatchIdentityCounters();
-  let batchIdentityFenceTelemetry: FencedPersistenceTelemetry = {
-    identityEpochInitial: batchIdentitySeed.epoch,
-    identityEpochFinal: batchIdentitySeed.epoch,
-    identityEpochStaleRetries: 0,
-    identityEpochRetryExhausted: false,
-    identityDuplicateAfterStaleRetry: false,
-    identityFenceCapabilityAbsent: batchIdentitySeed.fenceCapabilityAbsent,
-  };
+  // 🔴 CUT-3B4-CORRECCIÓN — derivada de la foto con la MISMA regla que la
+  // decisión: la bandera de compatibilidad sólo es `true` con ausencia PROBADA.
+  let batchIdentityFenceTelemetry: FencedPersistenceTelemetry =
+    initialFencedPersistenceTelemetry(batchIdentitySeed);
 
   // ── Insertar candidatos ───────────────────────────────────
   let written = 0;
@@ -1240,6 +1237,24 @@ export async function writeStructuredSourceCandidatesPreview(
           taxId: draft.taxId,
           message: 'Error insertando candidato: identity_fence_retry_exhausted',
         });
+        continue;
+      }
+
+      // 🔴 CUT-3B4-CORRECCIÓN — no se pudo vallar y NO hay prueba de que la 126
+      // falte. Fallo CERRADO y EXPLÍCITO: se escribe como rama propia, no como
+      // caída del `else` final, para que el motivo viaje al informe en vez de
+      // colapsar en «desenlace no contemplado».
+      if (fenceOutcome.status === 'snapshot_unavailable') {
+        batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
+        errors.push({
+          name: draft.name,
+          taxId: draft.taxId,
+          message: `Error insertando candidato: identity_fence_${fenceOutcome.reason}`,
+        });
+        if (p.reportItem) {
+          p.reportItem.shouldWrite = false;
+          p.reportItem.skippedReason = `identity_fence_${fenceOutcome.reason}`;
+        }
         continue;
       }
 

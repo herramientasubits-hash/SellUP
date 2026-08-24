@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { persistCountrySourceCandidates } from '../persist-country-source-candidates';
 import type { CountrySourceCompany } from '../country-source-types';
+import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 
 type Stats = {
   batchInserts: Array<Record<string, unknown>>;
@@ -33,6 +34,9 @@ function freshStats(): Stats {
 function makeFakeSupabase(stats: Stats): SupabaseClient {
   let batchSeq = 0;
   return {
+    // CUT-3B4-CORRECCIÓN — la 126 SIN aplicar se declara como lo hace la BASE.
+    // Omitir `rpc` modelaría un cliente no soportado, y eso degrada CERRADO.
+    rpc: preM126Rpc,
     from(table: string) {
       if (table === 'prospect_batches') {
         return {
@@ -47,12 +51,21 @@ function makeFakeSupabase(stats: Stats): SupabaseClient {
         };
       }
       if (table === 'prospect_candidates') {
-        return {
+        // CUT-3B4-CORRECCIÓN — la siembra del registro de identidad LEE esta
+        // tabla. El doble tiene que responderla: antes se caía y el `catch`
+        // acababa contando como «la 126 no está aplicada», que era exactamente el
+        // defecto —una avería habilitando una escritura sin valla—. Un lote nuevo
+        // está vacío, así que la respuesta correcta es cero filas.
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: () => chain,
+          in: async () => ({ data: [], error: null }),
           insert(row: Record<string, unknown>) {
             stats.candidateInserts.push({ ...row });
             return Promise.resolve({ error: null });
           },
         };
+        return chain;
       }
       throw new Error(`tabla no simulada: ${table}`);
     },

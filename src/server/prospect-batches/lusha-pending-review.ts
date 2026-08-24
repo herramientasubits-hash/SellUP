@@ -471,6 +471,11 @@ export interface PersistLushaPendingReviewDeps {
    * migración 126 se entrega SIN aplicar, y con la RPC vallada ausente ésta es la
    * única forma de que la ruta de Lusha escriba. En cuanto la 126 esté aplicada,
    * `insertCandidatesFenced` responde y este camino queda inalcanzable.
+   *
+   * 🔴 CUT-3B4-CORRECCIÓN — se invoca EXCLUSIVAMENTE cuando
+   * `insertCandidatesFenced` devuelve `capability_absent`, que es la BASE diciendo
+   * que la función vallada no existe. Su ausencia como dependencia ya NO puede
+   * llevar hasta aquí: eso era un desvío estructural, independiente del esquema.
    */
   insertCandidates: (
     rows: LushaPendingReviewCandidateRow[],
@@ -482,11 +487,15 @@ export interface PersistLushaPendingReviewDeps {
    * en UNA transacción. La atomicidad de todo-o-nada que la guarda de CUT-3B23
    * defiende no se pierde: se traslada a la transacción, donde es más fuerte.
    *
-   * Opcional para que los llamadores heredados y las pruebas que no miden
-   * concurrencia sigan compilando; cuando falta, el núcleo conserva la ruta
-   * anterior a B4 exactamente igual que si la 126 no estuviera aplicada.
+   * 🔴 CUT-3B4-CORRECCIÓN — OBLIGATORIA, y el `?` no puede volver. Mientras fue
+   * opcional, el núcleo tenía un `else` que escribía sin valla por el solo hecho
+   * de que nadie la inyectara: un desvío que no dependía del esquema y que ninguna
+   * aplicación de la 126 podía cerrar. Un llamador o una prueba que quiera modelar
+   * «la 126 no está aplicada» inyecta una función que devuelva
+   * `{ status: 'capability_absent' }` — que es lo que diría la base de verdad—, no
+   * omite la dependencia.
    */
-  insertCandidatesFenced?: (args: {
+  insertCandidatesFenced: (args: {
     batchId: string;
     expectedEpoch: number;
     rows: LushaPendingReviewCandidateRow[];
@@ -2518,43 +2527,47 @@ export async function persistLushaPendingReviewBatch(
   // corrió arriba, sobre una siembra vacía que sigue siendo la verdad. Si un día
   // el lote se adopta, `stale` deja de ser inalcanzable y esta llamada tiene que
   // pasar por `runFencedPersistence` como las otras dos rutas.
-  const fencedInsert = deps.insertCandidatesFenced;
+  //
+  // 🔴 CUT-3B4-CORRECCIÓN — la dependencia vallada es OBLIGATORIA y se llama
+  // SIEMPRE. No hay `if (fencedInsert)` ni `else`: mientras existió, el núcleo
+  // escribía sin valla por el solo hecho de que nadie inyectara la dependencia, y
+  // ése es un desvío ESTRUCTURAL —ajeno al esquema— que aplicar la 126 no cerraba.
+  // La ÚNICA puerta a la ruta anterior a B4 es `capability_absent`, que es la BASE
+  // diciendo que la función no existe.
   let insertedCount: number;
-  let fenceTelemetry: Record<string, number | boolean | null> = {
-    identity_epoch_initial: null,
-    identity_epoch_final: null,
-    identity_fence_capability_absent: true,
-  };
+  let fenceTelemetry: Record<string, number | boolean | null>;
 
-  if (fencedInsert) {
-    const fenced = await fencedInsert({
-      batchId,
-      expectedEpoch: LUSHA_FRESH_BATCH_IDENTITY_EPOCH,
-      rows: candidateRowsWithRouting,
-    });
+  const fenced = await deps.insertCandidatesFenced({
+    batchId,
+    expectedEpoch: LUSHA_FRESH_BATCH_IDENTITY_EPOCH,
+    rows: candidateRowsWithRouting,
+  });
 
-    if (fenced.status === 'inserted') {
-      insertedCount = fenced.insertedCount;
-      fenceTelemetry = {
-        identity_epoch_initial: fenced.previousEpoch,
-        identity_epoch_final: fenced.nextEpoch,
-        identity_fence_capability_absent: false,
-      };
-    } else if (fenced.status === 'capability_absent') {
-      // La 126 no está aplicada. Ruta ANTERIOR a B4, tal cual. Lo decide el
-      // esquema: no es un flag y nadie puede activarla a mano.
-      insertedCount = (await deps.insertCandidates(candidateRowsWithRouting)).insertedCount;
-    } else if (fenced.status === 'insert_failed') {
-      // Mismo contrato que la dependencia anterior a B4: un fallo de escritura
-      // LANZA. Tragárselo dejaría el lote afirmando filas que no existen.
-      throw new Error(`No se pudieron crear los candidatos: ${fenced.code}`);
-    } else {
-      // `stale`, `batch_not_found` o `invalid_input` sobre un lote recién creado
-      // por esta misma llamada. No se degrada a una escritura sin valla: se dice.
-      throw new Error(`No se pudieron crear los candidatos: fence_${fenced.status}`);
-    }
-  } else {
+  if (fenced.status === 'inserted') {
+    insertedCount = fenced.insertedCount;
+    fenceTelemetry = {
+      identity_epoch_initial: fenced.previousEpoch,
+      identity_epoch_final: fenced.nextEpoch,
+      identity_fence_capability_absent: false,
+    };
+  } else if (fenced.status === 'capability_absent') {
+    // La 126 no está aplicada. Ruta ANTERIOR a B4, tal cual. Lo decide el
+    // esquema: no es un flag, no es la forma de un objeto de dependencias y nadie
+    // puede activarla a mano.
     insertedCount = (await deps.insertCandidates(candidateRowsWithRouting)).insertedCount;
+    fenceTelemetry = {
+      identity_epoch_initial: null,
+      identity_epoch_final: null,
+      identity_fence_capability_absent: true,
+    };
+  } else if (fenced.status === 'insert_failed') {
+    // Mismo contrato que la dependencia anterior a B4: un fallo de escritura
+    // LANZA. Tragárselo dejaría el lote afirmando filas que no existen.
+    throw new Error(`No se pudieron crear los candidatos: ${fenced.code}`);
+  } else {
+    // `stale`, `batch_not_found` o `invalid_input` sobre un lote recién creado
+    // por esta misma llamada. No se degrada a una escritura sin valla: se dice.
+    throw new Error(`No se pudieron crear los candidatos: fence_${fenced.status}`);
   }
 
   // ── AGENT1-CUT3B23 §§ 1/3 — reconciliación FINAL contra las filas REALES ────

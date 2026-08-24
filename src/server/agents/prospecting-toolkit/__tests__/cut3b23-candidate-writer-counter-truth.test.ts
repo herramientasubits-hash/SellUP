@@ -29,6 +29,7 @@ import type { CandidateWriterInput } from '../types';
 
 const EXISTING_BATCH_ID = 'batch-cut3b23-0000-0000-0000-000000000001';
 
+import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 // ─── Doble de cliente admin ───────────────────────────────────────────────────
 
 class Chain {
@@ -57,6 +58,9 @@ function makeFakeAdmin(
 ): SupabaseClient {
   let seq = 0;
   return {
+    // CUT-3B4-CORRECCIÓN — la 126 SIN aplicar se declara como lo hace la BASE.
+    // Omitir `rpc` modelaría un cliente no soportado, que ahora degrada CERRADO.
+    rpc: preM126Rpc,
     from(table: string) {
       if (table === 'prospect_batches') {
         return {
@@ -206,6 +210,9 @@ describe('CUT-3B23 REVIEW-FIX § 3 — writer de PAGO: admitido ≠ persistido',
       'identity_epoch_retry_exhausted',
       'identity_duplicate_after_stale_retry',
       'identity_fence_capability_absent',
+      // CUT-3B4-CORRECCIÓN — los dos desenlaces de fallo CERRADO del vallado.
+      'identity_snapshot_unavailable',
+      'identity_fence_capability_lost',
     ]);
     const NULLABLE_NUMBER_KEYS = new Set(['identity_epoch_initial', 'identity_epoch_final']);
 
@@ -249,6 +256,11 @@ describe('CUT-3B23 REVIEW-FIX § 3 — writer de PAGO: admitido ≠ persistido',
       'identity_epoch_stale_retries',
       'identity_epoch_retry_exhausted',
       'identity_duplicate_after_stale_retry',
+      'identity_fence_capability_absent',
+      // 🔴 CUT-3B4-CORRECCIÓN — sin estas dos, un fallo CERRADO del vallado sería
+      // indistinguible de un lote sano en la metadata persistida.
+      'identity_snapshot_unavailable',
+      'identity_fence_capability_lost',
     ]) {
       assert.ok(required in block, `falta ${required} en la telemetría de concurrencia`);
     }

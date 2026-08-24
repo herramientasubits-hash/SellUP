@@ -396,6 +396,210 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// CUT-3B4-CORRECCIÓN § 7 — el trinquete PRUEBA el predicado, no lo enuncia
+//
+// La guarda anterior decía «la única excepción la decide la BASE» y no lo
+// demostraba: comprobaba que la palabra `capability_absent` apareciera, y con eso
+// pasaba un bucle que autorizaba la ruta legada con `epoch === null` a secas. Este
+// bloque comprueba la CONJUNCIÓN, la MONOTONÍA y la obligatoriedad de la
+// dependencia vallada, y cada aserción se prueba a sí misma en negativo.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** El cuerpo del predicado de autorización, aislado del resto del módulo. */
+function provenPredicateBody(): string {
+  const body = bodyWithLiterals(LOOP);
+  const start = body.indexOf('export function isProvenFenceCapabilityAbsent');
+  assert.ok(start > 0, 'desapareció el predicado de autorización');
+  const end = body.indexOf('\n}', start);
+  assert.ok(end > start);
+  return body.slice(start, end);
+}
+
+describe('CUT-3B4-CORRECCIÓN § 7 — la ruta legada exige ausencia PROBADA', () => {
+  it('🔴 el predicado exige las TRES condiciones, y las tres están escritas', () => {
+    const predicate = provenPredicateBody();
+    assert.ok(
+      /snapshot\.epoch === null/.test(predicate),
+      'el predicado dejó de exigir que no haya época',
+    );
+    assert.ok(
+      /snapshot\.fenceCapabilityAbsent === true/.test(predicate),
+      'el predicado dejó de exigir la PRUEBA de esquema',
+    );
+    assert.ok(
+      /snapshot\.degraded === false/.test(predicate),
+      'el predicado dejó de exigir que la lectura NO haya degradado',
+    );
+    // Conjunción, no disyunción: un `||` aquí volvería a autorizar de más.
+    assert.equal(
+      predicate.includes('||'),
+      false,
+      'el predicado combina las condiciones con OR: cualquiera de ellas autorizaría',
+    );
+    assert.equal((predicate.match(/&&/g) ?? []).length, 2, 'faltan conjunciones');
+  });
+
+  it('🔴 `epoch === null` A SECAS ya no decide la ruta legada en el bucle', () => {
+    const body = bodyWithLiterals(LOOP);
+    const branch = body.indexOf('if (snapshot.epoch === null)');
+    assert.ok(branch > 0, 'desapareció la rama de «no hay época»');
+    // Lo que hay dentro de esa rama antes de cualquier `return` tiene que ser la
+    // consulta del predicado. Sin ella, `epoch === null` volvería a bastar.
+    const inner = body.slice(branch, body.indexOf('const outcome', branch));
+    assert.ok(
+      inner.includes('legacyFallbackAllowed'),
+      'la rama de «no hay época» volvió a decidir sin consultar la autorización',
+    );
+    assert.ok(
+      inner.includes("status: 'snapshot_unavailable'"),
+      'la rama de «no hay época» dejó de tener salida de fallo CERRADO',
+    );
+    // Y el fallo cerrado NO puede llevar plan: el plan es lo que los escritores
+    // insertan directo.
+    const closed = inner.slice(inner.indexOf("status: 'snapshot_unavailable'"));
+    assert.equal(
+      /\bplan,/.test(closed),
+      false,
+      'el fallo CERRADO devuelve el plan: el escritor podría insertarlo sin valla',
+    );
+  });
+
+  it('🔴 la autorización se toma UNA vez, sobre la foto INICIAL', () => {
+    const body = bodyWithLiterals(LOOP);
+    // `const`, no `let`: la monotonía es del lenguaje, no de la disciplina.
+    assert.ok(
+      /const legacyFallbackAllowed = isProvenFenceCapabilityAbsent\(args\.snapshot\)/.test(body),
+      'la autorización dejó de derivarse UNA vez de la foto inicial',
+    );
+    assert.equal(
+      /let legacyFallbackAllowed/.test(body),
+      false,
+      'la autorización volvió a ser mutable: podría re-descubrirse a mitad de la tentativa',
+    );
+    // Y DENTRO del bucle no se vuelve a consultar: se mide el cuerpo de
+    // `runFencedPersistence`, no el archivo, porque `initialFencedPersistenceTelemetry`
+    // lo consulta legítimamente sobre su propio parámetro y confundir las dos
+    // cosas haría fallar la guarda por leer el archivo en vez de la función.
+    const runStart = body.indexOf('export async function runFencedPersistence');
+    assert.ok(runStart > 0, 'desapareció el bucle vallado');
+    const runBody = body.slice(runStart);
+    assert.equal(
+      (runBody.match(/isProvenFenceCapabilityAbsent\(/g) ?? []).length,
+      1,
+      'la autorización se consulta más de una vez dentro del bucle: dejaría de ser monótona',
+    );
+    assert.equal(
+      /isProvenFenceCapabilityAbsent\(snapshot\)/.test(runBody),
+      false,
+      'la autorización se recalcula sobre la foto recargada: la capacidad dejaría de ser monótona',
+    );
+  });
+
+  it('🔴 vista la valla activa, `capability_absent` de la RPC de escritura falla CERRADO', () => {
+    const body = bodyWithLiterals(LOOP);
+    const branch = body.indexOf("if (outcome.status === 'capability_absent')");
+    assert.ok(branch > 0, 'desapareció la rama de la RPC sin capacidad');
+    const block = body.slice(branch, body.indexOf('if (outcome.status ===', branch + 10));
+    assert.ok(
+      block.includes("status: 'snapshot_unavailable'"),
+      'la RPC que pierde la capacidad volvió a degradar a la ruta legada',
+    );
+    assert.ok(
+      block.includes("reason: 'fence_capability_lost'"),
+      'la pérdida de capacidad dejó de nombrarse como tal',
+    );
+    assert.equal(
+      block.includes("status: 'capability_absent'"),
+      false,
+      'la RPC que responde «no existe» tras observar la valla vuelve a autorizar la ruta legada',
+    );
+    assert.equal(
+      /\bplan,/.test(block),
+      false,
+      'la pérdida de capacidad devuelve el plan: el escritor podría insertarlo sin valla',
+    );
+  });
+
+  it('🔴 la FORMA del cliente no puede pasar por prueba de esquema', () => {
+    const store = bodyWithLiterals(STORE);
+    const branch = store.indexOf('if (!canCallRpc)');
+    assert.ok(branch > 0, 'el almacén dejó de tratar por separado al cliente sin `rpc`');
+    const block = store.slice(branch, store.indexOf('try {', branch));
+    assert.ok(
+      /fenceCapabilityAbsent: false/.test(block),
+      'un cliente sin `rpc` volvió a contar como «la 126 no está aplicada»',
+    );
+    assert.ok(/degraded: true/.test(block), 'un cliente sin `rpc` dejó de degradar');
+    assert.ok(/epoch: null/.test(block));
+    // Y no cae a la lectura anterior a B4: el `return` es incondicional.
+    assert.equal(
+      block.includes(".from('prospect_candidates')"),
+      false,
+      'el cliente sin `rpc` volvió a caer a la lectura legada',
+    );
+  });
+
+  it('🔴 los tres escritores tratan `snapshot_unavailable` como ERROR, sin insertar', () => {
+    for (const path of [WRITER_A, WRITER_B]) {
+      const body = bodyWithLiterals(path);
+      const branch = body.indexOf("=== 'snapshot_unavailable'");
+      assert.ok(branch > 0, `${path} no discrimina el fallo CERRADO del vallado`);
+      // Su bloque tiene que contar error y NO puede escribir.
+      const block = body.slice(branch, branch + 900);
+      assert.ok(
+        /tallyBatchIdentityError\(/.test(block),
+        `${path} no cuenta el fallo CERRADO como error`,
+      );
+      for (const write of ['.insert(', '.rpc(', '.upsert(']) {
+        assert.equal(
+          block.includes(write),
+          false,
+          `${path} escribe (${write}) tras un fallo CERRADO del vallado`,
+        );
+      }
+    }
+  });
+
+  it('🔴 en LUSHA, la dependencia vallada NO es opcional', () => {
+    const core = bodyWithLiterals(WRITER_C_CORE);
+    assert.equal(
+      core.includes('insertCandidatesFenced?'),
+      false,
+      'volvió el `?`: la ausencia de la dependencia autorizaría una escritura sin valla',
+    );
+    assert.ok(
+      /\n\s*insertCandidatesFenced: \(args: \{/.test(core),
+      'la dependencia vallada dejó de declararse OBLIGATORIA',
+    );
+  });
+
+  it('🔴 en LUSHA, ningún `else` escribe por la sola ausencia de la valla', () => {
+    const core = bodyWithLiterals(WRITER_C_CORE);
+    const calls = core.match(/deps\.insertCandidates\(/g) ?? [];
+    assert.equal(calls.length, 1, 'la escritura legada de Lusha tiene más de una puerta');
+    // La única llamada la gobierna `capability_absent`.
+    const before = core.slice(0, core.indexOf('deps.insertCandidates('));
+    const lastIf = before.lastIndexOf('if (');
+    assert.ok(
+      before.slice(lastIf, before.indexOf(')', lastIf) + 1).includes(
+        "fenced.status === 'capability_absent'",
+      ),
+      'la escritura legada de Lusha dejó de estar gobernada por la respuesta de la base',
+    );
+    // Y la valla se llama sin comprobar si existe.
+    assert.ok(
+      core.includes('await deps.insertCandidatesFenced({'),
+      'la valla de Lusha dejó de llamarse directamente',
+    );
+    assert.equal(
+      /if \(fencedInsert\)/.test(core),
+      false,
+      'volvió la rama que decide vallar según haya o no dependencia inyectada',
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // La guarda, en NEGATIVO
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -425,5 +629,57 @@ describe('la guarda no puede pasar por vacía', () => {
   it('la aserción de política FALLA sobre un bucle que SÍ reimplementa identidad', () => {
     const fake = stripNonExecutable('const k = evidence.fiscalIdentityKey;');
     assert.ok(fake.includes('fiscalIdentityKey'));
+  });
+
+  // ── CUT-3B4-CORRECCIÓN — mutaciones del predicado y del `else` ────────────
+
+  it('🔴 el trinquete del predicado FALLA sobre la versión DEFECTUOSA', () => {
+    // Exactamente el código que había antes de la corrección: la condición débil.
+    const buggy = stripComments(`
+      export function isProvenFenceCapabilityAbsent(snapshot) {
+        return snapshot.epoch === null;
+      }
+    `);
+    assert.equal(
+      /snapshot\.fenceCapabilityAbsent === true/.test(buggy),
+      false,
+      'el trinquete no distingue el predicado débil del fuerte',
+    );
+    assert.equal(/snapshot\.degraded === false/.test(buggy), false);
+  });
+
+  it('🔴 el trinquete del predicado FALLA sobre una DISYUNCIÓN', () => {
+    const buggy = stripComments(`
+      return snapshot.epoch === null || snapshot.fenceCapabilityAbsent === true;
+    `);
+    assert.ok(buggy.includes('||'), 'el detector de disyunción no detecta nada');
+  });
+
+  it('🔴 el trinquete de monotonía FALLA sobre una autoridad MUTABLE', () => {
+    const buggy = stripComments('let legacyFallbackAllowed = isProvenFenceCapabilityAbsent(snap);');
+    assert.ok(
+      /let legacyFallbackAllowed/.test(buggy),
+      'el detector de autoridad mutable no detecta nada',
+    );
+  });
+
+  it('🔴 el trinquete del `else` FALLA sobre la versión con dependencia OPCIONAL', () => {
+    const buggy = stripComments(`
+      insertCandidatesFenced?: (args: { batchId: string }) => Promise<unknown>;
+      if (fencedInsert) { await fencedInsert(a); } else { await deps.insertCandidates(rows); }
+    `);
+    assert.ok(
+      buggy.includes('insertCandidatesFenced?'),
+      'el detector del marcador opcional no detecta nada',
+    );
+    assert.ok(/if \(fencedInsert\)/.test(buggy), 'el detector del `if` de dependencia no detecta nada');
+    // Y el gobierno de la llamada legada: el `if` anterior NO nombra la base.
+    const before = buggy.slice(0, buggy.indexOf('deps.insertCandidates('));
+    const lastIf = before.lastIndexOf('if (');
+    assert.equal(
+      before.slice(lastIf).includes("fenced.status === 'capability_absent'"),
+      false,
+      'el detector de gobierno aceptaría un `else` suelto',
+    );
   });
 });

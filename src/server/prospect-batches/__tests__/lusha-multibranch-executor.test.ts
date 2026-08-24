@@ -43,6 +43,7 @@ import type {
   DuplicateCheckResult,
 } from '@/server/agents/prospecting-toolkit/types';
 
+import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const INPUT: LushaPreviewInput = {
@@ -166,6 +167,9 @@ function makeDeps(script: LushaPreviewResult[]) {
       batches.push(row);
       return { id: `batch-${batches.length}` };
     },
+    // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
+    // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
+    insertCandidatesFenced: preM126FencedInsert,
     insertCandidates: async (rows) => {
       candidateRows.push(...rows);
       return { insertedCount: rows.length };

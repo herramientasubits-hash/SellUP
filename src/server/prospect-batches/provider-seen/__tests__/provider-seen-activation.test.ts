@@ -56,6 +56,7 @@ import {
   PROVIDER_SEEN_TABLE,
 } from '../provider-seen-supabase-store';
 
+import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 const ROOT = path.resolve(__dirname, '../../../../..');
 const read = (rel: string): string => readFileSync(path.join(ROOT, rel), 'utf8');
 
@@ -246,6 +247,9 @@ function makeHarness(
         batches.push(row);
         return { id: `batch-${batches.length}` };
       },
+      // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
+      // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
+      insertCandidatesFenced: preM126FencedInsert,
       insertCandidates: async (rows: LushaPendingReviewCandidateRow[]) => {
         persistedNames.push(...rows.map((r) => r.name));
         return { insertedCount: rows.length };

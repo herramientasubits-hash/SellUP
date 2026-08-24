@@ -36,6 +36,13 @@
  * 🔴 Con la 126 SIN aplicar, la función no existe, `epoch` es `null` y el
  * comportamiento es EXACTAMENTE el anterior a B4 (dos consultas, sin vallado). No
  * es un flag ni una preferencia: lo decide el esquema.
+ *
+ * 🔴 Y sólo lo decide el ESQUEMA. Un cliente sin método `rpc`, una lectura que se
+ * cae o un lote que no se ve NO son prueba de que la 126 falte: degradan CERRADO
+ * (`epoch: null`, `fenceCapabilityAbsent: false`) y el bucle vallado se niega a
+ * escribir. Antes de la corrección de este corte, la ausencia de `.rpc` en el
+ * objeto cliente se contaba como prueba de esquema y abría una escritura sin
+ * valla.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -91,14 +98,22 @@ export type BatchIdentitySeedOutcome = {
   /**
    * AGENT1-CUT3B4 — la época contra la que se sembró esta foto.
    *
-   * `null` significa «no se pudo establecer una época coherente», y hay exactamente
-   * dos maneras de llegar ahí: la migración 126 no está aplicada, o la lectura
-   * degradó. En los dos casos NO se puede vallar, y el escritor conserva su ruta
-   * anterior a B4. `null` NUNCA se trata como la época 0: confundir «no lo sé» con
-   * «cero» habría hecho pasar por vallada una escritura que no lo está.
+   * `null` significa «no se pudo establecer una época coherente». NO significa
+   * «la migración 126 no está aplicada»: para eso está `fenceCapabilityAbsent`, y
+   * confundir las dos cosas era exactamente el defecto que la corrección de este
+   * corte cierra. `null` NUNCA se trata como la época 0 tampoco: confundir «no lo
+   * sé» con «cero» habría hecho pasar por vallada una escritura que no lo está.
    */
   epoch: number | null;
-  /** `true` cuando la 126 no está aplicada. Distinto de `degraded`. */
+  /**
+   * `true` SÓLO cuando la BASE probó que la 126 no está aplicada (42883 /
+   * PGRST202). Distinto de `degraded`, y nunca deducible de la forma del cliente.
+   *
+   * 🔴 Con `degraded: true` a la vez, esta bandera NO autoriza la ruta anterior a
+   * B4: la autorización exige `epoch === null` Y `fenceCapabilityAbsent === true`
+   * Y `degraded === false`, y esa conjunción vive en
+   * `isProvenFenceCapabilityAbsent`.
+   */
   fenceCapabilityAbsent: boolean;
 };
 
@@ -232,73 +247,92 @@ export async function loadBatchIdentityRegistry(
     };
   }
 
-  // ── 1. Foto coherente (filas + época) en UNA sentencia ─────────────────────
+  // ── 0. Un cliente sin `rpc` NO es prueba de esquema ────────────────────────
   //
-  // 🔴 Un cliente sin `rpc` no es un fallo de lectura: es un cliente que no puede
-  // llamar a la valla, y eso significa exactamente lo mismo que la migración sin
-  // aplicar. Comprobarlo aquí, de forma ESTRECHA, evita que un `TypeError` acabe
-  // tratado como «la consulta se cayó» y deje la siembra vacía — que sería una
-  // degradación silenciosa de la COBERTURA por un motivo que no lo es.
+  // 🔴 CUT-3B4-CORRECCIÓN. Antes, un cliente sin método `rpc` se clasificaba como
+  // `fenceCapabilityAbsent: true` —es decir, como PRUEBA de que la migración 126
+  // no está aplicada— y eso habilitaba la ruta anterior a B4, una escritura SIN
+  // valla, a partir de la FORMA de un objeto de JavaScript. La forma de un cliente
+  // no puede decir nada sobre el esquema de la base: en producción `.rpc` es parte
+  // del contrato del cliente de Supabase, así que su ausencia sólo puede venir de
+  // un doble o de un cliente no soportado.
+  //
+  // Degrada CERRADO: sin época, sin siembra y SIN prueba de ausencia, de modo que
+  // el bucle vallado no puede caer a la ruta legada. Las pruebas que quieran
+  // modelar «la 126 no está aplicada» inyectan un `rpc` que responda PGRST202 /
+  // 42883, que es lo que diría la base de verdad.
   const canCallRpc = typeof (client as { rpc?: unknown }).rpc === 'function';
+  if (!canCallRpc) {
+    return {
+      registry,
+      seededCount: 0,
+      degraded: true,
+      epoch: null,
+      fenceCapabilityAbsent: false,
+    };
+  }
 
-  if (canCallRpc) {
-    try {
-      const { data, error } = await client.rpc(BATCH_IDENTITY_SNAPSHOT_RPC, {
-        p_batch_id: batchId,
-        // 🔴 Los estados que OCUPAN el lote viajan como PARÁMETRO. La lista no se
-        // escribe en SQL a propósito: es política de admisión y su única autoridad
-        // es `batch-identity-registry`. Codificarla también en la migración habría
-        // creado dos vocabularios que divergen en la primera corrección.
-        p_blocking_statuses: [...BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES],
-      });
+  // ── 1. Foto coherente (filas + época) en UNA sentencia ─────────────────────
+  try {
+    const { data, error } = await client.rpc(BATCH_IDENTITY_SNAPSHOT_RPC, {
+      p_batch_id: batchId,
+      // 🔴 Los estados que OCUPAN el lote viajan como PARÁMETRO. La lista no se
+      // escribe en SQL a propósito: es política de admisión y su única autoridad
+      // es `batch-identity-registry`. Codificarla también en la migración habría
+      // creado dos vocabularios que divergen en la primera corrección.
+      p_blocking_statuses: [...BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES],
+    });
 
-      if (!error) {
-        const parsed = parseBatchIdentitySnapshotPayload(data);
-        if (parsed) {
-          const seeds = parsed.rows.map(toRegisteredBatchIdentity);
-          return {
-            registry: seedBatchIdentityRegistry(registry, seeds),
-            seededCount: seeds.length,
-            degraded: false,
-            epoch: parsed.epoch,
-            fenceCapabilityAbsent: false,
-          };
-        }
-        // El lote no existe (la función devuelve NULL): sin filas y sin época.
+    if (!error) {
+      const parsed = parseBatchIdentitySnapshotPayload(data);
+      if (parsed) {
+        const seeds = parsed.rows.map(toRegisteredBatchIdentity);
         return {
-          registry,
-          seededCount: 0,
-          degraded: true,
-          epoch: null,
+          registry: seedBatchIdentityRegistry(registry, seeds),
+          seededCount: seeds.length,
+          degraded: false,
+          epoch: parsed.epoch,
           fenceCapabilityAbsent: false,
         };
       }
+      // El lote no existe (la función devuelve NULL): sin filas y sin época.
+      return {
+        registry,
+        seededCount: 0,
+        degraded: true,
+        epoch: null,
+        fenceCapabilityAbsent: false,
+      };
+    }
 
-      if (!isMissingFenceCapabilityError(error)) {
-        // Un fallo REAL de lectura degrada la COBERTURA, nunca al revés, y deja la
-        // época en `null` para que nadie valle contra una foto que no se leyó.
-        return {
-          registry,
-          seededCount: 0,
-          degraded: true,
-          epoch: null,
-          fenceCapabilityAbsent: false,
-        };
-      }
-    } catch (err) {
-      if (!isMissingFenceCapabilityError(err)) {
-        return {
-          registry,
-          seededCount: 0,
-          degraded: true,
-          epoch: null,
-          fenceCapabilityAbsent: false,
-        };
-      }
+    if (!isMissingFenceCapabilityError(error)) {
+      // Un fallo REAL de lectura degrada la COBERTURA, nunca al revés, y deja la
+      // época en `null` para que nadie valle contra una foto que no se leyó.
+      return {
+        registry,
+        seededCount: 0,
+        degraded: true,
+        epoch: null,
+        fenceCapabilityAbsent: false,
+      };
+    }
+  } catch (err) {
+    if (!isMissingFenceCapabilityError(err)) {
+      return {
+        registry,
+        seededCount: 0,
+        degraded: true,
+        epoch: null,
+        fenceCapabilityAbsent: false,
+      };
     }
   }
 
   // ── 2. La 126 no está aplicada — ruta EXACTA anterior a B4 ─────────────────
+  //
+  // Sólo se llega aquí porque la BASE lo dijo: `isMissingFenceCapabilityError`
+  // reconoció 42883 / PGRST202 sobre la propia RPC. Cualquier otro desenlace ya
+  // volvió arriba con `fenceCapabilityAbsent: false`.
   try {
     const { data, error } = await client
       .from('prospect_candidates')

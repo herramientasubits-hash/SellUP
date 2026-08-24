@@ -34,6 +34,7 @@ const FAKE_CATALOG_CONTEXT: CatalogContextResult = {
   promptContext: '',
 };
 
+import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 // ─── UUIDs de fixtures ────────────────────────────────────────────────────────
 
 const USER_A = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -111,6 +112,9 @@ function makeFakeAdmin(
   let candidateSeq = 0;
 
   return {
+    // CUT-3B4-CORRECCIÓN — la 126 SIN aplicar se declara como lo hace la BASE.
+    // Omitir `rpc` modelaría un cliente no soportado, y eso degrada CERRADO.
+    rpc: preM126Rpc,
     from(table: string) {
       // ── prospect_batches ──────────────────────────────────────────────────
       if (table === 'prospect_batches') {

@@ -32,6 +32,7 @@ import type {
 import type { ActiveCandidateRecord } from '@/server/agents/prospecting-toolkit/active-candidate-identity-guard';
 import type { OfficialSourceResolver } from '@/server/agents/prospect-intake';
 
+import { preM126FencedInsert, preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 // ══════════════════════════════════════════════════════════════════════════════
 // ESCRITOR GRATUITO — structured-source-candidate-writer
 // ══════════════════════════════════════════════════════════════════════════════
@@ -72,6 +73,8 @@ function makeFreeClientFixed(
   }
 
   return {
+    // CUT-3B4-CORRECCIÓN — la 126 SIN aplicar se declara como lo hace la base.
+    rpc: preM126Rpc,
     from(table: string) {
       if (table === 'prospect_candidates') {
         return {
@@ -360,6 +363,9 @@ function makeLushaDeps(
       calls.batches.push(row);
       return { id: `batch-${calls.batches.length}` };
     },
+    // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
+    // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
+    insertCandidatesFenced: preM126FencedInsert,
     insertCandidates: async (rows) => {
       calls.candidateBatches.push(rows);
       return { insertedCount: rows.length };
@@ -486,6 +492,9 @@ function makeCountingLushaDeps(
       calls.batches.push(row);
       return { id: `batch-${calls.batches.length}` };
     },
+    // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
+    // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
+    insertCandidatesFenced: preM126FencedInsert,
     insertCandidates: async (rows) => {
       calls.candidateBatches.push(rows);
       return { insertedCount: options.insertedCountOverride ?? rows.length };
@@ -616,6 +625,7 @@ function makeFreeClientFailingInsert(stats: FreeStats): SupabaseClient {
     from(table: string): Record<string, unknown>;
   };
   return {
+    rpc: preM126Rpc,
     from(table: string) {
       const node = base.from(table);
       if (table !== 'prospect_candidates') return node;
@@ -674,4 +684,147 @@ describe('CUT-3B23 REVIEW-FIX § 3 — escritor GRATUITO: un insert fallido NO c
     assert.equal(report.batchIdentity.errors, 0);
     assert.equal(report.batchIdentity.persistedUnique, 1, 'sólo el ganador existe');
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CUT-3B4-CORRECCIÓN — el fallo CERRADO visto desde los escritores
+//
+// La corrección no es sólo del bucle: lo que importa al producto es que una
+// AVERÍA del vallado se cuente como error y NO produzca una fila sin valla. Estas
+// pruebas ejercitan los escritores completos, no el bucle aislado.
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Cliente en el que la 126 SÍ está aplicada pero la lectura de la foto FALLA.
+ *
+ * Es el caso A de la corrección: `epoch = null`, `degraded = true`,
+ * `fenceCapabilityAbsent = false`. Antes se clasificaba como «la 126 no está
+ * aplicada» y el escritor hacía un INSERT directo.
+ */
+function makeFreeClientSnapshotReadFails(stats: FreeStats): SupabaseClient {
+  const base = makeFreeClientFixed([], stats) as unknown as {
+    from(table: string): Record<string, unknown>;
+  };
+  return {
+    // NO es 42883 ni PGRST202: es una avería real de lectura.
+    rpc: async () => ({
+      data: null,
+      error: { code: '57014', message: 'canceling statement due to statement timeout' },
+    }),
+    from: (table: string) => base.from(table),
+  } as unknown as SupabaseClient;
+}
+
+/** La valla existe y responde, pero la escritura vallada pierde la capacidad. */
+function makeFreeClientFenceVanishes(stats: FreeStats): SupabaseClient {
+  const base = makeFreeClientFixed([], stats) as unknown as {
+    from(table: string): Record<string, unknown>;
+  };
+  return {
+    rpc: async (name: string) => {
+      if (name === 'read_batch_identity_snapshot') {
+        // Foto COHERENTE: época observada ⇒ capacidad PROBADA presente.
+        return { data: { identity_epoch: 7, rows: [] }, error: null };
+      }
+      // Y ahora la RPC de escritura dice que no existe. Inconsistencia, no esquema.
+      return {
+        data: null,
+        error: {
+          code: 'PGRST202',
+          message: 'Could not find the function public.insert_fenced_prospect_candidates',
+        },
+      };
+    },
+    from: (table: string) => base.from(table),
+  } as unknown as SupabaseClient;
+}
+
+describe('CUT-3B4-CORRECCIÓN — escritor GRATUITO: una avería del vallado NO escribe', () => {
+  it('🔴 A · la foto no se pudo leer ⇒ `errors` 1, `persistedUnique` 0 y CERO inserts', async () => {
+    const stats: FreeStats = { candidateInserts: [], seedSelects: 0 };
+
+    const report = await writeStructuredSourceCandidatesPreview(
+      makeFreeClientSnapshotReadFails(stats),
+      { ...FREE_INPUT_BASE, candidates: [draft()] },
+    );
+
+    assert.equal(
+      stats.candidateInserts.length,
+      0,
+      '🔴 escribió sin valla: una lectura caída pasó por «la 126 no está aplicada»',
+    );
+    assert.equal(report.batchIdentity.persistedUnique, 0);
+    assert.equal(report.batchIdentity.errors, 1);
+    assert.equal(report.batchIdentity.duplicateSkipped, 0);
+  });
+
+  it('🔴 E · la valla se OBSERVA y luego desaparece ⇒ error, y CERO inserts', async () => {
+    const stats: FreeStats = { candidateInserts: [], seedSelects: 0 };
+
+    const report = await writeStructuredSourceCandidatesPreview(
+      makeFreeClientFenceVanishes(stats),
+      { ...FREE_INPUT_BASE, candidates: [draft()] },
+    );
+
+    assert.equal(
+      stats.candidateInserts.length,
+      0,
+      '🔴 la valla se desvaneció a mitad de la admisión y se escribió directo',
+    );
+    assert.equal(report.batchIdentity.persistedUnique, 0);
+    assert.equal(report.batchIdentity.errors, 1);
+  });
+
+  it('D · con la 126 realmente ausente, la ruta anterior a B4 SIGUE escribiendo', async () => {
+    // La contrapartida imprescindible: la corrección no puede haber roto la
+    // compatibilidad que la migración sin aplicar necesita.
+    const stats: FreeStats = { candidateInserts: [], seedSelects: 0 };
+
+    const report = await writeStructuredSourceCandidatesPreview(
+      makeFreeClientFixed([], stats),
+      { ...FREE_INPUT_BASE, candidates: [draft()] },
+    );
+
+    assert.equal(stats.candidateInserts.length, 1, 'la ruta legada dejó de escribir');
+    assert.equal(report.batchIdentity.persistedUnique, 1);
+    assert.equal(report.batchIdentity.errors, 0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CUT-3B4-CORRECCIÓN — CASO I: la escritura legada de LUSHA tiene UNA puerta
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('CUT-3B4-CORRECCIÓN — LUSHA: la ruta legada sólo la abre `capability_absent`', () => {
+  it('`capability_absent` ⇒ se usa la dependencia anterior a B4', async () => {
+    const { deps, calls } = makeCountingLushaDeps(lushaSuccess(TWO_COMPANIES));
+    deps.insertCandidatesFenced = async () => ({ status: 'capability_absent' });
+
+    const result = await persistLushaPendingReviewBatch(deps, LUSHA_INPUT, LUSHA_ACTOR);
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.candidateBatches.length, 1, 'la ruta legada tiene que escribir');
+  });
+
+  for (const [label, outcome] of [
+    ['`stale`', { status: 'stale', currentEpoch: 3 }],
+    ['`batch_not_found`', { status: 'batch_not_found' }],
+    ['`invalid_input`', { status: 'invalid_input' }],
+    ['`insert_failed`', { status: 'insert_failed', code: '23505', raw: null }],
+  ] as const) {
+    it(`🔴 ${label} NO abre la ruta legada: lanza y no escribe`, async () => {
+      const { deps, calls } = makeCountingLushaDeps(lushaSuccess(TWO_COMPANIES));
+      deps.insertCandidatesFenced = async () => outcome;
+
+      await assert.rejects(
+        () => persistLushaPendingReviewBatch(deps, LUSHA_INPUT, LUSHA_ACTOR),
+        /No se pudieron crear los candidatos/,
+      );
+      assert.equal(
+        calls.candidateBatches.length,
+        0,
+        `🔴 ${label} degradó a una escritura sin valla`,
+      );
+    });
+  }
 });

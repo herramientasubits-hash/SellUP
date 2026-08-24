@@ -31,10 +31,13 @@ import {
   type FencedCandidateInsertResult,
 } from '../batch-identity-fence';
 import {
+  initialFencedPersistenceTelemetry,
+  isProvenFenceCapabilityAbsent,
   runFencedPersistence,
   toFencedPersistenceMetadata,
   type FencedAdmissionPlan,
 } from '../batch-identity-fenced-persistence';
+import { loadBatchIdentityRegistry } from '../batch-identity-registry-store';
 import type { BatchIdentitySeedOutcome } from '../batch-identity-registry-store';
 import {
   acceptIdentity,
@@ -54,6 +57,28 @@ function snapshot(epoch: number | null, entries: BatchIdentitySeedOutcome['regis
     degraded: false,
     epoch,
     fenceCapabilityAbsent: epoch === null,
+  };
+}
+
+/**
+ * Foto con las TRES señales puestas a mano.
+ *
+ * La corrección de este corte se decide con la conjunción `epoch` /
+ * `fenceCapabilityAbsent` / `degraded`, así que las pruebas negativas necesitan
+ * poder construir cada combinación por separado: `snapshot()` las ata entre sí y
+ * eso es justo lo que aquí no puede darse por bueno.
+ */
+function rawSnapshot(fields: {
+  epoch: number | null;
+  degraded: boolean;
+  fenceCapabilityAbsent: boolean;
+}): BatchIdentitySeedOutcome {
+  return {
+    registry: { batchId: BATCH, entries: [] },
+    seededCount: 0,
+    degraded: fields.degraded,
+    epoch: fields.epoch,
+    fenceCapabilityAbsent: fields.fenceCapabilityAbsent,
   };
 }
 
@@ -402,7 +427,11 @@ describe('CUT-3B4 § 12 — compatibilidad con la migración SIN aplicar', () =>
     assert.deepEqual(seen, [], 'no puede haberse llamado con una época inventada');
   });
 
-  it('la RPC que responde «no existe» a mitad de vuelo también degrada, sin escribir', async () => {
+  it('🔴 la RPC que responde «no existe» TRAS observar la valla NO degrada: falla CERRADO', async () => {
+    // CASO E de la corrección. Antes esto devolvía `capability_absent` y el
+    // escritor hacía un insert DIRECTO: la valla podía desvanecerse a mitad de la
+    // admisión. Habiendo visto una época, la capacidad está OBSERVADA activa y una
+    // caché de esquema incoherente es una avería, no una prueba de esquema.
     const result = await runFencedPersistence({
       client: FAKE_CLIENT,
       batchId: BATCH,
@@ -412,8 +441,14 @@ describe('CUT-3B4 § 12 — compatibilidad con la migración SIN aplicar', () =>
         status: 'capability_absent',
       }),
     });
-    assert.equal(result.status, 'capability_absent');
-    assert.equal(result.telemetry.identityFenceCapabilityAbsent, true);
+    assert.equal(result.status, 'snapshot_unavailable');
+    assert.equal(
+      result.status === 'snapshot_unavailable' ? result.reason : null,
+      'fence_capability_lost',
+    );
+    assert.equal(result.telemetry.identityFenceCapabilityAbsent, false);
+    assert.equal(result.telemetry.identityFenceCapabilityLost, true);
+    assert.equal('plan' in result, false, 'no puede devolver un plan que el escritor insertaría directo');
   });
 });
 
@@ -430,6 +465,8 @@ describe('CUT-3B4 § 24 — la telemetría de concurrencia no puede llevar PII',
       identityEpochRetryExhausted: false,
       identityDuplicateAfterStaleRetry: true,
       identityFenceCapabilityAbsent: false,
+      identitySnapshotUnavailable: false,
+      identityFenceCapabilityLost: false,
     });
 
     for (const [key, value] of Object.entries(metadata)) {
@@ -461,6 +498,8 @@ describe('CUT-3B4 § 24 — la telemetría de concurrencia no puede llevar PII',
       identityEpochRetryExhausted: false,
       identityDuplicateAfterStaleRetry: false,
       identityFenceCapabilityAbsent: true,
+      identitySnapshotUnavailable: false,
+      identityFenceCapabilityLost: false,
     });
     assert.deepEqual(Object.keys(metadata).sort(), [
       'identity_duplicate_after_stale_retry',
@@ -469,6 +508,298 @@ describe('CUT-3B4 § 24 — la telemetría de concurrencia no puede llevar PII',
       'identity_epoch_retry_exhausted',
       'identity_epoch_stale_retries',
       'identity_fence_capability_absent',
+      'identity_fence_capability_lost',
+      'identity_snapshot_unavailable',
     ]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CUT-3B4-CORRECCIÓN — «sin época» NO es «sin migración»
+//
+// El defecto: el bucle decidía la ruta anterior a B4 con `epoch === null` a
+// secas, así que una lectura caída, un lote invisible o un cliente no soportado
+// —todos ellos AVERÍAS— habilitaban una escritura SIN valla. La autorización
+// exige ahora las tres condiciones juntas, y todo lo demás falla CERRADO.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('CUT-3B4-CORRECCIÓN — la ruta legada exige ausencia PROBADA', () => {
+  it('🔴 el predicado exige las TRES condiciones: la tabla de verdad entera', () => {
+    // 8 combinaciones; exactamente UNA autoriza. Escrita como tabla porque el
+    // defecto era precisamente aceptar una de las otras siete.
+    for (const epoch of [null, 4] as const) {
+      for (const degraded of [false, true]) {
+        for (const fenceCapabilityAbsent of [false, true]) {
+          const expected =
+            epoch === null && fenceCapabilityAbsent === true && degraded === false;
+          assert.equal(
+            isProvenFenceCapabilityAbsent(rawSnapshot({ epoch, degraded, fenceCapabilityAbsent })),
+            expected,
+            `epoch=${epoch} degraded=${degraded} absent=${fenceCapabilityAbsent}`,
+          );
+        }
+      }
+    }
+  });
+
+  it('🔴 `epoch === null` por sí solo NO autoriza nada', () => {
+    // La forma exacta del defecto, dicha en una línea.
+    assert.equal(
+      isProvenFenceCapabilityAbsent(
+        rawSnapshot({ epoch: null, degraded: true, fenceCapabilityAbsent: false }),
+      ),
+      false,
+    );
+    assert.equal(
+      isProvenFenceCapabilityAbsent(
+        rawSnapshot({ epoch: null, degraded: false, fenceCapabilityAbsent: false }),
+      ),
+      false,
+    );
+  });
+
+  // ── Casos A–D: la foto INICIAL, cuatro combinaciones con época nula ────────
+  for (const [label, fields, expected] of [
+    [
+      'A · lectura degradada SIN prueba de esquema',
+      { epoch: null, degraded: true, fenceCapabilityAbsent: false },
+      'snapshot_unavailable',
+    ],
+    [
+      'B · lectura degradada CON bandera de esquema (la bandera no basta)',
+      { epoch: null, degraded: true, fenceCapabilityAbsent: true },
+      'snapshot_unavailable',
+    ],
+    [
+      'C · sin degradar y sin prueba de esquema (lote invisible)',
+      { epoch: null, degraded: false, fenceCapabilityAbsent: false },
+      'snapshot_unavailable',
+    ],
+    [
+      'D · ausencia PROBADA: la 126 no está aplicada',
+      { epoch: null, degraded: false, fenceCapabilityAbsent: true },
+      'capability_absent',
+    ],
+  ] as const) {
+    it(`${label} ⇒ ${expected}`, async () => {
+      let fenceCalls = 0;
+      const result = await runFencedPersistence({
+        client: FAKE_CLIENT,
+        batchId: BATCH,
+        snapshot: rawSnapshot(fields),
+        plan: () => persistPlan(),
+        fencedInsert: async (): Promise<FencedCandidateInsertResult> => {
+          fenceCalls += 1;
+          return { status: 'inserted', candidateIds: ['x'], insertedCount: 1, previousEpoch: 0, nextEpoch: 1 };
+        },
+      });
+
+      assert.equal(result.status, expected);
+      assert.equal(fenceCalls, 0, 'sin época no se puede llamar a la valla');
+
+      if (expected === 'snapshot_unavailable') {
+        // 🔴 Lo que prueba que el escritor NO puede insertar directo: no recibe
+        // plan. La rama legada de los tres escritores se alimenta del `plan` que
+        // viaja con `capability_absent`, y aquí no viaja ninguno.
+        assert.equal('plan' in result, false, 'la avería devolvió un plan insertable sin valla');
+        assert.equal(result.telemetry.identitySnapshotUnavailable, true);
+        assert.equal(result.telemetry.identityFenceCapabilityAbsent, false);
+      } else {
+        assert.equal('plan' in result, true, 'la compatibilidad probada sí devuelve el plan');
+        assert.equal(result.telemetry.identityFenceCapabilityAbsent, true);
+        assert.equal(result.telemetry.identitySnapshotUnavailable, false);
+      }
+    });
+  }
+
+  // ── Caso F: la capacidad es MONÓTONA dentro de la tentativa ────────────────
+  it('🔴 F · vista la valla activa, una recarga que degrada a `null` falla CERRADO', async () => {
+    let reloads = 0;
+    const result = await runFencedPersistence({
+      client: FAKE_CLIENT,
+      batchId: BATCH,
+      // Época 4 observada: la capacidad está PROBADA presente.
+      snapshot: rawSnapshot({ epoch: 4, degraded: false, fenceCapabilityAbsent: false }),
+      plan: () => persistPlan(),
+      fencedInsert: async (): Promise<FencedCandidateInsertResult> => ({
+        status: 'stale',
+        currentEpoch: 5,
+      }),
+      reloadSnapshot: async () => {
+        reloads += 1;
+        // La recarga se cae: sin época y, encima, con la bandera puesta. Ni así.
+        return rawSnapshot({ epoch: null, degraded: true, fenceCapabilityAbsent: true });
+      },
+    });
+
+    assert.equal(reloads, 1);
+    assert.equal(result.status, 'snapshot_unavailable');
+    assert.equal(
+      result.status === 'snapshot_unavailable' ? result.reason : null,
+      'snapshot_degraded',
+    );
+    assert.equal('plan' in result, false, 'la recarga degradada devolvió un plan insertable');
+    assert.equal(result.telemetry.identityFenceCapabilityAbsent, false);
+  });
+
+  it('🔴 la ausencia PROBADA que llega DESPUÉS tampoco reabre la ruta legada', async () => {
+    // Misma monotonía, con la recarga trayendo la conjunción «legítima». Da
+    // igual: la prueba de ausencia se toma sobre la foto INICIAL y no se
+    // re-descubre a mitad de la tentativa.
+    const result = await runFencedPersistence({
+      client: FAKE_CLIENT,
+      batchId: BATCH,
+      snapshot: rawSnapshot({ epoch: 4, degraded: false, fenceCapabilityAbsent: false }),
+      plan: () => persistPlan(),
+      fencedInsert: async (): Promise<FencedCandidateInsertResult> => ({
+        status: 'stale',
+        currentEpoch: 5,
+      }),
+      reloadSnapshot: async () =>
+        rawSnapshot({ epoch: null, degraded: false, fenceCapabilityAbsent: true }),
+    });
+
+    assert.equal(result.status, 'snapshot_unavailable');
+    assert.equal('plan' in result, false);
+  });
+
+  it('una recarga con época NUEVA sigue reintentando vallada: la corrección no rompe `stale`', async () => {
+    const epochs: number[] = [];
+    const result = await runFencedPersistence({
+      client: FAKE_CLIENT,
+      batchId: BATCH,
+      snapshot: rawSnapshot({ epoch: 4, degraded: false, fenceCapabilityAbsent: false }),
+      plan: () => persistPlan(),
+      fencedInsert: async (_c, a): Promise<FencedCandidateInsertResult> => {
+        epochs.push(a.expectedEpoch);
+        return a.expectedEpoch === 4
+          ? { status: 'stale', currentEpoch: 5 }
+          : { status: 'inserted', candidateIds: ['c1'], insertedCount: 1, previousEpoch: 5, nextEpoch: 6 };
+      },
+      reloadSnapshot: async () =>
+        rawSnapshot({ epoch: 5, degraded: false, fenceCapabilityAbsent: false }),
+    });
+
+    assert.deepEqual(epochs, [4, 5]);
+    assert.equal(result.status, 'persisted');
+    assert.equal(result.telemetry.identityEpochStaleRetries, 1);
+    assert.equal(result.telemetry.identitySnapshotUnavailable, false);
+    assert.equal(result.telemetry.identityFenceCapabilityLost, false);
+  });
+
+  it('la telemetría inicial NO afirma compatibilidad cuando la lectura sólo degradó', () => {
+    const degraded = initialFencedPersistenceTelemetry(
+      rawSnapshot({ epoch: null, degraded: true, fenceCapabilityAbsent: true }),
+    );
+    assert.equal(degraded.identityFenceCapabilityAbsent, false);
+
+    const proven = initialFencedPersistenceTelemetry(
+      rawSnapshot({ epoch: null, degraded: false, fenceCapabilityAbsent: true }),
+    );
+    assert.equal(proven.identityFenceCapabilityAbsent, true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CUT-3B4-CORRECCIÓN — CASO G: un cliente sin `.rpc` no es prueba de esquema
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('CUT-3B4-CORRECCIÓN — la FORMA del cliente no decide el esquema', () => {
+  it('🔴 G · un cliente sin método `rpc` NO cuenta como «la 126 no está aplicada»', async () => {
+    let fromCalls = 0;
+    const clientWithoutRpc = {
+      from() {
+        fromCalls += 1;
+        throw new Error('la ruta legada no debería alcanzarse');
+      },
+    } as unknown as SupabaseClient;
+
+    const outcome = await loadBatchIdentityRegistry(clientWithoutRpc, BATCH);
+
+    assert.equal(outcome.epoch, null);
+    assert.equal(outcome.degraded, true, 'un cliente no soportado es una degradación');
+    assert.equal(
+      outcome.fenceCapabilityAbsent,
+      false,
+      'la forma de un objeto de JavaScript pasó por prueba de esquema',
+    );
+    assert.equal(fromCalls, 0, 'no puede caer a la lectura anterior a B4');
+    assert.equal(isProvenFenceCapabilityAbsent(outcome), false);
+  });
+
+  it('🔴 G · esa foto, en el bucle, falla CERRADO y no devuelve plan', async () => {
+    const clientWithoutRpc = { from: () => { throw new Error('nunca'); } } as unknown as SupabaseClient;
+    const outcome = await loadBatchIdentityRegistry(clientWithoutRpc, BATCH);
+
+    let fenceCalls = 0;
+    const result = await runFencedPersistence({
+      client: clientWithoutRpc,
+      batchId: BATCH,
+      snapshot: outcome,
+      plan: () => persistPlan(),
+      fencedInsert: async (): Promise<FencedCandidateInsertResult> => {
+        fenceCalls += 1;
+        return { status: 'capability_absent' };
+      },
+    });
+
+    assert.equal(result.status, 'snapshot_unavailable');
+    assert.equal(fenceCalls, 0);
+    assert.equal('plan' in result, false);
+  });
+
+  it('un `rpc` que responde 42883 SÍ es prueba de esquema, y conserva la ruta legada', async () => {
+    // La contrapartida: el camino legítimo sigue existiendo, pero lo abre la BASE.
+    let fromCalls = 0;
+    const rows: unknown[] = [];
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      in: async () => ({ data: rows, error: null }),
+    };
+    const client = {
+      rpc: async () => ({ data: null, error: { code: '42883', message: 'function does not exist' } }),
+      from: () => {
+        fromCalls += 1;
+        return builder;
+      },
+    } as unknown as SupabaseClient;
+
+    const outcome = await loadBatchIdentityRegistry(client, BATCH);
+    assert.equal(fromCalls, 1, 'la ruta anterior a B4 tiene que ejecutarse');
+    assert.equal(outcome.epoch, null);
+    assert.equal(outcome.degraded, false);
+    assert.equal(outcome.fenceCapabilityAbsent, true);
+    assert.equal(isProvenFenceCapabilityAbsent(outcome), true);
+  });
+
+  it('🔴 con la 126 ausente, una lectura legada que se CAE ya no autoriza escribir', async () => {
+    // Caso B end-to-end desde el almacén: la bandera de esquema está puesta, pero
+    // la cobertura no se leyó. Admitir aquí sería decidir identidad contra una
+    // siembra vacía por avería, y encima escribir sin valla.
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      in: async () => ({ data: null, error: { message: 'query failed' } }),
+    };
+    const client = {
+      rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } }),
+      from: () => builder,
+    } as unknown as SupabaseClient;
+
+    const outcome = await loadBatchIdentityRegistry(client, BATCH);
+    assert.equal(outcome.degraded, true);
+    assert.equal(outcome.fenceCapabilityAbsent, true);
+    assert.equal(isProvenFenceCapabilityAbsent(outcome), false);
+
+    const result = await runFencedPersistence({
+      client,
+      batchId: BATCH,
+      snapshot: outcome,
+      plan: () => persistPlan(),
+      fencedInsert: async (): Promise<FencedCandidateInsertResult> => ({ status: 'capability_absent' }),
+    });
+    assert.equal(result.status, 'snapshot_unavailable');
+    assert.equal('plan' in result, false);
   });
 });

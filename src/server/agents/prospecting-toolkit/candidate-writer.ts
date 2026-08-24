@@ -69,6 +69,7 @@ import {
 // MISMOS que usan los otros dos escritores. Aquí no vive ninguna política de
 // concurrencia propia.
 import {
+  initialFencedPersistenceTelemetry,
   mergeFencedPersistenceTelemetry,
   runFencedPersistence,
   toFencedPersistenceMetadata,
@@ -1975,14 +1976,13 @@ export async function writeProspectingCandidates(
   let batchIdentitySnapshot: BatchIdentitySeedOutcome = batchIdentitySeed;
   let batchIdentityCounters = createBatchIdentityCounters();
   const batchIdentityDuplicateSignals: Record<string, number> = {};
-  let batchIdentityFenceTelemetry: FencedPersistenceTelemetry = {
-    identityEpochInitial: batchIdentitySeed.epoch,
-    identityEpochFinal: batchIdentitySeed.epoch,
-    identityEpochStaleRetries: 0,
-    identityEpochRetryExhausted: false,
-    identityDuplicateAfterStaleRetry: false,
-    identityFenceCapabilityAbsent: batchIdentitySeed.fenceCapabilityAbsent,
-  };
+  // 🔴 CUT-3B4-CORRECCIÓN — la telemetría inicial se DERIVA de la foto con la
+  // misma regla que la decisión: `identityFenceCapabilityAbsent` sólo es `true`
+  // con la ausencia PROBADA. Copiar `batchIdentitySeed.fenceCapabilityAbsent` a
+  // pelo afirmaba «se conservó la ruta anterior a B4» también cuando la lectura
+  // había degradado y no se escribió nada.
+  let batchIdentityFenceTelemetry: FencedPersistenceTelemetry =
+    initialFencedPersistenceTelemetry(batchIdentitySeed);
 
   // ── Pre-Pass: Controlled LinkedIn Search (v1.15.2) ────────────────────────
   // Pre-compute LinkedIn enrichments for all candidates in toPersist.
@@ -3130,6 +3130,26 @@ export async function writeProspectingCandidates(
       skipped.push({
         name: candidate.name,
         reason: 'persistence_failed:identity_fence_retry_exhausted',
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      continue;
+    }
+
+    // 🔴 CUT-3B4-CORRECCIÓN — no se pudo vallar y NO hay prueba de que la 126
+    // falte. Fallo CERRADO: error real, cero filas y CERO caída al insert
+    // directo. Antes, cualquiera de estas causas —lectura caída, lote invisible,
+    // cliente no soportado, valla observada y luego perdida— entraba por la rama
+    // de compatibilidad y escribía sin valla.
+    if (fenceOutcome.status === 'snapshot_unavailable') {
+      persistenceFailures.push({
+        code: CANDIDATE_PERSISTENCE_FAILED_ERROR_CODE,
+        stage: 'candidate_insert',
+      });
+      errors.push(`Error al crear candidato: identity_fence_${fenceOutcome.reason}`);
+      batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
+      skipped.push({
+        name: candidate.name,
+        reason: `persistence_failed:identity_fence_${fenceOutcome.reason}`,
         searchTrace: candidate.searchTrace ?? undefined,
       });
       continue;
