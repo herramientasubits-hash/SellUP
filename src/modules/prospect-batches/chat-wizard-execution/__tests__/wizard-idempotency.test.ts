@@ -48,6 +48,11 @@ function makeInput(
       subindustryIds: ['sub-001', 'sub-002'],
       countryCode: 'CO',
       additionalCriteria: null,
+      // CUT-2 REVIEW-1 §§ 3/4 — verdad request-global establecida en origen.
+      targetCount: 10,
+      country: 'Colombia',
+      industry: 'EdTech',
+      searchDepth: 'standard',
     },
   };
 }

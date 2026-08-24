@@ -33,6 +33,39 @@ export type WizardExecutionReservationInput = {
     countryCode: string;
     additionalCriteria: string | null;
     /**
+     * AGENT1-MIXED-FREE-PAID-SINGLE-BATCH-1 · CUT-2 REVIEW-1 § 3 — el objetivo
+     * PERSISTIBLE canónico de la petición, el que el producto le promete a la
+     * persona.
+     *
+     * Aterriza en el INSERT del slot y no en una escritura posterior, y ése es
+     * el hito entero. Antes `target_count` nacía NULL y lo establecía el primer
+     * contribuyente que adoptaba el lote. En el mundo mixto que viene eso
+     * miente: con 10 pedidos, 7 cerrados gratis y 3 de residual de pago, el
+     * contribuyente de pago llegaría con 3 y sería ÉL quien fijara el objetivo
+     * global. Un residual no puede establecer la petición.
+     *
+     * 🔴 Es el objetivo PERSISTIBLE (10), no `WIZARD_SYSTEM_CONTROLS.targetCount`
+     * (25), que es AMPLITUD DE BÚSQUEDA del pipeline. Confundirlos publicaría un
+     * objetivo que el producto nunca prometió. Las dos rutas del wizard —Apollo y
+     * Tavily— prometen el mismo 10.
+     */
+    targetCount: number;
+    /**
+     * REVIEW-1 § 4 — el resto de la verdad request-global que ya se conoce
+     * canónicamente ANTES de que exista contribuyente alguno.
+     *
+     * `country` es el NOMBRE (la columna `country`); el ISO viaja aparte en
+     * `countryCode`. `industry` es el nombre de display del catálogo resuelto.
+     * `searchDepth` es la profundidad con la que el wizard invoca el pipeline.
+     *
+     * Objetivo: que un slot NUEVO del wizard nazca con su identidad completa y
+     * que «el primero establece» quede como respaldo para filas heredadas, no
+     * como el modelo de propiedad normal.
+     */
+    country: string;
+    industry: string;
+    searchDepth: string;
+    /**
      * A1-APOLLO-QA-CONTROL-SURFACE-1 § 8/§ 26 — selección de proveedor de la
      * corrida, ya resuelta server-side.
      *
@@ -146,6 +179,15 @@ export async function reserveWizardExecutionSlot(
       created_by: userId,
       client_request_id: clientRequestId,
       metadata: metadataEntry,
+      // CUT-2 REVIEW-1 §§ 3/4 — la verdad request-global se establece AQUÍ,
+      // antes de cualquier contribuyente. `adopted-batch-truth.ts` la preserva
+      // después; su regla de «el primero establece» pasa a ser respaldo para
+      // filas heredadas, no el modelo de propiedad de los lotes mixtos nuevos.
+      target_count: initialBatchPayload.targetCount,
+      country: initialBatchPayload.country,
+      country_code: initialBatchPayload.countryCode,
+      industry: initialBatchPayload.industry,
+      search_depth: initialBatchPayload.searchDepth,
     })
     .select('id')
     .single();
