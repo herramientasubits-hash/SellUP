@@ -2980,3 +2980,36 @@ jobs:
       # 0 créditos, 0 migraciones.
       - name: Run Agent 1 mixed free+paid batch truthfulness tests
         run: npm run test:a1-mixed-batch-truthfulness
+
+      # ── AGENT1-CUT3B1-FISCAL-IDENTITY-TRUTH ────────────────────────────────
+      #
+      # Check OBLIGATORIO. Cierra las tres formas en que la identidad fiscal de
+      # Agente 1 podía mentir entre la capa gratuita y la de pago:
+      #
+      #   * el chequeo de novedad gratuito leía SÓLO `prospect_candidates.tax_id`,
+      #     mientras las rutas de PAGO escriben habitualmente sólo
+      #     `tax_identifier` ⇒ una fila de pago era invisible y el mismo NIT se
+      #     volvía a persistir;
+      #   * comparaba una aguja YA normalizada contra el valor CRUDO de la
+      #     columna, así que la igualdad dependía de la puntuación de la fuente;
+      #   * la igualdad podía cruzar países, porque el filtro de país era
+      #     opcional: un identificador desnudo NO es único globalmente.
+      #
+      # También fija lo que este corte NO hace, que es la mitad del contrato:
+      #   * dos columnas fiscales que canonicalizan distinto fallan CERRADO —
+      #     no se elige una arbitrariamente ni se suprime al candidato;
+      #   * el NOMBRE no gana poder de supresión (CUT-3A probó que la comparación
+      #     de nombre entre capas está rota; convertirla en supresor duro antes de
+      #     tener identidad escalonada produciría fusiones FALSAS);
+      #   * el dominio, la identidad de proveedor y el registro entre capas
+      #     siguen fuera: no hay tabla nueva, ni alias, ni ON CONFLICT, ni índice
+      #     único, ni backfill.
+      #
+      # La guarda estática compara el CUERPO EJECUTABLE (sin comentarios ni
+      # literales) y se prueba a sí misma en NEGATIVO, para que no pueda pasar
+      # por vacía.
+      #
+      # Offline y determinista: sin Supabase, sin red, sin credenciales,
+      # 0 créditos, 0 migraciones, 0 proveedores.
+      - name: Run Agent 1 CUT-3B1 fiscal identity truth tests
+        run: npm run test:a1-cut3b1-fiscal-identity

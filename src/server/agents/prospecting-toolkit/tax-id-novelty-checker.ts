@@ -1,14 +1,39 @@
 /**
  * Tax ID Novelty Checker — Hito 16AB.8
  *
- * Deduplicación por NIT/tax_id para fuentes estructuradas (Socrata Colombia).
- * El dominio puede estar ausente en registros Socrata — este checker usa
- * tax_id como clave primaria en prospect_candidates y tax_identifier en accounts.
+ * Deduplicación por identidad FISCAL para fuentes estructuradas (Socrata Colombia).
+ * El dominio puede estar ausente en registros Socrata — este checker decide por
+ * identidad fiscal, nunca por nombre ni dominio.
+ *
+ * AGENT1-CUT3B1-FISCAL-IDENTITY-TRUTH — este checker ya NO define su propia
+ * semántica fiscal. Consume `./fiscal-identity`, la ÚNICA autoridad canónica de
+ * Agente 1, y con ello corrige tres defectos probados por la auditoría CUT-3A:
+ *
+ *   1. leía sólo `prospect_candidates.tax_id`, mientras las rutas de PAGO escriben
+ *      habitualmente sólo `tax_identifier` ⇒ la capa de pago era invisible;
+ *   2. comparaba una aguja YA normalizada contra el valor CRUDO de la columna;
+ *   3. la igualdad fiscal podía cruzar países, porque el filtro de país era
+ *      opcional.
+ *
+ * Ahora: el índice se indexa por PAÍS + IDENTIFICADOR FISCAL CANÓNICO, el filtro
+ * de base de datos es sólo un PREFILTRO y la igualdad canónica verificada en
+ * memoria es la AUTORIDAD. Sin país no hay igualdad fiscal automática.
  *
  * No hace writes. No llama proveedores externos. No crea candidatos ni lotes.
+ * No introduce ninguna supresión por nombre, dominio ni identidad de proveedor.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+
+import {
+  buildFiscalIdentityKey,
+  buildFiscalLookupNeedles,
+  canonicalizeFiscalIdentifier,
+  resolveFiscalCountryScope,
+  resolveStoredFiscalIdentity,
+  type FiscalIdentityKey,
+  type StoredFiscalIdentitySource,
+} from './fiscal-identity';
 
 // ─── Constantes ───────────────────────────────────────────────
 
@@ -28,6 +53,19 @@ export type TaxIdNoveltyStatus =
   | 'existing_account'
   | 'invalid_tax_id';
 
+/**
+ * CUT-3B1 — identidad fiscal del candidato EVALUADO, expuesta como metadata
+ * tipada para que la decisión sea auditable sin reejecutar la consulta.
+ */
+export type EvaluatedFiscalIdentity = {
+  /** Identificador fiscal canónico del candidato, `null` si no hay uno utilizable. */
+  canonical: string | null;
+  /** Clave con ámbito de país. `null` si falta canónico o falta país. */
+  key: FiscalIdentityKey | null;
+  /** `false` cuando no se pudo acotar por país ⇒ no hay igualdad fiscal automática. */
+  countryScoped: boolean;
+};
+
 export type TaxIdNoveltyDecision = {
   status: TaxIdNoveltyStatus;
   shouldSkip: boolean;
@@ -36,12 +74,21 @@ export type TaxIdNoveltyDecision = {
   matchedAccountIds: string[];
   cooldownDays: number | null;
   lastSeenAt: string | null;
+  /** CUT-3B1 — identidad fiscal usada (o no) para decidir. */
+  fiscalIdentity: EvaluatedFiscalIdentity;
 };
 
 type CandidateEntry = {
   id: string;
   name: string | null;
-  taxId: string;
+  /** Valor de FUENTE tal cual está almacenado (no se reescribe nunca). */
+  taxId: string | null;
+  /** Valor de FUENTE de la columna compatible (no se reescribe nunca). */
+  taxIdentifier: string | null;
+  /** CUT-3B1 — identificador fiscal CANÓNICO con el que la fila entró al índice. */
+  canonicalFiscalIdentifier: string;
+  /** CUT-3B1 — columna(s) compatible(s) que aportaron la identidad. */
+  fiscalIdentitySource: StoredFiscalIdentitySource;
   reviewStatus: string | null;
   status: string | null;
   duplicateStatus: string | null;
@@ -53,47 +100,58 @@ type AccountEntry = {
   id: string;
   name: string | null;
   taxIdentifier: string;
+  canonicalFiscalIdentifier: string;
   status: string | null;
   pipelineStatus: string | null;
   createdAt: string | null;
 };
 
+/**
+ * CUT-3B1 § 5 — fila descartada para igualdad AUTOMÁTICA porque sus dos columnas
+ * fiscales compatibles canonicalizan distinto. No se elige una arbitrariamente y
+ * no se suprime a nadie por su causa: se registra y se falla cerrado.
+ */
+export type FiscalColumnConflict = {
+  table: 'prospect_candidates';
+  id: string;
+  taxIdCanonical: string;
+  taxIdentifierCanonical: string;
+};
+
 export type TaxIdNoveltyIndex = {
-  byTaxId: Map<
-    string,
+  /**
+   * Índice por CLAVE FISCAL CON ÁMBITO DE PAÍS (`<PAÍS>:<canónico>`).
+   * Antes de CUT-3B1 se indexaba por un número fiscal desnudo, lo que permitía
+   * igualdad transfronteriza a partir del identificador solo.
+   */
+  byFiscalKey: Map<
+    FiscalIdentityKey,
     {
       candidates: CandidateEntry[];
       accounts: AccountEntry[];
     }
   >;
+  /**
+   * Ámbito de país realmente aplicado. `null` ⇒ el índice es INERTE: sin país no
+   * puede haber igualdad fiscal automática (§ 8).
+   */
+  countryNamespace: string | null;
+  /** Filas excluidas de la igualdad automática por conflicto de columnas. */
+  columnConflicts: FiscalColumnConflict[];
 };
 
-// ─── normalizeTaxId ───────────────────────────────────────────
+// ─── normalizeTaxId (delegación a la autoridad canónica) ──────────────────────
 
 /**
- * Normaliza un NIT/RUC/RFC para comparación:
- * - Elimina prefijos de etiqueta ("NIT ", "RFC ", etc.)
- * - Elimina caracteres no alfanuméricos (puntos, guiones, espacios)
- * - Minúsculas
- * - null si queda < 5 caracteres
+ * @deprecated CUT-3B1 — alias de compatibilidad. La autoridad es
+ * `canonicalizeFiscalIdentifier` en `./fiscal-identity`; cualquier consumidor
+ * nuevo debe usarla directamente, y pasar `countryCode` cuando lo tenga (aquí no
+ * se pasa, así que no se aplican reglas canónicas por país).
  *
- * @example
- * normalizeTaxId("900.123.456-7")    → "9001234567"
- * normalizeTaxId(" 900 123 456 ")    → "900123456"
- * normalizeTaxId("NIT 900.123.456")  → "900123456"
- * normalizeTaxId("")                 → null
- * normalizeTaxId(null)               → null
+ * Se mantiene exportada porque forma parte de la superficie pública del toolkit.
  */
 export function normalizeTaxId(value: string | null | undefined): string | null {
-  if (value == null) return null;
-  let v = value.trim();
-  if (!v) return null;
-  // Strip known label prefixes, case-insensitive
-  v = v.replace(/^(NIT|RFC|RUC|RUT|CUIT|CNPJ|RNC|RTN)\s+/i, '');
-  // Keep only alphanumeric, lowercase
-  v = v.replace(/[^a-z0-9]/gi, '').toLowerCase();
-  if (v.length < 5) return null;
-  return v;
+  return canonicalizeFiscalIdentifier(value);
 }
 
 // ─── Tipo interno de filas DB ─────────────────────────────────
@@ -101,7 +159,8 @@ export function normalizeTaxId(value: string | null | undefined): string | null 
 type CandidateRow = {
   id: string;
   name: string | null;
-  tax_id: string;
+  tax_id: string | null;
+  tax_identifier: string | null;
   review_status: string | null;
   status: string | null;
   duplicate_status: string | null;
@@ -117,12 +176,31 @@ type AccountRow = {
   created_at: string | null;
 };
 
+/**
+ * Columnas fiscales compatibles de `prospect_candidates`. La ruta gratuita
+ * puebla ambas; las rutas de PAGO habitualmente sólo `tax_identifier`.
+ * `accounts` sólo tiene `tax_identifier` (migración 038).
+ */
+const CANDIDATE_FISCAL_COLUMNS = ['tax_id', 'tax_identifier'] as const;
+
+const CANDIDATE_SELECT =
+  'id, name, tax_id, tax_identifier, review_status, status, duplicate_status, created_at, updated_at';
+
 // ─── buildTaxIdNoveltyIndex ───────────────────────────────────
 
 /**
- * Carga candidatos e cuentas históricas por tax_id / tax_identifier.
- * Un SELECT por tabla — no uno por candidato.
- * No hace writes. No usa service role por sí mismo.
+ * Carga candidatos y cuentas históricas por identidad FISCAL.
+ *
+ * Consultas acotadas: una por columna fiscal compatible de `prospect_candidates`
+ * (dos) más una de `accounts` — nunca una consulta por candidato. Las filas se
+ * deduplican por `id`.
+ *
+ * El filtro `.in(...)` es un PREFILTRO respaldado por índice sobre un
+ * superconjunto acotado {valor crudo} ∪ {canónico}. La AUTORIDAD es la igualdad
+ * canónica verificada en memoria: ninguna fila entra al índice sin que su
+ * identidad fiscal canónica coincida con una aguja canónica.
+ *
+ * Sin país ⇒ índice INERTE (§ 8). No hace writes. No usa service role por sí mismo.
  */
 export async function buildTaxIdNoveltyIndex(params: {
   supabase: SupabaseClient;
@@ -131,75 +209,115 @@ export async function buildTaxIdNoveltyIndex(params: {
   currentBatchId?: string | null;
 }): Promise<TaxIdNoveltyIndex> {
   const { supabase, taxIds, countryCode, currentBatchId } = params;
-  const index: TaxIdNoveltyIndex = { byTaxId: new Map() };
 
-  const normalized = [
-    ...new Set(taxIds.map(normalizeTaxId).filter((v): v is string => v !== null)),
-  ];
-  if (normalized.length === 0) return index;
+  const scope = resolveFiscalCountryScope(countryCode);
+  const index: TaxIdNoveltyIndex = {
+    byFiscalKey: new Map(),
+    countryNamespace: scope?.namespace ?? null,
+    columnConflicts: [],
+  };
 
-  for (const id of normalized) {
-    index.byTaxId.set(id, { candidates: [], accounts: [] });
+  // § 8 — el ámbito de país es OBLIGATORIO para la igualdad fiscal automática.
+  // Sin país el índice queda inerte: no se construye una coincidencia
+  // transfronteriza a partir del identificador desnudo.
+  if (!scope) return index;
+
+  const { canonical, lookupValues } = buildFiscalLookupNeedles(taxIds, scope.queryValue);
+  if (canonical.length === 0) return index;
+
+  for (const canon of canonical) {
+    const key = buildFiscalIdentityKey({ canonical: canon, countryCode: scope.queryValue });
+    if (key) index.byFiscalKey.set(key, { candidates: [], accounts: [] });
   }
 
-  // ── Candidatos ──────────────────────────────────────────────
+  /** Resuelve la clave del índice para un canónico ya calculado. */
+  const keyFor = (canon: string): FiscalIdentityKey | null =>
+    buildFiscalIdentityKey({ canonical: canon, countryCode: scope.queryValue });
 
-  let candidatesQuery = supabase
-    .from('prospect_candidates')
-    .select('id, name, tax_id, review_status, status, duplicate_status, created_at, updated_at')
-    .in('tax_id', normalized);
+  // ── Candidatos: AMBAS columnas compatibles ──────────────────────────────────
 
-  if (currentBatchId) {
-    candidatesQuery = candidatesQuery.neq('batch_id', currentBatchId);
-  }
-  if (countryCode) {
-    candidatesQuery = candidatesQuery.eq('country_code', countryCode);
-  }
+  const candidateRowsById = new Map<string, CandidateRow>();
 
-  const { data: candidateRows, error: candidateError } = await candidatesQuery;
+  for (const column of CANDIDATE_FISCAL_COLUMNS) {
+    let query = supabase
+      .from('prospect_candidates')
+      .select(CANDIDATE_SELECT)
+      .in(column, lookupValues)
+      .eq('country_code', scope.queryValue);
 
-  if (!candidateError && candidateRows) {
-    for (const row of candidateRows as CandidateRow[]) {
-      const key = normalizeTaxId(row.tax_id);
-      if (!key) continue;
-      const slot = index.byTaxId.get(key);
-      if (!slot) continue;
-      slot.candidates.push({
-        id: row.id,
-        name: row.name,
-        taxId: row.tax_id,
-        reviewStatus: row.review_status,
-        status: row.status,
-        duplicateStatus: row.duplicate_status,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      });
+    if (currentBatchId) {
+      query = query.neq('batch_id', currentBatchId);
     }
+
+    const { data, error } = await query;
+    if (error || !data) continue;
+
+    for (const row of data as CandidateRow[]) {
+      if (!candidateRowsById.has(row.id)) candidateRowsById.set(row.id, row);
+    }
+  }
+
+  for (const row of candidateRowsById.values()) {
+    const stored = resolveStoredFiscalIdentity(row, scope.queryValue);
+
+    // § 5 — dos columnas que canonicalizan distinto: FAIL CLOSED. La fila no
+    // participa en la igualdad automática y no suprime a nadie.
+    if (stored.kind === 'conflict') {
+      index.columnConflicts.push({
+        table: 'prospect_candidates',
+        id: row.id,
+        taxIdCanonical: stored.taxIdCanonical,
+        taxIdentifierCanonical: stored.taxIdentifierCanonical,
+      });
+      continue;
+    }
+    if (stored.kind === 'absent') continue;
+
+    const key = keyFor(stored.canonical);
+    if (!key) continue;
+    const slot = index.byFiscalKey.get(key);
+    // Verificación canónica AUTORITATIVA: una fila que el prefiltro trajo pero
+    // cuya identidad canónica no es una de las agujas se descarta aquí.
+    if (!slot) continue;
+
+    slot.candidates.push({
+      id: row.id,
+      name: row.name,
+      taxId: row.tax_id,
+      taxIdentifier: row.tax_identifier,
+      canonicalFiscalIdentifier: stored.canonical,
+      fiscalIdentitySource: stored.source,
+      reviewStatus: row.review_status,
+      status: row.status,
+      duplicateStatus: row.duplicate_status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    });
   }
 
   // ── Cuentas ─────────────────────────────────────────────────
 
-  let accountsQuery = supabase
+  const accountsQuery = supabase
     .from('accounts')
     .select('id, name, tax_identifier, pipeline_status, created_at')
-    .in('tax_identifier', normalized);
-
-  if (countryCode) {
-    accountsQuery = accountsQuery.eq('country_code', countryCode);
-  }
+    .in('tax_identifier', lookupValues)
+    .eq('country_code', scope.queryValue);
 
   const { data: accountRows, error: accountError } = await accountsQuery;
 
   if (!accountError && accountRows) {
     for (const row of accountRows as AccountRow[]) {
-      const key = normalizeTaxId(row.tax_identifier);
+      const canon = canonicalizeFiscalIdentifier(row.tax_identifier, scope.queryValue);
+      if (!canon) continue;
+      const key = keyFor(canon);
       if (!key) continue;
-      const slot = index.byTaxId.get(key);
+      const slot = index.byFiscalKey.get(key);
       if (!slot) continue;
       slot.accounts.push({
         id: row.id,
         name: row.name,
         taxIdentifier: row.tax_identifier,
+        canonicalFiscalIdentifier: canon,
         status: null,
         pipelineStatus: row.pipeline_status,
         createdAt: row.created_at,
@@ -229,11 +347,15 @@ function latestDate(candidates: CandidateEntry[]): string | null {
 
 /**
  * Evalúa si un candidato debe persistirse o saltarse según el índice de novedad
- * basado en tax_id.
+ * basado en identidad FISCAL.
+ *
+ * CUT-3B1: la comparación es PAÍS + IDENTIFICADOR FISCAL CANÓNICO. Sin país no
+ * hay igualdad automática, y un índice acotado a otro país nunca decide.
  *
  * Prioridades:
+ *   0. sin ámbito de país         → new_candidate (allow, § 8)
  *   1. tax_id inválido/nulo       → new_candidate_no_tax_id (allow)
- *   2. tax_id no en índice        → new_candidate (allow)
+ *   2. clave fiscal no en índice  → new_candidate (allow)
  *   3. existe en accounts         → existing_account (skip)
  *   4. blocked_customer           → blocked_customer (skip)
  *   5. exact_duplicate / blocked  → blocked_duplicate (skip)
@@ -250,12 +372,28 @@ export function evaluateTaxIdNovelty(params: {
   cooldownDays?: number;
   now?: Date;
 }): TaxIdNoveltyDecision {
-  const { taxId, index, cooldownDays = DEFAULT_COOLDOWN_DAYS, now = new Date() } = params;
+  const {
+    taxId,
+    countryCode,
+    index,
+    cooldownDays = DEFAULT_COOLDOWN_DAYS,
+    now = new Date(),
+  } = params;
 
-  const normalizedId = normalizeTaxId(taxId);
+  const scope = resolveFiscalCountryScope(countryCode);
+  const canonical = canonicalizeFiscalIdentifier(taxId, scope?.queryValue ?? null);
+  const fiscalKey = buildFiscalIdentityKey({
+    canonical,
+    countryCode: scope?.queryValue ?? null,
+  });
+  const fiscalIdentity: EvaluatedFiscalIdentity = {
+    canonical,
+    key: fiscalKey,
+    countryScoped: scope !== null,
+  };
 
-  // Regla 1: tax_id inválido o nulo
-  if (!normalizedId) {
+  // Regla 1: identificador fiscal inválido o nulo
+  if (!canonical) {
     return {
       status: 'new_candidate_no_tax_id',
       shouldSkip: false,
@@ -264,10 +402,39 @@ export function evaluateTaxIdNovelty(params: {
       matchedAccountIds: [],
       cooldownDays: null,
       lastSeenAt: null,
+      fiscalIdentity,
     };
   }
 
-  const slot = index.byTaxId.get(normalizedId);
+  // Regla 0: § 8 — sin país, o con un índice acotado a OTRO país, no existe
+  // igualdad fiscal automática. Es la dirección conservadora: nunca se suprime
+  // un candidato por un identificador desnudo compartido entre países.
+  if (!fiscalKey || index.countryNamespace === null) {
+    return {
+      status: 'new_candidate',
+      shouldSkip: false,
+      reason: 'Identidad fiscal sin ámbito de país; no se aplica igualdad automática',
+      matchedCandidateIds: [],
+      matchedAccountIds: [],
+      cooldownDays: null,
+      lastSeenAt: null,
+      fiscalIdentity,
+    };
+  }
+  if (scope !== null && index.countryNamespace !== scope.namespace) {
+    return {
+      status: 'new_candidate',
+      shouldSkip: false,
+      reason: `Índice acotado a ${index.countryNamespace}; el candidato es de ${scope.namespace}`,
+      matchedCandidateIds: [],
+      matchedAccountIds: [],
+      cooldownDays: null,
+      lastSeenAt: null,
+      fiscalIdentity,
+    };
+  }
+
+  const slot = index.byFiscalKey.get(fiscalKey);
 
   // Regla 2: no está en el índice
   if (!slot || (slot.candidates.length === 0 && slot.accounts.length === 0)) {
@@ -279,6 +446,7 @@ export function evaluateTaxIdNovelty(params: {
       matchedAccountIds: [],
       cooldownDays: null,
       lastSeenAt: null,
+      fiscalIdentity,
     };
   }
 
@@ -296,6 +464,7 @@ export function evaluateTaxIdNovelty(params: {
       matchedAccountIds: [],
       cooldownDays: null,
       lastSeenAt: null,
+      fiscalIdentity,
     };
   }
 
@@ -313,6 +482,7 @@ export function evaluateTaxIdNovelty(params: {
       matchedAccountIds: accountIds,
       cooldownDays: null,
       lastSeenAt,
+      fiscalIdentity,
     };
   }
 
@@ -327,6 +497,7 @@ export function evaluateTaxIdNovelty(params: {
       matchedAccountIds: accountIds,
       cooldownDays: null,
       lastSeenAt,
+      fiscalIdentity,
     };
   }
 
@@ -343,6 +514,7 @@ export function evaluateTaxIdNovelty(params: {
       matchedAccountIds: accountIds,
       cooldownDays: null,
       lastSeenAt,
+      fiscalIdentity,
     };
   }
 
@@ -362,6 +534,7 @@ export function evaluateTaxIdNovelty(params: {
       matchedAccountIds: accountIds,
       cooldownDays,
       lastSeenAt,
+      fiscalIdentity,
     };
   }
 
@@ -381,6 +554,7 @@ export function evaluateTaxIdNovelty(params: {
       matchedAccountIds: accountIds,
       cooldownDays,
       lastSeenAt,
+      fiscalIdentity,
     };
   }
 
@@ -399,6 +573,7 @@ export function evaluateTaxIdNovelty(params: {
       matchedAccountIds: accountIds,
       cooldownDays,
       lastSeenAt,
+      fiscalIdentity,
     };
   }
 
@@ -411,5 +586,6 @@ export function evaluateTaxIdNovelty(params: {
     matchedAccountIds: accountIds,
     cooldownDays: null,
     lastSeenAt,
+    fiscalIdentity,
   };
 }
