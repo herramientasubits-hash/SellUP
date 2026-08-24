@@ -988,11 +988,12 @@ describe('102 presente — la corrida se registra ANTES de Apollo', () => {
     assert.equal(spies.lushaCalls, 0);
   });
 
-  it('una corrida activa preexistente no bloquea el reveal (already_pending es de Apollo)', async () => {
+  it('una corrida activa preexistente BLOQUEA: no se abre una segunda llamada a proveedor', async () => {
     setFlags(true, true);
-    // `findActiveRun` devuelve una corrida viva ⇒ el core NO abre otra. La
-    // autorización ya está registrada, así que no es un fallo de infraestructura y
-    // el reveal legacy sigue su curso.
+    // `findActiveRun` devuelve una corrida viva ⇒ el core NO abre otra. La corrida
+    // que ya existe ES la autorización, así que tampoco se ejecuta un proveedor
+    // fuera de su reserva: AGENT2A-WATERFALL-NO-SILENT-DOWNGRADE-1 cerró la vía por
+    // la que esto caía al reveal Apollo legacy. No es un fallo de infraestructura.
     waterfallSelectRow = {
       id: RUN_ID,
       candidate_id: CANDIDATE_ID,
@@ -1023,7 +1024,9 @@ describe('102 presente — la corrida se registra ANTES de Apollo', () => {
       'waterfall_infrastructure_unavailable',
       'una corrida existente NO es infraestructura ausente',
     );
+    assert.equal(result.status, 'already_pending');
     assert.equal(spies.insertAttempts, 0, 'no se abre una segunda autorización');
+    assert.equal(spies.apolloCalls, 0, 'no se gasta fuera de la reserva existente');
     assert.equal(spies.lushaCalls, 0);
   });
 });
