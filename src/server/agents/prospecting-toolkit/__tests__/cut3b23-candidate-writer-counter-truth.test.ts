@@ -189,16 +189,68 @@ describe('CUT-3B23 REVIEW-FIX § 3 — writer de PAGO: admitido ≠ persistido',
     await writeProspectingCandidates(makeInput(), makeFakeAdmin('ok', stats));
 
     const block = readBatchIdentityMetadata(stats);
+    // AGENT1-CUT3B4 — el vocabulario del bloque crece con la telemetría de
+    // concurrencia, y con ella entran dos formas nuevas que NO son PII:
+    //
+    //   · `boolean` — «se agotó el tope», «la valla no está disponible».
+    //   · `null`    — «no se pudo establecer la época». 🔴 Se conserva como `null`
+    //     a propósito: colapsarlo a 0 lo haría pasar por «época cero», que es una
+    //     afirmación distinta y falsa.
+    //
+    // Lo que la guarda defiende no cambia: NINGÚN valor de este bloque puede ser
+    // una cadena, que es la única forma en que un NIT, un dominio, una URL de
+    // LinkedIn o un nombre de empresa podrían colarse. `duplicate_signals` sigue
+    // siendo el único objeto, y sus CLAVES son nombres de señal, nunca valores.
+    const BOOLEAN_KEYS = new Set([
+      'seed_degraded',
+      'identity_epoch_retry_exhausted',
+      'identity_duplicate_after_stale_retry',
+      'identity_fence_capability_absent',
+    ]);
+    const NULLABLE_NUMBER_KEYS = new Set(['identity_epoch_initial', 'identity_epoch_final']);
+
     for (const [key, value] of Object.entries(block)) {
-      if (key === 'seed_degraded') {
-        assert.equal(typeof value, 'boolean');
+      if (BOOLEAN_KEYS.has(key)) {
+        assert.equal(typeof value, 'boolean', `${key} debe ser booleano`);
+        continue;
+      }
+      if (NULLABLE_NUMBER_KEYS.has(key)) {
+        assert.ok(
+          value === null || typeof value === 'number',
+          `${key} debe ser numérico o null`,
+        );
         continue;
       }
       if (key === 'duplicate_signals') {
         assert.equal(typeof value, 'object');
+        for (const signalKey of Object.keys(value as Record<string, unknown>)) {
+          assert.equal(
+            typeof (value as Record<string, unknown>)[signalKey],
+            'number',
+            `duplicate_signals.${signalKey} debe ser un conteo`,
+          );
+        }
         continue;
       }
       assert.equal(typeof value, 'number', `${key} debe ser numérico`);
+    }
+
+    // 🔴 La aserción que de verdad cierra la puerta, y es independiente del
+    // vocabulario: ni un solo valor de cadena en todo el bloque.
+    for (const [key, value] of Object.entries(block)) {
+      assert.notEqual(typeof value, 'string', `${key} no puede ser una cadena`);
+    }
+
+    // AGENT1-CUT3B4 — y la telemetría de concurrencia tiene que ESTAR: una guarda
+    // que sólo comprueba formas pasaría igual de verde si el bloque desapareciera.
+    for (const required of [
+      'identity_epoch_initial',
+      'identity_epoch_final',
+      'identity_epoch_stale_retries',
+      'identity_epoch_retry_exhausted',
+      'identity_duplicate_after_stale_retry',
+    ]) {
+      assert.ok(required in block, `falta ${required} en la telemetría de concurrencia`);
     }
   });
 });

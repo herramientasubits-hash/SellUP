@@ -56,12 +56,24 @@ import {
   evaluateCandidateIdentity,
   isBatchIdentityHardDuplicate,
   tallyBatchIdentityDecision,
+  tallyBatchIdentityDuplicateAfterAdmission,
   tallyBatchIdentityError,
   tallyBatchIdentityPersisted,
   toBatchIdentityCountersMetadata,
-  type BatchIdentityRegistry,
 } from "./batch-identity-registry";
-import { loadBatchIdentityRegistry } from "@/server/prospect-batches/batch-identity-registry-store";
+import {
+  loadBatchIdentityRegistry,
+  type BatchIdentitySeedOutcome,
+} from "@/server/prospect-batches/batch-identity-registry-store";
+// AGENT1-CUT3B4 §§ 10/20 — el vallado optimista y su bucle de reintento, los
+// MISMOS que usan los otros dos escritores. Aquí no vive ninguna política de
+// concurrencia propia.
+import {
+  mergeFencedPersistenceTelemetry,
+  runFencedPersistence,
+  toFencedPersistenceMetadata,
+  type FencedPersistenceTelemetry,
+} from "@/server/prospect-batches/batch-identity-fenced-persistence";
 import { buildLinkedInEnrichmentMetadata } from "./linkedin-company-enrichment";
 import {
   runControlledLinkedInCompanySearch,
@@ -201,6 +213,7 @@ import {
   toCandidatePersistenceOutcomeMetadata,
   CANDIDATE_PERSISTENCE_OUTCOME_METADATA_KEY,
   type CandidatePersistenceOutcome,
+  CANDIDATE_PERSISTENCE_FAILED_ERROR_CODE,
   type PersistenceErrorCode,
   type PersistenceErrorStage,
 } from './prospect-candidate-persistence-readiness';
@@ -1955,10 +1968,21 @@ export async function writeProspectingCandidates(
   // sin que ninguna de las dos tenga que conocer a la otra. Ámbito: un lote. NO
   // es novedad global ni histórica — esas viven en `novelty-checker` y en
   // `provider_seen` y siguen intactas.
+  // AGENT1-CUT3B4 § 9 — la foto trae filas Y ÉPOCA del MISMO estado. Se conserva
+  // como UN valor que avanza: el registro y la época no pueden separarse sin
+  // reabrir la carrera por la puerta de la lectura.
   const batchIdentitySeed = await loadBatchIdentityRegistry(admin, batchId);
-  let batchIdentityRegistry: BatchIdentityRegistry = batchIdentitySeed.registry;
+  let batchIdentitySnapshot: BatchIdentitySeedOutcome = batchIdentitySeed;
   let batchIdentityCounters = createBatchIdentityCounters();
   const batchIdentityDuplicateSignals: Record<string, number> = {};
+  let batchIdentityFenceTelemetry: FencedPersistenceTelemetry = {
+    identityEpochInitial: batchIdentitySeed.epoch,
+    identityEpochFinal: batchIdentitySeed.epoch,
+    identityEpochStaleRetries: 0,
+    identityEpochRetryExhausted: false,
+    identityDuplicateAfterStaleRetry: false,
+    identityFenceCapabilityAbsent: batchIdentitySeed.fenceCapabilityAbsent,
+  };
 
   // ── Pre-Pass: Controlled LinkedIn Search (v1.15.2) ────────────────────────
   // Pre-compute LinkedIn enrichments for all candidates in toPersist.
@@ -2621,7 +2645,10 @@ export async function writeProspectingCandidates(
       linkedinUrl: persistedLinkedInUrl,
       name: persistedName,
     });
-    const identityDecision = evaluateCandidateIdentity(batchIdentityRegistry, identityEvidence);
+    const identityDecision = evaluateCandidateIdentity(
+      batchIdentitySnapshot.registry,
+      identityEvidence,
+    );
     batchIdentityCounters = tallyBatchIdentityDecision(batchIdentityCounters, identityDecision);
 
     // § 12 — un duplicado duro NO se persiste, NO se convierte en error, NO marca
@@ -3030,61 +3057,210 @@ export async function writeProspectingCandidates(
 
     insertAttempts += 1;
 
-    try {
-      let { data: created, error: insertErr } = await admin
-        .from("prospect_candidates")
-        .insert(candidateInsert)
-        .select("id")
-        .single();
+    // ── AGENT1-CUT3B4 §§ 7/10/20 — la escritura va VALLADA ────────────────────
+    //
+    // La decisión de admisión de arriba se tomó contra UNA foto del lote. Entre
+    // esa lectura y este INSERT, otro escritor del MISMO lote pudo insertar la
+    // misma empresa: las dos decisiones eran válidas contra su foto, y la segunda
+    // ya estaba caduca al comprometerse. Eso es lo que la valla impide.
+    //
+    // La época viaja con la escritura. Si no coincide con la del lote, la base NO
+    // escribe nada, NO avanza nada y responde `stale`; el bucle recarga la foto,
+    // RE-PREGUNTA a `evaluateCandidateIdentity` —la única autoridad de TIER 0-5, no
+    // hay un segundo evaluador— y reintenta. El candidato puede haberse vuelto
+    // duplicado, o seguir siendo legítimo: con una identidad fiscal contradictoria
+    // TIER 0 manda y las dos personas jurídicas conviven.
+    //
+    // 🔴 `linkedin_url` ya no necesita reintento en la ruta vallada: el tipado de
+    // la RPC descarta una clave que la tabla no tenga, en vez de tumbar el INSERT.
+    // El reintento se conserva —intacto— en la ruta anterior a B4, que es la única
+    // donde ese error puede seguir ocurriendo.
+    const fenceOutcome = await runFencedPersistence({
+      client: admin,
+      batchId,
+      snapshot: batchIdentitySnapshot,
+      plan: (snap) => {
+        const decision = evaluateCandidateIdentity(snap.registry, identityEvidence);
+        return isBatchIdentityHardDuplicate(decision)
+          ? ({ kind: 'duplicate', decision } as const)
+          : ({ kind: 'persist', rows: [candidateInsert], decisions: [decision] } as const);
+      },
+    });
+    batchIdentitySnapshot = fenceOutcome.snapshot;
+    batchIdentityFenceTelemetry = mergeFencedPersistenceTelemetry(
+      batchIdentityFenceTelemetry,
+      fenceOutcome.telemetry,
+    );
 
-      if (
-        insertErr &&
-        persistedLinkedInUrl !== null &&
-        isMissingLinkedInUrlColumnError(insertErr)
-      ) {
-        linkedInColumnFallbackCount += 1;
-        const retry = await admin
+    // Duplicado descubierto SÓLO al re-evaluar tras perder la carrera. NO es un
+    // error y NO consume objetivo: la admisión previa se retira del conteo.
+    if (fenceOutcome.status === 'duplicate') {
+      const staleSignal = fenceOutcome.decision.matchedSignal ?? 'unknown';
+      batchIdentityDuplicateSignals[staleSignal] =
+        (batchIdentityDuplicateSignals[staleSignal] ?? 0) + 1;
+      batchIdentityCounters = tallyBatchIdentityDuplicateAfterAdmission(batchIdentityCounters);
+      skipped.push({
+        name: candidate.name,
+        reason: `batch_identity_duplicate_after_stale_retry:${staleSignal}`,
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      captureOmittedSample(
+        candidate,
+        domain,
+        `batch_identity_duplicate_after_stale_retry:${staleSignal}`,
+        'duplicate_guard',
+      );
+      continue;
+    }
+
+    // 🔴 Tope de reintentos agotado ⇒ fallo CERRADO. NO hay caída a un insert
+    // directo: escribir sin valla tras perder tres carreras sería exactamente la
+    // fila fantasma que este corte existe para impedir.
+    if (fenceOutcome.status === 'retry_exhausted') {
+      // 🔴 El código TIPADO sigue siendo uno de los dos sanitizados de siempre: esa
+      // unión es la frontera que impide que un mensaje del motor viaje a metadata
+      // persistida. El detalle («se agotó el vallado») va por `skipped[].reason` y
+      // por `errors`, que es donde este escritor ya pone lo específico.
+      persistenceFailures.push({
+        code: CANDIDATE_PERSISTENCE_FAILED_ERROR_CODE,
+        stage: 'candidate_insert',
+      });
+      errors.push('Error al crear candidato: identity_fence_retry_exhausted');
+      batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
+      skipped.push({
+        name: candidate.name,
+        reason: 'persistence_failed:identity_fence_retry_exhausted',
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      continue;
+    }
+
+    let createdCandidateId: string | null =
+      fenceOutcome.status === 'persisted' ? (fenceOutcome.candidateIds[0] ?? null) : null;
+
+    if (fenceOutcome.status === 'insert_failed') {
+      // La transacción de la valla revirtió entera: ni fila, ni avance de época.
+      // La clasificación es la MISMA de siempre — un choque con índice único es un
+      // duplicado tardío, no una avería de escritura.
+      const code = classifyCandidatePersistenceError(fenceOutcome.raw);
+      const diagnostics = extractDatabaseErrorDiagnostics(fenceOutcome.raw);
+      const failureKind = classifyCandidateInsertFailureKind(diagnostics);
+      if (failureKind === 'duplicate') {
+        lateDuplicateCount += 1;
+      } else {
+        persistenceFailures.push({ code, stage: 'candidate_insert' });
+        errors.push(`Error al crear candidato: ${code}`);
+        batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
+      }
+      skipped.push({
+        name: candidate.name,
+        reason:
+          failureKind === 'duplicate'
+            ? 'duplicate_late_unique_conflict'
+            : `persistence_failed:${code}`,
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      await recordCandidatePersistenceFailure({
+        diagnostics,
+        errorCode: code,
+        name: persistedName,
+        domain: domain ?? null,
+        identityKey: candidateIdentityKey,
+        countryCode: candidate.countryCode ?? null,
+      });
+      continue;
+    }
+
+    if (fenceOutcome.status === 'capability_absent') {
+      // ── Ruta ANTERIOR a B4, conservada tal cual ─────────────────────────────
+      //
+      // 🔴 Sólo se llega aquí porque la BASE dijo que la función vallada no existe
+      // —la migración 126 no está aplicada—. No es un flag, no es una preferencia
+      // y nadie puede activarla a mano. Mientras se ejecute esta rama, la carrera
+      // sigue igual de abierta que antes de B4: ni mejor ni peor que hoy. En
+      // cuanto la 126 se aplique, esta rama es INALCANZABLE y no queda ningún
+      // desvío directo.
+      try {
+        let { data: created, error: insertErr } = await admin
           .from("prospect_candidates")
-          .insert(candidateInsertWithTrace)
+          .insert(candidateInsert)
           .select("id")
           .single();
-        created = retry.data;
-        insertErr = retry.error;
-      }
 
-      if (insertErr || !created) {
-        // § 7 — el motivo que se propaga es un CÓDIGO nuestro, nunca el mensaje
-        // del motor. El mensaje crudo (`Could not find the 'identity_key'
-        // column of 'prospect_candidates' in the schema cache`) terminaba en
-        // `skipped[].reason`, y desde ahí en metadata persistida y en el
-        // `failureReason` del provider_attempt.
-        const code = classifyCandidatePersistenceError(insertErr);
-        const diagnostics = extractDatabaseErrorDiagnostics(insertErr);
-        const failureKind = classifyCandidateInsertFailureKind(diagnostics);
-        // § 4 — una duplicidad que sólo aparece al chocar con un índice único es
-        // un duplicado tardío, no una avería de escritura. Se cuenta como tal
-        // para no inflar el hueco de persistencia con un fallo inexistente.
-        if (failureKind === 'duplicate') {
-          lateDuplicateCount += 1;
-        } else {
-          persistenceFailures.push({ code, stage: 'candidate_insert' });
-          errors.push(`Error al crear candidato: ${code}`);
-          // AGENT1-CUT3B23 § 3 — un fallo de PERSISTENCIA es un error del corte,
-          // y la fila NO existe. Sin esto, el candidato quedaba contado como
-          // admitido, `errors` en 0 y nadie podía distinguir «se escribió» de
-          // «se dejó pasar la admisión y luego se cayó el insert».
-          batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
+        if (
+          insertErr &&
+          persistedLinkedInUrl !== null &&
+          isMissingLinkedInUrlColumnError(insertErr)
+        ) {
+          linkedInColumnFallbackCount += 1;
+          const retry = await admin
+            .from("prospect_candidates")
+            .insert(candidateInsertWithTrace)
+            .select("id")
+            .single();
+          created = retry.data;
+          insertErr = retry.error;
         }
+
+        if (insertErr || !created) {
+          // § 7 — el motivo que se propaga es un CÓDIGO nuestro, nunca el mensaje
+          // del motor. El mensaje crudo (`Could not find the 'identity_key'
+          // column of 'prospect_candidates' in the schema cache`) terminaba en
+          // `skipped[].reason`, y desde ahí en metadata persistida y en el
+          // `failureReason` del provider_attempt.
+          const code = classifyCandidatePersistenceError(insertErr);
+          const diagnostics = extractDatabaseErrorDiagnostics(insertErr);
+          const failureKind = classifyCandidateInsertFailureKind(diagnostics);
+          // § 4 — una duplicidad que sólo aparece al chocar con un índice único es
+          // un duplicado tardío, no una avería de escritura. Se cuenta como tal
+          // para no inflar el hueco de persistencia con un fallo inexistente.
+          if (failureKind === 'duplicate') {
+            lateDuplicateCount += 1;
+          } else {
+            persistenceFailures.push({ code, stage: 'candidate_insert' });
+            errors.push(`Error al crear candidato: ${code}`);
+            // AGENT1-CUT3B23 § 3 — un fallo de PERSISTENCIA es un error del corte,
+            // y la fila NO existe. Sin esto, el candidato quedaba contado como
+            // admitido, `errors` en 0 y nadie podía distinguir «se escribió» de
+            // «se dejó pasar la admisión y luego se cayó el insert».
+            batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
+          }
+          skipped.push({
+            name: candidate.name,
+            reason:
+              failureKind === 'duplicate'
+                ? 'duplicate_late_unique_conflict'
+                : `persistence_failed:${code}`,
+            searchTrace: candidate.searchTrace ?? undefined,
+          });
+          await recordCandidatePersistenceFailure({
+            diagnostics,
+            errorCode: code,
+            name: persistedName,
+            domain: domain ?? null,
+            identityKey: candidateIdentityKey,
+            countryCode: candidate.countryCode ?? null,
+          });
+          continue;
+        }
+
+        createdCandidateId = created.id;
+      } catch (err: unknown) {
+        // § 7 — una excepción también es un fallo de persistencia, y su mensaje
+        // tampoco se propaga tal cual.
+        const code = classifyCandidatePersistenceError(err);
+        persistenceFailures.push({ code, stage: 'candidate_insert' });
+        errors.push(`Error inesperado al crear candidato: ${code}`);
+        // AGENT1-CUT3B23 § 3 — misma verdad que en la rama de error del insert: la
+        // fila no existe, así que `errors` sube y `persistedUnique` no.
+        batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
         skipped.push({
           name: candidate.name,
-          reason:
-            failureKind === 'duplicate'
-              ? 'duplicate_late_unique_conflict'
-              : `persistence_failed:${code}`,
+          reason: `persistence_failed:${code}`,
           searchTrace: candidate.searchTrace ?? undefined,
         });
         await recordCandidatePersistenceFailure({
-          diagnostics,
+          diagnostics: extractDatabaseErrorDiagnostics(err),
           errorCode: code,
           name: persistedName,
           domain: domain ?? null,
@@ -3093,16 +3269,44 @@ export async function writeProspectingCandidates(
         });
         continue;
       }
+    }
 
-      createdCandidateIds.push(created.id);
+    if (createdCandidateId === null) {
+      // Defensivo: la valla dijo «insertado» y no devolvió id. Sin id no se puede
+      // afirmar que la fila existe, así que se cuenta como error y NO como
+      // persistida — la mentira contraria es exactamente la que CUT-3B23 cerró.
+      persistenceFailures.push({
+        code: CANDIDATE_PERSISTENCE_FAILED_ERROR_CODE,
+        stage: 'candidate_insert',
+      });
+      errors.push('Error al crear candidato: identity_fence_missing_candidate_id');
+      batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
+      skipped.push({
+        name: candidate.name,
+        reason: 'persistence_failed:identity_fence_missing_candidate_id',
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      continue;
+    }
+
+    // ── Éxito: la fila EXISTE. Común a las dos rutas ──────────────────────────
+    try {
+      createdCandidateIds.push(createdCandidateId);
       // AGENT1-CUT3B23 § 12 — se registra DESPUÉS de que la fila exista de
       // verdad. Registrar antes haría que un insert fallido bloqueara al
       // siguiente candidato legítimo con la misma identidad.
-      batchIdentityRegistry = acceptIdentity(
-        batchIdentityRegistry,
-        identityEvidence,
-        created.id,
-      );
+      //
+      // AGENT1-CUT3B4 — y se registra DENTRO de la foto, no en un registro
+      // paralelo: la foto es lo que el vallado y la re-evaluación consultan, y
+      // dos acumuladores distintos habrían divergido en la primera carrera.
+      batchIdentitySnapshot = {
+        ...batchIdentitySnapshot,
+        registry: acceptIdentity(
+          batchIdentitySnapshot.registry,
+          identityEvidence,
+          createdCandidateId,
+        ),
+      };
       // § 3 — y sólo AQUÍ sube el conteo de filas que existen. `persistedUnique`
       // es lo único que puede contar contra el objetivo del lote.
       batchIdentityCounters = tallyBatchIdentityPersisted(batchIdentityCounters);
@@ -3115,7 +3319,7 @@ export async function writeProspectingCandidates(
       // Auditoría: candidate_created
       await admin.from("prospect_candidate_audit").insert({
         batch_id: batchId,
-        candidate_id: created.id,
+        candidate_id: createdCandidateId,
         actor_user_id: triggeredByUserId ?? null,
         action_type: "candidate_created",
         details: {
@@ -3126,13 +3330,21 @@ export async function writeProspectingCandidates(
         },
       });
     } catch (err: unknown) {
+      // 🔴 Comportamiento PRE-B4, conservado byte a byte a propósito.
+      //
+      // Lo único que puede lanzar aquí es la auditoría posterior, y la fila del
+      // candidato YA existe. Que este bloque cuente además un error —y registre un
+      // fallo de persistencia por una fila que sí se persistió— es una rareza
+      // ANTERIOR a este corte, no algo que B4 introduzca. Se conserva tal cual:
+      // corregirla sería un cambio de conteo ajeno a la concurrencia, y este corte
+      // no puede permitirse mover dos verdades a la vez.
+      //
       // § 7 — una excepción también es un fallo de persistencia, y su mensaje
       // tampoco se propaga tal cual.
       const code = classifyCandidatePersistenceError(err);
       persistenceFailures.push({ code, stage: 'candidate_insert' });
       errors.push(`Error inesperado al crear candidato: ${code}`);
-      // AGENT1-CUT3B23 § 3 — misma verdad que en la rama de error del insert: la
-      // fila no existe, así que `errors` sube y `persistedUnique` no.
+      // AGENT1-CUT3B23 § 3 — misma verdad que en la rama de error del insert.
       batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
       skipped.push({
         name: candidate.name,
@@ -3747,6 +3959,11 @@ export async function writeProspectingCandidates(
         seeded_count: batchIdentitySeed.seededCount,
         seed_degraded: batchIdentitySeed.degraded,
         duplicate_signals: batchIdentityDuplicateSignals,
+        // AGENT1-CUT3B4 § 24 — telemetría de CONCURRENCIA. Sólo conteos y
+        // estados: ni identificador fiscal, ni dominio, ni LinkedIn, ni id de
+        // proveedor, ni nombre de empresa. Un reintento por decisión caduca NO es
+        // un error; agotar el tope SÍ.
+        ...toFencedPersistenceMetadata(batchIdentityFenceTelemetry),
       },
       tavily_usage_reconciliation: tavilyUsageReconciliation,
       // v1.16K-K FIX 5: detailed omitted samples for post-run auditing

@@ -13,6 +13,29 @@
  * la siembra queda vacía y el escritor ADMITE (falso negativo de deduplicación),
  * nunca suprime un candidato legítimo por una consulta caída. Un fallo de
  * consulta no puede convertirse en «este candidato ya existía».
+ *
+ * ── AGENT1-CUT3B4 — la foto tiene que ser COHERENTE ──────────────────────────
+ *
+ * Desde el vallado optimista, una siembra no vale por sí sola: vale junto a la
+ * ÉPOCA contra la que se decidió. Y leer las dos por separado puede producir una
+ * foto imposible. El orden peligroso es concreto:
+ *
+ *     se leen las FILAS en el estado E
+ *     otro escritor inserta y avanza a E+1
+ *     se lee la ÉPOCA como E+1
+ *
+ * La decisión se tomaría contra las filas de E declarando la época E+1, y el
+ * vallado la ACEPTARÍA porque la época coincide: exactamente la carrera que este
+ * corte cierra, reintroducida por la puerta de la lectura.
+ *
+ * Por eso, cuando la migración 126 está aplicada, filas y época llegan de UNA
+ * sola sentencia (`read_batch_identity_snapshot`), que ve UNA sola foto. El orden
+ * inverso —leer una foto MÁS NUEVA de la que la época declara— es inofensivo: el
+ * vallado devolvería `stale` y se reintenta.
+ *
+ * 🔴 Con la 126 SIN aplicar, la función no existe, `epoch` es `null` y el
+ * comportamiento es EXACTAMENTE el anterior a B4 (dos consultas, sin vallado). No
+ * es un flag ni una preferencia: lo decide el esquema.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -27,6 +50,10 @@ import {
   buildCompanyIdentityEvidence,
   buildProviderEntityKey,
 } from '@/server/agents/prospecting-toolkit/company-identity-evidence';
+import {
+  BATCH_IDENTITY_SNAPSHOT_RPC,
+  isMissingFenceCapabilityError,
+} from './batch-identity-fence';
 
 /**
  * Columnas leídas. Todas existen desde las migraciones 040/045: este corte NO
@@ -61,6 +88,18 @@ export type BatchIdentitySeedOutcome = {
   seededCount: number;
   /** `true` cuando la lectura falló o degradó: la cobertura es MENOR, no mayor. */
   degraded: boolean;
+  /**
+   * AGENT1-CUT3B4 — la época contra la que se sembró esta foto.
+   *
+   * `null` significa «no se pudo establecer una época coherente», y hay exactamente
+   * dos maneras de llegar ahí: la migración 126 no está aplicada, o la lectura
+   * degradó. En los dos casos NO se puede vallar, y el escritor conserva su ruta
+   * anterior a B4. `null` NUNCA se trata como la época 0: confundir «no lo sé» con
+   * «cero» habría hecho pasar por vallada una escritura que no lo está.
+   */
+  epoch: number | null;
+  /** `true` cuando la 126 no está aplicada. Distinto de `degraded`. */
+  fenceCapabilityAbsent: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -131,18 +170,135 @@ export function providerEntityKeyForSeedRow(row: BatchIdentitySeedRow): string |
 }
 
 /**
- * Construye y siembra el registro de identidad de UN lote.
+ * Convierte la carga útil de `read_batch_identity_snapshot` en filas de siembra.
+ *
+ * Puro y tolerante: una entrada ilegible se descarta —cubrir MENOS es el sentido
+ * correcto de la degradación aquí—, pero una carga útil que no es objeto devuelve
+ * `null` para que el llamador sepa que la foto no sirve y no la confunda con un
+ * lote vacío.
+ */
+export function parseBatchIdentitySnapshotPayload(
+  payload: unknown,
+): { rows: BatchIdentitySeedRow[]; epoch: number | null } | null {
+  const record = asRecord(payload);
+  if (!record) return null;
+
+  const rawEpoch = record['identity_epoch'];
+  const epoch =
+    typeof rawEpoch === 'number' && Number.isFinite(rawEpoch)
+      ? Math.trunc(rawEpoch)
+      : // PostgREST serializa `bigint` como cadena. Leerlo sólo como número dejaba
+        // la época en `null` y desactivaba el vallado en silencio.
+        typeof rawEpoch === 'string' && /^-?\d+$/.test(rawEpoch)
+        ? Number.parseInt(rawEpoch, 10)
+        : null;
+
+  const rawRows = record['rows'];
+  const rows = Array.isArray(rawRows)
+    ? rawRows
+        .map((entry) => asRecord(entry))
+        .filter((entry): entry is Record<string, unknown> => entry !== null)
+        .map((entry) => entry as unknown as BatchIdentitySeedRow)
+    : [];
+
+  return { rows, epoch };
+}
+
+/**
+ * Construye y siembra el registro de identidad de UN lote, junto a la ÉPOCA
+ * contra la que esa siembra es válida.
  *
  * `batchId` nulo ⇒ registro vacío sin consulta: un lote que aún no existe no
- * puede contener nada.
+ * puede contener nada, y tampoco tiene época.
+ *
+ * Dos caminos, y el esquema decide cuál:
+ *
+ *   1. La 126 aplicada ⇒ UNA sentencia devuelve filas y época del MISMO estado.
+ *   2. La 126 sin aplicar ⇒ se conserva la consulta anterior a B4, `epoch` queda
+ *      en `null` y el escritor NO valla. Ni mejor ni peor que hoy.
  */
 export async function loadBatchIdentityRegistry(
   client: SupabaseClient,
   batchId: string | null,
 ): Promise<BatchIdentitySeedOutcome> {
   const registry = createBatchIdentityRegistry(batchId);
-  if (!batchId) return { registry, seededCount: 0, degraded: false };
+  if (!batchId) {
+    return {
+      registry,
+      seededCount: 0,
+      degraded: false,
+      epoch: null,
+      fenceCapabilityAbsent: false,
+    };
+  }
 
+  // ── 1. Foto coherente (filas + época) en UNA sentencia ─────────────────────
+  //
+  // 🔴 Un cliente sin `rpc` no es un fallo de lectura: es un cliente que no puede
+  // llamar a la valla, y eso significa exactamente lo mismo que la migración sin
+  // aplicar. Comprobarlo aquí, de forma ESTRECHA, evita que un `TypeError` acabe
+  // tratado como «la consulta se cayó» y deje la siembra vacía — que sería una
+  // degradación silenciosa de la COBERTURA por un motivo que no lo es.
+  const canCallRpc = typeof (client as { rpc?: unknown }).rpc === 'function';
+
+  if (canCallRpc) {
+    try {
+      const { data, error } = await client.rpc(BATCH_IDENTITY_SNAPSHOT_RPC, {
+        p_batch_id: batchId,
+        // 🔴 Los estados que OCUPAN el lote viajan como PARÁMETRO. La lista no se
+        // escribe en SQL a propósito: es política de admisión y su única autoridad
+        // es `batch-identity-registry`. Codificarla también en la migración habría
+        // creado dos vocabularios que divergen en la primera corrección.
+        p_blocking_statuses: [...BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES],
+      });
+
+      if (!error) {
+        const parsed = parseBatchIdentitySnapshotPayload(data);
+        if (parsed) {
+          const seeds = parsed.rows.map(toRegisteredBatchIdentity);
+          return {
+            registry: seedBatchIdentityRegistry(registry, seeds),
+            seededCount: seeds.length,
+            degraded: false,
+            epoch: parsed.epoch,
+            fenceCapabilityAbsent: false,
+          };
+        }
+        // El lote no existe (la función devuelve NULL): sin filas y sin época.
+        return {
+          registry,
+          seededCount: 0,
+          degraded: true,
+          epoch: null,
+          fenceCapabilityAbsent: false,
+        };
+      }
+
+      if (!isMissingFenceCapabilityError(error)) {
+        // Un fallo REAL de lectura degrada la COBERTURA, nunca al revés, y deja la
+        // época en `null` para que nadie valle contra una foto que no se leyó.
+        return {
+          registry,
+          seededCount: 0,
+          degraded: true,
+          epoch: null,
+          fenceCapabilityAbsent: false,
+        };
+      }
+    } catch (err) {
+      if (!isMissingFenceCapabilityError(err)) {
+        return {
+          registry,
+          seededCount: 0,
+          degraded: true,
+          epoch: null,
+          fenceCapabilityAbsent: false,
+        };
+      }
+    }
+  }
+
+  // ── 2. La 126 no está aplicada — ruta EXACTA anterior a B4 ─────────────────
   try {
     const { data, error } = await client
       .from('prospect_candidates')
@@ -151,7 +307,13 @@ export async function loadBatchIdentityRegistry(
       .in('status', [...BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES]);
 
     if (error || !Array.isArray(data)) {
-      return { registry, seededCount: 0, degraded: true };
+      return {
+        registry,
+        seededCount: 0,
+        degraded: true,
+        epoch: null,
+        fenceCapabilityAbsent: true,
+      };
     }
 
     const seeds = (data as unknown as BatchIdentitySeedRow[]).map(toRegisteredBatchIdentity);
@@ -159,8 +321,16 @@ export async function loadBatchIdentityRegistry(
       registry: seedBatchIdentityRegistry(registry, seeds),
       seededCount: seeds.length,
       degraded: false,
+      epoch: null,
+      fenceCapabilityAbsent: true,
     };
   } catch {
-    return { registry, seededCount: 0, degraded: true };
+    return {
+      registry,
+      seededCount: 0,
+      degraded: true,
+      epoch: null,
+      fenceCapabilityAbsent: true,
+    };
   }
 }

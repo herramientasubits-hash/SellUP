@@ -1551,7 +1551,10 @@ describe('CUT-A · the migration artifact', () => {
       .map((name) => Number.parseInt(name.slice(0, 3), 10))
       .filter((value) => Number.isFinite(value))
       .reduce((max, value) => Math.max(max, value), 0);
-    assert.equal(highest, 125);
+    // AGENT1-CUT3B4 took 126 (batch-identity fencing, Agent 1). What this test asserts
+    // is that CUT A adds exactly ONE migration and that it is the 125 — both still true.
+    // The ceiling moves with the repo; the ownership claim does not.
+    assert.equal(highest, 126);
     assert.equal(files.filter((f) => f.startsWith('125')).length, 1);
     assert.ok(files.includes(CUT_A_MIGRATION));
   });

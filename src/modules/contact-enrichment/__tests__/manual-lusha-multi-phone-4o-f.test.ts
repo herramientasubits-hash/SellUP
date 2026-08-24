@@ -1119,7 +1119,13 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // 4O-F sigue reutilizando la 111 intacta, que es lo que esta guarda afirma.
     // BR-SOURCE-FUNCTIONAL-CUT-A mueve el techo a la 125 (identidad MENSUAL del snapshot de
     // Receita; AUTORADA y NO APLICADA). No es de 4O-F y no crea SQL de teléfono.
-    assert.equal(numbered[numbered.length - 1], 125, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+    // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+    assert.equal(numbered[numbered.length - 1], 126, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

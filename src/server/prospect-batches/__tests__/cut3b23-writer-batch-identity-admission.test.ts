@@ -440,10 +440,21 @@ describe('CUT-3B23 — escritor LUSHA: admisión por identidad de lote', () => {
 
     const result = await persistLushaPendingReviewBatch(deps, LUSHA_INPUT, LUSHA_ACTOR);
 
-    for (const value of Object.values(result.batchIdentityMetrics ?? {})) {
-      assert.equal(typeof value, 'number');
+    // AGENT1-CUT3B4 — la telemetría de concurrencia añade booleanos y `null`
+    // («no se pudo establecer la época», que NO es lo mismo que la época cero).
+    // Lo que la guarda defiende sigue intacto y es más fuerte dicho así: ningún
+    // valor de este bloque puede ser una CADENA, que es la única forma en que un
+    // NIT, un dominio o un nombre podrían viajar.
+    for (const [key, value] of Object.entries(result.batchIdentityMetrics ?? {})) {
+      assert.ok(
+        typeof value === 'number' || typeof value === 'boolean' || value === null,
+        `${key} tiene que ser número, booleano o null — nunca una cadena`,
+      );
     }
     assert.equal(JSON.stringify(result.batchIdentityMetrics).includes('900123456'), false);
+    // La telemetría de concurrencia tiene que ESTAR: sin esto la guarda seguiría
+    // verde si el bloque entero desapareciera.
+    assert.ok('identity_fence_capability_absent' in (result.batchIdentityMetrics ?? {}));
   });
 });
 

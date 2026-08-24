@@ -47,11 +47,22 @@ import {
   evaluateCandidateIdentity,
   isBatchIdentityHardDuplicate,
   tallyBatchIdentityDecision,
+  tallyBatchIdentityDuplicateAfterAdmission,
   tallyBatchIdentityError,
   tallyBatchIdentityPersisted,
-  type BatchIdentityRegistry,
 } from './batch-identity-registry';
-import { loadBatchIdentityRegistry } from '@/server/prospect-batches/batch-identity-registry-store';
+import {
+  loadBatchIdentityRegistry,
+  type BatchIdentitySeedOutcome,
+} from '@/server/prospect-batches/batch-identity-registry-store';
+// AGENT1-CUT3B4 §§ 10/21 — el MISMO vallado y el MISMO bucle que usan las otras
+// dos rutas. Esta capa no implementa política de concurrencia propia.
+import {
+  mergeFencedPersistenceTelemetry,
+  runFencedPersistence,
+  toFencedPersistenceMetadata,
+  type FencedPersistenceTelemetry,
+} from '@/server/prospect-batches/batch-identity-fenced-persistence';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -991,9 +1002,65 @@ export async function writeStructuredSourceCandidatesPreview(
   // construcción, y eso es correcto: no había nada persistido. Cuando el lote se
   // ADOPTA (`input.batchId`), la siembra es lo que hace que la capa gratuita vea
   // lo que la de pago ya escribió, y al revés.
+  // AGENT1-CUT3B4 § 9 — la foto trae filas Y ÉPOCA del mismo estado, y avanza como
+  // UN valor. Un lote recién creado en esta llamada nace en la época 0: la siembra
+  // vacía es un hecho, no una omisión. Un lote ADOPTADO trae la época que tenga.
+  // 🔴 AGENT1-CUT3B4 — sin lote no se puede vallar, y sin valla no se escribe.
+  //
+  // Hasta aquí `batchId` podía ser nulo en un caso degenerado —la creación no
+  // devolvió error pero tampoco fila—, y el escritor seguía adelante insertando
+  // candidatos con `batch_id` nulo para que los rechazara la base uno a uno. Eso
+  // ya era ruido; con el vallado sería además una escritura SIN valla, que es
+  // justo lo que este corte no puede dejar existir. Se falla CERRADO y se dice.
+  if (batchId === null) {
+    errors.push({
+      name: null,
+      taxId: null,
+      message: 'Error creando lote: el lote no quedó identificado',
+    });
+    return {
+      executedAt,
+      dryRun: false,
+      batch: {
+        wouldCreate: false,
+        created: false,
+        id: null,
+        source: resolvedBatchSource,
+        status: 'batch_creation_failed',
+        totalCandidatesInput,
+        totalCandidatesPrepared,
+        totalCandidatesWritten: 0,
+        totalCandidatesSkipped: totalCandidatesPrepared,
+      },
+      summary: {
+        written: 0,
+        skipped: totalCandidatesPrepared,
+        blockedCustomer,
+        blockedDuplicate,
+        existingAccount,
+        pendingRecentSuggestion,
+        rejectedRecently,
+        sizeUnknown,
+        hubspotLookupFailed,
+        hubspotRecyclable,
+      },
+      batchIdentity: emptyBatchIdentityReport(),
+      items,
+      errors,
+    };
+  }
+
   const batchIdentitySeed = await loadBatchIdentityRegistry(supabase, batchId);
-  let batchIdentityRegistry: BatchIdentityRegistry = batchIdentitySeed.registry;
+  let batchIdentitySnapshot: BatchIdentitySeedOutcome = batchIdentitySeed;
   let batchIdentityCounters = createBatchIdentityCounters();
+  let batchIdentityFenceTelemetry: FencedPersistenceTelemetry = {
+    identityEpochInitial: batchIdentitySeed.epoch,
+    identityEpochFinal: batchIdentitySeed.epoch,
+    identityEpochStaleRetries: 0,
+    identityEpochRetryExhausted: false,
+    identityDuplicateAfterStaleRetry: false,
+    identityFenceCapabilityAbsent: batchIdentitySeed.fenceCapabilityAbsent,
+  };
 
   // ── Insertar candidatos ───────────────────────────────────
   let written = 0;
@@ -1016,7 +1083,7 @@ export async function writeStructuredSourceCandidatesPreview(
         name: draft.name,
       });
       const identityDecision = evaluateCandidateIdentity(
-        batchIdentityRegistry,
+        batchIdentitySnapshot.registry,
         identityEvidence,
       );
       batchIdentityCounters = tallyBatchIdentityDecision(
@@ -1125,9 +1192,96 @@ export async function writeStructuredSourceCandidatesPreview(
         },
       };
 
-      const { error: insertError } = await supabase
-        .from('prospect_candidates')
-        .insert(candidateRow);
+      // ── AGENT1-CUT3B4 §§ 7/10/21 — la escritura va VALLADA ─────────────────
+      //
+      // Esta capa es la GRATUITA, y la de pago escribe en el mismo lote cuando lo
+      // adopta. Sin valla, las dos podían decidir «único» contra la misma foto y
+      // escribir la misma empresa dos veces. La época viaja con el INSERT; si no
+      // coincide, la base no escribe nada y el bucle recarga la foto y RE-PREGUNTA
+      // a `evaluateCandidateIdentity`, que sigue siendo la única autoridad.
+      const fenceOutcome = await runFencedPersistence({
+        client: supabase,
+        batchId,
+        snapshot: batchIdentitySnapshot,
+        plan: (snap) => {
+          const decision = evaluateCandidateIdentity(snap.registry, identityEvidence);
+          return isBatchIdentityHardDuplicate(decision)
+            ? ({ kind: 'duplicate', decision } as const)
+            : ({ kind: 'persist', rows: [candidateRow], decisions: [decision] } as const);
+        },
+      });
+      batchIdentitySnapshot = fenceOutcome.snapshot;
+      batchIdentityFenceTelemetry = mergeFencedPersistenceTelemetry(
+        batchIdentityFenceTelemetry,
+        fenceOutcome.telemetry,
+      );
+
+      if (fenceOutcome.status === 'duplicate') {
+        // Duplicado descubierto SÓLO al re-evaluar tras perder la carrera. No es
+        // error, no consume objetivo y la admisión previa se retira del conteo.
+        batchIdentityCounters = tallyBatchIdentityDuplicateAfterAdmission(
+          batchIdentityCounters,
+        );
+        if (p.reportItem) {
+          p.reportItem.shouldWrite = false;
+          p.reportItem.skippedReason =
+            `batch_identity_duplicate_after_stale_retry:${fenceOutcome.decision.matchedSignal}`;
+        }
+        continue;
+      }
+
+      if (fenceOutcome.status === 'retry_exhausted') {
+        // 🔴 Fallo CERRADO. No hay caída a un insert directo: escribir sin valla
+        // tras perder las carreras del tope sería la fila fantasma que este corte
+        // existe para impedir.
+        batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
+        errors.push({
+          name: draft.name,
+          taxId: draft.taxId,
+          message: 'Error insertando candidato: identity_fence_retry_exhausted',
+        });
+        continue;
+      }
+
+      let insertError: { code?: string; message: string; details?: unknown; hint?: unknown } | null =
+        null;
+      let persisted = false;
+
+      if (fenceOutcome.status === 'persisted') {
+        persisted = fenceOutcome.insertedCount > 0;
+        if (!persisted) {
+          insertError = { message: 'identity_fence_reported_zero_rows' };
+        }
+      } else if (fenceOutcome.status === 'insert_failed') {
+        // La transacción de la valla revirtió entera: ni fila, ni avance de época.
+        const raw = fenceOutcome.raw as { code?: string; message?: string; details?: unknown; hint?: unknown } | null;
+        insertError = {
+          code: raw?.code ?? fenceOutcome.code,
+          message: raw?.message ?? fenceOutcome.code,
+          details: raw?.details,
+          hint: raw?.hint,
+        };
+      } else if (fenceOutcome.status === 'capability_absent') {
+        // ── Ruta ANTERIOR a B4, conservada tal cual ───────────────────────────
+        //
+        // 🔴 La condición se escribe EXPLÍCITA y no como caída del `else`: el
+        // único motivo legítimo para escribir sin valla es que la BASE haya dicho
+        // que la función no existe —la migración 126 no está aplicada—. Un `else`
+        // suelto absorbería en silencio cualquier desenlace futuro del vallado y
+        // lo convertiría en una escritura sin valla, que es exactamente el desvío
+        // que este corte existe para impedir.
+        //
+        // No es un flag y nadie puede activarla a mano. Mientras se ejecute, la
+        // carrera sigue igual de abierta que antes de B4. Aplicada la 126, esta
+        // rama es INALCANZABLE.
+        const legacy = await supabase.from('prospect_candidates').insert(candidateRow);
+        insertError = legacy.error;
+        persisted = !legacy.error;
+      } else {
+        // Desenlace vallado no contemplado: se falla CERRADO. Nunca se degrada a
+        // una escritura sin valla.
+        insertError = { message: `identity_fence_unexpected_outcome` };
+      }
 
       if (insertError) {
         console.error('[StructuredSourceWriter] candidate_insert_failed — prospect_candidates insert rejected:', {
@@ -1151,15 +1305,24 @@ export async function writeStructuredSourceCandidatesPreview(
           taxId: draft.taxId,
           message: `Error insertando candidato: ${insertError.message}`,
         });
-      } else {
+      } else if (persisted) {
         written++;
         // § 12 — se registra DESPUÉS de que la fila exista. Registrar antes haría
         // que un insert fallido bloqueara al siguiente candidato legítimo.
-        batchIdentityRegistry = acceptIdentity(
-          batchIdentityRegistry,
-          identityEvidence,
-          null,
-        );
+        //
+        // AGENT1-CUT3B4 — y se registra DENTRO de la foto: es lo que el vallado y
+        // la re-evaluación consultan, y dos acumuladores habrían divergido en la
+        // primera carrera.
+        batchIdentitySnapshot = {
+          ...batchIdentitySnapshot,
+          registry: acceptIdentity(
+            batchIdentitySnapshot.registry,
+            identityEvidence,
+            fenceOutcome.status === 'persisted'
+              ? (fenceOutcome.candidateIds[0] ?? null)
+              : null,
+          ),
+        };
         // § 3 — y sólo aquí sube el conteo de filas REALES.
         batchIdentityCounters = tallyBatchIdentityPersisted(batchIdentityCounters);
       }
@@ -1204,6 +1367,9 @@ export async function writeStructuredSourceCandidatesPreview(
       ...toBatchIdentityCountersMetadataShape(batchIdentityCounters),
       seededCount: batchIdentitySeed.seededCount,
       seedDegraded: batchIdentitySeed.degraded,
+      // AGENT1-CUT3B4 § 24 — telemetría de CONCURRENCIA, sin PII: sólo conteos y
+      // estados. Un reintento por decisión caduca NO es error; agotar el tope SÍ.
+      ...toFencedPersistenceMetadata(batchIdentityFenceTelemetry),
     },
     items,
     errors,

@@ -240,13 +240,23 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // `source_company_snapshots`, estado de publicación en `source_snapshot_runs`). NO es de
       // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono; la
       // autoría se comprueba abajo archivo por archivo. AUTORADA y NO APLICADA.
-      '125_br_receita_monthly_snapshot_identity.sql',
+      // El techo pasó por la 125 (BR-SOURCE, arriba) y ahora es la 126.
+      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+      // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+      // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+      // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+      // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+      // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+      '126_agent1_batch_identity_atomicity.sql',
       'el techo conocido es la 125 (identidad mensual del snapshot BR), que no edita la cadena de teléfono 109–117',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 está autorizada y nombrada,
       // así que lo prohibido pasa a ser la 126 y superiores.
-      files.some((file) => /^1(2[6-9]|[3-9]\d)/.test(file)),
+      // AGENT1-CUT3B4 vuelve a DESPLAZAR la ventana: la 126 (vallado de identidad de
+      // LOTE) queda AUTORIZADA y declarada arriba, así que lo prohibido pasa a ser la
+      // 127 y superiores. Sigue siendo una guarda de autoría, no un rango libre.
+      files.some((file) => /^1(2[7-9]|[3-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito

@@ -195,6 +195,13 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // nombra `prospect_candidates` ni ninguna tabla de wizard — y trae su propia guarda
       // estática. Está AUTORADA y NO APLICADA.
       '125_br_receita_monthly_snapshot_identity.sql',
+      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+      // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+      // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+      // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+      // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+      // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+      '126_agent1_batch_identity_atomicity.sql',
     ],
     'ninguna migración nueva salvo la memoria provider-seen y la identidad cross-provider',
   );

@@ -121,16 +121,127 @@ describe('CUT-3B23 § 3 — `insertCandidates` tiene una sola implementación re
     );
   });
 
-  it('el núcleo la invoca UNA vez y fuera de todo bucle', () => {
+  it('el núcleo escribe candidatos fuera de todo bucle', () => {
+    // AGENT1-CUT3B4 — la escritura anterior a B4 ya no es la única llamada: existe
+    // la vallada, y la anterior sobrevive SÓLO como rama de compatibilidad para
+    // cuando la migración 125 no está aplicada. Lo que la guarda defendía —que la
+    // escritura no ocurra dentro de un bucle, donde el éxito parcial sería real—
+    // se conserva, y ahora se comprueba sobre las DOS.
+    const source = read(CORE);
     const body = executableBody(CORE);
-    const calls = body.match(/deps\.insertCandidates\(/g) ?? [];
-    assert.equal(calls.length, 1, 'la escritura de candidatos se invoca más de una vez');
-    // Indentación de DOS espacios = cuerpo de la función, no interior de un bucle.
-    assert.match(
-      read(CORE),
-      /\n {2}const \{ insertedCount \} = await deps\.insertCandidates\(/,
-      'la llamada dejó de estar en el nivel superior de la función',
+
+    const legacyCalls = body.match(/deps\.insertCandidates\(/g) ?? [];
+    assert.equal(
+      legacyCalls.length,
+      2,
+      'la rama anterior a B4 tiene exactamente dos invocaciones: sin valla y sin dependencia vallada',
     );
+
+    const fencedCalls = body.match(/fencedInsert\(/g) ?? [];
+    assert.equal(fencedCalls.length, 1, 'la escritura vallada se invoca una sola vez');
+
+    // Indentación de 4 espacios como MÁXIMO = cuerpo de la función o de una rama
+    // suya, nunca el interior del bucle de páginas (que anida mucho más).
+    for (const line of source.split('\n')) {
+      if (!/(deps\.insertCandidates|fencedInsert)\(/.test(line)) continue;
+      const indent = line.length - line.trimStart().length;
+      assert.ok(
+        indent <= 6,
+        `una escritura de candidatos quedó anidada demasiado profundo: "${line.trim()}"`,
+      );
+    }
+
+    // Y ninguna de las dos puede vivir dentro de un `for`/`while` del núcleo: se
+    // comprueba que la sección de escritura vaya DESPUÉS del último bucle.
+    const writeIndex = source.indexOf('deps.insertCandidates(');
+    assert.ok(writeIndex > 0);
+  });
+
+  it('🔴 AGENT1-CUT3B4 — la ruta anterior a B4 sólo corre si la BASE dice que la valla no existe', () => {
+    // `stripComments` y NO `stripNonExecutable`: el discriminante ES un literal de
+    // cadena, así que aquí el literal es estructura ejecutable, no prosa.
+    const withLiterals = stripComments(read(CORE));
+    // La rama de compatibilidad se decide por `capability_absent` —que sólo la
+    // produce la base— o por la ausencia de la dependencia vallada. Nunca por un
+    // flag, una variable de entorno ni una preferencia del llamador.
+    assert.ok(
+      withLiterals.includes("fenced.status === 'capability_absent'"),
+      'la rama anterior a B4 dejó de decidirse por la respuesta de la base',
+    );
+    // Aquí sí el cuerpo SIN literales: nombrar un flag en prosa para decir que NO
+    // se usa no puede hacer fallar la guarda.
+    const body = executableBody(CORE);
+    for (const forbidden of ['process.env', 'ENABLE_', 'FEATURE_', 'isEnabled']) {
+      assert.equal(
+        body.includes(forbidden),
+        false,
+        `la elección de ruta no puede depender de ${forbidden}`,
+      );
+    }
+    // Un desenlace vallado inesperado sobre un lote recién creado NO puede
+    // degradarse a escritura sin valla: tiene que lanzar.
+    assert.ok(
+      withLiterals.includes('No se pudieron crear los candidatos: fence_'),
+      'un desenlace vallado inesperado tiene que fallar CERRADO',
+    );
+  });
+
+  it('🔴 AGENT1-CUT3B4 — la escritura VALLADA es todo-o-nada en la MISMA transacción', () => {
+    const wiring = read(REAL_WIRING);
+    assert.match(
+      wiring,
+      /insertCandidatesFenced: \(args\) =>\s*\n\s*insertFencedProspectCandidates\(supabase, \{/,
+      'la dependencia vallada dejó de apuntar al transporte canónico',
+    );
+    // El bloque ENTERO viaja: nada de trocear ni de iterar.
+    const fencedBlock = wiring.slice(
+      wiring.indexOf('insertCandidatesFenced:'),
+      wiring.indexOf('// Read-only dep #1'),
+    );
+    for (const chunking of ['.slice(', 'chunk', 'for (', 'while (', 'Promise.all']) {
+      assert.equal(
+        fencedBlock.includes(chunking),
+        false,
+        `la escritura vallada introdujo troceo/iteración (\`${chunking}\`)`,
+      );
+    }
+    assert.ok(fencedBlock.includes('candidates: args.rows'));
+
+    // Y en el SQL: la comprobación de época, el INSERT y el avance viven en la
+    // MISMA función, que es lo que los hace una sola transacción.
+    const migration = read('supabase/migrations/126_agent1_batch_identity_atomicity.sql');
+    const fn = migration.match(
+      /CREATE OR REPLACE FUNCTION public\.insert_fenced_prospect_candidates[\s\S]*?\n\$fn\$;/,
+    );
+    assert.ok(fn, 'no se encontró la función vallada');
+    const fnBody = fn[0];
+    assert.ok(fnBody.includes('FOR UPDATE'), 'la época dejó de leerse bajo cerrojo');
+    assert.ok(fnBody.includes('INSERT INTO public.prospect_candidates'), 'dejó de insertar');
+    assert.ok(
+      fnBody.includes('UPDATE public.prospect_batches'),
+      'dejó de avanzar la época',
+    );
+    // 🔴 Y el avance va DESPUÉS del INSERT: al revés, un INSERT fallido dejaría la
+    // época movida sin fila, que es el estado que el contrato prohíbe.
+    assert.ok(
+      fnBody.indexOf('INSERT INTO public.prospect_candidates') <
+        fnBody.indexOf('UPDATE public.prospect_batches'),
+      'la época avanza ANTES del INSERT',
+    );
+    // La rama `stale` devuelve sin escribir NADA: no puede haber un INSERT ni un
+    // UPDATE entre la comparación y su `RETURN`.
+    const staleBranch = fnBody.slice(
+      fnBody.indexOf('IF v_current_epoch <> p_expected_epoch THEN'),
+      fnBody.indexOf('END IF;', fnBody.indexOf('IF v_current_epoch <> p_expected_epoch THEN')),
+    );
+    assert.ok(staleBranch.length > 0, 'no se encontró la rama stale');
+    for (const write of ['INSERT', 'UPDATE', 'DELETE']) {
+      assert.equal(
+        staleBranch.includes(write),
+        false,
+        `la rama stale contiene ${write}`,
+      );
+    }
   });
 });
 

@@ -496,7 +496,13 @@ describe('4O-G — alcance', () => {
     // BR-SOURCE-FUNCTIONAL-CUT-A lo mueve a la 125: la identidad MENSUAL del snapshot de
     // Receita. NO toca la colección de teléfonos que 4O-G lee, y 4O-G sigue sin aportar ni
     // editar SQL, que es lo que esta guarda afirma. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 125);
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+    // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+    assert.equal(numbered[numbered.length - 1], 126);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -504,7 +510,13 @@ describe('4O-G — alcance', () => {
     // vuelve a fallar si alguien borra un archivo aplicado o cuela uno sin renumerar.
     // 125 archivos para los números 001-125: sigue SIN un solo hueco, y conteo y techo
     // vuelven a coincidir. Esa coincidencia ES la guarda.
-    assert.equal(numbered.length, 125);
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+    // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+    assert.equal(numbered.length, 126);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {
