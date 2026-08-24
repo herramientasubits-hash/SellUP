@@ -103,7 +103,8 @@ describe('modelo de datos — sin migración nueva', () => {
     // grano de reserva por operación, claim propio de la búsqueda) y trae su propia
     // guarda estática; el gate de novedad de este hito sigue sin SQL propio, que es lo
     // que se comprueba justo debajo leyendo su fuente.
-    assert.equal(Math.max(...numbers), 124, 'el techo conocido es la 124');
+    // BR-SOURCE-FUNCTIONAL-CUT-A toma la 125 (identidad MENSUAL del snapshot de Receita: `source_period` + unicidad period-aware; AUTORADA y NO APLICADA).
+    assert.equal(Math.max(...numbers), 125, 'el techo conocido es la 125');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,
