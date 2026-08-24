@@ -167,6 +167,13 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
       // columna ni función de teléfono. Se declara NO aplicada en Producción.
       '123_provider_seen_entities.sql',
+      // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1: la identidad provider-native
+      // (`contact_provider_identities`), el grano de reserva por OPERACIÓN y el claim
+      // propio de la búsqueda de identidad. NO toca la colección de staging que esta
+      // suite protege ni ninguna de las funciones 110/111/112: crea una tabla nueva,
+      // añade columnas a la reserva y a la corrida, y re-declara la función de reserva.
+      // Tiene su propia guarda estática y se declara NO aplicada en Producción.
+      '124_cross_provider_phone_identity.sql',
     ]);
   });
 

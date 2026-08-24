@@ -180,6 +180,16 @@ export interface LushaPhoneFallbackCandidateRecord {
   status: string | null;
   source: ContactSource | null;
   sourceContactId: string | null;
+  /**
+   * Id NATIVO de Lusha resuelto y persistido en `contact_provider_identities`
+   * (AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1). Solo lo rellena el lector
+   * que consulta esa tabla con `provider_key = 'lusha'`, así que por construcción
+   * NUNCA puede transportar el id de otro proveedor.
+   *
+   * Es lo que permite que un candidato nacido en Apollo llegue a la pata de Lusha sin
+   * que `source` ni `source_contact_id` cambien de significado.
+   */
+  lushaProviderContactId?: string | null;
   existingPhone: string | null;
   phoneRevealStatus: string | null;
   phoneRevealAttemptCount: number | null;
@@ -450,7 +460,23 @@ function cleanText(value: string | null | undefined): string | null {
  * space (fail-closed anti-cross-contamination, mirrors the Apollo core's
  * equivalent guard in the opposite direction).
  */
+/**
+ * Id con el que se le pide el teléfono a Lusha. DOS orígenes, y ninguno de los dos
+ * puede ser un id ajeno:
+ *
+ *   1. la identidad provider-native persistida para `lusha` — resuelta pagando una
+ *      búsqueda en una corrida anterior o en esta misma;
+ *   2. el `source_contact_id` del propio candidato, SOLO si nació en Lusha.
+ *
+ * La condición `source === 'lusha'` del segundo caso sigue intacta y sigue siendo la
+ * que impide que el id de Apollo se reenvíe a Lusha (HTTP 422 del RCA del reveal
+ * asíncrono). El primer caso no la necesita porque su columna ya está scopeada por
+ * proveedor en origen.
+ */
 function resolveLushaContactId(candidate: LushaPhoneFallbackCandidateRecord): string | null {
+  const resolvedIdentity = cleanText(candidate.lushaProviderContactId ?? null);
+  if (resolvedIdentity) return resolvedIdentity;
+
   if (candidate.source !== 'lusha') return null;
   return cleanText(candidate.sourceContactId);
 }

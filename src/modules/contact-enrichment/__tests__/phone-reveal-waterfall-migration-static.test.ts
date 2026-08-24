@@ -60,13 +60,30 @@ const VOCABULARY_CONSTRAINTS = [
  * contestó y cobró pero todos sus números ya estaban guardados. Ese hecho no se puede
  * expresar con el vocabulario de la 102 sin mentir en el ledger.
  *
- * `lusha_skipped_reason` NO está aquí: la 122 tampoco lo toca. Un «no queda proveedor» se
- * rechaza en el planificador ANTES de crear la corrida, así que ninguna fila llevaría ese
- * motivo.
+ * AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 — la 124 ensancha
+ * `lusha_skipped_reason` con los CUATRO desenlaces de la resolución de identidad
+ * cross-provider. Ninguno es expresable con el vocabulario de la 102 sin mentir:
+ * `missing_lusha_contact_id` afirma «este candidato NUNCA puede llegar a Lusha», y los
+ * cuatro nuevos dicen lo contrario —podía llegar, se intentó, y esto es lo que pasó—.
+ * Tres de ellos, además, cuestan 1 crédito, así que colapsarlos en el motivo antiguo
+ * volvería invisible un gasto real en la auditoría.
  */
 const CONSTRAINT_WIDENING_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
   phone_reveal_waterfall_runs_lusha_outcome_check: ['122_phone_reveal_search_more.sql'],
+  phone_reveal_waterfall_runs_lusha_skipped_reason_check: [
+    '124_cross_provider_phone_identity.sql',
+  ],
 };
+
+/**
+ * SQL de la migración que ENSANCHA `lusha_skipped_reason`. El vocabulario efectivo de
+ * esa columna ya no vive en un solo archivo, así que compararlo contra TypeScript exige
+ * leer el ensanche y no solo la 102.
+ */
+const identityMigrationSql = readFileSync(
+  join(repoRoot, 'supabase/migrations/124_cross_provider_phone_identity.sql'),
+  'utf8',
+);
 
 /**
  * Valores de la lista `IN (...)` del CHECK de `lusha_skipped_reason`, leídos del
@@ -74,7 +91,10 @@ const CONSTRAINT_WIDENING_ALLOWLIST: Readonly<Record<string, readonly string[]>>
  * sentidos, en vez de solo comprobar que cada valor de TS aparezca en el archivo.
  */
 function lushaSkippedReasonSqlValues(): string[] {
-  const statement = migrationSql.match(
+  // Se lee la 124, no la 102: es la ÚLTIMA declaración del constraint y por tanto la
+  // que gobierna la columna. Comparar TypeScript contra la 102 daría un falso rojo
+  // permanente desde el momento en que el vocabulario se ensanchó legítimamente.
+  const statement = identityMigrationSql.match(
     /ADD CONSTRAINT phone_reveal_waterfall_runs_lusha_skipped_reason_check[\s\S]*?;/,
   );
   assert.ok(statement, 'no se encontró el ADD CONSTRAINT de lusha_skipped_reason');
@@ -233,7 +253,7 @@ describe('102 — vocabularios cerrados, los SIETE validados en la misma migraci
     }
   });
 
-  it('los constraints que NADIE está autorizado a tocar siguen siendo seis', () => {
+  it('los constraints que NADIE está autorizado a tocar siguen siendo cinco', () => {
     // Se afirma el complemento a propósito: si un hito futuro añadiera una entrada a la
     // allowlist sin pensarlo, este test lo hace visible en la revisión en vez de dejar que
     // el ensanche pase silencioso.
@@ -246,9 +266,9 @@ describe('102 — vocabularios cerrados, los SIETE validados en la misma migraci
       'phone_reveal_waterfall_runs_final_provider_check',
       'phone_reveal_waterfall_runs_apollo_cost_source_check',
       'phone_reveal_waterfall_runs_lusha_cost_source_check',
-      // `lusha_skipped_reason` está aquí a propósito: la 122 tampoco lo ensancha, porque un
-      // «no queda proveedor» se rechaza en el planificador ANTES de crear la corrida.
-      'phone_reveal_waterfall_runs_lusha_skipped_reason_check',
+      // `lusha_skipped_reason` YA NO está aquí: la 124 lo ensancha con los cuatro
+      // desenlaces de la resolución de identidad, y esa decisión está declarada —y por
+      // tanto es revisable— en CONSTRAINT_WIDENING_ALLOWLIST.
     ]);
   });
 
@@ -291,6 +311,7 @@ describe('102 — vocabularios cerrados, los SIETE validados en la misma migraci
   });
 
   it('lusha_skipped_reason es un vocabulario cerrado con todos los motivos del core', () => {
+    // Los once originales siguen en la 102 — el ensanche de la 124 no borra ninguno.
     for (const reason of [
       'missing_lusha_contact_id',
       'apollo_revealed',
@@ -305,6 +326,10 @@ describe('102 — vocabularios cerrados, los SIETE validados en la misma migraci
       'provider_error',
     ]) {
       assert.ok(migrationSql.includes(`'${reason}'`), `falta el motivo ${reason}`);
+      assert.ok(
+        identityMigrationSql.includes(`'${reason}'`),
+        `la 124 no puede perder el motivo ${reason} al re-declarar el CHECK`,
+      );
     }
   });
 

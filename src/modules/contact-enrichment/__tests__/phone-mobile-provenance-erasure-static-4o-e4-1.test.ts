@@ -379,8 +379,11 @@ describe('4O-E4.1 estático — alcance', () => {
       // AGENT1-PROVIDER-SEEN-MEMORY-2 lo mueve a la 123: la memoria de qué empresa ya nos
       // mostró un proveedor de PAGO. NO es de teléfono: sólo guarda identidad de EMPRESA y
       // no nombra `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
-      123,
-      'la 123 (memoria provider-seen) es la última',
+      // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 lo mueve a la 124: la identidad
+      // provider-native del reveal de teléfono. Es de teléfono, pero no nombra
+      // `mobile_phone` en ninguna parte, que es lo que esta guarda vigila.
+      124,
+      'la 124 (identidad cross-provider) es la última',
     );
   });
 

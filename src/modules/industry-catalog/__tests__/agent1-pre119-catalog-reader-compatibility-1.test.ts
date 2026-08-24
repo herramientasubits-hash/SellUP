@@ -939,7 +939,7 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       .filter((f) => f.endsWith('.sql'))
       .sort();
     const last = files[files.length - 1];
-    assert.match(last, /^123_/);
+    assert.match(last, /^124_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -958,11 +958,18 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     //         no nombra `industry_catalog_versions`, ni `macro_industry_catalog`, ni
     //         ninguna vista del catálogo, y el barrido de abajo lo comprueba sobre su SQL
     //         en vez de creerle a este comentario.
+    //   124 — la identidad provider-native del reveal de TELÉFONO (Agente 2A,
+    //         AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1). Crea
+    //         `contact_provider_identities`, añade `operation_key` a la reserva y un claim
+    //         propio a la corrida; no nombra ninguna tabla ni vista del catálogo, y el
+    //         barrido de abajo lo comprueba sobre su SQL en vez de creerle a este
+    //         comentario.
     assert.deepEqual(aboveCatalog, [
       '120_provider_native_phone_suppression.sql',
       '121_wizard_budget_overage_reconciliation.sql',
       '122_phone_reveal_search_more.sql',
       '123_provider_seen_entities.sql',
+      '124_cross_provider_phone_identity.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

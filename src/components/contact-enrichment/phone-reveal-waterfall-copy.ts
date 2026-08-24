@@ -48,6 +48,30 @@ export const PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS = 5;
 export const PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS = 13;
 
 /**
+ * Tope de la BÚSQUEDA DE IDENTIDAD de Lusha: 1 crédito. Espejo de
+ * PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS del core
+ * (AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1).
+ *
+ * Se muestra por separado y NO se esconde dentro de los 5 del teléfono. Son dos
+ * operaciones distintas del mismo proveedor —averiguar quién es la persona, y pedir
+ * su número— y el operador está autorizando las dos.
+ */
+export const PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS = 1;
+
+/** Tope de la pata Lusha COMPLETA cuando hay que averiguar la identidad: 1 + 5 = 6. */
+export const PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS_WITH_SEARCH =
+  PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS +
+  PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS;
+
+/**
+ * Tope total cuando además hay que averiguar la identidad: 8 + 1 + 5 = 14. Espejo de
+ * PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_IDENTITY_SEARCH del core.
+ */
+export const PHONE_REVEAL_WATERFALL_WITH_IDENTITY_SEARCH_MAX_CREDITS =
+  PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS +
+  PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS;
+
+/**
  * Tope de una corrida LEGACY (AGENT2A-PHONE-WATERFALL-2): SOLO Lusha, así que es el
  * tope de Lusha y NUNCA incluye los 8 de Apollo — ese intento ya ocurrió y ya se
  * cobró bajo otra autorización. Espejo de
@@ -302,6 +326,16 @@ export function getPhoneRevealWaterfallAuthorizationCopy(args: {
    * tope a 5 y el copy a decir explícitamente que Apollo ya fue intentado.
    */
   legacyLushaOnly?: boolean;
+  /**
+   * `true` cuando la pata Lusha es alcanzable pero exige PAGAR antes una búsqueda de
+   * identidad (AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1). Sube el tope de
+   * 13 a 14 y desglosa los 6 de Lusha.
+   *
+   * Ausente ⇒ `false`, que devuelve exactamente el copy anterior al hito. Cuando la
+   * identidad Lusha YA está persistida esto es `false` de verdad, no por omisión: esa
+   * autorización no puede gastar una búsqueda, así que no debe pedir el crédito.
+   */
+  requiresIdentitySearch?: boolean;
 }): PhoneRevealWaterfallAuthorizationCopy {
   // La modalidad legacy manda sobre `lushaEligible`: solo se ofrece cuando Lusha es
   // alcanzable, y su tope es el de Lusha, nunca 13 ni 8.
@@ -339,6 +373,29 @@ export function getPhoneRevealWaterfallAuthorizationCopy(args: {
     };
   }
 
+  // Lusha alcanzable, pero hay que AVERIGUAR con qué id la conoce. El desglose nombra
+  // las dos operaciones por separado en vez de enseñar un 6 opaco: el operador está
+  // autorizando una búsqueda además de un teléfono, y tiene que poder verlo.
+  if (args.requiresIdentitySearch === true) {
+    const flowDescription =
+      'Apollo se intentará primero. Si no encuentra un teléfono, SellUp buscará el contacto en Lusha y luego intentará obtener su teléfono.';
+    const creditsMessage = `Puede consumir hasta ${PHONE_REVEAL_WATERFALL_WITH_IDENTITY_SEARCH_MAX_CREDITS} créditos.`;
+    return {
+      flowDescription,
+      creditsMessage,
+      helperText: buildHelperText(flowDescription, creditsMessage),
+      creditBreakdown: {
+        legs: [
+          `Apollo: hasta ${PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS} créditos.`,
+          `Lusha: hasta ${PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS_WITH_SEARCH} créditos (búsqueda hasta ${PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS} + teléfono hasta ${PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS}).`,
+        ],
+        total: `Máximo total autorizado: ${PHONE_REVEAL_WATERFALL_WITH_IDENTITY_SEARCH_MAX_CREDITS} créditos.`,
+      },
+      maxCredits: PHONE_REVEAL_WATERFALL_WITH_IDENTITY_SEARCH_MAX_CREDITS,
+      warnings: PHONE_REVEAL_WATERFALL_FULL_WARNINGS,
+    };
+  }
+
   const flowDescription =
     'Apollo se intentará primero. Si no encuentra un teléfono, SellUp intentará Lusha automáticamente.';
   const creditsMessage = `Puede consumir hasta ${PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS} créditos.`;
@@ -363,6 +420,20 @@ export function getPhoneRevealWaterfallAuthorizationCopy(args: {
 /** Motivos por los que la pata Lusha se omitió, en lenguaje del operador. */
 const LUSHA_SKIPPED_REASON_LABELS: Readonly<Record<string, string>> = {
   missing_lusha_contact_id: 'Omitida: el candidato no tiene identificador Lusha reutilizable.',
+  // Los cinco desenlaces de la resolución de identidad cross-provider. Se redactan por
+  // separado porque cuatro de ellos SÍ consumieron un crédito de búsqueda y uno no, y
+  // el operador no puede distinguirlos si todos dicen lo mismo.
+  lusha_identity_unresolvable:
+    'Omitida: no había datos suficientes para buscar el contacto en Lusha. No se consumieron créditos.',
+  lusha_identity_not_found: 'Omitida: Lusha no encontró a este contacto.',
+  lusha_identity_ambiguous:
+    'Omitida: la búsqueda en Lusha no identificó a una única persona.',
+  lusha_identity_error: 'Omitida: la búsqueda del contacto en Lusha falló.',
+  // Dice las DOS cosas, y en este orden: que se encontró (para que el operador no crea
+  // que el dato no existe) y que no se pudo guardar (para que entienda por qué no hay
+  // teléfono y por qué volver a intentarlo cuesta otro crédito de búsqueda).
+  lusha_identity_not_persisted:
+    'Omitida: se encontró el contacto en Lusha pero no se pudo guardar su identificador, así que no se pidió el teléfono.',
   apollo_revealed: 'Omitida: Apollo ya entregó el teléfono.',
   suppressed: 'Omitida: existe una restricción de privacidad registrada.',
   // NO dice "suprimido": la comprobación no se pudo hacer, así que no se sabe si

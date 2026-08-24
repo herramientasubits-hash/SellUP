@@ -538,7 +538,11 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // teléfono en absoluto: crea `provider_seen_entities`, que sólo guarda identidad de
       // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
       // columna ni función de teléfono. Se declara NO aplicada en Producción.
-      '123_provider_seen_entities.sql',
+      // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 mueve el techo a la 124: la
+      // identidad provider-native del reveal de teléfono. Es de teléfono, pero no de este
+      // hito ni de lo que esta guarda vigila: no nombra `phone_source`, `contact_phones`
+      // ni la creación manual. Se declara NO aplicada en Producción.
+      '124_cross_provider_phone_identity.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

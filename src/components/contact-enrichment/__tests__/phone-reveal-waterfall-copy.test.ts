@@ -35,6 +35,9 @@ import {
   PHONE_REVEAL_WATERFALL_REVEALED_COPY,
   PHONE_REVEAL_WATERFALL_SUPPRESSION_UNVERIFIED_COPY,
   PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS,
+  PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS,
+  PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS_WITH_SEARCH,
+  PHONE_REVEAL_WATERFALL_WITH_IDENTITY_SEARCH_MAX_CREDITS,
 } from '../phone-reveal-waterfall-copy';
 import {
   PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS,
@@ -42,6 +45,8 @@ import {
   PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS,
   PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS,
   PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA,
+  PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS as PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS_CORE,
+  PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_IDENTITY_SEARCH,
 } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
 
 // ═══════════════════════════════════════════════════════════════
@@ -63,6 +68,59 @@ describe('copy del waterfall — topes alineados con el core', () => {
       PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS,
     );
     assert.equal(PHONE_REVEAL_WATERFALL_APOLLO_ONLY_MAX_CREDITS, 8);
+  });
+
+  test('el tope de la búsqueda de identidad de la UI es el del core (1)', () => {
+    // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1. Es la cifra que Lusha cobra
+    // por petición a `api_search`, y la que el operador ve desglosada. Si dejara de ser
+    // la del core, la pantalla estaría pidiendo autorización por un tope que el
+    // servidor no aplica — exactamente lo que este espejo existe para impedir.
+    assert.equal(
+      PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS,
+      PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS_CORE,
+    );
+    assert.equal(PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS, 1);
+  });
+
+  test('el tope con búsqueda de identidad de la UI es el del core (14)', () => {
+    assert.equal(
+      PHONE_REVEAL_WATERFALL_WITH_IDENTITY_SEARCH_MAX_CREDITS,
+      PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_IDENTITY_SEARCH,
+    );
+    assert.equal(PHONE_REVEAL_WATERFALL_WITH_IDENTITY_SEARCH_MAX_CREDITS, 14);
+    // 14 = 13 + 1: la búsqueda se SUMA al tope anterior, no se descuenta de él.
+    assert.equal(
+      PHONE_REVEAL_WATERFALL_WITH_IDENTITY_SEARCH_MAX_CREDITS,
+      PHONE_REVEAL_WATERFALL_WITH_LUSHA_MAX_CREDITS +
+        PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS,
+    );
+  });
+
+  test('la pata Lusha completa con búsqueda son 6, y el desglose lo dice', () => {
+    assert.equal(PHONE_REVEAL_WATERFALL_LUSHA_LEG_MAX_CREDITS_WITH_SEARCH, 6);
+    const copy = getPhoneRevealWaterfallAuthorizationCopy({
+      lushaEligible: true,
+      requiresIdentitySearch: true,
+    });
+    assert.equal(copy.maxCredits, 14);
+    assert.match(copy.creditsMessage, /hasta 14 créditos/);
+    assert.deepEqual(copy.creditBreakdown?.legs, [
+      'Apollo: hasta 8 créditos.',
+      'Lusha: hasta 6 créditos (búsqueda hasta 1 + teléfono hasta 5).',
+    ]);
+    assert.equal(copy.creditBreakdown?.total, 'Máximo total autorizado: 14 créditos.');
+  });
+
+  test('sin búsqueda pendiente el copy sigue siendo EXACTAMENTE el de antes (13)', () => {
+    const copy = getPhoneRevealWaterfallAuthorizationCopy({ lushaEligible: true });
+    assert.equal(copy.maxCredits, 13);
+    assert.match(copy.creditsMessage, /hasta 13 créditos/);
+    assert.deepEqual(copy.creditBreakdown?.legs, [
+      'Apollo: hasta 8 créditos.',
+      'Lusha: hasta 5 créditos.',
+    ]);
+    // Y el flujo NO menciona ninguna búsqueda: esa autorización no puede pagarla.
+    assert.equal(/busca/i.test(copy.flowDescription), false);
   });
 
   test('el tope de la pata Lusha que se desglosa es el del core (5)', () => {

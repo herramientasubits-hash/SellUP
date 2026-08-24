@@ -307,14 +307,36 @@ export interface PhoneRevealCreditReservationRow extends PhoneRevealCreditReserv
  */
 export async function findActivePhoneRevealCreditReservations(
   reservationGroupId: string,
+  /**
+   * `includeOperationKey` lee también `operation_key` (columna de la migración 124), que
+   * es lo que permite liquidar las DOS patas de Lusha de una autorización por separado:
+   * `contact_search` con los hechos de la búsqueda y `phone_reveal` con los del reveal.
+   *
+   * AUSENTE POR DEFECTO. Sin ella cada pata se lee como `phone_reveal` —el default de
+   * la columna y lo que TODA fila anterior a la 124 realmente es— así que la
+   * liquidación histórica es byte-idéntica y esta lectura no toca una columna que
+   * puede no existir todavía.
+   */
+  options?: { includeOperationKey?: boolean },
 ): Promise<readonly PhoneRevealCreditReservedLeg[]> {
+  const withOperationKey = options?.includeOperationKey === true;
   try {
     const admin = createSupabaseAdminClient();
-    const { data, error } = await admin
-      .from(PHONE_REVEAL_CREDIT_RESERVATIONS_TABLE)
-      .select('id, provider_key, credits_reserved, status')
-      .eq('reservation_group_id', reservationGroupId)
-      .eq('status', 'reserved');
+    // Dos ramas con su literal propio, y no un select construido por ternario: el
+    // parser de tipos de supabase-js analiza la cadena del `select` en tiempo de
+    // compilación y no acepta una unión de literales.
+    const rows$ = withOperationKey
+      ? admin
+          .from(PHONE_REVEAL_CREDIT_RESERVATIONS_TABLE)
+          .select('id, provider_key, credits_reserved, status, operation_key')
+          .eq('reservation_group_id', reservationGroupId)
+          .eq('status', 'reserved')
+      : admin
+          .from(PHONE_REVEAL_CREDIT_RESERVATIONS_TABLE)
+          .select('id, provider_key, credits_reserved, status')
+          .eq('reservation_group_id', reservationGroupId)
+          .eq('status', 'reserved');
+    const { data, error } = await rows$;
     if (error) {
       console.error(
         '[phone-reveal-credit-reservation] active legs read failed:',
@@ -329,7 +351,24 @@ export async function findActivePhoneRevealCreditReservations(
       const providerKey = toProviderKey(entry.provider_key);
       const credits = toFiniteNumber(entry.credits_reserved);
       if (!id || !providerKey || credits === null) return [];
-      return [{ id, providerKey, creditsReserved: credits }];
+      // Vocabulario CERRADO y parseado, nunca casteado: un valor inesperado se omite y
+      // la pata cae al default (`phone_reveal`) por la vía canónica
+      // (`resolveReservedLegOperationKey`), en vez de viajar como una operación que el
+      // contrato no reconoce.
+      const operationKey =
+        entry.operation_key === 'contact_search'
+          ? ('contact_search' as const)
+          : entry.operation_key === 'phone_reveal'
+            ? ('phone_reveal' as const)
+            : null;
+      return [
+        {
+          id,
+          providerKey,
+          creditsReserved: credits,
+          ...(operationKey ? { operationKey } : {}),
+        },
+      ];
     });
   } catch (err) {
     console.error(

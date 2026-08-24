@@ -386,6 +386,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // EMPRESA —id nativo del proveedor y dominio normalizado— y no nombra ninguna tabla,
       // columna ni función de teléfono. Se declara NO aplicada en Producción.
       '123_provider_seen_entities.sql',
+      // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1: identidad provider-native
+      // (`contact_provider_identities`), grano de reserva por OPERACIÓN y claim propio de
+      // la búsqueda de identidad. Trae su propia guarda estática y NO edita ninguna
+      // migración anterior — que es lo que esta lista exacta vigila. NO aplicada en Prod.
+      '124_cross_provider_phone_identity.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -404,7 +409,10 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1 a la 121 (contabilidad de presupuesto, sin
     // relación con teléfono). El número sigue siendo EXACTO: una migración no declarada
     // por encima del último hito conocido rompe esta guarda.
-    assert.equal(numbered[numbered.length - 1], 123);
+    // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 lo mueve a la 124: identidad
+    // provider-native, grano de reserva por operación y claim propio de la búsqueda. No
+    // borra teléfonos ni toca la erasure que esta suite protege. NO aplicada en Prod.
+    assert.equal(numbered[numbered.length - 1], 124);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

@@ -518,7 +518,10 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       /ADD COLUMN source_period text NULL/,
     );
 
-    // And no migration FILE was created by this round. 123 is the highest applied one.
+    // And no migration FILE was created by this round. The ceiling moves whenever an
+    // AUTHORIZED milestone adds its own; what this guard defends is that THIS round did
+    // not. 124 belongs to AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 (Agent 2A
+    // phone identity) and is checked by authorship below, not merely by its number.
     const files = fs.readdirSync(
       new URL('../../../../../../supabase/migrations/', import.meta.url),
     );
@@ -526,7 +529,18 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       .map((name) => Number.parseInt(name.slice(0, 3), 10))
       .filter((value) => Number.isFinite(value))
       .reduce((max, value) => Math.max(max, value), 0);
-    assert.equal(highest, 123, 'this round must not add a migration file');
+    assert.equal(highest, 124, 'this round must not add a migration file');
+    for (const name of files.filter((f) => f.startsWith('124'))) {
+      const sql = fs.readFileSync(
+        new URL(`../../../../../../supabase/migrations/${name}`, import.meta.url),
+        'utf8',
+      );
+      assert.equal(
+        /BR-SOURCE|RECEITA|CNPJ/i.test(sql),
+        false,
+        `${name} must not be authored by this round`,
+      );
+    }
   });
 
   it('replacement is period-scoped, and cross-month overwrite is forbidden', () => {
