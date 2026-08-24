@@ -173,6 +173,13 @@ let ContactCandidateDetailSheet: (typeof import('../contact-candidate-detail-she
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
 const REVEAL_LABEL = 'Revelar teléfono';
+/**
+ * Etiqueta del botón ÚNICO en la modalidad LEGACY
+ * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1 § 8). Lo que esta suite protege
+ * —UN botón y CERO confirmación— no cambia; lo que cambia es cómo se llama ese botón
+ * cuando Apollo ya se agotó y no se va a reintentar.
+ */
+const LEGACY_REVEAL_LABEL = 'Buscar teléfono con Lusha';
 const CONFIRM_LABEL = 'Confirmar y revelar';
 
 /** Candidato Lusha sin teléfono: pata Lusha posible ⇒ waterfall completo (13). */
@@ -267,8 +274,15 @@ async function renderSheet(candidate: PendingContactCandidate) {
   });
 }
 
+/**
+ * El botón ÚNICO, en cualquiera de sus dos etiquetas. Las dos se buscan por
+ * coincidencia EXACTA, así que un mismo botón no puede contarse dos veces.
+ */
 function revealButtons() {
-  return screen.queryAllByRole('button', { name: REVEAL_LABEL });
+  return [
+    ...screen.queryAllByRole('button', { name: REVEAL_LABEL }),
+    ...screen.queryAllByRole('button', { name: LEGACY_REVEAL_LABEL }),
+  ];
 }
 
 function confirmButtons() {

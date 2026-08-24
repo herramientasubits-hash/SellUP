@@ -171,6 +171,13 @@ let ContactCandidateDetailSheet: (typeof import('../contact-candidate-detail-she
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
 const REVEAL_LABEL = 'Revelar teléfono';
+/**
+ * Etiqueta del botón ÚNICO en la modalidad LEGACY
+ * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1 § 8). Sigue siendo UN botón —lo
+ * que esta suite protege— pero nombra al proveedor que de verdad se va a consultar: en
+ * esa modalidad Apollo ya se agotó y NO se vuelve a llamar.
+ */
+const LEGACY_REVEAL_LABEL = 'Buscar teléfono con Lusha';
 const CONFIRM_LABEL = 'Confirmar y revelar';
 const LUSHA_BUTTON_LABEL = 'Revelar teléfono con Lusha';
 
@@ -294,8 +301,16 @@ async function renderSheet(
   });
 }
 
+/**
+ * El botón ÚNICO del waterfall, en cualquiera de sus dos etiquetas. Coincidencia
+ * EXACTA en las dos, así que un mismo botón no puede contarse dos veces y el botón
+ * manual de Lusha del flujo previo (`LUSHA_BUTTON_LABEL`) nunca entra aquí.
+ */
 function revealButtons() {
-  return screen.queryAllByRole('button', { name: REVEAL_LABEL });
+  return [
+    ...screen.queryAllByRole('button', { name: REVEAL_LABEL }),
+    ...screen.queryAllByRole('button', { name: LEGACY_REVEAL_LABEL }),
+  ];
 }
 
 function bodyText(): string {

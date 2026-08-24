@@ -25,6 +25,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { PHONE_REVEAL_WATERFALL_BUTTON_LABEL } from '../phone-reveal-waterfall-copy';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const componentsDir = join(here, '..');
@@ -65,23 +66,46 @@ function revealActionCallBlock(source: string): string {
   return match ? match[1] : '';
 }
 
-/** Handler onClick del botón "Revelar teléfono" (código sin comentarios). */
+/**
+ * Etiqueta del botón único, ya como CONSTANTE
+ * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1): el children dejó de ser un
+ * literal porque la modalidad legacy necesita su propio label, y el ancla de esta
+ * heurística pasa a ser la constante que sigue estando exactamente donde estaba el
+ * literal.
+ */
+const REVEAL_BUTTON_LABEL_TOKEN = 'PHONE_REVEAL_WATERFALL_BUTTON_LABEL';
+
+/** Handler onClick del botón de revelación (código sin comentarios). */
 function revealButtonBlock(source: string): string {
-  // Buscamos el <Button ...> cuyo children incluye "Revelar teléfono".
+  // Buscamos el <Button ...> cuyo children pinta la etiqueta del botón único.
   //
   // La ventana hacia atrás cubre el bloque COMPLETO del botón: `disabled`, el
   // `onClick` condicional y el ternario del spinner. Se amplió de 600 a 1600 en
   // AGENT2A-PHONE-WATERFALL-2, cuando el bloque creció (comentario del botón único +
   // la condición de la ruta legacy) y el `onClick` dejó de caber en 600. La
-  // invariante que se verifica NO cambió: solo la heurística de extracción.
-  const idx = source.indexOf('Revelar teléfono');
+  // invariante que se verifica NO cambió: solo la heurística de extracción — y en
+  // AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1 cambió otra vez, pasando el
+  // ancla a la constante en vez del literal y la ventana de 1600 a 2400, porque la
+  // rama legacy del `onClick` pasó a ocupar varias líneas al empezar a enviar el techo
+  // aceptado.
+  //
+  // `lastIndexOf` porque el children es el ÚLTIMO sitio donde aparece el token: antes
+  // están el import y el ternario de la modalidad legacy, y anclar en el import
+  // devolvería una ventana que no contiene el botón.
+  const idx = source.lastIndexOf(REVEAL_BUTTON_LABEL_TOKEN);
   if (idx === -1) return '';
-  return source.slice(Math.max(0, idx - 1600), idx + 200);
+  return source.slice(Math.max(0, idx - 2400), idx + 200);
 }
 
 describe('ASYNC-5 — presencia del botón one-click (sin modal)', () => {
   it('conserva el botón "Revelar teléfono"', () => {
-    assert.ok(/Revelar teléfono/.test(detailSheet));
+    // El label vive ahora en `phone-reveal-waterfall-copy.ts` y llega por constante
+    // (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1). Se comprueban las DOS
+    // cosas: que el drawer sigue pintando ese botón, y que la constante sigue
+    // valiendo exactamente «Revelar teléfono» — si sólo se mirara el nombre, alguien
+    // podría cambiar el texto sin que este test dijera nada.
+    assert.ok(new RegExp(REVEAL_BUTTON_LABEL_TOKEN).test(detailSheet));
+    assert.equal(PHONE_REVEAL_WATERFALL_BUTTON_LABEL, 'Revelar teléfono');
   });
 
   it('sin waterfall el botón dispara la revelación directamente (one-click, sin modal)', () => {
