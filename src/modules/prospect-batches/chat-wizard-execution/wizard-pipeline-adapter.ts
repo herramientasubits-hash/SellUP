@@ -26,7 +26,13 @@ export const WIZARD_SYSTEM_CONTROLS = {
 // searchDepth defaults to 'standard' for wizard-initiated exploratory searches.
 // Structured source flags are omitted — the pipeline resolves them from countryCode.
 
-const WIZARD_PIPELINE_DEFAULTS = {
+/**
+ * CUT-2 REVIEW-1 § 4 — exportado para que la RESERVA del slot pueda establecer
+ * `search_depth` en origen con el MISMO valor con el que el wizard invoca el
+ * pipeline. Duplicar el literal en la reserva habría creado dos fuentes que
+ * pueden divergir en silencio.
+ */
+export const WIZARD_PIPELINE_DEFAULTS = {
   searchDepth: 'standard' as const,
 } as const;
 

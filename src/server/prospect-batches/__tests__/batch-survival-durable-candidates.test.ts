@@ -525,7 +525,14 @@ describe('CUT-1 § 7 — el escritor obtiene la verdad del lote antes de decidir
     // Trinquete de ORDEN EN LA FUENTE, complementario al de orden de escritura
     // real que vive en la suite del escritor. Ninguno de los dos depende de un
     // comentario.
-    const adoptionUpdate = writerSrc.indexOf('.update({\n        name: finalBatchName,');
+    // CUT-2 re-ancla este trinquete SIN debilitarlo: la UPDATE de adopción ya no
+    // es un objeto literal en línea (ahora la construye `resolveAdoptedBatchPatch`,
+    // que es justo el punto de CUT-2), así que el ancla es el punto donde se
+    // construye el PATCH. Las tres afirmaciones que importan —existe, precede a
+    // la sonda, y no lleva `status`— se comprueban igual sobre la forma nueva.
+    const adoptionUpdate = writerSrc.indexOf(
+      'const adoptedBatchTruth = resolveAdoptedBatchPatch({',
+    );
     const probeCall = writerSrc.indexOf(
       'preExistingDurableCandidates = await probePreExistingDurableCandidates',
     );
@@ -535,6 +542,10 @@ describe('CUT-1 § 7 — el escritor obtiene la verdad del lote antes de decidir
     const firstStatusWrite = writerSrc.indexOf('if (batchStatusForOutcome !== null) {');
 
     assert.ok(adoptionUpdate > 0, 'la UPDATE de adopción tiene que existir');
+    assert.ok(
+      writerSrc.includes('.update(adoptedBatchTruth.patch)'),
+      'la adopción tiene que escribir EXACTAMENTE el patch resuelto, sin campos sueltos',
+    );
     assert.ok(probeCall > adoptionUpdate, 'la sonda corre con el lote ya adoptado');
     assert.ok(decision > probeCall, 'la decisión se toma después de sondear');
     assert.ok(
