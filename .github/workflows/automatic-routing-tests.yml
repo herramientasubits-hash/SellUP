@@ -3051,6 +3051,33 @@ jobs:
       - name: Run A2A waterfall default reveal behavior tests
         run: npm run test:agent2a:waterfall-default-reveal-behavior
 
+      # ── AGENT2A-WATERFALL-NO-SILENT-DOWNGRADE-1 ────────────────────────────
+      #
+      # Check OBLIGATORIO. Cierra la degradación SILENCIOSA a Apollo-only: una QA
+      # real autorizó en la UI un waterfall de 14 créditos, Apollo entregó el
+      # teléfono… y quedaron 0 corridas, 0 reservas y un usage-log del START sin
+      # `phone_reveal_waterfall_id`. Lo que se fija:
+      #
+      #   * `no_waterfall` significa UNA sola cosa —el flag maestro
+      #     ENABLE_PHONE_REVEAL_WATERFALL estaba APAGADO— y es el único estado que
+      #     deja continuar el reveal Apollo legacy;
+      #   * con el flag ENCENDIDO, la corrida es PRECONDICIÓN del gasto: los seis
+      #     motivos que antes se colapsaban en `no_waterfall` (feature_disabled,
+      #     role_not_allowed, invalid_candidate, candidate_not_found,
+      #     active_run_exists, create_conflict) BLOQUEAN con 0 Apollo, 0 Lusha,
+      #     0 reservas, 0 usage-logs y 0 créditos;
+      #   * flag exterior ON + core `feature_disabled` es una INVARIANTE ROTA, no
+      #     un estado de producto: fail-closed con su propio errorCode;
+      #   * una autorización viva (o un 23505 en paralelo) NO abre una segunda
+      #     llamada a proveedor: la corrida existente ES la autorización;
+      #   * el evento de arranque es estructurado y SIN PII —booleanos, enteros y
+      #     motivos cerrados—, sin nombre, correo, LinkedIn, teléfono, ids nativos
+      #     de proveedor ni valores crudos de env;
+      #   * y la regresión de la QA real es IMPOSIBLE de reproducir: corridas = 0
+      #     con llamada a Apollo = 1 falla el check.
+      - name: Run A2A waterfall no-silent-downgrade tests
+        run: npm run test:agent2a:waterfall-no-silent-downgrade
+
       # ── AGENT1-CUT3B1-FISCAL-IDENTITY-TRUTH ────────────────────────────────
       #
       # Check OBLIGATORIO. Cierra las tres formas en que la identidad fiscal de
@@ -3083,6 +3110,46 @@ jobs:
       # 0 créditos, 0 migraciones, 0 proveedores.
       - name: Run Agent 1 CUT-3B1 fiscal identity truth tests
         run: npm run test:a1-cut3b1-fiscal-identity
+
+      # AGENT1-CUT3B23-IDENTITY-COVERAGE-AND-BATCH-REGISTRY — CUT-3B2 + CUT-3B3.
+      #
+      # Fija el contrato que faltaba entre las TRES rutas de escritura de Agente 1.
+      # Antes de este corte cada una decidía la identidad de una empresa con un
+      # criterio propio: la gratuita por identidad FISCAL, la de pago por
+      # DOMINIO/identidad de proveedor, y el nombre con tres normalizadores
+      # distintos — de modo que la misma empresa legal podía persistirse dos veces
+      # en un mismo lote sin que nada fallara.
+      #
+      # Lo que la suite defiende:
+      #   * los TRES escritores producen la MISMA evidencia (constructor único);
+      #   * el conflicto FISCAL manda sobre dominio, proveedor, LinkedIn y nombre —
+      #     dos personas jurídicas distintas que comparten marca o dominio NO se
+      #     fusionan;
+      #   * un id de Apollo y un id de Lusha con el MISMO valor no pueden
+      #     compararse iguales: el namespace del proveedor va dentro de la clave;
+      #   * el NOMBRE nunca suprime (sólo anota posible duplicado);
+      #   * `discarded` no bloquea: un descarte previo no puede tapar al legítimo;
+      #   * el registro es de LOTE — no es novedad global ni histórica;
+      #   * descubrimiento crudo ≠ aceptado ÚNICO: un duplicado no consume el
+      #     objetivo y NO se cuenta como error.
+      #
+      # Y fija lo que este corte NO hace, que es la otra mitad del contrato:
+      #   * sin migración (no existe la 125; la 124 sigue siendo la última);
+      #   * sin ON CONFLICT, sin upsert, sin índice único, sin backfill;
+      #   * la siembra sólo LEE;
+      #   * `identity_key` no se redefine ni se sobrecarga;
+      #   * los huecos parciales de Apollo y Lusha siguen en `false`;
+      #   * ningún flag de activación de proveedor se nombra ni se cambia;
+      #   * la ATOMICIDAD sigue sin resolver y así queda declarado.
+      #
+      # La guarda estática compara el CUERPO EJECUTABLE (sin comentarios ni
+      # literales) y se prueba a sí misma en NEGATIVO, para que no pueda pasar por
+      # vacía. Incluye las suites de CUT-3B1 como ancla de regresión.
+      #
+      # Offline y determinista: sin Supabase, sin red, sin credenciales,
+      # 0 créditos, 0 migraciones, 0 proveedores.
+      - name: Run Agent 1 CUT-3B23 batch identity registry tests
+        run: npm run test:a1-cut3b23-identity-registry
 
       # BR-SOURCE-FUNCTIONAL-CUT-A — la PRIMERA construcción funcional tras 8/8 gates y GO.
       #

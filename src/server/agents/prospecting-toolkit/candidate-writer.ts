@@ -45,6 +45,23 @@ import { evaluateCountryEvidence } from "./country-evidence-gate";
 import type { CountryEvidenceResult } from "./country-evidence-gate";
 import { computeEvidencePersistencePolicy } from "./evidence-persistence-policy";
 import { checkActiveCandidateDuplicate } from "./active-candidate-identity-guard";
+// AGENT1-CUT3B23 §§ 5/6/8 — evidencia de identidad COMPARTIDA con las otras dos
+// rutas de escritura de Agente 1, y el registro con ámbito de lote que la compara.
+// Esta ruta dedupeaba por DOMINIO/nombre y la gratuita por identidad FISCAL: sin
+// un contrato común, la misma empresa legal era invisible para la otra capa.
+import { buildCompanyIdentityEvidence } from "./company-identity-evidence";
+import {
+  acceptIdentity,
+  createBatchIdentityCounters,
+  evaluateCandidateIdentity,
+  isBatchIdentityHardDuplicate,
+  tallyBatchIdentityDecision,
+  tallyBatchIdentityError,
+  tallyBatchIdentityPersisted,
+  toBatchIdentityCountersMetadata,
+  type BatchIdentityRegistry,
+} from "./batch-identity-registry";
+import { loadBatchIdentityRegistry } from "@/server/prospect-batches/batch-identity-registry-store";
 import { buildLinkedInEnrichmentMetadata } from "./linkedin-company-enrichment";
 import {
   runControlledLinkedInCompanySearch,
@@ -1931,6 +1948,18 @@ export async function writeProspectingCandidates(
   duplicateGuardData.prefetchStatus = guardPrefetch.status;
   duplicateGuardData.prefetchReason = guardPrefetch.reason;
 
+  // ── AGENT1-CUT3B23 §§ 8/9 — registro de identidad de ESTE lote ─────────────
+  //
+  // Se siembra con lo que el lote YA contiene. Es el paso que hace que esta ruta
+  // de PAGO vea lo que la capa gratuita escribió en el mismo lote, y al revés,
+  // sin que ninguna de las dos tenga que conocer a la otra. Ámbito: un lote. NO
+  // es novedad global ni histórica — esas viven en `novelty-checker` y en
+  // `provider_seen` y siguen intactas.
+  const batchIdentitySeed = await loadBatchIdentityRegistry(admin, batchId);
+  let batchIdentityRegistry: BatchIdentityRegistry = batchIdentitySeed.registry;
+  let batchIdentityCounters = createBatchIdentityCounters();
+  const batchIdentityDuplicateSignals: Record<string, number> = {};
+
   // ── Pre-Pass: Controlled LinkedIn Search (v1.15.2) ────────────────────────
   // Pre-compute LinkedIn enrichments for all candidates in toPersist.
   // When the feature is enabled (via linkedInSearchOverride), candidates with
@@ -2572,6 +2601,50 @@ export async function writeProspectingCandidates(
         ? 'writer_linkedin_enrichment'
         : null;
 
+    // ── AGENT1-CUT3B23 §§ 5/6/11/12 — admisión por identidad de LOTE ──────────
+    //
+    // Se evalúa aquí y no antes porque es el primer punto donde la identidad de
+    // este candidato está COMPLETA: la identidad fiscal de la costura oficial
+    // (`officialSourceTypedColumns`) y el LinkedIn empresarial resuelto ya
+    // existen. Evaluar antes compararía media identidad.
+    //
+    // 🔴 Esta ruta NO aporta identidad nativa de proveedor: el Apollo
+    // Organization ID no llega al writer (no existe en
+    // `ProspectingPipelineCandidate`; vive en la capa de dos rondas y en
+    // `provider_seen`). Se declara ausente en vez de fabricarse — y un id de
+    // PERSONA nunca sería identidad de empresa.
+    const identityEvidence = buildCompanyIdentityEvidence({
+      countryCode: candidate.countryCode ?? null,
+      taxIdentifier: officialSourceTypedColumns.tax_identifier,
+      domain: domain ?? null,
+      website: candidate.website ?? null,
+      linkedinUrl: persistedLinkedInUrl,
+      name: persistedName,
+    });
+    const identityDecision = evaluateCandidateIdentity(batchIdentityRegistry, identityEvidence);
+    batchIdentityCounters = tallyBatchIdentityDecision(batchIdentityCounters, identityDecision);
+
+    // § 12 — un duplicado duro NO se persiste, NO se convierte en error, NO marca
+    // el lote como fallido y NO sobrescribe al ganador ni su `source_primary`. El
+    // primer candidato durable aceptado sigue siendo el candidato del lote.
+    if (isBatchIdentityHardDuplicate(identityDecision)) {
+      const signal = identityDecision.matchedSignal ?? 'unknown';
+      batchIdentityDuplicateSignals[signal] =
+        (batchIdentityDuplicateSignals[signal] ?? 0) + 1;
+      skipped.push({
+        name: candidate.name,
+        reason: `batch_identity_duplicate:${signal}`,
+        searchTrace: candidate.searchTrace ?? undefined,
+      });
+      captureOmittedSample(
+        candidate,
+        domain,
+        `batch_identity_duplicate:${signal}`,
+        'duplicate_guard',
+      );
+      continue;
+    }
+
     // ── § G — trazabilidad por campo ──────────────────────────────────────────
     //
     // El `usage_key` de la operación que trajo el dato sólo existe cuando hubo
@@ -2996,6 +3069,11 @@ export async function writeProspectingCandidates(
         } else {
           persistenceFailures.push({ code, stage: 'candidate_insert' });
           errors.push(`Error al crear candidato: ${code}`);
+          // AGENT1-CUT3B23 § 3 — un fallo de PERSISTENCIA es un error del corte,
+          // y la fila NO existe. Sin esto, el candidato quedaba contado como
+          // admitido, `errors` en 0 y nadie podía distinguir «se escribió» de
+          // «se dejó pasar la admisión y luego se cayó el insert».
+          batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
         }
         skipped.push({
           name: candidate.name,
@@ -3017,6 +3095,17 @@ export async function writeProspectingCandidates(
       }
 
       createdCandidateIds.push(created.id);
+      // AGENT1-CUT3B23 § 12 — se registra DESPUÉS de que la fila exista de
+      // verdad. Registrar antes haría que un insert fallido bloqueara al
+      // siguiente candidato legítimo con la misma identidad.
+      batchIdentityRegistry = acceptIdentity(
+        batchIdentityRegistry,
+        identityEvidence,
+        created.id,
+      );
+      // § 3 — y sólo AQUÍ sube el conteo de filas que existen. `persistedUnique`
+      // es lo único que puede contar contra el objetivo del lote.
+      batchIdentityCounters = tallyBatchIdentityPersisted(batchIdentityCounters);
       // § 5 — sólo se contabiliza la completitud de lo que REALMENTE se escribió.
       if (providerCompanyFields) completenessEligibilities.push(targetEligibility);
       // § E — el recuento canónico incluye TODA fila escrita, con campos de
@@ -3042,6 +3131,9 @@ export async function writeProspectingCandidates(
       const code = classifyCandidatePersistenceError(err);
       persistenceFailures.push({ code, stage: 'candidate_insert' });
       errors.push(`Error inesperado al crear candidato: ${code}`);
+      // AGENT1-CUT3B23 § 3 — misma verdad que en la rama de error del insert: la
+      // fila no existe, así que `errors` sube y `persistedUnique` no.
+      batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
       skipped.push({
         name: candidate.name,
         reason: `persistence_failed:${code}`,
@@ -3647,6 +3739,15 @@ export async function writeProspectingCandidates(
       evidence_policy_gate: evidencePolicyGateMetadata,
       recall_recovery_gate: recallRecoveryGateMetadata,
       duplicate_guard: duplicateGuardMetadata,
+      // AGENT1-CUT3B23 § 15 — descubrimiento crudo, aceptado ÚNICO y duplicados
+      // saltados, cada uno en su cubeta. Un duplicado no aparece como error y no
+      // consume el objetivo. Sólo números y nombres de señal: sin PII.
+      batch_identity_registry: {
+        ...toBatchIdentityCountersMetadata(batchIdentityCounters),
+        seeded_count: batchIdentitySeed.seededCount,
+        seed_degraded: batchIdentitySeed.degraded,
+        duplicate_signals: batchIdentityDuplicateSignals,
+      },
       tavily_usage_reconciliation: tavilyUsageReconciliation,
       // v1.16K-K FIX 5: detailed omitted samples for post-run auditing
       writer_omitted_samples: writerOmittedSamples,

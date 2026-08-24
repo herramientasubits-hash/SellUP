@@ -769,14 +769,21 @@ describe('§ 5 · target cap complete-first', () => {
     // las dos completas —con confianza deliberadamente MÁS BAJA— quedaban fuera y
     // se persistían tres de revisión. El resultado de la corrida bajaba de 2
     // empresas que cuentan a 0, sin que ninguna métrica lo dijera.
-    const confirmedFields = {
+    // AGENT1-CUT3B23 — el LinkedIn empresarial se DERIVA del indice, como el dominio.
+    //
+    // Con una constante compartida las dos completas declaraban dominios DISTINTOS
+    // y a la vez la MISMA pagina de empresa de LinkedIn. Mientras nadie comparaba
+    // LinkedIn era relleno inofensivo; con el registro de identidad de lote una de
+    // las dos se retira como duplicado duro y el cupo mide 1 en vez de 2. La
+    // contradiccion esta en la fabrica, no en la admision.
+    const confirmedFieldsFor = (index: number) => ({
       linkedin: {
-        companyLinkedInUrl: 'https://www.linkedin.com/company/completa',
+        companyLinkedInUrl: `https://www.linkedin.com/company/cadena-completa-${index}`,
         status: 'confirmed',
         sourceProvider: 'apollo',
         sourceOperation: 'organizations_search',
         observedAt: '2026-08-01T00:00:00.000Z',
-        rawValue: 'https://www.linkedin.com/company/completa',
+        rawValue: `https://www.linkedin.com/company/cadena-completa-${index}`,
         reason: null,
       },
       employeeCount: {
@@ -788,10 +795,20 @@ describe('§ 5 · target cap complete-first', () => {
         rawValue: 850,
         reason: null,
       },
-    };
+    });
+    const confirmedFieldsTemplate = confirmedFieldsFor(0);
     const missingFields = {
-      linkedin: { ...confirmedFields.linkedin, companyLinkedInUrl: null, status: 'not_returned' },
-      employeeCount: { ...confirmedFields.employeeCount, employeeCount: null, status: 'not_returned' },
+      linkedin: {
+        ...confirmedFieldsTemplate.linkedin,
+        companyLinkedInUrl: null,
+        rawValue: null,
+        status: 'not_returned',
+      },
+      employeeCount: {
+        ...confirmedFieldsTemplate.employeeCount,
+        employeeCount: null,
+        status: 'not_returned',
+      },
     };
 
     const complete = [1, 2].map((index) =>
@@ -800,7 +817,7 @@ describe('§ 5 · target cap complete-first', () => {
         domain: `cadena-completa-${index}.com.co`,
         website: `https://www.cadena-completa-${index}.com.co`,
         sectorEvidenceState: 'sector_evidence_confirmed',
-        providerCompanyFields: confirmedFields,
+        providerCompanyFields: confirmedFieldsFor(index),
         // Confianza BAJA a propósito: en el orden anterior perdían el cupo.
         scoring: { ...(candidate().scoring as object), confidenceScore: 0.1 },
       }),
