@@ -68,6 +68,7 @@ import {
   type ContinuePhoneRevealWaterfallResult,
   type PhoneRevealWaterfallApolloOutcome,
   type PhoneRevealWaterfallCandidateRecord,
+  type LegacyPhoneRevealStartDiagnostics,
   type PhoneRevealWaterfallLegacyEvidence,
   type PhoneRevealWaterfallLegacyIneligibleReason,
   type PhoneRevealWaterfallLushaLegResult,
@@ -78,6 +79,13 @@ import {
   type StartLegacyPhoneRevealWaterfallDeps,
   type StartPhoneRevealWaterfallDeps,
 } from './phone-reveal-waterfall-core';
+// Observabilidad PII-free del arranque legacy
+// (AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1). La construcción del evento es
+// PURA y vive en su propio módulo; aquí sólo se emite.
+import {
+  buildLegacyPhoneRevealStartEvent,
+  LEGACY_START_EXCEPTION_REASON,
+} from './phone-reveal-waterfall-legacy-start-gate';
 // Preflight de presupuesto (AGENT2A-PHONE-WATERFALL-4D/4E): la LECTURA vive aquí porque
 // este es el módulo de infraestructura; la decisión sigue siendo del core puro.
 import { readPhoneRevealCreditPools } from './phone-reveal-credit-budget-deps';
@@ -1317,6 +1325,12 @@ export interface StartLegacyPhoneRevealWaterfallRuntimeResult {
    */
   requiredMaxCredits: number | null;
   acceptedMaxCredits: number | null;
+  /**
+   * Hechos OBSERVADOS por el arranque, PII-free
+   * (AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1). `null` sólo cuando el arranque
+   * lanzó y no hubo nada que observar.
+   */
+  diagnostics: LegacyPhoneRevealStartDiagnostics | null;
 }
 
 /**
@@ -1339,6 +1353,25 @@ export interface StartLegacyPhoneRevealWaterfallRuntimeResult {
  * La corrida se crea ANTES de cualquier llamada a Lusha. Si la creación falla, no se
  * llama a nada.
  */
+/**
+ * Emite el evento estructurado del arranque legacy
+ * (AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1).
+ *
+ * Se emite en TODAS las salidas del arranque —éxito, rechazo y excepción—, porque un
+ * evento que sólo aparece cuando algo va bien no sirve para diagnosticar lo que va mal.
+ * El payload es PII-free por el TIPO del evento: booleanos, enteros y literales
+ * cerrados, sin `candidateId` y sin ninguna clave por la que pudiera colarse un nombre,
+ * un correo, un LinkedIn, un teléfono o un id nativo de proveedor.
+ */
+function emitLegacyStartOutcome(
+  args: Parameters<typeof buildLegacyPhoneRevealStartEvent>[0],
+): void {
+  console.info(
+    '[phone-reveal-waterfall] legacy start outcome:',
+    JSON.stringify(buildLegacyPhoneRevealStartEvent(args)),
+  );
+}
+
 export async function startLegacyPhoneRevealWaterfallForCandidate(
   candidateId: string,
   actor: { internalUserId: string; roleKey: string | null },
@@ -1374,6 +1407,11 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
   // Fail-closed: si el store no está disponible (p. ej. las migraciones 102/103 aún
   // no aplicadas en ese entorno) NO se crea corrida y, por tanto, no se llama a
   // Lusha. Solo el mensaje mecánico del driver, sin PII.
+  const normalizedAccepted =
+    typeof acceptedMaxCredits === 'number' && Number.isFinite(acceptedMaxCredits)
+      ? acceptedMaxCredits
+      : null;
+
   let started: Awaited<ReturnType<typeof startLegacyPhoneRevealWaterfall>>;
   try {
     started = await startLegacyPhoneRevealWaterfall(
@@ -1383,8 +1421,7 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
         options
           ? {
               flagEnabled: options.flagEnabled,
-              // El disparo manual exige el orden DNC → RESERVA. La ruta legacy
-              // automática NO cablea esta puerta y conserva su superficie de deps.
+              // El disparo manual exige el orden DNC → RESERVA.
               gatePrivacyBeforeReserving: true,
               // Y NO puede comprar la identidad Lusha
               // (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1): su UI enseña 5,
@@ -1394,7 +1431,26 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
               // camino lo tiene decidido.
               identitySearchAllowed: false,
             }
-          : undefined,
+          : {
+              // AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1 — la ruta legacy
+              // AUTOMÁTICA también cablea la puerta de privacidad ANTES de reservar.
+              //
+              // No relaja nada: el veredicto y su precedencia son los mismos, los
+              // produce la MISMA implementación (`checkPhoneRevealPrivacyGate`) y
+              // sigue siendo fail-closed en las tres ramas. Lo que cambia es DÓNDE
+              // corta. Antes, un candidato bloqueado creaba una corrida y reservaba
+              // créditos para cerrarla acto seguido sin llamar a nadie: el efecto
+              // económico neto ya era 0 —la liquidación libera la pata no intentada—
+              // pero quedaban una corrida y una reserva que nadie podía llegar a
+              // gastar, y durante ese intervalo la exposición estaba ocupada contra el
+              // pozo de Lusha. Ahora son 0 escrituras, que es lo que el contrato de
+              // privacidad afirma.
+              //
+              // La puerta de `continuePhoneRevealWaterfall` NO se sustituye: sigue
+              // corriendo después, sobre el estado ya reservado, y es la que cubre la
+              // ventana entre la reserva y la llamada al proveedor.
+              gatePrivacyBeforeReserving: true,
+            },
       ),
     );
   } catch (err) {
@@ -1402,16 +1458,30 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
       '[phone-reveal-waterfall] legacy run creation failed:',
       err instanceof Error ? err.message : 'unknown error',
     );
+    // Una LECTURA que falla no es un hecho del candidato. Se registra como lo que es,
+    // y el wrapper lo traduce a infraestructura — nunca a «ya no aplica».
+    emitLegacyStartOutcome({
+      started: null,
+      outerFlagEnabled: options?.flagEnabled ?? isPhoneRevealWaterfallEnabled(),
+      acceptedMaxCredits: normalizedAccepted,
+    });
     return {
       outcome: 'not_started',
-      reason: 'legacy_run_creation_failed',
+      reason: LEGACY_START_EXCEPTION_REASON,
       maxCreditsAuthorized: null,
       lushaCalled: false,
       requiresIdentitySearch: null,
       requiredMaxCredits: null,
       acceptedMaxCredits: null,
+      diagnostics: null,
     };
   }
+
+  emitLegacyStartOutcome({
+    started,
+    outerFlagEnabled: options?.flagEnabled ?? isPhoneRevealWaterfallEnabled(),
+    acceptedMaxCredits: normalizedAccepted,
+  });
 
   if (!started.started) {
     return {
@@ -1424,6 +1494,7 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
       // Presentes SOLO en el rechazo por techo, que es el único que los produce.
       requiredMaxCredits: started.requiredMaxCredits ?? null,
       acceptedMaxCredits: started.acceptedMaxCredits ?? null,
+      diagnostics: started.diagnostics,
     };
   }
 
@@ -1449,5 +1520,6 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
     requiresIdentitySearch: started.requiresIdentitySearch === true,
     requiredMaxCredits: null,
     acceptedMaxCredits: null,
+    diagnostics: started.diagnostics,
   };
 }
