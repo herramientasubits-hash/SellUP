@@ -70,6 +70,9 @@ import {
   type LushaPendingReviewCandidateRow,
   type PersistLushaPendingReviewResult,
 } from '@/server/prospect-batches/lusha-pending-review';
+// AGENT1-CUT3B4 § 22 — el transporte de la RPC vallada. Aquí vive el ÚNICO
+// cliente de base de datos de esta ruta; el núcleo sigue sin tener I/O propio.
+import { insertFencedProspectCandidates } from '@/server/prospect-batches/batch-identity-fence';
 // Q3F-5BB.10C2 / AGENT1-APOLLO-SHARED-INTAKE-ADOPTION-1 — read-only
 // official-source resolvers (injected into the pure core), now the SAME
 // provider-neutral wiring Apollo also uses + server-side flag gate. Neither
@@ -744,6 +747,12 @@ async function runLushaSearchWithReservation(args: {
           return { id: data.id as string };
         },
         // Write dep #2 — prospect_candidates ONLY.
+        //
+        // 🔴 AGENT1-CUT3B4 § 22 — ruta ANTERIOR a B4. Se conserva porque la
+        // migración 126 se entrega SIN aplicar: mientras la RPC vallada no exista,
+        // ésta es la única forma de que esta ruta escriba, y su forma TODO-O-NADA
+        // (un solo `.insert(rows)`, sin trocear, sin `upsert`, sin tragarse el
+        // error) sigue siendo el invariante que la guarda de CUT-3B23 defiende.
         insertCandidates: async (rows: LushaPendingReviewCandidateRow[]) => {
           const { data, error } = await supabase
             .from('prospect_candidates')
@@ -754,6 +763,22 @@ async function runLushaSearchWithReservation(args: {
           }
           return { insertedCount: data?.length ?? 0 };
         },
+        // Write dep #3 — prospect_candidates, VALLADO por época de lote.
+        //
+        // AGENT1-CUT3B4 § 22 — comprobación de época + INSERT del bloque ENTERO +
+        // avance de época, en UNA transacción de la base. La atomicidad de
+        // todo-o-nada no se pierde: se traslada a la transacción, donde además
+        // queda protegida contra una decisión de admisión caduca.
+        //
+        // Corre con el cliente de SESIÓN y la función es SECURITY INVOKER, así que
+        // sigue bajo las MISMAS políticas RLS que el insert directo de arriba. No
+        // concede ninguna capacidad nueva.
+        insertCandidatesFenced: (args) =>
+          insertFencedProspectCandidates(supabase, {
+            batchId: args.batchId,
+            expectedEpoch: args.expectedEpoch,
+            candidates: args.rows as unknown as Record<string, unknown>[],
+          }),
         // Read-only dep #1 — canonical SellUp + HubSpot duplicate checker.
         checkCompanyDuplicate: (dupInput) => checkCompanyDuplicate(dupInput),
         // Read-only dep #2 — active prospect_candidates prefetch for the guard.

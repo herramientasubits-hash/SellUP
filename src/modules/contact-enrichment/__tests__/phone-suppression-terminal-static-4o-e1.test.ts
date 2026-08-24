@@ -236,7 +236,14 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // `source_company_snapshots`, estado de publicación en `source_snapshot_runs`). NO es de
       // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono; la
       // autoría se comprueba abajo archivo por archivo. AUTORADA y NO APLICADA.
-      '125_br_receita_monthly_snapshot_identity.sql',
+      // El techo pasó por la 125 (BR-SOURCE, arriba) y ahora es la 126.
+      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+      // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+      // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+      // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+      // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+      // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+      '126_agent1_batch_identity_atomicity.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

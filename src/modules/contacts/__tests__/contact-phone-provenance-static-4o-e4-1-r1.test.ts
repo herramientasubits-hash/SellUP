@@ -273,13 +273,23 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // (`source_period` + unicidad period-aware en `source_company_snapshots`, estado de
       // publicación en `source_snapshot_runs`). NO es de teléfono y NO edita ninguna migración
       // anterior — que es lo que esta lista exacta vigila. AUTORADA y NO APLICADA.
-      '125_br_receita_monthly_snapshot_identity.sql',
+      // El techo pasó por la 125 (BR-SOURCE, arriba) y ahora es la 126.
+      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
+      // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+      // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+      // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
+      // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
+      // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+      '126_agent1_batch_identity_atomicity.sql',
       'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa y la contabilidad de presupuesto, no este hito',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 está autorizada y nombrada,
       // así que lo que queda prohibido es la 126 y superiores.
-      files.some((f) => /^1(2[6-9]|[3-9]\d)/.test(f)),
+      // AGENT1-CUT3B4 vuelve a DESPLAZAR la ventana: la 126 (vallado de identidad de
+      // LOTE) queda AUTORIZADA y declarada arriba, así que lo prohibido pasa a ser la
+      // 127 y superiores. Sigue siendo una guarda de autoría, no un rango libre.
+      files.some((f) => /^1(2[7-9]|[3-9]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;

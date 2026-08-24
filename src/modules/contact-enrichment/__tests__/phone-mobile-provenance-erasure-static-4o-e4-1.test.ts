@@ -385,8 +385,12 @@ describe('4O-E4.1 estático — alcance', () => {
       // BR-SOURCE-FUNCTIONAL-CUT-A lo mueve a la 125: la identidad MENSUAL del snapshot de
       // Receita. NO es de teléfono y no nombra `mobile_phone` en ninguna parte, que es lo que
       // esta guarda vigila. AUTORADA y NO APLICADA.
-      125,
-      'la 125 (identidad mensual del snapshot BR) es la última',
+      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY lo mueve a la 126: el vallado optimista
+      // de la admisión por identidad de LOTE (Agente 1). Toca `prospect_batches` y
+      // `prospect_candidates`, y no nombra `mobile_phone` en ninguna parte, que es lo
+      // que esta guarda vigila.
+      126,
+      'la 126 (vallado de identidad de lote) es la última',
     );
   });
 

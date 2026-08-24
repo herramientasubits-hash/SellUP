@@ -40,6 +40,7 @@ import type {
   DuplicateCheckResult,
 } from '@/server/agents/prospecting-toolkit/types';
 import type { ActiveCandidateRecord } from '@/server/agents/prospecting-toolkit/active-candidate-identity-guard';
+import { preM126FencedInsert } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 
 /** A canonical "checked, no duplicate" result (SellUp + HubSpot both clean). */
 function noDuplicateResult(input: DuplicateCheckInput): DuplicateCheckResult {
@@ -197,6 +198,9 @@ function makeDeps(search: LushaPreviewResult, secondPage: LushaPreviewResult = e
       calls.batches.push(row);
       return { id: `batch-${calls.batches.length}` };
     },
+    // CUT-3B4-CORRECCIÓN — la valla es OBLIGATORIA; esta prueba modela la 126
+    // SIN aplicar por la ÚNICA puerta legítima: la respuesta de la BASE.
+    insertCandidatesFenced: preM126FencedInsert,
     insertCandidates: async (rows) => {
       calls.candidateBatches.push(rows);
       return { insertedCount: rows.length };
@@ -385,13 +389,26 @@ describe('persistLushaPendingReviewBatch', () => {
       'fetchActiveCandidates',
       'insertBatch',
       'insertCandidates',
+      // CUT-3B4-CORRECCIÓN — la escritura VALLADA es una dependencia OBLIGATORIA,
+      // no una superficie nueva: escribe las MISMAS filas de candidatos que
+      // `insertCandidates`, comprobando además la época del lote. Mientras fue
+      // opcional, su ausencia abría una escritura sin valla.
+      'insertCandidatesFenced',
       'runSearch',
     ]);
-    // The ONLY write deps are insertBatch + insertCandidates. checkCompanyDuplicate
-    // and fetchActiveCandidates are read-only duplicate detectors — there is still
-    // no dep that could create an account, WRITE to HubSpot/enrichment, or write
-    // provider_usage_logs / agent_runs.
+    // The ONLY write deps are insertBatch + the two candidate writers (fenced and
+    // its pre-B4 compatibility path — the same rows, one transaction apart).
+    // checkCompanyDuplicate and fetchActiveCandidates are read-only duplicate
+    // detectors — there is still no dep that could create an account, WRITE to
+    // HubSpot/enrichment, or write provider_usage_logs / agent_runs.
     const writeDepNames = depKeys.filter((k) => /^insert/i.test(k));
-    assert.deepEqual(writeDepNames, ['insertBatch', 'insertCandidates']);
+    assert.deepEqual(writeDepNames, [
+      'insertBatch',
+      'insertCandidates',
+      'insertCandidatesFenced',
+    ]);
+    // 🔴 And both candidate writers target prospect_candidates only: the fenced
+    // one is not a second, wider surface.
+    assert.equal(typeof deps.insertCandidatesFenced, 'function');
   });
 });

@@ -48,6 +48,9 @@ import {
   tallyBatchIdentityPersisted,
   toBatchIdentityCountersMetadata,
 } from '@/server/agents/prospecting-toolkit/batch-identity-registry';
+// AGENT1-CUT3B4 § 22 — sólo el TIPO del desenlace vallado. Este núcleo sigue sin
+// tener I/O propio: la RPC la ejecuta la dependencia inyectada.
+import type { FencedCandidateInsertResult } from './batch-identity-fence';
 import { isLinkedInCompanyUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
   checkActiveCandidateDuplicate,
@@ -435,13 +438,68 @@ export type FetchActiveCandidatesForLushaGuard = (
   countryCode: string | null,
 ) => Promise<ActiveCandidateRecord[]>;
 
+/**
+ * AGENT1-CUT3B4 § 22 — la época de un lote RECIÉN CREADO.
+ *
+ * `prospect_batches.identity_epoch` nace en 0 por DEFAULT, y esta ruta crea el lote
+ * en la misma llamada en la que escribe sus candidatos: no hay ninguna otra época
+ * posible. Se nombra en vez de escribir un 0 suelto para que, el día en que esta
+ * ruta adopte un lote preexistente, el literal no se cuele como si siguiera siendo
+ * cierto — tendría que venir de la foto, como en los otros dos escritores.
+ */
+export const LUSHA_FRESH_BATCH_IDENTITY_EPOCH = 0;
+
+/**
+ * AGENT1-CUT3B4 § 22 — esta ruta NO adopta lotes preexistentes.
+ *
+ * Es un hecho estructural de hoy, no una preferencia: `batchId` sólo puede venir de
+ * `deps.insertBatch`, y ninguna entrada trae un identificador de lote. La guarda
+ * estática de este corte lo comprueba. Si algún día se pone en `true`, la escritura
+ * en bloque tiene que pasar por `runFencedPersistence` con re-evaluación, porque
+ * `stale` dejará de ser inalcanzable.
+ */
+export const LUSHA_PENDING_REVIEW_BATCH_ADOPTION_SUPPORTED = false;
+
 export interface PersistLushaPendingReviewDeps {
   runSearch: RunLushaSearch;
   // ── Write deps (the ONLY two write surfaces) ──
   insertBatch: (row: LushaPendingReviewBatchRow) => Promise<{ id: string }>;
+  /**
+   * AGENT1-CUT3B4 § 22 — escritura de candidatos ANTERIOR a B4.
+   *
+   * 🔴 Sigue existiendo, y sigue siendo TODO-O-NADA, por una razón acotada: la
+   * migración 126 se entrega SIN aplicar, y con la RPC vallada ausente ésta es la
+   * única forma de que la ruta de Lusha escriba. En cuanto la 126 esté aplicada,
+   * `insertCandidatesFenced` responde y este camino queda inalcanzable.
+   *
+   * 🔴 CUT-3B4-CORRECCIÓN — se invoca EXCLUSIVAMENTE cuando
+   * `insertCandidatesFenced` devuelve `capability_absent`, que es la BASE diciendo
+   * que la función vallada no existe. Su ausencia como dependencia ya NO puede
+   * llevar hasta aquí: eso era un desvío estructural, independiente del esquema.
+   */
   insertCandidates: (
     rows: LushaPendingReviewCandidateRow[],
   ) => Promise<{ insertedCount: number }>;
+  /**
+   * AGENT1-CUT3B4 § 22 — escritura VALLADA del bloque de candidatos.
+   *
+   * Comprueba la época del lote, inserta el bloque ENTERO y avanza la época, todo
+   * en UNA transacción. La atomicidad de todo-o-nada que la guarda de CUT-3B23
+   * defiende no se pierde: se traslada a la transacción, donde es más fuerte.
+   *
+   * 🔴 CUT-3B4-CORRECCIÓN — OBLIGATORIA, y el `?` no puede volver. Mientras fue
+   * opcional, el núcleo tenía un `else` que escribía sin valla por el solo hecho
+   * de que nadie la inyectara: un desvío que no dependía del esquema y que ninguna
+   * aplicación de la 126 podía cerrar. Un llamador o una prueba que quiera modelar
+   * «la 126 no está aplicada» inyecta una función que devuelva
+   * `{ status: 'capability_absent' }` — que es lo que diría la base de verdad—, no
+   * omite la dependencia.
+   */
+  insertCandidatesFenced: (args: {
+    batchId: string;
+    expectedEpoch: number;
+    rows: LushaPendingReviewCandidateRow[];
+  }) => Promise<FencedCandidateInsertResult>;
   // ── Read-only duplicate-parity deps (Q3F-5BB.7) — never write ──
   checkCompanyDuplicate: CheckLushaCompanyDuplicate;
   fetchActiveCandidates: FetchActiveCandidatesForLushaGuard;
@@ -528,9 +586,12 @@ export interface PersistLushaPendingReviewResult {
   batchIdentityDuplicateSkippedCount?: number;
   /**
    * Conteo del corte: crudo descubierto, aceptado ÚNICO, duplicados retirados,
-   * posibles duplicados admitidos y conflictos fuertes. Sólo números.
+   * posibles duplicados admitidos y conflictos fuertes; más —desde AGENT1-CUT3B4— la
+   * telemetría de CONCURRENCIA. `boolean` y `null` entran porque «no se pudo
+   * establecer la época» no es un número y colapsarlo a 0 lo habría hecho pasar por
+   * «época cero», que es una afirmación distinta. Sin PII: sólo conteos y estados.
    */
-  batchIdentityMetrics?: Record<string, number>;
+  batchIdentityMetrics?: Record<string, number | boolean | null>;
   // ── Global Agent1 budget gate (AGENT1-LUSHA-BUDGET-GATE-1) ──
   /**
    * Detalle ESTRUCTURADO de un bloqueo de presupuesto, con la misma forma que el
@@ -2448,7 +2509,66 @@ export async function persistLushaPendingReviewBatch(
         return { ...row, metadata: merged.metadata, source_trace: merged.source_trace };
       })
     : candidateRows;
-  const { insertedCount } = await deps.insertCandidates(candidateRowsWithRouting);
+  // ── AGENT1-CUT3B4 § 22 — el bloque de candidatos se escribe VALLADO ────────
+  //
+  // El lote acaba de nacer en esta misma llamada, así que su época es 0 y su
+  // siembra está vacía por construcción. Aun así la escritura pasa por la valla, y
+  // no por conveniencia: mientras el bloque se escriba fuera de ella, cualquier
+  // adopción futura de este lote (el flujo mixto de un solo lote) heredaría una
+  // ruta capaz de escribir sin declarar contra qué estado decidió. Vallarlo ahora
+  // es lo que hace que esa puerta no exista.
+  //
+  // 🔴 La atomicidad de TODO-O-NADA que la guarda de CUT-3B23 defiende NO se
+  // pierde: el bloque entero viaja en un solo INSERT dentro de una transacción que
+  // además comprueba y avanza la época. Es la misma promesa, más fuerte.
+  //
+  // 🔴 Un `stale` aquí es hoy INALCANZABLE —nadie más conoce este `batchId`—, y
+  // por eso NO se re-evalúa la admisión: la admisión de identidad de esta ruta ya
+  // corrió arriba, sobre una siembra vacía que sigue siendo la verdad. Si un día
+  // el lote se adopta, `stale` deja de ser inalcanzable y esta llamada tiene que
+  // pasar por `runFencedPersistence` como las otras dos rutas.
+  //
+  // 🔴 CUT-3B4-CORRECCIÓN — la dependencia vallada es OBLIGATORIA y se llama
+  // SIEMPRE. No hay `if (fencedInsert)` ni `else`: mientras existió, el núcleo
+  // escribía sin valla por el solo hecho de que nadie inyectara la dependencia, y
+  // ése es un desvío ESTRUCTURAL —ajeno al esquema— que aplicar la 126 no cerraba.
+  // La ÚNICA puerta a la ruta anterior a B4 es `capability_absent`, que es la BASE
+  // diciendo que la función no existe.
+  let insertedCount: number;
+  let fenceTelemetry: Record<string, number | boolean | null>;
+
+  const fenced = await deps.insertCandidatesFenced({
+    batchId,
+    expectedEpoch: LUSHA_FRESH_BATCH_IDENTITY_EPOCH,
+    rows: candidateRowsWithRouting,
+  });
+
+  if (fenced.status === 'inserted') {
+    insertedCount = fenced.insertedCount;
+    fenceTelemetry = {
+      identity_epoch_initial: fenced.previousEpoch,
+      identity_epoch_final: fenced.nextEpoch,
+      identity_fence_capability_absent: false,
+    };
+  } else if (fenced.status === 'capability_absent') {
+    // La 126 no está aplicada. Ruta ANTERIOR a B4, tal cual. Lo decide el
+    // esquema: no es un flag, no es la forma de un objeto de dependencias y nadie
+    // puede activarla a mano.
+    insertedCount = (await deps.insertCandidates(candidateRowsWithRouting)).insertedCount;
+    fenceTelemetry = {
+      identity_epoch_initial: null,
+      identity_epoch_final: null,
+      identity_fence_capability_absent: true,
+    };
+  } else if (fenced.status === 'insert_failed') {
+    // Mismo contrato que la dependencia anterior a B4: un fallo de escritura
+    // LANZA. Tragárselo dejaría el lote afirmando filas que no existen.
+    throw new Error(`No se pudieron crear los candidatos: ${fenced.code}`);
+  } else {
+    // `stale`, `batch_not_found` o `invalid_input` sobre un lote recién creado
+    // por esta misma llamada. No se degrada a una escritura sin valla: se dice.
+    throw new Error(`No se pudieron crear los candidatos: fence_${fenced.status}`);
+  }
 
   // ── AGENT1-CUT3B23 §§ 1/3 — reconciliación FINAL contra las filas REALES ────
   //
@@ -2493,9 +2613,15 @@ export async function persistLushaPendingReviewBatch(
     remainingGapFinal: remainingGapPersisted,
     stopReason: stopReasonPersisted,
     multiBranch: runTelemetryPersisted,
-    batchIdentityMetrics: toBatchIdentityCountersMetadata(
-      tallyBatchIdentityPersisted(batchIdentityAdmission.counters, persistedForTarget),
-    ),
+    batchIdentityMetrics: {
+      ...toBatchIdentityCountersMetadata(
+        tallyBatchIdentityPersisted(batchIdentityAdmission.counters, persistedForTarget),
+      ),
+      // AGENT1-CUT3B4 § 24 — telemetría de CONCURRENCIA. Sólo conteos y estados:
+      // ni dominio, ni identificador fiscal, ni LinkedIn, ni id de proveedor, ni
+      // nombre de empresa.
+      ...fenceTelemetry,
+    },
     usefulCandidatesCount: useful.length,
     insertedCandidatesCount: insertedCount,
   };

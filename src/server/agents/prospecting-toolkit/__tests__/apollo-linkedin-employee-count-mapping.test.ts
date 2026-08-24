@@ -38,6 +38,7 @@ import type { CandidateWriterInput, CatalogContextResult } from '../types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const OBSERVED_AT = '2026-08-05T22:20:00.000Z';
+import { preM126Rpc } from '@/server/prospect-batches/__tests__/support/lusha-pre-m126-fenced-insert';
 const USER_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 const NEW_BATCH_ID = 'batch-li-emp-0000-0000-000000000001';
 
@@ -250,6 +251,9 @@ class ChainResult {
 function makeFakeAdmin(stats: FakeAdminStats, missingLinkedInColumn = false): SupabaseClient {
   let candidateSeq = 0;
   return {
+    // CUT-3B4-CORRECCIÓN — la 126 SIN aplicar se declara como lo hace la BASE.
+    // Omitir `rpc` modelaría un cliente no soportado, y eso degrada CERRADO.
+    rpc: preM126Rpc,
     from(table: string) {
       if (table === 'prospect_batches') {
         return {

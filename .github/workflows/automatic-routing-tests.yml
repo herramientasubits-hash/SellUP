@@ -3304,3 +3304,80 @@ jobs:
       # 0 créditos, 0 escrituras, 0 migraciones aplicadas, 0 flags.
       - name: Run BR-SOURCE FUNCTIONAL CUT-A monthly snapshot foundation tests
         run: npm run test:br-source:functional-cut-a-monthly-snapshot
+
+      # ── AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY ──────────────────────────
+      #
+      # EL ÚLTIMO BLOQUEADOR ESTRUCTURAL DE CUT-3 ERA LA CONCURRENCIA.
+      #
+      # CUT-3B2/B3 dejó UNA autoridad de identidad de lote en TypeScript, con sus seis
+      # niveles, y declaró por escrito lo que NO resolvía:
+      #
+      #     Proceso A: siembra el registro del lote en el estado S -> candidato A UNICO
+      #     Proceso B: siembra el registro del MISMO lote en S     -> candidato B UNICO
+      #     A inserta. B inserta.
+      #
+      # Las dos decisiones eran válidas contra S; la de B ya estaba CADUCA al
+      # comprometerse, y nada en base de datos lo impedía.
+      #
+      # Lo que esta suite defiende, dicho como defecto:
+      #   * que una decisión de admisión CADUCA vuelva a poder escribir — el vallado
+      #     compara la época declarada contra la del lote y, si no coincide, NO escribe
+      #     nada y NO avanza nada;
+      #   * que perder la carrera se cuente como avería: `stale` es control de
+      #     concurrencia normal, se re-siembra y se RE-EVALÚA con la MISMA autoridad de
+      #     B23 — no hay un segundo evaluador de duplicados;
+      #   * que la re-evaluación convierta en duplicado a dos personas jurídicas con
+      #     identidad fiscal contradictoria: TIER 0 sigue mandando;
+      #   * que agotar el tope de reintentos caiga a un insert SIN valla — falla CERRADO;
+      #   * que la serialización convierta a todo segundo candidato concurrente en
+      #     duplicado, o que la actividad de un lote caduque a otro;
+      #   * que la telemetría de concurrencia lleve un NIT, un dominio, un LinkedIn, un
+      #     id de proveedor o un nombre de empresa: sólo conteos y estados;
+      #   * que un escritor de B23 conserve un desvío directo una vez la valla existe.
+      #
+      # La guarda estática compara el CUERPO EJECUTABLE y se prueba a sí misma en
+      # NEGATIVO. Incluye las suites de B23 como ancla de regresión.
+      #
+      # La migración 126 NO se aplica aquí ni en Producción: este paso prueba el
+      # contrato del lado del cliente, no lo enciende.
+      #
+      # Offline y determinista: sin Supabase, sin red, sin credenciales, 0 créditos,
+      # 0 proveedores.
+      - name: Run Agent 1 CUT-3B4 batch identity atomicity tests
+        run: npm run test:a1-cut3b4-batch-identity-atomicity
+
+      # ── AGENT1-CUT3B4 · LA MITAD QUE NINGUNA SUITE DE TypeScript PUEDE CUBRIR ──
+      #
+      # La afirmación central de CUT-3B4 es de CONCURRENCIA, y no vive en TypeScript:
+      # vive en un `SELECT ... FOR UPDATE` sobre la fila del lote, en el orden exacto
+      # entre la comparación de época, el INSERT y el avance, y en que PostgreSQL —bajo
+      # READ COMMITTED— re-lea la fila YA actualizada al liberarse el cerrojo. Un doble
+      # en memoria puede devolver `stale` porque se lo pedimos; eso no prueba NADA sobre
+      # la base. Aquí compiten DOS SESIONES DE VERDAD, cada una con su transacción.
+      #
+      # Lo que sólo una base real responde:
+      #   * que la 126 APLIQUE — una función `plpgsql` con dolar-quoting anidado y dos
+      #     `COMMENT ON` multilínea son justo la superficie donde un lexer de comillas
+      #     pasa y PostgreSQL falla con 42601;
+      #   * que la rama `stale` no escriba NI UNA fila y no mueva la época;
+      #   * que un INSERT fallido revierta TAMBIÉN el avance de la época — el estado
+      #     «época movida, fila ausente» es el que el contrato prohíbe;
+      #   * que un bloque de 5 filas avance la época UNA vez, no cinco;
+      #   * que `batch_id` se FUERCE al lote vallado: el vallado de un lote no puede
+      #     usarse para escribir en otro;
+      #   * que la lista de DEFAULTS que la función pre-rellena cubra EXACTAMENTE las
+      #     columnas NOT NULL con DEFAULT del catálogo — el ratchet que impide que una
+      #     migración futura añada una y la ruta vallada la pierda en silencio;
+      #   * que `anon` no pueda ejecutar ninguna de las dos funciones.
+      #
+      # `embedded-postgres` ya está instalado por el paso de más arriba, con la versión
+      # PINCHADA 17.6.0-beta.15. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el skip en
+      # FALLO: sin ella, que el arnés no resolviera pondría este paso verde con una
+      # migración inaplicable. Sin `continue-on-error` y sin `|| true`.
+      #
+      # La migración NO se aplica en Producción: este paso prueba la valla, no la
+      # enciende. 0 proveedores, 0 créditos, 0 escrituras remotas. Datos sintéticos.
+      - name: Run A1 CUT-3B4 atomicity tests against real PostgreSQL
+        run: npm run test:a1-cut3b4-atomicity:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'

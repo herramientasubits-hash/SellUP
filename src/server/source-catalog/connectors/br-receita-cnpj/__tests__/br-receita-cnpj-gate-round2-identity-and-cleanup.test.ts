@@ -581,9 +581,19 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       .map((name) => Number.parseInt(name.slice(0, 3), 10))
       .filter((value) => Number.isFinite(value))
       .reduce((max, value) => Math.max(max, value), 0);
-    assert.equal(highest, 125, 'CUT A adds exactly one migration, numbered 125');
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY (Agent 1) took 126: optimistic fencing of
+    // batch-identity admission. CUT A still adds EXACTLY one migration — the 125 — and
+    // that claim is what this guard defends; the number below it is a ceiling, not the
+    // claim. The authorship sweep is WIDENED to 124 and 126, so the guard is stronger
+    // than before, not merely shifted.
+    assert.equal(highest, 126, 'CUT A adds exactly one migration, numbered 125');
+    assert.equal(
+      files.filter((f) => f.startsWith('125')).length,
+      1,
+      'CUT A still owns exactly one migration',
+    );
 
-    for (const name of files.filter((f) => f.startsWith('124'))) {
+    for (const name of files.filter((f) => f.startsWith('124') || f.startsWith('126'))) {
       const sql = fs.readFileSync(
         new URL(`../../../../../../supabase/migrations/${name}`, import.meta.url),
         'utf8',
