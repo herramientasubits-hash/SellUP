@@ -63,6 +63,7 @@ import {
   BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_DEMONSTRATED,
   BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_DISPOSITION,
   BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_WAIVER_REASON,
+  BRAZIL_RECEITA_GATE7_REQUIRED_EVIDENCE_DISPOSITION,
   BRAZIL_RECEITA_GATE7_RESTRICTIONS,
   BRAZIL_RECEITA_GATE7_STATUS,
   BRAZIL_RECEITA_GATE7_STATUS_NOT_CLAIMED,
@@ -108,6 +109,32 @@ function stripComments(source: string): string {
 
 function checklistDoc(): string {
   return read('docs/source-catalog/br-receita-cnpj-full-join-approval-gates-checklist.md');
+}
+
+function runbookModule(): string {
+  return read(`${CONNECTOR}/br-receita-cnpj-gate7-operator-runbook.ts`);
+}
+
+/**
+ * The IDs of the stop conditions, derived from the enumeration that OWNS them.
+ *
+ * 🔴 There is no code module owning `T-01` … `T-16`, and this suite deliberately does not create one:
+ * a second stop-condition authority invented to satisfy a test is exactly the drift risk the
+ * cross-check exists to catch. The owner is BR-SOURCE-10PQR § 6.3's fenced block — the same frozen
+ * enumeration the approval subject names — so the count is derived from there, in the test, at read
+ * time.
+ */
+function ownedStopConditionIds(): readonly string[] {
+  const doc = read('docs/source-catalog/br-receita-cnpj-full-join-remaining-gates-decision-packet.md');
+  const start = doc.indexOf('### 6.3 Proposed stop conditions');
+  assert.ok(start > -1, '10PQR § 6.3 must exist — it owns T-01 … T-16');
+  const block = /```\n([\s\S]*?)\n```/.exec(doc.slice(start));
+  assert.ok(block, '10PQR § 6.3 must carry a fenced stop-condition enumeration');
+  return block[1]
+    .split('\n')
+    .map((line) => /^(T-\d{2})\s+\S/.exec(line.trim()))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => match[1]);
 }
 
 /** Every module this round changed. Used by the cross-cutting static guards below. */
@@ -162,13 +189,151 @@ describe('FAST-TRACK-8 · GATE-7 is approved, by three named roles and no agent'
     assert.equal(BRAZIL_RECEITA_GATE7_APPROVAL_SUBJECT.stopConditionRange, 'T-01 … T-16');
     assert.equal(BRAZIL_RECEITA_GATE7_APPROVAL_SUBJECT.stopConditionCount, 16);
     assert.equal(BRAZIL_RECEITA_GATE7_APPROVAL_SUBJECT.stopConditionsAreOverridable, false);
-    // 🔴 The preflight count is read from the module that OWNS the enumeration, not restated. An
-    // approval whose subject count can drift from the real list is an approval of something else.
+    // 🔴 The count is RECORDED IN THE APPROVAL SUBJECT and MECHANICALLY CROSS-CHECKED against the
+    // owning enumeration — it is NOT "read from the owner module and not restated". The subject
+    // deliberately carries its own literal `22`, because an approval must state its own subject
+    // rather than resolve it at import time; the record is a LEAF and imports nothing (§ below). The
+    // protection against drift is therefore this assertion, not the absence of a second copy.
     assert.equal(
       BRAZIL_RECEITA_GATE7_APPROVAL_SUBJECT.preflightItemCount,
       BRAZIL_RECEITA_GATE7_PREFLIGHT_ITEM_COUNT,
     );
     assert.equal(BRAZIL_RECEITA_GATE7_PREFLIGHT_ITEMS.length, 22);
+  });
+});
+
+// ─── 1b · The subject's counts, cross-checked against their owning enumerations ──
+
+/**
+ * BR-SOURCE-FAST-TRACK-8 (consistency correction). The approval subject carries two literal counts —
+ * `preflightItemCount: 22` and `stopConditionCount: 16`. That is correct for a RECORD: an approval
+ * must state its own subject, and the record is an import-free LEAF by design. What was NOT correct
+ * was describing those literals as "read from the owner module and not restated". They are recorded
+ * and then MECHANICALLY CROSS-CHECKED, which is a different and weaker-sounding claim that happens to
+ * be the true one. Both counts are cross-checked below; neither is left as an unverified second copy.
+ */
+describe('FAST-TRACK-8 · both subject counts are cross-checked against the owning enumeration', () => {
+  it('preflightItemCount is cross-checked against the P-01 … P-22 enumeration that owns it', () => {
+    assert.equal(BRAZIL_RECEITA_GATE7_APPROVAL_SUBJECT.preflightItemCount, BRAZIL_RECEITA_GATE7_PREFLIGHT_ITEMS.length);
+    assert.equal(BRAZIL_RECEITA_GATE7_APPROVAL_SUBJECT.preflightItemCount, BRAZIL_RECEITA_GATE7_PREFLIGHT_ITEM_COUNT);
+    const ids = BRAZIL_RECEITA_GATE7_PREFLIGHT_ITEMS.map((item) => item.id);
+    assert.equal(new Set(ids).size, ids.length, 'no duplicate preflight ID');
+    assert.deepEqual(
+      ids,
+      Array.from({ length: 22 }, (_, i) => `P-${String(i + 1).padStart(2, '0')}`),
+      'P-01 … P-22 with no gaps, in order',
+    );
+  });
+
+  it('stopConditionCount is cross-checked against the 10PQR § 6.3 enumeration that owns it', () => {
+    const owned = ownedStopConditionIds();
+    // 🔴 The point of the round: 16 is no longer an unverified second copy of a number in a document.
+    assert.equal(BRAZIL_RECEITA_GATE7_APPROVAL_SUBJECT.stopConditionCount, owned.length);
+    assert.equal(owned.length, 16);
+  });
+
+  it('the owned stop conditions really cover T-01 … T-16, with no gap and no duplicate', () => {
+    const owned = ownedStopConditionIds();
+    assert.equal(new Set(owned).size, owned.length, 'no duplicate stop-condition ID');
+    assert.deepEqual(
+      owned,
+      Array.from({ length: 16 }, (_, i) => `T-${String(i + 1).padStart(2, '0')}`),
+      'T-01 … T-16 with no gaps, in order',
+    );
+    assert.equal(BRAZIL_RECEITA_GATE7_APPROVAL_SUBJECT.stopConditionRange, `${owned[0]} … ${owned[owned.length - 1]}`);
+  });
+
+  it('the record stays a LEAF: it imports nothing, so no cross-check can recreate the ESM cycle', () => {
+    // 🔴 The recorded GATE-7 module is imported BY the gate current-state view, which is imported by
+    // the runbook module for its executable `P-05`. An import in the other direction closes a cycle
+    // that fails at module-initialization time. The cross-checks above therefore live in the TEST,
+    // never in the record.
+    const source = stripComments(read(`${CONNECTOR}/br-receita-cnpj-gate7-recorded-operator-runbook.ts`));
+    // 🔴 Assert on IMPORT STATEMENTS, never on the module name as a substring. This record NAMES
+    // `br-receita-cnpj-gate7-operator-runbook` in a data field (`machineReadableHalf`), and a guard
+    // that greps the raw body would read that mention as an import — the exact confusion between
+    // "named in code" and "imported by code" that has produced false positives here before.
+    assert.doesNotMatch(source, /^\s*import\s/m, 'the record must contain no import statement');
+    assert.doesNotMatch(source, /^\s*export\s+\*?\s*.*\bfrom\s+'/m, 'the record must re-export from nothing');
+    assert.doesNotMatch(source, /\bfrom\s+'\.{1,2}\//, 'the record must carry no relative module specifier');
+    assert.doesNotMatch(source, /\brequire\s*\(/, 'the record must not require anything either');
+    // The one direction that would close the cycle, stated positively: the modules that sit ABOVE
+    // this leaf import IT, and the leaf reaches back for nothing.
+    const currentState = stripComments(read(`${CONNECTOR}/br-receita-cnpj-gate-status-current-state.ts`));
+    assert.match(currentState, /from '\.\/br-receita-cnpj-gate7-recorded-operator-runbook'/);
+    const runbook = stripComments(runbookModule());
+    assert.match(runbook, /from '\.\/br-receita-cnpj-gate-status-current-state'/);
+  });
+});
+
+// ─── 1c · No stale current-state prose survives the round ─────────────────────
+
+/**
+ * BR-SOURCE-FAST-TRACK-8 (consistency correction). Three current-state claims went stale the moment
+ * the gate state moved, and prose that contradicts the data it describes is the failure mode this
+ * whole series has had to retract once already.
+ *
+ * 🔴 These are PINNED contradictions, not a generic prose linter. Each assertion names one exact
+ * sentence that is now false. Historical prose that says the evaluator USED to fail is untouched and
+ * must stay untouched — the audit trail is the point.
+ */
+describe('FAST-TRACK-8 · the runbook prose does not contradict the state it describes', () => {
+  it('the stale "the other twenty-one are operator_environment_dependent" claim is gone', () => {
+    const source = runbookModule();
+    assert.equal(
+      source.includes('other twenty-one are `operator_environment_dependent`'),
+      false,
+      'twenty, not twenty-one, are operator_environment_dependent — P-05 and P-20 are checkable here',
+    );
+    assert.equal(source.includes('twenty-one'), false, 'no twenty-one arithmetic may survive anywhere in the module');
+    assert.match(source, /remaining TWENTY are `operator_environment_dependent`/);
+  });
+
+  it('the evaluator docblock no longer claims a current FAIL, and says why it now PASSes', () => {
+    const source = runbookModule();
+    const start = source.indexOf('`P-05`, executed.');
+    assert.ok(start > -1, "the evaluator's docblock must still open with `P-05`, executed.");
+    const docblock = source.slice(start, source.indexOf('export function evaluateBrazilReceitaGate7Preconditions'));
+    for (const staleClaim of [
+      'it returns `FAIL` today',
+      'returns `FAIL` today',
+      'returns FAIL today',
+    ]) {
+      assert.equal(docblock.includes(staleClaim), false, `the docblock must not claim: ${staleClaim}`);
+    }
+    // The three properties § 3 requires it to keep stating, plus the reason for the new verdict.
+    assert.match(docblock, /it returns `PASS` today/);
+    assert.match(docblock, /all eight gate statuses are recorded as `approved`/);
+    assert.match(docblock, /it takes NO arguments/);
+    assert.match(docblock, /BRAZIL_RECEITA_GATE_CURRENT_STATE/);
+    assert.match(docblock, /BRAZIL_RECEITA_GATE7_PRECONDITION_BYPASS_EXISTS` is still `false`/);
+    assert.match(docblock, /authorizes no execution by itself/);
+  });
+
+  it('no docblock in the module claims a current FAIL for either executable evaluator', () => {
+    // The privacy preflight's docblock carried the same staleness: it said `FAIL` today while the
+    // module header said it returns PASS. Both evaluators are now described truthfully.
+    const source = runbookModule();
+    assert.equal(source.includes('`FAIL` today'), false, 'no module docblock may claim a current FAIL');
+    assert.match(source, /The privacy preflight, executed against the authoritative state\. `PASS` today/);
+    assert.equal(evaluateBrazilReceitaGate7PrivacyPreflight().result, 'PASS');
+  });
+
+  it('the historical record that P-05 USED to fail is preserved, not scrubbed', () => {
+    // 🔴 The correction removes false CURRENT-state claims only. FAST-TRACK-7's own account of the
+    // deterministic failure must survive, or the audit trail loses the fact that the gate once held.
+    const recorded = read(`${CONNECTOR}/br-receita-cnpj-gate7-recorded-operator-runbook.ts`);
+    assert.match(recorded, /Update \(BR-SOURCE-FAST-TRACK-7\)/);
+    assert.match(recorded, /still returns `FAIL`/);
+    assert.match(read(`${CONNECTOR}/br-receita-cnpj-gate7-preflight-items.ts`), /checkable_and_fails_today/);
+  });
+
+  it('the recorded evidence note for P-05 states the current verdict, and states it is not a permission', () => {
+    const note = BRAZIL_RECEITA_GATE7_REQUIRED_EVIDENCE_DISPOSITION.find((row) => row.note.startsWith('P-05'));
+    assert.ok(note);
+    assert.equal(note.note.includes('FAIL'), false, 'the live evidence note must not claim a current FAIL');
+    assert.match(note.note, /returns PASS today/);
+    assert.match(note.note, /never a permission/);
   });
 });
 

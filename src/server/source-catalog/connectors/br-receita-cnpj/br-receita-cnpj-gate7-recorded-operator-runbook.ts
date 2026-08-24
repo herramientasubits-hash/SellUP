@@ -345,7 +345,7 @@ export const BRAZIL_RECEITA_GATE7_ADVANCED_THIS_ROUND = {
  * check has been performed. No check has been performed against real data, and none is authorized.
  */
 export const BRAZIL_RECEITA_GATE7_REQUIRED_EVIDENCE_DISPOSITION = [
-  { evidence: 'preflight checklist confirming every gate is approved and recorded', present: true, note: 'P-05, executable; returns FAIL today' },
+  { evidence: 'preflight checklist confirming every gate is approved and recorded', present: true, note: 'P-05, executable; returns PASS today — a cleared item, never a permission' },
   { evidence: 'disk / memory check against the GATE-2 ceilings', present: true, note: 'P-12, P-13; ceilings imported, not restated' },
   { evidence: 'local path check — controlled folder outside the repo', present: true, note: 'P-06 plus the workspace confirmations' },
   { evidence: 'manifest check — local file manifest only, never a URL', present: true, note: 'P-08' },

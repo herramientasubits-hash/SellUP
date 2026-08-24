@@ -35,10 +35,13 @@
  * is still `false`. A bypass is the one feature this module must not have, and the round that could
  * most easily have added one — the round whose approval `P-05` was blocking — did not.
  *
- * 🔴 **A passing `P-05` is not a permission.** It clears the first of twenty-two preflight items; the
- * other twenty-one are `operator_environment_dependent` and are performed by a named human operator
- * against a machine this module cannot see. Executing the procedure at all still needs the separate,
- * explicit authorization of a future milestone, and
+ * 🔴 **A passing `P-05` is not a permission.** It clears ONE of twenty-two preflight items. Exactly
+ * two of the twenty-two are determined inside this repository and therefore checkable here — `P-05`
+ * (the gate current state) and `P-20` (the cleanup contract and its escalation pair) — and the
+ * remaining TWENTY are `operator_environment_dependent`: their answers live on a machine this module
+ * cannot see, and a named human operator performs them. The count is asserted from the enumeration's
+ * own `standing` field rather than restated here, so it cannot drift. Executing the procedure at all
+ * still needs the separate, explicit authorization of a future milestone, and
  * `BRAZIL_RECEITA_REAL_BENCHMARK_ATTEMPT_3_ALLOWED` remains imported and `false`. The gate approval
  * also left reproducibility by a different operator `UNDEMONSTRATED` — WAIVED by owner decision, not
  * shown — so a passing preflight is not evidence that the steps carry no tacit knowledge.
@@ -188,8 +191,10 @@ export interface BrazilReceitaGate7PreconditionOutcome {
  *     environment read — so there is no surface on which a future caller could weaken it.
  *   · it derives from `BRAZIL_RECEITA_GATE_CURRENT_STATE`, which itself imports each per-gate
  *     recorded module. A gate cannot be reported approved here without its owning module saying so.
- *   · it returns `FAIL` today, and that is the CORRECT answer. A procedure whose first step fails is
- *     the gate working.
+ *   · it returns `PASS` today, because all eight gate statuses are recorded as `approved`. The
+ *     verdict moved because the DATA moved: no argument, option, environment read, bypass or override
+ *     was added, and `BRAZIL_RECEITA_GATE7_PRECONDITION_BYPASS_EXISTS` is still `false`. A `PASS`
+ *     authorizes no execution by itself — it clears `P-05` and nothing else.
  */
 export function evaluateBrazilReceitaGate7Preconditions(): BrazilReceitaGate7PreconditionOutcome {
   const unapprovedGates = BRAZIL_RECEITA_GATE_CURRENT_STATE.filter(
@@ -450,8 +455,10 @@ export interface BrazilReceitaGate7PrivacyPreflightOutcome {
 }
 
 /**
- * The privacy preflight, executed against the authoritative state. `FAIL` today: four of the five
- * owning gates are unapproved.
+ * The privacy preflight, executed against the authoritative state. `PASS` today: all five owning
+ * gates (GATE-2 … GATE-6) are approved. It first returned `PASS` in FAST-TRACK-7, when those five
+ * were approved — FAST-TRACK-8 did not change this verdict, only the docblock that had gone stale
+ * describing it. The function itself is unedited and still has no discretion surface.
  */
 export function evaluateBrazilReceitaGate7PrivacyPreflight(): BrazilReceitaGate7PrivacyPreflightOutcome {
   const unapprovedContracts = BRAZIL_RECEITA_GATE7_PRIVACY_PREFLIGHT_CONTRACTS.flatMap((check) => {

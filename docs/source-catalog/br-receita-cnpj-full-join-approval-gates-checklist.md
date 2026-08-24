@@ -2200,10 +2200,12 @@ Restrictions:           reproducibility by a different operator remains UNDEMONS
 > not to `operator_environment_dependent` like `P-19` / `P-21`, because the gate state lives in this
 > repository and the answer is fully determined here.
 >
-> 🔴 **A passing `P-05` is not a permission.** It clears the first of twenty-two items. The other
-> twenty-one are `operator_environment_dependent` and are performed by a named authorized **human**
-> operator against a machine no module can see. An approved runbook remains a *procedure*, never a
-> *permission* (§ 11 *Does NOT allow*).
+> 🔴 **A passing `P-05` is not a permission.** It clears **one** of twenty-two items. Exactly two of
+> the twenty-two are determined inside this repository and therefore checkable here — `P-05` (the gate
+> current state) and `P-20` (the cleanup contract and its escalation pair) — and the remaining
+> **twenty** are `operator_environment_dependent`, performed by a named authorized **human** operator
+> against a machine no module can see. An approved runbook remains a *procedure*, never a *permission*
+> (§ 11 *Does NOT allow*).
 >
 > **What this approval does NOT authorize**, enumerated by the owners and recorded as data in
 > `BRAZIL_RECEITA_GATE7_APPROVAL_DOES_NOT_AUTHORIZE`: a benchmark; Attempt #3 or any attempt-budget
