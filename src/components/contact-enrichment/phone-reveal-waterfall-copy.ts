@@ -81,6 +81,40 @@ export const PHONE_REVEAL_WATERFALL_WITH_IDENTITY_SEARCH_MAX_CREDITS =
  */
 export const PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS = 5;
 
+/**
+ * Tope de una corrida LEGACY que además tiene que COMPRAR la identidad Lusha: 1 + 5 = 6
+ * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1). Espejo de
+ * PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS_WITH_IDENTITY_SEARCH del core.
+ *
+ * Sigue SIN incluir los 8 de Apollo, y esa ausencia es el punto: el candidato de esta
+ * ruta nació en Apollo y Apollo ya se cobró bajo otra autorización. Enseñar aquí 14
+ * —o «8 + …»— le pediría al operador que volviera a autorizar un gasto que ya ocurrió
+ * y que esta corrida no puede repetir.
+ */
+export const PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS_WITH_SEARCH =
+  PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS +
+  PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS;
+
+/**
+ * Etiqueta del botón en la ruta LEGACY
+ * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1).
+ *
+ * Se separa de `PHONE_REVEAL_WATERFALL_BUTTON_LABEL` porque aquí el label genérico
+ * miente por omisión: sobre un candidato que ya salió `no_phone_found` de Apollo,
+ * «Revelar teléfono» se lee como «vuelve a intentarlo con lo de siempre», y lo que va a
+ * pasar es otra cosa — Apollo NO se llama y el único proveedor que se consulta es
+ * Lusha. Nombrarlo es lo que hace que el clic sea informado.
+ */
+export const PHONE_REVEAL_WATERFALL_LEGACY_BUTTON_LABEL = 'Buscar teléfono con Lusha';
+
+/**
+ * Frase que precede al copy de autorización legacy y NO se oculta nunca: el operador
+ * tiene que saber que Apollo ya fue consultado, tanto para entender por qué el tope no
+ * lleva sus 8 créditos como para no creer que se va a reintentar.
+ */
+export const PHONE_REVEAL_WATERFALL_LEGACY_APOLLO_ALREADY_QUERIED_COPY =
+  'Apollo ya fue consultado y no encontró teléfono. No se volverá a consultar.';
+
 // ── Estados visibles (AGENT2A-PHONE-WATERFALL-4D) ──────────────
 //
 // Al eliminarse el modal, estos estados son TODO lo que el operador ve después de su
@@ -331,6 +365,8 @@ function buildHelperText(flowDescription: string, creditsMessage: string): strin
  *   * Apollo-only (sin id)     ⇒ solo Apollo, hasta 8. NO menciona Lusha ni 13:
  *     nombrar una pata imposible solo puede confundir sobre qué se está autorizando.
  *   * legacy (Apollo ya corrió) ⇒ solo Lusha, hasta 5. Jamás 13 ni 8.
+ *   * legacy + identidad por comprar ⇒ solo Lusha, hasta 6 (búsqueda 1 + teléfono 5).
+ *     Jamás 14: los 8 de Apollo ya los pagó la autorización histórica.
  *
  * El tope es el UMBRAL que el operador acepta, no una predicción: el costo real de
  * cada pata sale de lo que reporta cada proveedor y se registra por separado.
@@ -348,6 +384,12 @@ export function getPhoneRevealWaterfallAuthorizationCopy(args: {
    * identidad (AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1). Sube el tope de
    * 13 a 14 y desglosa los 6 de Lusha.
    *
+   * En la ruta LEGACY sube el tope de 5 a 6 y desglosa esas mismas dos patas
+   * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1). Antes de ese hito la rama
+   * legacy ignoraba esta señal a propósito, porque su autorización no podía comprar la
+   * búsqueda; ahora sí puede, y el copy tiene que decirlo — la alternativa sería
+   * enseñar 5 y reservar 6.
+   *
    * Ausente ⇒ `false`, que devuelve exactamente el copy anterior al hito. Cuando la
    * identidad Lusha YA está persistida esto es `false` de verdad, no por omisión: esa
    * autorización no puede gastar una búsqueda, así que no debe pedir el crédito.
@@ -357,6 +399,33 @@ export function getPhoneRevealWaterfallAuthorizationCopy(args: {
   // La modalidad legacy manda sobre `lushaEligible`: solo se ofrece cuando Lusha es
   // alcanzable, y su tope es el de Lusha, nunca 13 ni 8.
   if (args.legacyLushaOnly === true) {
+    // Ruta legacy que además tiene que COMPRAR la identidad Lusha
+    // (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1). Son DOS patas pagadas del
+    // MISMO proveedor, así que sí hay desglose que hacer: un «hasta 6» opaco no le
+    // dice al operador que está autorizando una búsqueda ADEMÁS de un teléfono.
+    //
+    // Y sigue diciendo que Apollo ya fue consultado, porque es lo que explica por qué
+    // el tope es 6 y no 14.
+    if (args.requiresIdentitySearch === true) {
+      const flowDescription =
+        'Apollo ya fue consultado y no encontró teléfono. No se volverá a consultar. SellUp buscará primero el contacto en Lusha y luego intentará obtener su teléfono.';
+      const creditsMessage = `Puede consumir hasta ${PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS_WITH_SEARCH} créditos: búsqueda hasta ${PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS} + teléfono hasta ${PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS}.`;
+      return {
+        flowDescription,
+        creditsMessage,
+        helperText: buildHelperText(flowDescription, creditsMessage),
+        creditBreakdown: {
+          legs: [
+            `Búsqueda del contacto en Lusha: hasta ${PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS} crédito.`,
+            `Teléfono en Lusha: hasta ${PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS} créditos.`,
+          ],
+          total: `Máximo total autorizado: ${PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS_WITH_SEARCH} créditos.`,
+        },
+        maxCredits: PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS_WITH_SEARCH,
+        warnings: PHONE_REVEAL_WATERFALL_LEGACY_WARNINGS,
+      };
+    }
+
     const flowDescription =
       'Apollo ya fue intentado. SellUp intentará Lusha automáticamente.';
     const creditsMessage = `Puede consumir hasta ${PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS} créditos.`;

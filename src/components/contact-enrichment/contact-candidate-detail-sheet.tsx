@@ -74,6 +74,7 @@ import {
 // de la corrida.
 import {
   getPhoneRevealWaterfallAuditAction,
+  getLegacyPhoneRevealAuthorizationPreviewAction,
   getPhoneRevealWaterfallAuthorizationPreviewAction,
 } from '@/modules/contact-enrichment/phone-reveal-waterfall-actions';
 // «Ver más números» (AGENT2A-PHONE-REVEAL-4O-G). SOLO lectura de teléfonos YA
@@ -101,6 +102,7 @@ import { startLegacyPhoneRevealWaterfallAction } from '@/modules/contact-enrichm
 import {
   classifyPhoneRevealWaterfallLegacyHistory,
   type PhoneRevealWaterfallAuditView,
+  type LegacyPhoneRevealAuthorizationPreview,
   type PhoneRevealWaterfallAuthorizationPreview,
 } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
 import {
@@ -120,6 +122,8 @@ import {
   PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY,
+  PHONE_REVEAL_WATERFALL_BUTTON_LABEL,
+  PHONE_REVEAL_WATERFALL_LEGACY_BUTTON_LABEL,
   PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY,
   PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY,
   PHONE_REVEAL_WATERFALL_ERROR_COPY,
@@ -531,6 +535,24 @@ export function ContactCandidateDetailSheet({
   const [waterfallAuthorizationPreview, setWaterfallAuthorizationPreview] =
     React.useState<PhoneRevealWaterfallAuthorizationPreview | null>(null);
 
+  // Modalidad de la autorización LEGACY, resuelta por el SERVIDOR
+  // (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1).
+  //
+  // Es una lectura SEPARADA de `waterfallAuthorizationPreview` y no un campo suyo
+  // porque responden dos preguntas distintas: aquélla dice cuánto cuesta un waterfall
+  // que TODAVÍA va a ejecutar Apollo (8/13/14); ésta dice cuánto cuesta continuar un
+  // candidato cuyo Apollo YA terminó (5/6). Fundirlas obligaría a que una de las dos
+  // mintiera sobre si Apollo va a correr.
+  //
+  // También es lo único que puede decidir si la ruta legacy aplica: la identidad Lusha
+  // persistida (migración 124) y los identificadores exactos con los que comprarla no
+  // existen en el navegador. `null` mientras no se haya leído, y también cuando la
+  // lectura falla o el waterfall no está activo — ahí el drawer cae a su suelo LOCAL,
+  // que es el candidato nacido en Lusha con su id, y jamás promete el crédito de
+  // búsqueda.
+  const [legacyAuthorizationPreview, setLegacyAuthorizationPreview] =
+    React.useState<LegacyPhoneRevealAuthorizationPreview | null>(null);
+
   // Teléfonos adicionales YA almacenados (AGENT2A-PHONE-REVEAL-4O-G). Sólo el
   // CONTEO: los números se piden aparte, y sólo si el operador abre el disclosure.
   const [storedPhoneAdditionalCount, setStoredPhoneAdditionalCount] =
@@ -625,6 +647,32 @@ export function ContactCandidateDetailSheet({
         }
       } catch {
         // Silencioso: el copy cae a la clasificación local conservadora.
+      }
+    },
+    [waterfallActive],
+  );
+
+  /**
+   * Modalidad de la autorización LEGACY (5 o 6), resuelta por el servidor
+   * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1).
+   *
+   * Cero gasto: la acción es de solo lectura, no crea corridas, no reclama patas y no
+   * llama a ningún proveedor. Silenciosa y fail-closed — sin respuesta, el drawer no
+   * ofrece la continuación a un candidato que sólo el servidor sabe que es alcanzable,
+   * y desde luego no promete el crédito de búsqueda.
+   */
+  const reloadLegacyAuthorizationPreview = React.useCallback(
+    async (targetCandidateId: string): Promise<void> => {
+      if (!waterfallActive) return;
+      try {
+        const preview = await getLegacyPhoneRevealAuthorizationPreviewAction({
+          candidateId: targetCandidateId,
+        });
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setLegacyAuthorizationPreview(preview);
+        }
+      } catch {
+        // Silencioso: el drawer cae a su clasificación local conservadora.
       }
     },
     [waterfallActive],
@@ -791,6 +839,9 @@ export function ContactCandidateDetailSheet({
     // La modalidad pertenece al candidato anterior: dejarla puesta ofrecería el tope
     // de otro candidato (por ejemplo 14 sobre uno que no tiene con qué buscar).
     setWaterfallAuthorizationPreview(null);
+    // Y la modalidad legacy, por la misma razón: ofrecer 6 sobre un candidato que no
+    // tiene con qué buscar sería prometer un gasto que su servidor va a rechazar.
+    setLegacyAuthorizationPreview(null);
     setRevealingLegacyPhone(false);
     setLegacyWaterfallError(null);
     setLegacyWaterfallNotice(null);
@@ -859,6 +910,10 @@ export function ContactCandidateDetailSheet({
             // La modalidad de la autorización (8 / 13 / 14), en paralelo y con el
             // mismo contrato de cero gasto: sin ella el copy es el conservador.
             void reloadWaterfallAuthorizationPreview(candidateId);
+            // Y la modalidad legacy (5 / 6), con el mismo contrato de cero gasto: es
+            // lo único que puede decir si un candidato Apollo agotado sigue siendo
+            // alcanzable por Lusha.
+            void reloadLegacyAuthorizationPreview(candidateId);
             // 4O-G: conteo de teléfonos adicionales ya almacenados. Igual que la
             // auditoría, en paralelo y sin bloquear; su ausencia sólo oculta el CTA.
             void reloadStoredPhoneSummary(candidateId);
@@ -907,6 +962,7 @@ export function ContactCandidateDetailSheet({
     candidateId,
     reloadWaterfallAudit,
     reloadWaterfallAuthorizationPreview,
+    reloadLegacyAuthorizationPreview,
     reloadStoredPhoneSummary,
     reloadSearchMorePreflight,
     reloadDurableMergeOffer,
@@ -942,6 +998,10 @@ export function ContactCandidateDetailSheet({
       // identidad de Lusha convierte el 14 en 13, y el copy tiene que dejar de pedir
       // el crédito de búsqueda que ya no hace falta.
       await reloadWaterfallAuthorizationPreview(candidateId);
+      // Y la legacy por la misma razón y en las dos direcciones: una corrida que acaba
+      // de PERSISTIR la identidad de Lusha convierte el 6 en 5, y el copy tiene que
+      // dejar de pedir un crédito de búsqueda que ya no hace falta.
+      await reloadLegacyAuthorizationPreview(candidateId);
       // 4O-G: el conteo se relee con el candidato. Es lo que hace que un reveal
       // que trajo un segundo número muestre el CTA sin recargar la página — y,
       // en el otro sentido, que una supresión posterior lo retire.
@@ -961,6 +1021,7 @@ export function ContactCandidateDetailSheet({
     candidateId,
     reloadWaterfallAudit,
     reloadWaterfallAuthorizationPreview,
+    reloadLegacyAuthorizationPreview,
     reloadStoredPhoneSummary,
     reloadSearchMorePreflight,
   ]);
@@ -1221,6 +1282,7 @@ export function ContactCandidateDetailSheet({
         toast.warning(PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY);
         setPhoneRevealNotice(PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY);
         if (candidateId) void reloadWaterfallAuthorizationPreview(candidateId);
+        if (candidateId) void reloadLegacyAuthorizationPreview(candidateId);
         void reloadCandidate();
         return;
       case 'do_not_contact':
@@ -1343,6 +1405,19 @@ export function ContactCandidateDetailSheet({
         );
         void reloadCandidate();
         return;
+      // AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1: el tope cambió entre lo
+      // que el operador leyó y lo que la modalidad real exige (típicamente 5 → 6
+      // porque además hay que comprar la identidad Lusha). 0 corridas, 0 reservas, 0
+      // proveedores. Se recarga la vista previa —que es quien manda en el número— y el
+      // siguiente clic vuelve a ser una decisión de la persona, con la cifra correcta.
+      case 'authorization_changed':
+        toast.warning(PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY);
+        setLegacyWaterfallNotice(PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY);
+        if (candidate?.id) {
+          void reloadLegacyAuthorizationPreview(candidate.id);
+        }
+        void reloadCandidate();
+        return;
       // AGENT2A-PHONE-WATERFALL-4D: el saldo no cubría los 5 créditos de la pata
       // Lusha. Se comprobó ANTES de crear la corrida: 0 corridas, 0 llamadas a
       // Lusha, 0 créditos. No se recarga nada porque no se escribió nada.
@@ -1373,13 +1448,20 @@ export function ContactCandidateDetailSheet({
   }
 
   /**
-   * Ejecuta la autorización legacy directamente desde el botón: SOLO la pata Lusha,
-   * hasta 5 créditos. Un candidato por clic; el ref corta un segundo clic en el mismo
+   * Ejecuta la autorización legacy directamente desde el botón: SOLO Lusha, hasta 5
+   * créditos —o hasta 6 cuando además hay que comprar la identidad Lusha: búsqueda
+   * hasta 1 + teléfono hasta 5 (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1)—.
+   * Los 8 de Apollo NUNCA entran: ese intento ya ocurrió bajo otra autorización.
+   *
+   * `acceptedMaxCredits` es el tope que el operador acaba de leer debajo del botón, y
+   * viaja al servidor como LÍMITE SUPERIOR DURO: no se deriva allí del requerido.
+   *
+   * Un candidato por clic; el ref corta un segundo clic en el mismo
    * tick — dos clics concurrentes crean UNA sola corrida — y el servidor aplica además
    * el claim atómico, así que Lusha se llama como máximo una vez por autorización. NO
    * llama a Apollo.
    */
-  async function handleStartLegacyPhoneWaterfallRun() {
+  async function handleStartLegacyPhoneWaterfallRun(acceptedMaxCredits: number) {
     if (!candidate || legacyWaterfallInFlightRef.current) return;
     legacyWaterfallInFlightRef.current = true;
     setLegacyWaterfallError(null);
@@ -1388,6 +1470,11 @@ export function ContactCandidateDetailSheet({
     try {
       const result = await startLegacyPhoneRevealWaterfallAction({
         candidateId: candidate.id,
+        // El tope que el operador acaba de LEER debajo del botón, no el que el
+        // servidor prefiera (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1). Es un
+        // límite superior duro: si entre el render y el clic la modalidad real subió a
+        // 6, el servidor corta sin reservar nada y se vuelve a preguntar.
+        acceptedMaxCredits: acceptedMaxCredits,
       });
       applyLegacyPhoneWaterfallResult(result);
       // La corrida ya existe (terminal o no): recargar la auditoría es lo que retira
@@ -1854,7 +1941,13 @@ export function ContactCandidateDetailSheet({
     candidate?.phone_reveal_provider === 'apollo' &&
     !phoneRevealInFlight &&
     !hasPhone &&
-    hasLushaContactId &&
+    // AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1: «id Lusha propio» dejó de ser
+    // la única vía. Un candidato NACIDO EN APOLLO es alcanzable si su identidad Lusha
+    // ya está PERSISTIDA (migración 124) o si hay identificadores exactos con los que
+    // comprarla — y ninguna de las dos cosas se puede saber desde el navegador. Por eso
+    // MANDA el veredicto del servidor cuando contesta; el suelo local (`hasLushaContactId`)
+    // sólo se usa mientras no haya respuesta, y nunca amplía la oferta por su cuenta.
+    (legacyAuthorizationPreview?.eligible ?? hasLushaContactId) &&
     // El historial se CLASIFICA con la MISMA función pura que aplica el servidor
     // (AGENT2A-PHONE-WATERFALL-2C), sobre la MISMA fila — las dos leen la corrida más
     // reciente — así que el botón nunca ofrece lo que el servidor va a rechazar:
@@ -1870,10 +1963,14 @@ export function ContactCandidateDetailSheet({
   const waterfallAuthorizationCopy = getPhoneRevealWaterfallAuthorizationCopy({
     lushaEligible: waterfallLushaEligible,
     legacyLushaOnly: canOfferLegacyPhoneWaterfall,
-    // La ruta legacy reserva UNA pata de teléfono y NINGÚN crédito de búsqueda, así
-    // que su tope sigue siendo 5 y esta señal no puede subirlo: el copy legacy tiene
-    // prioridad dentro de la propia función.
-    requiresIdentitySearch: waterfallRequiresIdentitySearch,
+    // AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1: cada modalidad trae SU
+    // propia señal. La legacy la resuelve la vista previa legacy (5 → 6) y la completa
+    // la del waterfall (13 → 14); cruzarlas enseñaría 6 sobre una autorización que va a
+    // reservar 5, o al revés. Sin respuesta del servidor las dos son `false`, así que
+    // el copy jamás promete un crédito de búsqueda que no se va a poder gastar.
+    requiresIdentitySearch: canOfferLegacyPhoneWaterfall
+      ? legacyAuthorizationPreview?.requiresIdentitySearch === true
+      : waterfallRequiresIdentitySearch,
   });
   // La 2ª pata está reclamada o corriendo: el candidato sigue en `no_phone_found`
   // (un resultado sin teléfono no pisa su estado), así que esto solo lo sabe la
@@ -2513,7 +2610,10 @@ export function ContactCandidateDetailSheet({
                         onClick={
                           waterfallActive
                             ? canOfferLegacyPhoneWaterfall
-                              ? () => void handleStartLegacyPhoneWaterfallRun()
+                              ? () =>
+                                  void handleStartLegacyPhoneWaterfallRun(
+                                    waterfallAuthorizationCopy.maxCredits,
+                                  )
                               : () =>
                                   void handleStartPhoneWaterfallRun(
                                     waterfallAuthorizationCopy.maxCredits,
@@ -2541,7 +2641,15 @@ export function ContactCandidateDetailSheet({
                         ) : (
                           <>
                             <PhoneCall className="h-3.5 w-3.5" />
-                            Revelar teléfono
+                            {/* En la ruta legacy el label GENÉRICO miente por omisión:
+                                sobre un candidato que ya salió `no_phone_found` de
+                                Apollo, «Revelar teléfono» se lee como «vuelve a
+                                intentarlo con lo de siempre», y Apollo no se va a
+                                llamar. Se nombra el proveedor que sí se va a consultar
+                                (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1). */}
+                            {canOfferLegacyPhoneWaterfall
+                              ? PHONE_REVEAL_WATERFALL_LEGACY_BUTTON_LABEL
+                              : PHONE_REVEAL_WATERFALL_BUTTON_LABEL}
                           </>
                         )}
                       </Button>

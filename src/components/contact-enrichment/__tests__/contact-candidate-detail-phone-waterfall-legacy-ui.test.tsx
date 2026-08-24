@@ -173,6 +173,17 @@ let ContactCandidateDetailSheet: (typeof import('../contact-candidate-detail-she
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
 const REVEAL_LABEL = 'Revelar teléfono';
+/**
+ * Etiqueta del botón ÚNICO cuando la modalidad es LEGACY
+ * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1).
+ *
+ * Sigue siendo UN solo botón —lo que esta suite protege— pero ya no se llama igual que
+ * en el flujo completo: sobre un candidato cuyo Apollo terminó `no_phone_found`, el
+ * label genérico se lee como «vuelve a intentarlo con lo de siempre» y Apollo no se va
+ * a llamar. Es distinto del botón manual de Lusha del flujo PREVIO al waterfall
+ * (`LUSHA_BUTTON_LABEL`), que sigue teniendo que estar AUSENTE.
+ */
+const LEGACY_REVEAL_LABEL = 'Buscar teléfono con Lusha';
 const LUSHA_BUTTON_LABEL = 'Revelar teléfono con Lusha';
 
 /**
@@ -272,8 +283,16 @@ async function renderSheet(
   });
 }
 
+/**
+ * El botón ÚNICO del waterfall, se llame como se llame en su modalidad. Las dos
+ * etiquetas se buscan por coincidencia EXACTA, así que un botón no puede contarse dos
+ * veces y `LUSHA_BUTTON_LABEL` —el del flujo previo— nunca entra aquí.
+ */
 function revealButtons() {
-  return screen.queryAllByRole('button', { name: REVEAL_LABEL });
+  return [
+    ...screen.queryAllByRole('button', { name: REVEAL_LABEL }),
+    ...screen.queryAllByRole('button', { name: LEGACY_REVEAL_LABEL }),
+  ];
 }
 
 function lushaButton() {
@@ -291,7 +310,7 @@ function bodyText(): string {
  */
 async function clickReveal() {
   const buttons = revealButtons();
-  assert.equal(buttons.length, 1, 'debe haber EXACTAMENTE un botón "Revelar teléfono"');
+  assert.equal(buttons.length, 1, 'debe haber EXACTAMENTE un botón de revelación');
   await act(async () => {
     fireEvent.click(buttons[0]);
   });
@@ -340,10 +359,20 @@ beforeEach(() => {
 // ── 1. Un botón, sin modal, copy legacy ─────────────────────────────────────
 
 describe('WATERFALL-2/4D UI — un botón, sin modal, copy legacy', () => {
-  it('ofrece EXACTAMENTE un botón "Revelar teléfono" y NINGÚN botón separado de Lusha', async () => {
+  it('ofrece EXACTAMENTE un botón y NINGÚN botón separado de Lusha', async () => {
     await renderSheet(legacyCandidate());
     assert.equal(revealButtons().length, 1);
     assert.equal(lushaButton(), null);
+  });
+
+  it('el botón legacy nombra a LUSHA y NO ofrece revelar con Apollo', async () => {
+    // AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1 § 8. Apollo ya fue consultado
+    // y no se va a reintentar: un label que no lo diga deja al operador creyendo que
+    // este clic repite el intento que ya falló.
+    await renderSheet(legacyCandidate());
+    assert.ok(screen.queryByRole('button', { name: LEGACY_REVEAL_LABEL }));
+    assert.equal(screen.queryByRole('button', { name: REVEAL_LABEL }), null);
+    assert.equal(/Revelar teléfono con Apollo/i.test(bodyText()), false, bodyText());
   });
 
   it('el copy legacy y el tope 5 se leen ANTES del clic, sin abrir ningún modal', async () => {
@@ -387,8 +416,13 @@ describe('WATERFALL-2/4D UI — un botón, sin modal, copy legacy', () => {
     await clickReveal();
 
     assert.equal(mockLegacyStart.mock.callCount(), 1);
+    // AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1 § 7: además del id viaja el
+    // TECHO que el operador acaba de leer debajo del botón. Este candidato nació en
+    // Lusha con su id, así que su modalidad es la de 5 y eso es lo que se acepta —
+    // nunca 6, y nunca un número que el servidor derive por su cuenta.
     assert.deepEqual(mockLegacyStart.mock.calls[0].arguments[0], {
       candidateId: 'cand-legacy',
+      acceptedMaxCredits: 5,
     });
     // CERO Apollo y cero fallback manual de Lusha desde esta UI.
     assert.equal(mockReveal.mock.callCount(), 0);
@@ -572,9 +606,10 @@ describe('WATERFALL-2C UI — reautorización tras una corrida terminal sin tel�
 
     await clickReveal();
     assert.equal(mockLegacyStart.mock.callCount(), 1, 'solo el clic autoriza');
-    // Un candidato por invocación y nunca el reveal de Apollo.
+    // Un candidato por invocación, con su techo aceptado, y nunca el reveal de Apollo.
     assert.deepEqual(mockLegacyStart.mock.calls[0].arguments[0], {
       candidateId: 'cand-legacy',
+      acceptedMaxCredits: 5,
     });
     assert.equal(mockReveal.mock.callCount(), 0);
   });

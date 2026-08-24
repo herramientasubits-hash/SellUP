@@ -703,6 +703,10 @@ describe('legacy — las deps del arranque NO incluyen ninguna pata Apollo', () 
       'findActiveRun',
       'findLatestRun',
       'flagEnabled',
+      // AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1: un BOOLEANO, no una dep
+      // invocable. Dice si esta entrada puede comprar la identidad Lusha que falta; no
+      // habla con ningún proveedor y no puede hacerlo.
+      'identitySearchAllowed',
       'loadLegacyEvidence',
       'newAuthorizationKey',
       'newReservationGroupId',

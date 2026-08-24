@@ -104,6 +104,19 @@ export type PhoneRevealCreditBudgetMode =
   /** Solo Lusha: Apollo ya se intentó bajo OTRA autorización. Total 5. */
   | 'legacy_lusha_only'
   /**
+   * Búsqueda de identidad en Lusha (hasta 1) + reveal de Lusha (hasta 5). Total 6.
+   * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1)
+   *
+   * Es la ruta legacy del candidato NACIDO EN APOLLO: Apollo ya terminó
+   * `no_phone_found` bajo OTRA autorización, así que aquí no corre — pero Lusha
+   * todavía no sabe quién es esta persona, y averiguarlo cuesta.
+   *
+   * Los 8 de Apollo NO entran: ese gasto pertenece a la autorización histórica que lo
+   * pagó, y sumarlo aquí le cobraría al operador dos veces el mismo intento en la
+   * confirmación que lee antes de hacer clic. Por eso el tope es 6 y jamás 13 ni 14.
+   */
+  | 'legacy_lusha_with_identity_search'
+  /**
    * «Buscar más números» (AGENT2A-SEARCH-MORE-PHONES-1). Total 5, el tope de UNA pata de
    * Lusha.
    *
@@ -157,6 +170,14 @@ export const PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS = 8;
 
 /** Espejo de PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS (5). */
 export const PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS = 5;
+
+/**
+ * Espejo de PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS_WITH_IDENTITY_SEARCH (6 = 1 + 5).
+ * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1)
+ */
+export const PHONE_REVEAL_CREDIT_BUDGET_LEGACY_WITH_SEARCH_REQUIRED_CREDITS =
+  PHONE_REVEAL_CREDIT_BUDGET_IDENTITY_SEARCH_REQUIRED_CREDITS +
+  PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS;
 
 /** Espejo de PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA (13 = 8 + 5). */
 export const PHONE_REVEAL_CREDIT_BUDGET_FULL_WATERFALL_REQUIRED_CREDITS =
@@ -262,6 +283,23 @@ export function resolvePhoneRevealCreditRequirements(
           credits: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
         },
       ];
+    // DOS patas, ambas de Lusha, y el orden es el de ejecución: primero se averigua
+    // con qué id conoce Lusha a esta persona, y sólo después se le pide el teléfono.
+    // Apollo NO aparece: no se ejecuta bajo esta autorización, así que ni se lee su
+    // pozo ni se le reserva nada.
+    case 'legacy_lusha_with_identity_search':
+      return [
+        {
+          providerKey: 'lusha',
+          operationKey: 'contact_search',
+          credits: PHONE_REVEAL_CREDIT_BUDGET_IDENTITY_SEARCH_REQUIRED_CREDITS,
+        },
+        {
+          providerKey: 'lusha',
+          operationKey: 'phone_reveal',
+          credits: PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+        },
+      ];
     default: {
       // Una modalidad nueva rompe la compilación aquí a propósito: decidir cuánto
       // saldo exige una forma de gasto inédita es una decisión de producto. En
@@ -324,7 +362,24 @@ export function resolvePhoneRevealCreditBudgetMode(args: {
    */
   lushaIdentityResolved?: boolean;
 }): PhoneRevealCreditBudgetMode {
-  if (args.legacyLushaOnly) return 'legacy_lusha_only';
+  if (args.legacyLushaOnly) {
+    // La ruta legacy también puede tener que AVERIGUAR la identidad Lusha
+    // (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1). Se exige un `false`
+    // EXPLÍCITO, y la asimetría con la rama de abajo es DELIBERADA:
+    //
+    //   * en el waterfall completo, «no sé si la identidad está resuelta» se resuelve
+    //     reservando de MÁS (14), porque el tope que el operador ve en esa modalidad ya
+    //     incluye la búsqueda y lo que sobra se libera;
+    //   * en la ruta legacy, el tope que el operador ve son 5. Convertir un `undefined`
+    //     en «compra también la búsqueda» le subiría la autorización de 5 a 6 en
+    //     silencio, que es exactamente lo que el techo humano existe para impedir.
+    //
+    // Por eso `undefined` sigue devolviendo `legacy_lusha_only`: es la respuesta de
+    // todo caller anterior a este hito y la única que no compra nada sin decidirlo.
+    return args.lushaIdentityResolved === false
+      ? 'legacy_lusha_with_identity_search'
+      : 'legacy_lusha_only';
+  }
   if (!args.lushaEligible) return 'apollo_only';
   return args.lushaIdentityResolved === true
     ? 'full_waterfall'

@@ -669,6 +669,23 @@ const WATERFALL_LEGACY_EVIDENCE_SELECT = `id, status, phone, source, source_cont
  */
 export async function loadLegacyEvidenceForWaterfall(
   candidateId: string,
+  /**
+   * `includeIdentityFacts` añade lo que la continuación cross-provider necesita
+   * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1): las identidades
+   * provider-native ya persistidas y los hechos con los que se PODRÍA comprar la que
+   * falta. Con eso el arranque legacy decide, ANTES del clic, si el tope es 5 o 6.
+   *
+   * AUSENTE POR DEFECTO, y eso es lo que mantiene el código inerte con
+   * `ENABLE_PHONE_REVEAL_WATERFALL` apagado y con la migración 124 sin aplicar: sin la
+   * opción no se lee `contact_provider_identities` y la evidencia es BYTE-IDÉNTICA a la
+   * anterior al hito — un candidato sin id Lusha propio sigue saliendo
+   * `missing_lusha_contact_id`.
+   *
+   * Las identidades NO son best-effort: si no se pueden leer, la lectura entera falla
+   * hacia arriba en vez de devolver «ninguna». «Ninguna» significaría «hay que pagar
+   * una búsqueda», y podría estar comprando un id que ya teníamos guardado.
+   */
+  options?: { includeIdentityFacts?: boolean },
 ): Promise<PhoneRevealWaterfallLegacyEvidence | null> {
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
@@ -681,7 +698,7 @@ export async function loadLegacyEvidenceForWaterfall(
 
   const row = data as Record<string, unknown>;
   const phone = row.phone as string | null;
-  return {
+  const base: PhoneRevealWaterfallLegacyEvidence = {
     candidateStatus: (row.status as string | null) ?? null,
     phoneRevealStatus: (row.phone_reveal_status as string | null) ?? null,
     phoneRevealProvider: (row.phone_reveal_provider as string | null) ?? null,
@@ -690,6 +707,18 @@ export async function loadLegacyEvidenceForWaterfall(
     hasPhone: typeof phone === 'string' && phone.trim().length > 0,
     source: (row.source as string | null) ?? null,
     sourceContactId: (row.source_contact_id as string | null) ?? null,
+  };
+  if (!options?.includeIdentityFacts) return base;
+
+  // MISMA lectura que `loadCandidateForWaterfall`, y a propósito: si el arranque legacy
+  // resolviera la identidad con otra consulta, podría decidir un tope que la
+  // continuación —que sí usa esa— no fuera capaz de ejecutar.
+  const context = await loadLushaIdentityResolutionContext(candidateId);
+  if (!context) return base;
+  return {
+    ...base,
+    providerIdentities: context.identities,
+    identitySearchFacts: context.facts,
   };
 }
 
@@ -1059,11 +1088,33 @@ export function buildStartLegacyWaterfallDeps(
      * como estaba.
      */
     gatePrivacyBeforeReserving?: boolean;
+    /**
+     * AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1 — ¿esta entrada a la ruta
+     * legacy puede COMPRAR la identidad Lusha que le falta al candidato?
+     *
+     * Omitido = `ENABLE_PHONE_REVEAL_WATERFALL`, que es el MISMO gate que enchufa la
+     * resolución de identidad en la continuación. Las dos caras se encienden juntas a
+     * propósito: reservar el crédito de búsqueda sin poder ejecutarla dejaría
+     * exposición ocupada para nada, y ejecutarla sin haberla reservado gastaría un
+     * crédito que nadie autorizó.
+     *
+     * `false` EXPLÍCITO lo pasa el disparo manual `legacy_lusha_only`, cuya UI enseña 5
+     * y cuya autorización reserva UNA pata de teléfono. Ese camino queda EXACTAMENTE
+     * como estaba: sin hechos de identidad leídos, sin tope de 6 y sin búsqueda.
+     */
+    identitySearchAllowed?: boolean;
   },
 ): StartLegacyPhoneRevealWaterfallDeps {
+  // Una sola decisión, usada en los DOS sitios que tienen que coincidir: qué se lee del
+  // candidato y qué se le permite al core. Separarlas dejaría al core evaluando la vía
+  // de pago sobre hechos que nadie cargó (veredicto falso: «no hay con qué buscar») o
+  // leyendo `contact_provider_identities` en un entorno donde la 124 no está aplicada.
+  const identitySearchAllowed =
+    options?.identitySearchAllowed ?? isPhoneRevealWaterfallEnabled();
   return {
     flagEnabled: options?.flagEnabled ?? isPhoneRevealWaterfallEnabled(),
     actor,
+    identitySearchAllowed,
     ...(options?.gatePrivacyBeforeReserving
       ? {
           // FAIL-CLOSED en el borde de I/O, no en el core: `checkPhoneRevealPrivacyGate`
@@ -1083,7 +1134,10 @@ export function buildStartLegacyWaterfallDeps(
         }
       : {}),
     nowIso: new Date().toISOString(),
-    loadLegacyEvidence: loadLegacyEvidenceForWaterfall,
+    loadLegacyEvidence: (candidateId: string) =>
+      loadLegacyEvidenceForWaterfall(candidateId, {
+        includeIdentityFacts: identitySearchAllowed,
+      }),
     findActiveRun: findActiveWaterfallRunForCandidate,
     findLatestRun: findLatestWaterfallRunForCandidate,
     // El core pide SOLO el pozo de Lusha en esta modalidad: Apollo no se ejecuta bajo
@@ -1246,10 +1300,23 @@ export interface StartLegacyPhoneRevealWaterfallRuntimeResult {
   outcome: StartLegacyPhoneRevealWaterfallRuntimeOutcome;
   /** Motivo mecánico y PII-free. `null` en los caminos correctos. */
   reason: string | null;
-  /** Tope que quedó autorizado (5). `null` cuando no se creó corrida. */
+  /** Tope que quedó autorizado (5 o 6). `null` cuando no se creó corrida. */
   maxCreditsAuthorized: number | null;
   /** true SOLO si se llegó a llamar a Lusha. */
   lushaCalled: boolean;
+  /**
+   * true cuando el tope autorizado incluye la búsqueda de identidad
+   * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1). `null` cuando no se creó
+   * corrida: ahí la modalidad no llegó a decidirse, y un `false` afirmaría que se
+   * evaluó y salió que no.
+   */
+  requiresIdentitySearch: boolean | null;
+  /**
+   * Solo en `authorization_ceiling_mismatch`: qué exigía la modalidad real y qué había
+   * aceptado el operador. `null` en cualquier otro camino.
+   */
+  requiredMaxCredits: number | null;
+  acceptedMaxCredits: number | null;
 }
 
 /**
@@ -1294,6 +1361,15 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
     /** Pata Lusha alternativa (scoped a la invocación manual). */
     callLushaLeg?: ContinuePhoneRevealWaterfallDeps['callLushaLeg'];
   },
+  /**
+   * Tope que el operador ACEPTÓ en la UI
+   * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1). Parámetro PROPIO y no un
+   * campo de `options` porque `options` significa «esta invocación es el disparo
+   * manual», y el techo humano aplica a las DOS entradas.
+   *
+   * Ausente ⇒ el suelo conservador de la ruta legacy (5), nunca la modalidad requerida.
+   */
+  acceptedMaxCredits?: number,
 ): Promise<StartLegacyPhoneRevealWaterfallRuntimeResult> {
   // Fail-closed: si el store no está disponible (p. ej. las migraciones 102/103 aún
   // no aplicadas en ese entorno) NO se crea corrida y, por tanto, no se llama a
@@ -1301,7 +1377,7 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
   let started: Awaited<ReturnType<typeof startLegacyPhoneRevealWaterfall>>;
   try {
     started = await startLegacyPhoneRevealWaterfall(
-      { candidateId },
+      { candidateId, acceptedMaxCredits },
       buildStartLegacyWaterfallDeps(
         actor,
         options
@@ -1310,6 +1386,13 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
               // El disparo manual exige el orden DNC → RESERVA. La ruta legacy
               // automática NO cablea esta puerta y conserva su superficie de deps.
               gatePrivacyBeforeReserving: true,
+              // Y NO puede comprar la identidad Lusha
+              // (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1): su UI enseña 5,
+              // su autorización reserva UNA pata de teléfono, y darle la vía de pago
+              // le dejaría gastar un crédito que el operador nunca vio. Explícito y no
+              // por omisión: la omisión aquí significa «lo decide el flag», y este
+              // camino lo tiene decidido.
+              identitySearchAllowed: false,
             }
           : undefined,
       ),
@@ -1324,6 +1407,9 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
       reason: 'legacy_run_creation_failed',
       maxCreditsAuthorized: null,
       lushaCalled: false,
+      requiresIdentitySearch: null,
+      requiredMaxCredits: null,
+      acceptedMaxCredits: null,
     };
   }
 
@@ -1333,6 +1419,11 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
       reason: started.reason satisfies PhoneRevealWaterfallLegacyIneligibleReason,
       maxCreditsAuthorized: null,
       lushaCalled: false,
+      // La modalidad no llegó a autorizarse: no se afirma nada sobre ella.
+      requiresIdentitySearch: null,
+      // Presentes SOLO en el rechazo por techo, que es el único que los produce.
+      requiredMaxCredits: started.requiredMaxCredits ?? null,
+      acceptedMaxCredits: started.acceptedMaxCredits ?? null,
     };
   }
 
@@ -1355,5 +1446,8 @@ export async function startLegacyPhoneRevealWaterfallForCandidate(
     reason: continued.reason,
     maxCreditsAuthorized: started.maxCreditsAuthorized,
     lushaCalled: continued.lushaCalled,
+    requiresIdentitySearch: started.requiresIdentitySearch === true,
+    requiredMaxCredits: null,
+    acceptedMaxCredits: null,
   };
 }

@@ -313,7 +313,10 @@ describe('§ 11.E/F + § 6 — el tope sale de los hechos del candidato', () => 
       // 13 NO autoriza la búsqueda: la corrida no puede gastar un crédito que
       // nadie reservó ni le enseñó al operador.
       assert.equal(
-        doesRunAuthorizeIdentitySearch({ maxCreditsAuthorized: 13 }),
+        doesRunAuthorizeIdentitySearch({
+          maxCreditsAuthorized: 13,
+          runMode: 'full_waterfall',
+        }),
         false,
         role,
       );
@@ -438,9 +441,14 @@ describe('§ 9 + § 11.I — ruta legacy solo-Lusha', () => {
       assert.equal(draft.apolloAttemptedAt, null, role);
       assert.equal(draft.apolloOutcome, 'no_phone_found', role);
       assert.equal(draft.authorizedByRole, role, role);
-      // Y su autorización NO cubre la búsqueda de identidad: 5 < 14.
+      // Y su autorización NO cubre la búsqueda de identidad: en modalidad legacy el
+      // umbral es 6 (búsqueda 1 + teléfono 5) y esta corrida reservó 5
+      // (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1).
       assert.equal(
-        doesRunAuthorizeIdentitySearch({ maxCreditsAuthorized: draft.maxCreditsAuthorized }),
+        doesRunAuthorizeIdentitySearch({
+          maxCreditsAuthorized: draft.maxCreditsAuthorized,
+          runMode: 'legacy_lusha_only',
+        }),
         false,
         role,
       );
@@ -615,10 +623,12 @@ describe('§ 7 + § 11.L — el contrato de crédito queda intacto', () => {
     assert.equal(PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS, 5);
   });
 
-  test('el umbral que autoriza la búsqueda es 14, y es un UMBRAL', () => {
-    assert.equal(doesRunAuthorizeIdentitySearch({ maxCreditsAuthorized: 13 }), false);
-    assert.equal(doesRunAuthorizeIdentitySearch({ maxCreditsAuthorized: 14 }), true);
-    assert.equal(doesRunAuthorizeIdentitySearch({ maxCreditsAuthorized: 20 }), true);
+  test('el umbral que autoriza la búsqueda es 14 en el flujo completo, y es un UMBRAL', () => {
+    const full = (maxCreditsAuthorized: number) =>
+      doesRunAuthorizeIdentitySearch({ maxCreditsAuthorized, runMode: 'full_waterfall' });
+    assert.equal(full(13), false);
+    assert.equal(full(14), true);
+    assert.equal(full(20), true);
   });
 
   test('una autorización que no cubre la búsqueda deja la pata Lusha inalcanzable', () => {

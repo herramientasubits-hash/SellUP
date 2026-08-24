@@ -3078,6 +3078,32 @@ jobs:
       - name: Run A2A waterfall no-silent-downgrade tests
         run: npm run test:agent2a:waterfall-no-silent-downgrade
 
+      # ── AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1 ─────────────────
+      #
+      # Check OBLIGATORIO. Cubre la continuación de un candidato NACIDO EN APOLLO
+      # cuyo reveal ya terminó `no_phone_found`: antes se quedaba sin ninguna vía,
+      # y ahora puede continuar hacia Lusha comprando la identidad que falta.
+      #
+      # Lo que el check impide que se rompa en silencio:
+      #
+      #   * el costo HISTÓRICO de Apollo no entra en esta autorización. El tope es
+      #     5 (identidad ya conocida) o 6 (búsqueda hasta 1 + teléfono hasta 5), y
+      #     nunca 13, 14 ni «8 + …»: sumar los 8 le cobraría al operador dos veces
+      #     el mismo intento en la confirmación que lee antes de hacer clic;
+      #   * el 5 → 6 NUNCA es silencioso. El techo que la persona aceptó se compara
+      #     ANTES del preflight y de `reserve_and_create_phone_reveal_run`, así que
+      #     una vista previa obsoleta produce 0 reservas y una pregunta nueva;
+      #   * Apollo NO se llama: la ruta no expone ninguna dep con la que hacerlo, y
+      #     el check falla si aparece una;
+      #   * UNA sola Contact Search por autorización, la identidad se PERSISTE antes
+      #     de revelar, y una autorización posterior ya no vuelve a comprarla;
+      #   * sin credencial no hay claim ni petición, y un timeout después de emitir
+      #     conserva la verdad de que salió — sin reintento automático;
+      #   * el disparo manual `legacy_lusha_only` (tope 5) sigue SIN poder comprar
+      #     la búsqueda, y con el flag del waterfall apagado nada de esto se lee.
+      - name: Run A2A legacy cross-provider Lusha continuation tests
+        run: npm run test:agent2a:legacy-cross-provider-lusha
+
       # ── AGENT1-CUT3B1-FISCAL-IDENTITY-TRUTH ────────────────────────────────
       #
       # Check OBLIGATORIO. Cierra las tres formas en que la identidad fiscal de

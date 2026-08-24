@@ -24,15 +24,18 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { isPhoneRevealWaterfallEnabled } from '@/lib/feature-flags.server';
 import {
+  buildLegacyPhoneRevealAuthorizationPreview,
   buildPhoneRevealWaterfallAuditView,
   buildPhoneRevealWaterfallAuthorizationPreview,
   isPhoneRevealWaterfallRoleAuthorized,
+  type LegacyPhoneRevealAuthorizationPreview,
   type PhoneRevealWaterfallAuditView,
   type PhoneRevealWaterfallAuthorizationPreview,
 } from './phone-reveal-waterfall-core';
 import {
   findLatestWaterfallRunForCandidate,
   loadCandidateForWaterfall,
+  loadLegacyEvidenceForWaterfall,
 } from './phone-reveal-waterfall-deps';
 
 /**
@@ -149,6 +152,68 @@ export async function getPhoneRevealWaterfallAuthorizationPreviewAction(input: {
     // se afirma que haya una búsqueda pagada disponible.
     console.error(
       '[phone-reveal-waterfall] authorization preview read failed:',
+      err instanceof Error ? err.message : 'unknown error',
+    );
+    return null;
+  }
+}
+
+/**
+ * Vista previa de la autorización LEGACY, ANTES del clic
+ * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1).
+ *
+ * POR QUÉ EXISTE, y por qué no basta con la vista previa del waterfall completo: son
+ * dos MODALIDADES distintas con dos topes distintos. La del waterfall responde 8/13/14
+ * porque Apollo va a ejecutarse; en la ruta legacy Apollo YA se ejecutó bajo otra
+ * autorización, así que la respuesta correcta es 5 o 6 y ninguna de las dos cifras sale
+ * de la otra función. Enseñar 14 aquí le cobraría al operador, en la confirmación,
+ * ocho créditos de Apollo que esta corrida no puede gastar.
+ *
+ * Y el drawer no puede calcularlo por su cuenta: si la identidad Lusha ya está
+ * PERSISTIDA (`contact_provider_identities`, migración 124) el tope es 5, y si hay que
+ * comprarla es 6 — dos hechos que sólo existen en el servidor. Sin esta acción, un
+ * candidato Apollo agotado leía «no aplica» mientras el servidor sí podía continuar.
+ *
+ * Es de SOLO LECTURA y no autoriza nada: no crea corridas, no reclama patas, no llama a
+ * ningún proveedor, no reserva créditos y no escribe. La proyección es PII-free (un
+ * booleano, un código mecánico y dos enteros).
+ *
+ * Devuelve `null` —y la UI cae a su clasificación conservadora, que nunca promete 6—
+ * cuando el flag está apagado, el rol no puede revelar teléfono, el candidato no existe
+ * o los hechos de identidad no se pueden leer (por ejemplo con la 124 sin aplicar).
+ */
+export async function getLegacyPhoneRevealAuthorizationPreviewAction(input: {
+  candidateId: string;
+}): Promise<LegacyPhoneRevealAuthorizationPreview | null> {
+  if (!isPhoneRevealWaterfallEnabled()) return null;
+
+  const candidateId =
+    typeof input?.candidateId === 'string' ? input.candidateId.trim() : '';
+  if (!candidateId) return null;
+
+  // MISMA autoridad que el arranque: no hay un permiso de «ver el copy» distinto del
+  // permiso de revelar.
+  const roleKey = await resolveActorRoleKey();
+  if (!isPhoneRevealWaterfallRoleAuthorized(roleKey)) return null;
+
+  try {
+    // MISMA lectura que `buildStartLegacyWaterfallDeps`, con los mismos hechos de
+    // identidad: es lo que hace que el número mostrado y el reservado no puedan
+    // discrepar.
+    const evidence = await loadLegacyEvidenceForWaterfall(candidateId, {
+      includeIdentityFacts: true,
+    });
+    if (!evidence) return null;
+    return buildLegacyPhoneRevealAuthorizationPreview(evidence, {
+      // El flag ya está encendido (se comprobó arriba), que es exactamente la
+      // condición con la que el arranque enchufa la vía de pago.
+      identitySearchAuthorized: true,
+    });
+  } catch (err) {
+    // Fail-closed hacia el copy conservador: si las identidades no se pueden leer, NO
+    // se afirma que haya una búsqueda pagada disponible.
+    console.error(
+      '[phone-reveal-waterfall] legacy authorization preview read failed:',
       err instanceof Error ? err.message : 'unknown error',
     );
     return null;

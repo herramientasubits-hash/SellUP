@@ -23,8 +23,17 @@
 //      activa y con un historial que admita una autorización nueva
 //      (AGENT2A-PHONE-WATERFALL-2C: una corrida legacy terminal SIN teléfono es
 //      reautorizable; una del flujo completo, o una que ya reveló, no lo es).
+//      «Id Lusha propio» dejó de ser la única vía en
+//      AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1: también vale una identidad
+//      Lusha ya PERSISTIDA (migración 124) y, si no hay ninguna, un identificador
+//      exacto con el que comprarla.
 //      Cada reautorización revalida TODO otra vez, incluida la supresión/DNC.
-//   3. Crea la corrida `legacy_lusha_only` (tope 5) ANTES de cualquier llamada.
+//   3. Crea la corrida `legacy_lusha_only` ANTES de cualquier llamada, con el tope de
+//      su modalidad REAL: 5 si Lusha ya sabe quién es esta persona, y 6 si además hay
+//      que comprar esa identidad — búsqueda hasta 1 + teléfono hasta 5
+//      (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1). Los 8 de Apollo NUNCA
+//      entran: ese gasto lo pagó la autorización histórica, no ésta. El tope que el
+//      operador aceptó es un LÍMITE SUPERIOR DURO y se compara ANTES de reservar.
 //   4. Continúa con el MISMO core del waterfall: claim atómico, TTL de 24 h,
 //      re-comprobación de supresión/DNC fail-closed y UNA sola llamada a Lusha.
 //
@@ -92,6 +101,14 @@ export type LegacyPhoneRevealWaterfallActionStatus =
    * perfectamente y lo que falló es la infraestructura.
    */
   | 'infrastructure_unavailable'
+  /**
+   * AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1: el tope que el operador aceptó
+   * es MENOR que el que la modalidad real exige (típicamente aceptó 5 y hacen falta 6
+   * porque además hay que comprar la identidad Lusha). No se sube en silencio: se corta
+   * y se le vuelve a preguntar con el número real. 0 corridas, 0 reservas, 0 llamadas a
+   * Lusha, 0 llamadas a Apollo, 0 créditos.
+   */
+  | 'authorization_changed'
   /** El candidato no entra en la ruta legacy (o el flag/rol no lo permiten). */
   | 'not_eligible';
 
@@ -99,8 +116,14 @@ export interface LegacyPhoneRevealWaterfallActionResult {
   status: LegacyPhoneRevealWaterfallActionStatus;
   /** Código mecánico sin PII para diagnóstico. null cuando no aplica. */
   reason: string | null;
-  /** Tope que quedó autorizado (5) o null si no se creó corrida. */
+  /** Tope que quedó autorizado (5 o 6) o null si no se creó corrida. */
   maxCreditsAuthorized: number | null;
+  /**
+   * Solo en `authorization_changed`: el tope que la modalidad real exige. Es lo que la
+   * UI necesita para volver a pedir la confirmación con la cifra correcta en vez de
+   * repetir la obsoleta. `null` en cualquier otro camino.
+   */
+  requiredMaxCredits: number | null;
 }
 
 /**
@@ -153,6 +176,12 @@ function toActionStatus(
   result: Awaited<ReturnType<typeof startLegacyPhoneRevealWaterfallForCandidate>>,
 ): LegacyPhoneRevealWaterfallActionStatus {
   if (result.outcome === 'not_started') {
+    // El techo humano se distingue de `not_eligible` a propósito: el candidato aplica
+    // perfectamente y lo que cambió es el precio, así que decirle al operador que «no
+    // aplica» le escondería que basta con volver a confirmar.
+    if (result.reason === 'authorization_ceiling_mismatch') {
+      return 'authorization_changed';
+    }
     if (result.reason === 'insufficient_credits') return 'insufficient_credits';
     if (result.reason === 'budget_not_configured') return 'budget_not_configured';
     if (result.reason === 'credit_balance_unavailable') {
@@ -193,6 +222,15 @@ function toActionStatus(
  */
 export async function startLegacyPhoneRevealWaterfallAction(input: {
   candidateId: string;
+  /**
+   * Tope que el operador ACEPTÓ en la UI, tal cual lo calculó el copy
+   * (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1).
+   *
+   * Ausente o no finito ⇒ el servidor asume el suelo conservador de esta ruta (5),
+   * NUNCA la modalidad requerida. Un cliente que no lo manda no puede acabar comprando
+   * la búsqueda de identidad por omisión.
+   */
+  acceptedMaxCredits?: number;
 }): Promise<LegacyPhoneRevealWaterfallActionResult> {
   const candidateId =
     typeof input?.candidateId === 'string' ? input.candidateId.trim() : '';
@@ -201,6 +239,7 @@ export async function startLegacyPhoneRevealWaterfallAction(input: {
       status: 'not_eligible',
       reason: 'invalid_candidate',
       maxCreditsAuthorized: null,
+      requiredMaxCredits: null,
     };
   }
 
@@ -209,11 +248,16 @@ export async function startLegacyPhoneRevealWaterfallAction(input: {
   const result = await startLegacyPhoneRevealWaterfallForCandidate(
     candidateId,
     actor,
+    // Sin `options`: ESTA es la ruta legacy automática, no el disparo manual. Su
+    // permiso es el flag del waterfall y su pata Lusha es la automática.
+    undefined,
+    input?.acceptedMaxCredits,
   );
 
   return {
     status: toActionStatus(result),
     reason: result.reason,
     maxCreditsAuthorized: result.maxCreditsAuthorized,
+    requiredMaxCredits: result.requiredMaxCredits,
   };
 }
