@@ -466,6 +466,23 @@ mock.module('@/modules/contact-enrichment/phone-reveal-credit-reservation-deps',
 
 mock.module('@/modules/contact-enrichment/phone-reveal-waterfall-deps', {
   namedExports: {
+    /**
+     * RE-LECTURA POSTERIOR AL CONFLICTO
+     * (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1).
+     *
+     * Lee la MISMA tabla simulada (`world.activeRuns`) que el doble de la reserva
+     * escribe, así que la carrera de §20.13 se resuelve como en Producción: el perdedor
+     * choca, vuelve a leer, ENCUENTRA la corrida del ganador y sale por
+     * `active_run_exists`.
+     *
+     * Sin este export el doble diría «no hay con qué comprobarlo» y el gate, que es
+     * fail-closed, tendría que salir por infraestructura — describiendo una avería que
+     * en esta carrera no existe.
+     */
+    findActiveWaterfallRunForCandidate: async (candidateId: string) => {
+      const runId = world.activeRuns.get(candidateId);
+      return runId ? ({ id: runId, candidateId } as never) : null;
+    },
     // CLAIM ATÓMICO reproducido: el segundo intento sobre la misma corrida devuelve false.
     claimLushaAttempt: async (runId: string) => {
       if (world.claimedRuns.has(runId)) return false;

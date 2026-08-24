@@ -202,8 +202,34 @@ describe('4E — la reserva precede a la corrida y a cualquier proveedor', () =>
     assert.equal(h.createCalls, 0, 'y no quedó ninguna corrida');
   });
 
-  it('la RPC responde already_reserved ⇒ active_run_exists (hay autorización viva)', async () => {
+  // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 — `already_reserved` YA NO se
+  // traduce a `active_run_exists` por sí solo. Antes sí, y esa traducción era el defecto:
+  // la transacción se deshace entera, así que un conflicto de reserva puede dejar 0
+  // corridas y 0 reservas y aun así producía «ya hay una revelación en proceso».
+  it('already_reserved SIN corrida viva ⇒ reservation_conflict, nunca active_run_exists', async () => {
     const h = fullHarness({ credit: creditHarness({ outcome: { status: 'already_reserved' } }) });
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
+    assert.deepEqual(result, { started: false, reason: 'reservation_conflict' });
+    assert.equal(h.createCalls, 0);
+  });
+
+  it('already_reserved CON corrida viva ⇒ active_run_exists, ya comprobado', async () => {
+    const h = fullHarness({
+      credit: creditHarness({
+        outcome: { status: 'already_reserved' },
+        // La corrida ganadora EXISTE: la re-lectura la encuentra y sólo entonces se
+        // afirma que hay una autorización viva.
+        existingRuns: [
+          {
+            runId: 'run-ganadora',
+            candidateId: 'cand-1',
+            authorizationKey: 'authkey-previa',
+            reservationGroupId: 'group-previa',
+            isActive: true,
+          },
+        ],
+      }),
+    });
     const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'active_run_exists' });
     assert.equal(h.createCalls, 0);

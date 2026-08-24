@@ -106,14 +106,23 @@ export function classifyPhoneRevealWaterfallStartFailure(
       return { kind: 'blocked', status: 'invalid_candidate' };
     case 'candidate_not_found':
       return { kind: 'blocked', status: 'candidate_not_found' };
-    // Ya existe una autorización VIVA para este candidato (`active_run_exists`), o
-    // el índice único parcial rechazó el INSERT porque otra la creó en paralelo
-    // (`create_conflict`, Postgres 23505). En los dos casos la corrida existente ES
-    // la autorización: abrir una segunda llamada a proveedor gastaría fuera de su
-    // reserva. No se crea una segunda corrida y no se reintenta.
+    // Ya existe una autorización VIVA para este candidato. Desde
+    // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 este motivo llega COMPROBADO:
+    // el core releyó la corrida activa y la encontró. Abrir una segunda llamaría al
+    // proveedor fuera de su reserva, así que no se crea otra corrida y no se reintenta.
     case 'active_run_exists':
-    case 'create_conflict':
       return { kind: 'blocked', status: 'already_pending' };
+    // Los dos conflictos SIN corrida activa que los explique. Antes compartían rama con
+    // `active_run_exists` sobre la premisa de que «la corrida existente ES la
+    // autorización» — premisa que un 23505 no demuestra, porque la transacción se
+    // deshace entera y puede no dejar corrida ninguna. Son infraestructura: 0 corridas,
+    // 0 reservas, 0 proveedores, 0 créditos, y no se reintenta.
+    case 'create_conflict':
+    case 'reservation_conflict':
+      return {
+        kind: 'infrastructure_unavailable',
+        errorCode: WATERFALL_RUN_UNAVAILABLE_ERROR_CODE,
+      };
     // AGENT2A-PHONE-WATERFALL-4D. Dejar continuar el reveal Apollo legacy sería
     // gastar exactamente los créditos que el preflight acaba de declarar
     // indisponibles.

@@ -701,6 +701,12 @@ describe('legacy — las deps del arranque NO incluyen ninguna pata Apollo', () 
     assert.deepEqual(keys, [
       'actor',
       'findActiveRun',
+      // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1: una LECTURA de la tabla de
+      // corridas, la misma que `findActiveRun`, que sólo corre DESPUÉS de un conflicto
+      // de unicidad. No habla con ningún proveedor, no reserva y no gasta: existe para
+      // que un conflicto no pueda seguir afirmando que hay una revelación en curso sin
+      // haberla encontrado.
+      'findActiveRunAfterConflict',
       'findLatestRun',
       'flagEnabled',
       // AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1: un BOOLEANO, no una dep
