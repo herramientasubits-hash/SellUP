@@ -1,5 +1,6 @@
 /**
- * BR Receita CNPJ — RECORDED GATE-4 identity grain decision (BR-SOURCE-GATE-ROUND-2).
+ * BR Receita CNPJ — RECORDED GATE-4 identity grain decision (BR-SOURCE-GATE-ROUND-2; approved via
+ * three independent sub-decisions 4A/4B/4C, BR-SOURCE-FAST-TRACK-7).
  *
  * GATE-4 is the identity grain gate (10K § 8): it picks one of 10J § 14's four options, defines the
  * future `record_identity_key`, and sets `record_identity_grain_decision`. It has been
@@ -32,6 +33,24 @@
  * `BRAZIL_RECEITA_GATE4_CONSTRAINT_COLLISION`, and it is why a non-derived surrogate — the safest
  * thing available — is ALSO not sufficient on its own: see the runtime lookup section.
  *
+ * ── 🔴 Update (BR-SOURCE-FAST-TRACK-7) — the question is answered; GATE-4 is APPROVED ──
+ *
+ * The legal/privacy owner has answered `BRAZIL_RECEITA_GATE4_SINGLE_UNRESOLVED_QUESTION` YES, by owner
+ * relay recorded 2026-08-24: a narrow, ENUMERATED exception to GATE-1 R4 is authorized for exactly one
+ * persisted, never-printed, never-logged, never-reported representation of the establishment CNPJ,
+ * solely to serve as the row's internal exact-lookup key. That answer is recorded as `4A` below.
+ * `4B` (data architecture owner) and `4C` (product owner) separately record OWNER approval of the
+ * grain this module already evaluated and recorded as decided. Per 10K § 4's rule against collapsing
+ * decisions into a batch, the three are recorded independently rather than as one "approve everything"
+ * entry — see the BR-SOURCE-FAST-TRACK-7 section near the end of this module.
+ *
+ * With 4A + 4B + 4C all recorded, `BRAZIL_RECEITA_GATE4_STATUS` moves from `needs_owner_decision` to
+ * `approved`. That is a decision about the GRAIN and about WHETHER an exception may exist — it is not
+ * an implementation. No surrogate is built, no migration is authored or applied, the runtime lookup
+ * productization blocker stays recorded as one, and `tax_id` / `normalized_tax_id` /
+ * `record_identity_key` stay exactly `TRANSIENT_ONLY`. See
+ * `BRAZIL_RECEITA_GATE4_APPROVAL_DOES_NOT` for the closed list.
+ *
  * ── This module NEVER (fail-closed by construction) ──────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
  *   - approves GATE-4, or any other gate.
@@ -55,11 +74,12 @@ import type { BrReceitaCnpjSnapshotRow } from './br-receita-cnpj-types';
 // ─── Status ───────────────────────────────────────────────────────────────────
 
 /**
- * GATE-4's status after this round. `needs_owner_decision` rather than `needs_evidence`: the
- * evidence is complete — all four options evaluated, consequences stated, the collision named — and
- * what is missing is a decision, from a named owner, on one question.
+ * GATE-4's status. `approved` as of BR-SOURCE-FAST-TRACK-7: the single legal/privacy question is
+ * answered (4A), and the grain is owner-approved by both required roles (4B, 4C). See
+ * `BRAZIL_RECEITA_GATE4_SUB_DECISIONS` for the three independent records and
+ * `BRAZIL_RECEITA_GATE4_APPROVAL_DOES_NOT` for what this approval does not do.
  */
-export const BRAZIL_RECEITA_GATE4_STATUS = 'needs_owner_decision' as const;
+export const BRAZIL_RECEITA_GATE4_STATUS = 'approved' as const;
 
 /**
  * The joint approvers GATE-4 requires (10K § 8): data architecture owner AND product owner. Roles
@@ -78,13 +98,14 @@ export const BRAZIL_RECEITA_GATE4_RECORDED_DATE = '2026-08-21' as const;
  * gate, which is the single most likely misreading of this module.
  */
 export const BRAZIL_RECEITA_GATE4_DECIDED_PARTS = {
-  grain: 'decided',
+  grain: 'decided_and_owner_approved',
   deduplicationConsequence: 'decided',
   publicationPeriodModel: 'decided',
   replacementSemantics: 'decided',
   identityFieldPersistenceClassification: 'decided',
-  persistedRecordIdentityConstruction: 'blocked_on_owner_decision',
-  runtimeExactLookupMechanism: 'blocked_on_owner_decision',
+  legalPrivacyExceptionQuestion: 'answered_yes_by_owner_relay_2026_08_24',
+  persistedRecordIdentityConstruction: 'exception_granted_concrete_construction_not_implemented',
+  runtimeExactLookupMechanism: 'productization_blocker_recorded_not_resolved',
 } as const;
 
 // ─── A. The grain ─────────────────────────────────────────────────────────────
@@ -129,6 +150,15 @@ export const BRAZIL_RECEITA_GATE4_GRAIN_OPTIONS = {
 } as const;
 
 export const BRAZIL_RECEITA_GATE4_CHOSEN_GRAIN = 'option_d' as const;
+
+/**
+ * 🔴 What a report may print for `record_identity_grain_decision`, now that GATE-4 is APPROVED
+ * (BR-SOURCE-FAST-TRACK-7). Equal to the chosen grain by construction, never a second literal, so the
+ * two cannot drift. This is the GRAIN marker only — it says nothing about the persisted-identity
+ * CONSTRUCTION, which stays unimplemented (see `BRAZIL_RECEITA_GATE4_APPROVAL_DOES_NOT`). No emitter
+ * or report exists that reads this constant; recording it is not implementing a projection.
+ */
+export const BRAZIL_RECEITA_GATE4_REPORT_MARKER_VALUE = BRAZIL_RECEITA_GATE4_CHOSEN_GRAIN;
 
 /**
  * A. What real-world entity ONE Brazil snapshot record is. Stated as one sentence because ambiguity
@@ -339,20 +369,139 @@ export const BRAZIL_RECEITA_GATE4_NO_ALTERNATIVE_NATIVE_IDENTIFIER = true as con
 /**
  * The single unresolved question. ONE, exact, and addressed to the owner who can actually answer it.
  *
- * 🔴 It is a LEGAL/PRIVACY question, so this round does not answer it, does not recommend an answer,
- * and does not attribute an answer to anyone. `askedOf` names the role; `answeredBy` is null and
- * stays null until a human decision is relayed and recorded in the § 14 shape.
+ * 🔴 It is a LEGAL/PRIVACY question. No agent answered it, recommended an answer, or attributed an
+ * answer to anyone — `agentMayAnswer` stays `false`. `answeredBy` was `null` until BR-SOURCE-FAST-TRACK-7,
+ * when the legal/privacy owner answered it YES by owner relay, recorded as `4A` below.
  */
 export const BRAZIL_RECEITA_GATE4_SINGLE_UNRESOLVED_QUESTION = {
   question:
     'Does the legal/privacy owner authorize exactly ONE persisted, never-printed, never-logged, never-reported representation of the establishment CNPJ inside source_company_snapshots, to serve as the row exact-lookup key, as a narrow enumerated exception to GATE-1 R4 — or not?',
   askedOf: 'LEGAL_PRIVACY_OWNER',
-  answeredBy: null,
+  answeredBy: 'OWNER_REF_GATE4A_LEGAL_PRIVACY_OWNER_RELAY_2026_08_24',
+  answer: 'yes',
   ifYes:
     'GATE-4 can be approved with a deterministic key, the existing lookup primitives work unchanged, and the exception must be recorded with its own enumerated bounds',
   ifNo:
     'Brazil cannot support exact runtime lookup at all; the productization path stops at GATE-4, and any Brazil snapshot would be write-only data no consumer can address',
   agentMayAnswer: false,
+} as const;
+
+// ─── BR-SOURCE-FAST-TRACK-7 — GATE-4 approved via three independent sub-decisions ──
+
+/**
+ * 🔴 GATE-4 is APPROVED via three separately recorded decisions — 4A, 4B, 4C — never bundled into one
+ * "approve everything" record. 10K § 4 forbids collapsing gates or decisions into a batch, and that
+ * spirit applies to a gate's own sub-decisions too:
+ *
+ *   4A — legal/privacy owner: answers the single unresolved question above YES, as a narrow
+ *        enumerated exception to GATE-1 R4. Does not choose a storage encoding.
+ *   4B — data architecture owner: approves option D as the identity grain — the SAME grain already
+ *        recorded as decided above — now recorded as owner-APPROVED.
+ *   4C — product owner: approves option D as the product grain, explicitly on the record that exact
+ *        lookup is required and a fuzzy/name-based lookup is NOT an acceptable substitute.
+ *
+ * Each is an owner RELAY — the evidentiary form this series has used for every prior approval
+ * (`OWNER_REF_GATE{n}_{ROLE}_RELAY_{date}`) — not a personal signature: no name, no email, no message
+ * id, no URL, no more-precise timestamp than the date below.
+ */
+export const BRAZIL_RECEITA_GATE4A_APPROVAL = {
+  approvedBy: 'LEGAL_PRIVACY_OWNER',
+  approvedByAgent: false,
+  decision: 'yes',
+  grants:
+    'a narrow, ENUMERATED exception to GATE-1 R4: exactly one persisted, never-printed, never-logged, never-reported representation of the establishment CNPJ inside source_company_snapshots, solely to serve as that row internal exact-lookup key',
+  choosesAStorageEncoding: false,
+  ownerReference: 'OWNER_REF_GATE4A_LEGAL_PRIVACY_OWNER_RELAY_2026_08_24',
+  decisionDate: '2026-08-24',
+} as const;
+
+export const BRAZIL_RECEITA_GATE4B_APPROVAL = {
+  approvedBy: 'DATA_ARCHITECTURE_OWNER',
+  approvedByAgent: false,
+  approves: 'option_d',
+  approvesTheSameGrainAlreadyRecordedAsDecided: true,
+  ownerReference: 'OWNER_REF_GATE4B_DATA_ARCHITECTURE_OWNER_RELAY_2026_08_24',
+  decisionDate: '2026-08-24',
+} as const;
+
+export const BRAZIL_RECEITA_GATE4C_APPROVAL = {
+  approvedBy: 'PRODUCT_OWNER',
+  approvedByAgent: false,
+  approves: 'option_d',
+  exactLookupRequired: true,
+  fuzzyOrNameBasedLookupAcceptable: false,
+  ownerReference: 'OWNER_REF_GATE4C_PRODUCT_OWNER_RELAY_2026_08_24',
+  decisionDate: '2026-08-24',
+} as const;
+
+/** The date all three GATE-4 sub-decisions were relayed and recorded. */
+export const BRAZIL_RECEITA_GATE4_SUB_DECISIONS_RECORDED_DATE = '2026-08-24' as const;
+
+/**
+ * The three sub-decisions, listed so a test can assert exactly three independently-recorded records,
+ * each with its own owner reference and date — never one bundled approval.
+ */
+export const BRAZIL_RECEITA_GATE4_SUB_DECISIONS = [
+  { id: '4A', approver: 'LEGAL_PRIVACY_OWNER', record: BRAZIL_RECEITA_GATE4A_APPROVAL },
+  { id: '4B', approver: 'DATA_ARCHITECTURE_OWNER', record: BRAZIL_RECEITA_GATE4B_APPROVAL },
+  { id: '4C', approver: 'PRODUCT_OWNER', record: BRAZIL_RECEITA_GATE4C_APPROVAL },
+] as const;
+
+/**
+ * 🔴 What 4A/4B/4C together do NOT do. Enumerated so an approved GATE-4 is never misread as a solved
+ * productization path or as an implementation.
+ */
+export const BRAZIL_RECEITA_GATE4_APPROVAL_DOES_NOT: readonly string[] = [
+  'implement a surrogate generator or any key-construction code',
+  'author or apply the source_period migration or its unique index',
+  'change tax_id, normalized_tax_id or record_identity_key from TRANSIENT_ONLY',
+  'resolve the runtime lookup productization blocker — it stays recorded as one',
+  'register this source in SOURCE_FAMILY_BY_SOURCE_KEY',
+  'authorize persistence, an import, a Supabase write, a runtime path, Agent 1 or Agent 2A',
+] as const;
+
+// ─── Project technical direction — NOT a legal/privacy approval ──────────────
+
+/**
+ * 🔴 Project TECHNICAL DIRECTION only, recorded separately from 4A/4B/4C because it is a DIFFERENT
+ * kind of statement: a preference for the eventual implementation, not a legal/privacy approval and
+ * not a human privacy signature. It authorizes NO persistence.
+ *
+ * The direction: if and when a persisted exact-lookup representation is ever implemented under 4A's
+ * exception, it should be a single normalized 14-character establishment CNPJ — never a hash,
+ * fingerprint, truncation, partial CNPJ, other encoded derivative, or multiple representations.
+ * Reasoning: exact lookup needs an exact key, and a hash or other derivative only adds
+ * derivative-privacy ambiguity with no product benefit — it remains a CNPJ derivative under GATE-1
+ * R4's own terms, which is exactly why `BRAZIL_RECEITA_GATE4_SURROGATE_EVALUATION` above already
+ * rejected the hash / truncation / fingerprint / base64 candidate.
+ *
+ * This direction does not author or apply the source_period migration
+ * (`BRAZIL_RECEITA_GATE4_REQUIRED_FUTURE_MIGRATION` stays exactly as recorded — not authorized, not
+ * authored), does not change the TRANSIENT_ONLY disposition of tax_id / normalized_tax_id /
+ * record_identity_key, and does not resolve the recorded productization blocker
+ * (`BRAZIL_RECEITA_GATE4_RUNTIME_LOOKUP_FINDING` stays exactly as recorded) — it narrows what a
+ * FUTURE resolution would look like; it does not implement one.
+ */
+export const BRAZIL_RECEITA_GATE4_TECHNICAL_DIRECTION_EXACT_LOOKUP_REPRESENTATION = {
+  isALegalPrivacyApproval: false,
+  isAHumanPrivacySignature: false,
+  decidedBy: 'project_technical_direction',
+  preferredRepresentation: 'single_normalized_14_character_establishment_cnpj',
+  rejectedRepresentations: [
+    'hash',
+    'fingerprint',
+    'truncation',
+    'partial_cnpj',
+    'other_encoded_derivative',
+    'multiple_representations',
+  ] as readonly string[],
+  reasoning:
+    'exact lookup requires an exact key; a hash or other derivative only adds derivative-privacy ambiguity with no product benefit, and remains a CNPJ derivative under GATE-1 R4',
+  authorizesPersistence: false,
+  authorsOrAppliesMigration: false,
+  changesTransientOnlyDisposition: false,
+  resolvesRuntimeLookupBlocker: false,
+  recordedDate: '2026-08-24',
 } as const;
 
 // ─── Monthly identity (§ 11) ─────────────────────────────────────────────────
@@ -551,17 +700,18 @@ export function assertBrazilReceitaSnapshotRowIsPersistable(
 
 /** The bounds this record carries, enumerated per 10K § 14. */
 export const BRAZIL_RECEITA_GATE4_RESTRICTIONS: readonly string[] = [
-  'this record approves no gate',
-  'the report marker record_identity_grain_decision stays not_decided until GATE-4 is approved',
   'no migration is created, edited or applied, and no index and no physical schema is changed',
   'the required future DDL is recorded as text and is not authorized',
-  'no surrogate generator is implemented; a key nobody approved is a key nobody may build',
+  'no surrogate generator is implemented; a key nobody has implemented is a key that does not exist yet',
   'this source stays absent from SOURCE_FAMILY_BY_SOURCE_KEY, so the registry keeps throwing for it',
   'tax_id, normalized_tax_id and record_identity_key stay TRANSIENT_ONLY and persisting them is refused',
-  'the single unresolved question is legal/privacy and no agent may answer it',
   'exact runtime lookup is a recorded PRODUCTIZATION BLOCKER, not a solved problem',
   'fuzzy or name-based lookup is not an acceptable substitute for exact identity',
   'atomic publish is defined as identity semantics only and is not implemented',
   'no persistence, import, Supabase write, runtime path, Agent 1 or Agent 2A integration',
-  'GATE-3 and GATE-5 remain separate, and GATE-5 remains not_started and unaffected',
+  // BR-SOURCE-FAST-TRACK-7.
+  'the report marker record_identity_grain_decision may now legitimately read option_d, but no emitter or projection reads it — none is implemented',
+  'the 4A exception grants a permission in principle; it does not choose or implement a storage encoding',
+  'the technical direction for the eventual encoding is project direction only, not a legal/privacy approval, and authorizes no persistence',
+  'no operational flag is flipped by this approval',
 ] as const;

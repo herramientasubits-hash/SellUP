@@ -2723,6 +2723,45 @@ jobs:
       - name: Run BR-SOURCE FAST-TRACK-6 fail-closed emitter removal tests
         run: npm run test:br-source:fast-track6-emitter-removal
 
+      # BR-SOURCE-FAST-TRACK-7 — el relevo humano del dueño del proyecto (2026-08-24):
+      # GATE-2, GATE-3, GATE-4, GATE-5 y GATE-6 quedan aprobados, cada uno registrado de
+      # forma independiente. GATE-7 NO se aprueba.
+      #
+      #   · GATE-2: el dueño de privacidad confirma la disposición del ordinal de cubeta
+      #     (técnica, sin cambios) — cierra la aprobación conjunta. Ningún techo, opción de
+      #     almacenamiento ni flag se re-decide.
+      #   · GATE-3: el dueño legal/privacidad aprueba la política de campos exactamente como
+      #     se registró (RB-1/RB-2/RB-3 ya cerrados) — cierra la aprobación conjunta.
+      #   · GATE-4: TRES decisiones independientes, nunca una sola — 4A (legal/privacidad,
+      #     excepción estrecha y enumerada a R4 de GATE-1 para UNA representación
+      #     persistida de lookup exacto), 4B (arquitectura de datos aprueba la MISMA malla ya
+      #     registrada) y 4C (producto exige lookup exacto, rechaza el fuzzy). Por separado,
+      #     una DIRECCIÓN TÉCNICA del proyecto —NO una aprobación legal/privacidad— prefiere
+      #     un CNPJ normalizado de 14 caracteres sobre cualquier hash/huella/truncado. Ningún
+      #     surrogate, ninguna migración, ningún lookup en runtime se implementa aquí.
+      #   · GATE-5: aprobación conjunta contra el contrato CORREGIDO post-§9.3 —nunca el
+      #     borrador § 9.1—, nombrando el sujeto explícitamente.
+      #   · GATE-6: aprobación conjunta que CONFIRMA delete-sobre-quarantine.
+      #   · 🔴 GATE-7 se mueve de `blocked` a `needs_evidence`: tres de sus cuatro
+      #     bloqueadores (GATE-2/5/6) quedan descargados por las aprobaciones de arriba; el
+      #     cuarto —reproducibilidad por otro operador— sigue UNDEMONSTRATED. `needs_evidence`
+      #     se razona contra el vocabulario del § 3: no es `blocked` (la dependencia ya no
+      #     existe), no es `ready_for_review` (la evidencia de reproducibilidad falta), y no
+      #     es `needs_owner_decision`/`needs_owner_confirmation` (falta un ENSAYO, no la
+      #     respuesta de una persona a una pregunta ya planteada).
+      #   · `brazilReceitaApprovedGateCount()` = 7, `brazilReceitaGateGlobalVerdict()` = NO-GO.
+      #   · cada decisión es un RELEVO del dueño (mismo patrón OWNER_REF_GATE{n}_{ROL}_RELAY_
+      #     {fecha} de toda la serie), nunca una firma personal: sólo roles, sin nombres,
+      #     correos, IDs de mensaje ni URLs.
+      #   · nada operacional se movió: ATTEMPT_3_ALLOWED sigue false sin ruta de reinicio, la
+      #     política de almacenamiento temporal sigue false, y la propuesta provisional de
+      #     capacidad sigue en 0.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales de Receita,
+      # sin benchmark, sin ensayo. 0 créditos, 0 escrituras, 0 migraciones, 0 flags.
+      - name: Run BR-SOURCE FAST-TRACK-7 GATE-2/3/4/5/6 owner approval tests
+        run: npm run test:br-source:fast-track7-gate2-3-4-5-6-approvals
+
       # AGENT1-APOLLO-BENCHMARK-PARITY-CUT-2 § 20 — la demanda RESIDUAL y la
       # memoria PREVIA.
       #

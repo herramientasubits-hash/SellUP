@@ -23,10 +23,16 @@
  *
  * ── 🔴 Today's verdict, and why it is the correct one ────────────────────────
  *
- * `evaluateBrazilReceitaGate7Preconditions()` returns `FAIL` today, because GATE-2, GATE-5 and
- * GATE-6 are not `approved`. That is the checklist doing its job, not a defect in it, and there is
- * deliberately no parameter, option, environment read or override that produces any other verdict
- * while those gates are unapproved. A bypass is the one feature this module must not have.
+ * `evaluateBrazilReceitaGate7Preconditions()` still returns `FAIL` today — but as of
+ * BR-SOURCE-FAST-TRACK-7, for a different and single reason: GATE-2, GATE-5 and GATE-6 are now
+ * `approved`, so `unapprovedBlockingGates` is empty, but the evaluator checks the current state of
+ * ALL EIGHT gates including GATE-7's own, and GATE-7 itself is not `approved`
+ * (`BRAZIL_RECEITA_GATE7_STATUS` is `needs_evidence`). `evaluateBrazilReceitaGate7PrivacyPreflight()`
+ * now returns `PASS`, because all five contracts it checks — owned by GATE-2 … GATE-6 — are approved.
+ * Neither function was edited to produce these outcomes: both are unconditional derivations from
+ * `BRAZIL_RECEITA_GATE_CURRENT_STATE`, and there is deliberately no parameter, option, environment
+ * read or override that could produce any other verdict. A bypass is the one feature this module must
+ * not have.
  *
  * ── This module NEVER (fail-closed by construction) ──────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
