@@ -3104,6 +3104,41 @@ jobs:
       - name: Run A2A legacy cross-provider Lusha continuation tests
         run: npm run test:agent2a:legacy-cross-provider-lusha
 
+      # ── AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1 ──────────────────
+      #
+      # Check OBLIGATORIO. Cierra el defecto que hizo INDIAGNOSTICABLE un rechazo
+      # real de Producción: un candidato que la vista previa declaró elegible con
+      # tope 6 fue rechazado al hacer clic, y el operador leyó una sola frase
+      # —«este candidato ya no puede autorizarse por esta vía»— mientras la base
+      # de datos quedaba intacta (0 corridas, 0 reservas, 0 identidades, 0 usage
+      # logs). Esa frase es una afirmación sobre el CANDIDATO, y detrás se
+      # colapsaban motivos incompatibles entre sí.
+      #
+      # Lo que el check impide que se rompa en silencio:
+      #
+      #   * PARIDAD vista previa ↔ ARRANQUE sobre el BORDE DE I/O REAL: las dos
+      #     proyecciones se comparan campo a campo, así que un select o una opción
+      #     que diverjan fallan aquí en vez de producir un botón que promete algo
+      #     que el servidor rechaza;
+      #   * TAXONOMÍA VERAZ: ningún motivo mecánico conocido puede traducirse a
+      #     `not_eligible`. El `switch` es exhaustivo y un motivo nuevo rompe la
+      #     compilación en vez de heredar la frase genérica;
+      #   * una LECTURA QUE FALLA se reporta como INFRAESTRUCTURA, nunca como
+      #     inelegibilidad del candidato — ése era el caso en el que la frase era
+      #     literalmente falsa;
+      #   * PRIVACIDAD fail-closed y ANTES de reservar también en la ruta legacy
+      #     AUTOMÁTICA: supresión, do-not-contact y verificación no disponible
+      #     bloquean con 0 corridas, 0 reservas y 0 proveedores, y la verificación
+      #     NO DISPONIBLE no se confunde con una supresión confirmada;
+      #   * los topes siguen siendo 5 y 6 —nunca 8, 13 ni 14—, el techo humano
+      #     sigue siendo un LÍMITE SUPERIOR DURO y sin techo aceptado se asume el
+      #     suelo conservador de 5;
+      #   * el evento de observabilidad es PII-FREE: se comprueba contra los
+      #     valores REALES del fixture que no filtra nombre, LinkedIn, empresa,
+      #     dominio, id de candidato ni id nativo de proveedor.
+      - name: Run A2A legacy Lusha start-rejection diagnostic tests
+        run: npm run test:agent2a:legacy-start-rejection-diagnostic
+
       # ── AGENT1-CUT3B1-FISCAL-IDENTITY-TRUTH ────────────────────────────────
       #
       # Check OBLIGATORIO. Cierra las tres formas en que la identidad fiscal de
