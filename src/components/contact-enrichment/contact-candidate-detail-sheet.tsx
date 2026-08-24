@@ -123,6 +123,15 @@ import {
   PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY,
   PHONE_REVEAL_WATERFALL_BUTTON_LABEL,
+  PHONE_REVEAL_LEGACY_ALREADY_PENDING_COPY,
+  PHONE_REVEAL_LEGACY_CANDIDATE_NOT_FOUND_COPY,
+  PHONE_REVEAL_LEGACY_DO_NOT_CONTACT_COPY,
+  PHONE_REVEAL_LEGACY_FEATURE_DISABLED_COPY,
+  PHONE_REVEAL_LEGACY_MISSING_LUSHA_ID_COPY,
+  PHONE_REVEAL_LEGACY_PRIVACY_UNVERIFIED_COPY,
+  PHONE_REVEAL_LEGACY_ROLE_NOT_ALLOWED_COPY,
+  PHONE_REVEAL_LEGACY_STATE_CHANGED_COPY,
+  PHONE_REVEAL_LEGACY_SUPPRESSED_COPY,
   PHONE_REVEAL_WATERFALL_LEGACY_BUTTON_LABEL,
   PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY,
   PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY,
@@ -1399,11 +1408,54 @@ export function ContactCandidateDetailSheet({
         );
         void reloadCandidate();
         return;
-      case 'not_eligible':
-        setLegacyWaterfallError(
-          'Este candidato ya no puede autorizarse por esta vía. Recarga la vista para ver su estado actual.',
-        );
+      // AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1 — cada rechazo dice lo que
+      // de verdad pasó. Antes todos estos casos compartían una frase que afirmaba algo
+      // sobre el CANDIDATO, y para la mayoría era falsa: el candidato aplicaba y lo que
+      // había cambiado era el flag, el rol, la privacidad, una autorización ya viva o
+      // una lectura rota.
+      //
+      // Los que SÍ son un hecho del candidato recargan la vista; los que no lo son
+      // (flag, rol, privacidad, infraestructura) no recargan nada, porque no hay nada
+      // nuevo que leer y una recarga sugeriría que el candidato cambió.
+      case 'candidate_state_changed':
+        setLegacyWaterfallError(PHONE_REVEAL_LEGACY_STATE_CHANGED_COPY);
         void reloadCandidate();
+        return;
+      case 'candidate_not_found':
+        setLegacyWaterfallError(PHONE_REVEAL_LEGACY_CANDIDATE_NOT_FOUND_COPY);
+        void reloadCandidate();
+        return;
+      case 'missing_lusha_contact_id':
+        setLegacyWaterfallError(PHONE_REVEAL_LEGACY_MISSING_LUSHA_ID_COPY);
+        return;
+      // La corrida existente ES la autorización: se recarga para que la auditoría la
+      // muestre y el botón se retire.
+      case 'already_pending':
+        setLegacyWaterfallNotice(PHONE_REVEAL_LEGACY_ALREADY_PENDING_COPY);
+        void reloadCandidate();
+        return;
+      // Privacidad: 0 corridas, 0 reservas, 0 proveedores, 0 créditos. El bloqueo
+      // CONFIRMADO y la verificación NO DISPONIBLE cortan igual y afirman cosas
+      // distintas — confundirlos le atribuiría a la persona una restricción que nadie
+      // llegó a comprobar.
+      case 'blocked_suppressed':
+        setLegacyWaterfallError(PHONE_REVEAL_LEGACY_SUPPRESSED_COPY);
+        return;
+      case 'do_not_contact':
+        setLegacyWaterfallError(PHONE_REVEAL_LEGACY_DO_NOT_CONTACT_COPY);
+        return;
+      case 'privacy_check_unavailable':
+        setLegacyWaterfallError(PHONE_REVEAL_LEGACY_PRIVACY_UNVERIFIED_COPY);
+        return;
+      case 'feature_disabled':
+        setLegacyWaterfallError(PHONE_REVEAL_LEGACY_FEATURE_DISABLED_COPY);
+        return;
+      case 'role_not_allowed':
+        setLegacyWaterfallError(PHONE_REVEAL_LEGACY_ROLE_NOT_ALLOWED_COPY);
+        return;
+      // Sólo queda la entrada inválida del cliente: el candidato no llegó a evaluarse.
+      case 'not_eligible':
+        setLegacyWaterfallError(PHONE_REVEAL_WATERFALL_ERROR_COPY);
         return;
       // AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1: el tope cambió entre lo
       // que el operador leyó y lo que la modalidad real exige (típicamente 5 → 6

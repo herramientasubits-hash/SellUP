@@ -584,3 +584,56 @@ export function formatWaterfallLegCredits(
     ? `${credits} ${unit}`
     : `${credits} ${unit} (sin confirmar)`;
 }
+
+// ── Rechazos del arranque LEGACY, uno por uno ──────────────────
+// (AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1)
+//
+// Todos estos casos compartían una sola frase —«Este candidato ya no puede autorizarse
+// por esta vía»— que es una afirmación sobre el CANDIDATO. Para la mitad de ellos era
+// falsa: el candidato aplicaba perfectamente y lo que había cambiado era el flag, el
+// rol, la privacidad, una autorización ya viva o una lectura rota. Cada copy dice ahora
+// lo que de verdad pasó, sin exponer ids de proveedor ni detalles internos de la base
+// de datos, y sin afirmar nada económico que no haya ocurrido.
+
+/** Sin id propio ni identificador exacto con el que comprarlo en Lusha. */
+export const PHONE_REVEAL_LEGACY_MISSING_LUSHA_ID_COPY =
+  'No hay suficientes datos para identificar este contacto en Lusha.';
+
+/** Ya hay una autorización VIVA. No se abre una segunda ni se cobra de nuevo. */
+export const PHONE_REVEAL_LEGACY_ALREADY_PENDING_COPY =
+  'Ya hay una revelación en proceso.';
+
+/** Tombstone de supresión CONFIRMADO. */
+export const PHONE_REVEAL_LEGACY_SUPPRESSED_COPY =
+  'No se puede revelar este teléfono por una restricción de privacidad.';
+
+/** `do_not_contact` registrado para este contacto. */
+export const PHONE_REVEAL_LEGACY_DO_NOT_CONTACT_COPY =
+  'Este contacto está marcado como no contactar.';
+
+/**
+ * La verificación de privacidad NO se pudo completar. Bloquea igual que un tombstone
+ * confirmado, pero NO afirma lo mismo: aquí no se comprobó nada. Se dice explícitamente
+ * que no hubo cargo, porque el corte ocurre antes de reservar.
+ */
+export const PHONE_REVEAL_LEGACY_PRIVACY_UNVERIFIED_COPY =
+  'No fue posible verificar las restricciones de privacidad. No se hizo ningún cargo.';
+
+/**
+ * El candidato existe, pero su estado ya no coincide con el que la vista previa leyó.
+ * La acción del operador es una sola: recargar.
+ */
+export const PHONE_REVEAL_LEGACY_STATE_CHANGED_COPY =
+  'El estado del candidato cambió. Recarga la vista.';
+
+/** El candidato dejó de existir entre el render y el clic. */
+export const PHONE_REVEAL_LEGACY_CANDIDATE_NOT_FOUND_COPY =
+  'Este candidato ya no está disponible. Recarga la vista.';
+
+/** Hecho del ENTORNO, no del candidato: la función está apagada. */
+export const PHONE_REVEAL_LEGACY_FEATURE_DISABLED_COPY =
+  'La revelación de teléfono no está habilitada en este momento. No se hizo ningún cargo.';
+
+/** Hecho del ACTOR, no del candidato. */
+export const PHONE_REVEAL_LEGACY_ROLE_NOT_ALLOWED_COPY =
+  'Tu rol no puede autorizar la revelación de teléfono.';

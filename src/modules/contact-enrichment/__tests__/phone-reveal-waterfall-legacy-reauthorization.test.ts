@@ -1275,16 +1275,20 @@ describe('WATERFALL-2C — supresión/DNC se recomprueba en CADA autorización',
     ];
 
     const result = await authorize();
-    // La corrida NUEVA sí se crea (la autorización es legítima) pero se cierra sin
-    // llamar a Lusha: el permiso lo da la comprobación de AHORA, no la de antes.
-    assert.equal(result.outcome, 'closed_without_lusha');
+    // AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1 — el permiso lo sigue dando la
+    // comprobación de AHORA, no la de antes, y ahora corta ANTES de escribir: la ruta
+    // legacy automática cablea la puerta de privacidad previa a la reserva, igual que
+    // el disparo manual. El veredicto y su precedencia no cambian; lo que desaparece
+    // es la corrida que se creaba sólo para cerrarla y la exposición que quedaba
+    // ocupada mientras tanto.
+    assert.equal(result.outcome, 'not_started');
     assert.equal(result.reason, 'do_not_contact');
     assert.equal(spies.lushaCalls, 0, 'Lusha NO se llama');
-    assert.equal(runsForCandidate().length, 2);
-    const created = runsForCandidate()[1];
-    assert.equal(created.status, 'aborted');
-    assert.equal(created.lusha_skipped_reason, 'dnc');
-    assert.equal(created.lusha_cost_credits ?? null, null);
+    assert.equal(
+      runsForCandidate().length,
+      1,
+      'NO se crea una corrida nueva: 0 escrituras',
+    );
     assertZeroApollo();
   });
 
@@ -1302,14 +1306,18 @@ describe('WATERFALL-2C — supresión/DNC se recomprueba en CADA autorización',
     store.contactsSelectError = { code: '57014', message: 'statement timeout' };
 
     const result = await authorize();
-    assert.equal(result.outcome, 'closed_without_lusha');
+    // Fail-closed IGUAL que un tombstone confirmado, y registrado DISTINTO: el motivo
+    // sigue diciendo que la comprobación no se pudo hacer, no que la persona esté
+    // suprimida. Y también corta antes de escribir: 0 corridas nuevas, 0 reservas.
+    assert.equal(result.outcome, 'not_started');
     assert.equal(result.reason, 'suppression_check_unavailable');
+    assert.notEqual(result.reason, 'blocked_suppressed');
     assert.equal(spies.lushaCalls, 0);
-    const created = runsForCandidate()[1];
-    assert.equal(created.lusha_skipped_reason, 'suppression_check_unavailable');
-    assert.notEqual(created.lusha_skipped_reason, 'suppressed');
-    assert.equal(created.lusha_cost_credits ?? null, null);
-    assert.equal(created.lusha_cost_source, 'unknown');
+    assert.equal(
+      runsForCandidate().length,
+      1,
+      'NO se crea una corrida nueva: 0 escrituras',
+    );
     assertZeroApollo();
   });
 });

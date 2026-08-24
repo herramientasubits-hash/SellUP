@@ -1726,11 +1726,64 @@ export interface StartLegacyPhoneRevealWaterfallDeps
   identitySearchAllowed?: boolean;
 }
 
+/**
+ * Clase del historial de corridas, como ENUM cerrado y PII-free
+ * (AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1).
+ *
+ * Es el veredicto de `classifyPhoneRevealWaterfallLegacyHistory` aplanado a un literal:
+ * las dos bases reautorizables y los tres bloqueos. Sirve para el diagnóstico sin
+ * exponer la fila, el id de la corrida ni ninguna fecha.
+ */
+export type PhoneRevealWaterfallLegacyHistoryClassification =
+  | 'no_previous_run'
+  | 'terminal_legacy_run'
+  | 'active_run_exists'
+  | 'incompatible_historical_run'
+  | 'previous_run_revealed_phone';
+
+/**
+ * Lo que el arranque legacy OBSERVÓ, en booleanos, enteros y literales cerrados
+ * (AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1).
+ *
+ * POR QUÉ EXISTE: un rechazo de esta ruta se veía en Producción como una sola frase
+ * genérica, y desde fuera del proceso era indistinguible qué puerta lo produjo — un
+ * hecho de privacidad, una corrida viva, el techo humano o una lectura que falló. Estos
+ * hechos sólo existen DENTRO del core, así que si el core no los devuelve nadie puede
+ * reconstruirlos después sin inventarlos.
+ *
+ * `null` significa SIEMPRE «no se llegó a evaluar», nunca «salió que no»: la diferencia
+ * es justo lo que hace útil el registro.
+ *
+ * PII-free por CONSTRUCCIÓN: el tipo no admite texto libre, así que no hay ninguna clave
+ * por la que pudiera colarse un nombre, un correo, un LinkedIn, un teléfono o un id
+ * nativo de proveedor.
+ */
+export interface LegacyPhoneRevealStartDiagnostics {
+  /** `ENABLE_PHONE_REVEAL_WATERFALL` tal y como lo resolvió el wrapper. */
+  outerFlagEnabled: boolean;
+  roleAuthorized: boolean;
+  /** ¿Esta entrada podía COMPRAR la identidad Lusha que falta? */
+  identitySearchAllowed: boolean;
+  /** Modalidad REAL resuelta por la vista previa. `null` si no se llegó a resolver. */
+  requiresIdentitySearch: boolean | null;
+  /** Veredicto de la puerta de privacidad previa a la reserva. `null` si no corrió. */
+  privacyState: PhoneRevealWaterfallSuppressionState | null;
+  /** ¿Había una corrida VIVA? `null` si no se llegó a consultar. */
+  activeRunFound: boolean | null;
+  historyClassification: PhoneRevealWaterfallLegacyHistoryClassification | null;
+}
+
 export type StartLegacyPhoneRevealWaterfallResult =
   | {
       started: true;
       runId: string;
       maxCreditsAuthorized: number;
+      /**
+       * Hechos observados, PII-free. Obligatorio en las DOS ramas: el desenlace sin
+       * diagnóstico es exactamente lo que dejó a Producción sin forma de saber qué
+       * puerta actuó (AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1).
+       */
+      diagnostics: LegacyPhoneRevealStartDiagnostics;
       /**
        * true cuando el tope autorizado incluye la búsqueda de identidad de Lusha (6 en
        * vez de 5). Lo consume el copy para desglosar «búsqueda hasta 1 + teléfono hasta
@@ -1741,6 +1794,8 @@ export type StartLegacyPhoneRevealWaterfallResult =
   | {
       started: false;
       reason: PhoneRevealWaterfallLegacyIneligibleReason;
+      /** Ver la rama de éxito: el diagnóstico no es opcional en un rechazo. */
+      diagnostics: LegacyPhoneRevealStartDiagnostics;
       /**
        * Solo en `authorization_ceiling_mismatch`: qué exigía la modalidad real y qué
        * había aceptado el operador. Dos enteros, PII-free, para que el wrapper pueda
@@ -1773,29 +1828,55 @@ export async function startLegacyPhoneRevealWaterfall(
   input: StartLegacyPhoneRevealWaterfallInput,
   deps: StartLegacyPhoneRevealWaterfallDeps,
 ): Promise<StartLegacyPhoneRevealWaterfallResult> {
-  if (!deps.flagEnabled) return { started: false, reason: 'feature_disabled' };
+  // Diagnóstico PII-free acumulado por CONSTRUCCIÓN: cada salida se lleva SÓLO los
+  // hechos que a esa altura ya se habían observado, y el resto viaja `null` — «no se
+  // evaluó», que es distinto de «salió que no»
+  // (AGENT2A-LEGACY-LUSHA-START-REJECTION-DIAGNOSTIC-1). No se muta nada: cada `diag()`
+  // construye un objeto nuevo.
+  const identitySearchAllowed = deps.identitySearchAllowed === true;
+  const diag = (
+    patch: Partial<LegacyPhoneRevealStartDiagnostics> = {},
+  ): LegacyPhoneRevealStartDiagnostics => ({
+    outerFlagEnabled: deps.flagEnabled,
+    roleAuthorized: isPhoneRevealWaterfallRoleAuthorized(deps.actor.roleKey),
+    identitySearchAllowed,
+    requiresIdentitySearch: null,
+    privacyState: null,
+    activeRunFound: null,
+    historyClassification: null,
+    ...patch,
+  });
+
+  if (!deps.flagEnabled) {
+    return { started: false, reason: 'feature_disabled', diagnostics: diag() };
+  }
   if (!isPhoneRevealWaterfallRoleAuthorized(deps.actor.roleKey)) {
-    return { started: false, reason: 'role_not_allowed' };
+    return { started: false, reason: 'role_not_allowed', diagnostics: diag() };
   }
 
   const candidateId = cleanText(
     typeof input.candidateId === 'string' ? input.candidateId : null,
   );
-  if (!candidateId) return { started: false, reason: 'invalid_candidate' };
+  if (!candidateId) {
+    return { started: false, reason: 'invalid_candidate', diagnostics: diag() };
+  }
 
   const evidence = await deps.loadLegacyEvidence(candidateId);
-  if (!evidence) return { started: false, reason: 'candidate_not_found' };
+  if (!evidence) {
+    return { started: false, reason: 'candidate_not_found', diagnostics: diag() };
+  }
 
   // La modalidad se resuelve por la MISMA función que alimenta el copy del botón
   // (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1), así que el número que se
   // enseña antes del clic y el que se reserva después son el mismo por CONSTRUCCIÓN.
   const preview = buildLegacyPhoneRevealAuthorizationPreview(evidence, {
-    identitySearchAuthorized: deps.identitySearchAllowed === true,
+    identitySearchAuthorized: identitySearchAllowed,
   });
   if (!preview.eligible) {
     return {
       started: false,
       reason: preview.reason ?? 'apollo_evidence_missing',
+      diagnostics: diag({ requiresIdentitySearch: preview.requiresIdentitySearch }),
     };
   }
   const requiresIdentitySearch = preview.requiresIdentitySearch;
@@ -1803,7 +1884,17 @@ export async function startLegacyPhoneRevealWaterfall(
 
   // Una sola autorización viva por candidato (índice único parcial).
   const active = await deps.findActiveRun(candidateId);
-  if (active) return { started: false, reason: 'active_run_exists' };
+  if (active) {
+    return {
+      started: false,
+      reason: 'active_run_exists',
+      diagnostics: diag({
+        requiresIdentitySearch,
+        activeRunFound: true,
+        historyClassification: 'active_run_exists',
+      }),
+    };
+  }
 
   // El historial se CLASIFICA, no se cuenta (AGENT2A-PHONE-WATERFALL-2C): una corrida
   // legacy terminal que no consiguió teléfono admite una autorización NUEVA, mientras
@@ -1812,8 +1903,23 @@ export async function startLegacyPhoneRevealWaterfall(
     await deps.findLatestRun(candidateId),
   );
   if (!historyVerdict.reauthorizable) {
-    return { started: false, reason: historyVerdict.reason };
+    return {
+      started: false,
+      reason: historyVerdict.reason,
+      diagnostics: diag({
+        requiresIdentitySearch,
+        activeRunFound: false,
+        historyClassification: historyVerdict.reason,
+      }),
+    };
   }
+  // A partir de aquí el historial ya está clasificado, así que viaja en TODAS las
+  // salidas restantes.
+  const observed = {
+    requiresIdentitySearch,
+    activeRunFound: false,
+    historyClassification: historyVerdict.basis,
+  } as const;
 
   // TECHO DE LA AUTORIZACIÓN HUMANA, también aquí
   // (AGENT2A-LEGACY-CROSS-PROVIDER-LUSHA-CONTINUATION-1).
@@ -1837,6 +1943,7 @@ export async function startLegacyPhoneRevealWaterfall(
     return {
       started: false,
       reason: 'authorization_ceiling_mismatch',
+      diagnostics: diag(observed),
       requiredMaxCredits: maxCreditsAuthorized,
       acceptedMaxCredits,
     };
@@ -1851,6 +1958,7 @@ export async function startLegacyPhoneRevealWaterfall(
   // Fail-closed en las TRES ramas. La puerta posterior de `continuePhoneRevealWaterfall`
   // NO se sustituye: sigue corriendo sobre la corrida ya creada, y es la que cubre la
   // ventana entre la reserva y la llamada al proveedor.
+  let privacyState: PhoneRevealWaterfallSuppressionState | null = null;
   if (deps.checkPrivacyGateBeforeReserving) {
     const privacy = await deps.checkPrivacyGateBeforeReserving(candidateId);
     if (privacy !== 'clear') {
@@ -1862,8 +1970,10 @@ export async function startLegacyPhoneRevealWaterfall(
             : privacy === 'do_not_contact'
               ? 'do_not_contact'
               : 'suppression_check_unavailable',
+        diagnostics: diag({ ...observed, privacyState: privacy }),
       };
     }
+    privacyState = privacy;
   }
 
   // PREFLIGHT + RESERVA (AGENT2A-PHONE-WATERFALL-4D/4E). Solo se exige y solo se reserva
@@ -1903,13 +2013,20 @@ export async function startLegacyPhoneRevealWaterfall(
       creditReservationGroupId: reservationGroupId,
     }),
   });
-  if (!creditGate.started) return { started: false, reason: creditGate.reason };
+  if (!creditGate.started) {
+    return {
+      started: false,
+      reason: creditGate.reason,
+      diagnostics: diag({ ...observed, privacyState }),
+    };
+  }
 
   return {
     started: true,
     runId: creditGate.runId,
     maxCreditsAuthorized,
     requiresIdentitySearch,
+    diagnostics: diag({ ...observed, privacyState }),
   };
 }
 
