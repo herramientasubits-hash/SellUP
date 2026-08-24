@@ -28,6 +28,13 @@
  * gate's. Its status moved from `not_started` to `blocked` — both NO-GO, and the move is a statement
  * about REVIEWABILITY, not about permission.
  *
+ * 🔴 BR-SOURCE-FAST-TRACK-7 recorded human owner approvals for GATE-2, GATE-3, GATE-4, GATE-5 and
+ * GATE-6 (each independently, in its own recorded module). GATE-7's own status moved again, from
+ * `blocked` to `needs_evidence`: three of its four named blockers were the now-approved gates, and
+ * the fourth — reproducibility by a different operator — remains UNDEMONSTRATED. Seven of eight gates
+ * are approved and the global verdict below still reads NO-GO, because GATE-7 is the one gate this
+ * round does not approve.
+ *
  * ── This module NEVER ────────────────────────────────────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
  *   - advances, approves or downgrades a gate. It reports; the recorded modules decide.
@@ -115,45 +122,46 @@ export interface BrazilReceitaGateCurrentState {
 /**
  * The authoritative current view. A consumer reads THIS, never a `Status today` line.
  *
- * 🔴 Six of the eight are not approved, so the 10K § 15 matrix reads NO-GO. Three gates having
- * advanced their status is progress in REVIEWABILITY, not in permission.
+ * 🔴 As of BR-SOURCE-FAST-TRACK-7, one of the eight is not approved — GATE-7 — so the 10K § 15 matrix
+ * still reads NO-GO. Seven gates being approved is not the same as eight; the matrix requires every
+ * one.
  */
 export const BRAZIL_RECEITA_GATE_CURRENT_STATE: readonly BrazilReceitaGateCurrentState[] = [
   { gate: 1, status: BRAZIL_RECEITA_GATE1_STATUS, recordedIn: '§ 5.1', owningModule: null },
   {
     gate: 2,
     status: BRAZIL_RECEITA_GATE2_STATUS as BrazilReceitaGateStatus,
-    recordedIn: '§ 6.1',
+    recordedIn: '§ 6.2',
     owningModule: 'br-receita-cnpj-gate2-recorded-owner-decision',
   },
   {
     gate: 3,
     status: BRAZIL_RECEITA_GATE3_STATUS as BrazilReceitaGateStatus,
-    recordedIn: '§ 7.2',
+    recordedIn: '§ 7.3',
     owningModule: 'br-receita-cnpj-gate3-recorded-field-policy',
   },
   {
     gate: 4,
     status: BRAZIL_RECEITA_GATE4_STATUS as BrazilReceitaGateStatus,
-    recordedIn: '§ 8.1',
+    recordedIn: '§ 8.2',
     owningModule: 'br-receita-cnpj-gate4-recorded-identity-grain',
   },
   {
     gate: 5,
     status: BRAZIL_RECEITA_GATE5_STATUS as BrazilReceitaGateStatus,
-    recordedIn: '§ 9.1',
+    recordedIn: '§ 9.4',
     owningModule: 'br-receita-cnpj-gate5-recorded-output-sanitization',
   },
   {
     gate: 6,
     status: BRAZIL_RECEITA_GATE6_STATUS as BrazilReceitaGateStatus,
-    recordedIn: '§ 10.1',
+    recordedIn: '§ 10.2',
     owningModule: 'br-receita-cnpj-gate6-recorded-cleanup-contract',
   },
   {
     gate: 7,
     status: BRAZIL_RECEITA_GATE7_STATUS as BrazilReceitaGateStatus,
-    recordedIn: '§ 11.1',
+    recordedIn: '§ 11.2',
     owningModule: 'br-receita-cnpj-gate7-recorded-operator-runbook',
   },
   {

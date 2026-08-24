@@ -1,5 +1,6 @@
 /**
- * BR Receita CNPJ — RECORDED GATE-6 cleanup contract (BR-SOURCE-GATE-ROUND-2).
+ * BR Receita CNPJ — RECORDED GATE-6 cleanup contract (BR-SOURCE-GATE-ROUND-2; joint approval
+ * recorded BR-SOURCE-FAST-TRACK-7).
  *
  * GATE-6 is the failure-cleanup gate (10K § 10): cleanup on completion AND failure, with cleanup
  * failure as a terminal state. It has been `not_started` since 10K, and 10PQR § 4–§ 5 landed a
@@ -25,22 +26,13 @@
  *     of a verifiably-removed workspace reported `unverified` ("nobody can say"), which is a repeat
  *     call downgrading a verified success. It now reports `not_needed`, verified absent.
  *
- * ── 🔴 GATE-6 status: still NOT approved, and for one exact reason ───────────
+ * ── 🔴 Update (BR-SOURCE-FAST-TRACK-7) — GATE-6 is APPROVED ──────────────────
  *
- * `BRAZIL_RECEITA_GATE6_STATUS` is `ready_for_review`. That is a real advance — 10K § 3 defines it as
- * "evidence complete and submitted; awaiting the named approver" — and it is NOT an approval: § 15's
- * matrix reads NO-GO for `ready_for_review` exactly as it does for `not_started`.
- *
- * The single unmet criterion is the recorded joint decision itself:
- * `BRAZIL_RECEITA_GATE6_SINGLE_REMAINING_CRITERION`. GATE-6 needs the technical owner AND the
- * operator owner, jointly (10K § 10), and 10K § 3 forbids the implementer of a gate's subject from
- * approving it. This round implemented the subject. It therefore cannot approve the gate, and saying
- * otherwise would violate the rule that most directly protects this gate.
- *
- * There is one substantive decision inside that review, and it is named rather than assumed: 10PQR
- * § 4.2 recommended DELETE and would admit quarantine only under an approved GATE-2 envelope. This
- * implementation does DELETE and offers no quarantine path. That is the proposal's recommendation
- * built, not a new decision — but it is the proposal's, not the owners', until they say so.
+ * The technical owner AND the operator owner have jointly approved, by owner relay recorded
+ * 2026-08-24. The one substantive decision inside that review — 10PQR § 4.2 recommended DELETE and
+ * would admit quarantine only under an approved GATE-2 envelope — is explicitly confirmed as DELETE:
+ * the executable contract's DELETE-over-quarantine disposition is the approved one, and quarantine
+ * remains not implemented and not authorized.
  *
  * ── This module NEVER (fail-closed by construction) ──────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access. Its only
@@ -57,10 +49,11 @@ import type { BrazilReceitaFullJoinCleanupStatus } from './br-receita-cnpj-full-
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 
-export const BRAZIL_RECEITA_GATE6_STATUS = 'ready_for_review' as const;
+/** GATE-6's status. `approved` as of BR-SOURCE-FAST-TRACK-7 — see the module header. */
+export const BRAZIL_RECEITA_GATE6_STATUS = 'approved' as const;
 
-/** Whether this record approves anything. It does not, and says so as data. */
-export const BRAZIL_RECEITA_GATE6_APPROVED = false as const;
+/** Whether this record approves anything. It does, as of BR-SOURCE-FAST-TRACK-7. */
+export const BRAZIL_RECEITA_GATE6_APPROVED = true as const;
 
 /**
  * The joint approvers GATE-6 requires (10K § 10): technical owner AND operator owner. 10PQR also
@@ -72,23 +65,33 @@ export const BRAZIL_RECEITA_GATE6_OPERATOR_APPROVER_ROLE = 'operator owner' as c
 export const BRAZIL_RECEITA_GATE6_LEAK_CLASS_ESCALATION_ROLE = 'privacy owner' as const;
 export const BRAZIL_RECEITA_GATE6_APPROVAL_IS_JOINT = true as const;
 
-/** The date the executable contract landed. Not an approval date — there is none. */
+/** The date the executable contract landed. Not the approval date — see below for that. */
 export const BRAZIL_RECEITA_GATE6_RECORDED_DATE = '2026-08-21' as const;
 
+/** The date the joint technical + operator owner approval was relayed and recorded. */
+export const BRAZIL_RECEITA_GATE6_APPROVAL_DATE = '2026-08-24' as const;
+
 /**
- * The one criterion still unmet. Exact, and not "needs more evidence".
+ * The joint approval, now recorded, and the substantive decision confirmed inside it. Kept under its
+ * original name for continuity with prior rounds' suites — this WAS the single remaining criterion,
+ * and it is now discharged.
  *
- * 🔴 `blockedByImplementerRule` is the load-bearing field. It is not a technicality: 10K § 3 exists
- * because a gate approved by the party that built its subject is not reviewed at all.
+ * Each half is an owner RELAY — the evidentiary form used for every prior approval in this series —
+ * not a personal signature: no name, no email, no message id, no URL, no more-precise timestamp than
+ * the date below.
  */
 export const BRAZIL_RECEITA_GATE6_SINGLE_REMAINING_CRITERION = {
   criterion:
-    'the § 14 joint approval entry from the technical owner AND the operator owner, recorded against this executable contract',
+    'the § 14 joint approval entry from the technical owner AND the operator owner, recorded against this executable contract — RECORDED 2026-08-24',
   blockedByImplementerRule: true,
   implementerRule: '10K § 3 — no gate may be self-approved by the author who implements its subject',
   substantiveDecisionInsideTheReview:
-    '10PQR § 4.2 recommended DELETE and would admit quarantine only under an approved GATE-2 envelope; this implementation does DELETE and offers no quarantine path. The owners confirm or reject that.',
+    '10PQR § 4.2 recommended DELETE and would admit quarantine only under an approved GATE-2 envelope; this implementation does DELETE and offers no quarantine path. The owners CONFIRMED delete-over-quarantine as the approved disposition.',
+  substantiveDecisionConfirmedAs: 'delete_over_quarantine',
   agentMayApprove: false,
+  technicalOwnerReference: 'OWNER_REF_GATE6_TECHNICAL_OWNER_RELAY_2026_08_24',
+  operatorOwnerReference: 'OWNER_REF_GATE6_OPERATOR_OWNER_RELAY_2026_08_24',
+  approvalDate: '2026-08-24',
 } as const;
 
 // ─── The cleanup contract, as executed ────────────────────────────────────────
@@ -240,14 +243,13 @@ export const BRAZIL_RECEITA_GATE6_RUNNER_OBLIGATIONS: readonly string[] = [
 
 /** The bounds this record carries, enumerated per 10K § 14. */
 export const BRAZIL_RECEITA_GATE6_RESTRICTIONS: readonly string[] = [
-  'this record approves no gate; ready_for_review is NO-GO in the § 15 matrix',
-  'the implementer of this subject may not approve this gate',
   'no operational flag is flipped, and the temporary-storage policy constant stays false',
   'no runner is written, and no run is authorized',
   'no real Receita data is read and no benchmark is executed',
   'cleanup deletes only paths its owning module created; no path is ever accepted from a caller',
-  'quarantine is not implemented and is not authorized',
+  'quarantine is not implemented and is not authorized — DELETE-over-quarantine is the confirmed disposition',
   'a failed or not_executed cleanup is terminal and may not be upgraded by a retry',
   'no Supabase write on any cleanup path, on success or on failure',
-  'downstream and sibling gates remain independently required',
+  // BR-SOURCE-FAST-TRACK-7.
+  'this approval covers the executable cleanup contract exactly as recorded; it does not implement quarantine or widen any cleanup path',
 ] as const;

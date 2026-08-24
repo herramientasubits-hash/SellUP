@@ -253,16 +253,15 @@ describe('GATE-ROUND-2 · GATE-3 RB-3 is closed, and closed by labelling rather 
   });
 });
 
-describe('GATE-ROUND-2 · GATE-3 advances to ready_for_review and stays UNAPPROVED', () => {
-  it('the status is ready_for_review, which is NO-GO, and is not approved', () => {
-    assert.equal(BRAZIL_RECEITA_GATE3_STATUS, 'ready_for_review');
-    assert.equal(BRAZIL_RECEITA_GATE3_APPROVED, false);
-    assert.notEqual(BRAZIL_RECEITA_GATE3_STATUS, 'approved');
+describe('GATE-ROUND-2 · GATE-3 advances to ready_for_review, then to approved (BR-SOURCE-FAST-TRACK-7)', () => {
+  it('the status is approved — the legal/privacy half was recorded 2026-08-24', () => {
+    assert.equal(BRAZIL_RECEITA_GATE3_STATUS, 'approved');
+    assert.equal(BRAZIL_RECEITA_GATE3_APPROVED, true);
   });
 
-  it('🔴 the ONE remaining criterion is the legal/privacy half, and no agent may supply it', () => {
+  it('🔴 the joint approval criterion is now discharged; both halves are recorded and no agent supplied either', () => {
     assert.equal(BRAZIL_RECEITA_GATE3_SINGLE_REMAINING_CRITERION.productDataHalfRecorded, true);
-    assert.equal(BRAZIL_RECEITA_GATE3_SINGLE_REMAINING_CRITERION.legalPrivacyHalfRecorded, false);
+    assert.equal(BRAZIL_RECEITA_GATE3_SINGLE_REMAINING_CRITERION.legalPrivacyHalfRecorded, true);
     assert.equal(BRAZIL_RECEITA_GATE3_SINGLE_REMAINING_CRITERION.agentMayApprove, false);
     assert.equal(
       BRAZIL_RECEITA_GATE3_SINGLE_REMAINING_CRITERION.coveredByTheGate1Determination,
@@ -298,17 +297,16 @@ describe('GATE-ROUND-2 · GATE-4 records the grain and refuses to record the ide
     }
   });
 
-  it('🔴 the gate is needs_owner_decision, with the grain decided and the identity blocked', () => {
-    assert.equal(BRAZIL_RECEITA_GATE4_STATUS, 'needs_owner_decision');
-    assert.notEqual(BRAZIL_RECEITA_GATE4_STATUS, 'approved');
-    assert.equal(BRAZIL_RECEITA_GATE4_DECIDED_PARTS.grain, 'decided');
+  it('🔴 the gate is approved (BR-SOURCE-FAST-TRACK-7, via 4A/4B/4C), with the grain owner-approved and the runtime lookup still a recorded blocker', () => {
+    assert.equal(BRAZIL_RECEITA_GATE4_STATUS, 'approved');
+    assert.equal(BRAZIL_RECEITA_GATE4_DECIDED_PARTS.grain, 'decided_and_owner_approved');
     assert.equal(
       BRAZIL_RECEITA_GATE4_DECIDED_PARTS.persistedRecordIdentityConstruction,
-      'blocked_on_owner_decision',
+      'exception_granted_concrete_construction_not_implemented',
     );
     assert.equal(
       BRAZIL_RECEITA_GATE4_DECIDED_PARTS.runtimeExactLookupMechanism,
-      'blocked_on_owner_decision',
+      'productization_blocker_recorded_not_resolved',
     );
   });
 
@@ -318,9 +316,10 @@ describe('GATE-ROUND-2 · GATE-4 records the grain and refuses to record the ide
     assert.match(BRAZIL_RECEITA_GATE4_CONSTRAINT_COLLISION.constraintTwo, /DETERMINISTIC/);
   });
 
-  it('🔴 exactly ONE unresolved question, addressed to legal/privacy, unanswered', () => {
+  it('🔴 exactly ONE question, addressed to legal/privacy, ANSWERED YES by owner relay (BR-SOURCE-FAST-TRACK-7)', () => {
     assert.equal(BRAZIL_RECEITA_GATE4_SINGLE_UNRESOLVED_QUESTION.askedOf, 'LEGAL_PRIVACY_OWNER');
-    assert.equal(BRAZIL_RECEITA_GATE4_SINGLE_UNRESOLVED_QUESTION.answeredBy, null);
+    assert.notEqual(BRAZIL_RECEITA_GATE4_SINGLE_UNRESOLVED_QUESTION.answeredBy, null);
+    assert.equal(BRAZIL_RECEITA_GATE4_SINGLE_UNRESOLVED_QUESTION.answer, 'yes');
     assert.equal(BRAZIL_RECEITA_GATE4_SINGLE_UNRESOLVED_QUESTION.agentMayAnswer, false);
     // Both branches must be spelled out: a question whose "no" has no stated consequence is a
     // question nobody has to answer.
@@ -596,11 +595,12 @@ describe('GATE-ROUND-2 · GATE-2 temp file names no longer carry the bucket ordi
     assert.notEqual(first.resolve('empresas:0'), second.resolve('empresas:0'));
   });
 
-  it('🔴 the structural fix does NOT manufacture the privacy owner confirmation', () => {
-    // This is the assertion that keeps the round honest. The ordinal is off the disk; the privacy
-    // owner still has not decided, and GATE-2 is still not approved.
-    assert.equal(BRAZIL_RECEITA_GATE2_STATUS, 'needs_owner_confirmation');
-    assert.notEqual(BRAZIL_RECEITA_GATE2_STATUS, 'approved');
+  it('🔴 the structural fix alone did NOT manufacture the privacy owner confirmation — a later, separate owner relay did (BR-SOURCE-FAST-TRACK-7)', () => {
+    // This is the assertion that keeps the round honest. The ordinal being off the disk did not, by
+    // itself, supply the privacy owner's confirmation — GATE-2's own status stayed
+    // needs_owner_confirmation through this round. It moved to approved only later, via the separate
+    // BR-SOURCE-FAST-TRACK-7 owner relay recorded in its own confirmation object.
+    assert.equal(BRAZIL_RECEITA_GATE2_STATUS, 'approved');
     assert.equal(
       BRAZIL_RECEITA_GATE2_BUCKET_ORDINAL_DISPOSITION.attributedTo,
       'PRIVACY_OWNER_CONFIRMATION_REQUIRED',
@@ -954,16 +954,20 @@ describe('GATE-ROUND-2 · GATE-6 boundaries and private artifacts', () => {
   });
 });
 
-describe('GATE-ROUND-2 · GATE-6 record stays unapproved for the right reason', () => {
-  it('the status is ready_for_review and the gate is not approved', () => {
-    assert.equal(BRAZIL_RECEITA_GATE6_STATUS, 'ready_for_review');
-    assert.equal(BRAZIL_RECEITA_GATE6_APPROVED, false);
+describe('GATE-ROUND-2 · GATE-6 record advances to ready_for_review, then approved (BR-SOURCE-FAST-TRACK-7)', () => {
+  it('the status is approved — the joint technical + operator owner approval is recorded', () => {
+    assert.equal(BRAZIL_RECEITA_GATE6_STATUS, 'approved');
+    assert.equal(BRAZIL_RECEITA_GATE6_APPROVED, true);
   });
 
-  it('🔴 blocked by the implementer rule, which this round cannot vote itself out of', () => {
+  it('🔴 the implementer rule stayed intact — the approval came from the owners, not from the implementer', () => {
     assert.equal(BRAZIL_RECEITA_GATE6_SINGLE_REMAINING_CRITERION.blockedByImplementerRule, true);
     assert.equal(BRAZIL_RECEITA_GATE6_SINGLE_REMAINING_CRITERION.agentMayApprove, false);
     assert.match(BRAZIL_RECEITA_GATE6_SINGLE_REMAINING_CRITERION.implementerRule, /10K § 3/);
+    assert.equal(
+      BRAZIL_RECEITA_GATE6_SINGLE_REMAINING_CRITERION.substantiveDecisionConfirmedAs,
+      'delete_over_quarantine',
+    );
   });
 
   it('all four statuses are terminal, and only two are success', () => {

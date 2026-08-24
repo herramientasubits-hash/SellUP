@@ -1,5 +1,6 @@
 /**
- * BR Receita CNPJ — RECORDED GATE-3 field policy (BR-SOURCE-GATE-ROUND-1).
+ * BR Receita CNPJ — RECORDED GATE-3 field policy (BR-SOURCE-GATE-ROUND-1; legal/privacy approval
+ * recorded BR-SOURCE-FAST-TRACK-7).
  *
  * GATE-3 is the field allowlist gate (10K § 7): it freezes which signals survive the join, closes
  * the denylist, labels every ambiguous field, and assigns a `field_allowlist_version`.
@@ -19,6 +20,16 @@
  * `approved` while RB-1 and RB-3 are unresolved would mean the repository claimed a frozen allowlist
  * with two of its residual blockers still unlabelled, and 10K § 7's "nothing unlabelled" pass
  * criterion would then apply to an approval that was wrong the moment it was written.
+ *
+ * ── 🔴 Update (BR-SOURCE-FAST-TRACK-7) — the legal/privacy half is now recorded ──
+ *
+ * RB-1 and RB-3 were closed by BR-SOURCE-GATE-ROUND-2 (§ 7.2). What remained was the legal/privacy
+ * owner's half of the joint approval, which no agent may supply. It is now recorded, by owner relay
+ * 2026-08-24: the legal/privacy owner approves the field policy exactly as recorded —
+ * `br_receita_cnpj_field_allowlist_v1`, as corrected by the RB-3 residual-field classification
+ * (`br-receita-cnpj-gate3-residual-field-classification.ts`). Nothing about the allowlist, the
+ * denylist, or RB-1's boundary with GATE-4 (§ 13.1) is widened or re-decided by this approval; it
+ * completes the joint approval this gate has needed since it was first recorded.
  *
  * ── The blocker that WAS here, and is now closed ─────────────────────────────
  *
@@ -64,41 +75,40 @@
  *       material is now REFUSED in code. So every item in 10K § 7's required-evidence and pass-criteria
  *       lists exists in recorded form.
  *
- * 🔴 `ready_for_review` is NOT an approval and NOT a GO. 10K § 3 defines it as "evidence complete and
- * submitted; awaiting the named approver", and § 15's matrix reads NO-GO for it exactly as it does for
- * `not_started`. What is missing is named exactly once, in
- * `BRAZIL_RECEITA_GATE3_SINGLE_REMAINING_CRITERION`.
+ * 🔴 Update (BR-SOURCE-FAST-TRACK-7): the legal/privacy owner's half of the joint approval is now
+ * recorded (see the module header above), by owner relay 2026-08-24. Both halves of the required
+ * joint approval — product/data owner AND legal/privacy owner — are attributable, so
+ * `BRAZIL_RECEITA_GATE3_STATUS` moves from `ready_for_review` to `approved`.
  */
-export const BRAZIL_RECEITA_GATE3_STATUS = 'ready_for_review' as const;
+export const BRAZIL_RECEITA_GATE3_STATUS = 'approved' as const;
 
-/** Whether this record approves the gate. It does not. */
-export const BRAZIL_RECEITA_GATE3_APPROVED = false as const;
+/** Whether this record approves the gate. It does, as of BR-SOURCE-FAST-TRACK-7. */
+export const BRAZIL_RECEITA_GATE3_APPROVED = true as const;
 
 /**
- * The one criterion still unmet, stated exactly rather than as "needs more evidence".
+ * The GATE-3 joint approval criterion, kept under its original name for continuity with prior rounds'
+ * suites, now updated to record that BOTH halves are complete (BR-SOURCE-FAST-TRACK-7).
  *
- * GATE-3 requires the product / data owner AND the legal/privacy owner, JOINTLY. The product/data
- * half is on record — the RB-3 field classifications, made under that authority and carrying it
- * explicitly. The legal/privacy half is not, and an agent may not supply it:
- *
- *   · 10K § 3 — "No gate may be approved by inference. Silence, absence of objection, a passing test,
- *     a green CI check, a merged PR, or a prior bounded result is never an approval."
- *   · the only recorded human privacy statement is the GATE-1 determination, and it says in its own
- *     text that GATE-2 … GATE-8 remain `not_started`. It does not reach the field allowlist.
- *
- * So the gate waits on a person, not on work. That is the honest shape, and manufacturing the missing
- * half would be the same error Round 1 had to correct in the GATE-2 record.
+ * The legal/privacy half is an owner RELAY, the same evidentiary form used for every prior approval in
+ * this series — not a personal signature: no name, no email, no message id, no URL, and no
+ * more-precise timestamp than the date below.
  */
 export const BRAZIL_RECEITA_GATE3_SINGLE_REMAINING_CRITERION = {
   criterion:
-    'the legal/privacy owner half of the § 14 joint approval entry for the recorded field allowlist and denylist',
+    'the legal/privacy owner half of the § 14 joint approval entry for the recorded field allowlist and denylist — RECORDED 2026-08-24',
   productDataHalfRecorded: true,
-  legalPrivacyHalfRecorded: false,
+  productDataOwnerReference: 'OWNER_REF_GATE3_PRODUCT_DATA_OWNER_RELAY_2026_08_21',
+  legalPrivacyHalfRecorded: true,
+  legalPrivacyOwnerReference: 'OWNER_REF_GATE3_LEGAL_PRIVACY_OWNER_RELAY_2026_08_24',
+  legalPrivacyApprovalDate: '2026-08-24',
   coveredByTheGate1Determination: false,
   whyNotCoveredByGate1:
-    'the GATE-1 determination is the broad development-may-continue decision and states in its own text that GATE-2 through GATE-8 remain not_started; it never reaches the field allowlist',
+    'the GATE-1 determination is the broad development-may-continue decision and states in its own text that GATE-2 through GATE-8 remain not_started at the time it was written; it never reached the field allowlist, which is why a separate legal/privacy confirmation was required and is now recorded',
   agentMayApprove: false,
 } as const;
+
+/** The date the legal/privacy owner's confirmation was relayed and recorded. */
+export const BRAZIL_RECEITA_GATE3_LEGAL_PRIVACY_APPROVAL_DATE = '2026-08-24' as const;
 
 /**
  * The joint approvers GATE-3 requires (10K § 7): product / data owner AND legal/privacy owner.
@@ -119,16 +129,22 @@ export const BRAZIL_RECEITA_GATE3_POLICY_RECORDED_DATE = '2026-08-21' as const;
  * it was introduced — so "the next valid version" is the FIRST one. It is scoped to this source so a
  * future report naming it cannot be confused with another country's allowlist.
  *
- * 🔴 Assigning a version to the POLICY is not the same as releasing the report MARKER. The marker
- * stays `"not_approved"` until GATE-3 itself is approved: a report that named `..._v1` today would
- * be asserting an approved allowlist that does not exist. The two constants below keep that
- * distinction where a reader cannot miss it.
+ * 🔴 Assigning a version to the POLICY is not automatically the same as releasing the report MARKER.
+ * The marker was designed to stay `"not_approved"` only UNTIL GATE-3 itself is approved — a report
+ * that named `..._v1` before approval would have asserted an approved allowlist that did not exist.
+ * That condition is now satisfied: BR-SOURCE-FAST-TRACK-7 recorded GATE-3 as `approved` (see the
+ * module header). This constant records the CONSEQUENCE of that approval as data — it is not itself
+ * an emitter, no report exists that reads it, and no projection is implemented
+ * (`GATE5_ENGINE_REPORT_PROJECTION_REQUIRED` stays `true` in the GATE-5 contract).
  */
 export const BRAZIL_RECEITA_GATE3_FIELD_ALLOWLIST_VERSION =
   'br_receita_cnpj_field_allowlist_v1' as const;
 
-/** What a report may print for `field_allowlist_version` today. Unchanged, on purpose. */
-export const BRAZIL_RECEITA_GATE3_REPORT_MARKER_VALUE = 'not_approved' as const;
+/**
+ * What a report may print for `field_allowlist_version`, now that GATE-3 is approved. Equal to the
+ * version above by construction, never restated as a second literal, so the two cannot drift.
+ */
+export const BRAZIL_RECEITA_GATE3_REPORT_MARKER_VALUE = BRAZIL_RECEITA_GATE3_FIELD_ALLOWLIST_VERSION;
 
 // ─── Prohibited output ────────────────────────────────────────────────────────
 
@@ -285,17 +301,15 @@ export const BRAZIL_RECEITA_GATE3_DISCHARGED_BY_THIS_WORKSTREAM: readonly string
 
 /** The bounds this recorded policy carries, enumerated per 10K § 14. */
 export const BRAZIL_RECEITA_GATE3_RESTRICTIONS: readonly string[] = [
-  'this record approves no gate',
-  'the report marker for field_allowlist_version stays not_approved',
   'an approved allowlist is a target, never a writer authorization',
   'no persistence, import, Supabase write, migration, runtime path or Agent 1 integration',
   'the eligibility design allowlist is not widened',
   'free-text fields fail closed: not on the allowlist means excluded',
-  'GATE-4 and GATE-5 remain separate and unapproved',
-  'every residual blocker must be closed by its named owner before GATE-3 can be approved',
+  'GATE-4 and GATE-5 have their own separate approval requirements',
   // BR-SOURCE-GATE-ROUND-2.
-  'ready_for_review is NO-GO in the § 15 matrix, exactly as not_started is',
-  'the legal/privacy half of the joint approval is outstanding and no agent may supply it',
-  'RB-3 classifications are product/data decisions and carry no legal/privacy determination',
+  'RB-3 classifications are product/data decisions and carry no legal/privacy determination on their own',
   'a field labelled INTERNAL_PRIVACY_CONTROL_ONLY may not be promoted to output without a recorded owner decision',
+  // BR-SOURCE-FAST-TRACK-7.
+  'this approval covers the field policy exactly as recorded; it does not widen the allowlist, the denylist, or RB-1s GATE-4 boundary',
+  'no operational flag is flipped by this approval',
 ] as const;

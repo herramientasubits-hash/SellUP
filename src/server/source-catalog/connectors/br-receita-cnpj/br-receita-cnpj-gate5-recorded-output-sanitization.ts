@@ -1,5 +1,6 @@
 /**
- * BR Receita CNPJ — RECORDED GATE-5 output sanitization record (BR-SOURCE-GATE-ROUND-3).
+ * BR Receita CNPJ — RECORDED GATE-5 output sanitization record (BR-SOURCE-GATE-ROUND-3; joint
+ * approval recorded BR-SOURCE-FAST-TRACK-7).
  *
  * GATE-5 is the output sanitization gate (10K § 9). It has been `not_started` since 10K, and
  * BR-SOURCE-10O landed a proposal for it whose own status reads `proposed_for_owner_review`.
@@ -31,16 +32,26 @@
  *     while those two are open — is why the § 6 allowlist is frozen as a SANITIZATION contract with
  *     its three contract markers still reading `not_approved` / `not_decided`.
  *
- * ── 🔴 GATE-5 status: still NOT approved, and for one exact reason ───────────
+ * ── 🔴 Update (BR-SOURCE-FAST-TRACK-7) — GATE-5 is APPROVED, against the CORRECTED contract ──
  *
- * `BRAZIL_RECEITA_GATE5_STATUS` is `ready_for_review` — 10K § 3's "evidence complete and submitted;
- * awaiting the named approver". That is NOT an approval: 10K § 15's matrix reads NO-GO for
- * `ready_for_review` exactly as it does for `not_started`.
+ * The security/privacy owner AND the test owner have jointly approved, by owner relay recorded
+ * 2026-08-24. Precision about WHICH contract matters here, because this record's own § 9.2 history
+ * warns that "a round that closes everything the last review flagged does not thereby earn the
+ * approval" — so this approval is explicitly recorded as a review OF the CURRENT, post-§9.3 contract,
+ * never as an approval inherited from the original § 9.1 draft:
  *
- * The single unmet criterion is the recorded joint decision. GATE-5 needs the security / privacy
- * owner AND the test owner, jointly (10K § 9), and 10K § 3 forbids the implementer of a gate's
- * subject from approving it. This round implemented the subject. It therefore cannot approve the
- * gate, and no agent may supply either half.
+ *   - `TOTAL_ROWS_SCANNED = INTERNAL_EXECUTION_COUNTER_ONLY` (not the § 9.1 `ALLOWED` value);
+ *   - the residual label is `suppressed_other` (not the § 9.1 `other_or_suppressed_small_cell`);
+ *   - the renamed keys `records_persisted` / `records_seen_by_family` (not the § 9.1 `persisted_rows`
+ *     / `rows_seen_by_family`);
+ *   - the three exclusions of `capital_social` / `opened_at` / municipality breakdowns;
+ *   - the `LEGACY_ENGINE_SANITIZED_REPORT_SHAPE` boundary with the CLI-emission bypass REMOVED
+ *     (§ 9.3).
+ *
+ * This approval does NOT freeze the report SCHEMA beyond what GATE-3's and GATE-4's own approvals
+ * (recorded in this same round) already permit for the field markers each of THOSE gates owns —
+ * `GATE5_ENGINE_REPORT_PROJECTION_REQUIRED` stays `true` and no projection or emitter is implemented.
+ * See `BRAZIL_RECEITA_GATE5_APPROVAL_SUBJECT` below for the explicit contract-version statement.
  *
  * ── This module NEVER (fail-closed by construction) ──────────────────────────
  *   - performs I/O of any kind: no fs, no path, no network, no env, no process access.
@@ -53,10 +64,11 @@
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 
-export const BRAZIL_RECEITA_GATE5_STATUS = 'ready_for_review' as const;
+/** GATE-5's status. `approved` as of BR-SOURCE-FAST-TRACK-7 — see the module header. */
+export const BRAZIL_RECEITA_GATE5_STATUS = 'approved' as const;
 
-/** Whether this record approves anything. It does not, and says so as data. */
-export const BRAZIL_RECEITA_GATE5_APPROVED = false as const;
+/** Whether this record approves anything. It does, as of BR-SOURCE-FAST-TRACK-7. */
+export const BRAZIL_RECEITA_GATE5_APPROVED = true as const;
 
 /** The joint approvers GATE-5 requires (10K § 9). Either may reject alone; approval needs both. */
 export const BRAZIL_RECEITA_GATE5_SECURITY_PRIVACY_APPROVER_ROLE =
@@ -64,24 +76,46 @@ export const BRAZIL_RECEITA_GATE5_SECURITY_PRIVACY_APPROVER_ROLE =
 export const BRAZIL_RECEITA_GATE5_TEST_APPROVER_ROLE = 'test owner' as const;
 export const BRAZIL_RECEITA_GATE5_APPROVAL_IS_JOINT = true as const;
 
-/** No agent may supply either half. Recorded as data, not as a comment. */
+/** No agent supplied either half. Recorded as data, not as a comment. */
 export const BRAZIL_RECEITA_GATE5_AGENT_MAY_APPROVE = false as const;
 
-/** The date the executable contract landed. Not an approval date — there is none. */
+/** The date the executable contract landed. Not the approval date — see below for that. */
 export const BRAZIL_RECEITA_GATE5_RECORDED_DATE = '2026-08-21' as const;
 
+/** The date the joint security/privacy + test owner approval was relayed and recorded. */
+export const BRAZIL_RECEITA_GATE5_APPROVAL_DATE = '2026-08-24' as const;
+
 /**
- * The one criterion still unmet. Exact, and not "needs more evidence".
+ * The explicit contract-version statement this approval is recorded against. Named so a reader
+ * cannot mistake this for an approval of the original § 9.1 draft — the § 9.2 supersession and the
+ * § 9.3 legacy-engine-report boundary fix are both part of the SUBJECT being approved here.
+ */
+export const BRAZIL_RECEITA_GATE5_APPROVAL_SUBJECT = {
+  approvesTheOriginalSection91Draft: false,
+  approvesThePostSection92SupersededContract: true,
+  approvesTheSection93EngineReportBoundaryFix: true,
+  totalRowsScannedDisposition: 'INTERNAL_EXECUTION_COUNTER_ONLY',
+  residualBucketLabel: 'suppressed_other',
+  renamedKeys: ['records_persisted', 'records_seen_by_family'] as readonly string[],
+} as const;
+
+/**
+ * The joint approval, now recorded. Kept under its original name for continuity with prior rounds'
+ * suites — this WAS the single remaining criterion, and it is now discharged.
  *
- * 🔴 `blockedByImplementerRule` is the load-bearing field. 10K § 3 exists because a gate approved by
- * the party that built its subject is not reviewed at all.
+ * Each half is an owner RELAY — the evidentiary form used for every prior approval in this series —
+ * not a personal signature: no name, no email, no message id, no URL, no more-precise timestamp than
+ * the date below.
  */
 export const BRAZIL_RECEITA_GATE5_SINGLE_REMAINING_CRITERION = {
   criterion:
-    'the § 14 joint approval entry from the security/privacy owner AND the test owner, recorded against this executable contract',
+    'the § 14 joint approval entry from the security/privacy owner AND the test owner, recorded against this executable contract — RECORDED 2026-08-24',
   blockedByImplementerRule: true,
   implementerRule: '10K § 3 — no gate may be self-approved by the author who implements its subject',
   agentMayApprove: false,
+  securityPrivacyOwnerReference: 'OWNER_REF_GATE5_SECURITY_PRIVACY_OWNER_RELAY_2026_08_24',
+  testOwnerReference: 'OWNER_REF_GATE5_TEST_OWNER_RELAY_2026_08_24',
+  approvalDate: '2026-08-24',
 } as const;
 
 /**
@@ -136,7 +170,10 @@ export const BRAZIL_RECEITA_GATE5_CONTRACT_REVISIONS = [
 ] as const;
 
 /**
- * 🔴 Whether the revisions above make this gate approvable by the party that made them. They do not.
+ * 🔴 Whether the revisions above, BY THEMSELVES, make this gate approvable by the party that made
+ * them. They do not, and this stays `false` even after BR-SOURCE-FAST-TRACK-7's approval below: what
+ * discharged this gate was the security/privacy owner's and the test owner's own recorded joint
+ * decision, not the revisions earning it on the implementer's say-so.
  *
  * Stated as its own constant because "we fixed everything the last review flagged" is the most
  * natural-sounding route to a self-approval, and 10K § 3 forbids it regardless of how complete the
@@ -145,16 +182,16 @@ export const BRAZIL_RECEITA_GATE5_CONTRACT_REVISIONS = [
 export const BRAZIL_RECEITA_GATE5_REVISIONS_EARN_AN_APPROVAL = false as const;
 
 /**
- * Restrictions this record carries with it. An approval, if it ever comes, is bounded by these.
+ * Restrictions this record carries with it. The approval is bounded by these.
  */
 export const BRAZIL_RECEITA_GATE5_RESTRICTIONS: readonly string[] = [
-  'approving GATE-5 authorizes writing sanitization tests in a future, separately approved milestone (10K § 9 Allows) and nothing else',
+  'the approval authorizes writing sanitization tests in a future, separately approved milestone (10K § 9 Allows) and nothing else',
   'it does not authorize executing the full join',
   'it does not authorize emitting any report from real data',
-  'it does not freeze the 10J § 12 report SCHEMA — 10L § 9 forbids that while GATE-3 and GATE-4 are open, and both are',
-  'it does not assign field_allowlist_version, record_identity_grain_decision or temporary_storage_mode a value other than their not-approved markers',
+  'it does not itself freeze a report SCHEMA beyond what GATE-3s and GATE-4s own approvals already permit for the field markers each of those gates owns',
+  'it does not implement GATE5_ENGINE_REPORT_PROJECTION_REQUIRED — that stays true, and no projection or emitter is implemented',
   'it flips no operational flag',
-  'it does not make any other gate reviewable or approved',
+  'it does not make GATE-7 reviewable on its own; GATE-7s own reproducibility criterion is separate',
 ];
 
 // ─── The assertion catalogue, mapped onto execution ───────────────────────────

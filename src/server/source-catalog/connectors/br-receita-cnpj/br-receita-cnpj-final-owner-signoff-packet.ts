@@ -5,6 +5,17 @@
  * packet those five humans receive: one decision section per gate, each with the exact question, the
  * required role or roles, the required response fields, and the restrictions the answer carries.
  *
+ * ── 🔴 Update (BR-SOURCE-FAST-TRACK-7) — the five gates this packet asked about are now approved ──
+ *
+ * GATE-2, GATE-3, GATE-4 (all three of 4A/4B/4C), GATE-5 and GATE-6 have since been approved by owner
+ * relay, recorded directly in each gate's own module rather than by filling this packet's fields. That
+ * is not a defect in this module: `findBrazilReceitaSignoffPacketDefects()` now correctly reports
+ * every section here `gate_already_approved` — the defect class that exists precisely to catch a
+ * packet still asking about an already-decided gate — and `brazilReceitaSignoffPacketIsUnanswered()`
+ * now correctly returns `false`. The sections are KEPT, unedited, as the historical record of the
+ * exact questions, roles and restrictions that were asked; they are not re-answered here, and this
+ * module still approves nothing on its own.
+ *
  * ── 🔴 The engineering blocker that WAS outstanding, and is now closed ───────
  *
  * An earlier draft said the five gates wait on a human answer "and on nothing else". That was untrue:

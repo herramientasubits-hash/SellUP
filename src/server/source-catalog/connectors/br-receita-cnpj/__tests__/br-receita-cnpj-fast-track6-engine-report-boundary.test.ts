@@ -648,23 +648,27 @@ describe('BOUNDARY · the GATE-5 human section discloses the boundary', () => {
 // ─── 8 · No gate moved ────────────────────────────────────────────────────────
 
 describe('BOUNDARY · no gate approval is earned by this correction', () => {
-  it('the eight statuses are exactly what they were', () => {
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — a LATER, separate round recorded human owner approvals for
+  // GATE-2, GATE-3, GATE-4, GATE-5 and GATE-6. That is a different fact from the one this suite tests:
+  // the FAST-TRACK-6 engine-report-boundary CORRECTION itself earned none of them. The statuses below
+  // reflect the current, post-FAST-TRACK-7 state; the boundary fix is still not what earned any of it.
+  it('the eight statuses reflect BR-SOURCE-FAST-TRACK-7; the boundary fix itself earned none of them', () => {
     const byGate = new Map(BRAZIL_RECEITA_GATE_CURRENT_STATE.map((e) => [e.gate, e.status]));
     assert.equal(byGate.get(1), 'approved');
-    assert.equal(byGate.get(2), 'needs_owner_confirmation');
-    assert.equal(byGate.get(3), 'ready_for_review');
-    assert.equal(byGate.get(4), 'needs_owner_decision');
-    assert.equal(byGate.get(5), 'ready_for_review');
-    assert.equal(byGate.get(6), 'ready_for_review');
-    assert.equal(byGate.get(7), 'blocked');
+    assert.equal(byGate.get(2), 'approved');
+    assert.equal(byGate.get(3), 'approved');
+    assert.equal(byGate.get(4), 'approved');
+    assert.equal(byGate.get(5), 'approved');
+    assert.equal(byGate.get(6), 'approved');
+    assert.equal(byGate.get(7), 'needs_evidence');
     assert.equal(byGate.get(8), 'APPROVED_AS_CONTRACT');
     assert.equal(brazilReceitaGateGlobalVerdict(), 'NO-GO');
   });
 
-  it('GATE-5 stays ready_for_review and GATE-7 stays blocked', () => {
-    assert.equal(BRAZIL_RECEITA_GATE5_STATUS, 'ready_for_review');
-    assert.equal(BRAZIL_RECEITA_GATE7_STATUS, 'blocked');
-    assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE5_STATUS), false);
+  it('GATE-5 is approved (BR-SOURCE-FAST-TRACK-7) and GATE-7 is needs_evidence, not approved', () => {
+    assert.equal(BRAZIL_RECEITA_GATE5_STATUS, 'approved');
+    assert.equal(BRAZIL_RECEITA_GATE7_STATUS, 'needs_evidence');
+    assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE5_STATUS), true);
     assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE7_STATUS), false);
   });
 
