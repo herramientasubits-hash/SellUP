@@ -23,6 +23,22 @@
 -- Both are closed below: the period becomes physical, Brazil's identity becomes NOT NULL by CHECK,
 -- and Brazil's uniqueness becomes period-aware.
 --
+--   YH-3  (the atomic-publication defect, closed by this revision) even with period-aware
+--         uniqueness, a REBUILD of a period writes into the SAME rows readers are reading. A period
+--         had exactly one physical row set, so staging a second copy of 2026-07 was impossible: the
+--         retry's upserts mutated the live month in place, and a failure halfway left it damaged and
+--         still published. "Publish is atomic" was true only of the RUN-STATE flip, never of the
+--         rows underneath it.
+--
+--         Closed by `snapshot_run_id`: rows belong to a publication RUN, so run A (published) and
+--         run B (preparing) coexist physically for the same period. B cannot touch A's rows because
+--         the physical unique key includes the run. The cutover demotes A and promotes B in ONE
+--         transaction, and readers see A right up to that COMMIT.
+--
+-- 🔴 `snapshot_run_id` IS NOT AN IDENTITY REPRESENTATION. It is a publication/version identifier,
+-- it is minted by `gen_random_uuid()`, and it is NEVER derived from a CNPJ. It does not widen the
+-- 4A exception below: the count of persisted exact CNPJ representations stays exactly ONE.
+--
 -- IDENTITY DECISION IMPLEMENTED (exactly ONE representation)
 -- ---------------------------------------------------------
 -- GATE-4 sub-decision 4A (LEGAL_PRIVACY_OWNER, OWNER_REF_GATE4A_LEGAL_PRIVACY_OWNER_RELAY_2026_08_24)
@@ -36,6 +52,13 @@
 --   · `tax_id`              — the raw CNPJ. A second representation. Refused.
 --   · `record_identity_key` — literally `tax:<normalized_14>`. A namespace prefix is not a
 --                             transformation, and it is a second representation. Refused.
+--
+-- And the column this revision ADDS is not a third candidate:
+--   · `snapshot_run_id`     — a `gen_random_uuid()` publication version. It carries no tax
+--                             material, is not derived from any, and identifies WHICH PUBLICATION a
+--                             row belongs to rather than WHICH COMPANY it is. Counting it as a CNPJ
+--                             representation would be a category error; the persisted exact
+--                             representation count remains 1.
 --
 -- 🔴 CHARACTER SET: the identity is 14 CHARACTERS, not 14 DECIMAL DIGITS. Alphanumeric CNPJs are
 -- official from July 2026 — positions 1-12 may be [A-Z0-9], positions 13-14 (the DV) stay [0-9] —
@@ -66,11 +89,22 @@
 -- the SAME semantics for every non-Brazil row. Nothing about their uniqueness, nullability or
 -- cardinality changes.
 --
--- 🔴 One deliberate consequence: a PARTIAL unique index cannot serve as an `ON CONFLICT` arbiter.
--- That costs nothing today — every live writer was cut over to
+-- 🔴 One deliberate consequence: a PARTIAL unique index is only usable as an `ON CONFLICT` arbiter
+-- when the statement RESTATES the index predicate, because Postgres infers the arbiter from the
+-- column list plus that predicate. A bare `ON CONFLICT (cols)` against a partial index does not
+-- match it and raises `there is no unique or exclusion constraint matching the ON CONFLICT
+-- specification` — a hard error, not a silent fallback, which is the safe direction.
+--
+-- For the existing sources this costs nothing: every live writer was cut over to
 -- `RECORD_IDENTITY_ON_CONFLICT` ('source_key,country_code,source_year,record_identity_key') and
 -- NO writer references `OLD_TAX_GRAIN_ON_CONFLICT` any more. The CUT-A suite pins that fact, so a
 -- future writer cannot quietly start depending on an arbiter this migration made partial.
+--
+-- For BRAZIL the predicate is load-bearing and is therefore recorded as data, not left to be
+-- rediscovered: `BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE` in
+-- br-receita-cnpj-monthly-snapshot-write-plan.ts carries the exact `WHERE` clause CUT B has to emit
+-- alongside the five conflict columns, and the CUT-A suite asserts it equals index 4b's predicate
+-- below.
 --
 -- 🔴 `CONCURRENTLY` is deliberately NOT used. The drop-and-replace has to be atomic: between
 -- dropping 065's constraint and creating its replacement there must be no window in which the
@@ -91,6 +125,29 @@ ALTER TABLE public.source_snapshot_runs
 
 COMMENT ON COLUMN public.source_company_snapshots.source_period IS
   'Canonical publication period of the source snapshot, YYYY-MM. Authoritative over source_year. Required for br_receita_cnpj_dados_abertos. Never inferred at read time.';
+
+-- ─── 1b. The publication RUN a row belongs to ───────────────────────────────
+-- The dimension that lets one period hold a published row set and a staging row set at the same
+-- time. Nullable at the TABLE level because year-grained sources have no publication run; REQUIRED
+-- for Brazil by the CHECK in step 3.
+--
+-- 🔴 ON DELETE RESTRICT, deliberately, not CASCADE. CASCADE would make `DELETE FROM
+-- source_snapshot_runs WHERE id = …` silently delete that run's snapshots — including a PUBLISHED
+-- run's, which is the live month. Cleanup must name the rows it destroys, so deleting a run while
+-- its snapshots exist is refused and the row deletion has to be the explicit, run-scoped statement.
+
+ALTER TABLE public.source_company_snapshots
+  ADD COLUMN snapshot_run_id uuid NULL
+  REFERENCES public.source_snapshot_runs (id) ON DELETE RESTRICT;
+
+COMMENT ON COLUMN public.source_company_snapshots.snapshot_run_id IS
+  'Publication run this snapshot row belongs to (source_snapshot_runs.id). Required for br_receita_cnpj_dados_abertos. A version/publication identifier ONLY: never derived from a tax identifier and not an identity representation. Brazil rows are readable only through the single published run of their period.';
+
+-- The FK referential check and every run-scoped cleanup look rows up by this column, and it is
+-- NULL for every non-Brazil row, so the index is partial.
+CREATE INDEX source_company_snapshots_snapshot_run_id_idx
+  ON public.source_company_snapshots (snapshot_run_id)
+  WHERE snapshot_run_id IS NOT NULL;
 
 -- ─── 2. Period syntax, enforced table-wide ──────────────────────────────────
 -- The regex body is identical to SOURCE_PERIOD_SQL_PATTERN in
@@ -117,6 +174,10 @@ ALTER TABLE public.source_company_snapshots
     OR (
       -- the period is mandatory, and it is the identity dimension
       source_period IS NOT NULL
+      -- the publication run is mandatory: a Brazil row that belonged to no run could not be
+      -- reached by the published-run read path, and would be invisible debris that the
+      -- run-scoped cleanup could never name either
+      AND snapshot_run_id IS NOT NULL
       -- the ONE persisted identity representation: exactly 14 chars, alphanumeric-CNPJ shaped
       AND normalized_tax_id IS NOT NULL
       AND normalized_tax_id ~ '^[A-Z0-9]{12}[0-9]{2}$'
@@ -171,19 +232,30 @@ CREATE UNIQUE INDEX source_company_snapshots_year_identity_uidx
   ON public.source_company_snapshots (source_key, country_code, source_year, normalized_tax_id)
   WHERE source_key <> 'br_receita_cnpj_dados_abertos';
 
--- 4b. Brazil is period-aware. Combined with the CHECK in step 3 — which makes both
---     `source_period` and `normalized_tax_id` NOT NULL for Brazil rows — this index can never be
---     vacuous, so YH-2 (NULLS DISTINCT) is closed rather than relocated.
+-- 4b. Brazil is period-aware AND run-aware. Combined with the CHECK in step 3 — which makes
+--     `source_period`, `snapshot_run_id` and `normalized_tax_id` all NOT NULL for Brazil rows —
+--     this index can never be vacuous, so YH-2 (NULLS DISTINCT) is closed rather than relocated.
 --
---     Same CNPJ + same period  → the same logical snapshot; a replay is idempotent.
---     Same CNPJ + next period  → a distinct monthly snapshot; cross-period overwrite is impossible.
+--     Same CNPJ + same period + same run  → the same physical row; a replay of that run is
+--                                           idempotent.
+--     Same CNPJ + same period + other run → a DISTINCT row. This is what lets run B stage a rebuild
+--                                           of the month run A is currently publishing, without B's
+--                                           upserts ever landing on A's rows (YH-3).
+--     Same CNPJ + next period             → a distinct monthly snapshot; cross-period overwrite is
+--                                           impossible (YH-1).
+--
+-- 🔴 The run column is INSIDE the unique key, not merely alongside it. A period-only key would make
+-- every one of B's upserts a conflict against A's row and silently mutate the published month —
+-- which is the defect, not the fix.
 CREATE UNIQUE INDEX source_company_snapshots_br_period_identity_uidx
-  ON public.source_company_snapshots (source_key, country_code, source_period, normalized_tax_id)
+  ON public.source_company_snapshots
+     (source_key, country_code, source_period, snapshot_run_id, normalized_tax_id)
   WHERE source_key = 'br_receita_cnpj_dados_abertos';
 
 -- No additional read index is created. 4b's leading columns
--- (source_key, country_code, source_period) already serve whole-period reads and per-period
--- pruning, and the exact-lookup path uses all four. An extra index would be dead weight.
+-- (source_key, country_code, source_period) already serve per-period pruning, its first four serve
+-- the run-scoped whole-run read and the run-scoped cleanup, and the exact-lookup path uses all
+-- five. An extra index would be dead weight.
 
 -- ─── 5. Atomic publish: "complete period" becomes an explicit concept ───────
 -- Reuses the EXISTING run table rather than inventing a second publication system. `publish_state`
@@ -194,11 +266,15 @@ CREATE UNIQUE INDEX source_company_snapshots_br_period_identity_uidx
 ALTER TABLE public.source_snapshot_runs
   ADD COLUMN publish_state text NULL;
 
+-- `superseded` is the terminal state a previously published run enters when the next run for the
+-- same period is promoted. It exists so the demotion is a real state and not a deletion: the rows of
+-- a superseded run stay addressable by `snapshot_run_id`, so the previous month can be inspected,
+-- audited or discarded explicitly rather than vanishing at cutover.
 ALTER TABLE public.source_snapshot_runs
   ADD CONSTRAINT source_snapshot_runs_publish_state_chk
   CHECK (
     publish_state IS NULL
-    OR publish_state IN ('preparing', 'published', 'failed', 'rolled_back')
+    OR publish_state IN ('preparing', 'published', 'superseded', 'failed', 'rolled_back')
   );
 
 ALTER TABLE public.source_snapshot_runs
@@ -212,11 +288,26 @@ ALTER TABLE public.source_snapshot_runs
 -- transition atomic and what makes "the published period" a single, unambiguous row: a partial
 -- month is `preparing` and therefore invisible to any reader that filters on `published`, and a
 -- failed build can never become published without displacing nothing.
+--
+-- 🔴 It is also what fixes the ORDER of the cutover. This is an ordinary (immediate) unique index,
+-- not a DEFERRABLE constraint, so it is checked at the end of every statement rather than at COMMIT.
+-- A cutover transaction must therefore be:
+--
+--     1. UPDATE … SET publish_state = 'superseded' WHERE id = <run A>;   -- demote first
+--     2. UPDATE … SET publish_state = 'published'  WHERE id = <run B>;   -- then promote
+--
+-- The reverse order would hold two published runs for the period at the end of statement 1 and be
+-- rejected. Concurrent readers are unaffected either way: they see run A until this transaction
+-- COMMITs and run B afterwards, never a mixture and never neither.
+--
+-- Immediate checking is the deliberate choice: a DEFERRABLE constraint would let the transaction sit
+-- in an invalid state for its whole duration, and would move the failure from the statement that
+-- caused it to the COMMIT, where it is far harder to attribute.
 CREATE UNIQUE INDEX source_snapshot_runs_published_period_uidx
   ON public.source_snapshot_runs (source_key, country_code, source_period)
   WHERE publish_state = 'published' AND source_period IS NOT NULL;
 
 COMMENT ON COLUMN public.source_snapshot_runs.publish_state IS
-  'Period publication state: preparing | published | failed | rolled_back. NULL for runs where period publication does not apply. A period is readable only while a published run exists for it.';
+  'Period publication state: preparing | published | superseded | failed | rolled_back. NULL for runs where period publication does not apply. A period is readable only through its single published run; preparing/failed/superseded runs and their rows are never reader-visible.';
 
 COMMIT;
