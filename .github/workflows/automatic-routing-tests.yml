@@ -1632,6 +1632,44 @@ jobs:
       - name: Run P0-R4 invalid use-server export ratchet
         run: npm run test:agent2a:p0-r4-use-server
 
+      # ── AGENT2A-P342-PROD-CONTACTS-RUNTIME-HOTFIX-1 ────────────────────────
+      #
+      # Check OBLIGATORIO. Cierra la clase HERMANA de P0-R4, que el ratchet anterior
+      # deja pasar A PROPÓSITO y por una razón correcta.
+      #
+      # PR #342 dejó en un módulo 'use server' una reexportación de TIPO de una
+      # ligadura LOCAL (`export type { LegacyPhoneRevealWaterfallActionStatus };`).
+      # TypeScript la borra, así que `tsc`, `eslint` y `next build` pasan los TRES —y
+      # el ratchet P0-R4 hace `continue` en cuanto la exportación es `isTypeOnly`,
+      # que bajo la semántica de TypeScript es lo correcto—. Next no respeta esa
+      # distinción: su flight loader construye la lista de exportaciones por NOMBRE y
+      # emitió el del tipo dentro de `ensureServerEntryExports([...])`, donde no es
+      # ninguna ligadura. Esa llamada corre al EVALUAR el módulo, antes que cualquier
+      # acción, así que /contacts se quedó sin ninguna:
+      #
+      #     ReferenceError: LegacyPhoneRevealWaterfallActionStatus is not defined
+      #     (ruta /contacts, deployment dpl_HU81h4qbBvFPr2iSM8mTqJPXDaBF)
+      #
+      # Los drawers de candidato fallaban ANTES siquiera de cargar el candidato.
+      #
+      # Por eso el paso CONSTRUYE antes de comprobar, y no se conforma con un grep:
+      #
+      #   * capa A · AST sobre TODOS los módulos 'use server' del repositorio —
+      #     prohíbe la forma local (`export type { X }` / `export { type X }`) y deja
+      #     pasar la forma CON especificador (`export type { X } from './y'`), que se
+      #     verificó sobre el bundle real de este incidente y no deja ni un rastro;
+      #   * capa B · EVALÚA los grafos de acciones de página YA CONSTRUIDOS con un
+      #     contexto de módulos falso. Es la única capa que reproduce el fallo tal
+      #     cual: sobre el bundle roto lanza el MISMO ReferenceError que Producción, y
+      #     además comprueba que el módulo legacy sigue entrando en el grafo, para que
+      #     un verde no pueda ser vacuo.
+      #
+      # Determinista y offline: lee ficheros y evalúa bundles con dependencias
+      # simuladas. Sin red, sin Supabase, sin proveedores, 0 créditos, 0 escrituras
+      # y 0 PII.
+      - name: Run P342 contacts server-action runtime evaluation ratchet
+        run: npm run test:agent2a:p342-contacts-runtime:build
+
       # AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — el bloqueo de presupuesto ANTES del
       # primer clic.
       #

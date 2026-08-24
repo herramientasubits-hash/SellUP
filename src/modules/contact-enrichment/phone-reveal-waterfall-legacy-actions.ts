@@ -68,10 +68,29 @@ import { startLegacyPhoneRevealWaterfallForCandidate } from './phone-reveal-wate
 import {
   classifyLegacyPhoneRevealStartFailure,
   LEGACY_START_EXCEPTION_REASON,
-  type LegacyPhoneRevealWaterfallActionStatus,
 } from './phone-reveal-waterfall-legacy-start-gate';
-
-export type { LegacyPhoneRevealWaterfallActionStatus };
+// El tipo se importa SOLO para anotar este archivo y NO se reexporta.
+//
+// AGENT2A-P342-PROD-CONTACTS-RUNTIME-HOTFIX-1 — aquí vivía
+// `export type { LegacyPhoneRevealWaterfallActionStatus };`, y tumbó /contacts en
+// Producción con `ReferenceError: LegacyPhoneRevealWaterfallActionStatus is not
+// defined`. La causa no es TypeScript —que borra la reexportación de tipo— sino el
+// flight loader de Next: para un módulo 'use server' emite
+// `ensureServerEntryExports([...])` con los NOMBRES exportados del módulo, y en esa
+// lista metió el del tipo, que en tiempo de ejecución no es ninguna ligadura. La
+// llamada corre al EVALUAR el módulo, antes que cualquier acción, así que se llevó
+// por delante el chunk entero de acciones de la página: los drawers de candidato
+// fallaban antes siquiera de cargar el candidato.
+//
+// La forma CON especificador (`export type { X } from './y'`) sí se borra entera y
+// no aparece en el bundle; la que rompe es ésta, la reexportación de una ligadura
+// LOCAL. Quien necesite el tipo lo importa del módulo puro
+// (`phone-reveal-waterfall-legacy-start-gate.ts`), que es donde se declara.
+//
+// No conviertas el tipo en enum ni en const para «arreglar» el bundling: eso crearía
+// un valor en ejecución dentro de un 'use server', que es justo la violación que
+// vigila src/__tests__/use-server-export-contract-p0-r4.test.ts.
+import type { LegacyPhoneRevealWaterfallActionStatus } from './phone-reveal-waterfall-legacy-start-gate';
 
 export interface LegacyPhoneRevealWaterfallActionResult {
   status: LegacyPhoneRevealWaterfallActionStatus;

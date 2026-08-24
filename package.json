@@ -377,6 +377,8 @@
     "harness:a1-macro-industry-search-quality": "node --import tsx scripts/agent1/macro-industry-search-quality-harness.mts",
     "test:agent2a:p0-r2-crossflow": "node --experimental-test-module-mocks --import tsx --test src/components/contacts/__tests__/contact-detail-sheet-settles-p0-r2.test.tsx src/components/contact-enrichment/__tests__/contact-candidates-duplicate-queue-copy-p0-r2.test.tsx",
     "test:agent2a:p0-r4-use-server": "node --import tsx --test src/__tests__/use-server-export-contract-p0-r4.test.ts",
+    "test:agent2a:p342-contacts-runtime": "node --import tsx --test src/__tests__/use-server-type-reexport-runtime-p342.test.ts",
+    "test:agent2a:p342-contacts-runtime:build": "npm run build && npm run test:agent2a:p342-contacts-runtime",
     "test:agent1:apollo-tax-dedupe-recheck": "node --import tsx --test src/server/agents/prospecting-toolkit/apollo-two-round/__tests__/apollo-tax-dedupe-recheck.test.ts src/server/agents/prospecting-toolkit/__tests__/prospect-candidate-identity-key.test.ts"
   },
   "dependencies": {
