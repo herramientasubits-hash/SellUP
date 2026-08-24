@@ -390,7 +390,16 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // (`contact_provider_identities`), grano de reserva por OPERACIÓN y claim propio de
       // la búsqueda de identidad. Trae su propia guarda estática y NO edita ninguna
       // migración anterior — que es lo que esta lista exacta vigila. NO aplicada en Prod.
+      // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1: identidad provider-native
+      // (`contact_provider_identities`), grano de reserva por OPERACIÓN y claim propio de
+      // la búsqueda de identidad. Trae su propia guarda estática y NO edita ninguna
+      // migración anterior — que es lo que esta lista exacta vigila. NO aplicada en Prod.
       '124_cross_provider_phone_identity.sql',
+      // BR-SOURCE-FUNCTIONAL-CUT-A: la identidad MENSUAL del snapshot de Receita
+      // (`source_period` + unicidad period-aware en `source_company_snapshots`, estado de
+      // publicación en `source_snapshot_runs`). NO es de teléfono y NO edita ninguna migración
+      // anterior — que es lo que esta lista exacta vigila. AUTORADA y NO APLICADA.
+      '125_br_receita_monthly_snapshot_identity.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -412,7 +421,9 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 lo mueve a la 124: identidad
     // provider-native, grano de reserva por operación y claim propio de la búsqueda. No
     // borra teléfonos ni toca la erasure que esta suite protege. NO aplicada en Prod.
-    assert.equal(numbered[numbered.length - 1], 124);
+    // BR-SOURCE-FUNCTIONAL-CUT-A lo mueve a la 125: la identidad MENSUAL del snapshot de
+    // Receita. NO es de teléfono. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 125);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

@@ -174,6 +174,12 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // añade columnas a la reserva y a la corrida, y re-declara la función de reserva.
       // Tiene su propia guarda estática y se declara NO aplicada en Producción.
       '124_cross_provider_phone_identity.sql',
+      // BR-SOURCE-FUNCTIONAL-CUT-A: la identidad MENSUAL del snapshot de Receita
+      // (`source_period` + unicidad period-aware en `source_company_snapshots`, estado de
+      // publicación en `source_snapshot_runs`). NO es de teléfono en absoluto: no toca la
+      // colección de staging que esta suite protege ni ninguna de las funciones 110/111/112.
+      // Tiene su propia guarda estática y está AUTORADA y NO APLICADA.
+      '125_br_receita_monthly_snapshot_identity.sql',
     ]);
   });
 
