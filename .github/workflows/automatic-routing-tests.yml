@@ -3083,3 +3083,36 @@ jobs:
       # 0 créditos, 0 migraciones, 0 proveedores.
       - name: Run Agent 1 CUT-3B1 fiscal identity truth tests
         run: npm run test:a1-cut3b1-fiscal-identity
+
+      # BR-SOURCE-FUNCTIONAL-CUT-A — la PRIMERA construcción funcional tras 8/8 gates y GO.
+      #
+      # El GO es ESTRECHO: habilita PROPONER código, no ejecutarlo. Esta suite congela el
+      # modelo de datos que Brasil necesitaba y, sobre todo, el límite que no cruza:
+      #
+      #   · `source_period` es FÍSICO, OBLIGATORIO y canónico `YYYY-MM`. Un lote sin periodo
+      #     ya no es construible: el builder lo rechaza y la guarda lo rechaza. Una única
+      #     definición del periodo — el regex del código y el del CHECK son el MISMO.
+      #   · la identidad es UNA sola representación: el CNPJ del establecimiento normalizado,
+      #     14 CARACTERES (no 14 dígitos: el CNPJ alfanumérico es oficial desde julio de 2026
+      #     y el primer periodo objetivo ES 2026-07). Ejerce la excepción ENUMERADA de 4A;
+      #     `tax_id` y `record_identity_key` siguen REFUSED — una excepción para una
+      #     representación no es una excepción para tres.
+      #   · el peligro YH-2 queda CERRADO, no reubicado: un índice único PARCIAL sobre
+      #     columnas NULLABLE no restringe nada, así que el CHECK hace ambas NOT NULL para
+      #     Brasil ANTES de que el índice signifique algo.
+      #   · las demás fuentes NO se debilitan: la constraint de la 065 se reemplaza por un
+      #     índice parcial con las MISMAS cuatro columnas y la MISMA semántica.
+      #   · publicar es ATÓMICO por contrato: `publish_period` es SIEMPRE la última operación
+      #     del plan, un periodo `preparing` no es legible, y un build fallido no puede
+      #     publicarse ni desplazar al periodo anterior.
+      #
+      # 🔴 LO QUE NO HACE: la migración 125 está AUTORADA y NO APLICADA. Ninguna prueba ni
+      # script la aplica. Brasil sigue AUSENTE de SOURCE_FAMILY_BY_SOURCE_KEY (el registro
+      # sigue lanzando), porque los 5 primitivos de lectura son year-scoped y Brasil mete 12
+      # periodos en un año — el primitivo period-aware es de CUT B. Sin puente al motor, sin
+      # Agent 1, sin runtime, sin flag.
+      #
+      # 100% sintético. Sin red, sin Supabase, sin proveedor, sin datos reales de Receita.
+      # 0 créditos, 0 escrituras, 0 migraciones aplicadas, 0 flags.
+      - name: Run BR-SOURCE FUNCTIONAL CUT-A monthly snapshot foundation tests
+        run: npm run test:br-source:functional-cut-a-monthly-snapshot

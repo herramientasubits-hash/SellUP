@@ -319,33 +319,50 @@ describe('FAST-TRACK-7 · GATE-4 — 4A / 4B / 4C are three separate, independen
     }
   });
 
-  it('tax_id, normalized_tax_id and record_identity_key stay TRANSIENT_ONLY, and persisting them is still refused', () => {
-    for (const entry of BRAZIL_RECEITA_GATE4_IDENTITY_FIELD_DISPOSITIONS) {
-      assert.equal(entry.persistence, 'TRANSIENT_ONLY');
+  it('the SECOND representations stay TRANSIENT_ONLY, and persisting either is still refused', () => {
+    // 🔴 BR-SOURCE-FUNCTIONAL-CUT-A. 4A/4B/4C themselves changed no disposition — the assertion
+    // above about `BRAZIL_RECEITA_GATE4_APPROVAL_DOES_NOT` still holds verbatim. CUT A then
+    // EXERCISED 4A's exception in `normalized_tax_id`, so the refused set is now the two SECOND
+    // representations. What must never regress is that those two stay refused: an exception for one
+    // representation is not an exception for three.
+    const refused = BRAZIL_RECEITA_GATE4_IDENTITY_FIELD_DISPOSITIONS.filter(
+      (entry) => entry.field !== 'normalized_tax_id',
+    );
+    assert.equal(refused.length, 2);
+    for (const entry of refused) {
+      assert.equal(entry.persistence, 'TRANSIENT_ONLY', entry.field);
     }
     assert.deepEqual([...BRAZIL_RECEITA_GATE4_NON_PERSISTABLE_FIELDS].sort(), [
-      'normalized_tax_id',
       'record_identity_key',
       'tax_id',
     ]);
+
     // Generated, never a literal: a run of 14 digits, so no identifier-shaped literal sits in this
     // source (mirrors the digitRun() convention used elsewhere in this suite family).
     const fourteenDigits = '4'.repeat(14);
+    // A DV-valid synthetic identity, so these rows fail ONLY for the second representation they
+    // carry — not incidentally for a missing identity or a missing period.
+    const validIdentity = '11222333000181';
+    const validPeriod = '2026-07';
+
     assert.throws(
       () =>
         assertBrazilReceitaSnapshotRowIsPersistable({
           tax_id: fourteenDigits,
-          normalized_tax_id: '',
+          normalized_tax_id: validIdentity,
           record_identity_key: '' as never,
+          source_period: validPeriod,
         }),
       BrazilReceitaGate4NonPersistableRowError,
+      'the raw CNPJ is a second representation and must stay refused',
     );
     assert.throws(
       () =>
         assertBrazilReceitaSnapshotRowIsPersistable({
           tax_id: '',
-          normalized_tax_id: '',
+          normalized_tax_id: validIdentity,
           record_identity_key: `tax:${fourteenDigits}` as never,
+          source_period: validPeriod,
         }),
       BrazilReceitaGate4NonPersistableRowError,
       'a namespace prefix must not disguise the prohibited identifier',
@@ -358,11 +375,25 @@ describe('FAST-TRACK-7 · GATE-4 — 4A / 4B / 4C are three separate, independen
 
   it('the restrictions still forbid every operational crossing', () => {
     const text = BRAZIL_RECEITA_GATE4_RESTRICTIONS.join(' | ');
-    assert.match(text, /no migration/);
+
+    // 🔴 BR-SOURCE-FUNCTIONAL-CUT-A narrowed four of these restrictions rather than removing them,
+    // so this guard follows the narrowing instead of the old wording:
+    //
+    //   · "no migration is created" became "migration 125 is AUTHORED and is NOT APPLIED". The
+    //     operational crossing this defends is APPLYING it, and that is still forbidden.
+    //   · "exact runtime lookup is a recorded PRODUCTIZATION BLOCKER" became "unblocked at the
+    //     STORAGE boundary only" — the read half is still missing, and saying so precisely is
+    //     stricter than repeating a blanket blocker that is no longer accurate.
+    assert.match(text, /migration 125 is AUTHORED and is NOT APPLIED/);
+    assert.match(text, /period-aware primitive is still required/);
     assert.match(text, /no surrogate generator is implemented/);
     assert.match(text, /TRANSIENT_ONLY/);
-    assert.match(text, /PRODUCTIZATION BLOCKER/);
     assert.match(text, /project direction only, not a legal\/privacy approval/);
+
+    // The crossings that must NOT have moved at all.
+    assert.match(text, /no persistence, import, Supabase write, runtime path, Agent 1 or Agent 2A integration/);
+    assert.match(text, /stays absent from SOURCE_FAMILY_BY_SOURCE_KEY/);
+    assert.match(text, /no operational flag is flipped/);
   });
 });
 

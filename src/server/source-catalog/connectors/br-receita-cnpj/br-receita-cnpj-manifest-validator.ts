@@ -24,6 +24,12 @@ import { createReadStream } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 
+// 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — the canonical YYYY-MM rule, imported rather than restated.
+// This module used to carry its own `isValidSourcePeriod`. `source_period` is now a physical
+// identity column, so a second local definition of "a valid period" could let a manifest be
+// accepted for a period the table would reject (or the reverse).
+import { isValidSourcePeriod } from '../../source-period';
+
 import {
   BR_RECEITA_CNPJ_FORBIDDEN_TOKENS,
   BrReceitaCnpjEmptyFileError,
@@ -133,11 +139,6 @@ function isValidSourceYear(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 2000 && value <= 2100;
 }
 
-function isValidSourcePeriod(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}$/.test(value)) return false;
-  const month = Number(value.slice(5, 7));
-  return month >= 1 && month <= 12;
-}
 
 /** Resolved target must live inside `baseDir` (blocks `..` traversal). */
 function isWithinBaseDir(baseDir: string, resolvedTarget: string): boolean {

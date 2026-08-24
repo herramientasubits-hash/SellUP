@@ -37,6 +37,8 @@ import {
   buildBrazilCnpjRecordIdentityKey,
   stripBrazilCnpjPunctuationAndUpper,
 } from './br-cnpj';
+// 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — the canonical period rule, imported never restated.
+import { parseSourcePeriod, sourcePeriodYear, SOURCE_PERIOD_GRAIN } from '../../source-period';
 // 🔴 BR-SOURCE-GATE-ROUND-1 — the CANONICAL alphanumeric-aware, DV-validated CNPJ detector. Reused,
 // never re-implemented: a second definition of "CNPJ-shaped" here would drift from the one the
 // classifier, the dry-run guard, the report sanitizer and the metric channel already share.
@@ -95,6 +97,40 @@ function assertValidSourceYear(sourceYear: unknown): asserts sourceYear is numbe
       `BR Receita CNPJ parser: sourceYear must be a positive integer, received: ${String(sourceYear)}`,
     );
   }
+}
+
+/**
+ * Fail-closed period gate (BR-SOURCE-FUNCTIONAL-CUT-A). Returns the VALIDATED period so no caller
+ * can accidentally keep using the raw input.
+ *
+ * 🔴 Two separate refusals, because they are two different operator mistakes:
+ *
+ *   1. a missing or malformed period — the row would have no identity dimension at all, which is
+ *      the write the old vacuous uniqueness accepted without limit;
+ *   2. a period that disagrees with `sourceYear` — 2026-07 loaded while the year says 2025 would
+ *      put the month under the wrong year, and the year is what the generic table and every
+ *      existing read primitive still filter on. Migration 125 pins the same equality as a CHECK,
+ *      so this is the application half of one invariant rather than a second, softer rule.
+ *
+ * The diagnostic names the GRAIN and the disagreeing year, never a value that could carry
+ * identifier material.
+ */
+function assertValidSourcePeriodForYear(input: BrReceitaCnpjParserInput): string {
+  const parsed = parseSourcePeriod(input.sourcePeriod);
+  if (!parsed.valid) {
+    throw new BrReceitaCnpjForbiddenSourceError(
+      `BR Receita CNPJ parser: sourcePeriod is required and must use the canonical ${SOURCE_PERIOD_GRAIN} grain (${parsed.reason})`,
+    );
+  }
+
+  const periodYear = sourcePeriodYear(parsed.sourcePeriod);
+  if (periodYear !== input.sourceYear) {
+    throw new BrReceitaCnpjForbiddenSourceError(
+      `BR Receita CNPJ parser: sourceYear ${input.sourceYear} disagrees with the year of sourcePeriod (${periodYear}); the period is authoritative and the two may never diverge`,
+    );
+  }
+
+  return parsed.sourcePeriod;
 }
 
 /**
@@ -309,6 +345,7 @@ export function buildBrReceitaCnpjSnapshotRows(
   input: BrReceitaCnpjParserInput,
 ): BrReceitaCnpjParserResult {
   assertValidSourceYear(input.sourceYear);
+  const sourcePeriod = assertValidSourcePeriodForYear(input);
   assertNoForbiddenPersonalDataSource(input);
 
   const empresas = indexEmpresas(input.empresasRows);
@@ -387,7 +424,9 @@ export function buildBrReceitaCnpjSnapshotRows(
       source_type: 'official_registry',
       human_review_required: true,
       parser_version: BR_RECEITA_CNPJ_PARSER_VERSION,
-      source_period: normalizeText(input.sourcePeriod),
+      // The SAME validated value the physical `source_period` column below carries. Migration 125
+      // pins the two equal for Brazil rows, so provenance can never drift from identity.
+      source_period: sourcePeriod,
       source_row_index: i,
 
       // 🔴 GATE-ROUND-1 — no `cnpj_root`, no `cnpj_order`, no `cnpj_dv`. See the type.
@@ -428,6 +467,8 @@ export function buildBrReceitaCnpjSnapshotRows(
       source_key: BR_RECEITA_CNPJ_SOURCE_KEY,
       country_code: BR_RECEITA_CNPJ_COUNTRY_CODE,
       source_year: input.sourceYear,
+      // 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — physical, validated, and the identity dimension.
+      source_period: sourcePeriod,
       tax_id: rawFullCnpj,
       normalized_tax_id: normalizedTaxId,
       legal_name: normalizeText(empresa.razao_social),

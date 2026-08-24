@@ -1,0 +1,222 @@
+-- Migration 125: BR Receita monthly snapshot identity foundation
+-- Milestone: BR-SOURCE-FUNCTIONAL-CUT-A — monthly Receita snapshot identity foundation.
+--
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- THIS MIGRATION IS AN ARTIFACT. IT IS NOT APPLIED BY CUT A.
+-- No Supabase MCP apply, no SQL editor, no remote SQL, no migration ledger write.
+-- ═══════════════════════════════════════════════════════════════════════════════
+--
+-- WHAT THIS FIXES
+-- ---------------
+-- `source_company_snapshots` is YEAR-grained (`source_year int NOT NULL`) and its only physical
+-- uniqueness is migration 065's `UNIQUE (source_key, country_code, source_year,
+-- normalized_tax_id)`. Receita publishes MONTHLY, which breaks that constraint two ways
+-- (recorded as YH-1 / YH-2 in br-receita-cnpj-gate4-recorded-identity-grain.ts):
+--
+--   YH-1  with normalized_tax_id populated, 2026-08 collides with 2026-07 for the same
+--         establishment, because the constraint cannot tell the two months apart. Monthly history
+--         is destroyed by a constraint that believes it is preventing duplicates.
+--   YH-2  with normalized_tax_id NULL, Postgres treats NULLs as DISTINCT, so that unique
+--         constraint stops constraining ANYTHING: every month inserts a full duplicate set with no
+--         idempotency and no dedup. This is the state Brazil is actually in.
+--
+-- Both are closed below: the period becomes physical, Brazil's identity becomes NOT NULL by CHECK,
+-- and Brazil's uniqueness becomes period-aware.
+--
+-- IDENTITY DECISION IMPLEMENTED (exactly ONE representation)
+-- ---------------------------------------------------------
+-- GATE-4 sub-decision 4A (LEGAL_PRIVACY_OWNER, OWNER_REF_GATE4A_LEGAL_PRIVACY_OWNER_RELAY_2026_08_24)
+-- granted a narrow enumerated exception to GATE-1 R4: exactly ONE persisted, never-printed,
+-- never-logged, never-reported representation of the establishment CNPJ, solely as that row's
+-- internal exact-lookup key. FUNCTIONAL CUT A exercises it in `normalized_tax_id`, the column the
+-- existing read primitives already take — which is what 4A's own `ifYes` branch anticipated.
+--
+-- The other two candidate columns stay EMPTY for Brazil, enforced below, so "exactly one" is a
+-- schema fact and not a convention:
+--   · `tax_id`              — the raw CNPJ. A second representation. Refused.
+--   · `record_identity_key` — literally `tax:<normalized_14>`. A namespace prefix is not a
+--                             transformation, and it is a second representation. Refused.
+--
+-- 🔴 CHARACTER SET: the identity is 14 CHARACTERS, not 14 DECIMAL DIGITS. Alphanumeric CNPJs are
+-- official from July 2026 — positions 1-12 may be [A-Z0-9], positions 13-14 (the DV) stay [0-9] —
+-- and the first target period is 2026-07. A decimal-only constraint would reject valid
+-- establishments in the very first month. This mirrors the canonical `normalizeBrazilCnpj`
+-- validator exactly (`br-cnpj.ts`).
+--
+-- PRE-EXISTING ROW STRATEGY (§ 8) — fail closed, never invent a period
+-- --------------------------------------------------------------------
+--   · ZERO Brazil rows (the expected state — no Brazil writer has ever existed and no Brazil
+--     snapshot has ever been written): every statement below applies cleanly. The new CHECK
+--     constraints are VALIDATED immediately rather than NOT VALID, because a freshly added
+--     `source_period` column is NULL on every existing row and the Brazil branch is unreachable
+--     for every non-Brazil `source_key`.
+--   · LEGACY Brazil rows present: `ADD CONSTRAINT ... source_company_snapshots_br_receita_identity_chk`
+--     ABORTS the migration. That is deliberate and is the safe outcome. Such rows would have no
+--     `source_period`, and there is no correct value to give them: the month they came from is not
+--     recorded anywhere, and assigning today's month would silently mislabel a snapshot and let it
+--     be published as a period it is not. Resolving that requires an explicit owner decision about
+--     those rows (delete, or backfill from external provenance) — not a default in a migration.
+--   · Whether legacy Brazil rows exist CANNOT be known from the repository alone, and CUT A does
+--     not read Production. The migration is therefore written to be correct in BOTH states: clean
+--     apply when there are none, hard abort when there are.
+--
+-- NON-BRAZIL SOURCES ARE NOT WEAKENED
+-- -----------------------------------
+-- 065's table constraint is replaced by a partial unique index carrying the SAME four columns and
+-- the SAME semantics for every non-Brazil row. Nothing about their uniqueness, nullability or
+-- cardinality changes.
+--
+-- 🔴 One deliberate consequence: a PARTIAL unique index cannot serve as an `ON CONFLICT` arbiter.
+-- That costs nothing today — every live writer was cut over to
+-- `RECORD_IDENTITY_ON_CONFLICT` ('source_key,country_code,source_year,record_identity_key') and
+-- NO writer references `OLD_TAX_GRAIN_ON_CONFLICT` any more. The CUT-A suite pins that fact, so a
+-- future writer cannot quietly start depending on an arbiter this migration made partial.
+--
+-- 🔴 `CONCURRENTLY` is deliberately NOT used. The drop-and-replace has to be atomic: between
+-- dropping 065's constraint and creating its replacement there must be no window in which the
+-- table has no uniqueness at all, and `CREATE INDEX CONCURRENTLY` cannot run inside a transaction
+-- block.
+
+BEGIN;
+
+-- ─── 1. The physical monthly period ─────────────────────────────────────────
+-- Nullable at the TABLE level because other sources are legitimately year-grained; REQUIRED for
+-- Brazil by the CHECK in step 3. Never derived from `created_at`/`imported_at`.
+
+ALTER TABLE public.source_company_snapshots
+  ADD COLUMN source_period text NULL;
+
+ALTER TABLE public.source_snapshot_runs
+  ADD COLUMN source_period text NULL;
+
+COMMENT ON COLUMN public.source_company_snapshots.source_period IS
+  'Canonical publication period of the source snapshot, YYYY-MM. Authoritative over source_year. Required for br_receita_cnpj_dados_abertos. Never inferred at read time.';
+
+-- ─── 2. Period syntax, enforced table-wide ──────────────────────────────────
+-- The regex body is identical to SOURCE_PERIOD_SQL_PATTERN in
+-- src/server/source-catalog/source-period/source-period.ts, so the database and the application
+-- cannot disagree about what a period is. The CUT-A suite asserts that equality.
+
+ALTER TABLE public.source_company_snapshots
+  ADD CONSTRAINT source_company_snapshots_source_period_format_chk
+  CHECK (source_period IS NULL OR source_period ~ '^[0-9]{4}-(0[1-9]|1[0-2])$');
+
+ALTER TABLE public.source_snapshot_runs
+  ADD CONSTRAINT source_snapshot_runs_source_period_format_chk
+  CHECK (source_period IS NULL OR source_period ~ '^[0-9]{4}-(0[1-9]|1[0-2])$');
+
+-- ─── 3. Brazil identity: required, and exactly ONE representation ───────────
+-- Every conjunct is written so a NULL can never make the CHECK pass by accident: `source_key` is
+-- NOT NULL so the guard branch is a real boolean, and the `IS NOT NULL` tests come before the
+-- comparisons that depend on them.
+
+ALTER TABLE public.source_company_snapshots
+  ADD CONSTRAINT source_company_snapshots_br_receita_identity_chk
+  CHECK (
+    source_key <> 'br_receita_cnpj_dados_abertos'
+    OR (
+      -- the period is mandatory, and it is the identity dimension
+      source_period IS NOT NULL
+      -- the ONE persisted identity representation: exactly 14 chars, alphanumeric-CNPJ shaped
+      AND normalized_tax_id IS NOT NULL
+      AND normalized_tax_id ~ '^[A-Z0-9]{12}[0-9]{2}$'
+      -- and no second representation, ever
+      AND tax_id IS NULL
+      AND record_identity_key IS NULL
+      -- source_year is retained only because the generic column is NOT NULL; it may never disagree
+      -- with the period that is actually authoritative
+      AND source_year::text = substring(source_period from 1 for 4)
+      -- the raw_data provenance copy of the period may never drift from the physical column
+      AND (raw_data ->> 'source_period') IS NOT NULL
+      AND (raw_data ->> 'source_period') = source_period
+    )
+  );
+
+-- ─── 4. Period-aware uniqueness, replacing the year-grained constraint ──────
+-- 065's constraint is auto-named by Postgres and the generated name is truncated, so it is located
+-- by its COLUMN SET rather than by a guessed identifier. Absence is a hard error: silently skipping
+-- the drop would leave the year-grained constraint in place and YH-1 wide open.
+
+DO $$
+DECLARE
+  v_conname text;
+BEGIN
+  SELECT con.conname
+    INTO v_conname
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+   WHERE nsp.nspname = 'public'
+     AND rel.relname = 'source_company_snapshots'
+     AND con.contype = 'u'
+     AND (
+           SELECT array_agg(att.attname::text ORDER BY att.attname)
+             FROM unnest(con.conkey) AS k(attnum)
+             JOIN pg_attribute att
+               ON att.attrelid = con.conrelid
+              AND att.attnum = k.attnum
+         ) = ARRAY['country_code', 'normalized_tax_id', 'source_key', 'source_year']::text[];
+
+  IF v_conname IS NULL THEN
+    RAISE EXCEPTION
+      'migration 125: expected migration 065''s UNIQUE (source_key, country_code, source_year, normalized_tax_id) on public.source_company_snapshots to exist; refusing to proceed rather than leaving Brazil without period-aware uniqueness';
+  END IF;
+
+  EXECUTE format('ALTER TABLE public.source_company_snapshots DROP CONSTRAINT %I', v_conname);
+END
+$$;
+
+-- 4a. Non-Brazil sources keep the exact year-grained semantics they had.
+CREATE UNIQUE INDEX source_company_snapshots_year_identity_uidx
+  ON public.source_company_snapshots (source_key, country_code, source_year, normalized_tax_id)
+  WHERE source_key <> 'br_receita_cnpj_dados_abertos';
+
+-- 4b. Brazil is period-aware. Combined with the CHECK in step 3 — which makes both
+--     `source_period` and `normalized_tax_id` NOT NULL for Brazil rows — this index can never be
+--     vacuous, so YH-2 (NULLS DISTINCT) is closed rather than relocated.
+--
+--     Same CNPJ + same period  → the same logical snapshot; a replay is idempotent.
+--     Same CNPJ + next period  → a distinct monthly snapshot; cross-period overwrite is impossible.
+CREATE UNIQUE INDEX source_company_snapshots_br_period_identity_uidx
+  ON public.source_company_snapshots (source_key, country_code, source_period, normalized_tax_id)
+  WHERE source_key = 'br_receita_cnpj_dados_abertos';
+
+-- No additional read index is created. 4b's leading columns
+-- (source_key, country_code, source_period) already serve whole-period reads and per-period
+-- pruning, and the exact-lookup path uses all four. An extra index would be dead weight.
+
+-- ─── 5. Atomic publish: "complete period" becomes an explicit concept ───────
+-- Reuses the EXISTING run table rather than inventing a second publication system. `publish_state`
+-- is a SEPARATE column from the pre-existing `status`, so no other source's run lifecycle changes
+-- meaning, and it is NULLABLE so historical runs are not retro-labelled with a state they never
+-- had: NULL means "period publication does not apply to this run".
+
+ALTER TABLE public.source_snapshot_runs
+  ADD COLUMN publish_state text NULL;
+
+ALTER TABLE public.source_snapshot_runs
+  ADD CONSTRAINT source_snapshot_runs_publish_state_chk
+  CHECK (
+    publish_state IS NULL
+    OR publish_state IN ('preparing', 'published', 'failed', 'rolled_back')
+  );
+
+ALTER TABLE public.source_snapshot_runs
+  ADD CONSTRAINT source_snapshot_runs_br_receita_publication_chk
+  CHECK (
+    source_key <> 'br_receita_cnpj_dados_abertos'
+    OR (source_period IS NOT NULL AND publish_state IS NOT NULL)
+  );
+
+-- At most ONE published run per (source, country, period). This is what makes the publish
+-- transition atomic and what makes "the published period" a single, unambiguous row: a partial
+-- month is `preparing` and therefore invisible to any reader that filters on `published`, and a
+-- failed build can never become published without displacing nothing.
+CREATE UNIQUE INDEX source_snapshot_runs_published_period_uidx
+  ON public.source_snapshot_runs (source_key, country_code, source_period)
+  WHERE publish_state = 'published' AND source_period IS NOT NULL;
+
+COMMENT ON COLUMN public.source_snapshot_runs.publish_state IS
+  'Period publication state: preparing | published | failed | rolled_back. NULL for runs where period publication does not apply. A period is readable only while a published run exists for it.';
+
+COMMIT;
