@@ -335,7 +335,7 @@ function sameTaxResolver(taxIdentifier: string): OfficialSourceResolver {
       countryCode: 'CO',
       sourceKey: 'co_siis',
       confidence: 1,
-      matchMethod: 'tax_identifier',
+      matchMethod: 'tax_id',
       taxIdentifier,
       taxIdentifierType: 'NIT',
       legalName: 'RAZON SOCIAL OFICIAL S.A.S.',
