@@ -150,6 +150,21 @@ export const PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY =
 export const PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY =
   'No fue posible verificar el saldo de créditos. No se ejecutó ningún proveedor ni se consumieron créditos.';
 
+/**
+ * El tope que el operador VIO ya no es el que la modalidad exige
+ * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2).
+ *
+ * NO es un error del operador ni un fallo del sistema, así que el copy no se disculpa ni
+ * habla de proveedores: describe lo único que pasó —la autorización cambió— y pide la
+ * única acción que corresponde, que es MIRAR el nuevo máximo antes de volver a decidir.
+ *
+ * Deliberadamente NO menciona el número nuevo: quien lo muestra es el botón, que se
+ * recarga con la vista previa fresca. Un copy que dijera «ahora son 14» competiría con
+ * el botón por ser la fuente de verdad del precio.
+ */
+export const PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY =
+  'La autorización cambió. Revisa el nuevo máximo de créditos antes de continuar.';
+
 /** Cierre técnico: no significa "no existe teléfono". */
 export const PHONE_REVEAL_WATERFALL_ERROR_COPY =
   'No fue posible completar la revelación de teléfono. Intenta más tarde.';

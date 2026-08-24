@@ -609,6 +609,23 @@ export type RevealCandidatePhoneStatus =
   // los dos anteriores a propósito — no se sabe si alcanza ni si existe, solo que no
   // se pudo comprobar — y también es fail-closed: mismas garantías de cero efectos.
   | 'credit_balance_unavailable'
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2: el tope de créditos que el
+  // operador VIO y aceptó en la UI es MENOR que el que la modalidad real exige. El
+  // copy del botón se calcula antes del clic y puede quedar obsoleto —la vista previa
+  // falló y la UI cayó a su suelo de 8, o la modalidad cambió entre el render y el
+  // clic—, así que el tope aceptado se trata como LÍMITE SUPERIOR DURO: si no cubre lo
+  // requerido, no se reserva nada y se le vuelve a preguntar con el número real.
+  //
+  // Se comprueba SERVER-SIDE después de resolver la modalidad y ANTES del preflight de
+  // presupuesto y de `reserve_and_create_phone_reveal_run`: 0 reservas, 0 corridas, 0
+  // llamadas a Apollo, 0 llamadas a Lusha, 0 usage-logs y 0 créditos.
+  //
+  // NO se sube el tope en silencio y NO hay reintento automático: una autorización
+  // humana obsoleta se vuelve a pedir, no se reinterpreta.
+  //
+  // Lo emite EXCLUSIVAMENTE el wrapper del server action (phone-reveal-actions.ts),
+  // igual que los tres anteriores: este core no conoce el waterfall ni su modalidad.
+  | 'authorization_ceiling_mismatch'
   | 'error';
 
 export interface RevealCandidatePhoneResult {

@@ -61,6 +61,24 @@ La pata de Lusha exige **todo** lo siguiente, y cualquier fallo la deja fuera:
    Sin ninguna de las dos vías la pata no existe y el tope vuelve a ser **8**. El copy del botón
    y la reserva salen de la MISMA función pura
    (`buildPhoneRevealWaterfallAuthorizationPreview`), así que no pueden discrepar.
+
+   **El tope que el operador vio es un límite superior DURO**
+   (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2). Compartir la función no basta: la vista
+   previa se resuelve ANTES del clic y puede fallar —la UI cae entonces, bien, a su suelo
+   conservador de 8— o quedarse vieja. Por eso el clic envía `expectedMaxCredits` y el arranque
+   lo compara contra la modalidad real **después** de resolverla y **antes** del preflight de
+   presupuesto y de `reserve_and_create_phone_reveal_run`:
+
+   * `aceptado >= requerido` ⇒ sigue, y lo que se **reserva es lo REQUERIDO**, no lo aceptado
+     (aceptar 14 sobre una modalidad de 13 registra 13);
+   * `aceptado < requerido` ⇒ `authorization_ceiling_mismatch`: 0 consultas de pozo, 0 reservas,
+     0 corridas, 0 Apollo, 0 Lusha, 0 usage-logs, 0 créditos. **No** se sube el tope en silencio,
+     **no** se degrada a Apollo-only y **no** hay reintento automático. La UI recarga su vista
+     previa, muestra «la autorización cambió» y el siguiente clic es de la persona;
+   * `expectedMaxCredits` ausente o no finito ⇒ se asume el suelo de **8**, jamás la modalidad
+     requerida: un cliente que no manda el tope no puede acabar autorizando el más caro.
+
+   Reservar y liberar después **no** es equivalente: sigue siendo exposición que nadie autorizó.
 4. Apollo terminó exactamente en `no_phone_found`.
 5. La autorización no ha expirado (**TTL de 24 h**). Un webhook que llega dos días después
    todavía puede cerrar la pata de Apollo, pero **nunca** puede gastar la segunda pata sobre

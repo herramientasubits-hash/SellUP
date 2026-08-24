@@ -24,7 +24,10 @@ import {
   type PhoneRevealCreditReservationAndRunOutcome,
   type PhoneRevealCreditReservationAndRunRequest,
 } from '../phone-reveal-credit-reservation-core';
-import type { PhoneRevealWaterfallRunDraft } from '../phone-reveal-waterfall-core';
+import {
+  PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_IDENTITY_SEARCH,
+  type PhoneRevealWaterfallRunDraft,
+} from '../phone-reveal-waterfall-core';
 import type {
   PhoneRevealCreditPool,
   PhoneRevealCreditPoolState,
@@ -68,6 +71,23 @@ export function poolsWith(
 
 /** Saldo AMPLIO: cubre cualquier modalidad sin que la reserva sea el sujeto del test. */
 export const GENEROUS_CREDITS = 1_000;
+
+/**
+ * Techo ACEPTADO por el operador para las suites cuyo sujeto NO es el techo
+ * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2).
+ *
+ * Desde R2 el arranque compara el tope que la persona aceptó contra el que la modalidad
+ * exige, y por omisión asume el suelo conservador de 8 —fail-closed a propósito: un
+ * cliente que no manda el tope no puede acabar autorizando el más caro—. Las suites de
+ * reserva, atomicidad y presupuesto miden OTRA cosa, así que declaran explícitamente el
+ * techo más alto que existe: así el gate del techo nunca es lo que las hace pasar ni
+ * fallar, y lo que se reserva sigue siendo lo REQUERIDO, no esto.
+ *
+ * Se deriva de la constante del core, no se escribe 14 a mano: si el contrato de créditos
+ * creciera, estas suites lo heredan en vez de quedarse cortas en silencio.
+ */
+export const ACCEPTED_CEILING_NOT_UNDER_TEST =
+  PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_IDENTITY_SEARCH;
 
 export interface CreditHarness {
   /** Fragmento de deps listo para hacer spread en las deps del arranque. */

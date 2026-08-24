@@ -608,6 +608,41 @@ export function buildPhoneRevealWaterfallAuthorizationPreview(
 }
 
 /**
+ * Normaliza el tope que el CLIENTE dice haber aceptado
+ * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2).
+ *
+ * Ausente, no numérico o no finito ⇒ el suelo conservador de 8, jamás la modalidad
+ * requerida. Un cliente que no manda el tope no puede acabar autorizando el más caro por
+ * omisión; en el peor caso se le vuelve a preguntar.
+ */
+export function normalizePhoneRevealWaterfallAcceptedMaxCredits(
+  acceptedMaxCredits: number | null | undefined,
+): number {
+  return typeof acceptedMaxCredits === 'number' && Number.isFinite(acceptedMaxCredits)
+    ? acceptedMaxCredits
+    : PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS;
+}
+
+/**
+ * ¿La autorización HUMANA cubre lo que esta modalidad exige?
+ * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2)
+ *
+ * El tope que se le enseñó a una persona es un LÍMITE SUPERIOR DURO. `>=` y no `===`
+ * porque aceptar de más es seguro —el operador consintió un gasto mayor del que hace
+ * falta, y lo que se reserva sigue siendo lo requerido, no lo aceptado—; aceptar de
+ * MENOS nunca lo es, porque significaría cobrarle un máximo que nunca vio.
+ *
+ * Es una función PURA y separada a propósito: es el único lugar donde se decide si una
+ * autorización obsoleta puede seguir, y el arranque la llama ANTES de cualquier reserva.
+ */
+export function isPhoneRevealWaterfallAuthorizationCeilingHonored(args: {
+  requiredMaxCredits: number;
+  acceptedMaxCredits: number;
+}): boolean {
+  return args.acceptedMaxCredits >= args.requiredMaxCredits;
+}
+
+/**
  * ¿El tope que el operador aceptó incluye la búsqueda de identidad PAGADA?
  *
  * Se responde con `max_credits_authorized`, que es el único hecho durable que dice a la
@@ -741,6 +776,22 @@ export interface PhoneRevealWaterfallRunDraft {
 
 export interface StartPhoneRevealWaterfallInput {
   candidateId: string;
+  /**
+   * Tope de créditos que el operador ACEPTÓ en la UI, tal cual llegó del cliente
+   * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2).
+   *
+   * POR QUÉ EXISTE: el copy del botón se calcula ANTES del clic y puede quedar OBSOLETO
+   * —la vista previa falló y la UI cayó a su suelo conservador de 8, o la modalidad
+   * cambió entre el render y el clic—. Sin este dato, el arranque resolvía la modalidad
+   * REAL y reservaba 14 sobre una autorización humana de 8. El tope que se le enseñó a
+   * una persona es un LÍMITE SUPERIOR DURO, no una sugerencia: si lo que hace falta lo
+   * supera, no se reserva nada y se le vuelve a preguntar.
+   *
+   * Ausente o no finito ⇒ se asume el suelo conservador
+   * (`PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS`), NUNCA la modalidad requerida: un
+   * cliente que no manda el tope no puede acabar autorizando el más caro.
+   */
+  acceptedMaxCredits?: number;
 }
 
 /**
@@ -861,7 +912,25 @@ export type StartPhoneRevealWaterfallResult =
          * infraestructura en vez de uno de saldo.
          */
         | 'run_creation_unavailable'
-        | 'create_conflict';
+        | 'create_conflict'
+        /**
+         * El tope que el operador ACEPTÓ es MENOR que el que esta modalidad exige
+         * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2). Se detecta DESPUÉS de conocer
+         * la modalidad real y ANTES del preflight de presupuesto y de
+         * `reserve_and_create_phone_reveal_run`, así que por construcción: 0 reservas, 0
+         * corridas, 0 llamadas a Apollo, 0 llamadas a Lusha, 0 usage-logs y 0 créditos.
+         *
+         * NO se sube el tope en silencio y NO se reintenta: una autorización humana
+         * obsoleta se vuelve a pedir, no se reinterpreta.
+         */
+        | 'authorization_ceiling_mismatch';
+      /**
+       * Solo en `authorization_ceiling_mismatch`: qué exigía la modalidad real y qué
+       * había aceptado el operador. Dos enteros, PII-free, para que el wrapper pueda
+       * registrarlo sin volver a resolver la modalidad.
+       */
+      requiredMaxCredits?: number;
+      acceptedMaxCredits?: number;
     };
 
 // ── Reserva + corrida atómicas, compartidas por los dos arranques ──
@@ -1060,6 +1129,34 @@ export async function startPhoneRevealWaterfall(
   const preview = buildPhoneRevealWaterfallAuthorizationPreview(candidate);
   const requiresIdentitySearch = preview.requiresIdentitySearch;
   const maxCreditsAuthorized = preview.maxCredits;
+
+  // TECHO DE LA AUTORIZACIÓN HUMANA (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2).
+  //
+  // Va AQUÍ y no más abajo por una razón económica, no estética: es el último punto en el
+  // que ya se conoce la modalidad REAL y todavía no se ha tocado el presupuesto ni la
+  // transacción de reserva. Comparar después de reservar —y liberar— seguiría siendo un
+  // gasto autorizado por encima de lo que una persona aprobó, y dejaría una ventana en la
+  // que la corrida existe.
+  //
+  // El caso que lo motiva: la vista previa falló, la UI cayó a su suelo conservador de 8,
+  // el operador autorizó 8 y al hacer clic el servidor resuelve 14. Antes se reservaban
+  // 14. Ahora no se reserva nada: se corta y se le vuelve a preguntar con el número real.
+  const acceptedMaxCredits = normalizePhoneRevealWaterfallAcceptedMaxCredits(
+    input.acceptedMaxCredits,
+  );
+  if (
+    !isPhoneRevealWaterfallAuthorizationCeilingHonored({
+      requiredMaxCredits: maxCreditsAuthorized,
+      acceptedMaxCredits,
+    })
+  ) {
+    return {
+      started: false,
+      reason: 'authorization_ceiling_mismatch',
+      requiredMaxCredits: maxCreditsAuthorized,
+      acceptedMaxCredits,
+    };
+  }
 
   // PREFLIGHT + RESERVA (AGENT2A-PHONE-WATERFALL-4D/4E). Van justo ANTES del INSERT y
   // DESPUÉS de conocer la modalidad, porque lo exigido depende de ella (Apollo 8 + Lusha

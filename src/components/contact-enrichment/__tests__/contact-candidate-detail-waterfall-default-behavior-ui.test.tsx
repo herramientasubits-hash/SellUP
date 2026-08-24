@@ -92,6 +92,7 @@ import * as React from 'react';
 import { describe, it, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PendingContactCandidate } from '@/modules/contact-enrichment/types';
+import { PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY } from '../phone-reveal-waterfall-copy';
 import type {
   PhoneRevealWaterfallAuditView,
   PhoneRevealWaterfallAuthorizationPreview,
@@ -486,5 +487,112 @@ describe('§ 11.H — UI y servidor no pueden discrepar', () => {
     assert.equal(revealButtons().length, 0);
     assert.equal(mockPreview.mock.callCount(), 0);
     assert.equal(mockReveal.mock.callCount(), 0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// R2 — el techo aceptado es un LÍMITE DURO, y su rechazo es un reintento SEGURO
+// (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2)
+// ═══════════════════════════════════════════════════════════════
+
+/** Lo que devuelve el servidor cuando el techo mostrado ya no cubre la modalidad. */
+const CEILING_MISMATCH_RESULT = {
+  ok: false,
+  status: 'authorization_ceiling_mismatch',
+  requestAccepted: false,
+  errorCode: 'authorization_ceiling_mismatch',
+} as const;
+
+describe('R2 — vista previa caída: el clic ofrece 8 y el servidor lo rechaza sin gastar', () => {
+  it('con la vista previa en null el botón envía 8, no la modalidad real', async () => {
+    // La otra mitad de este contrato vive en el servidor: con 8 aceptado y 14 requerido
+    // NO se reserva nada (ver waterfall-authorization-ceiling-hard-bound.test.ts). Aquí
+    // se fija que la UI manda exactamente lo que enseñó, que es lo que hace que la
+    // comparación del servidor sea posible.
+    mockPreview.mock.mockImplementation(async () => null);
+    await renderSheet(jaime());
+    assert.ok(/hasta 8 créditos/.test(bodyText()));
+    await act(async () => {
+      revealButtons()[0].click();
+    });
+    assert.equal(mockReveal.mock.callCount(), 1);
+    const input = mockReveal.mock.calls[0].arguments[0] as { expectedMaxCredits?: number };
+    assert.equal(input.expectedMaxCredits, 8);
+  });
+
+  it('el rechazo por techo NO se reintenta solo: una sola llamada de reveal', async () => {
+    // Éste es el corazón del contrato en la UI. Reintentar —con el techo nuevo o con
+    // cualquier otro— convertiría «tu autorización venció» en «te cobramos el precio
+    // nuevo sin preguntar», que es justo el gasto que el estado existe para impedir.
+    mockPreview.mock.mockImplementation(async () => null);
+    mockReveal.mock.mockImplementation(async () => CEILING_MISMATCH_RESULT);
+    await renderSheet(jaime());
+
+    await act(async () => {
+      revealButtons()[0].click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    assert.equal(mockReveal.mock.callCount(), 1, 'ni un segundo reveal automático');
+    assert.equal(mockLegacyStart.mock.callCount(), 0, 'ni una caída a la ruta legacy');
+  });
+
+  it('el rechazo RECARGA la vista previa para que el próximo clic sea el correcto', async () => {
+    // La vista previa es la autoridad del número, no la respuesta de error: por eso se
+    // relee en vez de creerle un tope a un resultado fallido.
+    mockPreview.mock.mockImplementation(async () => null);
+    mockReveal.mock.mockImplementation(async () => CEILING_MISMATCH_RESULT);
+    await renderSheet(jaime());
+    const previewCallsBeforeClick = mockPreview.mock.callCount();
+
+    await act(async () => {
+      revealButtons()[0].click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    assert.ok(
+      mockPreview.mock.callCount() > previewCallsBeforeClick,
+      `la vista previa se releyó (antes ${previewCallsBeforeClick}, ahora ${mockPreview.mock.callCount()})`,
+    );
+  });
+
+  it('el operador lee que la autorización cambió, no un error técnico', async () => {
+    mockPreview.mock.mockImplementation(async () => null);
+    mockReveal.mock.mockImplementation(async () => CEILING_MISMATCH_RESULT);
+    await renderSheet(jaime());
+
+    await act(async () => {
+      revealButtons()[0].click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const text = bodyText();
+    assert.ok(text.includes(PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY), text);
+    // NO es un fallo genérico ni una promesa de que ya se está revelando.
+    assert.equal(/No fue posible/.test(text), false, text);
+    assert.equal(/Apollo puede tardar/.test(text), false, text);
+  });
+
+  it('tras el rechazo el botón sigue disponible: el siguiente clic es de la persona', async () => {
+    mockPreview.mock.mockImplementation(async () => null);
+    mockReveal.mock.mockImplementation(async () => CEILING_MISMATCH_RESULT);
+    await renderSheet(jaime());
+
+    await act(async () => {
+      revealButtons()[0].click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // El pestillo de «solicitud en vuelo» NO se enciende: no hay nada en vuelo.
+    assert.equal(revealButtons().length, 1);
+    assert.equal(mockReveal.mock.callCount(), 1);
   });
 });

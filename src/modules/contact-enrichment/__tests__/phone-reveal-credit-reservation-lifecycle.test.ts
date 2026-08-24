@@ -36,6 +36,7 @@ import {
   creditHarness,
   poolsWith,
   type CreditHarness,
+  ACCEPTED_CEILING_NOT_UNDER_TEST,
 } from './phone-reveal-credit-reservation-fixtures';
 import type { PhoneRevealCreditProviderKey } from '../phone-reveal-credit-budget-core';
 
@@ -147,7 +148,7 @@ function legacyHarness(opts: {
 describe('4E — la reserva precede a la corrida y a cualquier proveedor', () => {
   it('camino feliz: 1 reserva de Apollo 8 + Lusha 5, y LUEGO la corrida', async () => {
     const h = fullHarness({ credit: creditHarness({ groupIds: ['group-abc'] }) });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
 
     assert.equal(result.started, true);
     assert.equal(h.credit.reserveRequests.length, 1);
@@ -176,7 +177,7 @@ describe('4E — la reserva precede a la corrida y a cualquier proveedor', () =>
       creditHarness({ outcome: { status: 'unavailable', detail: 'reserve_rpc_error' } }),
     ]) {
       const h = fullHarness({ credit });
-      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
+      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
       assert.equal(result.started, false);
       assert.equal(h.createCalls, 0, 'ninguna corrida creada');
       assert.equal(h.drafts.length, 0);
@@ -196,14 +197,14 @@ describe('4E — la reserva precede a la corrida y a cualquier proveedor', () =>
         outcome: { status: 'unavailable', detail: 'reserve_and_create_rpc_error' },
       }),
     });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'run_creation_unavailable' });
     assert.equal(h.createCalls, 0, 'y no quedó ninguna corrida');
   });
 
   it('la RPC responde already_reserved ⇒ active_run_exists (hay autorización viva)', async () => {
     const h = fullHarness({ credit: creditHarness({ outcome: { status: 'already_reserved' } }) });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'active_run_exists' });
     assert.equal(h.createCalls, 0);
   });
@@ -239,7 +240,7 @@ describe('4F — un fallo de creación no deja exposición: rollback, no compens
     const h = fullHarness({ createThrows: boom });
 
     await assert.rejects(
-      () => startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps),
+      () => startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps),
       /does not exist/,
     );
     // Ni corrida escrita ni exposición ocupada: la transacción no llegó a comprometerse.
@@ -250,7 +251,7 @@ describe('4F — un fallo de creación no deja exposición: rollback, no compens
 
   it('23505 del índice único ⇒ create_conflict SIN reserva superviviente', async () => {
     const h = fullHarness({ createReturns: null });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
 
     assert.deepEqual(result, { started: false, reason: 'create_conflict' });
     assert.deepEqual(h.credit.active, [], 'el rollback devolvió la disponibilidad');
@@ -269,7 +270,7 @@ describe('4F — un fallo de creación no deja exposición: rollback, no compens
       outcome: { status: 'create_conflict' },
     });
     const h = fullHarness({ credit });
-    await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
+    await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.equal(
       credit.active.filter((r) => r.status === 'reserved').length,
       0,
@@ -305,13 +306,13 @@ describe('4F — un fallo de creación no deja exposición: rollback, no compens
     const conflicted = fullHarness({
       credit: creditHarness({ poolsFor, outcome: { status: 'create_conflict' } }),
     });
-    await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, conflicted.deps);
+    await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, conflicted.deps);
 
     const retried = fullHarness({
       credit: creditHarness({ poolsFor, active: conflicted.credit.active }),
       candidateId: 'cand-2',
     });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-2' }, retried.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-2', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, retried.deps);
     assert.equal(result.started, true, 'la exposición del rollback volvió a estar disponible');
   });
 });
@@ -329,8 +330,8 @@ describe('4E — dos autorizaciones no consumen la misma disponibilidad', () => 
     const first = fullHarness({ credit, candidateId: 'cand-a' });
     const second = fullHarness({ credit, candidateId: 'cand-b' });
 
-    const a = await startPhoneRevealWaterfall({ candidateId: 'cand-a' }, first.deps);
-    const b = await startPhoneRevealWaterfall({ candidateId: 'cand-b' }, second.deps);
+    const a = await startPhoneRevealWaterfall({ candidateId: 'cand-a', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, first.deps);
+    const b = await startPhoneRevealWaterfall({ candidateId: 'cand-b', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, second.deps);
 
     assert.equal(a.started, true);
     assert.deepEqual(b, { started: false, reason: 'insufficient_credits' });
@@ -371,7 +372,7 @@ describe('4E — flag OFF y rol sin permiso de revelar quedan exactamente igual'
   it('flag OFF: 0 resoluciones de presupuesto, 0 reservas, 0 corridas', async () => {
     const h = fullHarness();
     h.deps = { ...h.deps, flagEnabled: false };
-    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'feature_disabled' });
     assert.equal(h.credit.poolQueries.length, 0);
     assert.equal(h.credit.reserveRequests.length, 0);
@@ -384,7 +385,7 @@ describe('4E — flag OFF y rol sin permiso de revelar quedan exactamente igual'
       ...h.deps,
       actor: { internalUserId: 'user-seller', roleKey: 'seller' },
     };
-    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'role_not_allowed' });
     assert.equal(h.credit.poolQueries.length, 0, 'ni se resolvió presupuesto');
     assert.equal(h.credit.reserveRequests.length, 0, 'ni se reservó nada');
@@ -420,7 +421,7 @@ describe('4E — flag OFF y rol sin permiso de revelar quedan exactamente igual'
         creditReservationGroupId: 'group-live',
       }),
     };
-    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'active_run_exists' });
     assert.equal(h.credit.reserveRequests.length, 0);
   });

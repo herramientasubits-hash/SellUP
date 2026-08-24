@@ -119,6 +119,7 @@ import {
   PHONE_REVEAL_WATERFALL_APOLLO_RUNNING_COPY,
   PHONE_REVEAL_WATERFALL_APPROVE_BLOCKED_COPY,
   PHONE_REVEAL_WATERFALL_BLOCKED_COPY,
+  PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY,
   PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY,
   PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY,
   PHONE_REVEAL_WATERFALL_ERROR_COPY,
@@ -1205,6 +1206,22 @@ export function ContactCandidateDetailSheet({
       case 'credit_balance_unavailable':
         toast.error(PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY);
         setPhoneRevealError(PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY);
+        return;
+      // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2: el tope que este botón mostró
+      // ya no es el que la modalidad exige, así que el servidor NO reservó nada. Lo
+      // único que hace falta es volver a leer el máximo real y dejar que la persona
+      // decida otra vez.
+      //
+      // NO se reintenta automáticamente y NO se acepta el tope mayor por nuestra
+      // cuenta: eso convertiría «tu autorización venció» en «te cobramos el nuevo
+      // precio sin preguntar», que es justo el gasto que este estado existe para
+      // impedir. Se recarga la vista previa —que es quien manda en el número— y el
+      // candidato, y el siguiente clic es de la persona.
+      case 'authorization_ceiling_mismatch':
+        toast.warning(PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY);
+        setPhoneRevealNotice(PHONE_REVEAL_WATERFALL_AUTHORIZATION_CHANGED_COPY);
+        if (candidateId) void reloadWaterfallAuthorizationPreview(candidateId);
+        void reloadCandidate();
         return;
       case 'do_not_contact':
         toast.warning('Este candidato/contacto está marcado como no contactar.');

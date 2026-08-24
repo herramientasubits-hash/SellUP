@@ -112,6 +112,13 @@ interface Spies {
   creditReservations: number;
   /** Motivos de liberación de exposición, en orden. */
   creditReleases: string[];
+  /**
+   * Cargas `p_run` enviadas a la reserva atómica, en orden
+   * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2). Permite afirmar QUÉ tope se
+   * registró, no sólo que se registró algo: aceptar de más no puede encarecer la
+   * corrida.
+   */
+  runPayloads: Record<string, unknown>[];
 }
 
 const spies: Spies = {
@@ -124,6 +131,7 @@ const spies: Spies = {
   waterfallWrites: 0,
   creditReservations: 0,
   creditReleases: [],
+  runPayloads: [],
 };
 
 /**
@@ -143,6 +151,7 @@ function resetSpies(): void {
   spies.waterfallWrites = 0;
   spies.creditReservations = 0;
   spies.creditReleases = [];
+  spies.runPayloads = [];
   events = [];
   httpRequests = [];
 }
@@ -347,6 +356,9 @@ mock.module('@/lib/supabase/admin', {
             spies.creditReservations += 1;
             spies.insertAttempts += 1;
             events.push('credit_reserve');
+            if (params.p_run && typeof params.p_run === 'object') {
+              spies.runPayloads.push(params.p_run as Record<string, unknown>);
+            }
 
             if (waterfallTableError) {
               return chain({ data: null, error: waterfallTableError });
@@ -576,6 +588,15 @@ function revealInput(expectedMaxCredits: number) {
     phoneProcessingBasis: 'legitimate_interest_b2b' as const,
     phoneProcessingBasisNote: undefined,
   };
+}
+
+/**
+ * Tope registrado en la ÚNICA corrida enviada a la reserva atómica. Falla ruidosamente
+ * si no hay exactamente una: un test que mira "la corrida" tiene que saber cuál.
+ */
+function insertedRunMaxCredits(): unknown {
+  assert.equal(spies.runPayloads.length, 1, 'se esperaba exactamente una corrida');
+  return spies.runPayloads[0].max_credits_authorized;
 }
 
 /** Cuántas veces se consultó la tabla de la migración 102 (cualquier cliente). */
@@ -1004,5 +1025,104 @@ describe('102 presente — la corrida se registra ANTES de Apollo', () => {
     );
     assert.equal(spies.insertAttempts, 0, 'no se abre una segunda autorización');
     assert.equal(spies.lushaCalls, 0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// R2 — el techo de la autorización HUMANA, a través del cableado real
+// (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Este candidato (`source: 'lusha'` con su propio id) exige 13: Apollo 8 + reveal
+ * Lusha 5, sin búsqueda de identidad que pagar. Es exactamente la asimetría del
+ * defecto: la UI puede haber ofrecido 8 —porque su vista previa falló— y el servidor
+ * resuelve 13 al hacer clic.
+ *
+ * Lo que se prueba aquí, y que un test de core puro no puede probar, es que el corte
+ * ocurre atravesando el server action REAL: 0 llamadas a Apollo, 0 a Lusha, 0
+ * usage-logs, 0 corridas escritas y 0 reservas, con la tabla 102 SANA. Sin la tabla
+ * sana el corte podría atribuirse al gate de infraestructura en vez de al techo.
+ */
+describe('R2 — techo aceptado < requerido: se corta con la tabla 102 SANA', () => {
+  it('la UI ofreció 8 y el servidor exige 13 ⇒ authorization_ceiling_mismatch', async () => {
+    setFlags(true, true);
+    waterfallTableError = null;
+
+    const result = await actions.revealCandidatePhoneAction(revealInput(8));
+
+    assert.equal(result.status, 'authorization_ceiling_mismatch');
+    assert.equal(result.ok, false);
+    assert.equal(result.requestAccepted, false);
+    assert.equal(result.errorCode, 'authorization_ceiling_mismatch');
+  });
+
+  it('no se escribe la corrida ni se reserva un solo crédito', async () => {
+    setFlags(true, true);
+    waterfallTableError = null;
+
+    await actions.revealCandidatePhoneAction(revealInput(8));
+
+    // El INSERT no se emite: la comparación precede a la transacción de reserva.
+    assert.equal(spies.insertAttempts, 0, 'ni un INSERT de corrida');
+    assert.equal(spies.creditReservations, 0, 'ni una reserva de crédito');
+    // Y tampoco hay nada que liberar: no se reservó y se soltó, no se reservó nunca.
+    assert.deepEqual(spies.creditReleases, [], 'ninguna liberación de exposición');
+    assertNoSpendAtAll();
+    assert.equal(events.includes('apollo_call'), false, 'Apollo no aparece en la traza');
+  });
+
+  it('NO degrada a Apollo-only: gastar 8 tampoco estaba autorizado bajo esa lectura', async () => {
+    setFlags(true, true);
+    waterfallTableError = null;
+
+    const result = await actions.revealCandidatePhoneAction(revealInput(8));
+
+    // `requested` sería el bug con otro disfraz: se habría llamado a Apollo con un
+    // techo que el operador aceptó creyendo que ahí acababa el gasto.
+    assert.notEqual(result.status, 'requested');
+    assert.notEqual(result.status, 'insufficient_credits');
+    assert.notEqual(result.status, 'waterfall_infrastructure_unavailable');
+    assert.equal(spies.apolloCalls, 0);
+  });
+
+  it('el MISMO clic con el techo correcto SÍ arranca: el gate es el techo', async () => {
+    setFlags(true, true);
+    waterfallTableError = null;
+
+    const blocked = await actions.revealCandidatePhoneAction(revealInput(8));
+    assert.equal(blocked.status, 'authorization_ceiling_mismatch');
+    assert.equal(spies.apolloCalls, 0);
+
+    resetSpies();
+    const allowed = await actions.revealCandidatePhoneAction(revealInput(13));
+    assert.equal(allowed.status, 'requested');
+    assert.equal(spies.insertAttempts, 1);
+    assert.equal(spies.apolloCalls, 1);
+  });
+
+  it('aceptar de MÁS (14) sigue arrancando y no encarece la corrida', async () => {
+    setFlags(true, true);
+    waterfallTableError = null;
+
+    const result = await actions.revealCandidatePhoneAction(revealInput(14));
+
+    assert.equal(result.status, 'requested');
+    assert.equal(spies.insertAttempts, 1);
+    // Lo que se REGISTRA es lo requerido (13), no el techo generoso que se aceptó.
+    assert.equal(insertedRunMaxCredits(), 13);
+  });
+
+  it('con el flag del waterfall APAGADO el techo no aplica: Apollo-only con 8 corre', async () => {
+    // El techo del waterfall es del waterfall. Con el flag apagado la modalidad
+    // requerida es la de Apollo (8), así que aceptar 8 la cubre y el flujo histórico
+    // queda intacto: este cambio no puede romper el reveal Apollo-only.
+    setFlags(false, false);
+
+    const result = await actions.revealCandidatePhoneAction(revealInput(8));
+
+    assert.equal(result.status, 'requested');
+    assert.equal(spies.apolloCalls, 1);
+    assert.equal(waterfallTableQueries(), 0);
   });
 });

@@ -53,7 +53,11 @@ import {
 } from '../phone-reveal-authorized-roles';
 import { PHONE_REVEAL_AUTHORIZED_ROLE_KEYS as CORE_REEXPORTED_ROLE_KEYS } from '../phone-reveal-core';
 import { SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS } from '../search-more-phones-planner';
-import { creditHarness, type CreditHarness } from './phone-reveal-credit-reservation-fixtures';
+import {
+  ACCEPTED_CEILING_NOT_UNDER_TEST,
+  creditHarness,
+  type CreditHarness,
+} from './phone-reveal-credit-reservation-fixtures';
 
 const NOW_ISO = '2026-08-24T12:00:00.000Z';
 
@@ -210,7 +214,7 @@ describe('§ 1-2 — autoridad canónica única', () => {
 describe('§ 11.A/B — admin y commercial_manager obtienen el MISMO contrato', () => {
   test('A. admin + flag ON + Apollo sin id Lusha + identificadores exactos ⇒ 14', async () => {
     const h = startHarness({ roleKey: 'admin' });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime' }, h.deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
 
     assert.equal(result.started, true);
     assert.equal(result.started && result.maxCreditsAuthorized, 14);
@@ -227,9 +231,9 @@ describe('§ 11.A/B — admin y commercial_manager obtienen el MISMO contrato', 
     const admin = startHarness({ roleKey: 'admin' });
     const manager = startHarness({ roleKey: 'commercial_manager' });
 
-    const adminResult = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime' }, admin.deps);
+    const adminResult = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, admin.deps);
     const managerResult = await startPhoneRevealWaterfall(
-      { candidateId: 'cand-jaime' },
+      { candidateId: 'cand-jaime', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       manager.deps,
     );
 
@@ -249,7 +253,7 @@ describe('§ 11.A/B — admin y commercial_manager obtienen el MISMO contrato', 
     const legsByRole = new Map<string, unknown>();
     for (const role of REVEAL_ROLES) {
       const h = startHarness({ roleKey: role });
-      await startPhoneRevealWaterfall({ candidateId: 'cand-jaime' }, h.deps);
+      await startPhoneRevealWaterfall({ candidateId: 'cand-jaime', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
       assert.equal(h.credit.reserveRequests.length, 1, role);
       legsByRole.set(role, h.credit.reserveRequests[0].legs);
     }
@@ -265,7 +269,7 @@ describe('§ 11.C/D — flag OFF conserva Apollo-only para todo rol autorizado',
   test('ningún rol abre corrida con el flag apagado', async () => {
     for (const role of REVEAL_ROLES) {
       const h = startHarness({ roleKey: role, flagEnabled: false });
-      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime' }, h.deps);
+      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
       assert.deepEqual(result, { started: false, reason: 'feature_disabled' }, role);
       // Y no se toca NADA: ni el candidato, ni el presupuesto, ni la reserva.
       assert.equal(h.loadedCandidate, false, role);
@@ -302,7 +306,7 @@ describe('§ 11.E/F + § 6 — el tope sale de los hechos del candidato', () => 
         roleKey: role,
         candidate: apolloCandidateWithPersistedLushaIdentity(),
       });
-      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime' }, h.deps);
+      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
       assert.equal(result.started && result.maxCreditsAuthorized, 13, role);
       assert.equal(result.started && result.requiresIdentitySearch, false, role);
       assert.equal(result.started && result.lushaEligible, true, role);
@@ -322,7 +326,7 @@ describe('§ 11.E/F + § 6 — el tope sale de los hechos del candidato', () => 
         roleKey: role,
         candidate: apolloCandidateWithoutSearchableIdentity(),
       });
-      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime' }, h.deps);
+      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
       assert.equal(result.started && result.maxCreditsAuthorized, 8, role);
       assert.equal(result.started && result.lushaEligible, false, role);
       assert.equal(result.started && result.requiresIdentitySearch, false, role);
@@ -343,7 +347,7 @@ describe('§ 11.E/F + § 6 — el tope sale de los hechos del candidato', () => 
       assert.equal(preview.maxCredits, expected, label);
 
       const h = startHarness({ candidate });
-      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime' }, h.deps);
+      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
       assert.equal(result.started && result.maxCreditsAuthorized, preview.maxCredits, label);
       assert.equal(result.started && result.lushaEligible, preview.lushaEligible, label);
       assert.equal(
@@ -369,7 +373,7 @@ describe('§ 11.G — no se amplía a ningún rol nuevo', () => {
   test('rol sin permiso de revelar: ni corrida, ni candidato leído, ni presupuesto', async () => {
     for (const role of NON_REVEAL_ROLES) {
       const h = startHarness({ roleKey: role });
-      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime' }, h.deps);
+      const result = await startPhoneRevealWaterfall({ candidateId: 'cand-jaime', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
       assert.deepEqual(
         result,
         { started: false, reason: 'role_not_allowed' },

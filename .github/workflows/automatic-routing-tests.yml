@@ -2986,5 +2986,29 @@ jobs:
       #
       # Offline y determinista: deps inyectadas y server actions mockeados. Sin
       # red, sin Supabase, sin Apollo, sin Lusha, 0 créditos, 0 migraciones.
+      #
+      # R2 añade el contrato del TECHO DE LA AUTORIZACIÓN HUMANA. El defecto que
+      # impide que vuelva, dicho como secuencia: la vista previa falla ⇒ el botón
+      # ofrece «hasta 8 créditos» ⇒ la persona autoriza 8 ⇒ el clic envía 8 ⇒ el
+      # servidor resuelve la modalidad REAL (14) y reservaba 14, porque la única
+      # validación que existía comparaba contra la pata de Apollo (8), no contra la
+      # modalidad. Se reservaba un máximo que nadie aprobó.
+      #
+      # Lo que este paso fija ahora:
+      #   * el techo aceptado es un LÍMITE SUPERIOR DURO y se compara ANTES del
+      #     preflight de presupuesto y de `reserve_and_create_phone_reveal_run`:
+      #     aceptado < requerido ⇒ 0 consultas de pozo, 0 reservas, 0 corridas, 0
+      #     Apollo, 0 Lusha, 0 usage-logs, 0 créditos. La prueba de ORDEN es que no
+      #     se consulta ni un pozo: mover la comparación detrás de la reserva la
+      #     rompe aunque el desenlace visible siga siendo un bloqueo;
+      #   * reservar-y-liberar NO es equivalente y no se acepta como arreglo;
+      #   * aceptar de MÁS se permite, pero lo que se RESERVA sigue siendo lo
+      #     requerido (aceptar 14 sobre una modalidad de 13 registra 13);
+      #   * omitir el techo equivale al suelo de 8, jamás a la modalidad requerida;
+      #   * el rechazo NO degrada a Apollo-only —gastar 8 tampoco estaba autorizado
+      #     bajo esa lectura— y NO se reintenta solo: la UI recarga su vista previa,
+      #     muestra «la autorización cambió» y el siguiente clic es de la persona;
+      #   * y la ruta legacy solo-Lusha conserva su tope 5: este cambio no puede
+      #     convertir una autorización legacy en una de 13/14.
       - name: Run A2A waterfall default reveal behavior tests
         run: npm run test:agent2a:waterfall-default-reveal-behavior
