@@ -124,11 +124,32 @@ export {
   checkHubSpotCompanyCommercialStatus,
 } from './hubspot-commercial-checker';
 
+// Canonical Fiscal Identity — AGENT1-CUT3B1-FISCAL-IDENTITY-TRUTH
+// Autoridad ÚNICA de identidad fiscal de Agente 1 (país + identificador canónico).
+export type {
+  FiscalIdentityKey,
+  FiscalCountryScope,
+  StoredFiscalIdentity,
+  StoredFiscalIdentitySource,
+  FiscalLookupNeedles,
+} from './fiscal-identity';
+export {
+  MIN_CANONICAL_FISCAL_LENGTH,
+  canonicalizeFiscalIdentifier,
+  resolveFiscalCountryScope,
+  buildFiscalIdentityKey,
+  buildFiscalIdentityKeyFromRaw,
+  resolveStoredFiscalIdentity,
+  buildFiscalLookupNeedles,
+} from './fiscal-identity';
+
 // Tax ID Novelty Checker — Hito 16AB.8
 export type {
   TaxIdNoveltyStatus,
   TaxIdNoveltyDecision,
   TaxIdNoveltyIndex,
+  EvaluatedFiscalIdentity,
+  FiscalColumnConflict,
 } from './tax-id-novelty-checker';
 export {
   normalizeTaxId,
