@@ -90,7 +90,10 @@ function providerHttpRequests(): string[] {
 const LUSHA_LEG_CREDITS = 5;
 
 const ADMIN = { internalUserId: 'user-admin-1', roleKey: 'admin' };
-const NON_ADMIN = { internalUserId: 'user-cm-1', roleKey: 'commercial_manager' };
+// AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el actor no autorizado dejó de ser un
+// `commercial_manager` — ese rol SÍ puede revelar teléfono, así que ahora también puede
+// autorizar esta ruta. El que se rechaza es un rol que nunca pudo revelar.
+const UNAUTHORIZED = { internalUserId: 'user-seller-1', roleKey: 'seller' };
 
 const CANDIDATE_A = 'cand-r2-a';
 const CANDIDATE_B = 'cand-r2-b';
@@ -923,8 +926,8 @@ describe('R2 · § 2 + § 36 — flag de PRODUCTO vs infraestructura DURABLE', (
 // ═══════════════════════════════════════════════════════════════
 
 describe('R2 · § 9 + § 10 — auth y elegibilidad intactas', () => {
-  it('un rol NO admin es rechazado en el servidor, sin leer ni escribir nada', async () => {
-    const result = await reveal(CANDIDATE_A, NON_ADMIN);
+  it('un rol sin permiso de revelar es rechazado en el servidor, sin leer ni escribir nada', async () => {
+    const result = await reveal(CANDIDATE_A, UNAUTHORIZED);
 
     assert.equal(result.outcome, 'not_started');
     assert.equal(result.reason, 'role_not_allowed');

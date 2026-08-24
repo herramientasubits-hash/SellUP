@@ -12,7 +12,7 @@
  *     waterfall (AGENT2A-PHONE-WATERFALL-4D: ya no hay modal);
  *   * copy legacy: Apollo no se reejecuta, máximo 5 créditos, nunca 13;
  *   * NINGÚN botón manual separado de Lusha, ni ninguna superficie de confirmación;
- *   * `commercial_manager` no obtiene la ruta (y no puede invocarla desde la UI);
+ *   * un actor sin permiso de revelar no obtiene la ruta (ni puede invocarla desde la UI);
  *   * flag OFF ⇒ flujo anterior intacto (botón manual de Lusha, sin acción legacy);
  *   * no se ofrece mientras la corrida está activa, ni una vez que existe cualquier
  *     corrida (la ruta legacy es un puente de una sola vez);
@@ -415,11 +415,13 @@ describe('WATERFALL-2 UI — cuándo NO se ofrece la ruta legacy', () => {
     assert.equal(mockLegacyStart.mock.callCount(), 0);
   });
 
-  it('commercial_manager (no autorizado) ⇒ sin ruta legacy y sin botón alguno del waterfall', async () => {
+  it('actor sin permiso de revelar ⇒ sin ruta legacy y sin botón alguno del waterfall', async () => {
     await renderSheet(legacyCandidate(), {
       waterfallEnabled: true,
       waterfallAuthorized: false,
       // El fallback manual tampoco está autorizado para ese rol.
+      // (Un `commercial_manager` SÍ obtiene la ruta legacy desde
+      // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: ver la suite del core legacy.)
       lushaFallbackAuthorized: false,
     });
     assert.equal(revealButtons().length, 0);

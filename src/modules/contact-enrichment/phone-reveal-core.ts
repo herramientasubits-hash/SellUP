@@ -65,6 +65,7 @@ import {
 } from './provider-suppression-core';
 import type { PhoneRevealSuppressionLookup } from './provider-suppression-store';
 import { evaluatePhoneRevealSuppression } from './phone-reveal-suppression-guard';
+import { PHONE_REVEAL_AUTHORIZED_ROLE_KEYS } from './phone-reveal-authorized-roles';
 import type {
   ContactCandidateEnrichmentMetadata,
   ContactCandidatePhoneMetadata,
@@ -84,11 +85,16 @@ export const PHONE_REVEAL_OPERATION_KEY = 'person_phone_reveal';
 /** Proveedor único del reveal. Sin fallback Lusha por contrato legal/producto. */
 export const PHONE_REVEAL_PROVIDER = 'apollo' as const;
 
-/** Roles autorizados para disparar un reveal (Administrador + Manager comercial). */
-export const PHONE_REVEAL_AUTHORIZED_ROLE_KEYS: readonly string[] = [
-  'admin',
-  'commercial_manager',
-];
+/**
+ * Roles autorizados para disparar un reveal (Administrador + Manager comercial).
+ *
+ * Se RE-EXPORTA desde `phone-reveal-authorized-roles.ts`, que es la autoridad
+ * canónica (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). La lista NO se declara
+ * aquí: el waterfall, el server component del listado y este core tienen que leer
+ * la MISMA pareja, y declararla en tres sitios es lo que permitió que el waterfall
+ * acabara con una lista propia más estrecha.
+ */
+export { PHONE_REVEAL_AUTHORIZED_ROLE_KEYS } from './phone-reveal-authorized-roles';
 
 /** Vocabulario de base de tratamiento aprobado (espejo de la migración 095). */
 export const VALID_PHONE_PROCESSING_BASES: readonly PhoneProcessingBasis[] = [
@@ -494,14 +500,16 @@ export interface RevealCandidatePhoneDeps {
 
   /**
    * `phone_reveal_waterfall_runs.id` de la corrida que el wrapper creó ANTES de
-   * este START, cuando `ENABLE_PHONE_REVEAL_WATERFALL` está encendido y el actor
-   * es admin. Su ÚNICO efecto en este core es añadir `phone_reveal_waterfall_id`
-   * a la metadata del usage-log del START, para que la pata Apollo y una eventual
-   * pata Lusha sean correlacionables SIN sumar sus créditos.
+   * este START, cuando `ENABLE_PHONE_REVEAL_WATERFALL` está encendido. El actor
+   * es cualquiera autorizado para revelar teléfono: el waterfall NO tiene permiso
+   * de rol propio (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). Su ÚNICO efecto
+   * en este core es añadir `phone_reveal_waterfall_id` a la metadata del usage-log
+   * del START, para que la pata Apollo y una eventual pata Lusha sean
+   * correlacionables SIN sumar sus créditos.
    *
    * NO cambia ningún gate, ningún estado del candidato ni ninguna decisión: con
-   * el flag apagado (o rol no admin) llega `undefined`, la clave se omite y el
-   * comportamiento del START es exactamente el de antes de este hito.
+   * el flag apagado (o un rol que no puede revelar) llega `undefined`, la clave se
+   * omite y el comportamiento del START es exactamente el de antes de este hito.
    */
   phoneRevealWaterfallId?: string | null;
 }
@@ -601,6 +609,23 @@ export type RevealCandidatePhoneStatus =
   // los dos anteriores a propósito — no se sabe si alcanza ni si existe, solo que no
   // se pudo comprobar — y también es fail-closed: mismas garantías de cero efectos.
   | 'credit_balance_unavailable'
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2: el tope de créditos que el
+  // operador VIO y aceptó en la UI es MENOR que el que la modalidad real exige. El
+  // copy del botón se calcula antes del clic y puede quedar obsoleto —la vista previa
+  // falló y la UI cayó a su suelo de 8, o la modalidad cambió entre el render y el
+  // clic—, así que el tope aceptado se trata como LÍMITE SUPERIOR DURO: si no cubre lo
+  // requerido, no se reserva nada y se le vuelve a preguntar con el número real.
+  //
+  // Se comprueba SERVER-SIDE después de resolver la modalidad y ANTES del preflight de
+  // presupuesto y de `reserve_and_create_phone_reveal_run`: 0 reservas, 0 corridas, 0
+  // llamadas a Apollo, 0 llamadas a Lusha, 0 usage-logs y 0 créditos.
+  //
+  // NO se sube el tope en silencio y NO hay reintento automático: una autorización
+  // humana obsoleta se vuelve a pedir, no se reinterpreta.
+  //
+  // Lo emite EXCLUSIVAMENTE el wrapper del server action (phone-reveal-actions.ts),
+  // igual que los tres anteriores: este core no conoce el waterfall ni su modalidad.
+  | 'authorization_ceiling_mismatch'
   | 'error';
 
 export interface RevealCandidatePhoneResult {

@@ -710,7 +710,10 @@ export const PHONE_REVEAL_WATERFALL_FLAG = 'ENABLE_PHONE_REVEAL_WATERFALL';
  * What it turns on: ONE operator click on "Revelar teléfono" authorizes a
  * two-leg reveal — Apollo first and, only if Apollo terminates as
  * `no_phone_found`, Lusha automatically underneath, with no second click and no
- * second modal. Admin-only; `commercial_manager` keeps the Apollo-only flow.
+ * second modal. It reuses the reveal's own role authority — admin AND
+ * commercial_manager (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1): the waterfall
+ * is the NORMAL behavior of the button for anyone who could already reveal, and
+ * this flag is the only switch. With it off, every role keeps the Apollo-only flow.
  *
  * What it does NOT change in either state:
  *   * `isLushaPhoneRevealEnabled(): false` — the hard, non-env ban on phone

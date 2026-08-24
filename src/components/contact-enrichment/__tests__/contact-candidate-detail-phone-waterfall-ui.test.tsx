@@ -8,7 +8,7 @@
  *   * flag ON + admin ⇒ UN solo botón "Revelar teléfono" que EJECUTA en un clic
  *     (AGENT2A-PHONE-WATERFALL-4D: ya no hay modal ni «Confirmar y revelar»), con
  *     copy 13 con id Lusha y 8 sin él, y NINGÚN botón separado de Lusha;
- *   * flag ON + commercial_manager ⇒ Apollo-only (el rol no autorizado no ve el
+ *   * flag ON + actor sin permiso de revelar ⇒ Apollo-only (el rol no autorizado no ve el
  *     waterfall y no puede gastar la 2ª pata);
  *   * estados intermedios y terminales por corrida;
  *   * bloque de auditoría por proveedor con costos SEPARADOS;
@@ -546,14 +546,16 @@ describe('waterfall UI — consentimiento debajo del botón (4B/4D)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 3. Flag ON + commercial_manager (rol no autorizado)
+// 3. Flag ON + actor sin permiso de revelar (rol no autorizado)
 // ═══════════════════════════════════════════════════════════════
 
 describe('waterfall UI — flag ON con rol NO autorizado', () => {
   it('conserva el flujo Apollo-only: one-click, copy 8, sin auditoría', async () => {
     await renderSheet(lushaCandidate(), {
       waterfallEnabled: true,
-      // El server component resuelve false para commercial_manager.
+      // El server component resuelve false para cualquier rol que no pueda revelar
+      // teléfono. Desde AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1
+      // `commercial_manager` NO es uno de ellos: resuelve true, igual que admin.
       waterfallAuthorized: false,
     });
     assert.ok(bodyText().includes('Consulta individual con Apollo'));

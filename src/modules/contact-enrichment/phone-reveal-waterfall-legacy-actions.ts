@@ -16,7 +16,9 @@
 //
 // Qué hace, en este orden:
 //   1. Autentica y resuelve el rol del actor (redirige a /login sin usuario).
-//   2. El core revalida TODO server-side: flag, rol admin, evidencia legacy
+//   2. El core revalida TODO server-side: flag, rol autorizado para revelar
+//      teléfono (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: la ruta legacy dejó
+//      de ser admin-only y sigue la autoridad canónica del reveal), evidencia legacy
 //      persistida, sin teléfono, candidato editable, id Lusha propio, sin corrida
 //      activa y con un historial que admita una autorización nueva
 //      (AGENT2A-PHONE-WATERFALL-2C: una corrida legacy terminal SIN teléfono es
@@ -31,8 +33,11 @@
 // escribir en HubSpot, aprobar el candidato, actuar en bulk o reintentar
 // automáticamente.
 //
-// El gate de rol NO es de UI: `commercial_manager` (y cualquier rol no admin) es
-// rechazado aquí, en el servidor, aunque el cliente invoque la acción directamente.
+// El gate de rol NO es de UI: un actor sin permiso de revelar teléfono es rechazado
+// aquí, en el servidor, aunque el cliente invoque la acción directamente. La autoridad
+// es la canónica del reveal (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1), así que
+// `commercial_manager` SÍ puede autorizar esta ruta — y `seller`, `lead` o cualquier
+// rol que no pudiera revelar, no.
 //
 // Gated behind ENABLE_PHONE_REVEAL_WATERFALL: con el flag apagado el core sale en el
 // primer gate sin leer el candidato, sin escribir y sin llamar a ningún proveedor.

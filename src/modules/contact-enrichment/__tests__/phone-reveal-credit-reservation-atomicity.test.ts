@@ -56,6 +56,7 @@ import {
   FIXTURE_PERIOD_END,
   FIXTURE_PERIOD_START,
   type CreditHarness,
+  ACCEPTED_CEILING_NOT_UNDER_TEST,
 } from './phone-reveal-credit-reservation-fixtures';
 import type {
   PhoneRevealCreditPool,
@@ -144,7 +145,7 @@ describe('4F · D — reserva y corrida viven o mueren juntas', () => {
   it('camino feliz: UNA corrida, UN grupo de reserva, y las dos patas ocupadas', async () => {
     const credit = creditHarness({ groupIds: ['group-1'] });
     const result = await startPhoneRevealWaterfall(
-      { candidateId: 'cand-1' },
+      { candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       fullDeps(credit),
     );
 
@@ -160,7 +161,7 @@ describe('4F · D — reserva y corrida viven o mueren juntas', () => {
     // Es la propiedad estructural de la que dependen todas las de abajo. Si mañana
     // alguien volviera a partirlas, este test cae antes que ninguna otra cosa.
     const credit = creditHarness();
-    await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, fullDeps(credit));
+    await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, fullDeps(credit));
     assert.equal(credit.reserveRequests.length, 1, 'una sola operación');
     assert.equal(credit.runDrafts.length, 1, 'y lleva el borrador de la corrida dentro');
   });
@@ -214,7 +215,7 @@ describe('4F · D — reserva y corrida viven o mueren juntas', () => {
     // como una excepción de transporte y comprobamos que el pozo quedó como estaba.
     const credit = creditHarness({ throws: new Error('ECONNRESET') });
     await assert.rejects(
-      () => startPhoneRevealWaterfall({ candidateId: 'cand-1' }, fullDeps(credit)),
+      () => startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, fullDeps(credit)),
       /ECONNRESET/,
     );
     assert.deepEqual(credit.active, [], '0 reservas huérfanas');
@@ -228,7 +229,7 @@ describe('4F · D — reserva y corrida viven o mueren juntas', () => {
       outcome: { status: 'unavailable', detail: 'reserve_and_create_threw' },
     });
     const result = await startPhoneRevealWaterfall(
-      { candidateId: 'cand-1' },
+      { candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       fullDeps(credit),
     );
     assert.deepEqual(result, { started: false, reason: 'run_creation_unavailable' });
@@ -301,7 +302,7 @@ describe('4F · D — reserva y corrida viven o mueren juntas', () => {
     assert.equal(surface.includes('apollo'), false);
     assert.equal(surface.includes('lusha'), false);
 
-    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, deps);
+    const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, deps);
     assert.equal(result.started, false);
   });
 
@@ -337,7 +338,7 @@ describe('4F · D — reserva y corrida viven o mueren juntas', () => {
 describe('4F · E — la clave de autorización se genera ANTES y estabiliza el reintento', () => {
   it('la clave viaja en la operación y es previa a cualquier escritura', async () => {
     const credit = creditHarness({ authorizationKeys: ['key-estable'] });
-    await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, fullDeps(credit));
+    await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, fullDeps(credit));
     assert.equal(credit.reserveRequests[0].authorizationKey, 'key-estable');
     assert.equal(credit.createdRuns[0].authorizationKey, 'key-estable');
   });
@@ -405,7 +406,7 @@ describe('4F · E — la clave de autorización se genera ANTES y estabiliza el 
       authorizationKeys: ['key-1', 'key-2'],
       groupIds: ['group-1', 'group-2'],
     });
-    await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, fullDeps(credit));
+    await startPhoneRevealWaterfall({ candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, fullDeps(credit));
 
     // La primera autorización terminó y liquidó su exposición (lo hace la
     // reconciliación); su corrida ya no está activa.
@@ -413,7 +414,7 @@ describe('4F · E — la clave de autorización se genera ANTES y estabiliza el 
     credit.createdRuns[0].isActive = false;
 
     const second = await startPhoneRevealWaterfall(
-      { candidateId: 'cand-1' },
+      { candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       fullDeps(credit),
     );
     assert.equal(second.started, true);
@@ -476,11 +477,11 @@ describe('4F · E — la clave de autorización se genera ANTES y estabiliza el 
     });
 
     const a = await startPhoneRevealWaterfall(
-      { candidateId: 'cand-a' },
+      { candidateId: 'cand-a', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       fullDeps(credit, 'cand-a'),
     );
     const b = await startPhoneRevealWaterfall(
-      { candidateId: 'cand-b' },
+      { candidateId: 'cand-b', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       fullDeps(credit, 'cand-b'),
     );
 
@@ -665,7 +666,7 @@ describe('4F · G — el presupuesto se exige POR PROVEEDOR, nunca combinado', (
   ) {
     const credit = creditHarness({ poolsFor: pools(byProvider) });
     const result = await startPhoneRevealWaterfall(
-      { candidateId: 'cand-1' },
+      { candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       fullDeps(credit),
     );
     return { result, credit };
@@ -724,7 +725,7 @@ describe('4F · G — el presupuesto se exige POR PROVEEDOR, nunca combinado', (
     // de Lusha no puede bloquear ni ocuparse por un proveedor que no va a correr.
     const credit = creditHarness({ poolsFor: pools({ apollo: configuredPool(8) }) });
     const result = await startPhoneRevealWaterfall(
-      { candidateId: 'cand-1' },
+      { candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       {
         ...fullDeps(credit),
         loadCandidate: async () =>
@@ -776,11 +777,13 @@ describe('4F · G — el presupuesto se exige POR PROVEEDOR, nunca combinado', (
   });
 });
 
-describe('4F · G — flag OFF y commercial_manager siguen exactamente igual', () => {
+// AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el actor de referencia «no autorizado»
+// pasó de `commercial_manager` (que SÍ puede revelar teléfono) a un rol que nunca pudo.
+describe('4F · G — flag OFF y rol sin permiso de revelar siguen exactamente igual', () => {
   it('flag OFF: 0 presupuestos resueltos, 0 reservas, 0 corridas', async () => {
     const credit = creditHarness();
     const result = await startPhoneRevealWaterfall(
-      { candidateId: 'cand-1' },
+      { candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       { ...fullDeps(credit), flagEnabled: false },
     );
     assert.deepEqual(result, { started: false, reason: 'feature_disabled' });
@@ -802,15 +805,15 @@ describe('4F · G — flag OFF y commercial_manager siguen exactamente igual', (
     assert.deepEqual(credit.createdRuns, []);
   });
 
-  it('commercial_manager: rechazado por ROL antes de tocar el presupuesto', async () => {
+  it('rol sin permiso de revelar: rechazado por ROL antes de tocar el presupuesto', async () => {
     // El orden barato→caro importa: si el rol se comprobara después, un rol no
     // autorizado ya habría ocupado exposición que nadie iba a gastar.
     const credit = creditHarness();
     const result = await startPhoneRevealWaterfall(
-      { candidateId: 'cand-1' },
+      { candidateId: 'cand-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
       {
         ...fullDeps(credit),
-        actor: { internalUserId: 'user-cm', roleKey: 'commercial_manager' },
+        actor: { internalUserId: 'user-seller', roleKey: 'seller' },
       },
     );
     assert.deepEqual(result, { started: false, reason: 'role_not_allowed' });
@@ -819,13 +822,13 @@ describe('4F · G — flag OFF y commercial_manager siguen exactamente igual', (
     assert.deepEqual(credit.active, []);
   });
 
-  it('commercial_manager en legacy: tampoco reserva', async () => {
+  it('rol sin permiso de revelar en legacy: tampoco reserva', async () => {
     const credit = creditHarness();
     const result = await startLegacyPhoneRevealWaterfall(
       { candidateId: 'cand-1' },
       {
         ...legacyDeps(credit),
-        actor: { internalUserId: 'user-cm', roleKey: 'commercial_manager' },
+        actor: { internalUserId: 'user-seller', roleKey: 'seller' },
       },
     );
     assert.equal(result.started === false && result.reason, 'role_not_allowed');
