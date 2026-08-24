@@ -180,7 +180,7 @@ describe('CUT-3B23 — escritor GRATUITO: admisión por identidad de lote', () =
     assert.equal(stats.candidateInserts.length, 0, 'el duplicado no puede persistirse');
     assert.equal(report.batchIdentity.rawDiscovered, 1);
     assert.equal(report.batchIdentity.duplicateSkipped, 1);
-    assert.equal(report.batchIdentity.acceptedUnique, 0);
+    assert.equal(report.batchIdentity.identityAdmittedUnique, 0);
     // 🔴 § 15 — un duplicado NO es un error.
     assert.equal(report.batchIdentity.errors, 0);
     assert.equal(report.errors.length, 0);
@@ -199,7 +199,7 @@ describe('CUT-3B23 — escritor GRATUITO: admisión por identidad de lote', () =
     });
 
     assert.equal(stats.candidateInserts.length, 1);
-    assert.equal(report.batchIdentity.acceptedUnique, 1);
+    assert.equal(report.batchIdentity.identityAdmittedUnique, 1);
     assert.equal(report.batchIdentity.duplicateSkipped, 0);
     assert.equal(report.batchIdentity.seededCount, 0, '`discarded` no se siembra');
   });
@@ -219,7 +219,7 @@ describe('CUT-3B23 — escritor GRATUITO: admisión por identidad de lote', () =
     assert.equal(stats.candidateInserts.length, 1);
     assert.equal(stats.candidateInserts[0].name, 'EMPRESA UNO');
     assert.equal(report.batchIdentity.rawDiscovered, 2);
-    assert.equal(report.batchIdentity.acceptedUnique, 1);
+    assert.equal(report.batchIdentity.identityAdmittedUnique, 1);
     assert.equal(report.batchIdentity.duplicateSkipped, 1);
     assert.equal(report.batchIdentity.errors, 0);
     // El GANADOR conserva su procedencia intacta: nadie la reescribe.
@@ -239,7 +239,7 @@ describe('CUT-3B23 — escritor GRATUITO: admisión por identidad de lote', () =
     });
 
     assert.equal(stats.candidateInserts.length, 2);
-    assert.equal(report.batchIdentity.acceptedUnique, 2);
+    assert.equal(report.batchIdentity.identityAdmittedUnique, 2);
     assert.equal(report.batchIdentity.duplicateSkipped, 0);
   });
 
@@ -389,7 +389,9 @@ describe('CUT-3B23 — escritor LUSHA: admisión por identidad de lote', () => {
     assert.equal(result.batchIdentityDuplicateSkippedCount, 1);
     assert.equal(result.insertedCandidatesCount, 1);
     assert.equal(result.batchIdentityMetrics?.duplicate_skipped, 1);
-    assert.equal(result.batchIdentityMetrics?.accepted_unique, 1);
+    assert.equal(result.batchIdentityMetrics?.identity_admitted_unique, 1);
+    // § 3 — y la fila EXISTE: `persisted_unique` se reconcilia con `insertedCount`.
+    assert.equal(result.batchIdentityMetrics?.persisted_unique, 1);
     // 🔴 un duplicado no es un error.
     assert.equal(result.batchIdentityMetrics?.errors, 0);
     assert.equal(result.status, 'success');
@@ -424,7 +426,8 @@ describe('CUT-3B23 — escritor LUSHA: admisión por identidad de lote', () => {
 
     assert.equal(calls.candidateBatches[0].length, 2);
     assert.equal(result.batchIdentityDuplicateSkippedCount, 0);
-    assert.equal(result.batchIdentityMetrics?.accepted_unique, 2);
+    assert.equal(result.batchIdentityMetrics?.identity_admitted_unique, 2);
+    assert.equal(result.batchIdentityMetrics?.persisted_unique, 2);
   });
 
   it('la métrica de identidad de lote es sólo numérica: nunca el NIT', async () => {
@@ -441,5 +444,223 @@ describe('CUT-3B23 — escritor LUSHA: admisión por identidad de lote', () => {
       assert.equal(typeof value, 'number');
     }
     assert.equal(JSON.stringify(result.batchIdentityMetrics).includes('900123456'), false);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// REVIEW-FIX § 1 — la verdad del residual DESPUÉS de la admisión de identidad
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Deps de Lusha que CUENTAN las llamadas al proveedor y permiten forzar una
+ * inserción parcial. Contar las llamadas es lo que prueba que esta corrección es
+ * de VERACIDAD y no de gasto: el número de peticiones no puede moverse.
+ */
+function makeCountingLushaDeps(
+  search: LushaPreviewResult,
+  resolvers: OfficialSourceResolver[] = [],
+  options: { insertedCountOverride?: number } = {},
+) {
+  const calls = {
+    searches: 0,
+    batches: [] as LushaPendingReviewBatchRow[],
+    candidateBatches: [] as LushaPendingReviewCandidateRow[][],
+  };
+  const deps: PersistLushaPendingReviewDeps = {
+    runSearch: async (input) => {
+      calls.searches += 1;
+      return (input.page ?? 0) > 0 ? lushaSuccess([]) : search;
+    },
+    insertBatch: async (row) => {
+      calls.batches.push(row);
+      return { id: `batch-${calls.batches.length}` };
+    },
+    insertCandidates: async (rows) => {
+      calls.candidateBatches.push(rows);
+      return { insertedCount: options.insertedCountOverride ?? rows.length };
+    },
+    checkCompanyDuplicate: async (input) => noDuplicateResult(input),
+    fetchActiveCandidates: async () => [] as ActiveCandidateRecord[],
+    officialSourceResolvers: resolvers,
+  };
+  return { deps, calls };
+}
+
+/** Dos empresas del proveedor, con dominios e ids distintos. */
+const TWO_COMPANIES = [
+  lushaCompany({ providerCompanyId: 'pc-1', name: 'Clinica Uno', domain: 'uno.com' }),
+  lushaCompany({ providerCompanyId: 'pc-2', name: 'Clinica Dos', domain: 'dos.com' }),
+];
+
+describe('CUT-3B23 REVIEW-FIX § 1 — residual y motivo de parada POST-admisión', () => {
+  it('🔴 objetivo 2 · el registro retira 1 ⇒ aceptado 1, hueco 1 y el motivo YA NO dice `target_reached`', async () => {
+    const { deps, calls } = makeCountingLushaDeps(
+      lushaSuccess(TWO_COMPANIES),
+      // Misma identidad fiscal para las dos ⇒ la admisión retira una.
+      [sameTaxResolver('900123456')],
+      {},
+    );
+
+    const result = await persistLushaPendingReviewBatch(
+      deps,
+      LUSHA_INPUT,
+      LUSHA_ACTOR,
+      undefined,
+      { targetGap: 2 },
+    );
+
+    assert.equal(result.ok, true);
+    // Lo aceptado contra el objetivo es POST-admisión.
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, 1);
+    // …y el hueco residual FINAL lo dice, en vez de heredar el pre-admisión.
+    assert.equal(result.remainingGapFinal, 1);
+    assert.equal(result.multiBranch?.remainingGapFinal, 1);
+    // El informe imposible «objetivo 2 · aceptado 1 · hueco 0 · target_reached»
+    // ya no puede emitirse.
+    assert.notEqual(result.stopReason, 'target_reached');
+    assert.equal(result.stopReason, 'post_admission_identity_gap');
+    assert.equal(result.multiBranch?.stopReason, 'post_admission_identity_gap');
+    // 🔴 Y NADA de esto reabre gasto.
+    assert.equal(calls.searches, 1, 'no se pide una página más');
+    assert.equal(result.creditsCharged, 1, 'los créditos no se mueven');
+    assert.equal(result.batchIdentityDuplicateSkippedCount, 1);
+  });
+
+  it('control: sin duplicado, el mismo objetivo se cumple y el gasto es IDÉNTICO', async () => {
+    const { deps, calls } = makeCountingLushaDeps(lushaSuccess(TWO_COMPANIES));
+
+    const result = await persistLushaPendingReviewBatch(
+      deps,
+      LUSHA_INPUT,
+      LUSHA_ACTOR,
+      undefined,
+      { targetGap: 2 },
+    );
+
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, 2);
+    assert.equal(result.remainingGapFinal, 0);
+    assert.equal(result.stopReason, 'target_reached');
+    // Mismas peticiones y mismos créditos que en el caso con duplicado.
+    assert.equal(calls.searches, 1);
+    assert.equal(result.creditsCharged, 1);
+  });
+
+  it('🔴 § 3 — si el motor confirma MENOS filas de las admitidas, manda `insertedCount`', async () => {
+    const { deps } = makeCountingLushaDeps(lushaSuccess(TWO_COMPANIES), [], {
+      insertedCountOverride: 1,
+    });
+
+    const result = await persistLushaPendingReviewBatch(
+      deps,
+      LUSHA_INPUT,
+      LUSHA_ACTOR,
+      undefined,
+      { targetGap: 2 },
+    );
+
+    assert.equal(result.insertedCandidatesCount, 1);
+    assert.equal(result.multiBranch?.acceptedForTargetTotal, 1, 'lo escrito, no lo admitido');
+    assert.equal(result.remainingGapFinal, 1);
+    assert.notEqual(result.stopReason, 'target_reached');
+    assert.equal(result.stopReason, 'post_admission_persistence_gap');
+    assert.equal(result.batchIdentityMetrics?.identity_admitted_unique, 2);
+    assert.equal(result.batchIdentityMetrics?.persisted_unique, 1);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// REVIEW-FIX § 4 — los duplicados del registro entran en `skippedCount`
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe('CUT-3B23 REVIEW-FIX § 4 — `skippedCount` incluye los duplicados de lote', () => {
+  it('🔴 una empresa retirada SÓLO por el registro suma en `skippedCount` y no en `errors`', async () => {
+    const { deps } = makeCountingLushaDeps(lushaSuccess(TWO_COMPANIES), [
+      sameTaxResolver('900123456'),
+    ]);
+
+    const result = await persistLushaPendingReviewBatch(deps, LUSHA_INPUT, LUSHA_ACTOR);
+
+    assert.equal(result.batchIdentityDuplicateSkippedCount, 1);
+    assert.equal(result.skippedCount, 1, 'la UI no puede decir «0 omitidas»');
+    assert.equal(result.batchIdentityMetrics?.errors, 0);
+  });
+
+  it('sin duplicados de lote, `skippedCount` no se infla: sigue en 0', async () => {
+    const { deps } = makeCountingLushaDeps(lushaSuccess(TWO_COMPANIES));
+
+    const result = await persistLushaPendingReviewBatch(deps, LUSHA_INPUT, LUSHA_ACTOR);
+
+    assert.equal(result.batchIdentityDuplicateSkippedCount, 0);
+    assert.equal(result.skippedCount, 0, 'sin doble conteo');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// REVIEW-FIX § 3 — escritor GRATUITO: admitido ≠ persistido
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Igual que `makeFreeClientFixed`, pero el INSERT del candidato FALLA. */
+function makeFreeClientFailingInsert(stats: FreeStats): SupabaseClient {
+  const base = makeFreeClientFixed([], stats) as unknown as {
+    from(table: string): Record<string, unknown>;
+  };
+  return {
+    from(table: string) {
+      const node = base.from(table);
+      if (table !== 'prospect_candidates') return node;
+      return {
+        ...node,
+        insert(row: Record<string, unknown>) {
+          stats.candidateInserts.push({ ...row });
+          return Promise.resolve({ error: { message: 'insert rejected' } });
+        },
+      };
+    },
+  } as unknown as SupabaseClient;
+}
+
+describe('CUT-3B23 REVIEW-FIX § 3 — escritor GRATUITO: un insert fallido NO cuenta como aceptado', () => {
+  it('🔴 identidad admitida + INSERT fallido ⇒ `errors` 1 y `persistedUnique` 0', async () => {
+    const stats: FreeStats = { candidateInserts: [], seedSelects: 0 };
+
+    const report = await writeStructuredSourceCandidatesPreview(
+      makeFreeClientFailingInsert(stats),
+      { ...FREE_INPUT_BASE, candidates: [draft()] },
+    );
+
+    assert.equal(stats.candidateInserts.length, 1, 'se intentó escribir');
+    assert.equal(report.batchIdentity.identityAdmittedUnique, 1, 'pasó la admisión');
+    assert.equal(report.batchIdentity.persistedUnique, 0, '🔴 pero la fila NO existe');
+    assert.equal(report.batchIdentity.errors, 1);
+    assert.equal(report.batchIdentity.duplicateSkipped, 0);
+  });
+
+  it('un INSERT que funciona sube `persistedUnique` y deja `errors` en 0', async () => {
+    const stats: FreeStats = { candidateInserts: [], seedSelects: 0 };
+
+    const report = await writeStructuredSourceCandidatesPreview(
+      makeFreeClientFixed([], stats),
+      { ...FREE_INPUT_BASE, candidates: [draft()] },
+    );
+
+    assert.equal(report.batchIdentity.identityAdmittedUnique, 1);
+    assert.equal(report.batchIdentity.persistedUnique, 1);
+    assert.equal(report.batchIdentity.errors, 0);
+  });
+
+  it('un duplicado duro no persiste, no falla y no cuenta como fila', async () => {
+    const stats: FreeStats = { candidateInserts: [], seedSelects: 0 };
+
+    const report = await writeStructuredSourceCandidatesPreview(
+      makeFreeClientFixed([], stats),
+      {
+        ...FREE_INPUT_BASE,
+        candidates: [draft({ name: 'EMPRESA UNO' }), draft({ name: 'EMPRESA UNO COPIA' })],
+      },
+    );
+
+    assert.equal(report.batchIdentity.duplicateSkipped, 1);
+    assert.equal(report.batchIdentity.errors, 0);
+    assert.equal(report.batchIdentity.persistedUnique, 1, 'sólo el ganador existe');
   });
 });

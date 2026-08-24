@@ -185,6 +185,26 @@ describe('CUT-3B3 § 13 — el conflicto fiscal precede a toda señal más débi
     }
   });
 
+  it('🔴 REVIEW-FIX § 2 — la precedencia se decide sobre TODAS las entradas, no dentro del bucle', () => {
+    // La guarda de arriba sólo prueba el orden DENTRO de una entrada. El defecto
+    // real vivía entre entradas: una coincidencia dura débil ganaba a un
+    // conflicto TIER 0 de otra fila. Esta guarda fija que la decisión de
+    // precedencia existe DESPUÉS del bucle y ANTES del retorno duro.
+    const source = stripNonExecutable(read(CUT_MODULES[1]));
+    const afterLoop = source.slice(source.indexOf('hasExactFiscalMatch'));
+    assert.ok(afterLoop.length > 0, 'la precedencia entre entradas debe existir');
+
+    const precedenceIndex = source.indexOf('const hasExactFiscalMatch');
+    const strongConflictIndex = source.indexOf('const strongFiscalConflict');
+    const hardReturnIndex = source.indexOf('if (hardMatches.length > 0)');
+    assert.ok(precedenceIndex >= 0, 'TIER 1 exacto debe evaluarse aparte');
+    assert.ok(strongConflictIndex >= 0, 'el conflicto TIER 0 debe evaluarse aparte');
+    assert.ok(
+      hardReturnIndex > strongConflictIndex,
+      '🔴 el retorno por coincidencia dura NO puede preceder al conflicto TIER 0',
+    );
+  });
+
   it('la igualdad fiscal se delega en la autoridad de CUT-3B1', () => {
     const imports = bodyWithoutComments(CUT_MODULES[0]);
     assert.ok(imports.includes("from './fiscal-identity'"));

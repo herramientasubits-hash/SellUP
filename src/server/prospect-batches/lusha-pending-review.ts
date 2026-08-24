@@ -45,6 +45,7 @@ import { buildCompanyIdentityEvidence } from '@/server/agents/prospecting-toolki
 import {
   admitByBatchIdentity,
   createBatchIdentityRegistry,
+  tallyBatchIdentityPersisted,
   toBatchIdentityCountersMetadata,
 } from '@/server/agents/prospecting-toolkit/batch-identity-registry';
 import { isLinkedInCompanyUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
@@ -2147,27 +2148,6 @@ export async function persistLushaPendingReviewBatch(
   // Error duro: la primera petición falló y no hay nada que conservar.
   if (hardFailure !== null) return hardFailure;
 
-  const remainingGapFinal = resolveLushaRemainingGap(targetGap, useful.length);
-  if (remainingGapFinal <= 0 && !runStopped) stopReason = 'target_reached';
-  // El techo y el agotamiento de ramas COINCIDEN cuando cada rama gastó todas sus
-  // páginas: los bucles terminan solos y nadie llega a rechazar una petición. Con
-  // el hueco todavía abierto, lo que paró la corrida fue el techo —no la falta de
-  // ramas— y reportarlo como `branches_exhausted` escondería que hubo recorte.
-  if (
-    stopReason === 'branches_exhausted' &&
-    remainingGapFinal > 0 &&
-    providerRequestsUsed >= providerRequestsAllowed
-  ) {
-    stopReason = 'request_cap_reached';
-  }
-  // «Sin resultados» sólo cuando el proveedor no devolvió NI UNA fila: es distinto
-  // de «devolvió y todo era duplicado», que ya se explica con los conteos.
-  if (rawResultsTotal === 0 && stopReason === 'branches_exhausted') {
-    stopReason = 'no_results';
-  }
-
-  const pagesRequested = providerRequestsUsed;
-
   // ── AGENT1-CUT3B23 §§ 8/9/11/12/15 — admisión por identidad de LOTE ────────
   //
   // Corre AQUÍ, antes de derivar un solo conteo, para que todo lo que se reporta
@@ -2191,10 +2171,12 @@ export async function persistLushaPendingReviewBatch(
   // ids de proveedor distintos, sin dominio— pero que traen la MISMA identidad
   // fiscal del enriquecimiento oficial.
   //
-  // 🔴 Limitación declarada: `remainingGapFinal` ya se calculó arriba con las
-  // empresas que la CORRIDA aceptó. Un duplicado retirado aquí no reabre páginas
-  // —eso sería gasto nuevo— así que el hueco reportado puede quedar por debajo
-  // del real en tantas unidades como duplicados se retiren.
+  // 🔴 Corre ANTES de derivar el hueco residual y el motivo de parada, y ese
+  // orden es el corazón de la corrección: calcular el residual con lo que la
+  // CORRIDA aceptó y luego retirar duplicados producía el informe imposible
+  // «objetivo 2 · aceptado 1 · hueco 0 · target_reached». Retirar un duplicado NO
+  // reabre páginas —eso sería gasto nuevo— pero SÍ obliga a decir la verdad sobre
+  // el hueco que queda.
   const batchIdentityAdmission = admitByBatchIdentity(
     createBatchIdentityRegistry(null),
     useful,
@@ -2226,14 +2208,55 @@ export async function persistLushaPendingReviewBatch(
     batchIdentityAdmission.counters,
   );
 
+  const remainingGapFinal = resolveLushaRemainingGap(targetGap, useful.length);
+  if (remainingGapFinal <= 0 && !runStopped) stopReason = 'target_reached';
+  // El techo y el agotamiento de ramas COINCIDEN cuando cada rama gastó todas sus
+  // páginas: los bucles terminan solos y nadie llega a rechazar una petición. Con
+  // el hueco todavía abierto, lo que paró la corrida fue el techo —no la falta de
+  // ramas— y reportarlo como `branches_exhausted` escondería que hubo recorte.
+  if (
+    stopReason === 'branches_exhausted' &&
+    remainingGapFinal > 0 &&
+    providerRequestsUsed >= providerRequestsAllowed
+  ) {
+    stopReason = 'request_cap_reached';
+  }
+  // «Sin resultados» sólo cuando el proveedor no devolvió NI UNA fila: es distinto
+  // de «devolvió y todo era duplicado», que ya se explica con los conteos.
+  if (rawResultsTotal === 0 && stopReason === 'branches_exhausted') {
+    stopReason = 'no_results';
+  }
+  // AGENT1-CUT3B23 § 1 — el motivo de parada NO puede seguir afirmando que el
+  // objetivo se cumplió cuando la admisión de identidad acaba de reabrir el hueco.
+  //
+  // 🔴 La corrida pudo pararse con `target_reached` DENTRO del bucle (`runStopped`),
+  // y entonces ninguna de las reglas de arriba lo revisa. Ésta sí, y contra el
+  // hueco POST-admisión: `target_reached` con hueco > 0 es un informe imposible.
+  // No se reutiliza `request_cap_reached` —el techo puede no haberse tocado— ni
+  // `branches_exhausted`: la causa es la deduplicación posterior, y se nombra.
+  if (stopReason === 'target_reached' && remainingGapFinal > 0) {
+    stopReason = 'post_admission_identity_gap';
+  }
+
+  const pagesRequested = providerRequestsUsed;
+
   const excludedExactDuplicatesCount = excludedExactDuplicates.length;
   // `skippedCount` conserva su significado de siempre: todo lo que el proveedor
   // devolvió y no llegó a candidato por identidad — filas impersistibles,
   // duplicados de identidad (antes «duplicados de dominio/nombre») y descartes
   // fuertes del guard de activos. Dejar fuera los duplicados de identidad habría
   // hecho que la UI dijera «0 omitidas» tras descartar la mitad de la página.
+  //
+  // AGENT1-CUT3B23 § 4 — los duplicados que retira el registro de identidad de
+  // LOTE son de esa misma familia y por eso suman aquí. No hay doble conteo: los
+  // otros tres sumandos se cuentan ANTES de que `useful` llegue a la admisión, y
+  // este cuarto sólo cuenta filas que sobrevivieron a los tres y cayeron después.
+  // Siguen sin ser errores.
   const totalSkipped =
-    skippedUnusableCount + crossBranchDuplicatesRemoved + skippedActiveDuplicatesCount;
+    skippedUnusableCount +
+    crossBranchDuplicatesRemoved +
+    skippedActiveDuplicatesCount +
+    batchIdentityDuplicateSkippedCount;
   const topUpTriggered = pagesRequested > 1;
   const possibleDuplicatesCount = useful.filter(
     (c) => c.resolution.dbDuplicateStatus === 'possible_duplicate',
@@ -2427,6 +2450,33 @@ export async function persistLushaPendingReviewBatch(
     : candidateRows;
   const { insertedCount } = await deps.insertCandidates(candidateRowsWithRouting);
 
+  // ── AGENT1-CUT3B23 §§ 1/3 — reconciliación FINAL contra las filas REALES ────
+  //
+  // La admisión de identidad dice qué se INTENTÓ escribir; `insertedCount` dice
+  // qué EXISTE. Sólo lo segundo puede contar contra el objetivo y sólo lo segundo
+  // puede cerrar el hueco. Lo normal es que coincidan; cuando no coinciden, quien
+  // manda es la base.
+  //
+  // 🔴 La metadata del LOTE conserva la telemetría pre-inserción, y no es un
+  // descuido: el lote se crea antes que sus candidatos —los candidatos necesitan
+  // su `batch_id`—, así que en ese instante `insertedCount` todavía no existe. Lo
+  // que el llamador recibe, que es lo que gobierna el hueco residual y la UI, sí
+  // lleva la verdad persistida.
+  const persistedForTarget = Math.min(insertedCount, useful.length);
+  const remainingGapPersisted = resolveLushaRemainingGap(targetGap, persistedForTarget);
+  // Mismo principio que arriba: `target_reached` con hueco abierto es imposible.
+  // Aquí la causa no es la deduplicación sino la escritura, y se nombra distinto.
+  const stopReasonPersisted: LushaRunStopReason =
+    stopReason === 'target_reached' && remainingGapPersisted > 0
+      ? 'post_admission_persistence_gap'
+      : stopReason;
+  const runTelemetryPersisted: LushaRunTelemetry = {
+    ...runTelemetry,
+    acceptedForTargetTotal: persistedForTarget,
+    remainingGapFinal: remainingGapPersisted,
+    stopReason: stopReasonPersisted,
+  };
+
   return {
     ok: true,
     status: 'success',
@@ -2438,6 +2488,14 @@ export async function persistLushaPendingReviewBatch(
     reviewUrl: LUSHA_PENDING_REVIEW_URL,
     message: `Encontramos ${insertedCount} ${insertedCount === 1 ? 'empresa candidata' : 'empresas candidatas'} para revisar.`,
     ...baseMetrics,
+    // Las cuatro afirmaciones FINALES sobrescriben a las de `baseMetrics`, que se
+    // compusieron antes de que existiera una sola fila.
+    remainingGapFinal: remainingGapPersisted,
+    stopReason: stopReasonPersisted,
+    multiBranch: runTelemetryPersisted,
+    batchIdentityMetrics: toBatchIdentityCountersMetadata(
+      tallyBatchIdentityPersisted(batchIdentityAdmission.counters, persistedForTarget),
+    ),
     usefulCandidatesCount: useful.length,
     insertedCandidatesCount: insertedCount,
   };

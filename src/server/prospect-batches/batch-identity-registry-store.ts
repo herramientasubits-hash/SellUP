@@ -115,6 +115,12 @@ export function toRegisteredBatchIdentity(row: BatchIdentitySeedRow): Registered
       linkedinUrl: readLinkedInFromMetadata(metadata),
       providerKey: readString(sourceTrace, 'sourceProvider'),
       providerEntityId: readString(sourceTrace, 'providerCompanyId'),
+      // 🔴 El nombre se siembra igual que las demás señales, y su ausencia era un
+      // agujero silencioso: `SEED_COLUMNS` ya lo leía, pero no llegaba al
+      // constructor, así que una fila PERSISTIDA entraba al registro sin nombre
+      // canónico y la coincidencia por nombre no podía ni marcarse. Sigue siendo
+      // evidencia DÉBIL: TIER 5 nunca suprime, sólo produce `possible_duplicate`.
+      name: row.name,
     }),
   };
 }

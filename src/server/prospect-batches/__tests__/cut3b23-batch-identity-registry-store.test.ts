@@ -246,3 +246,39 @@ describe('CUT-3B3 — una capa ve lo que la otra ya persistió en el lote', () =
     assert.equal(decision.matchedSignal, 'normalized_domain');
   });
 });
+
+// ─── § 5 — el nombre de una fila SEMBRADA también es evidencia ────────────────
+
+describe('CUT-3B23 REVIEW-FIX § 5 — nombre canónico de la fila persistida', () => {
+  it('🔴 una fila sembrada conserva su nombre canónico como evidencia', () => {
+    // `SEED_COLUMNS` ya leía `name`, pero no llegaba al constructor: la fila
+    // persistida entraba al registro MUDA de nombre.
+    const registered = toRegisteredBatchIdentity(row({ name: 'Servicios Integrales S.A.S.' }));
+    assert.equal(registered.evidence.canonicalName !== null, true);
+  });
+
+  it('un nombre ausente sigue siendo `null`, nunca una cadena vacía', () => {
+    const registered = toRegisteredBatchIdentity(row({ name: null }));
+    assert.equal(registered.evidence.canonicalName, null);
+  });
+
+  it('🔴 el nombre sigue siendo evidencia DÉBIL: coincidir sólo por nombre NO suprime', async () => {
+    // Fila persistida SIN identidad fiscal ni dominio: sólo nombre.
+    const { client } = fakeClient([
+      row({ id: 'seeded-1', name: 'Servicios Integrales S.A.S.', tax_id: null, tax_identifier: null }),
+    ]);
+    const outcome = await loadBatchIdentityRegistry(client, 'batch-A');
+    assert.equal(outcome.seededCount, 1);
+
+    const decision = evaluateCandidateIdentity(
+      outcome.registry,
+      buildCompanyIdentityEvidence({ countryCode: 'CO', name: 'SERVICIOS INTEGRALES SAS' }),
+    );
+
+    assert.equal(decision.action, 'possible_duplicate');
+    assert.notEqual(decision.action, 'hard_duplicate');
+    assert.equal(decision.matchedSignal, 'canonical_name');
+    assert.equal(decision.matchedTier, 5);
+    assert.equal(decision.softReason, 'name_only');
+  });
+});

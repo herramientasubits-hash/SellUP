@@ -56,6 +56,8 @@ import {
   evaluateCandidateIdentity,
   isBatchIdentityHardDuplicate,
   tallyBatchIdentityDecision,
+  tallyBatchIdentityError,
+  tallyBatchIdentityPersisted,
   toBatchIdentityCountersMetadata,
   type BatchIdentityRegistry,
 } from "./batch-identity-registry";
@@ -3067,6 +3069,11 @@ export async function writeProspectingCandidates(
         } else {
           persistenceFailures.push({ code, stage: 'candidate_insert' });
           errors.push(`Error al crear candidato: ${code}`);
+          // AGENT1-CUT3B23 § 3 — un fallo de PERSISTENCIA es un error del corte,
+          // y la fila NO existe. Sin esto, el candidato quedaba contado como
+          // admitido, `errors` en 0 y nadie podía distinguir «se escribió» de
+          // «se dejó pasar la admisión y luego se cayó el insert».
+          batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
         }
         skipped.push({
           name: candidate.name,
@@ -3096,6 +3103,9 @@ export async function writeProspectingCandidates(
         identityEvidence,
         created.id,
       );
+      // § 3 — y sólo AQUÍ sube el conteo de filas que existen. `persistedUnique`
+      // es lo único que puede contar contra el objetivo del lote.
+      batchIdentityCounters = tallyBatchIdentityPersisted(batchIdentityCounters);
       // § 5 — sólo se contabiliza la completitud de lo que REALMENTE se escribió.
       if (providerCompanyFields) completenessEligibilities.push(targetEligibility);
       // § E — el recuento canónico incluye TODA fila escrita, con campos de
@@ -3121,6 +3131,9 @@ export async function writeProspectingCandidates(
       const code = classifyCandidatePersistenceError(err);
       persistenceFailures.push({ code, stage: 'candidate_insert' });
       errors.push(`Error inesperado al crear candidato: ${code}`);
+      // AGENT1-CUT3B23 § 3 — misma verdad que en la rama de error del insert: la
+      // fila no existe, así que `errors` sube y `persistedUnique` no.
+      batchIdentityCounters = tallyBatchIdentityError(batchIdentityCounters);
       skipped.push({
         name: candidate.name,
         reason: `persistence_failed:${code}`,

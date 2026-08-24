@@ -22,6 +22,7 @@ import {
   seedBatchIdentityRegistry,
   tallyBatchIdentityDecision,
   tallyBatchIdentityError,
+  tallyBatchIdentityPersisted,
   toBatchIdentityCountersMetadata,
 } from '../batch-identity-registry';
 import {
@@ -474,7 +475,7 @@ describe('CUT-3B3 — procedencia: gana el PRIMER durable aceptado', () => {
 // ─── Conteo (CUT-2) ───────────────────────────────────────────────────────────
 
 describe('CUT-3B3 · § 15 — conteo: descubierto ≠ aceptado único', () => {
-  it('un duplicado NO consume `acceptedUnique`, sube `duplicateSkipped` y NO toca `errors`', () => {
+  it('un duplicado NO consume `identityAdmittedUnique`, sube `duplicateSkipped` y NO toca `errors`', () => {
     let counters = createBatchIdentityCounters();
     const registry = registryWith(FREE_CO);
 
@@ -484,7 +485,7 @@ describe('CUT-3B3 · § 15 — conteo: descubierto ≠ aceptado único', () => {
     );
 
     assert.equal(counters.rawDiscovered, 1);
-    assert.equal(counters.acceptedUnique, 0);
+    assert.equal(counters.identityAdmittedUnique, 0);
     assert.equal(counters.duplicateSkipped, 1);
     assert.equal(counters.errors, 0);
   });
@@ -498,7 +499,7 @@ describe('CUT-3B3 · § 15 — conteo: descubierto ≠ aceptado único', () => {
         buildCompanyIdentityEvidence({ countryCode: 'CO', name: 'Servicios Integrales SAS' }),
       ),
     );
-    assert.equal(counters.acceptedUnique, 1);
+    assert.equal(counters.identityAdmittedUnique, 1);
     assert.equal(counters.possibleDuplicateAllowed, 1);
     assert.equal(counters.duplicateSkipped, 0);
     assert.equal(counters.errors, 0);
@@ -523,7 +524,7 @@ describe('CUT-3B3 · § 15 — conteo: descubierto ≠ aceptado único', () => {
         }),
       ),
     );
-    assert.equal(counters.acceptedUnique, 1);
+    assert.equal(counters.identityAdmittedUnique, 1);
     assert.equal(counters.distinctStrongConflict, 1);
     assert.equal(counters.duplicateSkipped, 0);
   });
@@ -532,28 +533,29 @@ describe('CUT-3B3 · § 15 — conteo: descubierto ≠ aceptado único', () => {
     const counters = tallyBatchIdentityError(createBatchIdentityCounters());
     assert.equal(counters.errors, 1);
     assert.equal(counters.duplicateSkipped, 0);
-    assert.equal(counters.acceptedUnique, 0);
+    assert.equal(counters.identityAdmittedUnique, 0);
   });
 
-  it('el objetivo se mide con `acceptedUnique`, no con `rawDiscovered`', () => {
+  it('el objetivo se mide con `identityAdmittedUnique`, no con `rawDiscovered`', () => {
     const result = admitByBatchIdentity(
       createBatchIdentityRegistry('batch-A'),
       [FREE_CO, { ...FREE_CO, name: 'Copia A' }, { ...FREE_CO, name: 'Copia B' }],
       (input) => buildCompanyIdentityEvidence(input),
     );
     assert.equal(result.counters.rawDiscovered, 3);
-    assert.equal(result.counters.acceptedUnique, 1);
+    assert.equal(result.counters.identityAdmittedUnique, 1);
     assert.equal(result.counters.duplicateSkipped, 2);
     assert.equal(result.counters.errors, 0);
     // Tres filas descubiertas NO pueden llenar un objetivo de tres.
-    assert.notEqual(result.counters.acceptedUnique, result.counters.rawDiscovered);
+    assert.notEqual(result.counters.identityAdmittedUnique, result.counters.rawDiscovered);
   });
 
   it('la vista de metadata es sólo números y sin PII', () => {
     const metadata = toBatchIdentityCountersMetadata(createBatchIdentityCounters());
     assert.deepEqual(metadata, {
       raw_discovered: 0,
-      accepted_unique: 0,
+      identity_admitted_unique: 0,
+      persisted_unique: 0,
       duplicate_skipped: 0,
       possible_duplicate_allowed: 0,
       distinct_strong_conflict: 0,
@@ -588,5 +590,213 @@ describe('CUT-3B3 · § 11 — un duplicado no se lanza como error', () => {
   it('evaluar un duplicado devuelve una decisión, no lanza', () => {
     assert.doesNotThrow(() => decide(FREE_CO, FREE_CO));
     assert.equal(decide(FREE_CO, FREE_CO).action, 'hard_duplicate');
+  });
+});
+
+// ─── § 2 — TIER 0 manda ENTRE ENTRADAS, no sólo dentro de una ─────────────────
+
+/** Registro con VARIAS identidades presentes, cada una con su id de fila. */
+function registryWithMany(
+  inputs: ReadonlyArray<[string, CompanyIdentityEvidenceInput]>,
+  batchId = 'batch-A',
+) {
+  return inputs.reduce(
+    (registry, [candidateId, input]) =>
+      acceptIdentity(registry, buildCompanyIdentityEvidence(input), candidateId),
+    createBatchIdentityRegistry(batchId),
+  );
+}
+
+describe('CUT-3B23 REVIEW-FIX § 2 — precedencia de TIER 0 con MÚLTIPLES entradas', () => {
+  it('🔴 DOMINIO: una fila MUDA del mismo dominio no puede suprimir a quien otra fila desmiente por NIT', () => {
+    // A: mismo dominio, SIN identidad fiscal ⇒ por sí sola sería duplicado duro.
+    // B: mismo dominio, identidad fiscal CONTRADICTORIA ⇒ conflicto TIER 0.
+    // El entrante es una persona jurídica DISTINTA: no puede desaparecer.
+    const registry = registryWithMany([
+      ['taxless-A', { countryCode: 'CO', domain: 'grupo.com', name: 'Grupo Filial A' }],
+      [
+        'conflicting-B',
+        { countryCode: 'CO', domain: 'grupo.com', taxIdentifier: '800987654', name: 'Grupo Filial B' },
+      ],
+    ]);
+
+    const decision = evaluateCandidateIdentity(
+      registry,
+      buildCompanyIdentityEvidence({
+        countryCode: 'CO',
+        domain: 'grupo.com',
+        taxIdentifier: '900123456',
+        name: 'Grupo Filial C',
+      }),
+    );
+
+    assert.notEqual(decision.action, 'hard_duplicate');
+    assert.equal(decision.action, 'distinct_strong_conflict');
+    assert.equal(decision.matchedTier, 0);
+    assert.equal(decision.softReason, 'fiscal_identity_conflict');
+    assert.ok(decision.matchedCandidateIds.includes('conflicting-B'));
+  });
+
+  it('🔴 IDENTIDAD DE PROVEEDOR: misma ambigüedad, mismo desenlace', () => {
+    const registry = registryWithMany([
+      [
+        'taxless-A',
+        { countryCode: 'CO', providerKey: 'lusha', providerEntityId: 'pc-9', name: 'Filial A' },
+      ],
+      [
+        'conflicting-B',
+        {
+          countryCode: 'CO',
+          providerKey: 'lusha',
+          providerEntityId: 'pc-9',
+          taxIdentifier: '800987654',
+          name: 'Filial B',
+        },
+      ],
+    ]);
+
+    const decision = evaluateCandidateIdentity(
+      registry,
+      buildCompanyIdentityEvidence({
+        countryCode: 'CO',
+        providerKey: 'lusha',
+        providerEntityId: 'pc-9',
+        taxIdentifier: '900123456',
+        name: 'Filial C',
+      }),
+    );
+
+    assert.notEqual(decision.action, 'hard_duplicate');
+    assert.equal(decision.action, 'distinct_strong_conflict');
+    assert.equal(decision.matchedTier, 0);
+  });
+
+  it('🔴 LINKEDIN DE EMPRESA: misma ambigüedad, mismo desenlace', () => {
+    const linkedinUrl = 'https://www.linkedin.com/company/grupo-holding';
+    const registry = registryWithMany([
+      ['taxless-A', { countryCode: 'CO', linkedinUrl, name: 'Filial A' }],
+      ['conflicting-B', { countryCode: 'CO', linkedinUrl, taxIdentifier: '800987654', name: 'Filial B' }],
+    ]);
+
+    const decision = evaluateCandidateIdentity(
+      registry,
+      buildCompanyIdentityEvidence({
+        countryCode: 'CO',
+        linkedinUrl,
+        taxIdentifier: '900123456',
+        name: 'Filial C',
+      }),
+    );
+
+    assert.notEqual(decision.action, 'hard_duplicate');
+    assert.equal(decision.action, 'distinct_strong_conflict');
+    assert.equal(decision.matchedTier, 0);
+  });
+
+  it('🔴 SIN sobrecorregir: con la MISMA identidad fiscal en otra fila, TIER 1 sigue suprimiendo', () => {
+    // La misma ambigüedad de antes MÁS una fila cuya identidad fiscal es
+    // EXACTAMENTE la del entrante. La identidad legal afirmativa manda.
+    const registry = registryWithMany([
+      ['taxless-A', { countryCode: 'CO', domain: 'grupo.com', name: 'Filial A' }],
+      [
+        'conflicting-B',
+        { countryCode: 'CO', domain: 'grupo.com', taxIdentifier: '800987654', name: 'Filial B' },
+      ],
+      ['same-fiscal-C', { countryCode: 'CO', taxIdentifier: '900123456', name: 'Filial C' }],
+    ]);
+
+    const decision = evaluateCandidateIdentity(
+      registry,
+      buildCompanyIdentityEvidence({
+        countryCode: 'CO',
+        domain: 'grupo.com',
+        taxIdentifier: '900123456',
+        name: 'Filial C bis',
+      }),
+    );
+
+    assert.equal(decision.action, 'hard_duplicate');
+    assert.equal(decision.matchedSignal, 'fiscal_identity');
+    assert.equal(decision.matchedTier, 1);
+    assert.ok(decision.matchedCandidateIds.includes('same-fiscal-C'));
+  });
+
+  it('sin conflicto fiscal en el lote, el dedupe por dominio sigue suprimiendo igual que antes', () => {
+    const registry = registryWithMany([
+      ['taxless-A', { countryCode: 'CO', domain: 'grupo.com', name: 'Filial A' }],
+      ['taxless-B', { countryCode: 'CO', domain: 'otro.com', name: 'Filial B' }],
+    ]);
+
+    const decision = evaluateCandidateIdentity(
+      registry,
+      buildCompanyIdentityEvidence({ countryCode: 'CO', domain: 'grupo.com', name: 'Filial C' }),
+    );
+
+    assert.equal(decision.action, 'hard_duplicate');
+    assert.equal(decision.matchedSignal, 'normalized_domain');
+    assert.equal(decision.matchedTier, 2);
+  });
+});
+
+// ─── § 3 — admitido ≠ persistido ─────────────────────────────────────────────
+
+describe('CUT-3B23 REVIEW-FIX § 3 — `identityAdmittedUnique` no afirma que la fila exista', () => {
+  it('la admisión NO toca `persistedUnique`', () => {
+    const counters = tallyBatchIdentityDecision(
+      createBatchIdentityCounters(),
+      evaluateCandidateIdentity(
+        createBatchIdentityRegistry('batch-A'),
+        buildCompanyIdentityEvidence(FREE_CO),
+      ),
+    );
+    assert.equal(counters.identityAdmittedUnique, 1);
+    assert.equal(counters.persistedUnique, 0, 'admitir no es escribir');
+    assert.equal(counters.errors, 0);
+  });
+
+  it('un fallo de escritura deja `persistedUnique` en 0 y sube `errors`', () => {
+    let counters = tallyBatchIdentityDecision(
+      createBatchIdentityCounters(),
+      evaluateCandidateIdentity(
+        createBatchIdentityRegistry('batch-A'),
+        buildCompanyIdentityEvidence(FREE_CO),
+      ),
+    );
+    counters = tallyBatchIdentityError(counters);
+    assert.equal(counters.identityAdmittedUnique, 1);
+    assert.equal(counters.persistedUnique, 0);
+    assert.equal(counters.errors, 1);
+  });
+
+  it('una escritura real sube SÓLO `persistedUnique`', () => {
+    const counters = tallyBatchIdentityPersisted(createBatchIdentityCounters());
+    assert.equal(counters.persistedUnique, 1);
+    assert.equal(counters.errors, 0);
+    assert.equal(counters.duplicateSkipped, 0);
+  });
+
+  it('la reconciliación en bloque acepta el número REAL de filas confirmadas', () => {
+    const admitted = admitByBatchIdentity(
+      createBatchIdentityRegistry('batch-A'),
+      [FREE_CO, { ...FREE_CO, taxId: '800987654', taxIdentifier: '800987654' }],
+      (input) => buildCompanyIdentityEvidence(input),
+    );
+    assert.equal(admitted.counters.identityAdmittedUnique, 2);
+    assert.equal(admitted.counters.persistedUnique, 0, 'admitir en bloque no escribe');
+
+    // El motor confirmó UNA sola fila: eso es lo que puede contar contra el objetivo.
+    const reconciled = tallyBatchIdentityPersisted(admitted.counters, 1);
+    assert.equal(reconciled.persistedUnique, 1);
+    assert.equal(reconciled.identityAdmittedUnique, 2);
+  });
+
+  it('un duplicado duro no sube ni `persistedUnique` ni `errors`', () => {
+    const counters = tallyBatchIdentityDecision(
+      createBatchIdentityCounters(),
+      evaluateCandidateIdentity(registryWith(FREE_CO), buildCompanyIdentityEvidence(FREE_CO)),
+    );
+    assert.equal(counters.duplicateSkipped, 1);
+    assert.equal(counters.persistedUnique, 0);
+    assert.equal(counters.errors, 0);
   });
 });

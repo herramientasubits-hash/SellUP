@@ -48,6 +48,7 @@ import {
   isBatchIdentityHardDuplicate,
   tallyBatchIdentityDecision,
   tallyBatchIdentityError,
+  tallyBatchIdentityPersisted,
   type BatchIdentityRegistry,
 } from './batch-identity-registry';
 import { loadBatchIdentityRegistry } from '@/server/prospect-batches/batch-identity-registry-store';
@@ -126,7 +127,10 @@ export type StructuredSourceCandidateWriterReport = {
    */
   batchIdentity: {
     rawDiscovered: number;
-    acceptedUnique: number;
+    /** Pasó la admisión de identidad. Permiso para intentar escribir, NO una fila. */
+    identityAdmittedUnique: number;
+    /** Filas que EXISTEN. Lo único que cuenta contra el objetivo del lote. */
+    persistedUnique: number;
     duplicateSkipped: number;
     possibleDuplicateAllowed: number;
     distinctStrongConflict: number;
@@ -359,7 +363,8 @@ function toBatchIdentityCountersMetadataShape(
 ): Omit<StructuredSourceCandidateWriterReport['batchIdentity'], 'seededCount' | 'seedDegraded'> {
   return {
     rawDiscovered: counters.rawDiscovered,
-    acceptedUnique: counters.acceptedUnique,
+    identityAdmittedUnique: counters.identityAdmittedUnique,
+    persistedUnique: counters.persistedUnique,
     duplicateSkipped: counters.duplicateSkipped,
     possibleDuplicateAllowed: counters.possibleDuplicateAllowed,
     distinctStrongConflict: counters.distinctStrongConflict,
@@ -1155,6 +1160,8 @@ export async function writeStructuredSourceCandidatesPreview(
           identityEvidence,
           null,
         );
+        // § 3 — y sólo aquí sube el conteo de filas REALES.
+        batchIdentityCounters = tallyBatchIdentityPersisted(batchIdentityCounters);
       }
     } catch (insertErr: unknown) {
       const msg = insertErr instanceof Error ? insertErr.message : 'Error insertando candidato';
