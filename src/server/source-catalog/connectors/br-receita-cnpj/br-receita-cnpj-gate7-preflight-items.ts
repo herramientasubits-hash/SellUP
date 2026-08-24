@@ -83,7 +83,12 @@ export const BRAZIL_RECEITA_GATE7_PREFLIGHT_ITEMS: readonly BrazilReceitaGate7Pr
     action:
       'read the authoritative gate current state and confirm every gate is recorded as approved — this item precedes every other in substance',
     passCondition: 'evaluateBrazilReceitaGate7Preconditions() returns PASS',
-    standing: 'checkable_and_fails_today',
+    // BR-SOURCE-FAST-TRACK-8: GATE-7's own approval was the last gate this item was waiting on, so
+    // the deterministic failure it carried since FAST-TRACK-6 is gone and the evaluator now returns
+    // PASS. Not `operator_environment_dependent` like P-19 / P-21: the gate state lives in this repo,
+    // so the answer is fully determined here. The item is unchanged — no bypass was added, and a
+    // PASSING P-05 authorizes nothing on its own; it only stops blocking the twenty-one items after it.
+    standing: 'checkable_and_expected_to_pass',
     authority: 'br-receita-cnpj-gate-status-current-state',
   },
   {

@@ -176,11 +176,12 @@ const THE_ROUND_3_MODULES = [
 // ─── 1 · The status read that Round 2's report got wrong ──────────────────────
 
 describe('GATE-ROUND-3 · the current gate state is authoritative and mechanically unambiguous', () => {
-  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7 — GATE-2, GATE-3, GATE-4, GATE-5 and GATE-6 are now
-  // `approved` by recorded owner relay, and GATE-7 moved from `blocked` to `needs_evidence` once its
-  // three dependency-gate blockers were discharged. See the dedicated FAST-TRACK-7 suite for the
-  // full reasoning; this test only needs the current, authoritative values.
-  it('reports the eight statuses as of BR-SOURCE-FAST-TRACK-7, not eight not_starteds', () => {
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7, THEN BY BR-SOURCE-FAST-TRACK-8 — FAST-TRACK-7 approved
+  // GATE-2/3/4/5/6 by recorded owner relay and moved GATE-7 from `blocked` to `needs_evidence`;
+  // FAST-TRACK-8 recorded GATE-7's own joint owner approval, with the reproducibility rehearsal WAIVED
+  // rather than performed. See the dedicated FAST-TRACK-8 suite for the full reasoning; this test only
+  // needs the current, authoritative values.
+  it('reports the eight statuses as of BR-SOURCE-FAST-TRACK-8, not eight not_starteds', () => {
     const byGate = new Map(BRAZIL_RECEITA_GATE_CURRENT_STATE.map((e) => [e.gate, e.status]));
     assert.equal(byGate.get(1), 'approved');
     assert.equal(byGate.get(2), 'approved');
@@ -188,9 +189,7 @@ describe('GATE-ROUND-3 · the current gate state is authoritative and mechanical
     assert.equal(byGate.get(4), 'approved');
     assert.equal(byGate.get(5), 'approved');
     assert.equal(byGate.get(6), 'approved');
-    // `needs_evidence` and `not_started` are both NO-GO; the move is a statement about
-    // reviewability, not about permission.
-    assert.equal(byGate.get(7), 'needs_evidence');
+    assert.equal(byGate.get(7), 'approved');
     assert.equal(byGate.get(8), 'APPROVED_AS_CONTRACT');
     assert.equal(BRAZIL_RECEITA_GATE_CURRENT_STATE.length, 8);
   });
@@ -215,9 +214,9 @@ describe('GATE-ROUND-3 · the current gate state is authoritative and mechanical
     ]);
   });
 
-  it('🔴 UPDATED BY BR-SOURCE-FAST-TRACK-7: the global verdict is NO-GO, and seven gates are approved — not zero and not eight', () => {
-    assert.equal(brazilReceitaGateGlobalVerdict(), 'NO-GO');
-    assert.equal(brazilReceitaApprovedGateCount(), 7);
+  it('🔴 UPDATED BY BR-SOURCE-FAST-TRACK-8: the global verdict is GO, and eight gates are approved — not zero and not seven', () => {
+    assert.equal(brazilReceitaGateGlobalVerdict(), 'GO');
+    assert.equal(brazilReceitaApprovedGateCount(), 8);
   });
 
   it('ready_for_review and both needs_owner_* statuses are NOT approved statuses', () => {

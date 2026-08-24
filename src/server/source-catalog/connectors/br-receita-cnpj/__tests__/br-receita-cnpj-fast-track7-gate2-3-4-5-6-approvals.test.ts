@@ -88,13 +88,13 @@ import {
   BRAZIL_RECEITA_GATE6_TECHNICAL_APPROVER_ROLE,
 } from '../br-receita-cnpj-gate6-recorded-cleanup-contract';
 import {
-  BRAZIL_RECEITA_GATE7_APPROVED,
+  // 🔴 BR-SOURCE-FAST-TRACK-8 removed this suite's GATE-7 STATUS assertions rather than re-pointing
+  // them: GATE-7's status is now the dedicated FAST-TRACK-8 suite's subject, and two suites asserting
+  // the same live status is how the § 11.1 / § 11.2 drift this series has already had to fix begins.
+  // What stays here is what belongs to THIS round: which blockers it discharged, and which it did not.
   BRAZIL_RECEITA_GATE7_DEPENDENCY_BLOCKERS_DISCHARGED_BY_FAST_TRACK_7,
   BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS,
   BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR,
-  BRAZIL_RECEITA_GATE7_STATUS,
-  BRAZIL_RECEITA_GATE7_STATUS_NOT_CLAIMED,
-  BRAZIL_RECEITA_GATE7_STATUS_NOT_CLAIMED_BLOCKED,
   BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION,
 } from '../br-receita-cnpj-gate7-recorded-operator-runbook';
 import {
@@ -421,36 +421,38 @@ describe('FAST-TRACK-7 · GATE-6 — the joint technical + operator owner approv
   });
 });
 
-// ─── 6 · GATE-7 — NOT approved; needs_evidence, derived not asserted ─────────
+// ─── 6 · GATE-7 — the gate THIS round did not approve (approved later, FAST-TRACK-8) ─────────
+//
+// 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-8. This section's subject is what FAST-TRACK-7 did and did not do:
+// it approved GATE-2/3/4/5/6 and it did NOT approve GATE-7. That remains true. GATE-7 was approved by a
+// LATER, separate round, by its own three owners, with the reproducibility rehearsal WAIVED — see
+// br-receita-cnpj-fast-track8-gate7-approval.test.ts. The assertions below are re-pointed at the
+// current live state, because they read live constants rather than a snapshot of this round.
 
-describe('FAST-TRACK-7 · GATE-7 is NOT approved — needs_evidence, and the reasoning is checked against live code', () => {
-  it('is needs_evidence, never approved, never ready_for_review, never blocked', () => {
-    assert.equal(BRAZIL_RECEITA_GATE7_STATUS, 'needs_evidence');
-    assert.equal(BRAZIL_RECEITA_GATE7_APPROVED, false);
-    assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(BRAZIL_RECEITA_GATE7_STATUS), false);
-    assert.notEqual(BRAZIL_RECEITA_GATE7_STATUS, BRAZIL_RECEITA_GATE7_STATUS_NOT_CLAIMED);
-    assert.notEqual(BRAZIL_RECEITA_GATE7_STATUS, BRAZIL_RECEITA_GATE7_STATUS_NOT_CLAIMED_BLOCKED);
-  });
-
-  it('the three dependency-gate blockers are discharged, and only reproducibility remains', () => {
-    assert.equal(BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS.length, 1);
-    assert.equal(BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS[0].kind, 'undemonstrated_pass_criterion');
-    assert.equal(BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS[0].dischargeableByAnAgent, false);
+describe('FAST-TRACK-7 · GATE-7 was NOT approved by THIS round — its approval came later, and the reasoning is checked against live code', () => {
+  it('the three dependency-gate blockers FAST-TRACK-7 discharged are still recorded as discharged by it', () => {
     assert.equal(BRAZIL_RECEITA_GATE7_DEPENDENCY_BLOCKERS_DISCHARGED_BY_FAST_TRACK_7.length, 3);
     const text = BRAZIL_RECEITA_GATE7_DEPENDENCY_BLOCKERS_DISCHARGED_BY_FAST_TRACK_7.join(' | ');
     for (const gate of ['GATE-2', 'GATE-5', 'GATE-6']) {
       assert.ok(text.includes(gate), `${gate} must be named as discharged`);
     }
+    // The fourth blocker was NOT discharged by this round. It outlived FAST-TRACK-7 and was closed by
+    // an owner waiver in FAST-TRACK-8 — so nothing remains today, and nothing was closed here.
+    assert.deepEqual([...BRAZIL_RECEITA_GATE7_REMAINING_BLOCKERS], []);
+    assert.ok(
+      !text.includes('reproducib'),
+      'FAST-TRACK-7 must not be recorded as having discharged the reproducibility blocker',
+    );
   });
 
-  it('reproducibility by a different operator is still UNDEMONSTRATED — no rehearsal happened here', () => {
+  it('reproducibility by a different operator is still UNDEMONSTRATED — no rehearsal happened here, or since', () => {
     assert.equal(BRAZIL_RECEITA_GATE7_REPRODUCIBILITY_BY_DIFFERENT_OPERATOR, 'UNDEMONSTRATED');
   });
 
-  it('the precondition evaluator derives FAIL from the live state — GATE-7 itself is the only unapproved gate', () => {
+  it('🔴 UPDATED BY BR-SOURCE-FAST-TRACK-8: the precondition evaluator now derives PASS from the live state, because GATE-7 is approved too', () => {
     const outcome = evaluateBrazilReceitaGate7Preconditions();
-    assert.equal(outcome.result, 'FAIL');
-    assert.deepEqual(outcome.unapprovedGates.map((entry) => entry.gate), [7]);
+    assert.equal(outcome.result, 'PASS');
+    assert.deepEqual([...outcome.unapprovedGates], []);
     assert.deepEqual([...outcome.unapprovedBlockingGates], []);
     assert.deepEqual([...BRAZIL_RECEITA_GATE7_BLOCKING_GATES], [2, 5, 6]);
   });
@@ -470,32 +472,37 @@ describe('FAST-TRACK-7 · GATE-7 is NOT approved — needs_evidence, and the rea
     assert.notEqual(p21.standing, 'checkable_and_fails_today');
   });
 
-  it('the unblocking criterion now names the rehearsal, not another gate approval', () => {
+  it('the unblocking criterion names the rehearsal, not another gate approval, and is preserved verbatim', () => {
     assert.match(BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION.criterion, /rehearsal/);
     assert.equal(BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION.thenStatusBecomes, 'ready_for_review');
     assert.equal(BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION.agentMayDischarge, false);
+    // 🔴 FAST-TRACK-8 invoked this constant's own no-rehearsal-required branch and did NOT rewrite the
+    // sentence that offered it. That is the evidence the branch pre-dated the decision.
+    assert.match(
+      BRAZIL_RECEITA_GATE7_UNBLOCKING_CRITERION.andStillRequires,
+      /or their explicit decision that no rehearsal is required/,
+    );
   });
 });
 
 // ─── 7 · Cross-cutting: the global view, and what stayed untouched ───────────
 
-describe('FAST-TRACK-7 · the global view: seven of eight approved, GLOBAL VERDICT still NO-GO', () => {
-  it('brazilReceitaApprovedGateCount() is 7, and the verdict is NO-GO', () => {
-    assert.equal(brazilReceitaApprovedGateCount(), 7);
-    assert.equal(brazilReceitaGateGlobalVerdict(), 'NO-GO');
+// 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-8: eight of eight are now approved and the verdict is GO. The
+// five approvals THIS round recorded are unchanged; the count and the verdict moved because a LATER
+// round approved the eighth gate.
+describe('FAST-TRACK-7 · the global view, re-pointed by FAST-TRACK-8: eight of eight approved, GLOBAL VERDICT GO', () => {
+  it('brazilReceitaApprovedGateCount() is 8, and the verdict is GO', () => {
+    assert.equal(brazilReceitaApprovedGateCount(), 8);
+    assert.equal(brazilReceitaGateGlobalVerdict(), 'GO');
   });
 
-  it('every gate except GATE-7 reads an approved status in the authoritative view', () => {
+  it('every gate reads an approved status in the authoritative view', () => {
     for (const entry of BRAZIL_RECEITA_GATE_CURRENT_STATE) {
-      if (entry.gate === 7) {
-        assert.equal(BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(entry.status), false);
-      } else {
-        assert.equal(
-          BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(entry.status),
-          true,
-          `gate ${entry.gate} must be approved`,
-        );
-      }
+      assert.equal(
+        BRAZIL_RECEITA_GATE_APPROVED_STATUSES.includes(entry.status),
+        true,
+        `gate ${entry.gate} must be approved`,
+      );
     }
   });
 
@@ -658,10 +665,16 @@ describe('FAST-TRACK-7 · the checklist doc carries the new subsections in the �
     }
   });
 
-  it('§ 15 names the new approved count and GATE-7 by its new status', () => {
+  // 🔴 UPDATED BY BR-SOURCE-FAST-TRACK-8: § 15's live count is now 8 of 8. The FAST-TRACK-7 subsections
+  // asserted above are unchanged; only the § 15 snapshot they feed moved, and it moved because the
+  // eighth gate was approved by a later round.
+  it('§ 15 names the current approved count, and still preserves the FAST-TRACK-7 needs_evidence history', () => {
     const doc = checklistDoc();
     const matrix = doc.slice(doc.indexOf('## 15. Global GO / NO-GO matrix'));
-    assert.match(matrix, /Approved: 7 of 8/);
+    assert.match(matrix, /Approved: 8 of 8/);
+    assert.doesNotMatch(matrix, /Approved: 7 of 8/);
+    // The word survives in the retained history (the § 11.2 pointer and the superseded bullets), which
+    // is the series' rule: annotate, never rewrite.
     assert.match(matrix, /needs_evidence/);
   });
 });
