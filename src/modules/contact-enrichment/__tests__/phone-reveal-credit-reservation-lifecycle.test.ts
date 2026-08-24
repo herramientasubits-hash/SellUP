@@ -11,8 +11,10 @@
 //   2. la corrida nace ASOCIADA a la reserva (`creditReservationGroupId` en el INSERT);
 //   3. si el INSERT falla o el índice único lo rechaza (23505), la reserva se LIBERA;
 //   4. dos autorizaciones concurrentes no consumen la misma disponibilidad;
-//   5. lo que 4E NO cambia: flag OFF y `commercial_manager` siguen exactamente igual —
-//      sin resolver presupuesto, sin reservar y sin corrida.
+//   5. lo que 4E NO cambia: flag OFF y un rol SIN permiso de revelar teléfono siguen
+//      exactamente igual — sin resolver presupuesto, sin reservar y sin corrida.
+//      (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el actor de referencia dejó de ser
+//      `commercial_manager`, que sí puede revelar y por tanto sí autoriza el waterfall.)
 //
 // OFFLINE por construcción: la reserva se simula con la semántica de REFERENCIA del core
 // puro. Sin red, sin DB, sin Apollo, sin Lusha, 0 créditos.
@@ -365,7 +367,7 @@ describe('4E — dos autorizaciones no consumen la misma disponibilidad', () => 
 // 4. Lo que 4E NO cambia
 // ═══════════════════════════════════════════════════════════════
 
-describe('4E — flag OFF y commercial_manager quedan exactamente igual', () => {
+describe('4E — flag OFF y rol sin permiso de revelar quedan exactamente igual', () => {
   it('flag OFF: 0 resoluciones de presupuesto, 0 reservas, 0 corridas', async () => {
     const h = fullHarness();
     h.deps = { ...h.deps, flagEnabled: false };
@@ -376,11 +378,11 @@ describe('4E — flag OFF y commercial_manager quedan exactamente igual', () => 
     assert.equal(h.createCalls, 0);
   });
 
-  it('commercial_manager: rechazado por rol antes de tocar el presupuesto', async () => {
+  it('rol sin permiso de revelar: rechazado por rol antes de tocar el presupuesto', async () => {
     const h = fullHarness();
     h.deps = {
       ...h.deps,
-      actor: { internalUserId: 'user-cm', roleKey: 'commercial_manager' },
+      actor: { internalUserId: 'user-seller', roleKey: 'seller' },
     };
     const result = await startPhoneRevealWaterfall({ candidateId: 'cand-1' }, h.deps);
     assert.deepEqual(result, { started: false, reason: 'role_not_allowed' });

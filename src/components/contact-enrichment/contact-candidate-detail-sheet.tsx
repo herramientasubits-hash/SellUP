@@ -72,7 +72,10 @@ import {
 // Lusha automáticamente por debajo (server-side). Este componente NO orquesta el
 // waterfall: solo dispara el mismo server action del reveal Apollo y LEE la auditoría
 // de la corrida.
-import { getPhoneRevealWaterfallAuditAction } from '@/modules/contact-enrichment/phone-reveal-waterfall-actions';
+import {
+  getPhoneRevealWaterfallAuditAction,
+  getPhoneRevealWaterfallAuthorizationPreviewAction,
+} from '@/modules/contact-enrichment/phone-reveal-waterfall-actions';
 // «Ver más números» (AGENT2A-PHONE-REVEAL-4O-G). SOLO lectura de teléfonos YA
 // almacenados por 4O-C/4O-D: 0 llamadas a proveedor, 0 corridas, 0 reservas,
 // 0 créditos y 0 escrituras. El resumen es un entero y decide si el CTA existe;
@@ -98,6 +101,7 @@ import { startLegacyPhoneRevealWaterfallAction } from '@/modules/contact-enrichm
 import {
   classifyPhoneRevealWaterfallLegacyHistory,
   type PhoneRevealWaterfallAuditView,
+  type PhoneRevealWaterfallAuthorizationPreview,
 } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
 import {
   CANDIDATE_DETAIL_LOAD_ERROR_BODY_COPY,
@@ -374,9 +378,11 @@ interface ContactCandidateDetailSheetProps {
    */
   phoneRevealWaterfallEnabled?: boolean;
   /**
-   * `true` solo si el rol del actor autenticado es Administrador — el waterfall
-   * completo es admin-only. Un `commercial_manager` conserva el flujo Apollo-only.
-   * Resuelto server-side; el server revalida el rol de todas formas.
+   * `true` si el actor autenticado puede revelar teléfono. Es la MISMA autoridad que
+   * `phoneRevealAuthorized`, no una más estrecha
+   * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1): el waterfall es el comportamiento
+   * NORMAL del botón para quien ya podía revelar, y lo único que lo enciende o apaga
+   * es el flag. Resuelto server-side; el server revalida el rol de todas formas.
    */
   phoneRevealWaterfallAuthorized?: boolean;
 }
@@ -514,6 +520,16 @@ export function ContactCandidateDetailSheet({
   const [waterfallAudit, setWaterfallAudit] =
     React.useState<PhoneRevealWaterfallAuditView | null>(null);
 
+  // Modalidad y tope de la AUTORIZACIÓN, resueltos por el SERVIDOR antes del clic
+  // (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). Es lo que decide si el copy dice 8,
+  // 13 o 14, y lo calcula el MISMO core puro que después reserva los créditos.
+  //
+  // `null` mientras no se haya leído, y también cuando la lectura falla o el waterfall
+  // no está activo: en ese caso el copy cae a la clasificación LOCAL conservadora, que
+  // nunca promete una búsqueda pagada.
+  const [waterfallAuthorizationPreview, setWaterfallAuthorizationPreview] =
+    React.useState<PhoneRevealWaterfallAuthorizationPreview | null>(null);
+
   // Teléfonos adicionales YA almacenados (AGENT2A-PHONE-REVEAL-4O-G). Sólo el
   // CONTEO: los números se piden aparte, y sólo si el operador abre el disclosure.
   const [storedPhoneAdditionalCount, setStoredPhoneAdditionalCount] =
@@ -556,9 +572,12 @@ export function ContactCandidateDetailSheet({
   const busy = approving || rejecting;
 
   /**
-   * ¿El waterfall está realmente activo para este operador? Flag ON **y** rol
-   * admin, ambos resueltos server-side. Un `commercial_manager` conserva el flujo
-   * Apollo-only aunque el flag esté encendido.
+   * ¿El waterfall está realmente activo para este operador? Flag ON **y** permiso de
+   * revelar teléfono, ambos resueltos server-side
+   * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). Ya NO hay un permiso de rol
+   * propio del waterfall: con el flag encendido, todo actor autorizado para «Revelar
+   * teléfono» —Administrador y Manager comercial— usa Apollo → Lusha. Con el flag
+   * apagado, todos conservan el flujo Apollo-only.
    */
   const waterfallActive =
     phoneRevealWaterfallEnabled === true && phoneRevealWaterfallAuthorized === true;
@@ -580,6 +599,31 @@ export function ContactCandidateDetailSheet({
         }
       } catch {
         // Silencioso: sin auditoría simplemente no se muestra el bloque.
+      }
+    },
+    [waterfallActive],
+  );
+
+  /**
+   * Lee la modalidad de la autorización (8 / 13 / 14) ANTES del clic. Solo cuando el
+   * waterfall está activo: con el flag apagado no se hace ninguna llamada extra y el
+   * copy es el histórico Apollo-only.
+   *
+   * Cero gasto: la acción es de solo lectura, no crea corridas y no llama a ningún
+   * proveedor. Silenciosa y fail-closed — sin respuesta, el copy no promete 14.
+   */
+  const reloadWaterfallAuthorizationPreview = React.useCallback(
+    async (targetCandidateId: string): Promise<void> => {
+      if (!waterfallActive) return;
+      try {
+        const preview = await getPhoneRevealWaterfallAuthorizationPreviewAction({
+          candidateId: targetCandidateId,
+        });
+        if (currentCandidateIdRef.current === targetCandidateId) {
+          setWaterfallAuthorizationPreview(preview);
+        }
+      } catch {
+        // Silencioso: el copy cae a la clasificación local conservadora.
       }
     },
     [waterfallActive],
@@ -743,6 +787,9 @@ export function ContactCandidateDetailSheet({
     setLushaPhoneFallbackError(null);
     setLushaPhoneFallbackNotice(null);
     setWaterfallAudit(null);
+    // La modalidad pertenece al candidato anterior: dejarla puesta ofrecería el tope
+    // de otro candidato (por ejemplo 14 sobre uno que no tiene con qué buscar).
+    setWaterfallAuthorizationPreview(null);
     setRevealingLegacyPhone(false);
     setLegacyWaterfallError(null);
     setLegacyWaterfallNotice(null);
@@ -808,6 +855,9 @@ export function ContactCandidateDetailSheet({
             // Auditoría de la corrida del waterfall (no bloquea el render del
             // candidato: se pide en paralelo y su ausencia solo oculta el bloque).
             void reloadWaterfallAudit(candidateId);
+            // La modalidad de la autorización (8 / 13 / 14), en paralelo y con el
+            // mismo contrato de cero gasto: sin ella el copy es el conservador.
+            void reloadWaterfallAuthorizationPreview(candidateId);
             // 4O-G: conteo de teléfonos adicionales ya almacenados. Igual que la
             // auditoría, en paralelo y sin bloquear; su ausencia sólo oculta el CTA.
             void reloadStoredPhoneSummary(candidateId);
@@ -855,6 +905,7 @@ export function ContactCandidateDetailSheet({
     open,
     candidateId,
     reloadWaterfallAudit,
+    reloadWaterfallAuthorizationPreview,
     reloadStoredPhoneSummary,
     reloadSearchMorePreflight,
     reloadDurableMergeOffer,
@@ -886,6 +937,10 @@ export function ContactCandidateDetailSheet({
       // La corrida se relee junto al candidato: es lo que hace visible el paso
       // "Apollo no encontró teléfono, consultando Lusha" sin timers propios.
       await reloadWaterfallAudit(candidateId);
+      // Y la modalidad de la autorización: una corrida que acaba de PERSISTIR la
+      // identidad de Lusha convierte el 14 en 13, y el copy tiene que dejar de pedir
+      // el crédito de búsqueda que ya no hace falta.
+      await reloadWaterfallAuthorizationPreview(candidateId);
       // 4O-G: el conteo se relee con el candidato. Es lo que hace que un reveal
       // que trajo un segundo número muestre el CTA sin recargar la página — y,
       // en el otro sentido, que una supresión posterior lo retire.
@@ -904,6 +959,7 @@ export function ContactCandidateDetailSheet({
   }, [
     candidateId,
     reloadWaterfallAudit,
+    reloadWaterfallAuthorizationPreview,
     reloadStoredPhoneSummary,
     reloadSearchMorePreflight,
   ]);
@@ -1742,7 +1798,21 @@ export function ContactCandidateDetailSheet({
   // El tope que se muestra y se envía depende de si Lusha es una 2ª pata posible.
   // Es el MISMO criterio que aplica el servidor (`source === 'lusha'` + id propio),
   // así que el modal no puede prometer 13 créditos donde el servidor solo autoriza 8.
-  const waterfallLushaEligible = hasLushaContactId;
+  //
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: `hasLushaContactId` sigue siendo el
+  // suelo LOCAL —el candidato nacido en Lusha con su id— pero ya no es la única vía.
+  // Un candidato Apollo puede alcanzar Lusha si su identidad ya está PERSISTIDA
+  // (migración 124) o si hay datos con los que buscarla, y ninguna de esas dos cosas
+  // se puede saber desde el navegador. Por eso, cuando el servidor contesta, MANDA su
+  // veredicto; el suelo local solo se usa mientras no haya respuesta, y nunca sube el
+  // tope por su cuenta.
+  const waterfallLushaEligible =
+    waterfallAuthorizationPreview?.lushaEligible ?? hasLushaContactId;
+  // § 6: 14 sólo si el servidor afirma que ESTA autorización puede ejecutar la
+  // búsqueda. Sin respuesta del servidor la respuesta es `false`, así que el copy
+  // jamás promete un crédito de búsqueda que no se va a poder gastar.
+  const waterfallRequiresIdentitySearch =
+    waterfallAuthorizationPreview?.requiresIdentitySearch === true;
 
   // ── Ruta legacy solo-Lusha (AGENT2A-PHONE-WATERFALL-2) ─────────────────────
   // Pre-filtro VISUAL para candidatos cuyo Apollo ya terminó `no_phone_found` antes
@@ -1783,6 +1853,10 @@ export function ContactCandidateDetailSheet({
   const waterfallAuthorizationCopy = getPhoneRevealWaterfallAuthorizationCopy({
     lushaEligible: waterfallLushaEligible,
     legacyLushaOnly: canOfferLegacyPhoneWaterfall,
+    // La ruta legacy reserva UNA pata de teléfono y NINGÚN crédito de búsqueda, así
+    // que su tope sigue siendo 5 y esta señal no puede subirlo: el copy legacy tiene
+    // prioridad dentro de la propia función.
+    requiresIdentitySearch: waterfallRequiresIdentitySearch,
   });
   // La 2ª pata está reclamada o corriendo: el candidato sigue en `no_phone_found`
   // (un resultado sin teléfono no pisa su estado), así que esto solo lo sabe la

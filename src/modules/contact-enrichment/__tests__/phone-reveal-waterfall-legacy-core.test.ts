@@ -297,8 +297,11 @@ describe('WATERFALL-2 — gates del arranque legacy (flag, rol, corridas)', () =
     assert.equal(drafts.length, 0);
   });
 
-  it('commercial_manager (y cualquier rol no admin) ⇒ RECHAZADO, sin leer nada', async () => {
-    for (const roleKey of ['commercial_manager', 'viewer', '', null]) {
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: `commercial_manager` salió de la lista
+  // (SÍ puede revelar teléfono, así que sí puede autorizar la ruta legacy). Lo que se
+  // rechaza aquí son los roles que nunca pudieron revelar.
+  it('un rol sin permiso de revelar ⇒ RECHAZADO, sin leer nada', async () => {
+    for (const roleKey of ['seller', 'viewer', '', null]) {
       let loaded = 0;
       const { deps, drafts } = startDeps({
         actor: { internalUserId: 'user-x', roleKey },
@@ -478,7 +481,7 @@ describe('WATERFALL-4D/4E — presupuesto y reserva antes de crear la corrida le
   it('flag OFF / rol no admin no consultan el presupuesto (gates baratos primero)', async () => {
     for (const overrides of [
       { flagEnabled: false },
-      { actor: { internalUserId: 'user-x', roleKey: 'commercial_manager' } },
+      { actor: { internalUserId: 'user-x', roleKey: 'seller' } },
     ]) {
       const { deps, credit } = startDeps(overrides);
       await startLegacyPhoneRevealWaterfall({ candidateId: 'cand-legacy' }, deps);
@@ -763,7 +766,7 @@ describe('WATERFALL-2 — continuación legacy: una sola llamada a Lusha', () =>
 
   it('el rol almacenado dejó de estar autorizado ⇒ cierre sin Lusha', async () => {
     const h = continueHarness({
-      run: legacyRun({ authorizedByRole: 'commercial_manager' }),
+      run: legacyRun({ authorizedByRole: 'seller' }),
     });
     const result = await continuePhoneRevealWaterfall(
       { candidateId: 'cand-legacy', apolloOutcome: 'no_phone_found' },

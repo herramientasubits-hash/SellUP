@@ -43,10 +43,24 @@ La pata de Lusha exige **todo** lo siguiente, y cualquier fallo la deja fuera:
 1. `ENABLE_PHONE_REVEAL_WATERFALL` = `"true"` **y** `ENABLE_LUSHA_PHONE_REVEAL_FALLBACK` = `"true"`.
    Los dos. Con el flag del fallback apagado la pata es `feature_disabled` diga lo que diga el
    otro.
-2. Rol `admin`. `commercial_manager` conserva el flujo Apollo-only y **nunca** obtiene una fila
-   de corrida, así que la pata de Lusha le es estructuralmente inalcanzable.
-3. **Identidad nativa de Lusha:** la fila del candidato declara `source = 'lusha'` **y**
-   `source_contact_id`. No se busca por nombre, email, empresa ni LinkedIn.
+2. Un rol autorizado para **revelar teléfono**: `admin` **o** `commercial_manager`
+   (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). El waterfall dejó de tener lista de roles
+   propia: reutiliza `PHONE_REVEAL_AUTHORIZED_ROLE_KEYS`, y lo que enciende o apaga el flujo es
+   el flag, no el rol. Un rol que **no** puede revelar (`seller`, `seller_bd`, `lead`, actor sin
+   rol) **nunca** obtiene una fila de corrida, así que la pata de Lusha le es estructuralmente
+   inalcanzable.
+3. **Identidad de Lusha alcanzable**, por una de estas dos vías:
+   * **nativa** — la fila del candidato declara `source = 'lusha'` **y** `source_contact_id`, o
+     ya existe una identidad `lusha` persistida en `contact_provider_identities` (migración
+     124). Aquí no se paga por saber quién es: el tope es **13**;
+   * **comprada** — el candidato nació en Apollo y hay un identificador exacto con el que
+     buscarlo (LinkedIn, email, o nombre + empresa/dominio). Entonces la autorización incluye
+     **1 crédito** de Contact Search además de los 5 del teléfono, y el tope es **14**. El
+     desglose que ve el operador nombra las dos operaciones por separado.
+
+   Sin ninguna de las dos vías la pata no existe y el tope vuelve a ser **8**. El copy del botón
+   y la reserva salen de la MISMA función pura
+   (`buildPhoneRevealWaterfallAuthorizationPreview`), así que no pueden discrepar.
 4. Apollo terminó exactamente en `no_phone_found`.
 5. La autorización no ha expirado (**TTL de 24 h**). Un webhook que llega dos días después
    todavía puede cerrar la pata de Apollo, pero **nunca** puede gastar la segunda pata sobre
@@ -58,10 +72,12 @@ La pata de Lusha exige **todo** lo siguiente, y cualquier fallo la deja fuera:
 
 ```ts
 // phone-reveal-waterfall-core.ts
-PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS      = 8
-PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS       = 5
-PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA  = 13   // 8 + 5
-PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS      = 5    // = LUSHA_MAX
+PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS               = 8
+PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS                = 5
+PHONE_REVEAL_WATERFALL_LUSHA_IDENTITY_SEARCH_MAX_CREDITS = 1   // Contact Search
+PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA           = 13  // 8 + 5
+PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_IDENTITY_SEARCH = 14  // 13 + 1
+PHONE_REVEAL_WATERFALL_LEGACY_MAX_CREDITS               = 5   // = LUSHA_MAX
 // search-more-phones-planner.ts
 SEARCH_MORE_MAX_CREDITS                        = 5    // = LEGACY_REQUIRED_CREDITS
 ```

@@ -18,12 +18,11 @@ import {
   isPhoneRevealWaterfallEnabled,
 } from '@/lib/feature-flags.server';
 import { LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS } from '@/modules/contact-enrichment/lusha-phone-fallback-core';
-import { PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS } from '@/modules/contact-enrichment/phone-reveal-waterfall-core';
-
-// Roles autorizados a revelar teléfono (PHONE-3D.4). Espejo del gate del server
-// action (PHONE_REVEAL_AUTHORIZED_ROLE_KEYS en phone-reveal-core): Administrador
-// y Manager comercial. Resuelto server-side; el server action revalida el rol.
-const PHONE_REVEAL_AUTHORIZED_ROLE_KEYS = ['admin', 'commercial_manager'] as const;
+// Autoridad CANÓNICA del reveal, IMPORTADA en vez de copiada
+// (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1). Aquí había una copia literal de la
+// pareja `['admin', 'commercial_manager']`: dos listas que "eran espejo" por
+// convención, no por construcción. Resuelto server-side; el server action revalida.
+import { isPhoneRevealRoleAuthorized } from '@/modules/contact-enrichment/phone-reveal-authorized-roles';
 
 // 4O-H3-B-R1 / AGENT2A-P0-R2 — el tipo de cola vive en su propio módulo sin runtime para que
 // también lo pueda importar la tabla (client component) sin arrastrar este server component.
@@ -63,11 +62,7 @@ export async function ContactCandidatesPanel({
   // aquí (server component) y viajan como booleanos planos. Con el flag OFF
   // (default de producción) el botón "Revelar teléfono" no se renderiza.
   const phoneRevealEnabled = isApolloPhoneRevealEnabled();
-  const phoneRevealAuthorized =
-    !!currentUser?.role_key &&
-    (PHONE_REVEAL_AUTHORIZED_ROLE_KEYS as readonly string[]).includes(
-      currentUser.role_key,
-    );
+  const phoneRevealAuthorized = isPhoneRevealRoleAuthorized(currentUser?.role_key ?? null);
 
   // Gobierno del fallback Lusha (LUSHA-PHONE-FALLBACK-1): flag + rol se
   // resuelven aquí (server component) y viajan como booleanos planos. Con el
@@ -77,14 +72,17 @@ export async function ContactCandidatesPanel({
     !!currentUser?.role_key &&
     LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS.includes(currentUser.role_key);
 
-  // Gobierno del waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1): flag + rol
-  // se resuelven aquí (server component) y viajan como booleanos planos. Es
-  // admin-only, más estrecho que el reveal Apollo: con el flag OFF (default de
-  // producción) o un rol `commercial_manager`, la UI conserva el flujo Apollo-only.
+  // Gobierno del waterfall Apollo → Lusha (AGENT2A-PHONE-WATERFALL-1, contrato de
+  // Product corregido en AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1): el ROL ya no
+  // lo estrecha. El waterfall es el comportamiento NORMAL del botón «Revelar
+  // teléfono» para cualquier actor que ya pudiera revelar, y el único interruptor es
+  // el flag. Con el flag OFF (default histórico) la UI conserva el flujo Apollo-only.
+  //
+  // `phoneRevealWaterfallAuthorized` se DERIVA de `phoneRevealAuthorized` en vez de
+  // recalcularse: es literalmente la misma pregunta, y recalcularla es lo que
+  // permitiría que las dos respuestas volvieran a divergir.
   const phoneRevealWaterfallEnabled = isPhoneRevealWaterfallEnabled();
-  const phoneRevealWaterfallAuthorized =
-    !!currentUser?.role_key &&
-    PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS.includes(currentUser.role_key);
+  const phoneRevealWaterfallAuthorized = phoneRevealAuthorized;
 
   const accountOwners = new Map(
     accountsList.filter((a) => a.owner_id).map((a) => [a.id, a.owner_id!]),

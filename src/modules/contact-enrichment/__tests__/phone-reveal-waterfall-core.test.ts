@@ -27,7 +27,6 @@ import {
   startPhoneRevealWaterfall,
   PHONE_REVEAL_WATERFALL_APOLLO_MAX_CREDITS,
   PHONE_REVEAL_WATERFALL_AUTHORIZATION_TTL_HOURS,
-  PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS,
   PHONE_REVEAL_WATERFALL_LUSHA_MAX_CREDITS,
   PHONE_REVEAL_WATERFALL_LUSHA_SKIPPED_REASONS,
   PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_LUSHA,
@@ -40,6 +39,7 @@ import {
   type PhoneRevealWaterfallRunRecord,
   type PhoneRevealWaterfallSuppressionState,
 } from '../phone-reveal-waterfall-core';
+import { PHONE_REVEAL_AUTHORIZED_ROLE_KEYS } from '../phone-reveal-authorized-roles';
 import {
   configuredPool,
   creditHarness,
@@ -139,10 +139,19 @@ describe('waterfall — constantes de costo y rol', () => {
     );
   });
 
-  test('el waterfall completo es admin-only', () => {
-    assert.deepEqual([...PHONE_REVEAL_WATERFALL_AUTHORIZED_ROLE_KEYS], ['admin']);
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el waterfall dejó de ser admin-only.
+  // Su autoridad ES la del reveal, sin lista propia, y el único interruptor es el flag.
+  test('el waterfall reutiliza la autoridad canónica del reveal, sin lista propia', () => {
+    assert.deepEqual(
+      [...PHONE_REVEAL_AUTHORIZED_ROLE_KEYS],
+      ['admin', 'commercial_manager'],
+    );
     assert.equal(isPhoneRevealWaterfallRoleAuthorized('admin'), true);
-    assert.equal(isPhoneRevealWaterfallRoleAuthorized('commercial_manager'), false);
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized('commercial_manager'), true);
+    // No se abre a nadie más: quien no podía revelar teléfono sigue sin poder.
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized('seller'), false);
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized('lead'), false);
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized(''), false);
     assert.equal(isPhoneRevealWaterfallRoleAuthorized(null), false);
   });
 
@@ -253,12 +262,39 @@ describe('waterfall — arranque de la corrida', () => {
     assert.equal(h.created.length, 0);
   });
 
-  test('commercial_manager: NO crea corrida (queda Apollo-only)', async () => {
-    const h = startHarness({ roleKey: 'commercial_manager' });
-    const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
-    assert.deepEqual(result, { started: false, reason: 'role_not_allowed' });
-    assert.equal(h.loadedCandidate, false);
-    assert.equal(h.created.length, 0);
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el rol que puede revelar teléfono ya
+  // no se queda en Apollo-only. Un `commercial_manager` abre corrida igual que un admin
+  // y con el MISMO tope; lo que se rechaza es el rol que nunca pudo revelar.
+  test('un rol sin permiso de revelar: NO crea corrida', async () => {
+    // (`null` no se prueba aquí: el harness lo sustituye por 'admin'. La ausencia de
+    // rol la cubre la aserción pura de `isPhoneRevealWaterfallRoleAuthorized(null)`.)
+    for (const roleKey of ['seller', 'seller_bd', 'lead']) {
+      const h = startHarness({ roleKey });
+      const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
+      assert.deepEqual(result, { started: false, reason: 'role_not_allowed' }, `${roleKey}`);
+      assert.equal(h.loadedCandidate, false, `${roleKey}`);
+      assert.equal(h.created.length, 0, `${roleKey}`);
+    }
+  });
+
+  test('commercial_manager: MISMA corrida y MISMO tope que admin', async () => {
+    const manager = startHarness({ roleKey: 'commercial_manager' });
+    const managerResult = await startPhoneRevealWaterfall(
+      { candidateId: 'candidate-1' },
+      manager.deps,
+    );
+    const adminHarness = startHarness();
+    const adminResult = await startPhoneRevealWaterfall(
+      { candidateId: 'candidate-1' },
+      adminHarness.deps,
+    );
+
+    assert.equal(managerResult.started, true);
+    assert.deepEqual(managerResult, adminResult);
+    assert.equal(manager.created.length, 1);
+    // Y el rol que autorizó se registra tal cual: la corrida no dice 'admin'.
+    assert.equal(manager.created[0].authorizedByRole, 'commercial_manager');
+    assert.equal(manager.created[0].maxCreditsAuthorized, 13);
   });
 
   test('admin con id Lusha: corrida con tope 13 y pata Lusha viva', async () => {
@@ -397,7 +433,7 @@ describe('waterfall — arranque de la corrida', () => {
   });
 
   test('los gates baratos corren ANTES del saldo: flag/rol no lo consultan', async () => {
-    for (const opts of [{ flagEnabled: false }, { roleKey: 'commercial_manager' }]) {
+    for (const opts of [{ flagEnabled: false }, { roleKey: 'seller' }]) {
       const h = startHarness(opts);
       await startPhoneRevealWaterfall({ candidateId: 'candidate-1' }, h.deps);
       assert.equal(h.balanceQueries.length, 0, JSON.stringify(opts));
@@ -529,13 +565,32 @@ describe('waterfall — decisión de continuación', () => {
     assert.equal(decision.action === 'noop' && decision.reason, 'lusha_already_attempted');
   });
 
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: «no autorizado» es ahora «no puede
+  // revelar teléfono». `commercial_manager` SÍ puede, así que su corrida continúa; un
+  // `seller` no, y la suya se cierra sin llamar a Lusha.
   test('rol almacenado no autorizado: cierra sin llamar a Lusha', () => {
-    const decision = decide({ run: activeRun({ authorizedByRole: 'commercial_manager' }) });
-    assert.equal(decision.action, 'close');
-    assert.equal(
-      decision.action === 'close' && decision.patch.lushaSkippedReason,
-      'role_not_allowed',
-    );
+    for (const role of ['seller', 'lead', 'unknown_role'] as const) {
+      const decision = decide({ run: activeRun({ authorizedByRole: role }) });
+      assert.equal(decision.action, 'close', role);
+      assert.equal(
+        decision.action === 'close' && decision.patch.lushaSkippedReason,
+        'role_not_allowed',
+        role,
+      );
+    }
+  });
+
+  test('rol almacenado con permiso de revelar: la continuación NO se aborta', () => {
+    for (const role of ['admin', 'commercial_manager'] as const) {
+      const decision = decide({ run: activeRun({ authorizedByRole: role }) });
+      // Sigue el camino normal (comprobar supresión antes de Lusha), no el cierre por rol.
+      assert.notEqual(decision.action, 'noop', role);
+      assert.equal(
+        decision.action === 'close' && decision.patch.lushaSkippedReason === 'role_not_allowed',
+        false,
+        role,
+      );
+    }
   });
 
   test('Apollo reveló (fresco o de caché): final apollo, Lusha nunca', () => {

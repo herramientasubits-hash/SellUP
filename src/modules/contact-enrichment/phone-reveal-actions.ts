@@ -227,9 +227,12 @@ const WATERFALL_RUN_UNAVAILABLE_ERROR_CODE = 'waterfall_run_unavailable';
  *   * WATERFALL NO SOLICITADO / NO APLICABLE ⇒ `no_waterfall`, y el reveal Apollo
  *     legacy sigue exactamente como antes de este hito:
  *       - flag apagado (ni se resuelve el resto);
- *       - rol no autorizado — un `commercial_manager` conserva su flujo Apollo-only
- *         y NUNCA alcanza la 2ª pata (el gate de rol corre en el core ANTES de
- *         tocar infraestructura, así que tampoco consulta la tabla 102);
+ *       - rol no autorizado — un actor SIN permiso de revelar teléfono nunca
+ *         alcanza la 2ª pata; el gate de rol corre en el core ANTES de tocar
+ *         infraestructura, así que tampoco consulta la tabla 102. Un
+ *         `commercial_manager` SÍ está autorizado desde
+ *         AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el rol dejó de decidir QUÉ
+ *         flujo corre;
  *       - candidato inválido o inexistente — el propio core de Apollo los rechaza
  *         sin llamar al proveedor, y el operador debe ver ESE motivo, no un fallo
  *         de auditoría;

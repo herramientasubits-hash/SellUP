@@ -2,7 +2,9 @@
 // Sin React, sin red, sin imports de servidor: seguro de importar desde tests
 // unitarios y desde el bundle cliente. Lo renderiza
 // contact-candidate-detail-sheet.tsx, pero solo cuando
-// ENABLE_PHONE_REVEAL_WATERFALL resuelve a `"true"` para un rol admin.
+// ENABLE_PHONE_REVEAL_WATERFALL resuelve a `"true"` para un actor con permiso de
+// revelar teléfono (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: ya no es un rol
+// admin, es la autoridad canónica del reveal).
 //
 // NOTA (2026-08-04, AGENT2A-PHONE-REVEAL-UI-STATE-1): el texto anterior afirmaba
 // que el flag estaba «apagado en todos los entornos» y que por tanto ningún

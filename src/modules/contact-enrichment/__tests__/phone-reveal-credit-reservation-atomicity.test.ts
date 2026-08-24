@@ -776,7 +776,9 @@ describe('4F · G — el presupuesto se exige POR PROVEEDOR, nunca combinado', (
   });
 });
 
-describe('4F · G — flag OFF y commercial_manager siguen exactamente igual', () => {
+// AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: el actor de referencia «no autorizado»
+// pasó de `commercial_manager` (que SÍ puede revelar teléfono) a un rol que nunca pudo.
+describe('4F · G — flag OFF y rol sin permiso de revelar siguen exactamente igual', () => {
   it('flag OFF: 0 presupuestos resueltos, 0 reservas, 0 corridas', async () => {
     const credit = creditHarness();
     const result = await startPhoneRevealWaterfall(
@@ -802,7 +804,7 @@ describe('4F · G — flag OFF y commercial_manager siguen exactamente igual', (
     assert.deepEqual(credit.createdRuns, []);
   });
 
-  it('commercial_manager: rechazado por ROL antes de tocar el presupuesto', async () => {
+  it('rol sin permiso de revelar: rechazado por ROL antes de tocar el presupuesto', async () => {
     // El orden barato→caro importa: si el rol se comprobara después, un rol no
     // autorizado ya habría ocupado exposición que nadie iba a gastar.
     const credit = creditHarness();
@@ -810,7 +812,7 @@ describe('4F · G — flag OFF y commercial_manager siguen exactamente igual', (
       { candidateId: 'cand-1' },
       {
         ...fullDeps(credit),
-        actor: { internalUserId: 'user-cm', roleKey: 'commercial_manager' },
+        actor: { internalUserId: 'user-seller', roleKey: 'seller' },
       },
     );
     assert.deepEqual(result, { started: false, reason: 'role_not_allowed' });
@@ -819,13 +821,13 @@ describe('4F · G — flag OFF y commercial_manager siguen exactamente igual', (
     assert.deepEqual(credit.active, []);
   });
 
-  it('commercial_manager en legacy: tampoco reserva', async () => {
+  it('rol sin permiso de revelar en legacy: tampoco reserva', async () => {
     const credit = creditHarness();
     const result = await startLegacyPhoneRevealWaterfall(
       { candidateId: 'cand-1' },
       {
         ...legacyDeps(credit),
-        actor: { internalUserId: 'user-cm', roleKey: 'commercial_manager' },
+        actor: { internalUserId: 'user-seller', roleKey: 'seller' },
       },
     );
     assert.equal(result.started === false && result.reason, 'role_not_allowed');

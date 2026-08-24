@@ -881,7 +881,10 @@ describe('102 ausente — el acceso a datos propaga, no inventa un estado', () =
 // ═══════════════════════════════════════════════════════════════
 
 describe('102 ausente — el gate de rol se evalúa antes que la infraestructura', () => {
-  for (const roleKey of ['commercial_manager', 'seller_bd', 'lead', null]) {
+  // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: `commercial_manager` salió de esta
+  // lista porque SÍ puede revelar teléfono, y por tanto sí puede autorizar el
+  // waterfall. Los que quedan son los que nunca pudieron revelar.
+  for (const roleKey of ['seller_bd', 'seller', 'lead', null]) {
     it(`${roleKey ?? 'sin rol'}: no consulta la tabla ni crea corrida`, async () => {
       setFlags(true, true);
       waterfallTableError = TABLE_MISSING_ERRORS[0].error;
@@ -900,20 +903,40 @@ describe('102 ausente — el gate de rol se evalúa antes que la infraestructura
     });
   }
 
-  it('commercial_manager conserva Apollo-only: 0 consultas al waterfall, 0 Lusha', async () => {
+  it('un rol sin permiso de revelar conserva Apollo-only: 0 consultas al waterfall, 0 Lusha', async () => {
     setFlags(true, true);
-    sessionRoleKey = 'commercial_manager';
+    sessionRoleKey = 'seller';
     waterfallTableError = TABLE_MISSING_ERRORS[0].error;
 
-    const result = await actions.revealCandidatePhoneAction(revealInput(8));
+    await actions.revealCandidatePhoneAction(revealInput(8));
 
     // El rol no autorizado se rechaza ANTES de consultar infraestructura, así que
-    // una tabla 102 rota no puede quitarle el flujo Apollo que ya tenía.
-    assert.equal(result.status, 'requested');
+    // una tabla 102 rota no puede provocar un fallo de auditoría por su culpa.
+    // (El propio core de Apollo rechaza después el rol; lo que se afirma aquí es que
+    // el waterfall no se toca.)
     assert.equal(waterfallTableQueries(), 0, 'no alcanza el waterfall');
     assert.equal(spies.insertAttempts, 0);
     assert.equal(spies.lushaCalls, 0, 'no puede alcanzar Lusha');
     assert.equal(spies.waterfallWrites, 0);
+  });
+
+  it('commercial_manager YA NO conserva Apollo-only: entra al waterfall igual que admin', async () => {
+    // El contrato de Product corregido en AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1:
+    // con el flag encendido, un actor con permiso de revelar teléfono usa el waterfall.
+    // Con la tabla 102 ausente eso significa que su corrida NO se puede crear, y el
+    // reveal se corta fail-closed en vez de degradar a Apollo-only en silencio —
+    // exactamente el mismo trato que recibe un admin en este mismo escenario.
+    setFlags(true, true);
+    sessionRoleKey = 'commercial_manager';
+    waterfallTableError = TABLE_MISSING_ERRORS[0].error;
+
+    const result = await actions.revealCandidatePhoneAction(revealInput(13));
+
+    assert.equal(result.status, 'waterfall_infrastructure_unavailable');
+    // Y sin gasto de ningún tipo: ni Apollo, ni Lusha, ni escritura de corrida.
+    assert.equal(spies.lushaCalls, 0);
+    assert.equal(spies.waterfallWrites, 0);
+    assertNoSpendAtAll();
   });
 });
 
