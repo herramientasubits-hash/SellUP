@@ -244,7 +244,12 @@ async function startWaterfallRunOrBlock(
       buildStartWaterfallDeps(actor),
     );
   } catch (err) {
-    logWaterfallStartOutcome({ outerFlagEnabled, roleAuthorized, started: null });
+    logWaterfallStartOutcome({
+      outerFlagEnabled,
+      roleAuthorized,
+      started: null,
+      acceptedMaxCredits,
+    });
     // Observabilidad sin PII: solo el mensaje mecánico del driver, ya redactado.
     console.error(
       '[phone-reveal-waterfall] run creation failed, aborting before any provider:',
@@ -256,7 +261,12 @@ async function startWaterfallRunOrBlock(
     };
   }
 
-  logWaterfallStartOutcome({ outerFlagEnabled, roleAuthorized, started });
+  logWaterfallStartOutcome({
+    outerFlagEnabled,
+    roleAuthorized,
+    started,
+    acceptedMaxCredits,
+  });
 
   if (started.started) return { kind: 'started', runId: started.runId };
 
@@ -286,6 +296,12 @@ function logWaterfallStartOutcome(args: {
   outerFlagEnabled: boolean;
   roleAuthorized: boolean;
   started: Awaited<ReturnType<typeof startPhoneRevealWaterfall>> | null;
+  /**
+   * Techo aceptado TAL CUAL llegó del cliente. Se pasa crudo a propósito: la
+   * normalización es del contrato del techo duro y vive en el core, no aquí, para que
+   * el evento y la comparación que autorizó el gasto no puedan divergir.
+   */
+  acceptedMaxCredits: number | undefined;
 }): void {
   console.info(
     '[phone-reveal-waterfall] start outcome:',

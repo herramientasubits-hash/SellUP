@@ -21,7 +21,10 @@
 // acababa ejecutando un Apollo suelto, sin corrida, sin reserva y sin
 // correlación en el usage-log. Eso es lo que aquí deja de ser posible.
 
-import type { StartPhoneRevealWaterfallResult } from './phone-reveal-waterfall-core';
+import {
+  normalizePhoneRevealWaterfallAcceptedMaxCredits,
+  type StartPhoneRevealWaterfallResult,
+} from './phone-reveal-waterfall-core';
 
 /**
  * Estados de bloqueo que viajan tal cual al resultado del server action. Son
@@ -161,7 +164,18 @@ export interface PhoneRevealWaterfallStartObservabilityEvent {
   core_started: boolean;
   reason: string | null;
   role_authorized: boolean;
+  /** Lo que la modalidad REAL exigía. */
   required_max_credits: number | null;
+  /**
+   * Techo que la PERSONA aprobó, normalizado con el mismo contrato del techo duro
+   * (`normalizePhoneRevealWaterfallAcceptedMaxCredits`). NUNCA se deriva de
+   * `required_max_credits`: aceptar de más es legítimo —se reserva lo requerido, no lo
+   * aceptado— y copiar el requerido encima borraría justo esa diferencia, que es el
+   * único dato que dice hasta dónde llegaba el permiso humano.
+   *
+   * `null` significa «el contrato del techo no llegó a evaluarse» (el core cortó antes,
+   * o el arranque lanzó), no «no había techo».
+   */
   accepted_max_credits: number | null;
   run_created: boolean;
   /** El flag maestro estaba encendido y el core dijo `feature_disabled`. */
@@ -176,6 +190,17 @@ export function buildPhoneRevealWaterfallStartEvent(args: {
   roleAuthorized: boolean;
   /** `null` cuando el arranque lanzó y no hubo resultado que clasificar. */
   started: StartPhoneRevealWaterfallResult | null;
+  /**
+   * Techo que el cliente dijo haber aceptado, TAL CUAL llegó a
+   * `revealCandidatePhoneAction()` / `startWaterfallRunOrBlock()`.
+   *
+   * POR QUÉ VIAJA HASTA AQUÍ: en el arranque EXITOSO el core no devuelve el techo
+   * aceptado —solo el requerido—, porque para reservar le basta el requerido. El evento
+   * antes copiaba el requerido en las dos claves y por tanto MENTÍA sobre el permiso
+   * humano en cuanto los dos números diferían (requerido 13 aceptado 14 se registraba
+   * como 13/13). La ejecución económica era correcta; el registro de auditoría no.
+   */
+  acceptedMaxCredits?: number | null;
 }): PhoneRevealWaterfallStartObservabilityEvent {
   const { outerFlagEnabled, roleAuthorized, started } = args;
   if (!started) {
@@ -199,7 +224,11 @@ export function buildPhoneRevealWaterfallStartEvent(args: {
       reason: null,
       role_authorized: roleAuthorized,
       required_max_credits: started.maxCreditsAuthorized,
-      accepted_max_credits: started.maxCreditsAuthorized,
+      // MISMA normalización que el techo duro que acaba de autorizar este arranque
+      // (ausente / no finito ⇒ suelo conservador de 8), no una copia del requerido.
+      accepted_max_credits: normalizePhoneRevealWaterfallAcceptedMaxCredits(
+        args.acceptedMaxCredits,
+      ),
       run_created: true,
       invariant_violation: false,
     };
@@ -210,6 +239,10 @@ export function buildPhoneRevealWaterfallStartEvent(args: {
     core_started: false,
     reason: started.reason,
     role_authorized: roleAuthorized,
+    // En el NO-arranque manda el core, no el crudo del cliente: `authorization_ceiling_mismatch`
+    // ya devuelve los dos enteros que comparó (requerido 14 / aceptado 8 sigue siendo
+    // 14 / 8), y el resto de motivos cortan ANTES de evaluar el techo, así que `null`
+    // dice la verdad —no se evaluó— en vez de inventar un techo que nadie comparó.
     required_max_credits: started.requiredMaxCredits ?? null,
     accepted_max_credits: started.acceptedMaxCredits ?? null,
     run_created: false,

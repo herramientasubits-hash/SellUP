@@ -363,6 +363,31 @@ function revealInput(expectedMaxCredits: number) {
   };
 }
 
+/**
+ * Entrada de un cliente que NO manda techo. Es la forma que exige el contrato del techo
+ * duro: la clave se OMITE, no se manda `undefined` disfrazado, para que lo que se prueba
+ * sea la normalización y no un default de TypeScript.
+ */
+function revealInputWithoutCeiling() {
+  return {
+    candidateId: CANDIDATE_ID,
+    confirmCost: true,
+    phoneProcessingBasis: 'legitimate_interest_b2b' as const,
+    phoneProcessingBasisNote: undefined,
+  };
+}
+
+/** Arranque EXITOSO del core con el techo requerido que se le indique. */
+function startedRun(requiredMaxCredits: number): StartResult {
+  return {
+    started: true,
+    runId: RUN_ID,
+    maxCreditsAuthorized: requiredMaxCredits,
+    lushaEligible: requiredMaxCredits > 8,
+    requiresIdentitySearch: requiredMaxCredits >= 14,
+  };
+}
+
 /** Ninguna llamada de proveedor, ningún log de gasto, ninguna corrida escrita. */
 function assertNoSpendAtAll(): void {
   assert.equal(spies.apolloCalls, 0, 'Apollo NO puede ser llamado');
@@ -648,6 +673,157 @@ describe('los bloqueos económicos anteriores conservan su estado propio', () =>
     const [event] = startEvents();
     assert.equal(event.required_max_credits, 14);
     assert.equal(event.accepted_max_credits, 8);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// R2 — el evento no puede MENTIR sobre el techo humano
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * PR338-R2. En el arranque EXITOSO el evento copiaba `maxCreditsAuthorized` en las DOS
+ * claves, así que un requerido 13 sobre un aceptado humano de 14 se registraba como
+ * 13 / 13. El gasto era correcto —se reserva lo REQUERIDO, nunca lo aceptado— pero la
+ * auditoría borraba el margen que la persona había aprobado, que es justo el dato que
+ * un revisor necesita para decidir si el permiso cubría lo ejecutado.
+ *
+ * Aquí se fija que `accepted_max_credits` sale del techo REAL del cliente, normalizado
+ * con el MISMO contrato del techo duro, y NUNCA del requerido.
+ */
+describe('R2 — accepted_max_credits registra el techo humano, no el requerido', () => {
+  it('requerido 13 sobre aceptado 14 registra 13 / 14, y reserva sigue siendo 13', async () => {
+    setWaterfallFlag(true);
+    cannedStartResult = startedRun(13);
+
+    const result = await actions.revealCandidatePhoneAction(revealInput(14));
+
+    assert.equal(result.status, 'requested');
+    const [event] = startEvents();
+    assert.equal(event.required_max_credits, 13, 'lo que la modalidad exigía');
+    assert.equal(event.accepted_max_credits, 14, 'lo que la persona aprobó');
+    assert.notEqual(
+      event.accepted_max_credits,
+      event.required_max_credits,
+      'el aceptado NO puede derivarse del requerido',
+    );
+    // La reserva es del core y no la toca este hito: sigue siendo el REQUERIDO.
+    assert.equal(spies.usageLogMetadata[0].phone_reveal_waterfall_id, RUN_ID);
+  });
+
+  it('requerido 14 sobre aceptado 14 registra 14 / 14', async () => {
+    setWaterfallFlag(true);
+    cannedStartResult = startedRun(14);
+
+    await actions.revealCandidatePhoneAction(revealInput(14));
+
+    const [event] = startEvents();
+    assert.equal(event.required_max_credits, 14);
+    assert.equal(event.accepted_max_credits, 14);
+  });
+
+  it('requerido 8 sobre aceptado 8 registra 8 / 8', async () => {
+    setWaterfallFlag(true);
+    cannedStartResult = startedRun(8);
+
+    await actions.revealCandidatePhoneAction(revealInput(8));
+
+    const [event] = startEvents();
+    assert.equal(event.required_max_credits, 8);
+    assert.equal(event.accepted_max_credits, 8);
+  });
+
+  it('techo OMITIDO por el cliente ⇒ suelo conservador 8, nunca el requerido', async () => {
+    setWaterfallFlag(true);
+    cannedStartResult = startedRun(8);
+
+    await actions.revealCandidatePhoneAction(revealInputWithoutCeiling());
+
+    const [event] = startEvents();
+    assert.equal(event.required_max_credits, 8);
+    assert.equal(
+      event.accepted_max_credits,
+      8,
+      'misma normalización que el techo duro: ausente / no finito ⇒ 8',
+    );
+  });
+
+  it('un techo omitido NO se rellena con el requerido cuando el requerido es mayor', async () => {
+    setWaterfallFlag(true);
+    // Escenario imposible en el core real (14 > 8 habría cortado por techo), pero es
+    // exactamente el que delata la derivación: si el evento copiara el requerido,
+    // registraría un permiso humano de 14 que nadie dio.
+    cannedStartResult = startedRun(14);
+
+    await actions.revealCandidatePhoneAction(revealInputWithoutCeiling());
+
+    const [event] = startEvents();
+    assert.equal(event.required_max_credits, 14);
+    assert.equal(event.accepted_max_credits, 8);
+  });
+
+  it('el desajuste requerido 14 / aceptado 8 se conserva 14 / 8 y no gasta nada', async () => {
+    setWaterfallFlag(true);
+    cannedStartResult = {
+      started: false,
+      reason: 'authorization_ceiling_mismatch',
+      requiredMaxCredits: 14,
+      acceptedMaxCredits: 8,
+    };
+
+    const result = await actions.revealCandidatePhoneAction(revealInput(8));
+
+    assert.equal(result.status, 'authorization_ceiling_mismatch');
+    const [event] = startEvents();
+    assert.equal(event.required_max_credits, 14);
+    assert.equal(event.accepted_max_credits, 8);
+    assert.equal(event.core_started, false);
+    assert.equal(event.run_created, false);
+    assertNoSpendAtAll();
+  });
+
+  it('los motivos que cortan ANTES del techo dejan las dos claves en null', async () => {
+    setWaterfallFlag(true);
+    cannedStartResult = { started: false, reason: 'role_not_allowed' };
+
+    await actions.revealCandidatePhoneAction(revealInput(14));
+
+    const [event] = startEvents();
+    // `null` = «el contrato del techo no se evaluó». Rellenarlo con el crudo del
+    // cliente afirmaría que se comparó un techo que nadie comparó.
+    assert.equal(event.required_max_credits, null);
+    assert.equal(event.accepted_max_credits, null);
+    assertNoSpendAtAll();
+  });
+
+  it('el arranque EXITOSO con techos distintos sigue siendo PII-free y cerrado', async () => {
+    setWaterfallFlag(true);
+    cannedStartResult = startedRun(13);
+
+    await actions.revealCandidatePhoneAction(revealInput(14));
+
+    const [event] = startEvents();
+    assert.deepEqual(Object.keys(event).sort(), [
+      'accepted_max_credits',
+      'core_started',
+      'event',
+      'invariant_violation',
+      'outer_flag_enabled',
+      'reason',
+      'required_max_credits',
+      'role_authorized',
+      'run_created',
+    ]);
+    // Solo enteros: el techo humano entra como número, nunca como texto del cliente.
+    assert.equal(typeof event.required_max_credits, 'number');
+    assert.equal(typeof event.accepted_max_credits, 'number');
+
+    const allLogs = consoleLines.join('\n');
+    for (const [label, value] of Object.entries(PII_VALUES)) {
+      assert.equal(allLogs.includes(value), false, `PII filtrada: ${label}`);
+    }
+    assert.equal(allLogs.includes(CANDIDATE_APOLLO_PERSON_ID), false);
+    assert.equal(allLogs.includes(CANDIDATE_ID), false);
+    assert.equal(allLogs.includes(WATERFALL_FLAG), false);
   });
 });
 
