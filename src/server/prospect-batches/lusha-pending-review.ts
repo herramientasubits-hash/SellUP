@@ -34,6 +34,19 @@
  */
 
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
+// AGENT1-CUT3B23 §§ 5/6/8 — el MISMO constructor de evidencia de identidad y el
+// MISMO registro de lote que usan las otras dos rutas de escritura de Agente 1.
+//
+// 🔴 Esto NO sustituye a `lusha-run-identity-registry`: aquél dedupea la CORRIDA
+// del proveedor (todas las páginas de todas las ramas) ANTES de pagar, y es
+// específico de Lusha. Éste dedupea el LOTE entre capas, en la admisión. Son dos
+// preguntas distintas y las dos siguen vivas.
+import { buildCompanyIdentityEvidence } from '@/server/agents/prospecting-toolkit/company-identity-evidence';
+import {
+  admitByBatchIdentity,
+  createBatchIdentityRegistry,
+  toBatchIdentityCountersMetadata,
+} from '@/server/agents/prospecting-toolkit/batch-identity-registry';
 import { isLinkedInCompanyUrl } from '@/modules/prospect-batches/candidate-linkedin-url';
 import {
   checkActiveCandidateDuplicate,
@@ -506,6 +519,17 @@ export interface PersistLushaPendingReviewResult {
   hardExcludedByGateCount?: number;
   /** Persisted candidates that got a STRONG official-source identity (typed columns filled). */
   enrichedWithOfficialSourceCount?: number;
+  // ── AGENT1-CUT3B23 § 15 — identidad de lote ──
+  /**
+   * Empresas retiradas por el registro de identidad de LOTE (duplicado duro).
+   * NO son errores y NO consumen el objetivo. Cero cuando nada coincidió.
+   */
+  batchIdentityDuplicateSkippedCount?: number;
+  /**
+   * Conteo del corte: crudo descubierto, aceptado ÚNICO, duplicados retirados,
+   * posibles duplicados admitidos y conflictos fuertes. Sólo números.
+   */
+  batchIdentityMetrics?: Record<string, number>;
   // ── Global Agent1 budget gate (AGENT1-LUSHA-BUDGET-GATE-1) ──
   /**
    * Detalle ESTRUCTURADO de un bloqueo de presupuesto, con la misma forma que el
@@ -2144,6 +2168,64 @@ export async function persistLushaPendingReviewBatch(
 
   const pagesRequested = providerRequestsUsed;
 
+  // ── AGENT1-CUT3B23 §§ 8/9/11/12/15 — admisión por identidad de LOTE ────────
+  //
+  // Corre AQUÍ, antes de derivar un solo conteo, para que todo lo que se reporta
+  // aguas abajo —`usefulResultsTotal`, `acceptedForTargetTotal`, el conteo del
+  // lote y `persistedCount`— describa lo que de verdad se va a persistir. Correr
+  // después habría dejado a `persistedCount` afirmando un número que la inserción
+  // no iba a producir.
+  //
+  // Siembra VACÍA, y es un hecho, no una omisión: el lote lo crea
+  // `deps.insertBatch` unas líneas más abajo, en esta misma llamada, así que no
+  // existe ninguna fila persistida que sembrar. La superficie de escritura de
+  // este módulo sigue siendo exactamente la misma (dos deps): no se le añade un
+  // cliente de base de datos para leer un conjunto que se sabe vacío. Cuando el
+  // flujo mixto adopte aquí un lote PREEXISTENTE, éste es el punto donde habrá
+  // que inyectar la siembra.
+  //
+  // 🔴 NO sustituye a `lusha-run-identity-registry`: aquél dedupea la CORRIDA del
+  // proveedor (todas las páginas de todas las ramas) ANTES de pagar y es
+  // específico de Lusha. Éste dedupea el LOTE entre capas, en la admisión. Lo que
+  // atrapa de nuevo: dos empresas que el registro de corrida NO pudo unir —dos
+  // ids de proveedor distintos, sin dominio— pero que traen la MISMA identidad
+  // fiscal del enriquecimiento oficial.
+  //
+  // 🔴 Limitación declarada: `remainingGapFinal` ya se calculó arriba con las
+  // empresas que la CORRIDA aceptó. Un duplicado retirado aquí no reabre páginas
+  // —eso sería gasto nuevo— así que el hueco reportado puede quedar por debajo
+  // del real en tantas unidades como duplicados se retiren.
+  const batchIdentityAdmission = admitByBatchIdentity(
+    createBatchIdentityRegistry(null),
+    useful,
+    (resolved) =>
+      buildCompanyIdentityEvidence({
+        countryCode: resolved.company.countryIso2,
+        // Identidad fiscal SÓLO si la costura oficial dio coincidencia FUERTE.
+        taxIdentifier: resolved.enriched
+          ? buildOfficialSourceTypedColumns(resolved.enriched).tax_identifier
+          : null,
+        domain: resolved.company.domain,
+        linkedinUrl: resolved.company.linkedinUrl,
+        // Identidad NATIVA de Lusha, con su namespace: `apollo:<id>` y
+        // `lusha:<id>` con el mismo valor NO pueden compararse iguales.
+        providerKey: LUSHA_PENDING_REVIEW_PROVIDER,
+        providerEntityId: resolved.company.providerCompanyId,
+        name: resolved.company.name,
+      }),
+  );
+  const batchIdentityDuplicateSkippedCount = batchIdentityAdmission.rejected.length;
+  if (batchIdentityDuplicateSkippedCount > 0) {
+    // § 12 — el duplicado no se persiste, no es un error y no sobrescribe al
+    // ganador: se retira del conjunto que se va a escribir. `useful` es el
+    // acumulador local de esta corrida, no un valor compartido.
+    const admitted = batchIdentityAdmission.admitted.map((entry) => entry.item);
+    useful.splice(0, useful.length, ...admitted);
+  }
+  const batchIdentityMetrics = toBatchIdentityCountersMetadata(
+    batchIdentityAdmission.counters,
+  );
+
   const excludedExactDuplicatesCount = excludedExactDuplicates.length;
   // `skippedCount` conserva su significado de siempre: todo lo que el proveedor
   // devolvió y no llegó a candidato por identidad — filas impersistibles,
@@ -2237,6 +2319,8 @@ export async function persistLushaPendingReviewBatch(
     targetOverflowDiscarded,
     precisionRejectedTotal,
     multiBranch: runTelemetry,
+    batchIdentityDuplicateSkippedCount,
+    batchIdentityMetrics,
   };
 
   if (useful.length === 0) {
