@@ -1343,7 +1343,27 @@ describe('WATERFALL-2C · H — índice único parcial', () => {
       },
     );
     assert.equal(conflicted.started, false);
-    assert.equal(conflicted.started === false && conflicted.reason, 'create_conflict');
+    // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 — este es el caso en que la
+    // corrida ganadora SÍ existe: la sembró `seedRun`, y las dos lecturas se anularon a
+    // mano sólo para forzar la carrera hasta el INSERT. Tras el 23505, la re-lectura la
+    // encuentra, así que `active_run_exists` no es una suposición: está comprobado.
+    //
+    // Es el desenlace correcto y además el MÁS informativo — antes salía
+    // `create_conflict`, que describe la colisión pero no dice que hay una autorización
+    // viva a la que el operador puede esperar. La garantía estructural que este test
+    // vigila no cambia: 1 solo INSERT, 1 sola corrida, 0 Lusha y 0 Apollo.
+    assert.equal(conflicted.started === false && conflicted.reason, 'active_run_exists');
+    assert.equal(
+      conflicted.started === false && conflicted.diagnostics.conflictClass,
+      'run_create',
+      'chocó el índice de la CORRIDA, no el de la reserva',
+    );
+    assert.equal(
+      conflicted.started === false &&
+        conflicted.diagnostics.postConflictActiveRunFound,
+      true,
+      'la corrida viva se ENCONTRÓ; no se dedujo del conflicto',
+    );
     assert.equal(spies.insertAttempts, 1);
     assert.equal(runsForCandidate().length, 1, 'no quedó una segunda corrida activa');
     assert.equal(spies.lushaCalls, 0);

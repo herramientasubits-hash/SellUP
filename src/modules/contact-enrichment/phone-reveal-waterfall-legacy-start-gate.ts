@@ -133,12 +133,22 @@ export function classifyLegacyPhoneRevealStartFailure(
       return 'candidate_state_changed';
     case 'missing_lusha_contact_id':
       return 'missing_lusha_contact_id';
-    // Una autorización viva (`active_run_exists`) y el índice único parcial
-    // rechazando el INSERT en paralelo (`create_conflict`) son las dos caras del
-    // MISMO hecho: la corrida existente ES la autorización.
+    // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 — AQUÍ ESTABA LA MENTIRA.
+    //
+    // `create_conflict` compartía rama con `active_run_exists` bajo la idea de que «la
+    // corrida existente ES la autorización». Esa premisa sólo se sostiene cuando la
+    // corrida EXISTE, y un conflicto de unicidad no lo demuestra: la transacción se
+    // deshace entera, así que puede dejar 0 corridas y 0 reservas y llegar igualmente
+    // hasta aquí. Con la premisa rota, el `already_pending` afirmaba una revelación en
+    // curso que nadie podía encontrar — que es el defecto que este hito cierra.
+    //
+    // Ahora `active_run_exists` sólo llega COMPROBADO (el core releyó la corrida y la
+    // encontró), y los dos conflictos sin corrida se van a infraestructura.
     case 'active_run_exists':
-    case 'create_conflict':
       return 'already_pending';
+    case 'create_conflict':
+    case 'reservation_conflict':
+      return 'infrastructure_unavailable';
     case 'insufficient_credits':
       return 'insufficient_credits';
     case 'budget_not_configured':
@@ -197,9 +207,26 @@ export interface LegacyPhoneRevealStartObservabilityEvent {
   accepted_max_credits: number | null;
   /** `null` = la puerta de privacidad no llegó a evaluarse. */
   privacy_state: string | null;
-  /** `null` = no se llegó a consultar. */
+  /**
+   * `null` = no se llegó a consultar. Es la comprobación PREVIA, no la posterior al
+   * conflicto: las dos se registran por separado desde
+   * AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1.
+   */
   active_run_found: boolean | null;
   history_classification: string | null;
+  /**
+   * ¿Chocó la escritura atómica contra un índice único?
+   * (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1). `null` = no se llegó a intentar.
+   *
+   * Existe porque el evento del incidente decía `active_run_found = false` y
+   * `reason = active_run_exists` a la vez, y desde fuera del proceso era imposible saber
+   * si la contradicción venía de una carrera o de una colisión que no dejó nada escrito.
+   */
+  atomic_create_conflict: boolean | null;
+  /** `'reservation' | 'run_create' | null`. Enum cerrado: nunca texto del driver. */
+  conflict_class: string | null;
+  /** Qué respondió la RE-LECTURA posterior al conflicto. `null` = no se consultó. */
+  post_conflict_active_run_found: boolean | null;
   reason: string | null;
   run_created: boolean;
 }
@@ -233,6 +260,9 @@ export function buildLegacyPhoneRevealStartEvent(args: {
       privacy_state: null,
       active_run_found: null,
       history_classification: null,
+      atomic_create_conflict: null,
+      conflict_class: null,
+      post_conflict_active_run_found: null,
       reason: LEGACY_START_EXCEPTION_REASON,
       run_created: false,
     };
@@ -249,6 +279,9 @@ export function buildLegacyPhoneRevealStartEvent(args: {
     privacy_state: d.privacyState,
     active_run_found: d.activeRunFound,
     history_classification: d.historyClassification,
+    atomic_create_conflict: d.atomicCreateConflict,
+    conflict_class: d.conflictClass,
+    post_conflict_active_run_found: d.postConflictActiveRunFound,
   } as const;
 
   if (started.started) {

@@ -548,7 +548,21 @@ const BLOCKING_MATRIX: {
   { reason: 'invalid_candidate', status: 'invalid_candidate', errorCode: null },
   { reason: 'candidate_not_found', status: 'candidate_not_found', errorCode: null },
   { reason: 'active_run_exists', status: 'already_pending', errorCode: null },
-  { reason: 'create_conflict', status: 'already_pending', errorCode: null },
+  // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 — los dos conflictos SIN corrida
+  // viva dejan de decir «ya hay una en proceso». Sólo llegan aquí cuando la re-lectura
+  // posterior NO encontró ninguna corrida, así que afirmar una sería inventarla. Lo que
+  // este hito vigila —que ningún motivo degrade a Apollo-only— se mantiene idéntico: los
+  // dos siguen bloqueando con 0 proveedores, 0 reservas y 0 corridas.
+  {
+    reason: 'create_conflict',
+    status: 'waterfall_infrastructure_unavailable',
+    errorCode: WATERFALL_RUN_UNAVAILABLE_ERROR_CODE,
+  },
+  {
+    reason: 'reservation_conflict',
+    status: 'waterfall_infrastructure_unavailable',
+    errorCode: WATERFALL_RUN_UNAVAILABLE_ERROR_CODE,
+  },
 ];
 
 describe('C-H — flag ON: ningún motivo del core degrada a Apollo-only', () => {
@@ -568,17 +582,28 @@ describe('C-H — flag ON: ningún motivo del core degrada a Apollo-only', () =>
   }
 
   it('G/H — una autorización viva NO abre una segunda llamada a proveedor', async () => {
-    // `active_run_exists` y `create_conflict` son la misma verdad económica: la
-    // corrida que ya existe ES la autorización, y gastar fuera de su reserva es
-    // exactamente lo que este hito impide. No se reintenta y no se crea otra.
-    for (const reason of ['active_run_exists', 'create_conflict'] as const) {
+    // Los TRES comparten la verdad ECONÓMICA —no se reintenta, no se crea otra corrida y
+    // no se llama a ningún proveedor— y por eso siguen juntos aquí.
+    //
+    // Lo que ya NO comparten (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1) es lo que
+    // AFIRMAN. Sólo `active_run_exists` llega habiendo ENCONTRADO la corrida; los otros
+    // dos son colisiones que no dejaron ninguna, y decirle al operador que su candidato
+    // ya tiene una revelación en curso lo mandaba a buscar algo inexistente. Misma
+    // garantía de gasto, distinta afirmación: es justo la distinción que este hito abre.
+    const CONFLICTS = [
+      { reason: 'active_run_exists', status: 'already_pending' },
+      { reason: 'create_conflict', status: 'waterfall_infrastructure_unavailable' },
+      { reason: 'reservation_conflict', status: 'waterfall_infrastructure_unavailable' },
+    ] as const;
+
+    for (const { reason, status } of CONFLICTS) {
       resetSpies();
       setWaterfallFlag(true);
       cannedStartResult = { started: false, reason };
 
       const result = await actions.revealCandidatePhoneAction(revealInput(14));
 
-      assert.equal(result.status, 'already_pending', reason);
+      assert.equal(result.status, status, reason);
       assert.equal(spies.startCalls, 1, `${reason}: un solo intento de arranque`);
       assert.equal(spies.apolloCalls, 0, reason);
       assert.equal(spies.waterfallWrites, 0, `${reason}: ninguna segunda corrida`);
