@@ -35,6 +35,7 @@ import { buildApolloLinkedInEnrichment } from './prospecting-toolkit/apollo-link
 import type { LinkedInEnrichmentMetadata } from './prospecting-toolkit/types';
 import { enrichBatchCandidatesWithTaxResolution } from '@/server/source-catalog/enrichment/tax-identifier-resolution/enrich-with-tax-resolution';
 import { enrichEcBatchWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-ec-batch-with-validated-sources';
+import { enrichBrBatchWithValidatedSources } from '@/server/source-catalog/enrichment/enrich-br-batch-with-validated-sources';
 import { isUsefulReviewCandidate } from '@/modules/prospect-batches/types';
 import { isApolloCompanySearchEnabled } from '@/lib/feature-flags.server';
 
@@ -1877,6 +1878,41 @@ export async function runProspectGenerationAgent(
         console.warn(
           '[agent-1] EC SCVS enrichment failed (non-blocking):',
           ecErr instanceof Error ? ecErr.message : ecErr,
+        );
+      }
+    }
+
+    // ─── BR-SOURCE-FUNCTIONAL-CUT-B1: Brazil post-discovery validated-source enrichment ─────
+    // Brazil, like Ecuador, flows through the commercial (Apollo) path and never reaches the
+    // Colombia-only post-discovery block nor the CO/MX tax-resolution dispatcher (which guards
+    // BR out by design). Registering the source on ENRICHMENT_ADAPTER_REGISTRY made it
+    // REACHABLE, not REACHED — the registry entry is unbound and answers
+    // `skipped / br_snapshot_period_not_configured` for every candidate. This hook is the only
+    // thing that binds a month, and it binds ONE: the current published period, resolved once
+    // here and frozen for the whole run.
+    // Snapshot-backed and fail-soft: a failure here never fails the batch. No published
+    // period ⇒ nothing is read and nothing is written.
+    if (countryCode === 'BR') {
+      try {
+        const brEnrich = await enrichBrBatchWithValidatedSources(admin, batch.id);
+        console.info('[agent-1] BR Receita validated-source enrichment completed', {
+          batchId: batch.id,
+          // The frozen month is log-safe (§ 8). A CNPJ, a legal_name and a snapshot_run_id
+          // are not logged here.
+          frozenSourcePeriod: brEnrich.frozenPeriod.sourcePeriod,
+          frozenPeriodStatus: brEnrich.frozenPeriod.status,
+          candidatesProcessed: brEnrich.candidatesProcessed,
+          matched: brEnrich.matchedCount,
+          noMatch: brEnrich.noMatchCount,
+          skipped: brEnrich.skippedCount,
+          missingCnpj: brEnrich.missingCnpjCount,
+          errors: brEnrich.errorCount,
+          aborted: brEnrich.aborted,
+        });
+      } catch (brErr: unknown) {
+        console.warn(
+          '[agent-1] BR Receita enrichment failed (non-blocking):',
+          brErr instanceof Error ? brErr.message : brErr,
         );
       }
     }
