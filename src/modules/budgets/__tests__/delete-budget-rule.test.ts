@@ -1,84 +1,99 @@
+// Guarda de eliminación real de reglas de presupuesto.
+//
+// NO replica la lógica: lee el CÓDIGO FUENTE real de rule-actions.ts y de los
+// dos consumidores de UI. Una réplica inline pasaría en verde aunque producción
+// volviera al soft-delete — que es exactamente el defecto que este archivo
+// existe para impedir.
+
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-interface ActionResult {
-  success: boolean;
-  error?: string;
+const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
+
+function readSource(relPath: string): string {
+  return readFileSync(join(ROOT, relPath), 'utf8');
 }
 
-// Mock deleteBudgetRule function for testing
-async function deleteBudgetRule(id: string): Promise<ActionResult> {
-  if (!id) return { success: false, error: 'ID requerido.' };
-  if (id === 'invalid-admin') return { success: false, error: 'No autorizado.' };
-  if (id === 'db-error') return { success: false, error: 'Error al eliminar la regla.' };
-  return { success: true };
+/** Quita comentarios: nombrar algo en un comentario no es usarlo. */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
 }
 
-describe('deleteBudgetRule', () => {
-  it('retorna error cuando id está vacío', async () => {
-    const result = await deleteBudgetRule('');
-    assert.equal(result.success, false);
-    assert.equal(result.error, 'ID requerido.');
+const RULE_ACTIONS_PATH = 'src/modules/budgets/rule-actions.ts';
+const CONSUMER_PATHS = [
+  'src/app/(sellup)/settings/budget-credits/rules/budget-rules-client.tsx',
+  'src/app/(sellup)/settings/providers/provider-detail-sidepanel.tsx',
+];
+
+describe('rule-actions: deleteBudgetRule borra de verdad', () => {
+  const src = stripComments(readSource(RULE_ACTIONS_PATH));
+
+  it('exporta deleteBudgetRule', () => {
+    assert.match(src, /export async function deleteBudgetRule\(/);
   });
 
-  it('retorna error cuando no hay permisos', async () => {
-    const result = await deleteBudgetRule('invalid-admin');
-    assert.equal(result.success, false);
-    assert.equal(result.error, 'No autorizado.');
+  it('ya no exporta archiveBudgetRule (el soft-delete quedó eliminado)', () => {
+    assert.doesNotMatch(src, /export async function archiveBudgetRule\(/);
   });
 
-  it('retorna error cuando hay fallo en la BD', async () => {
-    const result = await deleteBudgetRule('db-error');
-    assert.equal(result.success, false);
-    assert.equal(result.error, 'Error al eliminar la regla.');
+  it('usa DELETE sobre budget_rules, no UPDATE is_active=false', () => {
+    const body = src.slice(src.indexOf('export async function deleteBudgetRule('));
+    const end = body.indexOf('\n}\n');
+    const fn = end === -1 ? body : body.slice(0, end);
+
+    assert.match(fn, /\.delete\(\)/, 'deleteBudgetRule debe llamar .delete()');
+    assert.doesNotMatch(
+      fn,
+      /is_active:\s*false/,
+      'deleteBudgetRule no debe volver al soft-delete is_active=false',
+    );
   });
 
-  it('retorna success cuando la regla se elimina correctamente', async () => {
-    const result = await deleteBudgetRule('rule-123');
-    assert.equal(result.success, true);
-    assert.equal(result.error, undefined);
+  it('sigue exigiendo admin antes de borrar', () => {
+    const body = src.slice(src.indexOf('export async function deleteBudgetRule('));
+    const fn = body.slice(0, body.indexOf('\n}\n'));
+    assert.match(fn, /isCurrentUserAdmin\(\)/);
+    assert.match(fn, /No autorizado/);
+  });
+
+  it('toggleBudgetRuleStatus sigue existiendo como vía para desactivar sin borrar', () => {
+    assert.match(src, /export async function toggleBudgetRuleStatus\(/);
+    assert.match(src, /is_active:\s*isActive/);
   });
 });
 
-describe('handleArchive error validation', () => {
-  it('debe validar el resultado antes de recargar', async () => {
-    // Simula el comportamiento del handleArchive
-    const rule = { id: 'rule-123' };
-    const result = await deleteBudgetRule(rule.id);
-    
-    if (!result.success) {
-      // El error debe ser mostrado al usuario
-      assert.fail(`Error: ${result.error}`);
-    }
-    
-    // Si llegó aquí, la eliminación fue exitosa
-    assert.equal(result.success, true);
-  });
+describe('consumidores de UI: no ignoran el error de borrado', () => {
+  for (const path of CONSUMER_PATHS) {
+    const src = stripComments(readSource(path));
 
-  it('debe prevenir recarga si hay error', async () => {
-    const rule = { id: 'invalid-admin' };
-    const result = await deleteBudgetRule(rule.id);
-    
-    // No debería recargar la página si hay error
-    if (!result.success) {
-      assert.ok(result.error);
-      assert.match(result.error, /No autorizado/);
-    }
-  });
-});
+    it(`${path} importa deleteBudgetRule y no archiveBudgetRule`, () => {
+      assert.match(src, /deleteBudgetRule/);
+      assert.doesNotMatch(src, /archiveBudgetRule/);
+    });
 
-describe('Diferencia archiveBudgetRule vs deleteBudgetRule', () => {
-  it('archiveBudgetRule hacía soft-delete (UPDATE is_active=false)', () => {
-    // Antes: archiveBudgetRule → UPDATE → is_active=false (regla sigue en BD)
-    // Ahora: deleteBudgetRule → DELETE → se elimina completamente
-    const archiveResult = { action: 'UPDATE', column: 'is_active', value: false };
-    const deleteResult = { action: 'DELETE', column: null, value: null };
-    
-    assert.notEqual(archiveResult.action, deleteResult.action);
-  });
+    it(`${path} captura el resultado de deleteBudgetRule (no lo descarta)`, () => {
+      // `await deleteBudgetRule(...)` a secas descarta el ActionResult: la UI
+      // recargaría como si hubiera borrado incluso cuando la acción falló.
+      const calls = src.match(/^[^\n]*deleteBudgetRule\([^)]*\)/gm) ?? [];
+      const invocations = calls.filter((line) => !line.includes('import'));
 
-  it('deleteBudgetRule elimina la regla completamente de la BD', () => {
-    const result = { success: true, rowsDeleted: 1 };
-    assert.equal(result.rowsDeleted, 1);
-  });
+      assert.ok(invocations.length > 0, 'debe invocar deleteBudgetRule');
+
+      for (const line of invocations) {
+        assert.match(
+          line,
+          /=\s*await\s+deleteBudgetRule\(/,
+          `resultado descartado en: ${line.trim()}`,
+        );
+      }
+    });
+
+    it(`${path} ramifica sobre !result.success antes de continuar`, () => {
+      assert.match(src, /if\s*\(!result\.success\)/);
+    });
+  }
 });

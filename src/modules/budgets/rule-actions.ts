@@ -240,8 +240,10 @@ export async function toggleBudgetRuleStatus(
   return { success: true };
 }
 
-// ─── archiveBudgetRule ────────────────────────────────────────────────────────
-// Soft-delete: sets is_active = false. Preserves all logs and historical data.
+// ─── deleteBudgetRule ─────────────────────────────────────────────────────────
+// Hard-delete: removes the rule row. Los logs de uso (provider_usage_logs) no
+// referencian budget_rules, así que el histórico de consumo se preserva.
+// Para desactivar sin borrar, usar toggleBudgetRuleStatus.
 
 export async function deleteBudgetRule(id: string): Promise<ActionResult> {
   const isAdmin = await isCurrentUserAdmin();

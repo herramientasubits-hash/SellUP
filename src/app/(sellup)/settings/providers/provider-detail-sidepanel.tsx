@@ -41,7 +41,7 @@ import {
   OPERATIONAL_TYPE_BADGE,
 } from '@/modules/budgets/provider-operational-type';
 import { parseBudgetCheck, SCOPE_LABEL } from '@/modules/budgets';
-import { toggleBudgetRuleStatus, archiveBudgetRule } from '@/modules/budgets/rule-actions';
+import { toggleBudgetRuleStatus, deleteBudgetRule } from '@/modules/budgets/rule-actions';
 import { ProviderAllowanceDrawer } from '@/app/(sellup)/settings/budget-credits/provider-allowance-drawer';
 import {
   CreateDrawer,
@@ -2361,7 +2361,7 @@ function ProviderRulesInline({
   async function handleArchive(rule: BudgetRuleRow) {
     setArchiving(rule.id);
     setArchiveError(null);
-    const result = await archiveBudgetRule(rule.id);
+    const result = await deleteBudgetRule(rule.id);
     setArchiving(null);
     if (!result.success) {
       setArchiveError(result.error ?? 'Error al eliminar la regla.');
