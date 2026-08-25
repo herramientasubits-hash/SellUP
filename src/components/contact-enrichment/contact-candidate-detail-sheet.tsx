@@ -137,6 +137,7 @@ import {
   PHONE_REVEAL_WATERFALL_BUDGET_NOT_CONFIGURED_COPY,
   PHONE_REVEAL_WATERFALL_CREDIT_BALANCE_UNAVAILABLE_COPY,
   PHONE_REVEAL_WATERFALL_ERROR_COPY,
+  resolvePhoneRevealTerminalErrorCopy,
   PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY,
   PHONE_REVEAL_WATERFALL_INFRASTRUCTURE_UNAVAILABLE_COPY,
   PHONE_REVEAL_WATERFALL_INSUFFICIENT_CREDITS_COPY,
@@ -2038,6 +2039,21 @@ export function ContactCandidateDetailSheet({
     waterfallActive &&
     (waterfallAudit?.status === 'lusha_pending' ||
       waterfallAudit?.status === 'lusha_running');
+  /**
+   * La corrida YA está mostrando su propio cierre en error, con el motivo verdadero
+   * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).
+   *
+   * Cuando eso pasa, el banner genérico del arranque legacy sobra: describe el MISMO
+   * suceso, en rojo, dos veces y con menos información. Antes de este hito las dos
+   * frases eran además literalmente idénticas, porque las dos eran
+   * `PHONE_REVEAL_WATERFALL_ERROR_COPY`.
+   *
+   * Sólo silencia el DUPLICADO. Un error del arranque que no llegó a crear corrida
+   * —presupuesto, conflicto, excepción— sigue mostrándose, porque en ese caso no hay
+   * ningún otro sitio donde el operador pueda leerlo.
+   */
+  const waterfallShowsTerminalError =
+    waterfallActive && waterfallAudit?.status === 'error';
   // La comprobación de supresión/DNC no se pudo completar, así que Lusha NO se
   // ejecutó. Se lee del motivo de omisión de la corrida (no de `error_code`) y
   // tiene prioridad sobre el copy genérico de error: al operador hay que decirle
@@ -2819,7 +2835,7 @@ export function ContactCandidateDetailSheet({
                           {legacyWaterfallNotice}
                         </p>
                       )}
-                      {legacyWaterfallError && (
+                      {legacyWaterfallError && !waterfallShowsTerminalError && (
                         <p className="text-[11px] text-destructive">
                           {legacyWaterfallError}
                         </p>
@@ -2838,7 +2854,7 @@ export function ContactCandidateDetailSheet({
                             {legacyWaterfallNotice}
                           </p>
                         )}
-                        {legacyWaterfallError && (
+                        {legacyWaterfallError && !waterfallShowsTerminalError && (
                           <p className="text-[11px] text-destructive">
                             {legacyWaterfallError}
                           </p>
@@ -2890,7 +2906,10 @@ export function ContactCandidateDetailSheet({
                         </p>
                       ) : waterfallAudit.status === 'error' ? (
                         <p className="text-[11px] text-destructive">
-                          {PHONE_REVEAL_WATERFALL_ERROR_COPY}
+                          {/* AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1: el motivo
+                              REAL, no el rojo genérico. Un código desconocido sigue
+                              cayendo en la frase de siempre. */}
+                          {resolvePhoneRevealTerminalErrorCopy(waterfallAudit.errorCode)}
                         </p>
                       ) : null}
                     </div>

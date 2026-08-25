@@ -250,6 +250,7 @@ function auditView(
     status: 'apollo_in_flight',
     runMode: 'full_waterfall',
     isTerminal: false,
+    errorCode: null,
     maxCreditsAuthorized: 13,
     apolloAttempted: true,
     apolloOutcome: null,

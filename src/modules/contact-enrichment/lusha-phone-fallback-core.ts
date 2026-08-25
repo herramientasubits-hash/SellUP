@@ -104,6 +104,12 @@ import {
   type LushaPhoneFallbackUsageLogMetadataDraft,
 } from '@/modules/usage-tracking/lusha-phone-fallback-usage-log-draft';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
+import {
+  buildPhoneRevealLushaAttemptOutcomeEvent,
+  type PhoneRevealLushaAttemptOutcomeEvent,
+  type PhoneRevealLushaAttemptResult,
+  type PhoneRevealLushaIdentitySource,
+} from './phone-reveal-lusha-attempt-diagnostics';
 
 // ── Constantes ─────────────────────────────────────────────────
 
@@ -171,6 +177,27 @@ export interface LushaPhoneFallbackActionInput {
    * rejected as `missing_cost_confirmation`; a higher value is accepted.
    */
   expectedMaxCredits?: number;
+  /**
+   * Id NATIVO de Lusha ya resuelto por el paso de identidad de ESTA autorización
+   * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).
+   *
+   * POR QUÉ EXISTE. El core del waterfall resuelve la identidad —buscándola y
+   * pagándola, o reusando la persistida— y la pasa a la pata como `lushaContactId`.
+   * Hasta este hito el ejecutor de la pata NO recibía ese parámetro y su lector del
+   * candidato tampoco consultaba `contact_provider_identities`, así que el id
+   * recién resuelto se PERDÍA entre los dos módulos: `resolveLushaContactId`
+   * devolvía null para todo candidato nacido fuera de Lusha, la elegibilidad
+   * fallaba `missing_lusha_contact_id` ANTES de emitir un solo byte, y la corrida
+   * se cerraba con el genérico `lusha_reveal_error`. Ese es exactamente el
+   * desenlace de la corrida real 2a49e0f7 (identidad resuelta y persistida, reveal
+   * en error, 0 peticiones emitidas).
+   *
+   * SCOPED POR PROVEEDOR EN ORIGEN: sólo lo rellena el resolutor de identidad, que
+   * consulta `provider_key = 'lusha'`. Nunca puede transportar un id de Apollo, y
+   * por eso no necesita la condición `source === 'lusha'` que sí protege al
+   * `source_contact_id` del candidato.
+   */
+  resolvedLushaContactId?: string;
 }
 
 /** Read-only projection of the candidate needed to evaluate + run the fallback. */
@@ -249,6 +276,27 @@ export interface LushaPhoneFallbackActionResult {
   status: LushaPhoneFallbackActionStatus;
   /** Safe (no-PII) error code when status = 'error'. null otherwise. */
   errorCode: string | null;
+  /**
+   * ¿Salió una petición HTTP hacia Lusha en esta invocación?
+   * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1)
+   *
+   * Es el hecho que la liquidación necesitaba y no tenía. Hasta este hito lo más
+   * parecido que existía era el CLAIM de la pata (`lusha_attempted_at`), que se
+   * toma ANTES de esta función y por tanto también se toma cuando la pata muere en
+   * su propio gate de elegibilidad sin emitir un solo byte. Con esa señal, una
+   * corrida que nunca llamó al proveedor confirmaba su reserva al tope
+   * (`assumed_cap`) — 5 créditos por una petición inexistente, que es exactamente
+   * lo que le pasó a la corrida real 2a49e0f7.
+   *
+   * `false` NO afirma «el proveedor no cobró» en general: afirma algo más fuerte y
+   * comprobable desde este proceso — «no hubo petición que pudiera cobrarse». Un
+   * timeout o un error de red SÍ cuentan como emitida (`true`), porque ahí los
+   * bytes ya salieron y el cobro es indeterminable desde aquí.
+   *
+   * OPCIONAL en el tipo para no romper fixtures anteriores al hito; el core la
+   * rellena SIEMPRE.
+   */
+  requestEmitted?: boolean;
   /**
    * Credits Lusha actually reported for this call (billing.creditsCharged), or
    * null when nothing was reported — NEVER 0 as a stand-in for "unknown".
@@ -330,6 +378,17 @@ export interface LushaPhoneFallbackCoreDeps {
   callLusha: (params: { contactId: string }) => Promise<LushaPhoneFallbackClientResult>;
   persist: (candidateId: string, patch: LushaPhoneFallbackPersistencePatch) => Promise<void>;
   logUsage: (entry: LushaPhoneFallbackUsageLogEntry) => Promise<void>;
+  /**
+   * Emite el diagnóstico estructurado y SIN PII de la pata
+   * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).
+   *
+   * OPCIONAL: sin la dep no se construye ni se emite nada y el comportamiento es
+   * exactamente el anterior al hito. Su fallo NUNCA cambia el desenlace: el core lo
+   * envuelve en un catch acotado.
+   */
+  logRevealAttemptOutcome?: (
+    event: PhoneRevealLushaAttemptOutcomeEvent,
+  ) => Promise<void>;
 
   // ── Modo waterfall (AGENT2A-PHONE-WATERFALL-1) ────────────────
 
@@ -473,12 +532,30 @@ function cleanText(value: string | null | undefined): string | null {
  * asíncrono). El primer caso no la necesita porque su columna ya está scopeada por
  * proveedor en origen.
  */
-function resolveLushaContactId(candidate: LushaPhoneFallbackCandidateRecord): string | null {
-  const resolvedIdentity = cleanText(candidate.lushaProviderContactId ?? null);
-  if (resolvedIdentity) return resolvedIdentity;
+function resolveLushaContactId(
+  candidate: LushaPhoneFallbackCandidateRecord,
+  /**
+   * Identidad resuelta EN ESTA autorización, inyectada por el core del waterfall.
+   * Tiene precedencia sobre la proyectada en el candidato porque es la más
+   * reciente: cuando las dos existen describen la misma fila de
+   * `contact_provider_identities`, y cuando sólo existe ésta es porque la búsqueda
+   * acaba de pagarse en esta misma corrida.
+   */
+  injectedIdentityId?: string | null,
+): { contactId: string | null; source: PhoneRevealLushaIdentitySource } {
+  const injected = cleanText(injectedIdentityId ?? null);
+  if (injected) return { contactId: injected, source: 'run_identity_search' };
 
-  if (candidate.source !== 'lusha') return null;
-  return cleanText(candidate.sourceContactId);
+  const resolvedIdentity = cleanText(candidate.lushaProviderContactId ?? null);
+  if (resolvedIdentity) {
+    return { contactId: resolvedIdentity, source: 'persisted_identity' };
+  }
+
+  if (candidate.source !== 'lusha') return { contactId: null, source: 'none' };
+  const native = cleanText(candidate.sourceContactId);
+  return native
+    ? { contactId: native, source: 'candidate_native' }
+    : { contactId: null, source: 'none' };
 }
 
 /**
@@ -507,9 +584,102 @@ async function persistNonRevealOutcome(
  * order barato→caro. With the flag off or the actor unauthorized, returns
  * immediately without loading the candidate or touching any other dep.
  */
+/**
+ * Testigo de emisión. Un objeto y no un booleano devuelto porque el cuerpo del core
+ * tiene DIEZ puntos de retorno y sellar el hecho en cada uno los volvería a poner de
+ * acuerdo a mano — que es la clase de acuerdo que se rompe en el siguiente hito. Aquí
+ * el testigo se marca en el ÚNICO punto donde puede ser cierto (la línea que llama al
+ * proveedor) y el envoltorio lo estampa una sola vez sobre cualquier resultado.
+ */
+interface LushaPhoneFallbackEmissionWitness {
+  emitted: boolean;
+  /** De dónde salió el id nativo. `none` hasta que el resolutor decide. */
+  identitySource: PhoneRevealLushaIdentitySource;
+  /** Status HTTP exacto; el constructor del evento lo degrada a clase. */
+  httpStatus: number | null;
+  /** Hubo respuesta pero su cuerpo no encaja con ningún contrato conocido. */
+  responseUnparseable: boolean;
+  /** El proveedor no contestó a tiempo. Los bytes YA salieron. */
+  timedOut: boolean;
+}
+
+/**
+ * Envoltorio que sella `requestEmitted` sobre el resultado del core
+ * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1). No decide nada más: el contrato
+ * observable de `runLushaPhoneFallbackReveal` es el de siempre más ese campo.
+ */
 export async function runLushaPhoneFallbackReveal(
   input: LushaPhoneFallbackActionInput,
   deps: LushaPhoneFallbackCoreDeps,
+): Promise<LushaPhoneFallbackActionResult> {
+  const witness: LushaPhoneFallbackEmissionWitness = {
+    emitted: false,
+    identitySource: 'none',
+    httpStatus: null,
+    responseUnparseable: false,
+    timedOut: false,
+  };
+  const result = await runLushaPhoneFallbackRevealInner(input, deps, witness);
+  const sealed: LushaPhoneFallbackActionResult = {
+    ...result,
+    requestEmitted: witness.emitted,
+  };
+
+  // Diagnóstico estructurado y SIN PII, emitido desde UN SOLO punto
+  // (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1). Va aquí y no en cada retorno del
+  // core justamente porque el core tiene diez: sellarlo en cada uno los volvería a
+  // poner de acuerdo a mano, y el camino que se olvidara sería el próximo
+  // `lusha_reveal_error` sin explicación.
+  //
+  // Best-effort ACOTADO: un diagnóstico que falla no puede cambiar el desenlace de una
+  // operación pagada ni convertir un reveal exitoso en un error.
+  if (deps.logRevealAttemptOutcome) {
+    try {
+      await deps.logRevealAttemptOutcome(
+        buildPhoneRevealLushaAttemptOutcomeEvent({
+          requestEmitted: witness.emitted,
+          httpStatus: witness.httpStatus,
+          providerErrorCode: sealed.errorCode ?? null,
+          responseUnparseable: witness.responseUnparseable,
+          identitySource: witness.identitySource,
+          creditsReported:
+            sealed.costSource === 'reported' &&
+            typeof sealed.creditsCharged === 'number'
+              ? sealed.creditsCharged
+              : null,
+          costTruth: sealed.costSource ?? 'unknown',
+          result: resolveAttemptResult(sealed.status, witness),
+        }),
+      );
+    } catch {
+      // Silencio acotado y deliberado, misma convención que el sello de auditoría de
+      // la búsqueda de identidad.
+    }
+  }
+
+  return sealed;
+}
+
+/**
+ * Desenlace del intento, en el vocabulario del diagnóstico. `timeout` sale del testigo
+ * y no del status porque el core lo colapsa —correctamente— en el mismo
+ * `provider_network_error` que una red caída: para el CANDIDATO son lo mismo, para
+ * quien depura no.
+ */
+function resolveAttemptResult(
+  status: LushaPhoneFallbackActionStatus,
+  witness: LushaPhoneFallbackEmissionWitness,
+): PhoneRevealLushaAttemptResult {
+  if (status === 'revealed') return 'revealed';
+  if (status === 'no_phone_found') return 'no_phone';
+  if (witness.timedOut) return 'timeout';
+  return 'error';
+}
+
+async function runLushaPhoneFallbackRevealInner(
+  input: LushaPhoneFallbackActionInput,
+  deps: LushaPhoneFallbackCoreDeps,
+  witness: LushaPhoneFallbackEmissionWitness,
 ): Promise<LushaPhoneFallbackActionResult> {
   // 1. Flag OFF → nothing else runs.
   if (!deps.flagEnabled) return fail('feature_disabled');
@@ -541,7 +711,9 @@ export async function runLushaPhoneFallbackReveal(
     input.confirmCost === true && acceptedMax >= LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS;
 
   // 6. Canonical eligibility gate (LUSHA-PHONE-FALLBACK-1S, unchanged).
-  const lushaContactId = resolveLushaContactId(candidate);
+  const identity = resolveLushaContactId(candidate, input.resolvedLushaContactId);
+  const lushaContactId = identity.contactId;
+  witness.identitySource = identity.source;
   const eligibility = evaluateLushaPhoneFallbackEligibility({
     candidateStatus: candidate.status,
     // Neither column exists on contact_enrichment_candidates today — the gate
@@ -634,7 +806,24 @@ export async function runLushaPhoneFallbackReveal(
   // 7. Single call to Lusha's /v3/contacts/enrich (reveal: ["phones"]). Never
   //    search, never waterfallReveal — enforced structurally by the client's
   //    own signature, not re-checked here.
+  // ÚNICO punto del core en el que unos bytes salen hacia Lusha. El testigo se marca
+  // ANTES del await a propósito: si `callLusha` lanza o expira, la petición YA se
+  // emitió y el costo es indeterminable — no inexistente.
+  witness.emitted = true;
   const result = await deps.callLusha({ contactId });
+
+  // Hechos observables de la respuesta, sellados en el testigo para el diagnóstico.
+  // Ninguno es PII: un status, dos booleanos.
+  if (result.ok) {
+    witness.httpStatus = result.httpStatus;
+    witness.responseUnparseable = result.errorCode === 'malformed_provider_response';
+  } else if (result.failureKind === 'preflight') {
+    // El cliente rechazó ANTES del fetch: no salieron bytes. Se corrige el testigo,
+    // que se había marcado de forma optimista en la línea de la llamada.
+    witness.emitted = false;
+  } else {
+    witness.timedOut = result.failureKind === 'timeout';
+  }
 
   // 7a. Network/timeout failure: no HTTP response at all, so no reported
   //     cost — never assume 0 credits.

@@ -88,7 +88,21 @@ export type LushaPhoneFallbackClientResult =
        */
       creditsCharged: number | null;
     } & LushaPhoneFallbackStatusMapping)
-  | { ok: false; errorMessage: string };
+  | {
+      ok: false;
+      errorMessage: string;
+      /**
+       * Por qué falló la emisión, como VOCABULARIO y no como texto
+       * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).
+       *
+       * `timeout` y `network` ya se distinguían dentro de `errorMessage`, pero sólo
+       * como prosa: nadie aguas arriba podía ramificar sobre ellos sin parsear una
+       * cadena. `preflight` es el tercer caso y el más importante para la
+       * contabilidad — son los rechazos de este cliente ANTERIORES al `fetch`, en los
+       * que no salió ni un byte y por tanto no hay nada que cobrar.
+       */
+      failureKind: 'preflight' | 'timeout' | 'network';
+    };
 
 /** Masks a Lusha contact id for safe inclusion in an error message. */
 function maskContactId(contactId: string): string {
@@ -112,10 +126,14 @@ export async function enrichLushaContactPhonesForFallback(
   input: LushaPhoneFallbackClientInput,
 ): Promise<LushaPhoneFallbackClientResult> {
   if (input.allowPhoneReveal !== true) {
-    return { ok: false, errorMessage: 'allowPhoneReveal must be explicitly true' };
+    return {
+      ok: false,
+      errorMessage: 'allowPhoneReveal must be explicitly true',
+      failureKind: 'preflight',
+    };
   }
   if (!input.contactId) {
-    return { ok: false, errorMessage: 'contactId is required' };
+    return { ok: false, errorMessage: 'contactId is required', failureKind: 'preflight' };
   }
 
   const controller = new AbortController();
@@ -159,6 +177,7 @@ export async function enrichLushaContactPhonesForFallback(
       errorMessage: isTimeout
         ? `timeout contacting Lusha for contact ${maskContactId(input.contactId)}`
         : `network error contacting Lusha for contact ${maskContactId(input.contactId)}`,
+      failureKind: isTimeout ? 'timeout' : 'network',
     };
   }
 }

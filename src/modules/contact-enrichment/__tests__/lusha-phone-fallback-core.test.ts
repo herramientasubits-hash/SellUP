@@ -413,7 +413,7 @@ describe('runLushaPhoneFallbackReveal — success paths persist + log correctly'
   });
 
   test('network/timeout failure: error status, never assumes 0 credits', async () => {
-    const t = buildDeps({ lushaResult: { ok: false, errorMessage: 'timeout' } });
+    const t = buildDeps({ lushaResult: { ok: false, errorMessage: 'timeout', failureKind: 'timeout' as const } });
     const result = await runLushaPhoneFallbackReveal(baseInput(), t.deps);
     assert.equal(result.ok, false);
     assert.equal(result.status, 'error');
