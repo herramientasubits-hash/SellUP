@@ -398,8 +398,22 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       false,
       'ninguna función de este corte necesita DEFINER',
     );
-    const paths = sql.match(/SET search_path = pg_catalog, pg_temp/g) ?? [];
+    // CUT-3B5. Este trinquete EXIGÍA `pg_catalog, pg_temp`, y por tanto habría
+    // bloqueado la corrección que el preflight de Producción obligó a hacer: con ese
+    // camino restringido, la ejecución anidada de RLS —`has_active_access`, que en
+    // Producción no fija `search_path` y nombra `internal_users` sin cualificar— muere
+    // con 42P01 y la ruta de Lusha deja de persistir candidatos.
+    //
+    // `public` entra en el camino, y `pg_catalog` sigue PRIMERO para conservar la
+    // precedencia del catálogo. Que la siembra en `public` no sea explotable se mide
+    // aparte, contra privilegios reales, en la suite de PostgreSQL de CUT-3B5.
+    const paths = sql.match(/SET search_path = pg_catalog, public, pg_temp/g) ?? [];
     assert.equal(paths.length, 2, 'las dos funciones tienen que fijar `search_path`');
+    assert.equal(
+      /SET search_path = pg_catalog, pg_temp/.test(sql),
+      false,
+      'sobrevive el `search_path` restringido que el preflight de Producción bloqueó',
+    );
     // `anon` y PUBLIC quedan fuera, y se revoca primero porque en Supabase toda
     // función nace ejecutable por PUBLIC.
     assert.equal((sql.match(/FROM PUBLIC;/g) ?? []).length, 2);
