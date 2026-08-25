@@ -42,12 +42,13 @@
 import {
   BR_RECEITA_READABLE_PUBLISH_STATE,
 } from './br-receita-cnpj-monthly-snapshot-read-contract';
+import { pickGreatestCanonicalPeriod } from './br-receita-cnpj-pinned-publication';
 import { BR_RECEITA_SNAPSHOT_RUNS_TABLE } from './br-receita-cnpj-monthly-snapshot-write-gateway';
 import {
   BR_RECEITA_CNPJ_COUNTRY_CODE,
   BR_RECEITA_CNPJ_SOURCE_KEY,
 } from './br-receita-cnpj-types';
-import { compareSourcePeriods, parseSourcePeriod } from '../../source-period';
+
 import type {
   SnapshotIdentityRow,
   SnapshotReadClient,
@@ -153,20 +154,13 @@ export async function resolveBrReceitaLatestPublishedPeriod(
     };
   }
 
-  // Re-validate every candidate against the canonical grain and take the maximum in code.
-  // A row that does not carry a canonical period is DROPPED, never repaired: migration 127's
-  // CHECK makes it impossible, and "impossible" is exactly the claim that quietly stops being
-  // true. Dropping it can only ever narrow the answer to an older, still-published month.
-  let latest: string | null = null;
-  for (const row of data) {
-    const parsed = parseSourcePeriod((row as { source_period?: unknown }).source_period);
-    if (!parsed.valid) {
-      continue;
-    }
-    if (latest === null || compareSourcePeriods(parsed.sourcePeriod, latest) > 0) {
-      latest = parsed.sourcePeriod;
-    }
-  }
+  // Re-validate every candidate against the canonical grain and take the maximum in code, through
+  // the SAME pure selector the CUT-B2 publication pin uses. One implementation of "which month is
+  // the current publication?" — a second copy is how the pin and this resolver would eventually
+  // disagree about the answer to the same question.
+  const latest = pickGreatestCanonicalPeriod(
+    data as unknown as ReadonlyArray<{ readonly source_period?: unknown }>,
+  );
 
   if (latest === null) {
     return {
