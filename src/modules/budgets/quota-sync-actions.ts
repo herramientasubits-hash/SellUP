@@ -323,7 +323,12 @@ async function syncApollo(
   return applySuccessfulSync(admin, 'apollo', {
     creditsRemaining: result.data.creditsRemaining,
     creditsUsed: result.data.creditsUsed,
-    planLimitCredits: result.data.planLimitCredits,
+    // El ciclo de crédito de Apollo es ANUAL, no mensual: escribir su límite en
+    // monthly_credits_allowance inflaría la guarda de gasto ~12x. El tope mensual
+    // sigue siendo el configurado a mano (decisión de la dueña, 2026-08-25).
+    // El límite del ciclo queda trazable en result.data.planLimitCredits y en el
+    // raw_response_sanitized del log de sync.
+    planLimitCredits: null,
     billingPeriodEnd: result.data.billingPeriodEnd,
     creditsPerUsdRate: null, // Apollo no expone costo unitario por crédito en este endpoint
   }, result.obs);

@@ -1,20 +1,24 @@
 /**
- * Apollo Quota Sync Connector — Hito L3B
+ * Apollo Quota Sync Connector
  *
- * Intenta obtener saldo de créditos desde la API de Apollo en dos pasos:
+ * Lee el saldo de créditos de Apollo con los dos endpoints que sí lo exponen:
  *
- * Paso 1 — GET https://api.apollo.io/v1/auth/health
- *   Confirma autenticación. No consume créditos. No expone saldo en credenciales estándar.
+ * Paso 1 — POST /api/v1/usage_stats/credit_usage_stats
+ *   Saldos del EQUIPO por tipo de crédito + ciclo de crédito vigente.
+ *   Sin body ni rango de fechas. Con GET Apollo responde 404.
  *
- * Paso 2 — GET https://api.apollo.io/api/v1/usage_stats/api_usage_stats
- *   Intenta obtener saldo de créditos (email, phone). Disponible solo en ciertos planes.
- *   Si devuelve conteo de llamadas de API (sin saldo de créditos), se ignora.
- *   Si responde 403/404, se registra la shape y se aplica degradación controlada.
+ * Paso 2 — GET /api/v1/users/api_profile?include_credit_usage=true
+ *   Saldo y tope del USUARIO dueño de la API key. Es el techo que realmente
+ *   limita el gasto de SellUp, porque el modelo de créditos de Apollo es
+ *   unificado y el admin fija el tope por usuario.
+ *
+ * Ninguno consume créditos. El contrato completo y los parsers puros viven en
+ * apollo-credit-usage-parsers.ts.
  *
  * Degradación controlada:
- *   Cuando ningún endpoint expone el saldo, Apollo queda en estado trazable con
- *   mensaje claro para que el admin configure el límite mensual de forma manual.
- *   quota_source = 'sync_error', mensaje accionable en quota_sync_error.
+ *   Si Apollo autentica pero no devuelve saldo legible, el error queda trazable
+ *   con la shape de la respuesta en el log de sync. El mensaje NO afirma que
+ *   Apollo no exponga cuota por API — sí la expone.
  *
  * NUNCA imprime la API key. NUNCA retorna secretos.
  */
@@ -22,243 +26,25 @@
 import { getApolloApiKey } from '@/server/services/apollo-connection';
 import { sanitizeQuotaSyncResponse, getResponseShape, sanitizeEndpointUrl } from '@/server/services/quota-sync-sanitizer';
 import type { QuotaSyncObservability } from '@/server/services/tavily-quota-sync';
+import {
+  APOLLO_API_PROFILE_ENDPOINT,
+  APOLLO_CREDIT_USAGE_STATS_ENDPOINT,
+  APOLLO_CREDIT_USAGE_STATS_METHOD,
+  APOLLO_QUOTA_UNREADABLE_MSG,
+  buildApolloQuotaData,
+  parseApolloApiProfileCredits,
+  parseApolloCreditUsageStats,
+  type ApolloQuotaData,
+} from '@/server/services/apollo-credit-usage-parsers';
 
-const APOLLO_HEALTH_ENDPOINT = 'https://api.apollo.io/v1/auth/health';
-const APOLLO_USAGE_STATS_ENDPOINT = 'https://api.apollo.io/api/v1/usage_stats/api_usage_stats';
 const REQUEST_TIMEOUT_MS = 15_000;
 
-/** Mensaje fijo para degradación controlada cuando ningún endpoint expone el saldo */
-export const APOLLO_NO_QUOTA_ENDPOINT_MSG =
-  'Apollo no expone cuota mensual ni créditos disponibles por API — configura el límite mensual de forma manual';
-
-// ── Tipos internos ─────────────────────────────────────────────────────────────
-
-/** Datos normalizados extraídos de la respuesta Apollo */
-export interface ApolloQuotaData {
-  creditsRemaining: number;
-  creditsUsed: number | null;
-  planLimitCredits: number | null;
-  billingPeriodEnd: string | null;
-  /** Detalle de créditos por tipo si Apollo los expone por separado */
-  creditTypeSummary: string | null;
-}
+export type { ApolloQuotaData };
+export { APOLLO_QUOTA_UNREADABLE_MSG };
 
 export type ApolloQuotaSyncResult =
   | { ok: true; data: ApolloQuotaData; obs: QuotaSyncObservability }
   | { ok: false; error: string; obs?: QuotaSyncObservability };
-
-// ── Parser defensivo ───────────────────────────────────────────────────────────
-
-type AnyRecord = Record<string, unknown>;
-
-function coerceNumber(v: unknown): number | null {
-  if (typeof v === 'number' && isFinite(v)) return v;
-  if (typeof v === 'string') {
-    const n = Number(v);
-    return isFinite(n) ? n : null;
-  }
-  return null;
-}
-
-/** Extrae créditos de email (principal en Apollo) desde un objeto */
-function extractEmailCredits(obj: AnyRecord): { remaining: number | null; used: number | null; limit: number | null } {
-  // Apollo expone créditos de email en varias estructuras posibles
-  const remaining =
-    coerceNumber(obj['email_credits_remaining']) ??
-    coerceNumber(obj['remaining_email_credits']) ??
-    coerceNumber(obj['email_credits']) ??
-    null;
-
-  const used =
-    coerceNumber(obj['email_credits_used']) ??
-    coerceNumber(obj['used_email_credits']) ??
-    null;
-
-  const limit =
-    coerceNumber(obj['email_credits_limit']) ??
-    coerceNumber(obj['max_email_credits']) ??
-    coerceNumber(obj['total_email_credits']) ??
-    null;
-
-  return { remaining, used, limit };
-}
-
-/** Extrae créditos de phone desde un objeto (secundario, solo para summary) */
-function extractPhoneCredits(obj: AnyRecord): { remaining: number | null; limit: number | null } {
-  const remaining =
-    coerceNumber(obj['phone_credits_remaining']) ??
-    coerceNumber(obj['remaining_phone_credits']) ??
-    coerceNumber(obj['mobile_credits_remaining']) ??
-    null;
-
-  const limit =
-    coerceNumber(obj['phone_credits_limit']) ??
-    coerceNumber(obj['max_mobile_credits']) ??
-    null;
-
-  return { remaining, limit };
-}
-
-/** Extrae créditos generales (sin tipo específico) desde un objeto */
-function extractGenericCredits(obj: AnyRecord): { remaining: number | null; used: number | null; limit: number | null } {
-  const remaining =
-    coerceNumber(obj['credits_remaining']) ??
-    coerceNumber(obj['remaining_credits']) ??
-    coerceNumber(obj['credits']) ??
-    null;
-
-  const used =
-    coerceNumber(obj['credits_used']) ??
-    coerceNumber(obj['used_credits']) ??
-    null;
-
-  const limit =
-    coerceNumber(obj['credits_limit']) ??
-    coerceNumber(obj['max_credits']) ??
-    coerceNumber(obj['plan_credits']) ??
-    null;
-
-  return { remaining, used, limit };
-}
-
-function extractDateString(obj: AnyRecord): string | null {
-  for (const key of ['credit_refresh_date', 'renewal_date', 'billing_period_end', 'plan_renew_at', 'reset_at']) {
-    if (typeof obj[key] === 'string') return obj[key] as string;
-  }
-  return null;
-}
-
-function buildCreditTypeSummary(
-  emailRemaining: number | null,
-  phoneRemaining: number | null,
-): string | null {
-  const parts: string[] = [];
-  if (emailRemaining !== null) parts.push(`email: ${emailRemaining.toLocaleString()}`);
-  if (phoneRemaining !== null) parts.push(`phone: ${phoneRemaining.toLocaleString()}`);
-  return parts.length > 0 ? parts.join(', ') : null;
-}
-
-function extractFromObject(obj: AnyRecord): ApolloQuotaData | null {
-  // Intenta créditos de email primero (más comunes en Apollo)
-  const email = extractEmailCredits(obj);
-  const phone = extractPhoneCredits(obj);
-  const generic = extractGenericCredits(obj);
-
-  // Determinar creditsRemaining: email > genérico > derivado
-  let creditsRemaining = email.remaining ?? generic.remaining;
-
-  const used = email.used ?? generic.used;
-  const limit = email.limit ?? generic.limit;
-
-  // Derivar remaining de limit - used si no está disponible directamente
-  if (creditsRemaining === null && limit !== null && used !== null) {
-    creditsRemaining = limit - used;
-  }
-
-  if (creditsRemaining === null) return null;
-
-  const billingPeriodEnd = extractDateString(obj);
-  const creditTypeSummary = buildCreditTypeSummary(email.remaining, phone.remaining);
-
-  return {
-    creditsRemaining,
-    creditsUsed: used,
-    planLimitCredits: limit,
-    billingPeriodEnd,
-    creditTypeSummary,
-  };
-}
-
-/**
- * Parsea la respuesta cruda del health endpoint de Apollo.
- * Prueba múltiples estructuras posibles de respuesta.
- * Retorna null si no puede extraer el mínimo requerido (creditsRemaining).
- *
- * Apollo puede devolver créditos en:
- * - user.credits_used / user.email_credits_*
- * - account.credits / account.email_credits_*
- * - user.account.credits_*
- * - raíz del objeto
- */
-export function parseApolloHealthResponse(raw: unknown): ApolloQuotaData | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const obj = raw as AnyRecord;
-
-  // Formato 1: { user: { email_credits_remaining, ... } } — más probable en auth/health
-  if (obj['user'] && typeof obj['user'] === 'object') {
-    const user = obj['user'] as AnyRecord;
-
-    // Sub-objeto account dentro de user
-    if (user['account'] && typeof user['account'] === 'object') {
-      const result = extractFromObject(user['account'] as AnyRecord);
-      if (result) return result;
-    }
-
-    const result = extractFromObject(user);
-    if (result) return result;
-  }
-
-  // Formato 2: { account: { ... } }
-  if (obj['account'] && typeof obj['account'] === 'object') {
-    const result = extractFromObject(obj['account'] as AnyRecord);
-    if (result) return result;
-  }
-
-  // Formato 3: { data: { ... } }
-  if (obj['data'] && typeof obj['data'] === 'object') {
-    const result = extractFromObject(obj['data'] as AnyRecord);
-    if (result) return result;
-  }
-
-  // Formato 4: campos en raíz
-  const result = extractFromObject(obj);
-  if (result) return result;
-
-  return null;
-}
-
-// ── Parser para usage_stats ────────────────────────────────────────────────────
-
-/**
- * Parsea la respuesta de /api/v1/usage_stats/api_usage_stats.
- *
- * Apollo puede devolver dos formatos distintos:
- * - Formato créditos: { user: { email_credits_limit, email_credits_used, ... } }
- * - Formato conteo de llamadas: { api_usage_stats: [{ api_name, count }] }
- *
- * El formato de conteo de llamadas NO contiene saldo de créditos → retorna null.
- * Solo el formato con campos de créditos es utilizable para quota sync.
- */
-export function parseApolloUsageStatsResponse(raw: unknown): ApolloQuotaData | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const obj = raw as AnyRecord;
-
-  // Formato conteo de llamadas — inútil para quota sync
-  if (Array.isArray(obj['api_usage_stats'])) return null;
-
-  // Intentar extracción de créditos con los mismos wrappers que health
-  if (obj['user'] && typeof obj['user'] === 'object') {
-    const user = obj['user'] as AnyRecord;
-    if (user['account'] && typeof user['account'] === 'object') {
-      const result = extractFromObject(user['account'] as AnyRecord);
-      if (result) return result;
-    }
-    const result = extractFromObject(user);
-    if (result) return result;
-  }
-
-  if (obj['account'] && typeof obj['account'] === 'object') {
-    const result = extractFromObject(obj['account'] as AnyRecord);
-    if (result) return result;
-  }
-
-  if (obj['data'] && typeof obj['data'] === 'object') {
-    const result = extractFromObject(obj['data'] as AnyRecord);
-    if (result) return result;
-  }
-
-  return extractFromObject(obj);
-}
 
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
@@ -266,49 +52,52 @@ interface RawFetchResult {
   ok: boolean;
   httpStatus: number;
   raw: unknown;
-  /** true cuando la respuesta HTTP fue exitosa pero el cuerpo no pudo parsearse */
-  parseError?: boolean;
 }
 
-async function apolloGet(
+async function apolloRequest(
   url: string,
+  method: 'GET' | 'POST',
   apiKey: string,
   signal: AbortSignal,
 ): Promise<RawFetchResult> {
   const response = await fetch(url, {
-    method: 'GET',
+    method,
     headers: {
       'X-Api-Key': apiKey.trim(),
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
+    // credit_usage_stats no requiere parámetros: devuelve el ciclo vigente.
+    ...(method === 'POST' ? { body: '{}' } : {}),
     signal,
   });
 
-  const httpStatus = response.status;
-
-  if (!response.ok) {
-    const raw = await response.json().catch(() => null);
-    return { ok: false, httpStatus, raw };
-  }
-
   const raw = await response.json().catch(() => null);
-  return { ok: true, httpStatus, raw, parseError: raw === null };
+  return { ok: response.ok, httpStatus: response.status, raw };
+}
+
+function buildObs(url: string, result: RawFetchResult): QuotaSyncObservability {
+  return {
+    httpStatus: result.httpStatus,
+    endpoint: sanitizeEndpointUrl(url),
+    responseShape: getResponseShape(result.raw),
+    rawResponseSanitized: sanitizeQuotaSyncResponse(result.raw),
+  };
+}
+
+/** Errores de credencial o rate: no tiene sentido seguir intentando. */
+function terminalHttpError(httpStatus: number): string | null {
+  if (httpStatus === 401) return 'Proveedor respondió 401 — API key inválida o sin permisos';
+  if (httpStatus === 403) return 'Proveedor respondió 403 — API key sin permisos para este endpoint';
+  if (httpStatus === 429) return 'Proveedor respondió 429 — límite de rate alcanzado';
+  return null;
 }
 
 // ── Fetch principal ────────────────────────────────────────────────────────────
 
 /**
- * Obtiene los datos de cuota desde la API de Apollo.
- * Intenta dos endpoints en secuencia:
- *   1. GET /v1/auth/health — confirma auth; puede tener créditos en algunos planes
- *   2. GET /api/v1/usage_stats/api_usage_stats — endpoint de créditos/uso
- *
- * Si ninguno expone saldo de créditos, aplica degradación controlada con
- * mensaje accionable para configuración manual.
- *
- * Seguro: nunca expone la API key en errores ni logs.
- * No consume créditos del plan Apollo.
+ * Obtiene el saldo de créditos de Apollo.
+ * Seguro: nunca expone la API key en errores ni logs. No consume créditos.
  */
 export async function fetchApolloQuota(): Promise<ApolloQuotaSyncResult> {
   let apiKey: string | null;
@@ -325,116 +114,59 @@ export async function fetchApolloQuota(): Promise<ApolloQuotaSyncResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  const healthEndpoint = sanitizeEndpointUrl(APOLLO_HEALTH_ENDPOINT);
-
   try {
-    // ── Paso 1: health check ──────────────────────────────────────────────────
-    const healthResult = await apolloGet(APOLLO_HEALTH_ENDPOINT, apiKey, controller.signal);
-    const healthHttpStatus = healthResult.httpStatus;
+    // ── Paso 1: saldos del equipo + ciclo vigente ─────────────────────────────
+    const usageResult = await apolloRequest(
+      APOLLO_CREDIT_USAGE_STATS_ENDPOINT,
+      APOLLO_CREDIT_USAGE_STATS_METHOD,
+      apiKey,
+      controller.signal,
+    );
+    const usageObs = buildObs(APOLLO_CREDIT_USAGE_STATS_ENDPOINT, usageResult);
 
-    if (healthHttpStatus === 401) {
+    const usageTerminal = terminalHttpError(usageResult.httpStatus);
+    if (usageTerminal) {
       clearTimeout(timeoutId);
-      return {
-        ok: false,
-        error: 'Proveedor respondió 401 — API key inválida o sin permisos',
-        obs: { httpStatus: healthHttpStatus, endpoint: healthEndpoint, responseShape: null, rawResponseSanitized: null },
-      };
+      return { ok: false, error: usageTerminal, obs: usageObs };
     }
 
-    if (healthHttpStatus === 403) {
-      clearTimeout(timeoutId);
-      return {
-        ok: false,
-        error: 'Proveedor respondió 403 — API key sin permisos para este endpoint',
-        obs: { httpStatus: healthHttpStatus, endpoint: healthEndpoint, responseShape: null, rawResponseSanitized: null },
-      };
-    }
+    // ── Paso 2: saldo del usuario dueño de la key ─────────────────────────────
+    const profileResult = await apolloRequest(
+      APOLLO_API_PROFILE_ENDPOINT,
+      'GET',
+      apiKey,
+      controller.signal,
+    );
+    clearTimeout(timeoutId);
+    const profileObs = buildObs(APOLLO_API_PROFILE_ENDPOINT, profileResult);
 
-    if (healthHttpStatus === 429) {
-      clearTimeout(timeoutId);
-      return {
-        ok: false,
-        error: 'Proveedor respondió 429 — límite de rate alcanzado',
-        obs: { httpStatus: healthHttpStatus, endpoint: healthEndpoint, responseShape: null, rawResponseSanitized: null },
-      };
-    }
+    const usage = usageResult.ok ? parseApolloCreditUsageStats(usageResult.raw) : null;
+    const profile = profileResult.ok ? parseApolloApiProfileCredits(profileResult.raw) : null;
+    const data = buildApolloQuotaData(profile, usage);
 
-    if (!healthResult.ok) {
-      clearTimeout(timeoutId);
-      return {
-        ok: false,
-        error: `Proveedor respondió ${healthHttpStatus}`,
-        obs: {
-          httpStatus: healthHttpStatus,
-          endpoint: healthEndpoint,
-          responseShape: getResponseShape(healthResult.raw),
-          rawResponseSanitized: sanitizeQuotaSyncResponse(healthResult.raw),
-        },
-      };
-    }
-
-    // Confirmar autenticación
-    if (healthResult.raw && typeof healthResult.raw === 'object') {
-      const body = healthResult.raw as AnyRecord;
-      if (body['is_logged_in'] === false) {
-        clearTimeout(timeoutId);
-        return {
-          ok: false,
-          error: 'Apollo respondió pero no confirmó la autenticación (is_logged_in: false)',
-          obs: {
-            httpStatus: healthHttpStatus,
-            endpoint: healthEndpoint,
-            responseShape: getResponseShape(healthResult.raw),
-            rawResponseSanitized: sanitizeQuotaSyncResponse(healthResult.raw),
-          },
-        };
-      }
-    }
-
-    // Intentar extraer créditos del health (algunos planes los incluyen aquí)
-    const healthParsed = parseApolloHealthResponse(healthResult.raw);
-    if (healthParsed) {
-      clearTimeout(timeoutId);
+    if (data) {
+      // La observabilidad apunta al endpoint que aportó el saldo reportado.
       return {
         ok: true,
-        data: healthParsed,
-        obs: {
-          httpStatus: healthHttpStatus,
-          endpoint: healthEndpoint,
-          responseShape: getResponseShape(healthResult.raw),
-          rawResponseSanitized: sanitizeQuotaSyncResponse(healthResult.raw),
-        },
+        data,
+        obs: data.remainingScope === 'user_cap' ? profileObs : usageObs,
       };
     }
 
-    // ── Paso 2: usage_stats ───────────────────────────────────────────────────
-    const usageEndpoint = sanitizeEndpointUrl(APOLLO_USAGE_STATS_ENDPOINT);
-    const usageResult = await apolloGet(APOLLO_USAGE_STATS_ENDPOINT, apiKey, controller.signal);
-    clearTimeout(timeoutId);
-
-    const usageObs: QuotaSyncObservability = {
-      httpStatus: usageResult.httpStatus,
-      endpoint: usageEndpoint,
-      responseShape: getResponseShape(usageResult.raw),
-      rawResponseSanitized: sanitizeQuotaSyncResponse(usageResult.raw),
-    };
-
-    if (usageResult.ok) {
-      const usageParsed = parseApolloUsageStatsResponse(usageResult.raw);
-      if (usageParsed) {
-        return { ok: true, data: usageParsed, obs: usageObs };
-      }
+    // ── Sin saldo utilizable ──────────────────────────────────────────────────
+    const profileTerminal = terminalHttpError(profileResult.httpStatus);
+    if (profileTerminal) {
+      return { ok: false, error: profileTerminal, obs: profileObs };
+    }
+    if (!usageResult.ok) {
+      return { ok: false, error: `Proveedor respondió ${usageResult.httpStatus}`, obs: usageObs };
+    }
+    if (!profileResult.ok) {
+      return { ok: false, error: `Proveedor respondió ${profileResult.httpStatus}`, obs: profileObs };
     }
 
-    // ── Degradación controlada ────────────────────────────────────────────────
-    // Auth confirmada pero ningún endpoint expone saldo de créditos.
-    // Puede ser credencial estándar sin acceso a endpoint de cuota,
-    // o plan que no expone créditos por API.
-    return {
-      ok: false,
-      error: APOLLO_NO_QUOTA_ENDPOINT_MSG,
-      obs: usageObs,
-    };
+    // Ambos respondieron 200 pero sin saldo legible: degradación controlada.
+    return { ok: false, error: APOLLO_QUOTA_UNREADABLE_MSG, obs: profileObs };
   } catch (err: unknown) {
     clearTimeout(timeoutId);
     if (err instanceof Error && err.name === 'AbortError') {
