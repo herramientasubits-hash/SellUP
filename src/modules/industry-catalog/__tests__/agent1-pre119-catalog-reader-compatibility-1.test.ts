@@ -933,7 +933,7 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
   // Lo que ESTA guarda protege no es el número más alto del directorio —sube cada vez que un
   // bloque autorizado añade el suyo— sino que este hito de catálogo no aportó migración y que
   // la 119 siga siendo el cutover y sólo eso, que es lo que se afirma justo abajo.
-  it('la última migración del repositorio es la 127, y el catálogo no aportó ninguna', () => {
+  it('la última migración del repositorio es la 128, y el catálogo no aportó ninguna', () => {
     const files = execSync('ls supabase/migrations', { cwd: ROOT, encoding: 'utf8' })
       .split('\n')
       .filter((f) => f.endsWith('.sql'))
@@ -948,7 +948,11 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // función de teléfono, que es lo que esta guarda vigila. Trae su propia guarda estática y NO
     // edita ninguna migración anterior. NO aplicada en Producción. Ninguna de las tres (125, 126,
     // 127) es del catálogo.
-    assert.match(last, /^127_/);
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128: la
+    // proyección de la colección de teléfonos de un candidato ya APROBADO al contacto que su
+    // aprobación creó (Agente 2A). No es del catálogo, y el barrido de abajo lo comprueba sobre
+    // su SQL. AUTORADA y NO APLICADA.
+    assert.match(last, /^128_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -999,6 +1003,13 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       '125_reconcile_source_snapshot_record_identity.sql',
       '126_agent1_batch_identity_atomicity.sql',
       '127_br_receita_monthly_snapshot_identity.sql',
+      //   128 — la proyección de la colección de teléfonos de un candidato ya APROBADO al
+      //         contacto que su propia aprobación creó (Agente 2A,
+      //         AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1). Toca `contact_phones`,
+      //         `contact_phone_sources` y la colección del candidato; no nombra ninguna tabla ni
+      //         vista del catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL
+      //         en vez de creerle a este comentario. Está AUTORADA y NO APLICADA.
+      '128_project_approved_candidate_phones_onto_contact.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

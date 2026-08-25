@@ -1130,7 +1130,11 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // colisionar con la de AGENT1-CUT3B4, y dejó sitio a una migración 125 genérica
     // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
     // brasileñas) — ninguna de las tres es de 4O-F ni de teléfono.
-    assert.equal(numbered[numbered.length - 1], 127, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128: la
+    // proyección de la colección de teléfonos de un candidato ya APROBADO al contacto que su
+    // aprobación creó. Es de teléfono, pero no de este hito y no toca lo que esta guarda vigila;
+    // trae su propia guarda estática. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 128, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.

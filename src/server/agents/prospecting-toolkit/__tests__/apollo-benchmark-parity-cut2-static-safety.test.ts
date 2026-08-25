@@ -477,13 +477,19 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // dos anteriores; AUTORADA y NO APLICADA). El siguiente número libre es la 128, y la
     // AUTORÍA se barre ahora sobre 124, 125, 126 y 127: es la comprobación que de verdad
     // protege este corte.
-    assert.equal(migrations.filter((f) => f.startsWith('128')).length, 0);
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 reclamó después la 128: la
+    // proyección de la colección de teléfonos de un candidato ya APROBADO al contacto que su
+    // aprobación creó (Agente 2A, teléfono). El siguiente número libre es la 129, y la AUTORÍA
+    // se barre ahora también sobre la 128: un número ocupado por otro hito no es una infracción
+    // de este, y la comprobación que de verdad protege este corte es la de autoría.
+    assert.equal(migrations.filter((f) => f.startsWith('129')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
         f.startsWith('125') ||
         f.startsWith('126') ||
-        f.startsWith('127'),
+        f.startsWith('127') ||
+        f.startsWith('128'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

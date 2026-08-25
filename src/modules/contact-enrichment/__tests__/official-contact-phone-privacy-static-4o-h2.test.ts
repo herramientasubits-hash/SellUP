@@ -152,7 +152,13 @@ describe('115 — numeración', () => {
     // colisionar con la de AGENT1-CUT3B4, y dejó sitio a una migración 125 genérica
     // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
     // brasileñas) — ninguna de las tres toca `contact_phones` ni `contact_phone_sources`.
-    assert.equal(Math.max(...numbers), 127);
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128:
+    // `project_approved_candidate_phones_onto_contact`, la proyección de la colección de un
+    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Sin tablas,
+    // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
+    // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
+    // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 128);
   });
 
   it('declara NO estar aplicada en Producción', () => {

@@ -50,6 +50,12 @@ const MIGRATION_087 = '087_add_record_identity_key_to_source_company_snapshots.s
 const MIGRATION_125 = '125_reconcile_source_snapshot_record_identity.sql';
 const MIGRATION_126_AGENT1 = '126_agent1_batch_identity_atomicity.sql';
 const MIGRATION_127 = '127_br_receita_monthly_snapshot_identity.sql';
+/**
+ * AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1, which claimed 128 independently: the
+ * projection of an already-approved candidate's phone collection onto its own official contact.
+ * Declared here only so the numbering ceiling stays exact; it owns nothing this milestone owns.
+ */
+const MIGRATION_128_AGENT2A = '128_project_approved_candidate_phones_onto_contact.sql';
 
 const readMigration = (file: string) => readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
 const stripComments = (sql: string) =>
@@ -72,13 +78,18 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     assert.deepEqual(duplicates, [], `números de migración duplicados: ${duplicates.join(', ')}`);
   });
 
-  it('28. the migration numbering ceiling is 127, and 125/126/127 each exist exactly once', () => {
+  it('28. the migration numbering ceiling is 128, and 125/126/127/128 each exist exactly once', () => {
     const files = readdirSync(MIGRATIONS_DIR);
     const numbered = files
       .filter((f) => /^\d{3}_.*\.sql$/.test(f))
       .map((f) => Number.parseInt(f.slice(0, 3), 10));
     const highest = numbered.reduce((max, value) => Math.max(max, value), 0);
-    assert.equal(highest, 127);
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 moved the ceiling to 128: the
+    // projection of an already-APPROVED candidate's phone collection onto the contact its own
+    // approval created. It is not a source-catalog migration and it touches nothing this
+    // milestone owns — asserted directly below — but the ceiling stays EXACT so that an
+    // undeclared migration above the last known milestone still breaks this guard.
+    assert.equal(highest, 128);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -90,7 +101,19 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // not additive.
     assert.equal(files.includes('125_br_receita_monthly_snapshot_identity.sql'), false);
     assert.equal(files.includes('126_br_receita_monthly_snapshot_identity.sql'), false);
-    assert.equal(files.some((f) => f.startsWith('128')), false);
+    assert.deepEqual(files.filter((f) => f.startsWith('128')), [MIGRATION_128_AGENT2A]);
+    assert.equal(files.some((f) => f.startsWith('129')), false);
+    // And the 128 is provably foreign to this milestone: it names none of the source-catalog
+    // objects CUT A.1 reconciles.
+    const sql128 = readMigration(MIGRATION_128_AGENT2A);
+    for (const owned of [
+      'source_company_snapshots',
+      'source_snapshot_runs',
+      'record_identity_key',
+      'source_period',
+    ]) {
+      assert.equal(sql128.includes(owned), false, `128 must not name ${owned}`);
+    }
   });
 
   it('24. migration 087 remains byte-for-byte historical', () => {

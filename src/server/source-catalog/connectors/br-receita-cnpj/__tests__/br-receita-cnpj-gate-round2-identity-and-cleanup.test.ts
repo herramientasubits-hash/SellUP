@@ -591,7 +591,13 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       .map((name) => Number.parseInt(name.slice(0, 3), 10))
       .filter((value) => Number.isFinite(value))
       .reduce((max, value) => Math.max(max, value), 0);
-    assert.equal(highest, 127, 'CUT A\'s own migration is the ceiling, now numbered 127');
+    // 🔴 The ceiling moved again, and NOT by a BR round: AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-
+    // PHONE-REVEAL-1 independently claimed 128 (projection of an already-approved candidate's
+    // phone collection onto its own official contact). CUT A still adds EXACTLY one migration and
+    // it is still 127; what this line pins is the repository ceiling, kept EXACT so an undeclared
+    // migration above the last known milestone breaks the guard. The authorship sweep below is
+    // WIDENED to 128, so the guard is stronger than before rather than merely shifted.
+    assert.equal(highest, 128, 'the repository ceiling is 128, and it is not a BR migration');
     assert.equal(
       files.filter((f) => f.startsWith('125')).length,
       1,
@@ -603,7 +609,14 @@ describe('GATE-ROUND-2 · GATE-4 monthly identity and the runtime lookup blocker
       'AGENT1-CUT3B4 still owns exactly one migration',
     );
 
-    for (const name of files.filter((f) => f.startsWith('124') || f.startsWith('126'))) {
+    assert.equal(
+      files.filter((f) => f.startsWith('128')).length,
+      1,
+      'AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 owns exactly one migration',
+    );
+    for (const name of files.filter(
+      (f) => f.startsWith('124') || f.startsWith('126') || f.startsWith('128'),
+    )) {
       const sql = fs.readFileSync(
         new URL(`../../../../../../supabase/migrations/${name}`, import.meta.url),
         'utf8',
