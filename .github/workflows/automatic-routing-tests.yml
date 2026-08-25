@@ -3305,6 +3305,46 @@ jobs:
       - name: Run BR-SOURCE FUNCTIONAL CUT-A monthly snapshot foundation tests
         run: npm run test:br-source:functional-cut-a-monthly-snapshot
 
+      # BR-SOURCE CUT A.1 — reconciliación de esquema de Producción antes de CUT B.
+      #
+      # El intento de aplicar la migración 125 original de CUT-A descubrió, en su preflight,
+      # que Producción YA tenía un corte fuera de banda sobre `source_company_snapshots`: la
+      # unicidad genérica no-BR vive en `record_identity_key` (UNIQUE canónica + CHECK NOT NULL
+      # de toda la tabla), no en `normalized_tax_id`, y ese corte nunca se declaró como
+      # migración en este repositorio. Este hito repara la cadena SIN escribir en Producción:
+      #
+      #   · renombra la migración BR de CUT-A de 125 a 127 (con una escala en 126) — su cuerpo
+      #     SQL no cambia en nada que afecte a Brasil — para dejar sitio a una migración 125
+      #     GENÉRICA nueva y a la migración 126 de AGENT1-CUT3B4 (independiente, ver abajo),
+      #     que reclamó el número 126 mientras esta reconciliación seguía en revisión;
+      #   · la nueva 125 reconcilia el modelo de `record_identity_key` para fuentes NO
+      #     brasileñas, detectando en runtime si el esquema YA tiene el corte de Producción
+      #     (no-op) o si todavía tiene la UNIQUE vieja de la 065 (cutover real, fail-closed
+      #     ante datos sucios, sin backfill jamás);
+      #   · Brasil queda exenta de la regla genérica: su identidad sigue siendo
+      #     `normalized_tax_id`, y `record_identity_key` sigue NULL para ella.
+      #
+      # La suite estática fija la forma del archivo (identidad de la cadena, sin duplicados de
+      # número, migración 087 histórica, contrato de lectura intacto). La suite de PostgreSQL —
+      # el paso de abajo — prueba el COMPORTAMIENTO: dos esquemas de partida reales
+      # (replay de la cadena del repo, y una base sintética con la forma de Producción),
+      # ninguno de los dos pierde ni muta una fila, y el fail-closed rechaza de verdad datos
+      # sucios en vez de inventarlos. También prueba que Brasil (127) es estructuralmente
+      # independiente de AGENT1-CUT3B4 (126): ninguna migración depende de la otra.
+      #
+      # NO_PROD_WRITES = 0. MIGRATION_125_APPLIED = NO. MIGRATION_127_APPLIED = NO.
+      - name: Run BR-SOURCE CUT A.1 prod schema reconciliation tests (static)
+        run: npm run test:br-source:prod-schema-reconciliation
+
+      # `embedded-postgres` ya está instalado por el paso de Agente 1 de más arriba, con la
+      # versión PINCHADA 17.6.0-beta.15. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el skip en
+      # FALLO: sin ella, que el arnés no resolviera pondría este paso verde con una migración
+      # inaplicable. Sin `continue-on-error` y sin `|| true`.
+      - name: Run BR-SOURCE CUT A.1 prod schema reconciliation tests against real PostgreSQL
+        run: npm run test:br-source:prod-schema-reconciliation:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
       # ── AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY ──────────────────────────
       #
       # EL ÚLTIMO BLOQUEADOR ESTRUCTURAL DE CUT-3 ERA LA CONCURRENCIA.

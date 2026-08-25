@@ -26,9 +26,10 @@
  *   1. resolve the single `published` run for (source_key, country_code, source_period)
  *   2. select snapshots WHERE snapshot_run_id = that run's id
  *
- * Step 1 is unambiguous because migration 125's `source_snapshot_runs_published_period_uidx`
- * permits at most ONE published run per period. Step 2 is what makes the read a read OF a
- * publication rather than a read of a month's accumulated debris.
+ * Step 1 is unambiguous because migration 126's `source_snapshot_runs_published_period_uidx`
+ * (renamed from 125 by BR-SOURCE CUT A.1 — its SQL body is unchanged) permits at most ONE
+ * published run per period. Step 2 is what makes the read a read OF a publication rather than a
+ * read of a month's accumulated debris.
  *
  * 🔴 A period-only Brazil read is classified INVALID here, fail-closed, rather than being
  * "discouraged". CUT B has to fail to compile or fail to classify, not merely be reviewed carefully.
@@ -45,7 +46,7 @@ import { parseSnapshotRunId, SNAPSHOT_RUN_ID_COLUMN } from './br-receita-cnpj-mo
 import { parseSourcePeriod } from '../../source-period';
 
 /**
- * The columns that resolve THE published run of a period. Mirrors migration 125's
+ * The columns that resolve THE published run of a period. Mirrors migration 126's
  * `source_snapshot_runs_published_period_uidx`, which is what makes the result single-valued.
  */
 export const BR_RECEITA_PUBLISHED_RUN_LOOKUP_COLUMNS: readonly string[] = [
@@ -106,7 +107,7 @@ export interface BrReceitaSnapshotReadVerdict {
  *
  * Non-Brazil sources are out of scope and are reported as such rather than silently approved: this
  * classifier speaks only for `br_receita_cnpj_dados_abertos`, whose rows are the only run-versioned
- * ones migration 125 creates.
+ * ones migration 126 creates.
  */
 export function classifyBrReceitaSnapshotRead(
   request: BrReceitaSnapshotReadRequest,

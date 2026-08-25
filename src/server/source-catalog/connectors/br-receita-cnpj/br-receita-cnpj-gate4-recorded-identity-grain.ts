@@ -598,7 +598,7 @@ export const BRAZIL_RECEITA_GATE4_REQUIRED_FUTURE_MIGRATION = {
   ],
   note: 'the unique index must name the key the unresolved owner question settles on; it cannot be authored before that answer exists',
   // 🔴 Kept VERBATIM as the Round-2 record. `authoredInThisRound` refers to Round 2 and stays
-  // false: Round 2 genuinely did not author it. BR-SOURCE-FUNCTIONAL-CUT-A did, as migration 125,
+  // false: Round 2 genuinely did not author it. BR-SOURCE-FUNCTIONAL-CUT-A did, as migration 126,
   // and the statements it actually authored differ from the draft above in two ways that matter —
   // the unique index is keyed on `normalized_tax_id`, and it is paired with a CHECK that makes both
   // identity columns NOT NULL for Brazil, without which a partial index over nullable columns is
@@ -641,7 +641,7 @@ export const BRAZIL_RECEITA_GATE4_REPLACEMENT_SEMANTICS = {
  * Exactly ONE persisted representation, in `source_company_snapshots.normalized_tax_id`: the
  * normalized establishment CNPJ, 14 CHARACTERS, validated by the canonical `normalizeBrazilCnpj`
  * DV validator. `tax_id` and `record_identity_key` stay TRANSIENT_ONLY and stay refused by the
- * guard below, and migration 125 makes both NULL-for-Brazil a CHECK constraint — so "exactly one"
+ * guard below, and migration 126 makes both NULL-for-Brazil a CHECK constraint — so "exactly one"
  * is a schema fact, not a promise.
  *
  * 🔴 14 CHARACTERS, not 14 decimal digits. Alphanumeric CNPJs are official from July 2026
@@ -672,9 +672,17 @@ export const BRAZIL_RECEITA_CUT_A_MONTHLY_IDENTITY_AUTHORIZATION = {
   periodColumn: 'source_company_snapshots.source_period',
   periodGrain: 'YYYY-MM',
   periodAwareUniqueIndex: 'source_company_snapshots_br_period_identity_uidx',
-  nonBrazilUniqueIndex: 'source_company_snapshots_year_identity_uidx',
+  /**
+   * 🔴 Renamed by BR-SOURCE CUT A.1: non-Brazil uniqueness moved off `normalized_tax_id` entirely
+   * onto the generic `record_identity_key` grain (Production had already made this move outside
+   * the migration ledger). This is no longer a Brazil-adjacent index name — it is the constraint
+   * that PROTECTS every non-Brazil row FROM ever being confused with Brazil's.
+   */
+  nonBrazilUniqueIndex: 'source_company_snapshots_cn1_record_identity_key',
   nullUniquenessHazardClosed: true,
-  migrationFile: '125_br_receita_monthly_snapshot_identity.sql',
+  /** 🔴 Renamed from 125 to 126 by BR-SOURCE CUT A.1 to make room for the generic reconciliation
+   * migration; the SQL body this cut authored is unchanged. */
+  migrationFile: '126_br_receita_monthly_snapshot_identity.sql',
   migrationAuthored: true,
   /** 🔴 Authored is not applied. CUT A applies nothing, anywhere. */
   migrationApplied: false,
@@ -841,7 +849,7 @@ export function findBrazilReceitaPersistedIdentityViolations(
     // 🔴 DV-valid is NOT sufficient — the value must ALREADY BE the normalized form.
     //
     // `validateBrazilCnpj` normalizes before it validates, so it accepts `11222333/0001-81`. This
-    // column is the persisted identity and migration 125 constrains it to
+    // column is the persisted identity and migration 126 constrains it to
     // `^[A-Z0-9]{12}[0-9]{2}$`, so accepting a punctuated or lower-case spelling here would mean
     // the guard passing a value the database then refuses — and, worse, two spellings of one
     // establishment being two different identities to the unique index.
@@ -903,7 +911,10 @@ export const BRAZIL_RECEITA_GATE4_RESTRICTIONS: readonly string[] = [
   // superseded by exercising 4A. Every other bound in this list is untouched, and the ones it
   // changed are changed by NARROWING, never by deletion: a migration now exists but is not
   // applied, and one identity column is now persistable while the other two stay refused.
-  'migration 125 is AUTHORED and is NOT APPLIED — no Supabase apply, no SQL editor, no remote SQL, no ledger write',
+  // 🔴 Renamed from 125 to 126 by BR-SOURCE CUT A.1 (production schema reconciliation): the string
+  // below still names this cut's OWN migration file, which moved when a sibling generic
+  // reconciliation migration was inserted as 125.
+  'migration 126 is AUTHORED and is NOT APPLIED — no Supabase apply, no SQL editor, no remote SQL, no ledger write',
   'the DDL is now a migration artifact rather than recorded text, and applying it is a separate authorization',
   'no surrogate generator is implemented; a key nobody has implemented is a key that does not exist yet',
   'this source stays absent from SOURCE_FAMILY_BY_SOURCE_KEY, so the registry keeps throwing for it',

@@ -235,34 +235,34 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // (`contact_provider_identities`), grano de reserva por OPERACIÓN y claim propio de
       // la búsqueda de identidad. Trae su propia guarda estática y NO edita ninguna
       // migración anterior — que es lo que esta lista exacta vigila. NO aplicada en Prod.
-      // BR-SOURCE-FUNCTIONAL-CUT-A mueve el techo a la 125: la identidad MENSUAL del
-      // snapshot de Receita (`source_period` + unicidad period-aware en
-      // `source_company_snapshots`, estado de publicación en `source_snapshot_runs`). NO es de
-      // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono; la
-      // autoría se comprueba abajo archivo por archivo. AUTORADA y NO APLICADA.
-      // El techo pasó por la 125 (BR-SOURCE, arriba) y ahora es la 126.
-      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
-      // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+      // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono.
+      //
+      // BR-SOURCE CUT A.1 (reconciliación de esquema de producción antes de CUT B) RENUMERÓ esa
+      // migración DOS VECES: 125→126→127. El primer salto (125→126) — su cuerpo SQL no cambió
+      // en nada que afecte a esta cadena — dejó sitio a una migración 125 genérica y nueva
+      // (`125_reconcile_source_snapshot_record_identity.sql`): reconcilia la unicidad genérica
+      // de `record_identity_key` sobre `source_company_snapshots` para fuentes NO brasileñas.
+      // El segundo salto (126→127) fue forzado por AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, que
+      // reclamó el 126 de forma independiente mientras esta reconciliación seguía en revisión:
+      // el vallado optimista de la admisión por identidad de LOTE (Agente 1), que añade
       // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
-      // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
-      // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
-      // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
-      '126_agent1_batch_identity_atomicity.sql',
-      'el techo conocido es la 125 (identidad mensual del snapshot BR), que no edita la cadena de teléfono 109–117',
+      // `prospect_candidates`. Ninguna de las tres migraciones (125, 126, 127) es de teléfono ni
+      // nombra ninguna tabla, columna o función de la cadena de teléfono, y la autoría de las
+      // tres se comprueba abajo archivo por archivo. Las tres AUTORADAS y NO APLICADAS.
+      '127_br_receita_monthly_snapshot_identity.sql',
+      'el techo conocido es la 127 (identidad mensual del snapshot BR, renumerada dos veces por CUT A.1), que no edita la cadena de teléfono 109–117',
     );
     assert.equal(
-      // La ventana sube con el techo DECLARADO arriba: la 125 está autorizada y nombrada,
-      // así que lo prohibido pasa a ser la 126 y superiores.
-      // AGENT1-CUT3B4 vuelve a DESPLAZAR la ventana: la 126 (vallado de identidad de
-      // LOTE) queda AUTORIZADA y declarada arriba, así que lo prohibido pasa a ser la
-      // 127 y superiores. Sigue siendo una guarda de autoría, no un rango libre.
-      files.some((file) => /^1(2[7-9]|[3-9]\d)/.test(file)),
+      // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
+      // (AGENT1-CUT3B4, independiente) y la 127 (BR, renumerada dos veces) están autorizadas y
+      // nombradas, así que lo prohibido pasa a ser la 128 y superiores.
+      files.some((file) => /^1(2[8-9]|[3-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 126 o superior',
+      'ninguna migración 128 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus

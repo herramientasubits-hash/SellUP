@@ -11,7 +11,7 @@
  *
  *   YYYY-MM     e.g. 2026-07, 2026-08
  *
- * `SOURCE_PERIOD_PATTERN` is the single source of truth, and migration 125 embeds the SAME regex
+ * `SOURCE_PERIOD_PATTERN` is the single source of truth, and migration 126 embeds the SAME regex
  * body in its CHECK constraint so the database and the application cannot disagree about what a
  * period is. The CUT-A suite asserts that equality against the real migration file.
  *
@@ -32,7 +32,7 @@
  * the wrong month.
  */
 
-/** The one canonical `YYYY-MM` pattern. Mirrored verbatim by migration 125's CHECK constraint. */
+/** The one canonical `YYYY-MM` pattern. Mirrored verbatim by migration 126's CHECK constraint. */
 export const SOURCE_PERIOD_PATTERN = /^[0-9]{4}-(0[1-9]|1[0-2])$/;
 
 /** The pattern body as SQL sees it, so a test can compare code and DDL without reformatting. */

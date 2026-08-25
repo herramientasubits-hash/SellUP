@@ -336,27 +336,39 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
   // MIGRATION_CREATED = NO. El techo sube cuando un hito AUTORIZADO añade la suya, y lo que la
   // guarda protege es que no lo mueva ESTE corte. BR-SOURCE FUNCTIONAL CUT-A añadió la
   // `125_br_receita_monthly_snapshot_identity.sql` — AUTORADA y NO APLICADA — así que el techo
-  // pasa a 125 y el número libre a 126.
+  // pasó a 125 y el número libre a 126.
   //
-  // Y en vez de sólo desplazar el número, ahora se prueba la AFIRMACIÓN de verdad: que la 125 no
-  // es de CUT-3B23. Su cuerpo no menciona ninguna tabla ni símbolo de este corte, lo que es
-  // estrictamente más fuerte que comparar un número.
+  // BR-SOURCE CUT A.1 (reconciliación de esquema de producción antes de CUT B) movió el techo
+  // dos veces más: RENUMERÓ esa migración BR de 125 a 126 y luego a 127 —su cuerpo SQL no
+  // cambió en nada que afecte a este corte— y añadió una migración 125 genérica y nueva
+  // (reconciliación de `record_identity_key` sobre `source_company_snapshots` para fuentes NO
+  // brasileñas). El segundo salto (126→127) lo forzó AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, que
+  // reclamó el 126 de forma independiente mientras esta reconciliación seguía en revisión: el
+  // vallado optimista de la admisión por identidad de LOTE, que sí exige esquema propio.
+  //
+  // Y en vez de sólo desplazar el número, se sigue probando la AFIRMACIÓN de verdad: que NI la
+  // 125 NI la 127 son de CUT-3B23. Sus cuerpos no mencionan ninguna tabla ni símbolo de este
+  // corte, lo que es estrictamente más fuerte que comparar un número.
+  it('no existe una migración 128: este corte no añade la siguiente', () => {
+    const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
+    assert.equal(
+      migrations.some((file) => file.startsWith('128')),
+      false,
+      'este corte no introduce la migración 128',
+    );
+  });
+
   it('la 126 existe, es de CUT-3B4 y NO de este corte', () => {
-    // AGENT1-CUT3B4 tomó la 126 (vallado de identidad de LOTE). La afirmación de
-    // CUT-3B23 —«yo no aporto migración»— se conserva y se comprueba por AUTORÍA,
-    // que es más fuerte que un número libre: aquí se exige que la 126 sea
-    // EXACTAMENTE la de B4 y que no nombre ningún símbolo de B23.
+    // AGENT1-CUT3B4 tomó la 126 (vallado de identidad de LOTE) de forma independiente,
+    // mientras BR-SOURCE CUT A.1 seguía en revisión. La afirmación de CUT-3B23 —«yo no
+    // aporto migración»— se conserva y se comprueba por AUTORÍA, que es más fuerte que un
+    // número libre: aquí se exige que la 126 sea EXACTAMENTE la de B4 y que no nombre
+    // ningún símbolo de B23.
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
     assert.deepEqual(
       migrations.filter((file) => file.startsWith('126')),
       [CUT3B4_MIGRATION],
       'la 126 tiene que ser la del vallado de identidad de lote, y sólo ella',
-    );
-    // El número LIBRE se desplaza a la 127: la ventana se mueve, no se abre.
-    assert.equal(
-      migrations.some((file) => file.startsWith('127')),
-      false,
-      'apareció una migración 127 sin dueño declarado',
     );
   });
 
@@ -394,58 +406,69 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     assert.equal(sql.includes('create trigger'), false, 'no puede añadir triggers');
   });
 
-  it('la 126 es la última; la 125 sigue siendo de BR-SOURCE y NO de este corte', () => {
+  it('la 127 es la última, y ni ella ni la 125 ni la 126 son de este corte', () => {
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((file) => /^\d{3}_/.test(file))
       .sort();
-    // AGENT1-CUT3B4 mueve el techo a la 126; la 125 sigue exactamente donde estaba y
-    // sus aserciones de pertenencia se conservan enteras justo debajo.
-    assert.equal(migrations[migrations.length - 1], CUT3B4_MIGRATION);
-    const last = migrations[migrations.length - 2];
-    assert.ok(last.startsWith('125'), `migración 125 inesperada: ${last}`);
-    assert.equal(last, '125_br_receita_monthly_snapshot_identity.sql');
+    const last = migrations[migrations.length - 1];
+    assert.ok(last.startsWith('127'), `última migración inesperada: ${last}`);
+    assert.equal(last, '127_br_receita_monthly_snapshot_identity.sql');
+    assert.ok(migrations.includes('125_reconcile_source_snapshot_record_identity.sql'));
+    assert.ok(migrations.includes(CUT3B4_MIGRATION));
 
-    // La 125 pertenece a BR-SOURCE FUNCTIONAL CUT-A: toca las tablas de snapshots de fuente y
-    // NINGUNA de las de CUT-3B23. Si un día este corte añadiera la suya disfrazada de 125, esta
-    // aserción caería.
-    const body = readFileSync(
-      join(REPO_ROOT, 'supabase', 'migrations', last),
-      'utf8',
-    );
-    for (const foreignTable of [
+    // Ni la 125 (reconciliación genérica) ni la 127 (BR, renumerada dos veces) tocan una
+    // tabla de CUT-3B23. Si un día este corte añadiera la suya disfrazada de cualquiera de
+    // las dos, esta aserción caería. La 126 (CUT-3B4) queda FUERA de este barrido genérico
+    // a propósito: toca `prospect_candidates` legítimamente por SU PROPIO motivo —el
+    // vallado, no CUT-3B23— y las dos pruebas de contenido justo arriba ya policían su
+    // autoría con precisión.
+    const FOREIGN_TABLES = [
       'prospect_candidates',
       'batch_identity_registry',
       'provider_seen_entities',
       'wizard_budget_reservations',
       'wizard_monthly_budget_periods',
-    ]) {
-      assert.equal(
-        body.includes(foreignTable),
-        false,
-        `la 125 toca ${foreignTable}: dejaría de ser ajena a CUT-3B23`,
+    ];
+    const bodiesByFile: Record<string, string> = {
+      '125_reconcile_source_snapshot_record_identity.sql': readFileSync(
+        join(REPO_ROOT, 'supabase', 'migrations', '125_reconcile_source_snapshot_record_identity.sql'),
+        'utf8',
+      ),
+      [last]: readFileSync(join(REPO_ROOT, 'supabase', 'migrations', last), 'utf8'),
+    };
+    for (const [file, body] of Object.entries(bodiesByFile)) {
+      for (const foreignTable of FOREIGN_TABLES) {
+        assert.equal(
+          body.includes(foreignTable),
+          false,
+          `${file} toca ${foreignTable}: dejaría de ser ajena a CUT-3B23`,
+        );
+      }
+
+      // Y al revés: TODA tabla que la migración modifica es de la capa de snapshots de fuente.
+      // Enumerar las tablas tocadas es más fuerte que buscar ausencias, porque no depende de
+      // acertar la lista de las ajenas.
+      //
+      // 🔴 `record_identity_key` SÍ aparece en ambas — la 125 la EXIGE para no-Brasil y la 127 la
+      // REFUSA para Brasil. Nombrar una columna para exigirla o refusarla no es tocar este corte,
+      // y una guarda por subcadena confundiría exactamente eso.
+      const touched = new Set(
+        [...body.matchAll(/(?:ALTER TABLE|ON)\s+public\.([a-z_]+)/g)].map((match) => match[1]),
       );
+      const expected = file.startsWith('125')
+        ? ['source_company_snapshots']
+        : ['source_company_snapshots', 'source_snapshot_runs'];
+      assert.deepEqual(
+        [...touched].sort(),
+        expected,
+        `${file} modifica tablas fuera de la capa de snapshots: ${[...touched].join(', ')}`,
+      );
+
+      // Control en NEGATIVO: la guarda no puede pasar por vacía.
+      assert.ok(touched.size > 0);
+      assert.ok(body.includes('source_company_snapshots'));
+      assert.ok(body.length > 1_000);
     }
-
-    // Y al revés: TODA tabla que la 125 modifica es de la capa de snapshots de fuente. Enumerar
-    // las tablas tocadas es más fuerte que buscar ausencias, porque no depende de acertar la lista
-    // de las ajenas.
-    //
-    // 🔴 `record_identity_key` SÍ aparece en la 125 — para REFUSARLO en Brasil. Nombrar una
-    // columna para prohibirla no es tocar este corte, y una guarda por subcadena confundiría
-    // exactamente eso.
-    const touched = new Set(
-      [...body.matchAll(/(?:ALTER TABLE|ON)\s+public\.([a-z_]+)/g)].map((match) => match[1]),
-    );
-    assert.deepEqual(
-      [...touched].sort(),
-      ['source_company_snapshots', 'source_snapshot_runs'],
-      `la 125 modifica tablas fuera de la capa de snapshots: ${[...touched].join(', ')}`,
-    );
-
-    // Control en NEGATIVO: la guarda no puede pasar por vacía.
-    assert.ok(touched.size > 0);
-    assert.ok(body.includes('source_company_snapshots'));
-    assert.ok(body.length > 1_000);
   });
 
   it('ningún módulo del corte usa ON CONFLICT ni índices únicos', () => {

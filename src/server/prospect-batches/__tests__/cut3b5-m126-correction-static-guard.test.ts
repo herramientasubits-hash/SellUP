@@ -51,21 +51,32 @@ const sql = readFileSync(join(migrationsDir, M126), 'utf8');
  * `INSERT INTO public.prospect_candidates` y el `FOR UPDATE` que otros trinquetes
  * comprueban).
  */
-const withoutLineComments = sql
-  .split('\n')
-  .map((line) => {
-    const idx = line.indexOf('--');
-    return idx === -1 ? line : line.slice(0, idx);
-  })
-  .join('\n');
+function toExecutableSql(source: string): string {
+  const withoutLineComments = source
+    .split('\n')
+    .map((line) => {
+      const idx = line.indexOf('--');
+      return idx === -1 ? line : line.slice(0, idx);
+    })
+    .join('\n');
 
-const code = withoutLineComments
-  .split('$fn$')
-  // Índice par = fuera de un bloque con dolar-quoting; impar = cuerpo de función.
-  .map((segment, i) => (i % 2 === 0 ? segment.replace(/COMMENT ON[\s\S]*?;/g, '') : segment))
-  .join('$fn$');
+  return withoutLineComments
+    .split('$fn$')
+    // Índice par = fuera de un bloque con dolar-quoting; impar = cuerpo de función.
+    .map((segment, i) => (i % 2 === 0 ? segment.replace(/COMMENT ON[\s\S]*?;/g, '') : segment))
+    .join('$fn$');
+}
+
+const code = toExecutableSql(sql);
 
 const CORRECTED = 'SET search_path = pg_catalog, public, pg_temp';
+
+/** Una migración posterior sólo cuenta como duplicado de la 126 si define AMBAS funciones. */
+function definesCut3b5Functions(executableSql: string): boolean {
+  const definesFn = (name: string) =>
+    new RegExp(`CREATE\\s+(OR\\s+REPLACE\\s+)?FUNCTION\\s+public\\.${name}\\b`).test(executableSql);
+  return definesFn('read_batch_identity_snapshot') && definesFn('insert_fenced_prospect_candidates');
+}
 
 describe('CUT-3B5 — trinquetes estáticos de la corrección de la 126', () => {
   // ═══════════════════════════════════════════════════════════════════════
@@ -220,18 +231,54 @@ describe('CUT-3B5 — trinquetes estáticos de la corrección de la 126', () => 
   // ═══════════════════════════════════════════════════════════════════════
 
   describe('§ 4 — nada se coló con la corrección', () => {
-    it('🔴 NO se creó una M127: esto es una corrección, no una migración nueva', () => {
+    it('🔴 esta corrección NO creó ninguna migración propia: sigue siendo un UPDATE de la 126', () => {
+      // 🔴 Esta guarda solía congelar el TECHO del directorio ("nada por encima de la 126"),
+      // asumiendo que la corrección de CUT-3B5 sería siempre lo más nuevo del ledger. Eso se
+      // rompió en cuanto BR-SOURCE CUT A.1 reclamó, de forma legítima y no relacionada, el número
+      // 127 para su migración de Receita — y volverá a romperse con cualquier M128+ futura que
+      // tampoco tenga nada que ver con CUT-3B5. Lo que esta prueba defiende de verdad es más
+      // angosto: CUT-3B5 en sí no aportó una migración nueva propia — ninguna migración posterior
+      // a la 126 puede recrear, mover o clonar las dos funciones que CUT-3B5 corrigió. Eso se mide
+      // por SUPERFICIE SQL EJECUTABLE (ambas funciones definidas a la vez), nunca por el número
+      // más alto del directorio ni por si el archivo MENCIONA la 126 en un comentario — la 127
+      // nombra `126_agent1_batch_identity_atomicity.sql` en su propia prosa, y eso es
+      // documentación legítima, no una recreación del artefacto.
       const files = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
       const beyond126 = files.filter((f) => {
         const n = Number.parseInt(f.slice(0, 3), 10);
         return Number.isFinite(n) && n > 126;
       });
-      assert.deepEqual(beyond126, [], `aparecieron migraciones por encima de la 126: ${beyond126.join(', ')}`);
+      for (const file of beyond126) {
+        const raw = readFileSync(join(migrationsDir, file), 'utf8');
+        const executable = toExecutableSql(raw);
+        assert.equal(
+          definesCut3b5Functions(executable),
+          false,
+          `${file} recrea las dos funciones de CUT-3B5 (read_batch_identity_snapshot + insert_fenced_prospect_candidates) fuera de la 126`,
+        );
+      }
     });
 
-    it('la 126 sigue siendo el número de Agente 1', () => {
-      const files = readdirSync(migrationsDir);
-      assert.ok(files.includes(M126), 'la 126 de Agente 1 se renumeró');
+    it('🔴 la 127 de BR-Receita es una migración ajena permitida: no ejecuta la superficie de CUT-3B5', () => {
+      // Regresión directa para la 127 concreta, además del barrido genérico de arriba. No exige
+      // que la 127 EXISTA — si este árbol aún no tiene esa migración (p. ej. un fixture o una
+      // renumeración futura), la prueba no tiene nada que verificar y no debe fallar por eso.
+      const files = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
+      const m127 = files.find((f) => f.startsWith('127_'));
+      if (!m127) return;
+      const raw = readFileSync(join(migrationsDir, m127), 'utf8');
+      const executable = toExecutableSql(raw);
+      assert.equal(
+        definesCut3b5Functions(executable),
+        false,
+        `${m127} no puede ejecutar la superficie de CUT-3B5`,
+      );
+    });
+
+    it('la 126 sigue siendo el número de Agente 1, y es única', () => {
+      const files = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
+      const matches126 = files.filter((f) => f.startsWith('126_'));
+      assert.deepEqual(matches126, [M126], 'el número 126 no es único o cambió de nombre');
     });
 
     it('🔴 la 124 (Agente 2A) NO se tocó', () => {

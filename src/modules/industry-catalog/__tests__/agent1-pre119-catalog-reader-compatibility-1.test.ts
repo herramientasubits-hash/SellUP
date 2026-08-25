@@ -933,19 +933,22 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
   // Lo que ESTA guarda protege no es el número más alto del directorio —sube cada vez que un
   // bloque autorizado añade el suyo— sino que este hito de catálogo no aportó migración y que
   // la 119 siga siendo el cutover y sólo eso, que es lo que se afirma justo abajo.
-  it('la última migración del repositorio es la 125, y el catálogo no aportó ninguna', () => {
+  it('la última migración del repositorio es la 127, y el catálogo no aportó ninguna', () => {
     const files = execSync('ls supabase/migrations', { cwd: ROOT, encoding: 'utf8' })
       .split('\n')
       .filter((f) => f.endsWith('.sql'))
       .sort();
     const last = files[files.length - 1];
-    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
-    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+    // Renumerada DOS VECES por BR-SOURCE CUT A.1: 125→126→127. El primer salto insertó una
+    // migración 125 genérica (reconciliación de record_identity_key) por debajo. El segundo lo
+    // forzó AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, que reclamó el 126 de forma independiente:
+    // el vallado optimista de la admisión por identidad de LOTE (Agente 1). Añade
     // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
-    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
-    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
-    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
-    assert.match(last, /^126_/);
+    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla, columna ni
+    // función de teléfono, que es lo que esta guarda vigila. Trae su propia guarda estática y NO
+    // edita ninguna migración anterior. NO aplicada en Producción. Ninguna de las tres (125, 126,
+    // 127) es del catálogo.
+    assert.match(last, /^127_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -970,25 +973,32 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     //         propio a la corrida; no nombra ninguna tabla ni vista del catálogo, y el
     //         barrido de abajo lo comprueba sobre su SQL en vez de creerle a este
     //         comentario.
-    //   125 — la identidad MENSUAL del snapshot de Receita (BR-SOURCE-FUNCTIONAL-CUT-A).
+    //   125 — reconciliación GENÉRICA de `record_identity_key` sobre `source_company_snapshots`
+    //         para fuentes NO brasileñas (BR-SOURCE CUT A.1). No nombra ninguna tabla ni vista del
+    //         catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL en vez de
+    //         creerle a este comentario. Está AUTORADA y NO APLICADA.
+    //   126 — AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY: el vallado optimista de la admisión por
+    //         identidad de LOTE (Agente 1). Añade `prospect_batches.identity_epoch` y dos
+    //         funciones sobre `prospect_batches` y `prospect_candidates`; ninguna es tabla ni
+    //         vista del catálogo de industrias. Reclamó el 126 de forma independiente mientras
+    //         la reconciliación de BR-SOURCE CUT A.1 seguía en revisión. Está AUTORADA y NO
+    //         APLICADA.
+    //   127 — la identidad MENSUAL del snapshot de Receita (BR-SOURCE-FUNCTIONAL-CUT-A).
     //         Añade `source_period` y la unicidad period-aware a `source_company_snapshots`
     //         y el estado de publicación a `source_snapshot_runs`; ninguna de las dos es
     //         tabla ni vista del catálogo de industrias, y el barrido de abajo lo comprueba
     //         sobre su SQL en vez de creerle a este comentario. Está AUTORADA y NO APLICADA.
+    //         RENUMERADA DOS VECES por BR-SOURCE CUT A.1 (125→126→127) para dejar sitio primero
+    //         a la 125 genérica y luego a la 126 de AGENT1-CUT3B4.
     assert.deepEqual(aboveCatalog, [
       '120_provider_native_phone_suppression.sql',
       '121_wizard_budget_overage_reconciliation.sql',
       '122_phone_reveal_search_more.sql',
       '123_provider_seen_entities.sql',
       '124_cross_provider_phone_identity.sql',
-      '125_br_receita_monthly_snapshot_identity.sql',
-      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
-      // optimista de la admisión por identidad de LOTE (Agente 1). Añade
-      // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
-      // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
-      // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
-      // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
+      '125_reconcile_source_snapshot_record_identity.sql',
       '126_agent1_batch_identity_atomicity.sql',
+      '127_br_receita_monthly_snapshot_identity.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

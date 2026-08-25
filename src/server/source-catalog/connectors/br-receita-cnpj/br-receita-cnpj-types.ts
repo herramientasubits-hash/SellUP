@@ -91,7 +91,7 @@ export interface BrReceitaCnpjParserInput {
    * 🔴 BR-SOURCE-FUNCTIONAL-CUT-A — `sourcePeriod` is now the AUTHORITY and this is the
    * subordinate. The generic table's `source_year int NOT NULL` predates the monthly grain and
    * still has to be populated, so the year survives — but the builder REJECTS an input whose year
-   * disagrees with its period, and migration 125 pins the same equality as a CHECK. The two can be
+   * disagrees with its period, and migration 126 pins the same equality as a CHECK. The two can be
    * supplied independently; they can never disagree silently.
    */
   sourceYear: number;
@@ -128,7 +128,7 @@ export interface BrReceitaCnpjSnapshotRawData {
    *
    * 🔴 This is provenance, NOT the identity. `BrReceitaCnpjSnapshotRow.source_period` is the
    * physical identity column and the authority. Both are written from the same validated value,
-   * and migration 125 carries a CHECK that `raw_data->>'source_period' = source_period` for Brazil
+   * and migration 126 carries a CHECK that `raw_data->>'source_period' = source_period` for Brazil
    * rows, so the copy can never drift from the column that identifies the snapshot.
    */
   source_period: string;
@@ -235,7 +235,7 @@ export interface BrReceitaCnpjInternalControlSignals {
  * The two refused fields stay ON the in-memory row because the parser needs them to detect
  * duplicates, and because deleting a field is a grain decision the owners have not made. They are
  * refused at the persistence boundary by `assertBrazilReceitaSnapshotRowIsPersistable`, and
- * migration 125 makes both NULL-for-Brazil a CHECK constraint — so "exactly one representation" is
+ * migration 126 makes both NULL-for-Brazil a CHECK constraint — so "exactly one representation" is
  * enforced twice, in the guard and in the schema.
  *
  * 🔴 This shape is NOT what gets written. `toBrReceitaPersistedSnapshot`
