@@ -3596,3 +3596,38 @@ jobs:
         run: npm run test:br-source:functional-cut-b:postgres
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # ── AGENT1-CUT4-A1 — BATCH COUNT TRUTHFULNESS + SAFE REVIEW NAVIGATION ──────
+      #
+      # Lo que estas dos suites impiden que vuelva: la capa de lotes contaba sus
+      # candidatos filtrando por `isUsefulReviewCandidate`, un clasificador de
+      # CALIDAD DE UI que devuelve `false` para un candidato colombiano sin
+      # `tax_identifier` que no venga de `external_import`. Apollo, Lusha y web_ai
+      # persisten esas filas legítimamente, así que en Producción (Gate 0) 100
+      # candidatos durables repartidos en 24 lotes —aprobables desde Prospectos— se
+      # contaban como CERO en la ficha del lote, que es la pantalla donde aterriza
+      # el operador justo después de una corrida de PAGO.
+      #
+      # La invariante que fijan: EXISTENCIA DURABLE != CLASIFICACIÓN DE CALIDAD.
+      # Contar responde «¿está persistida y no borrada?», y esa pregunta ya tiene
+      # una autoridad —el contrato durable de CUT-1—, que es la que se reutiliza.
+      # Hay una guarda ESTÁTICA que falla si `batch-candidate-counts.ts` vuelve a
+      # importar o mencionar `isUsefulReviewCandidate`: si reentra, reentra la
+      # mentira.
+      #
+      # Lo que estas suites NO afirman, y por eso siguen siendo verdad:
+      #   · `isUsefulReviewCandidate` conserva su semántica intacta — un candidato
+      #     contado puede seguir clasificado como no útil, y eso es correcto;
+      #   · `usefulCount` de la generación y la aritmética de objetivo no cambian;
+      #   · la tabla accionable de la ficha sigue recibiendo EXACTAMENTE el mismo
+      #     subconjunto filtrado, porque `CandidateRowActions` conserva fuera de
+      #     Prospectos el comportamiento heredado de aprobar/descartar/duplicar y
+      #     ampliar esa superficie es CUT4-C, no este corte. El estado intermedio
+      #     seguro es contar la verdad, no ampliar acciones y ENLAZAR a la cola
+      #     oficial ya existente: `/accounts?tab=prospectos&sourceId=<batchId>`.
+      #
+      # Puras: sin I/O, sin Supabase, sin React, sin env, sin reloj, sin red.
+      # 0 migraciones, 0 escrituras remotas, 0 proveedores, 0 créditos, 0 flags.
+      # Sin `continue-on-error` y sin `|| true`.
+      - name: Run Agent 1 CUT4-A1 batch count truthfulness tests
+        run: npm run test:a1-cut4-batch-count-truthfulness
