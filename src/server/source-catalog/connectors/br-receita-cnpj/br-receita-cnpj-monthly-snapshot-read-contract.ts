@@ -160,10 +160,24 @@ export function classifyBrReceitaSnapshotRead(
 /**
  * The recorded contract CUT B has to satisfy, as data — so the obligation survives in the
  * repository rather than in a review comment.
+ *
+ * 🔴 THIS CONSTANT IS DATED BY ITS OWN `milestone` FIELD. It records what was true AT CUT A, and
+ * it is deliberately not updated as later cuts land — a record that mutates is not a record.
+ * BR-SOURCE-FUNCTIONAL-CUT-B satisfied it and published its own, LIVE counterpart:
+ * `BR_RECEITA_PUBLISHED_READER_CONTRACT` in `br-receita-cnpj-published-snapshot-reader.ts`. Read
+ * that one for the current state; read this one for the obligation that was set.
+ *
+ * In particular `runtimeRegistered: false` below is CUT A's statement about ITS OWN scope — this
+ * module is a CLASSIFIER, and Brazil is absent from `SOURCE_FAMILY_BY_SOURCE_KEY`. That second
+ * fact is STILL TRUE after CUT B and is pinned by the CUT-B suite, precisely because the five
+ * year-scoped read primitives must never become reachable for a source that puts twelve periods
+ * inside one year. What CUT B DID add is the period-aware reader and Brazil's entry in the
+ * enrichment registries — neither of which is what this flag speaks about.
  */
 export const BR_RECEITA_FUTURE_READER_CONTRACT = {
   milestone: 'BR-SOURCE-FUNCTIONAL-CUT-A',
   appliesToSourceKey: BR_RECEITA_CNPJ_SOURCE_KEY,
+  /** CUT-A scope only: absent from `SOURCE_FAMILY_BY_SOURCE_KEY`. Still true. See above. */
   runtimeRegistered: false,
   step1ResolvePublishedRunBy: BR_RECEITA_PUBLISHED_RUN_LOOKUP_COLUMNS,
   step1RequiredPublishState: BR_RECEITA_READABLE_PUBLISH_STATE,

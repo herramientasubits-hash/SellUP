@@ -139,6 +139,21 @@ export const VALIDATED_SOURCE_CONFIGS: ValidatedSourceConfig[] = [
     description:
       'SCVS Ecuador — señales comerciales y validación RUC para empresas ecuatorianas registradas en Superintendencia de Compañías. Solo desde snapshot/cache. No es fuente de discovery principal. Detección observable de múltiples expedientes por RUC (no selección arbitraria).',
   },
+  {
+    sourceKey: 'br_receita_cnpj_dados_abertos',
+    countryCodes: ['BR'],
+    capabilities: [
+      'enrichment_after_discovery',
+      'tax_id_validation',
+    ],
+    wizardUsage: 'post_discovery_enrichment',
+    requiresSnapshot: true,
+    canRunLive: false,
+    adapterKey: 'br_receita_cnpj_dados_abertos',
+    fallbackBehavior: 'skip_without_blocking',
+    description:
+      'Receita Federal CNPJ Dados Abertos — registro legal brasileño. Enriquecimiento post-discovery por CNPJ exacto desde el snapshot MENSUAL publicado (nunca en vivo): razão social, situação cadastral, CNAE, porte, UF y município. La lectura resuelve primero la ÚNICA corrida `published` del periodo y luego filtra por su `snapshot_run_id`; una lectura por `source_period` a secas está clasificada INVÁLIDA porque devolvería la unión de la corrida publicada con las de staging. El periodo es SIEMPRE explícito: sin periodo configurado el adaptador responde `skipped`, nunca elige mes. Sin Sócios/QSA/CPF: esos campos no existen en el payload. No es fuente de discovery.',
+  },
 ];
 
 /**
