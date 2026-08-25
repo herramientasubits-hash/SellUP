@@ -36,7 +36,7 @@
 --     stays NULL for Brazil) is owned by migration 127 and is not re-litigated here. This migration
 --     only carves the exemption — first as a validated CHECK, then by relaxing the physical column
 --     attribute that would otherwise make the exemption unwritable — and asserts nothing about what
---     Brazil rows must contain. (Migration 126 is AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, an
+--     Brazil rows must contain. (Migration 126 is Agent 1's batch-identity atomicity migration, an
 --     unrelated milestone that claimed that number independently; it neither touches nor is touched
 --     by this file — see the independence assertions in the companion test suites.)
 --   · The 306 rows in 152 duplicate groups (and the 18 non-BR rows with `normalized_tax_id IS
@@ -270,8 +270,8 @@ ALTER TABLE public.source_company_snapshots
 --   (`source_company_snapshots_record_identity_key_nonempty_chk`). Preserved as-is.
 -- · It does not create, alter or reference anything on `source_snapshot_runs`. That table's Brazil
 --   publication columns are migration 127's concern.
--- · It does not modify migration 126 (AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY), which is unrelated
---   and structurally independent of this file — see the companion test suites.
+-- · It does not modify migration 126 (Agent 1's batch-identity atomicity migration), which is
+--   unrelated and structurally independent of this file — see the companion test suites.
 -- · It writes, modifies, or removes zero rows. No backfill.
 
 COMMIT;
