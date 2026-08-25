@@ -111,6 +111,22 @@ export interface EnrichCandidatesInput {
   }>;
   countryCode: string;
   stage: 'post_discovery_enrichment' | 'prioritization';
+  /**
+   * Per-run adapter substitutions, keyed by `ValidatedSourceConfig.adapterKey`.
+   * BR-SOURCE-FUNCTIONAL-CUT-B1.
+   *
+   * Exists for sources whose adapter must be CONSTRUCTED with run-level state that the static
+   * registry cannot know — today only Brazil, whose adapter is bound to the one monthly period
+   * the run froze at its start. The registry entry for such a source is deliberately unbound and
+   * fail-closed, so without an override it answers `skipped` rather than choosing a month.
+   *
+   * 🔴 An override can only ever SUBSTITUTE the implementation of a source that country +
+   * capability already selected. It cannot add a source, cannot widen `countryCodes`, and cannot
+   * make a non-applicable source run: the applicable set is computed from
+   * `getValidatedSourcesForEnrichment` BEFORE this map is consulted, and a key that matches no
+   * applicable source is inert.
+   */
+  adapterOverrides?: Record<string, SourceEnrichmentAdapter>;
 }
 
 export interface EnrichedCandidateResult {
