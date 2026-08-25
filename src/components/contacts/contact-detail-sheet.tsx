@@ -49,6 +49,11 @@ import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
 // teléfonos del contacto y nada más. Ni proveedor, ni crédito, ni escritura.
 import { getOfficialContactStoredPhoneSummaryAction } from '@/modules/contact-enrichment/official-contact-stored-phones-actions';
 import { OfficialContactStoredPhonesDisclosure } from './official-contact-stored-phones-disclosure';
+// AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 — «Revelar teléfono» desde el
+// contacto OFICIAL. El botón sólo aparece cuando el SERVIDOR resuelve un candidato fuente
+// durable (`metadata.source_candidate_id`) y el contacto no tiene un teléfono reutilizable.
+// No construye un waterfall propio: delega en el pipeline del candidato.
+import { OfficialContactPhoneRevealCta } from './post-approval-reveal-cta';
 // AGENT2A-P0-R2 — el drawer del contacto SIEMPRE termina de cargar: o hay contacto, o hay
 // un estado terminal declarado. Nunca un spinner eterno.
 import { isNextControlFlowSignal } from '@/modules/contact-enrichment/next-control-flow-signal';
@@ -351,6 +356,23 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                             additionalCount={additionalPhoneCount}
                           />
                         )}
+                        {/*
+                          POST-APPROVAL REVEAL — la ficha de un contacto creado al aprobar un
+                          candidato podía quedarse SIN teléfono para siempre: el pipeline de
+                          reveal existe entero, pero sólo era alcanzable desde la revisión del
+                          candidato, que ya salió de revisión. El CTA lo hace alcanzable desde
+                          aquí, reutilizando ese pipeline tal cual. Se pinta debajo de los
+                          escalares y no reemplaza nada de lo que ya se mostraba.
+                        */}
+                        <OfficialContactPhoneRevealCta
+                          contactId={contact.id}
+                          onPhoneProjected={() => {
+                            // La AUTORIDAD de lo que se muestra es la ficha, no la respuesta del
+                            // reveal: ningún teléfono viaja en ese resultado. Se relee por la vía
+                            // normal, que además refresca el conteo de números adicionales.
+                            void loadData(contact.id);
+                          }}
+                        />
                         {contact.linkedin_url && (
                           <DetailRow icon={Link2} label="LinkedIn">
                             <a

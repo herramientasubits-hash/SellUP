@@ -57,6 +57,7 @@ import {
 } from '@/modules/contact-enrichment/actions';
 import type { ExistingContactMergeOffer } from '@/modules/contact-enrichment/candidate-review-core';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
+import { PHONE_REVEAL_PROCESSING_BASIS as SHARED_PHONE_REVEAL_PROCESSING_BASIS } from '@/modules/contact-enrichment/phone-reveal-processing-basis';
 import { recoverCandidatePhoneRevealNowAction } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-actions';
 // Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1): SOLO tras `no_phone_found` de
 // Apollo, admin-only, un candidato, con confirmación explícita del costo. Este
@@ -320,7 +321,12 @@ const PHONE_REVEAL_MAX_CREDITS = 8;
  * payload y el server action la revalida — el cambio es UX/payload del cliente,
  * NO una relajación de las validaciones backend.
  */
-const PHONE_REVEAL_PROCESSING_BASIS: PhoneProcessingBasis = 'legitimate_interest_b2b';
+// AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1: la base dejó de ser una constante
+// LOCAL de este archivo. La ficha del contacto OFICIAL dispara el MISMO reveal y necesitaba
+// el MISMO valor; una segunda copia sería la misma base legal divergiendo según la pantalla
+// desde la que se pulsó el botón. Ahora las dos importan la única fuente.
+const PHONE_REVEAL_PROCESSING_BASIS: PhoneProcessingBasis =
+  SHARED_PHONE_REVEAL_PROCESSING_BASIS;
 
 /**
  * Copy base del estado en vuelo (RECOVERY-CRON-1). Se declara como constante porque

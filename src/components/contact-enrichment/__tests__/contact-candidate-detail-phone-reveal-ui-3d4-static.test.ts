@@ -147,10 +147,30 @@ describe('ASYNC-5 — presencia del botón one-click (sin modal)', () => {
   });
 
   it('define una base legal FIJA legitimate_interest_b2b', () => {
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1: la base dejó de ser un LITERAL de
+    // este archivo y pasó a ser una constante COMPARTIDA. El motivo es exactamente lo que esta
+    // guarda existe para proteger: la ficha del contacto OFICIAL dispara el MISMO reveal, y una
+    // segunda copia del literal sería la misma base legal divergiendo según la pantalla desde la
+    // que se pulsó el botón.
+    //
+    // La guarda no se afloja: sigue exigiendo que este archivo declare la base y que su valor sea
+    // `legitimate_interest_b2b`, sólo que ahora comprueba las DOS mitades — que la importa de la
+    // única fuente, y que esa fuente dice ese valor y no otro—. Sustituir el import por un
+    // literal distinto, o cambiar el valor en la fuente, sigue rompiendo la prueba.
     assert.ok(
-      /PHONE_REVEAL_PROCESSING_BASIS\s*:\s*PhoneProcessingBasis\s*=\s*'legitimate_interest_b2b'/.test(
+      /PHONE_REVEAL_PROCESSING_BASIS\s*:\s*PhoneProcessingBasis\s*=\s*\n?\s*SHARED_PHONE_REVEAL_PROCESSING_BASIS;/.test(
         detailSheet,
       ),
+      'la ficha del candidato debe declarar su base a partir de la fuente compartida',
+    );
+    assert.match(detailSheet, /phone-reveal-processing-basis/);
+    const shared = readFileSync(
+      join(repoRoot, 'src/modules/contact-enrichment/phone-reveal-processing-basis.ts'),
+      'utf8',
+    );
+    assert.match(
+      shared,
+      /PHONE_REVEAL_PROCESSING_BASIS\s*:\s*PhoneProcessingBasis\s*=\s*'legitimate_interest_b2b'/,
     );
   });
 

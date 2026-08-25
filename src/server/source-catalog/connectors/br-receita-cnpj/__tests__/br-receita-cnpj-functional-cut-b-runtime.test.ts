@@ -941,13 +941,24 @@ describe('BR-SOURCE CUT B — the Agent 1 Brazil adapter', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('BR-SOURCE CUT B — the boundary this cut does not cross', () => {
-  it('authored NO migration: 127 is still the highest, and there is no 128', () => {
+  it('authored NO migration: CUT B added nothing BR-authored above CUT A\'s 127', () => {
+    // 🔴 This guard defends WHO authored what — BR-SOURCE CUT B (#353) — never a global repository
+    // ceiling. A later, unrelated milestone may legitimately add its own migration above 127 after
+    // this cut merges (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 already did, claiming
+    // 128; nothing stops a 129 from some other line next). Pinning the ceiling to a fixed number
+    // here would make THIS guard fail on every unrelated future migration, which is not what CUT B
+    // ever claimed. What CUT B actually claims, and what stays true regardless of how high the
+    // ceiling climbs, is narrower and content-based: no migration file above CUT A's 127 is
+    // BR/Receita/CNPJ-authored, because CUT B's contract is MIGRATION = NONE.
     const files = fs.readdirSync(join(repoRoot, 'supabase/migrations')).filter((f) => f.endsWith('.sql'));
-    const numbers = files
-      .map((file) => Number.parseInt(file.slice(0, 3), 10))
-      .filter((value) => Number.isFinite(value));
-    assert.equal(Math.max(...numbers), 127);
-    assert.ok(!files.some((file) => file.startsWith('128')));
+    for (const name of files.filter((file) => Number.parseInt(file.slice(0, 3), 10) > 127)) {
+      const sql = fs.readFileSync(join(repoRoot, 'supabase/migrations', name), 'utf8');
+      assert.equal(
+        /BR-SOURCE|RECEITA|CNPJ/i.test(sql),
+        false,
+        `${name} must not be authored by a BR cut — CUT B authored no migration`,
+      );
+    }
     for (const expected of [
       '125_reconcile_source_snapshot_record_identity.sql',
       '126_agent1_batch_identity_atomicity.sql',

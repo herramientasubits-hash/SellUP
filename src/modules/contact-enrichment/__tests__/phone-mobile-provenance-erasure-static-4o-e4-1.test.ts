@@ -113,6 +113,14 @@ const EXPECTED_MOBILE_PHONE_FILES: Record<string, string> = {
   'modules/contacts/types.ts': 'tipo de la fila',
   'server/agents/contact-enrichment-toolkit/existing-contacts-reader.ts':
     'lectura — snapshot previo al enriquecimiento',
+  // POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 — dos LECTURAS y ninguna escritura. La
+  // proyección mínima del contacto trae `mobile_phone` porque la decisión de OFRECER una compra
+  // depende de si el contacto ya tiene un número reutilizable, y un celular guardado a mano lo
+  // es. Preguntarlo es lo que impide comprar un teléfono para alguien que ya tiene uno; NO se
+  // escribe, no se le atribuye procedencia y no entra en ninguna erasure — la premisa de E4.1
+  // sigue intacta.
+  'modules/contact-enrichment/post-approval-reveal-read.ts':
+    'lectura — ¿el contacto ya tiene un número reutilizable?',
 };
 
 function listSourceFiles(dir: string, acc: string[] = []): string[] {
@@ -230,6 +238,11 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
         // para prometer que no se toca es lo contrario de tocarla, y es justo lo que esta
         // lista distingue.
         '117_merge_candidate_into_existing_contact.sql',
+        // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 la nombra por la MISMA razón:
+        // el comentario de su paso 10 y su `COMMENT ON FUNCTION` afirman que `mobile_phone` NO
+        // está en el UPDATE del escalar heredado y que MOBILE_PHONE_PROVENANCE_PENDING sigue
+        // abierta. Nombrarla para prometer que no se toca es lo contrario de tocarla.
+        '128_project_approved_candidate_phones_onto_contact.sql',
       ],
       'las únicas migraciones que pueden NOMBRAR mobile_phone sin tocarla son la 115 (4O-H2), la 116 (4O-H3) y la 117 (4O-H3-B), que documentan que no la tocan',
     );
@@ -391,8 +404,14 @@ describe('4O-E4.1 estático — alcance', () => {
       // 126 de forma independiente: el vallado optimista de la admisión por identidad de LOTE
       // (Agente 1), que toca `prospect_batches` y `prospect_candidates`. Ninguna de las tres
       // nombra `mobile_phone`.
-      127,
-      'la 127 (identidad mensual del snapshot BR, renumerada dos veces por CUT A.1) es la última',
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 lo mueve a la 128: la proyección de
+      // la colección de un candidato YA APROBADO sobre el contacto que su aprobación creó. SÍ es
+      // de teléfono, y NOMBRA `mobile_phone` — pero SÓLO en prosa, y para decir lo contrario de
+      // tocarla: un comentario del paso 10 y su `COMMENT ON FUNCTION` declaran que la columna no
+      // está en el UPDATE y que MOBILE_PHONE_PROVENANCE_PENDING sigue en pie. Por eso aparece en
+      // la lista `proseOnly` de arriba y no entre los escritores. AUTORADA y NO APLICADA.
+      128,
+      'la 128 (la proyección post-aprobación) es la última',
     );
   });
 
