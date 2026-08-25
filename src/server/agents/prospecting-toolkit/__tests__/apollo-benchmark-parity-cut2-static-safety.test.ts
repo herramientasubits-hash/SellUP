@@ -466,11 +466,25 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // La 124 la tomó AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 (Agente 2A,
     // teléfono). Este corte sigue sin aportar ninguna: se comprueba por número libre y
     // por AUTORÍA, porque un número ocupado por otro hito no es una infracción de este.
-    // La 125 la toma BR-SOURCE-FUNCTIONAL-CUT-A (identidad MENSUAL del snapshot de
-    // Receita, AUTORADA y NO APLICADA). El siguiente número libre es la 126, y la AUTORÍA
-    // se barre ahora sobre 124 y 125: es la comprobación que de verdad protege este corte.
-    assert.equal(migrations.filter((f) => f.startsWith('127')).length, 0);
-    for (const file of migrations.filter((f) => f.startsWith('124') || f.startsWith('125') || f.startsWith('126'))) {
+    // La 125 la toma BR-SOURCE CUT A.1 (reconciliación GENÉRICA de `record_identity_key`
+    // sobre `source_company_snapshots`, fuentes NO brasileñas; AUTORADA y NO APLICADA). La
+    // 126 la toma AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY (vallado optimista de la admisión
+    // por identidad de LOTE; añade `prospect_batches.identity_epoch` y dos funciones sobre
+    // `prospect_batches`/`prospect_candidates`; AUTORADA y NO APLICADA), que reclamó ese
+    // número de forma independiente mientras la reconciliación de BR-SOURCE CUT A.1 seguía
+    // en revisión. La 127 la toma BR-SOURCE-FUNCTIONAL-CUT-A (identidad MENSUAL del snapshot
+    // de Receita, RENUMERADA DOS VECES — 125→126→127 — para no colisionar con ninguna de las
+    // dos anteriores; AUTORADA y NO APLICADA). El siguiente número libre es la 128, y la
+    // AUTORÍA se barre ahora sobre 124, 125, 126 y 127: es la comprobación que de verdad
+    // protege este corte.
+    assert.equal(migrations.filter((f) => f.startsWith('128')).length, 0);
+    for (const file of migrations.filter(
+      (f) =>
+        f.startsWith('124') ||
+        f.startsWith('125') ||
+        f.startsWith('126') ||
+        f.startsWith('127'),
+    )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),
         false,

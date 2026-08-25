@@ -118,7 +118,7 @@ describe('115 — numeración', () => {
     assert.deepEqual(numbered, [MIGRATION_FILE]);
   });
 
-  it('121 es el número más alto del repo', () => {
+  it('127 es el número más alto del repo', () => {
     const numbers = readdirSync(migrationsDir)
       .filter((file) => /^\d{3}[_-].*\.sql$/.test(file))
       .map((file) => Number(file.slice(0, 3)));
@@ -139,15 +139,20 @@ describe('115 — numeración', () => {
     // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 (identidad provider-native,
     // grano de reserva por operación, claim propio de la búsqueda) con su propia guarda
     // estática; no edita ninguna migración anterior. NO aplicada en Producción.
-    // BR-SOURCE-FUNCTIONAL-CUT-A aporta la 125 (identidad MENSUAL del snapshot de Receita;
-    // AUTORADA y NO APLICADA). No es de teléfono y no toca este esquema.
-    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
-    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
-    // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
-    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
-    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
-    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
-    assert.equal(Math.max(...numbers), 126);
+    // BR-SOURCE-FUNCTIONAL-CUT-A aportó la 125, y luego la 126 (identidad MENSUAL del snapshot
+    // de Receita; AUTORADA y NO APLICADA). No es de teléfono y no toca este esquema.
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY reclamó el 126 de forma independiente mientras la
+    // reconciliación de BR-SOURCE CUT A.1 seguía en revisión: el vallado optimista de la
+    // admisión por identidad de LOTE (Agente 1). Añade `prospect_batches.identity_epoch` y dos
+    // funciones sobre `prospect_batches` y `prospect_candidates`; NO es de teléfono en absoluto
+    // y no nombra ninguna tabla, columna ni función de teléfono, que es lo que esta guarda
+    // vigila. Trae su propia guarda estática y NO edita ninguna migración anterior. NO aplicada
+    // en Producción.
+    // BR-SOURCE CUT A.1 RENUMERÓ su propia migración una segunda vez, de 126 a 127, para no
+    // colisionar con la de AGENT1-CUT3B4, y dejó sitio a una migración 125 genérica
+    // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
+    // brasileñas) — ninguna de las tres toca `contact_phones` ni `contact_phone_sources`.
+    assert.equal(Math.max(...numbers), 127);
   });
 
   it('declara NO estar aplicada en Producción', () => {

@@ -308,6 +308,12 @@ describe('CUT-3B4 § 11 — una sola autoridad de identidad', () => {
 
 describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
   it('la 126 es la ÚNICA migración que introduce este corte', () => {
+    // 🔴 BR-SOURCE CUT A.1 (reconciliación de esquema de producción antes de CUT B) reclamó
+    // independientemente el 127 —renombrando dos veces su propia migración de Brasil, 125→126→127,
+    // tras que este corte tomara el 126 primero— mientras esa reconciliación seguía en revisión.
+    // Lo que esta guarda defiende es AUTORÍA, no el número más alto: la 127 no menciona
+    // `AGENT1-CUT3B4` en absoluto, así que la afirmación «este corte aporta exactamente una
+    // migración, y es la 126» sigue siendo verdad palabra por palabra.
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'))
       .filter((f) => /^\d{3}_.*\.sql$/.test(f))
       .sort();
@@ -315,9 +321,16 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       read(`supabase/migrations/${f}`).includes('AGENT1-CUT3B4'),
     );
     assert.deepEqual(authored, ['126_agent1_batch_identity_atomicity.sql']);
-    assert.equal(migrations[migrations.length - 1], '126_agent1_batch_identity_atomicity.sql');
-    // Sin huecos: el conteo se mueve con el techo.
-    assert.equal(migrations.length, 126);
+    assert.equal(migrations[migrations.length - 1], '127_br_receita_monthly_snapshot_identity.sql');
+    assert.equal(
+      read('supabase/migrations/127_br_receita_monthly_snapshot_identity.sql').includes(
+        'AGENT1-CUT3B4',
+      ),
+      false,
+      'la 127 no puede ser autoría de este corte',
+    );
+    // Sin huecos: el conteo se mueve con el techo real del repositorio, no con el de este corte.
+    assert.equal(migrations.length, 127);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

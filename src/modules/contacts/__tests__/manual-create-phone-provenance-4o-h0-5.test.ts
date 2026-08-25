@@ -542,19 +542,22 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // identidad provider-native del reveal de teléfono. Es de teléfono, pero no de este
       // hito ni de lo que esta guarda vigila: no nombra `phone_source`, `contact_phones`
       // ni la creación manual. Se declara NO aplicada en Producción.
-      // BR-SOURCE-FUNCTIONAL-CUT-A mueve el techo a la 125: la identidad MENSUAL del
-      // snapshot de Receita (`source_period` + unicidad period-aware en
+      // BR-SOURCE-FUNCTIONAL-CUT-A movió el techo a la 125 originalmente: la identidad MENSUAL
+      // del snapshot de Receita (`source_period` + unicidad period-aware en
       // `source_company_snapshots`, estado de publicación en `source_snapshot_runs`). NO es de
-      // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono; la
-      // autoría se comprueba abajo archivo por archivo. AUTORADA y NO APLICADA.
-      // El techo pasó por la 125 (BR-SOURCE, arriba) y ahora es la 126.
-      // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
-      // optimista de la admisión por identidad de LOTE (Agente 1). Añade
-      // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
-      // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
-      // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
-      // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
-      '126_agent1_batch_identity_atomicity.sql',
+      // teléfono y NO nombra ninguna tabla, columna ni función de la cadena de teléfono.
+      //
+      // BR-SOURCE CUT A.1 (reconciliación de esquema de producción antes de CUT B) RENUMERÓ esa
+      // migración DOS VECES: 125→126→127 —su cuerpo SQL no cambió en nada que afecte a esta
+      // cadena. El primer salto dejó sitio a una migración 125 genérica y nueva: unicidad de
+      // `record_identity_key` sobre `source_company_snapshots` para fuentes NO brasileñas. El
+      // segundo lo forzó AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, que reclamó el 126 de forma
+      // independiente: el vallado optimista de la admisión por identidad de LOTE (Agente 1), que
+      // añade `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
+      // `prospect_candidates`. Ninguna de las tres toca `phone_source`, `contact_phones` ni la
+      // creación manual; la autoría se comprueba abajo archivo por archivo. Las tres AUTORADAS y
+      // NO APLICADAS.
+      '127_br_receita_monthly_snapshot_identity.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

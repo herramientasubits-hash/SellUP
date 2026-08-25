@@ -395,11 +395,15 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // la búsqueda de identidad. Trae su propia guarda estática y NO edita ninguna
       // migración anterior — que es lo que esta lista exacta vigila. NO aplicada en Prod.
       '124_cross_provider_phone_identity.sql',
+      // BR-SOURCE CUT A.1: unicidad GENÉRICA de `record_identity_key` sobre
+      // `source_company_snapshots` para fuentes NO brasileñas. NO es de teléfono y NO edita
+      // ninguna migración anterior — que es lo que esta lista exacta vigila. AUTORADA y NO
+      // APLICADA.
+      '125_reconcile_source_snapshot_record_identity.sql',
       // BR-SOURCE-FUNCTIONAL-CUT-A: la identidad MENSUAL del snapshot de Receita
       // (`source_period` + unicidad period-aware en `source_company_snapshots`, estado de
       // publicación en `source_snapshot_runs`). NO es de teléfono y NO edita ninguna migración
       // anterior — que es lo que esta lista exacta vigila. AUTORADA y NO APLICADA.
-      '125_br_receita_monthly_snapshot_identity.sql',
       // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
       // optimista de la admisión por identidad de LOTE (Agente 1). Añade
       // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
@@ -407,12 +411,16 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
       // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
       '126_agent1_batch_identity_atomicity.sql',
+      // RENUMERADA de 125 a 127 (con una escala en 126) por CUT A.1: el primer salto dejó
+      // sitio a la reconciliación genérica arriba; el segundo lo forzó AGENT1-CUT3B4 al
+      // reclamar el 126 de forma independiente.
+      '127_br_receita_monthly_snapshot_identity.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
   });
 
-  it('la migración 123 (memoria provider-seen) es la última del repo', () => {
+  it('la migración 127 (BR-SOURCE CUT A.1) es la última del repo', () => {
     // 4O-H2 mueve el techo de la 114 a la 115. Se sigue fijando un número EXACTO: una
     // migración por encima del último hito conocido tiene que romper esta guarda.
     const numbered = readdirSync(MIGRATIONS_DIR)
@@ -428,15 +436,14 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1 lo mueve a la 124: identidad
     // provider-native, grano de reserva por operación y claim propio de la búsqueda. No
     // borra teléfonos ni toca la erasure que esta suite protege. NO aplicada en Prod.
-    // BR-SOURCE-FUNCTIONAL-CUT-A lo mueve a la 125: la identidad MENSUAL del snapshot de
-    // Receita. NO es de teléfono. AUTORADA y NO APLICADA.
-    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
-    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
+    // BR-SOURCE CUT A.1 renumeró la migración BR-SOURCE-FUNCTIONAL-CUT-A dos veces: 125 → 126 →
+    // 127. El primer salto dejó sitio a una migración 125 genérica y nueva (reconciliación de
+    // `record_identity_key` sobre `source_company_snapshots`, no brasileña). El segundo lo forzó
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY, que reclamó el 126 de forma independiente: el
+    // vallado optimista de la admisión por identidad de LOTE (Agente 1), que añade
     // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
-    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
-    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
-    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
-    assert.equal(numbered[numbered.length - 1], 126);
+    // `prospect_candidates`. Ninguna de las tres es de teléfono. Todas AUTORADAS y NO APLICADAS.
+    assert.equal(numbered[numbered.length - 1], 127);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

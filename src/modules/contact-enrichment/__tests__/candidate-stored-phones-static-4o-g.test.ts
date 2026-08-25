@@ -493,30 +493,30 @@ describe('4O-G — alcance', () => {
     // provider-native del reveal. Crea `contact_provider_identities` y añade columnas a la
     // reserva y a la corrida; NO toca la colección de teléfonos que 4O-G lee, y 4O-G sigue
     // sin aportar ni editar SQL, que es lo que esta guarda afirma.
-    // BR-SOURCE-FUNCTIONAL-CUT-A lo mueve a la 125: la identidad MENSUAL del snapshot de
-    // Receita. NO toca la colección de teléfonos que 4O-G lee, y 4O-G sigue sin aportar ni
-    // editar SQL, que es lo que esta guarda afirma. AUTORADA y NO APLICADA.
-    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
-    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
-    // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
-    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
-    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
-    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
-    assert.equal(numbered[numbered.length - 1], 126);
+    // BR-SOURCE-FUNCTIONAL-CUT-A lo movió a la 125, y luego a la 126: la identidad MENSUAL
+    // del snapshot de Receita. NO toca la colección de teléfonos que 4O-G lee, y 4O-G sigue
+    // sin aportar ni editar SQL, que es lo que esta guarda afirma. AUTORADA y NO APLICADA.
+    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY reclamó el 126 de forma independiente mientras
+    // la reconciliación de BR-SOURCE CUT A.1 seguía en revisión: el vallado optimista de la
+    // admisión por identidad de LOTE (Agente 1). Añade `prospect_batches.identity_epoch` y
+    // dos funciones sobre `prospect_batches` y `prospect_candidates`; NO es de teléfono en
+    // absoluto y no nombra ninguna tabla, columna ni función de teléfono, que es lo que esta
+    // guarda vigila. Trae su propia guarda estática y NO edita ninguna migración anterior.
+    // NO aplicada en Producción.
+    // BR-SOURCE CUT A.1 RENUMERÓ su propia migración una segunda vez, de 126 a 127, para no
+    // colisionar con la de AGENT1-CUT3B4, y dejó sitio a una migración 125 genérica
+    // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
+    // brasileñas) — ninguna de las tres toca la colección de teléfonos que 4O-G lee.
+    assert.equal(numbered[numbered.length - 1], 127);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
     // historia, cuenta y techo coinciden, y esa coincidencia es en sí misma la guarda:
     // vuelve a fallar si alguien borra un archivo aplicado o cuela uno sin renumerar.
-    // 125 archivos para los números 001-125: sigue SIN un solo hueco, y conteo y techo
+    // 127 archivos para los números 001-127 (124 previos + 125 reconciliación genérica + 126
+    // AGENT1-CUT3B4 + 127 BR-CUT-A renumerada): sigue SIN un solo hueco, y conteo y techo
     // vuelven a coincidir. Esa coincidencia ES la guarda.
-    // AGENT1-CUT3B4-BATCH-IDENTITY-ATOMICITY mueve el techo a la 126: el vallado
-    // optimista de la admisión por identidad de LOTE (Agente 1). Añade
-    // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
-    // `prospect_candidates`; NO es de teléfono en absoluto y no nombra ninguna tabla,
-    // columna ni función de teléfono, que es lo que esta guarda vigila. Trae su propia
-    // guarda estática y NO edita ninguna migración anterior. NO aplicada en Producción.
-    assert.equal(numbered.length, 126);
+    assert.equal(numbered.length, 127);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

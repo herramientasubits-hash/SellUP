@@ -72,7 +72,7 @@
  * With `snapshot_run_id`, run A (published, 2026-07) and run B (preparing, 2026-07) coexist
  * PHYSICALLY. B's upserts cannot touch A's rows, because the conflict target includes the run. While
  * B loads, readers still see 100% of A. The cutover is ONE transaction that demotes A and promotes
- * B — in that order, because migration 125's published-per-period unique index is immediate, so
+ * B — in that order, because migration 126's published-per-period unique index is immediate, so
  * promoting first would collide with A. Before the commit a reader sees A; after it, B; never a
  * mixture. If B fails, A was never touched.
  *
@@ -104,7 +104,7 @@ import { parseSourcePeriod } from '../../source-period';
 export const BR_RECEITA_SNAPSHOT_BATCH_ROWS = 500 as const;
 
 /**
- * The RUN-SCOPED conflict target, matching migration 125's
+ * The RUN-SCOPED conflict target, matching migration 126's
  * `source_company_snapshots_br_period_identity_uidx`.
  *
  * 🔴 Five columns, not four. The run is part of the physical key, which is the whole reason a
@@ -132,7 +132,7 @@ export const BR_RECEITA_RUN_SCOPED_CONFLICT_COLUMNS: readonly string[] = [
  * `ON CONFLICT (five, columns)` does not match a partial index and raises "there is no unique or
  * exclusion constraint matching the ON CONFLICT specification" — a hard error rather than a silent
  * insert, which is the safe direction, but still a broken executor. Recorded here so CUT B emits it
- * by construction; the CUT-A suite asserts this string appears verbatim in migration 125.
+ * by construction; the CUT-A suite asserts this string appears verbatim in migration 126.
  */
 export const BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE =
   "source_key = 'br_receita_cnpj_dados_abertos'" as const;
@@ -145,7 +145,7 @@ export const BR_RECEITA_RUN_SCOPED_CONFLICT_PREDICATE =
  */
 export const BR_RECEITA_PERIOD_LOGICAL_IDENTITY_COLUMNS = BR_RECEITA_PERIOD_EXACT_LOOKUP_COLUMNS;
 
-/** The publish lifecycle of one run. Mirrors migration 125's CHECK constraint exactly. */
+/** The publish lifecycle of one run. Mirrors migration 126's CHECK constraint exactly. */
 export const BR_RECEITA_SNAPSHOT_PUBLISH_STATES = [
   'preparing',
   'published',
@@ -232,7 +232,7 @@ export interface UpsertBatchOperation {
   readonly snapshot_run_id: string;
   readonly rows: readonly BrReceitaRunScopedSnapshotRow[];
   /**
-   * The identity columns that resolve a conflict. RUN-scoped, matching migration 125's
+   * The identity columns that resolve a conflict. RUN-scoped, matching migration 126's
    * `source_company_snapshots_br_period_identity_uidx`.
    *
    * 🔴 Deliberately NOT `RECORD_IDENTITY_ON_CONFLICT` nor `OLD_TAX_GRAIN_ON_CONFLICT`: both are
