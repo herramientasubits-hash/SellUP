@@ -33,6 +33,7 @@ import {
   BATCH_SEARCH_DEPTH_LABELS,
   isUsefulReviewCandidate,
 } from '@/modules/prospect-batches/types';
+import { resolveBatchCandidatesPanelState } from '@/components/prospect-batches/batch-candidates-panel-state';
 import type { BatchStatus, BatchSource } from '@/modules/prospect-batches/types';
 import { getIcpSizeGateSummaryUiState } from '@/components/prospect-batches/icp-size-gate-ui';
 
@@ -105,24 +106,28 @@ export default async function BatchDetailPage({ params }: Props) {
     ? (chileSubtitle ?? batch.name)
     : (batch.description ?? undefined);
 
+  // `isUsefulReviewCandidate` sigue decidiendo QUÉ FILAS monta la tabla
+  // accionable heredada — no se toca su semántica y no se le añaden filas
+  // nuevas (eso es CUT4-C, que primero debe reutilizar las guardas seguras de
+  // Prospectos). Lo que deja de decidir es CUÁNTOS candidatos dice tener el
+  // lote: ese conteo ya viene del contrato durable, resuelto en el servidor.
   const usefulCandidates = candidates.filter(isUsefulReviewCandidate);
   const omittedCandidates = candidates.filter((c) => !isUsefulReviewCandidate(c));
 
   const counts = {
-    total: usefulCandidates.length,
-    needs_review: usefulCandidates.filter(
-      (c) => c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized'
-    ).length,
-    approved: usefulCandidates.filter((c) => c.status === 'approved').length,
-    discarded: usefulCandidates.filter((c) => c.status === 'discarded').length,
-    converted: usefulCandidates.filter((c) => c.status === 'converted_to_account').length,
-    duplicates: usefulCandidates.filter(
-      (c) =>
-        c.duplicate_status === 'possible_duplicate' ||
-        c.duplicate_status === 'exact_duplicate' ||
-        c.status === 'duplicate'
-    ).length,
+    total: batch.total_candidates ?? 0,
+    needs_review: batch.needs_review_count ?? 0,
+    approved: batch.approved_count ?? 0,
+    discarded: batch.discarded_count ?? 0,
+    converted: batch.converted_count ?? 0,
+    duplicates: batch.duplicate_count ?? 0,
   };
+
+  const candidatesPanel = resolveBatchCandidatesPanelState({
+    batchId: batch.id,
+    durableTotal: counts.total,
+    listedCount: usefulCandidates.length,
+  });
 
   const summaryCards = [
     {
@@ -541,9 +546,7 @@ export default async function BatchDetailPage({ params }: Props) {
       <SurfaceCard noPadding>
         <div className="flex items-center justify-between border-b border-border/40 px-5 py-3.5">
           <p className="text-sm font-semibold text-foreground">
-            {usefulCandidates.length === 0
-              ? 'Sin empresas candidatas'
-              : `${usefulCandidates.length} empresa${usefulCandidates.length !== 1 ? 's' : ''} candidata${usefulCandidates.length !== 1 ? 's' : ''}`}
+            {candidatesPanel.headline}
           </p>
           <div className="flex items-center gap-2">
             <Layers className="h-3.5 w-3.5 text-muted-foreground/60" />
@@ -553,6 +556,25 @@ export default async function BatchDetailPage({ params }: Props) {
           </div>
         </div>
         <CandidatesTableClient candidates={usefulCandidates} />
+        {/*
+          CUT4-A1 — navegación segura. Los candidatos durables que esta tabla no
+          monta NO se le añaden aquí: `CandidateRowActions` conserva fuera de
+          Prospectos el comportamiento heredado de aprobar/descartar/duplicar, y
+          ampliarlo es CUT4-C. Mientras tanto el operador deja de ver un cero
+          falso y tiene una ruta no destructiva a la cola oficial de revisión.
+        */}
+        {candidatesPanel.showReviewCallout && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 px-5 py-3">
+            <p className="text-xs text-muted-foreground">{candidatesPanel.calloutMessage}</p>
+            <Link
+              href={candidatesPanel.prospectosHref}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-su-brand hover:bg-su-brand-soft transition-colors"
+            >
+              Revisar en Prospectos
+              <ArrowRightCircle className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        )}
       </SurfaceCard>
 
       {/* Omitted candidates */}
