@@ -2685,6 +2685,15 @@ export interface PhoneRevealWaterfallLushaLegResult {
   creditsCharged: number | null;
   /** Código de error mecánico, sin PII. null en los caminos correctos. */
   errorCode: string | null;
+  /**
+   * ¿Salió una petición HTTP hacia Lusha? (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1)
+   *
+   * Distingue las dos cosas que el CLAIM de la pata no puede distinguir: «se reclamó
+   * y se pagó» de «se reclamó y murió en un gate local sin emitir nada». Ausente ⇒
+   * se trata como `true`, que es lo conservador: un ejecutor que no declare el hecho
+   * no puede, por omisión, liberar una reserva.
+   */
+  requestEmitted?: boolean;
 }
 
 /**
@@ -2790,9 +2799,72 @@ export function mapLushaLegResultToWaterfallPatch(
     lushaCostSource: 'unknown',
     finalProvider: 'none',
     completedAt: nowIso,
-    errorCode: cleanText(result.errorCode) ?? 'lusha_reveal_error',
+    errorCode: resolveLushaLegTerminalErrorCode(result),
   };
 }
+
+/**
+ * Motivo terminal de la pata Lusha, con el DETALLE que la corrida conservaba y tiraba
+ * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).
+ *
+ * Hasta este hito esta decisión miraba únicamente `errorCode`, y los gates locales del
+ * ejecutor —elegibilidad, rol, flag— no rellenan ese campo: su motivo viaja en
+ * `status`. El resultado era que TODA esa familia de fallos se cerraba con el mismo
+ * `lusha_reveal_error`, un código que además afirma algo falso: que hubo un reveal que
+ * falló. En la corrida real 2a49e0f7 el desenlace verdadero era
+ * `missing_lusha_contact_id` y nunca hubo petición.
+ *
+ * PRECEDENCIA: `errorCode` primero —cuando existe es el motivo más específico, y lo
+ * rellenan los caminos que SÍ hablaron con el proveedor— y sólo si falta se usa
+ * `status`. El genérico queda como último recurso real, para un ejecutor que no
+ * declarara ninguno de los dos.
+ *
+ * Vocabulario CERRADO: `status` se acepta sólo si es un motivo mecánico conocido, para
+ * que un valor inesperado del ejecutor no se convierta en el `error_code` de la corrida
+ * (ni pueda arrastrar texto libre a una columna que la UI lee).
+ */
+function resolveLushaLegTerminalErrorCode(
+  result: PhoneRevealWaterfallLushaLegResult,
+): string {
+  const explicit = cleanText(result.errorCode);
+  if (explicit) return explicit;
+
+  const status = cleanText(result.status);
+  if (status && PHONE_REVEAL_WATERFALL_LUSHA_LEG_LOCAL_BLOCK_STATUSES.includes(status)) {
+    return status;
+  }
+  return 'lusha_reveal_error';
+}
+
+/**
+ * Estados con los que el ejecutor de la pata declara un bloqueo LOCAL — anterior a
+ * cualquier byte enviado a Lusha. Son los `LushaPhoneFallbackActionStatus` que el core
+ * del fallback devuelve por su gate de elegibilidad y sus permisos.
+ *
+ * Se declaran aquí, y no se importan, por la misma razón que
+ * `PHONE_REVEAL_WATERFALL_LUSHA_SUPPRESSED_ERROR_CODE`: este core no depende del core
+ * de Lusha. Un test estático verifica que la lista no se separe de su origen.
+ */
+export const PHONE_REVEAL_WATERFALL_LUSHA_LEG_LOCAL_BLOCK_STATUSES: readonly string[] = [
+  // Los once motivos del gate de elegibilidad del fallback
+  // (`LUSHA_PHONE_FALLBACK_ELIGIBILITY_GATE_ORDER`, menos `eligible`).
+  'feature_disabled',
+  'unauthorized_role',
+  'bulk_not_allowed',
+  'candidate_not_editable',
+  'apollo_not_exhausted',
+  'existing_phone_present',
+  'missing_lusha_contact_id',
+  'waiting_lusha_ticket',
+  'lusha_id_reuse_unconfirmed',
+  'entitlement_unconfirmed',
+  'missing_cost_confirmation',
+  // Validaciones de entrada del propio core del fallback.
+  'invalid_candidate',
+  'candidate_not_found',
+  // Revalidación de rol del ejecutor de la pata, ANTES de entrar al core.
+  'role_not_allowed',
+];
 
 // ── Continuación completa (con claim atómico) ──────────────────
 
@@ -3160,6 +3232,10 @@ export async function continuePhoneRevealWaterfall(
       status: 'error',
       creditsCharged: null,
       errorCode: 'lusha_leg_threw',
+      // Una excepción del ejecutor NO demuestra que no se emitiera la petición: pudo
+      // lanzar después de que Lusha cobrara. Se declara `true` explícitamente para que
+      // la reserva se confirme al tope, que es lo conservador.
+      requestEmitted: true,
     };
   }
 
@@ -3213,6 +3289,16 @@ export interface PhoneRevealWaterfallAuditView {
   lushaCostCredits: number | null;
   lushaCostSource: PhoneRevealWaterfallCostSource | null;
   finalProvider: PhoneRevealWaterfallFinalProvider | null;
+  /**
+   * Motivo MECÁNICO con el que cerró la corrida
+   * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).
+   *
+   * PII-free por construcción: vocabulario cerrado de códigos, sin nombre, teléfono,
+   * LinkedIn ni id de proveedor. Viaja para que la UI pueda decir QUÉ pasó en vez de
+   * mostrar el mismo rojo genérico para un problema de credencial, un límite de tasa
+   * y un candidato que no se pudo identificar — tres cosas con acciones distintas.
+   */
+  errorCode: string | null;
 }
 
 /** Construye la vista de auditoría desde la fila de la corrida. */
@@ -3235,5 +3321,6 @@ export function buildPhoneRevealWaterfallAuditView(
     lushaCostCredits: run.lushaCostCredits,
     lushaCostSource: run.lushaCostSource,
     finalProvider: run.finalProvider,
+    errorCode: run.errorCode,
   };
 }

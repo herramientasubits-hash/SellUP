@@ -224,6 +224,7 @@ function auditView(
   overrides: Partial<PhoneRevealWaterfallAuditView> = {},
 ): PhoneRevealWaterfallAuditView {
   return {
+    errorCode: null,
     status: 'apollo_in_flight',
     // Default explícito: esta suite describe el waterfall completo, así que sus
     // aserciones no cambian de significado al añadirse la modalidad legacy

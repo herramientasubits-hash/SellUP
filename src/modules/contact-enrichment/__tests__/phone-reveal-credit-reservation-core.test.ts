@@ -654,6 +654,11 @@ describe('reserva — vocabularios', () => {
       'run_creation_failed',
       'create_conflict',
       'leg_never_attempted',
+      // AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1. Sigue siendo no-ejecución
+      // DEMOSTRABLE, y por eso pertenece a esta lista: el ejecutor de la pata declara
+      // que murió en un gate LOCAL, así que la ausencia de petición es un hecho
+      // observado desde este proceso y no una suposición sobre lo que hizo el proveedor.
+      'leg_request_never_emitted',
       'orphan_sweep',
     ]);
     // Ningún motivo puede significar "el costo era desconocido": eso se confirma.

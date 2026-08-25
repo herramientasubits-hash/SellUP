@@ -229,6 +229,7 @@ function auditView(
   overrides: Partial<PhoneRevealWaterfallAuditView> = {},
 ): PhoneRevealWaterfallAuditView {
   return {
+    errorCode: null,
     status: 'lusha_pending',
     runMode: 'legacy_lusha_only',
     isTerminal: false,

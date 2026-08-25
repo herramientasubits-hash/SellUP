@@ -19,6 +19,7 @@ import {
   isPhoneRevealWaterfallAuthorizationExpired,
   isPhoneRevealWaterfallRoleAuthorized,
   mapApolloStartStatusToWaterfallPatch,
+  PHONE_REVEAL_WATERFALL_LUSHA_LEG_LOCAL_BLOCK_STATUSES,
   mapLushaLegResultToWaterfallPatch,
   parsePhoneRevealWaterfallLushaSkippedReason,
   resolvePhoneRevealWaterfallCostSource,
@@ -850,12 +851,46 @@ describe('waterfall — costos', () => {
 
   test('un status Lusha desconocido se trata como error', () => {
     const patch = mapLushaLegResultToWaterfallPatch(
-      { status: 'feature_disabled', creditsCharged: null, errorCode: null },
+      { status: 'algo_que_nadie_declaro', creditsCharged: null, errorCode: null },
       NOW_ISO,
     );
     assert.equal(patch.status, 'error');
+    // El genérico sobrevive SOLO aquí: sin `errorCode` y con un `status` fuera del
+    // vocabulario cerrado, no hay motivo verdadero que preservar.
     assert.equal(patch.errorCode, 'lusha_reveal_error');
     assert.equal(patch.finalProvider, 'none');
+  });
+
+  /**
+   * AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1.
+   *
+   * Este caso ANTES afirmaba lo contrario: que `feature_disabled` se cerraba como
+   * `lusha_reveal_error`. Era el trinquete que fijaba el defecto — el mismo que hizo
+   * que la corrida real 2a49e0f7 registrara «falló el reveal» cuando lo que había
+   * pasado era que el reveal nunca ocurrió.
+   */
+  test('un bloqueo LOCAL conserva su motivo en vez de colapsar al genérico', () => {
+    for (const status of PHONE_REVEAL_WATERFALL_LUSHA_LEG_LOCAL_BLOCK_STATUSES) {
+      const patch = mapLushaLegResultToWaterfallPatch(
+        { status, creditsCharged: null, errorCode: null, requestEmitted: false },
+        NOW_ISO,
+      );
+      assert.equal(patch.status, 'error');
+      assert.equal(patch.errorCode, status);
+      assert.equal(patch.finalProvider, 'none');
+    }
+  });
+
+  test('`errorCode` explícito gana al `status`: el motivo más específico manda', () => {
+    const patch = mapLushaLegResultToWaterfallPatch(
+      {
+        status: 'missing_lusha_contact_id',
+        creditsCharged: null,
+        errorCode: 'provider_auth_error',
+      },
+      NOW_ISO,
+    );
+    assert.equal(patch.errorCode, 'provider_auth_error');
   });
 });
 

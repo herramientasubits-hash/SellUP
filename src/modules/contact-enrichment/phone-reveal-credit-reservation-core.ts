@@ -99,6 +99,20 @@ export const PHONE_REVEAL_CREDIT_RESERVATION_RELEASE_REASONS = [
    * (corrida legacy, donde Apollo no corre bajo esta autorización).
    */
   'leg_never_attempted',
+  /**
+   * La pata SE RECLAMÓ pero ninguna petición llegó a emitirse
+   * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).
+   *
+   * Es un motivo distinto de `leg_never_attempted` a propósito, porque los dos hechos
+   * son distintos y la auditoría necesita poder separarlos: allí el claim nunca se
+   * tomó; aquí sí se tomó, y aun así no hubo nada que cobrar porque el ejecutor murió
+   * en un gate LOCAL —elegibilidad, rol— antes de hablar con el proveedor.
+   *
+   * Sin este motivo, el claim era la única señal disponible y toda pata reclamada se
+   * confirmaba al tope: la corrida real 2a49e0f7 confirmó 5 créditos `assumed_cap`
+   * por una petición que nunca salió.
+   */
+  'leg_request_never_emitted',
   /** Barrido de reservas huérfanas: reservada, sin corrida y vencida. */
   'orphan_sweep',
 ] as const;
@@ -604,7 +618,49 @@ export interface PhoneRevealCreditSettlementFacts {
   lushaIdentitySearchCostCredits?: number | null;
   /** Solo `reported` convierte la cifra anterior en verdad. */
   lushaIdentitySearchCostSource?: string | null;
+  /**
+   * `error_code` con el que la corrida cerró la pata de REVEAL de Lusha
+   * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).
+   *
+   * Sirve para una sola pregunta: ¿llegó a emitirse una petición? El claim
+   * (`lusha_attempted_at`) no puede responderla —se toma ANTES del ejecutor— y este
+   * código sí, porque los bloqueos LOCALES del ejecutor tienen vocabulario propio y
+   * cerrado (`PHONE_REVEAL_LOCAL_BLOCK_ERROR_CODES`).
+   *
+   * OPCIONAL y fail-closed: ausente, o con cualquier código fuera de esa lista, la
+   * pata se considera EMITIDA y se liquida como siempre. Sólo un código de bloqueo
+   * local libera.
+   */
+  lushaRevealErrorCode?: string | null;
 }
+
+/**
+ * Códigos con los que el ejecutor de la pata declara que murió ANTES de emitir.
+ *
+ * Espejo de `PHONE_REVEAL_WATERFALL_LUSHA_LEG_LOCAL_BLOCK_STATUSES` en
+ * phone-reveal-waterfall-core.ts, declarado aquí para que este módulo de dinero no
+ * dependa del core del waterfall. Un test estático verifica que no se separen.
+ *
+ * NO incluye los cierres de PRIVACIDAD (`blocked_suppressed`, `do_not_contact`,
+ * `suppression_check_unavailable`): ésos cierran la corrida sin reclamar la pata, así
+ * que ya se liberan por `leg_never_attempted` y no necesitan este camino.
+ */
+export const PHONE_REVEAL_LOCAL_BLOCK_ERROR_CODES: readonly string[] = [
+  'feature_disabled',
+  'unauthorized_role',
+  'bulk_not_allowed',
+  'candidate_not_editable',
+  'apollo_not_exhausted',
+  'existing_phone_present',
+  'missing_lusha_contact_id',
+  'waiting_lusha_ticket',
+  'lusha_id_reuse_unconfirmed',
+  'entitlement_unconfirmed',
+  'missing_cost_confirmation',
+  'invalid_candidate',
+  'candidate_not_found',
+  'role_not_allowed',
+];
 
 /** Qué hacer con UNA pata reservada. */
 export type PhoneRevealCreditSettlementAction =
@@ -694,6 +750,25 @@ export function decidePhoneRevealCreditSettlement(args: {
         providerKey: leg.providerKey,
         operationKey,
         reason: 'leg_never_attempted',
+      };
+    }
+
+    // Pata RECLAMADA que nunca emitió. Se libera igual que una nunca intentada —no
+    // hubo nada que cobrar— pero con su propio motivo, porque el hecho es otro.
+    // Sólo aplica al REVEAL de Lusha: la búsqueda tiene su propio claim y su propio
+    // preflight, que ya no reclama cuando no puede emitir.
+    if (
+      leg.providerKey === 'lusha' &&
+      operationKey === 'phone_reveal' &&
+      typeof args.facts.lushaRevealErrorCode === 'string' &&
+      PHONE_REVEAL_LOCAL_BLOCK_ERROR_CODES.includes(args.facts.lushaRevealErrorCode)
+    ) {
+      return {
+        action: 'release',
+        reservationId: leg.id,
+        providerKey: leg.providerKey,
+        operationKey,
+        reason: 'leg_request_never_emitted',
       };
     }
 

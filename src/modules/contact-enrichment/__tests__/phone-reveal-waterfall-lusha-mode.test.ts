@@ -191,7 +191,7 @@ describe('modo manual — comportamiento previo intacto', () => {
   });
 
   test('un fallo de red SÍ persiste en el candidato', async () => {
-    const h = harness({ lushaResult: { ok: false, errorMessage: 'timeout' } });
+    const h = harness({ lushaResult: { ok: false, errorMessage: 'timeout', failureKind: 'timeout' as const } });
     const result = await runLushaPhoneFallbackReveal(INPUT, h.deps);
     assert.equal(result.errorCode, 'provider_network_error');
     assert.equal(h.persisted.length, 1);
@@ -239,7 +239,7 @@ describe('modo waterfall — solo un reveal real toca el candidato', () => {
   test('fallo de red: NO sobrescribe el estado del candidato', async () => {
     const h = harness({
       waterfallMode: true,
-      lushaResult: { ok: false, errorMessage: 'timeout' },
+      lushaResult: { ok: false, errorMessage: 'timeout', failureKind: 'timeout' as const },
     });
     const result = await runLushaPhoneFallbackReveal(INPUT, h.deps);
     assert.equal(result.errorCode, 'provider_network_error');
@@ -264,7 +264,7 @@ describe('modo waterfall — usage-log', () => {
       undefined,
       NO_PHONE_RESULT,
       HTTP_ERROR_RESULT,
-      { ok: false, errorMessage: 'timeout' } as LushaPhoneFallbackClientResult,
+      { ok: false, errorMessage: 'timeout', failureKind: 'timeout' as const } as LushaPhoneFallbackClientResult,
     ]) {
       const h = harness({ waterfallMode: true, lushaResult });
       await runLushaPhoneFallbackReveal(INPUT, h.deps);

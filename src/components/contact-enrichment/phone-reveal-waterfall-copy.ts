@@ -657,3 +657,96 @@ export const PHONE_REVEAL_LEGACY_FEATURE_DISABLED_COPY =
 /** Hecho del ACTOR, no del candidato. */
 export const PHONE_REVEAL_LEGACY_ROLE_NOT_ALLOWED_COPY =
   'Tu rol no puede autorizar la revelación de teléfono.';
+
+// ── Cierre TERMINAL en error, motivo por motivo ────────────────
+// (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1)
+//
+// Hasta este hito TODO cierre en error mostraba la misma frase genérica, y la corrida
+// real 2a49e0f7 es el ejemplo de por qué eso no sirve: el motivo verdadero era que el
+// contacto no se pudo identificar en Lusha —un problema NUESTRO, sin ninguna llamada
+// al proveedor— y el operador leía «no fue posible completar la revelación», que
+// sugiere que Lusha falló y que reintentar más tarde ayudaría. Ninguna de las dos
+// cosas era cierta.
+//
+// REGLA QUE NINGUNO DE ESTOS COPY PUEDE ROMPER: un fallo TÉCNICO nunca se le cuenta al
+// operador como «este contacto no tiene teléfono». Sólo un `exhausted` —Lusha
+// respondió y no traía número— puede decir eso, y ése ya tiene su propio copy
+// (`PHONE_REVEAL_WATERFALL_EXHAUSTED_COPY`).
+//
+// Tampoco exponen ids de proveedor, endpoints ni detalles internos: describen el
+// ESTADO y la acción que le queda al operador.
+
+/** Credencial ausente, inválida o plan sin el permiso. Acción: revisar configuración. */
+export const PHONE_REVEAL_WATERFALL_CREDENTIAL_ERROR_COPY =
+  'No fue posible consultar Lusha por un problema de configuración.';
+
+/** Límite de tasa del proveedor. Acción: reintentar más tarde. */
+export const PHONE_REVEAL_WATERFALL_RATE_LIMITED_COPY =
+  'Lusha no pudo responder en este momento.';
+
+/** 5xx, red caída o timeout. Acción: reintentar más tarde. */
+export const PHONE_REVEAL_WATERFALL_PROVIDER_UNAVAILABLE_COPY =
+  'No fue posible completar la consulta con Lusha. Intenta más tarde.';
+
+/**
+ * No se pudo identificar al contacto en Lusha. Es el motivo REAL de 2a49e0f7.
+ *
+ * No dice «no tiene teléfono» ni «Lusha falló»: dice lo único que es cierto — que la
+ * consulta no llegó a hacerse porque falta la identidad con la que hacerla.
+ */
+export const PHONE_REVEAL_WATERFALL_IDENTITY_UNRESOLVED_COPY =
+  'No fue posible identificar este contacto en Lusha, así que no se consultó su teléfono.';
+
+/** Gate local distinto de la identidad (flag, rol, elegibilidad). */
+export const PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY =
+  'Esta revelación no se pudo ejecutar con la configuración actual. No se consultó a ningún proveedor.';
+
+/**
+ * Copy por motivo terminal. Declarado como DATO para que añadir un motivo nuevo sea
+ * añadir una fila, y para que un motivo sin fila caiga en el genérico en vez de
+ * romper el render.
+ */
+const TERMINAL_ERROR_COPY_BY_CODE: Readonly<Record<string, string>> = {
+  // Identidad: la familia del fallo real.
+  missing_lusha_contact_id: PHONE_REVEAL_WATERFALL_IDENTITY_UNRESOLVED_COPY,
+  invalid_contact_id: PHONE_REVEAL_WATERFALL_IDENTITY_UNRESOLVED_COPY,
+
+  // Credencial / entitlement.
+  provider_auth_error: PHONE_REVEAL_WATERFALL_CREDENTIAL_ERROR_COPY,
+  provider_permission_error: PHONE_REVEAL_WATERFALL_CREDENTIAL_ERROR_COPY,
+  entitlement_unconfirmed: PHONE_REVEAL_WATERFALL_CREDENTIAL_ERROR_COPY,
+  lusha_id_reuse_unconfirmed: PHONE_REVEAL_WATERFALL_CREDENTIAL_ERROR_COPY,
+
+  // Momento.
+  rate_limited: PHONE_REVEAL_WATERFALL_RATE_LIMITED_COPY,
+
+  // Disponibilidad del proveedor.
+  provider_error: PHONE_REVEAL_WATERFALL_PROVIDER_UNAVAILABLE_COPY,
+  provider_network_error: PHONE_REVEAL_WATERFALL_PROVIDER_UNAVAILABLE_COPY,
+  malformed_provider_response: PHONE_REVEAL_WATERFALL_PROVIDER_UNAVAILABLE_COPY,
+  lusha_leg_threw: PHONE_REVEAL_WATERFALL_PROVIDER_UNAVAILABLE_COPY,
+
+  // Gates locales de autorización y elegibilidad.
+  feature_disabled: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+  unauthorized_role: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+  role_not_allowed: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+  bulk_not_allowed: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+  candidate_not_editable: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+  candidate_not_found: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+  invalid_candidate: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+  missing_cost_confirmation: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+  apollo_not_exhausted: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+  existing_phone_present: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+  waiting_lusha_ticket: PHONE_REVEAL_WATERFALL_NOT_AUTHORIZED_COPY,
+};
+
+/**
+ * Frase para un cierre terminal en `error`. Un motivo desconocido —o ausente— cae en
+ * el genérico de siempre, que sigue sin afirmar que no exista teléfono.
+ */
+export function resolvePhoneRevealTerminalErrorCopy(
+  errorCode: string | null | undefined,
+): string {
+  if (!errorCode) return PHONE_REVEAL_WATERFALL_ERROR_COPY;
+  return TERMINAL_ERROR_COPY_BY_CODE[errorCode] ?? PHONE_REVEAL_WATERFALL_ERROR_COPY;
+}

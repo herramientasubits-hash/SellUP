@@ -477,6 +477,12 @@ export async function reconcilePhoneRevealCreditReservationForRun(
         lushaAttempted: run.lushaAttemptedAt !== null,
         lushaCostCredits: run.lushaCostCredits,
         lushaCostSource: run.lushaCostSource,
+        // Verdad de EMISIÓN de la pata de reveal, leída del cierre de la corrida
+        // (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1). El claim dice que la pata se
+        // tomó; este código dice si además llegó a salir una petición. Sólo un
+        // vocabulario cerrado de bloqueos LOCALES libera; cualquier otro valor —o su
+        // ausencia— liquida como siempre.
+        lushaRevealErrorCode: run.errorCode,
         // La pata de BÚSQUEDA se liquida por su PROPIO claim, nunca por el del reveal.
         // Su costo NO se declara a propósito: la 124 no crea columna para él, así que
         // queda desconocido y el core lo confirma al TOPE (`assumed_cap`) — que es lo
@@ -832,6 +838,28 @@ export async function callLushaFallbackLeg(args: {
    *      la ruta automática ese resultado vive sólo en la corrida.
    */
   manualInvocation?: boolean;
+  /**
+   * Id NATIVO de Lusha ya resuelto por el paso de identidad de la corrida
+   * (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).
+   *
+   * EL PARÁMETRO QUE FALTABA. El core del waterfall ya lo pasaba —su dep
+   * `callLushaLeg` lo declara `lushaContactId?: string` desde
+   * AGENT2A-CROSS-PROVIDER-PHONE-IDENTITY-RESOLUTION-1— pero esta firma no lo
+   * recibía, así que se descartaba en silencio. TypeScript no podía avisar: una
+   * función cuyo objeto de parámetros declara MENOS propiedades es asignable a una
+   * que declara más, de modo que el contrato y su implementación divergieron sin
+   * error de compilación.
+   *
+   * Consecuencia exacta en Producción (corrida 2a49e0f7): la búsqueda de identidad
+   * se pagó, resolvió y persistió, y aun así el reveal no tenía id con el que pedir
+   * el teléfono. `resolveLushaContactId` sólo podía mirar el candidato, cuyo
+   * `source` es 'apollo', así que devolvía null → `missing_lusha_contact_id` →
+   * cero peticiones emitidas → cierre con el genérico `lusha_reveal_error`.
+   *
+   * Nunca transporta un id de otro proveedor: lo rellena el resolutor de identidad,
+   * que consulta `provider_key = 'lusha'`.
+   */
+  lushaContactId?: string;
 }): Promise<PhoneRevealWaterfallLushaLegResult> {
   // Revalidación EXPLÍCITA del rol que autorizó, contra la autoridad canónica del
   // reveal. Es la última puerta antes de que el token sintético entre al core del
@@ -839,7 +867,14 @@ export async function callLushaFallbackLeg(args: {
   // inválida en una llamada pagada: sin ella, cualquier corrida que llegara hasta aquí
   // gastaría créditos de Lusha como si la hubiera autorizado un admin.
   if (!isPhoneRevealWaterfallRoleAuthorized(args.authorizedByRole)) {
-    return { status: 'error', creditsCharged: null, errorCode: 'role_not_allowed' };
+    // Bloqueo LOCAL: no sale ninguna petición, así que la reserva del reveal se
+    // libera en vez de confirmarse al tope.
+    return {
+      status: 'error',
+      creditsCharged: null,
+      errorCode: 'role_not_allowed',
+      requestEmitted: false,
+    };
   }
 
   const admin = createSupabaseAdminClient();
@@ -853,6 +888,10 @@ export async function callLushaFallbackLeg(args: {
       // revalida que ese tope cubra su propio mínimo de 5 créditos.
       confirmCost: true,
       expectedMaxCredits: args.maxCreditsAuthorized,
+      // Se omite la clave entera cuando no hay identidad resuelta, en vez de viajar
+      // como `undefined` explícito: así el disparo manual —que no tiene paso de
+      // identidad— conserva EXACTAMENTE la resolución de id que ya tenía.
+      ...(args.lushaContactId ? { resolvedLushaContactId: args.lushaContactId } : {}),
     },
     {
       flagEnabled: isLushaPhoneRevealFallbackEnabled(),
@@ -905,7 +944,14 @@ export async function callLushaFallbackLeg(args: {
       callLusha: async ({ contactId }) => {
         const apiKey = await getLushaApiKey();
         if (!apiKey) {
-          return { ok: false, errorMessage: 'Lusha API key not configured' };
+          // Sin credencial no se emite nada. `preflight` lo declara como el fallo
+          // NUESTRO que es, para que la reserva del reveal se libere en vez de
+          // confirmarse al tope por una petición inexistente.
+          return {
+            ok: false,
+            errorMessage: 'Lusha API key not configured',
+            failureKind: 'preflight',
+          };
         }
         return enrichLushaContactPhonesForFallback({
           apiKey,
@@ -947,6 +993,18 @@ export async function callLushaFallbackLeg(args: {
         if (error) throw new Error(error.message);
       },
 
+      // Diagnóstico estructurado de la pata (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).
+      // MISMA convención que el evento del arranque legacy: `console.info` con el
+      // payload serializado, PII-free por el TIPO del evento. No escribe en
+      // `provider_usage_logs` a propósito: una pata que NO emitió petición no puede
+      // dejar una fila que afirme que hubo una llamada al proveedor.
+      logRevealAttemptOutcome: async (event) => {
+        console.info(
+          '[phone-reveal-waterfall] lusha reveal attempt outcome:',
+          JSON.stringify(event),
+        );
+      },
+
       logUsage: async (entry: LushaPhoneFallbackUsageLogEntry): Promise<void> => {
         await logProviderUsage({
           provider_key: entry.provider,
@@ -969,6 +1027,9 @@ export async function callLushaFallbackLeg(args: {
     status: result.status,
     creditsCharged: result.creditsCharged ?? null,
     errorCode: result.errorCode,
+    // Verdad de emisión, propagada tal cual desde el core. Es lo que permite a la
+    // liquidación distinguir «la pata se reclamó» de «la pata pagó».
+    requestEmitted: result.requestEmitted === true,
   };
 }
 
