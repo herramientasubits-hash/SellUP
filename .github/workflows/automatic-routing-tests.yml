@@ -3631,3 +3631,32 @@ jobs:
       # Sin `continue-on-error` y sin `|| true`.
       - name: Run Agent 1 CUT4-A1 batch count truthfulness tests
         run: npm run test:a1-cut4-batch-count-truthfulness
+
+      # ── AGENT1-CUT4-B1 — paridad de procedencia en los writers restantes ─────
+      #
+      # El defecto que cierran: `structured-source-candidate-writer.ts` y la ruta
+      # `create-import-batch` insertaban `status='needs_review'` dejando
+      # `record_origin` en NULL por OMISIÓN del writer. La cola de revisión limpia
+      # exige `PENDING_REVIEW_RECORD_ORIGIN` y con ella los cuatro gates de acción,
+      # así que el candidato quedaba VISIBLE y no OPERABLE.
+      #
+      # Lo que fijan estas suites:
+      #   · los DOS writers delegan en el clasificador canónico
+      #     (`resolveCandidateRecordOriginForWriter`) y sólo PROYECTAN su decisión;
+      #     ninguno define vocabulario de procedencia propio ni escribe el literal
+      #     `record_origin: 'production'`;
+      #   · corrida limpia ⇒ `production`; smoke de UI ⇒ `smoke_test`; QA ⇒ `qa`;
+      #     modo seco ⇒ NO inserta; `previewMode` por sí solo NO degrada la
+      #     procedencia (es POLÍTICA de revisión, no marca de no-producción);
+      #   · una importación externa termina SIEMPRE en `import`, nunca en
+      #     `production`, y sigue sin ser accionable en la cola limpia — este corte
+      #     es paridad de procedencia, no ensanchamiento de permisos;
+      #   · `source_primary`, `status`, `duplicate_status` y los gates de revisión
+      #     no cambian; la metadata es ADITIVA y hay UNA sola puerta de inserción
+      #     por candidato; el vallado de CUT-3 se conserva.
+      #
+      # Puras: sin I/O, sin Supabase, sin red, sin env, sin reloj.
+      # 0 migraciones, 0 escrituras remotas, 0 proveedores, 0 créditos, 0 flags.
+      # Sin `continue-on-error` y sin `|| true`.
+      - name: Run Agent 1 CUT4-B1 writer provenance parity tests
+        run: npm run test:a1-cut4-b1-writer-provenance
