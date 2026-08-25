@@ -403,7 +403,10 @@ describe('la migración 128 — su contrato', () => {
     assert.equal(/SECURITY DEFINER/.test(sql), false);
   });
 
-  it('cero DDL, cero backfill: ni tabla, ni columna, ni índice, ni policy, ni trigger', () => {
+  it('sin tablas, columnas, índices, triggers ni policies nuevas: sólo función y permisos', () => {
+    // `CREATE OR REPLACE FUNCTION` SÍ es un cambio de esquema, así que la 128 no se describe
+    // como «sin DDL». Lo que se afirma aquí es lo comprobable: no crea NINGUNA estructura
+    // nueva —ni tabla, ni columna, ni índice, ni policy, ni trigger— y no hace backfill.
     const sql = structuralSql(raw());
     for (const verb of [
       'CREATE TABLE',

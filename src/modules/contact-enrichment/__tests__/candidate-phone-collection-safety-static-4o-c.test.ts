@@ -254,7 +254,8 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // candidato YA APROBADO al contacto que su propia aprobación creó. SÍ es de teléfono y SÍ
       // nombra la cadena — por eso queda EXENTA del barrido ciego más abajo, con su límite
       // afirmado de forma directa igual que la 120 y la 122—, pero NO edita ninguna migración
-      // anterior: es una función NUEVA, sin DDL, sin backfill y sin re-declarar la 110/111/116.
+      // anterior: sin tablas, columnas, índices, triggers ni policies nuevas; M128 únicamente
+      // crea/reemplaza una función y sus permisos, sin backfill y sin re-declarar la 110/111/116.
       // AUTORADA y NO APLICADA.
       '128_project_approved_candidate_phones_onto_contact.sql',
       'el techo conocido es la 128 (la proyección post-aprobación), que no edita la cadena de teléfono 109–117',
@@ -343,10 +344,12 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     // insertar en `contact_phones` / `contact_phone_sources`.
     //
     // Lo que NO es: una ampliación del alcance de la 110/111 ni una segunda aprobación. No las
-    // re-declara, no crea contactos, no re-terminaliza candidatos y no aporta DDL. Existe porque
-    // 116 devuelve `already_approved` con cero escrituras para un candidato ya aprobado y 117
-    // rechaza todo lo que no sea `duplicate`: sin ella, un teléfono conseguido DESPUÉS de la
-    // aprobación no tenía ninguna sentencia en el esquema que lo llevara al contacto.
+    // re-declara, no crea contactos y no re-terminaliza candidatos. Sin tablas, columnas,
+    // índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una función y sus
+    // permisos. Existe porque 116 devuelve `already_approved` con cero escrituras para un
+    // candidato ya aprobado y 117 rechaza todo lo que no sea `duplicate`: sin ella, un teléfono
+    // conseguido DESPUÉS de la aprobación no tenía ninguna sentencia en el esquema que lo
+    // llevara al contacto.
     const POST_APPROVAL_128 = '128_project_approved_candidate_phones_onto_contact.sql';
     const BLIND_SWEEP_EXEMPT = new Set([RESTATED_120, SEARCH_MORE_122, POST_APPROVAL_128]);
 
@@ -517,7 +520,8 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     ]) {
       assert.ok(
         !new RegExp(verb, 'i').test(exec128),
-        `la 128 no puede ejecutar ${verb}: es una función nueva, sin DDL`,
+        `la 128 no puede ejecutar ${verb}: no crea NINGUNA estructura nueva — únicamente ` +
+          `crea/reemplaza una función y sus permisos`,
       );
     }
 

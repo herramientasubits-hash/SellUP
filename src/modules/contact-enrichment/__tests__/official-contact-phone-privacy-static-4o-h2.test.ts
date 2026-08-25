@@ -154,9 +154,10 @@ describe('115 — numeración', () => {
     // brasileñas) — ninguna de las tres toca `contact_phones` ni `contact_phone_sources`.
     // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128:
     // `project_approved_candidate_phones_onto_contact`, la proyección de la colección de un
-    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Es una función
-    // NUEVA, sin DDL y sin backfill: no crea contactos, no re-terminaliza candidatos y no
-    // re-declara ninguna función anterior. AUTORADA y NO APLICADA.
+    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Sin tablas,
+    // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
+    // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
+    // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
     assert.equal(Math.max(...numbers), 128);
   });
 

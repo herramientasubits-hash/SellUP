@@ -450,9 +450,10 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // `prospect_candidates`. Ninguna de las tres es de teléfono. Todas AUTORADAS y NO APLICADAS.
     // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128:
     // `project_approved_candidate_phones_onto_contact`, la proyección de la colección de un
-    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Es una función
-    // NUEVA, sin DDL y sin backfill: no crea contactos, no re-terminaliza candidatos y no
-    // re-declara ninguna función anterior. AUTORADA y NO APLICADA.
+    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Sin tablas,
+    // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
+    // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
+    // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
     assert.equal(numbered[numbered.length - 1], 128);
   });
 

@@ -509,9 +509,10 @@ describe('4O-G — alcance', () => {
     // brasileñas) — ninguna de las tres toca la colección de teléfonos que 4O-G lee.
     // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128:
     // `project_approved_candidate_phones_onto_contact`, la proyección de la colección de un
-    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Es una función
-    // NUEVA, sin DDL y sin backfill: no crea contactos, no re-terminaliza candidatos y no
-    // re-declara ninguna función anterior. AUTORADA y NO APLICADA.
+    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Sin tablas,
+    // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
+    // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
+    // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
     assert.equal(numbered[numbered.length - 1], 128);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
@@ -523,9 +524,10 @@ describe('4O-G — alcance', () => {
     // vuelven a coincidir. Esa coincidencia ES la guarda.
     // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128:
     // `project_approved_candidate_phones_onto_contact`, la proyección de la colección de un
-    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Es una función
-    // NUEVA, sin DDL y sin backfill: no crea contactos, no re-terminaliza candidatos y no
-    // re-declara ninguna función anterior. AUTORADA y NO APLICADA.
+    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Sin tablas,
+    // columnas, índices, triggers ni policies nuevas; M128 únicamente crea/reemplaza una
+    // función y sus permisos. Sin backfill: no crea contactos, no re-terminaliza
+    // candidatos y no re-declara ninguna función anterior. AUTORADA y NO APLICADA.
     assert.equal(numbered.length, 128);
   });
 
