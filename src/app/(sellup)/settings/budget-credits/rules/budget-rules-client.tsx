@@ -20,7 +20,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { createBudgetRule, updateBudgetRule, toggleBudgetRuleStatus, archiveBudgetRule } from '@/modules/budgets/rule-actions';
+import { createBudgetRule, updateBudgetRule, toggleBudgetRuleStatus, deleteBudgetRule } from '@/modules/budgets/rule-actions';
 import type { BudgetRuleRow, BudgetRuleFormOptions } from '@/modules/budgets/rule-queries';
 import type { BudgetOnExceed, BudgetPeriodType, BudgetScopeType } from '@/modules/usage-tracking/types';
 
@@ -709,7 +709,12 @@ export function BudgetRulesTabbedSection({ rules, options }: TabbedSectionProps)
 
   async function handleArchive(rule: BudgetRuleRow) {
     setArchiving(rule.id);
-    await archiveBudgetRule(rule.id);
+    const result = await deleteBudgetRule(rule.id);
+    if (!result.success) {
+      alert(result.error ?? 'Error al eliminar la regla.');
+      setArchiving(null);
+      return;
+    }
     setArchiving(null);
     setConfirmArchive(null);
     window.location.reload();
@@ -881,7 +886,12 @@ export function BudgetRulesClient({ rules, options }: Props) {
 
   async function handleArchive(rule: BudgetRuleRow) {
     setArchiving(rule.id);
-    await archiveBudgetRule(rule.id);
+    const result = await deleteBudgetRule(rule.id);
+    if (!result.success) {
+      alert(result.error ?? 'Error al eliminar la regla.');
+      setArchiving(null);
+      return;
+    }
     setArchiving(null);
     setConfirmArchive(null);
     window.location.reload();
