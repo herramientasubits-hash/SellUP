@@ -228,6 +228,10 @@ export async function applyRealChain(
  * DIRECTAMENTE (no por migraciones: esa cadena no existe en el repositorio) para reproducir SÓLO
  * los hechos que el owner confirmó de Producción:
  *
+ *   · `record_identity_key` es físicamente NOT NULL (`pg_attribute.attnotnull = true`), no sólo un
+ *     CHECK — CUT A.2 descubrió que Producción tiene AMBOS y que la versión anterior de esta
+ *     fixture sólo reproducía el CHECK, dejando sin probar el paso que la 125 le debía a la
+ *     columna misma;
  *   · la UNIQUE canónica sobre `record_identity_key` YA existe, con el nombre exacto que
  *     Producción usa;
  *   · el CHECK global `record_identity_key IS NOT NULL` YA existe, también con su nombre exacto;
@@ -278,7 +282,7 @@ export async function buildProdShapeFixture(client: PgLikeClient): Promise<void>
       financials            jsonb       DEFAULT '{}'::jsonb,
       raw_data              jsonb       DEFAULT '{}'::jsonb,
       imported_at           timestamptz DEFAULT now(),
-      record_identity_key   text
+      record_identity_key   text        NOT NULL
     );
 
     ALTER TABLE public.source_company_snapshots
