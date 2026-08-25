@@ -75,6 +75,7 @@ import {
   readOfficialContactForReveal,
 } from './post-approval-reveal-read';
 import { projectApprovedCandidatePhonesOntoContact } from './post-approval-reveal-projection';
+import { checkProjectApprovedCandidatePhonesCapability } from './post-approval-reveal-capability';
 import { buildCandidateScalarFallback } from './official-contact-approval-core';
 // EL pipeline. No una copia suya.
 import { revealCandidatePhoneAction } from './phone-reveal-actions';
@@ -173,6 +174,8 @@ async function buildDeps(): Promise<OfficialContactPhoneRevealDeps> {
         return null;
       }
     },
+
+    checkProjectionCapability: checkProjectApprovedCandidatePhonesCapability,
 
     onReadUnavailable: (message) => {
       console.error('[post-approval-reveal] read unavailable:', message);

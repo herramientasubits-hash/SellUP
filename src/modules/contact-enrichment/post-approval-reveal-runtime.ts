@@ -77,6 +77,16 @@ export interface OfficialContactPhoneRevealDeps {
     readonly contactId: string;
     readonly actorId: string;
   }) => Promise<ProjectApprovedCandidatePhonesOutcome | null>;
+  /**
+   * CAPABILITY GATE de la RPC de la 128, REAL: no es un número de migración, no es un flag y no
+   * asume que la RPC existe. La migración puede desplegarse sin aplicar, y sin esta comprobación
+   * un clic de compra podría reservar créditos y llamar a un proveedor ANTES de descubrir, al
+   * proyectar, que no hay dónde escribir el resultado. `false` o una excepción ⇒ fail-closed: se
+   * trata exactamente igual, y NINGÚN camino de este runtime llega a `startCandidateReveal` ni a
+   * `project` sin haberla consultado primero. Inyectada para poder medir en tests, con un
+   * contador de llamadas, que la respuesta real cierra la oferta ANTES de delegar.
+   */
+  readonly checkProjectionCapability: () => Promise<boolean>;
   /** Sumidero de diagnóstico. Recibe códigos, nunca filas ni números. */
   readonly onReadUnavailable?: (message: string) => void;
 }
@@ -146,11 +156,40 @@ async function resolveOffer(
       deps.countLiveCandidatePhones(linkOnly.candidateId),
     ]);
 
-    return classifyOfficialContactPhoneRevealOffer({
+    const offer = classifyOfficialContactPhoneRevealOffer({
       contact,
       liveOfficialPhoneCount,
       candidateLivePhoneCount,
     });
+
+    // ── El capability gate de la 128 ──────────────────────────────
+    // Sólo se consulta cuando ya hay algo que accionar: un offer cerrado por otra razón
+    // (archivado, sin vínculo, ya tiene teléfono) no necesita proyectar nada, así que no gana
+    // una llamada a la RPC que no va a cambiar su respuesta. Pero NINGÚN camino accionable —ni
+    // `eligible` (compra) ni `reuse_from_candidate` (gratis)— sobrevive a esta comprobación:
+    // ambos habrían necesitado `deps.project` para terminar, y sin capacidad no hay dónde
+    // proyectar. Se resuelve AQUÍ, dentro de `resolveOffer`, que es la función que TANTO la
+    // vista previa COMO el clic recalculan fresca cada vez que se invocan — así que esto es, a
+    // la vez, el gate de la oferta (Caso A) y el RE-CHECK inmediatamente antes de delegar
+    // (Caso C): un clic nunca usa una respuesta cacheada de antes del capability check.
+    if (!offer.actionable) return offer;
+
+    let capable = false;
+    try {
+      capable = await deps.checkProjectionCapability();
+    } catch (err) {
+      deps.onReadUnavailable?.(err instanceof Error ? err.message : 'unknown error');
+      capable = false;
+    }
+    if (!capable) {
+      return {
+        status: 'projection_capability_unavailable',
+        candidateId: offer.candidateId,
+        actionable: false,
+        free: true,
+      };
+    }
+    return offer;
   } catch (err) {
     deps.onReadUnavailable?.(err instanceof Error ? err.message : 'unknown error');
     return {

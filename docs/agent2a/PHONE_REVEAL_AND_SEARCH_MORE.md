@@ -401,7 +401,7 @@ identidad Lusha ya está comprada, cuánto se reserva). Un candidato parecido pu
 origen, otro historial de reveal y otra identidad persistida: autorizar un gasto contra él sería
 cobrarle al operador un tope calculado sobre **otra persona**.
 
-### 5.4 Las cuatro respuestas de la ficha
+### 5.4 Las respuestas de la ficha
 
 | Estado | Qué se ofrece | Coste |
 |---|---|---|
@@ -409,6 +409,7 @@ cobrarle al operador un tope calculado sobre **otra persona**.
 | `reuse_from_candidate` | «Usar teléfono ya obtenido» | **0** — se proyecta lo ya pagado |
 | `phone_already_present` | nada; se explica y se apunta a la revisión del candidato | 0 |
 | `missing_source_candidate` · `contact_archived` · `contact_unavailable` | nada | 0 |
+| `projection_capability_unavailable` | nada; la RPC de la 128 no está disponible todavía | 0 |
 
 `reuse_from_candidate` sólo se ofrece cuando el contacto no tiene **ni** escalar **ni** colección
 viva: con colección viva no se puede afirmar desde la UI que falte algo —habría que comparar
@@ -417,13 +418,15 @@ viva: con colección viva no se puede afirmar desde la UI que falte algo —habr
 
 ### 5.5 La proyección (migración 128)
 
-Additive, idempotente y sin DDL. Lo que **hace**: bloquea el candidato, revalida que sigue
-`approved` y que sigue apuntando a **este** contacto, re-comprueba la supresión **por persona**
-bajo ese lock (clave y helpers de la 113), bloquea el contacto, promueve la colección viva con
-toda su procedencia (`v1:promoted:` — el mismo namespace de la 116, por lo que re-proyectar
-colapsa sobre las mismas filas), elige principal **sólo si el contacto no tenía**, y proyecta el
-escalar heredado **sólo si estaba en NULL y el principal es una fila que esta transacción
-insertó**.
+Additive e idempotente. Sin tablas, columnas, índices, triggers ni policies nuevas; la 128
+únicamente crea o reemplaza una función y sus permisos —`CREATE OR REPLACE FUNCTION` sí es un
+cambio de esquema, así que no se describe como «sin DDL»—. Lo que **hace**: bloquea el candidato,
+revalida que sigue `approved` y que sigue apuntando a **este** contacto, re-comprueba la
+supresión **por persona** bajo ese lock (clave y helpers de la 113), bloquea el contacto, promueve
+la colección viva con toda su procedencia (`v1:promoted:` — el mismo namespace de la 116, por lo
+que re-proyectar colapsa sobre las mismas filas), elige principal **sólo si el contacto no
+tenía**, y proyecta el escalar heredado **sólo si estaba en NULL y el principal es una fila que
+esta transacción insertó**.
 
 Lo que **no hace**: no crea contactos (no hay `INSERT INTO public.contacts` en el archivo), no
 re-terminaliza candidatos, no borra nada, no toca `mobile_phone` ni `phone_confidence`, no llama a
@@ -441,6 +444,37 @@ resuelve con un *bootstrap* del incumbente, y hacerlo aquí exigiría **invertir
 que para `provider_payload`, `unknown` y NULL no invierte sin ambigüedad
 (`HISTORICAL_MANUAL_NULL_PROVENANCE_PENDING`). Responder esa pregunta dos veces en dos funciones es
 cómo las dos acaban en desacuerdo.
+
+### 5.5.1 El capability gate — desplegar antes de aplicar la migración es seguro
+
+El código de esta sección puede llegar a Producción **antes** de que la 128 se aplique. Sin una
+comprobación real de eso, un clic de compra podía reservar créditos y llamar a un proveedor y
+**sólo después**, al proyectar, descubrir que no había ninguna RPC donde escribir el resultado —
+el gasto ya habría ocurrido.
+
+`checkProjectApprovedCandidatePhonesCapability()`
+(`post-approval-reveal-capability.ts`) cierra ese hueco con una sonda REAL: la MISMA RPC de la
+128, con los parámetros que su propio `Step 0` declara inofensivos (`p_candidate_id IS NULL`,
+el primer `IF` de su cuerpo, antes de tocar una fila o abrir un lock). Si la función no existe,
+PostgREST responde `PGRST202` (o `42883` desde el motor); si existe, devuelve
+`{status: 'invalid_input', ...}` sin escribir nada. No es un número de migración, no es un flag y
+no asume que la RPC existe.
+
+`post-approval-reveal-runtime.ts` la consulta dentro de `resolveOffer`, la MISMA función que
+**tanto** la vista previa **como** el clic recalculan fresca en cada invocación — nunca desde una
+respuesta cacheada. Eso la convierte, con el mismo código, en dos cosas a la vez:
+
+* el gate de la oferta: sin capacidad, `actionable = false` y el estado es
+  `projection_capability_unavailable` — ni `startCandidateReveal` ni `project` se llegan a
+  invocar, ni siquiera en `reuse_from_candidate` (lo ya pagado tampoco tiene dónde proyectarse);
+* el RE-CHECK de la carrera: si la RPC existía cuando la ficha cargó la oferta y desapareció
+  antes del clic, el clic vuelve a resolver la oferta —y por tanto a consultar la capacidad—
+  ANTES de poder delegar. Un error de lectura de la propia comprobación también cierra: no hay
+  rama que devuelva «se puede gastar» por omisión.
+
+Con esto el rollout queda así: mergear y desplegar el código, con la 128 todavía sin aplicar, dejar
+el CTA cerrado automáticamente, aplicar la 128 con autorización separada, y el CTA se habilita solo
+en la siguiente carga de la ficha — sin ningún flag que lo gobierne.
 
 ### 5.6 Límite conocido y declarado de este corte
 

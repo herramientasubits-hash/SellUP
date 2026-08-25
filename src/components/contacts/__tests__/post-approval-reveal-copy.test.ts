@@ -93,6 +93,7 @@ describe('por qué NO se ofrece nada', () => {
     'contact_unavailable',
     'eligible',
     'reuse_from_candidate',
+    'projection_capability_unavailable',
   ] as const) {
     it(`${status} no pinta ningún aviso`, () => {
       // Anunciar «no se puede revelar» en cada contacto del sistema sería ruido, y en el caso sin

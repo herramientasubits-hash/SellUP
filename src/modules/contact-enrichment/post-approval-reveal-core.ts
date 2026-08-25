@@ -96,7 +96,16 @@ export type OfficialContactPhoneRevealOfferStatus =
   /** El contacto está archivado: no se compra nada para un registro retirado. */
   | 'contact_archived'
   /** No hay contacto legible (no existe, fuera de alcance, o la lectura falló). */
-  | 'contact_unavailable';
+  | 'contact_unavailable'
+  /**
+   * La RPC de la 128 (`project_approved_candidate_phones_onto_contact`) no está disponible
+   * todavía — la migración puede desplegarse ANTES de aplicarse — o la comprobación de su
+   * capacidad falló. Sin ella no hay dónde escribir el resultado de una compra ni de una
+   * reutilización, así que ninguna de las dos se ofrece. Lo decide `runtime.ts`, ANTES de
+   * delegar en el pipeline del candidato: `classifyOfficialContactPhoneRevealOffer` no sabe
+   * nada de esquema ni de RPCs, igual que no sabe de créditos ni de waterfall.
+   */
+  | 'projection_capability_unavailable';
 
 export interface OfficialContactPhoneRevealOfferInput {
   /** Proyección mínima del contacto. `null` ⇒ no legible. */

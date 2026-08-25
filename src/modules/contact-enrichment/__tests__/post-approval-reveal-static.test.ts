@@ -65,13 +65,14 @@ const CORE = 'src/modules/contact-enrichment/post-approval-reveal-core.ts';
 const RUNTIME = 'src/modules/contact-enrichment/post-approval-reveal-runtime.ts';
 const READ = 'src/modules/contact-enrichment/post-approval-reveal-read.ts';
 const PROJECTION = 'src/modules/contact-enrichment/post-approval-reveal-projection.ts';
+const CAPABILITY = 'src/modules/contact-enrichment/post-approval-reveal-capability.ts';
 const ACTIONS = 'src/modules/contact-enrichment/post-approval-reveal-actions.ts';
 const COPY = 'src/components/contacts/post-approval-reveal-copy.ts';
 const CTA = 'src/components/contacts/post-approval-reveal-cta.tsx';
 const SHEET = 'src/components/contacts/contact-detail-sheet.tsx';
 const BASIS = 'src/modules/contact-enrichment/phone-reveal-processing-basis.ts';
 
-const ALL_FILES = [CORE, RUNTIME, READ, PROJECTION, ACTIONS, COPY, CTA, BASIS];
+const ALL_FILES = [CORE, RUNTIME, READ, PROJECTION, CAPABILITY, ACTIONS, COPY, CTA, BASIS];
 
 // ═══════════════════════════════════════════════════════════════
 // 1. Los archivos del hito existen y ninguno puede gastar por su cuenta
@@ -239,6 +240,29 @@ describe('post-approval reveal — la frontera lectura/escritura', () => {
     );
   });
 
+  it('el capability gate hace EXACTAMENTE una llamada, y es la MISMA RPC de la 128', () => {
+    // Es una comprobación REAL, no un proxy: la sonda es la propia RPC de la 128, no una consulta
+    // a `pg_proc`/`information_schema` ni un número de migración. Que sea la misma función que
+    // `PROJECTION` invoca es lo que garantiza que «existe» aquí signifique «existe» allá.
+    const code = stripTsComments(read(CAPABILITY));
+    const rpcCalls = code.match(/\.rpc\(/g) ?? [];
+    assert.equal(rpcCalls.length, 1, 'una sola llamada de sonda, sin escritura suelta');
+    for (const write of ['.insert(', '.update(', '.delete(', '.upsert(', '.from(']) {
+      assert.equal(code.includes(write), false, `el capability gate no puede contener ${write}`);
+    }
+    assert.match(code, /PROJECT_APPROVED_CANDIDATE_PHONES_FN/);
+    assert.match(code, /parseProjectApprovedCandidatePhonesEnvelope/);
+  });
+
+  it('el capability gate es fail-closed: nunca `true` por defecto ni por catch', () => {
+    const code = stripTsComments(read(CAPABILITY));
+    assert.match(code, /if \(error\) return false;/);
+    assert.match(code, /catch \{\s*\n?\s*return false;/);
+    // Y no puede depender de un flag ni de un número de migración: eso es exactamente lo que la
+    // corrección prohíbe usar como proxy de capacidad.
+    assert.equal(/process\.env|isEnabled\(|MIGRATION_1\d\d/.test(code), false);
+  });
+
   it('el nombre de la función de la 128 vive en UNA constante, en UN archivo', () => {
     const core = stripTsComments(read(CORE));
     // El literal aparece en su constante y en los dos mensajes de error del parser del sobre,
@@ -250,7 +274,7 @@ describe('post-approval reveal — la frontera lectura/escritura', () => {
       core.match(/PROJECT_APPROVED_CANDIDATE_PHONES_FN =\s*\n?\s*'/g) ?? []
     ).length;
     assert.equal(declarations, 1, 'una sola declaración');
-    for (const file of [RUNTIME, READ, ACTIONS, COPY, CTA]) {
+    for (const file of [RUNTIME, READ, CAPABILITY, ACTIONS, COPY, CTA]) {
       assert.equal(
         stripTsComments(read(file)).includes(FN),
         false,

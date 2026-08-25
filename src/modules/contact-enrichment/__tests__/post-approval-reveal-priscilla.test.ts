@@ -93,12 +93,18 @@ interface Spy {
   readonly revealCalls: unknown[];
   readonly projectCalls: unknown[];
   readonly previewCalls: string[];
+  readonly capabilityCalls: number;
 }
 
 /**
  * Arnés con contadores. Todo lo que puede gastar entra por `startCandidateReveal`; todo lo que
  * puede escribir en el contacto entra por `project`. Si alguna de las dos aparece en un camino que
  * no debía, el contador lo dice.
+ *
+ * `capability` por defecto es `true` (la RPC de la 128 existe): así los escenarios existentes de
+ * este archivo — que fueron escritos ANTES de que el gate existiera — siguen midiendo lo que ya
+ * medían, sin heredar un cierre que no les corresponde. Los escenarios que SÍ quieren la RPC
+ * ausente lo declaran explícitamente con `capability: false` o `capabilityThrows: true`.
  */
 function makeDeps(
   over: {
@@ -111,11 +117,20 @@ function makeDeps(
     revealResult?: DelegatedRevealResult;
     projectResult?: ProjectApprovedCandidatePhonesOutcome | null;
     roleKey?: string | null;
+    capability?: boolean;
+    capabilityThrows?: boolean;
+    /**
+     * Un valor por llamada, en orden — para simular la CARRERA (Caso C): la RPC existe cuando la
+     * ficha pide la oferta y deja de existir antes del clic. El último valor se repite si hay más
+     * llamadas que entradas.
+     */
+    capabilitySequence?: readonly boolean[];
   } = {},
 ): Spy {
   const revealCalls: unknown[] = [];
   const projectCalls: unknown[] = [];
   const previewCalls: string[] = [];
+  let capabilityCalls = 0;
 
   const deps: OfficialContactPhoneRevealDeps = {
     actor: {
@@ -145,9 +160,27 @@ function makeDeps(
       projectCalls.push(args);
       return over.projectResult === undefined ? projectedOutcome() : over.projectResult;
     },
+    checkProjectionCapability: async () => {
+      const callIndex = capabilityCalls;
+      capabilityCalls += 1;
+      if (over.capabilityThrows) throw new Error('capability read failed');
+      if (over.capabilitySequence) {
+        const i = Math.min(callIndex, over.capabilitySequence.length - 1);
+        return over.capabilitySequence[i];
+      }
+      return over.capability === undefined ? true : over.capability;
+    },
   };
 
-  return { deps, revealCalls, projectCalls, previewCalls };
+  return {
+    deps,
+    revealCalls,
+    projectCalls,
+    previewCalls,
+    get capabilityCalls() {
+      return capabilityCalls;
+    },
+  };
 }
 
 // ── PREVIEW ────────────────────────────────────────────────────────
@@ -341,6 +374,126 @@ describe('el candidato YA tenía teléfonos: se reutilizan sin llamar a nadie', 
     assert.equal(result.phoneProjected, true);
     assert.equal(spy.revealCalls.length, 0);
     assert.equal(spy.projectCalls.length, 1);
+  });
+});
+
+// ── CAPABILITY GATE DE LA 128 — no gastar antes de saber que existe ─
+//
+// M128 puede llegar a Producción SIN aplicar: el código se mergea y despliega, y
+// `project_approved_candidate_phones_onto_contact` todavía no existe en el esquema. Sin esta
+// comprobación un clic de compra podía reservar créditos y llamar a un proveedor y SÓLO DESPUÉS,
+// al proyectar, descubrir que no había dónde escribir el resultado. Los cinco casos de abajo son
+// la regresión de esa corrección.
+
+describe('capability gate de la 128 — fail-closed ANTES de delegar', () => {
+  it('1. RPC ausente en la oferta ⇒ actionable=false y CERO preview/spend/provider calls', async () => {
+    const spy = makeDeps({ capability: false });
+    const view = await runOfficialContactPhoneRevealOffer(CONTACT_ID, spy.deps);
+
+    assert.equal(view.status, 'projection_capability_unavailable');
+    assert.equal(view.actionable, false);
+    assert.equal(view.maxCredits, null);
+    assert.equal(spy.previewCalls.length, 0, 'sin capacidad no se pide vista previa de tope');
+    assert.equal(spy.revealCalls.length, 0);
+    assert.equal(spy.projectCalls.length, 0);
+    assert.equal(spy.capabilityCalls, 1, 'la capacidad SÍ se consultó — no es un flag asumido');
+  });
+
+  it('1b. RPC ausente en el CLIC (sin pasar por la oferta) ⇒ nunca llega a startCandidateReveal', async () => {
+    const spy = makeDeps({ capability: false });
+    const result = await runOfficialContactPhoneRevealStart(
+      { contactId: CONTACT_ID, confirmCost: true, phoneProcessingBasis: 'legitimate_interest_b2b' },
+      spy.deps,
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.gate, 'projection_capability_unavailable');
+    assert.equal(spy.revealCalls.length, 0);
+    assert.equal(spy.projectCalls.length, 0);
+  });
+
+  it('2. RPC presente ⇒ oferta normal, preview 14 para el caso Priscilla', async () => {
+    const spy = makeDeps({ capability: true });
+    const view = await runOfficialContactPhoneRevealOffer(CONTACT_ID, spy.deps);
+
+    assert.equal(view.status, 'eligible');
+    assert.equal(view.actionable, true);
+    assert.equal(view.maxCredits, PRISCILLA_MAX_CREDITS);
+    assert.equal(spy.capabilityCalls, 1);
+  });
+
+  it('3. RPC presente en la oferta y ausente en el clic (CARRERA) ⇒ re-check falla, 0 llamadas', async () => {
+    // La ficha cargó la oferta con la RPC todavía aplicada; para cuando el operador hace clic, la
+    // capacidad desapareció. `resolveOffer` se recalcula FRESCO en cada invocación — nunca
+    // reutiliza la respuesta de la oferta — así que el clic vuelve a consultar la capacidad ANTES
+    // de poder llegar a `startCandidateReveal`.
+    const spy = makeDeps({ capabilitySequence: [true, false] });
+
+    const offerBeforeClick = await runOfficialContactPhoneRevealOffer(CONTACT_ID, spy.deps);
+    assert.equal(offerBeforeClick.status, 'eligible');
+    assert.equal(offerBeforeClick.actionable, true);
+
+    const result = await runOfficialContactPhoneRevealStart(
+      {
+        contactId: CONTACT_ID,
+        confirmCost: true,
+        phoneProcessingBasis: 'legitimate_interest_b2b',
+        expectedMaxCredits: PRISCILLA_MAX_CREDITS,
+      },
+      spy.deps,
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.gate, 'projection_capability_unavailable');
+    assert.equal(spy.revealCalls.length, 0, 'startCandidateReveal NUNCA se llamó');
+    assert.equal(spy.projectCalls.length, 0);
+    assert.equal(spy.capabilityCalls, 2, 'una consulta por invocación: oferta y clic');
+  });
+
+  it('4. reuse_from_candidate con RPC ausente ⇒ también fail-closed: no hay dónde proyectar', async () => {
+    // El candidato ya tenía teléfonos pagados, pero sin la RPC de la 128 tampoco hay forma de
+    // escribirlos en el contacto. Ofrecer «gratis» aquí sería prometer un botón que no haría nada.
+    const spy = makeDeps({ candidateLivePhoneCount: 2, capability: false });
+
+    const view = await runOfficialContactPhoneRevealOffer(CONTACT_ID, spy.deps);
+    assert.equal(view.status, 'projection_capability_unavailable');
+    assert.equal(view.actionable, false);
+
+    const result = await runOfficialContactPhoneRevealStart(
+      { contactId: CONTACT_ID, confirmCost: true, phoneProcessingBasis: 'legitimate_interest_b2b' },
+      spy.deps,
+    );
+    assert.equal(result.gate, 'projection_capability_unavailable');
+    assert.equal(spy.revealCalls.length, 0);
+    assert.equal(spy.projectCalls.length, 0, 'sin capacidad no se proyecta ni lo ya pagado');
+  });
+
+  it('5. la lectura de capacidad LANZA ⇒ fail-closed, no «se puede gastar»', async () => {
+    const spy = makeDeps({ capabilityThrows: true });
+
+    const view = await runOfficialContactPhoneRevealOffer(CONTACT_ID, spy.deps);
+    assert.equal(view.status, 'projection_capability_unavailable');
+    assert.equal(view.actionable, false);
+
+    const result = await runOfficialContactPhoneRevealStart(
+      { contactId: CONTACT_ID, confirmCost: true, phoneProcessingBasis: 'legitimate_interest_b2b' },
+      spy.deps,
+    );
+    assert.equal(result.ok, false);
+    assert.equal(spy.revealCalls.length, 0);
+    assert.equal(spy.projectCalls.length, 0);
+  });
+
+  it('un offer NO accionable por otra razón no gasta una consulta de capacidad', async () => {
+    // La capacidad sólo importa cuando hay algo que proyectar. Un contacto archivado ya está
+    // cerrado por su propia razón, y esa razón no cambia con la RPC de la 128.
+    const spy = makeDeps({
+      contact: { ...PRISCILLA_CONTACT, archivedAt: '2026-08-01T00:00:00.000Z' },
+      capability: false,
+    });
+    const view = await runOfficialContactPhoneRevealOffer(CONTACT_ID, spy.deps);
+    assert.equal(view.status, 'contact_archived');
+    assert.equal(spy.capabilityCalls, 0);
   });
 });
 
