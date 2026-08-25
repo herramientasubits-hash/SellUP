@@ -245,7 +245,12 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // que añade `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
       // `prospect_candidates`. Ninguna de las tres es de teléfono; la autoría se comprueba abajo
       // archivo por archivo. Las tres AUTORADAS y NO APLICADAS.
-      '127_br_receita_monthly_snapshot_identity.sql',
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128: la
+      // proyección candidato→contacto tras la aprobación. NO es autoría de 4O-E1 y no duplica en
+      // SQL su cierre terminal: el estado del reveal lo sigue escribiendo el pipeline del
+      // candidato en TypeScript, y esta función sólo promueve números ya persistidos. AUTORADA y
+      // NO APLICADA.
+      '128_project_approved_candidate_phones_onto_contact.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

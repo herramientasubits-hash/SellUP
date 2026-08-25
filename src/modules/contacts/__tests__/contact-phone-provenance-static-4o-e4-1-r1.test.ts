@@ -283,7 +283,11 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // `prospect_batches` y `prospect_candidates`. Ninguna de las tres es de teléfono ni edita
       // una migración anterior — que es lo que esta aserción vigila. Las tres AUTORADAS y NO
       // APLICADAS.
-      '127_br_receita_monthly_snapshot_identity.sql',
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128: la
+      // proyección candidato→contacto tras la aprobación. NO toca `mobile_phone` (sólo la nombra
+      // en prosa para declarar que MOBILE_PHONE_PROVENANCE_PENDING sigue en pie) y no introduce
+      // vocabulario nuevo de procedencia. AUTORADA y NO APLICADA.
+      '128_project_approved_candidate_phones_onto_contact.sql',
       'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa y la contabilidad de presupuesto, no este hito',
     );
     assert.ok(files.includes('125_reconcile_source_snapshot_record_identity.sql'));
@@ -291,14 +295,15 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
       // (AGENT1-CUT3B4, independiente) y la 127 (BR, renumerada dos veces) están autorizadas y
-      // nombradas, así que lo que queda prohibido es la 128 y superiores.
-      files.some((f) => /^1(2[8-9]|[3-9]\d)/.test(f)),
+      // nombradas, así que lo que queda prohibido es la 129 y superiores
+      // (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 declaró la 128 arriba).
+      files.some((f) => /^1(29|[3-9]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
-      'ninguna migración 128 o superior',
+      'ninguna migración 129 o superior',
     );
   });
 

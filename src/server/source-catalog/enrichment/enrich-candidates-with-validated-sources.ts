@@ -53,11 +53,18 @@ export async function enrichCandidatesWithValidatedSources(
     };
   }
 
-  // 2. Resolve adapters — filter out missing ones
+  // 2. Resolve adapters — filter out missing ones.
+  //
+  // BR-SOURCE-FUNCTIONAL-CUT-B1: a caller may substitute the IMPLEMENTATION of an already-
+  // applicable source through `adapterOverrides`, for sources whose adapter must be constructed
+  // with run-level state the static registry cannot hold (Brazil's frozen monthly period). The
+  // override is consulted AFTER `applicableSources` was computed from country + capability, so it
+  // can only ever swap an adapter in — never add a source, never widen a country.
+  const adapterOverrides = input.adapterOverrides ?? {};
   const adaptersToRun = applicableSources
     .map((sc) => ({
       config: sc,
-      adapter: ENRICHMENT_ADAPTER_REGISTRY[sc.adapterKey],
+      adapter: adapterOverrides[sc.adapterKey] ?? ENRICHMENT_ADAPTER_REGISTRY[sc.adapterKey],
     }))
     .filter(({ adapter }) => adapter != null);
 
@@ -127,6 +134,16 @@ export async function enrichCandidatesWithValidatedSources(
           financials: output.financials ?? {},
           priority_boost: output.priorityBoost ?? 0,
           reason: output.reason ?? null,
+          // BR-SOURCE-FUNCTIONAL-CUT-B1: `SourceEnrichmentOutput.metadata` has always been part
+          // of the adapter contract, but this builder dropped it — so anything an adapter placed
+          // there never reached the persisted shape. Brazil needs it: `source_period` and
+          // `snapshot_run_id` say WHICH monthly publication answered, and that provenance is not
+          // a company signal, so it must not be smuggled into `signals` to survive.
+          //
+          // Defaulted to `{}` exactly like `signals` and `financials` above, so every source has
+          // the same shape and an adapter that emits no metadata is indistinguishable from one
+          // that emits an empty object — i.e. nothing changes for CO/MX/CL/EC.
+          metadata: output.metadata ?? {},
         };
       }
 

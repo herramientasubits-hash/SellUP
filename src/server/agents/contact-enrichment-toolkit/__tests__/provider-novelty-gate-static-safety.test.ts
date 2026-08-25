@@ -116,7 +116,11 @@ describe('modelo de datos — sin migración nueva', () => {
     // colisionar con la de AGENT1-CUT3B4, y dejó sitio a una migración 125 genérica
     // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
     // brasileñas); ninguna de las tres toca el gate de novedad.
-    assert.equal(Math.max(...numbers), 127, 'el techo conocido es la 127');
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128: la
+    // proyección de la colección de teléfonos de un candidato ya APROBADO al contacto que su
+    // aprobación creó. Es de teléfono, pero no de este hito y no toca lo que esta guarda vigila;
+    // trae su propia guarda estática. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 128, 'el techo conocido es la 128');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

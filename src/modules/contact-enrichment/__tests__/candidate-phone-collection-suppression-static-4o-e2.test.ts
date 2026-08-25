@@ -196,6 +196,12 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       // a la reconciliación genérica arriba; el segundo lo forzó AGENT1-CUT3B4 al reclamar el
       // 126 de forma independiente. Su cuerpo SQL no cambió en nada que afecte a esta cadena.
       '127_br_receita_monthly_snapshot_identity.sql',
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128: la
+      // proyección candidato→contacto tras la aprobación. LEE la colección del candidato con
+      // `suppressed_at IS NULL` en las dos puntas de cada join —igual que la 116— así que un
+      // tombstone de la 112 no se promueve nunca y no puede ganar procedencia nueva. No
+      // re-declara la 112 ni altera la forma de la colección. AUTORADA y NO APLICADA.
+      '128_project_approved_candidate_phones_onto_contact.sql',
     ]);
   });
 

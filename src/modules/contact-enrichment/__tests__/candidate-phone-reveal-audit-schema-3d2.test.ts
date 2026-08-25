@@ -326,6 +326,12 @@ describe('PHONE-3D.2 — no hay server action ni UI de reveal', () => {
       'phone-reveal-core.ts',
       'lusha-phone-fallback-actions.ts',
       'lusha-phone-fallback-core.ts',
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1: el cableado del reveal disparado
+      // desde la ficha del contacto OFICIAL. Nombra `revealCandidatePhoneAction` porque lo LLAMA
+      // —es el punto entero del hito: no construir un segundo waterfall, sino delegar en el que
+      // ya existe— y no declara ninguna acción de reveal propia. Que la delegación sea la única
+      // vía a un proveedor lo fijan sus propias guardas.
+      'post-approval-reveal-actions.ts',
     ]);
     const files = readdirSync(modulesDir).filter((f) => f.endsWith('.ts'));
     for (const f of files) {

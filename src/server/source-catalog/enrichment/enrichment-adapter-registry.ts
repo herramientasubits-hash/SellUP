@@ -16,6 +16,7 @@ import { superfinancieraEnrichmentAdapter } from '../connectors/superfinanciera-
 import { denueEnrichmentAdapter } from '../connectors/denue-mexico/denue-enrichment-adapter';
 import { inapiChileEnrichmentAdapter } from './adapters/cl-inapi';
 import { ecScvsEnrichmentAdapter } from '../connectors/ec-scvs/ec-scvs-enrichment-adapter';
+import { brReceitaCnpjEnrichmentAdapter } from '../connectors/br-receita-cnpj/br-receita-cnpj-enrichment-adapter';
 
 export const ENRICHMENT_ADAPTER_REGISTRY: Record<string, SourceEnrichmentAdapter> = {
   co_siis: siisEnrichmentAdapter,
@@ -26,4 +27,9 @@ export const ENRICHMENT_ADAPTER_REGISTRY: Record<string, SourceEnrichmentAdapter
   mx_denue: denueEnrichmentAdapter,
   cl_inapi: inapiChileEnrichmentAdapter,
   ec_scvs: ecScvsEnrichmentAdapter,
+  // 🔴 Brasil entra SIN periodo ligado: responde `skipped / br_snapshot_period_not_configured`
+  // hasta que un llamador ate un mes con `createBrReceitaCnpjEnrichmentAdapter`. Registrar la
+  // fuente la hace ALCANZABLE; no decide contra qué publicación mensual se enriquece, y nada en
+  // este corte tiene autoridad para decidirlo.
+  br_receita_cnpj_dados_abertos: brReceitaCnpjEnrichmentAdapter,
 };
