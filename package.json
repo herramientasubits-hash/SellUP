@@ -391,7 +391,8 @@
     "test:agent1:apollo-tax-dedupe-recheck": "node --import tsx --test src/server/agents/prospecting-toolkit/apollo-two-round/__tests__/apollo-tax-dedupe-recheck.test.ts src/server/agents/prospecting-toolkit/__tests__/prospect-candidate-identity-key.test.ts",
     "test:agent2a:legacy-false-active-run-conflict": "node --experimental-test-module-mocks --import tsx --test src/modules/contact-enrichment/__tests__/legacy-lusha-false-active-run-conflict.test.ts src/modules/contact-enrichment/__tests__/legacy-lusha-start-rejection-diagnostic.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-waterfall-legacy-reauthorization.test.ts src/modules/contact-enrichment/__tests__/legacy-cross-provider-lusha-continuation.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-waterfall-legacy-core.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-credit-reservation-lifecycle.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-credit-reservation-atomicity.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-waterfall-no-silent-downgrade.test.ts",
     "test:agent2a:legacy-false-active-run-conflict-postgres": "SELLUP_REQUIRE_POSTGRES_HARNESS=1 node --import tsx --test src/modules/contact-enrichment/__tests__/legacy-lusha-false-active-run-conflict-postgres.test.ts",
-    "test:apollo-credit-quota-sync": "node --import tsx --test src/modules/budgets/__tests__/apollo-credit-usage-sync.test.ts"
+    "test:apollo-credit-quota-sync": "node --import tsx --test src/modules/budgets/__tests__/apollo-credit-usage-sync.test.ts",
+    "test:budget-rule-delete": "node --import tsx --test src/modules/budgets/__tests__/delete-budget-rule.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

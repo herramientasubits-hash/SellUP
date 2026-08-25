@@ -240,24 +240,23 @@ export async function toggleBudgetRuleStatus(
   return { success: true };
 }
 
-// ─── archiveBudgetRule ────────────────────────────────────────────────────────
-// Soft-delete: sets is_active = false. Preserves all logs and historical data.
+// ─── deleteBudgetRule ─────────────────────────────────────────────────────────
+// Hard-delete: removes the rule row. Los logs de uso (provider_usage_logs) no
+// referencian budget_rules, así que el histórico de consumo se preserva.
+// Para desactivar sin borrar, usar toggleBudgetRuleStatus.
 
-export async function archiveBudgetRule(id: string): Promise<ActionResult> {
+export async function deleteBudgetRule(id: string): Promise<ActionResult> {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) return { success: false, error: 'No autorizado.' };
 
   if (!id) return { success: false, error: 'ID requerido.' };
 
   const admin = getAdminClient();
-  const { error } = await admin
-    .from('budget_rules')
-    .update({ is_active: false, updated_at: new Date().toISOString() })
-    .eq('id', id);
+  const { error } = await admin.from('budget_rules').delete().eq('id', id);
 
   if (error) {
-    console.error('[archiveBudgetRule]', error);
-    return { success: false, error: 'Error al archivar la regla.' };
+    console.error('[deleteBudgetRule]', error);
+    return { success: false, error: 'Error al eliminar la regla.' };
   }
 
   revalidatePath('/settings/providers', 'layout');

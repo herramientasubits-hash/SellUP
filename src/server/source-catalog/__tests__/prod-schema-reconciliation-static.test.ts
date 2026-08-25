@@ -145,6 +145,37 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     assert.equal(/UPDATE\s|DELETE\s+FROM|TRUNCATE|DROP\s+TABLE/i.test(sql), false);
   });
 
+  it('CUT A.2 — migration 125 relaxes the physical NOT NULL only after the scoped CHECK is added NOT VALID, validated, and verified', () => {
+    const sql = readMigration(MIGRATION_125);
+    assert.match(sql, /CHECK\s*\([\s\S]*?\)\s*NOT VALID/, '125 must add the scoped CHECK as NOT VALID');
+    assert.match(sql, /VALIDATE CONSTRAINT source_company_snapshots_non_br_record_identity_chk/);
+    assert.match(sql, /convalidated/i, '125 must verify the CHECK actually validated');
+    assert.match(sql, /ALTER COLUMN record_identity_key DROP NOT NULL/);
+
+    const stripped = stripComments(sql);
+    const dropNotNullIndex = stripped.indexOf('DROP NOT NULL');
+    const validateIndex = stripped.indexOf('VALIDATE CONSTRAINT');
+    assert.ok(dropNotNullIndex > 0 && validateIndex > 0);
+    assert.ok(dropNotNullIndex > validateIndex, 'the physical NOT NULL must be relaxed only after the scoped CHECK is validated');
+  });
+
+  it('CUT A.2 — the fail-closed validation runs unconditionally, not nested inside the old-UNIQUE-detection branch', () => {
+    const sql = stripComments(readMigration(MIGRATION_125));
+    const oldUniqueBranch = sql.indexOf("IF v_conname IS NULL THEN");
+    const missingIdentityCheck = sql.indexOf('v_missing_identity');
+    assert.ok(missingIdentityCheck >= 0);
+    assert.ok(
+      oldUniqueBranch < 0 || missingIdentityCheck < oldUniqueBranch,
+      'the missing-identity validation must run before (i.e. outside) the old-UNIQUE-detection branch, not inside it',
+    );
+  });
+
+  it('CUT A.2 — the stale "Brazil is migration 126" reference is corrected to 127', () => {
+    const sql = readMigration(MIGRATION_125);
+    assert.match(sql, /owned by migration 127/);
+    assert.equal(/Brazil[^.]*is owned by migration 126/.test(sql), false);
+  });
+
   it('26. migration 127 owns the Brazil monthly identity, and does not recreate the generic model', () => {
     const sql = stripComments(readMigration(MIGRATION_127));
     assert.match(sql, /source_company_snapshots_br_receita_identity_chk/);

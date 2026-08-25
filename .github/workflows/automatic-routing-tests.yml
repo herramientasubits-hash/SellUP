@@ -3517,3 +3517,17 @@ jobs:
       # reales capturados con ids y correo reemplazados por placeholders.
       - name: Run Apollo credit quota sync contract tests
         run: npm run test:apollo-credit-quota-sync
+
+      # Guarda de eliminación real de reglas de presupuesto.
+      #
+      # El botón de borrar una regla nunca borraba: la server action hacía
+      # UPDATE is_active=false, y los dos consumidores de UI descartaban el
+      # ActionResult, así que un fallo (sin permisos, error de BD) recargaba la
+      # página como si hubiera borrado.
+      #
+      # La guarda lee el código fuente real de rule-actions.ts y de los dos
+      # consumidores — no replica la lógica, que es lo que dejó vivir el 404 de
+      # Apollo. Probada en negativo: inyectar el soft-delete o descartar el
+      # resultado la pone roja.
+      - name: Run budget rule deletion guard
+        run: npm run test:budget-rule-delete
