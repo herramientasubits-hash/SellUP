@@ -220,13 +220,21 @@ describe('CUT-3B5 — trinquetes estáticos de la corrección de la 126', () => 
   // ═══════════════════════════════════════════════════════════════════════
 
   describe('§ 4 — nada se coló con la corrección', () => {
-    it('🔴 NO se creó una M127: esto es una corrección, no una migración nueva', () => {
+    it('🔴 esta corrección NO creó ninguna migración propia: sigue siendo un UPDATE de la 126', () => {
+      // 🔴 BR-SOURCE CUT A.1 reclamó independientemente el 127 —renombrando dos veces su propia
+      // migración de Brasil, 125→126→127, DESPUÉS de que AGENT1-CUT3B4 tomara el 126 y ANTES de
+      // que esta corrección (CUT-3B5) se escribiera— mientras esa reconciliación seguía en
+      // revisión. Lo que esta guarda defiende es que CUT-3B5 en sí no aportó una migración nueva
+      // propia: se comprueba por AUTORÍA, no por el número más alto del directorio. La 127 no
+      // menciona `CUT-3B5` en absoluto.
       const files = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
       const beyond126 = files.filter((f) => {
         const n = Number.parseInt(f.slice(0, 3), 10);
         return Number.isFinite(n) && n > 126;
       });
-      assert.deepEqual(beyond126, [], `aparecieron migraciones por encima de la 126: ${beyond126.join(', ')}`);
+      assert.deepEqual(beyond126, ['127_br_receita_monthly_snapshot_identity.sql']);
+      const m127 = readFileSync(join(migrationsDir, '127_br_receita_monthly_snapshot_identity.sql'), 'utf8');
+      assert.equal(m127.includes('CUT-3B5'), false, 'la 127 no puede ser autoría de esta corrección');
     });
 
     it('la 126 sigue siendo el número de Agente 1', () => {
