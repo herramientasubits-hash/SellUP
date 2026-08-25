@@ -198,3 +198,70 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
 
   return { terminal: null, canApprove, canDiscard, canMarkDuplicate, blockReason, isPossibleDuplicate, hasHubspotMatch, needsWarning };
 }
+
+// ─── AGENT1-CUT4-C — autoridad ÚNICA de las entradas de acción por fila ───────
+//
+// Antes de CUT4-C, la ficha del lote montaba `CandidateRowActions` SIN los
+// overrides seguros, así que aprobaba/descartaba/duplicaba por la vía heredada
+// —sin la puerta de `record_origin` y sin el gate de admin— mientras Prospectos
+// ya enrutaba todo por el drawer y los wrappers seguros. Eran DOS políticas.
+//
+// CUT4-C no crea una tercera: extrae aquí la que Prospectos ya venía aplicando
+// en su menú de fila (`isTerminalApprovalStatus` / `isDiscardEligible` /
+// `isMarkDuplicateEligible`, hasta ahora funciones locales de
+// `prospects-data-table-client.tsx`) para que AMBAS superficies importen
+// exactamente la misma. Si esta política cambia, cambia para las dos a la vez;
+// no hay forma de que una quede más permisiva que la otra.
+//
+// 🔴 Ofrecer una entrada NO es autorizar la mutación. La entrada sólo abre el
+// drawer con la intención armada; quien decide de verdad es
+// `resolveReviewDecisionView` en `ProspectReviewActions`, y por debajo el
+// wrapper de servidor revalida la fila contra la base (defensa en profundidad).
+
+/**
+ * Estados terminales inequívocos: la entrada «Aprobar» ni se ofrece. Cualquier
+ * otro estado sí la ofrece, y la elegibilidad real se evalúa al abrir el drawer
+ * —el mismo criterio que Prospectos usaba antes de esta extracción.
+ */
+export function isTerminalApprovalStatus(status: string | null | undefined): boolean {
+  return typeof status === 'string' && status in TERMINAL_STATUS;
+}
+
+/** Lo MÍNIMO que necesita la política de entradas de fila. Sin PII. */
+export interface RowActionCandidateSnapshot {
+  status: string | null;
+  recordOrigin: string | null;
+}
+
+/** Qué entradas puede OFRECER un menú de fila para este candidato. */
+export interface RowActionAvailability {
+  canOfferApprove: boolean;
+  canOfferDiscard: boolean;
+  canOfferMarkDuplicate: boolean;
+}
+
+/**
+ * Resuelve las entradas ofrecibles. Descartar y marcar duplicado se consultan a
+ * los evaluadores puros canónicos, que exigen `record_origin === 'production'`:
+ * una fila `import` / `smoke_test` / `qa` / `synthetic` / `historical_cleanup` /
+ * `unknown` —o histórica con `record_origin` NULL— es fail-closed y no recibe
+ * ninguna de las dos. Aprobar se ofrece fuera de los terminales y se decide en
+ * el drawer, donde el mismo `record_origin` vuelve a bloquearla.
+ */
+export function resolveRowActionAvailability(
+  candidate: RowActionCandidateSnapshot,
+): RowActionAvailability {
+  return {
+    canOfferApprove: !isTerminalApprovalStatus(candidate.status),
+    canOfferDiscard:
+      evaluateDiscardEligibility({
+        status: candidate.status,
+        recordOrigin: candidate.recordOrigin ?? null,
+      }).decision === 'discard',
+    canOfferMarkDuplicate:
+      evaluateDuplicateEligibility({
+        status: candidate.status,
+        recordOrigin: candidate.recordOrigin ?? null,
+      }).decision === 'mark_duplicate',
+  };
+}

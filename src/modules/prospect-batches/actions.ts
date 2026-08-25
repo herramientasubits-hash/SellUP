@@ -639,23 +639,62 @@ export async function archiveProspectBatch(id: string): Promise<void> {
 
 // ── Candidatos ────────────────────────────────────────────────
 
+/**
+ * AGENT1-CUT4-C — las filas que la ficha del lote MUESTRA.
+ *
+ * Antes devolvía lo que PostgREST quisiera darle en una sola ventana y la
+ * página recortaba después con `isUsefulReviewCandidate`, un clasificador de
+ * CALIDAD DE UI: un candidato CO sin `tax_identifier` existía, contaba y
+ * bloqueaba identidad, pero no se veía. Dos verdades sobre el mismo lote.
+ *
+ * Ahora la pertenencia sale del MISMO contrato durable del que ya salían los
+ * conteos (`DURABLE_PROSPECT_CANDIDATE_STATUSES`, CUT-1) y se pagina hasta
+ * agotar el conjunto, con la misma disciplina que
+ * `fetchDurableCandidateCountRows`: una página vacía es el único fin de
+ * conjunto fiable, porque parar en «me devolvió menos de lo que pedí» trunca en
+ * silencio si el backend recorta la ventana. Conteo y filas comparten origen,
+ * así que no pueden discrepar.
+ *
+ * Este helper NO decide accionabilidad: eso lo hace la política de Prospectos
+ * reutilizada en la fila y revalidada en el servidor.
+ */
+const BATCH_CANDIDATE_PAGE_SIZE = 1000;
+/** Tope de seguridad: alcanzarlo es un error, nunca un truncado mudo. */
+const BATCH_CANDIDATE_MAX_PAGES = 100;
+
 export async function getCandidatesByBatch(
   batchId: string
 ): Promise<ProspectCandidateWithReviewer[]> {
   await requireActiveUser();
   const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .from('prospect_candidates')
-    .select(`
-      *,
-      reviewer:internal_users!prospect_candidates_reviewed_by_fkey(id, full_name, email)
-    `)
-    .eq('batch_id', batchId)
-    .order('created_at', { ascending: true });
+  const rows: ProspectCandidateWithReviewer[] = [];
+  let from = 0;
 
-  if (error) throw new Error(`Error al cargar candidatos: ${error.message}`);
-  return (data ?? []) as ProspectCandidateWithReviewer[];
+  for (let page = 0; page < BATCH_CANDIDATE_MAX_PAGES; page++) {
+    const { data, error } = await supabase
+      .from('prospect_candidates')
+      .select(`
+        *,
+        reviewer:internal_users!prospect_candidates_reviewed_by_fkey(id, full_name, email)
+      `)
+      .eq('batch_id', batchId)
+      .in('status', [...DURABLE_PROSPECT_CANDIDATE_STATUSES])
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + BATCH_CANDIDATE_PAGE_SIZE - 1);
+
+    if (error) throw new Error(`Error al cargar candidatos: ${error.message}`);
+
+    const pageRows = (data ?? []) as ProspectCandidateWithReviewer[];
+    if (pageRows.length === 0) return rows;
+    rows.push(...pageRows);
+    from += pageRows.length;
+  }
+
+  throw new Error(
+    `Carga de candidatos abortada: más de ${BATCH_CANDIDATE_MAX_PAGES * BATCH_CANDIDATE_PAGE_SIZE} filas`,
+  );
 }
 
 /**

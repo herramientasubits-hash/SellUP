@@ -26,7 +26,10 @@ import {
   type CandidateStatus,
   type DuplicateMatch,
 } from '@/modules/prospect-batches/types';
-import { CandidateRowActions } from './candidate-row-actions';
+import {
+  BatchCandidateSafeActions,
+  type BatchCandidateActionIntent,
+} from './batch-candidate-safe-actions';
 import { CandidateDetailSheet } from './candidate-detail-sheet';
 import { getIcpSizeGateUiState } from './icp-size-gate-ui';
 
@@ -310,7 +313,23 @@ interface CandidatesTableClientProps {
 export function CandidatesTableClient({ candidates }: CandidatesTableClientProps) {
   const [detailCandidate, setDetailCandidate] =
     React.useState<ProspectCandidateWithReviewer | null>(null);
+  // AGENT1-CUT4-C — qué confirmación abre el drawer. El menú de fila NUNCA muta:
+  // sólo declara una intención, y `ProspectReviewActions` (en el pie del drawer)
+  // decide si esa intención es siquiera elegible antes de armar nada.
+  const [detailIntent, setDetailIntent] =
+    React.useState<BatchCandidateActionIntent>('detail');
 
+  const openCandidateDetail = React.useCallback(
+    (candidate: ProspectCandidateWithReviewer, intent: BatchCandidateActionIntent) => {
+      setDetailIntent(intent);
+      setDetailCandidate(candidate);
+    },
+    [],
+  );
+
+  // Sólo un lote SIN filas durables está vacío. La tabla ya recibe el universo
+  // durable completo, así que `length === 0` significa literalmente «no hay
+  // nada persistido» — nunca «el clasificador de calidad las descartó».
   if (candidates.length === 0) return <EmptyState />;
 
   return (
@@ -447,7 +466,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                         <button
                           id={`candidate-trigger-${c.id}`}
                           type="button"
-                          onClick={() => setDetailCandidate(c)}
+                          onClick={() => openCandidateDetail(c, 'detail')}
                           className="text-left font-semibold text-foreground hover:text-su-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-su-brand rounded focus:text-su-brand transition-colors text-sm line-clamp-2"
                         >
                           {c.name}
@@ -726,7 +745,7 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
 
                   {/* ── Acciones ── */}
                   <td className="px-3 py-2.5">
-                    <CandidateRowActions candidate={c} onBeforeAction={() => setDetailCandidate(null)} />
+                    <BatchCandidateSafeActions candidate={c} onOpenDetail={openCandidateDetail} />
                   </td>
                 </tr>
               );
@@ -740,9 +759,16 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
         key={detailCandidate?.id ?? 'empty'}
         candidate={detailCandidate ? (candidates.find((c) => c.id === detailCandidate.id) ?? detailCandidate) : null}
         open={detailCandidate !== null}
+        initialApproveIntent={detailIntent === 'approve'}
+        onApproveIntentConsumed={() => setDetailIntent('detail')}
+        initialDiscardIntent={detailIntent === 'discard'}
+        onDiscardIntentConsumed={() => setDetailIntent('detail')}
+        initialDuplicateIntent={detailIntent === 'duplicate'}
+        onDuplicateIntentConsumed={() => setDetailIntent('detail')}
         onOpenChange={(open) => {
           if (!open) {
             const lastActiveId = detailCandidate?.id;
+            setDetailIntent('detail');
             setDetailCandidate(null);
             if (lastActiveId) {
               setTimeout(() => {
