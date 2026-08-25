@@ -168,3 +168,123 @@ test('§ 7 — la procedencia viaja en el INSERT, nunca en un UPDATE posterior',
     assert.ok(!body.includes('.update('), `${writer} no puede parchear la fila tras insertarla`);
   }
 });
+
+// ─── AGENT1-CUT4-B2-CORRECTION-1 ────────────────────────────────────────────
+//
+// Lo que añaden estas guardas: que la corrección no se pueda deshacer en
+// silencio. El primer B2 dejaba vivo un write exitoso con `record_origin` sin
+// resolver cuando no lograba el contexto del lote; el arreglo es (a) que la
+// adopción EXISTENTE transporte ese contexto y (b) que la proyección canónica
+// sea incondicional. Ambas son propiedades estructurales, así que se fijan aquí
+// además de en el arnés de runtime.
+
+/** El vocabulario de la supresión que la corrección elimina. */
+const SUPPRESSION_VOCABULARY = [
+  'assertsProductionWithoutBatchContext',
+  'production_assertion_suppressed',
+  'batch_context_available',
+  'CANONICAL_PRODUCTION_RECORD_ORIGIN',
+] as const;
+
+test('§ 2 — la adopción del lote técnico devuelve su CONTEXTO, no sólo el id', () => {
+  const src = code(ACTIONS);
+  const body = writerBody(src, 'getOrCreateTechnicalManualBatch');
+
+  assert.ok(
+    body.includes("'id, source, name, metadata'"),
+    'la selección existente tiene que traer la procedencia del lote que adopta',
+  );
+  assert.ok(
+    src.includes('Promise<AdoptedBatchProvenance>'),
+    'y devolverla, para que el writer no necesite una segunda lectura',
+  );
+  assert.ok(
+    !body.includes("return existingBatch.id;") && !body.includes('return newBatch.id;'),
+    'devolver sólo el id obligaría a releer el lote ya resuelto',
+  );
+});
+
+test('§ 2 (control negativo) — la guarda detecta una adopción que vuelve a traer sólo el id', () => {
+  const src = code(ACTIONS);
+  // `split/join` a propósito: la selección ampliada aparece en las DOS ramas de
+  // la adopción (búsqueda y creación), y una guarda que sólo mutara la primera
+  // se declararía verde citando la segunda.
+  const mutated = writerBody(src, 'getOrCreateTechnicalManualBatch')
+    .split("'id, source, name, metadata'")
+    .join("'id'");
+  assert.ok(
+    !mutated.includes("'id, source, name, metadata'"),
+    'una guarda que no detecta el retroceso no está guardando nada',
+  );
+});
+
+test('§ 2 — createProspectCandidate no abre una SEGUNDA lectura de lote', () => {
+  // El contexto viaja con la adopción. La única lectura que queda es la de la
+  // rama en la que el llamador impone el lote y no hubo adopción alguna.
+  const src = code(ACTIONS);
+  const body = writerBody(src, 'createProspectCandidate');
+  const reads = body.split("from('prospect_batches')").length - 1;
+  assert.ok(
+    reads <= 1,
+    `createProspectCandidate no puede leer el lote más de una vez (encontradas ${reads})`,
+  );
+});
+
+test('§ 2 (control negativo) — la guarda detecta una segunda lectura de lote', () => {
+  const src = code(ACTIONS);
+  const body = writerBody(src, 'createProspectCandidate');
+  const mutated = `${body}\n  await supabase.from('prospect_batches').select('source');`;
+  const reads = mutated.split("from('prospect_batches')").length - 1;
+  assert.ok(reads > 1, 'la guarda tiene que ver la lectura añadida');
+});
+
+test('§ 3 — la proyección canónica es INCONDICIONAL: nada vacía las columnas', () => {
+  const src = code(ACTIONS);
+  const body = writerBody(src, 'createProspectCandidate');
+
+  assert.ok(
+    body.includes('const recordOriginColumns = toCandidateRecordOriginColumns(recordOriginResolution);'),
+    'la proyección tiene que ser directa: una rama que la vacíe reproduce el defecto',
+  );
+  for (const needle of SUPPRESSION_VOCABULARY) {
+    assert.ok(
+      !body.includes(needle),
+      `la supresión de la afirmación de producción ya no existe (${needle})`,
+    );
+  }
+});
+
+test('§ 3 (control negativo) — la guarda detecta el retorno de la supresión', () => {
+  const src = code(ACTIONS);
+  const mutated = writerBody(src, 'createProspectCandidate').replace(
+    'const recordOriginColumns = toCandidateRecordOriginColumns(recordOriginResolution);',
+    'const recordOriginColumns = assertsProductionWithoutBatchContext ? {} : resolvedOriginColumns;',
+  );
+  assert.ok(
+    SUPPRESSION_VOCABULARY.some((needle) => mutated.includes(needle)),
+    'una guarda que no detecta la vuelta de la supresión no está guardando nada',
+  );
+});
+
+test('§ 3 — el fail-closed corta ANTES de la puerta de persistencia', () => {
+  // El orden importa: los `throw` del contexto de lote tienen que estar por
+  // encima del INSERT de candidato. Si aparecieran después, la fila ya existiría.
+  const src = code(ACTIONS);
+  const body = writerBody(src, 'createProspectCandidate');
+
+  const insertDoor = body.indexOf(".from('prospect_candidates')");
+  assert.notEqual(insertDoor, -1, 'no se encontró la puerta de persistencia');
+
+  const failClosedThrows = [
+    'no se pudo resolver la procedencia del lote indicado',
+    'el lote indicado no existe o no es accesible',
+  ];
+  for (const message of failClosedThrows) {
+    const at = body.indexOf(message);
+    assert.notEqual(at, -1, `falta el fail-closed «${message}»`);
+    assert.ok(
+      at < insertDoor,
+      `el fail-closed «${message}» tiene que cortar antes de insertar la fila`,
+    );
+  }
+});

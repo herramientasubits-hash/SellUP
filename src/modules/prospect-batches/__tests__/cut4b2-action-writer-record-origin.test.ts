@@ -38,6 +38,8 @@ type Spy = {
   auditInserts: Array<Record<string, unknown>>;
   candidateUpdates: Array<Record<string, unknown>>;
   batchSelects: string[];
+  /** Filtros `eq`/`is` de cada SELECT de lote: fija que el criterio no cambió. */
+  batchFilters: Array<[string, unknown]>;
   /** Fila que devuelve la lectura de contexto del lote. `null` ⇒ no hay contexto. */
   adoptedBatchRow: Record<string, unknown> | null;
   adoptedBatchError: { message: string } | null;
@@ -49,6 +51,7 @@ const spy: Spy = {
   auditInserts: [],
   candidateUpdates: [],
   batchSelects: [],
+  batchFilters: [],
   adoptedBatchRow: null,
   adoptedBatchError: null,
 };
@@ -59,6 +62,7 @@ function resetSpy(): void {
   spy.auditInserts.length = 0;
   spy.candidateUpdates.length = 0;
   spy.batchSelects.length = 0;
+  spy.batchFilters.length = 0;
   spy.adoptedBatchRow = null;
   spy.adoptedBatchError = null;
 }
@@ -97,8 +101,14 @@ function makeFakeSupabase(): unknown {
           select(columns: string) {
             spy.batchSelects.push(columns);
             const chain: Record<string, unknown> = {
-              eq: () => chain,
-              is: () => chain,
+              eq: (column: string, value: unknown) => {
+                spy.batchFilters.push([column, value]);
+                return chain;
+              },
+              is: (column: string, value: unknown) => {
+                spy.batchFilters.push([column, value]);
+                return chain;
+              },
               maybeSingle: async () => ({
                 data: spy.adoptedBatchRow,
                 error: spy.adoptedBatchError,
@@ -175,6 +185,7 @@ globalThis.fetch = (async () => {
 // ─── Contextos de lote ─────────────────────────────────────────────────────
 
 const MANUAL_TRAY_BATCH = {
+  id: '00000000-0000-4000-8000-00000000b001',
   source: 'manual',
   name: 'Creaciones manuales · Agosto 2026',
   metadata: { is_technical_manual: true, manual_tray: true },
@@ -274,6 +285,7 @@ describe('CUT4-B2 § 5 — matriz de procedencia del candidato manual', () => {
 
   it('E — lote de importación adoptado → import (NUNCA production)', async () => {
     spy.adoptedBatchRow = {
+      id: BATCH_ID,
       source: 'external_import',
       name: 'Importación externa · 25 ago 2026',
       metadata: {},
@@ -345,40 +357,206 @@ describe('CUT4-B2 § 5 — matriz de procedencia del candidato manual', () => {
   });
 });
 
-// ─── B2 § 5 — fail-closed sin contexto de lote ─────────────────────────────
+// ─── B2-CORRECTION § 3/§ 6 — fail-closed REAL: sin procedencia no hay fila ──
+//
+// 🔴 Lo que corrige respecto al primer B2: antes, cuando el contexto del lote no
+// se podía resolver, el writer SUPRIMÍA la afirmación de producción y persistía
+// la fila igual — con `record_origin` sin resolver. Eso conservaba una variante
+// del MISMO defecto que el corte cierra: un write NUEVO y exitoso que deja la
+// columna en NULL. Ahora no hay fila: se falla ANTES de la puerta de
+// persistencia, con cero inserts.
+//
+// No hay tercera salida honesta que probar: persistir con la columna vacía
+// reproduce el defecto, `production` sería una promoción falsa, e inventar
+// `unknown` o un marcador de metadata sería una clasificación LOCAL fuera de la
+// autoridad canónica.
 
-describe('CUT4-B2 § 5 — sin contexto de lote no se afirma producción', () => {
+async function expectManualCreationRejected(): Promise<Error> {
+  const { createProspectCandidate } = await import('../actions');
+  const error = await createProspectCandidate({
+    batch_id: BATCH_ID,
+    name: 'Manual Uno SAS',
+    country: 'Colombia',
+    country_code: 'CO',
+  } as never).then(
+    () => null,
+    (err: unknown) => err as Error,
+  );
+
+  assert.ok(error instanceof Error, 'el writer tiene que fallar, no devolver una fila');
+  return error;
+}
+
+describe('CUT4-B2-CORRECTION § 3/§ 6 — un write exitoso jamás nace sin procedencia', () => {
   beforeEach(resetSpy);
 
-  it('una lectura de lote vacía NO asciende la fila manual a production', async () => {
-    spy.adoptedBatchRow = null;
-    const row = await createManualCandidate();
-
-    assert.ok(
-      !Object.prototype.hasOwnProperty.call(row, 'record_origin'),
-      'ausencia de evidencia no es evidencia de una corrida limpia',
-    );
-    const context = (row.metadata as Record<string, unknown>).record_origin_batch_context as Record<
-      string,
-      unknown
-    >;
-    assert.equal(context.batch_context_available, false);
-    assert.equal(context.production_assertion_suppressed, true);
-  });
-
-  it('una lectura de lote fallida tampoco asciende la fila manual a production', async () => {
+  it('CASE B — la lectura de procedencia del lote falla → CERO inserts de candidato', async () => {
     spy.adoptedBatchRow = null;
     spy.adoptedBatchError = { message: 'permission denied' };
-    const row = await createManualCandidate();
-    assert.ok(!Object.prototype.hasOwnProperty.call(row, 'record_origin'));
+
+    const error = await expectManualCreationRejected();
+
+    assert.equal(spy.candidateInserts.length, 0, 'ausencia de evidencia no puede producir una fila');
+    assert.equal(spy.candidateUpdates.length, 0);
+    assert.equal(spy.batchInserts.length, 0, 'tampoco se fabrica un lote para salir del paso');
+    // El mensaje distingue las dos causas. Sin esta aserción, borrar la rama de
+    // error pasaría inadvertido: PostgREST devuelve `data: null` junto al error,
+    // así que el corte por «fila ausente» taparía el hueco y el test seguiría
+    // verde sobre una comprobación que ya no existe.
+    assert.match(error.message, /no se pudo resolver la procedencia/);
   });
 
-  it('sin contexto de lote, un origen NO productivo del propio candidato SÍ se persiste', async () => {
-    // La supresión es quirúrgica: sólo tapa la AFIRMACIÓN de producción. Un
-    // marcador que decidió el candidato (aquí, una nota de smoke) se conserva.
+  it('CASE C — el lote no es resoluble (sin fila) → CERO inserts de candidato', async () => {
     spy.adoptedBatchRow = null;
+
+    const error = await expectManualCreationRejected();
+
+    assert.equal(spy.candidateInserts.length, 0);
+    assert.equal(spy.candidateUpdates.length, 0);
+    assert.equal(spy.batchInserts.length, 0);
+    assert.match(error.message, /no existe o no es accesible/);
+  });
+
+  it('CASE C — la fila devuelta sin identidad utilizable tampoco persiste nada', async () => {
+    // Una fila que llega sin `id` no identifica un lote: es exactamente el mismo
+    // «no resoluble» disfrazado de éxito.
+    spy.adoptedBatchRow = { source: 'manual', name: 'Creaciones manuales · Agosto 2026', metadata: {} };
+
+    await expectManualCreationRejected();
+
+    assert.equal(spy.candidateInserts.length, 0);
+  });
+
+  it('CASE B/C — ninguna fila insertada por este writer puede quedarse sin record_origin', async () => {
+    // El invariante en su forma general: se recorren los tres escenarios de
+    // contexto (limpio, error, ausente) y se afirma que TODA fila persistida
+    // trae la columna resuelta. Es lo que el primer B2 no cumplía.
+    const scenarios: Array<() => void> = [
+      () => {
+        spy.adoptedBatchRow = { ...MANUAL_TRAY_BATCH };
+      },
+      () => {
+        spy.adoptedBatchError = { message: 'permission denied' };
+      },
+      () => {
+        spy.adoptedBatchRow = null;
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      resetSpy();
+      scenario();
+
+      const { createProspectCandidate } = await import('../actions');
+      await createProspectCandidate({
+        batch_id: BATCH_ID,
+        name: 'Manual Uno SAS',
+        country_code: 'CO',
+      } as never).catch(() => null);
+
+      for (const row of spy.candidateInserts) {
+        assert.ok(
+          Object.prototype.hasOwnProperty.call(row, 'record_origin'),
+          'un write exitoso con record_origin sin resolver es el defecto, no el arreglo',
+        );
+        assert.notEqual(row.record_origin, null);
+        assert.notEqual(row.record_origin, undefined);
+      }
+    }
+  });
+
+  it('CASE D — con contexto, un marcador del propio candidato sigue mandando', async () => {
+    // El fail-closed no tapa la señal del candidato: un lote limpio no puede
+    // ascender a producción una fila que ella misma declara de smoke.
+    spy.adoptedBatchRow = { ...MANUAL_TRAY_BATCH };
     const row = await createManualCandidate({ review_notes: 'smoke run de validación' });
     assert.equal(row.record_origin, 'smoke_test');
+  });
+});
+
+// ─── B2-CORRECTION § 2/§ 6 — la adopción EXISTENTE transporta el contexto ───
+
+describe('CUT4-B2-CORRECTION § 2 — el lote adoptado viaja con su procedencia', () => {
+  beforeEach(resetSpy);
+
+  async function createWithoutBatchId(): Promise<void> {
+    const { createProspectCandidate } = await import('../actions');
+    await createProspectCandidate({
+      name: 'Manual Sin Lote SAS',
+      country_code: 'CO',
+    } as never);
+  }
+
+  it('CASE E/F — sin batch_id: una sola lectura de lote, la de la adopción de siempre', async () => {
+    spy.adoptedBatchRow = { ...MANUAL_TRAY_BATCH };
+    await createWithoutBatchId();
+
+    assert.equal(
+      spy.batchSelects.length,
+      1,
+      'la adopción ya leía el lote: su contexto tiene que viajar en ESA lectura, no en otra',
+    );
+    for (const column of ['source', 'name', 'metadata']) {
+      assert.ok(
+        spy.batchSelects[0].includes(column),
+        `la selección existente tiene que traer batch.${column} (SELECT fue "${spy.batchSelects[0]}")`,
+      );
+    }
+    assert.equal(spy.candidateInserts.length, 1);
+    assert.equal(spy.candidateInserts[0].record_origin, 'production');
+  });
+
+  it('CASE F — el criterio de qué lote gana no cambió', async () => {
+    spy.adoptedBatchRow = { ...MANUAL_TRAY_BATCH };
+    await createWithoutBatchId();
+
+    const columns = spy.batchFilters.map(([column]) => column);
+    assert.deepEqual(
+      columns,
+      ['name', 'created_by', 'source', 'archived_at'],
+      'la prioridad y los filtros de la adopción son intocables: sólo se ampliaron las columnas',
+    );
+    assert.deepEqual(
+      spy.batchFilters.find(([column]) => column === 'source'),
+      ['source', 'manual'],
+    );
+    assert.deepEqual(
+      spy.batchFilters.find(([column]) => column === 'archived_at'),
+      ['archived_at', null],
+    );
+  });
+
+  it('CASE F — el fallback sigue creando el lote técnico, y su contexto es el que clasifica', async () => {
+    // Sin lote existente el fallback crea el lote manual — como siempre — y la
+    // fila cuelga de ESE lote. Cero lecturas adicionales.
+    spy.adoptedBatchRow = null;
+    await createWithoutBatchId();
+
+    assert.equal(spy.batchInserts.length, 1, 'el fallback de creación no cambia');
+    assert.equal(spy.batchInserts[0].source, 'manual');
+    assert.equal(spy.batchSelects.length, 1, 'no se relee el lote que se acaba de crear');
+    assert.equal(spy.candidateInserts.length, 1);
+    assert.equal(spy.candidateInserts[0].record_origin, 'production');
+  });
+
+  it('CASE E — con batch_id: exactamente una lectura y una sola puerta de persistencia', async () => {
+    spy.adoptedBatchRow = { ...MANUAL_TRAY_BATCH };
+    await createManualCandidate();
+
+    assert.equal(spy.batchSelects.length, 1);
+    assert.equal(spy.candidateInserts.length, 1);
+    assert.equal(spy.candidateUpdates.length, 0);
+    assert.equal(spy.batchInserts.length, 0, 'un batch_id explícito no crea lotes');
+  });
+
+  it('CASE F — un lote de smoke adoptado por el fallback tampoco asciende a production', async () => {
+    // Que la procedencia viaje con la adopción no es un detalle de forma: es lo
+    // que impide que la bandeja adoptada mienta sobre la corrida.
+    spy.adoptedBatchRow = batchWithMetadata({ smoke_test: true });
+    await createWithoutBatchId();
+
+    assert.equal(spy.candidateInserts.length, 1);
+    assert.equal(spy.candidateInserts[0].record_origin, 'smoke_test');
   });
 });
 

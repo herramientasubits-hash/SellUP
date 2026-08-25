@@ -13,7 +13,6 @@ import {
   toCandidateRecordOriginColumns,
   toCandidateRecordOriginMetadata,
   CANDIDATE_RECORD_ORIGIN_METADATA_KEY,
-  CANONICAL_PRODUCTION_RECORD_ORIGIN,
 } from '@/server/agents/prospecting-toolkit/candidate-record-origin';
 import {
   isWriterPipelineCTAEnabled,
@@ -659,6 +658,41 @@ export async function getCandidatesByBatch(
   return (data ?? []) as ProspectCandidateWithReviewer[];
 }
 
+/**
+ * AGENT1-CUT4-B2-CORRECTION-1 § 2 — el contexto MÍNIMO que el clasificador
+ * canónico necesita para decidir la procedencia de una fila que cuelga de un
+ * lote. Viaja con el lote ADOPTADO; no es una segunda lectura ni una segunda
+ * política de selección.
+ *
+ * No se exporta a propósito: este archivo es `'use server'` y sus exports son
+ * la superficie de acciones del servidor.
+ */
+type AdoptedBatchProvenance = {
+  id: string;
+  source: string | null;
+  name: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+/**
+ * Proyecta la fila del lote adoptado a su contexto de procedencia. No clasifica
+ * nada: sólo normaliza ausencias a `null` para que la decisión siga siendo del
+ * clasificador canónico y de nadie más.
+ */
+function toAdoptedBatchProvenance(row: {
+  id: string;
+  source?: string | null;
+  name?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): AdoptedBatchProvenance {
+  return {
+    id: row.id,
+    source: row.source ?? null,
+    name: row.name ?? null,
+    metadata: row.metadata ?? null,
+  };
+}
+
 export async function createProspectCandidate(
   input: CreateCandidateInput
 ): Promise<ProspectCandidate> {
@@ -677,12 +711,7 @@ export async function createProspectCandidate(
     input.tax_identifier = validation.normalized;
   }
 
-  let batchId = input.batch_id;
-  if (!batchId) {
-    batchId = await getOrCreateTechnicalManualBatch(internalUserId);
-  }
-
-  // ── AGENT1-CUT4-B2 § 4/§ 5/§ 6 — el CONTEXTO del lote ADOPTADO ──────────────
+  // ── AGENT1-CUT4-B2-CORRECTION-1 § 2/§ 3 — el lote ADOPTADO trae su procedencia
   //
   // El defecto que cierra: este writer insertaba `status='needs_review'` sin
   // tocar `record_origin`, así que la columna quedaba en NULL por OMISIÓN. Pero
@@ -693,42 +722,91 @@ export async function createProspectCandidate(
   // se ejecutó. Eso es una PROMOCIÓN FALSA.
   //
   // La procedencia de una fila manual no la decide la fila: la decide la corrida
-  // de la que cuelga. Por eso se lee el lote REALMENTE resuelto por el writer
-  // (§ 6: no se rediseña la política de selección ni se crea otro lote) y se le
-  // entrega al clasificador canónico, que ya sabe interpretar `source`, `name` y
-  // los marcadores exactos de `metadata`.
-  const { data: adoptedBatchRow, error: adoptedBatchError } = await supabase
-    .from('prospect_batches')
-    .select('source, name, metadata')
-    .eq('id', batchId)
-    .maybeSingle();
+  // de la que cuelga. Por eso entra en la decisión el lote REALMENTE adoptado.
+  //
+  // § 2 — la adopción EXISTENTE devuelve ahora ese contexto: es el MISMO lote que
+  // el writer ya decidió adoptar el que transporta su procedencia. No se añade
+  // una segunda lectura, no cambia qué lote gana, no cambia el fallback.
+  let adoptedBatch: AdoptedBatchProvenance;
 
-  if (adoptedBatchError) {
-    console.error(
-      '[createProspectCandidate] no se pudo leer el contexto de procedencia del lote:',
-      batchId,
-      adoptedBatchError.message,
-    );
+  if (!input.batch_id) {
+    adoptedBatch = await getOrCreateTechnicalManualBatch(internalUserId);
+  } else {
+    // El lote lo eligió el llamador: aquí NO hay una selección previa de la que
+    // colgarse, así que su procedencia hay que leerla. Ésta es la única lectura,
+    // y sólo existe en la rama donde no había ninguna.
+    const { data: callerBatchRow, error: callerBatchError } = await supabase
+      .from('prospect_batches')
+      .select('id, source, name, metadata')
+      .eq('id', input.batch_id)
+      .maybeSingle();
+
+    // ── § 3 — fail-closed REAL: sin procedencia no hay fila ───────────────────
+    //
+    // Que la lectura falle es ausencia de evidencia, no evidencia de una corrida
+    // limpia. Antes esto suprimía la afirmación de producción y persistía igual,
+    // con `record_origin` sin resolver — es decir, conservaba una variante del
+    // MISMO defecto que este corte cierra: una fila nacida sin procedencia.
+    //
+    // No hay tercera salida honesta. Persistir con la columna vacía reproduce el
+    // defecto; escribir `production` sería una promoción falsa; inventar
+    // `unknown` por nuestra cuenta o marcar la metadata sería crear una
+    // clasificación LOCAL fuera de la autoridad canónica. Así que no se
+    // persiste: se falla antes de la puerta de persistencia, con CERO inserts.
+    if (callerBatchError) {
+      console.error(
+        '[createProspectCandidate] no se pudo leer la procedencia del lote:',
+        input.batch_id,
+        callerBatchError.message,
+      );
+      throw new Error(
+        'Error al crear candidato: no se pudo resolver la procedencia del lote indicado',
+      );
+    }
+
+    if (!callerBatchRow) {
+      console.error('[createProspectCandidate] lote no resoluble:', input.batch_id);
+      throw new Error(
+        'Error al crear candidato: el lote indicado no existe o no es accesible',
+      );
+    }
+
+    const callerBatch = callerBatchRow as {
+      id?: string | null;
+      source?: string | null;
+      name?: string | null;
+      metadata?: Record<string, unknown> | null;
+    };
+
+    if (!callerBatch.id) {
+      console.error('[createProspectCandidate] lote sin identidad utilizable:', input.batch_id);
+      throw new Error(
+        'Error al crear candidato: el lote indicado no existe o no es accesible',
+      );
+    }
+
+    adoptedBatch = {
+      id: callerBatch.id,
+      source: callerBatch.source ?? null,
+      name: callerBatch.name ?? null,
+      metadata: callerBatch.metadata ?? null,
+    };
   }
 
-  const adoptedBatch = (adoptedBatchRow ?? null) as {
-    source?: string | null;
-    name?: string | null;
-    metadata?: Record<string, unknown> | null;
-  } | null;
-
-  const batchProvenanceContext = adoptedBatch
-    ? {
-        source: adoptedBatch.source ?? null,
-        name: adoptedBatch.name ?? null,
-        metadata: adoptedBatch.metadata ?? null,
-      }
-    : undefined;
+  const batchId = adoptedBatch.id;
 
   // La metadata del candidato se construye ANTES de resolver la procedencia
-  // (§ 8): el clasificador tiene que ver exactamente lo que se va a persistir.
+  // (§ 4): el clasificador tiene que ver exactamente lo que se va a persistir.
   const candidateBaseMetadata: Record<string, unknown> = {};
 
+  // ── § 4 — autoridad canónica ÚNICA ───────────────────────────────
+  //
+  // Llegados aquí el contexto del lote adoptado está resuelto, así que no queda
+  // ninguna rama en la que el writer tenga que decidir por su cuenta. Se persiste
+  // EXACTAMENTE lo que dictamine el clasificador — incluido `unknown` con
+  // `matched_rule='unexecuted_or_unauthorized'` para los marcadores de ejecución
+  // no ocurrida o no autorizada, que es su resultado real: el vocabulario no
+  // tiene un valor `unexecuted` y este writer no lo inventa.
   const recordOriginResolution = resolveCandidateRecordOriginForWriter({
     // Esta acción no tiene modo seco: si llega hasta aquí, escribe.
     dryRun: false,
@@ -738,22 +816,14 @@ export async function createProspectCandidate(
       review_notes: input.review_notes ?? null,
       metadata: candidateBaseMetadata,
     },
-    batch: batchProvenanceContext,
+    batch: {
+      source: adoptedBatch.source,
+      name: adoptedBatch.name,
+      metadata: adoptedBatch.metadata,
+    },
   });
 
-  // ── § 5 — fail-closed: sin contexto de lote NO se afirma producción ─────────
-  //
-  // Que la lectura del lote falle no es evidencia de que la corrida fuera limpia:
-  // es ausencia de evidencia. Las señales del LOTE sólo pueden restar producción
-  // (smoke/QA/sintético/limpieza/import/no-ejecutado), nunca añadirla a un
-  // candidato manual, así que suprimir la afirmación es estrictamente
-  // conservador — y deja la columna como está hoy, sin regresión. Todo origen
-  // que NO sea producción lo decidió el propio candidato y sí se persiste.
-  const resolvedOriginColumns = toCandidateRecordOriginColumns(recordOriginResolution);
-  const assertsProductionWithoutBatchContext =
-    batchProvenanceContext === undefined &&
-    resolvedOriginColumns.record_origin === CANONICAL_PRODUCTION_RECORD_ORIGIN;
-  const recordOriginColumns = assertsProductionWithoutBatchContext ? {} : resolvedOriginColumns;
+  const recordOriginColumns = toCandidateRecordOriginColumns(recordOriginResolution);
 
   const { data, error } = await supabase
     .from('prospect_candidates')
@@ -780,15 +850,9 @@ export async function createProspectCandidate(
       ...recordOriginColumns,
       metadata: {
         ...candidateBaseMetadata,
-        // § 8 — derivación auditable. ADITIVO: no pisa ninguna clave anterior.
+        // § 4 — derivación auditable. ADITIVO: no pisa ninguna clave anterior.
         [CANDIDATE_RECORD_ORIGIN_METADATA_KEY]:
           toCandidateRecordOriginMetadata(recordOriginResolution),
-        // § 5 — sin esto, la metadata afirmaría `production` mientras la columna
-        // queda vacía. La contradicción se declara en vez de esconderse.
-        record_origin_batch_context: {
-          batch_context_available: batchProvenanceContext !== undefined,
-          production_assertion_suppressed: assertsProductionWithoutBatchContext,
-        },
       },
     })
     .select()
@@ -4170,8 +4234,20 @@ export interface GlobalCandidatesResult {
 
 /**
  * Obtiene o crea un lote técnico mensual para creaciones manuales de candidatos.
+ *
+ * AGENT1-CUT4-B2-CORRECTION-1 § 2 — devuelve el CONTEXTO del lote que adopta, no
+ * sólo su id. La procedencia de un candidato manual la decide la corrida de la
+ * que cuelga, así que el mismo lote que esta función decide adoptar tiene que
+ * transportar `source`, `name` y `metadata` hasta el clasificador canónico. Sin
+ * esto el writer necesitaría una SEGUNDA lectura del lote que acaba de resolver.
+ *
+ * Lo que NO cambia: qué lote gana. El criterio de búsqueda (nombre del mes,
+ * `created_by`, `source='manual'`, sin archivar) y el fallback a creación son
+ * exactamente los de antes; sólo se amplían las columnas que se traen de vuelta.
  */
-export async function getOrCreateTechnicalManualBatch(userId: string): Promise<string> {
+export async function getOrCreateTechnicalManualBatch(
+  userId: string,
+): Promise<AdoptedBatchProvenance> {
   const supabase = await createClient();
 
   const now = new Date();
@@ -4186,7 +4262,7 @@ export async function getOrCreateTechnicalManualBatch(userId: string): Promise<s
   // 1. Buscar lote técnico existente y activo
   const { data: existingBatch, error: findError } = await supabase
     .from('prospect_batches')
-    .select('id')
+    .select('id, source, name, metadata')
     .eq('name', batchName)
     .eq('created_by', userId)
     .eq('source', 'manual')
@@ -4198,7 +4274,7 @@ export async function getOrCreateTechnicalManualBatch(userId: string): Promise<s
   }
 
   if (existingBatch?.id) {
-    return existingBatch.id;
+    return toAdoptedBatchProvenance(existingBatch);
   }
 
   // 2. Crear lote técnico
@@ -4216,7 +4292,7 @@ export async function getOrCreateTechnicalManualBatch(userId: string): Promise<s
         manual_tray: true,
       },
     })
-    .select('id')
+    .select('id, source, name, metadata')
     .single();
 
   if (createError || !newBatch) {
@@ -4235,7 +4311,7 @@ export async function getOrCreateTechnicalManualBatch(userId: string): Promise<s
     console.warn('[getOrCreateTechnicalManualBatch] No se pudo loggear auditoría:', auditErr);
   }
 
-  return newBatch.id;
+  return toAdoptedBatchProvenance(newBatch);
 }
 
 /**
