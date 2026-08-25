@@ -3487,3 +3487,68 @@ jobs:
       # resultado la pone roja.
       - name: Run budget rule deletion guard
         run: npm run test:budget-rule-delete
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # BR-SOURCE FUNCTIONAL CUT B — el runtime que consume la 127.
+      #
+      # CUT A dejó el modelo de datos y la SEMÁNTICA escritos, y dijo por escrito lo
+      # que NO hacía: sin ejecutor, sin lector, sin registro en runtime, sin Agente 1.
+      # Este corte cierra ese hueco y sólo ese hueco:
+      #
+      #   · el EJECUTOR es un bucle tonto sobre el plan de CUT A. Ningún invariante
+      #     vive en él: el orden, el alcance por corrida, la política de duplicados y
+      #     la negativa a publicar un periodo parcial siguen siendo propiedades del
+      #     PLAN. Sostiene COMO MÁXIMO UN lote a la vez — una mirilla de una posición
+      #     que existe sólo porque `publish_period` tiene que commitear CON el último
+      #     lote, y un ejecutor en streaming no sabe cuál es el último hasta que llega
+      #     la publicación. Recolectar las operaciones primero habría restaurado, en
+      #     silencio, justo la memoria O(FILAS_NACIONALES) que CUT A eliminó.
+      #   · el GATEWAY habla SQL y no PostgREST, porque PostgREST no tiene
+      #     transacciones multi-sentencia y por tanto no podría honrar
+      #     `mustCommitWithFinalBatch`: sólo podría fingirlo. La única forma de
+      #     publicar es `commitFinalBatchAndPublish(loteFinal, publish)` — no existe un
+      #     `publishPeriod` suelto, así que la atomicidad es una propiedad de la FORMA
+      #     de la API, no una regla que alguien deba recordar.
+      #   · el LECTOR es de DOS PASOS: resuelve la única corrida `published` del
+      #     periodo y sólo entonces filtra por su `snapshot_run_id`. No hay
+      #     `latest imported_at`, ni `MAX(source_period)`, ni fallback a otro mes. Un
+      #     periodo sin publicación se RESPONDE (`NO_PUBLISHED_RUN`); no se repara
+      #     ensanchando la consulta.
+      #   · Brasil queda REGISTRADA en las registries reales del catálogo, con el
+      #     periodo SIEMPRE explícito: la entrada de la registry va SIN mes ligado y
+      #     responde `skipped / br_snapshot_period_not_configured` hasta que un
+      #     llamador ate uno. Registrar la fuente la hace alcanzable; no decide contra
+      #     qué publicación mensual se enriquece.
+      #   · Brasil sigue AUSENTE de `SOURCE_FAMILY_BY_SOURCE_KEY`, y eso es lo que
+      #     impide usar los cinco primitivos year-scoped contra una fuente que mete
+      #     doce periodos en un año.
+      #
+      # 🔴 EL HALLAZGO DE PRIVACIDAD DE ESTE CORTE: el mensaje y el `detail` de un
+      # 23505 de PostgreSQL CITAN LA CLAVE EN CONFLICTO — que para una fila de Brasil
+      # CONTIENE EL CNPJ. Ningún error del driver sale nunca hacia el llamador, el
+      # resultado ni un log: se conserva el SQLSTATE de cinco caracteres y nada más, y
+      # el fallo es un VALOR DE RETORNO en vez de una excepción, precisamente para que
+      # no acabe en un `catch (err) { log(err) }`. La suite lo prueba con el error real.
+      - name: Run BR-SOURCE FUNCTIONAL CUT-B runtime tests
+        run: npm run test:br-source:functional-cut-b-runtime
+
+      # La mitad CONDUCTUAL, contra un PostgreSQL efímero real con la cadena verbatim
+      # 065 → 087 → 125 → 127. Lo que aquí se mide no lo puede arbitrar ningún doble:
+      # que la corrida `preparing` y la `published` del mismo periodo coexistan
+      # físicamente; que un lector en OTRA CONEXIÓN vea la corrida A hasta el COMMIT y
+      # la B después, jamás una mezcla; que promover antes de degradar lo rechace el
+      # índice inmediato; que el replay de la misma corrida sea idempotente; que un
+      # upsert SIN el predicado del índice parcial falle con 42P10 en vez de duplicar;
+      # que la FK `ON DELETE RESTRICT` impida borrar una corrida con filas vivas; y que
+      # un rebuild fallido no toque el mes publicado.
+      #
+      # `embedded-postgres` ya está instalado por los pasos de más arriba, con la
+      # versión PINCHADA 17.6.0-beta.15. `SELLUP_REQUIRE_POSTGRES_HARNESS` convierte el
+      # skip en FALLO. Sin `continue-on-error` y sin `|| true`.
+      #
+      # 0 migraciones aplicadas, 0 escrituras remotas, 0 proveedores, 0 créditos,
+      # 0 flags. Todo dato es sintético.
+      - name: Run BR-SOURCE FUNCTIONAL CUT-B runtime tests against real PostgreSQL
+        run: npm run test:br-source:functional-cut-b:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
