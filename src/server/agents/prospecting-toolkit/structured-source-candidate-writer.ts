@@ -64,6 +64,15 @@ import {
   toFencedPersistenceMetadata,
   type FencedPersistenceTelemetry,
 } from '@/server/prospect-batches/batch-identity-fenced-persistence';
+// AGENT1-CUT4-B1 § 6 — la MISMA autoridad de procedencia que ya usa el writer
+// canónico (`candidate-writer.ts` § A). No se abre una segunda clasificación:
+// aquí sólo se proyecta la decisión que toma el clasificador canónico.
+import {
+  CANDIDATE_RECORD_ORIGIN_METADATA_KEY,
+  resolveCandidateRecordOriginForWriter,
+  toCandidateRecordOriginColumns,
+  toCandidateRecordOriginMetadata,
+} from './candidate-record-origin';
 
 // ── Constantes ────────────────────────────────────────────────
 
@@ -888,9 +897,44 @@ export async function writeStructuredSourceCandidatesPreview(
 
   let batchId = input.batchId ?? null;
 
+  // ── AGENT1-CUT4-B1 § 6/§ 7 — la forma del LOTE tal como esta corrida lo declara
+  //
+  // Se calcula ANTES de la bifurcación de creación porque el clasificador canónico
+  // la necesita en las DOS ramas: cuando este writer crea el lote y cuando adopta
+  // uno que ya existe (`input.batchId`, la vía de `prospect-generation.ts`). Son
+  // los marcadores REALES de la corrida, no una etiqueta inventada: la misma
+  // `source`, el mismo nombre y las mismas claves de metadata que la fila del lote
+  // lleva o llevaría.
+  const resolvedBatchName =
+    input.batchName ?? buildBatchName(input.sourceProvider, input.dataset, dateLabel);
+
+  // `uiSmokeTest` es el nombre LOCAL de este writer para «esta corrida es un smoke
+  // de UI». El clasificador canónico reconoce ese hecho por la clave EXACTA
+  // `smoke_test` (§ SMOKE_TRUE_KEYS), así que el flag se traduce a su vocabulario
+  // en la ENTRADA del clasificador. No es una segunda clasificación —la decisión
+  // sigue siendo suya—; es dejar de ocultarle un marcador que ya existía.
+  //
+  // `preview_mode` NO se traduce, y es deliberado: describe una POLÍTICA («nada se
+  // aprueba ni se asigna automáticamente»), no que la corrida no haya ocurrido. Es
+  // el mismo razonamiento con el que el clasificador declara `do_not_sync_hubspot`
+  // como pista NO decisiva. Traducirlo dejaría toda la capa gratuita fuera de la
+  // cola de revisión limpia, que es exactamente el defecto contrario.
+  //
+  // El marcador propio del writer va DESPUÉS del paso a través: un caller no puede
+  // apagar con su metadata un smoke que este writer sabe que está corriendo.
+  const provenanceBatchShape = {
+    source: resolvedBatchSource,
+    name: resolvedBatchName,
+    metadata: {
+      ...(input.metadata ?? {}),
+      preview_mode: input.previewMode ?? true,
+      ui_smoke_test: input.uiSmokeTest ?? false,
+      ...(input.uiSmokeTest === true ? { smoke_test: true } : {}),
+    } as Record<string, unknown>,
+  };
+
   if (!batchId) {
     // ── Crear lote preview ────────────────────────────────────
-    const resolvedBatchName = input.batchName ?? buildBatchName(input.sourceProvider, input.dataset, dateLabel);
 
     const batchRow = {
       name: resolvedBatchName,
@@ -1127,6 +1171,61 @@ export async function writeStructuredSourceCandidatesPreview(
         enrichment_sources: [input.sourceKey],
       };
 
+      // ── AGENT1-CUT4-B1 § 6 — la metadata base, ANTES de la fila ─────────────
+      //
+      // Se extrae a su propia constante por una razón concreta: el clasificador
+      // canónico tiene que verla para poder VETAR el ascenso a `production` desde
+      // un marcador que viva en ella. Si la metadata sólo existiera dentro del
+      // literal de la fila, la resolución tendría que adivinarla.
+      const candidateBaseMetadata: Record<string, unknown> = {
+        // 🔴 § 6 — SEGUNDA pasada del validador, y no es redundante: los
+        // borradores que YA llegan como `StructuredSourceCandidateDraft`
+        // atraviesan `adaptCandidate` intactos, así que sin esto un caller
+        // podría fabricar `discoveryProvenance: { raw_payload: … }` y saltarse
+        // la frontera. La defensa se sostiene en el límite de la FILA.
+        //
+        // Va PRIMERO: las claves canónicas del writer que siguen abajo siempre
+        // ganan si algún día colisionaran.
+        ...sanitizeStructuredDiscoveryProvenance(draft.discoveryProvenance),
+        writer_version: WRITER_VERSION,
+        dataset: input.dataset,
+        preview_mode: true,
+        human_review_required: true,
+        notes: 'Tamaño no confirmado — validar manualmente',
+        enrichment: enrichmentMeta,
+        ...(p.duplicateCheckMetadata ? { duplicate_check: p.duplicateCheckMetadata } : {}),
+      };
+
+      // ── AGENT1-CUT4-B1 § 6 — la procedencia de la FILA ──────────────────────
+      //
+      // El defecto que cierra: esta capa insertaba `status='needs_review'` dejando
+      // `record_origin` en NULL, y la cola de revisión limpia exige
+      // `PENDING_REVIEW_RECORD_ORIGIN = 'production'` (y con ella los cuatro gates
+      // de acción). El candidato era VISIBLE y no OPERABLE — ni aprobable ni
+      // descartable— por una columna que el writer simplemente no escribía.
+      //
+      // No se fuerza nada: `record_origin` es la clase de CORRIDA de la que salió
+      // la fila, y quien la decide es el clasificador canónico sobre la fila real.
+      // Un marcador de smoke/QA/import gana siempre; una corrida en seco no
+      // etiqueta. `source_primary` sigue siendo otra dimensión (QUÉ proveedor la
+      // produjo) y no se toca.
+      const recordOriginResolution = resolveCandidateRecordOriginForWriter({
+        dryRun,
+        candidate: {
+          status: 'needs_review',
+          duplicate_status: p.duplicateStatus,
+          source_primary: input.sourceProvider,
+          // Esta ruta no escribe `review_notes` en la fila: declararlo ausente es
+          // más honesto que pasarle al clasificador un texto que no se persiste.
+          review_notes: null,
+          metadata: candidateBaseMetadata,
+          // `review_flags` de esta capa es un ARRAY (`ReviewFlag[]`), no el
+          // diccionario que el clasificador inspecciona por clave exacta. Pasarlo
+          // no aportaría ningún marcador, así que se omite en vez de disfrazarlo.
+        },
+        batch: provenanceBatchShape,
+      });
+
       const candidateRow = {
         batch_id: batchId,
         account_id: null,
@@ -1165,27 +1264,19 @@ export async function writeStructuredSourceCandidatesPreview(
         commercial_trace: p.commercialTrace,
         status: 'needs_review', // Forced to review state
         duplicate_status: p.duplicateStatus,
+        // § 6 — la fila declara de qué clase de corrida salió. Sin esto un
+        // candidato real de una corrida real no se puede aprobar ni descartar.
+        ...toCandidateRecordOriginColumns(recordOriginResolution),
         confidence_score: null,
         fit_score: null,
         data_completeness_score: completenessScore,
         estimated_cost_usd: 0,
         metadata: {
-          // 🔴 § 6 — SEGUNDA pasada del validador, y no es redundante: los
-          // borradores que YA llegan como `StructuredSourceCandidateDraft`
-          // atraviesan `adaptCandidate` intactos, así que sin esto un caller
-          // podría fabricar `discoveryProvenance: { raw_payload: … }` y saltarse
-          // la frontera. La defensa se sostiene en el límite de la FILA.
-          //
-          // Va PRIMERO: las claves canónicas del writer que siguen abajo siempre
-          // ganan si algún día colisionaran.
-          ...sanitizeStructuredDiscoveryProvenance(draft.discoveryProvenance),
-          writer_version: WRITER_VERSION,
-          dataset: input.dataset,
-          preview_mode: true,
-          human_review_required: true,
-          notes: 'Tamaño no confirmado — validar manualmente',
-          enrichment: enrichmentMeta,
-          ...(p.duplicateCheckMetadata ? { duplicate_check: p.duplicateCheckMetadata } : {}),
+          ...candidateBaseMetadata,
+          // § 6 — cómo se decidió la procedencia de la fila, auditable sin
+          // reejecutar. ADITIVO: no pisa ninguna clave anterior.
+          [CANDIDATE_RECORD_ORIGIN_METADATA_KEY]:
+            toCandidateRecordOriginMetadata(recordOriginResolution),
         },
       };
 
