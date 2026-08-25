@@ -779,6 +779,58 @@ describe('CUT B2 · CASE 8 — the lease is unforgeable', () => {
     assert.equal(db.selects.length, before, 'no query was sent for a forged pin');
   });
 
+  it('a PROTOTYPE-forged pin satisfies `instanceof` and is STILL refused, with NO query sent', async () => {
+    const db = republicationWorld();
+
+    // 🔴 The forgery `instanceof` ALONE cannot see. `Object.create` installs the real
+    // prototype without ever entering the constructor: the mint token is never compared, the
+    // private brand is never assigned, `Object.freeze` never runs — and yet, by the language's
+    // own definition, the value IS an instance. Prototype ancestry is not provenance.
+    const forged = Object.create(
+      BrReceitaPinnedPublication.prototype,
+    ) as BrReceitaPinnedPublication;
+
+    Object.defineProperty(forged, 'sourcePeriod', {
+      value: '2026-08',
+      enumerable: true,
+    });
+    Object.defineProperty(forged, 'snapshotRunId', {
+      value: RUN_B,
+      enumerable: true,
+    });
+
+    // 🔴 THE LINE THAT MAKES THIS TEST WORTH HAVING: an `instanceof`-only guard would have
+    // accepted this value, and the reader would then have scoped a run-level query by a run id
+    // that an arbitrary caller chose. This assertion is what documents that the mint token in the
+    // constructor is NOT, on its own, sufficient.
+    assert.equal(forged instanceof BrReceitaPinnedPublication, true);
+    assert.equal(forged.snapshotRunId, RUN_B);
+
+    // The guard refuses it regardless: membership of the MINTED set, not prototype ancestry.
+    assert.equal(isBrReceitaPinnedPublication(forged), false);
+
+    const before = db.selects.length;
+    const result = await readBrReceitaPinnedSnapshot({
+      client: db.client,
+      publication: forged,
+      cnpj: CNPJ_1,
+    });
+
+    assert.equal(result.status, 'INVALID_PINNED_PUBLICATION');
+    assert.equal(result.reason, 'pinned_publication_not_minted_here');
+    assert.equal(result.snapshot, null);
+    // 🔴 Fail closed BEFORE the round trip, exactly as for a plain-object forgery.
+    assert.equal(
+      db.selects.length,
+      before,
+      'no query was sent for a prototype-forged pin',
+    );
+    // 🔴 And the refusal names no identity.
+    for (const digits of [digitsOf(CNPJ_1), digitsOf(CNPJ_2)]) {
+      assert.ok(!result.reason.includes(digits));
+    }
+  });
+
   it('a minted pin passes the same guard, and is immutable', async () => {
     const db = republicationWorld();
     const pin = (await pinBrReceitaPublication({ client: db.client })).publication;
@@ -1049,6 +1101,10 @@ describe('CUT B2 · structure', () => {
       false,
     );
     assert.equal(BR_RECEITA_PINNED_PUBLICATION_CONTRACT.forgeableByArbitraryCaller, false);
+    assert.equal(
+      BR_RECEITA_PINNED_PUBLICATION_CONTRACT.guardRequiresMintedRegistryMembership,
+      true,
+    );
     assert.equal(BR_RECEITA_PINNED_PUBLICATION_CONTRACT.involvesTaxIdentity, false);
     assert.equal(BR_AGENT1_RUNTIME_BINDING_CONTRACT.samePeriodRepublicationIsolated, true);
     assert.equal(BR_AGENT1_RUNTIME_BINDING_CONTRACT.resolvesPublishedRunPerCandidate, false);

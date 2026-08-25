@@ -51,8 +51,19 @@
  * That is the COMPILE-TIME half. TypeScript erases `private`, so `new (Cls as any)(…)` would still
  * mint a real instance at runtime and would then satisfy an `instanceof` guard — which would make
  * the guard theatre. So the constructor additionally demands a module-private mint token that no
- * caller outside this file can obtain. Forging a pin therefore fails in BOTH directions: the type
- * refuses it, and the runtime refuses it.
+ * caller outside this file can obtain.
+ *
+ * 🔴 And a mint token in the constructor is STILL not enough, because becoming an instance does
+ * not require calling the constructor:
+ *
+ *     Object.create(BrReceitaPinnedPublication.prototype) instanceof BrReceitaPinnedPublication
+ *
+ * is `true` with the constructor never entered — no token comparison, no brand, no freeze. An
+ * `instanceof`-only guard would accept that and scope a run-level read by a caller-chosen run id.
+ * So the module also keeps a private registry of the pins it actually minted, and the guard
+ * requires MEMBERSHIP, not ancestry. Forging a pin therefore fails in three directions: the type
+ * refuses a literal, the token refuses a constructor call, and the registry refuses a
+ * prototype-forged object.
  *
  * The only way to obtain a pin is to resolve a publication that was `published` at that moment. A
  * run id therefore never enters the read path as an arbitrary caller-supplied string, which is what
@@ -142,6 +153,31 @@ export function pickGreatestCanonicalPeriod(
  */
 const PIN_MINT_TOKEN: unique symbol = Symbol('br-receita-pinned-publication-mint');
 
+/**
+ * The set of pins this module ACTUALLY minted.
+ *
+ * 🔴 The mint token guards the CONSTRUCTOR. It cannot guard `instanceof`, because a caller
+ * does not have to call the constructor to become an instance:
+ *
+ *     const forged = Object.create(BrReceitaPinnedPublication.prototype);
+ *     forged instanceof BrReceitaPinnedPublication   // → true. The token never ran.
+ *
+ * `Object.create` installs the real prototype and skips the constructor entirely, so the token is
+ * never compared, the private brand is never assigned, and `Object.freeze` never runs — and the
+ * value still passes an `instanceof` guard, which would hand the pinned reader a run id an
+ * arbitrary caller chose. Prototype ancestry is not provenance.
+ *
+ * So membership is recorded EXPLICITLY, at the one place a pin can legitimately come into
+ * existence, and the guard asks the registry rather than the prototype chain. A `WeakSet` because
+ * this is a membership question and nothing else: it adds no reachability, so a pin that goes out
+ * of scope is still collected.
+ *
+ * Never exported. A pin is therefore a PROCESS-LOCAL capability: it cannot be serialized and
+ * rehydrated, and a pin that crossed such an edge is correctly no longer a pin — the next run
+ * pins again, which is the cheap and correct answer.
+ */
+const MINTED_PUBLICATIONS = new WeakSet<BrReceitaPinnedPublication>();
+
 /** Thrown when something tries to construct a pin without going through `pin()`. */
 export class BrReceitaPinnedPublicationForgeryError extends Error {
   constructor() {
@@ -186,6 +222,10 @@ export class BrReceitaPinnedPublication {
     this.sourcePeriod = sourcePeriod;
     this.snapshotRunId = snapshotRunId;
     Object.freeze(this);
+    // 🔴 LAST, and only here: the token has been verified and the instance is complete and
+    // frozen. This is the single write to the registry in the whole module, which is what lets the
+    // guard treat membership as proof that this object came through this line.
+    MINTED_PUBLICATIONS.add(this);
   }
 
   /**
@@ -333,17 +373,25 @@ function failure(
 /**
  * Runtime proof that a value really is a pin this module minted.
  *
- * The private field and private constructor make forgery impossible in TypeScript, and the mint
- * token makes it impossible at runtime too. This guard covers the remaining boundary where neither
- * applies: a plain object that never went through the constructor at all — a `JSON.parse`, an `as`
- * cast of a literal, a value that crossed a serialization edge. The pinned reader calls it, so a
- * forged pin is refused BEFORE any query rather than turned into a run-scoped read against a
+ * Three forgeries have to fail here, and they fail for three DIFFERENT reasons:
+ *
+ *   1. an object literal / `JSON.parse` result shaped like a pin — no prototype, no membership;
+ *   2. `new (Cls as any)(period, runId)` — reaches the constructor, refused by the mint token;
+ *   3. `Object.create(Cls.prototype)` — never reaches the constructor AT ALL, so the token cannot
+ *      speak, `instanceof` says `true`, and only the registry refuses it.
+ *
+ * 🔴 (3) is why `instanceof` alone was not enough, and why this guard asks BOTH questions.
+ * The registry is the load-bearing half: it answers "did this object come out of the authorized
+ * mint?", where `instanceof` only answers "does it inherit from the right prototype?". The pinned
+ * reader calls this BEFORE any query, so a forged pin never becomes a run-scoped read against a
  * caller-chosen run id.
  */
 export function isBrReceitaPinnedPublication(
   value: unknown,
 ): value is BrReceitaPinnedPublication {
-  return value instanceof BrReceitaPinnedPublication;
+  return (
+    value instanceof BrReceitaPinnedPublication && MINTED_PUBLICATIONS.has(value)
+  );
 }
 
 /**
@@ -377,5 +425,10 @@ export const BR_RECEITA_PINNED_PUBLICATION_CONTRACT = {
   fallsBackToUnpublishedRun: false,
   fallsBackToPreviousPeriodOnMalformedWinner: false,
   forgeableByArbitraryCaller: false,
+  /**
+   * The guard requires membership of the minted registry, not merely `instanceof`: a
+   * prototype-forged value is an instance and is still refused.
+   */
+  guardRequiresMintedRegistryMembership: true,
   involvesTaxIdentity: false,
 } as const;
