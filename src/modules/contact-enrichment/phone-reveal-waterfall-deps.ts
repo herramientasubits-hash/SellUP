@@ -1024,6 +1024,13 @@ function buildCreditReservationDeps(internalUserId: string) {
     newReservationGroupId: () => crypto.randomUUID(),
     // Clave de idempotencia: una por autorización, generada ANTES de la operación.
     newAuthorizationKey: () => crypto.randomUUID(),
+    // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 — la re-lectura que convierte un
+    // conflicto en un hecho comprobado. Es la MISMA lectura que el arranque hace antes
+    // de reservar (`findActiveWaterfallRunForCandidate`), a propósito: la pregunta es la
+    // misma —«¿hay una corrida viva para este candidato?»— y responderla con dos
+    // implementaciones distintas admitiría que una dijera que sí donde la otra dice que
+    // no. NO llama a proveedores y no gasta créditos: sólo lee.
+    findActiveRunAfterConflict: findActiveWaterfallRunForCandidate,
   };
 }
 

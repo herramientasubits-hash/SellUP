@@ -383,7 +383,9 @@
     "test:agent2a:p0-r4-use-server": "node --import tsx --test src/__tests__/use-server-export-contract-p0-r4.test.ts",
     "test:agent2a:p342-contacts-runtime": "node --import tsx --test src/__tests__/use-server-type-reexport-runtime-p342.test.ts",
     "test:agent2a:p342-contacts-runtime:build": "npm run build && npm run test:agent2a:p342-contacts-runtime",
-    "test:agent1:apollo-tax-dedupe-recheck": "node --import tsx --test src/server/agents/prospecting-toolkit/apollo-two-round/__tests__/apollo-tax-dedupe-recheck.test.ts src/server/agents/prospecting-toolkit/__tests__/prospect-candidate-identity-key.test.ts"
+    "test:agent1:apollo-tax-dedupe-recheck": "node --import tsx --test src/server/agents/prospecting-toolkit/apollo-two-round/__tests__/apollo-tax-dedupe-recheck.test.ts src/server/agents/prospecting-toolkit/__tests__/prospect-candidate-identity-key.test.ts",
+    "test:agent2a:legacy-false-active-run-conflict": "node --experimental-test-module-mocks --import tsx --test src/modules/contact-enrichment/__tests__/legacy-lusha-false-active-run-conflict.test.ts src/modules/contact-enrichment/__tests__/legacy-lusha-start-rejection-diagnostic.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-waterfall-legacy-reauthorization.test.ts src/modules/contact-enrichment/__tests__/legacy-cross-provider-lusha-continuation.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-waterfall-legacy-core.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-credit-reservation-lifecycle.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-credit-reservation-atomicity.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-waterfall-no-silent-downgrade.test.ts",
+    "test:agent2a:legacy-false-active-run-conflict-postgres": "SELLUP_REQUIRE_POSTGRES_HARNESS=1 node --import tsx --test src/modules/contact-enrichment/__tests__/legacy-lusha-false-active-run-conflict-postgres.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

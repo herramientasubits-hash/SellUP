@@ -27,6 +27,7 @@ import {
 import {
   PHONE_REVEAL_WATERFALL_MAX_CREDITS_WITH_IDENTITY_SEARCH,
   type PhoneRevealWaterfallRunDraft,
+  type PhoneRevealWaterfallRunRecord,
 } from '../phone-reveal-waterfall-core';
 import type {
   PhoneRevealCreditPool,
@@ -139,6 +140,18 @@ export function creditHarness(
     groupIds?: string[];
     authorizationKeys?: string[];
     throws?: unknown;
+    /**
+     * AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 — la RE-LECTURA posterior al
+     * conflicto FALLA. Sirve para fijar el fail-closed: un error de lectura no autoriza
+     * a afirmar lo que se quería leer, así que el desenlace es infraestructura y NUNCA
+     * `active_run_exists`.
+     */
+    postConflictLookupThrows?: unknown;
+    /**
+     * La dep de re-lectura NO se cablea. Reproduce un cableado incompleto: sin forma de
+     * comprobarlo, un conflicto tampoco puede afirmar que haya corrida viva.
+     */
+    omitPostConflictLookup?: boolean;
   } = {},
 ): CreditHarness {
   const poolQueries: PhoneRevealCreditProviderKey[][] = [];
@@ -210,6 +223,59 @@ export function creditHarness(
       newReservationGroupId: () => groupIds[groupCounter++] ?? `group-${groupCounter}`,
       newAuthorizationKey: () =>
         authorizationKeys[keyCounter++] ?? `authkey-${keyCounter}`,
+      // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 — la RE-LECTURA posterior al
+      // conflicto, contra la MISMA tabla simulada que la reserva escribe.
+      //
+      // Es lo que hace que el fixture reproduzca la distinción real en vez de decidirla
+      // por decreto: un conflicto con corrida ganadora en la tabla sale
+      // `active_run_exists`, y el MISMO conflicto sin ninguna corrida sale como el hecho
+      // de infraestructura que es. Antes las dos situaciones eran indistinguibles aquí
+      // exactamente igual que lo eran en Producción.
+      ...(opts.omitPostConflictLookup
+        ? {}
+        : {
+            findActiveRunAfterConflict: async (candidateId: string) => {
+              if (opts.postConflictLookupThrows) throw opts.postConflictLookupThrows;
+              const winner = runs.find(
+                (run) => run.candidateId === candidateId && run.isActive,
+              );
+              return winner ? existingRunAsRecord(winner) : null;
+            },
+          }),
     },
+  };
+}
+
+/**
+ * Proyecta la fila simulada al registro que el core lee. El core sólo mira si HAY
+ * corrida, pero devolver el registro completo mantiene el fixture honesto: si mañana la
+ * re-lectura pasa a exigir un campo, el fixture ya lo trae en vez de forzar un cast.
+ */
+function existingRunAsRecord(
+  run: PhoneRevealCreditExistingRun,
+): PhoneRevealWaterfallRunRecord {
+  return {
+    id: run.runId,
+    candidateId: run.candidateId,
+    status: 'lusha_pending',
+    runMode: 'legacy_lusha_only',
+    authorizedAt: '2026-01-01T00:00:00.000Z',
+    authorizedBy: 'user-fixture',
+    authorizedByRole: 'admin',
+    maxCreditsAuthorized: 6,
+    apolloAttemptedAt: null,
+    apolloOutcome: null,
+    apolloCostCredits: null,
+    apolloCostSource: null,
+    lushaEligible: true,
+    lushaSkippedReason: null,
+    lushaAttemptedAt: null,
+    lushaOutcome: null,
+    lushaCostCredits: null,
+    lushaCostSource: null,
+    finalProvider: null,
+    completedAt: null,
+    errorCode: null,
+    creditReservationGroupId: run.reservationGroupId,
   };
 }

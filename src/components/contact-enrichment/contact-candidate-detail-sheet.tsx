@@ -128,6 +128,7 @@ import {
   PHONE_REVEAL_LEGACY_DO_NOT_CONTACT_COPY,
   PHONE_REVEAL_LEGACY_FEATURE_DISABLED_COPY,
   PHONE_REVEAL_LEGACY_MISSING_LUSHA_ID_COPY,
+  PHONE_REVEAL_LEGACY_START_UNSAFE_COPY,
   PHONE_REVEAL_LEGACY_PRIVACY_UNVERIFIED_COPY,
   PHONE_REVEAL_LEGACY_ROLE_NOT_ALLOWED_COPY,
   PHONE_REVEAL_LEGACY_STATE_CHANGED_COPY,
@@ -1489,8 +1490,14 @@ export function ContactCandidateDetailSheet({
       // AGENT2A-PHONE-WATERFALL-4F: el saldo estaba bien; la corrida no se pudo
       // registrar. Cero efectos, así que no se recarga nada, y el copy no afirma que
       // falten créditos ni que el candidato no aplique.
+      //
+      // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1: aquí aterrizan ahora también
+      // los conflictos de unicidad SIN corrida viva, que antes salían como «ya hay una
+      // revelación en proceso». El copy dice que no arrancó y que no se cobró —las dos
+      // comprobables— y NO afirma que exista un proceso en curso. Sin reintento
+      // automático: la persona decide si vuelve a intentarlo.
       case 'infrastructure_unavailable':
-        setLegacyWaterfallError(PHONE_REVEAL_WATERFALL_ERROR_COPY);
+        setLegacyWaterfallError(PHONE_REVEAL_LEGACY_START_UNSAFE_COPY);
         return;
       case 'error':
       default:

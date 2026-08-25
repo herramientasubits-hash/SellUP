@@ -931,6 +931,25 @@ export interface PhoneRevealWaterfallCreditReservationDeps {
    * IDÉNTICA en su reintento. Dep por la misma razón que la anterior: el core es puro.
    */
   newAuthorizationKey: () => string;
+  /**
+   * RE-LECTURA POSTERIOR AL CONFLICTO
+   * (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1).
+   *
+   * Un conflicto de unicidad dice que ALGO chocó. NO dice qué, y sobre todo no dice que
+   * exista una autorización viva: la transacción se deshace entera, así que un conflicto
+   * puede dejar la base exactamente como estaba —0 corridas y 0 reservas— y aun así
+   * llegar aquí. Traducirlo a «ya hay una revelación en proceso» era inventarle al
+   * operador una corrida que nadie podía encontrar.
+   *
+   * Con esta dep el conflicto deja de ser una CONCLUSIÓN y pasa a ser una PREGUNTA: se
+   * vuelve a leer la corrida activa del candidato y sólo si aparece se afirma que existe.
+   *
+   * AUSENTE ⇒ fail-closed hacia infraestructura. No se afirma que haya corrida viva por
+   * no haber podido comprobarlo: ese es justo el atajo que este hito elimina.
+   */
+  findActiveRunAfterConflict?: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallRunRecord | null>;
 }
 
 export interface StartPhoneRevealWaterfallDeps
@@ -991,7 +1010,14 @@ export type StartPhoneRevealWaterfallResult =
          * infraestructura en vez de uno de saldo.
          */
         | 'run_creation_unavailable'
+        /**
+         * Conflicto de unicidad SIN corrida activa que lo explique
+         * (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1). Los dos son
+         * infraestructura: 0 corridas, 0 reservas, 0 proveedores, 0 créditos. Ninguno
+         * afirma ya que exista una revelación en curso — eso ahora exige haberla leído.
+         */
         | 'create_conflict'
+        | 'reservation_conflict'
         /**
          * El tope que el operador ACEPTÓ es MENOR que el que esta modalidad exige
          * (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1-R2). Se detecta DESPUÉS de conocer
@@ -1044,9 +1070,108 @@ export type PhoneRevealWaterfallCreditGate =
         | 'budget_not_configured'
         | 'credit_balance_unavailable'
         | 'run_creation_unavailable'
+        /**
+         * SÓLO tras comprobarlo (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1). Una
+         * corrida activa REAL se encontró con `findActiveRunAfterConflict`. Nunca se
+         * deduce de un conflicto a secas.
+         */
         | 'active_run_exists'
-        | 'create_conflict';
+        /** Conflicto del lado de la CORRIDA y NINGUNA corrida activa que lo explique. */
+        | 'create_conflict'
+        /**
+         * Conflicto del lado de la RESERVA (`already_reserved`) y NINGUNA corrida activa
+         * que lo explique. Es un hecho de infraestructura —exposición ocupada que nadie
+         * puede señalar—, no una autorización viva, y por eso no comparte código con
+         * `active_run_exists`.
+         */
+        | 'reservation_conflict';
+      /** Qué chocó, para el diagnóstico. `null` = no hubo conflicto de unicidad. */
+      conflictClass?: PhoneRevealWaterfallConflictClass | null;
+      /**
+       * Qué respondió la re-lectura posterior al conflicto. `null` = no se llegó a
+       * consultar (no hubo conflicto, o no había dep con la que consultar).
+       */
+      postConflictActiveRunFound?: boolean | null;
     };
+
+/**
+ * QUÉ chocó, como enum cerrado y PII-free
+ * (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1).
+ *
+ * `reservation` = índice único de la exposición; `run_create` = índice único de la
+ * corrida. Se distinguen porque afirman cosas distintas y porque colapsarlos es
+ * exactamente lo que hacía que una colisión de reservas se leyera como una revelación
+ * en curso.
+ */
+export type PhoneRevealWaterfallConflictClass = 'reservation' | 'run_create';
+
+/**
+ * Convierte un CONFLICTO en un hecho comprobado
+ * (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1).
+ *
+ * Es la única puerta por la que un conflicto de unicidad puede salir como
+ * `active_run_exists`, y sólo lo hace cuando la re-lectura ENCUENTRA la corrida. Las
+ * tres formas de no encontrarla se distinguen y ninguna afirma que exista:
+ *
+ *   * la dep no está cableada  ⇒ `run_creation_unavailable`. No se comprobó.
+ *   * la re-lectura LANZA      ⇒ `run_creation_unavailable`. Tampoco se comprobó, y un
+ *     fallo de lectura no es permiso para afirmar lo que se quería leer.
+ *   * la re-lectura dice "no hay" ⇒ el conflicto es REAL pero no lo explica ninguna
+ *     corrida viva: `reservation_conflict` o `create_conflict` según qué chocó.
+ *
+ * NO llama a ningún proveedor y NO gasta créditos: la transacción que produjo el
+ * conflicto ya se deshizo, así que no hay nada que liberar y nada que cobrar.
+ */
+async function resolvePhoneRevealConflictAgainstActiveRun(args: {
+  conflictClass: PhoneRevealWaterfallConflictClass;
+  candidateId: string;
+  findActiveRunAfterConflict?: (
+    candidateId: string,
+  ) => Promise<PhoneRevealWaterfallRunRecord | null>;
+}): Promise<PhoneRevealWaterfallCreditGate> {
+  const { conflictClass, candidateId, findActiveRunAfterConflict } = args;
+
+  if (!findActiveRunAfterConflict) {
+    return {
+      started: false,
+      reason: 'run_creation_unavailable',
+      conflictClass,
+      postConflictActiveRunFound: null,
+    };
+  }
+
+  let activeRun: PhoneRevealWaterfallRunRecord | null;
+  try {
+    activeRun = await findActiveRunAfterConflict(candidateId);
+  } catch {
+    // Fail-closed hacia infraestructura. El mensaje del driver NO se propaga: puede
+    // llevar valores de fila, y este camino termina en un log PII-free.
+    return {
+      started: false,
+      reason: 'run_creation_unavailable',
+      conflictClass,
+      postConflictActiveRunFound: null,
+    };
+  }
+
+  if (activeRun) {
+    // Caso A/B del contrato: la carrera la ganó otra autorización y su corrida EXISTE.
+    // Aquí «ya hay una revelación en proceso» es una afirmación verificada.
+    return {
+      started: false,
+      reason: 'active_run_exists',
+      conflictClass,
+      postConflictActiveRunFound: true,
+    };
+  }
+
+  return {
+    started: false,
+    reason: conflictClass === 'reservation' ? 'reservation_conflict' : 'create_conflict',
+    conflictClass,
+    postConflictActiveRunFound: false,
+  };
+}
 
 /**
  * Resuelve el presupuesto y, en UNA sola operación atómica, RESERVA la exposición
@@ -1144,10 +1269,22 @@ export async function reserveWaterfallCreditsAndCreateRunOrBlock(args: {
       return { started: false, reason: 'insufficient_credits' };
     case 'budget_not_configured':
       return { started: false, reason: 'budget_not_configured' };
+    // Los DOS conflictos de unicidad pasan por la MISMA re-lectura
+    // (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1): ninguno de los dos PRUEBA por
+    // sí mismo que exista una autorización viva, porque la transacción se deshizo entera
+    // y la base puede haber quedado igual que antes del clic.
     case 'already_reserved':
-      return { started: false, reason: 'active_run_exists' };
+      return resolvePhoneRevealConflictAgainstActiveRun({
+        conflictClass: 'reservation',
+        candidateId: args.candidateId,
+        findActiveRunAfterConflict: deps.findActiveRunAfterConflict,
+      });
     case 'create_conflict':
-      return { started: false, reason: 'create_conflict' };
+      return resolvePhoneRevealConflictAgainstActiveRun({
+        conflictClass: 'run_create',
+        candidateId: args.candidateId,
+        findActiveRunAfterConflict: deps.findActiveRunAfterConflict,
+      });
     case 'unavailable':
       // NO es `credit_balance_unavailable`. El saldo YA se verificó arriba, con éxito;
       // lo que falló es la ESCRITURA atómica (función ausente porque la migración 104
@@ -1391,7 +1528,21 @@ export type PhoneRevealWaterfallLegacyIneligibleReason =
    * volver a llamar a Lusha gastaría créditos repitiendo un resultado ya pagado.
    */
   | 'previous_run_revealed_phone'
+  /**
+   * Chocó el índice único de la CORRIDA y la re-lectura posterior NO encontró ninguna
+   * corrida activa (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1). Ya NO significa
+   * «hay una autorización viva»: significa que la escritura no pudo completarse y que
+   * nadie puede señalar la corrida que lo explicaría. 0 corridas, 0 reservas, 0 Lusha.
+   */
   | 'create_conflict'
+  /**
+   * Chocó el índice único de la RESERVA (`already_reserved`) y la re-lectura posterior
+   * NO encontró ninguna corrida activa. Es el caso que motivó este hito: la exposición
+   * colisionó, la transacción se deshizo entera —0 corridas y 0 reservas— y al operador
+   * se le decía que su candidato ya tenía una revelación en curso. Es infraestructura,
+   * no una autorización viva, y nunca vuelve a compartir código con `active_run_exists`.
+   */
+  | 'reservation_conflict'
   /**
    * AGENT2A-PHONE-REVEAL-4O-F-R2 — bloqueos de la puerta de privacidad evaluada ANTES
    * de reservar (`checkPrivacyGateBeforeReserving`, opcional y sólo cableada por el
@@ -1771,6 +1922,24 @@ export interface LegacyPhoneRevealStartDiagnostics {
   /** ¿Había una corrida VIVA? `null` si no se llegó a consultar. */
   activeRunFound: boolean | null;
   historyClassification: PhoneRevealWaterfallLegacyHistoryClassification | null;
+  /**
+   * ¿La escritura atómica chocó contra un índice único?
+   * (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1). `null` = no se llegó a intentar.
+   *
+   * Separado de `activeRunFound` A PROPÓSITO: la contradicción que hizo indiagnosticable
+   * el incidente era precisamente un evento con `active_run_found = false` y
+   * `reason = active_run_exists`. Con los dos campos, un conflicto se lee como lo que es
+   * —una colisión de escritura— sin tener que deducirlo del motivo final.
+   */
+  atomicCreateConflict: boolean | null;
+  /** QUÉ chocó. `null` = no hubo conflicto de unicidad. */
+  conflictClass: PhoneRevealWaterfallConflictClass | null;
+  /**
+   * Qué respondió la re-lectura POSTERIOR al conflicto. `null` = no se llegó a consultar
+   * (sin conflicto, sin dep, o la lectura falló). `false` = se consultó y NO había
+   * corrida: es la prueba de que el conflicto no era una revelación en curso.
+   */
+  postConflictActiveRunFound: boolean | null;
 }
 
 export type StartLegacyPhoneRevealWaterfallResult =
@@ -1844,6 +2013,9 @@ export async function startLegacyPhoneRevealWaterfall(
     privacyState: null,
     activeRunFound: null,
     historyClassification: null,
+    atomicCreateConflict: null,
+    conflictClass: null,
+    postConflictActiveRunFound: null,
     ...patch,
   });
 
@@ -2014,10 +2186,21 @@ export async function startLegacyPhoneRevealWaterfall(
     }),
   });
   if (!creditGate.started) {
+    // Lo que el gate OBSERVÓ del conflicto viaja tal cual
+    // (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1): sin estos tres campos el
+    // evento no podía distinguir «había una corrida» de «chocó algo y no había ninguna»,
+    // que es exactamente la ambigüedad que hizo indiagnosticable el incidente.
+    const conflictClass = creditGate.conflictClass ?? null;
     return {
       started: false,
       reason: creditGate.reason,
-      diagnostics: diag({ ...observed, privacyState }),
+      diagnostics: diag({
+        ...observed,
+        privacyState,
+        atomicCreateConflict: conflictClass !== null,
+        conflictClass,
+        postConflictActiveRunFound: creditGate.postConflictActiveRunFound ?? null,
+      }),
     };
   }
 
@@ -2026,7 +2209,8 @@ export async function startLegacyPhoneRevealWaterfall(
     runId: creditGate.runId,
     maxCreditsAuthorized,
     requiresIdentitySearch,
-    diagnostics: diag({ ...observed, privacyState }),
+    // La corrida se creó: por construcción no hubo conflicto que resolver.
+    diagnostics: diag({ ...observed, privacyState, atomicCreateConflict: false }),
   };
 }
 

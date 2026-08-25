@@ -244,6 +244,13 @@ describe('A — regresión Luis: la vista previa dice 6 y el ARRANQUE con 6 arra
       privacyState: 'clear',
       activeRunFound: false,
       historyClassification: 'no_previous_run',
+      // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1. En un arranque EXITOSO la
+      // escritura atómica no chocó, así que el conflicto se declara `false` —no `null`—:
+      // se intentó y salió bien. Los otros dos quedan `null` porque no hubo conflicto
+      // que clasificar ni relectura que hacer.
+      atomicCreateConflict: false,
+      conflictClass: null,
+      postConflictActiveRunFound: null,
     });
   });
 });
@@ -382,10 +389,20 @@ describe('F — corrida viva aparecida entre el render y el clic', () => {
       classifyLegacyPhoneRevealStartFailure('active_run_exists'),
       'already_pending',
     );
-    // El índice único parcial rechazando el INSERT en paralelo es el MISMO hecho.
+    // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 — YA NO es el mismo hecho.
+    //
+    // Un conflicto de unicidad NO prueba que exista una corrida viva: la transacción se
+    // deshace entera y puede dejar 0 corridas y 0 reservas. `create_conflict` y
+    // `reservation_conflict` sólo llegan aquí cuando la re-lectura posterior NO encontró
+    // ninguna corrida, así que afirmarle al operador que hay una revelación en proceso
+    // sería inventarle un estado que nadie puede consultar.
     assert.equal(
       classifyLegacyPhoneRevealStartFailure('create_conflict'),
-      'already_pending',
+      'infrastructure_unavailable',
+    );
+    assert.equal(
+      classifyLegacyPhoneRevealStartFailure('reservation_conflict'),
+      'infrastructure_unavailable',
     );
   });
 });
@@ -643,10 +660,16 @@ describe('J — el evento del arranque es PII-free y describe la decisión', () 
     assert.deepEqual(Object.keys(event).sort(), [
       'accepted_max_credits',
       'active_run_found',
+      // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1. Los tres son enums cerrados o
+      // booleanos: ni texto libre del driver ni identificadores, así que la garantía
+      // PII-free del evento sigue siendo estructural.
+      'atomic_create_conflict',
+      'conflict_class',
       'event',
       'history_classification',
       'identity_search_allowed',
       'outer_flag_enabled',
+      'post_conflict_active_run_found',
       'preview_or_start',
       'privacy_state',
       'reason',
