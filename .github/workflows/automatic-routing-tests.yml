@@ -3452,3 +3452,24 @@ jobs:
       # y que la corrección no coló índices, disparadores, política TIER ni una M127.
       - name: Run A1 CUT-3B5 M126 correction static guards
         run: npm run test:a1-cut3b5-m126-correction
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # APOLLO-CREDIT-QUOTA-SYNC — el sync de créditos de Apollo contra el
+      # contrato real del proveedor.
+      #
+      # El sync llevaba meses fallando con 404 porque apuntaba a
+      # `usage_stats/api_usage_stats` (endpoint inexistente para la cuenta) y
+      # concluía que "Apollo no expone cuota por API". Sí la expone: el saldo sale
+      # de POST `usage_stats/credit_usage_stats` y de
+      # `users/api_profile?include_credit_usage=true`.
+      #
+      # El test anterior no podía atraparlo: replicaba los parsers en el propio
+      # archivo de test y nunca importaba el módulo que corre en producción, y
+      # además no estaba conectado a ningún script de CI. Este paso arregla las dos
+      # cosas: importa el módulo real y entra al check obligatorio.
+      #
+      # Fija el método POST y el query param include_credit_usage, que son la parte
+      # del contrato que rompía el sync. 0 llamadas de red, 0 créditos, payloads
+      # reales capturados con ids y correo reemplazados por placeholders.
+      - name: Run Apollo credit quota sync contract tests
+        run: npm run test:apollo-credit-quota-sync

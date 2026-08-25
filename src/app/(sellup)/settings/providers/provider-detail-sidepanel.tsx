@@ -1393,6 +1393,12 @@ function TabConfiguracionNoIA({
           <InfoRow label="Consumo del mes" value={<span title={consumed.description}>{consumed.label}</span>} />
           <InfoRow label="Cuota configurada" value={allowance} />
           <InfoRow label="Fuente de cuota" value={<span className="text-muted-foreground">{quotaSourceLabel}</span>} />
+          {row.creditsRemainingExternal != null && (
+            <InfoRow
+              label="Créditos disponibles (API)"
+              value={<span className="text-foreground">{row.creditsRemainingExternal.toLocaleString()}</span>}
+            />
+          )}
           {syncedAt && <InfoRow label="Última sync" value={<span className="text-muted-foreground">{syncedAt}</span>} />}
           {row.quotaSyncError && (
             <InfoRow label="Error sync" value={<span className="text-destructive text-[10px]">{row.quotaSyncError}</span>} />
