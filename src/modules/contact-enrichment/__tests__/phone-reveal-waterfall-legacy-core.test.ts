@@ -435,21 +435,24 @@ describe('WATERFALL-4D/4E — presupuesto y reserva antes de crear la corrida le
     assert.equal(drafts.length, 0, 'sin corrida no hay forma de llamar a Lusha');
   });
 
-  it('sin regla de crédito para Lusha ⇒ budget_not_configured y sin corrida', async () => {
-    const { deps, drafts } = startDeps(
-      {},
-      creditHarness({
-        poolsFor: (keys) =>
-          keys.map((providerKey) => ({ providerKey, state: { kind: 'not_configured' } })),
-      }),
-    );
+  it('sin regla de crédito para Lusha ⇒ ARRANCA con corrida y 0 reservas', async () => {
+    // AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1: sin regla no hay tope interno que
+    // aplicar, así que la ruta legacy tampoco se queda sin producto. La corrida sí se
+    // crea —es el único requisito para poder llamar y atribuir a un proveedor— y no se
+    // escribe ni una fila de exposición, porque no hay pozo al que descontarle.
+    const credit = creditHarness({
+      poolsFor: (keys) =>
+        keys.map((providerKey) => ({ providerKey, state: { kind: 'not_configured' } })),
+    });
+    const { deps, drafts } = startDeps({}, credit);
     const result = await startLegacyPhoneRevealWaterfall(
       { candidateId: 'cand-legacy' },
       deps,
     );
-    assert.equal(result.started, false);
-    assert.equal(result.started === false && result.reason, 'budget_not_configured');
-    assert.equal(drafts.length, 0);
+    assert.equal(result.started, true);
+    assert.equal(drafts.length, 1, 'la corrida legacy sí se escribe');
+    assert.deepEqual(credit.reserveRequests[0].legs, []);
+    assert.deepEqual(credit.active, [], '0 exposición ocupada');
   });
 
   it('presupuesto NO verificable ⇒ fail-closed con motivo propio y sin corrida', async () => {

@@ -15,21 +15,35 @@
 // de Lusha de la de Lusha. La identidad del pozo (scope + período) viaja porque es lo
 // que la reserva atómica necesita para sumar la exposición del pozo CORRECTO.
 //
-// La traducción respeta la semántica del módulo de presupuestos, con UN cambio
-// deliberado respecto de 4D:
+// La traducción respeta la semántica del módulo de presupuestos. La LÓGICA de este
+// módulo no ha cambiado desde 4E; lo que cambió es qué SIGNIFICA uno de sus tres
+// resultados aguas abajo (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1):
 //
-//   * SIN regla de crédito aplicable ⇒ `not_configured`, y eso BLOQUEA. En 4D esto era
-//     `unlimited` y autorizaba el gasto. Con reserva atómica ya no puede serlo: no hay
-//     disponibilidad contra la que reservar, así que el waterfall no arranca en vez de
-//     correr sobre un techo imaginario. Un límite expresado SOLO en USD tampoco produce
-//     saldo en créditos y cae aquí: el preflight compara créditos contra créditos.
+//   * SIN regla de crédito aplicable ⇒ `not_configured` = UNBOUNDED, y eso YA NO
+//     BLOQUEA. 4D lo llamaba `unlimited` y autorizaba; 4E lo convirtió en bloqueo. Con
+//     Apollo sin regla en Producción, ese bloqueo dejaba el clic del operador en 0
+//     corridas, 0 reservas y 0 llamadas. Ahora significa lo que literalmente es: no hay
+//     TOPE PRESUPUESTARIO INTERNO que aplicar. Un límite expresado SOLO en USD tampoco
+//     produce saldo en créditos y cae aquí: el preflight compara créditos contra
+//     créditos.
+//
+//     🔴 «Sin regla» NO significa que el proveedor sea gratis. Este módulo no habla del
+//     precio: `provider_usage_logs` sigue siendo la verdad del gasto, un costo no
+//     reportado sigue siendo `unknown` y jamás 0, y nada de esto crea una `budget_rule`,
+//     un límite de 500, un infinito simulado ni un costo 0.
 //   * CON regla de crédito ⇒ `configured` con límite, consumo y la identidad del pozo
 //     (el consumo puede igualar o superar el límite: 0 disponible es un dato, no una
-//     ausencia de dato).
-//   * FALLO de lectura ⇒ `unavailable`, fail-closed. No se autoriza gasto sobre un
-//     presupuesto que nadie pudo leer, y el copy que ve el operador dice exactamente
-//     eso — nunca "no hay créditos suficientes", que sería afirmar un hecho que no se
-//     comprobó, ni "no hay presupuesto configurado", que sería otro.
+//     ausencia de dato). Se respeta el límite, el consumo y las reservas vivas,
+//     exactamente como antes.
+//   * FALLO de lectura ⇒ `unavailable`, fail-closed, SIN CAMBIOS. No se autoriza gasto
+//     sobre un presupuesto que nadie pudo leer, y el copy que ve el operador dice
+//     exactamente eso — nunca "no hay créditos suficientes", que sería afirmar un hecho
+//     que no se comprobó.
+//
+// Los dos últimos son la razón por la que este módulo devuelve tres estados y no un
+// `number | null`: «no hay regla» ahora autoriza y «no se pudo leer la regla» sigue
+// bloqueando, así que colapsarlos convertiría un fallo de infraestructura en permiso
+// para gastar.
 
 import { checkBudget } from '@/modules/budgets/budget-resolution';
 import type {
@@ -41,6 +55,11 @@ import type {
 /**
  * Regla de crédito de UN proveedor. Cualquier excepción se convierte en `unavailable`
  * (nunca en `not_configured`): un error de lectura no puede leerse como "no hay regla".
+ *
+ * Esa distinción es MÁS crítica desde
+ * AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1, no menos: `not_configured` ahora
+ * autoriza sin techo, así que degradar un fallo de lectura a `not_configured` sería
+ * convertir un error de infraestructura en una autorización de gasto ilimitada.
  */
 async function readProviderCreditPool(
   providerKey: PhoneRevealCreditProviderKey,
@@ -51,7 +70,8 @@ async function readProviderCreditPool(
     const rule = result.matchedRule;
 
     // `scopeApplied === 'none'` y `limitCredits === null` significan lo mismo para este
-    // gate: no hay disponibilidad EN CRÉDITOS que reservar.
+    // gate: no hay TOPE EN CRÉDITOS que aplicar. Es una lectura EXITOSA cuyo resultado
+    // es "no hay regla", no un fallo — por eso sale por aquí y no por el `catch`.
     if (!rule || rule.limitCredits === null || result.scopeApplied === 'none') {
       return { kind: 'not_configured' };
     }
