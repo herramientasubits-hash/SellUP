@@ -176,6 +176,21 @@ export async function reservePhoneRevealCreditsAndCreateRun(args: {
     p_reservation_group_id: reservation.reservationGroupId,
     p_legs: reservation.legs.map((leg) => ({
       provider_key: leg.providerKey,
+      // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 — LA OPERACIÓN VIAJA.
+      //
+      // Este campo faltaba, y su ausencia no era cosmética: desde la migración 124 la
+      // unicidad de una pata activa es `(candidate_id, provider_key, operation_key)`, y
+      // el SQL resuelve la operación con `COALESCE(leg->>'operation_key','phone_reveal')`.
+      // Sin el campo, las DOS patas Lusha de una autorización con búsqueda de identidad
+      // —`contact_search` (1) y `phone_reveal` (5)— aterrizaban como la MISMA operación,
+      // la segunda chocaba con la primera dentro de su propia transacción, el bloque
+      // interno deshacía las dos escrituras y la función devolvía `already_reserved`.
+      //
+      // El resultado observable era una AFIRMACIÓN FALSA: 0 corridas, 0 reservas —todo
+      // revertido— y al operador se le decía «Ya hay una revelación en proceso». El
+      // desglose que el core ya construía (búsqueda vs. teléfono) se perdía justo en el
+      // borde de I/O, que es el único sitio donde la base puede leerlo.
+      operation_key: leg.operationKey,
       credits: leg.credits,
       limit_credits: leg.limitCredits,
       consumed_credits: leg.consumedCredits,

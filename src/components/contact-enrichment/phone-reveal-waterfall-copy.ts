@@ -599,9 +599,29 @@ export function formatWaterfallLegCredits(
 export const PHONE_REVEAL_LEGACY_MISSING_LUSHA_ID_COPY =
   'No hay suficientes datos para identificar este contacto en Lusha.';
 
-/** Ya hay una autorización VIVA. No se abre una segunda ni se cobra de nuevo. */
+/**
+ * Ya hay una autorización VIVA. No se abre una segunda ni se cobra de nuevo.
+ *
+ * AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1: esta frase sólo puede salir cuando
+ * el servidor RELEYÓ la corrida activa y la ENCONTRÓ. Antes también la producía un
+ * conflicto de unicidad que no dejaba ninguna corrida escrita, y entonces afirmaba un
+ * proceso que el operador no podía ver por ningún lado.
+ */
 export const PHONE_REVEAL_LEGACY_ALREADY_PENDING_COPY =
-  'Ya hay una revelación en proceso.';
+  'Ya hay una revelación en proceso para este candidato.';
+
+/**
+ * El arranque chocó y NO hay ninguna corrida viva que lo explique
+ * (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1).
+ *
+ * Dice las tres cosas que el operador necesita y NINGUNA que no se haya comprobado: no
+ * arrancó, no se cobró —la transacción se deshizo entera, así que 0 corridas y 0
+ * reservas— y el candidato NO queda descartado. No se reintenta solo: un reintento
+ * automático sobre una escritura pagada es precisamente lo que este subsistema no hace.
+ */
+export const PHONE_REVEAL_LEGACY_START_UNSAFE_COPY =
+  'No fue posible iniciar la revelación de forma segura. ' +
+  'No se hizo ningún cargo. Intenta nuevamente más tarde.';
 
 /** Tombstone de supresión CONFIRMADO. */
 export const PHONE_REVEAL_LEGACY_SUPPRESSED_COPY =

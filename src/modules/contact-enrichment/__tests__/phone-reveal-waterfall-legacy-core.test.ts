@@ -499,6 +499,10 @@ describe('WATERFALL-2 — CERO Apollo', () => {
     assert.deepEqual(Object.keys(deps).sort(), [
       'actor',
       'findActiveRun',
+      // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1: relee la tabla de corridas
+      // tras un conflicto de unicidad. Es una LECTURA —la misma que `findActiveRun`—,
+      // no un cliente de proveedor: no llama a Apollo, no llama a Lusha y no gasta.
+      'findActiveRunAfterConflict',
       'findLatestRun',
       'flagEnabled',
       'loadLegacyEvidence',

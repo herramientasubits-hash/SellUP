@@ -94,6 +94,7 @@ import {
 } from './phone-reveal-waterfall-core';
 import {
   claimLushaAttempt,
+  findActiveWaterfallRunForCandidate,
   updateWaterfallRun,
 } from './phone-reveal-waterfall-deps';
 import { buildCandidatePrimaryPhoneCandidates } from './candidate-phone-collection-writer';
@@ -320,6 +321,16 @@ export async function executeSearchMorePhonesForCandidate(args: {
         // es la condición para que el reintento de la capa de I/O sea idempotente en vez de
         // una segunda autorización.
         newAuthorizationKey: () => crypto.randomUUID(),
+        // AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1 — se cablea aquí para que esta
+        // modalidad NO cambie de comportamiento.
+        //
+        // El gate compartido dejó de deducir «hay una corrida viva» de un conflicto de
+        // unicidad y pasó a COMPROBARLO. Sin esta dep, el perdedor de una carrera real de
+        // «Buscar más números» —cuyo ganador SÍ existe— saldría por infraestructura en vez
+        // de por `active_run_exists`, y su copy dejaría de decir «ya hay una búsqueda en
+        // curso». Es la MISMA lectura que usan los otros dos arranques: una consulta, sin
+        // proveedores y sin créditos.
+        findActiveRunAfterConflict: findActiveWaterfallRunForCandidate,
       },
       buildRun,
     });
