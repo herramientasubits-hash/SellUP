@@ -557,7 +557,13 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // `prospect_candidates`. Ninguna de las tres toca `phone_source`, `contact_phones` ni la
       // creación manual; la autoría se comprueba abajo archivo por archivo. Las tres AUTORADAS y
       // NO APLICADAS.
-      '127_br_receita_monthly_snapshot_identity.sql',
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128: proyecta la
+      // colección de teléfonos de un candidato YA APROBADO sobre el contacto que su propia
+      // aprobación creó. NO crea ningún contacto (no hay `INSERT INTO public.contacts` en el
+      // archivo) y no escribe `phone_source = 'manual'` por su cuenta: la procedencia sale de
+      // `contact_phone_sources`, invertida con el MISMO builder que H0.5 ya usa. No añade
+      // esquema. AUTORADA y NO APLICADA.
+      '128_project_approved_candidate_phones_onto_contact.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
   });

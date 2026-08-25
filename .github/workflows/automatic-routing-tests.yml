@@ -1565,6 +1565,50 @@ jobs:
       - name: Run official contact stored phones UI tests
         run: npm run test:agent2a:official-contact-stored-phones-ui
 
+      # AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 — «Revelar teléfono» desde la ficha
+      # del contacto OFICIAL.
+      #
+      # Qué cierra el hito, dicho como un hecho del esquema: la promoción de teléfonos del
+      # candidato al contacto existía SÓLO dentro de la aprobación (116) y del merge humano de un
+      # duplicado (117). La 116 devuelve `already_approved` con CERO escrituras para un candidato
+      # ya aprobado, la 117 rechaza todo lo que no sea `duplicate`, y las funciones que persisten
+      # un reveal (110/111/122) no nombran `contacts` ni `contact_phones` en absoluto. Así que un
+      # teléfono conseguido DESPUÉS de aprobar no tenía ninguna sentencia en la base que lo
+      # llevara a la ficha — y el botón para pedirlo tampoco existía, porque todo el pipeline es
+      # alcanzable sólo desde la revisión del candidato, que ya terminó.
+      #
+      # Qué protegen estas suites, y por qué son estáticas además de de comportamiento:
+      #
+      #   · que NO se construyó un segundo waterfall. La única vía a un proveedor es
+      #     `revealCandidatePhoneAction`; las guardas fallan en el momento en que aparezca en
+      #     estos archivos una llamada a Apollo, a Lusha, al reservador de créditos o al logger
+      #     de uso de proveedor.
+      #   · que la REUTILIZACIÓN de un número ya pagado no puede llamar a nadie: se cuenta que
+      #     el camino gratuito no invoca la delegación, ni una vez.
+      #   · que sin `metadata.source_candidate_id` durable no se ofrece ni se gasta nada, y que
+      #     la ausencia NO se compensa buscando un candidato parecido por email o por nombre —
+      #     autorizar un gasto contra otra persona es exactamente lo que eso sería.
+      #   · que el tope de créditos que se muestra sale de la MISMA función que reserva, así que
+      #     la ficha no puede prometer 8 donde el servidor va a reservar 14.
+      #   · que la migración 128 no crea contactos, no re-terminaliza candidatos, no borra nada,
+      #     no toca `mobile_phone` y es idempotente por clave única.
+      #   · 0 escrituras en HubSpot y 0 importaciones de HubSpot (§8 del contrato).
+      #
+      # Determinista y offline: jsdom no hace falta, sólo lectura de archivos y dobles de las
+      # dependencias. Sin red, sin Supabase, sin Apollo, sin Lusha, 0 créditos, 0 escrituras, 0
+      # PII. Los números de la regresión Priscilla son sintéticos.
+      #
+      # ⚠️ La suite de PostgreSQL REAL queda FUERA de este check a propósito, igual que sus
+      # hermanas (4O-E2/E3/E4, 4O-F-R2, 4O-H1, 4O-H2, 4O-H3, 4O-H3-B, 4O-H4): exige un binario
+      # que se descarga (`npm install --no-save embedded-postgres@17.6.0-beta.15`) y que el
+      # `npm ci` del check obligatorio no necesita. Ahí se miden las garantías que sólo PostgreSQL
+      # puede demostrar — la transacción y su rollback, el orden de los locks, la idempotencia por
+      # índice único, el rechazo de un `p_contact_id` que no es el vínculo del servidor, la
+      # supresión por persona re-comprobada bajo el lock y los privilegios de EXECUTE. Se corre con:
+      #   npm run test:agent2a:post-approval-reveal:postgres
+      - name: Run post-approval official contact reveal tests
+        run: npm run test:agent2a:post-approval-reveal
+
       # AGENT2A-PROD-INCIDENT — regresiones del incidente P0 de Producción en la
       # lectura del detalle de candidato y en la búsqueda de empresa.
       #
@@ -3552,3 +3596,38 @@ jobs:
         run: npm run test:br-source:functional-cut-b:postgres
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # ── AGENT1-CUT4-A1 — BATCH COUNT TRUTHFULNESS + SAFE REVIEW NAVIGATION ──────
+      #
+      # Lo que estas dos suites impiden que vuelva: la capa de lotes contaba sus
+      # candidatos filtrando por `isUsefulReviewCandidate`, un clasificador de
+      # CALIDAD DE UI que devuelve `false` para un candidato colombiano sin
+      # `tax_identifier` que no venga de `external_import`. Apollo, Lusha y web_ai
+      # persisten esas filas legítimamente, así que en Producción (Gate 0) 100
+      # candidatos durables repartidos en 24 lotes —aprobables desde Prospectos— se
+      # contaban como CERO en la ficha del lote, que es la pantalla donde aterriza
+      # el operador justo después de una corrida de PAGO.
+      #
+      # La invariante que fijan: EXISTENCIA DURABLE != CLASIFICACIÓN DE CALIDAD.
+      # Contar responde «¿está persistida y no borrada?», y esa pregunta ya tiene
+      # una autoridad —el contrato durable de CUT-1—, que es la que se reutiliza.
+      # Hay una guarda ESTÁTICA que falla si `batch-candidate-counts.ts` vuelve a
+      # importar o mencionar `isUsefulReviewCandidate`: si reentra, reentra la
+      # mentira.
+      #
+      # Lo que estas suites NO afirman, y por eso siguen siendo verdad:
+      #   · `isUsefulReviewCandidate` conserva su semántica intacta — un candidato
+      #     contado puede seguir clasificado como no útil, y eso es correcto;
+      #   · `usefulCount` de la generación y la aritmética de objetivo no cambian;
+      #   · la tabla accionable de la ficha sigue recibiendo EXACTAMENTE el mismo
+      #     subconjunto filtrado, porque `CandidateRowActions` conserva fuera de
+      #     Prospectos el comportamiento heredado de aprobar/descartar/duplicar y
+      #     ampliar esa superficie es CUT4-C, no este corte. El estado intermedio
+      #     seguro es contar la verdad, no ampliar acciones y ENLAZAR a la cola
+      #     oficial ya existente: `/accounts?tab=prospectos&sourceId=<batchId>`.
+      #
+      # Puras: sin I/O, sin Supabase, sin React, sin env, sin reloj, sin red.
+      # 0 migraciones, 0 escrituras remotas, 0 proveedores, 0 créditos, 0 flags.
+      # Sin `continue-on-error` y sin `|| true`.
+      - name: Run Agent 1 CUT4-A1 batch count truthfulness tests
+        run: npm run test:a1-cut4-batch-count-truthfulness

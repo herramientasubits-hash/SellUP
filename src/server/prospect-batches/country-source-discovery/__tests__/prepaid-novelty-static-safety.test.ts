@@ -212,6 +212,12 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       // dejó sitio a la reconciliación genérica arriba; el segundo lo forzó AGENT1-CUT3B4 al
       // reclamar el 126 de forma independiente.
       '127_br_receita_monthly_snapshot_identity.sql',
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1: la proyección de la colección de
+      // teléfonos de un candidato ya APROBADO al contacto que su aprobación creó (Agente 2A).
+      // Nada que ver con la capa gratuita de descubrimiento que esta guarda protege — no nombra
+      // `prospect_candidates`, `provider_seen_entities` ni ninguna tabla de wizard — y trae su
+      // propia guarda estática. Está AUTORADA y NO APLICADA.
+      '128_project_approved_candidate_phones_onto_contact.sql',
     ],
     'ninguna migración nueva salvo la memoria provider-seen y la identidad cross-provider',
   );

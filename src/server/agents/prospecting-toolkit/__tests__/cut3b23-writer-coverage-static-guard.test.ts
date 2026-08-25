@@ -313,6 +313,11 @@ describe('CUT-3B23 § 7 — `identity_key` no se sobrecarga', () => {
  * La 125 sigue siendo de BR-SOURCE y sus aserciones quedan INTACTAS.
  */
 const CUT3B4_MIGRATION = '126_agent1_batch_identity_atomicity.sql';
+/** AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1, que reclamó la 128 de forma
+ * independiente: la proyección de la colección de teléfonos de un candidato ya APROBADO al
+ * contacto que su aprobación creó. Nada que ver con este corte; su autoría se policía abajo. */
+const POST_APPROVAL_REVEAL_MIGRATION =
+  '128_project_approved_candidate_phones_onto_contact.sql';
 
 /**
  * Cuerpo EJECUTABLE de una migración, en minúsculas.
@@ -349,13 +354,31 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
   // Y en vez de sólo desplazar el número, se sigue probando la AFIRMACIÓN de verdad: que NI la
   // 125 NI la 127 son de CUT-3B23. Sus cuerpos no mencionan ninguna tabla ni símbolo de este
   // corte, lo que es estrictamente más fuerte que comparar un número.
-  it('no existe una migración 128: este corte no añade la siguiente', () => {
+  it('la 128 existe, es del reveal post-aprobación y NO de este corte', () => {
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 tomó la 128 de forma independiente.
+    // La afirmación de CUT-3B23 —«yo no aporto migración»— NO se relaja: se comprueba por
+    // AUTORÍA, exactamente como ya se hace con la 126 de CUT-3B4, que es más fuerte que exigir un
+    // número libre. Aquí se exige que la 128 sea EXACTAMENTE la de la proyección de teléfonos y
+    // que no nombre ningún símbolo de este corte.
     const migrations = readdirSync(join(REPO_ROOT, 'supabase', 'migrations'));
-    assert.equal(
-      migrations.some((file) => file.startsWith('128')),
-      false,
-      'este corte no introduce la migración 128',
+    assert.deepEqual(
+      migrations.filter((file) => file.startsWith('128')),
+      [POST_APPROVAL_REVEAL_MIGRATION],
+      'la 128 tiene que ser la de la proyección post-aprobación, y sólo ella',
     );
+    const sql = read(`supabase/migrations/${POST_APPROVAL_REVEAL_MIGRATION}`);
+    for (const foreign of [
+      'prospect_candidates',
+      'batch_identity_registry',
+      'prospect_batches',
+      'source_company_snapshots',
+    ]) {
+      assert.equal(
+        sql.includes(foreign),
+        false,
+        `la 128 nombra ${foreign}: dejaría de ser ajena a CUT-3B23`,
+      );
+    }
   });
 
   it('la 126 existe, es de CUT-3B4 y NO de este corte', () => {
@@ -411,8 +434,13 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
       .filter((file) => /^\d{3}_/.test(file))
       .sort();
     const last = migrations[migrations.length - 1];
-    assert.ok(last.startsWith('127'), `última migración inesperada: ${last}`);
-    assert.equal(last, '127_br_receita_monthly_snapshot_identity.sql');
+    // El techo lo movió AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 con la 128, cuya
+    // autoría se policía en la prueba de arriba. La 127 sigue siendo la última de la capa de
+    // snapshots de fuente, y es ella —no el techo global— la que este barrido examina.
+    assert.ok(last.startsWith('128'), `última migración inesperada: ${last}`);
+    assert.equal(last, POST_APPROVAL_REVEAL_MIGRATION);
+    const lastSnapshotMigration = '127_br_receita_monthly_snapshot_identity.sql';
+    assert.ok(migrations.includes(lastSnapshotMigration));
     assert.ok(migrations.includes('125_reconcile_source_snapshot_record_identity.sql'));
     assert.ok(migrations.includes(CUT3B4_MIGRATION));
 
@@ -434,7 +462,10 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
         join(REPO_ROOT, 'supabase', 'migrations', '125_reconcile_source_snapshot_record_identity.sql'),
         'utf8',
       ),
-      [last]: readFileSync(join(REPO_ROOT, 'supabase', 'migrations', last), 'utf8'),
+      [lastSnapshotMigration]: readFileSync(
+        join(REPO_ROOT, 'supabase', 'migrations', lastSnapshotMigration),
+        'utf8',
+      ),
     };
     for (const [file, body] of Object.entries(bodiesByFile)) {
       for (const foreignTable of FOREIGN_TABLES) {

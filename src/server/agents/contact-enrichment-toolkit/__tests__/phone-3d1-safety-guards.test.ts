@@ -156,6 +156,11 @@ describe('PHONE-3D.1 — no hay superficie de reveal (action/UI/migración)', ()
       'phone-reveal-core.ts',
       'lusha-phone-fallback-actions.ts',
       'lusha-phone-fallback-core.ts',
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1: el cableado del reveal disparado
+      // desde la ficha del contacto OFICIAL. Nombra `revealCandidatePhoneAction` porque lo LLAMA
+      // —es el punto entero del hito: no construir un segundo waterfall, sino delegar en el que
+      // ya existe— y no declara ninguna acción de reveal propia.
+      'post-approval-reveal-actions.ts',
     ]);
     const files = readdirSync(modulesDir).filter((f) => f.endsWith('.ts'));
     for (const f of files) {

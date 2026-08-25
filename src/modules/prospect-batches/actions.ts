@@ -59,13 +59,19 @@ type ConvertedAccountRow = {
   company_size: string | null;
   tax_identifier: string | null;
 };
+import {
+  computeBatchCandidateCounts,
+  computeCountsByBatch,
+  EMPTY_BATCH_CANDIDATE_COUNTS,
+  type BatchCandidateCountRow,
+} from '@/server/prospect-batches/batch-candidate-counts';
+import { DURABLE_PROSPECT_CANDIDATE_STATUSES } from '@/server/prospect-batches/batch-durable-candidates';
 import { checkIsColombiaProviderConfigured } from '@/server/prospect-batches/tax-identifier-providers/colombia';
 import { evaluateAutoEnrichmentEligibility } from '@/server/prospect-batches/candidate-enrichment-eligibility';
 import { createHubSpotCompany, type CreateHubSpotCompanySentAudit, type CreateHubSpotCompanyResult } from '@/server/integrations/hubspot-company-create';
 import {
   APPROVE_BLOCK_MESSAGES,
   isStructuredCandidate,
-  isUsefulReviewCandidate,
   type ProspectBatch,
   type ProspectBatchWithMeta,
   type ProspectCandidate,
@@ -279,6 +285,65 @@ export async function logProspectCandidateAudit(params: {
 
 // ── Summaries ─────────────────────────────────────────────────
 
+// ── Conteo honesto de candidatos por lote (CUT4-A1) ───────────────────────────
+//
+// La verdad de EXISTENCIA de un lote es el contrato durable de CUT-1, no el
+// clasificador de calidad de UI `isUsefulReviewCandidate`. Un candidato CO sin
+// NIT persistido por Apollo/Lusha/web_ai es una fila real: puede seguir siendo
+// «no útil» para la tabla accionable heredada, pero no puede valer CERO en el
+// conteo del lote (Gate 0 midió 100 candidatos en 24 lotes contados como 0).
+//
+// Semántica de conteo, no «longitud de lo que PostgREST devolvió»: se filtra
+// por estados durables en el servidor y se pagina hasta agotar el conjunto, de
+// modo que un `max-rows` del backend no pueda truncar el total en silencio.
+
+const CANDIDATE_COUNT_COLUMNS = 'batch_id, status, duplicate_status';
+const CANDIDATE_COUNT_PAGE_SIZE = 1000;
+/** Tope de seguridad: 100 páginas. Alcanzarlo es un error, nunca un truncado mudo. */
+const CANDIDATE_COUNT_MAX_PAGES = 100;
+
+type CandidateCountRow = BatchCandidateCountRow & { batch_id?: string | null };
+
+async function fetchDurableCandidateCountRows(
+  filter: { batchId: string } | { batchIds: string[] },
+): Promise<CandidateCountRow[]> {
+  if ('batchIds' in filter && filter.batchIds.length === 0) return [];
+
+  const supabase = await createClient();
+  const rows: CandidateCountRow[] = [];
+  let from = 0;
+
+  for (let page = 0; page < CANDIDATE_COUNT_MAX_PAGES; page++) {
+    let query = supabase
+      .from('prospect_candidates')
+      .select(CANDIDATE_COUNT_COLUMNS)
+      .in('status', [...DURABLE_PROSPECT_CANDIDATE_STATUSES]);
+
+    query =
+      'batchId' in filter
+        ? query.eq('batch_id', filter.batchId)
+        : query.in('batch_id', filter.batchIds);
+
+    const { data, error } = await query
+      .order('id', { ascending: true })
+      .range(from, from + CANDIDATE_COUNT_PAGE_SIZE - 1);
+
+    if (error) throw new Error(`Error al contar candidatos del lote: ${error.message}`);
+
+    const pageRows = (data ?? []) as CandidateCountRow[];
+    // Una página vacía es el ÚNICO fin de conjunto fiable: si el backend
+    // recorta la ventana (`max-rows` por debajo del tamaño pedido), parar en
+    // «devolvió menos de lo que pedí» truncaría el conteo en la primera página.
+    if (pageRows.length === 0) return rows;
+    rows.push(...pageRows);
+    from += pageRows.length;
+  }
+
+  throw new Error(
+    `Conteo de candidatos abortado: más de ${CANDIDATE_COUNT_MAX_PAGES * CANDIDATE_COUNT_PAGE_SIZE} filas`,
+  );
+}
+
 export async function getProspectBatchesSummary(): Promise<BatchesSummary> {
   await requireActiveUser();
   const supabase = await createClient();
@@ -288,13 +353,15 @@ export async function getProspectBatchesSummary(): Promise<BatchesSummary> {
     .select('status, metadata')
     .is('archived_at', null);
 
-  const { data: approvedCandidates } = await supabase
+  // CUT4-A1: total persistido, con semántica de conteo exacta. Antes se traía la
+  // tabla entera y se filtraba por calidad de UI, así que un aprobado CO sin NIT
+  // desaparecía de un total que dice contar aprobados.
+  const { count: approvedCount } = await supabase
     .from('prospect_candidates')
-    .select('id, name, legal_name, country_code, tax_identifier, duplicate_status, status, review_flags, legal_status, source_primary')
+    .select('id', { count: 'exact', head: true })
     .eq('status', 'approved');
 
   const list = batches ?? [];
-  const approvedList = (approvedCandidates ?? []).filter(isUsefulReviewCandidate);
 
   return {
     total: list.length,
@@ -304,7 +371,7 @@ export async function getProspectBatchesSummary(): Promise<BatchesSummary> {
     }).length,
     in_review: list.filter((b) => b.status === 'in_review').length,
     completed: list.filter((b) => b.status === 'completed').length,
-    total_approved_candidates: approvedList.length,
+    total_approved_candidates: typeof approvedCount === 'number' ? approvedCount : 0,
   };
 }
 
@@ -329,29 +396,21 @@ export async function getProspectBatchesList(): Promise<ProspectBatchWithMeta[]>
 
   const batchIds = batches.map((b) => b.id);
 
-  const { data: candidates } = await supabase
-    .from('prospect_candidates')
-    .select('batch_id, status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status, source_primary')
-    .in('batch_id', batchIds);
-
-  const list = candidates ?? [];
+  const countsByBatch = computeCountsByBatch(
+    await fetchDurableCandidateCountRows({ batchIds }),
+  );
 
   return batches.map((b) => {
-    const usefulCandidates = list.filter((c) => c.batch_id === b.id && isUsefulReviewCandidate(c));
-    const approved = usefulCandidates.filter((c) => c.status === 'approved').length;
-    const discarded = usefulCandidates.filter((c) => c.status === 'discarded').length;
-    const converted = usefulCandidates.filter((c) => c.status === 'converted_to_account').length;
-    const needsReview = usefulCandidates.filter((c) => c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized').length;
-    const duplicates = usefulCandidates.filter((c) => c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate' || c.status === 'duplicate').length;
+    const counts = countsByBatch.get(b.id) ?? EMPTY_BATCH_CANDIDATE_COUNTS;
 
     return {
       ...b,
-      total_candidates: usefulCandidates.length,
-      approved_count: approved,
-      discarded_count: discarded,
-      converted_count: converted,
-      needs_review_count: needsReview,
-      duplicate_count: duplicates,
+      total_candidates: counts.total,
+      approved_count: counts.approved,
+      discarded_count: counts.discarded,
+      converted_count: counts.converted,
+      needs_review_count: counts.needsReview,
+      duplicate_count: counts.duplicates,
     } as ProspectBatchWithMeta;
   });
 }
@@ -426,54 +485,35 @@ export async function getProspectBatchById(id: string): Promise<ProspectBatchWit
     }
   }
 
-  const { data: candidates } = await supabase
-    .from('prospect_candidates')
-    .select('status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status, source_primary')
-    .eq('batch_id', id);
-
-  const list = candidates ?? [];
-  const usefulCandidates = list.filter(isUsefulReviewCandidate);
-  const approved = usefulCandidates.filter((c) => c.status === 'approved').length;
-  const discarded = usefulCandidates.filter((c) => c.status === 'discarded').length;
-  const converted = usefulCandidates.filter((c) => c.status === 'converted_to_account').length;
-  const needsReview = usefulCandidates.filter((c) => c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized').length;
-  const duplicates = usefulCandidates.filter((c) => c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate' || c.status === 'duplicate').length;
+  const counts = computeBatchCandidateCounts(
+    await fetchDurableCandidateCountRows({ batchId: id }),
+  );
 
   return {
     ...batch,
-    total_candidates: usefulCandidates.length,
-    approved_count: approved,
-    discarded_count: discarded,
-    converted_count: converted,
-    needs_review_count: needsReview,
-    duplicate_count: duplicates,
+    total_candidates: counts.total,
+    approved_count: counts.approved,
+    discarded_count: counts.discarded,
+    converted_count: counts.converted,
+    needs_review_count: counts.needsReview,
+    duplicate_count: counts.duplicates,
   } as ProspectBatchWithMeta;
 }
 
 export async function getBatchDetailSummary(batchId: string): Promise<BatchDetailSummary> {
   await requireActiveUser();
-  const supabase = await createClient();
 
-  const { data: candidates } = await supabase
-    .from('prospect_candidates')
-    .select('status, name, legal_name, country_code, tax_identifier, duplicate_status, review_flags, legal_status, source_primary')
-    .eq('batch_id', batchId);
-
-  const list = candidates ?? [];
-  const usefulCandidates = list.filter(isUsefulReviewCandidate);
-  const approved = usefulCandidates.filter((c) => c.status === 'approved').length;
-  const discarded = usefulCandidates.filter((c) => c.status === 'discarded').length;
-  const converted = usefulCandidates.filter((c) => c.status === 'converted_to_account').length;
-  const needsReview = usefulCandidates.filter((c) => c.status === 'needs_review' || c.status === 'generated' || c.status === 'normalized').length;
-  const duplicates = usefulCandidates.filter((c) => c.duplicate_status === 'possible_duplicate' || c.duplicate_status === 'exact_duplicate' || c.status === 'duplicate').length;
+  const counts = computeBatchCandidateCounts(
+    await fetchDurableCandidateCountRows({ batchId }),
+  );
 
   return {
-    total_candidates: usefulCandidates.length,
-    needs_review: needsReview,
-    approved: approved,
-    discarded: discarded,
-    converted: converted,
-    duplicates: duplicates,
+    total_candidates: counts.total,
+    needs_review: counts.needsReview,
+    approved: counts.approved,
+    discarded: counts.discarded,
+    converted: counts.converted,
+    duplicates: counts.duplicates,
   };
 }
 
