@@ -5,6 +5,14 @@ import { loadImportCatalog } from '@/modules/prospect-batches/import-catalog-loa
 import { classifyImportRows } from '@/modules/prospect-batches/import-classification-service';
 import { buildImportPersistencePayload } from '@/modules/prospect-batches/import-classification-payload-builder';
 import type { ImportRow, ParsedImportRow } from '@/modules/prospect-batches/import-candidates-parser';
+// AGENT1-CUT4-B1 § 8 — la MISMA autoridad de procedencia que usan los writers
+// canónicos. Esta ruta no decide la procedencia: la delega y la proyecta.
+import {
+  CANDIDATE_RECORD_ORIGIN_METADATA_KEY,
+  resolveCandidateRecordOriginForWriter,
+  toCandidateRecordOriginColumns,
+  toCandidateRecordOriginMetadata,
+} from '@/server/agents/prospecting-toolkit/candidate-record-origin';
 
 interface ImportCandidate {
   company_name: string;
@@ -236,10 +244,36 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Create batch with catalog_version ──────────────────────────────────
+    //
+    // AGENT1-CUT4-B1 § 8 — la metadata y el nombre del lote se nombran para poder
+    // ALIMENTAR al clasificador canónico con la forma real del lote. Su contenido
+    // no cambia: son exactamente las mismas claves y los mismos valores.
+    const batchName = `Importación externa · ${dateLabel}`;
+    const batchMetadata = {
+      import_type: input.import_type,
+      imported_rows_count: input.total_rows,
+      valid_rows_count: input.valid_rows,
+      invalid_rows_count: input.invalid_rows,
+      warning_rows_count: input.warning_rows,
+      recognized_columns: input.recognized_columns,
+      unrecognized_columns: input.unrecognized_columns,
+      source_label: 'Importación externa',
+      created_from_external_research: true,
+      enrichment_auto_run: false,
+      hubspot_sync_on_import: false,
+      default_country: input.defaults?.country ?? null,
+      default_country_code: input.defaults?.country_code ?? null,
+      default_industry: input.defaults?.industry ?? null,
+      defaults_applied: !!(input.defaults?.country_code || input.defaults?.industry),
+      rows_using_default_country_count: rowsUsingDefaultCountry,
+      rows_using_default_industry_count: rowsUsingDefaultIndustry,
+      classification_summary: classificationResult.summary,
+    };
+
     const { data: batch, error: batchError } = await supabase
       .from('prospect_batches')
       .insert({
-        name: `Importación externa · ${dateLabel}`,
+        name: batchName,
         description: 'Candidatos cargados manualmente o desde archivo externo.',
         country: batchCountry,
         country_code: batchCountryCode,
@@ -249,26 +283,7 @@ export async function POST(request: NextRequest) {
         owner_id: internalUserId,
         created_by: internalUserId,
         catalog_version: persistencePayload.batch.catalog_version,
-        metadata: {
-          import_type: input.import_type,
-          imported_rows_count: input.total_rows,
-          valid_rows_count: input.valid_rows,
-          invalid_rows_count: input.invalid_rows,
-          warning_rows_count: input.warning_rows,
-          recognized_columns: input.recognized_columns,
-          unrecognized_columns: input.unrecognized_columns,
-          source_label: 'Importación externa',
-          created_from_external_research: true,
-          enrichment_auto_run: false,
-          hubspot_sync_on_import: false,
-          default_country: input.defaults?.country ?? null,
-          default_country_code: input.defaults?.country_code ?? null,
-          default_industry: input.defaults?.industry ?? null,
-          defaults_applied: !!(input.defaults?.country_code || input.defaults?.industry),
-          rows_using_default_country_count: rowsUsingDefaultCountry,
-          rows_using_default_industry_count: rowsUsingDefaultIndustry,
-          classification_summary: classificationResult.summary,
-        },
+        metadata: batchMetadata,
       })
       .select()
       .single();
@@ -301,6 +316,60 @@ export async function POST(request: NextRequest) {
       if (candidate.description) notesArr.push(`Descripción: ${candidate.description}`);
       if (candidate.notes) notesArr.push(candidate.notes);
 
+      const reviewNotes = notesArr.length > 0 ? notesArr.join('\n') : null;
+
+      // AGENT1-CUT4-B1 § 8 — la metadata del candidato se nombra ANTES de la fila
+      // para que el clasificador canónico pueda leerla. Su contenido es idéntico.
+      const candidateBaseMetadata: Record<string, unknown> = {
+        ...(candidate.linkedin_url ? { linkedin_url: candidate.linkedin_url.trim() } : {}),
+        ...(candidate.source_url ? { source_url: candidate.source_url.trim(), evidence_url: candidate.source_url.trim() } : {}),
+        ...(candidate.source_evidence ? { source_evidence: candidate.source_evidence.trim() } : {}),
+        ...(candidate.confidence ? { confidence: candidate.confidence.trim() } : {}),
+        ...(candidate.contact_name ? { contact_name: candidate.contact_name.trim() } : {}),
+        ...(candidate.contact_role ? { contact_role: candidate.contact_role.trim() } : {}),
+        ...(candidate.contact_email ? { contact_email: candidate.contact_email.trim() } : {}),
+        ...(candidate.owner_email ? { owner_email: candidate.owner_email.trim() } : {}),
+        ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
+        imported_from: input.import_type,
+        origen: 'external_import',
+        import: {
+          ...(candidate.source_url ? { source_url: candidate.source_url.trim() } : {}),
+          ...(candidate.source_evidence ? { source_evidence: candidate.source_evidence.trim() } : {}),
+          ...(candidate.confidence ? { confidence: candidate.confidence.trim() } : {}),
+          ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
+          origen: 'external_import',
+        }
+      };
+
+      // ── AGENT1-CUT4-B1 § 8 — la procedencia de la FILA importada ────────────
+      //
+      // El defecto que cierra: esta ruta insertaba `status='needs_review'` sin
+      // tocar `record_origin`, así que la columna quedaba en NULL por OMISIÓN del
+      // writer, no por una decisión.
+      //
+      // Lo que se persiste NO es un literal: lo decide el clasificador canónico
+      // sobre la fila real. Con `source_primary='external_import'` y
+      // `prospect_batches.source='external_import'` su regla de import (R4) gana
+      // antes que cualquier inferencia de producción, así que una importación
+      // externa jamás se etiqueta `production` desde aquí. Que siga siendo no
+      // accionable en la cola limpia es el comportamiento esperado: este corte es
+      // paridad de procedencia, no ensanchamiento de permisos.
+      const recordOriginResolution = resolveCandidateRecordOriginForWriter({
+        // Esta ruta no tiene modo seco: si llega hasta aquí, escribe.
+        dryRun: false,
+        candidate: {
+          status: 'needs_review',
+          source_primary: 'external_import',
+          review_notes: reviewNotes,
+          metadata: candidateBaseMetadata,
+        },
+        batch: {
+          source: 'external_import',
+          name: batchName,
+          metadata: batchMetadata,
+        },
+      });
+
       const insertData: Record<string, unknown> = {
         batch_id: batch.id,
         name: candidate.company_name.trim(),
@@ -317,26 +386,15 @@ export async function POST(request: NextRequest) {
         tax_identifier_type: candidate.tax_identifier_type?.trim() || null,
         source_primary: 'external_import',
         status: 'needs_review',
-        review_notes: notesArr.length > 0 ? notesArr.join('\n') : null,
+        review_notes: reviewNotes,
+        // § 8 — la fila declara de qué clase de corrida salió, en vez de dejar la
+        // columna en NULL por descuido del writer.
+        ...toCandidateRecordOriginColumns(recordOriginResolution),
         metadata: {
-          ...(candidate.linkedin_url ? { linkedin_url: candidate.linkedin_url.trim() } : {}),
-          ...(candidate.source_url ? { source_url: candidate.source_url.trim(), evidence_url: candidate.source_url.trim() } : {}),
-          ...(candidate.source_evidence ? { source_evidence: candidate.source_evidence.trim() } : {}),
-          ...(candidate.confidence ? { confidence: candidate.confidence.trim() } : {}),
-          ...(candidate.contact_name ? { contact_name: candidate.contact_name.trim() } : {}),
-          ...(candidate.contact_role ? { contact_role: candidate.contact_role.trim() } : {}),
-          ...(candidate.contact_email ? { contact_email: candidate.contact_email.trim() } : {}),
-          ...(candidate.owner_email ? { owner_email: candidate.owner_email.trim() } : {}),
-          ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
-          imported_from: input.import_type,
-          origen: 'external_import',
-          import: {
-            ...(candidate.source_url ? { source_url: candidate.source_url.trim() } : {}),
-            ...(candidate.source_evidence ? { source_evidence: candidate.source_evidence.trim() } : {}),
-            ...(candidate.confidence ? { confidence: candidate.confidence.trim() } : {}),
-            ...(candidate.notes ? { notes: candidate.notes.trim() } : {}),
-            origen: 'external_import',
-          }
+          ...candidateBaseMetadata,
+          // § 8 — derivación auditable. ADITIVO: no pisa ninguna clave anterior.
+          [CANDIDATE_RECORD_ORIGIN_METADATA_KEY]:
+            toCandidateRecordOriginMetadata(recordOriginResolution),
         },
       };
 
