@@ -941,25 +941,16 @@ describe('BR-SOURCE CUT B — the Agent 1 Brazil adapter', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('BR-SOURCE CUT B — the boundary this cut does not cross', () => {
-  it('authored NO migration: 127 is still the highest BR one, and 128 is not this cut', () => {
-    // 🔴 The ceiling moved, and NOT by a BR cut: AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-
-    // REVEAL-1 independently claimed 128 — projection of an already-approved candidate's phone
-    // collection onto its own official contact — while this cut was already merged. CUT B still
-    // authors NOTHING, and that is what this guard defends. The repository ceiling is kept EXACT,
-    // so an undeclared migration above the last known milestone still breaks the guard, and the
-    // authorship sweep is WIDENED past 127 by CONTENT, so the guard is stronger than before
-    // rather than merely shifted: a BR-authored migration above CUT A's 127 now fails here even
-    // if it were declared.
+  it('authored NO migration: CUT B added nothing BR-authored above CUT A\'s 127', () => {
+    // 🔴 This guard defends WHO authored what — BR-SOURCE CUT B (#353) — never a global repository
+    // ceiling. A later, unrelated milestone may legitimately add its own migration above 127 after
+    // this cut merges (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 already did, claiming
+    // 128; nothing stops a 129 from some other line next). Pinning the ceiling to a fixed number
+    // here would make THIS guard fail on every unrelated future migration, which is not what CUT B
+    // ever claimed. What CUT B actually claims, and what stays true regardless of how high the
+    // ceiling climbs, is narrower and content-based: no migration file above CUT A's 127 is
+    // BR/Receita/CNPJ-authored, because CUT B's contract is MIGRATION = NONE.
     const files = fs.readdirSync(join(repoRoot, 'supabase/migrations')).filter((f) => f.endsWith('.sql'));
-    const numbers = files
-      .map((file) => Number.parseInt(file.slice(0, 3), 10))
-      .filter((value) => Number.isFinite(value));
-    assert.equal(Math.max(...numbers), 128, 'the repository ceiling is 128, and it is not a BR migration');
-    assert.equal(
-      files.filter((file) => file.startsWith('128')).length,
-      1,
-      'AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 owns exactly one migration',
-    );
     for (const name of files.filter((file) => Number.parseInt(file.slice(0, 3), 10) > 127)) {
       const sql = fs.readFileSync(join(repoRoot, 'supabase/migrations', name), 'utf8');
       assert.equal(
