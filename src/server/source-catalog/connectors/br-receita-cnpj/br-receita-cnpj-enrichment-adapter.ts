@@ -9,6 +9,15 @@
  * monthly run, through `readBrReceitaPublishedSnapshot`.
  * ═══════════════════════════════════════════════════════════════════════════
  *
+ * ── 🔴 CUT B2: a batch is pinned to a PUBLICATION, not to a month ───────────
+ *
+ * Binding a month is not enough. A month can be republished — run A superseded, run B published,
+ * both `2026-08` — and an adapter bound to `2026-08` alone would read A for the first candidates
+ * and B for the rest, because the published-run reader re-resolves "which run is published?" on
+ * every call. So the batch path binds a `BrReceitaPinnedPublication` (month + run id, minted once
+ * at the start of the run) and reads through `readBrReceitaPinnedSnapshot`, which never asks that
+ * question. The unpinned, month-only path is retained for one-shot lookups and is unchanged.
+ *
  * ── 🔴 The period is REQUIRED and is never inferred ─────────────────────────
  *
  * `SourceEnrichmentInput` has no period field, because every other validated source is
@@ -37,6 +46,11 @@ import {
   readBrReceitaPublishedSnapshot,
   type BrReceitaPublishedReadResult,
 } from './br-receita-cnpj-published-snapshot-reader';
+import {
+  readBrReceitaPinnedSnapshot,
+  type BrReceitaPinnedReadResult,
+} from './br-receita-cnpj-pinned-snapshot-reader';
+import type { BrReceitaPinnedPublication } from './br-receita-cnpj-pinned-publication';
 import {
   BR_RECEITA_CNPJ_COUNTRY_CODE,
   BR_RECEITA_CNPJ_SOURCE_KEY,
@@ -92,8 +106,13 @@ export const BR_RECEITA_ENRICHMENT_SIGNAL_KEYS = [
 export interface BrReceitaEnrichmentDeps {
   /** Returns the snapshot read client, or `null` when one cannot be built. */
   readonly getClient?: () => SnapshotReadClient<SnapshotIdentityRow> | null;
-  /** The published-run reader. Injected so the whole adapter is testable offline. */
+  /**
+   * The published-run reader — the UNPINNED path, used only when no publication was pinned.
+   * Injected so the whole adapter is testable offline.
+   */
   readonly read?: typeof readBrReceitaPublishedSnapshot;
+  /** The pinned reader — the path every Agent 1 run takes (CUT B2). */
+  readonly readPinned?: typeof readBrReceitaPinnedSnapshot;
 }
 
 export interface BrReceitaEnrichmentConfig extends BrReceitaEnrichmentDeps {
@@ -102,8 +121,21 @@ export interface BrReceitaEnrichmentConfig extends BrReceitaEnrichmentDeps {
    *
    * 🔴 `undefined` is a real, supported state and it means "no month has been chosen": every
    * call then answers `skipped`. It does NOT mean "pick one".
+   *
+   * When `publication` is also bound, this MUST be that publication's month — it is derived from
+   * the pin by the caller, and a disagreement between the two is a bug, not a preference to
+   * resolve. Mismatch fail-closes rather than silently picking one of the two.
    */
   readonly sourcePeriod?: string;
+  /**
+   * The publication this adapter is pinned to, for the whole run (CUT B2).
+   *
+   * 🔴 Bound, the adapter reads EXACTLY this publication and never asks which run is currently
+   * published — so a same-month republication mid-run cannot move it. Unbound, the adapter keeps
+   * CUT B1 behaviour: it reads whichever run is published for the configured month, which is
+   * correct for a one-shot lookup and NOT correct for a batch.
+   */
+  readonly publication?: BrReceitaPinnedPublication;
 }
 
 // ─── Output builders ────────────────────────────────────────────────────────
@@ -142,7 +174,7 @@ function errored(reason: string): SourceEnrichmentOutput {
  * IMPORT, not the company, and `source_file_name` in particular is operator-side detail.
  */
 function matched(
-  read: Extract<BrReceitaPublishedReadResult, { status: 'FOUND' }> | BrReceitaPublishedReadResult,
+  read: Pick<BrReceitaPublishedReadResult, 'snapshot' | 'snapshotRunId'>,
 ): SourceEnrichmentOutput {
   const snapshot = read.snapshot;
   if (snapshot === null) {
@@ -187,6 +219,42 @@ function matched(
   };
 }
 
+/**
+ * Maps a PINNED read into the wizard's enrichment shape.
+ *
+ * Kept separate from the unpinned mapping on purpose: the two readers have different closed status
+ * sets, and collapsing them into one `switch` over a widened union is how a status silently starts
+ * falling through to the wrong branch.
+ */
+function fromPinnedRead(result: BrReceitaPinnedReadResult): SourceEnrichmentOutput {
+  switch (result.status) {
+    case 'FOUND':
+      return matched(result);
+    case 'NOT_IN_PINNED_PUBLICATION':
+      return noMatch('establishment_absent_from_published_run');
+    case 'INVALID_IDENTITY':
+      return skipped(result.reason);
+    case 'INVALID_PINNED_PUBLICATION':
+      // 🔴 An error, NOT a `no_match`: "we could not trust the publication we were told to read"
+      // is an operator-visible failure, and answering "this company is not in Receita" would be a
+      // lie about the company.
+      return errored(`br_pinned_publication_rejected:${result.reason}`);
+    case 'CARDINALITY_VIOLATION':
+      // Observable, never silently collapsed to one arbitrary row.
+      return {
+        ...baseOutput(),
+        status: 'no_match',
+        reason: result.reason,
+        signals: {
+          human_review_required: true,
+          observed_count: result.observedCount,
+        },
+      };
+    default:
+      return errored('unexpected_pinned_read_status');
+  }
+}
+
 // ─── The core ───────────────────────────────────────────────────────────────
 
 /**
@@ -210,13 +278,31 @@ export async function enrichBrReceitaCnpjCandidate(
   }
 
   // Guard 2 — the month must have been CHOSEN. Never inferred, never defaulted.
-  const parsedPeriod = parseSourcePeriod(config.sourcePeriod);
+  //
+  // 🔴 When a publication is pinned, the month comes FROM THE PIN and not from a second config
+  // field that could disagree with it. `sourcePeriod` remains accepted alongside a pin because the
+  // caller derives it from the pin for observability, and the two disagreeing is a bug — so it
+  // fail-closes instead of quietly electing a winner.
+  const pinned = config.publication;
+  const parsedPeriod = parseSourcePeriod(
+    pinned === undefined ? config.sourcePeriod : pinned.sourcePeriod,
+  );
   if (!parsedPeriod.valid) {
+    if (pinned !== undefined) {
+      return skipped(`br_pinned_publication_period_${parsedPeriod.reason}`);
+    }
     return skipped(
       config.sourcePeriod === undefined
         ? 'br_snapshot_period_not_configured'
         : `br_snapshot_period_${parsedPeriod.reason}`,
     );
+  }
+  if (
+    pinned !== undefined &&
+    config.sourcePeriod !== undefined &&
+    config.sourcePeriod !== pinned.sourcePeriod
+  ) {
+    return skipped('br_snapshot_period_pin_mismatch');
   }
 
   // Guard 3 — an exact CNPJ is required. Receita is looked up by establishment identity, never
@@ -234,11 +320,19 @@ export async function enrichBrReceitaCnpjCandidate(
 
   const getClient = config.getClient;
   const read = config.read ?? readBrReceitaPublishedSnapshot;
+  const readPinned = config.readPinned ?? readBrReceitaPinnedSnapshot;
 
   try {
     const client = getClient === undefined ? null : getClient();
     if (client === null) {
       return errored('br_snapshot_client_unavailable');
+    }
+
+    // ── The pinned path. No "which run is published?" question is asked here or below it. ──
+    if (pinned !== undefined) {
+      return fromPinnedRead(
+        await readPinned({ client, publication: pinned, cnpj: rawCandidateTaxId }),
+      );
     }
 
     const result = await read({
@@ -305,6 +399,40 @@ export function createBrReceitaCnpjEnrichmentAdapter(
       enrichBrReceitaCnpjCandidate(input, config),
   };
 }
+
+/**
+ * Builds a Brazil enrichment adapter pinned to ONE publication — the factory every Agent 1 run
+ * uses (CUT B2).
+ *
+ * The month is DERIVED from the publication rather than passed alongside it, so the two cannot
+ * disagree at this seam at all. Bound this way, the adapter reads exactly the pinned run for every
+ * candidate: a same-month republication mid-run does not move it, and the run that pinned A
+ * finishes on A even after A becomes `superseded` (§ 4).
+ */
+export function createBrReceitaCnpjPinnedEnrichmentAdapter(
+  publication: BrReceitaPinnedPublication,
+  deps: BrReceitaEnrichmentDeps = {},
+): SourceEnrichmentAdapter {
+  return createBrReceitaCnpjEnrichmentAdapter({
+    ...deps,
+    publication,
+    sourcePeriod: publication.sourcePeriod,
+  });
+}
+
+/**
+ * The pinning contract this adapter satisfies, as data.
+ */
+export const BR_RECEITA_ENRICHMENT_PIN_CONTRACT = {
+  milestone: 'BR-SOURCE-FUNCTIONAL-CUT-B2',
+  appliesToSourceKey: BR_RECEITA_CNPJ_SOURCE_KEY,
+  periodDerivedFromPin: true,
+  resolvesPublishedRunPerCandidate: false,
+  acceptsRunIdAsPlainString: false,
+  failsClosedOnPeriodPinMismatch: true,
+  requiresExactCnpj: true,
+  resolvesIdentityByName: false,
+} as const;
 
 /**
  * The registry entry.

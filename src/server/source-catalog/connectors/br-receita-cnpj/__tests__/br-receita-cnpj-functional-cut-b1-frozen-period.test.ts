@@ -34,6 +34,10 @@ import {
   createBrReceitaCnpjEnrichmentAdapter,
   brReceitaCnpjEnrichmentAdapter,
 } from '../br-receita-cnpj-enrichment-adapter';
+// CUT B2 superseded the hook's run-level decision: it pins a PUBLICATION (period + run id) rather
+// than resolving a period. The properties this suite asserts are unchanged — resolved once, before
+// the candidate loop, frozen for the whole run — so only the seam's name moves.
+import { pinBrReceitaPublication } from '../br-receita-cnpj-pinned-publication';
 import {
   enrichBrBatchWithValidatedSources,
   BR_AGENT1_RUNTIME_BINDING_CONTRACT,
@@ -437,9 +441,9 @@ describe('CUT B1 · CASE 2/4/11 — the period is frozen for the whole run', () 
       'batch-1',
       {},
       {
-        resolvePeriod: async (args) => {
+        pinPublication: async (args) => {
           resolutions++;
-          return resolveBrReceitaLatestPublishedPeriod(args);
+          return pinBrReceitaPublication(args);
         },
       },
     );
@@ -492,14 +496,14 @@ describe('CUT B1 · CASE 2/4/11 — the period is frozen for the whole run', () 
       'utf8',
     );
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    const resolveAt = code.indexOf('await resolvePeriod(');
+    const resolveAt = code.indexOf('await pinPublication(');
     const candidatesAt = code.indexOf("from('prospect_candidates')");
     const loopAt = code.indexOf('for (const r of enrichResult.results)');
     assert.ok(resolveAt > 0 && candidatesAt > 0 && loopAt > 0);
     assert.ok(resolveAt < candidatesAt, 'the period is chosen BEFORE candidates are read');
     assert.ok(resolveAt < loopAt, 'the period is chosen BEFORE the candidate loop');
     assert.equal(
-      code.split('await resolvePeriod(').length - 1,
+      code.split('await pinPublication(').length - 1,
       1,
       'exactly one call site for the resolver',
     );
@@ -521,7 +525,7 @@ describe('CUT B1 · CASE 3 — fail closed when no period is published', () => {
     const result = await enrichBrBatchWithValidatedSources(asSupabase(db), 'batch-1');
 
     assert.equal(result.aborted, true);
-    assert.equal(result.frozenPeriod.status, 'NO_PUBLISHED_PERIOD');
+    assert.equal(result.frozenPeriod.status, 'NO_PUBLISHED_PUBLICATION');
     assert.equal(result.frozenPeriod.sourcePeriod, null);
     assert.equal(result.adapterConstructionCount, 0);
     assert.equal(result.candidatesProcessed, 0);
@@ -638,9 +642,13 @@ describe('CUT B1 · CASE 5/6/7 — metadata provenance propagation', () => {
     // Pre-existing keys survive the merge.
     assert.equal(meta['agent_key'], 'prospect_generation');
     const context = meta[BR_RUN_SOURCE_CONTEXT_KEY] as Record<string, unknown>;
-    assert.deepEqual(context[BR_RECEITA_CNPJ_SOURCE_KEY], { source_period: '2026-08' });
-    // 🔴 The run-level label is the MONTH only. The run id stays per-candidate.
-    assert.ok(!JSON.stringify(context).includes(RUN_AUG));
+    // 🔴 CUT B2, owner decision § 7: the batch's provenance now carries the pinned PUBLICATION —
+    // month AND run id — because a republished month has two publications and the month alone can
+    // no longer say which one this batch read. The run id is a version identifier, never identity.
+    assert.deepEqual(context[BR_RECEITA_CNPJ_SOURCE_KEY], {
+      source_period: '2026-08',
+      snapshot_run_id: RUN_AUG,
+    });
     assert.equal(
       BR_AGENT1_RUNTIME_BINDING_CONTRACT.runProvenanceHome,
       'prospect_batches.metadata.source_context',
@@ -689,7 +697,7 @@ describe('CUT B1 · CASE 8 — no CNPJ in output, provenance, log or error', () 
     const result = await enrichBrBatchWithValidatedSources(asSupabase(db), 'batch-1');
 
     assert.equal(result.aborted, true);
-    assert.deepEqual(result.errors, ['br_period_resolution_failed:BrReceitaPublishedPeriodQueryError']);
+    assert.deepEqual(result.errors, ['br_period_resolution_failed:BrReceitaPinnedPublicationQueryError']);
     for (const err of result.errors) {
       assert.ok(!err.includes(CNPJ_A));
       assert.ok(!/select|filter|detail|Key \(/i.test(err));
