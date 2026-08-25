@@ -344,3 +344,116 @@ convertiría un fallo transitorio en una **inhabilitación permanente del botón
 * No aprueba el candidato, no escribe en el contacto oficial, no escribe en HubSpot.
 * No actúa en lote: la entrada es escalar, así que no hay forma de pedir un batch.
 * No reintenta la llamada al proveedor.
+
+---
+
+## 5. Revelar teléfono desde el CONTACTO OFICIAL (post-aprobación)
+
+**Hito:** `AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1`
+**Migración:** 128 · `project_approved_candidate_phones_onto_contact`
+
+### 5.1 El hueco, dicho como un hecho del esquema
+
+La promoción de teléfonos del candidato al contacto existía en **dos** sitios, y los dos son
+eventos de un veredicto de revisión:
+
+* **116** `approve_contact_candidate_with_phones` — corre DENTRO de la aprobación y devuelve
+  `already_approved` con **cero escrituras** para un candidato que ya está `approved`;
+* **117** `merge_contact_candidate_into_existing_contact` — rechaza todo candidato que no sea
+  `duplicate`, y todo `p_contact_id` que no sea el `matched_contacts_id` que el servidor grabó.
+
+Y las funciones que persisten un reveal —**110**, **111**, **122**— no nombran `contacts` ni la
+colección oficial en absoluto: escriben la colección del **candidato** y ahí se detienen.
+
+Consecuencia: un teléfono conseguido **después** de aprobar no tenía **ninguna sentencia en la
+base** que lo llevara a la ficha. Y el botón para pedirlo tampoco existía, porque todo el pipeline
+es alcanzable sólo desde la revisión del candidato, que ya terminó.
+
+Ése es el caso Priscilla Domínguez: candidato `approved`, contacto creado a partir de él,
+`contacts.phone` NULL, `contact_phones` vacía, `hubspot_contact_id` NULL. Ficha sin teléfono y sin
+forma de pedirlo.
+
+### 5.2 Lo que el hito NO construye
+
+**No hay un segundo waterfall.** La ficha del contacto oficial resuelve el candidato fuente y
+**delega**:
+
+| Necesidad | A quién se le pide |
+|---|---|
+| Tope de créditos antes del clic | `getPhoneRevealWaterfallAuthorizationPreviewAction(candidateId)` |
+| El arranque de un clic | `revealCandidatePhoneAction({ candidateId, … })` |
+
+Con eso vienen —sin una segunda implementación que pueda divergir— la identidad de proveedor, la
+supresión y el DNC, el presupuesto y las reservas, el techo de autorización, el waterfall
+Apollo → Lusha, el «no pagar dos veces», la colección del candidato con su procedencia, el ranking
+y los usage logs. El tope que se muestra sale de la **misma** función que reserva, así que la ficha
+no puede prometer 8 donde el servidor va a reservar 14.
+
+### 5.3 El vínculo es durable, y su ausencia es fail-closed
+
+El candidato fuente se resuelve **sólo** desde `contacts.metadata.source_candidate_id` —la clave
+que la aprobación ya escribe y que el camino DSAR ya usa—. Sin ella no se ofrece nada y no se
+gasta nada.
+
+No se busca un candidato «parecido» por email, nombre o teléfono, y eso no es pedantería: el
+candidato fuente es lo que determina la **autorización económica** (qué proveedores quedan, si la
+identidad Lusha ya está comprada, cuánto se reserva). Un candidato parecido puede tener otro
+origen, otro historial de reveal y otra identidad persistida: autorizar un gasto contra él sería
+cobrarle al operador un tope calculado sobre **otra persona**.
+
+### 5.4 Las cuatro respuestas de la ficha
+
+| Estado | Qué se ofrece | Coste |
+|---|---|---|
+| `eligible` | «Revelar teléfono», con el tope del servidor | hasta 8 / 13 / 14 créditos |
+| `reuse_from_candidate` | «Usar teléfono ya obtenido» | **0** — se proyecta lo ya pagado |
+| `phone_already_present` | nada; se explica y se apunta a la revisión del candidato | 0 |
+| `missing_source_candidate` · `contact_archived` · `contact_unavailable` | nada | 0 |
+
+`reuse_from_candidate` sólo se ofrece cuando el contacto no tiene **ni** escalar **ni** colección
+viva: con colección viva no se puede afirmar desde la UI que falte algo —habría que comparar
+`dedupe_key` uno a uno, y esa comparación es de la RPC, bajo el lock, con
+`ON CONFLICT DO NOTHING`—.
+
+### 5.5 La proyección (migración 128)
+
+Additive, idempotente y sin DDL. Lo que **hace**: bloquea el candidato, revalida que sigue
+`approved` y que sigue apuntando a **este** contacto, re-comprueba la supresión **por persona**
+bajo ese lock (clave y helpers de la 113), bloquea el contacto, promueve la colección viva con
+toda su procedencia (`v1:promoted:` — el mismo namespace de la 116, por lo que re-proyectar
+colapsa sobre las mismas filas), elige principal **sólo si el contacto no tenía**, y proyecta el
+escalar heredado **sólo si estaba en NULL y el principal es una fila que esta transacción
+insertó**.
+
+Lo que **no hace**: no crea contactos (no hay `INSERT INTO public.contacts` en el archivo), no
+re-terminaliza candidatos, no borra nada, no toca `mobile_phone` ni `phone_confidence`, no llama a
+ningún proveedor, no reserva ni consume créditos, no escribe usage log ni corrida, y no llega a
+HubSpot.
+
+El escalar es **más estricto** que en la 117 a propósito: un contacto con escalar NULL y filas
+canónicas vivas es, entre otras cosas, lo que deja una erasura de la 115 al retirar el principal;
+elegir un hermano superviviente y escribirlo en el escalar sería devolver por una puerta lateral
+un número que un borrado quitó.
+
+Y hay un estado que **rechaza en seco**, con cero escrituras: `contacts.phone` no nulo con la
+colección oficial **vacía** (`scalar_incumbent_unprojectable`). Es la forma legada que la 117
+resuelve con un *bootstrap* del incumbente, y hacerlo aquí exigiría **invertir su procedencia** —
+que para `provider_payload`, `unknown` y NULL no invierte sin ambigüedad
+(`HISTORICAL_MANUAL_NULL_PROVENANCE_PENDING`). Responder esa pregunta dos veces en dos funciones es
+cómo las dos acaban en desacuerdo.
+
+### 5.6 Límite conocido y declarado de este corte
+
+La proyección **no** se dispara desde el webhook de Apollo, ni desde el cron de recovery, ni desde
+la continuación a Lusha. Se dispara desde
+`reconcileOfficialContactPhoneFromCandidateAction`, que la ficha llama al abrirse y mientras espera
+un reveal en vuelo (refresco acotado, el del subsistema).
+
+Un teléfono que llegue por webhook aparece en el contacto **la próxima vez que su ficha
+reconcilie**, no en el instante en que el proveedor contesta. Enganchar los tres caminos de
+persistencia es una superficie **viva en Producción** y se deja para un corte propio en vez de
+tocarla de paso en éste.
+
+### 5.7 HubSpot
+
+**Fuera de alcance.** 0 escrituras y 0 importaciones; `Approval → HubSpot` es un contrato aparte.

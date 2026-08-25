@@ -415,6 +415,11 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       // sitio a la reconciliación genérica arriba; el segundo lo forzó AGENT1-CUT3B4 al
       // reclamar el 126 de forma independiente.
       '127_br_receita_monthly_snapshot_identity.sql',
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128: la
+      // proyección candidato→contacto tras la aprobación. NO es autoría de 4O-E4 y no toca la
+      // erasure: no hay un solo `DELETE` ni un `suppressed_at = NULL` en el archivo, y la función
+      // es SECURITY INVOKER bajo el techo de privilegios de la 114. AUTORADA y NO APLICADA.
+      '128_project_approved_candidate_phones_onto_contact.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -443,7 +448,12 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // vallado optimista de la admisión por identidad de LOTE (Agente 1), que añade
     // `prospect_batches.identity_epoch` y dos funciones sobre `prospect_batches` y
     // `prospect_candidates`. Ninguna de las tres es de teléfono. Todas AUTORADAS y NO APLICADAS.
-    assert.equal(numbered[numbered.length - 1], 127);
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128:
+    // `project_approved_candidate_phones_onto_contact`, la proyección de la colección de un
+    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Es una función
+    // NUEVA, sin DDL y sin backfill: no crea contactos, no re-terminaliza candidatos y no
+    // re-declara ninguna función anterior. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 128);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

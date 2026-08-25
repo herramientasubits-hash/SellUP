@@ -249,20 +249,28 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // `prospect_candidates`. Ninguna de las tres migraciones (125, 126, 127) es de teléfono ni
       // nombra ninguna tabla, columna o función de la cadena de teléfono, y la autoría de las
       // tres se comprueba abajo archivo por archivo. Las tres AUTORADAS y NO APLICADAS.
-      '127_br_receita_monthly_snapshot_identity.sql',
-      'el techo conocido es la 127 (identidad mensual del snapshot BR, renumerada dos veces por CUT A.1), que no edita la cadena de teléfono 109–117',
+      // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128:
+      // `project_approved_candidate_phones_onto_contact`, que promueve la colección de un
+      // candidato YA APROBADO al contacto que su propia aprobación creó. SÍ es de teléfono y SÍ
+      // nombra la cadena — por eso queda EXENTA del barrido ciego más abajo, con su límite
+      // afirmado de forma directa igual que la 120 y la 122—, pero NO edita ninguna migración
+      // anterior: es una función NUEVA, sin DDL, sin backfill y sin re-declarar la 110/111/116.
+      // AUTORADA y NO APLICADA.
+      '128_project_approved_candidate_phones_onto_contact.sql',
+      'el techo conocido es la 128 (la proyección post-aprobación), que no edita la cadena de teléfono 109–117',
     );
     assert.equal(
       // La ventana sube con el techo DECLARADO arriba: la 125 (reconciliación genérica), la 126
       // (AGENT1-CUT3B4, independiente) y la 127 (BR, renumerada dos veces) están autorizadas y
-      // nombradas, así que lo prohibido pasa a ser la 128 y superiores.
-      files.some((file) => /^1(2[8-9]|[3-9]\d)/.test(file)),
+      // nombradas, así que lo prohibido pasa a ser la 129 y superiores
+      // (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 declaró la 128 arriba).
+      files.some((file) => /^1(29|[3-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
-      'ninguna migración 128 o superior',
+      'ninguna migración 129 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus
@@ -328,7 +336,19 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     // lock, el llamador no puede evitarlo eligiendo parámetros. Así que la 122 aporta una
     // función NUEVA y deja las dos anteriores intactas.
     const SEARCH_MORE_122 = '122_phone_reveal_search_more.sql';
-    const BLIND_SWEEP_EXEMPT = new Set([RESTATED_120, SEARCH_MORE_122]);
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 — la 128 queda EXENTA del barrido
+    // ciego por la MISMA razón que la 117, la 120 y la 122, y su límite se afirma directamente
+    // más abajo. Nombra la colección del candidato y las dos tablas oficiales en SQL ejecutable
+    // porque su trabajo ES promover de una a otra: leer la colección viva del candidato e
+    // insertar en `contact_phones` / `contact_phone_sources`.
+    //
+    // Lo que NO es: una ampliación del alcance de la 110/111 ni una segunda aprobación. No las
+    // re-declara, no crea contactos, no re-terminaliza candidatos y no aporta DDL. Existe porque
+    // 116 devuelve `already_approved` con cero escrituras para un candidato ya aprobado y 117
+    // rechaza todo lo que no sea `duplicate`: sin ella, un teléfono conseguido DESPUÉS de la
+    // aprobación no tenía ninguna sentencia en el esquema que lo llevara al contacto.
+    const POST_APPROVAL_128 = '128_project_approved_candidate_phones_onto_contact.sql';
+    const BLIND_SWEEP_EXEMPT = new Set([RESTATED_120, SEARCH_MORE_122, POST_APPROVAL_128]);
 
     for (const file of files.filter(
       (f) => /^1(1[89]|[2-9]\d)/.test(f) && !BLIND_SWEEP_EXEMPT.has(f),
@@ -468,6 +488,93 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
         `la 122 no puede re-declarar ${fn}: su writer es una función NUEVA`,
       );
     }
+
+    // ── El límite de la 128, afirmado de forma DIRECTA ───────────────
+    assert.ok(files.includes(POST_APPROVAL_128), 'el fichero de la 128 no puede faltar');
+    // SQL ESTRUCTURAL, no sólo «sin líneas `--`»: la 128 declara sus límites dentro de su
+    // `COMMENT ON FUNCTION`, y ahí están escritas —en prosa— las mismas cadenas que estas
+    // aserciones prohíben («no hay `INSERT INTO public.contacts` en el archivo»). Un barrido que
+    // leyera el COMMENT castigaría exactamente la frase que declara el límite, y la forma de
+    // aprobarlo sería borrarla. Misma convención que `structuralSql` en las suites de 4O-H1 y
+    // 4O-E4.1, y misma lección que este bloque ya aprendió con la 117 y la 120.
+    const exec128 = stripSqlComments(
+      readFileSync(join(repoRoot, 'supabase/migrations', POST_APPROVAL_128), 'utf8'),
+    ).replace(/COMMENT ON [\s\S]*?';\n/g, '');
+
+    // 1. La 128 NO es dueña de la forma de ninguna tabla de la cadena — eso siguen siendo la
+    //    109/112 (staging) y la 114 (oficial)— así que no puede crearla, alterarla, borrarla,
+    //    vaciarla ni borrar filas de ella. Un `DELETE` aquí sería un borrado sin tombstone, que
+    //    es precisamente lo que el modelo de privacidad de la 114/115 existe para impedir.
+    for (const verb of [
+      'CREATE TABLE',
+      'ALTER TABLE',
+      'DROP TABLE',
+      'TRUNCATE',
+      'DELETE FROM',
+      'CREATE INDEX',
+      'CREATE POLICY',
+      'CREATE TRIGGER',
+    ]) {
+      assert.ok(
+        !new RegExp(verb, 'i').test(exec128),
+        `la 128 no puede ejecutar ${verb}: es una función nueva, sin DDL`,
+      );
+    }
+
+    // 2. Y NO re-declara las funciones de la 110/111/116/117. Si lo hiciera, dejaría de ser
+    //    cierto que el reveal existente y la aprobación existente quedan intactos — que es el
+    //    argumento por el que este hito añade una función en vez de tocar las suyas.
+    for (const fn of [
+      'persist_candidate_apollo_phone_reveal_result',
+      'persist_candidate_lusha_phone_reveal_result',
+      'approve_contact_candidate_with_phones',
+      'merge_contact_candidate_into_existing_contact',
+      'append_candidate_search_more_phones',
+    ]) {
+      assert.ok(
+        !new RegExp(`CREATE (OR REPLACE )?FUNCTION public\\.${fn}`).test(exec128),
+        `la 128 no puede re-declarar ${fn}: su proyección es una función NUEVA`,
+      );
+    }
+
+    // 3. No crea contactos y no re-terminaliza candidatos: las dos escrituras que la
+    //    distinguirían de una aprobación o de un merge, y las dos que este hito promete no
+    //    hacer. Se comprueba sobre SQL ejecutable, así que la promesa del comentario no puede
+    //    aprobarse a sí misma.
+    assert.ok(
+      !/INSERT\s+INTO\s+public\.contacts\b/i.test(exec128),
+      'la 128 no puede crear un contacto: eso es de la 116',
+    );
+    assert.ok(
+      !/UPDATE\s+public\.contact_enrichment_candidates\b/i.test(exec128),
+      'la 128 no puede re-terminalizar el candidato: su veredicto lo escribió una persona',
+    );
+
+    // 4. Cada mención de las tres tablas de la cadena tiene que estar DENTRO del cuerpo de su
+    //    única función. Una sentencia suelta —un backfill, un UPDATE de migración— caería fuera
+    //    y fallaría aquí, que es justo lo que este bloque existe para impedir.
+    const PROJECT_FN = 'project_approved_candidate_phones_onto_contact';
+    const fn128Start = exec128.indexOf(`CREATE OR REPLACE FUNCTION public.${PROJECT_FN}(`);
+    assert.notEqual(fn128Start, -1, 'la 128 tiene que declarar su función');
+    const fn128Tag = /\bAS (\$[A-Za-z_]*\$)/.exec(exec128.slice(fn128Start));
+    assert.ok(fn128Tag, 'la 128: no se localizó la etiqueta de dollar-quote');
+    const fn128BodyStart = fn128Start + (fn128Tag.index ?? 0) + fn128Tag[0].length;
+    const fn128Close = exec128.indexOf(fn128Tag[1], fn128BodyStart);
+    assert.notEqual(fn128Close, -1, 'la 128: dollar-quote sin cerrar');
+    for (const table of PHONE_CHAIN_TABLES) {
+      for (let at = exec128.indexOf(table); at !== -1; at = exec128.indexOf(table, at + 1)) {
+        assert.ok(
+          at >= fn128Start && at < fn128Close + fn128Tag[1].length,
+          `la 128 menciona ${table} FUERA del cuerpo de su función (offset ${at})`,
+        );
+      }
+    }
+
+    // 5. La auditoría de supresión LEGADA sigue fuera de su alcance por completo.
+    assert.ok(
+      !exec128.includes('phone_reveal_suppression_audit'),
+      'la 128 no toca la auditoría de supresión legada',
+    );
 
     // La 117 queda EXENTA del barrido de arriba porque sí toca la cadena — y por eso su
     // límite se afirma explícitamente aquí, que es más fuerte que exentarla y callar.

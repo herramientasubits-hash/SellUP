@@ -321,16 +321,22 @@ describe('CUT-3B4 §§ 6/29/30 — el alcance de la migración', () => {
       read(`supabase/migrations/${f}`).includes('AGENT1-CUT3B4'),
     );
     assert.deepEqual(authored, ['126_agent1_batch_identity_atomicity.sql']);
-    assert.equal(migrations[migrations.length - 1], '127_br_receita_monthly_snapshot_identity.sql');
-    assert.equal(
-      read('supabase/migrations/127_br_receita_monthly_snapshot_identity.sql').includes(
-        'AGENT1-CUT3B4',
-      ),
-      false,
-      'la 127 no puede ser autoría de este corte',
-    );
+    // 🔴 AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 reclamó después el 128: la
+    // proyección de la colección de teléfonos de un candidato ya APROBADO al contacto que su
+    // aprobación creó. Mismo razonamiento que con la 127: lo que esta guarda defiende es AUTORÍA,
+    // no el número más alto, y la 128 no menciona `AGENT1-CUT3B4` en absoluto — lo que la lista
+    // `authored` de arriba ya comprueba de forma exhaustiva sobre TODAS las migraciones del repo.
+    const CEILING = '128_project_approved_candidate_phones_onto_contact.sql';
+    assert.equal(migrations[migrations.length - 1], CEILING);
+    for (const foreign of ['127_br_receita_monthly_snapshot_identity.sql', CEILING]) {
+      assert.equal(
+        read(`supabase/migrations/${foreign}`).includes('AGENT1-CUT3B4'),
+        false,
+        `${foreign} no puede ser autoría de este corte`,
+      );
+    }
     // Sin huecos: el conteo se mueve con el techo real del repositorio, no con el de este corte.
-    assert.equal(migrations.length, 127);
+    assert.equal(migrations.length, 128);
   });
 
   it('🔴 la 124 (Agente 2A) queda intacta, y la 126 no depende de ella', () => {

@@ -159,7 +159,12 @@ describe('114 — numeración', () => {
     // colisionar con la de AGENT1-CUT3B4, y dejó sitio a una migración 125 genérica
     // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
     // brasileñas) — ninguna de las tres toca `contact_phones` ni `contact_phone_sources`.
-    assert.equal(Math.max(...numbers), 127);
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128:
+    // `project_approved_candidate_phones_onto_contact`, la proyección de la colección de un
+    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Es una función
+    // NUEVA, sin DDL y sin backfill: no crea contactos, no re-terminaliza candidatos y no
+    // re-declara ninguna función anterior. AUTORADA y NO APLICADA.
+    assert.equal(Math.max(...numbers), 128);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {
@@ -669,11 +674,25 @@ describe('4O-H1 — cero lectores y cero escritores en runtime', () => {
    * Cada entrada declara el hito que la autorizó, y el test de abajo lo comprueba: una
    * allowlist en la que no se sabe quién metió cada línea deja de ser una decisión revisada.
    */
+  /**
+   * AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 añade el SEGUNDO lector, y por la misma
+   * regla: UN archivo, y sólo la lectura.
+   *
+   * El hito abre «Revelar teléfono» en la ficha del contacto oficial, y para decidir si lo ofrece
+   * necesita saber si el contacto ya tiene una colección VIVA — `contacts.phone` en NULL no
+   * responde esa pregunta, porque es exactamente lo que deja una erasura de la 115 sobre el
+   * principal. Así que hace UN `COUNT(*)` sobre `contact_phones` y nada más: ni un número viaja,
+   * ni una fila se escribe. La ESCRITURA de ese hito no pasa por aquí — vive dentro de la
+   * transacción de la migración 128, invocada por RPC—, que es la misma frontera que la 115
+   * estableció y la razón por la que esta allowlist sigue siendo corta.
+   */
   const OFFICIAL_TABLE_NAMING_ALLOWLIST: Readonly<Record<string, RegExp>> = {
     'src/modules/contact-enrichment/official-contact-phone-suppression-core.ts': /4O-H2/,
     'src/modules/contact-enrichment/official-contact-stored-phones-read.ts': /4O-H4/,
     'src/modules/contact-enrichment/phone-cache-suppression-actions.ts': /4O-H2/,
     'src/modules/contact-enrichment/phone-cache-suppression-core.ts': /4O-H2/,
+    'src/modules/contact-enrichment/post-approval-reveal-read.ts':
+      /POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1/,
   };
 
   it('ningún archivo de producción nombra las tablas oficiales', () => {
@@ -740,9 +759,13 @@ describe('4O-H1 — cero lectores y cero escritores en runtime', () => {
     }
 
     // El ÚNICO acceso autorizado es la LECTURA de 4O-H4, y sólo puede leer.
+    // Los ÚNICOS accesos autorizados son LECTURAS: «Ver más números» (4O-H4) y el conteo de
+    // colección viva del reveal post-aprobación. Ninguna escritura: la de la proyección vive
+    // dentro de la transacción de la 128 y entra por `rpc()`, no por `from()`.
     assert.deepEqual(offenders.sort(), [
       'src/modules/contact-enrichment/official-contact-stored-phones-read.ts → from(OFFICIAL_CONTACT_PHONES_TABLE)',
       'src/modules/contact-enrichment/official-contact-stored-phones-read.ts → from(OFFICIAL_CONTACT_PHONE_SOURCES_TABLE)',
+      'src/modules/contact-enrichment/post-approval-reveal-read.ts → from(OFFICIAL_CONTACT_PHONES_TABLE)',
     ]);
 
     const reader = productionSources.find(

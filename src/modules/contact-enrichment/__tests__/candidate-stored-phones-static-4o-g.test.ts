@@ -507,7 +507,12 @@ describe('4O-G — alcance', () => {
     // colisionar con la de AGENT1-CUT3B4, y dejó sitio a una migración 125 genérica
     // (reconciliación de `record_identity_key` sobre `source_company_snapshots`, fuentes NO
     // brasileñas) — ninguna de las tres toca la colección de teléfonos que 4O-G lee.
-    assert.equal(numbered[numbered.length - 1], 127);
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128:
+    // `project_approved_candidate_phones_onto_contact`, la proyección de la colección de un
+    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Es una función
+    // NUEVA, sin DDL y sin backfill: no crea contactos, no re-terminaliza candidatos y no
+    // re-declara ninguna función anterior. AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], 128);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -516,7 +521,12 @@ describe('4O-G — alcance', () => {
     // 127 archivos para los números 001-127 (124 previos + 125 reconciliación genérica + 126
     // AGENT1-CUT3B4 + 127 BR-CUT-A renumerada): sigue SIN un solo hueco, y conteo y techo
     // vuelven a coincidir. Esa coincidencia ES la guarda.
-    assert.equal(numbered.length, 127);
+    // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 mueve el techo a la 128:
+    // `project_approved_candidate_phones_onto_contact`, la proyección de la colección de un
+    // candidato YA APROBADO sobre el contacto que su propia aprobación creó. Es una función
+    // NUEVA, sin DDL y sin backfill: no crea contactos, no re-terminaliza candidatos y no
+    // re-declara ninguna función anterior. AUTORADA y NO APLICADA.
+    assert.equal(numbered.length, 128);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {
@@ -575,6 +585,13 @@ describe('4O-G — alcance', () => {
       // afirmar la propiedad que más importa de la frontera —que abrir el disclosure GRATUITO
       // sigue costando 0 mientras el CTA PAGADO existe a su lado— sin ejecutar la lectura real.
       'src/components/contact-enrichment/__tests__/search-more-phones-ui.test.tsx',
+      // POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1: la LECTURA del reveal disparado desde la
+      // ficha del contacto OFICIAL. NO importa ningún módulo de 4O-G — sólo NOMBRA
+      // `candidate-stored-phones-read.ts` en un comentario, para declarar que usa el MISMO patrón
+      // de lectura privilegiada (service role detrás de una acción que ya autenticó y ya exigió
+      // rol) en vez de inventar otro. Su contrato es idéntico al de 4O-G en lo que esta guarda
+      // protege: sólo `SELECT`, y sus conteos son enteros — ni un número de teléfono viaja.
+      'src/modules/contact-enrichment/post-approval-reveal-read.ts',
     ];
     const offenders = sourceFiles(join(repoRoot, 'src'))
       .map((absolute) => absolute.slice(repoRoot.length + 1))
