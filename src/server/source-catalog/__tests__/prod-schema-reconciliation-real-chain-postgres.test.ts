@@ -117,6 +117,8 @@ const constraintExists = async (name: string): Promise<boolean> => {
 };
 
 const CANONICAL_UNIQUE = 'source_company_snapshots_cn1_record_identity_key';
+const SCOPED_NON_BR_CHECK = 'source_company_snapshots_non_br_record_identity_chk';
+const OLD_GLOBAL_NOT_NULL_CHECK = 'source_company_snapshots_record_identity_key_not_null_chk';
 const OLD_TAX_UNIQUE_COLUMNS = ['country_code', 'normalized_tax_id', 'source_key', 'source_year'];
 
 const oldTaxUniqueExists = async (): Promise<boolean> => {
@@ -133,6 +135,29 @@ const oldTaxUniqueExists = async (): Promise<boolean> => {
     [OLD_TAX_UNIQUE_COLUMNS],
   );
   return rows.length === 1;
+};
+
+/** Physical column attribute — independent of any CHECK naming the same rule logically. */
+const attnotnullOf = async (column: string): Promise<boolean> => {
+  const rows = await rowsOf(
+    `SELECT attnotnull FROM pg_attribute
+      WHERE attrelid = 'public.source_company_snapshots'::regclass
+        AND attname = $1`,
+    [column],
+  );
+  return Boolean(rows[0]?.attnotnull);
+};
+
+/** null = constraint absent; true/false = whether pg_constraint.convalidated is set. */
+const convalidatedOf = async (name: string): Promise<boolean | null> => {
+  const rows = await rowsOf(
+    `SELECT convalidated FROM pg_constraint con
+       JOIN pg_class rel ON rel.oid = con.conrelid
+       JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+      WHERE nsp.nspname = 'public' AND rel.relname = 'source_company_snapshots' AND con.conname = $1`,
+    [name],
+  );
+  return rows.length === 1 ? Boolean(rows[0].convalidated) : null;
 };
 
 describe('BR-SOURCE CUT A.1 — real chain against PostgreSQL', () => {
@@ -372,6 +397,12 @@ describe('BR-SOURCE CUT A.1 — real chain against PostgreSQL', () => {
       assert.equal(await insertRow(), UNIQUE_VIOLATION);
     });
 
+    it('CUT A.2 — the repo-derived chain never had a physical NOT NULL, and 125 leaves it nullable with a validated scoped CHECK in its place', async () => {
+      await applyRealChain(client, repoRoot, REPO_DERIVED_REAL_CHAIN);
+      assert.equal(await attnotnullOf('record_identity_key'), false);
+      assert.equal(await convalidatedOf(SCOPED_NON_BR_CHECK), true);
+    });
+
     it('16. normalized_tax_id is the one persisted CNPJ representation Brazil actually stores', async () => {
       await applyRealChain(client, repoRoot, REPO_DERIVED_REAL_CHAIN);
       const runId = await insertBrRun(client, '2026-07', 'published');
@@ -412,6 +443,39 @@ describe('BR-SOURCE CUT A.1 — real chain against PostgreSQL', () => {
       assert.equal(await countSnapshotRows(client), rowCountBefore);
     });
 
+    it('CUT A.2 — the fixture itself carries a PHYSICAL NOT NULL, not just a CHECK, matching Production', async () => {
+      assert.equal(await attnotnullOf('record_identity_key'), true);
+    });
+
+    it('CUT A.2 — 125 relaxes the physical NOT NULL while the scoped CHECK stays validated, the canonical UNIQUE is untouched, and the old global CHECK is gone', async () => {
+      const rowCountBefore = await countSnapshotRows(client);
+      await client.query(readMigration(MIGRATION_125));
+      assert.equal(await attnotnullOf('record_identity_key'), false, 'the physical NOT NULL must be dropped');
+      assert.equal(await convalidatedOf(SCOPED_NON_BR_CHECK), true, 'the scoped CHECK must exist and be VALIDATED');
+      assert.equal(await constraintExists(OLD_GLOBAL_NOT_NULL_CHECK), false, "Production's old table-wide CHECK must be gone");
+      assert.equal(await constraintExists(CANONICAL_UNIQUE), true, 'canonical uniqueness is untouched');
+      assert.equal(await countSnapshotRows(client), rowCountBefore, 'no row is mutated');
+    });
+
+    it('CUT A.2 — a non-BR NULL record_identity_key is still rejected by the CHECK once the physical NOT NULL is gone', async () => {
+      await client.query(readMigration(MIGRATION_125));
+      const code = await errorCodeOf(
+        `INSERT INTO public.source_company_snapshots (source_key, country_code, source_year, normalized_tax_id)
+         VALUES ('co_siis', 'CO', 2026, '900999000')`,
+      );
+      assert.equal(code, CHECK_VIOLATION, 'the logical rule must survive even though the physical NOT NULL is gone');
+    });
+
+    it('CUT A.2 — record_identity_key=NULL is structurally allowed for Brazil once only the scoped CHECK governs the column', async () => {
+      await client.query(readMigration(MIGRATION_125));
+      const code = await errorCodeOf(
+        `INSERT INTO public.source_company_snapshots
+           (source_key, country_code, source_year, normalized_tax_id, record_identity_key)
+         VALUES ('br_receita_cnpj_dados_abertos', 'BR', 2026, '11222333000181', NULL)`,
+      );
+      assert.equal(code, null);
+    });
+
     it('127 applies cleanly on top of the Production-shaped baseline once 125 has run', async () => {
       await client.query(readMigration(MIGRATION_125));
       const code = await errorCodeOf(readMigration(MIGRATION_127));
@@ -448,6 +512,63 @@ describe('BR-SOURCE CUT A.1 — real chain against PostgreSQL', () => {
         `SELECT normalized_tax_id FROM public.source_company_snapshots WHERE source_key = 'ec_scvs'`,
       );
       assert.equal(row.normalized_tax_id, null);
+    });
+  });
+
+  // ── CUT A.2 regression: the fail-closed check ran only when the OLD normalized_tax_id UNIQUE
+  // was found, so a database that already looked Production-shaped (no old UNIQUE to find) could
+  // skip it entirely. This fixture is neither Fixture A nor Fixture B: it is a bare schema with
+  // NONE of the three relevant constraints yet, which is exactly the condition (`old UNIQUE
+  // absent`) that used to short-circuit the validation before it ran at all.
+
+  describe('CUT A.2 — fail-closed validation runs even when the old tax-id UNIQUE was never present', () => {
+    beforeEach(async () => {
+      await resetPublicSchema();
+      await client.query(`
+        CREATE TABLE public.source_company_snapshots (
+          id                    uuid        DEFAULT gen_random_uuid() PRIMARY KEY,
+          source_key            text        NOT NULL,
+          country_code          text        NOT NULL,
+          source_year           int         NOT NULL,
+          tax_id                text,
+          legal_name            text,
+          normalized_tax_id     text,
+          normalized_legal_name text,
+          sector                text,
+          city                  text,
+          department            text,
+          region                text,
+          priority_score        numeric     DEFAULT 0,
+          signals               jsonb       DEFAULT '{}'::jsonb,
+          financials            jsonb       DEFAULT '{}'::jsonb,
+          raw_data              jsonb       DEFAULT '{}'::jsonb,
+          imported_at           timestamptz DEFAULT now(),
+          record_identity_key   text
+        );
+      `);
+    });
+
+    it('rejects a non-BR row with record_identity_key IS NULL although the old UNIQUE that used to gate this check was never present', async () => {
+      await client.query(
+        `INSERT INTO public.source_company_snapshots (source_key, country_code, source_year, normalized_tax_id)
+         VALUES ('co_siis', 'CO', 2026, '900111222')`,
+      );
+      const code = await errorCodeOf(readMigration(MIGRATION_125));
+      assert.notEqual(code, null, '125 must reject a non-BR NULL record_identity_key regardless of whether the old UNIQUE ever existed');
+      assert.equal(await constraintExists(CANONICAL_UNIQUE), false, 'must not partially apply');
+    });
+
+    it('rejects duplicate canonical tuples although the old UNIQUE that used to gate this check was never present', async () => {
+      await client.query(
+        `INSERT INTO public.source_company_snapshots
+           (source_key, country_code, source_year, normalized_tax_id, record_identity_key)
+         VALUES
+           ('co_siis', 'CO', 2026, '900111222', 'co_siis:900111222:a'),
+           ('co_siis', 'CO', 2026, '900333444', 'co_siis:900111222:a')`,
+      );
+      const code = await errorCodeOf(readMigration(MIGRATION_125));
+      assert.notEqual(code, null, '125 must reject a duplicate canonical tuple regardless of whether the old UNIQUE ever existed');
+      assert.equal(await constraintExists(CANONICAL_UNIQUE), false);
     });
   });
 
