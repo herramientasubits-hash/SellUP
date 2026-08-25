@@ -513,6 +513,10 @@ describe('BR-SOURCE CUT B — the gateway emits exactly the statement CUT A reco
       'snapshot_run_id',
       'normalized_tax_id',
       'legal_name',
+      // BR-SOURCE-FUNCTIONAL-CUT-C: the canonical form of `legal_name`, for the name lookup.
+      // NOT a second identity representation — it carries no tax material and is not derived
+      // from any. Migration 065 created the column and its index; no migration was authored.
+      'normalized_legal_name',
       'raw_data',
     ]);
     assert.ok(!BR_RECEITA_PERSISTABLE_COLUMNS.includes('tax_id' as never));
@@ -547,8 +551,8 @@ describe('BR-SOURCE CUT B — the gateway emits exactly the statement CUT A reco
     assert.ok(!/DO UPDATE SET[\s\S]*normalized_tax_id\s*=/.test(sql));
     assert.ok(!/DO UPDATE SET[\s\S]*snapshot_run_id\s*=/.test(sql));
 
-    // Eight bind parameters per row, in allowlist order, and the CNPJ is a PARAMETER — never
-    // interpolated into the statement text.
+    // One bind parameter per allowlisted column, in allowlist order, and the CNPJ is a
+    // PARAMETER — never interpolated into the statement text.
     assert.equal(params.length, BR_RECEITA_PERSISTABLE_COLUMNS.length);
     assert.equal(params[4], RUN_A);
     assert.equal(params[5], records[0].identity.normalized_tax_id);

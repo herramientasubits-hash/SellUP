@@ -431,6 +431,14 @@ export const BR_RECEITA_ENRICHMENT_PIN_CONTRACT = {
   acceptsRunIdAsPlainString: false,
   failsClosedOnPeriodPinMismatch: true,
   requiresExactCnpj: true,
+  /**
+   * 🔴 Still `false`, and still true, after BR-SOURCE-FUNCTIONAL-CUT-C. CUT C resolves a
+   * candidate's establishment by name in a SEPARATE module
+   * (`br-receita-cnpj-candidate-identity-resolver.ts`) and then hands the resolved CNPJ to THIS
+   * adapter as an ordinary `candidateTaxId`. The adapter itself gained no name path: it still
+   * answers `skipped / missing_cnpj` without an exact identity, which is precisely what keeps
+   * "identified" and "enriched" two separate, separately-provable steps.
+   */
   resolvesIdentityByName: false,
 } as const;
 

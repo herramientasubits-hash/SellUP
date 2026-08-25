@@ -1056,10 +1056,17 @@ describe('CUT B2 · structure', () => {
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     const pinAt = code.indexOf('await pinPublication(');
     const candidatesAt = code.indexOf("from('prospect_candidates')");
-    const loopAt = code.indexOf('for (const r of enrichResult.results)');
-    assert.ok(pinAt > 0 && candidatesAt > 0 && loopAt > 0);
+    // BR-SOURCE-FUNCTIONAL-CUT-C renamed the first-pass result; the property is unchanged.
+    const loopAt = code.indexOf('for (const r of firstPass.results)');
+    // CUT C's per-candidate identity resolution is held to the same rule.
+    const resolveIdentityAt = code.indexOf('await resolveIdentity(');
+    assert.ok(pinAt > 0 && candidatesAt > 0 && loopAt > 0 && resolveIdentityAt > 0);
     assert.ok(pinAt < candidatesAt, 'the publication is pinned BEFORE candidates are read');
     assert.ok(pinAt < loopAt, 'the publication is pinned BEFORE the candidate loop');
+    assert.ok(
+      pinAt < resolveIdentityAt,
+      'the publication is pinned BEFORE any candidate identity is resolved',
+    );
     assert.equal(
       code.split('await pinPublication(').length - 1,
       1,
