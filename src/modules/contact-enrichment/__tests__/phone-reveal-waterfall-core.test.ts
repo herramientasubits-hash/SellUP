@@ -395,9 +395,11 @@ describe('waterfall — arranque de la corrida', () => {
     assert.equal(h.created.length, 0);
   });
 
-  test('sin regla de crédito: budget_not_configured, sin corrida y sin reserva', async () => {
-    // 4E. En 4D esto era `unlimited` y AUTORIZABA el gasto. Ya no: sin límite no hay
-    // disponibilidad contra la que reservar la exposición máxima.
+  test('sin regla de crédito: ARRANCA sin reservar (UNBOUNDED, no bloqueo)', async () => {
+    // AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1. 4D lo llamaba `unlimited` y
+    // autorizaba; 4E lo convirtió en `budget_not_configured` y BLOQUEABA. Bloquear era
+    // el defecto: sin regla no hay TOPE INTERNO que aplicar, y no aplicar un tope que no
+    // existe no dice nada sobre lo que el proveedor cobra.
     const h = startHarness({
       credit: creditHarness({
         poolsFor: (keys) =>
@@ -405,9 +407,12 @@ describe('waterfall — arranque de la corrida', () => {
       }),
     });
     const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
-    assert.deepEqual(result, { started: false, reason: 'budget_not_configured' });
-    assert.equal(h.created.length, 0);
-    assert.equal(h.credit.reserveRequests.length, 0);
+    assert.equal(result.started, true);
+    // Hubo UNA autorización, y no reservó nada: 0 patas, 0 exposición ocupada.
+    assert.equal(h.credit.reserveRequests.length, 1);
+    assert.deepEqual(h.credit.reserveRequests[0].legs, []);
+    assert.deepEqual(h.credit.active, []);
+    assert.equal(h.credit.createdRuns.length, 1, 'y sí hay corrida');
   });
 
   test('presupuesto NO verificable: fail-closed, sin corrida y con motivo propio', async () => {

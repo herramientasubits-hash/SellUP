@@ -144,8 +144,13 @@ export interface PhoneRevealCreditReservationLeg {
   /** Tope de la pata (Apollo 8 / Lusha search 1 / Lusha reveal 5). */
   credits: number;
   /**
-   * `budget_rules.limit_credits`. `null` ⇒ NO hay presupuesto configurado: la reserva
-   * se rechaza con `budget_not_configured` en vez de inventarse un techo.
+   * `budget_rules.limit_credits`. `null` ⇒ el pozo no se pudo LEER: la reserva se
+   * rechaza con `budget_not_configured` en vez de inventarse un techo.
+   *
+   * Ojo con lo que `null` NO significa desde
+   * AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1: un proveedor sin regla ya no
+   * produce una pata con `null`, produce CERO patas. Que una pata exista es la
+   * afirmación de que hay un pozo al que descontarle; `null` en ella es un dato roto.
    */
   limitCredits: number | null;
   consumedCredits: number;
@@ -227,12 +232,31 @@ export type PhoneRevealCreditReservationOutcome =
 
 /**
  * Construye las patas a reservar a partir de la modalidad y del presupuesto ya
- * resuelto. Un pozo `not_configured` viaja con `limitCredits: null` en vez de omitirse:
- * así la RPC vuelve a rechazarlo por su cuenta (defensa en profundidad) y el motivo
- * llega igual al operador si este core se salta.
+ * resuelto.
+ *
+ * ── QUÉ SE RESERVA Y QUÉ NO (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1) ──
+ *
+ *   * pozo `configured`     — pata con su límite, su consumo, su scope y su período,
+ *     exactamente como antes. Es lo que la reserva atómica descuenta.
+ *   * pozo `not_configured` — la pata se OMITE. No hay tope interno que ocupar, así que
+ *     no hay disponibilidad que serializar ni fila que liquidar. Emitirla con
+ *     `limitCredits: null` sería pedirle a la RPC que la rechace, que es exactamente el
+ *     bloqueo que este hito elimina.
+ *   * pozo `unavailable` o AUSENTE — la pata se emite IGUAL, con `limitCredits: null`.
+ *     Un dato que falta NO es un pozo sin techo: se conserva para que la RPC lo rechace
+ *     por su cuenta (defensa en profundidad) si el preflight —que ya bloquea con
+ *     `balance_unavailable`— llegara a saltarse. Omitirla aquí convertiría un fallo de
+ *     lectura en una autorización sin límite, que es justo la confusión que el tipo
+ *     `PhoneRevealCreditPoolState` existe para impedir.
+ *
+ * Consecuencia legítima: el resultado puede ser `[]` cuando NINGÚN proveedor exigido
+ * tiene regla. Eso NO es un error y no se disfraza con una pata falsa; el borde de I/O
+ * (`reservePhoneRevealCreditsAndCreateRun`) lo trata como "crear la corrida sin ocupar
+ * exposición", porque no hay exposición que ocupar.
  *
  * En el modelo `shared` se emite UNA pata sintética con el total de la modalidad, que
- * es exactamente lo que ese modelo exigiría. Hoy no es el modelo real (ver
+ * es exactamente lo que ese modelo exigiría —y ninguna cuando ese pozo único es
+ * `not_configured`, por la misma razón—. Hoy no es el modelo real (ver
  * PHONE_REVEAL_CREDIT_BUDGET_MODEL) y esta rama existe para que la diferencia sea
  * explícita y no una suposición.
  */
@@ -245,6 +269,8 @@ export function buildPhoneRevealCreditReservationLegs(args: {
   if (args.budget.model === 'shared') {
     const total = requirements.reduce((sum, leg) => sum + leg.credits, 0);
     const state = args.budget.pool;
+    // Pozo único sin regla ⇒ nada que reservar, igual que en el modelo por proveedor.
+    if (state.kind === 'not_configured') return [];
     return [
       toReservationLeg(
         requirements[0]?.providerKey ?? 'apollo',
@@ -262,14 +288,20 @@ export function buildPhoneRevealCreditReservationLegs(args: {
   // desglose que el presupuesto agrega, porque es el ledger: liquidar 6 créditos de
   // Lusha sin poder decir cuántos fueron búsqueda y cuántos teléfono es exactamente
   // la auditabilidad que este hito existe para no perder.
-  return requirements.map((requirement) =>
-    toReservationLeg(
-      requirement.providerKey,
-      requirement.operationKey,
-      requirement.credits,
-      byProvider.get(requirement.providerKey),
-    ),
-  );
+  return requirements.flatMap((requirement) => {
+    const state = byProvider.get(requirement.providerKey);
+    // UNBOUNDED: sin regla no hay pozo, y sin pozo no hay fila. Se omite la pata en vez
+    // de emitirla inválida. `unavailable`/ausente NO cae aquí a propósito.
+    if (state?.kind === 'not_configured') return [];
+    return [
+      toReservationLeg(
+        requirement.providerKey,
+        requirement.operationKey,
+        requirement.credits,
+        state,
+      ),
+    ];
+  });
 }
 
 function toReservationLeg(
@@ -279,10 +311,15 @@ function toReservationLeg(
   state: PhoneRevealCreditPoolState | undefined,
 ): PhoneRevealCreditReservationLeg {
   if (!state || state.kind !== 'configured') {
-    // Sin pozo legible no hay período ni scope que reflejar. Se emite la pata con
+    // Sin pozo LEGIBLE no hay período ni scope que reflejar. Se emite la pata con
     // `limitCredits: null` para que el rechazo sea explícito aguas abajo; los campos de
     // identidad quedan en su valor más restrictivo (`global`, época) y NUNCA se usan,
     // porque una pata sin límite no llega al INSERT.
+    //
+    // Desde AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1 este camino es SÓLO para
+    // `unavailable` y para el pozo ausente: el llamador ya omitió `not_configured`. Se
+    // conserva el `!state`/`!== 'configured'` genérico como red de seguridad —un pozo
+    // nuevo e ilegible tiene que caer en el lado restrictivo, no en el permisivo.
     return {
       providerKey,
       operationKey,

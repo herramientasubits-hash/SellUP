@@ -54,6 +54,27 @@ interface ReserveAndCreateStep {
 }
 let reserveAndCreateScript: ReserveAndCreateStep[] = [];
 
+// ── Camino UNBOUNDED (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1) ──
+//
+// Una autorización cuyos pozos son TODOS `not_configured` llega aquí sin patas, y ese
+// borde no puede pasar por la RPC: `reserve_and_create_phone_reveal_run` exige
+// `jsonb_array_length(p_legs) > 0`. Se escribe la corrida con un INSERT directo, así que
+// el driver simulado necesita su propio guion para el INSERT y para la RELECTURA por
+// `authorization_key` que clasifica un 23505.
+
+/** Guion del INSERT de la corrida UNBOUNDED: una entrada por invocación, en orden. */
+interface RunInsertStep {
+  data?: unknown;
+  error?: { code: string; message: string } | null;
+  throws?: Error;
+}
+let runInsertScript: RunInsertStep[] = [];
+/** Filas realmente enviadas al INSERT. Prueba QUÉ columnas viajan. */
+let runInserts: Record<string, unknown>[] = [];
+/** Resultado de la relectura `.eq('authorization_key', …)`. `undefined` ⇒ sin fila. */
+let runByAuthorizationKeyRow: Record<string, unknown> | null = null;
+let runByAuthorizationKeyError: { code: string; message: string } | null = null;
+
 function chain(result: { data: unknown; error: unknown }): Record<string, unknown> {
   const self: Record<string, unknown> = {};
   for (const method of [
@@ -76,6 +97,39 @@ function chain(result: { data: unknown; error: unknown }): Record<string, unknow
   return self;
 }
 
+/**
+ * Cadena de SELECT de la tabla de corridas que RECUERDA por qué columna se filtró. Sin
+ * esto, la relectura por `authorization_key` devolvería la fila de la liquidación y un
+ * conflicto se leería como golpe idempotente de otra corrida.
+ */
+function runsSelectChain(): Record<string, unknown> {
+  const self: Record<string, unknown> = {};
+  let byAuthorizationKey = false;
+  for (const method of [
+    'select',
+    'in',
+    'gt',
+    'is',
+    'order',
+    'limit',
+    'maybeSingle',
+    'single',
+  ]) {
+    self[method] = () => self;
+  }
+  self.eq = (column: string) => {
+    if (column === 'authorization_key') byAuthorizationKey = true;
+    return self;
+  };
+  self.then = (resolve: (v: unknown) => unknown): unknown =>
+    resolve(
+      byAuthorizationKey
+        ? { data: runByAuthorizationKeyRow, error: runByAuthorizationKeyError }
+        : { data: runRow, error: runReadError },
+    );
+  return self;
+}
+
 mock.module('@/lib/supabase/admin', {
   namedExports: {
     createSupabaseAdminClient: () => ({
@@ -83,8 +137,17 @@ mock.module('@/lib/supabase/admin', {
         if (table === 'phone_reveal_waterfall_runs') {
           return {
             ...chain({ data: runRow, error: runReadError }),
-            select: () => chain({ data: runRow, error: runReadError }),
+            // El SELECT resuelve por la COLUMNA filtrada: la liquidación lee por `id` y
+            // la clasificación del 23505 lee por `authorization_key`. Distinguirlas aquí
+            // es lo que permite que las dos lecturas coexistan sin pisarse.
+            select: () => runsSelectChain(),
             update: () => chain({ data: [{ id: RUN_ID }], error: runUpdateError }),
+            insert: (row: Record<string, unknown>) => {
+              runInserts.push(row);
+              const step = runInsertScript.shift();
+              if (step?.throws) throw step.throws;
+              return chain({ data: step?.data ?? null, error: step?.error ?? null });
+            },
           };
         }
         if (table === 'phone_reveal_credit_reservations') {
@@ -187,6 +250,10 @@ beforeEach(() => {
   runReadError = null;
   runUpdateError = null;
   reserveAndCreateScript = [];
+  runInsertScript = [];
+  runInserts = [];
+  runByAuthorizationKeyRow = null;
+  runByAuthorizationKeyError = null;
 });
 
 function callsFor(fn: string): RpcCall[] {
@@ -514,5 +581,274 @@ describe('4F — reservePhoneRevealCreditsAndCreateRun: reintento con la misma c
       run: RUN_PAYLOAD,
     });
     assert.deepEqual(outcome, { status: 'unavailable', detail: 'unknown_status' });
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════
+// 5. UNBOUNDED: sin regla de crédito, corrida SIN reserva
+// ═══════════════════════════════════════════════════════════════
+//
+// AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1.
+//
+// Cuando NINGÚN proveedor exigido tiene regla de crédito, el constructor de patas
+// devuelve `[]` y este borde deja de llamar a la RPC: `reserve_and_create_phone_reveal_run`
+// exige `jsonb_array_length(p_legs) > 0` y rechazaría con `invalid_input` exactamente el
+// caso que el hito autoriza. Se escribe la corrida directamente, porque no hay saldo que
+// serializar ni fila de reserva que pueda quedar huérfana.
+//
+// Lo que estos tests fijan:
+//   * 0 llamadas a la RPC y 1 INSERT, con la identidad de la autorización dentro;
+//   * `created` con `reservations: []` — el dato honesto, no un error;
+//   * 23505 con la MISMA clave ⇒ `already_created` (idempotencia intacta);
+//   * 23505 con la clave libre ⇒ `create_conflict`, sin afirmar corrida viva;
+//   * cualquier fallo ⇒ `unavailable`, y por lo tanto 0 proveedores y 0 créditos.
+
+describe('UNBOUNDED — patas vacías crean la corrida sin pasar por la RPC', () => {
+  const UNBOUNDED_REQUEST = {
+    candidateId: 'cand-unbounded',
+    authorizedBy: 'user-admin',
+    reservationGroupId: 'group-unbounded',
+    authorizationKey: 'key-unbounded',
+    legs: [] as const,
+  };
+  const RUN_PAYLOAD = {
+    status: 'apollo_in_flight',
+    run_mode: 'full_waterfall',
+    max_credits_authorized: 14,
+  };
+
+  function reserveCalls() {
+    return rpcCalls.filter((c) => c.fn === 'reserve_and_create_phone_reveal_run');
+  }
+
+  it('created con reservations: [] — 0 RPC, 1 INSERT y la identidad completa en la fila', async () => {
+    runInsertScript = [
+      { data: { id: 'run-unbounded', credit_reservation_group_id: 'group-unbounded' } },
+    ];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: UNBOUNDED_REQUEST,
+      run: RUN_PAYLOAD,
+    });
+
+    assert.deepEqual(outcome, {
+      status: 'created',
+      runId: 'run-unbounded',
+      reservationGroupId: 'group-unbounded',
+      // NO es un error: esta autorización no ocupó exposición porque no había pozo.
+      reservations: [],
+    });
+    assert.deepEqual(reserveCalls(), [], 'la RPC no se llama con 0 patas');
+    assert.equal(runInserts.length, 1);
+    // Las cuatro columnas que en el camino con patas escribe la RPC desde sus propios
+    // parámetros viajan aquí explícitamente: sin ellas la corrida no sería atribuible.
+    assert.equal(runInserts[0].candidate_id, 'cand-unbounded');
+    assert.equal(runInserts[0].authorized_by, 'user-admin');
+    assert.equal(runInserts[0].credit_reservation_group_id, 'group-unbounded');
+    assert.equal(runInserts[0].authorization_key, 'key-unbounded');
+    // Y el borrador de la corrida sigue viajando entero.
+    assert.equal(runInserts[0].status, 'apollo_in_flight');
+    assert.equal(runInserts[0].max_credits_authorized, 14);
+  });
+
+  it('con patas configuradas NADA cambia: se llama a la RPC y NO se inserta', async () => {
+    // Regresión de no-cambio. El desvío es exclusivo de `legs: []`.
+    reserveAndCreateScript = [
+      {
+        data: {
+          status: 'created',
+          run_id: 'run-con-patas',
+          reservation_group_id: 'group-con-patas',
+          reservations: [{ id: 'res-1', provider_key: 'lusha', credits_reserved: 5 }],
+        },
+      },
+    ];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: {
+        ...UNBOUNDED_REQUEST,
+        reservationGroupId: 'group-con-patas',
+        legs: [
+          {
+            providerKey: 'lusha' as const,
+            operationKey: 'phone_reveal' as const,
+            credits: 5,
+            limitCredits: 500,
+            consumedCredits: 0,
+            scopeType: 'role' as const,
+            scopeId: 'admin',
+            periodStart: '2026-08-01T00:00:00.000Z',
+            periodEnd: '2026-08-31T23:59:59.999Z',
+          },
+        ],
+      },
+      run: RUN_PAYLOAD,
+    });
+    assert.equal(outcome.status, 'created');
+    assert.equal(reserveCalls().length, 1);
+    assert.deepEqual(runInserts, [], 'el camino con presupuesto no inserta desde aquí');
+  });
+
+  it('23505 con la MISMA clave ⇒ already_created: la idempotencia sobrevive', async () => {
+    runInsertScript = [
+      { error: { code: '23505', message: 'duplicate key value violates unique constraint' } },
+    ];
+    runByAuthorizationKeyRow = {
+      id: 'run-ya-escrita',
+      candidate_id: 'cand-unbounded',
+      credit_reservation_group_id: 'group-original',
+    };
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: UNBOUNDED_REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'already_created',
+      runId: 'run-ya-escrita',
+      reservationGroupId: 'group-original',
+    });
+  });
+
+  it('23505 con la clave LIBRE ⇒ create_conflict, y NO se afirma corrida viva', async () => {
+    // Reventó el OTRO índice único: una corrida activa del candidato. Este borde NO lo
+    // traduce a `active_run_exists` — la relectura que lo comprueba vive aguas arriba
+    // (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1).
+    runInsertScript = [{ error: { code: '23505', message: 'duplicate key' } }];
+    runByAuthorizationKeyRow = null;
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: UNBOUNDED_REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, { status: 'create_conflict' });
+  });
+
+  it('23505 cuya clave pertenece a OTRO candidato ⇒ unavailable, nunca su corrida', async () => {
+    // Devolver la corrida de otro candidato le atribuiría a él este gasto.
+    runInsertScript = [{ error: { code: '23505', message: 'duplicate key' } }];
+    runByAuthorizationKeyRow = {
+      id: 'run-de-otro',
+      candidate_id: 'cand-ajeno',
+      credit_reservation_group_id: null,
+    };
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: UNBOUNDED_REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'unavailable',
+      detail: 'authorization_key_candidate_mismatch',
+    });
+  });
+
+  it('23505 con la relectura CAÍDA ⇒ unavailable: un conflicto sin clasificar no afirma nada', async () => {
+    runInsertScript = [{ error: { code: '23505', message: 'duplicate key' } }];
+    runByAuthorizationKeyError = { code: '42P01', message: 'relation does not exist' };
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: UNBOUNDED_REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'unavailable',
+      detail: 'unbudgeted_run_conflict_unverifiable',
+    });
+  });
+
+  it('un error REPORTADO del INSERT ⇒ unavailable, y 0 llamadas a la RPC', async () => {
+    runInsertScript = [{ error: { code: '42501', message: 'permission denied' } }];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: UNBOUNDED_REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'unavailable',
+      detail: 'unbudgeted_run_insert_error',
+    });
+    assert.deepEqual(reserveCalls(), []);
+  });
+
+  it('el INSERT sin id ⇒ unavailable: sin corrida no hay a qué atribuir un gasto', async () => {
+    runInsertScript = [{ data: null }];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: UNBOUNDED_REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'unavailable',
+      detail: 'unbudgeted_run_without_id',
+    });
+  });
+
+  it('RESPUESTA PERDIDA: reintenta UNA vez con la misma clave y encuentra su corrida', async () => {
+    // El INSERT pudo hacer COMMIT y la respuesta perderse. El reintento reusa la MISMA
+    // `authorization_key`, así que choca con su propio índice y sale idempotente en vez
+    // de crear una segunda corrida.
+    runInsertScript = [
+      { throws: new Error('socket hang up') },
+      { error: { code: '23505', message: 'duplicate key' } },
+    ];
+    runByAuthorizationKeyRow = {
+      id: 'run-commitida',
+      candidate_id: 'cand-unbounded',
+      credit_reservation_group_id: 'group-unbounded',
+    };
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: UNBOUNDED_REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'already_created',
+      runId: 'run-commitida',
+      reservationGroupId: 'group-unbounded',
+    });
+    assert.equal(runInserts.length, 2, 'exactamente un reintento');
+    assert.equal(
+      runInserts[0].authorization_key,
+      runInserts[1].authorization_key,
+      'sin reusar la clave el reintento sería una segunda autorización',
+    );
+  });
+
+  it('dos fallos de transporte ⇒ unavailable, y NO un tercer intento', async () => {
+    runInsertScript = [
+      { throws: new Error('socket hang up') },
+      { throws: new Error('socket hang up') },
+    ];
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: UNBOUNDED_REQUEST,
+      run: RUN_PAYLOAD,
+    });
+    assert.deepEqual(outcome, {
+      status: 'unavailable',
+      detail: 'unbudgeted_run_insert_threw',
+    });
+    assert.equal(runInserts.length, 2, 'un solo reintento, no un bucle');
+  });
+
+  it('sin clave de autorización no se escribe nada: 0 INSERT', async () => {
+    const outcome = await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: { ...UNBOUNDED_REQUEST, authorizationKey: '   ' },
+      run: RUN_PAYLOAD,
+    });
+    assert.equal(outcome.status, 'unavailable');
+    assert.deepEqual(runInserts, []);
+    assert.deepEqual(reserveCalls(), []);
+  });
+
+  it('el payload de la corrida NO puede sobrescribir la identidad de la autorización', async () => {
+    // La identidad sale de la RESERVA, que es la autoridad. Hoy ningún llamador manda
+    // estas claves en el borrador; el orden del spread es la garantía de que si alguna
+    // vez lo hiciera, no podría reatribuir la corrida a otro candidato ni a otro actor.
+    runInsertScript = [{ data: { id: 'run-x' } }];
+    await deps2.reservePhoneRevealCreditsAndCreateRun({
+      reservation: UNBOUNDED_REQUEST,
+      run: {
+        ...RUN_PAYLOAD,
+        candidate_id: 'cand-suplantado',
+        authorized_by: 'user-suplantado',
+        authorization_key: 'clave-suplantada',
+      },
+    });
+    assert.equal(runInserts[0].candidate_id, 'cand-unbounded');
+    assert.equal(runInserts[0].authorized_by, 'user-admin');
+    assert.equal(runInserts[0].authorization_key, 'key-unbounded');
   });
 });

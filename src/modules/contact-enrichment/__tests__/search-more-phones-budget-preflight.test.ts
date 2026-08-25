@@ -250,9 +250,14 @@ function assertNothingSpent(context: string) {
 // ═══════════════════════════════════════════════════════════════
 
 describe('AGENT2A-SEARCH-MORE-PHONES-1K · el preflight resuelve el pozo de Lusha', () => {
-  it('CASO A — el escenario EXACTO de Producción: sin regla de crédito ⇒ CTA no ofrecible', async () => {
-    // Ninguna regla gana el match. Antes de 1K esto devolvía un plan ELEGIBLE y el rechazo
-    // llegaba después del clic.
+  it('CASO A — sin regla de crédito ⇒ UNBOUNDED: el CTA SÍ se ofrece, y no es fantasma', async () => {
+    // Ninguna regla gana el match. Este caso ha cambiado de veredicto dos veces y lo que
+    // importa es POR QUÉ. 1K lo cerró porque el CTA era FANTASMA: se ofrecía y el clic
+    // moría en el rechazo del presupuesto. Con
+    // AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1 el clic ya NO muere —sin regla no
+    // hay tope interno que aplicar, así que la reserva no bloquea— y por lo tanto
+    // ofrecerlo deja de ser una promesa vacía. El invariante de 1K se mantiene: el
+    // preflight y la reserva deciden lo MISMO. Lo que cambió es lo que ambos deciden.
     world.budget = {
       limitCredits: null,
       consumedCredits: 0,
@@ -263,15 +268,27 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1K · el preflight resuelve el pozo de Lush
 
     const { facts, summary } = await preflight();
 
-    assert.equal(facts.budgetDecision, 'budget_not_configured');
-    assert.equal(
-      summary.plan.eligible,
-      false,
-      'este es el CTA fantasma que la QA de Producción encontró',
-    );
-    assert.equal(summary.plan.reason, 'budget_not_configured');
-    assert.equal(summary.plan.phase, 'budget_blocked');
-    assertNothingSpent('al descubrir que no hay presupuesto');
+    assert.equal(facts.budgetDecision, 'authorized');
+    assert.equal(summary.plan.eligible, true);
+    assert.deepEqual([...summary.plan.providersToTry], ['lusha']);
+    // El techo que se le enseña a la persona NO cambia por no haber regla: sale de la
+    // modalidad, no del presupuesto.
+    assert.equal(summary.plan.maxCreditRequirement, 5);
+    // Y mirar sigue sin costar: 0 red, 0 escrituras.
+    assertNothingSpent('al descubrir que no hay tope interno');
+  });
+
+  it('CASO A2 — el presupuesto ILEGIBLE sigue cerrando el CTA', async () => {
+    // La asimetría que este hito preserva: «no hay regla» autoriza, «no se pudo leer la
+    // regla» no. Si esto se degradara a UNBOUNDED, un fallo de lectura acabaría
+    // autorizando gasto sin techo.
+    world.budget = { ...world.budget, throws: true };
+
+    const { facts, summary } = await preflight();
+
+    assert.equal(facts.budgetDecision, 'balance_unavailable');
+    assert.equal(summary.plan.eligible, false);
+    assertNothingSpent('cuando el presupuesto no se puede leer');
   });
 
   it('CASO B — hay regla pero sólo quedan 4 créditos ⇒ insuficiente, y se dice así', async () => {
@@ -409,7 +426,7 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1K · el preflight resuelve el pozo de Lush
     assert.equal(facts.privacyState, 'blocked_suppressed');
     assert.equal(
       facts.budgetDecision,
-      'budget_not_configured',
+      'authorized',
       'el presupuesto se resuelve igual: los hechos no dependen de qué gate gane',
     );
     assert.equal(

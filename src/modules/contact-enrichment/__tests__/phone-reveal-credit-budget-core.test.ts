@@ -361,24 +361,65 @@ describe('preflight per-provider — cada pata contra su propio pozo', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 5. Los tres rechazos son hechos DISTINTOS
+// 5. Los rechazos son hechos DISTINTOS — y "sin regla" NO es uno
 // ═══════════════════════════════════════════════════════════════
 
 describe('preflight — sin presupuesto ≠ sin saldo ≠ no verificable', () => {
-  test('sin regla de crédito ⇒ budget_not_configured y BLOQUEA (cambio de 4E)', () => {
-    // En 4D esto era `unlimited` y AUTORIZABA. Ya no: sin límite no hay disponibilidad
-    // contra la que reservar la exposición máxima.
+  test('sin regla de crédito ⇒ UNBOUNDED y AUTORIZA, sin techo inventado', () => {
+    // AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1. En 4E esto BLOQUEABA con
+    // `budget_not_configured`, y ese bloqueo es el defecto que se está corrigiendo: en
+    // Producción Apollo no tiene regla, así que el clic terminaba en 0 corridas, 0
+    // reservas y 0 llamadas. Sin regla no hay TOPE INTERNO que aplicar, y no aplicar un
+    // tope que no existe no es lo mismo que afirmar que el proveedor sea gratis.
     const verdict = evaluatePhoneRevealCreditBudget({
       mode: 'full_waterfall',
       budget: perProvider({ apollo: { kind: 'not_configured' }, lusha: pool(5) }),
     });
-    assert.equal(verdict.decision, 'budget_not_configured');
-    assert.notEqual(verdict.decision, 'authorized');
-    // Y no se reporta un saldo que no existe (ni 0, que significaría "sin saldo").
+    assert.equal(verdict.decision, 'authorized');
+    const apollo = verdict.legs.find((l) => l.providerKey === 'apollo');
+    assert.equal(apollo?.decision, 'authorized');
+    // El saldo sigue siendo `null`: no hay número finito que reportar. NUNCA 0 (que
+    // significaría "sin saldo") y NUNCA un entero gigante que simule infinito — un
+    // techo inventado acabaría comparándose o imprimiéndose como si fuera un hecho.
+    assert.equal(apollo?.availableCredits, null);
+    assert.notEqual(apollo?.availableCredits, 0);
+    // Y la pata configurada se sigue exigiendo contra SU pozo: en `full_waterfall`
+    // (sin búsqueda de identidad) Lusha pide 5, y su pozo de 5 lo cubre exacto.
+    const lusha = verdict.legs.find((l) => l.providerKey === 'lusha');
+    assert.equal(lusha?.requiredCredits, 5);
+    assert.equal(lusha?.availableCredits, 5);
+    assert.equal(lusha?.decision, 'authorized');
+  });
+
+  test('sin regla en el pozo exigido y saldo INSUFICIENTE en el otro ⇒ sigue bloqueando', () => {
+    // Lo que se elimina es el bloqueo por AUSENCIA de regla, no el bloqueo por falta de
+    // saldo: un pozo configurado que no alcanza sigue mandando sobre el agregado.
+    const verdict = evaluatePhoneRevealCreditBudget({
+      mode: 'full_waterfall_with_identity_search',
+      budget: perProvider({ apollo: { kind: 'not_configured' }, lusha: pool(4) }),
+    });
+    assert.equal(verdict.decision, 'insufficient_credits');
     assert.equal(
-      verdict.legs.find((l) => l.providerKey === 'apollo')?.availableCredits,
-      null,
+      verdict.legs.find((l) => l.providerKey === 'lusha')?.decision,
+      'insufficient_credits',
     );
+    assert.equal(
+      verdict.legs.find((l) => l.providerKey === 'apollo')?.decision,
+      'authorized',
+    );
+  });
+
+  test('TODOS los pozos sin regla ⇒ authorized, y ni uno reporta saldo', () => {
+    const verdict = evaluatePhoneRevealCreditBudget({
+      mode: 'full_waterfall_with_identity_search',
+      budget: perProvider({
+        apollo: { kind: 'not_configured' },
+        lusha: { kind: 'not_configured' },
+      }),
+    });
+    assert.equal(verdict.decision, 'authorized');
+    assert.ok(verdict.legs.every((leg) => leg.decision === 'authorized'));
+    assert.ok(verdict.legs.every((leg) => leg.availableCredits === null));
   });
 
   test('presupuesto no verificable ⇒ fail-closed, y NO se reporta como "insuficiente"', () => {
@@ -388,11 +429,13 @@ describe('preflight — sin presupuesto ≠ sin saldo ≠ no verificable', () =>
     });
     assert.equal(verdict.decision, 'balance_unavailable');
     assert.notEqual(verdict.decision, 'insufficient_credits');
-    assert.notEqual(verdict.decision, 'budget_not_configured');
+    assert.notEqual(verdict.decision, 'authorized');
   });
 
-  test('lo INCIERTO gana: unavailable pesa más que not_configured y que insuficiente', () => {
-    // El copy no puede afirmar más de lo que se comprobó.
+  test('lo INCIERTO gana: un fallo de lectura pesa más que un pozo sin regla', () => {
+    // 🔴 La distinción que este hito NO relaja. "Sin regla" autoriza; "no se pudo leer"
+    // sigue bloqueando, y cuando coinciden manda el fallo: degradar la lectura fallida a
+    // UNBOUNDED convertiría un problema de infraestructura en permiso para gastar.
     assert.equal(
       evaluatePhoneRevealCreditBudget({
         mode: 'full_waterfall',
@@ -403,12 +446,14 @@ describe('preflight — sin presupuesto ≠ sin saldo ≠ no verificable', () =>
       }).decision,
       'balance_unavailable',
     );
+    // Y un pozo configurado a 0 sigue siendo "no alcanza", no "no hay regla": 0 es un
+    // dato. Que el OTRO pozo sea unbounded no lo tapa.
     assert.equal(
       evaluatePhoneRevealCreditBudget({
         mode: 'full_waterfall',
         budget: perProvider({ apollo: { kind: 'not_configured' }, lusha: pool(0) }),
       }).decision,
-      'budget_not_configured',
+      'insufficient_credits',
     );
   });
 
@@ -500,13 +545,21 @@ describe('preflight — modelo compartido (no es el vigente, pero está declarad
     }
   });
 
-  test('compartido sin regla configurada también BLOQUEA', () => {
+  test('compartido sin regla configurada también es UNBOUNDED, no un bloqueo', () => {
     assert.equal(
       evaluatePhoneRevealCreditBudget({
         mode: 'full_waterfall',
         budget: { model: 'shared', pool: { kind: 'not_configured' } },
       }).decision,
-      'budget_not_configured',
+      'authorized',
+    );
+    // Pero el pozo compartido ILEGIBLE sigue siendo fail-closed, igual que por proveedor.
+    assert.equal(
+      evaluatePhoneRevealCreditBudget({
+        mode: 'full_waterfall',
+        budget: { model: 'shared', pool: { kind: 'unavailable' } },
+      }).decision,
+      'balance_unavailable',
     );
   });
 });

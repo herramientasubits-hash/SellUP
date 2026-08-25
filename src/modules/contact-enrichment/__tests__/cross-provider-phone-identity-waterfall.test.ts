@@ -369,6 +369,149 @@ describe('I — presupuesto insuficiente: 0 search, 0 reveal, 0 corrida', () => 
 });
 
 // ═══════════════════════════════════════════════════════════════
+// REGRESIÓN PRISCILLA — Apollo SIN regla de crédito, Lusha CON regla
+// ═══════════════════════════════════════════════════════════════
+//
+// AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1.
+//
+// LOS HECHOS DE PRODUCCIÓN. La ficha ofrecía el CTA, la capacidad de la M128 existía y la
+// vista previa decía 14. Tras el clic: 0 corridas, 0 reservas, 0 `provider_usage_logs`,
+// 0 filas de teléfono, 0 llamadas a Apollo, 0 a Lusha y 0 créditos. La causa no era la
+// privacidad, ni el flag, ni la identidad: era el presupuesto. `budget_rules` tiene una
+// regla de Lusha (rol admin, 500 créditos/mes, activa) y NINGUNA de Apollo, y un
+// proveedor sin regla se traducía a `budget_not_configured`, que BLOQUEA.
+//
+// Desde este hito «sin regla» significa lo que literalmente es: no hay TOPE
+// PRESUPUESTARIO INTERNO que aplicar. La autorización arranca, Lusha sigue respetando su
+// límite al dígito y Apollo no aparece en la reserva porque no hay pozo al que
+// descontarle — no porque Apollo vaya a ser gratis.
+//
+// Se mide sobre el START CORE REAL contra el almacén de corridas inyectado del fixture:
+// lo que se comprueba es que la corrida EXISTA y que las patas reservadas sean
+// exactamente dos, no que alguien delegara una vez.
+
+describe('REGRESIÓN PRISCILLA — Apollo sin regla + Lusha con regla', () => {
+  /** Los pozos EXACTOS de Producción: Apollo sin regla, Lusha admin con 500. */
+  const priscillaPools = (
+    providerKeys: readonly ('apollo' | 'lusha')[],
+  ) =>
+    providerKeys.map((providerKey) => ({
+      providerKey,
+      state:
+        providerKey === 'lusha'
+          ? configuredPool(500)
+          : ({ kind: 'not_configured' } as const),
+    }));
+
+  async function startPriscilla(credits: ReturnType<typeof creditHarness>) {
+    return startPhoneRevealWaterfall(
+      { candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST },
+      {
+        flagEnabled: true,
+        nowIso: NOW_ISO,
+        actor: { internalUserId: 'user-1', roleKey: 'admin' },
+        // Nacida en Apollo, sin identidad Lusha persistida: la búsqueda hay que pagarla.
+        loadCandidate: async () => apolloCandidate(),
+        findActiveRun: async () => null,
+        ...credits.deps,
+      },
+    );
+  }
+
+  test('el clic AUTORIZA: 1 corrida, tope 14 y búsqueda de identidad incluida', async () => {
+    const credits = creditHarness({ poolsFor: priscillaPools });
+    const result = await startPriscilla(credits);
+
+    assert.equal(result.started, true, 'esto es lo que en Producción devolvía 0 corridas');
+    if (!result.started) return;
+    // El tope humano NO cambia por no haber regla de Apollo: 8 + 1 + 5.
+    assert.equal(result.maxCreditsAuthorized, 14);
+    assert.equal(result.lushaEligible, true);
+    assert.equal(result.requiresIdentitySearch, true);
+    // Y la corrida está ESCRITA en el almacén, que es lo que hace alcanzable el pipeline
+    // de proveedores: nada se llama sin `runId`.
+    assert.equal(credits.createdRuns.length, 1);
+    assert.equal(credits.createdRuns[0].runId, result.runId);
+  });
+
+  test('se reservan SÓLO las dos patas de Lusha (1 + 5); Apollo no aparece', async () => {
+    const credits = creditHarness({ poolsFor: priscillaPools });
+    await startPriscilla(credits);
+
+    assert.equal(credits.reserveRequests.length, 1, 'una sola autorización');
+    assert.deepEqual(
+      credits.reserveRequests[0].legs.map((l) => [
+        l.providerKey,
+        l.operationKey,
+        l.credits,
+        l.limitCredits,
+      ]),
+      [
+        ['lusha', 'contact_search', 1, 500],
+        ['lusha', 'phone_reveal', 5, 500],
+      ],
+    );
+    assert.equal(
+      credits.reserveRequests[0].legs.some((l) => l.providerKey === 'apollo'),
+      false,
+      'un pozo UNBOUNDED no puede producir una fila de reserva',
+    );
+    // La exposición viva es la de Lusha y nada más: 6 créditos en dos operaciones.
+    assert.deepEqual(
+      credits.active.map((r) => [r.providerKey, r.creditsReserved]),
+      [
+        ['lusha', 1],
+        ['lusha', 5],
+      ],
+    );
+  });
+
+  test('el límite de Lusha SIGUE mandando: con 5 no alcanza para 6 y no hay corrida', async () => {
+    // Lo que este hito elimina es el bloqueo por AUSENCIA de regla. La regla que SÍ
+    // existe se respeta exactamente igual que antes.
+    const credits = creditHarness({
+      poolsFor: (providerKeys) =>
+        providerKeys.map((providerKey) => ({
+          providerKey,
+          state:
+            providerKey === 'lusha'
+              ? configuredPool(5)
+              : ({ kind: 'not_configured' } as const),
+        })),
+    });
+    const result = await startPriscilla(credits);
+
+    assert.equal(result.started, false);
+    assert.equal(result.started === false && result.reason, 'insufficient_credits');
+    assert.deepEqual(credits.createdRuns, []);
+    assert.deepEqual(credits.reserveRequests, []);
+  });
+
+  test('si el pozo de Lusha NO se puede leer, sigue sin arrancar', async () => {
+    // La asimetría del contrato: «Apollo no tiene regla» autoriza; «no se pudo leer la
+    // regla de Lusha» no. Fail-closed: 0 corrida, 0 proveedor, 0 créditos.
+    const credits = creditHarness({
+      poolsFor: (providerKeys) =>
+        providerKeys.map((providerKey) => ({
+          providerKey,
+          state:
+            providerKey === 'lusha'
+              ? ({ kind: 'unavailable' } as const)
+              : ({ kind: 'not_configured' } as const),
+        })),
+    });
+    const result = await startPriscilla(credits);
+
+    assert.equal(result.started, false);
+    assert.equal(
+      result.started === false && result.reason,
+      'credit_balance_unavailable',
+    );
+    assert.deepEqual(credits.createdRuns, []);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // Desenlaces terminales de identidad
 // ═══════════════════════════════════════════════════════════════
 

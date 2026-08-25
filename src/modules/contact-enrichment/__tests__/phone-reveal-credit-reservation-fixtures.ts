@@ -41,11 +41,15 @@ export const FIXTURE_PERIOD_END = '2026-08-31T23:59:59.999Z';
 
 /**
  * Pozo CONFIGURADO con `available` créditos disponibles. Es el default de las suites
- * porque es la situación normal en producción: hay regla de crédito y hay saldo.
+ * porque es la situación normal cuando alguien configuró un presupuesto: hay regla de
+ * crédito y hay saldo.
  *
- * Ojo con el cambio de 4E: "sin regla configurada" ya NO es el default benigno que era
- * en 4D (`unlimited` autorizaba). Ahora bloquea, así que una suite que quiera medir otra
- * cosa tiene que inyectar un pozo con saldo.
+ * Ojo con la semántica de "sin regla configurada", que ha cambiado dos veces: 4D la
+ * llamaba `unlimited` y autorizaba, 4E la convirtió en bloqueo, y
+ * AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1 la devuelve a "autoriza SIN tope
+ * interno" — pero ahora, además, SIN fila de reserva. Una suite que quiera medir la
+ * aritmética de la reserva tiene que inyectar un pozo con saldo: sin regla no hay nada
+ * que reservar y no habrá patas que inspeccionar.
  */
 export function configuredPool(available: number): PhoneRevealCreditPoolState {
   return {
@@ -187,10 +191,19 @@ export function creditHarness(
         if (opts.throws) throw opts.throws;
         if (opts.outcome) return opts.outcome;
 
-        const outcome = simulatePhoneRevealCreditReservationAndRun(reservation, {
-          activeReservations: active,
-          runs,
-        });
+        const outcome =
+          // UNBOUNDED (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1). Esta dep NO es
+          // la RPC: es `reservePhoneRevealCreditsAndCreateRun`, y desde este hito ese
+          // borde desvía las autorizaciones sin patas a un INSERT directo de la corrida
+          // en vez de llamar a una función que exige `jsonb_array_length(p_legs) > 0`.
+          // El fixture modela ESA rama, porque si siguiera simulando la RPC diría
+          // `unavailable` donde producción crea la corrida.
+          reservation.legs.length === 0
+            ? simulateUnbudgetedRunCreate(reservation, runs)
+            : simulatePhoneRevealCreditReservationAndRun(reservation, {
+                activeReservations: active,
+                runs,
+              });
 
         // Solo `created` escribe. Cualquier otro desenlace deja el pozo y la tabla EXACTAMENTE
         // como estaban, que es lo que hace el rollback de la transacción real: no existe un
@@ -243,6 +256,58 @@ export function creditHarness(
             },
           }),
     },
+  };
+}
+
+/**
+ * Semántica de REFERENCIA del camino UNBOUNDED: `createUnbudgetedRun` en
+ * phone-reveal-credit-reservation-deps.ts, que hace un INSERT directo en
+ * `phone_reveal_waterfall_runs` sin escribir ninguna reserva.
+ *
+ * Reproduce el mismo orden que los dos índices únicos imponen en la base:
+ *
+ *   1. `authorization_key` ya tiene corrida (migración 104) ⇒ golpe IDEMPOTENTE;
+ *   2. el candidato ya tiene corrida ACTIVA (migración 102) ⇒ `create_conflict`, que el
+ *      gate de aguas arriba RELEE antes de afirmar nada;
+ *   3. si no ⇒ `created` con `reservations: []` — 0 exposición ocupada, porque no hay
+ *      pozo interno que ocupar.
+ *
+ * El grupo de reserva se conserva aunque no haya ni una fila: es un id de correlación
+ * durable, no una afirmación de gasto.
+ */
+function simulateUnbudgetedRunCreate(
+  reservation: PhoneRevealCreditReservationAndRunRequest,
+  runs: PhoneRevealCreditExistingRun[],
+): PhoneRevealCreditReservationAndRunOutcome {
+  if (!reservation.authorizationKey?.trim()) {
+    return { status: 'unavailable', detail: 'missing_identity' };
+  }
+  const byKey = runs.find(
+    (existing) => existing.authorizationKey === reservation.authorizationKey,
+  );
+  if (byKey) {
+    if (byKey.candidateId !== reservation.candidateId) {
+      return { status: 'unavailable', detail: 'authorization_key_candidate_mismatch' };
+    }
+    return {
+      status: 'already_created',
+      runId: byKey.runId,
+      reservationGroupId: byKey.reservationGroupId,
+    };
+  }
+  if (
+    runs.some(
+      (existing) =>
+        existing.candidateId === reservation.candidateId && existing.isActive,
+    )
+  ) {
+    return { status: 'create_conflict' };
+  }
+  return {
+    status: 'created',
+    runId: `run:${reservation.authorizationKey}`,
+    reservationGroupId: reservation.reservationGroupId,
+    reservations: [],
   };
 }
 

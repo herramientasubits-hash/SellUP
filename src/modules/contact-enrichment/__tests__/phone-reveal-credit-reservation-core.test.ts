@@ -34,6 +34,7 @@ import {
 import {
   PHONE_REVEAL_CREDIT_BUDGET_APOLLO_ONLY_REQUIRED_CREDITS,
   PHONE_REVEAL_CREDIT_BUDGET_LEGACY_REQUIRED_CREDITS,
+  resolvePhoneRevealCreditRequirements,
   type PhoneRevealCreditBudgetInput,
   type PhoneRevealCreditBudgetMode,
 } from '../phone-reveal-credit-budget-core';
@@ -167,14 +168,108 @@ describe('reserva — patas construidas desde la modalidad y el presupuesto', ()
     } satisfies PhoneRevealCreditReservationLeg);
   });
 
-  test('un pozo sin regla viaja con limitCredits null (defensa en profundidad)', () => {
-    // Así la RPC vuelve a rechazarlo por su cuenta aunque alguien se salte el preflight.
+  // ── UNBOUNDED: sin regla no hay pata ─────────────────────────────
+  // AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1. Antes un pozo `not_configured`
+  // viajaba con `limitCredits: null` para que la RPC lo rechazara; ese rechazo ES el
+  // bloqueo que se está eliminando. Ahora la pata se OMITE: no hay pozo interno al que
+  // descontar, así que tampoco hay fila que escribir ni que liquidar.
+
+  test('un pozo sin regla NO produce pata: se omite, no viaja inválida', () => {
     const legs = buildPhoneRevealCreditReservationLegs({
       mode: 'apollo_only',
       budget: budget({ apollo: 'not_configured' }),
     });
+    assert.deepEqual(legs, [], 'sin tope interno no hay exposición que ocupar');
+  });
+
+  test('EL CASO PRISCILLA: Apollo sin regla + Lusha con regla ⇒ SOLO las patas de Lusha', () => {
+    // La forma exacta de Producción: Apollo no tiene `budget_rule`, Lusha sí (admin, 500
+    // créditos/mes). La autorización completa con búsqueda de identidad reserva las DOS
+    // operaciones de Lusha —búsqueda 1 y teléfono 5— y NINGUNA de Apollo.
+    const legs = buildPhoneRevealCreditReservationLegs({
+      mode: 'full_waterfall_with_identity_search',
+      budget: budget({ apollo: 'not_configured', lusha: 500 }),
+    });
+    assert.deepEqual(
+      legs.map((l) => [l.providerKey, l.operationKey, l.credits, l.limitCredits]),
+      [
+        ['lusha', 'contact_search', 1, 500],
+        ['lusha', 'phone_reveal', 5, 500],
+      ],
+    );
+    assert.equal(
+      legs.some((l) => l.providerKey === 'apollo'),
+      false,
+      'Apollo unbounded NO puede aparecer como reserva',
+    );
+  });
+
+  test('TODOS los pozos sin regla ⇒ ninguna pata', () => {
+    assert.deepEqual(
+      buildPhoneRevealCreditReservationLegs({
+        mode: 'full_waterfall_with_identity_search',
+        budget: budget({ apollo: 'not_configured', lusha: 'not_configured' }),
+      }),
+      [],
+    );
+  });
+
+  test('un pozo ILEGIBLE NO se omite como si fuera unbounded: sigue viajando inválido', () => {
+    // 🔴 La asimetría es el contrato. `unavailable` no es "no hay tope": es "no se sabe".
+    // Omitirlo lo convertiría en una autorización sin límite, y el preflight ya bloqueó
+    // con `balance_unavailable` — esta pata es la defensa en profundidad de ese bloqueo.
+    const legs = buildPhoneRevealCreditReservationLegs({
+      mode: 'apollo_only',
+      budget: budget({ apollo: 'unavailable' }),
+    });
+    assert.equal(legs.length, 1);
+    assert.equal(legs[0].providerKey, 'apollo');
     assert.equal(legs[0].limitCredits, null);
     assert.notEqual(legs[0].limitCredits, 0, 'null ≠ 0: 0 sería "sin saldo"');
+  });
+
+  test('un proveedor exigido AUSENTE de los pozos tampoco se omite', () => {
+    // Un dato que falta no es un pozo sin techo. Mismo trato que `unavailable`.
+    const legs = buildPhoneRevealCreditReservationLegs({
+      mode: 'full_waterfall',
+      budget: budget({ apollo: 100 }),
+    });
+    assert.deepEqual(
+      legs.map((l) => [l.providerKey, l.limitCredits]),
+      [
+        ['apollo', 100],
+        ['lusha', null],
+      ],
+    );
+  });
+
+  test('con TODOS los pozos configurados las patas son EXACTAMENTE las de siempre', () => {
+    // Regresión de no-cambio: el camino con presupuesto configurado es byte-idéntico.
+    for (const mode of [
+      'full_waterfall',
+      'full_waterfall_with_identity_search',
+      'apollo_only',
+      'legacy_lusha_only',
+    ] as const) {
+      const legs = buildPhoneRevealCreditReservationLegs({
+        mode,
+        budget: budget({ apollo: 100, lusha: 50 }),
+      });
+      assert.ok(legs.length > 0, `${mode} sigue reservando`);
+      assert.ok(
+        legs.every((l) => l.limitCredits !== null),
+        `${mode}: ninguna pata configurada pierde su límite`,
+      );
+      assert.deepEqual(
+        legs.map((l) => [l.providerKey, l.operationKey, l.credits]),
+        resolvePhoneRevealCreditRequirements(mode).map((r) => [
+          r.providerKey,
+          r.operationKey,
+          r.credits,
+        ]),
+        `${mode}: una pata por requisito, en el mismo orden`,
+      );
+    }
   });
 });
 
@@ -286,9 +381,12 @@ describe('reserva — disponibilidad = limit - consumed - reservado activo', () 
     assert.equal(outcome.status, 'reserved');
   });
 
-  test('sin regla de crédito ⇒ budget_not_configured, y NUNCA reserved', () => {
+  test('un pozo ILEGIBLE ⇒ budget_not_configured, y NUNCA reserved', () => {
+    // El vocabulario de rechazo de la RPC no cambia: una pata con `limitCredits: null`
+    // sigue tumbando la autorización completa. Lo que cambió es QUIÉN produce esa pata —
+    // ya no un proveedor sin regla, sólo un pozo que no se pudo leer.
     const outcome = simulatePhoneRevealCreditReservation(
-      request('cand-1', 'full_waterfall', { apollo: 'not_configured', lusha: 50 }),
+      request('cand-1', 'full_waterfall', { apollo: 'unavailable', lusha: 50 }),
       [],
     );
     assert.equal(outcome.status, 'budget_not_configured');
