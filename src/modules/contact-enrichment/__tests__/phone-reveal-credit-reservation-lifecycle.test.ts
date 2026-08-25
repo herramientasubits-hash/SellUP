@@ -170,9 +170,13 @@ describe('4E — la reserva precede a la corrida y a cualquier proveedor', () =>
   it('la corrida NO se intenta crear si el crédito bloquea', async () => {
     for (const credit of [
       creditHarness({ poolsFor: poolsWith(5) }), // insuficiente
+      // Presupuesto ILEGIBLE. Ocupa el lugar que antes tenía `not_configured`, que
+      // desde AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1 ya NO bloquea: un
+      // proveedor sin regla no tiene tope interno y arranca. Un pozo que no se pudo
+      // leer sigue bloqueando, y es lo que este test tiene que medir.
       creditHarness({
         poolsFor: (keys) =>
-          keys.map((providerKey) => ({ providerKey, state: { kind: 'not_configured' } })),
+          keys.map((providerKey) => ({ providerKey, state: { kind: 'unavailable' } })),
       }),
       creditHarness({ outcome: { status: 'unavailable', detail: 'reserve_rpc_error' } }),
     ]) {

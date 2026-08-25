@@ -45,10 +45,20 @@
  *      autorizaciones viables (Apollo 10 y Lusha 6 ⇒ min 6 < 13, cuando cada pata
  *      tenía de sobra) y su semántica no era declarable — "el mínimo" no responde a
  *      la pregunta "¿alcanza para esta pata?". Ese helper se ELIMINÓ.
- *   3. SIN regla de crédito no hay disponibilidad que reservar. 4D lo trataba como
- *      `unlimited` y autorizaba; 4E lo trata como `budget_not_configured` y BLOQUEA:
- *      el waterfall no puede correr sobre un techo imaginario, y la reserva atómica
- *      (migración 104) no tendría contra qué descontar.
+ *   3. SIN regla de crédito NO hay tope presupuestario interno, y eso NO bloquea
+ *      (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1). 4D lo llamaba `unlimited` y
+ *      autorizaba; 4E lo convirtió en `budget_not_configured` y BLOQUEABA. Bloquear era
+ *      el error: en Producción Apollo no tiene regla, así que el clic del operador
+ *      terminaba en 0 corridas, 0 reservas y 0 llamadas — sin gasto, pero también sin
+ *      producto. Ahora ese pozo se autoriza SIN techo y, sobre todo, SIN fila de
+ *      reserva: no se inventa una `budget_rule`, no se inventa un límite de 500, no se
+ *      usa un número gigante como infinito y no se registra un costo 0. Lo único que
+ *      desaparece es la restricción interna; el gasto real sigue midiéndose en
+ *      `provider_usage_logs`.
+ *
+ *      Lo que NO cambia es el FALLO de lectura: `unavailable` sigue siendo fail-closed
+ *      (0 corrida, 0 proveedor, 0 créditos). «No hay regla» y «no se pudo leer la
+ *      regla» son dos hechos distintos y sólo el primero autoriza.
  *
  * La semántica de pozo COMPARTIDO también está modelada, explícitamente y con su
  * propio tope (14 / 13 / 8 / 5), para que la diferencia sea una decisión legible en el tipo
@@ -424,8 +434,10 @@ export const PHONE_REVEAL_CREDIT_BUDGET_MODEL: PhoneRevealCreditBudgetModel =
  *
  *   * `configured`     — hay regla con límite en créditos. `limitCredits` y
  *     `consumedCredits` son los de esa regla y su período.
- *   * `not_configured` — NO hay regla con límite en créditos para ese proveedor. NO es
- *     "ilimitado": es "no hay disponibilidad que reservar" y bloquea (4E).
+ *   * `not_configured` — NO hay regla con límite en créditos para ese proveedor. Es
+ *     UNBOUNDED: no hay tope presupuestario interno que aplicar, así que no bloquea
+ *     (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1). No dice nada sobre lo que el
+ *     proveedor cobra: eso lo sigue registrando `provider_usage_logs`.
  *   * `unavailable`    — la resolución no se pudo completar. FAIL-CLOSED: no se
  *     autoriza gasto sobre un presupuesto que nadie pudo leer.
  */
@@ -486,14 +498,17 @@ export type PhoneRevealCreditBudgetInput =
  *
  *   * `authorized`            — hay saldo en cada pozo exigido: se puede reservar.
  *   * `insufficient_credits`  — al menos un pozo NO cubre su pata.
- *   * `budget_not_configured` — al menos un proveedor exigido no tiene regla de
- *     crédito. No hay disponibilidad que reservar (4E), así que no se ejecuta nada.
+ *   * `budget_not_configured` — HISTÓRICO. `evaluateLeg` ya NO lo produce: un proveedor
+ *     sin regla es UNBOUNDED y autoriza
+ *     (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1). El valor se CONSERVA en la
+ *     unión porque sigue viajando en envelopes y copys aguas abajo —la RPC lo puede
+ *     devolver por su cuenta, y el vocabulario de la UI ya lo traduce—, así que
+ *     eliminarlo sería un cambio de contrato mucho mayor que la corrección.
  *   * `balance_unavailable`   — al menos un presupuesto no se pudo leer. Fail-closed.
  *
- * Los tres rechazos son distintos porque le dicen al operador cosas distintas: en el
- * primero sabemos que no alcanza; en el segundo sabemos que nadie configuró un
- * presupuesto; en el tercero no sabemos nada, y afirmar "no hay créditos suficientes"
- * sería inventarse un hecho.
+ * Los rechazos son distintos porque le dicen al operador cosas distintas: en uno
+ * sabemos que no alcanza; en el otro no sabemos nada, y afirmar "no hay créditos
+ * suficientes" sería inventarse un hecho.
  */
 export type PhoneRevealCreditBudgetDecision =
   | 'authorized'
@@ -616,8 +631,18 @@ function evaluateLeg(
   if (!state || state.kind === 'unavailable') {
     return { ...base, availableCredits: null, decision: 'balance_unavailable' };
   }
+  // SIN regla de crédito NO hay tope presupuestario INTERNO que respetar, así que no
+  // hay nada que bloquear: la pata queda `authorized` y sin techo (UNBOUNDED).
+  //
+  // 🔴 «Sin regla» significa FREE DE RESTRICCIÓN PRESUPUESTARIA, jamás «el proveedor
+  // cuesta 0». El gasto real lo sigue registrando `provider_usage_logs` con el costo
+  // que el proveedor reporte, y un costo no reportado sigue siendo `unknown` — nunca 0.
+  //
+  // `availableCredits: null` es el valor CORRECTO aquí, y no un número gigante que
+  // simule infinito: no existe un saldo finito que reportar, y un techo inventado
+  // acabaría comparándose, imprimiéndose o reservándose como si fuera un hecho.
   if (state.kind === 'not_configured') {
-    return { ...base, availableCredits: null, decision: 'budget_not_configured' };
+    return { ...base, availableCredits: null, decision: 'authorized' };
   }
 
   const available = resolveAvailableCredits(state);
@@ -640,6 +665,11 @@ function evaluateLeg(
  * Lo incierto gana porque el copy no puede afirmar más de lo que se comprobó: si un
  * pozo no se pudo leer, decir "no hay presupuesto configurado" o "no hay créditos
  * suficientes" sería declarar un hecho que nadie verificó. Los tres bloquean igual.
+ *
+ * `budget_not_configured` se CONSERVA en la tabla aunque `evaluateLeg` ya no lo emita
+ * (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1): la precedencia es la del
+ * vocabulario completo, y la RPC —que es la autoridad— sí puede devolverlo por su
+ * cuenta. Quitarlo aquí sólo dejaría un veredicto sin orden definido.
  */
 const DECISION_PRECEDENCE: readonly PhoneRevealCreditBudgetDecision[] = [
   'balance_unavailable',

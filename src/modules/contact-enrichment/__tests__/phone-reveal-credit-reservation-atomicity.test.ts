@@ -709,15 +709,49 @@ describe('4F · G — el presupuesto se exige POR PROVEEDOR, nunca combinado', (
     assert.deepEqual(credit.createdRuns, []);
   });
 
-  it('Apollo 8 SIN regla de Lusha ⇒ budget_not_configured', async () => {
-    // Un proveedor sin regla no tiene disponibilidad contra la que reservar. En 4D esto
-    // se leía como `unlimited` y AUTORIZABA el gasto; desde 4E bloquea.
+  it('Apollo 8 SIN regla de Lusha ⇒ ARRANCA, y sólo Apollo queda reservado', async () => {
+    // AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1. 4D lo llamaba `unlimited` y
+    // autorizaba; 4E lo convirtió en `budget_not_configured` y BLOQUEABA. Bloquear era
+    // el error: un proveedor sin regla no tiene TOPE INTERNO, y no tener tope no es lo
+    // mismo que no tener permiso. La pata de Lusha no se reserva porque no hay pozo al
+    // que descontarle — no porque Lusha vaya a ser gratis.
     const { result, credit } = await startFull({
       apollo: configuredPool(8),
       // lusha ausente ⇒ not_configured
     });
-    assert.deepEqual(result, { started: false, reason: 'budget_not_configured' });
-    assert.deepEqual(credit.createdRuns, []);
+    assert.equal(result.started, true);
+    assert.equal(credit.createdRuns.length, 1);
+    assert.deepEqual(
+      credit.reserveRequests[0].legs.map((l) => [l.providerKey, l.credits]),
+      [['apollo', 8]],
+      'Apollo sí ocupa su pozo; Lusha no aparece',
+    );
+    // Y la exposición viva refleja exactamente eso: una pata, no dos.
+    assert.deepEqual(
+      credit.active.map((r) => [r.providerKey, r.creditsReserved]),
+      [['apollo', 8]],
+    );
+  });
+
+  it('SIN regla en NINGÚN pozo ⇒ ARRANCA con 0 reservas y 1 corrida', async () => {
+    // El caso completo: ni Apollo ni Lusha tienen regla. No hay nada que reservar, así
+    // que no se escribe ni una fila de exposición… y aun así hay corrida, que es el
+    // único requisito para que un proveedor pueda ser llamado y atribuido.
+    const { result, credit } = await startFull({});
+    assert.equal(result.started, true);
+    assert.deepEqual(credit.reserveRequests[0].legs, []);
+    assert.deepEqual(credit.active, [], '0 exposición ocupada');
+    assert.equal(credit.createdRuns.length, 1, 'y aun así 1 corrida');
+    // Y el tope humano no se mueve: es el MISMO que con los dos pozos configurados. No
+    // haber regla no cambia lo que la persona autorizó.
+    const withBudget = await startFull({
+      apollo: configuredPool(1_000),
+      lusha: configuredPool(1_000),
+    });
+    assert.equal(
+      result.started && result.maxCreditsAuthorized,
+      withBudget.result.started && withBudget.result.maxCreditsAuthorized,
+    );
   });
 
   it('Apollo-only con Apollo 8 ⇒ PERMITIDO, y no se pregunta por Lusha', async () => {
@@ -756,14 +790,34 @@ describe('4F · G — el presupuesto se exige POR PROVEEDOR, nunca combinado', (
     );
   });
 
-  it('legacy SIN regla de Lusha ⇒ BLOQUEADO', async () => {
+  it('legacy SIN regla de Lusha ⇒ ARRANCA sin reservar nada', async () => {
     const credit = creditHarness({ poolsFor: pools({}) });
     const result = await startLegacyPhoneRevealWaterfall(
       { candidateId: 'cand-1' },
       legacyDeps(credit),
     );
-    assert.equal(result.started === false && result.reason, 'budget_not_configured');
+    assert.equal(result.started, true);
+    assert.deepEqual(credit.reserveRequests[0].legs, []);
+    assert.deepEqual(credit.active, []);
+    assert.equal(credit.createdRuns.length, 1);
+    // El tope humano NO cambia por no haber regla: sigue siendo el de la modalidad.
+    assert.equal(result.started && result.maxCreditsAuthorized, 5);
+  });
+
+  it('legacy con pozo ILEGIBLE ⇒ SIGUE bloqueando, y sin corrida', async () => {
+    // La asimetría que este hito preserva: «no hay regla» autoriza, «no se pudo leer la
+    // regla» no. Un fallo de lectura jamás se degrada a UNBOUNDED.
+    const credit = creditHarness({ poolsFor: pools({ lusha: { kind: 'unavailable' } }) });
+    const result = await startLegacyPhoneRevealWaterfall(
+      { candidateId: 'cand-1' },
+      legacyDeps(credit),
+    );
+    assert.equal(
+      result.started === false && result.reason,
+      'credit_balance_unavailable',
+    );
     assert.deepEqual(credit.createdRuns, []);
+    assert.deepEqual(credit.reserveRequests, [], 'ni se intentó reservar');
   });
 
   it('legacy con Lusha 4 ⇒ BLOQUEADO (5 es el mínimo de su única pata)', async () => {

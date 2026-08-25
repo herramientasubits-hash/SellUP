@@ -44,6 +44,12 @@ export const PHONE_REVEAL_CREDIT_RELEASE_FN = 'release_phone_reveal_credits';
 /** 4F: reserva + corrida en UNA transacción. Es el camino de arranque vigente. */
 export const PHONE_REVEAL_CREDIT_RESERVE_AND_CREATE_RUN_FN =
   'reserve_and_create_phone_reveal_run';
+/**
+ * Tabla de corridas (migración 102). Sólo se escribe DIRECTAMENTE en el camino
+ * UNBOUNDED (ver `createUnbudgetedRun`); con patas configuradas la escribe la RPC, que
+ * es la única que puede hacerlo en la misma transacción que la reserva.
+ */
+export const PHONE_REVEAL_WATERFALL_RUNS_TABLE = 'phone_reveal_waterfall_runs';
 
 function redactDriverMessage(err: unknown): string {
   return err instanceof Error ? err.message.slice(0, 200) : 'unknown error';
@@ -98,9 +104,17 @@ function parseReserveAndRunEnvelope(
         if (!id || !providerKey || credits === null) continue;
         reservations.push({ id, providerKey, creditsReserved: credits });
       }
-      // Una creación "exitosa" sin corrida, sin grupo o sin patas no es una creación: no
-      // habría nada que liquidar ni a qué atribuir el gasto del proveedor.
-      if (!runId || !groupId || reservations.length === 0) {
+      // Una creación "exitosa" sin corrida o sin grupo no es una creación: no habría a
+      // qué atribuir el gasto del proveedor ni cómo correlacionar la liquidación.
+      //
+      // 🔴 `reservations.length === 0` YA NO invalida un `created`
+      // (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1). Una autorización cuyos pozos
+      // son todos UNBOUNDED crea corrida y ocupa CERO exposición, así que exigir al
+      // menos una fila de reserva convertía el caso legítimo en `unavailable`. Lo que
+      // sigue siendo obligatorio es lo que de verdad hace falta aguas abajo: `runId` y
+      // `groupId`. Una llamada con patas configuradas sigue devolviendo ≥1 reserva y su
+      // liquidación no cambia.
+      if (!runId || !groupId) {
         return { status: 'unavailable', detail: 'created_without_rows' };
       }
       return { status: 'created', runId, reservationGroupId: groupId, reservations };
@@ -147,6 +161,214 @@ function parseReserveAndRunEnvelope(
   }
 }
 
+const UNIQUE_VIOLATION = '23505';
+
+/**
+ * Corrida ya escrita con ESTA clave de autorización. Es la relectura que convierte un
+ * 23505 en un hecho comprobado en vez de una suposición.
+ *
+ * Tres desenlaces, deliberadamente distintos:
+ *   * la clave tiene corrida DE ESTE candidato ⇒ golpe idempotente;
+ *   * la clave no tiene corrida             ⇒ el conflicto fue de OTRO índice;
+ *   * la lectura falla                      ⇒ no se sabe nada. Fail-closed.
+ */
+async function findRunByAuthorizationKey(
+  authorizationKey: string,
+): Promise<
+  | { ok: true; run: { id: string; candidateId: string; groupId: string | null } | null }
+  | { ok: false }
+> {
+  try {
+    const admin = createSupabaseAdminClient();
+    const { data, error } = await admin
+      .from(PHONE_REVEAL_WATERFALL_RUNS_TABLE)
+      .select('id, candidate_id, credit_reservation_group_id')
+      .eq('authorization_key', authorizationKey)
+      .maybeSingle();
+    if (error) {
+      console.error(
+        '[phone-reveal-credit-reservation] authorization key lookup failed:',
+        error.message.slice(0, 200),
+      );
+      return { ok: false };
+    }
+    const row = (data ?? null) as Record<string, unknown> | null;
+    if (!row) return { ok: true, run: null };
+    const id = typeof row.id === 'string' ? row.id : null;
+    const candidateId =
+      typeof row.candidate_id === 'string' ? row.candidate_id : null;
+    // Una fila ilegible NO es "no hay fila": afirmar que la clave está libre haría que
+    // el caller la tratara como conflicto de otro índice y perdiera la idempotencia.
+    if (!id || !candidateId) return { ok: false };
+    return {
+      ok: true,
+      run: {
+        id,
+        candidateId,
+        groupId:
+          typeof row.credit_reservation_group_id === 'string'
+            ? row.credit_reservation_group_id
+            : null,
+      },
+    };
+  } catch (err) {
+    console.error(
+      '[phone-reveal-credit-reservation] authorization key lookup threw:',
+      redactDriverMessage(err),
+    );
+    return { ok: false };
+  }
+}
+
+/** Clasifica un 23505 del INSERT de la corrida UNBOUNDED releyendo la clave. */
+async function classifyUnbudgetedRunConflict(
+  reservation: PhoneRevealCreditReservationAndRunRequest,
+): Promise<PhoneRevealCreditReservationAndRunOutcome> {
+  const lookup = await findRunByAuthorizationKey(reservation.authorizationKey);
+  // Un conflicto que no se puede clasificar NO se traduce a `active_run_exists` ni a
+  // `already_created`: los dos serían afirmaciones sobre filas que nadie leyó.
+  if (!lookup.ok) {
+    return { status: 'unavailable', detail: 'unbudgeted_run_conflict_unverifiable' };
+  }
+  if (!lookup.run) {
+    // La clave está libre ⇒ el índice que reventó fue el de corrida ACTIVA por
+    // candidato. Se devuelve `create_conflict` y la clasificación de aguas arriba
+    // RELEE la corrida viva; este borde no la afirma
+    // (AGENT2A-LEGACY-LUSHA-FALSE-ACTIVE-RUN-CONFLICT-1).
+    return { status: 'create_conflict' };
+  }
+  if (lookup.run.candidateId !== reservation.candidateId) {
+    // La clave identifica UNA autorización de UN candidato. Devolver la corrida de otro
+    // le atribuiría a él el gasto de este operador. Mismo veredicto que el core puro.
+    return { status: 'unavailable', detail: 'authorization_key_candidate_mismatch' };
+  }
+  return {
+    status: 'already_created',
+    runId: lookup.run.id,
+    reservationGroupId: lookup.run.groupId,
+  };
+}
+
+/**
+ * Crea la corrida SIN ocupar exposición, porque no hay exposición que ocupar
+ * (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1).
+ *
+ * ── CUÁNDO SE LLEGA AQUÍ ──────────────────────────────────────────────────────
+ *
+ * Sólo cuando `reservation.legs` está VACÍO, y eso sólo pasa cuando NINGÚN proveedor
+ * exigido tiene regla de crédito: el constructor de patas omite los pozos
+ * `not_configured` y conserva los `unavailable`, así que unas patas vacías son la
+ * afirmación "no hay ningún pozo interno contra el que descontar". Un fallo de lectura
+ * NO llega hasta aquí: el preflight ya bloqueó con `balance_unavailable`, y si se lo
+ * saltara la pata inválida seguiría viva y la RPC la rechazaría.
+ *
+ * ── POR QUÉ NO PASA POR LA RPC ────────────────────────────────────────────────
+ *
+ * `reserve_and_create_phone_reveal_run` exige `jsonb_array_length(p_legs) > 0` y su
+ * primer paso rechaza cualquier pata sin límite. Llamarla con `[]` devolvería
+ * `invalid_input` — es decir, bloquearía exactamente el caso que este hito autoriza —, y
+ * fabricar una pata para poder llamarla sería inventar una `budget_rule` que nadie
+ * configuró.
+ *
+ * ── POR QUÉ ESCRIBIR AQUÍ ES SEGURO ──────────────────────────────────────────
+ *
+ * La RPC existe por ATOMICIDAD entre dos escrituras que compiten por un saldo. Aquí no
+ * hay saldo, y por lo tanto no hay nada que serializar:
+ *
+ *   * no existe disponibilidad configurada que dos autorizaciones puedan sobrevender;
+ *   * no se escribe ninguna fila de reserva, así que no puede quedar huérfana;
+ *   * el índice único parcial de UNA corrida activa por candidato (migración 102) sigue
+ *     siendo el mismo árbitro de la concurrencia;
+ *   * `authorization_key` y su índice único (migración 104) siguen dando idempotencia:
+ *     un reintento encuentra la corrida en vez de crear una segunda;
+ *   * ningún proveedor se llama sin `runId`, así que todo fallo cuesta 0 créditos.
+ *
+ * Lo que NO se hace aquí, a propósito: no se llama a ningún proveedor, no se escribe un
+ * `provider_usage_logs` y no se registra un costo 0. Este camino elimina el TECHO
+ * interno, no el precio del proveedor.
+ */
+async function createUnbudgetedRun(args: {
+  reservation: PhoneRevealCreditReservationAndRunRequest;
+  run: Record<string, unknown>;
+}): Promise<PhoneRevealCreditReservationAndRunOutcome> {
+  const { reservation } = args;
+
+  // Sin clave de autorización NO se escribe. La idempotencia de este camino es
+  // ENTERAMENTE la clave y su índice único: sin ella, un reintento crearía una segunda
+  // corrida en vez de encontrar la primera. Mismo paso 0 que el SQL, que rechaza con
+  // `missing_identity` antes de tocar nada.
+  if (!reservation.authorizationKey || !reservation.authorizationKey.trim()) {
+    return { status: 'unavailable', detail: 'missing_identity' };
+  }
+
+  // Las cuatro columnas que en el camino con patas escribe la RPC desde sus propios
+  // parámetros (y que por eso NO viajan en `p_run`) se añaden aquí. Van AL FINAL del
+  // spread a propósito: la identidad de la autorización sale de la RESERVA, que es la
+  // autoridad, y ningún borrador de corrida puede sobrescribirla. Hoy ningún llamador
+  // manda esas claves; el orden es la garantía de que seguirá siendo irrelevante.
+  const row = {
+    ...args.run,
+    candidate_id: reservation.candidateId,
+    authorized_by: reservation.authorizedBy,
+    credit_reservation_group_id: reservation.reservationGroupId,
+    authorization_key: reservation.authorizationKey,
+  };
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const admin = createSupabaseAdminClient();
+      const { data, error } = await admin
+        .from(PHONE_REVEAL_WATERFALL_RUNS_TABLE)
+        .insert(row)
+        .select('id, credit_reservation_group_id')
+        .maybeSingle();
+      if (error) {
+        if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
+          return classifyUnbudgetedRunConflict(reservation);
+        }
+        console.error(
+          '[phone-reveal-credit-reservation] unbudgeted run insert failed, failing closed:',
+          error.message.slice(0, 200),
+        );
+        return { status: 'unavailable', detail: 'unbudgeted_run_insert_error' };
+      }
+      const inserted = (data ?? null) as Record<string, unknown> | null;
+      const runId = typeof inserted?.id === 'string' ? inserted.id : null;
+      if (!runId) {
+        // Sin id no se puede afirmar que la corrida exista, y sin corrida no hay a qué
+        // atribuir el gasto de un proveedor. Mismo fail-closed que el envelope de la RPC.
+        return { status: 'unavailable', detail: 'unbudgeted_run_without_id' };
+      }
+      const groupId =
+        typeof inserted?.credit_reservation_group_id === 'string'
+          ? inserted.credit_reservation_group_id
+          : reservation.reservationGroupId;
+      // `reservations: []` es el dato HONESTO: esta autorización no ocupó exposición.
+      // El grupo se conserva igualmente porque es un id de correlación durable —une la
+      // corrida con su autorización— y no una afirmación de gasto.
+      return { status: 'created', runId, reservationGroupId: groupId, reservations: [] };
+    } catch (err) {
+      // Transporte: el INSERT puede haber hecho COMMIT y la respuesta perderse. El
+      // reintento reusa la MISMA `authorization_key`, así que si escribió, el segundo
+      // intento choca con su propio índice y sale `already_created` en vez de crear una
+      // segunda corrida.
+      const lastAttempt = attempt === 1;
+      console.error(
+        `[phone-reveal-credit-reservation] unbudgeted run insert threw (attempt ${
+          attempt + 1
+        }/2)${lastAttempt ? ', failing closed' : ', retrying with the same authorization key'}:`,
+        redactDriverMessage(err),
+      );
+      if (lastAttempt) {
+        return { status: 'unavailable', detail: 'unbudgeted_run_insert_threw' };
+      }
+    }
+  }
+
+  /* c8 ignore next */
+  return { status: 'unavailable', detail: 'unbudgeted_run_insert_threw' };
+}
+
 /**
  * Reserva TODAS las patas Y crea la corrida en UNA transacción
  * (AGENT2A-PHONE-WATERFALL-4F).
@@ -169,6 +391,15 @@ export async function reservePhoneRevealCreditsAndCreateRun(args: {
   run: Record<string, unknown>;
 }): Promise<PhoneRevealCreditReservationAndRunOutcome> {
   const { reservation } = args;
+
+  // UNBOUNDED (AGENT2A-PHONE-REVEAL-NO-BUDGET-RULE-UNLIMITED-1). Cero patas significa
+  // que ningún proveedor exigido tiene regla de crédito, así que no hay saldo que
+  // reservar ni transacción que serializar: la corrida se crea sola. Ver
+  // `createUnbudgetedRun` para por qué eso es seguro y por qué la RPC no sirve aquí.
+  if (reservation.legs.length === 0) {
+    return createUnbudgetedRun({ reservation, run: args.run });
+  }
+
   const params = {
     p_candidate_id: reservation.candidateId,
     p_authorized_by: reservation.authorizedBy,
