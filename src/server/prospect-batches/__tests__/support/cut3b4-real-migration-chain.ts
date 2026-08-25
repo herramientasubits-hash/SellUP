@@ -93,8 +93,13 @@ LANGUAGE sql STABLE AS $$
   SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid;
 $$;
 
+-- CUT-3B5. La forma REAL de Producción, no una maqueta: \`has_active_access\` mira
+-- \`auth_user_id\` y \`access_status\`, no la clave primaria. Sin estas dos columnas la
+-- regresión de RLS mediría un predicado que Producción no tiene.
 CREATE TABLE IF NOT EXISTS public.internal_users (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid()
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  auth_user_id  uuid UNIQUE,
+  access_status text NOT NULL DEFAULT 'active'
 );
 CREATE TABLE IF NOT EXISTS public.accounts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid()
@@ -130,9 +135,24 @@ $$;
 -- El predicado de acceso REAL es independiente de la fila; aqui se conserva esa
 -- propiedad (mira sólo el actor), que es de lo que depende que un INSERT en bloque
 -- sea todo-o-nada.
-CREATE OR REPLACE FUNCTION public.has_active_access(p_user uuid) RETURNS boolean
+--
+-- 🔴 CUT-3B5 — \`internal_users\` va SIN CUALIFICAR, y la función NO fija
+-- \`search_path\`. Las dos cosas son deliberadas y las dos son COPIA de lo que
+-- \`pg_get_functiondef\` devuelve HOY en Producción (\`prosecdef = false\`,
+-- \`proconfig = NULL\`, \`FROM internal_users\` a secas).
+--
+-- La versión anterior de este arnés escribía \`public.internal_users\`. Esa única
+-- cualificación es la razón por la que la suite pasaba en verde mientras la 126
+-- era INAPLICABLE para un llamador \`authenticated\`: con el nombre cualificado, el
+-- \`search_path\` restringido de la función vallada daba igual. Cualificarlo aquí
+-- era medir un esquema que Producción no tiene.
+CREATE OR REPLACE FUNCTION public.has_active_access(p_auth_user_id uuid) RETURNS boolean
 LANGUAGE sql STABLE AS $$
-  SELECT EXISTS (SELECT 1 FROM public.internal_users u WHERE u.id = p_user);
+  SELECT EXISTS (
+    SELECT 1 FROM internal_users
+     WHERE auth_user_id = p_auth_user_id
+       AND access_status = 'active'
+  );
 $$;
 `;
 
@@ -201,10 +221,18 @@ export function resolveEmbeddedPostgres(resolveFrom: string): HarnessResolution 
   }
 }
 
-/** Roles + borde ajeno. Todavía no aplica ninguna migración de la cadena. */
+/**
+ * Roles + borde ajeno + endurecimiento de privilegios. Todavía no aplica ninguna
+ * migración de la cadena.
+ *
+ * CUT-3B5 añade el tercer paso: sin quitarle CREATE sobre `public` a
+ * `authenticated`, el arnés no podría afirmar nada sobre el riesgo de secuestro del
+ * `search_path` que este corte acepta a cambio de que RLS funcione.
+ */
 export async function bootstrapPlatform(client: PgLikeClient): Promise<void> {
   await client.query(SUPABASE_ROLES_SQL);
   await client.query(PLATFORM_BOOTSTRAP_SQL);
+  await client.query(AUTHENTICATED_HARDENING_SQL);
 }
 
 /** Aplica la cadena REAL, archivo por archivo y verbatim. */
@@ -223,3 +251,87 @@ export async function applyCut3b4RealChain(
     }
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CUT-3B5 — el borde de RLS que la primera versión de este arnés no tenía
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * El `search_path` con el que la 126 se publicó y que el preflight de Producción
+ * BLOQUEÓ. Vive aquí para que la prueba en NEGATIVO pueda reintroducirlo sin que
+ * nadie tenga que teclearlo de memoria.
+ */
+export const REGRESSED_SEARCH_PATH = 'pg_catalog, pg_temp';
+
+/** El `search_path` corregido por este corte. `pg_catalog` PRIMERO, siempre. */
+export const CORRECTED_SEARCH_PATH = 'pg_catalog, public, pg_temp';
+
+/**
+ * Devuelve el SQL de la 126 con el `search_path` sustituido.
+ *
+ * Es el mecanismo de la prueba de MUTACIÓN: sin poder volver a poner el camino
+ * defectuoso y ver la suite en ROJO, afirmar «esta prueba habría atrapado el
+ * defecto» sería una declaración de intenciones, no una medición.
+ *
+ * Lanza si no encuentra EXACTAMENTE las dos declaraciones esperadas: una
+ * sustitución silenciosa de cero ocurrencias dejaría la mutación sin aplicar y la
+ * prueba en verde por el motivo equivocado.
+ */
+export function withSearchPath(migrationSql: string, searchPath: string): string {
+  const needle = `SET search_path = ${CORRECTED_SEARCH_PATH}`;
+  const occurrences = migrationSql.split(needle).length - 1;
+  if (occurrences !== 2) {
+    throw new Error(
+      `se esperaban 2 declaraciones \`${needle}\` en la 126 y se encontraron ${occurrences}: ` +
+        'la mutación no se aplicó y la prueba mediría otra cosa',
+    );
+  }
+  return migrationSql.split(needle).join(`SET search_path = ${searchPath}`);
+}
+
+/**
+ * Cierra la superficie de secuestro por siembra en `public`, igual que Producción.
+ *
+ * No es decorado: `public` entra en el `search_path` de las dos funciones, y lo
+ * único que impide que un rol plante ahí un objeto que suplante a otro es NO tener
+ * CREATE. Producción ya lo demuestra para `authenticated` y `anon`; el arnés lo
+ * reproduce y después lo RATCHEA.
+ */
+export const AUTHENTICATED_HARDENING_SQL = `
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM anon;
+REVOKE CREATE ON SCHEMA public FROM authenticated;
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+`;
+
+/**
+ * Ejecuta `body` con la identidad de un llamador `authenticated` REAL.
+ *
+ * `SET LOCAL ROLE` cambia `current_user`, y PostgreSQL decide RLS por los atributos
+ * del rol ACTUAL: como `authenticated` no tiene BYPASSRLS y no es dueño de las
+ * tablas, las políticas de la 040 se APLICAN de verdad. `request.jwt.claim.sub` es
+ * lo que `auth.uid()` lee, igual que en Supabase.
+ *
+ * Todo va dentro de una transacción para que `SET LOCAL` revierta pase lo que pase:
+ * una sesión que se quedara con el rol puesto contaminaría la prueba siguiente.
+ */
+export async function asAuthenticated<T>(
+  client: PgLikeClient,
+  authUserId: string,
+  body: (client: PgLikeClient) => Promise<T>,
+): Promise<T> {
+  await client.query('BEGIN');
+  try {
+    await client.query(`SELECT set_config('request.jwt.claim.sub', $1, true)`, [authUserId]);
+    await client.query('SET LOCAL ROLE authenticated');
+    const out = await body(client);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  }
+}
+
+/** El SQLSTATE que el preflight de Producción devolvió: relación inexistente. */
+export const UNDEFINED_TABLE_SQLSTATE = '42P01';
