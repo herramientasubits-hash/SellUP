@@ -498,10 +498,17 @@ describe('CUT B1 · CASE 2/4/11 — the period is frozen for the whole run', () 
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     const resolveAt = code.indexOf('await pinPublication(');
     const candidatesAt = code.indexOf("from('prospect_candidates')");
-    const loopAt = code.indexOf('for (const r of enrichResult.results)');
-    assert.ok(resolveAt > 0 && candidatesAt > 0 && loopAt > 0);
+    // BR-SOURCE-FUNCTIONAL-CUT-C renamed the first-pass result; the property is unchanged.
+    const loopAt = code.indexOf('for (const r of firstPass.results)');
+    // CUT C's identity resolution is also per-candidate, so it is held to the same rule.
+    const resolveIdentityAt = code.indexOf('await resolveIdentity(');
+    assert.ok(resolveAt > 0 && candidatesAt > 0 && loopAt > 0 && resolveIdentityAt > 0);
     assert.ok(resolveAt < candidatesAt, 'the period is chosen BEFORE candidates are read');
     assert.ok(resolveAt < loopAt, 'the period is chosen BEFORE the candidate loop');
+    assert.ok(
+      resolveAt < resolveIdentityAt,
+      'the period is chosen BEFORE any candidate identity is resolved',
+    );
     assert.equal(
       code.split('await pinPublication(').length - 1,
       1,
@@ -772,18 +779,43 @@ describe('CUT B1 · CASE 9 — exact CNPJ is still required', () => {
     assert.equal(skipped['confidence'], 0);
   });
 
-  it('CUT B1 records EXACT_CNPJ_REQUIRED = YES and does not start name resolution', () => {
+  it('the Receita LOOKUP is still exact-CNPJ only — CUT C only changed where the CNPJ comes from', () => {
+    // 🔴 This assertion USED to read `resolvesIdentityByName === false`, and updating it is the
+    // point rather than an inconvenience: BR-SOURCE-FUNCTIONAL-CUT-C adds exactly the name
+    // resolution B1 deferred, so a guard still pinning `false` would be defending the defect it
+    // was written to describe. What must NOT change is the property underneath it — the snapshot
+    // is read by establishment identity, and a name never becomes a match the exact reader did
+    // not make. That is `requiresExactCnpj`, and it is still true.
     assert.equal(BR_AGENT1_RUNTIME_BINDING_CONTRACT.requiresExactCnpj, true);
-    assert.equal(BR_AGENT1_RUNTIME_BINDING_CONTRACT.resolvesIdentityByName, false);
+    assert.equal(BR_AGENT1_RUNTIME_BINDING_CONTRACT.resolvesIdentityByName, true);
+    assert.equal(
+      BR_AGENT1_RUNTIME_BINDING_CONTRACT.resolvesIdentityByNameOnlyWhenCnpjMissing,
+      true,
+    );
+    assert.equal(
+      BR_AGENT1_RUNTIME_BINDING_CONTRACT.reusesExactCnpjAdapterForResolvedIdentity,
+      true,
+    );
+    assert.equal(BR_AGENT1_RUNTIME_BINDING_CONTRACT.duplicatesEnrichmentProjection, false);
+    assert.equal(BR_AGENT1_RUNTIME_BINDING_CONTRACT.ambiguousNameFailsClosed, true);
+    assert.equal(BR_AGENT1_RUNTIME_BINDING_CONTRACT.noMatchFailsClosed, true);
 
     const src = fs.readFileSync(
       join(repoRoot, 'src/server/source-catalog/enrichment/enrich-br-batch-with-validated-sources.ts'),
       'utf8',
     );
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    // The resolution is GATED on the adapter's own `missing_cnpj`, in the source, so a future
+    // edit that let it run for a candidate the exact path served would fail here.
     assert.ok(
-      !/normalizeName|normalized_name|exact_name|normalized_name_match/.test(code),
-      'no name-based identity resolution is started in B1',
+      /reason !== 'missing_cnpj'\) continue;/.test(code),
+      'identity resolution must be gated on the adapter reporting missing_cnpj',
+    );
+    // …and the enrichment still goes out as a tax id, never as a name match.
+    assert.ok(
+      !/matchedBy:\s*'(exact_name|normalized_name)'/.test(code),
+      'the hook must never emit a name-based match',
     );
   });
 });

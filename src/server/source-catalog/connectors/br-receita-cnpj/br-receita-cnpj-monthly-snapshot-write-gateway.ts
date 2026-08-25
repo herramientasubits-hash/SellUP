@@ -47,6 +47,7 @@ import {
   type UpsertBatchOperation,
 } from './br-receita-cnpj-monthly-snapshot-write-plan';
 import { BR_RECEITA_SNAPSHOT_TABLE } from './br-receita-cnpj-monthly-snapshot-identity';
+import { normalizeBrCompanyLegalName } from './br-receita-cnpj-name-normalization';
 import { parseSnapshotRunId } from './br-receita-cnpj-monthly-snapshot-run-handle';
 
 /** The run table CUT A's operations name. Re-declared nowhere else in CUT B. */
@@ -61,6 +62,13 @@ export const BR_RECEITA_SNAPSHOT_RUNS_TABLE = 'source_snapshot_runs' as const;
  * leaves them NULL, which is what migration 127's Brazil CHECK requires — "exactly ONE persisted
  * representation" is enforced by the statement's shape here, by the CHECK in the database, and by
  * the persisted projection's shape in CUT A. Three independent barriers, none of them a comment.
+ *
+ * 🔴 BR-SOURCE-FUNCTIONAL-CUT-C added `normalized_legal_name`, and it is NOT a fourth identity
+ * candidate: it is the canonical form of `legal_name`, which is already an `INCLUDED_OUTPUT` field
+ * of GATE-3's allowlist and already travels in the public projection. It carries no tax material
+ * and is not derived from any — migration 065 created the column and its
+ * `(source_key, normalized_legal_name)` index, so no migration is authored to fill it. The count
+ * of persisted exact CNPJ representations stays exactly ONE.
  */
 export const BR_RECEITA_PERSISTABLE_COLUMNS = [
   'source_key',
@@ -70,6 +78,7 @@ export const BR_RECEITA_PERSISTABLE_COLUMNS = [
   'snapshot_run_id',
   'normalized_tax_id',
   'legal_name',
+  'normalized_legal_name',
   'raw_data',
 ] as const;
 
@@ -248,8 +257,25 @@ function valuesPlaceholders(rowCount: number, columnCount: number): string {
  * 🔴 Built field by field from the persisted projection rather than by spreading the row: a
  * spread is how an unexpected key reaches a column list, and an unexpected key here would be a
  * second CNPJ representation.
+ *
+ * 🔴 CUT C: `normalized_legal_name` is DERIVED here, from `legal_name`, and is deliberately NOT a
+ * field on the payload a caller hands over. That is what makes writer/resolver symmetry
+ * structural rather than remembered:
+ *
+ *   · there is no way to persist a canonical name that disagrees with the `legal_name` beside it,
+ *     because nobody supplies it — a caller that spread a payload and overrode `legal_name` would
+ *     otherwise leave a stale canonical form behind;
+ *   · there is exactly ONE derivation in the codebase, `normalizeBrCompanyLegalName`, and the
+ *     resolver filters on the value that same function produces. A change to the normalizer moves
+ *     both sides or neither.
+ *
+ * A name that cannot be canonicalized (absent, blank, punctuation-only) binds NULL. NULL is the
+ * honest value — the column is nullable, migration 127's Brazil CHECK does not require it, and a
+ * row with no canonical name is simply unreachable BY NAME while staying perfectly reachable by
+ * CNPJ. Inventing a placeholder would make it reachable by the wrong name.
  */
 function rowBindings(row: BrReceitaRunScopedSnapshotRow): unknown[] {
+  const canonicalName = normalizeBrCompanyLegalName(row.payload.legal_name);
   return [
     row.identity.source_key,
     row.identity.country_code,
@@ -258,6 +284,7 @@ function rowBindings(row: BrReceitaRunScopedSnapshotRow): unknown[] {
     row.snapshot_run_id,
     row.identity.normalized_tax_id,
     row.payload.legal_name,
+    canonicalName.status === 'valid' ? canonicalName.normalized : null,
     JSON.stringify(row.payload.raw_data),
   ];
 }
@@ -291,9 +318,10 @@ export function buildUpsertBatchStatement(operation: UpsertBatchOperation): {
     ON CONFLICT (${operation.conflictColumns.join(', ')})
       WHERE ${operation.conflictIndexPredicate}
     DO UPDATE SET
-      source_year = EXCLUDED.source_year,
-      legal_name  = EXCLUDED.legal_name,
-      raw_data    = EXCLUDED.raw_data
+      source_year           = EXCLUDED.source_year,
+      legal_name            = EXCLUDED.legal_name,
+      normalized_legal_name = EXCLUDED.normalized_legal_name,
+      raw_data              = EXCLUDED.raw_data
     RETURNING 1 AS written
   `;
 
