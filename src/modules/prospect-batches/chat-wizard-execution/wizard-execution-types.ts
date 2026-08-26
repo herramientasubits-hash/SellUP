@@ -7,6 +7,7 @@ import type {
   WizardDiscoveryProvider,
 } from './wizard-run-provider-selection';
 import type { DiscoveryTaxonomyCapability } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
+import type { AcceptedForTargetResult } from '@/modules/prospect-batches/accepted-for-target';
 
 // ── Run-level provider outcome (A1-APOLLO-QA-CONTROL-SURFACE-1 § 10) ──────────
 
@@ -282,11 +283,26 @@ export type WizardExecutionActionResult =
       /** The configured target count of persistible candidates. */
       targetPersistibleCandidates?: number;
       /**
-       * True when the execution's total durable candidates —free plus paid—
-       * reach `targetPersistibleCandidates` (CUT-6 § 14). Sin aporte gratuito es
-       * el veredicto del pipeline, sin cambios.
+       * AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 9 — `true` sólo cuando los
+       * candidatos ACEPTADOS hacia el objetivo —gratuitos más pagados— alcanzan
+       * `requestedTarget`.
+       *
+       * 🔴 Ya NO son filas. Hasta CUT-6 este booleano comparaba candidatos
+       * DURABLES contra el objetivo, y una fila persistida sólo para revisión
+       * contaba igual que una empresa completa. Ahora lo decide
+       * `resolveAcceptedForTarget`, y su desglose viaja en `acceptedForTarget`.
        */
       targetReached?: boolean;
+      /**
+       * CUT-7 §§ 5, 7, 11 — el subconjunto ACEPTADO de la corrida, con su
+       * desglose libre/pago y el hueco que quedó abierto.
+       *
+       * 🔴 Es el tipo canónico reutilizado, no una proyección escrita a mano: un
+       * mismo hecho con dos formas es cómo dos capas empiezan a discrepar. Y no
+       * sustituye a `candidateCount`, que sigue siendo el UNIVERSO DURABLE: las
+       * dos familias de cifras conviven porque son distintas (§ 10).
+       */
+      acceptedForTarget?: AcceptedForTargetResult;
       /**
        * A1-APOLLO-QA-CONTROL-SURFACE-1 § 10 — proveedor REAL de esta corrida.
        *

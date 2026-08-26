@@ -285,7 +285,19 @@ export function withFreeSourcePersistenceOutcome(
   input: { persistedCount: number },
 ): PrePaidNoveltyContext {
   const persisted = Math.max(0, Math.trunc(input.persistedCount));
-  if (persisted === context.freeSource.acceptedNovel) return context;
+  // 🔴 AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET § 2 — esta función sólo puede
+  // REDUCIR. Antes copiaba `persistedCount` sobre `acceptedNovel` sin mirar cuál
+  // era mayor, así que un recuento de filas por encima de lo aceptado —una
+  // escritura que dejara más filas de las que la puerta admitió, un doble sea
+  // cual sea su causa— SUBÍA la aceptación y cerraba hueco que nadie había
+  // cerrado. Es el «accepted := persisted» que § 17 NEGATIVO A prohíbe, en el
+  // único sitio donde podía inflar en vez de recortar.
+  //
+  // Persistir NUNCA acredita aceptación: la acredita la puerta previa al pago, y
+  // la persistencia sólo puede quitarle filas. Con `persisted >= acceptedNovel`
+  // el contexto se devuelve intacto, que es lo mismo que hacía antes cuando las
+  // dos cifras coincidían.
+  if (persisted >= context.freeSource.acceptedNovel) return context;
 
   return buildPrePaidNoveltyContext({
     requestedTarget: context.requestedTarget,

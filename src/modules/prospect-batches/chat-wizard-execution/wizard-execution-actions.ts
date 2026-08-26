@@ -146,6 +146,13 @@ import {
   fullTargetResultDemand,
   resolveProviderResultDemand,
 } from '@/modules/prospect-batches/prepaid-novelty/provider-result-demand';
+// AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 6, 7 — la ÚNICA autoridad sobre
+// cuántos candidatos cuentan hacia el objetivo del usuario.
+import {
+  CONTRIBUTOR_NOT_RUN,
+  paidAcceptedContributionFromWriterTruth,
+  resolveAcceptedForTarget,
+} from '@/modules/prospect-batches/accepted-for-target';
 import type { ApolloPriorProviderSeen } from '@/server/agents/prospecting-toolkit/apollo-organizations-provider-seen';
 // AGENT1-MACRO-V2-BUDGET-GATE-PREFLIGHT-1 — huso y cliente service_role del
 // presupuesto, compartidos con la lectura previa al primer clic.
@@ -1095,12 +1102,63 @@ export async function executeProspectWizardGeneration(
         .catch((): PrePaidNoveltyDiscoveryOutcome | null => null)
     : null;
 
+  // ── 5e. CUT-2 §§ 3, 4, 5, 12 — la demanda de resultados de la ruta de pago ──
+  //
+  // Se resuelve AQUÍ, entre la capa gratuita y la estimación de créditos, porque
+  // éste es el único punto donde existen a la vez el resultado del gate y el
+  // ejecutor que lo va a consumir.
+  //
+  // 🔴 Sólo lo PERSISTIDO cierra hueco. Un `providerRequired: false` sin lote y sin
+  // filas escritas describiría un objetivo cerrado que el usuario no tiene en
+  // ninguna parte, así que se degrada a «la capa gratuita no aportó»: el hueco
+  // vuelve a ser entero y la ruta de pago hace lo de siempre. Es la misma regla que
+  // `withFreeSourcePersistenceOutcome` aplica un nivel más abajo, aplicada aquí a
+  // la ÚNICA combinación que ese nivel no puede observar. De paso garantiza § 4:
+  // Apollo nunca recibe una demanda de cero.
+  //
+  // 🔴 CUT-7 § 6 — se resuelve ANTES del retorno temprano de § 15, y no después
+  // como hasta este corte. El motivo es que la decisión «el objetivo ya está
+  // cerrado gratis» y la decisión «cuánto pedirle al proveedor» son la MISMA
+  // pregunta contestada con el mismo hueco; tenerlas en dos sitios permitía que
+  // la primera se resolviera con `providerRequired` y la segunda con la demanda,
+  // que es exactamente cómo dos vistas del mismo hecho empiezan a discrepar.
+  const prePaidContributed =
+    prePaidNovelty !== null &&
+    prePaidNovelty.batchId !== null &&
+    prePaidNovelty.persistedCount > 0;
+  const apolloResultDemand = prePaidContributed
+    ? resolveProviderResultDemand(prePaidNovelty, WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES)
+    : fullTargetResultDemand(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES);
+
+  /**
+   * AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 6, 9 — cuántos candidatos
+   * CUENTAN hacia el objetivo antes de que la ruta de pago exista.
+   *
+   * 🔴 La mitad de pago entra como `CONTRIBUTOR_NOT_RUN` —cero CONOCIDO— y no
+   * como una ausencia de medición: en este punto el proveedor todavía no ha
+   * corrido, y «no corrió» es una respuesta, no un dato que falte.
+   */
+  const acceptedBeforePaidRoute = resolveAcceptedForTarget({
+    demand: apolloResultDemand,
+    freePersistedCandidates: prePaidContributed ? (prePaidNovelty?.persistedCount ?? 0) : 0,
+    paid: CONTRIBUTOR_NOT_RUN,
+  });
+
   // § 15 — hueco cerrado gratis ⇒ NI estimación, NI reserva, NI cliente de
   // proveedor, NI llamada. Se exige además un lote real: sin él no habría a dónde
   // mandar al usuario, y anunciar éxito sin candidatos sería falso.
+  //
+  // 🔴 CUT-7 §§ 1, 9 CASO A — la condición de cierre es `targetReached` de la
+  // autoridad de ACEPTACIÓN, no `!providerRequired`. Las dos coinciden hoy —el
+  // hueco de la demanda y el de la autoridad son el mismo número— y esa
+  // coincidencia es justamente lo que hace seguro el cambio: lo que se gana es
+  // que el veredicto de «objetivo alcanzado» de esta rama y el de la rama mixta
+  // salgan de UNA función y no de dos expresiones que puedan separarse. Un lote
+  // con filas gratuitas que NO cierran el objetivo deja de poder salir por aquí
+  // aunque su `providerRequired` se degradara.
   if (
     prePaidNovelty &&
-    !prePaidNovelty.providerRequired &&
+    acceptedBeforePaidRoute.targetReached &&
     prePaidNovelty.batchId !== null &&
     prePaidNovelty.persistedCount > 0
   ) {
@@ -1138,34 +1196,19 @@ export async function executeProspectWizardGeneration(
       status: 'success_target_reached',
       batchId: prePaidNovelty.batchId,
       batchStatus: 'ready_for_review',
+      // 🔴 CUT-7 § 10 — el UNIVERSO DURABLE, que puede ser mayor que el
+      // subconjunto aceptado: con 12 empresas gratuitas y objetivo 10 aquí hay
+      // 12 filas reales que revisar y 10 aceptadas. Ninguna se oculta para que
+      // los números cuadren.
       candidateCount: prePaidNovelty.persistedCount,
       redirectPath: `/prospect-batches/${prePaidNovelty.batchId}`,
       targetPersistibleCandidates: WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES,
       targetReached: true,
+      // CUT-7 § 7 — el MISMO tipo canónico que consume la rama mixta.
+      acceptedForTarget: acceptedBeforePaidRoute,
       runProvider: runProviderOutcome,
     };
   }
-
-  // ── 5e. CUT-2 §§ 3, 4, 5, 12 — la demanda de resultados de la ruta de pago ──
-  //
-  // Se resuelve AQUÍ, entre la capa gratuita y la estimación de créditos, porque
-  // éste es el único punto donde existen a la vez el resultado del gate y el
-  // ejecutor que lo va a consumir.
-  //
-  // 🔴 Sólo lo PERSISTIDO cierra hueco. Un `providerRequired: false` sin lote y sin
-  // filas escritas describiría un objetivo cerrado que el usuario no tiene en
-  // ninguna parte, así que se degrada a «la capa gratuita no aportó»: el hueco
-  // vuelve a ser entero y la ruta de pago hace lo de siempre. Es la misma regla que
-  // `withFreeSourcePersistenceOutcome` aplica un nivel más abajo, aplicada aquí a
-  // la ÚNICA combinación que ese nivel no puede observar. De paso garantiza § 4:
-  // Apollo nunca recibe una demanda de cero.
-  const prePaidContributed =
-    prePaidNovelty !== null &&
-    prePaidNovelty.batchId !== null &&
-    prePaidNovelty.persistedCount > 0;
-  const apolloResultDemand = prePaidContributed
-    ? resolveProviderResultDemand(prePaidNovelty, WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES)
-    : fullTargetResultDemand(WIZARD_APOLLO_TARGET_PERSISTIBLE_CANDIDATES);
 
   // ── CUT-6 §§ 3, 5, 13, 14 — el aporte GRATUITO que YA es durable ────────────
   //
@@ -1595,6 +1638,41 @@ export async function executeProspectWizardGeneration(
 
   const hasNewCandidates = combinedDurableTotals.totalDurableCandidates > 0;
 
+  // ── AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET §§ 1, 5, 6, 9 ────────────────────
+  //
+  // CUÁNTOS CANDIDATOS CUENTAN DE VERDAD HACIA EL OBJETIVO DE LA PERSONA.
+  //
+  // El defecto que cierra: hasta este corte el veredicto salía de
+  // `combinedDurableTotals`, es decir de FILAS. Y una fila persistida no es una
+  // empresa útil — `candidate-completeness-contract.ts` § D persiste a propósito
+  // el candidato incompleto o ambiguo como `needs_review` para que alguien lo
+  // revise—. Con 10 filas de las que 4 existen sólo para revisión, el wizard
+  // anunciaba «objetivo alcanzado» sobre 6 empresas.
+  //
+  // 🔴 Ninguna política de calidad nueva (§ 3). Las dos mitades entran con la
+  // cifra que su PROPIA autoridad ya resolvía:
+  //
+  //   · gratuita — `apolloResultDemand`, el mismo hueco con el que se le pidió
+  //     al proveedor. Que sea el mismo OBJETO y no dos números recalculados es
+  //     lo que impide que el hueco con el que se pide y el hueco con el que se
+  //     juzga puedan separarse (§ 6).
+  //   · pagada — `completeValidCandidates`, que el writer publica como
+  //     `target_count` desde AGENT1-APOLLO-LINKEDIN-QUALITY-INTEGRATION-1 § E
+  //     con el comentario literal «lo único que puede compararse con el target».
+  //     Existía; este archivo la ignoraba.
+  //
+  // 🔴 Fail-closed: un pipeline que escribió filas y NO midió su completitud
+  // aporta cero, nunca sus filas. Es la misma postura que
+  // `apollo-persisted-candidate-truth.ts` ya sostenía para `null`.
+  const acceptedForTarget = resolveAcceptedForTarget({
+    demand: apolloResultDemand,
+    freePersistedCandidates: freeContribution?.persistedCandidates ?? 0,
+    paid: paidAcceptedContributionFromWriterTruth({
+      completeValidCandidates: pipelineResult.persistenceOutcome?.completeValidCandidates ?? null,
+      persistedCandidates: pipelineResult.candidatesCreated ?? 0,
+    }),
+  });
+
   // 🔴 § 4/§ 12 — el objetivo PERSISTIBLE que se reporta es el del USUARIO, no el
   // hueco recortado con el que corrió el proveedor. Decir «6» sobre una petición
   // de 10 convertiría un detalle de ejecución en una promesa distinta a la que la
@@ -1607,15 +1685,21 @@ export async function executeProspectWizardGeneration(
       ? apolloResultDemand.requestedTarget
       : (pipelineResult.targetPersistibleCandidates ?? 10);
 
-  // 🔴 Con aporte gratuito el objetivo se mide contra el TOTAL durable: el
-  // `targetReached` del pipeline compara su propio conteo contra su propio hueco
-  // recortado, así que con 4 gratis + 6 pagadas diría «alcanzado» por 6 de 6 y con
-  // 4 gratis + 3 pagadas diría «no alcanzado» — verdadero en su marco, pero no es
-  // el marco del usuario. Sin aporte gratuito se conserva su veredicto tal cual.
-  const targetReached =
-    freeContribution !== null
-      ? combinedDurableTotals.totalDurableCandidates >= targetPersistibleCandidates
-      : pipelineResult.targetReached === true;
+  // 🔴 CUT-7 §§ 1, 9 — el objetivo se decide con la autoridad de ACEPTACIÓN, y
+  // con ninguna otra.
+  //
+  // Antes de este corte había dos veredictos y los dos contaban filas: con aporte
+  // gratuito, `totalDurableCandidates >= target`; sin él, el `targetReached` del
+  // pipeline, que es `writerCandidatesCreated >= targetPersistibleCandidates`.
+  // El primero sumaba las filas de revisión de las dos mitades; el segundo, las
+  // de una. Ahora los dos caminos preguntan lo mismo a la misma función, y la
+  // respuesta es `acceptedFree + acceptedPaid >= requestedTarget`.
+  //
+  // 🔴 Esto CAMBIA el veredicto de corridas que antes se declaraban completas: 10
+  // filas de las que 4 son sólo de revisión pasan de `success_target_reached` a
+  // `success_partial`. Ése es el corte, no un efecto colateral: § 11 prohíbe que
+  // una capa anuncie 10 cuando la corrida consiguió 6.
+  const targetReached = acceptedForTarget.targetReached;
 
   // A1-APOLLO-PERSISTENCE-READINESS-4 § 7 — cifras reales de la escritura, tal
   // como las devolvió el writer. `null` cuando el pipeline no las produjo.
@@ -1684,6 +1768,11 @@ export async function executeProspectWizardGeneration(
     redirectPath: `/prospect-batches/${reservedBatchId}`,
     targetPersistibleCandidates,
     targetReached,
+    // 🔴 CUT-7 §§ 5, 7, 11 — el subconjunto ACEPTADO viaja junto al universo
+    // durable y con nombres distintos, para que ningún consumidor tenga que
+    // deducir uno del otro. `candidateCount` sigue siendo las filas; esto es lo
+    // que cuenta hacia el objetivo.
+    acceptedForTarget,
     ...(reconciliationFailed ? { reconciliationWarning: 'BUDGET_RECONCILIATION_FAILED' as const } : {}),
     // A1-APOLLO-BUDGET-RECONCILIATION-1: an overrun must be visible, not just
     // absorbed. The generation still succeeded — the candidates exist and the

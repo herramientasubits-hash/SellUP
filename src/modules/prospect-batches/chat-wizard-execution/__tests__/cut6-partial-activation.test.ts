@@ -319,6 +319,29 @@ function wiring(options: WiringOptions = {}): {
               candidatesCreated: admitted,
               targetPersistibleCandidates: remaining,
               targetReached: admitted >= remaining && remaining > 0,
+              // 🔴 AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET § 18 — FIDELIDAD DEL
+              // ARNÉS. El writer real publica SIEMPRE `completeValidCandidates`
+              // junto a las filas (`candidate-writer.ts` → `persistenceOutcome`),
+              // y desde CUT-7 esa cifra es la que decide si el objetivo se cerró.
+              // Un doble que la omitiera describiría un pipeline que no existe y
+              // haría fallar el corte por falta de instrumentación, no por
+              // comportamiento. Aquí lo admitido ES lo aceptado: este doble no
+              // modela filas de sólo revisión — eso lo modela la suite de CUT-7.
+              persistenceOutcome: {
+                eligibleBeforePersistence: admitted,
+                persistedCandidates: admitted,
+                persistenceFailureCount: 0,
+                persistenceFailed: false,
+                persistenceErrorCode: null,
+                persistenceErrorStage: null,
+                persistenceStatus: 'success',
+                persistenceAttemptedCount: admitted,
+                persistenceSucceededCount: admitted,
+                persistenceFailedCount: 0,
+                persistenceGap: 0,
+                completeValidCandidates: admitted,
+                reviewOnlyCandidates: 0,
+              },
             } as unknown as IncrementalSearchOutput;
           },
     markBatchFailed: async (batchId, reason) => {
@@ -879,25 +902,47 @@ const CUT6_FILES = [
   'src/server/prospect-batches/country-source-discovery/run-prepaid-novelty-discovery.server.ts',
 ] as const;
 
-describe('CUT-6 §§ 4, 12, 20 · CUT-7 no existe todavía', () => {
-  it('CASO 20 — ningún archivo del corte introduce `accepted_for_target`', () => {
+/**
+ * 🔴 AGENT1-LOCAL-CUT7-ACCEPTED-FOR-TARGET § 17 — este bloque SUSTITUYE al
+ * anterior, que se llamaba «CUT-7 no existe todavía» y prohibía literalmente el
+ * identificador `accepted_for_target` en los archivos del corte.
+ *
+ * Era un trinquete que FIJABA EL DIFERIMIENTO, no una promesa de CUT-6: mientras
+ * viviera, escribir CUT-7 rompía CUT-6 por definición, y un trinquete que fija el
+ * valor defectuoso bloquea su corrección. Se retira por el mismo motivo por el
+ * que CUT-6 retiró `wizard-apollo-partial-gap-activation-deferred.test.ts`.
+ *
+ * Lo que CUT-6 SÍ promete sobre este punto —y lo que este bloque pasa a
+ * anclar— es que la decisión de aceptación no se re-implemente dentro de sus
+ * archivos: cuando exista, tiene que venir de UNA autoridad compartida (§ 7). Un
+ * `>= objetivo` escrito a mano en el orquestador es exactamente el defecto que
+ * CUT-7 cierra, y volvería a abrirlo sin que nada lo dijera.
+ */
+describe('CUT-6 §§ 4, 12, 20 · la aceptación no se re-implementa aquí', () => {
+  it('CASO 20 — ningún archivo del corte DEFINE su propia autoridad de aceptación', () => {
     for (const file of CUT6_FILES) {
       const body = stripTsComments(read(file));
       for (const forbidden of [
-        'accepted_for_target',
-        'acceptedForTarget',
-        'target_acceptance',
-        'targetAcceptance',
-        'accepted_count',
-        'acceptedCount',
+        'function resolveAcceptedForTarget',
+        'function paidAcceptedContributionFromWriterTruth',
+        'type AcceptedForTargetResult',
+        'type AcceptedContribution',
       ]) {
-        assert.ok(!body.includes(forbidden), `🔴 ${forbidden} es CUT-7, no CUT-6 (${file})`);
+        assert.ok(!body.includes(forbidden), `🔴 segunda definición de aceptación (${file})`);
       }
     }
   });
 
-  it('🔴 EN NEGATIVO — la guarda detectaría la introducción', () => {
-    const mutated = `${stripTsComments(read(CUT6_FILES[0]))}\nconst accepted_for_target = 1;\n`;
-    assert.ok(mutated.includes('accepted_for_target'), 'la copia mutada sí lo trae');
+  it('CASO 20b — el orquestador la IMPORTA del módulo canónico', () => {
+    const body = stripTsComments(read(CUT6_FILES[0]));
+    assert.ok(
+      body.includes("from '@/modules/prospect-batches/accepted-for-target'"),
+      '🔴 la autoridad viaja por import, no por copia',
+    );
+  });
+
+  it('🔴 EN NEGATIVO — la guarda detectaría una segunda definición', () => {
+    const mutated = `${stripTsComments(read(CUT6_FILES[0]))}\nexport function resolveAcceptedForTarget() {}\n`;
+    assert.ok(mutated.includes('function resolveAcceptedForTarget'), 'la copia mutada sí la trae');
   });
 });
